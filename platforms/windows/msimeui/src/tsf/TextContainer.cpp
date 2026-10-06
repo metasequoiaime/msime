@@ -95,7 +95,7 @@ BOOL CTextContainer::EnsureBuffer(UINT nNewTextSize)
         return FALSE;
 
     if (nNewTextSize <= _nTextSize)
-        goto Exit;
+        return TRUE;
 
     const size_t bytes = static_cast<size_t>(nNewTextSize) * sizeof(WCHAR);
 
@@ -114,6 +114,5 @@ BOOL CTextContainer::EnsureBuffer(UINT nNewTextSize)
             return FALSE;
     }
     _nBufferSize = nNewTextSize;
-Exit:
     return TRUE;
 }
