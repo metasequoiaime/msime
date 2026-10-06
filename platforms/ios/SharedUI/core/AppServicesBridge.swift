@@ -3,6 +3,7 @@ import Foundation
 enum AppServicesBridge {
   private static let maximumVoiceTextCharacters = 10_000
   private static let maximumPolishTextBytes = 32 * 1024
+  private static let maximumVoiceAudioBytes = 2_100_000
 
   static func polishBody(_ model: String, prompt: String, text: String) throws -> Data {
     guard prompt.utf8.count <= maximumPolishTextBytes else {
@@ -19,6 +20,9 @@ enum AppServicesBridge {
   }
 
   static func transcriptionBody(_ wav: Data, model: String, language: String? = nil) throws -> [String: Any] {
+    guard wav.count <= maximumVoiceAudioBytes else {
+      throw ServiceFailure(message: "语音文件过大。")
+    }
     let boundary = "Boundary-\(UUID().uuidString)"
     var body = Data()
     func append(_ text: String) { body.append(contentsOf: text.utf8) }

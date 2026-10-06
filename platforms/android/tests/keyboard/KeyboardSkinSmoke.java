@@ -125,6 +125,12 @@ public final class KeyboardSkinSmoke {
         // The shared flattening's hint colour: the key text at 0x99.
         check("#99FFFFFF".equals(custom.secondary()));
         check(custom.photo().length == 4 && custom.photoShade() == .8 && custom.photoPosition() == 1);
+        check(PhotoDecodePolicy.sampleSize(2048, 2048) == 1);
+        check(PhotoDecodePolicy.sampleSize(2049, 100) == 2);
+        check(PhotoDecodePolicy.sampleSize(Integer.MAX_VALUE, 1) == 1_048_576);
+        check(PhotoDecodePolicy.sampleSize(0, 100) == 0);
+        check(PhotoDecodePolicy.withinBounds(2048, 2048)
+            && !PhotoDecodePolicy.withinBounds(2049, 2048));
 
         // The resolver's answer for each kind of global theme. A custom theme with a design is resolved without that design (themeRequest leaves it out), so the keyboard it returns is the base theme's: here shuishan's, whose grey-green hint colour must not reach the design.
         java.util.Map<String, String> shuishanSlots = new java.util.HashMap<>();

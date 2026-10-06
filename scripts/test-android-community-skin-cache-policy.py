@@ -13,8 +13,11 @@ def main() -> int:
     region = source.split("    public static List<Entry> read(", 1)[1].split(
         "    private static String text", 1
     )[0]
-    if "HttpBodyPolicy.readBounded" not in region:
-        print(f"{SOURCE}: 没有使用 HttpBodyPolicy.readBounded", file=sys.stderr)
+    if not any(
+        f"HttpBodyPolicy.{method}" in region
+        for method in ("readBounded", "readRequired")
+    ):
+        print(f"{SOURCE}: 没有使用共享 HttpBodyPolicy 有界读取", file=sys.stderr)
         return 1
     if "Files.readAllBytes" in region:
         print(f"{SOURCE}: 仍使用无界 Files.readAllBytes", file=sys.stderr)

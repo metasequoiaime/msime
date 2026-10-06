@@ -43,10 +43,18 @@ public final class KeyboardPreview extends View {
 
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final RectF key = new RectF();
+    private final float[] rowWeights = new float[10];
     private String[][] rows = FULL_ROWS;
     private String caption = "";
     @Nullable private KeyboardSkin skin;
     private float cornerRadiusDp = 16f;
+    private boolean colorsValid;
+    private int inkColor;
+    private int letterCapColor;
+    private int functionCapColor;
+    private int returnCapColor;
+    private int returnLabelColor;
+    private int secondaryColor;
 
     /** Inflated from a layout, so it takes the two-argument constructor. */
     public KeyboardPreview(Context context, AttributeSet attributes) {
@@ -71,6 +79,7 @@ public final class KeyboardPreview extends View {
         this.skin = skin;
         this.rows = nineKey ? NINE_KEY_ROWS : FULL_ROWS;
         this.caption = caption == null ? "" : caption;
+        colorsValid = false;
         applyBackground();
         invalidate();
     }
@@ -111,28 +120,54 @@ public final class KeyboardPreview extends View {
     }
 
     private int ink() {
-        return skin == null ? Ui.text(getContext()) : Ui.parseColor(skin.keyForeground(), Ui.text(getContext()));
+        resolveColors();
+        return inkColor;
     }
 
     private int letterCap() {
-        return skin == null ? Ui.page(getContext()) : Ui.parseColor(skin.keyBackground(), Color.WHITE);
+        resolveColors();
+        return letterCapColor;
     }
 
     private int functionCap() {
-        return skin == null ? Ui.accentSoft(getContext())
-            : Ui.parseColor(skin.functionBackground(), letterCap());
+        resolveColors();
+        return functionCapColor;
     }
 
     private int returnCap() {
-        return skin == null ? Ui.accent(getContext()) : Ui.parseColor(skin.returnBackground(), Ui.accent(getContext()));
+        resolveColors();
+        return returnCapColor;
     }
 
     private int returnLabel() {
-        return skin == null ? Ui.onAccent(getContext()) : Ui.parseColor(skin.returnForeground(), Color.WHITE);
+        resolveColors();
+        return returnLabelColor;
     }
 
     private int secondary() {
-        return skin == null ? Ui.subText(getContext()) : Ui.parseColor(skin.secondary(), Ui.subText(getContext()));
+        resolveColors();
+        return secondaryColor;
+    }
+
+    private void resolveColors() {
+        if (colorsValid) return;
+        Context context = getContext();
+        if (skin == null) {
+            inkColor = Ui.text(context);
+            letterCapColor = Ui.page(context);
+            functionCapColor = Ui.accentSoft(context);
+            returnCapColor = Ui.accent(context);
+            returnLabelColor = Ui.onAccent(context);
+            secondaryColor = Ui.subText(context);
+        } else {
+            letterCapColor = Ui.parseColor(skin.keyBackground(), Color.WHITE);
+            inkColor = Ui.parseColor(skin.keyForeground(), Ui.text(context));
+            functionCapColor = Ui.parseColor(skin.functionBackground(), letterCapColor);
+            returnCapColor = Ui.parseColor(skin.returnBackground(), Ui.accent(context));
+            returnLabelColor = Ui.parseColor(skin.returnForeground(), Color.WHITE);
+            secondaryColor = Ui.parseColor(skin.secondary(), Ui.subText(context));
+        }
+        colorsValid = true;
     }
 
     /** 参考键盘的宽度：6 dp 边距 ×2、10 列 32 dp 键宽、9 个 5 dp 键距。 */
@@ -212,7 +247,7 @@ public final class KeyboardPreview extends View {
             String[] row = rows[r];
             float y = top + r * (rowHeight + gap);
             boolean bottom = r == rows.length - 1;
-            float[] widths = new float[row.length];
+            float[] widths = rowWeights;
             float total = 0;
             for (int c = 0; c < row.length; c++) {
                 float weight = bottom ? ("空格".equals(row[c]) ? 4f : "↵".equals(row[c]) || "123".equals(row[c]) ? 1.5f : 1f)

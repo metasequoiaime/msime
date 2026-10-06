@@ -164,8 +164,7 @@ public final class CloudClipboardPage extends DetailPage {
             clear.setOnClickListener(ignored -> confirmClear());
             header.addView(clear);
         }
-        LinearLayout.LayoutParams headerParams = new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        LinearLayout.LayoutParams headerParams = Ui.matchWidth();
         headerParams.topMargin = Ui.dp(context, Ui.GROUP_GAP);
         target.addView(header, headerParams);
 

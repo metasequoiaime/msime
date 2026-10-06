@@ -22,6 +22,8 @@ public final class KeyboardSkinBackgroundDrawable extends Drawable {
     private final Paint pattern = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint photoPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
     private final Paint shade = new Paint();
+    private final RectF photoBounds = new RectF();
+    private final Path wavePath = new Path();
     private final KeyboardSkin skin;
     private final float density;
     private final int patternId;
@@ -32,6 +34,8 @@ public final class KeyboardSkinBackgroundDrawable extends Drawable {
     private final Bitmap photo;
     private final double photoShade;
     private final double photoPosition;
+    private boolean photoBoundsValid;
+    private boolean wavePathValid;
     private int alpha = 255;
 
     /** 这块底图用的那条照片缓存；底图强引用它，缓存本身只弱引用，所以还有底图在画这张照片时它一直留着。 */
@@ -71,10 +75,25 @@ public final class KeyboardSkinBackgroundDrawable extends Drawable {
         if (bytes == null) return null;
         DecodedPhoto cached = photoCache.get();
         if (cached != null && Arrays.equals(bytes, cached.bytes())) return cached;
-        DecodedPhoto decoded = new DecodedPhoto(bytes,
-            BitmapFactory.decodeByteArray(bytes, 0, bytes.length));
-        photoCache = new WeakReference<>(decoded);
-        return decoded;
+        try {
+            BitmapFactory.Options bounds = new BitmapFactory.Options();
+            bounds.inJustDecodeBounds = true;
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.length, bounds);
+            int sample = PhotoDecodePolicy.sampleSize(bounds.outWidth, bounds.outHeight);
+            if (sample == 0) return null;
+            BitmapFactory.Options options = new BitmapFactory.Options();
+            options.inSampleSize = sample;
+            Bitmap bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options);
+            if (bitmap == null || !PhotoDecodePolicy.withinBounds(bitmap.getWidth(), bitmap.getHeight())) {
+                if (bitmap != null) bitmap.recycle();
+                return null;
+            }
+            DecodedPhoto decoded = new DecodedPhoto(bytes, bitmap);
+            photoCache = new WeakReference<>(decoded);
+            return decoded;
+        } catch (RuntimeException invalidPhoto) {
+            return null;
+        }
     }
 
     /** 这块底图是否正是按 `target` 和 `targetDensity` 画的；`KeyboardSkin` 不可变，同一个对象画出来就完全相同。 */
@@ -82,31 +101,21 @@ public final class KeyboardSkinBackgroundDrawable extends Drawable {
         return skin == target && density == targetDensity;
     }
 
-    @Override protected void onBoundsChange(Rect bounds) {
-        super.onBoundsChange(bounds);
-        if (backgroundEnd == null) {
-            background.setShader(null);
-            background.setColor(backgroundStart);
-            return;
-        }
-        float endX = gradientHorizontal ? bounds.right : bounds.left;
-        float endY = gradientHorizontal ? bounds.top : bounds.bottom;
-        background.setShader(new LinearGradient(bounds.left, bounds.top, endX, endY,
-            backgroundStart, backgroundEnd, Shader.TileMode.CLAMP));
-    }
-
     @Override public void draw(Canvas canvas) {
         canvas.drawRect(getBounds(), background);
         if (photo != null && photo.getWidth() > 0 && photo.getHeight() > 0) {
-            float width = getBounds().width();
-            float height = getBounds().height();
-            float scale = Math.max(width / photo.getWidth(), height / photo.getHeight());
-            float drawWidth = photo.getWidth() * scale;
-            float drawHeight = photo.getHeight() * scale;
-            float left = getBounds().left + (width - drawWidth) * (float) photoPosition;
-            float top = getBounds().top + (height - drawHeight) * (float) photoPosition;
-            canvas.drawBitmap(photo, null,
-                new RectF(left, top, left + drawWidth, top + drawHeight), photoPaint);
+            if (!photoBoundsValid) {
+                float width = getBounds().width();
+                float height = getBounds().height();
+                float scale = Math.max(width / photo.getWidth(), height / photo.getHeight());
+                float drawWidth = photo.getWidth() * scale;
+                float drawHeight = photo.getHeight() * scale;
+                float left = getBounds().left + (width - drawWidth) * (float) photoPosition;
+                float top = getBounds().top + (height - drawHeight) * (float) photoPosition;
+                photoBounds.set(left, top, left + drawWidth, top + drawHeight);
+                photoBoundsValid = true;
+            }
+            canvas.drawBitmap(photo, null, photoBounds, photoPaint);
             shade.setAlpha((int) Math.round(255 * photoShade * alpha / 255));
             canvas.drawRect(getBounds(), shade);
         }
@@ -136,15 +145,33 @@ public final class KeyboardSkinBackgroundDrawable extends Drawable {
         }
         pattern.setStrokeWidth(KeyboardGeometry.floatPixels(2, density));
         float width = right - left;
-        Path wave = new Path();
-        for (float offset = top - KeyboardGeometry.floatPixels(100, density);
-             offset < bottom + width; offset += KeyboardGeometry.floatPixels(24, density)) {
-            wave.moveTo(left, offset);
-            wave.cubicTo(left + width * 0.35f, offset - KeyboardGeometry.floatPixels(90, density),
-                left + width * 0.65f, offset + KeyboardGeometry.floatPixels(20, density), right,
-                offset - KeyboardGeometry.floatPixels(70, density));
+        if (!wavePathValid) {
+            wavePath.reset();
+            for (float offset = top - KeyboardGeometry.floatPixels(100, density);
+                 offset < bottom + width; offset += KeyboardGeometry.floatPixels(24, density)) {
+                wavePath.moveTo(left, offset);
+                wavePath.cubicTo(left + width * 0.35f, offset - KeyboardGeometry.floatPixels(90, density),
+                    left + width * 0.65f, offset + KeyboardGeometry.floatPixels(20, density), right,
+                    offset - KeyboardGeometry.floatPixels(70, density));
+            }
+            wavePathValid = true;
         }
-        canvas.drawPath(wave, pattern);
+        canvas.drawPath(wavePath, pattern);
+    }
+
+    @Override protected void onBoundsChange(Rect bounds) {
+        super.onBoundsChange(bounds);
+        photoBoundsValid = false;
+        wavePathValid = false;
+        if (backgroundEnd == null) {
+            background.setShader(null);
+            background.setColor(backgroundStart);
+            return;
+        }
+        float endX = gradientHorizontal ? bounds.right : bounds.left;
+        float endY = gradientHorizontal ? bounds.top : bounds.bottom;
+        background.setShader(new LinearGradient(bounds.left, bounds.top, endX, endY,
+            backgroundStart, backgroundEnd, Shader.TileMode.CLAMP));
     }
 
     @Override public void setAlpha(int value) {

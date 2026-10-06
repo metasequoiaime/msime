@@ -180,7 +180,11 @@ public final class TypingStatisticsModel {
      */
     public Map<String, Long> keys(String day) {
         if (day != null) return dailyKeys.getOrDefault(day, Map.of());
-        Map<String, Long> result = new LinkedHashMap<>();
+        int capacity = 0;
+        for (Map<String, Long> counts : dailyKeys.values()) {
+            capacity = Math.min(Integer.MAX_VALUE - counts.size(), capacity) + counts.size();
+        }
+        Map<String, Long> result = new LinkedHashMap<>(capacity);
         for (Map<String, Long> counts : dailyKeys.values()) {
             for (Map.Entry<String, Long> entry : counts.entrySet()) {
                 result.merge(entry.getKey(), entry.getValue(), TypingStatisticsModel::saturatingAdd);

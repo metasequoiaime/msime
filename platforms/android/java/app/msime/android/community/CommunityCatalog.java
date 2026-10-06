@@ -118,8 +118,7 @@ public final class CommunityCatalog {
                     new Page(List.of(), false, CommunityRequest.message(code, status)), status);
             }
             try (InputStream input = connection.getInputStream()) {
-                byte[] body = HttpBodyPolicy.readBounded(input, maximumResponseBytes(kind));
-                if (body == null) throw new IllegalStateException("community response too large");
+                byte[] body = HttpBodyPolicy.readRequired(input, maximumResponseBytes(kind));
                 return new PageResponse(parse(kind, new JSONObject(
                     new String(body, StandardCharsets.UTF_8))), 200);
             }
@@ -291,7 +290,7 @@ public final class CommunityCatalog {
                 Item updated;
                 try (InputStream input = connection.getInputStream()) {
                     updated = item(CommunityRequest.Kind.SKIN, new JSONObject(new String(
-                        HttpBodyPolicy.readBounded(input, MAX_RESPONSE_BYTES), StandardCharsets.UTF_8)));
+                        HttpBodyPolicy.readRequired(input, MAX_RESPONSE_BYTES), StandardCharsets.UTF_8)));
                 }
                 if (updated == null || !updated.id().equalsIgnoreCase(item.id())
                         || updated.category() != category) {
@@ -475,8 +474,7 @@ public final class CommunityCatalog {
     private static String errorCode(InputStream errors) {
         if (errors == null) return "";
         try (InputStream input = errors) {
-            byte[] body = HttpBodyPolicy.readBounded(input, MAX_RESPONSE_BYTES);
-            if (body == null) throw new IllegalStateException("community response too large");
+            byte[] body = HttpBodyPolicy.readRequired(input, MAX_RESPONSE_BYTES);
             JSONObject root = new JSONObject(
                 new String(body, StandardCharsets.UTF_8));
             JSONObject error = root.optJSONObject("error");
@@ -562,9 +560,7 @@ public final class CommunityCatalog {
             // 回来的是整份设计，本机已经有了，只读掉不用；读取有上限，免得一个异常大的回复占满内存。
             if (status == 200) {
                 try (InputStream input = connection.getInputStream()) {
-                    if (HttpBodyPolicy.readBounded(input, MAX_RESPONSE_BYTES) == null) {
-                        throw new java.io.IOException("community response too large");
-                    }
+                    HttpBodyPolicy.readRequired(input, MAX_RESPONSE_BYTES);
                 } catch (Exception error) {
                     throw new java.io.IOException(error);
                 }

@@ -136,8 +136,7 @@ public final class AboutPage extends DetailPage {
         footer.setText("© 2026 Metasequoia · 输入内容默认只在本机处理");
         footer.setGravity(Gravity.CENTER);
         Ui.style(footer, 13, 400, Ui.subText(context));
-        LinearLayout.LayoutParams footerParams = new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        LinearLayout.LayoutParams footerParams = Ui.matchWidth();
         footerParams.topMargin = Ui.dp(context, 24);
         column.addView(footer, footerParams);
 

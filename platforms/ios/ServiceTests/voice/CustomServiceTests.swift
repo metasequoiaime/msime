@@ -251,6 +251,9 @@ final class CustomServiceTests: XCTestCase {
     configuration.model = "fixture"
     configuration.endpoint = "https://example.invalid/" + String(repeating: "a", count: 2_048)
     XCTAssertThrowsError(try configuration.validatedURL())
+
+    configuration.endpoint = "https://example.invalid/" + String(repeating: "界", count: 700)
+    XCTAssertThrowsError(try configuration.validatedURL())
   }
 
   func testDoubaoConfigurationRejectsOversizedCredentialFields() throws {
@@ -308,6 +311,11 @@ final class CustomServiceTests: XCTestCase {
   func testPolishBodyRejectsAnOversizedUnicodeTextBeforeBuildingTheRequest() {
     XCTAssertThrowsError(try AppServicesBridge.polishBody(
       "fixture", prompt: "润色", text: String(repeating: "😀", count: 8_193)))
+  }
+
+  func testTranscriptionBodyRejectsOversizedAudioBeforeBuildingTheRequest() {
+    XCTAssertThrowsError(try AppServicesBridge.transcriptionBody(
+      Data(repeating: 0x2A, count: 2_100_001), model: "asr-fixture"))
   }
 
   func testTransportUsesConfiguredEndpointAndReportsHTTPFailure() async throws {

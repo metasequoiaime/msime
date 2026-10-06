@@ -136,8 +136,7 @@ public final class LexiconDetailPage extends DetailPage {
             search.setHint("搜索词条");
             search.field().setText(query);
             search.setOnQueryChange(this::onQuery);
-            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            LinearLayout.LayoutParams params = Ui.matchWidth();
             params.topMargin = Ui.dp(requireContext(), Ui.GROUP_GAP);
             target.addView(search, params);
         }

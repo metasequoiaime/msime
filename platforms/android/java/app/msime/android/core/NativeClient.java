@@ -2,9 +2,11 @@ package app.msime.android;
 
 import java.io.BufferedInputStream;
 import java.io.ByteArrayOutputStream;
-import java.io.FileInputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.LinkOption;
+import java.nio.file.Paths;
 import java.security.MessageDigest;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -628,7 +630,8 @@ public final class NativeClient {
         boolean ended = false;
         String footerHash = null;
         int footerRecords = -1;
-        try (BufferedInputStream input = new BufferedInputStream(new FileInputStream(file))) {
+        try (BufferedInputStream input = new BufferedInputStream(
+                Files.newInputStream(Paths.get(file), LinkOption.NOFOLLOW_LINKS))) {
             ByteArrayOutputStream line = new ByteArrayOutputStream();
             int value;
             while ((value = input.read()) != -1) {

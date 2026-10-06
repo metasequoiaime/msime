@@ -5,6 +5,7 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.RectF;
+import android.graphics.Path;
 import android.graphics.Typeface;
 import android.view.View;
 
@@ -14,7 +15,29 @@ import android.view.View;
  * <p>{@link #drawTile} 是新皮肤面板瓷砖用的版本：按设计 MiniKb 画一整副缩小的 26 键键盘（工具栏、四行带提示字的键、指示条）。{@link #drawPreview} 保留给仍需要大号带字缩略图的地方。
  */
 public final class KeyboardSkinPreview extends View {
+    static final class TileDrawState {
+        final KeyboardSkinBackgroundDrawable background;
+        final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        final Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
+        final RectF rect = new RectF();
+        final Path clip = new Path();
+        final Path chevron = new Path();
+
+        TileDrawState(KeyboardSkin skin, float density) {
+            background = new KeyboardSkinBackgroundDrawable(skin, density);
+        }
+    }
+
+    private static final String[][] PREVIEW_ROWS = {
+        {"Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"},
+        {"A", "S", "D", "F", "G", "H", "J", "K", "L"},
+        {"⇧", "Z", "X", "C", "V", "B", "N", "M", "⌫"},
+        {"123", "空格", "↵"}
+    };
     private KeyboardSkin skin;
+    private final RectF previewBounds = new RectF();
+    private final Paint previewText = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final RectF previewKey = new RectF();
 
     public KeyboardSkinPreview(Context context, KeyboardSkin skin) {
         super(context);
@@ -29,30 +52,36 @@ public final class KeyboardSkinPreview extends View {
 
     @Override protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
-        drawPreview(canvas, new RectF(0, 0, getWidth(), getHeight()), skin,
-            getResources().getDisplayMetrics().density);
+        previewBounds.set(0, 0, getWidth(), getHeight());
+        drawPreview(canvas, previewBounds, skin, getResources().getDisplayMetrics().density,
+            previewText, previewKey);
     }
 
     public static void drawPreview(Canvas canvas, RectF bounds, KeyboardSkin skin,
                                    float density) {
+        drawPreview(canvas, bounds, skin, density, null, null);
+    }
+
+    private static void drawPreview(Canvas canvas, RectF bounds, KeyboardSkin skin,
+                                    float density, Paint reusableText, RectF reusableKey) {
         if (bounds.width() <= 0 || bounds.height() <= 0) return;
         KeyboardSkinBackgroundDrawable background =
             new KeyboardSkinBackgroundDrawable(skin, density);
         background.setBounds(Math.round(bounds.left), Math.round(bounds.top),
             Math.round(bounds.right), Math.round(bounds.bottom));
         background.draw(canvas);
-        String[][] rows = {
-            {"Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"},
-            {"A", "S", "D", "F", "G", "H", "J", "K", "L"},
-            {"⇧", "Z", "X", "C", "V", "B", "N", "M", "⌫"},
-            {"123", "空格", "↵"}
-        };
+        String[][] rows = PREVIEW_ROWS;
         float gap = Math.max(1, Math.min(bounds.width(), bounds.height()) * .035f);
         float rowHeight = (bounds.height() - gap * 3) / rows.length;
-        Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
+        Paint text = reusableText == null ? new Paint(Paint.ANTI_ALIAS_FLAG) : reusableText;
         text.setTextAlign(Paint.Align.CENTER);
         text.setTypeface(skin.monospaced() ? Typeface.MONOSPACE : Typeface.DEFAULT);
         text.setTextSize(KeyboardGeometry.bounded(rowHeight * .42f, 7f, 14f * density));
+        int keyFill = Color.parseColor(skin.keyBackground());
+        int actionFill = Color.parseColor(skin.actionBackground());
+        int keyText = Color.parseColor(skin.keyForeground());
+        int actionText = Color.parseColor(skin.actionForeground());
+        RectF key = reusableKey == null ? new RectF() : reusableKey;
         for (int rowIndex = 0; rowIndex < rows.length; rowIndex++) {
             String[] row = rows[rowIndex];
             float rowInset = rowIndex == 1 ? bounds.width() * .04f : 0;
@@ -61,15 +90,15 @@ public final class KeyboardSkinPreview extends View {
             for (int index = 0; index < row.length; index++) {
                 float left = bounds.left + rowInset + index * (keyWidth + gap);
                 float top = bounds.top + rowIndex * (rowHeight + gap);
-                RectF key = new RectF(left, top, left + keyWidth, top + rowHeight);
+                key.set(left, top, left + keyWidth, top + rowHeight);
                 boolean action = rowIndex == rows.length - 1 || index == 0 && rowIndex == 2;
-                int fill = Color.parseColor(action ? skin.actionBackground() : skin.keyBackground());
+                int fill = action ? actionFill : keyFill;
                 KeyboardSkinKeyDrawable drawable = new KeyboardSkinKeyDrawable(
                     skin, fill, action, density);
                 drawable.setBounds(Math.round(key.left), Math.round(key.top),
                     Math.round(key.right), Math.round(key.bottom));
                 drawable.draw(canvas);
-                text.setColor(Color.parseColor(action ? skin.actionForeground() : skin.keyForeground()));
+                text.setColor(action ? actionText : keyText);
                 Paint.FontMetrics metrics = text.getFontMetrics();
                 float baseline = key.centerY() - (metrics.ascent + metrics.descent) / 2;
                 canvas.drawText(row[index], key.centerX(), baseline, text);
@@ -89,21 +118,24 @@ public final class KeyboardSkinPreview extends View {
      */
     public static void drawTile(Canvas canvas, RectF bounds, float radius, KeyboardSkin skin,
                                 float density) {
+        drawTile(canvas, bounds, radius, skin, density, new TileDrawState(skin, density));
+    }
+
+    static void drawTile(Canvas canvas, RectF bounds, float radius, KeyboardSkin skin,
+                         float density, TileDrawState state) {
         if (bounds.width() <= 0 || bounds.height() <= 0) return;
         int saved = canvas.save();
-        clipRound(canvas, bounds, radius);
-        KeyboardSkinBackgroundDrawable background =
-            new KeyboardSkinBackgroundDrawable(skin, density);
-        background.setBounds(Math.round(bounds.left), Math.round(bounds.top),
+        clipRound(canvas, bounds, radius, state.clip);
+        state.background.setBounds(Math.round(bounds.left), Math.round(bounds.top),
             Math.round(bounds.right), Math.round(bounds.bottom));
-        background.draw(canvas);
+        state.background.draw(canvas);
         double opacity = skin.designed() ? skin.keyOpacity() : 1d;
         drawMiniKeyboard(canvas, bounds,
             withOpacity(Color.parseColor(skin.keyBackground()), opacity),
             withOpacity(Color.parseColor(skin.functionBackground()), opacity),
             Color.parseColor(skin.returnBackground()), Color.parseColor(skin.returnForeground()),
             Color.parseColor(skin.keyForeground()), Color.parseColor(skin.secondary()),
-            Color.parseColor(skin.accent()));
+            Color.parseColor(skin.accent()), state);
         canvas.restoreToCount(saved);
     }
 
@@ -131,7 +163,11 @@ public final class KeyboardSkinPreview extends View {
     }
 
     private static void clipRound(Canvas canvas, RectF bounds, float radius) {
-        android.graphics.Path clip = new android.graphics.Path();
+        clipRound(canvas, bounds, radius, new Path());
+    }
+
+    private static void clipRound(Canvas canvas, RectF bounds, float radius, Path clip) {
+        clip.reset();
         clip.addRoundRect(bounds, radius, radius, android.graphics.Path.Direction.CW);
         canvas.clipPath(clip);
     }
@@ -160,12 +196,19 @@ public final class KeyboardSkinPreview extends View {
      */
     private static void drawMiniKeyboard(Canvas canvas, RectF bounds, int key, int function,
                                          int returnFill, int returnInk, int ink, int sub, int accent) {
+        drawMiniKeyboard(canvas, bounds, key, function, returnFill, returnInk, ink, sub, accent,
+            null);
+    }
+
+    private static void drawMiniKeyboard(Canvas canvas, RectF bounds, int key, int function,
+                                         int returnFill, int returnInk, int ink, int sub, int accent,
+                                         TileDrawState state) {
         float sc = bounds.width() / MINI_WIDTH;
         int saved = canvas.save();
         canvas.translate(bounds.left, bounds.top);
         canvas.scale(sc, sc);
-        Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        RectF rect = new RectF();
+        Paint paint = state == null ? new Paint(Paint.ANTI_ALIAS_FLAG) : state.paint;
+        RectF rect = state == null ? new RectF() : state.rect;
         // 工具栏：品牌块、五个图标、收起箭头，七列等分。
         float column = (MINI_WIDTH - 6f) / 7f;
         for (int index = 0; index < 7; index++) {
@@ -179,7 +222,8 @@ public final class KeyboardSkinPreview extends View {
                 paint.setStyle(Paint.Style.STROKE);
                 paint.setStrokeWidth(1.8f);
                 paint.setColor(ink);
-                android.graphics.Path chevron = new android.graphics.Path();
+                Path chevron = state == null ? new Path() : state.chevron;
+                chevron.reset();
                 chevron.moveTo(cx - 6f, 22f);
                 chevron.lineTo(cx, 28f);
                 chevron.lineTo(cx + 6f, 22f);
@@ -193,7 +237,7 @@ public final class KeyboardSkinPreview extends View {
             }
         }
         paint.setStyle(Paint.Style.FILL);
-        Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
+        Paint text = state == null ? new Paint(Paint.ANTI_ALIAS_FLAG) : state.text;
         float top = 50f + 8f;
         for (int row = 0; row < MINI_ROWS.length; row++) {
             String[] line = MINI_ROWS[row];

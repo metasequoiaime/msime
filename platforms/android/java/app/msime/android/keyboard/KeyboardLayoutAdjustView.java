@@ -241,8 +241,7 @@ public final class KeyboardLayoutAdjustView extends FrameLayout {
     }
 
     private static int color(String value) {
-        try { return Color.parseColor(value); }
-        catch (IllegalArgumentException error) { return Color.WHITE; }
+        return ColorPolicy.parse(value, Color.WHITE);
     }
 
     /**

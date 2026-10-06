@@ -182,7 +182,7 @@ final class KeyboardSheets {
             state.setText(value);
             state.setSingleLine(true);
             Ui.style(state, Ui.TEXT_ROW_TITLE, 400, Ui.subText(context));
-            LinearLayout.LayoutParams params = wrap();
+            LinearLayout.LayoutParams params = Ui.wrap();
             params.setMarginStart(Ui.dp(context, Ui.ROW_GAP));
             row.addView(state, params);
         }
@@ -251,7 +251,7 @@ final class KeyboardSheets {
         button.setFocusable(enabled);
         if (enabled) button.setOnClickListener(ignored -> action.run());
         button.setAccessibilityDelegate(buttonDelegate(label + "，" + title));
-        LinearLayout.LayoutParams params = wrap();
+        LinearLayout.LayoutParams params = Ui.wrap();
         params.setMarginStart(Ui.dp(context, Ui.ROW_GAP));
         row.addView(button, params);
         return row;
@@ -301,10 +301,6 @@ final class KeyboardSheets {
             texts.addView(detail);
         }
         return texts;
-    }
-
-    static LinearLayout.LayoutParams wrap() {
-        return new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
     }
 
     static View.AccessibilityDelegate buttonDelegate(CharSequence description) {

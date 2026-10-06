@@ -23,6 +23,11 @@ final class ImeLetterRows {
     /** 按键气泡的覆盖层：onCreateInputView 建好后盖在整个键盘上，初始为空。 */
     FrameLayout keyPreviewLayer;
     private KeyboardKeyPreview keyPreview;
+    private KeyboardSkin keyPreviewSkin;
+    private int keyPreviewBackground;
+    private int keyPreviewForeground;
+    private final int[] keyPreviewKeyLocation = new int[2];
+    private final int[] keyPreviewLayerLocation = new int[2];
     /** 气泡当前跟随的键；多指交替时只有它的松手才收起气泡。 */
     private Button keyPreviewOwner;
     /** 符号层里正在显示 #+= 页（否则是 123 页）。 */
@@ -87,15 +92,18 @@ final class ImeLetterRows {
         KeyboardKeyPreview preview = keyPreview();
         if (preview == null || !key.isAttachedToWindow()) return;
         KeyboardSkin skin = s.imeStyler.themed(s.skin);
-        preview.setColors(Color.parseColor(skin.keyBackground()),
-            Color.parseColor(skin.keyForeground()), Color.argb(20, 0, 0, 0));
-        int[] keyAt = new int[2];
-        int[] layerAt = new int[2];
-        key.getLocationInWindow(keyAt);
-        keyPreviewLayer.getLocationInWindow(layerAt);
+        if (skin != keyPreviewSkin) {
+            keyPreviewSkin = skin;
+            keyPreviewBackground = Color.parseColor(skin.keyBackground());
+            keyPreviewForeground = Color.parseColor(skin.keyForeground());
+        }
+        preview.setColors(keyPreviewBackground, keyPreviewForeground, Color.argb(20, 0, 0, 0));
+        key.getLocationInWindow(keyPreviewKeyLocation);
+        keyPreviewLayer.getLocationInWindow(keyPreviewLayerLocation);
         float weight = key.getLayoutParams() instanceof LinearLayout.LayoutParams params
             ? params.weight : 1f;
-        preview.show(label, keyAt[0] - layerAt[0], keyAt[1] - layerAt[1], key.getWidth(), weight,
+        preview.show(label, keyPreviewKeyLocation[0] - keyPreviewLayerLocation[0],
+            keyPreviewKeyLocation[1] - keyPreviewLayerLocation[1], key.getWidth(), weight,
             keyPreviewLayer.getWidth());
         keyPreviewOwner = key;
     }

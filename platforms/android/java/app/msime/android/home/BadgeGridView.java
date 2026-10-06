@@ -56,6 +56,16 @@ public final class BadgeGridView extends View {
     private final Paint title = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint caption = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final RectF box = new RectF();
+    private final RectF medalBox = new RectF();
+    private final RectF ringBox = new RectF();
+    private final LinearGradient[] medalGradients = new LinearGradient[4];
+    private final long[] medalGradientKeys = {Long.MIN_VALUE, Long.MIN_VALUE, Long.MIN_VALUE, Long.MIN_VALUE};
+    private int cachedAccent;
+    private boolean coloursCached;
+    private final int[] streakColours = new int[2];
+    private final int[] skillColours = new int[2];
+    private final int[] funColours = new int[2];
+    private final int[] defaultColours = new int[2];
     private final Nodes nodes;
     private List<Achievement> badges = List.of();
     @Nullable private Consumer<Achievement> onTap;
@@ -208,16 +218,29 @@ public final class BadgeGridView extends View {
 
     /** 分组的两种颜色：深色端和浅色端。 */
     private int[] colours(String group) {
-        int accent = Ui.accent(getContext());
         return switch (group) {
-            case "streak" -> new int[] {ColorUtils.blendARGB(Color.BLACK, accent, .82f),
-                ColorUtils.blendARGB(Color.WHITE, accent, .8f)};
-            case "skill" -> new int[] {ColorUtils.blendARGB(0xFF3A6EA5, accent, .7f),
-                ColorUtils.blendARGB(Color.WHITE, accent, .55f)};
-            case "fun" -> new int[] {ColorUtils.blendARGB(0xFF7A5BA8, accent, .68f),
-                ColorUtils.blendARGB(Color.WHITE, accent, .55f)};
-            default -> new int[] {accent, ColorUtils.blendARGB(Color.WHITE, accent, .7f)};
+            case "streak" -> streakColours;
+            case "skill" -> skillColours;
+            case "fun" -> funColours;
+            default -> defaultColours;
         };
+    }
+
+    private void refreshColours(Context context) {
+        int accent = Ui.accent(context);
+        if (coloursCached && cachedAccent == accent) return;
+        cachedAccent = accent;
+        coloursCached = true;
+        streakColours[0] = ColorUtils.blendARGB(Color.BLACK, accent, .82f);
+        streakColours[1] = ColorUtils.blendARGB(Color.WHITE, accent, .8f);
+        skillColours[0] = ColorUtils.blendARGB(0xFF3A6EA5, accent, .7f);
+        skillColours[1] = ColorUtils.blendARGB(Color.WHITE, accent, .55f);
+        funColours[0] = ColorUtils.blendARGB(0xFF7A5BA8, accent, .68f);
+        funColours[1] = ColorUtils.blendARGB(Color.WHITE, accent, .55f);
+        defaultColours[0] = accent;
+        defaultColours[1] = ColorUtils.blendARGB(Color.WHITE, accent, .7f);
+        java.util.Arrays.fill(medalGradients, null);
+        java.util.Arrays.fill(medalGradientKeys, Long.MIN_VALUE);
     }
 
     private static float frame(float[][] frames, float t, int column) {
@@ -238,6 +261,7 @@ public final class BadgeGridView extends View {
         int sub = Ui.subText(context);
         int track = dark() ? Ui.withAlpha(Color.WHITE, .1f) : Ui.withAlpha(Color.BLACK, .07f);
         float radius = Ui.dp(context, 20);
+        refreshColours(context);
         for (int index = 0; index < badges.size(); index++) {
             Achievement badge = badges.get(index);
             tile(index, box);
@@ -285,12 +309,18 @@ public final class BadgeGridView extends View {
         float half = Ui.dp(context, MEDAL) / 2;
         canvas.save();
         canvas.rotate(45 + rotate);
-        RectF medal = new RectF(-half, -half, half, half);
+        medalBox.set(-half, -half, half, half);
         // 145° 的渐变：浅色端在左上，深色端到 70% 处。
-        fill.setShader(new LinearGradient(-half, -half, half * .4f, half * .4f, colours[1], colours[0],
-            Shader.TileMode.CLAMP));
+        int slot = colours == streakColours ? 0 : colours == skillColours ? 1 : colours == funColours ? 2 : 3;
+        long key = ((long) colours[0] << 32) ^ (colours[1] & 0xffffffffL) ^ Float.floatToIntBits(half);
+        if (medalGradients[slot] == null || medalGradientKeys[slot] != key) {
+            medalGradients[slot] = new LinearGradient(-half, -half, half * .4f, half * .4f, colours[1], colours[0],
+                Shader.TileMode.CLAMP);
+            medalGradientKeys[slot] = key;
+        }
+        fill.setShader(medalGradients[slot]);
         float corner = Ui.dp(context, 17);
-        canvas.drawRoundRect(medal, corner, corner, fill);
+        canvas.drawRoundRect(medalBox, corner, corner, fill);
         fill.setShader(null);
         canvas.restore();
         canvas.save();
@@ -308,13 +338,13 @@ public final class BadgeGridView extends View {
         float half = Ui.dp(context, RING) / 2 - Ui.dp(context, RING_STROKE) / 2;
         canvas.save();
         canvas.rotate(rotate);
-        RectF oval = new RectF(-half, -half, half, half);
+        ringBox.set(-half, -half, half, half);
         ring.setColor(track);
-        canvas.drawArc(oval, 0, 360, false, ring);
+        canvas.drawArc(ringBox, 0, 360, false, ring);
         float sweep = (float) (360 * badge.progress());
         if (sweep > 0) {
             ring.setColor(colours[0]);
-            canvas.drawArc(oval, -90, sweep, false, ring);
+            canvas.drawArc(ringBox, -90, sweep, false, ring);
         }
         String face = badge.glyph();
         glyph.setColor(sub);

@@ -70,7 +70,7 @@ public final class EmojiCatalogModel {
 
     /** Most-recent first, deduplicated, and bounded without retaining invalid persisted values. */
     public static List<String> normalizeRecents(List<String> stored) {
-        LinkedHashSet<String> unique = new LinkedHashSet<>();
+        LinkedHashSet<String> unique = new LinkedHashSet<>(RECENTS_LIMIT);
         if (stored != null) {
             for (String text : stored) {
                 if (text == null || text.isEmpty()

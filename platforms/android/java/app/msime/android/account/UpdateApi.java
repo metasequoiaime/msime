@@ -6,7 +6,6 @@ import android.content.pm.PackageManager;
 import android.content.pm.Signature;
 import android.content.pm.SigningInfo;
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -16,6 +15,8 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
@@ -373,7 +374,7 @@ public final class UpdateApi {
     }
 
     private static Set<String> fingerprints(Signature[] signatures) {
-        Set<String> result = new HashSet<>();
+        Set<String> result = new HashSet<>(signatures == null ? 0 : signatures.length);
         if (signatures == null) return result;
         for (Signature signature : signatures) result.add(hex(sha256().digest(signature.toByteArray())));
         return result;
@@ -393,7 +394,7 @@ public final class UpdateApi {
     /** 文件的 SHA-256 十六进制。 */
     public static String sha256Hex(File file) throws IOException {
         MessageDigest digest = sha256();
-        try (InputStream in = new FileInputStream(file)) {
+        try (InputStream in = Files.newInputStream(file.toPath(), LinkOption.NOFOLLOW_LINKS)) {
             byte[] buffer = new byte[64 * 1024];
             for (int read; (read = in.read(buffer)) != -1; ) digest.update(buffer, 0, read);
         }

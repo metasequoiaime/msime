@@ -216,7 +216,7 @@ public final class CommonPhrasesStore {
 
     /** 标记文件的格式：UTF-8，一行一条正文；空行忽略。旧版本写下的空标记解出来是空集合。 */
     static Set<String> decodeStarters(byte[] bytes) {
-        Set<String> texts = new LinkedHashSet<>();
+        Set<String> texts = new LinkedHashSet<>(STARTER_PHRASES.size());
         for (String line : new String(bytes, StandardCharsets.UTF_8).split("\n")) {
             if (!line.isEmpty()) texts.add(line);
         }

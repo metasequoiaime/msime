@@ -35,7 +35,7 @@ public final class HttpAsrPolicy {
 
     /** A transcription response carries text; reject non-string JSON values before display. */
     static String strictText(Object value) {
-        return value instanceof String ? (String) value : "";
+        return AiProviderResponse.strictText(value);
     }
 
     /**

@@ -222,9 +222,9 @@ struct CustomServiceConfiguration: Codable, Sendable, Equatable {
   }
 
   static func validatedEndpoint(_ value: String, allowWebSocket: Bool = false,
-                                maximumCharacters: Int? = nil) -> URL? {
+                                maximumBytes: Int? = nil) -> URL? {
     let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard maximumCharacters.map({ trimmed.count <= $0 }) ?? true,
+    guard maximumBytes.map({ trimmed.utf8.count <= $0 }) ?? true,
           !trimmed.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }),
           let url = URL(string: trimmed),
           (url.scheme?.lowercased() == "https" || (allowWebSocket && url.scheme?.lowercased() == "wss")),
@@ -246,7 +246,7 @@ struct CustomServiceConfiguration: Codable, Sendable, Equatable {
   }
 
   func validatedURL(requiresModel: Bool = true, allowWebSocket: Bool = false) throws -> URL {
-    guard let url = Self.validatedEndpoint(endpoint, allowWebSocket: allowWebSocket, maximumCharacters: 2_048),
+    guard let url = Self.validatedEndpoint(endpoint, allowWebSocket: allowWebSocket, maximumBytes: 2_048),
       (!requiresModel || (!model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && model.utf8.count <= 256))
     else { throw ServiceFailure(message: "请填写完整的 HTTPS 接口地址和模型名称。") }
     return url

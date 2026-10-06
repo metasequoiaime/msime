@@ -59,8 +59,7 @@ final class AppThemeSheet {
         BottomSheetDialog dialog = new BottomSheetDialog(context);
         LinearLayout root = new LinearLayout(context);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.addView(new BottomSheetDragHandleView(context), new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        root.addView(new BottomSheetDragHandleView(context), Ui.matchWidth());
 
         LinearLayout header = new LinearLayout(context);
         header.setOrientation(LinearLayout.VERTICAL);
@@ -108,7 +107,7 @@ final class AppThemeSheet {
 
         View band = new View(context);
         band.setBackgroundColor(Ui.page(context));
-        root.addView(band, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(context, 8)));
+        root.addView(band, Ui.matchWidthHeight(context, 8));
         root.addView(option(context, "取消", false, Ui.accent(context), dialog::cancel));
         dialog.setContentView(root);
         dialog.show();

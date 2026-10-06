@@ -7,6 +7,7 @@ import android.graphics.Paint;
 import android.view.Gravity;
 import android.widget.Button;
 import android.widget.LinearLayout;
+import app.msime.android.keyboard.KeyboardGeometry;
 
 /**
  * 单手模式的侧栏：键区缩到 85% 宽，剩下 15% 放两个按钮——‹ 换到另一侧（40 dp 的 kbKey 圆）和 ⤢ 退出单手模式。
@@ -30,10 +31,10 @@ public final class OneHandGutterView extends LinearLayout {
         swap.setContentDescription("单手键盘换到另一侧");
         exit = new GutterButton(context, KeyboardIconPaths.Icon.EXIT_ONE_HAND, false);
         exit.setContentDescription("退出单手模式");
-        int size = Math.round(BUTTON_DP * getResources().getDisplayMetrics().density);
+        int size = KeyboardGeometry.pixels(context, BUTTON_DP);
         LinearLayout.LayoutParams swapParams = new LinearLayout.LayoutParams(size, size);
         LinearLayout.LayoutParams exitParams = new LinearLayout.LayoutParams(size, size);
-        exitParams.topMargin = Math.round(24 * getResources().getDisplayMetrics().density);
+        exitParams.topMargin = KeyboardGeometry.pixels(context, 24);
         addView(swap, swapParams);
         addView(exit, exitParams);
     }
@@ -103,14 +104,13 @@ public final class OneHandGutterView extends LinearLayout {
         }
 
         @Override protected void onDraw(Canvas canvas) {
-            float density = getResources().getDisplayMetrics().density;
             float cx = getWidth() / 2f;
             float cy = getHeight() / 2f;
             if (round && Color.alpha(fillColor) > 0) {
                 fill.setColor(fillColor);
                 canvas.drawCircle(cx, cy, Math.min(getWidth(), getHeight()) / 2f, fill);
             }
-            float size = ICON_DP * density;
+            float size = KeyboardGeometry.floatPixels(getContext(), ICON_DP);
             int saved = canvas.save();
             if (mirrored) canvas.scale(-1f, 1f, cx, cy);
             KeyboardIconPaths.draw(canvas, stroke, icon, cx - size / 2f, cy - size / 2f, size,

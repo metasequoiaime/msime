@@ -58,7 +58,7 @@ public final class CustomSkinLibrary {
         if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS))
             throw new IOException("Invalid custom skin library");
         String document;
-        try (InputStream input = Files.newInputStream(file)) {
+        try (InputStream input = Files.newInputStream(file, LinkOption.NOFOLLOW_LINKS)) {
             byte[] bytes = HttpBodyPolicy.readBounded(input, (int) MAX_LIBRARY_BYTES);
             if (bytes == null) return List.of();
             document = new String(bytes, StandardCharsets.UTF_8);

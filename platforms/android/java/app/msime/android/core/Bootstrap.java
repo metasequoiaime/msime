@@ -219,8 +219,7 @@ public final class Bootstrap {
         // 各版本的 APK 都把本版本的资源锁放在这个文件名下（build-apk.sh 选的；full 的就是 resources/desktop-dictionary.lock.json 本身），下面只解出锁里列的文件。
         try (InputStream input = context.getAssets().open("desktop-dictionary.lock.json")) {
             // Small immutable APK manifest; large dictionary files are streamed below.
-            byte[] bytes = HttpBodyPolicy.readBounded(input, 16384);
-            if (bytes == null) throw new IllegalArgumentException("Manifest too large");
+            byte[] bytes = HttpBodyPolicy.readRequired(input, 16384);
             manifest = new JSONObject(new String(bytes, StandardCharsets.UTF_8));
         }
         JSONArray artifacts = manifest.getJSONArray("artifacts");
@@ -284,7 +283,7 @@ public final class Bootstrap {
 
     static String readMarker(java.nio.file.Path file) {
         if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) return null;
-        try (InputStream input = Files.newInputStream(file)) {
+        try (InputStream input = Files.newInputStream(file, LinkOption.NOFOLLOW_LINKS)) {
             byte[] bytes = HttpBodyPolicy.readBounded(input, 64);
             return bytes == null ? null : new String(bytes, StandardCharsets.UTF_8);
         } catch (Exception ignored) {

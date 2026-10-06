@@ -41,16 +41,14 @@ public final class CommunitySkinSheet {
             Consumer<CommunityRequest.Category> onChangeCategory) {
         KeyboardSkin skin = CommunityAdapter.preview(item);
         SettingsSheet sheet = new SettingsSheet(context, item.name(), subtitle(item));
-        float density = context.getResources().getDisplayMetrics().density;
 
         if (skin != null) {
             KeyboardPreview preview = new KeyboardPreview(context);
             // 用当前的布局画：用九键的人要看的是九键，不是一张跟自己键盘对不上的图。角标说的是画的
             // 哪种布局，不是皮肤名——名字就在上面那行标题里。
             preview.setKeyboard(skin, nineKey, nineKey ? "九键" : "26 键");
-            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, Math.round(196 * density));
-            params.topMargin = Math.round(4 * density);
+            LinearLayout.LayoutParams params = Ui.matchWidthHeight(context, 196);
+            params.topMargin = Ui.dp(context, 4);
             // add() fixes every row at WRAP_CONTENT, and this view measures to nothing under it.
             sheet.content().addView(preview, params);
         }
@@ -59,9 +57,8 @@ public final class CommunitySkinSheet {
         description.setText(item.description().isEmpty() ? "作者没有写说明。" : item.description());
         description.setTextSize(14);
         description.setTextColor(Ui.subText(context));
-        LinearLayout.LayoutParams text = new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        text.topMargin = Math.round(14 * density);
+        LinearLayout.LayoutParams text = Ui.matchWidth();
+        text.topMargin = Ui.dp(context, 14);
         sheet.content().addView(description, text);
 
         if (onChangeCategory != null && item.category() != null) {
@@ -83,8 +80,7 @@ public final class CommunitySkinSheet {
                     onChangeCategory.accept(category);
                 });
             }
-            sheet.content().addView(categories, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            sheet.content().addView(categories, Ui.matchWidth());
         }
 
         MaterialButton save = new MaterialButton(context);
@@ -96,9 +92,8 @@ public final class CommunitySkinSheet {
                 onAction.run();
             });
         }
-        LinearLayout.LayoutParams action = new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        action.topMargin = Math.round(18 * density);
+        LinearLayout.LayoutParams action = Ui.matchWidth();
+        action.topMargin = Ui.dp(context, 18);
         sheet.content().addView(save, action);
 
         // Everything here is someone else's work, published without review first; this is how a reader flags it to the moderators.
@@ -112,7 +107,7 @@ public final class CommunitySkinSheet {
         LinearLayout.LayoutParams reportParams = new LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         reportParams.gravity = android.view.Gravity.END;
-        reportParams.topMargin = Math.round(4 * density);
+        reportParams.topMargin = Ui.dp(context, 4);
         sheet.content().addView(report, reportParams);
 
         sheet.addNote(note(item));

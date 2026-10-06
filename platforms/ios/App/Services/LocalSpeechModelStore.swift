@@ -44,7 +44,7 @@ enum LocalSpeechModelStore {
 
   static func isValidMirror(_ value: String) -> Bool {
     if value.isEmpty { return true }
-    guard let url = CustomServiceConfiguration.validatedEndpoint(value, maximumCharacters: 2048),
+    guard let url = CustomServiceConfiguration.validatedEndpoint(value, maximumBytes: 2048),
           url.query == nil else { return false }
     return true
   }

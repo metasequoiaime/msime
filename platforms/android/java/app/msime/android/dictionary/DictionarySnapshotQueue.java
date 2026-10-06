@@ -328,7 +328,7 @@ public final class DictionarySnapshotQueue {
         try { digest = MessageDigest.getInstance("SHA-256"); }
         catch (NoSuchAlgorithmException error) { throw new Failure(Reason.UNAVAILABLE, error); }
         long total = 0;
-        try (InputStream input = Files.newInputStream(source);
+        try (InputStream input = Files.newInputStream(source, LinkOption.NOFOLLOW_LINKS);
                 OutputStream output = Files.newOutputStream(destination, StandardOpenOption.WRITE)) {
             byte[] buffer = new byte[65_536];
             int count;
@@ -412,9 +412,8 @@ public final class DictionarySnapshotQueue {
             if (!Files.isRegularFile(stateFile, LinkOption.NOFOLLOW_LINKS))
                 throw new Failure(Reason.INVALID);
             byte[] bytes;
-            try (InputStream input = Files.newInputStream(stateFile)) {
-                bytes = HttpBodyPolicy.readBounded(input, MAXIMUM_STATE_BYTES);
-                if (bytes == null) throw new IOException("snapshot state too large");
+            try (InputStream input = Files.newInputStream(stateFile, LinkOption.NOFOLLOW_LINKS)) {
+                bytes = HttpBodyPolicy.readRequired(input, MAXIMUM_STATE_BYTES);
             }
             if (bytes.length == 0) throw new Failure(Reason.INVALID);
             DataInputStream input = new DataInputStream(new ByteArrayInputStream(bytes));

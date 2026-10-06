@@ -140,8 +140,7 @@ public final class SkinsPage extends DetailPage {
                 if (slot == 1) params.setMarginStart(Ui.dp(context, 12));
                 row.addView(cell, params);
             }
-            LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            LinearLayout.LayoutParams rowParams = Ui.matchWidth();
             if (start > 0) rowParams.topMargin = Ui.dp(context, 14);
             holder.addView(row, rowParams);
         }
@@ -164,8 +163,7 @@ public final class SkinsPage extends DetailPage {
         swatch.setSkin(card.skin());
         swatch.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         tile.addView(swatch, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(context, 76)));
-        cell.addView(tile, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT));
+        cell.addView(tile, Ui.matchWidth());
 
         TextView name = new TextView(context);
         name.setText(card.selected() ? "✓ " + card.title() : card.title());
@@ -174,8 +172,7 @@ public final class SkinsPage extends DetailPage {
         name.setEllipsize(android.text.TextUtils.TruncateAt.END);
         Ui.style(name, Ui.TEXT_ROW_SUBTITLE + 1, card.selected() ? 600 : 400,
             card.selected() ? Ui.accent(context) : Ui.text(context));
-        LinearLayout.LayoutParams nameParams = new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        LinearLayout.LayoutParams nameParams = Ui.matchWidth();
         nameParams.topMargin = Ui.dp(context, 8);
         cell.addView(name, nameParams);
 
@@ -217,8 +214,7 @@ public final class SkinsPage extends DetailPage {
         name.setText("AI 设计皮肤");
         name.setGravity(Gravity.CENTER);
         Ui.style(name, Ui.TEXT_ROW_SUBTITLE + 1, 500, Ui.accent(context));
-        LinearLayout.LayoutParams nameParams = new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        LinearLayout.LayoutParams nameParams = Ui.matchWidth();
         nameParams.topMargin = Ui.dp(context, 8);
         cell.addView(name, nameParams);
         cell.setClickable(true);

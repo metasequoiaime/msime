@@ -38,8 +38,7 @@ public final class OptionSheet {
         dialog = new BottomSheetDialog(context);
         LinearLayout root = new LinearLayout(context);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.addView(new BottomSheetDragHandleView(context), new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        root.addView(new BottomSheetDragHandleView(context), Ui.matchWidth());
 
         LinearLayout header = new LinearLayout(context);
         header.setOrientation(LinearLayout.VERTICAL);
@@ -75,7 +74,7 @@ public final class OptionSheet {
         // 「取消」与选项之间一条页面底色的带子，代替设计里分开的两块卡片。
         View band = new View(context);
         band.setBackgroundColor(Ui.page(context));
-        root.addView(band, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(context, 8)));
+        root.addView(band, Ui.matchWidthHeight(context, 8));
         root.addView(optionView("取消", false, false, false, Ui.accent(context), true, dialog::cancel));
         dialog.setContentView(root);
     }

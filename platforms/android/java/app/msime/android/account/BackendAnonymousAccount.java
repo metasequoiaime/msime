@@ -234,8 +234,7 @@ final class BackendAnonymousAccount {
             if (status != 200) throw new IllegalStateException(
                 "anonymous account unavailable: HTTP " + status);
             try (InputStream input = connection.getInputStream()) {
-                byte[] response = HttpBodyPolicy.readBounded(input, MAX_RESPONSE_BYTES);
-                if (response == null) throw new IllegalStateException("anonymous account unavailable");
+                byte[] response = HttpBodyPolicy.readRequired(input, MAX_RESPONSE_BYTES);
                 return new JSONObject(new String(response, StandardCharsets.UTF_8));
             }
         } finally { if (connection != null) connection.disconnect(); }

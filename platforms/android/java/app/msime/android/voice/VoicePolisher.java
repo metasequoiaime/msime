@@ -6,7 +6,6 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
-import java.util.LinkedHashMap;
 import java.util.Map;
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -99,25 +98,17 @@ public final class VoicePolisher {
 
     /** Chat completions carry text; do not let org.json turn malformed values into visible prose. */
     static String strictContent(Object value) {
-        return value instanceof String ? (String) value : "";
+        return AiProviderResponse.strictContent(value);
     }
 
     /** Authentication headers for the provider endpoint, matching the shared AI transport. */
     public static Map<String, String> authenticationHeaders(String endpoint, String token) {
-        Map<String, String> headers = new LinkedHashMap<>();
-        if (token == null || token.isEmpty()) return headers;
         String host;
         try {
             host = new URL(endpoint).getHost();
         } catch (IOException | SecurityException error) {
             host = "";
         }
-        if ("api.anthropic.com".equalsIgnoreCase(host)) {
-            headers.put("x-api-key", token);
-            headers.put("anthropic-version", "2023-06-01");
-        } else {
-            headers.put("Authorization", "Bearer " + token);
-        }
-        return headers;
+        return AiProviderHeaders.forHost(host, token);
     }
 }

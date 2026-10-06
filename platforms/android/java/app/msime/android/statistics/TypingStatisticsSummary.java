@@ -239,7 +239,7 @@ public final class TypingStatisticsSummary {
 
     /** 输入构成：汉字、英文、符号、表情，其余文字和历史未分类合成「其他」；只列有字的段。 */
     public static List<Share> composition(Map<String, Long> characters) {
-        Map<String, Long> groups = new LinkedHashMap<>();
+        Map<String, Long> groups = new LinkedHashMap<>(5);
         groups.put("汉字", value(characters, "han"));
         groups.put("英文", value(characters, "latin"));
         groups.put("符号", value(characters, "number") + value(characters, "punctuation")
@@ -261,7 +261,7 @@ public final class TypingStatisticsSummary {
                 default -> full += Math.max(0, entry.getValue());
             }
         }
-        Map<String, Long> groups = new LinkedHashMap<>();
+        Map<String, Long> groups = new LinkedHashMap<>(4);
         groups.put("26 键", full);
         groups.put("9 键", nine);
         groups.put("语音", voice);
