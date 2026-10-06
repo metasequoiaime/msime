@@ -58,6 +58,8 @@ public final class UpdateApi {
     private static final Pattern EDITION_ID = Pattern.compile("[a-z][a-z0-9]{0,31}");
     private static final Pattern TAG = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._+-]{0,127}");
     private static final Pattern SHA256 = Pattern.compile("[0-9a-f]{64}");
+    /** 同一时刻只让一次下载动 `updates/` 目录：关于页的手动更新和 UpdateJobService 的每日任务都在主进程里，同时下载时会互删对方的 `.part`、写同一个文件。 */
+    private static final Object DOWNLOAD_LOCK = new Object();
 
     /** 更新通道：稳定版只看正式发布，预览版正式与预发布都看。 */
     public enum Channel {
@@ -277,11 +279,17 @@ public final class UpdateApi {
     /**
      * 把更新下载到 `cacheDir/updates/` 并核对 SHA-256，返回核对过的文件。目录里别的旧安装包一并删掉。
      *
-     * <p>先下到 `.part` 临时文件，核对通过才改名，核对失败的文件不会留下。
+     * <p>先下到 `.part` 临时文件，核对通过才改名，核对失败的文件不会留下。两次下载同时发生时排队（{@link #DOWNLOAD_LOCK}）；后一次拿到锁时如果前一次已经把同一个版本下好并核对过，直接用它，不再下载一遍。
      */
     public File download(Update update, File cacheDir, Progress progress) throws Failure {
         String expected = parseChecksum(new String(fetch(update.checksumUrl(), MAX_CHECKSUM_BYTES), StandardCharsets.UTF_8));
         if (expected == null) throw new Failure("这个版本没有校验信息，请到官网下载");
+        synchronized (DOWNLOAD_LOCK) {
+            return downloadLocked(update, cacheDir, progress, expected);
+        }
+    }
+
+    private File downloadLocked(Update update, File cacheDir, Progress progress, String expected) throws Failure {
         File directory = new File(cacheDir, CACHE_DIRECTORY);
         if (!directory.isDirectory() && !directory.mkdirs()) throw new Failure("没有空间存放安装包");
         File[] stale = directory.listFiles();
@@ -291,6 +299,7 @@ public final class UpdateApi {
             }
         }
         File target = new File(directory, update.fileName());
+        if (verified(target, expected)) return target;
         File partial = new File(directory, update.fileName() + ".part");
         MessageDigest digest = sha256();
         Exchange response = open(update.apkUrl());
@@ -369,6 +378,17 @@ public final class UpdateApi {
         if (signatures == null) return result;
         for (Signature signature : signatures) result.add(hex(sha256().digest(signature.toByteArray())));
         return result;
+    }
+
+    /** 已经下好的安装包是否就是这一版：读不了按没有处理，照常重新下载。 */
+    private static boolean verified(File file, String expected) {
+        if (!file.isFile()) return false;
+        try {
+            return MessageDigest.isEqual(sha256Hex(file).getBytes(StandardCharsets.US_ASCII),
+                expected.getBytes(StandardCharsets.US_ASCII));
+        } catch (IOException unreadable) {
+            return false;
+        }
     }
 
     /** 文件的 SHA-256 十六进制。 */

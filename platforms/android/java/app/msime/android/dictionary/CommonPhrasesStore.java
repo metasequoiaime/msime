@@ -4,9 +4,21 @@ import android.content.Context;
 import app.msime.android.policy.HostOptionsPolicy;
 import java.io.File;
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.LinkOption;
+import java.nio.file.NoSuchFileException;
+import java.nio.file.OpenOption;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.function.UnaryOperator;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -51,19 +63,29 @@ public final class CommonPhrasesStore {
         static Result failed(String failure) { return new Result(null, failure); }
     }
 
-    /** 第一次读到空的常用语时预置的示例，取自设计稿；只放一次，用户删光以后不会再冒出来。 */
+    /** 第一次读到空的常用语时预置的示例，取自设计稿；只放一次，用户删光以后不会再冒出来。每条都不含换行，标记文件按行记录它们。 */
     static final List<String> STARTER_PHRASES = List.of(
         "好的，收到", "我在开会，稍后回复你", "马上到", "辛苦了，谢谢！",
-        "我的邮箱是 hi@msime.app", "方便的时候回个电话", "周末一起吃饭吗？", "已处理，请查收");
-    /** 放过示例的标记，与 `CommonPhrases.json` 同目录；有它就不再预置。 */
+        "稍等，我马上回来", "方便的时候回个电话", "周末一起吃饭吗？", "已处理，请查收");
+    /**
+     * 放过示例的标记，与 `CommonPhrases.json` 同目录；有它就不再预置。内容是还没被用户认领的示例正文，一行一条。
+     *
+     * <p>示例只属于这台设备：云同步读本机列表时跳过这些正文（{@link #untouchedStarters}），所以它们既不会被上传，也不会在合并时被带到用户已经删掉它们的别的设备上。用户自己添加或改成某条示例的正文、或者云端本来就有这条正文时，它就被认领（{@link #adoptStarters}），从此和其他常用语一样同步。
+     */
     static final String STARTER_MARKER = "CommonPhrases.seeded";
+    /** 标记文件的读取上限；八条示例远用不到，超过就当作文件已坏、按没有记录处理。 */
+    private static final int MAX_STARTER_RECORD_BYTES = 64 * 1024;
+    /** 标记文件的读改写在本进程内排队；跨进程（设置主进程与 `:ime`）靠文件锁。文件锁属于整个 JVM，同一进程的另一个线程已持有时会抛 OverlappingFileLockException 而不是等待，所以两把都要。 */
+    private static final Object STARTER_LOCK = new Object();
 
     private CommonPhrasesStore() {}
 
     /**
-     * 读整份常用语。第一次读到的是空列表（没有常用语也没有短语包）时，先按 {@link #STARTER_PHRASES} 逐条添加，再写下标记文件；之后只读不补。
+     * 读整份常用语。第一次读到的是空列表（没有常用语也没有短语包）且常用语同步没有打开时，先按 {@link #STARTER_PHRASES} 逐条添加，再把放进去的正文写进标记文件；之后只读不补。
      *
-     * <p>设置进程和 `:ime` 进程可能同时第一次读：重复的文字会被 client-core 拒收，所以不会预置出两份。
+     * <p>同步已经打开时不放示例，只写一个空标记：这台设备的常用语来自云端，示例混进去只会让人以为是别处同步来的。放示例不标记「常用语有本机改动」，因为它们本来就不参与同步。
+     *
+     * <p>设置进程和 `:ime` 进程可能同时第一次读：重复的文字会被 client-core 拒收，所以不会预置出两份；标记文件按并集写入，两边各自放进去的都记得住。
      */
     public static Result load(Context context) {
         Result result = perform(context, action("load"), false);
@@ -72,16 +94,23 @@ public final class CommonPhrasesStore {
         if (directory.isEmpty()) return result;
         File marker = new File(directory, STARTER_MARKER);
         if (marker.exists()) return result;
-        if (result.document().phrases().isEmpty() && result.document().packs().isEmpty()) {
+        List<String> seeded = new ArrayList<>();
+        if (result.document().phrases().isEmpty() && result.document().packs().isEmpty()
+                && !SyncSignals.state(context).enabled()) {
             for (String text : STARTER_PHRASES) {
-                Result added = add(context, text);
-                if (added.ok()) result = added;
+                Result added = seed(context, text);
+                if (added.ok()) {
+                    result = added;
+                    seeded.add(text);
+                }
             }
         }
         try {
-            if (!marker.createNewFile() && !marker.exists()) {
-                android.util.Log.w("MSIMEPhrases", "Starter marker was not written");
-            }
+            editStarters(marker, true, current -> {
+                Set<String> next = new LinkedHashSet<>(current);
+                next.addAll(seeded);
+                return next;
+            });
         } catch (IOException error) {
             // 写不下标记时下次再试；最坏是对仍然为空的列表再补一次示例，不会覆盖用户自己的常用语。
             android.util.Log.w("MSIMEPhrases", "Starter marker was not written", error);
@@ -92,10 +121,112 @@ public final class CommonPhrasesStore {
     public static Result add(Context context, String text) {
         if (!validText(text)) return Result.failed(failureMessage("common_phrases_invalid"));
         try {
-            return perform(context, action("add").put("text", text), true);
+            return adopted(context, text, perform(context, action("add").put("text", text), true));
         } catch (JSONException error) {
             return Result.failed(failureMessage(""));
         }
+    }
+
+    /** 放一条示例：和 {@link #add} 一样交给 client-core，但不标记同步改动、也不认领。 */
+    private static Result seed(Context context, String text) {
+        try {
+            return perform(context, action("add").put("text", text), false);
+        } catch (JSONException error) {
+            return Result.failed(failureMessage(""));
+        }
+    }
+
+    /** 用户自己写下的正文（新增或改成的）即使和某条示例相同，也是用户的常用语了，从示例记录里认领出来。认领失败只记日志：这条照样存下了，最坏是它暂时不参与同步。 */
+    private static Result adopted(Context context, String text, Result result) {
+        if (!result.ok()) return result;
+        try {
+            adoptStarters(context, List.of(text));
+        } catch (IOException error) {
+            android.util.Log.w("MSIMEPhrases", "Starter record was not updated", error);
+        }
+        return result;
+    }
+
+    /**
+     * 本机放过、还没被认领的示例正文。云同步读本机列表时跳过这些正文，所以示例不会被上传，也不会在合并时出现在别的设备上。没有放过示例或首次设置之前是空集合。
+     *
+     * @throws IOException 标记文件读不了；调用方应当放弃这一轮常用语同步，而不是把示例当成用户的常用语上传
+     */
+    public static Set<String> untouchedStarters(Context context) throws IOException {
+        String directory = preferencesDirectory(context);
+        if (directory.isEmpty()) return Set.of();
+        return editStarters(new File(directory, STARTER_MARKER), false, UnaryOperator.identity());
+    }
+
+    /**
+     * 认领 `texts` 里的示例正文：它们从此和用户自己的常用语一样参与同步。云同步拿到云端或合并结果后要先调用这一步，云端已有的正文即使和本机的示例相同，也不能在之后的上传里被当成本机删除。
+     *
+     * @throws IOException 标记文件写不了；云同步此时应当放弃这一轮，免得下次上传把云端的同一条正文删掉
+     */
+    public static void adoptStarters(Context context, Collection<String> texts) throws IOException {
+        String directory = preferencesDirectory(context);
+        if (directory.isEmpty() || texts.isEmpty()) return;
+        editStarters(new File(directory, STARTER_MARKER), false, current -> {
+            Set<String> next = new LinkedHashSet<>(current);
+            next.removeAll(texts);
+            return next;
+        });
+    }
+
+    /**
+     * 在锁里读出标记文件记录的示例正文，交给 `edit` 改，有变化时整份写回；返回改后的集合。文件不存在且 `create` 为假时什么也不做，返回空集合（没有放过示例）。
+     */
+    static Set<String> editStarters(File marker, boolean create, UnaryOperator<Set<String>> edit) throws IOException {
+        List<OpenOption> options = new ArrayList<>(List.of(StandardOpenOption.READ, StandardOpenOption.WRITE,
+            LinkOption.NOFOLLOW_LINKS));
+        if (create) options.add(StandardOpenOption.CREATE);
+        synchronized (STARTER_LOCK) {
+            if (!create && !marker.exists()) return Set.of();
+            try (FileChannel channel = FileChannel.open(marker.toPath(), options.toArray(new OpenOption[0]))) {
+                FileLock lock = channel.lock();
+                try {
+                    Set<String> current = decodeStarters(readAll(channel));
+                    Set<String> next = Collections.unmodifiableSet(new LinkedHashSet<>(edit.apply(current)));
+                    if (!next.equals(current)) {
+                        channel.truncate(0);
+                        ByteBuffer bytes = ByteBuffer.wrap(encodeStarters(next));
+                        while (bytes.hasRemaining()) channel.write(bytes, bytes.position());
+                        channel.force(false);
+                    }
+                    return next;
+                } finally {
+                    lock.release();
+                }
+            } catch (NoSuchFileException removed) {
+                return Set.of();
+            }
+        }
+    }
+
+    private static byte[] readAll(FileChannel channel) throws IOException {
+        long size = channel.size();
+        if (size > MAX_STARTER_RECORD_BYTES) return new byte[0];
+        ByteBuffer buffer = ByteBuffer.allocate((int) size);
+        while (buffer.hasRemaining()) {
+            // 返回 -1 说明文件在读的过程中变短（锁只拦得住守规矩的写入方），就用已经读到的部分。
+            if (channel.read(buffer, buffer.position()) < 0) break;
+        }
+        return java.util.Arrays.copyOf(buffer.array(), buffer.position());
+    }
+
+    /** 标记文件的格式：UTF-8，一行一条正文；空行忽略。旧版本写下的空标记解出来是空集合。 */
+    static Set<String> decodeStarters(byte[] bytes) {
+        Set<String> texts = new LinkedHashSet<>();
+        for (String line : new String(bytes, StandardCharsets.UTF_8).split("\n")) {
+            if (!line.isEmpty()) texts.add(line);
+        }
+        return Collections.unmodifiableSet(texts);
+    }
+
+    static byte[] encodeStarters(Set<String> texts) {
+        StringBuilder builder = new StringBuilder();
+        for (String text : texts) builder.append(text).append('\n');
+        return builder.toString().getBytes(StandardCharsets.UTF_8);
     }
 
     public static Result remove(Context context, String id) {
@@ -109,7 +240,7 @@ public final class CommonPhrasesStore {
     public static Result replace(Context context, String id, String text) {
         if (!validText(text)) return Result.failed(failureMessage("common_phrases_invalid"));
         try {
-            return perform(context, action("replace").put("id", id).put("text", text), true);
+            return adopted(context, text, perform(context, action("replace").put("id", id).put("text", text), true));
         } catch (JSONException error) {
             return Result.failed(failureMessage(""));
         }

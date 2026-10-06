@@ -552,6 +552,17 @@ public final class BackendAccount {
         return value.startsWith(" ") ? value.substring(1) : value;
     }
 
+    /** 把一行 data 解成 JSON 对象；空的、不是对象或解析不了时返回 null，调用方跳过这一行。 */
+    static JSONObject eventObject(String data) {
+        String trimmed = data.trim();
+        if (!trimmed.startsWith("{")) return null;
+        try {
+            return new JSONObject(trimmed);
+        } catch (org.json.JSONException malformed) {
+            return null;
+        }
+    }
+
     /**
      * 按行读 SSE 响应体：以 LF 分行、去掉行尾 CR，整行凑齐后才按 UTF-8 解码，多字节字符跨读缓冲也不会被切坏。
      *
@@ -613,8 +624,15 @@ public final class BackendAccount {
             connection.setDoOutput(true);
             connection.setFixedLengthStreamingMode(payload.length);
             connection.setRequestProperty("Content-Type", "application/json");
-            try (OutputStream output = connection.getOutputStream()) { output.write(payload); }
+            // 连接真正建立之前取消时，cancel() 里的 disconnect() 什么也断不了，请求照样会发出去；所以在建连、发完请求体、拿到状态码这三处各看一次取消标记，尽早放弃，也不让取消后的 400/401 走进退回或重试。
+            if (call.cancelled()) throw new CancellationException("chat cancelled");
+            try (OutputStream output = connection.getOutputStream()) {
+                if (call.cancelled()) throw new CancellationException("chat cancelled");
+                output.write(payload);
+            }
+            if (call.cancelled()) throw new CancellationException("chat cancelled");
             int status = connection.getResponseCode();
+            if (call.cancelled()) throw new CancellationException("chat cancelled");
             if (status / 100 != 2) throw new RequestException(status);
             String type = connection.getContentType();
             try (InputStream input = connection.getInputStream()) {
@@ -637,7 +655,9 @@ public final class BackendAccount {
                         if (reply.length() == 0) throw new IllegalStateException("invalid chat response");
                         return reply.toString();
                     }
-                    JSONObject chunk = new JSONObject(data);
+                    // 空的或不是 JSON 对象的 data 行（例如中间层发来的空 data 行或心跳）跳过，不让一行杂音废掉已经收到的整段回复；`[DONE]` 和带 error 的对象照旧处理。
+                    JSONObject chunk = eventObject(data);
+                    if (chunk == null) continue;
                     if (chunk.has("error")) throw new IllegalStateException("chat stream failed");
                     String delta = chunkDelta(chunk);
                     if (delta.isEmpty()) continue;

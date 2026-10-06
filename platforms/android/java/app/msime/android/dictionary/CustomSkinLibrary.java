@@ -3,11 +3,14 @@ package app.msime.android;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.text.BreakIterator;
 import java.util.ArrayList;
 import java.util.List;
@@ -20,8 +23,15 @@ public final class CustomSkinLibrary {
     private static final long MAX_LIBRARY_BYTES = 9_000_000;
     private static final int MAX_DESIGNS = 12;
     private static final int MAX_NAME_LENGTH = 32;
+    /** 本进程内的写入排队用；跨进程（设置主进程与 `:ime`）靠库目录里的锁文件。 */
+    private static final Object UPDATE_LOCK = new Object();
 
     private CustomSkinLibrary() {}
+
+    /** 加锁期间要做的一次「读 - 改 - 写」。 */
+    private interface Update<T> {
+        T apply() throws IOException;
+    }
 
     /**
      * 一个命名设计。
@@ -103,22 +113,46 @@ public final class CustomSkinLibrary {
         if (!boundedName(bounded)) return false;
         Path root = checkedRoot(preferencesDirectory);
         ensureSafeDirectory(root);
-        List<Item> existing = read(root);
-        JSONArray values = new JSONArray();
-        boolean replaced = false;
-        for (Item item : existing) {
-            if (item.id().equals(id)) {
+        return locked(root, () -> {
+            List<Item> existing = read(root);
+            JSONArray values = new JSONArray();
+            boolean replaced = false;
+            for (Item item : existing) {
+                if (item.id().equals(id)) {
+                    values.put(entry(id, bounded, design, updatedAt));
+                    replaced = true;
+                } else {
+                    values.put(entry(item.id(), item.name(), item.design(), item.updatedAt()));
+                }
+            }
+            if (!replaced) {
+                if (values.length() >= MAX_DESIGNS) return false;
                 values.put(entry(id, bounded, design, updatedAt));
-                replaced = true;
-            } else {
-                values.put(entry(item.id(), item.name(), item.design(), item.updatedAt()));
+            }
+            return write(root, values);
+        });
+    }
+
+    /**
+     * 在锁里做一次「读 - 改 - 写」：`:ime` 装社区皮肤和主进程云同步导入可能同时改库，不加锁时后写的一方会用自己读到的旧库整份覆盖，悄悄丢掉对方刚加的设计。
+     *
+     * <p>文件锁属于整个 JVM 而不是线程：同一进程里另一个线程已经持有时，`channel.lock()` 不会等待，而是抛 OverlappingFileLockException。所以先用 {@link #UPDATE_LOCK} 把本进程的写入排成一队，文件锁只负责协调两个进程，与 AndroidLocalSettings 的做法一致。读库不取锁：写入是整份原子替换，读者不会看到写了一半的文件。
+     */
+    private static <T> T locked(Path root, Update<T> update) throws IOException {
+        synchronized (UPDATE_LOCK) {
+            Path directory = root.resolve("CustomSkins");
+            ensureSafeDirectory(directory);
+            Path lockFile = directory.resolve("library.json.lock");
+            try (FileChannel channel = FileChannel.open(lockFile, StandardOpenOption.CREATE,
+                    StandardOpenOption.WRITE, LinkOption.NOFOLLOW_LINKS)) {
+                FileLock lock = channel.lock();
+                try {
+                    return update.apply();
+                } finally {
+                    lock.release();
+                }
             }
         }
-        if (!replaced) {
-            if (values.length() >= MAX_DESIGNS) return false;
-            values.put(entry(id, bounded, design, updatedAt));
-        }
-        return write(root, values);
     }
 
     /** 原子写入整个库；超过字节上限时不写并返回 false。 */
@@ -198,13 +232,15 @@ public final class CustomSkinLibrary {
     public static int importDesigns(Path preferencesDirectory, String json) throws IOException {
         Path root = checkedRoot(preferencesDirectory);
         ensureSafeDirectory(root);
-        List<Item> existing = read(root);
-        Merge merge = mergeDesigns(existing, json);
-        if (merge.changed() == 0) return 0;
-        JSONArray values = new JSONArray();
-        for (Item item : merge.items())
-            values.put(entry(item.id(), item.name(), item.design(), item.updatedAt()));
-        return write(root, values) ? merge.changed() : 0;
+        return locked(root, () -> {
+            List<Item> existing = read(root);
+            Merge merge = mergeDesigns(existing, json);
+            if (merge.changed() == 0) return 0;
+            JSONArray values = new JSONArray();
+            for (Item item : merge.items())
+                values.put(entry(item.id(), item.name(), item.design(), item.updatedAt()));
+            return write(root, values) ? merge.changed() : 0;
+        });
     }
 
     /** {@link #mergeDesigns} 的结果：合并后的库与新增或更新的条目数。 */

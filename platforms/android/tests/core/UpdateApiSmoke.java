@@ -70,6 +70,28 @@ public final class UpdateApiSmoke {
         check(downloaded.isFile() && downloaded.getName().equals("msime-client.apk"), "verified file kept");
         check(downloaded.getParentFile().getName().equals("updates"), "stored under cache/updates");
 
+        // 关于页和每日任务同时下载：排队进行，后一次直接用前一次已经核对过的文件，不互删 .part、也不再下一遍。
+        java.util.concurrent.atomic.AtomicInteger apkFetches = new java.util.concurrent.atomic.AtomicInteger();
+        UpdateApi racing = new UpdateApi(url -> {
+            if (url.equals(update.checksumUrl())) return body(good + "  msime-client.apk\n");
+            if (url.equals(update.apkUrl())) {
+                apkFetches.incrementAndGet();
+                return new UpdateApi.Exchange(200, null, apk.length, new ByteArrayInputStream(apk));
+            }
+            return new UpdateApi.Exchange(404, null, 0, new ByteArrayInputStream(new byte[0]));
+        });
+        File raceCache = Files.createTempDirectory("update-smoke-race").toFile();
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(2);
+        java.util.concurrent.Future<File> first = pool.submit(() -> racing.download(update, raceCache, null));
+        java.util.concurrent.Future<File> second = pool.submit(() -> racing.download(update, raceCache, null));
+        File one = first.get();
+        File two = second.get();
+        pool.shutdown();
+        check(one.equals(two) && one.isFile(), "concurrent downloads end with the same verified file");
+        check(good.equals(UpdateApi.sha256Hex(one)), "the shared file is intact");
+        check(apkFetches.get() == 1, "the second download reuses the verified file");
+        check(!new File(raceCache, "updates/msime-client.apk.part").exists(), "no partial file is left behind");
+
         routes.put("https://release-assets.githubusercontent.com/sum", body("cd".repeat(32) + "  msime-client.apk\n"));
         routes.put(update.apkUrl(), new UpdateApi.Exchange(200, null, apk.length, new ByteArrayInputStream(apk)));
         try {

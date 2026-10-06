@@ -411,6 +411,9 @@ public final class ProfilePage extends DetailPage {
         execute(context -> {
             File directory = new File(context.getCacheDir(), EXPORTS);
             if (!directory.isDirectory() && !directory.mkdirs()) return "没有导出，存储空间不可用";
+            // 导出包里是个人数据，只留最新这一份给分享用：先删掉以前导出的，不让它们一直堆在缓存目录里。
+            File[] previous = directory.listFiles();
+            if (previous != null) for (File stale : previous) deleteQuietly(stale);
             File file = new File(directory, name);
             try (OutputStream output = new FileOutputStream(file)) {
                 new DeviceDataApi(context).exportData(output);

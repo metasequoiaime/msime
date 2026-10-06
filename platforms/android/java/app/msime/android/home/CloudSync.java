@@ -391,6 +391,7 @@ public final class CloudSync {
             }
             int ownWrites = 0;
             if (target != null) {
+                adoptStarters(target);
                 PhraseApply applied = applyPhrases(local, target);
                 ownWrites = applied.writes();
                 SyncSwitch.setUnheldPhrases(context, applied.unheld());
@@ -400,15 +401,36 @@ public final class CloudSync {
             SyncSwitch.clearDirtyIf(context, SyncSwitch.PHRASES, generation + ownWrites);
         }
 
-        /** 用户自己添加的常用语（id → 正文），按本机顺序；社区短语包里的不同步，装包的设备各自管理。 */
+        /**
+         * 用户自己添加的常用语（id → 正文），按本机顺序；社区短语包里的不同步，装包的设备各自管理。
+         *
+         * <p>本机预置、还没被认领的示例也跳过：它们不上传，合并时也就不会出现在用户已经删掉它们的别的设备上；不在这份列表里，下载和「使用云端」也不会把它们当成本机多出来的删掉。
+         */
         private Map<String, String> ownPhrases() {
             CommonPhrasesStore.Result result = CommonPhrasesStore.load(context);
             if (!result.ok()) throw new IllegalStateException("common phrases unavailable: " + result.failure());
+            Set<String> starters;
+            try {
+                starters = CommonPhrasesStore.untouchedStarters(context);
+            } catch (IOException error) {
+                throw new IllegalStateException("starter phrase record unavailable", error);
+            }
             LinkedHashMap<String, String> own = new LinkedHashMap<>();
             for (CommonPhrasesStore.Phrase phrase : result.document().phrases()) {
-                if (phrase.own()) own.put(phrase.id(), phrase.text());
+                if (phrase.own() && !starters.contains(phrase.text())) own.put(phrase.id(), phrase.text());
             }
             return own;
+        }
+
+        /** 云端或合并结果里已有的正文即使和本机的示例相同，也是用户的常用语了：先认领，免得之后只有本机改动的上传把它从云端删掉。写不下认领记录就放弃这一轮，游标不前进，下一轮重来。 */
+        private void adoptStarters(List<SyncMergePolicy.Phrase> target) {
+            List<String> texts = new ArrayList<>();
+            for (SyncMergePolicy.Phrase phrase : target) texts.add(phrase.text());
+            try {
+                CommonPhrasesStore.adoptStarters(context, texts);
+            } catch (IOException error) {
+                throw new IllegalStateException("starter phrase record unavailable", error);
+            }
         }
 
         /** 本机列表换成云端格式；同一正文在云端有分组时沿用云端的分组。 */

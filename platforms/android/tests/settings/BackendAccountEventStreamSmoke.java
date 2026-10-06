@@ -34,6 +34,11 @@ public final class BackendAccountEventStreamSmoke {
         check(BackendAccount.eventData(": keep-alive") == null, "comment lines carry no data");
         check(BackendAccount.eventData("") == null, "blank lines carry no data");
         check(BackendAccount.eventData("event: message") == null, "other fields carry no data");
+        // 空的或不是对象的 data 行不交给 org.json，直接跳过（这里的 android.jar 桩一碰 JSONObject 就会抛 Stub!，所以这几条同时证明了没有去解析）。
+        check(BackendAccount.eventObject("") == null, "an empty data line is skipped");
+        check(BackendAccount.eventObject("   ") == null, "a blank data line is skipped");
+        check(BackendAccount.eventObject("ping") == null, "a non-JSON data line is skipped");
+        check(BackendAccount.eventObject("[1,2]") == null, "a non-object data line is skipped");
 
         byte[] longLine = new byte[BackendAccount.MAX_EVENT_LINE_BYTES + 1];
         java.util.Arrays.fill(longLine, (byte) 'a');
