@@ -23,7 +23,7 @@
 
 namespace msime::linux_host {
 
-// Fcitx5's classic UI draws the candidate list from a named theme. MSIME publishes its palette as a theme of its own, so the list looks the same as on IBus and Windows, while a theme the user picked in fcitx5-configtool is never replaced: only Fcitx5's stock themes, or MSIME's own, are taken over.
+// Fcitx5 的 classicui 从具名主题绘制候选窗。水杉将配色发布为自己的主题；选择「系统」时仅接管默认主题，明确选择水杉主题时由宿主优先应用。
 // 主题名与 Fcitx5 插件名相同（LinuxEdition.h）：两个版本的插件在同一个 fcitx5 里各写各的主题，不互相覆盖。
 inline constexpr std::string_view kFcitxCandidateTheme = MSIME_EDITION_FCITX5_ADDON;
 
@@ -32,7 +32,7 @@ inline bool fcitx_theme_replaceable(std::string_view current) {
          current == kFcitxCandidateTheme;
 }
 
-// Whether the classic UI draws MSIME's theme in both appearances. The light `Theme` and, on Fcitx5 releases that have one, the `DarkTheme` are taken over separately and only while each holds a stock theme, so a user's own dark theme stays in place and is what Fcitx5 draws in dark mode.
+// 检查明暗模式下是否都能绘制水杉主题。「系统」会分别保留第三方 Theme 和 DarkTheme，此时配色不完全生效；明确选择的水杉主题由宿主先接管两项。
 inline bool fcitx_candidate_theme_drawn(std::string_view theme, const std::string *dark_theme) {
   return fcitx_theme_replaceable(theme) && (!dark_theme || fcitx_theme_replaceable(*dark_theme));
 }

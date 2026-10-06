@@ -225,8 +225,90 @@ void classicuiTakeoverRecord() {
   else unsetenv("XDG_STATE_HOME");
   std::filesystem::remove_all(root);
 }
+// 使用真实 classicui 配置，验证第三方主题与水杉主题选择之间的优先级；所有路径都指向合成目录。
+int candidateThemePriority() {
+  char temporary[] = "/tmp/msime-fcitx-theme-priority-XXXXXX";
+  const auto *directory = mkdtemp(temporary);
+  require(directory != nullptr, "theme priority fixture directory");
+  const std::filesystem::path root(directory);
+  for (const auto *name : {"XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_RUNTIME_DIR"})
+    setenv(name, directory, 1);
+  setenv("MSIME_FCITX5_OPTIONS", (root / "missing-options.json").c_str(), 1);
+  std::filesystem::create_directories(root / "fcitx5/conf");
+  std::ofstream(root / "fcitx5/conf/classicui.conf") << "Theme=Nord-Dark\nDarkTheme=Nord-Dark\n";
+  char program[] = "msime-theme-test";
+  char disabled[] = "--disable=all";
+  char enabled[] = "--enable=classicui";
+  char *args[] = {program, disabled, enabled, nullptr};
+  {
+    fcitx::Instance instance(3, args);
+    instance.addonManager().registerDefaultLoader(nullptr);
+    instance.initialize();
+    if (!instance.addonManager().addonInfo("classicui")) {
+      std::filesystem::remove_all(root);
+      std::cout << "skipped: classicui runtime is not installed\n";
+      return 77;
+    }
+    auto *classicui = instance.addonManager().addon("classicui", true);
+    require(classicui && classicui->getConfig(), "real classicui loaded");
+    FcitxEngine engine(&instance);
+    const auto read = [&] {
+      fcitx::RawConfig config;
+      classicui->getConfig()->save(config);
+      return config;
+    };
+    const auto selected = [&] {
+      const auto config = read();
+      const auto *light = config.valueByPath("Theme");
+      const auto *dark = config.valueByPath("DarkTheme");
+      return light && *light == msime::linux_host::kFcitxCandidateTheme &&
+             (!dark || *dark == msime::linux_host::kFcitxCandidateTheme);
+    };
+    engine.applyCandidatePanelTheme(Json{{"global_theme", "system"}}, false, Json());
+    require(*read().valueByPath("Theme") == "Nord-Dark", "system theme keeps Fcitx5 theme");
+    const Json catalog{{"packages", Json::array({{{"id", "omarchy"}, {"title", "Omarchy"}, {"base", "system"},
+        {"layouts", Json::array({"horizontal", "vertical"})},
+        {"candidate", {{"light", {{"surface", "#123456"}}}}}}})}};
+    for (const auto *id : {"paper", "ink", "custom", "omarchy"}) {
+      Json preferences{{"global_theme", id}};
+      if (std::string_view(id) == "omarchy") {
+        preferences["global_theme"] = "custom";
+        preferences["custom_theme"] = {{"base", "system"}, {"candidate_skin", "omarchy"}};
+      }
+      engine.applyCandidatePanelTheme(preferences, false, catalog);
+      require(selected(), "explicit MSIME theme overrides Fcitx5 light and dark themes");
+      fcitx::RawConfig external;
+      external.setValueByPath("Theme", "Nord-Dark");
+      if (read().valueByPath("DarkTheme")) external.setValueByPath("DarkTheme", "Nord-Dark");
+      classicui->setConfig(external);
+      engine.applyCandidatePanelTheme(preferences, false, catalog);
+      require(selected(), "unchanged MSIME palette reapplies after Fcitx5 theme switch");
+    }
+    const auto file = root / "fcitx5/themes/msime/theme.conf";
+    std::ifstream theme_file(file);
+    const std::string theme(std::istreambuf_iterator<char>(theme_file), {});
+    require(theme.find("Color=#123456") != std::string::npos, "Omarchy skin colours reach classicui theme");
+    if (read().valueByPath("DarkTheme")) {
+      fcitx::RawConfig external_dark;
+      external_dark.setValueByPath("DarkTheme", "Nord-Dark");
+      classicui->setConfig(external_dark);
+      engine.applyCandidatePanelTheme(Json{{"global_theme", "custom"},
+          {"custom_theme", {{"base", "system"}, {"candidate_skin", "omarchy"}}}}, false, catalog);
+      require(selected(), "dark-only Fcitx5 theme switch reapplies MSIME theme");
+    }
+    std::ifstream record(root / "msime-client/panel-restore.json");
+    const auto restored = Json::parse(record).at("fcitx5");
+    require(restored.at("Theme").at("prior") == "Nord-Dark", "uninstall can restore original Fcitx5 theme");
+  }
+  std::filesystem::remove_all(root);
+  std::cout << "Fcitx5 candidate theme priority passed\n";
+  return 0;
+}
 int main(int argc, char **argv) {
   try {
+    if (argc == 2 && std::string(argv[1]) == "--theme-priority") {
+      return candidateThemePriority();
+    }
     autocorrectMarker();
     koreanHanjaGlossRow();
     candidateThemeDecoration();

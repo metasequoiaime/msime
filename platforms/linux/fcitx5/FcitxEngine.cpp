@@ -5219,7 +5219,7 @@ void record_classicui_takeover(const fcitx::RawConfig &current, const fcitx::Raw
     if (!value) continue;
     const auto *prior = current.valueByPath(key);
     const auto replaced = prior ? Json(*prior) : Json(nullptr);
-    // MSIME only takes the theme over from Fcitx5's stock ones and uninstall removes its own, so a theme option already naming it is recorded as the stock theme it stands in for.
+    // 卸载会移除水杉主题；已指向它且没有原始记录的配置，按它替代的默认主题恢复。
     auto restore = replaced;
     if (prior && *prior == msime::linux_host::kFcitxCandidateTheme && (key == "Theme" || key == "DarkTheme"))
       restore = key == "Theme" ? "default" : "default-dark";
@@ -5250,7 +5250,7 @@ public:
     config.setValueByPath("Font", *description);
     set_classicui_config(*classicui, config);
   }
-  // The candidate colours reach the classic UI as a theme named "msime" in the user's Fcitx5 data directory (see candidates/CandidateFcitxTheme.h). The addon is pointed at it only while it shows one of Fcitx5's stock themes or MSIME's own; a theme the user chose is left in place and MSIME's colours simply don't apply. Setting the configuration also makes the addon read the theme file again, which is how a changed palette appears without a restart.
+  // 候选配色写成水杉自己的 classicui 主题。明确选择的水杉主题优先于 Fcitx5；「系统」仍保留第三方主题。设置配置会重新读取主题文件，配色变化无需重启。
   void applyCandidatePanelTheme(const Json &preferences, bool system_dark, const Json &catalog) {
     namespace host = msime::linux_host;
     const auto resolved = resolveCandidateTheme(preferences, system_dark, catalog);
@@ -5264,20 +5264,24 @@ public:
     static const auto logo = host::load_fcitx_theme_logo(MSIME_ICON_DIR);
     auto theme = host::fcitx_candidate_theme(colors, resolved.dark, std::nullopt, corner_radius, logo, user_radius) +
                  host::fcitx_overlay_stamp(decoration);
-    if (theme == candidate_theme_applied_) return;
     auto *classicui = instance_->addonManager().addon("classicui", true);
     if (!classicui || !classicui->getConfig()) return;
     fcitx::RawConfig current;
     classicui->getConfig()->save(current);
     const auto *selected = current.valueByPath("Theme");
     const auto *selected_dark = current.valueByPath("DarkTheme");
-    if (!host::fcitx_theme_replaceable(selected ? *selected : std::string{})) return;
+    const bool explicit_theme = preferences.value("global_theme", std::string("system")) != "system";
+    if (!explicit_theme && !host::fcitx_theme_replaceable(selected ? *selected : std::string{})) return;
+    const bool replace_dark = selected_dark && (explicit_theme || host::fcitx_theme_replaceable(*selected_dark));
+    // Fcitx5 或桌面切换主题后，即使水杉配色没变，也必须重新应用选择。
+    if (theme == candidate_theme_applied_ && selected && *selected == host::kFcitxCandidateTheme &&
+        (!replace_dark || *selected_dark == host::kFcitxCandidateTheme)) return;
     const auto file = host::fcitx_theme_file(std::getenv("XDG_DATA_HOME"), std::getenv("HOME"));
     if (!file || !host::write_fcitx_candidate_theme(*file, colors, resolved.dark, decoration, corner_radius, logo, user_radius)) return;
     fcitx::RawConfig config;
     config.setValueByPath("Theme", std::string(host::kFcitxCandidateTheme));
-    // Fcitx5 releases with a separate dark-mode theme would otherwise switch to their stock dark theme; MSIME already resolves "follow" against the system appearance itself.
-    if (selected_dark && host::fcitx_theme_replaceable(*selected_dark))
+    // 水杉已解析系统明暗；有 DarkTheme 的 Fcitx5 版本也须使用同一主题。
+    if (replace_dark)
       config.setValueByPath("DarkTheme", std::string(host::kFcitxCandidateTheme));
     set_classicui_config(*classicui, config);
     candidate_theme_applied_ = std::move(theme);
