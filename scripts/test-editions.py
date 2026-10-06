@@ -133,7 +133,7 @@ FULL_LINUX = {
 LINUX_UNITS = ["online.socket", "online.service", "voice.socket", "voice.service", "clipboard.service"]
 LINUX_COMMANDS = ["setup", "settings"]
 # full 今天的 Android 标识：applicationId 写在 gradle-app/app/build.gradle.kts 的 defaultConfig 和 tauri.android.conf.json 里，APK 名是 build-apk.sh 产出、release-android.yml 发布的文件名。改了 applicationId，已装的用户就收不到覆盖升级，私有数据也换了一个目录。
-FULL_ANDROID = {"application_id": "app.msime.android", "apk_name": "msime-client"}
+FULL_ANDROID = {"application_id": "app.msime.android", "apk_name": "msime-android"}
 # 默认方案是这些语言方案的版本，输入法子类型登记在这个语言下（method.xml 的 imeSubtypeLocale），系统设置的语言列表和键盘切换器把它列在日语、越南语、藏语下；其他版本与主资源相同（zh_CN）。
 ANDROID_SUBTYPE_LOCALES = {"japanese": "ja_JP", "vietnamese": "vi_VN", "tibetan": "bo"}
 ANDROID_NAMESPACE = "{http://schemas.android.com/apk/res/android}"

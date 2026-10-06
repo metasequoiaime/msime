@@ -19,7 +19,7 @@ jobs:
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
     outputs:
       sha: ${{ steps.commit.outputs.sha }}
-  # 每个版本（shared/contracts/editions.json 里有 Android 段的 id，也是 gradle-app 的 flavor 名）各打一个 APK，applicationId 各不相同，可以同时装在一台设备上。full 的 applicationId 和 APK 名（msime-client.apk）与引入版本之前相同。
+  # 每个版本（shared/contracts/editions.json 里有 Android 段的 id，也是 gradle-app 的 flavor 名）各打一个 APK，applicationId 各不相同，可以同时装在一台设备上。full 的 applicationId 与引入版本之前相同，已安装的应用照常原地升级；APK 名是 msime-android.apk（各版本是 msime-android-<id>.apk）。
   release:
     needs: source
     runs-on: ubuntu-24.04
@@ -85,7 +85,7 @@ jobs:
           mkdir -p target/resources
           resource_dir="$(cargo run --quiet -p msime-client-core --example install_resources -- target/resources)"
           bash platforms/android/build-apk.sh "$resource_dir"
-          # 按版本取 APK 名（full 是 msime-client，五笔版是 msime-client-wubi），放进 dist/ 交给汇总发布的那一步。
+          # 按版本取 APK 名（full 是 msime-android，五笔版是 msime-android-wubi），放进 dist/ 交给汇总发布的那一步。
           apk_name="$(python3 platforms/android/scripts/edition_android.py field --edition "$MSIME_EDITION" apk_name)"
           mkdir -p dist
           cp "target/android/$apk_name.apk" dist/
@@ -120,10 +120,12 @@ jobs:
             apk_name="$(python3 platforms/android/scripts/edition_android.py field --edition "$edition" apk_name)"
             [[ -f "dist/$apk_name.apk" ]] || { echo "dist/$apk_name.apk for edition $edition is missing" >&2; exit 1; }
           done
+          # 应用内更新（UpdateApi）会下载与 APK 同名的 <apk>.sha256，缺了就拒绝更新，所以每个 APK 都附一行 sha256sum 输出；在 dist 里面算，行里写的才是不带路径的文件名。
+          (cd dist && for apk in *.apk; do sha256sum "$apk" > "$apk.sha256"; done)
           tag="android-v${RELEASE}"
           [[ "$RELEASE" == "$VERSION" ]] || export PRERELEASE=true
           # A re-run for the same version overwrites its release (scripts/publish-release.sh), so the notes start at the release before it rather than at its own tag. A final release starts at the previous final release, a -beta or -alpha one at the latest release of either kind.
           stable='^android-v[0-9]+\.[0-9]+\.[0-9]+$'; [[ "$RELEASE" == "$VERSION" ]] || stable=.
           start=$(git tag --list 'android-v*' --sort=-v:refname | grep -vxF "$tag" | grep -E "$stable" | head -1 || true)
           python3 scripts/generate-release-notes.py --platform android --version "$RELEASE" --start-tag "$start" --end-ref "$(git rev-parse HEAD)" --output release-notes.md
-          bash scripts/publish-release.sh "$tag" "$(git rev-parse HEAD)" "Android ${RELEASE}" release-notes.md dist/*.apk
+          bash scripts/publish-release.sh "$tag" "$(git rev-parse HEAD)" "Android ${RELEASE}" release-notes.md dist/*.apk dist/*.apk.sha256

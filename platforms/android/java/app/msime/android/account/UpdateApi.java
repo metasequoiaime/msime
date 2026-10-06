@@ -33,7 +33,7 @@ import org.json.JSONObject;
 /**
  * 关于页「检查更新」和每天一次的自动更新共用的一层：查 msime.app 的 Android 发行版列表、按更新通道挑出比当前版本新的那一个、把本版本（edition）的 APK 下载到 `cache/updates/`，并在交给系统安装器之前核对 SHA-256 与签名证书。
  *
- * <p>发行版列表来自 `https://msime.app/api/releases?platform=android`（msime-web 带缓存的 GitHub 发行版镜像，避开 GitHub 对未鉴权请求每小时 60 次的限额），条目只有 `tag`、`version`、`prerelease` 等元数据，没有资产地址。APK 按发布流程的命名（`release-android.yml` 用 `edition_android.py` 的 `apk_name`：full 是 `msime-client.apk`，其他版本是 `msime-client-<id>.apk`）从 GitHub 发布页下载，校验值是同一发布里的 `<apk>.sha256`（`sha256sum` 的格式）。没有校验文件的发布一律不装。
+ * <p>发行版列表来自 `https://msime.app/api/releases?platform=android`（msime-web 带缓存的 GitHub 发行版镜像，避开 GitHub 对未鉴权请求每小时 60 次的限额），条目只有 `tag`、`version`、`prerelease` 等元数据，没有资产地址。APK 按发布流程的命名（`release-android.yml` 用 `edition_android.py` 的 `apk_name`：full 是 `msime-android.apk`，其他版本是 `msime-android-<id>.apk`）从 GitHub 发布页下载，校验值是同一发布里的 `<apk>.sha256`（`sha256sum` 的格式）。没有校验文件的发布一律不装。
  *
  * <p>每一跳请求（包括重定向）都只允许 https，且主机必须在 {@link #HOSTS} 里；重定向由这里逐跳检查而不是交给 `HttpURLConnection` 自动跟随。
  *
@@ -131,7 +131,7 @@ public final class UpdateApi {
         if (edition == null || !EDITION_ID.matcher(edition).matches()) {
             throw new IllegalArgumentException("not an edition id: " + edition);
         }
-        return "full".equals(edition) ? "msime-client" : "msime-client-" + edition;
+        return "full".equals(edition) ? "msime-android" : "msime-android-" + edition;
     }
 
     /** 地址是 https、主机在白名单里、没有用户信息和非默认端口时为真。 */
