@@ -86,6 +86,26 @@ function editionInstallerPattern(edition: string | undefined): RegExp | null {
 }
 
 /** 去掉其他版本的 Linux 包，让 full 只在自己的包里选。不是数组时原样返回，交给 `selectUniqueReleaseAsset` 处理。 */
+/** The architecture parts CPack puts in the Linux package names (dpkg's for the `.deb`, `CMAKE_SYSTEM_PROCESSOR` for the `.tar.gz`), keyed by Rust's name for the host's architecture (`HostCapabilities.arch`). */
+const linuxPackageArchitectures: Readonly<Record<string, { deb: string; tarball: string }>> = {
+  x86_64: { deb: "amd64", tarball: "x86_64" },
+  aarch64: { deb: "arm64", tarball: "aarch64" },
+};
+
+/** A release carries one `.deb` and one `.tar.gz` per architecture; keep this machine's. An unknown or unreported architecture keeps them all, and the selection then offers a package only when there is a single one. */
+function onlyLinuxPackagesFor(assets: unknown, arch: string | undefined): unknown {
+  const names = arch === undefined ? undefined : linuxPackageArchitectures[arch];
+  if (!names || !Array.isArray(assets)) return assets;
+  return assets.filter(
+    (asset: { name?: unknown } | null) =>
+      !!asset &&
+      typeof asset === "object" &&
+      typeof asset.name === "string" &&
+      (asset.name.endsWith(`_${names.deb}.deb`) ||
+        asset.name.endsWith(`-linux-${names.tarball}.tar.gz`)),
+  );
+}
+
 function withoutOtherEditionLinuxPackages(assets: unknown): unknown {
   return Array.isArray(assets)
     ? assets.filter(
@@ -157,12 +177,15 @@ export function validateGitHubRelease(
  * Every platform publishes to the same repository under its own tag prefix (`windows-v1.2.0`, `linux-v1.2.0`; see `.github/workflows/release-*.yml`), so the repository's single "latest" release usually belongs to another platform, and its prefixed tag is not a version. Drafts and prereleases are not offered.
  *
  * `edition` 是运行中的版本 id（`HostCapabilities.edition.id`），缺省是 full。各版本共用同一个平台标签，只按资产名选本版本的安装包，full 的选择结果不变。
+ *
+ * `arch` is the host's architecture (`HostCapabilities.arch`); on Linux only this architecture's package is offered.
  */
 export function selectPlatformRelease(
   releases: readonly GitHubRelease[],
   platform: string,
   releasesPageUrl: string,
   edition?: string,
+  arch?: string,
 ): ValidatedUpdate | null {
   const prefix = `${platform}-`;
   let newest: ValidatedUpdate | null = null;
@@ -179,9 +202,12 @@ export function selectPlatformRelease(
       const patterns = editionLinuxPackagePatterns(edition);
       const linuxPackage = patterns
         ? selectUniqueReleaseAsset(
-            isFullEdition(edition)
-              ? withoutOtherEditionLinuxPackages(release.assets)
-              : release.assets,
+            onlyLinuxPackagesFor(
+              isFullEdition(edition)
+                ? withoutOtherEditionLinuxPackages(release.assets)
+                : release.assets,
+              arch,
+            ),
             patterns,
           )
         : null;

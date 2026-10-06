@@ -220,6 +220,7 @@ fn host_capabilities(app: tauri::AppHandle) -> HostCapabilities {
     // Font enumeration is a build-time capability, not a platform assumption.
     capabilities.system_fonts = font_catalog_supported();
     capabilities.os_version = macos_product_version();
+    capabilities.arch = Some(std::env::consts::ARCH.to_owned());
     capabilities.candidate_panel_limit = linux_candidate_panel_limit();
     let host_options = app
         .try_state::<DictionaryHostOptions>()

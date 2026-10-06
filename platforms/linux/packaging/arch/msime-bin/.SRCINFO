@@ -5,6 +5,7 @@ pkgbase = msime-bin
 	url = https://github.com/metasequoiaime/msime
 	install = msime.install
 	arch = x86_64
+	arch = aarch64
 	license = GPL-3.0-only
 	license = Apache-2.0
 	license = MIT
@@ -56,5 +57,7 @@ pkgbase = msime-bin
 	backup = etc/xdg/autostart/msime-linux-clipboard.desktop
 	source_x86_64 = msime-linux-0.9.1-1.x86_64.rpm::https://github.com/metasequoiaime/msime/releases/download/linux-v0.9.1/msime-linux-0.9.1-1.x86_64.rpm
 	sha256sums_x86_64 = f2d001a2e2fcb7e754d1cfb58fd07e873a313d1b3cbe0636b9cfb38db96c9c63
+	source_aarch64 = msime-linux-0.9.1-1.aarch64.rpm::https://github.com/metasequoiaime/msime/releases/download/linux-v0.9.1/msime-linux-0.9.1-1.aarch64.rpm
+	sha256sums_aarch64 = 0000000000000000000000000000000000000000000000000000000000000000
 
 pkgname = msime-bin

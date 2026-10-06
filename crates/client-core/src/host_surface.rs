@@ -293,6 +293,9 @@ pub struct HostCapabilities {
     /// falls back to what the web view knows about itself.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub os_version: Option<String>,
+    /// The CPU architecture the host was built for, as Rust names it (`std::env::consts::ARCH`: `x86_64`, `aarch64`). A Linux release carries one package per architecture, and the update check picks this machine's by it. Filled in at runtime like `os_version`; absent from a host that does not report it, where the check offers a package only when the release has a single one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub arch: Option<String>,
     /// Why the desktop's candidate panel on this machine ignores the candidate font, colour and skin settings, when the running Linux host has found that it does. Filled in at runtime from what the host reports, the way `os_version` is; absent when the panel honours them or nothing has been reported.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub candidate_panel_limit: Option<CandidatePanelLimit>,
@@ -604,6 +607,7 @@ impl HostCapabilities {
             // macOS draws the sparks, the card flash and the combo badge (TypingEffectPanel.mm), Windows the flash and the badge on its candidate window (CandidateWindow.cpp), both Linux hosts the combo count in the candidate aux line (KeySound.h), and HarmonyOS the flash and the combo badge on its KeyboardView. Linux draws no style, only the count; the settings page hides the style controls there itself (`showTypingEffectStyles`). HarmonyOS still narrows this per form factor in its own settings projection; Android and iOS wire none.
             typing_effects: platform.is_desktop() || platform == HostPlatform::Harmony,
             os_version: None,
+            arch: None,
             candidate_panel_limit: None,
             // 每个宿主都路由粤拼、注音、越南文、藏文和笔画的按键，并附带粤拼、注音和笔画需要的词库。
             input_schemes: ALL_INPUT_SCHEMES.to_vec(),
