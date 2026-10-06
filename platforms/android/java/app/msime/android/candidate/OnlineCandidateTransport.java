@@ -34,7 +34,7 @@ public final class OnlineCandidateTransport {
             connection = (HttpsURLConnection) target.openConnection();
             connection.setInstanceFollowRedirects(false);
             connection.setRequestMethod("GET");
-            connection.setConnectTimeout(CONNECT_TIMEOUT_MILLIS);
+            connection.setConnectTimeout(OnlineCandidatePolicy.CLOUD_TIMEOUT_MILLIS);
             connection.setReadTimeout(OnlineCandidatePolicy.CLOUD_TIMEOUT_MILLIS);
             connection.setRequestProperty("Accept", "application/json");
             int status = connection.getResponseCode();

@@ -37,6 +37,22 @@ HOSTS = [
         ["MSIME_CLOUD_CONNECT_TIMEOUT_MS", "MSIME_CLOUD_REQUEST_TIMEOUT_MS"],
         (None, r"CURLOPT_\w*TIMEOUT\w*_MS,\s*([0-9]+)L"),
     ),
+    (
+        ROOT / "platforms/android/java/app/msime/android/candidate/OnlineCandidateTransport.java",
+        [
+            "setConnectTimeout(OnlineCandidatePolicy.CLOUD_TIMEOUT_MILLIS)",
+            "setReadTimeout(OnlineCandidatePolicy.CLOUD_TIMEOUT_MILLIS)",
+        ],
+        (r"public static String cloud\(String url\)", r"set(?:Connect|Read)Timeout\((\d+)"),
+    ),
+    (
+        ROOT / "platforms/harmony/entry/src/main/ets/keyboard/KeyboardSession.ets",
+        [
+            "connectTimeout: OnlineCandidatePolicy.CLOUD_TIMEOUT_MS",
+            "readTimeout: OnlineCandidatePolicy.CLOUD_TIMEOUT_MS",
+        ],
+        (r"private async fetchCloud\(", r"(?:connectTimeout|readTimeout):\s*(\d+)"),
+    ),
 ]
 # What the reference asks for, so a change here is a change against it rather than a typo. Its cloud
 # worker fetches over WinHTTP and gives resolve, connect, send and receive 2000 ms each.

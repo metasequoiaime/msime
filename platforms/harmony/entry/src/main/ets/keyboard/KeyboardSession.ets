@@ -3937,7 +3937,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       const response: http.HttpResponse = await request.request(url, {
         method: http.RequestMethod.GET,
         header: { Accept: 'application/json' },
-        connectTimeout: 2500,
+        connectTimeout: OnlineCandidatePolicy.CLOUD_TIMEOUT_MS,
         readTimeout: OnlineCandidatePolicy.CLOUD_TIMEOUT_MS
       });
       if (epoch !== this.onlineEpoch || handle !== this.handle || response.responseCode < 200
