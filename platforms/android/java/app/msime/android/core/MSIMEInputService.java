@@ -3751,7 +3751,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     /** 本版本提供的本地模式：不带临时日语的版本（五笔版）不列出它，其余与 {@link LocalInputMode#values()} 相同。 */
     java.util.List<LocalInputMode> localInputModes() {
-        java.util.List<LocalInputMode> modes = new java.util.ArrayList<>();
+        java.util.List<LocalInputMode> modes = new java.util.ArrayList<>(LocalInputMode.values().length);
         for (LocalInputMode mode : LocalInputMode.values()) {
             if (mode != LocalInputMode.TEMPORARY_JAPANESE || edition.temporaryJapanese()) modes.add(mode);
         }
