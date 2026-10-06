@@ -186,7 +186,7 @@ public final class AppThemePalette {
         for (int index = 0; index < 4; index++) {
             double printed = new BigDecimal(channels[index] / 255.0).round(PRINTED).doubleValue();
             long value = Math.round(printed * 255.0);
-            result |= BoundsPolicy.bounded(value, 0, 255) << (index * 8);
+            result |= (int) BoundsPolicy.bounded(value, 0, 255) << (index * 8);
         }
         return result;
     }
