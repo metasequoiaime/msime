@@ -396,7 +396,7 @@ final class ImePanels {
         // 行高容下按 390:292 的迷你键盘（约 86 dp 宽时 65 dp 高）、描边和下方的名字；行距、列距取设计的 6 / 10。
         grid.setSpacing(92, 6, 10, 4);
         grid.setContentDescription("键盘皮肤选择器");
-        java.util.List<KeyboardSkinCard> cards = new java.util.ArrayList<>();
+        java.util.List<KeyboardSkinCard> cards = new java.util.ArrayList<>(choices.size());
         int selectedIndex = 0;
         for (int index = 0; index < choices.size(); index++) {
             MSIMEInputService.SkinChoice choice = choices.get(index);
