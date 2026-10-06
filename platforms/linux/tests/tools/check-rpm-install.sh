@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Install a built RPM into a clean Fedora container and remove it again: the check #2095 needed. An RPM whose Requires name libraries or symbol versions Fedora does not provide (Debian's libcurl CURL_OPENSSL_4, boost 1.83) builds and lints fine and fails only here, at dnf's dependency resolution.
 #
-# It also asserts that the package requires none of the libraries it carries in its private directory, which rpmbuild would otherwise turn into unsatisfiable Requires, and runs the maintainer scripts through a real install and erase.
+# 它还断言：包不依赖它在私有目录里自带的任何库（否则 rpmbuild 会把它们变成无法满足的 Requires）；payload 是 packaging.cmake 要求的 xz 9 级；安装的每个 ELF 文件都已 strip（CMake 目标靠 CPACK_STRIP_FILES，Rust 目标靠 CARGO_PROFILE_RELEASE_STRIP；预编译的 sherpa-onnx 和 ONNX Runtime 库按上游构建原样发布，不在检查之列），与 release-linux.yml 对 .deb 做的检查相同；并通过一次真实的安装和卸载运行维护脚本。
 #
 # Usage: platforms/linux/tests/tools/check-rpm-install.sh <package.rpm>...
 #
@@ -33,6 +33,8 @@ docker run --rm -v "$dir":/dist:ro "$image" bash -euo pipefail -c '
       echo "the package requires a library it carries privately or one only Debian provides" >&2
       exit 1
     fi
+    payload=$(rpm -qp --qf "%{PAYLOADCOMPRESSOR} %{PAYLOADFLAGS}" "/dist/$file")
+    [ "$payload" = "xz 9" ] || { echo "$file: payload is $payload, not the xz 9 packaging.cmake sets" >&2; exit 1; }
     packages+=("$(rpm -qp --qf "%{NAME}" "/dist/$file")")
     files+=("/dist/$file")
   done
@@ -40,6 +42,18 @@ docker run --rm -v "$dir":/dist:ro "$image" bash -euo pipefail -c '
   for package in "${packages[@]}"; do
     rpm -q "$package"
     test -x "/usr/bin/$package-setup"
+    # 发布页的 rpm 和 deb 一样不带手写模型，由设置应用按需下载（package-container.sh 传 MSIME_BUNDLE_HANDWRITING_MODEL=OFF）。
+    if rpm -ql "$package" | grep handwriting-zh_CN.model >/dev/null; then echo "$package bundles the handwriting model" >&2; exit 1; fi
+  done
+  # 在装完这些包之后才装它，免得它替包满足了包自己漏声明的依赖。
+  dnf install -y --setopt=install_weak_deps=False file
+  for package in "${packages[@]}"; do
+    unstripped=$(rpm -ql "$package" | while IFS= read -r path; do
+      [ -f "$path" ] && [ ! -L "$path" ] || continue
+      case "$(basename "$path")" in (libonnxruntime.so*|libsherpa-onnx-c-api.so*) continue ;; esac
+      file "$path"
+    done | grep ": *ELF" | grep -v ", stripped" || true)
+    [ -z "$unstripped" ] || { echo "$package has unstripped ELF files:" >&2; echo "$unstripped" >&2; exit 1; }
   done
   for index in "${!packages[@]}"; do
     dnf remove -y "${packages[$index]}"

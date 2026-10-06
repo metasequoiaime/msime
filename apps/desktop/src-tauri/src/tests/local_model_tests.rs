@@ -1,7 +1,9 @@
 //! The on-device model commands and the hotword plumbing a `local` voice session starts with.
 use crate::voice::local_models::{self, LocalModelInstalls};
 use msime_client_core::voice::local_models::LocalModelError;
-use serde_json::{json, Value};
+use serde_json::json;
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+use serde_json::Value;
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 fn invoke(command: &str, body: Value) -> Result<Value, Value> {

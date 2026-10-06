@@ -20,6 +20,7 @@
       </a>
       <nav class="links">
         <a href="#playground">试用</a>
+        <a href="#skins">皮肤</a>
         <a href="#code">代码</a>
         <a href="https://msime.app/download/?platform=web">文档</a>
         <a href="https://github.com/metasequoiaime/msime/tree/develop/packages/web-engine">GitHub</a>
@@ -44,7 +45,6 @@
       </section>
 
       <!-- ---- 演练场：输入区 + 选项 ---- -->
-      <p class="embed-bar"><a href="./" target="_blank" rel="noopener">打开完整演示，查看接入代码 ↗</a></p>
       <section class="playground" id="playground" aria-label="在线试用">
         <div class="demo">
           <div class="demo-bar">
@@ -56,15 +56,11 @@
           <div class="progress" id="progress" aria-hidden="true"><span></span></div>
 
           <div class="editor-wrap">
-            <!-- 按键由这个看不见的密码框接收：浏览器在密码框里停用系统输入法，访客不用切到英文。autocomplete 和几个 data- 属性让浏览器与密码管理器不把它当成要保存的密码。 -->
-            <input class="keysink" id="keysink" type="password" autocomplete="new-password" spellcheck="false" aria-label="在这里打字" data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other" />
+            <!-- 按键由这个看不见的密码框接收：浏览器在密码框里停用系统输入法，访客不用切到英文。几个属性让密码管理器不在这里弹出填充或生成密码的菜单：autocomplete 不能写 new-password，Bitwarden 会据此把它认成注册表单里的新密码框；Bitwarden 默认不理会 data-bwignore（要用户在设置里打开），它对密码框只认 id、name、placeholder 里的 captcha 这类词，所以 name 写成 captcha。 -->
+            <input class="keysink" id="keysink" type="password" name="captcha" autocomplete="off" spellcheck="false" aria-label="在这里打字" data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other" />
             <!-- 输入区按 pre-wrap 显示文字，标签之间不能有空白，否则缩进会被当成文字显示出来。 -->
             <div class="editor" id="editor" aria-hidden="true" data-empty="true"><span class="before"></span><span class="preedit"></span><span class="caret" aria-hidden="true"></span><span class="after"></span></div>
             <p class="placeholder" id="placeholder">点这里直接打字，比如 <kbd>woshizhongguoren</kbd> 再按空格</p>
-            <div class="candidates" id="candidates" hidden>
-              <div class="cand-preedit"></div>
-              <ol class="cand-list"></ol>
-            </div>
           </div>
 
           <div class="examples" aria-label="自动演示">
@@ -86,6 +82,30 @@
         <aside class="options" aria-label="选项">
           <h2>选项</h2>
           <p class="options-lead">改动立刻生效，下方的接入代码会同步更新。</p>
+
+          <div class="option">
+            <div class="option-head"><span>候选栏皮肤</span><code>skin</code></div>
+            <div class="swatches" role="radiogroup" aria-label="候选栏皮肤" id="swatches"></div>
+            <p class="option-note" id="skin-note"></p>
+          </div>
+
+          <div class="option option-pair">
+            <div>
+              <div class="option-head"><span>布局</span><code>layout</code></div>
+              <div class="segmented" role="radiogroup" aria-label="布局" data-option="layout">
+                <button type="button" role="radio" data-value="horizontal">横排</button>
+                <button type="button" role="radio" data-value="vertical">竖排</button>
+              </div>
+            </div>
+            <div>
+              <div class="option-head"><span>明暗</span><code>dark</code></div>
+              <div class="segmented" role="radiogroup" aria-label="明暗" data-option="dark">
+                <button type="button" role="radio" data-value="auto">自动</button>
+                <button type="button" role="radio" data-value="false">浅</button>
+                <button type="button" role="radio" data-value="true">深</button>
+              </div>
+            </div>
+          </div>
 
           <div class="option">
             <div class="option-head"><span>输入方案</span><code>scheme</code></div>
@@ -122,6 +142,15 @@
         </aside>
       </section>
 
+      <!-- ---- 皮肤画廊 ---- -->
+      <section class="gallery" id="skins">
+        <div class="section-head">
+          <h2>候选栏皮肤</h2>
+          <p>和水杉桌面版同一套皮肤：五个全局主题、五个 Windows 外观，也能用皮肤对象自定义配色、圆角、装饰图和背景。点一下应用到上面的输入区。</p>
+        </div>
+        <div class="gallery-grid" id="gallery"></div>
+      </section>
+
       <!-- ---- 接入代码 + 引擎状态 ---- -->
       <section class="dev" id="code">
         <div class="section-head">
@@ -134,6 +163,7 @@
               <div class="tabs" role="tablist" aria-label="接入方式">
                 <button type="button" role="tab" data-tab="textarea" aria-selected="true">挂到文本框</button>
                 <button type="button" role="tab" data-tab="custom" aria-selected="false">自绘输入区</button>
+                <button type="button" role="tab" data-tab="palette" aria-selected="false">只取配色</button>
                 <button type="button" role="tab" data-tab="deploy" aria-selected="false">部署方式</button>
               </div>
               <button type="button" class="copy" id="copy-code">复制</button>

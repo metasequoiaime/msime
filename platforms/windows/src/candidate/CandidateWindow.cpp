@@ -411,9 +411,14 @@ void CandidateWindow::refresh() {
   try {
     reposition();
   } catch (...) {
-    failed_ = true;
-    hide();
+    fail(failure_at_stage("refresh", static_cast<uint32_t>(GetLastError())));
   }
+}
+void CandidateWindow::fail(ComponentFailureSite site) {
+  if (!failed_)
+    failure_site_ = site;
+  failed_ = true;
+  hide();
 }
 void CandidateWindow::reposition() {
   auto value = reader_();
@@ -1249,8 +1254,8 @@ LRESULT CALLBACK CandidateWindow::procedure(HWND window, UINT message,
         break;
       }
     } catch (...) {
-      self->failed_ = true;
-      self->hide(); // No exception/input text may cross the Win32 callback.
+      // No exception/input text may cross the Win32 callback.
+      self->fail(failure_in_message(message, static_cast<uint32_t>(GetLastError())));
       return 0;
     }
   }

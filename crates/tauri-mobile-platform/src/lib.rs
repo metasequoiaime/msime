@@ -57,7 +57,7 @@ pub struct AndroidVoicePolishRequest {
 #[cfg(any(target_os = "android", test))]
 impl AndroidVoicePolishRequest {
     pub fn is_valid(&self) -> bool {
-        self.endpoint.starts_with("https://")
+        msime_client_core::voice::provider::valid_mobile_voice_endpoint(&self.endpoint, false)
             && msime_client_core::voice::provider::bounded_voice_fields(
                 &self.endpoint,
                 &self.model,
@@ -319,13 +319,15 @@ impl MobileVoiceTranscriptionRequest {
             self.provider.as_str(),
             "openai" | "siliconflow" | "groq" | "everyapi" | "mistral"
         ) {
-            return self.endpoint.starts_with("https://")
-                && !self.model.trim().is_empty()
+            return msime_client_core::voice::provider::valid_mobile_voice_endpoint(
+                &self.endpoint,
+                false,
+            ) && !self.model.trim().is_empty()
                 && self.headers.is_empty()
                 && self.boosting_table_id.is_empty();
         }
         self.provider == "doubao"
-            && self.endpoint.starts_with("wss://")
+            && msime_client_core::voice::provider::valid_mobile_voice_endpoint(&self.endpoint, true)
             && self.model.is_empty()
             && self.token.is_empty()
             && valid_doubao_headers(&self.headers)
@@ -344,6 +346,7 @@ fn valid_doubao_headers(headers: &[MobileVoiceRequestHeader]) -> bool {
                     | "x-api-request-id"
             ) || header.value.is_empty()
                 || !is_bounded_text(&header.value, MAX_MOBILE_VOICE_HEADER_BYTES)
+                || !header.value.is_ascii()
         })
     {
         return false;
@@ -850,6 +853,31 @@ mod tests {
     }
 
     #[test]
+    fn android_voice_polish_requests_reject_malformed_secure_endpoints() {
+        let request = super::AndroidVoicePolishRequest {
+            endpoint: "https://fixture.invalid/v1/chat/completions".into(),
+            model: "fixture-model".into(),
+            token: "synthetic-token".into(),
+            prompt_id: "polish".into(),
+            prompt_custom_1: String::new(),
+            prompt_custom_2: String::new(),
+            prompt_custom_3: String::new(),
+        };
+        assert!(request.is_valid());
+        for endpoint in [
+            "https:///v1/chat/completions",
+            "https://user:pass@fixture.invalid/v1/chat/completions",
+            "https://fixture.invalid/v1/chat/completions#fragment",
+        ] {
+            assert!(!super::AndroidVoicePolishRequest {
+                endpoint: endpoint.into(),
+                ..request.clone()
+            }
+            .is_valid());
+        }
+    }
+
+    #[test]
     fn android_voice_requests_use_bounded_platform_arguments() {
         assert!(valid_android_voice_request("fixture-1", "zh-CN"));
         let long_value = "x".repeat(65);
@@ -899,9 +927,21 @@ mod tests {
         .is_valid());
         assert!(!MobileVoiceTranscriptionRequest {
             model: "fixture\nmodel".into(),
-            ..request
+            ..request.clone()
         }
         .is_valid());
+
+        for endpoint in [
+            "https:///v1/audio/transcriptions",
+            "https://user:pass@fixture.invalid/v1/audio/transcriptions",
+            "https://fixture.invalid/v1/audio/transcriptions#fragment",
+        ] {
+            assert!(!MobileVoiceTranscriptionRequest {
+                endpoint: endpoint.into(),
+                ..request.clone()
+            }
+            .is_valid());
+        }
     }
 
     #[test]
@@ -1060,6 +1100,39 @@ mod tests {
             ..request
         }
         .is_valid());
+    }
+
+    #[test]
+    fn doubao_headers_reject_non_ascii_values_before_mobile_transport() {
+        let headers = vec![
+            MobileVoiceRequestHeader {
+                name: "x-api-key".into(),
+                value: "密钥".into(),
+            },
+            MobileVoiceRequestHeader {
+                name: "x-api-resource-id".into(),
+                value: "fixture-resource".into(),
+            },
+            MobileVoiceRequestHeader {
+                name: "x-api-request-id".into(),
+                value: "00000000-0000-4000-8000-000000000000".into(),
+            },
+        ];
+        let request = MobileVoiceTranscriptionRequest {
+            request_id: "fixture-request-1".into(),
+            provider: "doubao".into(),
+            endpoint: "wss://fixture.invalid/asr".into(),
+            model: String::new(),
+            token: String::new(),
+            headers,
+            enable_itn: true,
+            enable_punctuation: true,
+            enable_ddc: false,
+            boosting_table_id: String::new(),
+            model_path: String::new(),
+            hotwords: Vec::new(),
+        };
+        assert!(!request.is_valid());
     }
 
     #[test]

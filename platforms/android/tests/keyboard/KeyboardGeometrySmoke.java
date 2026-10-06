@@ -1,5 +1,6 @@
 import app.msime.android.KeyboardGapPolicy;
 import app.msime.android.KeyboardGeometry;
+import app.msime.android.KeyboardLayout;
 
 public final class KeyboardGeometrySmoke {
     static void check(boolean condition) { if (!condition) throw new AssertionError(); }
@@ -32,6 +33,10 @@ public final class KeyboardGeometrySmoke {
         check(KeyboardGeometry.rowSpacing(101) == 100);
         check(KeyboardGeometry.keySpacing(35) == 35);
         check(KeyboardGeometry.rowSpacing(95) == 95);
+        check(KeyboardGeometry.layoutKeySpacing(-1, KeyboardLayout.ZHUYIN_LAYOUT) == 40);
+        check(KeyboardGeometry.layoutKeySpacing(35, KeyboardLayout.ZHUYIN_LAYOUT) == 35);
+        check(KeyboardGeometry.layoutKeySpacing(-1, KeyboardLayout.STANDARD_TOUCH_LAYOUT) == 60);
+        check(KeyboardGeometry.layoutKeySpacing(61, KeyboardLayout.KOREAN_LAYOUT) == 60);
         check(KeyboardGeometry.heightAdjustment(Integer.MIN_VALUE) == 0);
         check(KeyboardGeometry.CANDIDATE_ROW_HEIGHT_DP == 48);
         check(KeyboardGeometry.heightAdjustment(-13) == -12);

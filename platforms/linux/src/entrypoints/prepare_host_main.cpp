@@ -6,6 +6,7 @@
 
 #include <cerrno>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <fcntl.h>
 #include <iostream>
@@ -182,10 +183,26 @@ int main(int argc, char **argv) {
     const auto request = bootstrap.dump();
     if (request.size() > 16384) return 2;
     umask(0077);
-    if (!msime_linux::state_directory_path_is_safe(state) ||
-        (mkdir(state.c_str(), 0700) != 0 && (errno != EEXIST || !installer_account_state(state)))) {
+    if (!msime_linux::state_directory_path_is_safe(state)) {
       std::cerr << "Cannot create a fresh state directory; existing state is never replaced\n";
       return 1;
+    }
+    // 路径检查接受尚不存在的上级目录，由这里创建：新建的用户（例如经 SSH 或 useradd 创建、还没登录过桌面）可能连 ~/.config 都没有。umask 已是 0077，建出来的都是 0700。
+    std::error_code parent_error;
+    std::filesystem::create_directories(state.parent_path(), parent_error);
+    if (parent_error) {
+      std::cerr << "Cannot create " << state.parent_path().string() << ": " << parent_error.message() << "\n";
+      return 1;
+    }
+    if (mkdir(state.c_str(), 0700) != 0) {
+      if (errno != EEXIST) {
+        std::cerr << "Cannot create " << state.string() << ": " << std::strerror(errno) << "\n";
+        return 1;
+      }
+      if (!installer_account_state(state)) {
+        std::cerr << "Cannot create a fresh state directory; existing state is never replaced\n";
+        return 1;
+      }
     }
     std::unique_ptr<char, decltype(&msime_client_string_free)> raw(
         msime_client_prepare_host(reinterpret_cast<const uint8_t *>(request.data()), request.size()),

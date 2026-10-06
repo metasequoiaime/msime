@@ -420,7 +420,9 @@ final class ImeLetterRows {
             if (rowIndex == rows.size() - 1) {
                 int layout = s.displayedTouchLayout(s.view);
                 boolean symbols = s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS;
-                float edge = symbols ? KeyboardActionRow.letterRowEdgeWeight(true)
+                // 大千注音的末行本来就有 10 个键、也没有大小写键，⌫ 只占一个键的份额（KeyboardActionRow.letterRowEdgeWeight），不再挤窄 ㄈ…ㄥ。
+                float edge = symbols || layout == KeyboardLayout.ZHUYIN_LAYOUT
+                    ? KeyboardActionRow.letterRowEdgeWeight(layout, symbols)
                     : KeyboardActionRow.DESIGN_LETTER_EDGE_WEIGHT;
                 if (KeyboardActionRow.rowsCarryCase(layout, symbols))
                     addLetterRowEdgeKey(row, s.shiftButton, 0, edge);

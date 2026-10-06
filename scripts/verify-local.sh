@@ -1022,12 +1022,15 @@ if [ -n "${MSIME_EVAL_RESOURCES:-}" ] && [ -d "${MSIME_EVAL_RESOURCES:-}" ]; the
   # implicated in choosing the cases. That is what makes its top-1 comparable across models —
   # 0.622 for the shipped 4.25M weights against 0.805 for the 24.9M ones, disagreeing on 272 of
   # 1104 cases where the hand-written set produced three disagreements and McNemar p = 0.25.
-  for set in sentences harvested neutral words; do
+  #
+  # `nine-key` is the words set typed on the phone grid: each letter becomes the digit printed beside it, so readings that share digits (xi'an and yi'an) compete for one input. The full-keyboard numbers say nothing about it, and nine-key ranking had no gate before.
+  for set in sentences harvested neutral words nine-key; do
     case "$set" in
       sentences) args="--set resources/eval/sentences-v1.tsv" ;;
       harvested) args="--set resources/eval/sentences-v2.tsv" ;;
       neutral) args="--set resources/eval/sentences-neutral-v1.tsv" ;;
       words) args="--set resources/eval/quanpin-words-v1.tsv --limit 3000" ;;
+      nine-key) args="--set resources/eval/quanpin-words-v1.tsv --limit 3000 --nine-key" ;;
     esac
     # shellcheck disable=SC2086
     if cargo run --release -q -p msime-input-runtime --example convert_eval --locked -- \

@@ -8,6 +8,7 @@ test("mobile keyboard feedback reuses the shared generation lifecycle", () => {
     ),
   )[0];
 
-  expect(source).toContain("useAsyncGeneration(");
+  expect(source).toContain("useAsyncActionRunner(");
+  expect(source).not.toContain("useAsyncGeneration(");
   expect(source).not.toContain("const generation = useRef(0)");
 });

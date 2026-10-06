@@ -99,12 +99,17 @@ final class ImeStyler {
         }
     }
 
+    /** The key spacing the displayed layout draws with: the user's setting, capped on the eleven-column Dachen rows (KeyboardGeometry.layoutKeySpacing). */
+    private int layoutKeySpacingTenths() {
+        return KeyboardGeometry.layoutKeySpacing(s.touchKeySpacingTenths, s.displayedTouchLayout(s.view));
+    }
+
     void applyKeyboardGeometry(View node) {
         if (s.followsKeySpacing(node)
                 && node.getLayoutParams() instanceof android.view.ViewGroup.MarginLayoutParams) {
             android.view.ViewGroup.MarginLayoutParams params =
                 (android.view.ViewGroup.MarginLayoutParams) node.getLayoutParams();
-            int horizontal = s.halfSpacingPixels(s.touchKeySpacingTenths);
+            int horizontal = s.halfSpacingPixels(layoutKeySpacingTenths());
             int vertical = s.halfSpacingPixels(s.touchRowSpacingTenths);
             params.setMargins(horizontal, vertical, horizontal, vertical);
             node.setLayoutParams(params);
@@ -129,7 +134,7 @@ final class ImeStyler {
         }
         // 设计的键区左右外边距 6 dp 量到键的边缘；键自己带半个键距的外边距，所以容器只补差值。
         int edge = Math.max(0, s.pixels(KeyboardGeometry.DESIGN_PADDING_HORIZONTAL_DP)
-            - s.halfSpacingPixels(s.touchKeySpacingTenths));
+            - s.halfSpacingPixels(layoutKeySpacingTenths()));
         s.keyRows.setPadding(edge, s.keyRows.getPaddingTop(), edge, s.keyRows.getPaddingBottom());
         if (s.actionRow != null)
             s.actionRow.setPadding(edge, s.actionRow.getPaddingTop(), edge,

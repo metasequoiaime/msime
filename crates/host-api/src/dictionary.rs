@@ -2184,13 +2184,22 @@ pub fn lookup_candidates(
         msime_input_runtime::Runtime::new(session, 9).map_err(|error| error.to_string())?;
     // An unfocused runtime drops every keystroke.
     runtime.focus(true).map_err(|error| error.to_string())?;
-    for value in code.bytes() {
-        runtime
+    // 五笔四码唯一时，第四键直接上屏（`input-runtime` 的自动上屏），之后候选列表是空的。这时上屏的那个词就是这串编码给出的唯一候选，要照样报告。`committed` 只留最后一键的上屏，连同它的编码从哪一键开始。
+    let mut committed = None;
+    let mut start = 0;
+    for (index, value) in code.bytes().enumerate() {
+        let transition = runtime
             .dispatch(msime_input_runtime::Action::Character {
                 value,
                 shift: false,
             })
             .map_err(|error| error.to_string())?;
+        committed = transition
+            .commit
+            .map(|text| (code[start..].to_owned(), text));
+        if committed.is_some() {
+            start = index + 1;
+        }
     }
     // The Engine reports a user's word as a dictionary one, so each is looked up as the row it came from.
     let word_kind = if options.scheme == 2 && options.wubi_profile == 1 {
@@ -2200,17 +2209,25 @@ pub fn lookup_candidates(
     } else {
         WordKind::Pinyin
     };
-    runtime
+    let mut candidates: Vec<(String, String, u8)> = runtime
         .all_candidates()
         .candidates
         .into_iter()
+        .map(|candidate| (candidate.text, candidate.code, candidate.source))
+        .collect();
+    if candidates.is_empty() {
+        // 自动上屏的只会是五笔词条，按词库候选（source 0）去查它的来源。
+        candidates.extend(committed.map(|(code, text)| (text, code, 0)));
+    }
+    candidates
+        .into_iter()
         .take(limit)
-        .map(|candidate| {
+        .map(|(text, code, source)| {
             let row = |kind: WordKind| -> Result<Option<Entry>, String> {
-                stored_word(&options, kind, &candidate.code, &candidate.text)
-                    .map(|entry| entry.filter(|_| !candidate.code.is_empty()))
+                stored_word(&options, kind, &code, &text)
+                    .map(|entry| entry.filter(|_| !code.is_empty()))
             };
-            let (origin, weight) = match candidate.source {
+            let (origin, weight) = match source {
                 0 | 1 => match row(word_kind)? {
                     Some(entry) if entry.is_bundled() => {
                         (CandidateOrigin::Dictionary, Some(entry.weight))
@@ -2231,8 +2248,8 @@ pub fn lookup_candidates(
                 _ => return Err("the lookup produced a candidate that is not local".to_owned()),
             };
             Ok(LookupCandidate {
-                text: candidate.text,
-                code: candidate.code,
+                text,
+                code,
                 origin,
                 weight,
             })

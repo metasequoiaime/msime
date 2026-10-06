@@ -1,0 +1,71 @@
+name: Publish Linux to COPR
+
+# 把已发布的 linux-vX.Y.Z 的源码包交给 Fedora COPR（项目 <COPR 用户>/msime），由 COPR 为各 Fedora chroot 构建并托管软件源，用户执行 dnf copr enable msime/msime 后就能 dnf install msime（见 platforms/linux/README.md「包管理器」）。Release Linux 发布成功后调用它；上传或构建失败时也可以单独手动触发，重新提交同一个版本，不用重新发版。
+#
+# SRPM 由 render-definitions.sh 用 linux-vX.Y.Z 那个提交的 spec 现场打出，两个源码 tarball 从发布页下载并对着 SHA256SUMS 核对。凭据是仓库 secret COPR_CONFIG，即 https://copr.fedorainfracloud.org/api/ 给出的整段 ~/.config/copr；没有配置时只留一条警告，不让发版失败。
+on:
+  workflow_call:
+    inputs:
+      version: {required: true, type: string}
+    secrets:
+      COPR_CONFIG: {required: false}
+  workflow_dispatch:
+    inputs:
+      version: {description: "Version of an existing linux-vX.Y.Z release (X.Y.Z)", required: true, type: string}
+permissions: {contents: read}
+concurrency: {group: publish-linux-copr, cancel-in-progress: false}
+jobs:
+  copr:
+    runs-on: ubuntu-24.04
+    # COPR 在 4 个 chroot 上并行构建，单个约一小时；等它构建完，失败才会显示在这次运行上。
+    timeout-minutes: 300
+    steps:
+      - name: Check credentials and version
+        id: check
+        env: {COPR_CONFIG: "${{ secrets.COPR_CONFIG }}", VERSION: "${{ inputs.version }}"}
+        run: |
+          set -euo pipefail
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "version must be X.Y.Z, got '$VERSION'" >&2; exit 1; }
+          if [[ -z "$COPR_CONFIG" ]]; then
+            echo "::warning::COPR_CONFIG is not set; linux-v$VERSION was not submitted to COPR."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ steps.check.outputs.skip == 'false' }}
+        with: {ref: "linux-v${{ inputs.version }}", persist-credentials: false}
+      - name: Install copr-cli
+        if: ${{ steps.check.outputs.skip == 'false' }}
+        run: pipx install copr-cli==2.6
+      # token 只写进 runner 临时目录里仅本用户可读的配置文件，不出现在命令行或日志里。COPR 的 token 只有 180 天有效期，过期时 whoami 失败，这里把原因写清楚，免得只看到一个认证错误；快到期时提前告警。
+      - name: Configure copr-cli
+        id: copr
+        if: ${{ steps.check.outputs.skip == 'false' }}
+        env: {COPR_CONFIG: "${{ secrets.COPR_CONFIG }}"}
+        run: |
+          set -euo pipefail
+          config="$RUNNER_TEMP/copr"
+          (umask 077; printf '%s\n' "$COPR_CONFIG" > "$config")
+          echo "COPR_CLI_CONFIG=$config" >> "$GITHUB_ENV"
+          if ! owner=$(copr-cli --config "$config" whoami); then
+            echo "::error::The COPR API token in COPR_CONFIG was rejected, most likely because it expired (tokens last 180 days). Generate a new one at https://copr.fedorainfracloud.org/api/ and update the COPR_CONFIG secret."
+            exit 1
+          fi
+          echo "owner=$owner" >> "$GITHUB_OUTPUT"
+          expires=$(sed -n 's/^# expiration date: *//p' "$config")
+          if [[ -n "$expires" ]] && (( $(date -d "$expires" +%s) - $(date +%s) < 30 * 86400 )); then
+            echo "::warning::The COPR API token expires on $expires. Generate a new one at https://copr.fedorainfracloud.org/api/ and update the COPR_CONFIG secret."
+          fi
+      - name: Download the release's source tarballs
+        if: ${{ steps.check.outputs.skip == 'false' }}
+        env: {GH_TOKEN: "${{ github.token }}", GH_REPO: "${{ github.repository }}", VERSION: "${{ inputs.version }}"}
+        run: gh release download "linux-v$VERSION" --dir target/release --pattern SHA256SUMS --pattern "msime-$VERSION.tar.xz" --pattern "msime-$VERSION-vendor.tar.xz"
+      - name: Build the source RPM
+        if: ${{ steps.check.outputs.skip == 'false' }}
+        env: {VERSION: "${{ inputs.version }}", MSIME_DEFINITIONS: rpm, MSIME_RELEASE_DIR: target/release}
+        run: bash platforms/linux/packaging/render-definitions.sh "$VERSION" target/package-definitions
+      - name: Build on COPR
+        if: ${{ steps.check.outputs.skip == 'false' }}
+        env: {VERSION: "${{ inputs.version }}", OWNER: "${{ steps.copr.outputs.owner }}"}
+        run: copr-cli --config "$COPR_CLI_CONFIG" build "$OWNER/msime" "target/package-definitions/rpm/msime-$VERSION-1.src.rpm"

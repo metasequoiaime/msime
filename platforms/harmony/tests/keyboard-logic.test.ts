@@ -11853,6 +11853,26 @@ group("Harmony Doubao handshake headers reject unsafe settings", () => {
     ),
     "unknown auth modes are rejected instead of silently changing schemes",
   );
+  for (const value of ["密钥", "资源", "应用"]) {
+    check(
+      !DoubaoHeaderPolicy.validConfiguration(
+        "api_key", value, "fixture-resource", "",
+      ),
+      "non-ASCII API credentials are refused before the WebSocket handshake",
+    );
+    check(
+      !DoubaoHeaderPolicy.validConfiguration(
+        "api_key", "synthetic-token", value, "",
+      ),
+      "non-ASCII resource IDs are refused before the WebSocket handshake",
+    );
+  }
+  check(
+    !DoubaoHeaderPolicy.validConfiguration(
+      "legacy", "synthetic-token", "fixture-resource", "应用",
+    ),
+    "non-ASCII legacy app keys are refused before the WebSocket handshake",
+  );
 });
 
 group("the 2in1 draws the composition inline as tsf_preedit_style says", () => {

@@ -13,6 +13,8 @@
 # 包内私有目录里的 Host API 与 sherpa-onnx 运行库按 RUNPATH 加载，既不能向系统要，也不能当作系统库对外提供；与 packaging.cmake 给 CPack 的设置相同。
 %global __requires_exclude ^lib(msime_host_api|sherpa-onnx-c-api|onnxruntime)\\.so.*$
 %global __provides_exclude_from ^%{_libdir}/msime-client/.*$
+# 不给 C/C++ 代码开 LTO：rusqlite 等 crate 用 cc 把 C 代码编成静态库，optflags 里的 -flto=auto 让库里只有 GCC 的 LTO 中间码，openSUSE 的 Rust 用 clang 加 rust-lld 链接，读不懂这种目标文件，链接时 sqlite3_* 等符号全部未定义（OBS openSUSE_Tumbleweed 上 msime-mcp 就是这样失败的）。
+%define _lto_cflags %{nil}
 
 %ifarch x86_64
 %global voice_platform linux-x86_64
@@ -227,6 +229,7 @@ fi
 # CMake 把许可证（copyright）与全部第三方声明装在 doc/msime-client，与 .deb 相同；%%license 另放一份项目许可证到发行版的标准位置。
 %license LICENSE
 %{_datadir}/doc/msime-client/
+%{_bindir}/msime
 %{_bindir}/msime-*
 %{_bindir}/msime_*.py
 %{_libdir}/msime-client/
@@ -238,6 +241,9 @@ fi
 %{_datadir}/ibus/component/msime-linux.xml
 %{_datadir}/applications/msime-linux.desktop
 %{_datadir}/icons/hicolor/*/apps/msime-linux.*
+# openSUSE 的 systemd 不拥有 /usr/share/systemd/user（它的用户单元在 /usr/lib/systemd/user），构建检查要求包里用到的目录都有归属；多个包共同拥有目录是允许的，Fedora 上也无害。
+%dir %{_datadir}/systemd
+%dir %{_datadir}/systemd/user
 %{_datadir}/systemd/user/msime-linux-*
 %config(noreplace) %{_sysconfdir}/xdg/autostart/msime-linux-clipboard.desktop
 

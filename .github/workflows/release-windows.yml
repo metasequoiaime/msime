@@ -17,11 +17,62 @@ jobs:
         with: {ref: "${{ github.sha }}", persist-credentials: false}
       - id: commit
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - id: version
+        shell: pwsh
+        env: {REQUESTED: "${{ inputs.version }}"}
+        run: |
+          # Build-Client.ps1 stamps this into the Tauri and Server metadata, which take three numeric components only.
+          $v = if ($env:REQUESTED) {$env:REQUESTED.Trim()} else {(Get-Content platforms/windows/version.txt -Raw).Trim()}; if ($v -notmatch '^\d+\.\d+\.\d+$') {throw 'invalid version'}; "value=$v" >> $env:GITHUB_OUTPUT
+          # The release tag and title carry the branch the run was dispatched from: none on main, -beta on develop, -alpha anywhere else. A suffixed release is always published as a prerelease, which the in-app update checks skip.
+          $suffix = switch ($env:GITHUB_REF_NAME) {'main' {''} 'develop' {'-beta'} default {'-alpha'}}; "release=$v$suffix" >> $env:GITHUB_OUTPUT
     outputs:
       sha: ${{ steps.commit.outputs.sha }}
+      version: ${{ steps.version.outputs.value }}
+      release: ${{ steps.version.outputs.release }}
+  # The Rust half of the client (host DLLs, MCP server, Tauri panel shell) does not depend on the edition, so it is built once per architecture here, in parallel, rather than six times over in every edition's job, where it was most of the build time.
+  rust:
+    needs: source
+    runs-on: windows-2025
+    timeout-minutes: 60
+    strategy:
+      fail-fast: true
+      matrix:
+        arch: [x64, x86, arm64]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {ref: "${{ needs.source.outputs.sha }}", persist-credentials: false}
+      - if: matrix.arch == 'x64'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with: {node-version: 24}
+      # Reads the pnpm version from packageManager in package.json.
+      - if: matrix.arch == 'x64'
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - name: Build the Rust half
+        shell: pwsh
+        env: {VERSION: "${{ needs.source.outputs.version }}", ARCH: "${{ matrix.arch }}"}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # rust-toolchain.toml pins the compiler; adding the target from the repository root installs that toolchain first.
+          $triple = switch ($env:ARCH) { 'x64' { 'x86_64-pc-windows-msvc' } 'x86' { 'i686-pc-windows-msvc' } 'arm64' { 'aarch64-pc-windows-msvc' } }
+          rustup target add $triple
+          if ($LASTEXITCODE -ne 0) { throw 'rustup target add failed' }
+          if ($env:ARCH -eq 'arm64' -and -not (Get-Command clang -ErrorAction SilentlyContinue)) {
+            # ring, in the ARM64 host, compiles its ARM64 assembly with clang only.
+            $clang = @(& "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -find 'VC\Tools\Llvm\x64\bin\clang.exe')
+            if ($clang.Count -lt 1) { throw 'no clang on PATH or in the Visual Studio installation' }
+            $env:PATH = "$(Split-Path -Parent $clang[0]);$env:PATH"
+          }
+          ./platforms/windows/Build-RustOutputs.ps1 -Architecture $env:ARCH -OutputDirectory (Join-Path $env:RUNNER_TEMP 'msime-rust') -TargetVersion $env:VERSION
+          Get-ChildItem -LiteralPath (Join-Path $env:RUNNER_TEMP "msime-rust/$env:ARCH") | Format-Table Name, Length
+      # Not msime-windows-*: the coexistence and publish jobs download that pattern as the installers.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: msime-rust-windows-${{ matrix.arch }}-${{ needs.source.outputs.version }}
+          path: ${{ runner.temp }}/msime-rust/
+          if-no-files-found: error
   # 每个版本（shared/contracts/editions.json 里有 Windows 段的 id）各打一个安装包，可以同时安装。full 的安装包名、AppId、目录和注册表键与引入版本之前相同。
   release:
-    needs: source
+    needs: [source, rust]
     runs-on: windows-2025
     timeout-minutes: 150
     strategy:
@@ -37,26 +88,25 @@ jobs:
         with: {ref: "${{ needs.source.outputs.sha }}", fetch-depth: 0, persist-credentials: false}
       - id: version
         shell: pwsh
-        env: {REQUESTED: "${{ inputs.version }}"}
+        env: {VERSION: "${{ needs.source.outputs.version }}", RELEASE: "${{ needs.source.outputs.release }}"}
         run: |
-          # Build-Client.ps1 stamps this into the Tauri and Server metadata, which take three numeric components only.
-          $v = if ($env:REQUESTED) {$env:REQUESTED.Trim()} else {(Get-Content platforms/windows/version.txt -Raw).Trim()}; if ($v -notmatch '^\d+\.\d+\.\d+$') {throw 'invalid version'}; "value=$v" >> $env:GITHUB_OUTPUT
-          # The release tag and title carry the branch the run was dispatched from: none on main, -beta on develop, -alpha anywhere else. A suffixed release is always published as a prerelease, which the in-app update checks skip.
-          $suffix = switch ($env:GITHUB_REF_NAME) {'main' {''} 'develop' {'-beta'} default {'-alpha'}}; "release=$v$suffix" >> $env:GITHUB_OUTPUT
+          "value=$env:VERSION" >> $env:GITHUB_OUTPUT
+          "release=$env:RELEASE" >> $env:GITHUB_OUTPUT
           $baseline = (Get-Content platforms/windows/vcpkg.json -Raw | ConvertFrom-Json).'builtin-baseline'; "vcpkg-baseline=$baseline" >> $env:GITHUB_OUTPUT
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with: {node-version: 24}
       # Reads the pnpm version from packageManager in package.json.
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-      - name: Install Rust MSVC targets
-        shell: pwsh
-        # rust-toolchain.toml pins the compiler; adding targets from the repository root installs that toolchain first.
-        run: rustup target add x86_64-pc-windows-msvc i686-pc-windows-msvc
-      - name: Fetch the settled-rerank model, offline candidate glosses and language dictionaries
-        # bash stops at the first failing command; a multi-line pwsh step only reports the last one. The Cantonese and Zhuyin dictionaries are skipped until resources/language-dictionaries.lock.json pins a release.
+      # Each architecture's Rust outputs land in msime-rust/<arch>, the layout Build-Client.ps1 -RustOutputs reads.
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: msime-rust-windows-*-${{ needs.source.outputs.version }}
+          path: ${{ runner.temp }}/msime-rust
+          merge-multiple: true
+      - name: Fetch offline candidate glosses and language dictionaries
+        # bash 在第一条失败的命令处停下，多行的 pwsh 步骤只报告最后一条的结果。粤拼和注音词库要等 resources/language-dictionaries.lock.json 锁定发布版本后才下载。落定重排模型和手写模型不进安装包，由设置应用按需下载。
         shell: bash
         run: |
-          python scripts/fetch_settled_model.py
           python scripts/fetch_offline_glosses.py
           python scripts/fetch_language_dictionaries.py
       # Build-Client.ps1 takes installed dependency prefixes rather than a vcpkg toolchain, so the manifest is installed into one prefix per architecture: x64 for the Server, Watchdog and 64-bit TSF DLL, x86 for the 32-bit TSF DLL.
@@ -118,7 +168,12 @@ jobs:
           if ($lib.Count -lt 1) { throw 'no lib.exe in the Visual Studio installation' }
           $env:PATH = "$(Split-Path -Parent $lib[-1]);$env:PATH"
           Write-Output "lib: $($lib[-1])"
-          ./platforms/windows/Build-Client.ps1 -X64Dependencies (Join-Path $deps 'x64-windows/x64-windows') -X86Dependencies (Join-Path $deps 'x86-windows/x86-windows') -TargetVersion $env:VERSION -Generator $generator -Edition $env:EDITION
+          # The Arm64X TIP links an ARM64 and an ARM64EC pass (Build-Client.ps1). Require both tool sets up front rather than fail deep into the build.
+          foreach ($component in 'Microsoft.VisualStudio.Component.VC.Tools.ARM64', 'Microsoft.VisualStudio.Component.VC.Tools.ARM64EC') {
+            if (-not (& $vswhere -latest -products * -requires $component -property installationPath)) { throw "Visual Studio lacks $component" }
+          }
+          # The Rust half comes from the rust job; nothing is compiled by cargo or pnpm here.
+          ./platforms/windows/Build-Client.ps1 -X64Dependencies (Join-Path $deps 'x64-windows/x64-windows') -X86Dependencies (Join-Path $deps 'x86-windows/x86-windows') -TargetVersion $env:VERSION -Generator $generator -Edition $env:EDITION -RustOutputs (Join-Path $env:RUNNER_TEMP 'msime-rust')
       - name: Collect third-party notices
         shell: pwsh
         env: {EDITION: "${{ matrix.edition }}"}
@@ -130,6 +185,9 @@ jobs:
           $frontend = Join-Path $supplemental 'frontend-npm-NOTICES.txt'
           python -X utf8 platforms/linux/collect-notices.py cargo $rust msime-host-api msime-engine msime-mcp-server msime-desktop:tauri/custom-protocol
           if ($LASTEXITCODE -ne 0) { throw 'Rust crate notice collection failed' }
+          # The npm collector reads the installed node_modules, which the rust job, not this one, installed.
+          pnpm install --frozen-lockfile
+          if ($LASTEXITCODE -ne 0) { throw 'pnpm install failed' }
           python -X utf8 platforms/linux/collect-notices.py npm $frontend apps/desktop
           if ($LASTEXITCODE -ne 0) { throw 'npm notice collection failed' }
           # An empty dependency graph still produces a non-empty file (title plus "0 packages"), which Collect-Notices.ps1 would accept, so require at least one package and log the counts as release evidence.
@@ -151,7 +209,16 @@ jobs:
           -ServerReleaseDirectory target/windows-$env:EDITION/x64/bin
           -Tsf32ReleaseDirectory target/windows-$env:EDITION/x86/bin
           -Tsf64ReleaseDirectory target/windows-$env:EDITION/x64/bin
+          -TsfArm64ReleaseDirectory target/windows-$env:EDITION/arm64/bin
           -DesktopExecutable target/windows-$env:EDITION/x64/bin/msime-client-settings.exe
+      # 安装包不带 PDB（msime_setup.iss），这次构建的符号作为单独的发布资产放在安装包旁边，收集逻辑和布局见 Collect-Symbols.ps1。维护者用 Package-SimplySign.ps1 打出签名安装包时，同一脚本会写出对应的符号包，连同安装包一起替换到发布上。
+      - name: Collect debug symbols
+        shell: pwsh
+        env: {VERSION: "${{ steps.version.outputs.value }}", EDITION: "${{ matrix.edition }}"}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          ./platforms/windows/installer/Collect-Symbols.ps1 -Edition $env:EDITION -Version $env:VERSION -OutputDirectory dist-symbols
+          Get-ChildItem dist-symbols | Format-Table Name, Length
       - name: Compile installer
         shell: pwsh
         env: {VERSION: "${{ steps.version.outputs.value }}", EDITION: "${{ matrix.edition }}"}
@@ -185,6 +252,12 @@ jobs:
         with:
           name: msime-windows-${{ matrix.edition }}-${{ steps.version.outputs.value }}
           path: dist/
+          if-no-files-found: error
+      # 单独的产物，名字不匹配下面的 msime-windows-* 模式，所以 coexistence 任务不会下载符号；publish 两个都取。
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: msime-symbols-windows-${{ matrix.edition }}-${{ steps.version.outputs.value }}
+          path: dist-symbols/
           if-no-files-found: error
       # The runner is a disposable elevated Windows machine, so install the built package on it and uninstall it again before anything is published. The artifact is uploaded first so a failing package can still be inspected.
       - name: Install and uninstall the package
@@ -220,8 +293,38 @@ jobs:
             $installers[$edition] = "dist/${base}_v$env:VERSION.exe"
           }
           ./platforms/windows/installer/tests/coexistence-smoke.ps1 -Installers $installers
+  # 同一个安装包装在 Windows on Arm 上：装的是 Arm64X TIP 和 ARM64 宿主，原生 ARM64 进程和模拟的 x64 进程都能经 COM 注册创建 TIP，卸载照样干净。
+  arm64:
+    needs: [source, release]
+    runs-on: windows-11-arm
+    timeout-minutes: 60
+    strategy:
+      fail-fast: true
+      matrix:
+        edition: [full, wubi, pinyin, japanese, vietnamese, tibetan]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {ref: "${{ needs.source.outputs.sha }}", persist-credentials: false}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: msime-windows-${{ matrix.edition }}-${{ needs.release.outputs.version }}
+          path: dist
+      - name: Install and uninstall the package
+        shell: pwsh
+        env: {VERSION: "${{ needs.release.outputs.version }}", EDITION: "${{ matrix.edition }}"}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # Windows on Arm has no x64 PowerShell, and the runner's pwsh is ARM64; an x64 one, run emulated, creates the TIP from an x64 process.
+          $zip = Join-Path $env:RUNNER_TEMP 'pwsh-x64.zip'
+          Invoke-WebRequest -Uri 'https://github.com/PowerShell/PowerShell/releases/download/v7.6.6/PowerShell-7.6.6-win-x64.zip' -OutFile $zip
+          if ((Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash -ne '02FE458BE20493FBDF43F61EA20610B811EE6C738AB1676C61B9CFCD1A33C860') { throw 'PowerShell x64 digest mismatch' }
+          $pwshX64 = Join-Path $env:RUNNER_TEMP 'pwsh-x64'
+          Expand-Archive -LiteralPath $zip -DestinationPath $pwshX64 -Force
+          $base = (python platforms/windows/scripts/edition_windows.py field --edition $env:EDITION installer_base_name).Trim()
+          if ($LASTEXITCODE -ne 0) { throw 'edition installer name lookup failed' }
+          ./platforms/windows/installer/tests/install-smoke.ps1 -Installer "dist/${base}_v$env:VERSION.exe" -Edition $env:EDITION -X64PowerShell (Join-Path $pwshX64 'pwsh.exe')
   publish:
-    needs: [source, release, coexistence]
+    needs: [source, release, coexistence, arm64]
     if: inputs.publish
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -231,6 +334,11 @@ jobs:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: msime-windows-*-${{ needs.release.outputs.version }}
+          path: dist
+          merge-multiple: true
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: msime-symbols-windows-*-${{ needs.release.outputs.version }}
           path: dist
           merge-multiple: true
       - name: Publish independent Windows release

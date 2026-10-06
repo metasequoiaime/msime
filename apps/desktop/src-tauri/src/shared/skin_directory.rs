@@ -24,7 +24,7 @@ pub fn open(root: &Path) -> Result<(), &'static str> {
 fn launch_directory(directory: &Path) -> std::io::Result<()> {
     #[cfg(target_os = "linux")]
     {
-        return if crate::linux_process::run_status_path(
+        if crate::linux_process::run_status_path(
             "xdg-open",
             directory,
             std::time::Duration::from_secs(3),
@@ -32,7 +32,7 @@ fn launch_directory(directory: &Path) -> std::io::Result<()> {
             Ok(())
         } else {
             Err(std::io::Error::other("directory opener failed"))
-        };
+        }
     }
 
     #[cfg(target_os = "macos")]
@@ -102,7 +102,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn refuses_a_symlinked_parent_without_creating_outside_it() {
-        use std::os::unix::fs::symlink;
+        use msime_path_trust::untrusted_symlink as symlink;
 
         let root = tempfile::tempdir().unwrap();
         let outside = tempfile::tempdir().unwrap();

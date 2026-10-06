@@ -45,12 +45,12 @@ jobs:
       # build-apk.sh packs the language dictionaries the edition needs from target/language-dictionaries (Cantonese, Zhuyin and Stroke, with their licences, for full; none for the other editions); a release must carry every one of them that resources/language-dictionaries.lock.json pins, so it fails rather than packing fewer.
       - name: Fetch the locked language dictionaries
         run: python3 scripts/fetch_language_dictionaries.py
-      # build-native.sh 需要固定提交的 vcpkg（只用来装 nlohmann-json）和两个 Android Rust target；runner 上都没有。bootstrap-vcpkg.sh 放在 platforms/windows 下但不限平台，装到 build-native.sh 默认读取的 target/tooling/vcpkg。
+      # build-native.sh 需要固定提交的 vcpkg（只用来装 nlohmann-json）和 arm64 的 Android Rust target（build-apk.sh 默认只打 arm64-v8a）；runner 上都没有。bootstrap-vcpkg.sh 放在 platforms/windows 下但不限平台，装到 build-native.sh 默认读取的 target/tooling/vcpkg。
       - name: Prepare pinned vcpkg and Rust targets
         run: |
           set -euo pipefail
           bash platforms/windows/bootstrap-vcpkg.sh
-          rustup target add aarch64-linux-android x86_64-linux-android
+          rustup target add aarch64-linux-android
       - name: Build native Android host
         # 发布包必须用仓库 secrets 里的发布密钥签名：此前用的是 runner 上临时生成的开发密钥，每次发版签名都不同，用户无法覆盖升级。缺少 secrets 时直接失败，不退回开发密钥。
         env:

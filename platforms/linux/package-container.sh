@@ -88,6 +88,8 @@ docker run --rm --init \
   ${CARGO_BUILD_JOBS:+-e CARGO_BUILD_JOBS="$CARGO_BUILD_JOBS"} \
   ${CMAKE_BUILD_PARALLEL_LEVEL:+-e CMAKE_BUILD_PARALLEL_LEVEL="$CMAKE_BUILD_PARALLEL_LEVEL"} \
   "$package_image" bash -euo pipefail -c '
+    # 在这里去掉 Rust 二进制的符号表，而不是写进 workspace 的 [profile.release]：CMake 用 install(FILES/PROGRAMS) 安装它们，CPACK_STRIP_FILES 管不到；而 debian/rules 和 rpm/msime.spec 构建同样的 crate 时带 line-tables-only 调试信息，由 dh_strip 和 find-debuginfo 拆分成 dbgsym 和 debuginfo 包。
+    export CARGO_PROFILE_RELEASE_STRIP=symbols
     cargo build --release --locked -p msime-host-api
     cargo build --release --locked -p msime-mcp-server --bin msime-mcp
     desktop_args=()
@@ -107,8 +109,7 @@ docker run --rm --init \
       *) echo "no pinned voice runtime for $(uname -m)" >&2; exit 2 ;;
     esac
     python3 scripts/fetch_voice_runtime.py --platform "$voice_platform" --out /build/voice-runtime
-    # `msime-linux-handwriting --local` 识别用的 Zinnia 模型，由 resources/handwriting-model.lock.json 固定。它和下面的离线释义交给每个版本的 configure；不提供中文方案的版本（版本表 features.handwriting 和 features.offline_glosses 为 false）由 cmake/Edition.cmake 和 CMakeLists.txt 把两者都去掉，所以日文、越南文和藏文版的安装包里两样都没有。
-    python3 scripts/fetch_handwriting_model.py --out /build/handwriting-model
+    # 发布页的 deb/rpm 不带手写用的 Zinnia 模型（26.8 MB）：每个版本都以 -DMSIME_BUNDLE_HANDWRITING_MODEL=OFF 配置，设置应用在用户需要手写时按 resources/handwriting-model.lock.json 下载模型和它的许可证。发行版仓库的包（packaging/ 下各定义和 nix）不传这个选项，照旧随包。下面的离线释义交给每个版本的 configure；不提供中文方案的版本（版本表 features.offline_glosses 为 false）由 CMakeLists.txt 去掉，所以日文、越南文和藏文版的安装包里没有。
     # Non-English candidate glosses from scripts/fetch_offline_glosses.py, installed only when the databases and their NOTICE are both there; without them the package glosses offline in English only.
     glosses_args=()
     if compgen -G "target/offline-glosses/zh-*.db" >/dev/null && [ -f target/offline-glosses/offline-glosses-NOTICE.txt ]; then
@@ -145,7 +146,7 @@ docker run --rm --init \
         -DMSIME_PACKAGE_VERSION="$MSIME_VERSION" \
         -DMSIME_RUST_NOTICES=/build/notices/rust-crates-NOTICES.txt \
         -DMSIME_VOICE_RUNTIME_DIR=/build/voice-runtime \
-        -DMSIME_HANDWRITING_MODEL_DIR=/build/handwriting-model \
+        -DMSIME_BUNDLE_HANDWRITING_MODEL=OFF \
         "${desktop_args[@]}" "${glosses_args[@]}" "${edition_languages_args[@]}"
       cmake --build "$build"
       if [ "$testing" = ON ]; then
@@ -162,6 +163,13 @@ docker run --rm --init \
     if [ "$MSIME_PACKAGE_FORMAT" = rpm ]; then
       sha256sum -- *.rpm > SHA256SUMS
     else
+      # 这个 bookworm 镜像里的 CPack（CMake 3.25）只用 xz 预设 6 压缩 data.tar.xz，也没有 CPACK_DEBIAN_COMPRESSION_LEVEL，所以每个 .deb 都以 -9 重新打包，大约还能再省五分之一。单个压缩线程把内存控制在 xz -9 每线程所需的 674 MiB，单个块的压缩率也最好。重新打包还会把 control.tar.gz 变成 control.tar.xz，release-linux.yml 据此确认这一步执行过。
+      for deb in *.deb; do
+        repack=$(mktemp -d)
+        dpkg-deb --raw-extract "$deb" "$repack/root"
+        dpkg-deb --root-owner-group --threads-max=1 -Zxz -z9 --build "$repack/root" "$deb" >/dev/null
+        rm -rf "$repack"
+      done
       sha256sum -- *.deb *.tar.gz > SHA256SUMS
     fi
     cat SHA256SUMS

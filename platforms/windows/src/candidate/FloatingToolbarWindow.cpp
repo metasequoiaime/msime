@@ -183,7 +183,12 @@ void FloatingToolbarWindow::refresh(bool enabled) {
     // corner rather than preserving a position the window never took.
     placed_ = true;
     InvalidateRect(window_, nullptr, FALSE);
-  } catch (...) { failed_ = true; hide(); }
+  } catch (...) { fail(failure_at_stage("refresh", static_cast<uint32_t>(GetLastError()))); }
+}
+void FloatingToolbarWindow::fail(ComponentFailureSite site) {
+  if (!failed_) failure_site_ = site;
+  failed_ = true;
+  hide();
 }
 FloatingToolbarWindow::Apartment::Apartment() {
   const HRESULT entered =
@@ -377,6 +382,8 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
   if (message == WM_NCCREATE) { self = static_cast<FloatingToolbarWindow *>(reinterpret_cast<CREATESTRUCTW *>(l)->lpCreateParams);
     self->window_ = window; SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self)); }
   if (!self) return DefWindowProcW(window, message, w, l);
+  // 失败后窗口一直隐藏，不再绘制、不再响应指针，免得同一个故障反复触发。
+  if (self->failed_) return DefWindowProcW(window, message, w, l);
   try { switch (message) {
     case WM_MOUSEACTIVATE: return MA_NOACTIVATE;
     case WM_ACTIVATE:
@@ -588,7 +595,7 @@ LRESULT CALLBACK FloatingToolbarWindow::procedure(HWND window, UINT message,
     }
     // Let DefWindowProc handle the caption message sent by the drag strip.
     // Sending that same synchronous message again here recurses indefinitely.
-  }} catch (...) { self->failed_ = true; self->hide(); return 0; }
+  }} catch (...) { self->fail(failure_in_message(message, static_cast<uint32_t>(GetLastError()))); return 0; }
   return DefWindowProcW(window, message, w, l);
 }
 } // namespace msime::windows

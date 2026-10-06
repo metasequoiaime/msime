@@ -110,21 +110,25 @@ Windows 与 HarmonyOS 除了你主动提交的[社区举报](#社区举报与审
 
 首次准备词库时从 GitHub Releases 拉取固定版本的资源，地址、长度和 SHA-256 全部写死在 `resources/desktop-dictionary.lock.json` 里，逐一校验，全部成功才发布到内容标识目录。下载的是公开发布物，不上传任何东西。检查更新只在点击「检查更新」时进行，向 `https://api.github.com/repos/metasequoiaime/msime/releases` 发起 GET 请求并在本地按平台标签前缀筛选（识别不出宿主平台时改为读取 `https://msime.app/update.json`）；请求除 IP 地址和防缓存时间戳外不携带标识，适用 GitHub 隐私条款。
 
-macOS 发布包只内置打中文所需的核心词库，日文词典、粤拼注音与笔画词库、手写模型三个资源包由设置应用在首次用到时下载，之后从本机读取：
+桌面发布包不内置的几个资源包由设置应用在首次用到时下载，之后从本机读取。哪些平台下载哪些：
+
+- 日文词典、粤拼注音与笔画词库：只有 macOS 下载，它的发布包只内置打中文所需的核心词库；Windows 和 Linux 的安装包带着它们。
+- 手写模型：macOS 下载；Windows 只在系统没有中文 Windows Ink 手写识别器、安装目录里也没有模型时下载；Linux 只在安装前缀里没有随包模型时下载（我们自己发布的 deb/rpm 不带它，各发行版仓库的包继续内置）。
+- 桌面神经联想模型（约 25 MB）：三个桌面平台都只在打开「桌面神经联想」时下载，安装布局里已经带着它时不下载。
 
 | | |
 | --- | --- |
-| 触发 | 只在这几种情况下发生：在设置里选日文、粤拼、注音或笔画方案；第一次打开手写面板；设置应用启动时发现已保存的方案（或上一次的中文方案）需要的资源包还没装；在「临时日语」一行点「下载」 |
-| 目的地 | GitHub Releases（`https://github.com/metasequoiaime/msime-dictionary/releases/download/dict-v.../`，下载时会被重定向到 GitHub 的文件存储域名）与 `https://raw.githubusercontent.com/metasequoiaime/msime-engine/<固定提交>/...`（手写模型）；配置了镜像时改为镜像地址 |
+| 触发 | 只在这几种情况下发生：在设置里选日文、粤拼、注音或笔画方案（macOS）；第一次打开手写面板（宿主需要下载手写模型时）；打开「桌面神经联想」；设置应用启动时发现已保存的方案（或上一次的中文方案）需要的词库、或已打开的桌面神经联想需要的模型还没装；在资源包那一行点「下载」或「重试」 |
+| 目的地 | GitHub Releases（`https://github.com/metasequoiaime/msime-dictionary/releases/download/dict-v.../` 的词库，`https://github.com/metasequoiaime/chinese-ime-lm/releases/download/model-v1/` 的桌面神经联想模型，下载时会被重定向到 GitHub 的文件存储域名）与 `https://raw.githubusercontent.com/metasequoiaime/msime-engine/<固定提交>/...`（手写模型）；配置了镜像时改为镜像地址 |
 | 发送内容 | 对固定文件的 HTTPS GET 请求，不携带任何输入内容、账号或设备标识 |
 | 需要凭据 | 否 |
-| 偏好字段 | 沿用 `voice_input.asr_model_mirror`，默认空字符串，表示直接访问 GitHub |
-| 存放位置 | `~/Library/Application Support/app.msime.macos/resource-packs/<资源包>/`，许可证文本放在数据旁边 |
-| 代码 | `crates/client-core/src/resource_packs.rs`；地址、长度和 SHA-256 固定在 `resources/desktop-dictionary.lock.json`、`resources/language-dictionaries.lock.json` 和 `resources/handwriting-model.lock.json` |
+| 偏好字段 | 沿用 `voice_input.asr_model_mirror`，默认空字符串，表示直接访问 GitHub；下载失败时资源包那一行和手写面板都提供「设置下载镜像」 |
+| 存放位置 | 偏好目录下的 `resource-packs/<资源包>/`：macOS 是 `~/Library/Application Support/app.msime.macos/resource-packs/`，Windows 是输入法服务的数据目录，Linux 是运行时选项记录的状态目录；许可证文本放在数据旁边 |
+| 代码 | `crates/client-core/src/resource_packs.rs`、`apps/desktop/src-tauri/src/platform/desktop/desktop_resource_packs.rs`；地址、长度和 SHA-256 固定在 `resources/desktop-dictionary.lock.json`、`resources/language-dictionaries.lock.json`、`resources/handwriting-model.lock.json` 和 `resources/settled-model.lock.json` |
 
-镜像规则和下面本地语音模型的相同：必须是 `https://` 地址，镜像运营方能看到你的 IP 和你下载的是哪个资源包，但下载内容按固定的 SHA-256 校验，镜像无法替换文件。不需要这些功能就不会发生这些请求，缺少资源包时对应的方案或手写面板显示为不可用。
+镜像规则和下面本地语音模型的相同：必须是 `https://` 地址，镜像运营方能看到你的 IP 和你下载的是哪个资源包，但下载内容按固定的 SHA-256 校验，镜像无法替换文件。不需要这些功能就不会发生这些请求；缺少资源包时对应的方案或手写面板显示为不可用，桌面神经联想保持现有候选。
 
-Android 的手写识别使用 ML Kit，**首次使用需要联网下载识别模型**，之后在设备上离线识别。Linux 与其余桌面端使用 Engine 随附的离线 Zinnia 模型，从安装路径读取，全程不联网；macOS 的手写模型按上一段在首次打开手写面板时下载，之后同样离线识别。
+Android 的手写识别使用 ML Kit，**首次使用需要联网下载识别模型**，之后在设备上离线识别。Windows 先用系统的 Windows Ink 识别器，没有中文识别器时用 Engine 的离线 Zinnia 模型；Linux 与其余桌面端都用这个 Zinnia 模型。发行版仓库的 Linux 包随附该模型，从安装路径读取，全程不联网；macOS、Windows 和我们自己发布的 Linux deb/rpm 按上一段在需要时下载，之后同样离线识别。
 
 ### 使用统计与崩溃上报（默认开启，可关闭）
 

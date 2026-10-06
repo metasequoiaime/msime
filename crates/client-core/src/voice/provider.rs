@@ -65,6 +65,29 @@ pub fn bounded_voice_fields(endpoint: &str, model: &str, token: &str) -> bool {
         && crate::text::is_bounded_text(token, 16 * 1024)
 }
 
+/// 在交给原生宿主前统一校验移动语音传输使用的 URL 形状。
+/// 凭据不能嵌在 authority 中；缺少 authority 的地址若只检查 scheme 前缀会被错误放行，
+/// 随后又被平台传输层拒绝。
+pub fn valid_mobile_voice_endpoint(endpoint: &str, websocket: bool) -> bool {
+    if !crate::text::is_bounded_text(endpoint, 2_048) {
+        return false;
+    }
+    let expected_scheme = if websocket { "wss" } else { "https" };
+    reqwest::Url::parse(endpoint).ok().is_some_and(|url| {
+        url.scheme() == expected_scheme
+            && endpoint.split_once("://").is_some_and(|(_, authority)| {
+                authority
+                    .as_bytes()
+                    .first()
+                    .is_some_and(|byte| *byte != b'/')
+            })
+            && url.host_str().is_some_and(|host| !host.is_empty())
+            && url.username().is_empty()
+            && url.password().is_none()
+            && url.fragment().is_none()
+    })
+}
+
 fn bounded_resolved_voice_fields(fields: &ResolvedVoiceFields) -> bool {
     bounded_voice_fields(&fields.endpoint, &fields.model, &fields.token)
 }
@@ -137,7 +160,7 @@ pub fn mobile_voice_polish_configuration(
         &voice.polish_tokens,
         (default_endpoint, default_model),
     );
-    if !fields.endpoint.starts_with("https://")
+    if !valid_mobile_voice_endpoint(&fields.endpoint, false)
         || !bounded_resolved_voice_fields(&fields)
         || fields.model.is_empty()
         || fields.token.is_empty()
@@ -200,7 +223,9 @@ pub fn mobile_voice_provider_configuration(
         (default_endpoint, default_model),
     );
     let boosting_table_id = voice.doubao_boosting_table_id.trim();
-    if !bounded_resolved_voice_fields(&fields)
+    let websocket = voice.asr_provider == "doubao";
+    if !valid_mobile_voice_endpoint(&fields.endpoint, websocket)
+        || !bounded_resolved_voice_fields(&fields)
         || !crate::text::is_bounded_text(boosting_table_id, 4_096)
     {
         return None;
@@ -302,8 +327,67 @@ mod tests {
         let mut preferences = Preferences::default();
         preferences.voice_input.asr_provider = "openai".into();
         preferences.voice_input.asr_token = "synthetic-token".into();
+        preferences.voice_input.asr_endpoint =
+            "https://fixture.invalid/v1/audio/transcriptions".into();
         preferences.voice_input.asr_model_path = "/models/x-asr-zh-en-streaming".into();
         let configuration = mobile_voice_provider_configuration(&preferences).unwrap();
         assert!(configuration.model_path.is_empty());
+    }
+
+    #[test]
+    fn network_voice_configuration_rejects_malformed_secure_endpoints() {
+        let mut preferences = Preferences::default();
+        preferences.voice_input.asr_provider = "openai".into();
+        preferences.voice_input.asr_token = "synthetic-token".into();
+        for endpoint in [
+            "https:///v1/audio/transcriptions",
+            "https://user:pass@fixture.invalid/v1/audio/transcriptions",
+            "https://fixture.invalid/v1/audio/transcriptions#fragment",
+        ] {
+            preferences.voice_input.asr_endpoint = endpoint.into();
+            assert!(
+                mobile_voice_provider_configuration(&preferences).is_none(),
+                "endpoint must be rejected: {endpoint}"
+            );
+        }
+    }
+
+    #[test]
+    fn voice_polish_configuration_rejects_malformed_secure_endpoints() {
+        let mut preferences = Preferences::default();
+        preferences.voice_input.polish_enabled = true;
+        preferences.voice_input.polish_provider = "openai".into();
+        preferences.voice_input.polish_token = "synthetic-token".into();
+        for endpoint in [
+            "https:///v1/chat/completions",
+            "https://user:pass@fixture.invalid/v1/chat/completions",
+            "https://fixture.invalid/v1/chat/completions#fragment",
+        ] {
+            preferences.voice_input.polish_endpoint = endpoint.into();
+            assert!(
+                mobile_voice_polish_configuration(&preferences).is_none(),
+                "endpoint must be rejected: {endpoint}"
+            );
+        }
+    }
+
+    #[test]
+    fn mobile_voice_endpoint_validation_matches_transport_requirements() {
+        for (endpoint, websocket) in [
+            ("https://fixture.invalid/v1/audio/transcriptions", false),
+            ("wss://fixture.invalid/asr", true),
+        ] {
+            assert!(valid_mobile_voice_endpoint(endpoint, websocket));
+        }
+        for (endpoint, websocket) in [
+            ("https:///path", false),
+            ("https://user:pass@fixture.invalid/path", false),
+            ("https://fixture.invalid/path#fragment", false),
+            ("wss:///path", true),
+            ("wss://user:pass@fixture.invalid/path", true),
+            ("wss://fixture.invalid/path#fragment", true),
+        ] {
+            assert!(!valid_mobile_voice_endpoint(endpoint, websocket));
+        }
     }
 }

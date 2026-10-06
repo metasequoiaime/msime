@@ -10239,6 +10239,22 @@ fn publish_resource_pack(state_root: &Path, pack: ResourcePack, files: &[&str]) 
     directory
 }
 
+/// 设置应用据此决定 Linux 上要不要列出语言词库资源包：只有记录的目录里三个词库都在才算随包带齐。
+#[test]
+fn packaged_language_dictionaries_need_all_three_in_the_recorded_directory() {
+    let root = tempfile::tempdir().unwrap();
+    let recorded = root.path().join("language-dictionaries");
+    let document = json!({ "language_dictionaries": recorded });
+    assert!(!super::packaged_language_dictionaries(&json!({})));
+    assert!(!super::packaged_language_dictionaries(&document));
+    std::fs::create_dir_all(&recorded).unwrap();
+    std::fs::write(recorded.join("msime-cantonese.db"), b"bundled").unwrap();
+    std::fs::write(recorded.join("msime-zhuyin.db"), b"bundled").unwrap();
+    assert!(!super::packaged_language_dictionaries(&document));
+    std::fs::write(recorded.join("msime-stroke.db"), b"bundled").unwrap();
+    assert!(super::packaged_language_dictionaries(&document));
+}
+
 #[test]
 fn downloaded_language_dictionaries_win_over_the_recorded_directory() {
     let root = tempfile::tempdir().unwrap();
@@ -10481,6 +10497,170 @@ fn the_platform_shipping_rule_decides_whether_a_slim_bundle_prepares() {
             "{error}"
         );
     }
+}
+
+/// 落定重排模型随包的优先；随包的不在（包括旧 HostOptions 记着、但升级时已删掉的路径）才用下载的资源包。
+#[test]
+fn a_bundled_settled_model_wins_over_the_downloaded_pack() {
+    let root = tempfile::tempdir().unwrap();
+    let state = root.path().join("state");
+    let resources = root.path().join("resources");
+    std::fs::create_dir_all(&resources).unwrap();
+    let resources_text = resources.to_str().unwrap();
+    assert_eq!(
+        super::settled_model_file(resources_text, None, Some(&state)),
+        None
+    );
+
+    let downloaded = publish_resource_pack(
+        &state,
+        ResourcePack::SettledModel,
+        &["sentence-model-desktop.safetensors"],
+    )
+    .join("sentence-model-desktop.safetensors");
+    assert_eq!(
+        super::settled_model_file(resources_text, None, Some(&state)),
+        Some(downloaded.clone())
+    );
+    // 没有绝对的状态目录就看不到资源包。
+    assert_eq!(super::settled_model_file(resources_text, None, None), None);
+    let removed = root
+        .path()
+        .join("settled-model/sentence-model-desktop.safetensors");
+    assert_eq!(
+        super::settled_model_file(resources_text, removed.to_str(), Some(&state)),
+        Some(downloaded)
+    );
+
+    std::fs::create_dir_all(removed.parent().unwrap()).unwrap();
+    std::fs::write(&removed, b"bundled").unwrap();
+    assert_eq!(
+        super::settled_model_file(resources_text, removed.to_str(), Some(&state)),
+        Some(removed.clone())
+    );
+    let document = json!({ "resources": resources, "settled_model": removed });
+    assert_eq!(super::packaged_settled_model(&document), Some(removed));
+    // 没记录路径时，资源目录里的那份也算随包。
+    assert_eq!(
+        super::packaged_settled_model(&json!({ "resources": resources })),
+        None
+    );
+    std::fs::write(
+        resources.join("sentence-model-desktop.safetensors"),
+        b"bundled",
+    )
+    .unwrap();
+    assert_eq!(
+        super::settled_model_file(resources_text, None, Some(&state)),
+        Some(resources.join("sentence-model-desktop.safetensors"))
+    );
+    assert_eq!(
+        super::packaged_settled_model(&json!({ "resources": resources })),
+        Some(resources.join("sentence-model-desktop.safetensors"))
+    );
+    assert_eq!(super::packaged_settled_model(&json!({})), None);
+}
+
+/// 会话打开后才下载好的落定重排模型，在下一次聚焦时被看见，在后台线程加载，加载完后由输入空闲时的 `apply_pending` 换上，不重建 Engine。
+#[test]
+fn a_settled_model_installed_after_the_session_opened_is_picked_up_on_focus() {
+    let root = tempfile::tempdir().unwrap();
+    let path = |name| {
+        let path = root.path().join(name);
+        std::fs::create_dir_all(&path).unwrap();
+        path
+    };
+    let state = path("state");
+    let resources = path("resources");
+    rusqlite::Connection::open(resources.join("msime-pinyin.db"))
+        .unwrap()
+        .execute_batch(
+            "CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+             CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);",
+        )
+        .unwrap();
+    let dictionaries = path("dictionaries");
+    std::fs::copy(
+        resources.join("msime-pinyin.db"),
+        dictionaries.join("msime-pinyin.db"),
+    )
+    .unwrap();
+    let options = json!({ "api_version": 1, "resources": resources, "user_data": path("user"), "cache": path("cache"), "dictionaries": dictionaries, "preferences": chinese_preferences(), "preferences_directory": state }).to_string();
+    let created = read(unsafe { msime_client_create(options.as_ptr(), options.len()) });
+    assert_eq!(created["ok"], true, "{created}");
+    let handle = created["value"]["session"].as_u64().unwrap();
+    let observed = || {
+        SESSIONS.with(|sessions| {
+            let sessions = sessions.borrow();
+            let session = sessions.get(&handle).unwrap();
+            (
+                session.settled_model.clone(),
+                session.settled_model_loading.is_some(),
+                session.resources_pending,
+            )
+        })
+    };
+    assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+    let (model, pending, _) = observed();
+    assert_eq!(model, None);
+    assert!(!pending);
+
+    let installed = publish_resource_pack(
+        &state,
+        ResourcePack::SettledModel,
+        &["sentence-model-desktop.safetensors"],
+    )
+    .join("sentence-model-desktop.safetensors");
+    // 聚焦只记下变化并在后台起加载，不在输入线程上读模型文件。
+    let slot = SESSIONS.with(|sessions| {
+        let mut sessions = sessions.borrow_mut();
+        let session = sessions.get_mut(&handle).unwrap();
+        session.refresh_resource_packs();
+        assert_eq!(session.settled_model.as_ref(), Some(&installed));
+        assert!(!session.resources_pending, "the Engine is not rebuilt");
+        let slot = session.settled_model_loading.take().expect("loading");
+        session.settled_model = None;
+        slot
+    });
+    // 后台线程把加载结果放进槽里；这里的文件不是合法模型，所以结果是 `None`。
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while slot.get().is_none() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the model loads in the background"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert!(slot.get().unwrap().is_none());
+
+    // 聚焦后某次输入空闲的 `apply_pending` 在加载完成时把模型换上并清掉待换项。
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+        let (model, pending, resources_pending) = observed();
+        assert_eq!(model.as_ref(), Some(&installed));
+        assert!(
+            !resources_pending,
+            "swapping the model does not rebuild the Engine"
+        );
+        if !pending {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "an idle session swaps the loaded model"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+
+    // 没有变化时不再标记。
+    SESSIONS.with(|sessions| {
+        let mut sessions = sessions.borrow_mut();
+        let session = sessions.get_mut(&handle).unwrap();
+        session.refresh_resource_packs();
+        assert!(session.settled_model_loading.is_none());
+    });
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
 }
 
 /// 会话打开后才下载好的资源包，在下一次聚焦时被看见，Engine 在输入空闲时重建。

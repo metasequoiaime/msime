@@ -377,6 +377,8 @@ impl Edition {
         *EDITION.get_or_init(|| {
             let executable =
                 std::env::current_exe().map_err(|_| "cannot locate the running executable")?;
+            // macOS 的 `current_exe` 返回的是启动时用的路径，不解析符号链接；从 PATH 里的链接（如 `~/.local/bin/msime`）启动 `msime-mcp` 时要先找到链接指向的安装包，否则五笔等版本会被当成 full。
+            let executable = std::fs::canonicalize(&executable).unwrap_or(executable);
             let Some(contents) = executable.parent().and_then(Path::parent) else {
                 return Ok(Self::full());
             };

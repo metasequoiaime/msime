@@ -30,6 +30,7 @@ license=(
   'ISC'
   'Zlib'
 )
+# depends 里：ibus 是因为 IBus 守护进程负责拉起 IBus engine，libibus 只是它链接的库；procps-ng 是因为 msime-linux-setup 切换词库前用 pgrep 确认宿主进程。注释不写在数组里面：OBS 自己解析 PKGBUILD 求依赖时会把数组里的注释逐词当成包名。
 depends=(
   'alsa-lib'
   'cairo'
@@ -41,7 +42,6 @@ depends=(
   'gtk3'
   'harfbuzz'
   'hicolor-icon-theme'
-  # IBus 守护进程负责拉起 IBus engine；libibus 只是它链接的库。
   'ibus'
   'libgcc'
   'libibus'
@@ -53,7 +53,6 @@ depends=(
   'libxkbcommon'
   'libxrandr'
   'pango'
-  # msime-linux-setup 切换词库前用 pgrep 确认宿主进程。
   'procps-ng'
   'python'
   'wayland'

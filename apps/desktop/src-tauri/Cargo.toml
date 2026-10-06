@@ -60,6 +60,7 @@ msime-host-windows = { path = "../../../crates/host-windows" }
 [dev-dependencies]
 tauri = { workspace = true, features = ["test"] }
 msime-tauri-mobile-platform = { path = "../../../crates/tauri-mobile-platform" }
+msime-path-trust = { path = "../../../crates/path-trust", features = ["test-support"] }
 
 [lints]
 workspace = true

@@ -40,6 +40,10 @@ public final class WebSocketFramesSmoke {
             new String[] {"X-Api-Key\r\nX-Injected", "secret"});
         check(!injectedName.contains("X-Injected"),
             "header names cannot inject additional handshake lines");
+        String unicode = WebSocketFrames.handshakeRequest("example.invalid", "/v3/sauc", key,
+            new String[] {"X-Api-Key", "密钥"});
+        check(!unicode.contains("X-Api-Key:"),
+            "non-ASCII header values are refused before US-ASCII encoding corrupts credentials");
         // This host never offers an extension, so it must not advertise one either.
         check(!request.contains("Sec-WebSocket-Extensions"), "no extension is offered");
 

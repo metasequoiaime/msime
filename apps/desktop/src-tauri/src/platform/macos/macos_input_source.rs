@@ -50,7 +50,7 @@ fn bounded_command_output(command: &mut Command, maximum: usize) -> Option<Vec<u
         .stderr(Stdio::null())
         .spawn()
         .ok()?;
-    let mut stdout = child.stdout.take()?;
+    let stdout = child.stdout.take()?;
     let mut bytes = Vec::with_capacity(maximum.min(INITIAL_COMMAND_OUTPUT_CAPACITY));
     let read = stdout
         .take((maximum.saturating_add(1)) as u64)
@@ -280,6 +280,7 @@ pub(crate) fn system_bundles() -> Vec<PathBuf> {
 
 /// Install a validated bundle below `input_methods`, replacing an existing
 /// directory only after the complete copy has succeeded.
+#[cfg(test)]
 pub(crate) fn install_bundle_at(
     source: &Path,
     input_methods: &Path,

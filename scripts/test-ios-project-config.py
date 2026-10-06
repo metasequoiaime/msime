@@ -64,6 +64,7 @@ class IOSProjectConfigTests(unittest.TestCase):
         self.assertIn("task.maximumMessageSize = Self.maximumFrameBytes", doubao)
         self.assertIn("private static let pcmChunkBytes = 6_400", doubao)
         self.assertIn("willPerformHTTPRedirection", doubao)
+        self.assertIn("$0.unicodeScalars.allSatisfy({ $0.value < 0x80 })", doubao)
         self.assertIn("MobileVoiceRequestHeader", rust_voice)
         # The resolution moved into the shared crate so the Android keyboard, which never goes
         # through this shell, reads the same answer. What this pins is unchanged: the Doubao

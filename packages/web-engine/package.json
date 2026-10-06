@@ -18,6 +18,10 @@
       "types": "./index.d.ts",
       "default": "./index.js"
     },
+    "./candidates.js": {
+      "types": "./candidates.d.ts",
+      "default": "./candidates.js"
+    },
     "./worker.js": "./worker.js",
     "./assets/*": "./assets/*",
     "./package.json": "./package.json"
@@ -33,6 +37,7 @@
     "input.js",
     "skin.js",
     "candidates.js",
+    "candidates.d.ts",
     "theme-catalog.js",
     "worker.js",
     "assets.js",

@@ -72,8 +72,15 @@ public final class KeyboardActionRow {
             && touchLayout != KeyboardLayout.ZHUYIN_LAYOUT;
     }
 
-    /** Width share for the case and delete keys that bracket the last letter row. */
-    public static float letterRowEdgeWeight(boolean symbols) { return symbols ? 1.4f : 1.6f; }
+    /**
+     * Width share for the case and delete keys that bracket the last letter row.
+     *
+     * <p>The wide edge keys make up for the 26-key letter row holding fewer letters than the rows above. The Dachen row already holds ten keys and carries no case key, so a wide ⌫ there only takes width from ㄈ…ㄥ; it gets one key's share and leaves that row as wide as the digit row.
+     */
+    public static float letterRowEdgeWeight(int touchLayout, boolean symbols) {
+        if (symbols) return 1.4f;
+        return touchLayout == KeyboardLayout.ZHUYIN_LAYOUT ? 1f : 1.6f;
+    }
 
     /** The face the layer key prints for the surface it switches. */
     public static String layerTitle(int touchLayout, boolean symbols) {

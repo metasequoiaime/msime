@@ -309,9 +309,26 @@ export function useSettingsPersistence({
   }
 
   /**
-   * Saves whatever differs from the saved state now, then keeps saving while edits made during the save are still unsaved. Only one save runs at a time; a call while one is in flight is absorbed by it.
+   * Saves whatever differs from the saved state now, then keeps saving while edits made during the save are still unsaved. Only one save runs at a time: a call while one is in flight waits for it and then saves whatever it left unsaved, so once the returned promise resolves the draft as it stood at the call has been written (or the save failed).
    */
-  async function flush() {
+  const saveInFlightRef = useRef<Promise<void>>(undefined);
+  async function flush(): Promise<void> {
+    const inFlight = saveInFlightRef.current;
+    if (savingRef.current && inFlight) {
+      clearAutosave();
+      await inFlight;
+      return flushRef.current();
+    }
+    const operation = saveNow();
+    saveInFlightRef.current = operation;
+    try {
+      await operation;
+    } finally {
+      if (saveInFlightRef.current === operation) saveInFlightRef.current = undefined;
+    }
+  }
+
+  async function saveNow() {
     clearAutosave();
     if (!mounted.current || savingRef.current || !savePending()) return;
     if (draftRef.current && !validCandidateFonts(draftRef.current)) return;

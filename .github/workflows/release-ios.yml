@@ -49,16 +49,17 @@ jobs:
           mkdir -p target/resources
           resource_dir="$(cargo run --quiet -p msime-client-core --example install_resources -- target/resources)"
           bash platforms/ios/build-app.sh "$resource_dir" simulator
+      # 这个归档是未签名的模拟器构建，用户装不了；名字里写明这一点，因为叫 msime-ios-<version> 的发布附件会被当成 iOS 的下载包（用户从 TestFlight / App Store 获取应用，安装大小以 App Store Connect 报告的为准）。
       - name: Package iOS release
         env: {VERSION: "${{ steps.version.outputs.value }}"}
         run: |
           mkdir -p dist
           ditto target/ios/derived-simulator/Build/Products/Release-iphonesimulator/MSIMEApp.app "dist/MSIMEApp-${VERSION}.app"
-          tar -czf "dist/msime-ios-${VERSION}.tar.gz" -C dist "MSIMEApp-${VERSION}.app"
+          tar -czf "dist/msime-ios-simulator-${VERSION}.tar.gz" -C dist "MSIMEApp-${VERSION}.app"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: msime-ios-${{ steps.version.outputs.value }}
-          path: dist/msime-ios-${{ steps.version.outputs.value }}.tar.gz
+          name: msime-ios-simulator-${{ steps.version.outputs.value }}
+          path: dist/msime-ios-simulator-${{ steps.version.outputs.value }}.tar.gz
           if-no-files-found: error
       # 以下把同一份代码签名上传 TestFlight。流程取自 2026-09 的旧 release-ios.yml 与 #518 的修正：内部测试组自动拿到每个上传的构建，不能也不必再加；外部组要显式加入并提交审核；分发前要等 App Store Connect 处理完。
       - name: Prepare iOS signing and App Store Connect credentials
@@ -169,4 +170,4 @@ jobs:
           stable='^ios-v[0-9]+\.[0-9]+\.[0-9]+$'; [[ "$RELEASE" == "$VERSION" ]] || stable=.
           start=$(git tag --list 'ios-v*' --sort=-v:refname | grep -vxF "$tag" | grep -E "$stable" | head -1 || true)
           python3 scripts/generate-release-notes.py --platform ios --version "$RELEASE" --start-tag "$start" --end-ref "$(git rev-parse HEAD)" --output release-notes.md
-          bash scripts/publish-release.sh "$tag" "$(git rev-parse HEAD)" "iOS ${RELEASE}" release-notes.md "dist/msime-ios-${VERSION}.tar.gz"
+          bash scripts/publish-release.sh "$tag" "$(git rev-parse HEAD)" "iOS ${RELEASE}" release-notes.md "dist/msime-ios-simulator-${VERSION}.tar.gz"

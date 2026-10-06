@@ -792,7 +792,9 @@ fn voice_provider_options_only_forwards_known_doubao_auth_modes() {
     });
     let result = crate::voice::voice_provider_options(&document);
     assert!(result.is_ok());
-    let options = result.ok().expect("voice options should be valid");
+    let Ok(options) = result else {
+        panic!("voice options should be valid");
+    };
     assert_eq!(
         options.get("doubao_auth_mode").and_then(|v| v.as_str()),
         Some("legacy")
@@ -805,7 +807,9 @@ fn voice_provider_options_only_forwards_known_doubao_auth_modes() {
     });
     let result = crate::voice::voice_provider_options(&document);
     assert!(result.is_ok());
-    let options = result.ok().expect("voice options should be valid");
+    let Ok(options) = result else {
+        panic!("voice options should be valid");
+    };
     assert!(options.get("doubao_auth_mode").is_none());
 }
 
@@ -1150,6 +1154,29 @@ fn packaged_handwriting_model_only_accepts_an_existing_absolute_file() {
     );
 }
 
+#[test]
+fn ink_handwriting_answer_reports_no_result_when_no_model_can_follow() {
+    let candidates = vec!["中".to_string()];
+    // Ink 认出了内容：不论有没有模型都直接用。
+    assert_eq!(
+        super::ink_handwriting_answer(Some(candidates.clone()), true),
+        Some(candidates.clone())
+    );
+    assert_eq!(
+        super::ink_handwriting_answer(Some(candidates.clone()), false),
+        Some(candidates)
+    );
+    // Ink 正常运行但没认出内容：有模型就再问模型，没有模型就返回空结果（面板显示未识别到内容），而不是报识别失败。
+    assert_eq!(super::ink_handwriting_answer(Some(Vec::new()), true), None);
+    assert_eq!(
+        super::ink_handwriting_answer(Some(Vec::new()), false),
+        Some(Vec::new())
+    );
+    // Ink 出错或没有中文识别器：交给模型；没有模型时调用方照旧报不可用。
+    assert_eq!(super::ink_handwriting_answer(None, true), None);
+    assert_eq!(super::ink_handwriting_answer(None, false), None);
+}
+
 /// 在 `state_root` 下伪造一个已完整安装的手写资源包，返回其中的模型路径。
 fn publish_fake_handwriting_pack(state_root: &std::path::Path) -> std::path::PathBuf {
     use msime_client_core::resource_packs::{self, ResourcePack};
@@ -1183,9 +1210,10 @@ fn packaged_handwriting_model_prefers_the_option_over_a_downloaded_pack() {
         super::downloaded_handwriting_model(Some(&document)),
         Some(downloaded.clone())
     );
-    // 只有选项和环境变量都没给时，macOS 才用已下载的资源包。
-    #[cfg(target_os = "macos")]
-    if std::env::var_os("MSIME_HANDWRITING_MODEL").is_none_or(|value| value.is_empty()) {
+    // 只有选项和环境变量都没给、也没有随包模型时，三个桌面平台才用已下载的资源包（macOS 上已下载的还排在旧版本随包的模型之前）。
+    if std::env::var_os("MSIME_HANDWRITING_MODEL").is_none_or(|value| value.is_empty())
+        && (cfg!(target_os = "macos") || super::bundled_handwriting_model().is_none())
+    {
         let document = serde_json::json!({
             "preferences_directory": state.path().to_string_lossy(),
         });
@@ -1194,6 +1222,13 @@ fn packaged_handwriting_model_prefers_the_option_over_a_downloaded_pack() {
             Some(downloaded)
         );
     }
+}
+
+/// 指定了手写模型（哪怕文件不在）时识别只用它，下载的资源包用不上，所以 Windows 和 Linux 不提供下载。
+#[test]
+fn a_configured_handwriting_model_needs_no_download() {
+    let document = serde_json::json!({ "handwriting_model": "/synthetic/handwriting-zh_CN.model" });
+    assert!(super::handwriting_model_without_pack(Some(&document)));
 }
 
 #[test]
@@ -1212,130 +1247,6 @@ fn packaged_handwriting_model_ignores_a_relative_preferences_directory() {
     assert_eq!(
         super::downloaded_handwriting_model(Some(&serde_json::json!({}))),
         None
-    );
-}
-
-#[test]
-fn custom_translations_round_trip_through_the_user_directory() {
-    let state = tempfile::tempdir().unwrap();
-    let user = state.path().join("user");
-    // No overlay yet is the ordinary state: the page opens on an empty document rather than an error.
-    assert_eq!(
-        super::read_custom_translations_at(user.clone()).unwrap(),
-        ""
-    );
-
-    super::write_custom_translations_at(user.clone(), "你好\thello\n").unwrap();
-    assert_eq!(
-        super::read_custom_translations_at(user.clone()).unwrap(),
-        "你好\thello\n"
-    );
-    // The Engine reads this exact path; writing anywhere else would save into a file nobody opens.
-    assert!(user.join("custom_translations.txt").is_file());
-    // Nothing is left behind from the staged write.
-    assert!(!user.join("custom_translations.txt.writing").exists());
-
-    // A file written elsewhere may carry a BOM. It is an encoding marker, not part of the first source
-    // word, and leaving it in would make the page show it and save it back.
-    std::fs::write(
-        user.join("custom_translations.txt"),
-        "\u{feff}刚才\ta moment ago\n",
-    )
-    .unwrap();
-    assert_eq!(
-        super::read_custom_translations_at(user.clone()).unwrap(),
-        "刚才\ta moment ago\n"
-    );
-
-    // Emptying the document means "no overlay". An empty file would have the Engine open and read an
-    // empty set every session instead.
-    super::write_custom_translations_at(user.clone(), "  \n\t\n").unwrap();
-    assert!(!user.join("custom_translations.txt").exists());
-    assert_eq!(
-        super::read_custom_translations_at(user.clone()).unwrap(),
-        ""
-    );
-    // Emptying an already empty overlay is not an error.
-    super::write_custom_translations_at(user.clone(), "").unwrap();
-}
-
-#[test]
-fn custom_translations_refuse_documents_the_engine_could_not_read() {
-    let state = tempfile::tempdir().unwrap();
-    let user = state.path().join("user");
-    super::write_custom_translations_at(user.clone(), "你好\thello\n").unwrap();
-
-    let oversized = "a".repeat(super::CUSTOM_TRANSLATIONS_MAX_BYTES + 1);
-    assert_eq!(
-        super::write_custom_translations_at(user.clone(), &oversized)
-            .unwrap_err()
-            .code,
-        "invalid_document"
-    );
-    assert_eq!(
-        super::write_custom_translations_at(user.clone(), "你好\thello\0\n")
-            .unwrap_err()
-            .code,
-        "invalid_document"
-    );
-    // A refused save leaves the overlay that was there, rather than half of a new one.
-    assert_eq!(
-        super::read_custom_translations_at(user.clone()).unwrap(),
-        "你好\thello\n"
-    );
-
-    std::fs::write(
-        user.join("custom_translations.txt"),
-        vec![b'a'; super::CUSTOM_TRANSLATIONS_MAX_BYTES + 1],
-    )
-    .unwrap();
-    assert_eq!(
-        super::read_custom_translations_at(user).unwrap_err().code,
-        "storage"
-    );
-}
-
-#[cfg(unix)]
-#[test]
-fn custom_translations_read_rejects_symlinked_storage() {
-    use std::os::unix::fs::symlink;
-
-    let state = tempfile::tempdir().unwrap();
-    let outside = tempfile::tempdir().unwrap();
-    let user = state.path().join("user");
-    std::fs::create_dir_all(&user).unwrap();
-    let outside_file = outside.path().join("custom-translations.txt");
-    std::fs::write(&outside_file, "synthetic outside\n").unwrap();
-    symlink(&outside_file, user.join("custom_translations.txt")).unwrap();
-
-    assert_eq!(
-        super::read_custom_translations_at(user).unwrap_err().code,
-        "storage"
-    );
-}
-
-#[cfg(unix)]
-#[test]
-fn custom_translation_save_does_not_follow_a_staging_symlink() {
-    use std::os::unix::fs::symlink;
-
-    let state = tempfile::tempdir().unwrap();
-    let outside = tempfile::tempdir().unwrap();
-    let user = state.path().join("user");
-    std::fs::create_dir_all(&user).unwrap();
-    let outside_staging = outside.path().join("staging.txt");
-    std::fs::write(&outside_staging, b"keep me").unwrap();
-    symlink(
-        &outside_staging,
-        user.join("custom_translations.txt.writing"),
-    )
-    .unwrap();
-
-    super::write_custom_translations_at(user.clone(), "你好\thello\n").unwrap();
-    assert_eq!(std::fs::read(outside_staging).unwrap(), b"keep me");
-    assert_eq!(
-        super::read_custom_translations_at(user).unwrap(),
-        "你好\thello\n"
     );
 }
 
@@ -1781,8 +1692,10 @@ fn runtime_options_sync_replaces_preferences_atomically() {
         document: Arc::new(Mutex::new(document)),
         skins: None,
     };
-    let mut preferences = Preferences::default();
-    preferences.candidate_page_size = 9;
+    let preferences = Preferences {
+        candidate_page_size: 9,
+        ..Preferences::default()
+    };
     sync_runtime_options(&state, &preferences).unwrap();
     let updated: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
     assert_eq!(updated["preferences"]["candidate_page_size"], 9);
