@@ -39,7 +39,7 @@ public final class CommunityAdapter extends RecyclerView.Adapter<CommunityAdapte
     /** One line of the listing: an entry, or a section title when `item` is null. */
     private record Entry(@Nullable CommunityCatalog.Item item, String header) {}
 
-    private final ArrayList<Entry> entries = new ArrayList<>();
+    private final ArrayList<Entry> entries = new ArrayList<>(CommunityRequest.PAGE_SIZE);
     private final Map<String, Action> actions = new HashMap<>();
     private final Consumer<CommunityCatalog.Item> onOpen;
     private final Consumer<CommunityCatalog.Item> onAction;
