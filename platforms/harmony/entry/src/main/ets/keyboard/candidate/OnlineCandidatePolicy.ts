@@ -42,6 +42,7 @@ interface AiContent {
 /** Bounds and identifies asynchronous cloud/AI results before they return to Engine. */
 export class OnlineCandidatePolicy {
   static readonly QUIET_INTERVAL_MS: number = 350;
+  static readonly CLOUD_TIMEOUT_MS: number = 2_000;
   static readonly MAX_CLOUD_RESPONSE_BYTES: number = 256 * 1024;
   static readonly MAX_AI_RESPONSE_BYTES: number = 1024 * 1024;
 

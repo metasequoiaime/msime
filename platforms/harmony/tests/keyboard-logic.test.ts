@@ -702,6 +702,10 @@ group("counts a held physical key once", () => {
 });
 
 group("bounds and deduplicates asynchronous online AI candidates", () => {
+  check(
+    OnlineCandidatePolicy.CLOUD_TIMEOUT_MS === 2_000,
+    "cloud candidate reads use the shared two-second budget",
+  );
   const signature = "7:ni'hao:fixture:true:";
   check(
     OnlineCandidatePolicy.shouldReleaseAfterFailure(signature, signature, 4, 4, 7, 7),
