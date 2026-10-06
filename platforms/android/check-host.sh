@@ -497,6 +497,7 @@ javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "$repo_root/platforms/android/tests/voice/VoicePolishPolicySmoke.java" \
   "$repo_root/platforms/android/tests/voice/VoicePolisherSmoke.java" \
   "$repo_root/platforms/android/tests/voice/LocalAsrPolicySmoke.java" \
+  "$repo_root/platforms/android/tests/voice/VoiceConfigurationSmoke.java" \
   "$repo_root/platforms/android/tests/candidate/ReplyKeyboardSmoke.java" \
   "$repo_root/platforms/android/tests/keyboard/KeyboardSkinSmoke.java" \
   "$repo_root/platforms/android/tests/keyboard/KeyboardFeedbackSmoke.java" \
@@ -606,6 +607,7 @@ java -cp "$output_dir" DoubaoAsrPolicySmoke
 java -cp "$output_dir" VoicePolishPolicySmoke
 java -cp "$output_dir:$android_jar" VoicePolisherSmoke
 java -cp "$output_dir" LocalAsrPolicySmoke
+java -cp "$output_dir:$android_jar" app.msime.android.VoiceConfigurationSmoke
 java -cp "$output_dir" ReplyKeyboardSmoke
 java -cp "$output_dir" app.msime.android.KeyboardSkinSmoke
 java -cp "$output_dir" CloudClipboardTextPolicySmoke
