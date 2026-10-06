@@ -104,8 +104,9 @@ stdenv.mkDerivation {
     wayland-scanner
   ]
   ++ lib.optional (settingsWindow != null) wrapGAppsHook3;
-  # python 放在这里，postInstall 的 patchShebangs --host 才会把装出去的脚本改写到它；bash 同理，
-  # 给装出去的 sh、bash 脚本（msime-linux-settings、Omarchy 的钩子等）用，NixOS 上没有 /bin/bash。
+  # python 与 bash 放在这里，patchShebangs --host（postInstall 的与 fixup 自动跑的）才会把装出去的
+  # 脚本改写到它们：provider 脚本要带 websockets 的 python，sh、bash 脚本（msime-linux-settings、
+  # Omarchy 的钩子等）在 NixOS 上没有 /bin/bash 可用。
   # wayland-protocols 只提供 .pc 和协议 XML，CMake 经 pkg-config 找到其中的 xdg-shell.xml。
   buildInputs = [
     python
@@ -132,8 +133,10 @@ stdenv.mkDerivation {
   postPatch = ''
     patchShebangs platforms/linux/scripts platforms/linux/tests platforms/linux/data
   '';
-  # 上面改写的是源码树，装出去的脚本随之指向构建用的 python3；fixup 的 patchShebangs 不动已经指向
-  # store 的 shebang，所以在这里按宿主的 PATH 重新改写，换成带 websockets 的 python。
+  # 上面改写的是源码树，CMake 从那里装进 bin 的脚本随之指向构建用的 python3 与 bash；fixup 的
+  # patchShebangs 不动已经指向 store 的 shebang，所以在这里按宿主的 PATH 重新改写，python 换成带
+  # websockets 的那份。由 .in 模板生成的脚本（msime-linux-settings、Omarchy 的钩子）不在源码树里被
+  # 改写过，留给 fixup。
   postInstall = ''
     patchShebangs --update --host $out/bin
   '';

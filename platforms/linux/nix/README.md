@@ -57,7 +57,7 @@ nix fmt                      # nixfmt
 2. 本机平台用得上的包各自 `fetchurl`（地址按 registry 的规则拼出，哈希就是锁文件里的 `integrity`）。平台不符的包不下载，pnpm 本来也会跳过它们。
 3. 把这些包的 `resolution` 改写成 `{integrity: …, tarball: 'file:/nix/store/…'}`，`pnpm install --offline --frozen-lockfile` 从这些 tarball 装好。改写后的锁文件会被 pnpm 11 的供应链策略拒绝，所以设了 `pnpm_config_trust_lockfile`：每个 tarball 已由 `fetchurl` 按 `integrity` 核对过。
 
-它只认来自 registry、`resolution` 只带 `integrity` 的包。锁文件里出现 git 依赖或 tarball 地址时求值直接失败并指出是哪个包，届时要扩展这个文件，而不是装出缺包的结果。它下载的是锁文件里所有 workspace 成员的依赖（含 `apps/harmony` 和根目录的开发工具），比设置页实际用到的多一些；每个包单独缓存，锁文件只改了几个包时只下载那几个。
+它只认来自 registry、`resolution` 只带 `integrity` 的包。锁文件里出现 git 依赖或 tarball 地址时求值直接失败并指出是哪个包，届时要扩展这个文件，而不是装出缺包的结果。它下载锁文件里所有本机能用的包，不按 workspace 成员裁剪：`pnpm install --filter '@msime/desktop...'` 仍要装根目录 importer 的依赖（`vite-plus` 等），而 `apps/harmony` 的依赖都在 `apps/desktop` 里，从这三个 importer 能到达的正好就是全部。每个包单独缓存，锁文件只改了几个包时只下载那几个。
 
 ## `msime-fcitx5`
 

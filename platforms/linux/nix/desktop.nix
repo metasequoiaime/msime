@@ -66,7 +66,7 @@ let
       } pnpm-lock.yaml
       pnpm install --offline --frozen-lockfile --ignore-scripts --filter '@msime/desktop...' \
         --store-dir "$TMPDIR/pnpm-store"
-      patchShebangs node_modules/{*,.*}
+      patchShebangs node_modules
       runHook postConfigure
     '';
 
