@@ -87,11 +87,27 @@ export function localModelErrorMessage(error: unknown): string | null {
 }
 
 export function validModelMirror(mirror: string): boolean {
+  if (mirror === "") return true;
+  if (
+    mirror.length > 2048 ||
+    !mirror.startsWith("https://") ||
+    mirror.slice("https://".length).startsWith("/") ||
+    /[\s\u0000-\u001f\u007f]/.test(mirror) ||
+    mirror.includes("?") ||
+    mirror.includes("#")
+  ) {
+    return false;
+  }
+  let url: URL;
+  try {
+    url = new URL(mirror);
+  } catch {
+    return false;
+  }
   return (
-    mirror === "" ||
-    (mirror.length <= 2048 &&
-      mirror.length > "https://".length &&
-      mirror.startsWith("https://") &&
-      !/[\s\u0000-\u001f\u007f]/.test(mirror))
+    url.protocol === "https:" &&
+    url.hostname !== "" &&
+    url.username === "" &&
+    url.password === ""
   );
 }
