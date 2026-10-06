@@ -8,7 +8,7 @@ import android.graphics.Paint;
 import android.graphics.drawable.Drawable;
 import android.view.animation.DecelerateInterpolator;
 import android.widget.Button;
-import app.msime.android.keyboard.KeyboardGeometry;
+import app.msime.android.KeyboardGeometry;
 
 /**
  * 候选条右端的展开键：左边一条 1×22 dp 的 kbHair 分隔线，右边 40 dp 见方的点按区，中间画 20 dp 的 chevron；展开时 chevron 用 200 ms 转 180°。

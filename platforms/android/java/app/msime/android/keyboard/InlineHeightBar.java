@@ -16,7 +16,7 @@ import android.view.View;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.Button;
 import android.widget.LinearLayout;
-import app.msime.android.keyboard.KeyboardGeometry;
+import app.msime.android.KeyboardGeometry;
 
 /**
  * 内联的键盘高度调整条，替换工具栏那一行：取消 | 拖动柄「上下拖动调整 · N%」| 重置 | 完成。
