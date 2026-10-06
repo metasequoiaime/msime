@@ -4,6 +4,7 @@ import android.content.Context;
 import androidx.annotation.Nullable;
 import app.msime.android.KeyboardSkin;
 import app.msime.android.NativeClient;
+import app.msime.android.PreferencesRevisionPolicy;
 import app.msime.android.TypingStatisticsDocument;
 import app.msime.android.TypingStatisticsModel;
 import app.msime.android.policy.HostOptionsPolicy;

@@ -24,7 +24,9 @@ try {
         'x64' { 0x8664 }
         'x86' { 0x14c }
         'arm64' { 0xaa64 }
-        'arm64x' { 0xa64e }
+        # 最终 Arm64X DLL 在磁盘上仍使用 ARM64 machine，随后通过混合元数据区分。
+        # https://learn.microsoft.com/windows/arm/arm64ec#identifying-arm64ec-binaries-and-apps
+        'arm64x' { 0xaa64 }
         default { throw "Unsupported architecture: $Architecture" }
     }
     if ($machine -ne $expected) { throw 'PE architecture mismatch' }

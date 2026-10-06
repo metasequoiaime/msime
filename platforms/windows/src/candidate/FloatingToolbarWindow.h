@@ -3,6 +3,7 @@
 #include "ModeMailbox.h"
 #include "FloatingToolbarSettings.h"
 #include "ToolbarIcons.h"
+#include "ComponentFailure.h"
 #include <functional>
 #include <array>
 #include <optional>
@@ -85,12 +86,17 @@ public:
   FloatingToolbarWindow &operator=(const FloatingToolbarWindow &) = delete;
   void refresh(bool enabled);
   void hide();
+  // 失败后工具栏保持隐藏，之后的调用都不再做事；Server 去掉工具栏继续运行。
   bool failed() const { return failed_; }
+  // 第一次失败的位置，只有固定标签和数字，可以写进诊断日志。
+  const std::optional<ComponentFailureSite> &failure_site() const { return failure_site_; }
   HWND handle() const { return window_; }
 
 private:
   static LRESULT CALLBACK procedure(HWND, UINT, WPARAM, LPARAM) noexcept;
   void paint();
+  // 记下第一次失败并隐藏；error 由 catch 现场先取，免得隐藏窗口时被改写。
+  void fail(ComponentFailureSite site);
   // The product mark, at `pixels` square, or nothing when the executable has
   // no icon resource - which is every unit test that links this library.
   ID2D1Bitmap *logo_bitmap(int pixels);
@@ -129,6 +135,7 @@ private:
   std::function<bool()> active_reader_;
   std::function<std::optional<bool>()> character_set_reader_;
   bool failed_ = false;
+  std::optional<ComponentFailureSite> failure_site_;
   // Pointer feedback. Without these the buttons gave no sign of being buttons.
   std::optional<size_t> hovered_;
   std::optional<size_t> pressed_;

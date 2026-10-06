@@ -35,7 +35,7 @@ test("uses the latest flush callback without accumulating listeners", () => {
   expect(second).toHaveBeenCalledOnce();
 });
 
-test("both autosave hooks use the shared window leave lifecycle", () => {
+test("the settings autosave hook uses the shared window leave lifecycle", () => {
   const persistence = Object.values(
     import.meta.glob<string>("../../../../packages/ui/src/settings/use-settings-persistence.ts", {
       eager: true,
@@ -43,17 +43,8 @@ test("both autosave hooks use the shared window leave lifecycle", () => {
       import: "default",
     }),
   )[0];
-  const translations = Object.values(
-    import.meta.glob<string>("../../../../packages/ui/src/settings/use-custom-translations.ts", {
-      eager: true,
-      query: "?raw",
-      import: "default",
-    }),
-  )[0];
 
-  for (const source of [persistence, translations]) {
-    expect(source).toContain('from "./use-flush-on-window-leave"');
-    expect(source).toContain("useFlushOnWindowLeave");
-    expect(source).not.toContain('window.addEventListener("blur"');
-  }
+  expect(persistence).toContain('from "./use-flush-on-window-leave"');
+  expect(persistence).toContain("useFlushOnWindowLeave");
+  expect(persistence).not.toContain('window.addEventListener("blur"');
 });

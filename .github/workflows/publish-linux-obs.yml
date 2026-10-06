@@ -57,10 +57,10 @@ jobs:
       - name: Download the release's source tarballs
         if: ${{ steps.check.outputs.skip == 'false' }}
         env: {GH_TOKEN: "${{ github.token }}", GH_REPO: "${{ github.repository }}", VERSION: "${{ inputs.version }}"}
-        run: gh release download "linux-v$VERSION" --dir target/release --pattern SHA256SUMS --pattern "msime-$VERSION.tar.xz" --pattern "msime-$VERSION-vendor.tar.xz"
-      - name: Render the RPM and Debian definitions
+        run: gh release download "linux-v$VERSION" --dir target/release --pattern SHA256SUMS --pattern "msime-$VERSION.tar.xz" --pattern "msime-$VERSION-vendor.tar.xz" --pattern "msime-linux-$VERSION-1.x86_64.rpm"
+      - name: Render the RPM, Debian and Arch definitions
         if: ${{ steps.check.outputs.skip == 'false' }}
-        env: {VERSION: "${{ inputs.version }}", MSIME_DEFINITIONS: "rpm,debian", MSIME_RELEASE_DIR: target/release}
+        env: {VERSION: "${{ inputs.version }}", MSIME_DEFINITIONS: "rpm,debian,arch", MSIME_RELEASE_DIR: target/release}
         run: bash platforms/linux/packaging/render-definitions.sh "$VERSION" target/package-definitions
       - name: Submit to OBS
         if: ${{ steps.check.outputs.skip == 'false' }}

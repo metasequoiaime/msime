@@ -3486,7 +3486,8 @@ public final class MSIMEInputService extends InputMethodService {
                 && node.getLayoutParams() instanceof android.view.ViewGroup.MarginLayoutParams) {
             android.view.ViewGroup.MarginLayoutParams params =
                 (android.view.ViewGroup.MarginLayoutParams) node.getLayoutParams();
-            int horizontal = halfSpacingPixels(touchKeySpacingTenths);
+            int horizontal = halfSpacingPixels(KeyboardGeometry.layoutKeySpacing(
+                touchKeySpacingTenths, displayedTouchLayout(view)));
             int vertical = halfSpacingPixels(touchRowSpacingTenths);
             params.setMargins(horizontal, vertical, horizontal, vertical);
             node.setLayoutParams(params);
@@ -7557,7 +7558,7 @@ public final class MSIMEInputService extends InputMethodService {
             if (rowIndex == rows.size() - 1) {
                 int layout = displayedTouchLayout(view);
                 boolean symbols = keyboardLayer == KeyboardLayout.Layer.SYMBOLS;
-                float edge = KeyboardActionRow.letterRowEdgeWeight(symbols);
+                float edge = KeyboardActionRow.letterRowEdgeWeight(layout, symbols);
                 if (KeyboardActionRow.rowsCarryCase(layout, symbols))
                     addLetterRowEdgeKey(row, shiftButton, 0, edge);
                 if (KeyboardActionRow.rowsCarryDelete(layout, symbols))

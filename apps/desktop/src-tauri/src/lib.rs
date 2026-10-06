@@ -224,8 +224,13 @@ fn host_capabilities(app: tauri::AppHandle) -> HostCapabilities {
     let host_options = app
         .try_state::<DictionaryHostOptions>()
         .and_then(|options| options.snapshot().ok());
-    // macOS 上选用粤拼/注音/笔画会下载对应的语言词库，所以即便还没下载，这些方案也保持可选；但锁文件没固定其词库的方案下载了也用不上，照样去掉。
-    if cfg!(target_os = "macos") {
+    // macOS 上选用粤拼/注音/笔画会下载对应的语言词库，所以即便还没下载，这些方案也保持可选；但锁文件没固定其词库的方案下载了也用不上，照样去掉。Linux 安装没有随包带齐这几份词库时，设置应用同样提供语言词库资源包（见 `desktop_resource_packs::offered_by`），按同样的规则处理；带齐时照旧按随包的词库判断。
+    let downloads_language_dictionaries = cfg!(target_os = "macos")
+        || (cfg!(target_os = "linux")
+            && host_options
+                .as_ref()
+                .is_some_and(|document| !msime_host_api::packaged_language_dictionaries(document)));
+    if downloads_language_dictionaries {
         drop_unpinned_language_schemes(&mut capabilities);
     } else {
         drop_uninstalled_language_schemes(
@@ -536,8 +541,6 @@ impl DictionaryHostOptions {
 }
 
 struct SkinDirectoryState(PathBuf);
-/// The Engine's user directory: where the documents a user writes by hand live, `custom_translations.txt` among them.
-struct UserDirectoryState(PathBuf);
 struct TypingStatisticsState(TypingStatisticsStore);
 /// The shared preferences directory, where the input method writes `diagnostic.log` when its diagnostic switch is on.
 struct DiagnosticLogState(PathBuf);
@@ -832,84 +835,6 @@ async fn read_skin_stylesheet(
 ) -> Result<String, CommandError> {
     let root = directory.0.clone();
     tauri::async_runtime::spawn_blocking(move || read_skin_stylesheet_at(root, &id, &relative))
-        .await
-        .map_err(|_| CommandError { code: "storage" })?
-}
-
-/// The user's own candidate glosses, as a document the settings page edits.
-///
-/// The reference has the user drop `custom_translations.txt` into the profile directory and says so in
-/// its documentation. That instruction does not survive the move to macOS, where the same directory
-/// lives under `~/Library` and the Finder hides it by default, so the overlay was reachable on paper
-/// and not in practice. The page already knows how to edit the document - it was only ever handed to
-/// HarmonyOS - so the host supplies the two ends, and the Engine keeps reading the same file.
-const CUSTOM_TRANSLATIONS_MAX_BYTES: usize = 1024 * 1024;
-
-fn custom_translations_path(user: &std::path::Path) -> PathBuf {
-    user.join("custom_translations.txt")
-}
-
-fn read_custom_translations_at(user: PathBuf) -> Result<String, CommandError> {
-    crate::shared::atomic_file::check_directory_ancestors(&user)
-        .map_err(|_| CommandError { code: "storage" })?;
-    let path = custom_translations_path(&user);
-    let metadata = match std::fs::symlink_metadata(&path) {
-        Ok(metadata) => metadata,
-        // No overlay yet is the ordinary state, not a failure: the page opens on an empty document.
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(String::new()),
-        Err(_) => return Err(CommandError { code: "storage" }),
-    };
-    if !metadata.file_type().is_file() {
-        return Err(CommandError { code: "storage" });
-    }
-    let file = std::fs::File::open(path).map_err(|_| CommandError { code: "storage" })?;
-    let bytes = crate::shared::bounded_body::read_bounded(file, CUSTOM_TRANSLATIONS_MAX_BYTES)
-        .map_err(|_| CommandError { code: "storage" })?;
-    // A UTF-8 BOM is an encoding marker the reference accepts, not part of the first source word.
-    let text = String::from_utf8(bytes).map_err(|_| CommandError { code: "storage" })?;
-    Ok(text.strip_prefix('\u{feff}').unwrap_or(&text).to_owned())
-}
-
-fn write_custom_translations_at(user: PathBuf, text: &str) -> Result<(), CommandError> {
-    if text.len() > CUSTOM_TRANSLATIONS_MAX_BYTES || text.contains('\0') {
-        return Err(CommandError {
-            code: "invalid_document",
-        });
-    }
-    let path = custom_translations_path(&user);
-    // An emptied document means "no overlay". Removing the file says that; leaving an empty one
-    // behind would have the Engine open and read an empty set every session instead.
-    if text.trim().is_empty() {
-        return match std::fs::remove_file(&path) {
-            Ok(()) => Ok(()),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(_) => Err(CommandError { code: "storage" }),
-        };
-    }
-    // Use a fresh private sibling and publish it atomically. This avoids
-    // following a pre-existing staging symlink and leaves the previous overlay
-    // intact if writing or syncing fails.
-    crate::shared::atomic_file::write(&path, text.as_bytes())
-        .map_err(|_| CommandError { code: "storage" })
-}
-
-#[tauri::command]
-async fn read_custom_translations(
-    directory: tauri::State<'_, UserDirectoryState>,
-) -> Result<String, CommandError> {
-    let user = directory.0.clone();
-    tauri::async_runtime::spawn_blocking(move || read_custom_translations_at(user))
-        .await
-        .map_err(|_| CommandError { code: "storage" })?
-}
-
-#[tauri::command]
-async fn write_custom_translations(
-    directory: tauri::State<'_, UserDirectoryState>,
-    text: String,
-) -> Result<(), CommandError> {
-    let user = directory.0.clone();
-    tauri::async_runtime::spawn_blocking(move || write_custom_translations_at(user, &text))
         .await
         .map_err(|_| CommandError { code: "storage" })?
 }
@@ -5019,7 +4944,6 @@ pub fn run() {
             app.manage(SkinDirectoryState(directory.join("skins")));
             #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
             app.manage(desktop_plugins::PluginsState::new(&directory));
-            app.manage(UserDirectoryState(directory.join("user")));
             app.manage(preferences.clone());
             let clipboard_state = ClipboardHistoryState(Arc::new(Mutex::new(clipboard)));
             app.manage(ClipboardHistoryState(Arc::clone(&clipboard_state.0)));
@@ -5370,8 +5294,6 @@ pub fn run() {
             read_skin_font,
             read_skin_stylesheet,
             read_skin_toolbar_stylesheet,
-            read_custom_translations,
-            write_custom_translations,
             open_skin_directory,
             test_api_credential,
             #[cfg(target_os = "linux")]

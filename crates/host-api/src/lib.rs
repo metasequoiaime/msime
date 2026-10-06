@@ -963,7 +963,7 @@ impl HostOptions {
     }
 
     fn into_engine_options(self) -> EngineOptions {
-        // 每个平台都这样查找；日文和语言词库只有 macOS 会下载，别处的状态目录里从来没有它们。
+        // 每个平台都这样查找；日文词典只有 macOS 会下载，语言词库由 macOS 和没有随包带齐它们的 Linux 安装下载，别处的状态目录里从来没有它们。
         let state_root = absolute_state_root(self.preferences_directory.as_deref());
         let dictionaries = LanguageDictionaries::resolve(
             state_root.as_deref(),
@@ -1112,6 +1112,18 @@ pub fn packaged_settled_model(host_options: &Value) -> Option<PathBuf> {
         host_options.get("resources")?.as_str()?,
         host_options.get("settled_model").and_then(Value::as_str),
     )
+}
+
+/// HostOptions 文档（`host_options`）所描述的安装布局是否随包带齐了粤拼、注音和笔画词库，也就是 `language_dictionaries` 记录的目录里三个文件都在。设置应用据此决定 Linux 上要不要提供 `language-dictionaries` 资源包的下载：没带齐的安装（打包时没有词库、或不带它们的 Nix 包）只能靠它补上，会话里每个词库都优先用资源包里的那份。
+pub fn packaged_language_dictionaries(host_options: &Value) -> bool {
+    let recorded = host_options
+        .get("language_dictionaries")
+        .and_then(Value::as_str)
+        .map(Path::new);
+    let dictionaries = LanguageDictionaries::resolve(None, recorded);
+    dictionaries.cantonese.is_some()
+        && dictionaries.zhuyin.is_some()
+        && dictionaries.stroke.is_some()
 }
 
 /// The offline gloss dictionary for one non-English target language installed beside a resource bundle, when one is there: `offline-glosses/zh-<language>.db`, built by `scripts/build_offline_glosses.py` and pinned by `resources/offline-glosses.lock.json`. A sibling of `resources` for the same reason as `settled_model_beside`: the resource directory must match the shared dictionary lock exactly, and a host ships only the languages it wants. Absence is the normal case.

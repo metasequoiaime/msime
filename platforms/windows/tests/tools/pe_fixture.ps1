@@ -10,7 +10,7 @@ function Write-PEFixture {
         'x64' { 0x8664 }
         'x86' { 0x14c }
         'arm64' { 0xaa64 }
-        'arm64x' { 0xa64e }
+        'arm64x' { 0xaa64 }
         default { throw "Unsupported fixture architecture: $Architecture" }
     }
     $magic = if ($Architecture -eq 'x86') { 0x10b } else { 0x20b }

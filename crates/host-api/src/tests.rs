@@ -9984,6 +9984,22 @@ fn publish_resource_pack(state_root: &Path, pack: ResourcePack, files: &[&str]) 
     directory
 }
 
+/// 设置应用据此决定 Linux 上要不要列出语言词库资源包：只有记录的目录里三个词库都在才算随包带齐。
+#[test]
+fn packaged_language_dictionaries_need_all_three_in_the_recorded_directory() {
+    let root = tempfile::tempdir().unwrap();
+    let recorded = root.path().join("language-dictionaries");
+    let document = json!({ "language_dictionaries": recorded });
+    assert!(!super::packaged_language_dictionaries(&json!({})));
+    assert!(!super::packaged_language_dictionaries(&document));
+    std::fs::create_dir_all(&recorded).unwrap();
+    std::fs::write(recorded.join("msime-cantonese.db"), b"bundled").unwrap();
+    std::fs::write(recorded.join("msime-zhuyin.db"), b"bundled").unwrap();
+    assert!(!super::packaged_language_dictionaries(&document));
+    std::fs::write(recorded.join("msime-stroke.db"), b"bundled").unwrap();
+    assert!(super::packaged_language_dictionaries(&document));
+}
+
 #[test]
 fn downloaded_language_dictionaries_win_over_the_recorded_directory() {
     let root = tempfile::tempdir().unwrap();

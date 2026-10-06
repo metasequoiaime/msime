@@ -110,7 +110,7 @@ msime-linux-setup --update --download   # 升级之后只取回过期的那几�
 
 ### Nix 与 NixOS
 
-仓库根目录的 `flake.nix` 提供 `msime-fcitx5`（默认包）、`msime-host-api`、`msime-resources`、`msime-handwriting-model`、`msime-voice-runtime`、`overlays.default` 和开发 shell，实际的构建在 `platforms/linux/nix/`。`msime-host-api` 用 crane 构建，编译器按 `rust-toolchain.toml` 取自 rust-overlay，不用 nixpkgs 自带的 rustc；`msime-fcitx5` 是本目录的 CMake 构建，构建时跑与门禁相同的 ctest，装完再用 `ldd` 核对插件能按 RUNPATH 找到同一包里的 Host API。IBus engine、`msime-linux-setup` 等其余入口一并装进同一个包，但 NixOS 上目前只接入 Fcitx5；provider 服务和设置窗口还没有接进 Nix。离线手写模型与各发行版的包一样默认随包：`msime-handwriting-model` 按 `resources/handwriting-model.lock.json` 的地址和 SHA-256 下载，构建中的 ctest `linux-handwriting-local-model` 用它识别两笔合成的「十」；不要它时用 `msime-fcitx5.override { handwritingModel = null; }`。本地语音识别用的 sherpa-onnx 运行库同样默认随包：`msime-voice-runtime` 取 `resources/voice-runtime.lock.json` 里本机架构的上游预编译库，由 ctest `linux-voice-local-runtime` 核对能被打开；不要它时用 `msime-fcitx5.override { voiceRuntime = null; }`。本地识别还需要识别模型，它由设置窗口下载，设置窗口接进 Nix 之前只能手动准备。
+仓库根目录的 `flake.nix` 提供 `msime-fcitx5`（默认包）、`msime-host-api`、`msime-resources`、`msime-handwriting-model`、`msime-voice-runtime`、`overlays.default`、NixOS 模块 `nixosModules.default` 和开发 shell，实际的构建在 `platforms/linux/nix/`。`msime-host-api` 用 crane 构建，编译器按 `rust-toolchain.toml` 取自 rust-overlay，不用 nixpkgs 自带的 rustc；`msime-fcitx5` 是本目录的 CMake 构建，构建时跑与门禁相同的 ctest，装完再用 `ldd` 核对插件能按 RUNPATH 找到同一包里的 Host API。IBus engine、`msime-linux-setup` 等其余入口一并装进同一个包，但 NixOS 上目前只接入 Fcitx5；设置窗口还没有接进 Nix。离线手写模型与各发行版的包一样默认随包：`msime-handwriting-model` 按 `resources/handwriting-model.lock.json` 的地址和 SHA-256 下载，构建中的 ctest `linux-handwriting-local-model` 用它识别两笔合成的「十」；不要它时用 `msime-fcitx5.override { handwritingModel = null; }`。本地语音识别用的 sherpa-onnx 运行库同样默认随包：`msime-voice-runtime` 取 `resources/voice-runtime.lock.json` 里本机架构的上游预编译库，由 ctest `linux-voice-local-runtime` 核对能被打开；不要它时用 `msime-fcitx5.override { voiceRuntime = null; }`。本地识别还需要识别模型，它由设置窗口下载，设置窗口接进 Nix 之前只能手动准备。
 
 ```sh
 nix build .#msime-fcitx5     # 插件、Host API 与命令行入口，构建中跑 ctest
@@ -118,21 +118,23 @@ nix flake check
 nix develop                  # 钉住的 Rust 工具链与 CMake/Fcitx5 开发依赖
 ```
 
-插件被加载进 `fcitx5` 进程，应当与系统上的 Fcitx5 出自同一份 nixpkgs，所以在系统配置里用 overlay 而不是直接取 `packages`：
+在 NixOS 上用模块。插件被加载进 `fcitx5` 进程，应当与系统上的 Fcitx5 出自同一份 nixpkgs，所以模块默认按本系统的 nixpkgs 构建 `msime-fcitx5`，不需要另加 overlay：
 
 ```nix
 # flake.nix 的 inputs
 msime.url = "github:metasequoiaime/msime";
 
-# NixOS 模块
-nixpkgs.overlays = [ inputs.msime.overlays.default ];
-i18n.inputMethod = {
-  enable = true;
-  type = "fcitx5";
-  fcitx5.addons = [ pkgs.msime-fcitx5 ];
-};
-environment.systemPackages = [ pkgs.msime-fcitx5 ]; # 首次配置要用的 msime-linux-setup
+# NixOS 配置（imports 里加 inputs.msime.nixosModules.default）
+programs.msime.enable = true;
 ```
+
+`programs.msime.enable` 接入 Fcitx5 插件、放上 `msime-linux-setup` 等命令，并注册 provider 的用户单元：`programs.msime.services.online.enable`、`services.voice.enable` 两个按 socket 激活的服务和 `services.clipboard.enable` 剪贴板监视器默认都开，与 `msime-linux-setup` 首次配置时为用户启用的一致。`programs.msime.package` 可以换成 `override` 过的包。`nix flake check` 里的 `nixos-module` 起一台虚拟机核对这些单元能被拉起（需要 KVM）。
+
+以前按路径启用过这些单元（`systemctl --user enable /nix/store/…/msime-linux-online.socket` 之类）的用户，`~/.config/systemd/user` 里会留着指向旧 store 路径的链接，它们优先于模块注册的单元，旧路径被垃圾回收后单元就加载不了。换到模块后执行一次 `systemctl --user disable msime-linux-online.socket msime-linux-voice.socket msime-linux-clipboard.service`（会提示这些单元仍在全局范围启用，即由模块拉起）和 `systemctl --user daemon-reload`，再用 `systemctl --user show -p FragmentPath <单元>` 确认它们来自 `/etc/systemd/user`。
+
+录音、提示音和静音用的音频工具不随包，用系统的音频栈（例如 `services.pipewire`）。
+
+不用模块、经 `overlays.default` 自己写配置时，还要加上 `systemd.packages = [ pkgs.msime-fcitx5 ];`，否则 provider 单元不会注册到 systemd。
 
 切换配置并重新登录后，运行 `msime-linux-setup --download` 完成首次配置（见「安装后首次使用」），它会把水杉输入法加进当前的 Fcitx5 输入法组。包默认不带词库，与 `.deb` 一致：词库由这一步下载到 `$XDG_DATA_HOME/msime-client/resources`，`runtime-options.json` 里记录的也是这个用户目录，Nix store 的路径不会被写进去。`msime-fcitx5.override { bundledResources = pkgs.msime-resources; }` 可以把 `desktop-dictionary.lock.json` 钉住的词库装进包里，`msime-resources` 直接按锁文件里的地址和 SHA-256 下载，不另记一份哈希，词库放在包内的 `share/msime-client/resources`，旁边的 `share/doc/msime-resources` 带着逐项列出词库来源与上游条款的 `msime-engine-dictionary-NOTICE.md`；但这样首次配置记录的是 store 里的词库目录，词库锁不变时重新构建不会刷新这条记录，旧路径被垃圾回收后输入法就找不到词库，所以默认不这样做。
 
@@ -188,7 +190,7 @@ cd aur-msime && git add PKGBUILD .SRCINFO msime.install && git commit -m "Update
 
 **Fedora COPR**：项目 `msime/msime`（<https://copr.fedorainfracloud.org/coprs/msime/msime/>），chroot 为 Fedora 43/44 的 x86_64 与 aarch64，构建不联网。Fedora 用户执行 `sudo dnf copr enable msime/msime && sudo dnf install msime`。Release Linux 在发布页生成后自动调用 `.github/workflows/publish-linux-copr.yml`：从 `linux-vV` 的 spec 打出 SRPM，`copr-cli build` 提交并等待构建结束，失败会显示在这次运行上（需要仓库 secret `COPR_CONFIG`，即 <https://copr.fedorainfracloud.org/api/> 给出的整段 `~/.config/copr`；缺少时跳过并告警）。COPR 的 API token 有效期 180 天，过期时工作流报错并指向重新生成的页面，剩不到 30 天时告警。补发或重建某个版本用 `gh workflow run publish-linux-copr.yml -f version=V`。新增 Fedora 版本时在项目设置里勾选对应 chroot，或用 `copr-cli modify msime --chroot <每个要保留和新增的 chroot>`（这个选项给的是完整列表）。
 
-**openSUSE OBS** 是官方的发行版仓库：项目 `home:msime`（<https://build.opensuse.org/project/show/home:msime>），同时构建 RPM 与 Debian 包，目前覆盖 Fedora 43/44（x86_64、aarch64）、openSUSE Tumbleweed、Ubuntu 24.04/26.04 与 Debian testing/unstable（x86_64）。用户经 `curl -fsSL https://msime.app/install.sh | sh` 安装（脚本在 msime-web 仓库的 `public/install.sh`），它按发行版添加 `https://download.opensuse.org/repositories/home:/msime/<仓库>/` 和签名公钥，再用 dnf、zypper 或 apt 安装 `msime`；之后的升级随系统更新到来。Release Linux 在发布页生成后自动调用 `.github/workflows/publish-linux-obs.yml`，把这个版本的打包定义和源码包提交到 OBS（需要仓库 secret `OBS_USER`/`OBS_PASSWORD`，缺少时跳过并告警）；补发或重发某个版本用 `gh workflow run publish-linux-obs.yml -f version=V`。项目配置在 `packaging/obs/`：`repositories.txt` 列出构建哪些仓库（Ubuntu 要显式列出 `universe-update`、`update`、`universe`、`standard` 四个源，rustc 1.91 只在 `universe-update` 里），`prjconf` 固定 Ubuntu 上 cargo/rustc 的候选包与 Debian 上 libselinux 的提供者，`_constraints` 要求 8 GB 内存与 40 GB 磁盘，`publish.sh VERSION DEFS RELEASE` 据此写入项目 meta 并提交，本地运行时用 `osc` 当前登录的账号。Debian 12/13、Ubuntu 22.04 和 openSUSE Leap 不在其中：前两者的 rustc 低于 1.90，Ubuntu 22.04 的 Fcitx5 低于 5.0.20，Leap 不在 OBS 的发行版列表里（见 `repositories.txt` 的注释）。
+**openSUSE OBS** 是官方的发行版仓库：项目 `home:msime`（<https://build.opensuse.org/project/show/home:msime>），同时构建 RPM 与 Debian 包，目前覆盖 Fedora 43/44（x86_64、aarch64）、openSUSE Tumbleweed、Ubuntu 24.04/26.04、Debian testing/unstable 与 Arch Linux（含 Omarchy 等衍生版）（x86_64）。Arch 仓库用 `arch/msime-bin` 的 PKGBUILD 重新打包发布页的 `.rpm`（OBS 构建不联网，`publish.sh` 把那个 `.rpm` 原名放进包里，makepkg 找到同名文件就不下载），用户把 `[home_msime_Arch]` 加进 `/etc/pacman.conf` 后 `pacman -S msime-bin`；OBS 自己解析 PKGBUILD 求依赖，不认数组里的注释，所以两个 PKGBUILD 的数组里不写注释。用户经 `curl -fsSL https://msime.app/install.sh | sh` 安装（脚本在 msime-web 仓库的 `public/install.sh`），它按发行版添加 `https://download.opensuse.org/repositories/home:/msime/<仓库>/` 和签名公钥，再用 dnf、zypper 或 apt 安装 `msime`；之后的升级随系统更新到来。Release Linux 在发布页生成后自动调用 `.github/workflows/publish-linux-obs.yml`，把这个版本的打包定义和源码包提交到 OBS（需要仓库 secret `OBS_USER`/`OBS_PASSWORD`，缺少时跳过并告警）；补发或重发某个版本用 `gh workflow run publish-linux-obs.yml -f version=V`。项目配置在 `packaging/obs/`：`repositories.txt` 列出构建哪些仓库（Ubuntu 要显式列出 `universe-update`、`update`、`universe`、`standard` 四个源，rustc 1.91 只在 `universe-update` 里），`prjconf` 固定 Ubuntu 上 cargo/rustc 的候选包与 Debian 上 libselinux 的提供者，`_constraints` 要求 8 GB 内存与 40 GB 磁盘，`publish.sh VERSION DEFS RELEASE` 据此写入项目 meta 并提交，本地运行时用 `osc` 当前登录的账号。Debian 12/13、Ubuntu 22.04 和 openSUSE Leap 不在其中：前两者的 rustc 低于 1.90，Ubuntu 22.04 的 Fcitx5 低于 5.0.20，Leap 不在 OBS 的发行版列表里（见 `repositories.txt` 的注释）。
 
 **Launchpad PPA**：`ppa:msime/ppa`（<https://launchpad.net/~msime/+archive/ubuntu/ppa>），目前上传 Ubuntu 24.04（noble）与 26.04（resolute）。Ubuntu 用户执行 `sudo add-apt-repository ppa:msime/ppa && sudo apt install msime`。Launchpad 只收签名的源码上传，每个代号要单独的 `debian/changelog`；Release Linux 在发布页生成后自动调用 `.github/workflows/publish-linux-ppa.yml`，按 `debian/README.source` 的「上传到 PPA」为每个代号生成 `1~ppa1~ubuntu<版本>` 的源码包并签名上传（第一个代号带上两个 orig tarball，之后的复用），给 noble 的那份把 Build-Depends 的 cargo、rustc 直接换成 cargo-1.91、rustc-1.91，因为 Launchpad 只取第一个候选。签名密钥是仓库 secret `LAUNCHPAD_GPG_KEY`（`MSIME Release Signing <admin@msime.app>`，指纹 `B9C96EE4B38BF864233BFA1CF25F85719A49653E`，2028-10-04 到期，公钥在 keyserver.ubuntu.com 并登记在 Launchpad 账号 msime 上）；缺少时跳过并告警。Launchpad 不接受同一版本号重传，重新上传已被接受的版本用 `gh workflow run publish-linux-ppa.yml -f version=V -f ppa_revision=2`。构建在 Launchpad 上进行，结果看 PPA 的 +packages 页。Ubuntu 22.04 的 Fcitx5 过旧、Debian 13（rustc 1.85）不能作为目标。
 
@@ -433,7 +435,7 @@ msime-linux-prepare --installed /absolute/new-state
 
 非英文翻译目标（法、日、西、俄、德、韩）的离线释义词典是可选的：用 `scripts/build_offline_glosses.py` 生成到 `target/offline-glosses` 后，配置时传 `-DMSIME_OFFLINE_GLOSSES=/absolute/target/offline-glosses`，CMake 把其中的 `zh-*.db` 连同必需的 `offline-glosses-NOTICE.txt` 装到资源目录的同级 `${CMAKE_INSTALL_DATADIR}/msime-client/offline-glosses`。使用显式资源目录时，把它们放在该目录同级的 `offline-glosses/` 下即可。IBus 与 Fcitx5 在主翻译目标装有词典时先显示词典释义，开启候选翻译且配置了自己的翻译服务时再逐个询问所有候选，服务的回答替换词典的，没回答的保留词典释义。没有这些文件时候选释义仍只有英文。
 
-粤拼、注音与笔画的词库同样是可选的：`scripts/fetch_language_dictionaries.py` 按 `resources/language-dictionaries.lock.json` 下载到 `target/language-dictionaries`（锁还没有发布时只打印 skipped 并成功退出），配置时自动使用该目录，也可以传 `-DMSIME_LANGUAGE_DICTIONARIES=/absolute/dir`。CMake 把其中的 `msime-cantonese.db` 连同 `msime-rime_cantonese_LICENSE.txt`、`msime-zhuyin.db` 连同 `msime-libchewing_data_LICENSE.txt`、`msime-stroke.db` 连同 `msime-rime_stroke_LICENSE.txt` 装到资源目录的同级 `${CMAKE_INSTALL_DATADIR}/msime-client/language-dictionaries`；词库旁缺少许可证时配置直接失败，不会只装数据。`-DMSIME_REQUIRE_LANGUAGE_DICTIONARIES=ON`（`package-container.sh` 下是环境变量 `MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1`）要求 `resources/language-dictionaries.lock.json` 固定的每一份都在，否则配置失败；锁固定 `msime-stroke.db` 之前笔画词库不在必需之列。用 `msime-linux-setup --download` 自己下载到 `$XDG_DATA_HOME/msime-client/resources` 的资源目录旁没有这份目录，此时粤拼、注音与笔画不可用，除非手动把它们放到同级的 `language-dictionaries/` 下。越南文和藏文不需要任何数据。
+粤拼、注音与笔画的词库同样是可选的：`scripts/fetch_language_dictionaries.py` 按 `resources/language-dictionaries.lock.json` 下载到 `target/language-dictionaries`（锁还没有发布时只打印 skipped 并成功退出），配置时自动使用该目录，也可以传 `-DMSIME_LANGUAGE_DICTIONARIES=/absolute/dir`。CMake 把其中的 `msime-cantonese.db` 连同 `msime-rime_cantonese_LICENSE.txt`、`msime-zhuyin.db` 连同 `msime-libchewing_data_LICENSE.txt`、`msime-stroke.db` 连同 `msime-rime_stroke_LICENSE.txt` 装到资源目录的同级 `${CMAKE_INSTALL_DATADIR}/msime-client/language-dictionaries`；词库旁缺少许可证时配置直接失败，不会只装数据。`-DMSIME_REQUIRE_LANGUAGE_DICTIONARIES=ON`（`package-container.sh` 下是环境变量 `MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1`）要求 `resources/language-dictionaries.lock.json` 固定的每一份都在，否则配置失败；锁固定 `msime-stroke.db` 之前笔画词库不在必需之列。用 `msime-linux-setup --download` 自己下载到 `$XDG_DATA_HOME/msime-client/resources` 的资源目录旁没有这份目录，打包时没有备齐这几份词库的安装也是如此。这时设置应用的资源包列表会提供「粤语、注音与笔画词库」，与 macOS 同一个资源包，下载、校验后装到状态目录的 `resource-packs/language-dictionaries/`；宿主下一次获得焦点时就能用上，不需要重启。随包带齐三份词库时不列出它。也可以手动把词库放到资源目录同级的 `language-dictionaries/` 下。越南文和藏文不需要任何数据。
 
 `--installed` 通过 `/proc/self/exe` 的实际路径和配置时的数据目录相对位置定位同一安装前缀下的资源目录，状态目录仍必须是绝对路径且不存在。它不会修改输入法选择、启动服务或创建用户状态，只有显式执行命令才会准备新状态；未配置资源包时请继续使用显式资源目录形式。
 

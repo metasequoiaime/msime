@@ -43,6 +43,12 @@ cargo run --release -p msime-input-runtime --example rerank_latency -- \
 
 **不要用 `msime-pinyin.db` 自身出题。** 它就是解码器查的那张表，等于让系统考自己；而 1–2 音节的排序实现就是 `ORDER BY weight DESC`，拿 weight 当金标准是在考 SQLite。
 
+#### `--nine-key`：同一个词级集在九键上打
+
+`convert_eval --nine-key` 打开 Runtime 的九键模式，把每条用例的字母换成键盘上印在旁边的数字（a–c 是 2，w–z 是 9）再逐键输入，金标准不变。全键盘上 xi'an 和 yi'an 是两个输入，九键上是同一串 9426，所以权重口径不一致的词在这里才暴露出来（一按 压过 西安）；全拼的数字测不到这一层。
+
+`verify-local.sh` 以 `--limit 3000 --nine-key` 跑它，对照 `baseline-nine-key.json`。完整 25,119 条上，九键 top-1 0.552、top-5 0.826，全拼是 0.753 / 0.941（同一份锁定词库，挂着重排模型）：九键比全键盘少对两成，这个差距就是九键排序要追的东西。
+
 ### `sentences-v2.tsv` — 310 条收割，带上文
 
 从 C4 中文部分（ODC-BY，保留标点的原文，不是 `corpus/fetch.py` 剥过标点的训练语料）收割：把句子用 Engine 的拼音表转成拼音再打回去，首选与原句不同的收下来，上文取同一篇的前一句。`harvest_eval_set` 做这件事，`scripts/review-harvested-cases.py` 用 Jev 过一道评审（选中原文且无强歧义否决），再按拼音+原文去重。500 条收割 → 345 条通过 → 310 条。

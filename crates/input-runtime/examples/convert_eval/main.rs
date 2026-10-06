@@ -37,6 +37,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut baseline: Option<PathBuf> = None;
     let mut update = false;
     let mut dump: Option<PathBuf> = None;
+    let mut nine_key = false;
 
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut index = 0;
@@ -55,6 +56,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "--baseline" => baseline = Some(PathBuf::from(take(&mut index)?)),
             "--update-baseline" => update = true,
             "--dump" => dump = Some(PathBuf::from(take(&mut index)?)),
+            "--nine-key" => nine_key = true,
             other => return Err(format!("unknown option: {other}").into()),
         }
         index += 1;
@@ -78,7 +80,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     eprintln!("{} cases from {} set(s)", cases.len(), sets.len());
 
     let state = tempfile::tempdir()?;
-    let report = run(&resources, state.path(), &cases, dump.as_deref())?;
+    let report = run(&resources, state.path(), &cases, dump.as_deref(), nine_key)?;
     let json = render(&report, &cases);
 
     if let Some(path) = &report_path {
@@ -146,6 +148,7 @@ fn run(
     state: &Path,
     cases: &[Case],
     dump: Option<&Path>,
+    nine_key: bool,
 ) -> Result<Report, Box<dyn std::error::Error>> {
     // Optional JSONL of the real candidate lists, for offline experiments that must not be able
     // to change what the harness measures.
@@ -223,6 +226,10 @@ fn run(
     // dispatch() drops every action while unfocused, which yields an empty candidate list rather
     // than an error.
     runtime.focus(true)?;
+    // `--nine-key` types each case on the phone grid: its letters become the digits printed beside them, and the same gold has to come out of the digit sequence, where 西安 and 一按 are one input rather than two.
+    if nine_key {
+        runtime.set_nine_key_enabled(true)?;
+    }
     let mut report = Report::default();
 
     for case in cases {
@@ -230,7 +237,12 @@ fn run(
         // Cancel keeps the committed context and seeding appends to it, so without this every case would be ranked against the tail of the contexts of all the cases before it.
         runtime.clear_context();
         runtime.seed_context(&case.context);
-        for byte in case.input.bytes() {
+        let input: Vec<u8> = if nine_key {
+            case.input.bytes().filter_map(keypad_digit).collect()
+        } else {
+            case.input.bytes().collect()
+        };
+        for byte in input {
             runtime.dispatch(Action::Character {
                 value: byte,
                 shift: false,
@@ -320,4 +332,12 @@ fn render(report: &Report, cases: &[Case]) -> String {
 /// set does not rewrite the whole baseline file.
 fn round(value: f64) -> f64 {
     (value * 1000.0).round() / 1000.0
+}
+
+/// The digit printed beside a lowercase letter on the phone grid; anything else (the `'` a few cases carry) is not typed.
+fn keypad_digit(letter: u8) -> Option<u8> {
+    const KEYPAD: &[u8; 26] = b"22233344455566677778889999";
+    letter
+        .is_ascii_lowercase()
+        .then(|| KEYPAD[usize::from(letter - b'a')])
 }
