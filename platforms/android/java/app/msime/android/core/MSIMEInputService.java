@@ -3837,7 +3837,8 @@ public final class MSIMEInputService extends InputMethodService {
         emojiItems = java.util.List.of();
         imePanels.renderEmojiTabs();
         if (category == -1) {
-            java.util.ArrayList<EmojiCatalogModel.Item> recent = new java.util.ArrayList<>();
+            java.util.ArrayList<EmojiCatalogModel.Item> recent =
+                new java.util.ArrayList<>(emojiRecents.size());
             for (String text : emojiRecents)
                 recent.add(new EmojiCatalogModel.Item(text, "", "最近"));
             emojiItems = java.util.List.copyOf(recent);
