@@ -110,17 +110,9 @@ msime-linux-setup --update --download   # 升级之后只取回过期的那几�
 
 ### Nix 与 NixOS
 
-仓库根目录的 `flake.nix` 提供 `msime-fcitx5`（默认包）、`msime-host-api`、`msime-desktop`、`msime-resources`、`msime-handwriting-model`、`msime-voice-runtime`、`overlays.default`、NixOS 模块 `nixosModules.default` 和开发 shell，实际的构建在 `platforms/linux/nix/`。`msime-host-api` 用 crane 构建，编译器按 `rust-toolchain.toml` 取自 rust-overlay，不用 nixpkgs 自带的 rustc；`msime-fcitx5` 是本目录的 CMake 构建，构建时跑与门禁相同的 ctest，装完再用 `ldd` 核对插件能按 RUNPATH 找到同一包里的 Host API。IBus engine、`msime-linux-setup` 等其余入口一并装进同一个包，但 NixOS 上目前只接入 Fcitx5。设置窗口默认随包：`msime-desktop` 先用 `pnpm --filter @msime/desktop build` 构建前端，再用 crane 带 `tauri/custom-protocol` 编译 Tauri 外壳，与 `package-container.sh` 相同；`msime-fcitx5` 把它经 `MSIME_DESKTOP_BINARY` 交给 CMake，装成同一前缀下的 `msime-linux-desktop`，连同 `msime-linux-settings` 和桌面入口，只给它包上 GTK 与 WebKit 的运行环境（`wrapGAppsHook3`、TLS 用的 `glib-networking`）。不要它时用 `msime-fcitx5.override { settingsWindow = null; }`，插件菜单里打开设置和各个面板的项随之失效。离线手写模型与各发行版的包一样默认随包：`msime-handwriting-model` 按 `resources/handwriting-model.lock.json` 的地址和 SHA-256 下载，构建中的 ctest `linux-handwriting-local-model` 用它识别两笔合成的「十」；不要它时用 `msime-fcitx5.override { handwritingModel = null; }`。本地语音识别用的 sherpa-onnx 运行库同样默认随包：`msime-voice-runtime` 取 `resources/voice-runtime.lock.json` 里本机架构的上游预编译库，由 ctest `linux-voice-local-runtime` 核对能被打开；不要它时用 `msime-fcitx5.override { voiceRuntime = null; }`。本地识别还需要识别模型，在设置窗口的语音页下载。
+仓库根目录的 `flake.nix` 提供 NixOS 模块和各个包，构建方式、包的组成与开发命令见 [nix/README.md](nix/README.md)。
 
-```sh
-nix build .#msime-fcitx5     # 插件、Host API、命令行入口与设置窗口，构建中跑 ctest
-nix flake check
-nix develop                  # 钉住的 Rust 工具链与 CMake/Fcitx5 开发依赖
-```
-
-前端的 npm 依赖按 `pnpm-lock.yaml` 里每个包的 `integrity` 逐个下载（`platforms/linux/nix/pnpm-lock.nix`），再把锁文件改写成从这些 tarball 离线安装，与其他锁文件驱动的资源一样不另记一份哈希，锁文件变了不用改 Nix 文件。它只认 lockfile v9 里来自 registry、只带 `integrity` 的包；锁文件里出现 git 依赖或 tarball 地址时求值直接失败，届时要扩展这个文件。
-
-在 NixOS 上用模块。插件被加载进 `fcitx5` 进程，应当与系统上的 Fcitx5 出自同一份 nixpkgs，所以模块默认按本系统的 nixpkgs 构建 `msime-fcitx5`，不需要另加 overlay：
+在 NixOS 上用模块：
 
 ```nix
 # flake.nix 的 inputs
@@ -130,17 +122,34 @@ msime.url = "github:metasequoiaime/msime";
 programs.msime.enable = true;
 ```
 
-`programs.msime.enable` 接入 Fcitx5 插件、放上 `msime-linux-setup` 等命令，并注册 provider 的用户单元：`programs.msime.services.online.enable`、`services.voice.enable` 两个按 socket 激活的服务和 `services.clipboard.enable` 剪贴板监视器默认都开，与 `msime-linux-setup` 首次配置时为用户启用的一致。`programs.msime.package` 可以换成 `override` 过的包。`nix flake check` 里的 `nixos-module` 起一台虚拟机核对这些单元能被拉起，并在自动登录的 X 会话里打开设置窗口（需要 KVM）。
+`programs.msime.enable` 接入 Fcitx5 插件，放上 `msime-linux-setup`、`msime-linux-settings` 等命令和设置窗口的桌面入口，并注册 provider 的用户单元。包按本系统的 nixpkgs 构建，与系统上的 Fcitx5 出自同一份，不需要另加 overlay。IBus engine 也在包里，但模块只接入 Fcitx5：`i18n.inputMethod.type` 不是 `fcitx5` 时会给出警告。
 
-以前按路径启用过这些单元（`systemctl --user enable /nix/store/…/msime-linux-online.socket` 之类）的用户，`~/.config/systemd/user` 里会留着指向旧 store 路径的链接，它们优先于模块注册的单元，旧路径被垃圾回收后单元就加载不了。换到模块后执行一次 `systemctl --user disable msime-linux-online.socket msime-linux-voice.socket msime-linux-clipboard.service`（会提示这些单元仍在全局范围启用，即由模块拉起）和 `systemctl --user daemon-reload`，再用 `systemctl --user show -p FragmentPath <单元>` 确认它们来自 `/etc/systemd/user`。
+| 选项 | 默认 | 作用 |
+|---|---|---|
+| `programs.msime.services.online.enable` | 开 | 按 socket 激活的在线候选与翻译服务 |
+| `programs.msime.services.voice.enable` | 开 | 按 socket 激活的语音输入服务，本地与云端识别都经过它 |
+| `programs.msime.services.clipboard.enable` | 开 | 剪贴板历史监视器，只在偏好里开启剪贴板历史时才采集 |
+| `programs.msime.package` | `msime-fcitx5` | 换成 `override` 过的包，见下 |
+
+三个服务的默认与 `msime-linux-setup` 首次配置时为用户启用的一致。包默认带着设置窗口、离线手写模型和本地语音识别的运行库，与各发行版的包相同；不要哪一样就在 `package` 里去掉它（经 overlay 取包，仍按本系统的 nixpkgs 构建）：
+
+```nix
+programs.msime.package = (pkgs.extend inputs.msime.overlays.default).msime-fcitx5.override {
+  settingsWindow = null;     # 不带设置窗口；插件菜单里打开设置和各个面板的项随之失效
+  handwritingModel = null;   # 不带离线手写模型
+  voiceRuntime = null;       # 不带本地语音识别，云端识别不受影响
+};
+```
 
 录音、提示音和静音用的音频工具不随包，用系统的音频栈（例如 `services.pipewire`）。
 
-不用模块、经 `overlays.default` 自己写配置时，还要加上 `systemd.packages = [ pkgs.msime-fcitx5 ];`，否则 provider 单元不会注册到 systemd。
+**首次使用。** 切换配置并重新登录后，运行 `msime-linux-setup --download`（见「安装后首次使用」），也可以打开设置窗口在首次配置页里完成；它会把水杉输入法加进当前的 Fcitx5 输入法组。包不带词库，与 `.deb` 一致：词库下载到 `$XDG_DATA_HOME/msime-client/resources`，配置里记录的也是这个用户目录。本地语音识别的模型在设置窗口的语音页下载。
 
-切换配置并重新登录后，运行 `msime-linux-setup --download` 完成首次配置（见「安装后首次使用」），它会把水杉输入法加进当前的 Fcitx5 输入法组。包默认不带词库，与 `.deb` 一致：词库由这一步下载到 `$XDG_DATA_HOME/msime-client/resources`，`runtime-options.json` 里记录的也是这个用户目录，Nix store 的路径不会被写进去。`msime-fcitx5.override { bundledResources = pkgs.msime-resources; }` 可以把 `desktop-dictionary.lock.json` 钉住的词库装进包里，`msime-resources` 直接按锁文件里的地址和 SHA-256 下载，不另记一份哈希，词库放在包内的 `share/msime-client/resources`，旁边的 `share/doc/msime-resources` 带着逐项列出词库来源与上游条款的 `msime-engine-dictionary-NOTICE.md`；但这样首次配置记录的是 store 里的词库目录，词库锁不变时重新构建不会刷新这条记录，旧路径被垃圾回收后输入法就找不到词库，所以默认不这样做。
+**每次切换配置之后**，要让 Fcitx5 从新的会话环境启动：注销后重新登录，或在新开的终端里执行 `fcitx5 -rd`。从 Fcitx5 内部重启（托盘菜单的「重新启动」、`fcitx5-configtool`）沿用旧进程的环境，加载的仍是上一次构建的插件；新旧版本的词库不一致时，表现是能切到水杉输入法但打字没有候选。可以用 `grep msime-fcitx5 /proc/$(pgrep -x fcitx5)/maps` 核对正在运行的插件是否来自当前系统（`readlink -f /run/current-system/sw/bin/fcitx5` 所在的那份 `fcitx5-with-addons`）。
 
-每次 `nixos-rebuild switch` 换了插件之后，要让 Fcitx5 从新的会话环境启动：注销后重新登录，或在新开的终端里执行 `fcitx5 -rd`。NixOS 的 `fcitx5-with-addons` 用 `FCITX_ADDON_DIRS` 指定插件目录，这个目录随每次构建换成新的 store 路径；从 Fcitx5 内部重启（托盘菜单的「重新启动」、`fcitx5-configtool`）沿用的是旧进程的环境，加载的仍是上一次构建的插件。旧插件里编译进去的词库锁和新版 `msime-linux-setup` 准备的词库不一致时，表现是能切到水杉输入法但打字没有候选。可以用 `grep msime-fcitx5 /proc/$(pgrep -x fcitx5)/maps` 核对正在运行的插件是否来自当前系统（`readlink -f /run/current-system/sw/bin/fcitx5` 所在的那份 `fcitx5-with-addons`）。
+**从按路径启用的单元迁移。** 以前用 `systemctl --user enable /nix/store/…/msime-linux-online.socket` 之类启用过这些单元的话，`~/.config/systemd/user` 里会留着指向旧 store 路径的链接，它们优先于模块注册的单元，旧路径被垃圾回收后单元就加载不了。换到模块后执行一次 `systemctl --user disable msime-linux-online.socket msime-linux-voice.socket msime-linux-clipboard.service`（会提示这些单元仍在全局范围启用，即由模块拉起）和 `systemctl --user daemon-reload`，再用 `systemctl --user show -p FragmentPath <单元>` 确认它们来自 `/etc/systemd/user`。
+
+**不用模块**、经 `overlays.default` 自己写配置时，把 `pkgs.msime-fcitx5` 加进 `i18n.inputMethod.fcitx5.addons` 和 `environment.systemPackages`，并加上 `systemd.packages = [ pkgs.msime-fcitx5 ];`，否则 provider 单元不会注册到 systemd。
 
 ### 包管理器
 
