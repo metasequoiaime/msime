@@ -3186,6 +3186,41 @@ fn a_shuangpin_commit_counts_its_keys_against_quanpin() {
     read(msime_client_destroy(handle));
 }
 
+/// 后台写效率只有一个线程：写的时候排进来的批次由同一个线程接着写，一批也不丢。
+#[test]
+fn background_efficiency_batches_share_one_writer_and_all_land() {
+    let dir = tempfile::tempdir().unwrap();
+    let (handle, store) = selection_statistics_host(dir.path(), true);
+    let options = SESSIONS.with(|sessions| sessions.borrow()[&handle].options.clone());
+    read(msime_client_destroy(handle));
+    let commit = || EfficiencyCandidate {
+        text: "ok".into(),
+        typed_keys: 2,
+        sentence: false,
+        prediction: false,
+    };
+    for _ in 0..5 {
+        record_efficiency_in_background(options.clone(), vec![commit(), commit()]);
+    }
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        {
+            let queue = efficiency_queue();
+            if !queue.running && queue.pending.is_empty() {
+                break;
+            }
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "efficiency writer never finished"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    let efficiency = store.load().unwrap().efficiency;
+    assert_eq!(efficiency.commits, 10);
+    assert_eq!(efficiency.typed_keys, 20);
+}
+
 /// 统计关闭时效率一项都不计。
 #[test]
 fn efficiency_is_not_counted_while_statistics_are_off() {

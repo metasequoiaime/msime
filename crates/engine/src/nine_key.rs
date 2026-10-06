@@ -106,7 +106,8 @@ impl NineKeySession {
     /// `2`..=`9`; at 32 digits handled with `NINE_KEY_DIGIT_LIMIT`. `'` while composing splits the syllables at the end of what is typed; a second split there, or one right after a locked spelling, changes nothing.
     pub fn character(&mut self, digit: u8) -> KeyResult {
         if digit == b'\'' {
-            if !self.active() {
+            // English digits spell letters, not syllables, so there is nothing to split and a recorded split would only be dropped on commit.
+            if !self.active() || self.english_only || !self.pinyin {
                 return KeyResult::unhandled();
             }
             let end = self.digits.len();
@@ -375,6 +376,8 @@ impl NineKeySession {
         let mut candidates = Vec::with_capacity(CANDIDATE_LIMIT);
         // 各条切分的前缀组彼此大量重复，一次刷新会推入上万行，见 `push_ranked`。
         let mut leading: HashMap<String, RankKey> = HashMap::with_capacity(CANDIDATE_LIMIT);
+        // Only a split the user typed says where a syllable ends; without one, `3` must keep 的 (a completion of d) ahead of the rarer 额 (e).
+        let prefer_exact = !self.splits.is_empty();
         for path in alternatives {
             let mut full = self.locked.clone();
             full.extend(path);
@@ -408,12 +411,12 @@ impl NineKeySession {
                 }
                 candidate.pinyin = self.digits[..code.len().min(self.digits.len())].to_string();
                 candidate.canonical_pinyin = canonical;
-                push_ranked(&mut candidates, &mut leading, candidate);
+                push_ranked(&mut candidates, &mut leading, candidate, prefer_exact);
             }
             queried.insert(key);
         }
         drop(dictionary);
-        rank_candidates(&mut candidates);
+        rank_candidates(&mut candidates, prefer_exact);
 
         let mut english = self.english_candidates();
         if !english.is_empty() {
@@ -458,6 +461,10 @@ impl NineKeySession {
         let Some(front) = front else {
             return String::new();
         };
+        // A fuzzy row was matched through another spelling (知 under `94` as zi), so its canonical letters do not line up one per typed digit.
+        if front.fuzzy {
+            return String::new();
+        }
         if front.pinyin.is_empty() || !front.pinyin.bytes().all(|byte| byte.is_ascii_digit()) {
             return String::new();
         }
@@ -644,29 +651,32 @@ fn is_unseen_query_key(queried: &HashSet<String>, key: &str) -> bool {
 type RankKey = (Reverse<usize>, bool, bool, bool, Reverse<i64>);
 
 /// More digits covered first. Synthesised rows (whole-sentence Generated, Fallback) score on a different scale from dictionary weights, so within one coverage bucket dictionary rows lead; then exact before fuzzy, then weight.
-/// After the digits covered, a row the typed digits spell to its end leads one that has to be completed past them: over `94'26` 西安 (xi'an) comes before 自从 (zi'cong), however common the longer word.
-fn rank_key(item: &WordItem) -> RankKey {
-    let letters = item
-        .canonical_pinyin
-        .bytes()
-        .filter(u8::is_ascii_lowercase)
-        .count();
+/// With `prefer_exact` (the user typed a split), a row the typed digits spell to its end then leads one that has to be completed past them: over `94'26` 西安 (xi'an) comes before 自从 (zi'cong), however common the longer word. Without a split the digits do not say where a syllable ends, so `3` keeps 的 (de) ahead of the rarer 额 (e) by weight.
+fn rank_key(item: &WordItem, prefer_exact: bool) -> RankKey {
+    let completion = prefer_exact
+        && item
+            .canonical_pinyin
+            .bytes()
+            .filter(u8::is_ascii_lowercase)
+            .count()
+            > item.pinyin.len();
     (
         Reverse(item.pinyin.len()),
-        letters > item.pinyin.len(),
         item.source.is_generated_or_fallback(),
+        completion,
         item.fuzzy,
         Reverse(item.weight),
     )
 }
 
-/// 推入一行，除非同一个词已有一行排得不比它靠后。`leading` 记着每个词目前排得最靠前的那一行的排序键。被跳过的行在稳定排序后必然落在那一行之后（键更大，或键相同而推入更晚），会被 `retain_unique_words` 删掉；它也不会让别的行多删或少删，因为它能挡住的行那一行同样挡得住。所以跳过与全部推入再 `rank_candidates`，结果完全相同。
+/// 推入一行，除非同一个词已有一行排得不比它靠后。`leading` 记着每个词目前排得最靠前的那一行的排序键。被跳过的行在稳定排序后必然落在那一行之后（键更大，或键相同而推入更晚），会被 `retain_unique_words` 删掉；它也不会让别的行多删或少删，因为它能挡住的行那一行同样挡得住。所以跳过与全部推入再 `rank_candidates`，结果完全相同。前提是两边用同一个 `prefer_exact`。
 fn push_ranked(
     candidates: &mut Vec<WordItem>,
     leading: &mut HashMap<String, RankKey>,
     candidate: WordItem,
+    prefer_exact: bool,
 ) {
-    let key = rank_key(&candidate);
+    let key = rank_key(&candidate, prefer_exact);
     match leading.get_mut(candidate.word.as_str()) {
         Some(best) if *best <= key => return,
         Some(best) => *best = key,
@@ -678,8 +688,8 @@ fn push_ranked(
 }
 
 /// Stable sort by `rank_key`, dedup by word, capped (NK:283-307).
-fn rank_candidates(candidates: &mut Vec<WordItem>) {
-    candidates.sort_by_key(rank_key);
+fn rank_candidates(candidates: &mut Vec<WordItem>, prefer_exact: bool) {
+    candidates.sort_by_key(|item| rank_key(item, prefer_exact));
     retain_unique_words(candidates);
     candidates.truncate(CANDIDATE_LIMIT);
 }
@@ -1018,10 +1028,63 @@ mod tests {
             item("你好", "64426", 1000, CandidateSource::Database),
             item("你", "64", 10, CandidateSource::Database),
         ];
-        rank_candidates(&mut candidates);
+        rank_candidates(&mut candidates, false);
         let words: Vec<_> = candidates.iter().map(|item| item.word.as_str()).collect();
         assert_eq!(words, ["你好", "米好", "你", "米", "泥"]);
         assert_eq!(candidates[2].weight, 100);
+    }
+
+    fn spelled(
+        word: &str,
+        digits: &str,
+        canonical: &str,
+        weight: i64,
+        source: CandidateSource,
+    ) -> WordItem {
+        let mut row = item(word, digits, weight, source);
+        row.canonical_pinyin = canonical.to_owned();
+        row
+    }
+
+    fn ranked(mut candidates: Vec<WordItem>, prefer_exact: bool) -> Vec<String> {
+        rank_candidates(&mut candidates, prefer_exact);
+        candidates.into_iter().map(|item| item.word).collect()
+    }
+
+    #[test]
+    fn without_a_split_a_completion_keeps_its_weight_over_an_exact_syllable() {
+        // `3` alone: 的 completes d to de, 额 spells e exactly; the more common word still leads.
+        let rows = vec![
+            spelled("额", "3", "e", 10, CandidateSource::Database),
+            spelled("的", "3", "de", 1000, CandidateSource::Database),
+        ];
+        assert_eq!(ranked(rows, false), ["的", "额"]);
+    }
+
+    #[test]
+    fn a_synthesised_exact_row_never_leads_a_dictionary_completion() {
+        for prefer_exact in [false, true] {
+            let rows = vec![
+                spelled("额", "3", "e", 99_999, CandidateSource::Generated),
+                spelled("的", "3", "de", 1000, CandidateSource::Database),
+            ];
+            assert_eq!(
+                ranked(rows, prefer_exact),
+                ["的", "额"],
+                "prefer_exact {prefer_exact}"
+            );
+        }
+    }
+
+    #[test]
+    fn after_a_split_an_exact_reading_leads_a_completion() {
+        // `94'26`: 西安 spells xi'an to its end, 自从 has to be completed to zi'cong.
+        let rows = vec![
+            spelled("自从", "9426", "zi'cong", 5000, CandidateSource::Database),
+            spelled("西安", "9426", "xi'an", 100, CandidateSource::Database),
+        ];
+        assert_eq!(ranked(rows.clone(), true), ["西安", "自从"]);
+        assert_eq!(ranked(rows, false), ["自从", "西安"]);
     }
 
     #[test]
@@ -1050,17 +1113,19 @@ mod tests {
                     sources[next(4) as usize],
                 );
                 row.fuzzy = next(3) == 0;
-                row.canonical_pinyin = format!("c{}", next(3));
+                row.canonical_pinyin =
+                    ["e", "de", "xi'an", "zi'cong", "ni'hao'ma"][next(5) as usize].to_owned();
                 rows.push(row);
             }
+            let prefer_exact = round % 2 == 0;
             let mut everything = rows.clone();
-            rank_candidates(&mut everything);
+            rank_candidates(&mut everything, prefer_exact);
             let mut skipped = Vec::new();
             let mut leading = HashMap::new();
             for row in rows {
-                push_ranked(&mut skipped, &mut leading, row);
+                push_ranked(&mut skipped, &mut leading, row, prefer_exact);
             }
-            rank_candidates(&mut skipped);
+            rank_candidates(&mut skipped, prefer_exact);
             assert_eq!(skipped, everything, "round {round}");
         }
     }
@@ -1289,6 +1354,39 @@ mod tests {
             words(&session).contains(&"don't".to_owned()),
             "T9 should match the lookup key even when the displayed word contains punctuation"
         );
+    }
+
+    #[test]
+    fn english_digits_take_no_split() {
+        let fixture = fixture();
+        let mut english_only = open(&fixture.paths, false, mixed());
+        english_only.set_english_only(true);
+        let mut without_pinyin = NineKeySession::new(
+            &fixture.paths,
+            false,
+            FrequencyAdjustmentOptions::default(),
+            FuzzyPinyinOptions::default(),
+            mixed(),
+            false,
+        );
+        for session in [&mut english_only, &mut without_pinyin] {
+            type_digits(session, "65");
+            assert!(!session.character(b'\'').handled);
+            assert!(session.splits.is_empty());
+            assert_eq!(session.snapshot().preedit, "65");
+        }
+    }
+
+    #[test]
+    fn a_fuzzy_leading_row_has_no_reading() {
+        let mut session = detached();
+        session.digits = "94".into();
+        let xi = spelled("西", "94", "xi", 100, CandidateSource::Database);
+        assert_eq!(session.reading_for(Some(&xi)), "xi");
+        // 知 reached through zi under `94`: cutting zhi to two letters would show zh.
+        let mut zhi = spelled("知", "94", "zhi", 100, CandidateSource::Database);
+        zhi.fuzzy = true;
+        assert_eq!(session.reading_for(Some(&zhi)), "");
     }
 
     #[test]

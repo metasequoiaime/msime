@@ -421,13 +421,11 @@ impl HostSession {
         let _ = store.record_selections(&batch);
         let commits = std::mem::take(&mut self.pending_efficiency);
         if !commits.is_empty() {
-            let options = self.options.clone();
-            let record = move || record_efficiency(&options, &commits);
             // 查读音要打开词库，放到后台线程，不占输入线程；测试里同步写，好断言结果。
             if cfg!(test) {
-                record();
+                record_efficiency(&self.options, &commits);
             } else {
-                std::thread::spawn(record);
+                record_efficiency_in_background(self.options.clone(), commits);
             }
         }
         // 用户可能在设置里关掉或打开了统计，下一批重新读开关。
@@ -1921,6 +1919,68 @@ const PRIVATE_SESSIONS_SKIP_STATISTICS: bool = cfg!(any(target_os = "android", t
 
 /// 一个会话在两次写统计之间最多记下多少次上屏。正常情况下 `SELECTION_BATCH` 次选词就会写一次，这只是兜底。
 const EFFICIENCY_BATCH_LIMIT: usize = 256;
+
+/// 等后台写进统计的上屏批次，和是否已有一个线程在写。
+struct EfficiencyQueue {
+    pending: Vec<(EngineOptions, Vec<EfficiencyCandidate>)>,
+    running: bool,
+}
+
+static EFFICIENCY_QUEUE: Mutex<EfficiencyQueue> = Mutex::new(EfficiencyQueue {
+    pending: Vec::new(),
+    running: false,
+});
+
+fn efficiency_queue() -> std::sync::MutexGuard<'static, EfficiencyQueue> {
+    EFFICIENCY_QUEUE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// 同一时间只有一个线程写效率：已有线程在写时，这一批排进队列由它接着写，不再每次写统计都另开一个线程、另开一次词库。线程在队列空了时才在同一把锁下退出，所以排进去的批次不会没人写。
+fn record_efficiency_in_background(options: EngineOptions, commits: Vec<EfficiencyCandidate>) {
+    {
+        let mut queue = efficiency_queue();
+        queue.pending.push((options, commits));
+        if queue.running {
+            return;
+        }
+        queue.running = true;
+    }
+    /// 写的时候 panic 也要放下 `running`，否则之后的效率再也没人写。正常退出在看到队列为空的同一把锁下放下，不经过这里。
+    struct Running;
+    impl Drop for Running {
+        fn drop(&mut self) {
+            if std::thread::panicking() {
+                efficiency_queue().running = false;
+            }
+        }
+    }
+    let worker = move || {
+        let _running = Running;
+        loop {
+            let batches = {
+                let mut queue = efficiency_queue();
+                if queue.pending.is_empty() {
+                    queue.running = false;
+                    return;
+                }
+                std::mem::take(&mut queue.pending)
+            };
+            for (options, commits) in batches {
+                record_efficiency(&options, &commits);
+            }
+        }
+    };
+    if std::thread::Builder::new()
+        .name("msime-typing-efficiency".into())
+        .spawn(worker)
+        .is_err()
+    {
+        // 开不了线程时批次留在队列里，下一次写统计再试。
+        efficiency_queue().running = false;
+    }
+}
 
 /// 把一批上屏算成效率计数写进统计：`typed_keys` 是候选输入码里的字母和数字，`spelled_keys` 是用拼音逐字打出这段文字要按的键数（按全拼数读音字母，双拼也以全拼为基准）；查不到读音（英文、表情、非拼音方案）时按打了多少算多少，不算少按也不算多按。尽力而为：写不进就丢掉。
 fn record_efficiency(options: &EngineOptions, commits: &[EfficiencyCandidate]) {

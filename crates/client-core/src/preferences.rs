@@ -2286,6 +2286,13 @@ impl Preferences {
             }
         }
         redact_sensitive_keys(&mut value);
+        for pointer in DIAGNOSTIC_ENDPOINTS {
+            if let Some(slot) = value.pointer_mut(pointer) {
+                if let Some(endpoint) = slot.as_str() {
+                    *slot = diagnostic_endpoint(endpoint).into();
+                }
+            }
+        }
         value
     }
 
@@ -2992,6 +2999,30 @@ pub fn is_sensitive_key(name: &str) -> bool {
         || name.contains("password")
         || name.contains("api_key")
         || name.ends_with("key")
+}
+
+/// 用户可以自填的服务地址。地址本身不是凭据，但有的服务把密钥放在查询串或 `user:password@` 里，诊断快照只留协议、主机、端口和路径。
+const DIAGNOSTIC_ENDPOINTS: [&str; 4] = [
+    "/voice_input/asr_endpoint",
+    "/voice_input/polish_endpoint",
+    "/ai_assistant/endpoint",
+    "/custom_translation/endpoint",
+];
+
+/// 去掉地址里的用户信息、查询串和片段；解析不了的地址整个换成 [`REDACTED`]，因为看不出密钥藏在哪。
+fn diagnostic_endpoint(endpoint: &str) -> String {
+    if endpoint.is_empty() {
+        return String::new();
+    }
+    let Ok(mut url) = reqwest::Url::parse(endpoint) else {
+        return REDACTED.to_owned();
+    };
+    // Both setters only fail for URLs that cannot carry userinfo (no host), which then has none to strip.
+    let _ = url.set_username("");
+    let _ = url.set_password(None);
+    url.set_query(None);
+    url.set_fragment(None);
+    url.to_string()
 }
 
 fn redact_sensitive_keys(value: &mut serde_json::Value) {

@@ -4005,6 +4005,39 @@ fn diagnostic_snapshot_redacts_every_credential() {
 }
 
 #[test]
+fn diagnostic_snapshot_strips_secrets_from_endpoints() {
+    let mut preferences = Preferences::default();
+    preferences.voice_input.asr_endpoint =
+        "wss://user:pass@asr.example.com:8443/v1/stream?token=secret-value#frag".into();
+    preferences.voice_input.polish_endpoint =
+        "https://polish.example.com/chat?key=secret-value".into();
+    preferences.ai_assistant.endpoint = "https://secret-value@ai.example.com/v1".into();
+    preferences.custom_translation.endpoint = "not a url secret-value".into();
+    let redacted = preferences.redacted_for_diagnostics();
+    assert!(!redacted.to_string().contains("secret-value"), "{redacted}");
+    assert_eq!(
+        redacted["voice_input"]["asr_endpoint"],
+        "wss://asr.example.com:8443/v1/stream"
+    );
+    assert_eq!(
+        redacted["voice_input"]["polish_endpoint"],
+        "https://polish.example.com/chat"
+    );
+    assert_eq!(
+        redacted["ai_assistant"]["endpoint"],
+        "https://ai.example.com/v1"
+    );
+    assert_eq!(redacted["custom_translation"]["endpoint"], REDACTED);
+
+    // 没填的地址照样是空的。
+    preferences.custom_translation.endpoint.clear();
+    assert_eq!(
+        preferences.redacted_for_diagnostics()["custom_translation"]["endpoint"],
+        ""
+    );
+}
+
+#[test]
 fn restoring_defaults_keeps_exactly_the_listed_credentials() {
     let preferences = with_every_credential(Preferences::default());
     let mut restored = preferences.restored_to_defaults();
