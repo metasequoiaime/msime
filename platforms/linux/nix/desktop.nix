@@ -8,6 +8,7 @@
   cargoSources,
   callPackage,
   stdenvNoCC,
+  python3,
   nodejs_24,
   pnpm_11,
   writableTmpDirAsHomeHook,
@@ -20,9 +21,14 @@
   webkitgtk_4_1,
 }:
 let
+  # 前端嵌进二进制，所以它的 npm 依赖的许可证声明（notices 输出）要随包装出去。
   frontend = stdenvNoCC.mkDerivation {
     pname = "msime-desktop-frontend";
     inherit version;
+    outputs = [
+      "out"
+      "notices"
+    ];
 
     # 设置页只由 apps/desktop 与 packages/ui 构成，测试用不到，改它们不必重编。pnpm 按
     # pnpm-workspace.yaml 核对锁文件，所以另一个 workspace 成员 apps/harmony 的清单也要在。
@@ -40,6 +46,7 @@ let
           ]
         ))
         (root + "/packages/ui")
+        (root + "/platforms/linux/collect-notices.py")
       ];
     };
 
@@ -48,6 +55,7 @@ let
       nodejs_24
       pnpm_11
       writableTmpDirAsHomeHook
+      python3
     ];
 
     # 依赖按锁文件里每个包的 integrity 逐个下载（pnpm-lock.nix），锁文件变了不用另改哈希。
@@ -77,9 +85,11 @@ let
       runHook postBuild
     '';
 
+    # 与 package-container.sh 相同，用 collect-notices.py 从装好的 node_modules 收集。
     installPhase = ''
       runHook preInstall
       cp -r apps/desktop/dist $out
+      python3 platforms/linux/collect-notices.py npm $notices/frontend-npm-NOTICES.txt apps/desktop
       runHook postInstall
     '';
   };
@@ -126,6 +136,8 @@ craneLib.buildPackage (
     installPhaseCommand = ''
       install -Dm755 target/release/msime-desktop -t $out/bin
     '';
+    # fcitx5.nix 把它交给 CMake 的 MSIME_FRONTEND_NOTICES，装在 THIRD_PARTY_NOTICES.txt 旁边。
+    passthru.frontendNotices = "${frontend.notices}/frontend-npm-NOTICES.txt";
     meta.mainProgram = "msime-desktop";
   }
 )

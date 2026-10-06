@@ -141,6 +141,8 @@ programs.msime.package = (pkgs.extend inputs.msime.overlays.default).msime-fcitx
 };
 ```
 
+设置窗口的前端用 nixpkgs 的 `pnpm_11` 和 `nodejs_24` 构建。系统的 nixpkgs 较旧、还没有它们时，包不带设置窗口，求值时给出一条警告，其余部分照常可用。
+
 录音、提示音和静音用的音频工具不随包，用系统的音频栈（例如 `services.pipewire`）。
 
 **首次使用。** 切换配置并重新登录后，运行 `msime-linux-setup --download`（见「安装后首次使用」），也可以打开设置窗口在首次配置页里完成；它会把水杉输入法加进当前的 Fcitx5 输入法组。包不带词库，与 `.deb` 一致：词库下载到 `$XDG_DATA_HOME/msime-client/resources`，配置里记录的也是这个用户目录。本地语音识别的模型在设置窗口的语音页下载。

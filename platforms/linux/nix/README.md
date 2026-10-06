@@ -13,8 +13,9 @@ nix fmt                      # nixfmt
 
 | 输出 | 内容 |
 |---|---|
-| `packages.<system>.msime-fcitx5`（默认） | Fcitx5 插件、IBus engine、`msime-linux-setup` 等命令、provider 脚本与用户单元、设置窗口 |
+| `packages.<system>.msime-fcitx5`（默认） | Fcitx5 插件、IBus engine、`msime-linux-setup` 等命令、`msime-mcp`、provider 脚本与用户单元、设置窗口 |
 | `packages.<system>.msime-host-api` | 插件链接的 `libmsime_host_api.so` |
+| `packages.<system>.msime-mcp` | MCP 服务程序 `msime-mcp`，由 `msime-fcitx5` 装进自己的前缀 |
 | `packages.<system>.msime-desktop` | 设置窗口的 Tauri 二进制，由 `msime-fcitx5` 装进自己的前缀 |
 | `packages.<system>.msime-handwriting-model` | 离线手写模型（Zinnia）与它的许可证 |
 | `packages.<system>.msime-voice-runtime` | 本地语音识别用的 sherpa-onnx 与 ONNX Runtime 预编译库 |
@@ -30,7 +31,9 @@ nix fmt                      # nixfmt
 |---|---|
 | `default.nix` | 给定一套 nixpkgs，返回上面这些包和开发 shell；flake 的 `packages` 与 overlay 共用它 |
 | `host-api.nix` | `msime-host-api`，crane 构建 |
+| `mcp.nix` | `msime-mcp`，crane 构建 |
 | `desktop.nix` | `msime-desktop`：前端加 crane 构建的 Tauri 外壳 |
+| `rust-notices.nix` | 几个 Rust 产物静态链接的 crate 的许可证声明 |
 | `pnpm-lock.nix` | 按 `pnpm-lock.yaml` 逐个下载前端依赖，改写锁文件供 pnpm 离线安装 |
 | `fcitx5.nix` | `msime-fcitx5`：`platforms/linux` 的 CMake 构建 |
 | `locked-artifacts.nix` | 按 `resources/*.lock.json` 这类锁下载并核对 artifact，给词库和手写模型用 |
@@ -38,16 +41,27 @@ nix fmt                      # nixfmt
 | `module.nix` | NixOS 模块 `programs.msime` |
 | `module-test.nix` | 模块的虚拟机测试 |
 
-## Rust：`msime-host-api` 与 `msime-desktop`
+## Rust：`msime-host-api`、`msime-mcp` 与 `msime-desktop`
 
-编译器按 `rust-toolchain.toml` 取自 rust-overlay，不用 nixpkgs 自带的 rustc，与其他平台和本地门禁用同一个版本。两个包都用 crane：先 `buildDepsOnly` 编依赖，再编 workspace 里的 crate。依赖这一步只跑 `cargo build`（`cargoCheckCommand = "true"`，`doCheck = false`）：crane 默认还会先 `cargo check --all-targets` 再 `cargo test --no-run`，按 dev-dependencies 另编一套依赖，而这里只用得到 build 的产物。Rust 单测由 `scripts/verify-local.sh` 负责。
+编译器按 `rust-toolchain.toml` 取自 rust-overlay，不用 nixpkgs 自带的 rustc，与其他平台和本地门禁用同一个版本。三个包都用 crane：先 `buildDepsOnly` 编依赖，再编 workspace 里的 crate。依赖这一步只跑 `cargo build`（`cargoCheckCommand = "true"`，`doCheck = false`）：crane 默认还会先 `cargo check --all-targets` 再 `cargo test --no-run`，按 dev-dependencies 另编一套依赖，而这里只用得到 build 的产物。Rust 单测由 `scripts/verify-local.sh` 负责。
 
-两个包的源码都只放 Cargo 用得到的部分（`default.nix` 里的 `cargoSources`），别的平台改动不触发重编。`msime-host-api` 只取 `apps/desktop/src-tauri` 的 Cargo 清单和 `.rs`；`msime-desktop` 另外要图标、Tauri 配置与权限声明，不要 `gen/` 下的 Android 与 Xcode 工程。
+几个包的源码都只放 Cargo 用得到的部分（`default.nix` 里的 `cargoSources`），别的平台改动不触发重编。`msime-host-api` 和 `msime-mcp` 只取 `apps/desktop/src-tauri` 的 Cargo 清单和 `.rs`；`msime-desktop` 另外要图标、Tauri 配置与权限声明，不要 `gen/` 下的 Android 与 Xcode 工程。
 
 `msime-desktop` 的步骤与 `platforms/linux/package-container.sh` 相同：
 
 1. 前端：`pnpm --filter @msime/desktop exec vite build`。包的 `build` 脚本还会先跑 `tsc --noEmit`（连同测试），它不影响产物，交给 `verify-local.sh`；所以源码里也不放 `apps/desktop/tests`，改测试不必重编。
 2. 把前端放到 `apps/desktop/dist`，`cargo build -p msime-desktop --features tauri/custom-protocol`。没有 `tauri/custom-protocol` 得到的是加载 `devUrl` 的开发版。`TAURI_CONFIG` 把应用报告的版本设为 `platforms/linux/version.txt`，应用内的更新检查才是同类相比。
+
+前端构建要 nixpkgs 的 `pnpm_11`、`nodejs_24` 和 `writableTmpDirAsHomeHook`。经 overlay 或模块时用的是使用方的 nixpkgs，它没有这几个包时 `default.nix` 不带设置窗口（`settingsWindow` 为 `null`，并给出一条求值警告），而不是让原本能用的 `programs.msime.enable` 求值失败。overlay 里照样有 `msime-desktop`：overlay 的属性名不能取决于 `final` 里有什么，否则无限递归；它是惰性的，只有直接取用它时才失败。
+
+### 第三方许可证声明
+
+`THIRD_PARTY_NOTICES.txt` 指向 `rust-crates-NOTICES.txt` 和 `frontend-npm-NOTICES.txt`，与 deb、rpm 一样用 `platforms/linux/collect-notices.py` 生成，再经 `MSIME_RUST_NOTICES`、`MSIME_FRONTEND_NOTICES` 交给 CMake：
+
+- `rust-notices.nix` 在 crane 按 `Cargo.lock` 准备的 vendor 目录上跑 `collect-notices.py cargo`，crate 与 `package-container.sh` 相同（`msime-host-api`、`msime-mcp-server`，带设置窗口时加 `msime-desktop:tauri/custom-protocol`）。
+- 前端的 `pnpm install` 之后跑 `collect-notices.py npm`，结果放在前端的 `notices` 输出里，经 `msime-desktop` 的 `passthru.frontendNotices` 交给 `msime-fcitx5`。
+
+CMake 只在打开 `MSIME_ENABLE_PACKAGING` 时强制要求这两份，Nix 构建不开它，漏传只有一条警告，所以装后检查核对它们装进了 `share/doc/msime-client`。
 
 ## 前端依赖：`pnpm-lock.nix`
 
@@ -75,12 +89,13 @@ nix fmt                      # nixfmt
 几处与其他打包路线不同的地方：
 
 - **systemd 用户单元**装在 `lib/systemd/user`（`MSIME_SYSTEMD_USER_UNIT_DIR`）：NixOS 的 `systemd.packages` 只从 `lib/systemd/user` 与 `etc/systemd/user` 取，默认的 `share/systemd/user` 会被静默忽略。
-- **脚本的解释器**：`postPatch` 为了让 ctest 直接执行源码树里的脚本，把它们的 shebang 改到构建用的 `python3`，CMake 装出去的就是改写过的脚本，fixup 的 `patchShebangs` 不动已经指向 store 的 shebang。所以 `postInstall` 用 `patchShebangs --update --host` 按 `buildInputs` 重新改写：Python 换成带 `websockets` 的那份（豆包流式识别要它的同步客户端），`sh`、`bash` 换成 `bashNonInteractive`（`msime-linux-settings` 由不可执行的 `.in` 生成，`postPatch` 改不到；Omarchy 的钩子是 `#!/bin/bash`，NixOS 上没有）。
-- **设置窗口**经 `MSIME_DESKTOP_BINARY` 交给 CMake，装成同一前缀下的 `msime-linux-desktop`。它按自己所在的前缀找 `msime-linux-setup`、手写模型和内置音效包，所以不能单独成包再链接过来。`wrapGAppsHook3` 默认会把 `bin` 下每个可执行文件都包一层，这里 `dontWrapGApps` 后只给它包：GTK 的运行环境、TLS 用的 `glib-networking`，以及 `wl-clipboard`。包装后真正的二进制是 `.msime-linux-desktop-wrapped`，按 `current_exe` 找到的前缀不变。
-- **`wl-clipboard`** 加在剪贴板监视器和设置窗口的 PATH 前面：两者在 Wayland 上读写剪贴板都只经 `wl-copy`、`wl-paste`，找不到时剪贴板历史什么也记不下。
+- **脚本的解释器**：`postPatch` 为了让 ctest 直接执行源码树里的脚本，把它们的 shebang 改到构建用的 `python3` 与 `bash`，CMake 从那里装进 `bin` 的就是改写过的脚本，而 fixup 的 `patchShebangs` 不动已经指向 store 的 shebang。所以 `postInstall` 对 `$out/bin` 跑 `patchShebangs --update --host`，按 `buildInputs` 重新改写：Python 换成带 `websockets` 的那份（豆包流式识别要它的同步客户端），`sh`、`bash` 换成 `bashNonInteractive`。由 `.in` 模板经 `configure_file` 生成的脚本（`bin` 下的 `msime-linux-settings`，`share/msime-client/omarchy` 下的 `theme-set` 与 `menu`）不一样：模板不可执行，`postPatch` 不改它们，装出去的仍是 `#!/bin/bash` 这类系统路径，由 fixup 阶段自动执行的 `patchShebangs` 按 `buildInputs` 改到 `bashNonInteractive`。NixOS 上没有 `/bin/bash`，所以 `bashNonInteractive` 要在 `buildInputs` 里。
+- **设置窗口**经 `MSIME_DESKTOP_BINARY` 交给 CMake，装成同一前缀下的 `msime-linux-desktop`。它按自己所在的前缀找 `msime-linux-setup`、手写模型和内置音效包，所以不能单独成包再链接过来。`wrapGAppsHook3` 默认会把 `bin` 下每个可执行文件都包一层，这里 `dontWrapGApps` 后只给它包：GTK 的运行环境、TLS 用的 `glib-networking`，以及剪贴板工具。包装后真正的二进制是 `.msime-linux-desktop-wrapped`，按 `current_exe` 找到的前缀不变。
+- **`msime-mcp`** 经 `MSIME_MCP_BINARY` 交给 CMake，装在同一前缀的 `bin` 下：设置窗口的 MCP 页在自己旁边找它，助手的 MCP 配置经 PATH 调用它。
+- **`wl-clipboard` 与 `xclip`** 加在剪贴板监视器和设置窗口的 PATH 前面：两者在 Wayland 上读写剪贴板只经 `wl-copy`、`wl-paste`，在 X11 上只经 `xclip`、`xsel`，找不到时剪贴板历史什么也记不下，设置窗口的同步、复制与粘贴报告不可用。
 - **音频工具不随包**：provider 取 PATH 上找到的第一个（`parec`、`pw-cat`、`arecord`），带上 PulseAudio 的工具会让只有 PipeWire、没开 pipewire-pulse 的系统选到连不上的 `parec`，所以交给系统的音频栈。
 
-ctest 跑的是构建目录，看不到装出去的东西能不能加载，所以 fixup 之后还有装后检查（`installCheckPhase`）：插件按 RUNPATH 找到的 Host API 必须是本包 `lib/msime-client` 里的那份；语音运行库同理，它的依赖都要能单独解析，并且 `msime-voice-local` 能打开它；设置窗口的依赖在收缩 RUNPATH 后都还解析得到，包装器带着 TLS 模块。
+ctest 跑的是构建目录，看不到装出去的东西能不能加载，所以 fixup 之后还有装后检查（`installCheckPhase`）：插件按 RUNPATH 找到的 Host API 必须是本包 `lib/msime-client` 里的那份；语音运行库同理，它的依赖都要能单独解析，并且 `msime-voice-local` 能打开它；设置窗口的依赖在收缩 RUNPATH 后都还解析得到，包装器带着 TLS 模块和 `xclip`；`msime-mcp` 能运行；两份第三方许可证声明都装进来了。
 
 ### 随包词库
 

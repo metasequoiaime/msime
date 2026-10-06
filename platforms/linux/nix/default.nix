@@ -46,7 +46,29 @@ let
   };
 
   msime-host-api = pkgs.callPackage ./host-api.nix rustArgs;
+  msime-mcp = pkgs.callPackage ./mcp.nix rustArgs;
   msime-desktop = pkgs.callPackage ./desktop.nix rustArgs;
+  # 前端构建要较新的 nixpkgs 才有的这几个包。经 overlay 或模块时用的是使用方自己的 nixpkgs，没有它们
+  # 就不带设置窗口，而不是让原本能用的 programs.msime 求值失败。packages 里照样列着 msime-desktop：
+  # overlay 的属性名不能取决于 final 里有什么，否则无限递归；它是惰性的，只在被取用时才失败。
+  settingsWindowAvailable = pkgs.lib.all (name: pkgs ? ${name}) [
+    "pnpm_11"
+    "nodejs_24"
+    "writableTmpDirAsHomeHook"
+  ];
+  settingsWindow =
+    if settingsWindowAvailable then
+      msime-desktop
+    else
+      pkgs.lib.warn "msime: 这份 nixpkgs 没有 pnpm_11、nodejs_24 或 writableTmpDirAsHomeHook，msime-fcitx5 不带设置窗口" null;
+  # 与 package-container.sh 相同的几个 crate：Host API、msime-mcp，带设置窗口时还有它。
+  rustNotices = pkgs.callPackage ./rust-notices.nix rustArgs (
+    [
+      "msime-host-api"
+      "msime-mcp-server"
+    ]
+    ++ pkgs.lib.optional settingsWindowAvailable "msime-desktop:tauri/custom-protocol"
+  );
   lockedArtifacts = pkgs.callPackage ./locked-artifacts.nix { };
   # desktop-dictionary.lock.json 钉住的词库，默认不随包（见 fcitx5.nix 的 bundledResources）。锁里只有
   # SCOWL 与 Mozc 的许可文本，逐项列出词库数据来源与上游条款的 NOTICE 是仓库里的固定副本，与插件包
@@ -71,8 +93,12 @@ let
   msime-fcitx5 = pkgs.callPackage ./fcitx5.nix (
     common
     // {
-      inherit msime-host-api;
-      settingsWindow = msime-desktop;
+      inherit
+        msime-host-api
+        msime-mcp
+        settingsWindow
+        rustNotices
+        ;
       handwritingModel = msime-handwriting-model;
       # 锁里没有本机架构的运行库时（如 riscv64、i686）不带它，退回只有云端识别的构建，而不是求值失败。
       voiceRuntime =
@@ -87,6 +113,7 @@ in
   packages = {
     inherit
       msime-host-api
+      msime-mcp
       msime-desktop
       msime-resources
       msime-handwriting-model
@@ -100,9 +127,9 @@ in
     # verify-local.sh 的 cargo check 会编到它们。
     inputsFrom = [
       msime-host-api
-      msime-desktop
       msime-fcitx5
-    ];
+    ]
+    ++ pkgs.lib.optional settingsWindowAvailable msime-desktop;
     packages = [ rustToolchain ];
   };
 }
