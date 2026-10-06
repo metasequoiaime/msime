@@ -36,6 +36,7 @@ public final class KeyboardSkinCard extends KeyboardPressButton {
     private int labelColor;
     private Integer splitStart;
     private Integer splitEnd;
+    private KeyboardSkinPreview.SplitDrawState splitDrawState;
 
     public KeyboardSkinCard(Context context, KeyboardSkin skin, String title) {
         super(context);
@@ -63,6 +64,7 @@ public final class KeyboardSkinCard extends KeyboardPressButton {
     public void setSplitPreview(int light, int dark) {
         splitStart = light;
         splitEnd = dark;
+        if (splitDrawState == null) splitDrawState = new KeyboardSkinPreview.SplitDrawState();
         invalidate();
     }
 
@@ -82,7 +84,8 @@ public final class KeyboardSkinCard extends KeyboardPressButton {
         if (tile.width() <= 0 || tile.height() <= 0) return;
         float radius = TILE_RADIUS_DP * density;
         if (splitStart != null && splitEnd != null) {
-            KeyboardSkinPreview.drawSplit(canvas, tile, radius, splitStart, splitEnd);
+            KeyboardSkinPreview.drawSplit(canvas, tile, radius, splitStart, splitEnd,
+                splitDrawState);
         } else {
             KeyboardSkinPreview.drawTile(canvas, tile, radius, skin, density, tileDrawState);
         }
