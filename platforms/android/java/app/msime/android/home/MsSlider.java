@@ -1,5 +1,6 @@
 package app.msime.android.home;
 
+import app.msime.android.KeyboardGeometry;
 import android.content.Context;
 import android.graphics.drawable.ClipDrawable;
 import android.graphics.drawable.Drawable;

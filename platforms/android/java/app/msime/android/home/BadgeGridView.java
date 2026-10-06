@@ -1,5 +1,6 @@
 package app.msime.android.home;
 
+import app.msime.android.KeyboardGeometry;
 import android.animation.ValueAnimator;
 import android.content.Context;
 import android.graphics.Canvas;
@@ -23,7 +24,6 @@ import androidx.core.view.ViewCompat;
 import androidx.core.view.accessibility.AccessibilityNodeInfoCompat;
 import androidx.customview.widget.ExploreByTouchHelper;
 import app.msime.android.TypingStatisticsSummary;
-import app.msime.android.keyboard.KeyboardGeometry;
 import app.msime.android.TypingStatisticsSummary.Achievement;
 import java.util.List;
 import java.util.function.Consumer;

@@ -1,5 +1,6 @@
 package app.msime.android.home;
 
+import app.msime.android.KeyboardGeometry;
 import android.content.Context;
 import android.content.res.ColorStateList;
 import android.graphics.Typeface;
