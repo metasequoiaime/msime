@@ -20,7 +20,7 @@ use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeSet, HashSet};
+use std::collections::HashSet;
 use std::fs;
 use std::io::{Cursor, Write};
 use std::path::Path;
@@ -495,7 +495,7 @@ fn validate_page(mut page: CommunityPluginPage) -> Result<CommunityPluginPage, A
     if page.plugins.iter().any(|item| validate_item(item).is_err()) {
         return Err(AccountError::Unavailable);
     }
-    let mut ids = BTreeSet::new();
+    let mut ids = HashSet::with_capacity(page.plugins.len());
     if page.plugins.iter().any(|item| !ids.insert(item.id)) {
         return Err(AccountError::Unavailable);
     }
