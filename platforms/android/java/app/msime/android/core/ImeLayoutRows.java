@@ -1085,8 +1085,8 @@ final class ImeLayoutRows {
             return;
         }
         s.nineKeySpellingGeneration = CandidateGlossPolicy.strictOr(s.view.opt("generation"), -1);
-        java.util.List<String> values = new java.util.ArrayList<>();
-        java.util.List<Integer> indices = new java.util.ArrayList<>();
+        java.util.List<String> values = new java.util.ArrayList<>(spellings.length());
+        java.util.List<Integer> indices = new java.util.ArrayList<>(spellings.length());
         for (int index = 0; index < spellings.length(); index++) {
             String spelling = spellings.optString(index, "");
             if (!spelling.isEmpty()) {
