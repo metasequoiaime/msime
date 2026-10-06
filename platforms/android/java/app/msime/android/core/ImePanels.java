@@ -364,10 +364,16 @@ final class ImePanels {
             choices.add(new MSIMEInputService.SkinChoice(system.id(), system.title(), system, null));
         }
         // 已获取的设计与社区目录缓存里的设计，按皮肤的绘制键去重；「我的皮肤」与其中某一款相同时只留带名字的那一格。
-        java.util.Set<String> libraryIds = new java.util.HashSet<>();
-        java.util.Set<String> namedKeys = new java.util.HashSet<>();
+        java.util.List<CustomSkinLibrary.Item> library = java.util.List.of();
         try {
-            for (CustomSkinLibrary.Item item : CustomSkinLibrary.read(java.nio.file.Paths.get(s.preferencesDirectory))) {
+            library = CustomSkinLibrary.read(java.nio.file.Paths.get(s.preferencesDirectory));
+        } catch (Exception ignored) {
+            // 写到一半的自定义库不能把主题也藏起来。
+        }
+        java.util.Set<String> libraryIds = new java.util.HashSet<>(library.size());
+        java.util.Set<String> namedKeys = new java.util.HashSet<>(library.size());
+        try {
+            for (CustomSkinLibrary.Item item : library) {
                 JSONObject design = item.design();
                 KeyboardSkin skin = KeyboardSkin.custom(design, hostDark);
                 libraryIds.add(item.id());
