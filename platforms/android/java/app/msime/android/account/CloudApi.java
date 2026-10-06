@@ -306,12 +306,13 @@ public final class CloudApi {
         for (Part part : parts) {
             if (part == null || part.content() == null) throw new IllegalArgumentException("empty multipart part");
             if (contains(part.content(), delimiter)) throw new IllegalArgumentException("part contains the boundary");
-            StringBuilder head = new StringBuilder();
+            String type = part.contentType() == null ? "application/octet-stream" : part.contentType();
+            StringBuilder head = new StringBuilder(96 + boundary.length()
+                + headerLength(part.name()) + headerLength(part.filename()) + headerLength(type));
             head.append("--").append(boundary).append("\r\n");
             head.append("Content-Disposition: form-data; name=\"").append(headerToken(part.name())).append('"');
             if (part.filename() != null) head.append("; filename=\"").append(headerToken(part.filename())).append('"');
             head.append("\r\n");
-            String type = part.contentType() == null ? "application/octet-stream" : part.contentType();
             head.append("Content-Type: ").append(headerToken(type)).append("\r\n\r\n");
             write(output, head.toString().getBytes(StandardCharsets.UTF_8));
             write(output, part.content());
@@ -336,6 +337,10 @@ public final class CloudApi {
             if (!allowed) throw new IllegalArgumentException("invalid multipart boundary");
         }
         return boundary;
+    }
+
+    private static int headerLength(String value) {
+        return value == null ? 0 : value.length();
     }
 
     private static String headerToken(String value) {
