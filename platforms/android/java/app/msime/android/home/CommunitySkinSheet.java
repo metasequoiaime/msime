@@ -127,18 +127,23 @@ public final class CommunitySkinSheet {
 
     /** Category, author, uses or entry count, and rating on one line — everything the card shows except the name. */
     private static String subtitle(CommunityCatalog.Item item) {
-        StringBuilder value = new StringBuilder();
-        if (item.category() != null) value.append(item.category().label()).append(" · ");
+        String category = item.category() == null ? null : item.category().label();
+        String details;
         if (item.kind() == CommunityRequest.Kind.SKIN) {
-            value.append(CommunityAdapter.author(item)).append(" · ")
-                .append(CommunityRequest.usesLabel(item.downloads()));
+            details = CommunityAdapter.author(item) + " · "
+                + CommunityRequest.usesLabel(item.downloads());
         } else {
             String meta = CommunityAdapter.subtitle(item);
-            value.append(meta.isEmpty() ? "匿名作者" : meta);
+            details = meta.isEmpty() ? "匿名作者" : meta;
         }
-        value.append(" · ").append(item.ratingCount() <= 0 ? "暂无评分"
+        String rating = item.ratingCount() <= 0 ? "暂无评分"
             : String.format(Locale.ROOT, "★ %.1f · %d 人", item.ratingAverage(),
-                item.ratingCount()));
+                item.ratingCount());
+        int capacity = (category == null ? 0 : category.length() + 3)
+            + details.length() + rating.length() + 3;
+        StringBuilder value = new StringBuilder(capacity);
+        if (category != null) value.append(category).append(" · ");
+        value.append(details).append(" · ").append(rating);
         return value.toString();
     }
 
