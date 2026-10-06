@@ -286,7 +286,7 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
     private final class StreamingReply {
         final int token;
         final BackendAccount.ChatCall call = new BackendAccount.ChatCall();
-        private final StringBuilder received = new StringBuilder();
+        private final StringBuilder received = new StringBuilder(BackendAccount.MAX_CHAT_REPLY_CHARS);
         private final AtomicBoolean scheduled = new AtomicBoolean();
         /** 上一次重画的时刻；worker 线程读它算延迟，界面线程写。 */
         private volatile long shownAt;

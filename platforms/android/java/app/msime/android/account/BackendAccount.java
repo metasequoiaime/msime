@@ -36,7 +36,7 @@ public final class BackendAccount {
     /** Matches client-core's account JSON response ceiling; a full cloud clipboard page can exceed 64 KiB. */
     private static final int MAX_RESPONSE_BYTES = 1024 * 1024;
     /** 一条 AI 回复的字符上限，流式与非流式相同。 */
-    private static final int MAX_CHAT_REPLY_CHARS = 10_000;
+    public static final int MAX_CHAT_REPLY_CHARS = 10_000;
     /** 流式回复整个响应体的上限：最多 2048 个 token 的增量块，每块几十到一两百字节的 JSON 外壳。 */
     static final int MAX_STREAM_BYTES = 4 * 1024 * 1024;
     /** SSE 单行上限；一个增量块远小于它。 */
