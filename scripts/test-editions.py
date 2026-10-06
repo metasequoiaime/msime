@@ -46,8 +46,6 @@ EDITION_IDENTITY = ROOT / "platforms/macos/src/core/EditionIdentity.h"
 TAURI_WINDOWS_CONF = ROOT / "apps/desktop/src-tauri/tauri.windows.conf.json"
 UPDATE_MANIFEST = ROOT / "packages/ui/src/settings/update-manifest.ts"
 WINDOWS_GENERATOR = ROOT / "platforms/windows/scripts/edition_windows.py"
-# 数据目录所有权标记的文件名前缀，与 Windows 生成器的 DATA_DIR_MARKER_PREFIX 相同；标记文件名是它加上版本的名字后缀。
-MARKER_PREFIX = ".metasequoiaime-data"
 ANDROID_ROOT = ROOT / "platforms/android"
 ANDROID_GRADLE = ANDROID_ROOT / "gradle-app/app/build.gradle.kts"
 ANDROID_MANIFEST = ANDROID_ROOT / "AndroidManifest.xml"
@@ -542,24 +540,25 @@ def check_windows(errors: list[str], editions: list[dict]) -> None:
             errors.append(f"{UPDATE_MANIFEST.relative_to(ROOT)} no longer contains {fragment!r}; update installer_base_name in this script")
 
 
-def load_msime_windows() -> dict:
-    """msime-windows 的 Windows 身份，记在 Windows 生成器里（它也拿这份记录生成安装器的避让名单）。"""
+def load_windows_generator():
+    """Windows 生成器：msime-windows 的身份记在它的 `MSIME_WINDOWS` 里（它也拿这份记录生成安装器的避让名单），数据目录所有权标记的前缀是它的 `DATA_DIR_MARKER_PREFIX`。"""
     spec = importlib.util.spec_from_file_location("edition_windows", WINDOWS_GENERATOR)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    return module.MSIME_WINDOWS
+    return module
 
 
 def check_msime_windows(errors: list[str], sections: list[tuple[str, dict]]) -> None:
     """msime-windows 是另一个维护者的独立产品，和本仓库的版本装在同一台机器上。任何一个版本用了它的 CLSID、profile、TSF GUID 或 AppId，装上就会覆盖它的注册、卸载就会删掉它；用了它的显示名，开始菜单文件夹和快捷方式就是同一份，键盘列表里也分不出两者；用了它的安装目录、注册表键、环境变量、名字后缀（管道、事件、互斥量）、看门狗任务、安装包名或数据目录标记，两边就会读写、停掉或删掉对方的东西。"""
-    msime_windows = load_msime_windows()
+    generator = load_windows_generator()
+    msime_windows = generator.MSIME_WINDOWS
     foreign = {value.casefold(): f"msime-windows' {key}" for key, value in windows_guids(msime_windows)}
     for edition_id, section in sections:
         for key, value in windows_guids(section):
             if value.casefold() in foreign:
                 errors.append(f"edition {edition_id}: platforms.windows.{key} {value} is {foreign[value.casefold()]}")
         names = {key: section[key] for key in ["app_name", "text_service_description", "install_dir", "registry_key", "data_dir_environment_variable", "name_suffix", "watchdog_task", "installer_base_name"]}
-        names["data_dir_marker"] = MARKER_PREFIX + section["name_suffix"]
+        names["data_dir_marker"] = generator.DATA_DIR_MARKER_PREFIX + section["name_suffix"]
         for key, value in names.items():
             if value.casefold() == msime_windows[key].casefold():
                 errors.append(f"edition {edition_id}: platforms.windows {key} {value!r} is msime-windows' {key}")

@@ -15,7 +15,8 @@
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
-$InstallDir = 'C:\Program Files\metasequoiaime\server'
+# full 的安装目录（版本表 platforms.windows.install_dir）。不带后缀的 metasequoiaime 是 msime-windows 的，这个脚本会按映像名停进程、改写目录里的文件，不能指向它。
+$InstallDir = 'C:\Program Files\metasequoiaime-full\server'
 $SignTargets = @('MetasequoiaImeServer.exe', 'MetasequoiaImeWatchdog.exe', 'MetasequoiaImeTsf.dll')
 $StopProcesses = @('MetasequoiaImeServer', 'MetasequoiaImeWatchdog',
                    'MetasequoiaImeEmojiPanel', 'MetasequoiaImeKeyboardPanel')

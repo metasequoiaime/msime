@@ -2,7 +2,8 @@
 $ErrorActionPreference = 'Stop'
 
 $productCode = '{4391158B-18CF-4B7A-A924-7FBBC23FB3F8}_is1'
-[array]$keys = Get-UninstallRegistryKey -SoftwareName 'Metasequoia IME*' | Where-Object { $_.PSChildName -eq $productCode }
+# The display name is not ASCII (this script must be) and msime-windows' entry starts with 'Metasequoia IME', so every entry is listed and the product code alone picks this one.
+[array]$keys = Get-UninstallRegistryKey -SoftwareName '*' | Where-Object { $_.PSChildName -eq $productCode }
 
 if ($keys.Count -eq 0) {
     Write-Warning "$env:ChocolateyPackageName has already been uninstalled by other means."

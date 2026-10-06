@@ -358,7 +358,7 @@
                 "installer_base_name": {
                   "description": "安装包文件名前缀，完整文件名是 `<installer_base_name>_v<版本>.exe`；每个版本（包括 full）都必须是 packages/ui/src/settings/update-manifest.ts 认的 `MetasequoiaIME-<Id>_Setup`。不带版本名的 `MetasequoiaIME_Setup` 是 msime-windows 的安装包。",
                   "type": "string",
-                  "pattern": "^MetasequoiaIME(-[A-Z][a-z0-9]*)?_Setup$"
+                  "pattern": "^MetasequoiaIME-[A-Z][a-z0-9]*_Setup$"
                 }
               }
             },
