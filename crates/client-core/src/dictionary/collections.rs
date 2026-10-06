@@ -1341,9 +1341,9 @@ fn parse_rows(
     existing: &HashSet<String>,
     room: usize,
 ) -> (Vec<PersonalWord>, CollectionImportReport) {
-    let mut words = Vec::new();
+    let mut words = Vec::with_capacity(room);
     let mut report = CollectionImportReport::default();
-    let mut seen = HashSet::new();
+    let mut seen = HashSet::with_capacity(room);
     let mut in_yaml_header = false;
     for (index, line) in text.lines().enumerate() {
         let trimmed = line.trim();
@@ -1412,9 +1412,9 @@ fn parse_hans(
     existing: &HashSet<String>,
     room: usize,
 ) -> (Vec<PersonalWord>, CollectionImportReport) {
-    let mut words = Vec::new();
+    let mut words = Vec::with_capacity(room);
     let mut report = CollectionImportReport::default();
-    let mut seen = HashSet::new();
+    let mut seen = HashSet::with_capacity(room);
     for (index, line) in text.lines().enumerate() {
         let value = line.trim();
         if value.is_empty() || value.starts_with('#') {
