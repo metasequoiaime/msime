@@ -14,9 +14,9 @@ public final class KeyboardGeometry {
     public static final int CANDIDATE_ROW_HEIGHT_DP = 48;
     public static final int NINE_KEY_HEIGHT_DP = 180;
     public static final int HANDWRITING_BODY_HEIGHT_DP = 220;
-    /** 新设计的默认键距 5 dp、行距 8 dp（plan P26：Android 新安装的默认值）。 */
-    public static final int DEFAULT_KEY_SPACING_TENTHS = 50;
-    public static final int DEFAULT_ROW_SPACING_TENTHS = 80;
+    /** 默认键距 6 dp、行距 7 dp，与共享偏好 client-core 的 `touch_key_spacing_tenths` / `touch_row_spacing_tenths` 默认值一致：共享层总会把这两个值写进偏好，这里另取一套会让新安装和「恢复默认」先画一种间距再跳回共享的那种。要改默认值得在共享层改，各平台一起变。 */
+    public static final int DEFAULT_KEY_SPACING_TENTHS = 60;
+    public static final int DEFAULT_ROW_SPACING_TENTHS = 70;
     public static final int MIN_KEY_SPACING_TENTHS = 30;
     public static final int MAX_KEY_SPACING_TENTHS = 60;
     public static final int MIN_ROW_SPACING_TENTHS = 40;

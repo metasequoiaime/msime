@@ -6,6 +6,8 @@ import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.RectF;
 import android.graphics.Typeface;
+import android.text.TextPaint;
+import android.text.TextUtils;
 import android.util.TypedValue;
 
 /**
@@ -21,7 +23,7 @@ public final class KeyboardSkinCard extends KeyboardPressButton {
     private final KeyboardSkin skin;
     private final String title;
     private final float density;
-    private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final TextPaint paint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
     private final RectF tile = new RectF();
     private final RectF outline = new RectF();
     private boolean themed;
@@ -96,10 +98,9 @@ public final class KeyboardSkinCard extends KeyboardPressButton {
         paint.setColor(selected ? accent : label);
         paint.setTypeface(selected ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
         paint.setTextAlign(Paint.Align.CENTER);
-        String text = title == null ? "" : title;
-        while (text.length() > 1 && paint.measureText(text) > getWidth()) {
-            text = text.substring(0, text.length() - 1);
-        }
+        // 皮肤名放不下时以「…」结尾，不悄悄丢掉末尾的字。
+        String text = TextUtils.ellipsize(title == null ? "" : title, paint, getWidth(),
+            TextUtils.TruncateAt.END).toString();
         canvas.drawText(text, getWidth() / 2f, tile.bottom + ring + LABEL_GAP_DP * density
             - metrics.ascent, paint);
     }

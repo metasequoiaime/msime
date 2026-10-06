@@ -38,6 +38,11 @@ final class ImePrivacyGate {
         current = this;
     }
 
+    /** 服务销毁时调用：静态入口还指着自己就清掉，免得已销毁的服务被它一直留在内存里。 */
+    void release() {
+        if (current == this) current = null;
+    }
+
     /** 这个输入框的按键是否不计数；没有输入框信息时一律不计。 */
     static boolean excludesKeyStatistics(EditorInfo info) {
         return info == null || excludesKeyStatistics(info.inputType, info.imeOptions);

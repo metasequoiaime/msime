@@ -8,6 +8,8 @@ import android.graphics.RectF;
 import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
 import android.os.Build;
+import android.text.TextPaint;
+import android.text.TextUtils;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
@@ -151,7 +153,7 @@ public final class FunctionPanelView extends LinearLayout {
         private final Entry entry;
         private final Paint iconPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Paint boxPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final Paint textPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final TextPaint textPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
         private final Paint badgePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final RectF rect = new RectF();
         private State state = State.NONE;
@@ -266,12 +268,10 @@ public final class FunctionPanelView extends LinearLayout {
                 cx - check / 2f, cy - check / 2f, check, panel.panelBackground);
         }
 
+        /** 放不下时以「…」结尾截断，不悄悄丢掉末尾的字。 */
         private String fit(String value, float width) {
-            String text = value;
-            while (text.length() > 1 && textPaint.measureText(text) > width) {
-                text = text.substring(0, text.length() - 1);
-            }
-            return text;
+            return TextUtils.ellipsize(value == null ? "" : value, textPaint, Math.max(0f, width),
+                TextUtils.TruncateAt.END).toString();
         }
 
         private float sp(float value) {

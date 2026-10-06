@@ -5,6 +5,8 @@ import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
+import android.text.TextPaint;
+import android.text.TextUtils;
 import android.util.TypedValue;
 import android.view.animation.AccelerateDecelerateInterpolator;
 import android.widget.TextView;
@@ -23,8 +25,8 @@ public final class VoiceListeningView extends TextView {
     private final Paint orb = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint ring = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint icon = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint title = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint hint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final TextPaint title = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    private final TextPaint hint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
     private int accent = Color.BLUE;
     private int onAccent = Color.WHITE;
     private float pulse;
@@ -111,10 +113,14 @@ public final class VoiceListeningView extends TextView {
         KeyboardIconPaths.draw(canvas, icon, KeyboardIconPaths.Icon.MIC, cx - mic / 2f,
             cy - mic / 2f, mic, onAccent);
         float titleBaseline = cy + radius + gap - titleMetrics.ascent;
-        canvas.drawText(String.valueOf(getText()), cx, titleBaseline, title);
+        // 两行居中绘制，左右各留 16 dp；放不下时省略：标题省略结尾，提示里是滚动中的识别文字，省略开头留住最新说的那段。
+        float available = Math.max(0f, getWidth() - getPaddingLeft() - getPaddingRight() - 32 * density);
+        canvas.drawText(TextUtils.ellipsize(String.valueOf(getText()), title, available,
+            TextUtils.TruncateAt.END).toString(), cx, titleBaseline, title);
         if (!hintText.isEmpty()) {
-            canvas.drawText(hintText, cx, titleBaseline + titleMetrics.descent + 6 * density
-                - hintMetrics.ascent, hint);
+            canvas.drawText(TextUtils.ellipsize(hintText, hint, available,
+                TextUtils.TruncateAt.START).toString(), cx, titleBaseline + titleMetrics.descent
+                + 6 * density - hintMetrics.ascent, hint);
         }
     }
 

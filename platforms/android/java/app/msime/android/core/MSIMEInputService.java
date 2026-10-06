@@ -846,6 +846,9 @@ public final class MSIMEInputService extends InputMethodService {
 
     void countKey(View key) { countKey(keyIds.get(key)); }
 
+    /** 按键的键位 id（`Backspace`、`Space`、`Enter`…）；没有登记的控件为 null。按键反馈靠它给键分类，不去猜无障碍描述。 */
+    String keyIdOf(View key) { return key == null ? null : keyIds.get(key); }
+
     /**
      * Count one key press for the heatmap: its id and its local day, nothing else.
      *
@@ -1154,16 +1157,8 @@ public final class MSIMEInputService extends InputMethodService {
         imeLayoutRows.dismissNineKeyHoldOptions();
         imeLayoutRows.hideJapaneseFlickPreview();
         closeCandidatePanel();
-        closeClipboardHistory();
-        closeSchemePicker();
-        closeSkinPicker();
-        closeLayoutSettings();
-        closeMoreTools();
-        closeEmojiPicker();
-        closeVoiceResult();
-        closeAiPolish();
-        closeReplyKeyboard();
-        closeSymbolPanel();
+        // 工具栏面板一律走 closeToolbarPanels：逐个列举时漏掉过常用语，A 应用里打开的常用语会盖在 B 应用密码框的键盘上，一点就把短语上屏进密码框。
+        closeToolbarPanels();
         deactivateHandwriting();
         imeDebugOverlay.clearDiagnostic();
         // macOS resolves the same focus-loss boundary with finish_composition, so a keyboard put
@@ -1208,6 +1203,9 @@ public final class MSIMEInputService extends InputMethodService {
         typingStatisticsWorker.shutdown();
         emojiWorker.shutdown();
         imeVoiceEntry.shutdown();
+        imeKeyFeedback.shutdown();
+        imeLayoutRows.shutdown();
+        imeDebugOverlay.shutdown();
         cloudClipboardWorker.shutdownNow();
         candidateGlossWorker.shutdownNow();
         candidateTranslationWorker.shutdownNow();
@@ -1216,6 +1214,7 @@ public final class MSIMEInputService extends InputMethodService {
         aiPolishClient.close();
         connection = null;
         Telemetry.endInputSession(this);
+        imePrivacyGate.release();
         super.onDestroy();
     }
     @Override public boolean onEvaluateFullscreenMode() { return false; }
@@ -1257,16 +1256,8 @@ public final class MSIMEInputService extends InputMethodService {
         else if (connection != null) bridge.abandon(sink(typingSource()));
         view = null;
         closeCandidatePanel();
-        closeClipboardHistory();
-        closeSchemePicker();
-        closeSkinPicker();
-        closeLayoutSettings();
-        closeMoreTools();
-        closeEmojiPicker();
-        closeSymbolPanel();
-        closeVoiceResult();
-        closeAiPolish();
-        closeReplyKeyboard();
+        // 换编辑器时不让任何工具栏面板（含常用语）活下来，理由同 finishInputViewPresentation。
+        closeToolbarPanels();
     }
 
     /**
@@ -1342,8 +1333,9 @@ public final class MSIMEInputService extends InputMethodService {
                 imeLetterRows.rebuildKeyRows();
             }
             refreshEnglishSuggestions();
-            render();
+            // 先清掉「准备中」再画，否则这次 render 还会把过期的模式标签留在读音行上。
             message = "";
+            render();
             String directory = options.optString("preferences_directory", "");
             if (!directory.isEmpty() && new File(directory).isAbsolute()) {
                 preferencesDirectory = directory;
@@ -2474,9 +2466,12 @@ public final class MSIMEInputService extends InputMethodService {
         int extraRows = Math.max(0, reserved - 1);
         int line = ImeToolbar.CANDIDATE_LINE_DP + extraRows * ImeToolbar.EXTRA_GLOSS_ROW_DP;
         setFixedHeight(candidateLine, pixels(line));
-        // 空闲时的工具栏和组词时的读音行 + 候选行占同一个位置，两者同高，打字时键盘才不会变高。
+        // 空闲时的工具栏和组词时的读音行 + 候选行占同一个位置，两者同高，打字时键盘才不会变高。空闲时读音行若在显示常驻的模式标签（直接输入、准备中），它已经占了那 14 dp，工具栏只取候选行的高度，总高不变。
+        boolean idleHeader = candidateHeader != null
+            && candidateHeader.getVisibility() == View.VISIBLE;
         if (shortcutScroll != null)
-            setFixedHeight(shortcutScroll, pixels(ImeToolbar.READING_ROW_DP + line));
+            setFixedHeight(shortcutScroll,
+                pixels((idleHeader ? 0 : ImeToolbar.READING_ROW_DP) + line));
     }
 
     private static void setFixedHeight(View view, int height) {
@@ -4767,6 +4762,11 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     void captureClipboardText() {
+        // 「保存当前」是用户点出来的：被隐私规则挡下时要说一声，不能点了没反应。
+        if (!imePrivacyGate.allows(ImePrivacyGate.Record.CLIPBOARD_HISTORY)) {
+            Toast.makeText(this, "隐私模式或当前输入框下不保存剪贴板", Toast.LENGTH_SHORT).show();
+            return;
+        }
         if (!imePrivacyGate.capturesClipboard()) return;
         try {
             ClipboardManager manager = getSystemService(ClipboardManager.class);

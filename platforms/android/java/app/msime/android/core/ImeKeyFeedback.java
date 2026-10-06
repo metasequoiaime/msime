@@ -11,6 +11,9 @@ import android.view.HapticFeedbackConstants;
 import android.view.View;
 import android.view.ViewParent;
 import java.io.File;
+import java.lang.ref.WeakReference;
+import java.util.Map;
+import java.util.WeakHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
@@ -46,6 +49,8 @@ final class ImeKeyFeedback {
     /** 当前声音包加载出的样本；没有（default 包、加载中或失败）时为 null，此时用系统按键音。 */
     private volatile PackSounds sounds;
     private String loadingPack = "";
+    /** 原按钮 → 键面替身，见 {@link #stageFace}。 */
+    private final Map<View, WeakReference<View>> faces = new WeakHashMap<>();
 
     ImeKeyFeedback(MSIMEInputService s) {
         this.s = s;
@@ -66,25 +71,46 @@ final class ImeKeyFeedback {
 
     /** 一次按键的反馈入口。 */
     void onKeyDown(View key, int keyClass) {
-        feedback(key, keyClass);
+        feedback(visible(key), keyClass);
     }
 
     void playFeedback(View source) {
-        feedback(source, classify(source));
+        View key = visible(source);
+        feedback(key, classify(key));
     }
 
-    /** 由按键视图推断按键类别：空格键、回车键、删除键各自一类，其他都算普通键。 */
+    /**
+     * 登记一个画图标的键面替身：⇧ ⌫ 空格 ↵ 的键面点一下会让 SVC 建的原按钮 performClick，原按钮的监听再拿它自己来播反馈；原按钮不在键盘树里，按它分类和播动画都会落空。两边都用弱引用，键盘重建后旧的一对随视图一起回收。
+     */
+    void stageFace(View original, View face) {
+        if (original != null && face != null) faces.put(original, new WeakReference<>(face));
+    }
+
+    /** 原按钮换成用户看得见的键面；没有登记过替身的键原样返回。 */
+    View visible(View source) {
+        WeakReference<View> face = source == null ? null : faces.get(source);
+        View resolved = face == null ? null : face.get();
+        return resolved != null ? resolved : source;
+    }
+
+    /** 由按键视图推断按键类别：空格键、回车键、删除键各自一类，其他都算普通键。优先看建键时登记的键位 id（{@link MSIMEInputService#keyId}），九宫格、日语和笔画的 ⌫ 描述是「按键 删除」，按描述猜会漏。 */
     int classify(View source) {
         if (source == null) return KEY_STANDARD;
-        if (source == s.spaceButton) return KEY_SPACE;
-        if (source == s.enterButton) return KEY_ENTER;
-        if (source == s.deleteButton || source == s.backspaceRepeatButton) return KEY_BACKSPACE;
-        if (source instanceof KeyboardPressButton press && press.keyboardRole() == KeyboardKeyRole.RETURN)
+        View key = visible(source);
+        if (key == s.spaceButton) return KEY_SPACE;
+        if (key == s.enterButton) return KEY_ENTER;
+        if (key == s.deleteButton || key == s.backspaceRepeatButton) return KEY_BACKSPACE;
+        String id = s.keyIdOf(key);
+        if (id == null) id = s.keyIdOf(source);
+        if ("Backspace".equals(id)) return KEY_BACKSPACE;
+        if ("Space".equals(id)) return KEY_SPACE;
+        if ("Enter".equals(id)) return KEY_ENTER;
+        if (key instanceof KeyboardPressButton press && press.keyboardRole() == KeyboardKeyRole.RETURN)
             return KEY_ENTER;
-        CharSequence description = source.getContentDescription();
+        CharSequence description = key.getContentDescription();
         if (description != null) {
             String value = description.toString();
-            if ("删除".equals(value)) return KEY_BACKSPACE;
+            if ("删除".equals(value) || "按键 删除".equals(value)) return KEY_BACKSPACE;
             if ("空格".equals(value)) return KEY_SPACE;
         }
         return KEY_STANDARD;
@@ -234,6 +260,15 @@ final class ImeKeyFeedback {
         } catch (RejectedExecutionException error) {
             loadingPack = "";
         }
+    }
+
+    /** 服务销毁时调用：停掉加载线程并释放已加载的 SoundPool。还在路上的加载结果回到主线程时因 loadingPack 已清空而自行释放。 */
+    void shutdown() {
+        loader.shutdownNow();
+        loadingPack = "";
+        PackSounds loaded = sounds;
+        sounds = null;
+        if (loaded != null) release(loaded);
     }
 
     private static int sample(SoundPool pool, JSONObject files, String name) {

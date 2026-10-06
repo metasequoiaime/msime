@@ -109,6 +109,11 @@ final class ImeDebugOverlay {
             }
         }
 
+        /** 不再接新行；已排队的行照常写完（线程是 daemon，不会拖住进程退出）。 */
+        void shutdown() {
+            worker.shutdown();
+        }
+
         private void append(String name, byte[] line) {
             try {
                 SafePaths.ensureDirectory(directory.toPath());
@@ -175,6 +180,11 @@ final class ImeDebugOverlay {
         refreshPreferences();
         return mobileLogEnabled && s.imePrivacyGate != null && s.imePrivacyGate.recordsInputEvents()
             && s.imePrivacyGate.writesDiagnosticLog();
+    }
+
+    /** 服务销毁时调用：停掉输入日志的写线程。 */
+    void shutdown() {
+        if (eventLog != null) eventLog.shutdown();
     }
 
     private EventLog log() {

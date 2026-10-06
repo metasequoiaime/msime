@@ -53,6 +53,7 @@ final class ImeLetterRows {
             key.setContentDescription(original.getContentDescription());
             key.setOnClickListener(ignored -> original.performClick());
             s.keyId(key, "ShiftLeft");
+            s.imeKeyFeedback.stageFace(original, key);
             s.shiftButton = key;
         }
         if (s.deleteButton != null && !(s.deleteButton instanceof KeyboardIconKey)) {
@@ -62,6 +63,7 @@ final class ImeLetterRows {
             key.setContentDescription("删除");
             key.setOnClickListener(ignored -> original.performClick());
             s.keyId(key, "Backspace");
+            s.imeKeyFeedback.stageFace(original, key);
             bindBackspaceRepeat(key, s::deleteFromHandwriting);
             s.deleteButton = key;
         }

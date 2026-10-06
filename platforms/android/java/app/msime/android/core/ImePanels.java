@@ -1094,7 +1094,9 @@ final class ImePanels {
     }
 
     boolean cloudClipboardAllowed() {
-        return CloudClipboardPanelPolicy.cloudAllowed(s.editorInputType, s.allowLearning);
+        // 输入框本身的限制之外还要过隐私闸门：隐私模式开着时同样不碰云剪贴板。
+        return CloudClipboardPanelPolicy.cloudAllowed(s.editorInputType, s.allowLearning)
+            && s.imePrivacyGate.pushesCloudClipboard();
     }
 
     void selectClipboardTab(CloudClipboardPanelPolicy.Tab tab) {

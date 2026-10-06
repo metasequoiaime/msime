@@ -40,6 +40,12 @@ final class ImeLayoutRows {
             return thread;
         });
 
+    /** 服务销毁时调用：作废还没回来的手写拼音并停掉它的线程。 */
+    void shutdown() {
+        pinyinGeneration++;
+        pinyinWorker.shutdownNow();
+    }
+
     /** 读本地设置里的手写细项；没写过的取默认值。 */
     HandwritingPreferences readHandwritingPreferences() {
         AndroidLocalSettings.Snapshot settings = s.localSettings;

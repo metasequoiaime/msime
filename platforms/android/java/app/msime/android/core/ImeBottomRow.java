@@ -43,6 +43,7 @@ final class ImeBottomRow {
             face.setContentDescription(original.getContentDescription());
             face.setOnClickListener(ignored -> original.performClick());
             s.keyId(face, "Space");
+            s.imeKeyFeedback.stageFace(original, face);
             s.imeStyler.styleButton(face, false);
             bindSpaceCursor(face);
             s.spaceButton = face;
@@ -59,6 +60,7 @@ final class ImeBottomRow {
             key.setKeyboardRole(KeyboardKeyRole.RETURN);
             key.setOnClickListener(ignored -> original.performClick());
             s.keyId(key, "Enter");
+            s.imeKeyFeedback.stageFace(original, key);
             s.imeStyler.styleButton(key, KeyboardKeyRole.RETURN, s.skin);
             s.enterButton = key;
         }
