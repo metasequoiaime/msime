@@ -5619,7 +5619,8 @@ public final class MSIMEInputService extends InputMethodService {
         private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private static final int[] X_OFFSETS = {0, -1, 0, 1, 0};
         private static final int[] Y_OFFSETS = {0, 0, -1, 0, 1};
-        private String[] labels = new String[5];
+        private final String[] labels = new String[5];
+        private int labelCount;
         private int selectedDirection;
         private float centerX;
         private float centerY;
@@ -5645,8 +5646,11 @@ public final class MSIMEInputService extends InputMethodService {
         }
 
         void show(Button anchor, JapaneseNineKeyLayout.Key key, int direction, FrameLayout root) {
-            labels = key.kana().toArray(String[]::new);
-            selectedDirection = KeyboardGeometry.bounded(direction, 0, labels.length - 1);
+            java.util.List<String> kana = key.kana();
+            labelCount = Math.min(labels.length, kana.size());
+            for (int index = 0; index < labelCount; index++) labels[index] = kana.get(index);
+            for (int index = labelCount; index < labels.length; index++) labels[index] = null;
+            selectedDirection = KeyboardGeometry.bounded(direction, 0, labelCount - 1);
             root.getLocationOnScreen(rootLocation);
             anchor.getLocationOnScreen(anchorLocation);
             centerX = anchorLocation[0] - rootLocation[0] + anchor.getWidth() / 2f;
@@ -5686,7 +5690,7 @@ public final class MSIMEInputService extends InputMethodService {
             paint.setStyle(Paint.Style.FILL);
             paint.setColor(keyColor);
             paint.setShadowLayer(10 * density, 0, 3 * density, 0x40000000);
-            for (int index = 0; index < labels.length; index++) {
+            for (int index = 0; index < labelCount; index++) {
                 if (labels[index] == null || labels[index].isEmpty()) continue;
                 float x = centerX + X_OFFSETS[index] * stepX - cellWidth / 2;
                 float y = centerY + Y_OFFSETS[index] * stepY - cellHeight / 2;
@@ -5696,7 +5700,7 @@ public final class MSIMEInputService extends InputMethodService {
             paint.setTextSize(textSize);
             paint.setTypeface(previewTypeface);
             Paint.FontMetrics metrics = paint.getFontMetrics();
-            for (int index = 0; index < labels.length; index++) {
+            for (int index = 0; index < labelCount; index++) {
                 String label = labels[index];
                 if (label == null || label.isEmpty()) continue;
                 boolean selected = index == selectedDirection;
