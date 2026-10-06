@@ -388,8 +388,7 @@ public final class AndroidLocalSettings {
                 throw new IOException("settings path is not a regular file");
             byte[] bytes;
             try (InputStream input = Files.newInputStream(file, LinkOption.NOFOLLOW_LINKS)) {
-                bytes = HttpBodyPolicy.readBounded(input, MAX_BYTES);
-                if (bytes == null) throw new IOException("settings size");
+                bytes = HttpBodyPolicy.readRequired(input, MAX_BYTES);
             }
             return decode(new String(bytes, StandardCharsets.UTF_8));
         } catch (IOException | JSONException | RuntimeException ignored) {

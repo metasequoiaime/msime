@@ -255,7 +255,7 @@ public final class LexiconPage extends DetailPage {
         Context context = requireContext();
         LinearLayout row = baseRow(context);
         row.addView(badge(context, initial(item.name())));
-        List<String> parts = new ArrayList<>();
+        List<String> parts = new ArrayList<>(2);
         if (!item.author().isEmpty()) parts.add("@" + item.author());
         JSONArray words = item.payload() == null ? null : item.payload().optJSONArray("words");
         if (words != null) parts.add(DictionaryCollectionsStore.countLabel(words.length()));

@@ -36,8 +36,7 @@ public final class GroupCard {
         context = parent.getContext();
         group = new LinearLayout(context);
         group.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout.LayoutParams groupParams = new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        LinearLayout.LayoutParams groupParams = Ui.matchWidth();
         if (parent.getChildCount() > 0) groupParams.topMargin = Ui.dp(context, Ui.GROUP_GAP);
 
         if (title != null && title.length() > 0) {

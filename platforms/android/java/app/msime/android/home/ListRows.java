@@ -46,15 +46,13 @@ final class ListRows {
         heading.setAccessibilityHeading(true);
         heading.setPadding(Ui.dp(context, Ui.NAV_ROW_PADDING_H), Ui.dp(context, 16),
             Ui.dp(context, Ui.NAV_ROW_PADDING_H), Ui.dp(context, 4));
-        parent.addView(heading, new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        parent.addView(heading, Ui.matchWidth());
         return heading;
     }
 
     /** 设计在两组之间留的空白，代替分隔线。 */
     static void gap(ViewGroup parent) {
         View space = new View(parent.getContext());
-        parent.addView(space, new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(parent.getContext(), Ui.GROUP_GAP)));
+        parent.addView(space, Ui.matchWidthHeight(parent.getContext(), Ui.GROUP_GAP));
     }
 }

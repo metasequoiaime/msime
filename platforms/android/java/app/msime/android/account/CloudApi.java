@@ -178,7 +178,7 @@ public final class CloudApi {
         if (path == null || !path.startsWith("/")) throw new IllegalArgumentException("path must be absolute");
         Credential credential = credential(auth, null);
         for (int attempt = 0; ; attempt++) {
-            Map<String, String> headers = new LinkedHashMap<>();
+            Map<String, String> headers = new LinkedHashMap<>(4);
             headers.put("Accept", "application/json");
             headers.put("User-Agent", USER_AGENT);
             if (credential.token() != null) headers.put("Authorization", "Bearer " + credential.token());

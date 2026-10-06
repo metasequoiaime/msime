@@ -75,8 +75,7 @@ public final class LocalAsrPolicy {
         if (!Files.isRegularFile(manifest, LinkOption.NOFOLLOW_LINKS))
             throw new IOException("manifest unavailable");
         try (InputStream input = Files.newInputStream(manifest, LinkOption.NOFOLLOW_LINKS)) {
-            byte[] bytes = HttpBodyPolicy.readBounded(input, (int) MAX_MANIFEST_BYTES);
-            if (bytes == null) throw new IOException("manifest too large");
+            byte[] bytes = HttpBodyPolicy.readRequired(input, (int) MAX_MANIFEST_BYTES);
             if (bytes.length == 0) throw new IOException("manifest empty");
             return bytes;
         }

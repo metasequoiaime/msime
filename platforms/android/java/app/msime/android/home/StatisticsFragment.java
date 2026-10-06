@@ -237,8 +237,7 @@ public final class StatisticsFragment extends HomeTabFragment {
         }
         TrendChart chart = new TrendChart(context);
         chart.setDays(overview.last7());
-        LinearLayout.LayoutParams chartParams = new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        LinearLayout.LayoutParams chartParams = Ui.matchWidth();
         chartParams.topMargin = Ui.dp(context, 18);
         hero.addView(chart, chartParams);
 
@@ -377,8 +376,7 @@ public final class StatisticsFragment extends HomeTabFragment {
         progress.addView(count);
         View track = new View(context);
         track.setBackground(Ui.pill(Ui.hairline(context)));
-        LinearLayout.LayoutParams trackParams = new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(context, 6));
+        LinearLayout.LayoutParams trackParams = Ui.matchWidthHeight(context, 6);
         trackParams.topMargin = Ui.dp(context, 12);
         android.widget.FrameLayout bar = new android.widget.FrameLayout(context);
         bar.addView(track, new android.widget.FrameLayout.LayoutParams(

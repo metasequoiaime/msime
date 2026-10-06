@@ -20,8 +20,7 @@ public final class HostOptionsPolicy {
         if (file == null || !Files.isRegularFile(file.toPath(), LinkOption.NOFOLLOW_LINKS)) return "";
         if (Files.size(file.toPath()) > MAX_BYTES) return "";
         try (InputStream input = Files.newInputStream(file.toPath(), LinkOption.NOFOLLOW_LINKS)) {
-            byte[] bytes = HttpBodyPolicy.readBounded(input, MAX_BYTES);
-            return bytes == null ? "" : new String(bytes, StandardCharsets.UTF_8);
+            return new String(HttpBodyPolicy.readRequired(input, MAX_BYTES), StandardCharsets.UTF_8);
         }
     }
 }

@@ -42,8 +42,7 @@ public final class CommunityReplyLibrary {
         if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) throw new IOException("Invalid community library");
         byte[] bytes;
         try (InputStream input = Files.newInputStream(file, LinkOption.NOFOLLOW_LINKS)) {
-            bytes = HttpBodyPolicy.readBounded(input, MAXIMUM_BYTES);
-            if (bytes == null) throw new IOException("Community library is too large");
+            bytes = HttpBodyPolicy.readRequired(input, MAXIMUM_BYTES);
         }
         final String json;
         try {

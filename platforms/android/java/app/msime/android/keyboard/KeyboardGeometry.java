@@ -173,9 +173,19 @@ public final class KeyboardGeometry {
         return Math.round(dp * density);
     }
 
+    /** Convert a density-independent size to rounded pixels using the context's density. */
+    public static int pixels(Context context, float dp) {
+        return pixels(dp, context.getResources().getDisplayMetrics().density);
+    }
+
     /** Convert a fractional density-independent size to pixels without rounding. */
     public static float floatPixels(double dp, float density) {
         return (float) dp * density;
+    }
+
+    /** Convert a fractional density-independent size to pixels using the context's density. */
+    public static float floatPixels(Context context, double dp) {
+        return floatPixels(dp, context.getResources().getDisplayMetrics().density);
     }
 
     /** Convert scalable text units using the view context's display metrics. */

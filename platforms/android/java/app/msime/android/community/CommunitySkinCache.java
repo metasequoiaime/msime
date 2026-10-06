@@ -68,8 +68,8 @@ public final class CommunitySkinCache {
             byte[] bytes;
             try (InputStream input = Files.newInputStream(file, LinkOption.NOFOLLOW_LINKS)) {
                 bytes = HttpBodyPolicy.readBounded(input, (int) MAX_BYTES);
+                if (bytes == null) return List.of();
             }
-            if (bytes == null) return List.of();
             JSONArray array = new JSONArray(new String(bytes, StandardCharsets.UTF_8));
             List<Entry> entries = new ArrayList<>(MAX_ENTRIES);
             for (int index = 0; index < array.length() && entries.size() < MAX_ENTRIES; index++) {

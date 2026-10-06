@@ -27,8 +27,7 @@ public final class HomeNavGroup {
         card.setBackground(Ui.rounded(Ui.card(context), Ui.dp(context, Ui.NAV_GROUP_RADIUS)));
         // 按压波纹裁在 24dp 的圆角里。
         card.setClipToOutline(true);
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        LinearLayout.LayoutParams params = Ui.matchWidth();
         if (parent.getChildCount() > 0) params.topMargin = Ui.dp(context, BLOCK_GAP);
         parent.addView(card, params);
     }

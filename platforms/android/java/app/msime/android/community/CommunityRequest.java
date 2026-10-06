@@ -239,7 +239,7 @@ public final class CommunityRequest {
      * 词库和短语行的副标题：「@作者 · 4,812 条 · 本周更新」；作者为空时不写作者，条数未知（负数）时不写条数。
      */
     public static String resourceSubtitle(String author, int entries, boolean updatedThisWeek) {
-        List<String> parts = new java.util.ArrayList<>();
+        List<String> parts = new java.util.ArrayList<>(3);
         if (author != null && !author.isEmpty()) parts.add("@" + author);
         if (entries >= 0) parts.add(entriesLabel(entries));
         if (updatedThisWeek) parts.add("本周更新");

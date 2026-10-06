@@ -369,7 +369,7 @@ public final class HomeActivity extends AppCompatActivity {
     private void fadeUp(View view, long delay) {
         view.animate().cancel();
         view.setAlpha(0f);
-        view.setTranslationY(10 * getResources().getDisplayMetrics().density);
+        view.setTranslationY(Ui.dp(this, 10));
         view.animate().alpha(1f).translationY(0f)
             .setDuration(500).setStartDelay(delay).setInterpolator(EASE).start();
     }

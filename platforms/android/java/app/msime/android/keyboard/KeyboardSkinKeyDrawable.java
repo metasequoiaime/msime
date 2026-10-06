@@ -21,8 +21,10 @@ public final class KeyboardSkinKeyDrawable extends Drawable {
     private final Paint overlay = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Path shapePath = new Path();
     private final RectF shapeBounds = new RectF();
+    private final RectF notchBounds = new RectF();
     private final RectF faceBounds = new RectF();
     private final RectF gradientBounds = new RectF();
+    private final Path shinePath = new Path();
     private final int borderColor;
     private Shader overlayGradient;
     private boolean shapeValid;
@@ -63,13 +65,15 @@ public final class KeyboardSkinKeyDrawable extends Drawable {
                 shapePath.moveTo(rect.left, rect.top);
                 shapePath.lineTo(rect.right, rect.top);
                 shapePath.lineTo(rect.right, rect.centerY() - notch);
-                shapePath.arcTo(new RectF(rect.right - notch, rect.centerY() - notch,
-                    rect.right + notch, rect.centerY() + notch), -90, -180);
+                notchBounds.set(rect.right - notch, rect.centerY() - notch,
+                    rect.right + notch, rect.centerY() + notch);
+                shapePath.arcTo(notchBounds, -90, -180);
                 shapePath.lineTo(rect.right, rect.bottom);
                 shapePath.lineTo(rect.left, rect.bottom);
                 shapePath.lineTo(rect.left, rect.centerY() + notch);
-                shapePath.arcTo(new RectF(rect.left - notch, rect.centerY() - notch,
-                    rect.left + notch, rect.centerY() + notch), 90, -180);
+                notchBounds.set(rect.left - notch, rect.centerY() - notch,
+                    rect.left + notch, rect.centerY() + notch);
+                shapePath.arcTo(notchBounds, 90, -180);
                 shapePath.close();
             }
             default -> {
@@ -123,15 +127,15 @@ public final class KeyboardSkinKeyDrawable extends Drawable {
             overlay.setAlpha(alpha);
             canvas.drawRect(face, overlay);
             if (glass) {
-                Path shine = new Path();
-                shine.moveTo(face.left, face.top);
-                shine.lineTo(face.right, face.top);
-                shine.lineTo(face.left, face.top + face.height() * .6f);
-                shine.close();
+                shinePath.reset();
+                shinePath.moveTo(face.left, face.top);
+                shinePath.lineTo(face.right, face.top);
+                shinePath.lineTo(face.left, face.top + face.height() * .6f);
+                shinePath.close();
                 overlay.setShader(null);
                 overlay.setColor(Color.WHITE);
                 overlay.setAlpha((int) Math.round(alpha * .09));
-                canvas.drawPath(shine, overlay);
+                canvas.drawPath(shinePath, overlay);
             }
         } else if ("paper".equals(skin.keyMaterial())) {
             overlay.setShader(null);

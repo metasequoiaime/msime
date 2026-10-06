@@ -273,7 +273,7 @@ public final class TypingPage extends DetailPage {
             KeyboardScheme quanpinChoice = applied == KeyboardScheme.QUANPIN_NINE_KEY
                 ? KeyboardScheme.QUANPIN_NINE_KEY : KeyboardScheme.QUANPIN;
             if (offered.contains(quanpinChoice)) sheet.option("全拼", quanpin, () -> applyScheme(quanpinChoice, null));
-            List<KeyboardScheme> shuangpin = new ArrayList<>(SHUANGPIN.length);
+            List<KeyboardScheme> shuangpin = new ArrayList<>(SHUANGPIN.size());
             for (KeyboardScheme scheme : SHUANGPIN) {
                 if (offered.contains(scheme)) shuangpin.add(scheme);
             }
@@ -449,7 +449,7 @@ public final class TypingPage extends DetailPage {
     }
 
     private static String labelOf(List<String[]> entries, String id) {
-        Map<String, String> labels = new LinkedHashMap<>();
+        Map<String, String> labels = new LinkedHashMap<>(entries.size());
         for (String[] entry : entries) labels.put(entry[0], entry[1]);
         return labels.getOrDefault(id, id);
     }

@@ -15,8 +15,9 @@ def main() -> int:
     ok = True
     for path in READERS:
         source = path.read_text(encoding="utf-8")
-        if "HttpBodyPolicy.readBounded" not in source:
-            print(f"{path}: 没有使用 HttpBodyPolicy.readBounded", file=sys.stderr)
+        if not any(name in source for name in (
+                "HttpBodyPolicy.readBounded", "HttpBodyPolicy.readRequired")):
+            print(f"{path}: 没有使用共享 HttpBodyPolicy 有界读取", file=sys.stderr)
             ok = False
         if "private static String read(" in source:
             print(f"{path}: 仍保留自定义 HTTP body 读取器", file=sys.stderr)

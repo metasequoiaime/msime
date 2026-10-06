@@ -3579,13 +3579,13 @@ public final class MSIMEInputService extends InputMethodService {
     private JSONObject readSkinHint() {
         File file = new File(getFilesDir(), SKIN_HINT_FILE);
         if (!file.isFile() || file.length() > 1_000_000) return null;
-        try (java.io.InputStream input = java.nio.file.Files.newInputStream(file.toPath())) {
+        try (java.io.InputStream input = java.nio.file.Files.newInputStream(file.toPath(), java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
             byte[] bytes = HttpBodyPolicy.readBounded(input, 1_000_000);
             if (bytes == null) return null;
             String text = new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
             writtenSkinHint = text;
             return new JSONObject(text);
-        } catch (java.io.IOException | JSONException | RuntimeException error) {
+        } catch (Exception ignored) {
             return null;
         }
     }
@@ -5626,6 +5626,15 @@ public final class MSIMEInputService extends InputMethodService {
         private float cellWidth;
         private float cellHeight;
         private float gap;
+        private String paletteKey;
+        private int keyColor;
+        private int accentColor;
+        private int hairlineColor;
+        private int onAccentColor;
+        private int foregroundColor;
+        private Typeface previewTypeface;
+        private final int[] rootLocation = new int[2];
+        private final int[] anchorLocation = new int[2];
 
         JapaneseFlickPreview(android.content.Context context) {
             super(context);
@@ -5638,8 +5647,6 @@ public final class MSIMEInputService extends InputMethodService {
         void show(Button anchor, JapaneseNineKeyLayout.Key key, int direction, FrameLayout root) {
             labels = key.kana().toArray(String[]::new);
             selectedDirection = KeyboardGeometry.bounded(direction, 0, labels.length - 1);
-            int[] rootLocation = new int[2];
-            int[] anchorLocation = new int[2];
             root.getLocationOnScreen(rootLocation);
             anchor.getLocationOnScreen(anchorLocation);
             centerX = anchorLocation[0] - rootLocation[0] + anchor.getWidth() / 2f;
@@ -5664,7 +5671,17 @@ public final class MSIMEInputService extends InputMethodService {
             float radius = 10 * density;
             float stepX = cellWidth + gap;
             float stepY = cellHeight + gap;
-            int keyColor = Color.parseColor(skin.keyBackground());
+            KeyboardSkin previewSkin = imeStyler.themed(skin);
+            String nextPaletteKey = previewSkin.key();
+            if (!nextPaletteKey.equals(paletteKey)) {
+                paletteKey = nextPaletteKey;
+                keyColor = Color.parseColor(previewSkin.keyBackground());
+                accentColor = Color.parseColor(previewSkin.accent());
+                hairlineColor = Color.parseColor(previewSkin.hairline());
+                onAccentColor = Color.parseColor(previewSkin.onAccent());
+                foregroundColor = Color.parseColor(previewSkin.keyForeground());
+                previewTypeface = previewSkin.monospaced() ? Typeface.MONOSPACE : Typeface.DEFAULT;
+            }
             // 先整体画一层投影，再盖上格子：浮层要看得出是压在键盘上面的，而不是键盘本身的一部分。
             paint.setStyle(Paint.Style.FILL);
             paint.setColor(keyColor);
@@ -5677,7 +5694,7 @@ public final class MSIMEInputService extends InputMethodService {
             }
             paint.clearShadowLayer();
             paint.setTextSize(textSize);
-            paint.setTypeface(skin.monospaced() ? Typeface.MONOSPACE : Typeface.DEFAULT);
+            paint.setTypeface(previewTypeface);
             Paint.FontMetrics metrics = paint.getFontMetrics();
             for (int index = 0; index < labels.length; index++) {
                 String label = labels[index];
@@ -5686,14 +5703,14 @@ public final class MSIMEInputService extends InputMethodService {
                 float x = centerX + X_OFFSETS[index] * stepX - cellWidth / 2;
                 float y = centerY + Y_OFFSETS[index] * stepY - cellHeight / 2;
                 paint.setStyle(Paint.Style.FILL);
-                paint.setColor(selected ? Color.parseColor(skin.accent()) : keyColor);
+                paint.setColor(selected ? accentColor : keyColor);
                 canvas.drawRoundRect(x, y, x + cellWidth, y + cellHeight, radius, radius, paint);
                 paint.setStyle(Paint.Style.STROKE);
                 paint.setStrokeWidth(Math.max(1, density));
-                paint.setColor(Color.parseColor(skin.hairline()));
+                paint.setColor(hairlineColor);
                 canvas.drawRoundRect(x, y, x + cellWidth, y + cellHeight, radius, radius, paint);
                 paint.setStyle(Paint.Style.FILL);
-                paint.setColor(Color.parseColor(selected ? skin.onAccent() : skin.keyForeground()));
+                paint.setColor(selected ? onAccentColor : foregroundColor);
                 paint.setFakeBoldText(selected);
                 // 字身中线对准格子中线。原式多减了一次 top，字整体下移大半个字高，落到格子下沿、被下一格盖住。
                 float baseline = y + cellHeight / 2 - (metrics.ascent + metrics.descent) / 2;

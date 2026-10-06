@@ -55,7 +55,7 @@ public final class ExpressionPage extends DetailPage {
         HostTask.run(this, context -> {
             JSONObject values = KeyboardSheets.preferences(context);
             CommonPhrasesStore.Result phrases = CommonPhrasesStore.load(context);
-            Set<String> packs = new HashSet<>();
+            Set<String> packs = new HashSet<>(phrases.ok() ? phrases.document().packs().size() : 0);
             if (phrases.ok()) for (CommonPhrasesStore.Pack pack : phrases.document().packs()) packs.add(pack.id());
             return new Loaded(values, packs);
         }, result -> {

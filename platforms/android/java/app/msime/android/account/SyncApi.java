@@ -8,6 +8,7 @@ import java.io.OutputStream;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
@@ -104,7 +105,7 @@ public final class SyncApi {
         Object revision = root.opt("revision");
         if (!(revision instanceof Number)) throw invalid("preferences revision missing");
         JSONObject raw = root.optJSONObject("settings");
-        LinkedHashMap<String, Object> settings = new LinkedHashMap<>();
+        LinkedHashMap<String, Object> settings = new LinkedHashMap<>(raw == null ? 0 : raw.length());
         if (raw != null) {
             Iterator<String> keys = raw.keys();
             while (keys.hasNext()) {
@@ -357,7 +358,7 @@ public final class SyncApi {
                 connection.setRequestProperty("Content-Type", contentType);
                 connection.setDoOutput(true);
                 connection.setFixedLengthStreamingMode(length);
-                try (InputStream input = Files.newInputStream(file); OutputStream output = connection.getOutputStream()) {
+                try (InputStream input = Files.newInputStream(file, LinkOption.NOFOLLOW_LINKS); OutputStream output = connection.getOutputStream()) {
                     copy(input, output);
                 }
                 int status = connection.getResponseCode();

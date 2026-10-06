@@ -22,6 +22,7 @@ import java.io.InputStream;
 import java.lang.ref.WeakReference;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.security.MessageDigest;
@@ -645,7 +646,7 @@ public final class CloudSync {
             throw new IllegalStateException(impossible);
         }
         byte[] buffer = new byte[16 * 1024];
-        try (InputStream input = Files.newInputStream(file)) {
+        try (InputStream input = Files.newInputStream(file, LinkOption.NOFOLLOW_LINKS)) {
             int read;
             while ((read = input.read(buffer)) != -1) digest.update(buffer, 0, read);
         }

@@ -135,8 +135,7 @@ public final class InputDialog {
             submit();
             return true;
         });
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(context, 40));
+        LinearLayout.LayoutParams params = Ui.matchWidthHeight(context, 40);
         params.topMargin = Ui.dp(context, 8);
         fields.addView(input, params);
         // 前面的输入框回车跳到下一个，最后一个回车就是提交。

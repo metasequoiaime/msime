@@ -1,17 +1,12 @@
 package app.msime.android;
 
 import java.io.ByteArrayInputStream;
-import java.io.InputStream;
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 public final class BackendAccountResponseSmoke {
     public static void main(String[] args) throws Exception {
-        Method readBounded = BackendAccount.class.getDeclaredMethod("readBounded", InputStream.class);
-        readBounded.setAccessible(true);
-
         // A valid cloud-clipboard page can contain fifty four-thousand-unit entries. Keep this
         // fixture synthetic and below the shared one-megabyte JSON response bound.
         StringBuilder document = new StringBuilder("{\"enabled\":true,\"items\":[");
@@ -26,19 +21,19 @@ public final class BackendAccountResponseSmoke {
         document.append("]}");
         byte[] page = document.toString().getBytes(StandardCharsets.UTF_8);
         try {
-            byte[] response = (byte[]) readBounded.invoke(null, new ByteArrayInputStream(page));
+            byte[] response = HttpBodyPolicy.readRequired(new ByteArrayInputStream(page), 1024 * 1024);
             check(response.length == page.length,
                 "a valid account response below the shared one-megabyte bound is preserved");
-        } catch (InvocationTargetException error) {
-            throw new AssertionError("a valid account response below the shared one-megabyte bound is rejected", error.getCause());
+        } catch (IOException error) {
+            throw new AssertionError("a valid account response below the shared one-megabyte bound is rejected", error);
         }
 
         byte[] oversized = new byte[1024 * 1024 + 1];
         boolean rejected = false;
         try {
-            readBounded.invoke(null, new ByteArrayInputStream(oversized));
-        } catch (InvocationTargetException error) {
-            rejected = error.getCause() instanceof IllegalStateException;
+            HttpBodyPolicy.readRequired(new ByteArrayInputStream(oversized), 1024 * 1024);
+        } catch (IOException error) {
+            rejected = true;
         }
         check(rejected, "responses above the shared one-megabyte bound are rejected");
 

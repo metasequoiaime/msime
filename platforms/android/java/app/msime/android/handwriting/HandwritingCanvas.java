@@ -9,6 +9,7 @@ import android.graphics.RectF;
 import android.util.AttributeSet;
 import android.view.MotionEvent;
 import android.view.View;
+import app.msime.android.keyboard.KeyboardGeometry;
 
 /** Touch canvas only; the service injects recognition and candidate presentation. */
 public final class HandwritingCanvas extends View {
@@ -22,6 +23,9 @@ public final class HandwritingCanvas extends View {
     private final Paint guide = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint stroke = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final RectF cardRect = new RectF();
+    private final RectF drawCard = new RectF();
+    private final float[] guideLines = new float[8];
+    private final Path strokePath = new Path();
     private Listener listener;
     private boolean acceptsInk = true;
     /** 用户选的笔迹颜色；null 表示跟随皮肤的按键文字色。 */
@@ -36,9 +40,9 @@ public final class HandwritingCanvas extends View {
         stroke.setStyle(Paint.Style.STROKE);
         stroke.setStrokeCap(Paint.Cap.ROUND);
         stroke.setStrokeJoin(Paint.Join.ROUND);
-        stroke.setStrokeWidth(3 * getResources().getDisplayMetrics().density);
+        stroke.setStrokeWidth(KeyboardGeometry.floatPixels(context, 3));
         guide.setStyle(Paint.Style.STROKE);
-        guide.setStrokeWidth(getResources().getDisplayMetrics().density);
+        guide.setStrokeWidth(KeyboardGeometry.floatPixels(context, 1));
         applySkin(KeyboardSkin.system(false));
     }
 
@@ -97,13 +101,20 @@ public final class HandwritingCanvas extends View {
 
     @Override protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
-        RectF card = cardRect.isEmpty()
-            ? new RectF(0, 0, getWidth(), getHeight()) : cardRect;
-        float radius = 10 * getResources().getDisplayMetrics().density;
+<<<<<<< HEAD
+        RectF card = cardRect.isEmpty() ? drawCard : cardRect;
+        if (card == drawCard) drawCard.set(0, 0, getWidth(), getHeight());
+        float radius = KeyboardGeometry.floatPixels(this, 10);
         canvas.drawRoundRect(card, radius, radius, background);
-        float[] lines = {card.centerX(), card.top, card.centerX(), card.bottom,
-            card.left, card.centerY(), card.right, card.centerY()};
-        canvas.drawLines(lines, guide);
+        guideLines[0] = card.centerX();
+        guideLines[1] = card.top;
+        guideLines[2] = card.centerX();
+        guideLines[3] = card.bottom;
+        guideLines[4] = card.left;
+        guideLines[5] = card.centerY();
+        guideLines[6] = card.right;
+        guideLines[7] = card.centerY();
+        canvas.drawLines(guideLines, guide);
         for (java.util.List<HandwritingInk.Point> points : ink.snapshot()) {
             if (points.isEmpty()) continue;
             if (points.size() == 1) {
@@ -111,12 +122,12 @@ public final class HandwritingCanvas extends View {
                 canvas.drawPoint(point.x(), point.y(), stroke);
                 continue;
             }
-            Path path = new Path();
-            path.moveTo(points.get(0).x(), points.get(0).y());
+            strokePath.reset();
+            strokePath.moveTo(points.get(0).x(), points.get(0).y());
             for (int index = 1; index < points.size(); index++) {
-                path.lineTo(points.get(index).x(), points.get(index).y());
+                strokePath.lineTo(points.get(index).x(), points.get(index).y());
             }
-            canvas.drawPath(path, stroke);
+            canvas.drawPath(strokePath, stroke);
         }
     }
 

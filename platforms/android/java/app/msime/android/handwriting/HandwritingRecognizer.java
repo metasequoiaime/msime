@@ -69,7 +69,7 @@ public interface HandwritingRecognizer extends AutoCloseable {
 
     static List<String> sanitizeCandidates(List<String> values) {
         if (values == null) return List.of();
-        LinkedHashSet<String> accepted = new LinkedHashSet<>();
+        LinkedHashSet<String> accepted = new LinkedHashSet<>(MAX_CANDIDATES);
         for (String value : values) {
             if (value == null) continue;
             String candidate = value.strip();

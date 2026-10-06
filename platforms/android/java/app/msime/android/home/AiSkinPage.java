@@ -293,7 +293,7 @@ public final class AiSkinPage extends DetailPage {
             s.nineKey = index == 1;
             refreshPreview();
         });
-        header.addView(layout, KeyboardSheets.wrap());
+        header.addView(layout, Ui.wrap());
         card.addView(header);
 
         FrameLayout stage = new FrameLayout(context);
@@ -313,8 +313,7 @@ public final class AiSkinPage extends DetailPage {
         busyOverlay = overlay;
         stage.addView(overlay, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.MATCH_PARENT));
-        LinearLayout.LayoutParams stageParams = new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        LinearLayout.LayoutParams stageParams = Ui.matchWidth();
         stageParams.topMargin = Ui.dp(context, 12);
         card.addView(stage, stageParams);
 
@@ -327,11 +326,10 @@ public final class AiSkinPage extends DetailPage {
         colours.addView(label);
         palette = new LinearLayout(context);
         palette.setOrientation(LinearLayout.HORIZONTAL);
-        LinearLayout.LayoutParams paletteParams = KeyboardSheets.wrap();
+        LinearLayout.LayoutParams paletteParams = Ui.wrap();
         paletteParams.setMarginStart(Ui.dp(context, 10));
         colours.addView(palette, paletteParams);
-        LinearLayout.LayoutParams coloursParams = new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        LinearLayout.LayoutParams coloursParams = Ui.matchWidth();
         coloursParams.topMargin = Ui.dp(context, 10);
         card.addView(colours, coloursParams);
 
@@ -383,7 +381,7 @@ public final class AiSkinPage extends DetailPage {
                 input.setSelection(input.length());
             });
             chip.setAccessibilityDelegate(KeyboardSheets.buttonDelegate("建议描述 " + suggestion));
-            LinearLayout.LayoutParams chipParams = KeyboardSheets.wrap();
+            LinearLayout.LayoutParams chipParams = Ui.wrap();
             chipParams.setMarginEnd(Ui.dp(context, 8));
             chips.addView(chip, chipParams);
             chipViews.add(chip);
@@ -413,8 +411,7 @@ public final class AiSkinPage extends DetailPage {
 
         LinearLayout actions = new LinearLayout(context);
         actions.setOrientation(LinearLayout.HORIZONTAL);
-        LinearLayout.LayoutParams actionsParams = new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        LinearLayout.LayoutParams actionsParams = Ui.matchWidth();
         actionsParams.topMargin = Ui.dp(context, Ui.GROUP_GAP);
         if (unavailable) {
             GroupCard.add(target, null).note("AI 设计皮肤暂不可用，请稍后再来。");
@@ -534,8 +531,18 @@ public final class AiSkinPage extends DetailPage {
         } catch (IllegalArgumentException error) {
             return CustomKeyboardSkin.from(design).toJson(true);
         }
-        Bitmap bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
-        if (bitmap == null) return CustomKeyboardSkin.from(design).toJson(true);
+        BitmapFactory.Options bounds = new BitmapFactory.Options();
+        bounds.inJustDecodeBounds = true;
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.length, bounds);
+        int sample = PhotoDecodePolicy.sampleSize(bounds.outWidth, bounds.outHeight);
+        if (sample == 0) return CustomKeyboardSkin.from(design).toJson(true);
+        BitmapFactory.Options options = new BitmapFactory.Options();
+        options.inSampleSize = sample;
+        Bitmap bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options);
+        if (bitmap == null || !PhotoDecodePolicy.withinBounds(bitmap.getWidth(), bitmap.getHeight())) {
+            if (bitmap != null) bitmap.recycle();
+            return CustomKeyboardSkin.from(design).toJson(true);
+        }
         int edge = Math.max(bitmap.getWidth(), bitmap.getHeight());
         if (edge > MAX_PHOTO_EDGE) {
             float scale = MAX_PHOTO_EDGE / (float) edge;

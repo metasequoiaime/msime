@@ -23,6 +23,7 @@ public final class KeyboardSkinCard extends KeyboardPressButton {
     private final KeyboardSkin skin;
     private final String title;
     private final float density;
+    private final KeyboardSkinPreview.TileDrawState tileDrawState;
     private final TextPaint paint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
     private final RectF tile = new RectF();
     private final RectF outline = new RectF();
@@ -38,6 +39,7 @@ public final class KeyboardSkinCard extends KeyboardPressButton {
         this.skin = skin;
         this.title = title;
         density = getResources().getDisplayMetrics().density;
+        tileDrawState = new KeyboardSkinPreview.TileDrawState(skin, density);
         setAllCaps(false);
         setBackground(null);
         setText(null);
@@ -80,7 +82,7 @@ public final class KeyboardSkinCard extends KeyboardPressButton {
         if (splitStart != null && splitEnd != null) {
             KeyboardSkinPreview.drawSplit(canvas, tile, radius, splitStart, splitEnd);
         } else {
-            KeyboardSkinPreview.drawTile(canvas, tile, radius, skin, density);
+            KeyboardSkinPreview.drawTile(canvas, tile, radius, skin, density, tileDrawState);
         }
         int accent = themed ? accentColor : Color.parseColor(skin.accent());
         int hairline = themed ? hairlineColor : Color.argb(31, 0, 0, 0);
