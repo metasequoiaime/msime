@@ -315,7 +315,7 @@ public final class OnboardingActivity extends AppCompatActivity {
 
     /** Ask once whether the last step can offer sign-in; the answer may need the backend, so it is read off the main thread. */
     private void probeAccount() {
-        Context context = getApplicationConUi.label(this, );
+        Context context = getApplicationContext();
         offMainThread(() -> {
             SignIn.State state = SignIn.state(context);
             runOnUiThread(() -> {
@@ -385,7 +385,7 @@ public final class OnboardingActivity extends AppCompatActivity {
         saving = true;
         note = "正在保存…";
         render(false);
-        Context context = getApplicationConUi.label(this, );
+        Context context = getApplicationContext();
         offMainThread(() -> {
             JSONObject saved = HostStore.savePreferences(context, pending);
             JSONObject fresh = HostStore.loadPreferences(context);
@@ -405,7 +405,7 @@ public final class OnboardingActivity extends AppCompatActivity {
     }
 
     private void reload() {
-        Context context = getApplicationConUi.label(this, );
+        Context context = getApplicationContext();
         offMainThread(() -> {
             JSONObject value = HostStore.loadPreferences(context);
             runOnUiThread(() -> {
