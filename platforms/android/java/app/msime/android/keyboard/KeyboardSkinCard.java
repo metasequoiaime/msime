@@ -38,7 +38,6 @@ public final class KeyboardSkinCard extends KeyboardPressButton {
         super(context);
         this.skin = skin;
         this.title = title;
-<<<<<<< HEAD
         density = KeyboardGeometry.density(context);
         tileDrawState = new KeyboardSkinPreview.TileDrawState(skin, density);
         setAllCaps(false);
