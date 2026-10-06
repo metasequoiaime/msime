@@ -1838,8 +1838,9 @@ public final class MSIMEInputService extends InputMethodService {
                 || StrokeInputPolicy.active(nextViewScheme, nextDedicatedEnglish),
             next.optString("phrase_prefix", ""), next.getString("editing_text"),
             next.optString("reading", ""));
-        // 九键的 editing_text 是按下的数字键（64426），写进输入框对用户没有意义；和 iOS 默认一样不在输入框里标记组词，组词只显示在键盘自己的预编辑栏上（选过的音节显示为拼音，如 ni'426）。
-        if (next.optBoolean("nine_key", false)) composing = "";
+        // 九键的 editing_text 是按下的数字键（64426），写进输入框对用户没有意义；和 iOS 默认一样不在输入框里标记组词，组词只显示在键盘自己的预编辑栏上（选过的音节显示为拼音，如 ni'426）。注音 9 键例外：上面已经按大千的规则标记 reading（转换结果加未完成的数字），照常留在输入框里。
+        if (ZhuyinInputPolicy.hidesNineKeyComposing(next.optBoolean("nine_key", false),
+                ZhuyinInputPolicy.active(nextViewScheme, nextDedicatedEnglish))) composing = "";
         if (connection != null
                 && !bridge.apply(sink(typingSource()), commit, composing)) {
             throw new JSONException("Editor rejected update");
@@ -2823,8 +2824,10 @@ public final class MSIMEInputService extends InputMethodService {
         return keyboardLayer == KeyboardLayout.Layer.LETTERS
             && layout != QUANPIN_NINE_KEY_LAYOUT && layout != JAPANESE_NINE_KEY_LAYOUT
             && layout != KeyboardLayout.STROKE_LAYOUT
+            && layout != KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT
             && selectedScheme != KeyboardScheme.QUANPIN_NINE_KEY
-            && selectedScheme != KeyboardScheme.JAPANESE_NINE_KEY;
+            && selectedScheme != KeyboardScheme.JAPANESE_NINE_KEY
+            && selectedScheme != KeyboardScheme.ZHUYIN_NINE_KEY;
     }
 
     private void insertQuickPunctuation() {
@@ -6489,7 +6492,8 @@ public final class MSIMEInputService extends InputMethodService {
                     || selectedScheme == KeyboardScheme.JAPANESE_NINE_KEY) ? 3
                     : selectedScheme == KeyboardScheme.KOREAN ? KoreanInputPolicy.KOREAN_SCHEME
                     : selectedScheme == KeyboardScheme.CANTONESE ? InputSchemeTraits.CANTONESE
-                    : selectedScheme == KeyboardScheme.ZHUYIN ? InputSchemeTraits.ZHUYIN
+                    : selectedScheme == KeyboardScheme.ZHUYIN
+                        || selectedScheme == KeyboardScheme.ZHUYIN_NINE_KEY ? InputSchemeTraits.ZHUYIN
                     : selectedScheme == KeyboardScheme.VIETNAMESE ? InputSchemeTraits.VIETNAMESE
                     : selectedScheme == KeyboardScheme.TIBETAN ? InputSchemeTraits.TIBETAN
                     : selectedScheme == KeyboardScheme.STROKE ? InputSchemeTraits.STROKE : -1)
@@ -6646,12 +6650,17 @@ public final class MSIMEInputService extends InputMethodService {
             imeToolbar.styleTopRow();
             return;
         }
+        // 注音 9 键的读音选择条叠在候选区上：选择条只在候选列表关着时出现，那时候选行本来就是空的，所以把候选滚动区让成不可见（仍占位，键盘高度不变）。
+        boolean zhuyinSpellingsShown = nineKeySpellingScroll != null
+            && nineKeySpellingScroll.getVisibility() == View.VISIBLE
+            && displayedTouchLayout(view) == KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT;
+        int candidateScrollShown = zhuyinSpellingsShown ? View.INVISIBLE : View.VISIBLE;
         if (horizontalCandidateScroll != null)
             horizontalCandidateScroll.setVisibility(
-                candidateHorizontal && !hasDiagnostic ? View.VISIBLE : View.GONE);
+                candidateHorizontal && !hasDiagnostic ? candidateScrollShown : View.GONE);
         if (verticalCandidateScroll != null)
             verticalCandidateScroll.setVisibility(
-                !candidateHorizontal && !hasDiagnostic ? View.VISIBLE : View.GONE);
+                !candidateHorizontal && !hasDiagnostic ? candidateScrollShown : View.GONE);
         LinearLayout activeCandidates = candidateHorizontal ? candidates : verticalCandidates;
         candidates.removeAllViews();
         if (verticalCandidates != null) verticalCandidates.removeAllViews();

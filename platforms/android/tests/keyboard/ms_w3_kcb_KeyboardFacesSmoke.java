@@ -16,6 +16,8 @@ public final class ms_w3_kcb_KeyboardFacesSmoke {
         check("笔画".equals(SpaceKeyFace.schemeLabel(KeyboardScheme.STROKE, null, false)), "stroke label");
         check("日语".equals(SpaceKeyFace.schemeLabel(KeyboardScheme.JAPANESE_NINE_KEY, null, false)),
             "japanese label");
+        check("注音".equals(SpaceKeyFace.schemeLabel(KeyboardScheme.ZHUYIN_NINE_KEY, null, false)),
+            "zhuyin nine-key label");
         check("space".equals(SpaceKeyFace.schemeLabel(KeyboardScheme.XIAOHE, null, true)),
             "english mode shows space");
         check("全拼".equals(SpaceKeyFace.schemeLabel(null, null, false)), "missing scheme falls back");
@@ -26,6 +28,8 @@ public final class ms_w3_kcb_KeyboardFacesSmoke {
         check(ImeLetterRows.drawsDesignLayer(KeyboardLayout.HANDWRITING_LAYOUT), "handwriting hands over");
         check(ImeLetterRows.drawsDesignLayer(KeyboardLayout.STROKE_LAYOUT), "stroke hands over");
         check(!ImeLetterRows.drawsDesignLayer(KeyboardLayout.ZHUYIN_LAYOUT), "dachen keeps its symbol rows");
+        check(ImeLetterRows.drawsDesignLayer(KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT),
+            "zhuyin nine-key hands over, its digit page writes literally");
         check(!ImeLetterRows.drawsDesignLayer(KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT), "nine-key keeps its grid");
         check(!ImeLetterRows.drawsDesignLayer(KeyboardLayout.JAPANESE_NINE_KEY_LAYOUT), "kana keeps its grid");
 

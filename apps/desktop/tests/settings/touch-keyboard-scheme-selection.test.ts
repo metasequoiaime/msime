@@ -10,7 +10,10 @@ import {
   type Preferences,
   useTouchKeyboardSchemeSelection,
 } from "@msime/ui";
-import { touchKeyboardSchemeTitle } from "../../../../packages/ui/src/settings/touch-keyboard-scheme-helpers";
+import {
+  selectTouchKeyboardScheme,
+  touchKeyboardSchemeTitle,
+} from "../../../../packages/ui/src/settings/touch-keyboard-scheme-helpers";
 
 const preferences: Preferences = {
   scheme: "quanpin",
@@ -95,6 +98,7 @@ test("the helper exposes the complete stable scheme order", () => {
     "vietnamese",
     "tibetan",
     "stroke",
+    "zhuyin_nine_key",
   ]);
   // 高情商回复是键盘工具栏上的工具，不再是输入方案。
   expect(allTouchKeyboardSchemes as string[]).not.toContain("thoughtful_reply");
@@ -180,7 +184,7 @@ test("selecting Japanese from Vietnamese keeps the remembered Chinese scheme", (
 });
 
 test("Cantonese, Zhuyin, Vietnamese, Tibetan and Stroke are appended after Korean and are opt-in", () => {
-  expect(allTouchKeyboardSchemes).toHaveLength(16);
+  expect(allTouchKeyboardSchemes).toHaveLength(17);
   expect(allTouchKeyboardSchemes.slice(10)).toEqual([
     "korean",
     "cantonese",
@@ -188,8 +192,34 @@ test("Cantonese, Zhuyin, Vietnamese, Tibetan and Stroke are appended after Korea
     "vietnamese",
     "tibetan",
     "stroke",
+    "zhuyin_nine_key",
   ]);
   expect(defaultTouchKeyboardSchemes).toEqual(allTouchKeyboardSchemes.slice(0, 11));
+});
+
+test("Zhuyin nine-key writes the zhuyin scheme on the nine-key layout and is only inferred when enabled", () => {
+  const next = selectTouchKeyboardScheme(
+    { ...preferences, touch_keyboard_schemes: { enabled: ["quanpin", "zhuyin_nine_key"] } },
+    "zhuyin_nine_key",
+  );
+  expect(next.scheme).toBe("zhuyin");
+  expect(next.touch_keyboard_layout).toBe("nine_key");
+  expect(next.touch_keyboard_schemes?.selected).toBe("zhuyin_nine_key");
+  expect(touchKeyboardSchemeTitle(next)).toBe("注音 9 键");
+  // 没打开注音 9 键时，全拼九宫格留下的 nine_key 不会把注音认成九键。
+  const dachen = {
+    ...preferences,
+    scheme: "zhuyin" as const,
+    touch_keyboard_layout: "nine_key" as const,
+    touch_keyboard_schemes: { enabled: ["quanpin" as const, "zhuyin" as const] },
+  };
+  expect(inferredTouchKeyboardScheme(dachen)).toBe("zhuyin");
+  expect(
+    inferredTouchKeyboardScheme({
+      ...dachen,
+      touch_keyboard_schemes: { enabled: ["quanpin", "zhuyin", "zhuyin_nine_key"] },
+    }),
+  ).toBe("zhuyin_nine_key");
 });
 
 test("a document without a stored list does not show the opt-in schemes", () => {

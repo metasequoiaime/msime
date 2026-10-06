@@ -5577,8 +5577,8 @@ fn zhuyin_dictionary(directory: &std::path::Path) -> String {
         .unwrap();
     connection
         .execute_batch(
-            "INSERT INTO syllables VALUES ('ㄋㄧˇ'),('ㄏㄠˇ'),('ㄊㄞˊ'),('ㄨㄢ'),('ㄇㄚ˙'),('ㄇㄚ'),('ㄝ');\
-             INSERT INTO entries VALUES ('ㄋㄧˇ','你',1000),('ㄋㄧˇ','妳',300),('ㄏㄠˇ','好',2000),('ㄏㄠˇ','郝',10),('ㄋㄧˇ ㄏㄠˇ','你好',500),('ㄊㄞˊ','台',900),('ㄊㄞˊ','臺',400),('ㄨㄢ','彎',500),('ㄨㄢ','灣',300),('ㄊㄞˊ ㄨㄢ','臺灣',800),('ㄊㄞˊ ㄨㄢ','台灣',600),('ㄇㄚ˙','嗎',800),('ㄇㄚ','媽',700),('ㄝ','欸',50);",
+            "INSERT INTO syllables VALUES ('ㄋㄧˇ'),('ㄌㄧˇ'),('ㄏㄠˇ'),('ㄊㄞˊ'),('ㄨㄢ'),('ㄇㄚ˙'),('ㄇㄚ'),('ㄝ');\
+             INSERT INTO entries VALUES ('ㄋㄧˇ','你',1000),('ㄋㄧˇ','妳',300),('ㄌㄧˇ','李',1200),('ㄏㄠˇ','好',2000),('ㄏㄠˇ','郝',10),('ㄋㄧˇ ㄏㄠˇ','你好',500),('ㄊㄞˊ','台',900),('ㄊㄞˊ','臺',400),('ㄨㄢ','彎',500),('ㄨㄢ','灣',300),('ㄊㄞˊ ㄨㄢ','臺灣',800),('ㄊㄞˊ ㄨㄢ','台灣',600),('ㄇㄚ˙','嗎',800),('ㄇㄚ','媽',700),('ㄝ','欸',50);",
         )
         .unwrap();
     path.to_str().unwrap().to_owned()
@@ -5608,6 +5608,61 @@ fn compose_zhuyin(runtime: &mut Runtime, keys: &str) -> Transition {
         last = Some(transition);
     }
     last.unwrap()
+}
+
+/// 注音九键：方案 6 接受九键模式，数字和声调字母拼音节，空格命令是一声；候选读音和全拼九键一样按代次校验，选读音只钉住读音、不提交。
+#[test]
+fn zhuyin_nine_key_spells_with_digits_and_scopes_reading_choices_by_generation() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut runtime = zhuyin_runtime(directory.path());
+    runtime.set_nine_key_enabled(true).unwrap();
+    let idle = runtime.view();
+    assert!(idle.nine_key);
+    assert_eq!(idle.spelling_symbols, "1234567890");
+
+    let typed = compose_zhuyin(&mut runtime, "28c39c17");
+    assert_eq!(typed.view.preedit, "你好17");
+    assert_eq!(typed.view.spelling_symbols, "1234567890 ");
+    // 空格命令在九键下也是一声。
+    let space = runtime.dispatch(Action::SelectHighlighted).unwrap();
+    assert!(space.handled && space.commit.is_none());
+    assert_eq!(space.view.preedit, "你好媽");
+    assert_eq!(space.view.editing_text, "28c39c17 ");
+    assert_eq!(space.view.nine_key_spellings, ["ㄋㄧˇ", "ㄌㄧˇ"]);
+    assert!(space.view.candidates.is_empty());
+
+    let generation = space.view.generation;
+    let id = |generation, index| NineKeySpellingId {
+        session: space.view.session,
+        generation,
+        index,
+    };
+    assert!(matches!(
+        runtime.dispatch(Action::ChooseNineKeySpelling(id(generation - 1, 0))),
+        Err(RuntimeError::StaleNineKeySpelling)
+    ));
+    assert!(matches!(
+        runtime.dispatch(Action::ChooseNineKeySpelling(id(generation, 2))),
+        Err(RuntimeError::StaleNineKeySpelling)
+    ));
+    let chosen = runtime
+        .dispatch(Action::ChooseNineKeySpelling(id(generation, 1)))
+        .unwrap();
+    assert!(chosen.handled && chosen.commit.is_none());
+    assert_eq!(chosen.view.preedit, "李好媽");
+    assert!(chosen.view.nine_key_spellings.is_empty());
+
+    assert!(matches!(
+        runtime.set_nine_key_enabled(false),
+        Err(RuntimeError::CompositionActive)
+    ));
+    let enter = runtime
+        .dispatch(Action::Command(Command::CommitRaw))
+        .unwrap();
+    assert_eq!(enter.commit.as_deref(), Some("李好媽"));
+    runtime.set_nine_key_enabled(false).unwrap();
+    assert!(!runtime.view().nine_key);
+    assert_eq!(runtime.view().spelling_symbols, "125890,./;-");
 }
 
 /// The Dachen keys that are digits and marks spell even with nothing composed, on the character route and on both punctuation routes, while a tone key with nothing to complete is the host's to type. The scheme is Chinese but writes Traditional as stored, and the bopomofo keys overlap the host's smart punctuation, so the host has none.

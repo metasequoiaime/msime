@@ -1198,6 +1198,54 @@ fn zhuyin_command_sixteen_opens_a_list_whose_selection_commits_nothing() {
     assert_eq!((result.handled, result.commit.as_str()), (true, "妳"));
 }
 
+// 注音九键经宿主接口开启：数字拼音节，`nine_key_spellings` 给出候选读音，越界下标 unhandled，合法下标钉读音。
+#[test]
+fn zhuyin_nine_key_exposes_reading_choices() {
+    use crate::language_dictionary::{FORMAT_VERSION, METADATA_FORMAT_VERSION, SCHEMA};
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("msime-zhuyin.db");
+    let connection = Connection::open(&path).unwrap();
+    connection.execute_batch(SCHEMA).unwrap();
+    connection
+        .execute(
+            "INSERT INTO metadata VALUES (?1, ?2)",
+            (METADATA_FORMAT_VERSION, FORMAT_VERSION.to_string()),
+        )
+        .unwrap();
+    connection
+        .execute_batch(
+            "INSERT INTO syllables VALUES ('ㄋㄧˇ'),('ㄌㄧˇ');\
+             INSERT INTO entries VALUES ('ㄋㄧˇ','你',1000),('ㄌㄧˇ','李',1200);",
+        )
+        .unwrap();
+    drop(connection);
+    let mut value = options(dir.path());
+    value.scheme = 6;
+    value.zhuyin_dictionary = path.to_str().unwrap().to_owned();
+    let mut session = Session::new(&value).unwrap();
+    session.set_nine_key_enabled(true).unwrap();
+    assert!(session.snapshot().unwrap().nine_key);
+    type_text(&mut session, b"28c");
+    let snapshot = session.snapshot().unwrap();
+    assert_eq!(snapshot.reading, "李");
+    assert_eq!(snapshot.editing_text, "28c");
+    assert_eq!(snapshot.nine_key_spellings, ["ㄌㄧˇ", "ㄋㄧˇ"]);
+    assert!(
+        !session
+            .choose_nine_key_spelling(snapshot.nine_key_spellings.len())
+            .unwrap()
+            .handled
+    );
+    assert!(session.choose_nine_key_spelling(1).unwrap().handled);
+    let snapshot = session.snapshot().unwrap();
+    assert_eq!(snapshot.reading, "你");
+    assert!(snapshot.nine_key_spellings.is_empty());
+    let result = session.command(Command::CommitRaw).unwrap();
+    assert_eq!((result.handled, result.commit.as_str()), (true, "你"));
+    session.set_nine_key_enabled(false).unwrap();
+    assert!(!session.snapshot().unwrap().nine_key);
+}
+
 #[test]
 fn commit_raw_applies_windows_english_learning_policy() {
     let dir = tempfile::tempdir().unwrap();

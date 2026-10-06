@@ -464,11 +464,9 @@ char *msime_client_english_completions_request(const uint8_t *request,
 char *msime_client_set_chinese_punctuation(uint64_t session, bool enabled);
 char *msime_client_set_character_width(uint64_t session, bool fullwidth);
 char *msime_client_set_english_mode(uint64_t session, bool enabled);
-/* Engine-owned quanpin nine-key mode. Call only after finishing composition.
- * View.nine_key and View.nine_key_spellings are authoritative. Enabling for
- * another scheme or changing mode during composition is rejected.
- * View.touch_keyboard_layout is the applied host presentation preference; a
- * Japanese nine-key host uses it without enabling Engine quanpin nine-key. */
+/* 引擎负责的九键模式，用于全拼九宫格或注音九键（注音下 View.nine_key_spellings 是目标音节的候选读音）。只在组字结束后调用。View.nine_key 和 View.nine_key_spellings 是权威状态。对其他方案开启、或在组字中切换模式都会被拒绝。
+ * 创建和重建会话时按偏好自动开启：全拼看 touch_keyboard_layout 是否为 nine_key；注音还要求 touch_keyboard_schemes 选中（或在没有选中项时启用了）zhuyin_nine_key，这个方案只有 Android 写，桌面宿主为全拼九宫格写下的 nine_key 不会让注音会话离开大千键位。
+ * View.touch_keyboard_layout 是已应用的宿主呈现偏好；日文九键宿主只用它，不开启引擎的九键模式。 */
 char *msime_client_set_nine_key_mode(uint64_t session, bool enabled);
 char *msime_client_set_paired_punctuation(uint64_t session, bool enabled);
 char *msime_client_set_punctuation_lock(uint64_t session, uint8_t lock);
@@ -530,7 +528,7 @@ char *msime_client_fix_candidate_position(uint64_t session, uint64_t generation,
                                           uint8_t position);
 /* Clear a previously fixed dictionary candidate position. */
 char *msime_client_clear_candidate_position(uint64_t session, uint64_t generation, size_t index);
-/* Select an entry from View.nine_key_spellings. The generation rejects stale UI. */
+/* Select an entry from View.nine_key_spellings. The generation rejects stale UI. In Quanpin this locks the spelling into the digits; in Zhuyin it only pins the target syllable's reading (nothing is committed) and nine_key_spellings moves on to the next ambiguous syllable. */
 char *msime_client_choose_nine_key_spelling(uint64_t session, uint64_t generation, size_t index);
 enum MsimeCandidateEdge { MSIME_FIRST_HAN = 0, MSIME_LAST_HAN = 1 };
 /* Engine selects one Han character and clears composition on success.

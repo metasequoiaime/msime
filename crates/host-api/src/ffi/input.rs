@@ -90,7 +90,7 @@ pub extern "C" fn msime_client_set_english_mode(handle: u64, enabled: bool) -> *
     })
 }
 
-/// Enable Engine-owned quanpin nine-key digit handling after composition is idle.
+/// 在组字空闲后开启引擎负责的九键数字处理：全拼九宫格，或注音九键。
 #[no_mangle]
 pub extern "C" fn msime_client_set_nine_key_mode(handle: u64, enabled: bool) -> *mut c_char {
     response(|| {

@@ -362,11 +362,13 @@ pub enum TouchKeyboardScheme {
     Tibetan,
     /// 笔画键盘：横竖撇点折加一个通配键，每个键发送对应的笔画字母 h s p n z 或 x（`InputScheme::Stroke`）。不论选的是 26 键还是九键布局，宿主都画这个笔画键盘。
     Stroke,
+    /// 注音 9 键：数字键 1-0 各承载几个注音符号（US 6,009,444 FIG.1 的分组），声调键 ˉ ˊ ˇ ˋ ˙ 结束一个音节，与大千注音一样输出繁体（`InputScheme::Zhuyin` 配 `TouchKeyboardLayout::NineKey`）。
+    ZhuyinNineKey,
 }
 
 impl TouchKeyboardScheme {
     /// Every touch scheme in picker order. Schemes are appended, never reordered.
-    pub const ALL: [Self; 16] = [
+    pub const ALL: [Self; 17] = [
         Self::Quanpin,
         Self::NineKey,
         Self::Xiaohe,
@@ -383,9 +385,10 @@ impl TouchKeyboardScheme {
         Self::Vietnamese,
         Self::Tibetan,
         Self::Stroke,
+        Self::ZhuyinNineKey,
     ];
 
-    /// 用户还没挑选时键盘显示的方案：除粤拼、注音、越南文、藏文和笔画以外的全部，这五个由用户自己打开，和 macOS 上它们的输入模式默认停用一样。因此没有 `touch_keyboard_schemes` 的文档仍然保持原来的键盘。
+    /// 用户还没挑选时键盘显示的方案：除粤拼、注音（大千和 9 键）、越南文、藏文和笔画以外的全部，这些由用户自己打开，和 macOS 上它们的输入模式默认停用一样。因此没有 `touch_keyboard_schemes` 的文档仍然保持原来的键盘。
     pub const DEFAULT_ENABLED: [Self; 11] = [
         Self::Quanpin,
         Self::NineKey,

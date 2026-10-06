@@ -31,12 +31,13 @@ final class ImeLetterRows {
     private View secondRowLeadingIndent;
     private View secondRowTrailingIndent;
 
-    /** 新设计的 123 / #+= 层画在哪些界面上：26 键（含韩文键面）以及把符号页交给 26 键行的手写和笔画；注音的数字键另有用途，保留原符号行。 */
+    /** 新设计的 123 / #+= 层画在哪些界面上：26 键（含韩文键面）以及把符号页交给 26 键行的手写、笔画和注音 9 键。这一层的字符键原样上屏、不经 Engine，所以注音 9 键的数字页不会被读成音键；大千注音的数字和标点键另有用途，保留原符号行。 */
     static boolean drawsDesignLayer(int touchLayout) {
         return touchLayout == KeyboardLayout.STANDARD_TOUCH_LAYOUT
             || touchLayout == KeyboardLayout.KOREAN_LAYOUT
             || touchLayout == KeyboardLayout.HANDWRITING_LAYOUT
-            || touchLayout == KeyboardLayout.STROKE_LAYOUT;
+            || touchLayout == KeyboardLayout.STROKE_LAYOUT
+            || touchLayout == KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT;
     }
 
     /** 偏好里的一个布尔触控开关。 */
@@ -287,6 +288,13 @@ final class ImeLetterRows {
         if (s.keyboardLayer == KeyboardLayout.Layer.LETTERS
             && s.displayedTouchLayout(s.view) == KeyboardLayout.STROKE_LAYOUT) {
             s.imeLayoutRows.rebuildStrokeRows();
+            s.imeStyler.applyKeyboardGeometry();
+            return;
+        }
+        // 注音 9 键同样只在字母层画自己的网格，符号页和笔画一样是新设计的 123 / #+= 层。
+        if (s.keyboardLayer == KeyboardLayout.Layer.LETTERS
+            && s.displayedTouchLayout(s.view) == KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT) {
+            s.imeLayoutRows.rebuildZhuyinNineKeyRows();
             s.imeStyler.applyKeyboardGeometry();
             return;
         }

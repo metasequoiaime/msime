@@ -43,7 +43,7 @@ public final class TypingPage extends DetailPage {
     private enum Language {
         MANDARIN("汉", "普通话", KeyboardScheme.QUANPIN, KeyboardScheme.QUANPIN_NINE_KEY, KeyboardScheme.XIAOHE,
             KeyboardScheme.ZIRANMA, KeyboardScheme.MICROSOFT, KeyboardScheme.SHOUDAO, KeyboardScheme.WUBI,
-            KeyboardScheme.ZHUYIN, KeyboardScheme.STROKE, KeyboardScheme.HANDWRITING),
+            KeyboardScheme.ZHUYIN, KeyboardScheme.ZHUYIN_NINE_KEY, KeyboardScheme.STROKE, KeyboardScheme.HANDWRITING),
         CANTONESE("粤", "粤语", KeyboardScheme.CANTONESE),
         JAPANESE("あ", "日语", KeyboardScheme.JAPANESE, KeyboardScheme.JAPANESE_NINE_KEY),
         KOREAN("한", "韩语", KeyboardScheme.KOREAN),
@@ -135,7 +135,7 @@ public final class TypingPage extends DetailPage {
         Context context = requireContext();
         JSONObject preferences = state.preferences();
         AppEdition edition = AppEdition.current();
-        KeyboardScheme applied = applied(preferences, edition);
+        KeyboardScheme applied = applied(preferences, edition, state.languageDictionaries());
         List<KeyboardScheme> enabled = enabled(preferences, edition);
 
         GroupCard languages = GroupCard.add(target, "语言与方案").withDividers(58);
@@ -205,14 +205,18 @@ public final class TypingPage extends DetailPage {
 
     // ---- 语言与方案 ----
 
-    private static KeyboardScheme applied(JSONObject preferences, AppEdition edition) {
+    /**
+     * 键盘实际在用的方案，和输入法按同一规则解析（MSIMEInputService 的 SchemeConfiguration）：在所有词典已安装的方案里找，而不是只在 `enabled` 里找。没存过 `enabled` 列表时默认列表不含注音、粤拼、笔画这类要手动开启的方案，只在里面找会把选中的 注音 9 键 显示成全拼，键盘却在打注音。
+     */
+    private static KeyboardScheme applied(JSONObject preferences, AppEdition edition, String dictionaries) {
         KeyboardScheme fromScheme = KeyboardScheme.fromPreferences(
             preferences.optString("scheme", edition.defaultScheme()),
             preferences.optString("shuangpin_profile", "xiaohe"),
             preferences.optString("touch_keyboard_layout", "twenty_six_key"), edition);
         JSONObject schemes = preferences.optJSONObject("touch_keyboard_schemes");
         String selected = schemes == null || schemes.isNull("selected") ? null : schemes.optString("selected", null);
-        return KeyboardScheme.resolveEnabledSelection(fromScheme, selected, enabled(preferences, edition), edition);
+        List<KeyboardScheme> visible = KeyboardScheme.installedOf(List.of(KeyboardScheme.values()), dictionaries, edition);
+        return KeyboardScheme.resolveEnabledSelection(fromScheme, selected, visible, edition);
     }
 
     private static List<KeyboardScheme> enabled(JSONObject preferences, AppEdition edition) {
@@ -292,7 +296,8 @@ public final class TypingPage extends DetailPage {
                     return next;
                 });
             }
-            for (KeyboardScheme scheme : List.of(KeyboardScheme.ZHUYIN, KeyboardScheme.STROKE, KeyboardScheme.HANDWRITING)) {
+            for (KeyboardScheme scheme : List.of(KeyboardScheme.ZHUYIN, KeyboardScheme.ZHUYIN_NINE_KEY,
+                    KeyboardScheme.STROKE, KeyboardScheme.HANDWRITING)) {
                 if (offered.contains(scheme))
                     sheet.option(mandarinName(scheme), scheme == applied, () -> applyScheme(scheme, null));
             }
@@ -323,6 +328,7 @@ public final class TypingPage extends DetailPage {
     private static String mandarinName(KeyboardScheme scheme) {
         return switch (scheme) {
             case ZHUYIN -> "注音";
+            case ZHUYIN_NINE_KEY -> "注音 9 键";
             case STROKE -> "笔画";
             default -> "手写";
         };
@@ -356,7 +362,7 @@ public final class TypingPage extends DetailPage {
             JSONObject preferences = snapshot == null ? null : snapshot.optJSONObject("preferences");
             if (preferences == null) return null;
             try {
-                KeyboardScheme current = applied(preferences, edition);
+                KeyboardScheme current = applied(preferences, edition, HostStore.languageDictionaries(context));
                 List<String> ids = effectiveIds(preferences, edition);
                 for (KeyboardScheme scheme : language.schemes) ids.remove(scheme.preferenceId());
                 List<KeyboardScheme> remaining = KeyboardScheme.enabledFromPreferenceIds(ids, edition);

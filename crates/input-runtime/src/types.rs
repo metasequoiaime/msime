@@ -84,7 +84,7 @@ pub struct View {
     /// Engine-owned mobile layout mode. Digits are input, never candidate shortcuts, while active.
     pub nine_key: bool,
     pub nine_key_spellings: Vec<String>,
-    /// The leading candidate's pinyin over the digits it covers while nine-key composes (`xi'an`), for the keyboard's reading line; empty otherwise. `preedit` stays the digits.
+    /// The leading candidate's pinyin over the digits it covers while Quanpin nine-key composes (`xi'an`), for the keyboard's reading line; empty otherwise, Zhuyin nine-key included. In Quanpin `preedit` stays the digits; in Zhuyin it is the converted text plus the pending digits.
     pub nine_key_reading: String,
     /// Applied touch presentation, independent of Engine-owned Chinese nine-key digit handling.
     pub touch_keyboard_layout: TouchKeyboardLayout,

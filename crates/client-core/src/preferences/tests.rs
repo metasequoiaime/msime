@@ -1941,16 +1941,23 @@ fn cantonese_zhuyin_and_vietnamese_touch_schemes_are_appended_and_opt_in() {
             TouchKeyboardScheme::Vietnamese,
             TouchKeyboardScheme::Tibetan,
             TouchKeyboardScheme::Stroke,
+            TouchKeyboardScheme::ZhuyinNineKey,
         ]
     );
+    assert_eq!(TouchKeyboardScheme::ALL.len(), 17);
     for (scheme, id) in [
         (TouchKeyboardScheme::Cantonese, "cantonese"),
         (TouchKeyboardScheme::Zhuyin, "zhuyin"),
         (TouchKeyboardScheme::Vietnamese, "vietnamese"),
         (TouchKeyboardScheme::Tibetan, "tibetan"),
         (TouchKeyboardScheme::Stroke, "stroke"),
+        (TouchKeyboardScheme::ZhuyinNineKey, "zhuyin_nine_key"),
     ] {
         assert_eq!(serde_json::to_value(scheme).unwrap(), id);
+        assert_eq!(
+            serde_json::from_value::<TouchKeyboardScheme>(serde_json::json!(id)).unwrap(),
+            scheme
+        );
         assert!(!TouchKeyboardSchemePreferences::default()
             .enabled
             .contains(&scheme));

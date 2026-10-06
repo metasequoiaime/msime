@@ -2463,9 +2463,7 @@ export class KeyboardSession implements HardwareKeyTarget {
   }
 
   setNineKey(enabled: boolean): void {
-    // The Engine's nine-key flag belongs to quanpin alone — Japanese has its own kana grid and the
-    // other schemes have none, and it answers "nine-key mode requires the quanpin scheme" for any
-    // of them. Asking anyway put a refusal in the log on every Japanese focus.
+    // This keyboard only offers the Engine's nine-key flag for quanpin — Japanese has its own kana grid, the Zhuyin keypad is Android-only, and the Engine answers "nine-key mode requires the quanpin or zhuyin scheme" for the rest. Asking anyway put a refusal in the log on every Japanese focus.
     const wanted: boolean = enabled && this.schemeName === 'quanpin';
     if (this.handle === 0 || this.nineKeyMode === wanted) {
       return;

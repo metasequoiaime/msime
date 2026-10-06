@@ -11,6 +11,8 @@ pub const MAX_SYLLABLES: usize = 20;
 pub struct Span {
     pub start: usize,
     pub end: usize,
+    /// 这段文字在词库里的键：所用的带调音节以单个空格连接。九键下一个位置可能有多个读音，键说明转换实际用了哪一个。
+    pub key: String,
     pub text: String,
 }
 
@@ -45,14 +47,14 @@ impl Score {
     }
 }
 
-/// Converts `syllables` (toned, as `msime-zhuyin.db` keys them) into the best sequence of spans covering all of them. `best` returns the heaviest entry for a key (the syllables joined by a space). `pins` are non-overlapping spans that must appear as given; no other span may cross them. A single syllable with no entry converts to itself, so there is always a path.
+/// 把 `count` 个音节转换成覆盖全部音节的最佳文字段序列。`best(start, end)` 返回音节 `start..end` 的最重词条及其键；`pins` 是互不重叠、必须原样出现的段，其他段不得跨过它们。没有词条的单个音节转换成 `fallback(i)` 给出的读音本身，所以总有一条路径。
 pub fn convert(
-    syllables: &[&str],
+    count: usize,
     pins: &[Span],
-    mut best: impl FnMut(&str) -> Result<Option<LanguageEntry>>,
+    mut best: impl FnMut(usize, usize) -> Result<Option<(String, LanguageEntry)>>,
+    mut fallback: impl FnMut(usize) -> String,
 ) -> Result<Vec<Span>> {
-    let count = syllables.len();
-    // `paths[i]` is the best way to convert `syllables[..i]` and the span that ends it.
+    // `paths[i]` 是转换前 `i` 个音节的最佳路径及结束它的那一段。
     let mut paths: Vec<Option<(Score, Option<Span>)>> = vec![None; count + 1];
     paths[0] = Some((
         Score {
@@ -74,13 +76,25 @@ pub fn convert(
                 if pins.iter().any(|pin| pin.overlaps(start, end)) {
                     break;
                 }
-                let key = build_dictionary_key(&syllables[start..end]);
-                let (text, weight) = match best(&key)? {
-                    Some(entry) => (entry.text, entry.weight),
-                    None if end == start + 1 => (syllables[start].to_owned(), 0),
+                let (key, text, weight) = match best(start, end)? {
+                    Some((key, entry)) => (key, entry.text, entry.weight),
+                    None if end == start + 1 => {
+                        let reading = fallback(start);
+                        (reading.clone(), reading, 0)
+                    }
                     None => continue,
                 };
-                consider_span(&mut paths, score, Span { start, end, text }, weight);
+                consider_span(
+                    &mut paths,
+                    score,
+                    Span {
+                        start,
+                        end,
+                        key,
+                        text,
+                    },
+                    weight,
+                );
             }
         }
     }
@@ -114,22 +128,6 @@ fn consider_span(
     }
 }
 
-fn build_dictionary_key(syllables: &[&str]) -> String {
-    let capacity = syllables
-        .iter()
-        .map(|syllable| syllable.len())
-        .sum::<usize>()
-        .saturating_add(syllables.len().saturating_sub(1));
-    let mut key = String::with_capacity(capacity);
-    for (index, syllable) in syllables.iter().enumerate() {
-        if index > 0 {
-            key.push(' ');
-        }
-        key.push_str(syllable);
-    }
-    key
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
@@ -159,12 +157,25 @@ mod tests {
 
     fn run(syllables: &[&str], pins: &[Span], entries: &[(&str, &str, i64)]) -> Vec<Span> {
         let best = dictionary(entries);
-        convert(syllables, pins, |key| Ok(best.get(key).cloned())).unwrap()
+        convert(
+            syllables.len(),
+            pins,
+            |start, end| {
+                let key = syllables[start..end].join(" ");
+                Ok(best.get(&key).cloned().map(|entry| (key, entry)))
+            },
+            |index| syllables[index].to_owned(),
+        )
+        .unwrap()
     }
 
-    #[test]
-    fn dictionary_key_joins_syllables_in_order() {
-        assert_eq!(build_dictionary_key(&["ㄋㄧˇ", "ㄏㄠˇ"]), "ㄋㄧˇ ㄏㄠˇ");
+    fn span(start: usize, end: usize, key: &str, text: &str) -> Span {
+        Span {
+            start,
+            end,
+            key: key.to_owned(),
+            text: text.to_owned(),
+        }
     }
 
     #[test]
@@ -174,26 +185,8 @@ mod tests {
             length: 0,
             weight: 0,
         };
-        consider_span(
-            &mut paths,
-            score,
-            Span {
-                start: 0,
-                end: 1,
-                text: "低".to_owned(),
-            },
-            1,
-        );
-        consider_span(
-            &mut paths,
-            score,
-            Span {
-                start: 0,
-                end: 1,
-                text: "高".to_owned(),
-            },
-            2,
-        );
+        consider_span(&mut paths, score, span(0, 1, "ㄉㄧ", "低"), 1);
+        consider_span(&mut paths, score, span(0, 1, "ㄍㄠ", "高"), 2);
         assert_eq!(
             paths[1].as_ref().map(|(score, _)| *score),
             Some(score.add(1, 2))
@@ -223,6 +216,51 @@ mod tests {
         assert_eq!(texts(&spans), ["你好", "嗎"]);
         assert_eq!((spans[0].start, spans[0].end), (0, 2));
         assert_eq!((spans[1].start, spans[1].end), (2, 3));
+        // 每段带着命中的键。
+        assert_eq!(spans[0].key, "ㄋㄧˇ ㄏㄠˇ");
+        assert_eq!(spans[1].key, "ㄇㄚ˙");
+    }
+
+    // 九键下一个位置有多个读音：`best` 自己在读音里挑，返回的键说明用了哪个；没有词条的单音节用调用方给的读音兜底。
+    #[test]
+    fn spans_carry_the_key_best_chose_and_the_fallback_reading() {
+        let positions: [&[&str]; 3] = [&["ㄌㄧˇ", "ㄋㄧˇ"], &["ㄏㄠˇ"], &["ㄅㄧㄤ", "ㄆㄧㄤ"]];
+        let best = dictionary(&ENTRIES);
+        let spans = convert(
+            positions.len(),
+            &[],
+            |start, end| {
+                // 逐个组合查，取最重的。
+                let mut keys = vec![String::new()];
+                for readings in &positions[start..end] {
+                    keys = keys
+                        .iter()
+                        .flat_map(|prefix| {
+                            readings.iter().map(move |reading| {
+                                if prefix.is_empty() {
+                                    (*reading).to_owned()
+                                } else {
+                                    format!("{prefix} {reading}")
+                                }
+                            })
+                        })
+                        .collect();
+                }
+                Ok(keys
+                    .into_iter()
+                    .filter_map(|key| best.get(&key).cloned().map(|entry| (key, entry)))
+                    .max_by_key(|(_, entry)| entry.weight))
+            },
+            |index| positions[index][1].to_owned(),
+        )
+        .unwrap();
+        assert_eq!(
+            spans,
+            [
+                span(0, 2, "ㄋㄧˇ ㄏㄠˇ", "你好"),
+                span(2, 3, "ㄆㄧㄤ", "ㄆㄧㄤ")
+            ]
+        );
     }
 
     #[test]
@@ -247,11 +285,7 @@ mod tests {
 
     #[test]
     fn pins_are_kept_and_never_crossed() {
-        let pin = Span {
-            start: 1,
-            end: 2,
-            text: "郝".to_owned(),
-        };
+        let pin = span(1, 2, "ㄏㄠˇ", "郝");
         let spans = run(
             &["ㄋㄧˇ", "ㄏㄠˇ", "ㄇㄚ˙"],
             std::slice::from_ref(&pin),
@@ -261,11 +295,7 @@ mod tests {
         assert_eq!(spans[1], pin);
 
         // A pinned word holds even where the dictionary has no such entry.
-        let pin = Span {
-            start: 0,
-            end: 2,
-            text: "妳好".to_owned(),
-        };
+        let pin = span(0, 2, "ㄋㄧˇ ㄏㄠˇ", "妳好");
         let spans = run(&["ㄋㄧˇ", "ㄏㄠˇ", "ㄊㄞˊ", "ㄨㄢ"], &[pin], &ENTRIES);
         assert_eq!(texts(&spans), ["妳好", "臺灣"]);
     }

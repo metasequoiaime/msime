@@ -27,6 +27,9 @@ public final class KeyboardActionRowSmoke {
                 .noneMatch(entry -> entry.slot() == KeyboardActionRow.DesignSlot.COMMA
                     || entry.slot() == KeyboardActionRow.DesignSlot.PERIOD),
             "nine-key keeps punctuation in its sidebar");
+        check(KeyboardActionRow.designEntries(KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT, false).isEmpty()
+                && KeyboardActionRow.designEntries(KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT, true).isEmpty(),
+            "the Zhuyin nine-key block carries 123, language, space and return itself, so there is no design row");
         check("，".equals(KeyboardActionRow.punctuationFace(KeyboardActionRow.DesignSlot.COMMA, true))
             && ".".equals(KeyboardActionRow.punctuationFace(KeyboardActionRow.DesignSlot.PERIOD, false)),
             "comma and period faces follow Chinese punctuation");
@@ -55,7 +58,8 @@ public final class KeyboardActionRowSmoke {
             "the Korean keycaps sit over the standard rows and keep the standard action row");
         for (int layout : new int[] {KeyboardLayout.STANDARD_TOUCH_LAYOUT,
                 KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, KeyboardLayout.HANDWRITING_LAYOUT,
-                KeyboardLayout.KOREAN_LAYOUT, KeyboardLayout.ZHUYIN_LAYOUT, KeyboardLayout.STROKE_LAYOUT}) {
+                KeyboardLayout.KOREAN_LAYOUT, KeyboardLayout.ZHUYIN_LAYOUT, KeyboardLayout.STROKE_LAYOUT,
+                KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT}) {
             List<Slot> slots = slots(layout, true);
             check(slots.contains(Slot.SPACE) && slots.contains(Slot.RETURN)
                 && slots.contains(Slot.LANGUAGE), "every action row commits, spaces and switches");
@@ -108,6 +112,19 @@ public final class KeyboardActionRowSmoke {
         check(slots(KeyboardLayout.ZHUYIN_LAYOUT, true).equals(
                 slots(KeyboardLayout.STANDARD_TOUCH_LAYOUT, true)),
             "the Dachen rows keep the standard action row");
+        // 注音 9 键的网格自带 @#、逗号句号和 ⌫，底排不再重复它们。
+        check(slots(KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT, true).equals(List.of(
+                Slot.LAYER, Slot.GLOBE, Slot.SPACE, Slot.LANGUAGE, Slot.RETURN))
+                && slots(KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT, false).equals(List.of(
+                Slot.LAYER, Slot.SPACE, Slot.LANGUAGE, Slot.RETURN)),
+            "the Zhuyin nine-key grid carries the symbol panel key and punctuation itself");
+        check(!KeyboardActionRow.usesLetterRows(KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT, false)
+                && KeyboardActionRow.usesLetterRows(KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT, true)
+                && !KeyboardActionRow.rowsCarryDelete(KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT, false)
+                && KeyboardActionRow.rowsCarryDelete(KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT, true)
+                && !KeyboardActionRow.rowsCarryCase(KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT, false)
+                && !KeyboardActionRow.rowsCarryCase(KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT, true),
+            "the Zhuyin nine-key grid owns its delete key and hands its symbol layer to the letter rows, with no case key");
         int standard = KeyboardLayout.STANDARD_TOUCH_LAYOUT;
         int zhuyin = KeyboardLayout.ZHUYIN_LAYOUT;
         check(KeyboardActionRow.letterRowEdgeWeight(standard, false)
@@ -133,6 +150,9 @@ public final class KeyboardActionRowSmoke {
         check("123".equals(KeyboardActionRow.layerTitle(KeyboardLayout.ZHUYIN_LAYOUT, false))
                 && "注".equals(KeyboardActionRow.layerTitle(KeyboardLayout.ZHUYIN_LAYOUT, true)),
             "the Zhuyin digit page returns to the Dachen keycaps");
+        check("123".equals(KeyboardActionRow.layerTitle(KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT, false))
+                && "注".equals(KeyboardActionRow.layerTitle(KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT, true)),
+            "the Zhuyin nine-key digit page returns to the bopomofo grid");
         check("123".equals(KeyboardActionRow.layerTitle(KeyboardLayout.STROKE_LAYOUT, false))
                 && "笔".equals(KeyboardActionRow.layerTitle(KeyboardLayout.STROKE_LAYOUT, true)),
             "the stroke digit page returns to the stroke keypad");

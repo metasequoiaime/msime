@@ -1411,7 +1411,7 @@ fn a_fallen_back_scheme_starts_in_the_nine_key_mode_a_rebuild_gives_it() {
 
 #[test]
 fn nine_key_mode_follows_only_the_scheme_the_grid_spells() {
-    // The nine-key grid spells quanpin syllables only (`SchemeType::nine_key`): a nine-key layout starts nine-key in quanpin and stays off in every other scheme, at creation and on a rebuild alike.
+    // 九键能拼的方案是全拼和注音（`SchemeType::nine_key`）：九键布局在全拼里开启九键模式，在下面这些方案里都保持关闭，创建时和重建后都一样。注音不在这里测，因为这个宿主没有安装注音词库，运行时不会跑它。
     for scheme in [
         InputScheme::Quanpin,
         InputScheme::Shuangpin,
@@ -1446,6 +1446,84 @@ fn nine_key_mode_follows_only_the_scheme_the_grid_spells() {
         );
         read(msime_client_destroy(handle));
     }
+}
+
+// 注音配九键布局：宿主接口按布局自动开启九键模式，数字和声调字母拼音节，候选读音和全拼九键一样经 `nine_key_spellings` 和 `msime_client_choose_nine_key_spelling` 往返。
+#[test]
+fn zhuyin_with_the_nine_key_layout_starts_in_nine_key_mode() {
+    use msime_engine::language_dictionary::{FORMAT_VERSION, METADATA_FORMAT_VERSION, SCHEMA};
+    let dir = tempfile::tempdir().unwrap();
+    let path = |name| {
+        let path = dir.path().join(name);
+        std::fs::create_dir_all(&path).unwrap();
+        path
+    };
+    let language_dictionaries = path("language-dictionaries");
+    let connection =
+        rusqlite::Connection::open(language_dictionaries.join("msime-zhuyin.db")).unwrap();
+    connection.execute_batch(SCHEMA).unwrap();
+    connection
+        .execute(
+            "INSERT INTO metadata VALUES (?1, ?2)",
+            (METADATA_FORMAT_VERSION, FORMAT_VERSION.to_string()),
+        )
+        .unwrap();
+    connection
+        .execute_batch(
+            "INSERT INTO syllables VALUES ('ㄋㄧˇ'),('ㄌㄧˇ');\
+             INSERT INTO entries VALUES ('ㄋㄧˇ','你',1000),('ㄌㄧˇ','李',1200);",
+        )
+        .unwrap();
+    drop(connection);
+    // The layout field alone is what a desktop host's Quanpin 九键 toggle leaves behind; Zhuyin there keeps the Dachen keys.
+    let layout_only = Preferences {
+        scheme: InputScheme::Zhuyin,
+        touch_keyboard_layout: TouchKeyboardLayout::NineKey,
+        ..chinese_preferences()
+    };
+    let options = json!({ "api_version": 1, "resources": path("resources"), "user_data": path("user"), "cache": path("cache"), "dictionaries": path("dictionaries"), "preferences": layout_only, "language_dictionaries": language_dictionaries }).to_string();
+    let created = read(unsafe { msime_client_create(options.as_ptr(), options.len()) });
+    assert_eq!(created["ok"], true, "{created}");
+    let dachen = created["value"]["session"].as_u64().unwrap();
+    read(msime_client_focus(dachen, true));
+    assert_eq!(read(msime_client_view(dachen))["value"]["nine_key"], false);
+    read(msime_client_destroy(dachen));
+
+    let mut preferences = Preferences {
+        scheme: InputScheme::Zhuyin,
+        touch_keyboard_layout: TouchKeyboardLayout::NineKey,
+        ..chinese_preferences()
+    };
+    preferences
+        .touch_keyboard_schemes
+        .enabled
+        .insert(TouchKeyboardScheme::ZhuyinNineKey);
+    preferences.touch_keyboard_schemes.selected = Some(TouchKeyboardScheme::ZhuyinNineKey);
+    let options = json!({ "api_version": 1, "resources": path("resources"), "user_data": path("user"), "cache": path("cache"), "dictionaries": path("dictionaries"), "preferences": preferences, "language_dictionaries": language_dictionaries }).to_string();
+    let created = read(unsafe { msime_client_create(options.as_ptr(), options.len()) });
+    assert_eq!(created["ok"], true, "{created}");
+    let handle = created["value"]["session"].as_u64().unwrap();
+    read(msime_client_focus(handle, true));
+    let view = read(msime_client_view(handle));
+    assert_eq!(view["value"]["scheme"], 6);
+    assert_eq!(view["value"]["nine_key"], true);
+    assert_eq!(view["value"]["spelling_symbols"], "1234567890");
+
+    let mut typed = Value::Null;
+    for key in *b"28c" {
+        typed = read(msime_client_character(handle, key, false));
+        assert_eq!(typed["value"]["handled"], true, "{}", char::from(key));
+    }
+    let view = &typed["value"]["view"];
+    assert_eq!(view["editing_text"], "28c");
+    assert_eq!(view["nine_key_spellings"], json!(["ㄌㄧˇ", "ㄋㄧˇ"]));
+    let generation = view["generation"].as_u64().unwrap();
+    let chosen = read(msime_client_choose_nine_key_spelling(handle, generation, 1));
+    assert_eq!(chosen["value"]["handled"], true);
+    assert_eq!(chosen["value"]["view"]["nine_key_spellings"], json!([]));
+    let committed = read(msime_client_command(handle, 9));
+    assert_eq!(committed["value"]["commit"], "你");
+    read(msime_client_destroy(handle));
 }
 
 #[test]
