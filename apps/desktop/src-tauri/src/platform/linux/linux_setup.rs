@@ -157,8 +157,8 @@ fn setup_arguments(
     if download {
         arguments.push("--download".into());
     }
-    if !cloud_candidates {
-        arguments.push("--no-cloud-candidates".into());
+    if cloud_candidates {
+        arguments.push("--cloud-candidates".into());
     }
     arguments
 }
@@ -441,24 +441,24 @@ mod tests {
     fn download_is_only_requested_when_the_user_allowed_it() {
         let state = Path::new("/home/user/.config/msime-client");
         assert_eq!(
-            setup_arguments(state, false, true),
+            setup_arguments(state, false, false),
             ["--state", "/home/user/.config/msime-client"]
         );
         assert_eq!(
-            setup_arguments(state, true, true),
+            setup_arguments(state, true, false),
             ["--state", "/home/user/.config/msime-client", "--download"]
         );
     }
 
     #[test]
-    fn a_declined_cloud_candidate_choice_reaches_the_setup_script() {
+    fn cloud_candidates_are_only_requested_when_the_user_allowed_them() {
         let state = Path::new("/home/user/.config/msime-client");
         assert_eq!(
-            setup_arguments(state, false, false),
+            setup_arguments(state, false, true),
             [
                 "--state",
                 "/home/user/.config/msime-client",
-                "--no-cloud-candidates"
+                "--cloud-candidates"
             ]
         );
     }

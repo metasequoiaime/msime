@@ -873,7 +873,7 @@ pub struct Preferences {
     pub plugins: PluginPreferences,
     #[serde(default)]
     pub clipboard_history: bool,
-    /// Fetch one additional candidate from the configured cloud provider.
+    /// 向云候选服务多要一条候选。它会把正在组的拼写发给 `https://inputtools.google.com`，所以新装默认关闭（见 `Default`）；已存文档缺这个字段时读成开启，升级沿用原来的行为。
     #[serde(default = "enabled_by_default")]
     pub cloud_candidates: bool,
     #[serde(default = "enabled_by_default")]
@@ -890,7 +890,7 @@ pub struct Preferences {
     /// Optional second language for mobile candidate glosses. `None` shows a single language and is omitted from serialized snapshots.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub translation_secondary_language: Option<TranslationTargetLanguage>,
-    /// True when the MSIME account (水杉账号) is the candidate translation service; candidates are then sent to `https://api.msime.app/v1/translate`. Fresh macOS and Linux installs start with it chosen (see `Default`); a document without the field reads false.
+    /// 候选翻译服务选的是水杉账号时为真，候选词会发到 `https://api.msime.app/v1/translate`。新装和缺字段时都是关闭，必须由用户显式选择。
     #[serde(default)]
     pub translation_account: bool,
     /// Send anonymous usage reports (daily activity, session ends, crash summaries; see [`crate::telemetry`] and PRIVACY.md) to `https://api.msime.app/v1/telemetry/events`. On by default; turning it off stops all reporting and clears the local queue. A reader treats an absent key as on.
@@ -1853,14 +1853,14 @@ impl Default for Preferences {
             local_modes: LocalModePreferences::default(),
             plugins: PluginPreferences::default(),
             clipboard_history: false,
-            cloud_candidates: true,
+            // 会把输入内容发出设备的两条路径新装都关闭，由 Windows、macOS、Linux 的首次询问或各平台的设置开关打开。
+            cloud_candidates: false,
             candidate_translations: true,
             candidate_english_gloss: false,
             english_suggestions: true,
             translation_target_language: TranslationTargetLanguage::default(),
             translation_secondary_language: None,
-            // Only the desktop hosts that offer 水杉账号 in the translation service picker default to it; Android, iOS, Windows and HarmonyOS keep it as an explicit choice.
-            translation_account: cfg!(any(target_os = "macos", target_os = "linux")),
+            translation_account: false,
             usage_reporting: true,
         }
     }
@@ -2076,15 +2076,30 @@ pub fn is_absolute_model_path(path: &str) -> bool {
     bytes.len() > 2 && bytes[0] == b'\\' && bytes[1] == b'\\' && bytes[2] != b'\\'
 }
 
-/// Whether `mirror` is an acceptable `asr_model_mirror`: empty, or an `https://` URL of at most 2048 bytes with no control characters or whitespace.
+/// 判断本地模型镜像：空字符串，或不带凭据、查询和片段的 HTTPS 前缀。
 pub fn valid_model_mirror(mirror: &str) -> bool {
-    mirror.is_empty()
-        || (mirror.len() <= 2048
-            && mirror.len() > "https://".len()
-            && mirror.starts_with("https://")
-            && !mirror
-                .chars()
-                .any(|ch| ch.is_control() || ch.is_whitespace()))
+    if mirror.is_empty() {
+        return true;
+    }
+    if mirror.len() > 2048
+        || mirror
+            .chars()
+            .any(|ch| ch.is_control() || ch.is_whitespace())
+        || !mirror
+            .strip_prefix("https://")
+            .is_some_and(|rest| rest.as_bytes().first().is_some_and(|byte| *byte != b'/'))
+    {
+        return false;
+    }
+    let Ok(url) = reqwest::Url::parse(mirror) else {
+        return false;
+    };
+    url.scheme() == "https"
+        && url.host_str().is_some_and(|host| !host.is_empty())
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.query().is_none()
+        && url.fragment().is_none()
 }
 
 fn default_shuangpin_helpcode() -> HelpcodePreferences {

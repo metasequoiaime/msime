@@ -5398,7 +5398,7 @@ static void TestCloudCandidatePreference() {
     NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
     MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
     NSSwitch *toggle = (id)PreferenceControl(prefs, @selector(cloudCandidatesChanged:));
-    assert(prefs.cloudCandidates && toggle.state == NSControlStateValueOn);
+    assert(!prefs.cloudCandidates && toggle.state == NSControlStateValueOff);
     // The switch has no title of its own — the wording naming where the query goes is on the row
     // label, which is also what the switch reports to VoiceOver. Still asserted: this is the one
     // control here that sends what is being typed off the machine, and it has to say so.
@@ -5452,6 +5452,8 @@ static void TestCloudCandidatePreference() {
     [NSNotificationCenter.defaultCenter removeObserver:observer];
     MSIMERemoveTestPreferenceSuite(defaults, suite);
     MSIMEAppearancePreferences *fresh = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    assert(!fresh.cloudCandidates);
+    [fresh applySharedInputPreferences:@{@"cloud_candidates":@YES}];
     assert(fresh.cloudCandidates);
     [fresh applySharedInputPreferences:loaded[@"preferences"]];
     assert(!fresh.cloudCandidates);
@@ -5484,16 +5486,16 @@ static void TestCloudCandidateConsent() {
     assert([NSFileManager.defaultManager createDirectoryAtPath:root withIntermediateDirectories:YES attributes:nil error:nil]);
     NSString *preferencesFile = [root stringByAppendingPathComponent:@"preferences.json"];
 
-    // A profile that was never resolved (no preferences directory known) keeps sending as before.
+    // 没有偏好目录、从未判断过的配置算已回答，但没有任何已存选择时和共享默认值一样不发送。
     NSString *suite = [@"msime.cloud.consent." stringByAppendingString:NSUUID.UUID.UUIDString];
     NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
     MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
     [prefs resolveCloudCandidatesConsentWithPreferencesDirectory:nil userDataDirectory:nil];
-    assert(prefs.cloudCandidatesAnswered && prefs.cloudCandidatesEnabled);
+    assert(prefs.cloudCandidatesAnswered && !prefs.cloudCandidates && !prefs.cloudCandidatesEnabled);
 
     // Fresh profile: nothing is sent and the prompt is requested exactly once.
     [prefs resolveCloudCandidatesConsentWithPreferencesDirectory:root userDataDirectory:nil];
-    assert(!prefs.cloudCandidatesAnswered && prefs.cloudCandidates && !prefs.cloudCandidatesEnabled);
+    assert(!prefs.cloudCandidatesAnswered && !prefs.cloudCandidates && !prefs.cloudCandidatesEnabled);
     ConsentCloudController *controller = [ConsentCloudController alloc];
     controller.requests = [NSMutableArray array];
     CloudShortcutSession *session = [CloudShortcutSession new];
@@ -5625,13 +5627,13 @@ static void TestCloudCandidateConsent() {
     assert(!prefs.cloudCandidatesAnswered && !prefs.cloudCandidatesEnabled);
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 
-    // Upgrade from a profile that typed but never changed a setting: no preferences.json and no stored choice, only Engine user data. Answered, never asked, default kept.
+    // 打过字但从没改过设置的升级配置：没有 preferences.json，也没有已存选择，只有 Engine 用户数据。算已回答、不再询问，没有可沿用的值，按共享默认值关闭。
     assert([NSData.data writeToFile:[userData stringByAppendingPathComponent:@"msime_user.db"] atomically:YES]);
     suite = [@"msime.cloud.consent." stringByAppendingString:NSUUID.UUID.UUIDString];
     defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
     prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
     [prefs resolveCloudCandidatesConsentWithPreferencesDirectory:bare userDataDirectory:userData];
-    assert(prefs.cloudCandidatesAnswered && prefs.cloudCandidates && prefs.cloudCandidatesEnabled);
+    assert(prefs.cloudCandidatesAnswered && !prefs.cloudCandidates && !prefs.cloudCandidatesEnabled);
     [controller setValue:prefs forKey:@"appearance"];
     [controller requestCloudCandidatesConsentIfNeeded];
     DrainMainQueue();

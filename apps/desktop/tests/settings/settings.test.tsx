@@ -5516,14 +5516,14 @@ test("Linux help network section says what goes online and where credentials liv
   fireEvent.click(screen.getByRole("button", { name: "帮助" }));
   const network = await screen.findByText(/日常拼音输入无需联网/);
   const text = network.textContent ?? "";
-  // Cloud candidates are on after first-run setup unless declined, and they send the spelling being typed.
-  expect(text).toContain("云候选默认开启");
+  // 云候选新装默认关闭，首次配置时勾选才打开；开启时发送的是正在输入的拼写。
+  expect(text).toContain("云候选默认关闭");
   expect(text).toContain("Google input-tools");
   expect(text).toContain("msime-linux-online-provider");
   expect(text).toContain("msime-linux-voice-provider");
-  // Fresh Linux installs translate candidates through the MSIME account, so the copy says what it sends and how to switch away; voice and AI still wait for a configured service.
-  expect(text).toContain("候选词翻译默认用水杉账号，会把当前页的中文候选词发送到 api.msime.app");
-  expect(text).toContain("可在翻译服务里改选自己的服务或不使用在线翻译");
+  // 候选翻译新装不联网，水杉账号要用户显式选择，文案说明选了它会发送什么；语音和 AI 仍要等配置好服务。
+  expect(text).toContain("候选词翻译默认不联网");
+  expect(text).toContain("选择水杉账号把当前页的中文候选词发送到 api.msime.app 之后才会发请求");
   expect(text).toContain("语音识别和 AI 功能只在启用并配置好对应服务后联网");
   expect(text).not.toContain("填好凭据后联网");
   // The provider credentials are private files; NiuTrans and custom translation keys are the exception and the copy says so.
@@ -5571,10 +5571,10 @@ test("Android help and about pages use mobile instructions and project links", a
   );
 });
 
-// The Linux section of msime.app/privacy/ does not match this host (it has an update check and keeps provider credentials in 0600 files), so Linux opens the PRIVACY.md that ships with this code, as the Windows reference opens its own. Every other host keeps msime.app/privacy/, which a looser Linux check would break.
-test("the privacy link opens PRIVACY.md on Linux and msime.app/privacy/ elsewhere", async () => {
+// 网站的 Linux 段落已与这个宿主一致（检查更新、凭据存在 0600 文件里），所以 Linux 与其他平台一样打开 msime.app/privacy/。
+test("the privacy link opens msime.app/privacy/ on every platform", async () => {
   const expected: Record<string, string> = {
-    linux: "https://github.com/metasequoiaime/msime/blob/develop/PRIVACY.md",
+    linux: "https://msime.app/privacy/",
     windows: "https://msime.app/privacy/",
     macos: "https://msime.app/privacy/",
     android: "https://msime.app/privacy/",
@@ -7132,13 +7132,46 @@ test("Linux release assets yield a digest only when it is well-formed and unambi
       signed: false,
     });
   }
-  // Two architectures would make any single digest wrong for someone.
-  expect(
-    pick([
-      { name: "msime-linux_1.2.0_amd64.deb", digest: `sha256:${digest}` },
-      { name: "msime-linux_1.2.0_arm64.deb", digest: `sha256:${"b".repeat(64)}` },
-    ]),
-  ).toEqual({ name: null, sha256: null, signed: false });
+  // Without the host's architecture, two architectures would make any single digest wrong for someone.
+  const bothArchitectures = [
+    { name: "msime-linux_1.2.0_amd64.deb", digest: `sha256:${digest}` },
+    { name: "msime-linux_1.2.0_arm64.deb", digest: `sha256:${"b".repeat(64)}` },
+    { name: "msime-linux-1.2.0-1.x86_64.rpm", digest: `sha256:${"c".repeat(64)}` },
+    { name: "msime-linux-1.2.0-1.aarch64.rpm", digest: `sha256:${"d".repeat(64)}` },
+    { name: "msime-linux-1.2.0-linux-x86_64.tar.gz", digest: `sha256:${"e".repeat(64)}` },
+    { name: "msime-linux-1.2.0-linux-aarch64.tar.gz", digest: `sha256:${"f".repeat(64)}` },
+  ];
+  expect(pick(bothArchitectures)).toEqual({ name: null, sha256: null, signed: false });
+  // The host reports its architecture (`HostCapabilities.arch`, Rust's name), and only that architecture's package is offered: dpkg names it in the .deb and CMake in the tarball.
+  const pickFor = (assets: unknown, arch: string) => {
+    const update = selectPlatformRelease(release(assets), "linux", page, undefined, arch);
+    return update && { name: update.installerName, sha256: update.installerSha256 };
+  };
+  expect(pickFor(bothArchitectures, "x86_64")).toEqual({
+    name: "msime-linux_1.2.0_amd64.deb",
+    sha256: digest,
+  });
+  expect(pickFor(bothArchitectures, "aarch64")).toEqual({
+    name: "msime-linux_1.2.0_arm64.deb",
+    sha256: "b".repeat(64),
+  });
+  // Each architecture falls back to its own tarball, never another architecture's .deb.
+  const tarballsOnly = bothArchitectures.filter((asset) => asset.name.endsWith(".tar.gz"));
+  expect(pickFor([...tarballsOnly, bothArchitectures[0]], "aarch64")).toEqual({
+    name: "msime-linux-1.2.0-linux-aarch64.tar.gz",
+    sha256: "f".repeat(64),
+  });
+  // A release from before aarch64 packages offers an aarch64 host nothing rather than the x86_64 package.
+  expect(pickFor([bothArchitectures[0], bothArchitectures[4]], "aarch64")).toEqual({
+    name: null,
+    sha256: null,
+  });
+  // An architecture no package is built for keeps every asset, and two of them still offer nothing.
+  expect(pickFor(bothArchitectures, "riscv64")).toEqual({ name: null, sha256: null });
+  expect(pickFor([bothArchitectures[0]], "riscv64")).toEqual({
+    name: "msime-linux_1.2.0_amd64.deb",
+    sha256: digest,
+  });
   // A name that would need shell quoting is never put into the copyable command.
   expect(pick([{ name: "--x;rm -rf ~.deb", digest: `sha256:${digest}` }])).toEqual({
     name: null,

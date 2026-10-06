@@ -3,7 +3,6 @@ import {
   licenseUrl,
   linuxIssuesUrl,
   linuxLicenseUrl,
-  linuxPrivacyUrl,
   linuxReleasesPageUrl,
   privacyUrl,
   releasesPageUrl,
@@ -30,6 +29,6 @@ export function platformResourceUrls({
     releasesPageUrl: clientHostedPlatform ? linuxReleasesPageUrl : releasesPageUrl,
     licenseUrl: clientHostedPlatform ? linuxLicenseUrl : licenseUrl,
     issuesUrl: linuxIssuesUrl,
-    privacyUrl: linux ? linuxPrivacyUrl : clientHostedPlatform ? androidPrivacyUrl : privacyUrl,
+    privacyUrl: clientHostedPlatform && !linux ? androidPrivacyUrl : privacyUrl,
   };
 }

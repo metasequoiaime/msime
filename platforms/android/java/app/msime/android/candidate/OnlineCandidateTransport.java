@@ -30,12 +30,12 @@ public final class OnlineCandidateTransport {
         HttpsURLConnection connection = null;
         try {
             URL target = new URL(url);
-            if (!"https".equalsIgnoreCase(target.getProtocol())) return null;
+            if (!OnlineCandidatePolicy.validURL(target)) return null;
             connection = (HttpsURLConnection) target.openConnection();
             connection.setInstanceFollowRedirects(false);
             connection.setRequestMethod("GET");
-            connection.setConnectTimeout(CONNECT_TIMEOUT_MILLIS);
-            connection.setReadTimeout(READ_TIMEOUT_MILLIS);
+            connection.setConnectTimeout(OnlineCandidatePolicy.CLOUD_TIMEOUT_MILLIS);
+            connection.setReadTimeout(OnlineCandidatePolicy.CLOUD_TIMEOUT_MILLIS);
             connection.setRequestProperty("Accept", "application/json");
             int status = connection.getResponseCode();
             if (status < 200 || status >= 300) return null;
@@ -54,7 +54,7 @@ public final class OnlineCandidateTransport {
         HttpsURLConnection connection = null;
         try {
             URL target = new URL(descriptor.getString("url"));
-            if (!"https".equalsIgnoreCase(target.getProtocol())) return null;
+            if (!OnlineCandidatePolicy.validURL(target)) return null;
             byte[] payload = descriptor.getJSONObject("body").toString()
                 .getBytes(StandardCharsets.UTF_8);
             connection = (HttpsURLConnection) target.openConnection();

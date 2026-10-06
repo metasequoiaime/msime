@@ -4342,7 +4342,7 @@ static NSString *const MSIMECloudConsentTitle = @"联网功能";
 static NSString *const MSIMECloudConsentMessage =
     @"拼音切分、候选排序和词频学习全部在本机完成，不联网。\n\n"
     @"启用云候选：输入过程中把正在输入的拼写通过 HTTPS 发送给 Google 的 input-tools 服务（inputtools.google.com），换回一条额外候选。已上屏的文本、词库内容和学习到的词频都不会发送。\n\n"
-    @"这是唯一一项装完就会联网的功能。AI 联想、候选翻译、语音输入都需要你自己填入 API token 之后才会发出任何请求。之后可在「设置 → 输入」的「云候选」里更改。";
+    @"不启用时，输入内容不会离开这台 Mac：AI 联想和语音输入要你自己填入 API token，候选翻译要你在设置里选择翻译服务，之后才会发出请求。之后可在「设置 → 输入」的「云候选」里更改。";
 
 /// Show the consent prompt and report the choice: @YES, @NO, or nil when it closed without one. Overridden by tests.
 ///
@@ -4354,8 +4354,9 @@ static NSString *const MSIMECloudConsentMessage =
     alert = [NSAlert new];
     alert.messageText = MSIMECloudConsentTitle;
     alert.informativeText = MSIMECloudConsentMessage;
-    NSButton *enable = [alert addButtonWithTitle:@"启用云候选"];
+    // 「不启用」排第一，是回车对应的默认按钮：对话框在用户打字时弹出，顺手的一个回车不能替用户打开联网。
     NSButton *disable = [alert addButtonWithTitle:@"不启用"];
+    NSButton *enable = [alert addButtonWithTitle:@"启用云候选"];
     static MSIMECloudConsentTarget *target;
     target = [MSIMECloudConsentTarget new];
     target.handler = ^(BOOL enabled) {

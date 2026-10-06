@@ -305,6 +305,33 @@ bool persist_traditional_output(const std::filesystem::path &directory,
     return false;
   }
 }
+// 把安装器「联网功能」页的选择写进刚准备好的共享偏好（Linux 的 msime-linux-prepare 做同样的事）。失败时保持共享默认值，也就是关闭，不阻止输入法启动。
+void record_installer_cloud_choice(const std::filesystem::path &directory, bool enabled) {
+  try {
+    const auto root = directory.u8string();
+    std::unique_ptr<char, decltype(&msime_client_string_free)> loaded(
+        msime_client_load_preferences(
+            reinterpret_cast<const uint8_t *>(root.data()), root.size()),
+        msime_client_string_free);
+    if (!loaded)
+      return;
+    const auto response = nlohmann::json::parse(loaded.get());
+    if (!response.value("ok", false) || !response.at("value").is_object())
+      return;
+    auto snapshot = response.at("value");
+    const auto revision = snapshot.at("revision").get<uint64_t>();
+    snapshot.at("preferences")["cloud_candidates"] = enabled;
+    const auto serialized = snapshot.dump();
+    std::unique_ptr<char, decltype(&msime_client_string_free)> saved(
+        msime_client_save_preferences(
+            reinterpret_cast<const uint8_t *>(root.data()), root.size(),
+            revision,
+            reinterpret_cast<const uint8_t *>(serialized.data()),
+            serialized.size()),
+        msime_client_string_free);
+  } catch (...) {
+  }
+}
 // Read the stored preferences block, or nothing if it cannot be read. The
 // shipped card has usable built-in defaults, so an unreadable store degrades
 // to those rather than stopping the IME from starting.
@@ -713,7 +740,7 @@ int wmain(int argc, wchar_t **argv) {
         return 0;
       if (!launch.supervised)
         start_watchdog(executable_directory());
-      prepare_first_run(executable_directory(), default_state,
+      const bool prepared_now = prepare_first_run(executable_directory(), default_state,
                        [](const std::string &request) {
         std::unique_ptr<char, decltype(&msime_client_string_free)> response(
             msime_client_prepare_host(
@@ -723,6 +750,9 @@ int wmain(int argc, wchar_t **argv) {
           throw std::runtime_error("Host preparation failed");
         return std::string(response.get());
       });
+      // 只在这次刚准备好状态时采用安装器的选择；已有状态属于用户，文件照样删掉。
+      if (const auto cloud = take_installer_cloud_choice(default_state); prepared_now && cloud)
+        record_installer_cloud_choice(default_state, *cloud);
     }
     const std::filesystem::path config_path =
         production ? default_state / L"runtime-options.json"

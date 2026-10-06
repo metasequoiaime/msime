@@ -255,6 +255,10 @@ fn local_model_mirror_is_empty_or_an_https_prefix() {
     for rejected in [
         "http://ghproxy.example.test",
         "https://",
+        "https:///path",
+        "https://user:pass@mirror.example.test",
+        "https://mirror.example.test?query=unexpected",
+        "https://mirror.example.test/#fragment",
         "ghproxy.example.test",
         "https://mirror.example.test/\n",
         "https://mirror example.test",
@@ -392,14 +396,37 @@ fn usage_reporting_defaults_on_and_survives_a_save() {
 }
 
 #[test]
-fn translation_account_defaults_on_for_new_desktop_installs() {
+fn cloud_candidates_start_off_but_an_upgraded_document_keeps_them() {
     let defaults = Preferences::default();
-    let desktop_default = cfg!(any(target_os = "macos", target_os = "linux"));
-    assert_eq!(defaults.translation_account, desktop_default);
-    assert_eq!(
-        defaults.restored_to_defaults().translation_account,
-        desktop_default
+    assert!(!defaults.cloud_candidates);
+    assert!(!defaults.restored_to_defaults().cloud_candidates);
+    // 旧文档里没有这个字段时按原来的行为读成开启，升级不替用户改。
+    let mut serialized = serde_json::to_value(&defaults).unwrap();
+    serialized
+        .as_object_mut()
+        .unwrap()
+        .remove("cloud_candidates");
+    assert!(
+        serde_json::from_value::<Preferences>(serialized)
+            .unwrap()
+            .cloud_candidates
     );
+
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let chosen = Preferences {
+        cloud_candidates: true,
+        ..defaults
+    };
+    store.save(0, chosen).unwrap();
+    assert!(store.load().unwrap().preferences.cloud_candidates);
+}
+
+#[test]
+fn translation_account_is_an_explicit_choice_on_every_platform() {
+    let defaults = Preferences::default();
+    assert!(!defaults.translation_account);
+    assert!(!defaults.restored_to_defaults().translation_account);
     // A stored document that never chose the account keeps it off.
     let unchosen = Preferences {
         translation_account: false,

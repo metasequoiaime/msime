@@ -42,6 +42,18 @@ final class OnlineCandidateTests: XCTestCase {
     XCTAssertNil(MetasequoiaInputSessionBridge.strictUInt64(NSNumber(value: -1)))
   }
 
+  func testTransportRejectsUnsafeURLComponents() {
+    for value in [
+      "https://user:password@example.invalid/translate",
+      "https://example.invalid/translate#fragment",
+      "https:///translate",
+    ] {
+      XCTAssertFalse(URLSessionOnlineCandidateTransport.validURL(URL(string: value)), value)
+    }
+    XCTAssertTrue(URLSessionOnlineCandidateTransport.validURL(
+      URL(string: "https://example.invalid/translate")))
+  }
+
   func testSnapshotRejectsCandidateRowsWithoutText() throws {
     let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
     let malformed: [String: Any] = [

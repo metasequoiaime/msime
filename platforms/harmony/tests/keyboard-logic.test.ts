@@ -284,6 +284,7 @@ import {
   KeyPressFlush,
 } from "../entry/src/main/ets/keyboard/KeyIdPolicy";
 import { OnlineCandidatePolicy } from "../entry/src/main/ets/keyboard/candidate/OnlineCandidatePolicy";
+import { MAX_SESSION_BYTES, sessionFitsStorage } from "../entry/src/main/ets/account/AccountSessionPolicy";
 import {
   TranslationPolicy,
   TranslationQuery,
@@ -702,6 +703,10 @@ group("counts a held physical key once", () => {
 });
 
 group("bounds and deduplicates asynchronous online AI candidates", () => {
+  check(
+    OnlineCandidatePolicy.CLOUD_TIMEOUT_MS === 2_000,
+    "cloud candidate reads use the shared two-second budget",
+  );
   const signature = "7:ni'hao:fixture:true:";
   check(
     OnlineCandidatePolicy.shouldReleaseAfterFailure(signature, signature, 4, 4, 7, 7),
@@ -750,6 +755,12 @@ group("bounds and deduplicates asynchronous online AI candidates", () => {
     OnlineCandidatePolicy.acceptsCloudBody("你".repeat(128 * 1024)) === false,
     "oversized UTF-8 cloud responses are rejected by byte size",
   );
+});
+
+group("bounds persisted account sessions by UTF-8 bytes", () => {
+  check(sessionFitsStorage("a".repeat(MAX_SESSION_BYTES)), "ASCII session at the byte limit fits");
+  check(!sessionFitsStorage("你".repeat(Math.floor(MAX_SESSION_BYTES / 3) + 1)),
+    "multibyte session above the byte limit is refused");
 });
 
 group("AI 候选逐条跳过无效结构，保留相邻的有效候选", () => {
@@ -11646,6 +11657,15 @@ group("AI model catalogs keep each provider's protocol and path", () => {
   check(
     TextPolicy.validSecureAuthority("https://remote.example/api", true),
     "accepts remote HTTPS endpoints",
+  );
+  check(
+    TextPolicy.validExternalWebUrl("https://example.test/help?q=1"),
+    "external browser links accept ordinary web URLs",
+  );
+  check(
+    !TextPolicy.validExternalWebUrl("https://user:secret@example.test/help") &&
+      !TextPolicy.validExternalWebUrl("https://example.test/help#fragment"),
+    "external browser links reject credentials and fragments",
   );
   check(
     TextPolicy.validSecureAuthority("http://127.0.0.1:8080/api", true),

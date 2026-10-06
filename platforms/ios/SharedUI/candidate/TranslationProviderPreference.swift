@@ -164,6 +164,8 @@ struct TranslationProviderClient: Sendable {
   /// The HTTPS POST a descriptor describes. `body_utf8` is sent byte for byte because Tencent signed exactly those bytes; `body` is a JSON object the custom endpoint expects.
   static func urlRequest(_ descriptor: [String: Any]) -> OnlineCandidateRequest? {
     guard let text = descriptor["url"] as? String, let url = URL(string: text), url.scheme == "https",
+          let host = url.host, !host.isEmpty,
+          url.user == nil, url.password == nil, url.fragment == nil,
           (descriptor["method"] as? String ?? "POST") == "POST" else { return nil }
     let payload: Data
     if let utf8 = descriptor["body_utf8"] as? String {

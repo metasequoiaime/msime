@@ -12,8 +12,6 @@ import { SettingsPageFieldset } from "../settings-page-fieldset";
 
 const privacyUrl = "https://msime.app/privacy/";
 const androidPrivacyUrl = "https://msime.app/privacy/";
-// Linux links to the data-flow document that ships with this code, as the Windows reference links its own PRIVACY.md; the Linux section of msime.app/privacy/ describes a host without an update check and with Secret Service credentials, and this one has the update check and keeps provider credentials in 0600 files.
-const linuxPrivacyUrl = "https://github.com/metasequoiaime/msime/blob/develop/PRIVACY.md";
 
 /** 设置表单的「关于」页：品牌头部、「版本与更新」（含原「其他平台下载」页的几行）和「许可与隐私」。卸载在「维护与诊断」。 */
 export function AboutSettingsPage() {
@@ -105,11 +103,7 @@ export function AboutSettingsPage() {
           external
           onClick={() =>
             void openExternalUrl(
-              linuxPlatform
-                ? linuxPrivacyUrl
-                : clientHostedPlatform
-                  ? androidPrivacyUrl
-                  : privacyUrl,
+              clientHostedPlatform && !linuxPlatform ? androidPrivacyUrl : privacyUrl,
             )
           }
         />

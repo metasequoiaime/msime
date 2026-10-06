@@ -149,11 +149,11 @@ def main() -> int:
     with tempfile.TemporaryDirectory() as directory:
         assert not setup.anonymous_account_state(Path(directory))
 
-    # 拒绝云候选时标志放在位置参数之前，这是 msime-linux-prepare 唯一接受的位置。
+    # 云候选默认关闭，只有选择启用时才带标志；标志放在位置参数之前，这是 msime-linux-prepare 唯一接受的位置。
     command = Path("/opt/msime/bin/msime-linux-prepare")
-    assert setup.prepare_command(command, Path("/r"), Path("/s"), True) == [str(command), "/r", "/s"]
-    assert setup.prepare_command(command, Path("/r"), Path("/s"), False) == [
-        str(command), "--no-cloud-candidates", "/r", "/s"
+    assert setup.prepare_command(command, Path("/r"), Path("/s"), False) == [str(command), "/r", "/s"]
+    assert setup.prepare_command(command, Path("/r"), Path("/s"), True) == [
+        str(command), "--cloud-candidates", "/r", "/s"
     ]
 
     print("setup resolution tests passed")
