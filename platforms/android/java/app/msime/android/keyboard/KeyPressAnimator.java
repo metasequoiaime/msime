@@ -63,6 +63,10 @@ public final class KeyPressAnimator {
     private static final int[] PARENT_LOCATION = new int[2];
     private static final int[] HOST_LOCATION = new int[2];
 
+    private static final class Interpolators {
+        static final DecelerateInterpolator DECELERATE = new DecelerateInterpolator();
+    }
+
     private KeyPressAnimator() {}
 
     /** {@code key} 上是否有 bounce / lift 正在运行。 */
@@ -132,7 +136,7 @@ public final class KeyPressAnimator {
         cancel(key);
         key.animate().cancel();
         animator.setDuration(DURATION_MS);
-        animator.setInterpolator(new DecelerateInterpolator());
+        animator.setInterpolator(Interpolators.DECELERATE);
         animator.addListener(new AnimatorListenerAdapter() {
             @Override public void onAnimationEnd(Animator animation) {
                 if (RUNNING.get(key) == animation) RUNNING.remove(key);
@@ -174,7 +178,7 @@ public final class KeyPressAnimator {
         overlay.add(halo);
         ValueAnimator animator = ValueAnimator.ofFloat(0f, 1f);
         animator.setDuration(DURATION_MS);
-        animator.setInterpolator(new DecelerateInterpolator());
+        animator.setInterpolator(Interpolators.DECELERATE);
         animator.addUpdateListener(update -> halo.setProgress((Float) update.getAnimatedValue()));
         animator.addListener(new AnimatorListenerAdapter() {
             @Override public void onAnimationEnd(Animator animation) { overlay.remove(halo); }
