@@ -1,6 +1,5 @@
 package app.msime.android;
 
-import app.msime.android.keyboard.KeyboardGeometry;
 import android.content.Context;
 import android.graphics.Color;
 import android.media.AudioAttributes;

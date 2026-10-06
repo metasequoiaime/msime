@@ -5651,8 +5651,8 @@ public final class MSIMEInputService extends InputMethodService {
             anchor.getLocationOnScreen(anchorLocation);
             centerX = anchorLocation[0] - rootLocation[0] + anchor.getWidth() / 2f;
             centerY = anchorLocation[1] - rootLocation[1] + anchor.getHeight() / 2f;
-            cellWidth = Math.max(anchor.getWidth(), KeyboardGeometry.pixels(this, 40));
-            cellHeight = Math.max(anchor.getHeight(), KeyboardGeometry.pixels(this, 36));
+            cellWidth = Math.max(anchor.getWidth(), KeyboardGeometry.pixels(getContext(), 40));
+            cellHeight = Math.max(anchor.getHeight(), KeyboardGeometry.pixels(getContext(), 36));
             // 五格紧挨着拼成一个十字浮层；原先各隔 6 dp、和底下的键同色同大，看起来像键盘被挤乱了，而不是一个弹框。
             gap = 0;
             root.bringChildToFront(this);
