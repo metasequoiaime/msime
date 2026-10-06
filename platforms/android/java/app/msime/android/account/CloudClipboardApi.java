@@ -44,8 +44,9 @@ public final class CloudClipboardApi {
 
     /** 置顶的排在前面，其余保持服务端给的顺序（新的在前）。 */
     public static List<Item> ordered(List<Item> items) {
-        List<Item> pinned = new ArrayList<>();
-        List<Item> rest = new ArrayList<>();
+        int capacity = items == null ? 0 : items.size();
+        List<Item> pinned = new ArrayList<>(capacity);
+        List<Item> rest = new ArrayList<>(capacity);
         for (Item item : items) (item.pinned() ? pinned : rest).add(item);
         pinned.addAll(rest);
         return pinned;
@@ -59,7 +60,7 @@ public final class CloudClipboardApi {
             if (values == null || values.length() > MAX_ITEMS || !(enabled instanceof Boolean)) throw invalid();
             int retention = response.optInt("retention_days", 0);
             if (!validRetention(retention)) retention = 0;
-            List<Item> items = new ArrayList<>();
+            List<Item> items = new ArrayList<>(values.length());
             for (int index = 0; index < values.length(); index++) {
                 JSONObject value = values.getJSONObject(index);
                 String id = value.optString("id", "");

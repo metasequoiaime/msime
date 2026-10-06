@@ -260,7 +260,7 @@ public final class FeedbackPage extends DetailPage {
         if (uris.size() > room) MsToast.show(requireContext(), "最多附 " + FeedbackApi.MAX_SCREENSHOTS + " 张截图");
         List<Uri> copy = new ArrayList<>(chosen);
         AboutPage.network(this, () -> {
-            List<byte[]> encoded = new ArrayList<>();
+            List<byte[]> encoded = new ArrayList<>(copy.size());
             for (Uri uri : copy) {
                 byte[] bytes = reencode(resolver, uri);
                 if (bytes != null) encoded.add(bytes);
@@ -326,7 +326,7 @@ public final class FeedbackPage extends DetailPage {
         FeedbackApi.Type kind = type;
         String text = draft;
         boolean withDiagnostics = diagnostics;
-        List<FeedbackApi.Screenshot> shots = new ArrayList<>();
+        List<FeedbackApi.Screenshot> shots = new ArrayList<>(screenshots.size());
         for (byte[] bytes : screenshots) shots.add(new FeedbackApi.Screenshot("image/jpeg", bytes));
         AboutPage.network(this, () -> new FeedbackApi(new CloudApi(application)).submit(kind, text,
             UpdateJobService.currentVersion(application), AppEdition.current().id(),

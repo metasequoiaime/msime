@@ -31,7 +31,7 @@ export function noticeBodyHtml(body: string): string {
   return markdown.render(body);
 }
 
-const externalLink = /^(https?:|mailto:)/i;
+const externalLink = /^https:/i;
 
 function publishedDate(value: string): string {
   return formatZhDate(value);

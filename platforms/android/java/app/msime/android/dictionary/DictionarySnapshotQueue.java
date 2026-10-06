@@ -411,7 +411,11 @@ public final class DictionarySnapshotQueue {
             if (!Files.exists(stateFile, LinkOption.NOFOLLOW_LINKS)) return new State(null, null);
             if (!Files.isRegularFile(stateFile, LinkOption.NOFOLLOW_LINKS))
                 throw new Failure(Reason.INVALID);
-            byte[] bytes = readBounded(stateFile);
+            byte[] bytes;
+            try (InputStream input = Files.newInputStream(stateFile)) {
+                bytes = HttpBodyPolicy.readBounded(input, MAXIMUM_STATE_BYTES);
+                if (bytes == null) throw new IOException("snapshot state too large");
+            }
             if (bytes.length == 0) throw new Failure(Reason.INVALID);
             DataInputStream input = new DataInputStream(new ByteArrayInputStream(bytes));
             if (input.readInt() != 0x4d535131 || input.readInt() != 1) throw new Failure(Reason.INVALID);
@@ -422,15 +426,6 @@ public final class DictionarySnapshotQueue {
             return new State(local, request);
         } catch (Failure error) { throw error; }
         catch (IOException | SecurityException error) { throw new Failure(Reason.INVALID, error); }
-    }
-
-    /** Read only the metadata envelope, even if a replaced state file grows after inspection. */
-    private static byte[] readBounded(Path file) throws IOException {
-        try (InputStream input = Files.newInputStream(file)) {
-            byte[] bytes = HttpBodyPolicy.readBounded(input, MAXIMUM_STATE_BYTES);
-            if (bytes == null) throw new IOException("snapshot state too large");
-            return bytes;
-        }
     }
 
     private Request decodeRequest(DataInputStream input) throws IOException, Failure {

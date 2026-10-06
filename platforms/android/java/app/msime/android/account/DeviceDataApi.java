@@ -164,7 +164,7 @@ public final class DeviceDataApi {
     public DataSummary dataSummary() throws CloudApi.Failure {
         JSONObject root = cloud.json("GET", "/v1/users/me/data", null, CloudApi.Auth.ACCOUNT);
         JSONArray rows = root.optJSONArray("sections");
-        List<DataSection> sections = new ArrayList<>();
+        List<DataSection> sections = new ArrayList<>(rows == null ? 0 : rows.length());
         if (rows != null) {
             for (int index = 0; index < rows.length(); index++) {
                 JSONObject row = rows.optJSONObject(index);
@@ -312,8 +312,8 @@ public final class DeviceDataApi {
         if (user == null || string(user, "id").isEmpty()) {
             throw new CloudApi.Failure(500, "invalid_response", "user missing", 0);
         }
-        List<String> providers = new ArrayList<>();
         JSONArray identities = root.optJSONArray("identities");
+        List<String> providers = new ArrayList<>(identities == null ? 0 : identities.length());
         if (identities != null) {
             for (int index = 0; index < identities.length(); index++) {
                 JSONObject identity = identities.optJSONObject(index);

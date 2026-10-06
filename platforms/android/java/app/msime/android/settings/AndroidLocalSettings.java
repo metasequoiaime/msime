@@ -1,7 +1,6 @@
 package app.msime.android;
 
 import android.content.Context;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.channels.FileChannel;
@@ -408,14 +407,9 @@ public final class AndroidLocalSettings {
         if (Files.isSymbolicLink(file) || !Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS))
             throw new IOException("settings path is not a regular file");
         try (InputStream input = Files.newInputStream(file, LinkOption.NOFOLLOW_LINKS)) {
-            ByteArrayOutputStream bytes = new ByteArrayOutputStream(1024);
-            byte[] buffer = new byte[4096];
-            int count;
-            while ((count = input.read(buffer)) != -1) {
-                if (bytes.size() > MAX_BYTES - count) throw new IOException("settings size");
-                bytes.write(buffer, 0, count);
-            }
-            return bytes.toByteArray();
+            byte[] bytes = HttpBodyPolicy.readBounded(input, MAX_BYTES);
+            if (bytes == null) throw new IOException("settings size");
+            return bytes;
         }
     }
 

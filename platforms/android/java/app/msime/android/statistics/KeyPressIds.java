@@ -264,7 +264,7 @@ public final class KeyPressIds {
         Set<String> drawn = new LinkedHashSet<>();
         for (List<String> row : SOFT_ROWS) drawn.addAll(row);
         if (nineGrid) for (List<String> row : NINE_ROWS) drawn.addAll(row);
-        List<String> result = new ArrayList<>();
+        List<String> result = new ArrayList<>(counts.size());
         for (Map.Entry<String, Long> entry : counts.entrySet()) {
             if (entry.getValue() > 0 && !drawn.contains(entry.getKey())) result.add(entry.getKey());
         }

@@ -22,7 +22,7 @@ public final class ReplyKeyboardModel {
     private Mode mode = Mode.REPLY;
     private String style = "高情商";
     private String status = "粘贴 TA 的话，再选择回复方式";
-    private final List<String> replies = new ArrayList<>();
+    private final List<String> replies = new ArrayList<>(3);
     private boolean busy;
     private long generation;
     private Runnable cancellation;

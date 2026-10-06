@@ -19,7 +19,7 @@ public interface HandwritingRecognizer extends AutoCloseable {
                     || width <= 0 || height <= 0 || width > 4096 || height > 4096) {
                 throw new IllegalArgumentException("Handwriting request is invalid");
             }
-            List<List<HandwritingInk.Point>> copied = new ArrayList<>();
+            List<List<HandwritingInk.Point>> copied = new ArrayList<>(strokes.size());
             for (List<HandwritingInk.Point> stroke : strokes) {
                 if (stroke.isEmpty() || stroke.size() > HandwritingInk.MAX_POINTS_PER_STROKE) {
                     throw new IllegalArgumentException("Handwriting stroke is invalid");

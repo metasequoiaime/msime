@@ -279,7 +279,7 @@ public final class KeyboardFragment extends HomeTabFragment {
         int shown = 0;
         if (active) {
             HomeNavGroup group = null;
-            List<PageId> listed = new ArrayList<>();
+            List<PageId> listed = new ArrayList<>(homeRows.size());
             for (HomeRow entry : homeRows) {
                 CharSequence value = ((TextView) entry.row().view().findViewById(R.id.row_value)).getText();
                 String text = (entry.title() + " " + value).toLowerCase(Locale.ROOT);

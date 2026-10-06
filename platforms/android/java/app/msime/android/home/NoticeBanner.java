@@ -51,6 +51,7 @@ final class NoticeBanner {
             JSONObject root = new JSONObject(NativeClient.notices(request.toString()));
             JSONObject value = root.optBoolean("ok", false) ? root.optJSONObject("value") : null;
             JSONArray items = value == null ? null : value.optJSONArray("items");
+            notices = new ArrayList<>(items == null ? 0 : items.length());
             for (int index = 0; items != null && index < items.length(); index++) {
                 JSONObject item = items.optJSONObject(index);
                 if (item == null) continue;

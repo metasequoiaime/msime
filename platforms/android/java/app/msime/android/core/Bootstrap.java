@@ -5,7 +5,6 @@ import android.util.AtomicFile;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
@@ -220,14 +219,9 @@ public final class Bootstrap {
         // 各版本的 APK 都把本版本的资源锁放在这个文件名下（build-apk.sh 选的；full 的就是 resources/desktop-dictionary.lock.json 本身），下面只解出锁里列的文件。
         try (InputStream input = context.getAssets().open("desktop-dictionary.lock.json")) {
             // Small immutable APK manifest; large dictionary files are streamed below.
-            java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
-            byte[] buffer = new byte[8192];
-            int count;
-            while ((count = input.read(buffer)) != -1) {
-                if (bytes.size() + count > 16384) throw new IllegalArgumentException("Manifest too large");
-                bytes.write(buffer, 0, count);
-            }
-            manifest = new JSONObject(bytes.toString(StandardCharsets.UTF_8.name()));
+            byte[] bytes = HttpBodyPolicy.readBounded(input, 16384);
+            if (bytes == null) throw new IllegalArgumentException("Manifest too large");
+            manifest = new JSONObject(new String(bytes, StandardCharsets.UTF_8));
         }
         JSONArray artifacts = manifest.getJSONArray("artifacts");
         java.util.Set<String> names = new java.util.HashSet<>();
@@ -279,30 +273,20 @@ public final class Bootstrap {
 
     /** 配置里记录的 `resources`；超过 1 MiB 或读不出来时为 `null`。按块读并限长，文件在检查之后变大也不会无界分配。 */
     private static String readConfiguredResources(File configuration) throws Exception {
-        ByteArrayOutputStream bytes = new ByteArrayOutputStream(8192);
         try (InputStream input = Files.newInputStream(configuration.toPath(), LinkOption.NOFOLLOW_LINKS)) {
-            byte[] buffer = new byte[8192];
-            int count;
-            while ((count = input.read(buffer)) != -1) {
-                if (bytes.size() > 1024 * 1024 - count) return null;
-                bytes.write(buffer, 0, count);
-            }
+            byte[] bytes = HttpBodyPolicy.readBounded(input, 1024 * 1024);
+            if (bytes == null) return null;
+            String resources = new JSONObject(new String(bytes, StandardCharsets.UTF_8))
+                .optString("resources", "");
+            return resources.isEmpty() ? null : resources;
         }
-        String resources = new JSONObject(bytes.toString(StandardCharsets.UTF_8.name())).optString("resources", "");
-        return resources.isEmpty() ? null : resources;
     }
 
     static String readMarker(java.nio.file.Path file) {
         if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) return null;
         try (InputStream input = Files.newInputStream(file)) {
-            ByteArrayOutputStream bytes = new ByteArrayOutputStream(64);
-            byte[] buffer = new byte[64];
-            int count;
-            while ((count = input.read(buffer)) != -1) {
-                if (bytes.size() > 64 - count) return null;
-                bytes.write(buffer, 0, count);
-            }
-            return bytes.toString(StandardCharsets.UTF_8.name());
+            byte[] bytes = HttpBodyPolicy.readBounded(input, 64);
+            return bytes == null ? null : new String(bytes, StandardCharsets.UTF_8);
         } catch (Exception ignored) {
             return null;
         }

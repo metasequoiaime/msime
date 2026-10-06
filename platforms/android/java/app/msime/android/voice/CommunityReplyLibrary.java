@@ -53,8 +53,8 @@ public final class CommunityReplyLibrary {
         catch (IllegalArgumentException error) { throw new IOException("Invalid community library", error); }
         if (!(decoded instanceof List<?> items) || items.size() > MAXIMUM_ITEMS)
             throw new IOException("Invalid community library");
-        List<Template> replies = new ArrayList<>();
-        Set<String> ids = new HashSet<>();
+        List<Template> replies = new ArrayList<>(items.size());
+        Set<String> ids = new HashSet<>(items.size());
         for (Object value : items) {
             if (!(value instanceof Map<?, ?> item)) throw new IOException("Invalid community library");
             String id = string(item.get("id"));

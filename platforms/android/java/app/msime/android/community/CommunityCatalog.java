@@ -118,8 +118,10 @@ public final class CommunityCatalog {
                     new Page(List.of(), false, CommunityRequest.message(code, status)), status);
             }
             try (InputStream input = connection.getInputStream()) {
+                byte[] body = HttpBodyPolicy.readBounded(input, maximumResponseBytes(kind));
+                if (body == null) throw new IllegalStateException("community response too large");
                 return new PageResponse(parse(kind, new JSONObject(
-                    new String(readBounded(input, maximumResponseBytes(kind)), StandardCharsets.UTF_8))), 200);
+                    new String(body, StandardCharsets.UTF_8))), 200);
             }
         } catch (Exception | LinkageError error) {
             // 说出是哪一步断的。界面上仍然只有那一句，但把原因扔掉，下一次就还得从头猜。
@@ -473,8 +475,10 @@ public final class CommunityCatalog {
     private static String errorCode(InputStream errors) {
         if (errors == null) return "";
         try (InputStream input = errors) {
+            byte[] body = HttpBodyPolicy.readBounded(input, MAX_RESPONSE_BYTES);
+            if (body == null) throw new IllegalStateException("community response too large");
             JSONObject root = new JSONObject(
-                new String(readBounded(input, MAX_RESPONSE_BYTES), StandardCharsets.UTF_8));
+                new String(body, StandardCharsets.UTF_8));
             JSONObject error = root.optJSONObject("error");
             return error == null ? "" : error.optString("code", "");
         } catch (Exception error) {
@@ -484,12 +488,6 @@ public final class CommunityCatalog {
 
     static int maximumResponseBytes(CommunityRequest.Kind kind) {
         return kind == CommunityRequest.Kind.SKIN ? MAX_RESPONSE_BYTES : MAX_RESOURCE_RESPONSE_BYTES;
-    }
-
-    private static byte[] readBounded(InputStream input, int maximumBytes) throws Exception {
-        byte[] body = HttpBodyPolicy.readBounded(input, maximumBytes);
-        if (body == null) throw new IllegalStateException("community response too large");
-        return body;
     }
 
     /**

@@ -22,14 +22,13 @@ import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
 import app.msime.android.AppEdition;
+import app.msime.android.HttpBodyPolicy;
 import app.msime.android.R;
 import app.msime.android.UpdateApi;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
-import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Callable;
@@ -433,10 +432,9 @@ public final class AboutPage extends DetailPage {
         AssetManager assets = requireContext().getAssets();
         network(this, () -> {
             try (InputStream in = assets.open(path)) {
-                ByteArrayOutputStream out = new ByteArrayOutputStream();
-                byte[] buffer = new byte[8192];
-                for (int read; (read = in.read(buffer)) != -1 && out.size() < MAX_NOTICE_CHARS * 4; ) out.write(buffer, 0, read);
-                String text = out.toString(StandardCharsets.UTF_8.name());
+                byte[] bytes = HttpBodyPolicy.readBounded(in, MAX_NOTICE_CHARS * 4);
+                if (bytes == null) return null;
+                String text = new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
                 return text.length() > MAX_NOTICE_CHARS ? text.substring(0, MAX_NOTICE_CHARS) + "\n…" : text;
             }
         }, outcome -> {

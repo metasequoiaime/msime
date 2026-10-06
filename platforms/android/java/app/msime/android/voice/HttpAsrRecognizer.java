@@ -31,6 +31,7 @@ public final class HttpAsrRecognizer {
     private static final int MAX_MILLIS = 60_000;
     private static final int CONNECT_TIMEOUT_MILLIS = 15_000;
     private static final int READ_TIMEOUT_MILLIS = 60_000;
+    private static final int MAX_RESPONSE_BYTES = 1024 * 1024;
 
     /** Why a recognition did not produce text. The caller maps these onto its own outcomes. */
     public enum Failure { PERMISSION, UNAVAILABLE, CANCELLED, NETWORK, EMPTY }
@@ -162,7 +163,9 @@ public final class HttpAsrRecognizer {
             if (status < 200 || status >= 300) throw new Refused(Failure.NETWORK);
             String text;
             try (InputStream input = opened.getInputStream()) {
-                String response = read(input);
+                byte[] responseBytes = HttpBodyPolicy.readBounded(input, MAX_RESPONSE_BYTES);
+                String response = responseBytes == null
+                    ? null : new String(responseBytes, StandardCharsets.UTF_8);
                 if (response == null) throw new Refused(Failure.NETWORK);
                 text = text(response);
             }
@@ -174,26 +177,6 @@ public final class HttpAsrRecognizer {
             if (connection == opened) connection = null;
             if (opened != null) opened.disconnect();
         }
-    }
-
-    /** Returns null when the response exceeds the bound, without retaining the overflow. */
-    private static String read(InputStream stream) throws IOException {
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        byte[] chunk = new byte[8192];
-        int read;
-        // Bounded: a transcription response is text, and an unbounded read is how a wrong endpoint
-        // becomes an out-of-memory failure in the input method's own process. Read one extra byte
-        // when the limit is reached so a response that is exactly a valid prefix plus more data is
-        // rejected instead of being parsed as if it were complete.
-        while (out.size() <= 1024 * 1024) {
-            int remaining = 1024 * 1024 - out.size();
-            int requested = Math.min(chunk.length, remaining + 1);
-            read = stream.read(chunk, 0, requested);
-            if (read <= 0) break;
-            if (read > remaining) return null;
-            out.write(chunk, 0, read);
-        }
-        return out.toString(StandardCharsets.UTF_8.name());
     }
 
     /** The one field these APIs agree on. Anything else in the response is ignored. */

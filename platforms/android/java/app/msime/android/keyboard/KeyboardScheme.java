@@ -139,7 +139,7 @@ public enum KeyboardScheme {
     /** `enabled` 里本版本提供、词典也已装好的入口；一个都不剩时与没存过列表一样退回 {@link #fallback}。 */
     public static List<KeyboardScheme> installedOf(
             List<KeyboardScheme> enabled, String directory, AppEdition edition) {
-        List<KeyboardScheme> installed = new ArrayList<>();
+        List<KeyboardScheme> installed = new ArrayList<>(enabled.size());
         for (KeyboardScheme candidate : enabled) {
             if (candidate.offeredBy(edition) && candidate.installed(directory)) installed.add(candidate);
         }
@@ -157,7 +157,7 @@ public enum KeyboardScheme {
     /** 按固定顺序解析偏好里的入口 id，忽略不认识的和重复的，也忽略本版本没有的入口。没存过列表时，需要用户自己打开的那几个不启用；只有一个方案的版本例外，越南文版、藏文版的入口就是这个版本本身，与 client-core 的 `TouchKeyboardSchemePreferences::for_edition` 一致。 */
     public static List<KeyboardScheme> enabledFromPreferenceIds(List<String> ids, AppEdition edition) {
         if (ids == null) {
-            List<KeyboardScheme> defaults = new ArrayList<>();
+            List<KeyboardScheme> defaults = new ArrayList<>(values().length);
             for (KeyboardScheme candidate : values()) {
                 if ((!candidate.optIn() || !edition.offersSchemeChoice()) && candidate.offeredBy(edition))
                     defaults.add(candidate);
@@ -167,7 +167,7 @@ public enum KeyboardScheme {
         Set<String> requested = new LinkedHashSet<>(ids);
         // A plain loop, not `Stream#toList`: that arrived in API 34 and this host declares
         // minSdk 28, so it compiles against the platform jar and throws on the device.
-        List<KeyboardScheme> enabled = new ArrayList<>();
+        List<KeyboardScheme> enabled = new ArrayList<>(values().length);
         for (KeyboardScheme candidate : values()) {
             if (requested.contains(candidate.preferenceId) && candidate.offeredBy(edition)) enabled.add(candidate);
         }

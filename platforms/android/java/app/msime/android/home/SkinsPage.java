@@ -60,7 +60,7 @@ public final class SkinsPage extends DetailPage {
         if (preferences == null) return null;
         String current = preferences.optString("global_theme", "system");
         JSONArray catalog = HostStore.themeCatalog();
-        List<Card> themes = new ArrayList<>();
+        List<Card> themes = new ArrayList<>(catalog.length());
         try {
             for (int index = 0; index < catalog.length(); index++) {
                 JSONObject entry = catalog.optJSONObject(index);

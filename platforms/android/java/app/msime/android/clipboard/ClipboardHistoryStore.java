@@ -116,7 +116,7 @@ public final class ClipboardHistoryStore {
     }
 
     private static List<ClipboardHistory.Item> entries(JSONObject value) {
-        List<ClipboardHistory.Item> items = new ArrayList<>();
+        List<ClipboardHistory.Item> items = new ArrayList<>(ClipboardHistoryPolicy.LIMIT);
         JSONArray entries = value == null ? null : value.optJSONArray("entries");
         if (entries == null) return items;
         for (int index = 0; index < entries.length(); index++) {

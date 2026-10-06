@@ -115,7 +115,7 @@ public final class TypingStatisticsSummary {
         JSONObject breakdown = habits.optJSONObject("breakdown");
         JSONObject peak = habits.optJSONObject("peak_window");
         JSONObject run = keys.optJSONObject("longest_run");
-        List<Achievement> badges = new ArrayList<>();
+        List<Achievement> badges = new ArrayList<>(achievements.length());
         for (int index = 0; index < achievements.length(); index++) {
             JSONObject badge = achievements.optJSONObject(index);
             if (badge == null) continue;
@@ -284,7 +284,7 @@ public final class TypingStatisticsSummary {
     // ---- 内部 ----
 
     private static List<Share> shares(Map<String, Long> groups) {
-        List<Share> result = new ArrayList<>();
+        List<Share> result = new ArrayList<>(groups.size());
         for (Map.Entry<String, Long> entry : groups.entrySet()) {
             if (entry.getValue() > 0) result.add(new Share(entry.getKey(), entry.getValue()));
         }

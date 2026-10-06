@@ -177,7 +177,10 @@ public final class VoiceResultStore {
             throw new Failure(Reason.INVALID);
         byte[] bytes;
         try {
-            bytes = readBounded(result);
+            try (InputStream input = Files.newInputStream(result)) {
+                bytes = HttpBodyPolicy.readBounded(input, MAXIMUM_FILE_BYTES);
+                if (bytes == null) throw new IOException("voice result too large");
+            }
         } catch (IOException error) {
             throw new Failure(Reason.INVALID, error);
         }
@@ -194,15 +197,6 @@ public final class VoiceResultStore {
             return null;
         }
         return entry;
-    }
-
-    /** Read only the accepted envelope size, even if an opened file grows after inspection. */
-    private static byte[] readBounded(Path file) throws IOException {
-        try (InputStream input = Files.newInputStream(file)) {
-            byte[] bytes = HttpBodyPolicy.readBounded(input, MAXIMUM_FILE_BYTES);
-            if (bytes == null) throw new IOException("voice result too large");
-            return bytes;
-        }
     }
 
     private static byte[] encode(Entry entry) throws Failure {
