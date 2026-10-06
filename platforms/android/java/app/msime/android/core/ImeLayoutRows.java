@@ -712,8 +712,19 @@ final class ImeLayoutRows {
     }
 
     static String japaneseKeyLabel(JapaneseNineKeyLayout.Key key) {
-        return key.kana().get(0) + "\n" + key.kana().subList(1, 5).stream()
-            .filter(label -> !label.isEmpty()).collect(java.util.stream.Collectors.joining(" "));
+        java.util.List<String> kana = key.kana();
+        StringBuilder result = new StringBuilder();
+        result.append(kana.get(0)).append('\n');
+        boolean first = true;
+        int end = Math.min(5, kana.size());
+        for (int index = 1; index < end; index++) {
+            String label = kana.get(index);
+            if (label.isEmpty()) continue;
+            if (!first) result.append(' ');
+            result.append(label);
+            first = false;
+        }
+        return result.toString();
     }
 
     void inputJapaneseStroke(String input) {
