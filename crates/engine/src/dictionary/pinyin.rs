@@ -188,6 +188,7 @@ impl PinyinDatabase {
             return Vec::new();
         }
         let mut keys_by_table: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        let mut seen_keys = HashSet::with_capacity(segmentations.len());
         for segments in segmentations {
             if !has_only_complete_pinyin_segments(segments) {
                 continue;
@@ -199,8 +200,8 @@ impl PinyinDatabase {
             if key.is_empty() {
                 continue;
             }
-            let table_keys = keys_by_table.entry(table).or_default();
-            if !contains_table_key(table_keys, &key) {
+            if seen_keys.insert(key.clone()) {
+                let table_keys = keys_by_table.entry(table).or_default();
                 table_keys.push(key);
             }
         }
@@ -572,6 +573,7 @@ fn initial_sql(first: u8, limit: i64) -> String {
     sql
 }
 
+#[cfg(test)]
 fn contains_table_key(keys: &[String], key: &str) -> bool {
     keys.iter().any(|existing| existing == key)
 }
