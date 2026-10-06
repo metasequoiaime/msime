@@ -1006,7 +1006,8 @@ final class ImePanels {
         int cardCount = schemes.size() + 2;
         PagedTileGrid grid = new PagedTileGrid(s);
         grid.setGrid(4, 2);
-        grid.setSpacing(56, 16, 4, 4);
+        // 卡片高 60 dp、行距 12 dp：两行总高与原先的 56 + 16 相同，但字形区（44 dp）下面的方案名在 1.15 倍字体下也放得下，不再被切掉下半截。
+        grid.setSpacing(60, 12, 4, 4);
         grid.setContentDescription("输入方案卡片区域");
         java.util.List<KeyboardSchemeCard> schemeCards = new java.util.ArrayList<>();
         java.util.List<Boolean> cardSelection = new java.util.ArrayList<>();

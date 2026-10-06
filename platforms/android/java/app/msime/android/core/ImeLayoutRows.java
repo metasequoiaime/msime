@@ -114,6 +114,8 @@ final class ImeLayoutRows {
 
         s.handwritingDownload = new Button(s);
         s.handwritingDownload.setAllCaps(false);
+        KeyboardGeometry.setKeyTextSize(s.handwritingDownload, KeyboardGeometry.DEFAULT_KEY_TEXT_SP);
+        s.handwritingDownload.setSingleLine(true);
         s.handwritingDownload.setOnClickListener(ignored -> {
             s.imeKeyFeedback.playFeedback(s.handwritingDownload);
             s.downloadHandwritingModel();

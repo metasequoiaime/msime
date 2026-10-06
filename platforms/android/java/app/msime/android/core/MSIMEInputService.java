@@ -3351,6 +3351,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     Button button(LinearLayout row, String label, Runnable action) {
         Button button = new KeyboardPressButton(this);
+        KeyboardGeometry.setKeyTextSize(button, KeyboardGeometry.DEFAULT_KEY_TEXT_SP);
         button.setAllCaps(false);
         button.setText(label);
         imeStyler.styleButton(button, true);
@@ -3434,6 +3435,7 @@ public final class MSIMEInputService extends InputMethodService {
     Button keyboardKey(String label, String description, Runnable action) {
         Button button = new KeyboardPressButton(this);
         KeyboardGeometry.normalizeKeyCap(button);
+        KeyboardGeometry.setKeyTextSize(button, KeyboardGeometry.DEFAULT_KEY_TEXT_SP);
         button.setAllCaps(false);
         button.setText(label);
         button.setContentDescription("按键 " + description);
@@ -3454,6 +3456,7 @@ public final class MSIMEInputService extends InputMethodService {
     /** {@link #keyboardKey} 的图标版：节点文字仍是 `label`，键面画 `kind` 的描边图标。 */
     Button iconKey(KeyboardIconKey.Kind kind, String label, String description, Runnable action) {
         KeyboardIconKey button = new KeyboardIconKey(this, kind);
+        KeyboardGeometry.setKeyTextSize(button, KeyboardGeometry.DEFAULT_KEY_TEXT_SP);
         button.setText(label);
         button.setContentDescription("按键 " + description);
         imeStyler.styleButton(button, false);
@@ -3468,6 +3471,7 @@ public final class MSIMEInputService extends InputMethodService {
     /** A nine-key grid cap: the same key as {@link #keyboardKey}, plus room for its digit. */
     NineKeyDigitButton nineKeyGridKey(String label, String description, Runnable action) {
         NineKeyDigitButton button = new NineKeyDigitButton(this);
+        KeyboardGeometry.setKeyTextSize(button, KeyboardGeometry.DEFAULT_KEY_TEXT_SP);
         button.setText(label);
         button.setContentDescription("按键 " + description);
         imeStyler.styleButton(button, false);
@@ -3482,6 +3486,7 @@ public final class MSIMEInputService extends InputMethodService {
     ShuangpinHintButton shuangpinKeyboardKey(
             String label, String description, Runnable action) {
         ShuangpinHintButton button = new ShuangpinHintButton(this);
+        KeyboardGeometry.setKeyTextSize(button, KeyboardGeometry.DEFAULT_KEY_TEXT_SP);
         button.setText(label);
         button.setContentDescription("按键 " + description);
         imeStyler.styleButton(button, false);
@@ -4471,6 +4476,7 @@ public final class MSIMEInputService extends InputMethodService {
         voiceResultPanel.addView(header);
         if (voiceResultEntry == null) {
             TextView empty = new TextView(this);
+        KeyboardGeometry.setKeyTextSize(empty, KeyboardGeometry.DEFAULT_KEY_TEXT_SP);
             // Neutral about which engine runs: since the keyboard entry honours a configured
             // provider, naming the system recognizer here was wrong exactly for the users who had
             // configured one. Which service is used is the settings page's to explain.
@@ -4478,10 +4484,12 @@ public final class MSIMEInputService extends InputMethodService {
             voiceResultPanel.addView(empty);
         } else {
             TextView recognized = new TextView(this);
+        KeyboardGeometry.setKeyTextSize(recognized, KeyboardGeometry.DEFAULT_KEY_TEXT_SP);
             recognized.setText(voiceResultEntry.text());
             recognized.setContentDescription("待插入语音结果");
             voiceResultPanel.addView(recognized);
             TextView hint = new TextView(this);
+        KeyboardGeometry.setKeyTextSize(hint, KeyboardGeometry.DEFAULT_KEY_TEXT_SP);
             hint.setText("点击插入后清除待插入结果；输入位置变化时会拒绝插入。");
             voiceResultPanel.addView(hint);
             Button insert = button(voiceResultPanel, "插入语音结果", this::insertVoiceResult);
@@ -6007,6 +6015,7 @@ public final class MSIMEInputService extends InputMethodService {
         layoutSettingsPanel.addView(layoutHeader);
         LinearLayout keyboardHeightHeader = new LinearLayout(this);
         TextView keyboardHeightLabel = new TextView(this);
+        KeyboardGeometry.setKeyTextSize(keyboardHeightLabel, KeyboardGeometry.DEFAULT_KEY_TEXT_SP);
         keyboardHeightLabel.setText("键盘高度");
         keyboardHeightHeader.addView(keyboardHeightLabel, new LinearLayout.LayoutParams(0,
             LinearLayout.LayoutParams.WRAP_CONTENT, 1));
@@ -6019,6 +6028,7 @@ public final class MSIMEInputService extends InputMethodService {
         layoutSettingsPanel.addView(keyboardHeightSlider);
         LinearLayout keySpacingHeader = new LinearLayout(this);
         TextView keySpacingLabel = new TextView(this);
+        KeyboardGeometry.setKeyTextSize(keySpacingLabel, KeyboardGeometry.DEFAULT_KEY_TEXT_SP);
         keySpacingLabel.setText("按键间距");
         keySpacingHeader.addView(keySpacingLabel, new LinearLayout.LayoutParams(0,
             LinearLayout.LayoutParams.WRAP_CONTENT, 1));
@@ -6031,6 +6041,7 @@ public final class MSIMEInputService extends InputMethodService {
         layoutSettingsPanel.addView(keySpacingSlider);
         LinearLayout rowSpacingHeader = new LinearLayout(this);
         TextView rowSpacingLabel = new TextView(this);
+        KeyboardGeometry.setKeyTextSize(rowSpacingLabel, KeyboardGeometry.DEFAULT_KEY_TEXT_SP);
         rowSpacingLabel.setText("行间距");
         rowSpacingHeader.addView(rowSpacingLabel, new LinearLayout.LayoutParams(0,
             LinearLayout.LayoutParams.WRAP_CONTENT, 1));
@@ -6056,6 +6067,7 @@ public final class MSIMEInputService extends InputMethodService {
         resetLayoutSettingsButton = button(layoutSettingsPanel, "恢复默认", this::resetTouchGeometry);
         resetLayoutSettingsButton.setContentDescription("恢复默认");
         TextView layoutHint = new TextView(this);
+        KeyboardGeometry.setKeyTextSize(layoutHint, KeyboardGeometry.DEFAULT_KEY_TEXT_SP);
         layoutHint.setText("高度和间距只改变键位外观，不改变输入方案；松手后自动保存。");
         layoutSettingsPanel.addView(layoutHint);
         layoutSettingsScroll = new ScrollView(this);

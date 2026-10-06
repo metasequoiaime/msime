@@ -242,6 +242,9 @@ public final class KeyboardGeometry {
             * keyboardFontScale(resources.getConfiguration().fontScale);
     }
 
+    /** 键盘里没有另定字号的按键和文字用的字号（sp），与 Material 按钮的默认字号相同。不设时取的是系统主题里的按钮字号：各厂商不同，而且不受 {@link #keyboardFontScale} 封顶，九键的 ABC 在大字体下会折行。 */
+    public static final float DEFAULT_KEY_TEXT_SP = 14f;
+
     /** 以 {@link #keySp} 设置键盘里控件的字号。 */
     public static void setKeyTextSize(android.widget.TextView view, float sp) {
         view.setTextSize(TypedValue.COMPLEX_UNIT_PX, keySp(view.getContext(), sp));
