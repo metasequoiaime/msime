@@ -267,8 +267,8 @@ public final class MSIMEInputService extends InputMethodService {
     boolean panelPreferenceSaving;
     Button microsoftFinalKey;
     final java.util.List<ShuangpinHintButton> shuangpinKeyButtons =
-        new java.util.ArrayList<>();
-    final java.util.List<String> shuangpinKeyInputs = new java.util.ArrayList<>();
+        new java.util.ArrayList<>(27);
+    final java.util.List<String> shuangpinKeyInputs = new java.util.ArrayList<>(27);
     private String shuangpinHintsProfile = "";
     private java.util.Map<String, String> shuangpinHints = java.util.Map.of();
     /** 本包所属的版本：键盘只列出本版本提供的方案入口，偏好里的方案本版本没有时回退到本版本的默认方案。 */
@@ -300,8 +300,8 @@ public final class MSIMEInputService extends InputMethodService {
     JapaneseFlickPreview japaneseFlickPreview;
     LinearLayout shortcutBar;
     HorizontalScrollView shortcutScroll;
-    final java.util.List<Button> symbolKeyButtons = new java.util.ArrayList<>();
-    final java.util.List<String> symbolKeyInputs = new java.util.ArrayList<>();
+    final java.util.List<Button> symbolKeyButtons = new java.util.ArrayList<>(30);
+    final java.util.List<String> symbolKeyInputs = new java.util.ArrayList<>(30);
     HandwritingCanvas handwritingCanvas;
     private LinearLayout handwritingCandidates;
     TextView handwritingStatus;
