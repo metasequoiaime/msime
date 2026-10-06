@@ -146,6 +146,8 @@ final class OnlineCandidateProvider {
   /// The POST the session's descriptor describes, or nil when it is not an HTTPS POST with a JSON body.
   static func aiRequest(_ descriptor: [String: Any]) -> OnlineCandidateRequest? {
     guard let text = descriptor["url"] as? String, let url = URL(string: text), url.scheme == "https",
+          let host = url.host, !host.isEmpty,
+          url.user == nil, url.password == nil, url.fragment == nil,
           (descriptor["method"] as? String ?? "POST") == "POST",
           let body = descriptor["body"], JSONSerialization.isValidJSONObject(body),
           let payload = try? JSONSerialization.data(withJSONObject: body) else { return nil }
