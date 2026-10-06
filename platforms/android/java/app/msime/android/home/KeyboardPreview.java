@@ -9,6 +9,7 @@ import android.graphics.RectF;
 import android.util.AttributeSet;
 import android.view.View;
 import androidx.annotation.Nullable;
+import app.msime.android.BoundsPolicy;
 import app.msime.android.KeyboardSkin;
 
 /**
@@ -92,7 +93,7 @@ public final class KeyboardPreview extends View {
 
     /** 圆角半径（dp）；默认 16，社区皮肤卡上的小预览用 6，与外面那圈描边对齐。 */
     public void setCornerRadiusDp(float radius) {
-        cornerRadiusDp = Math.max(0f, radius);
+        cornerRadiusDp = BoundsPolicy.nonNegative(radius);
         applyBackground();
         invalidate();
     }

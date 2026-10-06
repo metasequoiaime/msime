@@ -10,6 +10,7 @@ use super::{BackendError, Outcome};
 use crate::assets;
 use crate::dictionary::english::EnglishDictionary;
 use crate::japanese::romaji::{convert_romaji, hiragana_to_katakana, hiragana_to_romaji};
+use crate::local::date_time::is_valid_calendar_date;
 use crate::local::date_time::query_date_time_with_limit;
 use crate::local::emoji::{query_emoji, query_kaomoji};
 use crate::local::jianpin::query_jianpin;
@@ -47,6 +48,7 @@ pub(super) fn date_time(request: &Request) -> Outcome {
     if !(1..=9999).contains(&year)
         || !(1..=12).contains(&month)
         || !(1..=31).contains(&day)
+        || !is_valid_calendar_date(year as i32, month as u32, day as u32)
         || !(0..=6).contains(&weekday)
         || !(0..=23).contains(&hour)
         || !(0..=59).contains(&minute)

@@ -134,7 +134,8 @@ public final class LocalAsrPolicy {
      */
     public static String hotwordLines(List<String> words) {
         if (words == null) return "";
-        int capacity = Math.min(words.size(), HOTWORD_LIMIT) * (MAX_HOTWORD_TEXT_LENGTH + 1);
+        int capacity = BoundsPolicy.bounded(words.size(), 0, HOTWORD_LIMIT)
+            * (MAX_HOTWORD_TEXT_LENGTH + 1);
         StringBuilder out = new StringBuilder(capacity);
         int kept = 0;
         for (String word : words) {

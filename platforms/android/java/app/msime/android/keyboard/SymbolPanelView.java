@@ -29,7 +29,8 @@ public final class SymbolPanelView extends LinearLayout {
     private final LinearLayout categories = new LinearLayout(getContext());
     private final GridLayout grid = new GridLayout(getContext());
     private final ScrollView gridScroll = new ScrollView(getContext());
-    private final List<Button> categoryButtons = new java.util.ArrayList<>();
+    private final List<Button> categoryButtons =
+        new java.util.ArrayList<>(SymbolPanelModel.categories().size());
     private final Button lockButton;
     private int selected;
     private boolean locked;

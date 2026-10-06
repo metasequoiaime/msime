@@ -2155,7 +2155,7 @@ public final class MSIMEInputService extends InputMethodService {
         JSONArray entries = view.optJSONArray("candidates");
         long generation = CandidateGlossPolicy.strictOr(view.opt("generation"), -1);
         if (entries == null || entries.length() == 0 || generation < 0) return;
-        java.util.ArrayList<String> words = new java.util.ArrayList<>();
+        java.util.ArrayList<String> words = new java.util.ArrayList<>(Math.min(entries.length(), 32));
         for (int index = 0; index < Math.min(entries.length(), 32); index++) {
             JSONObject candidate = entries.optJSONObject(index);
             if (candidate != null) words.add(candidate.optString("text", ""));
@@ -2278,7 +2278,7 @@ public final class MSIMEInputService extends InputMethodService {
      * {@link OnlineCandidatePolicy}, so only the envelope shape is read here.
      */
     private java.util.List<String> aiCandidateTexts(String body) {
-        java.util.List<String> texts = new java.util.ArrayList<>();
+        java.util.ArrayList<String> texts = new java.util.ArrayList<>();
         if (!OnlineCandidatePolicy.acceptsAiBody(body)) return texts;
         try {
             JSONObject envelope = new JSONObject(body);
@@ -2291,6 +2291,7 @@ public final class MSIMEInputService extends InputMethodService {
             if (!OnlineCandidatePolicy.acceptsAiContent(content)) return texts;
             JSONArray entries = new JSONObject(content).optJSONArray("candidates");
             if (entries == null) return texts;
+            texts.ensureCapacity(entries.length());
             for (int index = 0; index < entries.length(); index++) {
                 JSONObject entry = entries.optJSONObject(index);
                 if (entry != null) texts.add(entry.optString("text", ""));
@@ -3869,7 +3870,7 @@ public final class MSIMEInputService extends InputMethodService {
         JSONArray entries = value.getJSONArray("items");
         if (entries.length() > EmojiCatalogModel.PAGE_SIZE)
             throw new JSONException("Emoji catalog page too large");
-        java.util.ArrayList<EmojiCatalogModel.Item> items = new java.util.ArrayList<>();
+        java.util.ArrayList<EmojiCatalogModel.Item> items = new java.util.ArrayList<>(entries.length());
         for (int index = 0; index < entries.length(); index++) {
             JSONObject entry = entries.getJSONObject(index);
             EmojiCatalogModel.Item item;

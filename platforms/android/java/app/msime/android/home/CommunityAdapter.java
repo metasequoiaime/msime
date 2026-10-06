@@ -11,6 +11,7 @@ import androidx.annotation.Nullable;
 import androidx.recyclerview.widget.RecyclerView;
 import app.msime.android.CommunityCatalog;
 import app.msime.android.CommunityRequest;
+import app.msime.android.BoundsPolicy;
 import app.msime.android.DrawablePolicy;
 import app.msime.android.KeyboardSkin;
 import app.msime.android.R;
@@ -39,7 +40,7 @@ public final class CommunityAdapter extends RecyclerView.Adapter<CommunityAdapte
     /** One line of the listing: an entry, or a section title when `item` is null. */
     private record Entry(@Nullable CommunityCatalog.Item item, String header) {}
 
-    private final ArrayList<Entry> entries = new ArrayList<>();
+    private final ArrayList<Entry> entries = new ArrayList<>(CommunityRequest.PAGE_SIZE);
     private final Map<String, Action> actions = new HashMap<>();
     private final Consumer<CommunityCatalog.Item> onOpen;
     private final Consumer<CommunityCatalog.Item> onAction;
@@ -147,8 +148,8 @@ public final class CommunityAdapter extends RecyclerView.Adapter<CommunityAdapte
                 entries.remove(index);
                 notifyItemRemoved(index);
                 // 分组卡片的首尾圆角跟着位置走，移走一行要让相邻的行重画。
-                int start = Math.max(0, index - 1);
-                int end = Math.min(index + 1, entries.size());
+                int start = BoundsPolicy.nonNegative(index - 1);
+                int end = BoundsPolicy.bounded(index + 1, 0, entries.size());
                 if (end > start) notifyItemRangeChanged(start, end - start);
             }
             return;

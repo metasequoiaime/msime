@@ -51,7 +51,7 @@ public final class KeyboardKeyPreview extends View {
     public static float bubbleLeft(float keyLeft, float keyWidth, float bubbleWidth,
             float parentWidth) {
         float left = keyLeft + keyWidth / 2f - bubbleWidth / 2f;
-        float max = Math.max(0f, parentWidth - bubbleWidth);
+        float max = BoundsPolicy.nonNegative(parentWidth - bubbleWidth);
         return KeyboardGeometry.bounded(left, 0f, max);
     }
 
@@ -124,8 +124,8 @@ public final class KeyboardKeyPreview extends View {
         fill.setShadowLayer(KeyboardGeometry.floatPixels(getContext(), 9), 0,
             KeyboardGeometry.floatPixels(getContext(), 6), Color.argb(56, 0, 0, 0));
         canvas.drawPath(shape, fill);
-        outline.setStrokeWidth(Math.max(1f,
-            KeyboardGeometry.floatPixels(getContext(), .5f)));
+        outline.setStrokeWidth(BoundsPolicy.bounded(
+            KeyboardGeometry.floatPixels(getContext(), .5f), 1f, Float.MAX_VALUE));
         canvas.drawPath(shape, outline);
         if (label.isEmpty()) return;
         text.setTextSize(KeyboardGeometry.keySp(getContext(), TEXT_SP));

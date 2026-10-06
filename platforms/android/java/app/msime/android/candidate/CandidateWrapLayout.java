@@ -18,7 +18,7 @@ public final class CandidateWrapLayout extends ViewGroup {
         int widthMode = MeasureSpec.getMode(widthMeasureSpec);
         int widthLimit = MeasureSpec.getSize(widthMeasureSpec);
         int available = widthMode == MeasureSpec.UNSPECIFIED
-            ? Integer.MAX_VALUE : Math.max(0, widthLimit - getPaddingLeft() - getPaddingRight());
+            ? Integer.MAX_VALUE : BoundsPolicy.nonNegative(widthLimit - getPaddingLeft() - getPaddingRight());
         int occupied = 0;
         int rowHeight = 0;
         int contentHeight = 0;

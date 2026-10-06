@@ -49,7 +49,7 @@ public final class CloudApi {
             super(message == null || message.isEmpty() ? "HTTP " + status : message);
             this.status = status;
             this.code = code == null ? "" : code;
-            this.retryAfterSeconds = Math.max(0L, retryAfterSeconds);
+            this.retryAfterSeconds = BoundsPolicy.nonNegative(retryAfterSeconds);
         }
 
         /** 这个部署没有开这项功能。 */

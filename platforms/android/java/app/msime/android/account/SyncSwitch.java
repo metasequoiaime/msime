@@ -198,7 +198,7 @@ public final class SyncSwitch {
     }
 
     public static void setLastSyncedAt(Context context, long unixMillis) {
-        store(context).edit().putLong(KEY_LAST_SYNCED_AT, Math.max(0L, unixMillis)).apply();
+        store(context).edit().putLong(KEY_LAST_SYNCED_AT, BoundsPolicy.nonNegative(unixMillis)).apply();
     }
 
     /** 退出登录与换账号时调用：关闭开关，清空账号、游标、标记与同步时间。同步写盘，返回时已经生效。 */

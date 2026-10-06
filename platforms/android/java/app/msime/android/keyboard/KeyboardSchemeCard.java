@@ -233,7 +233,7 @@ public final class KeyboardSchemeCard extends FrameLayout {
         @Override public void draw(android.graphics.Canvas canvas, android.graphics.Paint ignored) {
             float width = getWidth();
             float height = getHeight();
-            paint.setStrokeWidth(Math.max(1f, width * .16f));
+            paint.setStrokeWidth(BoundsPolicy.bounded(width * .16f, 1f, Float.MAX_VALUE));
             path.reset();
             path.moveTo(width * .28f, height * .52f);
             path.lineTo(width * .44f, height * .68f);

@@ -308,6 +308,14 @@ fn date_time_validates_the_supplied_date() {
             "rq",
             json!({"year": 2026, "month": 9, "day": 9, "weekday": 7, "hour": 8, "minute": 5, "second": 0}),
         ),
+        (
+            "rq",
+            json!({"year": 2026, "month": 2, "day": 29, "weekday": 0, "hour": 8, "minute": 5, "second": 0}),
+        ),
+        (
+            "rq",
+            json!({"year": 2026, "month": 4, "day": 31, "weekday": 5, "hour": 8, "minute": 5, "second": 0}),
+        ),
         ("rq", json!({"year": 2026, "month": 9})),
     ] {
         assert_eq!(

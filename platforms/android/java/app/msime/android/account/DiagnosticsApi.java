@@ -243,7 +243,7 @@ public final class DiagnosticsApi {
             if (i > 0) out.append(',');
             out.append("{\"t_ms\":").append(event.tMs()).append(",\"kind\":\"").append(event.kind().wire()).append('"');
             if (event.durationMs() >= 0 || durationRequired) {
-                out.append(",\"duration_ms\":").append(Math.max(0L, event.durationMs()));
+                out.append(",\"duration_ms\":").append(BoundsPolicy.nonNegative(event.durationMs()));
             }
             out.append('}');
         }

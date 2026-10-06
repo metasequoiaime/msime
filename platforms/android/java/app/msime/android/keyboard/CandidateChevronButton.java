@@ -102,8 +102,8 @@ public final class CandidateChevronButton extends Button {
         float dividerHeight = Math.min(height,
             KeyboardGeometry.floatPixels(getContext(), DIVIDER_HEIGHT_DP));
         divider.setColor(hairlineColor);
-        float lineWidth = Math.max(1f,
-            KeyboardGeometry.floatPixels(getContext(), 1));
+        float lineWidth = BoundsPolicy.bounded(
+            KeyboardGeometry.floatPixels(getContext(), 1), 1f, Float.MAX_VALUE);
         canvas.drawRect(0, (height - dividerHeight) / 2f, lineWidth,
             (height + dividerHeight) / 2f, divider);
         float areaLeft = lineWidth;

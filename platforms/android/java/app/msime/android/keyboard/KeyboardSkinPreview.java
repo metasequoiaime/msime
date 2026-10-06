@@ -139,7 +139,8 @@ public final class KeyboardSkinPreview extends View {
             Math.round(bounds.right), Math.round(bounds.bottom));
         background.draw(canvas);
         String[][] rows = PREVIEW_ROWS;
-        float gap = Math.max(1, Math.min(bounds.width(), bounds.height()) * .035f);
+        float gap = BoundsPolicy.bounded(
+            Math.min(bounds.width(), bounds.height()) * .035f, 1f, Float.MAX_VALUE);
         float rowHeight = (bounds.height() - gap * 3) / rows.length;
         Paint text = reusableText == null ? new Paint(Paint.ANTI_ALIAS_FLAG) : reusableText;
         text.setTextAlign(Paint.Align.CENTER);

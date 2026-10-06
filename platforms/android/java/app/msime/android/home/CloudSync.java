@@ -5,6 +5,7 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.util.Log;
 import app.msime.android.AndroidLocalSettings;
+import app.msime.android.BoundsPolicy;
 import app.msime.android.CloudApi;
 import app.msime.android.CommonPhrasesStore;
 import app.msime.android.CustomSkinLibrary;
@@ -244,7 +245,7 @@ public final class CloudSync {
 
         private long cursorRevision(String section) {
             try {
-                return Math.max(0L, Long.parseLong(SyncSwitch.cursor(context, section)));
+                return BoundsPolicy.nonNegative(Long.parseLong(SyncSwitch.cursor(context, section)));
             } catch (NumberFormatException never) {
                 return 0L;
             }

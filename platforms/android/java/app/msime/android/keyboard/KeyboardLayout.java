@@ -162,9 +162,10 @@ public final class KeyboardLayout {
 
     private static List<List<LayerKey>> layer(List<String> first, List<String> second,
             LayerKey toggle, boolean chinese, LayerKey panelKey) {
-        List<LayerKey> third = new java.util.ArrayList<>();
+        List<String> punctuation = chinese ? CHINESE_PUNCTUATION : ENGLISH_PUNCTUATION;
+        List<LayerKey> third = new java.util.ArrayList<>(punctuation.size() + 2);
         third.add(toggle);
-        for (String key : chinese ? CHINESE_PUNCTUATION : ENGLISH_PUNCTUATION)
+        for (String key : punctuation)
             third.add(character(key));
         third.add(new LayerKey("⌫", "删除", LayerKeyKind.DELETE, LAYER_EDGE_WEIGHT));
         List<LayerKey> bottom = List.of(
@@ -177,7 +178,7 @@ public final class KeyboardLayout {
     }
 
     private static List<LayerKey> characters(List<String> keys) {
-        List<LayerKey> row = new java.util.ArrayList<>();
+        List<LayerKey> row = new java.util.ArrayList<>(keys.size());
         for (String key : keys) row.add(character(key));
         return List.copyOf(row);
     }

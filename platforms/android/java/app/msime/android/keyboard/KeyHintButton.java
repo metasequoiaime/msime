@@ -90,8 +90,8 @@ public class KeyHintButton extends KeyboardPressButton {
 
     private void drawBottomHint(Canvas canvas) {
         float size = KeyboardGeometry.keySp(getContext(), 9);
-        float available = Math.max(1, getWidth() - getPaddingLeft() - getPaddingRight()
-            - KeyboardGeometry.pixels(getContext(), 4));
+        float available = BoundsPolicy.bounded(getWidth() - getPaddingLeft() - getPaddingRight()
+            - KeyboardGeometry.pixels(getContext(), 4), 1f, Float.MAX_VALUE);
         hintPaint.setTextSize(size);
         while (size > KeyboardGeometry.keySp(getContext(), 6)
                 && hintPaint.measureText(hintText) > available) {

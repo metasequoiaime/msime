@@ -904,7 +904,7 @@ final class ImePanels {
         back.setLayoutParams(new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.WRAP_CONTENT, s.pixels(32)));
         s.aiPolishPanel.addView(header);
-        java.util.List<TextView> secondary = new java.util.ArrayList<>();
+        java.util.List<TextView> secondary = new java.util.ArrayList<>(3);
         TextView error = null;
         if (!s.aiError.isEmpty()) {
             error = new TextView(s);
@@ -999,15 +999,15 @@ final class ImePanels {
         s.schemePanel.setPadding(s.pixels(8), s.pixels(14), s.pixels(8), s.pixels(6));
         // 4×2 分页网格：已启用的方案按共享目录的顺序，英文 26 键排在第三格（方案不够时排最后），末尾是「+ 添加语言」。
         java.util.List<KeyboardScheme> schemes = s.visibleSchemes;
-        final int englishIndex = Math.min(2, schemes.size());
+        final int englishIndex = BoundsPolicy.bounded(2, 0, schemes.size());
         int cardCount = schemes.size() + 2;
         PagedTileGrid grid = new PagedTileGrid(s);
         grid.setGrid(4, 2);
         // 卡片高 60 dp、行距 12 dp：两行总高与原先的 56 + 16 相同，但字形区（44 dp）下面的方案名在 1.15 倍字体下也放得下，不再被切掉下半截。
         grid.setSpacing(60, 12, 4, 4);
         grid.setContentDescription("输入方案卡片区域");
-        java.util.List<KeyboardSchemeCard> schemeCards = new java.util.ArrayList<>();
-        java.util.List<Boolean> cardSelection = new java.util.ArrayList<>();
+        java.util.List<KeyboardSchemeCard> schemeCards = new java.util.ArrayList<>(cardCount);
+        java.util.List<Boolean> cardSelection = new java.util.ArrayList<>(cardCount);
         int selectedIndex = 0;
         for (int index = 0; index < cardCount; index++) {
             final KeyboardSchemeCard card;

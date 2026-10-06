@@ -33,6 +33,7 @@ import android.widget.TextView;
 import androidx.core.graphics.PathParser;
 import androidx.core.widget.NestedScrollView;
 import app.msime.android.BackendAccount;
+import app.msime.android.BoundsPolicy;
 import app.msime.android.CloudApi;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.google.android.material.bottomsheet.BottomSheetDragHandleView;
@@ -231,7 +232,9 @@ final class LoginSheet {
     private void showCodeEntry() {
         email.removeAllViews();
         TextView sent = new TextView(activity);
-        sent.setText("验证码已发到 " + emailAddress + "，" + Math.max(1, challenge.expiresIn() / 60) + " 分钟内有效");
+        sent.setText("验证码已发到 " + emailAddress + "，"
+            + BoundsPolicy.bounded(challenge.expiresIn() / 60, 1, Integer.MAX_VALUE)
+            + " 分钟内有效");
         Ui.style(sent, 13, 400, Ui.subText(activity));
         email.addView(sent, Ui.matchWidth(activity, 12));
         EditText code = field("6 位验证码", InputType.TYPE_CLASS_NUMBER, 6);

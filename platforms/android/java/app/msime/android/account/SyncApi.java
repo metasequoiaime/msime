@@ -176,12 +176,14 @@ public final class SyncApi {
         JSONObject page = cloud.json("GET", changesPath(after), null, CloudApi.Auth.ACCOUNT);
         JSONArray changes = page.optJSONArray("changes");
         Object next = page.opt("next");
-        long revision = Math.max(Math.max(0L, after), next instanceof Number ? ((Number) next).longValue() : 0L);
+        long minimum = BoundsPolicy.nonNegative(after);
+        long revision = BoundsPolicy.bounded(next instanceof Number ? ((Number) next).longValue() : 0L,
+            minimum, Long.MAX_VALUE);
         return new DictionaryProbe(changes != null && changes.length() > 0, revision);
     }
 
     static String changesPath(long after) {
-        return "/v1/users/me/dictionary/changes?after=" + Math.max(0L, after) + "&limit=1";
+        return "/v1/users/me/dictionary/changes?after=" + BoundsPolicy.nonNegative(after) + "&limit=1";
     }
 
     static String restorePath(long revision) {

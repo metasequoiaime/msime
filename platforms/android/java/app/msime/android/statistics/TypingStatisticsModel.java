@@ -182,7 +182,8 @@ public final class TypingStatisticsModel {
         if (day != null) return dailyKeys.getOrDefault(day, Map.of());
         int capacity = 0;
         for (Map<String, Long> counts : dailyKeys.values()) {
-            capacity = Math.min(Integer.MAX_VALUE - counts.size(), capacity) + counts.size();
+            capacity = BoundsPolicy.bounded(capacity, 0, Integer.MAX_VALUE - counts.size())
+                + counts.size();
         }
         Map<String, Long> result = new LinkedHashMap<>(capacity);
         for (Map<String, Long> counts : dailyKeys.values()) {

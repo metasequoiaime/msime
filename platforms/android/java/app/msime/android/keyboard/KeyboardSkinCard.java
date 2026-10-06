@@ -107,7 +107,7 @@ public final class KeyboardSkinCard extends KeyboardPressButton {
         paint.setTextAlign(Paint.Align.CENTER);
         // 皮肤名放不下时以「…」结尾，不悄悄丢掉末尾的字。
         boolean bold = selected;
-        float width = getWidth();
+        float width = BoundsPolicy.nonNegative(getWidth());
         if (fittedTitle == null || fittedTitleWidth != width || fittedTitleSize != labelSize
                 || fittedTitleBold != bold) {
             fittedTitle = TextUtils.ellipsize(title == null ? "" : title, paint, width,

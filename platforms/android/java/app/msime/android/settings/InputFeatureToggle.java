@@ -88,7 +88,7 @@ public enum InputFeatureToggle {
 
     /** The entries of one group, in declaration order. */
     public static List<InputFeatureToggle> of(Group group) {
-        List<InputFeatureToggle> entries = new java.util.ArrayList<>();
+        List<InputFeatureToggle> entries = new java.util.ArrayList<>(values().length);
         for (InputFeatureToggle value : values()) {
             if (value.group == group) entries.add(value);
         }
@@ -97,7 +97,7 @@ public enum InputFeatureToggle {
 
     /** Every group that has at least one entry, in declaration order. */
     public static List<Group> groups() {
-        List<Group> groups = new java.util.ArrayList<>();
+        List<Group> groups = new java.util.ArrayList<>(Group.values().length);
         for (Group group : Group.values()) {
             if (!of(group).isEmpty()) groups.add(group);
         }

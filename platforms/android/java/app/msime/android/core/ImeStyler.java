@@ -338,10 +338,16 @@ final class ImeStyler {
     }
 
     GradientDrawable candidateDrawable(int color) {
-        GradientDrawable drawable = DrawablePolicy.rounded(color, s.pixels(6));
-        if (Color.alpha(s.candidateAppearance.border()) > 0)
-            drawable.setStroke(KeyboardGeometry.atLeastOnePixel(s, 1), s.candidateAppearance.border());
-        return drawable;
+        int border = s.candidateAppearance.border();
+        return roundedFace(color, s.pixels(6),
+            Color.alpha(border) > 0 ? KeyboardGeometry.atLeastOnePixel(s, 1) : 0, border);
+    }
+
+    private static GradientDrawable roundedFace(int color, float radius, int borderWidth,
+                                                int borderColor) {
+        return borderWidth > 0
+            ? DrawablePolicy.outlined(color, radius, borderWidth, borderColor)
+            : DrawablePolicy.rounded(color, radius);
     }
 
     Typeface candidateTypeface() {

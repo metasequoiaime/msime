@@ -27,4 +27,8 @@ public final class BoundsPolicy {
     public static long nonNegative(long value) {
         return Math.max(0, value);
     }
+
+    public static float nonNegative(float value) {
+        return Math.max(0f, value);
+    }
 }

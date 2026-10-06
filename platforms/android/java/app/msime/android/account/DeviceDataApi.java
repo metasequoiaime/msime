@@ -269,7 +269,7 @@ public final class DeviceDataApi {
 
     /** 给人看的大小：`512 B`、`3.2 KB`、`12.4 MB`、`1.1 GB`（1024 进制，一位小数）。 */
     public static String formatBytes(long bytes) {
-        long value = Math.max(0L, bytes);
+        long value = BoundsPolicy.nonNegative(bytes);
         if (value < 1024) return value + " B";
         String[] units = {"KB", "MB", "GB", "TB"};
         double scaled = value;
@@ -284,7 +284,7 @@ public final class DeviceDataApi {
     /** 给人看的相对时间：一分钟内「刚刚」，然后「N 分钟前」「N 小时前」「N 天前」；时间未知（0）时为空字符串。 */
     public static String relativeTime(long nowMillis, long thenMillis) {
         if (thenMillis <= 0) return "";
-        long minutes = Math.max(0L, nowMillis - thenMillis) / 60_000L;
+        long minutes = BoundsPolicy.nonNegative(nowMillis - thenMillis) / 60_000L;
         if (minutes < 1) return "刚刚";
         if (minutes < 60) return minutes + " 分钟前";
         long hours = minutes / 60;
@@ -331,7 +331,7 @@ public final class DeviceDataApi {
     }
 
     private static long count(Object value) {
-        return value instanceof Number number ? Math.max(0L, number.longValue()) : 0L;
+        return value instanceof Number number ? BoundsPolicy.nonNegative(number.longValue()) : 0L;
     }
 
     /** 数一数写了多少字节，原样转给下游。 */

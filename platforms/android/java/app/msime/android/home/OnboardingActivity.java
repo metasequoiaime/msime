@@ -225,8 +225,8 @@ public final class OnboardingActivity extends AppCompatActivity {
         };
         // 说明里的简称与上面的卡片一一对应，只列本版本有的那几张。
         String[] names = {"全拼", "9 键", "双拼", "五笔"};
-        java.util.List<SchemeCard> cards = new java.util.ArrayList<>();
-        java.util.List<String> offered = new java.util.ArrayList<>();
+        java.util.List<SchemeCard> cards = new java.util.ArrayList<>(all.length);
+        java.util.List<String> offered = new java.util.ArrayList<>(all.length);
         for (int index = 0; index < all.length; index++) {
             if (!all[index].scheme().offeredBy(edition)) continue;
             cards.add(all[index]);
