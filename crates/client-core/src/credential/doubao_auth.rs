@@ -16,6 +16,9 @@ pub fn headers(
     if !crate::credential::usable_token(token)
         || !crate::credential::usable_token(resource_id)
         || (legacy && !crate::credential::usable_token(app_id))
+        || !token.is_ascii()
+        || !resource_id.is_ascii()
+        || (legacy && !app_id.is_ascii())
     {
         return None;
     }
@@ -69,5 +72,12 @@ mod tests {
             assert!(headers("api_key", "ignored", "synthetic-token", value).is_none());
         }
         assert!(headers("api_key", "", &"x".repeat(8193), "resource").is_none());
+    }
+
+    #[test]
+    fn non_ascii_header_credentials_are_rejected_before_ascii_handshake() {
+        assert!(headers("api_key", "ignored", "密钥", "resource").is_none());
+        assert!(headers("api_key", "ignored", "synthetic-token", "资源").is_none());
+        assert!(headers("legacy", "应用", "synthetic-token", "resource").is_none());
     }
 }

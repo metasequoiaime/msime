@@ -87,6 +87,7 @@ public final class WebSocketFrames {
         if (value == null) return false;
         for (int index = 0; index < value.length(); index++) {
             char character = value.charAt(index);
+            if (character > 0x7e) return false;
             if (character == '\r' || character == '\n'
                     || (character < 0x20 && character != '\t') || character == 0x7f) return false;
         }
