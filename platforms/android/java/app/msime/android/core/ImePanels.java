@@ -1424,7 +1424,7 @@ final class ImePanels {
             params.gravity = Gravity.CENTER_HORIZONTAL;
             panel.addView(add, params);
         }
-        java.util.List<View> lines = new java.util.ArrayList<>();
+        java.util.List<View> lines = new java.util.ArrayList<>(phrases.size());
         for (String phrase : phrases) {
             KeyboardPressButton row = new KeyboardPressButton(s);
             row.setKeyboardRole(KeyboardKeyRole.PLAIN);
