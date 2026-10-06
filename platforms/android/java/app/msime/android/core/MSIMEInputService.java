@@ -2230,7 +2230,7 @@ public final class MSIMEInputService extends InputMethodService {
     private static java.util.Map<String, String> glossMap(CandidateGlossModel.Result result)
             throws JSONException {
         JSONArray entries = new JSONArray(result.translations());
-        java.util.LinkedHashMap<String, String> glosses = new java.util.LinkedHashMap<>();
+        java.util.LinkedHashMap<String, String> glosses = new java.util.LinkedHashMap<>(entries.length());
         for (int index = 0; index < entries.length(); index++) {
             JSONObject entry = entries.getJSONObject(index);
             glosses.put(entry.getString("text"), entry.getString("translation"));
