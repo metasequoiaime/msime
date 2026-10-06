@@ -194,7 +194,8 @@ public final class CommunityFragment extends Fragment {
             String directory = HostStore.directory(context);
             if (directory.isEmpty()) return null;
             CommunityCatalog catalog = new CommunityCatalog(context);
-            java.util.List<CommunitySkinCache.Entry> entries = new java.util.ArrayList<>();
+            java.util.List<CommunitySkinCache.Entry> entries = new java.util.ArrayList<>(
+                10 * CommunityRequest.PAGE_SIZE);
             for (int page = 0; page < 10; page++) {
                 CommunityCatalog.Page result = catalog.list(CommunityRequest.Kind.SKIN, "", entries.size(), null);
                 if (result == null || result.failed()) return null;
