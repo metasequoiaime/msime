@@ -1,7 +1,5 @@
 package app.msime.android;
 
-import app.msime.android.keyboard.KeyboardGeometry;
-
 import android.provider.Settings;
 import android.view.View;
 import android.view.animation.DecelerateInterpolator;
