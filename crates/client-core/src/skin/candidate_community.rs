@@ -18,7 +18,7 @@ use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs;
 use std::io::Write;
 use std::path::Path;
@@ -795,7 +795,7 @@ fn validate_page(page: &CandidateSkinPage) -> Result<(), AccountError> {
     {
         return Err(AccountError::Unavailable);
     }
-    let mut ids = BTreeSet::new();
+    let mut ids = HashSet::with_capacity(page.skins.len());
     if page.skins.iter().any(|item| !ids.insert(item.id)) {
         return Err(AccountError::Unavailable);
     }
