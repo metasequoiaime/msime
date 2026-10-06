@@ -31,6 +31,7 @@
     <string name="tryout_switch_ime">当前不是水杉输入法？点此切换</string>
     <string name="preparation_running">正在准备词库，首次启动需要一点时间…</string>
     <string name="preparation_failed">词库准备失败，键盘只能直接输入。点此重试。</string>
+    <string name="preparation_failed_reason">词库准备失败，键盘只能直接输入。点此重试。\n原因：%1$s</string>
     <string name="about_title">关于水杉</string>
     <string name="about_tagline">让输入更自然</string>
     <string name="about_version">版本 %1$s (%2$s)</string>
