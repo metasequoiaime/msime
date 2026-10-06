@@ -20,7 +20,6 @@ import android.widget.PopupMenu;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
-import app.msime.android.home.Ui;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -1450,7 +1449,7 @@ final class ImePanels {
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
             View hairline = new View(s);
             LinearLayout.LayoutParams line = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, Ui.atLeastOnePx(s, 1));
+                LinearLayout.LayoutParams.MATCH_PARENT, Math.max(1, s.pixels(1)));
             line.setMarginStart(s.pixels(12));
             line.setMarginEnd(s.pixels(12));
             panel.addView(hairline, line);
