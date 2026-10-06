@@ -5750,7 +5750,7 @@ public final class MSIMEInputService extends InputMethodService {
      */
     static final class PanelSurface extends FrameLayout {
         /** 需要铺满整块键区（含系统栏内边距）的覆盖层，例如按键气泡；其余面板不压在手势条上。 */
-        final java.util.Set<View> fullBleed = new java.util.HashSet<>();
+        final java.util.Set<View> fullBleed = new java.util.HashSet<>(2);
 
         PanelSurface(Context context) {
             super(context);
