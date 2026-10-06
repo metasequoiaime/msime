@@ -125,17 +125,18 @@ export function useResourcePacks(
   const statusesRef = useRef(statuses);
   statusesRef.current = statuses;
   // 本页发起、尚未结束的下载；进度事件可能晚到，所以不能只看 progress 判断。
-  const running = useRef(new Set<ResourcePackId>());
+  const running = useRef(new Set<string>());
+  const runningKey = (generation: number, id: ResourcePackId) => `${generation}:${id}`;
   // 列表读到之前请求的 ensure：读到列表后再判断要不要下载，免得开关打开得早、下载就悄悄没了。
   const pendingEnsure = useRef(new Set<ResourcePackId>());
 
-  const current = (expected: ResourcePackClient) =>
-    mounted.current && activeClient.current === expected;
+  const current = (expected: ResourcePackClient, generation: number) =>
+    mounted.current && activeClient.current === expected && clientGeneration.current === generation;
 
-  const refresh = useCallback(async (expected: ResourcePackClient) => {
+  const refresh = useCallback(async (expected: ResourcePackClient, generation: number) => {
     try {
       const next = await expected.list();
-      if (mounted.current && activeClient.current === expected) setStatuses(next);
+      if (current(expected, generation)) setStatuses(next);
     } catch {
       // 读不到列表时不提供下载入口，输入法照常按缺少资源降级。
     }
@@ -157,16 +158,16 @@ export function useResourcePacks(
     setProgress({});
     setErrors({});
     if (!client) return;
-    void refresh(client);
+    void refresh(client, generation);
     let unlisten: (() => void) | undefined;
     void client
       .onProgress((event) => {
-        if (!current(client)) return;
+        if (!current(client, generation)) return;
         const id = event.id as ResourcePackId;
         // 启动时自动补齐的下载也会发进度；它结束时页面靠 done 事件重新读列表。
-        if (event.stage === "done" && !running.current.has(id)) {
+        if (event.stage === "done" && !running.current.has(runningKey(generation, id))) {
           clearProgress(id);
-          void refresh(client);
+          void refresh(client, generation);
           return;
         }
         setProgress((existing) => ({ ...existing, [id]: event }));
@@ -183,8 +184,10 @@ export function useResourcePacks(
 
   const install = (id: ResourcePackId) => {
     const expected = client;
-    if (!expected || running.current.has(id)) return;
-    running.current.add(id);
+    const generation = clientGeneration.current;
+    const key = runningKey(generation, id);
+    if (!expected || !current(expected, generation) || running.current.has(key)) return;
+    running.current.add(key);
     const size = resourcePackStatus({ statuses: statusesRef.current }, id)?.size ?? 0;
     setErrors((existing) => ({ ...existing, [id]: undefined }));
     setProgress((existing) => ({
@@ -196,29 +199,30 @@ export function useResourcePacks(
         await expected.install(id);
       } catch (error) {
         // busy：启动时的自动补齐已经在下载这个包，进度事件会接着显示，不算失败。
-        if (current(expected) && errorCode(error) !== "busy")
+        if (current(expected, generation) && errorCode(error) !== "busy")
           setErrors((existing) => ({
             ...existing,
             [id]: localModelErrorMessage(error) ?? undefined,
           }));
       } finally {
-        running.current.delete(id);
-        if (current(expected)) {
+        running.current.delete(key);
+        if (current(expected, generation)) {
           clearProgress(id);
-          await refresh(expected);
+          await refresh(expected, generation);
         }
       }
     })();
   };
 
   const ensure = (id: ResourcePackId) => {
-    if (!client) return;
+    const generation = clientGeneration.current;
+    if (!client || !current(client, generation)) return;
     if (!statusesRef.current) {
       pendingEnsure.current.add(id);
       return;
     }
     const status = resourcePackStatus({ statuses: statusesRef.current }, id);
-    if (!status || status.state === "installed" || running.current.has(id)) return;
+    if (!status || status.state === "installed" || running.current.has(runningKey(generation, id))) return;
     install(id);
   };
 
@@ -231,12 +235,13 @@ export function useResourcePacks(
 
   const cancel = (id: ResourcePackId) => {
     const expected = client;
+    const generation = clientGeneration.current;
     if (!expected) return;
     void expected
       .cancel(id)
       .then((stopped) => {
         // 宿主那边已经没有安装在跑（例如启动时的自动补齐中途失败），清掉残留的进度。
-        if (!stopped && current(expected) && !running.current.has(id)) clearProgress(id);
+        if (!stopped && current(expected, generation) && !running.current.has(runningKey(generation, id))) clearProgress(id);
       })
       .catch(() => undefined);
   };
