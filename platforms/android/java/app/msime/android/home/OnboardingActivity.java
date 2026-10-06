@@ -477,7 +477,8 @@ public final class OnboardingActivity extends AppCompatActivity {
 
         TextView mark = new TextView(this);
         mark.setGravity(Gravity.CENTER);
-        mark.setTextSize(13);
+        // 字形画在固定 dp 的圆里，跟圆一起按 dp 定大小；按 sp 时系统字体一调大，对勾就被圆的边界切掉。
+        mark.setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP, 13);
         mark.setText(done ? "✓" : "!");
         mark.setTextColor(done ? Ui.onAccent(this) : 0xFFFFFFFF);
         GradientDrawable disc = Ui.circle(done ? Ui.accent(this) : Ui.color(this, R.attr.msWarn));

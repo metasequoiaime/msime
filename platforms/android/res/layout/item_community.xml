@@ -37,7 +37,7 @@
             android:importantForAccessibility="no"
             android:textColor="?attr/colorPrimary"
             android:textFontWeight="600"
-            android:textSize="16sp" />
+            android:textSize="16dp" />
 
         <LinearLayout
             android:layout_width="0dp"
