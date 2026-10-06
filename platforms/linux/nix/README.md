@@ -102,7 +102,7 @@ ctest 跑的是构建目录，看不到装出去的东西能不能加载，所�
 
 - linger 的用户管理器里两个 socket 就位，连上后 systemd 拉起在线与语音服务；语音服务对一个配置测试请求作出应答，说明它的启动走完了。
 - 语音服务脚本的解释器能导入豆包要的 `websockets`。
-- 自动登录的 X 会话（IceWM）里，剪贴板监视器由 `graphical-session.target` 拉起；从 PATH 上的 `msime-linux-settings` 打开设置窗口，等窗口与 WebKit 的网页进程出现，截图留在测试输出里（`result/settings-window.png`）。
+- 自动登录的 X 会话（IceWM）里，剪贴板监视器由 `graphical-session.target` 拉起；从 PATH 上的 `msime-linux-settings` 打开设置窗口，等窗口与 WebKit 的网页进程出现，再用 OCR 等首次配置页上由后端填进的配置目录或云候选服务的域名：缺了 `tauri/custom-protocol` 或前端是空的时，窗口和网页进程照样出现，只有页面上的字能说明嵌入的前端加载出来了。截图留在测试输出里（`result/settings-window.png`）。
 
 它只注册在 x86_64 上：`flake check` 只构建本机系统的 checks，却会求值所有系统的，多一个系统就多求值一整套 NixOS（约 9 秒、600 MB）。这台虚拟机核对的是模块接线，与架构无关；aarch64 特有的部分由那边的包构建里的 ctest 和装后检查覆盖。
 

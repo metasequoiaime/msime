@@ -3,6 +3,8 @@
 { pkgs, module }:
 pkgs.testers.runNixOSTest {
   name = "msime-module";
+  # 设置窗口的页面是否真的渲染出来，靠认出页面上的字来判断。
+  enableOCR = true;
 
   nodes.machine = {
     # 自动登录 alice 的 X 会话（IceWM），设置窗口在里面打开。
@@ -26,6 +28,8 @@ pkgs.testers.runNixOSTest {
   };
 
   testScript = ''
+    from datetime import timedelta
+
     machine.wait_for_unit("user@1000.service")
     for provider in ("online", "voice"):
         machine.wait_for_unit(f"msime-linux-{provider}.socket", "alice")
@@ -56,12 +60,15 @@ pkgs.testers.runNixOSTest {
     machine.wait_for_x()
     machine.wait_for_unit("msime-linux-clipboard.service", "alice")
 
-    # 设置窗口：从 PATH 上的 msime-linux-settings 起，与插件菜单走的是同一个命令。窗口出现、WebKit 的
-    # 网页进程起来，说明 GTK 与 WebKit 的运行环境齐全；截图留在测试输出里，可以看页面是否渲染出来。
+    # 设置窗口：从 PATH 上的 msime-linux-settings 起，与插件菜单走的是同一个命令。窗口与 WebKit 的
+    # 网页进程出现只说明 GTK 与 WebKit 的运行环境齐全：缺了 tauri/custom-protocol 或前端是空的，窗口
+    # 照样出现，只是去加载 devUrl 或显示空白页。所以再等首次配置页上的英文（OCR 只认英文）：配置目录
+    # 由后端填进页面，云候选的说明写着服务的域名，认出其中一个就说明嵌入的前端加载出来、调得通后端。
+    # 页面上的 msime-linux-setup 字号小，OCR 会认成 meime-linux-setup，不拿它判断。截图留在测试输出里。
     machine.succeed("su - alice -c 'DISPLAY=:0 msime-linux-settings >/tmp/settings.log 2>&1 &'")
-    machine.wait_for_window("水杉输入法", timeout=120)
-    machine.wait_until_succeeds("pgrep -u alice -f WebKitWebProcess", timeout=60)
-    machine.sleep(5)
+    machine.wait_for_window("水杉输入法", timeout=timedelta(minutes=2))
+    machine.wait_until_succeeds("pgrep -u alice -f WebKitWebProcess", timeout=timedelta(minutes=1))
+    machine.wait_for_text(r"\.config/msime-client|inputtools\.google\.com", timeout=timedelta(minutes=2))
     machine.screenshot("settings-window")
   '';
 }
