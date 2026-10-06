@@ -30,6 +30,8 @@ import app.msime.android.clipboard.CloudClipboardTextPolicy;
  * stops a token minted for some other app, or captured from an earlier sign-in, being replayed here.
  */
 public final class BackendAccount {
+    /** Maximum number of models accepted in the chat catalogue. */
+    public static final int MAX_CHAT_MODELS = 33;
     private static final String ORIGIN = "https://api.msime.app";
     private static final String SESSION_STORE = "msime_account_session_v2";
     private static final String DEFAULT_USER_AGENT = "MSIME/Android";
@@ -432,7 +434,7 @@ public final class BackendAccount {
     }
 
     static boolean validChatModels(List<ChatModel> models, String defaultModel) {
-        if (models == null || models.isEmpty() || models.size() > 33 || defaultModel == null
+        if (models == null || models.isEmpty() || models.size() > MAX_CHAT_MODELS || defaultModel == null
                 || defaultModel.isEmpty() || TextPolicy.utf8Length(defaultModel) > 200)
             return false;
         java.util.HashSet<String> ids = new java.util.HashSet<>();

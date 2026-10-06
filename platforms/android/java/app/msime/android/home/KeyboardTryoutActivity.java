@@ -51,7 +51,7 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
     private static final String FAILURE = "请求失败，请检查登录状态或稍后重试。";
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
-    private final ArrayList<BackendAccount.ChatModel> models = new ArrayList<>();
+    private final ArrayList<BackendAccount.ChatModel> models = new ArrayList<>(BackendAccount.MAX_CHAT_MODELS);
     private final List<BackendAccount.ChatMessage> messages = new ArrayList<>(13);
     private Future<?> operation;
     private int generation;
