@@ -102,7 +102,10 @@ final class CustomServiceTests: XCTestCase {
       audioFrame: { _, _, _ in Data([0x02]) },
       decodeFrame: { frame in frame == Data([0xFF]) ? (true, "fixture transcript") : nil }
     )
-    let configuration = CustomServiceConfiguration.loadVoicePreset(.doubao)
+    // 握手要求资源 ID 非空，不填时在握手就抛 `missingResourceID`，根本到不了这里要测的响应帧大小检查。
+    var configuration = CustomServiceConfiguration.loadVoicePreset(.doubao)
+    configuration.voiceAppKey = "fixture-app"
+    configuration.voiceResourceID = "fixture-resource"
     do {
       _ = try await CustomServiceClient.request(
         kind: .voice, configuration: configuration, pcm: Data([0x01]), token: "fixture-access",
