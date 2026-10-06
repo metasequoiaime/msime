@@ -3,7 +3,7 @@
 //! With the places switch on, the Chinese administrative divisions of the embedded table in [`super::places`] (a static WTFPL dataset, modood/Administrative-divisions-of-China, divisions as of 2025-12-27) follow the user's rows once at least one letter is typed. They share `RESULT_LIMIT` with the user's rows and never displace them, and a place the user already listed appears once, as the user's row.
 
 use super::command::TEXT_UTF16_LIMIT;
-use super::places::places;
+use super::places::{places, Places};
 use crate::types::{CandidateSource, MentionEntry, WordItem};
 use std::collections::HashSet;
 
@@ -12,6 +12,34 @@ pub const RESULT_LIMIT: usize = 18;
 /// Entries kept from a host list, as many as one dictionary import takes; the rest are ignored.
 pub const LIST_LIMIT: usize = 1000;
 pub const KEY_LIMIT: usize = 64;
+
+fn collect_place_matches(
+    table: &Places,
+    code: &str,
+    matched_names: &mut HashSet<String>,
+    limit: usize,
+) -> Vec<(&'static str, &'static str)> {
+    let mut exact = Vec::with_capacity(limit);
+    let mut prefix = Vec::with_capacity(limit);
+    for (place, spellings) in table.places.iter().zip(&table.spellings) {
+        let is_exact = spelled(spellings, code, true);
+        if !is_exact && !spelled(spellings, code, false) {
+            continue;
+        }
+        if !matched_names.insert(place.name.to_owned()) {
+            continue;
+        }
+        if is_exact {
+            if exact.len() < limit {
+                exact.push((place.key, place.name));
+            }
+        } else if prefix.len() < limit {
+            prefix.push((place.key, place.name));
+        }
+    }
+    exact.extend(prefix.into_iter().take(limit.saturating_sub(exact.len())));
+    exact
+}
 
 /// The entries that are usable of a host list: non-empty text within the candidate text bound, a key of lowercase letters and single apostrophes between them, the first entry of a text, at most `LIST_LIMIT`.
 pub fn usable_mentions(entries: &[MentionEntry]) -> Vec<MentionEntry> {
@@ -80,18 +108,15 @@ pub fn query_mentions(code: &str, entries: &[MentionEntry], with_places: bool) -
         .map(|entry| (entry.key.as_str(), entry.text.as_str()))
         .collect();
     if with_places && !code.is_empty() {
-        let mut matched_names: HashSet<&str> = matches.iter().map(|(_, text)| *text).collect();
+        let mut matched_names: HashSet<String> =
+            matches.iter().map(|(_, text)| (*text).to_owned()).collect();
         let table = places();
-        'passes: for exact in [true, false] {
-            for (place, spellings) in table.places.iter().zip(&table.spellings) {
-                if matches.len() == RESULT_LIMIT {
-                    break 'passes;
-                }
-                if spelled(spellings, code, exact) && matched_names.insert(place.name) {
-                    matches.push((place.key, place.name));
-                }
-            }
-        }
+        matches.extend(collect_place_matches(
+            table,
+            code,
+            &mut matched_names,
+            RESULT_LIMIT.saturating_sub(matches.len()),
+        ));
     }
     let count = matches.len();
     matches
@@ -107,6 +132,20 @@ pub fn query_mentions(code: &str, entries: &[MentionEntry], with_places: bool) -
             )
         })
         .collect()
+}
+
+#[cfg(test)]
+mod place_match_tests {
+    use super::*;
+
+    #[test]
+    fn place_matches_keep_exact_rows_before_prefix_rows() {
+        let table = places();
+        let mut matched_names = HashSet::new();
+        let matches = collect_place_matches(table, "bei", &mut matched_names, RESULT_LIMIT);
+        assert!(!matches.is_empty());
+        assert!(matches.iter().all(|(_, name)| !name.is_empty()));
+    }
 }
 
 /// The annotation of an `@` row: a place's parent division, empty for the user's own entries (which may name a place too) and for a province.
