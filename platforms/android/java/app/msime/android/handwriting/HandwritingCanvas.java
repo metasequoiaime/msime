@@ -113,7 +113,7 @@ public final class HandwritingCanvas extends View {
         guideLines[6] = card.right;
         guideLines[7] = card.centerY();
         canvas.drawLines(guideLines, guide);
-        for (java.util.List<HandwritingInk.Point> points : ink.snapshot()) {
+        for (java.util.List<HandwritingInk.Point> points : ink.strokesForDrawing()) {
             if (points.isEmpty()) continue;
             if (points.size() == 1) {
                 HandwritingInk.Point point = points.get(0);

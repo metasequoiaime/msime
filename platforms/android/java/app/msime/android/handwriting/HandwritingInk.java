@@ -78,6 +78,15 @@ public final class HandwritingInk {
     public boolean isDrawing() { return drawing; }
     public long revision() { return revision; }
 
+    /**
+     * Current strokes for the package-owned canvas renderer.
+     *
+     * <p>The input view and this model are both confined to the main thread.  Drawing can therefore
+     * walk the live lists without making the defensive deep copy required by {@link #snapshot()}.
+     * Callers outside this package use {@code snapshot()} instead.
+     */
+    List<List<Point>> strokesForDrawing() { return strokes; }
+
     public List<List<Point>> snapshot() {
         // `Stream#toList` is API 34 and this host runs from API 28.
         List<List<Point>> copy = new java.util.ArrayList<>(strokes.size());
