@@ -1,5 +1,19 @@
 name: CodeQL
+# CodeQL 的语言与触发分层。发往 develop/main 的 PR、推送到 main、每日定时和手动触发都跑 Linux 上的
+# 四种语言（Actions、C/C++、Python、Rust），这是合并前的门禁；Rust 覆盖引擎、client-core 和
+# host-api 里 clippy 与 cargo audit 都看不到的部分（含 500 多处 FFI `unsafe`）。Swift 分析要占用
+# 一台 macos-15 约一小时，而仓库只有五台，所以它只在每日定时和手动触发时跑，理由与 ci-macos.yml
+# 在 push 时不构建相同。PR 上的告警由分支保护的 code scanning 合并保护拦截，workflow 只负责产出结果。
 on:
+  # 推送到 main 才重扫：PR 已经把同一份内容扫过，合并到 develop 再扫一遍是纯重复，而 Rust 一次约
+  # 11 分钟；main 上的推送是发布信号，保留。develop 的覆盖由 PR 与每日定时负责。
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - develop
+      - main
   schedule:
     # Daily at 00:00 Asia/Tokyo (UTC+09:00).
     - cron: '0 15 * * *'
@@ -20,15 +34,21 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: [actions, c-cpp, python]
+        language: [actions, c-cpp, python, rust]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # Rust 提取器要 runner 上有 rustup 与 cargo，并按 rust-toolchain.toml 把工具链装成与其它
+      # job 相同的版本；`rustup show` 会读该文件并在缺失时安装。只在这一条矩阵腿上装，其余语言用不到。
+      - name: Install the pinned Rust toolchain
+        if: matrix.language == 'rust'
+        run: rustup show
       - uses: github/codeql-action/init@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
         with:
           languages: ${{ matrix.language }}
-          # C/C++ source analysis complements, rather than replaces, native build CI.
+          # `none` 不做完整构建就建库（Rust 走 rust-analyzer，会处理 build.rs 与宏，但不编译整个
+          # 工作区）；C/C++ 的分析是原生构建 CI 的补充而不是替代。
           build-mode: none
       - uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
         with:
@@ -36,6 +56,8 @@ jobs:
 
   swift:
     name: CodeQL / Swift
+    # 只在每日定时和手动触发时跑，理由见文件顶部：一次占用一台 macos-15 约一小时。
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     runs-on: macos-15
     timeout-minutes: 60
     env:
