@@ -5654,7 +5654,7 @@ public final class MSIMEInputService extends InputMethodService {
             anchor.getLocationOnScreen(anchorLocation);
             centerX = anchorLocation[0] - rootLocation[0] + anchor.getWidth() / 2f;
             centerY = anchorLocation[1] - rootLocation[1] + anchor.getHeight() / 2f;
-            float density = KeyboardGeometry.density(this);
+            float density = KeyboardGeometry.density(getContext());
             cellWidth = Math.max(anchor.getWidth(), Math.round(40 * density));
             cellHeight = Math.max(anchor.getHeight(), Math.round(36 * density));
             // 五格紧挨着拼成一个十字浮层；原先各隔 6 dp、和底下的键同色同大，看起来像键盘被挤乱了，而不是一个弹框。
@@ -5668,7 +5668,7 @@ public final class MSIMEInputService extends InputMethodService {
 
         @Override protected void onDraw(Canvas canvas) {
             super.onDraw(canvas);
-            float density = KeyboardGeometry.density(this);
+            float density = KeyboardGeometry.density(getContext());
             float textSize = KeyboardGeometry.sp(this, 24);
             float radius = 10 * density;
             float stepX = cellWidth + gap;
