@@ -287,7 +287,7 @@ msime-dictionary 原样收录了 `stroke.dict.yaml`（`sources/stroke/stroke.dic
 
 逐个列出会立刻过时，以锁文件为准：
 
-- Rust：`Cargo.lock`，当前 578 个 package 条目（含本 workspace 自身的成员）。`cargo audit` 是 `scripts/verify-local.sh` 完整版的一个阶段，漏洞视为失败；被接受的 `unmaintained` / `unsound` 公告逐条记在 [`.cargo/audit.toml`](../.cargo/audit.toml) 里，每条都写明引入链和接受理由。
+- Rust：`Cargo.lock`，当前 578 个 package 条目（含本 workspace 自身的成员）。`cargo audit` 是 `scripts/verify-local.sh` 完整版的一个阶段，也是 `cargo-audit.yml` workflow 的一步，漏洞视为失败；被接受的 `unmaintained` / `unsound` 公告逐条记在 [`.cargo/audit.toml`](../.cargo/audit.toml) 里，每条都写明引入链和接受理由。
 - Node：`pnpm-lock.yaml`。
 - iOS：`platforms/ios/Podfile.lock`。
 
