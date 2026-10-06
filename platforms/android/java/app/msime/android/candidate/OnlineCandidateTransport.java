@@ -74,8 +74,7 @@ public final class OnlineCandidateTransport {
         try {
             URL target = new URL(descriptor.getString("url"));
             if (!OnlineCandidatePolicy.validURL(target)) return null;
-            byte[] payload = descriptor.getJSONObject("body").toString()
-                .getBytes(StandardCharsets.UTF_8);
+            byte[] payload = TextPolicy.utf8Bytes(descriptor.getJSONObject("body").toString());
             connection = (HttpsURLConnection) target.openConnection();
             connection.setInstanceFollowRedirects(false);
             connection.setRequestMethod("POST");

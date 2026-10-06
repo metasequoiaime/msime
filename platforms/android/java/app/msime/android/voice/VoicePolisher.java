@@ -41,8 +41,7 @@ public final class VoicePolisher {
                 || !VoicePolishPolicy.sendable(text)) {
             return null;
         }
-        byte[] body = VoicePolishPolicy.requestBody(model, prompt, text)
-            .getBytes(StandardCharsets.UTF_8);
+        byte[] body = TextPolicy.utf8Bytes(VoicePolishPolicy.requestBody(model, prompt, text));
         HttpURLConnection connection = null;
         try {
             connection = (HttpURLConnection) new URL(endpoint).openConnection();

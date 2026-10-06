@@ -23,7 +23,7 @@ public final class AiPolishHttpTransport implements AiPolishClient.Transport {
                 .put("messages", new JSONArray()
                     .put(new JSONObject().put("role", "system").put("content", configuration.prompt()))
                     .put(new JSONObject().put("role", "user").put("content", text)));
-            byte[] bytes = body.toString().getBytes(StandardCharsets.UTF_8);
+            byte[] bytes = TextPolicy.utf8Bytes(body.toString());
             connection = (HttpsURLConnection) configuration.endpoint().toURL().openConnection();
             HttpsURLConnection target = connection;
             cancellation.attach(target::disconnect);

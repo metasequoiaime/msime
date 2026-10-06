@@ -39,7 +39,7 @@ public final class BackendTranslationClient implements CandidateTranslationStore
         String token = anonymousToken ? anonymous.accessToken() : accountToken;
         JSONObject body = new JSONObject().put("texts", new JSONArray(texts))
             .put("source_lang", "ZH").put("target_lang", target.toUpperCase(Locale.ROOT));
-        byte[] request = body.toString().getBytes(StandardCharsets.UTF_8);
+        byte[] request = TextPolicy.utf8Bytes(body.toString());
         if (request.length > 64 * 1024) throw new IllegalArgumentException("Translation request is too large");
         for (int attempt = 0; ; attempt++) {
             try {
