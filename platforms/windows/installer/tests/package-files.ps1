@@ -431,7 +431,7 @@ try {
             throw 'Partial voice runtime damaged previous staging'
         }
     }
-    # 版本：五笔版按自己的资源锁只带它的词库、不带语言词库，host DLL 用版本表里的名字，Server 目录里放版本声明；再打一次 full，声明就不在了。
+    # 版本：五笔版按自己的资源锁只带它的词库、不带语言词库，host DLL 用版本表里的名字，Server 目录里放版本声明；再打一次 full，声明换成 full 的。
     foreach ($partial in @($serverOutput, 'target/voice-runtime/windows-x64')) {
         foreach ($library in $voiceRuntimeLibraries) {
             Remove-Item -LiteralPath (Join-Path $fixture "$partial/$library") -ErrorAction SilentlyContinue
@@ -481,7 +481,8 @@ try {
     catch { $rejected = $_.Exception.Message -match 'klingon' }
     if (-not $rejected) { throw 'Unknown edition accepted' }
     & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture -ServerReleaseDirectory $serverOutput
-    if (Test-Path (Join-Path $installer 'server_exe/edition.json')) { throw 'Full package carries an edition declaration' }
+    $declared = Get-Content -LiteralPath (Join-Path $installer 'server_exe/edition.json') -Raw | ConvertFrom-Json
+    if ($declared.edition -ne 'full') { throw 'Full package declaration missing or wrong' }
     Write-Host 'Full/light package contracts, provenance, exclusions and failure staging and the per-edition packages passed'
 } finally {
     if (Test-Path $fixture) { Remove-Item $fixture -Recurse -Force }

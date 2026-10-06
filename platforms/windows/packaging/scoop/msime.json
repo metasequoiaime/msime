@@ -11,7 +11,7 @@
         "url": "https://github.com/metasequoiaime/msime/blob/develop/LICENSE"
     },
     "notes": [
-        "Metasequoia IME was installed machine-wide by its own installer (Program Files\\metasequoiaime), not into the Scoop directory.",
+        "Metasequoia IME was installed machine-wide by its own installer (Program Files\\metasequoiaime-full), not into the Scoop directory.",
         "It needs the Visual C++ 2015-2022 x64 redistributable and the Microsoft Edge WebView2 Runtime; the installer only logs which one is missing when it runs silently.",
         "'scoop uninstall msime' also deletes the input method's data directory (your own words, settings and skins)."
     ],
@@ -32,7 +32,7 @@
     "uninstaller": {
         "script": [
             "if ($cmd -eq 'update') { return }",
-            "$key = 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{A7C3E91F-4B2D-4E8A-9F1C-6D5E8B0A2C4D}_is1'",
+            "$key = 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{4391158B-18CF-4B7A-A924-7FBBC23FB3F8}_is1'",
             "if (-not (Test-Path -LiteralPath $key)) { warn 'Metasequoia IME is not installed; nothing to uninstall.'; return }",
             "$uninstaller = (Get-ItemProperty -LiteralPath $key).UninstallString.Trim('\"')",
             "$process = Start-Process -FilePath $uninstaller -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait -PassThru",

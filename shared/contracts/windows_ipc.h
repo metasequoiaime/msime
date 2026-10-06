@@ -17,7 +17,7 @@ using FanyImeWireChar = wchar_t;
 using FanyImeWireChar = char16_t;
 #endif
 
-// 管道和下面的命名事件都带版本后缀（msime_edition.h 的 MSIME_EDITION_NAME_SUFFIX）：几个版本的 Server 可以同时运行，每个版本的 TSF 只连自己版本的 Server。full 的后缀是空串，名字与引入版本之前相同。crates/client-core 的 `WindowsIdentity::pipe_name` 按同一规则拼出 Rust 侧连接的名字。
+// 管道和下面的命名事件都带版本后缀（msime_edition.h 的 MSIME_EDITION_NAME_SUFFIX）：几个版本的 Server 可以同时运行，每个版本的 TSF 只连自己版本的 Server。full 的后缀是 `.full`；不带后缀的名字属于 msime-windows，本仓库的版本都不用，所以也能和它同时运行。crates/client-core 的 `WindowsIdentity::pipe_name` 按同一规则拼出 Rust 侧连接的名字。
 inline const wchar_t *FANY_IME_NAMED_PIPE = L"\\\\.\\pipe\\FanyImeNamedPipe" MSIME_EDITION_NAME_SUFFIX;
 inline const wchar_t *FANY_IME_TO_TSF_NAMED_PIPE = L"\\\\.\\pipe\\FanyImeToTsfNamedPipe" MSIME_EDITION_NAME_SUFFIX;
 inline const wchar_t *FANY_IME_TO_TSF_WORKER_THREAD_NAMED_PIPE = L"\\\\.\\pipe\\FanyImeToTsfWorkerThreadNamedPipe" MSIME_EDITION_NAME_SUFFIX;

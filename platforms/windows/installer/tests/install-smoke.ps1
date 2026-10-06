@@ -19,7 +19,7 @@ $appKey = "HKLM:\$($identity.registry_key)"
 $taskName = $identity.watchdog_task
 $pf64 = Join-Path $env:ProgramFiles $identity.install_dir
 $pf32 = Join-Path ${env:ProgramFiles(x86)} $identity.install_dir
-# 数据目录所有权标记的文件名接版本的名字后缀（platforms/windows/scripts/edition_windows.py 的 data_dir_marker），full 是 .metasequoiaime-data。
+# 数据目录所有权标记的文件名接版本的名字后缀（platforms/windows/scripts/edition_windows.py 的 data_dir_marker），full 是 .metasequoiaime-data.full。
 $markerName = '.metasequoiaime-data' + $identity.name_suffix
 $logs = Join-Path $env:RUNNER_TEMP "msime-install-smoke-$Edition"
 New-Item -ItemType Directory -Force -Path $logs | Out-Null
@@ -47,16 +47,12 @@ Check (-not [string]::IsNullOrWhiteSpace($versionDir)) 'VersionDir recorded in H
 Check (Test-Path -LiteralPath $app.ServerPath -PathType Leaf) "ServerPath points at an installed file ($($app.ServerPath))"
 Check (Test-Path -LiteralPath (Join-Path $app.DataDir 'config.toml') -PathType Leaf) 'user config.toml created in DataDir'
 Check (Test-Path -LiteralPath (Join-Path $app.DataDir $markerName) -PathType Leaf) 'DataDir ownership marker written'
-# 不是 full 的版本：所有权标记写着自己的版本 id，Server 目录里有版本声明，host DLL 用版本表里的名字；full 的包没有版本声明。
+# 每个版本（包括 full）：所有权标记写着自己的版本 id，Server 目录里有版本声明。
 $declaration = Join-Path $pf64 'server\edition.json'
-if ($Edition -eq 'full') {
-    Check (-not (Test-Path -LiteralPath $declaration)) 'full package carries no edition declaration'
-} else {
-    $marker = Get-Content -LiteralPath (Join-Path $app.DataDir $markerName) -Raw
-    Check ($marker.Contains("(edition $Edition)")) 'DataDir ownership marker names the edition'
-    $declared = if (Test-Path -LiteralPath $declaration) { (Get-Content -LiteralPath $declaration -Raw | ConvertFrom-Json).edition } else { $null }
-    Check ($declared -eq $Edition) "server\edition.json declares $Edition"
-}
+$marker = Get-Content -LiteralPath (Join-Path $app.DataDir $markerName) -Raw
+Check ($marker.Contains("(edition $Edition)")) 'DataDir ownership marker names the edition'
+$declared = if (Test-Path -LiteralPath $declaration) { (Get-Content -LiteralPath $declaration -Raw | ConvertFrom-Json).edition } else { $null }
+Check ($declared -eq $Edition) "server\edition.json declares $Edition"
 # The three voice runtime libraries are what the Server loads for on-device speech recognition; Build-Client.ps1 stages them for every release package.
 foreach ($name in 'MetasequoiaImeServer.exe', 'MetasequoiaImeWatchdog.exe', 'msime-client-settings.exe', 'MSIME.exe', 'msime-mcp.exe',
     'sherpa-onnx-c-api.dll', 'onnxruntime.dll', 'onnxruntime_providers_shared.dll') {

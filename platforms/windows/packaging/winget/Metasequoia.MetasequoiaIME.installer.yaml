@@ -26,16 +26,16 @@ Dependencies:
   PackageDependencies:
     - PackageIdentifier: Microsoft.VCRedist.2015+.x64
     - PackageIdentifier: Microsoft.EdgeWebView2Runtime
-ProductCode: "{A7C3E91F-4B2D-4E8A-9F1C-6D5E8B0A2C4D}_is1"
+ProductCode: "{4391158B-18CF-4B7A-A924-7FBBC23FB3F8}_is1"
 ReleaseDate: "@RELEASE_DATE@"
 AppsAndFeaturesEntries:
   - DisplayName: Metasequoia IME 水杉输入法
     Publisher: Metasequoia
     DisplayVersion: "@VERSION@"
-    ProductCode: "{A7C3E91F-4B2D-4E8A-9F1C-6D5E8B0A2C4D}_is1"
+    ProductCode: "{4391158B-18CF-4B7A-A924-7FBBC23FB3F8}_is1"
     InstallerType: inno
 InstallationMetadata:
-  DefaultInstallLocation: "%ProgramFiles%\\metasequoiaime"
+  DefaultInstallLocation: "%ProgramFiles%\\metasequoiaime-full"
 Installers:
   - Architecture: x64
     InstallerUrl: "@INSTALLER_URL@"

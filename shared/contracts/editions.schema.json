@@ -161,7 +161,7 @@
               }
             },
             "windows": {
-              "description": "Windows 的身份标识。所有版本的每个 GUID 两两不同（不区分大小写），名字类字段两两不同，一个版本的注册表键、目录不能嵌在另一个版本的里面，由 scripts/test-editions.py 检查；full 的值等于今天写死在 TSF、Server、安装器和 tauri.windows.conf.json 里的值。C++ 侧从 platforms/windows/scripts/edition_windows.py 生成的 shared/contracts/msime_edition.h 读，Inno Setup 从同一个脚本生成的 platforms/windows/installer/editions.iss 读，Rust 侧由 crates/client-core/src/edition.rs 解析。",
+              "description": "Windows 的身份标识。所有版本的每个 GUID 两两不同（不区分大小写），名字类字段两两不同，一个版本的注册表键、目录不能嵌在另一个版本的里面，由 scripts/test-editions.py 检查；任何版本（包括 full）的 GUID 和名字都不能等于 msime-windows 的（platforms/windows/scripts/edition_windows.py 的 MSIME_WINDOWS，也就是引入版本之前写死在代码里的那一组），full 的 tauri_identifier 等于 tauri.windows.conf.json。C++ 侧从 platforms/windows/scripts/edition_windows.py 生成的 shared/contracts/msime_edition.h 读，Inno Setup 从同一个脚本生成的 platforms/windows/installer/editions.iss 读，Rust 侧由 crates/client-core/src/edition.rs 解析。",
               "type": [
                 "object",
                 "null"
@@ -336,9 +336,9 @@
                   "pattern": "^[A-Z][A-Z0-9_]*$"
                 },
                 "name_suffix": {
-                  "description": "拼在命名管道、命名事件、互斥量和窗口类名后面的后缀。full 是空串，所以 full 的名字与引入版本之前相同；其他版本是 `.<id>`。",
+                  "description": "拼在命名管道、命名事件、互斥量和窗口类名后面的后缀，每个版本（包括 full）都是 `.<id>`。空串是 msime-windows 的，不能用。",
                   "type": "string",
-                  "pattern": "^(\\.[a-z][a-z0-9]*)?$"
+                  "pattern": "^\\.[a-z][a-z0-9]*$"
                 },
                 "watchdog_task": {
                   "description": "看门狗的登录计划任务名。",
@@ -356,7 +356,7 @@
                   "pattern": "^app\\.msime\\.windows(\\.[a-z][a-z0-9]*)?$"
                 },
                 "installer_base_name": {
-                  "description": "安装包文件名前缀，完整文件名是 `<installer_base_name>_v<版本>.exe`；不是 full 时必须是 packages/ui/src/settings/update-manifest.ts 认的 `MetasequoiaIME-<Id>_Setup`。",
+                  "description": "安装包文件名前缀，完整文件名是 `<installer_base_name>_v<版本>.exe`；每个版本（包括 full）都必须是 packages/ui/src/settings/update-manifest.ts 认的 `MetasequoiaIME-<Id>_Setup`。不带版本名的 `MetasequoiaIME_Setup` 是 msime-windows 的安装包。",
                   "type": "string",
                   "pattern": "^MetasequoiaIME(-[A-Z][a-z0-9]*)?_Setup$"
                 }

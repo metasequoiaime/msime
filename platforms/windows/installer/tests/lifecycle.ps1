@@ -60,11 +60,12 @@ if (-not $post.Contains('if OwnsDataDir(ResolvePreviousDataDir) then') -or
 if ($script -notmatch 'ValueName: "DataDir";[^\r\n]*Flags: uninsdeletevalue') {
     throw 'DataDir registry value is no longer removed on uninstall'
 }
-# Several editions can be installed side by side. Every edition, full included, disowns a directory that carries another edition's marker, even its own default data directory, so it never adopts, cleans or deletes another edition's data.
+# 几个版本可以和 msime-windows 同时安装。每个版本（包括 full）走同一个 OwnsDataDir，不认带着别的版本或 msime-windows 标记的目录，即使那是它自己的默认数据目录，所以不会接管、清理或删除别人的数据。
 $owns = Get-Block 'function OwnsDataDir' 'procedure WriteDataDirMarker'
 if ($script -notmatch "DataDirMarkerPrefix = '\{#MyDataDirMarkerPrefix\}';" -or
     -not $script.Contains("FindFirst(AddBackslash(Directory) + DataDirMarkerPrefix + '*', FindRec)") -or
-    ([regex]::Matches($owns, [regex]::Escape('(not HasOtherEditionDataDirMarker(Directory)) and'))).Count -ne 2) {
+    ([regex]::Matches($owns, [regex]::Escape('(not HasOtherEditionDataDirMarker(Directory)) and'))).Count -ne 1 -or
+    $owns.Contains('#if')) {
     throw 'An edition may own a data directory that carries another edition''s marker'
 }
 # The marker check only looks at a directory's top level. One edition's data directory can still sit inside another's, so the installer refuses a data directory that overlaps another edition's (registered or default), and removing a data directory leaves another edition's directory inside it alone.

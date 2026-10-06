@@ -39,7 +39,7 @@ constexpr UINT CONNECT_NAMEDPIPE_RETRY_INTERVAL_MS = 50;
 constexpr UINT CONNECT_NAMEDPIPE_MAX_RETRY_INTERVAL_MS = 2000;
 constexpr UINT IPC_FAILURES_BEFORE_SERVER_LAUNCH = 6;
 constexpr UINT SERVER_LAUNCH_RECONNECT_DELAY_MS = 500;
-// 互斥量带版本后缀、注册表键按版本取（shared/contracts/msime_edition.h）：TIP 只认、只拉起自己版本的 Server。full 的名字与引入版本之前相同。
+// 互斥量带版本后缀、注册表键按版本取（shared/contracts/msime_edition.h）：TIP 只认、只拉起自己版本的 Server。full 也带后缀，不带后缀的名字属于 msime-windows。
 constexpr wchar_t SERVER_MUTEX_NAME[] = L"Local\\MetasequoiaImeServer_SingleInstance" MSIME_EDITION_NAME_SUFFIX;
 constexpr wchar_t SERVER_LAUNCH_MUTEX_NAME[] = L"Local\\MetasequoiaImeServer.Launch" MSIME_EDITION_NAME_SUFFIX;
 constexpr wchar_t INSTALL_REGISTRY_KEY[] = MSIME_EDITION_REGISTRY_KEY;

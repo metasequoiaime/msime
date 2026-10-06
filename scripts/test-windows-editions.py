@@ -4,9 +4,9 @@
 版本表 `shared/contracts/editions.json` 的 `platforms.windows` 段经 `platforms/windows/scripts/edition_windows.py gen` 变成两个提交进仓库的文件：C++ 读的 `shared/contracts/msime_edition.h` 和 Inno Setup 读的 `platforms/windows/installer/editions.iss`。这里检查：
 
 - 两个生成文件与版本表一致（等同于 `edition_windows.py gen --check`）；
-- `installer/msime_setup.iss` 用一个只覆盖本脚本用到的那部分 ISPP 语法的预处理器按每个版本展开：每个版本的结果里出现本版本的 AppId、CLSID、安装目录、注册表键和看门狗任务名，不出现任何别的版本的，唯一的例外是 OtherEditionDataDirs 里别的全部版本的注册表键和安装目录名（安装器拿它们找出别的版本的数据目录，本版本的数据目录不能和它们重叠或互相包含）；所有版本（包括 full）都只结束可执行文件在本安装 server 目录里的进程，不按映像名结束（`taskkill /IM` 会停掉同时安装的其他版本）；所有版本的数据目录所有权都只认本版本的标记，目录里有别的版本的标记就不归它管，即使那是它的默认数据目录；不是 full 的版本的所有权标记还带着自己的版本 id；
-- full 的展开结果里没有任何只属于其他版本的写法，full 的标识（AppId、CLSID、名称、路径、注册表键、看门狗任务名）一个不变。full 的展开与引入版本之前的脚本相比只有两处不同，都是为了几个版本同时安装时互不越界：结束进程从按映像名改为按本安装的 server 目录，数据目录所有权多了「目录里没有别的版本的标记」这一条件（full 的标记文件名和内容不变，以前的 full 写下的标记照样认）。除此之外是「把字面量换成值相同的宏」，这一点在引入时用同一个预处理器对照旧脚本核对过；之后对安装脚本的普通修改照常进行，这里不冻结它的内容；
-- Windows 原生代码和 Rust 侧不再自己写 full 的 CLSID、管道名和状态目录名：这些名字只能出现在生成的头文件、版本表和本检查允许的地方，否则某个版本会悄悄用上 full 的名字。
+- `installer/msime_setup.iss` 用一个只覆盖本脚本用到的那部分 ISPP 语法的预处理器按每个版本展开：每个版本的结果里出现本版本的 AppId、CLSID、安装目录、注册表键、看门狗任务名和安装包名，不出现任何别的版本的，也不出现 msime-windows（`edition_windows.py` 的 `MSIME_WINDOWS`）的，唯一的例外是 OtherEditionDataDirs 里别的全部版本和 msime-windows 的注册表键和安装目录名（安装器拿它们找出别人的数据目录，本版本的数据目录不能和它们重叠或互相包含）；所有版本都只结束可执行文件在本安装 server 目录里的进程，不按映像名结束（`taskkill /IM` 会停掉同时安装的其他版本）；所有版本的数据目录所有权都只认本版本的标记，目录里有别的版本或 msime-windows 的标记就不归它管，即使那是它的默认数据目录；所有版本（包括 full）的所有权标记都带着自己的版本 id；
+- full 和其他版本走同一套写法，没有只属于 full 的分支：引入版本之前的那组标识属于 msime-windows，full 现在有自己的一组；
+- Windows 原生代码和 Rust 侧不自己写 full 或 msime-windows 的 CLSID、profile 和注册表键：这些值只能出现在生成的头文件、版本表、生成器和本检查允许的地方，否则某个版本会悄悄用上 full 的名字，或者碰到 msime-windows 的注册。
 - 每个版本注册在它的默认方案所属的语言下（版本表 `langid`）：中文版本是简体中文 0x0804，日文版 0x0411，越南文版 0x042A，藏文版 0x0451。TSF 按它把文本服务列在 Windows 设置的对应语言下；
 - `release-windows.yml` 的发布矩阵恰好是有 Windows 段的全部版本：少了一个，那个版本就不出安装包，共存检查（按 `edition_windows.py editions` 找安装包）也会因找不到它而失败。
 
@@ -50,7 +50,7 @@ IDENTIFIER_HOMES = {
     # 它的单测核对 full 解析出来的值就是今天的值。
     "crates/client-core/src/edition.rs",
 }
-# 不该再自己写出来的 full 标识：TSF 的 CLSID 和 profile，以及 HKLM 键。管道、事件和互斥量的基名不在其中，它们本来就要和版本后缀拼在一起写。
+# 不该自己写出来的 full 和 msime-windows 标识：TSF 的 CLSID 和 profile，以及 HKLM 键。管道、事件和互斥量的基名不在其中，它们本来就要和版本后缀拼在一起写。
 SCANNED = ["platforms/windows", "crates/host-windows", "crates/client-core/src", "crates/mcp-server/src", "apps/desktop/src-tauri/src"]
 SCANNED_SUFFIXES = {".h", ".cpp", ".rs", ".ps1", ".iss", ".rc", ".vcxproj", ".cmake", ".txt"}
 
@@ -188,45 +188,46 @@ def load_generator():
 
 
 def identifiers(windows: dict) -> dict[str, str]:
-    """一个版本在安装脚本里留下的标识：展开后必须出现自己的，不能出现别的版本的。"""
-    return {
+    """一个版本（或 msime-windows）在安装脚本里留下的标识：展开后必须出现自己的，不能出现别人的。msime-windows 的记录没有 app_name：它的显示名与 full 相同，显示名不是安装器用来区分产品的东西。"""
+    found = {
         "inno_app_id": "AppId={" + windows["inno_app_id"],
         "clsid": "SOFTWARE\\Microsoft\\CTF\\TIP\\" + windows["clsid"],
         "install_dir": "\\" + windows["install_dir"] + "\\",
         "registry_key": windows["registry_key"],
         "watchdog_task": '"' + windows["watchdog_task"] + '"',
         "installer_base_name": "OutputBaseFilename=" + windows["installer_base_name"] + "_v",
-        "app_name": "AppName=" + windows["app_name"] + "\n",
     }
+    if "app_name" in windows:
+        found["app_name"] = "AppName=" + windows["app_name"] + "\n"
+    return found
 
 
-def check_installer(errors: list[str], editions: list[dict]) -> None:
+def check_installer(errors: list[str], editions: list[dict], msime_windows: dict) -> None:
     outputs = {entry["id"]: preprocess(entry["id"]) for entry in editions}
     for entry in editions:
         edition_id = entry["id"]
         output = outputs[edition_id]
         own = identifiers(entry["platforms"]["windows"])
-        # 别的版本的注册表键和安装目录名只能出现在 OtherEditionDataDirs 的名单里：安装器拿它找出别的版本的数据目录，拒绝和它们重叠或互相包含的数据目录，也不在卸载、换目录时删掉嵌在本版本目录里的它们。名单必须恰好是别的全部版本，按版本表的顺序。
-        others = [other["platforms"]["windows"] for other in editions if other["id"] != edition_id]
+        # 别的版本和 msime-windows 的注册表键和安装目录名只能出现在 OtherEditionDataDirs 的名单里：安装器拿它找出别人的数据目录，拒绝和它们重叠或互相包含的数据目录，也不在卸载、换目录时删掉嵌在本版本目录里的它们。名单必须恰好是别的全部版本（按版本表的顺序）再加上最后的 msime-windows。
+        others = [other["platforms"]["windows"] for other in editions if other["id"] != edition_id] + [msime_windows]
         sibling_lines = [
             "    RegistryKeys := '" + "|".join(other["registry_key"] for other in others) + "';\n",
             "    InstallDirs := '" + "|".join(other["install_dir"] for other in others) + "';\n",
         ]
         for line in sibling_lines:
             if output.count(line) != 1:
-                errors.append(f"msime_setup.iss for edition {edition_id}: OtherEditionDataDirs does not list exactly the other editions ({line.strip()!r})")
+                errors.append(f"msime_setup.iss for edition {edition_id}: OtherEditionDataDirs does not list exactly the other editions and msime-windows ({line.strip()!r})")
             output = output.replace(line, "")
         for key, text in own.items():
             if text not in output:
                 errors.append(f"msime_setup.iss for edition {edition_id}: {key} {text.strip()!r} does not appear")
-        for other in editions:
-            if other["id"] == edition_id:
-                continue
-            for key, text in identifiers(other["platforms"]["windows"]).items():
-                # 一个版本的名字可能恰好是另一个版本名字的前缀（MetasequoiaIME 和 MetasequoiaIME-Wubi）；只看完整出现、又不属于本版本那一处的情况。
+        strangers = [(f"edition {other['id']}", other["platforms"]["windows"]) for other in editions if other["id"] != edition_id] + [("msime-windows", msime_windows)]
+        for name, section in strangers:
+            for key, text in identifiers(section).items():
+                # 一个产品的名字可能恰好是另一个的前缀（msime-windows 的 MetasequoiaIME 和 MetasequoiaIME-Wubi）；只看完整出现、又不属于本版本那一处的情况。
                 if text in output and text not in own.values() and not any(text in mine for mine in own.values()):
-                    errors.append(f"msime_setup.iss for edition {edition_id}: contains edition {other['id']}'s {key} {text.strip()!r}")
-        # 所有权标记的文件名接版本的名字后缀：full 的安装器认 .metasequoiaime-data 这个文件名就当目录归自己，别的版本用同一个文件名就会被 full 接管、清理或删除。
+                    errors.append(f"msime_setup.iss for edition {edition_id}: contains {name}'s {key} {text.strip()!r}")
+        # 所有权标记的文件名接版本的名字后缀，每个版本各不相同，也不是 msime-windows 的 .metasequoiaime-data：两个产品用同一个文件名，一个的安装器就会把另一个的数据目录当成自己的去接管、清理或删除。
         marker = f"DataDirMarkerName = '.metasequoiaime-data{entry['platforms']['windows']['name_suffix']}';"
         if marker not in output:
             errors.append(f"msime_setup.iss for edition {edition_id}: the data-directory ownership marker is not named {marker!r}")
@@ -236,12 +237,12 @@ def check_installer(errors: list[str], editions: list[dict]) -> None:
         server_dir = "ServerDir := ExpandConstant('{commonpf64}\\" + entry["platforms"]["windows"]["install_dir"] + "\\server');"
         if server_dir not in output or "StopProcessesUnder(ServerDir, '');" not in output:
             errors.append(f"msime_setup.iss for edition {edition_id}: does not stop exactly the processes under its own server directory ({server_dir!r})")
-        # 每个版本（包括 full）都不认带着别的版本标记的目录，即使那是它的默认数据目录。
+        if marker == f"DataDirMarkerName = '{msime_windows['data_dir_marker']}';":
+            errors.append(f"msime_setup.iss for edition {edition_id}: the data-directory ownership marker is msime-windows' {msime_windows['data_dir_marker']!r}")
+        # 每个版本（包括 full）都不认带着别的版本或 msime-windows 标记的目录，即使那是它的默认数据目录。msime-windows 的标记就是不带后缀的前缀本身，所以前缀必须是它。
         owns = output[output.find("function OwnsDataDir"):output.find("procedure WriteDataDirMarker")]
-        if "DataDirMarkerPrefix = '.metasequoiaime-data';" not in output or "(not HasOtherEditionDataDirMarker(Directory)) and" not in owns:
-            errors.append(f"msime_setup.iss for edition {edition_id}: OwnsDataDir may claim a directory that carries another edition's marker")
-        if edition_id == FULL:
-            continue
+        if f"DataDirMarkerPrefix = '{msime_windows['data_dir_marker']}';" not in output or "(not HasOtherEditionDataDirMarker(Directory)) and" not in owns:
+            errors.append(f"msime_setup.iss for edition {edition_id}: OwnsDataDir may claim a directory that carries another edition's or msime-windows' marker")
         if f"(edition {edition_id})" not in output:
             errors.append(f"msime_setup.iss for edition {edition_id}: the data-directory ownership marker does not name the edition")
     # 轻量包也要能展开（它走另一组 #ifdef 分支）。
@@ -255,15 +256,19 @@ def check_generated(errors: list[str]) -> None:
         errors.append(f"{problem}; run python3 platforms/windows/scripts/edition_windows.py gen")
 
 
-def check_hardcoded(errors: list[str], full: dict) -> None:
-    """full 的 CLSID、profile 和注册表键不能再写在生成文件之外。"""
-    needles = {
-        full["clsid"].strip("{}").upper(): "the full CLSID",
-        full["profile_guid"].strip("{}").upper(): "the full profile GUID",
-        "0x" + full["clsid"].strip("{}").split("-")[0].lower(): "the full CLSID",
-        "0x" + full["profile_guid"].strip("{}").split("-")[0].lower(): "the full profile GUID",
-        full["registry_key"].replace("\\", "\\\\"): "the full registry key",
-    }
+def check_hardcoded(errors: list[str], full: dict, msime_windows: dict) -> None:
+    """full 和 msime-windows 的 CLSID、profile 和注册表键不能写在生成文件之外。"""
+    needles = {}
+    for owner, section in (("full", full), ("msime-windows", msime_windows)):
+        needles.update({
+            section["clsid"].strip("{}").upper(): f"the {owner} CLSID",
+            section["profile_guid"].strip("{}").upper(): f"the {owner} profile GUID",
+            "0x" + section["clsid"].strip("{}").split("-")[0].lower(): f"the {owner} CLSID",
+            "0x" + section["profile_guid"].strip("{}").split("-")[0].lower(): f"the {owner} profile GUID",
+        })
+    needles[full["registry_key"].replace("\\", "\\\\")] = "the full registry key"
+    # msime-windows 的键是本仓库所有版本的键的前缀（MetasequoiaIME-Full 等），只找后面不再接名字的完整写法。
+    msime_windows_key = re.compile(re.escape(msime_windows["registry_key"].replace("\\", "\\\\")) + r"(?![-\w])")
     listed = subprocess.run(["git", "ls-files", *SCANNED], cwd=ROOT, capture_output=True, text=True, check=True)
     for relative in listed.stdout.splitlines():
         path = ROOT / relative
@@ -273,6 +278,8 @@ def check_hardcoded(errors: list[str], full: dict) -> None:
         for needle, what in needles.items():
             if needle in text or needle in text.upper():
                 errors.append(f"{relative} spells {what} itself; take it from shared/contracts/msime_edition.h (C++) or the edition's WindowsIdentity (Rust)")
+        if msime_windows_key.search(text):
+            errors.append(f"{relative} spells the msime-windows registry key itself; no edition may touch msime-windows' key")
 
 
 def check_languages(errors: list[str], editions: list[dict]) -> None:
@@ -301,16 +308,17 @@ def main() -> int:
     editions = [entry for entry in table["editions"] if entry["platforms"].get("windows") is not None]
     errors: list[str] = []
     check_generated(errors)
-    check_installer(errors, editions)
+    msime_windows = load_generator().MSIME_WINDOWS
+    check_installer(errors, editions, msime_windows)
     check_languages(errors, editions)
     check_release_matrix(errors, editions)
     full = next(entry for entry in editions if entry["id"] == FULL)["platforms"]["windows"]
-    check_hardcoded(errors, full)
+    check_hardcoded(errors, full, msime_windows)
     if errors:
         for error in errors:
             print(f"FAIL: {error}")
         return 1
-    print(f"windows editions: generated identity files are current, msime_setup.iss expands to {len(editions)} disjoint installers, every edition registers under its default scheme's language and is in the release matrix, and no Windows source spells the full identifiers itself")
+    print(f"windows editions: generated identity files are current, msime_setup.iss expands to {len(editions)} disjoint installers, every edition registers under its default scheme's language and is in the release matrix, and no Windows source spells the full or msime-windows identifiers itself")
     return 0
 
 

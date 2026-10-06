@@ -7231,21 +7231,21 @@ test("Windows release assets yield the installer digest and mark the build unsig
   // What release-windows.yml uploads: the installer and its .sha256 file.
   expect(
     pick([
-      { name: "MetasequoiaIME_Setup_v1.2.0.exe", digest: `sha256:${digest}` },
-      { name: "MetasequoiaIME_Setup_v1.2.0.exe.sha256", digest: `sha256:${"e".repeat(64)}` },
+      { name: "MetasequoiaIME-Full_Setup_v1.2.0.exe", digest: `sha256:${digest}` },
+      { name: "MetasequoiaIME-Full_Setup_v1.2.0.exe.sha256", digest: `sha256:${"e".repeat(64)}` },
     ]),
-  ).toEqual({ name: "MetasequoiaIME_Setup_v1.2.0.exe", sha256: digest, signed: false });
+  ).toEqual({ name: "MetasequoiaIME-Full_Setup_v1.2.0.exe", sha256: digest, signed: false });
   // An older API response without digests keeps the name, so the notice can point at the .sha256 file.
-  expect(pick([{ name: "MetasequoiaIME_Setup_v1.2.0.exe", digest: null }])).toEqual({
-    name: "MetasequoiaIME_Setup_v1.2.0.exe",
+  expect(pick([{ name: "MetasequoiaIME-Full_Setup_v1.2.0.exe", digest: null }])).toEqual({
+    name: "MetasequoiaIME-Full_Setup_v1.2.0.exe",
     sha256: null,
     signed: false,
   });
   // Two installers are ambiguous; a name needing quoting never reaches the command.
   expect(
     pick([
-      { name: "MetasequoiaIME_Setup_v1.2.0.exe", digest: `sha256:${digest}` },
-      { name: "MetasequoiaIME_Setup_v1.2.0-x86.exe", digest: `sha256:${digest}` },
+      { name: "MetasequoiaIME-Full_Setup_v1.2.0.exe", digest: `sha256:${digest}` },
+      { name: "MetasequoiaIME-Full_Setup_v1.2.0-x86.exe", digest: `sha256:${digest}` },
     ]),
   ).toEqual({ name: null, sha256: null, signed: false });
   expect(pick([{ name: "Setup v1.2.0;calc.exe", digest: `sha256:${digest}` }])).toEqual({
@@ -7284,7 +7284,7 @@ test("installer trust uses sha256sum on Linux and keeps Get-FileHash on Windows"
   const windows = {
     version,
     releaseUrl: "https://github.com/metasequoiaime/msime/releases",
-    installerName: "MetasequoiaIME_Setup_v1.2.0.exe",
+    installerName: "MetasequoiaIME-Full_Setup_v1.2.0.exe",
     installerSha256: digest,
     signed: false,
   };
@@ -7292,7 +7292,7 @@ test("installer trust uses sha256sum on Linux and keeps Get-FileHash on Windows"
     warning:
       "该版本未经代码签名，SmartScreen 会拦截，且 uiAccess 失效（候选窗口无法浮在以管理员身份运行的程序之上）。请务必核对下面的校验值。",
     verify: {
-      command: "Get-FileHash .\\MetasequoiaIME_Setup_v1.2.0.exe -Algorithm SHA256",
+      command: "Get-FileHash .\\MetasequoiaIME-Full_Setup_v1.2.0.exe -Algorithm SHA256",
       sha256: digest,
     },
   };
@@ -7301,7 +7301,7 @@ test("installer trust uses sha256sum on Linux and keeps Get-FileHash on Windows"
   // Without a digest the unsigned warning points at the .sha256 file the release carries.
   expect(describeInstallerTrust({ ...windows, installerSha256: null }, "windows")).toEqual({
     warning:
-      "该版本未经代码签名，SmartScreen 会拦截，且 uiAccess 失效（候选窗口无法浮在以管理员身份运行的程序之上）。请从发行页一并下载 MetasequoiaIME_Setup_v1.2.0.exe.sha256，用 Get-FileHash .\\MetasequoiaIME_Setup_v1.2.0.exe -Algorithm SHA256 核对。",
+      "该版本未经代码签名，SmartScreen 会拦截，且 uiAccess 失效（候选窗口无法浮在以管理员身份运行的程序之上）。请从发行页一并下载 MetasequoiaIME-Full_Setup_v1.2.0.exe.sha256，用 Get-FileHash .\\MetasequoiaIME-Full_Setup_v1.2.0.exe -Algorithm SHA256 核对。",
     verify: null,
   });
 });
@@ -7319,8 +7319,11 @@ test("Windows checks this repository's Windows releases rather than the referenc
         tag_name: "windows-v1.2.0",
         html_url: "https://github.com/metasequoiaime/msime/releases/tag/windows-v1.2.0",
         assets: [
-          { name: "MetasequoiaIME_Setup_v1.2.0.exe", digest: `sha256:${"b".repeat(64)}` },
-          { name: "MetasequoiaIME_Setup_v1.2.0.exe.sha256", digest: `sha256:${"c".repeat(64)}` },
+          { name: "MetasequoiaIME-Full_Setup_v1.2.0.exe", digest: `sha256:${"b".repeat(64)}` },
+          {
+            name: "MetasequoiaIME-Full_Setup_v1.2.0.exe.sha256",
+            digest: `sha256:${"c".repeat(64)}`,
+          },
         ],
       },
     ],
@@ -7344,7 +7347,7 @@ test("Windows checks this repository's Windows releases rather than the referenc
   expect(screen.getByText(/SmartScreen 会拦截，且 uiAccess 失效/)).toBeDefined();
   expect(screen.getByText("b".repeat(64))).toBeDefined();
   expect(
-    screen.getByText("Get-FileHash .\\MetasequoiaIME_Setup_v1.2.0.exe -Algorithm SHA256"),
+    screen.getByText("Get-FileHash .\\MetasequoiaIME-Full_Setup_v1.2.0.exe -Algorithm SHA256"),
   ).toBeDefined();
   expect(fetch).toHaveBeenCalledWith(
     expect.stringMatching(/^https:\/\/api\.github\.com\/repos\/metasequoiaime\/msime\/releases\?/),

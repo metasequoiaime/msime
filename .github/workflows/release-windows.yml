@@ -70,7 +70,7 @@ jobs:
           name: msime-rust-windows-${{ matrix.arch }}-${{ needs.source.outputs.version }}
           path: ${{ runner.temp }}/msime-rust/
           if-no-files-found: error
-  # 每个版本（shared/contracts/editions.json 里有 Windows 段的 id）各打一个安装包，可以同时安装。full 的安装包名、AppId、目录和注册表键与引入版本之前相同。
+  # 每个版本（shared/contracts/editions.json 里有 Windows 段的 id）各打一个安装包，可以同时安装，也可以和 msime-windows 同时安装。full 的安装包名、AppId、目录和注册表键也是自己的，不再是 msime-windows 的那一组。
   release:
     needs: [source, rust]
     runs-on: windows-2025
@@ -237,7 +237,7 @@ jobs:
             if ((Get-FileHash -LiteralPath $isl -Algorithm SHA256).Hash -ne '7D544B9BB1D142CFA11F2E5D3CC8ABE2E55F8E066C5124E3772675AA236E1278') { throw 'ChineseSimplified.isl digest mismatch' }
           }
           ./platforms/windows/installer/Compile-Installer.ps1 -Edition $env:EDITION
-          # 安装包名前缀按版本取（full 是 MetasequoiaIME_Setup，五笔版是 MetasequoiaIME-Wubi_Setup），与更新检查认的名字一致。
+          # 安装包名前缀按版本取（full 是 MetasequoiaIME-Full_Setup，五笔版是 MetasequoiaIME-Wubi_Setup），与更新检查认的名字一致。
           $base = (python platforms/windows/scripts/edition_windows.py field --edition $env:EDITION installer_base_name).Trim()
           if ($LASTEXITCODE -ne 0) { throw 'edition installer name lookup failed' }
           $installer = "platforms/windows/installer/Output/${base}_v$env:VERSION.exe"
@@ -270,7 +270,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.value }}
       release: ${{ steps.version.outputs.release }}
-  # 几个版本的安装包装在同一台机器上：各自的 TIP、COM 注册、HKLM 键、看门狗任务和数据目录同时存在，卸掉一个版本不碰 full。runner 是一次性的管理员环境。
+  # 几个版本的安装包装在同一台机器上：各自的 TIP、COM 注册、HKLM 键、看门狗任务和数据目录同时存在，卸掉一个版本不碰 full；机器上还伪造了一份 msime-windows 的注册表键和数据目录，没有哪个版本接管或删除它。runner 是一次性的管理员环境。
   coexistence:
     needs: [source, release]
     runs-on: windows-2025

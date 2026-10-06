@@ -627,7 +627,7 @@ std::string production_preview_document(const std::string &runtime_document,
   }
   return document.dump();
 }
-// 本版本的 TIP 有没有活动的输入模式，用一个命名的手动重置事件告诉别的版本的 Server：有信号表示活动。名字后面接版本后缀（full 是空串）。只有生产 Server 发布它，预览实例不碰。
+// 本版本的 TIP 有没有活动的输入模式，用一个命名的手动重置事件告诉别的版本的 Server：有信号表示活动。名字后面接版本后缀（full 是 .full）。只有生产 Server 发布它，预览实例不碰。
 constexpr wchar_t server_mode_active_event_prefix[] = L"Local\\MetasequoiaImeServer_ModeActive";
 // 另一个版本的 TIP 是否有活动的输入模式：看那个版本的 Server 发布的事件。那个版本没在运行时事件不存在，按不活动处理。
 bool other_edition_mode_active() {

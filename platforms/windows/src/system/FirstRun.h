@@ -7,7 +7,7 @@
 #include <string>
 
 namespace msime::windows {
-// 安装器写下的所有权标记，文件名按版本取（full 是 .metasequoiaime-data）。只认本版本的文件名：带着别的版本标记的目录不是本版本安装器准备的，Server 不在里面准备状态。
+// 安装器写下的所有权标记，文件名按版本取（full 是 .metasequoiaime-data.full）。只认本版本的文件名：带着别的版本或 msime-windows（.metasequoiaime-data）标记的目录不是本版本安装器准备的，Server 不在里面准备状态。
 inline constexpr const wchar_t *kDataDirectoryMarker = MSIME_EDITION_DATA_DIR_MARKER;
 // 安装器「联网功能」页的选择，全新安装时写在数据目录里，形如 {"cloud_candidates": true}。运行中的宿主只读共享偏好，不读 config.toml，所以这份选择要由 Server 在首次准备状态后写进共享偏好。
 inline constexpr const wchar_t *kInstallerChoicesFile = L"installer-choices.json";

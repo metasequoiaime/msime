@@ -12,7 +12,7 @@ if ($issContent -notmatch '(?m)^#define\s+MyAppVersion\s+"(?<version>[0-9][0-9A-
 }
 
 $suffix = if ($Light) { '_light' } else { '' }
-$installerPath = Join-Path $PSScriptRoot "Output\MetasequoiaIME_Setup_v$($Matches.version)$suffix.exe"
+$installerPath = Join-Path $PSScriptRoot "Output\MetasequoiaIME-Full_Setup_v$($Matches.version)$suffix.exe"
 if (-not (Test-Path -LiteralPath $installerPath -PathType Leaf)) {
     throw "Installer does not exist; run Compile-Installer.ps1 first: $installerPath"
 }

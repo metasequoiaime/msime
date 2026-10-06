@@ -47,13 +47,14 @@ export function compareVersions(left: Version, right: Version): number {
   return 0;
 }
 
+// msime.app 更新清单（`validateManifest`）认的安装包名。不带版本名的 `MetasequoiaIME_Setup_v` 是 msime-windows 的安装包；本仓库在 GitHub 发布的 Windows 安装包（包括 full）都按版本命名，见 `editionInstallerPrefix`。
 const installerNamePattern = /^MetasequoiaIME_Setup_v[\w.-]+\.exe$/i;
 const sha256Pattern = /^[0-9a-f]{64}$/i;
 
 // The asset name is shown inside a shell command the user may copy, so it is limited to characters that need no quoting and cannot start with an option dash. CPack names the Linux packages `msime-linux_VERSION_ARCH.deb` and `msime-linux-VERSION-linux-ARCH.tar.gz` (platforms/linux/cmake/packaging.cmake).
 const linuxPackagePatterns = [/^[a-z0-9][\w.+~-]*\.deb$/i, /^[a-z0-9][\w.+~-]*\.tar\.gz$/i];
 
-// 不是 full 的版本和 full 发布在同一个平台标签下（例如都在 `linux-v1.2.0` 里），靠资产名区分：Linux 包名是 `msime-linux-<id>`，Windows 安装包是 `MetasequoiaIME-<Id>_Setup_v<版本>.exe`（`<Id>` 是首字母大写的版本 id）。各平台的打包脚本要按这个名字产出。full 的资产名不变。
+// 不是 full 的版本和 full 发布在同一个平台标签下（例如都在 `linux-v1.2.0` 里），靠资产名区分：Linux 包名是 `msime-linux-<id>`，Windows 安装包是 `MetasequoiaIME-<Id>_Setup_v<版本>.exe`（`<Id>` 是首字母大写的版本 id）。各平台的打包脚本要按这个名字产出。full 的 Linux 资产名不变；Windows 上 full 也按这个形式命名（`MetasequoiaIME-Full_Setup_v`），不带版本名的 `MetasequoiaIME_Setup_v` 是 msime-windows 的安装包。
 const editionIdPattern = /^[a-z][a-z0-9]*$/;
 /** full 的 Linux 资产模式也认得出其他版本的包（`msime-linux-wubi_…`），选 full 的资产之前先去掉它们：full 的包名在 `msime-linux` 之后紧跟 `_` 或版本号。 */
 const otherEditionLinuxPackagePattern = /^msime-linux-[a-z]/i;
@@ -72,15 +73,14 @@ function editionLinuxPackagePatterns(edition: string | undefined): readonly RegE
   ];
 }
 
-/** 版本的 Windows 安装包名前缀，例如 full 是 `MetasequoiaIME_Setup_v`，五笔版是 `MetasequoiaIME-Wubi_Setup_v`；不是合法的版本 id 时为 null。 */
+/** 版本的 Windows 安装包名前缀，例如 full（也是没有版本时）是 `MetasequoiaIME-Full_Setup_v`，五笔版是 `MetasequoiaIME-Wubi_Setup_v`；不是合法的版本 id 时为 null。 */
 function editionInstallerPrefix(edition: string | undefined): string | null {
-  if (isFullEdition(edition)) return "MetasequoiaIME_Setup_v";
-  if (!edition || !editionIdPattern.test(edition)) return null;
-  return `MetasequoiaIME-${edition.charAt(0).toUpperCase()}${edition.slice(1)}_Setup_v`;
+  const id = edition ?? "full";
+  if (!editionIdPattern.test(id)) return null;
+  return `MetasequoiaIME-${id.charAt(0).toUpperCase()}${id.slice(1)}_Setup_v`;
 }
 
 function editionInstallerPattern(edition: string | undefined): RegExp | null {
-  if (isFullEdition(edition)) return installerNamePattern;
   const prefix = editionInstallerPrefix(edition);
   return prefix ? new RegExp(`^${prefix}[\\w.-]+\\.exe$`, "i") : null;
 }
@@ -253,7 +253,7 @@ export function describeInstallerTrust(
   }
   const name =
     update.installerName ??
-    `${editionInstallerPrefix(edition) ?? "MetasequoiaIME_Setup_v"}<版本>.exe`;
+    `${editionInstallerPrefix(edition) ?? "MetasequoiaIME-Full_Setup_v"}<版本>.exe`;
   // The shipped settings page's wording: an unsigned installer is not only a SmartScreen prompt, it also loses uiAccess, so the candidate window cannot float above elevated programs.
   const unsigned =
     "该版本未经代码签名，SmartScreen 会拦截，且 uiAccess 失效（候选窗口无法浮在以管理员身份运行的程序之上）。";

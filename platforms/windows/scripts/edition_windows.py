@@ -6,16 +6,16 @@
 这些值只在版本表里写一次，这里把它们变成两个提交进仓库的文件，构建时不需要 Python：
 
 - `shared/contracts/msime_edition.h`：C++ 侧（TSF DLL、Server、看门狗、prepare 工具、WinUI 设置窗口和原生测试）读的宏。构建必须定义且只定义一个 `MSIME_EDITION_<ID>`（CMake 的 `MSIME_EDITION` 缓存变量、设置窗口工程的 `MsimeEdition` 属性），否则头文件以 `#error` 拒绝编译，不会悄悄编成 full；
-- `platforms/windows/installer/editions.iss`：Inno Setup 读的 `#define`，按 `ISCC /DEdition=<id>` 选出一组，缺省是 full。文件里只有预处理指令，所以 full 的预处理输出与引入版本之前逐字节相同。
+- `platforms/windows/installer/editions.iss`：Inno Setup 读的 `#define`，按 `ISCC /DEdition=<id>` 选出一组，缺省是 full。
 
-full 是现有产品本身：它的名字后缀是空串，管道、事件、互斥量和窗口类名与引入版本之前相同，GUID 和路径都是今天写死在代码里的值（`scripts/test-editions.py` 检查）。
+full 和其他版本一样有自己的一组 Windows 身份：名字后缀是 `.full`，GUID、安装目录、注册表键、环境变量、看门狗任务和安装包名都是 full 自己的。引入版本之前的那组值（空后缀、`{E3062E9A-...}` 等）是另一个产品 msime-windows（https://github.com/metasequoiaime/msime-windows）的身份，记在下面的 `MSIME_WINDOWS` 里：本仓库的任何版本都不能用它们，否则装上或卸掉本仓库的某个版本就会覆盖或删掉 msime-windows（`scripts/test-editions.py` 检查）；每个版本的安装器还把 msime-windows 的注册表键和安装目录当作别的产品的数据目录来避让（见 `inno_text`）。
 
 用法：
 
     edition_windows.py gen [--check]                 # 重新生成上面两个文件；--check 只比较，有差异时以非零状态退出
     edition_windows.py editions                      # 有 Windows 段的版本 id，逗号分隔，full 在最前
     edition_windows.py field --edition ID KEY        # 打印 Windows 段的字段，或 id、display_name.zh-Hans/en、default_scheme、arm64_host_dll
-    edition_windows.py marker --edition ID --output edition.json   # Server 目录里的版本声明；full 不写，已有的删掉
+    edition_windows.py marker --edition ID --output edition.json   # Server 目录里的版本声明，每个版本（包括 full）都写
     edition_windows.py host-def --edition ID --dll msime_host_api.dll --output msime_host_api_<id>.def [--arm64]
                                                      # 按 DLL 的导出表写出改名用的模块定义文件，交给 lib.exe /DEF 或 dlltool 生成同名导入库；--arm64 用 ARM64 宿主的名字（见 arm64_host_dll）
 """
@@ -32,8 +32,38 @@ EDITIONS = ROOT / "shared/contracts/editions.json"
 HEADER = ROOT / "shared/contracts/msime_edition.h"
 INNO = ROOT / "platforms/windows/installer/editions.iss"
 FULL = "full"
-# 数据目录所有权标记的文件名前缀，后面接版本的名字后缀（full 是空串，所以 full 的标记仍是 `.metasequoiaime-data`）。几个版本的标记文件名各不相同：一个版本的安装器和 Server 看不到别的版本的标记，不会把别的版本的数据目录当成自己的去接管、清理或删除。
+# 数据目录所有权标记的文件名前缀，后面接版本的名字后缀（full 的标记是 `.metasequoiaime-data.full`）。几个版本的标记文件名各不相同：一个版本的安装器和 Server 看不到别的版本的标记，不会把别的版本的数据目录当成自己的去接管、清理或删除。不带后缀的 `.metasequoiaime-data` 是 msime-windows 的标记，同样以这个前缀开头，所以每个版本的安装器都把它当作别人的标记。
 DATA_DIR_MARKER_PREFIX = ".metasequoiaime-data"
+# msime-windows（另一个维护者的独立产品，https://github.com/metasequoiaime/msime-windows）在 Windows 上的身份，取自它的 `installer/msime_setup.iss`、TSF 的 Globals.cpp 和 Server。本仓库的 full 在引入版本时沿用了这组值，装上或卸掉 full 就会覆盖或删掉 msime-windows；现在 full 有自己的一组，这组值只用来避让：`scripts/test-editions.py` 检查没有任何版本的 Windows 标识等于其中的值，`inno_text` 把它的注册表键和安装目录加进每个版本安装器的「别的产品的数据目录」名单。它不写 state_directory、user_data_directory、host_dll 和 tauri_identifier：msime-windows 不用本仓库的这几个名字。
+MSIME_WINDOWS = {
+    "clsid": "{E3062E9A-D834-4637-8958-ED8CFA427D01}",
+    "profile_guid": "{4D59B1B4-D503-44AE-9259-BAD9BB2778AB}",
+    "tsf_guids": {
+        "preserve_key_ime_mode": "{34764E82-AE6D-4F71-BB3A-96799AECE466}",
+        "preserve_key_ime_mode_02": "{748C1D81-246B-4849-921F-143BA2BED3F5}",
+        "preserve_key_ime_mode_03": "{B7E4F2A1-9C3D-4E8F-A1B2-C3D4E5F60718}",
+        "preserve_key_english_input_mode": "{D625C0B1-5A8F-4CC4-9C65-6C536BFF2D91}",
+        "preserve_key_double_single_byte": "{4393748A-89DC-485C-A7F7-5FA232CEC70B}",
+        "preserve_key_punctuation": "{628DDA3B-38D8-4521-BDD4-85CA38F475B8}",
+        "compartment_double_single_byte": "{851BC7CB-8395-4FA6-9C95-DB6EFC2E648E}",
+        "compartment_punctuation": "{58DA9E0F-88B2-426F-91C8-802C9B4D9115}",
+        "langbar_ime_mode": "{94B8FD94-E918-4667-93BE-57A49D35B02D}",
+        "langbar_double_single_byte": "{3E044725-9617-402E-B113-9865AD9B4F8E}",
+        "langbar_punctuation": "{596E7EE3-B629-4895-A5B0-C60A82B47A04}",
+        "display_attribute_input": "{688746FF-BAF2-4153-93ED-96943436422F}",
+        "display_attribute_converted": "{1E2209EA-13CD-4550-8A8F-B352E9744DF2}",
+        "candidate_ui_element": "{9FFF12AA-B5EE-4477-A1AA-A4BF5F7B2447}",
+    },
+    "inno_app_id": "{A7C3E91F-4B2D-4E8A-9F1C-6D5E8B0A2C4D}",
+    "install_dir": "metasequoiaime",
+    "registry_key": "Software\\Metasequoia\\MetasequoiaIME",
+    "data_dir_environment_variable": "METASEQUOIA_IME_DATA_DIR",
+    # 管道、事件、互斥量和窗口类名不带后缀（`FanyImeNamedPipe`、`Local\MetasequoiaImeServer_SingleInstance` 等）。
+    "name_suffix": "",
+    "watchdog_task": "Metasequoia IME Watchdog",
+    "installer_base_name": "MetasequoiaIME_Setup",
+    "data_dir_marker": DATA_DIR_MARKER_PREFIX,
+}
 # 版本表 tsf_guids 的键到 TSF Globals.cpp 里的宏名后缀，顺序就是生成文件里的顺序。
 TSF_GUIDS = [
     "preserve_key_ime_mode",
@@ -127,7 +157,7 @@ def header_text(table: dict) -> str:
         "//",
         f"// 每个 Windows 构建必须定义且只定义一个版本选择宏（{', '.join(selectors)}）：CMake 按缓存变量 MSIME_EDITION 定义，WinUI 设置窗口工程按 MsimeEdition 属性定义。少了它就停在这里，而不是悄悄编成 full、去用 full 的管道和 CLSID。",
         "//",
-        "// full 的名字后缀是空串，管道、事件、互斥量和窗口类名与引入版本之前相同；其他版本的这些名字都带 `.<id>`，GUID 和路径各不相同，所以几个版本可以同时安装，两个版本的 TIP 也可以被同一个应用同时加载。",
+        "// 每个版本（包括 full）的管道、事件、互斥量和窗口类名都带 `.<id>` 后缀，GUID 和路径各不相同，所以几个版本可以同时安装，两个版本的 TIP 也可以被同一个应用同时加载。不带后缀的名字和引入版本之前的那组 GUID 属于 msime-windows（edition_windows.py 的 MSIME_WINDOWS），本仓库的版本都不用，所以也能和 msime-windows 同时安装。",
         "",
         f"#if ({defined}) != 1",
         f'#error "Define exactly one of {", ".join(selectors)}; platforms/windows/CMakeLists.txt does this from MSIME_EDITION"',
@@ -177,20 +207,20 @@ def header_text(table: dict) -> str:
 
 
 def inno_text(table: dict) -> str:
-    """Inno Setup 的版本定义。只有预处理指令：ISPP 不把指令行写进预处理结果，所以引入它不改变 full 的预处理输出。"""
+    """Inno Setup 的版本定义。只有预处理指令，ISPP 不把指令行写进预处理结果。"""
     editions = windows_editions(table)
     lines = ["#ifndef Edition", '#define Edition "full"', "#endif"]
-    # 所有版本的标记文件名都以它开头。安装器拿它找目录里别的版本的标记：带着别的版本标记的目录，哪怕是本版本的默认数据目录，也不归本版本管。
+    # 所有版本的标记文件名都以它开头，msime-windows 的标记就是它本身。安装器拿它找目录里别的版本和 msime-windows 的标记：带着别人标记的目录，哪怕是本版本的默认数据目录，也不归本版本管。
     lines.append(f'#define MyDataDirMarkerPrefix "{DATA_DIR_MARKER_PREFIX}"')
-    for entry in editions:
+    for name, section in [(entry["id"], entry["platforms"]["windows"]) for entry in editions] + [("msime-windows", MSIME_WINDOWS)]:
         for key in ("registry_key", "install_dir"):
-            if "|" in entry["platforms"]["windows"][key] or "'" in entry["platforms"]["windows"][key]:
-                raise SystemExit(f"edition {entry['id']}: {key} contains | or a single quote, which the installer's list of other editions cannot hold")
+            if "|" in section[key] or "'" in section[key]:
+                raise SystemExit(f"{name}: {key} contains | or a single quote, which the installer's list of other editions cannot hold")
     for index, entry in enumerate(editions):
         windows = entry["platforms"]["windows"]
         lines.append(("#if" if index == 0 else "#elif") + f' Edition == "{entry["id"]}"')
+        others = [other["platforms"]["windows"] for other in editions if other is not entry] + [MSIME_WINDOWS]
         definitions = [
-            ("MyEditionIsFull", "1" if entry["id"] == FULL else "0"),
             ("MyEditionAppName", windows["app_name"]),
             # AppId 以 `{` 开头，Inno 要把它写成 `{{` 才不当常量展开。
             ("MyEditionAppId", "{" + windows["inno_app_id"]),
@@ -200,14 +230,14 @@ def inno_text(table: dict) -> str:
             ("MyEditionWatchdogTask", windows["watchdog_task"]),
             ("MyEditionInstallerBaseName", windows["installer_base_name"]),
             ("MyEditionDataDirMarker", data_dir_marker(entry)),
-            # 别的版本的 HKLM 键和安装目录名（默认数据目录是 %LOCALAPPDATA% 下的同名目录），两个列表按同一顺序以 | 分隔。几个版本可以同时安装，安装器拿它们找出别的版本已登记或将来会用的数据目录：本版本的数据目录不能和它们互相嵌套，否则外层的版本卸载或更换数据目录时会递归删掉里层版本还在用的目录。
-            ("MyOtherEditionRegistryKeys", "|".join(other["platforms"]["windows"]["registry_key"] for other in editions if other is not entry)),
-            ("MyOtherEditionInstallDirs", "|".join(other["platforms"]["windows"]["install_dir"] for other in editions if other is not entry)),
+            # 别的版本和 msime-windows（排在最后）的 HKLM 键和安装目录名（默认数据目录是 %LOCALAPPDATA% 下的同名目录），两个列表按同一顺序以 | 分隔。几个版本可以和 msime-windows 同时安装，安装器拿它们找出别人已登记或将来会用的数据目录：本版本的数据目录不能和它们互相嵌套，否则外层的产品卸载或更换数据目录时会递归删掉里层产品还在用的目录。
+            ("MyOtherEditionRegistryKeys", "|".join(other["registry_key"] for other in others)),
+            ("MyOtherEditionInstallDirs", "|".join(other["install_dir"] for other in others)),
         ]
         for name, value in definitions:
             if '"' in value:
                 raise SystemExit(f"edition {entry['id']}: {name} {value!r} contains a double quote, which an ISPP string cannot hold")
-            lines.append(f'#define {name} "{value}"' if name != "MyEditionIsFull" else f"#define {name} {value}")
+            lines.append(f'#define {name} "{value}"')
     lines.append("#else")
     lines.append(f'#error Unknown edition; use /DEdition= one of {", ".join(entry["id"] for entry in editions)}')
     lines.append("#endif")
@@ -258,10 +288,10 @@ def field(entry: dict, key: str) -> str:
     raise SystemExit(f"unknown field {key}")
 
 
-def marker(edition_id: str) -> str | None:
-    """Server 目录里 `edition.json` 的内容（`Edition::PACKAGE_MARKER_FILE`）。full 不带这个文件，所以 full 的包与引入版本之前相同。"""
+def marker(edition_id: str) -> str:
+    """Server 目录里 `edition.json` 的内容（`Edition::PACKAGE_MARKER_FILE`）。每个版本（包括 full）都写：没有这个文件的进程虽然也按 full 运行，但写明了更不会被误认。"""
     edition_entry(edition_id)
-    return None if edition_id == FULL else json.dumps({"edition": edition_id}) + "\n"
+    return json.dumps({"edition": edition_id}) + "\n"
 
 
 def pe_exports(dll: bytes) -> list[str]:
@@ -354,11 +384,7 @@ def main() -> int:
         args.output.write_text(host_def(args.edition, args.dll, args.arm64), encoding="utf-8", newline="\n")
         return 0
     if args.command == "marker":
-        text = marker(args.edition)
-        if text is None:
-            args.output.unlink(missing_ok=True)
-        else:
-            args.output.write_text(text, encoding="utf-8", newline="\n")
+        args.output.write_text(marker(args.edition), encoding="utf-8", newline="\n")
     return 0
 
 

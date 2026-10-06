@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$InstallerPath = (Join-Path $PSScriptRoot 'Output\MetasequoiaIME_Setup.exe'),
+    [string]$InstallerPath = (Join-Path $PSScriptRoot 'Output\MetasequoiaIME-Full_Setup.exe'),
     [string]$CertificateThumbprint,
     [ValidateNotNullOrEmpty()]
     [string]$TimestampUrl = 'http://time.certum.pl',
