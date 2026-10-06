@@ -52,6 +52,11 @@ public final class KeyboardGeometry {
 
     private KeyboardGeometry() { }
 
+    /** Read the display density used by keyboard geometry calculations. */
+    public static float density(Context context) {
+        return context.getResources().getDisplayMetrics().density;
+    }
+
     /** 键盘高度百分比对应的高度调整 dp：`round(184 × (p − 100) / 100)`，范围外先钳到 75–130，与 Rust `height_percent_to_adjustment` 同式（向远离零的方向取整）。 */
     public static int heightPercentToAdjustment(int percent) {
         int clamped = bounded(percent, MIN_HEIGHT_PERCENT, MAX_HEIGHT_PERCENT);

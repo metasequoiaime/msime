@@ -497,7 +497,7 @@ public final class StatisticsFragment extends HomeTabFragment {
     }
 
     private static Map<String, String> retentions() {
-        LinkedHashMap<String, String> values = new LinkedHashMap<>();
+        LinkedHashMap<String, String> values = new LinkedHashMap<>(5);
         values.put("forever", "一直保留");
         values.put("365d", "一年");
         values.put("180d", "半年");
