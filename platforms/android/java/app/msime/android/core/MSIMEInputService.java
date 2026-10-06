@@ -5633,6 +5633,8 @@ public final class MSIMEInputService extends InputMethodService {
         private int onAccentColor;
         private int foregroundColor;
         private Typeface previewTypeface;
+        private final int[] rootLocation = new int[2];
+        private final int[] anchorLocation = new int[2];
 
         JapaneseFlickPreview(android.content.Context context) {
             super(context);
@@ -5645,8 +5647,6 @@ public final class MSIMEInputService extends InputMethodService {
         void show(Button anchor, JapaneseNineKeyLayout.Key key, int direction, FrameLayout root) {
             labels = key.kana().toArray(String[]::new);
             selectedDirection = KeyboardGeometry.bounded(direction, 0, labels.length - 1);
-            int[] rootLocation = new int[2];
-            int[] anchorLocation = new int[2];
             root.getLocationOnScreen(rootLocation);
             anchor.getLocationOnScreen(anchorLocation);
             centerX = anchorLocation[0] - rootLocation[0] + anchor.getWidth() / 2f;
