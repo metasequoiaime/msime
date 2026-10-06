@@ -2,6 +2,7 @@
 //!
 //! `/fy hello'world` (typed `/fyhello'world`) is the one local input that may leave the machine: the words after the trigger are English for the user's translation service, through `translation_source`, and the answer comes back as a row of its own (`InputSession::apply_command_translation`). Until it does, and whenever no service answers, the row is the English as typed.
 
+use std::collections::HashSet;
 use time::format_description::parse_strftime_borrowed;
 use time::{Date, Month, PrimitiveDateTime, Time};
 
@@ -67,6 +68,7 @@ pub fn takes_word_separator(code: &str) -> bool {
 /// The rows that are usable of a host table: valid triggers and templates, the first command of a trigger, at most `TABLE_LIMIT`.
 pub fn usable_command_table(table: &[CommandTableEntry]) -> Vec<CommandTableEntry> {
     let mut usable: Vec<CommandTableEntry> = Vec::with_capacity(TABLE_LIMIT.min(table.len()));
+    let mut triggers = HashSet::with_capacity(TABLE_LIMIT.min(table.len()));
     for entry in table {
         if usable.len() == TABLE_LIMIT {
             break;
@@ -74,7 +76,7 @@ pub fn usable_command_table(table: &[CommandTableEntry]) -> Vec<CommandTableEntr
         let trigger_valid = (1..=TRIGGER_LIMIT).contains(&entry.trigger.len())
             && entry.trigger.bytes().all(|byte| byte.is_ascii_lowercase());
         if trigger_valid
-            && !usable.iter().any(|kept| kept.trigger == entry.trigger)
+            && triggers.insert(entry.trigger.as_str())
             && fits(&entry.template)
             && template_valid(&entry.template)
         {
