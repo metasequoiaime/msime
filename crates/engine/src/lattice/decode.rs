@@ -404,6 +404,7 @@ pub(super) fn decode_graph(
 
     // 同一列里很多假设经由同一个词到达，只是更早的历史不同；它们对每条出边查到的二元分完全一样。按前一个词把这一列所有出边的二元分记下来，同一个词只查一遍表。
     let mut bigram_rows: Vec<(&str, Vec<f32>)> = Vec::new();
+    let mut bigram_row_indices: HashMap<&str, usize> = HashMap::new();
     // 这一列的出边，按原来的顺序（先图里的，再 `extra` 的）收集一次，每个假设都按这个顺序展开。
     let mut outgoing: Vec<&Edge> = Vec::new();
     for pos in 0..n {
@@ -411,6 +412,7 @@ pub(super) fn decode_graph(
         let (done, ahead) = columns.split_at_mut(pos + 1);
         let current = &done[pos];
         bigram_rows.clear();
+        bigram_row_indices.clear();
         outgoing.clear();
         outgoing.extend(
             graph[pos]
@@ -421,22 +423,23 @@ pub(super) fn decode_graph(
             // Column 0 has no predecessor, so the start token carries what the corpus knows about how sentences open; every later column uses the word the hypothesis arrived on.
             let previous = hyp.edge.map_or(SENTENCE_START, |edge| edge.word.as_str());
             let bonuses = bigram_table.map(|table| {
-                let row = match bigram_rows.iter().position(|(word, _)| *word == previous) {
-                    Some(row) => row,
-                    None => {
-                        let scores = match memo.as_deref_mut() {
-                            Some(memo) => outgoing
-                                .iter()
-                                .map(|edge| memo.score(table, previous, &edge.word))
-                                .collect(),
-                            None => outgoing
-                                .iter()
-                                .map(|edge| table.bigram(previous, &edge.word))
-                                .collect(),
-                        };
-                        bigram_rows.push((previous, scores));
-                        bigram_rows.len() - 1
-                    }
+                let row = if let Some(&row) = bigram_row_indices.get(previous) {
+                    row
+                } else {
+                    let scores = match memo.as_deref_mut() {
+                        Some(memo) => outgoing
+                            .iter()
+                            .map(|edge| memo.score(table, previous, &edge.word))
+                            .collect(),
+                        None => outgoing
+                            .iter()
+                            .map(|edge| table.bigram(previous, &edge.word))
+                            .collect(),
+                    };
+                    bigram_rows.push((previous, scores));
+                    let row = bigram_rows.len() - 1;
+                    bigram_row_indices.insert(previous, row);
+                    row
                 };
                 &bigram_rows[row].1
             });
