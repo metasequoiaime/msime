@@ -53,6 +53,7 @@ public final class KeyboardShortcutButton extends KeyboardPressButton {
     private static final float ACTIVE_RADIUS_DP = 12f;
     private static final float MATERIAL_ICON_DP = 24f;
     private static final float DISMISS_ICON_DP = 21f;
+    private static final float[] SETTINGS_LINES = {25f, 50f, 75f};
 
     /** 选中状态的底色：工具栏按钮打开了它的面板时，图标后面垫这块柔和的强调色，而不是把整个按钮铺成实心色块。 */
     public void setActiveFill(int color) {
@@ -150,7 +151,7 @@ public final class KeyboardShortcutButton extends KeyboardPressButton {
     }
 
     private void drawSettings(Canvas canvas) {
-        for (float y : new float[] {25f, 50f, 75f}) canvas.drawLine(15f, y, 85f, y, paint);
+        for (float y : SETTINGS_LINES) canvas.drawLine(15f, y, 85f, y, paint);
         canvas.drawCircle(38f, 25f, 7f, paint);
         canvas.drawCircle(68f, 50f, 7f, paint);
         canvas.drawCircle(30f, 75f, 7f, paint);
@@ -179,13 +180,15 @@ public final class KeyboardShortcutButton extends KeyboardPressButton {
         canvas.drawCircle(38f, 43f, 4f, paint);
         canvas.drawCircle(62f, 43f, 4f, paint);
         paint.setStyle(Paint.Style.STROKE);
-        canvas.drawArc(new RectF(32f, 37f, 68f, 68f), 25f, 130f, false, paint);
+        bounds.set(32f, 37f, 68f, 68f);
+        canvas.drawArc(bounds, 25f, 130f, false, paint);
     }
 
     private void drawVoice(Canvas canvas) {
         bounds.set(35f, 14f, 65f, 62f);
         canvas.drawRoundRect(bounds, 15f, 15f, paint);
-        canvas.drawArc(new RectF(22f, 34f, 78f, 82f), 0f, 180f, false, paint);
+        bounds.set(22f, 34f, 78f, 82f);
+        canvas.drawArc(bounds, 0f, 180f, false, paint);
         canvas.drawLine(50f, 82f, 50f, 91f, paint);
         canvas.drawLine(36f, 91f, 64f, 91f, paint);
     }
