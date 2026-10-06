@@ -7,7 +7,7 @@
 //! A trigram cannot be searched the same way without carrying two words of history in every beam entry, so it is applied after the search: the n best paths are rescored with what the third word adds over the second, then reordered. That is the reason to decode more paths than are shown.
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::hash::{BuildHasherDefault, Hasher};
 use std::sync::Arc;
 
@@ -487,6 +487,7 @@ pub(super) fn decode_graph(
     let take = options.nbest.min(last.len());
 
     let mut paths = Vec::with_capacity(take);
+    let mut sentences = HashSet::with_capacity(take);
     for hyp in &last {
         if paths.len() >= take {
             break;
@@ -503,7 +504,7 @@ pub(super) fn decode_graph(
         words.reverse();
         keys.reverse();
         let sentence = words.concat();
-        if sentence.is_empty() || contains_sentence(&paths, &sentence) {
+        if sentence.is_empty() || !sentences.insert(sentence.clone()) {
             continue;
         }
         paths.push(SentencePath {
@@ -518,6 +519,7 @@ pub(super) fn decode_graph(
     paths
 }
 
+#[cfg(test)]
 fn contains_sentence(paths: &[SentencePath], sentence: &str) -> bool {
     paths.iter().any(|path| path.sentence == sentence)
 }
