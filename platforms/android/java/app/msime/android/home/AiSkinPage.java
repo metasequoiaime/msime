@@ -340,14 +340,14 @@ public final class AiSkinPage extends DetailPage {
             choices.card().setBackground(null);
             SegmentedControl picker = new SegmentedControl(context);
             picker.setFillWidth(true);
-            List<String> names = new ArrayList<>();
+            List<String> names = new ArrayList<>(s.results.size());
             for (Result result : s.results) names.add(result.name());
             picker.setOptions(names, s.chosen);
             picker.setOnSelect(index -> {
                 s.chosen = index;
                 refreshPreview();
             });
-            choices.card().addView(picker, matchWidth());
+            choices.card().addView(picker, Ui.matchWidth());
         }
 
         GroupCard describe = GroupCard.add(target, "描述");
@@ -363,13 +363,13 @@ public final class AiSkinPage extends DetailPage {
         Ui.style(input, Ui.TEXT_ROW_TITLE, 400, Ui.text(context));
         input.setPadding(Ui.dp(context, 16), Ui.dp(context, 12), Ui.dp(context, 16), Ui.dp(context, 4));
         input.setEnabled(!s.busy);
-        describe.card().addView(input, matchWidth());
+        describe.card().addView(input, Ui.matchWidth());
         HorizontalScrollView chipScroll = new HorizontalScrollView(context);
         chipScroll.setHorizontalScrollBarEnabled(false);
         LinearLayout chips = new LinearLayout(context);
         chips.setOrientation(LinearLayout.HORIZONTAL);
         chips.setPadding(Ui.dp(context, 12), Ui.dp(context, 4), Ui.dp(context, 12), Ui.dp(context, 12));
-        List<TextView> chipViews = new ArrayList<>();
+        List<TextView> chipViews = new ArrayList<>(SUGGESTIONS.length);
         for (String suggestion : SUGGESTIONS) {
             TextView chip = new TextView(context);
             chip.setText(suggestion);
@@ -389,7 +389,7 @@ public final class AiSkinPage extends DetailPage {
             chipViews.add(chip);
         }
         chipScroll.addView(chips);
-        describe.card().addView(chipScroll, matchWidth());
+        describe.card().addView(chipScroll, Ui.matchWidth());
         styleChips(context, chipViews);
 
         GroupCard soundGroup = GroupCard.add(target, "按键音效");
@@ -401,7 +401,7 @@ public final class AiSkinPage extends DetailPage {
             s.sound = index;
             refreshPreview();
         });
-        soundGroup.card().addView(sounds, matchWidth());
+        soundGroup.card().addView(sounds, Ui.matchWidth());
 
         GroupCard animationGroup = GroupCard.add(target, "按键动画");
         animationGroup.card().setBackground(null);
@@ -409,7 +409,7 @@ public final class AiSkinPage extends DetailPage {
         animations.setFillWidth(true);
         animations.setOptions(List.of(ANIMATION_LABELS), s.animation);
         animations.setOnSelect(index -> s.animation = index);
-        animationGroup.card().addView(animations, matchWidth());
+        animationGroup.card().addView(animations, Ui.matchWidth());
 
         LinearLayout actions = new LinearLayout(context);
         actions.setOrientation(LinearLayout.HORIZONTAL);
@@ -501,7 +501,7 @@ public final class AiSkinPage extends DetailPage {
                     skin.keyForeground(), skin.returnBackground()};
                 for (String colour : colours) {
                     View dot = new View(context);
-                    android.graphics.drawable.GradientDrawable shape = Ui.pill(parse(colour));
+                    android.graphics.drawable.GradientDrawable shape = Ui.pill(Ui.parseColor(colour, Color.GRAY));
                     shape.setStroke(Math.max(1, Ui.dp(context, 1)), Ui.hairline(context));
                     dot.setBackground(shape);
                     LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(Ui.dp(context, 16), Ui.dp(context, 16));
@@ -604,15 +604,4 @@ public final class AiSkinPage extends DetailPage {
         return "";
     }
 
-    private static int parse(String colour) {
-        try {
-            return Color.parseColor(colour);
-        } catch (IllegalArgumentException | NullPointerException error) {
-            return Color.GRAY;
-        }
-    }
-
-    private static LinearLayout.LayoutParams matchWidth() {
-        return new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-    }
 }

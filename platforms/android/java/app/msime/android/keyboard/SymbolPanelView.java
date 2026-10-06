@@ -26,6 +26,7 @@ public final class SymbolPanelView extends LinearLayout {
 
     private final ButtonFactory buttons;
     private final Listener listener;
+    private final float density;
     private final LinearLayout categories = new LinearLayout(getContext());
     private final GridLayout grid = new GridLayout(getContext());
     private final ScrollView gridScroll = new ScrollView(getContext());
@@ -47,6 +48,7 @@ public final class SymbolPanelView extends LinearLayout {
         super(context);
         this.buttons = buttons;
         this.listener = listener;
+        density = getResources().getDisplayMetrics().density;
         setOrientation(VERTICAL);
         setContentDescription("符号面板");
         setFocusable(true);
@@ -55,15 +57,15 @@ public final class SymbolPanelView extends LinearLayout {
         title.setGravity(Gravity.CENTER_VERTICAL);
         // 这个键只是关掉面板，回到打开它的那一层（字母、#+= 或手写），不一定是字母键盘。
         Button back = buttons.create("‹", "关闭符号面板", listener::close, true);
-        back.setLayoutParams(new LinearLayout.LayoutParams(dp(56), dp(42)));
+        back.setLayoutParams(new LinearLayout.LayoutParams(KeyboardGeometry.pixels(56, density), KeyboardGeometry.pixels(42, density)));
         title.addView(back);
         TextView heading = new TextView(context);
         heading.setText("符号");
         heading.setTextSize(17);
         heading.setGravity(Gravity.CENTER);
-        title.addView(heading, new LinearLayout.LayoutParams(0, dp(42), 1));
+        title.addView(heading, new LinearLayout.LayoutParams(0, KeyboardGeometry.pixels(42, density), 1));
         Button delete = buttons.create("⌫", "删除", listener::delete, true);
-        delete.setLayoutParams(new LinearLayout.LayoutParams(dp(56), dp(42)));
+        delete.setLayoutParams(new LinearLayout.LayoutParams(KeyboardGeometry.pixels(56, density), KeyboardGeometry.pixels(42, density)));
         title.addView(delete);
         addView(title, new LinearLayout.LayoutParams(
             LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT));
@@ -78,7 +80,7 @@ public final class SymbolPanelView extends LinearLayout {
         categoryScroll.setVerticalScrollBarEnabled(false);
         categoryScroll.addView(categories, new ScrollView.LayoutParams(
             LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT));
-        body.addView(categoryScroll, new LinearLayout.LayoutParams(dp(76), LayoutParams.MATCH_PARENT));
+        body.addView(categoryScroll, new LinearLayout.LayoutParams(KeyboardGeometry.pixels(76, density), LayoutParams.MATCH_PARENT));
         grid.setColumnCount(SymbolPanelModel.COLUMNS);
         grid.setUseDefaultMargins(false);
         grid.setAlignmentMode(GridLayout.ALIGN_BOUNDS);
@@ -92,12 +94,12 @@ public final class SymbolPanelView extends LinearLayout {
         LinearLayout bottom = new LinearLayout(context);
         bottom.setOrientation(HORIZONTAL);
         Button bottomBack = buttons.create("返回", "返回键盘", listener::close, true);
-        bottom.addView(bottomBack, new LinearLayout.LayoutParams(0, dp(48), 1));
+        bottom.addView(bottomBack, new LinearLayout.LayoutParams(0, KeyboardGeometry.pixels(48, density), 1));
         lockButton = buttons.create("锁定", "连续输入符号", this::toggleLock, true);
-        bottom.addView(lockButton, new LinearLayout.LayoutParams(0, dp(48), 1));
+        bottom.addView(lockButton, new LinearLayout.LayoutParams(0, KeyboardGeometry.pixels(48, density), 1));
         Button bottomDelete = buttons.create("⌫", "删除", listener::delete, true);
-        bottom.addView(bottomDelete, new LinearLayout.LayoutParams(0, dp(48), 1));
-        addView(bottom, new LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, dp(48)));
+        bottom.addView(bottomDelete, new LinearLayout.LayoutParams(0, KeyboardGeometry.pixels(48, density), 1));
+        addView(bottom, new LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, KeyboardGeometry.pixels(48, density)));
 
         List<SymbolPanelModel.Category> values = SymbolPanelModel.categories();
         for (int index = 0; index < values.size(); index++) {
@@ -111,13 +113,9 @@ public final class SymbolPanelView extends LinearLayout {
             button.setTextSize(13);
             categoryButtons.add(button);
             categories.addView(button, new LinearLayout.LayoutParams(
-                LayoutParams.MATCH_PARENT, dp(40)));
+                LayoutParams.MATCH_PARENT, KeyboardGeometry.pixels(40, density)));
         }
         select(0);
-    }
-
-    private int dp(int value) {
-        return Math.round(value * getResources().getDisplayMetrics().density);
     }
 
     private void select(int category) {
@@ -145,7 +143,7 @@ public final class SymbolPanelView extends LinearLayout {
                 GridLayout.Spec column = GridLayout.spec(index - start, 1f);
                 GridLayout.LayoutParams params = new GridLayout.LayoutParams(row, column);
                 params.width = 0;
-                params.height = dp(46);
+                params.height = KeyboardGeometry.pixels(46, density);
                 grid.addView(button, params);
             }
             for (int index = end - start; index < SymbolPanelModel.COLUMNS; index++) {
@@ -154,7 +152,7 @@ public final class SymbolPanelView extends LinearLayout {
                 GridLayout.Spec column = GridLayout.spec(index, 1f);
                 GridLayout.LayoutParams params = new GridLayout.LayoutParams(row, column);
                 params.width = 0;
-                params.height = dp(46);
+                params.height = KeyboardGeometry.pixels(46, density);
                 grid.addView(spacer, params);
             }
         }

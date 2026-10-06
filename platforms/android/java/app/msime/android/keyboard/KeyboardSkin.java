@@ -244,7 +244,7 @@ public final class KeyboardSkin {
         JSONObject keyboard = theme.optJSONObject("keyboard");
         Map<String, String> slots = null;
         if (keyboard != null) {
-            slots = new HashMap<>();
+            slots = new HashMap<>(KEYBOARD_SLOTS.length);
             for (String slot : KEYBOARD_SLOTS) slots.put(slot, text(keyboard, slot));
         }
         return resolved(theme.optString("id", "system"), title, text(theme, "appearance"),

@@ -48,4 +48,20 @@ public final class TextPolicy {
     public static int utf8Length(String value) {
         return value.getBytes(StandardCharsets.UTF_8).length;
     }
+
+    /** Truncates UTF-8 text by bytes without splitting a code point. */
+    public static String clipUtf8(String value, int maxBytes) {
+        if (value == null) return "";
+        if (value.getBytes(StandardCharsets.UTF_8).length <= maxBytes) return value;
+        int bytes = 0;
+        int index = 0;
+        while (index < value.length()) {
+            int codePoint = value.codePointAt(index);
+            int size = codePoint < 0x80 ? 1 : codePoint < 0x800 ? 2 : codePoint < 0x10000 ? 3 : 4;
+            if (bytes + size > maxBytes) break;
+            bytes += size;
+            index += Character.charCount(codePoint);
+        }
+        return value.substring(0, index);
+    }
 }

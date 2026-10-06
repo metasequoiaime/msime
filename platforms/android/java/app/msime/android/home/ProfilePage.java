@@ -117,7 +117,7 @@ public final class ProfilePage extends DetailPage {
                 connection.setRequestProperty("User-Agent", CloudApi.USER_AGENT);
                 if (connection.getResponseCode() / 100 != 2) return null;
                 try (InputStream input = connection.getInputStream()) {
-                    byte[] bytes = readAtMost(input, DeviceDataApi.MAX_AVATAR_BYTES);
+                    byte[] bytes = HttpBodyPolicy.readBounded(input, DeviceDataApi.MAX_AVATAR_BYTES);
                     return bytes == null ? null : decodeAvatar(bytes);
                 }
             } finally {
@@ -145,11 +145,6 @@ public final class ProfilePage extends DetailPage {
         BitmapFactory.Options options = new BitmapFactory.Options();
         options.inSampleSize = sample;
         return BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options);
-    }
-
-    /** 读完整个流；超过 `limit` 字节时返回 null。 */
-    @Nullable private static byte[] readAtMost(InputStream input, int limit) throws IOException {
-        return HttpBodyPolicy.readBounded(input, limit);
     }
 
     /** 圆形头像：有图片时画图片，否则是强调色底上的昵称首字。 */
@@ -268,7 +263,7 @@ public final class ProfilePage extends DetailPage {
         TextView name = new TextView(context);
         name.setText(profile.displayName());
         Ui.style(name, 22, 700, Ui.text(context));
-        LinearLayout.LayoutParams nameParams = wrap();
+        LinearLayout.LayoutParams nameParams = Ui.wrap();
         nameParams.topMargin = Ui.dp(context, 10);
         header.addView(name, nameParams);
 
@@ -276,7 +271,7 @@ public final class ProfilePage extends DetailPage {
             TextView email = new TextView(context);
             email.setText(profile.email());
             Ui.style(email, Ui.TEXT_ROW_SUBTITLE, 400, Ui.subText(context));
-            LinearLayout.LayoutParams emailParams = wrap();
+            LinearLayout.LayoutParams emailParams = Ui.wrap();
             emailParams.topMargin = Ui.dp(context, 2);
             header.addView(email, emailParams);
         }
@@ -289,7 +284,7 @@ public final class ProfilePage extends DetailPage {
             Ui.style(chip, 12, 500, Ui.accent(context));
             chip.setBackground(Ui.pill(Ui.accentSoft(context)));
             chip.setPadding(Ui.dp(context, 10), Ui.dp(context, 3), Ui.dp(context, 10), Ui.dp(context, 3));
-            LinearLayout.LayoutParams chipParams = wrap();
+            LinearLayout.LayoutParams chipParams = Ui.wrap();
             chipParams.topMargin = Ui.dp(context, 8);
             header.addView(chip, chipParams);
         }
@@ -386,7 +381,7 @@ public final class ProfilePage extends DetailPage {
             byte[] image;
             try (InputStream input = context.getContentResolver().openInputStream(uri)) {
                 if (input == null) return "读不到这张图片";
-                image = readAtMost(input, DeviceDataApi.MAX_AVATAR_BYTES);
+                image = HttpBodyPolicy.readBounded(input, DeviceDataApi.MAX_AVATAR_BYTES);
             } catch (IOException | SecurityException unreadable) {
                 return "读不到这张图片";
             }
@@ -562,7 +557,4 @@ public final class ProfilePage extends DetailPage {
         return "没有完成，请稍后再试";
     }
 
-    private static LinearLayout.LayoutParams wrap() {
-        return new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-    }
 }

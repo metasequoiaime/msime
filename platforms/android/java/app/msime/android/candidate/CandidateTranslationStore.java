@@ -28,7 +28,7 @@ public final class CandidateTranslationStore {
     private final ExecutorService worker;
     private final Scheduler scheduler;
     private final Listener listener;
-    private final Map<String, String> cache = new LinkedHashMap<>(16, 0.75f, true);
+    private final Map<String, String> cache = new LinkedHashMap<>(MAX_CACHE_ENTRIES, 0.75f, true);
     private Runnable pending;
     private String signature;
     private long requestEpoch;

@@ -363,7 +363,8 @@ public final class SyncApi {
                 int status = connection.getResponseCode();
                 if (status / 100 == 2) {
                     try (InputStream input = connection.getInputStream()) {
-                        return new Exchange(status, null, CloudApi.readBounded(input));
+                        return new Exchange(status, null,
+                            HttpBodyPolicy.readRequired(input, CloudApi.MAX_RESPONSE_BYTES));
                     }
                 }
                 return new Exchange(status, connection.getHeaderField("Retry-After"), errorBody(connection));
@@ -389,7 +390,9 @@ public final class SyncApi {
         private static byte[] errorBody(HttpsURLConnection connection) throws IOException {
             InputStream error = connection.getErrorStream();
             if (error == null) return new byte[0];
-            try (InputStream input = error) { return CloudApi.readBounded(input); }
+            try (InputStream input = error) {
+                return HttpBodyPolicy.readRequired(input, CloudApi.MAX_RESPONSE_BYTES);
+            }
         }
 
         private static void copy(InputStream input, OutputStream output) throws IOException {

@@ -1,5 +1,7 @@
 package app.msime.android;
 
+import android.content.Context;
+import android.util.TypedValue;
 import java.util.Locale;
 import java.math.BigDecimal;
 import org.json.JSONObject;
@@ -159,6 +161,27 @@ public final class KeyboardGeometry {
     public static int halfGapPixels(int tenths, float density) {
         if (!Float.isFinite(density) || density <= 0) return 0;
         return Math.max(0, Math.round(tenths * density / 20f));
+    }
+
+    /** Convert an integer density-independent size to pixels using Android's rounding rule. */
+    public static int pixels(int dp, float density) {
+        return Math.round(dp * density);
+    }
+
+    /** Convert a fractional density-independent size to rounded pixels. */
+    public static int pixels(float dp, float density) {
+        return Math.round(dp * density);
+    }
+
+    /** Convert a fractional density-independent size to pixels without rounding. */
+    public static float floatPixels(double dp, float density) {
+        return (float) dp * density;
+    }
+
+    /** Convert scalable text units using the view context's display metrics. */
+    public static float sp(Context context, float value) {
+        return TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, value,
+            context.getResources().getDisplayMetrics());
     }
 
     public static int bounded(int value, int minimum, int maximum) {

@@ -12,6 +12,13 @@ public final class HttpBodyPolicySmoke {
             StandardCharsets.UTF_8).equals("hello"));
         check(HttpBodyPolicy.readBounded(
             new ByteArrayInputStream("hello".getBytes(StandardCharsets.UTF_8)), 4) == null);
+        check("hello".equals(new String(HttpBodyPolicy.readRequired(
+            new ByteArrayInputStream("hello".getBytes(StandardCharsets.UTF_8)), 5),
+            StandardCharsets.UTF_8)));
+        try {
+            HttpBodyPolicy.readRequired(new ByteArrayInputStream("hello".getBytes(StandardCharsets.UTF_8)), 4);
+            throw new AssertionError();
+        } catch (java.io.IOException expected) { }
         check(HttpBodyPolicy.readBounded(new ByteArrayInputStream(new byte[0]), 4).length == 0);
         check(HttpBodyPolicy.readBounded(new ByteArrayInputStream("hello".getBytes(StandardCharsets.UTF_8)),
             5, () -> true) == null);

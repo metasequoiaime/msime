@@ -17,13 +17,13 @@ public final class HandwritingInk {
         }
     }
 
-    private final List<List<Point>> strokes = new ArrayList<>();
+    private final List<List<Point>> strokes = new ArrayList<>(MAX_STROKES);
     private boolean drawing;
     private long revision;
 
     public boolean begin(float x, float y, long timeMillis, float width, float height) {
         if (drawing || strokes.size() >= MAX_STROKES || !validBounds(width, height)) return false;
-        List<Point> stroke = new ArrayList<>();
+        List<Point> stroke = new ArrayList<>(MAX_POINTS_PER_STROKE);
         stroke.add(point(x, y, timeMillis, width, height));
         strokes.add(stroke);
         drawing = true;

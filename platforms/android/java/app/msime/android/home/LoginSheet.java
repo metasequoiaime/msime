@@ -104,7 +104,7 @@ final class LoginSheet {
 
         LinearLayout root = new LinearLayout(activity);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(24), 0, dp(24), dp(20));
+        root.setPadding(Ui.dp(activity, 24), 0, Ui.dp(activity, 24), Ui.dp(activity, 20));
         root.addView(new BottomSheetDragHandleView(activity), new LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
@@ -118,17 +118,17 @@ final class LoginSheet {
         header.addView(title, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
         ImageView close = new ImageView(activity);
         close.setImageDrawable(new PathIcon(24, new String[] {CLOSE_PATH}, new int[] {Ui.text(activity)}));
-        close.setPadding(dp(8), dp(8), dp(8), dp(8));
+        close.setPadding(Ui.dp(activity, 8), Ui.dp(activity, 8), Ui.dp(activity, 8), Ui.dp(activity, 8));
         close.setBackground(Ui.ripple(activity));
         close.setContentDescription("关闭");
         close.setOnClickListener(ignored -> dialog.cancel());
-        header.addView(close, new LinearLayout.LayoutParams(dp(40), dp(40)));
+        header.addView(close, new LinearLayout.LayoutParams(Ui.dp(activity, 40), Ui.dp(activity, 40)));
         root.addView(header);
 
         TextView subtitle = new TextView(activity);
         subtitle.setText("在手机、平板和电脑之间同步词库、皮肤和云剪贴板");
         Ui.style(subtitle, 14, 400, Ui.subText(activity));
-        root.addView(subtitle, block(2));
+        root.addView(subtitle, Ui.matchWidth(activity, 2));
 
         options = new LinearLayout(activity);
         options.setOrientation(LinearLayout.VERTICAL);
@@ -139,11 +139,11 @@ final class LoginSheet {
             int fill = night ? Color.WHITE : Color.BLACK;
             int ink = night ? Color.BLACK : Color.WHITE;
             options.addView(button(new PathIcon(24, new String[] {APPLE_PATH}, new int[] {ink}),
-                "通过 Apple 登录", fill, ink, 0, this::apple), block(16));
+                "通过 Apple 登录", fill, ink, 0, this::apple), Ui.matchWidth(activity, 16));
         }
         if (google) {
             options.addView(button(new PathIcon(48, GOOGLE_PATHS, GOOGLE_COLORS), "通过 Google 登录",
-                Color.TRANSPARENT, Ui.text(activity), Ui.outline(activity), this::google), block(12));
+                Color.TRANSPARENT, Ui.text(activity), Ui.outline(activity), this::google), Ui.matchWidth(activity, 12));
         }
         email = new LinearLayout(activity);
         email.setOrientation(LinearLayout.VERTICAL);
@@ -151,19 +151,19 @@ final class LoginSheet {
             int accent = Ui.accent(activity);
             options.addView(button(new PathIcon(24, new String[] {MAIL_PATH}, new int[] {accent}), "使用邮箱登录",
                 Ui.color(activity, com.google.android.material.R.attr.colorSecondaryContainer), accent, 0,
-                this::expandEmail), block(12));
-            options.addView(email, block(0));
+                this::expandEmail), Ui.matchWidth(activity, 12));
+            options.addView(email, Ui.matchWidth(activity, 0));
         }
-        root.addView(options, block(0));
+            root.addView(options, Ui.matchWidth(activity, 0));
 
         status = new TextView(activity);
         Ui.style(status, 13, 400, Ui.subText(activity));
         status.setGravity(Gravity.CENTER_HORIZONTAL);
         status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
         status.setVisibility(View.GONE);
-        root.addView(status, block(12));
+        root.addView(status, Ui.matchWidth(activity, 12));
 
-        root.addView(agreement(), block(16));
+        root.addView(agreement(), Ui.matchWidth(activity, 16));
 
         NestedScrollView scroll = new NestedScrollView(activity);
         scroll.addView(root, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
@@ -198,10 +198,10 @@ final class LoginSheet {
         challenge = null;
         EditText field = field("邮箱地址", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS, 254);
         field.setText(emailAddress);
-        email.addView(field, block(12));
+        email.addView(field, Ui.matchWidth(activity, 12));
         View send = button(null, "发送验证码", Ui.accent(activity), Ui.onAccent(activity), 0,
             () -> sendCode(field.getText().toString()));
-        email.addView(send, block(12));
+        email.addView(send, Ui.matchWidth(activity, 12));
         field.setOnEditorActionListener((view, action, event) -> {
             if (action != EditorInfo.IME_ACTION_SEND) return false;
             sendCode(field.getText().toString());
@@ -236,13 +236,13 @@ final class LoginSheet {
         TextView sent = new TextView(activity);
         sent.setText("验证码已发到 " + emailAddress + "，" + Math.max(1, challenge.expiresIn() / 60) + " 分钟内有效");
         Ui.style(sent, 13, 400, Ui.subText(activity));
-        email.addView(sent, block(12));
+        email.addView(sent, Ui.matchWidth(activity, 12));
         EditText code = field("6 位验证码", InputType.TYPE_CLASS_NUMBER, 6);
         code.setImeOptions(EditorInfo.IME_ACTION_DONE);
         code.setLetterSpacing(0.3f);
-        email.addView(code, block(8));
+        email.addView(code, Ui.matchWidth(activity, 8));
         email.addView(button(null, "登录", Ui.accent(activity), Ui.onAccent(activity), 0,
-            () -> verify(code.getText().toString())), block(12));
+            () -> verify(code.getText().toString())), Ui.matchWidth(activity, 12));
         code.setOnEditorActionListener((view, action, event) -> {
             if (action != EditorInfo.IME_ACTION_DONE) return false;
             verify(code.getText().toString());
@@ -252,7 +252,7 @@ final class LoginSheet {
         again.setText("换个邮箱或重新发送");
         Ui.style(again, 14, 500, Ui.accent(activity));
         again.setGravity(Gravity.CENTER);
-        again.setMinHeight(dp(40));
+        again.setMinHeight(Ui.dp(activity, 40));
         again.setBackground(Ui.ripple(activity));
         again.setOnClickListener(ignored -> {
             if (busy) return;
@@ -260,7 +260,7 @@ final class LoginSheet {
             status.setVisibility(View.GONE);
             expandEmail();
         });
-        email.addView(again, block(4));
+        email.addView(again, Ui.matchWidth(activity, 4));
         status.setVisibility(View.GONE);
         code.requestFocus();
     }
@@ -327,18 +327,18 @@ final class LoginSheet {
         LinearLayout button = new LinearLayout(activity);
         button.setOrientation(LinearLayout.HORIZONTAL);
         button.setGravity(Gravity.CENTER);
-        button.setMinimumHeight(dp(50));
-        GradientDrawable face = Ui.rounded(fill, dp(12));
-        if (stroke != 0) face.setStroke(Math.max(1, dp(1)), stroke);
-        GradientDrawable mask = Ui.rounded(Color.WHITE, dp(12));
+        button.setMinimumHeight(Ui.dp(activity, 50));
+        GradientDrawable face = Ui.rounded(fill, Ui.dp(activity, 12));
+        if (stroke != 0) face.setStroke(Math.max(1, Ui.dp(activity, 1)), stroke);
+        GradientDrawable mask = Ui.rounded(Color.WHITE, Ui.dp(activity, 12));
         int pressed = Ui.withAlpha(fill == Color.BLACK ? Color.WHITE : Ui.text(activity), 0.12f);
         button.setBackground(new RippleDrawable(android.content.res.ColorStateList.valueOf(pressed), face, mask));
         if (icon != null) {
             ImageView glyph = new ImageView(activity);
             glyph.setImageDrawable(icon);
             glyph.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(20), dp(20));
-            params.setMarginEnd(dp(8));
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(Ui.dp(activity, 20), Ui.dp(activity, 20));
+            params.setMarginEnd(Ui.dp(activity, 8));
             button.addView(glyph, params);
         }
         TextView text = new TextView(activity);
@@ -360,11 +360,11 @@ final class LoginSheet {
         field.setFilters(new InputFilter[] {new InputFilter.LengthFilter(maxLength)});
         Ui.style(field, 16, 400, Ui.text(activity));
         field.setHintTextColor(Ui.subText(activity));
-        GradientDrawable face = Ui.rounded(Ui.rowBackground(activity), dp(12));
-        face.setStroke(Math.max(1, dp(1)), Ui.hairline(activity));
+        GradientDrawable face = Ui.rounded(Ui.rowBackground(activity), Ui.dp(activity, 12));
+        face.setStroke(Math.max(1, Ui.dp(activity, 1)), Ui.hairline(activity));
         field.setBackground(face);
-        field.setPadding(dp(14), 0, dp(14), 0);
-        field.setMinHeight(dp(50));
+        field.setPadding(Ui.dp(activity, 14), 0, Ui.dp(activity, 14), 0);
+        field.setMinHeight(Ui.dp(activity, 50));
         field.setGravity(Gravity.CENTER_VERTICAL);
         field.setContentDescription(hint);
         return field;
@@ -394,17 +394,6 @@ final class LoginSheet {
         Ui.style(view, 12, 400, Ui.subText(activity));
         view.setGravity(Gravity.CENTER_HORIZONTAL);
         return view;
-    }
-
-    private LinearLayout.LayoutParams block(int top) {
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        params.topMargin = dp(top);
-        return params;
-    }
-
-    private int dp(int value) {
-        return Ui.dp(activity, value);
     }
 
     /** 按 SVG path 数据画的图标：每条 path 一种颜色，按 `viewport` 等比缩放到边界里。 */

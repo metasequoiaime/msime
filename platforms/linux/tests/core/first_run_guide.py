@@ -160,15 +160,11 @@ def main() -> int:
 
         # 没装设置窗口（只装输入法的最小安装）：仍然通知，改为指向终端命令。
         (bin_dir / "msime-linux-settings").unlink()
-        # 最小安装这一例不能被测试机真实 PATH 里装着的设置启动器干扰：只去掉含有它的目录，
-        # 其余保留，脚本用到的 mkdir、date 等不必在 /usr/bin 或 /bin（Nix 构建沙箱里没有）。
-        real_path = [
-            directory for directory in os.environ.get("PATH", "/usr/bin:/bin").split(os.pathsep)
-            if directory and not (Path(directory) / "msime-linux-settings").exists()
-        ]
+        # 引导脚本只在没有 MSIME_CLIENT_SETTINGS_COMMAND 时才去 PATH 里找设置启动器，这里把它指向
+        # 一个不存在的文件，所以测试机上装没装 msime-linux 都不影响结果，PATH 保持原样：
+        # 此前为避开已装的启动器把它所在的 /usr/bin 和 /bin 整个去掉，脚本连 mkdir、date 都找不到。
         environment = dict(
             graphical,
-            PATH=os.pathsep.join([str(tools), *real_path]),
             MSIME_CLIENT_SETTINGS_COMMAND=str(scratch / "missing-settings"),
         )
         assert launch(environment).returncode == 1

@@ -121,7 +121,7 @@ public final class MlKitHandwritingRecognizer implements HandwritingRecognizer {
             .build();
         recognizer.recognize(ink.build(), context)
             .addOnSuccessListener(result -> {
-                List<String> candidates = new ArrayList<>();
+                List<String> candidates = new ArrayList<>(result.getCandidates().size());
                 result.getCandidates().forEach(candidate -> candidates.add(candidate.getText()));
                 synchronized (lock) {
                     if (closed || generation != token) return;

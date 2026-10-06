@@ -51,7 +51,7 @@ use platform::ios::ios_account;
 #[cfg(target_os = "linux")]
 use platform::linux::{
     linux_account, linux_audio_devices, linux_data_directory, linux_process,
-    linux_provider_credentials, linux_setup,
+    linux_program_handover, linux_provider_credentials, linux_setup,
 };
 #[cfg(target_os = "macos")]
 use platform::macos::{
@@ -3535,6 +3535,64 @@ fn macos_settings_launch(route: Option<SurfaceRoute>) -> bool {
     route.is_none_or(|route| route.panel().is_none())
 }
 
+/// 升级后的第一次启动：本进程执行的程序已被新文件替换时，把这次启动交给新程序，自己退出，否则用户看到的一直是旧界面（见 `linux_program_handover`）。先隐藏所有窗口，让页面把待保存的编辑写完，过 [`linux_program_handover::FLUSH_GRACE`] 再放开单实例的 D-Bus 名、以转来的参数启动新程序并退出；新程序因此拿得到这个名字，不会又把参数转回来。正在下载或删除模型、资源包时不交接，免得把它打断，等下一次启动再说。返回是否接手了这次启动；没有接手时由调用方照旧激活界面。
+#[cfg(target_os = "linux")]
+fn hand_over_to_replaced_program(app: &tauri::AppHandle, args: &[String], cwd: &str) -> bool {
+    static HANDING_OVER: AtomicBool = AtomicBool::new(false);
+    if HANDING_OVER.load(Ordering::Acquire) {
+        // 交接已经开始：新程序启动后就能拿到单实例名，这次启动的参数也会由它处理。
+        return true;
+    }
+    let Some(program) = linux_program_handover::running_program_replaced() else {
+        return false;
+    };
+    if app
+        .try_state::<voice::local_models::LocalModelInstalls>()
+        .is_some_and(|installs| installs.any_running())
+    {
+        return false;
+    }
+    if HANDING_OVER.swap(true, Ordering::AcqRel) {
+        return true;
+    }
+    if let Some(linger) = app.try_state::<DesktopSettingsLinger>() {
+        linger.quitting.store(true, Ordering::Release);
+    }
+    let hide_app = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        for window in hide_app.webview_windows().values() {
+            let _ = window.hide();
+        }
+    });
+    let app = app.clone();
+    let args = args.to_vec();
+    let cwd = cwd.to_owned();
+    std::thread::spawn(move || {
+        std::thread::sleep(linux_program_handover::FLUSH_GRACE);
+        tauri_plugin_single_instance::destroy(&app);
+        let mut command = std::process::Command::new(&program);
+        command.args(args.iter().skip(1));
+        if Path::new(&cwd).is_absolute() {
+            command.current_dir(&cwd);
+        }
+        match command.spawn() {
+            Ok(_) => app.exit(0),
+            Err(_) => {
+                // 新程序起不来：留在旧程序上，至少把用户要的界面打开。
+                eprintln!("msime: could not start the upgraded settings program");
+                if let Some(linger) = app.try_state::<DesktopSettingsLinger>() {
+                    linger.quitting.store(false, Ordering::Release);
+                }
+                let route = second_launch_route(&args);
+                let callback_app = app.clone();
+                let _ =
+                    app.run_on_main_thread(move || activate_desktop_surface(&callback_app, route));
+            }
+        }
+    });
+    true
+}
+
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 fn cancel_settings_linger(app: &tauri::AppHandle) {
     if let Some(state) = app.try_state::<DesktopSettingsLinger>() {
@@ -4762,6 +4820,10 @@ pub fn run() {
     let builder = builder.plugin(tauri_nspanel::init());
     #[cfg(any(target_os = "linux", target_os = "windows"))]
     let builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+        #[cfg(target_os = "linux")]
+        if hand_over_to_replaced_program(app, &args, &_cwd) {
+            return;
+        }
         let route = second_launch_route(&args);
         let callback_app = app.clone();
         let _ = app.run_on_main_thread(move || activate_desktop_surface(&callback_app, route));

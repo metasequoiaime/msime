@@ -185,11 +185,12 @@ final class ImeLetterRows {
                     s.backspaceRepeated = false;
                     s.backspaceClearedComposition = false;
                     button.setPressed(true);
+                    // 按下就删一次，和 BackspaceRepeatPolicy 说的一样；等到松手才删，删除就慢了整整一个按压时长。这次点击同时播反馈、记一次按键。
+                    button.performClick();
                     s.backspaceRepeatTask = new Runnable() {
                         @Override public void run() {
                             if (s.backspaceRepeatButton != button || !button.isPressed()) return;
-                            // A held delete is one press however often it repeats; a short tap counts through performClick instead.
-                            if (!s.backspaceRepeated) s.countKey(button);
+                            // A held delete is one press however often it repeats; the press was counted by the click on touch-down.
                             s.backspaceRepeated = true;
                             if (s.hasEngineComposition()) {
                                 s.imeKeyFeedback.playFeedback(button);
@@ -218,11 +219,8 @@ final class ImeLetterRows {
                     return true;
                 }
                 case MotionEvent.ACTION_UP -> {
-                    boolean active = s.backspaceRepeatButton == button;
-                    boolean repeated = active && (s.backspaceRepeated || s.backspaceClearedComposition);
                     cancelBackspaceRepeat();
                     button.setPressed(false);
-                    if (active && !repeated) button.performClick();
                     return true;
                 }
                 case MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_OUTSIDE -> {

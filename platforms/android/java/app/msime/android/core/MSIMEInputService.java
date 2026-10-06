@@ -1285,8 +1285,10 @@ public final class MSIMEInputService extends InputMethodService {
             if (generation != engineStartGeneration || connection == null || session != 0) return;
             startEngineSession(options);
         };
+        boolean suppressLearning = learningSuppressed();
         try {
             preferencesWorker.execute(() -> {
+                String startOptions = withLivePreferences(options, suppressLearning);
                 String notice = "";
                 try {
                     JSONObject sync = value(NativeClient.personalDictionarySync(options));
@@ -1300,12 +1302,32 @@ public final class MSIMEInputService extends InputMethodService {
                 main.post(() -> {
                     if (generation != engineStartGeneration || connection == null || session != 0) return;
                     if (!finalNotice.isEmpty()) preferencesNotice = finalNotice;
-                    complete.run();
+                    startEngineSession(startOptions);
                 });
             });
         } catch (RuntimeException ignored) {
             // A worker shutdown must not leave a still-valid editor without its session.
             main.post(complete);
+        }
+    }
+
+    /**
+     * runtime-options.json 里的偏好是首次安装时写下的出厂默认（见 Bootstrap.prepare），拿它建会话，引擎先按默认方案（全拼 26 键）起来，过一两秒实时偏好重载后才换成用户的方案，九键用户每次都看到键盘从 26 键跳成九键。建会话前在工作线程上读一次实时偏好换进去；读不到时照旧用原来那份。不允许学习的输入框照样把 learning 关掉。
+     */
+    private static String withLivePreferences(String optionsText, boolean suppressLearning) {
+        try {
+            JSONObject options = new JSONObject(optionsText);
+            String directory = options.optString("preferences_directory", "");
+            if (directory.isEmpty() || !new File(directory).isAbsolute()) return optionsText;
+            JSONObject envelope = new JSONObject(NativeClient.loadPreferences(directory));
+            JSONObject live = envelope.optBoolean("ok", false)
+                ? envelope.getJSONObject("value").optJSONObject("preferences") : null;
+            if (live == null) return optionsText;
+            if (suppressLearning) live.put("learning", false);
+            options.put("preferences", live);
+            return options.toString();
+        } catch (JSONException | RuntimeException | LinkageError error) {
+            return optionsText;
         }
     }
 
@@ -1417,7 +1439,7 @@ public final class MSIMEInputService extends InputMethodService {
             && preferences.optBoolean("touch_voice_shortcut", false);
     }
 
-    /** 日语九键侧列的 ☺：顶部工具栏有表情按钮时两处入口重复，不放；工具栏关掉表情或整条隐藏时才放回来，空出的格给「英」。 */
+    /** 日语九键侧列的 ☺：顶部工具栏有表情按钮时两处入口重复，不放；工具栏关掉表情或整条隐藏时才放回来。 */
     boolean japaneseSideEmojiKey() {
         return !toolbarEmoji || toolbarHidden;
     }
@@ -1847,11 +1869,9 @@ public final class MSIMEInputService extends InputMethodService {
         // Korean marks the composing Hangul, not the key letters editing_text holds; a transition may carry the syllable the key finished and the next one together, and the bridge writes the commit first. Zhuyin's editing_text is the Dachen keys too, and it marks the reading (the conversion and the pending bopomofo) by the same rule.
         int nextViewScheme = InputViewValuePolicy.scheme(next, -1);
         boolean nextDedicatedEnglish = next.optBoolean("dedicated_english", dedicatedEnglish);
-        // 笔画的 editing_text 是字母 hspnzx，reading 才是用户按下的笔画字形（一丨丿丶乛＊），所以同样标记 reading。
+        // 笔画的 editing_text 是字母 hspnzx，reading 才是用户按下的笔画字形（一丨丿丶乛＊），所以同样标记 reading。日语的 editing_text 是罗马字（九键的 ち 送的是 chi），reading 才是假名。哪些方案这样做由引擎的 `draws_reading` 决定。
         String composing = KoreanInputPolicy.composing(
-            KoreanInputPolicy.active(nextViewScheme, nextDedicatedEnglish)
-                || ZhuyinInputPolicy.active(nextViewScheme, nextDedicatedEnglish)
-                || StrokeInputPolicy.active(nextViewScheme, nextDedicatedEnglish),
+            InputSchemeTraits.drawsReading(nextViewScheme) && !nextDedicatedEnglish,
             next.optString("phrase_prefix", ""), next.getString("editing_text"),
             next.optString("reading", ""));
         // 九键的 editing_text 是按下的数字键（64426），写进输入框对用户没有意义；和 iOS 默认一样不在输入框里标记组词，组词只显示在键盘自己的预编辑栏上（选过的音节显示为拼音，如 ni'426）。注音 9 键例外：上面已经按大千的规则标记 reading（转换结果加未完成的数字），照常留在输入框里。
@@ -2821,7 +2841,31 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     int displayedTouchLayout(JSONObject value) {
-        return dedicatedEnglish ? STANDARD_TOUCH_LAYOUT : touchLayout(value);
+        if (dedicatedEnglish) return STANDARD_TOUCH_LAYOUT;
+        if (value == null) return touchLayoutHint();
+        int layout = touchLayout(value);
+        rememberTouchLayout(layout);
+        return layout;
+    }
+
+    // 键盘弹出时引擎会话还在后台起（scheduleEngineStartup），view 要一两秒后才到；那之前按 view 算布局只能是默认的 26 键，九键用户每次都先看到 26 键再跳成九键。所以记住上次引擎给出的布局，view 还没到时先按它画。记在 SharedPreferences 里，键盘进程重启后也还在。
+    private static final String TOUCH_LAYOUT_HINT_PREFERENCES = "keyboard-layout-hint";
+    private static final String TOUCH_LAYOUT_HINT_KEY = "touch_layout";
+    private int touchLayoutHint = -1;
+
+    private int touchLayoutHint() {
+        if (touchLayoutHint < 0) {
+            touchLayoutHint = getSharedPreferences(TOUCH_LAYOUT_HINT_PREFERENCES, MODE_PRIVATE)
+                .getInt(TOUCH_LAYOUT_HINT_KEY, STANDARD_TOUCH_LAYOUT);
+        }
+        return touchLayoutHint;
+    }
+
+    private void rememberTouchLayout(int layout) {
+        if (layout == touchLayoutHint()) return;
+        touchLayoutHint = layout;
+        getSharedPreferences(TOUCH_LAYOUT_HINT_PREFERENCES, MODE_PRIVATE).edit()
+            .putInt(TOUCH_LAYOUT_HINT_KEY, layout).apply();
     }
 
     boolean sendsChinesePunctuation() {
@@ -3384,6 +3428,25 @@ public final class MSIMEInputService extends InputMethodService {
     Button keyboardKey(String label, String description, Runnable action) {
         Button button = new KeyboardPressButton(this);
         button.setAllCaps(false);
+        button.setText(label);
+        button.setContentDescription("按键 " + description);
+        imeStyler.styleButton(button, false);
+        button.setOnClickListener(ignored -> {
+            imeKeyFeedback.playFeedback(button);
+            countKey(button);
+            action.run();
+        });
+        return button;
+    }
+
+    /** 九键、注音、笔画、手写和日语九键的 ⌫：和 {@link #keyboardKey} 一样的键，只是画 26 键那个 22 dp 的删除图标，不再用排版字号的「⌫」字符，那样比 26 键的小一圈。 */
+    Button backspaceKey(Runnable action) {
+        return iconKey(KeyboardIconKey.Kind.BACKSPACE, "⌫", "删除", action);
+    }
+
+    /** {@link #keyboardKey} 的图标版：节点文字仍是 `label`，键面画 `kind` 的描边图标。 */
+    Button iconKey(KeyboardIconKey.Kind kind, String label, String description, Runnable action) {
+        KeyboardIconKey button = new KeyboardIconKey(this, kind);
         button.setText(label);
         button.setContentDescription("按键 " + description);
         imeStyler.styleButton(button, false);
@@ -5265,7 +5328,8 @@ public final class MSIMEInputService extends InputMethodService {
         configureCandidateTextLayout(button, labelLines);
         button.setTextSize(TypedValue.COMPLEX_UNIT_SP, candidateFontSize);
         button.setSelected(highlighted);
-        imeCandidates.styleCandidateButton(button);
+        // render() attaches the button and applies the complete skin tree once below.
+        // Avoid creating its candidate drawables before that pass.
         String description = "候选 " + (slot + 1) + "：" + text
             + candidateAccessibilitySuffix(candidate, typed);
         JSONObject id = candidate.optJSONObject("id");
@@ -6462,7 +6526,7 @@ public final class MSIMEInputService extends InputMethodService {
             exitLocalModeButton.setVisibility(localModeActive ? View.VISIBLE : View.GONE);
             exitLocalModeButton.setEnabled(localModeActive && session != 0);
             exitLocalModeButton.setContentDescription("退出本地模式");
-            imeStyler.styleButton(exitLocalModeButton, KeyboardKeyRole.GLYPH, skin);
+            // The final applySkin() traversal styles this attached button once.
         }
         if (hanjaButton != null) {
             boolean offersHanja = session != 0 && koreanConvertsHanja();
@@ -6608,8 +6672,7 @@ public final class MSIMEInputService extends InputMethodService {
             shiftButton.setText(letterCase.keyText());
             shiftButton.setSelected(letterCase.usesUppercase());
             shiftButton.setActivated(letterCase.mode() == EnglishLetterCaseState.Mode.CAPS_LOCK);
-            // The tinted function face in the letter row, and the filled accent only while it is on.
-            imeStyler.styleButton(shiftButton, KeyboardKeyRole.ACCENT, skin);
+            // The final applySkin() traversal styles this attached button once.
             String caseLabel = shiftLayout == KeyboardLayout.KOREAN_LAYOUT
                 ? KoreanKeyboardLayout.SHIFT_LABEL
                 : letterCase.accessibilityLabel(dedicatedEnglish || session == 0

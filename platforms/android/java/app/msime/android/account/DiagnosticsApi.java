@@ -253,9 +253,9 @@ public final class DiagnosticsApi {
      * 从诊断包 zip 里取出要上传的各节。按条目文件名认：`config_snapshot.json`、`input_events.jsonl`（或 `input-events.jsonl`）、`perf.jsonl`（或 `perf_trace.jsonl`、`performance_logs.jsonl`）和 `*.crash`；没选的类别不读。
      */
     public static Sections readBundle(File zip, Include include) throws IOException {
-        List<CrashLog> crashes = include.crashLogs() ? new ArrayList<>() : null;
-        List<Event> perf = include.performanceLogs() ? new ArrayList<>() : null;
-        List<Event> input = include.inputEvents() ? new ArrayList<>() : null;
+        List<CrashLog> crashes = include.crashLogs() ? new ArrayList<>(MAX_CRASH_LOGS) : null;
+        List<Event> perf = include.performanceLogs() ? new ArrayList<>(MAX_EVENTS) : null;
+        List<Event> input = include.inputEvents() ? new ArrayList<>(MAX_EVENTS) : null;
         String config = null;
         try (ZipInputStream stream = new ZipInputStream(new FileInputStream(zip), StandardCharsets.UTF_8)) {
             for (ZipEntry entry = stream.getNextEntry(); entry != null; entry = stream.getNextEntry()) {
@@ -279,7 +279,7 @@ public final class DiagnosticsApi {
 
     /** 每条 jsonl 都按枚举重建，只取三个数值/枚举字段；坏行和不认识的种类丢弃。 */
     static List<Event> eventLines(String text, boolean durationRequired) {
-        List<Event> events = new ArrayList<>();
+        List<Event> events = new ArrayList<>(MAX_EVENTS);
         for (String line : text.split("\n")) {
             String trimmed = line.trim();
             if (trimmed.isEmpty()) continue;
@@ -360,18 +360,7 @@ public final class DiagnosticsApi {
 
     /** 按 UTF-8 字节截断，不切开多字节字符和代理对。 */
     static String clipUtf8(String value, int maxBytes) {
-        if (value == null) return "";
-        if (value.getBytes(StandardCharsets.UTF_8).length <= maxBytes) return value;
-        int bytes = 0;
-        int index = 0;
-        while (index < value.length()) {
-            int codePoint = value.codePointAt(index);
-            int size = codePoint < 0x80 ? 1 : codePoint < 0x800 ? 2 : codePoint < 0x10000 ? 3 : 4;
-            if (bytes + size > maxBytes) break;
-            bytes += size;
-            index += Character.charCount(codePoint);
-        }
-        return value.substring(0, index);
+        return TextPolicy.clipUtf8(value, maxBytes);
     }
 
     /** JSON 字符串转义（RFC 8259）。 */

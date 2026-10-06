@@ -382,7 +382,9 @@ public final class CloudApi {
             InputStream stream = status / 100 == 2 ? connection.getInputStream() : connection.getErrorStream();
             byte[] response = new byte[0];
             if (stream != null) {
-                try (InputStream input = stream) { response = readBounded(input); }
+                try (InputStream input = stream) {
+                    response = HttpBodyPolicy.readRequired(input, MAX_RESPONSE_BYTES);
+                }
             }
             return new Exchange(status, connection.getContentType(), connection.getHeaderField("Retry-After"), response);
         } finally {
@@ -390,9 +392,4 @@ public final class CloudApi {
         }
     }
 
-    static byte[] readBounded(InputStream input) throws IOException {
-        byte[] response = HttpBodyPolicy.readBounded(input, MAX_RESPONSE_BYTES);
-        if (response == null) throw new IOException("response too large");
-        return response;
-    }
 }

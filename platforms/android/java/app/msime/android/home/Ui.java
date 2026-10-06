@@ -9,7 +9,9 @@ import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.RippleDrawable;
 import android.util.TypedValue;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.animation.PathInterpolator;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 import androidx.annotation.AttrRes;
 import androidx.annotation.ColorInt;
@@ -133,6 +135,40 @@ public final class Ui {
 
     public static int dp(Context context, float value) {
         return Math.round(value * context.getResources().getDisplayMetrics().density);
+    }
+
+    /** Convert a density-independent dimension without rounding, for canvas geometry. */
+    public static float dpFloat(Context context, float value) {
+        return value * context.getResources().getDisplayMetrics().density;
+    }
+
+    /** Parse a theme or skin colour, returning the supplied fallback for missing or invalid input. */
+    public static int parseColor(String value, int fallback) {
+        if (value == null || value.isEmpty()) return fallback;
+        try {
+            return Color.parseColor(value);
+        } catch (IllegalArgumentException error) {
+            return fallback;
+        }
+    }
+
+    /** Layout parameters for a view that fills the parent width at its measured height. */
+    public static LinearLayout.LayoutParams matchWidth() {
+        return new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT);
+    }
+
+    /** Full-width layout parameters with a top margin expressed in dp. */
+    public static LinearLayout.LayoutParams matchWidth(Context context, int topMarginDp) {
+        LinearLayout.LayoutParams params = matchWidth();
+        params.topMargin = dp(context, topMarginDp);
+        return params;
+    }
+
+    /** Layout parameters for a view that wraps both its content dimensions. */
+    public static LinearLayout.LayoutParams wrap() {
+        return new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT);
     }
 
     /** 读一个颜色主题属性；属性缺失时退回洋红，让漏配的属性在截图里一眼可见，而不是悄悄显示成别的颜色。 */

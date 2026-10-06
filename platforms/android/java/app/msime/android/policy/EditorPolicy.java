@@ -5,13 +5,13 @@ import android.view.inputmethod.EditorInfo;
 
 public final class EditorPolicy {
     private EditorPolicy() {}
+    /** 文本框都走引擎，只有密码框不走。`TYPE_TEXT_FLAG_NO_SUGGESTIONS` 只是「别给输入建议」，不是「不能组字」：Chrome 的地址栏（同时是搜索框）就带着它，排除它会让那里只能打英文字母、切不到中文和日语。这类输入框由 {@link #prefersLatin} 默认英文。 */
     public static boolean useEngine(int type) {
         if ((type & InputType.TYPE_MASK_CLASS) != InputType.TYPE_CLASS_TEXT) return false;
         int variation = type & InputType.TYPE_MASK_VARIATION;
         return variation != InputType.TYPE_TEXT_VARIATION_PASSWORD
             && variation != InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
-            && variation != InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD
-            && (type & InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS) == 0;
+            && variation != InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD;
     }
     public static boolean allowLearning(int options) {
         return (options & EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING) == 0;

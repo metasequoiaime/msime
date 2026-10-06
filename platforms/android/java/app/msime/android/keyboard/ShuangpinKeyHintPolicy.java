@@ -24,7 +24,7 @@ public final class ShuangpinKeyHintPolicy {
         int open = valueKey < 0 ? -1 : response.indexOf('{', valueKey);
         int close = matchingObjectEnd(response, open);
         if (open < 0 || close < 0) return Map.of();
-        Map<String, String> hints = new LinkedHashMap<>();
+        Map<String, String> hints = new LinkedHashMap<>(MAX_KEYS);
         int cursor = open + 1;
         while (cursor < close) {
             cursor = skipSpaceAndCommas(response, cursor, close);

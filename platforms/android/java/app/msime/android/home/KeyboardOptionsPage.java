@@ -158,16 +158,16 @@ public final class KeyboardOptionsPage extends DetailPage {
         plate.setOrientation(LinearLayout.HORIZONTAL);
         plate.setGravity(Gravity.CENTER_VERTICAL);
         plate.setPadding(Ui.dp(context, 10), 0, Ui.dp(context, 10), 0);
-        plate.setBackground(Ui.rounded(parse(skin.background(), Ui.page(context)), Ui.dp(context, 12)));
+        plate.setBackground(Ui.rounded(Ui.parseColor(skin.background(), Ui.page(context)), Ui.dp(context, 12)));
         plate.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
-        int icon = parse(skin.toolbarIcon(), Ui.subText(context));
+        int icon = Ui.parseColor(skin.toolbarIcon(), Ui.subText(context));
         if (settings.bool(AndroidLocalSettings.TOOLBAR_HIDDEN)) {
             TextView note = new TextView(context);
             note.setText("工具栏已隐藏，只显示候选条");
             Ui.style(note, 13, 400, icon);
             plate.addView(note);
         } else {
-            addChip(context, plate, "水杉", parse(skin.accentText(), Ui.accent(context)));
+            addChip(context, plate, "水杉", Ui.parseColor(skin.accentText(), Ui.accent(context)));
             for (String[] button : TOOLBAR_BUTTONS) {
                 if (toolbarButton(toolbar, settings, button[0])) addChip(context, plate, button[1], icon);
             }
@@ -185,15 +185,6 @@ public final class KeyboardOptionsPage extends DetailPage {
         LinearLayout.LayoutParams params = KeyboardSheets.wrap();
         params.setMarginEnd(Ui.dp(context, 12));
         plate.addView(chip, params);
-    }
-
-    private static int parse(String colour, int fallback) {
-        if (colour == null || colour.isEmpty()) return fallback;
-        try {
-            return Color.parseColor(colour);
-        } catch (IllegalArgumentException error) {
-            return fallback;
-        }
     }
 
     /**

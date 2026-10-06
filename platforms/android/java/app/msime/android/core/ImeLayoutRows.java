@@ -7,6 +7,7 @@ import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewConfiguration;
 import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
@@ -127,7 +128,7 @@ final class ImeLayoutRows {
 
         LinearLayout tools = new LinearLayout(s);
         tools.setOrientation(LinearLayout.VERTICAL);
-        Button delete = s.keyId(s.keyboardKey("⌫", "删除", s::deleteFromHandwriting), "Backspace");
+        Button delete = s.keyId(s.backspaceKey(s::deleteFromHandwriting), "Backspace");
         if (delete instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
         addNineKey(tools, delete);
         Button rewrite = s.keyboardKey("重写", "清空手写", () -> {
@@ -373,7 +374,7 @@ final class ImeLayoutRows {
         Runnable deleteAction = () -> {
             if (s.connection != null && !s.command(0)) s.deleteCodePointBeforeCursor();
         };
-        Button delete = s.keyId(s.keyboardKey("⌫", "删除", deleteAction), "Backspace");
+        Button delete = s.keyId(s.backspaceKey(deleteAction), "Backspace");
         s.imeLetterRows.bindBackspaceRepeat(delete, deleteAction);
         if (delete instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
         addNineKey(actions, delete);
@@ -465,7 +466,7 @@ final class ImeLayoutRows {
         Runnable deleteAction = () -> {
             if (s.connection != null && !s.command(0)) s.connection.deleteSurroundingTextInCodePoints(1, 0);
         };
-        Button delete = s.keyId(s.keyboardKey("⌫", "删除", deleteAction), "Backspace");
+        Button delete = s.keyId(s.backspaceKey(deleteAction), "Backspace");
         s.imeLetterRows.bindBackspaceRepeat(delete, deleteAction);
         if (delete instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
         addNineKey(actions, delete);
@@ -573,7 +574,7 @@ final class ImeLayoutRows {
         Runnable deleteAction = () -> {
             if (s.connection != null && !s.command(0)) s.deleteCodePointBeforeCursor();
         };
-        Button delete = s.keyId(s.keyboardKey("⌫", "删除", deleteAction), "Backspace");
+        Button delete = s.keyId(s.backspaceKey(deleteAction), "Backspace");
         s.imeLetterRows.bindBackspaceRepeat(delete, deleteAction);
         if (delete instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
         addNineKey(actions, delete);
@@ -720,6 +721,103 @@ final class ImeLayoutRows {
         for (int index = 0; index < input.length(); index++) s.character(input.charAt(index));
     }
 
+    /** 九键的一个假名背后是一串罗马字（ち 是 chi），引擎的退格一次只删一个字母；接着删到读音末尾不再挂着半截罗马字，按一次就删掉一整个假名。 */
+    void deleteJapaneseKana() {
+        resetJapaneseToggle();
+        if (s.connection == null) return;
+        if (!s.command(0)) {
+            s.deleteCodePointBeforeCursor();
+            return;
+        }
+        for (int extra = 1; extra < JapaneseNineKeyLayout.LONGEST_STROKE && s.view != null
+                && JapaneseNineKeyLayout.endsWithPendingRomaji(s.view.optString("reading", "")); extra++) {
+            if (!s.command(0)) return;
+        }
+    }
+
+    // ---- toggle input (トグル入力) ----
+    private JapaneseNineKeyLayout.Key toggleKey;
+    private int toggleDirection;
+    private long toggleAt;
+    private String toggleEditing = "";
+    private String toggleLiteral = "";
+
+    void resetJapaneseToggle() {
+        toggleKey = null;
+    }
+
+    /** 上一次连点留下的假名还原样在那里：组字没被别的输入改过，或标点仍是光标前那一个字。中间打过别的字、删过、选过候选，都从新的一个假名开始。时间窗只管「再点同一个键算不算接着切换」（`withinWindow`）；→ 是明确的意图，不受它限制。 */
+    private boolean japaneseToggleCurrent(boolean withinWindow) {
+        if (toggleKey == null || s.connection == null || s.view == null) return false;
+        if (withinWindow && android.os.SystemClock.uptimeMillis() - toggleAt
+                > JapaneseNineKeyLayout.TOGGLE_WINDOW_MS) return false;
+        String editing = s.view.optString("editing_text", "");
+        if (toggleLiteral.isEmpty()) return editing.equals(toggleEditing);
+        CharSequence before = s.connection.getTextBeforeCursor(toggleLiteral.length(), 0);
+        return editing.isEmpty() && before != null && toggleLiteral.contentEquals(before);
+    }
+
+    private void recordJapaneseToggle(JapaneseNineKeyLayout.Key key, int direction) {
+        toggleKey = key;
+        toggleDirection = direction;
+        toggleAt = android.os.SystemClock.uptimeMillis();
+        toggleEditing = s.view == null ? "" : s.view.optString("editing_text", "");
+        toggleLiteral = "";
+        if (key.strokes().get(direction).isEmpty() && s.connection != null) {
+            CharSequence before = s.connection.getTextBeforeCursor(1, 0);
+            toggleLiteral = before == null ? "" : before.toString();
+        }
+    }
+
+    /** 轻点假名键：同一个键在 {@link JapaneseNineKeyLayout#TOGGLE_WINDOW_MS} 内再点，就把刚打的假名换成下一个（あ→い→う…），否则照常打键面上的假名。数字符号层没有连点切换。 */
+    void tapJapaneseKey(JapaneseNineKeyLayout.Key key) {
+        if (s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS) {
+            resetJapaneseToggle();
+            selectJapaneseKey(key, 0);
+            return;
+        }
+        if (key == toggleKey && japaneseToggleCurrent(true)) {
+            stepJapaneseToggle(1);
+            return;
+        }
+        resetJapaneseToggle();
+        selectJapaneseKey(key, 0);
+        recordJapaneseToggle(key, 0);
+    }
+
+    /** 撤掉上一次连点打出的假名（组字里删掉它的罗马字，标点删掉光标前那个字），换成循环里后 `step` 位的那个。 */
+    private void stepJapaneseToggle(int step) {
+        JapaneseNineKeyLayout.Key key = toggleKey;
+        int next = JapaneseNineKeyLayout.toggleStep(JapaneseNineKeyLayout.toggleCycle(key), toggleDirection, step);
+        String stroke = key.strokes().get(toggleDirection);
+        if (stroke.isEmpty()) {
+            s.deleteCodePointBeforeCursor();
+        } else {
+            for (int index = 0; index < stroke.length(); index++) {
+                if (!s.command(0)) break;
+            }
+        }
+        selectJapaneseKey(key, next);
+        recordJapaneseToggle(key, next);
+    }
+
+    /** ◀：结束连点切换；没有组字时把光标左移一格。组字里的光标按罗马字移动，会停在半个假名里，所以组字时不动。 */
+    void moveJapaneseCaretLeft() {
+        resetJapaneseToggle();
+        if (s.connection == null) return;
+        if (s.view == null || s.view.optString("editing_text", "").isEmpty())
+            s.sendDownUpKeyEvents(android.view.KeyEvent.KEYCODE_DPAD_LEFT);
+    }
+
+    /** →：结束连点切换，下一次轻点同一个键打新的假名（ああ）；不在切换、也没有组字时把光标右移一格。 */
+    void advanceJapaneseToggle() {
+        boolean toggling = japaneseToggleCurrent(false);
+        resetJapaneseToggle();
+        if (toggling || s.connection == null) return;
+        if (s.view == null || s.view.optString("editing_text", "").isEmpty())
+            s.sendDownUpKeyEvents(android.view.KeyEvent.KEYCODE_DPAD_RIGHT);
+    }
+
     void selectJapaneseKey(JapaneseNineKeyLayout.Key key, int direction) {
         if (direction < 0 || direction >= key.kana().size()) return;
         if (key.kana().get(direction).isEmpty()) return;
@@ -740,35 +838,50 @@ final class ImeLayoutRows {
     void bindJapaneseFlick(Button button, JapaneseNineKeyLayout.Key key) {
         final float[] origin = new float[2];
         final int[] direction = new int[1];
+        final boolean[] previewShown = new boolean[1];
+        // 轻点只输入键面上的假名，不弹十字预览；按住到系统长按时长，或手指已经滑出方向，才显示它。
+        Runnable holdPreview = () -> {
+            previewShown[0] = true;
+            showJapaneseFlickPreview(button, key, direction[0]);
+        };
         button.setOnTouchListener((ignored, event) -> {
             switch (event.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN -> {
                     origin[0] = event.getX();
                     origin[1] = event.getY();
                     direction[0] = 0;
+                    previewShown[0] = false;
                     button.setPressed(true);
-                    showJapaneseFlickPreview(button, key, 0);
+                    button.removeCallbacks(holdPreview);
+                    button.postDelayed(holdPreview, ViewConfiguration.getLongPressTimeout());
                     return true;
                 }
                 case MotionEvent.ACTION_MOVE -> {
                     direction[0] = JapaneseNineKeyLayout.direction(
                         event.getX() - origin[0], event.getY() - origin[1], s.pixels(12));
-                    showJapaneseFlickPreview(button, key, direction[0]);
+                    if (previewShown[0] || direction[0] != 0) {
+                        button.removeCallbacks(holdPreview);
+                        previewShown[0] = true;
+                        showJapaneseFlickPreview(button, key, direction[0]);
+                    }
                     return true;
                 }
                 case MotionEvent.ACTION_UP -> {
                     button.setPressed(false);
+                    button.removeCallbacks(holdPreview);
                     hideJapaneseFlickPreview();
                     if (direction[0] == 0) button.performClick();
                     else {
                         s.imeKeyFeedback.playFeedback(button);
                         s.countKey(button);
+                        resetJapaneseToggle();
                         selectJapaneseKey(key, direction[0]);
                     }
                     return true;
                 }
                 case MotionEvent.ACTION_CANCEL -> {
                     button.setPressed(false);
+                    button.removeCallbacks(holdPreview);
                     hideJapaneseFlickPreview();
                     return true;
                 }
@@ -800,10 +913,10 @@ final class ImeLayoutRows {
         String description = key.kana().stream().filter(label -> !label.isEmpty())
             .collect(java.util.stream.Collectors.joining("、"));
         Button button = s.keyboardKey(japaneseKeyLabel(key), description,
-            () -> selectJapaneseKey(key, 0));
+            () -> tapJapaneseKey(key));
         twoLineFace(button, japaneseKeyLabel(key));
         button.setContentDescription("轻点输入" + key.kana().get(0)
-            + "；左、上、右、下滑动选择其他假名");
+            + "，连续轻点依次切换；左、上、右、下滑动选择其他假名");
         bindJapaneseFlick(button, key);
         if (button instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.KEY);
         return button;
@@ -868,6 +981,11 @@ final class ImeLayoutRows {
             s.imeLetterRows.rebuildKeyRows();
             s.render();
         }), "SoftLayer");
+        // 左列：◀ 光标左移、→ 结束连点切换（或光标右移），再是 123、☺（工具栏没有表情时）、英、切换，各占一格。
+        addJapaneseSideKey(modeColumn, s.iconKey(KeyboardIconKey.Kind.CURSOR_LEFT, "◀",
+            "光标左移", this::moveJapaneseCaretLeft), 1);
+        addJapaneseSideKey(modeColumn, s.iconKey(KeyboardIconKey.Kind.TOGGLE_NEXT, "→",
+            "结束连点切换，开始下一个假名；没有组字时光标右移", this::advanceJapaneseToggle), 1);
         addJapaneseSideKey(modeColumn, s.japaneseSymbolsKey, 1);
         boolean emojiKey = s.japaneseSideEmojiKey();
         if (emojiKey) {
@@ -876,8 +994,7 @@ final class ImeLayoutRows {
         }
         Button language = s.keyId(s.keyboardKey("英", "切换到英文输入", s::toggleInputLanguage),
             "SoftLanguage");
-        addJapaneseSideKey(modeColumn, language,
-            (s.offersGlobeKey() ? 1 : 2) + (emojiKey ? 0 : 1));
+        addJapaneseSideKey(modeColumn, language, 1);
         if (s.offersGlobeKey()) {
             addJapaneseSideKey(modeColumn, s.keyId(s.keyboardKey("切换", "切换到下一个输入法",
                 s::switchToNextInputMethodAfterCommit), "SoftGlobe"), 1);
@@ -910,10 +1027,8 @@ final class ImeLayoutRows {
 
         LinearLayout side = new LinearLayout(s);
         side.setOrientation(LinearLayout.VERTICAL);
-        Runnable deleteAction = () -> {
-            if (s.connection != null && !s.command(0)) s.deleteCodePointBeforeCursor();
-        };
-        Button delete = s.keyId(s.keyboardKey("⌫", "删除", deleteAction), "Backspace");
+        Runnable deleteAction = this::deleteJapaneseKana;
+        Button delete = s.keyId(s.backspaceKey(deleteAction), "Backspace");
         s.imeLetterRows.bindBackspaceRepeat(delete, deleteAction);
         addJapaneseSideKey(side, delete, 1);
         s.japaneseSpaceKey = s.keyId(s.keyboardKey("空白", "空白；左右滑动移动光标", s::space), "Space");

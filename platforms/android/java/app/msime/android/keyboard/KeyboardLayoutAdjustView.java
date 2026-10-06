@@ -64,7 +64,8 @@ public final class KeyboardLayoutAdjustView extends FrameLayout {
         bar = new LinearLayout(context);
         bar.setOrientation(LinearLayout.HORIZONTAL);
         bar.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        bar.setPadding(dp(8), dp(4), dp(8), dp(4));
+        bar.setPadding(KeyboardGeometry.pixels(8, density), KeyboardGeometry.pixels(4, density),
+            KeyboardGeometry.pixels(8, density), KeyboardGeometry.pixels(4, density));
         bar.setContentDescription("键盘高度调整工具栏");
         bar.setFocusable(true);
         bar.setOnTouchListener((ignored, event) -> handleHeightGesture(event));
@@ -113,8 +114,8 @@ public final class KeyboardLayoutAdjustView extends FrameLayout {
         int accent = color(skin.accent());
         GradientDrawable surface = new GradientDrawable();
         surface.setColor(keyBackground);
-        surface.setCornerRadius(dp(10));
-        surface.setStroke(Math.max(1, dp(1)), accent);
+        surface.setCornerRadius(KeyboardGeometry.pixels(10, density));
+        surface.setStroke(Math.max(1, KeyboardGeometry.pixels(1, density)), accent);
         bar.setBackground(surface);
         hint.setTextColor(foreground);
         voiceShortcut.setTextColor(foreground);
@@ -222,8 +223,9 @@ public final class KeyboardLayoutAdjustView extends FrameLayout {
 
     private FrameLayout.LayoutParams barParams() {
         FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
-            LayoutParams.MATCH_PARENT, dp(BAR_HEIGHT_DP));
-        params.setMargins(dp(SPACING_MARGIN_DP), dp(4), dp(SPACING_MARGIN_DP), 0);
+            LayoutParams.MATCH_PARENT, KeyboardGeometry.pixels(BAR_HEIGHT_DP, density));
+        params.setMargins(KeyboardGeometry.pixels(SPACING_MARGIN_DP, density),
+            KeyboardGeometry.pixels(4, density), KeyboardGeometry.pixels(SPACING_MARGIN_DP, density), 0);
         return params;
     }
 
@@ -237,8 +239,6 @@ public final class KeyboardLayoutAdjustView extends FrameLayout {
     private float dpFromPixels(float pixels) {
         return density <= 0 ? pixels : pixels / density;
     }
-
-    private int dp(int value) { return Math.round(value * density); }
 
     private static int color(String value) {
         try { return Color.parseColor(value); }

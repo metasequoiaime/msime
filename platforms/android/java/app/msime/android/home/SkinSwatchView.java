@@ -36,17 +36,6 @@ public final class SkinSwatchView extends View {
         invalidate();
     }
 
-    private float dp(float value) { return value * getResources().getDisplayMetrics().density; }
-
-    private int parse(String colour, int fallback) {
-        if (colour == null || colour.isEmpty()) return fallback;
-        try {
-            return Color.parseColor(colour);
-        } catch (IllegalArgumentException error) {
-            return fallback;
-        }
-    }
-
     /** 当前显示的皮肤，没有时为 null。 */
     @Nullable public KeyboardSkin skin() { return skin; }
 
@@ -56,20 +45,21 @@ public final class SkinSwatchView extends View {
     @Override protected void onDraw(Canvas canvas) {
         KeyboardSkin value = skin;
         if (value == null || getWidth() <= 0 || getHeight() <= 0) return;
-        float radius = dp(10);
-        paint.setColor(parse(value.background(), Color.LTGRAY));
+        float radius = Ui.dpFloat(getContext(), 10);
+        paint.setColor(Ui.parseColor(value.background(), Color.LTGRAY));
         box.set(0, 0, getWidth(), getHeight());
         canvas.drawRoundRect(box, radius, radius, paint);
 
-        float pad = dp(5);
-        float gap = dp(2.5f);
+        float pad = Ui.dpFloat(getContext(), 5);
+        float gap = Ui.dpFloat(getContext(), 2.5f);
         float cellWidth = (getWidth() - pad * 2 - gap * (COLUMNS - 1)) / COLUMNS;
         float cellHeight = (getHeight() - pad * 2 - gap * (ROWS - 1)) / ROWS;
         if (cellWidth <= 0 || cellHeight <= 0) return;
-        float capRadius = Math.min(dp((float) value.cornerRadius()) / 2f, cellHeight / 2.5f);
-        int cap = parse(value.keyBackground(), Color.WHITE);
-        int function = parse(value.functionBackground(), cap);
-        int action = parse(value.returnBackground(), parse(value.actionBackground(), Color.DKGRAY));
+        float capRadius = Math.min(Ui.dpFloat(getContext(), (float) value.cornerRadius()) / 2f,
+            cellHeight / 2.5f);
+        int cap = Ui.parseColor(value.keyBackground(), Color.WHITE);
+        int function = Ui.parseColor(value.functionBackground(), cap);
+        int action = Ui.parseColor(value.returnBackground(), Ui.parseColor(value.actionBackground(), Color.DKGRAY));
         for (int row = 0; row < ROWS; row++) {
             float top = pad + row * (cellHeight + gap);
             if (row == ROWS - 1) {

@@ -5,7 +5,13 @@ enum AppServicesBridge {
   private static let maximumPolishTextBytes = 32 * 1024
 
   static func polishBody(_ model: String, prompt: String, text: String) throws -> Data {
-    try JSONSerialization.data(withJSONObject: [
+    guard prompt.utf8.count <= maximumPolishTextBytes else {
+      throw ServiceFailure(message: "润色提示词过长。")
+    }
+    guard text.utf8.count <= maximumPolishTextBytes else {
+      throw ServiceFailure(message: "润色文本过长。")
+    }
+    return try JSONSerialization.data(withJSONObject: [
       "model": model,
       "messages": [["role": "system", "content": prompt], ["role": "user", "content": text]],
       "stream": false

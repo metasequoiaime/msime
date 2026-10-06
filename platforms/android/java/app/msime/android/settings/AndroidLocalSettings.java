@@ -384,7 +384,14 @@ public final class AndroidLocalSettings {
 
     private static Snapshot read(Path file) {
         try {
-            return decode(new String(readBounded(file), StandardCharsets.UTF_8));
+            if (Files.isSymbolicLink(file) || !Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS))
+                throw new IOException("settings path is not a regular file");
+            byte[] bytes;
+            try (InputStream input = Files.newInputStream(file, LinkOption.NOFOLLOW_LINKS)) {
+                bytes = HttpBodyPolicy.readBounded(input, MAX_BYTES);
+                if (bytes == null) throw new IOException("settings size");
+            }
+            return decode(new String(bytes, StandardCharsets.UTF_8));
         } catch (IOException | JSONException | RuntimeException ignored) {
             return DEFAULTS;
         }
@@ -400,16 +407,6 @@ public final class AndroidLocalSettings {
                 attributes.size());
         } catch (IOException | RuntimeException error) {
             return null;
-        }
-    }
-
-    private static byte[] readBounded(Path file) throws IOException {
-        if (Files.isSymbolicLink(file) || !Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS))
-            throw new IOException("settings path is not a regular file");
-        try (InputStream input = Files.newInputStream(file, LinkOption.NOFOLLOW_LINKS)) {
-            byte[] bytes = HttpBodyPolicy.readBounded(input, MAX_BYTES);
-            if (bytes == null) throw new IOException("settings size");
-            return bytes;
         }
     }
 

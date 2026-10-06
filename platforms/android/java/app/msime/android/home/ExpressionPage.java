@@ -126,7 +126,7 @@ public final class ExpressionPage extends DetailPage {
     }
 
     private android.view.View phraseRow(Context context, CommunityCatalog.Item item) {
-        List<String> parts = new ArrayList<>();
+        List<String> parts = new ArrayList<>(2);
         if (!item.author().isEmpty()) parts.add("@" + item.author());
         JSONArray list = item.payload() == null ? null : item.payload().optJSONArray("phrases");
         if (list != null) parts.add(list.length() + " 条");

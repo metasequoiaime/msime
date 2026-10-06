@@ -7,7 +7,6 @@ import android.graphics.Color;
 import android.graphics.Paint;
 import android.text.TextPaint;
 import android.text.TextUtils;
-import android.util.TypedValue;
 import android.view.animation.AccelerateDecelerateInterpolator;
 import android.widget.TextView;
 
@@ -93,8 +92,8 @@ public final class VoiceListeningView extends TextView {
     @Override protected void onDraw(Canvas canvas) {
         float density = getResources().getDisplayMetrics().density;
         float radius = ORB_DP * density / 2f;
-        title.setTextSize(sp(16));
-        hint.setTextSize(sp(13));
+        title.setTextSize(KeyboardGeometry.sp(getContext(), 16));
+        hint.setTextSize(KeyboardGeometry.sp(getContext(), 13));
         Paint.FontMetrics titleMetrics = title.getFontMetrics();
         Paint.FontMetrics hintMetrics = hint.getFontMetrics();
         float titleHeight = titleMetrics.descent - titleMetrics.ascent;
@@ -124,8 +123,4 @@ public final class VoiceListeningView extends TextView {
         }
     }
 
-    private float sp(float value) {
-        return TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, value,
-            getResources().getDisplayMetrics());
-    }
 }

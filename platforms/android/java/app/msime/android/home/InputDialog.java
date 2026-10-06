@@ -48,7 +48,7 @@ public final class InputDialog {
 
         LinearLayout root = new LinearLayout(context);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackground(Ui.rounded(Ui.sheetBackground(context), dp(Ui.DIALOG_RADIUS)));
+        root.setBackground(Ui.rounded(Ui.sheetBackground(context), Ui.dp(context, Ui.DIALOG_RADIUS)));
         root.setClipToOutline(true);
 
         TextView heading = new TextView(context);
@@ -56,10 +56,10 @@ public final class InputDialog {
         heading.setGravity(Gravity.CENTER);
         Ui.style(heading, Ui.TEXT_DIALOG_TITLE, 600, Ui.text(context));
         heading.setAccessibilityHeading(true);
-        LinearLayout.LayoutParams headingParams = matchWidth();
-        headingParams.topMargin = dp(20);
-        headingParams.leftMargin = dp(20);
-        headingParams.rightMargin = dp(20);
+        LinearLayout.LayoutParams headingParams = Ui.matchWidth();
+        headingParams.topMargin = Ui.dp(context, 20);
+        headingParams.leftMargin = Ui.dp(context, 20);
+        headingParams.rightMargin = Ui.dp(context, 20);
         root.addView(heading, headingParams);
 
         if (message != null && message.length() > 0) {
@@ -67,36 +67,36 @@ public final class InputDialog {
             note.setText(message);
             note.setGravity(Gravity.CENTER);
             Ui.style(note, Ui.TEXT_SHEET_HEADER, 400, Ui.subText(context));
-            LinearLayout.LayoutParams params = matchWidth();
-            params.topMargin = dp(4);
-            params.leftMargin = dp(20);
-            params.rightMargin = dp(20);
+            LinearLayout.LayoutParams params = Ui.matchWidth();
+            params.topMargin = Ui.dp(context, 4);
+            params.leftMargin = Ui.dp(context, 20);
+            params.rightMargin = Ui.dp(context, 20);
             root.addView(note, params);
         }
 
         fields = new LinearLayout(context);
         fields.setOrientation(LinearLayout.VERTICAL);
-        fields.setPadding(dp(16), dp(6), dp(16), dp(16));
-        root.addView(fields, matchWidth());
+        fields.setPadding(Ui.dp(context, 16), Ui.dp(context, 6), Ui.dp(context, 16), Ui.dp(context, 16));
+        root.addView(fields, Ui.matchWidth());
 
         root.addView(rule(true));
         LinearLayout buttons = new LinearLayout(context);
         buttons.setOrientation(LinearLayout.HORIZONTAL);
         TextView cancel = button("取消", 400, Ui.accent(context));
         cancel.setOnClickListener(ignored -> dialog.cancel());
-        buttons.addView(cancel, new LinearLayout.LayoutParams(0, dp(48), 1f));
+        buttons.addView(cancel, new LinearLayout.LayoutParams(0, Ui.dp(context, 48), 1f));
         buttons.addView(rule(false));
         primary = button("确定", 600, Ui.text(context));
         primary.setOnClickListener(ignored -> submit());
-        buttons.addView(primary, new LinearLayout.LayoutParams(0, dp(48), 1f));
-        root.addView(buttons, matchWidth());
+        buttons.addView(primary, new LinearLayout.LayoutParams(0, Ui.dp(context, 48), 1f));
+        root.addView(buttons, Ui.matchWidth());
 
         dialog.setContentView(root);
         Window window = dialog.getWindow();
         if (window != null) {
             window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
-            window.setLayout(Math.min(dp(Ui.DIALOG_WIDTH),
-                context.getResources().getDisplayMetrics().widthPixels - dp(48)),
+            window.setLayout(Math.min(Ui.dp(context, Ui.DIALOG_WIDTH),
+                context.getResources().getDisplayMetrics().widthPixels - Ui.dp(context, 48)),
                 ViewGroup.LayoutParams.WRAP_CONTENT);
             window.setDimAmount(0.35f);
             window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE
@@ -118,10 +118,10 @@ public final class InputDialog {
         input.setInputType(inputType == 0 ? InputType.TYPE_CLASS_TEXT : inputType);
         Ui.style(input, 15, 400, Ui.text(context));
         input.setHintTextColor(Ui.subText(context));
-        GradientDrawable field = Ui.rounded(Ui.rowBackground(context), dp(10));
-        field.setStroke(Math.max(1, dp(1)), Ui.hairline(context));
+        GradientDrawable field = Ui.rounded(Ui.rowBackground(context), Ui.dp(context, 10));
+        field.setStroke(Math.max(1, Ui.dp(context, 1)), Ui.hairline(context));
         input.setBackground(field);
-        input.setPadding(dp(12), 0, dp(12), 0);
+        input.setPadding(Ui.dp(context, 12), 0, Ui.dp(context, 12), 0);
         input.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence text, int start, int count, int after) {}
 
@@ -136,8 +136,8 @@ public final class InputDialog {
             return true;
         });
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, dp(40));
-        params.topMargin = dp(8);
+            ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(context, 40));
+        params.topMargin = Ui.dp(context, 8);
         fields.addView(input, params);
         // 前面的输入框回车跳到下一个，最后一个回车就是提交。
         for (EditText earlier : inputs) earlier.setImeOptions(EditorInfo.IME_ACTION_NEXT);
@@ -206,19 +206,11 @@ public final class InputDialog {
     private View rule(boolean horizontal) {
         View rule = new View(context);
         rule.setBackgroundColor(Ui.hairline(context));
-        int thin = Math.max(1, dp(0.5f));
+        int thin = Math.max(1, Ui.dp(context, 0.5f));
         rule.setLayoutParams(horizontal
             ? new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, thin)
             : new LinearLayout.LayoutParams(thin, ViewGroup.LayoutParams.MATCH_PARENT));
         return rule;
     }
 
-    private static LinearLayout.LayoutParams matchWidth() {
-        return new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT);
-    }
-
-    private int dp(float value) {
-        return Ui.dp(context, value);
-    }
 }

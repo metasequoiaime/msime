@@ -38,7 +38,7 @@ public final class CommunityAdapter extends RecyclerView.Adapter<CommunityAdapte
     /** One line of the listing: an entry, or a section title when `item` is null. */
     private record Entry(@Nullable CommunityCatalog.Item item, String header) {}
 
-    private final List<Entry> entries = new ArrayList<>();
+    private final ArrayList<Entry> entries = new ArrayList<>();
     private final Map<String, Action> actions = new HashMap<>();
     private final Consumer<CommunityCatalog.Item> onOpen;
     private final Consumer<CommunityCatalog.Item> onAction;
@@ -62,6 +62,7 @@ public final class CommunityAdapter extends RecyclerView.Adapter<CommunityAdapte
     /** Replace the listing, for a new kind or a new search. */
     public void set(List<CommunityCatalog.Item> values) {
         entries.clear();
+        entries.ensureCapacity(values.size());
         for (CommunityCatalog.Item item : values) entries.add(new Entry(item, ""));
         notifyDataSetChanged();
     }
@@ -70,6 +71,7 @@ public final class CommunityAdapter extends RecyclerView.Adapter<CommunityAdapte
     public void append(List<CommunityCatalog.Item> values) {
         if (values.isEmpty()) return;
         int start = entries.size();
+        entries.ensureCapacity(start + values.size());
         for (CommunityCatalog.Item item : values) entries.add(new Entry(item, ""));
         notifyItemRangeInserted(start, values.size());
         // The row that used to close the grouped card is now in the middle of it.
