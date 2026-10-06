@@ -359,7 +359,7 @@ impl ZhuyinScheme {
         Ok(true)
     }
 
-    /// 九键模式的字符键。列表打开时，数字和声调字母关闭列表后照常处理，其余键（包括空格）不认领，交给运行时选行。数字总是认领，只有还能拼成某个音节时才追加，否则吞掉（libchewing 在这里会响铃）。声调键结束一个音节：空闲时声调字母认领但什么都不做，空格不认领；有组字但没有数字时空格打开列表、声调字母被吞掉；数字串加这个声调没有合法音节时数字留着。其他键（包括全部字母）不认领，九键模式不读大千键。
+    /// 九键模式的字符键。列表打开时，数字和声调字母关闭列表后照常处理，其余键（包括空格）不认领，交给运行时选行。数字总是认领，只有还能拼成某个音节时才追加，否则吞掉（libchewing 在这里会响铃）。声调键结束一个音节：空闲时声调字母和空格都不认领（实体键盘上的这几个字母照常上屏，软键盘空闲时不发声调键）；有组字但没有数字时空格打开列表、声调字母被吞掉；数字串加这个声调没有合法音节时数字留着。其他键（包括全部字母）不认领，九键模式不读大千键。
     fn handle_nine_key_char(&mut self, byte: u8) -> Result<bool> {
         let mark = nine_key::tone_mark(byte);
         if self.list_open {
@@ -380,7 +380,7 @@ impl ZhuyinScheme {
             return Ok(false);
         };
         if !self.is_composing() {
-            return Ok(byte != b' ');
+            return Ok(false);
         }
         if self.pending_digits.is_empty() {
             if byte == b' ' {
@@ -559,7 +559,7 @@ impl ZhuyinScheme {
     }
 }
 
-/// How many times lighter than the weakest single character it spans a multi-syllable word may be when it matches through a position with more than one allowed reading.
+/// 多音节词经过一个有多种允许读法的位置时，词频最多可以比它覆盖的最弱单字轻多少倍。
 ///
 /// Conversion ranks paths by word length first (libchewing's score), which suits Dachen, where each position has exactly one reading. A nine-key position allows 4 to 23 readings, so the combined reading sets of two or three positions match some obscure word almost everywhere, and length-first alone lets 監聽器 (weight 9) beat 今天 (25469) + 去 (28394). Such a word therefore takes part only when its weight times this factor reaches the smallest single-character weight over its positions. 1000 was chosen against a rebuild of the libchewing-derived dictionary: it drops 監聽器, 趕明兒 and 禮教 from 我們今天去學校, 這個東西很便宜 and 請問你叫什麼名字, and of the sampled counted 2 to 4 syllable words that convert to themselves without the floor all but one still do, while a factor of 300 already loses about one in eight of them.
 const AMBIGUOUS_WORD_FLOOR: i64 = 1000;
@@ -1177,8 +1177,8 @@ mod tests {
     #[test]
     fn nine_key_claims_tone_letters_and_digits_but_no_other_letters() {
         let (_dir, mut scheme) = nine_key_scheme();
-        // 空闲时：声调字母认领但什么都不做，空格和其他字母不认领。
-        assert_eq!(type_keys(&mut scheme, "zxcvb"), [true; 5]);
+        // 空闲时声调字母、空格和其他字母都不认领：实体键盘上打 z 要上屏 z。
+        assert_eq!(type_keys(&mut scheme, "zxcvb"), [false; 5]);
         assert!(!scheme.is_composing());
         assert_eq!(type_keys(&mut scheme, " sa"), [false, false, false]);
         // 组字中：大千键和其他字母都不认领。

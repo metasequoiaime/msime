@@ -125,8 +125,8 @@ char *msime_client_create(const uint8_t *options, size_t length);
  * Entry:{kind:"pinyin"|"wubi"|"wubi98"|"quick_phrase"|"english",key,value,weight,source?:"user"|"bundled"}.
  * List returns {entries,has_more} and sets source on every entry; edit returns {applied:true}. Errors are redacted.
  * A bundled entry passed back as previous can only be re-weighted (replacement with the same kind, key and value) or deleted (replacement null); anything else fails with "bundled dictionary entry is read-only". Export of pinyin also carries the weights set or learned for bundled words and omits single characters; the other kinds export user words only.
- * Count (read-only): action:{operation:"count",kind?,user_only?:bool} returns {count,kinds:{kind:n},complete}; user_only:true counts the user's own words, otherwise pinyin also counts bundled words with a learned or set weight (the export's rows). complete is false when the scan stopped at 1,000,000 rows.
- * Snapshot export: action:{operation:"export_snapshot",destination:absolute path} writes the user's words as the same NDJSON msime-dictionary-snapshot v1 document GET /v1/users/me/dictionary/snapshot returns (header, one entry and one overlay per word, footer with the body SHA-256; revision 1, no positions or selections), checks it with the cloud format's own validator and returns that metadata plus path. No account is needed.
+ * 计数（只读）：action:{operation:"count",kind?,user_only?:bool} 返回 {count,kinds:{kind:n},complete}；user_only:true 只数用户自己的词，否则拼音还会数上学到或设过权重的随包词（也就是导出的那些行）。扫描在 1,000,000 行处停下时 complete 为 false。
+ * 快照导出：action:{operation:"export_snapshot",destination:绝对路径} 把用户的词写成与 GET /v1/users/me/dictionary/snapshot 相同的 NDJSON msime-dictionary-snapshot v1 文档（header、每个词一条 entry 和一条 overlay、带正文 SHA-256 的 footer；revision 为 1，不含位置和选择），用云端格式自己的校验器检查后返回那份元数据加上 path。不需要账号。
  * Native host owns/authorizes paths; never accept arbitrary webview paths or log payloads.
  * Run on a worker thread. Edit returns busy until all participating sessions are
  * destroyed, then holds exclusive access; recreate sessions after success.
@@ -243,12 +243,8 @@ char *msime_client_load_preferences(const uint8_t *directory, size_t length);
  *   An unknown id or a zero count rejects the whole batch; never invent ids.
  *   Returns {recorded:n}, 0 when statistics are off (nothing is written).
  *   Hosts batch in memory and call this from a worker, never per key.
- * {directory,action:{operation:"summary",day:"YYYY-MM-DD",user_words?:n}} returns the derived
- *   metrics (overview, habits, keys, achievements) for the caller's local `day`; achievements
- *   newly unlocked are written under the lock while statistics are on. user_words is the
- *   dictionary "count" with user_only:true. Incognito does not affect it: it only reads.
- * {directory,action:{operation:"record_voice",day,milliseconds}} adds one voice input's length;
- *   {directory,action:{operation:"record_skin",id}} records a skin used. Both return {recorded}.
+ * {directory,action:{operation:"summary",day:"YYYY-MM-DD",user_words?:n}} 返回调用方本地 `day` 的派生指标（总览、习惯、按键、成就）；统计开着时，新解锁的成就在锁内写下。user_words 是词库 "count" 加 user_only:true 的结果。隐私模式不影响它：它只读。
+ * {directory,action:{operation:"record_voice",day,milliseconds}} 记一次语音输入的时长；{directory,action:{operation:"record_skin",id}} 记一次用到的皮肤。两者都返回 {recorded}。
  */
 char *msime_client_typing_statistics(const uint8_t *request, size_t length);
 /* Read only the aggregate-statistics master switch from an absolute UTF-8
@@ -468,6 +464,8 @@ char *msime_client_set_english_mode(uint64_t session, bool enabled);
  * 创建和重建会话时按偏好自动开启：全拼看 touch_keyboard_layout 是否为 nine_key；注音还要求 touch_keyboard_schemes 选中（或在没有选中项时启用了）zhuyin_nine_key，这个方案只有 Android 写，桌面宿主为全拼九宫格写下的 nine_key 不会让注音会话离开大千键位。
  * View.touch_keyboard_layout 是已应用的宿主呈现偏好；日文九键宿主只用它，不开启引擎的九键模式。 */
 char *msime_client_set_nine_key_mode(uint64_t session, bool enabled);
+/* 标出隐私会话（隐私模式、不允许学习的输入框）：这个会话的选词位置和上屏效率不记入打字统计。用户在设置里关掉学习不算隐私会话。学习本身仍由偏好里的 learning 决定。Value 是设下的布尔值。 */
+char *msime_client_set_private_session(uint64_t session, bool enabled);
 char *msime_client_set_paired_punctuation(uint64_t session, bool enabled);
 char *msime_client_set_punctuation_lock(uint64_t session, uint8_t lock);
 char *msime_client_set_candidate_page_size(uint64_t session, uint8_t size);
@@ -528,7 +526,7 @@ char *msime_client_fix_candidate_position(uint64_t session, uint64_t generation,
                                           uint8_t position);
 /* Clear a previously fixed dictionary candidate position. */
 char *msime_client_clear_candidate_position(uint64_t session, uint64_t generation, size_t index);
-/* Select an entry from View.nine_key_spellings. The generation rejects stale UI. In Quanpin this locks the spelling into the digits; in Zhuyin it only pins the target syllable's reading (nothing is committed) and nine_key_spellings moves on to the next ambiguous syllable. */
+/* 从 View.nine_key_spellings 里选一项，generation 拒绝过期的界面。全拼下把这个拼写锁进数字；注音下只钉住目标音节的读音（不上屏），nine_key_spellings 随后换成下一个有歧义的音节。 */
 char *msime_client_choose_nine_key_spelling(uint64_t session, uint64_t generation, size_t index);
 enum MsimeCandidateEdge { MSIME_FIRST_HAN = 0, MSIME_LAST_HAN = 1 };
 /* Engine selects one Han character and clears composition on success.
@@ -793,15 +791,15 @@ char *msime_client_music_pack(const uint8_t *request, size_t length);
  * "save_mentions" {entries:[{text, key}]}: replaces the list; value null.
  * A failure is {ok:false, error: code, detail?}: the codes are the desktop shell's (invalid, storage, plugin_invalid, plugin_unsupported_source, plugin_archive, plugin_reserved, plugin_storage, mention_invalid, mention_format, mention_storage) and detail, when present, is the rule a refused pack or entry broke, in Chinese for the page. Reads and writes files, and an import copies up to a music pack's size: use a worker thread where the host has one. */
 char *msime_client_plugins(const uint8_t *request, size_t length);
-/* Uncoded common phrases (<=4 MiB): {directory: absolute preferences directory, action:{operation:"load"|"add"{text}|"remove"{id}|"replace"{id,text}|"move"{id,index}|"install_pack"{resource}|"remove_pack"{id}}}. Value is the whole document {phrases:[{id,text,pack}],packs:[{id,name,revision}],skipped?}; errors are stable codes (common_phrases_io, _corrupt, _invalid, _duplicate, _limit, _too_large, _not_found). Both the settings process and the keyboard process call it; it locks the file. Worker thread. */
+/* 不带编码的常用语（<=4 MiB）：{directory: 偏好目录的绝对路径, action:{operation:"load"|"add"{text}|"remove"{id}|"replace"{id,text}|"move"{id,index}|"install_pack"{resource}|"remove_pack"{id}}}。Value 是整份文档 {phrases:[{id,text,pack}],packs:[{id,name,revision}],skipped?}；错误是固定的代码（common_phrases_io、_corrupt、_invalid、_duplicate、_limit、_too_large、_not_found）。设置进程和键盘进程都会调用，调用时锁住文件。在工作线程上调用。 */
 char *msime_client_common_phrases(const uint8_t *request, size_t length);
-/* Named dictionary collections (<=17 MiB): {options: HostOptions with preferences_directory, action:{operation:"load"|"create"|"rename"|"delete"|"set_enabled"|"add_words"|"remove_words"|"import"|"install_community"|"flush", ...}} as client-core dictionary::collections defines. Words travel through the personal dictionary queue the keyboard applies at its next session. Value is the collections view; errors are stable codes (collections_*, builtin_locked, unsupported_format, import_*, personal_dictionary_*). Worker thread. */
+/* 具名词库集合（<=17 MiB）：{options: 带 preferences_directory 的 HostOptions, action:{operation:"load"|"create"|"rename"|"delete"|"set_enabled"|"add_words"|"remove_words"|"import"|"install_community"|"flush", ...}}，格式见 client-core 的 dictionary::collections。词条经个人词库队列传过去，键盘在下一次会话时应用。Value 是集合视图；错误是固定的代码（collections_*、builtin_locked、unsupported_format、import_*、personal_dictionary_*）。在工作线程上调用。 */
 char *msime_client_dictionary_collections(const uint8_t *request, size_t length);
-/* Diagnostic bundle (<=65536 bytes): {state_root: preferences directory, include:{crash_logs,performance_logs,input_events,config_snapshot}, sources:{crash_logs,performance_logs,input_events: absolute path|null}, destination: absolute .zip path|null}. Input event and performance lines are kept only when they are exactly {t_ms, kind (key_down|key_up|candidate_shown|candidate_selected|commit|backspace|panel_open|panel_close|ime_start|ime_finish), duration_ms}; any other key (text, key, candidate...) drops the whole line and is counted. The configuration snapshot replaces every credential with "<redacted>". With destination the zip is written and the value is {path,bytes,counts}; without it the value is {counts,sections}, sections being the upload body's object (crash_logs, perf_trace, input_events, config_snapshot). Errors: diagnostics_invalid, diagnostics_source, diagnostics_preferences, diagnostics_write. Worker thread. */
+/* 诊断包（<=65536 字节）：{state_root: 偏好目录, include:{crash_logs,performance_logs,input_events,config_snapshot}, sources:{crash_logs,performance_logs,input_events: 绝对路径|null}, destination: .zip 的绝对路径|null}。输入事件和性能记录只有恰好是 {t_ms, kind (key_down|key_up|candidate_shown|candidate_selected|commit|backspace|panel_open|panel_close|ime_start|ime_finish), duration_ms} 时才保留，带其他任何键（text、key、candidate……）的整行都丢掉并计数。崩溃记录只保留异常类型和栈帧：异常说明可能带着正在输入的文字，message 只留冒号前的异常类型，stack 的说明行同样处理，路径只留文件名。配置快照把所有凭据换成 "<redacted>"。给了 destination 时写出 zip，value 是 {path,bytes,counts}；没给时 value 是 {counts,sections}，sections 是上传请求体的对象（crash_logs、perf_trace、input_events、config_snapshot）。错误：diagnostics_invalid、diagnostics_source、diagnostics_preferences、diagnostics_write。在工作线程上调用。 */
 char *msime_client_diagnostic_bundle(const uint8_t *request, size_t length);
-/* Account settings document export (<=4 MiB): {preferences_directory, feedback?:{soundEnabled,hapticsEnabled,hapticStrength}|null, custom_keyboard_skins?: JSON array string|null, android_local?: {sync key: value}|null, schema?: preference schema|null, cloud?: {revision,settings}|null}. Value {settings, merged?}: settings filtered for this edition (and to the schema's fields when given); with schema and cloud, merged is the whole document to PUT with the cloud revision. android_local carries the Android local settings file values that sync (app theme, one-handed, key details, toolbar phrase/scheme/hidden, handwriting, offline voice); unknown keys and invalid values are left out. Credentials and diagnostic logging are never exported; incognito, developer options and voice contribution live only in the Android local file and never sync. */
+/* 账号设置文档导出（<=4 MiB）：{preferences_directory, feedback?:{soundEnabled,hapticsEnabled,hapticStrength}|null, custom_keyboard_skins?: JSON 数组字符串|null, android_local?: {同步键: 值}|null, schema?: 偏好字段表|null, cloud?: {revision,settings}|null}。Value {settings, merged?}：settings 按本版本过滤（给了 schema 时再按它的字段过滤）；同时给了 schema 和 cloud 时，merged 是带着云端 revision 去 PUT 的整份文档。android_local 是 Android 本机设置文件里参与同步的值（应用主题、单手模式、按键细节、工具栏的常用语/方案/隐藏项、手写、离线语音），不认识的键和非法值不导出。凭据和诊断日志从不导出；隐私模式、开发者选项和语音贡献只在 Android 本机文件里，从不同步。 */
 char *msime_client_account_settings_export(const uint8_t *request, size_t length);
-/* Account settings document apply (<=4 MiB): {preferences_directory, cloud:{revision,settings}, schema, feedback?: current host feedback|null}. Applies the document to the local preferences and saves them by compare-and-swap on the revision it read. A key whose value is unknown or out of range here is skipped alone. Value {preferences: saved snapshot, feedback: applied feedback|null for the host to store, custom_keyboard_skins: cloud library JSON|null for the host to merge, android_local:{sync key: value} for the host to write to its local settings file, skipped:[key]}. */
+/* 账号设置文档应用（<=4 MiB）：{preferences_directory, cloud:{revision,settings}, schema, feedback?: 宿主当前的按键反馈|null}。把文档应用到本机偏好，按读到的 revision 做比较并交换后保存。本机不认识或超出范围的取值只跳过那一个键。Value {preferences: 保存后的快照, feedback: 应用后的按键反馈|null（宿主自己存）, custom_keyboard_skins: 云端皮肤库 JSON|null（宿主合并）, android_local:{同步键: 值}（宿主写进本机设置文件）, skipped:[键]}。 */
 char *msime_client_account_settings_apply(const uint8_t *request, size_t length);
 char *msime_client_destroy(uint64_t session);
 /* Write the selection counts held by every session on the calling thread and all queued personal-context learning, without ending any session. Call from the host's will-terminate hook (e.g. NSApplicationWillTerminateNotification) on the thread that owns the sessions; the C++ Engine did this from atexit. Returns null on success. */

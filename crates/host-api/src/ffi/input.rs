@@ -90,6 +90,17 @@ pub extern "C" fn msime_client_set_english_mode(handle: u64, enabled: bool) -> *
     })
 }
 
+/// 标出隐私会话：隐私模式或不允许学习的输入框。只影响打字统计（选词位置和上屏效率不计），学习仍由偏好里的 `learning` 决定。
+#[no_mangle]
+pub extern "C" fn msime_client_set_private_session(handle: u64, enabled: bool) -> *mut c_char {
+    response(|| {
+        with_session(handle, |session| {
+            session.statistics_private = enabled;
+            Ok(Value::Bool(enabled))
+        })
+    })
+}
+
 /// 在组字空闲后开启引擎负责的九键数字处理：全拼九宫格，或注音九键。
 #[no_mangle]
 pub extern "C" fn msime_client_set_nine_key_mode(handle: u64, enabled: bool) -> *mut c_char {

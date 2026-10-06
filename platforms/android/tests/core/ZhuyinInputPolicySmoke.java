@@ -52,6 +52,8 @@ public final class ZhuyinInputPolicySmoke {
         check(ZhuyinInputPolicy.spaceIsEngineKey(true, "1234567890 ")
             && !ZhuyinInputPolicy.spaceIsEngineKey(true, "1234567890"),
             "the nine-key editor lists Space only while composing with its list closed");
+        check(ZhuyinInputPolicy.toneKeySends("2") && !ZhuyinInputPolicy.toneKeySends("") && !ZhuyinInputPolicy.toneKeySends(null),
+            "a nine-key tone key only reaches the Engine while something is composing");
         check(ZhuyinInputPolicy.engineKey(true, '2', "1234567890"),
             "every digit is a nine-key sound key in the editor's hands");
         check(ZhuyinInputPolicy.hidesNineKeyComposing(true, false)

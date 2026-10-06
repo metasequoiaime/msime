@@ -1,4 +1,3 @@
-use super::android_theme_preferences::{apply_theme_settings, insert_theme_settings};
 use crate::platform::mobile::mobile_account_helpers::{
     account_chat as shared_account_chat, account_chat_models as shared_account_chat_models,
     account_command_error, account_delete as shared_account_delete,
@@ -14,18 +13,18 @@ use crate::platform::mobile::mobile_account_helpers::{
     snapshot_text_within_limit, take_pending_snapshot, valid_mobile_haptic_strength,
     validate_pending_snapshot, PendingSnapshot, SnapshotMetadata,
 };
-use crate::platform::mobile::mobile_account_preferences::{
-    frequency_account_preferences, insert_bool, insert_integer, insert_string,
-};
 use crate::platform::mobile::mobile_community::MobileCommunityState;
 use crate::shared::account_dto::{
     providers_response_without_apple, ChallengeResponse, ChatModelsResponse, ChatResponse,
     PreferenceSchemaResponse, ProfileResponse, ProvidersResponse, StatusResponse,
 };
+use msime_client_core::account::settings_sync::{
+    apply_android_settings, export_android_settings, needs_host_feedback, HostKeyboardFeedback,
+};
 use msime_client_core::account::{
-    merge_account_preferences, validate_account_preferences, AccountChatMessage, AccountError,
-    AccountPreferenceSchema, AccountPreferenceValue, AccountPreferences, AccountSessionStorage,
-    BackendAccountClient, BackendAccountSession, SavedAccountSession,
+    merge_account_preferences, AccountChatMessage, AccountError, AccountPreferenceSchema,
+    AccountPreferenceValue, AccountPreferences, AccountSessionStorage, BackendAccountClient,
+    BackendAccountSession, SavedAccountSession,
 };
 use msime_client_core::cloud::dictionary::DictionaryKind;
 use msime_client_core::cloud::snapshot_validation::{
@@ -35,10 +34,7 @@ use msime_client_core::cloud::snapshot_validation::{
 use msime_client_core::edition::{
     filter_downloaded_account_settings, filter_uploaded_account_settings,
 };
-use msime_client_core::preferences::{
-    FrequencyMode, InputScheme, Preferences, PreferencesSnapshot, PreferencesStore,
-    ShuangpinProfile, ThemeMode, TouchKeyboardLayout, WubiProfile,
-};
+use msime_client_core::preferences::{Preferences, PreferencesSnapshot, PreferencesStore};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -1093,459 +1089,50 @@ pub async fn app_icon_set(
     .map_err(|_| crate::CommandError { code: "app_icon" })?
 }
 
-/// 方案在账号里的取值；账号 schema 还没有收录的方案为空。粤拼、注音、越南文、藏文和笔画不写，而不是映射到相近的方案，这样账号保留上次记录的方案，不会被改成用户没选过的方案。
-fn account_input_schema(scheme: InputScheme) -> Option<&'static str> {
-    match scheme {
-        InputScheme::Quanpin => Some("quanpin"),
-        InputScheme::Shuangpin => Some("shuangpin"),
-        InputScheme::Wubi => Some("wubi"),
-        InputScheme::Japanese => Some("japanese"),
-        InputScheme::Korean => Some("korean"),
-        InputScheme::Cantonese
-        | InputScheme::Zhuyin
-        | InputScheme::Vietnamese
-        | InputScheme::Tibetan
-        | InputScheme::Stroke => None,
-    }
+fn load_host_feedback(feedback: &PluginHandle<Wry>) -> Result<HostKeyboardFeedback, AccountError> {
+    let loaded = feedback
+        .run_mobile_plugin::<FeedbackSettings>("loadFeedback", ())
+        .map_err(|_| AccountError::Storage)?;
+    Ok(HostKeyboardFeedback {
+        sound_enabled: loaded.sound_enabled,
+        haptics_enabled: loaded.haptics_enabled,
+        haptic_strength: loaded.haptic_strength,
+    })
 }
 
-/// 五笔版本在账号里的取值，即 `input.wubi_schema`。
-fn account_wubi_schema(profile: WubiProfile) -> &'static str {
-    match profile {
-        WubiProfile::Wubi86 => "wubi86",
-        WubiProfile::Wubi98 => "wubi98",
-    }
-}
-
+/// 本机设置导出成账号文档的键值，与原生 Android 宿主用同一份映射（`settings_sync::export_android_settings`）；按键反馈从插件读。
 fn local_account_preferences(
     snapshot: &PreferencesSnapshot,
     feedback: &PluginHandle<Wry>,
 ) -> Result<BTreeMap<String, AccountPreferenceValue>, AccountError> {
-    let preferences = &snapshot.preferences;
-    let mut settings = BTreeMap::new();
-    if let Some(schema) = account_input_schema(preferences.scheme) {
-        insert_string(&mut settings, "input.schema", schema);
-    }
-    insert_string(
-        &mut settings,
-        "input.character_set",
-        if preferences.traditional_chinese_output {
-            "traditional"
-        } else {
-            "simplified"
-        },
-    );
-    insert_string(
-        &mut settings,
-        "input.shuangpin_schema",
-        match preferences.shuangpin_profile {
-            ShuangpinProfile::Xiaohe => "xiaohe",
-            ShuangpinProfile::Ziranma => "ziranma",
-            ShuangpinProfile::Shoudao => "shoudao",
-            ShuangpinProfile::Microsoft => "microsoft",
-        },
-    );
-    // 五笔版本只随五笔方案上传（与 iOS、鸿蒙一致）：上传是合并进账号文档的，不在五笔上时本机的缺省 86 不该盖掉账号里别的设备选的 98。
-    if preferences.scheme == InputScheme::Wubi {
-        insert_string(
-            &mut settings,
-            "input.wubi_schema",
-            account_wubi_schema(preferences.wubi_profile),
-        );
-    }
-    insert_bool(&mut settings, "input.learning", preferences.learning);
-    settings.extend(frequency_account_preferences(&preferences.frequency));
-    insert_bool(
-        &mut settings,
-        "input.chinese_punctuation",
-        preferences.chinese_punctuation,
-    );
-    insert_bool(
-        &mut settings,
-        "input.smart_punctuation",
-        preferences.smart_punctuation,
-    );
-    insert_bool(
-        &mut settings,
-        "input.paired_punctuation",
-        preferences.paired_punctuation,
-    );
-    insert_bool(
-        &mut settings,
-        "input.wubi_code_hint",
-        preferences.wubi_code_hint,
-    );
-    insert_string(
-        &mut settings,
-        "platform.android.keyboard_layout",
-        match preferences.touch_keyboard_layout {
-            TouchKeyboardLayout::TwentySixKey => "twenty_six_key",
-            TouchKeyboardLayout::NineKey => "nine_key",
-            TouchKeyboardLayout::Handwriting => "handwriting",
-        },
-    );
-    insert_theme_settings(&mut settings, preferences)?;
-    insert_string(
-        &mut settings,
-        "platform.android.theme",
-        match preferences.theme {
-            ThemeMode::Dark => "dark",
-            ThemeMode::Light => "light",
-            ThemeMode::System => "system",
-        },
-    );
-    insert_integer(
-        &mut settings,
-        "platform.android.touch_key_spacing_tenths",
-        i64::from(preferences.touch_key_spacing_tenths),
-    );
-    insert_integer(
-        &mut settings,
-        "platform.android.touch_row_spacing_tenths",
-        i64::from(preferences.touch_row_spacing_tenths),
-    );
-    insert_integer(
-        &mut settings,
-        "platform.android.keyboard_height_adjustment",
-        i64::from(preferences.touch_keyboard_height_adjustment),
-    );
-    insert_bool(
-        &mut settings,
-        "platform.android.voice_shortcut",
-        preferences.touch_voice_shortcut,
-    );
-
-    let feedback = feedback
-        .run_mobile_plugin::<FeedbackSettings>("loadFeedback", ())
-        .map_err(|_| AccountError::Storage)?;
-    insert_bool(
-        &mut settings,
-        "platform.android.sound_enabled",
-        feedback.sound_enabled,
-    );
-    insert_bool(
-        &mut settings,
-        "platform.android.haptics_enabled",
-        feedback.haptics_enabled,
-    );
-    insert_string(
-        &mut settings,
-        "platform.android.haptic_strength",
-        &feedback.haptic_strength,
-    );
-    Ok(settings)
+    let host = load_host_feedback(feedback)?;
+    export_android_settings(&snapshot.preferences, Some(&host))
 }
 
-fn string_setting(
-    settings: &BTreeMap<String, AccountPreferenceValue>,
-    key: &str,
-) -> Result<Option<String>, AccountError> {
-    match settings.get(key) {
-        None => Ok(None),
-        Some(AccountPreferenceValue::String(value)) => Ok(Some(value.clone())),
-        Some(_) => Ok(None),
-    }
-}
-
-fn bool_setting(
-    settings: &BTreeMap<String, AccountPreferenceValue>,
-    key: &str,
-) -> Result<Option<bool>, AccountError> {
-    match settings.get(key) {
-        None => Ok(None),
-        Some(AccountPreferenceValue::Boolean(value)) => Ok(Some(*value)),
-        Some(_) => Ok(None),
-    }
-}
-
-fn integer_setting(
-    settings: &BTreeMap<String, AccountPreferenceValue>,
-    key: &str,
-) -> Result<Option<i64>, AccountError> {
-    match settings.get(key) {
-        None => Ok(None),
-        Some(AccountPreferenceValue::Integer(value)) => Ok(Some(*value)),
-        Some(AccountPreferenceValue::Number(value)) if value.is_finite() => {
-            if value.fract() == 0.0 {
-                Ok(Some(*value as i64))
-            } else {
-                Err(AccountError::Invalid)
-            }
-        }
-        Some(_) => Ok(None),
-    }
-}
-
-fn supports_schema_field(
-    schema: &AccountPreferenceSchema,
-    key: &str,
-    expected: &str,
-) -> Result<bool, AccountError> {
-    match schema.fields.get(key) {
-        None => Ok(false),
-        Some(field)
-            if field.value_type == expected
-                || ((expected == "number" || expected == "integer")
-                    && matches!(field.value_type.as_str(), "integer" | "number")) =>
-        {
-            Ok(true)
-        }
-        Some(_) => Err(AccountError::Invalid),
-    }
-}
-
-fn apply_frequency_preferences(
-    preferences: &mut Preferences,
-    values: &BTreeMap<String, AccountPreferenceValue>,
-    schema: &AccountPreferenceSchema,
-) -> Result<(), AccountError> {
-    if let Some(value) = string_setting(values, "input.frequency_mode")? {
-        if supports_schema_field(schema, "input.frequency_mode", "string")? {
-            preferences.frequency.mode = match value.as_str() {
-                "disabled" => FrequencyMode::Disabled,
-                "pin" => FrequencyMode::Pin,
-                "halve" => FrequencyMode::Halve,
-                "linear" => FrequencyMode::Linear,
-                "promote" => FrequencyMode::Promote,
-                _ => return Err(AccountError::Invalid),
-            };
-        }
-    }
-    if let Some(value) = integer_setting(values, "input.frequency_trigger_count")? {
-        if supports_schema_field(schema, "input.frequency_trigger_count", "integer")? {
-            preferences.frequency.trigger_count =
-                u8::try_from(value).map_err(|_| AccountError::Invalid)?;
-        }
-    }
-    if let Some(value) = integer_setting(values, "input.frequency_linear_step")? {
-        if supports_schema_field(schema, "input.frequency_linear_step", "integer")? {
-            preferences.frequency.linear_step =
-                u8::try_from(value).map_err(|_| AccountError::Invalid)?;
-        }
-    }
-    Ok(())
-}
-
-fn apply_input_scheme(
-    preferences: &mut Preferences,
-    values: &BTreeMap<String, AccountPreferenceValue>,
-    schema: &AccountPreferenceSchema,
-) -> Result<(), AccountError> {
-    if let Some(value) = string_setting(values, "input.schema")? {
-        if supports_schema_field(schema, "input.schema", "string")? {
-            // A scheme this host does not offer (a newer device's Cantonese, Zhuyin, Vietnamese or Stroke) keeps the local one rather than refusing the whole sync, so the rest of the document still applies.
-            preferences.scheme = match value.as_str() {
-                "quanpin" => InputScheme::Quanpin,
-                "shuangpin" => InputScheme::Shuangpin,
-                "wubi" => InputScheme::Wubi,
-                "japanese" => InputScheme::Japanese,
-                "korean" => InputScheme::Korean,
-                _ => preferences.scheme,
-            };
-        }
-    }
-    Ok(())
-}
-
-/// 按账号里的 `input.wubi_schema` 设置五笔版本；不认识的取值拒绝整份文档，与双拼方案的处理一致。
-fn apply_wubi_profile(
-    preferences: &mut Preferences,
-    values: &BTreeMap<String, AccountPreferenceValue>,
-    schema: &AccountPreferenceSchema,
-) -> Result<(), AccountError> {
-    if let Some(value) = string_setting(values, "input.wubi_schema")? {
-        if supports_schema_field(schema, "input.wubi_schema", "string")? {
-            preferences.wubi_profile = match value.as_str() {
-                "wubi86" => WubiProfile::Wubi86,
-                "wubi98" => WubiProfile::Wubi98,
-                _ => return Err(AccountError::Invalid),
-            };
-        }
-    }
-    Ok(())
-}
-
+/// 把云端文档应用到本机偏好，与原生 Android 宿主用同一份映射（`settings_sync::apply_android_settings`）：本机不认识或超出范围的键跳过，其余照常应用。文档带按键反馈时先从插件读出当前值，应用后写回插件。
 fn apply_local_account_preferences(
     snapshot: &PreferencesSnapshot,
     cloud: &AccountPreferences,
     schema: &AccountPreferenceSchema,
     feedback: &PluginHandle<Wry>,
 ) -> Result<Preferences, AccountError> {
-    validate_account_preferences(cloud)?;
-    for (key, value) in &cloud.settings {
-        if let Some(field) = schema.fields.get(key) {
-            if field.value_type != value.kind()
-                && !(field.value_type == "number" && value.kind() == "integer")
-            {
-                return Err(AccountError::Invalid);
-            }
-        }
-    }
-    let mut preferences = snapshot.preferences.clone();
-    let values = &cloud.settings;
-    apply_input_scheme(&mut preferences, values, schema)?;
-    if let Some(value) = string_setting(values, "input.character_set")? {
-        if supports_schema_field(schema, "input.character_set", "string")? {
-            preferences.traditional_chinese_output = match value.as_str() {
-                "traditional" => true,
-                "simplified" => false,
-                _ => return Err(AccountError::Invalid),
-            };
-        }
-    }
-    if let Some(value) = string_setting(values, "input.shuangpin_schema")? {
-        if supports_schema_field(schema, "input.shuangpin_schema", "string")? {
-            preferences.shuangpin_profile = match value.as_str() {
-                "xiaohe" => ShuangpinProfile::Xiaohe,
-                "ziranma" => ShuangpinProfile::Ziranma,
-                "shoudao" => ShuangpinProfile::Shoudao,
-                "microsoft" => ShuangpinProfile::Microsoft,
-                _ => return Err(AccountError::Invalid),
-            };
-        }
-    }
-    apply_wubi_profile(&mut preferences, values, schema)?;
-    if let Some(value) = bool_setting(values, "input.learning")? {
-        if supports_schema_field(schema, "input.learning", "boolean")? {
-            preferences.learning = value;
-        }
-    }
-    apply_frequency_preferences(&mut preferences, values, schema)?;
-    if let Some(value) = bool_setting(values, "input.chinese_punctuation")? {
-        if supports_schema_field(schema, "input.chinese_punctuation", "boolean")? {
-            preferences.chinese_punctuation = value;
-        }
-    }
-    if let Some(value) = bool_setting(values, "input.smart_punctuation")? {
-        if supports_schema_field(schema, "input.smart_punctuation", "boolean")? {
-            preferences.smart_punctuation = value;
-        }
-    }
-    if let Some(value) = bool_setting(values, "input.paired_punctuation")? {
-        if supports_schema_field(schema, "input.paired_punctuation", "boolean")? {
-            preferences.paired_punctuation = value;
-        }
-    }
-    if let Some(value) = bool_setting(values, "input.wubi_code_hint")? {
-        if supports_schema_field(schema, "input.wubi_code_hint", "boolean")? {
-            preferences.wubi_code_hint = value;
-        }
-    }
-    if let Some(value) = string_setting(values, "platform.android.keyboard_layout")? {
-        if supports_schema_field(schema, "platform.android.keyboard_layout", "string")? {
-            preferences.touch_keyboard_layout = match value.as_str() {
-                "twenty_six_key" => TouchKeyboardLayout::TwentySixKey,
-                "nine_key" => TouchKeyboardLayout::NineKey,
-                "handwriting" => TouchKeyboardLayout::Handwriting,
-                _ => return Err(AccountError::Invalid),
-            };
-        }
-    }
-    apply_theme_settings(&mut preferences, values, |key, expected| {
-        supports_schema_field(schema, key, expected)
-    })?;
-    if let Some(value) = string_setting(values, "platform.android.theme")? {
-        if supports_schema_field(schema, "platform.android.theme", "string")? {
-            preferences.theme = match value.as_str() {
-                "dark" => ThemeMode::Dark,
-                "light" => ThemeMode::Light,
-                "system" => ThemeMode::System,
-                _ => return Err(AccountError::Invalid),
-            };
-        }
-    }
-    if let Some(value) = integer_setting(values, "platform.android.touch_key_spacing_tenths")? {
-        if supports_schema_field(
-            schema,
-            "platform.android.touch_key_spacing_tenths",
-            "integer",
-        )? {
-            preferences.touch_key_spacing_tenths =
-                u8::try_from(value).map_err(|_| AccountError::Invalid)?;
-        }
-    }
-    if let Some(value) = integer_setting(values, "platform.android.touch_row_spacing_tenths")? {
-        if supports_schema_field(
-            schema,
-            "platform.android.touch_row_spacing_tenths",
-            "integer",
-        )? {
-            preferences.touch_row_spacing_tenths =
-                u8::try_from(value).map_err(|_| AccountError::Invalid)?;
-        }
-    }
-    if let Some(value) = integer_setting(values, "platform.android.keyboard_height_adjustment")? {
-        if supports_schema_field(
-            schema,
-            "platform.android.keyboard_height_adjustment",
-            "integer",
-        )? {
-            preferences.touch_keyboard_height_adjustment =
-                i8::try_from(value).map_err(|_| AccountError::Invalid)?;
-        }
-    }
-    if let Some(value) = bool_setting(values, "platform.android.voice_shortcut")? {
-        if supports_schema_field(schema, "platform.android.voice_shortcut", "boolean")? {
-            preferences.touch_voice_shortcut = value;
-        }
-    }
-
-    let feedback_keys = [
-        "platform.android.sound_enabled",
-        "platform.android.haptics_enabled",
-        "platform.android.haptic_strength",
-    ];
-    let mut feedback_values = if feedback_keys
-        .iter()
-        .any(|key| schema.fields.contains_key(*key) && values.contains_key(*key))
-    {
-        Some(
-            feedback
-                .run_mobile_plugin::<FeedbackSettings>("loadFeedback", ())
-                .map_err(|_| AccountError::Storage)?,
-        )
+    let host = if needs_host_feedback(cloud, schema) {
+        Some(load_host_feedback(feedback)?)
     } else {
         None
     };
-    if let Some(value) = bool_setting(values, "platform.android.sound_enabled")? {
-        if supports_schema_field(schema, "platform.android.sound_enabled", "boolean")? {
-            feedback_values
-                .as_mut()
-                .ok_or(AccountError::Storage)?
-                .sound_enabled = value;
-        }
-    }
-    if let Some(value) = bool_setting(values, "platform.android.haptics_enabled")? {
-        if supports_schema_field(schema, "platform.android.haptics_enabled", "boolean")? {
-            feedback_values
-                .as_mut()
-                .ok_or(AccountError::Storage)?
-                .haptics_enabled = value;
-        }
-    }
-    if let Some(value) = string_setting(values, "platform.android.haptic_strength")? {
-        if supports_schema_field(schema, "platform.android.haptic_strength", "string")? {
-            if !valid_mobile_haptic_strength(&value) {
-                return Err(AccountError::Invalid);
-            }
-            feedback_values
-                .as_mut()
-                .ok_or(AccountError::Storage)?
-                .haptic_strength = value;
-        }
-    }
-    if let Some(feedback_values) = feedback_values {
+    let applied = apply_android_settings(&snapshot.preferences, cloud, schema, host)?;
+    if let Some(next) = applied.feedback {
         let request = serde_json::json!({
-            "soundEnabled": feedback_values.sound_enabled,
-            "hapticsEnabled": feedback_values.haptics_enabled,
-            "hapticStrength": feedback_values.haptic_strength,
+            "soundEnabled": next.sound_enabled,
+            "hapticsEnabled": next.haptics_enabled,
+            "hapticStrength": next.haptic_strength,
         });
         feedback
             .run_mobile_plugin::<()>("saveFeedback", request)
             .map_err(|_| AccountError::Storage)?;
     }
-    preferences.validate().map_err(|_| AccountError::Invalid)?;
-    Ok(preferences)
+    Ok(applied.preferences)
 }
 
 #[tauri::command]
@@ -1704,198 +1291,4 @@ pub async fn mobile_keyboard_feedback_preview(
     .map_err(|_| crate::CommandError {
         code: "feedback_preview",
     })?
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{
-        account_input_schema, account_wubi_schema, apply_frequency_preferences, apply_input_scheme,
-        apply_wubi_profile, frequency_account_preferences, AccountPreferenceSchema,
-        AccountPreferenceValue, FrequencyMode, InputScheme, Preferences, WubiProfile,
-    };
-    use msime_client_core::account::AccountPreferenceField;
-    use msime_client_core::preferences::FrequencyPreferences;
-    use std::collections::BTreeMap;
-
-    fn frequency_schema() -> AccountPreferenceSchema {
-        AccountPreferenceSchema {
-            fields: BTreeMap::from([
-                (
-                    "input.frequency_mode".into(),
-                    AccountPreferenceField {
-                        value_type: "string".into(),
-                    },
-                ),
-                (
-                    "input.frequency_trigger_count".into(),
-                    AccountPreferenceField {
-                        value_type: "integer".into(),
-                    },
-                ),
-                (
-                    "input.frequency_linear_step".into(),
-                    AccountPreferenceField {
-                        value_type: "integer".into(),
-                    },
-                ),
-            ]),
-            maximum_bytes: 65_536,
-            update_mode: "replace".into(),
-            revision_required: true,
-        }
-    }
-
-    #[test]
-    fn frequency_preferences_round_trip_through_account_fields() {
-        let expected = FrequencyPreferences {
-            mode: FrequencyMode::Linear,
-            trigger_count: 7,
-            linear_step: 4,
-        };
-        let values = frequency_account_preferences(&expected);
-        assert_eq!(
-            values["input.frequency_mode"],
-            AccountPreferenceValue::String("linear".into())
-        );
-        let mut preferences = Preferences::default();
-        apply_frequency_preferences(&mut preferences, &values, &frequency_schema()).unwrap();
-        assert_eq!(preferences.frequency, expected);
-    }
-
-    #[test]
-    fn unsupported_frequency_fields_are_ignored_but_invalid_modes_are_rejected() {
-        let expected = FrequencyPreferences {
-            mode: FrequencyMode::Linear,
-            trigger_count: 7,
-            linear_step: 4,
-        };
-        let values = frequency_account_preferences(&expected);
-        let mut preferences = Preferences::default();
-        let empty_schema = AccountPreferenceSchema {
-            fields: BTreeMap::new(),
-            maximum_bytes: 65_536,
-            update_mode: "replace".into(),
-            revision_required: true,
-        };
-        apply_frequency_preferences(&mut preferences, &values, &empty_schema).unwrap();
-        assert_eq!(preferences.frequency, FrequencyPreferences::default());
-
-        let mut invalid = values;
-        invalid.insert(
-            "input.frequency_mode".into(),
-            AccountPreferenceValue::String("unknown".into()),
-        );
-        assert!(
-            apply_frequency_preferences(&mut preferences, &invalid, &frequency_schema()).is_err()
-        );
-    }
-
-    #[test]
-    fn the_account_names_only_the_schemes_its_schema_knows() {
-        for (scheme, schema) in [
-            (InputScheme::Quanpin, Some("quanpin")),
-            (InputScheme::Shuangpin, Some("shuangpin")),
-            (InputScheme::Wubi, Some("wubi")),
-            (InputScheme::Japanese, Some("japanese")),
-            (InputScheme::Korean, Some("korean")),
-            (InputScheme::Cantonese, None),
-            (InputScheme::Zhuyin, None),
-            (InputScheme::Vietnamese, None),
-            (InputScheme::Tibetan, None),
-            (InputScheme::Stroke, None),
-        ] {
-            assert_eq!(account_input_schema(scheme), schema, "{scheme:?}");
-        }
-    }
-
-    #[test]
-    fn an_unknown_cloud_scheme_keeps_the_local_one_and_the_rest_applies() {
-        let mut schema = frequency_schema();
-        schema.fields.insert(
-            "input.schema".into(),
-            AccountPreferenceField {
-                value_type: "string".into(),
-            },
-        );
-        for unknown in [
-            "cantonese",
-            "zhuyin",
-            "vietnamese",
-            "tibetan",
-            "stroke",
-            "esperanto",
-        ] {
-            let mut values = frequency_account_preferences(&FrequencyPreferences {
-                mode: FrequencyMode::Linear,
-                trigger_count: 7,
-                linear_step: 4,
-            });
-            values.insert(
-                "input.schema".into(),
-                AccountPreferenceValue::String(unknown.into()),
-            );
-            let mut preferences = Preferences {
-                scheme: InputScheme::Wubi,
-                ..Preferences::default()
-            };
-            apply_input_scheme(&mut preferences, &values, &schema).unwrap();
-            apply_frequency_preferences(&mut preferences, &values, &schema).unwrap();
-            assert_eq!(preferences.scheme, InputScheme::Wubi, "{unknown}");
-            assert_eq!(
-                preferences.frequency.mode,
-                FrequencyMode::Linear,
-                "{unknown}"
-            );
-        }
-
-        let mut values = BTreeMap::new();
-        values.insert(
-            "input.schema".into(),
-            AccountPreferenceValue::String("korean".into()),
-        );
-        let mut preferences = Preferences::default();
-        apply_input_scheme(&mut preferences, &values, &schema).unwrap();
-        assert_eq!(preferences.scheme, InputScheme::Korean);
-    }
-
-    #[test]
-    fn the_wubi_profile_round_trips_through_the_account_wubi_schema() {
-        let mut schema = frequency_schema();
-        schema.fields.insert(
-            "input.wubi_schema".into(),
-            AccountPreferenceField {
-                value_type: "string".into(),
-            },
-        );
-        for profile in [WubiProfile::Wubi86, WubiProfile::Wubi98] {
-            let values = BTreeMap::from([(
-                "input.wubi_schema".into(),
-                AccountPreferenceValue::String(account_wubi_schema(profile).into()),
-            )]);
-            let mut preferences = Preferences {
-                wubi_profile: if profile == WubiProfile::Wubi86 {
-                    WubiProfile::Wubi98
-                } else {
-                    WubiProfile::Wubi86
-                },
-                ..Preferences::default()
-            };
-            apply_wubi_profile(&mut preferences, &values, &schema).unwrap();
-            assert_eq!(preferences.wubi_profile, profile);
-        }
-
-        // 账号的字段表里没有它时不动本地设置，不认识的取值拒绝。
-        let values = BTreeMap::from([(
-            "input.wubi_schema".into(),
-            AccountPreferenceValue::String("wubi98".into()),
-        )]);
-        let mut preferences = Preferences::default();
-        apply_wubi_profile(&mut preferences, &values, &frequency_schema()).unwrap();
-        assert_eq!(preferences.wubi_profile, WubiProfile::Wubi86);
-        let invalid = BTreeMap::from([(
-            "input.wubi_schema".into(),
-            AccountPreferenceValue::String("wubi06".into()),
-        )]);
-        assert!(apply_wubi_profile(&mut preferences, &invalid, &schema).is_err());
-    }
 }

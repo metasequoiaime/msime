@@ -1062,29 +1062,31 @@ impl TypingStatisticsStore {
     /// the lock are shared, so turning statistics off turns this off with them and no second
     /// switch appears in settings for a user to misread.
     pub fn record_selection(&self, position: usize) -> Result<(), TypingStatisticsError> {
-        self.record_selections(&[(position, 1)])
+        self.record_selections(&[(position, 1)]).map(|_| ())
     }
 
     /// Count several commits at once, each `(position, count)` pair adding `count` commits from that one-based position, under one lock, one read and at most one write.
     ///
     /// This is what lets a host keep selections in memory and hand them over in batches instead of paying a full read, fsync and rename per selection. An empty batch touches nothing on disk. The batch is applied whole or not at all: an invalid position or an exhausted count leaves the document as it was. Statistics being off drops the batch without writing, the same answer `record_selection` gives.
+    ///
+    /// 返回这次读到的统计开关，宿主拿它当下一批的开关缓存，不必在输入线程上再读一遍文件；批次全是零、没有读文件时为 `None`。
     pub fn record_selections(
         &self,
         selections: &[(usize, u64)],
-    ) -> Result<(), TypingStatisticsError> {
+    ) -> Result<Option<bool>, TypingStatisticsError> {
         if selections.iter().all(|(_, count)| *count == 0) {
-            return Ok(());
+            return Ok(None);
         }
         let _lock = self.lock()?;
         let mut value = self.read_locked()?;
         if !value.enabled {
-            return Ok(());
+            return Ok(Some(false));
         }
         for &(position, count) in selections {
             value.selections.add(position, count)?;
         }
         self.write_locked(&value)?;
-        Ok(())
+        Ok(Some(true))
     }
 
     /// Count key presses for `day`, each entry adding `count` presses of one [`KEY_IDS`] key, under one lock, one read and at most one write. Returns how many presses were added.

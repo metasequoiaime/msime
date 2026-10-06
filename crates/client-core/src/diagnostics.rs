@@ -371,7 +371,7 @@ pub fn performance_record(line: &[u8]) -> Option<Value> {
     input_event_record(line)
 }
 
-/// 崩溃记录：恰好 `at`、`message`、`stack` 三个字符串键，长度不超过服务端上限。
+/// 崩溃记录：恰好 `at`、`message`、`stack` 三个字符串键，长度不超过服务端上限。异常说明可能带着正在输入的文字（比如解析错误引用了组字内容），所以 `message` 只留异常类型，`stack` 里栈帧原样保留、说明行只留异常类型，路径都只留文件名。
 pub fn crash_record(line: &[u8]) -> Option<Value> {
     let object = parse_object(line)?;
     if object.len() != 3 {
@@ -387,7 +387,34 @@ pub fn crash_record(line: &[u8]) -> Option<Value> {
     {
         return None;
     }
-    Some(Value::Object(object))
+    let message = crate::telemetry::clean_message(exception_type(message.lines().next()?));
+    let stack: Vec<String> = stack
+        .lines()
+        .map(|line| {
+            let trimmed = line.trim_start();
+            if ["at ", "... ", "#"]
+                .iter()
+                .any(|frame| trimmed.starts_with(frame))
+            {
+                line.to_owned()
+            } else if let Some(cause) = trimmed.strip_prefix("Caused by: ") {
+                format!("Caused by: {}", exception_type(cause))
+            } else {
+                exception_type(trimmed).to_owned()
+            }
+        })
+        .collect();
+    let stack = crate::telemetry::clean_stack(&stack.join("\n"));
+    let mut record = Map::new();
+    record.insert("at".into(), at.into());
+    record.insert("message".into(), message.into());
+    record.insert("stack".into(), stack.into());
+    Some(Value::Object(record))
+}
+
+/// `java.lang.IllegalStateException: 说明` 里冒号前的异常类型；没有冒号时是整行。
+fn exception_type(line: &str) -> &str {
+    line.split(':').next().unwrap_or(line).trim()
 }
 
 fn ndjson(records: &[Value]) -> Vec<u8> {

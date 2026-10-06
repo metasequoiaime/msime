@@ -6,6 +6,7 @@ pub(crate) fn valid_mobile_haptic_strength(value: &str) -> bool {
     matches!(value, "light" | "medium" | "strong")
 }
 
+#[cfg_attr(target_os = "android", allow(dead_code))] // Android 走 client-core 的 settings_sync，这几个只剩 iOS 在用。
 pub(crate) fn insert_string(
     settings: &mut BTreeMap<String, AccountPreferenceValue>,
     key: &str,
@@ -17,6 +18,7 @@ pub(crate) fn insert_string(
     );
 }
 
+#[cfg_attr(target_os = "android", allow(dead_code))] // Android 走 client-core 的 settings_sync，这几个只剩 iOS 在用。
 pub(crate) fn insert_bool(
     settings: &mut BTreeMap<String, AccountPreferenceValue>,
     key: &str,
@@ -26,6 +28,7 @@ pub(crate) fn insert_bool(
 }
 
 #[cfg(any(target_os = "ios", target_os = "android"))]
+#[cfg_attr(target_os = "android", allow(dead_code))] // Android 走 client-core 的 settings_sync，这几个只剩 iOS 在用。
 pub(crate) fn insert_integer(
     settings: &mut BTreeMap<String, AccountPreferenceValue>,
     key: &str,
@@ -34,6 +37,7 @@ pub(crate) fn insert_integer(
     settings.insert(key.to_owned(), AccountPreferenceValue::Integer(value));
 }
 
+#[cfg_attr(target_os = "android", allow(dead_code))] // Android 走 client-core 的 settings_sync，这几个只剩 iOS 在用。
 pub(crate) fn frequency_account_preferences(
     frequency: &FrequencyPreferences,
 ) -> BTreeMap<String, AccountPreferenceValue> {

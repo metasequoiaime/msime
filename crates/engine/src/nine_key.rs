@@ -46,10 +46,10 @@ pub struct NineKeySession {
     english_options: EnglishInputOptions,
     digits: String,
     locked: Vec<String>,
-    /// Digit offsets where the user split syllables with `'`, ascending and past the locked span. Unlike a locked spelling, a split fixes only where a syllable ends, so every reading of the digits on either side stays open: `94'26` is xi'an as well as yi'an, never xian.
+    /// 用户用 `'` 切开音节的数字位置，升序，都在已锁定的部分之后。和锁定的拼写不同，切分只定下一个音节在哪里结束，两边数字的各种读法都还保留：`94'26` 可以是 xi'an，也可以是 yi'an，但不会是 xian。
     splits: Vec<usize>,
     spellings: Vec<String>,
-    /// `SessionSnapshot::nine_key_reading`, rebuilt with the candidates.
+    /// `SessionSnapshot::nine_key_reading`，随候选一起重建。
     reading: String,
     candidates: Vec<WordItem>,
     english_only: bool,
@@ -103,10 +103,10 @@ impl NineKeySession {
         self.refresh();
     }
 
-    /// `2`..=`9`; at 32 digits handled with `NINE_KEY_DIGIT_LIMIT`. `'` while composing splits the syllables at the end of what is typed; a second split there, or one right after a locked spelling, changes nothing.
+    /// `2`..=`9`；到 32 个数字时按 `NINE_KEY_DIGIT_LIMIT` 处理。组字中按 `'` 在已输入部分的末尾切开音节；在同一处再切一次，或者紧跟在锁定的拼写之后切，都没有作用。
     pub fn character(&mut self, digit: u8) -> KeyResult {
         if digit == b'\'' {
-            // English digits spell letters, not syllables, so there is nothing to split and a recorded split would only be dropped on commit.
+            // 英文九键的数字拼的是字母不是音节，没有可切的地方，记下的切分上屏时也只会被丢掉。
             if !self.active() || self.english_only || !self.pinyin {
                 return KeyResult::unhandled();
             }
@@ -208,7 +208,7 @@ impl NineKeySession {
                 self.locked.clear();
                 self.splits.clear();
             }
-            // A split at the end goes first, so Backspace undoes the last key pressed.
+            // 末尾的切分先删，这样退格撤销的是最后按下的那个键。
             Command::Backspace => {
                 if self.splits.last() == Some(&self.digits.len()) {
                     self.splits.pop();
@@ -819,7 +819,7 @@ impl SpellingTable {
     }
 
     /// Complete syllables the unlocked digits can start with, or that complete them, longest covered first (NK:238-250). Coverage is counted in digits: comparing letter counts would put a syllable that needs two digits ahead under the same digit prefix.
-    /// With a split, only syllables that end at or before it qualify.
+    /// 有切分时，只有在切分处或之前结束的音节才算。
     fn spellings_for(
         &self,
         remaining: &str,
@@ -853,7 +853,7 @@ impl SpellingTable {
         self.split_paths(digits, &[])
     }
 
-    /// `paths` where a syllable must end at each of `splits` (offsets into `digits`), and that syllable must be complete.
+    /// 和 `paths` 一样，但每个 `splits` 位置（`digits` 里的下标）都必须有一个音节在那里结束，而且这个音节必须完整。
     fn split_paths(&self, digits: &str, splits: &[usize]) -> Vec<Path> {
         let length = digits.len();
         let mut suffix: Vec<Vec<Path>> = vec![Vec::new(); length + 1];
@@ -971,7 +971,7 @@ mod tests {
         // With 31 digits already locked, only a one-digit completion still fits in 32.
         assert_eq!(table.spellings_for("2", 31, None), ["a"]);
         assert!(table.spellings_for("", 0, None).is_empty());
-        // A split after two digits rules out every syllable that runs past it.
+        // 在两个数字之后切开，就排除了所有跨过这个位置的音节。
         assert_eq!(table.spellings_for("426", 0, Some(2)), ["ga", "ha"]);
     }
 

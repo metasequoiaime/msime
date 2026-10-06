@@ -80,6 +80,36 @@ fn performance_records_need_exactly_the_three_whitelisted_keys() {
     assert!(crash_record(br#"{"at":"x","message":"m","stack":"s","extra":1}"#).is_none());
 }
 
+// 异常说明可能带着正在输入的文字，崩溃记录进诊断包时只留异常类型和栈帧，路径只留文件名。
+#[test]
+fn crash_records_keep_the_exception_type_and_frames_but_not_the_reason() {
+    let line = serde_json::json!({
+        "at": "2026-10-05T00:00:00Z",
+        "message": "java.lang.IllegalStateException: 合成文字 typed text",
+        "stack": "java.lang.IllegalStateException: 合成文字 typed text\n\tat app.msime.android.Foo.bar(Foo.java:12)\nCaused by: org.json.JSONException: Unterminated string at 合成\n\t... 3 more\n#00 pc 0001 /data/app/abc/lib/arm64/libmsime_host_api.so (crash+4)",
+    })
+    .to_string();
+    let record = crash_record(line.as_bytes()).unwrap();
+    assert_eq!(record["message"], "java.lang.IllegalStateException");
+    let stack = record["stack"].as_str().unwrap();
+    assert!(
+        !stack.contains("合成") && !stack.contains("typed text"),
+        "{stack}"
+    );
+    assert!(
+        stack.contains("at app.msime.android.Foo.bar(Foo.java:12)"),
+        "{stack}"
+    );
+    assert!(
+        stack.contains("Caused by: org.json.JSONException"),
+        "{stack}"
+    );
+    assert!(
+        stack.contains("libmsime_host_api.so (crash+4)") && !stack.contains("/data/app"),
+        "{stack}"
+    );
+}
+
 #[test]
 fn a_missing_source_is_an_empty_section() {
     let directory = tempfile::tempdir().unwrap();

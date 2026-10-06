@@ -52,6 +52,11 @@ public final class ZhuyinInputPolicy {
         return nineKey && !zhuyin;
     }
 
+    /** 注音 9 键的软键盘声调键只在组字时发出去：空闲时引擎不认领声调字母（实体键盘上要能打出这几个字母），软键盘发了就会把字母上屏。 */
+    public static boolean toneKeySends(String editingText) {
+        return editingText != null && !editingText.isEmpty();
+    }
+
     /** Whether the touch Space key is Dachen input rather than the commit command: the view lists Space among its spelling symbols while a conversion composes with its list closed, where it is tone 1 on a pending syllable and opens the list otherwise. Idle it is a plain space, and with the list open the commit command picks the first row. */
     public static boolean spaceIsEngineKey(boolean zhuyin, String spellingSymbols) {
         return engineKey(zhuyin, ' ', spellingSymbols);

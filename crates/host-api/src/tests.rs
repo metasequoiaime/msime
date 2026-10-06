@@ -1526,6 +1526,57 @@ fn zhuyin_with_the_nine_key_layout_starts_in_nine_key_mode() {
     read(msime_client_destroy(handle));
 }
 
+// 宿主为全拼九键打开的覆盖不能带进注音：从全拼切到注音时按注音自己的布局判断，没选「注音 9 键」就是大千键位。
+#[test]
+fn a_quanpin_nine_key_override_does_not_carry_into_zhuyin() {
+    use msime_engine::language_dictionary::{FORMAT_VERSION, METADATA_FORMAT_VERSION, SCHEMA};
+    let dir = tempfile::tempdir().unwrap();
+    let path = |name| {
+        let path = dir.path().join(name);
+        std::fs::create_dir_all(&path).unwrap();
+        path
+    };
+    let language_dictionaries = path("language-dictionaries");
+    let connection =
+        rusqlite::Connection::open(language_dictionaries.join("msime-zhuyin.db")).unwrap();
+    connection.execute_batch(SCHEMA).unwrap();
+    connection
+        .execute(
+            "INSERT INTO metadata VALUES (?1, ?2)",
+            (METADATA_FORMAT_VERSION, FORMAT_VERSION.to_string()),
+        )
+        .unwrap();
+    connection
+        .execute_batch("INSERT INTO syllables VALUES ('ㄋㄧˇ'); INSERT INTO entries VALUES ('ㄋㄧˇ','你',1000);")
+        .unwrap();
+    drop(connection);
+    let quanpin = Preferences {
+        scheme: InputScheme::Quanpin,
+        touch_keyboard_layout: TouchKeyboardLayout::NineKey,
+        ..chinese_preferences()
+    };
+    let options = json!({ "api_version": 1, "resources": path("resources"), "user_data": path("user"), "cache": path("cache"), "dictionaries": path("dictionaries"), "preferences": quanpin, "language_dictionaries": language_dictionaries }).to_string();
+    let created = read(unsafe { msime_client_create(options.as_ptr(), options.len()) });
+    assert_eq!(created["ok"], true, "{created}");
+    let handle = created["value"]["session"].as_u64().unwrap();
+    read(msime_client_focus(handle, true));
+    assert_eq!(
+        read(msime_client_set_nine_key_mode(handle, true))["value"]["nine_key"],
+        true
+    );
+    let zhuyin = update(
+        handle,
+        1,
+        &Preferences {
+            scheme: InputScheme::Zhuyin,
+            ..quanpin
+        },
+    );
+    assert_eq!(zhuyin["value"]["view"]["scheme"], 6, "{zhuyin}");
+    assert_eq!(zhuyin["value"]["view"]["nine_key"], false, "{zhuyin}");
+    read(msime_client_destroy(handle));
+}
+
 #[test]
 fn the_repeat_gesture_arms_except_in_schemes_that_write_no_chinese_marks() {
     // The repeat gesture turns an ASCII mark into a Chinese one. It never arms in Korean or Vietnamese, which write only ASCII marks, or in Zhuyin, whose punctuation keys spell bopomofo; Japanese arms as it did before the new schemes. Cantonese, Zhuyin and Stroke are left out because this host installs no language dictionaries, so the runtime would not run them; Stroke writes Chinese marks like Cantonese and is not on the engine's disarm list.
@@ -3173,9 +3224,9 @@ fn selection_statistics_reach_the_store_at_focus_out() {
     read(msime_client_destroy(handle));
     assert_eq!(store.load().unwrap().selections.total(), 3);
 }
-/// Android 宿主在隐私模式和不学习的输入框里以 `learning: false` 建立会话：选词位置不计入统计。
+/// 用户自己关掉学习不影响统计；宿主标出的隐私会话（Android 的隐私模式和不允许学习的输入框）不计选词位置，取消标记后照常计数。
 #[test]
-fn a_session_without_learning_counts_no_selection_statistics() {
+fn only_a_private_session_counts_no_selection_statistics() {
     let dir = tempfile::tempdir().unwrap();
     let store = TypingStatisticsStore::new(dir.path().join("user"));
     store.set_enabled(true).unwrap();
@@ -3183,30 +3234,36 @@ fn a_session_without_learning_counts_no_selection_statistics() {
         learning: false,
         ..chinese_preferences()
     };
-    let handle = test_host_with_pinyin_fixture(dir.path(), preferences.clone());
+    let handle = test_host_with_pinyin_fixture(dir.path(), preferences);
     SESSIONS.with(|sessions| assert!(!sessions.borrow()[&handle].options.learning));
     assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
     for index in [0, 1] {
         commit_candidate_by_position(handle, index);
     }
     assert_eq!(read(msime_client_focus(handle, false))["ok"], true);
-    assert_eq!(store.load().unwrap().selections.total(), 0);
+    assert_eq!(store.load().unwrap().selections.total(), 2);
 
-    // 恢复学习后照常计数。
-    let open = Preferences {
-        learning: true,
-        ..preferences
-    };
-    assert_eq!(update(handle, 1, &open)["ok"], true);
-    SESSIONS.with(|sessions| assert!(sessions.borrow()[&handle].options.learning));
+    assert_eq!(
+        read(msime_client_set_private_session(handle, true))["value"],
+        true
+    );
     assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
     commit_candidate_by_position(handle, 0);
     assert_eq!(read(msime_client_focus(handle, false))["ok"], true);
-    assert_eq!(store.load().unwrap().selections.total(), 1);
+    assert_eq!(store.load().unwrap().selections.total(), 2);
+
+    assert_eq!(
+        read(msime_client_set_private_session(handle, false))["value"],
+        false
+    );
+    assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+    commit_candidate_by_position(handle, 0);
+    assert_eq!(read(msime_client_focus(handle, false))["ok"], true);
+    assert_eq!(store.load().unwrap().selections.total(), 3);
     read(msime_client_destroy(handle));
 }
 
-/// 上屏效率：一次带输入码的选择计一次上屏和按下的字母数，不学习的会话什么都不计。
+/// 上屏效率：一次带输入码的选择计一次上屏和按下的字母数，宿主标出的隐私会话什么都不计。
 #[test]
 fn a_committed_selection_counts_its_efficiency_and_a_private_session_counts_nothing() {
     let dir = tempfile::tempdir().unwrap();
@@ -3224,11 +3281,11 @@ fn a_committed_selection_counts_its_efficiency_and_a_private_session_counts_noth
     let dir = tempfile::tempdir().unwrap();
     let store = TypingStatisticsStore::new(dir.path().join("user"));
     store.set_enabled(true).unwrap();
-    let preferences = Preferences {
-        learning: false,
-        ..chinese_preferences()
-    };
-    let handle = test_host_with_pinyin_fixture(dir.path(), preferences);
+    let handle = test_host_with_pinyin_fixture(dir.path(), chinese_preferences());
+    assert_eq!(
+        read(msime_client_set_private_session(handle, true))["ok"],
+        true
+    );
     assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
     commit_candidate_by_position(handle, 0);
     assert_eq!(read(msime_client_focus(handle, false))["ok"], true);
@@ -3306,8 +3363,9 @@ fn efficiency_is_not_counted_while_statistics_are_off() {
     let (handle, store) = selection_statistics_host(dir.path(), false);
     commit_candidate_by_position(handle, 0);
     assert_eq!(read(msime_client_focus(handle, false))["ok"], true);
+    // 写这一批时读到了关着的开关，直接留作下一批的缓存，不在输入线程上再读一遍文件。
     SESSIONS.with(|sessions| {
-        assert_eq!(sessions.borrow()[&handle].statistics_enabled, None);
+        assert_eq!(sessions.borrow()[&handle].statistics_enabled, Some(false));
     });
     assert_eq!(store.load().unwrap().efficiency.commits, 0);
     read(msime_client_destroy(handle));
@@ -3402,6 +3460,8 @@ fn selection_statistics_are_written_once_a_batch_fills() {
     // The selection that fills the batch writes it, with no focus-out, which bounds what a killed process loses.
     commit_candidate_by_position(handle, 0);
     assert_eq!(store.load().unwrap().selections.total(), SELECTION_BATCH);
+    // 填满这一批的那次上屏，效率也在同一批里写下。
+    assert_eq!(store.load().unwrap().efficiency.commits, SELECTION_BATCH);
     commit_candidate_by_position(handle, 1);
     assert_eq!(store.load().unwrap().selections.total(), SELECTION_BATCH);
     read(msime_client_focus(handle, false));

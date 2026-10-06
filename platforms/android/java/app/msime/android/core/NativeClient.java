@@ -282,6 +282,11 @@ public final class NativeClient {
         return text(personalDictionarySyncRaw(options.getBytes(StandardCharsets.UTF_8)));
     }
     public static String focus(long session, boolean focused) { return text(focusRaw(session, focused)); }
+    /** 标出隐私会话：选词位置和上屏效率不记入打字统计。 */
+    public static String setPrivateSession(long session, boolean enabled) {
+        return text(setPrivateSessionRaw(session, enabled));
+    }
+
     public static String setNineKeyMode(long session, boolean enabled) {
         return text(setNineKeyModeRaw(session, enabled));
     }
@@ -558,6 +563,7 @@ public final class NativeClient {
     private static native byte[] personalDictionarySyncRaw(byte[] options);
     private static native byte[] focusRaw(long session, boolean focused);
     private static native byte[] setNineKeyModeRaw(long session, boolean enabled);
+    private static native byte[] setPrivateSessionRaw(long session, boolean enabled);
     private static native byte[] setEnglishModeRaw(long session, boolean enabled);
     private static native byte[] mobileVoiceConfigurationRaw(byte[] directory);
     private static native byte[] simplifiedToTraditionalRaw(byte[] text);

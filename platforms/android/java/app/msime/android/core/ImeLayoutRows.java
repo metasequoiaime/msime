@@ -518,7 +518,9 @@ final class ImeLayoutRows {
         for (ZhuyinNineKeyLayout.Tone tone : ZhuyinNineKeyLayout.tones()) {
             String label = ZhuyinNineKeyLayout.accessibilityLabel(tone);
             Button key = s.keyId(s.keyboardKey(tone.face(), label, () -> {
-                if (s.connection != null) s.character(tone.input(), false);
+                if (s.connection != null && ZhuyinInputPolicy.toneKeySends(
+                        s.view == null ? "" : s.view.optString("editing_text", "")))
+                    s.character(tone.input(), false);
             }), tone.keyId());
             key.setContentDescription(label);
             // 声调符号本身只是一道短笔画，按默认字号画出来几乎看不见。

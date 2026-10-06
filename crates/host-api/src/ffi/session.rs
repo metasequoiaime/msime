@@ -143,6 +143,7 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
                     english_mode: false,
                     page_size_override: None,
                     nine_key_override: None,
+                    statistics_private: false,
                     ai_credential: None,
                     ai_provider_cache,
                     voice: VoiceSessionState::default(),

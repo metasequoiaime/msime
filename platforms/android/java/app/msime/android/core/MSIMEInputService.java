@@ -1110,6 +1110,7 @@ public final class MSIMEInputService extends InputMethodService {
                 keyStatisticsExcluded = EditorPolicy.excludesKeyStatistics(
                     effectiveInfo.inputType, effectiveInfo.imeOptions);
             }
+            markPrivateSession();
             loadFeedbackPreferences();
             refreshLocalSettings();
             refreshPreferencesOnInputView();
@@ -1324,6 +1325,7 @@ public final class MSIMEInputService extends InputMethodService {
                 candidateGlossResources = resources;
             }
             apply(NativeClient.focus(session, true));
+            markPrivateSession();
             view = value(NativeClient.setEnglishMode(session, dedicatedEnglish));
             applyCharacterWidth(fullWidthPreference);
             applyChinesePunctuation(chinesePunctuationPreference);
@@ -1454,6 +1456,11 @@ public final class MSIMEInputService extends InputMethodService {
     /** 会话是否不学习：输入框不许个性化学习，或者隐私模式开着。 */
     private boolean learningSuppressed() {
         return !allowLearning || incognitoEnabled;
+    }
+
+    /** 把隐私模式和不允许学习的输入框告诉共享层：这样的会话不记选词位置和上屏效率。用户在设置里关掉学习不算，那时统计照常。 */
+    private void markPrivateSession() {
+        if (session != 0) NativeClient.setPrivateSession(session, learningSuppressed());
     }
 
     private void applyVoicePreferences(JSONObject preferences) {
@@ -1733,6 +1740,7 @@ public final class MSIMEInputService extends InputMethodService {
         // Keep the accepted disk snapshot intact while enforcing editor privacy in this session.
         if (learningSuppressed()) sessionSnapshot.getJSONObject("preferences").put("learning", false);
         JSONObject result = value(NativeClient.updatePreferences(session, sessionSnapshot.toString()));
+        markPrivateSession();
         boolean geometryChanged = touchKeySpacingTenths != nextKeySpacing
             || touchRowSpacingTenths != nextRowSpacing
             || touchKeyboardHeightAdjustment != nextHeightAdjustment;

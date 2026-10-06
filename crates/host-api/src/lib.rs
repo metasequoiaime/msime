@@ -210,6 +210,8 @@ struct HostSession {
     english_mode: bool,
     page_size_override: Option<u8>,
     nine_key_override: Option<bool>,
+    /// 宿主经 `msime_client_set_private_session` 标出的隐私会话（Android 的隐私模式和不允许学习的输入框）：不记选词位置和上屏效率。与用户自己关掉的「学习」无关。
+    statistics_private: bool,
     /// An AI provider credential the host keeps outside the preferences (the iOS Keychain), handed over for this session only and never written back.
     ai_credential: Option<String>,
     /// Cached copy used by every online query until preferences change.
@@ -328,14 +330,9 @@ impl HostSession {
                 snapshot.preferences.cloud_candidates
             })
     }
-    /// Android 会话是否不记统计：宿主在隐私模式和不学习的输入框里以 `learning: false` 建立或更新会话，已应用的偏好或还没应用的请求里有一份关着学习就算。只在 [`PRIVATE_SESSIONS_SKIP_STATISTICS`] 时成立，其他宿主照旧计数。
+    /// Android 会话是否不记统计：只看宿主经 `msime_client_set_private_session` 标出的隐私会话。用户在设置里关掉学习不算，统计开着就照常计数。只在 [`PRIVATE_SESSIONS_SKIP_STATISTICS`] 时成立，其他宿主照旧计数。
     fn private_session(&self) -> bool {
-        PRIVATE_SESSIONS_SKIP_STATISTICS
-            && (!self.applied.learning
-                || self
-                    .requested
-                    .as_ref()
-                    .is_some_and(|snapshot| !snapshot.preferences.learning))
+        PRIVATE_SESSIONS_SKIP_STATISTICS && self.statistics_private
     }
 
     /// Count a committing selection in memory, and hand the batch to the store once it is `SELECTION_BATCH` long.
@@ -424,7 +421,7 @@ impl HostSession {
                 .map(|(slot, count)| (slot + 1, *count)),
         );
         let store = TypingStatisticsStore::new(directory);
-        let _ = store.record_selections(&batch);
+        let enabled = store.record_selections(&batch).ok().flatten();
         let commits = std::mem::take(&mut self.pending_efficiency);
         if !commits.is_empty() {
             // 查读音要打开词库，放到后台线程，不占输入线程；测试里同步写，好断言结果。
@@ -434,8 +431,8 @@ impl HostSession {
                 record_efficiency_in_background(self.options.clone(), commits);
             }
         }
-        // 用户可能在设置里关掉或打开了统计，下一批重新读开关。
-        self.statistics_enabled = None;
+        // 用户可能在设置里关掉或打开了统计：写这一批时刚读过文件，就用读到的开关；没读（空批次或出错）时下一批再读。不在输入线程上为一个开关再读一遍整个文件。
+        self.statistics_enabled = enabled;
     }
 
     /// Rebuild the Engine for the requested preferences once the composition is idle. The `Ok` value is why the preferred scheme was not the one applied, when it was not.
@@ -549,7 +546,9 @@ impl HostSession {
             preferences.touch_keyboard_layout != self.applied.touch_keyboard_layout;
         let scheme = SchemeType::from_u8(options.scheme);
         let nine_key_scheme = scheme.is_some_and(SchemeType::nine_key);
-        let next_nine_key_override = if nine_key_scheme && !layout_changed {
+        // 宿主的九键覆盖只对它设下时的那个方案有效：全拼九宫格的开关带进注音，会让没选「注音 9 键」的注音也离开大千键位。
+        let scheme_changed = options.scheme != self.options.scheme;
+        let next_nine_key_override = if nine_key_scheme && !layout_changed && !scheme_changed {
             self.nine_key_override
         } else {
             None
@@ -1970,11 +1969,12 @@ fn dispatch(handle: u64, action: Action) -> *mut c_char {
                 .as_ref()
                 .is_none_or(|context| context.typing_statistics);
             if result.commit.is_some() && counts_as_typing {
-                if let Some(position) = position {
-                    session.count_selection(position);
-                }
+                // 先记效率再记位置：位置攒满一批会立刻写盘并带走待写的效率，这一次的效率要赶上同一批，否则进程在下一批之前被杀就丢了。
                 if let Some(candidate) = efficiency {
                     session.count_efficiency(candidate);
+                }
+                if let Some(position) = position {
+                    session.count_selection(position);
                 }
             }
             let result = session.complete_transition(result);
@@ -2002,7 +2002,7 @@ fn selected_position(action: &Action) -> Option<usize> {
 /// 上屏效率（少按键、联想、整句）只在 Android 上计：只有 Android 的统计页显示它，其他宿主不为它多查读音。测试里也打开，好覆盖计法。
 const COUNTS_COMMIT_EFFICIENCY: bool = cfg!(any(target_os = "android", test));
 
-/// Android 宿主在隐私模式和不学习的输入框里以 `learning: false` 建立会话；这时选词位置和上屏效率都不计。其他宿主不变。
+/// Android 宿主在隐私模式和不学习的输入框里经 `msime_client_set_private_session` 标出隐私会话；这时选词位置和上屏效率都不计。其他宿主不变。
 const PRIVATE_SESSIONS_SKIP_STATISTICS: bool = cfg!(any(target_os = "android", test));
 
 /// 一个会话在两次写统计之间最多记下多少次上屏。正常情况下 `SELECTION_BATCH` 次选词就会写一次，这只是兜底。
@@ -2123,7 +2123,7 @@ const SELECTION_BATCH: u64 = 32;
 #[cfg(test)]
 mod tests;
 
-/// Whether a session running `scheme` starts in the engine's nine-key mode from the preferences alone (a host's `msime_client_set_nine_key_mode` still overrides it). Quanpin follows `touch_keyboard_layout`. Zhuyin also needs the 注音 9 键 touch scheme, which only the Android keyboard writes: `touch_keyboard_layout` is one field for every scheme, and desktop hosts set it for the Quanpin grid (the Linux 九键 toggle), so a Zhuyin session there has to stay on the Dachen keys rather than inherit the grid.
+/// 只看偏好时，运行 `scheme` 的会话是否以引擎的九键模式开始（宿主的 `msime_client_set_nine_key_mode` 仍可覆盖，但覆盖只对设下它时的方案有效）。全拼看 `touch_keyboard_layout`。注音还要选了「注音 9 键」触屏方案，这个方案只有 Android 键盘会写：`touch_keyboard_layout` 是所有方案共用的一个字段，桌面宿主为全拼九宫格设它（Linux 的九键开关），那里的注音会话必须留在大千键位，不能继承九宫格。
 pub(crate) fn layout_starts_nine_key(
     scheme: Option<SchemeType>,
     preferences: &Preferences,
@@ -2138,7 +2138,7 @@ pub(crate) fn layout_starts_nine_key(
         Some(SchemeType::Quanpin) => true,
         Some(SchemeType::Zhuyin) => {
             let schemes = &preferences.touch_keyboard_schemes;
-            // Android may drop `selected` when the user edits the enabled list, so an enabled 注音 9 键 with nothing selected still counts.
+            // 用户改了启用列表时 Android 可能清掉 `selected`，所以启用了「注音 9 键」而没有选中项时也算。
             schemes.selected == Some(TouchKeyboardScheme::ZhuyinNineKey)
                 || (schemes.selected.is_none()
                     && schemes
