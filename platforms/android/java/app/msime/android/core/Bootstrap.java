@@ -236,7 +236,7 @@ public final class Bootstrap {
             manifest = new JSONObject(new String(bytes, StandardCharsets.UTF_8));
         }
         JSONArray artifacts = manifest.getJSONArray("artifacts");
-        java.util.Set<String> names = new java.util.HashSet<>();
+        java.util.Set<String> names = new java.util.HashSet<>(artifacts.length());
         for (int index = 0; index < artifacts.length(); index++) {
             String name = artifacts.getJSONObject(index).getString("name");
             if (!name.matches("[A-Za-z0-9_.-]+") || name.contains("..")) throw new IllegalArgumentException("Invalid asset name");
