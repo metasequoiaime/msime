@@ -130,7 +130,7 @@ msime.url = "github:metasequoiaime/msime";
 programs.msime.enable = true;
 ```
 
-`programs.msime.enable` 接入 Fcitx5 插件、放上 `msime-linux-setup` 等命令，并注册 provider 的用户单元：`programs.msime.services.online.enable`、`services.voice.enable` 两个按 socket 激活的服务和 `services.clipboard.enable` 剪贴板监视器默认都开，与 `msime-linux-setup` 首次配置时为用户启用的一致。`programs.msime.package` 可以换成 `override` 过的包。`nix flake check` 里的 `nixos-module` 起一台虚拟机核对这些单元能被拉起（需要 KVM）。
+`programs.msime.enable` 接入 Fcitx5 插件、放上 `msime-linux-setup` 等命令，并注册 provider 的用户单元：`programs.msime.services.online.enable`、`services.voice.enable` 两个按 socket 激活的服务和 `services.clipboard.enable` 剪贴板监视器默认都开，与 `msime-linux-setup` 首次配置时为用户启用的一致。`programs.msime.package` 可以换成 `override` 过的包。`nix flake check` 里的 `nixos-module` 起一台虚拟机核对这些单元能被拉起，并在自动登录的 X 会话里打开设置窗口（需要 KVM）。
 
 以前按路径启用过这些单元（`systemctl --user enable /nix/store/…/msime-linux-online.socket` 之类）的用户，`~/.config/systemd/user` 里会留着指向旧 store 路径的链接，它们优先于模块注册的单元，旧路径被垃圾回收后单元就加载不了。换到模块后执行一次 `systemctl --user disable msime-linux-online.socket msime-linux-voice.socket msime-linux-clipboard.service`（会提示这些单元仍在全局范围启用，即由模块拉起）和 `systemctl --user daemon-reload`，再用 `systemctl --user show -p FragmentPath <单元>` 确认它们来自 `/etc/systemd/user`。
 

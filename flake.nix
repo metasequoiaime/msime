@@ -51,11 +51,11 @@
           # 这几个包，只查 packages 发现不了参数被它们自动填上的问题。
           msime-fcitx5-overlay = (pkgs.extend self.overlays.default).msime-fcitx5;
         }
-        # 起一台虚拟机核对模块注册的用户单元真能被 systemd 拉起（需要 KVM）。只注册在 x86_64 上：
-        # flake check 只构建本机系统的 checks，却会求值所有系统的，多一个系统就多求值一整套 NixOS
-        # （实测约 9 秒、600 MB），哪怕它在这台主机上永远不会被构建。这台虚拟机核对的是模块接线
-        # （单元目录、wantedBy、socket 激活、脚本的解释器），与架构无关；aarch64 特有的部分（如语音
-        # 运行库）由那边的插件包构建里的 ctest 和装后检查覆盖。
+        # 起一台虚拟机核对模块注册的用户单元真能被 systemd 拉起、设置窗口打得开（需要 KVM）。只注册
+        # 在 x86_64 上：flake check 只构建本机系统的 checks，却会求值所有系统的，多一个系统就多求值
+        # 一整套 NixOS（实测约 9 秒、600 MB），哪怕它在这台主机上永远不会被构建。这台虚拟机核对的是
+        # 模块接线（单元目录、wantedBy、socket 激活、脚本的解释器、设置窗口的运行环境），与架构无关；
+        # aarch64 特有的部分（如语音运行库）由那边的插件包构建里的 ctest 和装后检查覆盖。
         // lib.optionalAttrs (system == "x86_64-linux") {
           nixos-module = import ./platforms/linux/nix/module-test.nix {
             inherit pkgs;
