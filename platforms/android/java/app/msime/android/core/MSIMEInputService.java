@@ -2196,8 +2196,10 @@ public final class MSIMEInputService extends InputMethodService {
         java.util.Map<String, java.util.Map<String, String>> offline =
             candidateOfflineGlosses != null && candidateOfflineGlossSession == session
                 && candidateOfflineGlossGeneration == generation ? candidateOfflineGlosses : java.util.Map.of();
-        java.util.LinkedHashSet<String> texts = new java.util.LinkedHashSet<>();
         JSONArray entries = view == null ? null : view.optJSONArray("candidates");
+        int textCapacity = entries == null ? 0 : Math.min(entries.length(), 32);
+        for (java.util.Map<String, String> glosses : offline.values()) textCapacity += glosses.size();
+        java.util.LinkedHashSet<String> texts = new java.util.LinkedHashSet<>(textCapacity);
         for (int index = 0; entries != null && index < Math.min(entries.length(), 32); index++) {
             JSONObject candidate = entries.optJSONObject(index);
             if (candidate != null) texts.add(candidate.optString("text", ""));
