@@ -57,6 +57,7 @@ public final class BadgeGridView extends View {
     private final RectF box = new RectF();
     private final RectF medalBox = new RectF();
     private final RectF ringBox = new RectF();
+    private final RectF hitBox = new RectF();
     private final LinearGradient[] medalGradients = new LinearGradient[4];
     private final long[] medalGradientKeys = {Long.MIN_VALUE, Long.MIN_VALUE, Long.MIN_VALUE, Long.MIN_VALUE};
     private int cachedAccent;
@@ -175,10 +176,9 @@ public final class BadgeGridView extends View {
     }
 
     private int indexAt(float x, float y) {
-        RectF hit = new RectF();
         for (int index = 0; index < badges.size(); index++) {
-            tile(index, hit);
-            if (hit.contains(x, y)) return index;
+            tile(index, hitBox);
+            if (hitBox.contains(x, y)) return index;
         }
         return -1;
     }
