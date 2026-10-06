@@ -193,7 +193,7 @@ AI 候选与候选释义相互独立：与来源的 `ai_eligible` / `UpdateAiInp
 
 ## 云候选的首次同意
 
-云候选是唯一一项装完就会把输入内容发出设备的功能：输入过程中把正在输入的拼写通过 HTTPS 发送给 Google 的 input-tools 服务（inputtools.google.com），换回一条额外候选；已上屏的文本、词库内容和学习到的词频都不会发送。全新配置下，输入法第一次激活时弹出「联网功能」对话框说明这一点，按钮为「启用云候选」（默认）与「不启用」，回答之前不发任何云候选请求。对话框不阻塞当前应用的输入，没有回答就在下次激活时再问。升级不问：宿主偏好里已有云候选选择，或输入法第一次判断时共享 `preferences.json` 已存在、Engine 用户数据目录已有内容（用过输入法但从没改过设置的配置也算），就沿用原值。判断结果只做一次，记在宿主偏好 `MSIMEClientCloudCandidatesConsent`；答案写入共享偏好 `cloud_candidates`，之后可在原生设置的「云端与智能候选」或 Tauri 设置输入页的「云候选」里更改，原生设置里改动开关本身也算作回答。实现在 `src/settings/AppearancePreferences.mm`（`resolveCloudCandidatesConsentWithPreferencesDirectory:userDataDirectory:`、`cloudCandidatesEnabled`、`answerCloudCandidates:`）与 `src/input/InputController.mm`（`requestCloudCandidatesConsentIfNeeded`、`presentCloudConsent:`）。
+云候选是唯一一项在首次使用时询问、会把输入内容发出设备的功能，新装默认关闭：输入过程中把正在输入的拼写通过 HTTPS 发送给 Google 的 input-tools 服务（inputtools.google.com），换回一条额外候选；已上屏的文本、词库内容和学习到的词频都不会发送。全新配置下，输入法第一次激活时弹出「联网功能」对话框说明这一点，按钮为「不启用」（默认，对应回车）与「启用云候选」，回答之前不发任何云候选请求。对话框不阻塞当前应用的输入，没有回答就在下次激活时再问。升级不问：宿主偏好里已有云候选选择，或输入法第一次判断时共享 `preferences.json` 已存在、Engine 用户数据目录已有内容（用过输入法但从没改过设置的配置也算），就沿用原值；没有任何已存值的按共享默认值关闭。判断结果只做一次，记在宿主偏好 `MSIMEClientCloudCandidatesConsent`；答案写入共享偏好 `cloud_candidates`，之后可在原生设置的「云端与智能候选」或 Tauri 设置输入页的「云候选」里更改，原生设置里改动开关本身也算作回答。实现在 `src/settings/AppearancePreferences.mm`（`resolveCloudCandidatesConsentWithPreferencesDirectory:userDataDirectory:`、`cloudCandidatesEnabled`、`answerCloudCandidates:`）与 `src/input/InputController.mm`（`requestCloudCandidatesConsentIfNeeded`、`presentCloudConsent:`）。
 
 ## 语音输入
 

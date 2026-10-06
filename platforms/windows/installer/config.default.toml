@@ -48,8 +48,8 @@ candidate_translations = true
 emoji_mixed_input = true
 # 中文输入状态下显示颜文字前缀候选（排在 emoji 之后）
 kaomoji_mixed_input = false
-# 云候选
-cloud_candidates = true
+# 云候选：把正在输入的拼写发给 Google input-tools，新装默认关闭，安装器「联网功能」页勾选后打开
+cloud_candidates = false
 # TODO: 极简模式。极简模式下，候选窗口使用 d2d 绘制，界面只作展示候选项，无其他功能。
 clean_mode = false
 

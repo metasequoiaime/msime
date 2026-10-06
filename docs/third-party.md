@@ -200,7 +200,7 @@ kaikki 每周覆盖同一个 URL，所以能复现构建的是 `filtered_input`�
 
 **分发义务**：这些文件是维基词典文本的改编作品，发布时必须随附 `offline-glosses-NOTICE.txt`，并保持 CC BY-SA 4.0。App Store 这类带 DRM 的渠道与 CC BY-SA 4.0 第 2(a)(5) 条「不得附加有效技术措施」之间的关系，和已随包分发的 bigram/trigram 是同一个问题，需要维护者判断。
 
-退出方式：不安装 `offline-glosses/` 即可。释义退回只用 `msime-english.db` 和在线翻译（macOS 26 及以上在没有选择翻译服务时还有系统自带的离线翻译，见 [PRIVACY.md](../PRIVACY.md#候选翻译macos-与-linux-新装默认用水杉账号)），其余功能不受影响。
+退出方式：不安装 `offline-glosses/` 即可。释义退回只用 `msime-english.db` 和在线翻译（macOS 26 及以上在没有选择翻译服务时还有系统自带的离线翻译，见 [PRIVACY.md](../PRIVACY.md#候选翻译默认不联网)），其余功能不受影响。
 
 ## 粤语与注音的数据（rime-cantonese、libchewing-data）
 
