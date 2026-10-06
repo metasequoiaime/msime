@@ -11,6 +11,7 @@
 #include <fcitx/addonfactory.h>
 #include <fcitx/addonmanager.h>
 #include <fcitx/addoninstance.h>
+#include <fcitx-config/iniparser.h>
 #include <fcitx-config/configuration.h>
 #include <fcitx-config/rawconfig.h>
 #include <fcitx/action.h>
@@ -122,6 +123,10 @@
 #endif
 
 extern char **environ;
+
+#ifdef MSIME_FCITX5_HINT_FONT
+#include <pango/pangocairo.h>
+#endif
 
 namespace msime::fcitx_host {
 using Json = nlohmann::json;
@@ -6292,6 +6297,68 @@ msime::linux_host::CandidateTheme fcitx_mode_badge_theme(const Json &preferences
   return resolveThemeInMode(preferences, dark, catalog);
 }
 
+#ifdef MSIME_FCITX5_HINT_FONT
+// classicui 没有最小宽度接口：按真实字体补全角空格，只撑宽模式提示，让装饰完整落在裁剪边界内。
+std::string fcitx_mode_hint_label(fcitx::Instance &instance, const std::string &label) {
+  if (instance.currentUI() != "classicui") return label;
+  auto *classicui = instance.addonManager().addon("classicui", false);
+  if (!classicui || !classicui->getConfig()) return label;
+  fcitx::RawConfig config;
+  classicui->getConfig()->save(config);
+  const auto *selected = config.valueByPath("Theme");
+  const auto *font_name = config.valueByPath("Font");
+  if (!selected || *selected != msime::linux_host::kFcitxCandidateTheme || !font_name) return label;
+  const auto file = msime::linux_host::fcitx_theme_file(std::getenv("XDG_DATA_HOME"), std::getenv("HOME"));
+  std::error_code error;
+  if (!file || std::filesystem::file_size(*file, error) > 16 * 1024 || error) return label;
+  fcitx::RawConfig theme;
+  fcitx::readAsIni(theme, file->string());
+  const auto *overlay = theme.valueByPath("InputPanel/Background/Overlay");
+  if (!overlay || std::filesystem::path(*overlay).filename() != *overlay ||
+      std::filesystem::path(*overlay).extension() != ".png") return label;
+  std::string header(24, '\0');
+  std::ifstream image(file->parent_path() / *overlay, std::ios::binary);
+  if (!image.read(header.data(), header.size()) || !msime::linux_host::fcitx_png_height(header)) return label;
+  unsigned width = 0;
+  for (std::size_t i = 16; i < 20; ++i) width = (width << 8) | static_cast<unsigned char>(header[i]);
+  if (width == 0 || width > 1000) return label;
+  const auto margin = [&](const char *path) {
+    const auto *value = theme.valueByPath(path);
+    if (!value) return 0;
+    try { return std::clamp(std::stoi(*value), 0, 2048); }
+    catch (...) { return 0; }
+  };
+  const int clip_left = margin("InputPanel/Background/OverlayClipMargin/Left");
+  const int clip_right = margin("InputPanel/Background/OverlayClipMargin/Right");
+  const auto *gravity = theme.valueByPath("InputPanel/Background/Gravity");
+  const int required_width = static_cast<int>(width) +
+      (gravity && *gravity == "Top Center" ? 2 * std::max(clip_left, clip_right)
+       : margin("InputPanel/Background/OverlayOffsetX") +
+             (gravity && *gravity == "Top Left" ? clip_right : clip_left));
+  const int text_width = required_width - margin("InputPanel/ContentMargin/Left") -
+      margin("InputPanel/ContentMargin/Right") - margin("InputPanel/TextMargin/Left") -
+      margin("InputPanel/TextMargin/Right");
+  auto *surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 1, 1);
+  auto *context = cairo_create(surface);
+  auto *layout = pango_cairo_create_layout(context);
+  auto *font = pango_font_description_from_string(font_name->c_str());
+  pango_layout_set_font_description(layout, font);
+  std::string message = label;
+  for (int count = 0; count <= 1024; ++count) {
+    pango_layout_set_text(layout, message.c_str(), -1);
+    int measured = 0;
+    pango_layout_get_pixel_size(layout, &measured, nullptr);
+    if (measured >= text_width) break;
+    message += "　";
+  }
+  pango_font_description_free(font);
+  g_object_unref(layout);
+  cairo_destroy(context);
+  cairo_surface_destroy(surface);
+  return message;
+}
+#endif
+
 void FcitxState::showInputModeHud() {
 #ifdef MSIME_FCITX5_CUSTOM_IM_INFORMATION
   // 共享偏好 input_mode_hud 控制，默认开启。不自己画窗口——Fcitx5 的面板本来就提供这个
@@ -6316,8 +6383,13 @@ void FcitxState::showInputModeHud() {
           fcitx_mode_badge_theme(preferences_, system_dark_, candidate_skin_document_))};
   if (mode_badge_ && mode_badge_->show(label, MSIME_MODE_BADGE_ICON, style)) scheduleModeBadgeHide();
 #endif
-  if (auto *instance = engine_->instance())
+  if (auto *instance = engine_->instance()) {
+#ifdef MSIME_FCITX5_HINT_FONT
+    instance->showCustomInputMethodInformation(&ic_, fcitx_mode_hint_label(*instance, label));
+#else
     instance->showCustomInputMethodInformation(&ic_, label);
+#endif
+  }
 #endif
 }
 
