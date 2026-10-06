@@ -130,8 +130,12 @@ public final class Ui {
     /** 页码点宽度变化。 */
     public static final long DOT_MILLIS = 200;
 
+    private static final class MotionCurves {
+        static final PathInterpolator EMPHASIZED = new PathInterpolator(0.2f, 0f, 0f, 1f);
+    }
+
     /** 设计的动效曲线 `cubic-bezier(.2, 0, 0, 1)`。 */
-    public static PathInterpolator emphasized() { return new PathInterpolator(0.2f, 0f, 0f, 1f); }
+    public static PathInterpolator emphasized() { return MotionCurves.EMPHASIZED; }
 
     // ---- 读取 ----
 
