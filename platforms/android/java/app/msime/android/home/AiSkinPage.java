@@ -30,6 +30,7 @@ import app.msime.android.CloudApi;
 import app.msime.android.CustomKeyboardSkin;
 import app.msime.android.CustomSkinLibrary;
 import app.msime.android.KeyboardSkin;
+import app.msime.android.PhotoDecodePolicy;
 import app.msime.android.SkinJobsApi;
 import java.io.ByteArrayOutputStream;
 import java.nio.file.Paths;

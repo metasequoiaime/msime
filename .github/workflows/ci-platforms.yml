@@ -111,6 +111,12 @@ jobs:
         env:
           ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
         run: bash platforms/android/check-host.sh
+      # check-host.sh compiles only the pure-Java models; the activities and pages build against AndroidX and Material, which only Gradle resolves, so before this step a compile error there surfaced first in Release Android (run 37440103113). javac needs no native libraries, so this stays cheap.
+      - name: Compile the Android host's Gradle source set
+        if: ${{ needs.changes.outputs.android == 'true' }}
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+        run: bash apps/desktop/src-tauri/gen/android/gradlew --project-dir platforms/android/gradle-app --console=plain compileFullReleaseJavaWithJavac
       - name: Android platform unchanged
         if: ${{ needs.changes.outputs.android != 'true' }}
         run: echo 'No Android or shared-platform changes; platform gate skipped.'
