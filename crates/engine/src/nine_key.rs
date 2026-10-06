@@ -519,6 +519,7 @@ impl NineKeySession {
         let prefixes = letter_prefixes(&digits, ENGLISH_PREFIX_BUDGET);
         let capacity = prefixes.len().saturating_mul(ENGLISH_LIMIT);
         let mut words = Vec::with_capacity(capacity);
+        let mut seen_words = HashSet::with_capacity(capacity);
         for prefix in prefixes {
             for word in english.query_prefix(&prefix, ENGLISH_LIMIT) {
                 // Only a whole code that starts with the digits counts; otherwise letters beyond the expanded prefix leak in.
@@ -526,7 +527,7 @@ impl NineKeySession {
                 // display form and may intentionally contain punctuation or spaces (for example
                 // the custom entry `dont` displayed as `don't`).
                 if !digits_for_word(&word.pinyin).starts_with(&digits)
-                    || has_candidate_word(&words, &word.word)
+                    || !seen_words.insert(word.word.clone())
                 {
                     continue;
                 }
@@ -639,6 +640,7 @@ fn agrees_with_locked(matched: &str, locked_key: &str) -> bool {
     under || over
 }
 
+#[cfg(test)]
 fn has_candidate_word(candidates: &[WordItem], word: &str) -> bool {
     candidates.iter().any(|candidate| candidate.word == word)
 }
