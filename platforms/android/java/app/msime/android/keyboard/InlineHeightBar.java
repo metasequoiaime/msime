@@ -15,6 +15,7 @@ import android.view.View;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.Button;
 import android.widget.LinearLayout;
+import android.util.TypedValue;
 import app.msime.android.KeyboardGeometry;
 
 /**

@@ -5669,7 +5669,7 @@ public final class MSIMEInputService extends InputMethodService {
         @Override protected void onDraw(Canvas canvas) {
             super.onDraw(canvas);
             float density = KeyboardGeometry.density(getContext());
-            float textSize = KeyboardGeometry.sp(this, 24);
+            float textSize = KeyboardGeometry.sp(getContext(), 24);
             float radius = 10 * density;
             float stepX = cellWidth + gap;
             float stepY = cellHeight + gap;
