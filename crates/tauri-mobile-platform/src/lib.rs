@@ -319,13 +319,15 @@ impl MobileVoiceTranscriptionRequest {
             self.provider.as_str(),
             "openai" | "siliconflow" | "groq" | "everyapi" | "mistral"
         ) {
-            return self.endpoint.starts_with("https://")
-                && !self.model.trim().is_empty()
+            return msime_client_core::voice::provider::valid_mobile_voice_endpoint(
+                &self.endpoint,
+                false,
+            ) && !self.model.trim().is_empty()
                 && self.headers.is_empty()
                 && self.boosting_table_id.is_empty();
         }
         self.provider == "doubao"
-            && self.endpoint.starts_with("wss://")
+            && msime_client_core::voice::provider::valid_mobile_voice_endpoint(&self.endpoint, true)
             && self.model.is_empty()
             && self.token.is_empty()
             && valid_doubao_headers(&self.headers)
@@ -900,9 +902,21 @@ mod tests {
         .is_valid());
         assert!(!MobileVoiceTranscriptionRequest {
             model: "fixture\nmodel".into(),
-            ..request
+            ..request.clone()
         }
         .is_valid());
+
+        for endpoint in [
+            "https:///v1/audio/transcriptions",
+            "https://user:pass@fixture.invalid/v1/audio/transcriptions",
+            "https://fixture.invalid/v1/audio/transcriptions#fragment",
+        ] {
+            assert!(!MobileVoiceTranscriptionRequest {
+                endpoint: endpoint.into(),
+                ..request.clone()
+            }
+            .is_valid());
+        }
     }
 
     #[test]
