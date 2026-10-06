@@ -212,11 +212,12 @@ inline FcitxThemeFiles fcitx_candidate_theme_files(const CandidateColors &colors
   const int content_left = G::shadow_left + inset + G::padding;
   const int logo_top = shadow_top + inset + G::padding + G::item_vertical;
   const int lead = logo ? G::logo_side + G::logo_gap : 0;
-  // The top-left corner slice also holds the whole mark when there is one.
-  const int slice_left = std::max(G::shadow_left + radius, logo ? content_left + G::logo_side : 0);
-  const int slice_right = G::shadow_right + radius;
-  const int slice_top = std::max(shadow_top + G::shadow_offset + radius, logo ? logo_top + G::logo_side : 0);
-  const int slice_bottom = G::shadow_bottom + radius;
+  // 固定切片必须容纳圆角和完整边框，否则小圆角主题会把边框色拉伸到整块背景；左上切片还须容纳标志。
+  const int edge = std::max(radius, border_width);
+  const int slice_left = std::max(G::shadow_left + edge, logo ? content_left + G::logo_side : 0);
+  const int slice_right = G::shadow_right + edge;
+  const int slice_top = std::max(shadow_top + G::shadow_offset + edge, logo ? logo_top + G::logo_side : 0);
+  const int slice_bottom = G::shadow_bottom + edge;
   const int panel_width = slice_left + 2 + slice_right;
   const int panel_height = slice_top + 2 + slice_bottom;
   const FcitxRect card{G::shadow_left, static_cast<double>(shadow_top), static_cast<double>(panel_width - G::shadow_right),

@@ -369,6 +369,32 @@ int main() {
     // Without a mark the theme is the one drawn before there was one.
     assert(host::fcitx_candidate_theme(wechat_dark, true, std::nullopt, std::nullopt, std::nullopt) == theme);
   }
+  // 小圆角和宽边框不能进入九宫格的拉伸中心；覆盖带标志、装饰和高 DPI 的真实生成路径。
+  for (const int width : {1, 3}) {
+    auto colors = wechat_dark;
+    colors.border_width = width;
+    for (const double radius : {0.0, 1.0, 3.0, 10.0}) {
+      for (const bool marked : {false, true}) {
+        const std::optional<host::FcitxThemeLogo> logo = marked ? std::make_optional(host::FcitxThemeLogo{}) : std::nullopt;
+        const auto generated = host::fcitx_candidate_theme_files(
+            colors, true, host::FcitxThemeOverlay{"decoration-ab.png", 25, 15}, radius, logo);
+        const auto name = image_in(generated.conf, "InputPanel/Background");
+        const auto margin_at = generated.conf.find("[InputPanel/Background/Margin]\n");
+        const auto margin_value = [&](const std::string &key) {
+          const auto at = generated.conf.find(key + "=", margin_at) + key.size() + 1;
+          return std::stoi(generated.conf.substr(at));
+        };
+        for (const auto &image : generated.images) {
+          if (image.file != name && image.file != name.substr(0, name.size() - 4) + "@2x.png") continue;
+          const auto decoded = decode(image.bytes);
+          const int scale = image.file == name ? 1 : 2;
+          for (int y = margin_value("Top") * scale; y < static_cast<int>(decoded.height) - margin_value("Bottom") * scale; ++y)
+            for (int x = margin_value("Left") * scale; x < static_cast<int>(decoded.width) - margin_value("Right") * scale; ++x)
+              assert(decoded.alpha(x, y) == 255 && decoded.rgb(x, y) == *colors.background);
+        }
+      }
+    }
+  }
   const auto highlight = image_of(image_in(theme, "InputPanel/Highlight"));
   assert(highlight.width == 24 && highlight.height == 14);
   assert(highlight.alpha(0, 0) < 64 && highlight.alpha(12, 7) == 255 && highlight.rgb(12, 7) == 0x07C160u);
@@ -463,11 +489,11 @@ int main() {
   assert(contains(host::fcitx_candidate_theme(wechat_dark, true,
                                               host::FcitxThemeOverlay{"decoration-ab.png", 25, 15, host::CandidateSkinAlign::center}),
                   "Gravity=Top Center\nOverlayOffsetX=0\n"));
-  // A skin's corner radius replaces the design's 10 px in the card's corner slices; none keeps it.
+  // 皮肤圆角替代默认的 10 px；直角切片仍保留完整的 1 px 边框。
   assert(contains(host::fcitx_candidate_theme(wechat_dark, true, std::nullopt, 16.0),
                   "[InputPanel/Background/Margin]\nLeft=28\nRight=28\nTop=28\nBottom=32\n"));
   assert(contains(host::fcitx_candidate_theme(wechat_dark, true, std::nullopt, 0.0),
-                  "[InputPanel/Background/Margin]\nLeft=12\nRight=12\nTop=12\nBottom=16\n"));
+                  "[InputPanel/Background/Margin]\nLeft=13\nRight=13\nTop=13\nBottom=17\n"));
   assert(host::fcitx_candidate_theme(wechat_dark, true, std::nullopt, std::nullopt) ==
          host::fcitx_candidate_theme(wechat_dark, true));
   assert(host::fcitx_candidate_theme(wechat_dark, true, std::nullopt, 16.0) != host::fcitx_candidate_theme(wechat_dark, true));
