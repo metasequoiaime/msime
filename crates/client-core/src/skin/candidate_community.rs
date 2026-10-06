@@ -1353,7 +1353,7 @@ fn decode_files(files: &BTreeMap<String, String>) -> Result<Vec<(&str, Vec<u8>)>
     if files.is_empty() || files.len() > MAX_PACKAGE_FILES {
         return Err(FILE_PATH);
     }
-    let mut lowercase = BTreeSet::new();
+    let mut lowercase = HashSet::with_capacity(files.len());
     for path in files.keys() {
         if !catalog::safe_resource(path, MAX_RESOURCE_PATH_BYTES) || path == MANIFEST_FILE {
             return Err(FILE_PATH);
