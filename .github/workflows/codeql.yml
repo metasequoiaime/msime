@@ -13,20 +13,18 @@ on:
   push:
     branches:
       - main
-    # 纯文档改动不扫：Rust 一次约 11 分钟。CodeQL 不是必需检查，按路径跳过不会让 PR 卡在等一个永远
-    # 不会来的报告上（必需检查被路径过滤掉才需要 ci-docs.yml 那样的补位）。
+    # 纯文档改动不扫：CodeQL 对 Markdown 没有价值，而 Rust 一次约 11 分钟。CodeQL 不是必需检查，按
+    # 路径跳过不会让 PR 卡在等一个永远不来的报告上（必需检查被路径过滤掉才需要 ci-docs.yml 那样的补位）。
     paths-ignore:
-      - CHANGELOG.md
-      - PRIVACY.md
-      - README.md
+      - '**/*.md'
+      - docs/**
   pull_request:
     branches:
       - develop
       - main
     paths-ignore:
-      - CHANGELOG.md
-      - PRIVACY.md
-      - README.md
+      - '**/*.md'
+      - docs/**
   schedule:
     # 每天 00:00（Asia/Tokyo，UTC+09:00）。
     - cron: '0 15 * * *'
