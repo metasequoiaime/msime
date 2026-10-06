@@ -344,6 +344,7 @@ fn valid_doubao_headers(headers: &[MobileVoiceRequestHeader]) -> bool {
                     | "x-api-request-id"
             ) || header.value.is_empty()
                 || !is_bounded_text(&header.value, MAX_MOBILE_VOICE_HEADER_BYTES)
+                || !header.value.is_ascii()
         })
     {
         return false;
@@ -1060,6 +1061,39 @@ mod tests {
             ..request
         }
         .is_valid());
+    }
+
+    #[test]
+    fn doubao_headers_reject_non_ascii_values_before_mobile_transport() {
+        let headers = vec![
+            MobileVoiceRequestHeader {
+                name: "x-api-key".into(),
+                value: "密钥".into(),
+            },
+            MobileVoiceRequestHeader {
+                name: "x-api-resource-id".into(),
+                value: "fixture-resource".into(),
+            },
+            MobileVoiceRequestHeader {
+                name: "x-api-request-id".into(),
+                value: "00000000-0000-4000-8000-000000000000".into(),
+            },
+        ];
+        let request = MobileVoiceTranscriptionRequest {
+            request_id: "fixture-request-1".into(),
+            provider: "doubao".into(),
+            endpoint: "wss://fixture.invalid/asr".into(),
+            model: String::new(),
+            token: String::new(),
+            headers,
+            enable_itn: true,
+            enable_punctuation: true,
+            enable_ddc: false,
+            boosting_table_id: String::new(),
+            model_path: String::new(),
+            hotwords: Vec::new(),
+        };
+        assert!(!request.is_valid());
     }
 
     #[test]

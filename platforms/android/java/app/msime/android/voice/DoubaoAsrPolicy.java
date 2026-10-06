@@ -58,7 +58,8 @@ public final class DoubaoAsrPolicy {
                 // Either the single API key or the app-key/access-key pair, depending on the mode
                 // the shared policy resolved; one of them being present is what makes it usable.
                 case "x-api-key", "x-api-access-key" -> credential = true;
-                default -> { }
+                case "x-api-app-key" -> { }
+                default -> { return false; }
             }
         }
         return resource && request && credential;

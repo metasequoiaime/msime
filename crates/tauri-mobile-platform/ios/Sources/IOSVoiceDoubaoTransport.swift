@@ -72,6 +72,7 @@ final class IOSVoiceDoubaoTransport: NSObject, URLSessionWebSocketDelegate,
           headers.keys.allSatisfy({ Self.headerNames.contains($0.lowercased()) }),
           headers.values.allSatisfy({
             !$0.isEmpty && $0.utf8.count <= 8_192 &&
+              $0.unicodeScalars.allSatisfy({ $0.value < 0x80 }) &&
               !$0.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) })
           }),
           let url = components.url,

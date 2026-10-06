@@ -32,6 +32,9 @@ public final class DoubaoAsrPolicySmoke {
 
         check(DoubaoAsrPolicy.usable("doubao", endpoint, apiKey), "the api-key mode is usable");
         check(DoubaoAsrPolicy.usable("doubao", endpoint, legacy), "the legacy mode is usable");
+        check(!DoubaoAsrPolicy.usable("doubao", endpoint,
+                headers("x-api-resource-id", "x-api-request-id", "x-api-key", "x-unexpected")),
+            "unknown headers are refused rather than forwarded to the handshake");
 
         // wss only: the credentials travel in the handshake's own headers, and this host opens the
         // connection, so a downgrade would put them on the wire in clear text.
