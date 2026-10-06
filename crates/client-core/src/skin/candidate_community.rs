@@ -989,7 +989,7 @@ fn referenced_images(summary: &SkinSummary) -> Result<BTreeSet<String>, &'static
         }
         paths.insert(path.to_owned());
     }
-    let lowercase: BTreeSet<String> = paths.iter().map(|path| path.to_ascii_lowercase()).collect();
+    let lowercase: HashSet<String> = paths.iter().map(|path| path.to_ascii_lowercase()).collect();
     if lowercase.len() != paths.len() {
         return Err(FILE_PATH);
     }
