@@ -80,15 +80,14 @@ pub fn query_mentions(code: &str, entries: &[MentionEntry], with_places: bool) -
         .map(|entry| (entry.key.as_str(), entry.text.as_str()))
         .collect();
     if with_places && !code.is_empty() {
+        let mut matched_names: HashSet<&str> = matches.iter().map(|(_, text)| *text).collect();
         let table = places();
         'passes: for exact in [true, false] {
             for (place, spellings) in table.places.iter().zip(&table.spellings) {
                 if matches.len() == RESULT_LIMIT {
                     break 'passes;
                 }
-                if spelled(spellings, code, exact)
-                    && !matches.iter().any(|(_, text)| *text == place.name)
-                {
+                if spelled(spellings, code, exact) && matched_names.insert(place.name) {
                     matches.push((place.key, place.name));
                 }
             }
