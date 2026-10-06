@@ -10225,7 +10225,7 @@ fn english_glosses_fill_single_characters_from_the_character_table() {
     let root = tempfile::tempdir().unwrap();
     let resources = root.path().join("generation");
     std::fs::create_dir_all(&resources).unwrap();
-    rusqlite::Connection::open(resources.join("english.db"))
+    rusqlite::Connection::open(resources.join("msime-english.db"))
         .unwrap()
         .execute_batch(
             "CREATE TABLE english_words(word TEXT COLLATE BINARY NOT NULL,display TEXT NOT NULL,weight INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(word,display)) WITHOUT ROWID;
@@ -10292,7 +10292,7 @@ fn english_glosses_prefer_the_dictionaries_and_keep_learned_ones() {
     let root = tempfile::tempdir().unwrap();
     let resources = root.path().join("generation");
     std::fs::create_dir_all(&resources).unwrap();
-    rusqlite::Connection::open(resources.join("english.db"))
+    rusqlite::Connection::open(resources.join("msime-english.db"))
         .unwrap()
         .execute_batch(
             "CREATE TABLE english_words(word TEXT COLLATE BINARY NOT NULL,display TEXT NOT NULL,weight INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(word,display)) WITHOUT ROWID;
