@@ -55,6 +55,9 @@ public final class KeyPressAnimator {
 
     /** 每个键上正在跑的 bounce / lift，用于与按压态动画互斥。 */
     private static final Map<View, Animator> RUNNING = new WeakHashMap<>();
+    /** All animation entry points run on the IME main thread; reuse the short-lived location buffers. */
+    private static final int[] PARENT_LOCATION = new int[2];
+    private static final int[] HOST_LOCATION = new int[2];
 
     private KeyPressAnimator() {}
 
@@ -146,12 +149,10 @@ public final class KeyPressAnimator {
         float spread = spreadDp * density;
         HaloDrawable halo = new HaloDrawable(accent, glow, density);
         // Untransformed key origin in host coordinates: the key itself may be mid press-scale.
-        int[] parentAt = new int[2];
-        int[] hostAt = new int[2];
-        parent.getLocationInWindow(parentAt);
-        host.getLocationInWindow(hostAt);
-        float keyLeft = parentAt[0] - hostAt[0] + key.getLeft() - parent.getScrollX();
-        float keyTop = parentAt[1] - hostAt[1] + key.getTop() - parent.getScrollY();
+        parent.getLocationInWindow(PARENT_LOCATION);
+        host.getLocationInWindow(HOST_LOCATION);
+        float keyLeft = PARENT_LOCATION[0] - HOST_LOCATION[0] + key.getLeft() - parent.getScrollX();
+        float keyTop = PARENT_LOCATION[1] - HOST_LOCATION[1] + key.getTop() - parent.getScrollY();
         halo.setBounds(Math.round(keyLeft - spread), Math.round(keyTop - spread),
             Math.round(keyLeft + key.getWidth() + spread),
             Math.round(keyTop + key.getHeight() + spread));
