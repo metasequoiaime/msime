@@ -6,7 +6,13 @@ function Write-PEFixture {
     [BitConverter]::GetBytes([uint16]0x5a4d).CopyTo($bytes, 0)
     [BitConverter]::GetBytes([uint32]128).CopyTo($bytes, 60)
     [BitConverter]::GetBytes([uint32]0x4550).CopyTo($bytes, 128)
-    $machine = switch ($Architecture) { 'x64' { 0x8664 } 'x86' { 0x14c } default { 0xaa64 } }
+    $machine = switch ($Architecture) {
+        'x64' { 0x8664 }
+        'x86' { 0x14c }
+        'arm64' { 0xaa64 }
+        'arm64x' { 0xa64e }
+        default { throw "Unsupported fixture architecture: $Architecture" }
+    }
     $magic = if ($Architecture -eq 'x86') { 0x10b } else { 0x20b }
     [BitConverter]::GetBytes([uint16]$machine).CopyTo($bytes, 132)
     if ($Architecture -in 'arm64', 'arm64x') {
