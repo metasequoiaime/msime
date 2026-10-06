@@ -117,10 +117,11 @@ public final class KeyboardActionRow {
      * @param globe 宿主是否可以切换到下一个输入法（`shouldOfferSwitchingToNextInputMethod()`）
      */
     public static List<DesignEntry> designEntries(int touchLayout, boolean globe) {
-        if (touchLayout == KeyboardLayout.JAPANESE_NINE_KEY_LAYOUT) return List.of();
+        // 日语九键和注音九键的四行键块自带 123、中/英、空格、换行（注音九键的这几个是挪过去的底栏键），不再要底栏。
+        if (touchLayout == KeyboardLayout.JAPANESE_NINE_KEY_LAYOUT
+                || touchLayout == KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT) return List.of();
         boolean sidebarPunctuation = touchLayout == KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT
-            || touchLayout == KeyboardLayout.STROKE_LAYOUT
-            || touchLayout == KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT;
+            || touchLayout == KeyboardLayout.STROKE_LAYOUT;
         List<DesignEntry> entries = new ArrayList<>();
         entries.add(new DesignEntry(DesignSlot.LAYER, DESIGN_LAYER_WEIGHT));
         entries.add(new DesignEntry(DesignSlot.LANGUAGE, DESIGN_LANGUAGE_WEIGHT));

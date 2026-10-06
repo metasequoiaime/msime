@@ -26,12 +26,9 @@ public final class KeyboardActionRowSmoke {
                 .noneMatch(entry -> entry.slot() == KeyboardActionRow.DesignSlot.COMMA
                     || entry.slot() == KeyboardActionRow.DesignSlot.PERIOD),
             "nine-key keeps punctuation in its sidebar");
-        check(KeyboardActionRow.designEntries(KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT, false).equals(List.of(
-                new KeyboardActionRow.DesignEntry(KeyboardActionRow.DesignSlot.LAYER, 1.25f),
-                new KeyboardActionRow.DesignEntry(KeyboardActionRow.DesignSlot.LANGUAGE, 1.05f),
-                new KeyboardActionRow.DesignEntry(KeyboardActionRow.DesignSlot.SPACE, 4f),
-                new KeyboardActionRow.DesignEntry(KeyboardActionRow.DesignSlot.RETURN, 1.9f))),
-            "the Zhuyin nine-key grid carries comma and period in its last row, so the design row drops them");
+        check(KeyboardActionRow.designEntries(KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT, false).isEmpty()
+                && KeyboardActionRow.designEntries(KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT, true).isEmpty(),
+            "the Zhuyin nine-key block carries 123, language, space and return itself, so there is no design row");
         check("，".equals(KeyboardActionRow.punctuationFace(KeyboardActionRow.DesignSlot.COMMA, true))
             && ".".equals(KeyboardActionRow.punctuationFace(KeyboardActionRow.DesignSlot.PERIOD, false)),
             "comma and period faces follow Chinese punctuation");

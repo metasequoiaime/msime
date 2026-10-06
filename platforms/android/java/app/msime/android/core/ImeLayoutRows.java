@@ -490,13 +490,28 @@ final class ImeLayoutRows {
      *
      * <p>音键和声调键直接走 character()，不走 type()：type() 会套用 Shift 大小写。音键发送数字，声调键发送 z x c v b，Engine 的注音九键编辑器把它们读作 ˉ ˊ ˇ ˋ ˙；底行空格同样是一声。读音选择条不放进左列（声调键在组字时要一直可按），而是叠在候选行上：注音的候选只在打开列表后才出现，列表关着时那一行是空的，render 在选择条显示时把候选滚动区让成不可见。
      */
+    /**
+     * 把底栏的一个常驻键（123、中/英、空格、换行）挂进本布局的一列：先从原来的父视图摘下，按底栏同样的规矩给角色、样式和字号。没有底栏的布局（注音九键）切走时，{@link ImeBottomRow#updateActionRow} 会把它们收回底栏。
+     */
+    private void adoptBarKey(LinearLayout parent, Button key, KeyboardKeyRole role) {
+        if (key == null) return;
+        if (key.getParent() instanceof android.view.ViewGroup previous) previous.removeView(key);
+        if (key instanceof KeyboardPressButton press) press.setKeyboardRole(role);
+        s.imeStyler.styleButton(key, role, s.skin);
+        if (role == KeyboardKeyRole.ACCENT) key.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        key.setVisibility(View.VISIBLE);
+        addNineKey(parent, key);
+    }
+
     void rebuildZhuyinNineKeyRows() {
         dismissNineKeyHoldOptions();
         LinearLayout container = new LinearLayout(s);
         container.setOrientation(LinearLayout.HORIZONTAL);
-        s.imeStyler.adjustThreeRowBlockHeight(container);
+        // 和日语九键一样不要底栏，四行都在这一块里，总高度是三行九键加一条底栏，与其他九键键盘一样高：四行挤进三行高时键太扁。底栏的 123、中/英、空格、换行挪进两侧的列。
+        s.imeStyler.adjustBottomRowBlockHeight(container);
         s.keyRows.addView(container, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, s.pixels(KeyboardGeometry.STANDARD_ROW_HEIGHT_DP * 3)));
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            s.pixels(KeyboardGeometry.KEY_ROW_HEIGHT_DP * 3 + KeyboardGeometry.STANDARD_ROW_HEIGHT_DP)));
 
         LinearLayout tones = new LinearLayout(s);
         tones.setOrientation(LinearLayout.VERTICAL);
@@ -506,7 +521,7 @@ final class ImeLayoutRows {
                 if (s.connection != null) s.character(tone.input(), false);
             }), tone.keyId());
             key.setContentDescription(label);
-            // 声调符号本身只是一道短笔画，按默认字号画在矮键上几乎看不见。
+            // 声调符号本身只是一道短笔画，按默认字号画出来几乎看不见。
             key.setTextSize(TypedValue.COMPLEX_UNIT_SP, 20);
             CenteredGlyphSpan.apply(key, tone.face(), 1f);
             if (key instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.KEY);
@@ -523,14 +538,9 @@ final class ImeLayoutRows {
             grid.addView(row, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
         }
-        // 最后一行：@# 符号面板、0（仍在 8 的正下方）、逗号和句号各占半格。
+        // 最后一行：123（数字与符号层，？！ 和其他符号都在那里）、0（仍在 8 的正下方）、逗号和句号各占半格。
         LinearLayout lastRow = new LinearLayout(s);
-        Button symbolsKey = s.keyId(s.keyboardKey("@#", "符号面板", s.imePanels::showSymbolPanel), "SoftSymbol");
-        // 四行挤进三行高，键比标准键矮；按钮默认的上下内边距和字体留白会把 @# 的下半截裁掉。
-        symbolsKey.setIncludeFontPadding(false);
-        symbolsKey.setPadding(symbolsKey.getPaddingLeft(), 0, symbolsKey.getPaddingRight(), 0);
-        if (symbolsKey instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
-        addNineKey(lastRow, symbolsKey);
+        adoptBarKey(lastRow, s.layerButton, KeyboardKeyRole.ACCENT);
         addNineKey(lastRow, zhuyinNineKeySoundKey(ZhuyinNineKeyLayout.zero()));
         LinearLayout marks = new LinearLayout(s);
         marks.setOrientation(LinearLayout.HORIZONTAL);
@@ -555,7 +565,7 @@ final class ImeLayoutRows {
         container.addView(grid, new LinearLayout.LayoutParams(0,
             LinearLayout.LayoutParams.MATCH_PARENT, 3));
 
-        // 右列 ⌫ 占两格高，？ ！ 各一格，与网格的四行对齐。
+        // 右列与网格的四行对齐：⌫、中/英、空格、换行。后三个是底栏那几个常驻键，连同它们的手势、图标和「确认」状态一起挪过来。
         LinearLayout actions = new LinearLayout(s);
         actions.setOrientation(LinearLayout.VERTICAL);
         Runnable deleteAction = () -> {
@@ -564,19 +574,10 @@ final class ImeLayoutRows {
         Button delete = s.keyId(s.keyboardKey("⌫", "删除", deleteAction), "Backspace");
         s.imeLetterRows.bindBackspaceRepeat(delete, deleteAction);
         if (delete instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
-        actions.addView(delete, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, 0, 2));
-        for (char mark : new char[] {'?', '!'}) {
-            String literal = String.valueOf(mark);
-            // `?` 是注音的 Shift 标点：Engine 不看中文标点开关，总是先提交转换文字再写全宽 ？，键面照它写的印；`!` 走普通标点，跟着开关。
-            boolean chineseFace = (mark == '?' && !s.dedicatedEnglish) || chinese;
-            Button key = s.keyId(s.keyboardKey(ChineseSymbolFaces.face(literal, chineseFace),
-                mark == '?' ? "问号" : "叹号", () -> {
-                    if (s.dedicatedEnglish || !s.punctuation(mark)) commitNineKeyLiteral(literal);
-                }), "SoftPunctuation");
-            if (key instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
-            addNineKey(actions, key);
-        }
+        addNineKey(actions, delete);
+        adoptBarKey(actions, s.languageButton, KeyboardKeyRole.ACCENT);
+        adoptBarKey(actions, s.spaceButton, KeyboardKeyRole.KEY);
+        adoptBarKey(actions, s.enterButton, s.imeBottomRow.returnKeyRole());
         container.addView(actions, new LinearLayout.LayoutParams(0,
             LinearLayout.LayoutParams.MATCH_PARENT, 0.8f));
 
