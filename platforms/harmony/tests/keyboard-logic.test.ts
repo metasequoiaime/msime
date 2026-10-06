@@ -11659,6 +11659,15 @@ group("AI model catalogs keep each provider's protocol and path", () => {
     "accepts remote HTTPS endpoints",
   );
   check(
+    TextPolicy.validExternalWebUrl("https://example.test/help?q=1"),
+    "external browser links accept ordinary web URLs",
+  );
+  check(
+    !TextPolicy.validExternalWebUrl("https://user:secret@example.test/help") &&
+      !TextPolicy.validExternalWebUrl("https://example.test/help#fragment"),
+    "external browser links reject credentials and fragments",
+  );
+  check(
     TextPolicy.validSecureAuthority("http://127.0.0.1:8080/api", true),
     "accepts loopback HTTP endpoints",
   );
