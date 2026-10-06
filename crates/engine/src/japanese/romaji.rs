@@ -3,7 +3,7 @@
 //! The table, the `n` rules, the sokuon rules and the pending tail are IME behaviour the provider's dictionary lookups depend on, so they stay hand-written; `wana_kana` has its own table (じゃ is `ja`, a lone `n` is kept as a letter) and no notion of a pending tail. The plain hiragana-to-katakana shift is `wana_kana`'s.
 
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 
 /// `romaji_converter.cpp:11-44`, verbatim.
@@ -196,8 +196,9 @@ static KANA_TO_ROMAJI: LazyLock<Vec<(&'static str, &'static str)>> = LazyLock::n
             .then(a.1.cmp(b.1))
     });
     let mut unique: Vec<(&'static str, &'static str)> = Vec::with_capacity(entries.len());
+    let mut seen = HashSet::with_capacity(entries.len());
     for entry in entries {
-        if !unique.iter().any(|seen| seen.0 == entry.0) {
+        if seen.insert(entry.0) {
             unique.push(entry);
         }
     }
