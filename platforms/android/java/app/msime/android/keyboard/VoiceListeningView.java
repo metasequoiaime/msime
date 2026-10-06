@@ -31,6 +31,13 @@ public final class VoiceListeningView extends TextView {
     private float pulse;
     private ValueAnimator animator;
     private String hintText = "点任意处取消";
+    private String fittedTitle;
+    private String fittedTitleSource;
+    private String fittedHint;
+    private String fittedHintSource;
+    private float fittedWidth = Float.NaN;
+    private float fittedTitleSize = Float.NaN;
+    private float fittedHintSize = Float.NaN;
 
     public VoiceListeningView(Context context) {
         super(context);
@@ -116,11 +123,26 @@ public final class VoiceListeningView extends TextView {
         float titleBaseline = cy + radius + gap - titleMetrics.ascent;
         // 两行居中绘制，左右各留 16 dp；放不下时省略：标题省略结尾，提示里是滚动中的识别文字，省略开头留住最新说的那段。
         float available = Math.max(0f, getWidth() - getPaddingLeft() - getPaddingRight() - 32 * density);
-        canvas.drawText(TextUtils.ellipsize(String.valueOf(getText()), title, available,
-            TextUtils.TruncateAt.END).toString(), cx, titleBaseline, title);
+        String titleText = String.valueOf(getText());
+        if (!titleText.equals(fittedTitleSource) || available != fittedWidth
+                || title.getTextSize() != fittedTitleSize) {
+            fittedTitleSource = titleText;
+            fittedTitle = TextUtils.ellipsize(titleText, title, available,
+                TextUtils.TruncateAt.END).toString();
+            fittedWidth = available;
+            fittedTitleSize = title.getTextSize();
+            fittedHintSource = null;
+        }
+        canvas.drawText(fittedTitle, cx, titleBaseline, title);
         if (!hintText.isEmpty()) {
-            canvas.drawText(TextUtils.ellipsize(hintText, hint, available,
-                TextUtils.TruncateAt.START).toString(), cx, titleBaseline + titleMetrics.descent
+            if (!hintText.equals(fittedHintSource) || available != fittedWidth
+                    || hint.getTextSize() != fittedHintSize) {
+                fittedHintSource = hintText;
+                fittedHint = TextUtils.ellipsize(hintText, hint, available,
+                    TextUtils.TruncateAt.START).toString();
+                fittedHintSize = hint.getTextSize();
+            }
+            canvas.drawText(fittedHint, cx, titleBaseline + titleMetrics.descent
                 + 6 * density - hintMetrics.ascent, hint);
         }
     }
