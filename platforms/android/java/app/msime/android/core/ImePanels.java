@@ -1198,7 +1198,7 @@ final class ImePanels {
         boolean cloudAllowed = cloudClipboardAllowed();
         if (!cloudAllowed) s.clipboardTab = CloudClipboardPanelPolicy.Tab.LOCAL;
         boolean cloud = s.clipboardTab == CloudClipboardPanelPolicy.Tab.CLOUD;
-        java.util.List<TextView> notes = new java.util.ArrayList<>();
+        java.util.List<TextView> notes = new java.util.ArrayList<>(1);
         // 顶部一行小号操作：本机 / 云端分段（云端可用时）、刷新或清空；返回由工具栏的「返回键盘」负责。
         LinearLayout header = new LinearLayout(s);
         header.setGravity(Gravity.CENTER_VERTICAL);
