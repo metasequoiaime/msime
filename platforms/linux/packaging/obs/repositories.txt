@@ -9,3 +9,5 @@ xUbuntu_24.04 Ubuntu:24.04/universe-update,Ubuntu:24.04/update,Ubuntu:24.04/univ
 xUbuntu_26.04 Ubuntu:26.04/universe-update,Ubuntu:26.04/update,Ubuntu:26.04/universe,Ubuntu:26.04/standard
 Debian_Testing
 Debian_Unstable
+# Arch 与 Omarchy：OBS 的发行版列表里 Arch:Extra 与 Arch:Community 同名为 Arch，按名字只会取到后一个（Community 已并入 Extra，不再更新），所以显式指定 Arch:Extra；它的路径里带着 Arch:Core。构建用 msime-bin 的 PKGBUILD 重新打包发布的 .rpm。
+Arch Arch:Extra/standard
