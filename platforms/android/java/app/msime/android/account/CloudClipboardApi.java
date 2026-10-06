@@ -45,11 +45,10 @@ public final class CloudClipboardApi {
     /** 置顶的排在前面，其余保持服务端给的顺序（新的在前）。 */
     public static List<Item> ordered(List<Item> items) {
         int capacity = items == null ? 0 : items.size();
-        List<Item> pinned = new ArrayList<>(capacity);
-        List<Item> rest = new ArrayList<>(capacity);
-        for (Item item : items) (item.pinned() ? pinned : rest).add(item);
-        pinned.addAll(rest);
-        return pinned;
+        List<Item> ordered = new ArrayList<>(capacity);
+        for (Item item : items) if (item.pinned()) ordered.add(item);
+        for (Item item : items) if (!item.pinned()) ordered.add(item);
+        return ordered;
     }
 
     public Page load() throws CloudApi.Failure {
