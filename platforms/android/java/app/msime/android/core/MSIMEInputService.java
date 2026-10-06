@@ -1077,6 +1077,12 @@ public final class MSIMEInputService extends InputMethodService {
         imeVoiceEntry = new ImeVoiceEntry(this);
         imeKeyFeedback = new ImeKeyFeedback(this);
         imeDebugOverlay = new ImeDebugOverlay(this);
+        // 必须在 super.onCreate() 之前：InputMethodService 在那里按这个主题建输入法窗口，之后再设会抛异常。按名字查是因为 core/ 要能脱离 Gradle 生成的 R 编译（check-host.sh 的 JVM 冒烟）；res/values/themes.xml 说明了这个主题为什么存在。
+        // 五笔、拼音等版本的 applicationId 带后缀，资源表的包名仍是命名空间，两个都试。
+        int theme = getResources().getIdentifier("Theme.MSIME.InputMethod", "style", getPackageName());
+        if (theme == 0)
+            theme = getResources().getIdentifier("Theme.MSIME.InputMethod", "style", "app.msime.android");
+        if (theme != 0) setTheme(theme);
         super.onCreate();
         productName = getApplicationInfo().loadLabel(getPackageManager()).toString();
         // 偏好要等引擎准备好才读到；先按上次换上的皮肤画，免得每次弹出键盘都先闪一两秒内置的淡绿配色。
@@ -2018,7 +2024,7 @@ public final class MSIMEInputService extends InputMethodService {
             String text = englishSuggestions.get(slot);
             button.setVisibility(View.VISIBLE);
             button.setText(text);
-            button.setTextSize(TypedValue.COMPLEX_UNIT_SP, candidateFontSize);
+            KeyboardGeometry.setKeyTextSize(button, candidateFontSize);
             button.setContentDescription("英文建议 " + (slot + 1) + "：" + text);
             imeStyler.styleButton(button, false);
             button.setTypeface(imeStyler.candidateTypeface());
@@ -3400,7 +3406,7 @@ public final class MSIMEInputService extends InputMethodService {
         button.setKeyboardRole(KeyboardKeyRole.PILL);
         button.setAllCaps(false);
         button.setText(label);
-        button.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        KeyboardGeometry.setKeyTextSize(button, 13);
         imeStyler.styleButton(button, KeyboardKeyRole.PILL, skin);
         button.setOnClickListener(ignored -> {
             imeKeyFeedback.playFeedback(button);
@@ -3427,6 +3433,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     Button keyboardKey(String label, String description, Runnable action) {
         Button button = new KeyboardPressButton(this);
+        KeyboardGeometry.normalizeKeyCap(button);
         button.setAllCaps(false);
         button.setText(label);
         button.setContentDescription("按键 " + description);
@@ -4457,7 +4464,7 @@ public final class MSIMEInputService extends InputMethodService {
         LinearLayout header = new LinearLayout(this);
         TextView title = new TextView(this);
         title.setText("语音结果");
-        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18);
+        KeyboardGeometry.setKeyTextSize(title, 18);
         header.addView(title, new LinearLayout.LayoutParams(0,
             LinearLayout.LayoutParams.WRAP_CONTENT, 1));
         button(header, "返回键盘", this::closeVoiceResult);
@@ -5322,7 +5329,7 @@ public final class MSIMEInputService extends InputMethodService {
         button.setMinLines(labelLines);
         button.setMaxLines(labelLines);
         configureCandidateTextLayout(button, labelLines);
-        button.setTextSize(TypedValue.COMPLEX_UNIT_SP, candidateFontSize);
+        KeyboardGeometry.setKeyTextSize(button, candidateFontSize);
         button.setSelected(highlighted);
         // render() attaches the button and applies the complete skin tree once below.
         // Avoid creating its candidate drawables before that pass.
@@ -5651,8 +5658,8 @@ public final class MSIMEInputService extends InputMethodService {
             anchor.getLocationOnScreen(anchorLocation);
             centerX = anchorLocation[0] - rootLocation[0] + anchor.getWidth() / 2f;
             centerY = anchorLocation[1] - rootLocation[1] + anchor.getHeight() / 2f;
-            cellWidth = Math.max(anchor.getWidth(), KeyboardGeometry.pixels(this, 40));
-            cellHeight = Math.max(anchor.getHeight(), KeyboardGeometry.pixels(this, 36));
+            cellWidth = Math.max(anchor.getWidth(), KeyboardGeometry.pixels(getContext(), 40));
+            cellHeight = Math.max(anchor.getHeight(), KeyboardGeometry.pixels(getContext(), 36));
             // 五格紧挨着拼成一个十字浮层；原先各隔 6 dp、和底下的键同色同大，看起来像键盘被挤乱了，而不是一个弹框。
             gap = 0;
             root.bringChildToFront(this);
@@ -5665,7 +5672,7 @@ public final class MSIMEInputService extends InputMethodService {
         @Override protected void onDraw(Canvas canvas) {
             super.onDraw(canvas);
             float density = KeyboardGeometry.density(getContext());
-            float textSize = KeyboardGeometry.sp(getContext(), 24);
+            float textSize = KeyboardGeometry.keySp(getContext(), 24);
             float radius = 10 * density;
             float stepX = cellWidth + gap;
             float stepY = cellHeight + gap;
@@ -5794,7 +5801,7 @@ public final class MSIMEInputService extends InputMethodService {
         candidateRegion.setOrientation(LinearLayout.VERTICAL);
         imeToolbar.buildCandidateHeader(candidateRegion);
         diagnosticView = new TextView(this);
-        diagnosticView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        KeyboardGeometry.setKeyTextSize(diagnosticView, 12);
         diagnosticView.setContentDescription("输入提示");
         diagnosticView.setVisibility(View.GONE);
         candidateRegion.addView(diagnosticView, new LinearLayout.LayoutParams(
@@ -5992,7 +5999,7 @@ public final class MSIMEInputService extends InputMethodService {
         LinearLayout layoutHeader = new LinearLayout(this);
         TextView layoutTitle = new TextView(this);
         layoutTitle.setText("键盘设置");
-        layoutTitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18);
+        KeyboardGeometry.setKeyTextSize(layoutTitle, 18);
         layoutHeader.addView(layoutTitle, new LinearLayout.LayoutParams(0,
             LinearLayout.LayoutParams.WRAP_CONTENT, 1));
         Button closeLayout = button(layoutHeader, "返回键盘", this::closeLayoutSettings);
@@ -6494,7 +6501,7 @@ public final class MSIMEInputService extends InputMethodService {
             && !hasEnglishSuggestions
             && !hasHandwritingResults);
         if (preedit != null) {
-            preedit.setTextSize(TypedValue.COMPLEX_UNIT_SP, candidatePreeditFontSize);
+            KeyboardGeometry.setKeyTextSize(preedit, candidatePreeditFontSize);
             String editingText = view == null ? "" : view.optString("editing_text", "");
             boolean offersLocalModes = idle && supportsLocalTools();
             String localModeKey = view == null ? "none" : view.optString("local_mode", "none");
@@ -6848,7 +6855,7 @@ public final class MSIMEInputService extends InputMethodService {
             HandwritingRequestTracker.Token token = handwritingCandidateToken;
             Button choice = keyboardKey(chineseOutput(candidate, view),
                 "手写候选 " + (index + 1), () -> commitHandwritingCandidate(token, candidate));
-            choice.setTextSize(TypedValue.COMPLEX_UNIT_SP, candidateFontSize);
+            KeyboardGeometry.setKeyTextSize(choice, candidateFontSize);
             LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                 candidateHorizontal ? LinearLayout.LayoutParams.WRAP_CONTENT
                     : LinearLayout.LayoutParams.MATCH_PARENT,

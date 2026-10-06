@@ -179,7 +179,7 @@ final class ImeCandidates {
         button.setMinLines(labelLines);
         button.setMaxLines(labelLines);
         s.configureCandidateTextLayout(button, labelLines);
-        button.setTextSize(TypedValue.COMPLEX_UNIT_SP, 17);
+        KeyboardGeometry.setKeyTextSize(button, 17);
         button.setSelected(highlighted);
         expandedCells.add(button);
         button.setMinWidth(s.pixels(64));
@@ -271,7 +271,7 @@ final class ImeCandidates {
         close.setKeyboardRole(KeyboardKeyRole.ACCENT);
         close.setAllCaps(false);
         close.setText("返回");
-        close.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        KeyboardGeometry.setKeyTextSize(close, 15);
         close.setContentDescription("收起候选面板");
         close.setOnClickListener(ignored -> {
             s.imeKeyFeedback.playFeedback(close);
@@ -282,7 +282,7 @@ final class ImeCandidates {
         delete.setKeyboardRole(KeyboardKeyRole.ACCENT);
         delete.setAllCaps(false);
         delete.setText("⌫");
-        delete.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
+        KeyboardGeometry.setKeyTextSize(delete, 16);
         delete.setContentDescription("候选面板 删除");
         delete.setOnClickListener(ignored -> {
             s.imeKeyFeedback.playFeedback(delete);

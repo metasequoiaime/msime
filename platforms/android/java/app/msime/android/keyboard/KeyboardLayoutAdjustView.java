@@ -75,7 +75,7 @@ public final class KeyboardLayoutAdjustView extends FrameLayout {
 
         hint = new TextView(context);
         hint.setGravity(android.view.Gravity.CENTER);
-        hint.setTextSize(13);
+        KeyboardGeometry.setKeyTextSize(hint, 13);
         hint.setMaxLines(2);
         hint.setContentDescription("布局调整说明");
         bar.addView(hint, new LinearLayout.LayoutParams(0,

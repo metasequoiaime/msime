@@ -71,7 +71,7 @@ final class ImeToolbar {
         candidateHeader.setPadding(s.pixels(10), 0, s.pixels(6), 0);
         s.candidateHeader = candidateHeader;
         s.preedit = new TextView(s);
-        s.preedit.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        KeyboardGeometry.setKeyTextSize(s.preedit, 12);
         s.preedit.setMaxLines(1);
         s.preedit.setIncludeFontPadding(false);
         s.preedit.setEllipsize(android.text.TextUtils.TruncateAt.END);
@@ -89,7 +89,7 @@ final class ImeToolbar {
             LinearLayout.LayoutParams.WRAP_CONTENT, 1));
         // 宿主提示通道：正常为空，只有准备中、失败或提示时才有文字。
         s.status = new TextView(s);
-        s.status.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10);
+        KeyboardGeometry.setKeyTextSize(s.status, 10);
         s.status.setMaxLines(1);
         s.status.setIncludeFontPadding(false);
         s.status.setEllipsize(android.text.TextUtils.TruncateAt.END);
@@ -98,7 +98,7 @@ final class ImeToolbar {
         candidateHeader.addView(s.status, new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         s.candidatePage = new TextView(s);
-        s.candidatePage.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10);
+        KeyboardGeometry.setKeyTextSize(s.candidatePage, 10);
         s.candidatePage.setIncludeFontPadding(false);
         candidateHeader.addView(s.candidatePage, new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
@@ -142,7 +142,7 @@ final class ImeToolbar {
         s.hanjaButton = hanja;
         s.hanjaButton.setAllCaps(false);
         s.hanjaButton.setText("漢");
-        s.hanjaButton.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        KeyboardGeometry.setKeyTextSize(s.hanjaButton, 12);
         s.hanjaButton.setContentDescription("转换为汉字");
         s.hanjaButton.setVisibility(View.GONE);
         s.hanjaButton.setOnClickListener(ignored -> {
@@ -157,7 +157,7 @@ final class ImeToolbar {
         s.exitLocalModeButton = new KeyboardBorderlessButton(s);
         s.exitLocalModeButton.setAllCaps(false);
         s.exitLocalModeButton.setText("×");
-        s.exitLocalModeButton.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        KeyboardGeometry.setKeyTextSize(s.exitLocalModeButton, 14);
         s.exitLocalModeButton.setContentDescription("退出本地模式");
         s.exitLocalModeButton.setPadding(0, 0, 0, 0);
         s.imeStyler.styleButton(s.exitLocalModeButton, true);
@@ -259,7 +259,7 @@ final class ImeToolbar {
                 returnBackgroundColor, returnForegroundColor);
         if (s.preedit != null) {
             s.preedit.setTextColor(hintColor);
-            s.preedit.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+            KeyboardGeometry.setKeyTextSize(s.preedit, 12);
             s.preedit.setBackground(null);
             s.preedit.setPadding(0, 0, 0, 0);
         }

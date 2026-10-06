@@ -66,7 +66,7 @@ final class ImeLayoutRows {
         cancelPendingInk();
         handwritingPreferences = readHandwritingPreferences();
         s.handwritingStatus = new TextView(s);
-        s.handwritingStatus.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        KeyboardGeometry.setKeyTextSize(s.handwritingStatus, 13);
         s.handwritingStatus.setGravity(Gravity.CENTER);
         s.handwritingStatus.setText("在此手写，停笔后选字");
         s.handwritingStatus.setContentDescription("手写状态");
@@ -437,7 +437,7 @@ final class ImeLayoutRows {
                     StrokeKeyboardLayout.accessibilityLabel(key), () -> strokeKey(key));
                 keyButton.setContentDescription(StrokeKeyboardLayout.accessibilityLabel(key));
                 // 笔画本身的墨迹很细（一、丨、丶），按普通键面字号排只剩一道短线，字形放大，下面的名称仍是一半大小。
-                keyButton.setTextSize(TypedValue.COMPLEX_UNIT_SP, 26);
+                KeyboardGeometry.setKeyTextSize(keyButton, 26);
                 twoLineFace(keyButton, StrokeKeyboardLayout.face(key));
                 if (keyButton instanceof KeyboardPressButton press)
                     press.setKeyboardRole(KeyboardKeyRole.KEY);
@@ -494,7 +494,7 @@ final class ImeLayoutRows {
         if (key.getParent() instanceof android.view.ViewGroup previous) previous.removeView(key);
         if (key instanceof KeyboardPressButton press) press.setKeyboardRole(role);
         s.imeStyler.styleButton(key, role, s.skin);
-        if (role == KeyboardKeyRole.ACCENT) key.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        if (role == KeyboardKeyRole.ACCENT) KeyboardGeometry.setKeyTextSize(key, 15);
         key.setVisibility(View.VISIBLE);
         addNineKey(parent, key);
     }
@@ -525,7 +525,7 @@ final class ImeLayoutRows {
             }), tone.keyId());
             key.setContentDescription(label);
             // 声调符号本身只是一道短笔画，按默认字号画出来几乎看不见。
-            key.setTextSize(TypedValue.COMPLEX_UNIT_SP, 20);
+            KeyboardGeometry.setKeyTextSize(key, 20);
             CenteredGlyphSpan.apply(key, tone.face(), 1f);
             if (key instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.KEY);
             addNineKey(tones, key);

@@ -449,8 +449,7 @@ final class ImeStyler {
             s.preedit.setTextColor(s.brandPillVisible
                 ? color(s.skin.accent()) : s.candidateAppearance.number());
             s.preedit.setTypeface(candidateTypeface());
-            s.preedit.setTextSize(TypedValue.COMPLEX_UNIT_SP,
-                s.brandPillVisible ? 12 : s.candidatePreeditFontSize);
+            KeyboardGeometry.setKeyTextSize(s.preedit, s.brandPillVisible ? 12 : s.candidatePreeditFontSize);
             s.preedit.setBackground(s.brandPillVisible ? brandPillDrawable() : null);
             s.preedit.setPadding(s.pixels(s.brandPillVisible ? 12 : 2), s.pixels(s.brandPillVisible ? 4 : 0),
                 s.pixels(s.brandPillVisible ? 12 : 2), s.pixels(s.brandPillVisible ? 4 : 0));
