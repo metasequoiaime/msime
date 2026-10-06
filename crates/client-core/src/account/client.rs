@@ -985,8 +985,9 @@ impl AccountApi for BackendAccountClient {
         struct Providers {
             providers: std::collections::HashMap<String, bool>,
         }
-        self.json::<Providers, ()>(Method::GET, "/v1/auth/providers", None, None)
-            .map(|value| value.providers)
+        let value = self.json::<Providers, ()>(Method::GET, "/v1/auth/providers", None, None)?;
+        validate_providers(&value.providers)?;
+        Ok(value.providers)
     }
 
     fn challenge(&self, provider: &str, target: &str) -> Result<AccountChallenge, AccountError> {

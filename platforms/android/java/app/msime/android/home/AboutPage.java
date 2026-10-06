@@ -172,7 +172,7 @@ public final class AboutPage extends DetailPage {
         LinearLayout header = new LinearLayout(context);
         header.setOrientation(LinearLayout.VERTICAL);
         header.setGravity(Gravity.CENTER_HORIZONTAL);
-        header.setPadding(0, Ui.dp(context, 8), 0, Ui.dp(context, 20));
+        Ui.setPaddingDp(header, context, 0, 8, 0, 20);
 
         FrameLayout disc = new FrameLayout(context);
         disc.setBackground(Ui.pill(Ui.color(context, com.google.android.material.R.attr.colorTertiaryContainer)));
@@ -180,9 +180,9 @@ public final class AboutPage extends DetailPage {
         mark.setImageResource(R.drawable.splash_mark);
         mark.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         int markSize = Ui.dp(context, 60);
-        disc.addView(mark, new FrameLayout.LayoutParams(markSize, markSize, Gravity.CENTER));
+        disc.addView(mark, Ui.squareFrameParamsPx(markSize, Gravity.CENTER));
         int discSize = Ui.dp(context, 116);
-        header.addView(disc, new LinearLayout.LayoutParams(discSize, discSize));
+        header.addView(disc, Ui.squareParamsPx(discSize));
 
         TextView name = new TextView(context);
         name.setText(R.string.app_name);
@@ -207,9 +207,9 @@ public final class AboutPage extends DetailPage {
             button.setSingleLine(true);
             Ui.style(button, 15, 600, Ui.onAccent(context));
             button.setBackground(Ui.pillRipple(context, Ui.accent(context)));
-            button.setPadding(Ui.dp(context, 20), 0, Ui.dp(context, 20), 0);
-            button.setMinHeight(Ui.dp(context, 36));
-            button.setMinWidth(Ui.dp(context, 96));
+            Ui.setHorizontalPaddingDp(button, context, 20);
+            Ui.setTextMinHeightDp(button, context, 36);
+            Ui.setTextMinWidthDp(button, context, 96);
             button.setClickable(true);
             button.setFocusable(true);
             button.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);

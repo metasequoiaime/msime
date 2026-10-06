@@ -480,6 +480,23 @@ fn valid_future_expiry() -> u64 {
 
 #[test]
 fn validates_public_inputs_and_tokens() {
+    let mut providers = HashMap::new();
+    for index in 0..16 {
+        providers.insert(format!("provider-{}", (b'a' + index as u8) as char), true);
+    }
+    assert!(validate_providers(&providers).is_ok());
+    providers.insert("provider-q".into(), true);
+    assert_eq!(
+        validate_providers(&providers),
+        Err(AccountError::Unavailable)
+    );
+    providers.clear();
+    providers.insert("provider\n".into(), true);
+    assert_eq!(
+        validate_providers(&providers),
+        Err(AccountError::Unavailable)
+    );
+
     assert!(validate_identity(&AccountIdentity {
         user_id: "user-1".into()
     })

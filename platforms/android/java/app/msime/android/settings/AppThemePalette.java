@@ -13,6 +13,9 @@ import org.json.JSONObject;
  * <p>本类是纯 Java（check-host 直接编译并在 JVM 里跑冒烟），所以不引用 `android.graphics.Color` 也不用任何 androidx 注解；可能为 null 的返回值在 Javadoc 里写明。
  */
 public final class AppThemePalette {
+    /** Number of packed color channels processed by the palette math (B, G, R, A). */
+    public static final int COLOR_CHANNELS = 4;
+
     // ---- 不随应用主题变化的中性色（设计令牌 §1.1），浅色 / 深色 ----
 
     public static final int TEXT_LIGHT = 0xFF191C19;
@@ -165,16 +168,16 @@ public final class AppThemePalette {
     /** 未取整的混合，通道是 0–255 的浮点数，顺序 B、G、R、A。 */
     private static double[] mixExact(double[] first, int weight, double[] second) {
         if (weight < 0 || weight > 100) throw new IllegalArgumentException("Mix weight out of range: " + weight);
-        double[] result = new double[4];
-        for (int index = 0; index < 4; index++) {
+        double[] result = new double[COLOR_CHANNELS];
+        for (int index = 0; index < COLOR_CHANNELS; index++) {
             result[index] = (first[index] * weight + second[index] * (100 - weight)) / 100.0;
         }
         return result;
     }
 
     private static double[] channels(int color) {
-        double[] result = new double[4];
-        for (int index = 0; index < 4; index++) result[index] = (color >>> (index * 8)) & 0xFF;
+        double[] result = new double[COLOR_CHANNELS];
+        for (int index = 0; index < COLOR_CHANNELS; index++) result[index] = (color >>> (index * 8)) & 0xFF;
         return result;
     }
 
@@ -183,7 +186,7 @@ public final class AppThemePalette {
      */
     private static int quantize(double[] channels) {
         int result = 0;
-        for (int index = 0; index < 4; index++) {
+        for (int index = 0; index < COLOR_CHANNELS; index++) {
             double printed = new BigDecimal(channels[index] / 255.0).round(PRINTED).doubleValue();
             long value = Math.round(printed * 255.0);
             result |= (int) BoundsPolicy.bounded(value, 0, 255) << (index * 8);

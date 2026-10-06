@@ -75,7 +75,7 @@ public final class DistributionView extends View {
     private int colour(int index) {
         Context context = getContext();
         int accent = Ui.accent(context);
-        int mix = MIX[Math.min(index, MIX.length - 1)];
+        int mix = MIX[BoundsPolicy.atMost(index, MIX.length - 1)];
         return ColorPolicy.blend(Ui.card(context), accent, mix / 100f);
     }
 
@@ -90,7 +90,7 @@ public final class DistributionView extends View {
         float height = switch (style) {
             case STACK -> STACK_HEIGHT + 12 + LEGEND_ROW * ((rows + 1) / 2);
             case BARS -> BAR_ROW * rows;
-            case DONUT -> Math.max(DONUT, LEGEND_ROW * rows);
+            case DONUT -> BoundsPolicy.atLeast(LEGEND_ROW * rows, DONUT);
         };
         setMeasuredDimension(MeasureSpec.getSize(widthSpec),
             resolveSize(Ui.dp(context, height), heightSpec));
@@ -121,7 +121,8 @@ public final class DistributionView extends View {
         for (int index = 0; index < shares.size(); index++) {
             float part = total <= 0 ? 0 : width * shares.get(index).count() / (float) total;
             fill.setColor(colour(index));
-            box.set(x, 0, Math.max(x, x + part - (index < shares.size() - 1 ? gap : 0)), height);
+            box.set(x, 0, BoundsPolicy.atLeast(
+                x + part - (index < shares.size() - 1 ? gap : 0), x), height);
             canvas.drawRect(box, fill);
             x += part;
         }
@@ -155,7 +156,8 @@ public final class DistributionView extends View {
             float part = total <= 0 ? 0 : (right - left) * share.count() / (float) total;
             if (part > 0) {
                 fill.setColor(colour(index));
-                box.set(left, middle - barHeight / 2, left + Math.max(barHeight, part), middle + barHeight / 2);
+            box.set(left, middle - barHeight / 2,
+                left + BoundsPolicy.atLeast(part, barHeight), middle + barHeight / 2);
                 canvas.drawRoundRect(box, barHeight / 2, barHeight / 2, fill);
             }
             styleText(14, Typeface.NORMAL, Ui.subText(context));

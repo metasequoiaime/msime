@@ -35,6 +35,7 @@ import androidx.core.widget.NestedScrollView;
 import app.msime.android.BackendAccount;
 import app.msime.android.BoundsPolicy;
 import app.msime.android.CloudApi;
+import app.msime.android.keyboard.KeyboardGeometry;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.google.android.material.bottomsheet.BottomSheetDragHandleView;
 import java.util.function.Consumer;
@@ -104,7 +105,7 @@ final class LoginSheet {
 
         LinearLayout root = new LinearLayout(activity);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(Ui.dp(activity, 24), 0, Ui.dp(activity, 24), Ui.dp(activity, 20));
+        Ui.setPaddingDp(root, activity, 24, 0, 24, 20);
         root.addView(new BottomSheetDragHandleView(activity), Ui.matchWidth());
 
         LinearLayout header = new LinearLayout(activity);
@@ -117,11 +118,11 @@ final class LoginSheet {
         header.addView(title, Ui.weightWrap(1f));
         ImageView close = new ImageView(activity);
         close.setImageDrawable(new PathIcon(24, new String[] {CLOSE_PATH}, new int[] {Ui.text(activity)}));
-        close.setPadding(Ui.dp(activity, 8), Ui.dp(activity, 8), Ui.dp(activity, 8), Ui.dp(activity, 8));
+        Ui.setSymmetricPaddingDp(close, activity, 8, 8);
         close.setBackground(Ui.ripple(activity));
         close.setContentDescription("关闭");
         close.setOnClickListener(ignored -> dialog.cancel());
-        header.addView(close, new LinearLayout.LayoutParams(Ui.dp(activity, 40), Ui.dp(activity, 40)));
+        header.addView(close, Ui.squareParams(activity, 40));
         root.addView(header);
 
         TextView subtitle = new TextView(activity);
@@ -252,7 +253,7 @@ final class LoginSheet {
         again.setText("换个邮箱或重新发送");
         Ui.style(again, 14, 500, Ui.accent(activity));
         again.setGravity(Gravity.CENTER);
-        again.setMinHeight(Ui.dp(activity, 40));
+        Ui.setTextMinHeightDp(again, activity, 40);
         again.setBackground(Ui.ripple(activity));
         again.setOnClickListener(ignored -> {
             if (busy) return;
@@ -301,7 +302,7 @@ final class LoginSheet {
 
     private void say(String message) {
         status.setText(message);
-        status.setVisibility(message.isEmpty() ? View.GONE : View.VISIBLE);
+        Ui.setVisibilityForText(status, message);
     }
 
     private void setEnabled(boolean enabled) {
@@ -327,7 +328,7 @@ final class LoginSheet {
         LinearLayout button = new LinearLayout(activity);
         button.setOrientation(LinearLayout.HORIZONTAL);
         button.setGravity(Gravity.CENTER);
-        button.setMinimumHeight(Ui.dp(activity, 50));
+        Ui.setMinimumHeightDp(button, activity, 50);
         GradientDrawable face = stroke == 0
             ? Ui.rounded(fill, Ui.dp(activity, 12))
             : Ui.outlined(fill, Ui.dp(activity, 12), Ui.atLeastOnePx(activity, 1), stroke);
@@ -338,7 +339,7 @@ final class LoginSheet {
             ImageView glyph = new ImageView(activity);
             glyph.setImageDrawable(icon);
             glyph.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(Ui.dp(activity, 20), Ui.dp(activity, 20));
+            LinearLayout.LayoutParams params = Ui.squareParams(activity, 20);
             params.setMarginEnd(Ui.dp(activity, 8));
             button.addView(glyph, params);
         }
@@ -364,8 +365,8 @@ final class LoginSheet {
         GradientDrawable face = Ui.outlined(Ui.rowBackground(activity), Ui.dp(activity, 12),
             Ui.atLeastOnePx(activity, 1), Ui.hairline(activity));
         field.setBackground(face);
-        field.setPadding(Ui.dp(activity, 14), 0, Ui.dp(activity, 14), 0);
-        field.setMinHeight(Ui.dp(activity, 50));
+        Ui.setHorizontalPaddingDp(field, activity, 14);
+        Ui.setTextMinHeightDp(field, activity, 50);
         field.setGravity(Gravity.CENTER_VERTICAL);
         field.setContentDescription(hint);
         return field;
@@ -416,14 +417,14 @@ final class LoginSheet {
 
         @Override public void draw(Canvas canvas) {
             RectF bounds = new RectF(getBounds());
-            float scale = Math.min(bounds.width(), bounds.height()) / viewport;
+            float scale = KeyboardGeometry.shorterSide(bounds.width(), bounds.height()) / viewport;
             matrix.setScale(scale, scale);
             matrix.postTranslate(bounds.left + (bounds.width() - viewport * scale) / 2f,
                 bounds.top + (bounds.height() - viewport * scale) / 2f);
             for (int index = 0; index < paths.length; index++) {
                 scaled.reset();
                 paths[index].transform(matrix, scaled);
-                paint.setColor(colors[Math.min(index, colors.length - 1)]);
+            paint.setColor(colors[BoundsPolicy.atMost(index, colors.length - 1)]);
                 canvas.drawPath(scaled, paint);
             }
         }

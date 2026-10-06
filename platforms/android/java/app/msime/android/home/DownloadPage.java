@@ -3,7 +3,6 @@ package app.msime.android.home;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
-import android.content.res.ColorStateList;
 import android.os.Bundle;
 import android.view.Gravity;
 import android.view.View;
@@ -52,8 +51,7 @@ public final class DownloadPage extends DetailPage {
         TextView current = new TextView(context);
         current.setText("当前设备");
         Ui.style(current, Ui.TEXT_BUTTON_SMALL, 500, Ui.text(context));
-        LinearLayout.LayoutParams currentParams = new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        LinearLayout.LayoutParams currentParams = Ui.wrap();
         currentParams.setMarginStart(Ui.dp(context, Ui.ROW_GAP));
         ((LinearLayout) android.view()).addView(current, currentParams);
         getRow(mobile, R.drawable.ic_ms_smartphone, "HarmonyOS", "从源码构建", "harmony");
@@ -66,18 +64,18 @@ public final class DownloadPage extends DetailPage {
         card.setGravity(Gravity.CENTER_VERTICAL);
         card.setBackground(Ui.rounded(Ui.accentSoft(context), Ui.dp(context, 20)));
         int pad = Ui.dp(context, 16);
-        card.setPadding(pad, pad, pad, pad);
+        Ui.setSymmetricPaddingPx(card, pad);
 
         FrameLayout tile = new FrameLayout(context);
         tile.setBackground(Ui.rounded(Ui.accent(context), Ui.dp(context, 12)));
         ImageView icon = new ImageView(context);
         icon.setImageResource(R.drawable.ic_ms_link);
-        icon.setImageTintList(ColorStateList.valueOf(Ui.onAccent(context)));
+        Ui.setImageTint(icon, Ui.onAccent(context));
         icon.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         int iconSize = Ui.dp(context, 24);
-        tile.addView(icon, new FrameLayout.LayoutParams(iconSize, iconSize, Gravity.CENTER));
+        tile.addView(icon, Ui.squareFrameParamsPx(iconSize, Gravity.CENTER));
         int tileSize = Ui.dp(context, 44);
-        card.addView(tile, new LinearLayout.LayoutParams(tileSize, tileSize));
+        card.addView(tile, Ui.squareParamsPx(tileSize));
 
         LinearLayout texts = new LinearLayout(context);
         texts.setOrientation(LinearLayout.VERTICAL);
@@ -99,14 +97,13 @@ public final class DownloadPage extends DetailPage {
         copy.setSingleLine(true);
         Ui.style(copy, Ui.TEXT_BUTTON_SMALL, 600, Ui.onAccent(context));
         copy.setBackground(Ui.pillRipple(context, Ui.accent(context)));
-        copy.setPadding(Ui.dp(context, 14), Ui.dp(context, 6), Ui.dp(context, 14), Ui.dp(context, 6));
-        copy.setMinHeight(Ui.dp(context, 32));
+        Ui.setSymmetricPaddingDp(copy, context, 14, 6);
+        Ui.setTextMinHeightDp(copy, context, Ui.COMPACT_BUTTON_MIN_HEIGHT);
         copy.setClickable(true);
         copy.setFocusable(true);
         copy.setContentDescription("复制下载页链接");
         copy.setOnClickListener(ignored -> copyLink(context));
-        LinearLayout.LayoutParams copyParams = new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        LinearLayout.LayoutParams copyParams = Ui.wrap();
         copyParams.setMarginStart(Ui.dp(context, 12));
         card.addView(copy, copyParams);
         return card;
@@ -125,10 +122,10 @@ public final class DownloadPage extends DetailPage {
         Context context = row.view().getContext();
         ImageView image = new ImageView(context);
         image.setImageResource(icon);
-        image.setImageTintList(ColorStateList.valueOf(Ui.text(context)));
+        Ui.setImageTint(image, Ui.text(context));
         image.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         int size = Ui.dp(context, 24);
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(size, size);
+        LinearLayout.LayoutParams params = Ui.squareParamsPx(size);
         params.setMarginEnd(Ui.dp(context, 18));
         ((LinearLayout) row.view()).addView(image, 0, params);
         return row;
@@ -152,27 +149,14 @@ public final class DownloadPage extends DetailPage {
     }
 
     private static void attach(GroupCard.Row row, TextView button) {
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        LinearLayout.LayoutParams params = Ui.wrap();
         params.setMarginStart(Ui.dp(button.getContext(), Ui.ROW_GAP));
         ((LinearLayout) row.view()).addView(button, params);
     }
 
     /** 行尾的 tonal 胶囊：accentSoft 底、强调色字。 */
     private static TextView tonal(Context context, String label, String title) {
-        TextView button = new TextView(context);
-        button.setText(label);
-        button.setGravity(Gravity.CENTER);
-        button.setSingleLine(true);
-        Ui.style(button, Ui.TEXT_BUTTON_SMALL, 600, Ui.accent(context));
-        button.setBackground(Ui.pillRipple(context, Ui.accentSoft(context)));
-        button.setPadding(Ui.dp(context, 14), Ui.dp(context, 5), Ui.dp(context, 14), Ui.dp(context, 5));
-        button.setMinHeight(Ui.dp(context, 32));
-        button.setClickable(true);
-        button.setFocusable(true);
-        button.setContentDescription(label + "，" + title);
-        button.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
-        return button;
+        return KeyboardSheets.tonalButton(context, label, label + "，" + title, 600);
     }
 
     private void send(String platform, TextView button) {

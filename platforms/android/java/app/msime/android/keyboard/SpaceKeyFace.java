@@ -103,7 +103,7 @@ public final class SpaceKeyFace extends KeyboardPressButton {
         label.setColor(faceColor);
         boolean overlay = !transientLabel.isEmpty();
         float mic = (showsMic && !overlay)
-            ? Math.min(KeyboardGeometry.floatPixels(getContext(), MIC_DP), getHeight()) : 0f;
+            ? BoundsPolicy.atMost(KeyboardGeometry.floatPixels(getContext(), MIC_DP), getHeight()) : 0f;
         float gap = KeyboardGeometry.floatPixels(getContext(), GAP_DP);
         float available = getWidth() - mic - gap - KeyboardGeometry.floatPixels(getContext(), 8);
         String text = overlay ? transientLabel : schemeLabel;

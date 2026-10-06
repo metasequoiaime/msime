@@ -8,7 +8,6 @@ import android.graphics.RectF;
 import android.graphics.Path;
 import android.graphics.Typeface;
 import android.view.View;
-
 /**
  * Small deterministic keyboard miniature used by the in-keyboard skin picker.
  *
@@ -140,7 +139,8 @@ public final class KeyboardSkinPreview extends View {
         background.draw(canvas);
         String[][] rows = PREVIEW_ROWS;
         float gap = BoundsPolicy.bounded(
-            Math.min(bounds.width(), bounds.height()) * .035f, 1f, Float.MAX_VALUE);
+            KeyboardGeometry.shorterSide(bounds.width(), bounds.height()) * .035f,
+            1f, Float.MAX_VALUE);
         float rowHeight = (bounds.height() - gap * 3) / rows.length;
         Paint text = reusableText == null ? new Paint(Paint.ANTI_ALIAS_FLAG) : reusableText;
         text.setTextAlign(Paint.Align.CENTER);
@@ -229,9 +229,9 @@ public final class KeyboardSkinPreview extends View {
         half.close();
         paint.setColor(dark);
         canvas.drawPath(half, paint);
-        int keys = Color.argb(217, 255, 255, 255);
+        int keys = ColorPolicy.withAlpha(Color.WHITE, 217);
         drawMiniKeyboard(canvas, bounds, keys, keys, state.returnBackground,
-            state.returnForeground, state.keyForeground, Color.argb(115, 0, 0, 0), state.accent,
+            state.returnForeground, state.keyForeground, ColorPolicy.withAlpha(Color.BLACK, 115), state.accent,
             state);
         canvas.restoreToCount(saved);
     }

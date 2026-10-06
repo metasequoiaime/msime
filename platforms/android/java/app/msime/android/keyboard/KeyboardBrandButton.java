@@ -4,7 +4,6 @@ import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
-import app.msime.android.KeyboardGeometry;
 import android.graphics.RectF;
 import java.util.function.IntSupplier;
 
@@ -85,20 +84,22 @@ public final class KeyboardBrandButton extends KeyboardPressButton {
     }
 
     private void drawDesigned(Canvas canvas, int width, int height) {
-        float shorter = Math.min(width, height);
+        float shorter = KeyboardGeometry.shorterSide(width, height);
         if (shorter <= 0) return;
         float centerX = getPaddingLeft() + width / 2f;
         float centerY = getPaddingTop() + height / 2f;
         if (panelOpen && Color.alpha(panelOpenFill) > 0) {
-            float side = Math.min(shorter, KeyboardGeometry.floatPixels(getContext(), ACTIVE_SIDE_DP));
+            float side = BoundsPolicy.atMost(shorter,
+                KeyboardGeometry.floatPixels(getContext(), ACTIVE_SIDE_DP));
             bounds.set(centerX - side / 2f, centerY - side / 2f, centerX + side / 2f,
                 centerY + side / 2f);
             fill.setColor(panelOpenFill);
-            float radius = Math.min(side / 2f,
+            float radius = BoundsPolicy.atMost(side / 2f,
                 KeyboardGeometry.floatPixels(getContext(), ACTIVE_RADIUS_DP));
             canvas.drawRoundRect(bounds, radius, radius, fill);
         }
-        float disc = Math.min(shorter, KeyboardGeometry.floatPixels(getContext(), DISC_DP));
+        float disc = BoundsPolicy.atMost(shorter,
+            KeyboardGeometry.floatPixels(getContext(), DISC_DP));
         fill.setColor(discColor);
         canvas.drawCircle(centerX, centerY, disc / 2f, fill);
         float markSize = disc * (DISC_MARK_DP / DISC_DP);

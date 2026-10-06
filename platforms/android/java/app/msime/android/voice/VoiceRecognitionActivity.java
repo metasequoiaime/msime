@@ -409,8 +409,7 @@ public final class VoiceRecognitionActivity extends Activity {
             stopRecognition();
         });
         actions.addView(done);
-        root.addView(actions, new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        root.addView(actions, KeyboardGeometry.matchWidthWrapParams());
         setContentView(root);
     }
 
@@ -616,7 +615,8 @@ public final class VoiceRecognitionActivity extends Activity {
     }
 
     private static String safeLanguage(String language) {
-        if (language != null && !language.isEmpty() && language.length() <= 64
+        if (language != null && !language.isEmpty()
+                && language.length() <= VoiceContributionApi.MAX_METADATA_FIELD_LENGTH
                 && !TextPolicy.hasControl(language)) {
             Locale locale = Locale.forLanguageTag(language.replace('_', '-'));
             if (!locale.getLanguage().isEmpty()) return locale.toLanguageTag();

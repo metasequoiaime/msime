@@ -62,8 +62,7 @@ public final class KeyboardLayoutAdjustView extends FrameLayout {
         bar = new LinearLayout(context);
         bar.setOrientation(LinearLayout.HORIZONTAL);
         bar.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        bar.setPadding(KeyboardGeometry.pixels(getContext(), 8), KeyboardGeometry.pixels(getContext(), 4),
-            KeyboardGeometry.pixels(getContext(), 8), KeyboardGeometry.pixels(getContext(), 4));
+        KeyboardGeometry.setSymmetricPaddingDp(bar, getContext(), 8, 4);
         bar.setContentDescription("键盘高度调整工具栏");
         bar.setFocusable(true);
         bar.setOnTouchListener((ignored, event) -> handleHeightGesture(event));

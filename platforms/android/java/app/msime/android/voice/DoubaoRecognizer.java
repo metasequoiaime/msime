@@ -315,7 +315,8 @@ public final class DoubaoRecognizer {
         try {
             recorder = new AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION,
                 WavAudio.SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO,
-                AudioFormat.ENCODING_PCM_16BIT, Math.max(minimum, CHUNK_BYTES * 4));
+                AudioFormat.ENCODING_PCM_16BIT,
+                BoundsPolicy.atLeast(CHUNK_BYTES * 4, minimum));
         } catch (IllegalArgumentException | SecurityException error) {
             return null;
         }

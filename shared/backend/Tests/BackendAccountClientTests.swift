@@ -285,6 +285,14 @@ final class BackendAccountClientTests: XCTestCase {
     XCTAssertEqual(page.entries.first?.word, text)
     XCTAssertFalse(page.has_more)
   }
+  func testDictionarySearchRejectsControlCharactersLocally() async throws {
+    do {
+      _ = try await client().dictionary(.quick, search: "safe\u{0007}query", token: "session")
+      XCTFail("control character accepted in dictionary search")
+    } catch let error as BackendAccountClient.Failure {
+      XCTAssertEqual(error.status, 400)
+    }
+  }
   func testDictionaryMutationRejectsUnsafeEntryIDAndInvalidRevision() async throws {
     for (id, revision) in [("../../auth/logout", 1), (String(repeating: "a", count: 64), 0)] {
       let entry = BackendAccountClient.DictionaryEntry(id: id, kind: .quick, code: "test", word: "合成", weight: 1, revision: Int64(revision))

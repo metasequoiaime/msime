@@ -114,8 +114,7 @@ public final class KeyboardSchemeCard extends FrameLayout {
         clusterParams.topMargin = KeyboardGeometry.pixels(getContext(), 8) - top;
         column.addView(cluster, clusterParams);
 
-        LinearLayout.LayoutParams titleParams = new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        LinearLayout.LayoutParams titleParams = KeyboardGeometry.matchWidthWrapParams();
         titleParams.topMargin = KeyboardGeometry.pixels(getContext(), 6) - KeyboardGeometry.pixels(getContext(), OVERHANG_BOTTOM_DP);
         titleParams.leftMargin = KeyboardGeometry.pixels(getContext(), 2);
         titleParams.rightMargin = KeyboardGeometry.pixels(getContext(), 2);

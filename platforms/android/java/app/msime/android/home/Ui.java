@@ -12,7 +12,9 @@ import android.util.TypedValue;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.animation.PathInterpolator;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
+import android.widget.ImageView;
 import android.widget.TextView;
 import app.msime.android.KeyboardGeometry;
 import androidx.annotation.AttrRes;
@@ -27,6 +29,11 @@ import com.google.android.material.color.MaterialColors;
  */
 public final class Ui {
     private Ui() {}
+
+    /** Bottom content inset that keeps page content above either system navigation or the IME. */
+    public static int bottomContentInset(int systemBottom, int tabs, int imeBottom, int base) {
+        return Math.max(systemBottom + tabs, imeBottom) + base;
+    }
 
     // ---- 尺寸（dp） ----
 
@@ -67,18 +74,30 @@ public final class Ui {
 
     /** 详情页行的最小高度。 */
     public static final int ROW_MIN_HEIGHT = 64;
+    /** 单行无副标题时使用的紧凑详情行高度。 */
+    public static final int COMPACT_ROW_MIN_HEIGHT = 52;
     /** 详情页行的左右内边距。 */
     public static final int ROW_PADDING_H = 16;
     /** 详情页行的上下内边距。 */
     public static final int ROW_PADDING_V = 8;
     /** 行标题块与行尾控件之间的间距。 */
     public static final int ROW_GAP = 14;
+    /** 操作按钮的水平内边距。 */
+    public static final int BUTTON_PADDING_H = 14;
+    /** 操作按钮的垂直内边距。 */
+    public static final int BUTTON_PADDING_V = 5;
+    /** 紧凑操作按钮的最小高度。 */
+    public static final int COMPACT_BUTTON_MIN_HEIGHT = 32;
+    /** 主要操作按钮的最小高度。 */
+    public static final int ACTION_BUTTON_MIN_HEIGHT = 52;
     /** 设置首页导航行的最小高度。 */
     public static final int NAV_ROW_MIN_HEIGHT = 60;
     /** 设置首页导航行的左右内边距。 */
     public static final int NAV_ROW_PADDING_H = 20;
     /** 行尾的 › 。 */
     public static final int CHEVRON_SIZE = 16;
+    /** 缩略图的标准边长。 */
+    public static final int THUMBNAIL_SIZE = 64;
 
     /** 搜索框高度。 */
     public static final int SEARCH_HEIGHT = 52;
@@ -95,6 +114,14 @@ public final class Ui {
     public static final int SLIDER_LABEL_WIDTH = 46;
     /** 选择面板每个选项的高度。 */
     public static final int SHEET_OPTION_HEIGHT = 56;
+    /** 选择面板选项文字为勾选图标预留的左右空间。 */
+    public static final int SHEET_OPTION_TEXT_INSET = 48;
+    /** 选择面板选项文字的上下内边距。 */
+    public static final int SHEET_OPTION_TEXT_VERTICAL_INSET = 8;
+    /** 选择面板勾选图标尺寸。 */
+    public static final int SHEET_CHECK_SIZE = 18;
+    /** 选择面板勾选图标距右边的间距。 */
+    public static final int SHEET_CHECK_END_MARGIN = 20;
     /** 对话框的最大宽度。 */
     public static final int DIALOG_WIDTH = 280;
     /** 页码点：高度、未选中宽度、选中宽度、间距。 */
@@ -144,6 +171,93 @@ public final class Ui {
         return KeyboardGeometry.pixels(context, value);
     }
 
+    /** Apply the standard detail-row horizontal and vertical insets to a view. */
+    public static void setRowPadding(View view, Context context) {
+        int horizontal = dp(context, ROW_PADDING_H);
+        int vertical = dp(context, ROW_PADDING_V);
+        view.setPadding(horizontal, vertical, horizontal, vertical);
+    }
+
+    /** Apply the standard minimum height for a detail row. */
+    public static void setRowMinimumHeight(View view, Context context) {
+        setMinimumHeightDp(view, context, ROW_MIN_HEIGHT);
+    }
+
+    /** Set a view's minimum height from a density-independent value. */
+    public static void setMinimumHeightDp(View view, Context context, float heightDp) {
+        view.setMinimumHeight(dp(context, heightDp));
+    }
+
+    /** Set a text view's line-aware minimum height from a density-independent value. */
+    public static void setTextMinHeightDp(TextView view, Context context, float heightDp) {
+        view.setMinHeight(dp(context, heightDp));
+    }
+
+    /** Set a text view's line-aware minimum width from a density-independent value. */
+    public static void setTextMinWidthDp(TextView view, Context context, float widthDp) {
+        view.setMinWidth(dp(context, widthDp));
+    }
+
+    /** Apply the standard compact action-button insets to a view. */
+    public static void setButtonPadding(View view, Context context) {
+        int horizontal = dp(context, BUTTON_PADDING_H);
+        int vertical = dp(context, BUTTON_PADDING_V);
+        view.setPadding(horizontal, vertical, horizontal, vertical);
+    }
+
+    /** Apply the shared bottom-sheet title-area insets to a view. */
+    public static void setSheetHeaderPadding(View view, Context context) {
+        int horizontal = dp(context, 16);
+        view.setPadding(horizontal, 0, horizontal, dp(context, 12));
+    }
+
+    /** Apply symmetric padding expressed in density-independent pixels. */
+    public static void setSymmetricPaddingDp(View view, Context context,
+                                             float horizontalDp, float verticalDp) {
+        int horizontal = dp(context, horizontalDp);
+        int vertical = dp(context, verticalDp);
+        view.setPadding(horizontal, vertical, horizontal, vertical);
+    }
+
+    /** Apply equal padding on all sides when the value is already in pixels. */
+    public static void setSymmetricPaddingPx(View view, int padding) {
+        view.setPadding(padding, padding, padding, padding);
+    }
+
+    /** Apply equal horizontal padding when the value is already in pixels. */
+    public static void setHorizontalPaddingPx(View view, int horizontal) {
+        view.setPadding(horizontal, 0, horizontal, 0);
+    }
+
+    /** Apply equal horizontal dp padding with no vertical padding. */
+    public static void setHorizontalPaddingDp(View view, Context context, float horizontalDp) {
+        int horizontal = dp(context, horizontalDp);
+        view.setPadding(horizontal, 0, horizontal, 0);
+    }
+
+    /** Apply four-sided padding expressed in density-independent pixels. */
+    public static void setPaddingDp(View view, Context context, float leftDp, float topDp,
+                                    float rightDp, float bottomDp) {
+        view.setPadding(dp(context, leftDp), dp(context, topDp),
+            dp(context, rightDp), dp(context, bottomDp));
+    }
+
+    /** Replace only the bottom padding while preserving the other three sides. */
+    public static void setBottomPadding(View view, int bottomPixels) {
+        view.setPadding(view.getPaddingLeft(), view.getPaddingTop(), view.getPaddingRight(),
+            bottomPixels);
+    }
+
+    /** Show a view only when the supplied text is non-null and non-empty. */
+    public static void setVisibilityForText(View view, CharSequence text) {
+        view.setVisibility(text == null || text.length() == 0 ? View.GONE : View.VISIBLE);
+    }
+
+    /** Apply a single tint to an image view through the platform state-list wrapper. */
+    public static void setImageTint(ImageView view, int color) {
+        view.setImageTintList(ColorStateList.valueOf(color));
+    }
+
     /** Return whether the supplied context currently uses the system night configuration. */
     public static boolean isNight(Context context) {
         return KeyboardGeometry.isNight(context);
@@ -188,6 +302,11 @@ public final class Ui {
             dp(context, heightDp));
     }
 
+    /** Full-width layout parameters with an already pixel-sized height. */
+    public static LinearLayout.LayoutParams matchWidthHeightPx(int heightPixels) {
+        return new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, heightPixels);
+    }
+
     /** Convert a density-independent size while guaranteeing at least one physical pixel. */
     public static int atLeastOnePx(Context context, float value) {
         return KeyboardGeometry.atLeastOnePixel(context, value);
@@ -214,6 +333,56 @@ public final class Ui {
     public static LinearLayout.LayoutParams wrap() {
         return new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
             ViewGroup.LayoutParams.WRAP_CONTENT);
+    }
+
+    /** Layout parameters for a view that wraps its width and uses a dp height. */
+    public static LinearLayout.LayoutParams wrapHeight(Context context, float heightDp) {
+        return new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
+            dp(context, heightDp));
+    }
+
+    /** Layout parameters for a square child with a size expressed in dp. */
+    public static LinearLayout.LayoutParams squareParams(Context context, float sizeDp) {
+        int size = dp(context, sizeDp);
+        return new LinearLayout.LayoutParams(size, size);
+    }
+
+    /** Layout parameters for a square child when its size is already in pixels. */
+    public static LinearLayout.LayoutParams squareParamsPx(int size) {
+        return new LinearLayout.LayoutParams(size, size);
+    }
+
+    /** Frame layout parameters for a square child with a size expressed in dp. */
+    public static FrameLayout.LayoutParams squareFrameParams(Context context, float sizeDp) {
+        int size = dp(context, sizeDp);
+        return new FrameLayout.LayoutParams(size, size);
+    }
+
+    /** Frame layout parameters for a pixel-sized square with explicit gravity. */
+    public static FrameLayout.LayoutParams squareFrameParamsPx(int size, int gravity) {
+        return new FrameLayout.LayoutParams(size, size, gravity);
+    }
+
+    /** Frame layout parameters for a child that fills width and uses a dp height. */
+    public static FrameLayout.LayoutParams frameMatchWidthHeight(Context context, float heightDp) {
+        return new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+            dp(context, heightDp));
+    }
+
+    /** Frame layout parameters for a content-sized child with explicit gravity. */
+    public static FrameLayout.LayoutParams frameWrap(int gravity) {
+        return new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT, gravity);
+    }
+
+    /** Layout parameters for a weighted child with a fixed height in dp. */
+    public static LinearLayout.LayoutParams weightedHeight(Context context, float heightDp, float weight) {
+        return new LinearLayout.LayoutParams(0, dp(context, heightDp), weight);
+    }
+
+    /** Layout parameters for a weighted child that fills the parent's height. */
+    public static LinearLayout.LayoutParams weightedMatchParent(float weight) {
+        return new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, weight);
     }
 
     /** 读一个颜色主题属性；属性缺失时退回洋红，让漏配的属性在截图里一眼可见，而不是悄悄显示成别的颜色。 */

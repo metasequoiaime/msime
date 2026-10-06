@@ -16,6 +16,13 @@ public final class SkinJobsApiSmoke {
         check(SkinJobsApi.unavailable(new CloudApi.Failure(503, "", "", 0)), "any 503 hides the entry");
         check(!SkinJobsApi.unavailable(quota), "quota is not unavailable");
 
+        check(SkinJobsApi.validPlanCount(1), "one generated plan is accepted");
+        check(SkinJobsApi.validPlanCount(SkinJobsApi.MAX_DESIGNS),
+            "the design limit is accepted");
+        check(!SkinJobsApi.validPlanCount(0), "an empty plan list is refused");
+        check(!SkinJobsApi.validPlanCount(SkinJobsApi.MAX_DESIGNS + 1),
+            "plans beyond the design limit are refused");
+
         check(SkinJobsApi.message(new CloudApi.Failure(0, "cancelled", "", 0)).equals("已取消"),
             "local cancellation is not a network failure");
         check(SkinJobsApi.message(new CloudApi.Failure(0, "ai_skin_response", "", 0)).contains("不合格"),

@@ -72,11 +72,10 @@ final class ImeCandidates {
             new int[][] {{android.R.attr.state_selected}, {}},
             new int[] {selectedText, keyForeground}));
         button.setTypeface(candidateTypeface, button.isSelected() ? Typeface.BOLD : Typeface.NORMAL);
-        button.setMinWidth(s.pixels(30));
-        button.setMinimumWidth(s.pixels(30));
+        ViewPolicy.setMinimumWidth(button, s.pixels(30));
         button.setMinHeight(0);
         button.setMinimumHeight(0);
-        button.setPadding(s.pixels(11), 0, s.pixels(11), 0);
+        KeyboardGeometry.setHorizontalPaddingDp(button, s, 11);
         button.setLineSpacing(0, 1.0f);
         button.setIncludeFontPadding(false);
         button.setElevation(0);
@@ -182,11 +181,9 @@ final class ImeCandidates {
         KeyboardGeometry.setKeyTextSize(button, 17);
         button.setSelected(highlighted);
         expandedCells.add(button);
-        button.setMinWidth(s.pixels(64));
-        button.setMinimumWidth(s.pixels(64));
-        button.setMinHeight(s.pixels(44));
-        button.setMinimumHeight(s.pixels(44));
-        button.setPadding(s.pixels(10), 0, s.pixels(10), 0);
+        ViewPolicy.setMinimumWidth(button, s.pixels(64));
+        ViewPolicy.setMinimumHeight(button, s.pixels(44));
+        KeyboardGeometry.setHorizontalPaddingDp(button, s, 10);
         // The completed keyboard tree is styled once by MSIMEInputService.render().
         // Styling here would be repeated immediately after this button is attached.
         long index = id == null ? -1
@@ -244,7 +241,7 @@ final class ImeCandidates {
         }
         s.expandedCandidateScroll.setVisibility(View.VISIBLE);
         s.expandedCandidates.setVisibility(View.VISIBLE);
-        s.expandedCandidates.setPadding(s.pixels(8), s.pixels(6), s.pixels(8), s.pixels(6));
+        KeyboardGeometry.setSymmetricPaddingDp(s.expandedCandidates, s, 8, 6);
         JSONArray entries = s.candidatePanelSnapshot.optJSONArray("candidates");
         int count = entries == null ? 0 : entries.length();
         String reading = s.candidatePanelSnapshot.optString("reading", "");
@@ -289,13 +286,12 @@ final class ImeCandidates {
             s.closeCandidatePanel();
             s.deleteFromHandwriting();
         });
-        LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(0, s.pixels(40), 1);
-        LinearLayout.LayoutParams deleteParams = new LinearLayout.LayoutParams(0, s.pixels(40), 1);
+        LinearLayout.LayoutParams closeParams = KeyboardGeometry.weightedHeightParams(s, 40, 1);
+        LinearLayout.LayoutParams deleteParams = KeyboardGeometry.weightedHeightParams(s, 40, 1);
         deleteParams.setMarginStart(s.pixels(6));
         footer.addView(close, closeParams);
         footer.addView(delete, deleteParams);
-        LinearLayout.LayoutParams footerParams = new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        LinearLayout.LayoutParams footerParams = KeyboardGeometry.matchWidthWrapParams();
         footerParams.topMargin = s.pixels(6);
         s.expandedCandidates.addView(footer, footerParams);
     }

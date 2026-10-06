@@ -74,7 +74,7 @@ public final class FunctionPanelView extends LinearLayout {
         super(context);
         setOrientation(VERTICAL);
         setContentDescription("更多工具");
-        setPadding(0, KeyboardGeometry.pixels(context, 10), 0, KeyboardGeometry.pixels(context, 4));
+        KeyboardGeometry.setPaddingDp(this, context, 0, 10, 0, 4);
         grid = new PagedTileGrid(context);
         grid.setGrid(4, 2);
         grid.setSpacing(ITEM_HEIGHT_DP, 16f, 4f, 4f);
@@ -210,8 +210,8 @@ public final class FunctionPanelView extends LinearLayout {
             float density = KeyboardGeometry.density(getContext());
             boolean on = state == State.ON;
             int color = on ? panel.accent : panel.foreground;
-            if (isPressed()) color = Color.argb(Color.alpha(color) * PRESSED_ALPHA / 255,
-                Color.red(color), Color.green(color), Color.blue(color));
+            if (isPressed()) color = ColorPolicy.withAlpha(color,
+                Color.alpha(color) * PRESSED_ALPHA / 255);
             textPaint.setTextSize(KeyboardGeometry.keySp(getContext(), LABEL_SP));
             textPaint.setTypeface(on ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
             Paint.FontMetrics label = textPaint.getFontMetrics();

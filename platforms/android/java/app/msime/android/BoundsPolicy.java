@@ -39,4 +39,16 @@ public final class BoundsPolicy {
     public static long atMost(long value, long maximum) {
         return Math.min(value, maximum);
     }
+
+    public static float atMost(float value, float maximum) {
+        return Math.min(value, maximum);
+    }
+
+    public static int atLeast(int value, int minimum) {
+        return Math.max(value, minimum);
+    }
+
+    public static float atLeast(float value, float minimum) {
+        return Math.max(value, minimum);
+    }
 }

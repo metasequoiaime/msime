@@ -18,6 +18,7 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatDialog;
+import app.msime.android.BoundsPolicy;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -33,7 +34,7 @@ public final class InputDialog {
     private final Context context;
     private final AppCompatDialog dialog;
     private final LinearLayout fields;
-    private final List<EditText> inputs = new ArrayList<>();
+    private final List<EditText> inputs = new ArrayList<>(2);
     private final TextView primary;
     private Predicate<List<String>> valid = values -> {
         for (String value : values) if (value.isEmpty()) return false;
@@ -76,7 +77,7 @@ public final class InputDialog {
 
         fields = new LinearLayout(context);
         fields.setOrientation(LinearLayout.VERTICAL);
-        fields.setPadding(Ui.dp(context, 16), Ui.dp(context, 6), Ui.dp(context, 16), Ui.dp(context, 16));
+        Ui.setPaddingDp(fields, context, 16, 6, 16, 16);
         root.addView(fields, Ui.matchWidth());
 
         root.addView(rule(true));
@@ -84,18 +85,18 @@ public final class InputDialog {
         buttons.setOrientation(LinearLayout.HORIZONTAL);
         TextView cancel = button("取消", 400, Ui.accent(context));
         cancel.setOnClickListener(ignored -> dialog.cancel());
-        buttons.addView(cancel, new LinearLayout.LayoutParams(0, Ui.dp(context, 48), 1f));
+        buttons.addView(cancel, Ui.weightedHeight(context, 48, 1f));
         buttons.addView(rule(false));
         primary = button("确定", 600, Ui.text(context));
         primary.setOnClickListener(ignored -> submit());
-        buttons.addView(primary, new LinearLayout.LayoutParams(0, Ui.dp(context, 48), 1f));
+        buttons.addView(primary, Ui.weightedHeight(context, 48, 1f));
         root.addView(buttons, Ui.matchWidth());
 
         dialog.setContentView(root);
         Window window = dialog.getWindow();
         if (window != null) {
             window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
-            window.setLayout(Math.min(Ui.dp(context, Ui.DIALOG_WIDTH),
+            window.setLayout(BoundsPolicy.atMost(Ui.dp(context, Ui.DIALOG_WIDTH),
                 Ui.screenWidthPixels(context) - Ui.dp(context, 48)),
                 ViewGroup.LayoutParams.WRAP_CONTENT);
             window.setDimAmount(0.35f);
@@ -121,7 +122,7 @@ public final class InputDialog {
         GradientDrawable field = Ui.outlined(Ui.rowBackground(context), Ui.dp(context, 10),
             Ui.atLeastOnePx(context, 1), Ui.hairline(context));
         input.setBackground(field);
-        input.setPadding(Ui.dp(context, 12), 0, Ui.dp(context, 12), 0);
+        Ui.setHorizontalPaddingDp(input, context, 12);
         input.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence text, int start, int count, int after) {}
 
@@ -206,7 +207,7 @@ public final class InputDialog {
         View rule = Ui.hairlineView(context);
         int thin = Ui.hairlinePx(context);
         rule.setLayoutParams(horizontal
-            ? new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, thin)
+            ? Ui.matchWidthHeightPx(thin)
             : new LinearLayout.LayoutParams(thin, ViewGroup.LayoutParams.MATCH_PARENT));
         return rule;
     }

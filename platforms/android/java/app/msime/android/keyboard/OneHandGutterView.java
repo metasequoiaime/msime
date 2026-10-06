@@ -108,7 +108,7 @@ public final class OneHandGutterView extends LinearLayout {
             float cy = getHeight() / 2f;
             if (round && Color.alpha(fillColor) > 0) {
                 fill.setColor(fillColor);
-                canvas.drawCircle(cx, cy, Math.min(getWidth(), getHeight()) / 2f, fill);
+            canvas.drawCircle(cx, cy, KeyboardGeometry.shorterSide(getWidth(), getHeight()) / 2f, fill);
             }
             float size = KeyboardGeometry.floatPixels(getContext(), ICON_DP);
             int saved = canvas.save();

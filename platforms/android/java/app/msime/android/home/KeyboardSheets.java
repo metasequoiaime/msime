@@ -1,7 +1,6 @@
 package app.msime.android.home;
 
 import android.content.Context;
-import android.content.res.ColorStateList;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -173,51 +172,68 @@ final class KeyboardSheets {
     /** 设计里语言卡那种行：左边一个字的徽标，标题和副标题，行尾是值和 ›。 */
     static View badgeNavRow(Context context, String badge, String title, @Nullable String subtitle,
             @Nullable String value, Runnable action) {
+        return badgeNavRow(context, badge, title, subtitle, value, Ui.subText(context), action);
+    }
+
+    /** 徽标导航行的尾部值可使用强调色，供已启用状态等页面复用。 */
+    static View badgeNavRow(Context context, String badge, String title, @Nullable String subtitle,
+            @Nullable String value, int valueColor, Runnable action) {
         LinearLayout row = baseRow(context);
-        row.addView(LexiconPage.badge(context, badge));
+        row.addView(badge(context, badge));
         row.addView(texts(context, title, subtitle, Ui.text(context)),
             Ui.weightWrap(1f));
         if (value != null && !value.isEmpty()) {
             TextView state = new TextView(context);
             state.setText(value);
             state.setSingleLine(true);
-            Ui.style(state, Ui.TEXT_ROW_TITLE, 400, Ui.subText(context));
+            Ui.style(state, Ui.TEXT_ROW_TITLE, 400, valueColor);
             LinearLayout.LayoutParams params = Ui.wrap();
             params.setMarginStart(Ui.dp(context, Ui.ROW_GAP));
             row.addView(state, params);
         }
         ImageView chevron = new ImageView(context);
         chevron.setImageResource(R.drawable.ms_w1_a2_chevron);
-        chevron.setImageTintList(ColorStateList.valueOf(Ui.subText(context)));
+        Ui.setImageTint(chevron, Ui.subText(context));
         chevron.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        LinearLayout.LayoutParams chevronParams = new LinearLayout.LayoutParams(
-            Ui.dp(context, Ui.CHEVRON_SIZE), Ui.dp(context, Ui.CHEVRON_SIZE));
+        LinearLayout.LayoutParams chevronParams = Ui.squareParams(context, Ui.CHEVRON_SIZE);
         chevronParams.setMarginStart(Ui.dp(context, 6));
         row.addView(chevron, chevronParams);
         row.setBackground(Ui.ripple(context));
         row.setClickable(true);
         row.setFocusable(true);
         row.setOnClickListener(ignored -> action.run());
-        row.setContentDescription(title + (value == null || value.isEmpty() ? "" : "，" + value));
+        row.setContentDescription(title
+            + (subtitle == null || subtitle.isEmpty() ? "" : "，" + subtitle)
+            + (value == null || value.isEmpty() ? "" : "，" + value));
         return row;
     }
 
     /** 行首一个强调色符号、强调色标题的动作行（「＋ 添加语言」）。 */
     static View actionRow(Context context, String glyph, String title, Runnable action) {
+        return actionRow(context, glyph, title, action, 32, Ui.ROW_GAP, 0);
+    }
+
+    /**
+     * 行首一个强调色符号、强调色标题的动作行；尺寸参数用于复用略有不同密度的词库操作行。
+     */
+    static View actionRow(Context context, String glyph, String title, Runnable action,
+            int iconSize, int iconMarginEnd, int labelMarginStart) {
         LinearLayout row = baseRow(context);
-        row.setMinimumHeight(Ui.dp(context, 52));
+        Ui.setMinimumHeightDp(row, context, Ui.COMPACT_ROW_MIN_HEIGHT);
         TextView icon = new TextView(context);
         icon.setText(glyph);
         icon.setGravity(Gravity.CENTER);
         Ui.style(icon, 22, 400, Ui.accent(context));
         icon.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        LinearLayout.LayoutParams iconParams = new LinearLayout.LayoutParams(Ui.dp(context, 32), Ui.dp(context, 32));
-        iconParams.setMarginEnd(Ui.dp(context, Ui.ROW_GAP));
+        LinearLayout.LayoutParams iconParams = Ui.squareParams(context, iconSize);
+        iconParams.setMarginEnd(Ui.dp(context, iconMarginEnd));
         row.addView(icon, iconParams);
         TextView label = new TextView(context);
         label.setText(title);
         Ui.style(label, Ui.TEXT_ROW_TITLE, 400, Ui.accent(context));
-        row.addView(label, Ui.weightWrap(1f));
+        LinearLayout.LayoutParams labelParams = Ui.weightWrap(1f);
+        labelParams.setMarginStart(Ui.dp(context, labelMarginStart));
+        row.addView(label, labelParams);
         row.setBackground(Ui.ripple(context));
         row.setClickable(true);
         row.setFocusable(true);
@@ -234,7 +250,7 @@ final class KeyboardSheets {
     static View pillRow(Context context, String badge, String title, @Nullable String subtitle,
             String label, @Nullable Runnable action) {
         LinearLayout row = baseRow(context);
-        row.addView(LexiconPage.badge(context, badge));
+        row.addView(badge(context, badge));
         row.addView(texts(context, title, subtitle, Ui.text(context)),
             Ui.weightWrap(1f));
         boolean enabled = action != null;
@@ -244,8 +260,8 @@ final class KeyboardSheets {
         button.setSingleLine(true);
         Ui.style(button, Ui.TEXT_BUTTON_SMALL, 500, enabled ? Ui.accent(context) : Ui.subText(context));
         if (enabled) button.setBackground(Ui.pillRipple(context, Ui.accentSoft(context)));
-        button.setPadding(Ui.dp(context, 14), Ui.dp(context, 5), Ui.dp(context, 14), Ui.dp(context, 5));
-        button.setMinHeight(Ui.dp(context, 32));
+        Ui.setButtonPadding(button, context);
+        Ui.setTextMinHeightDp(button, context, Ui.COMPACT_BUTTON_MIN_HEIGHT);
         button.setEnabled(enabled);
         button.setClickable(enabled);
         button.setFocusable(enabled);
@@ -266,8 +282,8 @@ final class KeyboardSheets {
         Ui.style(button, Ui.TEXT_ROW_TITLE, 600, primary ? Ui.onAccent(context) : Ui.text(context));
         button.setBackground(Ui.rippleOn(context, primary ? Ui.accent(context) : Ui.card(context),
             Ui.dp(context, 16)));
-        button.setMinHeight(Ui.dp(context, 52));
-        button.setPadding(Ui.dp(context, 16), 0, Ui.dp(context, 16), 0);
+        Ui.setTextMinHeightDp(button, context, Ui.ACTION_BUTTON_MIN_HEIGHT);
+        Ui.setHorizontalPaddingDp(button, context, 16);
         button.setClickable(true);
         button.setFocusable(true);
         button.setOnClickListener(ignored -> action.run());
@@ -279,10 +295,23 @@ final class KeyboardSheets {
         LinearLayout row = new LinearLayout(context);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setMinimumHeight(Ui.dp(context, Ui.ROW_MIN_HEIGHT));
-        row.setPadding(Ui.dp(context, Ui.ROW_PADDING_H), Ui.dp(context, Ui.ROW_PADDING_V),
-            Ui.dp(context, Ui.ROW_PADDING_H), Ui.dp(context, Ui.ROW_PADDING_V));
+        Ui.setRowMinimumHeight(row, context);
+        Ui.setRowPadding(row, context);
         return row;
+    }
+
+    /** 32dp 的圆角方块徽标，供词库和语言行共用。 */
+    static TextView badge(Context context, String text) {
+        TextView badge = new TextView(context);
+        badge.setText(text);
+        badge.setGravity(Gravity.CENTER);
+        Ui.style(badge, 15, 600, Ui.accent(context));
+        badge.setBackground(Ui.rounded(Ui.accentSoft(context), Ui.dp(context, 8)));
+        badge.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        LinearLayout.LayoutParams params = Ui.squareParams(context, 32);
+        params.setMarginEnd(Ui.dp(context, Ui.ROW_GAP));
+        badge.setLayoutParams(params);
+        return badge;
     }
 
     static LinearLayout texts(Context context, String title, @Nullable String subtitle, int titleColor) {
@@ -311,5 +340,22 @@ final class KeyboardSheets {
                 info.setContentDescription(description);
             }
         };
+    }
+
+    /** 构造详情卡片行尾的 tonal 胶囊按钮；调用方只需绑定业务点击行为。 */
+    static TextView tonalButton(Context context, CharSequence label, CharSequence description, int weight) {
+        TextView button = new TextView(context);
+        button.setText(label);
+        button.setGravity(Gravity.CENTER);
+        button.setSingleLine(true);
+        Ui.style(button, Ui.TEXT_BUTTON_SMALL, weight, Ui.accent(context));
+        button.setBackground(Ui.pillRipple(context, Ui.accentSoft(context)));
+        Ui.setButtonPadding(button, context);
+        Ui.setTextMinHeightDp(button, context, Ui.COMPACT_BUTTON_MIN_HEIGHT);
+        button.setClickable(true);
+        button.setFocusable(true);
+        button.setAccessibilityDelegate(buttonDelegate(description));
+        button.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+        return button;
     }
 }

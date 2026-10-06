@@ -32,6 +32,8 @@ import app.msime.android.clipboard.CloudClipboardTextPolicy;
 public final class BackendAccount {
     /** Maximum number of models accepted in the chat catalogue. */
     public static final int MAX_CHAT_MODELS = 33;
+    /** Fixed hexadecimal length of account challenge and clipboard identifiers. */
+    public static final int HEX_ID_LENGTH = 64;
     private static final String ORIGIN = "https://api.msime.app";
     private static final String SESSION_STORE = "msime_account_session_v2";
     private static final String DEFAULT_USER_AGENT = "MSIME/Android";
@@ -180,7 +182,7 @@ public final class BackendAccount {
         JSONObject response = request("POST", "/v1/auth/challenges", body, null);
         String id = optionalStringField(response.opt("challenge_id"), "");
         String nonce = optionalStringField(response.opt("nonce"), "");
-        if (id.length() != 64 || nonce.isEmpty()) {
+        if (id.length() != HEX_ID_LENGTH || nonce.isEmpty()) {
             throw new IllegalStateException("challenge unavailable");
         }
         return new Challenge(id, nonce);
@@ -214,7 +216,7 @@ public final class BackendAccount {
             .put("provider", "email").put("target", target).put("purpose", purpose), token);
         String id = optionalStringField(response.opt("challenge_id"), "");
         long expires = AccountTokenPolicy.strictLong(response.opt("expires_in"), 0);
-        if (id.length() != 64 || expires <= 0) throw new IllegalStateException("challenge unavailable");
+        if (id.length() != HEX_ID_LENGTH || expires <= 0) throw new IllegalStateException("challenge unavailable");
         return new EmailChallenge(id, purpose, expires);
     }
 
@@ -237,7 +239,8 @@ public final class BackendAccount {
     public void loginWithAppleGrant(String grant, String verifier, boolean link, String userAgent)
             throws Exception {
         if (ownerProcess != null) throw new IllegalStateException("account session owner");
-        if (grant == null || grant.isEmpty() || grant.length() > 128 || verifier == null || verifier.isEmpty()) {
+        if (grant == null || grant.isEmpty() || grant.length() > AppleWebSignIn.MAX_GRANT_LENGTH
+                || verifier == null || verifier.isEmpty()) {
             throw new IllegalArgumentException("invalid grant");
         }
         String token = link ? linkToken("link") : null;
@@ -769,7 +772,7 @@ public final class BackendAccount {
     }
 
     static boolean validClipboardItem(ClipboardItem item) {
-        return item != null && item.id() != null && item.id().matches("[0-9a-f]{64}")
+        return item != null && item.id() != null && item.id().matches("[0-9a-f]{" + HEX_ID_LENGTH + "}")
             && CloudClipboardTextPolicy.valid(item.text()) && item.updatedAt() != null
             && !item.updatedAt().isEmpty() && TextPolicy.utf8Length(item.updatedAt()) <= 128
             && !TextPolicy.hasControl(item.updatedAt());
@@ -777,7 +780,7 @@ public final class BackendAccount {
 
     public void deleteClipboard(String id) throws Exception {
         String token = accessToken();
-        if (token.isEmpty() || (id != null && !id.matches("[0-9a-f]{64}")))
+        if (token.isEmpty() || (id != null && !id.matches("[0-9a-f]{" + HEX_ID_LENGTH + "}")))
             throw new IllegalStateException("invalid clipboard request");
         authorizedRequest("DELETE", id == null ? "/v1/users/me/clipboard" : "/v1/users/me/clipboard/" + id,
             null, token);

@@ -32,7 +32,7 @@ public final class DoubaoAsrPolicy {
     }
 
     static boolean validEndpoint(String endpoint) {
-        return TextPolicy.validAuthority(endpoint, "wss://", 2048);
+        return TextPolicy.validAuthority(endpoint, "wss://", AiPolishConfiguration.MAX_ENDPOINT_LENGTH);
     }
 
     /**

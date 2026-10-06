@@ -2,7 +2,6 @@ package app.msime.android.home;
 
 import android.content.Context;
 import android.content.Intent;
-import android.content.res.ColorStateList;
 import android.graphics.Bitmap;
 import android.os.Bundle;
 import android.view.Gravity;
@@ -243,8 +242,7 @@ public final class AccountFragment extends HomeTabFragment {
         toggle.setClickable(false);
         toggle.setFocusable(false);
         toggle.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        LinearLayout.LayoutParams switchParams = new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        LinearLayout.LayoutParams switchParams = Ui.wrap();
         switchParams.setMarginStart(Ui.dp(context, Ui.ROW_GAP));
         sync.addView(toggle, switchParams);
         sync.setAccessibilityDelegate(new View.AccessibilityDelegate() {
@@ -362,15 +360,15 @@ public final class AccountFragment extends HomeTabFragment {
         LinearLayout row = new LinearLayout(context);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setMinimumHeight(Ui.dp(context, subtitle == null ? 52 : Ui.ROW_MIN_HEIGHT));
-        row.setPadding(Ui.dp(context, Ui.ROW_PADDING_H), Ui.dp(context, Ui.ROW_PADDING_V),
-            Ui.dp(context, Ui.ROW_PADDING_H), Ui.dp(context, Ui.ROW_PADDING_V));
+        Ui.setMinimumHeightDp(row, context,
+            subtitle == null ? Ui.COMPACT_ROW_MIN_HEIGHT : Ui.ROW_MIN_HEIGHT);
+        Ui.setRowPadding(row, context);
 
         ImageView glyph = new ImageView(context);
         glyph.setImageResource(icon);
-        glyph.setImageTintList(ColorStateList.valueOf(Ui.subText(context)));
+        Ui.setImageTint(glyph, Ui.subText(context));
         glyph.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        LinearLayout.LayoutParams glyphParams = new LinearLayout.LayoutParams(Ui.dp(context, 22), Ui.dp(context, 22));
+        LinearLayout.LayoutParams glyphParams = Ui.squareParams(context, 22);
         glyphParams.setMarginEnd(Ui.dp(context, 18));
         row.addView(glyph, glyphParams);
 
@@ -393,18 +391,16 @@ public final class AccountFragment extends HomeTabFragment {
             trailing.setText(value);
             trailing.setSingleLine(true);
             Ui.style(trailing, Ui.TEXT_ROW_SUBTITLE, 400, Ui.subText(context));
-            LinearLayout.LayoutParams valueParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            LinearLayout.LayoutParams valueParams = Ui.wrap();
             valueParams.setMarginStart(Ui.dp(context, Ui.ROW_GAP));
             row.addView(trailing, valueParams);
         }
         if (action != null) {
             ImageView chevron = new ImageView(context);
             chevron.setImageResource(R.drawable.ms_w1_a2_chevron);
-            chevron.setImageTintList(ColorStateList.valueOf(Ui.subText(context)));
+            Ui.setImageTint(chevron, Ui.subText(context));
             chevron.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-            LinearLayout.LayoutParams chevronParams = new LinearLayout.LayoutParams(
-                Ui.dp(context, Ui.CHEVRON_SIZE), Ui.dp(context, Ui.CHEVRON_SIZE));
+            LinearLayout.LayoutParams chevronParams = Ui.squareParams(context, Ui.CHEVRON_SIZE);
             chevronParams.setMarginStart(Ui.dp(context, 6));
             row.addView(chevron, chevronParams);
             row.setBackground(Ui.ripple(context));

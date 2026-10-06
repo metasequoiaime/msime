@@ -110,6 +110,8 @@ public final class HttpAsrPolicySmoke {
                 "HTTP ASR accepts string transcripts");
             check("".equals(strictText.invoke(null, 42)),
                 "HTTP ASR rejects numeric transcripts instead of coercing them");
+            check("".equals(strictText.invoke(null, "字".repeat(2001))),
+                "HTTP ASR rejects an oversized transcript before display");
         } catch (ReflectiveOperationException error) {
             throw new AssertionError("HTTP ASR response parser unavailable", error);
         }

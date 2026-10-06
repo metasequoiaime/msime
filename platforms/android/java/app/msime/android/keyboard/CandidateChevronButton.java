@@ -37,8 +37,7 @@ public final class CandidateChevronButton extends Button {
         setAllCaps(false);
         setBackground(null);
         setPadding(0, 0, 0, 0);
-        setMinWidth(0);
-        setMinimumWidth(0);
+        ViewPolicy.clearMinimumWidth(this);
         setMinHeight(0);
         setMinimumHeight(0);
     }
@@ -99,7 +98,7 @@ public final class CandidateChevronButton extends Button {
 
     @Override protected void onDraw(Canvas canvas) {
         float height = getHeight();
-        float dividerHeight = Math.min(height,
+        float dividerHeight = BoundsPolicy.atMost(height,
             KeyboardGeometry.floatPixels(getContext(), DIVIDER_HEIGHT_DP));
         divider.setColor(hairlineColor);
         float lineWidth = BoundsPolicy.bounded(
@@ -108,7 +107,7 @@ public final class CandidateChevronButton extends Button {
             (height + dividerHeight) / 2f, divider);
         float areaLeft = lineWidth;
         float areaWidth = getWidth() - areaLeft;
-        float size = Math.min(Math.min(areaWidth, height),
+        float size = BoundsPolicy.atMost(KeyboardGeometry.shorterSide(areaWidth, height),
             KeyboardGeometry.floatPixels(getContext(), CHEVRON_DP));
         if (size <= 0) return;
         float centerX = areaLeft + areaWidth / 2f;

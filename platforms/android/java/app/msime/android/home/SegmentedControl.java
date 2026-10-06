@@ -35,7 +35,7 @@ public final class SegmentedControl extends LinearLayout {
         setOrientation(HORIZONTAL);
         setGravity(Gravity.CENTER_VERTICAL);
         int pad = Ui.dp(context, 2);
-        setPadding(pad, pad, pad, pad);
+        Ui.setSymmetricPaddingPx(this, pad);
         GradientDrawable frame = Ui.outlined(Color.TRANSPARENT, 9999f, Ui.dp(context, 1),
             Ui.outline(context));
         setBackground(frame);
@@ -53,8 +53,8 @@ public final class SegmentedControl extends LinearLayout {
             segment.setText(labels.get(i));
             segment.setGravity(Gravity.CENTER);
             segment.setSingleLine(true);
-            segment.setMinHeight(Ui.dp(context, 28));
-            segment.setPadding(Ui.dp(context, 12), Ui.dp(context, 4), Ui.dp(context, 12), Ui.dp(context, 4));
+            Ui.setTextMinHeightDp(segment, context, 28);
+            Ui.setSymmetricPaddingDp(segment, context, 12, 4);
             segment.setClickable(true);
             segment.setFocusable(true);
             segment.setOnClickListener(ignored -> select(index, true));

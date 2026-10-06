@@ -72,6 +72,31 @@ public final class UpdateApiSmoke {
         check(downloaded.isFile() && downloaded.getName().equals("msime-client.apk"), "verified file kept");
         check(downloaded.getParentFile().getName().equals("updates"), "stored under cache/updates");
 
+        // A partial-file symlink created after stale cleanup must not receive the APK.
+        File symlinkCache = Files.createTempDirectory("update-smoke-symlink").toFile();
+        File symlinkDirectory = new File(symlinkCache, "updates");
+        check(symlinkDirectory.mkdirs(), "symlink test directory created");
+        File external = new File(symlinkCache, "outside.apk");
+        Files.writeString(external.toPath(), "sentinel");
+        UpdateApi symlinkApi = new UpdateApi(url -> {
+            if (url.equals(update.checksumUrl())) return body(good + "  msime-client.apk\n");
+            if (url.equals(update.apkUrl())) {
+                Files.createSymbolicLink(new File(symlinkDirectory, "msime-client.apk.part").toPath(),
+                    symlinkDirectory.toPath().relativize(external.toPath()));
+                return new UpdateApi.Exchange(200, null, apk.length, new ByteArrayInputStream(apk));
+            }
+            return new UpdateApi.Exchange(404, null, 0, new ByteArrayInputStream(new byte[0]));
+        });
+        try {
+            symlinkApi.download(update, symlinkCache, null);
+        } catch (UpdateApi.Failure expected) {
+            // Refusing the symlink is the expected result.
+        }
+        check("sentinel".equals(Files.readString(external.toPath())),
+            "update download must not follow a partial-file symlink");
+        File symlinkTarget = new File(symlinkDirectory, "msime-client.apk");
+        check(!Files.isSymbolicLink(symlinkTarget.toPath()), "update target must not be a symlink");
+
         // 关于页和每日任务同时下载：排队进行，后一次直接用前一次已经核对过的文件，不互删 .part、也不再下一遍。
         java.util.concurrent.atomic.AtomicInteger apkFetches = new java.util.concurrent.atomic.AtomicInteger();
         UpdateApi racing = new UpdateApi(url -> {

@@ -76,7 +76,7 @@ extension BackendAccountClient {
     let weight: Int64
   }
   func dictionary(_ kind: DictionaryKind, search: String = "", offset: Int = 0, token: String) async throws -> DictionaryPage {
-    guard (0...1_000_000).contains(offset), search.utf8.count <= 1024, !search.contains("\0") else { throw Failure(status: 400) }
+    guard (0...1_000_000).contains(offset), Self.validCatalogText(search, maximum: 1024, empty: true) else { throw Failure(status: 400) }
     var url = URLComponents()
     url.path = "/v1/users/me/dictionaries/" + kind.rawValue
     url.queryItems = [.init(name: "q", value: search), .init(name: "offset", value: String(offset)), .init(name: "limit", value: "100")]
@@ -151,7 +151,8 @@ extension BackendAccountClient {
     let normalized: String
   }
   func dictionaryCatalog(_ kind: DictionaryKind, code: String, offset: Int = 0, scheme: String = "pinyin", profile: String = "xiaohe", token: String) async throws -> DictionaryCatalog {
-    guard (0...1_000_000).contains(offset), code.utf8.count <= 256, !code.contains("\0") else { throw Failure(status: 400) }
+    guard (0...1_000_000).contains(offset), Self.validCatalogText(code, maximum: 256, empty: true),
+          Self.validCatalogText(scheme, maximum: 64), Self.validCatalogText(profile, maximum: 64) else { throw Failure(status: 400) }
     var components = URLComponents()
     components.path = "/v1/users/me/dictionaries/" + kind.rawValue + "/catalog"
     components.queryItems = [.init(name: "q", value: code), .init(name: "offset", value: String(offset)), .init(name: "limit", value: "100"), .init(name: "scheme", value: scheme), .init(name: "profile", value: profile)]

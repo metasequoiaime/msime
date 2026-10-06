@@ -74,7 +74,7 @@ public final class FunctionPanelModel {
     public static List<Item> page(int page) {
         if (page < 0 || page >= pageCount()) return List.of();
         int from = page * PAGE_SIZE;
-        return ITEMS.subList(from, Math.min(ITEMS.size(), from + PAGE_SIZE));
+        return ITEMS.subList(from, BoundsPolicy.atMost(ITEMS.size(), from + PAGE_SIZE));
     }
 
     /** 某个条目所在的页（从 0 起）。 */

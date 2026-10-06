@@ -26,6 +26,8 @@ public final class SkinJobsApi {
     static final long POLL_INTERVAL_MILLIS = 5_000;
     /** 描述的字符上限，与 client-core 一致。 */
     public static final int MAX_PROMPT_CHARACTERS = 500;
+    /** 一次生成的设计套数；页面预览和背景图任务并行度共用这个上限。 */
+    public static final int MAX_DESIGNS = 3;
     private static final Pattern JOB_ID = Pattern.compile("[0-9a-f]{1,48}");
 
     /** 模型给出的一套设计和它的背景图。`design` 是 `custom_theme.keyboard` 的形式（不含照片），`artwork` 是校验过的图片。 */
@@ -126,6 +128,11 @@ public final class SkinJobsApi {
         return failure.status == 503;
     }
 
+    /** A planner response must stay within the number of designs this flow can own and display. */
+    public static boolean validPlanCount(int count) {
+        return count >= 1 && count <= MAX_DESIGNS;
+    }
+
     /** 失败给用户看的一句话。 */
     public static String message(CloudApi.Failure failure) {
         if (quotaExhausted(failure)) {
@@ -161,10 +168,10 @@ public final class SkinJobsApi {
         check(cancelled);
         String answer = chat(planner.compose(trimmed, model));
         JSONArray plans = planner.parse(answer);
-        if (plans.length() == 0) throw invalid("ai_skin_response");
+        if (plans == null || !validPlanCount(plans.length())) throw invalid("ai_skin_response");
         check(cancelled);
 
-        ExecutorService pool = Executors.newFixedThreadPool(Math.min(3, plans.length()), runnable -> {
+        ExecutorService pool = Executors.newFixedThreadPool(BoundsPolicy.atMost(plans.length(), MAX_DESIGNS), runnable -> {
             Thread thread = new Thread(runnable, "msime-ai-skin");
             thread.setDaemon(true);
             return thread;

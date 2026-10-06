@@ -2,7 +2,6 @@ package app.msime.android.home;
 
 import android.content.Context;
 import android.content.Intent;
-import android.content.res.ColorStateList;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Bundle;
@@ -10,9 +9,6 @@ import android.provider.OpenableColumns;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.accessibility.AccessibilityNodeInfo;
-import android.widget.Button;
-import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import androidx.activity.result.ActivityResultLauncher;
@@ -23,7 +19,6 @@ import app.msime.android.CommunityRequest;
 import app.msime.android.DictionaryCollectionsStore;
 import app.msime.android.InputFeatureToggle;
 import app.msime.android.HttpBodyPolicy;
-import app.msime.android.R;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -94,14 +89,13 @@ public final class LexiconPage extends DetailPage {
         int fill = filled ? Ui.accent(context) : Ui.accentSoft(context);
         Ui.style(pill, Ui.TEXT_BUTTON_SMALL, 500, filled ? Ui.onAccent(context) : Ui.accent(context));
         pill.setBackground(Ui.pillRipple(context, fill));
-        pill.setPadding(Ui.dp(context, 12), Ui.dp(context, 6), Ui.dp(context, 12), Ui.dp(context, 6));
-        pill.setMinHeight(Ui.dp(context, 32));
+        Ui.setSymmetricPaddingDp(pill, context, 12, 6);
+        Ui.setTextMinHeightDp(pill, context, Ui.COMPACT_BUTTON_MIN_HEIGHT);
         pill.setClickable(true);
         pill.setFocusable(true);
         pill.setContentDescription(label);
         pill.setOnClickListener(ignored -> action.run());
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        LinearLayout.LayoutParams params = Ui.wrap();
         params.setMarginStart(Ui.dp(context, 8));
         pill.setLayoutParams(params);
         return pill;
@@ -156,26 +150,30 @@ public final class LexiconPage extends DetailPage {
         LinearLayout target = column;
         Model current = model;
         if (target == null || current == null) return;
+        Context context = requireContext();
         target.removeAllViews();
 
         GroupCard installed = GroupCard.add(target, "已安装").withDividers(58);
         String builtinCount = current.builtinCount() < 0 ? null
             : DictionaryCollectionsStore.countLabel(current.builtinCount());
-        installed.addView(badgeRow("汉", "拼音词库", builtinCount, "已启用", true,
-            () -> openDetail(DictionaryCollectionsStore.BUILTIN_PINYIN, "拼音词库")));
+        installed.addView(KeyboardSheets.badgeNavRow(context, "汉", "拼音词库", builtinCount, "已启用",
+            Ui.accent(context), () -> openDetail(DictionaryCollectionsStore.BUILTIN_PINYIN, "拼音词库")));
         for (DictionaryCollectionsStore.Collection collection : current.view().collections()) {
             String subtitle = DictionaryCollectionsStore.countLabel(collection.entryCount())
                 + ("community".equals(collection.sourceType()) ? " · 社区" : "");
-            installed.addView(badgeRow(initial(collection.name()), collection.name(), subtitle,
-                collection.enabled() ? "已启用" : "已停用", collection.enabled(),
+            installed.addView(KeyboardSheets.badgeNavRow(context, initial(collection.name()), collection.name(),
+                subtitle, collection.enabled() ? "已启用" : "已停用",
+                collection.enabled() ? Ui.accent(context) : Ui.subText(context),
                 () -> openDetail(collection.id(), collection.name())));
         }
         installed.footer("点进词库可以启用、停用和编辑词条。已启用的词库会一起参与候选。");
         if (!current.failure().isEmpty()) installed.note(current.failure());
 
         GroupCard manage = GroupCard.add(target, null).withDividers(58);
-        manage.addView(actionRow("+", "新建词库", this::showCreateDialog));
-        manage.addView(actionRow("⇪", "导入词库", this::showImportSources));
+        manage.addView(KeyboardSheets.actionRow(context, "+", "新建词库", this::showCreateDialog,
+            28, 0, Ui.ROW_GAP));
+        manage.addView(KeyboardSheets.actionRow(context, "⇪", "导入词库", this::showImportSources,
+            28, 0, Ui.ROW_GAP));
 
         GroupCard community = GroupCard.add(target, "发现词库").withDividers(58);
         List<CommunityCatalog.Item> items = discover;
@@ -198,69 +196,17 @@ public final class LexiconPage extends DetailPage {
         }
     }
 
-    private View badgeRow(String badge, String title, @Nullable String subtitle, String value, boolean active,
-            Runnable action) {
-        Context context = requireContext();
-        LinearLayout row = baseRow(context);
-        row.addView(badge(context, badge));
-        LinearLayout texts = texts(context, title, subtitle);
-        row.addView(texts, Ui.weightWrap(1f));
-        TextView state = new TextView(context);
-        state.setText(value);
-        Ui.style(state, Ui.TEXT_ROW_SUBTITLE, 500, active ? Ui.accent(context) : Ui.subText(context));
-        LinearLayout.LayoutParams stateParams = Ui.wrap();
-        stateParams.setMarginStart(Ui.dp(context, Ui.ROW_GAP));
-        row.addView(state, stateParams);
-        ImageView chevron = new ImageView(context);
-        chevron.setImageResource(R.drawable.ms_w1_a2_chevron);
-        chevron.setImageTintList(ColorStateList.valueOf(Ui.subText(context)));
-        chevron.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        LinearLayout.LayoutParams chevronParams = new LinearLayout.LayoutParams(
-            Ui.dp(context, Ui.CHEVRON_SIZE), Ui.dp(context, Ui.CHEVRON_SIZE));
-        chevronParams.setMarginStart(Ui.dp(context, 6));
-        row.addView(chevron, chevronParams);
-        row.setBackground(Ui.ripple(context));
-        row.setClickable(true);
-        row.setFocusable(true);
-        row.setOnClickListener(ignored -> action.run());
-        row.setContentDescription(title + (subtitle == null ? "" : "，" + subtitle) + "，" + value);
-        return row;
-    }
-
-    private View actionRow(String glyph, String title, Runnable action) {
-        Context context = requireContext();
-        LinearLayout row = baseRow(context);
-        row.setMinimumHeight(Ui.dp(context, 52));
-        TextView icon = new TextView(context);
-        icon.setText(glyph);
-        icon.setGravity(Gravity.CENTER);
-        Ui.style(icon, 22, 400, Ui.accent(context));
-        icon.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        row.addView(icon, new LinearLayout.LayoutParams(Ui.dp(context, 28), Ui.dp(context, 28)));
-        TextView label = new TextView(context);
-        label.setText(title);
-        Ui.style(label, Ui.TEXT_ROW_TITLE, 400, Ui.accent(context));
-        LinearLayout.LayoutParams params = Ui.weightWrap(1f);
-        params.setMarginStart(Ui.dp(context, Ui.ROW_GAP));
-        row.addView(label, params);
-        row.setBackground(Ui.ripple(context));
-        row.setClickable(true);
-        row.setFocusable(true);
-        row.setOnClickListener(ignored -> action.run());
-        row.setAccessibilityDelegate(buttonDelegate(title));
-        return row;
-    }
-
     private View discoverRow(CommunityCatalog.Item item, DictionaryCollectionsStore.View view) {
         Context context = requireContext();
-        LinearLayout row = baseRow(context);
-        row.addView(badge(context, initial(item.name())));
+        LinearLayout row = KeyboardSheets.baseRow(context);
+        row.addView(KeyboardSheets.badge(context, initial(item.name())));
         List<String> parts = new ArrayList<>(2);
         if (!item.author().isEmpty()) parts.add("@" + item.author());
         JSONArray words = item.payload() == null ? null : item.payload().optJSONArray("words");
         if (words != null) parts.add(DictionaryCollectionsStore.countLabel(words.length()));
         if (parts.isEmpty() && !item.description().isEmpty()) parts.add(item.description());
-        row.addView(texts(context, item.name(), parts.isEmpty() ? null : String.join(" · ", parts)),
+        row.addView(KeyboardSheets.texts(context, item.name(), parts.isEmpty() ? null : String.join(" · ", parts),
+                Ui.text(context)),
             Ui.weightWrap(1f));
         boolean added = view.installed(item.id());
         boolean busy = installing.contains(item.id());
@@ -270,70 +216,18 @@ public final class LexiconPage extends DetailPage {
         button.setSingleLine(true);
         Ui.style(button, Ui.TEXT_BUTTON_SMALL, 500, added ? Ui.subText(context) : Ui.accent(context));
         button.setBackground(Ui.pillRipple(context, added ? Ui.rowBackground(context) : Ui.accentSoft(context)));
-        button.setPadding(Ui.dp(context, 14), Ui.dp(context, 5), Ui.dp(context, 14), Ui.dp(context, 5));
-        button.setMinHeight(Ui.dp(context, 32));
+        Ui.setButtonPadding(button, context);
+        Ui.setTextMinHeightDp(button, context, Ui.COMPACT_BUTTON_MIN_HEIGHT);
         boolean enabled = !added && !busy;
         button.setEnabled(enabled);
         button.setClickable(enabled);
         button.setFocusable(enabled);
         if (enabled) button.setOnClickListener(ignored -> install(item));
-        button.setAccessibilityDelegate(buttonDelegate(button.getText() + "，" + item.name()));
+        button.setAccessibilityDelegate(KeyboardSheets.buttonDelegate(button.getText() + "，" + item.name()));
         LinearLayout.LayoutParams params = Ui.wrap();
         params.setMarginStart(Ui.dp(context, Ui.ROW_GAP));
         row.addView(button, params);
         return row;
-    }
-
-    private static LinearLayout baseRow(Context context) {
-        LinearLayout row = new LinearLayout(context);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setMinimumHeight(Ui.dp(context, Ui.ROW_MIN_HEIGHT));
-        row.setPadding(Ui.dp(context, Ui.ROW_PADDING_H), Ui.dp(context, Ui.ROW_PADDING_V),
-            Ui.dp(context, Ui.ROW_PADDING_H), Ui.dp(context, Ui.ROW_PADDING_V));
-        return row;
-    }
-
-    /** 32dp 的圆角方块，accentSoft 底、强调色的一个字，和设计里词库前面的「汉」「网」一样。 */
-    static TextView badge(Context context, String text) {
-        TextView badge = new TextView(context);
-        badge.setText(text);
-        badge.setGravity(Gravity.CENTER);
-        Ui.style(badge, 15, 600, Ui.accent(context));
-        badge.setBackground(Ui.rounded(Ui.accentSoft(context), Ui.dp(context, 8)));
-        badge.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(Ui.dp(context, 32), Ui.dp(context, 32));
-        params.setMarginEnd(Ui.dp(context, Ui.ROW_GAP));
-        badge.setLayoutParams(params);
-        return badge;
-    }
-
-    private static LinearLayout texts(Context context, String title, @Nullable String subtitle) {
-        LinearLayout texts = new LinearLayout(context);
-        texts.setOrientation(LinearLayout.VERTICAL);
-        TextView heading = new TextView(context);
-        heading.setText(title);
-        heading.setSingleLine(true);
-        Ui.style(heading, Ui.TEXT_ROW_TITLE, 400, Ui.text(context));
-        texts.addView(heading);
-        if (subtitle != null && !subtitle.isEmpty()) {
-            TextView detail = new TextView(context);
-            detail.setText(subtitle);
-            detail.setSingleLine(true);
-            Ui.style(detail, Ui.TEXT_ROW_SUBTITLE, 400, Ui.subText(context));
-            texts.addView(detail);
-        }
-        return texts;
-    }
-
-    private static View.AccessibilityDelegate buttonDelegate(CharSequence description) {
-        return new View.AccessibilityDelegate() {
-            @Override public void onInitializeAccessibilityNodeInfo(View host, AccessibilityNodeInfo info) {
-                super.onInitializeAccessibilityNodeInfo(host, info);
-                info.setClassName(Button.class.getName());
-                info.setContentDescription(description);
-            }
-        };
     }
 
     private static String initial(String name) {

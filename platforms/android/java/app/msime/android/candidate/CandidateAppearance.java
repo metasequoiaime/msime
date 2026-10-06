@@ -8,6 +8,9 @@ import java.util.List;
 
 /** Validated candidate presentation values consumed by the Android host. */
 public final class CandidateAppearance {
+    /** Maximum number of fallback fonts accepted for candidate rendering. */
+    public static final int MAX_FALLBACK_FONTS = 32;
+
     private CandidateAppearance() {}
 
     public static boolean isHorizontal(String layout) {
@@ -63,7 +66,7 @@ public final class CandidateAppearance {
 
     private static List<String> fallbackFonts(JSONArray values) {
         if (values == null) return List.of("Noto Sans SC", "Microsoft YaHei");
-        int limit = BoundsPolicy.bounded(values.length(), 0, 32);
+        int limit = BoundsPolicy.bounded(values.length(), 0, MAX_FALLBACK_FONTS);
         ArrayList<String> result = new ArrayList<>(limit);
         for (int index = 0; index < limit; index++) {
             String value = values.optString(index, "");
@@ -74,10 +77,10 @@ public final class CandidateAppearance {
 
     private static List<String> safeFallbackFonts(List<String> values) {
         ArrayList<String> result = new ArrayList<>(values == null ? 0
-            : BoundsPolicy.bounded(values.size(), 0, 32));
+            : BoundsPolicy.bounded(values.size(), 0, MAX_FALLBACK_FONTS));
         if (values != null) {
             for (String value : values) {
-                if (result.size() >= 32) break;
+                if (result.size() >= MAX_FALLBACK_FONTS) break;
                 if (validFont(value)) result.add(value);
             }
         }

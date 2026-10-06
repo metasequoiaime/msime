@@ -263,6 +263,14 @@ private:
       emit({{"type", "error"}, {"message", "malformed request"}});
       return;
     }
+    // `json::value` throws when an object field has the wrong type. This is a
+    // protocol error from the caller, not a reason to terminate the helper's
+    // reader thread and take local dictation down with it.
+    if (!message.is_object() ||
+        (message.contains("op") && !message.at("op").is_string())) {
+      emit({{"type", "error"}, {"message", "malformed request"}});
+      return;
+    }
     // Cancellation takes effect in the middle of a decode, so it cannot wait its turn in the queue.
     if (message.value("op", std::string()) == "cancel") {
       std::lock_guard<std::mutex> lock(mutex_);

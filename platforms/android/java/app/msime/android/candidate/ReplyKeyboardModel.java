@@ -6,6 +6,8 @@ import java.util.Objects;
 
 /** Platform-independent state for the dedicated thoughtful-reply keyboard. */
 public final class ReplyKeyboardModel {
+    /** Maximum number of generated replies kept for quick insertion. */
+    public static final int MAX_REPLIES = 3;
     public enum Mode { REPLY, POLISH }
 
     public record Style(String label, String emoji) {}
@@ -22,7 +24,7 @@ public final class ReplyKeyboardModel {
     private Mode mode = Mode.REPLY;
     private String style = "高情商";
     private String status = "粘贴 TA 的话，再选择回复方式";
-    private final List<String> replies = new ArrayList<>(3);
+    private final List<String> replies = new ArrayList<>(MAX_REPLIES);
     private boolean busy;
     private long generation;
     private Runnable cancellation;
@@ -116,7 +118,7 @@ public final class ReplyKeyboardModel {
         }
         if (!replies.contains(result)) {
             replies.add(0, result);
-            while (replies.size() > 3) replies.remove(replies.size() - 1);
+            while (replies.size() > MAX_REPLIES) replies.remove(replies.size() - 1);
         }
         status = "点选回复插入输入框";
         return true;

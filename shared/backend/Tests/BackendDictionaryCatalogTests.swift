@@ -85,6 +85,17 @@ final class BackendDictionaryCatalogTests: XCTestCase {
     let decoded = URLComponents(string: path)?.queryItems
     XCTAssertEqual(decoded?.first { $0.name == "q" }?.value, "C++ x")
   }
+  func testDictionaryCatalogRejectsControlCharactersLocally() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [DictionaryCatalogProtocol.self]
+    let client = BackendAccountClient(configuration: configuration)
+    do {
+      _ = try await client.dictionaryCatalog(.pinyin, code: "safe\u{0007}code", token: "session")
+      XCTFail("control character accepted in dictionary catalog code")
+    } catch let error as BackendAccountClient.Failure {
+      XCTAssertEqual(error.status, 400)
+    }
+  }
   func testDictionaryCatalogRejectsMalformedServerEntries() async throws {
     let configuration = URLSessionConfiguration.ephemeral
     configuration.protocolClasses = [MalformedDictionaryCatalogProtocol.self]
@@ -95,6 +106,22 @@ final class BackendDictionaryCatalogTests: XCTestCase {
         XCTFail("malformed dictionary catalog accepted: \(code)")
       } catch let error as BackendAccountClient.Failure {
         XCTAssertEqual(error.status, 0)
+      }
+    }
+  }
+
+  func testDictionaryCatalogRejectsOversizedSchemeAndProfileLocally() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [DictionaryCatalogProtocol.self]
+    let client = BackendAccountClient(configuration: configuration)
+    for (scheme, profile) in [(String(repeating: "s", count: 65), "xiaohe"),
+                               ("pinyin", String(repeating: "p", count: 65))] {
+      do {
+        _ = try await client.dictionaryCatalog(.pinyin, code: "ni", scheme: scheme,
+                                               profile: profile, token: "session")
+        XCTFail("oversized catalog query parameter accepted")
+      } catch let error as BackendAccountClient.Failure {
+        XCTAssertEqual(error.status, 400)
       }
     }
   }

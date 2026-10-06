@@ -104,8 +104,7 @@ public final class CommunitySkinSheet {
             sheet.dismiss();
             onReport.run();
         });
-        LinearLayout.LayoutParams reportParams = new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        LinearLayout.LayoutParams reportParams = Ui.wrap();
         reportParams.gravity = android.view.Gravity.END;
         reportParams.topMargin = Ui.dp(context, 4);
         sheet.content().addView(report, reportParams);

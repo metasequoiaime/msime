@@ -79,7 +79,7 @@ public final class KeyboardIconKey extends KeyboardPressButton {
         }
         int width = KeyboardGeometry.contentWidth(this);
         int height = KeyboardGeometry.contentHeight(this);
-        float size = Math.min(Math.min(width, height),
+        float size = BoundsPolicy.atMost(KeyboardGeometry.shorterSide(width, height),
             KeyboardGeometry.floatPixels(getContext(), ICON_DP));
         if (size <= 0) return;
         int color = getCurrentTextColor();

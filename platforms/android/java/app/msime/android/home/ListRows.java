@@ -29,7 +29,7 @@ final class ListRows {
         ((TextView) row.findViewById(R.id.row_title)).setText(title);
         TextView detail = row.findViewById(R.id.row_value);
         detail.setText(value);
-        detail.setVisibility(value == null || value.length() == 0 ? View.GONE : View.VISIBLE);
+        Ui.setVisibilityForText(detail, value);
         row.setEnabled(action != null);
         row.setAlpha(action != null ? 1f : 0.5f);
         row.setOnClickListener(action == null ? null : ignored -> action.run());
@@ -44,8 +44,8 @@ final class ListRows {
         heading.setText(text);
         Ui.style(heading, Ui.TEXT_GROUP_TITLE, 500, Ui.accent(context));
         heading.setAccessibilityHeading(true);
-        heading.setPadding(Ui.dp(context, Ui.NAV_ROW_PADDING_H), Ui.dp(context, 16),
-            Ui.dp(context, Ui.NAV_ROW_PADDING_H), Ui.dp(context, 4));
+        Ui.setPaddingDp(heading, context, Ui.NAV_ROW_PADDING_H, 16,
+            Ui.NAV_ROW_PADDING_H, 4);
         parent.addView(heading, Ui.matchWidth());
         return heading;
     }

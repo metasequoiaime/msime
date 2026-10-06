@@ -26,7 +26,7 @@ public final class SettingsSheet {
         dialog = new BottomSheetDialog(context);
         LinearLayout root = new LinearLayout(context);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(Ui.dp(context, 24), 0, Ui.dp(context, 24), Ui.dp(context, 24));
+        Ui.setPaddingDp(root, context, 24, 0, 24, 24);
 
         // 拖动条既是可见的把手，也给读屏提供「收起面板」的操作。
         BottomSheetDragHandleView handle = new BottomSheetDragHandleView(context);

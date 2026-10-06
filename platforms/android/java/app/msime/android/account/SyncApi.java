@@ -147,6 +147,8 @@ public final class SyncApi {
         Object revision = root.opt("revision");
         if (!(revision instanceof Number)) throw invalid("phrases revision missing");
         JSONArray raw = root.optJSONArray("phrases");
+        if (raw != null && raw.length() > SyncMergePolicy.MAX_PHRASES)
+            throw invalid("too many phrases");
         List<SyncMergePolicy.Phrase> phrases = new ArrayList<>(raw == null ? 0 : raw.length());
         if (raw != null) {
             for (int index = 0; index < raw.length(); index++) {
@@ -200,7 +202,8 @@ public final class SyncApi {
         Path partial = destination.resolveSibling(destination.getFileName() + ".partial");
         try {
             try (OutputStream out = Files.newOutputStream(partial, StandardOpenOption.CREATE,
-                    StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE)) {
+                    StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE,
+                    LinkOption.NOFOLLOW_LINKS)) {
                 streamed(token -> streams.download(SNAPSHOT, token, new BoundedStream(out, MAX_SNAPSHOT_BYTES)));
             }
             long revision = snapshotRevision(partial);

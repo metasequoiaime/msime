@@ -184,15 +184,15 @@ public final class LexiconDetailPage extends DetailPage {
         LinearLayout row = new LinearLayout(context);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setMinimumHeight(Ui.dp(context, 52));
-        row.setPadding(Ui.dp(context, Ui.ROW_PADDING_H), 0, Ui.dp(context, Ui.ROW_PADDING_H), 0);
+        Ui.setMinimumHeightDp(row, context, Ui.COMPACT_ROW_MIN_HEIGHT);
+        Ui.setHorizontalPaddingDp(row, context, Ui.ROW_PADDING_H);
         if (glyph != null) {
             TextView icon = new TextView(context);
             icon.setText(glyph);
             icon.setGravity(Gravity.CENTER);
             Ui.style(icon, 22, 400, Ui.accent(context));
             icon.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-            LinearLayout.LayoutParams iconParams = new LinearLayout.LayoutParams(Ui.dp(context, 24), Ui.dp(context, 24));
+            LinearLayout.LayoutParams iconParams = Ui.squareParams(context, 24);
             iconParams.setMarginEnd(Ui.dp(context, 10));
             row.addView(icon, iconParams);
         }

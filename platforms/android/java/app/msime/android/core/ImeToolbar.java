@@ -52,8 +52,7 @@ final class ImeToolbar {
             params.setMarginStart(s.pixels(1));
             params.setMarginEnd(s.pixels(1));
             s.shortcutBar.addView(button, params);
-            button.setMinWidth(s.pixels(40));
-            button.setMinimumWidth(s.pixels(40));
+            ViewPolicy.setMinimumWidth(button, s.pixels(40));
         }
         // 旧的回复、语音、简繁、AI 润色、⚙ 入口不在新工具栏上：AI 在功能面板第 2 页，语音由长按空格进入，设置在功能面板里。按钮对象保留，服务里其余代码照常更新它们的状态。
         for (Button retired : new Button[] {s.scriptShortcutButton, s.aiPolishShortcutButton,
@@ -68,7 +67,7 @@ final class ImeToolbar {
     void buildCandidateHeader(LinearLayout candidateRegion) {
         LinearLayout candidateHeader = new LinearLayout(s);
         candidateHeader.setGravity(Gravity.CENTER_VERTICAL);
-        candidateHeader.setPadding(s.pixels(10), 0, s.pixels(6), 0);
+        KeyboardGeometry.setPaddingDp(candidateHeader, s, 10, 0, 6, 0);
         s.candidateHeader = candidateHeader;
         s.preedit = new TextView(s);
         KeyboardGeometry.setKeyTextSize(s.preedit, 12);
@@ -94,7 +93,7 @@ final class ImeToolbar {
         s.status.setIncludeFontPadding(false);
         s.status.setEllipsize(android.text.TextUtils.TruncateAt.END);
         s.status.setGravity(Gravity.CENTER_VERTICAL | Gravity.END);
-        s.status.setPadding(s.pixels(6), 0, s.pixels(2), 0);
+        KeyboardGeometry.setPaddingDp(s.status, s, 6, 0, 2, 0);
         candidateHeader.addView(s.status, new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         s.candidatePage = new TextView(s);
@@ -106,7 +105,7 @@ final class ImeToolbar {
         s.shortcutBar.setOrientation(LinearLayout.HORIZONTAL);
         s.shortcutBar.setGravity(Gravity.CENTER_VERTICAL);
         s.shortcutBar.setContentDescription("键盘快捷栏");
-        s.shortcutBar.setPadding(s.pixels(2), 0, s.pixels(2), 0);
+        KeyboardGeometry.setPaddingDp(s.shortcutBar, s, 2, 0, 2, 0);
         s.shortcutScroll = new HorizontalScrollView(s);
         s.shortcutScroll.setHorizontalScrollBarEnabled(false);
         s.shortcutScroll.setFillViewport(true);
@@ -149,7 +148,7 @@ final class ImeToolbar {
             s.imeKeyFeedback.playFeedback(s.hanjaButton);
             s.command(KoreanInputPolicy.CONVERT_HANJA_COMMAND);
         });
-        s.hanjaButton.setPadding(s.pixels(8), 0, s.pixels(8), 0);
+        KeyboardGeometry.setHorizontalPaddingDp(s.hanjaButton, s, 8);
         s.hanjaButton.setMinHeight(0);
         s.hanjaButton.setMinimumHeight(0);
         candidateHeader.addView(s.hanjaButton, new LinearLayout.LayoutParams(

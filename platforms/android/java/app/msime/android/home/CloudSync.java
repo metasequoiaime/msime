@@ -13,6 +13,7 @@ import app.msime.android.DictionarySnapshotQueue;
 import app.msime.android.KeyboardFeedbackPreferences;
 import app.msime.android.KeyboardFeedbackStore;
 import app.msime.android.NativeClient;
+import app.msime.android.SafePaths;
 import app.msime.android.SyncApi;
 import app.msime.android.SyncMergePolicy;
 import app.msime.android.SyncSwitch;
@@ -537,7 +538,7 @@ public final class CloudSync {
             File files = context.getFilesDir();
             if (files == null) throw new IOException("private files unavailable");
             Path work = files.toPath().resolve(WORK_PATH);
-            Files.createDirectories(work);
+            SafePaths.ensureDirectory(work);
             return work;
         }
 

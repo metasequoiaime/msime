@@ -14,6 +14,8 @@ public final class VoiceContributionApi {
     public static final int MAX_AUDIO_BYTES = 2 * 1024 * 1024;
     public static final long MAX_DURATION_MILLIS = 60_000;
     public static final int MAX_TRANSCRIPT = 2000;
+    /** Maximum length of language and provider identifiers carried in contribution metadata. */
+    public static final int MAX_METADATA_FIELD_LENGTH = 64;
 
     /** 一次贡献：识别语言、识别器、时长、识别文本、应用版本与 WAV 音频。 */
     public record Contribution(String language, String provider, long durationMillis, String transcript,
@@ -46,7 +48,8 @@ public final class VoiceContributionApi {
     }
 
     private static boolean nonEmpty(String value) {
-        return value != null && !value.isEmpty() && value.length() <= 64 && !TextPolicy.hasControl(value);
+        return value != null && !value.isEmpty() && value.length() <= MAX_METADATA_FIELD_LENGTH
+            && !TextPolicy.hasControl(value);
     }
 
     /** 上传一次贡献，返回服务端给的 id。不合规的贡献直接拒绝，不发请求。 */

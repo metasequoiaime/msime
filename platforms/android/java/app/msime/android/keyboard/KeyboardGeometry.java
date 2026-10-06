@@ -4,6 +4,7 @@ import android.content.Context;
 import android.content.res.Configuration;
 import android.util.TypedValue;
 import android.view.View;
+import android.widget.LinearLayout;
 import java.util.Locale;
 import java.math.BigDecimal;
 import org.json.JSONObject;
@@ -53,6 +54,11 @@ public final class KeyboardGeometry {
     public static final int MAX_DESIGN_HEIGHT_ADJUSTMENT_DP = 55;
 
     private KeyboardGeometry() { }
+
+    /** Return the shorter of two dimensions for proportional control sizing. */
+    public static float shorterSide(float width, float height) {
+        return Math.min(width, height);
+    }
 
     /** Return the current display width in physical pixels. */
     public static int screenWidthPixels(Context context) {
@@ -209,6 +215,54 @@ public final class KeyboardGeometry {
     /** Convert a density-independent size to rounded pixels using the context's density. */
     public static int pixels(Context context, float dp) {
         return pixels(dp, density(context));
+    }
+
+    /** Create linear layout parameters from density-independent dimensions. */
+    public static LinearLayout.LayoutParams linearParams(Context context, float widthDp, float heightDp) {
+        return new LinearLayout.LayoutParams(pixels(context, widthDp), pixels(context, heightDp));
+    }
+
+    /** Create full-width linear layout parameters with content-sized height. */
+    public static LinearLayout.LayoutParams matchWidthWrapParams() {
+        return new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT);
+    }
+
+    /** Create weighted linear layout parameters that fill the parent's height. */
+    public static LinearLayout.LayoutParams weightedMatchParentParams(float weight) {
+        return new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, weight);
+    }
+
+    /** Create weighted linear layout parameters with content-sized height. */
+    public static LinearLayout.LayoutParams weightedWrapParams(float weight) {
+        return new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, weight);
+    }
+
+    /** Create weighted linear layout parameters with a fixed height in dp. */
+    public static LinearLayout.LayoutParams weightedHeightParams(Context context, float heightDp,
+            float weight) {
+        return new LinearLayout.LayoutParams(0, pixels(context, heightDp), weight);
+    }
+
+    /** Apply symmetric horizontal and vertical padding expressed in dp. */
+    public static void setSymmetricPaddingDp(View view, Context context, float horizontalDp,
+            float verticalDp) {
+        int horizontal = pixels(context, horizontalDp);
+        int vertical = pixels(context, verticalDp);
+        view.setPadding(horizontal, vertical, horizontal, vertical);
+    }
+
+    /** Apply equal horizontal dp padding with no vertical padding. */
+    public static void setHorizontalPaddingDp(View view, Context context, float horizontalDp) {
+        int horizontal = pixels(context, horizontalDp);
+        view.setPadding(horizontal, 0, horizontal, 0);
+    }
+
+    /** Apply four-sided padding expressed in density-independent pixels. */
+    public static void setPaddingDp(View view, Context context, float leftDp, float topDp,
+            float rightDp, float bottomDp) {
+        view.setPadding(pixels(context, leftDp), pixels(context, topDp),
+            pixels(context, rightDp), pixels(context, bottomDp));
     }
 
     /** Convert a fractional density-independent size to pixels without rounding. */

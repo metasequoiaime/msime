@@ -82,16 +82,14 @@ final class ImeFrame {
         });
         gutter.setVisibility(View.GONE);
         row.addView(column, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
-        keyboard.addView(row, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        keyboard.addView(row, KeyboardGeometry.matchWidthWrapParams());
         appliedMode = "";
         return column;
     }
 
     /** 按默认布局参数放入键区。 */
     void wrap(ViewGroup keyArea) {
-        column().addView(keyArea, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        column().addView(keyArea, KeyboardGeometry.matchWidthWrapParams());
         applyOneHanded();
     }
 

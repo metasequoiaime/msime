@@ -299,7 +299,7 @@ public final class CommunityFragment extends Fragment {
         if (view == null) return;
         TextView state = view.findViewById(R.id.community_state);
         state.setText(message);
-        state.setVisibility(message.isEmpty() ? View.GONE : View.VISIBLE);
+        Ui.setVisibilityForText(state, message);
         view.findViewById(R.id.community_retry)
             .setVisibility(retryable ? View.VISIBLE : View.GONE);
     }
@@ -314,32 +314,35 @@ public final class CommunityFragment extends Fragment {
     }
 
     private static Map<String, CommunityAdapter.Action> taken(Context context) {
-        Map<String, CommunityAdapter.Action> values = new HashMap<>();
+        List<CustomSkinLibrary.Item> skins = List.of();
         String directory = HostStore.directory(context);
         if (!directory.isEmpty()) {
             try {
-                for (CustomSkinLibrary.Item skin : CustomSkinLibrary.read(Paths.get(directory))) {
-                    values.put(CommunityAdapter.key(skin.id()), CommunityAdapter.Action.DONE);
-                }
+                skins = CustomSkinLibrary.read(Paths.get(directory));
             } catch (java.io.IOException | RuntimeException error) {
                 android.util.Log.i("MSIMECommunity", "Custom skin library unreadable", error);
             }
         }
         DictionaryCollectionsStore.Result<DictionaryCollectionsStore.View> collections =
             DictionaryCollectionsStore.load(context);
-        if (collections.ok()) {
-            for (DictionaryCollectionsStore.Collection collection : collections.value().collections()) {
-                if ("community".equals(collection.sourceType()) && collection.resourceId() != null
-                        && !collection.resourceId().isEmpty()) {
-                    values.put(CommunityAdapter.key(collection.resourceId()), CommunityAdapter.Action.DONE);
-                }
+        List<DictionaryCollectionsStore.Collection> collectionItems = collections.ok()
+            ? collections.value().collections() : List.of();
+        CommonPhrasesStore.Result phrases = CommonPhrasesStore.load(context);
+        List<CommonPhrasesStore.Pack> packs = phrases.ok()
+            ? phrases.document().packs() : List.of();
+        Map<String, CommunityAdapter.Action> values = new HashMap<>(
+            skins.size() + collectionItems.size() + packs.size());
+        for (CustomSkinLibrary.Item skin : skins) {
+            values.put(CommunityAdapter.key(skin.id()), CommunityAdapter.Action.DONE);
+        }
+        for (DictionaryCollectionsStore.Collection collection : collectionItems) {
+            if ("community".equals(collection.sourceType()) && collection.resourceId() != null
+                    && !collection.resourceId().isEmpty()) {
+                values.put(CommunityAdapter.key(collection.resourceId()), CommunityAdapter.Action.DONE);
             }
         }
-        CommonPhrasesStore.Result phrases = CommonPhrasesStore.load(context);
-        if (phrases.ok()) {
-            for (CommonPhrasesStore.Pack pack : phrases.document().packs()) {
-                values.put(CommunityAdapter.key(pack.id()), CommunityAdapter.Action.DONE);
-            }
+        for (CommonPhrasesStore.Pack pack : packs) {
+            values.put(CommunityAdapter.key(pack.id()), CommunityAdapter.Action.DONE);
         }
         return values;
     }

@@ -335,9 +335,11 @@ public final class DiagnosticsApi {
                 raw.optString("token_hint", ""));
         }
         JSONArray list = root.optJSONArray("accesses");
-        List<Access> accesses = new ArrayList<>(list == null ? 0 : list.length());
+        int accessCount = list == null ? 0 : list.length();
+        int firstAccess = Math.max(0, accessCount - MAX_EVENTS);
+        List<Access> accesses = new ArrayList<>(Math.min(accessCount, MAX_EVENTS));
         if (list != null) {
-            for (int i = 0; i < list.length(); i++) {
+            for (int i = firstAccess; i < list.length(); i++) {
                 JSONObject item = list.optJSONObject(i);
                 if (item == null) continue;
                 Object arguments = item.opt("arguments");

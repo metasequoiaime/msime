@@ -26,7 +26,7 @@ public final class HttpBodyPolicy {
             BooleanSupplier cancelled) throws IOException {
         if (input == null || limit < 0) return null;
         if (cancelled == null || cancelled.getAsBoolean()) return null;
-        ByteArrayOutputStream output = new ByteArrayOutputStream(Math.min(limit, 8192));
+        ByteArrayOutputStream output = new ByteArrayOutputStream(BoundsPolicy.atMost(limit, 8192));
         byte[] buffer = new byte[8192];
         int count;
         while ((count = input.read(buffer)) != -1) {
@@ -41,7 +41,7 @@ public final class HttpBodyPolicy {
     public static byte[] readWithin(InputStream input, int limit, long deadlineNanos)
             throws IOException {
         if (input == null || limit < 0) return null;
-        ByteArrayOutputStream output = new ByteArrayOutputStream(Math.min(limit, 8192));
+        ByteArrayOutputStream output = new ByteArrayOutputStream(BoundsPolicy.atMost(limit, 8192));
         byte[] buffer = new byte[8192];
         int count;
         while (System.nanoTime() < deadlineNanos && (count = input.read(buffer)) != -1) {

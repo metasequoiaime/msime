@@ -3,7 +3,6 @@ package app.msime.android.home;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
-import android.content.res.ColorStateList;
 import android.os.Bundle;
 import android.text.TextUtils;
 import android.view.Gravity;
@@ -121,9 +120,8 @@ public final class CloudClipboardPage extends DetailPage {
         LinearLayout retention = new LinearLayout(context);
         retention.setOrientation(LinearLayout.HORIZONTAL);
         retention.setGravity(Gravity.CENTER_VERTICAL);
-        retention.setMinimumHeight(Ui.dp(context, Ui.ROW_MIN_HEIGHT));
-        retention.setPadding(Ui.dp(context, Ui.ROW_PADDING_H), Ui.dp(context, Ui.ROW_PADDING_V),
-            Ui.dp(context, Ui.ROW_PADDING_H), Ui.dp(context, Ui.ROW_PADDING_V));
+        Ui.setRowMinimumHeight(retention, context);
+        Ui.setRowPadding(retention, context);
         TextView label = new TextView(context);
         label.setText("保留时长");
         Ui.style(label, Ui.TEXT_ROW_TITLE, 400, Ui.text(context));
@@ -147,7 +145,8 @@ public final class CloudClipboardPage extends DetailPage {
         LinearLayout header = new LinearLayout(context);
         header.setOrientation(LinearLayout.HORIZONTAL);
         header.setGravity(Gravity.CENTER_VERTICAL);
-        header.setPadding(Ui.dp(context, Ui.GROUP_TITLE_INSET), 0, Ui.dp(context, Ui.GROUP_TITLE_INSET), Ui.dp(context, 2));
+        Ui.setPaddingDp(header, context, Ui.GROUP_TITLE_INSET, 0,
+            Ui.GROUP_TITLE_INSET, 2);
         TextView recent = new TextView(context);
         recent.setText("最近");
         recent.setAccessibilityHeading(true);
@@ -157,7 +156,7 @@ public final class CloudClipboardPage extends DetailPage {
             TextView clear = new TextView(context);
             clear.setText("清空");
             Ui.style(clear, Ui.TEXT_GROUP_TITLE, 500, Ui.accent(context));
-            clear.setPadding(Ui.dp(context, 8), Ui.dp(context, 4), 0, Ui.dp(context, 4));
+        Ui.setPaddingDp(clear, context, 8, 4, 0, 4);
             clear.setBackground(Ui.ripple(context));
             clear.setClickable(true);
             clear.setFocusable(true);
@@ -174,7 +173,7 @@ public final class CloudClipboardPage extends DetailPage {
             LinearLayout empty = new LinearLayout(context);
             empty.setOrientation(LinearLayout.VERTICAL);
             empty.setGravity(Gravity.CENTER_HORIZONTAL);
-            empty.setPadding(Ui.dp(context, 16), Ui.dp(context, 32), Ui.dp(context, 16), Ui.dp(context, 32));
+            Ui.setSymmetricPaddingDp(empty, context, 16, 32);
             TextView title = new TextView(context);
             title.setText("还没有同步内容");
             Ui.style(title, Ui.TEXT_ROW_TITLE, 500, Ui.text(context));
@@ -183,8 +182,7 @@ public final class CloudClipboardPage extends DetailPage {
             hint.setText("在任一设备上复制文字，这里就会出现");
             hint.setGravity(Gravity.CENTER);
             Ui.style(hint, Ui.TEXT_ROW_SUBTITLE, 400, Ui.subText(context));
-            LinearLayout.LayoutParams hintParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            LinearLayout.LayoutParams hintParams = Ui.wrap();
             hintParams.topMargin = Ui.dp(context, 4);
             empty.addView(hint, hintParams);
             list.addView(empty);
@@ -197,7 +195,7 @@ public final class CloudClipboardPage extends DetailPage {
         LinearLayout row = new LinearLayout(context);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(Ui.dp(context, 16), Ui.dp(context, 12), Ui.dp(context, 8), Ui.dp(context, 12));
+        Ui.setPaddingDp(row, context, 16, 12, 8, 12);
         row.setBackground(Ui.ripple(context));
         row.setClickable(true);
         row.setFocusable(true);
@@ -213,8 +211,7 @@ public final class CloudClipboardPage extends DetailPage {
         TextView meta = new TextView(context);
         meta.setText(meta(item));
         Ui.style(meta, 12, 400, Ui.subText(context));
-        LinearLayout.LayoutParams metaParams = new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        LinearLayout.LayoutParams metaParams = Ui.wrap();
         metaParams.topMargin = Ui.dp(context, 4);
         texts.addView(meta, metaParams);
         row.addView(texts, Ui.weightWrap(1f));
@@ -242,7 +239,7 @@ public final class CloudClipboardPage extends DetailPage {
     private static View iconButton(Context context, @DrawableRes int icon, int tint, String label, Runnable action) {
         ImageView button = new ImageView(context);
         button.setImageResource(icon);
-        button.setImageTintList(ColorStateList.valueOf(tint));
+        Ui.setImageTint(button, tint);
         button.setScaleType(ImageView.ScaleType.CENTER);
         button.setBackground(Ui.ripple(context));
         button.setContentDescription(label);
@@ -252,8 +249,8 @@ public final class CloudClipboardPage extends DetailPage {
     }
 
     private static View wrap(ImageView button, int size) {
-        button.setLayoutParams(new LinearLayout.LayoutParams(size, size));
-        button.setPadding(size / 5, size / 5, size / 5, size / 5);
+        button.setLayoutParams(Ui.squareParamsPx(size));
+        Ui.setSymmetricPaddingPx(button, size / 5);
         return button;
     }
 

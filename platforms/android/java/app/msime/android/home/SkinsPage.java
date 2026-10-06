@@ -135,8 +135,7 @@ public final class SkinsPage extends DetailPage {
             for (int slot = 0; slot < 2; slot++) {
                 int index = start + slot;
                 View cell = index < cards.size() ? cards.get(index) : new View(context);
-                LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0,
-                    ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+                LinearLayout.LayoutParams params = Ui.weightWrap(1f);
                 if (slot == 1) params.setMarginStart(Ui.dp(context, 12));
                 row.addView(cell, params);
             }
@@ -162,7 +161,7 @@ public final class SkinsPage extends DetailPage {
         SkinSwatchView swatch = new SkinSwatchView(context);
         swatch.setSkin(card.skin());
         swatch.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        tile.addView(swatch, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(context, 76)));
+        tile.addView(swatch, Ui.frameMatchWidthHeight(context, 76));
         cell.addView(tile, Ui.matchWidth());
 
         TextView name = new TextView(context);
@@ -209,8 +208,7 @@ public final class SkinsPage extends DetailPage {
         hint.setGravity(Gravity.CENTER);
         Ui.style(hint, 12, 400, Ui.accent(context));
         tile.addView(hint);
-        cell.addView(tile, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
-            Ui.dp(context, 76) + Ui.dp(context, 6)));
+        cell.addView(tile, Ui.matchWidthHeightPx(Ui.dp(context, 76) + Ui.dp(context, 6)));
         TextView name = new TextView(context);
         name.setText("AI 设计皮肤");
         name.setGravity(Gravity.CENTER);

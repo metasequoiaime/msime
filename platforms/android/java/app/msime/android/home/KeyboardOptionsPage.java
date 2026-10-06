@@ -153,11 +153,11 @@ public final class KeyboardOptionsPage extends DetailPage {
         strip.setOrientation(LinearLayout.HORIZONTAL);
         strip.setGravity(Gravity.CENTER_VERTICAL);
         int pad = Ui.dp(context, 12);
-        strip.setPadding(pad, pad, pad, pad);
+        Ui.setSymmetricPaddingPx(strip, pad);
         LinearLayout plate = new LinearLayout(context);
         plate.setOrientation(LinearLayout.HORIZONTAL);
         plate.setGravity(Gravity.CENTER_VERTICAL);
-        plate.setPadding(Ui.dp(context, 10), 0, Ui.dp(context, 10), 0);
+        Ui.setHorizontalPaddingDp(plate, context, 10);
         plate.setBackground(Ui.rounded(Ui.parseColor(skin.background(), Ui.page(context)), Ui.dp(context, 12)));
         plate.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
         int icon = Ui.parseColor(skin.toolbarIcon(), Ui.subText(context));

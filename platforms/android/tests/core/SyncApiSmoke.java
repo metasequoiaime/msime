@@ -6,6 +6,9 @@ import java.io.IOException;
 import java.io.StringReader;
 import java.util.ArrayList;
 import java.util.List;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 
 public final class SyncApiSmoke {
     public static void main(String[] arguments) throws Exception {
@@ -99,6 +102,38 @@ public final class SyncApiSmoke {
             check("snapshot has too many records".equals(expected.getMessage()),
                 "excess snapshot records are bounded");
         }
+
+        // A hostile or stale partial-file symlink must not receive the downloaded snapshot.
+        Path root = Files.createTempDirectory("msime-sync-api-");
+        Path destination = root.resolve("snapshot.ndjson");
+        Path outside = root.resolve("outside.ndjson");
+        Path partial = root.resolve("snapshot.ndjson.partial");
+        Files.writeString(outside, "sentinel", StandardOpenOption.CREATE_NEW);
+        Files.createSymbolicLink(partial, outside.getFileName());
+        SyncApi download = new SyncApi(null, rejected -> stale, new SyncApi.Streams() {
+            @Override public SyncApi.Exchange download(String path, String token, java.io.OutputStream output)
+                    throws IOException {
+                output.write("{\"type\":\"header\",\"revision\":1}\n".getBytes());
+                return new SyncApi.Exchange(200, null, new byte[0]);
+            }
+
+            @Override public SyncApi.Exchange upload(String path, String token, Path file,
+                    String contentType) {
+                throw new AssertionError("upload is not part of this smoke");
+            }
+        });
+        try {
+            download.downloadSnapshot(destination);
+        } catch (Exception expected) {
+            // android.jar's JVM smoke org.json stubs cannot parse the header; the
+            // filesystem assertions below still exercise the write boundary.
+        }
+        check(!Files.isSymbolicLink(destination), "snapshot destination must not be a symlink");
+        check("sentinel".equals(Files.readString(outside)),
+            "snapshot download must not follow a partial-file symlink");
+        Files.deleteIfExists(destination);
+        Files.deleteIfExists(outside);
+        Files.deleteIfExists(root);
         System.out.println("Android sync API passed");
     }
 

@@ -60,7 +60,7 @@ public final class HomeNavGroup {
 
         public void setValue(@Nullable CharSequence text) {
             value.setText(text);
-            value.setVisibility(text == null || text.length() == 0 ? View.GONE : View.VISIBLE);
+            Ui.setVisibilityForText(value, text);
         }
 
         public void setVisible(boolean visible) {

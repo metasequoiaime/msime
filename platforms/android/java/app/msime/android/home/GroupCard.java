@@ -1,13 +1,11 @@
 package app.msime.android.home;
 
 import android.content.Context;
-import android.content.res.ColorStateList;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.accessibility.AccessibilityNodeInfo;
-import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.Switch;
@@ -44,7 +42,8 @@ public final class GroupCard {
             heading.setText(title);
             Ui.style(heading, Ui.TEXT_GROUP_TITLE, 500, Ui.accent(context));
             heading.setAccessibilityHeading(true);
-            heading.setPadding(Ui.dp(context, Ui.GROUP_TITLE_INSET), 0, Ui.dp(context, Ui.GROUP_TITLE_INSET), Ui.dp(context, 2));
+            Ui.setPaddingDp(heading, context, Ui.GROUP_TITLE_INSET, 0,
+                Ui.GROUP_TITLE_INSET, 2);
             LinearLayout.LayoutParams params = Ui.matchWidth();
             params.bottomMargin = Ui.dp(context, 2);
             group.addView(heading, params);
@@ -83,9 +82,9 @@ public final class GroupCard {
         row.value = trailingValue(row, value);
         ImageView chevron = new ImageView(context);
         chevron.setImageResource(R.drawable.ms_w1_a2_chevron);
-        chevron.setImageTintList(ColorStateList.valueOf(Ui.subText(context)));
+        Ui.setImageTint(chevron, Ui.subText(context));
         chevron.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(Ui.dp(context, Ui.CHEVRON_SIZE), Ui.dp(context, Ui.CHEVRON_SIZE));
+        LinearLayout.LayoutParams params = Ui.squareParams(context, Ui.CHEVRON_SIZE);
         params.setMarginStart(Ui.dp(context, 6));
         row.view.addView(chevron, params);
         row.setAction(action);
@@ -108,8 +107,7 @@ public final class GroupCard {
         control.setClickable(false);
         control.setFocusable(false);
         control.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        LinearLayout.LayoutParams params = Ui.wrap();
         params.setMarginStart(Ui.dp(context, Ui.ROW_GAP));
         row.view.addView(control, params);
         row.toggle = control;
@@ -172,27 +170,9 @@ public final class GroupCard {
     /** 按钮行：行尾一个 tonal 胶囊按钮（accentSoft 底、强调色字，13sp）。 */
     public Row button(CharSequence title, @Nullable CharSequence subtitle, CharSequence label, Runnable action) {
         Row row = new Row(this, title, subtitle, false);
-        TextView button = new TextView(context);
-        button.setText(label);
-        button.setGravity(Gravity.CENTER);
-        button.setSingleLine(true);
-        Ui.style(button, Ui.TEXT_BUTTON_SMALL, 500, Ui.accent(context));
-        button.setBackground(Ui.pillRipple(context, Ui.accentSoft(context)));
-        button.setPadding(Ui.dp(context, 14), Ui.dp(context, 5), Ui.dp(context, 14), Ui.dp(context, 5));
-        button.setMinHeight(Ui.dp(context, 32));
-        button.setClickable(true);
-        button.setFocusable(true);
+        TextView button = KeyboardSheets.tonalButton(context, label, label + "，" + title, 500);
         button.setOnClickListener(ignored -> action.run());
-        button.setAccessibilityDelegate(new View.AccessibilityDelegate() {
-            @Override public void onInitializeAccessibilityNodeInfo(View host, AccessibilityNodeInfo info) {
-                super.onInitializeAccessibilityNodeInfo(host, info);
-                info.setClassName(Button.class.getName());
-                // 「导出」「重置」单独念出来听不出是哪一项，把行标题带上。
-                info.setContentDescription(label + "，" + title);
-            }
-        });
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        LinearLayout.LayoutParams params = Ui.wrap();
         params.setMarginStart(Ui.dp(context, Ui.ROW_GAP));
         row.view.addView(button, params);
         row.button = button;
@@ -204,7 +184,7 @@ public final class GroupCard {
         TextView note = new TextView(context);
         note.setText(text);
         Ui.style(note, Ui.TEXT_ROW_SUBTITLE, 400, Ui.subText(context));
-        note.setPadding(Ui.dp(context, Ui.ROW_PADDING_H), Ui.dp(context, 12), Ui.dp(context, Ui.ROW_PADDING_H), Ui.dp(context, 12));
+        Ui.setSymmetricPaddingDp(note, context, Ui.ROW_PADDING_H, 12);
         addDivider();
         card.addView(note, Ui.matchWidth());
         return note;
@@ -215,7 +195,8 @@ public final class GroupCard {
         TextView note = new TextView(context);
         note.setText(text);
         Ui.style(note, 13, 400, Ui.subText(context));
-        note.setPadding(Ui.dp(context, Ui.GROUP_TITLE_INSET), Ui.dp(context, 8), Ui.dp(context, Ui.GROUP_TITLE_INSET), 0);
+        Ui.setPaddingDp(note, context, Ui.GROUP_TITLE_INSET, 8,
+            Ui.GROUP_TITLE_INSET, 0);
         group.addView(note, Ui.matchWidth());
         return note;
     }
@@ -236,8 +217,7 @@ public final class GroupCard {
     private void addDivider() {
         if (dividerInset < 0 || card.getChildCount() == 0) return;
         View rule = Ui.hairlineView(context);
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, Ui.hairlinePx(context));
+        LinearLayout.LayoutParams params = Ui.matchWidthHeightPx(Ui.hairlinePx(context));
         params.setMarginStart(Ui.dp(context, dividerInset));
         card.addView(rule, params);
     }
@@ -246,8 +226,7 @@ public final class GroupCard {
         TextView text = new TextView(context);
         text.setSingleLine(true);
         Ui.style(text, Ui.TEXT_ROW_TITLE, 400, Ui.subText(context));
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        LinearLayout.LayoutParams params = Ui.wrap();
         params.setMarginStart(Ui.dp(context, Ui.ROW_GAP));
         row.view.addView(text, params);
         setText(text, value);
@@ -256,7 +235,7 @@ public final class GroupCard {
 
     private static void setText(TextView view, @Nullable CharSequence text) {
         view.setText(text);
-        view.setVisibility(text == null || text.length() == 0 ? View.GONE : View.VISIBLE);
+        Ui.setVisibilityForText(view, text);
     }
 
     /** 一行设置；保留各部件的引用，页面在数据变化后原地改写它们。 */
@@ -277,9 +256,8 @@ public final class GroupCard {
             } : new LinearLayout(context);
             view.setOrientation(LinearLayout.HORIZONTAL);
             view.setGravity(Gravity.CENTER_VERTICAL);
-            view.setMinimumHeight(Ui.dp(owner.context, Ui.ROW_MIN_HEIGHT));
-            view.setPadding(Ui.dp(owner.context, Ui.ROW_PADDING_H), Ui.dp(owner.context, Ui.ROW_PADDING_V),
-                Ui.dp(owner.context, Ui.ROW_PADDING_H), Ui.dp(owner.context, Ui.ROW_PADDING_V));
+            Ui.setRowMinimumHeight(view, owner.context);
+            Ui.setRowPadding(view, owner.context);
 
             LinearLayout texts = new LinearLayout(context);
             texts.setOrientation(LinearLayout.VERTICAL);
@@ -289,8 +267,7 @@ public final class GroupCard {
             texts.addView(title);
             subtitle = new TextView(context);
             Ui.style(subtitle, Ui.TEXT_ROW_SUBTITLE, 400, Ui.subText(context));
-            LinearLayout.LayoutParams subtitleParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            LinearLayout.LayoutParams subtitleParams = Ui.wrap();
             subtitleParams.topMargin = Ui.dp(owner.context, 1);
             texts.addView(subtitle, subtitleParams);
             setText(subtitle, subtitleText);

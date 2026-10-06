@@ -58,7 +58,7 @@ pub(super) fn catalog(request: &Request, roots: Roots) -> Outcome {
     let mut statement = connection
         .prepare(&sql)
         .map_err(|_| BackendError::ResourcesUnavailable)?;
-    let mut items = statement
+    let rows = statement
         .query_map(
             rusqlite::params![filter, search, limit + 1, offset],
             |row| {
@@ -70,8 +70,11 @@ pub(super) fn catalog(request: &Request, roots: Roots) -> Outcome {
                 }))
             },
         )
-        .and_then(Iterator::collect::<rusqlite::Result<Vec<Value>>>)
         .map_err(|_| BackendError::ResourcesUnavailable)?;
+    let mut items = Vec::with_capacity((limit + 1) as usize);
+    for row in rows {
+        items.push(row.map_err(|_| BackendError::ResourcesUnavailable)?);
+    }
     let more = items.len() > limit as usize;
     items.truncate(limit as usize);
     let sql = format!(
@@ -215,7 +218,7 @@ pub(super) fn dictionary(request: &Request, roots: Roots) -> Outcome {
         statement.raw_bind_parameter(index, value)?;
     }
     let mut rows = statement.raw_query();
-    let mut entries = Vec::new();
+    let mut entries = Vec::with_capacity(page_size as usize);
     while let Some(row) = rows.next()? {
         entries.push(json!({
             "kind": kind,

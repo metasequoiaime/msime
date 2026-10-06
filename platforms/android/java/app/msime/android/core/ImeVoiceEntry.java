@@ -366,7 +366,8 @@ final class ImeVoiceEntry {
             }
         });
         listening = view;
-        int height = Math.max(keyArea.getHeight(), s.pixels(KeyboardGeometry.NINE_KEY_HEIGHT_DP));
+        int height = BoundsPolicy.atLeast(keyArea.getHeight(),
+            s.pixels(KeyboardGeometry.NINE_KEY_HEIGHT_DP));
         ViewGroup.LayoutParams params = keyArea instanceof LinearLayout
             ? new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, height)
             : new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, height);

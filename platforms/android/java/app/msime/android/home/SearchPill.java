@@ -28,13 +28,13 @@ public final class SearchPill extends LinearLayout {
         super(context, attrs);
         setOrientation(HORIZONTAL);
         setGravity(Gravity.CENTER_VERTICAL);
-        setMinimumHeight(Ui.dp(context, Ui.SEARCH_HEIGHT));
-        setPadding(Ui.dp(context, 18), 0, Ui.dp(context, 18), 0);
+        Ui.setMinimumHeightDp(this, context, Ui.SEARCH_HEIGHT);
+        Ui.setHorizontalPaddingDp(this, context, 18);
         setBackground(Ui.pill(Ui.card(context)));
 
         ImageView glyph = new ImageView(context);
         glyph.setImageResource(R.drawable.ic_search);
-        glyph.setImageTintList(android.content.res.ColorStateList.valueOf(Ui.subText(context)));
+        Ui.setImageTint(glyph, Ui.subText(context));
         glyph.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
         int icon = Ui.dp(context, 16);
         addView(glyph, new LayoutParams(icon, icon));

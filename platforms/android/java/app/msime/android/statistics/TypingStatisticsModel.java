@@ -117,7 +117,7 @@ public final class TypingStatisticsModel {
         LocalDate end = day(today);
         if (start == null || end == null || start.isAfter(end)) return 0;
         long span = end.toEpochDay() - start.toEpochDay() + 1;
-        return KeyboardGeometry.bounded((int) Math.min(MAX_TREND_DAYS, span), 1, MAX_TREND_DAYS);
+        return (int) BoundsPolicy.bounded(span, 1L, MAX_TREND_DAYS);
     }
 
     /**

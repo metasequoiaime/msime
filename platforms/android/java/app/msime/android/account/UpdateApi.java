@@ -6,7 +6,6 @@ import android.content.pm.PackageManager;
 import android.content.pm.Signature;
 import android.content.pm.SigningInfo;
 import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -17,6 +16,7 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
+import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
@@ -185,7 +185,7 @@ public final class UpdateApi {
     }
 
     private static int compareSegments(String[] a, String[] b, boolean padWithZero) {
-        int length = Math.max(a.length, b.length);
+        int length = BoundsPolicy.atLeast(a.length, b.length);
         for (int index = 0; index < length; index++) {
             if (!padWithZero && (index >= a.length || index >= b.length)) return Integer.compare(a.length, b.length);
             String x = index < a.length ? a[index] : "0";
@@ -316,7 +316,9 @@ public final class UpdateApi {
         Exchange response = open(update.apkUrl());
         try (InputStream body = response.body()) {
             long total = response.length();
-            try (OutputStream out = new FileOutputStream(partial)) {
+            try (OutputStream out = Files.newOutputStream(partial.toPath(),
+                    StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING,
+                    StandardOpenOption.WRITE, LinkOption.NOFOLLOW_LINKS)) {
                 byte[] buffer = new byte[64 * 1024];
                 long done = 0;
                 for (int read; (read = body.read(buffer)) != -1; ) {

@@ -122,7 +122,7 @@ public final class MSIMEInputService extends InputMethodService {
     private HorizontalScrollView horizontalCandidateScroll;
     private ScrollView verticalCandidateScroll;
     private final java.util.List<Button> candidateButtons = new java.util.ArrayList<>();
-    private final java.util.List<Button> englishSuggestionButtons = new java.util.ArrayList<>();
+    private final java.util.List<Button> englishSuggestionButtons = new java.util.ArrayList<>(32);
     LinearLayout expandedCandidates;
     ScrollView expandedCandidateScroll;
     TextView preedit;
@@ -222,7 +222,7 @@ public final class MSIMEInputService extends InputMethodService {
     /** The shared theme catalog (`msime_client_theme_catalog`), read once: ids, titles and palettes are fixed per build. */
     JSONArray themeCatalog;
     /** Resolved keyboards by request, so the four surfaces of one snapshot cost at most two native calls. */
-    private final java.util.Map<String, KeyboardSkin> resolvedThemes = new java.util.HashMap<>();
+    private final java.util.Map<String, KeyboardSkin> resolvedThemes = new java.util.HashMap<>(8);
     /** 输入法自己写进编辑器后预期的选区，用来认出 `onUpdateSelection` 里迟到的回声。 */
     final SelectionEchoTracker selectionEcho = new SelectionEchoTracker();
     private JSONObject localModes = new JSONObject();
@@ -267,8 +267,8 @@ public final class MSIMEInputService extends InputMethodService {
     boolean panelPreferenceSaving;
     Button microsoftFinalKey;
     final java.util.List<ShuangpinHintButton> shuangpinKeyButtons =
-        new java.util.ArrayList<>();
-    final java.util.List<String> shuangpinKeyInputs = new java.util.ArrayList<>();
+        new java.util.ArrayList<>(27);
+    final java.util.List<String> shuangpinKeyInputs = new java.util.ArrayList<>(27);
     private String shuangpinHintsProfile = "";
     private java.util.Map<String, String> shuangpinHints = java.util.Map.of();
     /** 本包所属的版本：键盘只列出本版本提供的方案入口，偏好里的方案本版本没有时回退到本版本的默认方案。 */
@@ -300,8 +300,8 @@ public final class MSIMEInputService extends InputMethodService {
     JapaneseFlickPreview japaneseFlickPreview;
     LinearLayout shortcutBar;
     HorizontalScrollView shortcutScroll;
-    final java.util.List<Button> symbolKeyButtons = new java.util.ArrayList<>();
-    final java.util.List<String> symbolKeyInputs = new java.util.ArrayList<>();
+    final java.util.List<Button> symbolKeyButtons = new java.util.ArrayList<>(30);
+    final java.util.List<String> symbolKeyInputs = new java.util.ArrayList<>(30);
     HandwritingCanvas handwritingCanvas;
     private LinearLayout handwritingCandidates;
     TextView handwritingStatus;
@@ -2083,7 +2083,7 @@ public final class MSIMEInputService extends InputMethodService {
                         NativeClient.candidateGlosses(request, targetResources));
                     java.util.Map<String, java.util.Map<String, String>> offline = null;
                     if (!targetRequests.isEmpty()) {
-                        offline = new java.util.HashMap<>();
+                        offline = new java.util.HashMap<>(targetRequests.size() + 1);
                         offline.put("en", glossMap(result));
                         for (java.util.Map.Entry<String, String> target : targetRequests.entrySet()) {
                             try {
@@ -2196,9 +2196,11 @@ public final class MSIMEInputService extends InputMethodService {
         java.util.Map<String, java.util.Map<String, String>> offline =
             candidateOfflineGlosses != null && candidateOfflineGlossSession == session
                 && candidateOfflineGlossGeneration == generation ? candidateOfflineGlosses : java.util.Map.of();
-        java.util.LinkedHashSet<String> texts = new java.util.LinkedHashSet<>();
         JSONArray entries = view == null ? null : view.optJSONArray("candidates");
-        for (int index = 0; entries != null && index < Math.min(entries.length(), 32); index++) {
+        int textCapacity = entries == null ? 0 : Math.min(entries.length(), 32);
+        for (java.util.Map<String, String> glosses : offline.values()) textCapacity += glosses.size();
+        java.util.LinkedHashSet<String> texts = new java.util.LinkedHashSet<>(textCapacity);
+        for (int index = 0; entries != null && index < BoundsPolicy.atMost(entries.length(), 32); index++) {
             JSONObject candidate = entries.optJSONObject(index);
             if (candidate != null) texts.add(candidate.optString("text", ""));
         }
@@ -2206,8 +2208,10 @@ public final class MSIMEInputService extends InputMethodService {
         boolean account = candidateTranslationAccount && candidateTranslationStore != null;
         JSONArray translations = new JSONArray();
         for (String text : texts) {
-            java.util.HashMap<String, String> offlineRows = new java.util.HashMap<>();
-            java.util.HashMap<String, String> accountRows = new java.util.HashMap<>();
+            java.util.HashMap<String, String> offlineRows =
+                new java.util.HashMap<>(candidateTranslationTargets.size());
+            java.util.HashMap<String, String> accountRows =
+                new java.util.HashMap<>(candidateTranslationTargets.size());
             for (String target : candidateTranslationTargets) {
                 java.util.Map<String, String> glosses = offline.get(target);
                 if (glosses != null && glosses.containsKey(text)) offlineRows.put(target, glosses.get(text));
@@ -2228,7 +2232,7 @@ public final class MSIMEInputService extends InputMethodService {
     private static java.util.Map<String, String> glossMap(CandidateGlossModel.Result result)
             throws JSONException {
         JSONArray entries = new JSONArray(result.translations());
-        java.util.LinkedHashMap<String, String> glosses = new java.util.LinkedHashMap<>();
+        java.util.LinkedHashMap<String, String> glosses = new java.util.LinkedHashMap<>(entries.length());
         for (int index = 0; index < entries.length(); index++) {
             JSONObject entry = entries.getJSONObject(index);
             glosses.put(entry.getString("text"), entry.getString("translation"));
@@ -4499,13 +4503,11 @@ public final class MSIMEInputService extends InputMethodService {
             voiceResultPanel.addView(hint);
             Button insert = button(voiceResultPanel, "插入语音结果", this::insertVoiceResult);
             insert.setContentDescription("插入并清除语音结果");
-            insert.setLayoutParams(new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+            insert.setLayoutParams(KeyboardGeometry.matchWidthWrapParams());
         }
         Button recognize = button(voiceResultPanel, "开始语音识别",
             this::startVoiceRecognition);
-        recognize.setLayoutParams(new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        recognize.setLayoutParams(KeyboardGeometry.matchWidthWrapParams());
         VoiceConfiguration configured = VoiceConfiguration.read(preferencesDirectory, "ime-preview");
         boolean platformRecognizerAvailable = VoiceRecognitionActivity.available(this);
         recognize.setEnabled(voiceInputEnabled
@@ -5671,8 +5673,8 @@ public final class MSIMEInputService extends InputMethodService {
             anchor.getLocationOnScreen(anchorLocation);
             centerX = anchorLocation[0] - rootLocation[0] + anchor.getWidth() / 2f;
             centerY = anchorLocation[1] - rootLocation[1] + anchor.getHeight() / 2f;
-            cellWidth = Math.max(anchor.getWidth(), KeyboardGeometry.pixels(getContext(), 40));
-            cellHeight = Math.max(anchor.getHeight(), KeyboardGeometry.pixels(getContext(), 36));
+            cellWidth = BoundsPolicy.atLeast(anchor.getWidth(), KeyboardGeometry.pixels(getContext(), 40));
+            cellHeight = BoundsPolicy.atLeast(anchor.getHeight(), KeyboardGeometry.pixels(getContext(), 36));
             // 五格紧挨着拼成一个十字浮层；原先各隔 6 dp、和底下的键同色同大，看起来像键盘被挤乱了，而不是一个弹框。
             gap = 0;
             root.bringChildToFront(this);
@@ -5748,7 +5750,7 @@ public final class MSIMEInputService extends InputMethodService {
      */
     static final class PanelSurface extends FrameLayout {
         /** 需要铺满整块键区（含系统栏内边距）的覆盖层，例如按键气泡；其余面板不压在手势条上。 */
-        final java.util.Set<View> fullBleed = new java.util.HashSet<>();
+        final java.util.Set<View> fullBleed = new java.util.HashSet<>(2);
 
         PanelSurface(Context context) {
             super(context);
@@ -5817,8 +5819,7 @@ public final class MSIMEInputService extends InputMethodService {
         KeyboardGeometry.setKeyTextSize(diagnosticView, 12);
         diagnosticView.setContentDescription("输入提示");
         diagnosticView.setVisibility(View.GONE);
-        candidateRegion.addView(diagnosticView, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        candidateRegion.addView(diagnosticView, KeyboardGeometry.matchWidthWrapParams());
         candidateRegion.addView(shortcutScroll, new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
             pixels(KeyboardGeometry.DESIGN_TOOLBAR_ROW_HEIGHT_DP)));
@@ -5959,7 +5960,7 @@ public final class MSIMEInputService extends InputMethodService {
         imeBottomRow.updateActionRow();
         expandedCandidates = new LinearLayout(this);
         expandedCandidates.setOrientation(LinearLayout.VERTICAL);
-        expandedCandidates.setPadding(24, 16, 24, 16);
+        ViewPolicy.setSymmetricPadding(expandedCandidates, 24, 16);
         expandedCandidates.setBackgroundColor(0xfff5f5f5);
         expandedCandidates.setContentDescription("候选面板");
         expandedCandidates.setVisibility(View.GONE);
@@ -5972,7 +5973,7 @@ public final class MSIMEInputService extends InputMethodService {
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         clipboardPanel = new LinearLayout(this);
         clipboardPanel.setOrientation(LinearLayout.VERTICAL);
-        clipboardPanel.setPadding(24, 16, 24, 16);
+        ViewPolicy.setSymmetricPadding(clipboardPanel, 24, 16);
         clipboardPanel.setBackgroundColor(Color.parseColor(skin.background()));
         clipboardPanel.setContentDescription("剪贴板历史");
         clipboardScroll = new ScrollView(this);
@@ -5982,7 +5983,7 @@ public final class MSIMEInputService extends InputMethodService {
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         schemePanel = new LinearLayout(this);
         schemePanel.setOrientation(LinearLayout.VERTICAL);
-        schemePanel.setPadding(24, 16, 24, 16);
+        ViewPolicy.setSymmetricPadding(schemePanel, 24, 16);
         schemePanel.setBackgroundColor(Color.parseColor(skin.background()));
         schemePanel.setContentDescription("输入方案选择器");
         schemeScroll = new ScrollView(this);
@@ -5994,7 +5995,7 @@ public final class MSIMEInputService extends InputMethodService {
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         skinPanel = new LinearLayout(this);
         skinPanel.setOrientation(LinearLayout.VERTICAL);
-        skinPanel.setPadding(24, 16, 24, 16);
+        ViewPolicy.setSymmetricPadding(skinPanel, 24, 16);
         skinPanel.setBackgroundColor(Color.parseColor(skin.background()));
         skinPanel.setContentDescription("键盘皮肤选择器");
         skinScroll = new ScrollView(this);
@@ -6006,7 +6007,7 @@ public final class MSIMEInputService extends InputMethodService {
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         layoutSettingsPanel = new LinearLayout(this);
         layoutSettingsPanel.setOrientation(LinearLayout.VERTICAL);
-        layoutSettingsPanel.setPadding(24, 16, 24, 16);
+        ViewPolicy.setSymmetricPadding(layoutSettingsPanel, 24, 16);
         layoutSettingsPanel.setBackgroundColor(Color.parseColor(skin.background()));
         layoutSettingsPanel.setContentDescription("键盘设置");
         LinearLayout layoutHeader = new LinearLayout(this);
@@ -6114,7 +6115,7 @@ public final class MSIMEInputService extends InputMethodService {
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         voiceResultPanel = new LinearLayout(this);
         voiceResultPanel.setOrientation(LinearLayout.VERTICAL);
-        voiceResultPanel.setPadding(24, 16, 24, 16);
+        ViewPolicy.setSymmetricPadding(voiceResultPanel, 24, 16);
         voiceResultPanel.setBackgroundColor(Color.parseColor(skin.background()));
         voiceResultPanel.setContentDescription("语音结果面板");
         voiceResultScroll = new ScrollView(this);
@@ -6127,7 +6128,7 @@ public final class MSIMEInputService extends InputMethodService {
         aiPolishContainer.setBackgroundColor(Color.parseColor(skin.background()));
         aiPolishPanel = new LinearLayout(this);
         aiPolishPanel.setOrientation(LinearLayout.VERTICAL);
-        aiPolishPanel.setPadding(24, 16, 24, 16);
+        ViewPolicy.setSymmetricPadding(aiPolishPanel, 24, 16);
         aiPolishPanel.setBackgroundColor(Color.parseColor(skin.background()));
         aiPolishPanel.setContentDescription("AI 润色面板");
         aiPolishScroll = new ScrollView(this);
@@ -6138,8 +6139,7 @@ public final class MSIMEInputService extends InputMethodService {
         aiPolishActions = new LinearLayout(this);
         aiPolishActions.setOrientation(LinearLayout.VERTICAL);
         aiPolishActions.setPadding(24, 0, 24, 16);
-        aiPolishContainer.addView(aiPolishActions, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        aiPolishContainer.addView(aiPolishActions, KeyboardGeometry.matchWidthWrapParams());
         aiPolishContainer.setVisibility(View.GONE);
         keyboardSurface.addView(aiPolishContainer, new FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));

@@ -40,7 +40,7 @@ public final class KeyboardBrandMark extends View {
     /** Draws the mark centred in the given content box at {@code scale} of its shorter side. */
     static void draw(Canvas canvas, Paint paint, float left, float top, float width, float height,
             float scale) {
-        float size = Math.min(width, height) * scale;
+        float size = KeyboardGeometry.shorterSide(width, height) * scale;
         if (size <= 0) return;
         canvas.save();
         canvas.translate(left + (width - size) / 2f, top + (height - size) / 2f);

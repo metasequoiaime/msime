@@ -50,9 +50,19 @@ public final class DeviceDataApiSmoke {
         check("2 天前".equals(DeviceDataApi.relativeTime(now, now - 50 * 3_600_000L)), "days");
         check("msime-data-2026-10-05.zip".equals(DeviceDataApi.exportFileName(LocalDate.of(2026, 10, 5))),
             "export file name");
+        String token = "t".repeat(64);
+
+        // 外部数组必须在展开前受限，避免恶意账号响应让移动端按数组长度分配内存。
+        check(DeviceDataApi.validResponseArrayLength(100, DeviceDataApi.MAX_SESSIONS),
+            "the session limit accepts its boundary");
+        check(!DeviceDataApi.validResponseArrayLength(101, DeviceDataApi.MAX_SESSIONS),
+            "an oversized sessions response is refused");
+        check(!DeviceDataApi.validResponseArrayLength(17, DeviceDataApi.MAX_IDENTITIES),
+            "an oversized identities response is refused");
+        check(!DeviceDataApi.validResponseArrayLength(17, DeviceDataApi.MAX_DATA_SECTIONS),
+            "an oversized data summary is refused");
 
         // 撤销会话走 DELETE /v1/users/me/sessions/{id}，带真实账号的令牌；不合法的 id 不发请求。
-        String token = "t".repeat(64);
         List<String> requests = new ArrayList<>();
         List<Map<String, String>> headers = new ArrayList<>();
         CloudApi cloud = new CloudApi((method, path, sent, body) -> {

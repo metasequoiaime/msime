@@ -221,7 +221,7 @@ public final class CommunityAdapter extends RecyclerView.Adapter<CommunityAdapte
         String subtitle = subtitle(item);
         if (holder.author != null) {
             holder.author.setText(subtitle);
-            holder.author.setVisibility(subtitle.isEmpty() ? View.GONE : View.VISIBLE);
+            Ui.setVisibilityForText(holder.author, subtitle);
         }
         boolean reply = item.kind() == CommunityRequest.Kind.REPLY;
         if (holder.description != null) {

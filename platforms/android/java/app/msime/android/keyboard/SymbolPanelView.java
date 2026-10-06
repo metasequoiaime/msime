@@ -56,18 +56,17 @@ public final class SymbolPanelView extends LinearLayout {
         title.setGravity(Gravity.CENTER_VERTICAL);
         // 这个键只是关掉面板，回到打开它的那一层（字母、#+= 或手写），不一定是字母键盘。
         Button back = buttons.create("‹", "关闭符号面板", listener::close, true);
-        back.setLayoutParams(new LinearLayout.LayoutParams(KeyboardGeometry.pixels(getContext(), 56), KeyboardGeometry.pixels(getContext(), 42)));
+        back.setLayoutParams(KeyboardGeometry.linearParams(getContext(), 56, 42));
         title.addView(back);
         TextView heading = new TextView(context);
         heading.setText("符号");
         KeyboardGeometry.setKeyTextSize(heading, 17);
         heading.setGravity(Gravity.CENTER);
-        title.addView(heading, new LinearLayout.LayoutParams(0, KeyboardGeometry.pixels(getContext(), 42), 1));
+        title.addView(heading, KeyboardGeometry.weightedHeightParams(getContext(), 42, 1));
         Button delete = buttons.create("⌫", "删除", listener::delete, true);
-        delete.setLayoutParams(new LinearLayout.LayoutParams(KeyboardGeometry.pixels(getContext(), 56), KeyboardGeometry.pixels(getContext(), 42)));
+        delete.setLayoutParams(KeyboardGeometry.linearParams(getContext(), 56, 42));
         title.addView(delete);
-        addView(title, new LinearLayout.LayoutParams(
-            LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT));
+        addView(title, KeyboardGeometry.matchWidthWrapParams());
 
         LinearLayout body = new LinearLayout(context);
         body.setOrientation(HORIZONTAL);
@@ -93,11 +92,11 @@ public final class SymbolPanelView extends LinearLayout {
         LinearLayout bottom = new LinearLayout(context);
         bottom.setOrientation(HORIZONTAL);
         Button bottomBack = buttons.create("返回", "返回键盘", listener::close, true);
-        bottom.addView(bottomBack, new LinearLayout.LayoutParams(0, KeyboardGeometry.pixels(getContext(), 48), 1));
+        bottom.addView(bottomBack, KeyboardGeometry.weightedHeightParams(getContext(), 48, 1));
         lockButton = buttons.create("锁定", "连续输入符号", this::toggleLock, true);
-        bottom.addView(lockButton, new LinearLayout.LayoutParams(0, KeyboardGeometry.pixels(getContext(), 48), 1));
+        bottom.addView(lockButton, KeyboardGeometry.weightedHeightParams(getContext(), 48, 1));
         Button bottomDelete = buttons.create("⌫", "删除", listener::delete, true);
-        bottom.addView(bottomDelete, new LinearLayout.LayoutParams(0, KeyboardGeometry.pixels(getContext(), 48), 1));
+        bottom.addView(bottomDelete, KeyboardGeometry.weightedHeightParams(getContext(), 48, 1));
         addView(bottom, new LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, KeyboardGeometry.pixels(getContext(), 48)));
 
         List<SymbolPanelModel.Category> values = SymbolPanelModel.categories();
@@ -130,7 +129,7 @@ public final class SymbolPanelView extends LinearLayout {
         grid.removeAllViews();
         List<String> symbols = values.get(category).symbols();
         for (int start = 0; start < symbols.size(); start += SymbolPanelModel.COLUMNS) {
-            int end = Math.min(start + SymbolPanelModel.COLUMNS, symbols.size());
+            int end = BoundsPolicy.atMost(start + SymbolPanelModel.COLUMNS, symbols.size());
             for (int index = start; index < end; index++) {
                 String symbol = symbols.get(index);
                 Button button = buttons.create(symbol, "符号 " + symbol,

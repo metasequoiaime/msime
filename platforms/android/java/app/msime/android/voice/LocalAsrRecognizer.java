@@ -204,7 +204,8 @@ public final class LocalAsrRecognizer {
         try {
             recorder = new AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION,
                 WavAudio.SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO,
-                AudioFormat.ENCODING_PCM_16BIT, Math.max(minimum, WavAudio.SAMPLE_RATE * 2));
+                AudioFormat.ENCODING_PCM_16BIT,
+                BoundsPolicy.atLeast(WavAudio.SAMPLE_RATE * 2, minimum));
         } catch (IllegalArgumentException | SecurityException error) {
             throw new Refused(Failure.PERMISSION);
         }

@@ -44,7 +44,7 @@ final class ImeFunctionPanel {
         card.setText(navigates ? label + "  ›" : label);
         KeyboardGeometry.setKeyTextSize(card, 14);
         card.setGravity(navigates ? Gravity.CENTER_VERTICAL | Gravity.START : Gravity.CENTER);
-        card.setPadding(s.pixels(12), s.pixels(5), s.pixels(12), s.pixels(5));
+        KeyboardGeometry.setPaddingDp(card, s, 12, 5, 12, 5);
         card.setContentDescription(title);
         card.setSelected(active);
         card.setEnabled(enabled);
@@ -299,12 +299,11 @@ final class ImeFunctionPanel {
         second.setMarginStart(s.pixels(MoreToolsLayout.CARD_SPACING_DP));
         segments.addView(reply, first);
         segments.addView(polish, second);
-        s.moreToolsPanel.addView(segments, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        s.moreToolsPanel.addView(segments, KeyboardGeometry.matchWidthWrapParams());
         TextView hint = new TextView(s);
         hint.setText("回复：粘贴对方的话，生成几种语气的回复。润色：先选中要改的文字。");
         KeyboardGeometry.setKeyTextSize(hint, 12);
-        hint.setPadding(s.pixels(4), s.pixels(10), s.pixels(4), 0);
+        KeyboardGeometry.setPaddingDp(hint, s, 4, 10, 4, 0);
         s.moreToolsPanel.addView(hint);
     }
 

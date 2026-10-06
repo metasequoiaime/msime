@@ -16,6 +16,11 @@ import org.json.JSONObject;
  * <p>指标的口径全部在 Rust（`crates/client-core/src/typing_statistics/metrics.rs`），这里只解析和排版。Rust 给 null 的字段在这里仍是 null（样本不足、没有活跃时间），页面把它们显示成「—」，不当成 0。纯 Java：不引用 androidx、R 或 `home/`，排版规则可以在主机 JVM 上冒烟。
  */
 public final class TypingStatisticsSummary {
+    /** 一天按小时统计的固定桶数。 */
+    public static final int HOURS_PER_DAY = 24;
+    /** 选词位置分布的固定桶数：前三个候选与翻页后的候选。 */
+    public static final int POSITION_BUCKETS = 4;
+
     /** 一天和这天的字数。 */
     public record DayCount(String day, long count) {}
 
@@ -198,8 +203,8 @@ public final class TypingStatisticsSummary {
     /** 高峰时段：`晚上 9–11 点`；没有时返回 null。 */
     public static String peakLabel(PeakWindow window) {
         if (window == null) return null;
-        int start = Math.floorMod(window.start(), 24);
-        int end = Math.floorMod(window.end(), 24);
+        int start = Math.floorMod(window.start(), HOURS_PER_DAY);
+        int end = Math.floorMod(window.end(), HOURS_PER_DAY);
         return period(start) + " " + clock(start) + "–" + clock(end) + " 点";
     }
 
@@ -368,17 +373,17 @@ public final class TypingStatisticsSummary {
     }
 
     private static List<Long> hours(JSONArray array) {
-        List<Long> result = new ArrayList<>(24);
-        for (int hour = 0; hour < 24; hour++) {
+        List<Long> result = new ArrayList<>(HOURS_PER_DAY);
+        for (int hour = 0; hour < HOURS_PER_DAY; hour++) {
             result.add(array == null || hour >= array.length() ? 0L : count(array.opt(hour)));
         }
         return List.copyOf(result);
     }
 
     private static List<Double> positions(JSONArray array) {
-        if (array == null || array.length() != 4) return null;
-        List<Double> result = new ArrayList<>(4);
-        for (int index = 0; index < 4; index++) {
+        if (array == null || array.length() != POSITION_BUCKETS) return null;
+        List<Double> result = new ArrayList<>(POSITION_BUCKETS);
+        for (int index = 0; index < POSITION_BUCKETS; index++) {
             Object value = array.opt(index);
             result.add(value instanceof Number number ? number.doubleValue() : 0d);
         }
