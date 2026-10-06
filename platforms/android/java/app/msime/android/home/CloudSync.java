@@ -11,6 +11,7 @@ import app.msime.android.CommonPhrasesStore;
 import app.msime.android.CustomSkinLibrary;
 import app.msime.android.DictionaryCollectionsStore;
 import app.msime.android.DictionarySnapshotQueue;
+import app.msime.android.DigestPolicy;
 import app.msime.android.KeyboardFeedbackPreferences;
 import app.msime.android.KeyboardFeedbackStore;
 import app.msime.android.NativeClient;

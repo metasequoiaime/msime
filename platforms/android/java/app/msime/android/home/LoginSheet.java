@@ -34,8 +34,8 @@ import androidx.core.widget.NestedScrollView;
 import app.msime.android.BackendAccount;
 import app.msime.android.BoundsPolicy;
 import app.msime.android.CloudApi;
+import app.msime.android.KeyboardGeometry;
 import app.msime.android.ViewPolicy;
-import app.msime.android.keyboard.KeyboardGeometry;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
 import java.util.function.Consumer;
 

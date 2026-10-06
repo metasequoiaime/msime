@@ -152,6 +152,11 @@ public final class ViewPolicy {
         view.setGravity(Gravity.CENTER_HORIZONTAL);
     }
 
+    /** Center a text view's content along the horizontal axis. */
+    public static void setCenteredHorizontally(TextView view) {
+        view.setGravity(Gravity.CENTER_HORIZONTAL);
+    }
+
     /** Align a view's content to the start edge and center it vertically. */
     public static void setStartCenteredVertically(LinearLayout view) {
         view.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);

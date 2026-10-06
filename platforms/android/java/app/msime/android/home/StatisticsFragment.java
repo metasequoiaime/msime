@@ -178,7 +178,7 @@ public final class StatisticsFragment extends HomeTabFragment {
             if (value == null || !value.has("count")) return null;
             Long count = DictionaryCollectionsStore.strictLong(value.opt("count"));
             return count == null ? null : BoundsPolicy.nonNegative(count);
-        } catch (JSONException | RuntimeException | LinkageError error) { (refactor(android): reuse runtime options reader)
+        } catch (JSONException | RuntimeException | LinkageError error) {
             return null;
         }
     }
