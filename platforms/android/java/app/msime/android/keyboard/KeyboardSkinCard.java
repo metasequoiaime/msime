@@ -26,6 +26,10 @@ public final class KeyboardSkinCard extends KeyboardPressButton {
     private final TextPaint paint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
     private final RectF tile = new RectF();
     private final RectF outline = new RectF();
+    private String fittedTitle;
+    private float fittedTitleWidth = Float.NaN;
+    private float fittedTitleSize = Float.NaN;
+    private boolean fittedTitleBold;
     private boolean themed;
     private int accentColor;
     private int hairlineColor;
@@ -99,9 +103,17 @@ public final class KeyboardSkinCard extends KeyboardPressButton {
         paint.setTypeface(selected ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
         paint.setTextAlign(Paint.Align.CENTER);
         // 皮肤名放不下时以「…」结尾，不悄悄丢掉末尾的字。
-        String text = TextUtils.ellipsize(title == null ? "" : title, paint, getWidth(),
-            TextUtils.TruncateAt.END).toString();
-        canvas.drawText(text, getWidth() / 2f, tile.bottom + ring + LABEL_GAP_DP * density
+        boolean bold = selected;
+        float width = getWidth();
+        if (fittedTitle == null || fittedTitleWidth != width || fittedTitleSize != labelSize
+                || fittedTitleBold != bold) {
+            fittedTitle = TextUtils.ellipsize(title == null ? "" : title, paint, width,
+                TextUtils.TruncateAt.END).toString();
+            fittedTitleWidth = width;
+            fittedTitleSize = labelSize;
+            fittedTitleBold = bold;
+        }
+        canvas.drawText(fittedTitle, getWidth() / 2f, tile.bottom + ring + LABEL_GAP_DP * density
             - metrics.ascent, paint);
     }
 }
