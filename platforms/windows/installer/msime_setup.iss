@@ -762,17 +762,22 @@ begin
     Result := UserConfigExistedBeforeInstall;
 end;
 
-{ 只在本次安装刚生成 config.toml 时写入，且只改 [general] 段里的这一个键。模板里是 false，用户勾选时改成 true。找不到就什么都不做——这一步失败不应该让安装失败。}
+{ 只在全新安装（本次安装刚生成 config.toml）时记录。运行中的宿主只读共享偏好，不读 config.toml，所以选择写进数据目录的 installer-choices.json，由 Server 首次准备状态后写进共享偏好并删掉它（platforms/windows/src/system/FirstRun.h 的 take_installer_cloud_choice）。config.toml 里 [general] 的同一个键也跟着改，免得模板与实际选择对不上。写不进去就算了——这一步失败不应该让安装失败，偏好保持默认关闭。}
 procedure ApplyNetworkChoiceToUserConfig;
 var
   Lines: TArrayOfString;
   Index: Integer;
   Trimmed: String;
   InGeneral: Boolean;
+  Choice: String;
 begin
   if UserConfigExistedBeforeInstall or (NetworkPage = nil) then
     Exit;
-  if not NetworkPage.Values[CloudCandidatesIndex] then
+  Choice := 'false';
+  if NetworkPage.Values[CloudCandidatesIndex] then
+    Choice := 'true';
+  SaveStringToFile(AddBackslash(GetDataDir('')) + 'installer-choices.json', '{"cloud_candidates": ' + Choice + '}', False);
+  if Choice = 'false' then
     Exit;
   if not LoadStringsFromFile(UserConfigPath, Lines) then
     Exit;
