@@ -2206,8 +2206,10 @@ public final class MSIMEInputService extends InputMethodService {
         boolean account = candidateTranslationAccount && candidateTranslationStore != null;
         JSONArray translations = new JSONArray();
         for (String text : texts) {
-            java.util.HashMap<String, String> offlineRows = new java.util.HashMap<>();
-            java.util.HashMap<String, String> accountRows = new java.util.HashMap<>();
+            java.util.HashMap<String, String> offlineRows =
+                new java.util.HashMap<>(candidateTranslationTargets.size());
+            java.util.HashMap<String, String> accountRows =
+                new java.util.HashMap<>(candidateTranslationTargets.size());
             for (String target : candidateTranslationTargets) {
                 java.util.Map<String, String> glosses = offline.get(target);
                 if (glosses != null && glosses.containsKey(text)) offlineRows.put(target, glosses.get(text));
