@@ -297,9 +297,9 @@ final class ImeLayoutRows {
         dismissNineKeyHoldOptions();
         LinearLayout container = new LinearLayout(s);
         container.setOrientation(LinearLayout.HORIZONTAL);
-        s.imeStyler.adjustNineKeyBlockHeight(container);
+        s.imeStyler.adjustThreeRowBlockHeight(container);
         s.keyRows.addView(container, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, s.pixels(KeyboardGeometry.NINE_KEY_ROW_HEIGHT_DP * 3)));
+            LinearLayout.LayoutParams.MATCH_PARENT, s.pixels(KeyboardGeometry.KEY_ROW_HEIGHT_DP * 3)));
 
         LinearLayout punctuation = new LinearLayout(s);
         punctuation.setOrientation(LinearLayout.VERTICAL);
@@ -400,9 +400,9 @@ final class ImeLayoutRows {
         dismissNineKeyHoldOptions();
         LinearLayout container = new LinearLayout(s);
         container.setOrientation(LinearLayout.HORIZONTAL);
-        s.imeStyler.adjustNineKeyBlockHeight(container);
+        s.imeStyler.adjustThreeRowBlockHeight(container);
         s.keyRows.addView(container, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, s.pixels(KeyboardGeometry.NINE_KEY_ROW_HEIGHT_DP * 3)));
+            LinearLayout.LayoutParams.MATCH_PARENT, s.pixels(KeyboardGeometry.KEY_ROW_HEIGHT_DP * 3)));
 
         LinearLayout punctuation = new LinearLayout(s);
         punctuation.setOrientation(LinearLayout.VERTICAL);
@@ -434,6 +434,8 @@ final class ImeLayoutRows {
                 Button keyButton = s.keyboardKey(StrokeKeyboardLayout.face(key),
                     StrokeKeyboardLayout.accessibilityLabel(key), () -> strokeKey(key));
                 keyButton.setContentDescription(StrokeKeyboardLayout.accessibilityLabel(key));
+                // 笔画本身的墨迹很细（一、丨、丶），按普通键面字号排只剩一道短线，字形放大，下面的名称仍是一半大小。
+                keyButton.setTextSize(TypedValue.COMPLEX_UNIT_SP, 26);
                 twoLineFace(keyButton, StrokeKeyboardLayout.face(key));
                 if (keyButton instanceof KeyboardPressButton press)
                     press.setKeyboardRole(KeyboardKeyRole.KEY);
@@ -465,8 +467,13 @@ final class ImeLayoutRows {
         Button delete = s.keyId(s.keyboardKey("⌫", "删除", deleteAction), "Backspace");
         s.imeLetterRows.bindBackspaceRepeat(delete, deleteAction);
         if (delete instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
-        actions.addView(delete, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, 0, 2));
+        addNineKey(actions, delete);
+        // 右列和拼音九键一样三等分（⌫、拆分、！）、与三行网格逐行对齐；原来 ⌫ 独占两行，看起来像别的键盘拼进来的。笔画不需要拆分，中间这格是「重输」：丢掉已打的整串笔画。
+        Button rewrite = s.keyboardKey("重输", "重新输入笔画", () -> {
+            if (s.hasEngineComposition()) s.discardComposition();
+        });
+        if (rewrite instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
+        addNineKey(actions, rewrite);
         String last = symbols.get(symbols.size() - 1);
         Button exclamation = s.keyId(s.keyboardKey(last, "符号 " + last,
             () -> commitNineKeyLiteral(last)), "SoftPunctuation");
@@ -691,9 +698,9 @@ final class ImeLayoutRows {
         LinearLayout container = new LinearLayout(s);
         container.setOrientation(LinearLayout.HORIZONTAL);
         // 日语九键没有底栏，四行（あ行到わ行加 小゛゜ 那一行）都在这一块里：按三行算高度时每行只剩三十来 dp，假名被裁掉下半截，底栏的位置又空着。
-        s.imeStyler.adjustNineKeyBottomBlockHeight(container);
+        s.imeStyler.adjustBottomRowBlockHeight(container);
         s.keyRows.addView(container, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, s.pixels(KeyboardGeometry.NINE_KEY_ROW_HEIGHT_DP * 3 + KeyboardGeometry.STANDARD_ROW_HEIGHT_DP)));
+            LinearLayout.LayoutParams.MATCH_PARENT, s.pixels(KeyboardGeometry.KEY_ROW_HEIGHT_DP * 3 + KeyboardGeometry.STANDARD_ROW_HEIGHT_DP)));
 
         LinearLayout modeColumn = new LinearLayout(s);
         modeColumn.setOrientation(LinearLayout.VERTICAL);

@@ -321,7 +321,7 @@ final class ImeLetterRows {
             s.imeStyler.adjustThreeRowBlockHeight(block);
             s.keyRows.addView(block, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                s.pixels(KeyboardGeometry.STANDARD_ROW_HEIGHT_DP * 3)));
+                s.pixels(KeyboardGeometry.KEY_ROW_HEIGHT_DP * 3)));
         }
         for (int rowIndex = 0; rowIndex < rows.size(); rowIndex++) {
             java.util.List<String> keys = rows.get(rowIndex);
@@ -330,7 +330,7 @@ final class ImeLetterRows {
                 block.addView(row, new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
             } else {
-                row.setTag(new MSIMEInputService.KeyboardHeightRole(KeyboardGeometry.STANDARD_ROW_HEIGHT_DP,
+                row.setTag(new MSIMEInputService.KeyboardHeightRole(KeyboardGeometry.KEY_ROW_HEIGHT_DP,
                     rows.size(), rowIndex, true));
                 s.keyRows.addView(row, new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
@@ -457,7 +457,7 @@ final class ImeLetterRows {
             if (rowIndex == rows.size() - 1) {
                 s.imeStyler.adjustFixedHeight(row, KeyboardGeometry.STANDARD_ROW_HEIGHT_DP);
             } else {
-                row.setTag(new MSIMEInputService.KeyboardHeightRole(KeyboardGeometry.STANDARD_ROW_HEIGHT_DP,
+                row.setTag(new MSIMEInputService.KeyboardHeightRole(KeyboardGeometry.KEY_ROW_HEIGHT_DP,
                     rows.size() - 1, rowIndex, true));
             }
             s.keyRows.addView(row, new LinearLayout.LayoutParams(

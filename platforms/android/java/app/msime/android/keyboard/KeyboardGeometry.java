@@ -9,9 +9,10 @@ public final class KeyboardGeometry {
     public static final int DEFAULT_HEIGHT_ADJUSTMENT_DP = 0;
     public static final int MIN_HEIGHT_ADJUSTMENT_DP = -12;
     public static final int MAX_HEIGHT_ADJUSTMENT_DP = 48;
+    /** 底栏（123、中/英、空格、换行那一行）的高度，也是高度百分比换算的那个 46 dp 设计键高。 */
     public static final int STANDARD_ROW_HEIGHT_DP = 46;
-    /** 九键这一族（全拼九键、笔画、日语九键、注音九键）的键行高：九宫格的键比 26 键宽两倍多，按 46 dp 排看起来太扁，这一族统一加高，彼此切换时键盘不跳。 */
-    public static final int NINE_KEY_ROW_HEIGHT_DP = 56;
+    /** 所有布局的键行高（26 键字母行、九键网格、笔画、手写区、大千四行整块……）：按 46 dp 排九宫格的键像横条，所有布局一起加到 56 dp，彼此切换时键盘总高不变。底栏仍是 {@link #STANDARD_ROW_HEIGHT_DP}。 */
+    public static final int KEY_ROW_HEIGHT_DP = 56;
     /** Fixed candidate/shortcut row; swapping its contents must not move the key rows. */
     public static final int CANDIDATE_ROW_HEIGHT_DP = 48;
     public static final int NINE_KEY_HEIGHT_DP = 180;
