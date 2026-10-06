@@ -8,7 +8,7 @@ use super::linux_dictionary_quiesce::{self, HoldError};
 use crate::linux_process;
 use crate::{HostActionError, RuntimeOptionsState};
 use serde_json::Value;
-use std::collections::BTreeSet;
+use std::collections::HashSet;
 use std::ffi::OsString;
 use std::fs;
 use std::io::{self, Read, Write};
@@ -320,7 +320,7 @@ pub(crate) fn plan_move(
         return Err(MoveError::TargetNotEmpty);
     }
 
-    let mut unique = BTreeSet::new();
+    let mut unique = HashSet::with_capacity(locators.len());
     let mut rewrites = Vec::with_capacity(locators.len());
     for locator in locators {
         if unique.insert(fs::canonicalize(locator).unwrap_or_else(|_| locator.clone())) {
