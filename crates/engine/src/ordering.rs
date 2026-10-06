@@ -191,7 +191,10 @@ pub fn runner_up_order(scheme: u8, rows: &[OrderRow<'_>]) -> Option<Vec<usize>> 
     let (kept, demoted) = readings.split_at(keep.min(readings.len()));
     let mut order = Vec::with_capacity(count);
     for index in 0..count {
-        if index != kept[0] && readings.contains(&index) {
+        if index != kept[0]
+            && rows[index].source == LATTICE_SOURCE
+            && rows[index].text.chars().count() == width
+        {
             continue;
         }
         order.push(index);
