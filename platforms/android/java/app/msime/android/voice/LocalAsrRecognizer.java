@@ -204,7 +204,8 @@ public final class LocalAsrRecognizer {
         try {
             recorder = new AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION,
                 WavAudio.SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO,
-                AudioFormat.ENCODING_PCM_16BIT, Math.max(minimum, WavAudio.SAMPLE_RATE * 2));
+                AudioFormat.ENCODING_PCM_16BIT,
+                BoundsPolicy.atLeast(WavAudio.SAMPLE_RATE * 2, minimum));
         } catch (IllegalArgumentException | SecurityException error) {
             throw new Refused(Failure.PERMISSION);
         }
@@ -292,7 +293,9 @@ public final class LocalAsrRecognizer {
                 .put("options", new JSONObject(hostOptions))
                 .put("limit", LocalAsrPolicy.HOTWORD_LIMIT);
             JSONObject response = new JSONObject(NativeClient.voiceHotwords(request.toString()));
-            if (!response.optBoolean("ok", false)) return new JSONArray();
+            if (!Boolean.TRUE.equals(LocalAsrPolicy.strictBoolean(response.opt("ok")))) {
+                return new JSONArray();
+            }
             JSONObject value = response.optJSONObject("value");
             JSONArray words = value == null ? null : value.optJSONArray("hotwords");
             return words == null ? new JSONArray() : words;
@@ -330,7 +333,8 @@ public final class LocalAsrRecognizer {
         try {
             JSONObject request = new JSONObject().put("text", text).put("hotwords", hotwords);
             JSONObject response = new JSONObject(NativeClient.voiceHotwordCorrect(request.toString()));
-            JSONObject value = response.optBoolean("ok", false) ? response.optJSONObject("value") : null;
+            JSONObject value = Boolean.TRUE.equals(LocalAsrPolicy.strictBoolean(response.opt("ok")))
+                ? response.optJSONObject("value") : null;
             if (value == null || value.isNull("text")) return text;
             String corrected = LocalAsrPolicy.strictText(value.opt("text"));
             return corrected == null ? text : corrected;

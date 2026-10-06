@@ -5,6 +5,7 @@
 //! Writers serialize on `mentions.lock` and replace the document with an atomic rename, so an input process can read it at any moment without a lock and see either the old list or the new one.
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -148,9 +149,10 @@ fn check(entries: &[MentionEntry]) -> Result<(), String> {
     if entries.len() > MAX_ENTRIES {
         return Err("名单里的条目太多".into());
     }
-    for (index, entry) in entries.iter().enumerate() {
+    let mut texts = HashSet::with_capacity(entries.len());
+    for entry in entries {
         validate_entry(entry)?;
-        if entries[..index].iter().any(|kept| kept.text == entry.text) {
+        if !texts.insert(entry.text.as_str()) {
             return Err(format!("「{}」重复了", entry.text));
         }
     }

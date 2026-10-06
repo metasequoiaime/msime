@@ -2,12 +2,12 @@ package app.msime.android.home;
 
 import android.os.Bundle;
 import android.text.InputType;
-import android.view.Gravity;
 import android.view.ViewGroup;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import androidx.annotation.Nullable;
 import app.msime.android.CommonPhrasesStore;
+import app.msime.android.ViewPolicy;
 
 /**
  * 常用语页（设置和「我的」都进这一页）：一组常用语，每条行尾一个「删除」，下面一组「添加常用语」。
@@ -85,7 +85,7 @@ public final class PhrasesPage extends DetailPage {
         field.setSingleLine(false);
         field.setMinLines(3);
         field.setMaxLines(6);
-        field.setGravity(Gravity.TOP | Gravity.START);
+        ViewPolicy.setTopStart(field);
         int padding = Ui.dp(requireContext(), 10);
         field.setPadding(Ui.dp(requireContext(), 12), padding, Ui.dp(requireContext(), 12), padding);
         ViewGroup.LayoutParams params = field.getLayoutParams();

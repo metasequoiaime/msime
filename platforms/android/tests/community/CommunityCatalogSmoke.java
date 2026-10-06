@@ -63,6 +63,27 @@ public final class CommunityCatalogSmoke {
             CommunityRequest.Category.OTHER, false, 0, null);
         check(!(boolean) validItem.invoke(null, malformed, CommunityRequest.Kind.SKIN),
             "malformed community items must be rejected");
+        CommunityCatalog.Item nilId = new CommunityCatalog.Item(
+            "00000000-0000-0000-0000-000000000000", CommunityRequest.Kind.SKIN, "名称", "说明", "作者",
+            0, 0, 0, null, CommunityRequest.Category.OTHER, false, 0, null);
+        check(!(boolean) validItem.invoke(null, nilId, CommunityRequest.Kind.SKIN),
+            "nil community item IDs must be rejected");
+        Method validUuid = CommunityCatalog.class.getDeclaredMethod("validUuid", String.class);
+        validUuid.setAccessible(true);
+        check(!(boolean) validUuid.invoke(null, "00000000-0000-0000-0000-000000000000"),
+            "nil UUIDs must not be accepted as community item IDs");
+        Method validReportItem = CommunityCatalog.class.getDeclaredMethod(
+            "validReportItem", CommunityCatalog.Item.class);
+        validReportItem.setAccessible(true);
+        check(!(boolean) validReportItem.invoke(null, nilId),
+            "reporting must reject an item with a nil ID even when bypassing catalogue parsing");
+        Method validDownloadItem = CommunityCatalog.class.getDeclaredMethod(
+            "validDownloadItem", CommunityCatalog.Item.class);
+        validDownloadItem.setAccessible(true);
+        check(!(boolean) validDownloadItem.invoke(null, malformed),
+            "download counting must reject an item with an unsafe ID");
+        check(!(boolean) validDownloadItem.invoke(null, nilId),
+            "download counting must reject an item with a nil ID");
         CommunityCatalog.Item invalidRating = new CommunityCatalog.Item(
             UUID.randomUUID().toString(), CommunityRequest.Kind.SKIN, "名称", "说明", "作者",
             0, 0, 1, null, CommunityRequest.Category.OTHER, false, 0, null);
@@ -96,6 +117,20 @@ public final class CommunityCatalogSmoke {
             "community boolean fields accept booleans");
         check(strictBoolean.invoke(null, "true") == null,
             "community boolean fields reject strings instead of coercing them");
+        Method pageFlag = CommunityCatalog.class.getDeclaredMethod("pageHasMore", Object.class);
+        pageFlag.setAccessible(true);
+        check(Boolean.TRUE.equals(pageFlag.invoke(null, Boolean.TRUE)),
+            "community pagination accepts JSON booleans");
+        check(Boolean.FALSE.equals(pageFlag.invoke(null, "true")),
+            "community pagination rejects strings instead of coercing them");
+        Method confirmedReport = CommunityCatalog.class.getDeclaredMethod("confirmedReport", Object.class);
+        confirmedReport.setAccessible(true);
+        check((boolean) confirmedReport.invoke(null, Boolean.TRUE),
+            "a report is successful only when the backend confirms it");
+        check(!(boolean) confirmedReport.invoke(null, Boolean.FALSE),
+            "a backend refusal must not be reported as a successful report");
+        check(!(boolean) confirmedReport.invoke(null, "true"),
+            "a string reported value must not be coerced into success");
         Method countNumber = CommunityCatalog.class.getDeclaredMethod("countNumber", Object.class);
         countNumber.setAccessible(true);
         check(Long.valueOf(9_007_199_254_740_991L).equals(

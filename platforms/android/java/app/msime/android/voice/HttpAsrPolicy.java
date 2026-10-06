@@ -22,6 +22,8 @@ public final class HttpAsrPolicy {
     };
     /** Anything beyond this is a runaway recording rather than a sentence. */
     public static final int MAX_AUDIO_BYTES = 24 * 1024 * 1024;
+    /** A provider response must fit the same transcript bound used by contribution uploads. */
+    public static final int MAX_TRANSCRIPT = 2000;
 
     private HttpAsrPolicy() {}
 
@@ -35,7 +37,8 @@ public final class HttpAsrPolicy {
 
     /** A transcription response carries text; reject non-string JSON values before display. */
     static String strictText(Object value) {
-        return AiProviderResponse.strictText(value);
+        String text = AiProviderResponse.strictText(value);
+        return text.codePointCount(0, text.length()) <= MAX_TRANSCRIPT ? text : "";
     }
 
     /**
@@ -47,7 +50,7 @@ public final class HttpAsrPolicy {
      */
     public static boolean usable(String provider, String endpoint, String model, String token) {
         return supported(provider)
-            && TextPolicy.validAuthority(endpoint, "https://", 2048)
+            && TextPolicy.validAuthority(endpoint, "https://", AiPolishConfiguration.MAX_ENDPOINT_LENGTH)
             && model != null && !model.trim().isEmpty() && model.length() <= 512
             && !TextPolicy.hasControl(model)
             && token != null && !token.trim().isEmpty() && token.length() <= 16 * 1024
@@ -77,7 +80,7 @@ public final class HttpAsrPolicy {
     public static byte[] multipartBody(String boundary, String model, String language, byte[] wav) {
         String trimmed = language == null ? "" : language.trim();
         StringBuilder head = new StringBuilder(128 + boundary.length()
-            + textLength(model) + trimmed.length());
+            + VoiceTextPolicy.length(model) + trimmed.length());
         appendField(head, boundary, "model", model);
         if (!trimmed.isEmpty()) appendField(head, boundary, "language", isoLanguage(trimmed));
         head.append("--").append(boundary).append("\r\n")
@@ -114,10 +117,6 @@ public final class HttpAsrPolicy {
         body.append("--").append(boundary).append("\r\n")
             .append("Content-Disposition: form-data; name=\"").append(name).append("\"\r\n\r\n")
             .append(value).append("\r\n");
-    }
-
-    private static int textLength(String value) {
-        return value == null ? 4 : value.length();
     }
 
 }

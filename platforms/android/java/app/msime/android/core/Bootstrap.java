@@ -43,7 +43,10 @@ public final class Bootstrap {
             AppEdition edition = AppEdition.current();
             if (!edition.isFull()) request.put("edition", edition.id());
             JSONObject result = new JSONObject(NativeClient.prepareHost(request.toString()));
-            if (!result.getBoolean("ok")) throw new IllegalStateException("Shared resource verification/preparation failed: " + result.optString("error"));
+            if (!Boolean.TRUE.equals(result.opt("ok"))) {
+                throw new IllegalStateException("Shared resource verification/preparation failed: "
+                    + result.optString("error"));
+            }
             AtomicFile destination = new AtomicFile(configuration);
             FileOutputStream output = null;
             try {
@@ -276,7 +279,7 @@ public final class Bootstrap {
     /** 刷新一次配置；成功时返回 `null`，失败时记日志并返回共享层的错误文本。 */
     private static String refreshHost(File configuration) throws Exception {
         JSONObject result = new JSONObject(NativeClient.refreshHost(configuration.getAbsolutePath()));
-        if (result.optBoolean("ok")) return null;
+        if (Boolean.TRUE.equals(result.opt("ok"))) return null;
         String error = result.optString("error");
         android.util.Log.w("MSIMEBootstrap", "Runtime options refresh failed: "
             + (error.startsWith("dictionary_outdated") ? "dictionary_outdated" : "error"));

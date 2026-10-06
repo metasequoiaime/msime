@@ -144,6 +144,12 @@ public final class FeedbackApi {
                 shot.contentType(), shot.bytes()));
         }
         JSONObject response = api.multipart(PATH, parts, CloudApi.Auth.ACCOUNT_OR_ANONYMOUS);
-        return response.optString("id", "");
+        String id = strictString(response.opt("id"));
+        return id == null ? "" : id;
+    }
+
+    /** org.json's optString coerces numbers; response identifiers must keep their JSON type. */
+    static String strictString(Object value) {
+        return value instanceof String ? (String) value : null;
     }
 }

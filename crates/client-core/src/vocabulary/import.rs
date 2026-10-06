@@ -12,6 +12,7 @@
 use super::wordbook::{self, Wordbook, WordbookEntry};
 use crate::dictionary::import::REPORTED_FAILURES;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use thiserror::Error;
 
 /// The most rows examined in one file, matching the dictionary importer's own ceiling.
@@ -130,7 +131,7 @@ pub fn parse(text: &str, max_bytes: usize) -> Result<WordbookImportReport, Wordb
         first_failures: Vec::with_capacity(REPORTED_FAILURES),
         ..WordbookImportReport::default()
     };
-    let mut seen = std::collections::BTreeSet::new();
+    let mut seen = HashSet::with_capacity(row_capacity);
     for (index, line) in text.lines().enumerate() {
         if report.entries.len() >= MAX_ROWS {
             report.truncated = true;

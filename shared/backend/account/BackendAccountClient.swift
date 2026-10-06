@@ -155,10 +155,12 @@ struct BackendAccountClient: Sendable {
   func providers() async throws -> [String: Bool] {
     struct Response: Decodable { let providers: [String: Bool] }
     let response: Response = try await json("GET", "/v1/auth/providers")
+    guard Self.validProviders(response.providers) else { throw Failure(status: 0) }
     return response.providers
   }
   func challenge(provider: String, target: String = "", linkToken: String? = nil) async throws -> Challenge {
     struct Body: Encodable { let provider: String; let target: String; let purpose: String }
+    guard Self.validProviderTarget(provider, target: target) else { throw Failure(status: 400) }
     let value: Challenge = try await json("POST", "/v1/auth/challenges", token: linkToken,
                                           body: JSONEncoder().encode(Body(provider: provider, target: target,
                                                                         purpose: linkToken == nil ? "login" : "link")))
@@ -170,12 +172,14 @@ struct BackendAccountClient: Sendable {
   }
   func login(challenge: String, credential: String, linkToken: String? = nil) async throws -> Tokens {
     struct Body: Encodable { let challenge_id: String; let credential: String }
+    guard Self.validLoginRequest(challenge: challenge, credential: credential) else { throw Failure(status: 400) }
     let tokens: Tokens = try await json("POST", "/v1/auth/login", token: linkToken,
       body: JSONEncoder().encode(Body(challenge_id: challenge, credential: credential)))
     return try validated(tokens)
   }
   func refresh(_ token: String) async throws -> Tokens {
     struct Body: Encodable { let refresh_token: String }
+    guard Self.validLowerHexToken(token) else { throw Failure(status: 400) }
     let tokens: Tokens = try await json("POST", "/v1/auth/refresh",
       body: JSONEncoder().encode(Body(refresh_token: token)))
     return try validated(tokens)
@@ -192,6 +196,7 @@ struct BackendAccountClient: Sendable {
   }
   func rename(_ name: String, token: String) async throws {
     struct Body: Encodable { let display_name: String }
+    guard Self.validDisplayName(name) else { throw Failure(status: 400) }
     _ = try await request("PATCH", "/v1/users/me", token: token,
                          body: JSONEncoder().encode(Body(display_name: name)))
   }
@@ -253,6 +258,7 @@ struct BackendAccountClient: Sendable {
 
   private func makeRequest(_ method: String, _ path: String, token: String?, body: Data?, timeout: TimeInterval = 30) throws -> URLRequest {
     guard path.hasPrefix("/v1/"), !path.contains("\\"),
+          !Self.containsDotSegment(path),
           let url = URL(string: path, relativeTo: origin)?.absoluteURL,
           url.scheme == "https", url.host == origin.host, url.port == nil,
           url.user == nil, url.password == nil, url.fragment == nil,
@@ -268,6 +274,11 @@ struct BackendAccountClient: Sendable {
     if body != nil { request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
     if let token { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
     return request
+  }
+
+  private static func containsDotSegment(_ path: String) -> Bool {
+    guard let decoded = path.removingPercentEncoding else { return true }
+    return decoded.split(separator: "/", omittingEmptySubsequences: false).contains { $0 == "." || $0 == ".." }
   }
 
   // Export directly to a private temporary file. Keep the ordinary JSON transport's
@@ -359,6 +370,57 @@ struct BackendAccountClient: Sendable {
       && user.display_name.unicodeScalars.count <= 64
       && !user.display_name.unicodeScalars.contains { $0.properties.generalCategory == .control }
       && validSingleLine(user.created_at, maximumBytes: 128)
+  }
+  private static func validProviders(_ providers: [String: Bool]) -> Bool {
+    providers.count <= 16 && providers.keys.allSatisfy { key in
+      !key.isEmpty && key.utf8.count <= 32
+        && key.utf8.allSatisfy { (97...122).contains($0) || $0 == 95 || $0 == 45 }
+    }
+  }
+  private static func validProviderTarget(_ provider: String, target: String) -> Bool {
+    switch provider {
+    case "apple":
+      return target.isEmpty
+    case "google":
+      let prefix = target.hasPrefix("http://127.0.0.1:") ? "http://127.0.0.1:" :
+        (target.hasPrefix("http://[::1]:") ? "http://[::1]:" : nil)
+      guard let prefix, target.hasSuffix("/callback") else { return false }
+      let portText = String(target.dropFirst(prefix.count).dropLast("/callback".count))
+      guard (1...5).contains(portText.utf8.count), !portText.hasPrefix("0"),
+        portText.utf8.allSatisfy({ (48...57).contains($0) }),
+        let port = Int(portText), (1024...65535).contains(port) else { return false }
+      return true
+    case "anonymous":
+      let prefix = "msime-"
+      guard target.hasPrefix(prefix), target.dropFirst(prefix.count).count == 16 else { return false }
+      return target.dropFirst(prefix.count).utf8.allSatisfy {
+        (97...122).contains($0) || (48...57).contains($0)
+      }
+    case "email", "phone":
+      return !target.isEmpty && target.utf8.count <= 320
+        && target == target.trimmingCharacters(in: .whitespacesAndNewlines)
+        && validSingleLine(target, maximumBytes: 320, empty: false)
+    default:
+      return false
+    }
+  }
+  private static func validLoginRequest(challenge: String, credential: String) -> Bool {
+    guard validSingleLine(challenge, maximumBytes: 256, empty: false) else { return false }
+    let sixDigitCode = credential.utf8.count == 6 && credential.utf8.allSatisfy { (48...57).contains($0) }
+    let appleToken = validSingleLine(credential, maximumBytes: 16 * 1024, empty: false)
+    let googleCode = credential.utf8.count <= 2048 && !credential.isEmpty
+      && credential.utf8.allSatisfy { (33...126).contains($0) }
+    return sixDigitCode || appleToken || googleCode
+  }
+  private static func validLowerHexToken(_ value: String) -> Bool {
+    value.utf8.count == 64 && value.utf8.allSatisfy {
+      (48...57).contains($0) || (97...102).contains($0)
+    }
+  }
+  private static func validDisplayName(_ value: String) -> Bool {
+    !value.isEmpty && value == value.trimmingCharacters(in: .whitespacesAndNewlines)
+      && value.unicodeScalars.count <= 64
+      && !value.unicodeScalars.contains { $0.properties.generalCategory == .control }
   }
   private static func validSingleLine(_ value: String, maximumBytes: Int, empty: Bool = true) -> Bool {
     (empty || !value.isEmpty) && value.utf8.count <= maximumBytes

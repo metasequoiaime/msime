@@ -706,6 +706,16 @@ struct TypingStatisticsStore {
   /// Whether the user has statistics on. The keyboard asks once per appearance so that, while they are off, it does not even keep key counts in memory.
   func isEnabled() throws -> Bool {
     let value = try call(["operation": "load"])
-    return (value as? [String: Any])?["enabled"] as? Bool ?? false
+    return try Self.strictEnabled(value)
+  }
+
+  /// The shared store always includes `enabled` in a load response. Reject a malformed
+  /// field instead of silently disabling collection and hiding a protocol mismatch.
+  static func strictEnabled(_ value: Any?) throws -> Bool {
+    guard let dictionary = value as? [String: Any],
+          let enabled = dictionary["enabled"] as? Bool else {
+      throw TypingStatisticsError.invalidResponse
+    }
+    return enabled
   }
 }

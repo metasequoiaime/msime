@@ -4,7 +4,7 @@ import java.util.List;
 public final class DictionaryCollectionsStoreSmoke {
     static void check(boolean condition) { if (!condition) throw new AssertionError(); }
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws Exception {
         check(DictionaryCollectionsStore.validName("工作"));
         check(DictionaryCollectionsStore.validName("字".repeat(32)));
         check(!DictionaryCollectionsStore.validName("字".repeat(33)));
@@ -35,6 +35,20 @@ public final class DictionaryCollectionsStoreSmoke {
         check(DictionaryCollectionsStore.formatForFile("a.dict.yaml", "txt").equals("rime"));
         check(DictionaryCollectionsStore.formatForFile("a.txt", "hans").equals("hans"));
         check(DictionaryCollectionsStore.binaryFormat("scel") && !DictionaryCollectionsStore.binaryFormat("txt"));
+        java.lang.reflect.Method strictBoolean = DictionaryCollectionsStore.class.getDeclaredMethod(
+            "strictBoolean", Object.class);
+        strictBoolean.setAccessible(true);
+        check(Boolean.TRUE.equals(strictBoolean.invoke(null, Boolean.TRUE)));
+        check(strictBoolean.invoke(null, "true") == null);
+        check(DictionaryCollectionsStore.strictString("synthetic") != null);
+        check(DictionaryCollectionsStore.strictString(7) == null);
+        check(DictionaryCollectionsStore.strictInteger(Integer.valueOf(7)) == 7);
+        check(DictionaryCollectionsStore.strictInteger("7") == null);
+        check(DictionaryCollectionsStore.strictLong(Long.valueOf(7)) == 7L);
+        check(DictionaryCollectionsStore.strictLong(7.0) == null);
+        check(DictionaryCollectionsStore.nonNegativeInteger(Integer.valueOf(7)) == 7);
+        check(DictionaryCollectionsStore.nonNegativeInteger(Integer.valueOf(-1)) == null);
+        check(DictionaryCollectionsStore.nonNegativeInteger(Double.valueOf(7.5)) == null);
 
         List<DictionaryCollectionsStore.ImportSource> sources = DictionaryCollectionsStore.importSources(
             List.of("txt", "standard", "windows", "hans", "rime"));

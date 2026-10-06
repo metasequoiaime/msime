@@ -117,7 +117,7 @@ public final class TypingStatisticsModel {
         LocalDate end = day(today);
         if (start == null || end == null || start.isAfter(end)) return 0;
         long span = end.toEpochDay() - start.toEpochDay() + 1;
-        return KeyboardGeometry.bounded((int) Math.min(MAX_TREND_DAYS, span), 1, MAX_TREND_DAYS);
+        return (int) BoundsPolicy.bounded(span, 1L, MAX_TREND_DAYS);
     }
 
     /**
@@ -134,7 +134,7 @@ public final class TypingStatisticsModel {
         if (end == null) return series;
         for (int index = 0; index < bounded; index++) {
             LocalDate date = end.minusDays(bounded - 1L - index);
-            series[index] = (int) Math.min(Integer.MAX_VALUE, count(date.toString()));
+            series[index] = (int) BoundsPolicy.bounded(count(date.toString()), 0L, Integer.MAX_VALUE);
         }
         return series;
     }

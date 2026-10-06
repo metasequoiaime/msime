@@ -98,8 +98,8 @@ public final class CommunityRequest {
 
     /** Copy at most {@code limit} catalogue entries for a bounded discovery section. */
     public static <T> List<T> limitedCopy(List<T> values, int limit) {
-        if (values == null || values.isEmpty() || limit <= 0) return new ArrayList<>(0);
-        return new ArrayList<>(values.subList(0, Math.min(limit, values.size())));
+        if (values == null || values.isEmpty() || limit <= 0) return List.of();
+        return new ArrayList<>(values.subList(0, BoundsPolicy.atMost(limit, values.size())));
     }
 
     /** 一个短语包最多 200 条。 */
@@ -117,22 +117,13 @@ public final class CommunityRequest {
     /** 一条短语：1–2000 个 UTF-16 单元，除换行和制表符外不含控制字符（签名之类需要换行）。 */
     public static boolean validPhraseText(String text) {
         if (text == null || text.isEmpty() || text.length() > MAX_PHRASE_UNITS) return false;
-        return !hasControl(text, true);
+        return !CommunityTextPolicy.hasDisallowedControl(text, true);
     }
 
     /** 分组名：可以为空，最多 32 个 UTF-16 单元，不含任何控制字符。 */
     public static boolean validPhraseGroup(String group) {
-        return group != null && group.length() <= MAX_PHRASE_GROUP_UNITS && !hasControl(group, false);
-    }
-
-    private static boolean hasControl(String text, boolean multiline) {
-        for (int index = 0; index < text.length();) {
-            int codePoint = text.codePointAt(index);
-            if (Character.isISOControl(codePoint)
-                    && !(multiline && (codePoint == '\n' || codePoint == '\t'))) return true;
-            index += Character.charCount(codePoint);
-        }
-        return false;
+        return group != null && group.length() <= MAX_PHRASE_GROUP_UNITS
+            && !CommunityTextPolicy.hasDisallowedControl(group, false);
     }
 
     /**

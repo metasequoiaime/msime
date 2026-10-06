@@ -54,6 +54,17 @@ final class BackendSkinArtworkTests: XCTestCase {
     } catch let error as BackendAccountClient.Failure { XCTAssertEqual(error.status, 502) }
     XCTAssertEqual(ArtworkProtocol.calls(), ["POST", "GET", "DELETE"])
   }
+  func testRejectsAnOversizedPromptBeforeCreatingAJob() async throws {
+    ArtworkProtocol.reset(failed: false)
+    let (api, account) = setup()
+    do {
+      _ = try await api.skinArtwork(prompt: String(repeating: "x", count: 501), account: account, userID: "artwork-test")
+      XCTFail("oversized artwork prompt accepted")
+    } catch let error as BackendAccountClient.Failure {
+      XCTAssertEqual(error.status, 400)
+    }
+    XCTAssertEqual(ArtworkProtocol.calls(), [])
+  }
   func testCancellationDeletesRunningJobEvenWhenParentTaskIsCancelled() async throws {
     try await checkCancellation(holdPoll: false)
   }

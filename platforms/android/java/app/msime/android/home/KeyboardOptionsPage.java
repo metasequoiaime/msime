@@ -3,7 +3,6 @@ package app.msime.android.home;
 import android.content.Context;
 import android.graphics.Color;
 import android.os.Bundle;
-import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.LinearLayout;
@@ -19,6 +18,7 @@ import app.msime.android.KeyboardSkin;
 import app.msime.android.SchemePreferences;
 import app.msime.android.SyncSignals;
 import app.msime.android.SyncSwitch;
+import app.msime.android.ViewPolicy;
 import org.json.JSONObject;
 
 /**
@@ -149,22 +149,18 @@ public final class KeyboardOptionsPage extends DetailPage {
     /** 工具栏预览：用当前皮肤的底色和图标色，按开关列出会出现的按钮；隐藏时说明只剩候选条。 */
     private static View toolbarPreview(Context context, JSONObject toolbar, AndroidLocalSettings.Snapshot settings,
                                        KeyboardSkin skin) {
-        LinearLayout strip = new LinearLayout(context);
-        strip.setOrientation(LinearLayout.HORIZONTAL);
-        strip.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout strip = Ui.row(context);
+        ViewPolicy.setCenteredVertically(strip);
         int pad = Ui.dp(context, 12);
-        strip.setPadding(pad, pad, pad, pad);
-        LinearLayout plate = new LinearLayout(context);
-        plate.setOrientation(LinearLayout.HORIZONTAL);
-        plate.setGravity(Gravity.CENTER_VERTICAL);
-        plate.setPadding(Ui.dp(context, 10), 0, Ui.dp(context, 10), 0);
+        Ui.setSymmetricPaddingPx(strip, pad);
+        LinearLayout plate = Ui.row(context);
+        ViewPolicy.setCenteredVertically(plate);
+        Ui.setHorizontalPaddingDp(plate, context, 10);
         plate.setBackground(Ui.rounded(Ui.parseColor(skin.background(), Ui.page(context)), Ui.dp(context, 12)));
         plate.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
         int icon = Ui.parseColor(skin.toolbarIcon(), Ui.subText(context));
         if (settings.bool(AndroidLocalSettings.TOOLBAR_HIDDEN)) {
-            TextView note = new TextView(context);
-            note.setText("工具栏已隐藏，只显示候选条");
-            Ui.style(note, 13, 400, icon);
+            TextView note = Ui.styledLabel(context, "工具栏已隐藏，只显示候选条", 13, 400, icon);
             plate.addView(note);
         } else {
             addChip(context, plate, "水杉", Ui.parseColor(skin.accentText(), Ui.accent(context)));
@@ -178,10 +174,8 @@ public final class KeyboardOptionsPage extends DetailPage {
     }
 
     private static void addChip(Context context, LinearLayout plate, String label, int colour) {
-        TextView chip = new TextView(context);
-        chip.setText(label);
+        TextView chip = Ui.styledLabel(context, label, 12, 500, colour);
         chip.setSingleLine(true);
-        Ui.style(chip, 12, 500, colour);
         LinearLayout.LayoutParams params = Ui.wrap();
         params.setMarginEnd(Ui.dp(context, 12));
         plate.addView(chip, params);

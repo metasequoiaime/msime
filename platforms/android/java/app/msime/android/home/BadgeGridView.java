@@ -21,6 +21,7 @@ import android.view.animation.LinearInterpolator;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import app.msime.android.ColorPolicy;
+import app.msime.android.ListPolicy;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.accessibility.AccessibilityNodeInfoCompat;
 import androidx.customview.widget.ExploreByTouchHelper;
@@ -107,7 +108,7 @@ public final class BadgeGridView extends View {
     /** 换一组徽章；第一次有内容时播放弹出动画。 */
     public void setBadges(List<Achievement> values) {
         boolean first = badges.isEmpty();
-        badges = values == null ? List.of() : List.copyOf(values);
+        badges = ListPolicy.copyOrEmpty(values);
         requestLayout();
         invalidate();
         nodes.invalidateRoot();

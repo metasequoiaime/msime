@@ -89,12 +89,19 @@ enum DoubaoHostFrameCodec {
           let value = envelope["value"] as? [String: Any]
     else { return (true, nil) }
     if value["error_code"] != nil { return (true, nil) }
-    let isFinal = value["last"] as? Bool ?? false
+    guard let isFinal = strictFinal(in: value) else { return (true, nil) }
     guard let payload = value["payload"] as? String,
           let payloadData = payload.data(using: .utf8),
           let body = try? JSONSerialization.jsonObject(with: payloadData) as? [String: Any]
     else { return (isFinal, nil) }
     return (isFinal, transcript(in: body))
+  }
+
+  /// The host protocol always includes a JSON boolean for frame completion. Treat a
+  /// missing or coerced value as a terminal malformed frame so callers do not wait
+  /// indefinitely for a final response that the peer already sent.
+  static func strictFinal(in value: [String: Any]) -> Bool? {
+    value["last"] as? Bool
   }
 
   /// `bigmodel_async` returns `result` as one object, while `bigmodel_nostream` documents it as a list of sentence segments; the Windows client reads both, and so does this.

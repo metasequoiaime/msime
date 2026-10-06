@@ -114,6 +114,11 @@ public final class LocalAsrPolicy {
         return value instanceof String ? (String) value : null;
     }
 
+    /** Native bridge response flags must remain JSON booleans; reject coercible strings. */
+    static Boolean strictBoolean(Object value) {
+        return value instanceof Boolean ? (Boolean) value : null;
+    }
+
     /**
      * Whether one `{text, pinyin}` hotword the shared layer resolved (the Tauri request's `hotwords`) may be carried to the recognizer.
      *

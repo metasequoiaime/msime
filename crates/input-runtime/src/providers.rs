@@ -804,7 +804,7 @@ impl UnixSocketProvider {
             let is_final = match kind {
                 "partial" | "interim" | "update" => false,
                 "final" | "done" | "commit" => true,
-                _ => value.get("final").and_then(Value::as_bool).unwrap_or(true),
+                _ => value.get("final").and_then(Value::as_bool)?,
             };
             if text.is_empty() && !is_final {
                 continue;

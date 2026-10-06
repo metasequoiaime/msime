@@ -302,6 +302,22 @@ fn doubao_frame_codec_is_available_through_c_abi() {
         )
     });
     assert_eq!(audio_required, audio_written);
+
+    // i32::MIN cannot be represented by abs(); the ABI must reject it instead
+    // of allowing a malformed native caller to panic the host process.
+    let mut invalid_sequence_length = 0usize;
+    assert!(!unsafe {
+        msime_client_doubao_audio_frame(
+            i32::MIN,
+            [0u8, 1, 2, 3].as_ptr(),
+            4,
+            true,
+            std::ptr::null_mut(),
+            0,
+            &mut invalid_sequence_length,
+        )
+    });
+    assert_eq!(invalid_sequence_length, 0);
 }
 
 #[test]

@@ -3,20 +3,17 @@ package app.msime.android.home;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
-import android.content.res.ColorStateList;
 import android.os.Bundle;
 import android.text.TextUtils;
-import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
-import androidx.annotation.DrawableRes;
 import androidx.annotation.Nullable;
 import app.msime.android.CloudApi;
 import app.msime.android.CloudClipboardApi;
 import app.msime.android.R;
+import app.msime.android.ViewPolicy;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import java.time.Duration;
 import java.time.Instant;
@@ -118,15 +115,11 @@ public final class CloudClipboardPage extends DetailPage {
         GroupCard.Row toggle = settings.toggle("云剪贴板", DESCRIPTION, current != null && current.enabled(), this::setEnabled);
         toggle.setEnabled(current != null);
 
-        LinearLayout retention = new LinearLayout(context);
-        retention.setOrientation(LinearLayout.HORIZONTAL);
-        retention.setGravity(Gravity.CENTER_VERTICAL);
-        retention.setMinimumHeight(Ui.dp(context, Ui.ROW_MIN_HEIGHT));
-        retention.setPadding(Ui.dp(context, Ui.ROW_PADDING_H), Ui.dp(context, Ui.ROW_PADDING_V),
-            Ui.dp(context, Ui.ROW_PADDING_H), Ui.dp(context, Ui.ROW_PADDING_V));
-        TextView label = new TextView(context);
-        label.setText("保留时长");
-        Ui.style(label, Ui.TEXT_ROW_TITLE, 400, Ui.text(context));
+        LinearLayout retention = Ui.row(context);
+        ViewPolicy.setCenteredVertically(retention);
+        Ui.setRowMinimumHeight(retention, context);
+        Ui.setRowPadding(retention, context);
+        TextView label = Ui.styledLabel(context, "保留时长", Ui.TEXT_ROW_TITLE, 400, Ui.text(context));
         retention.addView(label, Ui.weightWrap(1f));
         SegmentedControl segments = new SegmentedControl(context);
         int selected = current == null ? -1 : CloudClipboardApi.RETENTION_DAYS.indexOf(current.retentionDays());
@@ -144,24 +137,16 @@ public final class CloudClipboardPage extends DetailPage {
 
         if (current == null) return;
 
-        LinearLayout header = new LinearLayout(context);
-        header.setOrientation(LinearLayout.HORIZONTAL);
-        header.setGravity(Gravity.CENTER_VERTICAL);
-        header.setPadding(Ui.dp(context, Ui.GROUP_TITLE_INSET), 0, Ui.dp(context, Ui.GROUP_TITLE_INSET), Ui.dp(context, 2));
-        TextView recent = new TextView(context);
-        recent.setText("最近");
-        recent.setAccessibilityHeading(true);
-        Ui.style(recent, Ui.TEXT_GROUP_TITLE, 500, Ui.accent(context));
+        LinearLayout header = Ui.row(context);
+        ViewPolicy.setCenteredVertically(header);
+        Ui.setPaddingDp(header, context, Ui.GROUP_TITLE_INSET, 0,
+            Ui.GROUP_TITLE_INSET, 2);
+        TextView recent = Ui.groupHeading(context, "最近");
         header.addView(recent, Ui.weightWrap(1f));
         if (!current.items().isEmpty()) {
-            TextView clear = new TextView(context);
-            clear.setText("清空");
-            Ui.style(clear, Ui.TEXT_GROUP_TITLE, 500, Ui.accent(context));
-            clear.setPadding(Ui.dp(context, 8), Ui.dp(context, 4), 0, Ui.dp(context, 4));
-            clear.setBackground(Ui.ripple(context));
-            clear.setClickable(true);
-            clear.setFocusable(true);
-            clear.setOnClickListener(ignored -> confirmClear());
+            TextView clear = Ui.styledLabel(context, "清空", Ui.TEXT_GROUP_TITLE, 500, Ui.accent(context));
+        Ui.setPaddingDp(clear, context, 8, 4, 0, 4);
+            Ui.makeClickable(clear, context, this::confirmClear);
             header.addView(clear);
         }
         LinearLayout.LayoutParams headerParams = Ui.matchWidth();
@@ -171,20 +156,15 @@ public final class CloudClipboardPage extends DetailPage {
         GroupCard list = GroupCard.add(target, null).withDividers(Ui.ROW_PADDING_H);
         ((LinearLayout.LayoutParams) list.view().getLayoutParams()).topMargin = Ui.dp(context, 2);
         if (current.items().isEmpty()) {
-            LinearLayout empty = new LinearLayout(context);
-            empty.setOrientation(LinearLayout.VERTICAL);
-            empty.setGravity(Gravity.CENTER_HORIZONTAL);
-            empty.setPadding(Ui.dp(context, 16), Ui.dp(context, 32), Ui.dp(context, 16), Ui.dp(context, 32));
-            TextView title = new TextView(context);
-            title.setText("还没有同步内容");
-            Ui.style(title, Ui.TEXT_ROW_TITLE, 500, Ui.text(context));
+            LinearLayout empty = Ui.column(context);
+            ViewPolicy.setCenteredHorizontally(empty);
+            Ui.setSymmetricPaddingDp(empty, context, 16, 32);
+            TextView title = Ui.styledLabel(context, "还没有同步内容", Ui.TEXT_ROW_TITLE, 500, Ui.text(context));
             empty.addView(title);
-            TextView hint = new TextView(context);
-            hint.setText("在任一设备上复制文字，这里就会出现");
-            hint.setGravity(Gravity.CENTER);
-            Ui.style(hint, Ui.TEXT_ROW_SUBTITLE, 400, Ui.subText(context));
-            LinearLayout.LayoutParams hintParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            TextView hint = Ui.styledLabel(context, "在任一设备上复制文字，这里就会出现",
+                Ui.TEXT_ROW_SUBTITLE, 400, Ui.subText(context));
+            ViewPolicy.setCentered(hint);
+            LinearLayout.LayoutParams hintParams = Ui.wrap();
             hintParams.topMargin = Ui.dp(context, 4);
             empty.addView(hint, hintParams);
             list.addView(empty);
@@ -194,67 +174,40 @@ public final class CloudClipboardPage extends DetailPage {
     }
 
     private View itemRow(Context context, CloudClipboardApi.Item item) {
-        LinearLayout row = new LinearLayout(context);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(Ui.dp(context, 16), Ui.dp(context, 12), Ui.dp(context, 8), Ui.dp(context, 12));
-        row.setBackground(Ui.ripple(context));
-        row.setClickable(true);
-        row.setFocusable(true);
+        LinearLayout row = Ui.row(context);
+        ViewPolicy.setCenteredVertically(row);
+        Ui.setPaddingDp(row, context, 16, 12, 8, 12);
 
-        LinearLayout texts = new LinearLayout(context);
-        texts.setOrientation(LinearLayout.VERTICAL);
-        TextView text = new TextView(context);
-        text.setText(item.text());
+        LinearLayout texts = Ui.column(context);
+        TextView text = Ui.styledLabel(context, item.text(), 15, 400, Ui.text(context));
         text.setMaxLines(3);
         text.setEllipsize(TextUtils.TruncateAt.END);
-        Ui.style(text, 15, 400, Ui.text(context));
         texts.addView(text);
-        TextView meta = new TextView(context);
-        meta.setText(meta(item));
-        Ui.style(meta, 12, 400, Ui.subText(context));
-        LinearLayout.LayoutParams metaParams = new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        TextView meta = Ui.styledLabel(context, meta(item), 12, 400, Ui.subText(context));
+        LinearLayout.LayoutParams metaParams = Ui.wrap();
         metaParams.topMargin = Ui.dp(context, 4);
         texts.addView(meta, metaParams);
         row.addView(texts, Ui.weightWrap(1f));
 
-        row.addView(iconButton(context, R.drawable.ic_ms_keep, item.pinned() ? Ui.accent(context) : Ui.subText(context),
-            item.pinned() ? "取消置顶" : "置顶", () -> {
+        row.addView(Ui.iconButton(context, R.drawable.ic_ms_keep,
+            item.pinned() ? Ui.accent(context) : Ui.subText(context),
+            item.pinned() ? "取消置顶" : "置顶", 40, () -> {
                 CloudClipboardApi api = api();
                 mutate(() -> { api.setPinned(item.id(), !item.pinned()); return null; }, null);
             }));
-        row.addView(iconButton(context, R.drawable.ic_ms_delete, Ui.subText(context), "删除", () -> {
+        row.addView(Ui.iconButton(context, R.drawable.ic_ms_delete, Ui.subText(context), "删除", 40, () -> {
             CloudClipboardApi api = api();
             mutate(() -> { api.delete(item.id()); return null; }, "已删除");
         }));
 
         row.setContentDescription(item.text() + "，" + meta(item) + "，点按复制");
-        row.setOnClickListener(ignored -> {
+        Ui.makeClickable(row, context, () -> {
             ClipboardManager clipboard = context.getSystemService(ClipboardManager.class);
             if (clipboard == null) return;
             clipboard.setPrimaryClip(ClipData.newPlainText("水杉云剪贴板", item.text()));
             MsToast.show(context, "已复制");
         });
         return row;
-    }
-
-    private static View iconButton(Context context, @DrawableRes int icon, int tint, String label, Runnable action) {
-        ImageView button = new ImageView(context);
-        button.setImageResource(icon);
-        button.setImageTintList(ColorStateList.valueOf(tint));
-        button.setScaleType(ImageView.ScaleType.CENTER);
-        button.setBackground(Ui.ripple(context));
-        button.setContentDescription(label);
-        button.setOnClickListener(ignored -> action.run());
-        int size = Ui.dp(context, 40);
-        return wrap(button, size);
-    }
-
-    private static View wrap(ImageView button, int size) {
-        button.setLayoutParams(new LinearLayout.LayoutParams(size, size));
-        button.setPadding(size / 5, size / 5, size / 5, size / 5);
-        return button;
     }
 
     /** 「已置顶 · 设备 · 时间」，没有的部分省掉。 */

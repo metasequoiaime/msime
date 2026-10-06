@@ -16,6 +16,7 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 import app.msime.android.KeyboardGeometry;
+import app.msime.android.ViewPolicy;
 import java.io.File;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
@@ -376,29 +377,25 @@ public final class VoiceRecognitionActivity extends Activity {
      * the wording to drift out of step with what the buttons do.
      */
     private void showRecordingControls() {
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout root = KeyboardGeometry.column(this);
         int pad = KeyboardGeometry.pixels(this, 20);
         root.setPadding(pad, pad, pad, pad);
-        TextView title = new TextView(this);
+        TextView title = ViewPolicy.textLabel(this, "正在录音", 18);
         recordingTitle = title;
-        title.setText("正在录音");
-        title.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 18);
         root.addView(title);
-        TextView hint = new TextView(this);
+        TextView hint = ViewPolicy.textLabel(this,
+            "说完后点「完成」开始转写；「取消」会丢弃这次录音。", 14);
         recordingHint = hint;
-        hint.setText("说完后点「完成」开始转写；「取消」会丢弃这次录音。");
         hint.setPadding(0, pad / 2, 0, pad);
         root.addView(hint);
-        LinearLayout actions = new LinearLayout(this);
-        actions.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout actions = KeyboardGeometry.row(this);
         actions.setGravity(Gravity.END);
-        Button cancel = new Button(this);
+        Button cancel = ViewPolicy.newPressButton(this);
         cancel.setText("取消");
         cancel.setContentDescription("取消录音并丢弃结果");
         cancel.setOnClickListener(ignored -> cancelRecognition());
         actions.addView(cancel);
-        Button done = new Button(this);
+        Button done = ViewPolicy.newPressButton(this);
         done.setText("完成");
         done.setContentDescription("结束录音并开始转写");
         done.setOnClickListener(ignored -> {
@@ -409,8 +406,7 @@ public final class VoiceRecognitionActivity extends Activity {
             stopRecognition();
         });
         actions.addView(done);
-        root.addView(actions, new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        root.addView(actions, KeyboardGeometry.matchWidthWrapParams());
         setContentView(root);
     }
 
@@ -437,7 +433,8 @@ public final class VoiceRecognitionActivity extends Activity {
             String text = null;
             String message = null;
             try {
-                text = running.recognize(modelDirectory, files.toPath(), language, runtimeOptions(files),
+                text = running.recognize(modelDirectory, files.toPath(), language,
+                    HostOptionsPolicy.readRuntimeOptions(files),
                     hotwordTexts, hotwordPinyin,
                     partial -> runOnUiThread(() -> {
                         if (!finished && recordingHint != null) recordingHint.setText(partial);
@@ -464,17 +461,6 @@ public final class VoiceRecognitionActivity extends Activity {
                 finishRequest();
             });
         });
-    }
-
-    /** The runtime options document the keyboard's session uses, or empty when it is not ready. */
-    private static String runtimeOptions(File files) {
-        if (files == null) return "";
-        File options = new File(files, "runtime-options.json");
-        try {
-            return HostOptionsPolicy.read(options);
-        } catch (java.io.IOException error) {
-            return "";
-        }
     }
 
     /** Stream while the user speaks, then deliver the provider's final result. */
@@ -616,7 +602,8 @@ public final class VoiceRecognitionActivity extends Activity {
     }
 
     private static String safeLanguage(String language) {
-        if (language != null && !language.isEmpty() && language.length() <= 64
+        if (language != null && !language.isEmpty()
+                && language.length() <= VoiceContributionApi.MAX_METADATA_FIELD_LENGTH
                 && !TextPolicy.hasControl(language)) {
             Locale locale = Locale.forLanguageTag(language.replace('_', '-'));
             if (!locale.getLanguage().isEmpty()) return locale.toLanguageTag();

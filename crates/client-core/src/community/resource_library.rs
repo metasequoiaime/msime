@@ -3,6 +3,7 @@
 use crate::community::resource::{validate_resource, CommunityResource, CommunityResourceKind};
 use crate::file_lock;
 use serde_json::from_slice;
+use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -97,7 +98,7 @@ impl CommunityResourceLibraryStore {
         if items.len() > MAXIMUM_ITEMS || items.iter().any(|item| !is_valid_reply(item)) {
             return Err(CommunityResourceLibraryError::Invalid);
         }
-        let mut ids = std::collections::BTreeSet::new();
+        let mut ids = HashSet::with_capacity(items.len());
         if items.iter().any(|item| !ids.insert(item.id)) {
             return Err(CommunityResourceLibraryError::Invalid);
         }

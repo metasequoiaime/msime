@@ -1,26 +1,17 @@
 package app.msime.android.home;
 
 import android.content.Context;
-import android.content.res.ColorStateList;
-import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.Button;
-import android.widget.FrameLayout;
-import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import androidx.annotation.Nullable;
-import androidx.core.view.AccessibilityDelegateCompat;
-import androidx.core.view.ViewCompat;
-import androidx.core.view.accessibility.AccessibilityNodeInfoCompat;
 import androidx.fragment.app.Fragment;
 import app.msime.android.AndroidLocalSettings;
-import app.msime.android.R;
 import app.msime.android.SyncSignals;
 import app.msime.android.SyncSwitch;
+import app.msime.android.ViewPolicy;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
-import com.google.android.material.bottomsheet.BottomSheetDragHandleView;
 import java.util.List;
 import org.json.JSONObject;
 
@@ -57,24 +48,15 @@ final class AppThemeSheet {
     static void show(Fragment host, @Nullable JSONObject preferences, Runnable refresh) {
         Context context = host.requireContext();
         BottomSheetDialog dialog = new BottomSheetDialog(context);
-        LinearLayout root = new LinearLayout(context);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.addView(new BottomSheetDragHandleView(context), Ui.matchWidth());
+        LinearLayout root = Ui.column(context);
+        root.addView(Ui.sheetDragHandle(context));
 
-        LinearLayout header = new LinearLayout(context);
-        header.setOrientation(LinearLayout.VERTICAL);
-        header.setGravity(Gravity.CENTER_HORIZONTAL);
-        header.setPadding(Ui.dp(context, 16), 0, Ui.dp(context, 16), Ui.dp(context, 12));
-        TextView heading = new TextView(context);
-        heading.setText("应用主题");
-        heading.setGravity(Gravity.CENTER);
-        Ui.style(heading, Ui.TEXT_SHEET_HEADER, 600, Ui.subText(context));
-        heading.setAccessibilityHeading(true);
+        LinearLayout header = Ui.column(context);
+        ViewPolicy.setCenteredHorizontally(header);
+        Ui.setSheetHeaderPadding(header, context);
+        TextView heading = Ui.sheetHeading(context, "应用主题");
         header.addView(heading);
-        TextView note = new TextView(context);
-        note.setText("四季会随季节自动更换配色");
-        note.setGravity(Gravity.CENTER);
-        Ui.style(note, Ui.TEXT_SHEET_HEADER, 400, Ui.subText(context));
+        TextView note = Ui.sheetSubtitle(context, "四季会随季节自动更换配色");
         LinearLayout.LayoutParams noteParams = Ui.wrap();
         noteParams.topMargin = Ui.dp(context, 2);
         header.addView(note, noteParams);
@@ -97,18 +79,18 @@ final class AppThemeSheet {
 
         String current = theme(context);
         for (int index = 0; index < THEMES.length; index++) {
-            if (index > 0) root.addView(rule(context));
+            if (index > 0) root.addView(Ui.divider(context, true));
             String id = THEMES[index][0];
-            root.addView(option(context, THEMES[index][1], id.equals(current), Ui.accent(context), () -> {
+            root.addView(SheetOptionView.create(context, THEMES[index][1], id.equals(current), false,
+                Ui.accent(context), id.equals(current), () -> {
                 dialog.dismiss();
                 if (!id.equals(current)) saveAppTheme(host, id, refresh);
             }));
         }
 
-        View band = new View(context);
-        band.setBackgroundColor(Ui.page(context));
-        root.addView(band, Ui.matchWidthHeight(context, 8));
-        root.addView(option(context, "取消", false, Ui.accent(context), dialog::cancel));
+        root.addView(Ui.sheetSeparator(context));
+        root.addView(SheetOptionView.create(context, "取消", false, false, Ui.accent(context), false,
+            dialog::cancel));
         dialog.setContentView(root);
         dialog.show();
     }
@@ -173,51 +155,6 @@ final class AppThemeSheet {
             case "winter": return "冬雪";
             default: return "秋杉";
         }
-    }
-
-    private static View option(Context context, CharSequence label, boolean selected, int color, Runnable action) {
-        FrameLayout row = new FrameLayout(context);
-        row.setMinimumHeight(Ui.dp(context, Ui.SHEET_OPTION_HEIGHT));
-        row.setBackground(Ui.ripple(context));
-        row.setClickable(true);
-        row.setFocusable(true);
-        row.setOnClickListener(ignored -> action.run());
-        TextView text = new TextView(context);
-        text.setText(label);
-        text.setGravity(Gravity.CENTER);
-        Ui.style(text, Ui.TEXT_SHEET_OPTION, selected ? 600 : 400, color);
-        FrameLayout.LayoutParams textParams = new FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER);
-        textParams.leftMargin = Ui.dp(context, 48);
-        textParams.rightMargin = Ui.dp(context, 48);
-        textParams.topMargin = Ui.dp(context, 8);
-        textParams.bottomMargin = Ui.dp(context, 8);
-        row.addView(text, textParams);
-        if (selected) {
-            ImageView check = new ImageView(context);
-            check.setImageResource(R.drawable.ms_w1_a2_check);
-            check.setImageTintList(ColorStateList.valueOf(Ui.accent(context)));
-            check.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-            FrameLayout.LayoutParams checkParams = new FrameLayout.LayoutParams(Ui.dp(context, 18), Ui.dp(context, 18),
-                Gravity.CENTER_VERTICAL | Gravity.END);
-            checkParams.setMarginEnd(Ui.dp(context, 20));
-            row.addView(check, checkParams);
-        }
-        ViewCompat.setAccessibilityDelegate(row, new AccessibilityDelegateCompat() {
-            @Override public void onInitializeAccessibilityNodeInfo(View view, AccessibilityNodeInfoCompat info) {
-                super.onInitializeAccessibilityNodeInfo(view, info);
-                info.setClassName(Button.class.getName());
-                if (selected) info.setStateDescription("已选择");
-            }
-        });
-        return row;
-    }
-
-    private static View rule(Context context) {
-        View rule = Ui.hairlineView(context);
-        rule.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
-            Ui.hairlinePx(context)));
-        return rule;
     }
 
 }

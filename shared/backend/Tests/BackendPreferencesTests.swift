@@ -22,6 +22,33 @@ private final class MalformedPreferencesProtocol: URLProtocol {
   override func stopLoading() {}
 }
 
+private final class PreferenceBodyProtocol: URLProtocol {
+  private static let lock = NSLock()
+  private static var requestCount = 0
+
+  static func reset() {
+    lock.lock(); defer { lock.unlock() }
+    requestCount = 0
+  }
+
+  static func requests() -> Int {
+    lock.lock(); defer { lock.unlock() }
+    return requestCount
+  }
+
+  override class func canInit(with request: URLRequest) -> Bool { true }
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+  override func startLoading() {
+    Self.lock.lock(); Self.requestCount += 1; Self.lock.unlock()
+    let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil,
+      headerFields: ["Content-Type": "application/json"])!
+    client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+    client?.urlProtocol(self, didLoad: Data(#"{"revision":1,"settings":{}}"#.utf8))
+    client?.urlProtocolDidFinishLoading(self)
+  }
+  override func stopLoading() {}
+}
+
 final class BackendPreferencesTests: XCTestCase {
   func testMalformedPreferenceResponsesAreRejected() async throws {
     let configuration = URLSessionConfiguration.ephemeral
@@ -59,6 +86,22 @@ final class BackendPreferencesTests: XCTestCase {
     XCTAssertEqual(merged.settings[key], .string(json))
     let old = BackendAccountClient.PreferenceSchema(fields: schema.fields, maximum_bytes: 65536, update_mode: "replace", revision_required: true)
     XCTAssertThrowsError(try BackendAccountClient.mergedPreferences(base, replacing: [key: .string(json)], schema: old))
+  }
+
+  func testPutPreferencesRejectsAnOversizedWholeDocumentBeforeSending() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [PreferenceBodyProtocol.self]
+    let client = BackendAccountClient(configuration: configuration)
+    let value = String(repeating: "x", count: 600_000)
+    PreferenceBodyProtocol.reset()
+    do {
+      _ = try await client.putPreferences(
+        .init(revision: 1, settings: ["first": .string(value), "second": .string(value)]), token: "session")
+      XCTFail("oversized preference document sent")
+    } catch let failure as BackendAccountClient.Failure {
+      XCTAssertEqual(failure.status, 400)
+    }
+    XCTAssertEqual(PreferenceBodyProtocol.requests(), 0)
   }
   private let themes: Set<String> = ["system", "shuishan", "light", "paper", "night", "ink", "custom"]
 

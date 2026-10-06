@@ -53,14 +53,7 @@ public final class HostStore {
     private static String runtimeOption(Context context, String key) {
         File files = context.getFilesDir();
         if (files == null) return "";
-        File options = new File(files, "runtime-options.json");
-        if (!options.isFile()) return "";
-        try {
-            JSONObject root = new JSONObject(HostOptionsPolicy.read(options));
-            return root.optString(key, "");
-        } catch (JSONException | java.io.IOException | SecurityException error) {
-            return "";
-        }
+        return HostOptionsPolicy.readOption(files, key);
     }
 
     /**
@@ -257,10 +250,15 @@ public final class HostStore {
         if (response == null) return null;
         try {
             JSONObject root = new JSONObject(response);
-            return root.optBoolean("ok", false) ? root.optJSONObject("value") : null;
+            return Boolean.TRUE.equals(root.opt("ok")) ? root.optJSONObject("value") : null;
         } catch (JSONException error) {
             return null;
         }
+    }
+
+    /** Native envelopes use a typed JSON status; reject org.json's string coercion. */
+    static boolean strictOk(Object value) {
+        return value instanceof Boolean && (Boolean) value;
     }
 
     @Nullable private static String call(Call call) {

@@ -24,6 +24,17 @@ public final class VoiceContributionApiSmoke {
         check(!VoiceContributionApi.valid(new VoiceContributionApi.Contribution("", "local", 1000, "好", "1.2.3", wav)),
             "a language is required");
         check(VoiceContributionApi.PATH.equals("/v1/voice/contributions"), "the contribution endpoint");
+        try {
+            java.lang.reflect.Method strictString = VoiceContributionApi.class.getDeclaredMethod(
+                "strictString", Object.class);
+            strictString.setAccessible(true);
+            check("synthetic".equals(strictString.invoke(null, "synthetic")),
+                "voice contribution response ids accept strings");
+            check(strictString.invoke(null, 7) == null,
+                "voice contribution response ids reject numbers instead of coercing them");
+        } catch (ReflectiveOperationException error) {
+            throw new AssertionError("voice contribution response string policy missing", error);
+        }
         System.out.println("Android voice contribution passed");
     }
 

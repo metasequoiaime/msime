@@ -13,6 +13,16 @@ public final class ColorPolicy {
         return (color & 0x00FFFFFF) | (Math.round(base * alpha) << 24);
     }
 
+    /** Replace a colour's alpha channel with an explicit 0–255 value. */
+    public static int withAlpha(int color, int alpha) {
+        return (color & 0x00FFFFFF) | ((alpha & 0xFF) << 24);
+    }
+
+    /** Choose the paint alpha used for an enabled or disabled control. */
+    public static int enabledAlpha(boolean enabled, int activeAlpha, int inactiveAlpha) {
+        return enabled ? activeAlpha : inactiveAlpha;
+    }
+
     /** Linearly interpolate each ARGB channel; callers provide an expected 0–1 amount. */
     public static int blend(int from, int to, float amount) {
         int a = Math.round(((from >>> 24) & 0xFF) + (((to >>> 24) & 0xFF) - ((from >>> 24) & 0xFF)) * amount);

@@ -1,4 +1,5 @@
 import app.msime.android.CloudApi;
+import app.msime.android.CloudClipboardApi;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
@@ -6,6 +7,31 @@ import java.util.Map;
 
 public final class CloudApiSmoke {
     public static void main(String[] arguments) throws Exception {
+        java.lang.reflect.Method strictBoolean = CloudClipboardApi.class.getDeclaredMethod(
+            "strictBoolean", Object.class);
+        strictBoolean.setAccessible(true);
+        check(Boolean.TRUE.equals(strictBoolean.invoke(null, Boolean.TRUE)),
+            "cloud clipboard booleans accept JSON booleans");
+        check(strictBoolean.invoke(null, "true") == null,
+            "cloud clipboard booleans must reject strings instead of coercing them");
+        check(strictBoolean.invoke(null, 1) == null,
+            "cloud clipboard booleans must reject numbers instead of coercing them");
+        java.lang.reflect.Method strictString = CloudClipboardApi.class.getDeclaredMethod(
+            "strictString", Object.class);
+        strictString.setAccessible(true);
+        check("synthetic".equals(strictString.invoke(null, "synthetic")),
+            "cloud clipboard strings accept JSON strings");
+        check(strictString.invoke(null, 7) == null,
+            "cloud clipboard strings must reject numbers instead of coercing them");
+        java.lang.reflect.Method strictInteger = CloudClipboardApi.class.getDeclaredMethod(
+            "strictInteger", Object.class);
+        strictInteger.setAccessible(true);
+        check(Integer.valueOf(7).equals(strictInteger.invoke(null, Integer.valueOf(7))),
+            "cloud clipboard retention accepts JSON integers");
+        check(strictInteger.invoke(null, "7") == null,
+            "cloud clipboard retention rejects numeric strings instead of coercing them");
+        check(strictInteger.invoke(null, Double.valueOf(7.5)) == null,
+            "cloud clipboard retention rejects fractional numbers instead of truncating them");
         // multipart 按 RFC 7578 编码，行尾 CRLF，文件段带 filename，结尾 `--boundary--`。
         byte[] encoded = CloudApi.encodeMultipart("b0und", List.of(
             CloudApi.Part.json("payload", "{\"type\":\"bug\"}"),
@@ -89,6 +115,15 @@ public final class CloudApiSmoke {
             throw new AssertionError("an offline request must fail");
         } catch (CloudApi.Failure failure) {
             check(failure.network(), "an IOException is a network failure");
+        }
+        CloudApi pathApi = new CloudApi((method, path, headers, body) -> {
+            throw new AssertionError("unsafe path reached transport: " + path);
+        }, rejected -> "", rejected -> "");
+        for (String path : List.of("/v1/../auth/logout", "/v1/users/../auth/logout", "/v1/%2e%2e/auth/logout")) {
+            try {
+                pathApi.send("GET", path, null, CloudApi.Auth.NONE);
+                throw new AssertionError("dot-segment path must be rejected: " + path);
+            } catch (IllegalArgumentException unsafe) { }
         }
         System.out.println("Android cloud API transport passed");
     }

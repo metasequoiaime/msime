@@ -9,10 +9,12 @@ import app.msime.android.BoundsPolicy;
 import app.msime.android.CloudApi;
 import app.msime.android.CommonPhrasesStore;
 import app.msime.android.CustomSkinLibrary;
+import app.msime.android.DictionaryCollectionsStore;
 import app.msime.android.DictionarySnapshotQueue;
 import app.msime.android.KeyboardFeedbackPreferences;
 import app.msime.android.KeyboardFeedbackStore;
 import app.msime.android.NativeClient;
+import app.msime.android.SafePaths;
 import app.msime.android.SyncApi;
 import app.msime.android.SyncMergePolicy;
 import app.msime.android.SyncSwitch;
@@ -337,9 +339,9 @@ public final class CloudSync {
             JSONObject value = nativeValue(NativeClient.accountSettingsApply(request.toString()));
             JSONObject applied = value.optJSONObject("feedback");
             if (applied != null) {
-                KeyboardFeedbackStore.save(context, new KeyboardFeedbackStore.Settings(
-                    applied.optBoolean("soundEnabled", true), applied.optBoolean("hapticsEnabled", false),
-                    KeyboardFeedbackPreferences.strength(applied.optString("hapticStrength", "medium"))));
+                KeyboardFeedbackStore.save(context, KeyboardFeedbackStore.fromValues(
+                    applied.opt("soundEnabled"), applied.opt("hapticsEnabled"),
+                    applied.opt("hapticStrength")));
             }
             if (value.opt("custom_keyboard_skins") instanceof String library) {
                 CustomSkinLibrary.importDesigns(Paths.get(directory), library);
@@ -537,7 +539,7 @@ public final class CloudSync {
             File files = context.getFilesDir();
             if (files == null) throw new IOException("private files unavailable");
             Path work = files.toPath().resolve(WORK_PATH);
-            Files.createDirectories(work);
+            SafePaths.ensureDirectory(work);
             return work;
         }
 
@@ -551,7 +553,8 @@ public final class CloudSync {
             JSONObject value = nativeValue(NativeClient.dictionary(new JSONObject()
                 .put("options", new JSONObject(hostOptions()))
                 .put("action", new JSONObject().put("operation", "count").put("user_only", true)).toString()));
-            return value.optInt("count", 0);
+            Integer count = DictionaryCollectionsStore.nonNegativeInteger(value.opt("count"));
+            return count == null ? 0 : count;
         }
 
         private int pendingQueueCount() throws IOException, JSONException {
@@ -559,7 +562,8 @@ public final class CloudSync {
                 .put("options", new JSONObject(hostOptions()))
                 .put("action", new JSONObject().put("operation", "list").put("offset", 0).put("limit", 1)
                     .put("user_only", true)).toString()));
-            return value.optInt("pending_count", 0);
+            Integer pending = DictionaryCollectionsStore.nonNegativeInteger(value.opt("pending_count"));
+            return pending == null ? 0 : pending;
         }
 
         private void exportSnapshot(Path destination) throws IOException, JSONException {
@@ -604,7 +608,7 @@ public final class CloudSync {
                 .put("options", new JSONObject(options))
                 .put("action", new JSONObject().put("operation", "import_personal").put("text", file)
                     .put("request_id", "cloud-merge-" + UUID.randomUUID())).toString()));
-            return response.optBoolean("ok", false);
+            return Boolean.TRUE.equals(response.opt("ok"));
         }
     }
 
@@ -613,7 +617,8 @@ public final class CloudSync {
     /** client-core 的标准响应 `{ok, value, error}`：失败时抛出，信息只进日志。 */
     private static JSONObject nativeValue(String response) throws JSONException {
         JSONObject root = new JSONObject(response == null ? "" : response);
-        if (!root.optBoolean("ok", false)) throw new IllegalStateException(root.optString("error", "native call failed"));
+        if (!Boolean.TRUE.equals(root.opt("ok")))
+            throw new IllegalStateException(root.optString("error", "native call failed"));
         JSONObject value = root.optJSONObject("value");
         return value == null ? new JSONObject() : value;
     }

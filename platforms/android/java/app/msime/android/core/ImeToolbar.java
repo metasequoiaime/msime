@@ -52,8 +52,7 @@ final class ImeToolbar {
             params.setMarginStart(s.pixels(1));
             params.setMarginEnd(s.pixels(1));
             s.shortcutBar.addView(button, params);
-            button.setMinWidth(s.pixels(40));
-            button.setMinimumWidth(s.pixels(40));
+            ViewPolicy.setMinimumWidth(button, s.pixels(40));
         }
         // 旧的回复、语音、简繁、AI 润色、⚙ 入口不在新工具栏上：AI 在功能面板第 2 页，语音由长按空格进入，设置在功能面板里。按钮对象保留，服务里其余代码照常更新它们的状态。
         for (Button retired : new Button[] {s.scriptShortcutButton, s.aiPolishShortcutButton,
@@ -66,47 +65,37 @@ final class ImeToolbar {
 
     /** 读音行（读音、提示、页码、漢、退出本地模式）与工具栏的滚动容器；读音行只在组词或有提示时显示。 */
     void buildCandidateHeader(LinearLayout candidateRegion) {
-        LinearLayout candidateHeader = new LinearLayout(s);
-        candidateHeader.setGravity(Gravity.CENTER_VERTICAL);
-        candidateHeader.setPadding(s.pixels(10), 0, s.pixels(6), 0);
+        LinearLayout candidateHeader = KeyboardGeometry.row(s);
+        ViewPolicy.setCenteredVertically(candidateHeader);
+        KeyboardGeometry.setPaddingDp(candidateHeader, s, 10, 0, 6, 0);
         s.candidateHeader = candidateHeader;
-        s.preedit = new TextView(s);
-        KeyboardGeometry.setKeyTextSize(s.preedit, 12);
-        s.preedit.setMaxLines(1);
-        s.preedit.setIncludeFontPadding(false);
-        s.preedit.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        s.preedit = toolbarText(12);
+        ViewPolicy.setMaxLinesEllipsized(s.preedit, 1);
         // 胶囊紧挨着候选栏和按键，轻点很容易误触，所以只在长按时打开本地模式菜单。
         s.preedit.setOnLongClickListener(ignored -> {
             s.imeKeyFeedback.playFeedback(s.preedit);
             s.imePanels.showLocalInputMenu();
             return true;
         });
-        LinearLayout preeditFrame = new LinearLayout(s);
+        LinearLayout preeditFrame = KeyboardGeometry.row(s);
         preeditFrame.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
         preeditFrame.addView(s.preedit, new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-        candidateHeader.addView(preeditFrame, new LinearLayout.LayoutParams(0,
-            LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        candidateHeader.addView(preeditFrame, KeyboardGeometry.weightedWrapParams(1));
         // 宿主提示通道：正常为空，只有准备中、失败或提示时才有文字。
-        s.status = new TextView(s);
-        KeyboardGeometry.setKeyTextSize(s.status, 10);
-        s.status.setMaxLines(1);
-        s.status.setIncludeFontPadding(false);
-        s.status.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        s.status.setGravity(Gravity.CENTER_VERTICAL | Gravity.END);
-        s.status.setPadding(s.pixels(6), 0, s.pixels(2), 0);
+        s.status = toolbarText(10);
+        ViewPolicy.setMaxLinesEllipsized(s.status, 1);
+        ViewPolicy.setEndCenteredVertically(s.status);
+        KeyboardGeometry.setPaddingDp(s.status, s, 6, 0, 2, 0);
         candidateHeader.addView(s.status, new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-        s.candidatePage = new TextView(s);
-        KeyboardGeometry.setKeyTextSize(s.candidatePage, 10);
-        s.candidatePage.setIncludeFontPadding(false);
+        s.candidatePage = toolbarText(10);
         candidateHeader.addView(s.candidatePage, new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-        s.shortcutBar = new LinearLayout(s);
-        s.shortcutBar.setOrientation(LinearLayout.HORIZONTAL);
-        s.shortcutBar.setGravity(Gravity.CENTER_VERTICAL);
+        s.shortcutBar = KeyboardGeometry.row(s);
+        ViewPolicy.setCenteredVertically(s.shortcutBar);
         s.shortcutBar.setContentDescription("键盘快捷栏");
-        s.shortcutBar.setPadding(s.pixels(2), 0, s.pixels(2), 0);
+        KeyboardGeometry.setPaddingDp(s.shortcutBar, s, 2, 0, 2, 0);
         s.shortcutScroll = new HorizontalScrollView(s);
         s.shortcutScroll.setHorizontalScrollBarEnabled(false);
         s.shortcutScroll.setFillViewport(true);
@@ -140,58 +129,65 @@ final class ImeToolbar {
         KeyboardPressButton hanja = new KeyboardPressButton(s);
         hanja.setKeyboardRole(KeyboardKeyRole.GLYPH);
         s.hanjaButton = hanja;
-        s.hanjaButton.setAllCaps(false);
+        ViewPolicy.setAllCapsFalse(s.hanjaButton);
         s.hanjaButton.setText("漢");
         KeyboardGeometry.setKeyTextSize(s.hanjaButton, 12);
         s.hanjaButton.setContentDescription("转换为汉字");
         s.hanjaButton.setVisibility(View.GONE);
-        s.hanjaButton.setOnClickListener(ignored -> {
-            s.imeKeyFeedback.playFeedback(s.hanjaButton);
-            s.command(KoreanInputPolicy.CONVERT_HANJA_COMMAND);
-        });
-        s.hanjaButton.setPadding(s.pixels(8), 0, s.pixels(8), 0);
+        bindToolbarAction(s.hanjaButton,
+            () -> s.command(KoreanInputPolicy.CONVERT_HANJA_COMMAND));
+        KeyboardGeometry.setHorizontalPaddingDp(s.hanjaButton, s, 8);
         s.hanjaButton.setMinHeight(0);
         s.hanjaButton.setMinimumHeight(0);
         candidateHeader.addView(s.hanjaButton, new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.MATCH_PARENT));
         s.exitLocalModeButton = new KeyboardBorderlessButton(s);
-        s.exitLocalModeButton.setAllCaps(false);
+        ViewPolicy.setAllCapsFalse(s.exitLocalModeButton);
         s.exitLocalModeButton.setText("×");
         KeyboardGeometry.setKeyTextSize(s.exitLocalModeButton, 14);
         s.exitLocalModeButton.setContentDescription("退出本地模式");
-        s.exitLocalModeButton.setPadding(0, 0, 0, 0);
+        ViewPolicy.clearPadding(s.exitLocalModeButton);
         s.imeStyler.styleButton(s.exitLocalModeButton, true);
-        s.exitLocalModeButton.setOnClickListener(ignored -> {
-            s.imeKeyFeedback.playFeedback(s.exitLocalModeButton);
-            s.command(3);
-        });
+        bindToolbarAction(s.exitLocalModeButton, () -> s.command(3));
         s.exitLocalModeButton.setMinHeight(0);
         s.exitLocalModeButton.setMinimumHeight(0);
         candidateHeader.addView(s.exitLocalModeButton, new LinearLayout.LayoutParams(
             s.pixels(32), LinearLayout.LayoutParams.MATCH_PARENT));
-        candidateRegion.addView(candidateHeader, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, s.pixels(READING_ROW_DP)));
+        candidateRegion.addView(candidateHeader, KeyboardGeometry.matchWidthHeightPx(
+            s.pixels(READING_ROW_DP)));
     }
+
+    private void bindToolbarAction(Button button, Runnable action) {
+        button.setOnClickListener(ignored -> {
+            s.imeKeyFeedback.playFeedback(button);
+            action.run();
+        });
+    }
+
+    private TextView toolbarText(float sizeSp) {
+        TextView text = ViewPolicy.textLabel(s, null, sizeSp);
+        KeyboardGeometry.setKeyTextSize(text, sizeSp);
+        ViewPolicy.clearFontPadding(text);
+        return text;
+    }
+
 
     /** 候选那一行：候选滚动区占满剩余宽度，右端是分隔线加展开键。 */
     void addCandidateLine(LinearLayout candidateRegion, FrameLayout viewport, int height) {
-        LinearLayout line = new LinearLayout(s);
-        line.setOrientation(LinearLayout.HORIZONTAL);
-        line.setGravity(Gravity.CENTER_VERTICAL);
-        line.addView(viewport, new LinearLayout.LayoutParams(0,
-            LinearLayout.LayoutParams.MATCH_PARENT, 1));
+        LinearLayout line = KeyboardGeometry.row(s);
+        ViewPolicy.setCenteredVertically(line);
+        line.addView(viewport, KeyboardGeometry.weightedMatchParentParams(1));
         CandidateChevronButton expand = new CandidateChevronButton(s);
         s.expandCandidates = expand;
         expand.setContentDescription("展开候选");
-        expand.setOnClickListener(ignored -> {
-            s.imeKeyFeedback.playFeedback(expand);
+        bindToolbarAction(expand, () -> {
             if (s.candidatePanelOpen) s.closeCandidatePanel();
             else s.openCandidatePanel();
             expand.setExpanded(s.candidatePanelOpen, true);
             s.render();
         });
         expand.setVisibility(View.GONE);
-        line.addView(expand, new LinearLayout.LayoutParams(
+        line.addView(expand, KeyboardGeometry.linearParamsPx(
             s.pixels(CandidateChevronButton.WIDTH_DP), s.pixels(CandidateChevronButton.BUTTON_DP)));
         s.candidateLine = line;
         line.setVisibility(View.GONE);
@@ -213,11 +209,10 @@ final class ImeToolbar {
     /** 内联键盘高度条：调整时替换整行工具栏。 */
     void addInlineHeightBar(LinearLayout candidateRegion) {
         InlineHeightBar bar = new InlineHeightBar(s);
-        bar.setVisibility(View.GONE);
+        ViewPolicy.hide(bar);
         bar.setBasePixels(s.pixels(KeyboardGeometry.HEIGHT_PERCENT_BASE_DP));
         s.inlineHeightBar = bar;
-        candidateRegion.addView(bar, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT,
+        candidateRegion.addView(bar, KeyboardGeometry.matchWidthHeightPx(
             s.pixels(KeyboardGeometry.DESIGN_TOOLBAR_ROW_HEIGHT_DP)));
     }
 
@@ -260,8 +255,8 @@ final class ImeToolbar {
         if (s.preedit != null) {
             s.preedit.setTextColor(hintColor);
             KeyboardGeometry.setKeyTextSize(s.preedit, 12);
-            s.preedit.setBackground(null);
-            s.preedit.setPadding(0, 0, 0, 0);
+            ViewPolicy.clearBackground(s.preedit);
+            ViewPolicy.clearPadding(s.preedit);
         }
     }
 

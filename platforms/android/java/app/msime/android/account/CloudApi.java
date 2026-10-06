@@ -175,7 +175,9 @@ public final class CloudApi {
      * <p>带令牌的请求被 401 拒绝时，向令牌来源要一枚新的（同一个被拒的令牌不会再给回来）并只重试一次。
      */
     public Response send(String method, String path, Body body, Auth auth) throws Failure {
-        if (path == null || !path.startsWith("/")) throw new IllegalArgumentException("path must be absolute");
+        if (path == null || !path.startsWith("/") || path.indexOf('\\') >= 0 || containsDotSegment(path)) {
+            throw new IllegalArgumentException("path must be a safe absolute API path");
+        }
         Credential credential = credential(auth, null);
         for (int attempt = 0; ; attempt++) {
             Map<String, String> headers = new LinkedHashMap<>(4);
@@ -204,6 +206,21 @@ public final class CloudApi {
     }
 
     private record Credential(Auth auth, String token) {}
+
+    private static boolean containsDotSegment(String path) {
+        final String decoded;
+        try {
+            decoded = java.net.URLDecoder.decode(path, StandardCharsets.UTF_8.name());
+        } catch (java.io.UnsupportedEncodingException impossible) {
+            return true;
+        } catch (IllegalArgumentException malformed) {
+            return true;
+        }
+        for (String segment : decoded.split("/", -1)) {
+            if (".".equals(segment) || "..".equals(segment)) return true;
+        }
+        return false;
+    }
 
     /** 按身份取令牌；`ACCOUNT_OR_ANONYMOUS` 在没有真实账号时落到匿名账号，重试时沿用第一次选中的那一种。 */
     private Credential credential(Auth auth, String rejected) throws Failure {

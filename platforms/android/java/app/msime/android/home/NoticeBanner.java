@@ -48,7 +48,8 @@ final class NoticeBanner {
                 .put("platform", "android")
                 .put("channel", "app");
             JSONObject root = new JSONObject(NativeClient.notices(request.toString()));
-            JSONObject value = root.optBoolean("ok", false) ? root.optJSONObject("value") : null;
+            JSONObject value = Boolean.TRUE.equals(root.opt("ok"))
+                ? root.optJSONObject("value") : null;
             JSONArray items = value == null ? null : value.optJSONArray("items");
             List<Notice> notices = new ArrayList<>(items == null ? 0 : items.length());
             for (int index = 0; items != null && index < items.length(); index++) {
@@ -92,7 +93,8 @@ final class NoticeBanner {
     private static Boolean dismiss(Context context, String id) {
         try {
             JSONObject request = new JSONObject().put("directory", directory(context)).put("id", id);
-            return new JSONObject(NativeClient.noticeDismiss(request.toString())).optBoolean("ok", false);
+            JSONObject response = new JSONObject(NativeClient.noticeDismiss(request.toString()));
+            return Boolean.TRUE.equals(response.opt("ok"));
         } catch (Exception | LinkageError error) {
             android.util.Log.i("MSIMENotices", "Dismissal not saved", error);
             return false;

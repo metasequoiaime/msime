@@ -5,13 +5,13 @@ import android.text.Editable;
 import android.text.InputType;
 import android.text.TextWatcher;
 import android.util.AttributeSet;
-import android.view.Gravity;
 import android.view.inputmethod.EditorInfo;
 import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import androidx.annotation.Nullable;
 import app.msime.android.R;
+import app.msime.android.ViewPolicy;
 import java.util.function.Consumer;
 
 /**
@@ -27,25 +27,21 @@ public final class SearchPill extends LinearLayout {
     public SearchPill(Context context, @Nullable AttributeSet attrs) {
         super(context, attrs);
         setOrientation(HORIZONTAL);
-        setGravity(Gravity.CENTER_VERTICAL);
-        setMinimumHeight(Ui.dp(context, Ui.SEARCH_HEIGHT));
-        setPadding(Ui.dp(context, 18), 0, Ui.dp(context, 18), 0);
+        ViewPolicy.setCenteredVertically(this);
+        Ui.setMinimumHeightDp(this, context, Ui.SEARCH_HEIGHT);
+        Ui.setHorizontalPaddingDp(this, context, 18);
         setBackground(Ui.pill(Ui.card(context)));
 
-        ImageView glyph = new ImageView(context);
-        glyph.setImageResource(R.drawable.ic_search);
-        glyph.setImageTintList(android.content.res.ColorStateList.valueOf(Ui.subText(context)));
-        glyph.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
+        ImageView glyph = Ui.decorativeIcon(context, R.drawable.ic_search, Ui.subText(context));
         int icon = Ui.dp(context, 16);
         addView(glyph, new LayoutParams(icon, icon));
 
-        field = new EditText(context);
-        field.setBackground(null);
-        field.setPadding(0, 0, 0, 0);
+        field = Ui.styledInput(context, Ui.TEXT_ROW_TITLE, 400, Ui.text(context));
+        ViewPolicy.clearBackground(field);
+        ViewPolicy.clearPadding(field);
         field.setSingleLine(true);
         field.setInputType(InputType.TYPE_CLASS_TEXT);
         field.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
-        Ui.style(field, Ui.TEXT_ROW_TITLE, 400, Ui.text(context));
         field.setHintTextColor(Ui.subText(context));
         field.setHint("搜索");
         LayoutParams params = new LayoutParams(0, Ui.dp(context, Ui.SEARCH_HEIGHT), 1f);

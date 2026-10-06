@@ -108,7 +108,9 @@ pub unsafe extern "C" fn msime_client_doubao_audio_frame(
     output_capacity: usize,
     output_length: *mut usize,
 ) -> bool {
-    if pcm_length > 1_048_576 || (pcm.is_null() && pcm_length != 0) {
+    // `i32::abs()` panics for its sole unrepresentable input. Reject it at
+    // the C boundary so hostile sequence values cannot abort the host process.
+    if sequence == i32::MIN || pcm_length > 1_048_576 || (pcm.is_null() && pcm_length != 0) {
         return false;
     }
     let bytes = if pcm_length == 0 {

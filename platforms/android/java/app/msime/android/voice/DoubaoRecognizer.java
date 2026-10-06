@@ -229,7 +229,7 @@ public final class DoubaoRecognizer {
     private Update update(byte[] payload) {
         try {
             JSONObject response = new JSONObject(NativeClient.doubaoDecodeFrame(payload));
-            if (!response.optBoolean("ok", false)) return null;
+            if (!Boolean.TRUE.equals(DoubaoAsrPolicy.strictBoolean(response.opt("ok")))) return null;
             JSONObject value = response.optJSONObject("value");
             if (value == null) return null;
             // An error frame ends the session; the code is the provider's and is not shown.
@@ -237,7 +237,8 @@ public final class DoubaoRecognizer {
             JSONObject document = new JSONObject(value.optString("payload", "{}"));
             JSONObject result = document.optJSONObject("result");
             String text = result == null ? "" : DoubaoAsrPolicy.strictText(result.opt("text"));
-            return new Update(text, value.optBoolean("last", false));
+            Boolean last = DoubaoAsrPolicy.strictBoolean(value.opt("last"));
+            return last == null ? null : new Update(text, last);
         } catch (JSONException error) {
             return null;
         }
@@ -315,7 +316,8 @@ public final class DoubaoRecognizer {
         try {
             recorder = new AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION,
                 WavAudio.SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO,
-                AudioFormat.ENCODING_PCM_16BIT, Math.max(minimum, CHUNK_BYTES * 4));
+                AudioFormat.ENCODING_PCM_16BIT,
+                BoundsPolicy.atLeast(CHUNK_BYTES * 4, minimum));
         } catch (IllegalArgumentException | SecurityException error) {
             return null;
         }

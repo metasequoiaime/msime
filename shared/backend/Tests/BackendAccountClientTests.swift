@@ -44,6 +44,20 @@ private final class AccountProtocol: URLProtocol {
   }
   override func stopLoading() {}
 }
+
+private final class AuthInputProtocol: URLProtocol {
+  static var requests = 0
+  override class func canInit(with request: URLRequest) -> Bool { true }
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+  override func startLoading() {
+    Self.requests += 1
+    let response = HTTPURLResponse(url: request.url!, statusCode: 204, httpVersion: nil,
+      headerFields: nil)!
+    client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+    client?.urlProtocolDidFinishLoading(self)
+  }
+  override func stopLoading() {}
+}
 private final class OversizedAccountProtocol: URLProtocol {
   override class func canInit(with request: URLRequest) -> Bool { request.url?.path == "/v1/auth/login" }
   override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -54,6 +68,34 @@ private final class OversizedAccountProtocol: URLProtocol {
       "access_token": token, "refresh_token": refresh, "token_type": "Bearer", "expires_in": 2_592_001,
       "user": ["id": "synthetic", "display_name": "", "created_at": "2026-09-08"]
     ])
+    let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil,
+      headerFields: ["Content-Type": "application/json"])!
+    client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+    client?.urlProtocol(self, didLoad: body)
+    client?.urlProtocolDidFinishLoading(self)
+  }
+  override func stopLoading() {}
+}
+private final class OversizedProvidersProtocol: URLProtocol {
+  override class func canInit(with request: URLRequest) -> Bool { request.url?.path == "/v1/auth/providers" }
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+  override func startLoading() {
+    var providers: [String: Bool] = [:]
+    for suffix in Array("abcdefghijklmnopq") { providers["provider-\(suffix)"] = true }
+    let body = try! JSONSerialization.data(withJSONObject: ["providers": providers])
+    let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil,
+      headerFields: ["Content-Type": "application/json"])!
+    client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+    client?.urlProtocol(self, didLoad: body)
+    client?.urlProtocolDidFinishLoading(self)
+  }
+  override func stopLoading() {}
+}
+private final class InvalidProviderKeyProtocol: URLProtocol {
+  override class func canInit(with request: URLRequest) -> Bool { request.url?.path == "/v1/auth/providers" }
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+  override func startLoading() {
+    let body = Data(#"{"providers":{"Bad Provider":true}}"#.utf8)
     let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil,
       headerFields: ["Content-Type": "application/json"])!
     client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
@@ -119,6 +161,7 @@ private final class MalformedDictionaryProtocol: URLProtocol {
     let entry: [String: Any]
     switch query {
     case "bad-id": entry = ["id": "../logout", "kind": "pinyin", "code": "ni", "word": "你", "weight": 1, "revision": 1]
+    case "bad-code": entry = ["id": String(repeating: "a", count: 64), "kind": "pinyin", "code": "ni2", "word": "你", "weight": 1, "revision": 1]
     case "bad-kind": entry = ["id": String(repeating: "a", count: 64), "kind": "wubi", "code": "ni", "word": "你", "weight": 1, "revision": 1]
     case "bad-offset": entry = ["id": String(repeating: "a", count: 64), "kind": "pinyin", "code": "ni", "word": "你", "weight": 1, "revision": 1]
     case "bad-weight": entry = ["id": String(repeating: "a", count: 64), "kind": "pinyin", "code": "ni", "word": "你", "weight": -1, "revision": 1]
@@ -170,11 +213,34 @@ final class BackendAccountClientTests: XCTestCase {
     let challenge = try await client.challenge(provider: "apple")
     XCTAssertEqual(challenge.nonce, "server-nonce")
   }
+  func testProvidersRejectsUnboundedOrMalformedMap() async throws {
+    for protocolClass in [OversizedProvidersProtocol.self, InvalidProviderKeyProtocol.self] {
+      let configuration = URLSessionConfiguration.ephemeral
+      configuration.protocolClasses = [protocolClass]
+      do {
+        _ = try await BackendAccountClient(configuration: configuration).providers()
+        XCTFail("malformed providers accepted")
+      } catch let error as BackendAccountClient.Failure {
+        XCTAssertEqual(error.status, 0)
+      }
+    }
+  }
   func testAuthenticatedNoContentOperations() async throws {
     let client = client()
     try await client.rename("测试账号", token: "session")
     try await client.logout(token: "session")
     try await client.deleteAccount(token: "session")
+  }
+  func testRenameRejectsInvalidDisplayNamesBeforeSending() async throws {
+    let client = client()
+    for name in ["", " leading", "trailing ", String(repeating: "x", count: 65), "bad\u{0001}name"] {
+      do {
+        try await client.rename(name, token: "session")
+        XCTFail("invalid display name sent: \(name.debugDescription)")
+      } catch let failure as BackendAccountClient.Failure {
+        XCTAssertEqual(failure.status, 400)
+      }
+    }
   }
   func testFailuresDoNotExposeServerText() async throws {
     do { _ = try await client().profile(token: "wrong"); XCTFail("must reject") }
@@ -211,6 +277,50 @@ final class BackendAccountClientTests: XCTestCase {
       _ = try await client.login(challenge: "challenge", credential: "synthetic")
       XCTFail("malformed token user accepted")
     } catch let error as BackendAccountClient.Failure { XCTAssertEqual(error.status, 0) }
+  }
+  func testAuthInputsAreRejectedBeforeNetworking() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [AuthInputProtocol.self]
+    let client = BackendAccountClient(configuration: configuration)
+    AuthInputProtocol.requests = 0
+
+    for (provider, target) in [("unknown", ""), ("apple", "unexpected"),
+                               ("email", String(repeating: "a", count: 321)),
+                               ("email", "bad\u{0001}target"),
+                               ("google", "http://127.0.0.1:80/callback")] {
+      do {
+        _ = try await client.challenge(provider: provider, target: target)
+        XCTFail("invalid challenge target was sent")
+      } catch let error as BackendAccountClient.Failure {
+        XCTAssertEqual(error.status, 400)
+      }
+    }
+    for (challenge, credential) in [("", "123456"), ("challenge", "bad\u{0001}credential"),
+                                    ("challenge", String(repeating: "x", count: 16_385))] {
+      do {
+        _ = try await client.login(challenge: challenge, credential: credential)
+        XCTFail("invalid login input was sent")
+      } catch let error as BackendAccountClient.Failure {
+        XCTAssertEqual(error.status, 400)
+      }
+    }
+    for token in [String(repeating: "a", count: 63), String(repeating: "A", count: 64)] {
+      do {
+        _ = try await client.refresh(token)
+        XCTFail("invalid refresh token was sent")
+      } catch let error as BackendAccountClient.Failure {
+        XCTAssertEqual(error.status, 400)
+      }
+    }
+    for name in ["", " leading", String(repeating: "名", count: 65), "bad\nname"] {
+      do {
+        try await client.rename(name, token: "session")
+        XCTFail("invalid display name was sent")
+      } catch let error as BackendAccountClient.Failure {
+        XCTAssertEqual(error.status, 400)
+      }
+    }
+    XCTAssertEqual(AuthInputProtocol.requests, 0)
   }
   func testClipboardSearchIsEncodedAsOneQueryValue() async throws {
     let search = "学习 & q=other + % #"
@@ -270,7 +380,7 @@ final class BackendAccountClientTests: XCTestCase {
     let configuration = URLSessionConfiguration.ephemeral
     configuration.protocolClasses = [MalformedDictionaryProtocol.self]
     let client = BackendAccountClient(configuration: configuration)
-    for search in ["bad-id", "bad-kind", "bad-offset", "bad-weight"] {
+    for search in ["bad-id", "bad-code", "bad-kind", "bad-offset", "bad-weight"] {
       do {
         _ = try await client.dictionary(.pinyin, search: search, token: "session")
         XCTFail("malformed dictionary entry accepted: \(search)")
@@ -285,6 +395,14 @@ final class BackendAccountClientTests: XCTestCase {
     XCTAssertEqual(page.entries.first?.word, text)
     XCTAssertFalse(page.has_more)
   }
+  func testDictionarySearchRejectsControlCharactersLocally() async throws {
+    do {
+      _ = try await client().dictionary(.quick, search: "safe\u{0007}query", token: "session")
+      XCTFail("control character accepted in dictionary search")
+    } catch let error as BackendAccountClient.Failure {
+      XCTAssertEqual(error.status, 400)
+    }
+  }
   func testDictionaryMutationRejectsUnsafeEntryIDAndInvalidRevision() async throws {
     for (id, revision) in [("../../auth/logout", 1), (String(repeating: "a", count: 64), 0)] {
       let entry = BackendAccountClient.DictionaryEntry(id: id, kind: .quick, code: "test", word: "合成", weight: 1, revision: Int64(revision))
@@ -294,6 +412,12 @@ final class BackendAccountClientTests: XCTestCase {
   }
   func testCredentialsCannotGoToAnotherOrigin() async throws {
     for path in ["https://other.invalid/v1/users/me", "//other.invalid/v1/users/me", "/v1/\\other.invalid", "/v1/users/me#fragment"] {
+      do { _ = try await client().request("GET", path, token: "session"); XCTFail(path) }
+      catch let error as BackendAccountClient.Failure { XCTAssertEqual(error.status, 0) }
+    }
+  }
+  func testCredentialsCannotEscapeVersionedApiPathWithDotSegments() async throws {
+    for path in ["/v1/../auth/logout", "/v1/users/../auth/logout", "/v1/%2e%2e/auth/logout"] {
       do { _ = try await client().request("GET", path, token: "session"); XCTFail(path) }
       catch let error as BackendAccountClient.Failure { XCTAssertEqual(error.status, 0) }
     }

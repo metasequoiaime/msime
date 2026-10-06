@@ -7,6 +7,24 @@ public final class VoiceConfigurationSmoke {
     }
 
     public static void main(String[] args) {
+        try {
+            java.lang.reflect.Method strictBoolean = VoiceConfiguration.class.getDeclaredMethod(
+                "strictBoolean", Object.class);
+            strictBoolean.setAccessible(true);
+            check(Boolean.TRUE.equals(strictBoolean.invoke(null, Boolean.TRUE)),
+                "voice configuration accepts JSON booleans");
+            check(strictBoolean.invoke(null, "true") == null,
+                "voice configuration rejects boolean strings instead of coercing them");
+            java.lang.reflect.Method strictString = VoiceConfiguration.class.getDeclaredMethod(
+                "strictString", Object.class);
+            strictString.setAccessible(true);
+            check("synthetic".equals(strictString.invoke(null, "synthetic")),
+                "voice configuration accepts JSON strings");
+            check(strictString.invoke(null, 7) == null,
+                "voice configuration rejects numeric strings instead of coercing them");
+        } catch (ReflectiveOperationException error) {
+            throw new AssertionError("voice configuration response policy missing", error);
+        }
         VoiceConfiguration configuration = VoiceConfiguration.fromProvider(
             "local", "", null);
         check("local".equals(configuration.provider()),

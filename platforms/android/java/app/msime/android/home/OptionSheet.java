@@ -1,23 +1,14 @@
 package app.msime.android.home;
 
 import android.content.Context;
-import android.content.res.ColorStateList;
-import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.Button;
-import android.widget.FrameLayout;
-import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import androidx.annotation.Nullable;
-import androidx.core.view.AccessibilityDelegateCompat;
-import androidx.core.view.ViewCompat;
-import androidx.core.view.accessibility.AccessibilityNodeInfoCompat;
 import androidx.core.widget.NestedScrollView;
-import app.msime.android.R;
+import app.msime.android.ViewPolicy;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
-import com.google.android.material.bottomsheet.BottomSheetDragHandleView;
 import java.util.function.Supplier;
 
 /**
@@ -36,65 +27,54 @@ public final class OptionSheet {
     public OptionSheet(Context context, CharSequence title, @Nullable CharSequence subtitle) {
         this.context = context;
         dialog = new BottomSheetDialog(context);
-        LinearLayout root = new LinearLayout(context);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.addView(new BottomSheetDragHandleView(context), Ui.matchWidth());
+        LinearLayout root = Ui.column(context);
+        root.addView(Ui.sheetDragHandle(context));
 
-        LinearLayout header = new LinearLayout(context);
-        header.setOrientation(LinearLayout.VERTICAL);
-        header.setGravity(Gravity.CENTER_HORIZONTAL);
-        header.setPadding(Ui.dp(context, 16), 0, Ui.dp(context, 16), Ui.dp(context, 12));
-        TextView heading = new TextView(context);
-        heading.setText(title);
-        heading.setGravity(Gravity.CENTER);
-        Ui.style(heading, Ui.TEXT_SHEET_HEADER, 600, Ui.subText(context));
-        heading.setAccessibilityHeading(true);
+        LinearLayout header = Ui.column(context);
+        ViewPolicy.setCenteredHorizontally(header);
+        Ui.setSheetHeaderPadding(header, context);
+        TextView heading = Ui.sheetHeading(context, title);
         header.addView(heading);
         if (subtitle != null && subtitle.length() > 0) {
-            TextView note = new TextView(context);
-            note.setText(subtitle);
-            note.setGravity(Gravity.CENTER);
-            Ui.style(note, Ui.TEXT_SHEET_HEADER, 400, Ui.subText(context));
-            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            TextView note = Ui.sheetSubtitle(context, subtitle);
+            LinearLayout.LayoutParams params = Ui.wrap();
             params.topMargin = Ui.dp(context, 2);
             header.addView(note, params);
         }
         root.addView(header);
 
-        options = new LinearLayout(context);
-        options.setOrientation(LinearLayout.VERTICAL);
+        options = Ui.column(context);
         NestedScrollView scroll = new NestedScrollView(context);
         scroll.addView(options, new ViewGroup.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         // 选项多到一屏放不下时，这一段滚动，标题和「取消」留在原处。
-        root.addView(scroll, new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        root.addView(scroll, Ui.weightedWidth(1f));
 
         // 「取消」与选项之间一条页面底色的带子，代替设计里分开的两块卡片。
-        View band = new View(context);
-        band.setBackgroundColor(Ui.page(context));
-        root.addView(band, Ui.matchWidthHeight(context, 8));
-        root.addView(optionView("取消", false, false, false, Ui.accent(context), true, dialog::cancel));
+        root.addView(Ui.sheetSeparator(context));
+        root.addView(SheetOptionView.create(context, "取消", false, false, Ui.accent(context), true,
+            dialog::cancel));
         dialog.setContentView(root);
     }
 
     /** 一个普通选项；`selected` 为真时加粗并打 ✓。 */
     public OptionSheet option(CharSequence label, boolean selected, Runnable action) {
-        addOption(optionView(label, selected, true, false, Ui.accent(context), selected, then(action)));
+        addOption(SheetOptionView.create(context, label, selected, false, Ui.accent(context), selected,
+            then(action)));
         return this;
     }
 
     /** 一个带下一级的选项：文字后面跟 ›，点了关掉本面板并打开 `next` 给出的面板。 */
     public OptionSheet submenu(CharSequence label, boolean selected, Supplier<OptionSheet> next) {
-        addOption(optionView(label, selected, true, true, Ui.accent(context), selected,
+        addOption(SheetOptionView.create(context, label, selected, true, Ui.accent(context), selected,
             then(() -> next.get().show())));
         return this;
     }
 
     /** 一个破坏性选项，红色。 */
     public OptionSheet destructive(CharSequence label, Runnable action) {
-        addOption(optionView(label, false, false, false, Ui.danger(context), false, then(action)));
+        addOption(SheetOptionView.create(context, label, false, false, Ui.danger(context), false,
+            then(action)));
         return this;
     }
 
@@ -111,57 +91,10 @@ public final class OptionSheet {
 
     private void addOption(View view) {
         if (count > 0) {
-            View rule = Ui.hairlineView(context);
-            options.addView(rule, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
-                Ui.hairlinePx(context)));
+            options.addView(Ui.divider(context, true));
         }
         options.addView(view);
         count++;
-    }
-
-    private View optionView(CharSequence label, boolean selected, boolean checkable, boolean nested,
-            int color, boolean bold, Runnable action) {
-        FrameLayout row = new FrameLayout(context);
-        row.setMinimumHeight(Ui.dp(context, Ui.SHEET_OPTION_HEIGHT));
-        row.setBackground(Ui.ripple(context));
-        row.setClickable(true);
-        row.setFocusable(true);
-        row.setOnClickListener(ignored -> action.run());
-
-        TextView text = new TextView(context);
-        text.setText(nested ? label + " ›" : label);
-        text.setGravity(Gravity.CENTER);
-        Ui.style(text, Ui.TEXT_SHEET_OPTION, bold ? 600 : 400, color);
-        FrameLayout.LayoutParams textParams = new FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER);
-        // 两侧各留出 ✓ 的位置，长选项不会压到它。
-        textParams.leftMargin = Ui.dp(context, 48);
-        textParams.rightMargin = Ui.dp(context, 48);
-        textParams.topMargin = Ui.dp(context, 8);
-        textParams.bottomMargin = Ui.dp(context, 8);
-        row.addView(text, textParams);
-
-        if (selected) {
-            ImageView check = new ImageView(context);
-            check.setImageResource(R.drawable.ms_w1_a2_check);
-            check.setImageTintList(ColorStateList.valueOf(Ui.accent(context)));
-            check.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-            FrameLayout.LayoutParams checkParams = new FrameLayout.LayoutParams(Ui.dp(context, 18), Ui.dp(context, 18),
-                Gravity.CENTER_VERTICAL | Gravity.END);
-            checkParams.setMarginEnd(Ui.dp(context, 20));
-            row.addView(check, checkParams);
-        }
-
-        ViewCompat.setAccessibilityDelegate(row, new AccessibilityDelegateCompat() {
-            @Override public void onInitializeAccessibilityNodeInfo(View host, AccessibilityNodeInfoCompat info) {
-                super.onInitializeAccessibilityNodeInfo(host, info);
-                info.setClassName(Button.class.getName());
-                // 读屏不念「›」，下一级用文字说出来。
-                info.setContentDescription(nested ? label + "，更多选项" : label);
-                if (checkable && selected) info.setStateDescription("已选择");
-            }
-        });
-        return row;
     }
 
 }

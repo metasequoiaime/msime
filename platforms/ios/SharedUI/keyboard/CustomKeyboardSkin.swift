@@ -96,6 +96,7 @@ struct CustomKeyboardSkin: Codable, Equatable, Hashable, Sendable {
 
 enum CustomKeyboardSkinStore {
   static let key = "customKeyboardSkin.v1"
+  private static let maximumEncodedBytes = 1_000_000
   private static let cache = Cache()
   static var current: CustomKeyboardSkin { cache.load() }
   /// The saved design, or nil when there is none: `current` falls back to the editor's starting design, which is not one the user applied.
@@ -117,7 +118,10 @@ enum CustomKeyboardSkinStore {
       defer { lock.unlock() }
       if data != previousData {
         previousData = data
-        value = data.flatMap { try? JSONDecoder().decode(CustomKeyboardSkin.self, from: $0) }?.normalized
+        value = data.flatMap { data -> CustomKeyboardSkin? in
+          guard data.count <= CustomKeyboardSkinStore.maximumEncodedBytes else { return nil }
+          return try? JSONDecoder().decode(CustomKeyboardSkin.self, from: data)
+        }?.normalized
           ?? CustomKeyboardSkin()
       }
       return value
@@ -149,6 +153,7 @@ enum CustomSkinLibrary {
           size <= 9_000_000,
           let data = try? BoundedFileReader.read(from: file, maximumBytes: 9_000_000),
           let items = try? JSONDecoder().decode([SavedKeyboardSkin].self, from: data) else { return [] }
+    guard items.count <= 12 else { return [] }
     return Array(items.prefix(12)).map { item in
       var item = item
       item.design = item.design.normalized

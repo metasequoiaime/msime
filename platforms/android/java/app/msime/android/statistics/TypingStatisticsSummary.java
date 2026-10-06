@@ -16,6 +16,11 @@ import org.json.JSONObject;
  * <p>指标的口径全部在 Rust（`crates/client-core/src/typing_statistics/metrics.rs`），这里只解析和排版。Rust 给 null 的字段在这里仍是 null（样本不足、没有活跃时间），页面把它们显示成「—」，不当成 0。纯 Java：不引用 androidx、R 或 `home/`，排版规则可以在主机 JVM 上冒烟。
  */
 public final class TypingStatisticsSummary {
+    /** 一天按小时统计的固定桶数。 */
+    public static final int HOURS_PER_DAY = 24;
+    /** 选词位置分布的固定桶数：前三个候选与翻页后的候选。 */
+    public static final int POSITION_BUCKETS = 4;
+
     /** 一天和这天的字数。 */
     public record DayCount(String day, long count) {}
 
@@ -127,8 +132,8 @@ public final class TypingStatisticsSummary {
         return new TypingStatisticsSummary(
             new Overview(count(overview.opt("week_total")), count(overview.opt("previous_week_total")),
                 days(overview.optJSONArray("last7")), number(overview, "average_speed"),
-                number(overview, "previous_average_speed"), number(overview, "first_candidate_rate"),
-                number(overview, "keystrokes_saved_rate"), count(overview.opt("current_streak")),
+                number(overview, "previous_average_speed"), rate(overview, "first_candidate_rate"),
+                rate(overview, "keystrokes_saved_rate"), count(overview.opt("current_streak")),
                 count(overview.opt("longest_streak"))),
             new Habits(days(habits.optJSONArray("weeks12")), hours(habits.optJSONArray("hours24")),
                 peak == null ? null : new PeakWindow((int) count(peak.opt("start")),
@@ -137,7 +142,7 @@ public final class TypingStatisticsSummary {
                 breakdown == null ? Map.of() : counts(breakdown.optJSONObject("characters")),
                 breakdown == null ? Map.of() : counts(breakdown.optJSONObject("sources"))),
             new Keys(number(keys, "per_character_keys"), number(keys, "previous_per_character_keys"),
-                number(keys, "backspace_rate"), number(keys, "prediction_rate"),
+                rate(keys, "backspace_rate"), rate(keys, "prediction_rate"),
                 run == null ? null : new Run(count(run.opt("characters")), run.optString("day", "")),
                 positions(keys.optJSONArray("positions"))),
             badges);
@@ -198,8 +203,8 @@ public final class TypingStatisticsSummary {
     /** 高峰时段：`晚上 9–11 点`；没有时返回 null。 */
     public static String peakLabel(PeakWindow window) {
         if (window == null) return null;
-        int start = Math.floorMod(window.start(), 24);
-        int end = Math.floorMod(window.end(), 24);
+        int start = Math.floorMod(window.start(), HOURS_PER_DAY);
+        int end = Math.floorMod(window.end(), HOURS_PER_DAY);
         return period(start) + " " + clock(start) + "–" + clock(end) + " 点";
     }
 
@@ -351,9 +356,27 @@ public final class TypingStatisticsSummary {
         return Double.isFinite(result) ? result : null;
     }
 
+    /** 统计比例字段必须是 0–1 的有限 JSON 数字；越界值按缺省的无数据处理。 */
+    public static Double strictRate(Object value) {
+        if (!(value instanceof Number number) || value instanceof Boolean) return null;
+        double rate = number.doubleValue();
+        return Double.isFinite(rate) && rate >= 0d && rate <= 1d ? rate : null;
+    }
+
+    private static Double rate(JSONObject object, String key) {
+        if (object.isNull(key)) return null;
+        return strictRate(object.opt(key));
+    }
+
+    /** Statistics counters are JSON unsigned integers; reject fractional and negative values. */
+    public static long strictCount(Object value) {
+        if (value instanceof Integer integer) return integer < 0 ? 0L : integer.longValue();
+        if (value instanceof Long longValue) return longValue < 0L ? 0L : longValue;
+        return 0L;
+    }
+
     private static long count(Object value) {
-        if (!(value instanceof Number number)) return 0;
-        return BoundsPolicy.nonNegative(number.longValue());
+        return strictCount(value);
     }
 
     private static List<DayCount> days(JSONArray array) {
@@ -368,19 +391,25 @@ public final class TypingStatisticsSummary {
     }
 
     private static List<Long> hours(JSONArray array) {
-        List<Long> result = new ArrayList<>(24);
-        for (int hour = 0; hour < 24; hour++) {
+        List<Long> result = new ArrayList<>(HOURS_PER_DAY);
+        for (int hour = 0; hour < HOURS_PER_DAY; hour++) {
             result.add(array == null || hour >= array.length() ? 0L : count(array.opt(hour)));
         }
         return List.copyOf(result);
     }
 
+    /** Candidate position buckets are JSON proportions in the closed 0–1 range. */
+    public static double strictPositionRate(Object value) {
+        if (!(value instanceof Number number) || value instanceof Boolean) return 0d;
+        double rate = number.doubleValue();
+        return Double.isFinite(rate) && rate >= 0d && rate <= 1d ? rate : 0d;
+    }
+
     private static List<Double> positions(JSONArray array) {
-        if (array == null || array.length() != 4) return null;
-        List<Double> result = new ArrayList<>(4);
-        for (int index = 0; index < 4; index++) {
-            Object value = array.opt(index);
-            result.add(value instanceof Number number ? number.doubleValue() : 0d);
+        if (array == null || array.length() != POSITION_BUCKETS) return null;
+        List<Double> result = new ArrayList<>(POSITION_BUCKETS);
+        for (int index = 0; index < POSITION_BUCKETS; index++) {
+            result.add(strictPositionRate(array.opt(index)));
         }
         return List.copyOf(result);
     }

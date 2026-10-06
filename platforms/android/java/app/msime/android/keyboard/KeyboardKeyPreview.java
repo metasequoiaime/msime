@@ -33,10 +33,9 @@ public final class KeyboardKeyPreview extends View {
 
     public KeyboardKeyPreview(Context context) {
         super(context);
-        setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
+        ViewPolicy.hideFromAccessibility(this);
         setWillNotDraw(false);
-        setClickable(false);
-        setFocusable(false);
+        ViewPolicy.setNonInteractive(this);
         text.setTextAlign(Paint.Align.CENTER);
         outline.setStyle(Paint.Style.STROKE);
         setVisibility(GONE);
@@ -122,7 +121,7 @@ public final class KeyboardKeyPreview extends View {
         shape.reset();
         shape.addRoundRect(rect, radii, Path.Direction.CW);
         fill.setShadowLayer(KeyboardGeometry.floatPixels(getContext(), 9), 0,
-            KeyboardGeometry.floatPixels(getContext(), 6), Color.argb(56, 0, 0, 0));
+            KeyboardGeometry.floatPixels(getContext(), 6), ColorPolicy.withAlpha(Color.BLACK, 56));
         canvas.drawPath(shape, fill);
         outline.setStrokeWidth(BoundsPolicy.bounded(
             KeyboardGeometry.floatPixels(getContext(), .5f), 1f, Float.MAX_VALUE));

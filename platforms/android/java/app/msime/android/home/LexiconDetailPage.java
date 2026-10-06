@@ -5,11 +5,9 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.LinearLayout;
-import android.widget.TextView;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.Nullable;
@@ -181,31 +179,7 @@ public final class LexiconDetailPage extends DetailPage {
 
     private View accentRow(@Nullable String glyph, String title, Runnable action) {
         Context context = requireContext();
-        LinearLayout row = new LinearLayout(context);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setMinimumHeight(Ui.dp(context, 52));
-        row.setPadding(Ui.dp(context, Ui.ROW_PADDING_H), 0, Ui.dp(context, Ui.ROW_PADDING_H), 0);
-        if (glyph != null) {
-            TextView icon = new TextView(context);
-            icon.setText(glyph);
-            icon.setGravity(Gravity.CENTER);
-            Ui.style(icon, 22, 400, Ui.accent(context));
-            icon.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-            LinearLayout.LayoutParams iconParams = new LinearLayout.LayoutParams(Ui.dp(context, 24), Ui.dp(context, 24));
-            iconParams.setMarginEnd(Ui.dp(context, 10));
-            row.addView(icon, iconParams);
-        }
-        TextView label = new TextView(context);
-        label.setText(title);
-        Ui.style(label, Ui.TEXT_ROW_TITLE, 400, Ui.accent(context));
-        row.addView(label);
-        row.setBackground(Ui.ripple(context));
-        row.setClickable(true);
-        row.setFocusable(true);
-        row.setContentDescription(title);
-        row.setOnClickListener(ignored -> action.run());
-        return row;
+        return KeyboardSheets.accentActionRow(context, glyph, title, action, 24, 10, 0);
     }
 
     // ---- 搜索 ----

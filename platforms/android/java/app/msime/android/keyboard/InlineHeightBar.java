@@ -51,9 +51,9 @@ public final class InlineHeightBar extends LinearLayout {
     public InlineHeightBar(Context context) {
         super(context);
         setOrientation(HORIZONTAL);
-        setGravity(Gravity.CENTER_VERTICAL);
+        ViewPolicy.setCenteredVertically(this);
         setContentDescription(DESCRIPTION);
-        setPadding(KeyboardGeometry.pixels(context, 6), 0, KeyboardGeometry.pixels(context, 6), 0);
+        KeyboardGeometry.setHorizontalPaddingDp(this, context, 6);
         cancel = textButton(context, "取消");
         reset = textButton(context, "重置");
         done = textButton(context, "完成");
@@ -61,12 +61,12 @@ public final class InlineHeightBar extends LinearLayout {
         KeyboardGeometry.setKeyTextSize(done, 14);
         handle = new Handle(context, this);
         int pill = KeyboardGeometry.pixels(context, 32);
-        addView(cancel, new LayoutParams(LayoutParams.WRAP_CONTENT, pill));
-        addView(handle, new LayoutParams(0, LayoutParams.MATCH_PARENT, 1f));
-        LayoutParams resetParams = new LayoutParams(LayoutParams.WRAP_CONTENT, pill);
+        addView(cancel, KeyboardGeometry.linearParamsPx(LayoutParams.WRAP_CONTENT, pill));
+        addView(handle, KeyboardGeometry.weightedMatchParentParams(1f));
+        LinearLayout.LayoutParams resetParams = KeyboardGeometry.linearParamsPx(LayoutParams.WRAP_CONTENT, pill);
         resetParams.rightMargin = KeyboardGeometry.pixels(context, 4);
         addView(reset, resetParams);
-        addView(done, new LayoutParams(LayoutParams.WRAP_CONTENT, pill));
+        addView(done, KeyboardGeometry.linearParamsPx(LayoutParams.WRAP_CONTENT, pill));
         cancel.setOnClickListener(view -> { if (listener != null) listener.onCancel(); });
         done.setOnClickListener(view -> { if (listener != null) listener.onDone(); });
         reset.setOnClickListener(view -> {
@@ -78,16 +78,12 @@ public final class InlineHeightBar extends LinearLayout {
     private static Button textButton(Context context, String label) {
         Button button = new BarButton(context);
         button.setText(label);
-        button.setAllCaps(false);
-        button.setBackground(null);
-        button.setMinWidth(0);
-        button.setMinimumWidth(0);
-        button.setMinHeight(0);
-        button.setMinimumHeight(0);
+        ViewPolicy.setAllCapsFalse(button);
+        ViewPolicy.clearBackground(button);
+        ViewPolicy.clearMinimumSize(button);
         int horizontal = KeyboardGeometry.pixels(context, 12);
-        button.setPadding(horizontal, 0, horizontal, 0);
-        KeyboardGeometry.setKeyTextSize(button, 14);
-        button.setGravity(Gravity.CENTER);
+        ViewPolicy.setHorizontalPadding(button, horizontal);
+        ViewPolicy.setCenteredKeyTextSizeSp(button, 14);
         return button;
     }
 
@@ -234,7 +230,7 @@ public final class InlineHeightBar extends LinearLayout {
             super(context);
             this.bar = bar;
             text.setTextAlign(Paint.Align.CENTER);
-            setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
+            ViewPolicy.hideFromAccessibility(this);
         }
 
         // 拖动柄只换算拖动距离，没有点击语义；无障碍用户经整条的 RangeInfo 与滚动动作调整。

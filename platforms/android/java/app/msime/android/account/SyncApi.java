@@ -5,6 +5,7 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.math.BigInteger;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -106,8 +107,7 @@ public final class SyncApi {
     }
 
     static Preferences parsePreferences(JSONObject root) throws CloudApi.Failure {
-        Object revision = root.opt("revision");
-        if (!(revision instanceof Number)) throw invalid("preferences revision missing");
+        long revision = preferenceRevision(root.opt("revision"));
         JSONObject raw = root.optJSONObject("settings");
         LinkedHashMap<String, Object> settings = new LinkedHashMap<>(raw == null ? 0 : raw.length());
         if (raw != null) {
@@ -118,7 +118,20 @@ public final class SyncApi {
                 if (value instanceof String || value instanceof Boolean || value instanceof Number) settings.put(key, value);
             }
         }
-        return new Preferences(((Number) revision).longValue(), Collections.unmodifiableMap(settings));
+        return new Preferences(revision, Collections.unmodifiableMap(settings));
+    }
+
+    /** Account preference revisions are JSON integers in the non-negative long range. */
+    static long preferenceRevision(Object value) throws CloudApi.Failure {
+        if (!(value instanceof Number)
+            || value instanceof Float || value instanceof Double
+            || value instanceof java.math.BigDecimal
+            || value instanceof BigInteger) {
+            throw invalid("preferences revision must be an integer");
+        }
+        long revision = ((Number) value).longValue();
+        if (revision < 0) throw invalid("preferences revision must be non-negative");
+        return revision;
     }
 
     // ---- 常用语 ----
@@ -144,9 +157,10 @@ public final class SyncApi {
     }
 
     static Phrases parsePhrases(JSONObject root) throws CloudApi.Failure {
-        Object revision = root.opt("revision");
-        if (!(revision instanceof Number)) throw invalid("phrases revision missing");
+        long revision = phraseRevision(root.opt("revision"));
         JSONArray raw = root.optJSONArray("phrases");
+        if (raw != null && raw.length() > SyncMergePolicy.MAX_PHRASES)
+            throw invalid("too many phrases");
         List<SyncMergePolicy.Phrase> phrases = new ArrayList<>(raw == null ? 0 : raw.length());
         if (raw != null) {
             for (int index = 0; index < raw.length(); index++) {
@@ -159,11 +173,27 @@ public final class SyncApi {
                 Object position = value.opt("position");
                 phrases.add(new SyncMergePolicy.Phrase((String) id, (String) text,
                     group instanceof String ? (String) group : "",
-                    position instanceof Number ? ((Number) position).intValue() : index));
+                    strictPhrasePosition(position, index)));
             }
         }
         phrases.sort((left, right) -> Integer.compare(left.position(), right.position()));
-        return new Phrases(((Number) revision).longValue(), Collections.unmodifiableList(phrases));
+        return new Phrases(revision, Collections.unmodifiableList(phrases));
+    }
+
+    /** Common phrase positions are bounded JSON integers; malformed values keep response order. */
+    public static int strictPhrasePosition(Object value, int fallback) {
+        if (value instanceof Integer integer
+                && integer >= 0 && integer < SyncMergePolicy.MAX_PHRASES) return integer;
+        if (value instanceof Long longValue
+                && longValue >= 0L && longValue < SyncMergePolicy.MAX_PHRASES) {
+            return longValue.intValue();
+        }
+        return fallback;
+    }
+
+    /** Common phrase revisions use the same non-negative integer CAS contract as preferences. */
+    static long phraseRevision(Object value) throws CloudApi.Failure {
+        return preferenceRevision(value);
     }
 
     // ---- 词库快照 ----
@@ -175,11 +205,17 @@ public final class SyncApi {
     public DictionaryProbe dictionaryChangedSince(long after) throws CloudApi.Failure {
         JSONObject page = cloud.json("GET", changesPath(after), null, CloudApi.Auth.ACCOUNT);
         JSONArray changes = page.optJSONArray("changes");
-        Object next = page.opt("next");
         long minimum = BoundsPolicy.nonNegative(after);
-        long revision = BoundsPolicy.bounded(next instanceof Number ? ((Number) next).longValue() : 0L,
-            minimum, Long.MAX_VALUE);
+        long revision = changesRevision(page.opt("next"), minimum);
         return new DictionaryProbe(changes != null && changes.length() > 0, revision);
+    }
+
+    /** Dictionary change cursors are non-negative integer revisions and cannot move backwards. */
+    static long changesRevision(Object value, long minimum) throws CloudApi.Failure {
+        long revision = preferenceRevision(value);
+        long floor = BoundsPolicy.nonNegative(minimum);
+        if (revision < floor) throw invalid("dictionary revision moved backwards");
+        return revision;
     }
 
     static String changesPath(long after) {
@@ -200,7 +236,8 @@ public final class SyncApi {
         Path partial = destination.resolveSibling(destination.getFileName() + ".partial");
         try {
             try (OutputStream out = Files.newOutputStream(partial, StandardOpenOption.CREATE,
-                    StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE)) {
+                    StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE,
+                    LinkOption.NOFOLLOW_LINKS)) {
                 streamed(token -> streams.download(SNAPSHOT, token, new BoundedStream(out, MAX_SNAPSHOT_BYTES)));
             }
             long revision = snapshotRevision(partial);
@@ -221,8 +258,9 @@ public final class SyncApi {
         try {
             JSONObject root = new JSONObject(new String(exchange.body(), StandardCharsets.UTF_8));
             Object next = root.opt("revision");
-            if (!(next instanceof Number) || ((Number) next).longValue() <= revision) throw invalid("snapshot revision");
-            return ((Number) next).longValue();
+            long nextRevision = snapshotRevisionValue(next);
+            if (nextRevision <= revision) throw invalid("snapshot revision");
+            return nextRevision;
         } catch (JSONException malformed) {
             throw invalid("malformed snapshot response");
         }
@@ -235,11 +273,23 @@ public final class SyncApi {
             if (first == null) throw invalid("empty snapshot");
             JSONObject header = new JSONObject(first);
             Object revision = header.opt("revision");
-            if (!"header".equals(header.opt("type")) || !(revision instanceof Number)) throw invalid("snapshot header");
-            return ((Number) revision).longValue();
+            if (!"header".equals(header.opt("type"))) throw invalid("snapshot header");
+            return snapshotRevisionValue(revision);
         } catch (JSONException malformed) {
             throw invalid("snapshot header");
         }
+    }
+
+    /** Snapshot headers and restore responses carry the same integer revision contract. */
+    static long snapshotRevisionValue(Object value) throws CloudApi.Failure {
+        return preferenceRevision(value);
+    }
+
+    /** Snapshot entry weights are positive JSON integers in the host-api range. */
+    public static Long strictSnapshotWeight(Object value) {
+        if (!(value instanceof Integer) && !(value instanceof Long)) return null;
+        long weight = ((Number) value).longValue();
+        return weight >= 1L && weight <= 100_000_000L ? weight : null;
     }
 
     /**
@@ -276,8 +326,10 @@ public final class SyncApi {
                 Object word = data.opt("word");
                 Object weight = data.opt("weight");
                 if (!(kind instanceof String) || !(code instanceof String) || !(word instanceof String)) continue;
+                Long strictWeight = strictSnapshotWeight(weight);
+                if (strictWeight == null) throw new IOException("invalid snapshot weight");
                 words.put(id, new SyncMergePolicy.Word((String) kind, (String) code, (String) word,
-                    weight instanceof Number ? ((Number) weight).longValue() : 0L));
+                    strictWeight));
             }
         }
         for (String id : deleted) words.remove(id);
@@ -386,7 +438,9 @@ public final class SyncApi {
             try {
                 int status = connection.getResponseCode();
                 if (status / 100 == 2) {
-                    try (InputStream input = connection.getInputStream()) { copy(input, out); }
+                    try (InputStream input = connection.getInputStream()) {
+                        HttpBodyPolicy.copy(input, out);
+                    }
                     out.flush();
                     return new Exchange(status, null, new byte[0]);
                 }
@@ -405,7 +459,7 @@ public final class SyncApi {
                 connection.setDoOutput(true);
                 connection.setFixedLengthStreamingMode(length);
                 try (InputStream input = Files.newInputStream(file, LinkOption.NOFOLLOW_LINKS); OutputStream output = connection.getOutputStream()) {
-                    copy(input, output);
+                    HttpBodyPolicy.copy(input, output);
                 }
                 int status = connection.getResponseCode();
                 if (status / 100 == 2) {
@@ -442,10 +496,5 @@ public final class SyncApi {
             }
         }
 
-        private static void copy(InputStream input, OutputStream output) throws IOException {
-            byte[] buffer = new byte[16 * 1024];
-            int read;
-            while ((read = input.read(buffer)) != -1) output.write(buffer, 0, read);
-        }
     }
 }

@@ -9,7 +9,6 @@ import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.InsetDrawable;
 import android.os.Build;
-import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.MenuItem;
 import android.view.View;
@@ -71,26 +70,20 @@ final class ImePanels {
     }
 
     void addEmojiTab(EmojiCatalogModel.Category entry, int category) {
-        KeyboardPressButton tab = new KeyboardPressButton(s);
-        tab.setKeyboardRole(KeyboardKeyRole.PLAIN);
-        tab.setAllCaps(false);
-        tab.setText(entry.icon());
-        KeyboardGeometry.setKeyTextSize(tab, 17);
-        tab.setPadding(0, 0, 0, 0);
-        tab.setMinWidth(0);
-        tab.setMinimumWidth(0);
-        tab.setMinHeight(0);
-        tab.setMinimumHeight(0);
-        tab.setIncludeFontPadding(false);
+        KeyboardPressButton tab = emojiButton(KeyboardKeyRole.PLAIN, false,
+            () -> s.selectEmojiCategory(category));
+        ViewPolicy.setTextSizeLabel(tab, entry.icon(), 17);
+        ViewPolicy.clearFontPadding(tab);
         tab.setSelected(s.emojiSelectedCategory == category);
         tab.setContentDescription("表情分类 " + entry.title());
         if (Build.VERSION.SDK_INT >= 30)
             tab.setStateDescription(tab.isSelected() ? "已选中" : "未选中");
-        tab.setOnClickListener(ignored -> {
-            s.imeKeyFeedback.playFeedback(tab);
-            s.selectEmojiCategory(category);
-        });
-        s.emojiTabs.addView(tab, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1));
+        s.emojiTabs.addView(tab, KeyboardGeometry.weightedMatchParentParams(1));
+    }
+
+    private static void compactEmojiButton(Button button) {
+        ViewPolicy.clearPadding(button);
+        ViewPolicy.clearMinimumSize(button);
     }
 
     /** 共享换肤遍历之后再画底栏分类：选中的分类是键帽色药丸，其余只是半透明图标。 */
@@ -102,12 +95,12 @@ final class ImePanels {
                 GradientDrawable face = DrawablePolicy.rounded(
                     Color.parseColor(s.emojiSkin.keyBackground()), s.pixels(8));
                 tab.setBackground(new InsetDrawable(face, s.pixels(2), s.pixels(3), s.pixels(2), s.pixels(3)));
-                tab.setAlpha(1f);
+                ViewPolicy.setActiveAlpha(tab, true, .6f);
             } else {
-                tab.setBackground(null);
-                tab.setAlpha(.6f);
+                ViewPolicy.clearBackground(tab);
+                ViewPolicy.setActiveAlpha(tab, false, .6f);
             }
-            tab.setElevation(0);
+            ViewPolicy.clearElevation(tab);
         }
     }
 
@@ -116,25 +109,17 @@ final class ImePanels {
         s.emojiGrid.removeAllViews();
         // 每行固定八等分，网格可见区放三行；不足一行时格子保持原宽，不会被拉满整行。
         int visible = s.emojiGridScroll == null ? 0 : s.emojiGridScroll.getHeight();
-        int rowHeight = visible > 0 ? Math.max(s.pixels(40), visible / 3) : s.pixels(48);
+        int rowHeight = visible > 0
+            ? BoundsPolicy.atLeast(s.pixels(40), visible / 3) : s.pixels(48);
         LinearLayout row = null;
         for (EmojiCatalogModel.Item item : s.emojiItems) {
             if (row == null || row.getChildCount() == EmojiCatalogModel.COLUMNS) {
-                row = new LinearLayout(s);
+                row = KeyboardGeometry.row(s);
                 row.setWeightSum(EmojiCatalogModel.COLUMNS);
-                s.emojiGrid.addView(row, new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, rowHeight));
+                s.emojiGrid.addView(row, KeyboardGeometry.matchWidthHeightPx(rowHeight));
             }
-            Button cell = s.keyboardKey(item.text(), "表情 " + item.text(),
-                () -> insertEmoji(item.text()));
-            ((KeyboardPressButton) cell).setKeyboardRole(KeyboardKeyRole.PLAIN);
-            KeyboardGeometry.setKeyTextSize(cell, 26);
-            cell.setPadding(0, 0, 0, 0);
-            cell.setMinWidth(0);
-            cell.setMinimumWidth(0);
-            cell.setMinHeight(0);
-            cell.setMinimumHeight(0);
-            row.addView(cell, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1));
+            Button cell = emojiCell(item);
+            row.addView(cell, KeyboardGeometry.weightedMatchParentParams(1));
         }
         renderEmojiStatus();
         s.imeStyler.applySkin();
@@ -145,6 +130,26 @@ final class ImePanels {
         if (!s.commitText(text, TypingSource.LOCAL)) return;
         s.emojiRecents = EmojiCatalogModel.recordRecent(s.emojiRecents, text);
         s.saveEmojiRecents();
+    }
+
+    private Button emojiCell(EmojiCatalogModel.Item item) {
+        KeyboardPressButton cell = emojiButton(KeyboardKeyRole.PLAIN, true,
+            () -> insertEmoji(item.text()));
+        cell.setText(item.text());
+        cell.setContentDescription("按键 表情 " + item.text());
+        ViewPolicy.setTextSizeSp(cell, 26);
+        return cell;
+    }
+
+    private KeyboardPressButton emojiButton(KeyboardKeyRole role, boolean counted, Runnable action) {
+        KeyboardPressButton button = ViewPolicy.newPressButton(s);
+        button.setKeyboardRole(role);
+        compactEmojiButton(button);
+        if (counted) {
+            s.imeStyler.styleButton(button, false);
+            s.bindCountedAction(button, action);
+        } else bindFeedbackAction(button, action);
+        return button;
     }
 
     void deleteFromEmojiPicker() {
@@ -169,7 +174,7 @@ final class ImePanels {
         s.closeAiPolish();
         s.closeReplyKeyboard();
         s.emojiRecents = s.loadEmojiRecents();
-        s.emojiPanel.setVisibility(View.VISIBLE);
+        ViewPolicy.show(s.emojiPanel);
         s.emojiPanel.requestFocus();
         s.selectEmojiCategory(s.emojiRecents.isEmpty() ? 0 : -1);
     }
@@ -193,7 +198,7 @@ final class ImePanels {
         s.symbolPanel.resetForPresentation();
         // 面板原先没有底色，网格空着时直接透出底下的字母键；铺上键盘底图。
         s.imeStyler.applySkinBackground(s.symbolPanel);
-        s.symbolPanel.setVisibility(View.VISIBLE);
+        ViewPolicy.show(s.symbolPanel);
         s.symbolPanel.requestFocus();
     }
 
@@ -329,7 +334,7 @@ final class ImePanels {
         s.closeReplyKeyboard();
         pendingSkinKey = null;
         renderSkinPicker();
-        s.skinScroll.setVisibility(View.VISIBLE);
+        ViewPolicy.show(s.skinScroll);
     }
 
     /** 皮肤面板正在应用、尚未写回偏好的那一款；保存回来之前选中态按它画，点下去就换色。 */
@@ -338,7 +343,7 @@ final class ImePanels {
     void renderSkinPicker() {
         if (s.skinPanel == null) return;
         s.skinPanel.removeAllViews();
-        s.skinPanel.setPadding(s.pixels(8), s.pixels(10), s.pixels(8), s.pixels(6));
+        KeyboardGeometry.setPaddingDp(s.skinPanel, s, 8, 10, 8, 6);
         JSONObject preferences = s.preferencesSnapshot == null ? null
             : s.preferencesSnapshot.optJSONObject("preferences");
         boolean hostDark = KeyboardSkin.resolveDark(
@@ -415,8 +420,7 @@ final class ImePanels {
             card.setContentDescription("屏幕键盘皮肤 " + choice.title());
             if (Build.VERSION.SDK_INT >= 30)
                 card.setStateDescription(selected ? "已选中" : "未选中");
-            card.setOnClickListener(ignored -> {
-                s.imeKeyFeedback.playFeedback(card);
+            bindFeedbackAction(card, () -> {
                 pendingSkinKey = key;
                 for (KeyboardSkinCard other : cards) {
                     other.setSelected(other == card);
@@ -469,16 +473,16 @@ final class ImePanels {
 
     /** 分页网格加下方页点：皮肤面板与输入方式面板共用。 */
     private void addPagedGrid(LinearLayout parent, PagedTileGrid grid, int initialPage) {
-        parent.addView(grid, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-        parent.addView(new View(s), new LinearLayout.LayoutParams(0, 0, 1));
+        parent.addView(grid, KeyboardGeometry.matchWidthWrapParams());
+        parent.addView(new View(s), KeyboardGeometry.weightedZeroParams(1));
         KeyboardPagerDots dots = new KeyboardPagerDots(s);
         dots.setTag(PAGER_DOTS_TAG);
         dots.setCount(grid.pageCount());
         dots.setActive(initialPage, false);
         dots.setVisibility(grid.pageCount() > 1 ? View.VISIBLE : View.INVISIBLE);
-        LinearLayout.LayoutParams dotParams = new LinearLayout.LayoutParams(
-            s.pixels(Math.round(KeyboardPagerDots.totalWidthDp(Math.max(1, grid.pageCount())))), s.pixels(10));
+        LinearLayout.LayoutParams dotParams = KeyboardGeometry.linearParamsPx(
+            s.pixels(Math.round(KeyboardPagerDots.totalWidthDp(
+                BoundsPolicy.bounded(grid.pageCount(), 1, Integer.MAX_VALUE)))), s.pixels(10));
         dotParams.gravity = Gravity.CENTER_HORIZONTAL;
         dotParams.topMargin = s.pixels(6);
         dotParams.bottomMargin = s.pixels(6);
@@ -501,90 +505,76 @@ final class ImePanels {
      * <p>间距取键盘自己的键距和行距，圆角和底色取当前皮肤的键帽，所以浅色、深色和自定义皮肤下都与键区一致。九宫格和回复卡片用 `KEY` 角色交给皮肤遍历上色；分段控件、源文字卡片、行内「粘贴」和操作列由 {@link #styleReplyKeyboard()} 在皮肤遍历之后单独上色。
      */
     LinearLayout createReplyKeyboard() {
-        LinearLayout root = new LinearLayout(s);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(s.pixels(6), s.pixels(5), s.pixels(6), s.pixels(5));
+        LinearLayout root = KeyboardGeometry.column(s);
+        KeyboardGeometry.setSymmetricPaddingDp(root, s, 6, 5);
         root.setBackgroundColor(Color.parseColor(s.skin.background()));
         root.setContentDescription("高情商回复键盘");
 
-        s.replyHeader = new LinearLayout(s);
-        s.replyHeader.setGravity(Gravity.CENTER_VERTICAL);
-        s.replyModeControl = new LinearLayout(s);
-        s.replyModeControl.setPadding(s.pixels(2), s.pixels(2), s.pixels(2), s.pixels(2));
+        s.replyHeader = KeyboardGeometry.row(s);
+        ViewPolicy.setCenteredVertically(s.replyHeader);
+        s.replyModeControl = KeyboardGeometry.row(s);
+        KeyboardGeometry.setSymmetricPaddingDp(s.replyModeControl, s, 2, 2);
         s.replyReplyModeButton = replySegment("帮你回", "帮你回模式", ReplyKeyboardModel.Mode.REPLY);
         s.replyPolishModeButton = replySegment("帮润色", "帮润色模式", ReplyKeyboardModel.Mode.POLISH);
-        s.replyHeader.addView(s.replyModeControl, new LinearLayout.LayoutParams(
+        s.replyHeader.addView(s.replyModeControl, KeyboardGeometry.linearParamsPx(
             s.pixels(200), LinearLayout.LayoutParams.MATCH_PARENT));
-        s.replyHeader.addView(new View(s), new LinearLayout.LayoutParams(0, 1, 1));
+        s.replyHeader.addView(new View(s), KeyboardGeometry.weightedHeightPxParams(1, 1));
         s.replyTemplateButton = s.shortcutButton(s.replyHeader, "模板",
             KeyboardShortcutIconPolicy.Icon.BOOKMARK, this::showReplyTemplates);
         s.replyTemplateButton.setContentDescription("回复模板");
-        s.replyTemplateButton.setLayoutParams(new LinearLayout.LayoutParams(
+        s.replyTemplateButton.setLayoutParams(KeyboardGeometry.linearParamsPx(
             s.pixels(44), LinearLayout.LayoutParams.MATCH_PARENT));
-        root.addView(s.replyHeader, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, s.pixels(36)));
+        root.addView(s.replyHeader, KeyboardGeometry.matchWidthHeightPx(s.pixels(36)));
 
         // 源文字和「粘贴」在同一张卡片里：点文字和点「粘贴」都是粘贴，与 iOS 相同。
-        s.replySourceCard = new LinearLayout(s);
-        s.replySourceCard.setGravity(Gravity.CENTER_VERTICAL);
-        s.replySourceCard.setPadding(s.pixels(10), 0, s.pixels(6), 0);
+        s.replySourceCard = KeyboardGeometry.row(s);
+        ViewPolicy.setCenteredVertically(s.replySourceCard);
+        KeyboardGeometry.setPaddingDp(s.replySourceCard, s, 10, 0, 6, 0);
         s.replySourceButton = MSIMEInputService.role(s.button(s.replySourceCard, MSIMEInputService.REPLY_SOURCE_PLACEHOLDER,
             this::pasteReplySource), KeyboardKeyRole.PLAIN);
-        s.replySourceButton.setSingleLine(true);
-        s.replySourceButton.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        s.replySourceButton.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
-        KeyboardGeometry.setKeyTextSize(s.replySourceButton, 15);
+        ViewPolicy.setSingleLineEllipsized(s.replySourceButton);
+        ViewPolicy.setStartCenteredTextSizeSp(s.replySourceButton, 15);
         s.replySourceButton.setContentDescription("回复源文字");
         compactReplyControl(s.replySourceButton, 0);
-        s.replySourceButton.setLayoutParams(new LinearLayout.LayoutParams(
-            0, LinearLayout.LayoutParams.MATCH_PARENT, 1));
+        s.replySourceButton.setLayoutParams(KeyboardGeometry.weightedMatchParentParams(1));
         s.replyPasteButton = MSIMEInputService.role(s.button(s.replySourceCard, "粘贴", this::pasteReplySource),
             KeyboardKeyRole.PLAIN);
         s.replyPasteButton.setContentDescription("粘贴回复源文字");
-        KeyboardGeometry.setKeyTextSize(s.replyPasteButton, 13);
+        ViewPolicy.setTextSizeSp(s.replyPasteButton, 13);
         compactReplyControl(s.replyPasteButton, s.pixels(10));
-        LinearLayout.LayoutParams pasteParams = new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.MATCH_PARENT);
+        LinearLayout.LayoutParams pasteParams = KeyboardGeometry.wrapMatchParentParams();
         pasteParams.setMarginStart(s.pixels(6));
         s.replyPasteButton.setLayoutParams(pasteParams);
-        root.addView(s.replySourceCard, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, s.pixels(38)));
+        root.addView(s.replySourceCard, KeyboardGeometry.matchWidthHeightPx(s.pixels(38)));
 
-        s.replyBody = new LinearLayout(s);
+        s.replyBody = KeyboardGeometry.row(s);
         s.replyScroll = new ScrollView(s);
         s.replyScroll.setFillViewport(true);
         s.replyScroll.setVerticalScrollBarEnabled(false);
-        s.replyMain = new LinearLayout(s);
-        s.replyMain.setOrientation(LinearLayout.VERTICAL);
+        s.replyMain = KeyboardGeometry.column(s);
         s.replyMain.setContentDescription("回复风格与候选");
         s.replyScroll.addView(s.replyMain);
-        s.replyBody.addView(s.replyScroll, new LinearLayout.LayoutParams(
-            0, LinearLayout.LayoutParams.MATCH_PARENT, 1));
-        s.replyActions = new LinearLayout(s);
-        s.replyActions.setOrientation(LinearLayout.VERTICAL);
-        s.replyBody.addView(s.replyActions, new LinearLayout.LayoutParams(
+        s.replyBody.addView(s.replyScroll, KeyboardGeometry.weightedMatchParentParams(1));
+        s.replyActions = KeyboardGeometry.column(s);
+        s.replyBody.addView(s.replyActions, KeyboardGeometry.linearParamsPx(
             s.pixels(60), LinearLayout.LayoutParams.MATCH_PARENT));
-        root.addView(s.replyBody, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
+        root.addView(s.replyBody, KeyboardGeometry.weightedWidthParams(1));
 
-        LinearLayout footer = new LinearLayout(s);
-        footer.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout footer = KeyboardGeometry.row(s);
+        ViewPolicy.setCenteredVertically(footer);
         s.replyProgress = new android.widget.ProgressBar(s, null,
             android.R.attr.progressBarStyleSmall);
         s.replyProgress.setIndeterminate(true);
-        s.replyProgress.setVisibility(View.GONE);
-        LinearLayout.LayoutParams progressParams = new LinearLayout.LayoutParams(
+        ViewPolicy.hide(s.replyProgress);
+        LinearLayout.LayoutParams progressParams = KeyboardGeometry.linearParamsPx(
             s.pixels(12), s.pixels(12));
         progressParams.setMarginEnd(s.pixels(4));
         footer.addView(s.replyProgress, progressParams);
-        s.replyStatus = new TextView(s);
-        s.replyStatus.setSingleLine(true);
-        s.replyStatus.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        s.replyStatus.setIncludeFontPadding(false);
-        KeyboardGeometry.setKeyTextSize(s.replyStatus, 11);
+        s.replyStatus = aiText("", 11);
+        ViewPolicy.setSingleLineEllipsized(s.replyStatus);
+        ViewPolicy.clearFontPadding(s.replyStatus);
         s.replyStatus.setContentDescription("高情商回复键盘状态");
-        footer.addView(s.replyStatus, new LinearLayout.LayoutParams(0,
-            LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        footer.addView(s.replyStatus, KeyboardGeometry.weightedWrapParams(1));
         // 「选风格」只在已有回复时出现，点它回到风格九宫格。
         s.replyStyleResetButton = MSIMEInputService.role(s.button(footer, "选风格", () -> {
             s.replyModel.chooseStyle();
@@ -592,48 +582,45 @@ final class ImePanels {
             renderReplyKeyboard();
         }), KeyboardKeyRole.GLYPH);
         s.replyStyleResetButton.setContentDescription("重新选择回复风格");
-        KeyboardGeometry.setKeyTextSize(s.replyStyleResetButton, 12);
+        ViewPolicy.setTextSizeSp(s.replyStyleResetButton, 12);
         compactReplyControl(s.replyStyleResetButton, s.pixels(6));
-        s.replyStyleResetButton.setLayoutParams(new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.MATCH_PARENT));
-        s.replyStyleResetButton.setVisibility(View.GONE);
-        root.addView(footer, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, s.pixels(18)));
+        s.replyStyleResetButton.setLayoutParams(KeyboardGeometry.wrapMatchParentParams());
+        ViewPolicy.hide(s.replyStyleResetButton);
+        root.addView(footer, KeyboardGeometry.matchWidthHeightPx(s.pixels(18)));
         return root;
     }
 
     Button replySegment(String label, String description, ReplyKeyboardModel.Mode mode) {
-        Button segment = MSIMEInputService.role(s.button(s.replyModeControl, label, () -> {
+        Button segment = replyButton(s.replyModeControl, label, description, () -> {
             s.replyModel.setMode(mode);
             s.clearReplyRequestReferences();
             renderReplyKeyboard();
-        }), KeyboardKeyRole.PLAIN);
-        segment.setContentDescription(description);
-        KeyboardGeometry.setKeyTextSize(segment, 14);
+        });
         compactReplyControl(segment, 0);
-        segment.setLayoutParams(new LinearLayout.LayoutParams(
-            0, LinearLayout.LayoutParams.MATCH_PARENT, 1));
+        segment.setLayoutParams(KeyboardGeometry.weightedMatchParentParams(1));
         return segment;
     }
 
     /** 去掉 Button 自带的最小尺寸、内边距和按下抬升，让回复面板里的控件按自己给定的尺寸排布。 */
     static void compactReplyControl(Button button, int horizontalPadding) {
-        button.setMinWidth(0);
-        button.setMinimumWidth(0);
-        button.setMinHeight(0);
-        button.setMinimumHeight(0);
-        button.setPadding(horizontalPadding, 0, horizontalPadding, 0);
-        button.setIncludeFontPadding(false);
-        button.setStateListAnimator(null);
+        ViewPolicy.clearMinimumSize(button);
+        ViewPolicy.setHorizontalPadding(button, horizontalPadding);
+        ViewPolicy.clearFontPadding(button);
+        ViewPolicy.clearStateListAnimator(button);
     }
 
     Button replyAction(String label, String description, Runnable action) {
-        Button button = MSIMEInputService.role(s.button(s.replyActions, label, action), KeyboardKeyRole.PLAIN);
-        button.setContentDescription(description);
-        KeyboardGeometry.setKeyTextSize(button, 14);
+        Button button = replyButton(s.replyActions, label, description, action);
         compactReplyControl(button, 0);
-        button.setLayoutParams(new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
+        button.setLayoutParams(KeyboardGeometry.weightedWidthParams(1));
+        return button;
+    }
+
+    private Button replyButton(LinearLayout parent, String label, String description,
+            Runnable action) {
+        Button button = MSIMEInputService.role(s.button(parent, label, action), KeyboardKeyRole.PLAIN);
+        button.setContentDescription(description);
+        ViewPolicy.setTextSizeSp(button, 14);
         return button;
     }
 
@@ -650,42 +637,31 @@ final class ImePanels {
             ? MSIMEInputService.REPLY_SOURCE_PLACEHOLDER : s.replyModel.source());
         if (!hasReplies) {
             for (int start = 0; start < ReplyKeyboardModel.STYLES.size(); start += 3) {
-                LinearLayout row = new LinearLayout(s);
+                LinearLayout row = KeyboardGeometry.row(s);
                 for (int column = 0; column < 3; column++) {
                     ReplyKeyboardModel.Style style = ReplyKeyboardModel.STYLES.get(start + column);
                     Button choice = MSIMEInputService.role(s.button(row, style.emoji() + " " + style.label(),
                         () -> generateReply(style.label())), KeyboardKeyRole.KEY);
                     choice.setContentDescription("回复风格 " + style.label());
                     choice.setEnabled(!busy);
-                    choice.setAlpha(busy ? .45f : 1f);
-                    choice.setMinWidth(0);
-                    choice.setMinimumWidth(0);
-                    choice.setMinHeight(0);
-                    choice.setMinimumHeight(0);
-                    choice.setPadding(s.pixels(4), 0, s.pixels(4), 0);
+                    ViewPolicy.setActiveAlpha(choice, !busy, .45f);
+                    ViewPolicy.clearMinimumSize(choice);
+                    KeyboardGeometry.setHorizontalPaddingDp(choice, s, 4);
                     choice.setMaxLines(1);
-                    choice.setAutoSizeTextTypeUniformWithConfiguration(
-                        10, 14, 1, TypedValue.COMPLEX_UNIT_SP);
-                    choice.setLayoutParams(new LinearLayout.LayoutParams(
-                        0, LinearLayout.LayoutParams.MATCH_PARENT, 1));
+                    ViewPolicy.setAutoSizeSp(choice, 10, 14, 1);
+                    choice.setLayoutParams(KeyboardGeometry.weightedMatchParentParams(1));
                 }
-                s.replyMain.addView(row, new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
+                s.replyMain.addView(row, KeyboardGeometry.weightedWidthParams(1));
             }
         } else {
             for (String reply : s.replyModel.replies()) {
                 Button candidate = MSIMEInputService.role(s.button(s.replyMain, reply, () -> useReply(reply)),
                     KeyboardKeyRole.KEY);
-                candidate.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
+                ViewPolicy.setStartCenteredTextSizeSp(candidate, 15);
                 candidate.setContentDescription("回复候选，点按插入");
-                KeyboardGeometry.setKeyTextSize(candidate, 15);
-                candidate.setMinWidth(0);
-                candidate.setMinimumWidth(0);
-                candidate.setMinHeight(0);
-                candidate.setMinimumHeight(0);
-                candidate.setPadding(s.pixels(10), s.pixels(10), s.pixels(10), s.pixels(10));
-                candidate.setLayoutParams(new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+                ViewPolicy.clearMinimumSize(candidate);
+                KeyboardGeometry.setSymmetricPaddingDp(candidate, s, 10, 10);
+                candidate.setLayoutParams(KeyboardGeometry.matchWidthWrapParams());
             }
         }
         replyAction("⌫", "删除源文字", () -> {
@@ -772,10 +748,10 @@ final class ImePanels {
         for (Button segment : new Button[] {s.replyReplyModeButton, s.replyPolishModeButton}) {
             boolean selected = segment.isSelected();
             segment.setBackground(selected ? replySurface(Color.parseColor(s.skin.keyBackground()),
-                Math.max(0f, radius - s.pixels(2))) : null);
+                BoundsPolicy.nonNegative(radius - s.pixels(2))) : null);
             segment.setTextColor(foreground);
             segment.setTypeface(Typeface.create(base, selected ? Typeface.BOLD : Typeface.NORMAL));
-            segment.setElevation(0);
+            ViewPolicy.clearElevation(segment);
         }
         s.replySourceCard.setBackground(replySurface(Color.parseColor(s.skin.keyBackground()), radius));
         s.replySourceButton.setTextColor(s.replyModel.source().isEmpty()
@@ -783,15 +759,15 @@ final class ImePanels {
         s.replyPasteButton.setBackground(new InsetDrawable(replySurface(accent, radius),
             0, s.pixels(6), 0, s.pixels(6)));
         // setBackground 会把 InsetDrawable 的内边距（左右为 0）套到按钮上，冲掉前面设的左右留白，文字就贴着色块边缘；换完背景再设回来。
-        s.replyPasteButton.setPadding(s.pixels(12), 0, s.pixels(12), 0);
+        KeyboardGeometry.setHorizontalPaddingDp(s.replyPasteButton, s, 12);
         s.replyPasteButton.setTextColor(onAccent);
-        s.replyPasteButton.setElevation(0);
+        ViewPolicy.clearElevation(s.replyPasteButton);
         for (int index = 0; index < s.replyActions.getChildCount(); index++) {
             if (!(s.replyActions.getChildAt(index) instanceof Button action)) continue;
             boolean primary = action == s.replyPrimaryAction;
             action.setBackground(replySurface(primary ? accent : ImeStyler.fade(s.skin.keyBackground(), .7), radius));
             action.setTextColor(primary ? onAccent : foreground);
-            action.setElevation(0);
+            ViewPolicy.clearElevation(action);
         }
         s.replyStatus.setTextColor(ImeStyler.fade(s.skin.keyForeground(), .7));
         s.replyProgress.setIndeterminateTintList(ColorStateList.valueOf(accent));
@@ -821,7 +797,7 @@ final class ImePanels {
         s.aiTarget = new EditorContextSnapshot(s.connection, s.editorContextRevision, s.editorContext(true),
             selected, s.editorContext(false));
         renderAiPolish();
-        s.aiPolishContainer.setVisibility(View.VISIBLE);
+        ViewPolicy.show(s.aiPolishContainer);
     }
 
     void sendAiPolish() {
@@ -888,59 +864,45 @@ final class ImePanels {
         if (s.aiPolishPanel == null || s.aiPolishActions == null) return;
         s.aiPolishPanel.removeAllViews();
         s.aiPolishActions.removeAllViews();
-        s.aiPolishPanel.setPadding(s.pixels(10), s.pixels(6), s.pixels(10), s.pixels(6));
-        s.aiPolishActions.setPadding(s.pixels(10), 0, s.pixels(10), s.pixels(8));
-        LinearLayout header = new LinearLayout(s);
-        header.setGravity(Gravity.CENTER_VERTICAL);
-        TextView title = new TextView(s);
-        title.setText(s.aiOutputText.isEmpty() ? "AI 润色" : "润色结果");
-        KeyboardGeometry.setKeyTextSize(title, 15);
+        KeyboardGeometry.setSymmetricPaddingDp(s.aiPolishPanel, s, 10, 6);
+        KeyboardGeometry.setPaddingDp(s.aiPolishActions, s, 10, 0, 10, 8);
+        LinearLayout header = KeyboardGeometry.row(s);
+        ViewPolicy.setCenteredVertically(header);
+        TextView title = aiText(s.aiOutputText.isEmpty() ? "AI 润色" : "润色结果", 15);
         title.setTypeface(Typeface.DEFAULT_BOLD);
-        header.addView(title, new LinearLayout.LayoutParams(0,
-            LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        header.addView(title, KeyboardGeometry.weightedWrapParams(1));
         Button back = MSIMEInputService.role(s.button(header, "返回键盘", s::closeAiPolish), KeyboardKeyRole.GLYPH);
-        KeyboardGeometry.setKeyTextSize(back, 13);
+        ViewPolicy.setTextSizeSp(back, 13);
         compactReplyControl(back, s.pixels(8));
-        back.setLayoutParams(new LinearLayout.LayoutParams(
+        back.setLayoutParams(KeyboardGeometry.linearParamsPx(
             LinearLayout.LayoutParams.WRAP_CONTENT, s.pixels(32)));
         s.aiPolishPanel.addView(header);
         java.util.List<TextView> secondary = new java.util.ArrayList<>(3);
         TextView error = null;
         if (!s.aiError.isEmpty()) {
-            error = new TextView(s);
-            error.setText(s.aiError);
-            KeyboardGeometry.setKeyTextSize(error, 13);
+            error = aiText(s.aiError, 13);
             error.setContentDescription("AI 润色状态");
             s.aiPolishPanel.addView(error);
         }
         if (s.aiRequestConfiguration != null) {
-            TextView destination = new TextView(s);
-            destination.setText("发送到 " + s.aiRequestConfiguration.destination() + " · "
-                + s.aiRequestConfiguration.model());
-            KeyboardGeometry.setKeyTextSize(destination, 12);
+            TextView destination = aiText("发送到 " + s.aiRequestConfiguration.destination() + " · "
+                    + s.aiRequestConfiguration.model(), 12);
             destination.setContentDescription("AI 请求目标和模型");
             s.aiPolishPanel.addView(destination);
             secondary.add(destination);
         }
-        TextView label = new TextView(s);
-        label.setText(s.aiOutputText.isEmpty() ? "待发送的选中文字" : "润色结果");
-        KeyboardGeometry.setKeyTextSize(label, 12);
-        label.setPadding(0, s.pixels(6), 0, s.pixels(4));
+        TextView label = aiText(s.aiOutputText.isEmpty() ? "待发送的选中文字" : "润色结果", 12);
+        KeyboardGeometry.setPaddingDp(label, s, 0, 6, 0, 4);
         s.aiPolishPanel.addView(label);
         secondary.add(label);
-        TextView content = new TextView(s);
-        content.setText(s.aiOutputText.isEmpty() ? s.aiSourceText : s.aiOutputText);
-        KeyboardGeometry.setKeyTextSize(content, 15);
-        content.setPadding(s.pixels(12), s.pixels(10), s.pixels(12), s.pixels(10));
+        TextView content = aiText(s.aiOutputText.isEmpty() ? s.aiSourceText : s.aiOutputText, 15);
+        KeyboardGeometry.setSymmetricPaddingDp(content, s, 12, 10);
         content.setContentDescription(s.aiOutputText.isEmpty() ? "待润色文字" : "AI 润色结果");
-        s.aiPolishPanel.addView(content, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        s.aiPolishPanel.addView(content, KeyboardGeometry.matchWidthWrapParams());
         Button primary;
         if (s.aiBusy) {
-            TextView progress = new TextView(s);
-            progress.setText("正在请求…");
-            KeyboardGeometry.setKeyTextSize(progress, 12);
-            progress.setPadding(0, s.pixels(6), 0, 0);
+            TextView progress = aiText("正在请求…", 12);
+            KeyboardGeometry.setPaddingDp(progress, s, 0, 6, 0, 0);
             s.aiPolishPanel.addView(progress);
             secondary.add(progress);
             primary = s.button(s.aiPolishActions, "取消请求", () -> {
@@ -957,9 +919,8 @@ final class ImePanels {
                 && s.aiRequestConfiguration.equals(s.aiPolishConfiguration));
         }
         compactReplyControl(primary, 0);
-        KeyboardGeometry.setKeyTextSize(primary, 15);
-        primary.setLayoutParams(new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, s.pixels(44)));
+        ViewPolicy.setTextSizeSp(primary, 15);
+        primary.setLayoutParams(KeyboardGeometry.matchWidthHeightPx(s.pixels(44)));
         s.imeStyler.applySkin();
         // 换肤遍历之后补上卡片底色、次要字色和主操作的强调色。
         float radius = s.pixels(10);
@@ -970,8 +931,14 @@ final class ImePanels {
         primary.setBackground(replySurface(busy ? ImeStyler.fade(s.skin.keyBackground(), .7)
             : Color.parseColor(s.skin.accent()), radius));
         primary.setTextColor(busy ? Color.parseColor(s.skin.keyForeground()) : Color.parseColor(s.skin.onAccent()));
-        primary.setAlpha(primary.isEnabled() ? 1f : .45f);
-        primary.setElevation(0);
+        ViewPolicy.setActiveAlpha(primary, primary.isEnabled(), .45f);
+        ViewPolicy.clearElevation(primary);
+    }
+
+    private TextView aiText(CharSequence text, float sizeSp) {
+        TextView view = ViewPolicy.textLabel(s, text, sizeSp);
+        KeyboardGeometry.setKeyTextSize(view, sizeSp);
+        return view;
     }
 
     void showSchemePicker() {
@@ -990,21 +957,20 @@ final class ImePanels {
         s.closeAiPolish();
         s.closeReplyKeyboard();
         renderSchemePicker();
-        s.schemeScroll.setVisibility(View.VISIBLE);
+        ViewPolicy.show(s.schemeScroll);
     }
 
     void renderSchemePicker() {
         if (s.schemePanel == null) return;
         s.schemePanel.removeAllViews();
-        s.schemePanel.setPadding(s.pixels(8), s.pixels(14), s.pixels(8), s.pixels(6));
+        KeyboardGeometry.setPaddingDp(s.schemePanel, s, 8, 14, 8, 6);
         // 4×2 分页网格：已启用的方案按共享目录的顺序，英文 26 键排在第三格（方案不够时排最后），末尾是「+ 添加语言」。
         java.util.List<KeyboardScheme> schemes = s.visibleSchemes;
         final int englishIndex = BoundsPolicy.bounded(2, 0, schemes.size());
         int cardCount = schemes.size() + 2;
         PagedTileGrid grid = new PagedTileGrid(s);
         grid.setGrid(4, 2);
-        // 卡片高 60 dp、行距 12 dp：两行总高与原先的 56 + 16 相同，但字形区（44 dp）下面的方案名在 1.15 倍字体下也放得下，不再被切掉下半截。
-        grid.setSpacing(60, 12, 4, 4);
+        grid.setSpacing(56, 16, 4, 4);
         grid.setContentDescription("输入方案卡片区域");
         java.util.List<KeyboardSchemeCard> schemeCards = new java.util.ArrayList<>(cardCount);
         java.util.List<Boolean> cardSelection = new java.util.ArrayList<>(cardCount);
@@ -1017,8 +983,7 @@ final class ImePanels {
                 title = "添加语言";
                 selected = false;
                 card = new KeyboardSchemeCard(s, "+", "", "添加语言");
-                card.setOnClickListener(ignored -> {
-                    s.imeKeyFeedback.playFeedback(card);
+                bindFeedbackAction(card, () -> {
                     android.os.Bundle args = new android.os.Bundle();
                     args.putBoolean("add_language", true);
                     s.closeSchemePicker();
@@ -1029,20 +994,14 @@ final class ImePanels {
                 title = "英文 26 键";
                 selected = s.dedicatedEnglish;
                 card = new KeyboardSchemeCard(s, "EN", "26", title);
-                card.setOnClickListener(ignored -> {
-                    s.imeKeyFeedback.playFeedback(card);
-                    s.selectEnglishScheme();
-                });
+                bindFeedbackAction(card, s::selectEnglishScheme);
                 card.setEnabled(!s.schemeSaving);
             } else {
                 KeyboardScheme scheme = schemes.get(index > englishIndex ? index - 1 : index);
                 title = scheme.title(s.wubiProfile);
                 selected = !s.dedicatedEnglish && scheme == s.selectedScheme;
                 card = new KeyboardSchemeCard(s, scheme.glyph(), scheme.badge(s.wubiProfile), title);
-                card.setOnClickListener(ignored -> {
-                    s.imeKeyFeedback.playFeedback(card);
-                    s.selectKeyboardScheme(scheme);
-                });
+                bindFeedbackAction(card, () -> s.selectKeyboardScheme(scheme));
                 card.setEnabled(!s.schemeSaving);
             }
             card.setContentDescription("输入方案卡片 " + title);
@@ -1064,6 +1023,13 @@ final class ImePanels {
         styleDots(s.schemePanel);
     }
 
+    private void bindFeedbackAction(View view, Runnable action) {
+        view.setOnClickListener(ignored -> {
+            s.imeKeyFeedback.playFeedback(view);
+            action.run();
+        });
+    }
+
     void showClipboardHistory() {
         boolean cloudAllowed = cloudClipboardAllowed();
         if (!CloudClipboardPanelPolicy.panelAvailable(s.clipboardHistoryEnabled, cloudAllowed)
@@ -1082,7 +1048,7 @@ final class ImePanels {
         s.clipboardTab = CloudClipboardPanelPolicy.initialTab(
             s.clipboardTab, s.clipboardHistoryEnabled, cloudAllowed);
         renderClipboardHistory();
-        s.clipboardScroll.setVisibility(View.VISIBLE);
+        ViewPolicy.show(s.clipboardScroll);
         // Fetched on every opening, whichever half is showing: the local half's 发到云剪贴板 needs to know the account is signed in with the cloud clipboard on.
         if (cloudAllowed) refreshCloudClipboard();
     }
@@ -1195,19 +1161,19 @@ final class ImePanels {
     void renderClipboardHistory() {
         if (s.clipboardPanel == null || s.clipboardHistory == null) return;
         s.clipboardPanel.removeAllViews();
-        s.clipboardPanel.setPadding(s.pixels(8), s.pixels(8), s.pixels(8), s.pixels(8));
+        KeyboardGeometry.setSymmetricPaddingDp(s.clipboardPanel, s, 8, 8);
         boolean cloudAllowed = cloudClipboardAllowed();
         if (!cloudAllowed) s.clipboardTab = CloudClipboardPanelPolicy.Tab.LOCAL;
         boolean cloud = s.clipboardTab == CloudClipboardPanelPolicy.Tab.CLOUD;
         java.util.List<TextView> notes = new java.util.ArrayList<>(1);
         // 顶部一行小号操作：本机 / 云端分段（云端可用时）、刷新或清空；返回由工具栏的「返回键盘」负责。
-        LinearLayout header = new LinearLayout(s);
-        header.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout header = KeyboardGeometry.row(s);
+        ViewPolicy.setCenteredVertically(header);
         if (cloudAllowed) {
             addClipboardTab(header, CloudClipboardPanelPolicy.TAB_LOCAL, CloudClipboardPanelPolicy.Tab.LOCAL);
             addClipboardTab(header, CloudClipboardPanelPolicy.TAB_CLOUD, CloudClipboardPanelPolicy.Tab.CLOUD);
         }
-        header.addView(new View(s), new LinearLayout.LayoutParams(0, 0, 1));
+        header.addView(new View(s), KeyboardGeometry.weightedZeroParams(1));
         if (cloud) {
             Button refresh = clipboardAction(header, "刷新", this::refreshCloudClipboard);
             refresh.setEnabled(s.cloudClipboardStatus != CloudClipboardPanelPolicy.Status.LOADING);
@@ -1217,8 +1183,7 @@ final class ImePanels {
             capture.setContentDescription("保存当前剪贴板文本");
             clipboardAction(header, "清空", s::confirmClearClipboardHistory);
         }
-        s.clipboardPanel.addView(header, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, s.pixels(32)));
+        s.clipboardPanel.addView(header, KeyboardGeometry.matchWidthHeightPx(s.pixels(32)));
         if (cloud) {
             renderCloudClipboard(notes);
         } else if (!s.clipboardHistoryEnabled) {
@@ -1247,29 +1212,30 @@ final class ImePanels {
 
     private Button clipboardAction(LinearLayout header, String label, Runnable action) {
         Button button = MSIMEInputService.role(s.button(header, label, action), KeyboardKeyRole.GLYPH);
-        KeyboardGeometry.setKeyTextSize(button, 13);
+        ViewPolicy.setTextSizeSp(button, 13);
         compactReplyControl(button, s.pixels(10));
-        button.setLayoutParams(new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.MATCH_PARENT));
+        button.setLayoutParams(KeyboardGeometry.wrapMatchParentParams());
         return button;
     }
 
     private TextView clipboardNote(String text) {
-        TextView note = new TextView(s);
-        note.setText(text);
-        KeyboardGeometry.setKeyTextSize(note, 13);
-        note.setGravity(Gravity.CENTER);
-        note.setPadding(s.pixels(12), s.pixels(20), s.pixels(12), s.pixels(20));
-        s.clipboardPanel.addView(note, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        TextView note = centeredNote(text, 13);
+        KeyboardGeometry.setSymmetricPaddingDp(note, s, 12, 20);
+        s.clipboardPanel.addView(note, KeyboardGeometry.matchWidthWrapParams());
+        return note;
+    }
+
+
+    private TextView centeredNote(String text, float sizeSp) {
+        TextView note = ViewPolicy.centeredText(s, text, sizeSp);
+        KeyboardGeometry.setKeyTextSize(note, sizeSp);
         return note;
     }
 
     /** 剪贴板卡片：键帽色圆角卡，第一行是文字（最多两行），第二行是『已置顶 · 设备 · 时间』，元信息用次要色的小号字（经 span，换肤遍历刷字色时不受影响）。 */
     private Button clipboardCard(String text, String meta, Runnable action) {
-        KeyboardPressButton card = new KeyboardPressButton(s);
+        KeyboardPressButton card = ViewPolicy.newPressButton(s);
         card.setKeyboardRole(KeyboardKeyRole.KEY);
-        card.setAllCaps(false);
         android.text.SpannableStringBuilder label = new android.text.SpannableStringBuilder(text);
         if (!meta.isEmpty()) {
             label.append('\n');
@@ -1281,20 +1247,13 @@ final class ImePanels {
                 start, label.length(), android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         }
         card.setText(label);
-        KeyboardGeometry.setKeyTextSize(card, 15);
-        card.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
-        card.setMaxLines(3);
-        card.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        card.setPadding(s.pixels(12), s.pixels(8), s.pixels(12), s.pixels(8));
-        card.setMinHeight(0);
-        card.setMinimumHeight(0);
-        card.setStateListAnimator(null);
-        card.setOnClickListener(ignored -> {
-            s.imeKeyFeedback.playFeedback(card);
-            action.run();
-        });
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        ViewPolicy.setStartCenteredTextSizeSp(card, 15);
+        ViewPolicy.setMaxLinesEllipsized(card, 3);
+        KeyboardGeometry.setSymmetricPaddingDp(card, s, 12, 8);
+        ViewPolicy.clearMinimumHeight(card);
+        ViewPolicy.clearStateListAnimator(card);
+        bindFeedbackAction(card, action);
+        LinearLayout.LayoutParams params = KeyboardGeometry.matchWidthWrapParams();
         params.topMargin = s.pixels(6);
         s.clipboardPanel.addView(card, params);
         return card;
@@ -1327,7 +1286,7 @@ final class ImePanels {
         button.setContentDescription("剪贴板分类 " + title);
         if (Build.VERSION.SDK_INT >= 30)
             button.setStateDescription(button.isSelected() ? "已选中" : "未选中");
-        button.setAlpha(button.isSelected() ? 1f : .55f);
+        ViewPolicy.setActiveAlpha(button, button.isSelected(), .55f);
     }
 
     void renderCloudClipboard(java.util.List<TextView> notes) {
@@ -1356,7 +1315,7 @@ final class ImePanels {
         s.closeCandidatePanel();
         long generation = ++phraseGeneration;
         renderCommonPhrases(java.util.List.of(), "正在读取常用语…");
-        s.phraseScroll.setVisibility(View.VISIBLE);
+        ViewPolicy.show(s.phraseScroll);
         Runnable load = () -> {
             CommonPhrasesStore.Result result;
             try {
@@ -1364,7 +1323,9 @@ final class ImePanels {
             } catch (RuntimeException | LinkageError error) {
                 result = null;
             }
-            java.util.List<String> phrases = new java.util.ArrayList<>();
+            int phraseCapacity = result != null && result.ok()
+                ? result.document().phrases().size() : 0;
+            java.util.List<String> phrases = new java.util.ArrayList<>(phraseCapacity);
             String message;
             if (result == null || !result.ok()) {
                 message = result == null || result.failure().isEmpty() ? "常用语读取失败" : result.failure();
@@ -1390,76 +1351,63 @@ final class ImePanels {
     private void renderCommonPhrases(java.util.List<String> phrases, String message) {
         LinearLayout panel = s.phrasePanel;
         panel.removeAllViews();
-        panel.setPadding(s.pixels(8), s.pixels(4), s.pixels(8), s.pixels(8));
+        KeyboardGeometry.setPaddingDp(panel, s, 8, 4, 8, 8);
         s.imeStyler.applySkinBackground(panel);
         TextView note = null;
         if (message != null) {
-            note = new TextView(s);
-            note.setText(message);
-            KeyboardGeometry.setKeyTextSize(note, 14);
-            note.setGravity(Gravity.CENTER);
-            note.setPadding(s.pixels(12), s.pixels(24), s.pixels(12), s.pixels(24));
-            panel.addView(note, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+            note = centeredNote(message, 14);
+            KeyboardGeometry.setPaddingDp(note, s, 12, 24, 12, 24);
+            panel.addView(note, KeyboardGeometry.matchWidthWrapParams());
         }
         if (EMPTY_PHRASES.equals(message)) {
             // 空的时候给一条去处：直接打开应用的常用语页去添加，而不是让人自己退出键盘去找。
-            KeyboardPressButton add = new KeyboardPressButton(s);
-            add.setKeyboardRole(KeyboardKeyRole.RETURN);
-            add.setAllCaps(false);
-            add.setText("添加常用语");
-            KeyboardGeometry.setKeyTextSize(add, 15);
-            add.setMinHeight(s.pixels(44));
-            add.setMinimumHeight(s.pixels(44));
-            add.setPadding(s.pixels(24), 0, s.pixels(24), 0);
-            add.setStateListAnimator(null);
-            add.setContentDescription("添加常用语");
-            add.setOnClickListener(ignored -> {
-                s.imeKeyFeedback.playFeedback(add);
-                s.closeCommonPhrases();
-                s.openHostPage("PHRASES");
-            });
-            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            KeyboardPressButton add = phraseButton(KeyboardKeyRole.RETURN, "添加常用语",
+                "添加常用语", () -> {
+                    s.closeCommonPhrases();
+                    s.openHostPage("PHRASES");
+                });
+            KeyboardGeometry.setHorizontalPaddingDp(add, s, 24);
+            LinearLayout.LayoutParams params = KeyboardGeometry.wrapParams();
             params.gravity = Gravity.CENTER_HORIZONTAL;
             panel.addView(add, params);
         }
-        java.util.List<View> lines = new java.util.ArrayList<>();
+        java.util.List<View> lines = new java.util.ArrayList<>(phrases.size());
         for (String phrase : phrases) {
-            KeyboardPressButton row = new KeyboardPressButton(s);
-            row.setKeyboardRole(KeyboardKeyRole.PLAIN);
-            row.setAllCaps(false);
-            row.setText(phrase);
-            KeyboardGeometry.setKeyTextSize(row, 15);
-            row.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
-            row.setMaxLines(2);
-            row.setEllipsize(android.text.TextUtils.TruncateAt.END);
-            row.setMinHeight(s.pixels(44));
-            row.setMinimumHeight(s.pixels(44));
-            row.setPadding(s.pixels(12), s.pixels(8), s.pixels(12), s.pixels(8));
-            row.setStateListAnimator(null);
-            row.setContentDescription("常用语 " + (phrase.length() > 20 ? phrase.substring(0, 20) : phrase));
-            row.setOnClickListener(ignored -> {
-                s.imeKeyFeedback.playFeedback(row);
-                if (s.connection == null) return;
-                s.command(2);
-                s.commitText(phrase);
-                s.closeCommonPhrases();
-                s.render();
-            });
-            panel.addView(row, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+            KeyboardPressButton row = phraseButton(KeyboardKeyRole.PLAIN, phrase,
+                "常用语 " + (phrase.length() > 20 ? phrase.substring(0, 20) : phrase), () -> {
+                    if (s.connection == null) return;
+                    s.command(2);
+                    s.commitText(phrase);
+                    s.closeCommonPhrases();
+                    s.render();
+                });
+            ViewPolicy.setStartCenteredTextSizeSp(row, 15);
+            ViewPolicy.setMaxLinesEllipsized(row, 2);
+            KeyboardGeometry.setSymmetricPaddingDp(row, s, 12, 8);
+            panel.addView(row, KeyboardGeometry.matchWidthWrapParams());
             View hairline = new View(s);
-            LinearLayout.LayoutParams line = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, Math.max(1, s.pixels(1)));
-            line.setMarginStart(s.pixels(12));
-            line.setMarginEnd(s.pixels(12));
+            LinearLayout.LayoutParams line = KeyboardGeometry.matchWidthHeightPx(
+                KeyboardGeometry.atLeastOnePixel(s, 1));
+            KeyboardGeometry.setHorizontalMargins(line, s.pixels(12));
             panel.addView(hairline, line);
             lines.add(hairline);
         }
         s.imeStyler.applySkin();
         for (View hairline : lines) hairline.setBackgroundColor(Color.parseColor(s.skin.hairline()));
         if (note != null) note.setTextColor(ImeStyler.fade(s.skin.keyForeground(), .6));
+    }
+
+    private KeyboardPressButton phraseButton(KeyboardKeyRole role, String text,
+            String description, Runnable action) {
+        KeyboardPressButton button = ViewPolicy.newPressButton(s);
+        button.setKeyboardRole(role);
+        button.setText(text);
+        ViewPolicy.setTextSizeSp(button, 15);
+        ViewPolicy.setMinimumHeight(button, s.pixels(44));
+        ViewPolicy.clearStateListAnimator(button);
+        button.setContentDescription(description);
+        bindFeedbackAction(button, action);
+        return button;
     }
 
     void showFeedbackMenu() {
@@ -1475,22 +1423,18 @@ final class ImePanels {
         s.closeReplyKeyboard();
         s.localInputToolsOpen = false;
         s.imeFunctionPanel.renderMoreTools();
-        s.moreToolsScroll.setVisibility(View.VISIBLE);
+        ViewPolicy.show(s.moreToolsScroll);
         s.moreToolsScroll.requestFocus();
     }
 
     void buildSymbolPanel() {
         s.symbolPanel = new SymbolPanelView(s,
             (title, description, action, actionStyle) -> {
-                Button button = new KeyboardPressButton(s);
-                button.setAllCaps(false);
+                Button button = ViewPolicy.newPressButton(s);
                 button.setText(title);
                 button.setContentDescription(actionStyle ? description : "按键 " + description);
                 s.imeStyler.styleButton(button, actionStyle);
-                button.setOnClickListener(ignored -> {
-                    s.imeKeyFeedback.playFeedback(button);
-                    action.run();
-                });
+                bindFeedbackAction(button, action);
                 return button;
             },
             new SymbolPanelView.Listener() {
@@ -1505,29 +1449,25 @@ final class ImePanels {
 
                 @Override public void close() { s.closeSymbolPanel(); }
             });
-        s.symbolPanel.setVisibility(View.GONE);
-        s.keyboardSurface.addView(s.symbolPanel, new FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        ViewPolicy.hide(s.symbolPanel);
+        s.keyboardSurface.addView(s.symbolPanel, KeyboardGeometry.frameMatchParentParams());
     }
 
     void buildEmojiPanel() {
         s.emojiPreferences = s.getSharedPreferences(MSIMEInputService.EMOJI_RECENTS_PREFERENCES, Context.MODE_PRIVATE);
         s.emojiRecents = s.loadEmojiRecents();
         // 设计：盖在键区上、不盖顶部一行；上面是每行八个的表情网格（可见三行，可滚动），底栏是 ABC | 分类 | ⌫。高度由 PanelSurface 限定为键区高度。
-        s.emojiPanel = new LinearLayout(s);
-        s.emojiPanel.setOrientation(LinearLayout.VERTICAL);
-        s.emojiPanel.setPadding(s.pixels(6), s.pixels(4), s.pixels(6), s.pixels(4));
+        s.emojiPanel = KeyboardGeometry.column(s);
+        KeyboardGeometry.setSymmetricPaddingDp(s.emojiPanel, s, 6, 4);
         s.emojiPanel.setBackgroundColor(Color.parseColor(s.skin.background()));
         s.emojiPanel.setContentDescription("表情面板");
         s.emojiPanel.setFocusable(true);
-        s.emojiGrid = new LinearLayout(s);
-        s.emojiGrid.setOrientation(LinearLayout.VERTICAL);
+        s.emojiGrid = KeyboardGeometry.column(s);
         s.emojiGridScroll = new ScrollView(s);
         s.emojiGridScroll.setFillViewport(false);
         s.emojiGridScroll.setVerticalScrollBarEnabled(false);
         s.emojiGridScroll.setContentDescription("表情网格；每行八个");
-        s.emojiGridScroll.addView(s.emojiGrid, new ScrollView.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        s.emojiGridScroll.addView(s.emojiGrid, KeyboardGeometry.scrollMatchWidthWrapParams());
         s.emojiGridScroll.setOnScrollChangeListener((view, scrollX, scrollY, oldX, oldY) -> {
             if (scrollY > oldY && !view.canScrollVertically(1)) s.loadEmojiPage();
         });
@@ -1536,33 +1476,27 @@ final class ImePanels {
                 oldLeft, oldTop, oldRight, oldBottom) -> {
             if (bottom - top != oldBottom - oldTop && s.emojiPickerVisible()) view.post(this::renderEmojiGrid);
         });
-        s.emojiPanel.addView(s.emojiGridScroll, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
-        LinearLayout bar = new LinearLayout(s);
-        bar.setOrientation(LinearLayout.HORIZONTAL);
-        bar.setGravity(Gravity.CENTER_VERTICAL);
+        s.emojiPanel.addView(s.emojiGridScroll, KeyboardGeometry.weightedWidthParams(1));
+        LinearLayout bar = KeyboardGeometry.row(s);
+        ViewPolicy.setCenteredVertically(bar);
         Button abc = MSIMEInputService.role(s.button(bar, "ABC", s::closeEmojiPicker), KeyboardKeyRole.ACCENT);
-        KeyboardGeometry.setKeyTextSize(abc, 14);
+        ViewPolicy.setTextSizeSp(abc, 14);
         compactReplyControl(abc, 0);
         abc.setContentDescription("返回键盘");
-        abc.setLayoutParams(new LinearLayout.LayoutParams(s.pixels(60), s.pixels(40)));
-        s.emojiTabs = new LinearLayout(s);
-        s.emojiTabs.setOrientation(LinearLayout.HORIZONTAL);
+        abc.setLayoutParams(KeyboardGeometry.linearParams(s, 60, 40));
+        s.emojiTabs = KeyboardGeometry.row(s);
         s.emojiTabs.setContentDescription("表情分类");
-        LinearLayout.LayoutParams tabsParams = new LinearLayout.LayoutParams(0, s.pixels(40), 1);
-        tabsParams.setMarginStart(s.pixels(6));
-        tabsParams.setMarginEnd(s.pixels(6));
+        LinearLayout.LayoutParams tabsParams = KeyboardGeometry.weightedHeightPxParams(s.pixels(40), 1);
+        KeyboardGeometry.setHorizontalMargins(tabsParams, s.pixels(6));
         bar.addView(s.emojiTabs, tabsParams);
         Button deleteEmoji = MSIMEInputService.role(s.button(bar, "⌫", this::deleteFromEmojiPicker),
             KeyboardKeyRole.ACCENT);
-        KeyboardGeometry.setKeyTextSize(deleteEmoji, 18);
+        ViewPolicy.setTextSizeSp(deleteEmoji, 18);
         compactReplyControl(deleteEmoji, 0);
         deleteEmoji.setContentDescription("删除");
-        deleteEmoji.setLayoutParams(new LinearLayout.LayoutParams(s.pixels(60), s.pixels(40)));
-        s.emojiPanel.addView(bar, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, s.pixels(46)));
-        s.emojiPanel.setVisibility(View.GONE);
-        s.keyboardSurface.addView(s.emojiPanel, new FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        deleteEmoji.setLayoutParams(KeyboardGeometry.linearParams(s, 60, 40));
+        s.emojiPanel.addView(bar, KeyboardGeometry.matchWidthHeightPx(s.pixels(46)));
+        ViewPolicy.hide(s.emojiPanel);
+        s.keyboardSurface.addView(s.emojiPanel, KeyboardGeometry.frameMatchParentParams());
     }
 }

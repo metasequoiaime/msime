@@ -153,12 +153,15 @@ public final class DiagnosticsApi {
             CloudApi.Auth.ACCOUNT_OR_ANONYMOUS);
         try {
             JSONObject root = response.json();
-            String id = root.optString("id", "");
-            String token = root.optString("token", "");
-            if (id.isEmpty() || token.isEmpty()) {
+            String id = strictString(root.opt("id"));
+            String token = strictString(root.opt("token"));
+            if (id == null || token == null || id.isEmpty() || token.isEmpty()) {
                 throw new CloudApi.Failure(response.status(), "invalid_response", "snapshot id or token missing", 0);
             }
-            return new Created(id, root.optString("mcp_url", mcpUrl(id)), token, root.optString("expires_at", ""));
+            String url = strictString(root.opt("mcp_url"));
+            String expiresAt = strictString(root.opt("expires_at"));
+            return new Created(id, url == null || url.isEmpty() ? mcpUrl(id) : url, token,
+                expiresAt == null ? "" : expiresAt);
         } catch (JSONException malformed) {
             throw new CloudApi.Failure(response.status(), "invalid_response", "malformed JSON response", 0);
         }
@@ -173,8 +176,8 @@ public final class DiagnosticsApi {
     /** 换一枚访问令牌，旧令牌立即作废；返回新令牌（只出现这一次）。 */
     public String regenerateToken() throws CloudApi.Failure {
         JSONObject root = api.json("POST", PATH + "/token", new JSONObject(), CloudApi.Auth.ACCOUNT_OR_ANONYMOUS);
-        String token = root.optString("token", "");
-        if (token.isEmpty()) throw new CloudApi.Failure(200, "invalid_response", "token missing", 0);
+        String token = strictString(root.opt("token"));
+        if (token == null || token.isEmpty()) throw new CloudApi.Failure(200, "invalid_response", "token missing", 0);
         return token;
     }
 
@@ -290,7 +293,12 @@ public final class DiagnosticsApi {
                 Object kind = row.opt("kind");
                 if (!(kind instanceof String) || !row.has("t_ms")) continue;
                 if (durationRequired && !row.has("duration_ms")) continue;
-                Event event = Event.of(row.getLong("t_ms"), (String) kind, row.optLong("duration_ms", -1));
+                Long time = strictInteger(row.opt("t_ms"));
+                Object rawDuration = row.opt("duration_ms");
+                Long duration = rawDuration == null || rawDuration == JSONObject.NULL
+                    ? -1L : strictInteger(rawDuration);
+                if (time == null || duration == null) continue;
+                Event event = Event.of(time, (String) kind, duration);
                 if (event != null) events.add(event);
             } catch (JSONException malformed) {
                 // 不合规的行丢弃，与 Rust 诊断包和后端的口径一致。
@@ -324,29 +332,65 @@ public final class DiagnosticsApi {
     static State parseState(JSONObject root) {
         Snapshot snapshot = null;
         JSONObject raw = root.optJSONObject("snapshot");
-        if (raw != null && !raw.optString("id", "").isEmpty()) {
+        String snapshotId = raw == null ? null : optionalString(raw, "id");
+        Long snapshotBytes = raw == null ? null : optionalInteger(raw, "bytes");
+        String snapshotCreated = raw == null ? null : optionalString(raw, "created_at");
+        String snapshotExpires = raw == null ? null : optionalString(raw, "expires_at");
+        String snapshotHint = raw == null ? null : optionalString(raw, "token_hint");
+        if (raw != null && snapshotId != null && !snapshotId.isEmpty()
+                && snapshotBytes != null && snapshotBytes >= 0
+                && snapshotCreated != null && snapshotExpires != null && snapshotHint != null) {
             JSONArray names = raw.optJSONArray("sections");
             List<String> sections = new ArrayList<>(names == null ? 0 : names.length());
             if (names != null) {
-                for (int i = 0; i < names.length(); i++) sections.add(names.optString(i, ""));
+                for (int i = 0; i < names.length(); i++) {
+                    String section = strictString(names.opt(i));
+                    if (section != null) sections.add(section);
+                }
             }
-            snapshot = new Snapshot(raw.optString("id", ""), raw.optString("created_at", ""),
-                raw.optString("expires_at", ""), raw.optLong("bytes", 0), Collections.unmodifiableList(sections),
-                raw.optString("token_hint", ""));
+            snapshot = new Snapshot(snapshotId, snapshotCreated, snapshotExpires, snapshotBytes,
+                Collections.unmodifiableList(sections), snapshotHint);
         }
         JSONArray list = root.optJSONArray("accesses");
-        List<Access> accesses = new ArrayList<>(list == null ? 0 : list.length());
+        int accessCount = list == null ? 0 : list.length();
+        int firstAccess = Math.max(0, accessCount - MAX_EVENTS);
+        List<Access> accesses = new ArrayList<>(Math.min(accessCount, MAX_EVENTS));
         if (list != null) {
-            for (int i = 0; i < list.length(); i++) {
+            for (int i = firstAccess; i < list.length(); i++) {
                 JSONObject item = list.optJSONObject(i);
                 if (item == null) continue;
                 Object arguments = item.opt("arguments");
-                accesses.add(new Access(item.optString("at", ""), item.optString("tool", ""),
-                    arguments == null || arguments == JSONObject.NULL ? "" : String.valueOf(arguments),
-                    item.optLong("result_count", 0), item.optLong("bytes", 0)));
+                String at = optionalString(item, "at");
+                String tool = optionalString(item, "tool");
+                String rawArguments = arguments == null || arguments == JSONObject.NULL
+                    ? "" : strictString(arguments);
+                Long resultCount = optionalInteger(item, "result_count");
+                Long bytes = optionalInteger(item, "bytes");
+                if (at == null || tool == null || rawArguments == null || resultCount == null || bytes == null
+                        || resultCount < 0 || bytes < 0) continue;
+                accesses.add(new Access(at, tool, rawArguments, resultCount, bytes));
             }
         }
         return new State(snapshot, Collections.unmodifiableList(accesses));
+    }
+
+    /** Diagnostics wire numbers are JSON integers; do not let org.json truncate decimals. */
+    public static Long strictInteger(Object value) {
+        if (value instanceof Integer integer) return integer.longValue();
+        if (value instanceof Long longValue) return longValue;
+        return null;
+    }
+
+    /** Optional response strings: absent/null means empty, every other JSON type is malformed. */
+    static String optionalString(JSONObject object, String key) {
+        if (object == null || !object.has(key) || object.isNull(key)) return "";
+        return strictString(object.opt(key));
+    }
+
+    /** Optional response integers: absent/null means zero, every other non-integer is malformed. */
+    static Long optionalInteger(JSONObject object, String key) {
+        if (object == null || !object.has(key) || object.isNull(key)) return 0L;
+        return strictInteger(object.opt(key));
     }
 
     private static String entryText(InputStream stream) throws IOException {
@@ -387,5 +431,10 @@ public final class DiagnosticsApi {
             }
         }
         out.append('"');
+    }
+
+    /** org.json's optString coerces numbers; credentials and identifiers must stay JSON strings. */
+    static String strictString(Object value) {
+        return value instanceof String ? (String) value : null;
     }
 }

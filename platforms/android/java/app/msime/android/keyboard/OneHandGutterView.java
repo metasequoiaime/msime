@@ -26,14 +26,14 @@ public final class OneHandGutterView extends LinearLayout {
     public OneHandGutterView(Context context) {
         super(context);
         setOrientation(VERTICAL);
-        setGravity(Gravity.CENTER);
+        ViewPolicy.setCentered(this);
         swap = new GutterButton(context, KeyboardIconPaths.Icon.SWAP_SIDE, true);
         swap.setContentDescription("单手键盘换到另一侧");
         exit = new GutterButton(context, KeyboardIconPaths.Icon.EXIT_ONE_HAND, false);
         exit.setContentDescription("退出单手模式");
         int size = KeyboardGeometry.pixels(context, BUTTON_DP);
-        LinearLayout.LayoutParams swapParams = new LinearLayout.LayoutParams(size, size);
-        LinearLayout.LayoutParams exitParams = new LinearLayout.LayoutParams(size, size);
+        LinearLayout.LayoutParams swapParams = KeyboardGeometry.linearParamsPx(size, size);
+        LinearLayout.LayoutParams exitParams = KeyboardGeometry.linearParamsPx(size, size);
         exitParams.topMargin = KeyboardGeometry.pixels(context, 24);
         addView(swap, swapParams);
         addView(exit, exitParams);
@@ -86,12 +86,7 @@ public final class OneHandGutterView extends LinearLayout {
             super(context);
             this.icon = icon;
             this.round = round;
-            setBackground(null);
-            setPadding(0, 0, 0, 0);
-            setMinWidth(0);
-            setMinimumWidth(0);
-            setMinHeight(0);
-            setMinimumHeight(0);
+            ViewPolicy.clearChrome(this);
         }
 
         @Override public void setPressed(boolean pressed) {
@@ -108,7 +103,7 @@ public final class OneHandGutterView extends LinearLayout {
             float cy = getHeight() / 2f;
             if (round && Color.alpha(fillColor) > 0) {
                 fill.setColor(fillColor);
-                canvas.drawCircle(cx, cy, Math.min(getWidth(), getHeight()) / 2f, fill);
+            canvas.drawCircle(cx, cy, KeyboardGeometry.shorterSide(getWidth(), getHeight()) / 2f, fill);
             }
             float size = KeyboardGeometry.floatPixels(getContext(), ICON_DP);
             int saved = canvas.save();

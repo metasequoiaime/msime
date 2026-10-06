@@ -535,7 +535,8 @@ public final class DeveloperPage extends DetailPage {
         if (response == null) return null;
         try {
             JSONObject root = new JSONObject(response);
-            return root.optBoolean("ok", false) ? root.optJSONObject("value") : null;
+            return Boolean.TRUE.equals(root.opt("ok"))
+                ? root.optJSONObject("value") : null;
         } catch (JSONException malformed) {
             return null;
         }

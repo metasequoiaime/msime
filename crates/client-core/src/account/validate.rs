@@ -8,6 +8,24 @@ pub(super) fn validate_clipboard_search(value: &str) -> Result<(), AccountError>
     validate_bounded_text(value, 1024)
 }
 
+pub(super) fn validate_providers(
+    value: &std::collections::HashMap<String, bool>,
+) -> Result<(), AccountError> {
+    if value.len() > 16
+        || value.keys().any(|key| {
+            key.is_empty()
+                || key.len() > 32
+                || !key
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte == b'_' || byte == b'-')
+        })
+    {
+        Err(AccountError::Unavailable)
+    } else {
+        Ok(())
+    }
+}
+
 pub(super) fn validate_clipboard_text(value: &str) -> Result<(), AccountError> {
     if value.trim().is_empty()
         || !crate::is_bounded_utf16(value, 4000)

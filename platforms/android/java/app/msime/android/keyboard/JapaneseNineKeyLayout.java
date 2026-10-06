@@ -64,7 +64,7 @@ public final class JapaneseNineKeyLayout {
      */
     public static List<Integer> toggleCycle(Key key) {
         boolean literal = key.strokes().get(0).isEmpty();
-        java.util.ArrayList<Integer> cycle = new java.util.ArrayList<>();
+        java.util.ArrayList<Integer> cycle = new java.util.ArrayList<>(key.kana().size());
         for (int index = 0; index < key.kana().size(); index++) {
             if (key.kana().get(index).isEmpty()) continue;
             if (key.strokes().get(index).isEmpty() == literal) cycle.add(index);

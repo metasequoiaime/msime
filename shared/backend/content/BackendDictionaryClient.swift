@@ -76,7 +76,7 @@ extension BackendAccountClient {
     let weight: Int64
   }
   func dictionary(_ kind: DictionaryKind, search: String = "", offset: Int = 0, token: String) async throws -> DictionaryPage {
-    guard (0...1_000_000).contains(offset), search.utf8.count <= 1024, !search.contains("\0") else { throw Failure(status: 400) }
+    guard (0...1_000_000).contains(offset), Self.validCatalogText(search, maximum: 1024, empty: true) else { throw Failure(status: 400) }
     var url = URLComponents()
     url.path = "/v1/users/me/dictionaries/" + kind.rawValue
     url.queryItems = [.init(name: "q", value: search), .init(name: "offset", value: String(offset)), .init(name: "limit", value: "100")]
@@ -89,11 +89,13 @@ extension BackendAccountClient {
     return page
   }
   func addDictionary(_ kind: DictionaryKind, value: DictionaryValue, token: String) async throws -> DictionaryChange {
+    guard Self.validNewDictionaryValue(value, kind: kind) else { throw Failure(status: 400) }
     let change: DictionaryChange = try await json("POST", "/v1/users/me/dictionaries/" + kind.rawValue, token: token, body: JSONEncoder().encode(value))
     guard Self.validDictionaryChange(change, expectedKind: kind) else { throw Failure(status: 0) }
     return change
   }
   func updateDictionary(_ entry: DictionaryEntry, value: DictionaryValue, token: String) async throws -> DictionaryChange {
+    guard Self.validNewDictionaryValue(value, kind: entry.kind) else { throw Failure(status: 400) }
     struct Body: Encodable { let code: String; let word: String; let weight: Int64; let revision: Int64 }
     let change: DictionaryChange = try await json("PUT", dictionaryEntryPath(entry), token: token,
       body: JSONEncoder().encode(Body(code: value.code, word: value.word, weight: value.weight, revision: entry.revision)))
@@ -115,6 +117,7 @@ extension BackendAccountClient {
   }
   struct DictionaryImportResult: Decodable, Sendable { let imported: Int; let revision: Int64 }
   func importDictionary(_ kind: DictionaryKind, text: String, format: DictionaryFileFormat, token: String) async throws -> DictionaryImportResult {
+    guard Self.validDictionaryImportText(text) else { throw Failure(status: 400) }
     let body: Data
     let suffix: String
     if format == .hans {
@@ -125,7 +128,6 @@ extension BackendAccountClient {
       struct Body: Encodable { let text: String; let format: String }
       body = try JSONEncoder().encode(Body(text: text, format: format.rawValue)); suffix = "/import"
     }
-    guard !text.isEmpty, body.count <= 65536 else { throw Failure(status: 400) }
     let result: DictionaryImportResult = try await json("POST", "/v1/users/me/dictionaries/" + kind.rawValue + suffix, token: token, body: body)
     guard (0...1_000_000).contains(result.imported), result.revision >= 0 else { throw Failure(status: 0) }
     return result
@@ -151,7 +153,8 @@ extension BackendAccountClient {
     let normalized: String
   }
   func dictionaryCatalog(_ kind: DictionaryKind, code: String, offset: Int = 0, scheme: String = "pinyin", profile: String = "xiaohe", token: String) async throws -> DictionaryCatalog {
-    guard (0...1_000_000).contains(offset), code.utf8.count <= 256, !code.contains("\0") else { throw Failure(status: 400) }
+    guard (0...1_000_000).contains(offset), Self.validCatalogText(code, maximum: 256, empty: true),
+          Self.validCatalogText(scheme, maximum: 64), Self.validCatalogText(profile, maximum: 64) else { throw Failure(status: 400) }
     var components = URLComponents()
     components.path = "/v1/users/me/dictionaries/" + kind.rawValue + "/catalog"
     components.queryItems = [.init(name: "q", value: code), .init(name: "offset", value: String(offset)), .init(name: "limit", value: "100"), .init(name: "scheme", value: scheme), .init(name: "profile", value: profile)]
@@ -160,13 +163,17 @@ extension BackendAccountClient {
     guard page.entries.count <= 100, page.offset == offset, page.revision >= 0,
           Self.validCatalogText(page.normalized, maximum: 256, empty: true),
           page.entries.allSatisfy({ entry in
-            entry.kind == kind && Self.validCatalogText(entry.code, maximum: 256)
-              && Self.validCatalogText(entry.word, maximum: 1024) && entry.weight >= 0
+            entry.kind == kind && Self.validDictionaryValue(code: entry.code, word: entry.word,
+                                                             weight: entry.weight, kind: kind,
+                                                             allowStoredQuickCode: true)
           }) else { throw Failure(status: 0) }
     return page
   }
   func editCatalog(_ entry: CatalogEntry, revision: Int64, replacement: DictionaryValue?, token: String) async throws -> DictionaryChange {
-    guard revision >= 0 else { throw Failure(status: 400) }
+    guard revision >= 0,
+          Self.validDictionaryValue(code: entry.code, word: entry.word, weight: entry.weight,
+                                    kind: entry.kind, allowStoredQuickCode: true),
+          replacement.map({ Self.validNewDictionaryValue($0, kind: entry.kind) }) ?? true else { throw Failure(status: 400) }
     struct Identity: Encodable { let code: String; let word: String }
     struct Body: Encodable {
       let revision: Int64
@@ -195,14 +202,46 @@ extension BackendAccountClient {
   private static func validDictionaryEntry(_ entry: DictionaryEntry) -> Bool {
     entry.id.utf8.count == 64
       && entry.id.utf8.allSatisfy { (48...57).contains($0) || (97...102).contains($0) }
-      && !entry.code.isEmpty
-      && entry.code.utf8.count <= 256
-      && !entry.code.unicodeScalars.contains { $0.properties.generalCategory == .control }
-      && !entry.word.isEmpty
-      && entry.word.utf8.count <= 1024
-      && !entry.word.unicodeScalars.contains { $0.properties.generalCategory == .control }
-      && entry.weight >= 0
+      && validDictionaryValue(code: entry.code, word: entry.word, weight: entry.weight,
+                              kind: entry.kind, allowStoredQuickCode: true)
       && entry.revision > 0
+  }
+
+  private static func validDictionaryImportText(_ value: String) -> Bool {
+    !value.isEmpty
+      && value.utf8.count <= 64 * 1024
+      && !value.unicodeScalars.contains { scalar in
+        scalar.properties.generalCategory == .control && ![9, 10, 13].contains(scalar.value)
+      }
+  }
+
+  private static func validNewDictionaryValue(_ value: DictionaryValue, kind: DictionaryKind) -> Bool {
+    validDictionaryValue(code: value.code, word: value.word, weight: value.weight, kind: kind,
+                         allowStoredQuickCode: false)
+  }
+
+  private static func validDictionaryValue(code: String, word: String, weight: Int64,
+                                           kind: DictionaryKind, allowStoredQuickCode: Bool) -> Bool {
+    let codeLimit: Int
+    switch kind {
+    case .pinyin: codeLimit = 256
+    case .wubi, .wubi98: codeLimit = 4
+    case .quick: codeLimit = 32
+    case .english: codeLimit = 64
+    }
+    guard validCatalogText(code, maximum: codeLimit),
+          validCatalogText(word, maximum: 1024), weight >= 0 else { return false }
+    switch kind {
+    case .pinyin:
+      return code.utf8.allSatisfy { (97...122).contains($0) || $0 == 39 || $0 == 32 }
+    case .wubi, .wubi98:
+      return code.utf8.allSatisfy { (97...122).contains($0) }
+    case .quick:
+      return code.utf8.allSatisfy { (97...122).contains($0) || (allowStoredQuickCode && (48...57).contains($0)) }
+        && word.utf16.count <= 199
+    case .english:
+      return code.utf8.allSatisfy { (65...90).contains($0) || (97...122).contains($0) || $0 == 45 || $0 == 39 }
+    }
   }
 
   static func dictionaryKind(forCandidateKind kind: String) -> DictionaryKind? {
@@ -244,9 +283,8 @@ extension BackendAccountClient {
   private static func validDictionaryChangePageEntry(_ entry: DictionaryChangePage.Entry) -> Bool {
     entry.id.utf8.count == 64
       && entry.id.utf8.allSatisfy { (48...57).contains($0) || (97...102).contains($0) }
-      && validCatalogText(entry.code, maximum: 256)
-      && validCatalogText(entry.word, maximum: 1024)
-      && entry.weight >= 0
+      && validDictionaryValue(code: entry.code, word: entry.word, weight: entry.weight,
+                              kind: entry.kind, allowStoredQuickCode: true)
       && entry.revision > 0
   }
 

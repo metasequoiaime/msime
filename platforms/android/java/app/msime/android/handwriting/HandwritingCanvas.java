@@ -68,7 +68,7 @@ public final class HandwritingCanvas extends View {
         background.setColor(keyBackground);
         skinInkColor = foreground;
         stroke.setColor(inkColor == null ? foreground : inkColor);
-        guide.setColor(Color.argb(31, Color.red(accent), Color.green(accent), Color.blue(accent)));
+        guide.setColor(ColorPolicy.withAlpha(accent, 31));
         invalidate();
     }
 

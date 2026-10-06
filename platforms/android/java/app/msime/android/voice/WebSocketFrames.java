@@ -52,7 +52,8 @@ public final class WebSocketFrames {
      * off as a successful handshake.
      */
     public static String handshakeRequest(String host, String path, String key, String[] headers) {
-        StringBuilder request = new StringBuilder(128 + textLength(host) + textLength(path) + textLength(key))
+        StringBuilder request = new StringBuilder(128 + VoiceTextPolicy.length(host)
+            + VoiceTextPolicy.length(path) + VoiceTextPolicy.length(key))
             .append("GET ").append(path).append(" HTTP/1.1\r\n")
             .append("Host: ").append(host).append("\r\n")
             .append("Upgrade: websocket\r\n")
@@ -69,10 +70,6 @@ public final class WebSocketFrames {
             }
         }
         return request.append("\r\n").toString();
-    }
-
-    private static int textLength(String value) {
-        return value == null ? 4 : value.length();
     }
 
     private static boolean validHeaderName(String value) {

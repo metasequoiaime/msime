@@ -40,6 +40,32 @@ private final class MalformedDictionaryChangeProtocol: URLProtocol {
   }
   override func stopLoading() {}
 }
+private final class DictionaryMutationInputProtocol: URLProtocol {
+  private static let lock = NSLock()
+  private static var requestCount = 0
+
+  static func reset() {
+    lock.lock(); defer { lock.unlock() }
+    requestCount = 0
+  }
+
+  static func requests() -> Int {
+    lock.lock(); defer { lock.unlock() }
+    return requestCount
+  }
+
+  override class func canInit(with request: URLRequest) -> Bool { true }
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+  override func startLoading() {
+    Self.lock.lock(); Self.requestCount += 1; Self.lock.unlock()
+    let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil,
+      headerFields: ["Content-Type":"application/json"])!
+    client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+    client?.urlProtocol(self, didLoad: Data(#"{"revision":1,"previous":null,"replacement":null}"#.utf8))
+    client?.urlProtocolDidFinishLoading(self)
+  }
+  override func stopLoading() {}
+}
 final class BackendDictionaryChangesTests: XCTestCase {
   private func client() -> BackendAccountClient {
     let config = URLSessionConfiguration.ephemeral
@@ -83,5 +109,40 @@ final class BackendDictionaryChangesTests: XCTestCase {
       _ = try await client.addDictionary(.pinyin, value: .init(code: "ni", word: "你", weight: 1), token: "synthetic")
       XCTFail("malformed dictionary change accepted")
     } catch let failure as BackendAccountClient.Failure { XCTAssertEqual(failure.status, 0) }
+  }
+  func testDictionaryMutationsRejectInvalidValuesBeforeSending() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [DictionaryMutationInputProtocol.self]
+    let client = BackendAccountClient(configuration: configuration)
+    let invalid = BackendAccountClient.DictionaryValue(code: "ni", word: "合成", weight: -1)
+    DictionaryMutationInputProtocol.reset()
+    do {
+      _ = try await client.addDictionary(.pinyin, value: invalid, token: "synthetic")
+      XCTFail("invalid dictionary value sent")
+    } catch let failure as BackendAccountClient.Failure {
+      XCTAssertEqual(failure.status, 400)
+    }
+    XCTAssertEqual(DictionaryMutationInputProtocol.requests(), 0)
+
+    let entry = BackendAccountClient.DictionaryEntry(
+      id: String(repeating: "a", count: 64), kind: .pinyin, code: "ni", word: "合成", weight: 1, revision: 1)
+    DictionaryMutationInputProtocol.reset()
+    do {
+      _ = try await client.updateDictionary(entry, value: invalid, token: "synthetic")
+      XCTFail("invalid dictionary update sent")
+    } catch let failure as BackendAccountClient.Failure {
+      XCTAssertEqual(failure.status, 400)
+    }
+    XCTAssertEqual(DictionaryMutationInputProtocol.requests(), 0)
+
+    let catalogEntry = BackendAccountClient.CatalogEntry(kind: .pinyin, code: "ni", word: "合成", weight: 1)
+    DictionaryMutationInputProtocol.reset()
+    do {
+      _ = try await client.editCatalog(catalogEntry, revision: 1, replacement: invalid, token: "synthetic")
+      XCTFail("invalid dictionary replacement sent")
+    } catch let failure as BackendAccountClient.Failure {
+      XCTAssertEqual(failure.status, 400)
+    }
+    XCTAssertEqual(DictionaryMutationInputProtocol.requests(), 0)
   }
 }

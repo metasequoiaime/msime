@@ -15,6 +15,16 @@ public final class FeedbackApiSmoke {
         check(!FeedbackApi.validText("字".repeat(501)), "501 characters refused");
         check(FeedbackApi.length("😀a") == 2, "code points are counted");
         check(!FeedbackApi.validText("a\u0000b"), "control characters refused");
+        try {
+            java.lang.reflect.Method strictString = FeedbackApi.class.getDeclaredMethod("strictString", Object.class);
+            strictString.setAccessible(true);
+            check("synthetic".equals(strictString.invoke(null, "synthetic")),
+                "feedback response ids accept strings");
+            check(strictString.invoke(null, 7) == null,
+                "feedback response ids reject numbers instead of coercing them");
+        } catch (ReflectiveOperationException error) {
+            throw new AssertionError("feedback response string policy missing", error);
+        }
 
         // 诊断字段只保留白名单键，值截到 256 字节。
         Map<String, String> raw = new LinkedHashMap<>();

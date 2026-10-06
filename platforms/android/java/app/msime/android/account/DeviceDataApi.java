@@ -29,6 +29,12 @@ public final class DeviceDataApi {
     public static final int MAX_DISPLAY_NAME = 64;
     /** 头像上传上限，与服务端 `maxAvatarUploadBytes` 一致。 */
     public static final int MAX_AVATAR_BYTES = 1024 * 1024;
+    /** 账号响应里允许展开的会话数。 */
+    public static final int MAX_SESSIONS = 100;
+    /** 账号响应里允许展开的数据分类数。 */
+    public static final int MAX_DATA_SECTIONS = 16;
+    /** 账号响应里允许展开的关联身份数，与共享账号校验保持一致。 */
+    public static final int MAX_IDENTITIES = 16;
     public static final String RECENT_LOGIN_REQUIRED = "recent_login_required";
     /** 云端数据里可以单独删除的分类，顺序即确认框里的顺序。 */
     public static final List<String> DELETABLE_SECTIONS = List.of("preferences", "dictionary", "phrases", "clipboard");
@@ -140,6 +146,9 @@ public final class DeviceDataApi {
         JSONObject root = cloud.json("GET", "/v1/users/me/sessions", null, CloudApi.Auth.ACCOUNT);
         JSONArray rows = root.optJSONArray("sessions");
         if (rows == null) throw new CloudApi.Failure(500, "invalid_response", "sessions missing", 0);
+        if (!validResponseArrayLength(rows.length(), MAX_SESSIONS)) {
+            throw new CloudApi.Failure(500, "invalid_response", "too many sessions", 0);
+        }
         List<Session> sessions = new ArrayList<>(rows.length());
         for (int index = 0; index < rows.length(); index++) {
             JSONObject row = rows.optJSONObject(index);
@@ -164,15 +173,19 @@ public final class DeviceDataApi {
     public DataSummary dataSummary() throws CloudApi.Failure {
         JSONObject root = cloud.json("GET", "/v1/users/me/data", null, CloudApi.Auth.ACCOUNT);
         JSONArray rows = root.optJSONArray("sections");
+        if (rows != null && !validResponseArrayLength(rows.length(), MAX_DATA_SECTIONS)) {
+            throw new CloudApi.Failure(500, "invalid_response", "too many data sections", 0);
+        }
         List<DataSection> sections = new ArrayList<>(rows == null ? 0 : rows.length());
         if (rows != null) {
             for (int index = 0; index < rows.length(); index++) {
                 JSONObject row = rows.optJSONObject(index);
                 if (row == null || string(row, "id").isEmpty()) continue;
-                sections.add(new DataSection(string(row, "id"), count(row.opt("bytes")), count(row.opt("items"))));
+                sections.add(new DataSection(string(row, "id"), strictCount(row.opt("bytes")),
+                    strictCount(row.opt("items"))));
             }
         }
-        return new DataSummary(count(root.opt("bytes")), Collections.unmodifiableList(sections));
+        return new DataSummary(strictCount(root.opt("bytes")), Collections.unmodifiableList(sections));
     }
 
     /**
@@ -259,6 +272,11 @@ public final class DeviceDataApi {
         return true;
     }
 
+    /** 数组长度检查独立出来供无 `org.json` 的宿主冒烟测试覆盖。 */
+    public static boolean validResponseArrayLength(int length, int maximum) {
+        return length >= 0 && maximum >= 0 && length <= maximum;
+    }
+
     /** 按文件头认头像格式：PNG 签名或 JPEG 的 SOI 标记；都不是时为 null。 */
     public static String avatarType(byte[] image) {
         if (image == null || image.length < 4) return null;
@@ -313,6 +331,9 @@ public final class DeviceDataApi {
             throw new CloudApi.Failure(500, "invalid_response", "user missing", 0);
         }
         JSONArray identities = root.optJSONArray("identities");
+        if (identities != null && !validResponseArrayLength(identities.length(), MAX_IDENTITIES)) {
+            throw new CloudApi.Failure(500, "invalid_response", "too many identities", 0);
+        }
         List<String> providers = new ArrayList<>(identities == null ? 0 : identities.length());
         if (identities != null) {
             for (int index = 0; index < identities.length(); index++) {
@@ -330,8 +351,13 @@ public final class DeviceDataApi {
         return value instanceof String text ? text : "";
     }
 
-    private static long count(Object value) {
-        return value instanceof Number number ? BoundsPolicy.nonNegative(number.longValue()) : 0L;
+    /** Data summary counters are JSON integers; reject coercion and negative values. */
+    public static long strictCount(Object value) throws CloudApi.Failure {
+        if (!(value instanceof Integer) && !(value instanceof Long))
+            throw new CloudApi.Failure(500, "invalid_response", "invalid data count", 0);
+        long count = ((Number) value).longValue();
+        if (count < 0) throw new CloudApi.Failure(500, "invalid_response", "invalid data count", 0);
+        return count;
     }
 
     /** 数一数写了多少字节，原样转给下游。 */
@@ -368,9 +394,7 @@ public final class DeviceDataApi {
             int status = connection.getResponseCode();
             if (status / 100 == 2) {
                 try (InputStream input = connection.getInputStream()) {
-                    byte[] buffer = new byte[16 * 1024];
-                    int read;
-                    while ((read = input.read(buffer)) != -1) out.write(buffer, 0, read);
+                    HttpBodyPolicy.copy(input, out);
                 }
                 out.flush();
                 return new Download(status, null, new byte[0]);

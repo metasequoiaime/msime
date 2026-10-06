@@ -122,7 +122,7 @@ public final class MSIMEInputService extends InputMethodService {
     private HorizontalScrollView horizontalCandidateScroll;
     private ScrollView verticalCandidateScroll;
     private final java.util.List<Button> candidateButtons = new java.util.ArrayList<>();
-    private final java.util.List<Button> englishSuggestionButtons = new java.util.ArrayList<>();
+    private final java.util.List<Button> englishSuggestionButtons = new java.util.ArrayList<>(32);
     LinearLayout expandedCandidates;
     ScrollView expandedCandidateScroll;
     TextView preedit;
@@ -222,7 +222,7 @@ public final class MSIMEInputService extends InputMethodService {
     /** The shared theme catalog (`msime_client_theme_catalog`), read once: ids, titles and palettes are fixed per build. */
     JSONArray themeCatalog;
     /** Resolved keyboards by request, so the four surfaces of one snapshot cost at most two native calls. */
-    private final java.util.Map<String, KeyboardSkin> resolvedThemes = new java.util.HashMap<>();
+    private final java.util.Map<String, KeyboardSkin> resolvedThemes = new java.util.HashMap<>(8);
     /** 输入法自己写进编辑器后预期的选区，用来认出 `onUpdateSelection` 里迟到的回声。 */
     final SelectionEchoTracker selectionEcho = new SelectionEchoTracker();
     private JSONObject localModes = new JSONObject();
@@ -267,8 +267,8 @@ public final class MSIMEInputService extends InputMethodService {
     boolean panelPreferenceSaving;
     Button microsoftFinalKey;
     final java.util.List<ShuangpinHintButton> shuangpinKeyButtons =
-        new java.util.ArrayList<>();
-    final java.util.List<String> shuangpinKeyInputs = new java.util.ArrayList<>();
+        new java.util.ArrayList<>(27);
+    final java.util.List<String> shuangpinKeyInputs = new java.util.ArrayList<>(27);
     private String shuangpinHintsProfile = "";
     private java.util.Map<String, String> shuangpinHints = java.util.Map.of();
     /** 本包所属的版本：键盘只列出本版本提供的方案入口，偏好里的方案本版本没有时回退到本版本的默认方案。 */
@@ -300,8 +300,8 @@ public final class MSIMEInputService extends InputMethodService {
     JapaneseFlickPreview japaneseFlickPreview;
     LinearLayout shortcutBar;
     HorizontalScrollView shortcutScroll;
-    final java.util.List<Button> symbolKeyButtons = new java.util.ArrayList<>();
-    final java.util.List<String> symbolKeyInputs = new java.util.ArrayList<>();
+    final java.util.List<Button> symbolKeyButtons = new java.util.ArrayList<>(30);
+    final java.util.List<String> symbolKeyInputs = new java.util.ArrayList<>(30);
     HandwritingCanvas handwritingCanvas;
     private LinearLayout handwritingCandidates;
     TextView handwritingStatus;
@@ -688,8 +688,16 @@ public final class MSIMEInputService extends InputMethodService {
 
     private JSONObject value(String response) throws JSONException {
         JSONObject envelope = new JSONObject(response);
-        if (!envelope.getBoolean("ok")) throw new JSONException("Shared runtime rejected operation");
+        if (!Boolean.TRUE.equals(envelope.opt("ok")))
+            throw new JSONException("Shared runtime rejected operation");
         return envelope.getJSONObject("value");
+    }
+
+    /** Read a native protocol flag without accepting org.json's string coercion. */
+    private static boolean strictBoolean(JSONObject object, String key) throws JSONException {
+        Object value = object.opt(key);
+        if (!(value instanceof Boolean)) throw new JSONException("Invalid boolean: " + key);
+        return (Boolean) value;
     }
 
     private EditorBridge.Sink sink(TypingSource source) {
@@ -771,7 +779,7 @@ public final class MSIMEInputService extends InputMethodService {
             typingStatisticsWorker.execute(() -> {
                 try {
                     JSONObject result = new JSONObject(NativeClient.typingStatistics(request));
-                    if (!result.getBoolean("ok")) {
+                    if (!Boolean.TRUE.equals(result.opt("ok"))) {
                         reportTypingStatisticsFailure(lifecycleGeneration);
                     } else if (nothingRecorded != null) {
                         JSONObject value = result.getJSONObject("value");
@@ -1020,8 +1028,8 @@ public final class MSIMEInputService extends InputMethodService {
             && EditorPolicy.useEngine(info.inputType);
         String statisticsPreferences = "";
         try {
-            File file = new File(getFilesDir(), "runtime-options.json");
-            JSONObject options = new JSONObject(HostOptionsPolicy.read(file));
+            JSONObject options = new JSONObject(
+                HostOptionsPolicy.readRuntimeOptions(getFilesDir()));
             statisticsPreferences = options.optString("preferences_directory", "");
             languageDictionaries = options.optString("language_dictionaries", "");
             JSONObject preferences = options.optJSONObject("preferences");
@@ -1326,7 +1334,7 @@ public final class MSIMEInputService extends InputMethodService {
             String directory = options.optString("preferences_directory", "");
             if (directory.isEmpty() || !new File(directory).isAbsolute()) return optionsText;
             JSONObject envelope = new JSONObject(NativeClient.loadPreferences(directory));
-            JSONObject live = envelope.optBoolean("ok", false)
+            JSONObject live = Boolean.TRUE.equals(envelope.opt("ok"))
                 ? envelope.getJSONObject("value").optJSONObject("preferences") : null;
             if (live == null) return optionsText;
             if (suppressLearning) live.put("learning", false);
@@ -1858,7 +1866,8 @@ public final class MSIMEInputService extends InputMethodService {
         renderLayoutSettingsState();
         if (voiceResultScroll != null && voiceResultScroll.getVisibility() == View.VISIBLE)
             renderVoiceResult();
-        preferencesNotice = result.getBoolean("deferred") ? " · 设置将在组词结束后应用" : "";
+        preferencesNotice = strictBoolean(result, "deferred")
+            ? " · 设置将在组词结束后应用" : "";
     }
 
     boolean apply(String response) throws JSONException {
@@ -1874,14 +1883,16 @@ public final class MSIMEInputService extends InputMethodService {
         }
         // Korean marks the composing Hangul, not the key letters editing_text holds; a transition may carry the syllable the key finished and the next one together, and the bridge writes the commit first. Zhuyin's editing_text is the Dachen keys too, and it marks the reading (the conversion and the pending bopomofo) by the same rule.
         int nextViewScheme = InputViewValuePolicy.scheme(next, -1);
-        boolean nextDedicatedEnglish = next.optBoolean("dedicated_english", dedicatedEnglish);
+        boolean nextDedicatedEnglish = InputViewValuePolicy.booleanValue(
+            next, "dedicated_english", dedicatedEnglish);
         // 笔画的 editing_text 是字母 hspnzx，reading 才是用户按下的笔画字形（一丨丿丶乛＊），所以同样标记 reading。日语的 editing_text 是罗马字（九键的 ち 送的是 chi），reading 才是假名。哪些方案这样做由引擎的 `draws_reading` 决定。
         String composing = KoreanInputPolicy.composing(
             InputSchemeTraits.drawsReading(nextViewScheme) && !nextDedicatedEnglish,
             next.optString("phrase_prefix", ""), next.getString("editing_text"),
             next.optString("reading", ""));
         // 九键的 editing_text 是按下的数字键（64426），写进输入框对用户没有意义；和 iOS 默认一样不在输入框里标记组词，组词只显示在键盘自己的预编辑栏上（选过的音节显示为拼音，如 ni'426）。注音 9 键例外：上面已经按大千的规则标记 reading（转换结果加未完成的数字），照常留在输入框里。
-        if (ZhuyinInputPolicy.hidesNineKeyComposing(next.optBoolean("nine_key", false),
+        if (ZhuyinInputPolicy.hidesNineKeyComposing(InputViewValuePolicy.booleanValue(
+                next, "nine_key", false),
                 ZhuyinInputPolicy.active(nextViewScheme, nextDedicatedEnglish))) composing = "";
         if (connection != null
                 && !bridge.apply(sink(typingSource()), commit, composing)) {
@@ -1894,7 +1905,7 @@ public final class MSIMEInputService extends InputMethodService {
             letterCase.reset();
         if (rebuildLayout) imeLetterRows.rebuildKeyRows();
         render();
-        return result.getBoolean("handled");
+        return strictBoolean(result, "handled");
     }
 
     private boolean englishNineKeyActive() {
@@ -2008,7 +2019,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     private Button makeEnglishSuggestionButton(int slot) {
         Button button = new KeyboardPressButton(this);
-        button.setAllCaps(false);
+        ViewPolicy.setAllCapsFalse(button);
         button.setOnClickListener(ignored -> {
             imeKeyFeedback.playFeedback(button);
             useEnglishSuggestion(slot, button);
@@ -2022,7 +2033,7 @@ public final class MSIMEInputService extends InputMethodService {
                 englishSuggestionButtons.add(makeEnglishSuggestionButton(englishSuggestionButtons.size()));
             Button button = englishSuggestionButtons.get(slot);
             String text = englishSuggestions.get(slot);
-            button.setVisibility(View.VISIBLE);
+            ViewPolicy.show(button);
             button.setText(text);
             KeyboardGeometry.setKeyTextSize(button, candidateFontSize);
             button.setContentDescription("英文建议 " + (slot + 1) + "：" + text);
@@ -2034,7 +2045,7 @@ public final class MSIMEInputService extends InputMethodService {
                 LinearLayout.LayoutParams.WRAP_CONTENT));
         }
         for (int slot = englishSuggestions.size(); slot < englishSuggestionButtons.size(); slot++)
-            englishSuggestionButtons.get(slot).setVisibility(View.GONE);
+            ViewPolicy.hide(englishSuggestionButtons.get(slot));
     }
 
     /** Copies Engine candidates on the IME thread, then performs only session-free IO off-thread. */
@@ -2050,8 +2061,10 @@ public final class MSIMEInputService extends InputMethodService {
         final long targetSession = session;
         final long targetEpoch = candidateGlossEpoch;
         final String targetResources = candidateGlossResources;
+        final java.util.List<String> offlineTargets = candidateOfflineTargets();
         final String request;
-        final java.util.Map<String, String> targetRequests = new java.util.LinkedHashMap<>();
+        final java.util.Map<String, String> targetRequests =
+            new java.util.LinkedHashMap<>(offlineTargets.size());
         try {
             JSONObject snapshot = value(NativeClient.allCandidates(targetSession));
             if (CandidateGlossPolicy.strictOr(snapshot.opt("session"), Long.MIN_VALUE) != targetSession
@@ -2060,7 +2073,7 @@ public final class MSIMEInputService extends InputMethodService {
                 snapshot.getJSONArray("candidates"));
             // The account path's scheme gate: a Japanese composition is not glossed into other languages. Korean Hanja rows are, as the shared translation query answers them.
             if ("none".equals(view.optString("local_mode", "none")) && InputViewValuePolicy.scheme(view, -1) != 3) {
-                for (String language : candidateOfflineTargets()) {
+                for (String language : offlineTargets) {
                     targetRequests.put(language, CandidateGlossModel.request(generation,
                         snapshot.getJSONArray("candidates"), language));
                 }
@@ -2081,7 +2094,7 @@ public final class MSIMEInputService extends InputMethodService {
                         NativeClient.candidateGlosses(request, targetResources));
                     java.util.Map<String, java.util.Map<String, String>> offline = null;
                     if (!targetRequests.isEmpty()) {
-                        offline = new java.util.HashMap<>();
+                        offline = new java.util.HashMap<>(targetRequests.size() + 1);
                         offline.put("en", glossMap(result));
                         for (java.util.Map.Entry<String, String> target : targetRequests.entrySet()) {
                             try {
@@ -2122,7 +2135,7 @@ public final class MSIMEInputService extends InputMethodService {
         try {
             JSONObject applied = value(NativeClient.applyTranslations(
                 token.session(), token.generation(), translations));
-            if (!applied.optBoolean("applied", false)) return;
+            if (!CandidateGlossPolicy.isApplied(applied.opt("applied"))) return;
             JSONObject next = applied.getJSONObject("view");
             if (CandidateGlossPolicy.strictOr(next.opt("session"), Long.MIN_VALUE) != token.session()
                     || CandidateGlossPolicy.strictOr(next.opt("generation"), -1) != token.generation()) return;
@@ -2155,8 +2168,9 @@ public final class MSIMEInputService extends InputMethodService {
         JSONArray entries = view.optJSONArray("candidates");
         long generation = CandidateGlossPolicy.strictOr(view.opt("generation"), -1);
         if (entries == null || entries.length() == 0 || generation < 0) return;
-        java.util.ArrayList<String> words = new java.util.ArrayList<>(Math.min(entries.length(), 32));
-        for (int index = 0; index < Math.min(entries.length(), 32); index++) {
+        int candidateCount = Math.min(entries.length(), 32);
+        java.util.ArrayList<String> words = new java.util.ArrayList<>(candidateCount);
+        for (int index = 0; index < candidateCount; index++) {
             JSONObject candidate = entries.optJSONObject(index);
             if (candidate != null) words.add(candidate.optString("text", ""));
         }
@@ -2173,7 +2187,7 @@ public final class MSIMEInputService extends InputMethodService {
         try {
             JSONObject applied = value(NativeClient.applyTranslations(session, generation,
                 translations.toString()));
-            if (!applied.optBoolean("applied", false)) return;
+            if (!CandidateGlossPolicy.isApplied(applied.opt("applied"))) return;
             JSONObject next = applied.getJSONObject("view");
             if (CandidateGlossPolicy.strictOr(next.opt("session"), Long.MIN_VALUE) != session
                     || CandidateGlossPolicy.strictOr(next.opt("generation"), -1) != generation) return;
@@ -2193,9 +2207,11 @@ public final class MSIMEInputService extends InputMethodService {
         java.util.Map<String, java.util.Map<String, String>> offline =
             candidateOfflineGlosses != null && candidateOfflineGlossSession == session
                 && candidateOfflineGlossGeneration == generation ? candidateOfflineGlosses : java.util.Map.of();
-        java.util.LinkedHashSet<String> texts = new java.util.LinkedHashSet<>();
         JSONArray entries = view == null ? null : view.optJSONArray("candidates");
-        for (int index = 0; entries != null && index < Math.min(entries.length(), 32); index++) {
+        int textCapacity = entries == null ? 0 : Math.min(entries.length(), 32);
+        for (java.util.Map<String, String> glosses : offline.values()) textCapacity += glosses.size();
+        java.util.LinkedHashSet<String> texts = new java.util.LinkedHashSet<>(textCapacity);
+        for (int index = 0; entries != null && index < BoundsPolicy.atMost(entries.length(), 32); index++) {
             JSONObject candidate = entries.optJSONObject(index);
             if (candidate != null) texts.add(candidate.optString("text", ""));
         }
@@ -2203,8 +2219,10 @@ public final class MSIMEInputService extends InputMethodService {
         boolean account = candidateTranslationAccount && candidateTranslationStore != null;
         JSONArray translations = new JSONArray();
         for (String text : texts) {
-            java.util.HashMap<String, String> offlineRows = new java.util.HashMap<>();
-            java.util.HashMap<String, String> accountRows = new java.util.HashMap<>();
+            java.util.HashMap<String, String> offlineRows =
+                new java.util.HashMap<>(candidateTranslationTargets.size());
+            java.util.HashMap<String, String> accountRows =
+                new java.util.HashMap<>(candidateTranslationTargets.size());
             for (String target : candidateTranslationTargets) {
                 java.util.Map<String, String> glosses = offline.get(target);
                 if (glosses != null && glosses.containsKey(text)) offlineRows.put(target, glosses.get(text));
@@ -2225,7 +2243,7 @@ public final class MSIMEInputService extends InputMethodService {
     private static java.util.Map<String, String> glossMap(CandidateGlossModel.Result result)
             throws JSONException {
         JSONArray entries = new JSONArray(result.translations());
-        java.util.LinkedHashMap<String, String> glosses = new java.util.LinkedHashMap<>();
+        java.util.LinkedHashMap<String, String> glosses = new java.util.LinkedHashMap<>(entries.length());
         for (int index = 0; index < entries.length(); index++) {
             JSONObject entry = entries.getJSONObject(index);
             glosses.put(entry.getString("text"), entry.getString("translation"));
@@ -2243,21 +2261,24 @@ public final class MSIMEInputService extends InputMethodService {
     private JSONObject onlineQuery(long targetSession) {
         try {
             JSONObject envelope = new JSONObject(NativeClient.onlineQuery(targetSession));
-            return envelope.optBoolean("ok", false) ? envelope.optJSONObject("value") : null;
+            return Boolean.TRUE.equals(envelope.opt("ok"))
+                ? envelope.optJSONObject("value") : null;
         } catch (JSONException | RuntimeException | LinkageError error) {
             return null;
         }
     }
 
     private boolean requestsCloud(JSONObject query) {
-        return OnlineCandidatePolicy.requestsCloud(query.optBoolean("cloud_candidates", false),
-            query.optBoolean("cloud_eligible", false));
+        return OnlineCandidatePolicy.requestsCloud(
+            InputViewValuePolicy.booleanValue(query, "cloud_candidates", false),
+            InputViewValuePolicy.booleanValue(query, "cloud_eligible", false));
     }
 
     private boolean requestsAi(JSONObject query) {
         JSONObject assistant = query.optJSONObject("ai_assistant");
-        return OnlineCandidatePolicy.requestsAi(query.optBoolean("ai_eligible", false),
-            assistant != null && assistant.optBoolean("enabled", false));
+        return OnlineCandidatePolicy.requestsAi(
+            InputViewValuePolicy.booleanValue(query, "ai_eligible", false),
+            InputViewValuePolicy.booleanValue(assistant, "enabled", false));
     }
 
     /** Invalidate delayed and in-flight optional provider work at an editor boundary. */
@@ -2278,7 +2299,7 @@ public final class MSIMEInputService extends InputMethodService {
      * {@link OnlineCandidatePolicy}, so only the envelope shape is read here.
      */
     private java.util.List<String> aiCandidateTexts(String body) {
-        java.util.ArrayList<String> texts = new java.util.ArrayList<>();
+        java.util.List<String> texts = java.util.List.of();
         if (!OnlineCandidatePolicy.acceptsAiBody(body)) return texts;
         try {
             JSONObject envelope = new JSONObject(body);
@@ -2291,15 +2312,14 @@ public final class MSIMEInputService extends InputMethodService {
             if (!OnlineCandidatePolicy.acceptsAiContent(content)) return texts;
             JSONArray entries = new JSONObject(content).optJSONArray("candidates");
             if (entries == null) return texts;
-            texts.ensureCapacity(entries.length());
+            texts = new java.util.ArrayList<>(entries.length());
             for (int index = 0; index < entries.length(); index++) {
                 JSONObject entry = entries.optJSONObject(index);
                 if (entry != null) texts.add(entry.optString("text", ""));
             }
             return texts;
         } catch (JSONException | RuntimeException error) {
-            texts.clear();
-            return texts;
+            return java.util.List.of();
         }
     }
 
@@ -2307,7 +2327,8 @@ public final class MSIMEInputService extends InputMethodService {
     private String cloudRequestUrl(String document) {
         try {
             JSONObject envelope = new JSONObject(NativeClient.cloudRequestUrl(document));
-            return envelope.optBoolean("ok", false) ? envelope.optString("value", "") : "";
+            return Boolean.TRUE.equals(envelope.opt("ok"))
+                ? envelope.optString("value", "") : "";
         } catch (JSONException | RuntimeException | LinkageError error) {
             return "";
         }
@@ -2318,7 +2339,8 @@ public final class MSIMEInputService extends InputMethodService {
         if (raw == null) return null;
         try {
             JSONObject envelope = new JSONObject(raw);
-            return envelope.optBoolean("ok", false) ? envelope.optJSONObject("value") : null;
+            return Boolean.TRUE.equals(envelope.opt("ok"))
+                ? envelope.optJSONObject("value") : null;
         } catch (JSONException | RuntimeException error) {
             return null;
         }
@@ -2350,8 +2372,8 @@ public final class MSIMEInputService extends InputMethodService {
         JSONObject assistant = query.optJSONObject("ai_assistant");
         String signature = OnlineCandidatePolicy.signature(querySession,
             query.optString("cache_key", ""), query.optString("identity", ""),
-            query.optBoolean("cloud_candidates", false),
-            assistant != null && assistant.optBoolean("enabled", false) ? assistant.toString() : "");
+            InputViewValuePolicy.booleanValue(query, "cloud_candidates", false),
+            InputViewValuePolicy.booleanValue(assistant, "enabled", false) ? assistant.toString() : "");
         if (signature.equals(onlineSignature)) return;
         onlineSignature = signature;
         if (onlineTask != null) main.removeCallbacks(onlineTask);
@@ -2449,7 +2471,7 @@ public final class MSIMEInputService extends InputMethodService {
             try {
                 if (epoch != onlineEpoch || targetSession != session) return;
                 JSONObject applied = value(call.get());
-                if (!applied.optBoolean("applied", false)) return;
+                if (!CandidateGlossPolicy.isApplied(applied.opt("applied"))) return;
                 JSONObject next = applied.getJSONObject("view");
                 if (CandidateGlossPolicy.strictOr(next.opt("session"), Long.MIN_VALUE)
                         != targetSession) return;
@@ -2775,7 +2797,7 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean strokeCompositionMarked() {
         return view != null && !view.optString("editing_text", "").isEmpty()
             && StrokeInputPolicy.active(InputViewValuePolicy.scheme(view, -1), dedicatedEnglish)
-            && !view.optBoolean("nine_key", false);
+            && !InputViewValuePolicy.booleanValue(view, "nine_key", false);
     }
 
     private boolean vietnameseSchemeActive() {
@@ -3021,7 +3043,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (value == null) return STANDARD_TOUCH_LAYOUT;
         return KeyboardLayout.resolveTouchLayout(
             "handwriting".equals(value.optString("touch_keyboard_layout")),
-            value.optBoolean("nine_key", false), InputViewValuePolicy.scheme(value, -1),
+            InputViewValuePolicy.booleanValue(value, "nine_key", false), InputViewValuePolicy.scheme(value, -1),
             value.optString("touch_keyboard_layout"));
     }
 
@@ -3351,16 +3373,17 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     Button button(LinearLayout row, String label, Runnable action) {
-        Button button = new KeyboardPressButton(this);
+        return addRowButton(row, new KeyboardPressButton(this), label, action, true);
+    }
+
+    private <T extends Button> T addRowButton(LinearLayout row, T button, String label,
+            Runnable action, boolean counted) {
         KeyboardGeometry.setKeyTextSize(button, KeyboardGeometry.DEFAULT_KEY_TEXT_SP);
-        button.setAllCaps(false);
+        ViewPolicy.setAllCapsFalse(button);
         button.setText(label);
         imeStyler.styleButton(button, true);
-        button.setOnClickListener(ignored -> {
-            imeKeyFeedback.playFeedback(button);
-            countKey(button);
-            action.run();
-        });
+        if (counted) bindCountedAction(button, action);
+        else bindAction(button, action);
         row.addView(button, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
         return button;
     }
@@ -3374,31 +3397,17 @@ public final class MSIMEInputService extends InputMethodService {
     Button shortcutButton(LinearLayout row, String label,
             KeyboardShortcutIconPolicy.Icon icon, Runnable action) {
         KeyboardShortcutButton button = new KeyboardShortcutButton(this, icon);
-        button.setAllCaps(false);
-        button.setText(label);
-        imeStyler.styleButton(button, true);
-        button.setOnClickListener(ignored -> {
-            imeKeyFeedback.playFeedback(button);
-            countKey(button);
-            action.run();
-        });
-        row.addView(button, new LinearLayout.LayoutParams(0,
-            LinearLayout.LayoutParams.WRAP_CONTENT, 1));
-        return button;
+        return addRowButton(row, button, label, action, true);
     }
 
     private Button brandButton(LinearLayout row, Runnable action) {
         KeyboardBrandButton button = new KeyboardBrandButton(this,
             () -> Color.parseColor(skin.accent()));
-        button.setAllCaps(false);
+        ViewPolicy.setAllCapsFalse(button);
         button.setText("更多");
         imeStyler.styleButton(button, true);
-        button.setOnClickListener(ignored -> {
-            imeKeyFeedback.playFeedback(button);
-            action.run();
-        });
-        row.addView(button, new LinearLayout.LayoutParams(0,
-            LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        bindAction(button, action);
+        row.addView(button, KeyboardGeometry.weightedWrapParams(1));
         return button;
     }
 
@@ -3406,30 +3415,22 @@ public final class MSIMEInputService extends InputMethodService {
     private Button pillButton(LinearLayout row, String label, Runnable action) {
         KeyboardPressButton button = new KeyboardPressButton(this);
         button.setKeyboardRole(KeyboardKeyRole.PILL);
-        button.setAllCaps(false);
+        ViewPolicy.setAllCapsFalse(button);
         button.setText(label);
         KeyboardGeometry.setKeyTextSize(button, 13);
         imeStyler.styleButton(button, KeyboardKeyRole.PILL, skin);
-        button.setOnClickListener(ignored -> {
-            imeKeyFeedback.playFeedback(button);
-            action.run();
-        });
-        row.addView(button, new LinearLayout.LayoutParams(0,
-            LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        bindAction(button, action);
+        row.addView(button, KeyboardGeometry.weightedWrapParams(1));
         return button;
     }
 
     Button borderlessButton(LinearLayout row, String label, Runnable action) {
         Button button = new KeyboardBorderlessButton(this);
-        button.setAllCaps(false);
+        ViewPolicy.setAllCapsFalse(button);
         button.setText(label);
         imeStyler.styleButton(button, true);
-        button.setOnClickListener(ignored -> {
-            imeKeyFeedback.playFeedback(button);
-            action.run();
-        });
-        row.addView(button, new LinearLayout.LayoutParams(0,
-            LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        bindAction(button, action);
+        row.addView(button, KeyboardGeometry.weightedWrapParams(1));
         return button;
     }
 
@@ -3437,16 +3438,11 @@ public final class MSIMEInputService extends InputMethodService {
         Button button = new KeyboardPressButton(this);
         KeyboardGeometry.normalizeKeyCap(button);
         KeyboardGeometry.setKeyTextSize(button, KeyboardGeometry.DEFAULT_KEY_TEXT_SP);
-        button.setAllCaps(false);
+        ViewPolicy.setAllCapsFalse(button);
         button.setText(label);
         button.setContentDescription("按键 " + description);
         imeStyler.styleButton(button, false);
-        button.setOnClickListener(ignored -> {
-            imeKeyFeedback.playFeedback(button);
-            countKey(button);
-            action.run();
-        });
-        return button;
+        return bindCountedAction(button, action);
     }
 
     /** 九键、注音、笔画、手写和日语九键的 ⌫：和 {@link #keyboardKey} 一样的键，只是画 26 键那个 22 dp 的删除图标，不再用排版字号的「⌫」字符，那样比 26 键的小一圈。 */
@@ -3476,9 +3472,21 @@ public final class MSIMEInputService extends InputMethodService {
         button.setText(label);
         button.setContentDescription("按键 " + description);
         imeStyler.styleButton(button, false);
+        return bindCountedAction(button, action);
+    }
+
+    <T extends Button> T bindCountedAction(T button, Runnable action) {
         button.setOnClickListener(ignored -> {
             imeKeyFeedback.playFeedback(button);
             countKey(button);
+            action.run();
+        });
+        return button;
+    }
+
+    private <T extends Button> T bindAction(T button, Runnable action) {
+        button.setOnClickListener(ignored -> {
+            imeKeyFeedback.playFeedback(button);
             action.run();
         });
         return button;
@@ -3491,12 +3499,7 @@ public final class MSIMEInputService extends InputMethodService {
         button.setText(label);
         button.setContentDescription("按键 " + description);
         imeStyler.styleButton(button, false);
-        button.setOnClickListener(ignored -> {
-            imeKeyFeedback.playFeedback(button);
-            countKey(button);
-            action.run();
-        });
-        return button;
+        return bindCountedAction(button, action);
     }
 
     /**
@@ -3752,8 +3755,9 @@ public final class MSIMEInputService extends InputMethodService {
 
     /** 本版本提供的本地模式：不带临时日语的版本（五笔版）不列出它，其余与 {@link LocalInputMode#values()} 相同。 */
     java.util.List<LocalInputMode> localInputModes() {
-        java.util.List<LocalInputMode> modes = new java.util.ArrayList<>(LocalInputMode.values().length);
-        for (LocalInputMode mode : LocalInputMode.values()) {
+        LocalInputMode[] allModes = LocalInputMode.values();
+        java.util.List<LocalInputMode> modes = new java.util.ArrayList<>(allModes.length);
+        for (LocalInputMode mode : allModes) {
             if (mode != LocalInputMode.TEMPORARY_JAPANESE || edition.temporaryJapanese()) modes.add(mode);
         }
         return modes;
@@ -3770,7 +3774,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     void closeClipboardHistory() {
-        if (clipboardScroll != null) clipboardScroll.setVisibility(View.GONE);
+        if (clipboardScroll != null) ViewPolicy.hide(clipboardScroll);
         // Cloud entries live only as long as the panel that fetched them, so a later field - possibly a password one - never starts with them in memory.
         cloudClipboardGeneration++;
         cloudClipboardItems = java.util.List.of();
@@ -3778,23 +3782,23 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     void closeSchemePicker() {
-        if (schemeScroll != null) schemeScroll.setVisibility(View.GONE);
+        if (schemeScroll != null) ViewPolicy.hide(schemeScroll);
         synchronizeReplyKeyboard();
     }
 
     void closeSkinPicker() {
-        if (skinScroll != null) skinScroll.setVisibility(View.GONE);
+        if (skinScroll != null) ViewPolicy.hide(skinScroll);
     }
 
     void closeLayoutSettings() {
-        if (layoutSettingsScroll != null) layoutSettingsScroll.setVisibility(View.GONE);
-        if (layoutAdjustView != null) layoutAdjustView.setVisibility(View.GONE);
+        if (layoutSettingsScroll != null) ViewPolicy.hide(layoutSettingsScroll);
+        if (layoutAdjustView != null) ViewPolicy.hide(layoutAdjustView);
     }
 
     void closeMoreTools() {
         localInputToolsOpen = false;
         aiAssistChooserOpen = false;
-        if (moreToolsScroll != null) moreToolsScroll.setVisibility(View.GONE);
+        if (moreToolsScroll != null) ViewPolicy.hide(moreToolsScroll);
     }
 
     void closeEmojiPicker() {
@@ -3802,12 +3806,12 @@ public final class MSIMEInputService extends InputMethodService {
         emojiLoading = false;
         emojiSelectedCategory = Integer.MIN_VALUE;
         emojiItems = java.util.List.of();
-        if (emojiPanel != null) emojiPanel.setVisibility(View.GONE);
+        if (emojiPanel != null) ViewPolicy.hide(emojiPanel);
         synchronizeReplyKeyboard();
     }
 
     void closeSymbolPanel() {
-        if (symbolPanel != null) symbolPanel.setVisibility(View.GONE);
+        if (symbolPanel != null) ViewPolicy.hide(symbolPanel);
         synchronizeReplyKeyboard();
     }
 
@@ -3865,7 +3869,8 @@ public final class MSIMEInputService extends InputMethodService {
     private EmojiCatalogModel.Page decodeEmojiPage(
             String response, int offset, EmojiCatalogModel.Category category) throws JSONException {
         JSONObject envelope = new JSONObject(response);
-        if (!envelope.getBoolean("ok")) throw new JSONException("Emoji catalog unavailable");
+        if (!Boolean.TRUE.equals(envelope.opt("ok")))
+            throw new JSONException("Emoji catalog unavailable");
         JSONObject value = envelope.getJSONObject("value");
         JSONArray entries = value.getJSONArray("items");
         if (entries.length() > EmojiCatalogModel.PAGE_SIZE)
@@ -3886,7 +3891,7 @@ public final class MSIMEInputService extends InputMethodService {
         }
         try {
             return EmojiCatalogModel.validatePage(items, offset, EmojiCatalogModel.PAGE_SIZE,
-                nextOffset(value), value.getBoolean("complete"));
+                nextOffset(value), strictBoolean(value, "complete"));
         } catch (IllegalArgumentException error) {
             throw new JSONException("Invalid emoji catalog cursor");
         }
@@ -3957,7 +3962,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     void closeVoiceResult() {
-        if (voiceResultScroll != null) voiceResultScroll.setVisibility(View.GONE);
+        if (voiceResultScroll != null) ViewPolicy.hide(voiceResultScroll);
         voiceResultEntry = null;
         voiceTarget = null;
     }
@@ -3970,7 +3975,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     void closeAiPolish() {
         cancelAiRequest();
-        if (aiPolishContainer != null) aiPolishContainer.setVisibility(View.GONE);
+        if (aiPolishContainer != null) ViewPolicy.hide(aiPolishContainer);
         aiTarget = null;
         aiRequestConfiguration = null;
         aiSourceText = "";
@@ -4146,7 +4151,7 @@ public final class MSIMEInputService extends InputMethodService {
                     response = NativeClient.savePreferences(targetDirectory, expectedRevision, pending.toString());
                     // 本地的按键动画只在偏好写入成功后再写：CAS 冲突时界面回到原皮肤，磁盘上也不能留下新动画。
                     if (animation != null && response != null
-                            && new JSONObject(response).optBoolean("ok", false)) {
+                            && Boolean.TRUE.equals(new JSONObject(response).opt("ok"))) {
                         AndroidLocalSettings.put(this, AndroidLocalSettings.KEY_ANIMATION, animation);
                     }
                 }
@@ -4462,47 +4467,37 @@ public final class MSIMEInputService extends InputMethodService {
         closeLayoutSettings();
         closeAiPolish();
         renderVoiceResult();
-        voiceResultScroll.setVisibility(View.VISIBLE);
+        ViewPolicy.show(voiceResultScroll);
     }
 
     private void renderVoiceResult() {
         if (voiceResultPanel == null) return;
         voiceResultPanel.removeAllViews();
-        LinearLayout header = new LinearLayout(this);
-        TextView title = new TextView(this);
-        title.setText("语音结果");
+        LinearLayout header = KeyboardGeometry.row(this);
+        TextView title = ViewPolicy.textLabel(this, "语音结果", 18);
         KeyboardGeometry.setKeyTextSize(title, 18);
-        header.addView(title, new LinearLayout.LayoutParams(0,
-            LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        header.addView(title, KeyboardGeometry.weightedWrapParams(1));
         button(header, "返回键盘", this::closeVoiceResult);
         voiceResultPanel.addView(header);
         if (voiceResultEntry == null) {
-            TextView empty = new TextView(this);
-        KeyboardGeometry.setKeyTextSize(empty, KeyboardGeometry.DEFAULT_KEY_TEXT_SP);
+            TextView empty = textView("暂无待插入结果。点击下方按钮开始语音识别；只保留最新一条，10 分钟内有效。");
             // Neutral about which engine runs: since the keyboard entry honours a configured
             // provider, naming the system recognizer here was wrong exactly for the users who had
             // configured one. Which service is used is the settings page's to explain.
-            empty.setText("暂无待插入结果。点击下方按钮开始语音识别；只保留最新一条，10 分钟内有效。");
             voiceResultPanel.addView(empty);
         } else {
-            TextView recognized = new TextView(this);
-        KeyboardGeometry.setKeyTextSize(recognized, KeyboardGeometry.DEFAULT_KEY_TEXT_SP);
-            recognized.setText(voiceResultEntry.text());
+            TextView recognized = textView(voiceResultEntry.text());
             recognized.setContentDescription("待插入语音结果");
             voiceResultPanel.addView(recognized);
-            TextView hint = new TextView(this);
-        KeyboardGeometry.setKeyTextSize(hint, KeyboardGeometry.DEFAULT_KEY_TEXT_SP);
-            hint.setText("点击插入后清除待插入结果；输入位置变化时会拒绝插入。");
+            TextView hint = textView("点击插入后清除待插入结果；输入位置变化时会拒绝插入。");
             voiceResultPanel.addView(hint);
             Button insert = button(voiceResultPanel, "插入语音结果", this::insertVoiceResult);
             insert.setContentDescription("插入并清除语音结果");
-            insert.setLayoutParams(new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+            insert.setLayoutParams(KeyboardGeometry.matchWidthWrapParams());
         }
         Button recognize = button(voiceResultPanel, "开始语音识别",
             this::startVoiceRecognition);
-        recognize.setLayoutParams(new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        recognize.setLayoutParams(KeyboardGeometry.matchWidthWrapParams());
         VoiceConfiguration configured = VoiceConfiguration.read(preferencesDirectory, "ime-preview");
         boolean platformRecognizerAvailable = VoiceRecognitionActivity.available(this);
         recognize.setEnabled(voiceInputEnabled
@@ -4510,6 +4505,11 @@ public final class MSIMEInputService extends InputMethodService {
         imeStyler.applySkin();
     }
 
+    private TextView textView(CharSequence text) {
+        TextView view = ViewPolicy.newTextView(this, text);
+        KeyboardGeometry.setKeyTextSize(view, KeyboardGeometry.DEFAULT_KEY_TEXT_SP);
+        return view;
+    }
     private void renderLayoutSettingsState() {
         if (keySpacingSlider != null && rowSpacingSlider != null && keyboardHeightSlider != null
                 && keySpacingValue != null && rowSpacingValue != null && keyboardHeightValue != null
@@ -4600,11 +4600,11 @@ public final class MSIMEInputService extends InputMethodService {
         closeAiPolish();
         renderLayoutSettingsState();
         if (layoutAdjustView != null) {
-            layoutSettingsScroll.setVisibility(View.GONE);
-            layoutAdjustView.setVisibility(View.VISIBLE);
+            ViewPolicy.hide(layoutSettingsScroll);
+            ViewPolicy.show(layoutAdjustView);
             layoutAdjustView.requestFocus();
         } else {
-            layoutSettingsScroll.setVisibility(View.VISIBLE);
+            ViewPolicy.show(layoutSettingsScroll);
         }
     }
 
@@ -4677,7 +4677,7 @@ public final class MSIMEInputService extends InputMethodService {
                 response = NativeClient.savePreferences(targetDirectory, expectedRevision,
                     pending.toString());
                 // 本地高度只在偏好写入成功后再写：CAS 冲突时界面回到原高度，磁盘上也不能留下新高度。
-                if (response != null && new JSONObject(response).optBoolean("ok", false)) {
+                if (response != null && Boolean.TRUE.equals(new JSONObject(response).opt("ok"))) {
                     AndroidLocalSettings.put(this, AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT, height);
                 }
             } catch (Exception | LinkageError error) {
@@ -5195,7 +5195,7 @@ public final class MSIMEInputService extends InputMethodService {
         return WubiCodeHintPolicy.hint(candidate.optString("code", ""), typed, wubiCodeHint,
             context == null ? -1 : InputViewValuePolicy.scheme(context, -1),
             context == null ? "none" : context.optString("local_mode", "none"),
-            context != null && context.optBoolean("answered_by_pinyin_fallback", false));
+            InputViewValuePolicy.booleanValue(context, "answered_by_pinyin_fallback", false));
     }
 
     String candidateAnnotation(JSONObject candidate, String typed) {
@@ -5245,7 +5245,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (entries == null) return null;
         for (int index = 0; index < entries.length(); index++) {
             JSONObject candidate = entries.optJSONObject(index);
-            if (candidate != null && candidate.optBoolean("highlighted")) return candidate;
+            if (candidate != null && InputViewValuePolicy.booleanValue(candidate, "highlighted", false)) return candidate;
         }
         return null;
     }
@@ -5326,7 +5326,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     private void updateCandidateButton(Button button, JSONObject candidate, int slot) {
         String text = chineseOutput(candidate.optString("text"), view);
-        boolean highlighted = candidate.optBoolean("highlighted");
+        boolean highlighted = InputViewValuePolicy.booleanValue(candidate, "highlighted", false);
         String typed = view == null ? "" : view.optString("preedit", "");
         String annotation = candidateAnnotation(candidate, typed);
         // 开着释义时每个候选都占两行：还没有释义（或这个候选没有）的那行用不换行空格占住。否则带释义的 chip 是两行、不带的是一行，居中后候选字一高一低，释义异步到达或候选一换，候选字就上下跳。
@@ -5336,8 +5336,7 @@ public final class MSIMEInputService extends InputMethodService {
         // session/generation/index identity for accessibility and hardware number-row selection.
         button.setText(candidateLabel("", text, annotation, highlighted));
         int labelLines = candidateLabelLines(annotation);
-        button.setMinLines(labelLines);
-        button.setMaxLines(labelLines);
+        ViewPolicy.setFixedLines(button, labelLines);
         configureCandidateTextLayout(button, labelLines);
         KeyboardGeometry.setKeyTextSize(button, candidateFontSize);
         button.setSelected(highlighted);
@@ -5357,9 +5356,9 @@ public final class MSIMEInputService extends InputMethodService {
         candidatePanelOpen = false;
         candidatePanelSnapshot = null;
         if (keyboardRoot != null && expandedCandidates != null) {
-            expandedCandidates.setVisibility(View.GONE);
+            ViewPolicy.hide(expandedCandidates);
             if (expandedCandidateScroll != null)
-                expandedCandidateScroll.setVisibility(View.GONE);
+                ViewPolicy.hide(expandedCandidateScroll);
         }
     }
 
@@ -5433,7 +5432,7 @@ public final class MSIMEInputService extends InputMethodService {
         switch (availability) {
             case UNAVAILABLE -> {
                 handwritingCanvas.setAcceptsInk(false);
-                handwritingDownload.setVisibility(View.GONE);
+                ViewPolicy.hide(handwritingDownload);
                 showHandwritingStatus("此构建不含手写识别");
             }
             case DOWNLOAD_REQUIRED -> {
@@ -5441,14 +5440,14 @@ public final class MSIMEInputService extends InputMethodService {
                 handwritingDownload.setText("下载中文手写模型");
                 handwritingDownload.setContentDescription("下载中文手写模型；完成后可离线识别");
                 handwritingDownload.setEnabled(true);
-                handwritingDownload.setVisibility(View.VISIBLE);
+                ViewPolicy.show(handwritingDownload);
                 if (!handwritingDownloading) showHandwritingStatus("首次下载后可离线手写");
             }
             case DOWNLOADING -> {
                 handwritingCanvas.setAcceptsInk(false);
                 handwritingDownload.setText(handwritingDownloading ? "正在下载…" : "正在检查模型…");
                 handwritingDownload.setEnabled(false);
-                handwritingDownload.setVisibility(View.VISIBLE);
+                ViewPolicy.show(handwritingDownload);
                 showHandwritingStatus(handwritingDownloading
                     ? "正在下载中文手写模型…" : "正在检查中文手写模型…");
                 HandwritingRecognizer expected = handwritingRecognizer;
@@ -5460,7 +5459,7 @@ public final class MSIMEInputService extends InputMethodService {
             case READY -> {
                 handwritingDownloading = false;
                 handwritingCanvas.setAcceptsInk(true);
-                handwritingDownload.setVisibility(View.GONE);
+                ViewPolicy.hide(handwritingDownload);
                 if (!handwritingCanvas.hasInk() && handwritingResults.isEmpty()) {
                     showHandwritingStatus("在此手写，停笔后选字");
                 }
@@ -5653,9 +5652,8 @@ public final class MSIMEInputService extends InputMethodService {
         JapaneseFlickPreview(android.content.Context context) {
             super(context);
             setVisibility(View.GONE);
-            setClickable(false);
-            setFocusable(false);
-            setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            ViewPolicy.setNonInteractive(this);
+            ViewPolicy.hideFromAccessibility(this);
         }
 
         void show(Button anchor, JapaneseNineKeyLayout.Key key, int direction, FrameLayout root) {
@@ -5668,8 +5666,8 @@ public final class MSIMEInputService extends InputMethodService {
             anchor.getLocationOnScreen(anchorLocation);
             centerX = anchorLocation[0] - rootLocation[0] + anchor.getWidth() / 2f;
             centerY = anchorLocation[1] - rootLocation[1] + anchor.getHeight() / 2f;
-            cellWidth = Math.max(anchor.getWidth(), KeyboardGeometry.pixels(getContext(), 40));
-            cellHeight = Math.max(anchor.getHeight(), KeyboardGeometry.pixels(getContext(), 36));
+            cellWidth = BoundsPolicy.atLeast(anchor.getWidth(), KeyboardGeometry.pixels(getContext(), 40));
+            cellHeight = BoundsPolicy.atLeast(anchor.getHeight(), KeyboardGeometry.pixels(getContext(), 36));
             // 五格紧挨着拼成一个十字浮层；原先各隔 6 dp、和底下的键同色同大，看起来像键盘被挤乱了，而不是一个弹框。
             gap = 0;
             root.bringChildToFront(this);
@@ -5721,7 +5719,7 @@ public final class MSIMEInputService extends InputMethodService {
                 paint.setColor(selected ? accentColor : keyColor);
                 canvas.drawRoundRect(x, y, x + cellWidth, y + cellHeight, radius, radius, paint);
                 paint.setStyle(Paint.Style.STROKE);
-                paint.setStrokeWidth(Math.max(1, density));
+                paint.setStrokeWidth(BoundsPolicy.bounded(density, 1f, Float.MAX_VALUE));
                 paint.setColor(hairlineColor);
                 canvas.drawRoundRect(x, y, x + cellWidth, y + cellHeight, radius, radius, paint);
                 paint.setStyle(Paint.Style.FILL);
@@ -5745,7 +5743,7 @@ public final class MSIMEInputService extends InputMethodService {
      */
     static final class PanelSurface extends FrameLayout {
         /** 需要铺满整块键区（含系统栏内边距）的覆盖层，例如按键气泡；其余面板不压在手势条上。 */
-        final java.util.Set<View> fullBleed = new java.util.HashSet<>();
+        final java.util.Set<View> fullBleed = new java.util.HashSet<>(2);
 
         PanelSurface(Context context) {
             super(context);
@@ -5793,53 +5791,41 @@ public final class MSIMEInputService extends InputMethodService {
         keyboardSurface = surface;
         keyboardRoot.addView(keyboardSurface);
         imeStyler.applyKeyboardSurfaceGeometry();
-        LinearLayout keyboard = new LinearLayout(this);
-        keyboard.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout keyboard = KeyboardGeometry.column(this);
         WindowLayout.fitSystemBars(keyboard);
-        keyboardSurface.addView(keyboard, new FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        keyboardSurface.addView(keyboard, KeyboardGeometry.frameMatchParentParams());
         japaneseFlickPreview = new JapaneseFlickPreview(this);
-        keyboardSurface.addView(japaneseFlickPreview, new FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        keyboardSurface.addView(japaneseFlickPreview, KeyboardGeometry.frameMatchParentParams());
         // 按键气泡的覆盖层：盖在整个键盘上、初始为空，空的 FrameLayout 不拦截触摸，由 ImeLetterRows 持有。
         surface.fullBleed.add(japaneseFlickPreview);
         imeLetterRows.keyPreviewLayer = new FrameLayout(this);
         surface.fullBleed.add(imeLetterRows.keyPreviewLayer);
-        keyboardSurface.addView(imeLetterRows.keyPreviewLayer, new FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
-        LinearLayout candidateRegion = new LinearLayout(this);
-        candidateRegion.setOrientation(LinearLayout.VERTICAL);
+        keyboardSurface.addView(imeLetterRows.keyPreviewLayer, KeyboardGeometry.frameMatchParentParams());
+        LinearLayout candidateRegion = KeyboardGeometry.column(this);
         imeToolbar.buildCandidateHeader(candidateRegion);
         diagnosticView = new TextView(this);
         KeyboardGeometry.setKeyTextSize(diagnosticView, 12);
         diagnosticView.setContentDescription("输入提示");
-        diagnosticView.setVisibility(View.GONE);
-        candidateRegion.addView(diagnosticView, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-        candidateRegion.addView(shortcutScroll, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT,
+        ViewPolicy.hide(diagnosticView);
+        candidateRegion.addView(diagnosticView, KeyboardGeometry.matchWidthWrapParams());
+        candidateRegion.addView(shortcutScroll, KeyboardGeometry.matchWidthHeightPx(
             pixels(KeyboardGeometry.DESIGN_TOOLBAR_ROW_HEIGHT_DP)));
-        nineKeySpellings = new LinearLayout(this);
-        nineKeySpellings.setOrientation(LinearLayout.HORIZONTAL);
+        nineKeySpellings = KeyboardGeometry.row(this);
         nineKeySpellingScroll = new HorizontalScrollView(this);
         nineKeySpellingScroll.setHorizontalScrollBarEnabled(false);
         nineKeySpellingScroll.setContentDescription("九键拼音选择");
         nineKeySpellingScroll.addView(nineKeySpellings);
-        nineKeySpellingScroll.setVisibility(View.GONE);
-        candidates = new LinearLayout(this);
-        candidates.setOrientation(LinearLayout.HORIZONTAL);
+        ViewPolicy.hide(nineKeySpellingScroll);
+        candidates = KeyboardGeometry.row(this);
         horizontalCandidateScroll = new HorizontalScrollView(this);
         horizontalCandidateScroll.addView(candidates);
-        verticalCandidates = new LinearLayout(this);
-        verticalCandidates.setOrientation(LinearLayout.VERTICAL);
+        verticalCandidates = KeyboardGeometry.column(this);
         verticalCandidateScroll = new ScrollView(this);
         verticalCandidateScroll.addView(verticalCandidates);
         candidateViewport = new FrameLayout(this);
-        candidateViewport.addView(horizontalCandidateScroll, new FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
-        candidateViewport.addView(verticalCandidateScroll, new FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
-        candidateViewport.setVisibility(View.GONE);
+        candidateViewport.addView(horizontalCandidateScroll, KeyboardGeometry.frameMatchParentParams());
+        candidateViewport.addView(verticalCandidateScroll, KeyboardGeometry.frameMatchParentParams());
+        ViewPolicy.hide(candidateViewport);
         imeToolbar.addCandidateLine(candidateRegion, candidateViewport,
             pixels(ImeToolbar.CANDIDATE_LINE_DP));
         imeToolbar.addInlineHeightBar(candidateRegion);
@@ -5862,9 +5848,8 @@ public final class MSIMEInputService extends InputMethodService {
         // Like Apple, keep the shared candidate/shortcut strip above the reply surface. The
         // ordinary key rows and controls are hidden while this weighted child is visible.
         replyKeyboard = imePanels.createReplyKeyboard();
-        replyKeyboard.setVisibility(View.GONE);
-        keyboard.addView(replyKeyboard, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
+        ViewPolicy.hide(replyKeyboard);
+        keyboard.addView(replyKeyboard, KeyboardGeometry.weightedWidthParams(1));
         // 键距是键的外边距；这两个容器把落在空隙里的按下交给拥有那段空隙的键，画面不变（见 KeyboardKeyArea）。
         keyRows = new KeyboardKeyArea(this, this::followsKeySpacing);
         keyRows.setOrientation(LinearLayout.VERTICAL);
@@ -5873,13 +5858,12 @@ public final class MSIMEInputService extends InputMethodService {
         actionRow.setOrientation(LinearLayout.HORIZONTAL);
         actionRow.setContentDescription("键盘功能行");
         actionRowSignature = "";
-        imeFrame.wrap(actionRow, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT,
+        imeFrame.wrap(actionRow, KeyboardGeometry.matchWidthHeightPx(
             pixels(KeyboardGeometry.STANDARD_ROW_HEIGHT_DP)));
         // Staging only: every control below is created here and then moved to the row that owns it.
         // The case and delete keys go to the last of the 26 key rows, the shortcut glyphs to the
         // toolbar, and what the action row keeps is whatever KeyboardActionRow lists for the surface.
-        LinearLayout controls = new LinearLayout(this);
+        LinearLayout controls = KeyboardGeometry.row(this);
         shiftButton = button(controls, "⇧", () -> {
             // 韩语键面上 Shift 是双辅音那一排，不是切到英文的入口；越南语和藏文里它是字母大小写。
             if (!dedicatedEnglish && session != 0 && !helpcodeCompositionEligible()
@@ -5954,100 +5938,78 @@ public final class MSIMEInputService extends InputMethodService {
         // last of them, and they are the same long-lived instances the rest of the host talks to.
         imeLetterRows.rebuildKeyRows();
         imeBottomRow.updateActionRow();
-        expandedCandidates = new LinearLayout(this);
-        expandedCandidates.setOrientation(LinearLayout.VERTICAL);
-        expandedCandidates.setPadding(24, 16, 24, 16);
+        expandedCandidates = KeyboardGeometry.column(this);
+        ViewPolicy.setSymmetricPadding(expandedCandidates, 24, 16);
         expandedCandidates.setBackgroundColor(0xfff5f5f5);
         expandedCandidates.setContentDescription("候选面板");
-        expandedCandidates.setVisibility(View.GONE);
+        ViewPolicy.hide(expandedCandidates);
         expandedCandidateScroll = new ScrollView(this);
         expandedCandidateScroll.setFillViewport(true);
-        expandedCandidateScroll.addView(expandedCandidates, new ScrollView.LayoutParams(
-            ScrollView.LayoutParams.MATCH_PARENT, ScrollView.LayoutParams.MATCH_PARENT));
-        expandedCandidateScroll.setVisibility(View.GONE);
-        keyboardSurface.addView(expandedCandidateScroll, new FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
-        clipboardPanel = new LinearLayout(this);
-        clipboardPanel.setOrientation(LinearLayout.VERTICAL);
-        clipboardPanel.setPadding(24, 16, 24, 16);
+        expandedCandidateScroll.addView(expandedCandidates,
+            KeyboardGeometry.scrollMatchParentParams());
+        ViewPolicy.hide(expandedCandidateScroll);
+        keyboardSurface.addView(expandedCandidateScroll, KeyboardGeometry.frameMatchParentParams());
+        clipboardPanel = KeyboardGeometry.column(this);
+        ViewPolicy.setSymmetricPadding(clipboardPanel, 24, 16);
         clipboardPanel.setBackgroundColor(Color.parseColor(skin.background()));
         clipboardPanel.setContentDescription("剪贴板历史");
         clipboardScroll = new ScrollView(this);
         clipboardScroll.addView(clipboardPanel);
-        clipboardScroll.setVisibility(View.GONE);
-        keyboardSurface.addView(clipboardScroll, new FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
-        schemePanel = new LinearLayout(this);
-        schemePanel.setOrientation(LinearLayout.VERTICAL);
-        schemePanel.setPadding(24, 16, 24, 16);
+        ViewPolicy.hide(clipboardScroll);
+        keyboardSurface.addView(clipboardScroll, KeyboardGeometry.frameMatchParentParams());
+        schemePanel = KeyboardGeometry.column(this);
+        ViewPolicy.setSymmetricPadding(schemePanel, 24, 16);
         schemePanel.setBackgroundColor(Color.parseColor(skin.background()));
         schemePanel.setContentDescription("输入方案选择器");
         schemeScroll = new ScrollView(this);
-        schemeScroll.addView(schemePanel, new ScrollView.LayoutParams(
-            ScrollView.LayoutParams.MATCH_PARENT, ScrollView.LayoutParams.MATCH_PARENT));
+        schemeScroll.addView(schemePanel, KeyboardGeometry.scrollMatchParentParams());
         schemeScroll.setFillViewport(true);
-        schemeScroll.setVisibility(View.GONE);
-        keyboardSurface.addView(schemeScroll, new FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
-        skinPanel = new LinearLayout(this);
-        skinPanel.setOrientation(LinearLayout.VERTICAL);
-        skinPanel.setPadding(24, 16, 24, 16);
+        ViewPolicy.hide(schemeScroll);
+        keyboardSurface.addView(schemeScroll, KeyboardGeometry.frameMatchParentParams());
+        skinPanel = KeyboardGeometry.column(this);
+        ViewPolicy.setSymmetricPadding(skinPanel, 24, 16);
         skinPanel.setBackgroundColor(Color.parseColor(skin.background()));
         skinPanel.setContentDescription("键盘皮肤选择器");
         skinScroll = new ScrollView(this);
-        skinScroll.addView(skinPanel, new ScrollView.LayoutParams(
-            ScrollView.LayoutParams.MATCH_PARENT, ScrollView.LayoutParams.MATCH_PARENT));
+        skinScroll.addView(skinPanel, KeyboardGeometry.scrollMatchParentParams());
         skinScroll.setFillViewport(true);
-        skinScroll.setVisibility(View.GONE);
-        keyboardSurface.addView(skinScroll, new FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
-        layoutSettingsPanel = new LinearLayout(this);
-        layoutSettingsPanel.setOrientation(LinearLayout.VERTICAL);
-        layoutSettingsPanel.setPadding(24, 16, 24, 16);
+        ViewPolicy.hide(skinScroll);
+        keyboardSurface.addView(skinScroll, KeyboardGeometry.frameMatchParentParams());
+        layoutSettingsPanel = KeyboardGeometry.column(this);
+        ViewPolicy.setSymmetricPadding(layoutSettingsPanel, 24, 16);
         layoutSettingsPanel.setBackgroundColor(Color.parseColor(skin.background()));
         layoutSettingsPanel.setContentDescription("键盘设置");
-        LinearLayout layoutHeader = new LinearLayout(this);
-        TextView layoutTitle = new TextView(this);
-        layoutTitle.setText("键盘设置");
+        LinearLayout layoutHeader = KeyboardGeometry.row(this);
+        TextView layoutTitle = ViewPolicy.textLabel(this, "键盘设置", 18);
         KeyboardGeometry.setKeyTextSize(layoutTitle, 18);
-        layoutHeader.addView(layoutTitle, new LinearLayout.LayoutParams(0,
-            LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        layoutHeader.addView(layoutTitle, KeyboardGeometry.weightedWrapParams(1));
         Button closeLayout = button(layoutHeader, "返回键盘", this::closeLayoutSettings);
         closeLayout.setContentDescription("返回键盘");
         layoutSettingsPanel.addView(layoutHeader);
-        LinearLayout keyboardHeightHeader = new LinearLayout(this);
-        TextView keyboardHeightLabel = new TextView(this);
-        KeyboardGeometry.setKeyTextSize(keyboardHeightLabel, KeyboardGeometry.DEFAULT_KEY_TEXT_SP);
-        keyboardHeightLabel.setText("键盘高度");
-        keyboardHeightHeader.addView(keyboardHeightLabel, new LinearLayout.LayoutParams(0,
-            LinearLayout.LayoutParams.WRAP_CONTENT, 1));
-        keyboardHeightValue = new TextView(this);
+        LinearLayout keyboardHeightHeader = KeyboardGeometry.row(this);
+        TextView keyboardHeightLabel = textView("键盘高度");
+        keyboardHeightHeader.addView(keyboardHeightLabel, KeyboardGeometry.weightedWrapParams(1));
+        keyboardHeightValue = textView("");
         keyboardHeightHeader.addView(keyboardHeightValue);
         layoutSettingsPanel.addView(keyboardHeightHeader);
         keyboardHeightSlider = new SeekBar(this);
         keyboardHeightSlider.setContentDescription("键盘高度");
         configureHeightSlider(keyboardHeightSlider);
         layoutSettingsPanel.addView(keyboardHeightSlider);
-        LinearLayout keySpacingHeader = new LinearLayout(this);
-        TextView keySpacingLabel = new TextView(this);
-        KeyboardGeometry.setKeyTextSize(keySpacingLabel, KeyboardGeometry.DEFAULT_KEY_TEXT_SP);
-        keySpacingLabel.setText("按键间距");
-        keySpacingHeader.addView(keySpacingLabel, new LinearLayout.LayoutParams(0,
-            LinearLayout.LayoutParams.WRAP_CONTENT, 1));
-        keySpacingValue = new TextView(this);
+        LinearLayout keySpacingHeader = KeyboardGeometry.row(this);
+        TextView keySpacingLabel = textView("按键间距");
+        keySpacingHeader.addView(keySpacingLabel, KeyboardGeometry.weightedWrapParams(1));
+        keySpacingValue = textView("");
         keySpacingHeader.addView(keySpacingValue);
         layoutSettingsPanel.addView(keySpacingHeader);
         keySpacingSlider = new SeekBar(this);
         keySpacingSlider.setContentDescription("按键间距");
         configureSpacingSlider(keySpacingSlider, true);
         layoutSettingsPanel.addView(keySpacingSlider);
-        LinearLayout rowSpacingHeader = new LinearLayout(this);
-        TextView rowSpacingLabel = new TextView(this);
-        KeyboardGeometry.setKeyTextSize(rowSpacingLabel, KeyboardGeometry.DEFAULT_KEY_TEXT_SP);
-        rowSpacingLabel.setText("行间距");
-        rowSpacingHeader.addView(rowSpacingLabel, new LinearLayout.LayoutParams(0,
-            LinearLayout.LayoutParams.WRAP_CONTENT, 1));
-        rowSpacingValue = new TextView(this);
+        LinearLayout rowSpacingHeader = KeyboardGeometry.row(this);
+        TextView rowSpacingLabel = textView("行间距");
+        rowSpacingHeader.addView(rowSpacingLabel, KeyboardGeometry.weightedWrapParams(1));
+        rowSpacingValue = textView("");
         rowSpacingHeader.addView(rowSpacingValue);
         layoutSettingsPanel.addView(rowSpacingHeader);
         rowSpacingSlider = new SeekBar(this);
@@ -6068,15 +6030,12 @@ public final class MSIMEInputService extends InputMethodService {
         layoutSettingsPanel.addView(voiceShortcutSwitch);
         resetLayoutSettingsButton = button(layoutSettingsPanel, "恢复默认", this::resetTouchGeometry);
         resetLayoutSettingsButton.setContentDescription("恢复默认");
-        TextView layoutHint = new TextView(this);
-        KeyboardGeometry.setKeyTextSize(layoutHint, KeyboardGeometry.DEFAULT_KEY_TEXT_SP);
-        layoutHint.setText("高度和间距只改变键位外观，不改变输入方案；松手后自动保存。");
+        TextView layoutHint = textView("高度和间距只改变键位外观，不改变输入方案；松手后自动保存。");
         layoutSettingsPanel.addView(layoutHint);
         layoutSettingsScroll = new ScrollView(this);
         layoutSettingsScroll.addView(layoutSettingsPanel);
-        layoutSettingsScroll.setVisibility(View.GONE);
-        keyboardSurface.addView(layoutSettingsScroll, new FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        ViewPolicy.hide(layoutSettingsScroll);
+        keyboardSurface.addView(layoutSettingsScroll, KeyboardGeometry.frameMatchParentParams());
         layoutAdjustView = new KeyboardLayoutAdjustView(this,
             new KeyboardLayoutAdjustView.Listener() {
                 @Override public void keySpacing(int tenths) {
@@ -6106,64 +6065,49 @@ public final class MSIMEInputService extends InputMethodService {
 
                 @Override public void close() { closeLayoutSettings(); }
             });
-        layoutAdjustView.setVisibility(View.GONE);
-        keyboardSurface.addView(layoutAdjustView, new FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
-        voiceResultPanel = new LinearLayout(this);
-        voiceResultPanel.setOrientation(LinearLayout.VERTICAL);
-        voiceResultPanel.setPadding(24, 16, 24, 16);
+        ViewPolicy.hide(layoutAdjustView);
+        keyboardSurface.addView(layoutAdjustView, KeyboardGeometry.frameMatchParentParams());
+        voiceResultPanel = KeyboardGeometry.column(this);
+        ViewPolicy.setSymmetricPadding(voiceResultPanel, 24, 16);
         voiceResultPanel.setBackgroundColor(Color.parseColor(skin.background()));
         voiceResultPanel.setContentDescription("语音结果面板");
         voiceResultScroll = new ScrollView(this);
         voiceResultScroll.addView(voiceResultPanel);
-        voiceResultScroll.setVisibility(View.GONE);
-        keyboardSurface.addView(voiceResultScroll, new FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
-        aiPolishContainer = new LinearLayout(this);
-        aiPolishContainer.setOrientation(LinearLayout.VERTICAL);
+        ViewPolicy.hide(voiceResultScroll);
+        keyboardSurface.addView(voiceResultScroll, KeyboardGeometry.frameMatchParentParams());
+        aiPolishContainer = KeyboardGeometry.column(this);
         aiPolishContainer.setBackgroundColor(Color.parseColor(skin.background()));
-        aiPolishPanel = new LinearLayout(this);
-        aiPolishPanel.setOrientation(LinearLayout.VERTICAL);
-        aiPolishPanel.setPadding(24, 16, 24, 16);
+        aiPolishPanel = KeyboardGeometry.column(this);
+        ViewPolicy.setSymmetricPadding(aiPolishPanel, 24, 16);
         aiPolishPanel.setBackgroundColor(Color.parseColor(skin.background()));
         aiPolishPanel.setContentDescription("AI 润色面板");
         aiPolishScroll = new ScrollView(this);
         aiPolishScroll.setFillViewport(true);
         aiPolishScroll.addView(aiPolishPanel);
-        aiPolishContainer.addView(aiPolishScroll, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
-        aiPolishActions = new LinearLayout(this);
-        aiPolishActions.setOrientation(LinearLayout.VERTICAL);
-        aiPolishActions.setPadding(24, 0, 24, 16);
-        aiPolishContainer.addView(aiPolishActions, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-        aiPolishContainer.setVisibility(View.GONE);
-        keyboardSurface.addView(aiPolishContainer, new FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
-        moreToolsPanel = new LinearLayout(this);
-        moreToolsPanel.setOrientation(LinearLayout.VERTICAL);
-        moreToolsPanel.setPadding(pixels(12), 0, pixels(12), pixels(10));
+        aiPolishContainer.addView(aiPolishScroll, KeyboardGeometry.weightedWidthParams(1));
+        aiPolishActions = KeyboardGeometry.column(this);
+        ViewPolicy.setPadding(aiPolishActions, 24, 0, 24, 16);
+        aiPolishContainer.addView(aiPolishActions, KeyboardGeometry.matchWidthWrapParams());
+        ViewPolicy.hide(aiPolishContainer);
+        keyboardSurface.addView(aiPolishContainer, KeyboardGeometry.frameMatchParentParams());
+        moreToolsPanel = KeyboardGeometry.column(this);
+        ViewPolicy.setPadding(moreToolsPanel, pixels(12), 0, pixels(12), pixels(10));
         moreToolsPanel.setBackgroundColor(Color.parseColor(skin.background()));
         moreToolsScroll = new ScrollView(this);
         moreToolsScroll.setFillViewport(true);
         moreToolsScroll.setVerticalScrollBarEnabled(false);
-        moreToolsScroll.addView(moreToolsPanel, new ScrollView.LayoutParams(
-            ScrollView.LayoutParams.MATCH_PARENT, ScrollView.LayoutParams.MATCH_PARENT));
-        moreToolsScroll.setVisibility(View.GONE);
-        keyboardSurface.addView(moreToolsScroll, new FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
-        phrasePanel = new LinearLayout(this);
-        phrasePanel.setOrientation(LinearLayout.VERTICAL);
+        moreToolsScroll.addView(moreToolsPanel, KeyboardGeometry.scrollMatchParentParams());
+        ViewPolicy.hide(moreToolsScroll);
+        keyboardSurface.addView(moreToolsScroll, KeyboardGeometry.frameMatchParentParams());
+        phrasePanel = KeyboardGeometry.column(this);
         phrasePanel.setContentDescription("常用语面板");
         phraseScroll = new ScrollView(this);
         // 与皮肤、剪贴板面板一样铺满键盘区：只按内容高度时，没有常用语的那一行提示只盖住第一排键，空白处的触摸还会穿到下面的键上。
-        phraseScroll.addView(phrasePanel, new ScrollView.LayoutParams(
-            ScrollView.LayoutParams.MATCH_PARENT, ScrollView.LayoutParams.MATCH_PARENT));
+        phraseScroll.addView(phrasePanel, KeyboardGeometry.scrollMatchParentParams());
         phraseScroll.setFillViewport(true);
         phraseScroll.setClickable(true);
-        phraseScroll.setVisibility(View.GONE);
-        keyboardSurface.addView(phraseScroll, new FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        ViewPolicy.hide(phraseScroll);
+        keyboardSurface.addView(phraseScroll, KeyboardGeometry.frameMatchParentParams());
         imePanels.buildEmojiPanel();
         imePanels.buildSymbolPanel();
         renderLayoutSettingsState();
@@ -6213,7 +6157,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     void closeCommonPhrases() {
-        if (phraseScroll != null) phraseScroll.setVisibility(View.GONE);
+        if (phraseScroll != null) ViewPolicy.hide(phraseScroll);
     }
 
     /** 功能面板「键盘高度」：顶部一行换成内联高度条，拖动时实时预览，完成才保存，取消恢复原值。 */
@@ -6459,7 +6403,7 @@ public final class MSIMEInputService extends InputMethodService {
     // this 剪贴板历史 and AI 润色 looked exactly like the cards that work and did nothing when
     // pressed. A screen reader was told "不可用"; nobody else was.
     void applyToolCardState(View card, boolean enabled) {
-        card.setAlpha(enabled ? 1f : .45f);
+        ViewPolicy.setActiveAlpha(card, enabled, .45f);
     }
 
     void render() {
@@ -6601,7 +6545,7 @@ public final class MSIMEInputService extends InputMethodService {
             candidateViewport.setVisibility(!idle && !hasDiagnostic ? View.VISIBLE : View.GONE);
         updateCandidateViewportHeight();
         if (scriptShortcutButton != null) {
-            scriptShortcutButton.setVisibility(View.GONE);
+            ViewPolicy.hide(scriptShortcutButton);
             scriptShortcutButton.setText(traditionalChineseOutput ? "繁" : "简");
             scriptShortcutButton.setSelected(traditionalChineseOutput);
             imeStyler.styleButton(scriptShortcutButton, true);
@@ -6662,16 +6606,16 @@ public final class MSIMEInputService extends InputMethodService {
             dismissShortcutButton.setContentDescription(anyToolbarPanelOpen() ? "返回键盘" : "收起键盘");
         }
         if (voiceShortcutButton != null) {
-            voiceShortcutButton.setVisibility(View.GONE);
+            ViewPolicy.hide(voiceShortcutButton);
             voiceShortcutButton.setEnabled(voiceInsertionReady());
         }
         if (aiPolishShortcutButton != null) {
-            aiPolishShortcutButton.setVisibility(View.GONE);
+            ViewPolicy.hide(aiPolishShortcutButton);
             aiPolishShortcutButton.setEnabled(aiPolishReady());
         }
         if (replyShortcutButton != null) {
             // 回复面板不属于任何输入方案，每个方案都显示这个入口；未配置 AI 时面板里会提示去设置。开着时始终可点，用来收起面板。
-            replyShortcutButton.setVisibility(View.GONE);
+            ViewPolicy.hide(replyShortcutButton);
             replyShortcutButton.setEnabled(replyOpen || aiPolishReady());
             replyShortcutButton.setSelected(replyOpen);
             imeStyler.styleButton(replyShortcutButton, KeyboardKeyRole.GLYPH, skin);
@@ -6752,13 +6696,13 @@ public final class MSIMEInputService extends InputMethodService {
             if (Build.VERSION.SDK_INT >= 30) skinButton.setStateDescription(skin.title());
         }
         synchronizeReplyKeyboard();
-        if (layoutSettingsButton != null) layoutSettingsButton.setVisibility(View.GONE);
+        if (layoutSettingsButton != null) ViewPolicy.hide(layoutSettingsButton);
         if (layoutSettingsButton != null)
             layoutSettingsButton.setEnabled(session != 0 && preferencesSnapshot != null
                 && !schemeSaving && !touchGeometrySaving && !traditionalOutputSaving);
         imeLayoutRows.renderNineKeySpellings();
         if (hasDiagnostic && nineKeySpellingScroll != null)
-            nineKeySpellingScroll.setVisibility(View.GONE);
+            ViewPolicy.hide(nineKeySpellingScroll);
         scheduleCandidateGlosses();
         scheduleCandidateTranslations();
         scheduleOnlineProviders();
@@ -6781,11 +6725,11 @@ public final class MSIMEInputService extends InputMethodService {
         LinearLayout activeCandidates = candidateHorizontal ? candidates : verticalCandidates;
         candidates.removeAllViews();
         if (verticalCandidates != null) verticalCandidates.removeAllViews();
-        if (expandCandidates != null) expandCandidates.setVisibility(View.GONE);
+        if (expandCandidates != null) ViewPolicy.hide(expandCandidates);
         if (view == null) {
             closeCandidatePanel();
             renderEnglishSuggestions(activeCandidates);
-            for (Button button : candidateButtons) button.setVisibility(View.GONE);
+            for (Button button : candidateButtons) ViewPolicy.hide(button);
             imeStyler.applySkin();
             imeToolbar.styleTopRow();
             return;
@@ -6802,7 +6746,7 @@ public final class MSIMEInputService extends InputMethodService {
                 while (candidateButtons.size() <= slot)
                     candidateButtons.add(imeCandidates.makeCandidateButton(candidateButtons.size()));
                 Button candidateView = candidateButtons.get(slot);
-                candidateView.setVisibility(View.VISIBLE);
+                ViewPolicy.show(candidateView);
                 updateCandidateButton(candidateView, candidate, slot);
                 activeCandidates.addView(candidateView, new LinearLayout.LayoutParams(
                     candidateHorizontal ? LinearLayout.LayoutParams.WRAP_CONTENT
@@ -6811,13 +6755,13 @@ public final class MSIMEInputService extends InputMethodService {
             }
             if (!hasDiagnostic && strictCandidatePage(view, "page_count") > 1
                     && expandCandidates != null)
-                expandCandidates.setVisibility(View.VISIBLE);
+                ViewPolicy.show(expandCandidates);
         }
         int visibleSlots = entries == null ? 0 : entries.length();
         for (int slot = visibleSlots; slot < candidateButtons.size(); slot++)
-            candidateButtons.get(slot).setVisibility(View.GONE);
+            ViewPolicy.hide(candidateButtons.get(slot));
         if (directEnglishActive()) {
-            for (Button button : candidateButtons) button.setVisibility(View.GONE);
+            for (Button button : candidateButtons) ViewPolicy.hide(button);
         }
         if (hasDiagnostic) closeCandidatePanel();
         resetCandidateScrollIfViewChanged();
@@ -6860,10 +6804,10 @@ public final class MSIMEInputService extends InputMethodService {
     private void renderSharedHandwritingCandidates(LinearLayout activeCandidates) {
         if (handwritingStatus == null) return;
         if (handwritingResults.isEmpty() || handwritingCandidateToken == null) {
-            handwritingStatus.setVisibility(View.VISIBLE);
+            ViewPolicy.show(handwritingStatus);
             return;
         }
-        handwritingStatus.setVisibility(View.GONE);
+        ViewPolicy.hide(handwritingStatus);
         for (int index = 0; index < handwritingResults.size(); index++) {
             String candidate = handwritingResults.get(index);
             HandwritingRequestTracker.Token token = handwritingCandidateToken;

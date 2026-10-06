@@ -22,6 +22,11 @@ public final class DictionarySnapshotQueueSmoke {
     }
 
     public static void main(String[] args) throws Exception {
+        java.lang.reflect.Method strictBoolean = DictionarySnapshotWorker.class.getDeclaredMethod(
+            "strictBoolean", Object.class);
+        strictBoolean.setAccessible(true);
+        check(Boolean.TRUE.equals(strictBoolean.invoke(null, Boolean.TRUE)));
+        check(strictBoolean.invoke(null, "true") == null);
         check(DictionarySnapshotPolicy.handle(42L, -1) == 42L);
         check(DictionarySnapshotPolicy.handle(42.5, -1) == -1);
         check(DictionarySnapshotPolicy.handle(true, -1) == -1);

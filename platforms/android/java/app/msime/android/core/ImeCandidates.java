@@ -9,6 +9,7 @@ import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.PopupMenu;
 import app.msime.android.CandidateTranslationPolicy;
+import app.msime.android.core.InputViewValuePolicy;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -71,15 +72,19 @@ final class ImeCandidates {
         button.setTextColor(ColorPolicy.stateList(
             new int[][] {{android.R.attr.state_selected}, {}},
             new int[] {selectedText, keyForeground}));
-        button.setTypeface(candidateTypeface, button.isSelected() ? Typeface.BOLD : Typeface.NORMAL);
-        button.setMinWidth(s.pixels(30));
-        button.setMinimumWidth(s.pixels(30));
+        applyCandidateTypeface(button);
+        ViewPolicy.setMinimumWidth(button, s.pixels(30));
         button.setMinHeight(0);
         button.setMinimumHeight(0);
-        button.setPadding(s.pixels(11), 0, s.pixels(11), 0);
+        KeyboardGeometry.setHorizontalPaddingDp(button, s, 11);
         button.setLineSpacing(0, 1.0f);
-        button.setIncludeFontPadding(false);
-        button.setElevation(0);
+        ViewPolicy.clearFontPadding(button);
+        ViewPolicy.clearElevation(button);
+    }
+
+    private void applyCandidateTypeface(Button button) {
+        button.setTypeface(candidateTypeface,
+            button.isSelected() ? Typeface.BOLD : Typeface.NORMAL);
     }
 
     /** 展开网格里的单元：样式通道重走整棵树时按网格单元上色，而不是按候选条的 chip。 */
@@ -97,8 +102,8 @@ final class ImeCandidates {
         button.setTextColor(ColorPolicy.stateList(
             new int[][] {{android.R.attr.state_selected}, {}},
             new int[] {accentText, keyForeground}));
-        button.setTypeface(candidateTypeface, button.isSelected() ? Typeface.BOLD : Typeface.NORMAL);
-        button.setElevation(0);
+        applyCandidateTypeface(button);
+        ViewPolicy.clearElevation(button);
     }
 
     boolean showCandidateMenu(Button button, int slot, JSONObject id, String text) {
@@ -152,8 +157,7 @@ final class ImeCandidates {
         // Apple uses the same press-feedback button for candidate chips as for keys. Android's
         // HorizontalScrollView cancels the child on a drag, so the button keeps immediate tap
         // feedback without changing the existing scroll-versus-select boundary.
-        Button button = new KeyboardPressButton(s);
-        button.setAllCaps(false);
+        Button button = candidateButton();
         button.setOnClickListener(ignored -> s.selectVisibleCandidate(button, slot));
         button.setOnLongClickListener(ignored -> {
             JSONObject current = s.visibleCandidate(slot);
@@ -167,26 +171,21 @@ final class ImeCandidates {
 
     Button expandedCandidateButton(JSONObject candidate) {
         JSONObject id = candidate.optJSONObject("id");
-        Button button = new KeyboardPressButton(s);
+        Button button = candidateButton();
         String text = s.chineseOutput(candidate.optString("text"), s.view);
-        boolean highlighted = candidate.optBoolean("highlighted");
+        boolean highlighted = InputViewValuePolicy.booleanValue(candidate, "highlighted", false);
         String typed = s.candidatePanelSnapshot == null ? ""
             : s.candidatePanelSnapshot.optString("preedit", "");
         String annotation = s.candidateAnnotation(candidate, typed);
-        button.setAllCaps(false);
         button.setText(s.candidateLabel("", text, annotation, highlighted));
         int labelLines = MSIMEInputService.candidateLabelLines(annotation);
-        button.setMinLines(labelLines);
-        button.setMaxLines(labelLines);
+        ViewPolicy.setFixedLines(button, labelLines);
         s.configureCandidateTextLayout(button, labelLines);
         KeyboardGeometry.setKeyTextSize(button, 17);
         button.setSelected(highlighted);
         expandedCells.add(button);
-        button.setMinWidth(s.pixels(64));
-        button.setMinimumWidth(s.pixels(64));
-        button.setMinHeight(s.pixels(44));
-        button.setMinimumHeight(s.pixels(44));
-        button.setPadding(s.pixels(10), 0, s.pixels(10), 0);
+        ViewPolicy.setMinimumSize(button, s.pixels(64), s.pixels(44));
+        KeyboardGeometry.setHorizontalPaddingDp(button, s, 10);
         // The completed keyboard tree is styled once by MSIMEInputService.render().
         // Styling here would be repeated immediately after this button is attached.
         long index = id == null ? -1
@@ -219,6 +218,25 @@ final class ImeCandidates {
         return button;
     }
 
+    private KeyboardPressButton expandedActionButton(String label, float sizeSp,
+            String description, Runnable action) {
+        KeyboardPressButton button = candidateButton();
+        button.setKeyboardRole(KeyboardKeyRole.ACCENT);
+        ViewPolicy.setTextSizeLabel(button, label, sizeSp);
+        KeyboardGeometry.setKeyTextSize(button, sizeSp);
+        button.setContentDescription(description);
+        button.setOnClickListener(ignored -> {
+            s.imeKeyFeedback.playFeedback(button);
+            action.run();
+        });
+        return button;
+    }
+
+    private KeyboardPressButton candidateButton() {
+        KeyboardPressButton button = ViewPolicy.newPressButton(s);
+        return button;
+    }
+
     void renderExpandedCandidates() {
         if (s.expandedCandidates == null || s.expandedCandidateScroll == null) return;
         if (!s.candidatePanelOpen) {
@@ -238,13 +256,13 @@ final class ImeCandidates {
                 || !MSIMEInputService.sameCandidateVersion(s.candidatePanelSnapshot, s.view)) {
             s.candidatePanelOpen = false;
             s.candidatePanelSnapshot = null;
-            s.expandedCandidates.setVisibility(View.GONE);
-            s.expandedCandidateScroll.setVisibility(View.GONE);
+            ViewPolicy.hide(s.expandedCandidates);
+            ViewPolicy.hide(s.expandedCandidateScroll);
             return;
         }
-        s.expandedCandidateScroll.setVisibility(View.VISIBLE);
-        s.expandedCandidates.setVisibility(View.VISIBLE);
-        s.expandedCandidates.setPadding(s.pixels(8), s.pixels(6), s.pixels(8), s.pixels(6));
+        ViewPolicy.show(s.expandedCandidateScroll);
+        ViewPolicy.show(s.expandedCandidates);
+        KeyboardGeometry.setSymmetricPaddingDp(s.expandedCandidates, s, 8, 6);
         JSONArray entries = s.candidatePanelSnapshot.optJSONArray("candidates");
         int count = entries == null ? 0 : entries.length();
         String reading = s.candidatePanelSnapshot.optString("reading", "");
@@ -262,40 +280,23 @@ final class ImeCandidates {
                     android.view.ViewGroup.LayoutParams.WRAP_CONTENT, s.pixels(44)));
             }
         }
-        s.expandedCandidates.addView(list, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
+        s.expandedCandidates.addView(list, KeyboardGeometry.weightedWidthParams(1));
         // 底部 返回 + ⌫，各 40 dp 高、功能键底色。
-        LinearLayout footer = new LinearLayout(s);
-        footer.setOrientation(LinearLayout.HORIZONTAL);
-        KeyboardPressButton close = new KeyboardPressButton(s);
-        close.setKeyboardRole(KeyboardKeyRole.ACCENT);
-        close.setAllCaps(false);
-        close.setText("返回");
-        KeyboardGeometry.setKeyTextSize(close, 15);
-        close.setContentDescription("收起候选面板");
-        close.setOnClickListener(ignored -> {
-            s.imeKeyFeedback.playFeedback(close);
+        LinearLayout footer = KeyboardGeometry.row(s);
+        KeyboardPressButton close = expandedActionButton("返回", 15, "收起候选面板", () -> {
             s.closeCandidatePanel();
             s.render();
         });
-        KeyboardPressButton delete = new KeyboardPressButton(s);
-        delete.setKeyboardRole(KeyboardKeyRole.ACCENT);
-        delete.setAllCaps(false);
-        delete.setText("⌫");
-        KeyboardGeometry.setKeyTextSize(delete, 16);
-        delete.setContentDescription("候选面板 删除");
-        delete.setOnClickListener(ignored -> {
-            s.imeKeyFeedback.playFeedback(delete);
+        KeyboardPressButton delete = expandedActionButton("⌫", 16, "候选面板 删除", () -> {
             s.closeCandidatePanel();
             s.deleteFromHandwriting();
         });
-        LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(0, s.pixels(40), 1);
-        LinearLayout.LayoutParams deleteParams = new LinearLayout.LayoutParams(0, s.pixels(40), 1);
+        LinearLayout.LayoutParams closeParams = KeyboardGeometry.weightedHeightParams(s, 40, 1);
+        LinearLayout.LayoutParams deleteParams = KeyboardGeometry.weightedHeightParams(s, 40, 1);
         deleteParams.setMarginStart(s.pixels(6));
         footer.addView(close, closeParams);
         footer.addView(delete, deleteParams);
-        LinearLayout.LayoutParams footerParams = new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        LinearLayout.LayoutParams footerParams = KeyboardGeometry.matchWidthWrapParams();
         footerParams.topMargin = s.pixels(6);
         s.expandedCandidates.addView(footer, footerParams);
     }

@@ -7,6 +7,17 @@ public final class ClipboardHistoryPolicySmoke {
     }
 
     public static void main(String[] args) {
+        try {
+            java.lang.reflect.Method strictBoolean = ClipboardHistoryStore.class.getDeclaredMethod(
+                "strictBoolean", Object.class);
+            strictBoolean.setAccessible(true);
+            check(Boolean.TRUE.equals(strictBoolean.invoke(null, Boolean.TRUE)),
+                "clipboard responses accept JSON booleans");
+            check(strictBoolean.invoke(null, "true") == null,
+                "clipboard responses reject boolean strings instead of coercing them");
+        } catch (ReflectiveOperationException error) {
+            throw new AssertionError("clipboard response type policy missing", error);
+        }
         // This file used to assert that MAX_CHARS and MAX_BYTES matched the shared crate's numbers,
         // and they did. The divergence was in the unit: the shared store counts graphemes and this
         // host counted UTF-16 code units, so six thousand emoji were refused here and accepted

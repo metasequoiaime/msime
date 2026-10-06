@@ -2,8 +2,6 @@ package app.msime.android;
 
 import android.content.Context;
 import app.msime.android.policy.HostOptionsPolicy;
-import java.io.File;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -189,7 +187,8 @@ public final class DictionaryCollectionsStore {
         try {
             JSONObject value = dictionary(context, action("count").put("kind", kind));
             if (value == null) return Result.failed(failureMessage(""));
-            return Result.of(value.optLong("count", 0));
+            Long count = strictLong(value.opt("count"));
+            return Result.of(count == null || count < 0 ? 0L : count);
         } catch (JSONException error) {
             return Result.failed(failureMessage(""));
         }
@@ -230,7 +229,11 @@ public final class DictionaryCollectionsStore {
                 if (text == null) text = new StringBuilder(Math.max(16, page.length()));
                 text.append(page);
                 bytes = nextBytes;
-                if (!value.optBoolean("has_more", false)) break;
+                Object rawHasMore = value.opt("has_more");
+                if (rawHasMore == null || rawHasMore == JSONObject.NULL) break;
+                Boolean hasMore = strictBoolean(rawHasMore);
+                if (hasMore == null) return Result.failed(failureMessage(""));
+                if (!hasMore) break;
                 offset += EXPORT_PAGE;
             }
         } catch (JSONException error) {
@@ -258,7 +261,8 @@ public final class DictionaryCollectionsStore {
             JSONObject value = value(response);
             if (value == null) return Result.failed(failureMessage(errorOf(response)));
             SyncSignals.markDirty(context, SyncSwitch.DICTIONARY);
-            return Result.of(value.optInt("pending_count", 0));
+            Integer pending = nonNegativeInteger(value.opt("pending_count"));
+            return Result.of(pending == null ? 0 : pending);
         } catch (JSONException | RuntimeException | LinkageError error) {
             return Result.failed(failureMessage(""));
         }
@@ -392,24 +396,34 @@ public final class DictionaryCollectionsStore {
                 JSONObject item = raw.optJSONObject(index);
                 if (item == null) continue;
                 JSONObject source = item.optJSONObject("source");
-                String type = source == null ? "user" : source.optString("type", "user");
-                String resource = source == null ? "" : source.optString("resource_id", "");
-                collections.add(new Collection(item.optString("id", ""), item.optString("name", ""),
-                    item.optString("kind", "pinyin"), type, resource, item.optBoolean("enabled", false),
-                    item.optInt("entry_count", 0), item.optInt("pending", 0)));
+                String id = strictString(item.opt("id"));
+                String name = strictString(item.opt("name"));
+                String kind = strictString(item.opt("kind"));
+                Boolean enabled = strictBoolean(item.opt("enabled"));
+                Integer entryCount = nonNegativeInteger(item.opt("entry_count"));
+                Integer pending = nonNegativeInteger(item.opt("pending"));
+                String type = source == null ? "user" : strictString(source.opt("type"));
+                String resource = source == null || !source.has("resource_id")
+                    ? "" : strictString(source.opt("resource_id"));
+                if (id == null || name == null || kind == null || enabled == null
+                        || entryCount == null || pending == null || type == null
+                        || resource == null) continue;
+                collections.add(new Collection(id, name, kind, type, resource, enabled,
+                    entryCount, pending));
             }
         }
         JSONArray rawFormats = value.optJSONArray("formats");
         List<String> formats = new ArrayList<>(rawFormats == null ? 0 : rawFormats.length());
         if (rawFormats != null) {
             for (int index = 0; index < rawFormats.length(); index++) {
-                String format = rawFormats.optString(index, "");
-                if (!format.isEmpty()) formats.add(format);
+                String format = strictString(rawFormats.opt(index));
+                if (format != null && !format.isEmpty()) formats.add(format);
             }
         }
         JSONObject report = value.optJSONObject("import");
-        ImportReport importReport = report == null ? null : new ImportReport(report.optInt("imported", 0),
-            report.optInt("duplicates", 0), report.optInt("failed", 0), report.optBoolean("truncated", false));
+        ImportReport importReport = report == null ? null : new ImportReport(
+            nonNegativeInteger(report.opt("imported"), 0), nonNegativeInteger(report.opt("duplicates"), 0),
+            nonNegativeInteger(report.opt("failed"), 0), Boolean.TRUE.equals(strictBoolean(report.opt("truncated"))));
         return new View(Collections.unmodifiableList(collections), Collections.unmodifiableList(formats), importReport);
     }
 
@@ -421,11 +435,16 @@ public final class DictionaryCollectionsStore {
             for (int index = 0; index < raw.length(); index++) {
                 JSONObject item = raw.optJSONObject(index);
                 if (item == null) continue;
-                words.add(new Word(item.optString("kind", ""), item.optString("key", ""),
-                    item.optString("value", ""), item.optLong("weight", 0), item.optString("source", "user")));
+                String kind = strictString(item.opt("kind"));
+                String key = strictString(item.opt("key"));
+                String word = strictString(item.opt("value"));
+                Long weight = strictLong(item.opt("weight"));
+                String source = strictString(item.opt("source"));
+                if (kind == null || key == null || word == null || weight == null || source == null) continue;
+                words.add(new Word(kind, key, word, weight, source));
             }
         }
-        return new WordPage(Collections.unmodifiableList(words), value.optBoolean("has_more", false));
+        return new WordPage(Collections.unmodifiableList(words), Boolean.TRUE.equals(strictBoolean(value.opt("has_more"))));
     }
 
     private static Result<View> collections(Context context, JSONObject action, boolean changesWords) {
@@ -483,10 +502,45 @@ public final class DictionaryCollectionsStore {
         if (response == null) return null;
         try {
             JSONObject root = new JSONObject(response);
-            return root.optBoolean("ok", false) ? root.optJSONObject("value") : null;
+            return Boolean.TRUE.equals(strictBoolean(root.opt("ok")))
+                ? root.optJSONObject("value") : null;
         } catch (JSONException error) {
             return null;
         }
+    }
+
+    /** JSON response flags must remain booleans; org.json otherwise coerces strings. */
+    static Boolean strictBoolean(Object value) {
+        return value instanceof Boolean ? (Boolean) value : null;
+    }
+
+    public static String strictString(Object value) {
+        return value instanceof String ? (String) value : null;
+    }
+
+    public static Integer strictInteger(Object value) {
+        if (value instanceof Integer integer) return integer;
+        if (value instanceof Long longValue
+                && longValue >= Integer.MIN_VALUE && longValue <= Integer.MAX_VALUE)
+            return longValue.intValue();
+        return null;
+    }
+
+    /** 词库计数必须是非负 JSON 整数；非法值按调用方的缺省值处理。 */
+    public static Integer nonNegativeInteger(Object value) {
+        Integer parsed = strictInteger(value);
+        return parsed == null || parsed < 0 ? null : parsed;
+    }
+
+    static int nonNegativeInteger(Object value, int fallback) {
+        Integer parsed = nonNegativeInteger(value);
+        return parsed == null ? fallback : parsed;
+    }
+
+    public static Long strictLong(Object value) {
+        if (value instanceof Integer integer) return integer.longValue();
+        if (value instanceof Long longValue) return longValue;
+        return null;
     }
 
     private static String errorOf(String response) {
@@ -500,14 +554,6 @@ public final class DictionaryCollectionsStore {
 
     /** runtime-options.json 原文，就是 `msime_client_dictionary` 要的 HostOptions；首次设置之前为空串。 */
     static String hostOptions(Context context) {
-        File files = context.getFilesDir();
-        if (files == null) return "";
-        File options = new File(files, "runtime-options.json");
-        if (!options.isFile()) return "";
-        try {
-            return HostOptionsPolicy.read(options);
-        } catch (IOException | SecurityException error) {
-            return "";
-        }
+        return HostOptionsPolicy.readRuntimeOptions(context.getFilesDir());
     }
 }

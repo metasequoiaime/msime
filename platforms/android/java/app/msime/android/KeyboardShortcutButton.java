@@ -4,10 +4,8 @@ import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
-import app.msime.android.KeyboardGeometry;
 import android.graphics.Path;
 import android.graphics.RectF;
-import android.view.Gravity;
 
 /**
  * Draws a shortcut glyph while retaining the button's text for accessibility.
@@ -30,8 +28,8 @@ public final class KeyboardShortcutButton extends KeyboardPressButton {
         super(context);
         this.icon = icon;
         setKeyboardRole(KeyboardKeyRole.GLYPH);
-        setGravity(Gravity.CENTER);
-        setPadding(0, 0, 0, 0);
+        ViewPolicy.setCentered(this);
+        ViewPolicy.clearPadding(this);
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeCap(Paint.Cap.ROUND);
         paint.setStrokeJoin(Paint.Join.ROUND);
@@ -84,10 +82,10 @@ public final class KeyboardShortcutButton extends KeyboardPressButton {
             drawMaterial(canvas, width, height);
             return;
         }
-        float size = Math.min(width, height) * GLYPH_SCALE;
+        float size = KeyboardGeometry.shorterSide(width, height) * GLYPH_SCALE;
         if (size <= 0) return;
         if (isSelected() && Color.alpha(activeFill) > 0) {
-            float side = Math.min(width, height) * ACTIVE_SCALE;
+        float side = KeyboardGeometry.shorterSide(width, height) * ACTIVE_SCALE;
             float left = getPaddingLeft() + (width - side) / 2f;
             float top = getPaddingTop() + (height - side) / 2f;
             bounds.set(left, top, left + side, top + side);
@@ -97,7 +95,7 @@ public final class KeyboardShortcutButton extends KeyboardPressButton {
         int color = iconColor();
         if (color == Color.TRANSPARENT) color = Color.WHITE;
         paint.setColor(color);
-        paint.setAlpha(isEnabled() ? 255 : 96);
+        paint.setAlpha(ColorPolicy.enabledAlpha(isEnabled(), 255, 96));
         paint.setStrokeWidth(7f);
         canvas.save();
         canvas.translate(getPaddingLeft() + (width - size) / 2f,
@@ -119,16 +117,17 @@ public final class KeyboardShortcutButton extends KeyboardPressButton {
 
     private void drawMaterial(Canvas canvas, int width, int height) {
         float density = getResources().getDisplayMetrics().density;
-        float shorter = Math.min(width, height);
+        float shorter = KeyboardGeometry.shorterSide(width, height);
         if (shorter <= 0) return;
         float centerX = getPaddingLeft() + width / 2f;
         float centerY = getPaddingTop() + height / 2f;
         if (isSelected() && Color.alpha(activeFill) > 0) {
-            float side = Math.min(shorter, KeyboardGeometry.floatPixels(getContext(), ACTIVE_SIDE_DP));
+            float side = BoundsPolicy.atMost(shorter,
+                KeyboardGeometry.floatPixels(getContext(), ACTIVE_SIDE_DP));
             bounds.set(centerX - side / 2f, centerY - side / 2f, centerX + side / 2f,
                 centerY + side / 2f);
             fill.setColor(activeFill);
-            float radius = Math.min(side / 2f,
+            float radius = BoundsPolicy.atMost(side / 2f,
                 KeyboardGeometry.floatPixels(getContext(), ACTIVE_RADIUS_DP));
             canvas.drawRoundRect(bounds, radius, radius, fill);
         }
@@ -146,7 +145,8 @@ public final class KeyboardShortcutButton extends KeyboardPressButton {
         };
         float iconDp = icon == KeyboardShortcutIconPolicy.Icon.DISMISS
             ? DISMISS_ICON_DP : MATERIAL_ICON_DP;
-        float size = Math.min(shorter, KeyboardGeometry.floatPixels(getContext(), iconDp));
+        float size = BoundsPolicy.atMost(shorter,
+            KeyboardGeometry.floatPixels(getContext(), iconDp));
         KeyboardIconPaths.draw(canvas, glyph, path, centerX - size / 2f, centerY - size / 2f,
             size, color);
     }

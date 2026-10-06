@@ -2,11 +2,11 @@ package app.msime.android.home;
 
 import android.app.Activity;
 import android.content.Context;
-import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
 import android.widget.TextView;
+import app.msime.android.ViewPolicy;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 
@@ -34,21 +34,17 @@ public final class MsToast {
             frame.removeView(previous);
         }
 
-        TextView toast = new TextView(activity);
-        toast.setTag(TAG);
-        toast.setText(text);
-        toast.setGravity(Gravity.CENTER);
-        toast.setMaxLines(3);
-        Ui.style(toast, Ui.TEXT_TOAST, 400,
+        TextView toast = Ui.styledLabel(activity, text, Ui.TEXT_TOAST, 400,
             Ui.color(activity, com.google.android.material.R.attr.colorOnSurfaceInverse));
+        toast.setTag(TAG);
+        ViewPolicy.setCentered(toast);
+        toast.setMaxLines(3);
         toast.setBackground(Ui.pill(Ui.color(activity, com.google.android.material.R.attr.colorSurfaceInverse)));
-        toast.setPadding(Ui.dp(activity, 20), Ui.dp(activity, 10), Ui.dp(activity, 20), Ui.dp(activity, 10));
+        Ui.setSymmetricPaddingDp(toast, activity, 20, 10);
         toast.setElevation(Ui.dp(activity, 6));
         toast.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
 
-        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
-            Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+        FrameLayout.LayoutParams params = Ui.frameWrap(Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
         int side = Ui.dp(activity, 32);
         params.leftMargin = side;
         params.rightMargin = side;

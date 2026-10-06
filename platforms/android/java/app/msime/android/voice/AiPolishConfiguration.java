@@ -7,6 +7,8 @@ import java.util.Objects;
 
 /** Immutable, display-safe AI text-polish configuration. Secrets are never exposed by toString(). */
 public final class AiPolishConfiguration {
+    /** Maximum UTF-16 length accepted for a custom HTTPS endpoint. */
+    public static final int MAX_ENDPOINT_LENGTH = 2048;
     public static final int MAXIMUM_TEXT_CODE_POINTS = 10_000;
     public static final int MAXIMUM_RESPONSE_BYTES = 1024 * 1024;
     public static final String DEFAULT_PROMPT = "请润色以下文字，保持原意，只返回修改后的文字。";
@@ -57,7 +59,8 @@ public final class AiPolishConfiguration {
     }
 
     private static URI validatedEndpoint(String value) {
-        if (value == null || value.isEmpty() || value.length() > 2048 || TextPolicy.hasControl(value)) {
+        if (value == null || value.isEmpty() || value.length() > MAX_ENDPOINT_LENGTH
+                || TextPolicy.hasControl(value)) {
             throw new IllegalArgumentException("AI 接口地址无效");
         }
         try {

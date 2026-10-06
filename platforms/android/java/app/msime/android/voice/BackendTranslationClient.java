@@ -14,6 +14,8 @@ import org.json.JSONObject;
 
 /** Small account-backed client for the shared candidate translation endpoint. */
 public final class BackendTranslationClient implements CandidateTranslationStore.Service {
+    /** Maximum number of source texts accepted by one translation request. */
+    public static final int MAX_TEXTS = 32;
     private static final String ORIGIN = "https://api.msime.app";
     private static final int MAX_RESPONSE_BYTES = 256 * 1024;
     private final BackendAccount account;
@@ -25,7 +27,7 @@ public final class BackendTranslationClient implements CandidateTranslationStore
     }
 
     @Override public List<String> translate(List<String> texts, String target) throws Exception {
-        if (texts == null || texts.isEmpty() || texts.size() > 32
+        if (texts == null || texts.isEmpty() || texts.size() > MAX_TEXTS
                 || target == null || target.isEmpty() || TextPolicy.utf8Length(target) > 16)
             throw new IllegalArgumentException("Invalid translation request");
         for (String text : texts) {

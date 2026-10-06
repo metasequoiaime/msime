@@ -5,6 +5,7 @@
 use super::command::TEXT_UTF16_LIMIT;
 use super::places::places;
 use crate::types::{CandidateSource, MentionEntry, WordItem};
+use std::collections::HashSet;
 
 /// Two pages of the nine-row Windows candidate window; typing more of a key narrows the list.
 pub const RESULT_LIMIT: usize = 18;
@@ -15,6 +16,7 @@ pub const KEY_LIMIT: usize = 64;
 /// The entries that are usable of a host list: non-empty text within the candidate text bound, a key of lowercase letters and single apostrophes between them, the first entry of a text, at most `LIST_LIMIT`.
 pub fn usable_mentions(entries: &[MentionEntry]) -> Vec<MentionEntry> {
     let mut usable: Vec<MentionEntry> = Vec::with_capacity(LIST_LIMIT.min(entries.len()));
+    let mut texts = HashSet::with_capacity(LIST_LIMIT.min(entries.len()));
     for entry in entries {
         if usable.len() == LIST_LIMIT {
             break;
@@ -27,7 +29,7 @@ pub fn usable_mentions(entries: &[MentionEntry]) -> Vec<MentionEntry> {
                 .bytes()
                 .all(|byte| byte.is_ascii_lowercase() || byte == b'\'')
             && (entry.key.is_empty() || entry.key.split('\'').all(|syllable| !syllable.is_empty()));
-        if text_valid && key_valid && !usable.iter().any(|kept| kept.text == entry.text) {
+        if text_valid && key_valid && texts.insert(entry.text.as_str()) {
             usable.push(entry.clone());
         }
     }
@@ -78,15 +80,14 @@ pub fn query_mentions(code: &str, entries: &[MentionEntry], with_places: bool) -
         .map(|entry| (entry.key.as_str(), entry.text.as_str()))
         .collect();
     if with_places && !code.is_empty() {
+        let mut matched_names: HashSet<&str> = matches.iter().map(|(_, text)| *text).collect();
         let table = places();
         'passes: for exact in [true, false] {
             for (place, spellings) in table.places.iter().zip(&table.spellings) {
                 if matches.len() == RESULT_LIMIT {
                     break 'passes;
                 }
-                if spelled(spellings, code, exact)
-                    && !matches.iter().any(|(_, text)| *text == place.name)
-                {
+                if spelled(spellings, code, exact) && matched_names.insert(place.name) {
                     matches.push((place.key, place.name));
                 }
             }

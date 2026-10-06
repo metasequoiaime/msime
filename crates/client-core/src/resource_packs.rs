@@ -6,6 +6,7 @@ use crate::resources::{ResourceSet, MACOS_ON_DEMAND_ARTIFACTS};
 use crate::voice::local_models::{self, InstallProgress, LocalModelError, MANIFEST_FILE};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
@@ -67,12 +68,13 @@ impl ResourcePack {
             ResourcePack::Japanese => &["japanese"],
             ResourcePack::LanguageDictionaries => LANGUAGE_SCHEMES.get_or_init(|| {
                 let pinned = &self.set().artifacts;
+                let pinned_names: HashSet<&str> = pinned
+                    .iter()
+                    .map(|artifact| artifact.name.as_str())
+                    .collect();
                 LANGUAGE_DICTIONARY_SCHEMES
                     .into_iter()
-                    .filter(|scheme| {
-                        let file = format!("msime-{scheme}.db");
-                        pinned.iter().any(|artifact| artifact.name == file)
-                    })
+                    .filter(|scheme| pinned_names.contains(format!("msime-{scheme}.db").as_str()))
                     .collect()
             }),
             ResourcePack::Handwriting | ResourcePack::SettledModel => &[],

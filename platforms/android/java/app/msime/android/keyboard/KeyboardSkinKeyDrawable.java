@@ -61,7 +61,7 @@ public final class KeyboardSkinKeyDrawable extends Drawable {
                 shapePath.close();
             }
             case "ticket" -> {
-                float notch = Math.min(rect.width(), rect.height()) * .12f;
+                float notch = KeyboardGeometry.shorterSide(rect.width(), rect.height()) * .12f;
                 shapePath.moveTo(rect.left, rect.top);
                 shapePath.lineTo(rect.right, rect.top);
                 shapePath.lineTo(rect.right, rect.centerY() - notch);
@@ -78,7 +78,7 @@ public final class KeyboardSkinKeyDrawable extends Drawable {
             }
             default -> {
                 float radius = Math.min(dp(skin.cornerRadius()),
-                    Math.min(rect.width(), rect.height()) / 2);
+                    KeyboardGeometry.shorterSide(rect.width(), rect.height()) / 2);
                 shapePath.addRoundRect(rect, radius, radius, Path.Direction.CW);
             }
         }
@@ -117,8 +117,9 @@ public final class KeyboardSkinKeyDrawable extends Drawable {
             boolean glass = "glass".equals(skin.keyMaterial());
             if (!gradientValid || !gradientBounds.equals(face)) {
                 overlayGradient = new LinearGradient(face.centerX(), face.top, face.centerX(), face.bottom,
-                    new int[] {Color.argb((int) (255 * (glass ? .24 : .13)), 255, 255, 255),
-                        Color.TRANSPARENT, Color.argb((int) (255 * (glass ? .03 : .10)), 0, 0, 0)},
+                    new int[] {ColorPolicy.withAlpha(Color.WHITE, (int) (255 * (glass ? .24 : .13))),
+                        Color.TRANSPARENT,
+                        ColorPolicy.withAlpha(Color.BLACK, (int) (255 * (glass ? .03 : .10)))},
                     new float[] {0, .48f, 1}, Shader.TileMode.CLAMP);
                 gradientBounds.set(face);
                 gradientValid = true;

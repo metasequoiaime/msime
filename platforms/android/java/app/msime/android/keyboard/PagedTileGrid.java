@@ -54,18 +54,22 @@ public final class PagedTileGrid extends ViewGroup {
 
     /** 每页条目数。 */
     public static int perPage(int columns, int rows) {
-        return Math.max(1, columns) * Math.max(1, rows);
+        long product = (long) BoundsPolicy.bounded(columns, 1, Integer.MAX_VALUE)
+            * BoundsPolicy.bounded(rows, 1, Integer.MAX_VALUE);
+        return product > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) product;
     }
 
     /** 页数：至少一页。 */
     public static int pageCount(int items, int perPage) {
         if (items <= 0) return 1;
-        return (items + perPage - 1) / perPage;
+        int capacity = Math.max(1, perPage);
+        return items / capacity + (items % capacity == 0 ? 0 : 1);
     }
 
     /** 第 {@code index} 个条目所在的页。 */
     public static int pageOf(int index, int perPage) {
-        return BoundsPolicy.nonNegative(index) / Math.max(1, perPage);
+        return BoundsPolicy.nonNegative(index)
+            / BoundsPolicy.bounded(perPage, 1, Integer.MAX_VALUE);
     }
 
     /**
@@ -87,8 +91,8 @@ public final class PagedTileGrid extends ViewGroup {
     }
 
     public void setGrid(int columnCount, int rowCount) {
-        columns = Math.max(1, columnCount);
-        rows = Math.max(1, rowCount);
+        columns = BoundsPolicy.bounded(columnCount, 1, Integer.MAX_VALUE);
+        rows = BoundsPolicy.bounded(rowCount, 1, Integer.MAX_VALUE);
         requestLayout();
     }
 
@@ -162,7 +166,7 @@ public final class PagedTileGrid extends ViewGroup {
             child.layout(left, top, left + child.getMeasuredWidth(), top + child.getMeasuredHeight());
         }
         if (changed) {
-            page = Math.min(page, pageCount() - 1);
+            page = BoundsPolicy.atMost(page, pageCount() - 1);
             scrollTo(page * width, 0);
         }
     }

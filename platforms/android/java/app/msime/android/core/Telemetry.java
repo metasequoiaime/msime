@@ -76,9 +76,11 @@ public final class Telemetry {
         WORKER.execute(() -> {
             JSONObject value = call(() -> NativeClient.telemetryBegin(request(app)));
             if (value != null) {
-                enabled = value.optBoolean("enabled", false);
+                enabled = booleanValue(value.opt("enabled"), false);
                 String path = value.optString("crash_record_path", "");
-                sessionCrashRecord = enabled && !path.isEmpty() ? new File(path) : null;
+                File candidate = path.isEmpty() ? null : new File(path);
+                sessionCrashRecord = enabled && isSafeSessionCrashRecord(candidate)
+                    ? candidate : null;
             }
             sessionBegun = true;
             flush(app);
@@ -142,6 +144,7 @@ public final class Telemetry {
     /** Synchronous: the process is about to be killed, so the record is on disk (and forced) before the previous handler runs. */
     private static void writeCrashRecord(Throwable error) throws Exception {
         File target = sessionCrashRecord;
+        if (target != null && !isSafeSessionCrashRecord(target)) return;
         if (target == null) {
             File directory = crashDirectory;
             if (directory == null) return;
@@ -156,6 +159,25 @@ public final class Telemetry {
             ByteBuffer buffer = ByteBuffer.wrap(record);
             while (buffer.hasRemaining()) channel.write(buffer);
             channel.force(true);
+        }
+    }
+
+    /** The native begin response names the reserved record below our crash directory. Recheck it
+     * before a crash write so a malformed response or a replaced parent cannot redirect the file. */
+    private static boolean isSafeSessionCrashRecord(File target) {
+        File directory = crashDirectory;
+        if (target == null || directory == null) return false;
+        try {
+            Path root = directory.toPath().toAbsolutePath().normalize();
+            Path raw = target.toPath();
+            if (!raw.isAbsolute()) return false;
+            Path path = raw.normalize();
+            if (path.equals(root) || !path.startsWith(root)
+                    || !Files.isDirectory(root, LinkOption.NOFOLLOW_LINKS)) return false;
+            app.msime.android.SafePaths.rejectSymlinkComponents(path);
+            return true;
+        } catch (java.io.IOException | RuntimeException error) {
+            return false;
         }
     }
 
@@ -221,7 +243,7 @@ public final class Telemetry {
 
     private static void flush(Context app) {
         JSONObject value = call(() -> NativeClient.telemetryFlush(request(app)));
-        if (value != null) enabled = value.optBoolean("enabled", enabled);
+        if (value != null) enabled = booleanValue(value.opt("enabled"), enabled);
     }
 
     private static File directory(Context app) {
@@ -259,13 +281,7 @@ public final class Telemetry {
 
     /** Where the shared preferences live, as Bootstrap wrote it into runtime-options.json; empty before first-run preparation. */
     private static String preferencesDirectory(Context app) {
-        File options = new File(app.getFilesDir(), "runtime-options.json");
-        if (!options.isFile()) return "";
-        try {
-            return new JSONObject(HostOptionsPolicy.read(options)).optString("preferences_directory", "");
-        } catch (Exception error) {
-            return "";
-        }
+        return HostOptionsPolicy.readOption(app.getFilesDir(), "preferences_directory");
     }
 
     private interface Call {
@@ -276,7 +292,7 @@ public final class Telemetry {
     private static JSONObject call(Call call) {
         try {
             JSONObject root = new JSONObject(call.run());
-            if (root.optBoolean("ok", false)) {
+            if (Boolean.TRUE.equals(root.opt("ok"))) {
                 JSONObject value = root.optJSONObject("value");
                 return value == null ? new JSONObject() : value;
             }
@@ -285,5 +301,10 @@ public final class Telemetry {
             Log.i(TAG, "Reporter unavailable", error);
         }
         return null;
+    }
+
+    /** Reporter status and consent are typed JSON booleans; reject org.json string coercion. */
+    static boolean booleanValue(Object value, boolean fallback) {
+        return value instanceof Boolean ? (Boolean) value : fallback;
     }
 }

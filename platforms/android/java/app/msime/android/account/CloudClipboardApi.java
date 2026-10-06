@@ -45,11 +45,10 @@ public final class CloudClipboardApi {
     /** 置顶的排在前面，其余保持服务端给的顺序（新的在前）。 */
     public static List<Item> ordered(List<Item> items) {
         int capacity = items == null ? 0 : items.size();
-        List<Item> pinned = new ArrayList<>(capacity);
-        List<Item> rest = new ArrayList<>(capacity);
-        for (Item item : items) (item.pinned() ? pinned : rest).add(item);
-        pinned.addAll(rest);
-        return pinned;
+        List<Item> ordered = new ArrayList<>(capacity);
+        for (Item item : items) if (item.pinned()) ordered.add(item);
+        for (Item item : items) if (!item.pinned()) ordered.add(item);
+        return ordered;
     }
 
     public Page load() throws CloudApi.Failure {
@@ -58,19 +57,28 @@ public final class CloudClipboardApi {
             JSONArray values = response.optJSONArray("items");
             Object enabled = response.opt("enabled");
             if (values == null || values.length() > MAX_ITEMS || !(enabled instanceof Boolean)) throw invalid();
-            int retention = response.optInt("retention_days", 0);
+            Integer rawRetention = strictInteger(response.opt("retention_days"));
+            int retention = rawRetention == null ? 0 : rawRetention;
             if (!validRetention(retention)) retention = 0;
             List<Item> items = new ArrayList<>(values.length());
             for (int index = 0; index < values.length(); index++) {
                 JSONObject value = values.getJSONObject(index);
-                String id = value.optString("id", "");
-                String text = value.optString("text", "");
-                String updated = value.optString("updated_at", "");
-                String device = value.optString("device", "");
+                String id = strictString(value.opt("id"));
+                String text = strictString(value.opt("text"));
+                String updated = strictString(value.opt("updated_at"));
+                Object rawDevice = value.opt("device");
+                String device = rawDevice == null || rawDevice == JSONObject.NULL
+                    ? "" : strictString(rawDevice);
+                Object rawPinned = value.opt("pinned");
+                Boolean pinned = rawPinned == null || rawPinned == JSONObject.NULL
+                    ? Boolean.FALSE : strictBoolean(rawPinned);
+                if (pinned == null || id == null || text == null || updated == null || device == null) {
+                    throw invalid();
+                }
                 if (!validId(id) || !CloudClipboardTextPolicy.valid(text) || updated.isEmpty()
                         || TextPolicy.utf8Length(updated) > 128 || TextPolicy.hasControl(updated)) throw invalid();
                 if (TextPolicy.utf8Length(device) > 128 || TextPolicy.hasControl(device)) device = "";
-                items.add(new Item(id, text, updated, value.optBoolean("pinned", false), device));
+                items.add(new Item(id, text, updated, pinned, device));
             }
             return new Page((Boolean) enabled, retention, ordered(items));
         } catch (JSONException malformed) {
@@ -112,5 +120,25 @@ public final class CloudClipboardApi {
 
     private static CloudApi.Failure invalid() {
         return new CloudApi.Failure(500, "invalid_response", "invalid clipboard response", 0);
+    }
+
+    /** org.json's optBoolean accepts string values; server response fields must keep their JSON type. */
+    static Boolean strictBoolean(Object value) {
+        return value instanceof Boolean ? (Boolean) value : null;
+    }
+
+    /** org.json's optString coerces numbers and booleans; response text fields must stay strings. */
+    static String strictString(Object value) {
+        return value instanceof String ? (String) value : null;
+    }
+
+    /** Retention days must be a JSON integer; reject strings and fractional numbers. */
+    static Integer strictInteger(Object value) {
+        if (value instanceof Integer integer) return integer;
+        if (value instanceof Long longValue
+                && longValue >= Integer.MIN_VALUE && longValue <= Integer.MAX_VALUE) {
+            return longValue.intValue();
+        }
+        return null;
     }
 }

@@ -78,7 +78,7 @@ public final class KeyboardSkinCard extends KeyboardPressButton {
         float ring = 2 * density;
         // 缩略图按设计 MiniKb 的 390:292 由宽度定高，名字紧贴在下方；格子更高时多出的空白留在名字下面，不拉伸缩略图。
         float available = getHeight() - labelHeight - LABEL_GAP_DP * density - ring * 2;
-        float tileHeight = Math.min(available,
+        float tileHeight = BoundsPolicy.atMost(available,
             (getWidth() - ring * 2) * KeyboardSkinPreview.MINI_HEIGHT / KeyboardSkinPreview.MINI_WIDTH);
         tile.set(ring, ring, getWidth() - ring, ring + tileHeight);
         if (tile.width() <= 0 || tile.height() <= 0) return;
@@ -90,7 +90,7 @@ public final class KeyboardSkinCard extends KeyboardPressButton {
             KeyboardSkinPreview.drawTile(canvas, tile, radius, skin, density, tileDrawState);
         }
         int accent = themed ? accentColor : Color.parseColor(skin.accent());
-        int hairline = themed ? hairlineColor : Color.argb(31, 0, 0, 0);
+        int hairline = themed ? hairlineColor : ColorPolicy.withAlpha(Color.BLACK, 31);
         int label = themed ? labelColor : Color.parseColor(skin.keyForeground());
         boolean selected = isSelected();
         paint.setStyle(Paint.Style.STROKE);

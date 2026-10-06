@@ -20,6 +20,18 @@ public final class KeyboardFeedbackStoreSmoke {
         check(defaults.soundEnabled());
         check(!defaults.hapticsEnabled());
         check(defaults.hapticStrength() == HapticStrength.MEDIUM);
+        check(KeyboardFeedbackStore.booleanValue("false", true));
+        check(!KeyboardFeedbackStore.booleanValue("true", false));
+        check(KeyboardFeedbackStore.booleanValue(Boolean.FALSE, true) == false);
+        check(KeyboardFeedbackStore.strictBoolean("true") == null);
+        KeyboardFeedbackStore.Settings wire = KeyboardFeedbackStore.fromValues(
+            Boolean.FALSE, Boolean.TRUE, "strong");
+        check(!wire.soundEnabled() && wire.hapticsEnabled()
+                && wire.hapticStrength() == HapticStrength.STRONG);
+        KeyboardFeedbackStore.Settings malformedWire = KeyboardFeedbackStore.fromValues(
+            "false", Integer.valueOf(1), Integer.valueOf(255));
+        check(malformedWire.soundEnabled() && !malformedWire.hapticsEnabled()
+                && malformedWire.hapticStrength() == HapticStrength.MEDIUM);
         try {
             Path root = Files.createTempDirectory("keyboard-feedback-root");
             Path outside = Files.createTempDirectory("keyboard-feedback-outside");

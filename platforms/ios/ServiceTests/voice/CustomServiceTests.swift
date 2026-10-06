@@ -102,6 +102,7 @@ final class CustomServiceTests: XCTestCase {
       audioFrame: { _, _, _ in Data([0x02]) },
       decodeFrame: { frame in frame == Data([0xFF]) ? (true, "fixture transcript") : nil }
     )
+    // 握手要求资源 ID 非空，不填时在握手就抛 `missingResourceID`，根本到不了这里要测的响应帧大小检查。
     var configuration = CustomServiceConfiguration.loadVoicePreset(.doubao)
     configuration.voiceAppKey = "fixture-app"
     configuration.voiceResourceID = "fixture-resource"
@@ -228,6 +229,13 @@ final class CustomServiceTests: XCTestCase {
     XCTAssertEqual(DoubaoHostFrameCodec.transcript(in: ["text": "网关"]), "网关")
     XCTAssertNil(DoubaoHostFrameCodec.transcript(in: [:]))
     XCTAssertNil(DoubaoHostFrameCodec.transcript(in: ["text": String(repeating: "字", count: 10_001)]))
+
+    XCTAssertEqual(DoubaoHostFrameCodec.strictFinal(in: ["last": true]), true)
+    XCTAssertEqual(DoubaoHostFrameCodec.strictFinal(in: ["last": false]), false)
+    for invalid: Any in [1, 0, "true", NSNull()] {
+      XCTAssertNil(DoubaoHostFrameCodec.strictFinal(in: ["last": invalid]), "last: \(invalid)")
+    }
+    XCTAssertNil(DoubaoHostFrameCodec.strictFinal(in: [:]))
   }
 
   func testConfigurationRejectsUnsafeOrIncompleteEndpoints() {

@@ -125,6 +125,12 @@ public final class LocalAsrPolicySmoke {
                 "local ASR accepts string correction text");
             check(strictText.invoke(null, 42) == null,
                 "local ASR rejects numeric correction text instead of coercing it");
+            Method strictBoolean = LocalAsrPolicy.class.getDeclaredMethod("strictBoolean", Object.class);
+            strictBoolean.setAccessible(true);
+            check(Boolean.TRUE.equals(strictBoolean.invoke(null, Boolean.TRUE)),
+                "local ASR accepts JSON booleans");
+            check(strictBoolean.invoke(null, "true") == null,
+                "local ASR rejects boolean strings instead of coercing them");
         } catch (ReflectiveOperationException error) {
             throw new AssertionError("local ASR response parser unavailable", error);
         }

@@ -11,7 +11,7 @@ use crate::preferences::{TouchKeyboardSkinDesign, TouchSkinKeyMaterial, TouchSki
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
@@ -564,7 +564,7 @@ pub fn plan_ai_skins(text: &str) -> Result<Vec<AiSkinPlan>, AiSkinError> {
         || plans
             .iter()
             .map(|plan| plan.artwork_prompt.as_str())
-            .collect::<BTreeSet<_>>()
+            .collect::<HashSet<_>>()
             .len()
             != 3
     {

@@ -33,7 +33,7 @@ public class KeyHintButton extends KeyboardPressButton {
         basePaddingBottom = getPaddingBottom();
         hintPaint.setTextAlign(Paint.Align.CENTER);
         cornerPaint.setTextAlign(Paint.Align.RIGHT);
-        setAllCaps(false);
+        ViewPolicy.setAllCapsFalse(this);
     }
 
     /** 底部的双拼提示；空串表示不画，并收回为它预留的底边距。 */
@@ -80,7 +80,7 @@ public class KeyHintButton extends KeyboardPressButton {
     private void drawCornerHint(Canvas canvas) {
         cornerPaint.setTextSize(KeyboardGeometry.keySp(getContext(), CORNER_HINT_SP));
         cornerPaint.setColor(cornerHintColor);
-        if (!isEnabled()) cornerPaint.setAlpha(96);
+        cornerPaint.setAlpha(ColorPolicy.enabledAlpha(isEnabled(), 255, 96));
         Paint.FontMetrics metrics = cornerPaint.getFontMetrics();
         float baseline = KeyboardGeometry.floatPixels(getContext(), CORNER_HINT_TOP_DP) - metrics.ascent;
         canvas.drawText(cornerHint,
@@ -99,7 +99,7 @@ public class KeyHintButton extends KeyboardPressButton {
             hintPaint.setTextSize(size);
         }
         hintPaint.setColor(hintColor);
-        hintPaint.setAlpha(isEnabled() ? 204 : 96);
+        hintPaint.setAlpha(ColorPolicy.enabledAlpha(isEnabled(), 204, 96));
         Paint.FontMetrics metrics = hintPaint.getFontMetrics();
         float baseline = getHeight() - KeyboardGeometry.pixels(getContext(), 2) - metrics.bottom;
         canvas.drawText(hintText, getWidth() / 2f, baseline, hintPaint);

@@ -215,13 +215,11 @@ public final class KeyPressAnimator {
             int alpha = Math.round(Color.alpha(accent) * (1f - progress));
             if (glow) {
                 paint.setStyle(Paint.Style.FILL);
-                paint.setColor(Color.argb(Math.round(alpha * .35f), Color.red(accent),
-                    Color.green(accent), Color.blue(accent)));
+                paint.setColor(ColorPolicy.withAlpha(accent, Math.round(alpha * .35f)));
             } else {
                 paint.setStyle(Paint.Style.STROKE);
                 paint.setStrokeWidth(2 * density);
-                paint.setColor(Color.argb(alpha, Color.red(accent), Color.green(accent),
-                    Color.blue(accent)));
+                paint.setColor(ColorPolicy.withAlpha(accent, alpha));
             }
             canvas.drawRoundRect(rect, radius, radius, paint);
         }

@@ -4,7 +4,6 @@ import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
-import app.msime.android.KeyboardGeometry;
 import android.graphics.RectF;
 import java.util.function.IntSupplier;
 
@@ -79,26 +78,28 @@ public final class KeyboardBrandButton extends KeyboardPressButton {
             color = Color.WHITE;
         }
         mark.setColor(color);
-        mark.setAlpha(isEnabled() ? 255 : 96);
+        mark.setAlpha(ColorPolicy.enabledAlpha(isEnabled(), 255, 96));
         KeyboardBrandMark.draw(canvas, mark, getPaddingLeft(), getPaddingTop(), width, height,
             MARK_SCALE);
     }
 
     private void drawDesigned(Canvas canvas, int width, int height) {
-        float shorter = Math.min(width, height);
+        float shorter = KeyboardGeometry.shorterSide(width, height);
         if (shorter <= 0) return;
         float centerX = getPaddingLeft() + width / 2f;
         float centerY = getPaddingTop() + height / 2f;
         if (panelOpen && Color.alpha(panelOpenFill) > 0) {
-            float side = Math.min(shorter, KeyboardGeometry.floatPixels(getContext(), ACTIVE_SIDE_DP));
+            float side = BoundsPolicy.atMost(shorter,
+                KeyboardGeometry.floatPixels(getContext(), ACTIVE_SIDE_DP));
             bounds.set(centerX - side / 2f, centerY - side / 2f, centerX + side / 2f,
                 centerY + side / 2f);
             fill.setColor(panelOpenFill);
-            float radius = Math.min(side / 2f,
+            float radius = BoundsPolicy.atMost(side / 2f,
                 KeyboardGeometry.floatPixels(getContext(), ACTIVE_RADIUS_DP));
             canvas.drawRoundRect(bounds, radius, radius, fill);
         }
-        float disc = Math.min(shorter, KeyboardGeometry.floatPixels(getContext(), DISC_DP));
+        float disc = BoundsPolicy.atMost(shorter,
+            KeyboardGeometry.floatPixels(getContext(), DISC_DP));
         fill.setColor(discColor);
         canvas.drawCircle(centerX, centerY, disc / 2f, fill);
         float markSize = disc * (DISC_MARK_DP / DISC_DP);
@@ -131,7 +132,7 @@ public final class KeyboardBrandButton extends KeyboardPressButton {
         canvas.translate(centerX - LOGO_WIDTH * scale / 2f, centerY - LOGO_HEIGHT * scale / 2f);
         canvas.scale(scale, scale);
         fill.setColor(markColor);
-        fill.setAlpha(isEnabled() ? Color.alpha(markColor) : 96);
+        fill.setAlpha(ColorPolicy.enabledAlpha(isEnabled(), Color.alpha(markColor), 96));
         canvas.drawRect(5.84314f, 5.8335f, 109.843f, 125.833f, fill);
         fill.setAlpha(255);
         stroke.setStyle(Paint.Style.STROKE);
@@ -139,7 +140,7 @@ public final class KeyboardBrandButton extends KeyboardPressButton {
         stroke.setStrokeCap(Paint.Cap.ROUND);
         stroke.setStrokeJoin(Paint.Join.ROUND);
         stroke.setColor(Color.WHITE);
-        stroke.setAlpha(isEnabled() ? 255 : 96);
+        stroke.setAlpha(ColorPolicy.enabledAlpha(isEnabled(), 255, 96));
         canvas.drawPath(logoStroke, stroke);
         canvas.restoreToCount(saved);
     }

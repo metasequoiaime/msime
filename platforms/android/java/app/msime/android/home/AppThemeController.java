@@ -76,7 +76,8 @@ final class AppThemeController {
     @Nullable private static JSONObject resolve(String theme, int month, boolean dark) {
         try {
             JSONObject root = new JSONObject(NativeClient.resolveAppTheme(theme, month, dark));
-            return root.optBoolean("ok", false) ? root.optJSONObject("value") : null;
+            return Boolean.TRUE.equals(root.opt("ok"))
+                ? root.optJSONObject("value") : null;
         } catch (JSONException | RuntimeException | LinkageError error) {
             return null;
         }

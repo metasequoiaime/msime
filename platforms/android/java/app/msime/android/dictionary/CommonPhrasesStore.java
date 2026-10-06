@@ -314,8 +314,12 @@ public final class CommonPhrasesStore {
             for (int index = 0; index < rawPhrases.length(); index++) {
                 JSONObject phrase = rawPhrases.optJSONObject(index);
                 if (phrase == null) continue;
-                String pack = phrase.isNull("pack") ? "" : phrase.optString("pack", "");
-                phrases.add(new Phrase(phrase.optString("id", ""), phrase.optString("text", ""), pack));
+                String id = strictString(phrase.opt("id"));
+                String text = strictString(phrase.opt("text"));
+                Object rawPack = phrase.opt("pack");
+                String pack = rawPack == null || rawPack == JSONObject.NULL ? "" : strictString(rawPack);
+                if (id == null || text == null || pack == null) continue;
+                phrases.add(new Phrase(id, text, pack));
             }
         }
         JSONArray rawPacks = value.optJSONArray("packs");
@@ -324,11 +328,15 @@ public final class CommonPhrasesStore {
             for (int index = 0; index < rawPacks.length(); index++) {
                 JSONObject pack = rawPacks.optJSONObject(index);
                 if (pack == null) continue;
-                packs.add(new Pack(pack.optString("id", ""), pack.optString("name", ""), pack.optInt("revision", 0)));
+                String id = strictString(pack.opt("id"));
+                String name = strictString(pack.opt("name"));
+                Integer revision = nonNegativeInteger(pack.opt("revision"));
+                if (id == null || name == null || revision == null) continue;
+                packs.add(new Pack(id, name, revision));
             }
         }
         return new Document(Collections.unmodifiableList(phrases), Collections.unmodifiableList(packs),
-            value.optInt("skipped", 0));
+            nonNegativeInteger(value.opt("skipped"), 0));
     }
 
     private static Result perform(Context context, JSONObject action, boolean writes) {
@@ -344,7 +352,8 @@ public final class CommonPhrasesStore {
         }
         try {
             JSONObject root = new JSONObject(response == null ? "" : response);
-            if (!root.optBoolean("ok", false)) return Result.failed(failureMessage(root.optString("error", "")));
+            if (!Boolean.TRUE.equals(strictBoolean(root.opt("ok"))))
+                return Result.failed(failureMessage(root.optString("error", "")));
             JSONObject value = root.optJSONObject("value");
             if (value == null) return Result.failed(failureMessage(""));
             Document document = parse(value);
@@ -363,16 +372,46 @@ public final class CommonPhrasesStore {
         }
     }
 
+    /** Native response status must remain a JSON boolean; reject org.json string coercion. */
+    static Boolean strictBoolean(Object value) {
+        return value instanceof Boolean ? (Boolean) value : null;
+    }
+
+    /** Persisted response fields must retain their JSON string type. */
+    public static String strictString(Object value) {
+        return value instanceof String ? (String) value : null;
+    }
+
+    /** Read a JSON integer without org.json's string or fractional coercion. */
+    public static Integer strictInteger(Object value) {
+        if (value instanceof Integer integer) return integer;
+        if (value instanceof Long longValue
+                && longValue >= Integer.MIN_VALUE && longValue <= Integer.MAX_VALUE) {
+            return longValue.intValue();
+        }
+        return null;
+    }
+
+    /** 常用语包修订号和跳过条数必须是非负 JSON 整数。 */
+    public static Integer nonNegativeInteger(Object value) {
+        Integer parsed = strictInteger(value);
+        return parsed == null || parsed < 0 ? null : parsed;
+    }
+
+    static int strictInteger(Object value, int fallback) {
+        Integer parsed = strictInteger(value);
+        return parsed == null ? fallback : parsed;
+    }
+
+    static int nonNegativeInteger(Object value, int fallback) {
+        Integer parsed = nonNegativeInteger(value);
+        return parsed == null ? fallback : parsed;
+    }
+
     /** Bootstrap 写进 runtime-options.json 的偏好目录，首次设置之前为空串。两个进程都从这里读，所以不会各自用一份。 */
     static String preferencesDirectory(Context context) {
         File files = context.getFilesDir();
         if (files == null) return "";
-        File options = new File(files, "runtime-options.json");
-        if (!options.isFile()) return "";
-        try {
-            return new JSONObject(HostOptionsPolicy.read(options)).optString("preferences_directory", "");
-        } catch (JSONException | IOException | SecurityException error) {
-            return "";
-        }
+        return HostOptionsPolicy.readOption(files, "preferences_directory");
     }
 }

@@ -1271,7 +1271,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     let snapshot: [String: Any] = ["format_version": 1, "revision": revision, "preferences": prefs]
     do {
       let response = try Self.callUpdate(msimeClientUpdatePreferences, handle, snapshot)
-      return response["deferred"] as? Bool != true
+      return try Self.preferencesUpdateSucceeded(response)
     } catch {
       options["preferences"] = previous
       revision &-= 1
@@ -1325,6 +1325,24 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     return CandidateGlossModel.integerValue(number, maximum: UInt64.max)
   }
 
+  /// The runtime always reports whether a preference update was deferred. A missing or
+  /// non-boolean field is a malformed protocol response, not an applied update.
+  static func preferencesUpdateSucceeded(_ response: [String: Any]) throws -> Bool {
+    guard let deferred = response["deferred"] as? Bool else {
+      throw InputBridgeFailure.invalidResponse
+    }
+    return !deferred
+  }
+
+  /// Runtime state flags are protocol booleans. Keep absent optional fields on
+  /// their documented defaults, but never let NSNumber or strings coerce into
+  /// a state transition.
+  private static func strictBool(_ value: Any?, fallback: Bool) throws -> Bool {
+    guard let value else { return fallback }
+    guard let boolean = value as? Bool else { throw InputBridgeFailure.invalidResponse }
+    return boolean
+  }
+
   private static func snapshot(_ value: [String: Any]) throws -> MetasequoiaInputSnapshot {
     let view = value["view"] as? [String: Any] ?? [:]
     let rows = view["candidates"] as? [[String: Any]] ?? []
@@ -1336,7 +1354,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     let pageCount = try strictInt(view["page_count"], fallback: 0, range: 0...Int.max)
     let editingText = view["editing_text"] as? String ?? ""
     let caretPosition = try strictInt(view["caret_position"], fallback: 0, range: 0...editingText.utf8.count)
-    return MetasequoiaInputSnapshot(isHandled: value["handled"] as? Bool ?? false,
+    return MetasequoiaInputSnapshot(isHandled: try strictBool(value["handled"], fallback: false),
       commitText: value["commit"] as? String, preedit: view["preedit"] as? String ?? "",
       reading: view["reading"] as? String ?? "",
       phrasePrefix: view["phrase_prefix"] as? String ?? "",
@@ -1347,7 +1365,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
       candidateSources: candidateSources,
       candidateFixedPositions: candidateFixedPositions,
       candidatePageCount: pageCount,
-      answeredByPinyinFallback: view["answered_by_pinyin_fallback"] as? Bool ?? false,
+      answeredByPinyinFallback: try strictBool(view["answered_by_pinyin_fallback"], fallback: false),
       diagnosticText: value["diagnostic"] as? String,
       localMode: view["local_mode"] as? String ?? "none",
       nineKeySpellings: view["nine_key_spellings"] as? [String] ?? [],

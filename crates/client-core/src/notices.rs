@@ -8,6 +8,7 @@ use crate::account::{AccountError, BackendAccountClient};
 use pulldown_cmark::{CowStr, Event, Options, Parser, Tag, TagEnd};
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
@@ -178,9 +179,9 @@ impl NoticeStore {
             cache.attempted_at_unix_ms = now_ms;
             if let Ok(items) = fetch() {
                 cache.items = valid_items(items);
-                cache
-                    .dismissed
-                    .retain(|id| cache.items.iter().any(|item| &item.id == id));
+                let item_ids: HashSet<&str> =
+                    cache.items.iter().map(|item| item.id.as_str()).collect();
+                cache.dismissed.retain(|id| item_ids.contains(id.as_str()));
             }
             self.write(&cache)?;
         }

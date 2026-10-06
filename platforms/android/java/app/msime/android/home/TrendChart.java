@@ -8,6 +8,7 @@ import android.util.AttributeSet;
 import android.view.View;
 import androidx.annotation.Nullable;
 import app.msime.android.R;
+import app.msime.android.ListPolicy;
 import app.msime.android.TypingStatisticsSummary.DayCount;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
@@ -43,7 +44,7 @@ public final class TrendChart extends View {
 
     /** 换一组 7 天；最后一项是今天。 */
     public void setDays(List<DayCount> values) {
-        days = values == null ? List.of() : List.copyOf(values);
+        days = ListPolicy.copyOrEmpty(values);
         StringBuilder spoken = new StringBuilder("近 7 天每日字数");
         for (DayCount day : days) {
             spoken.append("，星期").append(weekday(day.day())).append(' ').append(day.count());

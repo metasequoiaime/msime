@@ -13,6 +13,8 @@ import java.util.Set;
 
 /** Validates and presents the one-or-two language candidate gloss configuration. */
 public final class CandidateTranslationPolicy {
+    /** Candidate translation supports one primary and at most one secondary language. */
+    public static final int MAX_TARGETS = 2;
     private static final Set<String> SUPPORTED = Set.of("en", "fr", "ja", "es", "ru", "de", "ko");
     /** Targets with an offline dictionary format; mirrors OFFLINE_GLOSS_LANGUAGES in crates/host-api. */
     public static final Set<String> OFFLINE_GLOSS_LANGUAGES = Set.of("fr", "ja", "es", "ru", "de", "ko");
@@ -21,7 +23,7 @@ public final class CandidateTranslationPolicy {
 
     /** Primary always falls back to English; a malformed or duplicate secondary is ignored. */
     public static List<String> targets(String primary, String secondary) {
-        ArrayList<String> result = new ArrayList<>(2);
+        ArrayList<String> result = new ArrayList<>(MAX_TARGETS);
         String first = normalize(primary);
         result.add(SUPPORTED.contains(first) ? first : "en");
         String second = normalize(secondary);
@@ -38,14 +40,14 @@ public final class CandidateTranslationPolicy {
     /** Return the bounded, user-visible gloss rows that a long press may insert. */
     public static List<String> insertionGlosses(String translation) {
         if (translation == null || translation.isEmpty()) return List.of();
-        ArrayList<String> result = new ArrayList<>(2);
+        ArrayList<String> result = new ArrayList<>(MAX_TARGETS);
         for (String value : translation.split("\\R", -1)) {
             String gloss = value.trim();
             if (gloss.isEmpty() || result.contains(gloss)
                     || TextPolicy.utf8Length(gloss) > 4096
                     || TextPolicy.hasControl(gloss)) continue;
             result.add(gloss);
-            if (result.size() == 2) break;
+            if (result.size() == MAX_TARGETS) break;
         }
         return List.copyOf(result);
     }
@@ -78,7 +80,7 @@ public final class CandidateTranslationPolicy {
         if (targets == null || resources == null || resources.isEmpty()) return List.of();
         File parent = new File(resources).getParentFile();
         if (parent == null) return List.of();
-        ArrayList<String> result = new ArrayList<>(2);
+        ArrayList<String> result = new ArrayList<>(MAX_TARGETS);
         for (String target : targets) {
             String code = normalize(target);
             if (OFFLINE_GLOSS_LANGUAGES.contains(code)
@@ -93,7 +95,7 @@ public final class CandidateTranslationPolicy {
     public static String mergeGlosses(List<String> targets, Map<String, String> offline,
             Map<String, String> online) {
         if (targets == null) return "";
-        ArrayList<String> glosses = new ArrayList<>(2);
+        ArrayList<String> glosses = new ArrayList<>(MAX_TARGETS);
         for (String target : targets) {
             String gloss = offline == null ? null : offline.get(target);
             if (gloss == null || gloss.isEmpty()) gloss = online == null ? null : online.get(target);
@@ -123,7 +125,7 @@ public final class CandidateTranslationPolicy {
      */
     public static int reservedGlossRows(int glossLines, boolean hanjaRows) {
         int lines = BoundsPolicy.nonNegative(glossLines);
-        return hanjaRows ? Math.max(1, lines) : lines;
+        return hanjaRows ? BoundsPolicy.bounded(lines, 1, Integer.MAX_VALUE) : lines;
     }
 
     private static String normalize(String value) {

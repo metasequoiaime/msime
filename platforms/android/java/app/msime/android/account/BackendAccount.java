@@ -32,13 +32,15 @@ import app.msime.android.clipboard.CloudClipboardTextPolicy;
 public final class BackendAccount {
     /** Maximum number of models accepted in the chat catalogue. */
     public static final int MAX_CHAT_MODELS = 33;
+    /** Fixed hexadecimal length of account challenge and clipboard identifiers. */
+    public static final int HEX_ID_LENGTH = 64;
     private static final String ORIGIN = "https://api.msime.app";
     private static final String SESSION_STORE = "msime_account_session_v2";
     private static final String DEFAULT_USER_AGENT = "MSIME/Android";
     /** Matches client-core's account JSON response ceiling; a full cloud clipboard page can exceed 64 KiB. */
     private static final int MAX_RESPONSE_BYTES = 1024 * 1024;
-    /** 一条 AI 回复的字符上限，流式与非流式相同。 */
-    public static final int MAX_CHAT_REPLY_CHARS = 10_000;
+    /** 一条 AI 回复的 UTF-8 字节上限，流式与非流式相同。 */
+    public static final int MAX_CHAT_REPLY_BYTES = 16 * 1024;
     /** 流式回复整个响应体的上限：最多 2048 个 token 的增量块，每块几十到一两百字节的 JSON 外壳。 */
     static final int MAX_STREAM_BYTES = 4 * 1024 * 1024;
     /** SSE 单行上限；一个增量块远小于它。 */
@@ -167,10 +169,15 @@ public final class BackendAccount {
 
     public boolean supports(String provider) {
         try {
-            return providers().optBoolean(provider, false);
+            return providerEnabled(providers().opt(provider));
         } catch (Exception | LinkageError error) {
             return false;
         }
+    }
+
+    /** Provider availability is a typed server flag; reject org.json scalar coercion. */
+    static boolean providerEnabled(Object value) {
+        return value instanceof Boolean && (Boolean) value;
     }
 
     /** Start a sign-in and get the nonce the provider's SDK has to echo. */
@@ -180,7 +187,7 @@ public final class BackendAccount {
         JSONObject response = request("POST", "/v1/auth/challenges", body, null);
         String id = optionalStringField(response.opt("challenge_id"), "");
         String nonce = optionalStringField(response.opt("nonce"), "");
-        if (id.length() != 64 || nonce.isEmpty()) {
+        if (id.length() != HEX_ID_LENGTH || nonce.isEmpty()) {
             throw new IllegalStateException("challenge unavailable");
         }
         return new Challenge(id, nonce);
@@ -214,7 +221,7 @@ public final class BackendAccount {
             .put("provider", "email").put("target", target).put("purpose", purpose), token);
         String id = optionalStringField(response.opt("challenge_id"), "");
         long expires = AccountTokenPolicy.strictLong(response.opt("expires_in"), 0);
-        if (id.length() != 64 || expires <= 0) throw new IllegalStateException("challenge unavailable");
+        if (id.length() != HEX_ID_LENGTH || expires <= 0) throw new IllegalStateException("challenge unavailable");
         return new EmailChallenge(id, purpose, expires);
     }
 
@@ -237,7 +244,8 @@ public final class BackendAccount {
     public void loginWithAppleGrant(String grant, String verifier, boolean link, String userAgent)
             throws Exception {
         if (ownerProcess != null) throw new IllegalStateException("account session owner");
-        if (grant == null || grant.isEmpty() || grant.length() > 128 || verifier == null || verifier.isEmpty()) {
+        if (grant == null || grant.isEmpty() || grant.length() > AppleWebSignIn.MAX_GRANT_LENGTH
+                || verifier == null || verifier.isEmpty()) {
             throw new IllegalArgumentException("invalid grant");
         }
         String token = link ? linkToken("link") : null;
@@ -435,13 +443,15 @@ public final class BackendAccount {
 
     static boolean validChatModels(List<ChatModel> models, String defaultModel) {
         if (models == null || models.isEmpty() || models.size() > MAX_CHAT_MODELS || defaultModel == null
-                || defaultModel.isEmpty() || TextPolicy.utf8Length(defaultModel) > 200)
+                || defaultModel.isEmpty() || TextPolicy.utf8Length(defaultModel) > 200
+                || TextPolicy.hasControl(defaultModel))
             return false;
         java.util.HashSet<String> ids = new java.util.HashSet<>(models.size());
         boolean hasDefault = false;
         for (ChatModel model : models) {
             if (model == null || model.id() == null || model.id().isEmpty()
-                    || TextPolicy.utf8Length(model.id()) > 200 || !ids.add(model.id())) return false;
+                    || TextPolicy.utf8Length(model.id()) > 200 || TextPolicy.hasControl(model.id())
+                    || !ids.add(model.id())) return false;
             if (defaultModel.equals(model.id())) hasDefault = true;
         }
         return hasDefault;
@@ -449,6 +459,7 @@ public final class BackendAccount {
 
     static boolean validChatRequest(List<ChatMessage> messages, String model) {
         if (model == null || model.isEmpty() || TextPolicy.utf8Length(model) > 200
+                || TextPolicy.hasControl(model)
                 || messages == null || messages.isEmpty() || messages.size() > 16) return false;
         int bytes = 0;
         for (ChatMessage message : messages) {
@@ -466,6 +477,11 @@ public final class BackendAccount {
         return "assistant".equals(role) && content != null && !content.trim().isEmpty()
             && TextPolicy.utf8Length(content) <= 16 * 1024
             && !TextPolicy.hasControlExceptWhitespace(content);
+    }
+
+    static boolean validChatReplyText(String content) {
+        return content != null && !content.trim().isEmpty()
+            && TextPolicy.utf8Length(content) <= MAX_CHAT_REPLY_BYTES;
     }
 
     /** Sends one bounded non-streaming chat request; callers must run it off the UI thread. */
@@ -559,14 +575,14 @@ public final class BackendAccount {
         return new JSONObject().put("messages", payloadMessages).put("model", model).put("max_tokens", 2048);
     }
 
-    /** 非流式回复里的 choices[0].message.content：按 {@link #validChatResponse} 校验，并且不超过 {@link #MAX_CHAT_REPLY_CHARS}。 */
+    /** 非流式回复里的 choices[0].message.content：按 {@link #validChatResponse} 校验。 */
     private static String chatContent(JSONObject response) {
         org.json.JSONArray choices = response.optJSONArray("choices");
         JSONObject first = choices == null || choices.length() == 0 ? null : choices.optJSONObject(0);
         JSONObject message = first == null ? null : first.optJSONObject("message");
         String content = message == null ? "" : requiredStringField(message.opt("content"));
         String role = message == null ? "" : optionalStringField(message.opt("role"), "");
-        if (!validChatResponse(role, content) || content.length() > MAX_CHAT_REPLY_CHARS)
+        if (!validChatResponse(role, content) || !validChatReplyText(content))
             throw new IllegalStateException("invalid chat response");
         return content;
     }
@@ -674,13 +690,14 @@ public final class BackendAccount {
             try (InputStream input = connection.getInputStream()) {
                 if (type == null || !type.toLowerCase(Locale.ROOT).startsWith("text/event-stream")) {
                     // 没按流式回答（例如中间层吞掉了 stream）：按普通 JSON 回复读，整段一次交出去。
-                    byte[] response = HttpBodyPolicy.readRequired(input, MAX_RESPONSE_BYTES);
+                    byte[] response = readBounded(input);
                     String reply = chatContent(new JSONObject(new String(response, StandardCharsets.UTF_8)));
                     if (call.cancelled()) throw new CancellationException("chat cancelled");
                     listener.onDelta(reply);
                     return reply;
                 }
-                StringBuilder reply = new StringBuilder(MAX_CHAT_REPLY_CHARS);
+                StringBuilder reply = new StringBuilder(MAX_CHAT_REPLY_BYTES);
+                int replyBytes = 0;
                 EventLines lines = new EventLines(input);
                 String line;
                 while ((line = lines.next()) != null) {
@@ -689,7 +706,8 @@ public final class BackendAccount {
                     String data = eventData(line);
                     if (data == null) continue;
                     if ("[DONE]".equals(data)) {
-                        if (reply.length() == 0) throw new IllegalStateException("invalid chat response");
+                        if (!validChatReplyText(reply.toString()))
+                            throw new IllegalStateException("invalid chat response");
                         return reply.toString();
                     }
                     // 空的或不是 JSON 对象的 data 行（例如中间层发来的空 data 行或心跳）跳过，不让一行杂音废掉已经收到的整段回复；`[DONE]` 和带 error 的对象照旧处理。
@@ -698,9 +716,13 @@ public final class BackendAccount {
                     if (chunk.has("error")) throw new IllegalStateException("chat stream failed");
                     String delta = chunkDelta(chunk);
                     if (delta.isEmpty()) continue;
-                    if (reply.length() + delta.length() > MAX_CHAT_REPLY_CHARS)
+                    if (TextPolicy.hasControlExceptWhitespace(delta))
+                        throw new IllegalStateException("invalid chat response");
+                    int deltaBytes = TextPolicy.utf8Length(delta);
+                    if (deltaBytes > MAX_CHAT_REPLY_BYTES - replyBytes)
                         throw new IllegalStateException("invalid chat response");
                     reply.append(delta);
+                    replyBytes += deltaBytes;
                     listener.onDelta(delta);
                 }
                 // 没等到 [DONE] 流就断了：回复不完整，按失败处理，已经交出去的增量由调用方决定是否保留。
@@ -769,7 +791,7 @@ public final class BackendAccount {
     }
 
     static boolean validClipboardItem(ClipboardItem item) {
-        return item != null && item.id() != null && item.id().matches("[0-9a-f]{64}")
+        return item != null && item.id() != null && item.id().matches("[0-9a-f]{" + HEX_ID_LENGTH + "}")
             && CloudClipboardTextPolicy.valid(item.text()) && item.updatedAt() != null
             && !item.updatedAt().isEmpty() && TextPolicy.utf8Length(item.updatedAt()) <= 128
             && !TextPolicy.hasControl(item.updatedAt());
@@ -777,7 +799,7 @@ public final class BackendAccount {
 
     public void deleteClipboard(String id) throws Exception {
         String token = accessToken();
-        if (token.isEmpty() || (id != null && !id.matches("[0-9a-f]{64}")))
+        if (token.isEmpty() || (id != null && !id.matches("[0-9a-f]{" + HEX_ID_LENGTH + "}")))
             throw new IllegalStateException("invalid clipboard request");
         authorizedRequest("DELETE", id == null ? "/v1/users/me/clipboard" : "/v1/users/me/clipboard/" + id,
             null, token);
@@ -879,13 +901,19 @@ public final class BackendAccount {
             // 状态码带进消息里：503 是这个登录方式没配，401 是凭据不对，两件事不该长同一个样子。
             if (status / 100 != 2) throw new RequestException(status);
             try (InputStream input = connection.getInputStream()) {
-                byte[] response = HttpBodyPolicy.readRequired(input, MAX_RESPONSE_BYTES);
+                byte[] response = readBounded(input);
                 if (response.length == 0) return new JSONObject();
                 return new JSONObject(new String(response, StandardCharsets.UTF_8));
             }
         } finally {
             if (connection != null) connection.disconnect();
         }
+    }
+
+    private static byte[] readBounded(InputStream input) throws Exception {
+        byte[] response = HttpBodyPolicy.readBounded(input, MAX_RESPONSE_BYTES);
+        if (response == null) throw new IllegalStateException("response too large");
+        return response;
     }
 
 }

@@ -190,7 +190,7 @@ public final class KeyboardPreview extends View {
         int width = MeasureSpec.getSize(widthMeasureSpec);
         int height = Math.round(width * REFERENCE_HEIGHT_DP / REFERENCE_WIDTH_DP);
         if (MeasureSpec.getMode(heightMeasureSpec) == MeasureSpec.AT_MOST) {
-            height = Math.min(height, MeasureSpec.getSize(heightMeasureSpec));
+            height = BoundsPolicy.atMost(height, MeasureSpec.getSize(heightMeasureSpec));
         }
         setMeasuredDimension(width, height);
     }
@@ -201,13 +201,14 @@ public final class KeyboardPreview extends View {
      * 边距、键距、候选条和字号是按设置首页那张整宽预览定的；社区皮肤卡上的缩略图只有约 170×106 dp，原样套用这些固定值时每行只剩几 dp 高，键面缩成细条而 13 dp 的字溢出到键外。以参考键盘为基准整体缩小；整宽预览不小于参考尺寸，系数为 1，外观不变。
      */
     private float scale() {
-        return Math.min(1f, Math.min(getWidth() / Ui.dpFloat(getContext(), REFERENCE_WIDTH_DP),
-            getHeight() / Ui.dpFloat(getContext(), REFERENCE_HEIGHT_DP)));
+        return BoundsPolicy.atMost(KeyboardGeometry.shorterSide(
+            getWidth() / Ui.dpFloat(getContext(), REFERENCE_WIDTH_DP),
+            getHeight() / Ui.dpFloat(getContext(), REFERENCE_HEIGHT_DP)), 1f);
     }
 
     /** 字号取设计值与键面能容下的较小者，保证标签不出键。 */
     private void fitText(String label, float designSize, RectF bounds) {
-        float size = Math.min(designSize, bounds.height() * 0.62f);
+        float size = BoundsPolicy.atMost(designSize, bounds.height() * 0.62f);
         paint.setTextSize(size);
         float limit = bounds.width() * 0.86f;
         float measured = paint.measureText(label);
@@ -226,7 +227,8 @@ public final class KeyboardPreview extends View {
         float gap = Ui.dpFloat(getContext(), 5) * s;
         float stripHeight = Ui.dpFloat(getContext(), 24) * s;
         float radius = (skin == null ? Ui.dpFloat(getContext(), 6)
-            : Math.min(Ui.dpFloat(getContext(), (float) skin.cornerRadius()), Ui.dpFloat(getContext(), 12))) * s;
+            : BoundsPolicy.atMost(Ui.dpFloat(getContext(), (float) skin.cornerRadius()),
+                Ui.dpFloat(getContext(), 12))) * s;
 
         // 候选条：一个拼音和两枚候选，首选用强调色。
         float baseline = pad + stripHeight * 0.68f;

@@ -6,7 +6,6 @@ import android.content.pm.PackageManager;
 import android.content.pm.Signature;
 import android.content.pm.SigningInfo;
 import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -17,6 +16,7 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
+import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
@@ -185,30 +185,41 @@ public final class UpdateApi {
     }
 
     private static int compareSegments(String[] a, String[] b, boolean padWithZero) {
-        int length = Math.max(a.length, b.length);
+        int length = BoundsPolicy.atLeast(a.length, b.length);
         for (int index = 0; index < length; index++) {
             if (!padWithZero && (index >= a.length || index >= b.length)) return Integer.compare(a.length, b.length);
             String x = index < a.length ? a[index] : "0";
             String y = index < b.length ? b[index] : "0";
-            long nx = number(x);
-            long ny = number(y);
+            boolean numericX = numeric(x);
+            boolean numericY = numeric(y);
             int order;
-            if (nx >= 0 && ny >= 0) order = Long.compare(nx, ny);
-            else if (nx >= 0) order = -1;
-            else if (ny >= 0) order = 1;
+            if (numericX && numericY) order = compareNumeric(x, y);
+            else if (numericX) order = -1;
+            else if (numericY) order = 1;
             else order = x.compareTo(y);
             if (order != 0) return order;
         }
         return 0;
     }
 
-    private static long number(String segment) {
-        if (segment.isEmpty() || segment.length() > 18) return -1;
+    private static boolean numeric(String segment) {
+        if (segment.isEmpty()) return false;
         for (int index = 0; index < segment.length(); index++) {
             char c = segment.charAt(index);
-            if (c < '0' || c > '9') return -1;
+            if (c < '0' || c > '9') return false;
         }
-        return Long.parseLong(segment);
+        return true;
+    }
+
+    /** Compare non-empty decimal strings without converting them to a fixed-width integer. */
+    private static int compareNumeric(String left, String right) {
+        int leftStart = 0;
+        while (leftStart + 1 < left.length() && left.charAt(leftStart) == '0') leftStart++;
+        int rightStart = 0;
+        while (rightStart + 1 < right.length() && right.charAt(rightStart) == '0') rightStart++;
+        int length = Integer.compare(left.length() - leftStart, right.length() - rightStart);
+        if (length != 0) return length;
+        return left.substring(leftStart).compareTo(right.substring(rightStart));
     }
 
     /** 从列表里挑出通道接受、比 `currentVersion` 新的最高版本；没有时返回 null。 */
@@ -240,6 +251,11 @@ public final class UpdateApi {
         return SHA256.matcher(digest).matches() ? digest : null;
     }
 
+    /** org.json's optString coerces numbers; release metadata must keep its JSON string types. */
+    static String strictString(Object value) {
+        return value instanceof String ? (String) value : null;
+    }
+
     /** 读 msime.app 的发行版列表：`{items:[{tag,version,prerelease,…}]}`，只保留平台是 android 的条目。 */
     public static List<Release> parseReleases(String json) throws Failure {
         try {
@@ -250,12 +266,15 @@ public final class UpdateApi {
             for (int index = 0; index < items.length(); index++) {
                 JSONObject item = items.optJSONObject(index);
                 if (item == null) continue;
-                String platform = item.optString("platform", "android");
+                Object rawPlatform = item.opt("platform");
+                String platform = rawPlatform == null || rawPlatform == JSONObject.NULL
+                    ? "android" : strictString(rawPlatform);
                 if (!"android".equals(platform)) continue;
                 Object prerelease = item.opt("prerelease");
-                String tag = item.optString("tag", "");
-                String version = item.optString("version", "");
-                if (tag.isEmpty() || version.isEmpty() || !(prerelease instanceof Boolean)) continue;
+                String tag = strictString(item.opt("tag"));
+                String version = strictString(item.opt("version"));
+                if (tag == null || version == null || tag.isEmpty() || version.isEmpty()
+                        || !(prerelease instanceof Boolean)) continue;
                 releases.add(new Release(tag, version, (Boolean) prerelease));
             }
             return releases;
@@ -290,8 +309,16 @@ public final class UpdateApi {
     }
 
     private File downloadLocked(Update update, File cacheDir, Progress progress, String expected) throws Failure {
+        if (cacheDir == null) throw new Failure("没有空间存放安装包");
+        java.nio.file.Path cachePath = cacheDir.toPath();
+        if (Files.isSymbolicLink(cachePath)) throw new Failure("更新目录不安全");
         File directory = new File(cacheDir, CACHE_DIRECTORY);
-        if (!directory.isDirectory() && !directory.mkdirs()) throw new Failure("没有空间存放安装包");
+        java.nio.file.Path directoryPath = directory.toPath();
+        if (Files.isSymbolicLink(directoryPath)) throw new Failure("更新目录不安全");
+        if (!Files.isDirectory(directoryPath, LinkOption.NOFOLLOW_LINKS)
+                && !directory.mkdirs()) throw new Failure("没有空间存放安装包");
+        if (!Files.isDirectory(directoryPath, LinkOption.NOFOLLOW_LINKS))
+            throw new Failure("更新目录不安全");
         File[] stale = directory.listFiles();
         if (stale != null) {
             for (File file : stale) {
@@ -305,7 +332,9 @@ public final class UpdateApi {
         Exchange response = open(update.apkUrl());
         try (InputStream body = response.body()) {
             long total = response.length();
-            try (OutputStream out = new FileOutputStream(partial)) {
+            try (OutputStream out = Files.newOutputStream(partial.toPath(),
+                    StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING,
+                    StandardOpenOption.WRITE, LinkOption.NOFOLLOW_LINKS)) {
                 byte[] buffer = new byte[64 * 1024];
                 long done = 0;
                 for (int read; (read = body.read(buffer)) != -1; ) {

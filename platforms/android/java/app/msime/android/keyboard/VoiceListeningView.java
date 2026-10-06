@@ -45,7 +45,7 @@ public final class VoiceListeningView extends TextView {
         setContentDescription("正在聆听，点任意处取消");
         setClickable(true);
         setFocusable(true);
-        setBackground(null);
+        ViewPolicy.clearBackground(this);
         title.setTextAlign(Paint.Align.CENTER);
         hint.setTextAlign(Paint.Align.CENTER);
     }

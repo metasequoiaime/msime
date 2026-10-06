@@ -91,7 +91,7 @@ public final class HttpAsrRecognizer {
         int minimum = AudioRecord.getMinBufferSize(WavAudio.SAMPLE_RATE,
             AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
         if (minimum <= 0) throw new Refused(Failure.UNAVAILABLE);
-        int buffer = Math.max(minimum, WavAudio.SAMPLE_RATE);
+        int buffer = BoundsPolicy.atLeast(WavAudio.SAMPLE_RATE, minimum);
         AudioRecord recorder;
         try {
             recorder = new AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION,

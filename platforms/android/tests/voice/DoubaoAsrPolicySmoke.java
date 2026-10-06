@@ -83,6 +83,12 @@ public final class DoubaoAsrPolicySmoke {
                 "Doubao accepts string transcripts");
             check("".equals(strictText.invoke(null, 42)),
                 "Doubao rejects numeric transcripts instead of coercing them");
+            Method strictBoolean = DoubaoAsrPolicy.class.getDeclaredMethod("strictBoolean", Object.class);
+            strictBoolean.setAccessible(true);
+            check(Boolean.TRUE.equals(strictBoolean.invoke(null, Boolean.TRUE)),
+                "Doubao accepts JSON booleans");
+            check(strictBoolean.invoke(null, "true") == null,
+                "Doubao rejects boolean strings instead of coercing them");
         } catch (ReflectiveOperationException error) {
             throw new AssertionError("Doubao response parser unavailable", error);
         }

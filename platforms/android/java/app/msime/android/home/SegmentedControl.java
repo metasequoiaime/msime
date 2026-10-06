@@ -4,13 +4,13 @@ import android.content.Context;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.util.AttributeSet;
-import android.view.Gravity;
 import android.view.View;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.LinearLayout;
 import android.widget.RadioButton;
 import android.widget.TextView;
 import androidx.annotation.Nullable;
+import app.msime.android.ViewPolicy;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.IntConsumer;
@@ -33,9 +33,9 @@ public final class SegmentedControl extends LinearLayout {
     public SegmentedControl(Context context, @Nullable AttributeSet attrs) {
         super(context, attrs);
         setOrientation(HORIZONTAL);
-        setGravity(Gravity.CENTER_VERTICAL);
+        ViewPolicy.setCenteredVertically(this);
         int pad = Ui.dp(context, 2);
-        setPadding(pad, pad, pad, pad);
+        Ui.setSymmetricPaddingPx(this, pad);
         GradientDrawable frame = Ui.outlined(Color.TRANSPARENT, 9999f, Ui.dp(context, 1),
             Ui.outline(context));
         setBackground(frame);
@@ -49,12 +49,12 @@ public final class SegmentedControl extends LinearLayout {
         Context context = getContext();
         for (int i = 0; i < labels.size(); i++) {
             int index = i;
-            TextView segment = new TextView(context);
-            segment.setText(labels.get(i));
-            segment.setGravity(Gravity.CENTER);
+            TextView segment = Ui.styledLabel(context, labels.get(i), Ui.TEXT_SEGMENT, 400,
+                Ui.subText(context));
+            ViewPolicy.setCentered(segment);
             segment.setSingleLine(true);
-            segment.setMinHeight(Ui.dp(context, 28));
-            segment.setPadding(Ui.dp(context, 12), Ui.dp(context, 4), Ui.dp(context, 12), Ui.dp(context, 4));
+            Ui.setTextMinHeightDp(segment, context, 28);
+            Ui.setSymmetricPaddingDp(segment, context, 12, 4);
             segment.setClickable(true);
             segment.setFocusable(true);
             segment.setOnClickListener(ignored -> select(index, true));

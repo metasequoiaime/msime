@@ -2,8 +2,6 @@ package app.msime.android.home;
 
 import app.msime.android.KeyboardGeometry;
 import android.content.Context;
-import android.content.res.ColorStateList;
-import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.view.GestureDetector;
@@ -21,6 +19,7 @@ import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.widget.NestedScrollView;
 import app.msime.android.AppEdition;
+import app.msime.android.BoundsPolicy;
 import app.msime.android.FirstRunPreparation;
 import app.msime.android.KeyboardScheme;
 import app.msime.android.R;
@@ -254,32 +253,29 @@ public final class OnboardingActivity extends AppCompatActivity {
         boolean on = preferences != null && preferences.optBoolean(GLOSS, false);
 
         // A still of the candidate strip, drawn from the design's sample: what the switch below changes, before anyone has to open a text field to see it.
-        LinearLayout strip = new LinearLayout(this);
-        strip.setOrientation(LinearLayout.HORIZONTAL);
-        strip.setPadding(Ui.dp(this, 10), Ui.dp(this, 12), Ui.dp(this, 10), Ui.dp(this, 12));
+        LinearLayout strip = Ui.row(this);
+        Ui.setSymmetricPaddingDp(strip, this, 10, 12);
         strip.setBackground(Ui.rounded(Ui.accentSoft(this), Ui.dp(this, 20)));
         strip.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
         String[][] samples = {{"候选", "candidate"}, {"后选", "choice"}, {"侯选", "option"}, {"候", "wait"}};
         for (int index = 0; index < samples.length; index++) {
-            LinearLayout cell = new LinearLayout(this);
-            cell.setOrientation(LinearLayout.VERTICAL);
-            cell.setGravity(Gravity.CENTER_HORIZONTAL);
-            cell.setPadding(Ui.dp(this, 10), 0, Ui.dp(this, 10), 0);
-            TextView word = text(samples[index][0], 19, index == 0 ? Ui.accent(this) : Ui.text(this));
-            if (index == 0) word.setTypeface(Typeface.create(Typeface.DEFAULT, 600, false));
+            LinearLayout cell = Ui.column(this);
+            ViewPolicy.setCenteredHorizontally(cell);
+            Ui.setHorizontalPaddingDp(cell, this, 10);
+            TextView word = Ui.label(this, samples[index][0], 19, index == 0 ? Ui.accent(this) : Ui.text(this));
+            if (index == 0) ViewPolicy.setTypefaceStyle(word, 600);
             cell.addView(word);
-            if (on) cell.addView(text(samples[index][1], 11, Ui.subText(this)));
+            if (on) cell.addView(Ui.label(this, samples[index][1], 11, Ui.subText(this)));
             strip.addView(cell);
         }
         column.addView(strip, Ui.matchWidth(this, 6));
 
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(Ui.dp(this, 14), Ui.dp(this, 12), Ui.dp(this, 14), Ui.dp(this, 12));
+        LinearLayout row = Ui.row(this);
+        ViewPolicy.setCenteredVertically(row);
+        Ui.setSymmetricPaddingDp(row, this, 14, 12);
         row.setBackground(Ui.rounded(Ui.card(this), Ui.dp(this, 20)));
-        TextView label = text("显示译文", 16, Ui.text(this));
-        row.addView(label, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        TextView label = Ui.label(this, "显示译文", 16, Ui.text(this));
+        row.addView(label, Ui.weightWrap(1f));
         MaterialSwitch toggle = new MaterialSwitch(this);
         toggle.setChecked(on);
         toggle.setEnabled(preferences != null && !saving);
@@ -315,7 +311,7 @@ public final class OnboardingActivity extends AppCompatActivity {
 
     /** Ask once whether the last step can offer sign-in; the answer may need the backend, so it is read off the main thread. */
     private void probeAccount() {
-        Context context = getApplicationContext();
+        Context context = getApplicationConUi.label(this, );
         offMainThread(() -> {
             SignIn.State state = SignIn.state(context);
             runOnUiThread(() -> {
@@ -385,7 +381,7 @@ public final class OnboardingActivity extends AppCompatActivity {
         saving = true;
         note = "正在保存…";
         render(false);
-        Context context = getApplicationContext();
+        Context context = getApplicationConUi.label(this, );
         offMainThread(() -> {
             JSONObject saved = HostStore.savePreferences(context, pending);
             JSONObject fresh = HostStore.loadPreferences(context);
@@ -405,7 +401,7 @@ public final class OnboardingActivity extends AppCompatActivity {
     }
 
     private void reload() {
-        Context context = getApplicationContext();
+        Context context = getApplicationConUi.label(this, );
         offMainThread(() -> {
             JSONObject value = HostStore.loadPreferences(context);
             runOnUiThread(() -> {
@@ -430,32 +426,28 @@ public final class OnboardingActivity extends AppCompatActivity {
     /** Glyph, kicker, title and body: the design's 48dp glyph box, 13sp accent kicker, 32sp regular title and 16sp body, 14dp apart. */
     private void header(LinearLayout column, @DrawableRes int icon, String kicker, String title,
             String body) {
-        ImageView glyph = new ImageView(this);
-        glyph.setImageResource(icon);
-        glyph.setImageTintList(ColorStateList.valueOf(Ui.accent(this)));
+        ImageView glyph = Ui.decorativeIcon(this, icon, Ui.accent(this));
         glyph.setScaleType(ImageView.ScaleType.FIT_START);
-        glyph.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        column.addView(glyph, new LinearLayout.LayoutParams(Ui.dp(this, 36), Ui.dp(this, 36)));
+        Ui.hideFromAccessibility(glyph);
+        column.addView(glyph, Ui.squareParams(this, 36));
 
-        TextView kick = text(kicker, 13, Ui.accent(this));
-        kick.setTypeface(Typeface.create(Typeface.DEFAULT, 600, false));
+        TextView kick = Ui.label(this, kicker, 13, Ui.accent(this));
+        ViewPolicy.setTypefaceStyle(kick, 600);
         kick.setLetterSpacing(0.04f);
         column.addView(kick, Ui.matchWidth(this, 14 + 6));
 
-        TextView heading = text(title, 32, Ui.text(this));
+        TextView heading = Ui.label(this, title, 32, Ui.text(this));
         heading.setLineSpacing(0, 1.1f);
         heading.setAccessibilityHeading(true);
         column.addView(heading, Ui.matchWidth(this, 14));
 
-        TextView line = text(body, 16, Ui.subText(this));
+        TextView line = Ui.label(this, body, 16, Ui.subText(this));
         line.setLineSpacing(0, 1.35f);
         column.addView(line, Ui.matchWidth(this, 14));
     }
 
     private LinearLayout card(LinearLayout column, int top) {
-        LinearLayout card = new LinearLayout(this);
-        card.setOrientation(LinearLayout.VERTICAL);
-        card.setBackground(Ui.rounded(Ui.card(this), Ui.dp(this, 20)));
+        LinearLayout card = Ui.verticalCard(this, 20);
         column.addView(card, Ui.matchWidth(this, 14 + top));
         return card;
     }
@@ -466,43 +458,37 @@ public final class OnboardingActivity extends AppCompatActivity {
         if (divider) {
             View line = new View(this);
             line.setBackgroundColor(Ui.hairline(this));
-            card.addView(line, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, Math.max(1, Ui.dp(this, 1) / 2)));
+            card.addView(line, Ui.matchWidthHeightPx(
+                BoundsPolicy.bounded(Ui.dp(this, 1) / 2, 1, Integer.MAX_VALUE)));
         }
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setMinimumHeight(Ui.dp(this, 52));
-        row.setPadding(Ui.dp(this, 14), Ui.dp(this, 6), Ui.dp(this, 8), Ui.dp(this, 6));
+        LinearLayout row = Ui.row(this);
+        ViewPolicy.setCenteredVertically(row);
+        Ui.setMinimumHeightDp(row, this, Ui.COMPACT_ROW_MIN_HEIGHT);
+        Ui.setPaddingDp(row, this, 14, 6, 8, 6);
 
-        TextView mark = new TextView(this);
-        mark.setGravity(Gravity.CENTER);
+        TextView mark = Ui.label(this, done ? "✓" : "!", 13,
+            done ? Ui.onAccent(this) : 0xFFFFFFFF);
+        ViewPolicy.setCentered(mark);
         // 字形画在固定 dp 的圆里，跟圆一起按 dp 定大小；按 sp 时系统字体一调大，对勾就被圆的边界切掉。
         mark.setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP, 13);
-        mark.setText(done ? "✓" : "!");
-        mark.setTextColor(done ? Ui.onAccent(this) : 0xFFFFFFFF);
-        GradientDrawable disc = Ui.circle(done ? Ui.accent(this) : Ui.color(this, R.attr.msWarn));
-        mark.setBackground(disc);
-        mark.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        row.addView(mark, new LinearLayout.LayoutParams(Ui.dp(this, 24), Ui.dp(this, 24)));
+        Ui.applyStatusMark(mark, this, done);
+        row.addView(mark, Ui.squareParams(this, 24));
 
-        TextView text = text(label, 16, Ui.text(this));
-        LinearLayout.LayoutParams textParams =
-            new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1);
+        TextView text = Ui.label(this, label, 16, Ui.text(this));
+        LinearLayout.LayoutParams textParams = Ui.weightWrap(1f);
         textParams.setMarginStart(Ui.dp(this, 12));
         row.addView(text, textParams);
         text.setContentDescription(label + (done ? "，已完成" : "，未完成"));
 
         if (!done) {
-            TextView button = text(action, 15, Ui.accent(this));
-            button.setGravity(Gravity.CENTER);
-            button.setPadding(Ui.dp(this, 8), 0, Ui.dp(this, 8), 0);
+            TextView button = Ui.label(this, action, 15, Ui.accent(this));
+            ViewPolicy.setCentered(button);
+            Ui.setHorizontalPaddingDp(button, this, 8);
             android.util.TypedValue ripple = new android.util.TypedValue();
             getTheme().resolveAttribute(android.R.attr.selectableItemBackground, ripple, true);
             button.setBackgroundResource(ripple.resourceId);
             button.setOnClickListener(ignored -> fix.run());
-            row.addView(button, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT, Ui.dp(this, 40)));
+            row.addView(button, Ui.wrapHeight(this, 40));
         }
         card.addView(row);
     }
@@ -510,33 +496,30 @@ public final class OnboardingActivity extends AppCompatActivity {
     /** A scheme card: label and supporting line, a radio disc on the right, a 2dp accent ring when chosen. */
     private void schemeCard(LinearLayout column, SchemeCard option, boolean selected, int top) {
         boolean usable = snapshot != null && !saving;
-        LinearLayout card = new LinearLayout(this);
-        card.setOrientation(LinearLayout.HORIZONTAL);
-        card.setGravity(Gravity.CENTER_VERTICAL);
-        card.setPadding(Ui.dp(this, 16), Ui.dp(this, 14), Ui.dp(this, 16), Ui.dp(this, 14));
+        LinearLayout card = Ui.row(this);
+        ViewPolicy.setCenteredVertically(card);
+        Ui.setSymmetricPaddingDp(card, this, 16, 14);
         GradientDrawable face = selected
             ? Ui.outlined(Ui.card(this), Ui.dp(this, 20), Ui.dp(this, 2), Ui.accent(this))
             : Ui.rounded(Ui.card(this), Ui.dp(this, 20));
         card.setBackground(face);
 
-        LinearLayout text = new LinearLayout(this);
-        text.setOrientation(LinearLayout.VERTICAL);
-        TextView heading = text(option.label(), 16, Ui.text(this));
-        heading.setTypeface(Typeface.create(Typeface.DEFAULT, 600, false));
+        LinearLayout text = Ui.column(this);
+        TextView heading = Ui.label(this, option.label(), 16, Ui.text(this));
+        ViewPolicy.setTypefaceStyle(heading, 600);
         text.addView(heading);
-        TextView detail = text(option.detail(), 13, Ui.subText(this));
-        LinearLayout.LayoutParams detailParams = new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        TextView detail = Ui.label(this, option.detail(), 13, Ui.subText(this));
+        LinearLayout.LayoutParams detailParams = Ui.wrap();
         detailParams.topMargin = Ui.dp(this, 2);
         text.addView(detail, detailParams);
-        card.addView(text, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        card.addView(text, Ui.weightWrap(1f));
 
         View radio = new View(this);
         GradientDrawable dot = Ui.circleOutlined(selected ? Ui.page(this) : 0,
             selected ? Ui.dp(this, 6) : Ui.atLeastOnePx(this, 1.5f),
             selected ? Ui.accent(this) : Ui.subText(this));
         radio.setBackground(dot);
-        LinearLayout.LayoutParams radioParams = new LinearLayout.LayoutParams(Ui.dp(this, 22), Ui.dp(this, 22));
+        LinearLayout.LayoutParams radioParams = Ui.squareParams(this, 22);
         radioParams.setMarginStart(Ui.dp(this, 12));
         card.addView(radio, radioParams);
 
@@ -550,34 +533,26 @@ public final class OnboardingActivity extends AppCompatActivity {
     }
 
     private void perk(LinearLayout column, @DrawableRes int icon, String label, int top) {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(Ui.dp(this, 14), Ui.dp(this, 12), Ui.dp(this, 14), Ui.dp(this, 12));
+        LinearLayout row = Ui.row(this);
+        ViewPolicy.setCenteredVertically(row);
+        Ui.setSymmetricPaddingDp(row, this, 14, 12);
         row.setBackground(Ui.rounded(Ui.card(this), Ui.dp(this, 20)));
-        ImageView badge = new ImageView(this);
-        badge.setImageResource(icon);
-        badge.setImageTintList(ColorStateList.valueOf(Ui.accent(this)));
-        badge.setPadding(Ui.dp(this, 7), Ui.dp(this, 7), Ui.dp(this, 7), Ui.dp(this, 7));
+        ImageView badge = Ui.decorativeIcon(this, icon, Ui.accent(this));
+        Ui.setSymmetricPaddingDp(badge, this, 7, 7);
         badge.setBackground(Ui.rounded(Ui.accentSoft(this), Ui.dp(this, 9)));
-        badge.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        row.addView(badge, new LinearLayout.LayoutParams(Ui.dp(this, 32), Ui.dp(this, 32)));
-        TextView text = text(label, 15, Ui.text(this));
-        LinearLayout.LayoutParams textParams =
-            new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1);
+        Ui.hideFromAccessibility(badge);
+        row.addView(badge, Ui.squareParams(this, 32));
+        TextView text = Ui.label(this, label, 15, Ui.text(this));
+        LinearLayout.LayoutParams textParams = Ui.weightWrap(1f);
         textParams.setMarginStart(Ui.dp(this, 12));
         row.addView(text, textParams);
         column.addView(row, Ui.matchWidth(this, 14 + top - 10));
     }
 
     private void footnote(LinearLayout column, String message) {
-        TextView view = text(message, 13, Ui.subText(this));
+        TextView view = Ui.label(this, message, 13, Ui.subText(this));
         view.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
         column.addView(view, Ui.matchWidth(this, 14));
-    }
-
-    private TextView text(String value, int size, int colour) {
-        return Ui.label(this, value, size, colour);
     }
 
     /**

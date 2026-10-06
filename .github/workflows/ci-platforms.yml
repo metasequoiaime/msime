@@ -111,6 +111,15 @@ jobs:
         env:
           ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
         run: bash platforms/android/check-host.sh
+      # check-host.sh 的 javac 不编译 home/（那里用到 Gradle 生成的 R），于是一个只动了 home/ import 的重构能通过这里的全部检查，却在发版时让 Gradle 编译失败：2026-10-06 的 Release Android 就是这样整轮失败的。这里用发版同一个 Gradle 工程只编译各版本的 Java，不需要原生库和词库。
+      - name: Compile Android host Java for every edition
+        if: ${{ needs.changes.outputs.android == 'true' }}
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+        run: >-
+          apps/desktop/src-tauri/gen/android/gradlew --project-dir platforms/android/gradle-app --console=plain
+          compileFullReleaseJavaWithJavac compilePinyinReleaseJavaWithJavac compileWubiReleaseJavaWithJavac
+          compileJapaneseReleaseJavaWithJavac compileVietnameseReleaseJavaWithJavac compileTibetanReleaseJavaWithJavac
       - name: Android platform unchanged
         if: ${{ needs.changes.outputs.android != 'true' }}
         run: echo 'No Android or shared-platform changes; platform gate skipped.'

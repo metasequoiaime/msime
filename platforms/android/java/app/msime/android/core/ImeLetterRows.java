@@ -55,25 +55,28 @@ final class ImeLetterRows {
     void ensureIconKeys() {
         if (s.shiftButton != null && !(s.shiftButton instanceof KeyboardIconKey)) {
             Button original = s.shiftButton;
-            KeyboardIconKey key = new KeyboardIconKey(s, KeyboardIconKey.Kind.SHIFT);
-            key.setText(original.getText());
-            key.setContentDescription(original.getContentDescription());
-            key.setOnClickListener(ignored -> original.performClick());
-            s.keyId(key, "ShiftLeft");
-            s.imeKeyFeedback.stageFace(original, key);
+            KeyboardIconKey key = iconKey(original, KeyboardIconKey.Kind.SHIFT,
+                original.getText(), original.getContentDescription(), "ShiftLeft");
             s.shiftButton = key;
         }
         if (s.deleteButton != null && !(s.deleteButton instanceof KeyboardIconKey)) {
             Button original = s.deleteButton;
-            KeyboardIconKey key = new KeyboardIconKey(s, KeyboardIconKey.Kind.BACKSPACE);
-            key.setText("⌫");
-            key.setContentDescription("删除");
-            key.setOnClickListener(ignored -> original.performClick());
-            s.keyId(key, "Backspace");
-            s.imeKeyFeedback.stageFace(original, key);
+            KeyboardIconKey key = iconKey(original, KeyboardIconKey.Kind.BACKSPACE,
+                "⌫", "删除", "Backspace");
             bindBackspaceRepeat(key, s::deleteFromHandwriting);
             s.deleteButton = key;
         }
+    }
+
+    private KeyboardIconKey iconKey(Button original, KeyboardIconKey.Kind kind,
+            CharSequence text, CharSequence description, String keyId) {
+        KeyboardIconKey key = new KeyboardIconKey(s, kind);
+        key.setText(text);
+        key.setContentDescription(description);
+        key.setOnClickListener(ignored -> original.performClick());
+        s.keyId(key, keyId);
+        s.imeKeyFeedback.stageFace(original, key);
+        return key;
     }
 
     /** 按键气泡；第一次用时加进覆盖层。 */
@@ -81,8 +84,7 @@ final class ImeLetterRows {
         if (keyPreviewLayer == null) return null;
         if (keyPreview == null || keyPreview.getParent() != keyPreviewLayer) {
             keyPreview = new KeyboardKeyPreview(s);
-            keyPreviewLayer.addView(keyPreview, new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT));
+            keyPreviewLayer.addView(keyPreview, KeyboardGeometry.frameWrapParams());
         }
         return keyPreview;
     }
@@ -98,7 +100,8 @@ final class ImeLetterRows {
             keyPreviewBackground = Color.parseColor(skin.keyBackground());
             keyPreviewForeground = Color.parseColor(skin.keyForeground());
         }
-        preview.setColors(keyPreviewBackground, keyPreviewForeground, Color.argb(20, 0, 0, 0));
+        preview.setColors(keyPreviewBackground, keyPreviewForeground,
+            ColorPolicy.withAlpha(Color.BLACK, 20));
         key.getLocationInWindow(keyPreviewKeyLocation);
         keyPreviewLayer.getLocationInWindow(keyPreviewLayerLocation);
         float weight = key.getLayoutParams() instanceof LinearLayout.LayoutParams params
@@ -180,7 +183,7 @@ final class ImeLetterRows {
 
     private View indent() {
         View spacer = new View(s);
-        spacer.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            ViewPolicy.hideFromAccessibility(spacer);
         return spacer;
     }
 
@@ -331,32 +334,27 @@ final class ImeLetterRows {
         // 键盘在各布局间切换时总高度不变：字母行多于三行（大千注音四行）时，整组挤进三行的高度里，而不是每行照标准键高再多出一行。
         LinearLayout block = null;
         if (rows.size() > 3) {
-            block = new LinearLayout(s);
-            block.setOrientation(LinearLayout.VERTICAL);
+            block = KeyboardGeometry.column(s);
             s.imeStyler.adjustThreeRowBlockHeight(block);
-            s.keyRows.addView(block, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
+            s.keyRows.addView(block, KeyboardGeometry.matchWidthHeightPx(
                 s.pixels(KeyboardGeometry.KEY_ROW_HEIGHT_DP * 3)));
         }
         for (int rowIndex = 0; rowIndex < rows.size(); rowIndex++) {
             java.util.List<String> keys = rows.get(rowIndex);
-            LinearLayout row = new LinearLayout(s);
+            LinearLayout row = KeyboardGeometry.row(s);
             if (block != null) {
-                block.addView(row, new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
+                block.addView(row, KeyboardGeometry.weightedWidthParams(1));
             } else {
                 row.setTag(new MSIMEInputService.KeyboardHeightRole(KeyboardGeometry.KEY_ROW_HEIGHT_DP,
                     rows.size(), rowIndex, true));
-                s.keyRows.addView(row, new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+                s.keyRows.addView(row, KeyboardGeometry.matchWidthWrapParams());
             }
             boolean tibetanSymbols = s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS
                 && s.tibetanSchemeActive();
             // 第二行（a–l）两侧各缩进 5%：9 个键加两侧各 0.5 的占位正好是第一行 10 个键的宽度。
             if (standardLetters && rowIndex == 1) {
                 secondRowLeadingIndent = indent();
-                row.addView(secondRowLeadingIndent, new LinearLayout.LayoutParams(0,
-                    LinearLayout.LayoutParams.MATCH_PARENT, .5f));
+                row.addView(secondRowLeadingIndent, KeyboardGeometry.weightedMatchParentParams(.5f));
             }
             for (String rowKey : keys) {
                 // 藏文的符号页把 `=` 换成叠写用的 `+`。
@@ -411,8 +409,7 @@ final class ImeLetterRows {
                     s.symbolKeyButtons.add(keyButton);
                     s.symbolKeyInputs.add(input);
                 }
-                row.addView(keyButton, new LinearLayout.LayoutParams(0,
-                    LinearLayout.LayoutParams.MATCH_PARENT, 1));
+                row.addView(keyButton, KeyboardGeometry.weightedMatchParentParams(1));
             }
             // The Dachen rows carry their own ; key (ㄤ), and no double-pinyin final.
             if (s.keyboardLayer == KeyboardLayout.Layer.LETTERS && rowIndex == 1 && !zhuyinKeycaps) {
@@ -421,13 +418,11 @@ final class ImeLetterRows {
                 s.shuangpinKeyButtons.add((ShuangpinHintButton) s.microsoftFinalKey);
                 s.shuangpinKeyInputs.add(";");
                 KeyboardGeometry.setKeyTextSize(s.microsoftFinalKey, 22);
-                row.addView(s.microsoftFinalKey, new LinearLayout.LayoutParams(0,
-                    LinearLayout.LayoutParams.MATCH_PARENT, 1));
+                row.addView(s.microsoftFinalKey, KeyboardGeometry.weightedMatchParentParams(1));
             }
             if (standardLetters && rowIndex == 1) {
                 secondRowTrailingIndent = indent();
-                row.addView(secondRowTrailingIndent, new LinearLayout.LayoutParams(0,
-                    LinearLayout.LayoutParams.MATCH_PARENT, .5f));
+                row.addView(secondRowTrailingIndent, KeyboardGeometry.weightedMatchParentParams(.5f));
                 updateSecondRowIndent();
             }
             // 大小写和删除属于最后一行的两端，不属于底部功能行。Leaving them in a strip below the keys
@@ -456,9 +451,8 @@ final class ImeLetterRows {
         if (key instanceof KeyboardPressButton press)
             press.setKeyboardRole(KeyboardKeyRole.ACCENT);
         s.imeStyler.styleButton(key, KeyboardKeyRole.ACCENT, s.skin);
-        key.setVisibility(View.VISIBLE);
-        row.addView(key, index, new LinearLayout.LayoutParams(0,
-            LinearLayout.LayoutParams.MATCH_PARENT, weight));
+        ViewPolicy.show(key);
+        row.addView(key, index, KeyboardGeometry.weightedMatchParentParams(weight));
     }
 
     /**
@@ -469,7 +463,7 @@ final class ImeLetterRows {
         java.util.List<java.util.List<KeyboardLayout.LayerKey>> rows = moreSymbols
             ? KeyboardLayout.moreSymbolLayer(chinese) : KeyboardLayout.numberLayer(chinese);
         for (int rowIndex = 0; rowIndex < rows.size(); rowIndex++) {
-            LinearLayout row = new LinearLayout(s);
+            LinearLayout row = KeyboardGeometry.row(s);
             // 最后一行是这一层自带的底栏，和功能行一样固定 46 dp、不加行距；前三行和字母键一样分摊高度调整。否则整层比其他布局高出一份行距。
             if (rowIndex == rows.size() - 1) {
                 s.imeStyler.adjustFixedHeight(row, KeyboardGeometry.STANDARD_ROW_HEIGHT_DP);
@@ -477,15 +471,13 @@ final class ImeLetterRows {
                 row.setTag(new MSIMEInputService.KeyboardHeightRole(KeyboardGeometry.KEY_ROW_HEIGHT_DP,
                     rows.size() - 1, rowIndex, true));
             }
-            s.keyRows.addView(row, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+            s.keyRows.addView(row, KeyboardGeometry.matchWidthWrapParams());
             for (KeyboardLayout.LayerKey layerKey : rows.get(rowIndex)) {
                 Button key = designLayerKey(layerKey, rowIndex == 0);
                 if (key == null) continue;
                 if (key.getParent() instanceof android.view.ViewGroup parent) parent.removeView(key);
-                key.setVisibility(View.VISIBLE);
-                row.addView(key, new LinearLayout.LayoutParams(0,
-                    LinearLayout.LayoutParams.MATCH_PARENT, layerKey.weight()));
+                ViewPolicy.show(key);
+                row.addView(key, KeyboardGeometry.weightedMatchParentParams(layerKey.weight()));
             }
         }
     }
@@ -521,11 +513,7 @@ final class ImeLetterRows {
             case EMOJI -> {
                 KeyboardIconKey icon = new KeyboardIconKey(s, KeyboardIconKey.Kind.EMOJI);
                 icon.setText(text);
-                icon.setOnClickListener(ignored -> {
-                    s.imeKeyFeedback.playFeedback(icon);
-                    s.countKey(icon);
-                    s.imePanels.showEmojiPicker();
-                });
+                s.bindCountedAction(icon, s.imePanels::showEmojiPicker);
                 key = icon;
             }
             case SYMBOL_PANEL -> {
