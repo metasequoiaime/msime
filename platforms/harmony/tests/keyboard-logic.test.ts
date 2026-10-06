@@ -7480,6 +7480,10 @@ group("account native success envelopes require a value", () => {
     "account success with a null value is refused");
   check(accountReplyValue({ ok: false, value: { id: "stale" } }) === null,
     "account failure never exposes a value");
+  check(accountReplyValue(null) === null,
+    "a JSON null account reply is refused without throwing");
+  check(accountReplyValue([]) === null,
+    "a JSON array account reply is refused without throwing");
 });
 
 group("account and cloud clipboard bridge keeps secrets native", () => {
