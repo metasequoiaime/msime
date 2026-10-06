@@ -7,7 +7,7 @@ import android.graphics.Paint;
 import android.view.Gravity;
 import android.widget.Button;
 import android.widget.LinearLayout;
-import app.msime.android.keyboard.KeyboardGeometry;
+import app.msime.android.KeyboardGeometry;
 
 /**
  * 单手模式的侧栏：键区缩到 85% 宽，剩下 15% 放两个按钮——‹ 换到另一侧（40 dp 的 kbKey 圆）和 ⤢ 退出单手模式。
