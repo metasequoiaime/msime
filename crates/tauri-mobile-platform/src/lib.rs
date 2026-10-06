@@ -57,7 +57,7 @@ pub struct AndroidVoicePolishRequest {
 #[cfg(any(target_os = "android", test))]
 impl AndroidVoicePolishRequest {
     pub fn is_valid(&self) -> bool {
-        self.endpoint.starts_with("https://")
+        msime_client_core::voice::provider::valid_mobile_voice_endpoint(&self.endpoint, false)
             && msime_client_core::voice::provider::bounded_voice_fields(
                 &self.endpoint,
                 &self.model,
@@ -850,6 +850,31 @@ mod tests {
             ..valid
         }
         .is_valid());
+    }
+
+    #[test]
+    fn android_voice_polish_requests_reject_malformed_secure_endpoints() {
+        let request = super::AndroidVoicePolishRequest {
+            endpoint: "https://fixture.invalid/v1/chat/completions".into(),
+            model: "fixture-model".into(),
+            token: "synthetic-token".into(),
+            prompt_id: "polish".into(),
+            prompt_custom_1: String::new(),
+            prompt_custom_2: String::new(),
+            prompt_custom_3: String::new(),
+        };
+        assert!(request.is_valid());
+        for endpoint in [
+            "https:///v1/chat/completions",
+            "https://user:pass@fixture.invalid/v1/chat/completions",
+            "https://fixture.invalid/v1/chat/completions#fragment",
+        ] {
+            assert!(!super::AndroidVoicePolishRequest {
+                endpoint: endpoint.into(),
+                ..request.clone()
+            }
+            .is_valid());
+        }
     }
 
     #[test]
