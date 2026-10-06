@@ -238,12 +238,6 @@ const client: SettingsClient = {
   readSkinImage: (id, relative) => invoke("read_skin_image", { id, relative }),
   readSkinFont: (id, relative) => invoke("read_skin_font", { id, relative }),
   openSkinDirectory: () => invoke("open_skin_directory"),
-  // The reference tells the user to drop this file into the profile directory. On macOS that directory
-  // is inside ~/Library, which the Finder hides, so the page edits it instead.
-  customTranslations: {
-    load: () => invoke("read_custom_translations"),
-    save: (text) => invoke("write_custom_translations", { text }),
-  },
   load: () => {
     if (!isTauri())
       return Promise.reject(new Error("请通过客户端应用打开设置。浏览器预览不会写入本地配置。"));

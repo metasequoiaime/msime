@@ -70,12 +70,6 @@ interface KeyboardFeedbackReply {
   error: string;
 }
 
-/** One custom-translation operation from the page: load or save. */
-interface CustomTranslationAction {
-  operation: string;
-  text?: string;
-}
-
 interface ExportSaveRequest {
   name: string;
   contents: string;
@@ -103,9 +97,6 @@ interface OnboardingReply {
   ready: boolean;
   error: string;
 }
-
-/** A megabyte is far more than a hand-written overlay needs and small enough to keep on a phone. */
-const CUSTOM_TRANSLATIONS_MAX_BYTES: number = 1024 * 1024;
 
 /** The installed family names, or a refusal the page can report rather than an empty list. */
 interface FontFamilyReply {
@@ -649,7 +640,7 @@ struct Settings {
                 'customSkinLibrary', 'dictionaryManifest', 'dictionary', 'cloudDictionaryDownload',
                 'typingStatistics', 'vocabularyReview', 'openExternalUrl', 'copyText',
                 'openSystemKeyboardSettings', 'listVoiceCaptureDevices', 'listFontFamilies',
-                'keyboardFeedback', 'customTranslations', 'onboardingStatus',
+                'keyboardFeedback', 'onboardingStatus',
                 'showInputMethodPicker', 'importSkinFolder', 'startRequest', 'plugins'],
               []);
           } catch (error) {
@@ -2330,81 +2321,6 @@ class SettingsBridge {
         });
     } catch (error) {
       KeyboardLog.error(`feedback preview unavailable: ${describeError(error)}`);
-    }
-  }
-
-  /**
-   * The user's own candidate glosses.
-   *
-   * Windows documents dropping a `custom_translations.txt` into the profile directory. The Engine
-   * reads it on every host — `prepare_translation_sidecar` looks in the user data directory before
-   * the resources — but nobody can put a file in an application sandbox, so the settings page is
-   * the only way in here. It writes to the same place the Engine already looks.
-   *
-   * Not the staged resource directory: that one is verified against the pinned lock down to
-   * containing no extra file, and a sidecar dropped there would stop the keyboard from starting.
-   */
-  customTranslations(request: string): string {
-    let action: CustomTranslationAction;
-    try {
-      action = JSON.parse(request) as CustomTranslationAction;
-    } catch (error) {
-      return JSON.stringify({ ok: false, value: '', error: '无效的请求' } as TextReply);
-    }
-    const file: string = `${this.stateDirectory}/user/custom_translations.txt`;
-    if (action.operation === 'save') {
-      const text: string = action.text ?? '';
-      if (utf8Length(text) > CUSTOM_TRANSLATIONS_MAX_BYTES) {
-        return JSON.stringify({ ok: false, value: '', error: '自定义释义过大' } as TextReply);
-      }
-      try {
-        const userDirectory: string = `${this.stateDirectory}/user`;
-        if (!this.safeDirectory(this.stateDirectory)) {
-          return JSON.stringify({ ok: false, value: '', error: '自定义释义未能保存' } as TextReply);
-        }
-        fs.mkdirSync(userDirectory, true);
-        if (!this.safeDirectory(userDirectory) || this.symbolicLink(file)) {
-          return JSON.stringify({ ok: false, value: '', error: '自定义释义未能保存' } as TextReply);
-        }
-        if (text.trim().length === 0) {
-          // An empty document means "no overlay"; the bridge removes the file rather than leaving
-          // one the Engine would read as an empty set every session.
-          if (fs.accessSync(file)) {
-            fs.unlinkSync(file);
-          }
-          return JSON.stringify({ ok: true, value: '', error: '' } as TextReply);
-        }
-        const handle = fs.openSync(file,
-          fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
-        try {
-          fs.writeSync(handle.fd, text);
-        } finally {
-          fs.closeSync(handle);
-        }
-        return JSON.stringify({ ok: true, value: '', error: '' } as TextReply);
-      } catch (error) {
-        KeyboardLog.error(`custom translations not saved: ${describeError(error)}`);
-        return JSON.stringify({ ok: false, value: '', error: '自定义释义未能保存' } as TextReply);
-      }
-    }
-    try {
-      if (!this.safeDirectory(this.stateDirectory)) {
-        return JSON.stringify({ ok: false, value: '', error: '自定义释义无法读取' } as TextReply);
-      }
-      let stat: fs.Stat;
-      try {
-        stat = fs.lstatSync(file);
-      } catch {
-        return JSON.stringify({ ok: true, value: '', error: '' } as TextReply);
-      }
-      if (stat.isSymbolicLink() || !stat.isFile() || stat.size > CUSTOM_TRANSLATIONS_MAX_BYTES) {
-        return JSON.stringify({ ok: false, value: '', error: '自定义释义无法读取' } as TextReply);
-      }
-      const text: string = fs.readTextSync(file);
-      return JSON.stringify({ ok: true, value: text, error: '' } as TextReply);
-    } catch (error) {
-      KeyboardLog.error(`custom translations unreadable: ${describeError(error)}`);
-      return JSON.stringify({ ok: false, value: '', error: '自定义释义无法读取' } as TextReply);
     }
   }
 

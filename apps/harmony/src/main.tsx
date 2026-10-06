@@ -120,8 +120,6 @@ interface NativeBridge {
   listFontFamilies(): string;
   /** `{operation:"load"|"save"|"preview",...}`; the reply carries the settings now in force. */
   keyboardFeedback(request: string): string;
-  /** `{operation:"load"|"save",text?}`; the overlay the Engine reads from the user data directory. */
-  customTranslations(request: string): string;
   /**
    * Whether setup still has a step left: not enabled, or enabled but not the current keyboard.
    *
@@ -928,13 +926,6 @@ function makeClient(
     listVoiceCaptureDevices: async () =>
       unwrap<VoiceCaptureDevice[]>(native.listVoiceCaptureDevices()),
     listFontFamilies: async () => unwrap<string[]>(native.listFontFamilies()),
-    customTranslations: {
-      load: async () =>
-        unwrap<string>(native.customTranslations(JSON.stringify({ operation: "load" }))),
-      save: async (text) => {
-        unwrap<string>(native.customTranslations(JSON.stringify({ operation: "save", text })));
-      },
-    },
     mobileKeyboardFeedback: {
       load: async () =>
         unwrap<MobileKeyboardFeedback>(

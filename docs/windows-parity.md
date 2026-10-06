@@ -492,6 +492,8 @@ cargo run -p msime-input-runtime --example local_modes -- <verified-dictionary-d
 
 用例：Rust 侧两条（往返 + BOM + 清空删除 + 超限/NUL 拒绝且拒绝后旧覆盖层还在），UI 侧一条钉住桌面宿主也能拿到这一节。
 
+增量记录（2026-10-06，撤下自定义候选释义的设置入口）：共享设置页、iOS 和 HarmonyOS 设置里的「自定义候选释义」编辑器连同 `read_custom_translations` / `write_custom_translations` 两个命令和 HarmonyOS 的 `customTranslations` 桥接一并移除。Engine 读取 `<state>/user/custom_translations.txt` 的行为不变，已有的覆盖层照常生效，只是没有界面编辑它。
+
 增量记录（2026-09-21，快捷模式指南逐条核对，第一条差异：Unicode 模式的候选选择）：测试清单走完之后换入口——来源 README 的《实用功能快捷模式》八行，每行都是可核对的具体约定。Unicode（U）那行写的是「空格上屏首选；`Shift + 数字` 选其他候选」，理由就在同一行里：不加 Shift 的数字是正在输入的码位。来源实现为 `event_listener.cpp` 的 `is_unicode_shift_digit_selection`，与空格走同一条选择路径。
 
 macOS 缺后半条。`ShouldRoutePhysicalCandidateDigit` 明确把 Unicode 模式和任何带修饰键的数字都排除在候选选择之外，而没有第二条规则把 Shift+数字 接回来——于是这个模式下键盘只能上屏第一个候选，面板里其余候选看得见、够不着（方向键还能挪高亮，但文档写的那条交互不存在）。
