@@ -43,6 +43,7 @@ public final class SchemePreferences {
     public static List<String> enabledAfterSwitch(List<String> enabled, String preferenceId) {
         List<String> result = enabled == null
             ? new ArrayList<>(1) : new ArrayList<>(enabled.size() + 1);
+        if (enabled != null) result.addAll(enabled);
         if (!result.contains(preferenceId)) result.add(preferenceId);
         return result;
     }
