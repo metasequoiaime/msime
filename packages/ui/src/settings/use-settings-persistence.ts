@@ -415,6 +415,34 @@ export function useSettingsPersistence({
   flushRef.current = flush;
   useFlushOnWindowLeave(() => void flushRef.current());
 
+  // 组件可能在自动保存收到首次响应前卸载。这里沿用挂载路径的有界冲突重试，但只修改本地副本；
+  // 卸载后不再有可更新的 React 状态。
+  async function saveDetached(
+    saveClient: SettingsClient,
+    initialBase: Snapshot,
+    initialDraft: Preferences,
+  ): Promise<void> {
+    let base = initialBase;
+    let sent = initialDraft;
+    let conflicts = 0;
+    while (!deepEqual(sent, base.preferences)) {
+      if (!validCandidateFonts(sent)) return;
+      try {
+        await saveClient.save(base.revision, sent);
+        return;
+      } catch (reason) {
+        if (errorCode(reason) !== "conflict" || conflicts >= CONFLICT_RETRIES) return;
+        conflicts += 1;
+        const latest = await saveClient.load();
+        sent = applyPreferenceChanges(
+          latest.preferences,
+          preferenceChanges(base.preferences, sent),
+        );
+        base = latest;
+      }
+    }
+  }
+
   // Every edit restarts the countdown; the loop in `flush` picks up edits made while a save is in flight, so nothing is scheduled then.
   useEffect(() => {
     if (!savePending()) {
@@ -444,9 +472,7 @@ export function useSettingsPersistence({
       if (deepEqual(currentDraft, currentSnapshot.preferences)) return;
       if (!validCandidateFonts(currentDraft)) return;
       const unmountedClient = clientRef.current;
-      void Promise.resolve()
-        .then(() => unmountedClient.save(currentSnapshot.revision, currentDraft))
-        .catch(() => undefined);
+      void saveDetached(unmountedClient, currentSnapshot, currentDraft).catch(() => undefined);
     },
     [],
   );
