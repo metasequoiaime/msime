@@ -670,6 +670,186 @@ fn the_command_line_runs_the_same_tools() {
 }
 
 #[test]
+fn expand_and_config_print_lines_for_testing_by_hand() {
+    let directory = tempfile::tempdir().unwrap();
+    let options = fixture(directory.path());
+
+    // 测试里 stderr 是管道，和助手运行命令时一样：快捷命令要有用户选的开关，缺了就在启动服务器之前说明缺哪一个。
+    let (code, _, error) = run_cli_text(&options, &["expand", "aaaa"], None);
+    assert_eq!(code, 1);
+    assert!(error.contains("needs --allow-dictionary-read"), "{error}");
+    let (code, _, error) = run_cli_text(&options, &["config", "set", "scheme=wubi"], None);
+    assert_eq!(code, 1);
+    assert!(error.contains("needs --allow-write"), "{error}");
+
+    // 方案默认是用户当前的（这里是全拼），五笔词要指定 --scheme。
+    let (code, lines, error) = run_cli_text(
+        &options,
+        &[
+            "--allow-dictionary-read",
+            "expand",
+            "aaaa",
+            "--scheme",
+            "wubi",
+        ],
+        None,
+    );
+    assert_eq!(code, 0, "{error}");
+    assert_eq!(lines, "1\t合成工\taaaa\tdictionary\t500\n");
+    let (code, view, error) = run_cli(
+        &options,
+        &[
+            "--allow-dictionary-read",
+            "expand",
+            "aaaa",
+            "--scheme",
+            "wubi",
+            "--json",
+        ],
+        None,
+    );
+    assert_eq!(code, 0, "{error}");
+    assert_eq!(view["candidates"][0]["text"], "合成工");
+    let (code, _, error) = run_cli_text(
+        &options,
+        &["--allow-dictionary-read", "expand", "AAAA"],
+        None,
+    );
+    assert_eq!(code, 1);
+    assert!(error.contains("lowercase"), "{error}");
+
+    let (code, before, error) = run_cli_text(&options, &["config"], None);
+    assert_eq!(code, 0, "{error}");
+    assert!(
+        before.lines().any(|line| line == "scheme = quanpin"),
+        "{before}"
+    );
+
+    // config set 自己读 revision。
+    let (code, after, error) = run_cli_text(
+        &options,
+        &[
+            "--allow-write",
+            "config",
+            "set",
+            "scheme=wubi",
+            "candidate_page_size=9",
+        ],
+        None,
+    );
+    assert_eq!(code, 0, "{error}");
+    assert!(after.lines().any(|line| line == "scheme = wubi"), "{after}");
+    assert!(
+        after.lines().any(|line| line == "candidate_page_size = 9"),
+        "{after}"
+    );
+    // 下一次运行读到的就是新的偏好：expand 不指定方案也按五笔查。
+    let (code, lines, error) = run_cli_text(
+        &options,
+        &["--allow-dictionary-read", "expand", "aaaa"],
+        None,
+    );
+    assert_eq!(code, 0, "{error}");
+    assert_eq!(lines, "1\t合成工\taaaa\tdictionary\t500\n");
+
+    let (code, _, error) = run_cli_text(
+        &options,
+        &["--allow-write", "config", "set", "no_such_key=1"],
+        None,
+    );
+    assert_eq!(code, 1);
+    assert!(error.contains("no_such_key"), "{error}");
+
+    // config get 只给值，按要的顺序。
+    let (code, values, error) = run_cli_text(
+        &options,
+        &["config", "get", "candidate-page-size", "scheme"],
+        None,
+    );
+    assert_eq!(code, 0, "{error}");
+    assert_eq!(values, "9\nwubi\n");
+    let (code, _, error) = run_cli_text(&options, &["config", "get", "no_such_key"], None);
+    assert_eq!(code, 1);
+    assert!(error.contains("no preference named no_such_key"), "{error}");
+
+    // 一串查不到候选时 stdout 为空，stderr 说明。
+    let (code, lines, error) = run_cli_text(
+        &options,
+        &["--allow-dictionary-read", "expand", "bbbb"],
+        None,
+    );
+    assert_eq!((code, lines.as_str()), (0, ""));
+    assert!(error.contains("bbbb offers no candidates"), "{error}");
+
+    // 几串一起查，`-` 从 stdin 读，空行和注释跳过；查不了的一串不影响其余，最后以 1 退出。
+    let (code, lines, error) = run_cli_text(
+        &options,
+        &["--allow-dictionary-read", "expand", "aaaa", "-"],
+        Some("# 一份编码清单\n\nAAAA\n  aaaa  \n"),
+    );
+    assert_eq!(code, 1);
+    assert_eq!(
+        lines,
+        "# aaaa\n1\t合成工\taaaa\tdictionary\t500\n# AAAA\n# aaaa\n1\t合成工\taaaa\tdictionary\t500\n"
+    );
+    assert!(error.contains("AAAA: the code must be"), "{error}");
+    let (code, lines, error) = run_cli_text(
+        &options,
+        &[
+            "--allow-dictionary-read",
+            "expand",
+            "aaaa",
+            "AAAA",
+            "--json",
+        ],
+        None,
+    );
+    assert_eq!(code, 1, "{error}");
+    let lines: Vec<Value> = lines
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(lines.len(), 2);
+    assert_eq!(lines[0]["code"], "aaaa");
+    assert_eq!(lines[0]["candidates"][0]["text"], "合成工");
+    assert_eq!(lines[1]["code"], "AAAA");
+    assert!(lines[1]["error"].is_string());
+}
+
+/// `--version` 报告输入法本身的版本：所编平台的 `version.txt`（构建时没有显式的 `MSIME_VERSION`），而不是 crate 的 0.1.0。
+#[test]
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+fn the_version_is_the_input_method_s() {
+    let platform = if cfg!(target_os = "macos") {
+        "macos"
+    } else if cfg!(target_os = "linux") {
+        "linux"
+    } else {
+        "windows"
+    };
+    let expected = option_env!("MSIME_VERSION")
+        .map(str::to_owned)
+        .unwrap_or_else(|| {
+            std::fs::read_to_string(
+                Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("../../platforms")
+                    .join(platform)
+                    .join("version.txt"),
+            )
+            .unwrap()
+        });
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_msime-mcp"))
+        .arg("--version")
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8(output.stderr).unwrap().trim(),
+        format!("msime-mcp {}", expected.trim())
+    );
+}
+
+#[test]
 fn writes_from_separate_runs_are_spaced_out_too() {
     let directory = tempfile::tempdir().unwrap();
     let options = fixture(directory.path());

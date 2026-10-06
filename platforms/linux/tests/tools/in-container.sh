@@ -135,8 +135,10 @@ assert json.loads((state / "preferences.json").read_text())["preferences"]["clou
 assert json.loads((state / "runtime-options.json").read_text())["preferences"]["cloud_candidates"] is False
 print("Declined cloud candidates are recorded at preparation")
 PYTHON
-/build/stage/usr/local/bin/msime-linux-prepare /resources "$declined/default" >/dev/null
-python3 -c 'import json,sys; assert json.load(open(sys.argv[1]))["preferences"]["cloud_candidates"] is True' "$declined/default/runtime-options.json"
+# A user that has never logged in to a desktop may not have ~/.config yet: prepare creates the missing parents, private to the user, instead of failing.
+/build/stage/usr/local/bin/msime-linux-prepare /resources "$declined/home/.config/default" >/dev/null
+python3 -c 'import json,sys; assert json.load(open(sys.argv[1]))["preferences"]["cloud_candidates"] is True' "$declined/home/.config/default/runtime-options.json"
+test "$(stat -c %a "$declined/home/.config")" = 700
 rm -rf "$declined"
 fixture=$(mktemp -d /tmp/msime-ibus-bootstrap.XXXXXX)
 options=$(cargo run --quiet -p msime-host-api --example prepare_host --locked -- /resources "$fixture")

@@ -215,6 +215,22 @@ final class OnlineCandidateTests: XCTestCase {
     XCTAssertNil(OnlineCandidateProvider.aiRequest(get))
   }
 
+  func testTheAIDescriptorRejectsCredentialsFragmentsAndMissingHosts() {
+    let descriptor: [String: Any] = [
+      "url": "https://example.invalid/v1/chat/completions", "method": "POST",
+      "body": ["model": "m"],
+    ]
+    for url in [
+      "https://user:password@example.invalid/v1/chat/completions",
+      "https://example.invalid/v1/chat/completions#fragment",
+      "https:///v1/chat/completions",
+    ] {
+      var malformed = descriptor
+      malformed["url"] = url
+      XCTAssertNil(OnlineCandidateProvider.aiRequest(malformed), "must reject \(url)")
+    }
+  }
+
   func testAIDescriptorRejectsMalformedNumericFields() {
     let descriptor: [String: Any] = [
       "url": "https://example.invalid/v1/chat/completions", "method": "POST",

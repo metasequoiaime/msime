@@ -13,6 +13,7 @@
 #   --editions 是版本表 shared/contracts/editions.json 里的版本 id，缺省只打 full，产物与引入版本之前相同。几个版本共用一次编译：输入法、msime-mcp 和设置应用的可执行文件都只编一遍，每个版本只重新暂存自己的资源、用 platforms/macos/scripts/edition_bundle.py 把输入法 bundle 改成该版本的身份、按该版本的 identifier 和 productName 打一个设置应用，再各出一个 DMG。多个版本可以同时安装，彼此完全隔离。
 #   VERSION defaults to platforms/macos/version.txt, the version release-macos.yml tags as macos-vVERSION. It becomes the version the settings app reports, so the in-app update check compares like with like, and it must equal the input method's CFBundleShortVersionString (platforms/macos/Info.plist.in).
 #   OUT_DIR defaults to target/macos-package/dist and receives one <dmg_prefix>-VERSION-universal.dmg per edition (full: msime-macos-VERSION-universal.dmg) and SHA256SUMS.
+#   发布的可执行文件在剥离符号之前先生成 dSYM，放在 target/macos-package/dsym，每次运行开头清空；全部版本打完后再打成 OUT_DIR 里的 msime-macos-VERSION-dsym.zip，release-macos.yml 把它作为发布资产上传。各版本带的是同样的四个可执行文件，一份覆盖全部版本。
 #
 # Environment:
 #   MSIME_SPARKLE_ROOT            required; directory containing the pinned Sparkle.framework (see README.md)
@@ -110,6 +111,15 @@ sign() {
   fi
 }
 
+# 发布的 Mach-O 在签名之前剥掉局部符号：几个 universal 可执行文件在磁盘上合计少约 45 MB，每个 DMG 也小几 MB。`strip -x` 保留全局符号，所以 dylib 的导出（MSIMEBackend 的 `_MSIME*` 入口、sherpa-onnx 的 C API）和 dyld 要绑定的导入都还在。可执行文件先写出 dSYM，崩溃报告仍能符号化；dylib 和以前一样不生成 dSYM。
+dsym_dir="$repo_root/target/macos-package/dsym"
+rm -rf "$dsym_dir"
+mkdir -p "$dsym_dir"
+strip_executable() {
+  dsymutil "$1" -o "$dsym_dir/$(basename "$1").dSYM"
+  strip -x "$1"
+}
+
 # The first element of a glob, failing when there is none or more than one. The bundle names are Chinese or contain spaces, and a literal path to a Chinese name can miss on APFS because of NFC/NFD normalisation; matching with a glob sidesteps both.
 only() {
   if [ "$#" -ne 1 ] || [ ! -e "$1" ]; then
@@ -137,7 +147,8 @@ cmake -S platforms/macos -B "$build_dir" -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREF
   -DMSIME_SPARKLE_ROOT="$MSIME_SPARKLE_ROOT" -DMSIME_HOST_LIBRARY="$universal_dir/libmsime_host_api.a"
 # An explicit job count: a bare --parallel with the Makefile generator starts every compile at once and runs a 7 GB runner out of memory (ci-macos.yml).
 cmake --build "$build_dir" --config Release --parallel "$(sysctl -n hw.logicalcpu)"
-ctest --test-dir "$build_dir" --no-tests=error --output-on-failure -R '^bundle-contents$'
+# `backend-library-load` 加载 bundle 里的 MSIMEBackend.dylib（Release 构建会对它做优化、dead strip 和剥离符号，见 scripts/build_backend_swift.sh），确认输入法按名字查找的 Objective-C 类和 selector 都还在。
+ctest --test-dir "$build_dir" --no-tests=error --output-on-failure -R '^(bundle-contents|backend-library-load)$'
 
 built_bundle="$(only "$build_dir"/*.app)"
 imk_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$built_bundle/Contents/Info.plist")"
@@ -145,11 +156,21 @@ if [ "$imk_version" != "$version" ]; then
   echo "the input method reports $imk_version but the package is $version; bump platforms/macos/Info.plist.in and version.txt together" >&2
   exit 1
 fi
+# 构建目录里的 bundle 保持不剥离，重跑时即使什么都没重新链接，`dsymutil` 也还读得到符号；打包用的是剥离过的副本。Sparkle.framework 保持发布方签名时的原样。
+mkdir -p "$work/input-method"
+ditto "$built_bundle" "$work/input-method/$(basename "$built_bundle")"
+built_bundle="$(only "$work/input-method"/*.app)"
+strip_executable "$built_bundle/Contents/MacOS/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$built_bundle/Contents/Info.plist")"
+strip_executable "$built_bundle/Contents/MacOS/msime-voice-local"
+# dylib 只用 `-x`：完全剥离会删掉使用方要绑定的导出符号。Release 构建已经剥离过 MSIMEBackend.dylib，除非构建目录配置成了别的配置，这一步对它不起作用。
+strip -x "$built_bundle/Contents/Frameworks/MSIMEBackend.dylib" "$built_bundle/Contents/Frameworks/libsherpa-onnx-c-api.dylib"
 
 # ---- MCP server ----
 # The same compiler flags as the input method: msime-mcp links the Engine through msime-host-api, and those objects are shared with the build above. Nothing in the app starts it; an agent's MCP configuration runs Contents/MacOS/msime-mcp over stdio.
-CFLAGS="-mmacosx-version-min=13.0" CXXFLAGS="-mmacosx-version-min=13.0" CMAKE_OSX_DEPLOYMENT_TARGET=13.0 CMAKE_PREFIX_PATH="$(brew --prefix)" \
+# MSIME_VERSION 是 msime-mcp --version 和 MCP 握手报告的版本（crates/mcp-server/build.rs），与这个包的版本相同。
+MSIME_VERSION="$version" CFLAGS="-mmacosx-version-min=13.0" CXXFLAGS="-mmacosx-version-min=13.0" CMAKE_OSX_DEPLOYMENT_TARGET=13.0 CMAKE_PREFIX_PATH="$(brew --prefix)" \
   cargo_universal "$universal_dir/msime-mcp" msime-mcp -p msime-mcp-server --bin msime-mcp
+strip_executable "$universal_dir/msime-mcp"
 
 # tauri-build checks every resource path in tauri.macos.conf.json while it compiles the settings app, so full's input method bundle and EngineResources are staged once before the compile below; package_edition stages each edition's own again before bundling.
 MSIME_EDITION=full MSIME_MACOS_OMIT_ON_DEMAND=1 bash platforms/macos/stage-resources.sh "$resources"
@@ -169,6 +190,7 @@ pnpm --filter @msime/desktop build
     CFLAGS="-mmacosx-version-min=13.0" CXXFLAGS="-mmacosx-version-min=13.0" CMAKE_OSX_DEPLOYMENT_TARGET=13.0 CMAKE_PREFIX_PATH="$(brew --prefix)" \
     cargo_universal "$CARGO_TARGET_DIR/release/msime-desktop" msime-desktop -p msime-desktop --bin msime-desktop --features tauri/custom-protocol
 )
+strip_executable "$CARGO_TARGET_DIR/release/msime-desktop"
 tauri_bundle_dir="$CARGO_TARGET_DIR/release/bundle/macos"
 # Non-English candidate glosses (scripts/fetch_offline_glosses.py), copied here rather than listed in tauri.macos.conf.json because Tauri fails on a resource path that does not exist and the package must still build without them. The input method reads them beside EngineResources.
 glosses="$repo_root/target/macos/offline-glosses"
@@ -266,7 +288,7 @@ check_app() {
   for table in helpcode.txt zrm_helpcode_big_unique.txt shouyou2_0_helpcode.txt shouyouplus_helpcode.txt xiaohe_helpcode.txt jiajia_helpcode.txt NOTICE.md NOTICE-jiajia.md; do
     test -f "$resources_dir/EngineResources/helpcodes/$table"
   done
-  # 按需下载的资源包不该出现在包里：日文词典、粤拼、注音与笔画词库、手写模型都由 App 下载到 resource-packs/<id>/，不提供手写的版本（日文、越南文和藏文版）连手写模型也不下载（macos_resource_packs.rs）。识别器代码的 Zinnia 许可证仍由 tauri.macos.conf.json 放进包里：Zinnia 的移植编在共用的 host 库里，每个版本都带着这份代码。
+  # 按需下载的资源包不该出现在包里：日文词典、粤拼、注音与笔画词库、手写模型都由 App 下载到 resource-packs/<id>/，不提供手写的版本（日文、越南文和藏文版）连手写模型也不下载（desktop_resource_packs.rs）。识别器代码的 Zinnia 许可证仍由 tauri.macos.conf.json 放进包里：Zinnia 的移植编在共用的 host 库里，每个版本都带着这份代码。
   test ! -e "$resources_dir/EngineResources/msime-japanese.dat"
   test ! -e "$resources_dir/EngineResources/msime-mozc_dictionary_oss_README.txt"
   test ! -e "$resources_dir/EngineResources/msime-mozc_LICENSE.txt"
@@ -309,6 +331,34 @@ check_app() {
   }
   codesign --verify --deep --strict "$nested"
   codesign --verify --deep --strict "$root"
+  # 每个发布的可执行文件都在签名之前剥离（`strip_executable`），`strip -x` 之后任何架构里都不应再有局部符号（nm 类型 t、d、b、s）。不能拿调试映射（OSO stabs）来判断：Cargo 的 release profile 本来就去掉了 msime-mcp 和设置应用的调试信息，但没人剥离时它们仍带着几万个局部符号。
+  local executable input_method_executable architecture local_symbols
+  input_method_executable="$nested/Contents/MacOS/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$nested/Contents/Info.plist")"
+  for executable in "$root/Contents/MacOS/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$root/Contents/Info.plist")" "$root/Contents/MacOS/msime-mcp" "$input_method_executable" "$nested/Contents/MacOS/msime-voice-local"; do
+    for architecture in "${architectures[@]}"; do
+      local_symbols="$(nm -a -arch "$architecture" "$executable" | awk '$2 ~ /^[tdbs]$/' | wc -l | tr -d ' ')"
+      test "$local_symbols" -eq 0 || {
+        echo "not stripped: $executable ($architecture) has $local_symbols local symbols" >&2
+        exit 1
+      }
+    done
+  done
+  # 输入法从 MSIMEBackend.dylib 绑定的 `_MSIME*` 入口，在每种架构里都必须经过 `-Osize`、dead strip 和 `strip -x` 后依然存在。只有 `_MSIMEFetchOnDeviceCandidateGlosses` 允许缺失：Swift 6.2 之前的工具链不编它，CMakeLists.txt 也允许输入法在没有它时链接。
+  local backend_architecture backend_exports backend_import backend_imports
+  for backend_architecture in "${architectures[@]}"; do
+    backend_exports="$(nm -gU -arch "$backend_architecture" "$nested/Contents/Frameworks/MSIMEBackend.dylib" | awk '{print $NF}')"
+    backend_imports="$(nm -u -arch "$backend_architecture" "$input_method_executable" | grep '^_MSIME' | grep -vx '_MSIMEFetchOnDeviceCandidateGlosses' || true)"
+    test -n "$backend_imports" || {
+      echo "the input method imports no _MSIME* symbols from MSIMEBackend.dylib ($backend_architecture): $input_method_executable" >&2
+      exit 1
+    }
+    while IFS= read -r backend_import; do
+      grep -qx -- "$backend_import" <<< "$backend_exports" || {
+        echo "MSIMEBackend.dylib ($backend_architecture) does not export $backend_import, which the input method binds" >&2
+        exit 1
+      }
+    done <<< "$backend_imports"
+  done
   # universal 包里任何一个只含单一架构的 Mach-O，都会让另一种 Mac 上的输入法、设置应用或某个功能起不来，而单一架构的开发机上看不出来。
   local file
   while IFS= read -r -d '' file; do
@@ -344,7 +394,8 @@ printf '%s\n' \
   > "$stage/安装说明.txt"
 dmg="$out_dir/$dmg_prefix-$version-$arch.dmg"
 rm -f "$dmg"
-hdiutil create -quiet -volname "$display_name $version" -srcfolder "$stage" -format UDZO -fs HFS+ "$dmg"
+# 用 ULMO（lzma）而不是 UDZO（zlib）：同样内容的 DMG 小约三分之一。ULMO 在 macOS 10.15 及以后都能挂载，而应用本身要求 13.0。DMG 创建之后才签名、公证和装订，事后再转换格式会丢掉签名，所以在创建时就选定格式。
+hdiutil create -quiet -volname "$display_name $version" -srcfolder "$stage" -format ULMO -fs HFS+ "$dmg"
 if [ -n "$identity" ]; then
   codesign_timestamped --force --sign "$identity" "$dmg"
   codesign --verify --strict "$dmg"
@@ -382,7 +433,12 @@ for edition in "${editions[@]}"; do
   package_edition "$edition"
 done
 
-(cd "$out_dir" && shasum -a 256 -- "${dmgs[@]##*/}" > SHA256SUMS && shasum -a 256 -c SHA256SUMS)
+# 所有版本的 DMG 都打完之后才把 dSYM 打成一个 zip：各版本带的是同一组可执行文件，只编一次、只剥离一次，所以一份 dSYM 覆盖全部版本。zip 随 DMG 一起作为发布资产上传并写进 SHA256SUMS，用来符号化这个版本的崩溃报告。
+dsym_zip="$out_dir/msime-macos-$version-dsym.zip"
+rm -f "$dsym_zip"
+ditto -c -k --keepParent "$dsym_dir" "$dsym_zip"
+
+(cd "$out_dir" && shasum -a 256 -- "${dmgs[@]##*/}" "${dsym_zip##*/}" > SHA256SUMS && shasum -a 256 -c SHA256SUMS)
 for dmg in "${dmgs[@]}"; do
   echo "macOS package: $dmg"
 done

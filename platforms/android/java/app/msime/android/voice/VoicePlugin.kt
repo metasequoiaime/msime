@@ -147,6 +147,12 @@ class VoicePlugin(activity: Activity) : Plugin(activity) {
         val provider = configured?.takeIf {
             local == null && streaming == null && HttpAsrPolicy.usable(it.provider, it.endpoint, it.model, it.token)
         }
+        if (configured?.provider == LocalAsrPolicy.PROVIDER && local == null) {
+            // 明确选择本地识别却没有可用模型时拒绝请求，不能把音频静默交给系统识别服务。
+            activeJob.compareAndSet(job, null)
+            invoke.reject("unavailable", "unavailable")
+            return
+        }
         if (local == null && provider == null && streaming == null
             && !VoiceRecognitionActivity.available(hostActivity)) {
             activeJob.compareAndSet(job, null)

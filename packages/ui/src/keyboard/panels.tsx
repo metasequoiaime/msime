@@ -80,10 +80,15 @@ import type { TouchKeyboardSkinDesign } from "./touch-keyboard-skin-design";
 import {
   resourcePackStatus,
   useResourcePacks,
+  type ModelMirrorClient,
   type ResourcePackClient,
   type ResourcePacks,
 } from "../settings/resource-packs";
-import { formatModelBytes, localModelProgressPercent } from "../voice/local-model-helpers";
+import {
+  formatModelBytes,
+  localModelProgressPercent,
+  validModelMirror,
+} from "../voice/local-model-helpers";
 
 export interface KeyboardInputRequest {
   virtual_key: number;
@@ -119,8 +124,10 @@ export interface PanelClient {
   ): Promise<HandwritingRecognitionResult>;
   submitHandwritingCandidate?(candidate: string): Promise<void>;
   copyHandwritingCandidate?(candidate: string): Promise<void>;
-  /** macOS 发布包不再内置手写模型：手写面板第一次打开时用它下载。 */
+  /** 桌面发布包不再内置手写模型：宿主列出手写模型时，手写面板第一次打开就用它下载；没列出（例如 Windows Ink 有中文识别器）时面板照常识别。 */
   resourcePacks?: ResourcePackClient;
+  /** 读写已保存的下载镜像（`voice_input.asr_model_mirror`）：手写模型下载失败时，面板就地提供镜像设置。 */
+  modelMirror?: ModelMirrorClient;
 }
 
 export interface VoicePanelClient extends PanelClient {
@@ -838,10 +845,10 @@ export function HandwritingPanel({
   platform?: string;
 }) {
   const maxStrokes = platform === "windows" ? WINDOWS_HANDWRITING_STROKES : MAX_HANDWRITING_STROKES;
-  // macOS 的手写模型按需下载：第一次打开面板时开始下载，下载完成前不调用识别器，笔画保留，装好后自动识别当前笔画。
-  const packs = useResourcePacks(platform === "macos" ? client.resourcePacks : undefined);
+  // 手写模型按需下载：宿主列出手写模型时，第一次打开面板就开始下载，下载完成前不调用识别器，笔画保留，装好后自动识别当前笔画。宿主没列出它（随包带着，或 Windows Ink 有中文识别器）时不下载也不等待。
+  const packs = useResourcePacks(client.resourcePacks);
   const handwritingPack = resourcePackStatus(packs, "handwriting");
-  // 只有确定缺少模型时才暂停识别；读不到列表时照常识别，已过期的旧模型也仍然可用。
+  // 只有确定缺少模型时才暂停识别；读不到列表时照常识别。已过期（文件字节与锁文件不一致）的资源包会由 ensure 重新下载，期间识别照常尝试，宿主可能还有别的模型可用。
   const modelMissing = handwritingPack?.state === "missing";
   const modelMissingRef = useRef(modelMissing);
   modelMissingRef.current = modelMissing;
@@ -1366,7 +1373,7 @@ export function HandwritingPanel({
               </div>
             ))}
           </div>
-          {handwritingPack && <HandwritingModelNotice packs={packs} />}
+          {handwritingPack && <HandwritingModelNotice packs={packs} mirror={client.modelMirror} />}
           <StatusMessage role="status">{notice}</StatusMessage>
         </section>
       </div>
@@ -1374,8 +1381,14 @@ export function HandwritingPanel({
   );
 }
 
-/** 手写模型下载中的进度与取消、下载失败的原因与重试，或取消后仍缺模型时的下载入口；模型已在、也没有下载时不渲染。 */
-function HandwritingModelNotice({ packs }: { packs: ResourcePacks }) {
+/** 手写模型下载中的进度与取消、下载失败的原因与重试（宿主能读写镜像时还有设置下载镜像的入口），或取消后仍缺模型时的下载入口；模型已在、也没有下载时不渲染。 */
+function HandwritingModelNotice({
+  packs,
+  mirror,
+}: {
+  packs: ResourcePacks;
+  mirror?: ModelMirrorClient;
+}) {
   const status = resourcePackStatus(packs, "handwriting");
   const progress = packs.progress.handwriting;
   const error = packs.errors.handwriting;
@@ -1394,12 +1407,17 @@ function HandwritingModelNotice({ packs }: { packs: ResourcePacks }) {
   }
   if (error) {
     return (
-      <p className={surface.handwritingActions} aria-live="polite">
-        <span>{error}</span>
-        <button type="button" onClick={() => packs.install("handwriting")}>
-          重试
-        </button>
-      </p>
+      <>
+        <p className={surface.handwritingActions} aria-live="polite">
+          <span>{error}</span>
+          <button type="button" onClick={() => packs.install("handwriting")}>
+            重试
+          </button>
+        </p>
+        {mirror && (
+          <HandwritingMirrorEditor mirror={mirror} onSaved={() => packs.install("handwriting")} />
+        )}
+      </>
     );
   }
   if (status?.state === "missing") {
@@ -1413,6 +1431,74 @@ function HandwritingModelNotice({ packs }: { packs: ResourcePacks }) {
     );
   }
   return null;
+}
+
+/** 手写模型下载失败后的镜像设置：先是一个「设置下载镜像」按钮，点开后读出已保存的镜像、就地编辑，「保存并重试」写入偏好后重新下载。 */
+function HandwritingMirrorEditor({
+  mirror,
+  onSaved,
+}: {
+  mirror: ModelMirrorClient;
+  onSaved: () => void;
+}) {
+  const [value, setValue] = useState<string>();
+  const [message, setMessage] = useState("");
+  const [saving, setSaving] = useState(false);
+  const mounted = useMountedRef();
+  async function open() {
+    try {
+      const saved = await mirror.load();
+      if (mounted.current) setValue(saved);
+    } catch {
+      if (mounted.current) setMessage("无法读取下载镜像，请重试。");
+    }
+  }
+  async function save() {
+    if (value === undefined || saving) return;
+    const next = value.trim();
+    if (!validModelMirror(next)) {
+      setMessage("下载镜像地址无效，必须以 https:// 开头。");
+      return;
+    }
+    setSaving(true);
+    setMessage("");
+    try {
+      await mirror.save(next);
+      if (!mounted.current) return;
+      onSaved();
+    } catch {
+      if (mounted.current) setMessage("无法保存下载镜像，请重试。");
+    } finally {
+      if (mounted.current) setSaving(false);
+    }
+  }
+  if (value === undefined) {
+    return (
+      <p className={surface.handwritingActions}>
+        {message && <span>{message}</span>}
+        <button type="button" onClick={() => void open()}>
+          设置下载镜像
+        </button>
+      </p>
+    );
+  }
+  return (
+    <p className={surface.handwritingActions}>
+      <input
+        aria-label="模型下载镜像"
+        placeholder="https://mirror.example.com"
+        maxLength={2048}
+        value={value}
+        aria-invalid={!validModelMirror(value.trim())}
+        disabled={saving}
+        onChange={(event) => setValue(event.target.value)}
+      />
+      <button type="button" disabled={saving} onClick={() => void save()}>
+        保存并重试
+      </button>
+      {message && <span>{message}</span>}
+    </p>
+  );
 }
 
 export function VoicePanel({

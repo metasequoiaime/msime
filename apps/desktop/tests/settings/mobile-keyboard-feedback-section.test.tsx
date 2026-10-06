@@ -209,6 +209,25 @@ test("ignores a same-tick duplicate mobile feedback save", async () => {
   });
 });
 
+test("restores the previous value and reports a failed mobile feedback save", async () => {
+  const save = vi.fn().mockRejectedValue(new Error("fixture failure"));
+  const onError = vi.fn();
+  const client = {
+    load: vi.fn().mockResolvedValue(value),
+    save,
+  };
+  const { result } = renderHook(() => useMobileKeyboardFeedback({ mobile: true, client, onError }));
+  await waitFor(() => expect(result.current.value).toEqual(value));
+  onError.mockClear();
+
+  await act(async () => {
+    await result.current.save({ ...value, hapticsEnabled: false });
+  });
+
+  expect(result.current.value).toEqual(value);
+  expect(onError).toHaveBeenLastCalledWith("无法保存按键反馈设置，请重试。");
+});
+
 test("only mounts the host binding when mobile feedback is available", () => {
   const value: MobileKeyboardFeedback = {
     soundEnabled: true,

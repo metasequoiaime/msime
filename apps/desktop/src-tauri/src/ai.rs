@@ -7,10 +7,12 @@
 
 use crate::CommandError;
 use reqwest::Url;
+#[cfg(not(target_os = "linux"))]
 use serde_json::Value;
 use std::io::Read;
 
 pub(crate) const MAX_RESPONSE_BYTES: usize = 1_024 * 1_024;
+#[cfg(not(target_os = "linux"))]
 const MAX_MODELS: usize = 128;
 
 #[derive(Debug, Eq, PartialEq)]
@@ -70,10 +72,12 @@ pub(crate) fn ai_text_is_valid(value: &str, allow_empty: bool) -> bool {
 /// The listing sits next to the chat endpoint, whatever its version prefix
 /// (`/v1`, `/v1beta/openai`, `/api/paas/v4`). Keep in step with
 /// `mobile_ai::models_url`.
+#[cfg(any(not(target_os = "linux"), test))]
 pub(crate) fn ai_models_url(endpoint: &Url) -> Url {
     crate::shared::ai_url::models_url(endpoint.clone(), true)
 }
 
+#[cfg(not(target_os = "linux"))]
 pub(crate) fn ai_models_request(endpoint: &str, token: &str) -> Result<Vec<String>, CommandError> {
     let endpoint = validate_ai_endpoint(endpoint)?;
     validate_ai_token(token)?;
@@ -134,6 +138,7 @@ pub(crate) fn ai_models_request(endpoint: &str, token: &str) -> Result<Vec<Strin
     Ok(models)
 }
 
+#[cfg(not(target_os = "linux"))]
 pub(crate) fn ai_test_request(
     endpoint: &str,
     model: &str,

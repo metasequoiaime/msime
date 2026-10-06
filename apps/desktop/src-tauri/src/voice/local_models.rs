@@ -73,6 +73,7 @@ impl LocalModelInstalls {
             .is_some()
     }
 
+    #[cfg(test)]
     pub(crate) fn running(&self, id: &str) -> bool {
         self.0
             .lock()

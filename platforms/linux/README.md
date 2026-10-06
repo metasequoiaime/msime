@@ -100,17 +100,17 @@ msime-linux-setup --update --download   # 升级之后只取回过期的那几�
 
 `.rpm` 在 Fedora 44 容器里单独构建（`tests/tools/Dockerfile.package-rpm`），不是由 `.deb` 转换来的：rpmbuild 按二进制实际链接的库生成 Requires，在 Debian 上链接的二进制会带上 Debian 独有的 soname 与符号版本（例如 libcurl 的 `CURL_OPENSSL_4`），Fedora 上没有包提供它们，已归档的 MSIME-Linux 0.9.1 的 rpm 就是因此装不上（#2095）。它面向 Fedora 44 及提供同样库版本的 DNF 系统，用 `sudo dnf install ./msime-linux-<版本>-1.<架构>.rpm` 安装，`sudo dnf remove msime-linux` 卸载；维护脚本就是 `.deb` 的 prerm 与 postinst，前面加一段把 RPM 的实例计数换算成对应的 dpkg 参数，所以卸载与升级的行为与上面 `.deb` 的描述相同，自启动项是 `%config(noreplace)`。包自带的 Host API 库与 sherpa-onnx 运行库既不作为依赖要求、也不对系统声明提供。发行流程在构建后把它装进一个干净的 Fedora 容器再卸掉（`tests/tools/check-rpm-install.sh`），依赖解析不了就在那一步失败。支持更多发行版仍需按目标发行版分别构建。
 
-本地生成同一套附件：先 `pnpm install --frozen-lockfile && pnpm --filter @msime/desktop build`（桌面二进制在编译期嵌入前端产物），再 `bash platforms/linux/package-container.sh [版本]`。脚本在构建门禁镜像之上叠加 Tauri 与 Debian 打包依赖（`tests/tools/Dockerfile.package`），依次构建 Release 版 Host API 库、带 `tauri/custom-protocol` 的桌面二进制（报告的版本与包版本一致），用 `collect-notices.py` 收集这两个 Rust 产物静态链接的 crate 与前端打包进去的 npm 包的许可证文件，以 `-DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr -DMSIME_ENABLE_PACKAGING=ON -DMSIME_ENABLE_FCITX5=ON` 配置并构建原生宿主、跑与门禁相同的 ctest，最后用 CPack 生成 DEB 与 TGZ，产物在 `target/linux-package/dist`。`MSIME_PACKAGE_FORMAT=rpm` 换成 Fedora 镜像走同样的步骤，CPack 生成 RPM，产物在 `target/linux-package-rpm/dist`，之后可用 `bash platforms/linux/tests/tools/check-rpm-install.sh <rpm>` 做安装检查。`MSIME_PACKAGE_DESKTOP=0` 可在没有前端产物时只打原生宿主，但那样的包没有设置窗口，不能作为发行版。`build-container.sh` 仍是 Debug 构建的合并前门禁，不产出安装包。
+本地生成同一套附件：先 `pnpm install --frozen-lockfile && pnpm --filter @msime/desktop build`（桌面二进制在编译期嵌入前端产物），再 `bash platforms/linux/package-container.sh [版本]`。脚本在构建门禁镜像之上叠加 Tauri 与 Debian 打包依赖（`tests/tools/Dockerfile.package`），依次构建 Release 版 Host API 库、带 `tauri/custom-protocol` 的桌面二进制（报告的版本与包版本一致），用 `collect-notices.py` 收集这两个 Rust 产物静态链接的 crate 与前端打包进去的 npm 包的许可证文件，以 `-DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr -DMSIME_ENABLE_PACKAGING=ON -DMSIME_ENABLE_FCITX5=ON -DMSIME_BUNDLE_HANDWRITING_MODEL=OFF` 配置并构建原生宿主（发布页的包不带离线手写模型，由设置应用按需下载）、跑与门禁相同的 ctest，最后用 CPack 生成 DEB 与 TGZ，产物在 `target/linux-package/dist`。`MSIME_PACKAGE_FORMAT=rpm` 换成 Fedora 镜像走同样的步骤，CPack 生成 RPM，产物在 `target/linux-package-rpm/dist`，之后可用 `bash platforms/linux/tests/tools/check-rpm-install.sh <rpm>` 做安装检查。`MSIME_PACKAGE_DESKTOP=0` 可在没有前端产物时只打原生宿主，但那样的包没有设置窗口，不能作为发行版。`build-container.sh` 仍是 Debug 构建的合并前门禁，不产出安装包。
 
 在 Linux 上手工打包时，同样显式传入 `-DMSIME_ENABLE_PACKAGING=ON -DCMAKE_INSTALL_PREFIX=/usr`，并提供 Release 版 Host API 库、桌面二进制和已固定来源的资源；`-DMSIME_PACKAGE_VERSION=<版本>` 指定包版本，不传时取 `platforms/linux/version.txt`（发布工作流读的同一个文件）；IBus 宿主在启动与崩溃上报里报告的也是这个版本。打包构建必定包含 Fcitx5 原生插件（不受开发机上是否装有 Fcitx5 开发包影响）；若只需 IBus 开发构建，可显式传入 `-DMSIME_ENABLE_FCITX5=OFF`。打包构建不得设置 `MSIME_RUNTIME_OPTIONS_FILE`，也不得启用安装开发测试程序的 `MSIME_LINUX_VOICE`。打包构建还必须传入 `-DMSIME_RUST_NOTICES=<文件>`（`python3 platforms/linux/collect-notices.py cargo <文件> msime-host-api msime-desktop:tauri/custom-protocol`，不打桌面二进制时去掉后一项），打包桌面二进制时再传 `-DMSIME_FRONTEND_NOTICES=<文件>`（`python3 platforms/linux/collect-notices.py npm <文件> apps/desktop`，需先装好 `node_modules`），缺哪一个配置就失败。构建完成后运行 `cpack --config <build-dir>/CPackConfig.cmake -G "TGZ;DEB"`；DEB 需要 `dpkg-shlibdeps`（`dpkg-dev`）与 `file`。Debian 包在手写的 IBus、Python、Fcitx5 依赖之外，由 `dpkg-shlibdeps` 从 ELF 文件生成共享库依赖。归档不是可任意搬移的便携包。
 
-许可证与第三方声明装在 `${CMAKE_INSTALL_DATADIR}/doc/msime-client/`，普通 `cmake --install` 与安装包相同：`copyright`（本项目 GPL-3.0）、`THIRD_PARTY_NOTICES.txt`（本平台随附组件总览，源文件 `data/THIRD_PARTY_NOTICES.txt`），词库来源声明 `msime-engine-dictionary-NOTICE.md`（从 msime-engine 原样带过来，固定副本在 `resources/licenses/`）、辅助码声明 `msime-engine-helpcode-NOTICE.md`（`resources/helpcodes/ENGINE-NOTICE.md`）与 `msime-helpcode-jiajia-NOTICE.md`（`resources/helpcodes/NOTICE.md`）、离线手写识别所移植的 zinnia 的许可证 `Zinnia-LICENSE.txt`（`resources/licenses/`）、`@` 模式内置地名所取自的 modood/Administrative-divisions-of-China 的许可证 `Administrative-divisions-of-China-WTFPL.txt`（`resources/licenses/`）、韩语汉字转换内置汉字表所取自的 libhangul `data/hanja/hanja.txt` 的许可证 `libhangul-hanja-BSD-3-Clause.txt`（`resources/licenses/`）、引擎粤语与注音方案的数据所取自的 rime-cantonese 与 libchewing-data 的许可证 `rime-cantonese-CC-BY-4.0.txt` 与 `libchewing-data-LGPL-2.1.txt`、笔画方案的笔顺数据所取自的 rime-stroke 的许可证 `rime-stroke-LGPL-3.0.txt`（`resources/licenses/`；装了这些词库时，词库旁还有随数据发布的 `msime-rime_cantonese_LICENSE.txt`、`msime-libchewing_data_LICENSE.txt` 与 `msime-rime_stroke_LICENSE.txt`）、藏文方案所用 ewts crate 的许可证 `ewts-MIT.txt`（`resources/licenses/`；这个 crate 没有附许可证文件，按包元数据收集的 `rust-crates-NOTICES.txt` 里只有它声明的许可证表达式）、装了手写模型时随模型的 `HandwritingModel-LICENSE.txt`、OpenCC 词典的许可证，编进原生宿主与 Fcitx5 插件的 nlohmann/json（`nlohmann_json-MIT.txt`，固定副本在 `data/licenses/`）与 Wayland 协议代码（配置时从实际编译的 `wlr-layer-shell-unstable-v1.xml`、`xdg-shell.xml` 取出 `<copyright>` 段，只在找到 `xdg-shell.xml`、协议代码确实编入时安装），以及打包时收集的 `rust-crates-NOTICES.txt` 与 `frontend-npm-NOTICES.txt`。输入引擎是本项目自己的 Rust 代码（`crates/engine`），由同为 GPL-3.0 的 msime-engine 移植而来，由 `copyright` 覆盖，不再单独附 Engine 的许可证；录音采集走 cpal，其许可证在 Rust 汇总里。本项目许可证在这里按 Debian 的要求叫 `copyright`（macOS 是 `GPL-3.0.txt`）。打包配置时任何一份声明的来源缺失（通常是没有传入 Rust/npm 汇总，或没有手写模型）都会直接失败；普通开发配置不要求 Rust/npm 汇总，其余缺失只给出警告并安装剩下的部分。
+许可证与第三方声明装在 `${CMAKE_INSTALL_DATADIR}/doc/msime-client/`，普通 `cmake --install` 与安装包相同：`copyright`（本项目 GPL-3.0）、`THIRD_PARTY_NOTICES.txt`（本平台随附组件总览，源文件 `data/THIRD_PARTY_NOTICES.txt`），词库来源声明 `msime-engine-dictionary-NOTICE.md`（从 msime-engine 原样带过来，固定副本在 `resources/licenses/`）、辅助码声明 `msime-engine-helpcode-NOTICE.md`（`resources/helpcodes/ENGINE-NOTICE.md`）与 `msime-helpcode-jiajia-NOTICE.md`（`resources/helpcodes/NOTICE.md`）、离线手写识别所移植的 zinnia 的许可证 `Zinnia-LICENSE.txt`（`resources/licenses/`）、`@` 模式内置地名所取自的 modood/Administrative-divisions-of-China 的许可证 `Administrative-divisions-of-China-WTFPL.txt`（`resources/licenses/`）、韩语汉字转换内置汉字表所取自的 libhangul `data/hanja/hanja.txt` 的许可证 `libhangul-hanja-BSD-3-Clause.txt`（`resources/licenses/`）、引擎粤语与注音方案的数据所取自的 rime-cantonese 与 libchewing-data 的许可证 `rime-cantonese-CC-BY-4.0.txt` 与 `libchewing-data-LGPL-2.1.txt`、笔画方案的笔顺数据所取自的 rime-stroke 的许可证 `rime-stroke-LGPL-3.0.txt`（`resources/licenses/`；装了这些词库时，词库旁还有随数据发布的 `msime-rime_cantonese_LICENSE.txt`、`msime-libchewing_data_LICENSE.txt` 与 `msime-rime_stroke_LICENSE.txt`）、藏文方案所用 ewts crate 的许可证 `ewts-MIT.txt`（`resources/licenses/`；这个 crate 没有附许可证文件，按包元数据收集的 `rust-crates-NOTICES.txt` 里只有它声明的许可证表达式）、装了手写模型时随模型的 `HandwritingModel-LICENSE.txt`、OpenCC 词典的许可证，编进原生宿主与 Fcitx5 插件的 nlohmann/json（`nlohmann_json-MIT.txt`，固定副本在 `data/licenses/`）与 Wayland 协议代码（配置时从实际编译的 `wlr-layer-shell-unstable-v1.xml`、`xdg-shell.xml` 取出 `<copyright>` 段，只在找到 `xdg-shell.xml`、协议代码确实编入时安装），以及打包时收集的 `rust-crates-NOTICES.txt` 与 `frontend-npm-NOTICES.txt`。输入引擎是本项目自己的 Rust 代码（`crates/engine`），由同为 GPL-3.0 的 msime-engine 移植而来，由 `copyright` 覆盖，不再单独附 Engine 的许可证；录音采集走 cpal，其许可证在 Rust 汇总里。本项目许可证在这里按 Debian 的要求叫 `copyright`（macOS 是 `GPL-3.0.txt`）。打包配置时任何一份声明的来源缺失（通常是没有传入 Rust/npm 汇总，或要随包却没有手写模型）都会直接失败；普通开发配置不要求 Rust/npm 汇总，其余缺失只给出警告并安装剩下的部分。
 
 安装包不包含用户状态，不自动启用 provider 服务或切换输入法。首次使用由随装的 `msime-linux-setup` 备齐词库并准备运行配置（见上面的「安装后首次使用」）；语音录音、剪贴板、Wayland/X11 输入工具及可选模型按对应功能章节配置。包的内容取决于配置阶段传入了什么：没有传入桌面二进制或资源的构建只打包实际配置的部分，完整包需要同时提供二者。
 
 ### Nix 与 NixOS
 
-仓库根目录的 `flake.nix` 提供 `msime-fcitx5`（默认包）、`msime-host-api`、`msime-resources`、`overlays.default` 和开发 shell，实际的构建在 `platforms/linux/nix/`。`msime-host-api` 用 crane 构建，编译器按 `rust-toolchain.toml` 取自 rust-overlay，不用 nixpkgs 自带的 rustc；`msime-fcitx5` 是本目录的 CMake 构建，构建时跑与门禁相同的 ctest，装完再用 `ldd` 核对插件能按 RUNPATH 找到同一包里的 Host API。IBus engine、`msime-linux-setup` 等其余入口一并装进同一个包，但 NixOS 上目前只接入 Fcitx5；provider 服务、语音运行库和设置窗口还没有接进 Nix。
+仓库根目录的 `flake.nix` 提供 `msime-fcitx5`（默认包）、`msime-host-api`、`msime-resources`、`msime-handwriting-model`、`msime-voice-runtime`、`overlays.default`、NixOS 模块 `nixosModules.default` 和开发 shell，实际的构建在 `platforms/linux/nix/`。`msime-host-api` 用 crane 构建，编译器按 `rust-toolchain.toml` 取自 rust-overlay，不用 nixpkgs 自带的 rustc；`msime-fcitx5` 是本目录的 CMake 构建，构建时跑与门禁相同的 ctest，装完再用 `ldd` 核对插件能按 RUNPATH 找到同一包里的 Host API。IBus engine、`msime-linux-setup` 等其余入口一并装进同一个包，但 NixOS 上目前只接入 Fcitx5；设置窗口还没有接进 Nix。离线手写模型与各发行版的包一样默认随包：`msime-handwriting-model` 按 `resources/handwriting-model.lock.json` 的地址和 SHA-256 下载，构建中的 ctest `linux-handwriting-local-model` 用它识别两笔合成的「十」；不要它时用 `msime-fcitx5.override { handwritingModel = null; }`。本地语音识别用的 sherpa-onnx 运行库同样默认随包：`msime-voice-runtime` 取 `resources/voice-runtime.lock.json` 里本机架构的上游预编译库，由 ctest `linux-voice-local-runtime` 核对能被打开；不要它时用 `msime-fcitx5.override { voiceRuntime = null; }`。本地识别还需要识别模型，它由设置窗口下载，设置窗口接进 Nix 之前只能手动准备。
 
 ```sh
 nix build .#msime-fcitx5     # 插件、Host API 与命令行入口，构建中跑 ctest
@@ -118,29 +118,31 @@ nix flake check
 nix develop                  # 钉住的 Rust 工具链与 CMake/Fcitx5 开发依赖
 ```
 
-插件被加载进 `fcitx5` 进程，应当与系统上的 Fcitx5 出自同一份 nixpkgs，所以在系统配置里用 overlay 而不是直接取 `packages`：
+在 NixOS 上用模块。插件被加载进 `fcitx5` 进程，应当与系统上的 Fcitx5 出自同一份 nixpkgs，所以模块默认按本系统的 nixpkgs 构建 `msime-fcitx5`，不需要另加 overlay：
 
 ```nix
 # flake.nix 的 inputs
 msime.url = "github:metasequoiaime/msime";
 
-# NixOS 模块
-nixpkgs.overlays = [ inputs.msime.overlays.default ];
-i18n.inputMethod = {
-  enable = true;
-  type = "fcitx5";
-  fcitx5.addons = [ pkgs.msime-fcitx5 ];
-};
-environment.systemPackages = [ pkgs.msime-fcitx5 ]; # 首次配置要用的 msime-linux-setup
+# NixOS 配置（imports 里加 inputs.msime.nixosModules.default）
+programs.msime.enable = true;
 ```
 
-切换配置并重新登录后，运行 `msime-linux-setup --download` 完成首次配置（见「安装后首次使用」），它会把水杉输入法加进当前的 Fcitx5 输入法组。包默认不带词库，与 `.deb` 一致：词库由这一步下载到 `$XDG_DATA_HOME/msime-client/resources`，`runtime-options.json` 里记录的也是这个用户目录，Nix store 的路径不会被写进去。`msime-fcitx5.override { bundledResources = pkgs.msime-resources; }` 可以把 `desktop-dictionary.lock.json` 钉住的词库装进包里，`msime-resources` 直接按锁文件里的地址和 SHA-256 下载，不另记一份哈希；但这样首次配置记录的是 store 里的词库目录，词库锁不变时重新构建不会刷新这条记录，旧路径被垃圾回收后输入法就找不到词库，所以默认不这样做。
+`programs.msime.enable` 接入 Fcitx5 插件、放上 `msime-linux-setup` 等命令，并注册 provider 的用户单元：`programs.msime.services.online.enable`、`services.voice.enable` 两个按 socket 激活的服务和 `services.clipboard.enable` 剪贴板监视器默认都开，与 `msime-linux-setup` 首次配置时为用户启用的一致。`programs.msime.package` 可以换成 `override` 过的包。`nix flake check` 里的 `nixos-module` 起一台虚拟机核对这些单元能被拉起（需要 KVM）。
+
+以前按路径启用过这些单元（`systemctl --user enable /nix/store/…/msime-linux-online.socket` 之类）的用户，`~/.config/systemd/user` 里会留着指向旧 store 路径的链接，它们优先于模块注册的单元，旧路径被垃圾回收后单元就加载不了。换到模块后执行一次 `systemctl --user disable msime-linux-online.socket msime-linux-voice.socket msime-linux-clipboard.service`（会提示这些单元仍在全局范围启用，即由模块拉起）和 `systemctl --user daemon-reload`，再用 `systemctl --user show -p FragmentPath <单元>` 确认它们来自 `/etc/systemd/user`。
+
+录音、提示音和静音用的音频工具不随包，用系统的音频栈（例如 `services.pipewire`）。
+
+不用模块、经 `overlays.default` 自己写配置时，还要加上 `systemd.packages = [ pkgs.msime-fcitx5 ];`，否则 provider 单元不会注册到 systemd。
+
+切换配置并重新登录后，运行 `msime-linux-setup --download` 完成首次配置（见「安装后首次使用」），它会把水杉输入法加进当前的 Fcitx5 输入法组。包默认不带词库，与 `.deb` 一致：词库由这一步下载到 `$XDG_DATA_HOME/msime-client/resources`，`runtime-options.json` 里记录的也是这个用户目录，Nix store 的路径不会被写进去。`msime-fcitx5.override { bundledResources = pkgs.msime-resources; }` 可以把 `desktop-dictionary.lock.json` 钉住的词库装进包里，`msime-resources` 直接按锁文件里的地址和 SHA-256 下载，不另记一份哈希，词库放在包内的 `share/msime-client/resources`，旁边的 `share/doc/msime-resources` 带着逐项列出词库来源与上游条款的 `msime-engine-dictionary-NOTICE.md`；但这样首次配置记录的是 store 里的词库目录，词库锁不变时重新构建不会刷新这条记录，旧路径被垃圾回收后输入法就找不到词库，所以默认不这样做。
 
 每次 `nixos-rebuild switch` 换了插件之后，要让 Fcitx5 从新的会话环境启动：注销后重新登录，或在新开的终端里执行 `fcitx5 -rd`。NixOS 的 `fcitx5-with-addons` 用 `FCITX_ADDON_DIRS` 指定插件目录，这个目录随每次构建换成新的 store 路径；从 Fcitx5 内部重启（托盘菜单的「重新启动」、`fcitx5-configtool`）沿用的是旧进程的环境，加载的仍是上一次构建的插件。旧插件里编译进去的词库锁和新版 `msime-linux-setup` 准备的词库不一致时，表现是能切到水杉输入法但打字没有候选。可以用 `grep msime-fcitx5 /proc/$(pgrep -x fcitx5)/maps` 核对正在运行的插件是否来自当前系统（`readlink -f /run/current-system/sw/bin/fcitx5` 所在的那份 `fcitx5-with-addons`）。
 
 ### 包管理器
 
-除了发布页上的 `.deb`/`.rpm` 和上面的 Nix，仓库还维护这几个发行版仓库的包定义，都在 `platforms/linux/packaging/` 下，都只打完整版（full），内容与发布页的 `msime-linux` 包相同：Fcitx5 插件、IBus engine、`msime-linux-setup`、provider 服务、`msime-mcp`、设置窗口、语音运行库、手写模型、离线释义与粤语/注音/笔画词库；主词库同样不随包，装完每个用户运行一次 `msime-linux-setup --download`。
+除了发布页上的 `.deb`/`.rpm` 和上面的 Nix，仓库还维护这几个发行版仓库的包定义，都在 `platforms/linux/packaging/` 下，都只打完整版（full），内容与发布页的 `msime-linux` 包基本相同：Fcitx5 插件、IBus engine、`msime-linux-setup`、provider 服务、`msime-mcp`、设置窗口、语音运行库、离线释义与粤语/注音/笔画词库；唯一的区别是这些发行版包随包带手写模型（构建时离线，模型在 vendor 包里），发布页的 deb/rpm 不带，由设置应用按需下载；主词库同样不随包，装完每个用户运行一次 `msime-linux-setup --download`。
 
 | 仓库 | 定义 | 构建方式 |
 | --- | --- | --- |
@@ -150,7 +152,9 @@ environment.systemPackages = [ pkgs.msime-fcitx5 ]; # 首次配置要用的 msim
 | Debian/Ubuntu（Launchpad PPA、OBS） | `debian/` | 同上，vendor 包作为 `orig-vendor` 组件 tarball |
 | Gentoo overlay | `gentoo/`（`msime-9999.ebuild` 与 `msime.ebuild.in`） | crate 由 `pycargoebuild` 逐个列进 `SRC_URI`，资源按锁文件地址列出，前端取 `msime-<版本>-frontend.tar.xz` |
 
-所有定义的构建步骤都照搬 `package-container.sh`（同样的 cargo 目标、同样的 `-DMSIME_*` 选项、`-DMSIME_EDITION=full`），跑与门禁相同的 ctest，装完核对插件按 RUNPATH 找到的是本包里的 Host API；包描述和主页 `https://github.com/metasequoiaime/msime` 在各定义里一致；许可证除了项目自己的 `GPL-3.0-only`，还列出随包的第三方代码与数据（静态链接的 Rust crate 与 npm 包、sherpa-onnx 与 ONNX Runtime、手写模型、方言词库、离线释义等，涉及 Apache-2.0、MIT、LGPL、CC-BY-4.0、CC-BY-SA-4.0 等），AUR 的 `license` 与 RPM 的 `License` 是同一份 SPDX 清单，Gentoo 用它自己的许可证名，Debian 写在 `debian/copyright`。资源的哈希只记在 `resources/*.lock.json`，各定义不另抄：构建时由同一批 fetch 脚本核对。`scripts/test-linux-distro-packaging.py` 核对五份定义传给 CMake 的选项与 `package-container.sh` 相同，`scripts/test-arch-gentoo-packaging.py` 核对 AUR 与 Gentoo 的维护脚本、单元列表、`.SRCINFO` 与 Rust 版本，两者都由 `scripts/run-checks.sh` 自动运行。各目录的 README（`arch/README.md`、`gentoo/README.md`、`debian/README.source`）写了更细的取舍，`arch/check-in-container.sh` 与 `gentoo/check-in-container.sh` 在容器里做完整构建或检查。
+完整版的包（发布页的 `.deb`/`.rpm` 和上面这些发行版的包）把 `msime-mcp` 装进 `/usr/bin`，另装一个指向它的符号链接 `msime`，供手动测试输入法：`msime expand nihao` 按当前方案每行输出一个候选，`msime config` 列出当前偏好，`msime config set scheme=shuangpin` 修改偏好，`msime --help` 列出全部命令；其他版本装在 `/opt/msime-linux-<id>` 下，不带 `msime`。Nix 包目前不带 `msime-mcp`。
+
+所有定义的构建步骤都照搬 `package-container.sh`（同样的 cargo 目标、同样的 `-DMSIME_*` 选项、`-DMSIME_EDITION=full`；唯一的有意差别是发行版传 `MSIME_HANDWRITING_MODEL_DIR` 随包带手写模型，`package-container.sh` 传 `-DMSIME_BUNDLE_HANDWRITING_MODEL=OFF`），跑与门禁相同的 ctest，装完核对插件按 RUNPATH 找到的是本包里的 Host API；包描述和主页 `https://github.com/metasequoiaime/msime` 在各定义里一致；许可证除了项目自己的 `GPL-3.0-only`，还列出随包的第三方代码与数据（静态链接的 Rust crate 与 npm 包、sherpa-onnx 与 ONNX Runtime、手写模型、方言词库、离线释义等，涉及 Apache-2.0、MIT、LGPL、CC-BY-4.0、CC-BY-SA-4.0 等），AUR 的 `license` 与 RPM 的 `License` 是同一份 SPDX 清单，Gentoo 用它自己的许可证名，Debian 写在 `debian/copyright`。资源的哈希只记在 `resources/*.lock.json`，各定义不另抄：构建时由同一批 fetch 脚本核对。`scripts/test-linux-distro-packaging.py` 核对五份定义传给 CMake 的选项与 `package-container.sh` 相同（手写模型那一项除外），`scripts/test-arch-gentoo-packaging.py` 核对 AUR 与 Gentoo 的维护脚本、单元列表、`.SRCINFO` 与 Rust 版本，两者都由 `scripts/run-checks.sh` 自动运行。各目录的 README（`arch/README.md`、`gentoo/README.md`、`debian/README.source`）写了更细的取舍，`arch/check-in-container.sh` 与 `gentoo/check-in-container.sh` 在容器里做完整构建或检查。
 
 **每次发布自动产出、不自动发布。** `release-linux.yml` 的 `distro-sources` job 用 `packaging/make-source-tarballs.sh` 生成上面三个 tarball，随发布上传；发布之后 `package-definitions` job 在同一提交上运行 `packaging/render-definitions.sh <版本> <目录>`，在各发行版的官方容器里渲染出 `rpm/`（`msime.spec`、`msime-rpmlintrc`、`msime-<版本>-1.src.rpm`）、`debian/`（`.dsc` 与 `.debian.tar.xz`）、`arch/`（两个包各自的 `PKGBUILD`、`.SRCINFO`、`msime.install`）和 `gentoo/`（带 Manifest 的完整 overlay），作为构建产物 `msime-package-definitions-linux-<版本>` 上传。版本号只来自 `platforms/linux/version.txt`（或手动触发时填的版本），`.rpm` 与三个 tarball 的校验值只来自发布页的 `SHA256SUMS`；AUR 的 `msime` 与 Gentoo 的版本 ebuild 还要 GitHub 为 `linux-v<版本>` 标签生成的源码归档，它不是发布资产、不在 `SHA256SUMS` 里，校验值由 `arch/render.py` 与 `ebuild manifest` 下载后现算，GitHub 改变归档的生成方式时这两个包的校验会失败。本地也可以对任何一个已发布的版本跑同一个脚本（需要 docker），`MSIME_DEFINITIONS=arch,gentoo` 只渲染其中几部分。
 
@@ -184,26 +188,11 @@ cd aur-msime && git add PKGBUILD .SRCINFO msime.install && git commit -m "Update
 
 `msime-bin` 同理，仓库换成 `ssh://aur@aur.archlinux.org/msime-bin.git`，文件取 `defs/arch/msime-bin/`。再把 `defs/arch/` 下的两个目录拷回 `platforms/linux/packaging/arch/`，经普通 PR 合入 `develop`，让仓库里的副本与 AUR 一致。
 
-**Fedora COPR**（首次：`copr-cli create msime --chroot fedora-43-x86_64 --chroot fedora-43-aarch64 --chroot fedora-44-x86_64 --chroot fedora-44-aarch64 --description '水杉输入法'`，构建默认不联网，正合需要）：
+**Fedora COPR**：项目 `msime/msime`（<https://copr.fedorainfracloud.org/coprs/msime/msime/>），chroot 为 Fedora 43/44 的 x86_64 与 aarch64，构建不联网。Fedora 用户执行 `sudo dnf copr enable msime/msime && sudo dnf install msime`。Release Linux 在发布页生成后自动调用 `.github/workflows/publish-linux-copr.yml`：从 `linux-vV` 的 spec 打出 SRPM，`copr-cli build` 提交并等待构建结束，失败会显示在这次运行上（需要仓库 secret `COPR_CONFIG`，即 <https://copr.fedorainfracloud.org/api/> 给出的整段 `~/.config/copr`；缺少时跳过并告警）。COPR 的 API token 有效期 180 天，过期时工作流报错并指向重新生成的页面，剩不到 30 天时告警。补发或重建某个版本用 `gh workflow run publish-linux-copr.yml -f version=V`。新增 Fedora 版本时在项目设置里勾选对应 chroot，或用 `copr-cli modify msime --chroot <每个要保留和新增的 chroot>`（这个选项给的是完整列表）。
 
-```sh
-copr-cli build <owner>/msime defs/rpm/msime-V-1.src.rpm
-```
+**openSUSE OBS** 是官方的发行版仓库：项目 `home:msime`（<https://build.opensuse.org/project/show/home:msime>），同时构建 RPM 与 Debian 包，目前覆盖 Fedora 43/44（x86_64、aarch64）、openSUSE Tumbleweed、Ubuntu 24.04/26.04、Debian testing/unstable 与 Arch Linux（含 Omarchy 等衍生版）（x86_64）。Arch 仓库用 `arch/msime-bin` 的 PKGBUILD 重新打包发布页的 `.rpm`（OBS 构建不联网，`publish.sh` 把那个 `.rpm` 原名放进包里，makepkg 找到同名文件就不下载），用户把 `[home_msime_Arch]` 加进 `/etc/pacman.conf` 后 `pacman -S msime-bin`；OBS 自己解析 PKGBUILD 求依赖，不认数组里的注释，所以两个 PKGBUILD 的数组里不写注释。用户经 `curl -fsSL https://msime.app/install.sh | sh` 安装（脚本在 msime-web 仓库的 `public/install.sh`），它按发行版添加 `https://download.opensuse.org/repositories/home:/msime/<仓库>/` 和签名公钥，再用 dnf、zypper 或 apt 安装 `msime`；之后的升级随系统更新到来。Release Linux 在发布页生成后自动调用 `.github/workflows/publish-linux-obs.yml`，把这个版本的打包定义和源码包提交到 OBS（需要仓库 secret `OBS_USER`/`OBS_PASSWORD`，缺少时跳过并告警）；补发或重发某个版本用 `gh workflow run publish-linux-obs.yml -f version=V`。项目配置在 `packaging/obs/`：`repositories.txt` 列出构建哪些仓库（Ubuntu 要显式列出 `universe-update`、`update`、`universe`、`standard` 四个源，rustc 1.91 只在 `universe-update` 里），`prjconf` 固定 Ubuntu 上 cargo/rustc 的候选包与 Debian 上 libselinux 的提供者，`_constraints` 要求 8 GB 内存与 40 GB 磁盘，`publish.sh VERSION DEFS RELEASE` 据此写入项目 meta 并提交，本地运行时用 `osc` 当前登录的账号。Debian 12/13、Ubuntu 22.04 和 openSUSE Leap 不在其中：前两者的 rustc 低于 1.90，Ubuntu 22.04 的 Fcitx5 低于 5.0.20，Leap 不在 OBS 的发行版列表里（见 `repositories.txt` 的注释）。
 
-**openSUSE OBS**（首次：`osc meta pkg -e home:<user> msime`，仓库选 `openSUSE_Tumbleweed`、`openSUSE_Leap_16.0`，架构 x86_64 与 aarch64）：
-
-```sh
-osc checkout home:<user>/msime && cd home:<user>/msime
-rm -f msime-*.tar.xz
-cp ../../defs/rpm/msime.spec ../../defs/rpm/msime-rpmlintrc .
-curl -LO https://github.com/metasequoiaime/msime/releases/download/linux-vV/msime-V.tar.xz
-curl -LO https://github.com/metasequoiaime/msime/releases/download/linux-vV/msime-V-vendor.tar.xz
-osc addremove && osc commit -m "Update to V" && osc results
-```
-
-OBS 也能构建 Debian/Ubuntu：把 `defs/debian/` 的 `.dsc`、`.debian.tar.xz` 和两个 orig tarball（发布页的 `msime-V.tar.xz`、`msime-V-vendor.tar.xz` 分别改名为 `msime_V.orig.tar.xz`、`msime_V.orig-vendor.tar.xz`）放进同一个包，再打开对应的 Debian/xUbuntu 仓库。
-
-**Launchpad PPA**：Launchpad 只收签名的源码上传，每个 Ubuntu 代号要单独的 `debian/changelog`，所以在本地按 `debian/README.source` 的「上传到 PPA」重新生成并签名，例如 Ubuntu 26.04：`render-sources.py --debian-distribution resolute --debian-revision 1~ppa1~ubuntu26.04`，`debuild -S -sa -d -k<密钥>`（`-d` 跳过 Build-Depends 核对，打源码包的机器只需 `devscripts`、`debhelper` 与 `dput`），`dput ppa:<owner>/msime ../msime_V-1~ppa1~ubuntu26.04_source.changes`。PPA 默认只构建 amd64，arm64 要在 PPA 设置里打开。Ubuntu 24.04 的默认 rustc 太旧，见 `debian/README.source`；Debian 13（rustc 1.85）不能作为目标。
+**Launchpad PPA**：`ppa:msime/ppa`（<https://launchpad.net/~msime/+archive/ubuntu/ppa>），目前上传 Ubuntu 24.04（noble）与 26.04（resolute）。Ubuntu 用户执行 `sudo add-apt-repository ppa:msime/ppa && sudo apt install msime`。Launchpad 只收签名的源码上传，每个代号要单独的 `debian/changelog`；Release Linux 在发布页生成后自动调用 `.github/workflows/publish-linux-ppa.yml`，按 `debian/README.source` 的「上传到 PPA」为每个代号生成 `1~ppa1~ubuntu<版本>` 的源码包并签名上传（第一个代号带上两个 orig tarball，之后的复用），给 noble 的那份把 Build-Depends 的 cargo、rustc 直接换成 cargo-1.91、rustc-1.91，因为 Launchpad 只取第一个候选。签名密钥是仓库 secret `LAUNCHPAD_GPG_KEY`（`MSIME Release Signing <admin@msime.app>`，指纹 `B9C96EE4B38BF864233BFA1CF25F85719A49653E`，2028-10-04 到期，公钥在 keyserver.ubuntu.com 并登记在 Launchpad 账号 msime 上）；缺少时跳过并告警。Launchpad 不接受同一版本号重传，重新上传已被接受的版本用 `gh workflow run publish-linux-ppa.yml -f version=V -f ppa_revision=2`。构建在 Launchpad 上进行，结果看 PPA 的 +packages 页。Ubuntu 22.04 的 Fcitx5 过旧、Debian 13（rustc 1.85）不能作为目标。
 
 **Gentoo**（建议单独的 overlay 仓库，例如 `metasequoiaime/gentoo-overlay`）：
 
@@ -310,7 +299,7 @@ Linux 独立手写面板使用同一类用户管理 Unix socket，不把 GTK、W
 
 识别服务返回 `{"candidates":["你","好"]}`，最多 12 个候选，每项最多 4096 字节；请求和响应各自限时 500ms。模型、凭据和平台识别器由该服务负责，面板可以用 `msime-linux-handwriting /absolute/socket` 复用 Host API 契约。服务不可用或响应过期时面板保留笔画，不向 IBus 会话伪造提交；候选点击应由面板在当前手写请求代次内完成。
 
-装有离线手写模型时，面板也可执行 `msime-linux-handwriting --local /absolute/handwriting-zh_CN.model`。安装后的工具省略模型参数时会读取绝对路径环境变量 `MSIME_HANDWRITING_MODEL`，否则按自身安装前缀查找 `share/msime-client/handwriting/handwriting-zh_CN.model`。该入口把归一化笔画交给输入引擎里移植自 zinnia 的识别器，模型路径必须是受信任的绝对路径；没有模型或识别失败时返回错误，不回退为伪造候选。
+装有离线手写模型时，面板也可执行 `msime-linux-handwriting --local /absolute/handwriting-zh_CN.model`。安装后的工具省略模型参数时会读取绝对路径环境变量 `MSIME_HANDWRITING_MODEL`，否则按自身安装前缀查找 `share/msime-client/handwriting/handwriting-zh_CN.model`；发布页的 deb/rpm 不在这里放模型，见下文「离线中文手写模型」一段。该入口把归一化笔画交给输入引擎里移植自 zinnia 的识别器，模型路径必须是受信任的绝对路径；没有模型或识别失败时返回错误，不回退为伪造候选。
 
 独立 Emoji 面板也可通过该 socket 查询目录。请求使用 `kind:"emoji"`，查询包含 `search`、`category` 和 `limit`；服务返回 `{"items":[{"text":"😀","annotation":"grinning face"}]}`。搜索最多 256 字节、分类最多 128 字节、结果最多 96 项，每项文本最多 64 字节、注释最多 256 字节，调用限时 500ms。面板使用 `msime-linux-emoji /absolute/socket` 获取结果；没有 provider 时可用 `msime-linux-emoji --local /absolute/resource-generation` 直接查询已验证的 `msime-others.db`。Linux 桌面打开面板时保存当前输入目标，点击项目优先用 `xdotool type` 或 `wtype` 回填当前编辑器，目标已失效时回退到剪贴板；IBus Engine 仍只负责组合中的本地 Emoji 模式，不读取系统剪贴板。
 
@@ -446,7 +435,7 @@ msime-linux-prepare --installed /absolute/new-state
 
 非英文翻译目标（法、日、西、俄、德、韩）的离线释义词典是可选的：用 `scripts/build_offline_glosses.py` 生成到 `target/offline-glosses` 后，配置时传 `-DMSIME_OFFLINE_GLOSSES=/absolute/target/offline-glosses`，CMake 把其中的 `zh-*.db` 连同必需的 `offline-glosses-NOTICE.txt` 装到资源目录的同级 `${CMAKE_INSTALL_DATADIR}/msime-client/offline-glosses`。使用显式资源目录时，把它们放在该目录同级的 `offline-glosses/` 下即可。IBus 与 Fcitx5 在主翻译目标装有词典时先显示词典释义，开启候选翻译且配置了自己的翻译服务时再逐个询问所有候选，服务的回答替换词典的，没回答的保留词典释义。没有这些文件时候选释义仍只有英文。
 
-粤拼、注音与笔画的词库同样是可选的：`scripts/fetch_language_dictionaries.py` 按 `resources/language-dictionaries.lock.json` 下载到 `target/language-dictionaries`（锁还没有发布时只打印 skipped 并成功退出），配置时自动使用该目录，也可以传 `-DMSIME_LANGUAGE_DICTIONARIES=/absolute/dir`。CMake 把其中的 `msime-cantonese.db` 连同 `msime-rime_cantonese_LICENSE.txt`、`msime-zhuyin.db` 连同 `msime-libchewing_data_LICENSE.txt`、`msime-stroke.db` 连同 `msime-rime_stroke_LICENSE.txt` 装到资源目录的同级 `${CMAKE_INSTALL_DATADIR}/msime-client/language-dictionaries`；词库旁缺少许可证时配置直接失败，不会只装数据。`-DMSIME_REQUIRE_LANGUAGE_DICTIONARIES=ON`（`package-container.sh` 下是环境变量 `MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1`）要求 `resources/language-dictionaries.lock.json` 固定的每一份都在，否则配置失败；锁固定 `msime-stroke.db` 之前笔画词库不在必需之列。用 `msime-linux-setup --download` 自己下载到 `$XDG_DATA_HOME/msime-client/resources` 的资源目录旁没有这份目录，此时粤拼、注音与笔画不可用，除非手动把它们放到同级的 `language-dictionaries/` 下。越南文和藏文不需要任何数据。
+粤拼、注音与笔画的词库同样是可选的：`scripts/fetch_language_dictionaries.py` 按 `resources/language-dictionaries.lock.json` 下载到 `target/language-dictionaries`（锁还没有发布时只打印 skipped 并成功退出），配置时自动使用该目录，也可以传 `-DMSIME_LANGUAGE_DICTIONARIES=/absolute/dir`。CMake 把其中的 `msime-cantonese.db` 连同 `msime-rime_cantonese_LICENSE.txt`、`msime-zhuyin.db` 连同 `msime-libchewing_data_LICENSE.txt`、`msime-stroke.db` 连同 `msime-rime_stroke_LICENSE.txt` 装到资源目录的同级 `${CMAKE_INSTALL_DATADIR}/msime-client/language-dictionaries`；词库旁缺少许可证时配置直接失败，不会只装数据。`-DMSIME_REQUIRE_LANGUAGE_DICTIONARIES=ON`（`package-container.sh` 下是环境变量 `MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1`）要求 `resources/language-dictionaries.lock.json` 固定的每一份都在，否则配置失败；锁固定 `msime-stroke.db` 之前笔画词库不在必需之列。用 `msime-linux-setup --download` 自己下载到 `$XDG_DATA_HOME/msime-client/resources` 的资源目录旁没有这份目录，打包时没有备齐这几份词库的安装也是如此。这时设置应用的资源包列表会提供「粤语、注音与笔画词库」，与 macOS 同一个资源包，下载、校验后装到状态目录的 `resource-packs/language-dictionaries/`；宿主下一次获得焦点时就能用上，不需要重启。随包带齐三份词库时不列出它。也可以手动把词库放到资源目录同级的 `language-dictionaries/` 下。越南文和藏文不需要任何数据。
 
 `--installed` 通过 `/proc/self/exe` 的实际路径和配置时的数据目录相对位置定位同一安装前缀下的资源目录，状态目录仍必须是绝对路径且不存在。它不会修改输入法选择、启动服务或创建用户状态，只有显式执行命令才会准备新状态；未配置资源包时请继续使用显式资源目录形式。
 
@@ -462,9 +451,9 @@ CMake 配置时可传入 `-DMSIME_EMOJI_RESOURCES=/absolute/emoji-resources`，�
 
 Emoji 本地 CLI 的 `msime-linux-emoji --local` 会按显式资源目录、其中包含 `msime-others.db` 的 `MSIME_EMOJI_RESOURCES`、`$XDG_DATA_HOME/msime-client/emoji`、`$XDG_DATA_DIRS/*/msime-client/emoji`、安装前缀和系统数据目录顺序查找资源。显式传入路径优先；未找到时返回错误，不访问网络。这样发行版安装后的 Emoji 面板不要求用户手工复制 Windows 风格资源路径。
 
-`msime-linux-handwriting --local` 也会按显式模型路径、`MSIME_HANDWRITING_MODEL`、`$XDG_DATA_HOME`、`$XDG_DATA_DIRS`、安装前缀和系统目录自动查找模型；未找到模型时不访问网络。
+`msime-linux-handwriting --local` 也会按显式模型路径、`MSIME_HANDWRITING_MODEL`、`$XDG_DATA_HOME`、`$XDG_DATA_DIRS`、安装前缀和系统目录自动查找模型，都没有时再看设置应用下载到默认数据目录的那份（`$XDG_CONFIG_HOME/<客户端目录>/resource-packs/handwriting/`；数据目录移到别处后要显式指定）；未找到模型时不访问网络。
 
-离线中文手写模型（zinnia 格式，26.8 MB，LGPL-2.1）不进版本库：`resources/handwriting-model.lock.json` 按 msime-engine 固定提交的 HTTPS 地址、字节数和 SHA-256 锁定模型与许可证，`python3 scripts/fetch_handwriting_model.py` 把两者下载到 `target/handwriting-model`（`--out` 可改），不符即丢弃、已符合则跳过。CMake 在该目录存在时自动使用（也可 `-DMSIME_HANDWRITING_MODEL_DIR=/absolute/dir` 指定），逐个按锁校验后装到 `${CMAKE_INSTALL_DATADIR}/msime-client/handwriting`，锁本身装到 `${CMAKE_INSTALL_DATADIR}/msime-client` 作来源记录；打包时缺少模型直接失败，`package-container.sh` 会在容器内取回。面板应只引用该受信任安装路径。
+离线中文手写模型（zinnia 格式，26.8 MB，LGPL-2.1）不进版本库：`resources/handwriting-model.lock.json` 按 msime-engine 固定提交的 HTTPS 地址、字节数和 SHA-256 锁定模型与许可证，`python3 scripts/fetch_handwriting_model.py` 把两者下载到 `target/handwriting-model`（`--out` 可改），不符即丢弃、已符合则跳过。CMake 在该目录存在时自动使用（也可 `-DMSIME_HANDWRITING_MODEL_DIR=/absolute/dir` 指定），逐个按锁校验后装到 `${CMAKE_INSTALL_DATADIR}/msime-client/handwriting`，锁本身装到 `${CMAKE_INSTALL_DATADIR}/msime-client` 作来源记录。随不随包由 `MSIME_BUNDLE_HANDWRITING_MODEL` 决定：默认 `ON`，打包时缺少模型直接失败，`packaging/` 下各发行版的定义和 Nix 都按这个默认随包；发布页的 deb/rpm 由 `package-container.sh` 以 `-DMSIME_BUNDLE_HANDWRITING_MODEL=OFF` 配置，不下载也不安装模型和它的许可证，用户需要手写时由设置应用按同一份锁把两者下载到自己的状态目录（手写资源包）。面板应只引用受信任的安装路径或这份按锁校验过的下载。
 
 若要把 Tauri 设置窗口一并安装，可先用 `pnpm --filter @msime/desktop tauri build --no-bundle` 生成 Linux 二进制，再在 CMake 配置阶段传入 `-DMSIME_DESKTOP_BINARY=/absolute/path/to/msime-desktop`。安装会增加 `msime-linux-desktop`、`msime-linux-settings` 和桌面菜单项；设置启动器按 `MSIME_CLIENT_HOST_OPTIONS`、`MSIME_IBUS_OPTIONS`、用户配置路径、安装时配置的系统配置路径的顺序选择绝对 runtime-options，并把它传给 Tauri 宿主，不把开发机路径写入桌面文件。启动器默认设置 `WEBKIT_DISABLE_COMPOSITING_MODE=1`，规避部分驱动上的 GBM 缓冲分配失败与 Wayland 显式同步协议错误，终端、桌面菜单及输入法菜单入口均生效；不强制切换 GTK 后端。排查时可显式设置 `WEBKIT_DISABLE_COMPOSITING_MODE=0` 恢复合成，需先退出已运行的设置进程，避免单实例复用旧环境。设置页的“语音输入”分类可打开独立语音面板，面板调用同一 provider 并把识别结果提交到打开前捕获的编辑器。Linux IBus 与 Fcitx5 菜单顶层的“词库…”“设置…”“关于水杉输入法”以及“桌面工具”中的“帮助”“反馈”分别路由到共享 Tauri 的对应设置页（`msime-linux-settings --panel dictionary|settings|about|help|feedback` 同样如此）；“快捷键”分类提供“重启输入法服务”按钮：先用 `fcitx5-remote --check` 探测当前会话，Fcitx5 正在运行时经 `gdbus` 调用它的 `ReloadAddonConfig`（参数 `msime`）重置水杉插件，否则调用当前用户的 `ibus restart`。探测不会通过 D-Bus 启动一个原本未运行的 Fcitx5，也不会为了刷新 MSIME 杀掉承载其他输入法的整个 Fcitx5 进程。普通配置保存仍通过 runtime-options 文件热重载，不需要为了设置变更重启服务。
 
@@ -781,7 +770,7 @@ Linux 安装包包含 Windows 固定提交中的开始、结束录音提示音�
 
 本地离线手写识别和外部 socket 识别共同使用 Engine 的候选策略：去重、中文候选优先、同组保持原顺序，最多十二项。本地识别也从八项扩展为十二项。中文范围对齐 Windows 手写面板固定基线的 CJK、扩展 A 与兼容汉字范围；排序不由平台界面维护。
 
-构建只安装按 `resources/handwriting-model.lock.json` 校验过的模型，文件名固定为 `handwriting-zh_CN.model`，保证桌面面板和 `msime-linux-handwriting --local` 自动找到同一模型；要试别的模型，在运行时用显式模型参数或 `MSIME_HANDWRITING_MODEL` 指过去。桌面配置或环境变量的模型路径为空时视为未配置并继续查找安装资源；非空但无效的显式路径仍会报错，不切换到其他模型。
+构建只安装按 `resources/handwriting-model.lock.json` 校验过的模型，文件名固定为 `handwriting-zh_CN.model`，保证桌面面板和 `msime-linux-handwriting --local` 自动找到同一模型（发布页的 deb/rpm 不装模型，两者都改用设置应用下载的那份）；要试别的模型，在运行时用显式模型参数或 `MSIME_HANDWRITING_MODEL` 指过去。桌面配置或环境变量的模型路径为空时视为未配置并继续查找安装资源；非空但无效的显式路径仍会报错，不切换到其他模型。
 
 ### Wayland 剪贴板变更通知
 

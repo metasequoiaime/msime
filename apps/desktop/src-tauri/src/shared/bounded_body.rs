@@ -7,7 +7,8 @@ const INITIAL_READ_CAPACITY: usize = 8 * 1024;
 #[derive(Debug)]
 pub(crate) enum BoundedReadError {
     TooLarge,
-    Read(io::Error),
+    // 只有 `read_runtime_options_bytes` 把它交出去，而 macOS 不编译那个函数。
+    Read(#[cfg_attr(target_os = "macos", allow(dead_code))] io::Error),
 }
 
 /// Read at most one byte past `maximum` so streams without a trustworthy

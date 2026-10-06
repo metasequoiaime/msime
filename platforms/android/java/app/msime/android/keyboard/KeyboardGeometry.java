@@ -87,6 +87,16 @@ public final class KeyboardGeometry {
             DEFAULT_KEY_SPACING_TENTHS);
     }
 
+    /** Widest key spacing the Dachen keyboard takes: eleven columns leave each key a tenth less width than the 26-key rows, and a 6 dp gap would take that out of the keycap itself. */
+    public static final int ZHUYIN_MAX_KEY_SPACING_TENTHS = 40;
+
+    /** The key spacing a touch layout draws with; the Dachen rows cap the setting rather than replace it, so a narrower gap the user picked still applies. */
+    public static int layoutKeySpacing(int value, int touchLayout) {
+        int spacing = keySpacing(value);
+        return touchLayout == KeyboardLayout.ZHUYIN_LAYOUT
+            ? Math.min(spacing, ZHUYIN_MAX_KEY_SPACING_TENTHS) : spacing;
+    }
+
     public static int rowSpacing(int value) {
         return clamp(value, MIN_ROW_SPACING_TENTHS, MAX_ROW_SPACING_TENTHS,
             DEFAULT_ROW_SPACING_TENTHS);

@@ -143,6 +143,16 @@ try {
   assert.ok(copied.SKINS.includes("wechat") && copied.SKINS.includes(copied.DEFAULT_SKIN));
   for (const id of copied.SKINS) assert.match(copied.resolveSkin(id).variables["--cand-bg"], /^#[0-9A-F]{6}([0-9A-F]{2})?$/);
   assert.equal(typeof copied.createCandidateBar, "function");
+
+  // 7. 只要候选栏的页面从 `@msime/web-engine/candidates.js` 导入：包的 exports 列出这个子路径和它的类型，两个文件都在包里，导出的就是入口里的那个候选栏。
+  const manifest = JSON.parse(readFileSync(join(pkgDir, "package.json"), "utf8"));
+  assert.deepEqual(manifest.exports["./candidates.js"], { types: "./candidates.d.ts", default: "./candidates.js" });
+  for (const f of ["candidates.js", "candidates.d.ts"]) {
+    assert.ok(manifest.files.includes(f) && existsSync(join(pkgDir, f)), `package is missing ${f}`);
+  }
+  const candidates = await import(pathToFileURL(join(pkgDir, "candidates.js")).href);
+  assert.equal(candidates.createCandidateBar, sdk.createCandidateBar);
+  assert.equal(candidates.CANDIDATE_BAR_TAG, sdk.CANDIDATE_BAR_TAG);
   console.log("smoke: ok");
 } finally {
   server.close();

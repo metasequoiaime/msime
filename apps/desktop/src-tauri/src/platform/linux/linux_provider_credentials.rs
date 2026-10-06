@@ -219,7 +219,7 @@ fn read_private(path: &Path) -> Result<Option<Map<String, Value>>, CredentialErr
         return Err(CredentialError::Existing);
     }
     let text = std::str::from_utf8(&bytes).map_err(|_| CredentialError::Storage)?;
-    match serde_json::from_str::<Value>(&text) {
+    match serde_json::from_str::<Value>(text) {
         Ok(Value::Object(map)) => Ok(Some(map)),
         _ => Err(CredentialError::Existing),
     }
@@ -1213,7 +1213,7 @@ mod tests {
         let real = parent.path().join("real");
         std::fs::create_dir(&real).unwrap();
         let linked = real.join("linked");
-        std::os::unix::fs::symlink(outside.path(), &linked).unwrap();
+        msime_path_trust::untrusted_symlink(outside.path(), &linked).unwrap();
 
         assert_eq!(
             save_ai_in(

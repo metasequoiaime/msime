@@ -600,7 +600,7 @@ impl ServerHandler for MsimeServer {
         )
         .with_server_info(Implementation::new(
             self.config.server_name(),
-            env!("CARGO_PKG_VERSION"),
+            env!("MSIME_APP_VERSION"),
         ))
         .with_instructions(INSTRUCTIONS)
     }

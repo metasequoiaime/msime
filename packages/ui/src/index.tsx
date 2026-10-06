@@ -102,7 +102,6 @@ import { WindowTitlebar } from "./settings/window-titlebar";
 import { useProviderCredentials } from "./settings/use-provider-credentials";
 import { useFeedbackReport } from "./settings/use-feedback-report";
 import { useDataDirectory } from "./settings/use-data-directory";
-import { useCustomTranslations } from "./settings/use-custom-translations";
 import { usePreferenceRecovery } from "./settings/use-preference-recovery";
 import { useSettingsPersistence } from "./settings/use-settings-persistence";
 import { useInputSourceUninstall } from "./settings/use-input-source-uninstall";
@@ -136,11 +135,6 @@ export {
   type DataDirectoryConfirmOptions,
   type UseDataDirectoryOptions,
 } from "./settings/use-data-directory";
-export {
-  useCustomTranslations,
-  type CustomTranslationsClient,
-  type UseCustomTranslationsOptions,
-} from "./settings/use-custom-translations";
 export {
   usePreferenceRecovery,
   type PreferenceRecoveryConfirmOptions,
@@ -1085,10 +1079,6 @@ export {
   type CustomTranslationSectionProps,
 } from "./settings/custom-translation-section";
 export {
-  CustomTranslationsSection,
-  type CustomTranslationsSectionProps,
-} from "./settings/custom-translations-section";
-export {
   TencentTranslationSection,
   type TencentTranslationSectionProps,
 } from "./settings/tencent-translation-section";
@@ -1510,13 +1500,6 @@ export {
   type CloudDictionaryQueryToolbarProps,
 } from "./keyboard/cloud-dictionary-query-toolbar";
 export type { EmojiCatalogGroup } from "./emoji/emoji-catalog";
-export {
-  customTranslationsExample,
-  customTranslationsWithinBounds,
-  parseCustomTranslations,
-  type CustomTranslationEntry,
-  type CustomTranslationReport,
-} from "./dictionary/custom-translations";
 export type { VoiceCaptureDevice, VoiceDeviceReader } from "./voice/voice-device-picker";
 export {
   LocalModelManager,
@@ -1535,9 +1518,12 @@ export {
   ResourcePackRow,
   resourcePackForScheme,
   resourcePackTitles,
+  savedModelMirror,
   useResourcePacks,
+  type ModelMirrorClient,
   type ResourcePackClient,
   type ResourcePackId,
+  type ResourcePackMirror,
   type ResourcePacks,
   type ResourcePackStatus,
 } from "./settings/resource-packs";
@@ -2056,11 +2042,6 @@ export interface SettingsClient {
   /** Desktop community commands that publish, install and rate plugin packs; installs land in the store behind `plugins`. */
   communityPlugins?: CommunityPluginClient;
   listVoiceCaptureDevices?: VoiceDeviceReader;
-  /**
-   * The user's own candidate glosses. Windows delivers these as a file dropped in the profile
-   * directory; a host whose user data lives in an app sandbox has to offer a way in instead.
-   */
-  customTranslations?: { load(): Promise<string>; save(text: string): Promise<void> };
   listFontFamilies?: FontCatalogReader;
   resolveFontFamilies?: (names: string[]) => Promise<string[]>;
   scanSkinCatalog?: () => Promise<SkinCatalog>;
@@ -2461,16 +2442,6 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     client: client.mobileKeyboardFeedback,
     onError: setError,
   });
-  const {
-    text: customTranslationsText,
-    setText: setCustomTranslationsText,
-    notice: customTranslationsNotice,
-    summary: customTranslationsSummary,
-    saveState: customTranslationsSaveState,
-    saveError: customTranslationsSaveError,
-    placeholder: customTranslationsPlaceholder,
-    flush: flushCustomTranslations,
-  } = useCustomTranslations({ client: client.customTranslations });
   const {
     phrases,
     setPhrases,
@@ -2950,13 +2921,6 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     feedbackReportCopied,
     mobileKeyboardFeedback,
     mobileKeyboardFeedbackBusy,
-    customTranslationsText,
-    setCustomTranslationsText,
-    customTranslationsNotice,
-    customTranslationsPlaceholder,
-    customTranslationsSaveState,
-    customTranslationsSaveError,
-    customTranslationsSummary,
     macosShuangpinKeymap,
     setShuangpinKeymap,
     macosWubiAutoCommitUnique,
@@ -3006,7 +2970,6 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     supportDiagnostics: diagnosticsText,
     feedbackReport,
     submitFeedback,
-    flushCustomTranslations,
     reload,
     retrySave,
     saveState,

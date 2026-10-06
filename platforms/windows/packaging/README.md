@@ -19,7 +19,7 @@
 
 这些都取自 `../installer/msime_setup.iss`、它包含的 `../installer/editions.iss`（由版本表 `shared/contracts/editions.json` 生成）与 `release-windows.yml`，`scripts/test-windows-package-managers.py` 核对两边一致。安装包按版本（edition）各打一个，包管理器只发 full：AppId、显示名和安装包名都取 full 那一份。
 
-- **只有 x64**：`ArchitecturesAllowed=x64compatible`。ARM64 的 Windows 11 可以通过 x64 模拟安装，这与直接运行安装包一致；包定义里只声明 x64。
+- **一个安装包，x64 与 Windows on Arm 通用**：`ArchitecturesAllowed=x64compatible`。在 ARM64 的 Windows 11 上，Server 等程序以 x64 模拟运行，64 位 TIP 换成随包的 Arm64X 版，原生 ARM64 应用和模拟的 x64 应用都能加载它（`../Build-Client.md`）。包定义里只声明 x64，winget 在 ARM64 上会选用它。
 - **按机器安装**：`PrivilegesRequired=admin`，程序装到 `%ProgramFiles%\metasequoiaime`，安装包自己请求提权（winget 的 `ElevationRequirement: elevatesSelf`）。输入法要注册 TSF DLL、COM 类和登录任务，没有按用户安装的形态。
 - **卸载项**：full 的 `AppId={A7C3E91F-4B2D-4E8A-9F1C-6D5E8B0A2C4D}`（版本表的 `inno_app_id`），Inno 写入的卸载键是 `{A7C3E91F-4B2D-4E8A-9F1C-6D5E8B0A2C4D}_is1`（winget 的 `ProductCode`），显示名 `Metasequoia IME 水杉输入法`，发布者 `Metasequoia`。
 - **静默参数**：安装 `/SP- /VERYSILENT /SUPPRESSMSGBOXES /NORESTART`，卸载 `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART`，与 `../installer/tests/install-smoke.ps1` 在发布机上跑的相同。卸载程序会把自己复制到临时目录再启动并立即返回，所以 Scoop 和 Chocolatey 的卸载脚本等它删掉自己的文件再结束；3 分钟后文件还在（例如拒绝了 UAC），Scoop 报错让 `scoop uninstall` 失败、保留记录，Chocolatey 给出警告。
@@ -35,7 +35,7 @@ Scoop 的惯例是便携应用：解压到 `scoop\apps\<名字>`，不写系统�
 
 ## 签名
 
-包管理器只能指向签过名的安装包。`release-windows.yml` 在 CI 上打出并先行发布的 `MetasequoiaIME_Setup_v<版本>.exe` 没有签名（签名证书是只在发布机上的 Certum SimplySign 卡）；它里面的 x64 Server 以 `MSIME_SERVER_UIACCESS=ON` 构建，未签名的 uiAccess 程序系统拒绝启动，装上之后只能打英文（见 `../installer/Sign-InstalledServer-Local.ps1`）。能用的是维护者用 `../installer/Package-SimplySign.ps1` 签名后、连同新的 `.sha256` 替换到同一个发布上的那一份。替换会改变摘要，所以包定义必须在替换之后渲染。
+包管理器只能指向签过名的安装包。`release-windows.yml` 在 CI 上打出并先行发布的 `MetasequoiaIME_Setup_v<版本>.exe` 没有签名（签名证书是只在发布机上的 Certum SimplySign 卡）；它里面的 x64 Server 以 `MSIME_SERVER_UIACCESS=ON` 构建，未签名的 uiAccess 程序系统拒绝启动，装上之后只能打英文（见 `../installer/Sign-InstalledServer-Local.ps1`）。能用的是维护者用 `../installer/Package-SimplySign.ps1` 签名后、连同新的 `.sha256` 和同一次构建的 `msime-windows-<edition>-<version>-symbols.zip` 替换到同一个发布上的那一份。替换会改变摘要，所以包定义必须在替换之后渲染。
 
 因此：
 

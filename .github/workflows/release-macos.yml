@@ -125,6 +125,9 @@ jobs:
             grep -q " ${prefix}-${VERSION}-universal.dmg\$" dist/SHA256SUMS
           done
           [[ -f dist/SHA256SUMS ]]
+          # package-release.sh 剥离发布的可执行文件（输入法、它的 msime-voice-local 辅助程序、设置应用、msime-mcp）之前先写出 dSYM，再打成一个 zip；各版本共用同一组可执行文件，一份覆盖全部版本。它作为发布资产长期保留，用来符号化这个版本的崩溃报告，不像 workflow artifact 那样 90 天后过期。
+          [[ -f "dist/msime-macos-${VERSION}-dsym.zip" ]]
+          grep -q " msime-macos-${VERSION}-dsym.zip\$" dist/SHA256SUMS
           (cd dist && shasum -a 256 -c SHA256SUMS)
           ls -l dist
           for dmg in "${dmgs[@]}"; do
@@ -147,7 +150,7 @@ jobs:
           stable='^macos-v[0-9]+\.[0-9]+\.[0-9]+$'; [[ "$RELEASE" == "$VERSION" ]] || stable=.
           start=$(git tag --list 'macos-v*' --sort=-v:refname | grep -vxF "$tag" | grep -E "$stable" | head -1 || true)
           python3 scripts/generate-release-notes.py --platform macos --version "$RELEASE" --start-tag "$start" --end-ref "$(git rev-parse HEAD)" --output release-notes.md
-          bash scripts/publish-release.sh "$tag" "$(git rev-parse HEAD)" "macOS ${RELEASE}" release-notes.md dist/*.dmg dist/SHA256SUMS
+          bash scripts/publish-release.sh "$tag" "$(git rev-parse HEAD)" "macOS ${RELEASE}" release-notes.md dist/*.dmg "dist/msime-macos-${VERSION}-dsym.zip" dist/SHA256SUMS
       # brew install --cask metasequoiaime/tap/msime（五笔版 msime-wubi，拼音版 msime-pinyin，日文版 msime-japanese，越南文版 msime-vietnamese，藏文版 msime-tibetan）. Only a notarized final release goes to the tap: an ad-hoc package installs but macOS will not register its input method, and a prerelease (which every release dispatched from a branch other than main is) is not what someone installing from Homebrew asked for. stapler validate checks the ticket in the DMG itself rather than trusting which secrets were set. 每个版本一个 cask，由 platforms/macos/scripts/edition_bundle.py 从同一个模板渲染；full 的渲染结果与原来的 sed 替换相同，只有 full 把 msime-mcp 放上 PATH。
       - name: Update the Homebrew casks
         if: ${{ inputs.publish && !inputs.prerelease && github.ref_name == 'main' }}

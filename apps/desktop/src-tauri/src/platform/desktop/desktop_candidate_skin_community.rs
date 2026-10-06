@@ -200,6 +200,8 @@ pub async fn candidate_skin_community_add_license(
     .map_err(|_| CommandError { code: "storage" })?
 }
 
+// 每个参数都是前端调用这条命令时传的字段，合并成结构体会改掉 IPC 契约。
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn candidate_skin_community_publish(
     state: State<'_, CandidateSkinCommunityState>,

@@ -44,7 +44,7 @@ use platform::android::android_account;
 #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
 use platform::desktop::{
     desktop_account, desktop_candidate_skin_community, desktop_community_report,
-    desktop_plugin_community, desktop_plugins, desktop_preferences_monitor,
+    desktop_plugin_community, desktop_plugins, desktop_preferences_monitor, desktop_resource_packs,
 };
 #[cfg(target_os = "ios")]
 use platform::ios::ios_account;
@@ -57,7 +57,6 @@ use platform::linux::{
 use platform::macos::{
     macos_account, macos_cloud_clipboard, macos_cloud_dictionary, macos_data_directory,
     macos_handwriting, macos_input_source, macos_keyboard, macos_launch, macos_panel_session,
-    macos_resource_packs,
 };
 #[cfg(any(target_os = "ios", target_os = "android"))]
 use platform::mobile::mobile_account_helpers::parse_cloud_dictionary_request;
@@ -88,9 +87,9 @@ use msime_tauri_mobile_platform::{AndroidVoicePlatform, AndroidVoicePolishReques
 use msime_tauri_mobile_platform::IosKeyboardAiPreferences;
 #[cfg(target_os = "ios")]
 use msime_tauri_mobile_platform::MobilePlatform;
-#[cfg(any(target_os = "ios", target_os = "android", test))]
+#[cfg(any(target_os = "ios", target_os = "android"))]
 use msime_tauri_mobile_platform::MobileVoiceRequestHeader;
-#[cfg(any(target_os = "ios", target_os = "android", test))]
+#[cfg(any(target_os = "ios", target_os = "android"))]
 use msime_tauri_mobile_platform::MobileVoiceTranscriptionRequest;
 // The packaged recognizer runs on every host; only the socket provider is unix.
 #[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
@@ -106,7 +105,7 @@ use std::collections::HashMap;
     test
 ))]
 use std::fs;
-#[cfg(any(target_os = "linux", target_os = "windows"))]
+#[cfg(target_os = "windows")]
 use std::io::Write;
 #[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
 use std::os::unix::fs::FileTypeExt;
@@ -139,6 +138,10 @@ use shared::voice::voice_output;
 ))]
 use shared::voice::voice_sessions;
 
+#[cfg(any(
+    not(any(target_os = "android", target_os = "ios", target_os = "macos")),
+    test
+))]
 const MAX_RUNTIME_OPTIONS_CANDIDATE_CAPACITY: usize = 4;
 
 #[tauri::command]
@@ -221,8 +224,13 @@ fn host_capabilities(app: tauri::AppHandle) -> HostCapabilities {
     let host_options = app
         .try_state::<DictionaryHostOptions>()
         .and_then(|options| options.snapshot().ok());
-    // macOS 上选用粤拼/注音/笔画会下载对应的语言词库，所以即便还没下载，这些方案也保持可选；但锁文件没固定其词库的方案下载了也用不上，照样去掉。
-    if cfg!(target_os = "macos") {
+    // macOS 上选用粤拼/注音/笔画会下载对应的语言词库，所以即便还没下载，这些方案也保持可选；但锁文件没固定其词库的方案下载了也用不上，照样去掉。Linux 安装没有随包带齐这几份词库时，设置应用同样提供语言词库资源包（见 `desktop_resource_packs::offered_by`），按同样的规则处理；带齐时照旧按随包的词库判断。
+    let downloads_language_dictionaries = cfg!(target_os = "macos")
+        || (cfg!(target_os = "linux")
+            && host_options
+                .as_ref()
+                .is_some_and(|document| !msime_host_api::packaged_language_dictionaries(document)));
+    if downloads_language_dictionaries {
         drop_unpinned_language_schemes(&mut capabilities);
     } else {
         drop_uninstalled_language_schemes(
@@ -533,8 +541,6 @@ impl DictionaryHostOptions {
 }
 
 struct SkinDirectoryState(PathBuf);
-/// The Engine's user directory: where the documents a user writes by hand live, `custom_translations.txt` among them.
-struct UserDirectoryState(PathBuf);
 struct TypingStatisticsState(TypingStatisticsStore);
 /// The shared preferences directory, where the input method writes `diagnostic.log` when its diagnostic switch is on.
 struct DiagnosticLogState(PathBuf);
@@ -829,84 +835,6 @@ async fn read_skin_stylesheet(
 ) -> Result<String, CommandError> {
     let root = directory.0.clone();
     tauri::async_runtime::spawn_blocking(move || read_skin_stylesheet_at(root, &id, &relative))
-        .await
-        .map_err(|_| CommandError { code: "storage" })?
-}
-
-/// The user's own candidate glosses, as a document the settings page edits.
-///
-/// The reference has the user drop `custom_translations.txt` into the profile directory and says so in
-/// its documentation. That instruction does not survive the move to macOS, where the same directory
-/// lives under `~/Library` and the Finder hides it by default, so the overlay was reachable on paper
-/// and not in practice. The page already knows how to edit the document - it was only ever handed to
-/// HarmonyOS - so the host supplies the two ends, and the Engine keeps reading the same file.
-const CUSTOM_TRANSLATIONS_MAX_BYTES: usize = 1024 * 1024;
-
-fn custom_translations_path(user: &std::path::Path) -> PathBuf {
-    user.join("custom_translations.txt")
-}
-
-fn read_custom_translations_at(user: PathBuf) -> Result<String, CommandError> {
-    crate::shared::atomic_file::check_directory_ancestors(&user)
-        .map_err(|_| CommandError { code: "storage" })?;
-    let path = custom_translations_path(&user);
-    let metadata = match std::fs::symlink_metadata(&path) {
-        Ok(metadata) => metadata,
-        // No overlay yet is the ordinary state, not a failure: the page opens on an empty document.
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(String::new()),
-        Err(_) => return Err(CommandError { code: "storage" }),
-    };
-    if !metadata.file_type().is_file() {
-        return Err(CommandError { code: "storage" });
-    }
-    let file = std::fs::File::open(path).map_err(|_| CommandError { code: "storage" })?;
-    let bytes = crate::shared::bounded_body::read_bounded(file, CUSTOM_TRANSLATIONS_MAX_BYTES)
-        .map_err(|_| CommandError { code: "storage" })?;
-    // A UTF-8 BOM is an encoding marker the reference accepts, not part of the first source word.
-    let text = String::from_utf8(bytes).map_err(|_| CommandError { code: "storage" })?;
-    Ok(text.strip_prefix('\u{feff}').unwrap_or(&text).to_owned())
-}
-
-fn write_custom_translations_at(user: PathBuf, text: &str) -> Result<(), CommandError> {
-    if text.len() > CUSTOM_TRANSLATIONS_MAX_BYTES || text.contains('\0') {
-        return Err(CommandError {
-            code: "invalid_document",
-        });
-    }
-    let path = custom_translations_path(&user);
-    // An emptied document means "no overlay". Removing the file says that; leaving an empty one
-    // behind would have the Engine open and read an empty set every session instead.
-    if text.trim().is_empty() {
-        return match std::fs::remove_file(&path) {
-            Ok(()) => Ok(()),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(_) => Err(CommandError { code: "storage" }),
-        };
-    }
-    // Use a fresh private sibling and publish it atomically. This avoids
-    // following a pre-existing staging symlink and leaves the previous overlay
-    // intact if writing or syncing fails.
-    crate::shared::atomic_file::write(&path, text.as_bytes())
-        .map_err(|_| CommandError { code: "storage" })
-}
-
-#[tauri::command]
-async fn read_custom_translations(
-    directory: tauri::State<'_, UserDirectoryState>,
-) -> Result<String, CommandError> {
-    let user = directory.0.clone();
-    tauri::async_runtime::spawn_blocking(move || read_custom_translations_at(user))
-        .await
-        .map_err(|_| CommandError { code: "storage" })?
-}
-
-#[tauri::command]
-async fn write_custom_translations(
-    directory: tauri::State<'_, UserDirectoryState>,
-    text: String,
-) -> Result<(), CommandError> {
-    let user = directory.0.clone();
-    tauri::async_runtime::spawn_blocking(move || write_custom_translations_at(user, &text))
         .await
         .map_err(|_| CommandError { code: "storage" })?
 }
@@ -1291,9 +1219,10 @@ enum PanelInputTarget {
 #[derive(Clone, Copy, Debug)]
 struct PanelInputTarget(msime_host_windows::InputTarget);
 
+// macOS 上 `remember_input_target` 会写入它，但面板改走原生 `macos_panel_session` 以后，没有地方再读这个目标。
 #[cfg(target_os = "macos")]
 #[derive(Clone, Debug)]
-struct PanelInputTarget(msime_host_macos::LaunchTarget);
+struct PanelInputTarget(#[allow(dead_code)] msime_host_macos::LaunchTarget);
 
 #[cfg(all(
     not(target_os = "linux"),
@@ -1730,7 +1659,7 @@ async fn test_api_credential(
     #[cfg(target_os = "linux")]
     {
         let runtime = runtime.inner().clone();
-        return tauri::async_runtime::spawn_blocking(move || {
+        tauri::async_runtime::spawn_blocking(move || {
             let document = runtime.snapshot().map_err(|_| CommandError {
                 code: "unavailable",
             })?;
@@ -1746,7 +1675,7 @@ async fn test_api_credential(
         .await
         .map_err(|_| CommandError {
             code: "unavailable",
-        })?;
+        })?
     }
     #[cfg(any(target_os = "windows", target_os = "macos"))]
     {
@@ -3542,6 +3471,7 @@ async fn uninstall_input_source(
     Ok(())
 }
 
+#[cfg(any(target_os = "windows", test))]
 fn windows_restart_payload() -> Vec<u8> {
     "RestartServer"
         .encode_utf16()
@@ -3680,10 +3610,13 @@ fn remember_input_target(
             *state.0.lock().map_err(|_| HostActionError {
                 code: "unavailable",
             })? = Some(PanelInputTarget(target));
-            return Ok(());
+            Ok(())
         }
-        let _ = (window, state);
-        Ok(())
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = (window, state);
+            Ok(())
+        }
     }
 }
 
@@ -3711,11 +3644,11 @@ async fn send_key(
         // an async command could otherwise observe a different editor than
         // the one captured for this queued key.
         let target = panel_input_target(&state, window.label())?;
-        return tauri::async_runtime::spawn_blocking(move || send_panel_key(&app, target, request))
+        tauri::async_runtime::spawn_blocking(move || send_panel_key(&app, target, request))
             .await
             .map_err(|_| HostActionError {
                 code: "unavailable",
-            })?;
+            })?
     }
     #[cfg(target_os = "windows")]
     return send_panel_key_windows(&state, request, window.label() == "keyboard-panel");
@@ -3837,10 +3770,7 @@ async fn recognize_handwriting(
         })?;
         return Ok(result);
     }
-    // Windows ships a recognizer with the language pack, and it is the only one
-    // a stock machine has: the packaged Engine model is optional in the
-    // installer. Try it first, and fall through to the model when Windows has
-    // no Chinese handwriting feature installed.
+    // Windows 的中文语言包自带手写识别器，先用它。安装包不再内置引擎的手写模型：Ink 没有中文识别器时，设置应用把模型下载到手写资源包，这里再落到下面的模型。
     #[cfg(windows)]
     {
         let strokes: Vec<msime_host_windows::ink::Stroke> = query
@@ -3855,17 +3785,12 @@ async fn recognize_handwriting(
         .map_err(|_| HostActionError {
             code: "unavailable",
         })?;
-        match recognized {
-            Ok(candidates) if !candidates.is_empty() => {
-                let result = HandwritingRecognitionResult { candidates };
-                result.validate().map_err(|_| HostActionError {
-                    code: "invalid_stroke",
-                })?;
-                return Ok(result);
-            }
-            // Recognized nothing, or Windows has no Chinese recognizer. Either
-            // way the packaged model below is still worth asking.
-            _ => {}
+        if let Some(candidates) = ink_handwriting_answer(recognized.ok(), model.is_some()) {
+            let result = HandwritingRecognitionResult { candidates };
+            result.validate().map_err(|_| HostActionError {
+                code: "invalid_stroke",
+            })?;
+            return Ok(result);
         }
     }
     let Some(model) = model else {
@@ -3888,6 +3813,15 @@ async fn recognize_handwriting(
         code: "invalid_stroke",
     })?;
     Ok(result)
+}
+
+/// Windows Ink 识别完后是否直接作答。`ink` 为 `None` 表示 Ink 出错或本机没有中文识别器。Ink 认出了内容就用它；Ink 正常运行却没认出内容时，有手写模型就再问模型，没有模型（装了 Ink 中文识别器时设置应用不提供模型下载）就返回空结果，让面板显示「未识别到内容」而不是识别失败。返回 `None` 表示交给模型。
+#[cfg(any(windows, test))]
+fn ink_handwriting_answer(ink: Option<Vec<String>>, has_model: bool) -> Option<Vec<String>> {
+    match ink {
+        Some(candidates) if !candidates.is_empty() || !has_model => Some(candidates),
+        _ => None,
+    }
 }
 
 #[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
@@ -3924,11 +3858,25 @@ fn discover_session_provider_in(
     Some(path)
 }
 
-/// 查找引擎的手写模型：先看 HostOptions 的 `handwriting_model`，再看 `MSIME_HANDWRITING_MODEL`，macOS 上接着是偏好目录（同一份文档里的绝对 `preferences_directory`）下已下载的手写资源包，然后是旧版本打进 app 的模型，最后是各安装器的固定布局。只接受指向已存在文件的绝对路径，过期的设置不会把笔画送给别的文件。
+/// 查找引擎的手写模型：先看 HostOptions 的 `handwriting_model`，再看 `MSIME_HANDWRITING_MODEL`。都没给时，Windows 和 Linux 先用安装布局里随包的模型，再用偏好目录（同一份文档里的绝对 `preferences_directory`）下已下载的手写资源包；macOS 先用已下载的资源包，再用旧版本打进 app 的模型和各安装器的固定布局，与按需下载上线时的顺序相同。只接受指向已存在文件的绝对路径，过期的设置不会把笔画送给别的文件。
 fn packaged_handwriting_model(host_options: &str) -> Option<PathBuf> {
     let document = serde_json::from_str::<Value>(host_options).ok();
+    let downloaded = || downloaded_handwriting_model(document.as_ref());
+    let configured = configured_handwriting_model(document.as_ref());
+    #[cfg(target_os = "macos")]
+    let found = configured
+        .or_else(downloaded)
+        .or_else(bundled_handwriting_model);
+    #[cfg(not(target_os = "macos"))]
+    let found = configured
+        .or_else(bundled_handwriting_model)
+        .or_else(downloaded);
+    found.filter(|path| path.is_absolute() && path.is_file())
+}
+
+/// HostOptions 的 `handwriting_model`，没有时是 `MSIME_HANDWRITING_MODEL`。只取值、不检查文件：指定了就只用它。
+fn configured_handwriting_model(document: Option<&Value>) -> Option<PathBuf> {
     document
-        .as_ref()
         .and_then(|value| {
             value
                 .get("handwriting_model")
@@ -3942,50 +3890,45 @@ fn packaged_handwriting_model(host_options: &str) -> Option<PathBuf> {
                 .filter(|value| !value.is_empty())
                 .map(PathBuf::from)
         })
-        .or_else(|| {
-            #[cfg(target_os = "macos")]
-            {
-                downloaded_handwriting_model(document.as_ref())
-            }
-            #[cfg(not(target_os = "macos"))]
-            {
-                None
-            }
-        })
-        .or_else(|| {
-            #[cfg(target_os = "macos")]
-            {
-                std::env::current_exe()
-                    .ok()
-                    .and_then(|executable| macos_handwriting::bundled_model(&executable))
-            }
-            #[cfg(not(target_os = "macos"))]
-            {
-                None
-            }
-        })
-        .or_else(|| {
-            discover_packaged_file(
-                &format!(
-                    "{}/handwriting/handwriting-zh_CN.model",
-                    msime_client_core::edition::Edition::linux_package_identity_or_full()
-                        .client_directory
-                ),
-                "handwriting/handwriting-zh_CN.model",
-            )
-        })
-        .filter(|path| path.is_absolute() && path.is_file())
 }
 
-/// HostOptions 文档里绝对 `preferences_directory` 下已下载的手写模型；相对路径一律忽略。
-#[cfg(any(target_os = "macos", test))]
+/// 安装布局里随包的手写模型：macOS 上先看旧版本打进 app 的那份，然后是各安装器的固定布局。
+fn bundled_handwriting_model() -> Option<PathBuf> {
+    #[cfg(target_os = "macos")]
+    if let Some(model) = std::env::current_exe()
+        .ok()
+        .and_then(|executable| macos_handwriting::bundled_model(&executable))
+    {
+        return Some(model);
+    }
+    discover_packaged_file(
+        &format!(
+            "{}/handwriting/handwriting-zh_CN.model",
+            msime_client_core::edition::Edition::linux_package_identity_or_full().client_directory
+        ),
+        "handwriting/handwriting-zh_CN.model",
+    )
+}
+
+/// 不靠下载的资源包也有手写模型：指定了一个（HostOptions 或环境变量），或者安装布局里随包带着。Windows 和 Linux 的设置应用据此决定要不要提供手写模型的下载。
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows", test))]
+pub(crate) fn handwriting_model_without_pack(document: Option<&Value>) -> bool {
+    configured_handwriting_model(document).is_some() || bundled_handwriting_model().is_some()
+}
+
+/// HostOptions 文档里绝对 `preferences_directory` 下已完整安装的手写资源包里的模型；相对路径、缺少 `msime-model.json` 的目录和符号链接一律忽略。
 fn downloaded_handwriting_model(document: Option<&Value>) -> Option<PathBuf> {
+    use msime_client_core::resource_packs::{self, ResourcePack};
     let state_root = document?
         .get("preferences_directory")
         .and_then(Value::as_str)
         .map(std::path::Path::new)
         .filter(|path| path.is_absolute())?;
-    platform::macos::macos_handwriting::downloaded_model(state_root)
+    resource_packs::installed_file(
+        state_root,
+        ResourcePack::Handwriting,
+        "handwriting-zh_CN.model",
+    )
 }
 
 #[cfg(target_os = "linux")]
@@ -4235,7 +4178,7 @@ async fn paste_clipboard_text(
     }
     #[cfg(target_os = "macos")]
     return macos_panel_session::submit_clipboard(app, window, text).await;
-    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+    #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
     {
         let _ = (app, window, state, text);
         Err(HostActionError {
@@ -4326,7 +4269,7 @@ async fn send_voice_text(
         let _ = &store;
         let target = panel_input_target(&state, window.label())?;
         let typing_statistics = typing_statistics.0.clone();
-        return tauri::async_runtime::spawn_blocking(move || {
+        tauri::async_runtime::spawn_blocking(move || {
             let result = send_panel_voice_text(&app, &target, &text);
             if result.is_ok() {
                 record_panel_typing_statistics(&typing_statistics, &text, TypingSource::Voice);
@@ -4336,7 +4279,7 @@ async fn send_voice_text(
         .await
         .map_err(|_| HostActionError {
             code: "unavailable",
-        })?;
+        })?
     }
     #[cfg(target_os = "macos")]
     return macos_panel_session::submit(app, window, text).await;
@@ -4471,11 +4414,11 @@ fn launch_external_url(url: &str) -> Result<(), HostActionError> {
     {
         // Generic-mode xdg-open waits on the browser; a launcher still running
         // after the check has opened the page.
-        return linux_process::launch("xdg-open", &[url], std::time::Duration::from_secs(1))
+        linux_process::launch("xdg-open", &[url], std::time::Duration::from_secs(1))
             .then_some(())
             .ok_or(HostActionError {
                 code: "unavailable",
-            });
+            })
     }
     #[cfg(target_os = "windows")]
     {
@@ -5001,7 +4944,6 @@ pub fn run() {
             app.manage(SkinDirectoryState(directory.join("skins")));
             #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
             app.manage(desktop_plugins::PluginsState::new(&directory));
-            app.manage(UserDirectoryState(directory.join("user")));
             app.manage(preferences.clone());
             let clipboard_state = ClipboardHistoryState(Arc::new(Mutex::new(clipboard)));
             app.manage(ClipboardHistoryState(Arc::clone(&clipboard_state.0)));
@@ -5080,9 +5022,6 @@ pub fn run() {
             #[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
             app.manage(voice_sessions::VoiceSessions::default());
             app.manage(voice::local_models::LocalModelInstalls::default());
-            // 偏好和安装登记都已就位，在后台补齐已保存方案需要的资源包。
-            #[cfg(target_os = "macos")]
-            macos_resource_packs::ensure_saved_scheme_packs(app.handle().clone());
             #[cfg(target_os = "linux")]
             app.manage(linux_setup::LinuxSetupState::default());
             // Native packaging/installer supplies this verified HostOptions JSON.
@@ -5225,6 +5164,9 @@ pub fn run() {
                 document: Arc::new(Mutex::new(host_document)),
                 skins: Some(directory.join("skins")),
             });
+            // 偏好、安装登记和 HostOptions 都已就位（提供哪些资源包要看随包的模型），在后台补齐已保存偏好需要的资源包。
+            #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+            desktop_resource_packs::ensure_saved_packs(app.handle().clone());
             #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
             desktop_candidate_skin_community::start_sync(app.handle());
             #[cfg(target_os = "macos")]
@@ -5352,8 +5294,6 @@ pub fn run() {
             read_skin_font,
             read_skin_stylesheet,
             read_skin_toolbar_stylesheet,
-            read_custom_translations,
-            write_custom_translations,
             open_skin_directory,
             test_api_credential,
             #[cfg(target_os = "linux")]
@@ -5392,12 +5332,12 @@ pub fn run() {
             voice::local_models::voice_local_model_install,
             voice::local_models::voice_local_model_cancel,
             voice::local_models::voice_local_model_remove,
-            #[cfg(target_os = "macos")]
-            macos_resource_packs::resource_packs,
-            #[cfg(target_os = "macos")]
-            macos_resource_packs::resource_pack_install,
-            #[cfg(target_os = "macos")]
-            macos_resource_packs::resource_pack_cancel,
+            #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+            desktop_resource_packs::resource_packs,
+            #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+            desktop_resource_packs::resource_pack_install,
+            #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+            desktop_resource_packs::resource_pack_cancel,
             submit_handwriting_candidate,
             open_external_url,
             #[cfg(target_os = "macos")]

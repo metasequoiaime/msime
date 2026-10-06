@@ -20,7 +20,17 @@ tools_dir="$android_sdk/build-tools/35.0.0"
 android_jar="$android_sdk/platforms/android-36/android.jar"
 [[ -f "$android_jar" && -x "$tools_dir/d8" ]] || { echo "Android API 36 platform and build-tools 35 required" >&2; exit 1; }
 artifacts=$(cargo run --quiet -p msime-client-core --example verify_resources --locked -- "$resource_dir")
-for abi in arm64-v8a x86_64; do bash platforms/android/build-native.sh "$abi"; done
+# 默认只构建 arm64-v8a：这个包面向的手机都是 arm64，多带一份 x86_64 原生库会让 APK 大约翻倍。MSIME_ANDROID_ABIS（空格或逗号分隔，例如 "arm64-v8a x86_64"）可以为 x86_64 模拟器加上 x86_64；Gradle 的 abiFilters 经 -PmsimeAbis 收到同一份列表，第三方库（ML Kit）也按它过滤。
+read -r -a abis <<< "$(tr ',' ' ' <<< "${MSIME_ANDROID_ABIS:-arm64-v8a}")"
+[ "${#abis[@]}" -gt 0 ] || { echo "MSIME_ANDROID_ABIS names no ABI" >&2; exit 1; }
+for abi in "${abis[@]}"; do
+  case "$abi" in
+    arm64-v8a|x86_64) ;;
+    *) echo "MSIME_ANDROID_ABIS: unsupported ABI $abi (supported: arm64-v8a, x86_64)" >&2; exit 1 ;;
+  esac
+done
+for abi in "${abis[@]}"; do bash platforms/android/build-native.sh "$abi"; done
+abi_list=$(IFS=,; echo "${abis[*]}")
 
 # The host is a Gradle build now: it uses AndroidX and Material, and those ship as AARs whose
 # resources have to be merged and whose R classes have to be generated per package. The previous
@@ -120,7 +130,7 @@ tauri_gradlew="$repo_root/apps/desktop/src-tauri/gen/android/gradlew"
 # The APK's versionName comes from version.txt; MSIME_ANDROID_VERSION (the release workflow's version input) overrides it.
 version_args=()
 [[ -n "${MSIME_ANDROID_VERSION:-}" ]] && version_args+=("-PmsimeVersion=$MSIME_ANDROID_VERSION")
-ANDROID_HOME="$android_sdk" "$tauri_gradlew" --project-dir "$gradle_dir" --console=plain ${version_args[@]+"${version_args[@]}"} "assemble${flavor}Release"
+ANDROID_HOME="$android_sdk" "$tauri_gradlew" --project-dir "$gradle_dir" --console=plain "-PmsimeAbis=$abi_list" ${version_args[@]+"${version_args[@]}"} "assemble${flavor}Release"
 
 unsigned="$gradle_dir/app/build/outputs/apk/$edition/release/app-$edition-release-unsigned.apk"
 [[ -f "$unsigned" ]] || { echo "Expected host APK not produced" >&2; exit 1; }
@@ -149,6 +159,13 @@ for pair in $language_pairs; do
     grep -qxF "assets/language-dictionaries/$entry" <<< "$apk_entries" || { echo "$output has no assets/language-dictionaries/$entry although it was staged" >&2; exit 1; }
   done
 done
+# APK 带的原生库必须恰好是上面构建的这些 ABI：少一个的话能装上，但第一次 JNI 调用就崩溃；多一个（某个依赖的 x86 或 armeabi-v7a 副本漏过了 abiFilters）则是白占体积，还会让包装到它根本跑不了的设备上。
+packaged_abis=$(sed -n 's|^lib/\([^/]*\)/.*|\1|p' <<< "$apk_entries" | sort -u)
+expected_abis=$(printf '%s\n' "${abis[@]}" | sort -u)
+if [ "$packaged_abis" != "$expected_abis" ]; then
+  echo "$output carries native libraries for ABIs [$(tr '\n' ' ' <<< "$packaged_abis")], expected [$(tr '\n' ' ' <<< "$expected_abis")]" >&2
+  exit 1
+fi
 # 不提供中文方案的版本不带非英文离线释义（见上面的暂存），打出来的 APK 里也不能有。
 if [ "$edition_offline_glosses" != true ] && grep -q '^assets/offline-glosses/' <<< "$apk_entries"; then
   echo "$output carries offline glosses, but edition $edition offers no Chinese scheme" >&2

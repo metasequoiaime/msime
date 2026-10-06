@@ -218,6 +218,14 @@ bar.hide(); bar.destroy();
 
 点候选不会让输入框失焦。浏览器不支持可构造样式表（Safari 16.4 以前）时抛 `Error`。
 
+引擎由自己接管、只要候选栏的页面，从 `@msime/web-engine/candidates.js` 导入（带类型）：
+
+```js
+import { createCandidateBar } from "@msime/web-engine/candidates.js";
+```
+
+包的入口为了开箱即用，写了 `new Worker(new URL("./worker.js", import.meta.url))`，Vite、webpack 5 等打包器只要从入口导入，就会把包自带的 Worker 打成一个单独的文件，即使页面从不调用 `createMsimeEngine`。这个子路径只含候选栏和皮肤，没有这一步。
+
 ### 改样式
 
 候选栏画在 `<msime-candidates>` 元素的 Shadow DOM 里，页面的 CSS 影响不到它，它的样式也不会漏到页面上。要改样式请用 `::part()`：

@@ -135,13 +135,31 @@ fn split_entry_args(args: &[Value]) -> (Vec<McpFlag>, Vec<Value>) {
     (flags, rest)
 }
 
-/// `existing` 是 `base` 加上若干权限参数时，返回这些参数（去重、按固定顺序）；命令、运行时选项或其它参数不同的条目不是这里写的，返回 `None`。
+/// `existing` 是 `base` 加上若干权限参数时，返回这些参数（去重、按固定顺序）；命令、运行时选项或其它参数不同的条目不是这里写的，返回 `None`。命令指向的是同一个程序时（比如 Homebrew 放上 PATH 的 `msime-mcp`、手动链接的 `~/.local/bin/msime`，都是指向安装包里 `msime-mcp` 的符号链接），算作同一个命令。
 pub fn entry_flags(existing: &Value, base: &Value) -> Option<Vec<McpFlag>> {
     let args = existing.get("args")?.as_array()?;
     let (flags, rest) = split_entry_args(args);
     let mut stripped = existing.as_object()?.clone();
     stripped.insert("args".to_owned(), Value::Array(rest));
+    if let (Some(Value::String(command)), Some(expected)) = (
+        stripped.get("command"),
+        base.get("command").and_then(Value::as_str),
+    ) {
+        if command != expected && same_program(command, expected) {
+            stripped.insert("command".to_owned(), Value::String(expected.to_owned()));
+        }
+    }
     (Value::Object(stripped) == *base).then(|| canonical(&flags))
+}
+
+/// 两个绝对路径解析掉符号链接后是不是同一个文件。相对路径（比如只写了 `msime-mcp`、靠 PATH 找）不去猜：按当前目录解析可能碰巧对上一个不相干的文件。
+fn same_program(command: &str, expected: &str) -> bool {
+    let resolve = |path: &str| {
+        Some(Path::new(path))
+            .filter(|path| path.is_absolute())
+            .and_then(|path| std::fs::canonicalize(path).ok())
+    };
+    matches!((resolve(command), resolve(expected)), (Some(a), Some(b)) if a == b)
 }
 
 /// `options` 这份运行时选项所属版本登记用的键（`Edition::mcp_server_name`）：full 的文档没有 `edition` 键，得到 [`SERVER_NAME`]。文档读不了或记录了不认识的版本时同样用 [`SERVER_NAME`]：这里只决定条目的名字，文档本身有没有问题由 `msime-mcp` 启动后去报告。
@@ -301,7 +319,7 @@ pub fn install(
     replace: bool,
 ) -> Result<InstallOutcome, &'static str> {
     let flags = canonical(flags);
-    let entry = entry_with_flags(base, &flags);
+    let mut entry = entry_with_flags(base, &flags);
     let target = match std::fs::canonicalize(path) {
         Ok(resolved) => resolved,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => path.to_owned(),
@@ -321,7 +339,13 @@ pub fn install(
         None => InstallOutcome::Added,
         Some(existing) => match entry_flags(existing, base) {
             Some(current) if current == flags => return Ok(InstallOutcome::Unchanged),
-            Some(_) => InstallOutcome::Updated,
+            Some(_) => {
+                // 只改权限参数，命令保留用户写的那个：它可能是指向同一个程序的符号链接，是用户自己选的入口。
+                if let Some(command) = existing.get("command") {
+                    entry["command"] = command.clone();
+                }
+                InstallOutcome::Updated
+            }
             None if replace => InstallOutcome::Replaced,
             None => return Err("mcp_entry_exists"),
         },
@@ -496,6 +520,59 @@ mod tests {
         assert_eq!(flags, vec![McpFlag::AllowWrite]);
         assert!(flags.len() <= McpFlag::ALL.len());
         assert_eq!(rest, args[..2]);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn a_command_linked_to_the_packaged_server_is_this_server() {
+        let directory = tempfile::tempdir().unwrap();
+        let server = directory.path().join("msime-mcp");
+        std::fs::write(&server, b"").unwrap();
+        let link = directory.path().join("msime");
+        std::os::unix::fs::symlink(&server, &link).unwrap();
+        let copy = directory.path().join("copy");
+        std::fs::write(&copy, b"").unwrap();
+        let options = Path::new("/state/runtime-options.json");
+        let base = server_entry(&server, options);
+        let path = directory.path().join("mcp.json");
+        let write = |command: &Path| {
+            let document = json!({ "mcpServers": { "msime": {
+                "command": command.to_string_lossy(),
+                "args": ["--options", "/state/runtime-options.json", "--allow-write"],
+            } } });
+            std::fs::write(&path, serde_json::to_vec(&document).unwrap()).unwrap();
+        };
+        // 指向安装包里 msime-mcp 的符号链接就是这里的服务器：设置页显示已连接，改权限时直接改，不必先确认替换。
+        write(&link);
+        assert_eq!(
+            configured_flags(&path, SERVER_NAME, &base),
+            Some(vec![McpFlag::AllowWrite])
+        );
+        assert_eq!(
+            install(&path, SERVER_NAME, &base, &[McpFlag::AllowWrite], false),
+            Ok(InstallOutcome::Unchanged)
+        );
+        assert_eq!(
+            install(
+                &path,
+                SERVER_NAME,
+                &base,
+                &[McpFlag::AllowWrite, McpFlag::AllowDictionaryRead],
+                false
+            ),
+            Ok(InstallOutcome::Updated)
+        );
+        let document: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(
+            document["mcpServers"]["msime"]["command"],
+            link.to_string_lossy().as_ref()
+        );
+        // 另一份同样内容的副本是另一个程序，可能是别的版本，不当作这里的。
+        write(&copy);
+        assert_eq!(configured_flags(&path, SERVER_NAME, &base), None);
+        // 相对路径不按当前目录去解析。
+        write(Path::new("msime-mcp"));
+        assert_eq!(configured_flags(&path, SERVER_NAME, &base), None);
     }
 
     #[test]

@@ -8,6 +8,7 @@
 #include "CandidateWindow.h"
 #include "CandidateWindowStyleSettings.h"
 #include "ClipboardHistory.h"
+#include "ComponentFailure.h"
 #include "DiagnosticListener.h"
 #include "DedicatedEnglishMailbox.h"
 #include "DiagnosticLog.h"
@@ -531,6 +532,26 @@ msime::windows::TsfLocalConfig tsf_local_config(
   config.command_mode = pinyin && local_modes.value("command", false);
   config.mention_mode = pinyin && local_modes.value("mention", false);
   return config;
+}
+
+// 会话控制器停下的原因，写进停止那一行；与 ControllerFailure 一一对应。
+const char *controller_failure_name(msime::windows::ControllerFailure failure) {
+  using msime::windows::ControllerFailure;
+  switch (failure) {
+  case ControllerFailure::None:
+    return "none";
+  case ControllerFailure::Service:
+    return "service";
+  case ControllerFailure::InputQueue:
+    return "input queue";
+  case ControllerFailure::SessionWorkers:
+    return "session workers";
+  case ControllerFailure::Control:
+    return "control";
+  case ControllerFailure::Preferences:
+    return "preferences";
+  }
+  return "unknown";
 }
 
 void apply_diagnostic_log(msime::windows::DiagnosticLog &log,
@@ -1580,10 +1601,18 @@ int wmain(int argc, wchar_t **argv) {
     // that a preview instance is serving the installed input method.
     std::cout << (production ? "Production" : "Preview")
               << " Server running; candidate selection and mode controls enabled.\n";
+    // 工具栏失败不结束 Server：它只是方便切换模式的附件，Server 记一条诊断、去掉工具栏继续服务输入。曾经它也在这个条件里，某台 Windows 11 上工具栏一失败 Server 就在启动后约 100 ms 退出，日志却只写了一句正常停止。
+    bool toolbar_failure_reported = false;
     while (!stopping.load() && server.failure() == ControllerFailure::None &&
            !candidates.failed() && !clicks.failed() && !pages.failed() &&
            !mode_clicks.failed() &&
-           !character_set_clicks.failed() && !english_reads.failed() && !toolbar.failed()) {
+           !character_set_clicks.failed() && !english_reads.failed()) {
+      if (!toolbar_failure_reported && toolbar.failed()) {
+        toolbar_failure_reported = true;
+        toolbar.hide();
+        notice(component_failure("Floating toolbar", toolbar.failure_site()) +
+               "; continuing without it");
+      }
       MSG message{};
       // Bound each batch so a message flood cannot starve stop/focus polling.
       for (size_t i = 0;
@@ -1837,12 +1866,25 @@ int wmain(int argc, wchar_t **argv) {
       diagnostic_log.server("Server stopping: stop requested");
       return msime::windows::watchdog::stop_exit_code;
     }
-    const bool clean = server.failure() == ControllerFailure::None &&
-                       !candidates.failed() && !clicks.failed() &&
-                       !mode_clicks.failed() &&
-                       !character_set_clicks.failed() && !english_reads.failed();
-    diagnostic_log.server(clean ? "Server stopping" : "Server stopping: a component failed");
-    return clean ? 0 : 1;
+    // 每个能结束主循环的组件都要在这一行里点名，否则日志只说"有组件失败"，无从查起。翻页曾经结束主循环却被记成正常停止。
+    std::vector<std::string> failures;
+    if (const auto failure = server.failure(); failure != ControllerFailure::None)
+      failures.push_back(std::string("session controller failed (") +
+                         controller_failure_name(failure) + ")");
+    if (candidates.failed())
+      failures.push_back(component_failure("candidate window", candidates.failure_site()));
+    if (clicks.failed())
+      failures.push_back(component_failure("candidate click worker", std::nullopt));
+    if (pages.failed())
+      failures.push_back(component_failure("candidate page worker", std::nullopt));
+    if (mode_clicks.failed())
+      failures.push_back(component_failure("mode click worker", std::nullopt));
+    if (character_set_clicks.failed())
+      failures.push_back(component_failure("character set click worker", std::nullopt));
+    if (english_reads.failed())
+      failures.push_back(component_failure("English state reader", std::nullopt));
+    diagnostic_log.server(server_stop_line(failures));
+    return failures.empty() ? 0 : 1;
   } catch (...) {
     std::cerr << "Preview Server failed; verify configuration, resources, "
                  "state ownership and pipe availability.\n";

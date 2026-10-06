@@ -81,12 +81,6 @@ struct TranslationProviderSettingsView: View {
       } footer: {
         SettingsAutosaveStatus(autosave: autosave)
       }
-      Section {
-        NavigationLink("自定义候选释义") { CustomTranslationsView() }
-          .accessibilityIdentifier("customTranslations")
-      } footer: {
-        Text("内置词库译得不准或没有收录时，自己加一层释义，优先于内置词库和在线翻译。")
-      }
     }
     .navigationTitle("翻译服务")
     .navigationBarTitleDisplayMode(.inline)

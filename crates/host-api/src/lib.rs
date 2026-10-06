@@ -233,6 +233,12 @@ struct HostSession {
     recorded_language_dictionaries: Option<PathBuf>,
     /// 会话打开后有资源包新装好（或被移除），`options` 里的词典路径已经更新，Engine 还要在输入空闲时重建。
     resources_pending: bool,
+    /// HostOptions 记录的落定重排模型路径（`settled_model`）：随包的模型优先于下载的资源包，见 [`settled_model_file`]。
+    recorded_settled_model: Option<String>,
+    /// 当前挂在 runtime 上的落定重排模型文件，没有模型时为 `None`。
+    settled_model: Option<PathBuf>,
+    /// 聚焦时发现落定重排模型的文件变了（资源包刚装好或被移除），`settled_model` 已经更新，新模型在后台线程加载到这个槽里；槽有值后，下一次输入空闲的 `apply_pending` 把它换上并清掉这一项。为 `None` 时没有待换的模型。
+    settled_model_loading: Option<SettledModelSlot>,
     // Declared after runtime so the Engine is dropped before releasing access.
     _dictionary_access: DictionaryAccess,
 }
@@ -440,6 +446,15 @@ impl HostSession {
                     .set_page_size(size)
                     .map_err(|e| e.to_string())?;
             }
+            // 落定重排模型不属于 Engine，换模型不用重建 Engine。约 25 MB 的权重由 `refresh_resource_packs` 起的后台线程加载，这里只在加载完之后、输入空闲时换上，不在输入线程上读文件；还没加载完就留到下一次。
+            if let Some(model) = self
+                .settled_model_loading
+                .as_ref()
+                .and_then(|slot| slot.get().cloned())
+            {
+                self.settled_model_loading = None;
+                self.runtime.set_settled_reranker(model.map(Reranker::new));
+            }
         }
         if !(self.preferences_pending || self.resources_pending) || !self.runtime.is_idle() {
             return Ok(None);
@@ -609,11 +624,23 @@ impl HostSession {
         Ok(())
     }
 
-    /// 输入框获得焦点时，看设置应用是否在会话打开后装好（或移除）了日文、粤拼、注音和笔画的资源包：只做几次 stat。路径有变就记下，等输入空闲时由 `apply_pending` 重建 Engine，重建时日文临时模式的开关按新路径重新判断。
+    /// 输入框获得焦点时，看设置应用是否在会话打开后装好（或移除）了日文、粤拼、注音、笔画的资源包和落定重排模型：只做几次 stat。词典路径有变就记下，等输入空闲时由 `apply_pending` 重建 Engine（重建时日文临时模式的开关按新路径重新判断）；落定重排模型的文件有变就起一个后台线程加载它（经 `sentence_model_settled` 的共享缓存），加载完之后由某次输入空闲的 `apply_pending` 换上。聚焦本身不读词典也不读模型文件。
     ///
     /// 资源包目录只在校验完、整体原子发布之后才出现，所以这里看到的文件都是完整的。
     fn refresh_resource_packs(&mut self) {
         let state_root = self.state_root.as_deref();
+        let settled_model = settled_model_file(
+            &self.options.resources,
+            self.recorded_settled_model.as_deref(),
+            state_root,
+        );
+        if settled_model != self.settled_model {
+            self.settled_model = settled_model;
+            self.settled_model_loading = Some(load_settled_model(
+                &self.options.resources,
+                self.settled_model.clone(),
+            ));
+        }
         let dictionaries = LanguageDictionaries::resolve(
             state_root,
             self.recorded_language_dictionaries.as_deref(),
@@ -1017,7 +1044,7 @@ impl HostOptions {
     }
 
     fn into_engine_options(self) -> EngineOptions {
-        // 每个平台都这样查找；只有 macOS 会下载资源包，别处的状态目录里从来没有它们。
+        // 每个平台都这样查找；日文词典只有 macOS 会下载，语言词库由 macOS 和没有随包带齐它们的 Linux 安装下载，别处的状态目录里从来没有它们。
         let state_root = absolute_state_root(self.preferences_directory.as_deref());
         let dictionaries = LanguageDictionaries::resolve(
             state_root.as_deref(),
@@ -1115,6 +1142,69 @@ fn settled_model_beside(resources: &std::path::Path) -> Option<String> {
         .join("settled-model")
         .join("sentence-model-desktop.safetensors");
     path.is_file().then(|| path.to_str())??.to_owned().into()
+}
+
+/// 后台加载落定重排模型的结果槽：加载完之前是空的，加载完是模型，模型不能用（文件坏了或版本不符）或没有模型时是 `None`。
+type SettledModelSlot = Arc<OnceLock<Option<Arc<SentenceModel>>>>;
+
+/// 在后台线程里加载落定重排模型，立即返回结果槽。约 25 MB 的权重不能在输入线程上读：聚焦和按键都在那个线程上。`path` 为 `None`（模型被移除）时槽里直接是 `None`。线程起不来时同样放 `None`，会话照常输入，只是没有落定重排。
+fn load_settled_model(resources: &str, path: Option<PathBuf>) -> SettledModelSlot {
+    let slot: SettledModelSlot = Arc::new(OnceLock::new());
+    let Some(path) = path else {
+        let _ = slot.set(None);
+        return slot;
+    };
+    let resources = resources.to_owned();
+    let loading = Arc::clone(&slot);
+    let spawned = std::thread::Builder::new()
+        .name("msime-settled-model".into())
+        .spawn(move || {
+            let _ = loading.set(sentence_model_settled(&resources, path.to_str()));
+        });
+    if spawned.is_err() {
+        let _ = slot.set(None);
+    }
+    slot
+}
+
+/// 随包的落定重排模型：HostOptions 记录的 `settled_model`，没记录时是资源目录里的那份（[`sentence_model_settled`] 的默认位置）。只认存在的文件。
+fn bundled_settled_model(resources: &str, recorded: Option<&str>) -> Option<PathBuf> {
+    let path = match recorded {
+        Some(path) => PathBuf::from(path),
+        None => Path::new(resources).join(SETTLED_MODEL_FILE),
+    };
+    path.is_file().then_some(path)
+}
+
+/// 会话使用的落定重排模型文件：随包的优先，随包的不在时（Windows 和 macOS 的发布包不再内置它）用 `state_root` 下已下载的 `settled-model` 资源包，都没有时为 `None`。旧版本写下的 HostOptions 可能还记着已被升级删掉的随包路径，那个文件不在了也照样落到资源包。
+pub(crate) fn settled_model_file(
+    resources: &str,
+    recorded: Option<&str>,
+    state_root: Option<&Path>,
+) -> Option<PathBuf> {
+    bundled_settled_model(resources, recorded).or_else(|| {
+        resource_packs::installed_file(state_root?, ResourcePack::SettledModel, SETTLED_MODEL_FILE)
+    })
+}
+
+/// HostOptions 文档（`host_options`）所描述的安装布局里随包的落定重排模型。设置应用据此决定要不要提供 `settled-model` 资源包的下载：有随包的模型时会话不会用下载的那份。
+pub fn packaged_settled_model(host_options: &Value) -> Option<PathBuf> {
+    bundled_settled_model(
+        host_options.get("resources")?.as_str()?,
+        host_options.get("settled_model").and_then(Value::as_str),
+    )
+}
+
+/// HostOptions 文档（`host_options`）所描述的安装布局是否随包带齐了粤拼、注音和笔画词库，也就是 `language_dictionaries` 记录的目录里三个文件都在。设置应用据此决定 Linux 上要不要提供 `language-dictionaries` 资源包的下载：没带齐的安装（打包时没有词库、或不带它们的 Nix 包）只能靠它补上，会话里每个词库都优先用资源包里的那份。
+pub fn packaged_language_dictionaries(host_options: &Value) -> bool {
+    let recorded = host_options
+        .get("language_dictionaries")
+        .and_then(Value::as_str)
+        .map(Path::new);
+    let dictionaries = LanguageDictionaries::resolve(None, recorded);
+    dictionaries.cantonese.is_some()
+        && dictionaries.zhuyin.is_some()
+        && dictionaries.stroke.is_some()
 }
 
 /// The offline gloss dictionary for one non-English target language installed beside a resource bundle, when one is there: `offline-glosses/zh-<language>.db`, built by `scripts/build_offline_glosses.py` and pinned by `resources/offline-glosses.lock.json`. A sibling of `resources` for the same reason as `settled_model_beside`: the resource directory must match the shared dictionary lock exactly, and a host ships only the languages it wants. Absence is the normal case.

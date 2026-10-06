@@ -76,6 +76,7 @@ pub(crate) fn providers_response(providers: HashMap<String, bool>) -> ProvidersR
     }
 }
 
+#[cfg_attr(not(any(target_os = "ios", target_os = "android")), allow(dead_code))]
 pub(crate) fn providers_response_without_apple(
     providers: HashMap<String, bool>,
 ) -> ProvidersResponse {
@@ -126,12 +127,16 @@ impl From<AccountProfile> for ProfileResponse {
     }
 }
 
+// 只有 iOS 和 Android 的账号命令返回它。
+#[cfg_attr(not(any(target_os = "ios", target_os = "android")), allow(dead_code))]
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatModelResponse {
     id: String,
 }
 
+// 只有 iOS 和 Android 的账号命令返回它。
+#[cfg_attr(not(any(target_os = "ios", target_os = "android")), allow(dead_code))]
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatModelsResponse {
@@ -152,12 +157,16 @@ impl From<AccountChatModels> for ChatModelsResponse {
     }
 }
 
+// 只有 iOS 和 Android 的账号命令返回它。
+#[cfg_attr(not(any(target_os = "ios", target_os = "android")), allow(dead_code))]
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatResponse {
     pub(crate) content: String,
 }
 
+// 只有 iOS 和 Android 的账号命令返回它。
+#[cfg_attr(not(any(target_os = "ios", target_os = "android")), allow(dead_code))]
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PreferenceSchemaResponse {

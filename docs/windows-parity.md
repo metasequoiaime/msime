@@ -236,7 +236,7 @@
 
 **TSF DLL 的 COM 边界。** 类工厂契约由 `msime-tsf-class-factory` 钉住：从同目录加载出货 DLL，解析 `DllGetClassObject`，用固定 CLSID 取得 `IClassFactory`，实例化的对象实现 `ITfTextInputProcessor`；未知 CLSID 返回 `CLASS_E_CLASSNOTAVAILABLE`，已知 CLSID 但请求不支持的类工厂接口返回 `E_NOINTERFACE`，空输出指针在 `QueryInterface` 返回 `E_POINTER`、在 `CreateInstance` 返回 `E_INVALIDARG`；类工厂拒绝聚合；`DllCanUnloadNow` 钉住「类工厂或 TIP 仍被引用时不可卸载、全部释放后可卸载」，并覆盖 `LockServer(TRUE/FALSE)`。生产的 `DllGetClassObject` 先清空输出，再按 CLSID、然后按接口判定，不把这两类错误混为一谈。
 
-**安装布局与注册。** 32 位与 64 位 TSF DLL 分别装到 `{commonpf32|64}\metasequoiaime\msime_v<ver>\` 并带 `regserver` 标志注册 TIP，PDB 同目录；Server 装在 `{commonpf64}\metasequoiaime\server`；应用数据装到用户选定的 `DataDir`；HKLM `Software\Metasequoia\MetasequoiaIME` 写 `VersionDir` / `ServerPath` / `DataDir`；`THIRD_PARTY_NOTICES.txt` 与 `LICENSE.txt` 随包分发（GPLv3 第 4、6 条）。`ISCC /DLightPackage=1` 出不含词库的轻量包。
+**安装布局与注册。** 32 位与 64 位 TSF DLL 分别装到 `{commonpf32|64}\metasequoiaime\msime_v<ver>\` 并带 `regserver` 标志注册 TIP；PDB 与 `.ilk` 不装到用户机器上，`installer/Collect-Symbols.ps1` 把它们打成单独的 `msime-windows-<edition>-<version>-symbols.zip` 随安装包发布，`release-windows.yml` 和 `Package-SimplySign.ps1` 都调用它，维护者替换签名安装包时连同符号包一起替换；Server 装在 `{commonpf64}\metasequoiaime\server`；应用数据装到用户选定的 `DataDir`；HKLM `Software\Metasequoia\MetasequoiaIME` 写 `VersionDir` / `ServerPath` / `DataDir`；`THIRD_PARTY_NOTICES.txt` 与 `LICENSE.txt` 随包分发（GPLv3 第 4、6 条）。`ISCC /DLightPackage=1` 出不含词库的轻量包。
 
 ### Windows 发布流水线产出真实安装包（2026-09-23）
 
@@ -491,6 +491,8 @@ cargo run -p msime-input-runtime --example local_modes -- <verified-dictionary-d
 按「公共功能+UI 放 Tauri」补上宿主这一端：两个命令读写 `<state>/user/custom_translations.txt`（引擎读的就是这个路径），语义与 HarmonyOS 那份一致——上限 1 MiB、清空即删除文件（留一个空文件会让引擎每次会话都读出一个空集合）、文件不存在时读作空文档。另加两条 macOS 上必要的细节：读取时剥掉 UTF-8 BOM（来源明确接受带 BOM 的文件，留着会在页面上显示出来又原样存回去），以及写入先落到同目录的临时文件再改名，让一次失败的保存留下上一份覆盖层而不是半份。
 
 用例：Rust 侧两条（往返 + BOM + 清空删除 + 超限/NUL 拒绝且拒绝后旧覆盖层还在），UI 侧一条钉住桌面宿主也能拿到这一节。
+
+增量记录（2026-10-06，撤下自定义候选释义的设置入口）：共享设置页、iOS 和 HarmonyOS 设置里的「自定义候选释义」编辑器连同 `read_custom_translations` / `write_custom_translations` 两个命令和 HarmonyOS 的 `customTranslations` 桥接一并移除。Engine 读取 `<state>/user/custom_translations.txt` 的行为不变，已有的覆盖层照常生效，只是没有界面编辑它。
 
 增量记录（2026-09-21，快捷模式指南逐条核对，第一条差异：Unicode 模式的候选选择）：测试清单走完之后换入口——来源 README 的《实用功能快捷模式》八行，每行都是可核对的具体约定。Unicode（U）那行写的是「空格上屏首选；`Shift + 数字` 选其他候选」，理由就在同一行里：不加 Shift 的数字是正在输入的码位。来源实现为 `event_listener.cpp` 的 `is_unicode_shift_digit_selection`，与空格走同一条选择路径。
 

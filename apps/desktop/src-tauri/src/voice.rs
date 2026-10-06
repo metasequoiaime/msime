@@ -22,7 +22,9 @@ pub(crate) struct VoiceRecognitionResult {
 
 // Resolved in the shared layer so the Android keyboard, which never goes through this shell,
 // reads the same answer through the C ABI rather than growing a second implementation.
+// 润色配置只有 Android 的语音面板读；iOS 和测试构建只用到提供方配置。
 #[cfg(any(target_os = "ios", target_os = "android", test))]
+#[cfg_attr(not(target_os = "android"), allow(unused_imports))]
 pub(crate) use msime_client_core::voice::provider::{
     mobile_voice_polish_configuration, mobile_voice_provider_configuration,
 };

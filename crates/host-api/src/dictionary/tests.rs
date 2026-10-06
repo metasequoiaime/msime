@@ -494,6 +494,35 @@ fn a_lookup_names_where_each_candidate_came_from_and_leaves_the_user_data_alone(
     assert_eq!(tree(&directory.path().join("user")), before);
 }
 
+/// 五笔四码唯一的词在第四键就自动上屏了，查询仍要把它报告成这串编码的唯一候选，而不是空列表。
+#[test]
+#[cfg(not(target_os = "android"))]
+fn a_unique_four_letter_wubi_code_still_reports_its_word() {
+    let directory = tempfile::tempdir().unwrap();
+    let options = word_fixture(
+        directory.path(),
+        "INSERT INTO wubi86 VALUES('aaad','合成期',500);",
+    );
+    let before = tree(&directory.path().join("user"));
+    let candidates = lookup_candidates(&options, Some(LookupScheme::Wubi), "aaad", 10).unwrap();
+    assert_eq!(
+        candidates
+            .iter()
+            .map(|candidate| (
+                candidate.text.as_str(),
+                candidate.code.as_str(),
+                candidate.origin,
+                candidate.weight
+            ))
+            .collect::<Vec<_>>(),
+        [("合成期", "aaad", CandidateOrigin::Dictionary, Some(500))]
+    );
+    // 自动上屏走的是选词，但查询关了学习，用户数据里除了词库访问锁（空目录第一次查询时才建）什么都不多。
+    let mut after = tree(&directory.path().join("user"));
+    after.retain(|(path, _)| !path.ends_with(".msime-dictionary-access.lock"));
+    assert_eq!(after, before);
+}
+
 /// 五笔版的 Engine 只跑五笔：查五笔（显式或按用户方案）照常，查全拼、双拼直接说明本版本没有这个方案，不报成词库打不开。
 #[test]
 #[cfg(not(target_os = "android"))]

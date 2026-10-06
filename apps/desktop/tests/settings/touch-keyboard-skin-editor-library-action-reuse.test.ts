@@ -10,6 +10,7 @@ test("touch skin editor reuses one library action runner", () => {
   const start = source.indexOf("export function TouchKeyboardSkinEditor");
   const editor = source.slice(start);
 
-  expect(editor).toContain("const runLibraryAction =");
-  expect(editor.match(/formatError: libraryError/g)).toHaveLength(1);
+  expect(editor).toContain("useAsyncActionRunner(");
+  expect(editor).not.toContain("const runLibraryAction =");
+  expect(editor.match(/formatError: libraryError/g)).toHaveLength(2);
 });

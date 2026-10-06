@@ -63,7 +63,7 @@ export function localModelErrorMessage(error: unknown): string | null {
     case "local_model_cancelled":
       return null;
     case "local_model_network":
-      return "下载失败：无法连接下载服务器。请检查网络，或在下方填写下载镜像后再试。";
+      return "下载失败：无法连接下载服务器。请检查网络，或设置下载镜像后再试。";
     case "local_model_http_status":
       return "下载失败：服务器拒绝了请求。请稍后重试，或更换下载镜像。";
     case "local_model_checksum_mismatch":

@@ -72,7 +72,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn rejects_a_symlinked_ancestor_before_creating_the_parent() {
-        use std::os::unix::fs::symlink;
+        use msime_path_trust::untrusted_symlink as symlink;
 
         let outside = tempfile::tempdir().unwrap();
         let root = tempfile::tempdir().unwrap();

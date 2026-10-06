@@ -56,13 +56,18 @@ export function InputSettingsPage() {
     mobileKeyboardFeedbackBusy,
     saveMobileKeyboardFeedback,
     setError,
+    retrySave,
   } = useSettingsForm();
   const { onLocalModesChange } = createUtilitiesSettingsActions({ setDraft });
-  const { onPreferencesChange } = createSettingsDraftActions({ setDraft });
+  const { onPreferencesChange, onVoiceChange } = createSettingsDraftActions({ setDraft });
   const { onChange: onHelpcodeChange } = createHelpcodeSettingsActions({ setDraft });
   const navigation = draft.navigation ?? defaultNavigation;
-  // 升级后补齐已保存方案的词库由宿主在启动时完成，这里挂载时不自动下载，只在用户选用方案或点「下载」时下载。
-  const resourcePacks = useResourcePacks(macosPlatform ? client.resourcePacks : undefined);
+  // 升级后补齐已保存偏好需要的资源包由宿主在启动时完成，这里挂载时不自动下载，只在用户选用方案、打开桌面神经联想或点「下载」时下载。提供哪些资源包由宿主的列表决定：日文和语言词库只有 macOS 列出。
+  const resourcePacks = useResourcePacks(client.resourcePacks, {
+    value: draft.voice_input?.asr_model_mirror ?? "",
+    onChange: (asr_model_mirror) => onVoiceChange({ asr_model_mirror }),
+    flush: retrySave,
+  });
   const japanesePack = resourcePackStatus(resourcePacks, "japanese");
   // 不带临时日文的版本（host-api 也始终把它关掉）不列出这个开关和它的词库。
   const temporaryJapanese = host?.edition?.temporary_japanese ?? true;
@@ -129,6 +134,7 @@ export function InputSettingsPage() {
             value={draft.sentence_association}
             mobile={mobilePlatform}
             neuralKeyboard={neuralKeyboard}
+            resourcePacks={resourcePacks}
             onChange={(sentence_association) => onPreferencesChange({ sentence_association })}
           />
         }
@@ -161,8 +167,7 @@ export function InputSettingsPage() {
               onChange={onLocalModesChange}
             />
             {/* 临时日语只是一个快捷模式，不为它自动下载 60 多 MB 的词库，由用户手动下载。当前方案是日文时方案组里已有同一行，这里不再重复。 */}
-            {macosPlatform &&
-              temporaryJapanese &&
+            {temporaryJapanese &&
               localModes.temporary_japanese &&
               draft.scheme !== "japanese" &&
               japanesePack &&

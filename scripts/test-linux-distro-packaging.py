@@ -4,6 +4,7 @@
 发布页的 .deb/.rpm 由 platforms/linux/package-container.sh 构建；这些定义照搬它的步骤，但不会跟着它自动变。这里比对三处：
 
 - 传给 CMake 的 -DMSIME_* 选项集合相同（五份定义都比）。package-container.sh 新增一个选项（例如再随包带一类数据）而某个定义没跟上时，它会悄悄打出缺东西的包。
+  唯一有意的差别是手写模型：发布页的包以 -DMSIME_BUNDLE_HANDWRITING_MODEL=OFF 不带模型（设置应用按需下载），发行版仓库的包照旧以 -DMSIME_HANDWRITING_MODEL_DIR 随包，并取默认的 ON。这一对差别单独核对。
 - 用 cargo build 构建的包与目标（-p 与 --bin）相同（RPM 规格、debian/rules 与 PKGBUILD；ebuild 经 cargo.eclass 的 cargo_src_compile 构建，不在此列）。
 - render-sources.py 渲染出的版本、发布号和更新日志能被正确改写。
 - 替换另一个包的定义在替换之后恢复用户单元和输入法列表：RPM 与 Debian 的 msime 替换发布页的 msime-linux、AUR 的 msime 与 msime-bin 互换时，被替换的包按卸载处理，它的卸载脚本停用每个用户的单元并运行 msime-linux-setup --unregister，新包必须再替每个用户运行 msime-linux-setup --register。
@@ -37,6 +38,11 @@ OPTIONS_ONLY = [
 ]
 
 
+# 发布页的包不带手写模型，发行版的包随包：前者只传 MSIME_BUNDLE_HANDWRITING_MODEL=OFF，后者只传 MSIME_HANDWRITING_MODEL_DIR（MSIME_BUNDLE_HANDWRITING_MODEL 取默认的 ON）。
+CONTAINER_ONLY = {"MSIME_BUNDLE_HANDWRITING_MODEL"}
+DISTRIBUTION_ONLY = {"MSIME_HANDWRITING_MODEL_DIR"}
+
+
 def cmake_options(text: str) -> set[str]:
     return set(re.findall(r"-D(MSIME_[A-Z0-9_]+)", text))
 
@@ -56,7 +62,10 @@ def cargo_targets(text: str) -> set[str]:
 def main() -> int:
     failures = []
     reference = CONTAINER.read_text(encoding="utf-8")
-    expected_options = cmake_options(reference)
+    container_options = cmake_options(reference)
+    if "-DMSIME_BUNDLE_HANDWRITING_MODEL=OFF" not in reference or "MSIME_HANDWRITING_MODEL_DIR" in reference or "fetch_handwriting_model.py" in reference:
+        failures.append("package-container.sh must configure with -DMSIME_BUNDLE_HANDWRITING_MODEL=OFF and neither fetch nor pass the handwriting model")
+    expected_options = (container_options - CONTAINER_ONLY) | DISTRIBUTION_ONLY
     expected_targets = cargo_targets(reference)
     for path in (SPEC, RULES, PKGBUILD):
         text = path.read_text(encoding="utf-8")
@@ -64,6 +73,8 @@ def main() -> int:
         options = cmake_options(text)
         if options != expected_options:
             failures.append(f"{name}: CMake options differ from package-container.sh; missing {sorted(expected_options - options)}, extra {sorted(options - expected_options)}")
+        if "scripts/fetch_handwriting_model.py" not in text:
+            failures.append(f"{name}: no longer fetches the handwriting model it bundles with -DMSIME_HANDWRITING_MODEL_DIR")
         targets = cargo_targets(text)
         if targets != expected_targets:
             failures.append(f"{name}: cargo build targets differ from package-container.sh; missing {sorted(expected_targets - targets)}, extra {sorted(targets - expected_targets)}")

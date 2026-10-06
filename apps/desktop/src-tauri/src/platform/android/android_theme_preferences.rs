@@ -121,8 +121,10 @@ mod tests {
 
     #[test]
     fn an_absent_keyboard_design_and_package_sync_as_empty_strings_and_read_back_as_none() {
-        let mut preferences = Preferences::default();
-        preferences.global_theme = GlobalTheme::Custom;
+        let mut preferences = Preferences {
+            global_theme: GlobalTheme::Custom,
+            ..Preferences::default()
+        };
         preferences.custom_theme.base = GlobalTheme::Night;
         let mut settings = BTreeMap::new();
         insert_theme_settings(&mut settings, &preferences).unwrap();
@@ -156,8 +158,10 @@ mod tests {
 
     #[test]
     fn a_keyboard_design_and_package_survive_the_round_trip() {
-        let mut preferences = Preferences::default();
-        preferences.global_theme = GlobalTheme::Custom;
+        let mut preferences = Preferences {
+            global_theme: GlobalTheme::Custom,
+            ..Preferences::default()
+        };
         preferences.custom_theme.base = GlobalTheme::Paper;
         preferences.custom_theme.keyboard = Some(TouchKeyboardSkinDesign {
             background: 0x123456,
@@ -189,8 +193,10 @@ mod tests {
 
     #[test]
     fn keys_the_schema_does_not_support_are_left_alone() {
-        let mut preferences = Preferences::default();
-        preferences.global_theme = GlobalTheme::Ink;
+        let mut preferences = Preferences {
+            global_theme: GlobalTheme::Ink,
+            ..Preferences::default()
+        };
         preferences.custom_theme.candidate_skin = Some("sakura".into());
         let mut settings = BTreeMap::new();
         insert_theme_settings(&mut settings, &preferences).unwrap();

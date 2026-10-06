@@ -131,6 +131,37 @@ jobs:
         if: ${{ needs.changes.outputs.linux != 'true' }}
         run: echo 'No Linux or shared-platform changes; platform gate skipped.'
 
+  # 上面的容器构建只测 core 几个 crate，设置应用（msime-desktop）在 Linux 上没有任何地方编译过：首次配置页 linux_setup.rs 的测试从未在 CI 里跑过，Linux 专属的 clippy 警告也攒到了几十条。这里补上它的 clippy 和全部单元测试。
+  linux-desktop:
+    needs: changes
+    name: Linux settings app
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the Tauri build dependencies
+        if: ${{ needs.changes.outputs.linux == 'true' }}
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev libasound2-dev libssl-dev libxkbcommon-dev libayatana-appindicator3-dev librsvg2-dev libibus-1.0-dev pkgconf
+          # Installs the toolchain rust-toolchain.toml pins, with its clippy component.
+          rustup toolchain install
+      # Tauri 的构建脚本要求 frontendDist 目录存在；单元测试用不到页面，放一个空页面即可，省掉 pnpm 构建。
+      - name: Clippy and unit tests for msime-desktop
+        if: ${{ needs.changes.outputs.linux == 'true' }}
+        run: |
+          set -euo pipefail
+          mkdir -p apps/desktop/dist
+          [ -e apps/desktop/dist/index.html ] || : > apps/desktop/dist/index.html
+          cargo clippy --locked -p msime-desktop --all-targets -- -D warnings
+          cargo test --locked -p msime-desktop
+      - name: Linux platform unchanged
+        if: ${{ needs.changes.outputs.linux != 'true' }}
+        run: echo 'No Linux or shared-platform changes; platform gate skipped.'
+
   harmonyos:
     needs: changes
     name: HarmonyOS host

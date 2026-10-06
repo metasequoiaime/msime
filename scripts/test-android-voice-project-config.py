@@ -20,6 +20,24 @@ class AndroidVoiceProjectConfigurationTests(unittest.TestCase):
         self.assertIn('platforms/android-36/android.jar', build)
         self.assertNotIn('platforms/android-35/android.jar', build)
 
+    def test_native_apk_ships_arm64_only_unless_abis_are_requested(self):
+        gradle = (ROOT / "platforms/android/gradle-app/app/build.gradle.kts").read_text()
+        build = (ROOT / "platforms/android/build-apk.sh").read_text()
+        native = (ROOT / "platforms/android/build-native.sh").read_text()
+
+        # abiFilters 把 ML Kit 的 x86/x86_64/armeabi-v7a 库挡在外面；默认只有 arm64。
+        self.assertIn("ndk { abiFilters += nativeAbis }", gradle)
+        self.assertIn('?: listOf("arm64-v8a")', gradle)
+        self.assertIn('findProperty("msimeAbis")', gradle)
+        # AGP 只有在配置了 NDK 时才会 strip 打包的 .so，而且必须是 build-native.sh 固定的那个 NDK。
+        self.assertIn('ndkVersion = "28.2.13676358"', gradle)
+        self.assertIn("28.2.13676358", native)
+        self.assertIn("${MSIME_ANDROID_ABIS:-arm64-v8a}", build)
+        self.assertIn('"-PmsimeAbis=$abi_list"', build)
+        self.assertNotIn("for abi in arm64-v8a x86_64", build)
+        # 构建出的 APK 要核对恰好带着请求的那些 ABI。
+        self.assertIn('if [ "$packaged_abis" != "$expected_abis" ]', build)
+
     def test_shared_voice_panel_is_wired_to_the_android_plugin(self):
         plugin_rust = (ROOT / "crates/tauri-mobile-platform/src/lib.rs").read_text()
         # The voice commands are split across two files: the recognition path moved out into
