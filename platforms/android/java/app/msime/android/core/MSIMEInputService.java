@@ -3804,8 +3804,8 @@ public final class MSIMEInputService extends InputMethodService {
         if (document == null || document.length() > 16_384) return java.util.List.of();
         try {
             JSONArray values = new JSONArray(document);
-            java.util.ArrayList<String> stored = new java.util.ArrayList<>();
             int count = Math.min(values.length(), EmojiCatalogModel.RECENTS_LIMIT * 2);
+            java.util.ArrayList<String> stored = new java.util.ArrayList<>(count);
             for (int index = 0; index < count; index++) {
                 Object value = values.opt(index);
                 if (value instanceof String) stored.add((String) value);
