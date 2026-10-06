@@ -1,3 +1,4 @@
+import { communityModerationMessage } from "../community/community-helpers";
 import { errorCode } from "../core/error-code";
 
 export function isAccountCancellation(error: unknown): boolean {
@@ -18,6 +19,8 @@ export function isAccountCancellation(error: unknown): boolean {
 }
 
 export function accountMessage(error: unknown): string {
+  const moderation = communityModerationMessage(error);
+  if (moderation) return moderation;
   switch (errorCode(error)) {
     case "account_invalid":
       return "填写的内容无效，请检查后重试。";

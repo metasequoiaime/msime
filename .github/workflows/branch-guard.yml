@@ -1,9 +1,6 @@
 name: Branch guard
 
-# main is the release branch: it only moves when develop is promoted for a release, or when
-# release-please lands the version commit it generates on top of that promotion. Everything else
-# targets develop. The head must also be a branch of this repository: a fork's branch can be named
-# develop too.
+# main 是发布分支，只在两种情况下前进：从 develop 切出的 release/<版本号> 分支发版，或 release-please 在发版之上提交它生成的版本提交。develop 本身不能直接合入 main（见 AGENTS.md 的「发版」），其余改动都合入 develop。head 还必须是本仓库的分支：fork 里的分支也可以叫 release/ 开头。
 #
 # This is a check rather than a ruleset rule because GitHub rulesets can protect a base branch but
 # cannot say which head branches may target it. Add it to main's required status checks so a pull
@@ -37,11 +34,11 @@ jobs:
             exit 1
           fi
           case "$HEAD_REF" in
-            develop | release/* | release-please--*)
+            release/* | release-please--*)
               echo "$HEAD_REF may target main."
               ;;
             *)
-              echo "::error::'$HEAD_REF' cannot target main. Day-to-day changes are merged into develop; main only receives develop promotions and release-please version branches. Retarget this pull request at develop."
+              echo "::error::'$HEAD_REF' 不能合入 main。日常改动合入 develop；发版从 develop 新建 release/<版本号> 分支，再由它向 main 开 PR。"
               exit 1
               ;;
           esac

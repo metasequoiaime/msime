@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { ClipboardHistorySection } from "@msime/ui";
+import { ClipboardHistorySection, type ClipboardHistoryEntry } from "@msime/ui";
 
 afterEach(() => {
   cleanup();
@@ -122,6 +122,42 @@ test("a clipboard mutation from a replaced client cannot restore stale entries",
   });
   expect(screen.queryByText("旧记录")).toBeNull();
   expect(screen.getByText("新记录")).toBeTruthy();
+});
+
+test("clears entries when the replacement client has no history capability", async () => {
+  const client = {
+    clear: vi.fn(),
+    list: vi
+      .fn()
+      .mockResolvedValue([{ text: "旧记录", timestampMs: 1_700_000_000_000, pinned: false }]),
+  };
+  const props = {
+    historyEnabled: true,
+    persistedHistoryEnabled: true,
+    revision: 1,
+    ios: false,
+    onToggle: vi.fn(),
+    onError: vi.fn(),
+  };
+  const view = render(<ClipboardHistorySection {...props} client={client} />);
+  await screen.findByText("旧记录");
+
+  view.rerender(<ClipboardHistorySection {...props} client={{ clear: vi.fn() }} />);
+  await waitFor(() => expect(screen.queryByText("旧记录")).toBeNull());
+
+  let resolveNext!: (value: ClipboardHistoryEntry[]) => void;
+  const nextClient = {
+    clear: vi.fn(),
+    list: vi.fn().mockReturnValue(
+      new Promise<ClipboardHistoryEntry[]>((resolve) => {
+        resolveNext = resolve;
+      }),
+    ),
+  };
+  view.rerender(<ClipboardHistorySection {...props} client={nextClient} />);
+  expect(screen.queryByText("旧记录")).toBeNull();
+  resolveNext([{ text: "新记录", timestampMs: 1_700_000_000_001, pinned: false }]);
+  expect(await screen.findByText("新记录")).toBeTruthy();
 });
 
 function renderWithCloud(

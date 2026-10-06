@@ -65,11 +65,14 @@ final class KeyboardExtensionEditorUITests: XCTestCase {
     // Already added: the keyboard list names it.
     if settings.staticTexts["水杉输入法"].waitForExistence(timeout: 3) { return }
 
-    let add = settings.staticTexts["添加新键盘…"].firstMatch
+    // iOS 27 上这一行写作「添加新键盘」，没有省略号，而且是按钮不是文本；只按前缀找，哪种都认。原来写死「添加新键盘…」找不到它，于是键盘从未被添加，本套件在 iOS 27 上每次都整体跳过。
+    let add = settings.descendants(matching: .any)
+      .matching(NSPredicate(format: "label BEGINSWITH %@", "添加新键盘")).firstMatch
     guard add.waitForExistence(timeout: 8) else { return }
     add.tap()
 
-    let ours = settings.staticTexts["水杉输入法"].firstMatch
+    let ours = settings.descendants(matching: .any)
+      .matching(NSPredicate(format: "label == %@", "水杉输入法")).firstMatch
     for _ in 0..<8 where !ours.exists { settings.swipeUp() }
     guard ours.waitForExistence(timeout: 8) else { return }
     ours.tap()

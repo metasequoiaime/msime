@@ -8,6 +8,9 @@ FOUNDATION_EXPORT NSNotificationName const MSIMETranslationPreferencesDidSaveNot
 /// Set to @YES in the userInfo of an MSIMEAppearanceDidChangeNotification that only moved the Chinese/English mode. The mode is not part of the shared preferences document, so observers refresh what they show but have nothing to save.
 FOUNDATION_EXPORT NSString *const MSIMEAppearanceInputModeOnlyKey;
 
+/// 某个输入源是否已在用户的输入法列表里。输入法进程启动时把它设成 `MSIMEInputSourceIsEnabled`；测试和其它链接了设置窗口的程序不设，「菜单栏入口」提示就不出现，设置窗口也因此不必链接 Carbon。
+extern BOOL (*MSIMEInputModeEnabledProbe)(NSString *identifier);
+
 // macOS-only presentation settings; never change Engine composition/configuration.
 @interface MSIMEAppearancePreferences : NSWindowController
 + (instancetype)sharedPreferences;
@@ -37,8 +40,12 @@ FOUNDATION_EXPORT NSString *const MSIMEAppearanceInputModeOnlyKey;
 @property(nonatomic, copy) NSString *inputScheme;
 /// The Chinese scheme to go back to when leaving japanese or korean: the current scheme while it is Chinese, otherwise the one left for japanese or korean here or the shared `last_chinese_scheme`, 全拼 when neither is known.
 @property(nonatomic, readonly) NSString *lastChineseScheme;
+/// The scheme the input method last showed a system input mode for, kept in this Mac's defaults and never in the shared document. The input controller compares the scheme running now with it, so a scheme picked while the input method was not running, or one whose dictionary was installed after it was picked, still reads as a change on the next sync and gets its opt-in mode enabled; the scheme it already names enables nothing.
+@property(nonatomic, copy) NSString *lastSyncedInputScheme;
 @property(nonatomic, copy) NSString *shuangpinProfile;
 @property(nonatomic) BOOL shuangpinPreeditUsesRaw;
+/// 五笔码表版本：`wubi86`（缺省）或 `wubi98`，对应共享偏好的 `wubi_profile`。
+@property(nonatomic, copy) NSString *wubiProfile;
 /// Allow Pinyin fallback when a Wubi code has no Wubi candidates.
 @property(nonatomic) BOOL wubiMixedPinyinEnabled;
 /// Shared inline composition display: raw keys, formatted pinyin, or hidden.
@@ -122,7 +129,6 @@ FOUNDATION_EXPORT NSString *const MSIMEAppearanceInputModeOnlyKey;
 @property(nonatomic) NSInteger mixedEnglishMinimumPrefix;
 @property(nonatomic) BOOL mixedEmojiInput;
 @property(nonatomic) BOOL mixedKaomojiInput;
-@property(nonatomic) BOOL autocorrect;
 @property(nonatomic) BOOL candidateLearningEnabled;
 @property(nonatomic, copy) NSString *frequencyAdjustmentMode;
 @property(nonatomic) NSInteger frequencyTriggerCount;
@@ -144,8 +150,6 @@ FOUNDATION_EXPORT NSString *const MSIMEAppearanceInputModeOnlyKey;
 @property(nonatomic) BOOL candidateEnglishGloss;
 @property(nonatomic) BOOL autocorrectTransposition;
 @property(nonatomic) BOOL autocorrectNeighbor;
-// Legacy fallback for both schemes; setting it explicitly still sets both.
-@property(nonatomic) BOOL helpcodeEnabled;
 @property(nonatomic) BOOL quanpinHelpcodeEnabled;
 @property(nonatomic) BOOL shuangpinHelpcodeEnabled;
 - (void)applySharedAssistancePreferences:(NSDictionary *)preferences;
@@ -175,6 +179,7 @@ FOUNDATION_EXPORT NSString *const MSIMEAppearanceInputModeOnlyKey;
 @property(nonatomic) BOOL floatingToolbarEmoji;
 /// The handwriting panel and voice buttons, which only this client's toolbar has.
 @property(nonatomic) BOOL floatingToolbarHandwriting;
+@property(nonatomic) BOOL floatingToolbarInputScheme;
 @property(nonatomic) BOOL floatingToolbarScreenKeyboard;
 @property(nonatomic) BOOL floatingToolbarVoice;
 @property(nonatomic) BOOL floatingToolbarSettings;

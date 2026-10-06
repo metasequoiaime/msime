@@ -8,6 +8,7 @@
 #include "CandidateWindow.h"
 #include "CandidateWindowStyleSettings.h"
 #include "ClipboardHistory.h"
+#include "ComponentFailure.h"
 #include "DiagnosticListener.h"
 #include "DedicatedEnglishMailbox.h"
 #include "DiagnosticLog.h"
@@ -15,6 +16,7 @@
 #include "FirstRun.h"
 #include "FloatingToolbarWindow.h"
 #include "FocusedSession.h"
+#include "InputSchemeTraits.h"
 #include "FullscreenForeground.h"
 #include "SoundPackRoot.h"
 #include "MaintenanceHotkey.h"
@@ -26,7 +28,6 @@
 #include "ProductionPipeNames.h"
 #include "ProviderToken.h"
 #include "ServerLaunch.h"
-#include "SharedConfigKeybindings.h"
 #include "ShellLauncher.h"
 #include "StateRootLease.h"
 #include "SystemAudioMuter.h"
@@ -150,9 +151,6 @@ std::atomic<bool> stopping{false};
 std::atomic<bool> restart_requested{false};
 // Set by the maintenance stop shortcut. The Watchdog reads any other exit as a crash and starts the Server again, so a user's stop has to leave with stop_exit_code, as the reference's window hook does.
 std::atomic<bool> stop_requested{false};
-// The user's `telemetry_enabled` preference, read by the terminate hook on whatever thread fails. Off until the stored preferences say otherwise, so a Server that dies before reading them reports nothing.
-std::atomic<bool> telemetry_allowed{false};
-static_assert(std::atomic<bool>::is_always_lock_free);
 BOOL WINAPI console_control(DWORD event) {
   if (event != CTRL_C_EVENT && event != CTRL_BREAK_EVENT)
     return FALSE;
@@ -193,7 +191,7 @@ std::filesystem::path production_state_directory() {
   return {};
 #endif
 }
-// The anonymous account's secret and tokens belong to the Windows user running this Server, so they live in that user's %LOCALAPPDATA%\MSIME\account. The state root is no place for them: an installed Server's is the installer's DataDir, one directory for the whole machine that every user may modify.
+// The anonymous account's secret and tokens belong to the Windows user running this Server, so they live in that user's %LOCALAPPDATA%\<本版本的用户目录>\account（full 是 %LOCALAPPDATA%\MSIME\account，版本表 platforms.windows.user_data_directory）。The state root is no place for them: an installed Server's is the installer's DataDir, one directory for the whole machine that every user may modify. 每个版本各自登录，退出一个版本的账号不会删掉另一个版本的令牌。
 std::filesystem::path anonymous_account_directory() {
 #ifdef _WIN32
   PWSTR local = nullptr;
@@ -201,12 +199,19 @@ std::filesystem::path anonymous_account_directory() {
     CoTaskMemFree(local);
     return {};
   }
-  const auto directory = std::filesystem::path(local) / L"MSIME" / L"account";
+  const auto directory = std::filesystem::path(local) / MSIME_EDITION_USER_DATA_DIRECTORY / L"account";
   CoTaskMemFree(local);
   return directory;
 #else
   return {};
 #endif
+}
+// 使用统计的目录：msime::telemetry::default_directory() 是 %LOCALAPPDATA%\MSIME，本版本换成同级的用户目录（版本表 platforms.windows.user_data_directory），各版本的安装 id 和事件队列互不相干。full 的目录名就是 MSIME，结果与 default_directory() 相同。
+std::filesystem::path edition_telemetry_directory() {
+  const auto shared = msime::telemetry::default_directory();
+  if (shared.empty())
+    return {};
+  return shared.parent_path() / MSIME_EDITION_USER_DATA_DIRECTORY;
 }
 std::string read_document(const std::filesystem::path &path) {
   std::ifstream input(path, std::ios::binary);
@@ -300,6 +305,33 @@ bool persist_traditional_output(const std::filesystem::path &directory,
     return false;
   }
 }
+// 把安装器「联网功能」页的选择写进刚准备好的共享偏好（Linux 的 msime-linux-prepare 做同样的事）。失败时保持共享默认值，也就是关闭，不阻止输入法启动。
+void record_installer_cloud_choice(const std::filesystem::path &directory, bool enabled) {
+  try {
+    const auto root = directory.u8string();
+    std::unique_ptr<char, decltype(&msime_client_string_free)> loaded(
+        msime_client_load_preferences(
+            reinterpret_cast<const uint8_t *>(root.data()), root.size()),
+        msime_client_string_free);
+    if (!loaded)
+      return;
+    const auto response = nlohmann::json::parse(loaded.get());
+    if (!response.value("ok", false) || !response.at("value").is_object())
+      return;
+    auto snapshot = response.at("value");
+    const auto revision = snapshot.at("revision").get<uint64_t>();
+    snapshot.at("preferences")["cloud_candidates"] = enabled;
+    const auto serialized = snapshot.dump();
+    std::unique_ptr<char, decltype(&msime_client_string_free)> saved(
+        msime_client_save_preferences(
+            reinterpret_cast<const uint8_t *>(root.data()), root.size(),
+            revision,
+            reinterpret_cast<const uint8_t *>(serialized.data()),
+            serialized.size()),
+        msime_client_string_free);
+  } catch (...) {
+  }
+}
 // Read the stored preferences block, or nothing if it cannot be read. The
 // shipped card has usable built-in defaults, so an unreadable store degrades
 // to those rather than stopping the IME from starting.
@@ -387,7 +419,7 @@ bool toggle_stored_flag(const std::filesystem::path &directory,
     return false;
   }
 }
-// Select an input scheme through the revisioned store, keeping last_chinese_scheme the way the settings page does: a Chinese scheme is also the one Japanese and Korean return to, and choosing Japanese or Korean remembers the Chinese scheme it replaces. Moving between Japanese and Korean keeps the remembered one, because neither is a Chinese scheme the store would accept there.
+// 通过带版本的存储选择输入方案，并像设置页一样维护 last_chinese_scheme：中文方案（包括粤拼、注音和笔画）也是日文、韩文、越南文和藏文切回时回到的方案，选择这些语言之一时记住被替换的中文方案。在它们之间切换保留记住的方案，因为它们都不是存储会接受的中文方案。
 bool store_input_scheme(const std::filesystem::path &directory,
                         const std::string &scheme) {
   try {
@@ -410,12 +442,10 @@ bool store_input_scheme(const std::filesystem::path &directory,
             : std::string("quanpin");
     if (current == scheme)
       return true;
-    const auto chinese = [](const std::string &value) {
-      return value != "japanese" && value != "korean";
-    };
-    if (chinese(scheme))
+    // 粤拼、注音和笔画是中文方案，和其他中文方案一样被记住；日文、韩文、越南文和藏文各是独立的语言（client-core 的 ChineseScheme）。
+    if (msime::windows::scheme::is_chinese_scheme_name(scheme))
       preferences["last_chinese_scheme"] = scheme;
-    else if (chinese(current))
+    else if (msime::windows::scheme::is_chinese_scheme_name(current))
       preferences["last_chinese_scheme"] = current;
     preferences["scheme"] = scheme;
     const auto serialized = snapshot.dump();
@@ -434,20 +464,44 @@ bool store_input_scheme(const std::filesystem::path &directory,
     return false;
   }
 }
+// The Cantonese, Zhuyin and Stroke dictionaries the package installed beside the resources, where host-api looks for them (language_dictionaries_beside). They arrive with a package, so one look at startup holds for the process.
+msime::windows::scheme::LanguageDictionaryPresence
+installed_language_dictionaries(const std::filesystem::path &resources) {
+  const auto directory = resources.parent_path() / L"language-dictionaries";
+  std::error_code error;
+  return {std::filesystem::is_regular_file(directory / L"msime-cantonese.db", error),
+          std::filesystem::is_regular_file(directory / L"msime-zhuyin.db", error),
+          std::filesystem::is_regular_file(directory / L"msime-stroke.db", error)};
+}
+// The scheme the Engine runs for the stored preferences, which is the stored one unless it needs a dictionary that is not installed.
+std::string running_scheme(
+    const nlohmann::json &preferences,
+    msime::windows::scheme::LanguageDictionaryPresence installed) {
+  return std::string(msime::windows::scheme::scheme_name(
+      msime::windows::scheme::effective_scheme(
+          preferences.value("scheme", std::string("quanpin")),
+          preferences.value("last_chinese_scheme", std::string("quanpin")),
+          installed)));
+}
 // The stored preferences the tray card shows. The preference monitor publishes them and the UI thread reads them whenever the card is built.
 struct TrayMenuPreferences {
   bool translations = true;
   std::string scheme = "quanpin";
   std::string shuangpin_profile = "xiaohe";
+  std::string wubi_profile = "wubi86";
   std::string language_hint;
 };
-TrayMenuPreferences tray_menu_preferences(const nlohmann::json &preferences) {
+TrayMenuPreferences tray_menu_preferences(
+    const nlohmann::json &preferences,
+    msime::windows::scheme::LanguageDictionaryPresence installed) {
   TrayMenuPreferences result;
   result.translations = preferences.value("candidate_translations", true);
-  result.scheme = preferences.value("scheme", std::string("quanpin"));
+  // The scheme that runs, so a Cantonese, Zhuyin or Stroke choice made before its dictionary was installed checks the scheme the Engine fell back to, as the macOS input menu does.
+  result.scheme = running_scheme(preferences, installed);
   result.shuangpin_profile =
       preferences.value("shuangpin_profile", std::string("xiaohe"));
-  // The same defaults publish_switch_language_keybindings writes for the TIP.
+  result.wubi_profile = preferences.value("wubi_profile", std::string("wubi86"));
+  // The same defaults the TIP reads (FanyUtils::ReadConfiguredSwitchLanguageHotkeys).
   const auto bindings =
       preferences.value("keybindings", nlohmann::json::object());
   result.language_hint = msime::windows::tray_menu_language_hint(
@@ -463,12 +517,13 @@ TrayMenuPreferences tray_menu_preferences(const nlohmann::json &preferences) {
 // inline preedit style stayed "raw" whatever the user picked.
 // The token for the provider actually in use.
 //
-// Tokens are kept one per provider so switching provider restores the matching
-// key instead of sending the previous provider's key to the new endpoint. The
-// flat field remains the value the box currently holds, so it is the right
-// fallback for a store written before the slots existed.
-msime::windows::TsfLocalConfig tsf_local_config(const nlohmann::json &preferences) {
+// Tokens are kept one per provider so switching provider restores the matching key instead of sending the previous provider's key to the new endpoint.
+msime::windows::TsfLocalConfig tsf_local_config(
+    const nlohmann::json &preferences,
+    msime::windows::scheme::LanguageDictionaryPresence installed) {
   msime::windows::TsfLocalConfig config;
+  // The TIP keys the scheme the Engine runs: Zhuyin chosen without msime-zhuyin.db runs a pinyin scheme, and keying it as Zhuyin would swallow the tone digits.
+  const auto scheme = running_scheme(preferences, installed);
   const auto navigation =
       preferences.value("navigation", nlohmann::json::object());
   config.paging_comma_period = navigation.value("comma_period", true);
@@ -476,9 +531,7 @@ msime::windows::TsfLocalConfig tsf_local_config(const nlohmann::json &preference
   // PreviewConfig spells the pass-through case "local"; the TIP spells it "raw".
   if (config.preedit_style == "local")
     config.preedit_style = "raw";
-  // Windows follows the upstream split smart-punctuation policy: the feature
-  // is opt-in, and legacy profiles without the key must not silently enable
-  // punctuation rewriting.
+  // Windows follows the upstream split smart-punctuation policy: the feature is opt-in, so a profile without the key must not enable punctuation rewriting.
   config.smart_punctuation = preferences.value("smart_punctuation", false);
   config.smart_punctuation_repeat_to_chinese =
       preferences.value("smart_punctuation_repeat", false);
@@ -490,19 +543,15 @@ msime::windows::TsfLocalConfig tsf_local_config(const nlohmann::json &preference
       preferences.value("smart_punctuation_direct_letter", false);
   config.paired_punctuation = preferences.value("paired_punctuation", true);
   config.microsoft_shuangpin =
-      preferences.value("scheme", std::string("quanpin")) == "shuangpin" &&
+      scheme == "shuangpin" &&
       preferences.value("shuangpin_profile", std::string("xiaohe")) == "microsoft";
-  config.japanese_input_mode =
-      preferences.value("scheme", std::string("quanpin")) == "japanese";
-  config.korean_input_mode =
-      preferences.value("scheme", std::string("quanpin")) == "korean";
+  config.input_mode = msime::windows::scheme::input_mode(scheme);
   config.tsf_diagnostic_log =
       preferences.value("diagnostic_log", nlohmann::json::object())
           .value("tsf", false);
   const auto lock = preferences.value("punctuation_lock", std::string("follow"));
   config.punctuation_lock = lock == "chinese" ? 1 : lock == "english" ? 2 : 0;
   // The Engine opens V, "/" and "@" only in the pinyin schemes. The switches are left out of the stored document while off.
-  const auto scheme = preferences.value("scheme", std::string("quanpin"));
   const bool pinyin = scheme == "quanpin" || scheme == "shuangpin";
   const auto local_modes =
       preferences.value("local_modes", nlohmann::json::object());
@@ -512,6 +561,26 @@ msime::windows::TsfLocalConfig tsf_local_config(const nlohmann::json &preference
   return config;
 }
 
+// 会话控制器停下的原因，写进停止那一行；与 ControllerFailure 一一对应。
+const char *controller_failure_name(msime::windows::ControllerFailure failure) {
+  using msime::windows::ControllerFailure;
+  switch (failure) {
+  case ControllerFailure::None:
+    return "none";
+  case ControllerFailure::Service:
+    return "service";
+  case ControllerFailure::InputQueue:
+    return "input queue";
+  case ControllerFailure::SessionWorkers:
+    return "session workers";
+  case ControllerFailure::Control:
+    return "control";
+  case ControllerFailure::Preferences:
+    return "preferences";
+  }
+  return "unknown";
+}
+
 void apply_diagnostic_log(msime::windows::DiagnosticLog &log,
                           const nlohmann::json &preferences) {
   const auto switches =
@@ -519,53 +588,6 @@ void apply_diagnostic_log(msime::windows::DiagnosticLog &log,
   log.set_enabled(switches.value("server", false), switches.value("tsf", false));
 }
 
-// Mirror the CN/EN and 简繁 hotkeys into the shared config.toml.
-//
-// These four do not ride the worker pipe: the TIP reads them straight off disk
-// at activation. Without this the settings toggles would save and do nothing,
-// which is why they were hidden on Windows. Writing is best effort - a config
-// we cannot update costs the user their hotkey choice, never the IME.
-void publish_switch_language_keybindings(const nlohmann::json &preferences) {
-  // The same folder the TIP resolves. With no root there is nowhere to write, and a bare relative config.toml would land in the working directory.
-  const auto state = production_state_directory();
-  if (state.empty())
-    return;
-  const std::filesystem::path path = state / L"config.toml";
-  const auto bindings =
-      preferences.value("keybindings", nlohmann::json::object());
-  msime::windows::SwitchLanguageKeybindings values;
-  values.shift = bindings.value("switch_language_shift", true);
-  values.ctrl = bindings.value("switch_language_ctrl", false);
-  values.ctrl_alt_space = bindings.value("switch_language_ctrl_alt_space", true);
-  values.character_set_ctrl_shift_f =
-      bindings.value("toggle_character_set_ctrl_shift_f", true);
-  try {
-#ifdef _WIN32
-    msime::windows::reject_reparse_ancestors(path.parent_path());
-#endif
-    std::string existing;
-    {
-      std::ifstream input(path, std::ios::binary);
-      if (input) {
-        existing.resize(kMaxConfigBytes + 1);
-        input.read(existing.data(), static_cast<std::streamsize>(existing.size()));
-        if (input.bad() || input.gcount() > static_cast<std::streamsize>(kMaxConfigBytes))
-          return;
-        existing.resize(static_cast<std::size_t>(input.gcount()));
-      }
-    }
-    const auto updated = msime::windows::update_keybindings(existing, values);
-    if (updated == existing)
-      return;
-    std::error_code ignored;
-    std::filesystem::create_directories(path.parent_path(), ignored);
-    // Use a unique private sibling so a pre-existing staging symlink cannot
-    // redirect the keybinding document outside the state directory.
-    write_document_atomic(path, updated);
-  } catch (const std::exception &) {
-    // A read-only or roaming profile is the user's business, not a fatal error.
-  }
-}
 std::string production_preview_document(const std::string &runtime_document,
                                         const std::filesystem::path &fallback) {
   const auto host = nlohmann::json::parse(runtime_document);
@@ -605,22 +627,59 @@ std::string production_preview_document(const std::string &runtime_document,
   }
   return document.dump();
 }
+// 本版本的 TIP 有没有活动的输入模式，用一个命名的手动重置事件告诉别的版本的 Server：有信号表示活动。名字后面接版本后缀（full 是空串）。只有生产 Server 发布它，预览实例不碰。
+constexpr wchar_t server_mode_active_event_prefix[] = L"Local\\MetasequoiaImeServer_ModeActive";
+// 另一个版本的 TIP 是否有活动的输入模式：看那个版本的 Server 发布的事件。那个版本没在运行时事件不存在，按不活动处理。
+bool other_edition_mode_active() {
+  for (const wchar_t *suffix : {MSIME_EDITIONS_NAME_SUFFIXES}) {
+    if (std::wstring_view(suffix) == MSIME_EDITION_NAME_SUFFIX)
+      continue;
+    const std::wstring name = std::wstring(server_mode_active_event_prefix) + suffix;
+    if (HANDLE event = OpenEventW(SYNCHRONIZE, FALSE, name.c_str())) {
+      const bool active = WaitForSingleObject(event, 0) == WAIT_OBJECT_0;
+      CloseHandle(event);
+      if (active)
+        return true;
+    }
+  }
+  return false;
+}
 class ProductionInstance final {
 public:
   ProductionInstance() {
     handle_ = CreateMutexW(nullptr, FALSE,
-                           L"Local\\MetasequoiaImeServer_SingleInstance");
+                           L"Local\\MetasequoiaImeServer_SingleInstance" MSIME_EDITION_NAME_SUFFIX);
     if (!handle_)
       throw std::runtime_error("Server instance guard unavailable");
     already_running_ = GetLastError() == ERROR_ALREADY_EXISTS;
+    // 建不出来时别的版本只是看不到本版本的模式，维护快捷键在没有任何版本活动时照样有人处理，所以不算启动失败。
+    if (!already_running_)
+      mode_active_ = CreateEventW(nullptr, TRUE, FALSE,
+                                  (std::wstring(server_mode_active_event_prefix) + MSIME_EDITION_NAME_SUFFIX).c_str());
   }
   ~ProductionInstance() {
+    if (mode_active_) {
+      ResetEvent(mode_active_);
+      CloseHandle(mode_active_);
+    }
     if (handle_)
       CloseHandle(handle_);
   }
   bool already_running() const { return already_running_; }
+  // 主循环每一轮发布一次本版本的模式是否活动，只在变化时改事件。
+  void publish_mode_active(bool active) {
+    if (!mode_active_ || active == mode_active_published_)
+      return;
+    mode_active_published_ = active;
+    if (active)
+      SetEvent(mode_active_);
+    else
+      ResetEvent(mode_active_);
+  }
 private:
   HANDLE handle_ = nullptr;
+  HANDLE mode_active_ = nullptr;
+  bool mode_active_published_ = false;
   bool already_running_ = false;
 };
 // A Server that TSF revived after a crash (--production) has no Watchdog above it, so it starts the one packaged beside it, as the reference Server does. The Watchdog adopts this running Server instead of launching a second one, holds its own single-instance mutex, and exits on its own when the TIP profile is not enabled.
@@ -651,13 +710,14 @@ unsigned typing_effect_intensity(const nlohmann::json &preferences) {
 }
 } // namespace
 int wmain(int argc, wchar_t **argv) {
-  // Before any thread exists: libcurl's global init is not thread-safe, and the startup event's thread, a crash report on any thread and the online workers all use it.
+  // Before any thread exists: libcurl's global init is not thread-safe, and the online workers use it.
   curl_global_init(CURL_GLOBAL_DEFAULT);
+  // Crash capture only writes this session's crash record to disk, and only once telemetry::begin armed it with the user's consent; the next start reports it.
   std::set_terminate([] {
-    if (telemetry_allowed.load(std::memory_order_acquire))
-      msime::telemetry::crash("windows", MSIME_WINDOWS_VERSION, "std::terminate");
+    msime::telemetry::record_terminate();
     std::abort();
   });
+  msime::telemetry::install_crash_handlers();
   using namespace msime::windows;
   const auto launch = parse_server_arguments(argc, argv);
   attach_launching_console(launch);
@@ -680,7 +740,7 @@ int wmain(int argc, wchar_t **argv) {
         return 0;
       if (!launch.supervised)
         start_watchdog(executable_directory());
-      prepare_first_run(executable_directory(), default_state,
+      const bool prepared_now = prepare_first_run(executable_directory(), default_state,
                        [](const std::string &request) {
         std::unique_ptr<char, decltype(&msime_client_string_free)> response(
             msime_client_prepare_host(
@@ -690,6 +750,9 @@ int wmain(int argc, wchar_t **argv) {
           throw std::runtime_error("Host preparation failed");
         return std::string(response.get());
       });
+      // 只在这次刚准备好状态时采用安装器的选择；已有状态属于用户，文件照样删掉。
+      if (const auto cloud = take_installer_cloud_choice(default_state); prepared_now && cloud)
+        record_installer_cloud_choice(default_state, *cloud);
     }
     const std::filesystem::path config_path =
         production ? default_state / L"runtime-options.json"
@@ -714,10 +777,13 @@ int wmain(int argc, wchar_t **argv) {
       diagnostic_log.server(line);
     };
     ConsoleControl console;
-    const auto bootstrap =
+    auto bootstrap_document =
         nlohmann::json{{"resources", config.resources.u8string()},
-                       {"state_root", config.state_root.u8string()}}
-            .dump();
+                       {"state_root", config.state_root.u8string()}};
+    // 不是 full 的版本把版本 id 交给宿主库：它按版本选资源锁、收窄方案，并在状态根里记下版本。full 不带这个键，请求与引入版本之前相同。
+    if constexpr (!MSIME_EDITION_IS_FULL)
+      bootstrap_document["edition"] = MSIME_EDITION_ID;
+    const auto bootstrap = bootstrap_document.dump();
     std::unique_ptr<char, decltype(&msime_client_string_free)> response(
         msime_client_prepare_host(
             reinterpret_cast<const uint8_t *>(bootstrap.data()),
@@ -731,10 +797,11 @@ int wmain(int argc, wchar_t **argv) {
     if (stopping.load())
       return 0;
     apply_diagnostic_log(diagnostic_log, prepared.at("value").at("preferences"));
-    // Opt-in: nothing is sent and telemetry.json is not written unless the stored preferences turn it on. The startup event runs off the main thread so an unreachable endpoint (up to the 8 s request timeout) cannot delay the Server; the thread is never joined, so exiting mid-request only drops this event.
-    if (msime::windows::telemetry_consented(prepared.at("value").at("preferences"))) {
-      telemetry_allowed.store(true, std::memory_order_release);
-      std::thread([] { msime::telemetry::start("windows", MSIME_WINDOWS_VERSION); }).detach();
+    // Usage reporting, on unless the user turned usage_reporting off: one session per Server process, kept in this Windows user's %LOCALAPPDATA%\MSIME. begin closes the previous session (session_crash only when it left a crash record) and queues today's active; it is file I/O only. Delivery runs on a thread that is never joined, so an unreachable endpoint cannot delay the Server and exiting mid-request only leaves the events queued for the next start.
+    const bool usage_reporting = msime::windows::usage_reporting_enabled(prepared.at("value").at("preferences"));
+    if (const auto telemetry_directory = edition_telemetry_directory(); !telemetry_directory.empty()) {
+      msime::telemetry::begin({"windows", MSIME_WINDOWS_VERSION, telemetry_directory, usage_reporting, {}});
+      msime::telemetry::start_flushing();
     }
     // The user's anonymous MSIME account is registered on the first run after install, as on every other platform; once anonymous-session.json exists this is a file read. It runs off the main thread for the same reason as the telemetry event, and a failure (offline, rate limited) is simply retried on the next start.
     if (const auto account = anonymous_account_directory(); production && !account.empty()) {
@@ -747,14 +814,18 @@ int wmain(int argc, wchar_t **argv) {
     }
     diagnostic_log.server(std::string(production ? "Production" : "Preview") +
                           " Server starting");
+    const auto language_dictionaries =
+        installed_language_dictionaries(config.resources);
     auto traditional_output = std::make_shared<std::atomic<bool>>(
         prepared.at("value").at("preferences")
             .value("traditional_chinese_output", false));
     auto tsf_config = std::make_shared<msime::windows::TsfLocalConfig>(
-        tsf_local_config(prepared.at("value").at("preferences")));
+        tsf_local_config(prepared.at("value").at("preferences"),
+                         language_dictionaries));
     auto tsf_config_mutex = std::make_shared<std::mutex>();
     auto tray_preferences = std::make_shared<TrayMenuPreferences>(
-        tray_menu_preferences(prepared.at("value").at("preferences")));
+        tray_menu_preferences(prepared.at("value").at("preferences"),
+                              language_dictionaries));
     auto tray_preferences_mutex = std::make_shared<std::mutex>();
     // Set on every publication and on each focus session, so a TIP that
     // registers later is not left holding compiled defaults.
@@ -841,14 +912,14 @@ int wmain(int argc, wchar_t **argv) {
          toolbar_enabled, follow_cursor, effect_intensity, voice_theme, candidate_fonts, candidate_style,
          toolbar_theme, menu_theme, mode_scope_global, tsf_config, candidate_layout,
          tsf_config_mutex, tray_preferences, tray_preferences_mutex,
-         tsf_config_dirty, candidate_theme, toolbar_settings](const PreferenceSnapshot &snapshot) {
+         tsf_config_dirty, candidate_theme, toolbar_settings,
+         language_dictionaries](const PreferenceSnapshot &snapshot) {
           const auto preferences =
               nlohmann::json::parse(snapshot.serialized()).at("preferences");
           candidate_theme->publish(preferences);
           apply_diagnostic_log(diagnostic_log, preferences);
-          // A change applies to crash reports straight away; the startup event is sent at the next Server start.
-          telemetry_allowed.store(msime::windows::telemetry_consented(preferences),
-                                  std::memory_order_release);
+          // Turning reporting off clears what is queued and disarms crash capture at once; turning it on starts a session as a Server start would.
+          msime::telemetry::set_enabled(msime::windows::usage_reporting_enabled(preferences));
           if (auto settings = floating_toolbar_settings(preferences))
             toolbar_settings->publish(snapshot.revision(), *settings);
           if (auto fonts = candidate_font_settings(preferences))
@@ -891,12 +962,12 @@ int wmain(int argc, wchar_t **argv) {
           {
             std::lock_guard<std::mutex> lock(*tsf_config_mutex);
             const bool dedicated_english = tsf_config->dedicated_english;
-            *tsf_config = tsf_local_config(preferences);
+            *tsf_config = tsf_local_config(preferences, language_dictionaries);
             tsf_config->dedicated_english = dedicated_english;
             tsf_config_dirty->store(true, std::memory_order_release);
           }
           {
-            auto menu = tray_menu_preferences(preferences);
+            auto menu = tray_menu_preferences(preferences, language_dictionaries);
             std::lock_guard<std::mutex> lock(*tray_preferences_mutex);
             *tray_preferences = std::move(menu);
           }
@@ -916,7 +987,6 @@ int wmain(int argc, wchar_t **argv) {
               std::memory_order_release);
           effect_intensity->store(typing_effect_intensity(preferences),
                                   std::memory_order_release);
-          publish_switch_language_keybindings(preferences);
           const auto input = preferences.value("voice_input", nlohmann::json::object());
           VoiceInputConfig next;
           next.capture = voice_capture_selection(input);
@@ -957,7 +1027,6 @@ int wmain(int argc, wchar_t **argv) {
           next.polish_endpoint = input.value("polish_endpoint", std::string{});
           next.polish_model = input.value("polish_model", std::string{});
           next.polish_prompt_id = input.value("polish_prompt_id", std::string{"cleanup"});
-          next.polish_prompt = input.value("polish_prompt", std::string{});
           next.polish_prompt_custom_1 = input.value("polish_prompt_custom_1", std::string{});
           next.polish_prompt_custom_2 = input.value("polish_prompt_custom_2", std::string{});
           next.polish_prompt_custom_3 = input.value("polish_prompt_custom_3", std::string{});
@@ -1017,14 +1086,6 @@ int wmain(int argc, wchar_t **argv) {
     DWORD voice_controller_error = ERROR_SUCCESS;
     auto voice_controller = VoiceControllerListener::create(
         voice_controller_mailbox, voice_controller_error);
-    // Keep the pre-dedicated endpoint alive during rolling upgrades. Both
-    // listeners feed the same authenticated mailbox and dispatcher; a client
-    // still using VoiceControllerV2 therefore receives identical ownership
-    // and generation checks.
-    DWORD legacy_voice_controller_error = ERROR_SUCCESS;
-    auto legacy_voice_controller = VoiceControllerListener::create(
-        voice_controller_mailbox, legacy_voice_controller_error,
-        FanyImeVoiceController::PipeName);
     if (!voice_controller)
       notice("Voice controller unavailable; native input remains enabled");
     configure_audio_mute_state_path(
@@ -1273,10 +1334,14 @@ int wmain(int argc, wchar_t **argv) {
     });
     TrayMenuCapabilities menu_capabilities;
     menu_capabilities.emoji_panel = preview_shell.has_value();
-    menu_capabilities.handwriting_panel = preview_shell.has_value();
+    // 手写模型只认汉字，不提供手写的版本（日文、越南文和藏文版）托盘菜单里没有手写，安装包里也没有手写模型。
+    menu_capabilities.handwriting_panel = preview_shell.has_value() && MSIME_EDITION_HANDWRITING != 0;
     menu_capabilities.keyboard_panel = preview_shell.has_value();
     menu_capabilities.voice_input = true;
     menu_capabilities.settings = settings_shell.has_value();
+    menu_capabilities.cantonese = language_dictionaries.cantonese;
+    menu_capabilities.zhuyin = language_dictionaries.zhuyin;
+    menu_capabilities.stroke = language_dictionaries.stroke;
     const auto themes = theme_catalog();
     TrayMenuWindow tray(
         menu_capabilities,
@@ -1359,6 +1424,7 @@ int wmain(int argc, wchar_t **argv) {
             state.translations = tray_preferences->translations;
             state.scheme = tray_preferences->scheme;
             state.shuangpin_profile = tray_preferences->shuangpin_profile;
+            state.wubi_profile = tray_preferences->wubi_profile;
             state.language_hint = tray_preferences->language_hint;
           }
           // candidate_theme_values keeps global_theme only when it is a string.
@@ -1471,12 +1537,18 @@ int wmain(int argc, wchar_t **argv) {
             return false;
           if (batch.counts.empty())
             return true;
+          // Narrowed unit by unit, which is lossless only because the parser admitted nothing but ASCII; constructing std::string from wide iterators narrows implicitly, and MSVC's /WX rejects that (C4244).
+          const auto ascii = [](const std::wstring &value) {
+            std::string narrow;
+            narrow.reserve(value.size());
+            for (const wchar_t unit : value)
+              narrow.push_back(static_cast<char>(unit));
+            return narrow;
+          };
           std::map<std::string, uint64_t> keys;
           for (const auto &[key, count] : batch.counts)
-            keys.emplace(std::string(key.begin(), key.end()), count);
-          record_typing_keys_async(statistics_directory,
-                                   std::string(batch.day.begin(), batch.day.end()),
-                                   keys);
+            keys.emplace(ascii(key), count);
+          record_typing_keys_async(statistics_directory, ascii(batch.day), keys);
           return true;
         });
     // The fifth pipe: TIP diagnostics. The TIP has always produced batches on
@@ -1506,6 +1578,10 @@ int wmain(int argc, wchar_t **argv) {
     // while another application has focus, so they sit on a low-level keyboard
     // hook rather than the TSF key sink.
     MaintenanceHotkeyController maintenance([&](MaintenanceHotkey hotkey) {
+      // 几个版本的 Server 同时运行时，各自的低级键盘钩子都会看到这个按键，后装的钩子先看到，处理了就吞掉。焦点上的 TIP 属于别的版本时交给下一个钩子，让那个版本的 Server 处理；没有任何版本的模式活动时（焦点在别的输入法上，或 TIP 会话在崩溃后断开，正是要用重启快捷键的时候）谁先看到谁处理，不能都放过。只装一个版本时与引入版本之前相同。
+      if (hotkey.action != MaintenanceAction::DeleteCandidate &&
+          !server.mode_active() && other_edition_mode_active())
+        return false;
       switch (hotkey.action) {
       case MaintenanceAction::Restart:
         restart_requested.store(true);
@@ -1555,10 +1631,18 @@ int wmain(int argc, wchar_t **argv) {
     // that a preview instance is serving the installed input method.
     std::cout << (production ? "Production" : "Preview")
               << " Server running; candidate selection and mode controls enabled.\n";
+    // 工具栏失败不结束 Server：它只是方便切换模式的附件，Server 记一条诊断、去掉工具栏继续服务输入。曾经它也在这个条件里，某台 Windows 11 上工具栏一失败 Server 就在启动后约 100 ms 退出，日志却只写了一句正常停止。
+    bool toolbar_failure_reported = false;
     while (!stopping.load() && server.failure() == ControllerFailure::None &&
            !candidates.failed() && !clicks.failed() && !pages.failed() &&
            !mode_clicks.failed() &&
-           !character_set_clicks.failed() && !english_reads.failed() && !toolbar.failed()) {
+           !character_set_clicks.failed() && !english_reads.failed()) {
+      if (!toolbar_failure_reported && toolbar.failed()) {
+        toolbar_failure_reported = true;
+        toolbar.hide();
+        notice(component_failure("Floating toolbar", toolbar.failure_site()) +
+               "; continuing without it");
+      }
       MSG message{};
       // Bound each batch so a message flood cannot starve stop/focus polling.
       for (size_t i = 0;
@@ -1694,7 +1778,7 @@ int wmain(int argc, wchar_t **argv) {
           follow_cursor->load(std::memory_order_acquire));
       candidates.set_effect_intensity(
           effect_intensity->load(std::memory_order_acquire));
-      // The language button shows 'A' while Caps Lock is on, 日 in Japanese mode, 한 in Korean mode and an underlined "En" in the Engine's own English mode, so it has to follow all of them. Showing 中 with Caps Lock on tells the user the wrong thing about what the next letter key will do.
+      // 语言按钮在 Caps Lock 开着时显示 'A'，日文模式显示 日，韩文模式显示 한，粤拼、注音、越南文、藏文、笔画分别显示 粤、注、越、藏、笔，引擎自己的英文模式显示带下划线的 "En"，所以它要跟随这些状态。Caps Lock 开着时显示 中 会让用户误判下一个字母键的作用。
       {
         ToolbarLanguageState language;
         language.caps_lock = caps_lock.load(std::memory_order_acquire);
@@ -1706,8 +1790,7 @@ int wmain(int argc, wchar_t **argv) {
         }
         {
           std::lock_guard<std::mutex> lock(*tsf_config_mutex);
-          language.japanese = tsf_config->japanese_input_mode;
-          language.korean = tsf_config->korean_input_mode;
+          language.mode = tsf_config->input_mode;
           // The TIP's V-mode key rule follows the focused session's English mode (Ctrl+Shift+E, the toolbar exit, a focus change): the next pass pushes the trigger frame again.
           if (tsf_config->dedicated_english != language.dedicated_english) {
             tsf_config->dedicated_english = language.dedicated_english;
@@ -1775,6 +1858,8 @@ int wmain(int argc, wchar_t **argv) {
                                 GetForegroundWindow() != tray_foreground))
           tray.hide();
       }
+      if (instance)
+        instance->publish_mode_active(server.mode_active());
       if (MsgWaitForMultipleObjectsEx(0, nullptr, 50, QS_ALLINPUT,
                                       MWMO_INPUTAVAILABLE) == WAIT_FAILED)
         throw std::runtime_error("Candidate message wait failed");
@@ -1784,8 +1869,6 @@ int wmain(int argc, wchar_t **argv) {
     // thread. Retire the matching review before Server/focus teardown.
     if (voice_controller)
       voice_controller->stop();
-    if (legacy_voice_controller)
-      legacy_voice_controller->stop();
     voice_controller_dispatch.retire();
     toolbar.hide();
     // Stop the listener and close the mailbox before the window goes away, so a
@@ -1803,6 +1886,8 @@ int wmain(int argc, wchar_t **argv) {
     character_set_clicks.stop();
     mode_clicks.stop();
     english_reads.stop();
+    // Every way out of the message loop is a normal end of this session.
+    msime::telemetry::end();
     if (restart_requested.load()) {
       diagnostic_log.server("Server stopping: restart requested");
       return msime::windows::watchdog::restart_exit_code;
@@ -1811,12 +1896,25 @@ int wmain(int argc, wchar_t **argv) {
       diagnostic_log.server("Server stopping: stop requested");
       return msime::windows::watchdog::stop_exit_code;
     }
-    const bool clean = server.failure() == ControllerFailure::None &&
-                       !candidates.failed() && !clicks.failed() &&
-                       !mode_clicks.failed() &&
-                       !character_set_clicks.failed() && !english_reads.failed();
-    diagnostic_log.server(clean ? "Server stopping" : "Server stopping: a component failed");
-    return clean ? 0 : 1;
+    // 每个能结束主循环的组件都要在这一行里点名，否则日志只说"有组件失败"，无从查起。翻页曾经结束主循环却被记成正常停止。
+    std::vector<std::string> failures;
+    if (const auto failure = server.failure(); failure != ControllerFailure::None)
+      failures.push_back(std::string("session controller failed (") +
+                         controller_failure_name(failure) + ")");
+    if (candidates.failed())
+      failures.push_back(component_failure("candidate window", candidates.failure_site()));
+    if (clicks.failed())
+      failures.push_back(component_failure("candidate click worker", std::nullopt));
+    if (pages.failed())
+      failures.push_back(component_failure("candidate page worker", std::nullopt));
+    if (mode_clicks.failed())
+      failures.push_back(component_failure("mode click worker", std::nullopt));
+    if (character_set_clicks.failed())
+      failures.push_back(component_failure("character set click worker", std::nullopt));
+    if (english_reads.failed())
+      failures.push_back(component_failure("English state reader", std::nullopt));
+    diagnostic_log.server(server_stop_line(failures));
+    return failures.empty() ? 0 : 1;
   } catch (...) {
     std::cerr << "Preview Server failed; verify configuration, resources, "
                  "state ownership and pipe availability.\n";

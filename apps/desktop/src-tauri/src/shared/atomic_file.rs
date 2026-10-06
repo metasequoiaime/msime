@@ -1,18 +1,6 @@
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
-fn is_system_path_alias(path: &Path) -> bool {
-    #[cfg(target_os = "macos")]
-    {
-        return path == Path::new("/var") || path == Path::new("/tmp");
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = path;
-        false
-    }
-}
-
 /// Check that `path` and all existing ancestors are real directories.
 ///
 /// Refusing symlink ancestors keeps callers from writing through a redirected
@@ -23,7 +11,7 @@ pub(crate) fn check_directory_ancestors(path: &Path) -> io::Result<()> {
         current.push(component.as_os_str());
         match std::fs::symlink_metadata(&current) {
             Ok(metadata) if metadata.file_type().is_symlink() => {
-                if !is_system_path_alias(&current) {
+                if !msime_path_trust::is_trusted_system_alias(&current) {
                     return Err(io::Error::new(
                         io::ErrorKind::InvalidInput,
                         "directory has a symbolic-link ancestor",
@@ -84,7 +72,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn rejects_a_symlinked_ancestor_before_creating_the_parent() {
-        use std::os::unix::fs::symlink;
+        use msime_path_trust::untrusted_symlink as symlink;
 
         let outside = tempfile::tempdir().unwrap();
         let root = tempfile::tempdir().unwrap();

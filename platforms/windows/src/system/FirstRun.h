@@ -1,8 +1,31 @@
 #pragma once
 #include "PrepareHost.h"
+#include "../../../../shared/contracts/msime_edition.h"
+#include <fstream>
+#include <optional>
 
 namespace msime::windows {
-inline constexpr const wchar_t *kDataDirectoryMarker = L".metasequoiaime-data";
+// 安装器写下的所有权标记，文件名按版本取（full 是 .metasequoiaime-data）。只认本版本的文件名：带着别的版本标记的目录不是本版本安装器准备的，Server 不在里面准备状态。
+inline constexpr const wchar_t *kDataDirectoryMarker = MSIME_EDITION_DATA_DIR_MARKER;
+// 安装器「联网功能」页的选择，全新安装时写在数据目录里，形如 {"cloud_candidates": true}。运行中的宿主只读共享偏好，不读 config.toml，所以这份选择要由 Server 在首次准备状态后写进共享偏好。
+inline constexpr const wchar_t *kInstallerChoicesFile = L"installer-choices.json";
+
+// 读出安装器记下的云候选选择并删掉这个文件：它只对首次准备有意义，留着会在以后重新准备状态时被错误地再用一次。文件缺失、过大、不是 JSON 或没有布尔值时返回空，偏好保持共享默认值（关闭）。
+inline std::optional<bool> take_installer_cloud_choice(const std::filesystem::path &state) {
+  const auto path = state / kInstallerChoicesFile;
+  std::error_code error;
+  if (!std::filesystem::is_regular_file(path, error)) return std::nullopt;
+  std::optional<bool> choice;
+  if (std::filesystem::file_size(path, error) <= 4096 && !error) {
+    std::ifstream input(path, std::ios::binary);
+    const auto document = nlohmann::json::parse(input, nullptr, false);
+    if (document.is_object() && document.contains("cloud_candidates") &&
+        document.at("cloud_candidates").is_boolean())
+      choice = document.at("cloud_candidates").get<bool>();
+  }
+  std::filesystem::remove(path, error);
+  return choice;
+}
 
 // Called only after acquiring the production single-instance guard and before
 // StateRootLease (which would itself create the directory). Installer-created

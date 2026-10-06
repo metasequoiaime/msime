@@ -8,6 +8,7 @@ import { HarmonyVoiceCaptureDevices } from './HarmonyVoiceCaptureDevices';
 import { VoiceOutcome, VoiceResponsePolicy } from './VoiceResponsePolicy';
 import { VoiceInputConfiguration } from './VoiceInputConfiguration';
 import { TextPolicy } from '../TextPolicy';
+import { DoubaoHeaderPolicy } from './DoubaoHeaderPolicy';
 
 const PCM_CHUNK_BYTES: number = 6400;
 const MAX_PCM_QUEUE_BYTES: number = 16000 * 2 * 10;
@@ -388,19 +389,25 @@ export class HarmonyDoubaoRecognizer {
 
   private headers(config: VoiceInputConfiguration): webSocket.WebSocketRequestOptions {
     const requestId: string = util.generateRandomUUID(false);
+    const token: string = config.asr_token.trim();
+    const resourceId: string = config.asr_resource_id.trim();
+    const appKey: string = config.asr_app_key.trim();
     if (config.doubao_auth_mode === 'legacy') {
-      return { header: { 'x-api-resource-id': config.asr_resource_id, 'x-api-request-id': requestId,
-        'x-api-app-key': config.asr_app_key, 'x-api-access-key': config.asr_token } };
+      return { header: { 'x-api-resource-id': resourceId, 'x-api-request-id': requestId,
+        'x-api-app-key': appKey, 'x-api-access-key': token } };
     }
-    return { header: { 'x-api-resource-id': config.asr_resource_id, 'x-api-request-id': requestId,
-      'x-api-key': config.asr_token } };
+    return { header: { 'x-api-resource-id': resourceId, 'x-api-request-id': requestId,
+      'x-api-key': token } };
   }
 
   private validConfig(config: VoiceInputConfiguration): boolean {
     return TextPolicy.validAuthority(config.asr_endpoint, ['wss://'])
-      && config.asr_token.length > 0 && config.asr_token.length <= 8192
-      && config.asr_resource_id.length > 0 && config.asr_resource_id.length <= 256
-      && (config.doubao_auth_mode !== 'legacy' || config.asr_app_key.length > 0);
+      && DoubaoHeaderPolicy.validConfiguration(
+        config.doubao_auth_mode,
+        config.asr_token,
+        config.asr_resource_id,
+        config.asr_app_key,
+      );
   }
 
   private clearTimeout(): void {

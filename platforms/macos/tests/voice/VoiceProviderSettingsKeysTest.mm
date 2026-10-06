@@ -59,26 +59,14 @@ static void TestEveryEditableFieldHasASharedKey()
     }
 }
 
-static void TestSharedSettingPrefersTheSharedStoreAndToleratesJunk()
+static void TestSharedSettingReadsTheSharedStoreAndToleratesJunk()
 {
-    NSDictionary *saved = @{@"provider" : @"groq", @"model" : @"private-model"};
-
-    // The Tauri page writes only the shared default, and it is the primary editor.
-    assert([MSIMEVoiceProviderSharedSetting(saved, @"provider", @"openai", @"doubao") isEqual:@"openai"]);
-    // A configuration saved by an older build is still honoured rather than dropped on first open.
-    assert([MSIMEVoiceProviderSharedSetting(saved, @"provider", nil, @"doubao") isEqual:@"groq"]);
+    assert([MSIMEVoiceProviderSharedSetting(@"openai", @"doubao") isEqual:@"openai"]);
     // An empty shared value is not a choice; it is a default that was never written.
-    assert([MSIMEVoiceProviderSharedSetting(saved, @"model", @"", @"fallback") isEqual:@"private-model"]);
-    assert([MSIMEVoiceProviderSharedSetting(saved, @"endpoint", nil, @"fallback") isEqual:@"fallback"]);
-
-    // dictionaryForKey: type-checks the container and nothing inside it. A number where a string belongs
-    // used to reach -length and take the input method down on the next Control+Option+V, so both the leaf
-    // and the container are checked rather than trusted.
-    assert([MSIMEVoiceProviderSharedSetting(@{@"provider" : @7}, @"provider", nil, @"doubao") isEqual:@"doubao"]);
-    assert([MSIMEVoiceProviderSharedSetting(nil, @"provider", nil, @"doubao") isEqual:@"doubao"]);
-    assert([MSIMEVoiceProviderSharedSetting((NSDictionary *)@"not a dictionary", @"provider", nil, @"doubao")
-        isEqual:@"doubao"]);
-    assert([MSIMEVoiceProviderSharedSetting(saved, @"provider", @7, @"doubao") isEqual:@"groq"]);
+    assert([MSIMEVoiceProviderSharedSetting(@"", @"fallback") isEqual:@"fallback"]);
+    assert([MSIMEVoiceProviderSharedSetting(nil, @"fallback") isEqual:@"fallback"]);
+    // A number where a string belongs used to reach -length and take the input method down on the next Control+Option+V, so the value is checked rather than trusted.
+    assert([MSIMEVoiceProviderSharedSetting(@7, @"doubao") isEqual:@"doubao"]);
 }
 
 static void TestProviderCredentialIsolation()
@@ -260,7 +248,7 @@ int main()
 {
     @autoreleasepool {
         TestEveryEditableFieldHasASharedKey();
-        TestSharedSettingPrefersTheSharedStoreAndToleratesJunk();
+        TestSharedSettingReadsTheSharedStoreAndToleratesJunk();
         TestProviderCredentialIsolation();
         TestProviderWindowRestoresTheMatchingDraft();
         TestLoadUsesTheSelectedProviderSlots();

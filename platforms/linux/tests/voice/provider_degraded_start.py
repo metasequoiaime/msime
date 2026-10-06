@@ -5,6 +5,7 @@ Starts the real provider with synthetic credentials, a fake recorder and either 
 """
 import json
 from pathlib import Path
+import select
 import signal
 import socket
 import subprocess
@@ -31,8 +32,14 @@ def connect(uri, *, additional_headers=None, user_agent_header=None, compression
             close_timeout=None, max_size=None, max_queue=None, logger=None, create_connection=None, **kwargs):
     pass
 '''
-# Endless silence until the provider stops the recording.
-FAKE_RECORDER = "#!/bin/sh\nexec /bin/cat /dev/zero\n"
+# 按 16 kHz、16-bit 单声道实时输出静音，避免瞬间填满整个录音预算。
+FAKE_RECORDER = f"#!{sys.executable}\n" + '''import os
+import time
+
+while True:
+    os.write(1, bytes(640))
+    time.sleep(0.02)
+'''
 
 
 @unittest.skipUnless(sys.platform == "linux", "requires SO_PEERCRED peer authentication")
@@ -126,6 +133,9 @@ class DegradedStart(unittest.TestCase):
         with client, lines:
             status = self.read(lines)
             self.assertEqual(status, {"generation": generation, "type": "status", "phase": "recording", "ok": True})
+            # 控制客户端稍晚发出取消时，录音也应保持活动，不能自行进入识别。
+            self.assertEqual(select.select([client], [], [], 0.25)[0], [],
+                             "recording must remain active until cancelled")
             with self.connect() as control:
                 control.sendall(json.dumps({"version": 1, "kind": "voice_cancel",
                                             "query": {"generation": generation}}).encode() + b"\n")

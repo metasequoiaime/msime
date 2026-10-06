@@ -38,8 +38,10 @@ public:
   nlohmann::json activate(uint64_t epoch);
   nlohmann::json deactivate(uint64_t epoch);
   void cancel_composition(uint64_t epoch);
-  // MSIME_FINISH_COMPOSITION: the open composition becomes the commit. Korean uses it for the keys that end a syllable without a character of their own.
+  // MSIME_FINISH_COMPOSITION：当前组字成为上屏内容。韩文、注音、越南文和藏文用它处理那些结束组字但自身不带字符的按键。
   nlohmann::json finish_composition(uint64_t epoch);
+  // One MsimeCommand, for a key whose command does not follow from translate_key: the keys of the Korean Hanja and Zhuyin lists (KoreanHanjaKey.h). Requires input enabled.
+  nlohmann::json command(uint64_t epoch, uint32_t command);
   // Clear the Engine candidate-provider cache without requiring focus.
   void reset_cache();
   void set_input_enabled(uint64_t epoch, bool enabled);
@@ -117,6 +119,8 @@ public:
 private:
   void check_thread() const;
   void check_active(uint64_t epoch) const;
+  // 取消结果让韩文、注音、越南文或藏文的组字仍然打开时（列表关闭、原文重新显示），再发第二次 MSIME_CANCEL 丢弃它；其他结果不变。
+  nlohmann::json cancel_again(nlohmann::json result);
   const std::thread::id thread_ = std::this_thread::get_id();
   uint64_t client_;
   uint64_t session_ = 0;

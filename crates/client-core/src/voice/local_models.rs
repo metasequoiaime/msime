@@ -283,13 +283,18 @@ pub fn remove(root: &Path, id: &str) -> Result<(), LocalModelError> {
     check_root(root)?;
     let target = root.join(&model.id);
     remove_leftovers(root, &model.id);
-    if !target.exists() {
-        return Ok(());
-    }
+    let target_is_dir = match fs::symlink_metadata(&target) {
+        Ok(metadata) => metadata.is_dir(),
+        Err(_) => return Ok(()),
+    };
     // Renamed aside first so a deletion interrupted halfway never leaves a directory that still carries its manifest.
     let aside = root.join(format!(".old-{}-{}", model.id, unique_suffix()));
     fs::rename(&target, &aside)?;
-    fs::remove_dir_all(&aside)?;
+    if target_is_dir {
+        fs::remove_dir_all(&aside)?;
+    } else {
+        fs::remove_file(&aside)?;
+    }
     Ok(())
 }
 
@@ -308,25 +313,32 @@ fn check_root(root: &Path) -> Result<(), LocalModelError> {
         Err(error) if error.kind() == io::ErrorKind::NotFound => {}
         Err(_) => return Err(LocalModelError::InvalidRoot),
     }
-    // A not-yet-created root can have several missing components below a
-    // replaced app-data directory. Find the nearest existing ancestor and
-    // inspect that one; walking farther would reject intentional system
-    // aliases such as macOS `/var` even though the nearest real directory
-    // already anchors the app-owned path.
-    let mut current = root.parent();
+    // 逐个检查所有祖先；只看最近的已存在目录会漏掉“符号链接后面中间目录已存在”的路径。
+    let mut ancestors = Vec::with_capacity(ancestor_capacity(root));
+    let mut current = Some(root);
     while let Some(path) = current {
+        ancestors.push(path);
+        current = path.parent();
+    }
+    for path in ancestors.into_iter().rev() {
+        // 系统自己的符号链接（macOS 的 /var、Android 的 /data/user/0）由 msime-path-trust 列出。
+        if msime_path_trust::is_trusted_system_alias(path) {
+            continue;
+        }
         match fs::symlink_metadata(path) {
             Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
                 return Err(LocalModelError::InvalidRoot);
             }
-            Ok(_) => break,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                current = path.parent();
-            }
+            Ok(_) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
             Err(_) => return Err(LocalModelError::InvalidRoot),
         }
     }
     Ok(())
+}
+
+fn ancestor_capacity(root: &Path) -> usize {
+    root.components().count()
 }
 
 fn unique_suffix() -> String {
@@ -346,8 +358,19 @@ fn remove_leftovers(root: &Path, id: &str) {
             continue;
         };
         if name.starts_with(&staging) || name.starts_with(&old) {
-            let _ = fs::remove_dir_all(entry.path());
+            remove_leftover(&entry.path());
         }
+    }
+}
+
+fn remove_leftover(path: &Path) {
+    let Ok(metadata) = fs::symlink_metadata(path) else {
+        return;
+    };
+    if metadata.is_dir() {
+        let _ = fs::remove_dir_all(path);
+    } else {
+        let _ = fs::remove_file(path);
     }
 }
 
@@ -532,30 +555,8 @@ pub(crate) fn install_model(
         }
     }
     check_cancel(cancel)?;
-    let manifest = serde_json::to_vec_pretty(&model.manifest).map_err(io::Error::other)?;
-    {
-        let mut file = fs::File::create(model_dir.join(MANIFEST_FILE))?;
-        file.write_all(&manifest)?;
-        file.sync_all()?;
-    }
-
-    let target = root.join(&model.id);
-    let aside = root.join(format!(".old-{}-{}", model.id, unique_suffix()));
-    let replaced = if target.exists() {
-        fs::rename(&target, &aside)?;
-        true
-    } else {
-        false
-    };
-    if let Err(error) = fs::rename(&model_dir, &target) {
-        if replaced {
-            let _ = fs::rename(&aside, &target);
-        }
-        return Err(error.into());
-    }
-    if replaced {
-        let _ = fs::remove_dir_all(&aside);
-    }
+    write_manifest(&model_dir, &model.manifest)?;
+    let target = publish(root, &model.id, &model_dir)?;
     progress(InstallProgress {
         stage: "done",
         downloaded: total,
@@ -563,6 +564,167 @@ pub(crate) fn install_model(
     });
     Ok(target)
 }
+
+/// 把 `msime-model.json` 写进暂存目录；它总是该目录里最后写入的文件，有它才算安装完整。
+fn write_manifest(dir: &Path, manifest: &Value) -> Result<(), LocalModelError> {
+    let manifest = serde_json::to_vec_pretty(manifest).map_err(io::Error::other)?;
+    let mut file = fs::File::create(dir.join(MANIFEST_FILE))?;
+    file.write_all(&manifest)?;
+    file.sync_all()?;
+    Ok(())
+}
+
+/// 把完整的暂存目录移到 `<root>/<id>`：先把旧安装改名挪开，移动失败时再挪回来，成功后删除旧安装。
+fn publish(root: &Path, id: &str, staged: &Path) -> Result<PathBuf, LocalModelError> {
+    let target = root.join(id);
+    let aside = root.join(format!(".old-{}-{}", id, unique_suffix()));
+    let replaced = if fs::symlink_metadata(&target).is_ok() {
+        fs::rename(&target, &aside)?;
+        true
+    } else {
+        false
+    };
+    if let Err(error) = fs::rename(staged, &target) {
+        if replaced {
+            let _ = fs::rename(&aside, &target);
+        }
+        return Err(error.into());
+    }
+    if replaced {
+        remove_leftover(&aside);
+    }
+    Ok(target)
+}
+
+/// 下载一组固定的文件（名称、URL、长度、SHA-256 都来自仓库里审过的锁文件）到 `<root>/<id>`，写入 `manifest` 作为 `msime-model.json` 并整体发布，替换之前的安装。阻塞调用，不要放在 UI 线程。
+pub fn install_files(
+    root: &Path,
+    id: &str,
+    files: &[crate::resources::Artifact],
+    manifest: &Value,
+    mirror: &str,
+    progress: &mut dyn FnMut(InstallProgress),
+    cancel: &AtomicBool,
+) -> Result<PathBuf, LocalModelError> {
+    install_files_with(
+        root,
+        id,
+        files,
+        manifest,
+        mirror,
+        &HttpFetcher::new()?,
+        progress,
+        cancel,
+    )
+}
+
+/// 不变量：已经发布的文件永远不会被重新打开写入。输入法会内存映射 msime-japanese.dat，原地改写会让正在使用的映射读到半新半旧的内容甚至触发 SIGBUS；所以新文件一律写进暂存目录，再整体改名替换旧目录，旧文件只被改名和删除，已打开的句柄仍能读到原来的字节。
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn install_files_with(
+    root: &Path,
+    id: &str,
+    files: &[crate::resources::Artifact],
+    manifest: &Value,
+    mirror: &str,
+    fetcher: &dyn Fetcher,
+    progress: &mut dyn FnMut(InstallProgress),
+    cancel: &AtomicBool,
+) -> Result<PathBuf, LocalModelError> {
+    check_root(root)?;
+    if !crate::preferences::valid_model_mirror(mirror) {
+        return Err(LocalModelError::InvalidMirror);
+    }
+    if single_component(id).is_none_or(|single| single != id) || id.starts_with('.') {
+        return Err(LocalModelError::UnknownModel);
+    }
+    fs::create_dir_all(root)?;
+    remove_leftovers(root, id);
+    let staging = Staging(root.join(format!(".staging-{}-{}", id, unique_suffix())));
+    fs::create_dir(&staging.0)?;
+    let pack_dir = staging.0.join("model");
+    fs::create_dir(&pack_dir)?;
+
+    let total = files
+        .iter()
+        .fold(0u64, |sum, file| sum.saturating_add(file.size));
+    let mut offset = 0u64;
+    let mut last = 0u64;
+    for file in files {
+        check_cancel(cancel)?;
+        let name = single_component(&file.name)
+            .filter(|single| *single == file.name)
+            .ok_or_else(|| LocalModelError::UnsafeArchive(file.name.clone()))?;
+        let mut output = BufWriter::new(fs::File::create(pack_dir.join(&name))?);
+        let digest = download(
+            fetcher,
+            &mirrored(mirror, &file.url),
+            file.size,
+            &mut output,
+            cancel,
+            &mut |n| {
+                let downloaded = offset + n;
+                if downloaded == total || downloaded - last >= (total / 200).max(CHUNK as u64) {
+                    last = downloaded;
+                    progress(InstallProgress {
+                        stage: "download",
+                        downloaded,
+                        total,
+                    });
+                }
+            },
+        )?;
+        let output = output.into_inner().map_err(|error| error.into_error())?;
+        output.sync_all()?;
+        if !digest.eq_ignore_ascii_case(&file.sha256) {
+            return Err(LocalModelError::ChecksumMismatch(file.name.clone()));
+        }
+        offset += file.size;
+    }
+    progress(InstallProgress {
+        stage: "verify",
+        downloaded: total,
+        total,
+    });
+    write_manifest(&pack_dir, manifest)?;
+    check_cancel(cancel)?;
+    let target = publish(root, id, &pack_dir)?;
+    progress(InstallProgress {
+        stage: "done",
+        downloaded: total,
+        total,
+    });
+    Ok(target)
+}
+
+/// 读取 `<root>/<id>/msime-model.json`。只接受不超过 64 KiB 的普通文件，符号链接、目录或无法解析的内容都视为没有。
+pub fn installed_manifest(root: &Path, id: &str) -> Option<Value> {
+    if check_root(root).is_err() {
+        return None;
+    }
+    if single_component(id).is_none_or(|single| single != id) || id.starts_with('.') {
+        return None;
+    }
+    let directory = root.join(id);
+    if !fs::symlink_metadata(&directory).ok()?.file_type().is_dir() {
+        return None;
+    }
+    let path = directory.join(MANIFEST_FILE);
+    let metadata = fs::symlink_metadata(&path).ok()?;
+    if !metadata.file_type().is_file() || metadata.len() > MAX_MANIFEST_BYTES {
+        return None;
+    }
+    let bytes = crate::bounded_io::read_bounded_file_with(
+        fs::File::open(&path).ok()?,
+        MAX_MANIFEST_BYTES,
+        || (),
+        |_| (),
+    )
+    .ok()?;
+    serde_json::from_slice(&bytes).ok()
+}
+
+/// `msime-model.json` 由安装器在本机写出，正常只有几 KB；限制大小，免得被替换的文件占用无界内存。
+const MAX_MANIFEST_BYTES: u64 = 64 * 1024;
 
 fn check_cancel(cancel: &AtomicBool) -> Result<(), LocalModelError> {
     if cancel.load(Ordering::Relaxed) {
@@ -619,7 +781,7 @@ fn url_file_name(url: &str) -> String {
 
 /// A path as plain, relative components: no root, prefix, `..`, empty or separator-bearing parts. `None` for anything else.
 fn relative_components(path: &str) -> Option<Vec<String>> {
-    let mut parts = Vec::new();
+    let mut parts = Vec::with_capacity(relative_component_capacity(path));
     for component in Path::new(path).components() {
         match component {
             Component::CurDir => {}
@@ -635,6 +797,16 @@ fn relative_components(path: &str) -> Option<Vec<String>> {
         }
     }
     Some(parts)
+}
+
+fn relative_component_capacity(path: &str) -> usize {
+    if path.is_empty() {
+        return 0;
+    }
+    path.bytes()
+        .filter(|byte| matches!(*byte, b'/' | b'\\'))
+        .count()
+        .saturating_add(1)
 }
 
 fn single_component(name: &str) -> Option<String> {

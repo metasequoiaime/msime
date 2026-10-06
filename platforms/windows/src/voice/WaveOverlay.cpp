@@ -10,10 +10,11 @@
 #include <cmath>
 #include <dwmapi.h>
 #include <windowsx.h>
+#include "../../../../shared/contracts/msime_edition.h"
 
 namespace
 {
-constexpr wchar_t kClassName[] = L"MviWaveOverlayWindow";
+constexpr wchar_t kClassName[] = L"MviWaveOverlayWindow" MSIME_EDITION_NAME_SUFFIX;
 constexpr UINT_PTR kTimerId = 1;
 constexpr UINT kTimerMs = 16;
 constexpr UINT kTranscriptChangedMessage = WM_APP + 186;

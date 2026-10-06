@@ -14,12 +14,53 @@ public final class CandidateGlossModelSmoke {
         check(CandidateGlossPolicy.annotation("", "x".repeat(4097), true).isEmpty(),
             "oversized gloss hidden");
 
+        // Korean Hanja rows: the 훈음 always shows, and a gloss shares its row rather than displacing it or adding a row.
+        check(CandidateGlossPolicy.hanjaAnnotation("나라 이름 한", "", false).equals("나라 이름 한"),
+            "the 훈음 shows with glosses off");
+        check(CandidateGlossPolicy.hanjaAnnotation("나라 이름 한", "Korea", false).equals("나라 이름 한"),
+            "a gloss stays hidden while glosses are off");
+        check(CandidateGlossPolicy.hanjaAnnotation("나라 이름 한", "Korea", true).equals("나라 이름 한 · Korea"),
+            "a gloss follows the 훈음 on the same row");
+        check(CandidateGlossPolicy.hanjaAnnotation("나라 이름 한", "Korea\n韓国", true)
+                .equals("나라 이름 한 · Korea\n韓国"), "a second-language gloss keeps its own row");
+        check(CandidateGlossPolicy.hanjaAnnotation("", "Korea", true).equals("Korea"),
+            "a Hanja without 훈음 shows its gloss alone");
+        check(CandidateGlossPolicy.hanjaAnnotation(null, null, true).isEmpty(),
+            "a Hanja with neither has no secondary row");
+        check(CandidateGlossPolicy.hanjaAnnotation("나라 이름 한", "x".repeat(4097), true).equals("나라 이름 한"),
+            "an oversized gloss is hidden under the 훈음");
+        check(CandidateGlossPolicy.hanjaAccessibilitySuffix("나라 이름 한", "Korea", true)
+                .equals("，训音：나라 이름 한，释义：Korea"), "accessible 훈음 and gloss");
+        check(CandidateGlossPolicy.hanjaAccessibilitySuffix("나라 이름 한", "Korea", false)
+                .equals("，训音：나라 이름 한"), "accessible 훈음 with glosses off");
+
         CandidateGlossPolicy.Token token = new CandidateGlossPolicy.Token(11, 7, 3);
         check(token.isCurrent(11, 7, 3), "matching token");
         check(!token.isCurrent(11, 8, 3) && !token.isCurrent(12, 7, 3)
             && !token.isCurrent(11, 7, 4), "stale session, generation and epoch rejected");
         expectFailure(() -> new CandidateGlossPolicy.Token(0, 7, 3));
         expectFailure(() -> new CandidateGlossPolicy.Token(11, -1, 3));
+
+        check(CandidateGlossPolicy.strictInteger(Integer.valueOf(7)) == 7,
+            "JSON integer values are accepted");
+        check(CandidateGlossPolicy.strictInteger(Long.valueOf(Long.MAX_VALUE)) == Long.MAX_VALUE,
+            "large JSON integer values retain precision");
+        expectFailure(() -> CandidateGlossPolicy.strictInteger(Double.valueOf(7.5)));
+        expectFailure(() -> CandidateGlossPolicy.strictInteger(Boolean.TRUE));
+        expectFailure(() -> CandidateGlossPolicy.strictInteger("7"));
+        check(CandidateGlossPolicy.strictOr(Long.valueOf(9), -1) == 9,
+            "strict fallback preserves exact integers");
+        check(CandidateGlossPolicy.strictOr(Double.valueOf(9.5), -1) == -1,
+            "strict fallback rejects fractions");
+        check(CandidateGlossPolicy.strictOr(Boolean.TRUE, -1) == -1,
+            "strict fallback rejects booleans");
+        check(CandidateGlossPolicy.strictString("hello").equals("hello"),
+            "JSON strings are accepted");
+        for (Object invalid : new Object[] {
+                null, Long.valueOf(7), Boolean.TRUE, java.util.List.of("hello"),
+                java.util.Map.of("text", "hello")}) {
+            expectFailure(() -> CandidateGlossPolicy.strictString(invalid));
+        }
 
         System.out.println("Android candidate gloss model: bounds, priority and stale guards passed");
     }

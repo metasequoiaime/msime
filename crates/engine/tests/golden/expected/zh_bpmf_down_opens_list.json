@@ -1,0 +1,235 @@
+{
+ "name": "zh_bpmf_down_opens_list",
+ "steps": [
+  {
+   "op": "open",
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "zhuyin",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "w96j0 ",
+   "op": "type",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 6,
+    "dedicated_english": false,
+    "editing_text": "w96j0 ",
+    "local_mode": "none",
+    "normalized_segmentation": "臺灣",
+    "preedit": "臺灣",
+    "raw_segmentation": "w96j0 ",
+    "scheme": "zhuyin",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "ConvertHanja",
+   "op": "command",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 4,
+    "candidates": [
+     {
+      "answers_key": true,
+      "canonical_pinyin": "",
+      "pinyin": "",
+      "scheme": "zhuyin",
+      "source": 0,
+      "weight": 0,
+      "word": "臺灣"
+     },
+     {
+      "answers_key": true,
+      "canonical_pinyin": "",
+      "pinyin": "",
+      "scheme": "zhuyin",
+      "source": 0,
+      "weight": 0,
+      "word": "台灣"
+     },
+     {
+      "answers_key": true,
+      "canonical_pinyin": "",
+      "pinyin": "",
+      "scheme": "zhuyin",
+      "source": 0,
+      "weight": 0,
+      "word": "彎"
+     },
+     {
+      "answers_key": true,
+      "canonical_pinyin": "",
+      "pinyin": "",
+      "scheme": "zhuyin",
+      "source": 0,
+      "weight": 0,
+      "word": "灣"
+     }
+    ],
+    "caret": 6,
+    "dedicated_english": false,
+    "editing_text": "w96j0 ",
+    "local_mode": "none",
+    "normalized_segmentation": "臺灣",
+    "preedit": "臺灣",
+    "raw_segmentation": "w96j0 ",
+    "scheme": "zhuyin",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "ConvertHanja",
+   "op": "command",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 6,
+    "dedicated_english": false,
+    "editing_text": "w96j0 ",
+    "local_mode": "none",
+    "normalized_segmentation": "臺灣",
+    "preedit": "臺灣",
+    "raw_segmentation": "w96j0 ",
+    "scheme": "zhuyin",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "ConvertHanja",
+   "op": "command",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 4,
+    "candidates": [
+     {
+      "answers_key": true,
+      "canonical_pinyin": "",
+      "pinyin": "",
+      "scheme": "zhuyin",
+      "source": 0,
+      "weight": 0,
+      "word": "臺灣"
+     },
+     {
+      "answers_key": true,
+      "canonical_pinyin": "",
+      "pinyin": "",
+      "scheme": "zhuyin",
+      "source": 0,
+      "weight": 0,
+      "word": "台灣"
+     },
+     {
+      "answers_key": true,
+      "canonical_pinyin": "",
+      "pinyin": "",
+      "scheme": "zhuyin",
+      "source": 0,
+      "weight": 0,
+      "word": "彎"
+     },
+     {
+      "answers_key": true,
+      "canonical_pinyin": "",
+      "pinyin": "",
+      "scheme": "zhuyin",
+      "source": 0,
+      "weight": 0,
+      "word": "灣"
+     }
+    ],
+    "caret": 6,
+    "dedicated_english": false,
+    "editing_text": "w96j0 ",
+    "local_mode": "none",
+    "normalized_segmentation": "臺灣",
+    "preedit": "臺灣",
+    "raw_segmentation": "w96j0 ",
+    "scheme": "zhuyin",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "Cancel",
+   "op": "command",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 6,
+    "dedicated_english": false,
+    "editing_text": "w96j0 ",
+    "local_mode": "none",
+    "normalized_segmentation": "臺灣",
+    "preedit": "臺灣",
+    "raw_segmentation": "w96j0 ",
+    "scheme": "zhuyin",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "Cancel",
+   "op": "command",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "zhuyin",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "ConvertHanja",
+   "op": "command",
+   "result": {
+    "handled": false
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "zhuyin",
+    "shuangpin_profile": "xiaohe"
+   }
+  }
+ ]
+}

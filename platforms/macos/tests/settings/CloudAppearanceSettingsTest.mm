@@ -19,6 +19,24 @@ int main() {
     assert([initial[@"platform.macos.shuangpin_helpcode_schema"] isEqual:@0]);
     assert([initial[@"platform.macos.local_input_modes"] isEqual:@YES]);
     assert([initial[@"platform.macos.shuangpin_preedit_uses_raw"] isEqual:@YES]);
+    // 每套内置辅助码在全拼和双拼里都能导出，再导入回相同选择。
+    for (NSString *scheme in @[@"quanpin", @"shuangpin"]) {
+      for (NSUInteger index = 0; index < MSIMECloudHelpcodeSchemas().count; ++index) {
+        NSString *schema = MSIMECloudHelpcodeSchemas()[index];
+        [defaults setObject:@{scheme: @{@"schema": schema}} forKey:@"MSIMEClientHelpcodeOptions"];
+        NSDictionary *snapshot = MSIMECloudAppearanceSnapshot(defaults);
+        NSString *key = [NSString stringWithFormat:@"platform.macos.%@_helpcode_schema", scheme];
+        assert([snapshot[key] isEqual:@(index)]);
+        assert(MSIMEValidateCloudAppearance(snapshot));
+        [defaults removeObjectForKey:@"MSIMEClientHelpcodeOptions"];
+        assert(MSIMEApplyCloudAppearance(snapshot, defaults));
+        assert([MSIMECloudAppearanceSnapshot(defaults) isEqual:snapshot]);
+        assert([[defaults dictionaryForKey:@"MSIMEClientHelpcodeOptions"][scheme][@"schema"] isEqual:schema]);
+        NSDictionary *narrowed = MSIMENarrowCloudAppearance(snapshot, @[@"quanpin", @"shuangpin"]);
+        assert(MSIMEApplyCloudAppearanceForSchemes(narrowed, defaults, @[@"quanpin", @"shuangpin"]));
+      }
+    }
+    assert(MSIMEApplyCloudAppearance(initial, defaults));
     for (NSString *key in @[@"autocorrect", @"helpcode", @"chinese_punctuation", @"input_mode_shortcut", @"floating_toolbar", @"candidate_learning"])
       assert([initial[[@"platform.macos." stringByAppendingString:key]] isEqual:@YES]);
     for (NSString *key in @[@"english_input_mode", @"full_width_input", @"smart_punctuation", @"smart_punctuation_repeat", @"traditional_chinese_output", @"wubi_auto_commit_unique", @"shuangpin_keymap"])
@@ -32,6 +50,14 @@ int main() {
     NSDictionary *koreanNativeSnapshot = MSIMECloudAppearanceSnapshot(defaults);
     assert([koreanNativeSnapshot[@"platform.macos.input_scheme"] isEqual:@0]);
     assert(MSIMEValidateCloudAppearance(koreanNativeSnapshot));
+
+    // The schemes added after the contract was fixed export the same quanpin fallback and still validate.
+    for (NSString *scheme in @[@"cantonese", @"zhuyin", @"vietnamese", @"tibetan", @"stroke"]) {
+        [defaults setObject:scheme forKey:@"MSIMEClientInputScheme"];
+        NSDictionary *snapshot = MSIMECloudAppearanceSnapshot(defaults);
+        assert([snapshot[@"platform.macos.input_scheme"] isEqual:@0]);
+        assert(MSIMEValidateCloudAppearance(snapshot));
+    }
     NSMutableDictionary *values = [initial mutableCopy];
     values[@"platform.macos.global_theme"] = @"custom";
     values[@"platform.macos.custom_theme_base"] = @"night";
@@ -92,7 +118,7 @@ int main() {
       }
     }
     for (NSString *key in @[@"platform.macos.quanpin_helpcode_schema", @"platform.macos.shuangpin_helpcode_schema"]) {
-      for (id invalid in @[@YES, @5, @(-1), @1.5, @"1"]) {
+      for (id invalid in @[@YES, @(MSIMECloudHelpcodeSchemas().count), @(-1), @1.5, @"1"]) {
         NSMutableDictionary *bad = [saved mutableCopy]; bad[key] = invalid;
         assert(!MSIMEApplyCloudAppearance(bad, defaults));
         assert([MSIMECloudAppearanceSnapshot(defaults) isEqual:saved]);
@@ -103,14 +129,18 @@ int main() {
       assert(!MSIMEApplyCloudAppearance(bad, defaults));
       assert([MSIMECloudAppearanceSnapshot(defaults) isEqual:saved]);
     }
-    for (id invalid in @[@YES, @11, @33, @18.5, @"18", NSNull.null]) {
+    for (id invalid in @[@YES, @11, @33, @18.5,
+                         [NSDecimalNumber decimalNumberWithString:@"18.0000000000000001"],
+                         @"18", NSNull.null]) {
       values[@"platform.macos.candidate_font_size"] = invalid;
       assert(!MSIMEApplyCloudAppearance(values, defaults));
       assert([MSIMECloudAppearanceSnapshot(defaults) isEqual:saved]);
     }
     // 1 and 6 are sizes the shared preferences accept, so a snapshot carrying either is applied rather
     // than refused; what stays invalid is a non-number, a non-integer, and anything outside 1..9.
-    for (id invalid in @[@YES, @0, @10, @1.5, @"5", NSNull.null]) {
+    for (id invalid in @[@YES, @0, @10, @1.5,
+                         [NSDecimalNumber decimalNumberWithString:@"5.0000000000000001"],
+                         @"5", NSNull.null]) {
       values = [saved mutableCopy];
       values[@"platform.macos.candidate_page_size"] = invalid;
       assert(!MSIMEApplyCloudAppearance(values, defaults));
@@ -159,6 +189,43 @@ int main() {
     assert(MSIMEApplyCloudAppearance(saved, defaults));
     values = [saved mutableCopy]; values[@"unexpected"] = @1;
     assert(!MSIMEApplyCloudAppearance(values, defaults));
+
+    // 版本收窄（与 client-core 的账号偏好过滤规则相同）。测试进程是 full：什么也不去掉。
+    assert(MSIMENarrowCloudAppearance(saved, nil) == saved);
+    assert(MSIMEAdoptCloudAppearance(saved, saved, nil) == saved);
+    // 五笔版只有一个方案：不带 input_scheme，也不带只属于全拼、双拼的字段；五笔的字段照常带。
+    NSArray *wubi = @[@"wubi"];
+    NSDictionary *wubiSnapshot = MSIMENarrowCloudAppearance(saved, wubi);
+    assert(wubiSnapshot[@"platform.macos.input_scheme"] == nil);
+    for (NSString *key in @[@"platform.macos.quanpin_helpcode_schema", @"platform.macos.shuangpin_helpcode_schema", @"platform.macos.shuangpin_keymap", @"platform.macos.shuangpin_preedit_uses_raw"])
+      assert(wubiSnapshot[key] == nil);
+    assert(wubiSnapshot[@"platform.macos.wubi_auto_commit_unique"] != nil);
+    assert(wubiSnapshot.count == saved.count - 5);
+    assert(MSIMEValidateCloudAppearanceForSchemes(wubiSnapshot, wubi));
+    // 一份 full 的完整快照不是五笔版的快照，反之亦然。
+    assert(!MSIMEValidateCloudAppearanceForSchemes(saved, wubi));
+    assert(!MSIMEValidateCloudAppearanceForSchemes(wubiSnapshot, nil));
+    // 应用五笔版的快照不碰本机的方案和全拼、双拼的设置。
+    [defaults setObject:@"wubi" forKey:@"MSIMEClientInputScheme"];
+    [defaults setBool:YES forKey:@"MSIMEClientShuangpinKeymap"];
+    NSMutableDictionary *wubiValues = [wubiSnapshot mutableCopy];
+    wubiValues[@"platform.macos.candidate_font_size"] = @22;
+    assert(MSIMEApplyCloudAppearanceForSchemes(wubiValues, defaults, wubi));
+    assert([[defaults stringForKey:@"MSIMEClientInputScheme"] isEqualToString:@"wubi"]);
+    assert([defaults boolForKey:@"MSIMEClientShuangpinKeymap"]);
+    assert([[defaults objectForKey:@"MSIMEClientCandidateFontSize"] isEqual:@22]);
+    // 拼音版有两个方案：同步 input_scheme，但只认全拼和双拼；别处来的五笔当作没有这一项，保留本机的选择。
+    NSArray *pinyin = @[@"quanpin", @"shuangpin"];
+    NSMutableDictionary *pinyinSnapshot = [MSIMENarrowCloudAppearance(saved, pinyin) mutableCopy];
+    assert(pinyinSnapshot[@"platform.macos.input_scheme"] != nil && pinyinSnapshot[@"platform.macos.wubi_auto_commit_unique"] == nil);
+    pinyinSnapshot[@"platform.macos.input_scheme"] = @1;
+    assert(MSIMEValidateCloudAppearanceForSchemes(pinyinSnapshot, pinyin));
+    NSMutableDictionary *fromWubi = [saved mutableCopy];
+    fromWubi[@"platform.macos.input_scheme"] = @2;
+    assert(!MSIMEValidateCloudAppearanceForSchemes(MSIMENarrowCloudAppearance(fromWubi, pinyin), pinyin));
+    NSDictionary *adopted = MSIMEAdoptCloudAppearance(fromWubi, pinyinSnapshot, pinyin);
+    assert([adopted[@"platform.macos.input_scheme"] isEqual:@1]);
+    assert(MSIMEValidateCloudAppearanceForSchemes(adopted, pinyin));
     MSIMERemoveTestPreferenceSuite(defaults, suite);
   }
 }

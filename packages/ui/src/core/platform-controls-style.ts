@@ -19,6 +19,25 @@ export const rowText = "flex min-w-0 flex-1 flex-col gap-0.5";
 export const rowTitle = "block [font-size:var(--p-row-fs)] [color:var(--p-text)]";
 export const rowDescription = "block [font-size:var(--p-sub-fs)] [color:var(--p-sub)]";
 export const rowControl = "flex shrink-0 items-center gap-2";
+/** 跳转行：整行是一个按钮，外形与 `row` 相同，悬停时变色。 */
+export const linkRow = `${row} w-full cursor-pointer border-0 text-left hover:bg-[var(--p-hover)]`;
+
+// ---- 更多选项 ----
+
+/** 「更多选项」折叠区本身是组里的一行，靠 `group/more` 让标题的箭头随展开旋转。 */
+export const moreOptions = "group/more min-w-0";
+export const moreOptionsSummary = `${row} cursor-pointer list-none hover:bg-[var(--p-hover)] [&::-webkit-details-marker]:hidden`;
+export const moreOptionsMarker =
+  "[font-size:var(--p-sub-fs)] [color:var(--p-sub)] transition-transform group-open/more:rotate-90 motion-reduce:transition-none";
+/** 展开后的每一行都画上分隔线，与组内各行之间的分隔一致。 */
+export const moreOptionsRows =
+  "flex flex-col gap-[var(--p-row-gap)] [&>:not([hidden])]:[border-top:1px_solid_var(--p-row-divider)]";
+
+// ---- 页面简介 ----
+
+/** 页首说明：页面第一组之前的一段灰字，内边距取组名的 `--p-g-title-pad`，与下面各组的组名对齐。 */
+export const pageIntro =
+  "m-0 leading-relaxed [padding:var(--p-g-title-pad)] [font-size:var(--p-sub-fs)] [color:var(--p-sub)]";
 
 // ---- switch ----
 
@@ -38,9 +57,9 @@ export const segmentInput = "sr-only";
 
 // ---- select ----
 
-/** The native element and its own arrow are kept (see UPSTREAM.md); only the box around it follows the platform. */
+/** 保留原生元素和它自带的箭头（见 UPSTREAM.md），只有外框跟随平台。无边框的平台用 `--p-sel-sizing: content` 让宽度贴合当前选中项：原生 select 默认按最长的选项定宽，同一组里选项长短不同的两行会一行文字贴着箭头、一行文字远离箭头。Windows 的下拉框有边框，保持默认的固定宽度。 */
 export const select =
-  "min-w-0 rounded-[var(--p-r-ctl)] [background:var(--p-sel-bg)] [border:var(--p-sel-border)] [padding:var(--p-sel-pad)] [font-size:var(--p-sel-fs)] [color:var(--p-sel-fg)]";
+  "min-w-0 rounded-[var(--p-r-ctl)] [background:var(--p-sel-bg)] [border:var(--p-sel-border)] [padding:var(--p-sel-pad)] [font-size:var(--p-sel-fs)] [color:var(--p-sel-fg)] [field-sizing:var(--p-sel-sizing,fixed)]";
 
 // ---- checks ----
 

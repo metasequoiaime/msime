@@ -1,4 +1,5 @@
-import { Row, Select, Switch } from "../core/platform-controls";
+import { SelectRow } from "./select-row";
+import { SwitchRow } from "./switch-row";
 
 export interface PunctuationPreferences {
   chinese_punctuation: boolean;
@@ -50,15 +51,12 @@ export function CharacterWidthRow({
   onChange,
 }: Pick<PunctuationSectionProps, "preferences" | "onChange">) {
   return (
-    <Row
+    <SwitchRow
       title="全角输入"
       description="将英文字符和空格提交为全角形式，会话开始时生效；工具栏、键盘的更多工具或快捷键可临时切换"
-    >
-      <Switch
-        checked={(preferences.character_width ?? "halfwidth") === "fullwidth"}
-        onChange={(checked) => onChange({ character_width: checked ? "fullwidth" : "halfwidth" })}
-      />
-    </Row>
+      checked={(preferences.character_width ?? "halfwidth") === "fullwidth"}
+      onChange={(checked) => onChange({ character_width: checked ? "fullwidth" : "halfwidth" })}
+    />
   );
 }
 
@@ -70,37 +68,38 @@ export function PunctuationSection({
 }: PunctuationSectionProps) {
   return (
     <>
-      <Row title="中文标点" description="默认使用中文标点符号">
-        <Switch
-          checked={preferences.chinese_punctuation}
-          onChange={(chinese_punctuation) => onChange({ chinese_punctuation })}
-        />
-      </Row>
+      <SwitchRow
+        title="中文标点"
+        description="默认使用中文标点符号"
+        checked={preferences.chinese_punctuation}
+        onChange={(chinese_punctuation) => onChange({ chinese_punctuation })}
+      />
       {showCharacterWidth && <CharacterWidthRow preferences={preferences} onChange={onChange} />}
       {switches.map(([key, label, description]) => (
-        <Row key={key} title={label} description={description}>
-          <Switch
-            checked={preferences[key] ?? key === "paired_punctuation"}
-            onChange={(checked) => onChange({ [key]: checked })}
-          />
-        </Row>
+        <SwitchRow
+          key={key}
+          title={label}
+          description={description}
+          checked={preferences[key] ?? key === "paired_punctuation"}
+          onChange={(checked) => onChange({ [key]: checked })}
+        />
       ))}
-      <Row title="固定标点" description="切换中英文时的标点形态，三者互斥">
-        <Select
-          value={preferences.punctuation_lock ?? "follow"}
-          onChange={(event) =>
-            onChange({
-              punctuation_lock: event.target.value as NonNullable<
-                PunctuationPreferences["punctuation_lock"]
-              >,
-            })
-          }
-        >
-          <option value="follow">跟随中英文状态</option>
-          <option value="chinese">始终使用中文标点</option>
-          <option value="english">始终使用英文标点</option>
-        </Select>
-      </Row>
+      <SelectRow
+        title="固定标点"
+        description="切换中英文时的标点形态，三者互斥"
+        value={preferences.punctuation_lock ?? "follow"}
+        onChange={(event) =>
+          onChange({
+            punctuation_lock: event.target.value as NonNullable<
+              PunctuationPreferences["punctuation_lock"]
+            >,
+          })
+        }
+      >
+        <option value="follow">跟随中英文状态</option>
+        <option value="chinese">始终使用中文标点</option>
+        <option value="english">始终使用英文标点</option>
+      </SelectRow>
     </>
   );
 }

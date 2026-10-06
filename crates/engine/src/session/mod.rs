@@ -20,7 +20,7 @@ use crate::error::{EngineError, Result};
 use crate::nine_key::NineKeySession;
 use crate::types::{
     CandidateEdge, CandidateSource, Command, CommandTableEntry, CommandTranslationQuery, KeyResult,
-    LocalInputMode, MentionEntry, OnlineQuery, SchemeType,
+    LocalInputMode, MentionEntry, OnlineQuery, QuickPhraseEntry, SchemeType,
 };
 
 pub use clock::Clock;
@@ -45,6 +45,7 @@ impl Session {
             options.frequency,
             options.fuzzy_pinyin,
             options.english,
+            options.enabled_schemes.contains(SchemeType::Quanpin),
         );
         Ok(Session {
             input,
@@ -59,9 +60,9 @@ impl Session {
         self.input.clock = clock;
     }
 
-    /// One ASCII character; `shift_only` is a bare Shift+letter (local mode entry). Digits 2-9 go to the nine-key session while it is enabled and nothing else is composing.
+    /// One ASCII character; `shift_only` is a bare Shift+letter (local mode entry). 全拼下九键开启且没有别的组字时，数字 2-9 交给九宫格会话；注音九键的数字由注音编辑器自己处理。
     pub fn character(&mut self, value: u8, shift_only: bool) -> KeyResult {
-        // English is a mode rather than a scheme, so the grid stays available in it: the same digits spell words instead of syllables. A local mode still takes the keys, and the scheme underneath must be quanpin, the only one whose syllables the grid knows.
+        // English is a mode rather than a scheme, so the grid stays available in it: the same digits spell words instead of syllables. A local mode still takes the keys, and the scheme underneath must be quanpin: 拼音九宫格只认得全拼音节，注音九键走注音编辑器。
         if self.nine_key_enabled
             && self.input.scheme() == SchemeType::Quanpin
             && self.input.local_mode == LocalInputMode::None
@@ -72,20 +73,30 @@ impl Session {
             return self.after_nine_key(result);
         }
         if self.nine_key.active() {
+            // `'` splits the grid's syllables where the user is typing; any other key is still the host's to handle.
+            if value == b'\'' {
+                let result = self.nine_key.character(value);
+                return self.after_nine_key(result);
+            }
             return KeyResult::unhandled();
         }
         self.input.handle_character(value, shift_only)
     }
 
-    /// Cancels any nine-key digits first. Call with nothing composing when the keyboard layout changes.
+    /// Cancels any nine-key digits first. Call with nothing composing when the keyboard layout changes. 同时切换注音编辑器的九键模式（注音组字会被丢掉）。
     pub fn set_nine_key_enabled(&mut self, enabled: bool) {
         self.nine_key.command(Command::Cancel);
         self.nine_key_enabled = enabled;
         self.nine_key
             .set_english_only(enabled && self.input.dedicated_english);
+        self.input.set_zhuyin_nine_key(enabled);
     }
 
+    /// 九宫格会话活跃时选它的拼写；否则在注音里钉目标音节的读音。
     pub fn choose_nine_key_spelling(&mut self, index: usize) -> KeyResult {
+        if !self.nine_key.active() && self.input.zhuyin_rules_apply() {
+            return self.input.choose_zhuyin_spelling(index);
+        }
         let result = self.nine_key.choose_spelling(index);
         self.after_nine_key(result)
     }
@@ -212,10 +223,11 @@ impl Session {
         self.input.finish_composition(first_index)
     }
 
-    /// Discards the composition.
-    pub fn switch_scheme(&mut self, scheme: SchemeType) {
+    /// Discards the composition. Fails, staying in the current scheme with the composition untouched, when the new scheme's dictionary cannot be opened (Cantonese without a usable `msime-cantonese.db`, Stroke without a usable `msime-stroke.db`: `LANGUAGE_DICTIONARY_UNAVAILABLE`, `LANGUAGE_DICTIONARY_VERSION_UNSUPPORTED`).
+    pub fn switch_scheme(&mut self, scheme: SchemeType) -> Result<()> {
+        self.input.switch_scheme(scheme)?;
         self.nine_key.command(Command::Cancel);
-        self.input.switch_scheme(scheme);
+        Ok(())
     }
 
     pub fn is_supported_helpcode_schema(schema: &str) -> bool {
@@ -225,6 +237,11 @@ impl Session {
     /// False for an unsupported schema or a table that cannot be loaded.
     pub fn set_helpcode_schema(&mut self, schema: &str) -> bool {
         self.input.set_helpcode_schema(schema)
+    }
+
+    /// 换上宿主给的辅助码表，替换当前的表；全拼和双拼都用它。
+    pub fn set_helpcode_table(&mut self, table: crate::helpcode::SharedKeymap) {
+        self.input.set_helpcode_table(table);
     }
 
     /// Quanpin and shuangpin together, as `SessionOptions::helpcode` does.
@@ -252,6 +269,11 @@ impl Session {
     /// Replace the `/` mode's command table; rows it cannot use are dropped. A diagnostic only if the open command list could not be refreshed.
     pub fn set_command_table(&mut self, table: &[CommandTableEntry]) -> Option<String> {
         self.input.set_command_table(table)
+    }
+
+    /// 替换 K 模式的宿主短语表；用不了的行被丢弃。只有打开的 K 模式列表刷新失败时才返回诊断。
+    pub fn set_quick_phrase_table(&mut self, table: &[QuickPhraseEntry]) -> Option<String> {
+        self.input.set_quick_phrase_table(table)
     }
 
     /// Replace the `@` mode's list; entries it cannot use are dropped.
@@ -336,7 +358,8 @@ impl Session {
             dedicated_english: input.dedicated_english,
             editing_text: input.editing_text(),
             caret_position: input.caret_position(),
-            nine_key_spellings: Vec::new(),
+            nine_key_spellings: input.zhuyin_spellings(),
+            nine_key_reading: String::new(),
             answered_by_pinyin_fallback: input.answered_by_pinyin_fallback(),
             wubi_unique_four_code: input.wubi_unique_four_code(),
             shuangpin_profile: input.profile.name().to_owned(),
@@ -349,8 +372,17 @@ impl Session {
                     input.selection_completes_composition(&item.pinyin, &item.word, item.scheme)
                 })
                 .collect(),
+            candidate_list_open: input.candidate_list_open(),
             candidates,
         }
+    }
+
+    /// 返回候选词的完整五笔编码，仅供宿主显示反查结果；九宫格会话不沿用旧的普通候选反查。
+    pub fn candidate_wubi_code(&self, word: &str) -> Option<&str> {
+        if self.nine_key.active() {
+            return None;
+        }
+        self.input.engine.candidate_wubi_code(word)
     }
 
     /// Byte offsets into `editing_text` for pinyin-unit editing; empty when idle, in local modes, for non-pinyin schemes and during nine-key input. Read-only.

@@ -14,6 +14,10 @@ export const LOCAL_VAD_WINDOW: number = 512;
 const MAX_TRANSDUCER_HOTWORDS: number = 200;
 const MAX_FUNASR_HOTWORDS: number = 30;
 const MAX_MODEL_PATH: number = 4096;
+/** The manifest is a small catalog entry, not model data. */
+export const LOCAL_MODEL_MANIFEST_MAX_BYTES: number = 256 * 1024;
+/** Only the first token column is needed to encode native hotwords. */
+export const LOCAL_MODEL_TOKENS_MAX_BYTES: number = 8 * 1024 * 1024;
 
 export const LOCAL_MODEL_ONLINE_TRANSDUCER: string = "online_transducer";
 export const LOCAL_MODEL_OFFLINE_SENSE_VOICE: string = "offline_sense_voice";
@@ -44,6 +48,7 @@ export interface LocalAsrRequest {
   type: string;
   id: number;
   directory: string;
+  root: string;
   language: string;
   hotwords: string[];
   threads: number;
@@ -66,13 +71,19 @@ interface ManifestDocument {
 }
 
 export class LocalAsrPolicy {
-  /**
-   * Whether the configured provider and path name an installed sherpa-onnx model directory rather than something else.
-   *
-   * Only the path's shape is judged here; the worker opens the manifest. A Whisper model file is a desktop-only option, so on HarmonyOS every non-empty absolute path is treated as a model directory and a file there fails with a message rather than being routed elsewhere.
-   */
-  static usesLocalModel(provider: string, modelPath: string | undefined): boolean {
-    return provider === "local" && LocalAsrPolicy.modelDirectory(modelPath).length > 0;
+  /** Maximum bytes read from the text files the worker parses itself. */
+  static textFileLimit(file: "manifest" | "tokens"): number {
+    return file === "manifest" ? LOCAL_MODEL_MANIFEST_MAX_BYTES : LOCAL_MODEL_TOKENS_MAX_BYTES;
+  }
+
+  /** 判断配置是否指向宿主管理根目录下的 sherpa-onnx 模型目录。 */
+  static usesLocalModel(
+    provider: string,
+    modelPath: string | undefined,
+    trustedRoot: string | undefined,
+  ): boolean {
+    const directory: string = LocalAsrPolicy.modelUnderRoot(modelPath, trustedRoot);
+    return provider === "local" && directory.length > 0;
   }
 
   /** The trimmed absolute model directory, or empty when the preference is missing, relative, too long or carries control characters. */
@@ -80,7 +91,16 @@ export class LocalAsrPolicy {
     const path: string = (modelPath ?? "").trim();
     if (path.length === 0 || path.length > MAX_MODEL_PATH || !path.startsWith("/")) return "";
     if (/[\u0000-\u001f\u007f]/.test(path)) return "";
+    if (path.split("/").some((part: string): boolean => part === "." || part === "..")) return "";
     return path.length > 1 && path.endsWith("/") ? path.slice(0, -1) : path;
+  }
+
+  /** 已安装模型目录必须位于宿主管理的模型根目录之下。 */
+  static modelUnderRoot(modelPath: string | undefined, trustedRoot: string | undefined): string {
+    const directory: string = LocalAsrPolicy.modelDirectory(modelPath);
+    const root: string = LocalAsrPolicy.modelDirectory(trustedRoot);
+    if (directory.length === 0 || root.length === 0 || root === "/" || directory === root) return "";
+    return directory.startsWith(`${root}/`) ? directory : "";
   }
 
   /**

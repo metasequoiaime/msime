@@ -1,4 +1,5 @@
 import Foundation
+import CoreFoundation
 
 /// 「候选栏 AI 候选」: the shared document's `ai_assistant`, which the runtime turns into candidate-bar AI requests, written from the keyboard AI configuration the settings app already saved.
 ///
@@ -12,8 +13,16 @@ enum AICandidatePreference {
   }
 
   static func limit(_ preferences: [String: Any]?) -> Int {
-    let value = ((preferences?["ai_assistant"] as? [String: Any])?["candidate_limit"] as? NSNumber)?.intValue
+    let value = integer((preferences?["ai_assistant"] as? [String: Any])?["candidate_limit"])
     return value.flatMap { limits.contains($0) ? $0 : nil } ?? defaultLimit
+  }
+
+  private static func integer(_ value: Any?) -> Int? {
+    guard let number = value as? NSNumber,
+          CFGetTypeID(number) != CFBooleanGetTypeID(),
+          let integer = Int(number.stringValue),
+          NSNumber(value: integer).compare(number) == .orderedSame else { return nil }
+    return integer
   }
 
   /// The document's `ai_assistant` after turning the candidate bar on or off for a saved keyboard configuration. Fields this page does not own (prompts, other providers' entries) are kept; a key that reached the document from elsewhere is left alone rather than copied or erased.
@@ -40,11 +49,9 @@ enum AICandidatePreference {
     return promptSlots.first { $0.id == id }?.id ?? promptSlots[0].id
   }
 
-  /// A slot's text. The first slot falls back to the older single `prompt` field, as the desktop settings page and the shared layer both do.
+  /// A slot's text; empty means the built-in prompt.
   static func prompt(_ preferences: [String: Any]?, slot: String) -> String {
-    let assistant = preferences?["ai_assistant"] as? [String: Any]
-    if let text = assistant?["prompt_\(slot)"] as? String, !(slot == promptSlots[0].id && text.isEmpty) { return text }
-    return slot == promptSlots[0].id ? assistant?["prompt"] as? String ?? "" : ""
+    (preferences?["ai_assistant"] as? [String: Any])?["prompt_\(slot)"] as? String ?? ""
   }
 
   /// The document's `ai_assistant` with `slot` in use and holding `text`. Text that is only whitespace is stored empty so the built-in prompt applies.

@@ -14,6 +14,6 @@ test("describes community skins and opens the community", () => {
 
   expect(screen.getByText("社区皮肤")).toBeTruthy();
   expect(screen.getByText("看看别人做的键盘皮肤，可以直接试用或保存")).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "去社区发现皮肤" }));
+  fireEvent.click(screen.getByRole("button", { name: "去社区找皮肤" }));
   expect(onOpen).toHaveBeenCalledOnce();
 });

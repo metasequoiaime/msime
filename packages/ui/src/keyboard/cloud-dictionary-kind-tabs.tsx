@@ -1,10 +1,11 @@
 import * as cloud from "./cloud-panel-style";
 
-export type CloudDictionaryKind = "pinyin" | "wubi" | "quick" | "english";
+export type CloudDictionaryKind = "pinyin" | "wubi" | "wubi98" | "quick" | "english";
 
 export const cloudDictionaryKinds: [CloudDictionaryKind, string][] = [
   ["pinyin", "拼音"],
-  ["wubi", "五笔"],
+  ["wubi", "86 五笔"],
+  ["wubi98", "98 五笔"],
   ["quick", "快捷短语"],
   ["english", "英文"],
 ];

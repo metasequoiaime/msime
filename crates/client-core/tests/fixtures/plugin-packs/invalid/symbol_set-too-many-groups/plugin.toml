@@ -1,0 +1,175 @@
+schema_version = 1
+kind = "symbol_set"
+id = "fixture-symbols"
+name = "Fixture"
+version = "1.0.0"
+license = "CC0-1.0"
+author = "MSIME"
+description = "Shared parser fixture"
+permissions = []
+
+[[groups]]
+tab = "symbols"
+title = "g0"
+items = ["→"]
+
+[[groups]]
+tab = "symbols"
+title = "g1"
+items = ["→"]
+
+[[groups]]
+tab = "symbols"
+title = "g2"
+items = ["→"]
+
+[[groups]]
+tab = "symbols"
+title = "g3"
+items = ["→"]
+
+[[groups]]
+tab = "symbols"
+title = "g4"
+items = ["→"]
+
+[[groups]]
+tab = "symbols"
+title = "g5"
+items = ["→"]
+
+[[groups]]
+tab = "symbols"
+title = "g6"
+items = ["→"]
+
+[[groups]]
+tab = "symbols"
+title = "g7"
+items = ["→"]
+
+[[groups]]
+tab = "symbols"
+title = "g8"
+items = ["→"]
+
+[[groups]]
+tab = "symbols"
+title = "g9"
+items = ["→"]
+
+[[groups]]
+tab = "symbols"
+title = "g10"
+items = ["→"]
+
+[[groups]]
+tab = "symbols"
+title = "g11"
+items = ["→"]
+
+[[groups]]
+tab = "symbols"
+title = "g12"
+items = ["→"]
+
+[[groups]]
+tab = "symbols"
+title = "g13"
+items = ["→"]
+
+[[groups]]
+tab = "symbols"
+title = "g14"
+items = ["→"]
+
+[[groups]]
+tab = "symbols"
+title = "g15"
+items = ["→"]
+
+[[groups]]
+tab = "symbols"
+title = "g16"
+items = ["→"]
+
+[[groups]]
+tab = "symbols"
+title = "g17"
+items = ["→"]
+
+[[groups]]
+tab = "symbols"
+title = "g18"
+items = ["→"]
+
+[[groups]]
+tab = "symbols"
+title = "g19"
+items = ["→"]
+
+[[groups]]
+tab = "symbols"
+title = "g20"
+items = ["→"]
+
+[[groups]]
+tab = "symbols"
+title = "g21"
+items = ["→"]
+
+[[groups]]
+tab = "symbols"
+title = "g22"
+items = ["→"]
+
+[[groups]]
+tab = "symbols"
+title = "g23"
+items = ["→"]
+
+[[groups]]
+tab = "symbols"
+title = "g24"
+items = ["→"]
+
+[[groups]]
+tab = "symbols"
+title = "g25"
+items = ["→"]
+
+[[groups]]
+tab = "symbols"
+title = "g26"
+items = ["→"]
+
+[[groups]]
+tab = "symbols"
+title = "g27"
+items = ["→"]
+
+[[groups]]
+tab = "symbols"
+title = "g28"
+items = ["→"]
+
+[[groups]]
+tab = "symbols"
+title = "g29"
+items = ["→"]
+
+[[groups]]
+tab = "symbols"
+title = "g30"
+items = ["→"]
+
+[[groups]]
+tab = "symbols"
+title = "g31"
+items = ["→"]
+
+[[groups]]
+tab = "symbols"
+title = "g32"
+items = ["→"]
+

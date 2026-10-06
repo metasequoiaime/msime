@@ -61,6 +61,26 @@ public final class CustomSkinLibrarySmoke {
             check(parentRejected);
             check(!Files.exists(parentOutside.resolve("preferences/CustomSkins/library.json")));
 
+            // The shared Rust store permits the documented 9 MiB library and 32 extended
+            // graphemes per name. Check the Java reader's private contract directly because the
+            // host check runs against android.jar, whose org.json parser is a runtime stub.
+            java.lang.reflect.Field maximumBytes = CustomSkinLibrary.class
+                .getDeclaredField("MAX_LIBRARY_BYTES");
+            maximumBytes.setAccessible(true);
+            check(maximumBytes.getLong(null) == 9_000_000L);
+            java.lang.reflect.Method boundedName = CustomSkinLibrary.class
+                .getDeclaredMethod("boundedName", String.class);
+            boundedName.setAccessible(true);
+            String graphemeName = "👩‍👩‍👧‍👦".repeat(32);
+            check((Boolean) boundedName.invoke(null, graphemeName));
+            check(!(Boolean) boundedName.invoke(null, graphemeName + "x"));
+            java.lang.reflect.Method strictString = CustomSkinLibrary.class
+                .getDeclaredMethod("strictString", Object.class);
+            strictString.setAccessible(true);
+            check("synthetic".equals(strictString.invoke(null, "synthetic")));
+            check(strictString.invoke(null, 42) == null);
+            check(strictString.invoke(null, Boolean.TRUE) == null);
+
             Path externalRoot = outside.resolve("preferences");
             Files.createDirectories(externalRoot.resolve("CustomSkins"));
             Path linkedRoot = root.resolve("linked-preferences");

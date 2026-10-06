@@ -7,15 +7,17 @@ use std::path::{Path, PathBuf};
 use crate::assets;
 use crate::diagnostics;
 use crate::error::{EngineError, Result};
+use crate::helpcode::SharedKeymap;
 use crate::paths::RuntimePaths;
 use crate::session::SessionOptions;
 use crate::types::{
     autocorrect_type, fuzzy_rule, CommandTableEntry, EnglishInputOptions, FrequencyAdjustmentMode,
     FrequencyAdjustmentOptions, FuzzyPinyinOptions, LocalModeOptions, MentionEntry,
-    MixedExpressiveOptions, SchemeType, SentenceAssociationOptions, ShuangpinProfileKind,
-    WubiInputOptions,
+    MixedExpressiveOptions, QuickPhraseEntry, SchemeSet, SchemeType, SentenceAssociationOptions,
+    ShuangpinProfileKind, WubiInputOptions, WubiProfileKind,
 };
-use crate::user_dictionary::generation::prepare_runtime_paths;
+use crate::user_dictionary::generation::prepare_runtime_paths_for;
+use crate::vietnamese::{InputMethod as VietnameseInputMethod, ToneStyle as VietnameseToneStyle};
 
 const MAX_TRANSLATION_SIDECAR_BYTES: u64 = 1024 * 1024;
 
@@ -26,9 +28,11 @@ pub struct EngineOptions {
     pub user_data: String,
     pub cache: String,
     pub dictionaries: String,
-    /// 0 quanpin, 1 shuangpin, 2 wubi, 3 Japanese, 4 Korean.
+    /// 0 全拼，1 双拼，2 五笔，3 日文，4 韩文，5 粤拼，6 注音，7 越南文，8 藏文，9 笔画。
     pub scheme: u8,
-    /// 0 xiaohe, 1 ziranma, 2 shoudao, 3 microsoft.
+    /// 会话允许运行的方案，`prepare_options` 填 [`SchemeSet::ALL`]，`prepare_options_for` 填调用方给的集合。宿主按产品版本收窄它：`scheme` 不在其中时建会话失败（`INPUT_SCHEME_NOT_ENABLED`），不在其中的方案不构造 provider。
+    pub enabled_schemes: SchemeSet,
+    /// 0 xiaohe, 1 ziranma, 2 shoudao, 3 microsoft. 双拼不在 `enabled_schemes` 里时不校验，不合法的值按小鹤处理。
     pub shuangpin_profile: u8,
     pub shuangpin_preedit_uses_raw: bool,
     pub learning: bool,
@@ -37,10 +41,14 @@ pub struct EngineOptions {
     /// Masked with `fuzzy_rule::ALL`.
     pub fuzzy_pinyin_rules: u32,
     pub wubi_mixed_pinyin: bool,
+    /// 0 是 86 五笔，1 是 98 五笔（`WubiProfileKind`）。
+    pub wubi_profile: u8,
     pub helpcode: bool,
     /// Display only: filtering stays on while annotations are hidden.
     pub show_helpcode: bool,
     pub helpcode_schema: String,
+    /// 宿主给的辅助码表（已安装的辅助码表插件）；有它时 Engine 直接用它，`helpcode_schema` 只用来校验和作为回退。
+    pub helpcode_table: Option<SharedKeymap>,
     pub chinese_punctuation: bool,
     pub paired_punctuation: bool,
     pub punctuation_lock: u8,
@@ -69,24 +77,50 @@ pub struct EngineOptions {
     pub command_table: Vec<CommandTableEntry>,
     /// The `@` mode's names and places, the user's own list. Entries the engine cannot use are dropped, and at most `local::mention::LIST_LIMIT` are kept.
     pub mention_entries: Vec<MentionEntry>,
+    /// K 模式在数据库行之后追加的宿主短语（已启用的短语表插件）。用不了的行被丢弃，最多保留 `local::quick_phrase::TABLE_LIMIT` 行。
+    pub quick_phrase_table: Vec<QuickPhraseEntry>,
     pub sentence_association: SentenceAssociationOptions,
     pub rescoring_context: String,
     /// Ask for every whole-sentence reading; the runtime reorders and crops them.
     pub sentence_alternatives: bool,
+    /// 0 Telex, 1 VNI (`vietnamese::InputMethod`).
+    pub vietnamese_input_method: u8,
+    /// 0 modern (hoà), 1 classic (hòa) (`vietnamese::ToneStyle`).
+    pub vietnamese_tone_style: u8,
+    /// Absolute path of `msime-cantonese.db`, empty when the host has none; the Cantonese scheme is unavailable without it.
+    pub cantonese_dictionary: String,
+    /// Absolute path of `msime-zhuyin.db`, empty when the host has none; the Zhuyin scheme is unavailable without it.
+    pub zhuyin_dictionary: String,
+    /// Absolute path of `msime-stroke.db`, empty when the host has none; the Stroke scheme is unavailable without it.
+    pub stroke_dictionary: String,
+    /// `msime-japanese.dat` 的绝对路径；为空时从资源目录读取。
+    pub japanese_dictionary: String,
 }
 
-/// Stage the generation (`prepare_runtime_paths`) and fill the product defaults: quanpin, xiaohe, learning off, autocorrect and fuzzy off, helpcode on with `ziranma`, frequency `promote` 1/1, mixed English from 5 letters, every Shift+letter local mode of the reference on and the expression, command and mention modes off with empty tables, and explicit values for the fields the C++ left default-initialised (`shuangpin_preedit_uses_raw = true`, `wubi_mixed_pinyin = false`, `sentence_association` default, `sentence_alternatives = false`).
+/// Stage the generation (`prepare_runtime_paths`) and fill the product defaults: quanpin, xiaohe, Telex with modern tone placement and no language dictionaries, learning off, autocorrect and fuzzy off, helpcode on with `ziranma`, frequency `promote` 1/1, mixed English from 5 letters, every Shift+letter local mode of the reference on and the expression, command and mention modes off with empty tables, and explicit values for the fields the C++ left default-initialised (`shuangpin_preedit_uses_raw = true`, `wubi_mixed_pinyin = false`, `sentence_association` default, `sentence_alternatives = false`).
 pub fn prepare_options(
     resources: &str,
     user_data: &str,
     cache: &str,
     content_id: &str,
 ) -> Result<EngineOptions> {
-    let paths = prepare_runtime_paths(
+    prepare_options_for(resources, user_data, cache, content_id, SchemeSet::ALL)
+}
+
+/// [`prepare_options`] 按会话允许的方案准备，`enabled_schemes` 也填它。集合不读 `msime-pinyin.db`（`SchemeSet::reads_main_dictionary`，例如只有日文、越南文或藏文的版本）时，资源目录里不需要 `msime-pinyin.db`，代次里也没有它（`prepare_runtime_paths_for`）；读它的集合与 [`prepare_options`] 准备出的代次相同。
+pub fn prepare_options_for(
+    resources: &str,
+    user_data: &str,
+    cache: &str,
+    content_id: &str,
+    enabled_schemes: SchemeSet,
+) -> Result<EngineOptions> {
+    let paths = prepare_runtime_paths_for(
         Path::new(resources),
         Path::new(user_data),
         Path::new(cache),
         content_id,
+        enabled_schemes,
     )?;
     // The C++ handed the paths back through `u8string()`; every root came in as UTF-8 and the generation only appends an ASCII content id, so the lossy conversion never actually replaces anything.
     let text = |path: &Path| path.to_string_lossy().into_owned();
@@ -96,6 +130,7 @@ pub fn prepare_options(
         cache: text(&paths.cache),
         dictionaries: text(&paths.dictionaries),
         scheme: SchemeType::Quanpin as u8,
+        enabled_schemes,
         shuangpin_profile: ShuangpinProfileKind::Xiaohe as u8,
         shuangpin_preedit_uses_raw: true,
         learning: false,
@@ -103,9 +138,11 @@ pub fn prepare_options(
         autocorrect_neighbor: false,
         fuzzy_pinyin_rules: 0,
         wubi_mixed_pinyin: false,
+        wubi_profile: WubiProfileKind::Wubi86 as u8,
         helpcode: true,
         show_helpcode: true,
         helpcode_schema: "ziranma".to_owned(),
+        helpcode_table: None,
         chinese_punctuation: true,
         paired_punctuation: true,
         punctuation_lock: 0,
@@ -129,20 +166,34 @@ pub fn prepare_options(
         local_mention: false,
         command_table: Vec::new(),
         mention_entries: Vec::new(),
+        quick_phrase_table: Vec::new(),
         sentence_association: SentenceAssociationOptions::default(),
         rescoring_context: String::new(),
         sentence_alternatives: false,
+        vietnamese_input_method: VietnameseInputMethod::Telex as u8,
+        vietnamese_tone_style: VietnameseToneStyle::Modern as u8,
+        cantonese_dictionary: String::new(),
+        zhuyin_dictionary: String::new(),
+        stroke_dictionary: String::new(),
+        japanese_dictionary: String::new(),
     })
 }
 
-/// `options_for`: map and validate (`UNSUPPORTED_INPUT_SCHEME`, `UNSUPPORTED_SHUANGPIN_PROFILE`, `UNSUPPORTED_FREQUENCY_MODE`), and refresh the translations sidecar in the generation directory.
+/// `options_for`: map and validate (`UNSUPPORTED_INPUT_SCHEME`, `UNSUPPORTED_SHUANGPIN_PROFILE`, `UNSUPPORTED_WUBI_PROFILE`, `UNSUPPORTED_FREQUENCY_MODE`, `UNSUPPORTED_VIETNAMESE_METHOD`, `UNSUPPORTED_VIETNAMESE_TONE_STYLE`), and refresh the translations sidecar in the generation directory.
 pub fn session_options(options: &EngineOptions) -> Result<SessionOptions> {
     prepare_translation_sidecar(options)?;
     let scheme = SchemeType::from_u8(options.scheme)
         .ok_or_else(|| EngineError::invalid(diagnostics::UNSUPPORTED_INPUT_SCHEME))?;
     let shuangpin_profile = shuangpin_profile(options)?;
+    let wubi_profile = WubiProfileKind::from_u8(options.wubi_profile)
+        .ok_or_else(|| EngineError::invalid(diagnostics::UNSUPPORTED_WUBI_PROFILE))?;
     let mode = FrequencyAdjustmentMode::from_name(&options.frequency_mode)
         .ok_or_else(|| EngineError::invalid(diagnostics::UNSUPPORTED_FREQUENCY_MODE))?;
+    let vietnamese_input_method =
+        VietnameseInputMethod::from_u8(options.vietnamese_input_method)
+            .ok_or_else(|| EngineError::invalid(diagnostics::UNSUPPORTED_VIETNAMESE_METHOD))?;
+    let vietnamese_tone_style = VietnameseToneStyle::from_u8(options.vietnamese_tone_style)
+        .ok_or_else(|| EngineError::invalid(diagnostics::UNSUPPORTED_VIETNAMESE_TONE_STYLE))?;
     // Only the two user switches; the quanpin dictionary widens them with missing and extra letters per request (`request_autocorrect_mask`), as the C++ did (bridge.cpp:376-378).
     let autocorrect_types = if options.autocorrect_transposition {
         autocorrect_type::TRANSPOSITION
@@ -155,8 +206,15 @@ pub fn session_options(options: &EngineOptions) -> Result<SessionOptions> {
     };
     let mut session = SessionOptions::new(runtime_paths(options));
     session.scheme = scheme;
+    session.enabled_schemes = options.enabled_schemes;
     session.shuangpin_profile = shuangpin_profile;
     session.shuangpin_preedit_uses_raw = options.shuangpin_preedit_uses_raw;
+    session.vietnamese_input_method = vietnamese_input_method;
+    session.vietnamese_tone_style = vietnamese_tone_style;
+    session.cantonese_dictionary = PathBuf::from(&options.cantonese_dictionary);
+    session.zhuyin_dictionary = PathBuf::from(&options.zhuyin_dictionary);
+    session.stroke_dictionary = PathBuf::from(&options.stroke_dictionary);
+    session.japanese_dictionary = PathBuf::from(&options.japanese_dictionary);
     session.learning = options.learning;
     session.autocorrect_types = autocorrect_types;
     session.fuzzy_pinyin = FuzzyPinyinOptions {
@@ -164,12 +222,14 @@ pub fn session_options(options: &EngineOptions) -> Result<SessionOptions> {
     };
     session.wubi = WubiInputOptions {
         mixed_pinyin: options.wubi_mixed_pinyin,
+        profile: wubi_profile,
     };
     session.chinese_punctuation = options.chinese_punctuation;
     session.paired_punctuation = options.paired_punctuation;
     session.punctuation_lock = i32::from(options.punctuation_lock);
     session.helpcode = options.helpcode;
     session.helpcode_schema = options.helpcode_schema.clone();
+    session.helpcode_table = options.helpcode_table.clone();
     session.frequency = FrequencyAdjustmentOptions {
         mode,
         trigger_count: i32::from(options.frequency_trigger_count),
@@ -198,6 +258,7 @@ pub fn session_options(options: &EngineOptions) -> Result<SessionOptions> {
     };
     session.command_table = options.command_table.clone();
     session.mention_entries = options.mention_entries.clone();
+    session.quick_phrase_table = options.quick_phrase_table.clone();
     session.sentence_alternatives = options.sentence_alternatives;
     session.sentence_association = options.sentence_association;
     session.rescoring_context = options.rescoring_context.clone();
@@ -272,7 +333,7 @@ fn reject_storage_ancestors(path: &Path) -> io::Result<()> {
         current.push(component.as_os_str());
         match std::fs::symlink_metadata(&current) {
             Ok(metadata) if metadata.file_type().is_symlink() => {
-                if !is_system_path_alias(&current) {
+                if !crate::paths::is_trusted_system_alias(&current) {
                     return Err(io::Error::new(
                         io::ErrorKind::InvalidInput,
                         "translation sidecar path has a symbolic-link ancestor",
@@ -293,18 +354,6 @@ fn reject_storage_ancestors(path: &Path) -> io::Result<()> {
     Ok(())
 }
 
-fn is_system_path_alias(path: &Path) -> bool {
-    #[cfg(target_os = "macos")]
-    {
-        path == Path::new("/var") || path == Path::new("/tmp")
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = path;
-        false
-    }
-}
-
 fn is_real_file(path: &Path) -> bool {
     std::fs::symlink_metadata(path)
         .map(|metadata| metadata.file_type().is_file())
@@ -321,7 +370,11 @@ pub(super) fn runtime_paths(options: &EngineOptions) -> RuntimePaths {
     }
 }
 
+/// 双拼方案的键位。双拼不在 `enabled_schemes` 里时这个值用不上（没有双拼 provider，也切不到双拼），所以不校验：不合法的值按小鹤处理，免得一份只对双拼有意义的偏好让没有双拼的会话建不起来。
 pub(super) fn shuangpin_profile(options: &EngineOptions) -> Result<ShuangpinProfileKind> {
-    ShuangpinProfileKind::from_u8(options.shuangpin_profile)
-        .ok_or_else(|| EngineError::invalid(diagnostics::UNSUPPORTED_SHUANGPIN_PROFILE))
+    let profile = ShuangpinProfileKind::from_u8(options.shuangpin_profile);
+    if !options.enabled_schemes.contains(SchemeType::Shuangpin) {
+        return Ok(profile.unwrap_or_default());
+    }
+    profile.ok_or_else(|| EngineError::invalid(diagnostics::UNSUPPORTED_SHUANGPIN_PROFILE))
 }

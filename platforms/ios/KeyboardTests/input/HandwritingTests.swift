@@ -10,6 +10,16 @@ final class HandwritingTests: XCTestCase {
     enableAllInputSchemes()
   }
 
+  func testDownloadCompletionFromAnInactiveGenerationIsIgnored() {
+    var gate = HandwritingDownloadGate()
+    gate.setActive(true)
+    let token = gate.beginDownload()
+    gate.setActive(false)
+    XCTAssertFalse(gate.accepts(token))
+    gate.setActive(true)
+    XCTAssertFalse(gate.accepts(token))
+  }
+
   // Pen trajectories for 中国, not text rendered using a font.
   private var chineseInk: [[CGPoint]] {
     let points: [[(Double, Double)]] = [

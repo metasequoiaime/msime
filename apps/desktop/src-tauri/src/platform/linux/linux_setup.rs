@@ -5,6 +5,7 @@ use serde::Serialize;
 use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io::{BufRead, BufReader, Read};
+use std::os::unix::fs::MetadataExt;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -15,11 +16,16 @@ use tauri::{AppHandle, Emitter, State};
 
 use crate::RuntimeOptionsState;
 
-const SETUP_PROGRAM: &str = "msime-linux-setup";
+/// 本安装包所属版本的首次配置命令名（full 是 `msime-linux-setup`，其他版本是 `msime-linux-<id>-setup`）：设置应用只配置自己的版本。
+fn setup_program_name() -> String {
+    msime_client_core::edition::Edition::linux_package_identity_or_full().setup_program()
+}
 /// The first download is about 170 MB; a stalled mirror must still end the run rather than leave the page busy forever.
 const SETUP_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 const MAX_LINE_BYTES: usize = 2048;
 const MAX_LINES: usize = 2000;
+/// 安装包的 postinst 会在首次配置之前为每个登录用户注册匿名账号，所以状态目录在首次配置时通常已经存在、里面只有这两份文件。`msime-linux-setup` 接受只含这些文件的目录（脚本里的 `ANONYMOUS_ACCOUNT_FILES`），这里的清单必须与它一致。
+const ANONYMOUS_ACCOUNT_FILES: [&str; 2] = ["anonymous-account.json", "anonymous-session.json"];
 pub const SETUP_OUTPUT_EVENT: &str = "linux-setup-output";
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -27,7 +33,7 @@ pub const SETUP_OUTPUT_EVENT: &str = "linux-setup-output";
 pub struct LinuxSetupStatus {
     prepared: bool,
     state_directory: Option<String>,
-    /// The directory exists without runtime options; the script refuses to overwrite it.
+    /// 目录已存在、没有 runtime options，且不只有安装流程创建的匿名账号文件；脚本拒绝覆盖这样的目录。
     directory_occupied: bool,
     setup_available: bool,
 }
@@ -54,18 +60,28 @@ impl LinuxSetupError {
 pub struct LinuxSetupState(Arc<AtomicBool>);
 
 /// The fixed locator every Linux frontend reads: `$XDG_CONFIG_HOME/msime-client/runtime-options.json`. A relative XDG value is ignored, as the specification requires.
+///
+/// 目录名随本安装包所属的版本（full 是 `msime-client`），与同一版本的宿主和脚本读的是同一份。
 pub fn user_runtime_options() -> Option<PathBuf> {
     super::config_home(
         std::env::var_os("XDG_CONFIG_HOME").as_deref(),
         std::env::var_os("HOME").as_deref(),
     )
-    .map(|directory| directory.join("msime-client/runtime-options.json"))
+    .map(|directory| {
+        directory
+            .join(
+                &msime_client_core::edition::Edition::linux_package_identity_or_full()
+                    .client_directory,
+            )
+            .join("runtime-options.json")
+    })
 }
 
 fn find_program(executable_dir: Option<&Path>, search_path: Option<&OsStr>) -> Option<PathBuf> {
     // The installer puts the script beside the desktop binary; prefer that copy so a second installation on PATH cannot prepare against another prefix's lock.
+    let name = setup_program_name();
     executable_dir
-        .map(|directory| directory.join(SETUP_PROGRAM))
+        .map(|directory| directory.join(&name))
         .into_iter()
         .chain(
             search_path
@@ -73,7 +89,7 @@ fn find_program(executable_dir: Option<&Path>, search_path: Option<&OsStr>) -> O
                 .unwrap_or_default()
                 .into_iter()
                 .filter(|directory| directory.is_absolute())
-                .map(|directory| directory.join(SETUP_PROGRAM)),
+                .map(|directory| directory.join(&name)),
         )
         .find(|path| path.is_file())
 }
@@ -84,6 +100,32 @@ fn setup_program() -> Option<PathBuf> {
         executable.as_deref().and_then(Path::parent),
         std::env::var_os("PATH").as_deref(),
     )
+}
+
+/// 与 `msime-linux-prepare` 的 `installer_account_state` 同一判定（它比脚本的 `anonymous_account_state` 多查属主和权限，以更严的为准）：属于当前用户、不对组和其他用户开放的非空目录，不是符号链接，其中每一项都是同样属主和权限的匿名账号普通文件。
+fn only_anonymous_account(directory: &Path) -> bool {
+    let private = |metadata: &fs::Metadata| {
+        metadata.uid() == rustix::process::geteuid().as_raw() && metadata.mode() & 0o077 == 0
+    };
+    if !fs::symlink_metadata(directory)
+        .is_ok_and(|metadata| metadata.is_dir() && private(&metadata))
+    {
+        return false;
+    }
+    let Ok(entries) =
+        fs::read_dir(directory).and_then(|entries| entries.collect::<Result<Vec<_>, _>>())
+    else {
+        return false;
+    };
+    !entries.is_empty()
+        && entries.iter().all(|entry| {
+            entry
+                .file_name()
+                .to_str()
+                .is_some_and(|name| ANONYMOUS_ACCOUNT_FILES.contains(&name))
+                && fs::symlink_metadata(entry.path())
+                    .is_ok_and(|metadata| metadata.is_file() && private(&metadata))
+        })
 }
 
 fn status_for(options: Option<&Path>, program: Option<&Path>) -> LinuxSetupStatus {
@@ -100,7 +142,8 @@ fn status_for(options: Option<&Path>, program: Option<&Path>) -> LinuxSetupStatu
     LinuxSetupStatus {
         prepared,
         state_directory: directory.map(|path| path.to_string_lossy().into_owned()),
-        directory_occupied: !prepared && directory.is_some_and(|path| path.exists()),
+        directory_occupied: !prepared
+            && directory.is_some_and(|path| path.exists() && !only_anonymous_account(path)),
         setup_available: program.is_some(),
     }
 }
@@ -114,8 +157,8 @@ fn setup_arguments(
     if download {
         arguments.push("--download".into());
     }
-    if !cloud_candidates {
-        arguments.push("--no-cloud-candidates".into());
+    if cloud_candidates {
+        arguments.push("--cloud-candidates".into());
     }
     arguments
 }
@@ -281,7 +324,7 @@ mod tests {
     }
 
     fn script(directory: &Path, body: &str) -> PathBuf {
-        let path = directory.join(SETUP_PROGRAM);
+        let path = directory.join(setup_program_name());
         std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
         path
@@ -320,6 +363,41 @@ mod tests {
             prepared.state_directory.as_deref(),
             Some(root.join("msime-client").to_str().unwrap())
         );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn status_lets_setup_continue_over_the_installer_anonymous_account() {
+        let root = scratch("anonymous");
+        let directory = root.join("msime-client");
+        let options = directory.join("runtime-options.json");
+        let program = Path::new("/usr/bin/msime-linux-setup");
+        let mode = |path: &Path, mode| {
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap()
+        };
+        std::fs::create_dir_all(&directory).unwrap();
+        mode(&directory, 0o700);
+        for name in ANONYMOUS_ACCOUNT_FILES {
+            std::fs::write(directory.join(name), "{}").unwrap();
+            mode(&directory.join(name), 0o600);
+        }
+        let status = status_for(Some(&options), Some(program));
+        assert!(!status.prepared && !status.directory_occupied);
+
+        // `msime-linux-prepare` 拒绝其他用户可读的状态，页面也不能在这种目录上提供配置。
+        mode(&directory.join("anonymous-session.json"), 0o644);
+        assert!(status_for(Some(&options), Some(program)).directory_occupied);
+        mode(&directory.join("anonymous-session.json"), 0o600);
+        mode(&directory, 0o755);
+        assert!(status_for(Some(&options), Some(program)).directory_occupied);
+        mode(&directory, 0o700);
+
+        std::fs::write(directory.join("preferences.json"), "{}").unwrap();
+        assert!(status_for(Some(&options), Some(program)).directory_occupied);
+        std::fs::remove_file(directory.join("preferences.json")).unwrap();
+
+        std::fs::create_dir(directory.join("anonymous-session.json.d")).unwrap();
+        assert!(status_for(Some(&options), Some(program)).directory_occupied);
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -363,24 +441,24 @@ mod tests {
     fn download_is_only_requested_when_the_user_allowed_it() {
         let state = Path::new("/home/user/.config/msime-client");
         assert_eq!(
-            setup_arguments(state, false, true),
+            setup_arguments(state, false, false),
             ["--state", "/home/user/.config/msime-client"]
         );
         assert_eq!(
-            setup_arguments(state, true, true),
+            setup_arguments(state, true, false),
             ["--state", "/home/user/.config/msime-client", "--download"]
         );
     }
 
     #[test]
-    fn a_declined_cloud_candidate_choice_reaches_the_setup_script() {
+    fn cloud_candidates_are_only_requested_when_the_user_allowed_them() {
         let state = Path::new("/home/user/.config/msime-client");
         assert_eq!(
-            setup_arguments(state, false, false),
+            setup_arguments(state, false, true),
             [
                 "--state",
                 "/home/user/.config/msime-client",
-                "--no-cloud-candidates"
+                "--cloud-candidates"
             ]
         );
     }

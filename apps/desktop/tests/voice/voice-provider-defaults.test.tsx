@@ -156,13 +156,6 @@ test("an empty field is filled rather than left blank", () => {
   expect(update.asr_model).toBe(ASR_PROVIDER_DEFAULTS.siliconflow.model);
 });
 
-test("a superseded shipped default still counts as untouched", () => {
-  // Someone who never edited the model but carries an older default should
-  // still be moved forward rather than pinned to a stale value.
-  const update = asrProviderUpdate("openai", { asr_model: "TeleAI/TeleSpeechASR" });
-  expect(update.asr_model).toBe("whisper-1");
-});
-
 test("Doubao takes no model, so switching to it clears one", () => {
   const update = asrProviderUpdate("doubao", { asr_model: "whisper-1" });
   expect(update.asr_model).toBe("");

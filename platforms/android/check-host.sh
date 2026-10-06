@@ -59,6 +59,58 @@ if rg -n -i '0xac00|44032|0x3131|12593' "$repo_root/platforms/android/java/app/m
   echo "Android must not compose Hangul syllables itself; the Engine owns the Korean automaton" >&2
   exit 1
 fi
+# 粤拼、注音、越南语、藏文和笔画是共享头文件里的 View.scheme 5、6、7、8、9；InputSchemeTraits 用同样的序号命名，本宿主每个按方案决定的判断都从那里读取。
+for pair in '5 cantonese:CANTONESE = 5;' '6 zhuyin:ZHUYIN = 6;' '7 vietnamese:VIETNAMESE = 7;' '8 tibetan:TIBETAN = 8;' '9 stroke:STROKE = 9;'; do
+  if ! rg -qF "${pair%%:*}" "$repo_root/crates/host-api/include/msime_client.h" \
+    || ! rg -qF "${pair#*:}" "$repo_root/platforms/android/java/app/msime/android/policy/InputSchemeTraits.java"; then
+    echo "Android InputSchemeTraits no longer matches the shared View.scheme ordinal ${pair%%:*}" >&2
+    exit 1
+  fi
+done
+# 藏文的 EWTS 转换同样是 Engine 的状态（ewts crate）。Android 只发送拉丁字母和拼写符号，宿主里出现藏文码位（Java 转义或字面字符）就意味着多了一张会和 Engine 走偏的转换表或音节点、垂符的自行插入。
+if rg -n -i '\\u0f[0-9a-f]{2}|[\x{0F00}-\x{0FFF}]' "$repo_root/platforms/android/java/app/msime/android"; then
+  echo "Android must not transliterate Wylie or insert tsheg and shad itself; the Engine owns the Tibetan converter" >&2
+  exit 1
+fi
+# The Zhuyin list opens with MSIME_OPEN_CANDIDATE_LIST, the Hanja command under its general name; the Android constant aliases the Korean one so the two cannot drift apart.
+if ! rg -q 'MSIME_OPEN_CANDIDATE_LIST = 16,' "$repo_root/crates/host-api/include/msime_client.h" \
+  || ! rg -q 'OPEN_CANDIDATE_LIST_COMMAND = KoreanInputPolicy\.CONVERT_HANJA_COMMAND;' \
+    "$repo_root/platforms/android/java/app/msime/android/policy/ZhuyinInputPolicy.java"; then
+  echo "Android OPEN_CANDIDATE_LIST_COMMAND no longer matches the shared Host API command 16" >&2
+  exit 1
+fi
+# Bopomofo composition is Engine state too. Android labels the Dachen keys and sends their ASCII keys; a syllable or phrase table here would be a second editor that can drift from the Engine's.
+if rg -n 'U\+3105|0x3105|12549' "$repo_root/platforms/android/java/app/msime/android"; then
+  echo "Android must not compose bopomofo itself; the Engine owns the Zhuyin editor" >&2
+  exit 1
+fi
+# 笔画的组字与查字都在 Engine 里：宿主只把笔画键印成字形并发送字母 h s p n z x，不保存笔顺码表，也不自己打开 msime-stroke.db（它只用文件名判断方案是否可用）。
+if rg -n '"[hspnzx]{3,}"' "$repo_root/platforms/android/java/app/msime/android" \
+  || rg -n '"stroke\.db"' "$repo_root/platforms/android/java/app/msime/android" \
+    | rg -v '/keyboard/KeyboardScheme\.java:'; then
+  echo "Android must not look up strokes itself; the Engine owns the Stroke scheme and msime-stroke.db" >&2
+  exit 1
+fi
+# The Stroke inline composition is the glyphs in View.reading, marked through the same policy as Korean and Zhuyin; editing_text holds only the stroke letters.
+if ! rg -q 'StrokeInputPolicy\.active' \
+    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java"; then
+  echo "Android must mark the Stroke composition's reading through StrokeInputPolicy" >&2
+  exit 1
+fi
+# The Hanja command is shared command 16 at both ends: the header's MSIME_CONVERT_HANJA, the FFI's ConvertHanja and this host's named constant must agree, and the service reaches it by name so a renumbering cannot leave a bare 16 behind.
+if ! rg -q 'MSIME_CONVERT_HANJA = 16,' "$repo_root/crates/host-api/include/msime_client.h" \
+  || ! rg -q '^\s*16 => Action::Command\(Command::ConvertHanja\),' "$repo_root/crates/host-api/src/ffi/input.rs" \
+  || ! rg -q 'CONVERT_HANJA_COMMAND = 16;' \
+    "$repo_root/platforms/android/java/app/msime/android/policy/KoreanInputPolicy.java"; then
+  echo "Android CONVERT_HANJA_COMMAND no longer matches the shared Host API command 16" >&2
+  exit 1
+fi
+if rg -n 'command\((session, )?16\)' "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
+  || ! rg -q 'command\(KoreanInputPolicy\.CONVERT_HANJA_COMMAND\)' \
+    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java"; then
+  echo "Android input service must send the Hanja command as KoreanInputPolicy.CONVERT_HANJA_COMMAND" >&2
+  exit 1
+fi
 # The Korean inline composition is the Hangul in View.reading; editing_text holds only the key letters.
 if ! rg -q 'KoreanInputPolicy\.composing' \
     "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java"; then
@@ -187,6 +239,25 @@ if ! rg -qU 'void scheduleCandidateTranslations\(\) \{\s*if \(!candidateTranslat
   echo "Android must fetch candidate translations from the account only after an explicit choice" >&2
   exit 1
 fi
+# Turning 匿名使用统计 off has to stop reporting and clear the queue at once (the toggle promises it), not on the next start: the host process keeps Telemetry's own flag, so the privacy page must hand the saved value to Telemetry.setEnabled.
+if ! rg -q 'toggle == InputFeatureToggle\.USAGE_REPORTING\) Telemetry\.setEnabled\(' \
+    "$repo_root/platforms/android/java/app/msime/android/home/PrivacyPage.java"; then
+  echo "Android privacy page must apply the usage-reporting toggle to Telemetry when it is saved" >&2
+  exit 1
+fi
+# Sync rounds download over any section that is not dirty, so a preference write that forgets to mark settings dirty is reverted by the next cloud change. HostStore.savePreferences owns that mark for every caller.
+if ! rg -qU 'NativeClient\.savePreferences\(directory, revision, document\)\)\);\s*(//[^\n]*\s*)?if \(saved != null\) SyncSignals\.markDirty\(context, SyncSwitch\.SETTINGS\);' \
+    "$repo_root/platforms/android/java/app/msime/android/home/HostStore.java"; then
+  echo "Android HostStore.savePreferences must mark the settings sync section dirty after a saved write" >&2
+  exit 1
+fi
+# The shared translation query answers Korean Hanja rows, so neither the offline targets nor the account path may gate the Korean scheme out again; only Japanese stays ungated into other languages.
+if rg -n 'KOREAN_SCHEME' <(sed -n '/void scheduleCandidateGlosses()/,/^    }$/p;/void scheduleCandidateTranslations()/,/^    }$/p' "$account_service") \
+  || ! rg -q 'CandidateGlossPolicy\.hanjaAnnotation' "$account_service" \
+  || ! rg -q 'CandidateTranslationPolicy\.reservedGlossRows\(candidateGlossLineCount\(\), koreanHanjaRows\(\)\)' "$account_service"; then
+  echo "Android must gloss Korean Hanja rows and draw their 훈음 on its own reserved row" >&2
+  exit 1
+fi
 if ! rg -q '<asr_text>' \
     "$repo_root/platforms/android/java/app/msime/android/voice/VoicePolishPolicy.java"; then
   echo "Android polish must wrap the transcript in the boundary the presets name" >&2
@@ -200,6 +271,27 @@ if ! rg -q 'NativeClient\.doubaoStartFrame|NativeClient\.doubaoAudioFrame' \
   || ! rg -q 'msime_client_doubao_(start|audio)_frame' \
     "$repo_root/platforms/android/native/client_jni.cpp"; then
   echo "Android streaming recognition must build its frames through the shared Host API" >&2
+  exit 1
+fi
+# 识别线程遇到 JNI、TLS 或音频组件的意外异常时也必须结束请求；否则录音窗口会永久停在转写中。
+voice_activity="$repo_root/platforms/android/java/app/msime/android/voice/VoiceRecognitionActivity.java"
+if [[ "$(rg -c 'catch \(RuntimeException \| LinkageError' "$voice_activity" || true)" -lt 3 ]]; then
+  echo "Android voice recognition workers must catch unexpected runtime/linkage failures" >&2
+  exit 1
+fi
+# 匿名账号注册由每次 HomeActivity 重建触发，但同一进程只能保留一个网络注册任务。
+identity_source="$repo_root/platforms/android/java/app/msime/android/account/AccountIdentity.java"
+if ! rg -q 'AtomicBoolean REGISTERING' "$identity_source" \
+    || ! rg -q 'REGISTERING\.compareAndSet\(false, true\)' "$identity_source" \
+    || ! rg -q 'REGISTERING\.set\(false\)' "$identity_source"; then
+  echo "Android anonymous account registration must be single-flight" >&2
+  exit 1
+fi
+# 语音插件销毁时 executor 可能已经拒绝轮询任务；提交失败必须回滚活动请求并取消识别页。
+voice_plugin="$repo_root/platforms/android/java/app/msime/android/voice/VoicePlugin.kt"
+if ! rg -qU 'try \{\s*worker\.execute \{ pollResult\(job\) \}\s*\} catch \(_: RuntimeException\)' "$voice_plugin" \
+    || ! rg -q 'VoiceRecognitionActivity\.clearRequest\(args\.requestId\)' "$voice_plugin"; then
+  echo "Android voice plugin must roll back a rejected result poll" >&2
   exit 1
 fi
 # Reject an oversized response before JNI obtains a native view of the Java byte array. The shared
@@ -377,194 +469,44 @@ if [[ ${#client_sources[@]} -eq 0 ]]; then
   echo "No Android client sources selected for compilation; the source filter is wrong" >&2
   exit 1
 fi
+# 冒烟测试按文件自动发现：`tests/` 下除设备套件外的每个 `.java` 都参与编译，每个以 `Smoke.java` 结尾的类都会运行，没有 `static void main(` 入口的会让检查直接失败而不是被跳过，新加冒烟不必再登记到这里。排除的三处各有原因：`tests/device/**` 是要装进模拟器的设备套件，`core/NativeSmoke.java` 要加载 `libmsime_android.so`，`settings/KeyboardGeometryStrictIntSmoke.java` 要真实的 `org.json`，而这里只有 android.jar 里抛 `Stub!` 的桩。路径同样按仓库内的相对路径匹配，理由见上面那段关于 /home/runner 的说明。
+test_sources=()
+smoke_classes=()
+while IFS= read -r source; do
+  relative=${source#"$repo_root/platforms/android/tests/"}
+  case "$relative" in
+    device/*|core/NativeSmoke.java|settings/KeyboardGeometryStrictIntSmoke.java) continue ;;
+  esac
+  test_sources+=("$source")
+  case "$relative" in
+    *Smoke.java) ;;
+    *) continue ;;
+  esac
+  if ! rg -q 'static void main\(' "$source"; then
+    echo "Android JVM smoke has no 'static void main(' entry point: ${source#"$repo_root/"}" >&2
+    exit 1
+  fi
+  package=$(sed -n 's/^package \([A-Za-z0-9_.]*\);.*/\1/p' "$source" | head -n 1)
+  class=$(basename "$source" .java)
+  smoke_classes+=("${package:+$package.}$class")
+done < <(find "$repo_root/platforms/android/tests" -name "*.java" -print | LC_ALL=C sort)
+# 下限就是当前发现的冒烟数（145）；少于这个数说明上面的筛选或 package 解析坏了，而不是冒烟真的变少了。新增冒烟时把这个数一起调高，有意删掉冒烟时同时调低。
+if [[ ${#smoke_classes[@]} -lt 145 ]]; then
+  echo "Only ${#smoke_classes[@]} Android JVM smokes discovered; expected at least 145" >&2
+  exit 1
+fi
 javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "${client_sources[@]}" \
-  "$repo_root/platforms/android/tests/core/EditorSmoke.java" \
-  "$repo_root/platforms/android/tests/core/BootstrapMarkerSmoke.java" \
-  "$repo_root/platforms/android/tests/core/TelemetryHandlerSmoke.java" \
-  "$repo_root/platforms/android/tests/core/PhrasePreeditSmoke.java" \
-  "$repo_root/platforms/android/tests/core/InputViewRefreshPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/core/EditorContextSnapshotSmoke.java" \
-  "$repo_root/platforms/android/tests/settings/PreferencesSmoke.java" \
-  "$repo_root/platforms/android/tests/settings/InputModeStoreSmoke.java" \
-  "$repo_root/platforms/android/tests/keyboard/KeyboardLayoutSmoke.java" \
-  "$repo_root/platforms/android/tests/keyboard/LetterKeyFacePolicySmoke.java" \
-  "$repo_root/platforms/android/tests/keyboard/ReturnKeyActionSmoke.java" \
-  "$repo_root/platforms/android/tests/keyboard/SpaceCursorMovementSmoke.java" \
-  "$repo_root/platforms/android/tests/settings/EnglishCapitalizationPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/settings/EnglishLetterCaseStateSmoke.java" \
-  "$repo_root/platforms/android/tests/dictionary/ChineseHelpcodePolicySmoke.java" \
-  "$repo_root/platforms/android/tests/keyboard/MicrosoftShuangpinKeyPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/dictionary/ChineseOutputPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/core/FullWidthInputPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/core/CharacterWidthPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/core/DeclinedKeyPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/keyboard/KeyboardInputContextSmoke.java" \
-  "$repo_root/platforms/android/tests/keyboard/KeyboardGeometrySmoke.java" \
-  "$repo_root/platforms/android/tests/keyboard/KeyboardFormFactorPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/keyboard/KeyboardLayoutAdjustPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/voice/VoiceResultStoreSmoke.java" \
-  "$repo_root/platforms/android/tests/voice/AiPolishClientSmoke.java" \
-  "$repo_root/platforms/android/tests/voice/AiPolishHttpTransportSmoke.java" \
-  "$repo_root/platforms/android/tests/voice/AiPolishModelCatalogSmoke.java" \
-  "$repo_root/platforms/android/tests/voice/HttpAsrPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/voice/WebSocketFramesSmoke.java" \
-  "$repo_root/platforms/android/tests/voice/DoubaoAsrPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/voice/VoicePolishPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/voice/VoicePolisherSmoke.java" \
-  "$repo_root/platforms/android/tests/voice/LocalAsrPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/candidate/ReplyKeyboardSmoke.java" \
-  "$repo_root/platforms/android/tests/keyboard/KeyboardSkinSmoke.java" \
-  "$repo_root/platforms/android/tests/keyboard/KeyboardFeedbackSmoke.java" \
-  "$repo_root/platforms/android/tests/keyboard/KeyboardFeedbackStoreSmoke.java" \
-  "$repo_root/platforms/android/tests/keyboard/KeyboardShortcutIconPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/voice/TypingSourceSmoke.java" \
-  "$repo_root/platforms/android/tests/keyboard/EmojiCatalogModelSmoke.java" \
-  "$repo_root/platforms/android/tests/core/MoreToolsLayoutSmoke.java" \
-  "$repo_root/platforms/android/tests/keyboard/LocalInputModeSmoke.java" \
-  "$repo_root/platforms/android/tests/keyboard/KeyboardSchemeSmoke.java" \
-  "$repo_root/platforms/android/tests/keyboard/NineKeyLayoutSmoke.java" \
-  "$repo_root/platforms/android/tests/keyboard/KeyboardActionRowSmoke.java" \
-  "$repo_root/platforms/android/tests/keyboard/JapaneseNineKeyLayoutSmoke.java" \
-  "$repo_root/platforms/android/tests/keyboard/JapaneseNineKeyActionsSmoke.java" \
-  "$repo_root/platforms/android/tests/core/JapaneseVariantPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/core/JapaneseSpacePolicySmoke.java" \
-  "$repo_root/platforms/android/tests/keyboard/KoreanKeyboardLayoutSmoke.java" \
-  "$repo_root/platforms/android/tests/core/KoreanInputPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/settings/QuickPunctuationPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/voice/HandwritingContractSmoke.java" \
-  "$repo_root/platforms/android/tests/candidate/CandidateAppearanceSmoke.java" \
-  "$repo_root/platforms/android/tests/candidate/CandidateGlossModelSmoke.java" \
-  "$repo_root/platforms/android/tests/candidate/CandidateTranslationPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/candidate/CandidateTranslationStoreSmoke.java" \
-  "$repo_root/platforms/android/tests/candidate/OnlineCandidatePolicySmoke.java" \
-  "$repo_root/platforms/android/tests/dictionary/WubiCodeHintPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/keyboard/ChineseSymbolFacesSmoke.java" \
-  "$repo_root/platforms/android/tests/keyboard/ShuangpinKeyHintPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/keyboard/EnglishSuggestionPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/keyboard/EnglishSuggestionModelSmoke.java" \
-  "$repo_root/platforms/android/tests/candidate/CandidatePanelSmoke.java" \
-  "$repo_root/platforms/android/tests/candidate/CandidateManagementSmoke.java" \
-  "$repo_root/platforms/android/tests/candidate/CandidateScrollPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/dictionary/ClipboardHistoryPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/dictionary/DictionarySnapshotQueueSmoke.java" \
-  "$repo_root/platforms/android/tests/dictionary/CustomSkinLibrarySmoke.java" \
-  "$repo_root/platforms/android/tests/settings/DiagnosticPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/settings/HostOptionsPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/settings/AccountTokenPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/settings/TypingStatisticsModelSmoke.java" \
-  "$repo_root/platforms/android/tests/settings/KeyPressCountingSmoke.java" \
-  "$repo_root/platforms/android/tests/settings/VocabularyReviewModelSmoke.java" \
-  "$repo_root/platforms/android/tests/settings/InputFeatureToggleSmoke.java" \
-  "$repo_root/platforms/android/tests/community/CommunityRequestSmoke.java" \
-  "$repo_root/platforms/android/tests/community/CommunityCatalogSmoke.java" \
-  "$repo_root/platforms/android/tests/settings/AppIconStyleSmoke.java" \
-  "$repo_root/platforms/android/tests/settings/CloudClipboardTextPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/keyboard/CloudClipboardPanelPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/settings/AccountSessionRoutingSmoke.java" \
-  "$repo_root/platforms/android/tests/settings/SmartPunctuationContextSmoke.java" \
-  "$repo_root/platforms/android/tests/settings/HardwareKeyPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/settings/HardwareShortcutPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/settings/HardwareMaintenancePolicySmoke.java" \
-  "$repo_root/platforms/android/tests/settings/NumberRowSelectionPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/keyboard/WordCharacterPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/keyboard/CandidateNavigationPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/candidate/CandidateTextPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/candidate/CandidatePreeditStylePolicySmoke.java" \
-  "$repo_root/platforms/android/tests/keyboard/SymbolPanelModelSmoke.java"
-java -cp "$output_dir" EditorSmoke
-java -cp "$output_dir:$android_jar" app.msime.android.BootstrapMarkerSmoke
-java -cp "$output_dir:$android_jar" app.msime.android.core.TelemetryHandlerSmoke
-java -cp "$output_dir" PhrasePreeditSmoke
-java -cp "$output_dir" InputViewRefreshPolicySmoke
-java -cp "$output_dir" EditorContextSnapshotSmoke
-java -cp "$output_dir" PreferencesSmoke
-java -cp "$output_dir" app.msime.android.InputModeStoreSmoke
-java -cp "$output_dir" KeyboardLayoutSmoke
-java -cp "$output_dir" LetterKeyFacePolicySmoke
-java -cp "$output_dir" ReturnKeyActionSmoke
-java -cp "$output_dir" SpaceCursorMovementSmoke
-java -cp "$output_dir" EnglishCapitalizationPolicySmoke
-java -cp "$output_dir" EnglishLetterCaseStateSmoke
-java -cp "$output_dir" app.msime.android.test.ChineseHelpcodePolicySmoke
-java -cp "$output_dir" MicrosoftShuangpinKeyPolicySmoke
-java -cp "$output_dir" ChineseOutputPolicySmoke
-java -cp "$output_dir" FullWidthInputPolicySmoke
-java -cp "$output_dir" CharacterWidthPolicySmoke
-java -cp "$output_dir" DeclinedKeyPolicySmoke
-java -cp "$output_dir" KeyboardInputContextSmoke
-java -cp "$output_dir" KeyboardGeometrySmoke
-java -cp "$output_dir" KeyboardFormFactorPolicySmoke
-java -cp "$output_dir" KeyboardLayoutAdjustPolicySmoke
-java -cp "$output_dir" VoiceResultStoreSmoke
-java -cp "$output_dir" AiPolishClientSmoke
-java -cp "$output_dir:$android_jar" app.msime.android.AiPolishHttpTransportSmoke
-java -cp "$output_dir:$android_jar" app.msime.android.AiPolishModelCatalogSmoke
-java -cp "$output_dir" HttpAsrPolicySmoke
-java -cp "$output_dir" WebSocketFramesSmoke
-java -cp "$output_dir" DoubaoAsrPolicySmoke
-java -cp "$output_dir" VoicePolishPolicySmoke
-java -cp "$output_dir:$android_jar" VoicePolisherSmoke
-java -cp "$output_dir" LocalAsrPolicySmoke
-java -cp "$output_dir" ReplyKeyboardSmoke
-java -cp "$output_dir" app.msime.android.KeyboardSkinSmoke
-java -cp "$output_dir" CloudClipboardTextPolicySmoke
-java -cp "$output_dir:$android_jar" CloudClipboardPanelPolicySmoke
-java -cp "$output_dir:$android_jar" app.msime.android.AccountSessionRoutingSmoke
-java -cp "$output_dir" KeyboardFeedbackSmoke
-java -cp "$output_dir:$android_jar" app.msime.android.KeyboardFeedbackStoreSmoke
-java -cp "$output_dir" KeyboardShortcutIconPolicySmoke
-java -cp "$output_dir" TypingSourceSmoke
-java -cp "$output_dir" EmojiCatalogModelSmoke
-java -cp "$output_dir" MoreToolsLayoutSmoke
-java -cp "$output_dir" LocalInputModeSmoke
-java -cp "$output_dir" KeyboardSchemeSmoke
-java -cp "$output_dir" NineKeyLayoutSmoke
-java -cp "$output_dir" KeyboardActionRowSmoke
-java -cp "$output_dir" JapaneseNineKeyLayoutSmoke
-java -cp "$output_dir" JapaneseNineKeyActionsSmoke
-java -cp "$output_dir" JapaneseVariantPolicySmoke
-java -cp "$output_dir" JapaneseSpacePolicySmoke
-java -cp "$output_dir" KoreanKeyboardLayoutSmoke
-java -cp "$output_dir" KoreanInputPolicySmoke
-java -cp "$output_dir" QuickPunctuationPolicySmoke
-java -cp "$output_dir" HandwritingContractSmoke
-java -cp "$output_dir" CandidateAppearanceSmoke
-java -cp "$output_dir" CandidateGlossModelSmoke
-java -cp "$output_dir" CandidateTranslationPolicySmoke
-java -cp "$output_dir" app.msime.android.CandidateTranslationStoreSmoke
-java -cp "$output_dir" OnlineCandidatePolicySmoke
-java -cp "$output_dir" WubiCodeHintPolicySmoke
-java -cp "$output_dir" ChineseSymbolFacesSmoke
-java -cp "$output_dir" ShuangpinKeyHintPolicySmoke
-java -cp "$output_dir" EnglishSuggestionPolicySmoke
-java -cp "$output_dir" EnglishSuggestionModelSmoke
-java -cp "$output_dir" CandidatePanelSmoke
-java -cp "$output_dir" CandidateManagementSmoke
-java -cp "$output_dir" CandidateScrollPolicySmoke
-java -cp "$output_dir" ClipboardHistoryPolicySmoke
-java -cp "$output_dir" DictionarySnapshotQueueSmoke
-java -cp "$output_dir:$android_jar" CustomSkinLibrarySmoke
-java -cp "$output_dir" DiagnosticPolicySmoke
-java -cp "$output_dir" HostOptionsPolicySmoke
-java -cp "$output_dir" AccountTokenPolicySmoke
-java -cp "$output_dir" TypingStatisticsModelSmoke
-java -cp "$output_dir" KeyPressCountingSmoke
-java -cp "$output_dir" VocabularyReviewModelSmoke
-java -cp "$output_dir" InputFeatureToggleSmoke
-java -cp "$output_dir" CommunityRequestSmoke
-java -cp "$output_dir:$android_jar" CommunityCatalogSmoke
-java -cp "$output_dir" AppIconStyleSmoke
-java -cp "$output_dir" SmartPunctuationContextSmoke
-java -cp "$output_dir" HardwareKeyPolicySmoke
-java -cp "$output_dir" app.msime.android.HardwareShortcutPolicySmoke
-java -cp "$output_dir" HardwareMaintenancePolicySmoke
-java -cp "$output_dir" NumberRowSelectionPolicySmoke
-java -cp "$output_dir" WordCharacterPolicySmoke
-java -cp "$output_dir" CandidateNavigationPolicySmoke
-java -cp "$output_dir" CandidateTextPolicySmoke
-java -cp "$output_dir" CandidatePreeditStylePolicySmoke
-java -cp "$output_dir" SymbolPanelModelSmoke
+  "$repo_root/platforms/android/java/app/msime/android/home/SignInAttemptPolicy.java" \
+  "${test_sources[@]}"
+# 统一用 `$output_dir:$android_jar` 运行：改成自动发现前逐个核对过，原先按类分别给的 classpath（有的不带 android.jar）与统一 classpath 下 108 个冒烟的输出和退出码完全相同。
+for smoke in "${smoke_classes[@]}"; do
+  if ! java -cp "$output_dir:$android_jar" "$smoke"; then
+    echo "Android JVM smoke failed: $smoke" >&2
+    exit 1
+  fi
+done
+echo "Ran ${#smoke_classes[@]} Android JVM smokes"
 # Resources are compiled but not linked here: they reference Material's theme attributes, and linking
 # those needs the library's own resources, which is Gradle's job. Compiling still catches a malformed
 # drawable, layout or values file, which is what this step was for.

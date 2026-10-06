@@ -10,30 +10,22 @@
 #include <system_error>
 #include <vector>
 
+#include "../core/SafePath.h"
+
 namespace msime::linux_host {
 
 // Create a private same-directory temporary file and publish it with rename.
 // mkstemp uses O_EXCL, so a pre-existing symlink cannot redirect the write.
+inline bool candidate_directory_path_is_safe(const std::filesystem::path &directory) {
+  return storage_directory_path_is_safe(directory);
+}
+
 inline bool prepare_candidate_directory(const std::filesystem::path &directory) {
+  if (!candidate_directory_path_is_safe(directory)) return false;
   std::error_code error;
-  auto current = directory;
-  while (true) {
-    const auto status = std::filesystem::symlink_status(current, error);
-    if (!error) {
-      if (std::filesystem::is_symlink(status) || !std::filesystem::is_directory(status)) return false;
-      break;
-    }
-    if (error != std::errc::no_such_file_or_directory) return false;
-    error.clear();
-    const auto next = current.parent_path();
-    if (next == current) break;
-    current = next;
-  }
   std::filesystem::create_directories(directory, error);
   if (error) return false;
-  const auto status = std::filesystem::symlink_status(directory, error);
-  if (error || std::filesystem::is_symlink(status) || !std::filesystem::is_directory(status)) return false;
-  return true;
+  return candidate_directory_path_is_safe(directory);
 }
 
 inline bool write_candidate_file_atomically(const std::filesystem::path &file,

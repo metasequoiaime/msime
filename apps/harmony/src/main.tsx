@@ -120,8 +120,6 @@ interface NativeBridge {
   listFontFamilies(): string;
   /** `{operation:"load"|"save"|"preview",...}`; the reply carries the settings now in force. */
   keyboardFeedback(request: string): string;
-  /** `{operation:"load"|"save",text?}`; the overlay the Engine reads from the user data directory. */
-  customTranslations(request: string): string;
   /**
    * Whether setup still has a step left: not enabled, or enabled but not the current keyboard.
    *
@@ -440,22 +438,34 @@ function communitySkinClient(native: NativeBridge): CommunitySkinClient {
       JSON.stringify({ operation: "community_skin", ...action }),
     ).then(unwrap<T>);
   return {
-    list: (offset, search) =>
-      request<CommunitySkinPage>({ community_operation: "list", offset, search }),
+    // 我的作品 asks the host for scope "mine", which it sends with the session and fields=moderation so a removed skin carries its 已下架 badge.
+    list: (offset, search, mine, category) =>
+      request<CommunitySkinPage>({
+        community_operation: "list",
+        offset,
+        search,
+        ...(mine ? { scope: "mine" } : {}),
+        category,
+      }),
     detail: (id) => request<CommunitySkin>({ community_operation: "detail", id }),
     download: (id, name) =>
       request<CommunitySkinDownload>({ community_operation: "download", id, name }),
     rate: async (id, stars) => {
       await request({ community_operation: "rate", id, stars });
     },
-    publish: async (id, name, description, design) => {
-      await request({ community_operation: "publish", id, name, description, design });
+    publish: async (id, name, description, design, category) => {
+      await request({ community_operation: "publish", id, name, description, design, category });
     },
+    setCategory: (id, category) =>
+      request<CommunitySkin>({ community_operation: "set_category", id, category }),
     unpublish: async (id) => {
       await request({ community_operation: "unpublish", id });
     },
     finishTrial: async (id, keep) => {
       await request({ community_operation: "finish_trial", id, keep });
+    },
+    report: async (id, reason, detail) => {
+      await request({ community_operation: "report", id, reason, detail });
     },
   };
 }
@@ -519,6 +529,9 @@ function communityResourceClient(native: NativeBridge): CommunityResourceClient 
     },
     removeReply: async (id) => {
       await request({ resource_operation: "remove_reply", id });
+    },
+    report: async (kind, id, reason, detail) => {
+      await request({ resource_operation: "report", kind, id, reason, detail });
     },
   };
 }
@@ -913,13 +926,6 @@ function makeClient(
     listVoiceCaptureDevices: async () =>
       unwrap<VoiceCaptureDevice[]>(native.listVoiceCaptureDevices()),
     listFontFamilies: async () => unwrap<string[]>(native.listFontFamilies()),
-    customTranslations: {
-      load: async () =>
-        unwrap<string>(native.customTranslations(JSON.stringify({ operation: "load" }))),
-      save: async (text) => {
-        unwrap<string>(native.customTranslations(JSON.stringify({ operation: "save", text })));
-      },
-    },
     mobileKeyboardFeedback: {
       load: async () =>
         unwrap<MobileKeyboardFeedback>(

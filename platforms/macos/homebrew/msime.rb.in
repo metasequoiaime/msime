@@ -3,7 +3,7 @@ cask "msime" do
   version "@VERSION@"
   sha256 "@SHA256@"
 
-  url "https://github.com/metasequoiaime/msime/releases/download/macos-v#{version}/msime-macos-#{version}-arm64.dmg"
+  url "https://github.com/metasequoiaime/msime/releases/download/macos-v#{version}/msime-macos-#{version}-universal.dmg"
   name "MSIME"
   name "水杉输入法"
   desc "Chinese input method for pinyin, shuangpin and wubi"
@@ -15,30 +15,25 @@ cask "msime" do
     strategy :github_releases
   end
 
-  depends_on arch: :arm64
   depends_on macos: :ventura
 
   app "MSIME.app"
   # The MCP server AI assistants run, on PATH for those configured from a terminal.
   binary "#{appdir}/MSIME.app/Contents/MacOS/msime-mcp"
+  # 同一个程序再以 msime 的名字放上 PATH，方便在终端里手动敲 msime expand、msime config。
+  binary "#{appdir}/MSIME.app/Contents/MacOS/msime-mcp", target: "msime"
 
   # The settings app copies the input method here on its first launch.
-  uninstall quit:   ["app.msime.macos", "app.msime.client", "app.msime.inputmethod.MetasequoiaIME"],
+  uninstall quit:   ["app.msime.macos", "app.msime.inputmethod.MetasequoiaIME"],
             delete: "~/Library/Input Methods/水杉输入法.app"
 
-  # app.msime.client is the settings app's earlier identifier; its state directory stays behind as the source the first launch after the change copied from.
   zap trash: [
     "~/Library/Application Support/app.msime.macos",
-    "~/Library/Application Support/app.msime.client",
     "~/Library/Caches/app.msime.macos",
-    "~/Library/Caches/app.msime.client",
     "~/Library/Preferences/app.msime.macos.plist",
-    "~/Library/Preferences/app.msime.client.plist",
     "~/Library/Preferences/app.msime.inputmethod.MetasequoiaIME.plist",
     "~/Library/Saved Application State/app.msime.macos.savedState",
-    "~/Library/Saved Application State/app.msime.client.savedState",
     "~/Library/WebKit/app.msime.macos",
-    "~/Library/WebKit/app.msime.client",
   ]
 
   caveats <<~EOS

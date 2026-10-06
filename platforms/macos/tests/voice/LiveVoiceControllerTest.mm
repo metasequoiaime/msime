@@ -397,7 +397,7 @@ int main(int argc, char **) {
         controller.usePolishFixture = YES;
         voiceArguments[@"MSIMEClientVoicePolishText"] = @YES;
         voiceArguments[@"MSIMEClientVoicePolishToken"] = @"fixture-only";
-        voiceArguments[@"MSIMEClientVoicePolishPrompt"] = @"synthetic original prompt";
+        voiceArguments[@"MSIMEClientVoicePolishPromptCustom1"] = @"synthetic original prompt";
         [defaults setVolatileDomain:voiceArguments forName:NSArgumentDomain];
         [controller toggleVoiceInput:nil];
         LivePolishFixture *polish = controller.polishFixture;
@@ -405,14 +405,14 @@ int main(int argc, char **) {
         const auto beforePolishStops = capture.captureStops;
         capture.transcript(@"synthetic partial before polish", NO);
         assert(!polish.submissions);
-        voiceArguments[@"MSIMEClientVoicePolishPrompt"] = @"synthetic later prompt";
+        voiceArguments[@"MSIMEClientVoicePolishPromptCustom1"] = @"synthetic later prompt";
         [defaults setVolatileDomain:voiceArguments forName:NSArgumentDomain];
         capture.transcript(@"synthetic original", YES);
         capture.transcript(@"duplicate final", YES);
         capture.transcript(@"late partial", NO);
         assert(polish.submissions == 1 && [polish.input isEqual:@"synthetic original"]);
         assert(presentation.phase == 3);
-        assert([controller.polishOptions[@"polish_prompt"] isEqual:@"synthetic original prompt"]);
+        assert([controller.polishOptions[@"polish_prompt_custom_1"] isEqual:@"synthetic original prompt"]);
         assert([controller.polishOptions[@"polish_text"] isEqual:@YES] && [controller.polishOptions[@"polish_enabled"] isEqual:@NO]);
         assert(capture.captureStops > beforePolishStops && capture.active && client.commits.count == beforePolish);
         assert([client.marked isEqual:@"synthetic partial before polish"]);

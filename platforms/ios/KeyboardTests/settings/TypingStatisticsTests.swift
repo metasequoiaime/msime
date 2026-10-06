@@ -153,24 +153,6 @@ final class TypingStatisticsTests: XCTestCase {
     XCTAssertTrue(cleared.dailyHours.isEmpty)
   }
 
-  func testRetentionTheSwiftStoreWroteSurvivesTheSharedStore() throws {
-    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    defer { try? FileManager.default.removeItem(at: directory) }
-    let key = TypingStatistics.dayKey(Date())
-    let old: [String: Any] = ["enabled": true, "total": 3, "days": [key: 3], "retentionDays": 90]
-    let url = directory.appendingPathComponent("typing-statistics.json")
-    try JSONSerialization.data(withJSONObject: old).write(to: url)
-    let store = TypingStatisticsStore(directory: directory)
-    try store.record("字")
-    let snapshot = try store.load()
-    XCTAssertEqual(snapshot.retentionDays, 90)
-    XCTAssertEqual(snapshot.total, 4)
-    let document = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
-    XCTAssertEqual(document["retention"] as? String, "90d")
-    XCTAssertNil(document["retentionDays"])
-  }
-
   func testLongCommitsAreSplitOnCharacterBoundaries() throws {
     let family = "👨‍👩‍👧‍👦"
     let text = String(repeating: family, count: 1_000)
@@ -263,30 +245,6 @@ final class TypingStatisticsTests: XCTestCase {
       return XCTFail("A written store still reported that the keyboard had never written.")
     }
     XCTAssertNotNil(lastWritten)
-  }
-
-  func testMovesLegacyAppGroupStatisticsIntoTheSharedTauriStateDirectory() throws {
-    let container = FileManager.default.temporaryDirectory
-      .appendingPathComponent("stats-migration-\(UUID().uuidString)")
-    let sharedState = container.appendingPathComponent("MSIME", isDirectory: true)
-    try FileManager.default.createDirectory(at: container, withIntermediateDirectories: true)
-    defer { try? FileManager.default.removeItem(at: container) }
-
-    let legacy = TypingStatisticsStore(directory: container)
-    try legacy.setEnabled(true)
-    try legacy.record("迁移", source: .quanpin)
-    let store = TypingStatisticsStore(directory: sharedState, legacyDirectory: container)
-    guard case .ready = store.availability() else {
-      return XCTFail("Legacy statistics should be reported before the first migration read.")
-    }
-    let snapshot = try store.load()
-
-    XCTAssertEqual(snapshot.total, 2)
-    XCTAssertEqual(snapshot.detail.sources["quanpin"], 2)
-    XCTAssertTrue(FileManager.default.fileExists(
-      atPath: sharedState.appendingPathComponent("typing-statistics.json").path))
-    XCTAssertFalse(FileManager.default.fileExists(
-      atPath: container.appendingPathComponent("typing-statistics.json").path))
   }
 
   /// The daily table uses the Windows columns: the four named kinds, everything else under 其他 so a row adds up, and speed over prose only.
@@ -417,6 +375,14 @@ final class TypingStatisticsTests: XCTestCase {
     XCTAssertEqual(snapshot.total, 0)
     try store.reset()
     XCTAssertTrue(try store.load().dailyKeys.isEmpty)
+  }
+
+  func testRecordCountRejectsMalformedNativeNumbers() {
+    XCTAssertEqual(TypingStatisticsStore.strictRecordedCount(NSNumber(value: 3), maximum: 5), 3)
+    XCTAssertNil(TypingStatisticsStore.strictRecordedCount(NSNumber(value: true), maximum: 5))
+    XCTAssertNil(TypingStatisticsStore.strictRecordedCount(NSNumber(value: 3.5), maximum: 5))
+    XCTAssertNil(TypingStatisticsStore.strictRecordedCount(NSNumber(value: -1), maximum: 5))
+    XCTAssertNil(TypingStatisticsStore.strictRecordedCount(NSNumber(value: 6), maximum: 5))
   }
 
   /// The 按键 page sums the selected day, or every day, and splits the keys into the drawn keyboard, the nine-key grid, the rest and the top five.

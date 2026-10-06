@@ -1,24 +1,20 @@
 package app.msime.android.home;
 
 import android.content.Context;
-import android.graphics.Typeface;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import androidx.annotation.Nullable;
-import androidx.core.content.ContextCompat;
 import androidx.core.widget.NestedScrollView;
-import app.msime.android.R;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
+import com.google.android.material.bottomsheet.BottomSheetDragHandleView;
 
 /**
- * 设置项的底部面板：一个标题，一列内容。
+ * 设置项的 M3 modal bottom sheet：拖动条、一个标题、可选的说明，下面一列内容。
  *
- * <p>These pages are lists of settings, and a bottom sheet is what puts one in front of the user
- * without a navigation stack the shell does not have. The chrome is shared so the six entries on
- * the keyboard tab do not each grow their own layout file for a title and a scroll view.
+ * <p>面板本身用 Material 3 的默认外观：顶角 28dp、底色 `colorSurfaceContainerLow`（设计令牌里的 andCard），所以季节主题换的就是这里的颜色。外壳集中在这里，各处的面板不必各自为一个标题和一个滚动区写布局文件。纯选择列表用 {@link OptionSheet}。
  */
 public final class SettingsSheet {
     private final BottomSheetDialog dialog;
@@ -30,22 +26,24 @@ public final class SettingsSheet {
         dialog = new BottomSheetDialog(context);
         LinearLayout root = new LinearLayout(context);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(20), dp(18), dp(20), dp(20));
+        root.setPadding(dp(24), 0, dp(24), dp(24));
+
+        // 拖动条既是可见的把手，也给读屏提供「收起面板」的操作。
+        BottomSheetDragHandleView handle = new BottomSheetDragHandleView(context);
+        root.addView(handle, new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         TextView heading = new TextView(context);
         heading.setText(title);
-        // M3 headline small: the sheet's title is a heading, not a bold label.
-        heading.setTextSize(22);
-        heading.setTypeface(Typeface.DEFAULT);
+        // M3 headline small：面板标题是标题，不是加粗的标签。
+        Ui.style(heading, Ui.TEXT_BAR_TITLE, 400, Ui.text(context));
         heading.setAccessibilityHeading(true);
-        heading.setTextColor(ContextCompat.getColor(context, R.color.ink));
         root.addView(heading);
 
         if (subtitle != null && !subtitle.isEmpty()) {
             TextView note = new TextView(context);
             note.setText(subtitle);
-            note.setTextSize(14);
-            note.setTextColor(ContextCompat.getColor(context, R.color.text_secondary));
+            Ui.style(note, Ui.TEXT_ROW_SUBTITLE, 400, Ui.subText(context));
             LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
             params.topMargin = dp(4);
@@ -64,17 +62,15 @@ public final class SettingsSheet {
         dialog.setContentView(root);
     }
 
-    /** The column every row is added to. */
+    /** 所有行都加在这一列里。 */
     public LinearLayout content() { return content; }
 
-    /** An M3 group title between rows: accent colour, 14sp, medium weight. */
+    /** 行与行之间的 M3 组标题：强调色、14sp、500 字重。 */
     public void addHeading(String text) {
         TextView heading = new TextView(context);
         heading.setText(text);
-        heading.setTextSize(14);
-        heading.setTypeface(Typeface.create(Typeface.DEFAULT, 500, false));
+        Ui.style(heading, Ui.TEXT_GROUP_TITLE, 500, Ui.accent(context));
         heading.setAccessibilityHeading(true);
-        heading.setTextColor(ContextCompat.getColor(context, R.color.forest));
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         params.topMargin = dp(16);
@@ -82,24 +78,23 @@ public final class SettingsSheet {
         content.addView(heading, params);
     }
 
-    /** A footnote at the end of the column. */
+    /** 这一列末尾的脚注。 */
     public void addNote(String text) {
         TextView note = new TextView(context);
         note.setText(text);
-        note.setTextSize(12);
-        note.setTextColor(ContextCompat.getColor(context, R.color.text_secondary));
+        Ui.style(note, 12, 400, Ui.subText(context));
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         params.topMargin = dp(14);
         content.addView(note, params);
     }
 
-    /** A status line the sheet can rewrite after a save succeeds or fails. */
+    /** 一行状态文字，保存成功或失败后由面板改写。 */
     public TextView addStatus() {
         TextView status = new TextView(context);
-        status.setTextSize(12);
+        Ui.style(status, 12, 400, Ui.subText(context));
         status.setGravity(Gravity.CENTER_VERTICAL);
-        status.setTextColor(ContextCompat.getColor(context, R.color.text_secondary));
+        status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, dp(20));
         params.topMargin = dp(10);
@@ -116,10 +111,10 @@ public final class SettingsSheet {
 
     public void dismiss() { dialog.dismiss(); }
 
-    /** Runs `action` when the sheet closes, however it was closed, so a sheet that saves as it goes can write what is still pending. */
+    /** 面板关闭时（不论怎么关的）运行 `action`，边改边存的面板借此写下还没保存的内容。 */
     public void setOnDismiss(Runnable action) { dialog.setOnDismissListener(ignored -> action.run()); }
 
     private int dp(int value) {
-        return Math.round(value * context.getResources().getDisplayMetrics().density);
+        return Ui.dp(context, value);
     }
 }

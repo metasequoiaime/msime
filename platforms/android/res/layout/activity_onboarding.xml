@@ -1,12 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- The design's Android onboarding: a 4dp progress bar instead of a step counter, the page, and a bar with a text button on the left (跳过, then 上一步) and the filled step action on the right. -->
-<LinearLayout
+<!-- fitsSystemWindows 会用系统栏内边距覆盖同一个 view 上的 padding，原来左右 24dp 因此变成 0；系统栏内边距放在外层，24dp 的页边距放在内层。 -->
+<FrameLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="?android:attr/colorBackground"
-    android:fitsSystemWindows="true"
+    android:fitsSystemWindows="true">
+
+<LinearLayout
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
     android:orientation="vertical"
     android:paddingStart="24dp"
     android:paddingTop="8dp"
@@ -20,9 +25,9 @@
         android:layout_marginTop="8dp"
         android:layout_marginBottom="8dp"
         android:max="4"
-        app:indicatorColor="@color/forest"
+        app:indicatorColor="?attr/colorPrimary"
         app:indicatorTrackGapSize="0dp"
-        app:trackColor="@color/surface_variant"
+        app:trackColor="?attr/colorPrimaryContainer"
         app:trackCornerRadius="2dp"
         app:trackStopIndicatorSize="0dp"
         app:trackThickness="4dp" />
@@ -67,15 +72,6 @@
             android:layout_height="0dp"
             android:layout_weight="1" />
 
-        <!-- Only on the last step, and only while sign-in is offered: the design's 稍后再说 beside 登录. -->
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/onboarding_later"
-            style="@style/Widget.MSIME.OnboardingText"
-            android:layout_marginStart="0dp"
-            android:layout_marginEnd="8dp"
-            android:text="@string/onboarding_later"
-            android:visibility="gone" />
-
         <com.google.android.material.button.MaterialButton
             android:id="@+id/onboarding_next"
             android:layout_width="wrap_content"
@@ -88,3 +84,4 @@
             app:cornerRadius="20dp" />
     </LinearLayout>
 </LinearLayout>
+</FrameLayout>

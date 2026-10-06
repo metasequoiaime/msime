@@ -1,4 +1,5 @@
 import Foundation
+import CoreFoundation
 
 /// 「输入习惯」 as one value: learning, frequency adjustment and candidate glosses.
 struct InputHabitSettings: Equatable {
@@ -122,8 +123,15 @@ enum InputHabitPreference {
   }
 
   private static func count(_ value: Any?) -> Int? {
-    let integer = (value as? Int) ?? (value as? NSNumber)?.intValue
+    let integer = (value as? NSNumber).flatMap(strictInteger)
     guard let integer, FrequencyAdjustmentPreference.countRange.contains(integer) else { return nil }
+    return integer
+  }
+
+  private static func strictInteger(_ value: NSNumber) -> Int? {
+    guard CFGetTypeID(value) != CFBooleanGetTypeID(),
+          let integer = Int(value.stringValue),
+          NSNumber(value: integer).compare(value) == .orderedSame else { return nil }
     return integer
   }
 

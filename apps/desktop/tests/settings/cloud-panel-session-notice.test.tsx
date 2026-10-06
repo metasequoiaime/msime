@@ -8,12 +8,12 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-test("explains how macOS opens cloud panels", () => {
+test("explains how macOS opens the cloud clipboard", () => {
   render(<CloudPanelSessionNotice />);
 
   expect(
     screen.getByText(
-      "云剪贴板和云词典需要当前输入法进程提供输入会话；请从输入法菜单中的「云剪贴板…」打开云剪贴板。",
+      "云剪贴板需要当前输入法进程提供输入会话才能直接粘贴；请从输入法菜单中的「云剪贴板…」打开。",
     ),
   ).toBeTruthy();
 });

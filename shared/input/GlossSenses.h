@@ -15,7 +15,23 @@ namespace msime::input {
 inline std::vector<std::string> gloss_senses(std::string_view gloss)
 {
     static constexpr std::string_view fullwidth = "\xEF\xBC\x9B";
+    std::size_t separator_count = 0;
+    for (std::size_t index = 0; index < gloss.size();) {
+        if (gloss[index] == ';')
+        {
+            ++separator_count;
+            ++index;
+        }
+        else if (gloss.compare(index, fullwidth.size(), fullwidth) == 0)
+        {
+            ++separator_count;
+            index += fullwidth.size();
+        }
+        else
+            ++index;
+    }
     std::vector<std::string> senses;
+    senses.reserve(separator_count + 1);
     const auto append = [&senses](std::string_view value) {
         const auto first = value.find_first_not_of(" \t\r\n");
         if (first == std::string_view::npos) return;

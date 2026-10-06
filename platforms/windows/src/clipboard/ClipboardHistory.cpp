@@ -41,11 +41,7 @@ bool store_leaf_is_safe(const std::filesystem::path &store) {
     const auto error = GetLastError();
     return error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND;
   }
-  BY_HANDLE_FILE_INFORMATION info{};
-  const bool safe = GetFileInformationByHandle(handle, &info) &&
-                    (info.dwFileAttributes &
-                     (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DIRECTORY)) ==
-                        0;
+  const bool safe = handle_is_trusted_file(handle);
   CloseHandle(handle);
   return safe;
 #else
@@ -94,7 +90,7 @@ public:
     auto lock_path = store;
     lock_path += ".lock";
     handle_ = CreateFileW(lock_path.c_str(), GENERIC_READ | GENERIC_WRITE,
-                          FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                          FILE_SHARE_READ | FILE_SHARE_WRITE,
                           nullptr, OPEN_ALWAYS,
                           FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT,
                           nullptr);
@@ -102,10 +98,7 @@ public:
       handle_ = nullptr;
       return;
     }
-    BY_HANDLE_FILE_INFORMATION info{};
-    if (!GetFileInformationByHandle(handle_, &info) ||
-        (info.dwFileAttributes &
-         (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DIRECTORY))) {
+    if (!handle_is_trusted_file(handle_)) {
       CloseHandle(handle_);
       handle_ = nullptr;
       return;
@@ -150,11 +143,8 @@ std::vector<std::string> read_store(const std::filesystem::path &path) {
       nullptr);
   if (input == INVALID_HANDLE_VALUE)
     return {};
-  BY_HANDLE_FILE_INFORMATION info{};
   LARGE_INTEGER size{};
-  if (!GetFileInformationByHandle(input, &info) ||
-      (info.dwFileAttributes &
-       (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DIRECTORY)) ||
+  if (!handle_is_trusted_file(input) ||
       !GetFileSizeEx(input, &size) || size.QuadPart < 0 ||
       static_cast<ULONGLONG>(size.QuadPart) > max_store_bytes) {
     CloseHandle(input);
@@ -173,7 +163,7 @@ std::vector<std::string> read_store(const std::filesystem::path &path) {
   const bool read = read_store_payload(input, payload);
 #endif
   if (!read) return {};
-  try { const auto value = nlohmann::json::parse(payload); if (!value.is_array()) return {}; std::vector<std::string> result; for (const auto &item : value) { if (!item.is_string()) continue; auto text = normalize_clipboard_text(item.get<std::string>()); if (!text.empty() && result.size() < ClipboardHistory::max_items) result.push_back(std::move(text)); } return result; } catch (...) { return {}; }
+  try { const auto value = nlohmann::json::parse(payload); if (!value.is_array()) return {}; std::vector<std::string> result; result.reserve(ClipboardHistory::max_items); for (const auto &item : value) { if (!item.is_string()) continue; auto text = normalize_clipboard_text(item.get<std::string>()); if (!text.empty() && result.size() < ClipboardHistory::max_items) result.push_back(std::move(text)); } return result; } catch (...) { return {}; }
 }
 bool write_store(const std::filesystem::path &path, const std::vector<std::string> &items) {
   if (!store_parent_is_safe(path) || !store_leaf_is_safe(path)) return false;

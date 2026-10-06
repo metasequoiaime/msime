@@ -1,3 +1,6 @@
+import { ActionButton } from "../core/action-button";
+import { ErrorAlert } from "../core/error-alert";
+
 export interface CommunityErrorAlertProps {
   message: string;
   signInRequired?: boolean;
@@ -10,16 +13,14 @@ export function CommunityErrorAlert({
   onLogin,
 }: CommunityErrorAlertProps) {
   return (
-    <p role="alert" className="error">
+    <ErrorAlert>
       {message}
       {signInRequired && onLogin && (
         <>
           {" "}
-          <button type="button" className="secondary" onClick={onLogin}>
-            去登录
-          </button>
+          <ActionButton action={onLogin} label="去登录" />
         </>
       )}
-    </p>
+    </ErrorAlert>
   );
 }

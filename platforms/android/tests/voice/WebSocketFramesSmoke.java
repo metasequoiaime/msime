@@ -32,6 +32,18 @@ public final class WebSocketFramesSmoke {
         check(request.contains("Sec-WebSocket-Key: " + key + "\r\n"), "the key is sent");
         check(request.contains("X-Api-Key: secret\r\n"), "caller headers are carried");
         check(request.endsWith("\r\n\r\n"), "the request is terminated");
+        String injected = WebSocketFrames.handshakeRequest("example.invalid", "/v3/sauc", key,
+            new String[] {"X-Api-Key", "secret\r\nX-Injected: yes"});
+        check(!injected.contains("X-Injected: yes"),
+            "header values cannot inject additional handshake lines");
+        String injectedName = WebSocketFrames.handshakeRequest("example.invalid", "/v3/sauc", key,
+            new String[] {"X-Api-Key\r\nX-Injected", "secret"});
+        check(!injectedName.contains("X-Injected"),
+            "header names cannot inject additional handshake lines");
+        String unicode = WebSocketFrames.handshakeRequest("example.invalid", "/v3/sauc", key,
+            new String[] {"X-Api-Key", "密钥"});
+        check(!unicode.contains("X-Api-Key:"),
+            "non-ASCII header values are refused before US-ASCII encoding corrupts credentials");
         // This host never offers an extension, so it must not advertise one either.
         check(!request.contains("Sec-WebSocket-Extensions"), "no extension is offered");
 
@@ -94,6 +106,15 @@ public final class WebSocketFramesSmoke {
         byte[] masked = {(byte) 0x82, (byte) 0x83, 0, 0, 0, 0, 1, 2, 3};
         check(WebSocketFrames.decode(masked, masked.length) == null,
             "a server frame claiming to be masked is a protocol error, not something to unmask");
+        byte[] reserved = {(byte) 0xc2, 0};
+        check(WebSocketFrames.decode(reserved, reserved.length) == null,
+            "a frame with an RSV bit is refused when no extension was negotiated");
+        byte[] fragmentedPing = {0x09, 0};
+        check(WebSocketFrames.decode(fragmentedPing, fragmentedPing.length) == null,
+            "a control frame must not be fragmented");
+        byte[] oversizedPing = {(byte) 0x89, 126, 0, 126};
+        check(WebSocketFrames.decode(oversizedPing, oversizedPing.length) == null,
+            "a control frame must fit in 125 payload bytes");
         byte[] huge = {(byte) 0x82, 127, 0x7f, -1, -1, -1, -1, -1, -1, -1};
         check(WebSocketFrames.decode(huge, huge.length) == null,
             "a frame this host could not hold is refused rather than allocated");

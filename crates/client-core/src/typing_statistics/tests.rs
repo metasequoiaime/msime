@@ -70,6 +70,75 @@ fn korean_commits_count_under_their_own_source() {
 }
 
 #[test]
+fn cantonese_zhuyin_vietnamese_and_stroke_commits_count_under_their_own_sources() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = TypingStatisticsStore::new(directory.path());
+    store.set_enabled(true).unwrap();
+    for (id, source, text) in [
+        ("cantonese", TypingSource::Cantonese, "你好"),
+        ("zhuyin", TypingSource::Zhuyin, "臺灣"),
+        ("vietnamese", TypingSource::Vietnamese, "việt"),
+        ("stroke", TypingSource::Stroke, "一"),
+    ] {
+        assert_eq!(
+            serde_json::from_str::<TypingSource>(&format!("\"{id}\"")).unwrap(),
+            source
+        );
+        store.record(text, source, "2026-10-01", Some(9)).unwrap();
+    }
+    let value = store.load().unwrap();
+    assert_eq!(value.detail.sources["cantonese"], 2);
+    assert_eq!(value.detail.sources["zhuyin"], 2);
+    assert_eq!(value.detail.sources["vietnamese"], 4);
+    assert_eq!(value.detail.sources["stroke"], 1);
+}
+
+// 藏文按自己的来源计数，不算中文；藏文字母归为 otherLetter，音节点和垂符归为标点。
+#[test]
+fn tibetan_commits_count_under_their_own_source() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = TypingStatisticsStore::new(directory.path());
+    store.set_enabled(true).unwrap();
+    let source: TypingSource = serde_json::from_str("\"tibetan\"").unwrap();
+    assert_eq!(source, TypingSource::Tibetan);
+    assert_eq!(
+        store
+            .record("བཀྲ་ཤིས།", source, "2026-10-03", Some(9))
+            .unwrap(),
+        6
+    );
+    let value = store.load().unwrap();
+    assert_eq!(value.detail.sources["tibetan"], 6);
+    assert_eq!(value.detail.characters["otherLetter"], 4);
+    assert_eq!(value.detail.characters["punctuation"], 2);
+    assert!(!value.detail.characters.contains_key("han"));
+}
+
+/// The document keeps sources as plain ids, so one written by a newer build with a scheme this build has no `TypingSource` for still loads, keeps that count, and goes on recording.
+#[test]
+fn a_document_naming_an_unknown_source_still_loads_and_records() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = TypingStatisticsStore::new(directory.path());
+    store.set_enabled(true).unwrap();
+    store
+        .record("你好", TypingSource::Cantonese, "2026-10-01", Some(9))
+        .unwrap();
+    let path = directory.path().join("typing-statistics.json");
+    let written = fs::read_to_string(&path).unwrap();
+    assert!(written.contains("\"cantonese\""));
+    fs::write(&path, written.replace("\"cantonese\"", "\"futureScheme\"")).unwrap();
+    let value = store.load().unwrap();
+    assert_eq!(value.detail.sources["futureScheme"], 2);
+    store
+        .record("好", TypingSource::Quanpin, "2026-10-01", Some(9))
+        .unwrap();
+    let value = store.load().unwrap();
+    assert_eq!(value.detail.sources["futureScheme"], 2);
+    assert_eq!(value.detail.sources["quanpin"], 1);
+    assert_eq!(value.total, 3);
+}
+
+#[test]
 fn migrates_legacy_totals_and_preserves_pause_on_reset() {
     let directory = tempfile::tempdir().unwrap();
     fs::write(
@@ -92,32 +161,6 @@ fn migrates_legacy_totals_and_preserves_pause_on_reset() {
     assert!(!reset.enabled);
     assert_eq!(reset.total, 0);
     assert!(reset.days.is_empty());
-}
-
-#[test]
-fn moves_a_valid_legacy_store_without_replacing_shared_statistics() {
-    let root = tempfile::tempdir().unwrap();
-    let legacy = TypingStatisticsStore::new(root.path());
-    legacy.set_enabled(true).unwrap();
-    legacy
-        .record("old", TypingSource::English, "2026-09-07", Some(9))
-        .unwrap();
-    let shared_directory = root.path().join("MSIME");
-    let shared = TypingStatisticsStore::new(&shared_directory);
-
-    assert!(shared.migrate_from(root.path()).unwrap());
-    assert!(!root.path().join("typing-statistics.json").exists());
-    assert_eq!(shared.load().unwrap().total, 3);
-
-    // Its document was moved away, so as far as the store is concerned this is a fresh
-    // profile again - and a fresh profile has statistics off.
-    legacy.set_enabled(true).unwrap();
-    legacy
-        .record("legacy", TypingSource::English, "2026-09-08", Some(9))
-        .unwrap();
-    assert!(!shared.migrate_from(root.path()).unwrap());
-    assert_eq!(shared.load().unwrap().total, 3);
-    assert_eq!(legacy.load().unwrap().total, 6);
 }
 
 #[test]

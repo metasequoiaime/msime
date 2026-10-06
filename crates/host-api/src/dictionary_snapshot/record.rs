@@ -51,6 +51,7 @@ pub(super) fn decode(bytes: &[u8]) -> Result<DictionaryStateRecord, SnapshotRead
             let kind = match kind.as_str() {
                 "pinyin" => DictionaryKind::Pinyin,
                 "wubi" => DictionaryKind::Wubi,
+                "wubi98" => DictionaryKind::Wubi98,
                 "quick" => DictionaryKind::QuickPhrase,
                 "english" => DictionaryKind::English,
                 _ => return Err(SnapshotReadError),

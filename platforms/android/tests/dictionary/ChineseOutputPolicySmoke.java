@@ -10,6 +10,15 @@ public final class ChineseOutputPolicySmoke {
         check(!ChineseOutputPolicy.applies(false, 3, "none"));
         check(!ChineseOutputPolicy.applies(false, 4, "none"));
         check(!ChineseOutputPolicy.applies(false, 0, "temporary_japanese"));
+        // 粤拼和注音本来就写繁体字，笔画上屏的就是查到的那个字，越南语和藏文不是中文；本宿主不认识的方案序号沿用原来的答案。
+        check(ChineseOutputPolicy.applies(false, 1, "none"));
+        check(!ChineseOutputPolicy.applies(false, 5, "none"));
+        check(!ChineseOutputPolicy.applies(false, 6, "none"));
+        check(!ChineseOutputPolicy.applies(false, 7, "none"));
+        check(!ChineseOutputPolicy.applies(false, 8, "none"));
+        check(!ChineseOutputPolicy.applies(false, 9, "none"));
+        check(ChineseOutputPolicy.applies(false, 10, "none"));
+        check(ChineseOutputPolicy.applies(false, -1, "none"));
 
         // The shared tables are phrase-level, which is the reason this host stopped converting one
         // character at a time: whether 发 is 發 or 髮 is a property of the word. A per-character

@@ -169,11 +169,13 @@ final class HandwritingInputView: UIView {
     return recognizerStorage!
   }
   private let modelButton = UIButton(type: .system)
+  private var downloadGate = HandwritingDownloadGate()
   private var statusCentred: NSLayoutConstraint?
   private var statusBelowModelButton: NSLayoutConstraint?
   private var downloadTask: Task<Void, Never>?
   var canDownload: () -> Bool = { false }
   func activate() {
+    downloadGate.setActive(true)
     let ready = recognizer.isReady
     modelButton.isEnabled = true
     canvas.acceptsInk = ready
@@ -185,7 +187,9 @@ final class HandwritingInputView: UIView {
     }
   }
   func deactivate() {
+    downloadGate.setActive(false)
     downloadTask?.cancel()
+    downloadTask = nil
     clear(); recognizerStorage?.release()
   }
   private func toggleDownload() {
@@ -195,17 +199,22 @@ final class HandwritingInputView: UIView {
     }
     guard canDownload() else { showStatus("请在系统键盘设置中允许完全访问，再点下载"); return }
     modelButton.setTitle("取消下载", for: .normal)
+    let token = downloadGate.beginDownload()
     downloadTask = Task { [weak self] in
       guard let self else { return }
       do {
         try await self.recognizer.download { [weak self] fraction in
-          self?.showStatus(fraction > 0 ? "模型下载中 \(Int(fraction * 100))%" : "正在连接模型服务…")
+          guard let self, self.downloadGate.accepts(token) else { return }
+          self.showStatus(fraction > 0 ? "模型下载中 \(Int(fraction * 100))%" : "正在连接模型服务…")
         }
         try Task.checkCancellation()
+        guard self.downloadGate.accepts(token) else { return }
         self.downloadTask = nil; self.activate(); self.showStatus("在此手写，停笔后选字")
       } catch is CancellationError {
+        guard self.downloadGate.accepts(token) else { return }
         self.downloadTask = nil; self.activate()
       } catch {
+        guard self.downloadGate.accepts(token) else { return }
         self.downloadTask = nil; self.activate(); self.showStatus("下载失败，请检查网络后重试")
       }
     }

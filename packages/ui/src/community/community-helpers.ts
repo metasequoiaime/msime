@@ -1,10 +1,29 @@
 import { errorCode } from "../core/error-code";
+import { runAsyncAction } from "../core/async-action";
 import { pluginErrorMessage } from "../settings/plugins-section";
 import type { CommunityResourceKind, CommunityResourceScope } from "./community-resources";
 
 export type Identified = { id: string };
 
+/** The sentences for the server's refusals the user has to act on, the same on every community page and on every host: the content screening rejected the text (`422 blocked_content`, the service itself is up), the screening could not run (`503 screening_unavailable`) or the account is banned (`403 account_banned`). */
+export function communityModerationMessage(error: unknown): string | undefined {
+  switch (errorCode(error)) {
+    case "community_blocked_content":
+    case "account_blocked_content":
+      return "内容包含不允许发布的词语，请修改后再提交";
+    case "community_screening_unavailable":
+    case "account_screening_unavailable":
+      return "审核服务暂时不可用，请稍后重试";
+    case "community_account_banned":
+    case "account_banned":
+      return "该账号已被封禁，暂时无法使用账号相关功能";
+  }
+  return undefined;
+}
+
 export function resourceMessage(error: unknown): string {
+  const moderation = communityModerationMessage(error);
+  if (moderation) return moderation;
   switch (errorCode(error)) {
     case "community_invalid":
       return "内容无效，请修改后重试。";
@@ -29,7 +48,7 @@ export function resourceMessage(error: unknown): string {
 }
 
 export function resourceKindTitle(kind: CommunityResourceKind): string {
-  return kind === "dictionary" ? "词库" : "回复";
+  return kind === "dictionary" ? "词库" : "回复模板";
 }
 
 export function resourceScopeTitle(scope: CommunityResourceScope): string {
@@ -37,6 +56,8 @@ export function resourceScopeTitle(scope: CommunityResourceScope): string {
 }
 
 export function communitySkinMessage(error: unknown): string {
+  const moderation = communityModerationMessage(error);
+  if (moderation) return moderation;
   switch (errorCode(error)) {
     case "community_invalid":
       return "搜索内容无效，请修改后重试。";
@@ -67,6 +88,8 @@ export function communitySkinMessage(error: unknown): string {
 }
 
 export function communitySkinPublishMessage(error: unknown): string {
+  const moderation = communityModerationMessage(error);
+  if (moderation) return moderation;
   switch (errorCode(error)) {
     case "community_unauthorized":
       return "请先登录后再发布皮肤。";
@@ -90,6 +113,8 @@ export function communitySkinPublishMessage(error: unknown): string {
  * Fixed sentences for the candidate-skin gallery and its publish dialog. The host maps every server rejection to an HTTP-status code (`community_invalid`, `community_conflict`, …), so the specific wording comes from the local package codes the host checks before anything is uploaded; backend text is never shown. `publishing` picks the sentence for a `community_invalid` publish, where the server has rejected something only it can check.
  */
 export function candidateSkinMessage(error: unknown, publishing = false): string {
+  const moderation = communityModerationMessage(error);
+  if (moderation) return moderation;
   switch (errorCode(error)) {
     case "candidate_skin_package":
       return "皮肤包未通过校验，无法分享或安装。";
@@ -135,6 +160,8 @@ export function candidateSkinMessage(error: unknown, publishing = false): string
  * Fixed sentences for the plugin gallery and its publish dialog. Pack failures come back with client-core's `plugin_*` codes, which read as they do on the 插件 page, and the community ones with the host's HTTP-status `community_*` codes; backend text is never shown. `publishing` picks the sentence for a `community_invalid` or `community_conflict` publish, where the server has rejected something only it can check.
  */
 export function communityPluginMessage(error: unknown, publishing = false): string {
+  const moderation = communityModerationMessage(error);
+  if (moderation) return moderation;
   switch (errorCode(error)) {
     case "plugin_community_kind":
       return "特效包暂不支持分享。";
@@ -175,8 +202,98 @@ export function candidateSkinMegabytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+/** Formats the optional license fields shown for candidate-skin packages. */
+export function communityLicenseLine(license: {
+  assets: string | null;
+  code: string | null;
+  source: string | null;
+}): string {
+  return [
+    license.assets?.trim() ? `素材授权 ${license.assets.trim()}` : "",
+    license.code?.trim() ? `代码授权 ${license.code.trim()}` : "",
+    license.source?.trim() ? `来源 ${license.source.trim()}` : "",
+  ]
+    .filter(Boolean)
+    .join(" / ");
+}
+
 export function communityNeedsSignIn(error: unknown): boolean {
   return errorCode(error) === "community_unauthorized";
+}
+
+/** Creates the shared publication-login action, closing the dialog before navigation. */
+export function communityPublishLoginAction(
+  onClose: () => void,
+  onLogin?: () => void,
+): (() => void) | undefined {
+  if (!onLogin) return undefined;
+  return () => {
+    onClose();
+    onLogin();
+  };
+}
+
+type CurrentGeneration = { current: number };
+type RunningAction = { current: boolean };
+
+export interface CommunityActionOptions {
+  busy: boolean;
+  generation: number;
+  clientGeneration: CurrentGeneration;
+  actionRunning: RunningAction;
+  setBusy: (busy: boolean) => void;
+  setError: (message: string) => void;
+  setNotice?: (message: string) => void;
+  setSignInRequired?: (value: boolean) => void;
+  formatError: (error: unknown) => string;
+  isCurrent?: () => boolean;
+  operation: (isCurrent: () => boolean) => Promise<void>;
+}
+
+/** Runs a guarded community action with shared busy, generation, and error handling. */
+export async function runCommunityAction({
+  busy,
+  generation,
+  clientGeneration,
+  actionRunning,
+  setBusy,
+  setError,
+  setNotice,
+  setSignInRequired,
+  formatError,
+  isCurrent,
+  operation,
+}: CommunityActionOptions): Promise<void> {
+  actionRunning.current = true;
+  setSignInRequired?.(false);
+  const current = isCurrent ?? (() => generation === clientGeneration.current);
+  try {
+    await runAsyncAction(
+      {
+        busy,
+        isCurrent: current,
+        setBusy,
+        setError,
+        setNotice,
+      },
+      operation,
+      {
+        formatError,
+        onError: (error) => setSignInRequired?.(communityNeedsSignIn(error)),
+      },
+    );
+  } finally {
+    if (generation === clientGeneration.current) actionRunning.current = false;
+  }
+}
+
+export type CommunityPublishActionOptions = CommunityActionOptions & {
+  setSignInRequired: (value: boolean) => void;
+};
+
+/** Runs a guarded community publish action with sign-in handling. */
+export function runCommunityPublishAction(options: CommunityPublishActionOptions): Promise<void> {
+  return runCommunityAction(options);
 }
 
 /** Append only items whose ids are not already present, preserving source order. */

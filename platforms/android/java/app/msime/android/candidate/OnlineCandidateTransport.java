@@ -1,12 +1,15 @@
 package app.msime.android;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.Iterator;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import javax.net.ssl.HttpsURLConnection;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -23,28 +26,44 @@ public final class OnlineCandidateTransport {
     private static final int CONNECT_TIMEOUT_MILLIS = 2_500;
     private static final int READ_TIMEOUT_MILLIS = 8_000;
 
+    // 云候选的整体时限。readTimeout 只管两次读之间的空闲，到点由这个线程断开连接，阻塞中的读会立刻抛出 IOException；守护线程，不拖住进程退出。
+    private static final ScheduledExecutorService CLOUD_DEADLINES =
+        Executors.newSingleThreadScheduledExecutor(task -> {
+            Thread thread = new Thread(task, "msime-cloud-deadline");
+            thread.setDaemon(true);
+            return thread;
+        });
+
     private OnlineCandidateTransport() {}
 
     /** GET the cloud candidate service. Returns null when it is unusable or answers too much. */
     public static String cloud(String url) {
+        final long deadline = System.nanoTime()
+            + TimeUnit.MILLISECONDS.toNanos(OnlineCandidatePolicy.CLOUD_TIMEOUT_MILLIS);
         HttpsURLConnection connection = null;
+        ScheduledFuture<?> watchdog = null;
         try {
             URL target = new URL(url);
-            if (!"https".equalsIgnoreCase(target.getProtocol())) return null;
+            if (!OnlineCandidatePolicy.validURL(target)) return null;
             connection = (HttpsURLConnection) target.openConnection();
             connection.setInstanceFollowRedirects(false);
             connection.setRequestMethod("GET");
-            connection.setConnectTimeout(CONNECT_TIMEOUT_MILLIS);
-            connection.setReadTimeout(READ_TIMEOUT_MILLIS);
+            connection.setConnectTimeout(OnlineCandidatePolicy.CLOUD_TIMEOUT_MILLIS);
+            connection.setReadTimeout(OnlineCandidatePolicy.CLOUD_TIMEOUT_MILLIS);
             connection.setRequestProperty("Accept", "application/json");
+            watchdog = CLOUD_DEADLINES.schedule(connection::disconnect,
+                OnlineCandidatePolicy.CLOUD_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
             int status = connection.getResponseCode();
             if (status < 200 || status >= 300) return null;
             try (InputStream input = connection.getInputStream()) {
-                return readBounded(input, OnlineCandidatePolicy.MAX_CLOUD_RESPONSE_BYTES);
+                byte[] body = HttpBodyPolicy.readWithin(input,
+                    OnlineCandidatePolicy.MAX_CLOUD_RESPONSE_BYTES, deadline);
+                return body == null ? null : new String(body, StandardCharsets.UTF_8);
             }
         } catch (IOException | RuntimeException error) {
             return null;
         } finally {
+            if (watchdog != null) watchdog.cancel(false);
             if (connection != null) connection.disconnect();
         }
     }
@@ -54,16 +73,18 @@ public final class OnlineCandidateTransport {
         HttpsURLConnection connection = null;
         try {
             URL target = new URL(descriptor.getString("url"));
-            if (!"https".equalsIgnoreCase(target.getProtocol())) return null;
+            if (!OnlineCandidatePolicy.validURL(target)) return null;
             byte[] payload = descriptor.getJSONObject("body").toString()
                 .getBytes(StandardCharsets.UTF_8);
             connection = (HttpsURLConnection) target.openConnection();
             connection.setInstanceFollowRedirects(false);
             connection.setRequestMethod("POST");
             connection.setConnectTimeout(KeyboardGeometry.bounded(
-                descriptor.optInt("connect_timeout_ms", CONNECT_TIMEOUT_MILLIS), 1_000, 10_000));
+                KeyboardGeometry.strictInt(descriptor, "connect_timeout_ms", CONNECT_TIMEOUT_MILLIS),
+                1_000, 10_000));
             connection.setReadTimeout(KeyboardGeometry.bounded(
-                descriptor.optInt("timeout_ms", READ_TIMEOUT_MILLIS), 1_000, 10_000));
+                KeyboardGeometry.strictInt(descriptor, "timeout_ms", READ_TIMEOUT_MILLIS),
+                1_000, 10_000));
             connection.setDoOutput(true);
             connection.setFixedLengthStreamingMode(payload.length);
             JSONObject headers = descriptor.optJSONObject("headers");
@@ -77,23 +98,14 @@ public final class OnlineCandidateTransport {
             int status = connection.getResponseCode();
             if (status < 200 || status >= 300) return null;
             try (InputStream input = connection.getInputStream()) {
-                return readBounded(input, OnlineCandidatePolicy.MAX_AI_RESPONSE_BYTES);
+                byte[] body = HttpBodyPolicy.readBounded(input,
+                    OnlineCandidatePolicy.MAX_AI_RESPONSE_BYTES);
+                return body == null ? null : new String(body, StandardCharsets.UTF_8);
             }
         } catch (IOException | JSONException | RuntimeException error) {
             return null;
         } finally {
             if (connection != null) connection.disconnect();
         }
-    }
-
-    private static String readBounded(InputStream input, int limit) throws IOException {
-        ByteArrayOutputStream output = new ByteArrayOutputStream();
-        byte[] buffer = new byte[8192];
-        int count;
-        while ((count = input.read(buffer)) != -1) {
-            if (output.size() + count > limit) return null;
-            output.write(buffer, 0, count);
-        }
-        return output.toString(StandardCharsets.UTF_8.name());
     }
 }

@@ -72,3 +72,9 @@ test("disables the actions while busy", () => {
   for (const name of ["恢复默认设置", "重试", "重新读取"])
     expect((screen.getByRole("button", { name }) as HTMLButtonElement).disabled).toBe(true);
 });
+
+test("a page that edits no preferences leaves 恢复默认设置 out of the row", () => {
+  const footer = renderFooter({ showRestoreDefaults: false, saveState: "saved" });
+  expect(screen.queryByRole("button", { name: "恢复默认设置" })).toBeNull();
+  expect(Array.from(footer.children).map((child) => child.textContent)).toEqual(["已保存"]);
+});

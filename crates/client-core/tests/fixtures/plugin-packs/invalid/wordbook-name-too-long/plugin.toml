@@ -1,0 +1,12 @@
+schema_version = 1
+kind = "wordbook"
+id = "fixture-words"
+name = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+version = "1.0.0"
+license = "CC0-1.0"
+author = "MSIME"
+description = "Shared parser fixture"
+permissions = []
+[wordbook]
+file = "words.tsv"
+

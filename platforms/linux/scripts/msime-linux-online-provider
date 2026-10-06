@@ -45,10 +45,12 @@ ANONYMOUS_ACCOUNT_ORIGIN = "https://api.msime.app"
 ANONYMOUS_ACCOUNT_MAX_BYTES = 16 * 1024
 ANONYMOUS_ACCOUNT_SUBJECT_LENGTH = 16
 ANONYMOUS_ACCOUNT_SECRET_LENGTH = 48
+ANONYMOUS_ACCOUNT_TIMEOUT = 10.0
 CLOUD_REQUEST_TIMEOUT = 2.0
-# Windows ai_assistant.cpp gives model inference CURLOPT_TIMEOUT_MS 8000 and CURLOPT_CONNECTTIMEOUT_MS 2500, the same numbers client-core's AI descriptor carries. This is also the longest deadline an HTTP worker accepts, so no caller can ask for a budget the worker would silently refuse.
+# AI 推理与 Windows、client-core 保持 8 秒总预算和 2.5 秒连接预算；匿名账号认证另用 10 秒，HTTP worker 必须接受两者。
 AI_REQUEST_TIMEOUT = 8.0
 AI_CONNECT_TIMEOUT = 2.5
+HTTP_WORKER_MAX_TIMEOUT = max(AI_REQUEST_TIMEOUT, ANONYMOUS_ACCOUNT_TIMEOUT)
 # One request line from client-core. UnixSocketProvider::ai_test lets a polish test carry an 8192-byte prompt and an 8192-byte sample in a request up to 32768 bytes, so that kind alone gets the larger limit; every other request keeps the 16384-byte one.
 REQUEST_LINE_LIMIT = 16384
 AI_TEST_REQUEST_LINE_LIMIT = 32768
@@ -160,7 +162,7 @@ def http_request_worker():
             return 1
         request = json.loads(raw)
         timeout = request.get("timeout")
-        if type(timeout) not in (int, float) or not 0 < timeout <= AI_REQUEST_TIMEOUT:
+        if type(timeout) not in (int, float) or not 0 < timeout <= HTTP_WORKER_MAX_TIMEOUT:
             return 1
         connect_timeout = request.get("connect_timeout")
         if connect_timeout is not None and (
@@ -217,15 +219,12 @@ def cloud(query):
 
 def ai_prompt(options):
     selected = options.get("prompt_id") or "custom_1"
-    if selected == "custom":
-        selected = "custom_1"
     if selected not in ("custom_1", "custom_2", "custom_3"):
         return None
-    # Only slot one inherits the legacy single `prompt`; an empty slot two or three stays empty, as in client-core's chat_completion_http_request.
-    prompt = options.get("prompt_" + selected) or (options.get("prompt", "") if selected == "custom_1" else "")
+    prompt = options.get("prompt_" + selected, "")
     if not isinstance(prompt, str) or len(prompt.encode()) > 8192:
         return None
-    # Blank means "not customised", including an old configuration whose prompt was cleared by hand, and gets the same built-in text client-core falls back to.
+    # Blank means "not customised" and gets the same built-in text client-core falls back to.
     return prompt if prompt.strip() else DEFAULT_AI_PROMPT
 
 
@@ -502,21 +501,22 @@ def anonymous_access_token(server):
             saved = _anonymous_private_path(getattr(server, "anonymous_session_path", None))
         except (OSError, ValueError, UnicodeError, json.JSONDecodeError):
             saved = None
-        refresh = saved.get("tokens", {}).get("refresh_token") if isinstance(saved, dict) else None
+        saved_tokens = saved.get("tokens") if isinstance(saved, dict) else None
+        refresh = saved_tokens.get("refresh_token") if isinstance(saved_tokens, dict) else None
         if isinstance(refresh, str) and len(refresh) == 64 and all(ch in string.hexdigits for ch in refresh):
-            refreshed = safely(fetch, ANONYMOUS_ACCOUNT_ORIGIN + "/v1/auth/refresh", 10,
+            refreshed = safely(fetch, ANONYMOUS_ACCOUNT_ORIGIN + "/v1/auth/refresh", ANONYMOUS_ACCOUNT_TIMEOUT,
                                {"refresh_token": refresh})
             tokens = _validated_anonymous_tokens(refreshed)
             if tokens and _write_anonymous_private(
                     server.anonymous_session_path,
                     {"tokens": tokens, "expires_at_unix_ms": int(time.time() * 1000) + tokens["expires_in"] * 1000}):
                 return tokens["access_token"]
-        challenge = safely(fetch, ANONYMOUS_ACCOUNT_ORIGIN + "/v1/auth/challenges", 10,
+        challenge = safely(fetch, ANONYMOUS_ACCOUNT_ORIGIN + "/v1/auth/challenges", ANONYMOUS_ACCOUNT_TIMEOUT,
                            {"provider": "anonymous", "target": subject, "purpose": "login"})
         challenge_id = challenge.get("challenge_id") if isinstance(challenge, dict) else None
         if not isinstance(challenge_id, str) or not challenge_id:
             return None
-        logged_in = safely(fetch, ANONYMOUS_ACCOUNT_ORIGIN + "/v1/auth/login", 10,
+        logged_in = safely(fetch, ANONYMOUS_ACCOUNT_ORIGIN + "/v1/auth/login", ANONYMOUS_ACCOUNT_TIMEOUT,
                            {"challenge_id": challenge_id, "credential": secret})
         tokens = _validated_anonymous_tokens(logged_in)
         if not tokens or not _write_anonymous_private(
@@ -644,16 +644,14 @@ def translations(query, server):
     niutrans = niutrans if isinstance(niutrans, dict) and niutrans.get("enabled") else None
     custom = query.get("custom_translation")
     custom = custom if isinstance(custom, dict) and custom.get("enabled") else None
-    # Match Windows ActiveProvider/WorkerLoop: only the service the user selected may be asked, and an unusable selection sends nothing rather than falling back to Tencent. A query without the field comes from a host that predates it and keeps that host's own choice.
+    # Match Windows ActiveProvider/WorkerLoop: only the service the user selected may be asked, and an unusable selection sends nothing rather than falling back to Tencent. A query without the field is malformed and sends nothing.
     selected = query.get("provider")
-    account_selected = query.get("translation_account") is True and query.get("provider") in (None, "none", "account")
+    account_selected = query.get("translation_account") is True and selected in ("none", "account")
     if account_selected:
         # The shared query marks this only after the user explicitly chose the
         # MSIME account and no user-owned service is usable. Keep that choice
         # visible to this process instead of falling back to Tencent.
         selected = "account"
-    if selected is None:
-        selected = "niutrans" if niutrans else "custom" if custom else "tencent"
     if (selected not in ("tencent", "niutrans", "custom", "account") or
         (selected == "niutrans" and not niutrans) or (selected == "custom" and not custom)):
         return []
@@ -1144,8 +1142,9 @@ def main():
     server.ai_candidate_cache = {}
     server.ai_candidate_cache_lock = threading.Lock()
     identity = args.socket.stat() if service_lock is not None else None
+    # Raising from the handler lost the stop whenever the signal landed in a weakref callback, where Python reports the exception and carries on, and the provider then served on past its terminate. Stop the loop from another thread instead: shutdown() waits for serve_forever, which this thread is running.
     def stop(signum, frame):
-        raise KeyboardInterrupt()
+        threading.Thread(target=server.shutdown, daemon=True).start()
     signal.signal(signal.SIGTERM, stop)
     try:
         server.serve_forever()

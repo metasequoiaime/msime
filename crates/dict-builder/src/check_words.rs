@@ -1,4 +1,4 @@
-//! `check-words`: the gate for changes to the hand-edited files in the dictionary source repository (metasequoiaime/msime-dictionary): custom/words.txt, custom/translations.txt and custom/english.txt. A change to any of them may only append lines. Every appended entry must pass the parser the build uses and be new: not repeated within the change and not already in the file. Weighted entries (words, English words) must also keep their weight within the range the file already uses, and an entry already in a shipped database (a word in msime.db's quanpin table for its pinyin, an English word and display in english.db's english_words) is rejected when that database is given. A translation may override an existing source with a different gloss, as the build's last-line-wins does, but repeating the same source and gloss is a duplicate. Appended blank and `#` comment lines are skipped, as the build skips them.
+//! `check-words`: the gate for changes to the hand-edited files in the dictionary source repository (metasequoiaime/msime-dictionary): custom/words.txt, custom/translations.txt and custom/english.txt. A change to any of them may only append lines. Every appended entry must pass the parser the build uses and be new: not repeated within the change and not already in the file. Weighted entries (words, English words) must also keep their weight within the range the file already uses, and an entry already in a shipped database (a word in msime-pinyin.db's quanpin table for its pinyin, an English word and display in msime-english.db's english_words) is rejected when that database is given. A translation may override an existing source with a different gloss, as the build's last-line-wins does, but repeating the same source and gloss is a duplicate. Appended blank and `#` comment lines are skipped, as the build skips them.
 
 use std::collections::HashMap;
 
@@ -112,9 +112,9 @@ pub struct Input<'a> {
 /// The shipped databases additions must not repeat; either may be absent.
 #[derive(Default, Clone, Copy)]
 pub struct Shipped<'a> {
-    /// msime.db, for custom/words.txt.
+    /// msime-pinyin.db, for custom/words.txt.
     pub msime: Option<&'a Connection>,
-    /// english.db, for custom/english.txt.
+    /// msime-english.db, for custom/english.txt.
     pub english: Option<&'a Connection>,
 }
 
@@ -290,15 +290,16 @@ fn in_shipped(entry: &Entry, shipped: Shipped) -> Result<Option<String>> {
                 ..
             },
         ) => in_shipped_quanpin(connection, pinyin, word)?
-            .then(|| "already in the shipped msime.db for this pinyin".to_owned()),
+            .then(|| "already in the shipped msime-pinyin.db for this pinyin".to_owned()),
         (
             Entry::English { word, display, .. },
             Shipped {
                 english: Some(connection),
                 ..
             },
-        ) => in_shipped_english(connection, word, display)?
-            .then(|| "already in the shipped english.db for this word and display".to_owned()),
+        ) => in_shipped_english(connection, word, display)?.then(|| {
+            "already in the shipped msime-english.db for this word and display".to_owned()
+        }),
         _ => None,
     })
 }
@@ -311,7 +312,9 @@ fn in_shipped_quanpin(connection: &Connection, key: &str, value: &str) -> Result
             [key, value],
             |row| row.get(0),
         )
-        .with_context(|| format!("looking up {value:?} in the shipped msime.db table {table}"))
+        .with_context(|| {
+            format!("looking up {value:?} in the shipped msime-pinyin.db table {table}")
+        })
 }
 
 fn in_shipped_english(connection: &Connection, word: &str, display: &str) -> Result<bool> {
@@ -321,7 +324,9 @@ fn in_shipped_english(connection: &Connection, word: &str, display: &str) -> Res
             [word, display],
             |row| row.get(0),
         )
-        .with_context(|| format!("looking up {display:?} in the shipped english.db english_words"))
+        .with_context(|| {
+            format!("looking up {display:?} in the shipped msime-english.db english_words")
+        })
 }
 
 /// A short summary for a pull-request comment or a job summary. Contributed text is escaped so it renders literally.
@@ -558,7 +563,7 @@ mod tests {
         let report = words(BASE, &head, Some(&connection)).unwrap();
         assert_eq!(
             reasons(&report),
-            [(4, "already in the shipped msime.db for this pinyin")]
+            [(4, "already in the shipped msime-pinyin.db for this pinyin")]
         );
         assert!(matches!(&report.added[0].entry, Entry::Word { word, .. } if word == "心词"));
     }
@@ -721,7 +726,7 @@ mod tests {
             reasons(&report),
             [(
                 4,
-                "already in the shipped english.db for this word and display"
+                "already in the shipped msime-english.db for this word and display"
             )]
         );
         assert_eq!(report.added.len(), 1);

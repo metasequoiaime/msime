@@ -29,12 +29,3 @@ static inline NSString *MSIMEPolishPromptIdentifierOrDefault(NSString *identifie
                                                                              : MSIMEPolishPromptIdentifiers().firstObject;
 }
 
-/// Which of Doubao's two authentication routes a stored configuration means. Keep old native defaults compatible with the shared editor: a real App ID means the legacy route, while a masked placeholder is not a usable ID.
-static inline NSString *MSIMEVoiceNormalizedDoubaoAuthMode(NSUserDefaults *defaults)
-{
-    NSString *mode = [defaults stringForKey:@"MSIMEClientVoiceDoubaoAuthMode"].lowercaseString;
-    if ([mode isEqualToString:@"api_key"] || [mode isEqualToString:@"legacy"])
-        return mode;
-    NSString *appKey = [defaults stringForKey:@"MSIMEClientVoiceDoubaoAppKey"];
-    return appKey.length > 0 && ![appKey hasPrefix:@"<"] ? @"legacy" : @"api_key";
-}

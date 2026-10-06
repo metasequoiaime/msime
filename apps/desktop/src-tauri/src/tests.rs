@@ -15,6 +15,53 @@ fn emoji_group_page_capacity_reserves_the_first_page_size() {
     assert!(positions.capacity() >= 7);
 }
 
+/// 插件符号组追加在内置组之后：符号以插件名为上级分类，颜文字排在 All 之后；每组带包 id，组的关键词放在组上，各项的关键词仍是符号本身。
+#[test]
+fn plugin_symbol_groups_follow_the_built_in_catalog() {
+    use msime_client_core::plugins::symbol_set::SymbolTab;
+    let group =
+        |tab, title: &str, keywords: &str, items: &[&str]| msime_host_api::PluginSymbolGroup {
+            pack: "arrows".into(),
+            pack_name: "箭头大全".into(),
+            tab,
+            title: title.into(),
+            keywords: keywords.into(),
+            items: items.iter().map(|item| (*item).to_owned()).collect(),
+        };
+    let built_in = |title: &str| super::EmojiCatalogGroup {
+        title: title.into(),
+        parent: None,
+        pack: None,
+        keywords: String::new(),
+        icon: String::new(),
+        items: Vec::new(),
+    };
+    let mut kaomoji = vec![built_in("All")];
+    let mut symbols = vec![built_in("数学")];
+    super::append_plugin_symbol_groups(
+        vec![
+            group(SymbolTab::Symbols, "箭头", "jiantou", &["→", "←"]),
+            group(SymbolTab::Kaomoji, "开心", "", &["(^_^)"]),
+        ],
+        &mut kaomoji,
+        &mut symbols,
+    );
+    assert_eq!(symbols.len(), 2);
+    assert_eq!(symbols[1].title, "箭头");
+    assert_eq!(symbols[1].parent.as_deref(), Some("箭头大全"));
+    assert_eq!(symbols[1].icon, "→");
+    assert_eq!(symbols[1].pack.as_deref(), Some("arrows"));
+    // 组的关键词只用于搜索，不覆盖各项自己的关键词。
+    assert_eq!(symbols[1].keywords, "jiantou");
+    assert_eq!(symbols[1].items[1].keywords, "←");
+    assert_eq!(kaomoji[0].title, "All");
+    assert_eq!(kaomoji[0].pack, None);
+    assert_eq!(kaomoji[1].title, "开心");
+    assert_eq!(kaomoji[1].pack.as_deref(), Some("arrows"));
+    assert_eq!(kaomoji[1].parent, None);
+    assert_eq!(kaomoji[1].items[0].keywords, "(^_^)");
+}
+
 #[test]
 fn runtime_options_fallback_reserves_all_candidate_slots() {
     let candidates: Vec<std::path::PathBuf> =
@@ -66,6 +113,17 @@ fn snapshot_restore_preflight_rejects_text_larger_than_native_limit() {
     assert!(!crate::platform::account_helpers::snapshot_text_within_limit(512 * 1024 * 1024 + 1));
 }
 
+#[test]
+fn external_url_allows_encoded_query_parameters() {
+    assert!(super::external_url_is_safe(
+        "https://github.com/metasequoiaime/msime/issues/new?title=bug&body=synthetic%20report"
+    ));
+    assert!(!super::external_url_is_safe("javascript:alert(1)"));
+    assert!(!super::external_url_is_safe(
+        "https://example.com/path|whoami"
+    ));
+}
+
 #[cfg(unix)]
 #[test]
 fn runtime_options_reject_a_symlinked_file() {
@@ -95,6 +153,7 @@ fn ai_endpoint_validation_accepts_http_api_urls_and_rejects_unsafe_urls() {
     }
     for endpoint in [
         "file:///tmp/models",
+        "http://api.example.test/v1/chat/completions",
         "https:///v1/chat/completions",
         "https://user:password@example.test/v1/chat/completions",
         "https://example.test/v1/chat/completions#fragment",
@@ -179,6 +238,165 @@ fn runtime_options_reader_rejects_oversized_documents_without_allocating_them() 
 }
 
 #[test]
+fn linux_runtime_state_directory_treats_a_missing_locator_as_first_run() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("runtime-options.json");
+    assert_eq!(super::linux_runtime_state_directory_at(&path), Ok(None));
+
+    let preferences = directory.path().join("preferences");
+    std::fs::write(
+        &path,
+        serde_json::json!({ "preferences_directory": preferences }).to_string(),
+    )
+    .unwrap();
+    assert_eq!(
+        super::linux_runtime_state_directory_at(&path),
+        Ok(Some(preferences))
+    );
+
+    std::fs::write(&path, "{").unwrap();
+    assert!(super::linux_runtime_state_directory_at(&path).is_err());
+    assert!(
+        super::linux_runtime_state_directory_at(std::path::Path::new("runtime-options.json"))
+            .is_err()
+    );
+}
+
+#[test]
+fn cantonese_zhuyin_and_stroke_are_offered_only_with_their_installed_dictionary() {
+    use msime_client_core::host_surface::{HostCapabilities, HostPlatform};
+    use msime_client_core::preferences::InputScheme;
+    let root = tempfile::tempdir().unwrap();
+    let directory = root.path().join("language-dictionaries");
+    std::fs::create_dir_all(&directory).unwrap();
+    std::fs::write(directory.join("msime-zhuyin.db"), b"sqlite").unwrap();
+    // Every host narrows the schemes the same way.
+    for platform in [
+        HostPlatform::Macos,
+        HostPlatform::Windows,
+        HostPlatform::Linux,
+        HostPlatform::Android,
+        HostPlatform::Ios,
+    ] {
+        for name in ["msime-cantonese.db", "msime-stroke.db"] {
+            let dictionary = directory.join(name);
+            if dictionary.exists() {
+                std::fs::remove_file(&dictionary).unwrap();
+            }
+        }
+        let offered = |host_options: Option<&serde_json::Value>| {
+            let mut capabilities = HostCapabilities::for_platform(platform);
+            super::drop_uninstalled_language_schemes(&mut capabilities, host_options, false);
+            capabilities.input_schemes
+        };
+        let without_both = vec![
+            InputScheme::Quanpin,
+            InputScheme::Shuangpin,
+            InputScheme::Wubi,
+            InputScheme::Japanese,
+            InputScheme::Korean,
+            InputScheme::Vietnamese,
+            InputScheme::Tibetan,
+        ];
+        assert_eq!(offered(None), without_both, "{platform:?}");
+        assert_eq!(
+            offered(Some(&serde_json::json!({}))),
+            without_both,
+            "{platform:?}"
+        );
+        // A relative directory is not trusted to mean the installed one.
+        assert_eq!(
+            offered(Some(
+                &serde_json::json!({ "language_dictionaries": "language-dictionaries" })
+            )),
+            without_both,
+            "{platform:?}"
+        );
+        let named = serde_json::json!({ "language_dictionaries": directory });
+        let mut with_zhuyin = without_both.clone();
+        with_zhuyin.insert(5, InputScheme::Zhuyin);
+        assert_eq!(offered(Some(&named)), with_zhuyin, "{platform:?}");
+        std::fs::write(directory.join("msime-cantonese.db"), b"sqlite").unwrap();
+        let mut without_stroke = HostCapabilities::for_platform(platform).input_schemes;
+        without_stroke.retain(|scheme| *scheme != InputScheme::Stroke);
+        assert_eq!(offered(Some(&named)), without_stroke, "{platform:?}");
+        std::fs::write(directory.join("msime-stroke.db"), b"sqlite").unwrap();
+        assert_eq!(
+            offered(Some(&named)),
+            HostCapabilities::for_platform(platform).input_schemes,
+            "{platform:?}"
+        );
+    }
+    // Without the Windows fallback a document naming only its resources offers neither.
+    let mut capabilities = HostCapabilities::for_platform(HostPlatform::Macos);
+    let resources_only = serde_json::json!({ "resources": root.path().join("resources") });
+    super::drop_uninstalled_language_schemes(&mut capabilities, Some(&resources_only), false);
+    assert!(!capabilities.input_schemes.contains(&InputScheme::Cantonese));
+    assert!(!capabilities.input_schemes.contains(&InputScheme::Zhuyin));
+    assert!(!capabilities.input_schemes.contains(&InputScheme::Stroke));
+}
+
+#[test]
+fn macos_offers_only_the_language_schemes_its_download_can_install() {
+    use msime_client_core::host_surface::{HostCapabilities, HostPlatform};
+    use msime_client_core::preferences::InputScheme;
+    use msime_client_core::resource_packs::ResourcePack;
+    let mut capabilities = HostCapabilities::for_platform(HostPlatform::Macos);
+    super::drop_unpinned_language_schemes(&mut capabilities);
+    let pinned = ResourcePack::LanguageDictionaries.schemes();
+    for (scheme, name) in [
+        (InputScheme::Cantonese, "cantonese"),
+        (InputScheme::Zhuyin, "zhuyin"),
+        (InputScheme::Stroke, "stroke"),
+    ] {
+        assert_eq!(
+            capabilities.input_schemes.contains(&scheme),
+            pinned.contains(&name),
+            "{name}"
+        );
+    }
+    // 其余方案不需要语言词库，不受影响。
+    assert!(capabilities.input_schemes.contains(&InputScheme::Quanpin));
+    assert!(capabilities.input_schemes.contains(&InputScheme::Tibetan));
+}
+
+#[test]
+fn windows_finds_language_dictionaries_beside_resources_its_options_file_does_not_name() {
+    use msime_client_core::host_surface::{HostCapabilities, HostPlatform};
+    use msime_client_core::preferences::InputScheme;
+    let root = tempfile::tempdir().unwrap();
+    let directory = root.path().join("language-dictionaries");
+    std::fs::create_dir_all(&directory).unwrap();
+    std::fs::write(directory.join("msime-cantonese.db"), b"sqlite").unwrap();
+    let offered = |host_options: &serde_json::Value| {
+        let mut capabilities = HostCapabilities::for_platform(HostPlatform::Windows);
+        super::drop_uninstalled_language_schemes(&mut capabilities, Some(host_options), true);
+        capabilities.input_schemes
+    };
+    let schemes = offered(&serde_json::json!({ "resources": root.path().join("resources") }));
+    assert!(schemes.contains(&InputScheme::Cantonese));
+    assert!(!schemes.contains(&InputScheme::Zhuyin));
+    assert!(!schemes.contains(&InputScheme::Stroke));
+    assert!(schemes.contains(&InputScheme::Vietnamese));
+    assert!(schemes.contains(&InputScheme::Tibetan));
+    std::fs::write(directory.join("msime-stroke.db"), b"sqlite").unwrap();
+    let schemes = offered(&serde_json::json!({ "resources": root.path().join("resources") }));
+    assert!(schemes.contains(&InputScheme::Stroke));
+    // A relative resources directory is not trusted to locate the installed dictionaries.
+    let relative = offered(&serde_json::json!({ "resources": "resources" }));
+    assert!(!relative.contains(&InputScheme::Cantonese));
+    // A document that names the directory is taken at its word.
+    let elsewhere = root.path().join("elsewhere");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    let named = offered(&serde_json::json!({
+        "resources": root.path().join("resources"),
+        "language_dictionaries": elsewhere,
+    }));
+    assert!(!named.contains(&InputScheme::Cantonese));
+    assert!(!named.contains(&InputScheme::Stroke));
+}
+
+#[test]
 fn helpcode_catalog_reads_only_the_host_resource_directory() {
     let directory = tempfile::tempdir().unwrap();
     let resources = directory.path().join("resources");
@@ -251,27 +469,22 @@ fn windows_restart_payload_is_exact_utf16_without_terminator() {
 
 #[test]
 fn linux_restart_targets_the_running_input_method_framework() {
+    let command = |fcitx5_running, addon| {
+        let (program, arguments) = super::linux_input_method_restart_command(fcitx5_running, addon);
+        (program, arguments.join(" "))
+    };
     assert_eq!(
-        super::linux_input_method_restart_command(true),
+        command(true, "msime"),
         (
             "gdbus",
-            &[
-                "call",
-                "--session",
-                "--dest",
-                "org.fcitx.Fcitx5",
-                "--object-path",
-                "/controller",
-                "--method",
-                "org.fcitx.Fcitx.Controller1.ReloadAddonConfig",
-                "'msime'",
-            ][..]
+            "call --session --dest org.fcitx.Fcitx5 --object-path /controller --method org.fcitx.Fcitx.Controller1.ReloadAddonConfig 'msime'".to_owned()
         )
     );
-    assert_eq!(
-        super::linux_input_method_restart_command(false),
-        ("ibus", &["restart"][..])
-    );
+    // 五笔版只重置自己的插件。
+    assert!(command(true, "msime-wubi")
+        .1
+        .ends_with("ReloadAddonConfig 'msime-wubi'"));
+    assert_eq!(command(false, "msime"), ("ibus", "restart".to_owned()));
 }
 
 #[test]
@@ -279,6 +492,7 @@ fn external_links_require_clean_https_urls() {
     for url in [
         "https://example.com/help",
         "https://updates.example.com/v1?channel=stable",
+        "https://example.com/a&b",
     ] {
         assert!(super::external_url_is_safe(url));
     }
@@ -289,7 +503,6 @@ fn external_links_require_clean_https_urls() {
         "https://example.com/help path",
         "https://user:secret@example.com/help",
         "https://example.com:bad/help",
-        "https://example.com/a&b",
         "https://example.com/\"quoted\"",
         "https://example.com/\\escape",
     ] {
@@ -351,6 +564,26 @@ fn ios_first_run_host_options_use_packaged_resources_and_shared_state() {
     .expect("first-run options");
     assert_eq!(document["resources"], "/fixture/resources");
     assert_eq!(document["state_root"], "/fixture/shared-state");
+    assert!(document.get("language_dictionaries").is_none());
+}
+
+#[test]
+fn ios_first_run_host_options_name_the_bundled_language_dictionaries() {
+    let bundle = tempfile::tempdir().expect("bundle");
+    let resources = bundle.path().join("EngineResources");
+    let dictionaries = bundle.path().join("language-dictionaries");
+    std::fs::create_dir_all(&resources).expect("resources");
+    std::fs::create_dir_all(&dictionaries).expect("dictionaries");
+    let empty = super::ios_host_options_document(None, &resources, bundle.path())
+        .expect("first-run options");
+    assert!(empty.get("language_dictionaries").is_none());
+    std::fs::write(dictionaries.join("msime-zhuyin.db"), b"fixture").expect("msime-zhuyin.db");
+    let document = super::ios_host_options_document(None, &resources, bundle.path())
+        .expect("first-run options");
+    assert_eq!(
+        document["language_dictionaries"],
+        dictionaries.to_str().expect("utf-8 path")
+    );
 }
 
 #[test]
@@ -474,7 +707,6 @@ fn ios_keyboard_ai_preferences_resolve_origin_tokens_and_disable_incomplete_draf
     preferences.ai_assistant.provider = "deepseek".into();
     preferences.ai_assistant.endpoint = "https://API.Example.invalid/v1/chat/completions".into();
     preferences.ai_assistant.model = "fixture-model".into();
-    preferences.ai_assistant.prompt = "只返回结果".into();
     preferences.ai_assistant.tokens.insert(
         "https://api.example.invalid:443".into(),
         "fixture-origin-token".into(),
@@ -483,6 +715,23 @@ fn ios_keyboard_ai_preferences_resolve_origin_tokens_and_disable_incomplete_draf
     assert!(native.enabled);
     assert_eq!(native.provider, "deepSeek");
     assert_eq!(native.token, "fixture-origin-token");
+    assert_eq!(
+        native.prompt,
+        "请润色以下文字，保持原意，只返回修改后的文字。"
+    );
+
+    preferences.ai_assistant.prompt_id = "custom_2".into();
+    preferences.ai_assistant.prompt_custom_1 = "first slot".into();
+    preferences.ai_assistant.prompt_custom_2 = "second slot".into();
+    assert_eq!(
+        super::ios_keyboard_ai_preferences(&preferences.ai_assistant).prompt,
+        "second slot"
+    );
+    preferences.ai_assistant.prompt_custom_2 = "  ".into();
+    assert_eq!(
+        super::ios_keyboard_ai_preferences(&preferences.ai_assistant).prompt,
+        "请润色以下文字，保持原意，只返回修改后的文字。"
+    );
 
     preferences.ai_assistant.tokens.clear();
     assert!(!super::ios_keyboard_ai_preferences(&preferences.ai_assistant).enabled);
@@ -543,7 +792,9 @@ fn voice_provider_options_only_forwards_known_doubao_auth_modes() {
     });
     let result = crate::voice::voice_provider_options(&document);
     assert!(result.is_ok());
-    let options = result.ok().expect("voice options should be valid");
+    let Ok(options) = result else {
+        panic!("voice options should be valid");
+    };
     assert_eq!(
         options.get("doubao_auth_mode").and_then(|v| v.as_str()),
         Some("legacy")
@@ -556,7 +807,9 @@ fn voice_provider_options_only_forwards_known_doubao_auth_modes() {
     });
     let result = crate::voice::voice_provider_options(&document);
     assert!(result.is_ok());
-    let options = result.ok().expect("voice options should be valid");
+    let Ok(options) = result else {
+        panic!("voice options should be valid");
+    };
     assert!(options.get("doubao_auth_mode").is_none());
 }
 
@@ -821,6 +1074,8 @@ fn dictionary_mutations_quiesce_but_reads_do_not() {
     ));
 }
 
+// The bundle id comes from the edition's macOS identity, which only the macOS build compiles.
+#[cfg(target_os = "macos")]
 #[test]
 fn macos_restart_targets_the_input_method_bundle() {
     assert_eq!(
@@ -852,14 +1107,10 @@ fn on_device_translation_downloadable_keeps_only_choosable_targets() {
 #[test]
 fn settings_routes_select_a_page_the_shared_ui_accepts() {
     use msime_client_core::host_surface::{SettingsCategory, SurfaceRoute};
-    // The route wins over the compatibility variable, and every category the
-    // contract accepts survives the settings-page identifier filter.
     for category in SettingsCategory::ALL {
-        let page = super::settings_page_from_route(Some(SurfaceRoute::Settings(Some(category))));
         assert_eq!(
-            super::requested_settings_page(page.as_deref()),
-            Some(category.as_str().to_owned()),
-            "category {category:?} is not a usable settings page id"
+            super::settings_page_from_route(Some(SurfaceRoute::Settings(Some(category)))),
+            Some(category.as_str().to_owned())
         );
     }
     assert_eq!(
@@ -870,26 +1121,6 @@ fn settings_routes_select_a_page_the_shared_ui_accepts() {
         super::settings_page_from_route(Some(SurfaceRoute::Emoji)),
         None
     );
-}
-
-#[test]
-fn requested_settings_page_only_accepts_a_plain_section_identifier() {
-    assert_eq!(
-        super::requested_settings_page(Some(" about ")),
-        Some("about".into())
-    );
-    assert_eq!(
-        super::requested_settings_page(Some("screen-keyboard")),
-        Some("screen-keyboard".into())
-    );
-    assert_eq!(super::requested_settings_page(None), None);
-    assert_eq!(super::requested_settings_page(Some("   ")), None);
-    // Anything that could carry a path, a query or a script stays out of
-    // the window the launcher is about to open.
-    assert_eq!(super::requested_settings_page(Some("../etc")), None);
-    assert_eq!(super::requested_settings_page(Some("About")), None);
-    assert_eq!(super::requested_settings_page(Some("a?b=c")), None);
-    assert_eq!(super::requested_settings_page(Some(&"a".repeat(33))), None);
 }
 
 #[test]
@@ -924,126 +1155,98 @@ fn packaged_handwriting_model_only_accepts_an_existing_absolute_file() {
 }
 
 #[test]
-fn custom_translations_round_trip_through_the_user_directory() {
-    let state = tempfile::tempdir().unwrap();
-    let user = state.path().join("user");
-    // No overlay yet is the ordinary state: the page opens on an empty document rather than an error.
+fn ink_handwriting_answer_reports_no_result_when_no_model_can_follow() {
+    let candidates = vec!["中".to_string()];
+    // Ink 认出了内容：不论有没有模型都直接用。
     assert_eq!(
-        super::read_custom_translations_at(user.clone()).unwrap(),
-        ""
+        super::ink_handwriting_answer(Some(candidates.clone()), true),
+        Some(candidates.clone())
     );
-
-    super::write_custom_translations_at(user.clone(), "你好\thello\n").unwrap();
     assert_eq!(
-        super::read_custom_translations_at(user.clone()).unwrap(),
-        "你好\thello\n"
+        super::ink_handwriting_answer(Some(candidates.clone()), false),
+        Some(candidates)
     );
-    // The Engine reads this exact path; writing anywhere else would save into a file nobody opens.
-    assert!(user.join("custom_translations.txt").is_file());
-    // Nothing is left behind from the staged write.
-    assert!(!user.join("custom_translations.txt.writing").exists());
+    // Ink 正常运行但没认出内容：有模型就再问模型，没有模型就返回空结果（面板显示未识别到内容），而不是报识别失败。
+    assert_eq!(super::ink_handwriting_answer(Some(Vec::new()), true), None);
+    assert_eq!(
+        super::ink_handwriting_answer(Some(Vec::new()), false),
+        Some(Vec::new())
+    );
+    // Ink 出错或没有中文识别器：交给模型；没有模型时调用方照旧报不可用。
+    assert_eq!(super::ink_handwriting_answer(None, true), None);
+    assert_eq!(super::ink_handwriting_answer(None, false), None);
+}
 
-    // A file written elsewhere may carry a BOM. It is an encoding marker, not part of the first source
-    // word, and leaving it in would make the page show it and save it back.
+/// 在 `state_root` 下伪造一个已完整安装的手写资源包，返回其中的模型路径。
+fn publish_fake_handwriting_pack(state_root: &std::path::Path) -> std::path::PathBuf {
+    use msime_client_core::resource_packs::{self, ResourcePack};
+    let pack = resource_packs::root(state_root).join(ResourcePack::Handwriting.id());
+    std::fs::create_dir_all(&pack).unwrap();
+    let model = pack.join("handwriting-zh_CN.model");
+    std::fs::write(&model, b"synthetic").unwrap();
     std::fs::write(
-        user.join("custom_translations.txt"),
-        "\u{feff}刚才\ta moment ago\n",
+        pack.join(msime_client_core::voice::local_models::MANIFEST_FILE),
+        serde_json::to_vec(&ResourcePack::Handwriting.manifest()).unwrap(),
     )
     .unwrap();
-    assert_eq!(
-        super::read_custom_translations_at(user.clone()).unwrap(),
-        "刚才\ta moment ago\n"
-    );
-
-    // Emptying the document means "no overlay". An empty file would have the Engine open and read an
-    // empty set every session instead.
-    super::write_custom_translations_at(user.clone(), "  \n\t\n").unwrap();
-    assert!(!user.join("custom_translations.txt").exists());
-    assert_eq!(
-        super::read_custom_translations_at(user.clone()).unwrap(),
-        ""
-    );
-    // Emptying an already empty overlay is not an error.
-    super::write_custom_translations_at(user.clone(), "").unwrap();
+    model
 }
 
 #[test]
-fn custom_translations_refuse_documents_the_engine_could_not_read() {
+fn packaged_handwriting_model_prefers_the_option_over_a_downloaded_pack() {
     let state = tempfile::tempdir().unwrap();
-    let user = state.path().join("user");
-    super::write_custom_translations_at(user.clone(), "你好\thello\n").unwrap();
-
-    let oversized = "a".repeat(super::CUSTOM_TRANSLATIONS_MAX_BYTES + 1);
+    let downloaded = publish_fake_handwriting_pack(state.path());
+    let configured = state.path().join("configured.model");
+    std::fs::write(&configured, b"synthetic").unwrap();
+    let document = serde_json::json!({
+        "handwriting_model": configured.to_string_lossy(),
+        "preferences_directory": state.path().to_string_lossy(),
+    });
     assert_eq!(
-        super::write_custom_translations_at(user.clone(), &oversized)
-            .unwrap_err()
-            .code,
-        "invalid_document"
+        super::packaged_handwriting_model(&document.to_string()),
+        Some(configured)
     );
     assert_eq!(
-        super::write_custom_translations_at(user.clone(), "你好\thello\0\n")
-            .unwrap_err()
-            .code,
-        "invalid_document"
+        super::downloaded_handwriting_model(Some(&document)),
+        Some(downloaded.clone())
     );
-    // A refused save leaves the overlay that was there, rather than half of a new one.
-    assert_eq!(
-        super::read_custom_translations_at(user.clone()).unwrap(),
-        "你好\thello\n"
-    );
-
-    std::fs::write(
-        user.join("custom_translations.txt"),
-        vec![b'a'; super::CUSTOM_TRANSLATIONS_MAX_BYTES + 1],
-    )
-    .unwrap();
-    assert_eq!(
-        super::read_custom_translations_at(user).unwrap_err().code,
-        "storage"
-    );
+    // 只有选项和环境变量都没给、也没有随包模型时，三个桌面平台才用已下载的资源包（macOS 上已下载的还排在旧版本随包的模型之前）。
+    if std::env::var_os("MSIME_HANDWRITING_MODEL").is_none_or(|value| value.is_empty())
+        && (cfg!(target_os = "macos") || super::bundled_handwriting_model().is_none())
+    {
+        let document = serde_json::json!({
+            "preferences_directory": state.path().to_string_lossy(),
+        });
+        assert_eq!(
+            super::packaged_handwriting_model(&document.to_string()),
+            Some(downloaded)
+        );
+    }
 }
 
-#[cfg(unix)]
+/// 指定了手写模型（哪怕文件不在）时识别只用它，下载的资源包用不上，所以 Windows 和 Linux 不提供下载。
 #[test]
-fn custom_translations_read_rejects_symlinked_storage() {
-    use std::os::unix::fs::symlink;
-
-    let state = tempfile::tempdir().unwrap();
-    let outside = tempfile::tempdir().unwrap();
-    let user = state.path().join("user");
-    std::fs::create_dir_all(&user).unwrap();
-    let outside_file = outside.path().join("custom-translations.txt");
-    std::fs::write(&outside_file, "synthetic outside\n").unwrap();
-    symlink(&outside_file, user.join("custom_translations.txt")).unwrap();
-
-    assert_eq!(
-        super::read_custom_translations_at(user).unwrap_err().code,
-        "storage"
-    );
+fn a_configured_handwriting_model_needs_no_download() {
+    let document = serde_json::json!({ "handwriting_model": "/synthetic/handwriting-zh_CN.model" });
+    assert!(super::handwriting_model_without_pack(Some(&document)));
 }
 
-#[cfg(unix)]
 #[test]
-fn custom_translation_save_does_not_follow_a_staging_symlink() {
-    use std::os::unix::fs::symlink;
-
+fn packaged_handwriting_model_ignores_a_relative_preferences_directory() {
     let state = tempfile::tempdir().unwrap();
-    let outside = tempfile::tempdir().unwrap();
-    let user = state.path().join("user");
-    std::fs::create_dir_all(&user).unwrap();
-    let outside_staging = outside.path().join("staging.txt");
-    std::fs::write(&outside_staging, b"keep me").unwrap();
-    symlink(
-        &outside_staging,
-        user.join("custom_translations.txt.writing"),
-    )
-    .unwrap();
-
-    super::write_custom_translations_at(user.clone(), "你好\thello\n").unwrap();
-    assert_eq!(std::fs::read(outside_staging).unwrap(), b"keep me");
+    let downloaded = publish_fake_handwriting_pack(state.path());
+    let relative =
+        std::path::Path::new(".").join(state.path().strip_prefix("/").unwrap_or(state.path()));
+    let document = serde_json::json!({ "preferences_directory": relative.to_string_lossy() });
+    assert_eq!(super::downloaded_handwriting_model(Some(&document)), None);
+    assert_ne!(
+        super::packaged_handwriting_model(&document.to_string()),
+        Some(downloaded)
+    );
+    assert_eq!(super::downloaded_handwriting_model(None), None);
     assert_eq!(
-        super::read_custom_translations_at(user).unwrap(),
-        "你好\thello\n"
+        super::downloaded_handwriting_model(Some(&serde_json::json!({}))),
+        None
     );
 }
 
@@ -1489,8 +1692,10 @@ fn runtime_options_sync_replaces_preferences_atomically() {
         document: Arc::new(Mutex::new(document)),
         skins: None,
     };
-    let mut preferences = Preferences::default();
-    preferences.candidate_page_size = 9;
+    let preferences = Preferences {
+        candidate_page_size: 9,
+        ..Preferences::default()
+    };
     sync_runtime_options(&state, &preferences).unwrap();
     let updated: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
     assert_eq!(updated["preferences"]["candidate_page_size"], 9);
@@ -1809,7 +2014,7 @@ fn runtime_options_the_hosts_could_not_read_are_refused_and_the_old_file_kept() 
     let original = std::fs::read(&path).unwrap();
     let mut preferences = Preferences::default();
     // Nothing strips a prompt from the host copy, so a long one is what still outgrows the hosts' read.
-    preferences.voice_input.polish_prompt = "润色".repeat(4000);
+    preferences.voice_input.polish_prompt_custom_1 = "润色".repeat(4000);
     // Both the path that publishes a skin catalog and the one without a skins directory are held to the same limit.
     for skins in [Some(skins.clone()), None] {
         let state = RuntimeOptionsState {
@@ -1827,7 +2032,7 @@ fn runtime_options_the_hosts_could_not_read_are_refused_and_the_old_file_kept() 
 
     // A rescan cannot republish a file that is already past the limit either: the catalog is dropped, and what remains is still refused rather than rewritten.
     let mut oversized: Value = serde_json::from_slice(&original).unwrap();
-    oversized["preferences"]["voice_input"]["polish_prompt"] = "润色".repeat(4000).into();
+    oversized["preferences"]["voice_input"]["polish_prompt_custom_1"] = "润色".repeat(4000).into();
     let oversized = serde_json::to_vec_pretty(&oversized).unwrap();
     std::fs::write(&path, &oversized).unwrap();
     let state = RuntimeOptionsState {
@@ -1883,7 +2088,7 @@ fn a_save_the_hosts_could_not_read_is_refused_and_the_store_keeps_its_preference
 
     // A save the hosts could not read is refused whole: the runtime options stay as they were, and so does the store.
     let mut oversized = saved.preferences.clone();
-    oversized.voice_input.polish_prompt = "润色".repeat(4000);
+    oversized.voice_input.polish_prompt_custom_1 = "润色".repeat(4000);
     let refused = save(saved.revision, oversized).unwrap_err();
     assert_eq!(refused.code, "runtime_options_too_large");
     assert_eq!(std::fs::read(&path).unwrap(), published);
@@ -1948,16 +2153,18 @@ fn skin_rescan_keeps_its_list_when_the_catalog_cannot_be_published() {
     assert_eq!(std::fs::read(&path).unwrap(), b"{ not json");
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 #[test]
-fn linux_account_storage_round_trips_an_owner_only_session() {
+fn desktop_account_storage_round_trips_an_owner_only_session() {
     use msime_client_core::account::{
-        AccountSessionStorage, AccountTokens, AccountUser, SavedAccountSession,
+        AccountSessionFileLayout, AccountSessionStorage, AccountTokens, AccountUser,
+        FileAccountSessionStorage, SavedAccountSession,
     };
     use std::os::unix::fs::PermissionsExt;
 
     let directory = tempfile::tempdir().expect("temporary directory");
-    let storage = crate::platform::linux::linux_account::LinuxAccountStorage::new(directory.path());
+    let storage =
+        FileAccountSessionStorage::new(directory.path(), AccountSessionFileLayout::Native);
     // Nothing saved yet is an empty store, not a broken one: a first run must
     // report "signed out" rather than "secure storage is unavailable".
     assert!(storage.load().expect("empty store").is_none());
@@ -2019,22 +2226,25 @@ fn linux_account_storage_round_trips_an_owner_only_session() {
     assert!(storage.load().expect("cleared store").is_none());
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 #[test]
-fn linux_account_storage_refuses_a_symlinked_or_oversized_store() {
-    use msime_client_core::account::AccountSessionStorage;
+fn desktop_account_storage_refuses_a_symlinked_or_oversized_store() {
+    use msime_client_core::account::{
+        AccountSessionFileLayout, AccountSessionStorage, FileAccountSessionStorage,
+    };
 
     let directory = tempfile::tempdir().expect("temporary directory");
     let elsewhere = directory.path().join("elsewhere.json");
     std::fs::write(&elsewhere, b"{}").unwrap();
-    let storage = crate::platform::linux::linux_account::LinuxAccountStorage::new(directory.path());
+    let storage =
+        FileAccountSessionStorage::new(directory.path(), AccountSessionFileLayout::Native);
     let path = directory.path().join("account-session.json");
     std::os::unix::fs::symlink(&elsewhere, &path).unwrap();
     // Following the link would read through a path this host did not choose.
     assert!(storage.load().is_err());
     std::fs::remove_file(&path).unwrap();
 
-    std::fs::write(&path, vec![b'x'; 32 * 1024]).unwrap();
+    std::fs::write(&path, vec![b'x'; 64 * 1024 + 1]).unwrap();
     std::fs::set_permissions(
         &path,
         <std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o600),
@@ -2258,4 +2468,54 @@ fn sway_container_owner_is_read_from_the_matching_view() {
     // A container without a pid, or one that is not in the tree, has no owner to compare against.
     assert_eq!(crate::panel_input::sway_pid_for_container(&tree, 2), None);
     assert_eq!(crate::panel_input::sway_pid_for_container(&tree, 9), None);
+}
+
+/// 不提供手写的版本（日文、越南文和藏文版）不打开手写面板和手写设置页，别的界面照常；提供中文方案的版本什么都不少。
+#[test]
+fn editions_without_handwriting_open_no_handwriting_surface() {
+    use msime_client_core::edition::Edition;
+    use msime_client_core::host_surface::{SettingsCategory, SurfaceRoute};
+
+    let handwriting = [
+        SurfaceRoute::Handwriting,
+        SurfaceRoute::Settings(Some(SettingsCategory::Handwriting)),
+    ];
+    let others = [
+        SurfaceRoute::Keyboard,
+        SurfaceRoute::Emoji,
+        SurfaceRoute::Voice,
+        SurfaceRoute::Settings(None),
+        SurfaceRoute::Settings(Some(SettingsCategory::Input)),
+    ];
+    for edition in Edition::all() {
+        for route in handwriting {
+            assert_eq!(
+                super::edition_offers_route(edition, route),
+                edition.features.handwriting,
+                "{} {route:?}",
+                edition.id
+            );
+        }
+        for route in others {
+            assert!(
+                super::edition_offers_route(edition, route),
+                "{} {route:?}",
+                edition.id
+            );
+        }
+    }
+    for id in ["japanese", "vietnamese", "tibetan"] {
+        let edition = Edition::by_id(id).unwrap();
+        assert!(
+            !super::edition_offers_route(edition, SurfaceRoute::Handwriting),
+            "{id}"
+        );
+    }
+    for id in ["full", "pinyin", "wubi"] {
+        let edition = Edition::by_id(id).unwrap();
+        assert!(
+            super::edition_offers_route(edition, SurfaceRoute::Handwriting),
+            "{id}"
+        );
+    }
 }

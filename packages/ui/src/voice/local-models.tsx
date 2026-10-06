@@ -1,4 +1,8 @@
 import { useEffect, useRef, useState } from "react";
+import { SettingsManagerBlock } from "../settings/settings-manager-block";
+import { SettingsManagerNote } from "../settings/settings-manager-note";
+import { rowTitle } from "../core/platform-controls-style";
+import { ActionButton } from "../core/action-button";
 import {
   formatModelBytes,
   localModelErrorMessage,
@@ -6,9 +10,11 @@ import {
   localModelLanguages,
   localModelProgressPercent,
   localModelStageLabel,
-  validModelMirror,
   visibleLocalModels,
 } from "./local-model-helpers";
+import { StatusMessage } from "../core/status-message";
+import { useAsyncGeneration } from "../settings/use-async-generation";
+import { useMountedRef } from "../settings/use-mounted-ref";
 export {
   formatModelBytes,
   localModelErrorMessage,
@@ -61,6 +67,8 @@ export type LocalVoiceModelClient = {
   onProgress(listener: (progress: LocalVoiceModelProgress) => void): Promise<() => void>;
 };
 
+const localModelNote = "模型下载到本机后完全离线运行，录音不会上传。点击“使用”后生效。";
+
 /**
  * The on-device models the `local` provider can run: what each is, what it costs, and download, use and remove.
  *
@@ -93,7 +101,8 @@ export function LocalModelManager({
   const [progress, setProgress] = useState<Record<string, LocalVoiceModelProgress>>({});
   const [installing, setInstalling] = useState<Record<string, boolean>>({});
   const [removing, setRemoving] = useState<Record<string, boolean>>({});
-  const mounted = useRef(true);
+  const mounted = useMountedRef();
+  const clientGeneration = useAsyncGeneration(client);
   const activeClient = useRef(client);
   activeClient.current = client;
   // A download takes minutes; what it finishes into is the page as it is then, not as it was on
@@ -114,26 +123,32 @@ export function LocalModelManager({
   };
 
   useEffect(() => {
-    mounted.current = true;
+    const generation = clientGeneration.current;
+    setList(undefined);
+    setNotice("");
+    setProgress({});
+    setInstalling({});
+    setRemoving({});
     void refresh();
     let unlisten: (() => void) | undefined;
-    let cancelled = false;
     void client
       .onProgress((event) => {
-        if (mounted.current && activeClient.current === client)
+        if (
+          mounted.current &&
+          activeClient.current === client &&
+          generation === clientGeneration.current
+        )
           setProgress((current) => ({ ...current, [event.id]: event }));
       })
       .then((stop) => {
-        if (cancelled) stop();
+        if (generation !== clientGeneration.current) stop();
         else unlisten = stop;
       })
       .catch(() => undefined);
     return () => {
-      mounted.current = false;
-      cancelled = true;
       unlisten?.();
     };
-  }, [client]);
+  }, [client, clientGeneration]);
 
   const install = async (model: LocalVoiceModel) => {
     setNotice("");
@@ -193,10 +208,12 @@ export function LocalModelManager({
 
   const models = list ? visibleLocalModels(list.models, mobile, modelPath) : [];
   return (
-    <div className="section" aria-label="本地识别模型">
-      <div className="section-title">
-        本地识别模型
-        <small>模型下载到本机后完全离线运行，录音不会上传。点击“使用”后生效。</small>
+    <SettingsManagerBlock role="group" aria-label="本地识别模型">
+      <div>
+        <span className={rowTitle} data-row-title="">
+          本地识别模型
+        </span>
+        <SettingsManagerNote>{localModelNote}</SettingsManagerNote>
       </div>
       {!list && !notice && <p>正在读取模型列表…</p>}
       <ul className="grid gap-3" aria-label="可用的本地模型">
@@ -228,15 +245,11 @@ export function LocalModelManager({
               <p className="text-xs opacity-70">
                 许可：{model.license_spdx}。{model.license_notice} 来源：
                 {openExternalUrl ? (
-                  <button
-                    type="button"
+                  <ActionButton
+                    action={() => void openExternalUrl(model.license_source).catch(() => undefined)}
                     className="link"
-                    onClick={() =>
-                      void openExternalUrl(model.license_source).catch(() => undefined)
-                    }
-                  >
-                    {model.license_source}
-                  </button>
+                    label={model.license_source}
+                  />
                 ) : (
                   <span>{model.license_source}</span>
                 )}
@@ -257,42 +270,39 @@ export function LocalModelManager({
               )}
               <div className="flex flex-wrap gap-2">
                 {running ? (
-                  <button
-                    type="button"
+                  <ActionButton
+                    action={() => void client.cancel(model.id).catch(() => undefined)}
                     className="secondary"
-                    onClick={() => void client.cancel(model.id).catch(() => undefined)}
-                  >
-                    取消下载
-                  </button>
+                    label="取消下载"
+                  />
                 ) : model.installed ? (
                   <>
-                    <button
-                      type="button"
+                    <ActionButton
+                      action={() => onUse(model.path)}
+                      className=""
                       disabled={inUse || removing[model.id] === true}
-                      onClick={() => onUse(model.path)}
-                    >
-                      {inUse ? "使用中" : "使用"}
-                    </button>
-                    <button
-                      type="button"
+                      label={inUse ? "使用中" : "使用"}
+                    />
+                    <ActionButton
+                      action={() => void remove(model)}
                       className="secondary"
                       disabled={removing[model.id] === true}
-                      onClick={() => void remove(model)}
-                    >
-                      删除
-                    </button>
+                      label="删除"
+                    />
                   </>
                 ) : (
-                  <button type="button" onClick={() => void install(model)}>
-                    下载（{formatModelBytes(model.archive_size)}）
-                  </button>
+                  <ActionButton
+                    action={() => void install(model)}
+                    className=""
+                    label={`下载（${formatModelBytes(model.archive_size)}）`}
+                  />
                 )}
               </div>
             </li>
           );
         })}
       </ul>
-      {notice && <p role="status">{notice}</p>}
-    </div>
+      {notice && <StatusMessage role="status">{notice}</StatusMessage>}
+    </SettingsManagerBlock>
   );
 }

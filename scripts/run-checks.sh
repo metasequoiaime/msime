@@ -45,6 +45,9 @@ fi
 # - candidate-sources: whether the candidate right-click actions are offered is decided on the engine's CandidateSource value (crates/engine/src/types.rs), which arrives as a number this side cannot name in C++. Renumbering a source there compiles cleanly and starts offering 删除 for cloud suggestions.
 # - clipboard-capture-bounds: whether a clipboard entry is storable is decided by crates/client-core/src/clipboard.rs alone. Android once kept a second copy of that rule that counted UTF-16 units instead of graphemes, so this fails when a host starts deciding it again.
 # - offline-glosses: the offline glosses for the non-English targets are built from Wiktionary rows whose shape is easy to misread: the Mandarin rows are "Chinese Mandarin", the plain "Chinese" ones are topolects, and senses[] repeats the top-level tables. The fixture holds real rows, so a rule that drifts from them fails here instead of in a release.
+# - korean-hanja-table: Hanja 表由 msime-dictionary 收录的 libhangul 文件生成并提交，供引擎内嵌，没有任何流程会重新生成它：手工改动，或改了生成器却没重新生成，都会原样发布。这里离线检查表的不变量；设置 MSIME_DICTIONARY 时重新生成并比较。
+# - language-data-notices: 粤拼、注音和笔画的数据来自 rime-cantonese（CC BY 4.0）、libchewing-data（LGPL-2.1-or-later）和 rime-stroke（LGPL-3.0），它们的许可证文本必须经每个平台的声明渠道分发。某个渠道不再列出其中一份时照样能构建和发布，所以只有读渠道才能发现。许可证写明覆盖的提交，锁文件的上游引用必须与之一致，锁文件也不得再固定任何 msime-dictionary 文件。
+# - scheme-traits-parity: the engine's SchemeType predicates decide how each input scheme behaves, and three places cannot call them: the macOS controller and the Windows Server and TIP copy the ones a view does not publish into their InputSchemeTraits.h, and the settings page keeps its own lists of which schemes are Chinese. A scheme added or moved on one side alone compiles everywhere and shows up only as a key that behaves like the wrong language.
 # - settings-palette-parity: the palette is most of what makes one window look like another, and this one is built with Tailwind rather than by importing the source's sheet, so the two copies of the same 64 names can drift a hex at a time without anyone noticing.
 # - windows-path-encoding: path::string() converts through the ANSI code page on Windows, so a profile with Chinese characters in it mangles or throws. Nothing about that shows up on a host whose system encoding is UTF-8, which is every host that runs this script - hence a static check rather than a test.
 # - installer-prerequisites: the prerequisite check lives in Inno Setup's Pascal Script, which nothing off Windows can compile. This pins the parts a later edit could quietly drop.
@@ -52,6 +55,7 @@ fi
 # - harmony-arkts-subset: tsc accepts the whole TypeScript language; the ArkTS compiler that actually builds the HAP does not. Six merged PRs left develop unable to produce a HAP - thirteen errors in three .ets files - and every gate here was green. This checks the two rules that can be checked without the SDK.
 # - harmony-unwired-policies: a ported policy with unit tests and no call site is shipped by nobody, and a test suite cannot see that: it imports the module itself. This has got through twice - #3419 wrote four accessibility policies the view never attached, and #3435 was a merge that put that state back, dropping the file and its tests together so the assertion count merely got smaller.
 # - linux-rendered-view-guard: rendered_view is null until the first render and after every session rebuild, and nlohmann's value() throws on null. A throw inside the Linux key handler is caught, so the symptom is a silently dropped key and one warning line - the first letter after a Chinese/English toggle. Reproducing it needs a live IBus session with a rebuilt Engine session, which no phase here has.
+# - editions: `shared/contracts/editions.json` 是各版本的单一事实源，Rust、平台构建和打包脚本都从它取值。默认方案不在方案列表里、带了功能却没带它要的词库、两个版本的标识撞车，这些都能编译、能打包，只在某个版本装到机器上才暴露；冻结基线还保证版本 id 和平台标识写入后不被改写。各版本的资源锁由 `scripts/editions.py` 生成并提交，这里同时比较它们与生成结果，手改或忘了重新生成都会让某个版本按错误的清单校验资源。
 #
 # Each special check as name=file-that-runs-it. The first three run inline in verify-local.sh, which holds the locks and toolchains they need; the Playwright pair needs a served fixture plus --url and --csp, which packages/ui/UPSTREAM.md describes; android-json-null-reads runs inside "android host java".
 special_checks="windows-32bit-compile=scripts/verify-local.sh
@@ -85,14 +89,36 @@ for entry in $special_checks; do
 done
 [ "$registry_ok" -eq 1 ] && echo "contract check registry: every special check is run by the script it names, or documented where no gate runs it"
 
-# Everything else, in file-name order.
+# Everything else, in file-name order. The checks are independent of each other and almost all of them are single-threaded Python reading the tree, so they run in a bounded pool: one after another they cost about half a minute of every push, which is most of the gate's time on a push that builds nothing. Each check's output goes to its own file and is printed afterwards in file-name order under its own header, so what is printed and what fails is the same as when they ran one by one. The pool is MSIME_CHECK_JOBS wide, else CARGO_BUILD_JOBS (rbuild sets it to the cores it may use on the Studio), else the core count capped at six. PYTHONUNBUFFERED keeps a check's stdout and stderr in the order it wrote them now that neither is a terminal.
+check_jobs="${MSIME_CHECK_JOBS:-${CARGO_BUILD_JOBS:-}}"
+if [ -z "$check_jobs" ]; then
+  check_jobs="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1)"
+  [ "$check_jobs" -gt 6 ] 2>/dev/null && check_jobs=6
+fi
+case "$check_jobs" in '' | *[!0-9]* | 0) check_jobs=1 ;; esac
+checks_dir="$(mktemp -d)"
+# Sourced, verify-local.sh's own EXIT trap removes checks_dir; on its own this script has no other trap to share.
+[ "$run_checks_standalone" -eq 1 ] && trap 'rm -rf -- "$checks_dir"' EXIT
+pending=""
 for check in scripts/test-*.py; do
   name="${check#scripts/test-}"
   name="${name%.py}"
   case " $special_names " in *" $name "*) continue ;; esac
-  note "${name//-/ }"
-  python3 "$check" || fail "${name//-/ }"
+  pending="$pending$check"$'\n'
 done
+# xargs's own status is ignored: each check's status is read from the file it leaves, and a check that left none (killed, or never started) counts as failed below.
+# shellcheck disable=SC2016  # expanded by the sh that xargs starts, not here
+printf '%s' "$pending" | xargs -P "$check_jobs" -I {} sh -c \
+  'out="$2/$(basename "$1" .py)"; PYTHONUNBUFFERED=1 python3 "$1" </dev/null >"$out.log" 2>&1; echo $? >"$out.status"' \
+  run-check {} "$checks_dir"
+for check in $pending; do
+  name="${check#scripts/test-}"
+  name="${name%.py}"
+  note "${name//-/ }"
+  cat "$checks_dir/test-$name.log" 2>/dev/null
+  [ "$(cat "$checks_dir/test-$name.status" 2>/dev/null)" = 0 ] || fail "${name//-/ }"
+done
+rm -rf -- "$checks_dir"
 
 if [ "$run_checks_standalone" -eq 1 ]; then
   if [ "$failed" -ne 0 ]; then

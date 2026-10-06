@@ -11,5 +11,5 @@ afterEach(() => {
 test("explains when the host cannot customize candidate fonts or sizes", () => {
   render(<CandidateFontUnsupportedNotice />);
 
-  expect(screen.getByText("当前宿主的候选面板不支持自定义字体或字号。")).toBeTruthy();
+  expect(screen.getByText("当前宿主的候选窗口不支持自定义字体或字号。")).toBeTruthy();
 });

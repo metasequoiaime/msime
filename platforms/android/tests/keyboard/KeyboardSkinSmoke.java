@@ -4,30 +4,46 @@ public final class KeyboardSkinSmoke {
     static void check(boolean condition) { if (!condition) throw new AssertionError(); }
 
     public static void main(String[] args) {
-        // `system` is the design's Material 3 keyboard, in the mode the host asked for.
+        // `system` 是设计 classic 基础键盘色：按 design-tokens §1.4 的公式由 classic 种子推导。
         KeyboardSkin light = KeyboardSkin.system(false);
         check("system".equals(light.id()) && "跟随系统".equals(light.title()) && !light.dark());
-        check("#E6EAE2".equals(light.background()));
-        check("#FFFFFF".equals(light.keyBackground()));
-        check("#CFE9D6".equals(light.functionBackground()));
-        check("#CFE9D6".equals(light.actionBackground()));
+        check("#DFECDF".equals(light.background()));
+        check("#FDFEFC".equals(light.keyBackground()));
+        check("#C6DCCB".equals(light.functionBackground()));
+        check("#C6DCCB".equals(light.actionBackground()));
         check("#191C19".equals(light.keyForeground()));
         check("#191C19".equals(light.actionForeground()));
-        check("#414941".equals(light.secondary()));
+        check("#56685A".equals(light.secondary()) && "#56685A".equals(light.toolbarIcon()));
         check("#2C7A4B".equals(light.accent()) && "#2C7A4B".equals(light.accentText()));
         check("#2C7A4B".equals(light.returnBackground()) && "#FFFFFF".equals(light.returnForeground()));
-        check("#CFE9D6".equals(light.accentSoft()));
+        check("#222C7A4B".equals(light.accentSoft()) && "#1F000000".equals(light.hairline()));
+        check("#FDFEFC".equals(light.candidateSelectedBackground()) && "#2C7A4B".equals(light.candidateSelectedForeground()));
         check(light.cornerRadius() == 8 && light.borderWidth() == 0 && light.shadowOpacity() == 0);
         check(!light.designed() && light.pattern() == 0 && light.photo() == null);
-        check("#80FFFFFF".equals(light.sidebarBackground()));
+        check("#80FDFEFC".equals(light.sidebarBackground()));
 
         KeyboardSkin dark = KeyboardSkin.system(true);
         check(dark.dark());
-        check("#1D201D".equals(dark.background()) && "#343833".equals(dark.keyBackground()));
-        check("#2A4F37".equals(dark.functionBackground()) && "#E1E3DE".equals(dark.keyForeground()));
-        check("#C0C9BF".equals(dark.secondary()) && "#8FD5A6".equals(dark.accent()));
+        check("#222A24".equals(dark.background()) && "#424B45".equals(dark.keyBackground()));
+        check("#354038".equals(dark.functionBackground()) && "#E1E3DE".equals(dark.keyForeground()));
+        check("#93A596".equals(dark.secondary()) && "#8FD5A6".equals(dark.accent()));
+        check("#24FFFFFF".equals(dark.hairline()) && "#93A596".equals(dark.toolbarIcon()));
         check("#8FD5A6".equals(dark.returnBackground()) && "#003920".equals(dark.returnForeground()));
         check(!light.key().equals(dark.key()));
+
+        // 跟随系统皮肤在应用主题某一季下：底色、键、功能键按种子混色，回车与开启态用该季强调色。
+        KeyboardSkin autumn = KeyboardSkin.system(false, AppThemePalette.Seed.AUTUMN);
+        check("system".equals(autumn.id()) && "#EED7C7".equals(autumn.background()));
+        check("#FDF9F6".equals(autumn.keyBackground()) && "#E6C6B2".equals(autumn.functionBackground()));
+        check("#B5562B".equals(autumn.accent()) && "#B5562B".equals(autumn.returnBackground()));
+        check("#22B5562B".equals(autumn.accentSoft()) && "#B5562B".equals(autumn.toolbarActiveIcon()));
+        KeyboardSkin autumnDark = KeyboardSkin.system(true, AppThemePalette.Seed.AUTUMN);
+        check("#2C241D".equals(autumnDark.background()) && "#4C453E".equals(autumnDark.keyBackground()));
+        check("#42382E".equals(autumnDark.functionBackground()) && "#3C2618".equals(autumnDark.returnForeground()));
+        check(KeyboardSkin.system(true, null).key().equals(dark.key()));
+        KeyboardSkin tinted = KeyboardSkin.palette("ink", "水墨", false, "#F4F1EA", "#FFFFFF",
+            "#E4DFD4", "#1A1A1A", "#6B6B6B", "#FFFFFF", "#000000").withAppTheme(AppThemePalette.Seed.AUTUMN);
+        check("#B5562B".equals(tinted.returnBackground()) && "#F4F1EA".equals(tinted.background()));
 
         // A resolved built-in palette (the shuishan row of the shared colour table).
         KeyboardSkin shuishan = KeyboardSkin.palette("shuishan", "水杉", true, "#1E1F1C",
@@ -44,7 +60,7 @@ public final class KeyboardSkinSmoke {
             "#E4DFD4", "#1A1A1A", "#6B6B6B", "#FFFFFF", "#000000");
         check("#2C7A4B".equals(ink.returnBackground()) && "#FFFFFF".equals(ink.returnForeground()));
         check("#CFE9D6".equals(ink.accentSoft()) && "#2C7A4B".equals(ink.accentText()));
-        check("#2A4F37".equals(dark.accentSoft()) && "#8FD5A6".equals(dark.accentText()));
+        check("#408FD5A6".equals(dark.accentSoft()) && "#8FD5A6".equals(dark.accentText()));
         check(shuishan.cornerRadius() == 8);
 
         // Alpha-last contract colours become Android's alpha-first form; null and junk slots fall
@@ -56,7 +72,7 @@ public final class KeyboardSkinSmoke {
         check(KeyboardSkin.androidColor(null) == null);
         KeyboardSkin partial = KeyboardSkin.palette("custom", "自定义", false, null, "#FFFFFF",
             "bad", "#1A1A1A", "#1A1A1A99", null, null);
-        check("#E6EAE2".equals(partial.background()) && "#CFE9D6".equals(partial.functionBackground()));
+        check("#DFECDF".equals(partial.background()) && "#C6DCCB".equals(partial.functionBackground()));
         check("#991A1A1A".equals(partial.secondary()) && "#2C7A4B".equals(partial.accent()));
         check("#FFFFFF".equals(partial.onAccent()));
         check("#801A1A1A".equals(KeyboardSkin.palette("x", "x", false, null, "#1A1A1A40",
@@ -69,7 +85,7 @@ public final class KeyboardSkinSmoke {
         check(KeyboardSkin.resolveDark("follow", "system", true));
         check(!KeyboardSkin.resolveDark("follow", "system", false));
         // The emoji and handwriting panels resolve their own surface setting through the same
-        // rule. An unknown or missing value has to read as 跟随全局, not as an explicit light:
+        // rule. An unknown or missing value has to read as 跟随颜色模式, not as an explicit light:
         // an older snapshot would otherwise flip those two panels while the keyboard stayed dark.
         check(KeyboardSkin.resolveDark("unknown", "dark", false));
         check(KeyboardSkin.resolveDark("", "system", true));
@@ -79,6 +95,21 @@ public final class KeyboardSkinSmoke {
             0xD4BBFF, 0xFFFFFF, 17, 1.5, .25, 3, true, "pebble", "glass", .45,
             0x30224A, true, .2, 0xA987E8,
             new byte[] {(byte) 0xFF, (byte) 0xD8, (byte) 0xFF, 0}, .8, 1);
+        check(CustomKeyboardSkin.colorValue(Integer.valueOf(0x123456), 0) == 0x123456);
+        check(CustomKeyboardSkin.colorValue(Long.valueOf(0xABCDEF), 0) == 0xABCDEF);
+        check(CustomKeyboardSkin.colorValue(Integer.valueOf(-1), 0x2468AC) == 0x2468AC);
+        check(CustomKeyboardSkin.colorValue(Double.valueOf(1.5), 0x13579B) == 0x13579B);
+        check(CustomKeyboardSkin.colorValue(Boolean.TRUE, 0x2468AC) == 0x2468AC);
+        check(CustomKeyboardSkin.colorValue("123456", 0x369CF0) == 0x369CF0);
+        check(CustomKeyboardSkin.patternValue(2) == 2);
+        check(CustomKeyboardSkin.patternValue(2.5) == 0);
+        check(CustomKeyboardSkin.patternValue("2") == 0);
+        check(CustomKeyboardSkin.patternValue(true) == 0);
+        check(CustomKeyboardSkin.patternValue(10) == 3);
+        check(CustomKeyboardSkin.doubleValue(8.5, 0) == 8.5);
+        check(CustomKeyboardSkin.doubleValue("8.5", 7) == 7);
+        check(CustomKeyboardSkin.doubleValue(Boolean.TRUE, 7) == 7);
+        check(CustomKeyboardSkin.doubleValue(Double.NaN, 7) == 7);
         KeyboardSkin custom = KeyboardSkin.customFixture(design, false);
         check("custom".equals(custom.id()) && "我的皮肤".equals(custom.title()) && custom.designed());
         check("#151022".equals(custom.background()) && "#30224A".equals(custom.gradientEnd()));
@@ -87,8 +118,9 @@ public final class KeyboardSkinSmoke {
         check(custom.keyOpacity() == .45 && custom.cornerRadius() == 17);
         check("#A987E8".equals(custom.borderColor()) && "#000000".equals(custom.actionForeground()));
         check("#D4BBFF".equals(custom.accent()) && "#000000".equals(custom.onAccent()));
-        // A keyboard design keeps its own accent on 确认 and the switched-on tiles.
-        check("#D4BBFF".equals(custom.returnBackground()) && "#000000".equals(custom.returnForeground()));
+        // A keyboard design fills 确认 with its action colour, and its function keys share the letter-key face, as on iOS; the accent stays on the switched-on tiles.
+        check("#FFFFFF".equals(custom.returnBackground()) && "#000000".equals(custom.returnForeground()));
+        check("#291E40".equals(custom.functionBackground()));
         check("#24D4BBFF".equals(custom.accentSoft()) && "#D4BBFF".equals(custom.accentText()));
         // The shared flattening's hint colour: the key text at 0x99.
         check("#99FFFFFF".equals(custom.secondary()));
@@ -129,10 +161,10 @@ public final class KeyboardSkinSmoke {
         // No keyboard in the answer: `system` is the Material 3 keyboard, anything else keeps its own id and title over the same tokens.
         KeyboardSkin bare = KeyboardSkin.resolved("system", "跟随系统", null, true, null, null);
         check("system".equals(bare.id()) && "跟随系统".equals(bare.title()) && bare.dark());
-        check("#1D201D".equals(bare.background()));
+        check("#222A24".equals(bare.background()));
         KeyboardSkin named = KeyboardSkin.resolved("ink", "水墨", null, false, null, null);
         check("ink".equals(named.id()) && "水墨".equals(named.title()));
-        check("#E6EAE2".equals(named.background()) && !named.designed());
+        check("#DFECDF".equals(named.background()) && !named.designed());
         System.out.println("Android keyboard skins: Material 3 tokens, resolved theme palettes, "
             + "alpha-last colours, null-slot fallback, custom materials, photos, mode resolution and "
             + "resolver answer mapping passed");

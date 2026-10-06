@@ -47,6 +47,54 @@ test("a move response from a replaced data directory client is ignored", async (
   expect(result.current.dataDirectory?.path).toBe("/new");
 });
 
+test("a status response from a replaced data directory client is ignored", async () => {
+  const pendingOldStatus = deferred<{ path: string; isDefault: boolean }>();
+  const pendingNewStatus = deferred<{ path: string; isDefault: boolean }>();
+  const oldClient: DataDirectoryClient = {
+    status: vi.fn().mockReturnValue(pendingOldStatus.promise),
+    pick: vi.fn(),
+    move: vi.fn(),
+  };
+  const nextClient: DataDirectoryClient = {
+    status: vi.fn().mockReturnValue(pendingNewStatus.promise),
+    pick: vi.fn(),
+    move: vi.fn(),
+  };
+  const { result, rerender } = renderHook(
+    ({ client }) => useDataDirectory({ client, enabled: true, confirm: vi.fn() }),
+    { initialProps: { client: oldClient } },
+  );
+  await waitFor(() => expect(oldClient.status).toHaveBeenCalledOnce());
+  rerender({ client: nextClient });
+  await waitFor(() => expect(nextClient.status).toHaveBeenCalledOnce());
+  expect(result.current.busy).toBe(true);
+  await act(async () => result.current.choose());
+  expect(nextClient.pick).not.toHaveBeenCalled();
+
+  pendingNewStatus.resolve({ path: "/new", isDefault: false });
+  await waitFor(() => expect(result.current.dataDirectory?.path).toBe("/new"));
+  await waitFor(() => expect(result.current.busy).toBe(false));
+  pendingOldStatus.resolve({ path: "/old", isDefault: true });
+  await act(async () => undefined);
+  expect(result.current.dataDirectory?.path).toBe("/new");
+});
+
+test("clears the directory when the capability is disabled", async () => {
+  const client: DataDirectoryClient = {
+    status: vi.fn().mockResolvedValue({ path: "/current", isDefault: true }),
+    pick: vi.fn(),
+    move: vi.fn(),
+  };
+  const { result, rerender } = renderHook(
+    ({ enabled }) => useDataDirectory({ client, enabled, confirm: vi.fn() }),
+    { initialProps: { enabled: true } },
+  );
+  await waitFor(() => expect(result.current.dataDirectory?.path).toBe("/current"));
+
+  rerender({ enabled: false });
+  await waitFor(() => expect(result.current.dataDirectory).toBeUndefined());
+});
+
 test("ignores a same-tick duplicate directory choice", async () => {
   const pendingPick = deferred<string | null>();
   const client: DataDirectoryClient = {

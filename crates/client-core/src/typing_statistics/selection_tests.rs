@@ -70,9 +70,13 @@ fn a_batch_counts_the_same_as_one_call_per_selection() {
         single.record_selection(position).expect("record");
     }
     let (_batch_directory, batch) = store();
-    batch
-        .record_selections(&[(1, 3), (2, 1), (9, 1), (10, 1), (40, 1)])
-        .expect("record batch");
+    // 写下一批时顺带交出读到的开关，宿主拿它当下一批的缓存。
+    assert_eq!(
+        batch
+            .record_selections(&[(1, 3), (2, 1), (9, 1), (10, 1), (40, 1)])
+            .expect("record batch"),
+        Some(true)
+    );
     assert_eq!(
         batch.load().expect("load").selections,
         single.load().expect("load").selections
@@ -84,10 +88,13 @@ fn an_empty_batch_touches_nothing_on_disk() {
     let parent = tempfile::tempdir().expect("tempdir");
     let directory = parent.path().join("statistics");
     let store = TypingStatisticsStore::new(&directory);
-    store.record_selections(&[]).expect("empty batch");
-    store
-        .record_selections(&[(1, 0), (4, 0)])
-        .expect("zero batch");
+    assert_eq!(store.record_selections(&[]).expect("empty batch"), None);
+    assert_eq!(
+        store
+            .record_selections(&[(1, 0), (4, 0)])
+            .expect("zero batch"),
+        None
+    );
     assert!(!directory.exists());
 }
 
@@ -98,9 +105,12 @@ fn a_batch_is_dropped_while_statistics_are_off() {
     store.set_enabled(false).expect("disable");
     let path = directory.path().join("typing-statistics.json");
     let before = std::fs::read(&path).expect("read");
-    store
-        .record_selections(&[(1, 5), (12, 2)])
-        .expect("record while off");
+    assert_eq!(
+        store
+            .record_selections(&[(1, 5), (12, 2)])
+            .expect("record while off"),
+        Some(false)
+    );
     assert_eq!(std::fs::read(&path).expect("read"), before);
 }
 

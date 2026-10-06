@@ -2,14 +2,15 @@
 //! Source: MSIME-Apple@9ca823ab40018ced3cb71812503dbc3b94615ac0
 //! (`SkinCommunityAPI.swift`, `CustomKeyboardSkin.swift`).
 
+use super::category::{SkinCategory, INCLUDE_CATEGORY};
 use crate::account::{
     request_with_account_session, AccountApi, AccountError, AccountSessionStorage,
     BackendAccountClient, BackendAccountSession,
 };
 use crate::cloud::dictionary::percent_encode;
 use crate::community::{
-    valid_author, valid_description, valid_name, valid_query, valid_rating,
-    MAXIMUM_JAVASCRIPT_INTEGER, MAXIMUM_PAGE_ITEMS,
+    valid_author, valid_description, valid_name, valid_query, valid_rating, CommunityModeration,
+    MAXIMUM_JAVASCRIPT_INTEGER, MAXIMUM_PAGE_ITEMS, MODERATION_FIELDS,
 };
 use crate::preferences::TouchKeyboardSkinDesign;
 use reqwest::Method;
@@ -30,6 +31,12 @@ pub struct CommunitySkin {
     pub rating_average: f64,
     pub owned: bool,
     pub my_rating: u8,
+    /// The moderation state, sent only for the signed-in user's own item and only to a request that asked for it with `fields=moderation`; other users' items and older servers leave it out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub moderation: Option<CommunityModeration>,
+    /// 发布分类。客户端总是带 `include=category` 请求，早于分类功能的服务端不返回它，此时为 `None`。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<SkinCategory>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -57,6 +64,9 @@ struct CommunitySkinPublishRequest<'a> {
     name: &'a str,
     description: &'a str,
     design: &'a TouchKeyboardSkinDesign,
+    /// `None` 时不发送该字段，由服务端归入默认分类。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    category: Option<SkinCategory>,
 }
 
 #[derive(Deserialize)]
@@ -72,10 +82,13 @@ struct CommunitySkinUnpublishResponse {
 }
 
 pub trait CommunitySkinApi: Send + Sync + 'static {
+    /// One page of published skins; `mine` lists only the signed-in user's own, removed ones included, with their moderation state.
     fn community_skins(
         &self,
         offset: usize,
         search: &str,
+        mine: bool,
+        category: Option<SkinCategory>,
         token: Option<&str>,
     ) -> Result<CommunitySkinPage, AccountError>;
     fn community_skin(&self, id: Uuid, token: Option<&str>) -> Result<CommunitySkin, AccountError>;
@@ -91,9 +104,16 @@ pub trait CommunitySkinApi: Send + Sync + 'static {
         name: &str,
         description: &str,
         design: &TouchKeyboardSkinDesign,
+        category: Option<SkinCategory>,
         token: &str,
     ) -> Result<(), AccountError>;
     fn unpublish_community_skin(&self, id: Uuid, token: &str) -> Result<(), AccountError>;
+    fn set_community_skin_category(
+        &self,
+        id: Uuid,
+        category: SkinCategory,
+        token: &str,
+    ) -> Result<CommunitySkin, AccountError>;
 }
 
 impl CommunitySkinApi for BackendAccountClient {
@@ -101,11 +121,24 @@ impl CommunitySkinApi for BackendAccountClient {
         &self,
         offset: usize,
         search: &str,
+        mine: bool,
+        category: Option<SkinCategory>,
         token: Option<&str>,
     ) -> Result<CommunitySkinPage, AccountError> {
         validate_query(offset, search)?;
+        if mine && token.is_none() {
+            return Err(AccountError::Unauthorized);
+        }
+        let scope = if mine {
+            format!("&scope=mine&{MODERATION_FIELDS}")
+        } else {
+            String::new()
+        };
+        let filter = category
+            .map(|category| format!("&category={}", category.as_str()))
+            .unwrap_or_default();
         let path = format!(
-            "/v1/community/skins?offset={offset}&q={}",
+            "/v1/community/skins?offset={offset}&q={}{scope}{filter}&{INCLUDE_CATEGORY}",
             percent_encode(search)
         );
         let page = self.json::<CommunitySkinPage, ()>(Method::GET, &path, token, None)?;
@@ -117,7 +150,10 @@ impl CommunitySkinApi for BackendAccountClient {
         if id.is_nil() {
             return Err(AccountError::Invalid);
         }
-        let path = format!("/v1/community/skins/{}", id.hyphenated());
+        let path = format!(
+            "/v1/community/skins/{}?{MODERATION_FIELDS}&{INCLUDE_CATEGORY}",
+            id.hyphenated()
+        );
         let skin = self.json::<CommunitySkin, ()>(Method::GET, &path, token, None)?;
         validate_skin(&skin)?;
         if skin.id != id {
@@ -170,6 +206,7 @@ impl CommunitySkinApi for BackendAccountClient {
         name: &str,
         description: &str,
         design: &TouchKeyboardSkinDesign,
+        category: Option<SkinCategory>,
         token: &str,
     ) -> Result<(), AccountError> {
         validate_publish(id, name, description, design)?;
@@ -183,6 +220,7 @@ impl CommunitySkinApi for BackendAccountClient {
                 name,
                 description,
                 design,
+                category,
             }),
         )?;
         if result.id != id {
@@ -207,6 +245,34 @@ impl CommunitySkinApi for BackendAccountClient {
         }
         Ok(())
     }
+
+    fn set_community_skin_category(
+        &self,
+        id: Uuid,
+        category: SkinCategory,
+        token: &str,
+    ) -> Result<CommunitySkin, AccountError> {
+        if id.is_nil() {
+            return Err(AccountError::Invalid);
+        }
+        #[derive(Serialize)]
+        struct CategoryRequest {
+            category: SkinCategory,
+        }
+        let path = format!("/v1/community/skins/{}?{INCLUDE_CATEGORY}", id.hyphenated());
+        let skin = self.json::<CommunitySkin, _>(
+            Method::PATCH,
+            &path,
+            Some(token),
+            Some(&CategoryRequest { category }),
+        )?;
+        validate_skin(&skin)?;
+        // 回显的分类不一致说明修改没有生效。
+        if skin.id != id || skin.category != Some(category) {
+            return Err(AccountError::Unavailable);
+        }
+        Ok(skin)
+    }
 }
 
 pub struct BackendCommunitySkinService<A: AccountApi, S: AccountSessionStorage> {
@@ -225,10 +291,17 @@ where
     A: AccountApi + CommunitySkinApi,
     S: AccountSessionStorage,
 {
-    pub fn list(&self, offset: usize, search: &str) -> Result<CommunitySkinPage, AccountError> {
+    /// One page of published skins, newest first. `mine` lists only the signed-in user's own, removed ones included, and so requires a session. `category` 为 `Some` 时只列出该分类。
+    pub fn list(
+        &self,
+        offset: usize,
+        search: &str,
+        mine: bool,
+        category: Option<SkinCategory>,
+    ) -> Result<CommunitySkinPage, AccountError> {
         validate_query(offset, search)?;
-        request_with_account_session(&self.api, &self.session, false, |api, token| {
-            api.community_skins(offset, search, token)
+        request_with_account_session(&self.api, &self.session, mine, |api, token| {
+            api.community_skins(offset, search, mine, category, token)
         })
     }
 
@@ -259,12 +332,14 @@ where
         })
     }
 
+    /// `category` 为 `None` 时不发送分类，由服务端归入默认分类。
     pub fn publish(
         &self,
         id: Uuid,
         name: &str,
         description: &str,
         design: &TouchKeyboardSkinDesign,
+        category: Option<SkinCategory>,
     ) -> Result<(), AccountError> {
         validate_publish(id, name, description, design)?;
         request_with_account_session(&self.api, &self.session, true, |api, token| {
@@ -273,6 +348,7 @@ where
                 name,
                 description,
                 design,
+                category,
                 token.ok_or(AccountError::Unauthorized)?,
             )
         })
@@ -284,6 +360,20 @@ where
         }
         request_with_account_session(&self.api, &self.session, true, |api, token| {
             api.unpublish_community_skin(id, token.ok_or(AccountError::Unauthorized)?)
+        })
+    }
+
+    /// 修改自己作品的发布分类。
+    pub fn set_category(
+        &self,
+        id: Uuid,
+        category: SkinCategory,
+    ) -> Result<CommunitySkin, AccountError> {
+        if id.is_nil() {
+            return Err(AccountError::Invalid);
+        }
+        request_with_account_session(&self.api, &self.session, true, |api, token| {
+            api.set_community_skin_category(id, category, token.ok_or(AccountError::Unauthorized)?)
         })
     }
 }
@@ -393,7 +483,31 @@ mod tests {
             rating_average: 4.0,
             owned: false,
             my_rating: 0,
+            moderation: None,
+            category: Some(SkinCategory::Nature),
         }
+    }
+
+    /// 在本机起一个只应答一次的 HTTP 服务，返回它的地址和收到的完整请求。
+    fn serve_once(response: Vec<u8>) -> (String, mpsc::Receiver<String>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let (sent, received) = mpsc::channel();
+        std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0_u8; 4096];
+            let length = stream.read(&mut request).unwrap();
+            sent.send(String::from_utf8_lossy(&request[..length]).into_owned())
+                .unwrap();
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/json\r\n\r\n",
+                response.len()
+            )
+            .unwrap();
+            stream.write_all(&response).unwrap();
+        });
+        (origin, received)
     }
 
     #[derive(Clone, Default)]
@@ -453,6 +567,8 @@ mod tests {
             &self,
             _: usize,
             _: &str,
+            _: bool,
+            _: Option<SkinCategory>,
             bearer: Option<&str>,
         ) -> Result<CommunitySkinPage, AccountError> {
             self.skin_calls.fetch_add(1, Ordering::SeqCst);
@@ -491,6 +607,7 @@ mod tests {
             _: &str,
             _: &str,
             _: &TouchKeyboardSkinDesign,
+            _: Option<SkinCategory>,
             _: &str,
         ) -> Result<(), AccountError> {
             self.skin_calls.fetch_add(1, Ordering::SeqCst);
@@ -500,6 +617,22 @@ mod tests {
         fn unpublish_community_skin(&self, _: Uuid, _: &str) -> Result<(), AccountError> {
             self.skin_calls.fetch_add(1, Ordering::SeqCst);
             Ok(())
+        }
+
+        fn set_community_skin_category(
+            &self,
+            id: Uuid,
+            category: SkinCategory,
+            bearer: &str,
+        ) -> Result<CommunitySkin, AccountError> {
+            self.skin_calls.fetch_add(1, Ordering::SeqCst);
+            if bearer == token(b'a') {
+                return Err(AccountError::Unauthorized);
+            }
+            let mut value = skin();
+            value.id = id;
+            value.category = Some(category);
+            Ok(value)
         }
     }
 
@@ -514,7 +647,7 @@ mod tests {
         let calls = Arc::clone(&api.skin_calls);
         let session = Arc::new(BackendAccountSession::new(api.clone(), storage));
         let service = BackendCommunitySkinService::new(api, session);
-        assert_eq!(service.list(0, "").unwrap().skins.len(), 1);
+        assert_eq!(service.list(0, "", false, None).unwrap().skins.len(), 1);
         assert_eq!(calls.load(Ordering::SeqCst), 2);
     }
 
@@ -526,6 +659,11 @@ mod tests {
         let service = BackendCommunitySkinService::new(api, session);
         assert_eq!(service.detail(skin().id).unwrap().name, "合成皮肤");
         assert!(storage.load().unwrap().is_none());
+        // The user's own list needs a session and never sends the request without one.
+        assert_eq!(
+            service.list(0, "", true, None),
+            Err(AccountError::Unauthorized)
+        );
     }
 
     #[test]
@@ -561,6 +699,7 @@ mod tests {
                 "发布皮肤",
                 "公开说明",
                 &TouchKeyboardSkinDesign::default(),
+                Some(SkinCategory::Cute),
             )
             .unwrap();
         service.unpublish(skin().id).unwrap();
@@ -610,62 +749,30 @@ mod tests {
 
     #[test]
     fn transport_percent_encodes_search_and_validates_response() {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let origin = format!("http://{}", listener.local_addr().unwrap());
-        let (sent, received) = mpsc::channel();
         let response = serde_json::to_vec(&CommunitySkinPage {
             skins: vec![skin()],
             has_more: false,
         })
         .unwrap();
-        std::thread::spawn(move || {
-            let (mut stream, _) = listener.accept().unwrap();
-            let mut request = [0_u8; 4096];
-            let length = stream.read(&mut request).unwrap();
-            sent.send(String::from_utf8_lossy(&request[..length]).into_owned())
-                .unwrap();
-            write!(
-                stream,
-                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/json\r\n\r\n",
-                response.len()
-            )
-            .unwrap();
-            stream.write_all(&response).unwrap();
-        });
+        let (origin, received) = serve_once(response);
         let client = BackendAccountClient::loopback(&origin).unwrap();
-        let page = client.community_skins(7, "C++ 星", None).unwrap();
+        let page = client
+            .community_skins(7, "C++ 星", false, None, None)
+            .unwrap();
         assert_eq!(page.skins.len(), 1);
-        assert!(received
-            .recv()
-            .unwrap()
-            .starts_with("GET /v1/community/skins?offset=7&q=C%2B%2B%20%E6%98%9F HTTP/1.1"));
+        assert!(received.recv().unwrap().starts_with(
+            "GET /v1/community/skins?offset=7&q=C%2B%2B%20%E6%98%9F&include=category HTTP/1.1"
+        ));
+        assert_eq!(
+            client.community_skins(0, "", true, None, None),
+            Err(AccountError::Unauthorized)
+        );
     }
 
     #[test]
     fn transport_uses_authenticated_write_contracts() {
-        fn server(response: Vec<u8>) -> (String, mpsc::Receiver<String>) {
-            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-            let origin = format!("http://{}", listener.local_addr().unwrap());
-            let (sent, received) = mpsc::channel();
-            std::thread::spawn(move || {
-                let (mut stream, _) = listener.accept().unwrap();
-                let mut request = [0_u8; 4096];
-                let length = stream.read(&mut request).unwrap();
-                sent.send(String::from_utf8_lossy(&request[..length]).into_owned())
-                    .unwrap();
-                write!(
-                    stream,
-                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/json\r\n\r\n",
-                    response.len()
-                )
-                .unwrap();
-                stream.write_all(&response).unwrap();
-            });
-            (origin, received)
-        }
-
         let id = skin().id;
-        let (origin, received) = server(
+        let (origin, received) = serve_once(
             serde_json::to_vec(&serde_json::json!({
                 "design": TouchKeyboardSkinDesign::default()
             }))
@@ -680,7 +787,7 @@ mod tests {
         )));
         assert!(request.contains("authorization: Bearer "));
 
-        let (origin, received) = server(br#"{"stars":4}"#.to_vec());
+        let (origin, received) = serve_once(br#"{"stars":4}"#.to_vec());
         let client = BackendAccountClient::loopback(&origin).unwrap();
         client.rate_community_skin(id, 4, &token(b'b')).unwrap();
         let request = received.recv().unwrap();
@@ -691,7 +798,7 @@ mod tests {
         assert!(request.ends_with("\r\n\r\n{\"stars\":4}"));
 
         let (origin, received) =
-            server(serde_json::to_vec(&serde_json::json!({ "id": id })).unwrap());
+            serve_once(serde_json::to_vec(&serde_json::json!({ "id": id })).unwrap());
         let client = BackendAccountClient::loopback(&origin).unwrap();
         client
             .publish_community_skin(
@@ -699,6 +806,7 @@ mod tests {
                 "发布皮肤",
                 "公开说明",
                 &TouchKeyboardSkinDesign::default(),
+                Some(SkinCategory::Guofeng),
                 &token(b'c'),
             )
             .unwrap();
@@ -711,8 +819,9 @@ mod tests {
         assert_eq!(body["name"], "发布皮肤");
         assert_eq!(body["description"], "公开说明");
         assert!(body["design"].is_object());
+        assert_eq!(body["category"], "guofeng");
 
-        let (origin, received) = server(br#"{"deleted":true}"#.to_vec());
+        let (origin, received) = serve_once(br#"{"deleted":true}"#.to_vec());
         let client = BackendAccountClient::loopback(&origin).unwrap();
         client.unpublish_community_skin(id, &token(b'd')).unwrap();
         let request = received.recv().unwrap();
@@ -721,5 +830,146 @@ mod tests {
             id.hyphenated()
         )));
         assert!(request.contains("authorization: Bearer "));
+    }
+
+    #[test]
+    fn categories_round_trip_and_unknown_ones_read_as_other() {
+        let ids = [
+            "nature", "guofeng", "acg", "cute", "food", "tech", "minimal", "other",
+        ];
+        for (category, id) in SkinCategory::ALL.into_iter().zip(ids) {
+            assert_eq!(category.as_str(), id);
+            assert_eq!(serde_json::to_value(category).unwrap(), id);
+        }
+        let value = skin();
+        let parsed: CommunitySkin =
+            serde_json::from_value(serde_json::to_value(&value).unwrap()).unwrap();
+        assert_eq!(parsed, value);
+
+        // 服务端将来新增的分类读作其他，旧客户端仍能读出条目。
+        let mut json = serde_json::to_value(skin()).unwrap();
+        json["category"] = serde_json::json!("seasonal");
+        let parsed: CommunitySkin = serde_json::from_value(json).unwrap();
+        assert_eq!(parsed.category, Some(SkinCategory::Other));
+    }
+
+    #[test]
+    fn skins_without_a_category_still_read_and_other_unknown_fields_are_refused() {
+        let mut json = serde_json::to_value(skin()).unwrap();
+        json.as_object_mut().unwrap().remove("category");
+        let parsed: CommunitySkin = serde_json::from_value(json.clone()).unwrap();
+        assert_eq!(parsed.category, None);
+        // 不带分类的条目也不会把 `category` 写回给页面。
+        assert!(!serde_json::to_value(&parsed)
+            .unwrap()
+            .as_object()
+            .unwrap()
+            .contains_key("category"));
+        json["unexpected"] = serde_json::json!(1);
+        assert!(serde_json::from_value::<CommunitySkin>(json).is_err());
+    }
+
+    #[test]
+    fn a_publish_without_a_category_omits_it() {
+        let design = TouchKeyboardSkinDesign::default();
+        let body = serde_json::to_value(CommunitySkinPublishRequest {
+            id: skin().id,
+            name: "发布皮肤",
+            description: "",
+            design: &design,
+            category: None,
+        })
+        .unwrap();
+        assert!(!body.as_object().unwrap().contains_key("category"));
+    }
+
+    #[test]
+    fn transport_filters_by_category_and_always_includes_it() {
+        let response = serde_json::to_vec(&CommunitySkinPage {
+            skins: vec![skin()],
+            has_more: false,
+        })
+        .unwrap();
+        let (origin, received) = serve_once(response);
+        let client = BackendAccountClient::loopback(&origin).unwrap();
+        let page = client
+            .community_skins(0, "", false, Some(SkinCategory::Acg), None)
+            .unwrap();
+        assert_eq!(page.skins, vec![skin()]);
+        assert!(received.recv().unwrap().starts_with(
+            "GET /v1/community/skins?offset=0&q=&category=acg&include=category HTTP/1.1"
+        ));
+
+        let (origin, received) = serve_once(serde_json::to_vec(&skin()).unwrap());
+        let client = BackendAccountClient::loopback(&origin).unwrap();
+        assert_eq!(client.community_skin(skin().id, None).unwrap(), skin());
+        assert!(received.recv().unwrap().starts_with(&format!(
+            "GET /v1/community/skins/{}?fields=moderation&include=category HTTP/1.1",
+            skin().id.hyphenated()
+        )));
+    }
+
+    #[test]
+    fn transport_sets_the_category_by_id() {
+        let mut food = skin();
+        food.category = Some(SkinCategory::Food);
+        let (origin, received) = serve_once(serde_json::to_vec(&food).unwrap());
+        let client = BackendAccountClient::loopback(&origin).unwrap();
+        assert_eq!(
+            client
+                .set_community_skin_category(skin().id, SkinCategory::Food, &token(b'c'))
+                .unwrap(),
+            food
+        );
+        let request = received.recv().unwrap();
+        assert!(request.starts_with(&format!(
+            "PATCH /v1/community/skins/{}?include=category HTTP/1.1",
+            skin().id.hyphenated()
+        )));
+        assert!(request.contains("authorization: Bearer "));
+        let body = request.split("\r\n\r\n").nth(1).unwrap();
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(body).unwrap(),
+            serde_json::json!({ "category": "food" })
+        );
+
+        // 回显的分类不是请求的分类，说明修改没有生效。
+        let (origin, _received) = serve_once(serde_json::to_vec(&skin()).unwrap());
+        let client = BackendAccountClient::loopback(&origin).unwrap();
+        assert_eq!(
+            client.set_community_skin_category(skin().id, SkinCategory::Food, &token(b'c')),
+            Err(AccountError::Unavailable)
+        );
+        assert_eq!(
+            client.set_community_skin_category(Uuid::nil(), SkinCategory::Food, &token(b'c')),
+            Err(AccountError::Invalid)
+        );
+    }
+
+    #[test]
+    fn setting_a_category_requires_login_and_refreshes_once() {
+        let storage = MemoryStorage::default();
+        let api = FakeApi::default();
+        let session = Arc::new(BackendAccountSession::new(api.clone(), storage.clone()));
+        let service = BackendCommunitySkinService::new(api.clone(), session);
+        assert_eq!(
+            service.set_category(Uuid::nil(), SkinCategory::Food),
+            Err(AccountError::Invalid)
+        );
+        assert_eq!(
+            service.set_category(skin().id, SkinCategory::Food),
+            Err(AccountError::Unauthorized)
+        );
+        assert_eq!(api.skin_calls.load(Ordering::SeqCst), 0);
+
+        *storage.0.lock().unwrap() = Some(SavedAccountSession {
+            tokens: tokens(b'a', b'b'),
+            expires_at_unix_ms: valid_future_expiry(),
+        });
+        let session = Arc::new(BackendAccountSession::new(api.clone(), storage));
+        let service = BackendCommunitySkinService::new(api.clone(), session);
+        let updated = service.set_category(skin().id, SkinCategory::Food).unwrap();
+        assert_eq!(updated.category, Some(SkinCategory::Food));
+        assert_eq!(api.skin_calls.load(Ordering::SeqCst), 2);
     }
 }

@@ -4,6 +4,7 @@ use std::panic::{self, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 
 use msime_engine::assets::USER_JOURNAL;
+use msime_engine::vietnamese::{InputMethod, ToneStyle};
 use msime_engine::{
     CandidateEdge, CandidateSource, Command, FrequencyAdjustmentMode, PersonalDictionaryEntry,
     PersonalDictionaryKind, RuntimePaths, SchemeType, Session, SessionOptions,
@@ -15,6 +16,13 @@ use super::diff::{diff_documents, DiffOptions};
 use super::fixture::stage_fixture;
 use super::golden_dir;
 use super::snapshot::{dump_journal, query_rows, result_json, scrub, snapshot_json};
+
+/// The file name a scenario fixture stages `msime-cantonese.db` under, beside the resource set's own files.
+const CANTONESE_DICTIONARY: &str = "msime-cantonese.db";
+/// The file name a scenario fixture stages `msime-zhuyin.db` under, beside the resource set's own files.
+const ZHUYIN_DICTIONARY: &str = "msime-zhuyin.db";
+/// The file name a scenario fixture stages `msime-stroke.db` under, beside the resource set's own files.
+const STROKE_DICTIONARY: &str = "msime-stroke.db";
 
 pub const SCENARIO_ENV: &str = "MSIME_GOLDEN_SCENARIO";
 
@@ -198,6 +206,20 @@ pub fn apply_options(options: &mut SessionOptions, value: &Value) {
                     .unwrap_or_else(|| panic!("unknown shuangpin profile {v}"));
             }
             "shuangpin_preedit_uses_raw" => options.shuangpin_preedit_uses_raw = as_bool(v),
+            "vietnamese_input_method" => {
+                options.vietnamese_input_method = match as_str(v) {
+                    "telex" => InputMethod::Telex,
+                    "vni" => InputMethod::Vni,
+                    other => panic!("unknown vietnamese input method {other}"),
+                };
+            }
+            "vietnamese_tone_style" => {
+                options.vietnamese_tone_style = match as_str(v) {
+                    "modern" => ToneStyle::Modern,
+                    "classic" => ToneStyle::Classic,
+                    other => panic!("unknown vietnamese tone style {other}"),
+                };
+            }
             "helpcode_schema" => options.helpcode_schema = as_str(v).to_owned(),
             "autocorrect_types" => options.autocorrect_types = as_u32(v),
             "helpcode" => options.helpcode = as_bool(v),
@@ -311,6 +333,11 @@ fn scheme_from(name: &str) -> SchemeType {
         "wubi" => SchemeType::Wubi,
         "japanese" => SchemeType::JapaneseRomaji,
         "korean" => SchemeType::Korean,
+        "cantonese" => SchemeType::Cantonese,
+        "vietnamese" => SchemeType::Vietnamese,
+        "tibetan" => SchemeType::Tibetan,
+        "zhuyin" => SchemeType::Zhuyin,
+        "stroke" => SchemeType::Stroke,
         _ => panic!("unknown scheme {name}"),
     }
 }
@@ -425,6 +452,19 @@ impl Scenario {
         });
         let mut options = self.options.clone();
         options.paths = self.paths.clone();
+        // `msime-cantonese.db`, `msime-zhuyin.db` and `msime-stroke.db` ship beside the resource set, so a fixture that stages one hands its path to the session as a host would.
+        let cantonese = self.resources.join(CANTONESE_DICTIONARY);
+        if cantonese.exists() {
+            options.cantonese_dictionary = cantonese;
+        }
+        let zhuyin = self.resources.join(ZHUYIN_DICTIONARY);
+        if zhuyin.exists() {
+            options.zhuyin_dictionary = zhuyin;
+        }
+        let stroke = self.resources.join(STROKE_DICTIONARY);
+        if stroke.exists() {
+            options.stroke_dictionary = stroke;
+        }
         self.session = Some(Session::new(options).unwrap_or_else(|error| {
             panic!(
                 "Session::new failed: {}",
@@ -573,8 +613,11 @@ impl Scenario {
                 None
             }
             "switch_scheme" => {
-                self.session().switch_scheme(scheme_from(as_str(arg)));
-                None
+                // A scheme whose dictionary cannot be opened is refused and the session stays where it was; the refusal is the step's result.
+                match self.session().switch_scheme(scheme_from(as_str(arg))) {
+                    Ok(()) => None,
+                    Err(error) => Some(json!({"error": scrub(&error.to_string(), &self.roots)})),
+                }
             }
             "set_helpcode_schema" => {
                 let accepted = self.session().set_helpcode_schema(as_str(arg));
@@ -666,8 +709,11 @@ impl Scenario {
                 Some(json!({"applied": applied}))
             }
             "reopen" => {
-                // A new Session on the same user data: the same generation is re-prepared, which replays the journal.
+                // A new Session on the same user data: the same generation is re-prepared, which replays the journal. An `options` object on the step changes those session options for the new Session (harness-side, for options with no live setter such as the Vietnamese tone style).
                 self.close();
+                if let Some(changed) = step.get("options") {
+                    apply_options(&mut self.options, changed);
+                }
                 self.open();
                 None
             }
@@ -685,7 +731,7 @@ impl Scenario {
                 None
             }
             "query" => {
-                // Read-only SQL against the live generation copy of a dictionary (msime.db / english.db) or the journal.
+                // Read-only SQL against the live generation copy of a dictionary (msime-pinyin.db / msime-english.db) or the journal.
                 msime_engine::flush_personal_learning();
                 let db = as_str(&step["db"]);
                 let path = if db == USER_JOURNAL {
@@ -788,7 +834,7 @@ mod tests {
     #[test]
     fn every_scenario_is_selected_in_name_order_without_a_filter() {
         let all = selected_scenarios_from(None);
-        assert_eq!(all.len(), 273);
+        assert_eq!(all.len(), 299);
         let mut sorted = all.clone();
         sorted.sort();
         assert_eq!(all, sorted);
@@ -906,6 +952,20 @@ mod tests {
         assert_eq!(options.english.minimum_prefix, 4);
         assert!(options.expressive.emoji_candidates && !options.expressive.kaomoji_candidates);
         assert!(options.wubi.mixed_pinyin && !options.personal_context);
+    }
+
+    #[test]
+    fn vietnamese_options_map_onto_the_session_fields() {
+        let mut options = SessionOptions::new(RuntimePaths::default());
+        assert_eq!(options.vietnamese_input_method, InputMethod::Telex);
+        assert_eq!(options.vietnamese_tone_style, ToneStyle::Modern);
+        apply_options(
+            &mut options,
+            &json!({"scheme": "vietnamese", "vietnamese_input_method": "vni", "vietnamese_tone_style": "classic"}),
+        );
+        assert_eq!(options.scheme, SchemeType::Vietnamese);
+        assert_eq!(options.vietnamese_input_method, InputMethod::Vni);
+        assert_eq!(options.vietnamese_tone_style, ToneStyle::Classic);
     }
 
     #[test]

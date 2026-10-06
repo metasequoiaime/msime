@@ -18,8 +18,8 @@ import app.msime.android.KeyboardSkin;
  * for -- what does it look like -- without downloading anything.
  */
 public final class SkinSwatchView extends View {
-    private static final int ROWS = 3;
-    private static final int COLUMNS = 4;
+    private static final int ROWS = 4;
+    private static final int COLUMNS = 5;
 
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final RectF box = new RectF();
@@ -47,33 +47,54 @@ public final class SkinSwatchView extends View {
         }
     }
 
+    /** 当前显示的皮肤，没有时为 null。 */
+    @Nullable public KeyboardSkin skin() { return skin; }
+
+    /**
+     * 按设计的皮肤卡缩略画：皮肤底色上四行小键帽，前三行是字母键，第三行两端和底行两侧是功能键底色，底行中间是空格，右下角是回车色。
+     */
     @Override protected void onDraw(Canvas canvas) {
         KeyboardSkin value = skin;
         if (value == null || getWidth() <= 0 || getHeight() <= 0) return;
-        float radius = dp(8);
+        float radius = dp(10);
         paint.setColor(parse(value.background(), Color.LTGRAY));
         box.set(0, 0, getWidth(), getHeight());
         canvas.drawRoundRect(box, radius, radius, paint);
 
-        float pad = dp(4);
-        float gap = dp(2);
+        float pad = dp(5);
+        float gap = dp(2.5f);
         float cellWidth = (getWidth() - pad * 2 - gap * (COLUMNS - 1)) / COLUMNS;
         float cellHeight = (getHeight() - pad * 2 - gap * (ROWS - 1)) / ROWS;
         if (cellWidth <= 0 || cellHeight <= 0) return;
-        float capRadius = Math.min(dp((float) value.cornerRadius()) / 2f, cellHeight / 2f);
+        float capRadius = Math.min(dp((float) value.cornerRadius()) / 2f, cellHeight / 2.5f);
         int cap = parse(value.keyBackground(), Color.WHITE);
-        int accent = parse(value.actionBackground(), Color.DKGRAY);
+        int function = parse(value.functionBackground(), cap);
+        int action = parse(value.returnBackground(), parse(value.actionBackground(), Color.DKGRAY));
         for (int row = 0; row < ROWS; row++) {
+            float top = pad + row * (cellHeight + gap);
+            if (row == ROWS - 1) {
+                // 底行：功能键、空格（占中间三格）、回车。
+                float left = pad;
+                drawCap(canvas, left, top, cellWidth, cellHeight, capRadius, function);
+                left += cellWidth + gap;
+                float space = cellWidth * (COLUMNS - 2) + gap * (COLUMNS - 3);
+                drawCap(canvas, left, top, space, cellHeight, capRadius, cap);
+                left += space + gap;
+                drawCap(canvas, left, top, cellWidth, cellHeight, capRadius, action);
+                continue;
+            }
             for (int column = 0; column < COLUMNS; column++) {
-                // The bottom-right key is the emphasized one on every layout this draws, so the
-                // swatch shows both faces a skin defines rather than only its key colour.
-                boolean emphasized = row == ROWS - 1 && column == COLUMNS - 1;
-                paint.setColor(emphasized ? accent : cap);
+                boolean edge = row == ROWS - 2 && (column == 0 || column == COLUMNS - 1);
                 float left = pad + column * (cellWidth + gap);
-                float top = pad + row * (cellHeight + gap);
-                box.set(left, top, left + cellWidth, top + cellHeight);
-                canvas.drawRoundRect(box, capRadius, capRadius, paint);
+                drawCap(canvas, left, top, cellWidth, cellHeight, capRadius, edge ? function : cap);
             }
         }
+    }
+
+    private void drawCap(Canvas canvas, float left, float top, float width, float height,
+            float radius, int color) {
+        paint.setColor(color);
+        box.set(left, top, left + width, top + height);
+        canvas.drawRoundRect(box, radius, radius, paint);
     }
 }

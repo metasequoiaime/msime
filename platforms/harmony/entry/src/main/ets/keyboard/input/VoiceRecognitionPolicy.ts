@@ -11,6 +11,10 @@ export class VoiceRecognitionPolicy {
     return trimmed.slice(0, VOICE_MAX_LANGUAGE);
   }
 
+  static engineLanguageChanged(current: string, next: string): boolean {
+    return VoiceRecognitionPolicy.language(current) !== VoiceRecognitionPolicy.language(next);
+  }
+
   static sessionId(generation: number): string {
     const bounded: number = Math.max(1, Math.floor(generation)) % 1000000000;
     return `msime-voice-${bounded}`;
@@ -19,6 +23,15 @@ export class VoiceRecognitionPolicy {
   static result(value: string): string {
     let text: string = value.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '');
     text = text.trim();
-    return text.slice(0, VOICE_MAX_TEXT);
+    let bounded: string = text.slice(0, VOICE_MAX_TEXT);
+    // 避免按 UTF-16 截断时留下孤立的高代理项。
+    if (
+      bounded.length > 0 &&
+      bounded.charCodeAt(bounded.length - 1) >= 0xd800 &&
+      bounded.charCodeAt(bounded.length - 1) <= 0xdbff
+    ) {
+      bounded = bounded.slice(0, -1);
+    }
+    return bounded;
   }
 }

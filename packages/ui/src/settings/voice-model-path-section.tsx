@@ -1,3 +1,6 @@
+import { Row } from "../core/platform-controls";
+import { ActionButton } from "./action-button";
+
 export interface VoiceModelPathSectionProps {
   path: string;
   pickPath?: () => Promise<string | null>;
@@ -6,38 +9,31 @@ export interface VoiceModelPathSectionProps {
 
 /** Manual model directory input shared by voice hosts with and without a model store. */
 export function VoiceModelPathSection({ path, pickPath, onChange }: VoiceModelPathSectionProps) {
+  const description = "已安装模型所在文件夹的绝对路径（包含 msime-model.json）";
+  const editor = (
+    <span className="flex items-center gap-2 [&>input]:min-w-0 [&>input]:flex-1">
+      <input
+        aria-label="本地模型目录"
+        value={path}
+        placeholder="/path/to/voice-models/<model>"
+        onChange={(event) => onChange(event.target.value)}
+      />
+      {pickPath && (
+        <ActionButton
+          action={async () => {
+            // Cancelling resolves to null and must leave the field as it was, rather than
+            // clearing a path that already worked.
+            const chosen = await pickPath();
+            if (chosen) onChange(chosen);
+          }}
+          label="选择…"
+        />
+      )}
+    </span>
+  );
   return (
-    <div className="section">
-      <label className="section-header">
-        <span className="section-title">
-          本地模型目录
-          <small>已安装模型所在文件夹的绝对路径（包含 msime-model.json）</small>
-        </span>
-        <span className="flex items-center gap-2 [&>input]:min-w-0 [&>input]:flex-1">
-          <input
-            aria-label="本地模型目录"
-            value={path}
-            placeholder="/path/to/voice-models/<model>"
-            onChange={(event) => onChange(event.target.value)}
-          />
-          {pickPath && (
-            <button
-              type="button"
-              className="secondary"
-              onClick={() => {
-                void (async () => {
-                  // Cancelling resolves to null and must leave the field as it was, rather than
-                  // clearing a path that already worked.
-                  const chosen = await pickPath();
-                  if (chosen) onChange(chosen);
-                })();
-              }}
-            >
-              选择…
-            </button>
-          )}
-        </span>
-      </label>
-    </div>
+    <Row title="本地模型目录" description={description}>
+      {editor}
+    </Row>
   );
 }

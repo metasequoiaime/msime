@@ -10,13 +10,13 @@ import {
   aiServiceCredentialTestDisabled,
 } from "./ai-credential-test-config";
 import { aiCredentialSaveConfig } from "./ai-credential-save-config";
-import { defaultAiAssistant } from "./ai-assistant-defaults";
 import { AiSettingsPageSection } from "./ai-settings-page-section";
 import { AiCredentialSection } from "./ai-credential-section";
 import { AiLinuxProviderSection } from "./ai-linux-provider-section";
 import { AiApiTokenSection } from "./ai-api-token-section";
 import { AiTestToolsSection } from "./ai-test-tools-section";
 import type { ProviderPresetControlFactory } from "./provider-preset-control";
+import * as settings from "./settings-style";
 
 export interface AiSettingsContentProps {
   disabled: boolean;
@@ -53,7 +53,8 @@ export interface AiSettingsContentProps {
   >["providerCredentialMessages"];
   runProviderCredential: ReturnType<typeof useProviderCredentials>["runProviderCredential"];
   credentialTestControl: ReturnType<typeof useProviderCredentials>["credentialTestControl"];
-  mcpConnect: ReactNode;
+  /** 最后一组之后的内容：设置页在这里放进入「AI 对话」的入口。 */
+  trailing: ReactNode;
 }
 
 /** Complete AI settings composition; host state and provider operations stay with SettingsPage. */
@@ -90,10 +91,26 @@ export function AiSettingsContent({
   providerCredentialMessages,
   runProviderCredential,
   credentialTestControl,
-  mcpConnect,
+  trailing,
 }: AiSettingsContentProps) {
+  const linuxCredentialTest = credentialTestControl(
+    "ai.assistant",
+    "测试 AI 辅助配置",
+    aiProviderCredentialTestConfig(ai),
+    aiCredentialTestDisabled(ai, aiOrigin),
+  );
+  const serviceCredentialTest =
+    windowsPlatform || macosPlatform || iosPlatform
+      ? credentialTestControl(
+          "ai.assistant",
+          "测试 AI 辅助配置",
+          aiServiceCredentialTestConfig(ai, aiToken),
+          aiServiceCredentialTestDisabled(ai, aiOrigin, aiToken),
+        )
+      : null;
   return (
     <AiSettingsPageSection
+      endpointValid={aiOrigin !== null}
       disabled={disabled}
       hidden={hidden}
       enabled={ai.enabled}
@@ -113,6 +130,7 @@ export function AiSettingsContent({
         aiProviderOption(ai.provider),
         ai.model,
         (model) => updateAi({ model }),
+        settings.managerBlock,
       )}
       onEnabledChange={(enabled) => updateAi({ enabled })}
       onProviderChange={(provider) => updateAi(aiProviderUpdate(provider, ai))}
@@ -144,37 +162,15 @@ export function AiSettingsContent({
                 "凭据已清除。",
               )
             }
-          >
-            {credentialTestControl(
-              "ai.assistant",
-              "测试 AI 辅助配置",
-              aiProviderCredentialTestConfig(ai),
-              aiCredentialTestDisabled(ai, aiOrigin),
-            )}
-          </AiCredentialSection>
+          />
         ) : linuxPlatform ? (
-          <AiLinuxProviderSection>
-            {credentialTestControl(
-              "ai.assistant",
-              "测试 AI 辅助配置",
-              aiProviderCredentialTestConfig(ai),
-              aiCredentialTestDisabled(ai, aiOrigin),
-            )}
-          </AiLinuxProviderSection>
+          <AiLinuxProviderSection />
         ) : (
           <AiApiTokenSection origin={aiOrigin} token={aiToken} onTokenChange={updateAiToken} />
         )
       }
-      desktopCredentialTest={
-        windowsPlatform || macosPlatform || iosPlatform
-          ? credentialTestControl(
-              "ai.assistant",
-              "测试 AI 辅助配置",
-              aiServiceCredentialTestConfig(ai, aiToken),
-              aiServiceCredentialTestDisabled(ai, aiOrigin, aiToken),
-            )
-          : null
-      }
+      // Linux 的测试按钮同样放在服务组末尾，与其他平台一致。
+      desktopCredentialTest={serviceCredentialTest ?? (linuxPlatform ? linuxCredentialTest : null)}
       modelCatalog={
         client.aiAssistant
           ? {
@@ -190,13 +186,10 @@ export function AiSettingsContent({
       candidateLimit={ai.candidate_limit}
       onCandidateLimitChange={(candidate_limit) => updateAi({ candidate_limit })}
       promptId={ai.prompt_id}
-      prompt={ai.prompt}
       promptCustom1={ai.prompt_custom_1 ?? ""}
       promptCustom2={ai.prompt_custom_2 ?? ""}
       promptCustom3={ai.prompt_custom_3 ?? ""}
-      fallbackPrompt={defaultAiAssistant.prompt ?? ""}
       onPromptIdChange={(prompt_id) => updateAi({ prompt_id })}
-      onPromptChange={(prompt) => updateAi({ prompt })}
       onPromptCustom1Change={(prompt_custom_1) => updateAi({ prompt_custom_1 })}
       onPromptCustom2Change={(prompt_custom_2) => updateAi({ prompt_custom_2 })}
       onPromptCustom3Change={(prompt_custom_3) => updateAi({ prompt_custom_3 })}
@@ -213,7 +206,7 @@ export function AiSettingsContent({
           />
         ) : null
       }
-      mcpConnect={mcpConnect}
+      trailing={trailing}
     />
   );
 }

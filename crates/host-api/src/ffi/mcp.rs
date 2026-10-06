@@ -2,7 +2,7 @@
 //!
 //! The server is looked for beside the calling executable, where every package puts it next to the settings binary.
 
-use crate::mcp_clients::{self, McpClient};
+use crate::mcp_clients::{self, McpClient, McpFlag};
 use crate::*;
 
 const MCP_REQUEST_LIMIT: usize = 65_536;
@@ -21,6 +21,9 @@ struct InstallRequest {
     #[serde(default)]
     options: Option<String>,
     client: McpClient,
+    /// 写进条目 `args` 的权限参数；省略时写只读条目。
+    #[serde(default)]
+    flags: Vec<McpFlag>,
     #[serde(default)]
     replace: bool,
 }
@@ -65,9 +68,9 @@ pub unsafe extern "C" fn msime_client_mcp_status(request: *const u8, length: usi
     })
 }
 
-/// Write the entry into one assistant's configuration file, keeping everything else in it.
+/// 把条目写进一个助手的配置文件，保留文件里其它所有内容。
 ///
-/// Request `{"options": "<absolute path>", "client": "claude_desktop" | "cursor", "replace": false}`; response `"added" | "replaced" | "unchanged"`. A different `msime` entry fails with `mcp_entry_exists` unless `replace` is set, so the host asks before overwriting it; the other error codes are `mcp_client_missing`, `mcp_config_invalid`, `mcp_server_missing`, `mcp_options_missing` and `storage`. Writes a file, so call it off the UI thread.
+/// 请求 `{"options": "<绝对路径>", "client": "claude_desktop" | "cursor", "flags": ["--allow-write", "--allow-dictionary-read"], "replace": false}`，`flags` 省略时写只读条目；响应 `"added" | "updated" | "replaced" | "unchanged"`。已有条目只差权限参数时改成这次的参数（`updated`）；其它不同的 `msime` 条目在未设 `replace` 时以 `mcp_entry_exists` 失败，由宿主先问再覆盖。其余错误码是 `mcp_client_missing`、`mcp_config_invalid`、`mcp_server_missing`、`mcp_options_missing` 和 `storage`。会写文件，请在 UI 线程之外调用。
 ///
 /// # Safety
 /// `request` must point to `length` readable bytes. Null is rejected.
@@ -83,6 +86,7 @@ pub unsafe extern "C" fn msime_client_mcp_install(
             &executable()?,
             options,
             request.client,
+            &request.flags,
             request.replace,
             |name| std::env::var_os(name),
         )?;

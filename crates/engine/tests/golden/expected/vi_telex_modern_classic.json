@@ -1,0 +1,403 @@
+{
+ "name": "vi_telex_modern_classic",
+ "steps": [
+  {
+   "op": "open",
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "vietnamese",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "hoaf",
+   "op": "type",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 4,
+    "dedicated_english": false,
+    "editing_text": "hoà",
+    "local_mode": "none",
+    "normalized_segmentation": "hoà",
+    "preedit": "hoà",
+    "raw_segmentation": "hoaf",
+    "scheme": "vietnamese",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": " ",
+   "op": "char",
+   "result": {
+    "commit": "hoà",
+    "handled": false
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "vietnamese",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "Vieejt",
+   "op": "type",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 6,
+    "dedicated_english": false,
+    "editing_text": "Việt",
+    "local_mode": "none",
+    "normalized_segmentation": "Việt",
+    "preedit": "Việt",
+    "raw_segmentation": "Vieejt",
+    "scheme": "vietnamese",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": ".",
+   "op": "punctuation",
+   "result": {
+    "commit": "Việt.",
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "vietnamese",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "N",
+   "op": "char",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 1,
+    "dedicated_english": false,
+    "editing_text": "N",
+    "local_mode": "none",
+    "normalized_segmentation": "N",
+    "preedit": "N",
+    "raw_segmentation": "N",
+    "scheme": "vietnamese",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "GUOWIF",
+   "op": "type",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 8,
+    "dedicated_english": false,
+    "editing_text": "NGƯỜI",
+    "local_mode": "none",
+    "normalized_segmentation": "NGƯỜI",
+    "preedit": "NGƯỜI",
+    "raw_segmentation": "NGUOWIF",
+    "scheme": "vietnamese",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "CommitCandidate",
+   "op": "command",
+   "result": {
+    "commit": "NGƯỜI",
+    "handled": false
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "vietnamese",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "1",
+   "op": "char",
+   "result": {
+    "handled": false
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "vietnamese",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "thuyr",
+   "op": "type",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 6,
+    "dedicated_english": false,
+    "editing_text": "thuỷ",
+    "local_mode": "none",
+    "normalized_segmentation": "thuỷ",
+    "preedit": "thuỷ",
+    "raw_segmentation": "thuyr",
+    "scheme": "vietnamese",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "MoveLeft",
+   "op": "command",
+   "result": {
+    "commit": "thuỷ",
+    "handled": false
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "vietnamese",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "tieengs",
+   "op": "type",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 7,
+    "dedicated_english": false,
+    "editing_text": "tiếng",
+    "local_mode": "none",
+    "normalized_segmentation": "tiếng",
+    "preedit": "tiếng",
+    "raw_segmentation": "tieengs",
+    "scheme": "vietnamese",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "op": "finish",
+   "result": {
+    "commit": "tiếng",
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "vietnamese",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "op": "reopen",
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "vietnamese",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "hoaf",
+   "op": "type",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 4,
+    "dedicated_english": false,
+    "editing_text": "hòa",
+    "local_mode": "none",
+    "normalized_segmentation": "hòa",
+    "preedit": "hòa",
+    "raw_segmentation": "hoaf",
+    "scheme": "vietnamese",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "CommitRaw",
+   "op": "command",
+   "result": {
+    "commit": "hòa",
+    "handled": false
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "vietnamese",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "HOAF",
+   "op": "type",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 4,
+    "dedicated_english": false,
+    "editing_text": "HÒA",
+    "local_mode": "none",
+    "normalized_segmentation": "HÒA",
+    "preedit": "HÒA",
+    "raw_segmentation": "HOAF",
+    "scheme": "vietnamese",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "op": "finish",
+   "result": {
+    "commit": "HÒA",
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "vietnamese",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "khoer",
+   "op": "type",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 6,
+    "dedicated_english": false,
+    "editing_text": "khỏe",
+    "local_mode": "none",
+    "normalized_segmentation": "khỏe",
+    "preedit": "khỏe",
+    "raw_segmentation": "khoer",
+    "scheme": "vietnamese",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": " ",
+   "op": "char",
+   "result": {
+    "commit": "khỏe",
+    "handled": false
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "vietnamese",
+    "shuangpin_profile": "xiaohe"
+   }
+  }
+ ]
+}

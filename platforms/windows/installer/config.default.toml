@@ -12,8 +12,6 @@ theme = "dark"
 [general]
 # 界面诊断日志总开关（默认关闭；不记录输入内容或候选文本）
 diagnostic_log = false
-# 候选框诊断日志（旧键，与 diagnostic_log 同步；默认关闭）
-candidate_window_diagnostic_log = false
 # 悬浮工具栏
 floating_toolbar = true
 # 悬浮工具栏组件（中英文切换始终显示）
@@ -50,8 +48,8 @@ candidate_translations = true
 emoji_mixed_input = true
 # 中文输入状态下显示颜文字前缀候选（排在 emoji 之后）
 kaomoji_mixed_input = false
-# 云候选
-cloud_candidates = true
+# 云候选：把正在输入的拼写发给 Google input-tools，新装默认关闭，安装器「联网功能」页勾选后打开
+cloud_candidates = false
 # TODO: 极简模式。极简模式下，候选窗口使用 d2d 绘制，界面只作展示候选项，无其他功能。
 clean_mode = false
 
@@ -98,11 +96,8 @@ linear_step = 1
 # 外观
 #
 [appearance]
-# 主题模式，可选："dark", "light", "system"
+# 颜色模式，可选："dark", "light", "system"
 theme_mode = "system"
-# 候选窗 / 悬浮工具栏 / 托盘菜单渲染，可选："d2d", "webview2"
-# 更改后需重启输入法进程生效
-ui_backend = "d2d"
 # 分表面主题，可选："follow", "dark", "light"（follow = 跟随 theme_mode）
 theme_settings = "follow"
 theme_cand = "follow"
@@ -170,22 +165,13 @@ smart_punctuation_direct_letter = false
 paired_punctuation = true
 # 标点锁定，可选："follow"（随中英文切换）, "chinese"（始终中文标点）, "english"（始终英文标点）
 punctuation_lock = "follow"
-# 组合说明：
-#   legacy + shuangpin -> 使用旧版双拼会话实现（当前最稳定）
-#   legacy + quanpin   -> 自动切换为新版引擎全拼会话
-#   engine + shuangpin -> 使用新版引擎双拼会话
-#   engine + quanpin   -> 使用新版引擎全拼会话
-#   任意 backend + wubi -> 使用新版引擎五笔会话
-# 会话后端，可选："legacy", "engine"
-# session_backend = "legacy"
-session_backend = "engine"
-# 输入模式，可选："chinese", "japanese", "korean"。切换模式时保留各语言上次使用的方案。
+# 输入模式，可选："chinese", "japanese", "korean", "vietnamese", "tibetan"。切换模式时保留各语言上次使用的方案。粤拼（"cantonese"）、注音（"zhuyin"）和笔画（"stroke"）属于中文方案，在设置里选择，需要安装包附带的 language-dictionaries 词库，缺少词库时沿用上次的中文方案。
 mode = "chinese"
 # 输入方案，可选："quanpin", "shuangpin", "wubi"
 schema = "quanpin"
 # schema = "quanpin"
 # schema = "wubi"
-# engine + shuangpin 时的 preedit 显示方式，可选："quanpin", "shuangpin"
+# 双拼时的 preedit 显示方式，可选："quanpin", "shuangpin"
 #   quanpin   -> 预编辑显示转换后的全拼分词
 #   shuangpin -> 预编辑显示原始双拼输入串
 shuangpin_preedit_mode = "shuangpin"
@@ -238,7 +224,7 @@ show_qp_helpcode_in_candidate_window = false
 # 全拼
 #
 [quanpin]
-# 全拼自动纠错按类型独立启用；旧的单键 autocorrect 已废弃。
+# 全拼自动纠错按类型独立启用。
 autocorrect_transposition = true
 autocorrect_neighbor = true
 
@@ -259,7 +245,7 @@ toggle_character_set_ctrl_shift_f = true
 #
 [dictionary]
 # 词库路径
-dictionary_path = "./assets/dictionaries/msime.db"
+dictionary_path = "./assets/dictionaries/msime-pinyin.db"
 
 #
 # Skin
@@ -288,7 +274,7 @@ asr_provider = "doubao"
 # 豆包鉴权方式: api_key | legacy
 #   api_key：新版控制台，只需一个 API Key，填入 asr_token 即可，asr_app_key 不使用。
 #   legacy：旧版控制台，App ID + Access Token（Secret Key 不使用），两项都要填。
-# 留空表示自动判断：asr_app_key 填了真实值就按 legacy，否则按 api_key。
+# 留空按 api_key 处理。
 # 请自行填写各提供商的密钥，不要把真实密钥写进仓库。
 doubao_auth_mode = "api_key"
 asr_app_key = "<YOUR_ASR_APP_KEY>"
@@ -324,8 +310,6 @@ polish_endpoint = "https://api.deepseek.com/chat/completions"
 polish_model = "deepseek-v4-flash"
 # 润色提示词: cleanup | faithful | zh2en | casual | custom_1 | custom_2 | custom_3
 polish_prompt_id = "cleanup"
-# 旧版单槽位提示词，升级时作为“自定义一”的回退值。
-polish_prompt = ""
 polish_prompt_custom_1 = ""
 polish_prompt_custom_2 = ""
 polish_prompt_custom_3 = ""
@@ -359,9 +343,9 @@ clipboard_history = false # 表情面板剪贴板历史，仅记录文本；关�
 study_english_word = "false" # 背单词功能，开启后可以在候选项旁边显示英文
 quick_phrase = true # Shift+K 进入快捷短语模式
 unicode_mode = true # Shift+U 进入 Unicode 码位输入模式
-date_time_mode = true # Shift+T 进入日期与时间快捷输入模式
-emoji_mode = true # Shift+E 进入 Emoji 快捷输入模式（支持全拼/简拼/双拼/英文）
-kaomoji_mode = true # Shift+M 进入颜文字快捷输入模式（支持全拼/简拼/双拼/英文）
+date_time_mode = true # Shift+T 进入日期与时间快捷模式
+emoji_mode = true # Shift+E 进入 Emoji 快捷模式（支持全拼/简拼/双拼/英文）
+kaomoji_mode = true # Shift+M 进入颜文字快捷模式（支持全拼/简拼/双拼/英文）
 jianpin_mode = true # Shift+J 进入超级简拼模式（每个字母作为简拼；双拼按方案转换 zh/ch/sh）
 y_mode = true # Shift+Y 进入临时英文模式（中文状态下直接打英文，上屏后回到中文）
 r_mode = true # Shift+R 进入临时日语模式（中文状态下使用罗马字输入日语，上屏后回到中文）
@@ -383,26 +367,7 @@ endpoint = "https://api.deepseek.com/chat/completions"
 model = "deepseek-v4-flash"
 candidate_limit = 3
 prompt_id = "custom_1"
-prompt = """你是一个中文全拼输入法联想引擎。输入为已经切分好的拼音数组、前文上下文和候选数量。
-
-优先生成与拼音严格对应的中文候选：若有 N 段拼音，首选必须尽量为 N 个汉字，每段拼音对应一个汉字，不得随意增删或改变读音。结合上下文、常用程度、语义完整性和固定搭配排序。
-
-若去掉分词后能明显组成更合理的英文单词、缩写、产品名或技术术语，如 `deep + seek → DeepSeek`、`git + hub → GitHub`，可优先返回英文；不要生造英文或做牵强匹配。
-
-只输出合法 JSON，不要解释或输出 Markdown：
-
-{
-"candidates": [
-{
-"text": "候选内容",
-"type": "chinese或english",
-"confidence": 0.98
-}
-]
-}
-
-候选按推荐程度降序排列，数量不超过指定上限；没有合理结果时返回空数组。"""
-# prompt 是旧版“自定义一”；首次修改后会写入下面的独立槽位。
+# 自定义槽位留空时使用内置提示词。
 prompt_custom_1 = ""
 prompt_custom_2 = ""
 prompt_custom_3 = ""

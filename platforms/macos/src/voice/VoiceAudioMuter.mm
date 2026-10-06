@@ -1,9 +1,16 @@
 #import "VoiceAudioMuter.h"
 #import "../settings/RuntimeOptions.h"
+#include "../core/SystemPathAlias.h"
 #include <fcntl.h>
 #include <sys/file.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <filesystem>
+
+static BOOL MSIMEVoiceSafeDirectoryPath(NSURL *url) {
+    if (!url || !url.isFileURL) return NO;
+    return msime::mac::StoragePathIsSafe(url.fileSystemRepresentation, true);
+}
 // The default output can move mid-recording while the device it left is already gone and cannot be handed back yet, so one journal may owe restores to several devices.
 static const NSUInteger MSIMEVoiceOwnedDeviceLimit = 8;
 static const AudioObjectPropertyAddress MSIMEVoiceDefaultOutputAddress = {kAudioHardwarePropertyDefaultOutputDevice,
@@ -44,9 +51,9 @@ static BOOL MSIMEVoiceValidUID(id uid) {
 }
 - (BOOL)loadJournal {
     if (!_recoveryDirectory || _journalFD >= 0) return YES;
-    if (!_recoveryDirectory.isFileURL) return NO;
-    [NSFileManager.defaultManager createDirectoryAtURL:_recoveryDirectory withIntermediateDirectories:YES
-        attributes:@{NSFilePosixPermissions:@0700} error:nil];
+    if (!MSIMEVoiceSafeDirectoryPath(_recoveryDirectory) ||
+        ![NSFileManager.defaultManager createDirectoryAtURL:_recoveryDirectory
+            withIntermediateDirectories:YES attributes:@{NSFilePosixPermissions:@0700} error:nil]) return NO;
     int directory = open(_recoveryDirectory.fileSystemRepresentation, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
     if (directory < 0) return NO;
     struct stat info = {};
@@ -70,9 +77,7 @@ static BOOL MSIMEVoiceValidUID(id uid) {
         id record = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
         NSArray *uids = nil;
         if (![record isKindOfClass:NSDictionary.class]) { close(fd); return NO; }
-        if ([record[@"version"] isEqual:@1] && [record[@"previous"] isEqual:@0] && MSIMEVoiceValidUID(record[@"uid"])) {
-            uids = @[record[@"uid"]];
-        } else if ([record[@"version"] isEqual:@2] && [record[@"uids"] isKindOfClass:NSArray.class] &&
+        if ([record[@"version"] isEqual:@2] && [record[@"uids"] isKindOfClass:NSArray.class] &&
             [record[@"uids"] count] && [record[@"uids"] count] <= MSIMEVoiceOwnedDeviceLimit) {
             uids = record[@"uids"];
             for (id uid in uids) if (!MSIMEVoiceValidUID(uid)) uids = nil;
@@ -88,9 +93,7 @@ static BOOL MSIMEVoiceValidUID(id uid) {
     if (_journalFD < 0) return NO;
     // Never unlink the locked inode: other instances must lock this same file.
     if (!uids.count) return ftruncate(_journalFD, 0) == 0 && fsync(_journalFD) == 0;
-    // A single device keeps the original record shape, so an older build can still recover the common case.
-    NSDictionary *record = uids.count == 1 ? @{@"version":@1, @"uid":uids.firstObject, @"previous":@0} :
-        @{@"version":@2, @"uids":uids};
+    NSDictionary *record = @{@"version":@2, @"uids":uids};
     NSData *data = [NSJSONSerialization dataWithJSONObject:record options:0 error:nil];
     if (!data || data.length > 32768) return NO;
     // A device is only added to the snapshot before it is muted and only dropped after it has been restored.

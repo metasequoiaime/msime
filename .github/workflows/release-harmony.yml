@@ -4,20 +4,27 @@ on:
     inputs:
       version: {description: Semantic version (defaults to platforms/harmony/version.txt), required: false, type: string}
       prerelease: {description: Mark as prerelease, required: false, default: false, type: boolean}
-      publish: {description: Publish the build as a harmony-v release (otherwise it is only uploaded as a workflow artifact), required: false, default: false, type: boolean}
+      publish: {description: Publish the build as a harmony-v release (otherwise it is only uploaded as a workflow artifact), required: false, default: true, type: boolean}
 permissions: {contents: write}
 concurrency: {group: release-harmony, cancel-in-progress: false}
 jobs:
   release:
-    runs-on: macos-15
-    timeout-minutes: 45
+    # HarmonyOS 的 SDK、hvigorw 和 ohpm 来自华为命令行工具包。它要登录才能下载，所以在私有仓库 metasequoiaime/harmony-toolchain 的 Release 里存了一份 Linux 版，用 HARMONY_TOOLCHAIN_TOKEN（只读该仓库）取回并校验摘要。GitHub 的 macOS 镜像上没有 DevEco Studio，原来跑在 macos-15 上根本编不出来，还占着只有 5 台的 macOS runner。
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      HARMONY_TOOLCHAIN_TAG: cli-6.1.1.280
+      HARMONY_TOOLCHAIN_ZIP: commandline-tools-linux-x64-6.1.1.280.zip
+      HARMONY_TOOLCHAIN_SHA256: b9caf7b73c541b90e6c8f3c7c3de7f2bea9b35e41e80cd3525f2f759ebf16cf4
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with: {fetch-depth: 0, persist-credentials: false}
+        with: {ref: "${{ github.sha }}", fetch-depth: 0, persist-credentials: false}
+      # The packages keep the plain X.Y.Z (Info.plist, versionName, Tauri, deb and rpm metadata take nothing else); the release tag and title carry the branch the run was dispatched from: none on main, -beta on develop, -alpha anywhere else. A suffixed release is always published as a prerelease, which the in-app update checks skip.
       - id: version
         env: {REQUESTED: "${{ inputs.version }}"}
         run: |
           version="${REQUESTED:-$(tr -d '[:space:]' < platforms/harmony/version.txt)}"; [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; echo "value=$version" >> "$GITHUB_OUTPUT"
+          case "$GITHUB_REF_NAME" in main) suffix= ;; develop) suffix=-beta ;; *) suffix=-alpha ;; esac; echo "release=${version}${suffix}" >> "$GITHUB_OUTPUT"
       # The settings page is built from packages/ui for every HAP rather than committed (see platforms/harmony/stage-settings.sh), with the Node the rest of the repository pins.
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -27,13 +34,47 @@ jobs:
           corepack enable
           pnpm install --frozen-lockfile --ignore-scripts
           bash platforms/harmony/stage-settings.sh
+      # The HAP carries the engine resources only if stage-resources.sh put them in resfile/ (without them the keyboard logs "no packaged resources at /engine"). It takes the directory install_resources verified and unpacked, and stages target/language-dictionaries (Cantonese, Zhuyin and Stroke, with their licences); a release must carry all three, so it fails rather than staging fewer.
+      - name: Fetch the locked language dictionaries
+        run: python3 scripts/fetch_language_dictionaries.py
+      - name: Stage the HarmonyOS engine resources
+        env: {MSIME_REQUIRE_LANGUAGE_DICTIONARIES: "1"}
+        run: |
+          set -euo pipefail
+          mkdir -p target/resources
+          resource_dir="$(cargo run --quiet --locked -p msime-client-core --example install_resources -- target/resources)"
+          bash platforms/harmony/stage-resources.sh "$resource_dir"
+      # SDK 目录必须整份解压：hvigor 在 runtimeOS 为 HarmonyOS 时会逐个检查 SDK 组件，少了 previewer 或 hms/native 就报 `SDK component missing`，构建一开始就失败。只跳过 SDK 之外的 codelinter。压缩包解完即删。
+      - name: Install the HarmonyOS command-line tools
+        env: {GH_TOKEN: "${{ secrets.HARMONY_TOOLCHAIN_TOKEN }}"}
+        run: |
+          set -euo pipefail
+          tools="$RUNNER_TEMP/harmony"
+          mkdir -p "$tools"
+          gh release download "$HARMONY_TOOLCHAIN_TAG" --repo metasequoiaime/harmony-toolchain --pattern "$HARMONY_TOOLCHAIN_ZIP" --dir "$RUNNER_TEMP"
+          printf '%s  %s\n' "$HARMONY_TOOLCHAIN_SHA256" "$RUNNER_TEMP/$HARMONY_TOOLCHAIN_ZIP" | sha256sum --check
+          unzip -q "$RUNNER_TEMP/$HARMONY_TOOLCHAIN_ZIP" -d "$tools" \
+            -x 'command-line-tools/codelinter/*'
+          rm "$RUNNER_TEMP/$HARMONY_TOOLCHAIN_ZIP"
+          root="$tools/command-line-tools"
+          test -x "$root/bin/hvigorw" && test -x "$root/bin/ohpm"
+          test -f "$root/sdk/default/openharmony/native/build/cmake/ohos.toolchain.cmake"
+          echo "$root/bin" >> "$GITHUB_PATH"
+          echo "DEVECO_SDK_HOME=$root/sdk" >> "$GITHUB_ENV"
+          echo "MSIME_OHOS_NDK=$root/sdk/default/openharmony/native" >> "$GITHUB_ENV"
+          rustup target add aarch64-unknown-linux-ohos
+          df -h "$RUNNER_TEMP" | tail -1
       - name: Build HarmonyOS native host
         run: bash platforms/harmony/build-native.sh arm64-v8a
       - name: Stage the sherpa-onnx HAR
         run: bash platforms/harmony/stage-voice-runtime.sh
+      # ohpm install 在 entry/oh_modules 建出 libmsimeclient.so 的类型链接，少了它 ArkTS 解析不到 NAPI 模块（见 platforms/harmony/README.md）。
       - name: Build HarmonyOS HAP
         working-directory: platforms/harmony
-        run: ./hvigorw assembleHap --no-daemon
+        run: |
+          set -euo pipefail
+          ohpm install
+          hvigorw assembleHap --no-daemon
       - id: hap
         name: Locate the packaged HAP
         run: |
@@ -46,14 +87,16 @@ jobs:
           name: msime-harmony-${{ steps.version.outputs.value }}
           path: ${{ steps.hap.outputs.path }}
           if-no-files-found: error
-      # workflow_dispatch runs on whatever ref it is given, so publishing has to be asked for rather
-      # than implied. Without the gate a dispatch on a feature branch cuts a real public release.
+      # The build takes the dispatched commit, and the release is tagged at that checked-out commit (git rev-parse HEAD), so publishing has to be asked for rather than implied. Without the gate a build of a feature branch cuts a real public release.
       - name: Publish independent HarmonyOS release
         if: ${{ inputs.publish }}
-        env: {GH_TOKEN: "${{ github.token }}", VERSION: "${{ steps.version.outputs.value }}", PRERELEASE: "${{ inputs.prerelease }}", HAP: "${{ steps.hap.outputs.path }}"}
+        # RELEASE_PUBLISH_TOKEN (org secret, a fine-grained token with Contents and Workflows write) creates the tag: GitHub refuses GITHUB_TOKEN a new ref whose .github/workflows differs from the default branch, which is the case whenever develop takes a workflow change while the release builds (Release Linux run 37259338700, 403 Resource not accessible by integration). Without the secret, as on a fork, it falls back to GITHUB_TOKEN.
+        env: {GH_TOKEN: "${{ secrets.RELEASE_PUBLISH_TOKEN || github.token }}", VERSION: "${{ steps.version.outputs.value }}", RELEASE: "${{ steps.version.outputs.release }}", PRERELEASE: "${{ inputs.prerelease }}", HAP: "${{ steps.hap.outputs.path }}", EVERYAPI_RELEASE_NOTES_TOKEN: "${{ secrets.EVERYAPI_RELEASE_NOTES_TOKEN }}", EVERYAPI_RELEASE_NOTES_MODEL: "${{ vars.EVERYAPI_RELEASE_NOTES_MODEL }}"}
         run: |
-          # --generate-notes otherwise starts from whichever tag in the repository is newest, and the six platforms interleave prefixes, so a macOS release could be described by the diff since an ios-v tag. fetch-depth: 0 above is what makes this list complete.
-          start=$(git tag --list 'harmony-v*' --sort=-v:refname | head -1)
-          tag="harmony-v${VERSION}"; flags=(); [[ "$PRERELEASE" == true ]] && flags+=(--prerelease)
-          [[ -n "$start" ]] && flags+=(--notes-start-tag "$start")
-          gh release create "$tag" "$HAP" --target "$GITHUB_SHA" --title "HarmonyOS ${VERSION}" --generate-notes "${flags[@]}"
+          tag="harmony-v${RELEASE}"
+          [[ "$RELEASE" == "$VERSION" ]] || export PRERELEASE=true
+          # A re-run for the same version overwrites its release (scripts/publish-release.sh), so the notes start at the release before it rather than at its own tag. A final release starts at the previous final release, a -beta or -alpha one at the latest release of either kind.
+          stable='^harmony-v[0-9]+\.[0-9]+\.[0-9]+$'; [[ "$RELEASE" == "$VERSION" ]] || stable=.
+          start=$(git tag --list 'harmony-v*' --sort=-v:refname | grep -vxF "$tag" | grep -E "$stable" | head -1 || true)
+          python3 scripts/generate-release-notes.py --platform harmony --version "$RELEASE" --start-tag "$start" --end-ref "$(git rev-parse HEAD)" --output release-notes.md
+          bash scripts/publish-release.sh "$tag" "$(git rev-parse HEAD)" "HarmonyOS ${RELEASE}" release-notes.md "$HAP"

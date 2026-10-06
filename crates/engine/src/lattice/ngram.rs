@@ -1,12 +1,13 @@
-//! `bigram.bin` / `trigram.bin` (MSNG v1, quanpin.md §12.1, data-formats.md §7). The files are copied into a generation through `<name>.incoming` and renamed into place, never written in place, so a table read once stays the table of that generation.
+//! `msime-bigram.bin` / `msime-trigram.bin` (MSNG v1, quanpin.md §12.1, data-formats.md §7). The files are copied into a generation through `<name>.incoming` and renamed into place, never written in place, so a table read once stays the table of that generation.
 //!
-//! The table is mapped read-only, as ngram_table.cpp:108 did (MapViewOfFile on Windows, :131-133), so its pages are clean and file-backed: the system can evict them under memory pressure, which the iOS keyboard extension's limit needs, instead of holding two 12 MB tables of dirty heap per generation. The `unsafe` map (decisions.md: memmap2 for bigram.bin/trigram.bin; `japanese::decoder` and `handwriting::recognizer` map their packaged models the same way) rests on the generation contract above. Like the reference, a table stays mapped for the life of the process once loaded.
+//! The table is mapped read-only, as ngram_table.cpp:108 did (MapViewOfFile on Windows, :131-133), so its pages are clean and file-backed: the system can evict them under memory pressure, which the iOS keyboard extension's limit needs, instead of holding two 12 MB tables of dirty heap per generation. The `unsafe` map (decisions.md: memmap2 for msime-bigram.bin/msime-trigram.bin; `japanese::decoder` and `handwriting::recognizer` map their packaged models the same way) rests on the generation contract above. Like the reference, a table stays mapped for the life of the process once loaded.
 
-use std::collections::HashMap;
 use std::fs::File;
 use std::io::Read;
+use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 
+use lru::LruCache;
 use memmap2::{Mmap, MmapOptions};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
@@ -14,6 +15,7 @@ use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 pub const SENTENCE_START: &str = "\u{1}";
 /// An entry count past any plausible table: a truncated or foreign file that happens to carry the magic must not turn into a nonsense allocation (NG:29-31).
 pub const MAX_ENTRIES: usize = 40_000_000;
+const SHARED_CACHE_CAPACITY: usize = 8;
 
 const MAGIC: &[u8; 4] = b"MSNG";
 const VERSION: u32 = 1;
@@ -23,12 +25,19 @@ const ENTRY_BYTES: usize = 8 + 4;
 
 const FNV_OFFSET: u64 = 0xCBF2_9CE4_8422_2325;
 const FNV_PRIME: u64 = 0x0100_0000_01B3;
+/// 按键的最高若干位分桶，桶边界先算好，查找时只在一个桶里二分。百万条的表每桶平均十几条，二分落在相邻几条缓存行里，不再在 12 MB 的映射上跳二十次；索引本身是 `(1 << INDEX_BITS) + 1` 个 `u32`，每张表 256 KB。
+const INDEX_BITS: u32 = 16;
+const INDEX_SHIFT: u32 = u64::BITS - INDEX_BITS;
 
 pub struct NgramTable {
     /// The header and the entries, exactly `HEADER_BYTES + count * ENTRY_BYTES` bytes.
     bytes: Mmap,
     count: usize,
+    /// `index[b]` 是第一个高位桶号不小于 `b` 的键的下标，`index[b + 1]` 是这个桶的结尾；末项等于 `count`。键有序，所以整张表上的 `lower_bound` 一定落在键所在桶的这段区间里，查到的结果和全表二分完全一样。
+    index: Vec<u32>,
 }
+
+static SHARED: OnceLock<Mutex<LruCache<PathBuf, Option<Arc<NgramTable>>>>> = OnceLock::new();
 
 impl NgramTable {
     /// `None` for a missing, short, wrong-magic, wrong-version, oversized or unsorted file; the decoder then runs without the table.
@@ -55,25 +64,46 @@ impl NgramTable {
         if bytes.len() != needed {
             return None;
         }
-        let table = NgramTable { bytes, count };
-        // Binary search returns wrong answers rather than misses on an unsorted file, so a file built by a different tool is refused here (NG:131-134).
-        if (1..count).any(|index| table.key_at(index - 1) > table.key_at(index)) {
-            return None;
+        let mut table = NgramTable {
+            bytes,
+            count,
+            index: Vec::new(),
+        };
+        // Binary search returns wrong answers rather than misses on an unsorted file, so a file built by a different tool is refused here (NG:131-134). 桶索引在同一遍里建好，不再多扫一遍映射。
+        let mut index = Vec::with_capacity((1 << INDEX_BITS) + 1);
+        let mut previous = 0;
+        for position in 0..count {
+            let key = table.key_at(position);
+            if position > 0 && previous > key {
+                return None;
+            }
+            previous = key;
+            let bucket = (key >> INDEX_SHIFT) as usize;
+            while index.len() <= bucket {
+                index.push(position as u32);
+            }
         }
+        index.resize((1 << INDEX_BITS) + 1, count as u32);
+        table.index = index;
         Some(table)
     }
 
-    /// One table per path for the process, remembering a missing file too, so a generation without tables is not probed on every query (NG:138-147).
+    /// Cache recent tables by path, remembering a missing file too, so a generation without tables is not probed on every query (NG:138-147).
     pub fn shared(path: &Path) -> Option<Arc<NgramTable>> {
-        static LOADED: OnceLock<Mutex<HashMap<PathBuf, Option<Arc<NgramTable>>>>> = OnceLock::new();
-        let mut loaded = LOADED
-            .get_or_init(|| Mutex::new(HashMap::new()))
+        let mut loaded = SHARED
+            .get_or_init(|| {
+                Mutex::new(LruCache::new(
+                    NonZeroUsize::new(SHARED_CACHE_CAPACITY).unwrap(),
+                ))
+            })
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
-        loaded
-            .entry(path.to_path_buf())
-            .or_insert_with(|| NgramTable::load(path).map(Arc::new))
-            .clone()
+        if let Some(cached) = loaded.get(path) {
+            return cached.clone();
+        }
+        let table = NgramTable::load(path).map(Arc::new);
+        loaded.put(path.to_path_buf(), table.clone());
+        table
     }
 
     #[cfg(test)]
@@ -88,10 +118,21 @@ impl NgramTable {
 
     /// `ln(P(next | previous) / P(next))`, 0 on a miss or an empty `next`.
     pub fn bigram(&self, previous: &str, next: &str) -> f32 {
+        self.bigram_key(previous, next)
+            .map_or(0.0, |key| self.lookup(key))
+    }
+
+    /// `bigram` 查表用的键；不必查表就知道是 0 时（空表、`next` 为空）为 `None`。
+    pub fn bigram_key(&self, previous: &str, next: &str) -> Option<u64> {
         if self.count == 0 || next.is_empty() {
-            return 0.0;
+            return None;
         }
-        self.lookup(fnv1a_words(&[previous, next]))
+        Some(fnv1a_words(&[previous, next]))
+    }
+
+    /// 按 `bigram_key` 给出的键查表，与 `bigram` 的结果相同。
+    pub fn score(&self, key: u64) -> f32 {
+        self.lookup(key)
     }
 
     /// `ln(P(next | before, previous) / P(next | previous))`, 0 on a miss.
@@ -112,9 +153,10 @@ impl NgramTable {
         f32::from_le_bytes(self.bytes[at..at + 4].try_into().expect("four value bytes"))
     }
 
-    /// `std::lower_bound` over the key array, then an equality check (NG:149-155).
+    /// `std::lower_bound` over the key array, then an equality check (NG:149-155). 二分只在键所在的桶里做，见 `index`。
     fn lookup(&self, key: u64) -> f32 {
-        let (mut low, mut high) = (0, self.count);
+        let bucket = (key >> INDEX_SHIFT) as usize;
+        let (mut low, mut high) = (self.index[bucket] as usize, self.index[bucket + 1] as usize);
         while low < high {
             let middle = low + (high - low) / 2;
             if self.key_at(middle) < key {
@@ -272,9 +314,9 @@ pub(super) mod tests {
     #[test]
     fn a_mapped_table_survives_a_rename_replacement() {
         let directory = tempfile::tempdir().unwrap();
-        let table = pair_table(directory.path(), "bigram.bin", &[("配置", "与", 2.5)]);
-        let path = directory.path().join("bigram.bin");
-        let incoming = directory.path().join("bigram.bin.incoming");
+        let table = pair_table(directory.path(), "msime-bigram.bin", &[("配置", "与", 2.5)]);
+        let path = directory.path().join("msime-bigram.bin");
+        let incoming = directory.path().join("msime-bigram.bin.incoming");
         write_table(
             &incoming,
             &sorted(vec![(hash_pair("配置", "与"), -2.0)]),
@@ -418,6 +460,72 @@ pub(super) mod tests {
         let first = NgramTable::shared(&present).expect("loads");
         let second = NgramTable::shared(&present).expect("cached");
         assert!(Arc::ptr_eq(&first, &second));
+    }
+
+    #[test]
+    fn the_shared_cache_is_bounded_across_database_paths() {
+        let mut directories = Vec::new();
+        for index in 0..=SHARED_CACHE_CAPACITY {
+            let directory = tempfile::tempdir().unwrap();
+            let path = directory.path().join(format!("table-{index}.bin"));
+            write_table(&path, &[], MAGIC, VERSION);
+            assert!(NgramTable::shared(&path).is_some());
+            directories.push(directory);
+        }
+        let cache = SHARED.get().unwrap().lock().unwrap();
+        assert!(cache.len() <= SHARED_CACHE_CAPACITY);
+    }
+
+    /// 分桶查找必须和整张表上的 `lower_bound` 给出同样的答案：桶边界两侧的键、首尾的键、重复键（取第一条）和落在两键之间的未命中都覆盖到。
+    #[test]
+    fn bucketed_lookup_matches_the_whole_table_search() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("bucketed.bin");
+        let edge = 1u64 << INDEX_SHIFT;
+        let mut keys = vec![
+            0,
+            1,
+            edge - 1,
+            edge,
+            edge + 1,
+            5 * edge,
+            u64::MAX - 1,
+            u64::MAX,
+        ];
+        let mut state = 0x9E37_79B9_7F4A_7C15_u64;
+        for _ in 0..4000 {
+            state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            keys.push(state);
+        }
+        keys.sort_unstable();
+        keys.dedup();
+        let mut entries: Vec<(u64, f32)> = keys
+            .iter()
+            .enumerate()
+            .map(|(index, &key)| (key, index as f32 + 1.0))
+            .collect();
+        // 桶边界上的重复键：两边的查找都应取第一条。
+        let at = entries.iter().position(|&(key, _)| key == edge).unwrap();
+        entries.insert(at + 1, (edge, -7.0));
+        write_table(&path, &entries, MAGIC, VERSION);
+        let table = NgramTable::load(&path).unwrap();
+        assert_eq!(table.index.len(), (1 << INDEX_BITS) + 1);
+        assert_eq!(table.index[1 << INDEX_BITS] as usize, entries.len());
+        for (position, &(key, value)) in entries.iter().enumerate() {
+            if position > 0 && entries[position - 1].0 == key {
+                continue;
+            }
+            assert_eq!(table.score(key), value, "{key:#x}");
+        }
+        for &key in &keys {
+            for probe in [key.wrapping_add(1), key.wrapping_sub(1)] {
+                if keys.binary_search(&probe).is_err() {
+                    assert_eq!(table.score(probe), 0.0, "{probe:#x}");
+                }
+            }
+        }
     }
 
     #[test]

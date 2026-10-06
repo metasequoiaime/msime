@@ -189,10 +189,6 @@ struct CustomServiceConfiguration: Codable, Sendable, Equatable {
 
   static func loadPreset(_ provider: AIProviderPreset, defaults: UserDefaults = .standard) -> Self {
     let prefix = "service.ai.presets.\(provider.rawValue)"
-    if defaults.string(forKey: prefix + ".endpoint") == nil,
-       provider == .custom, load(.ai, defaults: defaults).provider == .custom {
-      return load(.ai, defaults: defaults)
-    }
     var result = Self()
     result.provider = provider
     result.endpoint = defaults.string(forKey: prefix + ".endpoint") ?? provider.endpoint
@@ -203,10 +199,6 @@ struct CustomServiceConfiguration: Codable, Sendable, Equatable {
 
   static func loadVoicePreset(_ provider: VoiceProviderPreset, defaults: UserDefaults = .standard) -> Self {
     let prefix = "service.voice.presets.\(provider.rawValue)"
-    if defaults.string(forKey: prefix + ".endpoint") == nil,
-       provider == .custom, load(.voice, defaults: defaults).voiceProvider == .custom {
-      return load(.voice, defaults: defaults)
-    }
     var result = Self()
     result.voiceProvider = provider
     result.endpoint = defaults.string(forKey: prefix + ".endpoint") ?? provider.endpoint
@@ -248,24 +240,17 @@ struct CustomServiceConfiguration: Codable, Sendable, Equatable {
 
   func save(_ kind: CustomServiceKind, token: String, defaults: UserDefaults = .standard) throws {
     if kind == .voice && voiceProvider.isOnDevice {
-      // Only the choice is saved; the cloud endpoint, model and key stay as they were for switching back. The cloud service in use is kept as its preset first, because a legacy custom service without one is only found through the current provider.
-      let previous = Self.load(.voice, defaults: defaults)
-      if !previous.endpoint.isEmpty && !previous.voiceProvider.isOnDevice { previous.storeVoicePreset(in: defaults) }
+      // Only the choice is saved; the cloud endpoint, model and key stay as they were, and each cloud service's own preset, for switching back.
       defaults.set(voiceProvider.rawValue, forKey: "service.voice.provider")
       return
     }
     let url = try validatedURL(allowWebSocket: kind == .voice && voiceProvider == .doubao)
     if !token.isEmpty { try ServiceTokenStore.write(token, kind: kind, url: url) }
     if kind == .ai {
-      // Retain a previously saved custom endpoint when a user chooses their first preset.
-      let previous = Self.load(.ai, defaults: defaults)
-      if !previous.endpoint.isEmpty { previous.storePreset(in: defaults) }
       storePreset(in: defaults)
       defaults.set(provider.rawValue, forKey: "service.ai.provider")
     }
     if kind == .voice {
-      let previous = Self.load(.voice, defaults: defaults)
-      if !previous.endpoint.isEmpty && !previous.voiceProvider.isOnDevice { previous.storeVoicePreset(in: defaults) }
       storeVoicePreset(in: defaults)
       defaults.set(voiceProvider.rawValue, forKey: "service.voice.provider")
       defaults.set(voiceAppKey, forKey: "service.voice.app_key")

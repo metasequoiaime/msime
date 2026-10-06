@@ -1,12 +1,14 @@
 #include "SystemAudioMuter.h"
+#include "AudioMuteState.h"
 
 #include <audiopolicy.h>
 #include <mmdeviceapi.h>
 #include <windows.h>
 
+#include <algorithm>
 #include <atomic>
 #include <filesystem>
-#include <fstream>
+#include <sstream>
 #include <mutex>
 #include <string>
 #include <utility>
@@ -83,14 +85,12 @@ std::string utf8_from_wide(const std::wstring &value) {
 void persist_locked() {
   if (state_path.empty())
     return;
-  std::ofstream output(std::filesystem::path(state_path),
-                       std::ios::binary | std::ios::trunc);
-  if (!output)
-    return;
+  std::ostringstream output;
   for (const auto &item : muted) {
     if (!item.id.empty())
       output << "0\t" << utf8_from_wide(item.id) << '\n';
   }
+  (void)write_audio_mute_state(std::filesystem::path(state_path), output.str());
 }
 
 void clear_state() {
@@ -162,10 +162,13 @@ IAudioSessionManager2 *create_manager() {
 void restore_from_disk() {
   if (state_path.empty())
     return;
-  std::ifstream input(std::filesystem::path(state_path), std::ios::binary);
-  if (!input)
+  std::string contents;
+  if (!read_audio_mute_state(std::filesystem::path(state_path), contents))
     return;
+  std::istringstream input(contents);
   std::vector<std::wstring> ids;
+  ids.reserve(static_cast<std::size_t>(std::count(contents.begin(), contents.end(), '\n')) +
+              (!contents.empty() && contents.back() != '\n'));
   std::string line;
   while (std::getline(input, line)) {
     const size_t tab = line.find('\t');

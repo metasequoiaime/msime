@@ -23,7 +23,6 @@ static inline NSDictionary<NSString *, NSString *> *MSIMEVoiceProviderSharedKeys
         @"polishModel" : @"MSIMEClientVoicePolishModel",
         @"polishToken" : @"MSIMEClientVoicePolishToken",
         @"polishPromptID" : @"MSIMEClientVoicePolishPromptID",
-        @"polishPrompt" : @"MSIMEClientVoicePolishPrompt",
         @"polishPromptCustom1" : @"MSIMEClientVoicePolishPromptCustom1",
         @"polishPromptCustom2" : @"MSIMEClientVoicePolishPromptCustom2",
         @"polishPromptCustom3" : @"MSIMEClientVoicePolishPromptCustom3",
@@ -31,20 +30,14 @@ static inline NSDictionary<NSString *, NSString *> *MSIMEVoiceProviderSharedKeys
     };
 }
 
-// Prefer whatever the shared default holds, because the Tauri settings page writes only that one and it is
-// the primary editor. Fall back to the window's own dictionary so a configuration saved by an older build
-// is not silently dropped on first open, and to `fallback` when neither store has been written.
+// The shared default is the one store for these fields: the Tauri settings page writes only that, and this window writes it on save. `fallback` covers a default that was never written.
 //
-// `saved` is read leniently on purpose: dictionaryForKey: type-checks the container and nothing inside it,
-// and an out-of-band edit that leaves a number where a string belongs used to reach -length and kill the
-// input method on the next Control+Option+V.
-static inline NSString *MSIMEVoiceProviderSharedSetting(NSDictionary *saved, NSString *key, id sharedValue,
-                                                        NSString *fallback)
+// `sharedValue` is read leniently on purpose: an out-of-band edit (defaults write, a managed preference, a corrupt plist) that leaves a number where a string belongs used to reach -length and kill the input method on the next Control+Option+V.
+static inline NSString *MSIMEVoiceProviderSharedSetting(id sharedValue, NSString *fallback)
 {
     if ([sharedValue isKindOfClass:NSString.class] && [(NSString *)sharedValue length] > 0)
         return (NSString *)sharedValue;
-    id value = [saved isKindOfClass:NSDictionary.class] ? saved[key] : nil;
-    return [value isKindOfClass:NSString.class] ? (NSString *)value : fallback;
+    return fallback;
 }
 
 // Match the shared settings page: selecting another provider replaces values

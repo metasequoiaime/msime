@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Material Symbols「text_fields」（Apache 2.0），设计稿用于引导页第 2 步。默认着次要文字色，使用处可以另行着色。 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="960"
+    android:viewportHeight="960"
+    android:tint="?attr/colorOnSurfaceVariant">
+    <!-- Material Symbols 的 viewBox 是 0 -960 960 960，平移回画布内。 -->
+    <group android:translateY="960">
+        <path
+            android:fillColor="@android:color/white"
+            android:pathData="M304.5-174.58Q290-189.17 290-210v-490H130q-20.83 0-35.42-14.62Q80-729.24 80-750.12 80-771 94.58-785.5 109.17-800 130-800h420q20.83 0 35.42 14.62Q600-770.76 600-749.88q0 20.88-14.58 35.38Q570.83-700 550-700H390v490q0 20.83-14.62 35.42Q360.76-160 339.88-160q-20.88 0-35.38-14.58Zm360 0Q650-189.17 650-210v-290h-80q-20.83 0-35.42-14.62Q520-529.24 520-550.12q0-20.88 14.58-35.38Q549.17-600 570-600h260q20.83 0 35.42 14.62Q880-570.76 880-549.88q0 20.88-14.58 35.38Q850.83-500 830-500h-80v290q0 20.83-14.62 35.42Q720.76-160 699.88-160q-20.88 0-35.38-14.58Z" />
+    </group>
+</vector>

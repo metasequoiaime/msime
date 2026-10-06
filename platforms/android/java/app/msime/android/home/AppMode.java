@@ -1,9 +1,11 @@
 package app.msime.android.home;
 
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.content.res.Configuration;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatDelegate;
+import app.msime.android.R;
 import org.json.JSONObject;
 
 /**
@@ -18,12 +20,30 @@ final class AppMode {
 
     private static final String STORE = "msime_home_v1";
     private static final String KEY = "app_mode";
+    /** 应用主题最近一次解析到的季节（`spring`、`summer`、`autumn`、`winter`），由应用主题控制器在读到共享偏好后写入；没有时用基础主题的秋杉。 */
+    static final String SEASON_KEY = "app_theme_season";
 
     private AppMode() {}
 
-    /** Apply the mode applied last time. Called by every host activity before `super.onCreate`, so a process restored into any of them starts in the right mode. */
+    /** 恢复上次应用的深浅模式，并给这个 activity 的主题叠上缓存季节的配色。每个宿主 activity 都在 `super.onCreate` 之前调用它，所以进程被恢复到任何一个页面时，第一帧就是对的模式和季节。 */
     static void restore(Context context) {
-        apply(context.getSharedPreferences(STORE, Context.MODE_PRIVATE).getString(KEY, SYSTEM));
+        SharedPreferences store = context.getSharedPreferences(STORE, Context.MODE_PRIVATE);
+        apply(store.getString(KEY, SYSTEM));
+        int overlay = seasonOverlay(store.getString(SEASON_KEY, null));
+        // 基础主题本身就是秋杉，没有缓存时不必再叠一层。
+        if (overlay != 0) context.getTheme().applyStyle(overlay, true);
+    }
+
+    /** 季节对应的主题叠加层；不认识的值和 null 都回到基础主题的秋杉，返回 0 表示不用叠加。 */
+    private static int seasonOverlay(@Nullable String season) {
+        if (season == null) return 0;
+        switch (season) {
+            case "spring": return R.style.ThemeOverlay_MSIME_Season_Spring;
+            case "summer": return R.style.ThemeOverlay_MSIME_Season_Summer;
+            case "autumn": return R.style.ThemeOverlay_MSIME_Season_Autumn;
+            case "winter": return R.style.ThemeOverlay_MSIME_Season_Winter;
+            default: return 0;
+        }
     }
 
     /** Follow the `theme` value in a freshly read preferences object; a change recreates the open activities in the new mode. */

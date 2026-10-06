@@ -4,7 +4,6 @@ import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.ComponentName
-import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
@@ -83,8 +82,12 @@ class AiTestArgs {
 class AccountPlugin(activity: Activity) : Plugin(activity) {
     private val hostActivity = activity
     private val storage = AndroidAccountSessionStorage(activity)
-    private val feedback = activity.getSharedPreferences("keyboard-feedback", Context.MODE_PRIVATE)
     private val bootstrapWorker: ExecutorService = Executors.newSingleThreadExecutor()
+
+    override fun onDestroy() {
+        bootstrapWorker.shutdownNow()
+        super.onDestroy()
+    }
 
     private fun snapshotQueue(): DictionarySnapshotQueue {
         val files = hostActivity.filesDir
@@ -130,7 +133,8 @@ class AccountPlugin(activity: Activity) : Plugin(activity) {
     )
 
     private fun appIconComponent(className: String?): ComponentName {
-        return className?.let { ComponentName(hostActivity.packageName, "${hostActivity.packageName}.$it") }
+        // The aliases are declared under the namespace, which differs from the package name in every edition but full: the package names the app, the namespace names the class.
+        return className?.let { ComponentName(hostActivity.packageName, "${AppIconStyle.namespace()}.$it") }
             ?: ComponentName(hostActivity, hostActivity.javaClass)
     }
 

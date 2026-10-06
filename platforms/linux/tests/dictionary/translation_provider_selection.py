@@ -6,6 +6,7 @@ A valid Tencent credential file stays on disk after the user picks another servi
 import importlib.machinery
 import importlib.util
 import json
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 import sys
 import tempfile
@@ -65,6 +66,11 @@ class TranslationProviderSelection(unittest.TestCase):
                                        "custom_translation": {"enabled": False, "endpoint": "", "api_key": ""}}),
             ("unknown service", {"provider": "deepl"}),
             ("malformed service", {"provider": ["tencent"]}),
+            # The field is required: a query without it is malformed, whatever blocks it carries.
+            ("missing service", {}),
+            ("missing service with a usable block", {"niutrans": {"enabled": True, "app_id": "synthetic-app",
+                                                                  "apikey": "synthetic-key"}}),
+            ("missing service with the account flag", {"translation_account": True}),
         ):
             with self.subTest(case=name):
                 result, urls = self.contacted(query)
@@ -110,6 +116,80 @@ class TranslationProviderSelection(unittest.TestCase):
         self.assertEqual(result, [{"text": "测试", "translation": "synthetic account"}])
         self.assertEqual(urls, ["https://api.msime.app/v1/translate"])
 
+    def test_account_login_and_refresh_run_through_the_http_worker(self):
+        tokens = {
+            "access_token": "a" * 64, "refresh_token": "b" * 64,
+            "token_type": "Bearer", "expires_in": 3600,
+            "user": {"id": "synthetic-user"},
+        }
+        contacted = []
+
+        class AccountHandler(BaseHTTPRequestHandler):
+            def do_POST(self):
+                self.rfile.read(int(self.headers["Content-Length"]))
+                contacted.append(self.path)
+                response = ({"challenge_id": "synthetic-challenge"}
+                            if self.path == "/v1/auth/challenges" else tokens)
+                payload = json.dumps(response).encode()
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+
+            def log_message(self, *args):
+                pass
+
+        http = HTTPServer(("127.0.0.1", 0), AccountHandler)
+        worker = threading.Thread(target=http.serve_forever, kwargs={"poll_interval": 0.01})
+        worker.start()
+        try:
+            with tempfile.TemporaryDirectory(prefix="msime-account-http-") as directory:
+                server = provider.anonymous_server(Path(directory))
+                origin = "http://127.0.0.1:" + str(http.server_port)
+                with mock.patch.object(provider, "ANONYMOUS_ACCOUNT_ORIGIN", origin):
+                    self.assertEqual(provider.anonymous_access_token(server), "a" * 64)
+                    self.assertEqual(contacted, ["/v1/auth/challenges", "/v1/auth/login"])
+                    provider._write_anonymous_private(
+                        server.anonymous_session_path,
+                        {"tokens": tokens, "expires_at_unix_ms": 0})
+                    self.assertEqual(provider.anonymous_access_token(server), "a" * 64)
+                    self.assertEqual(contacted[-1], "/v1/auth/refresh")
+                    self.assertEqual(len(contacted), 3)
+        finally:
+            http.shutdown()
+            worker.join()
+            http.server_close()
+
+    def test_malformed_saved_tokens_recover_with_the_existing_identity(self):
+        tokens = {
+            "access_token": "a" * 64, "refresh_token": "b" * 64,
+            "token_type": "Bearer", "expires_in": 3600,
+            "user": {"id": "synthetic-user"},
+        }
+        for malformed in (None, [], ["synthetic"], "synthetic", 7, True):
+            with self.subTest(tokens=malformed):
+                with tempfile.TemporaryDirectory(prefix="msime-malformed-session-") as directory:
+                    server = provider.anonymous_server(Path(directory))
+                    identity = provider._anonymous_identity(server)
+                    self.assertTrue(provider._write_anonymous_private(
+                        server.anonymous_session_path,
+                        {"tokens": malformed, "expires_at_unix_ms": 0}))
+                    with mock.patch.object(provider, "fetch", side_effect=[
+                        {"challenge_id": "synthetic-challenge"}, tokens,
+                    ]) as fetch:
+                        self.assertEqual(provider.anonymous_access_token(server), "a" * 64)
+                        self.assertEqual(provider.anonymous_access_token(server), "a" * 64)
+                    self.assertEqual(provider._anonymous_identity(server), identity)
+                    self.assertEqual([call.args[0] for call in fetch.call_args_list], [
+                        provider.ANONYMOUS_ACCOUNT_ORIGIN + "/v1/auth/challenges",
+                        provider.ANONYMOUS_ACCOUNT_ORIGIN + "/v1/auth/login",
+                    ])
+                    self.assertEqual(fetch.call_args_list[0].args[2]["target"], identity[0])
+                    self.assertEqual(fetch.call_args_list[1].args[2]["credential"], identity[1])
+                    saved = provider._anonymous_private_path(server.anonymous_session_path)
+                    self.assertEqual(saved["tokens"], tokens)
+                    self.assertGreater(saved["expires_at_unix_ms"], 0)
+
     def test_account_identity_is_generated_owner_only_and_stable(self):
         with tempfile.TemporaryDirectory(prefix="msime-anonymous-account-") as directory:
             path = Path(directory) / "anonymous-account.json"
@@ -145,17 +225,6 @@ class TranslationProviderSelection(unittest.TestCase):
             self.assertEqual((root / "anonymous-account.json").stat().st_mode & 0o777, 0o600)
             self.assertEqual((root / "anonymous-session.json").stat().st_mode & 0o777, 0o600)
             self.assertNotIn("secret", (root / "anonymous-session.json").read_text())
-
-    def test_query_from_an_older_host_keeps_its_choice(self):
-        # Hosts that predate the provider field sent only the usable block, with Tencent as the remaining default.
-        result, urls = self.contacted({})
-        self.assertEqual(result, [{"text": "测试", "translation": "synthetic tencent"}])
-        self.assertEqual(urls, [TENCENT])
-        self.server.translation_cache.clear()
-        result, urls = self.contacted({"niutrans": {"enabled": True, "app_id": "synthetic-app",
-                                                    "apikey": "synthetic-key"}})
-        self.assertEqual(urls, [NIUTRANS])
-
 
 if __name__ == "__main__":
     unittest.main()

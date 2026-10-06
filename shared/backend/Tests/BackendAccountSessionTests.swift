@@ -56,6 +56,21 @@ private final class SharedStoreAPI: BackendSessionAPI, @unchecked Sendable {
     return try onRefresh(token)
   }
 }
+
+private struct FailingRefreshLock: BackendRefreshLock {
+  var sharedAcrossProcesses: Bool { true }
+  func run<T: Sendable>(_ body: @Sendable () async throws -> T) async throws -> T {
+    throw BackendAccountClient.Failure(status: 0)
+  }
+}
+
+private final class AttemptCounter: @unchecked Sendable {
+  private let lock = NSLock()
+  private var value = 0
+  func increment() -> Int { lock.lock(); defer { lock.unlock() }; value += 1; return value }
+  var count: Int { lock.lock(); defer { lock.unlock() }; return value }
+}
+
 final class BackendAccountSessionTests: XCTestCase {
   func testSignInRejectsUnboundedExpiryFromAPI() async throws {
     let invalid = BackendAccountClient.Tokens(access_token: String(repeating: "a", count: 64),
@@ -128,6 +143,69 @@ final class BackendAccountSessionTests: XCTestCase {
     } catch is CancellationError { }
     let count = await api.refreshCount
     XCTAssertEqual(count, 0)
+  }
+
+  func testAuthenticatedRequestRefreshesRejectedAccessTokenOnce() async throws {
+    let original = BackendSavedSession(tokens: SharedStoreAPI.tokens("a", "f"),
+                                       expiresAt: Date().addingTimeInterval(600))
+    let storage = MemorySessions(original)
+    let api = SharedStoreAPI { _ in SharedStoreAPI.tokens("b", "c") }
+    let session = BackendAccountSession(api: api, storage: storage)
+    let attempts = AttemptCounter()
+
+    let result = try await session.authenticated(matchingUserID: "synthetic-user") { token in
+      if attempts.increment() == 1 {
+        throw BackendAccountClient.Failure(status: 401)
+      }
+      return token
+    }
+
+    XCTAssertEqual(result.value, String(repeating: "b", count: 64))
+    XCTAssertEqual(result.token, result.value)
+    XCTAssertEqual(attempts.count, 2)
+    XCTAssertEqual(api.refreshCount, 1)
+    XCTAssertEqual(try storage.load()?.tokens.access_token, result.value)
+  }
+  func testAuthenticatedRequestPropagatesSecondRejectionAndOtherFailures() async throws {
+    for status in [401, 403, 409, 503] {
+      let storage = MemorySessions(.init(tokens: SharedStoreAPI.tokens("a", "f"),
+                                         expiresAt: Date().addingTimeInterval(600)))
+      let api = SharedStoreAPI { _ in SharedStoreAPI.tokens("b", "c") }
+      let session = BackendAccountSession(api: api, storage: storage)
+      let attempts = AttemptCounter()
+      do {
+        _ = try await session.authenticated(matchingUserID: "synthetic-user") { _ -> String in
+          _ = attempts.increment()
+          throw BackendAccountClient.Failure(status: status)
+        }
+        XCTFail("must propagate rejected request")
+      } catch let error as BackendAccountClient.Failure {
+        XCTAssertEqual(error.status, status)
+      }
+      XCTAssertEqual(attempts.count, status == 401 ? 2 : 1)
+      XCTAssertEqual(api.refreshCount, status == 401 ? 1 : 0)
+    }
+  }
+  func testAuthenticatedRequestNeverRetriesAfterAccountSwitch() async throws {
+    let storage = MemorySessions(.init(tokens: SharedStoreAPI.tokens("a", "f"),
+                                       expiresAt: Date().addingTimeInterval(600)))
+    let api = SharedStoreAPI { _ in SharedStoreAPI.tokens("b", "c") }
+    let session = BackendAccountSession(api: api, storage: storage)
+    let attempts = AttemptCounter()
+    let other = BackendAccountClient.Tokens(access_token: String(repeating: "d", count: 64),
+      refresh_token: String(repeating: "e", count: 64), token_type: "Bearer", expires_in: 900,
+      user: .init(id: "other-synthetic-user", display_name: "另一个账号", created_at: "2026-09-08"))
+    do {
+      _ = try await session.authenticated(matchingUserID: "synthetic-user") { _ -> String in
+        _ = attempts.increment()
+        try storage.save(BackendSavedSession.forTokens(other))
+        throw BackendAccountClient.Failure(status: 401)
+      }
+      XCTFail("must not retry as another account")
+    } catch is CancellationError { }
+    XCTAssertEqual(attempts.count, 1)
+    XCTAssertEqual(api.refreshCount, 0)
+    XCTAssertEqual(try storage.load()?.tokens.user.id, "other-synthetic-user")
   }
   func testBoundCredentialsRejectLogoutDuringRefresh() async throws {
     let storage = MemorySessions(.init(tokens: RefreshAPI.tokens(), expiresAt: .distantPast))
@@ -320,6 +398,22 @@ final class BackendAccountSessionTests: XCTestCase {
     XCTAssertEqual(api.refreshCount, 0)
     XCTAssertEqual(try storage.load()?.tokens.refresh_token, String(repeating: "f", count: 64), "the stored session is kept")
   }
+
+  func testSignOutDoesNotClearWhenTheSharedLockCannotBeTaken() async throws {
+    let stored = BackendSavedSession(tokens: SharedStoreAPI.tokens("a", "f"), expiresAt: Date().addingTimeInterval(600))
+    let storage = MemorySessions(stored)
+    let session = BackendAccountSession(api: SharedStoreAPI { _ in SharedStoreAPI.tokens("b", "c") },
+                                        storage: storage, refreshLock: FailingRefreshLock())
+    do {
+      try await session.forget()
+      XCTFail("sign-out must report a lock failure")
+    } catch let failure as BackendAccountClient.Failure {
+      XCTAssertEqual(failure.status, 0)
+    }
+    XCTAssertEqual(try storage.load()?.tokens.refresh_token, stored.tokens.refresh_token,
+                   "an unlocked clear could race an in-flight refresh and resurrect the session")
+  }
+
   func testActorThatLoadedNothingSeesLaterSignIn() async throws {
     let storage = MemorySessions(nil)
     let api = SharedStoreAPI { _ in throw BackendAccountClient.Failure(status: 401) }

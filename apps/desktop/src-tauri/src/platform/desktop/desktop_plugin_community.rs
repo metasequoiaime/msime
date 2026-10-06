@@ -56,9 +56,10 @@ pub async fn plugin_community_list(
     offset: usize,
     search: String,
     kind: Option<PluginKind>,
+    mine: Option<bool>,
 ) -> Result<CommunityPluginPage, CommandError> {
     community_service_call(Arc::clone(&state.service), move |service| {
-        service.list(offset, &search, kind)
+        service.list(offset, &search, kind, mine.unwrap_or(false))
     })
     .await
 }

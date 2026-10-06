@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { testHost } from "../support/host";
 import { settingsFormReady } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -6,7 +7,7 @@ import {
   POLISH_PRESETS,
   POLISH_PRESET_IDS,
   SettingsPage,
-  normalizePolishSlot,
+  isPolishCustomSlot,
   polishPromptFor,
   polishSlotField,
   polishPresetPrompt,
@@ -33,7 +34,6 @@ const snapshot: Snapshot = {
       asr_provider: "doubao",
       polish_enabled: true,
       polish_prompt_id: "cleanup",
-      polish_prompt: "",
       polish_prompt_custom_2: "我自己的方案",
     },
   },
@@ -52,10 +52,10 @@ test("every preset carries the real multi-rule prompt, not a one-liner", () => {
   expect(new Set(Object.values(POLISH_PRESETS)).size).toBe(POLISH_PRESET_IDS.length);
 });
 
-test("the legacy custom id maps onto the first slot", () => {
-  expect(normalizePolishSlot("custom")).toBe("custom_1");
-  expect(normalizePolishSlot(undefined)).toBe("cleanup");
-  expect(normalizePolishSlot("zh2en")).toBe("zh2en");
+test("only the numbered slots are custom slots", () => {
+  expect(isPolishCustomSlot("custom_1")).toBe(true);
+  expect(isPolishCustomSlot("custom")).toBe(false);
+  expect(isPolishCustomSlot("zh2en")).toBe(false);
   expect(polishPresetPrompt("custom_1")).toBe("");
   expect(polishPresetPrompt("zh2en")).toBe(POLISH_PRESETS.zh2en);
 });
@@ -70,7 +70,11 @@ test("resolves preset and custom prompt slots through shared helpers", () => {
 async function openVoice() {
   render(
     <SettingsPage
-      client={{ load: async () => snapshot, save: vi.fn(), host: { platform: "windows" } as never }}
+      client={{
+        load: async () => snapshot,
+        save: vi.fn(),
+        host: testHost({ platform: "windows" }),
+      }}
     />,
   );
   await settingsFormReady();
@@ -98,37 +102,36 @@ test("a custom slot shows what the user stored in that slot", async () => {
   expect((screen.getByLabelText("润色提示词") as HTMLTextAreaElement).value).toBe("");
 });
 
-test("恢复默认 brings an edited preset back", async () => {
+test("a preset prompt is read-only and editing a custom slot saves to that slot", async () => {
   const select = await openVoice();
   fireEvent.change(select, { target: { value: "faithful" } });
-  const reset = screen.getByRole("button", { name: "恢复默认" });
-  // Nothing to restore until it is edited.
-  expect((reset as HTMLButtonElement).disabled).toBe(true);
-  fireEvent.change(screen.getByLabelText("润色提示词"), { target: { value: "改坏了" } });
-  expect((screen.getByRole("button", { name: "恢复默认" }) as HTMLButtonElement).disabled).toBe(
-    false,
-  );
-  fireEvent.click(screen.getByRole("button", { name: "恢复默认" }));
-  expect((screen.getByLabelText("润色提示词") as HTMLTextAreaElement).value).toBe(
-    POLISH_PRESETS.faithful,
-  );
+  expect((screen.getByLabelText("润色提示词") as HTMLTextAreaElement).readOnly).toBe(true);
+  expect(screen.queryByRole("button", { name: "恢复默认" })).toBeNull();
+  fireEvent.change(select, { target: { value: "custom_3" } });
+  fireEvent.change(screen.getByLabelText("润色提示词"), { target: { value: "第三个方案" } });
+  fireEvent.change(select, { target: { value: "custom_2" } });
+  fireEvent.change(select, { target: { value: "custom_3" } });
+  expect((screen.getByLabelText("润色提示词") as HTMLTextAreaElement).value).toBe("第三个方案");
 });
 
 test("the AI prompt slot selector is no longer Linux-only", async () => {
   render(
     <SettingsPage
-      client={{ load: async () => snapshot, save: vi.fn(), host: { platform: "windows" } as never }}
+      client={{
+        load: async () => snapshot,
+        save: vi.fn(),
+        host: testHost({ platform: "windows" }),
+      }}
     />,
   );
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "表达" }));
+  fireEvent.click(screen.getByRole("button", { name: "标点与翻译" }));
   fireEvent.click(screen.getByRole("button", { name: "AI 辅助" }));
   // Windows users could author three custom prompts but had no control that
   // would ever select one, so prompt_id stayed at whatever it was.
   const slot = await screen.findByLabelText("AI 联想提示词方案");
   fireEvent.change(slot, { target: { value: "custom_2" } });
   expect((slot as HTMLSelectElement).value).toBe("custom_2");
-  // And the box is no longer mislabelled as an Android-only polish setting.
-  expect(screen.getByText("兼容提示词")).toBeTruthy();
+  expect(screen.queryByText("兼容提示词")).toBeNull();
   expect(screen.queryByText(/Android 只发送选中文字/)).toBeNull();
 });

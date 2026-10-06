@@ -1,8 +1,10 @@
+#[cfg(any(not(target_os = "linux"), test))]
 use reqwest::Url;
 
 /// Convert an endpoint that may point at a chat or transcription resource to
 /// its sibling model-list resource. Callers choose whether endpoint query
 /// parameters belong to the model request.
+#[cfg(any(not(target_os = "linux"), test))]
 pub(crate) fn models_url(mut url: Url, clear_query: bool) -> Url {
     let mut path = url.path().trim_end_matches('/').to_owned();
     for suffix in ["/chat/completions", "/audio/transcriptions"] {

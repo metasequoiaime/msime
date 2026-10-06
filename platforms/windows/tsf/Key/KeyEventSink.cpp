@@ -49,6 +49,10 @@ struct DeferredShadowState
     size_t caret = 0;
     bool candidateActive = false;
     bool unicodeMode = false;
+    // 网址模式由触发键进入后一直保持，不从缓冲前缀推断，规则与 CCompositionProcessorEngine::IsUrlModeComposition 相同。
+    bool urlMode = false;
+    // Korean and Zhuyin: whether the composition's list is open once the keys ahead have run (see project_korean_hanja_key).
+    bool koreanHanjaListOpen = false;
     bool projectionValid = true;
 };
 
@@ -73,7 +77,8 @@ bool IsBareModifierKey(UINT code)
     }
 }
 
-void ApplyDeferredKeyState(DeferredShadowState &shadow, const _KEYSTROKE_STATE &keyState, WCHAR wch = 0)
+void ApplyDeferredKeyState(DeferredShadowState &shadow, const _KEYSTROKE_STATE &keyState, WCHAR wch = 0,
+                           UINT code = 0)
 {
     const auto clearComposition = [&shadow]() {
         shadow.inputLength = 0;
@@ -81,11 +86,22 @@ void ApplyDeferredKeyState(DeferredShadowState &shadow, const _KEYSTROKE_STATE &
         shadow.caret = 0;
         shadow.candidateActive = false;
         shadow.unicodeMode = false;
+        shadow.urlMode = false;
+        shadow.koreanHanjaListOpen = false;
     };
 
     switch (keyState.Function)
     {
     case FUNCTION_INPUT:
+        // 藏文的空格和 `/` 不进入原文：组字时引擎把整串音节连同音节点或垂符上屏，空闲的 `/` 直接输出垂符，之后都没有组字。
+        if (Global::InputModeScheme.load(std::memory_order_relaxed) == msime::windows::scheme::Tibetan &&
+            (wch == L' ' || wch == L'/'))
+        {
+            clearComposition();
+            break;
+        }
+        // A Korean letter, or a key Zhuyin spells with, closes the open list and keeps composing.
+        shadow.koreanHanjaListOpen = false;
         if (shadow.inputLength == 0)
         {
             shadow.unicodeMode = (wch == L'U');
@@ -93,11 +109,19 @@ void ApplyDeferredKeyState(DeferredShadowState &shadow, const _KEYSTROKE_STATE &
         shadow.caret = min(shadow.caret, shadow.rawInput.size());
         if (shadow.rawInput.size() < MAX_PINYIN_LENGTH && wch != L'\0')
         {
+            // 与 AddVirtualKey 一致：网址模式里的 `'` 是网址字符，连续的也不合并。
             const bool duplicateSeparator =
-                wch == L'\'' && ((shadow.caret > 0 && shadow.rawInput[shadow.caret - 1] == L'\'') ||
-                                 (shadow.caret < shadow.rawInput.size() && shadow.rawInput[shadow.caret] == L'\''));
+                wch == L'\'' && !shadow.urlMode &&
+                ((shadow.caret > 0 && shadow.rawInput[shadow.caret - 1] == L'\'') ||
+                 (shadow.caret < shadow.rawInput.size() && shadow.rawInput[shadow.caret] == L'\''));
             if (!duplicateSeparator)
             {
+                shadow.urlMode =
+                    shadow.urlMode ||
+                    Global::OpensUrlMode(
+                        shadow.rawInput.c_str(), shadow.rawInput.size(), shadow.caret, wch,
+                        msime::windows::scheme::DetectsUrls(Global::InputModeScheme.load(std::memory_order_relaxed)),
+                        Global::DedicatedEnglish.active(GetTickCount64()));
                 shadow.rawInput.insert(shadow.caret, 1, wch);
                 ++shadow.caret;
             }
@@ -112,13 +136,18 @@ void ApplyDeferredKeyState(DeferredShadowState &shadow, const _KEYSTROKE_STATE &
         shadow.inputLength = shadow.rawInput.size();
         shadow.candidateActive = false;
         shadow.unicodeMode = (wch == L'U');
+        shadow.urlMode = false;
+        shadow.koreanHanjaListOpen = false;
         break;
     case FUNCTION_BACKSPACE:
         shadow.caret = min(shadow.caret, shadow.rawInput.size());
         if (shadow.caret > 0)
         {
+            const WCHAR removed = shadow.rawInput[shadow.caret - 1];
             shadow.rawInput.erase(shadow.caret - 1, 1);
             --shadow.caret;
+            shadow.urlMode =
+                Global::UrlModeAfterDeletion(shadow.urlMode, shadow.rawInput.c_str(), shadow.rawInput.size(), removed);
         }
         shadow.inputLength = shadow.rawInput.size();
         if (shadow.inputLength == 0)
@@ -153,7 +182,10 @@ void ApplyDeferredKeyState(DeferredShadowState &shadow, const _KEYSTROKE_STATE &
         shadow.caret = min(shadow.caret, shadow.rawInput.size());
         if (shadow.caret < shadow.rawInput.size())
         {
+            const WCHAR removed = shadow.rawInput[shadow.caret];
             shadow.rawInput.erase(shadow.caret, 1);
+            shadow.urlMode =
+                Global::UrlModeAfterDeletion(shadow.urlMode, shadow.rawInput.c_str(), shadow.rawInput.size(), removed);
         }
         shadow.inputLength = shadow.rawInput.size();
         if (shadow.inputLength == 0)
@@ -168,6 +200,17 @@ void ApplyDeferredKeyState(DeferredShadowState &shadow, const _KEYSTROKE_STATE &
             ++shadow.caret;
         }
         break;
+    case FUNCTION_KOREAN_HANJA_KEY: {
+        // Only the key that opens the list, and a list key while the projection has the list open, are queued as this function.
+        const auto projected = msime::tsf::project_korean_hanja_key(Global::InputModeScheme.load(std::memory_order_relaxed),
+                                                                    code, wch, shadow.koreanHanjaListOpen);
+        if (projected.syllableEnds)
+        {
+            clearComposition();
+        }
+        shadow.koreanHanjaListOpen = projected.listOpen;
+        break;
+    }
     case FUNCTION_FINALIZE_TEXTSTORE:
     case FUNCTION_COMMIT_SYLLABLE:
     case FUNCTION_COMMIT_SYLLABLE_AND_REPLAY:
@@ -286,6 +329,13 @@ bool IsShiftVk(UINT code)
 bool IsControlVk(UINT code)
 {
     return code == VK_CONTROL || code == VK_LCONTROL || code == VK_RCONTROL;
+}
+
+// The right Ctrl key: its own code from a host that reports sides, or VK_CONTROL with the extended-key bit.
+bool IsRightControlKey(WPARAM wParam, LPARAM lParam)
+{
+    const UINT code = LOWORD(wParam);
+    return code == VK_RCONTROL || (code == VK_CONTROL && (lParam & 0x01000000) != 0);
 }
 
 bool IsAltVk(UINT code)
@@ -590,7 +640,7 @@ bool CMetasequoiaIME::_MatchChordInputHotkey(WPARAM wParam, _Out_ GUID *hotkeyGu
     }
     // The Korean keyboard's 한/영 key switches between Korean and English as Shift does, committing the open syllable first. VK_HANGUL shares its code with VK_KANA, so it only means this while the Korean scheme is active.
     if (code == msime::tsf::kVirtualKeyHangul && !ctrl && !alt &&
-        Global::KoreanInputModeEnabled.load(std::memory_order_relaxed))
+        Global::InputModeScheme.load(std::memory_order_relaxed) == msime::windows::scheme::Korean)
     {
         *hotkeyGuid = Global::MetasequoiaIMEGuidImeModePreserveKey;
         return true;
@@ -637,6 +687,45 @@ bool CMetasequoiaIME::_MatchModifierReleaseHotkey(WPARAM wParam, _Out_ GUID *hot
     }
 
     return false;
+}
+
+bool CMetasequoiaIME::_QueueKoreanHanjaTap(_In_ ITfContext *pContext, WPARAM wParam, LPARAM lParam)
+{
+    // The arming latch proves the Ctrl was pressed alone, with no other key between press and release.
+    if (pContext == nullptr || !_ctrlHotkeyArmed || !IsRightControlKey(wParam, lParam) ||
+        std::chrono::steady_clock::now() >= _modifierHotkeyExpire ||
+        Global::InputModeScheme.load(std::memory_order_relaxed) != msime::windows::scheme::Korean ||
+        _pCompositionProcessorEngine == nullptr ||
+        _IsKeyboardDisabled())
+    {
+        return false;
+    }
+    // Keys still queued ahead may be the ones composing the syllable this tap converts.
+    const bool imeOpen = _deferredKeyProjectionValid
+                             ? _deferredProjectedImeOpen
+                             : _pCompositionProcessorEngine->GetIMEMode(_pThreadMgr, _tfClientId) != FALSE;
+    const bool composing =
+        _IsComposing() != FALSE || (_deferredKeyProjectionValid && _deferredProjectedInputLength > 0);
+    if (!imeOpen || !composing || !_DeferredKeyQueueHasCapacity())
+    {
+        return false;
+    }
+    _shiftHotkeyArmed = false;
+    _ctrlHotkeyArmed = false;
+    // Queued as the Hanja key it stands for, so the Server receives that key and both sessions convert the same syllable.
+    _KEYSTROKE_STATE hanjaState = {};
+    hanjaState.Category = CATEGORY_COMPOSING;
+    hanjaState.Function = FUNCTION_KOREAN_HANJA_KEY;
+    if (!_QueueDeferredKeyDown(pContext, msime::tsf::kVirtualKeyHanja, 0, L'\0', 0, hanjaState))
+    {
+        return false;
+    }
+    if (_localSessionResetPending.load(std::memory_order_acquire))
+    {
+        const UINT resetToken = _localSessionResetToken.load(std::memory_order_acquire);
+        _RequestLocalSessionReset(pContext, resetToken);
+    }
+    return true;
 }
 
 bool CMetasequoiaIME::_QueueInputHotkey(_In_ ITfContext *pContext, REFGUID hotkeyGuid, _Out_ BOOL *pIsEaten)
@@ -766,9 +855,11 @@ BOOL CMetasequoiaIME::_IsKeyEaten(         //
     {
         return isTouchKeyboardSpecialKeys;
     }
-    // Korean writes half-width ASCII in either mode, so with the keyboard closed the punctuation and full-width switches have nothing to convert.
-    const bool korean = Global::KoreanInputModeEnabled.load(std::memory_order_relaxed);
-    if (!isOpen && korean)
+    // 韩文、越南文和藏文在两种模式下都写半角 ASCII，所以键盘关闭时标点和全角开关没有东西可转换。
+    const int scheme = Global::InputModeScheme.load(std::memory_order_relaxed);
+    // 韩文、注音、越南文和藏文在 TIP 自己的宿主会话里组字（scheme::AlwaysInlinePreedit）。
+    const bool hostComposed = msime::windows::scheme::AlwaysInlinePreedit(scheme);
+    if (!isOpen && !msime::windows::scheme::UsesChinesePunctuation(scheme))
     {
         return isTouchKeyboardSpecialKeys;
     }
@@ -797,8 +888,8 @@ BOOL CMetasequoiaIME::_IsKeyEaten(         //
             }
             return TRUE;
         }
-        // Keep the Chinese compartment open: this only toggles the Server-owned English candidate sub-mode. Korean has no such mode here: the TIP composes Hangul in its own host session, which would not follow a mode only the Server session entered, so the chord belongs to the application like any other Ctrl chord.
-        if (!korean && IsEnglishInputModeToggle(*pCodeOut, shortcutModifiers))
+        // Keep the Chinese compartment open: this only toggles the Server-owned English candidate sub-mode. Korean, Zhuyin and Vietnamese have no such mode here: the TIP composes them in its own host session, which would not follow a mode only the Server session entered, so the chord belongs to the application like any other Ctrl chord.
+        if (!hostComposed && IsEnglishInputModeToggle(*pCodeOut, shortcutModifiers))
         {
             if (pKeyState)
             {
@@ -808,7 +899,8 @@ BOOL CMetasequoiaIME::_IsKeyEaten(         //
             return TRUE;
         }
 
-        if (!freshCompositionState && _candidateMode != CANDIDATE_NONE &&
+        // Korean's only list is the Hanja list. Its rows may show a translation under their 훈음, but both are display only: the TIP composes Hangul in its own host session, which a translation committed by the Server would leave behind, and the Server refuses the key for Korean too. Zhuyin and Vietnamese compose there as well. It stays the application's like any other Ctrl chord.
+        if (!hostComposed && !freshCompositionState && _candidateMode != CANDIDATE_NONE &&
             IsTranslationCommitShortcut(*pCodeOut, shortcutModifiers))
         {
             if (pKeyState)
@@ -837,14 +929,36 @@ BOOL CMetasequoiaIME::_IsKeyEaten(         //
             return isTouchKeyboardSpecialKeys;
         }
 
-        // Korean has no candidates, no Chinese punctuation and no smart punctuation to arm, so its keys are settled here before any of those paths can claim them (see HostKoreanKey.h).
-        if (korean)
+        // Korean has no Chinese candidates, no Chinese punctuation and no smart punctuation to arm, and Zhuyin and Vietnamese compose in the host session the same way, so their keys are settled here before any of those paths can claim them (see host_composed_key_action in HostKoreanKey.h). Korean reads its Hanja list from the host session only for the keys that list takes; Zhuyin and Vietnamese read the view for the keys it spells with.
+        if (hostComposed)
         {
-            const bool koreanComposing = !freshCompositionState && _IsComposing() != FALSE;
-            switch (msime::tsf::korean_key_action(*pCodeOut, wch, koreanComposing))
+            const bool hostComposing = !freshCompositionState && _IsComposing() != FALSE;
+            std::string spellingSymbols;
+            bool listOpen = false;
+            if (scheme == msime::windows::scheme::Korean)
             {
+                listOpen = hostComposing && msime::tsf::is_korean_hanja_list_key(*pCodeOut, wch) &&
+                           _IsKoreanHanjaListOpen();
+            }
+            else
+            {
+                const auto hostView = _ReadHostComposedView();
+                listOpen = hostComposing && hostView.listOpen;
+                spellingSymbols = hostView.spellingSymbols;
+            }
+            switch (msime::tsf::host_composed_key_action(scheme, *pCodeOut, wch, hostComposing, listOpen,
+                                                         spellingSymbols))
+            {
+            case msime::tsf::KoreanKeyAction::ConvertHanja:
+            case msime::tsf::KoreanKeyAction::HanjaList:
+                if (pKeyState)
+                {
+                    pKeyState->Category = CATEGORY_COMPOSING;
+                    pKeyState->Function = FUNCTION_KOREAN_HANJA_KEY;
+                }
+                return TRUE;
             case msime::tsf::KoreanKeyAction::Compose:
-                if (pwch)
+                if (pwch && msime::windows::scheme::FoldsLetterCase(scheme))
                 {
                     // A VK_PACKET letter (touch keyboard, injected text) carries its case itself; a physical key takes it from Shift, never from Caps Lock.
                     const bool upper = LOWORD(codeIn) == VK_PACKET ? (wch >= L'A' && wch <= L'Z')
@@ -915,6 +1029,14 @@ BOOL CMetasequoiaIME::_IsKeyEaten(         //
         // - start of input: don't eat
         // - middle of input: eat
         if (isCapsLockOn && isUppercaseAlphabet && !isInputInProgress)
+        {
+            return isTouchKeyboardSpecialKeys;
+        }
+
+        // With nothing composing, a Stroke letter other than the five strokes is the application's: the Engine answers handled=false for it, so the TIP must not eat it (scheme::LetterPassesWhileIdle). Not in the Engine's own English mode, which composes every letter.
+        if (!isInputInProgress &&
+            msime::windows::scheme::LetterPassesWhileIdle(
+                scheme, Global::DedicatedEnglish.active(GetTickCount64()), wch))
         {
             return isTouchKeyboardSpecialKeys;
         }
@@ -1172,9 +1294,14 @@ void CMetasequoiaIME::_EnsureDeferredKeyProjection()
     _deferredProjectedCandidateActive = _candidateMode == CANDIDATE_ORIGINAL;
     _deferredProjectedUnicodeMode =
         _pCompositionProcessorEngine && _pCompositionProcessorEngine->IsUnicodeModeComposition() != FALSE;
+    _deferredProjectedUrlMode =
+        _pCompositionProcessorEngine && _pCompositionProcessorEngine->IsUrlModeComposition() != FALSE;
+    _deferredProjectedKoreanHanjaListOpen =
+        msime::windows::scheme::OpensCandidateList(Global::InputModeScheme.load(std::memory_order_relaxed)) &&
+        _IsKoreanHanjaListOpen();
 }
 
-void CMetasequoiaIME::_ApplyDeferredKeyProjection(const _KEYSTROKE_STATE &keyState, WCHAR wch)
+void CMetasequoiaIME::_ApplyDeferredKeyProjection(const _KEYSTROKE_STATE &keyState, WCHAR wch, UINT code)
 {
     _EnsureDeferredKeyProjection();
     DeferredShadowState shadow;
@@ -1186,7 +1313,9 @@ void CMetasequoiaIME::_ApplyDeferredKeyProjection(const _KEYSTROKE_STATE &keySta
     shadow.caret = _deferredProjectedCaret;
     shadow.candidateActive = _deferredProjectedCandidateActive;
     shadow.unicodeMode = _deferredProjectedUnicodeMode;
-    ApplyDeferredKeyState(shadow, keyState, wch);
+    shadow.urlMode = _deferredProjectedUrlMode;
+    shadow.koreanHanjaListOpen = _deferredProjectedKoreanHanjaListOpen;
+    ApplyDeferredKeyState(shadow, keyState, wch, code);
     if (!shadow.projectionValid)
     {
         _deferredKeyProjectionValid = false;
@@ -1195,6 +1324,8 @@ void CMetasequoiaIME::_ApplyDeferredKeyProjection(const _KEYSTROKE_STATE &keySta
         _deferredProjectedCaret = 0;
         _deferredProjectedCandidateActive = false;
         _deferredProjectedUnicodeMode = false;
+        _deferredProjectedUrlMode = false;
+        _deferredProjectedKoreanHanjaListOpen = false;
         return;
     }
     _deferredProjectedInputLength = shadow.inputLength;
@@ -1202,6 +1333,8 @@ void CMetasequoiaIME::_ApplyDeferredKeyProjection(const _KEYSTROKE_STATE &keySta
     _deferredProjectedCaret = shadow.caret;
     _deferredProjectedCandidateActive = shadow.candidateActive;
     _deferredProjectedUnicodeMode = shadow.unicodeMode;
+    _deferredProjectedUrlMode = shadow.urlMode;
+    _deferredProjectedKoreanHanjaListOpen = shadow.koreanHanjaListOpen;
     if (keyState.Function == FUNCTION_BACKSPACE && shadow.inputLength == 0)
         _backspaceHoldArmed = true;
 }
@@ -1224,6 +1357,8 @@ void CMetasequoiaIME::_ApplyDeferredPreservedKeyProjection(REFGUID preservedKey)
         _deferredProjectedCaret = 0;
         _deferredProjectedCandidateActive = false;
         _deferredProjectedUnicodeMode = false;
+        _deferredProjectedUrlMode = false;
+        _deferredProjectedKoreanHanjaListOpen = false;
         break;
     case CCompositionProcessorEngine::PreservedKeyAction::ToggleDoubleSingleByteMode:
         _deferredProjectedDoubleSingleByteOpen = !_deferredProjectedDoubleSingleByteOpen;
@@ -1373,8 +1508,9 @@ bool CMetasequoiaIME::_ClassifyDeferredKeyDown(_In_ ITfContext *pContext, WPARAM
         keyState->Function = FUNCTION_TOGGLE_CHARACTER_SET;
         return true;
     }
-    // Korean has no Server-owned English candidate mode, as in _IsKeyEaten.
-    if (projectedImeOpen && !Global::KoreanInputModeEnabled.load(std::memory_order_relaxed) &&
+    // Korean, Zhuyin and Vietnamese have no Server-owned English candidate mode, as in _IsKeyEaten.
+    const int scheme = Global::InputModeScheme.load(std::memory_order_relaxed);
+    if (projectedImeOpen && !msime::windows::scheme::AlwaysInlinePreedit(scheme) &&
         IsEnglishInputModeToggle(*classifiedCode, capturedModifiers))
     {
         keyState->Category = CATEGORY_COMPOSING;
@@ -1423,6 +1559,8 @@ bool CMetasequoiaIME::_ClassifyDeferredKeyDown(_In_ ITfContext *pContext, WPARAM
         shadow.caret = _deferredProjectedCaret;
         shadow.candidateActive = _deferredProjectedCandidateActive;
         shadow.unicodeMode = _deferredProjectedUnicodeMode;
+        shadow.urlMode = _deferredProjectedUrlMode;
+        shadow.koreanHanjaListOpen = _deferredProjectedKoreanHanjaListOpen;
     }
     else
     {
@@ -1441,6 +1579,10 @@ bool CMetasequoiaIME::_ClassifyDeferredKeyDown(_In_ ITfContext *pContext, WPARAM
             min(static_cast<size_t>(_pCompositionProcessorEngine->GetCaretPosition()), shadow.rawInput.size());
         shadow.candidateActive = _candidateMode == CANDIDATE_ORIGINAL;
         shadow.unicodeMode = _pCompositionProcessorEngine->IsUnicodeModeComposition() != FALSE;
+        shadow.urlMode = _pCompositionProcessorEngine->IsUrlModeComposition() != FALSE;
+        shadow.koreanHanjaListOpen =
+            msime::windows::scheme::OpensCandidateList(Global::InputModeScheme.load(std::memory_order_relaxed)) &&
+            _IsKoreanHanjaListOpen();
     }
 
     if (static_cast<UINT>(wParam) == VK_BACK && _backspaceHoldArmed && IsAutoRepeat(lParam) &&
@@ -1457,21 +1599,40 @@ bool CMetasequoiaIME::_ClassifyDeferredKeyDown(_In_ ITfContext *pContext, WPARAM
         return true;
     };
 
-    if (Global::KoreanInputModeEnabled.load(std::memory_order_relaxed))
+    if (!shadow.imeOpen && !msime::windows::scheme::UsesChinesePunctuation(scheme))
     {
-        if (!shadow.imeOpen)
-        {
-            // Korean writes half-width ASCII with the keyboard closed too; queue printable keys as application text so they keep their place behind earlier keys.
-            return *classifiedWch != L'\0' && std::iswprint(static_cast<wint_t>(*classifiedWch)) != 0;
-        }
-        // Keys queued ahead of this one may still be composing, so a syllable counts as open when the projection or the document has one.
+        // Korean and Vietnamese write half-width ASCII with the keyboard closed too; queue printable keys as application text so they keep their place behind earlier keys.
+        return *classifiedWch != L'\0' && std::iswprint(static_cast<wint_t>(*classifiedWch)) != 0;
+    }
+    if (shadow.imeOpen && msime::windows::scheme::AlwaysInlinePreedit(scheme))
+    {
+        // Keys queued ahead of this one may still be composing, so a composition counts as open when the projection or the document has one.
         const bool composing = shadow.inputLength > 0 || _IsComposing() != FALSE;
-        switch (msime::tsf::korean_key_action(*classifiedCode, *classifiedWch, composing))
+        const bool listOpen = composing && shadow.koreanHanjaListOpen;
+        // A queued key cannot see the view, so the keys a composition spells with come from the scheme's static rules; the live view decides again when the key runs (_HandleCompositionInput).
+        std::string_view spellingSymbols;
+        if (scheme == msime::windows::scheme::Zhuyin)
+            spellingSymbols = !composing  ? msime::tsf::kZhuyinIdleSymbols
+                              : listOpen ? msime::tsf::kZhuyinListOpenSymbols
+                                         : msime::tsf::kZhuyinComposingSymbols;
+        else if (scheme == msime::windows::scheme::Vietnamese && composing)
+            spellingSymbols = msime::tsf::kVietnameseVniDigits;
+        else if (scheme == msime::windows::scheme::Tibetan)
+            spellingSymbols = composing ? msime::tsf::kTibetanComposingSymbols : msime::tsf::kTibetanIdleSymbols;
+        // Keys queued ahead may also open or close the list, so the list is read from the projection, which carries it forward from the host session's. With the list projected closed every key keeps the action it has without one, which is what commits a composition ended by an arrow so a Backspace queued after it still reaches the application; with it projected open the list's keys become FUNCTION_KOREAN_HANJA_KEY, which decides against the host session when it runs, as the Server does against its own.
+        switch (msime::tsf::host_composed_key_action(scheme, *classifiedCode, *classifiedWch, composing, listOpen,
+                                                     spellingSymbols))
         {
+        case msime::tsf::KoreanKeyAction::ConvertHanja:
+        case msime::tsf::KoreanKeyAction::HanjaList:
+            return setKeyState(CATEGORY_COMPOSING, FUNCTION_KOREAN_HANJA_KEY);
         case msime::tsf::KoreanKeyAction::Compose: {
-            const bool upper = LOWORD(wParam) == VK_PACKET ? (*classifiedWch >= L'A' && *classifiedWch <= L'Z')
-                                                           : (capturedModifiers & 0b00000001u) != 0;
-            *classifiedWch = msime::tsf::korean_letter(*classifiedWch, upper);
+            if (msime::windows::scheme::FoldsLetterCase(scheme))
+            {
+                const bool upper = LOWORD(wParam) == VK_PACKET ? (*classifiedWch >= L'A' && *classifiedWch <= L'Z')
+                                                               : (capturedModifiers & 0b00000001u) != 0;
+                *classifiedWch = msime::tsf::korean_letter(*classifiedWch, upper);
+            }
             return setKeyState(CATEGORY_COMPOSING, FUNCTION_INPUT);
         }
         case msime::tsf::KoreanKeyAction::CommitWithText:
@@ -1480,11 +1641,19 @@ bool CMetasequoiaIME::_ClassifyDeferredKeyDown(_In_ ITfContext *pContext, WPARAM
             // Behind a barrier the key cannot reach the application in order, so it is eaten and queued; once the syllable is committed the key is replayed to the application.
             return setKeyState(CATEGORY_COMPOSING, FUNCTION_COMMIT_SYLLABLE_AND_REPLAY);
         case msime::tsf::KoreanKeyAction::Pass:
-            // Printable keys become queued application text, the same as the closed-keyboard case above; Hanja carries no text and goes straight to the application.
+            // Printable keys become queued application text, the same as the closed-keyboard case above; the Hanja key with nothing composing carries no text and goes straight to the application.
             return *classifiedWch != L'\0' && std::iswprint(static_cast<wint_t>(*classifiedWch)) != 0;
         case msime::tsf::KoreanKeyAction::Default:
             break;
         }
+    }
+
+    // As in _IsKeyEaten: with nothing projected composing, a Stroke letter other than the five strokes is queued as application text.
+    if (shadow.imeOpen && shadow.inputLength == 0 && !shadow.candidateActive &&
+        msime::windows::scheme::LetterPassesWhileIdle(
+            scheme, Global::DedicatedEnglish.active(GetTickCount64()), *classifiedWch))
+    {
+        return true;
     }
 
     _KEYSTROKE_STATE inputState = {};
@@ -1495,7 +1664,8 @@ bool CMetasequoiaIME::_ClassifyDeferredKeyDown(_In_ ITfContext *pContext, WPARAM
         isInputKey = _pCompositionProcessorEngine->IsVirtualKeyNeedForFreshComposition(*classifiedCode, &inputWch,
                                                                                        &inputState) != FALSE;
         if (!isInputKey && shadow.inputLength > 0 &&
-            ((*classifiedWch == L'\'') || (_pCompositionProcessorEngine->IsWildcard() &&
+            ((*classifiedWch == L'\'' && !msime::windows::scheme::ApostropheIsPunctuationWhileComposing(scheme)) ||
+             (_pCompositionProcessorEngine->IsWildcard() &&
                                            _pCompositionProcessorEngine->IsWildcardChar(*classifiedWch))))
         {
             isInputKey = true;
@@ -1542,7 +1712,7 @@ bool CMetasequoiaIME::_ClassifyDeferredKeyDown(_In_ ITfContext *pContext, WPARAM
         if (Global::IsExpressionModeComposition(shadow.rawInput.c_str(), shadow.rawInput.size(),
                                                 Global::ExpressionModeEnabled.load(std::memory_order_relaxed)))
         {
-            switch (Global::ClassifyExpressionKey(*classifiedCode, *classifiedWch))
+            switch (Global::ClassifyModeKey(Global::ExpressionSpellingSymbols, *classifiedCode, *classifiedWch))
             {
             case Global::ExpressionKey::Input:
                 return setKeyState(CATEGORY_COMPOSING, FUNCTION_INPUT);
@@ -1551,6 +1721,25 @@ bool CMetasequoiaIME::_ClassifyDeferredKeyDown(_In_ ITfContext *pContext, WPARAM
             case Global::ExpressionKey::Unclaimed:
                 break;
             }
+        }
+        // 与普通路径一致：触发词后的触发键打开网址模式，之后网址的数字和符号排在翻页、标点和数字选词之前作为输入。
+        const bool detectsUrls = msime::windows::scheme::DetectsUrls(scheme);
+        if (shadow.urlMode)
+        {
+            switch (Global::ClassifyModeKey(Global::UrlSpellingSymbols, *classifiedCode, *classifiedWch))
+            {
+            case Global::ExpressionKey::Input:
+                return setKeyState(CATEGORY_COMPOSING, FUNCTION_INPUT);
+            case Global::ExpressionKey::SelectByNumber:
+                return setKeyState(CATEGORY_CANDIDATE, FUNCTION_SELECT_BY_NUMBER);
+            case Global::ExpressionKey::Unclaimed:
+                break;
+            }
+        }
+        else if (Global::OpensUrlMode(shadow.rawInput.c_str(), shadow.rawInput.size(), shadow.caret, *classifiedWch,
+                                      detectsUrls, Global::DedicatedEnglish.active(GetTickCount64())))
+        {
+            return setKeyState(CATEGORY_COMPOSING, FUNCTION_INPUT);
         }
         const bool candidateKey = shadow.candidateActive;
         switch (*classifiedCode)
@@ -1583,7 +1772,7 @@ bool CMetasequoiaIME::_ClassifyDeferredKeyDown(_In_ ITfContext *pContext, WPARAM
             {
                 return setKeyState(CATEGORY_COMPOSING, FUNCTION_INPUT);
             }
-            if (Global::JapaneseInputModeEnabled.load(std::memory_order_relaxed))
+            if (Global::InputModeScheme.load(std::memory_order_relaxed) == msime::windows::scheme::Japanese)
             {
                 return *classifiedCode == VK_OEM_MINUS && *classifiedWch == L'-'
                            ? setKeyState(CATEGORY_COMPOSING, FUNCTION_INPUT)
@@ -1863,7 +2052,8 @@ bool CMetasequoiaIME::_QueueDeferredKeyDown(_In_ ITfContext *pContext, WPARAM wP
     _deferredKeyDowns.push_back(key);
     if (key.kind == DeferredKeyDown::Kind::KeyDown)
     {
-        _ApplyDeferredKeyProjection(keyState, translatedWch);
+        _ApplyDeferredKeyProjection(keyState, translatedWch,
+                                    VKeyFromVKPacketAndWchar(static_cast<UINT>(wParam), translatedWch));
     }
     else
     {
@@ -1955,6 +2145,8 @@ void CMetasequoiaIME::_ClearDeferredKeyDowns()
     _deferredProjectedCaret = 0;
     _deferredProjectedCandidateActive = false;
     _deferredProjectedUnicodeMode = false;
+    _deferredProjectedUrlMode = false;
+    _deferredProjectedKoreanHanjaListOpen = false;
     _shiftHotkeyArmed = false;
     _ctrlHotkeyArmed = false;
 }
@@ -1986,6 +2178,8 @@ void CMetasequoiaIME::_CompleteDeferredKeyReplay(uint64_t replayToken)
         _deferredProjectedCaret = 0;
         _deferredProjectedCandidateActive = false;
         _deferredProjectedUnicodeMode = false;
+        _deferredProjectedUrlMode = false;
+        _deferredProjectedKoreanHanjaListOpen = false;
         (void)_RefreshDeferredRecoveryPrefix(context);
         _deferredKeyInFlight = {};
         _hasDeferredKeyInFlight = false;
@@ -2325,6 +2519,11 @@ STDAPI CMetasequoiaIME::OnKeyDown(ITfContext *pContext, WPARAM wParam, LPARAM lP
     PerfTimer onKeyDownTimer;
     const uint64_t focusGeneration = _deferredKeyFocusGeneration;
     (void)_DispatchKeyDown(pContext, wParam, lParam, pIsEaten, nullptr, nullptr, nullptr, true, focusGeneration);
+    // TIP 只把 Ctrl+Shift+E 当作 Engine 英文模式的切换键吞下（_IsKeyEaten 与 _ClassifyDeferredKeyDown 同一条规则），之后不读 Server 的回复。在这里先翻转镜像：后面的字母无论立即分类还是入队时分类，都在本线程上排在它之后。每次按下 TSF 只调用一次 OnKeyDown，排队回放不经过这里，所以只翻一次。
+    if (*pIsEaten && IsEnglishInputModeToggle(static_cast<UINT>(LOWORD(wParam)), CaptureIpcModifiers()))
+    {
+        Global::DedicatedEnglish.toggled(GetTickCount64());
+    }
     DebugTsfKeyLatency(L"on-key-down", 0, onKeyDownTimer.ElapsedMs(), S_OK);
     return S_OK;
 }
@@ -2599,11 +2798,11 @@ CMetasequoiaIME::KeyDownDispatchResult CMetasequoiaIME::_DispatchKeyDown(
                  ? msime::windows::PipeMetadata::CandidateActive
                  : 0u) |
             (IsAutoRepeat(lParam) ? msime::windows::PipeMetadata::AutoRepeat : 0u);
-        WriteDataToSharedMemory(Global::Keycode, wch, ipcModifiers, nullptr, 0,
-                                localCommitObservation,
-                                hasLocalCommitObservation && !localCommitObservation.empty()
-                                    ? 0b110111
-                                    : 0b000111);
+        WriteDataToNamedPipe(Global::Keycode, wch, ipcModifiers, nullptr, 0,
+                             localCommitObservation,
+                             hasLocalCommitObservation && !localCommitObservation.empty()
+                                 ? 0b110111
+                                 : 0b000111);
 
         PerfTimer sendKeyEventTimer;
         const KeyEventSendResult sendResult = SendKeyEventToUIProcess(&requestId);
@@ -2788,6 +2987,14 @@ STDAPI CMetasequoiaIME::OnTestKeyUp(ITfContext *pContext, WPARAM wParam, LPARAM 
         return S_OK;
     }
 
+    // Ahead of the barrier check: the tap is queued behind any keys still waiting, which keeps it in order.
+    if (_QueueKoreanHanjaTap(pContext, wParam, lParam))
+    {
+        // As with the language toggle the release itself still reaches the application, and OnKeyUp will not be called for it.
+        *pIsEaten = FALSE;
+        return S_OK;
+    }
+
     if (_HasDeferredKeyBarrier())
     {
         // A matching deferred key-down may or may not have fit in the bounded
@@ -2858,6 +3065,13 @@ STDAPI CMetasequoiaIME::OnKeyUp(ITfContext *pContext, WPARAM wParam, LPARAM lPar
                         _IsComposing(),
                         _pCompositionProcessorEngine ? _pCompositionProcessorEngine->GetVirtualKeyLength() : 0, S_OK);
         ClearReleasedShiftModifierState();
+        *pIsEaten = FALSE;
+        return S_OK;
+    }
+
+    // For hosts that call OnKeyUp without OnTestKeyUp, as the language toggle below.
+    if (_QueueKoreanHanjaTap(pContext, wParam, lParam))
+    {
         *pIsEaten = FALSE;
         return S_OK;
     }

@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
+import { StrictMode } from "react";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { HostActionButton } from "../../../../packages/ui/src/keyboard/HostActionButton";
 
@@ -8,6 +9,18 @@ afterEach(cleanup);
 test("missing host capability disables the action", () => {
   render(<HostActionButton label="复制群号" />);
   expect((screen.getByRole("button") as HTMLButtonElement).disabled).toBe(true);
+});
+
+test("host action remains available after StrictMode effect replay", async () => {
+  const action = vi.fn().mockResolvedValue(undefined);
+  render(
+    <StrictMode>
+      <HostActionButton label="打开" action={action} />
+    </StrictMode>,
+  );
+
+  fireEvent.click(screen.getByRole("button"));
+  await waitFor(() => expect(action).toHaveBeenCalledOnce());
 });
 
 test("copy waits for completion and suppresses duplicate requests", async () => {

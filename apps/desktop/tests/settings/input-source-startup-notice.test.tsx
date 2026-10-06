@@ -64,6 +64,23 @@ test("does not ask for adding the source after a failed install", () => {
 
   const banner = screen.getByRole("alert", { name: "水杉输入法安装状态" });
   expect(banner.textContent).toContain("水杉输入法没能自动安装或更新");
+  // 「安装 / 更新」按钮在「维护与诊断」页，提示要把用户带到那里。
+  expect(banner.textContent).toContain("「维护与诊断」页的「输入法服务」");
   expect(banner.textContent).not.toContain("简体中文");
   expect(screen.queryByRole("button", { name: "打开键盘设置" })).toBeNull();
+});
+
+test("points a missing install at the maintenance page", () => {
+  render(
+    <InputSourceStartupNotice
+      status={{ ...installed, action: "not_installed", enabled: false }}
+      onOpenSettings={vi.fn()}
+      onDismiss={vi.fn()}
+      onError={vi.fn()}
+    />,
+  );
+
+  expect(screen.getByRole("status", { name: "水杉输入法安装状态" }).textContent).toContain(
+    "请在「维护与诊断」页的「输入法服务」中点「安装 / 更新」。",
+  );
 });

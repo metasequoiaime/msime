@@ -136,6 +136,7 @@ fn desktop_credential_command_uses_bounded_http_and_sanitizes_provider_output() 
                     Err(_) => panic!("fixture accept failed"),
                 }
             };
+            socket.set_nonblocking(false).unwrap();
             socket
                 .set_read_timeout(Some(Duration::from_secs(5)))
                 .unwrap();

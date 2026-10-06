@@ -79,6 +79,11 @@ class CCompositionProcessorEngine
     BOOL IsUnicodeModeComposition() const;
     // Shift+V expression input while the Server reports the mode on: composition buffer starts with 'V'.
     BOOL IsExpressionModeComposition() const;
+    // 网址模式：AddVirtualKey 放进触发键时进入，按 Engine 的规则在删掉触发键、缓冲清空或组字结束时退出。
+    BOOL IsUrlModeComposition() const
+    {
+        return _urlMode;
+    }
 
     void GetReadingStrings(                                          //
         _Inout_ CMetasequoiaImeArray<CStringRange> *pReadingStrings, //
@@ -227,6 +232,7 @@ class CCompositionProcessorEngine
 
     CStringRange _keystrokeBuffer;
     DWORD_PTR _caretPosition = 0;
+    bool _urlMode = false;
     std::wstring _renderedPreedit;
     size_t _renderedPreeditPrefixLength = 0;
 

@@ -14,8 +14,10 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
         }
         // SAFETY: guaranteed by the C caller's documented buffer contract.
         let bytes = unsafe { std::slice::from_raw_parts(options, length) };
-        let options: HostOptions =
-            serde_json::from_slice(bytes).map_err(|_| "invalid options document")?;
+        let options = serde_json::from_slice(bytes)
+            .ok()
+            .and_then(HostOptions::from_document)
+            .ok_or("invalid options document")?;
         if options.api_version != 1 {
             return Err("unsupported host API version".into());
         }
@@ -31,7 +33,6 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
                 endpoint: ai.endpoint.clone(),
                 candidate_limit: ai.candidate_limit,
                 prompt_id: ai.prompt_id.clone(),
-                prompt: ai.prompt.clone(),
                 prompt_custom_1: ai.prompt_custom_1.clone(),
                 prompt_custom_2: ai.prompt_custom_2.clone(),
                 prompt_custom_3: ai.prompt_custom_3.clone(),
@@ -39,18 +40,25 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
         };
         // Taken before the options are consumed, and kept separate from the engine's own paths.
         let sentence_model_path = options.sentence_model.clone();
-        let settled_model_path = options.settled_model.clone();
+        let recorded_settled_model = options.settled_model.clone();
         let phrase_preedit = options.phrase_preedit.unwrap_or(false);
+        // 聚焦时据此重新查找按需下载的资源包，见 `HostSession::refresh_resource_packs`。
+        let state_root = absolute_state_root(options.preferences_directory.as_deref());
+        let recorded_language_dictionaries = options
+            .language_dictionaries
+            .as_deref()
+            .map(std::path::PathBuf::from);
         let plugin_roots = key_sound::PluginRoots::new(
             options.preferences_directory.as_deref(),
             options.sound_packs.as_deref(),
             &options.resources,
         );
+        let edition = options.edition();
         let mut options = options.into_engine_options();
         let plugin_tables = plugin_tables::PluginTables::stamp(
             plugin_roots.installed.as_deref(),
             &options,
-            &applied.plugins.command_tables,
+            &applied.plugins,
         );
         plugin_tables.fill(
             &plugin_tables::PluginTables::default(),
@@ -68,8 +76,9 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
         .map_err(|_| "dictionary access unavailable".to_owned())?
         .ok_or_else(|| "dictionary maintenance busy".to_owned())?;
         let mut engine = Session::new(&options).map_err(|e| e.to_string())?;
-        let default_nine_key = matches!(applied.scheme, InputScheme::Quanpin)
-            && matches!(applied.touch_keyboard_layout, TouchKeyboardLayout::NineKey);
+        // Gate on the scheme actually run, as `apply_pending` does, so a preferred scheme that fell back to Quanpin starts in the same mode a rebuild would give it.
+        let default_nine_key =
+            layout_starts_nine_key(SchemeType::from_u8(options.scheme), &applied);
         if default_nine_key {
             engine
                 .set_nine_key_enabled(true)
@@ -100,8 +109,17 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
         // The settled model is optional and independent: a resource set that ships only the small
         // one behaves exactly as before, and one that ships both gets the fast model per keystroke
         // and the large one when typing stops.
+        // 随包的模型优先，没有时用已下载的 `settled-model` 资源包；会话打开后才装好的由 `refresh_resource_packs` 接上。
+        let settled_model = settled_model_file(
+            &options.resources,
+            recorded_settled_model.as_deref(),
+            state_root.as_deref(),
+        );
         runtime.set_settled_reranker(
-            sentence_model_settled(&options.resources, settled_model_path.as_deref())
+            settled_model
+                .as_deref()
+                .and_then(std::path::Path::to_str)
+                .and_then(|path| sentence_model_settled(&options.resources, Some(path)))
                 .map(Reranker::new),
         );
         // Loaded whenever it is installed, run only while the desktop model preference is on; `apply_pending` follows later changes of the switch.
@@ -115,6 +133,7 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
                 HostSession {
                     runtime,
                     options,
+                    edition,
                     applied,
                     requested: None,
                     preferences_pending: false,
@@ -124,13 +143,22 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
                     english_mode: false,
                     page_size_override: None,
                     nine_key_override: None,
+                    statistics_private: false,
                     ai_credential: None,
                     ai_provider_cache,
                     voice: VoiceSessionState::default(),
                     pending_selections: Default::default(),
+                    pending_efficiency: Default::default(),
+                    statistics_enabled: None,
                     plugin_roots,
                     sound,
                     plugin_tables,
+                    state_root,
+                    recorded_language_dictionaries,
+                    resources_pending: false,
+                    recorded_settled_model,
+                    settled_model,
+                    settled_model_loading: None,
                     _dictionary_access: dictionary_access,
                 },
             )
@@ -149,6 +177,8 @@ pub extern "C" fn msime_client_focus(handle: u64, focused: bool) -> *mut c_char 
                 msime_engine::flush_personal_learning();
             } else {
                 session.refresh_plugin_tables()?;
+                // 设置应用可能刚下载好日文、粤拼、注音、笔画的资源包或落定重排模型；Engine 重建和模型加载在随后的 `complete_transition` 里空闲时进行。
+                session.refresh_resource_packs();
                 // The settings page may have imported the pack in use again, or removed it, since this session last looked.
                 session.sound.restamp();
             }

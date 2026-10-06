@@ -34,7 +34,6 @@ class VoicePolishArgs {
     var model: String = ""
     var token: String = ""
     var promptId: String = ""
-    var promptLegacy: String = ""
     var promptCustom1: String = ""
     var promptCustom2: String = ""
     var promptCustom3: String = ""
@@ -97,6 +96,16 @@ class VoicePlugin(activity: Activity) : Plugin(activity) {
     private val worker = Executors.newSingleThreadExecutor()
     private val activeJob = AtomicReference<VoiceJob?>(null)
 
+    override fun onDestroy() {
+        val current = activeJob.getAndSet(null)
+        if (current != null) {
+            current.invoke.reject("cancelled", "cancelled")
+            VoiceRecognitionActivity.cancelActive()
+        }
+        worker.shutdownNow()
+        super.onDestroy()
+    }
+
     private fun store(): VoiceResultStore {
         val files = hostActivity.filesDir ?: throw IllegalStateException("private files unavailable")
         return VoiceResultStore(File(files, "voice-handoff").toPath())
@@ -138,6 +147,12 @@ class VoicePlugin(activity: Activity) : Plugin(activity) {
         val provider = configured?.takeIf {
             local == null && streaming == null && HttpAsrPolicy.usable(it.provider, it.endpoint, it.model, it.token)
         }
+        if (configured?.provider == LocalAsrPolicy.PROVIDER && local == null) {
+            // 明确选择本地识别却没有可用模型时拒绝请求，不能把音频静默交给系统识别服务。
+            activeJob.compareAndSet(job, null)
+            invoke.reject("unavailable", "unavailable")
+            return
+        }
         if (local == null && provider == null && streaming == null
             && !VoiceRecognitionActivity.available(hostActivity)) {
             activeJob.compareAndSet(job, null)
@@ -163,8 +178,7 @@ class VoicePlugin(activity: Activity) : Plugin(activity) {
                     VoiceRecognitionActivity.Polish(
                         it.endpoint, it.model, it.token,
                         NativeClient.polishPrompt(
-                            it.promptId, it.promptLegacy,
-                            it.promptCustom1, it.promptCustom2, it.promptCustom3,
+                            it.promptId, it.promptCustom1, it.promptCustom2, it.promptCustom3,
                         ),
                     )
                 },
@@ -178,7 +192,16 @@ class VoicePlugin(activity: Activity) : Plugin(activity) {
             invoke.reject("unavailable", "unavailable")
             return
         }
-        worker.execute { pollResult(job) }
+        try {
+            worker.execute { pollResult(job) }
+        } catch (_: RuntimeException) {
+            // 插件销毁与提交轮询可能交错；提交失败时回滚活动请求，不能让 Tauri 永久等待。
+            if (activeJob.compareAndSet(job, null)) {
+                VoiceRecognitionActivity.clearRequest(args.requestId)
+                VoiceRecognitionActivity.cancelActive()
+                invoke.reject("cancelled", "cancelled")
+            }
+        }
     }
 
     private fun pollResult(job: VoiceJob) {

@@ -212,16 +212,35 @@ int main() {
         };
         muter = [[MSIMEVoiceAudioMuter alloc] initWithAudioAPI:{Get, Set, AddListener, RemoveListener}
             recoveryDirectory:[directory URLByAppendingPathComponent:@"voice-audio-recovery" isDirectory:YES]];
-        assert([muter mute:nil] && [record()[@"uid"] isEqual:@"synthetic-output-a"] && [record()[@"version"] isEqual:@1]);
+        assert([muter mute:nil] && [record()[@"uids"] isEqual:@[@"synthetic-output-a"]] && [record()[@"version"] isEqual:@2]);
         [identities removeObjectForKey:@100];
         MoveDefault(200);
         assert([record()[@"version"] isEqual:@2] && [record()[@"uids"] isEqual:(@[@"synthetic-output-a", @"synthetic-output-b"])]);
         [muter restore];
-        assert(muted[200] == 0 && [record()[@"uid"] isEqual:@"synthetic-output-a"] && [record()[@"version"] isEqual:@1]);
+        assert(muted[200] == 0 && [record()[@"uids"] isEqual:@[@"synthetic-output-a"]] && [record()[@"version"] isEqual:@2]);
         identities[@100] = @"synthetic-output-a";
         [muter restore]; assert(muted[100] == 0 && !record());
         muter = nil;
         assert([NSFileManager.defaultManager removeItemAtURL:directory error:nil]);
+
+        // A replaced recovery parent must not redirect the durable mute journal.
+        char linkedTemporary[] = "/tmp/msime-voice-linked-parent-XXXXXX";
+        assert(mkdtemp(linkedTemporary));
+        NSURL *linkedRoot = [NSURL fileURLWithPath:@(linkedTemporary) isDirectory:YES];
+        NSURL *outside = [linkedRoot URLByAppendingPathComponent:@"outside" isDirectory:YES];
+        assert([NSFileManager.defaultManager createDirectoryAtURL:outside
+            withIntermediateDirectories:NO attributes:nil error:nil]);
+        NSURL *linkedParent = [linkedRoot URLByAppendingPathComponent:@"linked" isDirectory:YES];
+        assert(symlink(outside.fileSystemRepresentation, linkedParent.fileSystemRepresentation) == 0);
+        NSURL *linkedRecovery = [linkedParent URLByAppendingPathComponent:@"recovery" isDirectory:YES];
+        Reset();
+        muter = [[MSIMEVoiceAudioMuter alloc] initWithAudioAPI:{Get, Set, nullptr, nullptr}
+            recoveryDirectory:linkedRecovery];
+        assert(![muter mute:nil]);
+        assert(![NSFileManager.defaultManager fileExistsAtPath:
+            [outside URLByAppendingPathComponent:@"recovery/pending.json"].path]);
+        muter = nil;
+        assert([NSFileManager.defaultManager removeItemAtURL:linkedRoot error:nil]);
     }
     return 0;
 }

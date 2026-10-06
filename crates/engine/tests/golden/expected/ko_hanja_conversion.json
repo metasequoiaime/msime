@@ -1,0 +1,628 @@
+{
+ "name": "ko_hanja_conversion",
+ "steps": [
+  {
+   "op": "open",
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "korean",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "rmf",
+   "op": "type",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 3,
+    "dedicated_english": false,
+    "editing_text": "rmf",
+    "local_mode": "none",
+    "normalized_segmentation": "글",
+    "preedit": "글",
+    "raw_segmentation": "rmf",
+    "scheme": "korean",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "ConvertHanja",
+   "op": "command",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 6,
+    "candidates": [
+     {
+      "annotation": "부족 이름 글, 계약할 글",
+      "answers_key": true,
+      "canonical_pinyin": "",
+      "pinyin": "rmf",
+      "scheme": "korean",
+      "source": 0,
+      "weight": 0,
+      "word": "契"
+     },
+     {
+      "answers_key": true,
+      "canonical_pinyin": "",
+      "pinyin": "rmf",
+      "scheme": "korean",
+      "source": 0,
+      "weight": 0,
+      "word": "訖"
+     },
+     {
+      "answers_key": true,
+      "canonical_pinyin": "",
+      "pinyin": "rmf",
+      "scheme": "korean",
+      "source": 0,
+      "weight": 0,
+      "word": "㐎"
+     },
+     {
+      "answers_key": true,
+      "canonical_pinyin": "",
+      "pinyin": "rmf",
+      "scheme": "korean",
+      "source": 0,
+      "weight": 0,
+      "word": "㔕"
+     },
+     {
+      "answers_key": true,
+      "canonical_pinyin": "",
+      "pinyin": "rmf",
+      "scheme": "korean",
+      "source": 0,
+      "weight": 0,
+      "word": "䞘"
+     },
+     {
+      "answers_key": true,
+      "canonical_pinyin": "",
+      "pinyin": "rmf",
+      "scheme": "korean",
+      "source": 0,
+      "weight": 0,
+      "word": "䰴"
+     }
+    ],
+    "caret": 3,
+    "dedicated_english": false,
+    "editing_text": "rmf",
+    "local_mode": "none",
+    "normalized_segmentation": "글",
+    "preedit": "글",
+    "raw_segmentation": "rmf",
+    "scheme": "korean",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": 1,
+   "op": "select",
+   "result": {
+    "commit": "訖",
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "korean",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "xj",
+   "op": "type",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 2,
+    "dedicated_english": false,
+    "editing_text": "xj",
+    "local_mode": "none",
+    "normalized_segmentation": "터",
+    "preedit": "터",
+    "raw_segmentation": "xj",
+    "scheme": "korean",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "ConvertHanja",
+   "op": "command",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 2,
+    "candidates": [
+     {
+      "annotation": "펼칠 터, 흩을 터, 날칠 터, 비길 터, 헤칠 터",
+      "answers_key": true,
+      "canonical_pinyin": "",
+      "pinyin": "xj",
+      "scheme": "korean",
+      "source": 0,
+      "weight": 0,
+      "word": "攄"
+     },
+     {
+      "answers_key": true,
+      "canonical_pinyin": "",
+      "pinyin": "xj",
+      "scheme": "korean",
+      "source": 0,
+      "weight": 0,
+      "word": "摅"
+     }
+    ],
+    "caret": 2,
+    "dedicated_english": false,
+    "editing_text": "xj",
+    "local_mode": "none",
+    "normalized_segmentation": "터",
+    "preedit": "터",
+    "raw_segmentation": "xj",
+    "scheme": "korean",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "Cancel",
+   "op": "command",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 2,
+    "dedicated_english": false,
+    "editing_text": "xj",
+    "local_mode": "none",
+    "normalized_segmentation": "터",
+    "preedit": "터",
+    "raw_segmentation": "xj",
+    "scheme": "korean",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "ConvertHanja",
+   "op": "command",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 2,
+    "candidates": [
+     {
+      "annotation": "펼칠 터, 흩을 터, 날칠 터, 비길 터, 헤칠 터",
+      "answers_key": true,
+      "canonical_pinyin": "",
+      "pinyin": "xj",
+      "scheme": "korean",
+      "source": 0,
+      "weight": 0,
+      "word": "攄"
+     },
+     {
+      "answers_key": true,
+      "canonical_pinyin": "",
+      "pinyin": "xj",
+      "scheme": "korean",
+      "source": 0,
+      "weight": 0,
+      "word": "摅"
+     }
+    ],
+    "caret": 2,
+    "dedicated_english": false,
+    "editing_text": "xj",
+    "local_mode": "none",
+    "normalized_segmentation": "터",
+    "preedit": "터",
+    "raw_segmentation": "xj",
+    "scheme": "korean",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "ConvertHanja",
+   "op": "command",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 2,
+    "dedicated_english": false,
+    "editing_text": "xj",
+    "local_mode": "none",
+    "normalized_segmentation": "터",
+    "preedit": "터",
+    "raw_segmentation": "xj",
+    "scheme": "korean",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "ConvertHanja",
+   "op": "command",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 2,
+    "candidates": [
+     {
+      "annotation": "펼칠 터, 흩을 터, 날칠 터, 비길 터, 헤칠 터",
+      "answers_key": true,
+      "canonical_pinyin": "",
+      "pinyin": "xj",
+      "scheme": "korean",
+      "source": 0,
+      "weight": 0,
+      "word": "攄"
+     },
+     {
+      "answers_key": true,
+      "canonical_pinyin": "",
+      "pinyin": "xj",
+      "scheme": "korean",
+      "source": 0,
+      "weight": 0,
+      "word": "摅"
+     }
+    ],
+    "caret": 2,
+    "dedicated_english": false,
+    "editing_text": "xj",
+    "local_mode": "none",
+    "normalized_segmentation": "터",
+    "preedit": "터",
+    "raw_segmentation": "xj",
+    "scheme": "korean",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "q",
+   "op": "char",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 3,
+    "dedicated_english": false,
+    "editing_text": "xjq",
+    "local_mode": "none",
+    "normalized_segmentation": "텁",
+    "preedit": "텁",
+    "raw_segmentation": "xjq",
+    "scheme": "korean",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "Backspace",
+   "op": "command",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 2,
+    "dedicated_english": false,
+    "editing_text": "xj",
+    "local_mode": "none",
+    "normalized_segmentation": "터",
+    "preedit": "터",
+    "raw_segmentation": "xj",
+    "scheme": "korean",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "ConvertHanja",
+   "op": "command",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 2,
+    "candidates": [
+     {
+      "annotation": "펼칠 터, 흩을 터, 날칠 터, 비길 터, 헤칠 터",
+      "answers_key": true,
+      "canonical_pinyin": "",
+      "pinyin": "xj",
+      "scheme": "korean",
+      "source": 0,
+      "weight": 0,
+      "word": "攄"
+     },
+     {
+      "answers_key": true,
+      "canonical_pinyin": "",
+      "pinyin": "xj",
+      "scheme": "korean",
+      "source": 0,
+      "weight": 0,
+      "word": "摅"
+     }
+    ],
+    "caret": 2,
+    "dedicated_english": false,
+    "editing_text": "xj",
+    "local_mode": "none",
+    "normalized_segmentation": "터",
+    "preedit": "터",
+    "raw_segmentation": "xj",
+    "scheme": "korean",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "Backspace",
+   "op": "command",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 2,
+    "dedicated_english": false,
+    "editing_text": "xj",
+    "local_mode": "none",
+    "normalized_segmentation": "터",
+    "preedit": "터",
+    "raw_segmentation": "xj",
+    "scheme": "korean",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "ConvertHanja",
+   "op": "command",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 2,
+    "candidates": [
+     {
+      "annotation": "펼칠 터, 흩을 터, 날칠 터, 비길 터, 헤칠 터",
+      "answers_key": true,
+      "canonical_pinyin": "",
+      "pinyin": "xj",
+      "scheme": "korean",
+      "source": 0,
+      "weight": 0,
+      "word": "攄"
+     },
+     {
+      "answers_key": true,
+      "canonical_pinyin": "",
+      "pinyin": "xj",
+      "scheme": "korean",
+      "source": 0,
+      "weight": 0,
+      "word": "摅"
+     }
+    ],
+    "caret": 2,
+    "dedicated_english": false,
+    "editing_text": "xj",
+    "local_mode": "none",
+    "normalized_segmentation": "터",
+    "preedit": "터",
+    "raw_segmentation": "xj",
+    "scheme": "korean",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": ".",
+   "op": "punctuation",
+   "result": {
+    "commit": "터.",
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "korean",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "sla",
+   "op": "type",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 3,
+    "dedicated_english": false,
+    "editing_text": "sla",
+    "local_mode": "none",
+    "normalized_segmentation": "님",
+    "preedit": "님",
+    "raw_segmentation": "sla",
+    "scheme": "korean",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "ConvertHanja",
+   "op": "command",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 3,
+    "candidates": [
+     {
+      "answers_key": true,
+      "canonical_pinyin": "",
+      "pinyin": "sla",
+      "scheme": "korean",
+      "source": 0,
+      "weight": 0,
+      "word": "拰"
+     },
+     {
+      "answers_key": true,
+      "canonical_pinyin": "",
+      "pinyin": "sla",
+      "scheme": "korean",
+      "source": 0,
+      "weight": 0,
+      "word": "䋻"
+     },
+     {
+      "answers_key": true,
+      "canonical_pinyin": "",
+      "pinyin": "sla",
+      "scheme": "korean",
+      "source": 0,
+      "weight": 0,
+      "word": "䌾"
+     }
+    ],
+    "caret": 3,
+    "dedicated_english": false,
+    "editing_text": "sla",
+    "local_mode": "none",
+    "normalized_segmentation": "님",
+    "preedit": "님",
+    "raw_segmentation": "sla",
+    "scheme": "korean",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": 2,
+   "op": "finish",
+   "result": {
+    "commit": "님",
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "korean",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "r",
+   "op": "type",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 1,
+    "dedicated_english": false,
+    "editing_text": "r",
+    "local_mode": "none",
+    "normalized_segmentation": "ㄱ",
+    "preedit": "ㄱ",
+    "raw_segmentation": "r",
+    "scheme": "korean",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "ConvertHanja",
+   "op": "command",
+   "result": {
+    "handled": false
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 1,
+    "dedicated_english": false,
+    "editing_text": "r",
+    "local_mode": "none",
+    "normalized_segmentation": "ㄱ",
+    "preedit": "ㄱ",
+    "raw_segmentation": "r",
+    "scheme": "korean",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "Backspace",
+   "op": "command",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "korean",
+    "shuangpin_profile": "xiaohe"
+   }
+  }
+ ]
+}

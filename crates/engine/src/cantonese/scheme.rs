@@ -1,0 +1,570 @@
+//! The Jyutping composition: typed letters and `'` boundaries, read as syllables against the inventory, and the candidates `msime-cantonese.db` has for them. A candidate may cover only the leading syllables; selecting it takes those letters out of the composition and leaves the rest composing, with nothing held back as phrase progress.
+
+use std::collections::HashSet;
+use std::sync::Arc;
+
+use super::syllable::{self, Inventory, Segmentation};
+use crate::error::Result;
+use crate::language_dictionary::LanguageDictionary;
+use crate::types::{QueryRequest, SchemeKey, SchemeType};
+
+/// Entries read for one span of complete syllables.
+pub const SPAN_LIMIT: usize = 200;
+/// Entries read for a reading whose last syllable is still a prefix.
+pub const COMPLETION_LIMIT: usize = 50;
+
+/// One candidate row, with what selecting it consumes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CantoneseCandidate {
+    pub text: String,
+    pub weight: i64,
+    /// The `entries.key` the row is stored under; for a completed prefix it spells out the last syllable in full.
+    pub key: String,
+    /// How many syllables of the reading it covers, counted from the first.
+    pub syllables: usize,
+    /// The byte length of the typed input it covers, apostrophes inside it included.
+    pub end: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct CantoneseScheme {
+    /// Lowercase letters and single `'` boundaries, never starting with one.
+    input: String,
+    inventory: Arc<Inventory>,
+}
+
+impl CantoneseScheme {
+    pub fn new(inventory: Arc<Inventory>) -> Self {
+        Self {
+            input: String::new(),
+            inventory,
+        }
+    }
+
+    pub fn reset(&mut self) {
+        self.input.clear();
+    }
+
+    /// Lowercase letters append and Backspace removes the last key. `'` appends only between letters: a boundary before the first syllable or right after another boundary marks nothing. Uppercase letters are not part of Jyutping and are ignored, like every other key.
+    pub fn handle_key(&mut self, key: SchemeKey) {
+        match key {
+            SchemeKey::Letter(letter) if letter.is_ascii_lowercase() => {
+                self.input.push(char::from(letter));
+            }
+            SchemeKey::Apostrophe => {
+                if !self.input.is_empty() && !self.input.ends_with('\'') {
+                    self.input.push('\'');
+                }
+            }
+            SchemeKey::Backspace => {
+                self.input.pop();
+            }
+            SchemeKey::Letter(_)
+            | SchemeKey::Semicolon
+            | SchemeKey::Minus
+            | SchemeKey::Symbol(_)
+            | SchemeKey::Requery => {}
+        }
+    }
+
+    /// Replaces the composition with a host edit: letters are lowercased, `'` and the spaces `editing_text` shows at syllable boundaries are both boundaries, anything else is dropped, and boundaries are normalized as typing would leave them. Reading a space as a boundary keeps the syllables the user saw when an edit changes the letters around them (`ngo oi` edited to `ngo i` stays two syllables rather than becoming `ngoi`).
+    pub fn set_raw_input(&mut self, raw: &str) {
+        self.input.clear();
+        self.input.reserve(raw.len());
+        for character in raw.chars() {
+            if character.is_ascii_alphabetic() {
+                self.input.push(character.to_ascii_lowercase());
+            } else if character == '\'' || character == ' ' {
+                self.handle_key(SchemeKey::Apostrophe);
+            }
+        }
+    }
+
+    /// The typed letters and boundaries.
+    pub fn input(&self) -> &str {
+        &self.input
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.input.is_empty()
+    }
+
+    /// The reading the composition shows and is looked up by (`syllable::best`).
+    pub fn segmentation(&self) -> Segmentation {
+        syllable::best(&self.input, &self.inventory)
+    }
+
+    /// The typed letters with a space at each syllable boundary (`nei hou`). Letters no syllable reads follow after a space as typed, and a trailing `'` stays visible so the key shows an effect.
+    pub fn editing_text(&self) -> String {
+        let reading = self.segmentation();
+        let mut text = String::with_capacity(
+            reading
+                .syllables
+                .iter()
+                .map(|syllable| syllable.end - syllable.start)
+                .sum::<usize>()
+                .saturating_add(reading.syllables.len().saturating_sub(1)),
+        );
+        for (index, syllable) in reading.syllables.iter().enumerate() {
+            if index > 0 {
+                text.push(' ');
+            }
+            text.push_str(&self.input[syllable.start..syllable.end]);
+        }
+        let rest = self.input[reading.end()..].trim_start_matches('\'');
+        if !rest.is_empty() {
+            if !text.is_empty() {
+                text.push(' ');
+            }
+            text.push_str(rest);
+        } else if self.input.ends_with('\'') {
+            text.push('\'');
+        }
+        text
+    }
+
+    /// The request the session refreshes with. `raw_input` is the typed letters and boundaries, which the provider reads again through the same inventory; `segmentation` is the dictionary key of the reading and `normalized_segmentation` the text the composition shows.
+    pub fn build_request(&self) -> QueryRequest {
+        let reading = self.segmentation();
+        QueryRequest {
+            scheme: SchemeType::Cantonese,
+            raw_input: self.input.clone(),
+            raw_input_with_cases: self.input.clone(),
+            normalized_input: self.input.replace('\'', ""),
+            raw_segmentation: self.input.clone(),
+            normalized_segmentation: self.editing_text(),
+            segmentation: reading.key(&self.input, reading.syllables.len()),
+            valid: !self.input.is_empty(),
+            ..QueryRequest::default()
+        }
+    }
+
+    /// The letters and boundaries as typed, which is what Enter commits; the spaced form the composition shows is `editing_text`.
+    pub fn preedit(&self) -> String {
+        self.input.clone()
+    }
+
+    /// The candidates for the composition, each text listed once per span length:
+    /// 1. When the reading covers every letter, the entries of the whole reading, or when its last syllable is still a prefix, the entries that complete it. A last syllable that is complete but also starts a longer one (`ho` of `hou`) lists its exact entries and then the entries that complete it, so a word does not drop out of the list while its last syllable is half typed.
+    /// 2. Then each leading span of complete syllables, longest first, each span's entries heaviest first.
+    pub fn candidates(&self, dictionary: &LanguageDictionary) -> Result<Vec<CantoneseCandidate>> {
+        let input = self.input.as_str();
+        let reading = self.segmentation();
+        let count = reading.syllables.len();
+        let full = !reading.syllables.is_empty()
+            && input[reading.end()..].bytes().all(|byte| byte == b'\'');
+        let mut seen = HashSet::new();
+        let mut candidates = Vec::new();
+        let push = |seen: &mut HashSet<(String, usize)>,
+                    candidates: &mut Vec<CantoneseCandidate>,
+                    key: String,
+                    text: String,
+                    weight: i64,
+                    syllables: usize| {
+            if seen.insert((text.clone(), syllables)) {
+                candidates.push(CantoneseCandidate {
+                    text,
+                    weight,
+                    key,
+                    syllables,
+                    end: reading.syllables[syllables - 1].end,
+                });
+            }
+        };
+        let mut spans = count;
+        if full {
+            let whole = reading.key(input, count);
+            if reading.ends_in_prefix() {
+                let completions = dictionary.lookup_completions(&whole, COMPLETION_LIMIT)?;
+                seen.reserve(completions.len());
+                candidates.reserve_exact(completions.len());
+                for (key, entry) in completions {
+                    push(
+                        &mut seen,
+                        &mut candidates,
+                        key,
+                        entry.text,
+                        entry.weight,
+                        count,
+                    );
+                }
+            } else {
+                let entries = dictionary.lookup(&whole, SPAN_LIMIT)?;
+                seen.reserve(entries.len());
+                candidates.reserve_exact(entries.len());
+                for entry in entries {
+                    push(
+                        &mut seen,
+                        &mut candidates,
+                        whole.clone(),
+                        entry.text,
+                        entry.weight,
+                        count,
+                    );
+                }
+                let last = reading.texts(input).last().unwrap_or_default();
+                if self.inventory.is_prefix(last) {
+                    let completions = dictionary.lookup_completions(&whole, COMPLETION_LIMIT)?;
+                    seen.reserve(completions.len());
+                    candidates.reserve_exact(completions.len());
+                    for (key, entry) in completions {
+                        push(
+                            &mut seen,
+                            &mut candidates,
+                            key,
+                            entry.text,
+                            entry.weight,
+                            count,
+                        );
+                    }
+                }
+            }
+            spans = count - 1;
+        }
+        for length in (1..=spans).rev() {
+            let key = reading.key(input, length);
+            let entries = dictionary.lookup(&key, SPAN_LIMIT)?;
+            seen.reserve(entries.len());
+            candidates.reserve_exact(entries.len());
+            for entry in entries {
+                push(
+                    &mut seen,
+                    &mut candidates,
+                    key.clone(),
+                    entry.text,
+                    entry.weight,
+                    length,
+                );
+            }
+        }
+        Ok(candidates)
+    }
+
+    /// Takes the letters `candidate` covers out of the composition, with the boundary after them. Returns whether letters are left composing; the caller commits the candidate's text either way.
+    pub fn select(&mut self, candidate: &CantoneseCandidate) -> bool {
+        self.input.drain(..candidate.end);
+        let boundaries = self.input.len() - self.input.trim_start_matches('\'').len();
+        self.input.drain(..boundaries);
+        !self.input.is_empty()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use rusqlite::Connection;
+
+    use super::*;
+    use crate::cantonese::syllable::tests::{inventory, SYLLABLES};
+    use crate::language_dictionary::{
+        open_read_only, FORMAT_VERSION, METADATA_FORMAT_VERSION, METADATA_LICENSE,
+        METADATA_SOURCE_COMMIT, SCHEMA,
+    };
+
+    const ENTRIES: [(&str, &str, i64); 17] = [
+        ("nei hou", "你好", 900),
+        ("nei hou", "妳好", 40),
+        ("nei hoeng", "你向", 3),
+        ("nei", "你", 5000),
+        ("nei", "妳", 300),
+        ("hou", "好", 4000),
+        ("hou", "號", 500),
+        ("gwong dung waa", "廣東話", 800),
+        ("gwong dung", "廣東", 1200),
+        ("gwong", "光", 2000),
+        ("gwong", "廣", 900),
+        ("dung", "東", 1500),
+        ("waa", "話", 3000),
+        ("ngo", "我", 6000),
+        ("oi", "愛", 2500),
+        ("ngoi", "外", 1000),
+        // The same text under a different span is listed again, so 光 stays selectable for `gwong` alone.
+        ("gwong dung waa", "光", 1),
+    ];
+
+    fn build(path: &Path) {
+        let connection = Connection::open(path).unwrap();
+        connection.execute_batch(SCHEMA).unwrap();
+        for (name, value) in [
+            (METADATA_FORMAT_VERSION, FORMAT_VERSION.to_string()),
+            (
+                METADATA_SOURCE_COMMIT,
+                "259f0e48bba840c3a2e0d117539e96937f3d89bc".to_owned(),
+            ),
+            (METADATA_LICENSE, "CC-BY-4.0".to_owned()),
+        ] {
+            connection
+                .execute("INSERT INTO metadata VALUES (?1, ?2)", (name, value))
+                .unwrap();
+        }
+        for syllable in SYLLABLES {
+            connection
+                .execute("INSERT INTO syllables VALUES (?1)", (syllable,))
+                .unwrap();
+        }
+        for (key, text, weight) in ENTRIES {
+            connection
+                .execute(
+                    "INSERT INTO entries VALUES (?1, ?2, ?3)",
+                    (key, text, weight),
+                )
+                .unwrap();
+        }
+    }
+
+    struct Fixture {
+        _dir: tempfile::TempDir,
+        dictionary: LanguageDictionary,
+    }
+
+    fn fixture() -> Fixture {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("msime-cantonese.db");
+        build(&path);
+        Fixture {
+            dictionary: open_read_only(&path).unwrap(),
+            _dir: dir,
+        }
+    }
+
+    fn typed(keys: &str) -> CantoneseScheme {
+        let mut scheme = CantoneseScheme::new(Arc::new(inventory()));
+        for byte in keys.bytes() {
+            scheme.handle_key(if byte == b'\'' {
+                SchemeKey::Apostrophe
+            } else {
+                SchemeKey::Letter(byte)
+            });
+        }
+        scheme
+    }
+
+    /// Each candidate as `text/syllables`.
+    fn listed(scheme: &CantoneseScheme, dictionary: &LanguageDictionary) -> Vec<String> {
+        scheme
+            .candidates(dictionary)
+            .unwrap()
+            .iter()
+            .map(|candidate| format!("{}/{}", candidate.text, candidate.syllables))
+            .collect()
+    }
+
+    #[test]
+    fn the_whole_reading_comes_first_then_leading_spans() {
+        let fixture = fixture();
+        let scheme = typed("neihou");
+        assert_eq!(scheme.editing_text(), "nei hou");
+        assert_eq!(
+            listed(&scheme, &fixture.dictionary),
+            ["你好/2", "妳好/2", "你/1", "妳/1"]
+        );
+        let scheme = typed("gwongdungwaa");
+        assert_eq!(scheme.editing_text(), "gwong dung waa");
+        assert_eq!(
+            listed(&scheme, &fixture.dictionary),
+            ["廣東話/3", "光/3", "廣東/2", "光/1", "廣/1"]
+        );
+    }
+
+    #[test]
+    fn candidates_reserve_each_dictionary_batch() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("msime-cantonese.db");
+        build(&path);
+        let connection = Connection::open(&path).unwrap();
+        connection.execute("DELETE FROM entries", []).unwrap();
+        for index in 0..23 {
+            connection
+                .execute(
+                    "INSERT INTO entries VALUES (?1, ?2, ?3)",
+                    ("nei haa", format!("字{index:02}"), index),
+                )
+                .unwrap();
+        }
+        drop(connection);
+        let dictionary = open_read_only(&path).unwrap();
+
+        let candidates = typed("neih").candidates(&dictionary).unwrap();
+        assert_eq!(candidates.len(), 23);
+        assert_eq!(candidates.capacity(), candidates.len());
+    }
+
+    #[test]
+    fn a_trailing_prefix_is_completed() {
+        let fixture = fixture();
+        let scheme = typed("neih");
+        assert_eq!(scheme.editing_text(), "nei h");
+        let candidates = scheme.candidates(&fixture.dictionary).unwrap();
+        let rows: Vec<_> = candidates
+            .iter()
+            .map(|candidate| (candidate.text.as_str(), candidate.key.as_str()))
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                ("你好", "nei hou"),
+                ("妳好", "nei hou"),
+                ("你向", "nei hoeng"),
+                ("你", "nei"),
+                ("妳", "nei")
+            ]
+        );
+        assert_eq!(candidates[0].end, 4);
+        assert_eq!(candidates[3].end, 3);
+        // A prefix as the only syllable completes against single-syllable keys only.
+        assert_eq!(listed(&typed("gw"), &fixture.dictionary), ["光/1", "廣/1"]);
+    }
+
+    #[test]
+    fn a_complete_trailing_syllable_that_starts_a_longer_one_is_completed_too() {
+        let fixture = fixture();
+        // `ho` is a syllable with no `nei ho` entry; 你好 must stay listed between `neih` and `neihou`.
+        let syllables = Inventory::new(SYLLABLES.iter().copied().chain(["ho"]));
+        let mut scheme = CantoneseScheme::new(Arc::new(syllables));
+        scheme.set_raw_input("neiho");
+        assert_eq!(scheme.editing_text(), "nei ho");
+        assert_eq!(
+            listed(&scheme, &fixture.dictionary),
+            ["你好/2", "妳好/2", "你向/2", "你/1", "妳/1"]
+        );
+        // Exact entries of the whole reading come before its completions: 我 for `ngo`, then 外 for `ngoi`.
+        let scheme = typed("ngo");
+        assert_eq!(listed(&scheme, &fixture.dictionary), ["我/1", "外/1"]);
+    }
+
+    #[test]
+    fn the_apostrophe_and_the_longer_syllable() {
+        let fixture = fixture();
+        let scheme = typed("ngo'oi");
+        assert_eq!(scheme.editing_text(), "ngo oi");
+        assert_eq!(listed(&scheme, &fixture.dictionary), ["我/1"]);
+        let scheme = typed("ngoi");
+        assert_eq!(scheme.editing_text(), "ngoi");
+        assert_eq!(listed(&scheme, &fixture.dictionary), ["外/1"]);
+        let scheme = typed("nei'");
+        assert_eq!(scheme.editing_text(), "nei'");
+        assert_eq!(listed(&scheme, &fixture.dictionary), ["你/1", "妳/1"]);
+    }
+
+    #[test]
+    fn unread_letters_leave_the_leading_spans() {
+        let fixture = fixture();
+        let scheme = typed("neihoux");
+        assert_eq!(scheme.editing_text(), "nei hou x");
+        assert_eq!(
+            listed(&scheme, &fixture.dictionary),
+            ["你好/2", "妳好/2", "你/1", "妳/1"]
+        );
+        let scheme = typed("xx");
+        assert_eq!(scheme.editing_text(), "xx");
+        assert!(listed(&scheme, &fixture.dictionary).is_empty());
+        let scheme = typed("nei'qq");
+        assert_eq!(scheme.editing_text(), "nei qq");
+    }
+
+    #[test]
+    fn selecting_a_partial_span_keeps_the_rest_composing() {
+        let fixture = fixture();
+        let mut scheme = typed("nei'hou");
+        let candidates = scheme.candidates(&fixture.dictionary).unwrap();
+        let you = candidates.iter().find(|c| c.text == "你").unwrap();
+        assert_eq!(you.syllables, 1);
+        assert!(scheme.select(you));
+        // The boundary after the selected letters goes with them.
+        assert_eq!(scheme.input(), "hou");
+        assert_eq!(listed(&scheme, &fixture.dictionary), ["好/1", "號/1"]);
+        let good = scheme.candidates(&fixture.dictionary).unwrap().remove(0);
+        assert!(!scheme.select(&good));
+        assert!(scheme.is_empty());
+
+        let mut scheme = typed("neihou");
+        let whole = scheme.candidates(&fixture.dictionary).unwrap().remove(0);
+        assert_eq!(whole.text, "你好");
+        assert!(!scheme.select(&whole));
+        assert!(scheme.is_empty());
+
+        // Letters no syllable reads stay composing after a selection.
+        let mut scheme = typed("neihoux");
+        let first = scheme.candidates(&fixture.dictionary).unwrap().remove(0);
+        assert!(scheme.select(&first));
+        assert_eq!(scheme.input(), "x");
+    }
+
+    #[test]
+    fn keys_and_host_edits() {
+        let mut scheme = typed("'nei''");
+        assert_eq!(scheme.input(), "nei'");
+        for key in [
+            SchemeKey::Letter(b'N'),
+            SchemeKey::Letter(b'1'),
+            SchemeKey::Semicolon,
+            SchemeKey::Minus,
+            SchemeKey::Symbol(b' '),
+            SchemeKey::Requery,
+        ] {
+            scheme.handle_key(key);
+        }
+        assert_eq!(scheme.input(), "nei'");
+        scheme.handle_key(SchemeKey::Backspace);
+        scheme.handle_key(SchemeKey::Backspace);
+        assert_eq!(scheme.input(), "ne");
+
+        scheme.set_raw_input("'Nei'' hou1");
+        assert_eq!(scheme.input(), "nei'hou");
+        let editing = scheme.editing_text();
+        assert_eq!(editing, "nei hou");
+        assert_eq!(editing.capacity(), editing.len());
+        scheme.reset();
+        assert!(scheme.is_empty());
+        assert_eq!(scheme.editing_text(), "");
+        let fixture = fixture();
+        assert!(scheme.candidates(&fixture.dictionary).unwrap().is_empty());
+    }
+
+    #[test]
+    fn set_raw_input_reserves_source_capacity() {
+        let source: String = (0..100)
+            .map(|index| if index % 5 == 3 { ' ' } else { 'a' })
+            .collect();
+        let mut scheme = CantoneseScheme::new(Arc::new(inventory()));
+        scheme.set_raw_input(&source);
+        assert_eq!(scheme.input.len(), source.len());
+        assert_eq!(scheme.input.capacity(), source.len());
+    }
+
+    #[test]
+    fn an_edit_of_the_spaced_text_keeps_the_shown_boundaries() {
+        // `ngo'oi` shows `ngo oi`; deleting its `o` must leave `ngo` and `i`, not the single syllable `ngoi`.
+        let mut scheme = typed("ngo'oi");
+        let mut text = scheme.editing_text();
+        text.remove(4);
+        assert_eq!(text, "ngo i");
+        scheme.set_raw_input(&text);
+        assert_eq!(scheme.input(), "ngo'i");
+        assert_eq!(scheme.editing_text(), "ngo i");
+        // A spaced reading read back is the same reading, with the boundaries made explicit.
+        let mut scheme = typed("neihou");
+        let text = scheme.editing_text();
+        scheme.set_raw_input(&text);
+        assert_eq!(scheme.input(), "nei'hou");
+        assert_eq!(scheme.editing_text(), "nei hou");
+    }
+
+    #[test]
+    fn the_dictionary_opens_with_its_inventory() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("msime-cantonese.db");
+        build(&path);
+        let opened = crate::cantonese::CantoneseDictionary::open(&path).unwrap();
+        let mut scheme = CantoneseScheme::new(opened.inventory());
+        scheme.set_raw_input("gwongdungwaa");
+        assert_eq!(
+            listed(&scheme, opened.dictionary()),
+            ["廣東話/3", "光/3", "廣東/2", "光/1", "廣/1"]
+        );
+        assert!(
+            crate::cantonese::CantoneseDictionary::open(&dir.path().join("missing.db")).is_err()
+        );
+    }
+}

@@ -73,6 +73,14 @@ class CaptureDestination(unittest.TestCase):
         calls = self.run_poll(lambda _: self.options.write_text("{"))
         self.assertEqual(calls, [])
 
+    def test_document_rejects_a_symlinked_options_file(self):
+        outside = self.root / "outside-runtime.json"
+        outside.write_text(json.dumps({"preferences_directory": str(self.first)}))
+        self.options.unlink()
+        self.options.symlink_to(outside)
+        with self.assertRaises(OSError):
+            monitor.document(self.options)
+
     def test_unchanged_destination_captures_once(self):
         calls = self.run_poll(lambda _: None, 2)
         self.assertEqual(len(calls), 1)

@@ -53,6 +53,73 @@ const sha256Pattern = /^[0-9a-f]{64}$/i;
 // The asset name is shown inside a shell command the user may copy, so it is limited to characters that need no quoting and cannot start with an option dash. CPack names the Linux packages `msime-linux_VERSION_ARCH.deb` and `msime-linux-VERSION-linux-ARCH.tar.gz` (platforms/linux/cmake/packaging.cmake).
 const linuxPackagePatterns = [/^[a-z0-9][\w.+~-]*\.deb$/i, /^[a-z0-9][\w.+~-]*\.tar\.gz$/i];
 
+// 不是 full 的版本和 full 发布在同一个平台标签下（例如都在 `linux-v1.2.0` 里），靠资产名区分：Linux 包名是 `msime-linux-<id>`，Windows 安装包是 `MetasequoiaIME-<Id>_Setup_v<版本>.exe`（`<Id>` 是首字母大写的版本 id）。各平台的打包脚本要按这个名字产出。full 的资产名不变。
+const editionIdPattern = /^[a-z][a-z0-9]*$/;
+/** full 的 Linux 资产模式也认得出其他版本的包（`msime-linux-wubi_…`），选 full 的资产之前先去掉它们：full 的包名在 `msime-linux` 之后紧跟 `_` 或版本号。 */
+const otherEditionLinuxPackagePattern = /^msime-linux-[a-z]/i;
+
+function isFullEdition(edition: string | undefined): boolean {
+  return edition === undefined || edition === "full";
+}
+
+/** 版本的 Linux 资产模式；不是合法的版本 id 时为 null，不选任何资产。 */
+function editionLinuxPackagePatterns(edition: string | undefined): readonly RegExp[] | null {
+  if (isFullEdition(edition)) return linuxPackagePatterns;
+  if (!edition || !editionIdPattern.test(edition)) return null;
+  return [
+    new RegExp(`^msime-linux-${edition}_[\\w.+~-]+\\.deb$`, "i"),
+    new RegExp(`^msime-linux-${edition}-\\d[\\w.+~-]*\\.tar\\.gz$`, "i"),
+  ];
+}
+
+/** 版本的 Windows 安装包名前缀，例如 full 是 `MetasequoiaIME_Setup_v`，五笔版是 `MetasequoiaIME-Wubi_Setup_v`；不是合法的版本 id 时为 null。 */
+function editionInstallerPrefix(edition: string | undefined): string | null {
+  if (isFullEdition(edition)) return "MetasequoiaIME_Setup_v";
+  if (!edition || !editionIdPattern.test(edition)) return null;
+  return `MetasequoiaIME-${edition.charAt(0).toUpperCase()}${edition.slice(1)}_Setup_v`;
+}
+
+function editionInstallerPattern(edition: string | undefined): RegExp | null {
+  if (isFullEdition(edition)) return installerNamePattern;
+  const prefix = editionInstallerPrefix(edition);
+  return prefix ? new RegExp(`^${prefix}[\\w.-]+\\.exe$`, "i") : null;
+}
+
+/** 去掉其他版本的 Linux 包，让 full 只在自己的包里选。不是数组时原样返回，交给 `selectUniqueReleaseAsset` 处理。 */
+/** The architecture parts CPack puts in the Linux package names (dpkg's for the `.deb`, `CMAKE_SYSTEM_PROCESSOR` for the `.tar.gz`), keyed by Rust's name for the host's architecture (`HostCapabilities.arch`). */
+const linuxPackageArchitectures: Readonly<Record<string, { deb: string; tarball: string }>> = {
+  x86_64: { deb: "amd64", tarball: "x86_64" },
+  aarch64: { deb: "arm64", tarball: "aarch64" },
+};
+
+/** A release carries one `.deb` and one `.tar.gz` per architecture; keep this machine's. An unknown or unreported architecture keeps them all, and the selection then offers a package only when there is a single one. */
+function onlyLinuxPackagesFor(assets: unknown, arch: string | undefined): unknown {
+  const names = arch === undefined ? undefined : linuxPackageArchitectures[arch];
+  if (!names || !Array.isArray(assets)) return assets;
+  return assets.filter(
+    (asset: { name?: unknown } | null) =>
+      !!asset &&
+      typeof asset === "object" &&
+      typeof asset.name === "string" &&
+      (asset.name.endsWith(`_${names.deb}.deb`) ||
+        asset.name.endsWith(`-linux-${names.tarball}.tar.gz`)),
+  );
+}
+
+function withoutOtherEditionLinuxPackages(assets: unknown): unknown {
+  return Array.isArray(assets)
+    ? assets.filter(
+        (asset: { name?: unknown } | null) =>
+          !(
+            asset &&
+            typeof asset === "object" &&
+            typeof asset.name === "string" &&
+            otherEditionLinuxPackagePattern.test(asset.name)
+          ),
+      )
+    : assets;
+}
+
 function isHttpsUrl(value: string): boolean {
   return value.startsWith("https://") && !/[\s"'`<>\\|&]/.test(value);
 }
@@ -108,11 +175,17 @@ export function validateGitHubRelease(
  * The newest published release of one platform, from the repository's release list.
  *
  * Every platform publishes to the same repository under its own tag prefix (`windows-v1.2.0`, `linux-v1.2.0`; see `.github/workflows/release-*.yml`), so the repository's single "latest" release usually belongs to another platform, and its prefixed tag is not a version. Drafts and prereleases are not offered.
+ *
+ * `edition` 是运行中的版本 id（`HostCapabilities.edition.id`），缺省是 full。各版本共用同一个平台标签，只按资产名选本版本的安装包，full 的选择结果不变。
+ *
+ * `arch` is the host's architecture (`HostCapabilities.arch`); on Linux only this architecture's package is offered.
  */
 export function selectPlatformRelease(
   releases: readonly GitHubRelease[],
   platform: string,
   releasesPageUrl: string,
+  edition?: string,
+  arch?: string,
 ): ValidatedUpdate | null {
   const prefix = `${platform}-`;
   let newest: ValidatedUpdate | null = null;
@@ -126,14 +199,26 @@ export function selectPlatformRelease(
     );
     if (update && platform === "linux") {
       // No Linux artifact is signed (neither the .deb nor a detached GPG signature), so the notice says so and offers the digest in its place.
-      const linuxPackage = selectUniqueReleaseAsset(release.assets, linuxPackagePatterns);
+      const patterns = editionLinuxPackagePatterns(edition);
+      const linuxPackage = patterns
+        ? selectUniqueReleaseAsset(
+            onlyLinuxPackagesFor(
+              isFullEdition(edition)
+                ? withoutOtherEditionLinuxPackages(release.assets)
+                : release.assets,
+              arch,
+            ),
+            patterns,
+          )
+        : null;
       update.installerName = linuxPackage?.name ?? null;
       update.installerSha256 = linuxPackage?.sha256 ?? null;
       update.signed = false;
     }
     if (update && platform === "windows") {
       // The release workflow publishes the installer unsigned (signing is a local, manual step), so the notice warns, as the shipped settings page does, and shows the digest GitHub computed.
-      const installer = selectUniqueReleaseAsset(release.assets, [installerNamePattern]);
+      const pattern = editionInstallerPattern(edition);
+      const installer = pattern ? selectUniqueReleaseAsset(release.assets, [pattern]) : null;
       update.installerName = installer?.name ?? null;
       update.installerSha256 = installer?.sha256 ?? null;
       update.signed = false;
@@ -146,6 +231,7 @@ export function selectPlatformRelease(
 export function describeInstallerTrust(
   update: ValidatedUpdate,
   platform: string | null,
+  edition?: string,
 ): {
   warning: string | null;
   verify: { command: string; sha256: string } | null;
@@ -165,10 +251,12 @@ export function describeInstallerTrust(
       verify: null,
     };
   }
-  const name = update.installerName ?? "MetasequoiaIME_Setup_v<版本>.exe";
+  const name =
+    update.installerName ??
+    `${editionInstallerPrefix(edition) ?? "MetasequoiaIME_Setup_v"}<版本>.exe`;
   // The shipped settings page's wording: an unsigned installer is not only a SmartScreen prompt, it also loses uiAccess, so the candidate window cannot float above elevated programs.
   const unsigned =
-    "该版本未经代码签名，SmartScreen 会拦截，且 uiAccess 失效（候选窗无法浮在以管理员身份运行的程序之上）。";
+    "该版本未经代码签名，SmartScreen 会拦截，且 uiAccess 失效（候选窗口无法浮在以管理员身份运行的程序之上）。";
   if (update.signed === false && !update.installerSha256)
     return {
       warning: `${unsigned}请从发行页一并下载 ${name}.sha256，用 Get-FileHash .\\${name} -Algorithm SHA256 核对。`,

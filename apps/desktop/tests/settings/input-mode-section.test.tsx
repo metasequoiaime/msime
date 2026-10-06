@@ -48,3 +48,124 @@ test("switching from Korean to Chinese restores the remembered Chinese scheme", 
   fireEvent.click(screen.getByLabelText("中文"));
   expect(onChange).toHaveBeenCalledWith({ scheme: "wubi" });
 });
+
+const allSchemes = [
+  "quanpin",
+  "shuangpin",
+  "wubi",
+  "japanese",
+  "korean",
+  "cantonese",
+  "zhuyin",
+  "vietnamese",
+  "tibetan",
+  "stroke",
+] as const;
+
+test("switching to Vietnamese remembers the current Cantonese scheme", () => {
+  const onChange = vi.fn();
+  render(
+    <InputModeSection
+      scheme="cantonese"
+      lastChineseScheme="quanpin"
+      supportedSchemes={allSchemes}
+      onChange={onChange}
+    />,
+  );
+
+  expect((screen.getByLabelText("中文") as HTMLInputElement).checked).toBe(true);
+  fireEvent.click(screen.getByLabelText("越南文"));
+  expect(onChange).toHaveBeenCalledWith({ last_chinese_scheme: "cantonese", scheme: "vietnamese" });
+});
+
+test("switching from Vietnamese to Chinese restores a remembered Zhuyin scheme", () => {
+  const onChange = vi.fn();
+  render(
+    <InputModeSection
+      scheme="vietnamese"
+      lastChineseScheme="zhuyin"
+      supportedSchemes={allSchemes}
+      onChange={onChange}
+    />,
+  );
+
+  expect((screen.getByLabelText("越南文") as HTMLInputElement).checked).toBe(true);
+  fireEvent.click(screen.getByLabelText("中文"));
+  expect(onChange).toHaveBeenCalledWith({ scheme: "zhuyin" });
+});
+
+test("Stroke counts as 中文 and is remembered across a Japanese round trip", () => {
+  const onChange = vi.fn();
+  const { rerender } = render(
+    <InputModeSection
+      scheme="stroke"
+      lastChineseScheme="quanpin"
+      supportedSchemes={allSchemes}
+      onChange={onChange}
+    />,
+  );
+
+  expect((screen.getByLabelText("中文") as HTMLInputElement).checked).toBe(true);
+  fireEvent.click(screen.getByLabelText("日文"));
+  expect(onChange).toHaveBeenCalledWith({ last_chinese_scheme: "stroke", scheme: "japanese" });
+
+  rerender(
+    <InputModeSection
+      scheme="japanese"
+      lastChineseScheme="stroke"
+      supportedSchemes={allSchemes}
+      onChange={onChange}
+    />,
+  );
+  fireEvent.click(screen.getByLabelText("中文"));
+  expect(onChange).toHaveBeenLastCalledWith({ scheme: "stroke" });
+});
+
+test("switching from Vietnamese to Tibetan keeps the remembered Chinese scheme", () => {
+  const onChange = vi.fn();
+  render(
+    <InputModeSection
+      scheme="vietnamese"
+      lastChineseScheme="wubi"
+      supportedSchemes={allSchemes}
+      onChange={onChange}
+    />,
+  );
+
+  expect((screen.getByLabelText("藏文") as HTMLInputElement).disabled).toBe(false);
+  fireEvent.click(screen.getByLabelText("藏文"));
+  expect(onChange).toHaveBeenCalledWith({ last_chinese_scheme: "wubi", scheme: "tibetan" });
+});
+
+test("a Tibetan document on a host without it shows the scheme host-api falls back to", () => {
+  const onChange = vi.fn();
+  render(<InputModeSection scheme="tibetan" lastChineseScheme="wubi" onChange={onChange} />);
+
+  const tibetan = screen.getByLabelText("藏文") as HTMLInputElement;
+  expect(tibetan.checked).toBe(true);
+  expect(tibetan.disabled).toBe(true);
+  expect(screen.getByText("此平台暂不支持藏文，已回退到五笔")).toBeTruthy();
+  fireEvent.click(screen.getByLabelText("中文"));
+  expect(onChange).toHaveBeenCalledWith({ scheme: "wubi" });
+});
+
+test("a host without Vietnamese shows 越南文 disabled with the reason", () => {
+  render(<InputModeSection scheme="quanpin" onChange={vi.fn()} />);
+
+  expect((screen.getByLabelText("越南文") as HTMLInputElement).disabled).toBe(true);
+  expect((screen.getByLabelText("日文") as HTMLInputElement).disabled).toBe(false);
+  expect(screen.getByText(/此平台暂不支持越南文/)).toBeTruthy();
+});
+
+test("a Vietnamese document on a host without it shows the scheme host-api falls back to", () => {
+  const onChange = vi.fn();
+  render(<InputModeSection scheme="vietnamese" lastChineseScheme="zhuyin" onChange={onChange} />);
+
+  const vietnamese = screen.getByLabelText("越南文") as HTMLInputElement;
+  expect(vietnamese.checked).toBe(true);
+  expect(vietnamese.disabled).toBe(true);
+  // Zhuyin is not offered either, so host-api runs 全拼.
+  expect(screen.getByText("此平台暂不支持越南文，已回退到全拼")).toBeTruthy();
+  fireEvent.click(screen.getByLabelText("中文"));
+  expect(onChange).toHaveBeenCalledWith({ scheme: "quanpin" });
+});

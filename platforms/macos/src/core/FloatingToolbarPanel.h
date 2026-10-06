@@ -19,6 +19,8 @@
 - (void)floatingToolbarDidRequestCheckForUpdates:(MetasequoiaFloatingToolbarPanel *)toolbar;
 - (void)floatingToolbarDidRequestOpenWebsite:(MetasequoiaFloatingToolbarPanel *)toolbar;
 - (void)floatingToolbarDidRequestHide:(MetasequoiaFloatingToolbarPanel *)toolbar;
+/// 切换输入方案按钮弹出的菜单：可用的方案，正在用的那个打勾，选中即切换。
+- (NSMenu *)floatingToolbarInputSchemeMenu:(MetasequoiaFloatingToolbarPanel *)toolbar;
 @end
 
 FOUNDATION_EXPORT NSRect MetasequoiaFloatingToolbarFrame(NSRect proposedFrame, NSRect visibleFrame, BOOL hasSavedFrame);
@@ -39,7 +41,7 @@ FOUNDATION_EXPORT NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
           chinesePunctuationEnabled:(BOOL)chinesePunctuationEnabled
                    fullWidthEnabled:(BOOL)fullWidthEnabled
     traditionalChineseOutputEnabled:(BOOL)traditionalChineseOutputEnabled;
-/// The mode button reads A under Caps Lock, then 英 for English, En for English candidates, and otherwise the scheme's badge - 中 for quanpin, 双 for shuangpin, 五 for wubi, 日 for japanese and 한 for korean, the badges the input menu shows. One glyph cannot tell the Shuangpin keymaps apart, so `schemeTitle` (小鹤双拼, 五笔 86, ...) leads the button's tooltip and accessibility label; nil leaves just the action.
+/// 模式按钮在大写锁定时显示 A，英文模式显示 英，英文候选显示 En，其余情况显示方案徽标——全拼 中、双拼 双、五笔 五、日语 日、韩语 한、粤拼 粤、注音 注、越南语 越、藏文 ཀ、笔画 笔，与输入菜单一致。一个字分不出双拼键位或五笔版本，所以 `schemeTitle`（小鹤双拼、五笔 86、五笔 98 等）放在按钮提示和辅助功能标签的开头；传 nil 时只写动作。
 - (void)updateEnglishInputMode:(BOOL)englishInputMode
          englishCandidateMode:(BOOL)englishCandidateMode
                         scheme:(NSString *)scheme

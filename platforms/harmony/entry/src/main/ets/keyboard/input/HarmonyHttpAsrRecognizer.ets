@@ -1,5 +1,6 @@
 import audio from '@ohos.multimedia.audio';
 import http from '@ohos.net.http';
+import { installNoRedirectGuard } from '../../network/HarmonyHttpSecurity';
 import util from '@ohos.util';
 import { KeyboardLog, describeError } from '../KeyboardLog';
 import { VoiceRecognitionPolicy } from './VoiceRecognitionPolicy';
@@ -190,8 +191,9 @@ export class HarmonyHttpAsrRecognizer {
     const model: string = HttpAsrConfigurationPolicy.model(config);
     const credential: string = HttpAsrConfigurationPolicy.token(config);
     const boundary: string = `----msime-${util.generateRandomUUID(false).replace(/-/g, '')}`;
-    const body: ArrayBuffer = this.multipart(boundary, model, config.language, wav);
+    const body: ArrayBuffer = this.multipart(boundary, model, config.asr_provider, config.language, wav);
     const request: http.HttpRequest = http.createHttp();
+    installNoRedirectGuard(request);
     this.request = request;
     try {
       const response: http.HttpResponse = await request.request(endpoint, {
@@ -275,11 +277,15 @@ export class HarmonyHttpAsrRecognizer {
     return result.buffer as ArrayBuffer;
   }
 
-  private multipart(boundary: string, model: string, language: string, wav: ArrayBuffer): ArrayBuffer {
+  private multipart(boundary: string, model: string, provider: string, language: string, wav: ArrayBuffer): ArrayBuffer {
     const encoder: util.TextEncoder = util.TextEncoder.create('utf-8');
+    const transcriptionLanguage: string = HttpAsrConfigurationPolicy.transcriptionLanguage(provider, language);
+    let fields: string = `--${boundary}\r\nContent-Disposition: form-data; name="model"\r\n\r\n${model}`;
+    if (transcriptionLanguage.length > 0) {
+      fields += `\r\n--${boundary}\r\nContent-Disposition: form-data; name="language"\r\n\r\n${transcriptionLanguage}`;
+    }
     const head: Uint8Array = encoder.encode(
-      `--${boundary}\r\nContent-Disposition: form-data; name="model"\r\n\r\n${model}`
-      + `\r\n--${boundary}\r\nContent-Disposition: form-data; name="language"\r\n\r\n${this.language(language)}`
+      fields
       + `\r\n--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="speech.wav"\r\n`
       + 'Content-Type: audio/wav\r\n\r\n');
     const tail: Uint8Array = encoder.encode(`\r\n--${boundary}--\r\n`);
@@ -289,11 +295,6 @@ export class HarmonyHttpAsrRecognizer {
     result.set(audio, head.length);
     result.set(tail, head.length + audio.length);
     return result.buffer as ArrayBuffer;
-  }
-
-  private language(value: string): string {
-    const language: string = value.trim();
-    return language === 'auto' ? '' : language.slice(0, 32);
   }
 
   private validConfig(config: VoiceInputConfiguration): boolean {

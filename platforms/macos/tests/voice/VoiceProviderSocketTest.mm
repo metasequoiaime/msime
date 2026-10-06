@@ -49,22 +49,27 @@ int main() {
         require([MSIMEVoiceProviderSocketFromOptionsPath(optionsPath, @{}, files) isEqual:configured],
                 "explicit host options path was not read");
 
-        // Without options in app.msime.macos the input method keeps reading what app.msime.client left until the settings app migrates it, and prefers the new directory from then on.
+        NSDictionary *oversizedOptions = @{
+            @"voice_provider_socket" : configured,
+            @"padding" : [@"x" stringByPaddingToLength:2 * 1024 * 1024 withString:@"x" startingAtIndex:0]
+        };
+        NSData *oversizedData = [NSJSONSerialization dataWithJSONObject:oversizedOptions options:0 error:nil];
+        require(oversizedData.length > 2 * 1024 * 1024, "oversized runtime options fixture was not oversized");
+        [oversizedData writeToFile:optionsPath atomically:YES];
+        require(MSIMEVoiceProviderSocketFromOptionsPath(optionsPath, @{}, files) == nil,
+                "oversized runtime options were read without a bound");
+
+        // Without an explicit path the input method reads the options in app.msime.macos.
         SupportRootFileManager *support = [SupportRootFileManager new];
         support.supportRoot = [root stringByAppendingPathComponent:@"Application Support"];
         NSString *current = [support.supportRoot stringByAppendingPathComponent:@"app.msime.macos/runtime-options.json"];
-        NSString *legacy = [support.supportRoot stringByAppendingPathComponent:@"app.msime.client/runtime-options.json"];
-        require([MSIMEDefaultRuntimeOptionsPath(support) isEqual:current], "a fresh install did not default to app.msime.macos");
-        [files createDirectoryAtPath:legacy.stringByDeletingLastPathComponent withIntermediateDirectories:YES attributes:nil error:nil];
-        [options writeToFile:legacy atomically:YES];
-        require([MSIMEDefaultRuntimeOptionsPath(support) isEqual:legacy], "unmigrated options in app.msime.client were not read");
-        require([MSIMEVoiceProviderSocketFromOptionsPath(nil, @{}, support) isEqual:configured],
-                "the provider socket was not read from the legacy directory");
-        [files createDirectoryAtPath:current.stringByDeletingLastPathComponent withIntermediateDirectories:YES attributes:nil error:nil];
-        [[NSJSONSerialization dataWithJSONObject:@{} options:0 error:nil] writeToFile:current atomically:YES];
-        require([MSIMEDefaultRuntimeOptionsPath(support) isEqual:current], "migrated options in app.msime.macos did not win");
+        require([MSIMEDefaultRuntimeOptionsPath(support) isEqual:current], "the default options path is not in app.msime.macos");
         require(MSIMEVoiceProviderSocketFromOptionsPath(nil, @{}, support) == nil,
-                "the legacy directory was read after migration");
+                "a provider socket was read without default options");
+        [files createDirectoryAtPath:current.stringByDeletingLastPathComponent withIntermediateDirectories:YES attributes:nil error:nil];
+        [options writeToFile:current atomically:YES];
+        require([MSIMEVoiceProviderSocketFromOptionsPath(nil, @{}, support) isEqual:configured],
+                "the provider socket was not read from the default options");
         [files removeItemAtPath:root error:nil];
     }
     return 0;

@@ -114,7 +114,7 @@ extension PersonalDictionaryBridge {
     }?.filter { $0.pathExtension == "appex" }
       .map { $0.appendingPathComponent("EngineResources", isDirectory: true) } ?? []
     return ([own].compactMap { $0 } + plugins).first {
-      fm.isReadableFile(atPath: $0.appendingPathComponent("msime.db").path)
+      fm.isReadableFile(atPath: $0.appendingPathComponent("msime-pinyin.db").path)
     }
   }
 }
@@ -143,7 +143,7 @@ private enum PersonalDictionaryBridgeFailure: LocalizedError {
   var errorDescription: String? {
     switch self {
     case .invalid(.pinyin): "请填写完整拼音，用空格或英文单引号分隔音节，例如 ni hao。"
-    case .invalid(.wubi): "五笔编码使用 1–4 个字母。"
+    case .invalid(.wubi), .invalid(.wubi98): "五笔编码使用 1–4 个字母。"
     case .invalid(.quickPhrase): "快捷短语编码只能包含英文字母，长度 1 到 32。"
     case .invalid(.english): "英文编码只能包含字母、连字符和撇号。"
     case .invalid(nil): "个人词条格式无效。"

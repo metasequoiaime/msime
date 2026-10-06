@@ -1,0 +1,6 @@
+# OBS 构建 openSUSE 时跑 rpmlint，按 badness 判失败；这里按 openSUSE Tumbleweed 的 rpmlint 实际报出的项过滤（没用到的过滤器本身也会报错），都是与 GitHub 发布页 msime-linux 包相同的上游安装布局，不是打包错误。
+# 语音服务按文件名导入这几个模块，它们与 msime-linux-voice-provider 放在同一目录，本身不是可执行脚本。
+addFilter("script-without-shebang /usr/bin/msime_.*\.py")
+addFilter("non-executable-in-bin /usr/bin/msime_.*\.py")
+# 产品名与命令名（Metasequoia、msime-linux-setup、Fcitx5 addon）。
+addFilter("spelling-error")

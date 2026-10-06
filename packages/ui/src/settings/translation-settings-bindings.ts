@@ -11,13 +11,16 @@ import {
 export type TranslationSettingsBindingsOptions = CandidateTranslationSettingsOptions &
   Omit<TranslationProviderSettingsOptions, "grouped">;
 
-/** Composes the shared candidate and provider bindings used by both settings hosts. */
+export type TranslationSettingsBindings = TranslationSettingsContentProps;
+
+/** 组合两个设置宿主共用的候选和翻译服务绑定。 */
 export function createTranslationSettingsBindings({
   android,
+  client,
   ...options
-}: TranslationSettingsBindingsOptions): TranslationSettingsContentProps {
+}: TranslationSettingsBindingsOptions): TranslationSettingsBindings {
   return {
     candidate: createCandidateTranslationSettings({ android, ...options }),
-    providers: android ? undefined : createTranslationProviderSettings(options),
+    providers: android ? undefined : createTranslationProviderSettings({ client, ...options }),
   };
 }

@@ -1,0 +1,32 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.12.0.schema.json
+# 模板：platforms/windows/packaging/render.py 按一个 windows-v 发布填写 @...@ 字段。
+
+PackageIdentifier: Metasequoia.MetasequoiaIME
+PackageVersion: "@VERSION@"
+PackageLocale: en-US
+Publisher: Metasequoia
+PublisherUrl: https://msime.app/
+PublisherSupportUrl: https://github.com/metasequoiaime/msime/issues
+PrivacyUrl: https://github.com/metasequoiaime/msime/blob/develop/PRIVACY.md
+PackageName: Metasequoia IME
+PackageUrl: https://github.com/metasequoiaime/msime
+License: GPL-3.0-only
+LicenseUrl: https://github.com/metasequoiaime/msime/blob/develop/LICENSE
+ShortDescription: "Metasequoia IME (水杉输入法): Chinese input method for Windows"
+Description: |-
+  Metasequoia IME (水杉输入法, MSIME) is a Chinese input method for Windows, macOS, Linux, Android, iOS and HarmonyOS. On Windows it is a Text Services Framework input method with its own Server process, a native candidate window and a settings app.
+
+  MSIME is short for Metasequoia IME; it has nothing to do with Microsoft IME.
+Moniker: msime
+Tags:
+  - chinese
+  - ime
+  - input-method
+  - pinyin
+  - shuangpin
+  - wubi
+  - tsf
+InstallationNotes: Uninstalling removes the input method's data directory, including your own dictionary words, settings and skins. Upgrading keeps it. Install as a signed-in user, not as SYSTEM (Intune, winget-autoupdate, scheduled tasks), because the data directory defaults to the installing account's local app data, which for SYSTEM lies inside C:\Windows, and the installer rejects it.
+ReleaseNotesUrl: "@RELEASE_NOTES_URL@"
+ManifestType: defaultLocale
+ManifestVersion: 1.12.0

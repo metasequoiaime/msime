@@ -85,6 +85,7 @@ const MAX_COMMUNITY_RESOURCE_PAGE_BYTES = 48 * 1024 * 1024;
 const MAX_COMMUNITY_RESOURCE_DETAIL_BYTES = 3 * 1024 * 1024;
 const MAX_SESSION_SECONDS = 86_400 * 30;
 const MAX_SESSION_MILLISECONDS = MAX_SESSION_SECONDS * 1000;
+const MAX_SESSION_BYTES = 64 * 1024;
 const MAX_SEARCH = 256;
 
 /**
@@ -106,10 +107,14 @@ const CHAT_ROLES = ["user", "assistant", "system"];
 
 /** The gallery's own bounds, matching `client-core`'s community skin service. */
 const MAX_COMMUNITY_SEARCH = 128;
-/** Only the legacy JSON/WebView fallback is capped at 3 MiB; native files use the source limits. */
-export const MAX_BRIDGED_DICTIONARY_EXPORT_BYTES = 3 * 1024 * 1024;
 export const MAX_DICTIONARY_EXPORT_BYTES = 384 * 1024 * 1024;
 export const MAX_SNAPSHOT_DOWNLOAD_BYTES = 512 * 1024 * 1024;
+
+export function parseResponseContentLength(raw: string): number {
+  if (!/^[0-9]+$/.test(raw)) return -1;
+  const parsed = Number(raw);
+  return Number.isSafeInteger(parsed) ? parsed : -1;
+}
 
 /**
  * A publication id, checked before it is put in a path.
@@ -121,6 +126,7 @@ export const MAX_SNAPSHOT_DOWNLOAD_BYTES = 512 * 1024 * 1024;
 function validUuid(value: unknown): value is string {
   return (
     typeof value === "string" &&
+    value.toLowerCase() !== "00000000-0000-0000-0000-000000000000" &&
     /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(value)
   );
 }
@@ -157,6 +163,55 @@ function validCommunityScope(value: unknown): value is string {
 }
 
 /**
+ * The reasons a report offers, in dialog order, each the exact label sent to the server. The same fixed list as client-core's `CommunityReportReason`.
+ */
+export const COMMUNITY_REPORT_REASONS: readonly string[] = [
+  "侵权/抄袭",
+  "色情低俗",
+  "违法违规",
+  "垃圾广告",
+  "恶意插件",
+  "其他",
+];
+const MAX_REPORT_DETAIL = 1000;
+
+/**
+ * The moderation state the server adds to the user's own items when asked with `fields=moderation`. Optional: other users' items, and servers that predate it, leave it out.
+ */
+function validModeration(value: unknown): boolean {
+  return value === undefined || value === "approved" || value === "pending" || value === "removed";
+}
+
+/** A detail path's item id, without the query `fields=moderation` adds. */
+function detailId(path: string, prefix: string): string {
+  const rest = path.slice(prefix.length);
+  const query = rest.indexOf("?");
+  return query === -1 ? rest : rest.slice(0, query);
+}
+
+/** The service's error code, from `{"error":{"code":...}}`. */
+function errorCode(body: string): string | undefined {
+  const parsed = parseJson(body);
+  const value = parsed === null ? undefined : parsed.error;
+  if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+    const code = (value as Action).code;
+    return typeof code === "string" ? code : undefined;
+  }
+  return undefined;
+}
+
+/**
+ * A refusal the user can act on, told apart by the error code in the body rather than by the status alone: content screening (422 `blocked_content`: the text has to change, the service is up), screening that is down for now (503 `screening_unavailable`) and a banned account (403 `account_banned`).
+ */
+function communityRefusal(status: number, body: string): string | null {
+  const code = errorCode(body);
+  if (status === 422 && code === "blocked_content") return "community_blocked_content";
+  if (status === 503 && code === "screening_unavailable") return "community_screening_unavailable";
+  if (status === 403 && code === "account_banned") return "community_account_banned";
+  return null;
+}
+
+/**
  * What a resource may carry, which depends on what it is.
  *
  * A reply is a prompt and nothing else; a dictionary is between one and 128 entries and no prompt.
@@ -186,7 +241,7 @@ function validResourceContent(kind: unknown, value: unknown): boolean {
     const word = entry.word;
     if (
       typeof entryKind !== "string" ||
-      !["pinyin", "wubi", "quick", "english"].includes(entryKind) ||
+      !["pinyin", "wubi", "wubi98", "quick", "english"].includes(entryKind) ||
       !validCommunityText(code, 1, 256) ||
       !validCommunityText(word, 1, 1024) ||
       typeof entry.weight !== "number" ||
@@ -312,6 +367,42 @@ function validSkinDesign(value: unknown): boolean {
   return true;
 }
 
+/** 社区皮肤的发布分类 id，与服务端和共享客户端核心一致。 */
+const COMMUNITY_SKIN_CATEGORIES: readonly string[] = [
+  "nature",
+  "guofeng",
+  "acg",
+  "cute",
+  "food",
+  "tech",
+  "minimal",
+  "other",
+];
+
+/** 每个返回社区皮肤条目的请求都带上它，服务端才在条目里加上 `category`；不带时服务端不返回该字段。 */
+const INCLUDE_CATEGORY = "include=category";
+
+function validCommunitySkinCategory(value: unknown): value is string {
+  return typeof value === "string" && COMMUNITY_SKIN_CATEGORIES.includes(value);
+}
+
+/** 服务端将来新增的分类读作 `other`，与共享客户端核心的读法一致，页面只会收到它认识的分类。 */
+function normalizeCommunitySkinCategory(skin: Action): void {
+  if (skin.category !== undefined && !validCommunitySkinCategory(skin.category)) {
+    skin.category = "other";
+  }
+}
+
+function normalizeCommunitySkinCategories(value: unknown): void {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return;
+  const object = value as Action;
+  if (Array.isArray(object.skins)) {
+    for (const item of object.skins as Action[]) normalizeCommunitySkinCategory(item);
+  } else {
+    normalizeCommunitySkinCategory(object);
+  }
+}
+
 function validCommunitySkinResponse(value: unknown, expectedId?: string): boolean {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
   const skin = value as Action;
@@ -334,7 +425,11 @@ function validCommunitySkinResponse(value: unknown, expectedId?: string): boolea
     Number.isFinite(skin.rating_average) &&
     skin.rating_average >= 0 &&
     skin.rating_average <= 5 &&
-    (skin.rating_count !== 0 || skin.rating_average === 0)
+    (skin.rating_count !== 0 || skin.rating_average === 0) &&
+    validModeration(skin.moderation) &&
+    // 早于分类功能的服务端不返回分类；返回时必须是字符串，未知的新分类随后读作 `other`。
+    (skin.category === undefined ||
+      (typeof skin.category === "string" && skin.category.length <= 32))
   );
 }
 
@@ -361,7 +456,7 @@ function validateCommunitySkinResponse(path: string, value: unknown): boolean {
   }
   const detailPrefix = "/v1/community/skins/";
   if (path.startsWith(detailPrefix)) {
-    const id = path.slice(detailPrefix.length);
+    const id = detailId(path, detailPrefix);
     return validResourceUuid(id) && validCommunitySkinResponse(value, id);
   }
   return true;
@@ -399,7 +494,8 @@ function validCommunityResourceResponse(
     resource.rating_average < 0 ||
     resource.rating_average > 5 ||
     (resource.rating_count === 0 && resource.rating_average !== 0) ||
-    !validResourceContent(resource.kind, resource.content)
+    !validResourceContent(resource.kind, resource.content) ||
+    !validModeration(resource.moderation)
   ) {
     return false;
   }
@@ -430,7 +526,7 @@ function validateCommunityResourceResponse(path: string, value: unknown): boolea
   }
   const detailPrefix = "/v1/community/resources/";
   if (path.startsWith(detailPrefix)) {
-    const id = path.slice(detailPrefix.length);
+    const id = detailId(path, detailPrefix);
     return validResourceUuid(id) && validCommunityResourceResponse(value, undefined, id);
   }
   return true;
@@ -603,8 +699,7 @@ function validateSession(value: unknown): value is Session {
     validToken(session.access_token) &&
     validToken(session.refresh_token) &&
     session.token_type === "Bearer" &&
-    typeof session.expires_at === "number" &&
-    Number.isFinite(session.expires_at) &&
+    safeInteger(session.expires_at) &&
     session.expires_at <= Date.now() + MAX_SESSION_MILLISECONDS &&
     validateUser(session.user)
   );
@@ -615,8 +710,7 @@ function sessionFromTokens(value: Action): Session | null {
     !validToken(value.access_token) ||
     !validToken(value.refresh_token) ||
     value.token_type !== "Bearer" ||
-    typeof value.expires_in !== "number" ||
-    !Number.isFinite(value.expires_in) ||
+    !safeInteger(value.expires_in) ||
     value.expires_in <= 0 ||
     value.expires_in > MAX_SESSION_SECONDS ||
     !validateUser(value.user)
@@ -643,7 +737,7 @@ export class AccountCloudBridge {
     this.transport = transport;
     this.store = store;
     const saved = store.load();
-    if (saved !== null) {
+    if (saved !== null && utf8Length(saved) <= MAX_SESSION_BYTES) {
       try {
         const value: unknown = JSON.parse(saved);
         if (validateSession(value)) this.session = value;
@@ -651,6 +745,8 @@ export class AccountCloudBridge {
       } catch {
         store.clear();
       }
+    } else if (saved !== null) {
+      store.clear();
     }
   }
 
@@ -713,6 +809,11 @@ export class AccountCloudBridge {
   currentUserId(): string | null {
     const session = this.session;
     return session?.user.id ?? null;
+  }
+
+  /** A marker for native operations that may write after several asynchronous account calls. */
+  sessionGeneration(): number {
+    return this.generation;
   }
 
   /**
@@ -860,37 +961,6 @@ export class AccountCloudBridge {
     return { value };
   }
 
-  /** Native hosts save exports themselves so multi-megabyte text never crosses a WebView bridge. */
-  async downloadDictionary(
-    kind: unknown,
-    format: unknown,
-  ): Promise<{ body?: string; error?: string }> {
-    const acceptedKind = this.kind(kind);
-    if (
-      acceptedKind === null ||
-      typeof format !== "string" ||
-      !["standard", "windows"].includes(format)
-    )
-      return { error: "account_invalid" };
-    const result = await this.authorizedResponse(
-      "GET",
-      `/v1/users/me/dictionaries/${acceptedKind}/export?format=${format}`,
-    );
-    if (result.response === undefined) return { error: result.error ?? "account_unavailable" };
-    const response = result.response;
-    if (response.status < 200 || response.status >= 300)
-      return { error: mapStatus(response.status) };
-    const bytes = utf8Length(response.body);
-    if (
-      bytes === 0 ||
-      bytes > MAX_BRIDGED_DICTIONARY_EXPORT_BYTES ||
-      response.body.includes("\u0000") ||
-      (response.contentLength !== undefined && response.contentLength !== bytes)
-    )
-      return { error: "account_unavailable" };
-    return { body: response.body };
-  }
-
   private async requestCode(action: Action): Promise<string> {
     const provider = action.provider;
     const target = action.target;
@@ -932,8 +1002,8 @@ export class AccountCloudBridge {
       // Under the lock, so a refresh the keyboard is in the middle of cannot write the previous session over this one.
       return await this.locked(async (): Promise<string> => {
         if (generation !== this.generation) return error("account_cancelled");
-        this.session = session;
         this.store.save(JSON.stringify(session));
+        this.session = session;
         return success({ user: session.user });
       });
     } catch {
@@ -1185,20 +1255,33 @@ export class AccountCloudBridge {
   private async community(action: Action): Promise<string> {
     const operation = action.community_operation;
     if (operation === "list") {
+      // 我的作品 is the one scope besides the public gallery; it is about the signed-in user, so it needs the session, and it asks for each item's moderation state so a removed skin can carry its 已下架 badge.
+      const mine = action.scope === "mine";
+      // 不传或为 null 时列出全部分类。
+      const category = action.category ?? null;
       if (
+        (action.scope !== undefined && action.scope !== "" && !mine) ||
         !this.boundedNumber(action.offset, 0, 1000000) ||
-        !validString(action.search, MAX_COMMUNITY_SEARCH, true)
+        !validString(action.search, MAX_COMMUNITY_SEARCH, true) ||
+        (category !== null && !validCommunitySkinCategory(category))
       ) {
         return error("community_invalid");
       }
+      const filter = category === null ? "" : `&category=${category}`;
       const path =
-        `/v1/community/skins?offset=${action.offset}&q=` + `${encodeURIComponent(action.search)}`;
-      return await this.communityRequest("GET", path, false);
+        `/v1/community/skins?${mine ? "scope=mine&fields=moderation&" : ""}offset=${action.offset}&q=` +
+        `${encodeURIComponent(action.search)}${filter}&${INCLUDE_CATEGORY}`;
+      return await this.communityRequest("GET", path, mine);
     }
     if (operation === "detail") {
       if (!validUuid(action.id)) return error("community_invalid");
-      return await this.communityRequest("GET", `/v1/community/skins/${action.id}`, false);
+      return await this.communityRequest(
+        "GET",
+        `/v1/community/skins/${action.id}?fields=moderation&${INCLUDE_CATEGORY}`,
+        false,
+      );
     }
+    if (operation === "report") return await this.report("skins", action);
     if (operation === "download") {
       if (!validUuid(action.id)) return error("community_invalid");
       return await this.communityRequest("POST", `/v1/community/skins/${action.id}/download`, true);
@@ -1219,22 +1302,67 @@ export class AccountCloudBridge {
         !validCommunityText(name, 1, 32) ||
         name.trim() !== name ||
         !validCommunityText(description, 0, 280, true) ||
-        !validSkinDesign(action.design)
+        !validSkinDesign(action.design) ||
+        (action.category !== undefined && !validCommunitySkinCategory(action.category))
       ) {
         return error("community_invalid");
       }
-      return await this.communityRequest("POST", "/v1/community/skins", true, {
+      const body: Record<string, unknown> = {
         id: action.id,
         name,
         description,
         design: action.design,
-      });
+      };
+      // 不传分类时不发送该字段，由服务端归入默认分类。
+      if (action.category !== undefined) body.category = action.category;
+      return await this.communityRequest("POST", "/v1/community/skins", true, body);
+    }
+    if (operation === "set_category") {
+      const id = action.id;
+      const category = action.category;
+      if (!validUuid(id) || !validCommunitySkinCategory(category)) {
+        return error("community_invalid");
+      }
+      return await this.communityRequest(
+        "PATCH",
+        `/v1/community/skins/${id}?${INCLUDE_CATEGORY}`,
+        true,
+        { category },
+        // 回显的分类不是请求的分类，说明修改没有生效。
+        (value) => validCommunitySkinResponse(value, id) && value.category === category,
+      );
     }
     if (operation === "unpublish") {
       if (!validUuid(action.id)) return error("community_invalid");
       return await this.communityRequest("DELETE", `/v1/community/skins/${action.id}`, true);
     }
     return error("community_invalid");
+  }
+
+  /**
+   * Reports another user's item to the moderators: `{id, reason, detail?}`, with `reason` one of `COMMUNITY_REPORT_REASONS`.
+   *
+   * Needs a session; the device's anonymous account counts. Reporting the same item again is accepted without a second record, so a retry is harmless.
+   */
+  private async report(kind: string, action: Action): Promise<string> {
+    const detail = action.detail ?? "";
+    if (
+      !validUuid(action.id) ||
+      typeof action.reason !== "string" ||
+      !COMMUNITY_REPORT_REASONS.includes(action.reason) ||
+      !validCommunityText(detail, 0, MAX_REPORT_DETAIL, true)
+    ) {
+      return error("community_invalid");
+    }
+    const body: Record<string, unknown> = { kind, item_id: action.id, reason: action.reason };
+    if (detail.trim() !== "") body.detail = detail;
+    return await this.communityRequest(
+      "POST",
+      "/v1/community/reports",
+      true,
+      body,
+      (value) => value.reported === true,
+    );
   }
 
   /**
@@ -1281,7 +1409,9 @@ export class AccountCloudBridge {
       }
     }
     if (response.status < 200 || response.status >= 300) {
-      return error(communityStatus(response.status));
+      return error(
+        communityRefusal(response.status, response.body) ?? communityStatus(response.status),
+      );
     }
     const value = parseJson(response.body, communityResponseLimit(path));
     if (value === null && response.body.length > 0) return error("community_unavailable");
@@ -1302,6 +1432,7 @@ export class AccountCloudBridge {
     if (responseValidator !== undefined && (value === null || !responseValidator(value))) {
       return error("community_unavailable");
     }
+    if (path.startsWith("/v1/community/skins")) normalizeCommunitySkinCategories(value);
     return success(value ?? {});
   }
 
@@ -1327,14 +1458,24 @@ export class AccountCloudBridge {
       }
       // A scope other than "all" is a question about the signed-in user, so it needs the session
       // rather than merely benefiting from it.
+      // 我的作品 also asks for each item's moderation state, so a removed one can carry its 已下架 badge.
       const path =
         `/v1/community/resources?kind=${kind}&scope=${scope}` +
+        `${scope === "mine" ? "&fields=moderation" : ""}` +
         `&q=${encodeURIComponent(action.search)}&offset=${action.offset}`;
       return await this.communityRequest("GET", path, scope !== "");
     }
     if (operation === "detail") {
       if (!validUuid(action.id)) return error("community_invalid");
-      return await this.communityRequest("GET", `/v1/community/resources/${action.id}`, false);
+      return await this.communityRequest(
+        "GET",
+        `/v1/community/resources/${action.id}?fields=moderation`,
+        false,
+      );
+    }
+    if (operation === "report") {
+      if (!validCommunityKind(action.kind)) return error("community_invalid");
+      return await this.report(action.kind === "dictionary" ? "dictionaries" : "replies", action);
     }
     if (operation === "publish") {
       const name = action.name;
@@ -1427,7 +1568,7 @@ export class AccountCloudBridge {
       if (parsed.ok !== true) return catalog;
       const value = parsed.value as Action;
       const revision = value.revision;
-      if (typeof revision !== "number" || !Number.isInteger(revision) || revision < 0) {
+      if (!safeInteger(revision) || revision < 0) {
         return error("community_unavailable");
       }
       dictionaryRevision = revision;
@@ -1448,7 +1589,9 @@ export class AccountCloudBridge {
   }
 
   private kind(value: unknown): string | null {
-    return typeof value === "string" && ["pinyin", "wubi", "quick", "english"].includes(value)
+    // 与共享 `DictionaryKind` 一致：98 五笔的云端词库是独立种类 `wubi98`。
+    return typeof value === "string" &&
+      ["pinyin", "wubi", "wubi98", "quick", "english"].includes(value)
       ? value
       : null;
   }
@@ -1687,14 +1830,6 @@ export class AccountCloudBridge {
           : { text: action.text, format: action.format };
       return this.authenticated("POST", path, body);
     }
-    if (operation === "export") {
-      const downloaded = await this.downloadDictionary(action.kind, action.format);
-      if (downloaded.body === undefined) return error(downloaded.error ?? "account_unavailable");
-      return success({
-        text: downloaded.body,
-        filename: `dictionary-${kind}.tsv`,
-      });
-    }
     return error("account_invalid");
   }
 
@@ -1784,7 +1919,7 @@ export class AccountCloudBridge {
 
   private storedSession(): Session | null {
     const saved: string | null = this.store.load();
-    if (saved === null) return null;
+    if (saved === null || utf8Length(saved) > MAX_SESSION_BYTES) return null;
     try {
       const value: unknown = JSON.parse(saved);
       return validateSession(value) ? value : null;
@@ -1878,6 +2013,10 @@ export class AccountCloudBridge {
     );
     if (generation !== this.generation) return { error: "account_cancelled" };
     if (response.status !== 401 && response.status !== 403) return { response, token };
+    // A banned account is refused for what it is, not for a stale token: refreshing would only be refused again, and the caller needs the reason.
+    if (response.status === 403 && errorCode(response.body) === "account_banned") {
+      return { response, token };
+    }
     credential = await this.credential(token);
     if (credential.token === undefined)
       return { error: credential.error ?? "account_unauthorized" };

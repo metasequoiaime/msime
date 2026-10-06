@@ -9,11 +9,13 @@ use super::syllables::is_intact;
 /// Strip whitespace and lowercase; split on `'` or take the correction cut, preferring an enumerated complete segmentation with exactly `expected_syllables` syllables when that is non-zero. Returns "" for anything unusable: a leading, trailing or doubled `'`, a syllable-count mismatch, an incomplete syllable, or a result that does not spell the source.
 pub fn normalize_full_pinyin(input: &str, expected_syllables: usize) -> String {
     // C `isspace` also counts the vertical tab, which `char::is_ascii_whitespace` does not.
-    let source: String = input
-        .chars()
-        .filter(|&character| !(character.is_ascii_whitespace() || character == '\x0b'))
-        .map(|character| character.to_ascii_lowercase())
-        .collect();
+    let mut source = String::with_capacity(input.len());
+    source.extend(
+        input
+            .chars()
+            .filter(|&character| !(character.is_ascii_whitespace() || character == '\x0b'))
+            .map(|character| character.to_ascii_lowercase()),
+    );
     if source.is_empty()
         || source.starts_with('\'')
         || source.ends_with('\'')
@@ -51,7 +53,11 @@ pub fn normalize_full_pinyin(input: &str, expected_syllables: usize) -> String {
     }
     let normalized = join_segments(&segments);
     // An alias cut (`laing` -> `liang`) changes the letters, and an import must keep what the user wrote.
-    if normalized.replace('\'', "") == source.replace('\'', "") {
+    let same_letters = normalized
+        .bytes()
+        .filter(|&byte| byte != b'\'')
+        .eq(source.bytes().filter(|&byte| byte != b'\''));
+    if same_letters {
         normalized
     } else {
         String::new()

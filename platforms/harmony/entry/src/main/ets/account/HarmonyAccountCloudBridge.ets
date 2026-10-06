@@ -12,19 +12,22 @@ import { KeyboardSession } from '../keyboard/KeyboardSession';
 import { KeyboardFeedbackBridge } from '../keyboard/KeyboardFeedbackBridge';
 import { HarmonyAiSkins } from './HarmonyAiSkins';
 import {
-  AccountPreferenceFields,
   AccountPreferences,
   AccountPreferenceSchema,
   AccountPreferenceSettings,
   AppliedPreferences,
   FeedbackValues,
   applyAccountPreferences,
+  accountPreferencesFromDocument,
   localAccountPreferences,
-  mergeAccountPreferences
+  localPreferenceRevision,
+  mergeAccountPreferences,
+  preferenceSchemaFromDocument,
 } from './AccountPreferencePlan';
 import {
   ACCOUNT_ORIGIN, FileSessionStore, HarmonyAccountTransport, responseContentLength, responseContentType
 } from './HarmonyAccountTransport';
+import { installNoRedirectGuard, noRedirectOptions } from '../network/HarmonyHttpSecurity';
 
 interface SnapshotAction {
   operation: string;
@@ -135,6 +138,9 @@ class HarmonyTransport extends HarmonyAccountTransport {
       || maximumBytes <= 0 || maximumBytes > MAX_SNAPSHOT_DOWNLOAD_BYTES) {
       throw new Error('account_invalid');
     }
+    if (!this.safeDestination(destination)) {
+      throw new Error('account_storage');
+    }
     const request = http.createHttp();
     this.activeDownloads.add(request);
     const headers: DownloadHeaders = {
@@ -142,21 +148,27 @@ class HarmonyTransport extends HarmonyAccountTransport {
       Authorization: `Bearer ${token}`,
       'Accept-Encoding': 'identity'
     };
-    const options: http.HttpRequestOptions = {
+    const options = noRedirectOptions({
       method: http.RequestMethod.GET,
       header: headers,
       connectTimeout: 30000,
       readTimeout: 600000
-    };
+    });
     let handle: fs.File | undefined = undefined;
     let bytes: number = 0;
     let failed: boolean = false;
     let contentLength: number | undefined = undefined;
     let contentType: string | undefined = undefined;
+    let endResolve: (() => void) | undefined = undefined;
     const ended: Promise<void> = new Promise<void>((resolve: () => void): void => {
+      endResolve = resolve;
       // `requestInStream` returns the status code; `dataEnd` is the SDK's explicit statement that
       // the streamed body is complete. Waiting for both keeps the file open through the last chunk.
       request.on('dataEnd', (): void => resolve());
+    });
+    installNoRedirectGuard(request, (): void => {
+      failed = true;
+      endResolve?.();
     });
     request.on('headersReceive', (responseHeaders: Object): void => {
       contentLength = responseContentLength(responseHeaders);
@@ -222,6 +234,24 @@ class HarmonyTransport extends HarmonyAccountTransport {
       }
     } catch {
       return { status: 503, body: '' };
+    }
+  }
+
+  private safeDestination(destination: string): boolean {
+    const slash: number = destination.lastIndexOf('/');
+    if (slash <= 0) return false;
+    const parent: string = destination.substring(0, slash);
+    try {
+      const parentStat: fs.Stat = fs.lstatSync(parent);
+      if (parentStat.isSymbolicLink() || !parentStat.isDirectory()) return false;
+      try {
+        const targetStat: fs.Stat = fs.lstatSync(destination);
+        return !targetStat.isSymbolicLink() && targetStat.isFile();
+      } catch {
+        return true;
+      }
+    } catch {
+      return false;
     }
   }
 }
@@ -313,7 +343,8 @@ export class HarmonyAccountCloudBridge {
   private async exportDictionary(action: AccountOperation): Promise<string> {
     const kind: string = typeof action.kind === 'string' ? action.kind : '';
     const format: string = typeof action.format === 'string' ? action.format : '';
-    if (!['pinyin', 'wubi', 'quick', 'english'].includes(kind)
+    // `wubi98` 是 98 五笔的云端词库，路径与种类同名。
+    if (!['pinyin', 'wubi', 'wubi98', 'quick', 'english'].includes(kind)
       || !['standard', 'windows'].includes(format)) {
       return this.failure('account_invalid');
     }
@@ -321,6 +352,9 @@ export class HarmonyAccountCloudBridge {
     const staging: string = `${directory}/${util.generateRandomUUID(false)}.tsv`;
     let destination: string = '';
     try {
+      if (!this.safeDirectory(`${this.context.filesDir}/state`)) {
+        return this.failure('account_storage');
+      }
       if (!fs.accessSync(directory)) fs.mkdirSync(directory, true);
       const downloaded = await this.bridge.downloadAuthenticated(
         `/v1/users/me/dictionaries/${kind}/export?format=${format}`,
@@ -430,21 +464,7 @@ export class HarmonyAccountCloudBridge {
   }
 
   private schemaOf(document: Record<string, Object>): AccountPreferenceSchema | null {
-    const fields: Object | undefined = document['fields'];
-    const maximumBytes: Object | undefined = document['maximum_bytes'];
-    const updateMode: Object | undefined = document['update_mode'];
-    const revisionRequired: Object | undefined = document['revision_required'];
-    if (fields === undefined || fields === null || typeof fields !== 'object'
-      || typeof maximumBytes !== 'number' || typeof updateMode !== 'string'
-      || typeof revisionRequired !== 'boolean') {
-      return null;
-    }
-    return {
-      fields: fields as AccountPreferenceFields,
-      maximumBytes: maximumBytes,
-      updateMode: updateMode,
-      revisionRequired: revisionRequired
-    };
+    return preferenceSchemaFromDocument(document);
   }
 
   private async preferenceDocument(): Promise<string> {
@@ -458,16 +478,7 @@ export class HarmonyAccountCloudBridge {
   }
 
   private cloudOf(document: Record<string, Object>): AccountPreferences | null {
-    const revision: Object | undefined = document['revision'];
-    const settings: Object | undefined = document['settings'];
-    if (typeof revision !== 'number' || settings === undefined || settings === null
-      || typeof settings !== 'object' || Array.isArray(settings)) {
-      return null;
-    }
-    return {
-      revision: revision,
-      settings: settings as AccountPreferenceSettings
-    };
+    return accountPreferencesFromDocument(document);
   }
 
   /** What the local document says, read the same way the settings page reads it. */
@@ -478,9 +489,9 @@ export class HarmonyAccountCloudBridge {
       if (reply['ok'] !== true) return null;
       const value: Record<string, Object> = reply['value'] as Record<string, Object>;
       const preferences: Object | undefined = value['preferences'];
-      const revision: Object | undefined = value['revision'];
+      const revision: number | null = localPreferenceRevision(value);
       if (preferences === undefined || typeof preferences !== 'object'
-        || typeof revision !== 'number') {
+        || revision === null) {
         return null;
       }
       return value;
@@ -508,6 +519,7 @@ export class HarmonyAccountCloudBridge {
    * button fail entirely for the sake of a setting that simply has nowhere to go yet.
    */
   private async uploadPreferences(stateRoot: string): Promise<string> {
+    const expectedGeneration: number = this.bridge.sessionGeneration();
     const schemaReply = await this.bridge.preferenceSchema();
     if (schemaReply.error !== undefined || schemaReply.value === undefined) {
       return this.failure(schemaReply.error ?? 'account_unavailable');
@@ -534,6 +546,9 @@ export class HarmonyAccountCloudBridge {
     }
     if (!declaredAny) return this.failure('account_unavailable');
     const merged = mergeAccountPreferences(cloud, declared, schema);
+    if (this.bridge.sessionGeneration() !== expectedGeneration) {
+      return this.failure('account_cancelled');
+    }
     const putReply = await this.bridge.putPreferenceDocument(
       merged as Object as Record<string, Object>);
     if (putReply.error !== undefined || putReply.value === undefined) {
@@ -553,6 +568,7 @@ export class HarmonyAccountCloudBridge {
    * a stranger's and nothing on this screen can put them back.
    */
   private async applyPreferences(userId: string, stateRoot: string): Promise<string> {
+    const expectedGeneration: number = this.bridge.sessionGeneration();
     if (userId.length === 0 || this.bridge.currentUserId() !== userId) {
       return this.failure('account_unauthorized');
     }
@@ -570,7 +586,8 @@ export class HarmonyAccountCloudBridge {
     if (cloud === null) return this.failure('account_unavailable');
     // Re-checked after the round trip: a sign-out during it invalidates the answer that just came
     // back, and this is the last point before the write where saying so still costs nothing.
-    if (this.bridge.currentUserId() !== userId) return this.failure('account_cancelled');
+    if (this.bridge.sessionGeneration() !== expectedGeneration
+      || this.bridge.currentUserId() !== userId) return this.failure('account_cancelled');
     const local = this.localDocument(stateRoot);
     if (local === null) return this.failure('account_storage');
     const applied: AppliedPreferences = applyAccountPreferences(
@@ -640,9 +657,8 @@ export class HarmonyAccountCloudBridge {
 
   private options(resources: string, stateRoot: string): Object | null {
     try {
-      const reply: SnapshotReply = JSON.parse(client.prepareHost(JSON.stringify({
-        resources: resources, state_root: stateRoot
-      }))) as SnapshotReply;
+      const reply: SnapshotReply = JSON.parse(client.prepareHost(JSON.stringify(
+        KeyboardSession.prepareRequest(resources, stateRoot)))) as SnapshotReply;
       return reply.ok ? reply.value : null;
     } catch {
       return null;
@@ -776,6 +792,7 @@ export class HarmonyAccountCloudBridge {
   private async restorePreview(stateRoot: string): Promise<string> {
     const accountId: string | null = this.bridge.currentUserId();
     if (accountId === null) return this.failure('account_unauthorized');
+    if (!this.safeDirectory(stateRoot)) return this.failure('account_storage');
     this.clearRestorePreview();
     try {
       const options: picker.DocumentSelectOptions = new picker.DocumentSelectOptions();
@@ -791,6 +808,9 @@ export class HarmonyAccountCloudBridge {
       }
       const directory: string = `${stateRoot}/cloud-restore`;
       if (!fs.accessSync(directory)) fs.mkdirSync(directory, true);
+      if (!this.safeDirectory(directory)) {
+        return this.failure('account_storage');
+      }
       this.restoreFile = `${directory}/${util.generateRandomUUID(false)}.ndjson`;
       fs.copyFileSync(source, this.restoreFile);
       const copiedBytes: number = fs.statSync(this.restoreFile).size;
@@ -856,6 +876,7 @@ export class HarmonyAccountCloudBridge {
   private async downloadSnapshot(stateRoot: string): Promise<SnapshotMetadata | null> {
     try {
       this.clearSnapshotPreview();
+      if (!this.safeDirectory(stateRoot)) return null;
       const directory = `${stateRoot}/cloud-snapshot`;
       if (!fs.accessSync(directory)) fs.mkdirSync(directory, true);
       this.snapshotFile = `${directory}/snapshot.ndjson`;
@@ -943,6 +964,15 @@ export class HarmonyAccountCloudBridge {
       return this.success({ request: this.publicRequest(reply.value.request) });
     } catch {
       return this.failure('snapshot_unavailable');
+    }
+  }
+
+  private safeDirectory(directory: string): boolean {
+    try {
+      const stat: fs.Stat = fs.lstatSync(directory);
+      return !stat.isSymbolicLink() && stat.isDirectory();
+    } catch {
+      return false;
     }
   }
 }

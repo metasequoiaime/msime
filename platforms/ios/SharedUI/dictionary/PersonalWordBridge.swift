@@ -1,4 +1,5 @@
 import Foundation
+import CoreFoundation
 
 extension PersonalWordKind {
   /// The name the Engine's dictionary requests use, which spells the quick-phrase kind in snake case.
@@ -16,9 +17,17 @@ extension PersonalWord {
     guard let raw = bridgeValue["kind"] as? String,
           let kind = PersonalWordKind(bridgeName: raw),
           let key = bridgeValue["key"] as? String, let value = bridgeValue["value"] as? String,
-          let weight = bridgeValue["weight"] as? NSNumber else { throw PersonalDictionaryStore.StoreError.invalidState }
-    self.init(kind: kind, key: key, value: value, weight: weight.int64Value,
+          let weight = bridgeValue["weight"] as? NSNumber,
+          let weightValue = Self.strictInteger(weight) else { throw PersonalDictionaryStore.StoreError.invalidState }
+    self.init(kind: kind, key: key, value: value, weight: weightValue,
               source: bridgeValue["source"] as? String == PersonalWordSource.bundled.rawValue ? .bundled : nil)
+  }
+
+  private static func strictInteger(_ value: NSNumber) -> Int64? {
+    guard CFGetTypeID(value) != CFBooleanGetTypeID(),
+          let integer = Int64(value.stringValue),
+          NSNumber(value: integer).compare(value) == .orderedSame else { return nil }
+    return integer
   }
   /// The word as the Engine will store it as a user word. The source is dropped, so a file or form cannot mark a word bundled; only a row the keyboard listed carries that mark.
   func validated() throws -> Self {

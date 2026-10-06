@@ -519,6 +519,36 @@ int main() {
     require(!under.annotation.below && under.translation.below);
     require(near(under.translation.x, 0.0) && near(under.translation.y, row));
 
+    // A translation run of two lines (a Korean Hanja's 훈음 with its translation under it) goes under the text even in a vertical row where one line would fit beside it, takes both lines, and widens the row only as far as its widest line.
+    {
+      CandidateCardInput hanja;
+      hanja.preedit_width = 40.0;
+      hanja.items = {{20.0, 0.0, 120.0, 2}};
+      const auto two_lines = candidate_card_size(hanja);
+      require(near(two_lines.height, base + row + 2.0 * translation_line));
+      require(near(two_lines.width, 120.0 + 24.0 + 12.0 + 14.0));
+      require(near(candidate_item_natural_width(hanja.items[0], metrics, false),
+                   120.0 + metrics.number_and_bar));
+      const auto stacked =
+          candidate_page_layout(hanja.items, two_lines.width, metrics, false)[0].item;
+      require(stacked.translation.below && near(stacked.translation.x, 0.0) &&
+              near(stacked.translation.y, row) &&
+              near(stacked.translation.height, 2.0 * translation_line));
+      // The measure is asked even though no line is wider than the column, and its height wins.
+      size_t asked = 0;
+      hanja.wrapped = [&](size_t, CandidateRun run, double) {
+        asked += run == CandidateRun::translation;
+        return 40.0;
+      };
+      require(near(candidate_card_size(hanja).height, base + row + 40.0) && asked > 0);
+      // One line keeps the ordinary rule and stays beside the text.
+      hanja.wrapped = {};
+      hanja.items = {{20.0, 0.0, 120.0}};
+      const auto beside =
+          candidate_page_layout(hanja.items, 400.0, metrics, false)[0].item;
+      require(!beside.translation.below && near(beside.height, row));
+    }
+
     // A capped card wraps the translation under the text instead of clipping it, and grows by the wrapped height. Without a measure the lines are estimated from the single-line width.
     CandidateCardInput capped_runs;
     capped_runs.preedit_width = 40.0;

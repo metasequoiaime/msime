@@ -69,6 +69,11 @@ AuxStats AuxListener::stats() const {
   return stats_;
 }
 
+void AuxListener::callback_failed() noexcept {
+  std::lock_guard<std::mutex> lock(stats_mutex_);
+  ++stats_.callback_failures;
+}
+
 void AuxListener::write_ok(HANDLE connection) {
   // The wire carries UTF-16LE, so this is the two code units of "OK".
   static constexpr wchar_t ok[] = L"OK";
@@ -134,11 +139,19 @@ void AuxListener::run() {
         continue;
       }
     }
-    if (message_sink_)
-      message_sink_(*text);
+    try {
+      if (message_sink_)
+        message_sink_(*text);
+    } catch (...) {
+      callback_failed();
+    }
     if (const auto activation = parse_aux_activation(*text)) {
-      if (activation_)
-        activation_(*activation);
+      try {
+        if (activation_)
+          activation_(*activation);
+      } catch (...) {
+        callback_failed();
+      }
       std::lock_guard<std::mutex> lock(stats_mutex_);
       ++stats_.dispatched;
       continue;
@@ -147,7 +160,12 @@ void AuxListener::run() {
       // Same contract as the deactivation below: the caller takes "OK" as
       // proof that the sessions are gone and the dictionary lock is free, so
       // it is written only once that is actually true.
-      const bool done = maintenance_ && maintenance_(*maintenance);
+      bool done = false;
+      try {
+        done = maintenance_ && maintenance_(*maintenance);
+      } catch (...) {
+        callback_failed();
+      }
       if (done)
         write_ok(accepted.connection->handle());
       std::lock_guard<std::mutex> lock(stats_mutex_);
@@ -172,7 +190,12 @@ void AuxListener::run() {
       // for 150 ms without one. Answer only once the client really is gone:
       // an unconditional "OK" would tell the DLL a teardown happened that did
       // not, which is worse than the wait.
-      const bool done = terminal_ && terminal_(*terminal);
+      bool done = false;
+      try {
+        done = terminal_ && terminal_(*terminal);
+      } catch (...) {
+        callback_failed();
+      }
       if (done)
         write_ok(accepted.connection->handle());
       std::lock_guard<std::mutex> lock(stats_mutex_);
@@ -184,7 +207,12 @@ void AuxListener::run() {
     }
     if (const auto statistics = parse_aux_typing_statistics(*text)) {
       // The batch carries typed characters, so it goes to the sink and nowhere else. The DLL backs off when no "OK" arrives, which is the right answer both when statistics are off and when nobody is listening for them.
-      const bool done = statistics_ && statistics_(*statistics);
+      bool done = false;
+      try {
+        done = statistics_ && statistics_(*statistics);
+      } catch (...) {
+        callback_failed();
+      }
       if (done)
         write_ok(accepted.connection->handle());
       std::lock_guard<std::mutex> lock(stats_mutex_);
@@ -196,7 +224,12 @@ void AuxListener::run() {
     }
     if (const auto keys = parse_aux_typing_keys(*text)) {
       // Counts per key only, but still the user's typing: they go to the sink and nowhere else, and silence is the answer whenever statistics are off.
-      const bool done = keys_ && keys_(*keys);
+      bool done = false;
+      try {
+        done = keys_ && keys_(*keys);
+      } catch (...) {
+        callback_failed();
+      }
       if (done)
         write_ok(accepted.connection->handle());
       std::lock_guard<std::mutex> lock(stats_mutex_);
@@ -218,7 +251,11 @@ void AuxListener::run() {
       std::lock_guard<std::mutex> lock(stats_mutex_);
       ++stats_.dispatched;
     }
-    sink_(tray_menu_anchor(*click));
+    try {
+      sink_(tray_menu_anchor(*click));
+    } catch (...) {
+      callback_failed();
+    }
   }
 }
 } // namespace msime::windows

@@ -100,6 +100,42 @@ pub fn simplified_to_traditional(text: &str) -> String {
     })
 }
 
+/// Map each Traditional character to the Simplified character `STCharacters` derives it from, one character at a time.
+///
+/// This is not OpenCC's `t2s`: no phrase table, so a Traditional character that several Simplified ones share takes the first line that lists it. It exists to find a lookup key for a dictionary keyed by Simplified text, such as the candidate gloss tables, when the candidate itself is Traditional (a Korean Hanja like 韓, or a candidate under Traditional output). Characters no line lists, including ones that are already Simplified, pass through unchanged, and a compatibility ideograph is normalized first.
+pub fn traditional_to_simplified_characters(text: &str) -> String {
+    static INVERSE: OnceLock<HashMap<&'static str, &'static str>> = OnceLock::new();
+    let inverse = INVERSE.get_or_init(|| {
+        let mut entries = HashMap::with_capacity(source_line_capacity(&[ST_CHARACTERS]));
+        for line in ST_CHARACTERS.lines() {
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            let Some((simplified, traditional)) = line.split_once('\t') else {
+                continue;
+            };
+            for value in traditional.split_whitespace() {
+                // A character listed as its own Traditional form (皇 for 皇) must stay itself rather than map to a sibling that happens to come first.
+                if value != simplified {
+                    entries.entry(value).or_insert(simplified);
+                }
+            }
+        }
+        entries
+    });
+    let normalized = convert_pass(text, |rest| tables().normalization.longest_prefix(rest));
+    let mut output = String::with_capacity(normalized.len());
+    for character in normalized.chars() {
+        let mut buffer = [0_u8; 4];
+        let key: &str = character.encode_utf8(&mut buffer);
+        match inverse.get(key) {
+            Some(simplified) => output.push_str(simplified),
+            None => output.push(character),
+        }
+    }
+    output
+}
+
 /// OpenCC's `Conversion::AppendConverted`: maximum forward match, unmatched text copied through.
 fn convert_pass(text: &str, matcher: impl Fn(&str) -> Option<(usize, &'static str)>) -> String {
     let mut output = String::with_capacity(text.len() + text.len() / 5);
@@ -163,6 +199,25 @@ fn consume_ideographic_description_sequence(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn traditional_characters_map_back_to_their_simplified_form() {
+        for (traditional, simplified) in [
+            ("韓", "韩"),
+            ("漢", "汉"),
+            ("閑", "闲"),
+            ("寒", "寒"),
+            ("大韓民國", "大韩民国"),
+            ("한", "한"),
+            ("abc", "abc"),
+        ] {
+            assert_eq!(
+                traditional_to_simplified_characters(traditional),
+                simplified,
+                "{traditional}"
+            );
+        }
+    }
 
     #[test]
     fn phrases_resolve_one_to_many_characters() {

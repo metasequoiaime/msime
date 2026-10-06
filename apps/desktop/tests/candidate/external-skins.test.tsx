@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { testHost } from "../support/host";
 import { settingsFormReady, saveSettingsNow } from "../support/settings-form";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { ComponentProps } from "react";
@@ -111,7 +112,7 @@ function packageCard(
   return <ExternalSkinCard {...cardProps} skin={skin} {...props} />;
 }
 
-// The theme page, where each package is a card of the carousel and the directory is the 外部皮肤 row of the 外观 group.
+// 主题页：每个皮肤包是轮播里的一张卡片，皮肤目录是「更多皮肤」组里的「外部皮肤」一行。
 function openSkinPage(client: Partial<SettingsClient> = {}) {
   return render(
     <SettingsPage
@@ -412,6 +413,22 @@ test("decorated previews preserve upstream geometry in both layouts without deco
   expect(candidateRow.querySelectorAll(":scope > [data-skin-stage] .containerParent")).toHaveLength(
     2,
   );
+  expect(candidateRow.querySelectorAll(":scope > [data-skin-stage]")).toHaveLength(2);
+  const toolbarStage = card.querySelector("[data-skin-preview] > [data-skin-stage]");
+  expect(toolbarStage).not.toBeNull();
+  expect(toolbarStage?.querySelector(".containerParent")).toBeNull();
+});
+
+test("keeps the external toolbar preview on its own row", () => {
+  render(packageCard(sample));
+  const preview = screen
+    .getByRole("article", { name: "Sample skin" })
+    .querySelector<HTMLElement>("[data-skin-preview]")!;
+  const stages = preview.querySelectorAll("[data-skin-stage]");
+
+  expect(stages).toHaveLength(3);
+  expect(stages[0].parentElement).toBe(stages[1].parentElement);
+  expect(stages[2].parentElement).toBe(preview);
 });
 
 test.each([
@@ -686,7 +703,7 @@ test("an external card is styled as the built-in theme cards are", async () => {
   expect(toggle.firstElementChild?.className).toBe(settingsStyle.skinSwitchKnob(false));
   // The title carries the drawn mode as the built-in titles do.
   expect(card.querySelector("[data-skin-card-header] span")?.textContent).toBe(
-    "Sample skin (Dark)",
+    "Sample skin（深色）",
   );
   expect(within(card).getByRole("button", { name: "预览浅色" }).className).toBe(
     settingsStyle.skinPreviewSwitch,
@@ -998,7 +1015,7 @@ test("an import host lists the imported skin without a manual refresh", async ()
   const scan = vi.fn().mockResolvedValue({ directory: "/skins", packages: [], issues: [] });
   const openDirectory = vi.fn().mockResolvedValue(undefined);
   openSkinPage({
-    host: { platform: "harmony", skin_directory_import: true } as never,
+    host: testHost({ platform: "harmony", skin_directory_import: true }),
     openSkinDirectory: openDirectory,
     scanSkinCatalog: scan,
   });
@@ -1016,7 +1033,7 @@ test("an import that fails does not rescan", async () => {
   const scan = vi.fn().mockResolvedValue({ directory: "/skins", packages: [], issues: [] });
   const openDirectory = vi.fn().mockRejectedValue(new Error("synthetic"));
   openSkinPage({
-    host: { platform: "harmony", skin_directory_import: true } as never,
+    host: testHost({ platform: "harmony", skin_directory_import: true }),
     openSkinDirectory: openDirectory,
     scanSkinCatalog: scan,
   });
@@ -1038,7 +1055,7 @@ test("a host that draws one layout judges skins by it, not by the shared setting
     load: async () => vertical as Snapshot,
     save: vi.fn(),
     scanSkinCatalog: vi.fn().mockResolvedValue(catalog),
-    host: host as never,
+    host: host && testHost(host),
   });
   const mounted = render(
     <SettingsPage
@@ -1079,7 +1096,7 @@ test("the Linux skin page describes the candidate window only", async () => {
         load: async () => initial,
         save: vi.fn(),
         readSkinToolbarCss,
-        host: { platform: "linux" } as never,
+        host: testHost({ platform: "linux" }),
         scanSkinCatalog: async () => ({
           ...catalog,
           packages: [{ ...sample, toolbarStylesheet: "toolbar.css" }],
@@ -1090,12 +1107,12 @@ test("the Linux skin page describes the candidate window only", async () => {
   const external = await screen.findByRole("article", { name: /Sample skin/ });
   // Both Linux hosts present the toolbar as an input method menu, which no skin styles.
   expect(
-    screen.getByText("选择候选窗使用的主题；明暗预览仅影响当前卡片，不修改设置。"),
+    screen.getByText("选择候选窗口使用的主题；明暗预览仅影响当前卡片，不修改设置。"),
   ).toBeTruthy();
   // Every page is mounted at once; the toolbar page itself still names the toolbar.
   expect(within(external.closest("fieldset")!).queryByText(/悬浮工具栏/)).toBeNull();
   const builtin = screen.getByRole("article", { name: "夜青" });
-  expect(within(builtin).getByText("深色候选窗与键盘")).toBeTruthy();
+  expect(within(builtin).getByText("深色候选窗口与键盘")).toBeTruthy();
   expect(builtin.querySelectorAll("[data-skin-stage]")).toHaveLength(2);
   expect(external.querySelectorAll("[data-skin-stage]")).toHaveLength(2);
   expect(readSkinToolbarCss).not.toHaveBeenCalled();
@@ -1105,15 +1122,15 @@ test("the Windows skin page keeps the toolbar preview", async () => {
   render(
     <SettingsPage
       initialPage="skin"
-      client={{ load: async () => initial, save: vi.fn(), host: { platform: "windows" } as never }}
+      client={{ load: async () => initial, save: vi.fn(), host: testHost({ platform: "windows" }) }}
     />,
   );
   await settingsFormReady();
   expect(
-    screen.getByText("选择候选窗和悬浮工具栏使用的主题；明暗预览仅影响当前卡片，不修改设置。"),
+    screen.getByText("选择候选窗口和悬浮工具栏使用的主题；明暗预览仅影响当前卡片，不修改设置。"),
   ).toBeTruthy();
   const builtin = screen.getByRole("article", { name: "夜青" });
-  expect(within(builtin).getByText("深色候选窗、悬浮工具栏与键盘")).toBeTruthy();
+  expect(within(builtin).getByText("深色候选窗口、悬浮工具栏与键盘")).toBeTruthy();
   expect(builtin.querySelectorAll("[data-skin-stage]")).toHaveLength(3);
 });
 
@@ -1232,6 +1249,7 @@ test("the theme page opens the candidate publish dialog outside the settings fie
     rate: vi.fn(),
     unpublish: vi.fn(),
     setVisibility: vi.fn(),
+    setCategory: vi.fn(),
     sync: vi.fn(),
   };
   render(
@@ -1244,12 +1262,12 @@ test("the theme page opens the candidate publish dialog outside the settings fie
       }}
     />,
   );
-  // A desktop host with only the candidate-skin client still lists 社区.
-  expect(await screen.findByRole("button", { name: "社区" })).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "主题" }));
+  // A desktop host browses candidate-window skins on 主题, so it lists no 社区 page.
+  fireEvent.click(await screen.findByRole("button", { name: "主题" }));
+  expect(screen.queryByRole("button", { name: "社区" })).toBeNull();
   const card = await screen.findByRole("article", { name: "Sample skin" });
   fireEvent.click(within(card).getByRole("button", { name: "发布到社区" }));
-  const dialog = await screen.findByRole("dialog", { name: "发布候选窗皮肤" });
+  const dialog = await screen.findByRole("dialog", { name: "发布候选窗口皮肤" });
   expect(dialog.closest("fieldset")).toBeNull();
   await waitFor(() =>
     expect(communityCandidateSkins.packPreview).toHaveBeenCalledWith("sample", "public"),
@@ -1260,6 +1278,6 @@ test("the theme page opens the candidate publish dialog outside the settings fie
   expect(fireEvent.keyDown(name, { key: "Enter" })).toBe(false);
   expect(save).not.toHaveBeenCalled();
   fireEvent.click(within(dialog).getByRole("button", { name: "取消" }));
-  expect(screen.queryByRole("dialog", { name: "发布候选窗皮肤" })).toBeNull();
+  expect(screen.queryByRole("dialog", { name: "发布候选窗口皮肤" })).toBeNull();
   expect(save).not.toHaveBeenCalled();
 });

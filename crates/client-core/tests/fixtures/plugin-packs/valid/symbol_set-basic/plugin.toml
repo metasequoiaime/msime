@@ -1,0 +1,20 @@
+schema_version = 1
+kind = "symbol_set"
+id = "fixture-symbols"
+name = "Fixture"
+version = "1.0.0"
+license = "CC0-1.0"
+author = "MSIME"
+description = "Shared parser fixture"
+permissions = []
+
+[[groups]]
+tab = "symbols"
+title = "箭头"
+keywords = "jiantou arrow"
+items = ["→", "←", "⇒", "𝔸"]
+
+[[groups]]
+tab = "kaomoji"
+title = "开心"
+items = ["(＾▽＾)", "ヽ(✿ﾟ▽ﾟ)ノ", "(ﾉ◕ヮ◕)ﾉ*:･ﾟ✧"]

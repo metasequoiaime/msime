@@ -125,6 +125,20 @@ export class TranslationPolicy {
     });
   }
 
+  /** 判断失败请求是否仍可释放当前签名，让同一候选页在下一次刷新时重试。 */
+  static shouldReleaseAfterFailure(requestSignature: string, currentSignature: string,
+    requestEpoch: number, currentEpoch: number, requestHandle: number,
+    currentHandle: number): boolean {
+    return requestEpoch === currentEpoch && requestHandle === currentHandle
+      && requestSignature.length > 0 && requestSignature === currentSignature;
+  }
+
+  /** 在线 provider 未完成时，即使离线词典有可应用条目，也必须允许相同候选页重试。 */
+  static shouldReleaseAfterProviderFailure(provider: string, providerComplete: boolean,
+    hasEntries: boolean): boolean {
+    return provider.length > 0 && !providerComplete && hasEntries;
+  }
+
   static providerScope(query: TranslationQuery): string {
     const provider: string = TranslationPolicy.provider(query);
     if (provider === "custom") return `custom:${query.custom_translation?.endpoint ?? ""}`;

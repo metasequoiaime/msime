@@ -1,0 +1,578 @@
+{
+ "name": "yue_partial_commit_no_learning",
+ "steps": [
+  {
+   "op": "open",
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "cantonese",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "neihou",
+   "op": "type",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 4,
+    "candidates": [
+     {
+      "answers_key": true,
+      "canonical_pinyin": "nei hou",
+      "pinyin": "neihou",
+      "scheme": "cantonese",
+      "source": 0,
+      "weight": 900,
+      "word": "你好"
+     },
+     {
+      "answers_key": true,
+      "canonical_pinyin": "nei hou",
+      "pinyin": "neihou",
+      "scheme": "cantonese",
+      "source": 0,
+      "weight": 40,
+      "word": "妳好"
+     },
+     {
+      "answers_key": false,
+      "canonical_pinyin": "nei",
+      "pinyin": "nei",
+      "scheme": "cantonese",
+      "source": 0,
+      "weight": 5000,
+      "word": "你"
+     },
+     {
+      "answers_key": false,
+      "canonical_pinyin": "nei",
+      "pinyin": "nei",
+      "scheme": "cantonese",
+      "source": 0,
+      "weight": 300,
+      "word": "妳"
+     }
+    ],
+    "caret": 7,
+    "dedicated_english": false,
+    "editing_text": "nei hou",
+    "local_mode": "none",
+    "normalized_segmentation": "nei hou",
+    "preedit": "neihou",
+    "raw_segmentation": "neihou",
+    "scheme": "cantonese",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": 1,
+   "op": "pin",
+   "result": {
+    "handled": false
+   },
+   "snapshot": {
+    "candidate_count": 4,
+    "candidates": [
+     {
+      "answers_key": true,
+      "canonical_pinyin": "nei hou",
+      "pinyin": "neihou",
+      "scheme": "cantonese",
+      "source": 0,
+      "weight": 900,
+      "word": "你好"
+     },
+     {
+      "answers_key": true,
+      "canonical_pinyin": "nei hou",
+      "pinyin": "neihou",
+      "scheme": "cantonese",
+      "source": 0,
+      "weight": 40,
+      "word": "妳好"
+     },
+     {
+      "answers_key": false,
+      "canonical_pinyin": "nei",
+      "pinyin": "nei",
+      "scheme": "cantonese",
+      "source": 0,
+      "weight": 5000,
+      "word": "你"
+     },
+     {
+      "answers_key": false,
+      "canonical_pinyin": "nei",
+      "pinyin": "nei",
+      "scheme": "cantonese",
+      "source": 0,
+      "weight": 300,
+      "word": "妳"
+     }
+    ],
+    "caret": 7,
+    "dedicated_english": false,
+    "editing_text": "nei hou",
+    "local_mode": "none",
+    "normalized_segmentation": "nei hou",
+    "preedit": "neihou",
+    "raw_segmentation": "neihou",
+    "scheme": "cantonese",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": 0,
+   "op": "remove",
+   "result": {
+    "handled": false
+   },
+   "snapshot": {
+    "candidate_count": 4,
+    "candidates": [
+     {
+      "answers_key": true,
+      "canonical_pinyin": "nei hou",
+      "pinyin": "neihou",
+      "scheme": "cantonese",
+      "source": 0,
+      "weight": 900,
+      "word": "你好"
+     },
+     {
+      "answers_key": true,
+      "canonical_pinyin": "nei hou",
+      "pinyin": "neihou",
+      "scheme": "cantonese",
+      "source": 0,
+      "weight": 40,
+      "word": "妳好"
+     },
+     {
+      "answers_key": false,
+      "canonical_pinyin": "nei",
+      "pinyin": "nei",
+      "scheme": "cantonese",
+      "source": 0,
+      "weight": 5000,
+      "word": "你"
+     },
+     {
+      "answers_key": false,
+      "canonical_pinyin": "nei",
+      "pinyin": "nei",
+      "scheme": "cantonese",
+      "source": 0,
+      "weight": 300,
+      "word": "妳"
+     }
+    ],
+    "caret": 7,
+    "dedicated_english": false,
+    "editing_text": "nei hou",
+    "local_mode": "none",
+    "normalized_segmentation": "nei hou",
+    "preedit": "neihou",
+    "raw_segmentation": "neihou",
+    "scheme": "cantonese",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": 1,
+   "op": "fix_position",
+   "result": {
+    "handled": false
+   },
+   "snapshot": {
+    "candidate_count": 4,
+    "candidates": [
+     {
+      "answers_key": true,
+      "canonical_pinyin": "nei hou",
+      "pinyin": "neihou",
+      "scheme": "cantonese",
+      "source": 0,
+      "weight": 900,
+      "word": "你好"
+     },
+     {
+      "answers_key": true,
+      "canonical_pinyin": "nei hou",
+      "pinyin": "neihou",
+      "scheme": "cantonese",
+      "source": 0,
+      "weight": 40,
+      "word": "妳好"
+     },
+     {
+      "answers_key": false,
+      "canonical_pinyin": "nei",
+      "pinyin": "nei",
+      "scheme": "cantonese",
+      "source": 0,
+      "weight": 5000,
+      "word": "你"
+     },
+     {
+      "answers_key": false,
+      "canonical_pinyin": "nei",
+      "pinyin": "nei",
+      "scheme": "cantonese",
+      "source": 0,
+      "weight": 300,
+      "word": "妳"
+     }
+    ],
+    "caret": 7,
+    "dedicated_english": false,
+    "editing_text": "nei hou",
+    "local_mode": "none",
+    "normalized_segmentation": "nei hou",
+    "preedit": "neihou",
+    "raw_segmentation": "neihou",
+    "scheme": "cantonese",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": {
+    "word": "你"
+   },
+   "op": "select",
+   "result": {
+    "commit": "你",
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 2,
+    "candidates": [
+     {
+      "answers_key": true,
+      "canonical_pinyin": "hou",
+      "pinyin": "hou",
+      "scheme": "cantonese",
+      "source": 0,
+      "weight": 4000,
+      "word": "好"
+     },
+     {
+      "answers_key": true,
+      "canonical_pinyin": "hou",
+      "pinyin": "hou",
+      "scheme": "cantonese",
+      "source": 0,
+      "weight": 500,
+      "word": "號"
+     }
+    ],
+    "caret": 3,
+    "dedicated_english": false,
+    "editing_text": "hou",
+    "local_mode": "none",
+    "normalized_segmentation": "hou",
+    "preedit": "hou",
+    "raw_segmentation": "hou",
+    "scheme": "cantonese",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": {
+    "word": "號"
+   },
+   "op": "select",
+   "result": {
+    "commit": "號",
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "cantonese",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "neihou",
+   "op": "type",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 4,
+    "candidates": [
+     {
+      "answers_key": true,
+      "canonical_pinyin": "nei hou",
+      "pinyin": "neihou",
+      "scheme": "cantonese",
+      "source": 0,
+      "weight": 900,
+      "word": "你好"
+     },
+     {
+      "answers_key": true,
+      "canonical_pinyin": "nei hou",
+      "pinyin": "neihou",
+      "scheme": "cantonese",
+      "source": 0,
+      "weight": 40,
+      "word": "妳好"
+     },
+     {
+      "answers_key": false,
+      "canonical_pinyin": "nei",
+      "pinyin": "nei",
+      "scheme": "cantonese",
+      "source": 0,
+      "weight": 5000,
+      "word": "你"
+     },
+     {
+      "answers_key": false,
+      "canonical_pinyin": "nei",
+      "pinyin": "nei",
+      "scheme": "cantonese",
+      "source": 0,
+      "weight": 300,
+      "word": "妳"
+     }
+    ],
+    "caret": 7,
+    "dedicated_english": false,
+    "editing_text": "nei hou",
+    "local_mode": "none",
+    "normalized_segmentation": "nei hou",
+    "preedit": "neihou",
+    "raw_segmentation": "neihou",
+    "scheme": "cantonese",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": {
+    "word": "妳好"
+   },
+   "op": "select",
+   "result": {
+    "commit": "妳好",
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "cantonese",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "neihou",
+   "op": "type",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 4,
+    "candidates": [
+     {
+      "answers_key": true,
+      "canonical_pinyin": "nei hou",
+      "pinyin": "neihou",
+      "scheme": "cantonese",
+      "source": 0,
+      "weight": 900,
+      "word": "你好"
+     },
+     {
+      "answers_key": true,
+      "canonical_pinyin": "nei hou",
+      "pinyin": "neihou",
+      "scheme": "cantonese",
+      "source": 0,
+      "weight": 40,
+      "word": "妳好"
+     },
+     {
+      "answers_key": false,
+      "canonical_pinyin": "nei",
+      "pinyin": "nei",
+      "scheme": "cantonese",
+      "source": 0,
+      "weight": 5000,
+      "word": "你"
+     },
+     {
+      "answers_key": false,
+      "canonical_pinyin": "nei",
+      "pinyin": "nei",
+      "scheme": "cantonese",
+      "source": 0,
+      "weight": 300,
+      "word": "妳"
+     }
+    ],
+    "caret": 7,
+    "dedicated_english": false,
+    "editing_text": "nei hou",
+    "local_mode": "none",
+    "normalized_segmentation": "nei hou",
+    "preedit": "neihou",
+    "raw_segmentation": "neihou",
+    "scheme": "cantonese",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "CommitRaw",
+   "op": "command",
+   "result": {
+    "commit": "neihou",
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "cantonese",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "op": "reopen",
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "cantonese",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "neihou",
+   "op": "type",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 4,
+    "candidates": [
+     {
+      "answers_key": true,
+      "canonical_pinyin": "nei hou",
+      "pinyin": "neihou",
+      "scheme": "cantonese",
+      "source": 0,
+      "weight": 900,
+      "word": "你好"
+     },
+     {
+      "answers_key": true,
+      "canonical_pinyin": "nei hou",
+      "pinyin": "neihou",
+      "scheme": "cantonese",
+      "source": 0,
+      "weight": 40,
+      "word": "妳好"
+     },
+     {
+      "answers_key": false,
+      "canonical_pinyin": "nei",
+      "pinyin": "nei",
+      "scheme": "cantonese",
+      "source": 0,
+      "weight": 5000,
+      "word": "你"
+     },
+     {
+      "answers_key": false,
+      "canonical_pinyin": "nei",
+      "pinyin": "nei",
+      "scheme": "cantonese",
+      "source": 0,
+      "weight": 300,
+      "word": "妳"
+     }
+    ],
+    "caret": 7,
+    "dedicated_english": false,
+    "editing_text": "nei hou",
+    "local_mode": "none",
+    "normalized_segmentation": "nei hou",
+    "preedit": "neihou",
+    "raw_segmentation": "neihou",
+    "scheme": "cantonese",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "Cancel",
+   "op": "command",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "cantonese",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "journal": {},
+   "op": "dump_journal"
+  },
+  {
+   "arg": "SELECT count(*) FROM sqlite_master",
+   "op": "query",
+   "rows": [
+    [
+     0
+    ]
+   ]
+  }
+ ]
+}

@@ -18,9 +18,12 @@ const initial: Snapshot = {
   },
 };
 
+// The platform-dependent fields follow what `client-core::host_surface` reports for that platform; a test overrides the one it is about.
 function capabilities(overrides: Partial<HostCapabilities> = {}): HostCapabilities {
+  const platform = overrides.platform ?? "windows";
+  const mobile = platform === "android" || platform === "ios" || platform === "harmony";
   return {
-    platform: "windows",
+    platform,
     restart_input_method: true,
     panel_windows: true,
     ime_mode_scope: false,
@@ -43,6 +46,34 @@ function capabilities(overrides: Partial<HostCapabilities> = {}): HostCapabiliti
     english_suggestions: false,
     shuangpin_preedit: false,
     voice_commit_mode: false,
+    mobile_settings: mobile,
+    vocabulary_review: false,
+    floating_toolbar_handwriting: false,
+    floating_toolbar_voice: false,
+    floating_toolbar_input_scheme: false,
+    number_row_selection: false,
+    candidate_preedit_font: true,
+    candidate_page_number: false,
+    candidate_border_color: overrides.candidate_selection_appearance ?? true,
+    candidate_window_scale: false,
+    candidate_window_opacity: false,
+    candidate_corner_radius: false,
+    helpcode_shift_entry: mobile,
+    skin_directory_import: false,
+    touch_toolbar_components: false,
+    maintenance_shortcuts: false,
+    fullwidth_chord: platform === "macos",
+    voice_provider_settings: platform !== "android",
+    voice_stream_preedit: platform !== "android",
+    character_width: !mobile,
+    ai_provider_credentials: platform === "linux",
+    key_sound: false,
+    plugin_triggers: false,
+    music: false,
+    typing_effects: false,
+    wordbook_packs: false,
+    symbol_set_packs: false,
+    input_schemes: ["quanpin", "shuangpin", "wubi", "japanese", "korean"],
     ...overrides,
   };
 }
@@ -83,9 +114,7 @@ test("a host without mode scope support does not receive the control", async () 
   expect(screen.queryByLabelText("中英文状态")).toBeNull();
 });
 
-test("a host without capabilities keeps the previous user-agent behaviour", async () => {
-  // No host field: the shared UI must fall back to isLinuxDesktop(), which is
-  // false under jsdom, so this matches the behaviour shipped before the contract.
+test("without a host the mode scope control is hidden", async () => {
   mount({});
   await settingsFormReady();
   expect(screen.queryByLabelText("中英文状态")).toBeNull();
@@ -100,19 +129,19 @@ test("typing statistics follow the injected client on any platform", async () =>
   // Previously this category was reachable only when the user agent matched Android.
   mount({ host: capabilities({ platform: "windows" }), typingStatistics: statistics });
   await settingsFormReady();
-  expect(screen.getByRole("button", { name: "统计" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "打字统计" })).toBeTruthy();
 });
 
-test("Windows and Linux hosts expose the shared fuzzy-pinyin settings on the 表达 page", async () => {
+test("Windows and Linux hosts expose the shared fuzzy-pinyin settings on the 输入 page", async () => {
   mount({ host: capabilities({ platform: "windows", fuzzy_pinyin: true }), fuzzyPinyin: true });
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "表达" }));
+  fireEvent.click(screen.getByRole("button", { name: "输入" }));
   expect(screen.getByRole("group", { name: "模糊音" })).toBeTruthy();
 
   cleanup();
   mount({ host: capabilities({ platform: "linux", fuzzy_pinyin: true }), fuzzyPinyin: true });
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "表达" }));
+  fireEvent.click(screen.getByRole("button", { name: "输入" }));
   expect(screen.getByRole("group", { name: "模糊音" })).toBeTruthy();
 });
 
@@ -175,7 +204,7 @@ test("the restart action needs both the capability and an injected handler", asy
     host: capabilities({ platform: "linux", restart_input_method: true }),
   });
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
+  fireEvent.click(screen.getByRole("button", { name: "维护与诊断" }));
   expect(screen.queryByRole("button", { name: "重启" })).toBeNull();
   withoutHandler.unmount();
 
@@ -184,7 +213,7 @@ test("the restart action needs both the capability and an injected handler", asy
     restartInputMethod: vi.fn(),
   });
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
+  fireEvent.click(screen.getByRole("button", { name: "维护与诊断" }));
   expect(screen.getByRole("button", { name: "重启" })).toBeTruthy();
 });
 
@@ -203,7 +232,7 @@ test("toolbar scale is hidden while Linux component choices remain available", a
   expect(screen.getByLabelText("在桌面显示悬浮工具栏")).toBeTruthy();
   expect(screen.queryByLabelText("工具栏缩放")).toBeNull();
   expect(screen.queryByLabelText("图标尺寸")).toBeNull();
-  expect(screen.getByText("工具栏组件")).toBeTruthy();
+  expect(screen.getByRole("group", { name: "按钮" })).toBeTruthy();
   menuOnly.unmount();
 
   // A host that draws its own toolbar keeps the full set.
@@ -236,9 +265,9 @@ test("candidate appearance follows host capabilities", async () => {
     }),
   });
   await settingsFormReady();
-  expect(screen.queryByLabelText("候选窗主字体")).toBeNull();
-  expect(screen.queryByLabelText("候选窗字号")).toBeNull();
-  expect(screen.queryByLabelText("候选窗预编辑字号")).toBeNull();
+  expect(screen.queryByLabelText("主字体")).toBeNull();
+  expect(screen.queryByLabelText("字号")).toBeNull();
+  expect(screen.queryByLabelText("预编辑字号")).toBeNull();
   expect(screen.getByLabelText("候选强调色")).toBeTruthy();
   expect(screen.getByLabelText("候选选中色")).toBeTruthy();
   expect(screen.queryByLabelText("候选悬停色")).toBeNull();
@@ -246,9 +275,9 @@ test("candidate appearance follows host capabilities", async () => {
   expect(screen.getByLabelText("候选文字颜色")).toBeTruthy();
   expect(screen.getByLabelText("候选表面色")).toBeTruthy();
   expect(screen.getByLabelText("候选编号颜色")).toBeTruthy();
-  expect(screen.getByText("当前宿主的候选面板不支持自定义字体或字号。")).toBeTruthy();
+  expect(screen.getByText("当前宿主的候选窗口不支持自定义字体或字号。")).toBeTruthy();
   expect(
-    screen.getByText("悬停颜色不支持；边框仅在 Fcitx5 经典界面绘制，IBus 候选窗无边框。"),
+    screen.getByText("悬停颜色不支持；边框仅在 Fcitx5 经典界面绘制，IBus 候选窗口无边框。"),
   ).toBeTruthy();
 });
 
@@ -266,23 +295,23 @@ test("Linux offers the border colour Fcitx5 draws and says which host each colou
   expect(screen.getByLabelText("候选边框色")).toBeTruthy();
   expect(screen.queryByLabelText("候选悬停色")).toBeNull();
   expect(
-    screen.getByText("悬停颜色不支持；边框仅在 Fcitx5 经典界面绘制，IBus 候选窗无边框。"),
+    screen.getByText("悬停颜色不支持；边框仅在 Fcitx5 经典界面绘制，IBus 候选窗口无边框。"),
   ).toBeTruthy();
-  expect(screen.queryByText("当前宿主的候选面板不支持悬停或边框颜色。")).toBeNull();
+  expect(screen.queryByText("当前宿主的候选窗口不支持悬停或边框颜色。")).toBeNull();
   // The classic UI theme has no label or accent colour, so both pickers say they reach IBus only.
   const captions = screen.getAllByText(
     "Fcitx5 经典界面中编号跟随正文颜色、固定候选不单独着色，此项仅对 IBus 生效",
   );
   expect(captions).toHaveLength(2);
-  // Each caption is the description of its colour's row, beside the row title.
-  expect(captions[0].parentElement?.textContent).toContain("候选强调色");
-  expect(captions[1].parentElement?.textContent).toContain("候选编号颜色");
+  // 每条说明是对应颜色那一行的描述，紧挨着行标题；页码颜色排在强调色之前，紧跟在它所编号的文字颜色之后。
+  expect(captions[0].parentElement?.textContent).toContain("候选编号颜色");
+  expect(captions[1].parentElement?.textContent).toContain("候选强调色");
 });
 
 test.each([
   [
     "gnome_shell",
-    "GNOME Shell 自己绘制 IBus 候选窗并跟随 Shell 主题，这里的候选字体、颜色和皮肤在当前桌面不会生效。",
+    "GNOME Shell 自己绘制 IBus 候选窗口并跟随 Shell 主题，这里的候选字体、颜色和皮肤在当前桌面不会生效。",
   ],
   [
     "fcitx_theme",
@@ -290,7 +319,7 @@ test.each([
   ],
   [
     "kimpanel",
-    "Fcitx5 的候选窗由桌面的 Kimpanel 绘制，使用桌面自己的字体和主题，这里的候选字体、颜色和皮肤不会生效。",
+    "Fcitx5 的候选窗口由桌面的 Kimpanel 绘制，使用桌面自己的字体和主题，这里的候选字体、颜色和皮肤不会生效。",
   ],
 ] as const)(
   "a Linux panel that ignores the appearance settings (%s) is named on the appearance and skin pages",
@@ -337,11 +366,11 @@ test("Linux panel font takes the family and size but not a preedit size", async 
     }),
   });
   await settingsFormReady();
-  expect(screen.getByLabelText("候选窗主字体")).toBeTruthy();
-  expect(screen.getByLabelText("候选窗字号")).toBeTruthy();
+  expect(screen.getByLabelText("主字体")).toBeTruthy();
+  expect(screen.getByLabelText("字号")).toBeTruthy();
   // The application draws the composition there, so a preedit size would change nothing.
-  expect(screen.queryByLabelText("候选窗预编辑字号")).toBeNull();
-  expect(screen.queryByText("当前宿主的候选面板不支持自定义字体或字号。")).toBeNull();
+  expect(screen.queryByLabelText("预编辑字号")).toBeNull();
+  expect(screen.queryByText("当前宿主的候选窗口不支持自定义字体或字号。")).toBeNull();
 });
 
 test("Windows candidate appearance keeps native controls", async () => {
@@ -353,13 +382,13 @@ test("Windows candidate appearance keeps native controls", async () => {
     }),
   });
   await settingsFormReady();
-  expect(screen.getByLabelText("候选窗字号")).toBeTruthy();
+  expect(screen.getByLabelText("字号")).toBeTruthy();
   expect(screen.getByLabelText("候选强调色")).toBeTruthy();
   expect(screen.getByLabelText("候选边框色")).toBeTruthy();
   expect(screen.getByLabelText("候选悬停色")).toBeTruthy();
   expect(screen.queryByText(/Fcitx5 经典界面/)).toBeNull();
   // Windows places its own card, so pinning it is a real choice there.
-  expect(screen.getByLabelText("候选窗口跟随光标")).toBeTruthy();
+  expect(screen.getByLabelText("跟随光标")).toBeTruthy();
 });
 
 test("macOS candidate appearance exposes the shared English face control", async () => {
@@ -371,8 +400,8 @@ test("macOS candidate appearance exposes the shared English face control", async
     }),
   });
   await settingsFormReady();
-  expect(screen.getByLabelText("候选窗英文字体")).toBeTruthy();
-  expect(screen.getByLabelText("候选窗主字体")).toBeTruthy();
+  expect(screen.getByLabelText("英文字体")).toBeTruthy();
+  expect(screen.getByLabelText("主字体")).toBeTruthy();
 });
 
 test("Linux candidate appearance offers the English face, which leads the panel's Pango family list", async () => {
@@ -385,11 +414,11 @@ test("Linux candidate appearance offers the English face, which leads the panel'
     }),
   });
   await settingsFormReady();
-  const english = screen.getByLabelText("候选窗英文字体") as HTMLInputElement;
+  const english = screen.getByLabelText("英文字体") as HTMLInputElement;
   // Unset follows the primary family, which is what the panel draws until one is chosen.
   expect(english.value).toBe("Noto Sans SC");
   expect(screen.getByText(/未设置时跟随候选主字体/)).toBeTruthy();
-  expect(screen.getByLabelText("候选窗主字体")).toBeTruthy();
+  expect(screen.getByLabelText("主字体")).toBeTruthy();
 });
 
 test("Android candidate appearance exposes native font and color controls", async () => {
@@ -404,9 +433,9 @@ test("Android candidate appearance exposes native font and color controls", asyn
     }),
   });
   await settingsFormReady();
-  expect(screen.getByLabelText("候选栏英文字体")).toBeTruthy();
-  expect(screen.getByLabelText("候选栏主字体")).toBeTruthy();
-  expect(screen.getByLabelText("候选栏字号")).toBeTruthy();
+  expect(screen.getByLabelText("英文字体")).toBeTruthy();
+  expect(screen.getByLabelText("主字体")).toBeTruthy();
+  expect(screen.getByLabelText("字号")).toBeTruthy();
   expect(screen.getByLabelText("候选强调色")).toBeTruthy();
   expect(screen.getByLabelText("候选悬停色")).toBeTruthy();
   expect(screen.getByLabelText("候选边框色")).toBeTruthy();
@@ -417,7 +446,7 @@ test("a host that does not place its own card hides the follow-cursor choice", a
   // a setting the host cannot honour.
   mount({ host: capabilities({ platform: "linux", candidate_follow_cursor: false }) });
   await settingsFormReady();
-  expect(screen.queryByLabelText("候选窗口跟随光标")).toBeNull();
+  expect(screen.queryByLabelText("跟随光标")).toBeNull();
 });
 
 test("a host with one commit path is not offered a choice between three", async () => {
@@ -562,11 +591,11 @@ test("the candidate English font follows the capability rather than a list of pl
       />,
     );
   appearance(true);
-  expect(await screen.findByLabelText("候选窗英文字体")).toBeTruthy();
+  expect(await screen.findByLabelText("英文字体")).toBeTruthy();
   cleanup();
   appearance(false);
-  await screen.findByLabelText("候选窗主字体");
-  expect(screen.queryByLabelText("候选窗英文字体")).toBeNull();
+  await screen.findByLabelText("主字体");
+  expect(screen.queryByLabelText("英文字体")).toBeNull();
 });
 
 test("a host that can enumerate microphones gets the picker, whatever it is called", async () => {

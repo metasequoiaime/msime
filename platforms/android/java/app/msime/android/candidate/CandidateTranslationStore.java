@@ -23,11 +23,12 @@ public final class CandidateTranslationStore {
         void onArrival(long generation);
     }
     public static final long QUIET_INTERVAL_MILLIS = 350;
+    private static final int MAX_CACHE_ENTRIES = 256;
     private final Service service;
     private final ExecutorService worker;
     private final Scheduler scheduler;
     private final Listener listener;
-    private final Map<String, String> cache = new LinkedHashMap<>();
+    private final Map<String, String> cache = new LinkedHashMap<>(16, 0.75f, true);
     private Runnable pending;
     private String signature;
     private long requestEpoch;
@@ -70,13 +71,13 @@ public final class CandidateTranslationStore {
     public void refresh(List<String> words, List<String> targets, long generation) {
         cancel();
         if (words == null || targets == null || targets.isEmpty()) return;
-        ArrayList<String> requestedTargets = new ArrayList<>();
+        ArrayList<String> requestedTargets = new ArrayList<>(targets.size());
         for (String target : targets) {
             if (target != null && !target.isEmpty() && !requestedTargets.contains(target))
                 requestedTargets.add(target);
         }
         if (requestedTargets.isEmpty()) return;
-        ArrayList<String> wanted = new ArrayList<>();
+        ArrayList<String> wanted = new ArrayList<>(words.size());
         for (String word : words) {
             if (translatable(word) && !wanted.contains(word)) wanted.add(word);
         }
@@ -108,9 +109,9 @@ public final class CandidateTranslationStore {
         String stamp = "targets=" + signature(targets) + "|generation=" + generation
             + "|words=" + signature(words);
         if (stamp.equals(signature)) return;
-        Map<String, ArrayList<String>> requests = new LinkedHashMap<>();
+        Map<String, ArrayList<String>> requests = new LinkedHashMap<>(targets.size());
         for (String target : targets) {
-            ArrayList<String> missing = new ArrayList<>();
+            ArrayList<String> missing = new ArrayList<>(words.size());
             for (String word : words) {
                 if (!cache.containsKey(key(target, word))) missing.add(word);
             }
@@ -154,10 +155,17 @@ public final class CandidateTranslationStore {
             value = trimWhitespace(value);
             if (value == null || value.isEmpty() || value.equals(words.get(index))
                     || TextPolicy.utf8Length(value) > 4096) continue;
-            cache.put(key(target, words.get(index)), value);
+            remember(key(target, words.get(index)), value);
             arrived = true;
         }
         if (arrived) listener.onArrival(generation);
+    }
+
+    private void remember(String cacheKey, String value) {
+        if (!cache.containsKey(cacheKey) && cache.size() >= MAX_CACHE_ENTRIES) {
+            cache.remove(cache.keySet().iterator().next());
+        }
+        cache.put(cacheKey, value);
     }
 
     /** Match Apple's whitespace/newline normalization before a gloss enters the cache. */

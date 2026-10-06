@@ -35,45 +35,28 @@ fn preference_store_rejects_a_symlinked_document() {
 }
 
 #[test]
-fn retired_google_sentence_switch_still_loads_and_is_not_written_back() {
-    let dir = tempfile::tempdir().unwrap();
-    let store = PreferencesStore::new(dir.path());
-    let saved = store.save(0, Preferences::default()).unwrap();
-    let mut document: serde_json::Value =
-        serde_json::from_str(&fs::read_to_string(store.path()).unwrap()).unwrap();
-    document["preferences"]["sentence_association"] = serde_json::json!({
-        "word_lattice": false,
-        "google": false,
-        "neural_desktop": true,
-    });
-    fs::write(store.path(), serde_json::to_vec_pretty(&document).unwrap()).unwrap();
-
-    let loaded = store.load().unwrap();
-    assert_eq!(loaded.revision, saved.revision);
-    let sentence = loaded.preferences.sentence_association;
-    assert!(!sentence.word_lattice);
-    assert!(sentence.neural_desktop);
+fn ctrl_space_defaults_on_and_persists_an_explicit_disable() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(directory.path());
+    let snapshot = store.load().unwrap();
+    let mut value = serde_json::to_value(&snapshot.preferences).unwrap();
+    assert_eq!(value["keybindings"]["switch_language_ctrl_space"], true);
+    value["keybindings"]
+        .as_object_mut()
+        .unwrap()
+        .remove("switch_language_ctrl_space");
+    let legacy: Preferences = serde_json::from_value(value.clone()).unwrap();
     assert_eq!(
-        sentence,
-        SentenceAssociationPreferences {
-            word_lattice: false,
-            neural_desktop: true,
-            ..SentenceAssociationPreferences::default()
-        }
+        serde_json::to_value(legacy).unwrap()["keybindings"]["switch_language_ctrl_space"],
+        true
     );
-    let written = serde_json::to_value(sentence).unwrap();
-    assert!(written.get("google").is_none());
-    assert!(
-        serde_json::from_value::<SentenceAssociationPreferences>(serde_json::json!({
-            "google": "not a bool either",
-        }))
-        .is_ok()
-    );
-    assert!(
-        serde_json::from_value::<SentenceAssociationPreferences>(serde_json::json!({
-            "googel": true,
-        }))
-        .is_err()
+    value["keybindings"]["switch_language_ctrl_space"] = false.into();
+    let disabled: Preferences = serde_json::from_value(value).unwrap();
+    store.save(snapshot.revision, disabled).unwrap();
+    assert_eq!(
+        serde_json::to_value(store.load().unwrap().preferences).unwrap()["keybindings"]
+            ["switch_language_ctrl_space"],
+        false
     );
 }
 
@@ -110,66 +93,13 @@ fn doubao_auth_mode_defaults_and_roundtrips() {
         .unwrap()
         .remove("doubao_auth_mode");
     let restored: Preferences = serde_json::from_value(value).unwrap();
-    assert_eq!(restored.voice_input.doubao_auth_mode, "");
+    assert_eq!(restored.voice_input.doubao_auth_mode, "api_key");
 
     let mut explicit = Preferences::default();
     explicit.voice_input.doubao_auth_mode = "legacy".into();
     let roundtripped: Preferences =
         serde_json::from_value(serde_json::to_value(explicit).unwrap()).unwrap();
     assert_eq!(roundtripped.voice_input.doubao_auth_mode, "legacy");
-}
-
-#[test]
-fn legacy_voice_upgrade_preserves_existing_credentials() {
-    let mut value = serde_json::to_value(Preferences::default()).unwrap();
-    let voice = value["voice_input"].as_object_mut().unwrap();
-    voice.insert("asr_token".into(), "synthetic-asr-token".into());
-    voice.insert("polish_token".into(), "synthetic-polish-token".into());
-    voice.remove("commit_mode");
-    voice.remove("doubao_auth_mode");
-    voice.remove("asr_tokens");
-    voice.remove("polish_tokens");
-    let restored: Preferences = serde_json::from_value(value).unwrap();
-    assert_eq!(restored.voice_input.asr_token, "synthetic-asr-token");
-    assert_eq!(restored.voice_input.polish_token, "synthetic-polish-token");
-    assert_eq!(restored.voice_input.commit_mode, "tsf");
-    assert_eq!(restored.voice_input.doubao_auth_mode, "");
-    assert!(restored.voice_input.asr_tokens.is_empty());
-    assert!(restored.voice_input.polish_tokens.is_empty());
-}
-
-#[test]
-fn unreachable_voice_providers_normalize_on_read_without_rewriting_the_file() {
-    // A file written by a build that offered "local_whisper" must still load.
-    // No backend implements it: the Linux provider builds
-    // {openai, groq, siliconflow, doubao}, so it would fail every recording.
-    let directory = tempfile::tempdir().unwrap();
-    let store = PreferencesStore::new(directory.path());
-    let mut document = serde_json::to_value(PreferencesSnapshot {
-        format_version: 1,
-        revision: 3,
-        preferences: Preferences::default(),
-    })
-    .unwrap();
-    document["preferences"]["voice_input"]["asr_provider"] =
-        serde_json::Value::String("local_whisper".into());
-    document["preferences"]["voice_input"]["polish_provider"] =
-        serde_json::Value::String("nonesuch".into());
-    let path = directory.path().join("preferences.json");
-    std::fs::write(&path, serde_json::to_vec(&document).unwrap()).unwrap();
-    let original = std::fs::read(&path).unwrap();
-
-    let snapshot = store.load().expect("a legacy file still loads");
-    assert_eq!(
-        snapshot.preferences.voice_input.asr_provider,
-        Preferences::default().voice_input.asr_provider
-    );
-    assert_eq!(
-        snapshot.preferences.voice_input.polish_provider,
-        Preferences::default().voice_input.polish_provider
-    );
-    // Reading must not rewrite the user's file.
-    assert_eq!(std::fs::read(&path).unwrap(), original);
 }
 
 #[test]
@@ -272,8 +202,6 @@ fn local_recognition_stores_an_absolute_model_path_and_refuses_anything_else() {
         "D:/models/sense-voice-small",
         r"\\?\C:\models\x-asr-zh-en-streaming",
         r"\\fileserver\share\models\fun-asr-nano",
-        // A Whisper model file saved by an earlier build: the document still loads, and the recognizer then reports the model missing because the path is not a directory holding `msime-model.json`.
-        "/Users/someone/models/ggml-large-v3-turbo.bin",
     ] {
         assert!(
             with_path(accepted).validate().is_ok(),
@@ -327,6 +255,10 @@ fn local_model_mirror_is_empty_or_an_https_prefix() {
     for rejected in [
         "http://ghproxy.example.test",
         "https://",
+        "https:///path",
+        "https://user:pass@mirror.example.test",
+        "https://mirror.example.test?query=unexpected",
+        "https://mirror.example.test/#fragment",
         "ghproxy.example.test",
         "https://mirror.example.test/\n",
         "https://mirror example.test",
@@ -448,55 +380,92 @@ fn english_suggestions_default_on_and_legacy_documents_preserve_it() {
     );
 }
 
-// Telemetry is opt-in on every host that reads this switch: a fresh profile, and a document written before the switch existed, must both say off, so upgrading never turns reporting on behind the user.
+// Usage reporting is on by default and can be turned off.
 #[test]
-fn telemetry_is_opt_in_and_survives_a_save() {
+fn usage_reporting_defaults_on_and_survives_a_save() {
     let defaults = Preferences::default();
-    assert!(!defaults.telemetry_enabled);
-    let serialized = serde_json::to_value(&defaults).unwrap();
-    assert_eq!(
-        serialized["telemetry_enabled"],
-        serde_json::Value::Bool(false)
-    );
-    let mut legacy = serialized.clone();
-    legacy.as_object_mut().unwrap().remove("telemetry_enabled");
+    assert!(defaults.usage_reporting);
+    let mut serialized = serde_json::to_value(&defaults).unwrap();
+    assert_eq!(serialized["usage_reporting"], serde_json::Value::Bool(true));
+    assert!(serialized.get("telemetry_enabled").is_none());
+    // An absent key reads as on.
+    serialized
+        .as_object_mut()
+        .unwrap()
+        .remove("usage_reporting");
     assert!(
-        !serde_json::from_value::<Preferences>(legacy)
+        serde_json::from_value::<Preferences>(serialized.clone())
             .unwrap()
-            .telemetry_enabled
+            .usage_reporting
     );
+    let off = serde_json::to_value(Preferences {
+        usage_reporting: false,
+        ..Preferences::default()
+    })
+    .unwrap();
+    assert_eq!(off["usage_reporting"], serde_json::Value::Bool(false));
     let mut malformed = serialized;
-    malformed["telemetry_enabled"] = "yes".into();
+    malformed["usage_reporting"] = "yes".into();
     assert!(serde_json::from_value::<Preferences>(malformed).is_err());
 
     let dir = tempfile::tempdir().unwrap();
     let store = PreferencesStore::new(dir.path());
-    let enabled = Preferences {
-        telemetry_enabled: true,
+    let disabled = Preferences {
+        usage_reporting: false,
         ..defaults
     };
-    assert!(enabled.validate().is_ok());
-    let saved = store.save(0, enabled).unwrap();
-    assert!(saved.preferences.telemetry_enabled);
-    assert!(store.load().unwrap().preferences.telemetry_enabled);
+    assert!(disabled.validate().is_ok());
+    let saved = store.save(0, disabled).unwrap();
+    assert!(!saved.preferences.usage_reporting);
+    assert!(!store.load().unwrap().preferences.usage_reporting);
 }
 
 #[test]
-fn translation_account_defaults_on_for_new_desktop_installs_and_omitted_until_chosen() {
+fn cloud_candidates_start_off_but_an_upgraded_document_keeps_them() {
     let defaults = Preferences::default();
-    let desktop_default = cfg!(any(target_os = "macos", target_os = "linux"));
-    assert_eq!(defaults.translation_account, desktop_default);
-    assert_eq!(
-        defaults.restored_to_defaults().translation_account,
-        desktop_default
+    assert!(!defaults.cloud_candidates);
+    assert!(!defaults.restored_to_defaults().cloud_candidates);
+    // 旧文档里没有这个字段时按原来的行为读成开启，升级不替用户改。
+    let mut serialized = serde_json::to_value(&defaults).unwrap();
+    serialized
+        .as_object_mut()
+        .unwrap()
+        .remove("cloud_candidates");
+    assert!(
+        serde_json::from_value::<Preferences>(serialized)
+            .unwrap()
+            .cloud_candidates
     );
-    // A stored document that never chose the account keeps it off, and an older strict parser must still read it.
+
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let chosen = Preferences {
+        cloud_candidates: true,
+        ..defaults
+    };
+    store.save(0, chosen).unwrap();
+    assert!(store.load().unwrap().preferences.cloud_candidates);
+}
+
+#[test]
+fn translation_account_is_an_explicit_choice_on_every_platform() {
+    let defaults = Preferences::default();
+    assert!(!defaults.translation_account);
+    assert!(!defaults.restored_to_defaults().translation_account);
+    // A stored document that never chose the account keeps it off.
     let unchosen = Preferences {
         translation_account: false,
         ..defaults.clone()
     };
-    let serialized = serde_json::to_value(&unchosen).unwrap();
-    assert!(serialized.get("translation_account").is_none());
+    let mut serialized = serde_json::to_value(&unchosen).unwrap();
+    assert_eq!(
+        serialized["translation_account"],
+        serde_json::Value::Bool(false)
+    );
+    serialized
+        .as_object_mut()
+        .unwrap()
+        .remove("translation_account");
     assert!(
         !serde_json::from_value::<Preferences>(serialized.clone())
             .unwrap()
@@ -550,23 +519,18 @@ fn secondary_candidate_translation_language_is_optional_and_round_trips() {
 }
 
 #[test]
-fn wubi_code_hint_defaults_on_and_legacy_documents_stay_implicit() {
+fn wubi_code_hint_defaults_on_and_roundtrips() {
     let defaults = Preferences::default();
-    assert!(defaults.wubi_code_hint_enabled());
-    let legacy = serde_json::to_value(&defaults).unwrap();
-    assert!(!legacy.as_object().unwrap().contains_key("wubi_code_hint"));
-    assert!(serde_json::from_value::<Preferences>(legacy)
-        .unwrap()
-        .wubi_code_hint_enabled());
+    assert!(defaults.wubi_code_hint);
 
     let disabled = Preferences {
-        wubi_code_hint: Some(false),
+        wubi_code_hint: false,
         ..defaults
     };
     assert!(
         !serde_json::from_str::<Preferences>(&serde_json::to_string(&disabled).unwrap())
             .unwrap()
-            .wubi_code_hint_enabled()
+            .wubi_code_hint
     );
 }
 
@@ -821,24 +785,24 @@ fn local_mode_defaults_and_each_switch_roundtrip() {
 }
 
 #[test]
-fn generated_local_modes_are_off_by_default_and_in_older_documents() {
+fn generated_local_modes_are_off_by_default_and_when_absent() {
     let defaults = LocalModePreferences::default();
     assert!(
         !defaults.expression && !defaults.command && !defaults.mention && !defaults.mention_places
     );
 
-    // A document from before the three switches existed still loads, with them off and the rest as written. While off they are not written at all, so a default document is exactly what a build from before them wrote and can read back.
+    // A document without the switches loads with them off and the rest as written.
     let dir = tempfile::tempdir().unwrap();
     let store = PreferencesStore::new(dir.path());
-    let mut legacy = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
-    let local_modes = legacy["preferences"]["local_modes"]
+    let mut sparse = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+    let local_modes = sparse["preferences"]["local_modes"]
         .as_object_mut()
         .unwrap();
     for key in ["expression", "command", "mention", "mention_places"] {
-        assert!(!local_modes.contains_key(key), "{key}");
+        assert_eq!(local_modes.remove(key), Some(false.into()), "{key}");
     }
     local_modes.insert("unicode".into(), false.into());
-    let bytes = serde_json::to_vec(&legacy).unwrap();
+    let bytes = serde_json::to_vec(&sparse).unwrap();
     fs::write(store.path(), &bytes).unwrap();
     let loaded = store.load().unwrap().preferences.local_modes;
     assert_eq!(
@@ -901,6 +865,10 @@ fn plugin_preferences_are_off_by_default_and_absent_from_older_documents() {
     assert_eq!(defaults.effect_style, crate::plugins::EffectStyle::Off);
     assert_eq!(defaults.effect_intensity, 50);
     assert!(defaults.effect_pack.is_empty());
+    assert!(defaults.phrase_tables.is_empty());
+    assert!(
+        defaults.helpcode_pack_quanpin.is_empty() && defaults.helpcode_pack_shuangpin.is_empty()
+    );
     assert!(!defaults.combo_counter && !defaults.combo_tier_sound);
 
     // Untouched, the section is not written, so a build from before plugins reads the document; a document from before plugins loads with them off and is not rewritten.
@@ -948,6 +916,9 @@ fn plugin_preferences_are_off_by_default_and_absent_from_older_documents() {
             effect_pack: "neon".into(),
             combo_counter: true,
             combo_tier_sound: true,
+            phrase_tables: vec!["office".into(), "names".into()],
+            helpcode_pack_quanpin: "radicals".into(),
+            helpcode_pack_shuangpin: "strokes".into(),
         },
         ..Preferences::default()
     };
@@ -969,6 +940,25 @@ fn plugin_preferences_are_off_by_default_and_absent_from_older_documents() {
     unselected.plugins.effect_pack.clear();
     let unselected = serde_json::to_value(&unselected).unwrap();
     assert!(unselected["plugins"].get("effect_pack").is_none());
+    assert_eq!(
+        plugins["phrase_tables"],
+        serde_json::json!(["office", "names"])
+    );
+    assert_eq!(plugins["helpcode_pack_quanpin"], "radicals");
+    assert_eq!(plugins["helpcode_pack_shuangpin"], "strokes");
+    // 没选短语表和辅助码表包时这三个键都不写，没有它们的旧版本照样能读。
+    let mut unselected = chosen.clone();
+    unselected.plugins.phrase_tables.clear();
+    unselected.plugins.helpcode_pack_quanpin.clear();
+    unselected.plugins.helpcode_pack_shuangpin.clear();
+    let unselected = serde_json::to_value(&unselected).unwrap();
+    for key in [
+        "phrase_tables",
+        "helpcode_pack_quanpin",
+        "helpcode_pack_shuangpin",
+    ] {
+        assert!(unselected["plugins"].get(key).is_none(), "{key}");
+    }
     assert_eq!(plugins["combo_counter"], true);
     assert_eq!(plugins["combo_tier_sound"], true);
     // Restoring defaults turns them all off again.
@@ -1001,7 +991,7 @@ fn plugin_preferences_are_off_by_default_and_absent_from_older_documents() {
 
 #[test]
 fn plugin_preferences_are_validated() {
-    let invalid: [fn(&mut PluginPreferences); 10] = [
+    let invalid: [fn(&mut PluginPreferences); 16] = [
         |plugins| plugins.key_sound.volume = 101,
         |plugins| plugins.effect_intensity = 101,
         |plugins| plugins.music.volume = 255,
@@ -1016,6 +1006,16 @@ fn plugin_preferences_are_validated() {
                 .map(|index| format!("table{index}"))
                 .collect()
         },
+        |plugins| plugins.phrase_tables = vec!["office".into(), "office".into()],
+        |plugins| plugins.phrase_tables = vec![String::new()],
+        |plugins| plugins.phrase_tables = vec!["../office".into()],
+        |plugins| {
+            plugins.phrase_tables = (0..=PluginPreferences::MAX_PHRASE_TABLES)
+                .map(|index| format!("phrases{index}"))
+                .collect()
+        },
+        |plugins| plugins.helpcode_pack_quanpin = "Radicals".into(),
+        |plugins| plugins.helpcode_pack_shuangpin = "../strokes".into(),
     ];
     for (index, change) in invalid.into_iter().enumerate() {
         let mut preferences = Preferences::default();
@@ -1039,10 +1039,10 @@ fn plugin_preferences_are_validated() {
 }
 
 #[test]
-fn appearance_preferences_legacy_defaults_and_roundtrip() {
+fn appearance_preferences_absent_defaults_and_roundtrip() {
     let dir = tempfile::tempdir().unwrap();
     let store = PreferencesStore::new(dir.path());
-    let mut legacy = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+    let mut sparse = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
     for key in [
         "theme",
         "settings_theme",
@@ -1050,13 +1050,12 @@ fn appearance_preferences_legacy_defaults_and_roundtrip() {
         "screen_keyboard_theme",
         "global_theme",
         "custom_theme",
-        "ui_backend",
         "candidate_follow_cursor",
         "input_mode_hud",
     ] {
-        legacy["preferences"].as_object_mut().unwrap().remove(key);
+        sparse["preferences"].as_object_mut().unwrap().remove(key);
     }
-    let bytes = serde_json::to_vec(&legacy).unwrap();
+    let bytes = serde_json::to_vec(&sparse).unwrap();
     fs::write(store.path(), &bytes).unwrap();
     let loaded = store.load().unwrap();
     assert_eq!(loaded, PreferencesSnapshot::default());
@@ -1073,7 +1072,6 @@ fn appearance_preferences_legacy_defaults_and_roundtrip() {
         theme: ThemeMode::Light,
         settings_theme: SettingsTheme::Dark,
         toolbar_theme: SettingsTheme::Light,
-        ui_backend: UiBackend::Webview2,
         candidate_follow_cursor: false,
         input_mode_hud: false,
         ..Preferences::default()
@@ -1215,111 +1213,6 @@ fn global_theme_ids_round_trip_and_reject_unknown_ids() {
             "{removed} must no longer be accepted"
         );
     }
-}
-
-/// A document an older build saved: the settings as they were then, with the skin fields #1187 retired.
-fn write_legacy_document(dir: &Path, legacy: serde_json::Value) {
-    let mut preferences = serde_json::to_value(Preferences::default()).unwrap();
-    for key in ["global_theme", "custom_theme"] {
-        preferences.as_object_mut().unwrap().remove(key);
-    }
-    for (key, value) in legacy.as_object().unwrap() {
-        preferences[key] = value.clone();
-    }
-    let document =
-        serde_json::json!({"format_version": 1, "revision": 7, "preferences": preferences});
-    fs::write(
-        dir.join("preferences.json"),
-        serde_json::to_vec(&document).unwrap(),
-    )
-    .unwrap();
-}
-
-#[test]
-fn documents_with_the_retired_skin_fields_still_load() {
-    use crate::skin::theme::GlobalTheme;
-    let design = serde_json::to_value(TouchKeyboardSkinDesign {
-        background: 0x123456,
-        ..TouchKeyboardSkinDesign::default()
-    })
-    .unwrap();
-
-    // An external package, the colour pickers and a custom keyboard design become the custom theme.
-    let dir = tempfile::tempdir().unwrap();
-    write_legacy_document(
-        dir.path(),
-        serde_json::json!({
-            "candidate_skin": "bigfish",
-            "candidate_text_color": "#101010",
-            "candidate_border_color": "#707070",
-            "touch_keyboard_skin": "custom",
-            "custom_touch_keyboard_skin": design,
-        }),
-    );
-    let loaded = PreferencesStore::new(dir.path()).load().unwrap();
-    assert_eq!(loaded.revision, 7);
-    assert_eq!(loaded.preferences.global_theme, GlobalTheme::Custom);
-    let custom = &loaded.preferences.custom_theme;
-    assert_eq!(custom.candidate_skin.as_deref(), Some("bigfish"));
-    assert_eq!(custom.candidate_colors.text.as_deref(), Some("#101010"));
-    assert_eq!(custom.candidate_colors.border.as_deref(), Some("#707070"));
-    assert_eq!(
-        custom.keyboard.as_ref().map(|design| design.background),
-        Some(0x123456)
-    );
-    // In memory only: the file keeps what the older build wrote.
-    let on_disk: serde_json::Value =
-        serde_json::from_slice(&fs::read(dir.path().join("preferences.json")).unwrap()).unwrap();
-    assert_eq!(on_disk["preferences"]["candidate_skin"], "bigfish");
-
-    // The retired built-in looks and keyboard presets have no counterpart: the defaults stand.
-    for skin in ["willow_green", "fluent", "wechat", "graphite"] {
-        let dir = tempfile::tempdir().unwrap();
-        write_legacy_document(
-            dir.path(),
-            serde_json::json!({"candidate_skin": skin, "touch_keyboard_skin": "candy", "custom_touch_keyboard_skin": design}),
-        );
-        let loaded = PreferencesStore::new(dir.path()).load().unwrap();
-        assert_eq!(
-            loaded.preferences.global_theme,
-            GlobalTheme::System,
-            "{skin}"
-        );
-        assert_eq!(
-            loaded.preferences.custom_theme,
-            CustomTheme::default(),
-            "{skin}"
-        );
-    }
-
-    // What the document already says in the new fields wins, and a colour the current checks refuse is dropped instead of failing the load.
-    let dir = tempfile::tempdir().unwrap();
-    write_legacy_document(
-        dir.path(),
-        serde_json::json!({
-            "global_theme": "paper",
-            "custom_theme": {"candidate_skin": "sakura"},
-            "candidate_skin": "bigfish",
-            "candidate_text_color": "red",
-            "candidate_number_color": "#202020",
-        }),
-    );
-    let loaded = PreferencesStore::new(dir.path()).load().unwrap();
-    assert_eq!(loaded.preferences.global_theme, GlobalTheme::Paper);
-    assert_eq!(
-        loaded.preferences.custom_theme.candidate_skin.as_deref(),
-        Some("sakura")
-    );
-    assert_eq!(loaded.preferences.custom_theme.candidate_colors.text, None);
-    assert_eq!(
-        loaded
-            .preferences
-            .custom_theme
-            .candidate_colors
-            .number
-            .as_deref(),
-        Some("#202020")
-    );
 }
 
 #[test]
@@ -1757,6 +1650,159 @@ fn remembered_chinese_scheme_roundtrips_without_changing_legacy_files() {
 }
 
 #[test]
+fn cantonese_zhuyin_and_vietnamese_schemes_round_trip_under_their_wire_names() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    for (revision, (scheme, name)) in [
+        (InputScheme::Cantonese, "cantonese"),
+        (InputScheme::Zhuyin, "zhuyin"),
+        (InputScheme::Vietnamese, "vietnamese"),
+        (InputScheme::Stroke, "stroke"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let saved = store
+            .save(
+                revision as u64,
+                Preferences {
+                    scheme,
+                    ..Preferences::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(store.load().unwrap(), saved);
+        assert_eq!(
+            serde_json::to_value(&saved.preferences).unwrap()["scheme"],
+            name
+        );
+    }
+    // Cantonese, Zhuyin and Stroke are Chinese schemes to return to; Vietnamese is not.
+    for (revision, (scheme, name)) in [
+        (ChineseScheme::Cantonese, "cantonese"),
+        (ChineseScheme::Zhuyin, "zhuyin"),
+        (ChineseScheme::Stroke, "stroke"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let saved = store
+            .save(
+                revision as u64 + 4,
+                Preferences {
+                    scheme: InputScheme::Vietnamese,
+                    last_chinese_scheme: Some(scheme),
+                    ..Preferences::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(store.load().unwrap(), saved);
+        assert_eq!(
+            serde_json::to_value(&saved.preferences).unwrap()["last_chinese_scheme"],
+            name
+        );
+    }
+    assert!(serde_json::from_value::<ChineseScheme>("vietnamese".into()).is_err());
+    assert_eq!(
+        InputScheme::from(ChineseScheme::Cantonese),
+        InputScheme::Cantonese
+    );
+    assert_eq!(
+        InputScheme::from(ChineseScheme::Zhuyin),
+        InputScheme::Zhuyin
+    );
+    assert_eq!(
+        InputScheme::from(ChineseScheme::Stroke),
+        InputScheme::Stroke
+    );
+}
+
+// 藏文以 `tibetan` 存盘并原样读回；它不是中文方案，切到藏文时保留记住的中文方案，`last_chinese_scheme` 也不接受它。
+#[test]
+fn tibetan_scheme_round_trips_and_keeps_the_last_chinese_scheme() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let saved = store
+        .save(
+            0,
+            Preferences {
+                scheme: InputScheme::Tibetan,
+                last_chinese_scheme: Some(ChineseScheme::Wubi),
+                ..Preferences::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(store.load().unwrap(), saved);
+    let document = serde_json::to_value(&saved.preferences).unwrap();
+    assert_eq!(document["scheme"], "tibetan");
+    assert_eq!(document["last_chinese_scheme"], "wubi");
+    assert_eq!(
+        serde_json::from_value::<InputScheme>("tibetan".into()).unwrap(),
+        InputScheme::Tibetan
+    );
+    assert!(serde_json::from_value::<ChineseScheme>("tibetan".into()).is_err());
+}
+
+#[test]
+fn vietnamese_preferences_default_when_absent_and_round_trip() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let mut defaults = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+    assert_eq!(
+        defaults["preferences"]["vietnamese"],
+        serde_json::json!({ "input_method": "telex", "tone_style": "modern" })
+    );
+    defaults["preferences"]
+        .as_object_mut()
+        .unwrap()
+        .remove("vietnamese");
+    let bytes = serde_json::to_vec(&defaults).unwrap();
+    fs::write(store.path(), &bytes).unwrap();
+    let loaded = store.load().unwrap();
+    assert_eq!(
+        loaded.preferences.vietnamese,
+        VietnamesePreferences {
+            input_method: VietnameseInputMethod::Telex,
+            tone_style: VietnameseToneStyle::Modern,
+        }
+    );
+    assert_eq!(fs::read(store.path()).unwrap(), bytes);
+    let saved = store.save(0, loaded.preferences).unwrap();
+    let preferences = Preferences {
+        vietnamese: VietnamesePreferences {
+            input_method: VietnameseInputMethod::Vni,
+            tone_style: VietnameseToneStyle::Classic,
+        },
+        ..Preferences::default()
+    };
+    let saved = store.save(saved.revision, preferences).unwrap();
+    assert_eq!(store.load().unwrap(), saved);
+    assert_eq!(
+        serde_json::to_value(&saved.preferences).unwrap()["vietnamese"],
+        serde_json::json!({ "input_method": "vni", "tone_style": "classic" })
+    );
+    // One member set leaves the other at its default.
+    let partial: VietnamesePreferences =
+        serde_json::from_value(serde_json::json!({ "tone_style": "classic" })).unwrap();
+    assert_eq!(partial.input_method, VietnameseInputMethod::Telex);
+    assert_eq!(partial.tone_style, VietnameseToneStyle::Classic);
+}
+
+#[test]
+fn vietnamese_preferences_reject_unknown_members_and_values() {
+    for invalid in [
+        serde_json::json!({ "input_method": "telex", "layout": "us" }),
+        serde_json::json!({ "input_method": "viqr" }),
+        serde_json::json!({ "tone_style": "old" }),
+    ] {
+        assert!(serde_json::from_value::<VietnamesePreferences>(invalid.clone()).is_err());
+        let mut document = serde_json::to_value(Preferences::default()).unwrap();
+        document["vietnamese"] = invalid;
+        assert!(serde_json::from_value::<Preferences>(document).is_err());
+    }
+}
+
+#[test]
 fn touch_keyboard_layout_defaults_and_roundtrips_without_rewriting_legacy_files() {
     let dir = tempfile::tempdir().unwrap();
     let store = PreferencesStore::new(dir.path());
@@ -1815,7 +1861,7 @@ fn touch_keyboard_scheme_visibility_matches_apple_order_and_fallback_contract() 
     let loaded = store.load().unwrap();
     assert_eq!(
         loaded.preferences.touch_keyboard_schemes.enabled,
-        TouchKeyboardScheme::ALL.into_iter().collect()
+        TouchKeyboardScheme::DEFAULT_ENABLED.into_iter().collect()
     );
     assert_eq!(loaded.preferences.touch_keyboard_schemes.selected, None);
     assert_eq!(fs::read(store.path()).unwrap(), legacy);
@@ -1862,6 +1908,144 @@ fn touch_keyboard_scheme_visibility_matches_apple_order_and_fallback_contract() 
     fs::write(store.path(), &bytes).unwrap();
     assert!(store.load().is_err());
     assert_eq!(fs::read(store.path()).unwrap(), bytes);
+}
+
+#[test]
+fn retired_thoughtful_reply_touch_scheme_is_migrated_on_read() {
+    // 高情商回复已经不是方案，新文档里不会再写出它。
+    assert!(TouchKeyboardScheme::ALL
+        .into_iter()
+        .all(|scheme| serde_json::to_value(scheme).unwrap() != "thoughtful_reply"));
+    assert!(serde_json::from_value::<TouchKeyboardScheme>("thoughtful_reply".into()).is_err());
+
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let saved = store.save(0, Preferences::default()).unwrap();
+    for (stored, enabled, selected) in [
+        // 选中的是高情商回复：从列表里去掉，选中退回按顺序第一个启用的方案，与选中方案被关闭时的处理相同。
+        (
+            serde_json::json!({"enabled": ["wubi", "thoughtful_reply", "handwriting"], "selected": "thoughtful_reply"}),
+            vec![TouchKeyboardScheme::Wubi, TouchKeyboardScheme::Handwriting],
+            Some(TouchKeyboardScheme::Wubi),
+        ),
+        // 只在列表里：去掉它，选中不变。
+        (
+            serde_json::json!({"enabled": ["nine_key", "thoughtful_reply"], "selected": "nine_key"}),
+            vec![TouchKeyboardScheme::NineKey],
+            Some(TouchKeyboardScheme::NineKey),
+        ),
+        // 列表里只有它：按空列表的约定回到全拼 26 键。
+        (
+            serde_json::json!({"enabled": ["thoughtful_reply"], "selected": "thoughtful_reply"}),
+            vec![TouchKeyboardScheme::Quanpin],
+            Some(TouchKeyboardScheme::Quanpin),
+        ),
+        // 没有存列表时用缺省列表，选中退回全拼 26 键。
+        (
+            serde_json::json!({"selected": "thoughtful_reply"}),
+            TouchKeyboardScheme::DEFAULT_ENABLED.to_vec(),
+            Some(TouchKeyboardScheme::Quanpin),
+        ),
+    ] {
+        let mut legacy = serde_json::to_value(&saved).unwrap();
+        legacy["preferences"]["touch_keyboard_schemes"] = stored;
+        let bytes = serde_json::to_vec(&legacy).unwrap();
+        fs::write(store.path(), &bytes).unwrap();
+        let loaded = store.load().unwrap();
+        let schemes = &loaded.preferences.touch_keyboard_schemes;
+        assert_eq!(schemes.enabled, enabled.into_iter().collect());
+        assert_eq!(schemes.selected, selected);
+        loaded.preferences.validate().unwrap();
+        // 读取不改写文件；迁移后的内容与读到的相同，原样保存也不写盘，迁移结果随下一次真正的改动落盘。
+        assert_eq!(fs::read(store.path()).unwrap(), bytes);
+        let unchanged = store
+            .save(loaded.revision, loaded.preferences.clone())
+            .unwrap();
+        assert_eq!(unchanged, loaded);
+        assert_eq!(fs::read(store.path()).unwrap(), bytes);
+        let mut changed = loaded.preferences;
+        changed.candidate_page_size = if changed.candidate_page_size == 5 {
+            6
+        } else {
+            5
+        };
+        let resaved = store.save(loaded.revision, changed).unwrap();
+        let document: serde_json::Value =
+            serde_json::from_slice(&fs::read(store.path()).unwrap()).unwrap();
+        assert!(!document["preferences"]["touch_keyboard_schemes"]
+            .to_string()
+            .contains("thoughtful_reply"));
+        assert_eq!(store.load().unwrap(), resaved);
+    }
+}
+
+#[test]
+fn cantonese_zhuyin_and_vietnamese_touch_schemes_are_appended_and_opt_in() {
+    assert_eq!(
+        TouchKeyboardScheme::ALL[..11],
+        TouchKeyboardScheme::DEFAULT_ENABLED
+    );
+    assert_eq!(
+        TouchKeyboardScheme::ALL[11..],
+        [
+            TouchKeyboardScheme::Cantonese,
+            TouchKeyboardScheme::Zhuyin,
+            TouchKeyboardScheme::Vietnamese,
+            TouchKeyboardScheme::Tibetan,
+            TouchKeyboardScheme::Stroke,
+            TouchKeyboardScheme::ZhuyinNineKey,
+        ]
+    );
+    assert_eq!(TouchKeyboardScheme::ALL.len(), 17);
+    for (scheme, id) in [
+        (TouchKeyboardScheme::Cantonese, "cantonese"),
+        (TouchKeyboardScheme::Zhuyin, "zhuyin"),
+        (TouchKeyboardScheme::Vietnamese, "vietnamese"),
+        (TouchKeyboardScheme::Tibetan, "tibetan"),
+        (TouchKeyboardScheme::Stroke, "stroke"),
+        (TouchKeyboardScheme::ZhuyinNineKey, "zhuyin_nine_key"),
+    ] {
+        assert_eq!(serde_json::to_value(scheme).unwrap(), id);
+        assert_eq!(
+            serde_json::from_value::<TouchKeyboardScheme>(serde_json::json!(id)).unwrap(),
+            scheme
+        );
+        assert!(!TouchKeyboardSchemePreferences::default()
+            .enabled
+            .contains(&scheme));
+    }
+    // The picker grid follows ALL, and a set orders the same way.
+    let all: Vec<_> = TouchKeyboardScheme::ALL
+        .into_iter()
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    assert_eq!(all, TouchKeyboardScheme::ALL);
+
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let saved = store
+        .save(
+            0,
+            Preferences {
+                scheme: InputScheme::Zhuyin,
+                touch_keyboard_schemes: TouchKeyboardSchemePreferences {
+                    enabled: [TouchKeyboardScheme::Quanpin, TouchKeyboardScheme::Zhuyin]
+                        .into_iter()
+                        .collect(),
+                    selected: Some(TouchKeyboardScheme::Zhuyin),
+                },
+                ..Preferences::default()
+            },
+        )
+        .unwrap();
+    let document: serde_json::Value =
+        serde_json::from_slice(&fs::read(store.path()).unwrap()).unwrap();
+    assert_eq!(
+        document["preferences"]["touch_keyboard_schemes"],
+        serde_json::json!({"enabled": ["quanpin", "zhuyin"], "selected": "zhuyin"})
+    );
+    assert_eq!(store.load().unwrap(), saved);
 }
 
 #[test]
@@ -2001,41 +2185,25 @@ fn custom_helpcode_schema_roundtrips_and_rejects_unsafe_ids() {
 }
 
 #[test]
-fn autocorrect_legacy_default_and_disabled_roundtrip() {
+fn quanpin_autocorrect_defaults_on_and_roundtrips() {
     let dir = tempfile::tempdir().unwrap();
     let store = PreferencesStore::new(dir.path());
-    let mut legacy = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
-    legacy["preferences"]
-        .as_object_mut()
-        .unwrap()
-        .remove("autocorrect");
-    let bytes = serde_json::to_vec(&legacy).unwrap();
-    fs::write(store.path(), &bytes).unwrap();
-    let loaded = store.load().unwrap();
-    assert!(loaded.preferences.autocorrect);
-    assert!(loaded.preferences.quanpin_autocorrect_transposition());
-    assert!(loaded.preferences.quanpin_autocorrect_neighbor());
-    assert_eq!(fs::read(store.path()).unwrap(), bytes);
-    let preferences = Preferences {
-        autocorrect: false,
-        ..Preferences::default()
-    };
-    let saved = store.save(0, preferences).unwrap();
-    assert!(!saved.preferences.autocorrect);
-    assert!(saved.preferences.quanpin_autocorrect_transposition());
-    assert!(saved.preferences.quanpin_autocorrect_neighbor());
+    let defaults = Preferences::default();
+    assert!(defaults.quanpin.autocorrect_transposition);
+    assert!(defaults.quanpin.autocorrect_neighbor);
 
     let explicit = Preferences {
-        autocorrect: true,
         quanpin: QuanpinPreferences {
-            autocorrect_transposition: Some(true),
-            autocorrect_neighbor: Some(false),
+            autocorrect_transposition: true,
+            autocorrect_neighbor: false,
         },
-        ..Preferences::default()
+        ..defaults
     };
-    let saved = store.save(saved.revision, explicit).unwrap();
-    assert!(saved.preferences.quanpin_autocorrect_transposition());
-    assert!(!saved.preferences.quanpin_autocorrect_neighbor());
+    let saved = store.save(0, explicit).unwrap();
+    let loaded = store.load().unwrap();
+    assert_eq!(loaded, saved);
+    assert!(loaded.preferences.quanpin.autocorrect_transposition);
+    assert!(!loaded.preferences.quanpin.autocorrect_neighbor);
 }
 
 #[test]
@@ -2097,6 +2265,33 @@ fn shuangpin_profiles_preserve_legacy_files_and_reject_unknown_values() {
     assert!(store.load().is_err());
     assert!(store.save(revision, Preferences::default()).is_err());
     assert_eq!(fs::read_to_string(store.path()).unwrap(), unknown);
+}
+
+#[test]
+fn wubi_profile_defaults_to_86_and_rejects_unknown_values() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let legacy = r#"{"format_version":1,"revision":3,"preferences":{"scheme":"wubi","candidate_page_size":5,"learning":false,"chinese_punctuation":true}}"#;
+    fs::write(store.path(), legacy).unwrap();
+    assert_eq!(
+        store.load().unwrap().preferences.wubi_profile,
+        WubiProfile::Wubi86
+    );
+    let saved = store
+        .save(
+            3,
+            Preferences {
+                scheme: InputScheme::Wubi,
+                wubi_profile: WubiProfile::Wubi98,
+                ..Preferences::default()
+            },
+        )
+        .unwrap();
+    let text = fs::read_to_string(store.path()).unwrap();
+    assert!(text.contains(r#""wubi_profile": "wubi98""#), "{text}");
+    assert_eq!(store.load().unwrap(), saved);
+    fs::write(store.path(), text.replace("wubi98", "wubi06")).unwrap();
+    assert!(store.load().is_err());
 }
 
 #[test]
@@ -2181,9 +2376,9 @@ fn ai_assistant_rejects_unknown_provider_and_invalid_candidate_limit() {
 
 #[test]
 fn default_ai_assistant_requests_carry_the_builtin_associative_prompt() {
-    // The stored slot stays empty on purpose. Android's keyboard and the iOS keyboard mirror read `ai_assistant.prompt` as their polish instruction and substitute a polish prompt only when it is blank, so storing the Windows associative text here would turn their polish answers into candidate JSON. Blank means "use the built-in prompt" at request time instead: here, and in the Linux provider's copy of the same text.
+    // The stored slot stays empty on purpose: blank means "use the built-in prompt" at request time, here and in the Linux provider's copy of the same text.
     let mut ai = Preferences::default().ai_assistant;
-    assert!(ai.prompt.is_empty());
+    assert!(ai.prompt_custom_1.is_empty());
     ai.enabled = true;
     ai.endpoint = "https://synthetic.invalid/chat".into();
     ai.model = "synthetic-model".into();
@@ -2457,7 +2652,7 @@ fn floating_toolbar_component_defaults_and_roundtrip() {
     assert!(
         defaults.enabled && defaults.english_mode && defaults.fullwidth && defaults.punctuation
     );
-    assert!(defaults.character_set && defaults.settings);
+    assert!(defaults.character_set && defaults.settings && defaults.input_scheme);
     // The compact toolbar: these four are opt-in, so a new profile gets five buttons and turns on
     // the ones it wants. Emoji is one of the reference's own components and still defaults off here;
     // the Windows installer template keeps it on by setting every component explicitly.
@@ -2480,6 +2675,7 @@ fn legacy_preferences_without_toolbar_use_component_defaults() {
     assert!(restored.preferences.floating_toolbar.enabled);
     assert!(restored.preferences.floating_toolbar.english_mode);
     assert!(restored.preferences.floating_toolbar.fullwidth);
+    assert!(restored.preferences.floating_toolbar.input_scheme);
     assert!(!restored.preferences.floating_toolbar.screen_keyboard);
 }
 
@@ -2959,44 +3155,6 @@ fn restoring_defaults_keeps_what_cannot_be_retyped() {
     assert_eq!(restored.restored_to_defaults(), restored);
 }
 
-/// Both halves of this product can name the renderer they mean.
-///
-/// `ui_backend` is written `d2d` in the Windows factory configuration and `direct2d` by this type,
-/// so a document carrying the factory spelling was rejected rather than read - and a rejected
-/// preference document does not lose one field, it falls back wholesale. The reference also accepts
-/// `webview` and `web` for the same choice, having written both at different times.
-///
-/// Serialisation is unchanged: the aliases are read-only, so nothing here starts writing a second
-/// spelling of its own.
-#[test]
-fn ui_backend_reads_every_spelling_this_product_has_written() {
-    for (value, expected) in [
-        ("direct2d", UiBackend::Direct2d),
-        ("d2d", UiBackend::Direct2d),
-        ("webview2", UiBackend::Webview2),
-        ("webview", UiBackend::Webview2),
-        ("web", UiBackend::Webview2),
-    ] {
-        assert_eq!(
-            serde_json::from_str::<UiBackend>(&format!("\"{value}\"")).unwrap(),
-            expected,
-            "{value} should name a renderer this product understands"
-        );
-    }
-    // An unknown value is still an error rather than a silent default: the reference falls back to
-    // native for one, but it is reading a single key, while here the whole document goes with it.
-    assert!(serde_json::from_str::<UiBackend>("\"opengl\"").is_err());
-    // One spelling out, whichever ones come in.
-    assert_eq!(
-        serde_json::to_string(&UiBackend::Direct2d).unwrap(),
-        "\"direct2d\""
-    );
-    assert_eq!(
-        serde_json::to_string(&UiBackend::Webview2).unwrap(),
-        "\"webview2\""
-    );
-}
-
 // Staged writes nobody is going to finish.
 //
 // `NamedTempFile` removes itself when dropped, but a process killed between creating the file and
@@ -3373,7 +3531,7 @@ fn saving_unchanged_preferences_keeps_the_revision_and_the_file() {
     ));
 
     let mut changed = Preferences::default();
-    changed.telemetry_enabled = !changed.telemetry_enabled;
+    changed.usage_reporting = !changed.usage_reporting;
     assert_eq!(store.save(1, changed).unwrap().revision, 2);
 }
 
@@ -3411,21 +3569,16 @@ fn mint_morning_is_the_community_design_and_a_valid_custom_theme() {
 }
 
 #[test]
-fn candidate_window_style_defaults_stay_out_of_the_document() {
+fn candidate_window_style_defaults_round_trip() {
     let preferences = Preferences::default();
     assert_eq!(preferences.candidate_scale_percent, 100);
     assert_eq!(preferences.candidate_opacity_percent, 100);
     assert_eq!(preferences.candidate_corner_radius, None);
 
-    // An untouched document must still load in a build that predates these keys, which refuses unknown fields.
     let value = serde_json::to_value(&preferences).unwrap();
-    for key in [
-        "candidate_scale_percent",
-        "candidate_opacity_percent",
-        "candidate_corner_radius",
-    ] {
-        assert!(value.get(key).is_none(), "{key} is written at its default");
-    }
+    assert_eq!(value["candidate_scale_percent"], 100);
+    assert_eq!(value["candidate_opacity_percent"], 100);
+    assert!(value.get("candidate_corner_radius").is_none());
     let decoded: Preferences = serde_json::from_value(value).unwrap();
     assert_eq!(decoded, preferences);
 }
@@ -3500,4 +3653,467 @@ fn candidate_window_style_rejects_out_of_range_values() {
         PreferencesError::InvalidCandidateWindowStyle.to_string(),
         "candidate window scale must be 50-200%, opacity 50-100% and corner radius 0-32"
     );
+}
+
+fn wubi_edition() -> &'static crate::edition::Edition {
+    crate::edition::Edition::by_id("wubi").unwrap()
+}
+
+/// full 的版本默认值就是 `Default`，所以 full 的偏好、首启快照和触屏方案都与引入版本之前相同。
+#[test]
+fn full_edition_defaults_are_the_defaults() {
+    let full = crate::edition::Edition::full();
+    assert_eq!(Preferences::for_edition(full), Preferences::default());
+    assert_eq!(
+        PreferencesSnapshot::for_edition(full),
+        PreferencesSnapshot::default()
+    );
+    assert_eq!(
+        TouchKeyboardSchemePreferences::for_edition(full),
+        TouchKeyboardSchemePreferences::default()
+    );
+    let directory = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::for_edition(directory.path(), full);
+    assert!(store.edition().is_full());
+    assert_eq!(store.load().unwrap(), PreferencesSnapshot::default());
+    assert!(PreferencesStore::new(directory.path()).edition().is_full());
+}
+
+/// 五笔版第一次运行、还没有偏好文件时：方案是五笔，切回中文也回到五笔，混拼默认打开，触屏键盘只有五笔和手写。
+#[test]
+fn wubi_edition_first_run_defaults_to_wubi_with_mixed_pinyin_on() {
+    let wubi = wubi_edition();
+    let defaults = Preferences::for_edition(wubi);
+    assert_eq!(defaults.scheme, InputScheme::Wubi);
+    assert_eq!(defaults.last_chinese_scheme, Some(ChineseScheme::Wubi));
+    assert!(defaults.wubi_mixed_pinyin);
+    assert_eq!(
+        defaults.touch_keyboard_schemes.enabled,
+        [TouchKeyboardScheme::Wubi, TouchKeyboardScheme::Handwriting]
+            .into_iter()
+            .collect()
+    );
+    assert_eq!(
+        defaults.touch_keyboard_schemes.first_enabled(),
+        TouchKeyboardScheme::Wubi
+    );
+    defaults.validate().unwrap();
+    // 其余设置与 full 相同。
+    assert_eq!(
+        Preferences {
+            scheme: InputScheme::Quanpin,
+            last_chinese_scheme: None,
+            wubi_mixed_pinyin: false,
+            touch_keyboard_schemes: TouchKeyboardSchemePreferences::default(),
+            ..defaults.clone()
+        },
+        Preferences::default()
+    );
+
+    // 没有偏好文件这条路：读到的是五笔版的默认值，修订号 0。
+    let directory = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::for_edition(directory.path(), wubi);
+    assert_eq!(store.edition().id, "wubi");
+    let first = store.load().unwrap();
+    assert_eq!(first.revision, 0);
+    assert_eq!(first.preferences, defaults);
+    assert!(
+        store
+            .try_load()
+            .unwrap()
+            .unwrap()
+            .preferences
+            .wubi_mixed_pinyin
+    );
+
+    // 收窄后的触屏方案不等于 full 的缺省，所以会被写进文件，读回来不变。
+    let saved = store.save(0, first.preferences.clone()).unwrap();
+    assert_eq!(saved.revision, 1);
+    assert_eq!(
+        PreferencesStore::new(directory.path()).load().unwrap(),
+        saved
+    );
+
+    // 混拼只是默认打开，用户可以关掉，关掉后保持关闭。
+    let mut off = saved.preferences.clone();
+    off.wubi_mixed_pinyin = false;
+    store.save(saved.revision, off).unwrap();
+    assert!(!store.load().unwrap().preferences.wubi_mixed_pinyin);
+}
+
+/// 拼音版只有全拼和双拼：默认方案仍是全拼，触屏键盘去掉五笔、日文和韩文入口，保留手写。
+#[test]
+fn pinyin_edition_narrows_the_touch_keyboard() {
+    let pinyin = crate::edition::Edition::by_id("pinyin").unwrap();
+    let defaults = Preferences::for_edition(pinyin);
+    assert_eq!(defaults.scheme, InputScheme::Quanpin);
+    assert_eq!(defaults.last_chinese_scheme, None);
+    assert!(!defaults.wubi_mixed_pinyin);
+    assert_eq!(
+        defaults.touch_keyboard_schemes.enabled,
+        [
+            TouchKeyboardScheme::Quanpin,
+            TouchKeyboardScheme::NineKey,
+            TouchKeyboardScheme::Xiaohe,
+            TouchKeyboardScheme::Ziranma,
+            TouchKeyboardScheme::Microsoft,
+            TouchKeyboardScheme::Shoudao,
+            TouchKeyboardScheme::Handwriting,
+        ]
+        .into_iter()
+        .collect()
+    );
+}
+
+/// 五笔版恢复默认设置和修复损坏的偏好文件时，回到的都是五笔版的默认值。
+#[test]
+fn wubi_edition_restores_and_recovers_to_its_own_defaults() {
+    let wubi = wubi_edition();
+    let mut edited = Preferences::for_edition(wubi);
+    edited.wubi_mixed_pinyin = false;
+    edited.candidate_page_size = 7;
+    let restored = edited.restored_to_defaults_for(wubi);
+    assert_eq!(restored, Preferences::for_edition(wubi));
+    assert_eq!(edited.restored_to_defaults(), Preferences::default());
+
+    let directory = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::for_edition(directory.path(), wubi);
+    fs::write(
+        directory.path().join("preferences.json"),
+        br#"{"format_version":1,"revision":4,"preferences":{"scheme":"#,
+    )
+    .unwrap();
+    let (snapshot, _, salvaged) = expect_recovered(store.recover().unwrap());
+    assert!(!salvaged);
+    assert_eq!(snapshot.preferences, Preferences::for_edition(wubi));
+
+    // 能挽救的设置照常保留，没有的设置取五笔版的默认值。
+    fs::write(
+        directory.path().join("preferences.json"),
+        br#"{"format_version":1,"revision":9,"preferences":{"candidate_page_size":6,"unknown_field":1}}"#,
+    )
+    .unwrap();
+    let (snapshot, _, salvaged) = expect_recovered(store.recover().unwrap());
+    assert!(salvaged);
+    assert_eq!(snapshot.preferences.candidate_page_size, 6);
+    assert_eq!(snapshot.preferences.scheme, InputScheme::Wubi);
+    assert!(snapshot.preferences.wubi_mixed_pinyin);
+}
+
+/// 只拿到目录的存储（各平台的 C ABI、设置应用）按目录里的版本记录取默认值；没有记录、记录认不出时是 full，行为与引入版本之前相同。
+#[test]
+fn a_store_built_from_a_directory_follows_the_recorded_edition() {
+    let wubi = wubi_edition();
+    let directory = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(directory.path());
+    assert!(store.edition().is_full());
+    assert_eq!(store.load().unwrap(), PreferencesSnapshot::default());
+
+    wubi.record_in(directory.path()).unwrap();
+    assert_eq!(
+        fs::read_to_string(
+            directory
+                .path()
+                .join(crate::edition::Edition::STATE_RECORD_FILE)
+        )
+        .unwrap(),
+        "wubi\n"
+    );
+    assert_eq!(store.edition().id, "wubi");
+    assert_eq!(
+        store.load().unwrap(),
+        PreferencesSnapshot::for_edition(wubi)
+    );
+    fs::write(
+        directory.path().join("preferences.json"),
+        br#"{"format_version":1,"revision":4,"preferences":{"scheme":"#,
+    )
+    .unwrap();
+    let (snapshot, _, _) = expect_recovered(store.recover().unwrap());
+    assert_eq!(snapshot.preferences, Preferences::for_edition(wubi));
+    // 构造时指定的版本优先于记录。
+    assert!(
+        PreferencesStore::for_edition(directory.path(), crate::edition::Edition::full())
+            .edition()
+            .is_full()
+    );
+
+    // full 准备同一个目录时删掉记录。
+    crate::edition::Edition::full()
+        .record_in(directory.path())
+        .unwrap();
+    assert!(!directory
+        .path()
+        .join(crate::edition::Edition::STATE_RECORD_FILE)
+        .exists());
+    assert!(store.edition().is_full());
+    crate::edition::Edition::full()
+        .record_in(directory.path())
+        .unwrap();
+
+    // 认不出的记录按 full 处理。
+    fs::write(
+        directory
+            .path()
+            .join(crate::edition::Edition::STATE_RECORD_FILE),
+        "future\n",
+    )
+    .unwrap();
+    assert!(store.edition().is_full());
+}
+
+/// 日文、越南文和藏文版第一次运行时：方案就是本版本唯一的方案，没有可回到的中文方案，其余偏好与 full 相同；触屏键盘只有本方案的入口（越南文、藏文在 full 里默认停用的入口也启用），没有手写（手写识别器只认汉字），选中留空，第一次打开键盘就是本方案。
+#[test]
+fn language_editions_first_run_defaults_to_their_own_scheme() {
+    for (id, scheme, touch) in [
+        (
+            "japanese",
+            InputScheme::Japanese,
+            vec![
+                TouchKeyboardScheme::JapaneseNineKey,
+                TouchKeyboardScheme::Japanese,
+            ],
+        ),
+        (
+            "vietnamese",
+            InputScheme::Vietnamese,
+            vec![TouchKeyboardScheme::Vietnamese],
+        ),
+        (
+            "tibetan",
+            InputScheme::Tibetan,
+            vec![TouchKeyboardScheme::Tibetan],
+        ),
+    ] {
+        let edition = crate::edition::Edition::by_id(id).unwrap();
+        let defaults = Preferences::for_edition(edition);
+        assert_eq!(defaults.scheme, scheme, "{id}");
+        assert_eq!(defaults.last_chinese_scheme, None, "{id}");
+        assert!(!defaults.wubi_mixed_pinyin, "{id}");
+        let expected: std::collections::BTreeSet<_> = touch.into_iter().collect();
+        assert_eq!(defaults.touch_keyboard_schemes.enabled, expected, "{id}");
+        assert_eq!(defaults.touch_keyboard_schemes.selected, None, "{id}");
+        defaults.validate().unwrap();
+        assert_eq!(
+            Preferences {
+                scheme: InputScheme::Quanpin,
+                touch_keyboard_schemes: TouchKeyboardSchemePreferences::default(),
+                ..defaults.clone()
+            },
+            Preferences::default(),
+            "{id}"
+        );
+
+        // 没有偏好文件时读到的就是这份默认值；写进文件再读回来不变。
+        let directory = tempfile::tempdir().unwrap();
+        let store = PreferencesStore::for_edition(directory.path(), edition);
+        assert_eq!(store.edition().id, id);
+        let first = store.load().unwrap();
+        assert_eq!(first.revision, 0);
+        assert_eq!(first.preferences, defaults, "{id}");
+        let saved = store.save(0, defaults.clone()).unwrap();
+        assert_eq!(saved.preferences, defaults, "{id}");
+        assert_eq!(store.load().unwrap().preferences, defaults, "{id}");
+    }
+}
+
+#[test]
+fn restoring_defaults_in_the_store_is_one_compare_and_swap() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let mut edited = Preferences {
+        candidate_page_size: 7,
+        ..Preferences::default()
+    };
+    edited.voice_input.asr_token = "fixture-asr-token".into();
+    edited.fuzzy_pinyin.seeded = true;
+    let saved = store.save(0, edited).unwrap();
+    assert!(matches!(
+        store.restore_defaults(saved.revision + 1),
+        Err(PreferencesError::Conflict)
+    ));
+    assert_eq!(store.load().unwrap(), saved);
+    let restored = store.restore_defaults(saved.revision).unwrap();
+    assert_eq!(restored.revision, saved.revision + 1);
+    assert_eq!(restored.preferences.candidate_page_size, 6);
+    assert_eq!(
+        restored.preferences.voice_input.asr_token,
+        "fixture-asr-token"
+    );
+    assert!(restored.preferences.fuzzy_pinyin.seeded);
+    assert_eq!(store.load().unwrap(), restored);
+}
+
+/// 偏好里键名像凭据、但确实不是凭据的字段。新字段名含 token|key|secret|password 时，要么进 `Preferences::credential_slots`，要么在这里说明它不是凭据。
+const NOT_CREDENTIALS: &[&str] = &[
+    "floating_toolbar.screen_keyboard",
+    "keybindings",
+    "screen_keyboard_theme",
+    "sentence_association.neural_keyboard",
+    "touch_key_spacing_tenths",
+    "touch_keyboard_height_adjustment",
+    "touch_keyboard_layout",
+    "voice_input.hotkey_ctrl_f9",
+    "voice_input.hotkey_ctrl_win",
+    "voice_input.hotkey_hold_space_lock",
+    "voice_input.hotkey_ralt",
+    "voice_input.hotkey_rctrl_ralt",
+    "word_character.keys",
+];
+
+fn credential_like(name: &str) -> bool {
+    let name = name.to_ascii_lowercase();
+    ["token", "key", "secret", "password"]
+        .iter()
+        .any(|pattern| name.contains(pattern))
+}
+
+fn credential_like_paths(value: &serde_json::Value, prefix: &str, into: &mut Vec<String>) {
+    if let serde_json::Value::Object(object) = value {
+        for (key, child) in object {
+            let path = if prefix.is_empty() {
+                key.clone()
+            } else {
+                format!("{prefix}.{key}")
+            };
+            if credential_like(key) {
+                into.push(path.clone());
+            }
+            credential_like_paths(child, &path, into);
+        }
+    }
+}
+
+fn with_every_credential(mut preferences: Preferences) -> Preferences {
+    for (_, slot) in preferences.credential_slots() {
+        match slot {
+            CredentialSlot::Text(text) => *text = "secret-value".into(),
+            CredentialSlot::Map(map) => {
+                map.insert("provider".into(), "secret-value".into());
+            }
+        }
+    }
+    preferences
+}
+
+#[test]
+fn every_credential_like_preference_field_is_listed() {
+    let mut preferences = Preferences::default();
+    let credentials: Vec<&str> = preferences
+        .credential_slots()
+        .iter()
+        .map(|(path, _)| *path)
+        .collect();
+    let document = serde_json::to_value(with_every_credential(Preferences::default())).unwrap();
+    let mut paths = Vec::new();
+    credential_like_paths(&document, "", &mut paths);
+    let unlisted: Vec<_> = paths
+        .iter()
+        .filter(|path| {
+            !credentials.contains(&path.as_str())
+                && !NOT_CREDENTIALS.contains(&path.as_str())
+                && !credentials
+                    .iter()
+                    .any(|credential| path.starts_with(&format!("{credential}.")))
+        })
+        .collect();
+    assert!(
+        unlisted.is_empty(),
+        "credential-like preference fields neither in credential_slots nor NOT_CREDENTIALS: {unlisted:?}"
+    );
+    for path in &credentials {
+        let mut cursor = &document;
+        for segment in path.split('.') {
+            cursor = &cursor[segment];
+        }
+        assert!(!cursor.is_null(), "{path} is not a preference field");
+    }
+}
+
+#[test]
+fn diagnostic_snapshot_redacts_every_credential() {
+    let preferences = with_every_credential(Preferences::default());
+    let redacted = preferences.redacted_for_diagnostics();
+    let text = redacted.to_string();
+    assert!(!text.contains("secret-value"), "{text}");
+    let mut copy = preferences.clone();
+    for (path, _) in copy.credential_slots() {
+        let mut cursor = &redacted;
+        for segment in path.split('.') {
+            cursor = &cursor[segment];
+        }
+        assert_eq!(cursor, REDACTED, "{path}");
+    }
+    fn check(value: &serde_json::Value) {
+        if let serde_json::Value::Object(object) = value {
+            for (key, child) in object {
+                if is_sensitive_key(key) {
+                    assert_eq!(child, REDACTED, "{key}");
+                } else {
+                    check(child);
+                }
+            }
+        }
+    }
+    check(&redacted);
+    // 非凭据的设置照常保留，快照才有用。
+    assert_eq!(
+        redacted["candidate_page_size"],
+        serde_json::json!(preferences.candidate_page_size)
+    );
+}
+
+#[test]
+fn diagnostic_snapshot_strips_secrets_from_endpoints() {
+    let mut preferences = Preferences::default();
+    preferences.voice_input.asr_endpoint =
+        "wss://user:pass@asr.example.com:8443/v1/stream?token=secret-value#frag".into();
+    preferences.voice_input.polish_endpoint =
+        "https://polish.example.com/chat?key=secret-value".into();
+    preferences.ai_assistant.endpoint = "https://secret-value@ai.example.com/v1".into();
+    preferences.custom_translation.endpoint = "not a url secret-value".into();
+    let redacted = preferences.redacted_for_diagnostics();
+    assert!(!redacted.to_string().contains("secret-value"), "{redacted}");
+    assert_eq!(
+        redacted["voice_input"]["asr_endpoint"],
+        "wss://asr.example.com:8443/v1/stream"
+    );
+    assert_eq!(
+        redacted["voice_input"]["polish_endpoint"],
+        "https://polish.example.com/chat"
+    );
+    assert_eq!(
+        redacted["ai_assistant"]["endpoint"],
+        "https://ai.example.com/v1"
+    );
+    assert_eq!(redacted["custom_translation"]["endpoint"], REDACTED);
+
+    // 没填的地址照样是空的。
+    preferences.custom_translation.endpoint.clear();
+    assert_eq!(
+        preferences.redacted_for_diagnostics()["custom_translation"]["endpoint"],
+        ""
+    );
+}
+
+#[test]
+fn restoring_defaults_keeps_exactly_the_listed_credentials() {
+    let preferences = with_every_credential(Preferences::default());
+    let mut restored = preferences.restored_to_defaults();
+    let mut original = preferences.clone();
+    for ((path, before), (_, after)) in original
+        .credential_slots()
+        .into_iter()
+        .zip(restored.credential_slots())
+    {
+        match (before, after) {
+            (CredentialSlot::Text(before), CredentialSlot::Text(after)) => {
+                assert_eq!(before, after, "{path}")
+            }
+            (CredentialSlot::Map(before), CredentialSlot::Map(after)) => {
+                assert_eq!(before, after, "{path}")
+            }
+            _ => panic!("{path} changed type"),
+        }
+    }
 }

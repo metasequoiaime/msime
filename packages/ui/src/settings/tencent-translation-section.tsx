@@ -1,100 +1,83 @@
+import { SettingsGroupNote } from "./settings-group-note";
+import { SettingsWarning } from "./settings-warning";
 import type { ReactNode } from "react";
-import { SecretInput } from "../core/secret-input";
-import { Row, Switch } from "../core/platform-controls";
-import * as settings from "./settings-style";
-import { SettingToggle } from "./setting-toggle";
+import { SecretSettingRow } from "./secret-setting-row";
+import { TextInputRow } from "./text-input-row";
+import { SettingsGroupBlock } from "./settings-group-block";
+import { SettingsRowStack } from "./settings-row-stack";
 
 export interface TencentTranslationSectionProps {
-  enabled: boolean;
   available: boolean;
   secretId: string;
   secretKey: string;
   region: string;
   credentialIssue?: string;
   showMissingCredentialsWarning?: boolean;
-  onToggle: (enabled: boolean) => void;
   onSecretIdChange: (value: string) => void;
   onSecretKeyChange: (value: string) => void;
   onRegionChange: (value: string) => void;
   children?: ReactNode;
 }
 
-/** Tencent Cloud candidate translation settings and credentials. */
+/** 腾讯云凭据，在腾讯翻译是所选翻译服务时显示；服务本身在「翻译服务」中选择。 */
 export function TencentTranslationSection({
-  enabled,
   available,
   secretId,
   secretKey,
   region,
   credentialIssue,
   showMissingCredentialsWarning = false,
-  onToggle,
   onSecretIdChange,
   onSecretKeyChange,
   onRegionChange,
   children,
 }: TencentTranslationSectionProps) {
   return (
-    <div role="group" aria-label="在线翻译服务" className={settings.rowStack}>
-      <Row
-        title="在线翻译服务"
-        description="候选词翻译默认使用腾讯云机器翻译，需要填入你自己的 API 凭据"
-      >
-        <Switch
-          aria-label="腾讯云机器翻译"
-          disabled={!available}
-          checked={enabled}
-          onChange={onToggle}
-        />
-      </Row>
-      <Row title="SecretId">
-        <input
-          aria-label="腾讯云 SecretId"
-          type="text"
-          autoComplete="off"
-          spellCheck={false}
-          value={secretId}
-          disabled={!available || !enabled}
-          onChange={(event) => onSecretIdChange(event.target.value)}
-          placeholder="AKIDxxxxxxxxxxxxxxxx"
-        />
-      </Row>
-      <Row title="SecretKey">
-        <SecretInput
-          label="腾讯云 SecretKey"
-          value={secretKey}
-          disabled={!available || !enabled}
-          onChange={onSecretKeyChange}
-        />
-      </Row>
-      <Row title="地域">
-        <input
-          aria-label="腾讯云地域"
-          type="text"
-          autoComplete="off"
-          spellCheck={false}
-          value={region}
-          disabled={!available || !enabled}
-          onChange={(event) => onRegionChange(event.target.value)}
-          placeholder="ap-guangzhou"
-        />
-      </Row>
-      {enabled && children && <div className={settings.groupBlock}>{children}</div>}
-      {available && enabled && credentialIssue && (
-        <div className={settings.groupBlock}>
-          <p className={settings.settingsWarning} role="status">
-            {credentialIssue}
-          </p>
-        </div>
+    <SettingsRowStack role="group" aria-label="腾讯云机器翻译">
+      <SettingsGroupNote>需要填入你自己的腾讯云 API 凭据。</SettingsGroupNote>
+      <TextInputRow
+        title="SecretId"
+        label="腾讯云 SecretId"
+        type="text"
+        autoComplete="off"
+        spellCheck={false}
+        value={secretId}
+        disabled={!available}
+        onChange={onSecretIdChange}
+        placeholder="AKIDxxxxxxxxxxxxxxxx"
+      />
+      <SecretSettingRow
+        title="SecretKey"
+        label="腾讯云 SecretKey"
+        value={secretKey}
+        disabled={!available}
+        onChange={onSecretKeyChange}
+      />
+      <TextInputRow
+        title="地域"
+        label="腾讯云地域"
+        type="text"
+        autoComplete="off"
+        spellCheck={false}
+        value={region}
+        disabled={!available}
+        onChange={onRegionChange}
+        placeholder="ap-guangzhou"
+      />
+      {children && <SettingsGroupBlock>{children}</SettingsGroupBlock>}
+      {available && credentialIssue && (
+        <SettingsGroupBlock>
+          <SettingsWarning>{credentialIssue}</SettingsWarning>
+        </SettingsGroupBlock>
       )}
-      {available && enabled && !credentialIssue && showMissingCredentialsWarning && (
-        <div className={settings.groupBlock}>
-          <p className={settings.settingsWarning} role="status">
+      {available && !credentialIssue && showMissingCredentialsWarning && (
+        <SettingsGroupBlock>
+          <SettingsWarning>
             未填写腾讯云凭据，候选词翻译不会有任何结果。请填入 SecretId 与
-            SecretKey，或改用下面的自定义翻译服务。
-          </p>
-        </div>
+            SecretKey，或在上面的翻译服务中改选其他服务。
+          </SettingsWarning>
+        </SettingsGroupBlock>
       )}
-    </div>
+    </SettingsRowStack>
   );
 }

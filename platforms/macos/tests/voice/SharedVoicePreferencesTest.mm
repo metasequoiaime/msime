@@ -19,7 +19,7 @@ int main() {
             @"doubao_boosting_table_id": @"fixture-table", @"polish_provider": @"groq",
             @"polish_endpoint": @"https://example.invalid/polish", @"polish_model": @"fixture-polish",
             @"polish_token": @"fixture-only", @"polish_prompt_id": @"custom1",
-            @"polish_prompt": @"fixture", @"polish_prompt_custom_1": @"one",
+            @"polish_prompt_custom_1": @"one",
             @"polish_prompt_custom_2": @"two", @"polish_prompt_custom_3": @"three",
             @"sound_enabled": @NO, @"mute_system_audio": @YES, @"stream_inline_preedit": @NO,
             @"polish_enabled": @YES, @"polish_text": @YES, @"hotkey_ctrl_f9": @NO,

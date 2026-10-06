@@ -47,7 +47,8 @@ public final class TypingStatisticsModel {
     private static final Map<String, String> CHARACTER_KINDS = kinds();
     private static final Map<String, String> SOURCES = sources();
     private static final List<String> CHINESE_SOURCES = List.of(
-        "quanpin", "nineKey", "shuangpin", "ziranma", "microsoft", "shoudao", "wubi");
+        "quanpin", "nineKey", "shuangpin", "ziranma", "microsoft", "shoudao", "wubi",
+        "cantonese", "zhuyin", "stroke");
 
     private final boolean enabled;
     private final long total;
@@ -229,6 +230,8 @@ public final class TypingStatisticsModel {
         slices.add(new Slice("chinese", "中文模式", chinese));
         slices.add(new Slice("japanese", "日语模式", values.getOrDefault("japanese", 0L)));
         slices.add(new Slice("korean", "韩语模式", values.getOrDefault("korean", 0L)));
+        slices.add(new Slice("vietnamese", "越南语模式", values.getOrDefault("vietnamese", 0L)));
+        slices.add(new Slice("tibetan", "藏文模式", values.getOrDefault("tibetan", 0L)));
         slices.add(new Slice("english", "英文模式", values.getOrDefault("english", 0L)));
         slices.add(new Slice("handwriting", "手写输入", values.getOrDefault("handwriting", 0L)));
         slices.add(new Slice("local", "本地输入", values.getOrDefault("local", 0L)));
@@ -251,9 +254,7 @@ public final class TypingStatisticsModel {
     /**
      * Counts with the shortfall against the scope's total filed as unclassified.
      *
-     * <p>Versions before the breakdown existed recorded a day's characters without classifying
-     * them. Dropping the difference would make a pie chart of one profile's history disagree with
-     * the total printed above it.
+     * <p>A day's total can count characters that carry no classification. Dropping the difference would make a pie chart of one profile's history disagree with the total printed above it.
      */
     private static Map<String, Long> unclassified(Map<String, Long> values, long scope) {
         long classified = 0;
@@ -295,9 +296,15 @@ public final class TypingStatisticsModel {
         titles.put("ziranma", "自然码双拼");
         titles.put("microsoft", "微软双拼");
         titles.put("shoudao", "首道双拼");
-        titles.put("wubi", "86 五笔");
+        // 86 与 98 共用一个 `wubi` 来源，不按版本拆分，所以不带版本号。
+        titles.put("wubi", "五笔");
         titles.put("japanese", "日语");
         titles.put("korean", "韩语");
+        titles.put("cantonese", "粤拼");
+        titles.put("zhuyin", "注音");
+        titles.put("vietnamese", "越南语");
+        titles.put("tibetan", "藏文");
+        titles.put("stroke", "笔画");
         titles.put("handwriting", "手写");
         titles.put("english", "英文键盘");
         titles.put("local", "本地输入");

@@ -1,5 +1,7 @@
-import { communityRating } from "./community-helpers";
-import * as style from "./community-style";
+import { CommunityMetrics } from "./community-metrics";
+import { CommunityActionNotice } from "./community-action-notice";
+import { StatusMessage } from "../core/status-message";
+import { CommunityRatingMetrics } from "./community-rating-metrics";
 
 export interface CommunityDetailStatusProps {
   downloads: number;
@@ -22,17 +24,15 @@ export function CommunityDetailStatus({
 }: CommunityDetailStatusProps) {
   return (
     <>
-      <p className={style.metrics}>
-        {downloads.toLocaleString("zh-CN")} 人下载 · {communityRating(ratingCount, ratingAverage)} ·{" "}
-        {ratingCount.toLocaleString("zh-CN")} 人评分
-      </p>
-      {myRating > 0 && <p className={style.metrics}>我的评分：{myRating} 星</p>}
-      {detailBusy && <p role="status">{loadingText}</p>}
-      {actionNotice && (
-        <p role="status" className={style.actionNotice}>
-          {actionNotice}
-        </p>
-      )}
+      <CommunityRatingMetrics
+        count={downloads}
+        countLabel="下载"
+        ratingCount={ratingCount}
+        ratingAverage={ratingAverage}
+      />
+      {myRating > 0 && <CommunityMetrics>我的评分：{myRating} 星</CommunityMetrics>}
+      {detailBusy && <StatusMessage role="status">{loadingText}</StatusMessage>}
+      {actionNotice && <CommunityActionNotice>{actionNotice}</CommunityActionNotice>}
     </>
   );
 }

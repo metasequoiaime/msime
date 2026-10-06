@@ -8,14 +8,8 @@ param(
     # Historical or custom layouts remain available through explicit overrides.
     [string]$TsfDirectory = 'windows',
     [string]$ServerDirectory = 'server',
-    # Deprecated compatibility argument; UI assets are embedded in Tauri now.
-    [string]$UiHtmlDirectory = 'ui-html',
     # The helpcode tables, one flat directory; only its *.txt tables are staged, and its notices go into THIRD_PARTY_NOTICES.txt through Collect-Notices.ps1.
     [string]$HelpCodeDirectory = 'resources/helpcodes',
-    # The zinnia handwriting model with its licence, relative to RepoRoot, as scripts/fetch_handwriting_model.py downloads them against resources/handwriting-model.lock.json. Without the model the package installs without offline handwriting.
-    [string]$HandwritingDirectory = 'target/handwriting-model',
-    # Deprecated: both resource layouts now use DesktopResourcesDirectory.
-    [string]$DictionaryDirectory = 'MetasequoiaImeDict',
     [string]$ServerReleaseDirectory = '',
     # Native WinUI 3 settings binary; relative overrides are resolved against RepoRoot.
     [string]$DesktopExecutable = 'target/windows-full/x64/bin/msime-client-settings.exe',
@@ -25,12 +19,16 @@ param(
     [string]$DesktopResourcesDirectory = 'target/desktop-resources',
     [string]$Tsf32ReleaseDirectory = '',
     [string]$Tsf64ReleaseDirectory = '',
+    # Build-Client.ps1 的 Arm64X TIP 和它原生那一半导入的 ARM64 宿主 DLL；安装器只在 Windows on Arm 上用它们代替 64 位 TIP。
+    [string]$TsfArm64ReleaseDirectory = '',
     # THIRD_PARTY_NOTICES.txt used to sit next to the tip's sources. In the consolidated repository
     # the notice covers the whole product and lives at the root, one level above windows/, so where
     # to read it is no longer answered by where the tip is.
     [string]$NoticesDirectory = '.',
     # The on-device speech runtime from scripts/fetch_voice_runtime.py --platform windows-x64; relative paths are resolved against RepoRoot. Used when the Server output does not already carry it.
     [string]$VoiceRuntimeDirectory = 'target/voice-runtime/windows-x64',
+    # 产品版本（shared/contracts/editions.json 里有 Windows 段的 id）。决定从哪个构建目录取文件（full 是 target/windows-full，其他版本是 target/windows-<id>）、host DLL 的名字、按哪份资源锁校验词库、带哪些语言词库，以及是否在 Server 目录里放版本声明。缺省是 full，与引入版本之前相同。
+    [ValidatePattern('^[a-z][a-z0-9]*$')][string]$Edition = 'full',
     [switch]$Light
 )
 
@@ -41,9 +39,30 @@ if ($TargetVersion -notmatch '^[0-9][0-9A-Za-z.+-]*$') {
     throw "Invalid installer version: $TargetVersion"
 }
 
+$editionTable = Get-Content -LiteralPath (Join-Path $RepoRoot 'shared/contracts/editions.json') -Raw | ConvertFrom-Json
+$editionEntry = @($editionTable.editions | Where-Object { $_.id -ceq $Edition -and $null -ne $_.platforms.windows })
+if ($editionEntry.Count -ne 1) {
+    throw "版本 $Edition 在 shared/contracts/editions.json 里没有 Windows 标识"
+}
+$hostDllName = [string]$editionEntry[0].platforms.windows.host_dll
+# full 的资源锁是原文件本身，其他版本的是 scripts/editions.py gen-locks 生成的子集（与 client-core 的 Edition::resource_lock 一致）。
+$resourceLock = if ($Edition -eq 'full') {
+    Join-Path $RepoRoot 'resources/desktop-dictionary.lock.json'
+} else {
+    Join-Path $RepoRoot "resources/editions/$Edition.lock.json"
+}
+$languageDictionaryNames = @($editionEntry[0].language_dictionaries)
+# 落定重排模型（settled-model）和手写模型（Zinnia handwriting-zh_CN.model）不进安装包：设置应用按 resources/settled-model.lock.json 和 resources/handwriting-model.lock.json 把它们下载到 DataDir\resource-packs（手写模型连同它的 LGPL-2.1 许可证一起下载）。
+# 非英文离线释义（offline-glosses/zh-<语言>.db）按中文候选查释义，只给提供中文方案的版本（版本表 features.offline_glosses，scripts/test-editions.py 检查它等于版本是否提供中文方案）。日文、越南文和藏文版不装。
+$editionOfflineGlosses = [bool]$editionEntry[0].features.offline_glosses
+$editionBuild = "target/windows-$Edition"
+if (-not $PSBoundParameters.ContainsKey('DesktopExecutable')) {
+    $DesktopExecutable = "$editionBuild/x64/bin/msime-client-settings.exe"
+}
+
 function Test-PackageTestArtifact {
     param([Parameter(Mandatory)][string]$BaseName)
-    # Client CMake tests use windows-*, alongside the legacy test conventions.
+    # Client CMake tests use windows-*; the other patterns cover the remaining test executables.
     # Production entry points use MetasequoiaIme* or msime-client-* names.
     return $BaseName -like '*Tests' -or $BaseName -like 'test_*' -or $BaseName -like 'windows-*'
 }
@@ -72,7 +91,7 @@ function Reset-Directory {
 
 $serverRelease = Join-Path $RepoRoot (Join-Path $ServerDirectory 'build-release\bin\Release')
 if ($ServerReleaseDirectory) { $serverRelease = Join-Path $RepoRoot $ServerReleaseDirectory }
-$clientNativeBin = Join-Path $RepoRoot 'target\windows-full\x64\bin'
+$clientNativeBin = Join-Path $RepoRoot "$editionBuild\x64\bin"
 if (-not $ServerReleaseDirectory -and (Test-Path -LiteralPath $clientNativeBin -PathType Container)) {
     $serverRelease = $clientNativeBin
 }
@@ -96,13 +115,12 @@ if ($DesktopPreviewExecutable) {
     $stagedPreview = Join-Path $serverRelease 'MSIME.exe'
     if (Test-Path -LiteralPath $stagedPreview -PathType Leaf) { $previewSource = $stagedPreview }
 }
-$dictionaryReplayRelease = Join-Path $serverRelease 'MetasequoiaImeDictionaryReplay.exe'
 $mcpRelease = Join-Path $serverRelease 'msime-mcp.exe'
-if (-not $Tsf32ReleaseDirectory -and (Test-Path -LiteralPath (Join-Path $RepoRoot 'target/windows-full/x86/bin') -PathType Container)) {
-    $Tsf32ReleaseDirectory = 'target/windows-full/x86/bin'
+if (-not $Tsf32ReleaseDirectory -and (Test-Path -LiteralPath (Join-Path $RepoRoot "$editionBuild/x86/bin") -PathType Container)) {
+    $Tsf32ReleaseDirectory = "$editionBuild/x86/bin"
 }
 if (-not $Tsf64ReleaseDirectory -and (Test-Path -LiteralPath $clientNativeBin -PathType Container)) {
-    $Tsf64ReleaseDirectory = 'target/windows-full/x64/bin'
+    $Tsf64ReleaseDirectory = "$editionBuild/x64/bin"
 }
 $tsf32Release = Join-Path $RepoRoot (Join-Path $TsfDirectory 'build32-release\Release\MetasequoiaImeTsf.dll')
 $tsf64Release = Join-Path $RepoRoot (Join-Path $TsfDirectory 'build64-release\Release\MetasequoiaImeTsf.dll')
@@ -116,12 +134,17 @@ if ($Tsf64ReleaseDirectory) {
     $tsf64Release = Join-Path (Join-Path $RepoRoot $Tsf64ReleaseDirectory) 'MetasequoiaImeTsf.dll'
     $tsf64Pdb = Join-Path (Join-Path $RepoRoot $Tsf64ReleaseDirectory) 'MetasequoiaImeTsf.pdb'
 }
-$tsf32Host = Join-Path (Split-Path -Parent $tsf32Release) 'msime_host_api.dll'
-$tsf64Host = Join-Path (Split-Path -Parent $tsf64Release) 'msime_host_api.dll'
+if (-not $TsfArm64ReleaseDirectory) { $TsfArm64ReleaseDirectory = "$editionBuild/arm64/bin" }
+$tsfArm64Directory = Join-Path $RepoRoot $TsfArm64ReleaseDirectory
+$tsfArm64Release = Join-Path $tsfArm64Directory 'MetasequoiaImeTsf.dll'
+$tsfArm64Pdb = Join-Path $tsfArm64Directory 'MetasequoiaImeTsf.pdb'
+$arm64HostDllName = [IO.Path]::GetFileNameWithoutExtension($hostDllName) + '_arm64.dll'
+$tsfArm64Host = Join-Path $tsfArm64Directory $arm64HostDllName
+$tsf32Host = Join-Path (Split-Path -Parent $tsf32Release) $hostDllName
+$tsf64Host = Join-Path (Split-Path -Parent $tsf64Release) $hostDllName
 $factoryConfig = Join-Path $PSScriptRoot 'config.default.toml'
 $iconSource = Join-Path $PSScriptRoot 'assets\icons'
 $audioSource = Join-Path $PSScriptRoot 'assets\audios'
-$pinyinTable = Join-Path $PSScriptRoot 'assets/tables/pinyin.txt'
 $helpcodeSource = Join-Path $RepoRoot $HelpCodeDirectory
 # 品牌标识。这个目录只放 ServerResources.rc 要编译进 Server 的那一个图标。
 # 语言栏与工具栏的状态图标不在这里：它们在 tsf/assets 下，由 MetasequoiaIME.rc 编进 TSF DLL，
@@ -138,16 +161,7 @@ $license = Join-Path $RepoRoot 'LICENSE'
 $resourceSource = if ([IO.Path]::IsPathRooted($DesktopResourcesDirectory)) {
     $DesktopResourcesDirectory
 } else { Join-Path $RepoRoot $DesktopResourcesDirectory }
-$dictionaryDb = Join-Path $resourceSource 'msime.db'
-$dictionaryManifest = Join-Path $resourceSource 'dictionary-manifest.json'
-$japaneseModel = Join-Path $resourceSource 'dict_japanese.dat'
-$japaneseModelLicense = Join-Path $resourceSource 'mozc_dictionary_oss_README.txt'
-$englishDb = Join-Path $resourceSource 'english.db'
-$othersDb = Join-Path $resourceSource 'others.db'
-# 手写模型与其授权声明。Tauri 侧按可执行文件旁的 handwriting\handwriting-zh_CN.model 查找，因此这两个文件与 Server 一起落在 server_exe 下，而不是 app_data。来源由 resources/handwriting-model.lock.json 记录，不再随包附 provenance.json。
-$handwritingSource = Join-Path $RepoRoot $HandwritingDirectory
-$handwritingModel = Join-Path $handwritingSource 'handwriting-zh_CN.model'
-$handwritingLicense = Join-Path $handwritingSource 'HandwritingModel-LICENSE.txt'
+$englishDb = Join-Path $resourceSource 'msime-english.db'
 
 Assert-PathExists -LiteralPath $RepoRoot -Description '源码仓库根目录'
 if (-not (Test-Path -LiteralPath $desktopSource -PathType Leaf)) {
@@ -158,20 +172,52 @@ if ($DesktopPreviewExecutable -and -not (Test-Path -LiteralPath $previewSource -
 }
 Assert-PathExists -LiteralPath $serverRelease -Description 'Server Release 输出目录'
 Assert-PathExists -LiteralPath (Join-Path $serverRelease 'MetasequoiaImeWatchdog.exe') -Description 'Watchdog Release EXE'
-Assert-PathExists -LiteralPath $dictionaryReplayRelease -Description '用户词库回放程序 Release EXE'
 Assert-PathExists -LiteralPath $mcpRelease -Description 'MCP 服务程序 Release EXE'
 Assert-PathExists -LiteralPath $tsf32Release -Description '32 位 TSF Release DLL'
 Assert-PathExists -LiteralPath $tsf64Release -Description '64 位 TSF Release DLL'
 Assert-PathExists -LiteralPath $tsf32Pdb -Description '32 位 TSF Release PDB'
 Assert-PathExists -LiteralPath $tsf64Pdb -Description '64 位 TSF Release PDB'
+Assert-PathExists -LiteralPath $tsfArm64Release -Description 'Arm64X TSF Release DLL'
+Assert-PathExists -LiteralPath $tsfArm64Pdb -Description 'Arm64X TSF Release PDB'
+Assert-PathExists -LiteralPath $tsfArm64Host -Description "Arm64X TSF 的 $arm64HostDllName"
 foreach ($hostDll in @($tsf32Host, $tsf64Host)) {
     if (-not (Test-Path -LiteralPath $hostDll -PathType Leaf)) {
-        throw '缺少对应架构 TSF 的 msime_host_api.dll'
+        throw "缺少对应架构 TSF 的 $hostDllName"
     }
 }
+# TIP 的运行时 DLL。x86 输出目录里只有 32 位 TIP 的构建产物、它的宿主 DLL 和 Copy-RuntimeDependencies.ps1 放进去的 vcpkg DLL，所以其中其他 DLL 都是 TIP 的依赖。x64 输出目录与 Server、自包含的 WinUI 设置程序和语音运行时共用，整个复制会在 64 位 TIP 旁边多放一份 Windows App SDK 和 onnxruntime/sherpa；两个前缀装的是同一份 vcpkg 清单，所以 64 位 TIP 取 32 位 TIP 旁边那些名字，每一个都必须在它旁边存在。
+# 别的版本的宿主 DLL 永远不是本版本 TIP 的依赖。
+$editionHostDllNames = @($editionTable.editions | Where-Object { $null -ne $_.platforms.windows } | ForEach-Object { [string]$_.platforms.windows.host_dll })
+$tsf32Dependencies = @(
+    Get-ChildItem -LiteralPath (Split-Path -Parent $tsf32Release) -File -Filter '*.dll' |
+        Where-Object { $_.Name -notin (@('MetasequoiaImeTsf.dll') + $editionHostDllNames) } |
+        ForEach-Object FullName
+)
+$tsf64Dependencies = @(
+    foreach ($dependency in $tsf32Dependencies) {
+        $candidate = Join-Path (Split-Path -Parent $tsf64Release) (Split-Path -Leaf $dependency)
+        if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) {
+            throw "64 位 TSF 旁缺少运行时依赖 $(Split-Path -Leaf $dependency)（32 位 TSF 旁有它）：$candidate"
+        }
+        $candidate
+    }
+)
+# 安装器从 tsf_dll\64 那一份把 x64 宿主 DLL 和这些依赖装进 Server 目录，包里只存一份；Server 输出里同名却内容不同的文件会被它悄悄替换，所以在替换任何旧的暂存内容之前就在这里拒绝。
+foreach ($shared in @($tsf64Host) + $tsf64Dependencies) {
+    $serverCopy = Join-Path $serverRelease (Split-Path -Leaf $shared)
+    if ((Test-Path -LiteralPath $serverCopy -PathType Leaf) -and
+        (Get-FileHash -LiteralPath $serverCopy).Hash -ne (Get-FileHash -LiteralPath $shared).Hash) {
+        throw "Server 输出里的 $(Split-Path -Leaf $shared) 与 64 位 TSF 旁的同名文件不同：$serverCopy"
+    }
+}
+# The self-contained Windows App SDK copies its own runtime executables beside the WinUI settings app, and Microsoft ships them without symbols; they are packaged, but no PDB is expected for them.
+$windowsAppSdkExecutables = @('RestartAgent')
 $serverExecutables = @(
     Get-ChildItem -LiteralPath $serverRelease -Recurse -File -Filter '*.exe' |
-        Where-Object { -not (Test-PackageTestArtifact -BaseName $_.BaseName) }
+        Where-Object {
+            -not (Test-PackageTestArtifact -BaseName $_.BaseName) -and
+                $windowsAppSdkExecutables -notcontains $_.BaseName
+        }
 )
 $missingServerPdb = @(
     $serverExecutables |
@@ -189,37 +235,28 @@ Assert-PathExists -LiteralPath $license -Description '许可证 LICENSE'
 
 $desktopResources = @()
 if (-not $Light) {
-    # Check pinned bytes before either legacy or shared-runtime staging reads
-    # them. Both layouts must be built from the same source generation.
+    # Check pinned bytes before staging reads them.
     $desktopResources = @(& (Join-Path $PSScriptRoot 'Get-VerifiedDesktopResources.ps1') `
         -SourceDirectory $resourceSource `
-        -ManifestPath (Join-Path $RepoRoot 'resources/desktop-dictionary.lock.json'))
+        -ManifestPath $resourceLock)
     Assert-PathExists -LiteralPath $factoryConfig -Description '出厂配置 default_config\config.default.toml'
-    Assert-PathExists -LiteralPath $pinyinTable -Description '完整拼音音节表 pinyin.txt'
     Assert-PathExists -LiteralPath $helpcodeSource -Description '辅助码目录'
     if (-not (Get-ChildItem -LiteralPath $helpcodeSource -File -Filter '*.txt')) {
         throw "辅助码目录中没有码表：$helpcodeSource"
     }
-    Assert-PathExists -LiteralPath $dictionaryDb -Description '词库数据库 msime.db'
-    Assert-PathExists -LiteralPath $japaneseModel -Description '日语整句模型 dict_japanese.dat'
-    Assert-PathExists -LiteralPath $japaneseModelLicense -Description 'Mozc 日语词典授权声明'
-    Assert-PathExists -LiteralPath $englishDb -Description '英文词库数据库 english.db'
+    Assert-PathExists -LiteralPath $englishDb -Description '英文词库数据库 msime-english.db'
     python -c @"
 import sqlite3, sys
 cols = list(sqlite3.connect(sys.argv[1]).execute('PRAGMA table_info(english_words)'))
 names = {row[1] for row in cols}
 pk = [row[1] for row in cols if row[5] > 0]
 if 'weight' not in names or pk != ['word', 'display']:
-    raise SystemExit('english.db schema is stale; rebuild with weight and PRIMARY KEY(word, display)')
+    raise SystemExit('msime-english.db schema is stale; rebuild with weight and PRIMARY KEY(word, display)')
 "@ $englishDb
     if ($LASTEXITCODE -ne 0) {
         throw "英文词库数据库 schema 检查失败：$englishDb"
     }
-    Assert-PathExists -LiteralPath $othersDb -Description '杂项数据库 others.db'
     # Validate source content before any existing package staging is removed.
-    if (-not (Get-Content -LiteralPath $pinyinTable | Where-Object { $_.Trim() -eq 'xing' })) {
-        throw "完整拼音音节表缺少 xing：$pinyinTable"
-    }
     $defaultConfig = Get-Content -LiteralPath $factoryConfig -Raw
     if ($defaultConfig -notmatch '(?m)^schema\s*=\s*"quanpin"\s*$') {
         throw '出厂配置的 input.schema 必须是 quanpin。'
@@ -231,11 +268,6 @@ if 'weight' not in names or pk != ['word', 'display']:
         throw '出厂配置不应默认打开 diagnostic_log。'
     }
     $defaultConfig = $defaultConfig.TrimEnd("`r", "`n") + "`r`n"
-}
-
-$hasHandwritingModel = Test-Path -LiteralPath $handwritingModel -PathType Leaf
-if ($hasHandwritingModel) {
-    Assert-PathExists -LiteralPath $handwritingLicense -Description '手写模型随附声明'
 }
 
 # On-device speech recognition. The Server loads sherpa-onnx-c-api.dll with LoadLibrary from its own directory, and onnxruntime.dll and its provider bridge resolve beside it, so all three ride in server_exe. Build-Client.ps1 stages them into the Server output; a separately fetched runtime directory is the fallback. The set is all or nothing: a partial one would install a recognizer that fails at first use, so it is refused here, before any previous staging is replaced. With none of them the package installs without local recognition, and a dictation set to the local provider says the component cannot be loaded.
@@ -268,31 +300,14 @@ $targetServer = Join-Path $PSScriptRoot 'server_exe'
 $targetTsf = Join-Path $PSScriptRoot 'tsf_dll'
 
 if ($Light) {
-    Write-Host '轻量模式：跳过词库、辅助码、拼音表和出厂配置，刷新 TSF、Server 与 Tauri。'
+    Write-Host '轻量模式：跳过词库、辅助码和出厂配置，刷新 TSF、Server 与 Tauri。'
     New-Item -ItemType Directory -Path $targetAppData -Force | Out-Null
 }
 else {
     Reset-Directory -LiteralPath $targetAppData
-    Copy-Item -LiteralPath $pinyinTable -Destination (Join-Path $targetAppData 'pinyin.txt') -Force
-    Copy-Item -LiteralPath $dictionaryDb -Destination (Join-Path $targetAppData 'msime.db') -Force
-    if (Test-Path -LiteralPath $dictionaryManifest) {
-        Copy-Item -LiteralPath $dictionaryManifest -Destination (Join-Path $targetAppData 'dictionary-manifest.json') -Force
-    }
-    Copy-Item -LiteralPath $japaneseModel -Destination (Join-Path $targetAppData 'dict_japanese.dat') -Force
-    Copy-Item -LiteralPath $japaneseModelLicense -Destination (Join-Path $targetAppData 'MOZC_DICTIONARY_LICENSE.txt') -Force
-    Copy-Item -LiteralPath $englishDb -Destination (Join-Path $targetAppData 'english.db') -Force
-    Copy-Item -LiteralPath $othersDb -Destination (Join-Path $targetAppData 'others.db') -Force
-
     $defaultConfigPath = Join-Path $targetAppData 'config.default.toml'
-    # 出厂配置来自本仓库的 default_config，不依赖本机是否已安装输入法。
-    # 安装脚本用 onlyifdoesntexist 生成用户 config.toml，升级不会覆盖已有方案/主题。
+    # 出厂配置来自本仓库的 default_config，不依赖本机是否已安装输入法。安装脚本用 onlyifdoesntexist 生成用户 config.toml，升级不会覆盖已有方案/主题。
     Set-Content -LiteralPath $defaultConfigPath -Value $defaultConfig -Encoding utf8NoBOM -NoNewline
-    foreach ($stagedUserConfig in @('config.toml', 'config.base.toml')) {
-        $stagedPath = Join-Path $targetAppData $stagedUserConfig
-        if (Test-Path -LiteralPath $stagedPath) {
-            Remove-Item -LiteralPath $stagedPath -Force
-        }
-    }
 
     $targetHelpcodes = Join-Path $targetAppData 'helpcodes'
     Reset-Directory -LiteralPath $targetHelpcodes
@@ -300,20 +315,14 @@ else {
         Copy-Item -Destination $targetHelpcodes -Force
 }
 
-$targetHtml = Join-Path $targetAppData 'html'
 $targetAudios = Join-Path $targetAppData 'audios'
 Copy-DirectoryContents -Source $audioSource -Destination $targetAudios
 # The built-in sound packs, synthesized by scripts/generate_sound_packs.py. The Server names DataDir\sound-packs to client-core as the built-in pack root; installed packs live under DataDir\plugins, which is user state.
 $targetSoundPacks = Join-Path $targetAppData 'sound-packs'
 Reset-Directory -LiteralPath $targetSoundPacks
 Copy-DirectoryContents -Source (Join-Path $RepoRoot 'resources/sound-packs') -Destination $targetSoundPacks
-if (Test-Path -LiteralPath $targetHtml) {
-    # Remove obsolete package staging, not the user's installed files.
-    Remove-Item -LiteralPath $targetHtml -Recurse -Force
-}
 
-# Server Release 输出整体复制，但测试程序及其 PDB 绝不能进入安装包。
-# 其他 PDB 保留在对应 EXE 旁边，方便安装后直接进行崩溃分析。
+# Server Release 输出整体复制，但测试程序及其 PDB 绝不能进入安装包。其他 PDB 照常暂存在对应 EXE 旁边，供发布流程打成单独的符号包；msime_setup.iss 不把 PDB 和 .ilk 装到用户机器上。
 Reset-Directory -LiteralPath $targetServer
 Copy-DirectoryContents -Source $serverRelease -Destination $targetServer
 # Match ShellSurfaces.h, independent of Cargo/Tauri's build artifact filename.
@@ -333,8 +342,7 @@ if ($previewSource) {
         Copy-Item -LiteralPath $previewPdbSource -Destination (Join-Path $targetServer 'MSIME.pdb') -Force
     }
 }
-# Inno recursively installs server_exe under Program Files. Keep these verified
-# read-only sources separate from legacy app_data and per-user writable state.
+# Inno recursively installs server_exe under Program Files. Keep these verified read-only sources separate from app_data and per-user writable state.
 $targetResources = Join-Path $targetServer 'resources'
 if ($Light -and (Test-Path -LiteralPath $targetResources)) {
     # Do not inherit a stale bundle from a reused native build directory.
@@ -349,58 +357,17 @@ if (-not $Light) {
     # that only passed its preflight hash check.
     $null = & (Join-Path $PSScriptRoot 'Get-VerifiedDesktopResources.ps1') `
         -SourceDirectory $targetResources `
-        -ManifestPath (Join-Path $RepoRoot 'resources/desktop-dictionary.lock.json')
+        -ManifestPath $resourceLock
 }
-# 落定重排模型，装在资源目录的**同级**而不是里面。
-#
-# 装在里面会被上面那次复验当场拒绝：它要求那个目录恰好等于词库锁钉死的产物集，
-# 而那道校验的职责正是证明已发布的词库完整。prepare_host_configuration 去找的
-# 就是这个同级目录，找到才会把路径写进运行时配置。
-#
-# 可选：25MB 换的是桌面独有的提升（收割集 top-1 0.123 → 0.613），
-# 用 scripts/fetch_settled_model.py 取。没有就不装，行为与今天一致。
-$settledSource = Join-Path $RepoRoot 'target/settled-model'
-# fetch_neural_model.py stages both presets together. Preserve the historical one-artifact path,
-# then fall back to the shared directory when it is the only prepared source.
-$neuralModelSource = Join-Path $RepoRoot 'target/neural-model'
-if (-not (Test-Path -LiteralPath (Join-Path $settledSource 'sentence-model-desktop.safetensors') -PathType Leaf) -and
-    (Test-Path -LiteralPath (Join-Path $neuralModelSource 'sentence-model-desktop.safetensors') -PathType Leaf)) {
-    $settledSource = $neuralModelSource
-}
-$settledTarget = Join-Path $targetServer 'settled-model'
-if (Test-Path -LiteralPath $settledTarget) {
-    Remove-Item -LiteralPath $settledTarget -Recurse -Force
-}
-if (-not $Light) {
-    $settledLock = Join-Path $RepoRoot 'resources/settled-model.lock.json'
-    $settledManifest = Get-Content -LiteralPath $settledLock -Raw | ConvertFrom-Json
-    $settledFiles = @()
-    foreach ($artifact in $settledManifest.artifacts) {
-        $candidate = Join-Path $settledSource ([string]$artifact.name)
-        if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) { $settledFiles = @(); break }
-        $file = Get-Item -LiteralPath $candidate -Force
-        if (($file.Attributes -band [IO.FileAttributes]::ReparsePoint) -or
-            $file.Length -ne $artifact.size -or
-            (Get-FileHash -LiteralPath $candidate -Algorithm SHA256).Hash -ne $artifact.sha256) {
-            throw "落定模型 $($artifact.name) 与锁文件不符"
-        }
-        $settledFiles += $file.FullName
-    }
-    if ($settledFiles.Count -gt 0) {
-        New-Item -ItemType Directory -Path $settledTarget -Force | Out-Null
-        foreach ($file in $settledFiles) { Copy-Item -LiteralPath $file -Destination $settledTarget -Force }
-        Write-Host "落定重排模型已装入：$settledTarget"
-    } else {
-        Write-Host "未找到落定重排模型（$settledSource），桌面落定重排保持关闭"
-    }
-}
-# Non-English candidate glosses (scripts/build_offline_glosses.py), one zh-<lang>.db per target language, installed beside resources for the same reason as the settled model: the verified directory must equal the dictionary lock exactly, and the Engine looks for them in this sibling. Optional; without them the candidate glosses stay English only.
+# 非英文的候选释义（scripts/build_offline_glosses.py），每种目标语言一个 zh-<lang>.db，装在 resources 旁边而不是里面：校验过的资源目录必须与词库锁完全一致，Engine 也到这个同级目录找它们。可选；没有时候选释义只有英文。
 $glossesSource = Join-Path $RepoRoot 'target/offline-glosses'
 $glossesTarget = Join-Path $targetServer 'offline-glosses'
 if (Test-Path -LiteralPath $glossesTarget) {
     Remove-Item -LiteralPath $glossesTarget -Recurse -Force
 }
-if (-not $Light) {
+if (-not $editionOfflineGlosses) {
+    Write-Host "版本 $Edition 不提供中文方案，不装非英文离线释义"
+} elseif (-not $Light) {
     $glossFiles = @()
     $glossNotice = Join-Path $glossesSource 'offline-glosses-NOTICE.txt'
     if (Test-Path -LiteralPath $glossNotice -PathType Leaf) {
@@ -415,15 +382,50 @@ if (-not $Light) {
         Write-Host "No offline glosses with their notice in $glossesSource; candidate glosses stay English only"
     }
 }
-# Both package modes replace Server output. Copy model resources afterwards,
-# otherwise Reset-Directory silently removes them from an otherwise valid package.
-if ($hasHandwritingModel) {
-    $targetHandwriting = Join-Path $targetServer 'handwriting'
-    New-Item -ItemType Directory -Path $targetHandwriting -Force | Out-Null
-    Copy-Item -LiteralPath $handwritingModel -Destination $targetHandwriting -Force
-    Copy-Item -LiteralPath $handwritingLicense -Destination $targetHandwriting -Force
-} else {
-    Write-Host "未找到手写模型，跳过：$handwritingModel"
+# 粤拼、注音和笔画词库（scripts/fetch_language_dictionaries.py 下载到 target/language-dictionaries，版本由 resources/language-dictionaries.lock.json 固定），和译文一样装在 resources 旁边：host-api 在那里找到 language-dictionaries 并写进运行时配置。可选；缺少词库时对应方案显示为不可用并退回上次的中文方案，越南文和藏文不需要数据。每个词库只随它的授权文本一起分发，授权文本必须跟着数据走。设置 MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1 时，没有带上 resources/language-dictionaries.lock.json 固定的每一个词库的包会失败。
+$languagesSource = Join-Path $RepoRoot 'target/language-dictionaries'
+$languagesTarget = Join-Path $targetServer 'language-dictionaries'
+if (Test-Path -LiteralPath $languagesTarget) {
+    Remove-Item -LiteralPath $languagesTarget -Recurse -Force
+}
+if (-not $Light) {
+    $stagedLanguages = @()
+    foreach ($pair in @(@('msime-cantonese.db', 'msime-rime_cantonese_LICENSE.txt'), @('msime-zhuyin.db', 'msime-libchewing_data_LICENSE.txt'), @('msime-stroke.db', 'msime-rime_stroke_LICENSE.txt'))) {
+        # 只带本版本的方案用得到的语言词库（版本表 language_dictionaries）。
+        if ($languageDictionaryNames -notcontains $pair[0]) { continue }
+        $database = Join-Path $languagesSource $pair[0]
+        $license = Join-Path $languagesSource $pair[1]
+        if (-not (Test-Path -LiteralPath $database -PathType Leaf)) { continue }
+        if (-not (Test-Path -LiteralPath $license -PathType Leaf)) {
+            throw "$database 旁边没有 $($pair[1])，不能在缺少授权声明的情况下打包这份数据"
+        }
+        New-Item -ItemType Directory -Path $languagesTarget -Force | Out-Null
+        Copy-Item -LiteralPath $database -Destination $languagesTarget -Force
+        Copy-Item -LiteralPath $license -Destination $languagesTarget -Force
+        $stagedLanguages += $pair[0]
+    }
+    if ($stagedLanguages.Count -gt 0) {
+        Write-Host "语言词库已装入（$($stagedLanguages -join ', ')）：$languagesTarget"
+    } else {
+        Write-Host "未找到语言词库（$languagesSource），粤拼、注音和笔画保持不可用"
+    }
+    # 发版要求的是本版本要带的（版本表 language_dictionaries）、resources/language-dictionaries.lock.json 又固定了的每一份词库，而不是写死的清单：还没发布的词库存在时照常装入，但不会让发版失败；发布它的那次锁更新会让它变成必需。
+    if ($env:MSIME_REQUIRE_LANGUAGE_DICTIONARIES -eq '1') {
+        $languagesLock = Join-Path $RepoRoot 'resources/language-dictionaries.lock.json'
+        if (-not (Test-Path -LiteralPath $languagesLock -PathType Leaf)) {
+            throw "MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1，但 $languagesLock 不存在"
+        }
+        $pinnedLanguages = @((Get-Content -LiteralPath $languagesLock -Raw -Encoding UTF8 | ConvertFrom-Json).artifacts | ForEach-Object { $_.name } | Where-Object { $_ -like '*.db' })
+        if ($pinnedLanguages.Count -eq 0) {
+            throw "MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1，但 $languagesLock 没有固定任何词库"
+        }
+        foreach ($pinned in $pinnedLanguages) {
+            if ($languageDictionaryNames -notcontains $pinned) { continue }
+            if ($stagedLanguages -notcontains $pinned) {
+                throw "MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1，但锁文件固定的 $pinned 没有从 $languagesSource 装入"
+            }
+        }
+    }
 }
 if ($null -eq $voiceRuntimeFrom) {
     Write-Host "未找到本地语音识别运行时（$voiceRuntimeSource），安装包不含本地语音识别"
@@ -439,25 +441,37 @@ Get-ChildItem -LiteralPath $targetServer -Recurse -File |
         (Test-PackageTestArtifact -BaseName $_.BaseName)
     } |
     Remove-Item -Force
+# CI 里 Server 输出目录同时也是 x64 TIP 的构建目录。TIP 和它的符号暂存在 tsf_dll\64 下，只从版本目录加载；宿主 DLL 和 TIP 的运行时 DLL 也从同一份 tsf_dll\64 进入 Server 目录（msime_setup.iss），所以它们都不重复暂存。Build-Client.ps1 也把宿主 DLL 的 PDB 留在这里；Collect-Symbols.ps1 直接从构建输出取它打进符号包，所以它完全不暂存。
+foreach ($name in @('MetasequoiaImeTsf.dll', 'MetasequoiaImeTsf.pdb', $hostDllName, 'msime_host_api.pdb') + @($tsf64Dependencies | ForEach-Object { Split-Path -Leaf $_ })) {
+    $staged = Join-Path $targetServer $name
+    if (Test-Path -LiteralPath $staged -PathType Leaf) { Remove-Item -LiteralPath $staged -Force }
+}
+
+# 版本声明（Edition::PACKAGE_MARKER_FILE）：MSIME.exe 和 msime-mcp.exe 从自己所在的 Server 目录读它，决定连哪个版本的 Server、用哪个状态目录。只有管理员能写 Program Files，普通进程改不了它。full 不带这个文件，包与引入版本之前相同。
+$editionMarker = Join-Path $targetServer 'edition.json'
+if (Test-Path -LiteralPath $editionMarker) { Remove-Item -LiteralPath $editionMarker -Force }
+if ($Edition -ne 'full') {
+    [IO.File]::WriteAllText($editionMarker, "{`"edition`": `"$Edition`"}`n", [Text.UTF8Encoding]::new($false))
+}
 
 Reset-Directory -LiteralPath $targetTsf
 $targetTsf32 = Join-Path $targetTsf '32'
 $targetTsf64 = Join-Path $targetTsf '64'
-New-Item -ItemType Directory -Path $targetTsf32, $targetTsf64 -Force | Out-Null
+$targetTsfArm64 = Join-Path $targetTsf 'arm64'
+New-Item -ItemType Directory -Path $targetTsf32, $targetTsf64, $targetTsfArm64 -Force | Out-Null
 Copy-Item -LiteralPath $tsf32Release -Destination $targetTsf32 -Force
 Copy-Item -LiteralPath $tsf32Pdb -Destination $targetTsf32 -Force
 Copy-Item -LiteralPath $tsf64Release -Destination $targetTsf64 -Force
 Copy-Item -LiteralPath $tsf64Pdb -Destination $targetTsf64 -Force
 Copy-Item -LiteralPath $tsf32Host -Destination $targetTsf32 -Force
 Copy-Item -LiteralPath $tsf64Host -Destination $targetTsf64 -Force
-foreach ($pair in @(@($tsf32Release, $targetTsf32), @($tsf64Release, $targetTsf64))) {
-    # Build-Client collects architecture-checked release dependencies beside TIP.
-    Get-ChildItem -LiteralPath (Split-Path -Parent $pair[0]) -File -Filter '*.dll' |
-        Where-Object { $_.Name -notin @('MetasequoiaImeTsf.dll', 'msime_host_api.dll') } |
-        Copy-Item -Destination $pair[1] -Force
-}
+# Arm64X TIP 的 ARM64EC 那一半导入 x64 宿主，它由 tsf_dll\64 那一份装进同一个版本目录；这里只放 TIP 和 ARM64 宿主。两者都静态链接 C 运行时，没有别的运行时 DLL。
+Copy-Item -LiteralPath $tsfArm64Release, $tsfArm64Pdb, $tsfArm64Host -Destination $targetTsfArm64 -Force
+# Build-Client 把检查过架构的发布依赖收集到 TIP 旁边；只复制上面列出的那些，绝不复制共用 x64 目录里的其余文件。
+foreach ($dependency in $tsf32Dependencies) { Copy-Item -LiteralPath $dependency -Destination $targetTsf32 -Force }
+foreach ($dependency in $tsf64Dependencies) { Copy-Item -LiteralPath $dependency -Destination $targetTsf64 -Force }
 Copy-Item -LiteralPath $appIcon -Destination (Join-Path $PSScriptRoot 'MetasequoiaIME.ico') -Force
-# rime-ice is GPL-3.0 and requires attribution, and its content forms the bulk of msime.db, so the
+# rime-ice is GPL-3.0 and requires attribution, and its content forms the bulk of msime-pinyin.db, so the
 # notice has to reach the user's disk rather than only exist in the source repository.
 Copy-Item -LiteralPath $thirdPartyNotices -Destination (Join-Path $PSScriptRoot 'THIRD_PARTY_NOTICES.txt') -Force
 # GPLv3 sections 4 and 6 require a copy of the licence to reach whoever receives the program, and the

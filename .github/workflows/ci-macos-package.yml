@@ -1,0 +1,180 @@
+name: macOS package
+
+# macOS 发布包的打包检查：发布包只带核心词库，日文词典、粤拼/注音词库和手写模型由 App 按需下载。这里在 PR 上确认核心词库的暂存规则、按需资源包仍能按锁文件下载，并在 Apple 芯片的 runner 上真打一次未签名的 universal 包，让打包脚本的问题在发布当天之前暴露出来。
+#
+# 这不是分支保护要求的检查。触发条件不按路径过滤，和 ci-macos.yml 一样在文件内部先算改动范围，没碰打包输入的 PR 里后面的 job 被 `if:` 跳过、上报 skipped。每周一次的定时运行不看路径，资源包地址失效最多隔一周就会报出来。
+
+on:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "41 19 * * 0"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    name: Decide whether the macOS package needs checking
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      package: ${{ steps.decide.outputs.package }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Classify the changed paths
+        id: decide
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          # 手动触发和定时运行一律检查：前者是有人明确要这一次，后者要发现的正是与改动无关的资源包地址失效。
+          if [[ "$GITHUB_EVENT_NAME" != pull_request ]]; then
+            echo "package=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          # 拿不到可比的两端时也检查，范围算不出来不等于没有改动。
+          if [[ ! "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || ! git cat-file -e "$BASE_SHA" 2>/dev/null || ! git cat-file -e "$HEAD_SHA" 2>/dev/null; then
+            echo "package=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          # PR 合并或关闭后合并引用被删，签出拿不到 head 提交，下面三个点的 diff 会直接报错（2026-10-02 #3118 合并 13 秒后才开跑的 iOS CI 就红在这里）。PR 已经不在了，不必构建。
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]] && ! git cat-file -e "$HEAD_SHA^{commit}" 2>/dev/null; then
+            printf 'package=false\n' >> "$GITHUB_OUTPUT"; echo "PR 的 head 提交已取不到（PR 已关闭），跳过。"; exit 0
+          fi
+          # 三个点：只看 PR 自己从分叉点起改了什么，理由见 ci-macos.yml 的同一段。
+          changed=$(git diff --name-only "$BASE_SHA...$HEAD_SHA")
+          printf '改动文件:\n%s\n' "$changed"
+          while IFS= read -r path; do
+            [[ -z "$path" ]] && continue
+            case "$path" in
+              # 打包输入：打包脚本、Tauri 的 macOS 资源声明、核心词库和三个资源包的锁、决定暂存与下载的 client-core 代码和示例、发布工作流和这个文件。scripts/test-macos-package-resources.py 核对这份清单覆盖了每个打包输入。
+              platforms/macos/package-release.sh|platforms/macos/stage-resources.sh|apps/desktop/src-tauri/tauri.macos.conf.json)
+                echo "package=true" >> "$GITHUB_OUTPUT"; echo "打包脚本改动: $path"; exit 0 ;;
+              resources/desktop-dictionary.lock.json|resources/language-dictionaries.lock.json|resources/handwriting-model.lock.json|resources/offline-glosses.lock.json)
+                echo "package=true" >> "$GITHUB_OUTPUT"; echo "资源锁改动: $path"; exit 0 ;;
+              crates/client-core/src/resources.rs|crates/client-core/src/resource_packs.rs|crates/client-core/src/voice/local_models.rs)
+                echo "package=true" >> "$GITHUB_OUTPUT"; echo "资源代码改动: $path"; exit 0 ;;
+              crates/client-core/examples/install_resources.rs|crates/client-core/examples/verify_resources.rs|crates/client-core/examples/install_resource_pack.rs)
+                echo "package=true" >> "$GITHUB_OUTPUT"; echo "资源示例改动: $path"; exit 0 ;;
+              .github/workflows/release-macos.yml|.github/workflows/ci-macos-package.yml)
+                echo "package=true" >> "$GITHUB_OUTPUT"; echo "工作流改动: $path"; exit 0 ;;
+            esac
+          done <<< "$changed"
+          echo "package=false" >> "$GITHUB_OUTPUT"
+          echo "本次改动不涉及 macOS 打包输入，跳过。"
+
+  layout:
+    name: Core-only resource layout
+    needs: changes
+    if: ${{ needs.changes.outputs.package == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {persist-credentials: false}
+      # install_resources 发现目录里已有校验通过的文件就不再下载；按锁文件的哈希做键，锁一变就重新下载。
+      - name: Cache the pinned desktop resources
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: target/desktop-resources
+          key: desktop-resources-${{ runner.os }}-${{ hashFiles('resources/desktop-dictionary.lock.json') }}
+      # Installs the toolchain rust-toolchain.toml pins.
+      - name: Install Rust
+        run: rustup toolchain install
+      - name: Install the pinned desktop resources
+        run: |
+          set -euo pipefail
+          mkdir -p target/desktop-resources
+          resources="$(cargo run --quiet --locked -p msime-client-core --example install_resources -- "$PWD/target/desktop-resources" | tail -n 1)"
+          test -d "$resources"
+          echo "MSIME_DESKTOP_RESOURCES=$resources" >> "$GITHUB_ENV"
+      - name: Stage the core-only resources
+        run: MSIME_MACOS_OMIT_ON_DEMAND=1 bash platforms/macos/stage-resources.sh "$MSIME_DESKTOP_RESOURCES"
+      - name: Check the staged layout
+        run: |
+          set -euo pipefail
+          staged=target/macos/EngineResources
+          test ! -e "$staged/msime-japanese.dat"
+          test ! -e "$staged/msime-mozc_dictionary_oss_README.txt"
+          test ! -e "$staged/msime-mozc_LICENSE.txt"
+          test -f "$staged/msime-pinyin.db"
+          test -f "$staged/msime-scowl_Copyright.txt"
+          test -f "$staged/helpcodes/helpcode.txt"
+          cargo run --quiet --locked -p msime-client-core --example verify_resources -- --omit-on-demand "$staged"
+          du -sk "$staged"
+      - name: Check the packaging contract
+        run: python3 scripts/test-macos-package-resources.py
+      # 与 App 运行时同一个安装器、同一组 URL 和 SHA-256：三个资源包都要能装上，发布出去的 App 才能补齐它们。
+      - name: Install every on-demand resource pack
+        run: cargo run --quiet --locked -p msime-client-core --example install_resource_pack -- "$RUNNER_TEMP/resource-pack-check"
+
+  package:
+    name: Unsigned universal package
+    needs: [changes, layout]
+    if: ${{ needs.changes.outputs.package == 'true' && github.event.pull_request.draft != true }}
+    runs-on: macos-15
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {persist-credentials: false}
+      - name: Install dependencies
+        run: brew install nlohmann-json
+      # 与 release-macos.yml 相同的 Sparkle 版本、摘要和缓存键。
+      - name: Cache the pinned Sparkle archive
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/sparkle-archive
+          key: sparkle-2.9.6-${{ runner.os }}-${{ hashFiles('platforms/macos/CMakeLists.txt') }}
+      - name: Prepare pinned Sparkle
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/sparkle-archive"
+          archive="$RUNNER_TEMP/sparkle-archive/Sparkle-2.9.6.tar.xz"
+          if [[ ! -f "$archive" ]]; then
+            curl --fail --location --retry 3 \
+              https://github.com/sparkle-project/Sparkle/releases/download/2.9.6/Sparkle-2.9.6.tar.xz \
+              --output "$archive"
+          fi
+          printf '%s  %s\n' \
+            '52bf9e88cdd972fc0c81501377a880e90d47031bd8ca5462488f843e2609e192' \
+            "$archive" | shasum -a 256 --check
+          rm -rf "$RUNNER_TEMP/sparkle"
+          mkdir -p "$RUNNER_TEMP/sparkle"
+          tar -xJf "$archive" -C "$RUNNER_TEMP/sparkle"
+          test -d "$RUNNER_TEMP/sparkle/Sparkle.framework"
+          echo "MSIME_SPARKLE_ROOT=$RUNNER_TEMP/sparkle" >> "$GITHUB_ENV"
+      - name: Enable pnpm
+        run: corepack enable
+      - name: Add the Rust targets for the universal package
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+      - name: Fetch the locked offline candidate glosses
+        run: python3 scripts/fetch_offline_glosses.py
+      # 不签名、不公证：没有 MACOS_SIGNING_IDENTITY 时 package-release.sh 用 ad-hoc 签名，其余步骤和发布完全相同，包括编译前的资源包可下载检查和 check_app 的缺席与体积检查。
+      - name: Build the macOS package
+        run: bash platforms/macos/package-release.sh "$(tr -d '[:space:]' < platforms/macos/version.txt)" "$RUNNER_TEMP/dist"
+      - name: Report the package
+        run: |
+          set -euo pipefail
+          ls -l "$RUNNER_TEMP/dist"
+          {
+            echo '### macOS package (unsigned)'
+            echo
+            echo '```'
+            ls -l "$RUNNER_TEMP/dist"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload the package
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: msime-macos-package-${{ github.run_id }}
+          path: ${{ runner.temp }}/dist/
+          retention-days: 7
+          if-no-files-found: error

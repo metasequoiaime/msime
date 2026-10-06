@@ -8,9 +8,45 @@
       "repository": "https://github.com/iDvel/rime-ice.git",
       "commit": "9e66b0729083b37d217312294f6d516c8d7234be"
     },
-    "msime-dictionary": {
-      "repository": "https://github.com/metasequoiaime/msime-dictionary.git",
-      "commit": "74bca9d467e1db0cd7a8b5295fcf363da9cbd2fb"
+    "rime-cantonese": {
+      "repository": "https://github.com/rime/rime-cantonese.git",
+      "commit": "259f0e48bba840c3a2e0d117539e96937f3d89bc"
+    },
+    "hkcancor": {
+      "repository": "https://github.com/fcbond/hkcancor.git",
+      "commit": "39aeadf920e0b5ca93d0ad7792c59e740e7bdd65"
+    },
+    "libchewing-data": {
+      "repository": "https://github.com/chewing/libchewing-data.git",
+      "commit": "c44e81aef24b06f1509f19e1be54c99812d0c43f"
+    },
+    "rime-stroke": {
+      "repository": "https://github.com/rime/rime-stroke.git",
+      "commit": "1e8fff9b9494ddec23b0cbc526bcfd8171a6fd48"
+    },
+    "libhangul": {
+      "repository": "https://github.com/libhangul/libhangul.git",
+      "commit": "717409ce61524bb3d8426060a384822f21354c62"
+    },
+    "rime-ice-supplement": {
+      "repository": "https://github.com/iDvel/rime-ice.git",
+      "commit": "3aea6d3694fb3d94ec663641f021f788822897ad"
+    },
+    "McBopomofo": {
+      "repository": "https://github.com/openvanilla/McBopomofo.git",
+      "commit": "be6564acad6c4d3265c34a2e1a872d80f9db6068"
+    },
+    "SCOWL": {
+      "repository": "https://github.com/en-wl/wordlist.git",
+      "commit": "7e99edab8e32f9f9ea2b15f249ca8d4d67237410"
+    },
+    "98wubi-tables": {
+      "repository": "https://github.com/yanhuacuo/98wubi-tables.git",
+      "commit": "6b8b6fb9d3c34e0d5e3b17211e1f1c100e7eb697"
+    },
+    "fcitx5-table-extra": {
+      "repository": "https://github.com/fcitx/fcitx5-table-extra.git",
+      "commit": "dbc7154a7f0b9fc04313160ae8066ed4d8cbc446"
     }
   },
   "mozc": {
@@ -25,160 +61,10 @@
   },
   "files": [
     {
-      "path": "custom/words.txt",
-      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/sources-v1.0.0/words.txt",
-      "sha256": "59e189b701a616129df3a184c8d71eb29b420619fdee6d40680ea7df37829d88",
-      "size": 907
-    },
-    {
-      "path": "custom/translations.txt",
-      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/sources-v1.0.0/translations.txt",
-      "sha256": "39f999b2a15d58f2a48e1980c875cf0686bfa3486d7bff439fd7a7dfb3c72b25",
-      "size": 7964
-    },
-    {
-      "path": "custom/english.txt",
-      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/sources-v1.0.0/english.txt",
-      "sha256": "c9960707a92783def0fa916540f6b787bf101674982cb42a909339a21ac73693",
-      "size": 111
-    },
-    {
-      "path": "cn/SingleCharsAllV1.txt",
-      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/sources-v1.0.0/SingleCharsAllV1.txt",
-      "sha256": "18d133c146ba3a398e915721f0b1603af37fff76864e40a89cb1bb5b0c3906fc",
-      "size": 595605
-    },
-    {
-      "path": "cn/BaseDictIceV1.txt",
-      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/sources-v1.0.0/BaseDictIceV1.txt",
-      "sha256": "d364637b9e27bb9b1c325971a4fa587e371ee3f98807b407744da345b876d4ec",
-      "size": 28521963
-    },
-    {
-      "path": "cn/Wubi86.txt",
-      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/sources-v1.0.0/Wubi86.txt",
-      "sha256": "5bf365976a8d896cdb42d3a8766544604275bec5d78952e71aee1747fd7145db",
-      "size": 1319422
-    },
-    {
-      "path": "en/BaseDictIceEn.txt",
-      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/sources-v1.0.0/BaseDictIceEn.txt",
-      "sha256": "d8e063481a29d87b762a33d58de7c5098fbabaf0f719e16a2a5a4538a0d7a8cf",
-      "size": 399282
-    },
-    {
-      "path": "en/google_count_1_w.txt",
-      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/sources-v1.0.0/google_count_1_w.txt",
-      "sha256": "c71de38c5a4e97e08192fb1c74fc3395d68782bbc2d6dea190c6c90542b06c1f",
-      "size": 4956240
-    },
-    {
-      "path": "cn/SingleCharWhitelist.txt",
-      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/sources-v1.0.0/SingleCharWhitelist.txt",
-      "sha256": "40b1dd89ce4686ee324d4037c220235f625db76ef3c8c40e6cb5d3a8fb603593",
-      "size": 62329
-    },
-    {
-      "path": "cn/BaseDictAllV1Part1.txt",
-      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/sources-v1.0.0/BaseDictAllV1Part1.txt",
-      "sha256": "d9a8abe964801cf0d0128757482e98fe2944ade111648c284fd0d5dc41c23d2d",
-      "size": 29916127
-    },
-    {
-      "path": "cn/BaseDictAllV1Part2.txt",
-      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/sources-v1.0.0/BaseDictAllV1Part2.txt",
-      "sha256": "ed8ce77dd9a7bbef7c77a8f2193befc0919a1b81ef29e09360014f67cec8b52a",
-      "size": 11383877
-    },
-    {
-      "path": "en/oaldpe_words.txt",
-      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/sources-v1.0.0/oaldpe_words.txt",
-      "sha256": "60cd73f0df66c502693981d77c80373c38d79ff3d06c4c4071a32688929b49e2",
-      "size": 1478040
-    },
-    {
       "path": "ecdict/ecdict.csv",
       "url": "https://raw.githubusercontent.com/skywind3000/ECDICT/bc015ed2e24a7abef49fc6dbbb7fe32c1dadaf8b/ecdict.csv",
       "sha256": "1a6947e04785db63613a92e14903cdae7954f7e84860b10e68e5c7cbb3f9c3cf",
       "size": 65933428
-    },
-    {
-      "path": "mozc/dictionary00.txt",
-      "url": "https://raw.githubusercontent.com/google/mozc/9fbd649bea4c5e99cd8ad5e487213b26a953a376/src/data/dictionary_oss/dictionary00.txt",
-      "sha256": "9e07ce292932c4fff327ed8cb06274c09acca556bd8bdf7c7ef1f6173eae3b61",
-      "size": 7157174
-    },
-    {
-      "path": "mozc/dictionary01.txt",
-      "url": "https://raw.githubusercontent.com/google/mozc/9fbd649bea4c5e99cd8ad5e487213b26a953a376/src/data/dictionary_oss/dictionary01.txt",
-      "sha256": "836fd5fd8399510de0d8ef7b33be913cca6bbaee7b712cc8045fba03f4c75a89",
-      "size": 6428663
-    },
-    {
-      "path": "mozc/dictionary02.txt",
-      "url": "https://raw.githubusercontent.com/google/mozc/9fbd649bea4c5e99cd8ad5e487213b26a953a376/src/data/dictionary_oss/dictionary02.txt",
-      "sha256": "93943858d0cfd092b849a78def6901eaf228177e1ac5663544e865a3a1e45a9e",
-      "size": 6480134
-    },
-    {
-      "path": "mozc/dictionary03.txt",
-      "url": "https://raw.githubusercontent.com/google/mozc/9fbd649bea4c5e99cd8ad5e487213b26a953a376/src/data/dictionary_oss/dictionary03.txt",
-      "sha256": "cb9f1b0b4a7550d682d86244a021cd17e0b15366328819e69135b5f183a1a24b",
-      "size": 7434257
-    },
-    {
-      "path": "mozc/dictionary04.txt",
-      "url": "https://raw.githubusercontent.com/google/mozc/9fbd649bea4c5e99cd8ad5e487213b26a953a376/src/data/dictionary_oss/dictionary04.txt",
-      "sha256": "9fdc4e3948d03463de13ab5782adffbc11dd06e934cb80138c5920029cd3d2f6",
-      "size": 5399172
-    },
-    {
-      "path": "mozc/dictionary05.txt",
-      "url": "https://raw.githubusercontent.com/google/mozc/9fbd649bea4c5e99cd8ad5e487213b26a953a376/src/data/dictionary_oss/dictionary05.txt",
-      "sha256": "199e3b0f050b691823ae7ba943090d437f51af6436b27c5f3dc69cafa12000e4",
-      "size": 5316454
-    },
-    {
-      "path": "mozc/dictionary06.txt",
-      "url": "https://raw.githubusercontent.com/google/mozc/9fbd649bea4c5e99cd8ad5e487213b26a953a376/src/data/dictionary_oss/dictionary06.txt",
-      "sha256": "b95b14f7770ae2a824bc8e9fad8b03c1bc45c504f93a36554b8b56daa0368d2a",
-      "size": 5373350
-    },
-    {
-      "path": "mozc/dictionary07.txt",
-      "url": "https://raw.githubusercontent.com/google/mozc/9fbd649bea4c5e99cd8ad5e487213b26a953a376/src/data/dictionary_oss/dictionary07.txt",
-      "sha256": "7f53649b529d4c8c495d3a8dd9c4d489dfe7696080f7423107ff01331174be48",
-      "size": 5315756
-    },
-    {
-      "path": "mozc/dictionary08.txt",
-      "url": "https://raw.githubusercontent.com/google/mozc/9fbd649bea4c5e99cd8ad5e487213b26a953a376/src/data/dictionary_oss/dictionary08.txt",
-      "sha256": "50a31bb5fc1646721b00be371a5695dffab1292bda143e1e59cc70cbbdd8643f",
-      "size": 4887114
-    },
-    {
-      "path": "mozc/dictionary09.txt",
-      "url": "https://raw.githubusercontent.com/google/mozc/9fbd649bea4c5e99cd8ad5e487213b26a953a376/src/data/dictionary_oss/dictionary09.txt",
-      "sha256": "4e5fcd4cbfbf11395166a37b506f547fc54d20edc0884f5184ecd3fc705f0d9a",
-      "size": 6690572
-    },
-    {
-      "path": "mozc/connection_single_column.txt",
-      "url": "https://raw.githubusercontent.com/google/mozc/9fbd649bea4c5e99cd8ad5e487213b26a953a376/src/data/dictionary_oss/connection_single_column.txt",
-      "sha256": "68823a1f6617372ccb89afdbcb334d7a0bcfa82c9c5dda03fc1f80f1cab5c48e",
-      "size": 36428642
-    },
-    {
-      "path": "mozc/id.def",
-      "url": "https://raw.githubusercontent.com/google/mozc/9fbd649bea4c5e99cd8ad5e487213b26a953a376/src/data/dictionary_oss/id.def",
-      "sha256": "07a05a268c3783b7e02b36e4aa591555a2dd19a1f3c93891576740761c154f2d",
-      "size": 151747
-    },
-    {
-      "path": "mozc/README.txt",
-      "url": "https://raw.githubusercontent.com/google/mozc/9fbd649bea4c5e99cd8ad5e487213b26a953a376/src/data/dictionary_oss/README.txt",
-      "sha256": "6b1de66bc6fa30e0b45dc45b8c8f6c57bd78aff923c261a3efffac8eb86f7bac",
-      "size": 5750
     },
     {
       "path": "ngram-corpus/zhwiki-20260901-pages-articles1.xml-p1p187712.bz2",
@@ -203,6 +89,360 @@
       "url": "https://raw.githubusercontent.com/modood/Administrative-divisions-of-China/c49d495b40ac73eb1a66f6eeae5f8fd10696f035/dist/areas.csv",
       "sha256": "169b8d99654c28cbd285e771e00688837f77af8d50c2b703592146388d2a99ab",
       "size": 85403
+    },
+    {
+      "path": "scowl/aspell6-en-2026.02.25-0.tar.bz2",
+      "url": "https://github.com/en-wl/wordlist/releases/download/rel-2026.02.25/aspell6-en-2026.02.25-0.tar.bz2",
+      "sha256": "77a5cb437c45d1115f3b593802c20651d8c93803ed1073278dc1a1240016f10d",
+      "size": 185418
+    },
+    {
+      "path": "hkcancor/FC-001_v2",
+      "url": "https://raw.githubusercontent.com/fcbond/hkcancor/39aeadf920e0b5ca93d0ad7792c59e740e7bdd65/data/utf8/FC-001_v2",
+      "sha256": "88e96e59bd07b84dfcbaa3b5961a09d643cdc27a9e4a032c7e96b1eb65c52a21",
+      "size": 51976
+    },
+    {
+      "path": "hkcancor/FC-005a_v2",
+      "url": "https://raw.githubusercontent.com/fcbond/hkcancor/39aeadf920e0b5ca93d0ad7792c59e740e7bdd65/data/utf8/FC-005a_v2",
+      "sha256": "9cc3b4e7b98acef70a503aa856514246b6a6a2a96e170a8aa206130cd0cc9b04",
+      "size": 52006
+    },
+    {
+      "path": "hkcancor/FC-005b_v2",
+      "url": "https://raw.githubusercontent.com/fcbond/hkcancor/39aeadf920e0b5ca93d0ad7792c59e740e7bdd65/data/utf8/FC-005b_v2",
+      "sha256": "f79404a77d68f50b7c1524afb296600ce68305350246e6582449a3cefee4856b",
+      "size": 60344
+    },
+    {
+      "path": "hkcancor/FC-009b_v",
+      "url": "https://raw.githubusercontent.com/fcbond/hkcancor/39aeadf920e0b5ca93d0ad7792c59e740e7bdd65/data/utf8/FC-009b_v",
+      "sha256": "ea5294181dcbfecca72e413e7c65c34299732486d6edc67e588073f50f8a0aec",
+      "size": 29651
+    },
+    {
+      "path": "hkcancor/FC-011_v",
+      "url": "https://raw.githubusercontent.com/fcbond/hkcancor/39aeadf920e0b5ca93d0ad7792c59e740e7bdd65/data/utf8/FC-011_v",
+      "sha256": "c67b706c2e6340b0fad09c9de8abf2277bdeefbddcbad8ed128550db32e12b3c",
+      "size": 30819
+    },
+    {
+      "path": "hkcancor/FC-012_v",
+      "url": "https://raw.githubusercontent.com/fcbond/hkcancor/39aeadf920e0b5ca93d0ad7792c59e740e7bdd65/data/utf8/FC-012_v",
+      "sha256": "6d1664fa2ff9de0e172f84c9f96cda6d700fa4ac7e9e724e2a14bc402ca9c97c",
+      "size": 109735
+    },
+    {
+      "path": "hkcancor/FC-013_v",
+      "url": "https://raw.githubusercontent.com/fcbond/hkcancor/39aeadf920e0b5ca93d0ad7792c59e740e7bdd65/data/utf8/FC-013_v",
+      "sha256": "41de103f8068e462ce138cae94f73269c580d439eda63d2a1a62374705a0d2bd",
+      "size": 46376
+    },
+    {
+      "path": "hkcancor/FC-018_v",
+      "url": "https://raw.githubusercontent.com/fcbond/hkcancor/39aeadf920e0b5ca93d0ad7792c59e740e7bdd65/data/utf8/FC-018_v",
+      "sha256": "ab2b90d636f5a9d866e3fa7c924f2413322e1d8db59e4cc4f4e3f5c88b067897",
+      "size": 64255
+    },
+    {
+      "path": "hkcancor/FC-019_v",
+      "url": "https://raw.githubusercontent.com/fcbond/hkcancor/39aeadf920e0b5ca93d0ad7792c59e740e7bdd65/data/utf8/FC-019_v",
+      "sha256": "64042d9f956b59fda5358b0309547ad2fd3dee5d01d99053e7117cbf26501853",
+      "size": 43870
+    },
+    {
+      "path": "hkcancor/FC-020_v",
+      "url": "https://raw.githubusercontent.com/fcbond/hkcancor/39aeadf920e0b5ca93d0ad7792c59e740e7bdd65/data/utf8/FC-020_v",
+      "sha256": "7a7f2397b50bc0d956ddb30e5639768c8148e8c3386619dab8ffccf148d9e84b",
+      "size": 166439
+    },
+    {
+      "path": "hkcancor/FC-022a_v",
+      "url": "https://raw.githubusercontent.com/fcbond/hkcancor/39aeadf920e0b5ca93d0ad7792c59e740e7bdd65/data/utf8/FC-022a_v",
+      "sha256": "905c97ca9b79cbcc90b0c17a79fc16d8875553920b7b6a8115a1cb90f5ee6016",
+      "size": 39112
+    },
+    {
+      "path": "hkcancor/FC-022b_v",
+      "url": "https://raw.githubusercontent.com/fcbond/hkcancor/39aeadf920e0b5ca93d0ad7792c59e740e7bdd65/data/utf8/FC-022b_v",
+      "sha256": "9ad23a73d0f065e1436e14aa18900d31dc12237755a11e572494ffdc53c53714",
+      "size": 73991
+    },
+    {
+      "path": "hkcancor/FC-025_v",
+      "url": "https://raw.githubusercontent.com/fcbond/hkcancor/39aeadf920e0b5ca93d0ad7792c59e740e7bdd65/data/utf8/FC-025_v",
+      "sha256": "55acc1b4358c8b4cc38e90e783d1e18172cc2ea1286533218127c816d872a280",
+      "size": 151990
+    },
+    {
+      "path": "hkcancor/FC-026_v2",
+      "url": "https://raw.githubusercontent.com/fcbond/hkcancor/39aeadf920e0b5ca93d0ad7792c59e740e7bdd65/data/utf8/FC-026_v2",
+      "sha256": "9b4f94ccc891dcc3595ffbe831a5914b5a4e9c8d3892f6b4ebfc5bb905ff7c98",
+      "size": 118015
+    },
+    {
+      "path": "hkcancor/FC-027_v2",
+      "url": "https://raw.githubusercontent.com/fcbond/hkcancor/39aeadf920e0b5ca93d0ad7792c59e740e7bdd65/data/utf8/FC-027_v2",
+      "sha256": "502e50e7a478550a5956863fe6f45044c1b7612b9c6cdac56066c987d67951d0",
+      "size": 136033
+    },
+    {
+      "path": "hkcancor/FC-028_v2",
+      "url": "https://raw.githubusercontent.com/fcbond/hkcancor/39aeadf920e0b5ca93d0ad7792c59e740e7bdd65/data/utf8/FC-028_v2",
+      "sha256": "6e3c53d98c47b7dcedb45906703237f8ffc2ece6439bfa5e1e29d00d35f01510",
+      "size": 119717
+    },
+    {
+      "path": "hkcancor/FC-029_v",
+      "url": "https://raw.githubusercontent.com/fcbond/hkcancor/39aeadf920e0b5ca93d0ad7792c59e740e7bdd65/data/utf8/FC-029_v",
+      "sha256": "f28b4b25bd7716941c01eecd24e734a8705e4ce4a35b1a29869eda35d53f404c",
+      "size": 129360
+    },
+    {
+      "path": "hkcancor/FC-033_v2",
+      "url": "https://raw.githubusercontent.com/fcbond/hkcancor/39aeadf920e0b5ca93d0ad7792c59e740e7bdd65/data/utf8/FC-033_v2",
+      "sha256": "a77521b30e6251f6cfb86f636892b887549fbea036ee0bee30a29079cab3d631",
+      "size": 51863
+    },
+    {
+      "path": "hkcancor/FC-035_v2",
+      "url": "https://raw.githubusercontent.com/fcbond/hkcancor/39aeadf920e0b5ca93d0ad7792c59e740e7bdd65/data/utf8/FC-035_v2",
+      "sha256": "395fe7c477b6c0b6995c48015924a2c9b06e070998410619196a79531c3b2bd3",
+      "size": 63766
+    },
+    {
+      "path": "hkcancor/FC-038a_v2",
+      "url": "https://raw.githubusercontent.com/fcbond/hkcancor/39aeadf920e0b5ca93d0ad7792c59e740e7bdd65/data/utf8/FC-038a_v2",
+      "sha256": "ae7a97a6b1dac420f2c9a0feb5db2290417bc2d0446e3d0e63fa19a37a5ba3d9",
+      "size": 58831
+    },
+    {
+      "path": "hkcancor/FC-038b_v2",
+      "url": "https://raw.githubusercontent.com/fcbond/hkcancor/39aeadf920e0b5ca93d0ad7792c59e740e7bdd65/data/utf8/FC-038b_v2",
+      "sha256": "cf398da70e7e5a2460c91013d732042ce43cd95c746b528a6950dcc480d80a0b",
+      "size": 65098
+    },
+    {
+      "path": "hkcancor/FC-042_v",
+      "url": "https://raw.githubusercontent.com/fcbond/hkcancor/39aeadf920e0b5ca93d0ad7792c59e740e7bdd65/data/utf8/FC-042_v",
+      "sha256": "6ffc676918327783d76e6780d38a4f87752ad10bfddf27c38dacde06e9538566",
+      "size": 29177
+    },
+    {
+      "path": "hkcancor/FC-044_v2",
+      "url": "https://raw.githubusercontent.com/fcbond/hkcancor/39aeadf920e0b5ca93d0ad7792c59e740e7bdd65/data/utf8/FC-044_v2",
+      "sha256": "361968d7024796893ec45cf2acc392df3a7e5f1d46baeb7b24b577abbd305355",
+      "size": 99495
+    },
+    {
+      "path": "hkcancor/FC-045_v2",
+      "url": "https://raw.githubusercontent.com/fcbond/hkcancor/39aeadf920e0b5ca93d0ad7792c59e740e7bdd65/data/utf8/FC-045_v2",
+      "sha256": "9461933e7c58dcabb46e754cdc8fd8e95dadd7f7d30a56ad32bd42af6c44fb36",
+      "size": 77592
+    },
+    {
+      "path": "hkcancor/FC-046_v2",
+      "url": "https://raw.githubusercontent.com/fcbond/hkcancor/39aeadf920e0b5ca93d0ad7792c59e740e7bdd65/data/utf8/FC-046_v2",
+      "sha256": "31b5c1e6f8532b4c3a576dd09b72178cbcfe1fd28b5fd1be1e23e36ea07285d7",
+      "size": 62665
+    },
+    {
+      "path": "hkcancor/FC-048_v2",
+      "url": "https://raw.githubusercontent.com/fcbond/hkcancor/39aeadf920e0b5ca93d0ad7792c59e740e7bdd65/data/utf8/FC-048_v2",
+      "sha256": "c45198e25b4f5721cef7d9d0f26c02c8e90f47eb0b83e16cd2af5b3afa6b4ee8",
+      "size": 77577
+    },
+    {
+      "path": "hkcancor/FC-049_v2",
+      "url": "https://raw.githubusercontent.com/fcbond/hkcancor/39aeadf920e0b5ca93d0ad7792c59e740e7bdd65/data/utf8/FC-049_v2",
+      "sha256": "ad42dfe984b884e8f5e9597ccf7420a62e9a8660f42aeba105f415da9010e91f",
+      "size": 58052
+    },
+    {
+      "path": "hkcancor/FC-052_v2",
+      "url": "https://raw.githubusercontent.com/fcbond/hkcancor/39aeadf920e0b5ca93d0ad7792c59e740e7bdd65/data/utf8/FC-052_v2",
+      "sha256": "0f07b189c02c716d919aab91efc1fcd5d2ceb7ecf6527935f540c98c9a61212a",
+      "size": 34674
+    },
+    {
+      "path": "hkcancor/FC-053_v2",
+      "url": "https://raw.githubusercontent.com/fcbond/hkcancor/39aeadf920e0b5ca93d0ad7792c59e740e7bdd65/data/utf8/FC-053_v2",
+      "sha256": "4c6c0a2617fec6874b1a26529d58f63e9bce2899c453f1a99855084d506bf86f",
+      "size": 30956
+    },
+    {
+      "path": "hkcancor/FC-055_v2",
+      "url": "https://raw.githubusercontent.com/fcbond/hkcancor/39aeadf920e0b5ca93d0ad7792c59e740e7bdd65/data/utf8/FC-055_v2",
+      "sha256": "1bbad12ffb420b5742ee1822da213173e93b1d63c574b9fd4cc5d64e103fac9a",
+      "size": 94185
+    },
+    {
+      "path": "hkcancor/FC-056_v2",
+      "url": "https://raw.githubusercontent.com/fcbond/hkcancor/39aeadf920e0b5ca93d0ad7792c59e740e7bdd65/data/utf8/FC-056_v2",
+      "sha256": "ffceafcdf1d2450a5e173641064836ecdcbe95846715042fb2812489eb8b3c18",
+      "size": 29765
+    },
+    {
+      "path": "hkcancor/FC-101_v2",
+      "url": "https://raw.githubusercontent.com/fcbond/hkcancor/39aeadf920e0b5ca93d0ad7792c59e740e7bdd65/data/utf8/FC-101_v2",
+      "sha256": "8d462a0358b277af8bed8a8e7d7a734b57fff6fa53ec4856f6274ddceb16d439",
+      "size": 33203
+    },
+    {
+      "path": "hkcancor/FC-103_v2",
+      "url": "https://raw.githubusercontent.com/fcbond/hkcancor/39aeadf920e0b5ca93d0ad7792c59e740e7bdd65/data/utf8/FC-103_v2",
+      "sha256": "3b412c8eaacb9fa38121dad6e3b64177cc53cbaa2bf07b4dec89a36bb81488d8",
+      "size": 74788
+    },
+    {
+      "path": "hkcancor/FC-104_v2",
+      "url": "https://raw.githubusercontent.com/fcbond/hkcancor/39aeadf920e0b5ca93d0ad7792c59e740e7bdd65/data/utf8/FC-104_v2",
+      "sha256": "2b38f8383a2f3d1c6588dce455a59f8d199b1d857e7ed3649c70e3223a5174c5",
+      "size": 66345
+    },
+    {
+      "path": "hkcancor/FC-105_v2",
+      "url": "https://raw.githubusercontent.com/fcbond/hkcancor/39aeadf920e0b5ca93d0ad7792c59e740e7bdd65/data/utf8/FC-105_v2",
+      "sha256": "9dbae563dc77bee946012c9c94d11ade481678e9be5b81c52800769dd9101174",
+      "size": 76838
+    },
+    {
+      "path": "hkcancor/FC-106a_v2",
+      "url": "https://raw.githubusercontent.com/fcbond/hkcancor/39aeadf920e0b5ca93d0ad7792c59e740e7bdd65/data/utf8/FC-106a_v2",
+      "sha256": "f37108099ea7aba7ffa1b4f820532494dab4a293e6bc157ca54514e274172c75",
+      "size": 43510
+    },
+    {
+      "path": "hkcancor/FC-106b_v2",
+      "url": "https://raw.githubusercontent.com/fcbond/hkcancor/39aeadf920e0b5ca93d0ad7792c59e740e7bdd65/data/utf8/FC-106b_v2",
+      "sha256": "464df85996cf19a5c5d102b9cac0526f85a3203a552b2e390e5311a9d4cd8507",
+      "size": 28432
+    },
+    {
+      "path": "hkcancor/FC-107_v2",
+      "url": "https://raw.githubusercontent.com/fcbond/hkcancor/39aeadf920e0b5ca93d0ad7792c59e740e7bdd65/data/utf8/FC-107_v2",
+      "sha256": "3a95f67ce22cbb25a1e43c9e7fa82b49b0c15d42567debda12752833d5f4fcd4",
+      "size": 81101
+    },
+    {
+      "path": "hkcancor/FC-108a_v2",
+      "url": "https://raw.githubusercontent.com/fcbond/hkcancor/39aeadf920e0b5ca93d0ad7792c59e740e7bdd65/data/utf8/FC-108a_v2",
+      "sha256": "b2cded9c3de1db8faa15b576cea223103d64da7b34784b0ba149580bba34483d",
+      "size": 124988
+    },
+    {
+      "path": "hkcancor/FC-108c_v2",
+      "url": "https://raw.githubusercontent.com/fcbond/hkcancor/39aeadf920e0b5ca93d0ad7792c59e740e7bdd65/data/utf8/FC-108c_v2",
+      "sha256": "d00baeb5b1819399eafd317e2bec137ef7188de465e9729211967bc88d6f8db6",
+      "size": 127019
+    },
+    {
+      "path": "hkcancor/FC-108d_v2",
+      "url": "https://raw.githubusercontent.com/fcbond/hkcancor/39aeadf920e0b5ca93d0ad7792c59e740e7bdd65/data/utf8/FC-108d_v2",
+      "sha256": "25f74678d7ec45fd69145bd9c11dcaf6feb0a0bb2694b7b429f29f7ac5549e98",
+      "size": 66677
+    },
+    {
+      "path": "hkcancor/FC-109a_v2",
+      "url": "https://raw.githubusercontent.com/fcbond/hkcancor/39aeadf920e0b5ca93d0ad7792c59e740e7bdd65/data/utf8/FC-109a_v2",
+      "sha256": "5391d6621c408e3aa6bf289cef2085d40223b64bb762fcb891048df2b3bcf569",
+      "size": 103548
+    },
+    {
+      "path": "hkcancor/FC-R002a_v2",
+      "url": "https://raw.githubusercontent.com/fcbond/hkcancor/39aeadf920e0b5ca93d0ad7792c59e740e7bdd65/data/utf8/FC-R002a_v2",
+      "sha256": "2e0efa849d03f93953aaa6f84305c46e88bc462068d22609f68431d627128f9a",
+      "size": 53565
+    },
+    {
+      "path": "hkcancor/FC-R002b_v2",
+      "url": "https://raw.githubusercontent.com/fcbond/hkcancor/39aeadf920e0b5ca93d0ad7792c59e740e7bdd65/data/utf8/FC-R002b_v2",
+      "sha256": "bbb736eee6631228776a26da4e2cf7b9c78fe5850dbfaf9992df448c6b774b6b",
+      "size": 54731
+    },
+    {
+      "path": "hkcancor/FC-R003_v2",
+      "url": "https://raw.githubusercontent.com/fcbond/hkcancor/39aeadf920e0b5ca93d0ad7792c59e740e7bdd65/data/utf8/FC-R003_v2",
+      "sha256": "2ad29826afa48129b73dfb6fbd8f56e5941f2d5237f536c20616f97f226ecf91",
+      "size": 30973
+    },
+    {
+      "path": "hkcancor/FC-R004_v2",
+      "url": "https://raw.githubusercontent.com/fcbond/hkcancor/39aeadf920e0b5ca93d0ad7792c59e740e7bdd65/data/utf8/FC-R004_v2",
+      "sha256": "9e899ee7e2b37c6c6ab521e97635c64f0dfdfa3e22c5ee5275c67a2ea5a78aa0",
+      "size": 55515
+    },
+    {
+      "path": "hkcancor/FC-R005_v2",
+      "url": "https://raw.githubusercontent.com/fcbond/hkcancor/39aeadf920e0b5ca93d0ad7792c59e740e7bdd65/data/utf8/FC-R005_v2",
+      "sha256": "ed5caeedaf96b7169a4344fb536cf7fb2fc163338751a6b7346552bbd0c00f1b",
+      "size": 41940
+    },
+    {
+      "path": "hkcancor/FC-R006_v2",
+      "url": "https://raw.githubusercontent.com/fcbond/hkcancor/39aeadf920e0b5ca93d0ad7792c59e740e7bdd65/data/utf8/FC-R006_v2",
+      "sha256": "27c4b224b2b5fa9adf2efbc9a16831da873398b42172b9afe23ec18a9c3b7533",
+      "size": 24112
+    },
+    {
+      "path": "hkcancor/FC-R007_v2",
+      "url": "https://raw.githubusercontent.com/fcbond/hkcancor/39aeadf920e0b5ca93d0ad7792c59e740e7bdd65/data/utf8/FC-R007_v2",
+      "sha256": "6ed1884efbf36b8436b7ce71b14c797f0a8af6a8dfd89f559fde8b2fb5a848f6",
+      "size": 47135
+    },
+    {
+      "path": "hkcancor/FC-R009_v",
+      "url": "https://raw.githubusercontent.com/fcbond/hkcancor/39aeadf920e0b5ca93d0ad7792c59e740e7bdd65/data/utf8/FC-R009_v",
+      "sha256": "38b3e596e657a5aa32193cba3d69266139cd40ea6101cec911365d63bc907a03",
+      "size": 22376
+    },
+    {
+      "path": "hkcancor/FC-R010a_v",
+      "url": "https://raw.githubusercontent.com/fcbond/hkcancor/39aeadf920e0b5ca93d0ad7792c59e740e7bdd65/data/utf8/FC-R010a_v",
+      "sha256": "18ba831e634f2a9bc2ec1e2edfc4b0a271c0d3913e358463c2f53e518afd195d",
+      "size": 46280
+    },
+    {
+      "path": "hkcancor/FC-R010b_v",
+      "url": "https://raw.githubusercontent.com/fcbond/hkcancor/39aeadf920e0b5ca93d0ad7792c59e740e7bdd65/data/utf8/FC-R010b_v",
+      "sha256": "76562970a8b1eb859021ac01eef14399959b9facbf44edc715406d4cae7dee5b",
+      "size": 42158
+    },
+    {
+      "path": "hkcancor/FC-R011_v",
+      "url": "https://raw.githubusercontent.com/fcbond/hkcancor/39aeadf920e0b5ca93d0ad7792c59e740e7bdd65/data/utf8/FC-R011_v",
+      "sha256": "3aab00d9bc8fda821c0337c7b6a7d37bf0cd88bbeb9aeaaa3ff3d605d3102372",
+      "size": 41853
+    },
+    {
+      "path": "hkcancor/FC-R013a_v",
+      "url": "https://raw.githubusercontent.com/fcbond/hkcancor/39aeadf920e0b5ca93d0ad7792c59e740e7bdd65/data/utf8/FC-R013a_v",
+      "sha256": "78f798450858bb7e85a2b5a9a74fddad1f87725168185fa139cc7479def2cfa9",
+      "size": 68183
+    },
+    {
+      "path": "hkcancor/FC-R013b_v",
+      "url": "https://raw.githubusercontent.com/fcbond/hkcancor/39aeadf920e0b5ca93d0ad7792c59e740e7bdd65/data/utf8/FC-R013b_v",
+      "sha256": "98a52fff82703594a49629e8ab0555e0141354bd0a379c93ec8b6ecb1bdf45f9",
+      "size": 61583
+    },
+    {
+      "path": "hkcancor/FC-R016_v",
+      "url": "https://raw.githubusercontent.com/fcbond/hkcancor/39aeadf920e0b5ca93d0ad7792c59e740e7bdd65/data/utf8/FC-R016_v",
+      "sha256": "0be309681b7afe28db469c37e58f8913e18c331a90e0b9044f70fbb65c0562b6",
+      "size": 33228
+    },
+    {
+      "path": "hkcancor/FC-R017_v",
+      "url": "https://raw.githubusercontent.com/fcbond/hkcancor/39aeadf920e0b5ca93d0ad7792c59e740e7bdd65/data/utf8/FC-R017_v",
+      "sha256": "db049bf7a0762ca8baf34b1f9d962904862b009ff836dc18b70a9419c4caabe9",
+      "size": 111763
+    },
+    {
+      "path": "hkcancor/FC-R018_v",
+      "url": "https://raw.githubusercontent.com/fcbond/hkcancor/39aeadf920e0b5ca93d0ad7792c59e740e7bdd65/data/utf8/FC-R018_v",
+      "sha256": "b3094d7996651745f36d1ee1e1ab77c9f296f886c1fdfebf1d5b6e924524201a",
+      "size": 42091
     }
   ]
 }

@@ -8,6 +8,7 @@ import font from '@ohos.font';
 import vibrator from '@ohos.vibrator';
 import deviceInfo from '@ohos.deviceInfo';
 import http from '@ohos.net.http';
+import { installNoRedirectGuard } from '../network/HarmonyHttpSecurity';
 import webSocket from '@ohos.net.webSocket';
 import util from '@ohos.util';
 import fs from '@ohos.file.fs';
@@ -15,6 +16,7 @@ import fileUri from '@ohos.file.fileuri';
 import { KeyboardLog, describeError } from '../keyboard/KeyboardLog';
 import { KeyboardSession } from '../keyboard/KeyboardSession';
 import { StagedResources } from '../keyboard/StagedResources';
+import { KeyboardScheme } from '../keyboard/KeyboardScheme';
 import { HarmonyAccountCloudBridge } from '../account/HarmonyAccountCloudBridge';
 import { HarmonyAiSkins } from '../account/HarmonyAiSkins';
 import { utf8Length } from '../keyboard/Utf8';
@@ -44,6 +46,9 @@ import { SettingsFormFactorCapabilities, SettingsFormFactorProjection }
   from '../keyboard/settings/SettingsFormFactorCapabilities';
 import { LocalVoiceModelAction, LocalVoiceModelPolicy } from '../keyboard/settings/LocalVoiceModelPolicy';
 import { AiAuthenticationPolicy } from '../keyboard/settings/AiAuthenticationPolicy';
+import { HarmonyTelemetry } from '../telemetry/Telemetry';
+import { TelemetryPolicy } from '../telemetry/TelemetryPolicy';
+import { NoticeItem, NoticePolicy } from '../notices/NoticePolicy';
 
 /** `{root}` for the list, `{root, id, mirror}` for an install, `{root, id}` for a removal, `{id}` for a cancel. */
 interface LocalVoiceModelRequest {
@@ -63,12 +68,6 @@ interface KeyboardFeedbackReply {
   ok: boolean;
   value: MobileKeyboardFeedback;
   error: string;
-}
-
-/** One custom-translation operation from the page: load or save. */
-interface CustomTranslationAction {
-  operation: string;
-  text?: string;
 }
 
 interface ExportSaveRequest {
@@ -98,9 +97,6 @@ interface OnboardingReply {
   ready: boolean;
   error: string;
 }
-
-/** A megabyte is far more than a hand-written overlay needs and small enough to keep on a phone. */
-const CUSTOM_TRANSLATIONS_MAX_BYTES: number = 1024 * 1024;
 
 /** The installed family names, or a refusal the page can report rather than an empty list. */
 interface FontFamilyReply {
@@ -132,6 +128,14 @@ interface VoiceCaptureDeviceReply {
 
 const BRIDGE_NAME: string = 'msimeHarmony';
 const PLATFORM: string = 'harmony';
+
+/** `{directory, platform, channel}` for `client.notices`; `{directory, id}` for `client.noticeDismiss`. */
+interface NoticesRequest {
+  directory: string;
+  platform?: string;
+  channel?: string;
+  id?: string;
+}
 
 /** One AI skin request from the page: start a run, or stop the one under that id. */
 interface AiSkinAction {
@@ -247,6 +251,8 @@ interface VocabularyRequest {
   directory: string;
   day: string;
   action: VocabularyAction;
+  /** 插件目录：其中的单词本插件列进书目。只在声明了 `wordbook_packs` 的形态（2in1）上传，手机不传。 */
+  plugins?: string;
 }
 
 interface VocabularyAction {
@@ -477,6 +483,12 @@ struct Settings {
   private controller: web_webview.WebviewController = new web_webview.WebviewController();
   private context: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
   private bridge: SettingsBridge = new SettingsBridge();
+  // Notices from the MSIME service that the user has not dismissed, newest first; the card shows the first.
+  @State notices: NoticeItem[] = [];
+  private noticeController: web_webview.WebviewController = new web_webview.WebviewController();
+  private noticeAttached: boolean = false;
+  // The notice whose body the card's web view holds, so a refresh that changes nothing does not reload it.
+  private noticeShown: string = '';
 
   aboutToAppear(): void {
     this.bridge.attach(this.context);
@@ -484,7 +496,120 @@ struct Settings {
     // Started here rather than on demand: the page reads the answer synchronously, and the reply
     // carries whether it is ready so the page waits instead of acting on a default.
     this.bridge.prepareOnboarding();
-    EntryAbility.onActivated = (): void => this.bridge.refreshPreferencesIfChanged();
+    this.loadNotices();
+    EntryAbility.onActivated = (): void => {
+      this.bridge.refreshPreferencesIfChanged();
+      this.loadNotices();
+    };
+  }
+
+  /**
+   * Fetches the notices when the window opens or comes back to the front, never on a timer: client-core answers from its copy for a minute after a fetch, which is as often as the service wants to be asked.
+   */
+  private loadNotices(): void {
+    const request: NoticesRequest = {
+      directory: `${this.context.filesDir}/state/notices`, platform: PLATFORM, channel: 'app'
+    };
+    client.notices(JSON.stringify(request)).then((reply: string): void => {
+      this.notices = NoticePolicy.items(reply);
+      this.renderNotice();
+    }).catch((error: Error): void => {
+      KeyboardLog.error(`notices unavailable: ${describeError(error)}`);
+    });
+  }
+
+  private dismissNotice(id: string): void {
+    const request: NoticesRequest = { directory: `${this.context.filesDir}/state/notices`, id: id };
+    const reply: string = client.noticeDismiss(JSON.stringify(request));
+    if (!NoticePolicy.accepted(reply)) {
+      KeyboardLog.error(`notice dismissal not saved: ${reply}`);
+    }
+    this.notices = NoticePolicy.without(this.notices, id);
+    this.renderNotice();
+  }
+
+  /** Loads the first notice's body into the card, as base64 so no character in it is read as part of a data URL. */
+  private renderNotice(): void {
+    if (this.notices.length === 0) {
+      // The card and its web view leave the page; a later notice attaches a new one.
+      this.noticeAttached = false;
+      this.noticeShown = '';
+      return;
+    }
+    if (!this.noticeAttached || this.notices[0].id === this.noticeShown) {
+      return;
+    }
+    const notice: NoticeItem = this.notices[0];
+    try {
+      const bytes: Uint8Array = util.TextEncoder.create('utf-8').encodeInto(NoticePolicy.page(notice.html));
+      this.noticeController.loadData(new util.Base64Helper().encodeToStringSync(bytes), 'text/html', 'base64');
+      this.noticeShown = notice.id;
+    } catch (error) {
+      KeyboardLog.error(`notice not shown: ${describeError(error)}`);
+    }
+  }
+
+  /** A link in a notice opens in the system browser or mail application, never inside the card. */
+  private openNoticeLink(url: string): void {
+    const link: string | null = NoticePolicy.externalLink(url);
+    if (link === null) {
+      KeyboardLog.error('refused to open a notice link');
+      return;
+    }
+    const want: Want = { action: 'ohos.want.action.viewData', entities: ['entity.system.browsable'], uri: link };
+    this.context.startAbility(want).catch((error: Object): void => {
+      KeyboardLog.error(`notice link would not open: ${describeError(error)}`);
+    });
+  }
+
+  @Builder
+  noticeCard() {
+    Column() {
+      Row() {
+        Text(this.notices[0].title)
+          .fontSize(16)
+          .fontWeight(FontWeight.Medium)
+          .fontColor($r('sys.color.ohos_id_color_text_primary'))
+          .layoutWeight(1)
+          .maxLines(2)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+        Button() {
+          Text('✕').fontSize(14).fontColor($r('sys.color.ohos_id_color_text_secondary'))
+        }
+        .type(ButtonType.Circle)
+        .width(32)
+        .height(32)
+        .backgroundColor(Color.Transparent)
+        .accessibilityText('关闭公告')
+        .onClick((): void => this.dismissNotice(this.notices[0].id))
+      }
+      .width('100%')
+      Web({ src: 'about:blank', controller: this.noticeController })
+        .javaScriptAccess(false)
+        .domStorageAccess(false)
+        .fileAccess(false)
+        .onlineImageAccess(false)
+        .backgroundColor(Color.Transparent)
+        .onControllerAttached((): void => {
+          this.noticeAttached = true;
+          this.noticeShown = '';
+          this.renderNotice();
+        })
+        .onLoadIntercept((event: OnLoadInterceptEvent): boolean => {
+          const url: string = event.data.getRequestUrl();
+          if (NoticePolicy.ownPage(url)) {
+            return false;
+          }
+          this.openNoticeLink(url);
+          return true;
+        })
+        .width('100%')
+        .height(96)
+    }
+    .padding({ left: 16, right: 8, top: 8, bottom: 8 })
+    .margin({ left: 12, right: 12, top: 8, bottom: 4 })
+    .borderRadius(16)
+    .backgroundColor($r('sys.color.ohos_id_color_card_bg'))
   }
 
   aboutToDisappear(): void {
@@ -495,6 +620,9 @@ struct Settings {
 
   build() {
     Column() {
+      if (this.notices.length > 0) {
+        this.noticeCard()
+      }
       Web({ src: $rawfile('settings/index.html'), controller: this.controller })
         .javaScriptAccess(true)
         .domStorageAccess(true)
@@ -512,7 +640,7 @@ struct Settings {
                 'customSkinLibrary', 'dictionaryManifest', 'dictionary', 'cloudDictionaryDownload',
                 'typingStatistics', 'vocabularyReview', 'openExternalUrl', 'copyText',
                 'openSystemKeyboardSettings', 'listVoiceCaptureDevices', 'listFontFamilies',
-                'keyboardFeedback', 'customTranslations', 'onboardingStatus',
+                'keyboardFeedback', 'onboardingStatus',
                 'showInputMethodPicker', 'importSkinFolder', 'startRequest', 'plugins'],
               []);
           } catch (error) {
@@ -520,7 +648,7 @@ struct Settings {
           }
         })
         .width('100%')
-        .height('100%')
+        .layoutWeight(1)
     }
     .width('100%')
     .height('100%')
@@ -561,6 +689,8 @@ class SettingsBridge {
     // it too, and two staging rules for one directory is how it came to hold a set matching neither.
     StagedResources.stage(`${context.resourceDir}/engine`, `${context.filesDir}/engine`,
       `${context.filesDir}/engine.ready`);
+    // Here as well as in the keyboard, so the page offers Cantonese, Zhuyin and Stroke (see hostCapabilities) before the keyboard has ever run.
+    StagedResources.stageLanguageDictionaries(context.resourceDir, context.filesDir);
   }
 
 
@@ -675,15 +805,20 @@ class SettingsBridge {
     }
     const destination: string = `${this.stateDirectory}/skins/${name}`;
     try {
-      if (!fs.accessSync(`${this.stateDirectory}/skins`)) {
-        fs.mkdirSync(`${this.stateDirectory}/skins`, true);
+      const skinsDirectory: string = `${this.stateDirectory}/skins`;
+      if (!this.safeDirectory(this.stateDirectory)) {
+        return JSON.stringify({ ok: false, error: '导入失败' });
+      }
+      if (!fs.accessSync(skinsDirectory)) fs.mkdirSync(skinsDirectory, true);
+      if (!this.safeDirectory(skinsDirectory)) {
+        return JSON.stringify({ ok: false, error: '导入失败' });
       }
       if (fs.accessSync(destination)) {
         // Replacing rather than merging: a half-overwritten skin is a skin whose stylesheet and
         // assets come from two different versions, which the catalog would list and then draw wrong.
         StagedResources.removeDirectory(destination);
       }
-      fs.copyDirSync(picked[0], `${this.stateDirectory}/skins`, 1);
+      fs.copyDirSync(picked[0], skinsDirectory, 1);
     } catch (error) {
       KeyboardLog.error(`skin import failed: ${describeError(error)}`);
       return JSON.stringify({ ok: false, error: '导入失败' } as TextReply);
@@ -786,8 +921,12 @@ class SettingsBridge {
     const staging: string = `${directory}/${util.generateRandomUUID(false)}.txt`;
     let destination: string = '';
     try {
-      if (!fs.accessSync(directory)) {
-        fs.mkdirSync(directory, true);
+      if (!this.safeDirectory(this.stateDirectory)) {
+        return JSON.stringify({ ok: false, error: 'export_storage' });
+      }
+      if (!fs.accessSync(directory)) fs.mkdirSync(directory, true);
+      if (!this.safeDirectory(directory) || this.symbolicLink(staging)) {
+        return JSON.stringify({ ok: false, error: 'export_storage' });
       }
       const file: fs.File = fs.openSync(staging, fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
       try {
@@ -946,7 +1085,18 @@ class SettingsBridge {
     }
     const staging: string = `${context.cacheDir}/plugin-import/${util.generateRandomUUID(false)}`;
     try {
+      const pluginRoot: string = `${context.cacheDir}/plugin-import`;
+      if (!this.safeDirectory(context.cacheDir)) {
+        return JSON.stringify({ ok: false, error: 'storage' });
+      }
+      if (!fs.accessSync(pluginRoot)) fs.mkdirSync(pluginRoot, true);
+      if (!this.safeDirectory(pluginRoot)) {
+        return JSON.stringify({ ok: false, error: 'storage' });
+      }
       fs.mkdirSync(staging, true);
+      if (!this.safeDirectory(staging)) {
+        return JSON.stringify({ ok: false, error: 'storage' });
+      }
       let source: string;
       if (folder) {
         source = `${staging}/${PluginImportPolicy.FOLDER_NAME}`;
@@ -980,9 +1130,7 @@ class SettingsBridge {
       return JSON.stringify({ ok: false, error: 'storage' });
     } finally {
       try {
-        if (fs.accessSync(staging)) {
-          fs.rmdirSync(staging);
-        }
+        StagedResources.removeDirectory(staging);
       } catch (error) {
         KeyboardLog.error(`plugin import staging not removed: ${describeError(error)}`);
       }
@@ -1243,6 +1391,10 @@ class SettingsBridge {
   savePreferences(expectedRevision: number, document: string): string {
     const reply: string = client.savePreferences(this.stateDirectory, expectedRevision, document);
     this.rememberRevision(reply);
+    // Turning usage reporting off drops what is queued at once rather than at the next start; the keyboard's running session goes with it.
+    if (TelemetryPolicy.reportingTurnedOff(document, reply)) {
+      HarmonyTelemetry.reportingTurnedOff(this.stateDirectory);
+    }
     return PreferencesErrorCode.rewrite(reply);
   }
 
@@ -1254,6 +1406,13 @@ class SettingsBridge {
    * it the feedback page names the platform and quotes the web view's user agent, which identifies
    * the browser engine rather than the system a report would have to be reproduced on.
    */
+  /** Whether an input scheme's dictionary, if it needs one, is in the staged language-dictionaries directory. */
+  private languageDictionaryInstalled(scheme: string): boolean {
+    const file: string | null = KeyboardScheme.languageDictionary(scheme);
+    return file === null
+      || (this.context !== undefined && fs.accessSync(`${this.context.filesDir}/language-dictionaries/${file}`));
+  }
+
   hostCapabilities(): string {
     const document: string = client.hostCapabilities(PLATFORM);
     const release: string | null = OsVersionPolicy.release(deviceInfo.osFullName);
@@ -1290,8 +1449,16 @@ class SettingsBridge {
       value['music'] = projection.music;
       value['plugin_triggers'] = projection.pluginTriggers;
       value['typing_effects'] = projection.typingEffects;
+      value['wordbook_packs'] = projection.wordbookPacks;
+      value['symbol_set_packs'] = projection.symbolSetPacks;
       if (release !== null) {
         value['os_version'] = release;
+      }
+      // Cantonese, Zhuyin and Stroke are offered only with their dictionary installed, as the desktop app's `drop_uninstalled_language_schemes` does; the keyboard leaves such a scheme out of its picker by the same rule.
+      const schemes: Object | undefined = value['input_schemes'];
+      if (Array.isArray(schemes)) {
+        value['input_schemes'] = (schemes as string[]).filter((scheme: string): boolean =>
+          this.languageDictionaryInstalled(scheme));
       }
       return JSON.stringify(reply);
     } catch (error) {
@@ -1336,7 +1503,8 @@ class SettingsBridge {
       const code: string = entry.code;
       const word: string = entry.word;
       const weight: number = entry.weight;
-      if (typeof kind !== 'string' || !['pinyin', 'wubi', 'quick', 'english'].includes(kind)
+      // `wubi98` 落到本地同名的 98 五笔个人词库，与 `wubi` 分开。
+      if (typeof kind !== 'string' || !['pinyin', 'wubi', 'wubi98', 'quick', 'english'].includes(kind)
         || typeof code !== 'string' || code.length === 0 || code.length > 256
         || typeof word !== 'string' || word.length === 0 || word.length > 1024
         || typeof weight !== 'number' || !Number.isInteger(weight) || weight < 0) {
@@ -1420,6 +1588,10 @@ class SettingsBridge {
         day: `${now.getFullYear()}-${month}-${date}`,
         action: action,
       };
+      // 与设置页拿到的 `wordbook_packs` 能力同一个来源：没有这项能力的形态不列单词本插件。
+      if (SettingsFormFactorCapabilities.resolve(deviceInfo.deviceType).wordbookPacks) {
+        request.plugins = `${this.stateDirectory}/plugins`;
+      }
       return client.vocabularyReview(JSON.stringify(request));
     } catch (error) {
       KeyboardLog.error(`vocabulary review failed: ${describeError(error)}`);
@@ -1494,6 +1666,7 @@ class SettingsBridge {
     let cursor: string = '';
     for (let pageNumber: number = 0; pageNumber < 10; pageNumber += 1) {
       const httpRequest = http.createHttp();
+      installNoRedirectGuard(httpRequest);
       try {
         const headers: AiModelHeaders = anthropic
           ? {
@@ -1569,6 +1742,7 @@ class SettingsBridge {
     const header: Record<string, string> = AiAuthenticationPolicy.headers(endpoint, token);
     header['Content-Type'] = 'application/json';
     const httpRequest = http.createHttp();
+    installNoRedirectGuard(httpRequest);
     try {
       const response: http.HttpResponse = await httpRequest.request(endpoint, {
         method: http.RequestMethod.POST,
@@ -1655,6 +1829,7 @@ class SettingsBridge {
     };
     if (apiKey.length > 0) headers.Authorization = `Bearer ${apiKey}`;
     const request = http.createHttp();
+    installNoRedirectGuard(request);
     try {
       const response: http.HttpResponse = await request.request(endpoint, {
         method: http.RequestMethod.POST,
@@ -1700,6 +1875,7 @@ class SettingsBridge {
     const authorization: string = await tencentAuthorization(
       secretId, secretKey, timestamp, date, bodyDocument);
     const request = http.createHttp();
+    installNoRedirectGuard(request);
     try {
       const response: http.HttpResponse = await request.request('https://tmt.tencentcloudapi.com', {
         method: http.RequestMethod.POST,
@@ -1749,6 +1925,7 @@ class SettingsBridge {
       `authStr=${encodeURIComponent(authStr)}`
     ].join('&');
     const request = http.createHttp();
+    installNoRedirectGuard(request);
     try {
       const response: http.HttpResponse = await request.request(
         'https://api.niutrans.com/v2/text/translate', {
@@ -1795,6 +1972,7 @@ class SettingsBridge {
     if (provider === 'deepseek') body.thinking = { type: 'disabled' };
     if (provider === 'siliconflow') body.enable_thinking = false;
     const request = http.createHttp();
+    installNoRedirectGuard(request);
     try {
       const response: http.HttpResponse = await request.request(endpoint, {
         method: http.RequestMethod.POST,
@@ -1835,6 +2013,7 @@ class SettingsBridge {
     const boundary: string = '----MSIMEHarmonyCredentialProbe';
     const body: ArrayBuffer = this.silentMultipart(boundary, model);
     const request = http.createHttp();
+    installNoRedirectGuard(request);
     try {
       const response: http.HttpResponse = await request.request(endpoint, {
         method: http.RequestMethod.POST,
@@ -2079,7 +2258,7 @@ class SettingsBridge {
   openExternalUrl(url: string): void {
     // Only the two schemes a settings page has any business opening; anything else is not a link the
     // page should be able to make this application follow.
-    if (!url.startsWith('https://') && !url.startsWith('http://')) {
+    if (!TextPolicy.validExternalWebUrl(url)) {
       KeyboardLog.error('refused to open a non-web link');
       return;
     }
@@ -2145,59 +2324,20 @@ class SettingsBridge {
     }
   }
 
-  /**
-   * The user's own candidate glosses.
-   *
-   * Windows documents dropping a `custom_translations.txt` into the profile directory. The Engine
-   * reads it on every host — `prepare_translation_sidecar` looks in the user data directory before
-   * the resources — but nobody can put a file in an application sandbox, so the settings page is
-   * the only way in here. It writes to the same place the Engine already looks.
-   *
-   * Not the staged resource directory: that one is verified against the pinned lock down to
-   * containing no extra file, and a sidecar dropped there would stop the keyboard from starting.
-   */
-  customTranslations(request: string): string {
-    let action: CustomTranslationAction;
+  private safeDirectory(directory: string): boolean {
     try {
-      action = JSON.parse(request) as CustomTranslationAction;
-    } catch (error) {
-      return JSON.stringify({ ok: false, value: '', error: '无效的请求' } as TextReply);
+      const stat: fs.Stat = fs.lstatSync(directory);
+      return !stat.isSymbolicLink() && stat.isDirectory();
+    } catch {
+      return false;
     }
-    const file: string = `${this.stateDirectory}/user/custom_translations.txt`;
-    if (action.operation === 'save') {
-      const text: string = action.text ?? '';
-      if (utf8Length(text) > CUSTOM_TRANSLATIONS_MAX_BYTES) {
-        return JSON.stringify({ ok: false, value: '', error: '自定义释义过大' } as TextReply);
-      }
-      try {
-        fs.mkdirSync(`${this.stateDirectory}/user`, true);
-        if (text.trim().length === 0) {
-          // An empty document means "no overlay"; the bridge removes the file rather than leaving
-          // one the Engine would read as an empty set every session.
-          if (fs.accessSync(file)) {
-            fs.unlinkSync(file);
-          }
-          return JSON.stringify({ ok: true, value: '', error: '' } as TextReply);
-        }
-        const handle = fs.openSync(file,
-          fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
-        try {
-          fs.writeSync(handle.fd, text);
-        } finally {
-          fs.closeSync(handle);
-        }
-        return JSON.stringify({ ok: true, value: '', error: '' } as TextReply);
-      } catch (error) {
-        KeyboardLog.error(`custom translations not saved: ${describeError(error)}`);
-        return JSON.stringify({ ok: false, value: '', error: '自定义释义未能保存' } as TextReply);
-      }
-    }
+  }
+
+  private symbolicLink(path: string): boolean {
     try {
-      const text: string = fs.accessSync(file) ? fs.readTextSync(file) : '';
-      return JSON.stringify({ ok: true, value: text, error: '' } as TextReply);
-    } catch (error) {
-      KeyboardLog.error(`custom translations unreadable: ${describeError(error)}`);
-      return JSON.stringify({ ok: false, value: '', error: '自定义释义无法读取' } as TextReply);
+      return fs.lstatSync(path).isSymbolicLink();
+    } catch {
+      return false;
     }
   }
 

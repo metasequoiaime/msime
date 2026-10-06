@@ -1,4 +1,7 @@
 /target/
+# `nix build` 在当前目录留下的输出链接。
+/result
+/result-*
 # Every platform keeps its build output in its own target/ (platforms/ios/target/sim-shots, a stray platforms/target/linux), and checks that import sibling modules leave bytecode caches next to them. Neither should depend on a contributor's global ignore file.
 /platforms/*/target/
 /platforms/target/
@@ -34,6 +37,7 @@ local.properties
 
 # Local editor and coding-agent state. Contributor machines differ; none of it
 # describes the project.
+tasks/
 .gitnexus
 .vscode/
 .idea/

@@ -13,7 +13,9 @@ import {
 } from "@msime/ui";
 
 const renderSkinPreview = vi.hoisted(() => vi.fn());
-vi.mock("../../../../packages/ui/src/skin/skin-preview-render", () => ({ renderSkinPreview }));
+vi.mock("../../../../packages/ui/src/skin/skin-preview-render", () => ({
+  renderSkinPreview,
+}));
 
 afterEach(() => {
   cleanup();
@@ -106,6 +108,11 @@ function client(
       owned: true,
       visibility,
     })),
+    setCategory: vi.fn().mockImplementation(async (id: string, category) => ({
+      ...(id === first.id ? first : second),
+      owned: true,
+      category,
+    })),
     sync: vi.fn().mockResolvedValue(report()),
     ...overrides,
   };
@@ -120,37 +127,49 @@ async function settle() {
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((accept) => {
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((accept, decline) => {
     resolve = accept;
+    reject = decline;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }
 
 async function openDetail(name = "水墨") {
-  fireEvent.click(await screen.findByRole("button", { name: `查看候选窗皮肤 ${name}` }));
+  fireEvent.click(await screen.findByRole("button", { name: `查看候选窗口皮肤 ${name}` }));
   return screen.findByRole("heading", { name });
 }
 
 test("lists with the exact offset, search and scope", async () => {
   const communityClient = client();
   render(<CommunityCandidateSkinsPage client={communityClient} />);
-  await waitFor(() => expect(communityClient.list).toHaveBeenCalledWith(0, "", false));
-  expect(screen.getByRole("heading", { name: "候选窗皮肤" })).not.toBeNull();
-  expect(screen.getByText("为输入候选窗换一身新装，下载后在「主题」中启用")).not.toBeNull();
+  await waitFor(() => expect(communityClient.list).toHaveBeenCalledWith(0, "", false, null));
+  expect(screen.getByRole("heading", { name: "社区皮肤" })).not.toBeNull();
+  expect(screen.getByText("为输入候选窗口换一身新装，安装后在「我的皮肤」中启用")).not.toBeNull();
 
-  fireEvent.change(screen.getByRole("textbox", { name: "搜索候选窗皮肤" }), {
+  fireEvent.change(screen.getByRole("textbox", { name: "搜索候选窗口皮肤" }), {
     target: { value: " 水墨 " },
   });
   fireEvent.click(screen.getByRole("button", { name: "搜索" }));
-  await waitFor(() => expect(communityClient.list).toHaveBeenLastCalledWith(0, " 水墨 ", false));
+  await waitFor(() =>
+    expect(communityClient.list).toHaveBeenLastCalledWith(0, " 水墨 ", false, null),
+  );
 
   fireEvent.click(screen.getByRole("button", { name: "我的作品" }));
-  await waitFor(() => expect(communityClient.list).toHaveBeenLastCalledWith(0, " 水墨 ", true));
+  await waitFor(() =>
+    expect(communityClient.list).toHaveBeenLastCalledWith(0, " 水墨 ", true, null),
+  );
   expect(screen.getByRole("button", { name: "我的作品" }).getAttribute("aria-pressed")).toBe(
     "true",
   );
-  fireEvent.click(screen.getByRole("button", { name: "全部" }));
-  await waitFor(() => expect(communityClient.list).toHaveBeenLastCalledWith(0, " 水墨 ", false));
+  fireEvent.click(
+    within(screen.getByRole("group", { name: "候选窗口皮肤范围" })).getByRole("button", {
+      name: "全部",
+    }),
+  );
+  await waitFor(() =>
+    expect(communityClient.list).toHaveBeenLastCalledWith(0, " 水墨 ", false, null),
+  );
 });
 
 test("load more advances the offset and drops duplicate ids", async () => {
@@ -160,9 +179,9 @@ test("load more advances the offset and drops duplicate ids", async () => {
     .mockResolvedValueOnce({ skins: [second, third], has_more: false });
   render(<CommunityCandidateSkinsPage client={client({ list })} />);
   fireEvent.click(await screen.findByRole("button", { name: "加载更多" }));
-  await waitFor(() => expect(list).toHaveBeenLastCalledWith(2, "", false));
-  expect(await screen.findByRole("button", { name: "查看候选窗皮肤 朱砂" })).not.toBeNull();
-  expect(screen.getAllByRole("button", { name: /查看候选窗皮肤/ })).toHaveLength(3);
+  await waitFor(() => expect(list).toHaveBeenLastCalledWith(2, "", false, null));
+  expect(await screen.findByRole("button", { name: "查看候选窗口皮肤 朱砂" })).not.toBeNull();
+  expect(screen.getAllByRole("button", { name: /查看候选窗口皮肤/ })).toHaveLength(3);
 });
 
 test("an older response cannot replace a newer search", async () => {
@@ -173,15 +192,15 @@ test("an older response cannot replace a newer search", async () => {
     .mockResolvedValueOnce({ skins: [second], has_more: false });
   render(<CommunityCandidateSkinsPage client={client({ list })} />);
   await waitFor(() => expect(list).toHaveBeenCalledTimes(1));
-  fireEvent.change(screen.getByRole("textbox", { name: "搜索候选窗皮肤" }), {
+  fireEvent.change(screen.getByRole("textbox", { name: "搜索候选窗口皮肤" }), {
     target: { value: "青" },
   });
   fireEvent.click(screen.getByRole("button", { name: "搜索" }));
-  expect(await screen.findByRole("button", { name: "查看候选窗皮肤 青绿" })).not.toBeNull();
+  expect(await screen.findByRole("button", { name: "查看候选窗口皮肤 青绿" })).not.toBeNull();
   older.resolve({ skins: [first], has_more: false });
   await settle();
-  expect(screen.getByRole("button", { name: "查看候选窗皮肤 青绿" })).not.toBeNull();
-  expect(screen.queryByRole("button", { name: "查看候选窗皮肤 水墨" })).toBeNull();
+  expect(screen.getByRole("button", { name: "查看候选窗口皮肤 青绿" })).not.toBeNull();
+  expect(screen.queryByRole("button", { name: "查看候选窗口皮肤 水墨" })).toBeNull();
 });
 
 test("a replaced client cannot deliver the previous client's page", async () => {
@@ -192,11 +211,11 @@ test("a replaced client cannot deliver the previous client's page", async () => 
   });
   const view = render(<CommunityCandidateSkinsPage client={oldClient} />);
   view.rerender(<CommunityCandidateSkinsPage client={newClient} />);
-  expect(await screen.findByRole("button", { name: "查看候选窗皮肤 青绿" })).not.toBeNull();
+  expect(await screen.findByRole("button", { name: "查看候选窗口皮肤 青绿" })).not.toBeNull();
   older.resolve({ skins: [first], has_more: false });
   await settle();
-  expect(screen.getByRole("button", { name: "查看候选窗皮肤 青绿" })).not.toBeNull();
-  expect(screen.queryByRole("button", { name: "查看候选窗皮肤 水墨" })).toBeNull();
+  expect(screen.getByRole("button", { name: "查看候选窗口皮肤 青绿" })).not.toBeNull();
+  expect(screen.queryByRole("button", { name: "查看候选窗口皮肤 水墨" })).toBeNull();
 });
 
 test("a failed scope switch keeps the list and the toggle on the scope still shown", async () => {
@@ -206,18 +225,22 @@ test("a failed scope switch keeps the list and the toggle on the scope still sho
     .mockRejectedValueOnce({ code: "community_unauthorized" })
     .mockResolvedValueOnce({ skins: [third], has_more: false });
   render(<CommunityCandidateSkinsPage client={client({ list })} onLogin={vi.fn()} />);
-  expect(await screen.findByRole("button", { name: "查看候选窗皮肤 青绿" })).not.toBeNull();
+  expect(await screen.findByRole("button", { name: "查看候选窗口皮肤 青绿" })).not.toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "我的作品" }));
   expect(await screen.findByRole("button", { name: "去登录" })).not.toBeNull();
   await settle();
-  expect(list).toHaveBeenLastCalledWith(0, "", true);
+  expect(list).toHaveBeenLastCalledWith(0, "", true, null);
   expect(screen.getByRole("button", { name: "我的作品" }).getAttribute("aria-pressed")).toBe(
     "false",
   );
-  expect(screen.getByRole("button", { name: "全部" }).getAttribute("aria-pressed")).toBe("true");
+  expect(
+    within(screen.getByRole("group", { name: "候选窗口皮肤范围" }))
+      .getByRole("button", { name: "全部" })
+      .getAttribute("aria-pressed"),
+  ).toBe("true");
   fireEvent.click(screen.getByRole("button", { name: "加载更多" }));
-  await waitFor(() => expect(list).toHaveBeenLastCalledWith(2, "", false));
-  expect(await screen.findByRole("button", { name: "查看候选窗皮肤 朱砂" })).not.toBeNull();
+  await waitFor(() => expect(list).toHaveBeenLastCalledWith(2, "", false, null));
+  expect(await screen.findByRole("button", { name: "查看候选窗口皮肤 朱砂" })).not.toBeNull();
 });
 
 test("cards load their preview lazily and the detail reuses it", async () => {
@@ -231,6 +254,42 @@ test("cards load their preview lazily and the detail reuses it", async () => {
   expect(communityClient.preview).toHaveBeenCalledTimes(1);
   expect(screen.getByText("素材授权 CC-BY-4.0 / 代码授权 MIT")).not.toBeNull();
   expect(screen.getByText(/7 人下载 · 4.5 分 · 2 人评分/)).not.toBeNull();
+});
+
+test("分页浏览后会淘汰过旧的候选皮肤预览", async () => {
+  const skins = Array.from({ length: 17 }, (_, index) =>
+    skin(`synthetic-candidate-skin-${index}`, `合成皮肤 ${index}`),
+  );
+  const preview = vi.fn(async (id: string) => ({
+    dataUrl: `data:image/png;base64,${id}`,
+  }));
+  const list = vi.fn().mockImplementation(async (offset: number, search: string) => {
+    if (search === "reset") return { skins: [skins[1]], has_more: false };
+    if (search === "first") return { skins: [skins[0]], has_more: false };
+    return { skins: [skins[offset]], has_more: offset < skins.length - 1 };
+  });
+  const communityClient = client({ list, preview });
+  render(<CommunityCandidateSkinsPage client={communityClient} />);
+  await screen.findByRole("button", { name: "查看候选窗口皮肤 合成皮肤 0" });
+
+  for (let index = 1; index < skins.length; index++) {
+    fireEvent.click(await screen.findByRole("button", { name: "加载更多" }));
+    await screen.findByRole("button", { name: `查看候选窗口皮肤 合成皮肤 ${index}` });
+  }
+  await waitFor(() => expect(preview).toHaveBeenCalledWith(skins[0].id));
+
+  fireEvent.change(screen.getByRole("textbox", { name: "搜索候选窗口皮肤" }), {
+    target: { value: "reset" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "搜索" }));
+  await screen.findByRole("button", { name: "查看候选窗口皮肤 合成皮肤 1" });
+  fireEvent.change(screen.getByRole("textbox", { name: "搜索候选窗口皮肤" }), {
+    target: { value: "first" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "搜索" }));
+  await screen.findByRole("button", { name: "查看候选窗口皮肤 合成皮肤 0" });
+
+  expect(preview.mock.calls.filter(([id]) => id === skins[0].id)).toHaveLength(2);
 });
 
 test("一键安装 installs, reports it, and 去启用 opens the theme page", async () => {
@@ -278,7 +337,9 @@ test("an installed package id is confirmed before any download", async () => {
   );
   await openDetail();
   fireEvent.click(screen.getByRole("button", { name: "一键安装" }));
-  const confirm = await screen.findByRole("alertdialog", { name: "确认替换皮肤" });
+  const confirm = await screen.findByRole("alertdialog", {
+    name: "确认替换皮肤",
+  });
   expect(confirm.textContent).toContain("已存在同名皮肤“ink-wash”，安装会整体替换它。");
   expect(communityClient.install).not.toHaveBeenCalled();
   fireEvent.click(within(confirm).getByRole("button", { name: "替换安装" }));
@@ -300,7 +361,9 @@ test("a folder that appears during install falls back to the same confirmation",
   );
   await openDetail();
   fireEvent.click(screen.getByRole("button", { name: "一键安装" }));
-  const confirm = await screen.findByRole("alertdialog", { name: "确认替换皮肤" });
+  const confirm = await screen.findByRole("alertdialog", {
+    name: "确认替换皮肤",
+  });
   expect(install).toHaveBeenCalledWith(first.id, false);
   fireEvent.click(within(confirm).getByRole("button", { name: "替换安装" }));
   await waitFor(() => expect(install).toHaveBeenLastCalledWith(first.id, true));
@@ -421,7 +484,9 @@ test("publish dialog: a license of the author's own is trimmed, bounded, and a f
     />,
   );
   fireEvent.click(await screen.findByRole("radio", { name: "其他" }));
-  const write = screen.getByRole("button", { name: "使用此授权并继续" }) as HTMLButtonElement;
+  const write = screen.getByRole("button", {
+    name: "使用此授权并继续",
+  }) as HTMLButtonElement;
   expect(write.disabled).toBe(true);
   const custom = screen.getByRole("textbox", { name: "其他素材授权" });
   fireEvent.change(custom, { target: { value: "猫".repeat(41) } });
@@ -435,6 +500,31 @@ test("publish dialog: a license of the author's own is trimmed, bounded, and a f
   );
   expect(await screen.findByText(/写入授权失败/)).not.toBeNull();
   expect(screen.queryByRole("textbox", { name: "发布皮肤名称" })).toBeNull();
+});
+
+test("license writing ignores a same-tick duplicate submission", async () => {
+  const pending = deferred<SkinCatalog>();
+  const addLicense = vi.fn().mockReturnValue(pending.promise);
+  const communityClient = client({
+    packPreview: vi.fn().mockRejectedValue({ code: "candidate_skin_license_required" }),
+    addLicense,
+  });
+  render(
+    <CandidateSkinPublishDialog
+      client={communityClient}
+      initialSkinId="ink-wash"
+      onClose={vi.fn()}
+      onPublished={vi.fn()}
+    />,
+  );
+  const write = await screen.findByRole("button", { name: "使用此授权并继续" });
+  act(() => {
+    fireEvent.click(write);
+    fireEvent.click(write);
+  });
+  expect(addLicense).toHaveBeenCalledOnce();
+  pending.resolve(catalog(["ink-wash"]));
+  await settle();
 });
 
 test("publish dialog: a package without a preview can have one drawn and saved", async () => {
@@ -533,9 +623,42 @@ test("publish dialog: a preview write from a replaced client is ignored", async 
     />,
   );
   await screen.findByRole("alert");
+  expect((screen.getByRole("button", { name: "生成预览图" }) as HTMLButtonElement).disabled).toBe(
+    false,
+  );
   pending.resolve(catalog(["ink-wash"]));
   await settle();
   expect(nextClient.packPreview).toHaveBeenCalledTimes(1);
+});
+
+test("preview generation ignores a same-tick duplicate submission", async () => {
+  const missing = catalog(["ink-wash"]);
+  missing.packages[0].preview = null;
+  const pending = deferred<SkinCatalog>();
+  const communityClient = client({
+    packPreview: vi.fn().mockRejectedValue({ code: "candidate_skin_preview_required" }),
+    addPreview: vi.fn().mockReturnValue(pending.promise),
+  });
+  renderSkinPreview.mockResolvedValue([137, 80, 78, 71]);
+  render(
+    <CandidateSkinPublishDialog
+      client={communityClient}
+      localSkins={vi.fn().mockResolvedValue(missing)}
+      initialSkinId="ink-wash"
+      readImage={vi.fn()}
+      onClose={vi.fn()}
+      onPublished={vi.fn()}
+    />,
+  );
+  const draw = await screen.findByRole("button", { name: "生成预览图" });
+  act(() => {
+    fireEvent.click(draw);
+    fireEvent.click(draw);
+  });
+  await waitFor(() => expect(communityClient.addPreview).toHaveBeenCalled());
+  expect(communityClient.addPreview).toHaveBeenCalledOnce();
+  pending.resolve(catalog(["ink-wash"]));
+  await settle();
 });
 
 test("publish dialog: without an image reader a missing preview is explained", async () => {
@@ -566,11 +689,15 @@ test("publish dialog: 公开发布 waits for the rights box and a valid name", a
       onPublished={vi.fn()}
     />,
   );
-  const name = (await screen.findByRole("textbox", { name: "发布皮肤名称" })) as HTMLInputElement;
+  const name = (await screen.findByRole("textbox", {
+    name: "发布皮肤名称",
+  })) as HTMLInputElement;
   expect(name.value).toBe("水墨");
   expect(screen.getByText("2 个文件 · 1.5 MB / 2 MB")).not.toBeNull();
   expect(screen.getByText("素材授权 CC-BY-4.0 / 代码授权 MIT")).not.toBeNull();
-  const publish = screen.getByRole("button", { name: "公开发布" }) as HTMLButtonElement;
+  const publish = screen.getByRole("button", {
+    name: "公开发布",
+  }) as HTMLButtonElement;
   expect(publish.disabled).toBe(true);
   fireEvent.click(screen.getByRole("checkbox", { name: "确认拥有发布素材权利" }));
   expect(publish.disabled).toBe(false);
@@ -622,7 +749,9 @@ test("replacing the publish client releases a pending dialog action", async () =
   );
   await screen.findByRole("textbox", { name: "发布皮肤名称" });
   fireEvent.click(screen.getByRole("checkbox", { name: "确认拥有发布素材权利" }));
-  const publish = screen.getByRole("button", { name: "公开发布" }) as HTMLButtonElement;
+  const publish = screen.getByRole("button", {
+    name: "公开发布",
+  }) as HTMLButtonElement;
   fireEvent.click(publish);
   await waitFor(() => expect(publish.disabled).toBe(true));
 
@@ -637,7 +766,11 @@ test("replacing the publish client releases a pending dialog action", async () =
   );
   await waitFor(() =>
     expect(
-      (screen.getByRole("checkbox", { name: "确认拥有发布素材权利" }) as HTMLInputElement).disabled,
+      (
+        screen.getByRole("checkbox", {
+          name: "确认拥有发布素材权利",
+        }) as HTMLInputElement
+      ).disabled,
     ).toBe(false),
   );
   pending.resolve(first);
@@ -668,7 +801,7 @@ test("publish dialog keeps the publication id on retry and renews it on edit", a
   expect((await screen.findByText("发布太频繁，请稍后再试。")).textContent).toBeTruthy();
   const firstId = publish.mock.calls[0][1];
   expect(publish.mock.calls[1][1]).toBe(firstId);
-  expect(publish.mock.calls[0]).toEqual(["ink-wash", firstId, "水墨", "", "public"]);
+  expect(publish.mock.calls[0]).toEqual(["ink-wash", firstId, "水墨", "", "public", "other"]);
 
   fireEvent.change(screen.getByRole("textbox", { name: "发布设计说明" }), {
     target: { value: " 淡墨 " },
@@ -688,7 +821,7 @@ test("the gallery publish button opens the dialog with local packages", async ()
     />,
   );
   fireEvent.click(await screen.findByRole("button", { name: "发布我的皮肤" }));
-  expect(await screen.findByRole("dialog", { name: "发布候选窗皮肤" })).not.toBeNull();
+  expect(await screen.findByRole("dialog", { name: "发布候选窗口皮肤" })).not.toBeNull();
   await waitFor(() =>
     expect(communityClient.packPreview).toHaveBeenCalledWith("ink-wash", "public"),
   );
@@ -707,7 +840,9 @@ test("publish dialog: 仅自己可见 checks the package as private and keeps th
       onPublished={onPublished}
     />,
   );
-  const name = (await screen.findByRole("textbox", { name: "发布皮肤名称" })) as HTMLInputElement;
+  const name = (await screen.findByRole("textbox", {
+    name: "发布皮肤名称",
+  })) as HTMLInputElement;
   expect((screen.getByRole("radio", { name: /公开/ }) as HTMLInputElement).checked).toBe(true);
   fireEvent.change(name, { target: { value: "我的水墨" } });
   fireEvent.click(screen.getByRole("radio", { name: "仅自己可见" }));
@@ -722,7 +857,7 @@ test("publish dialog: 仅自己可见 checks the package as private and keeps th
   fireEvent.click(screen.getByRole("checkbox", { name: "确认拥有发布素材权利" }));
   fireEvent.click(screen.getByRole("button", { name: "保存到我的皮肤库" }));
   await waitFor(() => expect(onPublished).toHaveBeenCalledWith(privateSkin));
-  expect(publish.mock.calls[0].slice(2)).toEqual(["我的水墨", "", "private"]);
+  expect(publish.mock.calls[0].slice(2)).toEqual(["我的水墨", "", "private", "other"]);
 });
 
 test("owners switch a package between public and private, and only public ones are taken down", async () => {
@@ -808,4 +943,173 @@ test("an install from the gallery syncs again, queued behind a run in progress",
   expect(sync).toHaveBeenCalledOnce();
   await act(async () => running.resolve(report()));
   await waitFor(() => expect(sync).toHaveBeenCalledTimes(2));
+});
+
+test("category chips filter the list from its first page and load more keeps the category", async () => {
+  const list = vi
+    .fn()
+    .mockResolvedValueOnce({ skins: [first, second], has_more: true })
+    .mockResolvedValueOnce({ skins: [second], has_more: true })
+    .mockResolvedValueOnce({ skins: [third], has_more: false })
+    .mockResolvedValueOnce({ skins: [first], has_more: false });
+  render(<CommunityCandidateSkinsPage client={client({ list })} />);
+  await waitFor(() => expect(list).toHaveBeenCalledWith(0, "", false, null));
+  const chips = screen.getByRole("group", { name: "候选窗口皮肤分类" });
+  const labels = within(chips)
+    .getAllByRole("button")
+    .map((button) => button.textContent);
+  expect(labels).toEqual([
+    "全部",
+    "自然",
+    "国风",
+    "二次元",
+    "可爱",
+    "美食",
+    "科技夜色",
+    "简约",
+    "其他",
+  ]);
+  expect(within(chips).getByRole("button", { name: "全部" }).getAttribute("aria-pressed")).toBe(
+    "true",
+  );
+  await screen.findByRole("button", { name: "查看候选窗口皮肤 水墨" });
+
+  fireEvent.click(within(chips).getByRole("button", { name: "国风" }));
+  await waitFor(() => expect(list).toHaveBeenLastCalledWith(0, "", false, "guofeng"));
+  expect(within(chips).getByRole("button", { name: "国风" }).getAttribute("aria-pressed")).toBe(
+    "true",
+  );
+  await waitFor(() =>
+    expect(screen.queryByRole("button", { name: "查看候选窗口皮肤 水墨" })).toBeNull(),
+  );
+  fireEvent.click(await screen.findByRole("button", { name: "加载更多" }));
+  // 换分类后从 0 重新分页，「加载更多」接着新分类第一页的 offset。
+  await waitFor(() => expect(list).toHaveBeenLastCalledWith(1, "", false, "guofeng"));
+  expect(await screen.findByRole("button", { name: "查看候选窗口皮肤 朱砂" })).not.toBeNull();
+
+  fireEvent.click(within(chips).getByRole("button", { name: "全部" }));
+  await waitFor(() => expect(list).toHaveBeenLastCalledWith(0, "", false, null));
+});
+
+test("a failed category switch keeps the previous category selected", async () => {
+  const list = vi
+    .fn()
+    .mockResolvedValueOnce({ skins: [first], has_more: false })
+    .mockRejectedValueOnce({ code: "community_unavailable" });
+  render(<CommunityCandidateSkinsPage client={client({ list })} />);
+  await screen.findByRole("button", { name: "查看候选窗口皮肤 水墨" });
+  const chips = screen.getByRole("group", { name: "候选窗口皮肤分类" });
+  fireEvent.click(within(chips).getByRole("button", { name: "美食" }));
+  await waitFor(() => expect(list).toHaveBeenLastCalledWith(0, "", false, "food"));
+  await settle();
+  expect(within(chips).getByRole("button", { name: "美食" }).getAttribute("aria-pressed")).toBe(
+    "false",
+  );
+  expect(within(chips).getByRole("button", { name: "全部" }).getAttribute("aria-pressed")).toBe(
+    "true",
+  );
+  expect(screen.getByRole("button", { name: "查看候选窗口皮肤 水墨" })).not.toBeNull();
+});
+
+test("a failed rapid category switch returns to the category of the displayed list", async () => {
+  const pending = deferred<CommunityCandidateSkinPage>();
+  const failed = deferred<CommunityCandidateSkinPage>();
+  const list = vi
+    .fn()
+    .mockResolvedValueOnce({ skins: [first, second], has_more: true })
+    .mockReturnValueOnce(pending.promise)
+    .mockReturnValueOnce(failed.promise)
+    .mockResolvedValueOnce({ skins: [third], has_more: false });
+  render(<CommunityCandidateSkinsPage client={client({ list })} />);
+  await screen.findByRole("button", { name: "查看候选窗口皮肤 青绿" });
+  const chips = screen.getByRole("group", { name: "候选窗口皮肤分类" });
+
+  fireEvent.click(within(chips).getByRole("button", { name: "自然" }));
+  fireEvent.click(within(chips).getByRole("button", { name: "美食" }));
+  await act(async () => failed.reject({ code: "community_unavailable" }));
+
+  expect(within(chips).getByRole("button", { name: "全部" }).getAttribute("aria-pressed")).toBe(
+    "true",
+  );
+  fireEvent.click(screen.getByRole("button", { name: "加载更多" }));
+  await waitFor(() => expect(list).toHaveBeenLastCalledWith(2, "", false, null));
+  await act(async () => pending.resolve({ skins: [first], has_more: false }));
+});
+
+test("cards and the detail view show the category label, and an item without one shows none", async () => {
+  const cute = skin(first.id, "水墨", { category: "cute" });
+  const plain = skin(second.id, "青绿");
+  render(
+    <CommunityCandidateSkinsPage
+      client={client({
+        list: vi.fn().mockResolvedValue({ skins: [cute, plain], has_more: false }),
+        detail: vi.fn().mockResolvedValue(cute),
+      })}
+    />,
+  );
+  const card = await screen.findByRole("button", {
+    name: "查看候选窗口皮肤 水墨",
+  });
+  expect(within(card).getByText("可爱 · 示例作者")).not.toBeNull();
+  const other = screen.getByRole("button", { name: "查看候选窗口皮肤 青绿" });
+  expect(within(other).getByText("示例作者")).not.toBeNull();
+  await openDetail();
+  expect(screen.getByText("可爱 · 示例作者 · v1.0.0")).not.toBeNull();
+  // 不是自己的作品时不能改分类。
+  expect(screen.queryByRole("combobox", { name: "修改分类" })).toBeNull();
+});
+
+test("publish dialog: the category defaults to 其他 and the chosen one is sent", async () => {
+  const publish = vi.fn().mockResolvedValue(first);
+  const onPublished = vi.fn();
+  render(
+    <CandidateSkinPublishDialog
+      client={client({ publish })}
+      initialSkinId="ink-wash"
+      onClose={vi.fn()}
+      onPublished={onPublished}
+    />,
+  );
+  await screen.findByRole("textbox", { name: "发布皮肤名称" });
+  const select = screen.getByRole("combobox", {
+    name: "发布分类",
+  }) as HTMLSelectElement;
+  expect(select.value).toBe("other");
+  expect(Array.from(select.options).map((option) => option.textContent)).toEqual([
+    "自然",
+    "国风",
+    "二次元",
+    "可爱",
+    "美食",
+    "科技夜色",
+    "简约",
+    "其他",
+  ]);
+  fireEvent.change(select, { target: { value: "tech" } });
+  fireEvent.click(screen.getByRole("checkbox", { name: "确认拥有发布素材权利" }));
+  fireEvent.click(screen.getByRole("button", { name: "公开发布" }));
+  await waitFor(() => expect(onPublished).toHaveBeenCalledWith(first));
+  expect(publish.mock.calls[0].slice(2)).toEqual(["水墨", "", "public", "tech"]);
+});
+
+test("owners change the category of their package from the detail view", async () => {
+  const mine = skin(first.id, "水墨", { owned: true, category: "nature" });
+  const communityClient = client({
+    list: vi.fn().mockResolvedValue({ skins: [mine], has_more: false }),
+    detail: vi.fn().mockResolvedValue(mine),
+  });
+  render(<CommunityCandidateSkinsPage client={communityClient} />);
+  await openDetail();
+  const select = (await screen.findByRole("combobox", {
+    name: "修改分类",
+  })) as HTMLSelectElement;
+  expect(select.value).toBe("nature");
+  fireEvent.change(select, { target: { value: "minimal" } });
+  await waitFor(() =>
+    expect(communityClient.setCategory).toHaveBeenCalledWith(first.id, "minimal"),
+  );
+  expect(await screen.findByText("已改为「简约」分类。")).not.toBeNull();
+  expect((screen.getByRole("combobox", { name: "修改分类" }) as HTMLSelectElement).value).toBe(
+    "minimal",
+  );
 });

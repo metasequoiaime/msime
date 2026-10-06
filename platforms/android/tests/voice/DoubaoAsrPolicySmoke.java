@@ -2,6 +2,7 @@ import app.msime.android.DoubaoAsrPolicy;
 import app.msime.android.HttpAsrPolicy;
 import java.util.Arrays;
 import java.util.List;
+import java.lang.reflect.Method;
 
 /** Which requests are the streaming protocol, and what a half-configured account must not open. */
 public final class DoubaoAsrPolicySmoke {
@@ -31,6 +32,16 @@ public final class DoubaoAsrPolicySmoke {
 
         check(DoubaoAsrPolicy.usable("doubao", endpoint, apiKey), "the api-key mode is usable");
         check(DoubaoAsrPolicy.usable("doubao", endpoint, legacy), "the legacy mode is usable");
+        check(!DoubaoAsrPolicy.usable("doubao", endpoint,
+                headers("x-api-resource-id", "x-api-request-id", "x-api-key", "x-unexpected")),
+            "unknown headers are refused rather than forwarded to the handshake");
+        check(!DoubaoAsrPolicy.usable("doubao", endpoint,
+                headers("x-api-resource-id", "x-api-request-id", "x-api-key", "x-api-key")),
+            "duplicate credentials are refused rather than sent twice");
+        check(!DoubaoAsrPolicy.usable("doubao", endpoint,
+                headers("x-api-resource-id", "x-api-request-id", "x-api-app-key",
+                    "x-api-access-key", "x-api-key")),
+            "mixed credential modes are refused rather than sent together");
 
         // wss only: the credentials travel in the handshake's own headers, and this host opens the
         // connection, so a downgrade would put them on the wire in clear text.
@@ -63,8 +74,18 @@ public final class DoubaoAsrPolicySmoke {
                 headers("x-api-resource-id", "x-api-request-id", null)),
             "a null header name is refused");
         check(!DoubaoAsrPolicy.usable("doubao", endpoint,
-                headers("x-api-resource-id", "x-api-request-id", "x-api-key\r")),
+            headers("x-api-resource-id", "x-api-request-id", "x-api-key\r")),
             "a header name carrying a control character is refused");
+        try {
+            Method strictText = DoubaoAsrPolicy.class.getDeclaredMethod("strictText", Object.class);
+            strictText.setAccessible(true);
+            check("synthetic transcript".equals(strictText.invoke(null, "synthetic transcript")),
+                "Doubao accepts string transcripts");
+            check("".equals(strictText.invoke(null, 42)),
+                "Doubao rejects numeric transcripts instead of coercing them");
+        } catch (ReflectiveOperationException error) {
+            throw new AssertionError("Doubao response parser unavailable", error);
+        }
         System.out.println("Android Doubao streaming policy passed");
     }
 }

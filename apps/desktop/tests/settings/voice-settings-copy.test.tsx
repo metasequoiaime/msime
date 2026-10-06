@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 import { settingsFormReady, saveSettingsNow } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { SettingsPage, type Snapshot } from "@msime/ui";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { SettingsPage, type HostCapabilities, type Snapshot } from "@msime/ui";
+import { testHost } from "../support/host";
 
 afterEach(() => {
   cleanup();
@@ -85,8 +86,8 @@ const snapshot: Snapshot = {
   },
 };
 
-function host(platform: string) {
-  return { platform, voice_capture_devices: true } as never;
+function host(platform: HostCapabilities["platform"]) {
+  return testHost({ platform, voice_capture_devices: true });
 }
 
 async function openVoice(platform: string) {
@@ -116,6 +117,8 @@ test("a pasted recognition token can be revealed to check it", async () => {
 
 test("the Doubao app key and polish token get the same toggle", async () => {
   await openVoice("windows");
+  // 润色关闭时语音页把令牌连同整组收起，先打开润色。
+  fireEvent.click(screen.getByRole("switch", { name: "启用文本润色" }));
   expect(screen.getByRole("button", { name: "显示Doubao App Key" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "显示润色 API Token" })).toBeTruthy();
 });
@@ -128,30 +131,31 @@ test("Windows is not told its voice input runs through a Linux provider", async 
   // SystemAudioMuter in-process; there is no provider socket involved.
   expect(screen.getByText("语音快捷键")).toBeTruthy();
   expect(screen.getByText("录音行为")).toBeTruthy();
-  expect(screen.queryByText("Linux provider 行为")).toBeNull();
-  expect(screen.queryByText(/语音需要 provider 服务/)).toBeNull();
-  expect(screen.queryByText(/录音和识别由已配置的 provider 服务完成/)).toBeNull();
-  expect(screen.getByText(/录音和识别在本机完成/)).toBeTruthy();
+  expect(screen.queryByText(/语音需要单独运行的语音服务/)).toBeNull();
+  expect(screen.queryByText(/录音和识别由已配置的语音服务完成/)).toBeNull();
+  expect(screen.getByText("在本机录音，音频发送给下方选择的识别服务转写")).toBeTruthy();
   expect(screen.getByText(/随识别请求发送给豆包/)).toBeTruthy();
 });
 
 test("macOS keeps voice submission in the native input-method process", async () => {
   await openVoice("macos");
   expect(screen.getByText("macOS 输入法语音")).toBeTruthy();
-  expect(screen.getByText(/由当前输入法进程负责/)).toBeTruthy();
+  expect(screen.getByText(/识别结果直接输入到该应用/)).toBeTruthy();
   expect(screen.queryByRole("button", { name: "打开" })).toBeNull();
   expect(screen.queryByText("打开语音输入")).toBeNull();
 });
 
 test("Linux keeps the wording that is accurate there", async () => {
   await openVoice("linux");
-  expect(screen.getByText("Linux provider 行为")).toBeTruthy();
+  // 录音行为在各平台同名；Linux 的不同之处（选项随请求交给语音服务）写在组说明里，用户可见的文案不出现 provider。
+  expect(screen.getByText("录音行为")).toBeTruthy();
+  expect(screen.getByText(/随请求传给用户管理的语音服务/)).toBeTruthy();
+  expect(screen.queryByText("Linux provider 行为")).toBeNull();
   // The shortcuts work the same under IBus and Fcitx5, so the section is not named after one host.
   expect(screen.getByText("语音快捷键")).toBeTruthy();
   expect(screen.queryByText(/IBus 快捷键/)).toBeNull();
-  expect(screen.getByText(/语音需要 provider 服务/)).toBeTruthy();
+  expect(screen.getByText(/语音需要单独运行的语音服务/)).toBeTruthy();
   expect(screen.queryByText(/IBus 属性/)).toBeNull();
-  expect(screen.queryByText("录音行为")).toBeNull();
 });
 
 test("Linux exposes Doubao auth mode without exposing provider credentials", async () => {
@@ -198,7 +202,7 @@ test("Android uses the system recognizer and hides desktop voice controls", asyn
   expect(screen.queryByLabelText("识别 API Token")).toBeNull();
   expect(screen.queryByLabelText("结果提交策略")).toBeNull();
   expect(screen.queryByText("录音行为")).toBeNull();
-  expect(screen.queryByText("文本润色 provider")).toBeNull();
+  expect(screen.queryByText("文本润色")).toBeNull();
   expect(screen.queryByText("语音快捷键")).toBeNull();
   expect(screen.queryByRole("button", { name: "打开" })).toBeNull();
 });
@@ -206,7 +210,7 @@ test("Android uses the system recognizer and hides desktop voice controls", asyn
 test("iOS keeps voice in the app flow and hides the desktop voice panel", async () => {
   await openVoice("ios");
   expect(screen.getByText("iOS 应用语音")).toBeTruthy();
-  expect(screen.getByText(/录音、识别和文本提交在当前共享设置与应用语音服务中完成/)).toBeTruthy();
+  expect(screen.getByText(/识别结果回到当前页面，确认后再使用/)).toBeTruthy();
   expect(screen.queryByRole("button", { name: "打开" })).toBeNull();
   expect(screen.queryByText("打开语音输入")).toBeNull();
 });
@@ -249,4 +253,89 @@ test("iOS handwriting points to the keyboard extension instead of a desktop pane
   expect(screen.queryByRole("button", { name: "打开" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "打开系统键盘设置" }));
   expect(openSystemKeyboardSettings).toHaveBeenCalledOnce();
+});
+
+// 语音页先把识别服务配好（检查按钮在配置组末尾），再是快捷键、录音行为和识别结果，润色是可选的另一项服务，录音设备放在最后。
+test("the voice page sets up the service before the shortcuts and the rest", async () => {
+  render(
+    <SettingsPage
+      client={{
+        load: async () => snapshot,
+        save: vi.fn(),
+        host: host("windows"),
+        testApiCredential: vi.fn(),
+        listVoiceCaptureDevices: vi.fn().mockResolvedValue([]),
+      }}
+    />,
+  );
+  await settingsFormReady();
+  fireEvent.click(screen.getByRole("button", { name: "语音输入" }));
+  const page = await screen.findByRole("group", { name: "语音输入" });
+  const groups = [...page.querySelectorAll("[data-group-title]")].map(
+    (node) => node.textContent ?? "",
+  );
+  const expected = [
+    "识别",
+    "识别服务配置",
+    "语音快捷键",
+    "录音行为",
+    "识别结果",
+    "文本润色",
+    "录音设备",
+  ];
+  expect(groups.filter((title) => expected.includes(title))).toEqual(expected);
+  // 豆包的识别选项和资源 ID 在配置组里，检查按钮是这一组的最后一项。
+  const service = screen.getByRole("region", { name: "识别服务配置" });
+  expect(within(service).getByLabelText("数字格式化")).toBeTruthy();
+  expect(within(service).getByLabelText("Doubao 资源 ID")).toBeTruthy();
+  const test = within(service).getByRole("button", { name: "测试豆包识别配置" });
+  const controls = [...service.querySelectorAll("input, select, button")];
+  expect(controls.at(-1)).toBe(test);
+});
+
+test("文本润色 shows only its switch until polishing is turned on", async () => {
+  render(
+    <SettingsPage
+      client={{
+        load: async () => snapshot,
+        save: vi.fn(),
+        host: host("windows"),
+        testApiCredential: vi.fn(),
+      }}
+    />,
+  );
+  await settingsFormReady();
+  fireEvent.click(screen.getByRole("button", { name: "语音输入" }));
+  const polish = screen.getByRole("region", { name: "文本润色" });
+  expect(within(polish).getByRole("switch", { name: "启用文本润色" })).toBeTruthy();
+  expect(within(polish).queryByLabelText("文本润色服务提供商")).toBeNull();
+  expect(within(polish).queryByLabelText("润色方案")).toBeNull();
+  fireEvent.click(within(polish).getByRole("switch", { name: "启用文本润色" }));
+  expect(within(polish).getByLabelText("文本润色服务提供商")).toBeTruthy();
+  expect(within(polish).getByLabelText("润色方案")).toBeTruthy();
+  // 测试按钮放在组末，测的是上面这些设置。
+  const controls = [...polish.querySelectorAll("input, select, button, textarea")];
+  expect(controls.at(-1)?.getAttribute("aria-label")).toBe("测试语音润色配置");
+});
+
+test("the Doubao resource ID is only offered for Doubao", async () => {
+  render(
+    <SettingsPage
+      client={{
+        load: async () => ({
+          ...snapshot,
+          preferences: {
+            ...snapshot.preferences,
+            voice_input: { enabled: true, language: "zh-CN", asr_provider: "openai" },
+          },
+        }),
+        save: vi.fn(),
+        host: host("windows"),
+      }}
+    />,
+  );
+  await settingsFormReady();
+  fireEvent.click(screen.getByRole("button", { name: "语音输入" }));
+  await screen.findByRole("region", { name: "识别服务配置" });
+  expect(screen.queryByLabelText("Doubao 资源 ID")).toBeNull();
 });

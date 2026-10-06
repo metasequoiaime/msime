@@ -228,6 +228,7 @@ std::vector<uint8_t> caps_lock_frame(bool enabled) {
 
 std::vector<std::vector<uint8_t>> tsf_config_frames(const TsfLocalConfig &config) {
   std::vector<std::vector<uint8_t>> frames;
+  frames.reserve(10);
   // The paging frame carries the preedit style after a '|', which is how the
   // TIP receives it - there is no separate message type for it.
   std::wstring paging = config.paging_comma_period ? L"1" : L"0";
@@ -248,17 +249,13 @@ std::vector<std::vector<uint8_t>> tsf_config_frames(const TsfLocalConfig &config
       FanyImeWorkerReplyType::PairedPunctuationChanged, config.paired_punctuation));
   frames.push_back(worker_flag_frame(
       FanyImeWorkerReplyType::MicrosoftShuangpinChanged, config.microsoft_shuangpin));
-  // "1" Japanese, "2" Korean, "0" a Chinese scheme. A DLL that predates Korean compares against "1" only, so it reads "2" as Chinese rather than as Japanese.
+  // "0" 全拼、双拼或五笔，"1" 日文，"2" 韩文，"3" 粤拼，"4" 注音，"5" 越南文，"6" 藏文，"7" 笔画。
   frames.push_back(worker_text_frame(
       FanyImeWorkerReplyType::InputModeChanged,
-      config.japanese_input_mode ? L"1" : config.korean_input_mode ? L"2" : L"0"));
+      std::wstring(1, scheme::input_mode_code(config.input_mode))));
   frames.push_back(worker_flag_frame(
       FanyImeWorkerReplyType::TsfDiagnosticLogChanged, config.tsf_diagnostic_log));
-  // Keep the first character compatible with the historical lock-only frame.
-  // The suffix is a versioned extension carrying the space/direct policy and
-  // consumed by the paired client DLL;
-  // older DLLs ignore the extended lock frame while retaining all other
-  // punctuation settings.
+  // "<lock>|s<0|1>d<0|1>l<0|1>": the lock code followed by the space-convert, direct-digit and direct-letter policy.
   std::wstring lock = {static_cast<wchar_t>(L'0' + (config.punctuation_lock % 3)),
                        L'|', L's',
                        static_cast<wchar_t>(config.smart_punctuation_space_convert ? L'1' : L'0'),
@@ -268,13 +265,16 @@ std::vector<std::vector<uint8_t>> tsf_config_frames(const TsfLocalConfig &config
                        static_cast<wchar_t>(config.smart_punctuation_direct_letter ? L'1' : L'0')};
   frames.push_back(
       worker_text_frame(FanyImeWorkerReplyType::PunctuationLockChanged, lock));
-  // Last, so the frames before it keep the positions older TIPs and tests know; a TIP that predates it ignores the unknown type. The Engine's own English mode opens none of the three (its spelling_symbols is empty), so all of them go off while it holds: a "/" the TIP composed there would never reach the Engine.
+  // Last, so the frames before it keep their positions. The Engine's own English mode opens none of the three (its spelling_symbols is empty), so all of them go off while it holds: a "/" the TIP composed there would never reach the Engine.
   const bool pinyin_modes = !config.dedicated_english;
   const std::wstring triggers = {config.expression_mode && pinyin_modes ? L'1' : L'0',
                                  config.command_mode && pinyin_modes ? L'1' : L'0',
                                  config.mention_mode && pinyin_modes ? L'1' : L'0'};
   frames.push_back(worker_text_frame(
       FanyImeWorkerReplyType::LocalModeTriggersChanged, triggers));
+  // After the trigger frame, so an older TIP that drops the unknown type still finds every frame before it where it was. The Engine's own English mode composes every letter, which the TIP has to know before it hands an idle Stroke letter to the application.
+  frames.push_back(worker_flag_frame(
+      FanyImeWorkerReplyType::DedicatedEnglishChanged, config.dedicated_english));
   return frames;
 }
 

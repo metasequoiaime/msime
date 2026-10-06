@@ -29,7 +29,7 @@ final class VoiceTextHandoffStore: @unchecked Sendable {
   static let lifetime: TimeInterval = 600
 
   static var defaultDirectory: URL? {
-    let group = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.app.msime.ios")
+    let group = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: MSIMEAppEdition.appGroupIdentifier)
     #if DEBUG && targetEnvironment(simulator)
     let arguments = ProcessInfo.processInfo.arguments
     if let index = arguments.firstIndex(of: "-voiceHandoffTestID"), index + 1 < arguments.count,
@@ -44,10 +44,24 @@ final class VoiceTextHandoffStore: @unchecked Sendable {
     self.directory = directory?.appendingPathComponent("VoiceHandoff", isDirectory: true)
   }
 
+  private func rejectSymlinkAncestors(_ path: URL) throws {
+    guard !SafePath.hasRefusedSymbolicLink(path) else { throw Failure.unavailable }
+  }
+
+  private func rejectSymlinkFile(_ path: URL) throws {
+    var status = stat()
+    if lstat(path.standardizedFileURL.path, &status) == 0 {
+      guard status.st_mode & S_IFMT != S_IFLNK else { throw Failure.unavailable }
+    } else if errno != ENOENT {
+      throw Failure.unavailable
+    }
+  }
+
   private func locked<T>(_ action: (URL) throws -> T) throws -> T {
     guard let directory else { throw Failure.unavailable }
     Self.lock.lock()
     defer { Self.lock.unlock() }
+    try rejectSymlinkAncestors(directory)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     let descriptor = open(directory.appendingPathComponent("transfer.lock").path,
                           O_CREAT | O_RDWR | O_NOFOLLOW | O_CLOEXEC, S_IRUSR | S_IWUSR)
@@ -55,7 +69,9 @@ final class VoiceTextHandoffStore: @unchecked Sendable {
     defer { close(descriptor) }
     guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else { throw Failure.busy }
     defer { flock(descriptor, LOCK_UN) }
-    return try action(directory.appendingPathComponent("result.json"))
+    let result = directory.appendingPathComponent("result.json")
+    try rejectSymlinkFile(result)
+    return try action(result)
   }
 
   private func readFile(_ file: URL, now: Date) throws -> VoiceTextHandoff? {

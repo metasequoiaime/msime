@@ -1,0 +1,341 @@
+{
+  "by_syllables": {
+    "2": {
+      "cases": 1860,
+      "found": 0.995,
+      "mrr": 0.589,
+      "top1": 0.418,
+      "top1_char_prefix": 0.453,
+      "top5": 0.82,
+      "top9": 0.903
+    },
+    "3": {
+      "cases": 365,
+      "found": 0.986,
+      "mrr": 0.948,
+      "top1": 0.915,
+      "top1_char_prefix": 0.935,
+      "top5": 0.984,
+      "top9": 0.986
+    },
+    "4": {
+      "cases": 556,
+      "found": 0.782,
+      "mrr": 0.777,
+      "top1": 0.775,
+      "top1_char_prefix": 0.794,
+      "top5": 0.781,
+      "top9": 0.781
+    },
+    "5": {
+      "cases": 10,
+      "found": 0.0,
+      "mrr": 0.0,
+      "top1": 0.0,
+      "top1_char_prefix": 0.48,
+      "top5": 0.0,
+      "top9": 0.0
+    }
+  },
+  "by_tag": {},
+  "cases": 2791,
+  "gold_source": {
+    "database": 2645,
+    "generated": 1
+  },
+  "overall": {
+    "cases": 2791,
+    "found": 0.948,
+    "mrr": 0.671,
+    "top1": 0.553,
+    "top1_char_prefix": 0.584,
+    "top5": 0.831,
+    "top9": 0.886
+  },
+  "sample_failures": [
+    {
+      "gold": "阿爸",
+      "id": "w-00001",
+      "input": "aba",
+      "rank": 26,
+      "top1": "爸爸"
+    },
+    {
+      "gold": "挨个",
+      "id": "w-00010",
+      "input": "aige",
+      "rank": 16,
+      "top1": "吃饭"
+    },
+    {
+      "gold": "爱慕",
+      "id": "w-00028",
+      "input": "aimu",
+      "rank": 9,
+      "top1": "抽"
+    },
+    {
+      "gold": "爱惜",
+      "id": "w-00037",
+      "input": "aixi",
+      "rank": 19,
+      "top1": "笔者"
+    },
+    {
+      "gold": "暗地里",
+      "id": "w-00064",
+      "input": "andili",
+      "rank": 2,
+      "top1": "奥地利"
+    },
+    {
+      "gold": "安抚",
+      "id": "w-00073",
+      "input": "anfu",
+      "rank": 2,
+      "top1": "剥夺"
+    },
+    {
+      "gold": "昂扬",
+      "id": "w-00082",
+      "input": "angyang",
+      "rank": 2,
+      "top1": "肮脏"
+    },
+    {
+      "gold": "按理",
+      "id": "w-00100",
+      "input": "anli",
+      "rank": 11,
+      "top1": "玻璃"
+    },
+    {
+      "gold": "安息",
+      "id": "w-00154",
+      "input": "anxi",
+      "rank": 16,
+      "top1": "按照"
+    },
+    {
+      "gold": "奥秘",
+      "id": "w-00181",
+      "input": "aomi",
+      "rank": 5,
+      "top1": "从"
+    },
+    {
+      "gold": "百倍",
+      "id": "w-00208",
+      "input": "baibei",
+      "rank": 2,
+      "top1": "才被"
+    },
+    {
+      "gold": "摆渡",
+      "id": "w-00217",
+      "input": "baidu",
+      "rank": 4,
+      "top1": "财富"
+    },
+    {
+      "gold": "败露",
+      "id": "w-00244",
+      "input": "bailu",
+      "rank": 4,
+      "top1": "才具"
+    },
+    {
+      "gold": "摆正",
+      "id": "w-00280",
+      "input": "baizheng",
+      "rank": 2,
+      "top1": "财政"
+    },
+    {
+      "gold": "办案",
+      "id": "w-00289",
+      "input": "banan",
+      "rank": 3,
+      "top1": "保安"
+    },
+    {
+      "gold": "办好",
+      "id": "w-00334",
+      "input": "banhao",
+      "rank": 4,
+      "top1": "报告"
+    },
+    {
+      "gold": "半径",
+      "id": "w-00343",
+      "input": "banjing",
+      "rank": 2,
+      "top1": "报警"
+    },
+    {
+      "gold": "半圆",
+      "id": "w-00379",
+      "input": "banyuan",
+      "rank": 4,
+      "top1": "草原"
+    },
+    {
+      "gold": "搬走",
+      "id": "w-00388",
+      "input": "banzou",
+      "rank": 4,
+      "top1": "伴有"
+    },
+    {
+      "gold": "包产",
+      "id": "w-00406",
+      "input": "baochan",
+      "rank": 7,
+      "top1": "操场"
+    },
+    {
+      "gold": "胞弟",
+      "id": "w-00424",
+      "input": "baodi",
+      "rank": 6,
+      "top1": "草地"
+    },
+    {
+      "gold": "褒奖",
+      "id": "w-00469",
+      "input": "baojiang",
+      "rank": 2,
+      "top1": "颁奖"
+    },
+    {
+      "gold": "报考",
+      "id": "w-00478",
+      "input": "baokao",
+      "rank": 2,
+      "top1": "参考"
+    },
+    {
+      "gold": "抱歉",
+      "id": "w-00505",
+      "input": "baoqian",
+      "rank": 2,
+      "top1": "搬迁"
+    },
+    {
+      "gold": "保卫科",
+      "id": "w-00523",
+      "input": "baoweike",
+      "rank": 2,
+      "top1": "包围了"
+    },
+    {
+      "gold": "报效祖国",
+      "id": "w-00541",
+      "input": "baoxiaozuguo",
+      "rank": null,
+      "top1": "办校于国"
+    },
+    {
+      "gold": "褒义",
+      "id": "w-00550",
+      "input": "baoyi",
+      "rank": 84,
+      "top1": "版主"
+    },
+    {
+      "gold": "保质",
+      "id": "w-00568",
+      "input": "baozhi",
+      "rank": 3,
+      "top1": "报纸"
+    },
+    {
+      "gold": "包子",
+      "id": "w-00577",
+      "input": "baozi",
+      "rank": 9,
+      "top1": "版主"
+    },
+    {
+      "gold": "把守",
+      "id": "w-00586",
+      "input": "bashou",
+      "rank": 2,
+      "top1": "把手"
+    },
+    {
+      "gold": "备查",
+      "id": "w-00613",
+      "input": "beicha",
+      "rank": 9,
+      "top1": "北边"
+    },
+    {
+      "gold": "备荒",
+      "id": "w-00640",
+      "input": "beihuang",
+      "rank": 3,
+      "top1": "背光"
+    },
+    {
+      "gold": "崩塌",
+      "id": "w-00712",
+      "input": "bengta",
+      "rank": 2,
+      "top1": "本馆"
+    },
+    {
+      "gold": "本钱",
+      "id": "w-00730",
+      "input": "benqian",
+      "rank": 2,
+      "top1": "本片"
+    },
+    {
+      "gold": "本市",
+      "id": "w-00739",
+      "input": "benshi",
+      "rank": 3,
+      "top1": "本事"
+    },
+    {
+      "gold": "本县",
+      "id": "w-00748",
+      "input": "benxian",
+      "rank": 7,
+      "top1": "本站"
+    },
+    {
+      "gold": "彼岸",
+      "id": "w-00766",
+      "input": "bian",
+      "rank": 21,
+      "top1": "边"
+    },
+    {
+      "gold": "贬义",
+      "id": "w-00847",
+      "input": "bianyi",
+      "rank": 45,
+      "top1": "标注"
+    },
+    {
+      "gold": "编著",
+      "id": "w-00865",
+      "input": "bianzhu",
+      "rank": 2,
+      "top1": "标注"
+    },
+    {
+      "gold": "标语",
+      "id": "w-00910",
+      "input": "biaoyu",
+      "rank": 5,
+      "top1": "超越"
+    }
+  ],
+  "top1_source": {
+    "database": 2673,
+    "generated": 118
+  }
+}

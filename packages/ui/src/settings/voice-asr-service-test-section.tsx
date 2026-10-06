@@ -7,6 +7,7 @@ import {
 } from "./voice-credential-test-config";
 import type { DoubaoAuthMode } from "./doubao-auth-mode-section";
 import { VoiceSyntheticSilenceNotice } from "./voice-synthetic-silence-notice";
+import { SettingsGroupBlock } from "./settings-group-block";
 
 export interface VoiceAsrServiceTestSectionProps {
   available: boolean;
@@ -31,7 +32,7 @@ export function VoiceAsrServiceTestSection({
   if (!available || !isAsrServiceProvider(provider)) return null;
 
   return (
-    <>
+    <SettingsGroupBlock>
       <VoiceSyntheticSilenceNotice />
       {credentialTestControl(
         "voice.asr",
@@ -39,6 +40,6 @@ export function VoiceAsrServiceTestSection({
         asrServiceCredentialTestConfig(voiceInput, doubaoAuthMode),
         asrServiceCredentialTestDisabled(voiceInput, doubaoAuthMode),
       )}
-    </>
+    </SettingsGroupBlock>
   );
 }

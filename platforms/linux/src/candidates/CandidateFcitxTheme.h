@@ -19,11 +19,13 @@
 #include "CandidatePalette.h"
 #include "FcitxThemeImages.h"
 #include "AtomicWrite.h"
+#include "../core/LinuxEdition.h"
 
 namespace msime::linux_host {
 
 // Fcitx5's classic UI draws the candidate list from a named theme. MSIME publishes its palette as a theme of its own, so the list looks the same as on IBus and Windows, while a theme the user picked in fcitx5-configtool is never replaced: only Fcitx5's stock themes, or MSIME's own, are taken over.
-inline constexpr std::string_view kFcitxCandidateTheme = "msime";
+// 主题名与 Fcitx5 插件名相同（LinuxEdition.h）：两个版本的插件在同一个 fcitx5 里各写各的主题，不互相覆盖。
+inline constexpr std::string_view kFcitxCandidateTheme = MSIME_EDITION_FCITX5_ADDON;
 
 inline bool fcitx_theme_replaceable(std::string_view current) {
   return current.empty() || current == "default" || current == "default-dark" ||
@@ -60,6 +62,12 @@ struct FcitxThemeFiles {
   std::string conf;
   std::vector<FcitxThemeImage> images;
 };
+
+template <typename ShapeNames>
+inline void fcitx_collect_shape_names(const FcitxThemeFiles &theme, ShapeNames &names) {
+  names.reserve(theme.images.size());
+  for (const auto &image : theme.images) names.push_back(image.file);
+}
 
 // Generated images are named shape-<content hash>.png with an @2x copy beside each: changed colours give new names, so theme.conf changes with them and the classic UI loads the new pictures rather than ones it already holds under the old names.
 inline constexpr std::string_view kFcitxShapePrefix = "shape-";
@@ -182,6 +190,7 @@ inline FcitxThemeFiles fcitx_candidate_theme_files(const CandidateColors &colors
   using G = FcitxPanelGeometry;
   using M = FcitxMenuGeometry;
   FcitxThemeFiles files;
+  files.images.reserve(colors.selected ? 12 : 10);
   const auto surface = colors.background.value_or(0xffffffu);
   const auto text = colors.text.value_or(contrasting_color(surface).value_or(0));
   const auto selected_text = colors.selected_text.value_or(text);
@@ -470,15 +479,13 @@ inline bool write_fcitx_candidate_theme(const std::filesystem::path &file, const
                                         const std::optional<FcitxThemeLogo> &logo = std::nullopt,
                                         bool user_radius = false) {
   const auto directory = file.parent_path();
-  std::error_code error;
-  std::filesystem::create_directories(directory, error);
-  if (error) return false;
+  if (!prepare_candidate_directory(directory)) return false;
   const auto overlay = decoration ? stage_fcitx_overlay(directory, *decoration) : std::nullopt;
   const auto theme = fcitx_candidate_theme_files(colors, dark, overlay, corner_radius, logo, user_radius);
   std::vector<std::string> shapes;
+  fcitx_collect_shape_names(theme, shapes);
   for (const auto &image : theme.images) {
     if (!write_fcitx_theme(directory / image.file, image.bytes)) return false;
-    shapes.push_back(image.file);
   }
   if (!write_fcitx_theme(file, theme.conf)) return false;
   remove_stale_fcitx_files(directory, kFcitxOverlayPrefix, overlay ? std::vector<std::string>{overlay->file} : std::vector<std::string>{});

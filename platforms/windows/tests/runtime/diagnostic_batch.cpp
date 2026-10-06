@@ -40,6 +40,20 @@ std::vector<uint8_t> frame(const std::string &payload, uint32_t records,
 } // namespace
 int main() {
   try {
+    const auto utf8 = diagnostic_utf8(u"ASCII 测试 🌲");
+    require(utf8 && *utf8 == "ASCII 测试 🌲");
+    const auto encoded_frame = frame(*utf8, 1);
+    require(parse_diagnostic_batch(encoded_frame.data(), encoded_frame.size()));
+    const std::string raw_utf16_bytes{"A\0", 2};
+    const auto rejected_utf16 = frame(raw_utf16_bytes, 1);
+    require(!parse_diagnostic_batch(rejected_utf16.data(), rejected_utf16.size()));
+    std::u16string high = u"dangling high ";
+    high.push_back(0xd800);
+    std::u16string low = u"dangling low ";
+    low.push_back(0xdc00);
+    require(!diagnostic_utf8(high));
+    require(!diagnostic_utf8(low));
+
     // A well-formed batch decodes, including the dropped count - a gap in the
     // log has to be visible rather than silently absent.
     const auto good = frame("composition committed", 3, 7);

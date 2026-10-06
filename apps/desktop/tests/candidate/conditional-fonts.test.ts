@@ -15,9 +15,9 @@ function query(matches: boolean) {
     // The copy is the point: installConditionalFonts removes listeners from
     // this Set while the change is being dispatched, and iterating the live Set
     // would then skip the ones a previous callback removed.
-    // oxlint-disable-next-line unicorn/no-useless-spread
     change(next: boolean) {
       value.matches = next;
+      // oxlint-disable-next-line unicorn/no-useless-spread
       for (const fn of [...listeners]) fn();
     },
   };

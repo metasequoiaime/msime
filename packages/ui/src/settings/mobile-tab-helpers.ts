@@ -24,3 +24,9 @@ export function mobilePageTitle(id: string, title: string): string {
   if (id === "account") return "我的";
   return title;
 }
+
+/** What a touch host calls a navigation group: the phone has no other way to type, so 更多输入方式 names what the group holds. */
+export function mobileGroupTitle(title: string): string {
+  if (title === "更多输入方式") return "键盘、语音与手写";
+  return title;
+}

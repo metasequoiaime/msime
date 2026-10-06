@@ -1,0 +1,392 @@
+{
+ "name": "stroke_prefix_select",
+ "steps": [
+  {
+   "op": "open",
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "stroke",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "h",
+   "op": "type",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 8,
+    "candidates": [
+     {
+      "answers_key": true,
+      "canonical_pinyin": "h",
+      "pinyin": "h",
+      "scheme": "stroke",
+      "source": 0,
+      "weight": 9000,
+      "word": "一"
+     },
+     {
+      "answers_key": true,
+      "canonical_pinyin": "hpn",
+      "pinyin": "h",
+      "scheme": "stroke",
+      "source": 0,
+      "weight": 5500,
+      "word": "大"
+     },
+     {
+      "answers_key": true,
+      "canonical_pinyin": "hh",
+      "pinyin": "h",
+      "scheme": "stroke",
+      "source": 0,
+      "weight": 5000,
+      "word": "二"
+     },
+     {
+      "answers_key": true,
+      "canonical_pinyin": "hs",
+      "pinyin": "h",
+      "scheme": "stroke",
+      "source": 0,
+      "weight": 4500,
+      "word": "十"
+     },
+     {
+      "answers_key": true,
+      "canonical_pinyin": "hhh",
+      "pinyin": "h",
+      "scheme": "stroke",
+      "source": 0,
+      "weight": 4000,
+      "word": "三"
+     },
+     {
+      "answers_key": true,
+      "canonical_pinyin": "hhsh",
+      "pinyin": "h",
+      "scheme": "stroke",
+      "source": 0,
+      "weight": 2500,
+      "word": "王"
+     },
+     {
+      "answers_key": true,
+      "canonical_pinyin": "hsh",
+      "pinyin": "h",
+      "scheme": "stroke",
+      "source": 0,
+      "weight": 2000,
+      "word": "土"
+     },
+     {
+      "answers_key": true,
+      "canonical_pinyin": "hhs",
+      "pinyin": "h",
+      "scheme": "stroke",
+      "source": 0,
+      "weight": 1500,
+      "word": "干"
+     }
+    ],
+    "caret": 1,
+    "dedicated_english": false,
+    "editing_text": "h",
+    "local_mode": "none",
+    "normalized_segmentation": "一",
+    "preedit": "一",
+    "raw_segmentation": "h",
+    "scheme": "stroke",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "s",
+   "op": "type",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 2,
+    "candidates": [
+     {
+      "answers_key": true,
+      "canonical_pinyin": "hs",
+      "pinyin": "hs",
+      "scheme": "stroke",
+      "source": 0,
+      "weight": 4500,
+      "word": "十"
+     },
+     {
+      "answers_key": true,
+      "canonical_pinyin": "hsh",
+      "pinyin": "hs",
+      "scheme": "stroke",
+      "source": 0,
+      "weight": 2000,
+      "word": "土"
+     }
+    ],
+    "caret": 2,
+    "dedicated_english": false,
+    "editing_text": "hs",
+    "local_mode": "none",
+    "normalized_segmentation": "一丨",
+    "preedit": "一丨",
+    "raw_segmentation": "hs",
+    "scheme": "stroke",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "2",
+   "op": "candidate_key",
+   "result": {
+    "commit": "土",
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "stroke",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "hpn",
+   "op": "type",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 1,
+    "candidates": [
+     {
+      "answers_key": true,
+      "canonical_pinyin": "hpn",
+      "pinyin": "hpn",
+      "scheme": "stroke",
+      "source": 0,
+      "weight": 5500,
+      "word": "大"
+     }
+    ],
+    "caret": 3,
+    "dedicated_english": false,
+    "editing_text": "hpn",
+    "local_mode": "none",
+    "normalized_segmentation": "一丿丶",
+    "preedit": "一丿丶",
+    "raw_segmentation": "hpn",
+    "scheme": "stroke",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "CommitCandidate",
+   "op": "command",
+   "result": {
+    "commit": "大",
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "stroke",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "h",
+   "op": "type",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 8,
+    "candidates": [
+     {
+      "answers_key": true,
+      "canonical_pinyin": "h",
+      "pinyin": "h",
+      "scheme": "stroke",
+      "source": 0,
+      "weight": 9000,
+      "word": "一"
+     },
+     {
+      "answers_key": true,
+      "canonical_pinyin": "hpn",
+      "pinyin": "h",
+      "scheme": "stroke",
+      "source": 0,
+      "weight": 5500,
+      "word": "大"
+     },
+     {
+      "answers_key": true,
+      "canonical_pinyin": "hh",
+      "pinyin": "h",
+      "scheme": "stroke",
+      "source": 0,
+      "weight": 5000,
+      "word": "二"
+     },
+     {
+      "answers_key": true,
+      "canonical_pinyin": "hs",
+      "pinyin": "h",
+      "scheme": "stroke",
+      "source": 0,
+      "weight": 4500,
+      "word": "十"
+     },
+     {
+      "answers_key": true,
+      "canonical_pinyin": "hhh",
+      "pinyin": "h",
+      "scheme": "stroke",
+      "source": 0,
+      "weight": 4000,
+      "word": "三"
+     },
+     {
+      "answers_key": true,
+      "canonical_pinyin": "hhsh",
+      "pinyin": "h",
+      "scheme": "stroke",
+      "source": 0,
+      "weight": 2500,
+      "word": "王"
+     },
+     {
+      "answers_key": true,
+      "canonical_pinyin": "hsh",
+      "pinyin": "h",
+      "scheme": "stroke",
+      "source": 0,
+      "weight": 2000,
+      "word": "土"
+     },
+     {
+      "answers_key": true,
+      "canonical_pinyin": "hhs",
+      "pinyin": "h",
+      "scheme": "stroke",
+      "source": 0,
+      "weight": 1500,
+      "word": "干"
+     }
+    ],
+    "caret": 1,
+    "dedicated_english": false,
+    "editing_text": "h",
+    "local_mode": "none",
+    "normalized_segmentation": "一",
+    "preedit": "一",
+    "raw_segmentation": "h",
+    "scheme": "stroke",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": {
+    "word": "王"
+   },
+   "op": "select",
+   "result": {
+    "commit": "王",
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "stroke",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "pn",
+   "op": "type",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 1,
+    "candidates": [
+     {
+      "answers_key": true,
+      "canonical_pinyin": "pn",
+      "pinyin": "pn",
+      "scheme": "stroke",
+      "source": 0,
+      "weight": 6000,
+      "word": "人"
+     }
+    ],
+    "caret": 2,
+    "dedicated_english": false,
+    "editing_text": "pn",
+    "local_mode": "none",
+    "normalized_segmentation": "丿丶",
+    "preedit": "丿丶",
+    "raw_segmentation": "pn",
+    "scheme": "stroke",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": ",",
+   "op": "punctuation",
+   "result": {
+    "commit": "人，",
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "stroke",
+    "shuangpin_profile": "xiaohe"
+   }
+  }
+ ]
+}

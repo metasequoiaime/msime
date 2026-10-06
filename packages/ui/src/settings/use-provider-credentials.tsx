@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { runAsyncAction } from "../core/async-action";
 import { CredentialTestSection, type CredentialTestState } from "./credential-test-section";
 import { providerCredentialErrorMessage } from "./credential-utils";
+import { useAsyncGeneration } from "./use-async-generation";
 import type {
   ApiCredentialTestResult,
   ApiCredentialTestService,
@@ -62,39 +63,32 @@ export function useProviderCredentials({ client }: UseProviderCredentialsOptions
   const [providerCredentialMessages, setProviderCredentialMessages] = useState<
     Partial<Record<ProviderCredentialBusy, ProviderCredentialMessage>>
   >({});
-  const clientGeneration = useRef(0);
   const credentialSaveRunning = useRef(false);
   const credentialTestRunning = useRef<Partial<Record<ApiCredentialTestService, number>>>({});
-  const credentialTestOwner = useRef(0);
+  const credentialTestOwner = useAsyncGeneration();
+  const clientGeneration = useAsyncGeneration(client.providerCredentials, client.testApiCredential);
 
   const updateTencentCredentialInput = (patch: Partial<TencentCredentialInput>) =>
     setTencentCredentialInput((current) => ({ ...current, ...patch }));
 
   useEffect(() => {
-    const generation = ++clientGeneration.current;
+    const generation = clientGeneration.current;
     credentialTestGeneration.current = {};
     credentialTestRunning.current = {};
     credentialTestOwner.current++;
     credentialSaveRunning.current = false;
+    setProviderCredentials(undefined);
     setCredentialTests((current) => (Object.keys(current).length ? {} : current));
     setProviderCredentialBusy(undefined);
     setProviderCredentialMessages((current) => (Object.keys(current).length ? {} : current));
     const credentials = client.providerCredentials;
-    if (!credentials)
-      return () => {
-        if (clientGeneration.current === generation) clientGeneration.current++;
-      };
-    let active = true;
+    if (!credentials) return;
     void credentials
       .status()
       .then((status) => {
-        if (active) setProviderCredentials(status);
+        if (clientGeneration.current === generation) setProviderCredentials(status);
       })
       .catch(() => undefined);
-    return () => {
-      active = false;
-      if (clientGeneration.current === generation) clientGeneration.current++;
-    };
   }, [client.providerCredentials, client.testApiCredential]);
 
   const runCredentialTest = async (

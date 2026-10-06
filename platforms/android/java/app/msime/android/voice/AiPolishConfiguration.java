@@ -41,6 +41,12 @@ public final class AiPolishConfiguration {
         return new AiPolishConfiguration(endpoint.toString(), model, replacement, token);
     }
 
+    /** The `ai_assistant` key holding the prompt the user selected with `prompt_id`: one of the three custom slots, the first when nothing else is named. */
+    public static String promptSlotKey(String promptId) {
+        if ("custom_2".equals(promptId) || "custom_3".equals(promptId)) return "prompt_" + promptId;
+        return "prompt_custom_1";
+    }
+
     public static String credentialOrigin(String endpoint) {
         return credentialOrigin(validatedEndpoint(endpoint));
     }

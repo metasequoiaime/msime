@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { ScreenKeyboardSkinsSection, type TouchKeyboardSkinDesign } from "@msime/ui";
+import { ActionButton, ScreenKeyboardSkinsSection, type TouchKeyboardSkinDesign } from "@msime/ui";
 
 afterEach(() => {
   cleanup();
@@ -58,4 +58,12 @@ test("shows the selected custom skin and toggles its editor", () => {
   ).toBe("true");
   fireEvent.click(screen.getByRole("button", { name: "设计我的皮肤" }));
   expect(onToggleEditor).toHaveBeenCalledOnce();
+});
+
+test("forwards the editor expanded state through the shared action button", () => {
+  render(<ActionButton action={vi.fn()} ariaExpanded label="设计我的皮肤" />);
+
+  expect(screen.getByRole("button", { name: "设计我的皮肤" }).getAttribute("aria-expanded")).toBe(
+    "true",
+  );
 });

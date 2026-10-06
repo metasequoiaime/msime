@@ -1,5 +1,6 @@
 import * as settings from "./settings-style";
 import type { SettingsSaveState } from "./use-settings-persistence";
+import { ActionButton } from "./action-button";
 
 export interface SettingsActionsFooterProps {
   busy: boolean;
@@ -29,9 +30,7 @@ export function SettingsActionsFooter({
   return (
     <footer className={settings.settingsActions}>
       {showRestoreDefaults && (
-        <button type="button" className="secondary" disabled={busy} onClick={onRestoreDefaults}>
-          恢复默认设置
-        </button>
+        <ActionButton action={onRestoreDefaults} disabled={busy} label="恢复默认设置" />
       )}
       {failed ? (
         <span role="alert">{saveError}</span>
@@ -40,16 +39,8 @@ export function SettingsActionsFooter({
           {saveState === "saving" ? "正在保存…" : saveState === "saved" ? "已保存" : ""}
         </span>
       )}
-      {failed && (
-        <button type="button" className="secondary" disabled={busy} onClick={onRetry}>
-          重试
-        </button>
-      )}
-      {onReload && (
-        <button type="button" className="secondary" disabled={busy} onClick={onReload}>
-          重新读取
-        </button>
-      )}
+      {failed && <ActionButton action={onRetry} disabled={busy} label="重试" />}
+      {onReload && <ActionButton action={onReload} disabled={busy} label="重新读取" />}
     </footer>
   );
 }

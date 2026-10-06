@@ -8,13 +8,14 @@
 #include <nlohmann/json.hpp>
 
 #include "../candidates/CandidatePanelStatus.h"
+#include "LinuxEdition.h"
 
 namespace msime::linux_host {
 
-// A desktop without a tray has nowhere to show the input mode: Omarchy starts fcitx5 with --disable notificationitem, so the status area and its 中/英 label never appear. The Fcitx5 addon therefore also writes the focused context's mode to a per-session file the MSIME bar widget for Omarchy reads (data/omarchy/plugin): {"active":bool,"label":"中"|"英"|"日"|"한"|"⇪","scheme":"<preferences scheme id>"}. "active" is false once MSIME no longer holds the focused context, so the widget can step aside for whatever input method does.
+// 没有托盘的桌面无处显示输入模式：Omarchy 用 --disable notificationitem 启动 fcitx5，所以状态区和它的 中/英 标签都不会出现。因此 Fcitx5 插件还把当前聚焦上下文的模式写进一个按会话区分的文件，供 Omarchy 的水杉输入法状态栏组件读取（data/omarchy/plugin）：{"active":bool,"label":"中"|"英"|"粤"|"注"|"笔"|"日"|"한"|"越"|"藏"|"⇪","scheme":"<偏好方案 id>"}。水杉输入法不再持有聚焦上下文时 "active" 为 false，组件就可以让位给接手的输入法。
 inline std::optional<std::filesystem::path> input_status_file(const char *runtime) {
   if (!runtime || runtime[0] != '/') return std::nullopt;
-  return std::filesystem::path(runtime) / "msime-client" / "input-status.json";
+  return std::filesystem::path(runtime) / MSIME_EDITION_CLIENT_DIRECTORY / "input-status.json";
 }
 
 inline std::string input_status_document(bool active, std::string_view label, std::string_view scheme) {

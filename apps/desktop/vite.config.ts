@@ -30,6 +30,11 @@ export default defineConfig({
     // it is not.
     testTimeout: 60000,
     hookTimeout: 60000,
+    // Keep the isolated jsdom workers from saturating the host. The default is
+    // the machine's full parallelism, which made the suite intermittently fail
+    // with assertion-level races under load even though the affected files
+    // passed alone and with a bounded worker pool.
+    maxWorkers: 8,
     setupFiles: ["tests/support/reset-history.ts"],
   },
 });

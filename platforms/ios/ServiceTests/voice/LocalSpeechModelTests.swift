@@ -113,6 +113,22 @@ final class LocalSpeechModelTests: XCTestCase {
     XCTAssertThrowsError(try LocalSpeechModelManifest(directory: symlinkModel).file("model"))
   }
 
+  func testManifestRejectsASymlinkedManifest() throws {
+    let model = try makeModel(id: "manifest-link", manifest: [
+      "kind": "online_transducer", "files": [:],
+    ], files: [])
+    let outside = try makeModel(id: "manifest-outside", manifest: [
+      "kind": "online_transducer", "files": [:],
+    ], files: [])
+    let manifest = model.appendingPathComponent(LocalSpeechModelManifest.fileName)
+    try FileManager.default.removeItem(at: manifest)
+    try FileManager.default.createSymbolicLink(at: manifest,
+                                               withDestinationURL: outside.appendingPathComponent(LocalSpeechModelManifest.fileName))
+
+    XCTAssertThrowsError(try LocalSpeechModelManifest(directory: model))
+    XCTAssertFalse(LocalSpeechModelManifest.isModelDirectory(model))
+  }
+
   func testStoredPathFollowsTheModelIntoAMovedContainer() throws {
     let root = scratch.appendingPathComponent("voice-models", isDirectory: true)
     let model = try makeModel(id: "zipformer", manifest: ["kind": "online_transducer", "files": [:]], files: [], root: root)
@@ -121,10 +137,12 @@ final class LocalSpeechModelTests: XCTestCase {
     let old = "/private/var/mobile/Containers/Data/Application/OLD/Library/Application Support/voice-models/zipformer"
     XCTAssertEqual(LocalSpeechModelLocation.resolve(storedPath: old, root: root)?.standardizedFileURL, model.standardizedFileURL)
     XCTAssertNil(LocalSpeechModelLocation.resolve(storedPath: old, root: nil))
+    XCTAssertNil(LocalSpeechModelLocation.resolve(storedPath: "zipformer", root: root))
     XCTAssertNil(LocalSpeechModelLocation.resolve(storedPath: "", root: root))
     XCTAssertNil(LocalSpeechModelLocation.resolve(storedPath: root.appendingPathComponent("gone").path, root: root))
     XCTAssertTrue(LocalSpeechModelLocation.names(old, model: "zipformer"))
     XCTAssertFalse(LocalSpeechModelLocation.names(old, model: "sense-voice"))
+    XCTAssertFalse(LocalSpeechModelLocation.names("zipformer", model: "zipformer"))
     XCTAssertFalse(LocalSpeechModelLocation.names(" ", model: "zipformer"))
   }
 
@@ -143,6 +161,15 @@ final class LocalSpeechModelTests: XCTestCase {
 
     let old = "/private/var/mobile/Containers/Data/Application/OLD/Library/Application Support/voice-models/zipformer"
     XCTAssertNil(LocalSpeechModelLocation.resolve(storedPath: old, root: root))
+  }
+
+  func testManagedRootSymlinkCannotExposeAnExternalModel() throws {
+    let root = scratch.appendingPathComponent("voice-models", isDirectory: true)
+    let outside = try makeModel(id: "zipformer", manifest: ["kind": "online_transducer", "files": [:]], files: [])
+    try FileManager.default.createSymbolicLink(at: root, withDestinationURL: outside.deletingLastPathComponent())
+
+    XCTAssertNil(LocalSpeechModelLocation.resolve(storedPath: root.appendingPathComponent("zipformer").path,
+                                                  root: root))
   }
 
   func testCatalogEntriesDecodeWithDefaultsForMissingFields() throws {
@@ -180,6 +207,18 @@ final class LocalSpeechModelTests: XCTestCase {
     XCTAssertTrue(LocalSpeechModelStore.message(for: "local_model_something_new").contains("local_model_something_new"))
     XCTAssertEqual(LocalSpeechModelStore.correct("你好", hotwords: []), "你好")
     XCTAssertEqual(LocalSpeechModelStore.hotwords(resources: scratch.appendingPathComponent("missing"), stateRoot: scratch), [])
+  }
+
+  func testMirrorRejectsCredentialsQueriesAndFragments() {
+    XCTAssertTrue(LocalSpeechModelStore.isValidMirror("https://mirror.example.test/gh/"))
+    for value in [
+      "https://user:pass@mirror.example.test",
+      "https://mirror.example.test?query=unexpected",
+      "https://mirror.example.test/#fragment",
+      "https:///path",
+    ] {
+      XCTAssertFalse(LocalSpeechModelStore.isValidMirror(value), value)
+    }
   }
 
   @discardableResult

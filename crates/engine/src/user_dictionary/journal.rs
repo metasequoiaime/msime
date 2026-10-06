@@ -13,6 +13,7 @@ use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
 
 use crate::error::Result;
 use crate::format::build_table_name;
+use crate::pinyin::segment::split_segments;
 use crate::types::PersonalDictionaryKind;
 
 pub const BUSY_TIMEOUT_MS: u64 = 5_000;
@@ -149,7 +150,7 @@ fn reject_database_parent(path: &Path) -> std::io::Result<()> {
         current.push(component.as_os_str());
         match std::fs::symlink_metadata(&current) {
             Ok(metadata) if metadata.file_type().is_symlink() => {
-                if !is_system_path_alias(&current) {
+                if !crate::paths::is_trusted_system_alias(&current) {
                     return Err(std::io::Error::new(
                         std::io::ErrorKind::InvalidInput,
                         "database path has a symbolic-link parent",
@@ -170,19 +171,7 @@ fn reject_database_parent(path: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-fn is_system_path_alias(path: &Path) -> bool {
-    #[cfg(target_os = "macos")]
-    {
-        path == Path::new("/var") || path == Path::new("/tmp")
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = path;
-        false
-    }
-}
-
-/// A dictionary (`msime.db`, `english.db`) opened for writing; a missing dictionary is an error, never a new empty file.
+/// A dictionary (`msime-pinyin.db`, `msime-english.db`) opened for writing; a missing dictionary is an error, never a new empty file.
 pub(crate) fn open_dictionary_for_writing(path: &Path) -> Result<Connection> {
     open_database(path, OpenFlags::SQLITE_OPEN_READ_WRITE)
 }
@@ -302,7 +291,7 @@ pub(crate) fn thread_holds_journal() -> bool {
 
 /// The syllables of a journal key; empty when the key or any segment is empty, which means the key cannot be stored (J:182-199).
 pub(crate) fn pinyin_segments(key: &str) -> Vec<String> {
-    let segments: Vec<String> = key.split('\'').map(str::to_owned).collect();
+    let segments = split_segments(key);
     if segments.iter().any(String::is_empty) {
         return Vec::new();
     }
@@ -429,11 +418,11 @@ pub(crate) mod test_support {
         }
 
         pub fn main_db(&self) -> PathBuf {
-            self.root.path().join("msime.db")
+            self.root.path().join("msime-pinyin.db")
         }
 
         pub fn english_db(&self) -> PathBuf {
-            self.root.path().join("english.db")
+            self.root.path().join("msime-english.db")
         }
 
         /// Pinyin rows `(key, word, weight)`, each into the table its key names.
@@ -586,6 +575,16 @@ mod tests {
         assert_eq!(pinyin_table("ni''hao"), None);
         assert_eq!(pinyin_table("'ni"), None);
         assert_eq!(pinyin_table("ni'"), None);
+    }
+
+    #[test]
+    fn pinyin_segments_reserves_key_capacity() {
+        let key: String = (0..100)
+            .map(|index| if index % 5 == 3 { '\'' } else { 'a' })
+            .collect();
+        let segments = pinyin_segments(&key);
+        assert_eq!(segments.len(), 21);
+        assert_eq!(segments.capacity(), 21);
     }
 
     /// test_typo_correction_input_session.cpp:381-403: a journal written by the shipped engine (v3, four tables) is upgraded in place.

@@ -126,6 +126,7 @@ test("community home opens the requested resource collection", async () => {
     rate: vi.fn(),
     publish: vi.fn(),
     unpublish: vi.fn(),
+    setCategory: vi.fn(),
     finishTrial: vi.fn(),
   };
   render(
@@ -138,14 +139,14 @@ test("community home opens the requested resource collection", async () => {
     />,
   );
   await waitFor(() => expect(resources.list).toHaveBeenCalledWith("reply", "saved", "", 0));
-  expect(screen.getByRole("tab", { name: "回复" }).getAttribute("aria-selected")).toBe("true");
+  expect(screen.getByRole("tab", { name: "回复模板" }).getAttribute("aria-selected")).toBe("true");
 });
 
 test("resource scope also has a compact filter menu for mobile layouts", async () => {
   const list = vi.fn().mockResolvedValue({ items: [], has_more: false });
   render(<CommunityResourcesPage client={client({ list })} kind="reply" initialScope="saved" />);
   await waitFor(() => expect(list).toHaveBeenCalledWith("reply", "saved", "", 0));
-  const filter = screen.getByRole("group", { name: "回复筛选范围" });
+  const filter = screen.getByRole("group", { name: "回复模板筛选范围" });
   expect(filter.querySelector("button[aria-pressed='true']")?.textContent).toBe("收藏");
   fireEvent.click(screen.getByRole("button", { name: "筛选范围：我的作品" }));
   await waitFor(() => expect(list).toHaveBeenLastCalledWith("reply", "mine", "", 0));
@@ -270,10 +271,10 @@ test("a publish response from a replaced resource client cannot close the editor
   fireEvent.click(screen.getByRole("button", { name: "公开发布" }));
 
   view.rerender(<CommunityResourcesPage client={nextClient} kind="reply" />);
-  expect(screen.getByRole("dialog", { name: "发布回复" })).not.toBeNull();
+  expect(screen.getByRole("dialog", { name: "发布回复模板" })).not.toBeNull();
   finishPublish();
   await Promise.resolve();
-  expect(screen.getByRole("dialog", { name: "发布回复" })).not.toBeNull();
+  expect(screen.getByRole("dialog", { name: "发布回复模板" })).not.toBeNull();
 });
 
 test("mobile resource details join the WebView history stack and system back restores the list", async () => {
@@ -379,11 +380,13 @@ test("reply details store an explicit local copy and never hide the prompt", asy
       kind="reply"
     />,
   );
-  fireEvent.click(await screen.findByRole("button", { name: "查看回复 礼貌回复" }));
+  fireEvent.click(await screen.findByRole("button", { name: "查看回复模板 礼貌回复" }));
   expect(screen.getByText("请简洁、礼貌地回复。")).not.toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "添加到回复键盘" }));
+  fireEvent.click(screen.getByRole("button", { name: "添加到高情商回复键盘" }));
   await waitFor(() => expect(storeReply).toHaveBeenCalledWith(item));
-  expect(await screen.findByText("已添加到回复键盘；只有点按生成时才会发送文字。")).not.toBeNull();
+  expect(
+    await screen.findByText("已添加到高情商回复键盘；只有点按生成时才会发送文字。"),
+  ).not.toBeNull();
 });
 
 test("publishing a reply requires explicit rights confirmation", async () => {
@@ -433,7 +436,7 @@ test("resource editor ignores a same-tick duplicate submission", async () => {
   });
   expect(publish).toHaveBeenCalledOnce();
   pending.resolve();
-  await waitFor(() => expect(screen.queryByRole("dialog", { name: "发布回复" })).toBeNull());
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "发布回复模板" })).toBeNull());
 });
 
 test("resource editor keeps a new entry after removing an existing entry in one batch", async () => {

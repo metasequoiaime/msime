@@ -1,13 +1,12 @@
-use crate::platform::mobile::mobile_account_helpers::valid_mobile_haptic_strength;
 use crate::platform::mobile::mobile_account_preferences::{
-    frequency_account_preferences, insert_bool, insert_string,
+    frequency_account_preferences, insert_bool, insert_string, valid_mobile_haptic_strength,
 };
 use msime_client_core::account::{
     validate_account_preferences, AccountError, AccountPreferenceValue, AccountPreferences,
 };
 use msime_client_core::preferences::{
     ChineseScheme, FrequencyMode, InputScheme, Preferences, ShuangpinProfile, TouchKeyboardLayout,
-    TouchKeyboardScheme, TouchKeyboardSkinDesign,
+    TouchKeyboardScheme, TouchKeyboardSkinDesign, WubiProfile,
 };
 use msime_client_core::skin::theme::GlobalTheme;
 use msime_tauri_mobile_platform::IosKeyboardPreferences;
@@ -32,22 +31,37 @@ pub(crate) fn local_account_preferences(
         return Err(AccountError::Storage);
     }
     let mut settings = BTreeMap::new();
-    let (schema, profile, nine_key) = match native.input_scheme.as_str() {
-        "quanpin" | "handwriting" | "thoughtfulReply" => ("quanpin", None, false),
-        "nineKey" => ("quanpin", None, true),
-        "shuangpin" => ("shuangpin", Some("xiaohe"), false),
-        "ziranma" => ("shuangpin", Some("ziranma"), false),
-        "microsoft" => ("shuangpin", Some("microsoft"), false),
-        "shoudao" => ("shuangpin", Some("shoudao"), false),
-        "wubi" => ("wubi", None, false),
-        "japanese" => ("japanese", None, false),
-        "japaneseNineKey" => ("japanese", None, true),
-        "korean" => ("korean", None, false),
+    // 云端的 `input.schema` 装不下粤拼、注音、越南文、藏文和笔画（旧设备会拒收整份文档），所以这几个方案不写方案和九键开关，云端保留原有的值。
+    let scheme = match native.input_scheme.as_str() {
+        "quanpin" | "handwriting" => Some(("quanpin", None, false)),
+        "nineKey" => Some(("quanpin", None, true)),
+        "shuangpin" => Some(("shuangpin", Some("xiaohe"), false)),
+        "ziranma" => Some(("shuangpin", Some("ziranma"), false)),
+        "microsoft" => Some(("shuangpin", Some("microsoft"), false)),
+        "shoudao" => Some(("shuangpin", Some("shoudao"), false)),
+        "wubi" => Some(("wubi", None, false)),
+        "japanese" => Some(("japanese", None, false)),
+        "japaneseNineKey" => Some(("japanese", None, true)),
+        "korean" => Some(("korean", None, false)),
+        "cantonese" | "zhuyin" | "vietnamese" | "tibetan" | "stroke" => None,
         _ => return Err(AccountError::Storage),
     };
-    insert_string(&mut settings, "input.schema", schema);
-    if let Some(profile) = profile {
-        insert_string(&mut settings, "input.shuangpin_schema", profile);
+    if let Some((schema, profile, _)) = scheme {
+        insert_string(&mut settings, "input.schema", schema);
+        if let Some(profile) = profile {
+            insert_string(&mut settings, "input.shuangpin_schema", profile);
+        }
+        // 键盘偏好只记五笔这个方案，86 还是 98 记在共享偏好里。
+        if schema == "wubi" {
+            insert_string(
+                &mut settings,
+                "input.wubi_schema",
+                match shared.wubi_profile {
+                    WubiProfile::Wubi86 => "wubi86",
+                    WubiProfile::Wubi98 => "wubi98",
+                },
+            );
+        }
     }
     insert_string(
         &mut settings,
@@ -58,7 +72,9 @@ pub(crate) fn local_account_preferences(
             "simplified"
         },
     );
-    insert_bool(&mut settings, "platform.ios.nine_key", nine_key);
+    if let Some((_, _, nine_key)) = scheme {
+        insert_bool(&mut settings, "platform.ios.nine_key", nine_key);
+    }
     insert_bool(
         &mut settings,
         "platform.ios.sound_enabled",
@@ -141,6 +157,7 @@ fn integer_setting(
 #[derive(Debug, PartialEq)]
 pub(crate) struct IosPreferencePlan {
     input_scheme: Option<String>,
+    wubi_profile: Option<WubiProfile>,
     traditional_chinese_output: Option<bool>,
     sound_enabled: Option<bool>,
     haptics_enabled: Option<bool>,
@@ -159,6 +176,7 @@ impl IosPreferencePlan {
         validate_account_preferences(cloud)?;
         let values = &cloud.settings;
         let nine_key = bool_setting(values, "platform.ios.nine_key")? == Some(true);
+        let mut wubi_profile = None;
         let input_scheme = match string_setting(values, "input.schema")?.as_deref() {
             None => None,
             Some("quanpin") => Some(if nine_key { "nineKey" } else { "quanpin" }.into()),
@@ -172,13 +190,14 @@ impl IosPreferencePlan {
                 }
             }
             Some("wubi") => {
-                if string_setting(values, "input.wubi_schema")?
-                    .as_deref()
-                    .unwrap_or("wubi86")
-                    != "wubi86"
-                {
-                    return Err(AccountError::Invalid);
-                }
+                // 没有 `input.wubi_schema` 的文档来自还不认识 98 五笔的设备，保留本机的五笔版本。
+                wubi_profile = string_setting(values, "input.wubi_schema")?
+                    .map(|value| match value.as_str() {
+                        "wubi86" => Ok(WubiProfile::Wubi86),
+                        "wubi98" => Ok(WubiProfile::Wubi98),
+                        _ => Err(AccountError::Invalid),
+                    })
+                    .transpose()?;
                 Some("wubi".into())
             }
             Some("japanese") => {
@@ -199,7 +218,8 @@ impl IosPreferencePlan {
                 )
             }
             Some("korean") => Some("korean".into()),
-            Some(_) => return Err(AccountError::Invalid),
+            // A scheme this host does not offer (a newer device's Cantonese, Zhuyin, Vietnamese or Stroke) keeps the local one rather than refusing the whole sync, so the rest of the document still applies.
+            Some(_) => None,
         };
         let traditional_chinese_output =
             match string_setting(values, "input.character_set")?.as_deref() {
@@ -254,6 +274,7 @@ impl IosPreferencePlan {
             .transpose()?;
         Ok(Self {
             input_scheme,
+            wubi_profile,
             traditional_chinese_output,
             sound_enabled: bool_setting(values, "platform.ios.sound_enabled")?,
             haptics_enabled: bool_setting(values, "platform.ios.haptics_enabled")?,
@@ -318,6 +339,9 @@ impl IosPreferencePlan {
         if self.input_scheme.is_some() {
             select_touch_scheme(preferences, touch_scheme(&native.input_scheme)?);
         }
+        if let Some(value) = self.wubi_profile {
+            preferences.wubi_profile = value;
+        }
         if self.traditional_chinese_output.is_some() {
             preferences.traditional_chinese_output = native.traditional_chinese_output;
         }
@@ -359,19 +383,29 @@ fn touch_scheme(value: &str) -> Result<TouchKeyboardScheme, AccountError> {
         "japaneseNineKey" => Ok(TouchKeyboardScheme::JapaneseNineKey),
         "japanese" => Ok(TouchKeyboardScheme::Japanese),
         "handwriting" => Ok(TouchKeyboardScheme::Handwriting),
-        "thoughtfulReply" => Ok(TouchKeyboardScheme::ThoughtfulReply),
         "korean" => Ok(TouchKeyboardScheme::Korean),
+        "cantonese" => Ok(TouchKeyboardScheme::Cantonese),
+        "zhuyin" => Ok(TouchKeyboardScheme::Zhuyin),
+        "vietnamese" => Ok(TouchKeyboardScheme::Vietnamese),
+        "tibetan" => Ok(TouchKeyboardScheme::Tibetan),
+        "stroke" => Ok(TouchKeyboardScheme::Stroke),
         _ => Err(AccountError::Invalid),
     }
 }
 
-/// Keep the Chinese scheme a Japanese or Korean selection returns to; switching between the two keeps the one already remembered.
+/// 记住选日文或韩文后要回到的中文方案；从日文、韩文、越南文或藏文切走时保留已经记住的那个。
 fn remember_chinese_scheme(preferences: &mut Preferences) {
     let chinese = match preferences.scheme {
         InputScheme::Quanpin => ChineseScheme::Quanpin,
         InputScheme::Shuangpin => ChineseScheme::Shuangpin,
         InputScheme::Wubi => ChineseScheme::Wubi,
-        InputScheme::Japanese | InputScheme::Korean => return,
+        InputScheme::Cantonese => ChineseScheme::Cantonese,
+        InputScheme::Zhuyin => ChineseScheme::Zhuyin,
+        InputScheme::Stroke => ChineseScheme::Stroke,
+        InputScheme::Japanese
+        | InputScheme::Korean
+        | InputScheme::Vietnamese
+        | InputScheme::Tibetan => return,
     };
     preferences.last_chinese_scheme = Some(chinese);
 }
@@ -384,10 +418,7 @@ fn select_touch_scheme(preferences: &mut Preferences, requested: TouchKeyboardSc
     {
         requested
     } else {
-        TouchKeyboardScheme::ALL
-            .into_iter()
-            .find(|scheme| preferences.touch_keyboard_schemes.enabled.contains(scheme))
-            .unwrap_or(TouchKeyboardScheme::Quanpin)
+        preferences.touch_keyboard_schemes.first_enabled()
     };
     preferences.touch_keyboard_schemes.selected = Some(selected);
     match selected {
@@ -421,6 +452,38 @@ fn select_touch_scheme(preferences: &mut Preferences, requested: TouchKeyboardSc
             preferences.scheme = InputScheme::Korean;
             preferences.touch_keyboard_layout = TouchKeyboardLayout::TwentySixKey;
         }
+        TouchKeyboardScheme::Vietnamese => {
+            remember_chinese_scheme(preferences);
+            preferences.scheme = InputScheme::Vietnamese;
+            preferences.touch_keyboard_layout = TouchKeyboardLayout::TwentySixKey;
+        }
+        TouchKeyboardScheme::Tibetan => {
+            remember_chinese_scheme(preferences);
+            preferences.scheme = InputScheme::Tibetan;
+            preferences.touch_keyboard_layout = TouchKeyboardLayout::TwentySixKey;
+        }
+        TouchKeyboardScheme::Cantonese => {
+            preferences.scheme = InputScheme::Cantonese;
+            preferences.last_chinese_scheme = Some(ChineseScheme::Cantonese);
+            preferences.touch_keyboard_layout = TouchKeyboardLayout::TwentySixKey;
+        }
+        TouchKeyboardScheme::Zhuyin => {
+            preferences.scheme = InputScheme::Zhuyin;
+            preferences.last_chinese_scheme = Some(ChineseScheme::Zhuyin);
+            preferences.touch_keyboard_layout = TouchKeyboardLayout::TwentySixKey;
+        }
+        // 注音 9 键目前只有 Android 宿主会写出；这里只让 `select_touch_scheme` 对它有确定的取值。
+        TouchKeyboardScheme::ZhuyinNineKey => {
+            preferences.scheme = InputScheme::Zhuyin;
+            preferences.last_chinese_scheme = Some(ChineseScheme::Zhuyin);
+            preferences.touch_keyboard_layout = TouchKeyboardLayout::NineKey;
+        }
+        // 笔画键盘由宿主自己画，26 键与九键下都显示同一块笔画键盘，这里与注音一样记为 26 键。
+        TouchKeyboardScheme::Stroke => {
+            preferences.scheme = InputScheme::Stroke;
+            preferences.last_chinese_scheme = Some(ChineseScheme::Stroke);
+            preferences.touch_keyboard_layout = TouchKeyboardLayout::TwentySixKey;
+        }
         TouchKeyboardScheme::Wubi => {
             preferences.scheme = InputScheme::Wubi;
             preferences.last_chinese_scheme = Some(ChineseScheme::Wubi);
@@ -428,8 +491,7 @@ fn select_touch_scheme(preferences: &mut Preferences, requested: TouchKeyboardSc
         }
         TouchKeyboardScheme::Quanpin
         | TouchKeyboardScheme::NineKey
-        | TouchKeyboardScheme::Handwriting
-        | TouchKeyboardScheme::ThoughtfulReply => {
+        | TouchKeyboardScheme::Handwriting => {
             preferences.scheme = InputScheme::Quanpin;
             preferences.last_chinese_scheme = Some(ChineseScheme::Quanpin);
             preferences.touch_keyboard_layout = match selected {
@@ -447,6 +509,7 @@ mod tests {
     use msime_client_core::account::{AccountError, AccountPreferenceValue, AccountPreferences};
     use msime_client_core::preferences::{
         InputScheme, Preferences, ShuangpinProfile, TouchKeyboardLayout, TouchKeyboardScheme,
+        WubiProfile,
     };
     use msime_client_core::skin::theme::GlobalTheme;
     use msime_tauri_mobile_platform::IosKeyboardPreferences;
@@ -468,6 +531,126 @@ mod tests {
             global_theme: "custom".into(),
             custom_keyboard_skin: None,
         }
+    }
+
+    #[test]
+    fn cantonese_zhuyin_and_stroke_are_remembered_and_vietnamese_keeps_the_last_chinese_scheme() {
+        use msime_client_core::preferences::ChineseScheme;
+        for (scheme, remembered) in [
+            (InputScheme::Cantonese, Some(ChineseScheme::Cantonese)),
+            (InputScheme::Zhuyin, Some(ChineseScheme::Zhuyin)),
+            (InputScheme::Stroke, Some(ChineseScheme::Stroke)),
+            (InputScheme::Vietnamese, Some(ChineseScheme::Wubi)),
+            (InputScheme::Tibetan, Some(ChineseScheme::Wubi)),
+        ] {
+            let mut preferences = Preferences {
+                scheme,
+                last_chinese_scheme: Some(ChineseScheme::Wubi),
+                ..Preferences::default()
+            };
+            super::remember_chinese_scheme(&mut preferences);
+            assert_eq!(preferences.last_chinese_scheme, remembered, "{scheme:?}");
+        }
+    }
+
+    #[test]
+    fn upload_leaves_out_the_schemes_the_cloud_cannot_carry() {
+        for scheme in ["cantonese", "zhuyin", "vietnamese", "tibetan", "stroke"] {
+            let mut native = native();
+            native.input_scheme = scheme.into();
+            let settings =
+                local_account_preferences(&native, &Preferences::default(), None).unwrap();
+            assert!(!settings.contains_key("input.schema"), "{scheme}");
+            assert!(!settings.contains_key("input.shuangpin_schema"), "{scheme}");
+            assert!(!settings.contains_key("platform.ios.nine_key"), "{scheme}");
+            assert_eq!(
+                settings["input.character_set"],
+                AccountPreferenceValue::String("traditional".into()),
+                "{scheme}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_cantonese_zhuyin_vietnamese_and_stroke_touch_schemes_select_their_input_schemes() {
+        use msime_client_core::preferences::ChineseScheme;
+        for (native, touch, scheme, remembered) in [
+            (
+                "cantonese",
+                TouchKeyboardScheme::Cantonese,
+                InputScheme::Cantonese,
+                ChineseScheme::Cantonese,
+            ),
+            (
+                "zhuyin",
+                TouchKeyboardScheme::Zhuyin,
+                InputScheme::Zhuyin,
+                ChineseScheme::Zhuyin,
+            ),
+            (
+                "vietnamese",
+                TouchKeyboardScheme::Vietnamese,
+                InputScheme::Vietnamese,
+                ChineseScheme::Wubi,
+            ),
+            (
+                "tibetan",
+                TouchKeyboardScheme::Tibetan,
+                InputScheme::Tibetan,
+                ChineseScheme::Wubi,
+            ),
+            (
+                "stroke",
+                TouchKeyboardScheme::Stroke,
+                InputScheme::Stroke,
+                ChineseScheme::Stroke,
+            ),
+        ] {
+            assert_eq!(super::touch_scheme(native), Ok(touch));
+            let mut preferences = Preferences {
+                scheme: InputScheme::Wubi,
+                last_chinese_scheme: Some(ChineseScheme::Wubi),
+                touch_keyboard_layout: TouchKeyboardLayout::NineKey,
+                ..Preferences::default()
+            };
+            preferences.touch_keyboard_schemes.enabled.insert(touch);
+            super::select_touch_scheme(&mut preferences, touch);
+            assert_eq!(preferences.touch_keyboard_schemes.selected, Some(touch));
+            assert_eq!(preferences.scheme, scheme, "{native}");
+            assert_eq!(
+                preferences.last_chinese_scheme,
+                Some(remembered),
+                "{native}"
+            );
+            assert_eq!(
+                preferences.touch_keyboard_layout,
+                TouchKeyboardLayout::TwentySixKey,
+                "{native}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_touch_scheme_that_is_not_enabled_falls_back_to_the_first_enabled_one() {
+        let mut preferences = Preferences::default();
+        assert!(!preferences
+            .touch_keyboard_schemes
+            .enabled
+            .contains(&TouchKeyboardScheme::Zhuyin));
+        super::select_touch_scheme(&mut preferences, TouchKeyboardScheme::Zhuyin);
+        assert_eq!(
+            preferences.touch_keyboard_schemes.selected,
+            Some(TouchKeyboardScheme::Quanpin)
+        );
+        assert_eq!(preferences.scheme, InputScheme::Quanpin);
+        // 笔画同样是需要用户打开的方案。
+        let mut preferences = Preferences::default();
+        super::select_touch_scheme(&mut preferences, TouchKeyboardScheme::Stroke);
+        assert_eq!(
+            preferences.touch_keyboard_schemes.selected,
+            Some(TouchKeyboardScheme::Quanpin)
+        );
+        assert_eq!(preferences.scheme, InputScheme::Quanpin);
     }
 
     #[test]
@@ -627,8 +810,10 @@ mod tests {
         let mut native = native();
         native.input_scheme = "japaneseNineKey".into();
         native.global_theme = "night".into();
-        let mut preferences = Preferences::default();
-        preferences.clipboard_history = true;
+        let mut preferences = Preferences {
+            clipboard_history: true,
+            ..Preferences::default()
+        };
         plan.apply_shared(&native, &mut preferences).unwrap();
         assert_eq!(preferences.scheme, InputScheme::Japanese);
         assert_eq!(
@@ -670,6 +855,47 @@ mod tests {
     }
 
     #[test]
+    fn an_unknown_cloud_scheme_keeps_the_local_one_and_the_rest_applies() {
+        for unknown in [
+            "cantonese",
+            "zhuyin",
+            "vietnamese",
+            "tibetan",
+            "stroke",
+            "esperanto",
+        ] {
+            let cloud = AccountPreferences {
+                revision: 11,
+                settings: BTreeMap::from([
+                    (
+                        "input.schema".into(),
+                        AccountPreferenceValue::String(unknown.into()),
+                    ),
+                    (
+                        "input.character_set".into(),
+                        AccountPreferenceValue::String("traditional".into()),
+                    ),
+                ]),
+            };
+            let plan = IosPreferencePlan::from_cloud(&cloud).unwrap();
+            let mut native = native();
+            native.input_scheme = "wubi".into();
+            native.traditional_chinese_output = false;
+            let requested = plan.requested_native(&native).unwrap();
+            assert_eq!(requested.input_scheme, "wubi", "{unknown}");
+            assert!(requested.traditional_chinese_output, "{unknown}");
+
+            let mut preferences = Preferences {
+                scheme: InputScheme::Wubi,
+                ..Preferences::default()
+            };
+            plan.apply_shared(&requested, &mut preferences).unwrap();
+            assert_eq!(preferences.scheme, InputScheme::Wubi, "{unknown}");
+            assert!(preferences.traditional_chinese_output, "{unknown}");
+        }
+    }
+
+    #[test]
     fn download_rejects_frequency_values_outside_shared_bounds() {
         for key in [
             "input.frequency_trigger_count",
@@ -686,5 +912,78 @@ mod tests {
                 Err(AccountError::Invalid)
             );
         }
+    }
+
+    #[test]
+    fn the_wubi_profile_travels_as_the_account_wubi_schema() {
+        let mut native = native();
+        native.input_scheme = "wubi".into();
+        let shared = Preferences {
+            wubi_profile: WubiProfile::Wubi98,
+            ..Preferences::default()
+        };
+        let settings = local_account_preferences(&native, &shared, None).unwrap();
+        assert_eq!(
+            settings["input.wubi_schema"],
+            AccountPreferenceValue::String("wubi98".into())
+        );
+        // 不是五笔时不写这个键。
+        native.input_scheme = "quanpin".into();
+        let settings = local_account_preferences(&native, &shared, None).unwrap();
+        assert!(!settings.contains_key("input.wubi_schema"));
+
+        native.input_scheme = "wubi".into();
+        for (value, expected) in [
+            (Some("wubi98"), WubiProfile::Wubi98),
+            (Some("wubi86"), WubiProfile::Wubi86),
+            (None, WubiProfile::Wubi98),
+        ] {
+            let mut settings = BTreeMap::from([(
+                "input.schema".into(),
+                AccountPreferenceValue::String("wubi".into()),
+            )]);
+            if let Some(value) = value {
+                settings.insert(
+                    "input.wubi_schema".into(),
+                    AccountPreferenceValue::String(value.into()),
+                );
+            }
+            let plan = IosPreferencePlan::from_cloud(&AccountPreferences {
+                revision: 12,
+                settings,
+            })
+            .unwrap();
+            let requested = plan.requested_native(&native).unwrap();
+            assert_eq!(requested.input_scheme, "wubi", "{value:?}");
+            let mut preferences = Preferences {
+                wubi_profile: WubiProfile::Wubi98,
+                ..Preferences::default()
+            };
+            preferences
+                .touch_keyboard_schemes
+                .enabled
+                .insert(TouchKeyboardScheme::Wubi);
+            plan.apply_shared(&requested, &mut preferences).unwrap();
+            assert_eq!(preferences.scheme, InputScheme::Wubi, "{value:?}");
+            assert_eq!(preferences.wubi_profile, expected, "{value:?}");
+        }
+
+        let invalid = AccountPreferences {
+            revision: 13,
+            settings: BTreeMap::from([
+                (
+                    "input.schema".into(),
+                    AccountPreferenceValue::String("wubi".into()),
+                ),
+                (
+                    "input.wubi_schema".into(),
+                    AccountPreferenceValue::String("wubi06".into()),
+                ),
+            ]),
+        };
+        assert_eq!(
+            IosPreferencePlan::from_cloud(&invalid),
+            Err(AccountError::Invalid)
+        );
     }
 }

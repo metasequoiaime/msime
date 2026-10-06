@@ -55,7 +55,7 @@ def verify_font_sizes(page, preview):
         for size in range(12, 33):
             page.get_by_label("候选窗字号", exact=True).select_option(str(size))
             page.get_by_label("候选窗预编辑字号", exact=True).select_option(str(44 - size))
-            expect(preview.locator(".cand .text").first).to_have_css("font-size", f"{size}px")
+            expect(preview.locator("[data-preview-layout] .cand .text").first).to_have_css("font-size", f"{size}px")
             expect(preview.locator(".pinyin .text")).to_have_css("font-size", f"{44 - size}px")
 
 def verify_helpcode_display(page, preview):
@@ -64,22 +64,22 @@ def verify_helpcode_display(page, preview):
     display = page.get_by_role("switch", name="在候选窗口中显示全拼辅助码", exact=True)
     display.check()
     open_page(page, "候选窗口")
-    count = preview.locator(".cand").count()
-    expect(preview.locator(".cand-helpcode")).to_have_count(count)
+    count = preview.locator("[data-preview-layout] .cand").count()
+    expect(preview.locator("[data-preview-layout] .cand-helpcode")).to_have_count(count)
     open_page(page, "输入")
     display.uncheck()
     open_page(page, "候选窗口")
-    expect(preview.locator(".cand-helpcode")).to_have_count(0)
-    expect(preview.locator(".cand")).to_have_count(count)
+    expect(preview.locator("[data-preview-layout] .cand-helpcode")).to_have_count(0)
+    expect(preview.locator("[data-preview-layout] .cand")).to_have_count(count)
     open_page(page, "输入")
     display.check()
     open_page(page, "候选窗口")
-    expect(preview.locator(".cand-helpcode")).to_have_count(count)
+    expect(preview.locator("[data-preview-layout] .cand-helpcode")).to_have_count(count)
 
 def verify_text_color(page, preview):
     # The seven candidate colour pickers are the custom theme's, on 主题; the preview they drive is on 候选窗口.
-    text = preview.locator(".cand:not(.first) .text").first
-    number = preview.locator(".cand:not(.first) .num, .cand:not(.first) .cand-no").first
+    text = preview.locator("[data-preview-layout] .cand:not(.first) .text").first
+    number = preview.locator("[data-preview-layout] .cand:not(.first) .num, [data-preview-layout] .cand:not(.first) .cand-no").first
     open_page(page, "候选窗口")
     original = text.evaluate("el => getComputedStyle(el).color")
     original_number = number.evaluate("el => getComputedStyle(el).color")
@@ -113,7 +113,7 @@ def verify_font_families(page, preview):
     page.get_by_role("button", name="添加补充字体", exact=True).click()
     page.get_by_label("补充字体 2", exact=True).fill("加倍示例")
     def width():
-        return preview.locator(".candidate").evaluate("""el => {
+        return preview.locator(".candidate[data-preview-layout]").evaluate("""el => {
           const ctx = document.createElement('canvas').getContext('2d');
           ctx.font = '20px ' + getComputedStyle(el).fontFamily;
           return ctx.measureText('A').width;
@@ -124,10 +124,10 @@ def verify_font_families(page, preview):
     page.get_by_role("button", name="移除补充字体 1", exact=True).click()
     assert abs(width() - 20) < .01
     page.get_by_role("button", name="移除补充字体 1", exact=True).click()
-    text = preview.locator(".cand .text").first
+    text = preview.locator("[data-preview-layout] .cand .text").first
     original_color = text.evaluate("el => getComputedStyle(el).color")
     page.get_by_label("候选窗主字体", exact=True).fill('示例";color:red;/*')
-    family = preview.locator(".candidate").evaluate("el => getComputedStyle(el).fontFamily")
+    family = preview.locator(".candidate[data-preview-layout]").evaluate("el => getComputedStyle(el).fontFamily")
     assert family.endswith("sans-serif") and "color:red;" in family
     expect(text).to_have_css("color", original_color)
     page.get_by_label("候选窗主字体", exact=True).fill("Segoe UI")
@@ -204,8 +204,8 @@ with sync_playwright() as playwright:
         expect(toolbar.locator('[data-toolbar-item="language"]')).to_be_visible()
         reload_settings(page)
         open_page(page, "候选窗口")
-        expect(preview.locator(".cand")).to_have_count(6)
-        expect(preview.locator(".candidate")).to_have_css("font-size", "18px")
+        expect(preview.locator("[data-preview-layout] .cand")).to_have_count(6)
+        expect(preview.locator(".candidate[data-preview-layout]")).to_have_css("font-size", "18px")
         verify_helpcode_display(page, preview)
         set_color_mode(page, "浅色")
         expect(page.get_by_label("候选文字颜色", exact=True)).to_have_value("#1a1a1a")
@@ -275,7 +275,7 @@ with sync_playwright() as playwright:
         set_layout(page, "horizontal")
         page.get_by_label("候选窗字号", exact=True).select_option("20")
         page.get_by_label("每页候选项数量", exact=True).fill("9")
-        expect(preview.locator(".cand")).to_have_count(9)
+        expect(preview.locator("[data-preview-layout] .cand")).to_have_count(9)
         expect(preview.locator(".wnd-h")).to_have_css("font-size", "20px")
         page.get_by_label("候选窗预编辑", exact=True).select_option("empty")
         expect(preview.locator(".pinyin")).to_be_hidden()
@@ -294,8 +294,8 @@ with sync_playwright() as playwright:
             page.screenshot(path=args.screenshot)
         reload_settings(page)
         open_page(page, "候选窗口")
-        expect(preview.locator(".cand")).to_have_count(6)
-        expect(preview.locator(".candidate")).to_have_css("font-size", "18px")
+        expect(preview.locator("[data-preview-layout] .cand")).to_have_count(6)
+        expect(preview.locator(".candidate[data-preview-layout]")).to_have_css("font-size", "18px")
         expect(preview.locator(".pinyin")).to_have_count(1)
         expect(preview.locator(".pinyin")).to_be_visible()
         # Hidden preedit keeps its row across layouts and page sizes (formerly exercised under the removed Willow green skin, whose gradient surface no longer exists).
@@ -306,7 +306,7 @@ with sync_playwright() as playwright:
         expect(preview.locator(".container.preedit-hidden > .pinyin + .row-wrapper > .first")).to_have_count(1)
         # 3 is the smallest page size the selector offers.
         page.get_by_label("每页候选项数量", exact=True).fill("3")
-        expect(preview.locator(".cand")).to_have_count(3)
+        expect(preview.locator("[data-preview-layout] .cand")).to_have_count(3)
         expect(preview.locator(".container.preedit-hidden > .pinyin + .row-wrapper > .first")).to_have_count(1)
         page.get_by_label("候选窗预编辑", exact=True).select_option("pinyin")
         expect(preview.locator(".pinyin")).to_be_visible()

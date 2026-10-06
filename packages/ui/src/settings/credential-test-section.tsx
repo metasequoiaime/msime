@@ -1,4 +1,5 @@
-import * as settings from "./settings-style";
+import { SettingsServiceRow } from "./settings-service-row";
+import { ActionButton } from "./action-button";
 
 export interface CredentialTestState {
   signature: string;
@@ -29,21 +30,18 @@ export function CredentialTestSection({
   const signature = JSON.stringify(config);
   const visible = state?.signature === signature;
   return (
-    <div className={settings.serviceRow}>
+    <SettingsServiceRow>
       <div>
-        <button
-          type="button"
-          className="secondary"
-          aria-label={label}
+        <ActionButton
+          action={onTest}
+          ariaLabel={label}
           disabled={disabled || (visible && state.busy)}
-          onClick={onTest}
-        >
-          {visible && state.busy ? "测试中…" : "测试配置"}
-        </button>
+          label={visible && state.busy ? "测试中…" : "测试配置"}
+        />
         {visible && state.message && (
           <span role={state.ok ? "status" : "alert"}>{state.message}</span>
         )}
       </div>
-    </div>
+    </SettingsServiceRow>
   );
 }

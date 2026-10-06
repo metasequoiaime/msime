@@ -3,13 +3,15 @@
 #include <filesystem>
 #include <string>
 
+#include "LinuxEdition.h"
+
 namespace msime_linux {
 
 #ifndef MSIME_INSTALLED_RESOURCE_RELATIVE_DIR
-#define MSIME_INSTALLED_RESOURCE_RELATIVE_DIR "../share/msime-client/resources"
+#define MSIME_INSTALLED_RESOURCE_RELATIVE_DIR "../share/" MSIME_EDITION_CLIENT_DIRECTORY "/resources"
 #endif
 #ifndef MSIME_INSTALLED_SOUND_PACKS_RELATIVE_DIR
-#define MSIME_INSTALLED_SOUND_PACKS_RELATIVE_DIR "../share/msime-client/sound-packs"
+#define MSIME_INSTALLED_SOUND_PACKS_RELATIVE_DIR "../share/" MSIME_EDITION_CLIENT_DIRECTORY "/sound-packs"
 #endif
 
 // Resolve the resource bundle installed beside the executable.  The bundle is

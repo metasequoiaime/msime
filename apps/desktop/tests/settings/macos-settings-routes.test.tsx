@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { testHost } from "../support/host";
 import { settingsFormReady, saveSettingsNow } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -19,8 +20,8 @@ const snapshot: Snapshot = {
   },
 };
 
-// The translation controls live on the 表达 page. The macOS menu still asks for `input`, which `client-core` can route today; `expression` is the page this entry has to land on once the router accepts it.
-test("macOS translation settings open on the 表达 page and save NiuTrans drafts", async () => {
+// 翻译相关的控件在「标点与翻译」页。macOS 菜单仍然请求 `input`，因为 `client-core` 目前能路由它；等路由器接受 `expression` 之后，这个入口应该落到的就是 `expression` 页。
+test("macOS translation settings open on the 标点与翻译 page and save NiuTrans drafts", async () => {
   const save = vi.fn().mockResolvedValue(snapshot);
   const probe = vi.fn().mockResolvedValue({ ok: true, message: "synthetic success" });
   render(
@@ -30,12 +31,12 @@ test("macOS translation settings open on the 表达 page and save NiuTrans draft
         load: async () => snapshot,
         save,
         testApiCredential: probe,
-        host: { platform: "macos" } as never,
+        host: testHost({ platform: "macos" }),
       }}
     />,
   );
   const appId = await screen.findByLabelText("NiuTrans App ID");
-  expect(screen.getByRole("heading", { name: "表达" })).toBeDefined();
+  expect(screen.getByRole("heading", { name: "标点与翻译" })).toBeDefined();
   expect(probe).not.toHaveBeenCalled();
   fireEvent.change(appId, { target: { value: "synthetic-edited" } });
   fireEvent.click(screen.getByRole("button", { name: "测试 NiuTrans 配置" }));
@@ -62,7 +63,7 @@ test("macOS AI entry opens the shared AI category without implicit credential re
         load: async () => snapshot,
         save: vi.fn(),
         testApiCredential: probe,
-        host: { platform: "macos" } as never,
+        host: testHost({ platform: "macos" }),
       }}
     />,
   );
@@ -76,7 +77,7 @@ test("a menu entry picked while the page is open navigates without dropping the 
     load: async () => snapshot,
     save: vi.fn(),
     testApiCredential: vi.fn(),
-    host: { platform: "macos" } as never,
+    host: testHost({ platform: "macos" }),
   };
   const view = render(<SettingsPage initialPage="input" client={client} />);
   fireEvent.change(await screen.findByLabelText("NiuTrans App ID"), {

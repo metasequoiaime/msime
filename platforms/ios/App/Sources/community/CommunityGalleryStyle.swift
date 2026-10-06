@@ -35,7 +35,10 @@ struct CommunityResourceCard: View {
     VStack(alignment: .leading, spacing: 9) {
       cover
       Text(item.name).font(.system(size: 15, weight: .semibold)).lineLimit(1)
-      CommunityAuthorLabel(name: item.author)
+      HStack(spacing: 4) {
+        CommunityAuthorLabel(name: item.author)
+        if item.removed { CommunityRemovedBadge() }
+      }
       HStack(spacing: 3) {
         Label("\(item.saves)", systemImage: item.saved ? "bookmark.fill" : "bookmark")
         Spacer(minLength: 2)
@@ -49,7 +52,7 @@ struct CommunityResourceCard: View {
       HStack {
         Image(systemName: item.kind.icon).font(.system(size: 13, weight: .semibold))
         Spacer()
-        Text(item.kind == .dictionary ? "\(item.content.entries?.count ?? 0) 词条" : "回复灵感")
+        Text(item.kind == .dictionary ? "\(item.content.entries?.count ?? 0) 词条" : "回复模板")
           .font(.system(size: 9, weight: .medium))
       }.foregroundStyle(accent)
       if item.kind == .dictionary {

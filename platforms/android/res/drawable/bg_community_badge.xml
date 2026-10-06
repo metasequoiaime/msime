@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The design's 40dp r10 accentSoft glyph box in front of a community dictionary or reply set. -->
+<!-- The design's 40dp r10 accentSoft glyph box in front of a community dictionary or phrase pack. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
-    <solid android:color="@color/surface_variant" />
+    <solid android:color="?attr/colorPrimaryContainer" />
     <corners android:radius="10dp" />
 </shape>

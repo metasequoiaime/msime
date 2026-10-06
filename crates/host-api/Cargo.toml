@@ -12,13 +12,14 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 
 [dependencies]
 msime-client-core = { path = "../client-core" }
+msime-path-trust = { path = "../path-trust" }
 msime-engine = { path = "../engine" }
 msime-input-runtime = { path = "../input-runtime" }
 hex = "0.4"
+lru = "0.18"
 serde.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
-toml.workspace = true
 sha2.workspace = true
 time.workspace = true
 
@@ -33,6 +34,7 @@ kira = { version = "0.12.5", default-features = false, features = ["cpal", "wav"
 symphonia = { version = "0.6.1", default-features = false, features = ["wav", "pcm", "ogg", "vorbis"] }
 
 [dev-dependencies]
+msime-path-trust = { path = "../path-trust", features = ["test-support"] }
 rusqlite.workspace = true
 
 [target.'cfg(windows)'.dependencies]

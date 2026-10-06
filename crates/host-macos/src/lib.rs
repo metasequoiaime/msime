@@ -17,6 +17,33 @@ pub mod panel_session;
 #[cfg(target_os = "macos")]
 pub(crate) const SESSION_JSON_MAX_BYTES: usize = 2048;
 
+/// 本安装包的版本在 macOS 上的身份标识。版本表里每个版本都有 macOS 段，`scripts/test-editions.py` 守着这一点。
+pub fn packaged_macos_identity(
+) -> Result<&'static msime_client_core::edition::MacosIdentity, &'static str> {
+    msime_client_core::edition::Edition::of_macos_bundle()?
+        .macos()
+        .ok_or("this edition has no macOS identifiers")
+}
+
+/// 设置应用和输入法之间的分布式通知名。它们在整个登录会话里广播，所以不是 full 的版本在名字后面加上 `.<版本 id>`，一个版本的设置应用不会叫醒或改动另一个版本的输入法；full 的名字不变。与 platforms/macos/src/core/EditionIdentity.h 的 `MSIMEEditionNotificationName` 一致。
+pub fn edition_notification_name(
+    base: &str,
+    edition: &msime_client_core::edition::Edition,
+) -> String {
+    if edition.is_full() {
+        base.to_owned()
+    } else {
+        format!("{base}.{}", edition.id)
+    }
+}
+
+/// 设置应用让输入法在词库维护前放开会话的通知，与 InputController.mm 收听的一致。
+pub const DICTIONARY_MAINTENANCE_NOTIFICATION: &str =
+    "MSIMEDictionaryMaintenanceWillBeginNotification";
+/// 打字统计开关变化的通知，与 InputController.mm 收听的一致。
+pub const TYPING_STATISTICS_NOTIFICATION: &str =
+    "MetasequoiaTypingStatisticsEnabledChangedNotification";
+
 #[cfg(target_os = "macos")]
 pub(crate) fn valid_session_socket_path(path: &str) -> bool {
     path.len() < 104 && std::path::Path::new(path).is_absolute() && !path.contains('\0')
@@ -85,6 +112,13 @@ pub fn restore_launch_target(target: LaunchTarget) -> bool {
     unsafe { msime_macos_restore_launch_target(target.pid, target.launched) }
 }
 
+const INITIAL_CAPTURE_DEVICE_CAPACITY: usize = 128;
+
+#[cfg(any(target_os = "macos", test))]
+fn capture_device_buffer() -> Vec<(String, String)> {
+    Vec::with_capacity(INITIAL_CAPTURE_DEVICE_CAPACITY)
+}
+
 /// Enumerate input-capable CoreAudio devices using their stable UIDs. The
 /// callback runs synchronously on the caller's thread and never opens a
 /// device, so this is safe to use from a Tauri blocking task.
@@ -127,7 +161,7 @@ pub fn voice_capture_devices() -> Vec<(String, String)> {
         );
     }
 
-    let mut devices = Vec::new();
+    let mut devices = capture_device_buffer();
     // SAFETY: `collect` has the ABI and lifetime required by the native
     // callback; the context points to a live Vec for the duration of the call.
     unsafe {
@@ -157,8 +191,10 @@ pub fn uninstall_input_source(
         CString::new(bundle.to_string_lossy().as_bytes()).map_err(|_| "invalid uninstall path")?;
     let user_data = CString::new(user_data.to_string_lossy().as_bytes())
         .map_err(|_| "invalid uninstall path")?;
-    // The preferences the input method leaves behind are keyed on its bundle identifier; removing any other domain leaves the real one on disk and reports a clean uninstall.
-    let domain = CString::new("app.msime.inputmethod.MetasequoiaIME").unwrap();
+    // 输入法留下的偏好以它的 bundle id 为域，删别的域会把真正那个留在磁盘上还报告卸载干净；bundle id 随版本而变。
+    let identity = packaged_macos_identity()?;
+    let domain = CString::new(identity.input_method_bundle_id.as_bytes())
+        .map_err(|_| "invalid preferences domain")?;
     unsafe extern "C" {
         fn msime_macos_uninstall_input_source(
             bundle: *const std::ffi::c_char,
@@ -179,83 +215,51 @@ pub fn uninstall_input_source(
 }
 
 /// Wake the separate IMK process so it releases its dictionary sessions now, after the caller has written the quiesce lease beside the dictionary lock. IMK only lets go while that lease is live, so a stray notification drops nothing. The notification carries no input, credentials, or paths.
+///
+/// 通知名随版本而变（`edition_notification_name`），只叫醒本版本的输入法。安装包的版本声明坏了时什么也不发。
 #[cfg(target_os = "macos")]
 pub fn quiesce_input_sessions() {
     unsafe extern "C" {
-        fn msime_macos_quiesce_input_sessions();
+        fn msime_macos_quiesce_input_sessions(notification: *const std::ffi::c_char);
     }
-    // SAFETY: the native function has no arguments and retains no state.
-    unsafe { msime_macos_quiesce_input_sessions() };
+    let Ok(edition) = msime_client_core::edition::Edition::of_macos_bundle() else {
+        return;
+    };
+    let Ok(name) = std::ffi::CString::new(edition_notification_name(
+        DICTIONARY_MAINTENANCE_NOTIFICATION,
+        edition,
+    )) else {
+        return;
+    };
+    // SAFETY: `name` 是以 NUL 结尾的字符串，调用期间一直有效；原生代码不保留它。
+    unsafe { msime_macos_quiesce_input_sessions(name.as_ptr()) };
 }
 
 /// Tell the separate IMK process that the private aggregate-statistics opt-in changed.
 ///
 /// Only the boolean crosses the process boundary. No committed text, path, or statistic is placed
 /// in the distributed notification.
+///
+/// 通知名随版本而变（`edition_notification_name`），关掉一个版本的统计不影响同时安装的其他版本。安装包的版本声明坏了时什么也不发。
 #[cfg(target_os = "macos")]
 pub fn notify_typing_statistics_enabled(enabled: bool) {
     unsafe extern "C" {
-        fn msime_macos_notify_typing_statistics_enabled(enabled: bool);
+        fn msime_macos_notify_typing_statistics_enabled(
+            notification: *const std::ffi::c_char,
+            enabled: bool,
+        );
     }
-    // SAFETY: scalar ABI; the native function posts one per-user notification and retains no
-    // caller-owned state.
-    unsafe { msime_macos_notify_typing_statistics_enabled(enabled) };
-}
-
-/// Read the account session shared with the Swift backend Keychain store.
-#[cfg(target_os = "macos")]
-pub fn account_load() -> Result<Option<Vec<u8>>, &'static str> {
-    let mut bytes = vec![0_u8; 1024 * 1024];
-    let mut length = 0_usize;
-    unsafe extern "C" {
-        fn msime_macos_account_load(buffer: *mut u8, capacity: usize, length: *mut usize) -> i32;
-    }
-    let status = unsafe { msime_macos_account_load(bytes.as_mut_ptr(), bytes.len(), &mut length) };
-    if status < 0 || length > bytes.len() {
-        return Err("account keychain unavailable");
-    }
-    Ok((status == 1).then(|| {
-        bytes.truncate(length);
-        bytes
-    }))
-}
-
-#[cfg(target_os = "macos")]
-pub fn account_save(bytes: &[u8]) -> Result<(), &'static str> {
-    if bytes.is_empty() || bytes.len() > 1024 * 1024 {
-        return Err("account session too large");
-    }
-    unsafe extern "C" {
-        fn msime_macos_account_save(bytes: *const u8, length: usize) -> bool;
-    }
-    unsafe { msime_macos_account_save(bytes.as_ptr(), bytes.len()) }
-        .then_some(())
-        .ok_or("account keychain unavailable")
-}
-
-#[cfg(target_os = "macos")]
-pub fn account_clear() -> Result<(), &'static str> {
-    unsafe extern "C" {
-        fn msime_macos_account_clear() -> bool;
-    }
-    unsafe { msime_macos_account_clear() }
-        .then_some(())
-        .ok_or("account keychain unavailable")
-}
-
-#[cfg(not(target_os = "macos"))]
-pub fn account_load() -> Result<Option<Vec<u8>>, &'static str> {
-    Ok(None)
-}
-
-#[cfg(not(target_os = "macos"))]
-pub fn account_save(_: &[u8]) -> Result<(), &'static str> {
-    Err("account unavailable")
-}
-
-#[cfg(not(target_os = "macos"))]
-pub fn account_clear() -> Result<(), &'static str> {
-    Err("account unavailable")
+    let Ok(edition) = msime_client_core::edition::Edition::of_macos_bundle() else {
+        return;
+    };
+    let Ok(name) = std::ffi::CString::new(edition_notification_name(
+        TYPING_STATISTICS_NOTIFICATION,
+        edition,
+    )) else {
+        return;
+    };
+    // SAFETY: `name` 是以 NUL 结尾的字符串，调用期间一直有效；原生代码只发一条本用户的通知，不保留调用方的任何东西。
+    unsafe { msime_macos_notify_typing_statistics_enabled(name.as_ptr(), enabled) };
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -610,21 +614,50 @@ pub fn pick_voice_model_directory() -> Option<String> {
     path
 }
 
-/// Stop every running instance of the separate InputMethodKit bundle before its state is moved.
-/// Must run on the AppKit main thread.
+/// 搬动状态之前停掉本版本输入法 bundle 的每个运行实例；同时安装的其他版本不受影响。必须在 AppKit 主线程上调用。安装包的版本声明坏了时什么也不停，返回 false。
 #[cfg(target_os = "macos")]
 pub fn stop_input_method() -> bool {
     unsafe extern "C" {
-        fn msime_macos_stop_input_method() -> bool;
+        fn msime_macos_stop_input_method(bundle_identifier: *const std::ffi::c_char) -> bool;
     }
-    // SAFETY: no pointers cross the boundary; native code validates the calling thread.
-    unsafe { msime_macos_stop_input_method() }
+    let Ok(identity) = packaged_macos_identity() else {
+        return false;
+    };
+    let Ok(identifier) = std::ffi::CString::new(identity.input_method_bundle_id.as_bytes()) else {
+        return false;
+    };
+    // SAFETY: `identifier` 是以 NUL 结尾的字符串，调用期间一直有效；原生代码检查调用线程，不保留它。
+    unsafe { msime_macos_stop_input_method(identifier.as_ptr()) }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use msime_client_core::panels::KeyboardModifiers;
+
+    #[test]
+    fn full_keeps_its_notification_names_and_other_editions_get_their_own() {
+        use msime_client_core::edition::Edition;
+        assert_eq!(
+            edition_notification_name(DICTIONARY_MAINTENANCE_NOTIFICATION, Edition::full()),
+            "MSIMEDictionaryMaintenanceWillBeginNotification"
+        );
+        assert_eq!(
+            edition_notification_name(
+                TYPING_STATISTICS_NOTIFICATION,
+                Edition::by_id("wubi").unwrap()
+            ),
+            "MetasequoiaTypingStatisticsEnabledChangedNotification.wubi"
+        );
+    }
+
+    #[test]
+    fn a_test_process_is_not_inside_a_package_and_runs_as_full() {
+        assert_eq!(
+            packaged_macos_identity().unwrap().input_method_bundle_id,
+            "app.msime.inputmethod.MetasequoiaIME"
+        );
+    }
 
     fn request(key: u16) -> KeyboardInputRequest {
         KeyboardInputRequest {
@@ -693,18 +726,8 @@ mod tests {
         }
     }
 
-    /// Name every account entry point without calling one: the keychain belongs to the user, and what is
-    /// worth checking here is the linkage. Compiled as Objective-C++ without `extern "C"`, the bridge
-    /// exported C++-mangled names that resolved nothing, and every binary reaching it - the Tauri settings
-    /// app among them - failed to link. A test that merely references them fails the same way.
-    #[cfg(target_os = "macos")]
     #[test]
-    fn the_account_bridge_exports_c_symbols() {
-        let load: fn() -> Result<Option<Vec<u8>>, &'static str> = account_load;
-        let save: fn(&[u8]) -> Result<(), &'static str> = account_save;
-        let clear: fn() -> Result<(), &'static str> = account_clear;
-        // Linking is the assertion. black_box keeps the three references from being optimised away
-        // without letting anything run.
-        std::hint::black_box((load, save, clear));
+    fn capture_device_buffer_reserves_the_listing_capacity() {
+        assert!(capture_device_buffer().capacity() >= INITIAL_CAPTURE_DEVICE_CAPACITY);
     }
 }

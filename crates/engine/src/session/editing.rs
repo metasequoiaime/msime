@@ -1,11 +1,13 @@
 //! Caret editing, the editing text, segment boundaries and caret-prefix decoding (core-session.md §5.9, overlays.md §7.6).
 
 use super::input::InputSession;
+use crate::local::url;
 use crate::local::GENERATED_MODE_INPUT_LIMIT;
 use crate::shuangpin::query::{
     detect_active_double_helpcode_length, segment_raw_boundaries,
     trim_trailing_letters_preserve_delimiters,
 };
+use crate::stroke;
 use crate::types::{Command, KeyResult, LocalInputMode, SchemeType, ShuangpinProfileKind};
 
 pub(super) fn temporary_japanese_preedit(raw: &str) -> String {
@@ -16,7 +18,7 @@ pub(super) fn temporary_japanese_preedit(raw: &str) -> String {
 }
 
 impl InputSession {
-    /// Dedicated preedit; `"R" + cased raw` in temporary Japanese; the local preedit; else the cased raw input.
+    /// 专用英文的预编辑；临时日文是 `"R"` 加带大小写的原文；本地模式的预编辑；越南文和藏文是显示出来的文字；粤拼是按音节加空格的字母；其余是带大小写的原文，笔画里就是键入的 `hspnzx` 字母，与 reading 画出的笔画字形一一对应。
     pub(super) fn editing_text(&self) -> String {
         if self.dedicated_english {
             return self.dedicated_english_preedit.clone();
@@ -24,6 +26,14 @@ impl InputSession {
         match self.local_mode {
             LocalInputMode::TemporaryJapanese => {
                 temporary_japanese_preedit(&self.engine.request().raw_input_with_cases)
+            }
+            // A Vietnamese word is edited as the text it shows, not as its keystrokes.
+            LocalInputMode::None if self.is_vietnamese() => self.engine.preedit().to_owned(),
+            // 藏文音节串同样按显示出来的藏文编辑，而不是按威利按键。
+            LocalInputMode::None if self.is_tibetan() => self.engine.preedit().to_owned(),
+            // Jyutping is edited as the syllables it shows (`nei hou`); an edit drops the spaces again, because the scheme keeps only letters and `'`.
+            LocalInputMode::None if self.is_cantonese() => {
+                self.engine.request().normalized_segmentation.clone()
             }
             LocalInputMode::None => self.raw_with_cases().to_owned(),
             _ => self.local_preedit.clone(),
@@ -39,8 +49,11 @@ impl InputSession {
     pub(super) fn edit_at_caret(&mut self, command: Command) -> KeyResult {
         let mut text = self.editing_text();
         let mut caret = self.caret_position();
-        // A local mode's prefix letter is a mode marker, not editable payload.
-        let begin = usize::from(self.local_mode != LocalInputMode::None);
+        // 本地模式的前缀字母是模式标记，不是可编辑的内容；网址模式没有前缀字母，整段都能编辑。
+        let begin = usize::from(!matches!(
+            self.local_mode,
+            LocalInputMode::None | LocalInputMode::Url
+        ));
         match command {
             Command::MoveLeft => caret = caret.saturating_sub(1).max(begin),
             Command::MoveRight => caret = (caret + 1).min(text.len()),
@@ -51,15 +64,15 @@ impl InputSession {
                     return KeyResult::handled();
                 }
                 caret -= 1;
-                text.remove(caret);
-                return self.replace_editing_text(&text, caret);
+                let removed = text.remove(caret);
+                return self.delete_editing_character(text, caret, removed);
             }
             Command::DeleteForward => {
                 if caret == text.len() {
                     return KeyResult::handled();
                 }
-                text.remove(caret);
-                return self.replace_editing_text(&text, caret);
+                let removed = text.remove(caret);
+                return self.delete_editing_character(text, caret, removed);
             }
             _ => return KeyResult::unhandled(),
         }
@@ -67,6 +80,22 @@ impl InputSession {
         // Moving the caret changes which prefix is decoded.
         self.update_mixed_candidates();
         KeyResult::handled()
+    }
+
+    /// 从编辑文字里删掉 `removed` 后剩下 `text`。网址模式删空就退出；删掉的正是进入网址模式的那个键（`url_reverts`）时退回组字，否则与其他模式一样替换编辑文字。
+    fn delete_editing_character(&mut self, text: String, caret: usize, removed: char) -> KeyResult {
+        if self.local_mode == LocalInputMode::Url {
+            // 网址删空后没有前缀字母可留，退出模式，否则会停在空的网址模式里吞掉后续按键。
+            if text.is_empty() {
+                self.reset_composition();
+                return KeyResult::handled();
+            }
+            if self.url_reverts(&text, removed) {
+                self.restore_composition_from_url(text);
+                return KeyResult::handled();
+            }
+        }
+        self.replace_editing_text(&text, caret)
     }
 
     /// input_session_editing.cpp:161-210.
@@ -84,6 +113,20 @@ impl InputSession {
                 }
                 LocalInputMode::QuickPhrase => accepted = lower,
                 LocalInputMode::DateTime => accepted = false,
+                // 笔画只接受笔画键；通配符不能插在最前面；已满 `MAX_STROKES` 笔时不再插入（否则截断会丢掉末尾那一笔）。组合中的其他字母被吞掉，与在末尾键入时一样。
+                LocalInputMode::None if self.stroke_rules_apply() => {
+                    if !stroke::is_key(value)
+                        || (value == stroke::WILDCARD && caret == 0)
+                        || text.len() >= stroke::MAX_STROKES
+                    {
+                        return if value.is_ascii_alphabetic() {
+                            KeyResult::handled()
+                        } else {
+                            KeyResult::unhandled()
+                        };
+                    }
+                    accepted = true;
+                }
                 LocalInputMode::None => {
                     let scheme = self.scheme();
                     accepted = lower
@@ -99,7 +142,7 @@ impl InputSession {
                         let start = text[..caret].rfind('\'').map_or(0, |at| at + 1);
                         accepted = (caret - start) % 2 == 1;
                     }
-                    if value == b'\'' && scheme != SchemeType::Wubi {
+                    if value == b'\'' && scheme.accepts_apostrophe() {
                         accepted = caret > 0;
                     }
                 }
@@ -118,13 +161,26 @@ impl InputSession {
                 LocalInputMode::Command | LocalInputMode::Mention => {
                     accepted = text.len() < GENERATED_MODE_INPUT_LIMIT && lower;
                 }
+                // 与 `handle_local_character` 同一组规则。
+                LocalInputMode::Url => {
+                    if !url::accepts(value) {
+                        return KeyResult::unhandled();
+                    }
+                    // 已到长度上限时吞掉按键，与行末键入一致；只有网址不收的键才交还 runtime。
+                    if text.len() >= url::INPUT_LIMIT {
+                        return KeyResult::handled();
+                    }
+                    accepted = true;
+                }
             }
         }
         if !accepted {
             return KeyResult::unhandled();
         }
         let bytes = text.as_bytes();
+        // 网址里的撇号是字面字符，可以连着出现。
         if value == b'\''
+            && self.local_mode != LocalInputMode::Url
             && ((caret > 0 && bytes[caret - 1] == b'\'') || bytes.get(caret) == Some(&b'\''))
         {
             return KeyResult::handled();
@@ -199,13 +255,24 @@ impl InputSession {
             SchemeType::Quanpin => {
                 quanpin_raw_boundaries(raw_with_cases, &self.pinyin_segmentation_with_cases())
             }
-            SchemeType::Wubi | SchemeType::JapaneseRomaji | SchemeType::Korean => Vec::new(),
+            // The Cantonese editing text is spaced, so raw offsets would not land on its syllables; the host edits it one character at a time. A stroke is one character, so Stroke has no units either.
+            SchemeType::Wubi
+            | SchemeType::JapaneseRomaji
+            | SchemeType::Korean
+            | SchemeType::Cantonese
+            | SchemeType::Zhuyin
+            | SchemeType::Vietnamese
+            | SchemeType::Tibetan
+            | SchemeType::Stroke => Vec::new(),
         }
     }
 
-    /// Clamped to the editing text; recomputes the prefix candidates. Korean has no caret inside its open syllable, so the caret stays at the end.
+    /// Clamped to the editing text; recomputes the prefix candidates. Korean has no caret inside its open syllable and Zhuyin none inside its conversion, so the caret stays at the end.
     pub(super) fn set_caret(&mut self, caret: Option<usize>) {
-        if self.is_korean() && !self.dedicated_english && self.local_mode == LocalInputMode::None {
+        if self.engine.current_scheme_type().locks_caret()
+            && !self.dedicated_english
+            && self.local_mode == LocalInputMode::None
+        {
             self.caret = None;
             return;
         }

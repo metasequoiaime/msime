@@ -67,6 +67,89 @@ final class BackendLocalStoreTests: XCTestCase {
     #endif
   }
 
+  func testLoadRejectsASymlinkedSessionFile() throws {
+    #if canImport(Darwin)
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("msime-store-session-symlink-test-\(UUID().uuidString)")
+    let outsideDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("msime-store-session-target-\(UUID().uuidString)")
+    defer {
+      try? FileManager.default.removeItem(at: directory)
+      try? FileManager.default.removeItem(at: outsideDirectory)
+    }
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: outsideDirectory, withIntermediateDirectories: true)
+    let outside = outsideDirectory.appendingPathComponent("outside.json")
+    let tokens = BackendAccountClient.Tokens(access_token: String(repeating: "a", count: 64),
+      refresh_token: String(repeating: "b", count: 64), token_type: "Bearer", expires_in: 900,
+      user: .init(id: "synthetic-external-user", display_name: "", created_at: "2026-09-26"))
+    try JSONEncoder().encode(BackendSavedSession(tokens: tokens, expiresAt: Date())).write(to: outside)
+    try FileManager.default.createSymbolicLink(at: directory.appendingPathComponent("session.json"),
+                                               withDestinationURL: outside)
+
+    XCTAssertThrowsError(try BackendLocalStore(fileName: "session.json", directory: directory).load())
+    #endif
+  }
+
+  func testReadTreatsASymlinkedIdentityFileAsMissing() throws {
+    #if canImport(Darwin)
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("msime-store-identity-symlink-test-\(UUID().uuidString)")
+    let outsideDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("msime-store-identity-target-\(UUID().uuidString)")
+    defer {
+      try? FileManager.default.removeItem(at: directory)
+      try? FileManager.default.removeItem(at: outsideDirectory)
+    }
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: outsideDirectory, withIntermediateDirectories: true)
+    let outside = outsideDirectory.appendingPathComponent("outside.json")
+    try Data("synthetic-external-identity".utf8).write(to: outside)
+    try FileManager.default.createSymbolicLink(at: directory.appendingPathComponent("anonymous-account.json"),
+                                               withDestinationURL: outside)
+
+    XCTAssertNil(BackendLocalStore.read("anonymous-account.json", directory: directory))
+    #endif
+  }
+
+  func testSaveRejectsASymlinkedDirectoryBeforeWritingExternalStore() throws {
+    #if canImport(Darwin)
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("msime-store-directory-symlink-test-\(UUID().uuidString)")
+    let outsideDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("msime-store-directory-target-\(UUID().uuidString)")
+    defer {
+      try? FileManager.default.removeItem(at: root)
+      try? FileManager.default.removeItem(at: outsideDirectory)
+    }
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: outsideDirectory, withIntermediateDirectories: true)
+    let linked = root.appendingPathComponent("linked", isDirectory: true)
+    try FileManager.default.createSymbolicLink(at: linked, withDestinationURL: outsideDirectory)
+
+    let tokens = BackendAccountClient.Tokens(access_token: String(repeating: "a", count: 64),
+      refresh_token: String(repeating: "b", count: 64), token_type: "Bearer", expires_in: 900,
+      user: .init(id: "synthetic-user", display_name: "", created_at: "2026-09-26"))
+    let store = BackendLocalStore(fileName: "session.json", directory: linked)
+    XCTAssertThrowsError(try store.save(BackendSavedSession(tokens: tokens, expiresAt: Date())))
+    XCTAssertFalse(FileManager.default.fileExists(atPath: outsideDirectory.appendingPathComponent("session.json").path))
+    XCTAssertFalse(FileManager.default.fileExists(atPath: outsideDirectory.appendingPathComponent("backend-local-store.lock").path))
+    #endif
+  }
+
+  func testClearReportsWhenTheSessionCannotBeRemoved() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("msime-store-clear-test-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let session = directory.appendingPathComponent("session.json")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    try Data("synthetic-session".utf8).write(to: session)
+    let store = BackendLocalStore(fileName: "session.json", directory: directory)
+    try store.save(BackendSavedSession(
+      tokens: .init(access_token: String(repeating: "a", count: 64),
+        refresh_token: String(repeating: "b", count: 64), token_type: "Bearer", expires_in: 900,
+        user: .init(id: "synthetic-user", display_name: "", created_at: "2026-09-26")),
+      expiresAt: Date()))
+    try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: directory.path)
+    defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path) }
+
+    XCTAssertThrowsError(try store.clear())
+    XCTAssertTrue(FileManager.default.fileExists(atPath: session.path))
+  }
+
   func testWriteIfAbsentAllowsOnlyOneCreator() throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent("msime-store-create-test-\(UUID().uuidString)")
     defer { try? FileManager.default.removeItem(at: directory) }

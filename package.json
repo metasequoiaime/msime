@@ -11,6 +11,6 @@
     "format:check": "vp fmt --check vite.config.ts packages/ui/src apps/desktop/src apps/desktop/tests apps/harmony/src"
   },
   "devDependencies": {
-    "vite-plus": "0.3.3"
+    "vite-plus": "1.0.0"
   }
 }

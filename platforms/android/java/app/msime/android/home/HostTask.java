@@ -3,6 +3,7 @@ package app.msime.android.home;
 import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
+import android.view.View;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
 import androidx.lifecycle.Lifecycle;
@@ -27,6 +28,12 @@ public final class HostTask {
         thread.setDaemon(true);
         return thread;
     });
+    /** HTTP calls get their own threads: one can block for a full connect plus read timeout, and the shared store's reads and writes must not queue behind it. */
+    private static final ExecutorService NETWORK = Executors.newCachedThreadPool(runnable -> {
+        Thread thread = new Thread(runnable, "msime-settings-network");
+        thread.setDaemon(true);
+        return thread;
+    });
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
 
     private HostTask() {}
@@ -34,26 +41,40 @@ public final class HostTask {
     /** Run `work` off the main thread and hand its result to `done` if the fragment is still up. */
     public static <T> void run(Fragment fragment, Function<Context, T> work,
             Consumer<T> done) {
+        submit(WORKER, fragment, work, done);
+    }
+
+    /** Like {@link #run}, but for HTTP calls, which can block for a full connect plus read timeout; store calls stay on {@link #run} so they remain serialized on one thread. */
+    public static <T> void runNetwork(Fragment fragment, Function<Context, T> work, Consumer<T> done) {
+        submit(NETWORK, fragment, work, done);
+    }
+
+    private static <T> void submit(ExecutorService executor, Fragment fragment, Function<Context, T> work,
+            Consumer<T> done) {
+        View ownerView = fragment.getView();
+        if (ownerView == null) return;
+        Lifecycle ownerLifecycle = fragment.getViewLifecycleOwner().getLifecycle();
         Context context = fragment.getContext();
         if (context == null) return;
         Context application = context.getApplicationContext();
-        WORKER.execute(() -> {
+        executor.execute(() -> {
             final T result;
             try {
                 result = work.apply(application);
             } catch (RuntimeException | LinkageError error) {
                 // The host being unavailable is a state every caller renders; it is not a crash.
-                MAIN.post(() -> deliver(fragment, done, null));
+                MAIN.post(() -> deliver(fragment, ownerView, ownerLifecycle, done, null));
                 return;
             }
-            MAIN.post(() -> deliver(fragment, done, result));
+            MAIN.post(() -> deliver(fragment, ownerView, ownerLifecycle, done, result));
         });
     }
 
-    private static <T> void deliver(Fragment fragment, Consumer<T> done, @Nullable T result) {
-        if (!fragment.isAdded() || fragment.getView() == null) return;
-        if (!fragment.getViewLifecycleOwner().getLifecycle().getCurrentState()
-                .isAtLeast(Lifecycle.State.CREATED)) return;
+    private static <T> void deliver(Fragment fragment, View ownerView, Lifecycle ownerLifecycle,
+            Consumer<T> done, @Nullable T result) {
+        // 视图销毁后可能很快重建；旧任务只能交给发起它的那棵视图。
+        if (!fragment.isAdded() || fragment.getView() != ownerView) return;
+        if (!ownerLifecycle.getCurrentState().isAtLeast(Lifecycle.State.CREATED)) return;
         done.accept(result);
     }
 }

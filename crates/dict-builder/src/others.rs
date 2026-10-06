@@ -1,4 +1,4 @@
-//! `others.db`: the emoji, kaomoji and symbol catalogs the emoji panel and the E/M modes read.
+//! `msime-others.db`: the emoji, kaomoji and symbol catalogs the emoji panel and the E/M modes read.
 
 use std::collections::HashSet;
 use std::sync::LazyLock;

@@ -1,0 +1,34 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.locale.1.12.0.schema.json
+# 模板：platforms/windows/packaging/render.py 按一个 windows-v 发布填写 @...@ 字段。
+
+PackageIdentifier: Metasequoia.MetasequoiaIME
+PackageVersion: "@VERSION@"
+PackageLocale: zh-CN
+Publisher: Metasequoia
+PublisherUrl: https://msime.app/
+PublisherSupportUrl: https://github.com/metasequoiaime/msime/issues
+PrivacyUrl: https://github.com/metasequoiaime/msime/blob/develop/PRIVACY.md
+PackageName: 水杉输入法
+PackageUrl: https://github.com/metasequoiaime/msime
+License: GPL-3.0-only
+LicenseUrl: https://github.com/metasequoiaime/msime/blob/develop/LICENSE
+ShortDescription: 水杉输入法（Metasequoia IME）：Windows 中文输入法
+Description: |-
+  水杉输入法（MSIME，Metasequoia IME）是面向 Windows、macOS、Linux、Android、iOS 与 HarmonyOS 的中文输入法。Windows 版是基于文本服务框架（TSF）的输入法，带独立的 Server 进程、原生候选窗和设置程序。
+
+  MSIME 是 Metasequoia IME 的缩写，与 Microsoft IME 无关。
+Tags:
+  - chinese
+  - ime
+  - input-method
+  - pinyin
+  - shuangpin
+  - wubi
+  - tsf
+  - 输入法
+  - 拼音
+  - 五笔
+InstallationNotes: 卸载会删除输入法的数据目录，包括自己加的词、设置和皮肤；升级会保留。请以登录的用户身份安装，不要以 SYSTEM 身份（Intune、winget-autoupdate、计划任务）：数据目录默认在安装账户的本地应用数据下，SYSTEM 的那个位于 C:\Windows 里，安装包会拒绝。
+ReleaseNotesUrl: "@RELEASE_NOTES_URL@"
+ManifestType: locale
+ManifestVersion: 1.12.0

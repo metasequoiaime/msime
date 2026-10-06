@@ -25,6 +25,7 @@ import type { KeyEvent as InputKeyEvent } from '@ohos.multimodalInput.keyEvent';
 import { Action as KeyAction } from '@ohos.multimodalInput.keyEvent';
 import { StagedResources } from '../keyboard/StagedResources';
 import { HardwareKeyDispatch } from '../keyboard/HardwareKeyDispatch';
+import { SchemeTraits } from '../keyboard/SchemeTraits';
 import { PanelShortcutKey, PanelShortcutPolicy, PanelSurfaceAction }
   from '../keyboard/input/PanelShortcutPolicy';
 import { ToolbarButton } from '../keyboard/FloatingToolbarLayout';
@@ -33,6 +34,7 @@ import { AttachedInputDevice, DeviceChange, HardwareKeyboardPolicy, KeyRoutingTr
 import { HarmonyHardwareKeyboards } from '../keyboard/input/HarmonyHardwareKeyboards';
 import { HardwareBackspaceGuard } from '../keyboard/input/BackspaceHoldPolicy';
 import { HeldKeys, KeyIdPolicy } from '../keyboard/KeyIdPolicy';
+import { HarmonyTelemetry } from '../telemetry/Telemetry';
 
 // Where the badge goes and how long it stays, from platforms/macos/src/input/InputModeHUDPanel.mm: shown long enough to read and gone before the next word. Its size is the floating toolbar's, from InputModeHudPolicy.sizeVp.
 const HUD_SCREEN_MARGIN_VP: number = 8;
@@ -543,6 +545,8 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
                              inputClient: inputMethodEngine.InputClient) => void =
     (kbController: inputMethodEngine.KeyboardController,
      inputClient: inputMethodEngine.InputClient): void => {
+      // A keyboard process can live for days; this sends the new day's active at most every few hours, off this thread.
+      HarmonyTelemetry.keyboardShown();
       if (this.panel === undefined) {
         this.pending = inputClient;
         return;
@@ -608,19 +612,23 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
 
   private readonly typed: (event: InputKeyEvent) => boolean = (event: InputKeyEvent): boolean => {
     const session: KeyboardSession = KeyboardSession.shared;
+    // Whether this key-down is a new press rather than a repeat of a key still held, which OpenHarmony delivers as another key-down.
+    let newPress: boolean = false;
     // Counted for the key heatmap before anything claims or releases the key, so a key the application types counts the same as one the Engine composes, and a modifier or shortcut chord counts as the presses it is. The session declines for a password field.
     if (event.action === KeyAction.DOWN) {
-      if (this.heldKeys.press(event.key.code)) {
+      newPress = this.heldKeys.press(event.key.code);
+      if (newPress) {
         session.recordKey(KeyIdPolicy.hardware(event.key.code));
       }
     } else {
       this.heldKeys.release(event.key.code);
     }
-    // Korean reads a letter's case as the jamo (Shift+R is ㄲ), so only Shift decides it there: Caps Lock left on must not turn every ㄱ into ㄲ.
+    // 韩语用字母大小写区分字母本身（Shift+R 是 ㄲ），所以只看 Shift：忘了关的 Caps Lock 不能把每个 ㄱ 都变成 ㄲ。越南语和藏文（威利转写区分大小写）按输入时的大小写写字母，所以 Caps Lock 在那里就是大写，和任何编辑器一样。
     const key: HardwareKey = HardwareKeyRouter.normalizeLetterCase({
       keyCode: event.key.code, unicodeChar: event.unicodeChar, ctrlKey: event.ctrlKey,
       altKey: event.altKey, logoKey: event.logoKey, shiftKey: event.shiftKey
-    }, event.capsLock && !session.isKorean());
+    }, event.capsLock && !session.isKorean() && session.rulesScheme() !== SchemeTraits.VIETNAMESE
+      && session.rulesScheme() !== SchemeTraits.TIBETAN);
     session.setCapsLock(event.capsLock);
     const mode: ModeKey = {
       keyCode: event.key.code, down: event.action === KeyAction.DOWN, shiftKey: event.shiftKey,
@@ -740,7 +748,8 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       KeyboardSession.shared.preferences().navigation,
         session.hasHighlightedTranslation(), session.isJapanese(),
         session.wordCharacterBinding(), session.hasHighlightedCandidate(), session.hardwareSpelling(),
-        session.isFullWidth(), session.punctuationLockedChinese(), session.isKorean());
+        session.isFullWidth(), session.punctuationLockedChinese(), session.isKorean(),
+        session.candidateListOpen(), session.rulesScheme());
     if (decision.action === HardwareKeyAction.RELEASE) {
       // What the application types is still the user's typing, and Windows counts it (`stats_passthrough.h`).
       if (event.action === KeyAction.DOWN) {
@@ -750,6 +759,10 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       return false;
     }
     if (event.action !== KeyAction.DOWN) {
+      return true;
+    }
+    // A held Hanja key converts once rather than opening and closing the list with every repeat.
+    if (decision.action === HardwareKeyAction.CONVERT_HANJA && !newPress) {
       return true;
     }
     const applied: boolean = HardwareKeyDispatch.apply(decision, key.shiftKey, session);
@@ -842,6 +855,8 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     client.ensureAnonymousAccount(state).catch((error: Error): void => {
       KeyboardLog.error(`anonymous account: ${describeError(error)}`);
     });
+    // One usage-reporting session per keyboard process, started before the early returns below so a process that never gets a panel still has one.
+    HarmonyTelemetry.keyboardStarted(state);
     if (!StagedResources.stage(`${this.context.resourceDir}/engine`, resources,
         `${files}/engine.ready`)) {
       return;
@@ -853,6 +868,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     } else {
       StagedResources.unstage(`${files}/offline-glosses`, `${files}/offline-glosses.ready`);
     }
+    StagedResources.stageLanguageDictionaries(this.context.resourceDir, files);
     // The extension context knows the system colour mode; the view has no context of its own to ask.
     const systemDark: boolean =
       this.context.config.colorMode === ConfigurationConstant.ColorMode.COLOR_MODE_DARK;
@@ -1033,6 +1049,8 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
 
   onDestroy(): void {
     this.teardown();
+    // Here rather than in teardown, which a failed onCreate also runs: only the framework destroying the extension ends the session normally.
+    HarmonyTelemetry.keyboardStopped();
   }
 
   /** Undoes everything onCreate installed. Safe to run twice: a failed onCreate and then onDestroy. */

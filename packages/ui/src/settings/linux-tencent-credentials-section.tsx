@@ -1,6 +1,10 @@
 import type { ReactNode } from "react";
 import { CredentialActions } from "./credential-actions";
+import { SettingSectionTitle } from "./setting-section-title";
 import { type CredentialStatusMessageValue } from "./credential-status-message";
+import { PasswordSettingField } from "./password-setting-field";
+import { TextSettingField } from "./text-setting-field";
+import { SettingsInputDescription } from "./settings-input-description";
 
 export interface LinuxTencentCredentialStatus {
   tencent: { region: string } | null;
@@ -47,46 +51,37 @@ export function LinuxTencentCredentialsSection({
 
   return (
     <div className="section" role="group" aria-label="在线翻译服务">
-      <div className="section-title">
-        在线翻译服务
-        <small>由用户管理的 Linux provider 服务负责网络请求和凭据</small>
-      </div>
+      <SettingSectionTitle
+        as="div"
+        title="在线翻译服务"
+        description="由用户管理的 Linux provider 服务负责网络请求和凭据"
+      />
       {!available ? (
-        <p className="input-setting-description">
+        <SettingsInputDescription>
           候选词翻译开启后，provider 从用户配置目录的 <code>tencent-provider.json</code>{" "}
           读取腾讯云凭据；设置页不保存不会生效的 SecretId 或 SecretKey。
-        </p>
+        </SettingsInputDescription>
       ) : (
         <>
-          <p className="input-setting-description">{description}</p>
-          <label className="section-header">
-            <span className="section-title">SecretId</span>
-            <input
-              aria-label="腾讯云 SecretId"
-              type="password"
-              autoComplete="off"
-              value={input.secretId}
-              onChange={(event) => onInputChange({ secretId: event.target.value })}
-            />
-          </label>
-          <label className="section-header">
-            <span className="section-title">SecretKey</span>
-            <input
-              aria-label="腾讯云 SecretKey"
-              type="password"
-              autoComplete="off"
-              value={input.secretKey}
-              onChange={(event) => onInputChange({ secretKey: event.target.value })}
-            />
-          </label>
-          <label className="section-header">
-            <span className="section-title">地域</span>
-            <input
-              aria-label="腾讯云地域"
-              value={region}
-              onChange={(event) => onInputChange({ region: event.target.value })}
-            />
-          </label>
+          <SettingsInputDescription>{description}</SettingsInputDescription>
+          <PasswordSettingField
+            label="SecretId"
+            inputLabel="腾讯云 SecretId"
+            value={input.secretId}
+            onChange={(secretId) => onInputChange({ secretId })}
+          />
+          <PasswordSettingField
+            label="SecretKey"
+            inputLabel="腾讯云 SecretKey"
+            value={input.secretKey}
+            onChange={(secretKey) => onInputChange({ secretKey })}
+          />
+          <TextSettingField
+            label="地域"
+            inputLabel="腾讯云地域"
+            value={region}
+            onChange={(value) => onInputChange({ region: value })}
+          />
           <CredentialActions
             saveDisabled={busy || (!stored && (!input.secretId.trim() || !input.secretKey.trim()))}
             clearDisabled={busy}

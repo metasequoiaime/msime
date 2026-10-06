@@ -89,6 +89,24 @@ export const pluginsAsync: (request: string) => Promise<string>;
  */
 export const ensureAnonymousAccount: (directory: string) => Promise<string>;
 /**
+ * Starts the usage-reporting session at keyboard start: `{directory,platform,version,preferences_directory}` in, `{enabled,crash_record_path?,previous_session_crashed?,crashes?}` out. Closes the previous session (`session_crash` only when it left a crash record), queues crash records and today's `active`, writes the new session marker. With `usage_reporting` off it clears instead. Small files only, no network.
+ */
+export const telemetryBegin: (request: string) => string;
+/** `{directory}`: the keyboard is shutting down normally; queues the `session` event. No network. */
+export const telemetryEnd: (request: string) => string;
+/** `{directory,message,stack}` from the crash observer: writes the running session's crash record, sent on the next start. No network. */
+export const telemetryRecordCrash: (request: string) => string;
+/** The same request as `telemetryBegin`; queues today's `active` and sends the queue on a worker thread. Resolves with `{ok,value:{enabled,sent,dropped,remaining,deferred}}`. */
+export const telemetryFlush: (request: string) => Promise<string>;
+/** `{directory}`: the user just turned usage reporting off; drops the queue, the session marker and crash records. */
+export const telemetryClear: (request: string) => string;
+/**
+ * `{directory,platform,channel?}` in; `{items:[{id,title,body,html,targets,channels,published_at}]}` out on a worker thread, newest first, without dismissed ones. `html` is the Markdown body rendered with raw HTML escaped and only http, https and mailto links kept. Fetched at most once a minute; the cached copy answers otherwise.
+ */
+export const notices: (request: string) => Promise<string>;
+/** `{directory,id}`: remembers that the user dismissed notice `id`. */
+export const noticeDismiss: (request: string) => string;
+/**
  * Decodes the WAV sample at `sample` once per semitone and writes each note to `<directory>/note-<index>.wav` at 48 kHz, pitched as a playback rate. Resolves with the files in semitone order; rejects a sample that is not WAV, lasts longer than `maxMillis`, or decodes past its declared length.
  */
 export const keySoundRenderNotes: (
@@ -100,10 +118,7 @@ export const keySoundRenderNotes: (
 /** The statistics master switch under an absolute state directory: 1 on, 0 off or never written, -1 for an invalid directory or unreadable document. */
 export const typingStatisticsEnabled: (directory: string) => number;
 export const vocabularyReview: (request: string) => string;
-/**
- * Locked mobile history operations. Harmony opts into migration of its original
- * `state/clipboard-history.json`; every mutation answers with the latest complete entry list.
- */
+/** Locked mobile history operations; every mutation answers with the latest complete entry list. */
 export const mobileClipboardHistory: (request: string) => string;
 export const emojiCatalog: (query: string, resources: string) => string;
 export const candidateGlosses: (request: string, resources: string) => string;

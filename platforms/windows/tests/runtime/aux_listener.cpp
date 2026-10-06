@@ -125,6 +125,7 @@ int main() {
       DWORD error = ERROR_SUCCESS;
       std::atomic<int> activations{0};
       std::atomic<int> deactivations{0};
+      std::atomic<bool> throw_activation{false};
       // The terminal sink stands in for the Server's deactivation path. It
       // records what it was asked and answers what the test tells it to, so
       // both outcomes can be checked at the wire.
@@ -143,6 +144,8 @@ int main() {
       auto listener = AuxListener::create(
           name, [&](const TrayMenuAnchor &a) { collected.add(a); }, error, {},
           [&](AuxActivation activation) {
+            if (throw_activation.load())
+              throw std::runtime_error("Synthetic activation callback failure");
             if (activation == AuxActivation::Activated)
               ++activations;
             else
@@ -195,6 +198,12 @@ int main() {
       require(deactivations.load() == 1 && activations.load() == 0);
       require(deliver(name, L"IMEActivation", dispatched, 8));
       require(activations.load() == 1);
+      throw_activation.store(true);
+      require(deliver(name, L"IMEActivation", dispatched, 9));
+      require(listener->stats().callback_failures == 1);
+      throw_activation.store(false);
+      require(deliver(name, L"LangbarRightClick|5|5|45|45", dispatched, 10));
+      require(collected.wait_for(7));
       require(listener->stats().unknown_verb == 0);
 
       // A genuinely unknown verb is still counted and dropped, and the

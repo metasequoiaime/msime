@@ -4,6 +4,17 @@
 
 int main() {
     @autoreleasepool {
+        for (id invalid in @[@YES, @1.5, @1e30, @(-1)]) {
+            __block NSUInteger invalidSaves = 0;
+            NSDictionary *result = MSIMEEnableClipboardHistory(^NSDictionary *{
+                return @{ @"revision": invalid,
+                    @"preferences": @{ @"clipboard_history": @NO } };
+            }, ^NSDictionary *(uint64_t, NSDictionary *) {
+                ++invalidSaves;
+                return nil;
+            });
+            assert(result[@"error"] && invalidSaves == 0);
+        }
         NSDictionary *snapshot = @{ @"format_version": @1, @"revision": @7,
             @"preferences": @{ @"clipboard_history": @NO, @"theme": @"light", @"synthetic_setting": @42 } };
         __block NSUInteger saves = 0;

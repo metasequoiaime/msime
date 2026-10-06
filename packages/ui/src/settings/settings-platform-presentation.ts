@@ -1,7 +1,7 @@
 import { platformCopy, type PlatformCopyContext } from "./platform-copy";
 import { platformResourceUrls } from "./platform-resource-urls";
 import { voiceCaptureBackendOptions } from "./voice-capture-backend-options";
-import { fullwidthShortcutChord, maintenanceShortcutChord } from "./platform-shortcuts";
+import { fullwidthShortcutChord } from "./platform-shortcuts";
 
 export interface SettingsPlatformPresentationOptions extends PlatformCopyContext {
   clientHostedPlatform: boolean;
@@ -25,7 +25,6 @@ export function settingsPlatformPresentation({
   });
   return {
     fullwidthChord: fullwidthShortcutChord(macos),
-    maintenanceChord: maintenanceShortcutChord(macos),
     captureBackendOptions: voiceCaptureBackendOptions({ linux, macos, windows, harmony }),
     releasesPageUrl,
     licenseUrl,

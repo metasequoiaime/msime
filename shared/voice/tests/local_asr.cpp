@@ -4,6 +4,10 @@
 #include <fstream>
 #include <string>
 
+#if defined(__linux__)
+#include <sys/stat.h>
+#endif
+
 namespace fs = std::filesystem;
 
 int main() {
@@ -30,6 +34,44 @@ int main() {
     assert(!is_local_model_dir((root / "model").u8string()));
     std::ofstream(root / "model" / std::string(local_model_manifest)) << R"({"kind":"offline_sense_voice","files":{}})";
     assert(is_local_model_dir((root / "model").u8string()));
+    assert(!local_model_uses_pinyin_hotwords((root / "model").u8string()));
+    std::ofstream(root / "model" / std::string(local_model_manifest))
+        << R"({"kind":"offline_sense_voice","files":{},"hotwords":"pinyin"})";
+    assert(local_model_uses_pinyin_hotwords((root / "model").u8string()));
+    std::ofstream(root / "model" / std::string(local_model_manifest))
+        << R"({"kind":"offline_sense_voice","files":{},"hotwords":")"
+        << std::string(256 * 1024, 'x') << R"("})";
+    assert(!local_model_uses_pinyin_hotwords((root / "model").u8string()));
+
+#if defined(__linux__)
+    // Linux distributions may keep `/bin` as a root-owned system link (for
+    // example to `/usr/bin`).  The Rust installer trusts that link, so the
+    // native recognizer must accept the same path to the already installed
+    // model instead of making the install unusable.
+    struct stat bin_link {};
+    struct stat bin_parent {};
+    if (::lstat("/bin", &bin_link) == 0 && S_ISLNK(bin_link.st_mode) &&
+        bin_link.st_uid == 0 && ::stat("/", &bin_parent) == 0 &&
+        S_ISDIR(bin_parent.st_mode) && bin_parent.st_uid == 0 &&
+        (bin_parent.st_mode & 022) == 0) {
+      const auto through_system_link = fs::path("/bin") / ".." / root.relative_path() / "model";
+      assert(is_local_model_dir(through_system_link.u8string()));
+    }
+#endif
+
+    assert(local_asr_thread_count(5) == 4);
+
+    // 会话 API 自身必须执行已安装模型边界；独立 helper 直接构造会话，不经过 provider 封装层。
+    set_sherpa_library_path((root / "no-such-runtime").u8string());
+    bool rejected_uninstalled = false;
+    try {
+        LocalAsrOptions options;
+        options.model_dir = (root / "missing").u8string();
+        LocalAsrSession session(options, nullptr);
+    } catch (const VoiceError &error) {
+        rejected_uninstalled = std::string(error.what()).find("Not an installed local speech model") != std::string::npos;
+    }
+    assert(rejected_uninstalled);
 
 #if !defined(_WIN32)
     const auto external = root / "external";
@@ -37,7 +79,24 @@ int main() {
     std::ofstream(external / std::string(local_model_manifest)) << "{}";
     fs::create_symlink(external, root / "linked-model");
     assert(!is_local_model_dir((root / "linked-model").u8string()));
+    bool rejected_linked = false;
+    try {
+        LocalAsrOptions options;
+        options.model_dir = (root / "linked-model").u8string();
+        LocalAsrSession session(options, nullptr);
+    } catch (const VoiceError &error) {
+        rejected_linked = std::string(error.what()).find("Not an installed local speech model") != std::string::npos;
+    }
+    assert(rejected_linked);
     fs::remove(root / "linked-model");
+
+    // A symlinked ancestor is just as much an escape from the configured model tree as a symlinked model directory.
+    const auto nested_model = external / "nested-model";
+    fs::create_directories(nested_model);
+    std::ofstream(nested_model / std::string(local_model_manifest)) << "{}";
+    fs::create_symlink(external, root / "linked-parent");
+    assert(!is_local_model_dir((root / "linked-parent" / "nested-model").u8string()));
+    fs::remove(root / "linked-parent");
 
     const auto external_manifest = external / "external-manifest.json";
     std::ofstream(external_manifest) << "{}";

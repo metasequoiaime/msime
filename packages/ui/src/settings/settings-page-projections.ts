@@ -1,5 +1,6 @@
 import { mobilePrimaryPageIds, type MobilePrimaryPageId } from "./settings-navigation-helpers";
 import { pages, settingsNavGroups, type SettingsPageId } from "./settings-page-registry";
+import { mobileGroupTitle } from "./mobile-tab-helpers";
 
 export interface SettingsPageProjectionOptions {
   mobilePlatform: boolean;
@@ -13,6 +14,8 @@ export interface SettingsPageProjectionOptions {
   showDeveloperPage: boolean;
   /** The 插件 page: a host with a pack store, or one that plays or routes something it switches. */
   hasPlugins: boolean;
+  /** 「手写输入」页：手写识别器只认汉字，不提供手写的版本（`EditionInfo.handwriting` 为 false）没有这一页。 */
+  hasHandwriting: boolean;
   mobileHiddenPageIds: readonly SettingsPageId[];
   mobilePageTitle: (id: SettingsPageId, title: string) => string;
 }
@@ -23,11 +26,17 @@ export interface SettingsPageItem {
   readonly icon: string;
 }
 
+/** 导航里的一组页面。`title` 为空的组不显示组名，例如侧栏最前面单独的「首页」。 */
+export interface SettingsPageGroup {
+  readonly title?: string;
+  readonly pages: SettingsPageItem[];
+}
+
 export interface SettingsPageProjections {
   availablePages: SettingsPageItem[];
-  sidebarGroups: SettingsPageItem[][];
+  sidebarGroups: SettingsPageGroup[];
   mobilePrimaryPages: SettingsPageItem[];
-  mobileSecondaryGroups: SettingsPageItem[][];
+  mobileSecondaryGroups: SettingsPageGroup[];
 }
 
 /** Projects the current registry into the host-aware page lists used by the settings shell. */
@@ -42,6 +51,7 @@ export function settingsPageProjections({
   showFloatingToolbar,
   showDeveloperPage,
   hasPlugins,
+  hasHandwriting,
   mobileHiddenPageIds,
   mobilePageTitle,
 }: SettingsPageProjectionOptions): SettingsPageProjections {
@@ -55,9 +65,9 @@ export function settingsPageProjections({
         (item.id !== "chat" || hasChat) &&
         (item.id !== "community" || hasCommunity) &&
         (item.id !== "floating-toolbar" || showFloatingToolbar) &&
-        (item.id !== "download" || !mobilePlatform) &&
         (item.id !== "developer" || showDeveloperPage) &&
         (item.id !== "plugins" || hasPlugins) &&
+        (item.id !== "handwriting" || hasHandwriting) &&
         (item.id !== "more" || mobilePlatform),
     )
     .map((item) => ({
@@ -75,30 +85,32 @@ export function settingsPageProjections({
   );
   const byId = new Map(sidebarPages.map((item) => [item.id, item]));
   const groups = settingsNavGroups
-    .map((ids) =>
-      ids.flatMap((id) => {
+    .map(({ title, ids }) => ({
+      title: mobilePlatform ? mobileGroupTitle(title) : title,
+      pages: ids.flatMap((id) => {
         if (mobilePlatform && !mobileListedPage(id)) return [];
         const item = byId.get(id);
         return item ? [item] : [];
       }),
-    )
-    .filter((group) => group.length > 0);
+    }))
+    .filter((group) => group.pages.length > 0);
   const home = byId.get("home");
-  const sidebarGroups = home ? [[home], ...groups] : groups;
+  const sidebarGroups = home ? [{ pages: [home] }, ...groups] : groups;
 
   const mobilePrimaryPages = mobilePrimaryPageIds.flatMap((id) => {
     const item = availablePages.find((page) => page.id === id);
     return item ? [item] : [];
   });
   const mobileSecondaryGroups = settingsNavGroups
-    .map((ids) =>
-      ids.flatMap((id) => {
+    .map(({ title, ids }) => ({
+      title: mobileGroupTitle(title),
+      pages: ids.flatMap((id) => {
         if (!mobileListedPage(id)) return [];
         const item = availablePages.find((page) => page.id === id);
         return item ? [item] : [];
       }),
-    )
-    .filter((group) => group.length > 0);
+    }))
+    .filter((group) => group.pages.length > 0);
 
   return { availablePages, sidebarGroups, mobilePrimaryPages, mobileSecondaryGroups };
 }

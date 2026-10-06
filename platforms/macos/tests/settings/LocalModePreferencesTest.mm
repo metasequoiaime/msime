@@ -89,8 +89,8 @@ int main() {
             options[name] = path;
         }
         // Four of the eight modes are gated on a runtime resource as well as on the preference: emoji and
-        // kaomoji read others.db, temporary English reads english.db, temporary Japanese reads
-        // dict_japanese.dat. apply_local_mode_resource_gates turns the mode off when the file is absent, so
+        // kaomoji read msime-others.db, temporary English reads msime-english.db, temporary Japanese reads
+        // msime-japanese.dat. apply_local_mode_resource_gates turns the mode off when the file is absent, so
         // that a missing optional resource makes Shift+E insert a capital E rather than swallow the key.
         //
         // Without these, this test asserted something that could not hold, and it had been read as the
@@ -98,7 +98,7 @@ int main() {
         // are enough to let the preference plumbing this test is actually about run for all eight modes -
         // and keeping them empty keeps the test off the fetched dictionaries.
         NSString *resources = options[@"resources"];
-        NSArray<NSString *> *gated = @[@"others.db", @"english.db", @"dict_japanese.dat"];
+        NSArray<NSString *> *gated = @[@"msime-others.db", @"msime-english.db", @"msime-japanese.dat"];
         for (NSString *resource in gated)
             assert([NSFileManager.defaultManager createFileAtPath:[resources stringByAppendingPathComponent:resource]
                                                          contents:[NSData data] attributes:nil]);

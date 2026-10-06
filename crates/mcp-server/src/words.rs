@@ -20,6 +20,8 @@ pub enum Dictionary {
     Pinyin,
     Wubi,
     English,
+    /// 98 五笔码表。
+    Wubi98,
 }
 
 impl From<Dictionary> for WordKind {
@@ -27,6 +29,7 @@ impl From<Dictionary> for WordKind {
         match value {
             Dictionary::Pinyin => Self::Pinyin,
             Dictionary::Wubi => Self::Wubi,
+            Dictionary::Wubi98 => Self::Wubi98,
             Dictionary::English => Self::English,
         }
     }

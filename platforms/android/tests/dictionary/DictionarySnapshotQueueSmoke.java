@@ -1,5 +1,6 @@
 import app.msime.android.DictionarySnapshotQueue;
 import app.msime.android.DictionarySnapshotWorker;
+import app.msime.android.DictionarySnapshotPolicy;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
@@ -21,6 +22,10 @@ public final class DictionarySnapshotQueueSmoke {
     }
 
     public static void main(String[] args) throws Exception {
+        check(DictionarySnapshotPolicy.handle(42L, -1) == 42L);
+        check(DictionarySnapshotPolicy.handle(42.5, -1) == -1);
+        check(DictionarySnapshotPolicy.handle(true, -1) == -1);
+        check(DictionarySnapshotPolicy.handle(0L, -1) == -1);
         Path root = Files.createTempDirectory("msime-snapshot-queue-");
         try {
             Path outside = Files.createDirectory(root.resolve("outside"));
@@ -75,6 +80,18 @@ public final class DictionarySnapshotQueueSmoke {
             check(!Files.exists(stagingOutside.resolve("nested")));
             Files.delete(stagingLink);
             DictionarySnapshotQueue queue = new DictionarySnapshotQueue(root, root.resolve("queue"));
+            Files.createDirectories(root.resolve("queue"));
+            Path outsideLock = Files.createFile(root.resolve("outside-state.lock"));
+            Files.createSymbolicLink(root.resolve("queue/state.lock"), outsideLock);
+            fails(DictionarySnapshotQueue.Reason.UNAVAILABLE, queue::read);
+            Files.delete(root.resolve("queue/state.lock"));
+            Path workerQueuePath = root.resolve("worker-queue");
+            DictionarySnapshotQueue workerQueue = new DictionarySnapshotQueue(root, workerQueuePath);
+            Files.createDirectories(workerQueuePath);
+            Path outsideWorkerLock = Files.createFile(root.resolve("outside-worker.lock"));
+            Files.createSymbolicLink(workerQueuePath.resolve("worker.lock"), outsideWorkerLock);
+            fails(DictionarySnapshotQueue.Reason.UNAVAILABLE, workerQueue::acquireWorkerLease);
+            Files.delete(workerQueuePath.resolve("worker.lock"));
             String version = "local-v1:legacy:" + "a".repeat(64);
             check(DictionarySnapshotQueue.validVersion(version));
             UUID receipt = UUID.randomUUID();
@@ -86,6 +103,11 @@ public final class DictionarySnapshotQueueSmoke {
             String digest = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
                 .digest(Files.readAllBytes(source)));
             String account = "fixture-account";
+            fails(DictionarySnapshotQueue.Reason.INVALID,
+                () -> queue.enqueue(source, account, 42, version, "0".repeat(64)));
+            try (Stream<Path> entries = Files.list(root.resolve("queue"))) {
+                check(entries.noneMatch(path -> path.getFileName().toString().endsWith(".incoming")));
+            }
             queue.publishLocalVersion(version);
             check(queue.read().request() == null);
             UUID id = queue.enqueue(source, account, 42, version, digest);

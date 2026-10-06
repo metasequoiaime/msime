@@ -17,9 +17,10 @@ import shutil
 import sys
 import tarfile
 import tempfile
-import urllib.request
 import zipfile
 from pathlib import Path, PurePosixPath
+
+import download_retry
 
 ROOT = Path(__file__).resolve().parents[1]
 LOCK = ROOT / "resources/voice-runtime.lock.json"
@@ -45,10 +46,11 @@ def download(artifact: dict, destination: Path) -> None:
     print(f"  fetching {artifact['name']} ({artifact['size'] / 1e6:.1f} MB)", file=sys.stderr)
     destination.parent.mkdir(parents=True, exist_ok=True)
     # Staged beside the destination so a failed or mismatched download never sits where the next run would take it as finished.
-    with tempfile.NamedTemporaryFile(dir=destination.parent, delete=False) as staged:
-        staged_path = Path(staged.name)
-        try:
-            with urllib.request.urlopen(url, timeout=300) as response:
+    staged = tempfile.NamedTemporaryFile(dir=destination.parent, delete=False)
+    staged_path = Path(staged.name)
+    try:
+        with staged:
+            with download_retry.urlopen(url, timeout=300) as response:
                 advertised = response.headers.get("Content-Length")
                 if advertised is not None:
                     try:
@@ -62,9 +64,10 @@ def download(artifact: dict, destination: Path) -> None:
                     if size > artifact["size"]:
                         raise SystemExit(f"{artifact['name']}: response is larger than the lock")
                     staged.write(block)
-        except BaseException:
-            staged_path.unlink(missing_ok=True)
-            raise
+    except BaseException:
+        # Deleted only once the with block has closed it: Windows refuses to delete an open file, and the PermissionError would replace the download's own error.
+        staged_path.unlink(missing_ok=True)
+        raise
     actual = digest(staged_path)
     size = staged_path.stat().st_size
     if actual != artifact["sha256"] or size != artifact["size"]:

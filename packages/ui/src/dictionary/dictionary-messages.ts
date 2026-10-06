@@ -26,6 +26,7 @@ export function describeImportResult(kind: string, result: ImportSummary): strin
 export function dictionaryKindKeyHint(kind: string): string {
   switch (kind) {
     case "wubi":
+    case "wubi98":
       return "1–4 个字母";
     case "quick_phrase":
       return "1–32 个字母";
@@ -39,13 +40,15 @@ export function dictionaryKindKeyHint(kind: string): string {
 }
 
 export function personalDictionaryKindTitle(
-  kind: "pinyin" | "wubi" | "quickPhrase" | "english",
+  kind: "pinyin" | "wubi" | "wubi98" | "quickPhrase" | "english",
 ): string {
   return kind === "pinyin"
     ? "拼音"
     : kind === "wubi"
-      ? "五笔"
-      : kind === "quickPhrase"
-        ? "快捷短语"
-        : "英文";
+      ? "86 五笔"
+      : kind === "wubi98"
+        ? "98 五笔"
+        : kind === "quickPhrase"
+          ? "快捷短语"
+          : "英文";
 }

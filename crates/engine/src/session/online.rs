@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::composition::resolve_shuangpin_composition_base;
 use super::input::InputSession;
-use crate::ime::online_batch::replace_online_candidate_batch;
+use crate::ime::online_batch::validate_online_candidate_batch;
 use crate::local::command::TEXT_UTF16_LIMIT;
 use crate::pinyin::active_helpcode::strip_active_helpcodes;
 use crate::pinyin::segment::{is_complete_pinyin_input, split_segments};
@@ -24,6 +24,7 @@ static NEXT_SESSION_ID: AtomicU64 = AtomicU64::new(1);
 pub(super) struct OnlineRequestGuard {
     pub session_id: u64,
     pub generation: u64,
+    exhausted: bool,
 }
 
 impl OnlineRequestGuard {
@@ -31,16 +32,25 @@ impl OnlineRequestGuard {
         Self {
             session_id: NEXT_SESSION_ID.fetch_add(1, Ordering::Relaxed),
             generation: 0,
+            exhausted: false,
         }
     }
 
     pub fn invalidate(&mut self) {
-        self.generation += 1;
+        if self.exhausted {
+            return;
+        }
+        let Some(next) = self.generation.checked_add(1) else {
+            self.exhausted = true;
+            return;
+        };
+        self.generation = next;
     }
 
     /// Same session, generation and every query field.
     pub fn matches(&self, live: &OnlineQuery, answered: &OnlineQuery) -> bool {
-        answered.session_id == self.session_id
+        !self.exhausted
+            && answered.session_id == self.session_id
             && answered.generation == self.generation
             && live.scheme == answered.scheme
             && live.identity == answered.identity
@@ -72,6 +82,7 @@ impl InputSession {
     /// input_session.cpp:631-667 over `get_cloud_query_state` (input_session_composition.cpp:913-974).
     pub(super) fn online_query(&self) -> Option<OnlineQuery> {
         if self.dedicated_english
+            || self.online_requests.exhausted
             || self.local_mode != LocalInputMode::None
             || !self.has_composition()
         {
@@ -201,8 +212,8 @@ impl InputSession {
         words: &[String],
         source: CandidateSource,
     ) -> bool {
-        // The batch rule is checked on a scratch list first, so a batch the provider could never place is refused before anything reaches its cache.
-        if !replace_online_candidate_batch(&mut Vec::new(), &query.cache_key, words, source) {
+        // The batch rule is checked without constructing rows that would be discarded before anything reaches the provider cache.
+        if !validate_online_candidate_batch(words, source) {
             return false;
         }
         if !self.online_answer_accepted(query, source) {
@@ -239,8 +250,13 @@ impl InputSession {
                     state.query_text = request.raw_input.clone();
                 }
             }
-            // Korean syllables are already the text: there is nothing for a cloud provider to convert.
-            SchemeType::Korean => {}
+            // 韩文音节、越南文单词和藏文音节串本身就是文字，没有可交给云端转换的东西。粤拼、注音和笔画只由各自的词库回答。
+            SchemeType::Korean
+            | SchemeType::Cantonese
+            | SchemeType::Zhuyin
+            | SchemeType::Vietnamese
+            | SchemeType::Tibetan
+            | SchemeType::Stroke => {}
             // Wubi codes are not spellings a cloud provider understands, and wubi providers cannot take dynamic rows.
             SchemeType::Wubi => state.cache_key = request.normalized_input.clone(),
             SchemeType::Shuangpin => {
@@ -336,5 +352,15 @@ mod tests {
         let live = stamped(&guard);
         assert!(!guard.matches(&live, &query));
         assert!(guard.matches(&live, &live));
+    }
+
+    #[test]
+    fn generation_exhaustion_does_not_reuse_online_request_identity() {
+        let mut guard = OnlineRequestGuard::new();
+        let old = stamped(&guard);
+        guard.generation = u64::MAX;
+        guard.invalidate();
+        let live = stamped(&guard);
+        assert!(!guard.matches(&live, &old));
     }
 }

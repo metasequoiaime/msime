@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { testHost } from "../support/host";
 import { settingsFormReady } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -6,7 +7,6 @@ import { answerConfirm } from "../support/confirm";
 import {
   TypingStatisticsPage,
   SettingsPage,
-  type HostCapabilities,
   type SettingsClient,
   type Snapshot,
   type TypingStatistics,
@@ -71,6 +71,11 @@ function baseClient(): SettingsClient {
   return { load: async () => preferences, save: vi.fn() };
 }
 
+// 页面默认打开「按键」，每日趋势和日历热力图都在「趋势」标签下。
+async function openTrend() {
+  fireEvent.click(await screen.findByRole("tab", { name: "趋势" }));
+}
+
 function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((done) => {
@@ -82,7 +87,7 @@ function deferred<T>() {
 test("desktop settings omit typing statistics without the Android capability", async () => {
   render(<SettingsPage client={baseClient()} />);
   await settingsFormReady();
-  expect(screen.queryByRole("button", { name: "统计" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "打字统计" })).toBeNull();
 });
 
 test("desktop statistics split into content tabs over the cumulative and selected-day scopes", async () => {
@@ -92,11 +97,25 @@ test("desktop statistics split into content tabs over the cumulative and selecte
     reset: vi.fn(),
   };
   render(<SettingsPage client={{ ...baseClient(), typingStatistics }} />);
-  fireEvent.click(await screen.findByRole("button", { name: "统计" }));
+  fireEvent.click(await screen.findByRole("button", { name: "打字统计" }));
   expect((await screen.findByLabelText("当前范围输入字符数")).textContent).toBe("23");
   expect(screen.queryByRole("form", { name: "设置" })).toBeNull();
   expect(screen.queryByRole("button", { name: "重新读取" })).toBeNull();
   expect(screen.queryByRole("button", { name: "7 天" })).toBeNull();
+  // 打开时停在排第一的「按键」标签上。
+  const tabs = within(screen.getByRole("tablist", { name: "统计内容" })).getAllByRole("tab");
+  expect(tabs.map((tab) => tab.textContent)).toEqual([
+    "按键",
+    "趋势",
+    "类型",
+    "模式",
+    "方案",
+    "候选",
+  ]);
+  expect(tabs[0].getAttribute("aria-selected")).toBe("true");
+  expect(screen.getByRole("heading", { name: "按键热力图 · 累计" })).toBeTruthy();
+  expect(screen.queryByRole("heading", { name: /每日趋势/ })).toBeNull();
+  await openTrend();
   expect(screen.getByRole("heading", { name: "每日趋势 · 近 30 天" })).toBeTruthy();
   expect(screen.getByRole("heading", { name: "日历热力图" })).toBeTruthy();
   expect(screen.queryByRole("heading", { name: "字符类型" })).toBeNull();
@@ -112,7 +131,9 @@ test("desktop statistics split into content tabs over the cumulative and selecte
   fireEvent.click(screen.getByRole("button", { name: `${label(0)}，4 字符` }));
   const selectedTotal = screen.getByLabelText("当前范围输入字符数");
   expect(selectedTotal.textContent).toBe("4");
-  expect(selectedTotal.parentElement?.querySelector("span")?.textContent).toBe(label(0));
+  expect(selectedTotal.parentElement?.parentElement?.querySelector("span")?.textContent).toBe(
+    label(0),
+  );
   fireEvent.click(screen.getByRole("tab", { name: "类型" }));
   expect(screen.getByLabelText(/汉字 4 字符/)).not.toBeNull();
   expect(screen.getByLabelText("当前范围输入字符数").textContent).toBe("4");
@@ -129,14 +150,18 @@ test("mobile statistics follow Apple tabs and show the full retained trend", asy
     <SettingsPage
       client={{
         ...baseClient(),
-        host: { platform: "ios" } as HostCapabilities,
+        host: testHost({ platform: "ios" }),
         home: { openKeyboard: vi.fn() },
         typingStatistics,
       }}
     />,
   );
   fireEvent.click(await screen.findByRole("button", { name: "统计" }));
-  expect(await screen.findByRole("tab", { name: "趋势" })).toBeTruthy();
+  expect((await screen.findByRole("tab", { name: "按键" })).getAttribute("aria-selected")).toBe(
+    "true",
+  );
+  expect(screen.getByRole("heading", { name: "按键热力图 · 累计" })).toBeTruthy();
+  await openTrend();
   expect(screen.getByRole("heading", { name: /每日趋势 · 近 30 天/ })).toBeTruthy();
   expect(screen.queryByRole("heading", { name: "字符类型" })).toBeNull();
   fireEvent.click(screen.getByRole("tab", { name: "类型" }));
@@ -152,7 +177,7 @@ test("the phone tab strip has a column for every tab", async () => {
     <SettingsPage
       client={{
         ...baseClient(),
-        host: { platform: "ios" } as HostCapabilities,
+        host: testHost({ platform: "ios" }),
         home: { openKeyboard: vi.fn() },
         typingStatistics: {
           load: vi.fn().mockResolvedValue(status()),
@@ -167,12 +192,12 @@ test("the phone tab strip has a column for every tab", async () => {
   const strip = await screen.findByRole("tablist", { name: "统计内容" });
   const tabs = within(strip).getAllByRole("tab");
   expect(tabs.map((tab) => tab.textContent)).toEqual([
+    "按键",
     "趋势",
     "类型",
     "模式",
     "方案",
     "候选",
-    "按键",
   ]);
   expect(strip.className).toContain(`grid-cols-${tabs.length}`);
 });
@@ -187,13 +212,14 @@ test("mobile statistic tabs use Apple chart shapes", async () => {
     <SettingsPage
       client={{
         ...baseClient(),
-        host: { platform: "ios" } as HostCapabilities,
+        host: testHost({ platform: "ios" }),
         home: { openKeyboard: vi.fn() },
         typingStatistics,
       }}
     />,
   );
   fireEvent.click(await screen.findByRole("button", { name: "统计" }));
+  await openTrend();
   await screen.findByRole("heading", { name: /每日趋势/ });
   expect(screen.getByRole("img", { name: "每日输入趋势折线图" })).toBeTruthy();
   fireEvent.click(screen.getByRole("tab", { name: "类型" }));
@@ -214,13 +240,14 @@ test("mobile trend includes a calendar heatmap that selects a day", async () => 
     <SettingsPage
       client={{
         ...baseClient(),
-        host: { platform: "android" } as HostCapabilities,
+        host: testHost({ platform: "android" }),
         home: { openKeyboard: vi.fn() },
         typingStatistics,
       }}
     />,
   );
   fireEvent.click(await screen.findByRole("button", { name: "统计" }));
+  await openTrend();
   await screen.findByRole("heading", { name: /每日趋势/ });
   expect(screen.getByRole("group", { name: "每日输入热力图" })).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: `热力图：${label(-1)}，6 字符` }));
@@ -241,12 +268,13 @@ test("desktop statistics show a 12-month calendar heatmap with Monday-first week
     <SettingsPage
       client={{
         ...baseClient(),
-        host: { platform: "macos" } as HostCapabilities,
+        host: testHost({ platform: "macos" }),
         typingStatistics,
       }}
     />,
   );
-  fireEvent.click(await screen.findByRole("button", { name: "统计" }));
+  fireEvent.click(await screen.findByRole("button", { name: "打字统计" }));
+  await openTrend();
   expect(await screen.findByRole("heading", { name: "日历热力图" })).toBeTruthy();
   expect(screen.getByText("近 12 个月，颜色越深输入越多")).toBeTruthy();
   const heatmap = screen.getByRole("group", { name: "每日输入热力图" });
@@ -281,13 +309,14 @@ test("mobile statistics refresh when the settings surface returns to the foregro
     <SettingsPage
       client={{
         ...baseClient(),
-        host: { platform: "ios" } as HostCapabilities,
+        host: testHost({ platform: "ios" }),
         home: { openKeyboard: vi.fn() },
         typingStatistics,
       }}
     />,
   );
   fireEvent.click(await screen.findByRole("button", { name: "统计" }));
+  await openTrend();
   await screen.findByRole("heading", { name: /每日趋势/ });
   load.mockClear();
   now += 1_001;
@@ -304,7 +333,7 @@ test("desktop statistics refresh when the settings window regains focus", async 
       client={{ ...baseClient(), typingStatistics: { load, setEnabled: vi.fn(), reset: vi.fn() } }}
     />,
   );
-  fireEvent.click(await screen.findByRole("button", { name: "统计" }));
+  fireEvent.click(await screen.findByRole("button", { name: "打字统计" }));
   await screen.findByLabelText("当前范围输入字符数");
   load.mockClear();
   let finish!: (value: TypingStatisticsStatus) => void;
@@ -330,6 +359,87 @@ test("a late statistics response is ignored after the page unmounts", async () =
   view.unmount();
   finish(status());
   await Promise.resolve();
+});
+
+test("marks the desktop statistics refresh action busy", async () => {
+  let finish!: (value: TypingStatisticsStatus) => void;
+  const load = vi
+    .fn()
+    .mockResolvedValueOnce(status())
+    .mockImplementationOnce(
+      () => new Promise<TypingStatisticsStatus>((resolve) => (finish = resolve)),
+    );
+  render(<TypingStatisticsPage client={{ load, setEnabled: vi.fn(), reset: vi.fn() }} />);
+
+  await screen.findByLabelText("当前范围输入字符数");
+  fireEvent.click(screen.getByRole("button", { name: "刷新统计" }));
+
+  const button = screen.getByRole("button", { name: "处理中…" });
+  expect(button.getAttribute("aria-busy")).toBe("true");
+  expect((button as HTMLButtonElement).disabled).toBe(true);
+  finish(status());
+});
+
+test("marks the mobile statistics menu refresh action busy", async () => {
+  let finish!: (value: TypingStatisticsStatus) => void;
+  const load = vi
+    .fn()
+    .mockResolvedValueOnce(status())
+    .mockImplementationOnce(
+      () => new Promise<TypingStatisticsStatus>((resolve) => (finish = resolve)),
+    );
+  render(<TypingStatisticsPage client={{ load, setEnabled: vi.fn(), reset: vi.fn() }} mobile />);
+
+  await screen.findByLabelText("当前范围输入字符数");
+  const summary = document.querySelector('summary[aria-label="统计选项"]');
+  if (!summary) throw new Error("missing statistics menu summary");
+  fireEvent.click(summary);
+  fireEvent.click(screen.getByRole("menuitem", { name: "刷新统计" }));
+
+  const menuItem = screen.getByRole("menuitem", { name: "处理中…" });
+  expect(menuItem.getAttribute("aria-busy")).toBe("true");
+  expect((menuItem as HTMLButtonElement).disabled).toBe(true);
+  finish(status());
+});
+
+test("opens the statistics data directory", async () => {
+  const openDirectory = vi.fn().mockResolvedValue(undefined);
+  render(
+    <TypingStatisticsPage
+      client={{
+        load: vi.fn().mockResolvedValue(status()),
+        setEnabled: vi.fn(),
+        reset: vi.fn(),
+        openDirectory,
+      }}
+    />,
+  );
+
+  await screen.findByLabelText("当前范围输入字符数");
+  fireEvent.click(screen.getByRole("button", { name: "打开数据目录" }));
+  await waitFor(() => expect(openDirectory).toHaveBeenCalledOnce());
+});
+
+test("marks the statistics data directory action busy", async () => {
+  let finish!: (value: TypingStatisticsStatus) => void;
+  const load = vi
+    .fn()
+    .mockResolvedValueOnce(status())
+    .mockImplementationOnce(
+      () => new Promise<TypingStatisticsStatus>((resolve) => (finish = resolve)),
+    );
+  const openDirectory = vi.fn().mockResolvedValue(undefined);
+  render(
+    <TypingStatisticsPage client={{ load, setEnabled: vi.fn(), reset: vi.fn(), openDirectory }} />,
+  );
+
+  await screen.findByLabelText("当前范围输入字符数");
+  fireEvent.click(screen.getByRole("button", { name: "刷新统计" }));
+
+  const button = screen.getByRole("button", { name: "打开数据目录" });
+  expect(button.getAttribute("aria-busy")).toBe("true");
+  expect((button as HTMLButtonElement).disabled).toBe(true);
+  finish(status());
 });
 
 test("a statistics mutation from a replaced client cannot overwrite the current page", async () => {
@@ -371,7 +481,7 @@ test("statistics toggle refreshes immediately and reset requires confirmation wi
     reset: vi.fn().mockResolvedValue(status(cleared)),
   };
   render(<SettingsPage client={{ ...baseClient(), typingStatistics }} />);
-  fireEvent.click(await screen.findByRole("button", { name: "统计" }));
+  fireEvent.click(await screen.findByRole("button", { name: "打字统计" }));
   const toggle = await screen.findByRole("checkbox", { name: "记录打字统计" });
   fireEvent.click(toggle);
   await waitFor(() => expect(typingStatistics.setEnabled).toHaveBeenCalledWith(false));
@@ -387,6 +497,49 @@ test("statistics toggle refreshes immediately and reset requires confirmation wi
   expect((toggle as HTMLInputElement).checked).toBe(false);
 });
 
+test("marks the statistics reset action busy", async () => {
+  const pending = deferred<TypingStatisticsStatus>();
+  const reset = vi.fn().mockReturnValue(pending.promise);
+  render(
+    <TypingStatisticsPage
+      client={{ load: vi.fn().mockResolvedValue(status()), setEnabled: vi.fn(), reset }}
+    />,
+  );
+
+  await screen.findByLabelText("当前范围输入字符数");
+  fireEvent.click(screen.getByRole("button", { name: "清空统计" }));
+  await answerConfirm("confirm");
+  await waitFor(() => expect(reset).toHaveBeenCalledOnce());
+
+  const button = screen.getByRole("button", { name: "清空统计" });
+  expect(button.getAttribute("aria-busy")).toBe("true");
+  expect((button as HTMLButtonElement).disabled).toBe(true);
+  pending.resolve(status());
+});
+
+test("marks the enable statistics action busy", async () => {
+  const disabled = { ...initialStatistics(), enabled: false };
+  const pending = deferred<TypingStatisticsStatus>();
+  const setEnabled = vi.fn().mockReturnValue(pending.promise);
+  render(
+    <TypingStatisticsPage
+      client={{ load: vi.fn().mockResolvedValue(status(disabled)), setEnabled, reset: vi.fn() }}
+    />,
+  );
+
+  await screen.findByText("输入统计已关闭");
+  fireEvent.click(screen.getByRole("button", { name: "启用输入统计" }));
+
+  const disabledSection = screen
+    .getByRole("heading", { name: "输入统计已关闭" })
+    .closest("section");
+  if (!disabledSection) throw new Error("missing disabled statistics section");
+  const button = within(disabledSection).getByRole("button", { name: "处理中…" });
+  expect(button.getAttribute("aria-busy")).toBe("true");
+  expect((button as HTMLButtonElement).disabled).toBe(true);
+  pending.resolve(status());
+});
+
 test("never-written status explains the empty local-only data channel", async () => {
   const empty: TypingStatistics = { enabled: true, total: 0, days: {} };
   const typingStatistics = {
@@ -399,7 +552,7 @@ test("never-written status explains the empty local-only data channel", async ()
     reset: vi.fn(),
   };
   render(<SettingsPage client={{ ...baseClient(), typingStatistics }} />);
-  fireEvent.click(await screen.findByRole("button", { name: "统计" }));
+  fireEvent.click(await screen.findByRole("button", { name: "打字统计" }));
   expect(await screen.findByText(/键盘从未写入过统计/)).not.toBeNull();
   expect(screen.getByText(/不保存输入内容/)).not.toBeNull();
 });
@@ -415,7 +568,7 @@ test("candidate positions show a first-candidate rate and keep rank order", asyn
     reset: vi.fn(),
   };
   render(<SettingsPage client={{ ...baseClient(), typingStatistics }} />);
-  fireEvent.click(await screen.findByRole("button", { name: "统计" }));
+  fireEvent.click(await screen.findByRole("button", { name: "打字统计" }));
   fireEvent.click(await screen.findByRole("tab", { name: "候选" }));
 
   // 30 of 50 commits came from the first candidate.
@@ -448,7 +601,7 @@ test("statistics written before candidate positions existed render an empty stat
     reset: vi.fn(),
   };
   render(<SettingsPage client={{ ...baseClient(), typingStatistics }} />);
-  fireEvent.click(await screen.findByRole("button", { name: "统计" }));
+  fireEvent.click(await screen.findByRole("button", { name: "打字统计" }));
   fireEvent.click(await screen.findByRole("tab", { name: "候选" }));
   expect(await screen.findByText("暂无候选记录。用水杉键盘上屏几次后再回来查看。")).not.toBeNull();
   expect(screen.queryByLabelText("候选命中位置分布")).toBeNull();
@@ -468,11 +621,62 @@ test("Korean input has its own scheme and language slices", async () => {
     reset: vi.fn(),
   };
   render(<SettingsPage client={{ ...baseClient(), typingStatistics }} />);
-  fireEvent.click(await screen.findByRole("button", { name: "统计" }));
+  fireEvent.click(await screen.findByRole("button", { name: "打字统计" }));
   fireEvent.click(await screen.findByRole("tab", { name: "方案" }));
   expect(screen.getByLabelText(/^韩语 5 字符/)).not.toBeNull();
   fireEvent.click(screen.getByRole("tab", { name: "模式" }));
   expect(screen.getByLabelText(/^韩语模式 5 字符/)).not.toBeNull();
+});
+
+test("Cantonese, Zhuyin and Stroke count as Chinese mode and Vietnamese has its own slice", async () => {
+  const sources = { cantonese: 3, zhuyin: 2, quanpin: 1, vietnamese: 4, stroke: 7 };
+  const statistics: TypingStatistics = {
+    enabled: true,
+    total: 17,
+    days: { [key(0)]: 17 },
+    detail: { characters: { han: 13, latin: 4 }, sources },
+    dailyDetails: { [key(0)]: { characters: { han: 13, latin: 4 }, sources } },
+  };
+  const typingStatistics = {
+    load: vi.fn().mockResolvedValue(status(statistics)),
+    setEnabled: vi.fn(),
+    reset: vi.fn(),
+  };
+  render(<SettingsPage client={{ ...baseClient(), typingStatistics }} />);
+  fireEvent.click(await screen.findByRole("button", { name: "打字统计" }));
+  fireEvent.click(await screen.findByRole("tab", { name: "方案" }));
+  expect(screen.getByLabelText(/^粤拼 3 字符/)).not.toBeNull();
+  expect(screen.getByLabelText(/^注音 2 字符/)).not.toBeNull();
+  expect(screen.getByLabelText(/^笔画 7 字符/)).not.toBeNull();
+  expect(screen.getByLabelText(/^越南语 4 字符/)).not.toBeNull();
+  fireEvent.click(screen.getByRole("tab", { name: "模式" }));
+  expect(screen.getByLabelText(/^中文模式 13 字符/)).not.toBeNull();
+  expect(screen.getByLabelText(/^越南语模式 4 字符/)).not.toBeNull();
+});
+
+test("Tibetan has its own scheme and mode slices and is not counted as Chinese", async () => {
+  const sources = { quanpin: 2, tibetan: 6 };
+  const statistics: TypingStatistics = {
+    enabled: true,
+    total: 8,
+    days: { [key(0)]: 8 },
+    detail: { characters: { han: 2, otherLetter: 4, punctuation: 2 }, sources },
+    dailyDetails: {
+      [key(0)]: { characters: { han: 2, otherLetter: 4, punctuation: 2 }, sources },
+    },
+  };
+  const typingStatistics = {
+    load: vi.fn().mockResolvedValue(status(statistics)),
+    setEnabled: vi.fn(),
+    reset: vi.fn(),
+  };
+  render(<SettingsPage client={{ ...baseClient(), typingStatistics }} />);
+  fireEvent.click(await screen.findByRole("button", { name: "打字统计" }));
+  fireEvent.click(await screen.findByRole("tab", { name: "方案" }));
+  expect(screen.getByLabelText(/^藏文 6 字符/)).not.toBeNull();
+  fireEvent.click(screen.getByRole("tab", { name: "模式" }));
+  expect(screen.getByLabelText(/^中文模式 2 字符/)).not.toBeNull();
+  expect(screen.getByLabelText(/^藏文模式 6 字符/)).not.toBeNull();
 });
 
 test("desktop statistics draw an ANSI key heatmap for the cumulative or selected-day scope", async () => {
@@ -493,15 +697,14 @@ test("desktop statistics draw an ANSI key heatmap for the cumulative or selected
     <SettingsPage
       client={{
         ...baseClient(),
-        host: { platform: "macos" } as HostCapabilities,
+        host: testHost({ platform: "macos" }),
         typingStatistics,
       }}
     />,
   );
-  fireEvent.click(await screen.findByRole("button", { name: "统计" }));
-  expect(screen.queryByRole("heading", { name: /按键热力图/ })).toBeNull();
-  fireEvent.click(await screen.findByRole("tab", { name: "按键" }));
-  expect(screen.getByRole("heading", { name: "按键热力图 · 累计" })).toBeTruthy();
+  fireEvent.click(await screen.findByRole("button", { name: "打字统计" }));
+  // 按键是默认标签，不用点就能看到热力图。
+  expect(await screen.findByRole("heading", { name: "按键热力图 · 累计" })).toBeTruthy();
   const heatmap = screen.getByRole("group", { name: "按键热力图" });
   expect(within(heatmap).getByRole("img", { name: "A，123 次" })).toBeTruthy();
   expect(within(heatmap).getByRole("img", { name: "Z，500 次" })).toBeTruthy();
@@ -532,7 +735,7 @@ test("statistics written before keys were counted show an empty key heatmap", as
     reset: vi.fn(),
   };
   render(<SettingsPage client={{ ...baseClient(), typingStatistics }} />);
-  fireEvent.click(await screen.findByRole("button", { name: "统计" }));
+  fireEvent.click(await screen.findByRole("button", { name: "打字统计" }));
   fireEvent.click(await screen.findByRole("tab", { name: "按键" }));
   expect(await screen.findByText("这段时间还没有按键记录")).toBeTruthy();
   expect(screen.queryByRole("group", { name: "按键热力图" })).toBeNull();
@@ -559,16 +762,14 @@ test("the phone's 按键 tab draws the soft keyboard and a nine-key grid once it
     <SettingsPage
       client={{
         ...baseClient(),
-        host: { platform: "android" } as HostCapabilities,
+        host: testHost({ platform: "android" }),
         home: { openKeyboard: vi.fn() },
         typingStatistics,
       }}
     />,
   );
   fireEvent.click(await screen.findByRole("button", { name: "统计" }));
-  expect(screen.queryByRole("heading", { name: /按键热力图/ })).toBeNull();
-  fireEvent.click(await screen.findByRole("tab", { name: "按键" }));
-  expect(screen.getByRole("heading", { name: "按键热力图 · 累计" })).toBeTruthy();
+  expect(await screen.findByRole("heading", { name: "按键热力图 · 累计" })).toBeTruthy();
   expect(screen.queryByRole("heading", { name: /每日趋势/ })).toBeNull();
   const heatmap = screen.getByRole("group", { name: "按键热力图" });
   expect(within(heatmap).getByRole("img", { name: "Q，9 次" })).toBeTruthy();
@@ -596,7 +797,7 @@ test("a phone with only 26-key presses has no nine-key grid", async () => {
     <SettingsPage
       client={{
         ...baseClient(),
-        host: { platform: "ios" } as HostCapabilities,
+        host: testHost({ platform: "ios" }),
         home: { openKeyboard: vi.fn() },
         typingStatistics,
       }}

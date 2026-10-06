@@ -1,7 +1,8 @@
 pub(crate) use crate::platform::account_helpers::{
     account_command_error, account_value, call_session, cleanup_stale_snapshot_previews,
-    snapshot_text_within_limit,
+    prepare_snapshot_directory, snapshot_text_within_limit,
 };
+pub(crate) use crate::platform::mobile::mobile_account_preferences::valid_mobile_haptic_strength;
 use crate::shared::account_dto::{
     ChallengeResponse, ChatModelsResponse, ChatResponse, PreferenceSchemaResponse, ProfileResponse,
     StatusResponse,
@@ -114,14 +115,11 @@ pub(crate) fn parse_cloud_dictionary_request(
     Ok(request)
 }
 
-pub(crate) fn valid_mobile_haptic_strength(value: &str) -> bool {
-    matches!(value, "light" | "medium" | "strong")
-}
-
 pub(crate) fn dictionary_kind(value: &str) -> Result<DictionaryKind, crate::CommandError> {
     match value {
         "pinyin" => Ok(DictionaryKind::Pinyin),
         "wubi" => Ok(DictionaryKind::Wubi),
+        "wubi98" => Ok(DictionaryKind::Wubi98),
         "quick" => Ok(DictionaryKind::Quick),
         "english" => Ok(DictionaryKind::English),
         _ => Err(crate::CommandError {

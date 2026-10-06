@@ -1,4 +1,5 @@
 import type { Preferences } from "../index";
+import type { PluginKind } from "./plugin-types";
 
 /** Mirrors `client-core::preferences::KeySoundMode`. */
 export type KeySoundMode = "keys" | "melody";
@@ -47,6 +48,12 @@ export type PluginPreferences = {
   combo_counter: boolean;
   /** Play the key sound pack's commit sample, pitched up, when the count reaches 10, 25, 50 and 100. */
   combo_tier_sound: boolean;
+  /** K 模式读取的已安装短语表包，按优先级排列；为空时文档里不写这个键。 */
+  phrase_tables: string[];
+  /** 全拼方案选用的已安装辅助码表包；为空表示沿用 `quanpin_helpcode.schema`。 */
+  helpcode_pack_quanpin: string;
+  /** 双拼方案选用的已安装辅助码表包；为空表示沿用 `shuangpin_helpcode.schema`。 */
+  helpcode_pack_shuangpin: string;
 };
 
 /** `client-core::plugins::DEFAULT_SOUND_PACK`. */
@@ -55,6 +62,8 @@ export const DEFAULT_SOUND_PACK = "default";
 export const DEFAULT_MELODY_PACK = "twinkle";
 /** `PluginPreferences::MAX_COMMAND_TABLES`. */
 export const MAX_COMMAND_TABLES = 16;
+/** `PluginPreferences::MAX_PHRASE_TABLES`。 */
+export const MAX_PHRASE_TABLES = 16;
 
 export const defaultPluginPreferences: PluginPreferences = {
   key_sound: { enabled: false, mode: "keys", pack: DEFAULT_SOUND_PACK, volume: 50 },
@@ -68,6 +77,9 @@ export const defaultPluginPreferences: PluginPreferences = {
   effect_pack: "",
   combo_counter: false,
   combo_tier_sound: false,
+  phrase_tables: [],
+  helpcode_pack_quanpin: "",
+  helpcode_pack_shuangpin: "",
 };
 
 /** The plugin section a draft holds, each part filled in from the defaults where the document left it out. */
@@ -85,17 +97,39 @@ export function pluginPreferences(draft?: Pick<Preferences, "plugins">): PluginP
     effect_pack: value?.effect_pack ?? defaultPluginPreferences.effect_pack,
     combo_counter: value?.combo_counter ?? defaultPluginPreferences.combo_counter,
     combo_tier_sound: value?.combo_tier_sound ?? defaultPluginPreferences.combo_tier_sound,
+    phrase_tables: value?.phrase_tables ?? defaultPluginPreferences.phrase_tables,
+    helpcode_pack_quanpin:
+      value?.helpcode_pack_quanpin ?? defaultPluginPreferences.helpcode_pack_quanpin,
+    helpcode_pack_shuangpin:
+      value?.helpcode_pack_shuangpin ?? defaultPluginPreferences.helpcode_pack_shuangpin,
   };
 }
 
 /**
- * The section after a pack was removed from disk: a selection naming it falls back to what a fresh profile selects (no effect pack, for an effect pack), and an enabled command table naming it is dropped, so the document never points at a pack that is gone.
+ * 包从磁盘删除之后的设置：选中它的选择回到新档案的默认值（特效包回到无），启用它的指令表或短语表被移除，文档不会指向一个已经不在的包。
  */
 export function withoutRemovedPack(
   preferences: PluginPreferences,
-  kind: "sound" | "music" | "command_table" | "effect",
+  kind: PluginKind,
   id: string,
 ): PluginPreferences {
+  if (kind === "phrase_table") {
+    return {
+      ...preferences,
+      phrase_tables: preferences.phrase_tables.filter((table) => table !== id),
+    };
+  }
+  // 单词本和符号集没有偏好键；单词本的复习进度留在背单词里。
+  if (kind === "wordbook" || kind === "symbol_set") return preferences;
+  if (kind === "helpcode") {
+    return {
+      ...preferences,
+      helpcode_pack_quanpin:
+        preferences.helpcode_pack_quanpin === id ? "" : preferences.helpcode_pack_quanpin,
+      helpcode_pack_shuangpin:
+        preferences.helpcode_pack_shuangpin === id ? "" : preferences.helpcode_pack_shuangpin,
+    };
+  }
   if (kind === "effect") {
     return preferences.effect_pack === id ? { ...preferences, effect_pack: "" } : preferences;
   }
@@ -118,4 +152,44 @@ export function withoutRemovedPack(
         : preferences.key_sound,
     melody: preferences.melody.pack === id ? { pack: DEFAULT_MELODY_PACK } : preferences.melody,
   };
+}
+
+/** 把一个包设为它所属类型的当前选择：按键音效包成为按键、上屏和成就音效的来源，旋律包成为旋律，特效包成为特效，音乐包成为音乐（是否播放不变），指令表和短语表启用在已启用的之后。 */
+export function withPackSelected(
+  preferences: PluginPreferences,
+  pack: {
+    kind: PluginKind;
+    id: string;
+    mode?: "keys" | "sequence";
+  },
+): PluginPreferences {
+  switch (pack.kind) {
+    case "sound":
+      return pack.mode === "sequence"
+        ? { ...preferences, melody: { pack: pack.id } }
+        : { ...preferences, key_sound: { ...preferences.key_sound, pack: pack.id } };
+    case "effect":
+      return { ...preferences, effect_pack: pack.id };
+    case "music":
+      return { ...preferences, music: { ...preferences.music, pack: pack.id } };
+    case "command_table":
+      return preferences.command_tables.includes(pack.id)
+        ? preferences
+        : { ...preferences, command_tables: [...preferences.command_tables, pack.id] };
+    case "phrase_table":
+      return preferences.phrase_tables.includes(pack.id)
+        ? preferences
+        : { ...preferences, phrase_tables: [...preferences.phrase_tables, pack.id] };
+    // 单词本在背单词里选，符号集装上就显示，都不在偏好里。
+    case "wordbook":
+    case "symbol_set":
+      return preferences;
+    // 辅助码表包可以分别用于全拼和双拼；整体选中时两个方案都用它。
+    case "helpcode":
+      return {
+        ...preferences,
+        helpcode_pack_quanpin: pack.id,
+        helpcode_pack_shuangpin: pack.id,
+      };
+  }
 }

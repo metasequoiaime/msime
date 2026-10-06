@@ -19,6 +19,8 @@ import tempfile
 import urllib.request
 from pathlib import Path
 
+import download_retry
+
 ROOT = Path(__file__).resolve().parents[1]
 LOCK = ROOT / "resources/neural-model.lock.json"
 DEFAULT_OUT = ROOT / "target/neural-model"
@@ -74,7 +76,7 @@ def download(artifact: dict, destination: Path) -> None:
                 url,
                 headers={"User-Agent": "MSIME neural model fetch"},
             )
-            with urllib.request.urlopen(request, timeout=300) as response:
+            with download_retry.urlopen(request, timeout=300) as response:
                 advertised = response.headers.get("Content-Length")
                 if advertised is not None:
                     try:

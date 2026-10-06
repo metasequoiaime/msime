@@ -16,6 +16,30 @@ import java.util.List;
  * everything the page reasons about can be exercised by `check-host.sh`.
  */
 public final class VocabularyReviewModel {
+    /** Read a non-negative JSON count without org.json's lossy numeric coercion. */
+    public static int strictCount(Object value) {
+        if (!(value instanceof Integer) && !(value instanceof Long))
+            throw new IllegalArgumentException("Expected JSON review count");
+        long count = ((Number) value).longValue();
+        if (count < 0 || count > Integer.MAX_VALUE)
+            throw new IllegalArgumentException("JSON review count is out of range");
+        return (int) count;
+    }
+
+    /** Read a JSON string without org.json's lossy scalar coercion. */
+    public static String strictString(Object value) {
+        if (!(value instanceof String))
+            throw new IllegalArgumentException("Expected JSON review string");
+        return (String) value;
+    }
+
+    /** Read a JSON boolean without org.json's lossy scalar coercion. */
+    public static boolean strictBoolean(Object value) {
+        if (!(value instanceof Boolean))
+            throw new IllegalArgumentException("Expected JSON review boolean");
+        return (Boolean) value;
+    }
+
     /** One word list the session can draw from. */
     public record Wordbook(String id, String name, int total, boolean builtin) {}
 

@@ -1,0 +1,53 @@
+{
+  "source_commit": "1f8a2c83cfc09769bac74e0f891ff0b1b82419a0",
+  "artifacts": [
+    {
+      "name": "msime-pinyin.db",
+      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/dict-v2.0.14/msime-pinyin.db",
+      "sha256": "495f9c5a736a70ed03369c80b0be556094ae44a3a673788ae32036174f63d154",
+      "size": 73711616
+    },
+    {
+      "name": "msime-wubi.db",
+      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/dict-v2.0.14/msime-wubi.db",
+      "sha256": "851ed68211311a76847fe6a26096702747abbaab8dffb141698e0365143b31c1",
+      "size": 14536704
+    },
+    {
+      "name": "msime-english.db",
+      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/dict-v2.0.14/msime-english.db",
+      "sha256": "eb3d38c21908a00af1a6936b3d456b05dbc4b5651f77ecc93f9da20eed8c75c7",
+      "size": 4526080
+    },
+    {
+      "name": "msime-scowl_Copyright.txt",
+      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/dict-v2.0.14/msime-scowl_Copyright.txt",
+      "sha256": "586063cc4345559d5347c6cdb73fbb4d1261118bb009a03530754df004419193",
+      "size": 4028
+    },
+    {
+      "name": "msime-bigram.bin",
+      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/dict-v2.0.14/msime-bigram.bin",
+      "sha256": "d9a9bf0f51d5d981c73d9c9b6dbfd2b9f8bb0bfe32b85ab25567618df2e342a7",
+      "size": 12000016
+    },
+    {
+      "name": "msime-trigram.bin",
+      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/dict-v2.0.14/msime-trigram.bin",
+      "sha256": "8001a88fb34a24416aa88d6d22598ed1c3573d87e0c1b98ad437b8ee7637c8c9",
+      "size": 12000016
+    },
+    {
+      "name": "msime-others.db",
+      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/dict-v2.0.14/msime-others.db",
+      "sha256": "9f3cae5b407038e0e4536c40582a0bc0feb732657f0ae2d38196374cede52f94",
+      "size": 1314816
+    },
+    {
+      "name": "msime-dictionary-manifest.json",
+      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/dict-v2.0.14/msime-dictionary-manifest.json",
+      "sha256": "8602d3cfde2bba9200b077b8c66b4d5fc306be359c2b7ccf8a33ef477e3b46c3",
+      "size": 4627
+    }
+  ]
+}

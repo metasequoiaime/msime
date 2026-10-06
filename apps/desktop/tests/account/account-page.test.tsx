@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { testHost } from "../support/host";
 import { settingsFormReady } from "../support/settings-form";
 import { useState } from "react";
 import { afterEach, expect, test, vi } from "vitest";
@@ -269,7 +270,7 @@ test("settings passes the Harmony 2-in-1 form factor into the account page", asy
       client={{
         load: async () => preferences,
         save: vi.fn(),
-        host: { platform: "harmony", mobile_settings: false } as never,
+        host: testHost({ platform: "harmony", mobile_settings: false }),
         account: client,
       }}
     />,
@@ -296,7 +297,7 @@ test("Harmony chat login focuses the tryout and cancel returns to it", async () 
       client={{
         load: async () => preferences,
         save: vi.fn(),
-        host: { platform: "harmony" } as never,
+        host: testHost({ platform: "harmony" }),
         home: {},
         chat: {
           models: vi.fn().mockRejectedValue({ code: "account_unauthorized" }),
@@ -647,9 +648,9 @@ test("logged-in accounts expose local designs and every community collection", a
   fireEvent.click(await screen.findByRole("button", { name: "打开设计器" }));
   fireEvent.click(screen.getByRole("button", { name: "我发布的皮肤" }));
   fireEvent.click(screen.getByRole("button", { name: "我发布的词库" }));
-  fireEvent.click(screen.getByRole("button", { name: "我发布的回复" }));
+  fireEvent.click(screen.getByRole("button", { name: "我发布的回复模板" }));
   fireEvent.click(screen.getByRole("button", { name: "收藏的词库" }));
-  fireEvent.click(screen.getByRole("button", { name: "收藏的回复" }));
+  fireEvent.click(screen.getByRole("button", { name: "收藏的回复模板" }));
   expect(openLocalDesigns).toHaveBeenCalledTimes(1);
   expect(openCommunity.mock.calls).toEqual([
     ["published-skins"],
@@ -705,7 +706,7 @@ test("mobile settings return to My after replaying and skipping onboarding", asy
   const client = {
     load: async () => preferences,
     save: vi.fn(),
-    host: { platform: "harmony" } as never,
+    host: testHost({ platform: "harmony" }),
     home: {},
     account: account(),
   };
@@ -749,9 +750,9 @@ test("mobile accounts group published and saved community resources", async () =
   const content = within(await screen.findByRole("region", { name: "我的内容" }));
   fireEvent.click(content.getByRole("button", { name: "我发布的皮肤" }));
   fireEvent.click(content.getByRole("button", { name: "我发布的词库" }));
-  fireEvent.click(content.getByRole("button", { name: "我发布的回复" }));
+  fireEvent.click(content.getByRole("button", { name: "我发布的回复模板" }));
   fireEvent.click(content.getByRole("button", { name: "收藏的词库" }));
-  fireEvent.click(content.getByRole("button", { name: "收藏的回复" }));
+  fireEvent.click(content.getByRole("button", { name: "收藏的回复模板" }));
   expect(openCommunity.mock.calls).toEqual([
     ["published-skins"],
     ["published-dictionary"],
@@ -845,6 +846,30 @@ test("mobile app icon choices read system state and use an explicit selection", 
   expect(
     screen.getByRole("button", { name: "杉林，杉叶青绿，沉静自然" }).getAttribute("aria-pressed"),
   ).toBe("true");
+});
+
+test("app icon selection ignores a same-tick duplicate", async () => {
+  const pending = deferred<{ supported: boolean; selected: string }>();
+  const set = vi.fn().mockReturnValue(pending.promise);
+  render(
+    <AccountPage
+      client={account({
+        appIcon: {
+          info: vi.fn().mockResolvedValue({ supported: true, selected: "classic" }),
+          set,
+        },
+      })}
+    />,
+  );
+  await screen.findByRole("button", { name: "原版，经典黑白，简洁如初" });
+  const forest = screen.getByRole("button", { name: "杉林，杉叶青绿，沉静自然" });
+  act(() => {
+    fireEvent.click(forest);
+    fireEvent.click(forest);
+  });
+  expect(set).toHaveBeenCalledOnce();
+  pending.resolve({ supported: true, selected: "forest" });
+  await waitFor(() => expect(forest.getAttribute("aria-pressed")).toBe("true"));
 });
 
 test("app icon errors are ignored only when the reread system state matches", async () => {
@@ -994,7 +1019,7 @@ test("settings expose My only with a personal capability and omit preference act
     <SettingsPage client={{ load: async () => preferences, save: vi.fn() }} />,
   );
   await settingsFormReady();
-  expect(screen.queryByRole("button", { name: "账户与同步" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "账号与同步" })).toBeNull();
   without.unmount();
 
   render(
@@ -1003,7 +1028,7 @@ test("settings expose My only with a personal capability and omit preference act
       initialPage="account"
     />,
   );
-  expect(await screen.findByRole("heading", { name: "账户与同步" })).not.toBeNull();
+  expect(await screen.findByRole("heading", { name: "账号与同步" })).not.toBeNull();
   await screen.findByText("欢迎来到水杉");
   expect(screen.queryByRole("form", { name: "设置" })).toBeNull();
   expect(screen.queryByRole("button", { name: "重新读取" })).toBeNull();
@@ -1019,7 +1044,7 @@ test("iOS exposes My and alternate icons without a fake account client", async (
       client={{
         load: async () => preferences,
         save: vi.fn(),
-        host: { platform: "ios" } as never,
+        host: testHost({ platform: "ios" }),
         appIcon,
       }}
       initialPage="account"
@@ -1043,7 +1068,7 @@ test("macOS settings offer no setup guide to replay; the status notice covers th
         load: async () => preferences,
         save: vi.fn(),
         account: account(),
-        host: { platform: "macos" } as never,
+        host: testHost({ platform: "macos" }),
         inputSourceStartup: {
           status: vi.fn().mockResolvedValue(null),
           openSettings: vi.fn().mockResolvedValue(undefined),

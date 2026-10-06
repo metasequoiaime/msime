@@ -141,6 +141,7 @@ mod tests {
             content: CommunityResourceContent {
                 entries: Vec::new(),
                 prompt: Some("请礼貌回复。".into()),
+                phrases: Vec::new(),
             },
             revision: 1,
             saves: 0,
@@ -149,6 +150,7 @@ mod tests {
             rating_count: 0,
             rating_average: 0.0,
             my_rating: 0,
+            moderation: None,
         }
     }
 
@@ -175,6 +177,7 @@ mod tests {
                         weight: 1
                     }],
                     prompt: None,
+                    phrases: Vec::new(),
                 },
                 ..reply()
             })
@@ -235,7 +238,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn rejects_a_symlinked_ancestor_before_creating_library_storage() {
-        use std::os::unix::fs::symlink;
+        use msime_path_trust::untrusted_symlink as symlink;
 
         let outside = tempfile::tempdir().unwrap();
         let parent = tempfile::tempdir().unwrap();

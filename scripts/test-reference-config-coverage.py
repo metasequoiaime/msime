@@ -16,7 +16,7 @@ mapping is written down once, here, and every target is checked to still exist.
 
 A target is a field path from `Preferences` (`floating_toolbar.scale_percent`), or from another root struct when it names one first (`TypingStatistics.retention`). Every segment is resolved against the `pub <field>: <Type>` declarations of the structs in the shared Rust sources, so a target is satisfied by that field on that struct and not by the same word in a comment, a local variable or a field of some unrelated struct. The first version matched bare words, and `appearance.theme_menu -> menu` or `general.floating_toolbar_scale -> scale` passed while naming no field at all.
 
-Eight keys are mapped to a reason instead of a field, written as `!kind: why`. Six are written by the reference's own template and read by nothing in it, one is the reference Server's internal switch between its old and new session implementations, and one is a path this repository takes as a host runtime option rather than a preference.
+Eleven keys are mapped to a reason instead of a field, written as `!kind: why`. Six are written by the reference's own template and read by nothing in it, two are internal switches of the reference (its old and new session implementations, and its Direct2D and WebView2 surfaces), two are the reference's single prompt boxes that the custom prompt slots replace here, and one is a path this repository takes as a host runtime option rather than a preference.
 
 A field is also checked to be *named in the shared settings page*, not only present in the
 preferences crate. The arrangement this client is built around puts shared behaviour and its
@@ -47,7 +47,7 @@ MAPPING: dict[str, str] = {
     "ai_assistant.enabled": "ai_assistant.enabled",
     "ai_assistant.endpoint": "ai_assistant.endpoint",
     "ai_assistant.model": "ai_assistant.model",
-    "ai_assistant.prompt": "ai_assistant.prompt",
+    "ai_assistant.prompt": "!replaced: the reference's single prompt box; here the three prompt_custom slots hold custom prompts and an empty slot uses the built-in prompt",
     "ai_assistant.prompt_custom_1": "ai_assistant.prompt_custom_1",
     "ai_assistant.prompt_custom_2": "ai_assistant.prompt_custom_2",
     "ai_assistant.prompt_custom_3": "ai_assistant.prompt_custom_3",
@@ -80,7 +80,7 @@ MAPPING: dict[str, str] = {
     "appearance.theme_settings": "settings_theme",
     "appearance.theme_voice": "voice_theme",
     "appearance.tsf_preedit_style": "tsf_preedit_style",
-    "appearance.ui_backend": "ui_backend",
+    "appearance.ui_backend": "!internal: chooses between the reference's Direct2D surfaces and its WebView2 ones; every platform here draws the candidate window, floating toolbar and menu natively, so there is no second backend to pick",
     "custom_translation.api_key": "custom_translation.api_key",
     "custom_translation.enabled": "custom_translation.enabled",
     "custom_translation.endpoint": "custom_translation.endpoint",
@@ -154,7 +154,7 @@ MAPPING: dict[str, str] = {
     "input.smart_punctuation_space_convert": "smart_punctuation_space_convert",
     "input.word_to_character": "word_character.enabled",
     "input.word_to_character_keys": "word_character.keys",
-    "input.wubi_schema": "scheme",
+    "input.wubi_schema": "wubi_profile",
     "keybindings.switch_language_ctrl": "keybindings.switch_language_ctrl",
     "keybindings.switch_language_ctrl_alt_space": "keybindings.switch_language_ctrl_alt_space",
     "keybindings.switch_language_shift": "keybindings.switch_language_shift",
@@ -211,7 +211,7 @@ MAPPING: dict[str, str] = {
     "voice_input.mute_system_audio": "voice_input.mute_system_audio",
     "voice_input.polish_endpoint": "voice_input.polish_endpoint",
     "voice_input.polish_model": "voice_input.polish_model",
-    "voice_input.polish_prompt": "voice_input.polish_prompt",
+    "voice_input.polish_prompt": "!replaced: the reference's single prompt box; here the three polish_prompt_custom slots hold custom prompts and an empty slot uses the built-in prompt",
     "voice_input.polish_prompt_custom_1": "voice_input.polish_prompt_custom_1",
     "voice_input.polish_prompt_custom_2": "voice_input.polish_prompt_custom_2",
     "voice_input.polish_prompt_custom_3": "voice_input.polish_prompt_custom_3",
@@ -243,18 +243,13 @@ COMPOSED_AT_RUNTIME: dict[str, str] = {
 PLATFORM_LOCAL: dict[str, str] = {
     "quanpin.autocorrect_neighbor": (
         "Quanpin typo correction is enabled by the shared Engine default on every host; the "
-        "shared settings page intentionally has no toggle, while an explicit false remains "
-        "supported for compatibility."
+        "shared settings page intentionally has no toggle, while an explicit false in the "
+        "document is honoured."
     ),
     "quanpin.autocorrect_transposition": (
         "Quanpin typo correction is enabled by the shared Engine default on every host; the "
-        "shared settings page intentionally has no toggle, while an explicit false remains "
-        "supported for compatibility."
-    ),
-    "ui_backend": (
-        "Chooses between the reference's Direct2D surfaces and its WebView2 ones. The candidate "
-        "window, floating toolbar and input-method menu are drawn natively by each platform here, "
-        "so there is no second backend to pick."
+        "shared settings page intentionally has no toggle, while an explicit false in the "
+        "document is honoured."
     ),
 }
 

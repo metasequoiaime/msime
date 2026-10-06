@@ -165,6 +165,8 @@ export async function prepareToolbarImports(
       else declaration.value = rebased;
     }
     let importsAllowed = true;
+    // The copy is the point: rule.remove() below takes nodes out of root.nodes while this walks it.
+    // oxlint-disable-next-line unicorn/no-useless-spread
     for (const node of [...root.nodes]) {
       if (node.type === "comment") continue;
       const rule = node.type === "atrule" ? (node as AtRule) : null;

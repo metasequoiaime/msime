@@ -98,7 +98,9 @@ fn remove_manual_delimiters_cow(raw: &str) -> Cow<'_, str> {
 }
 
 fn remove_delimiters(segmented: &str) -> String {
-    segmented.chars().filter(|c| *c != '\'').collect()
+    let mut result = String::with_capacity(segmented.len());
+    result.extend(segmented.chars().filter(|c| *c != '\''));
+    result
 }
 
 /// A consumed prefix can leave the remainder starting with the separator that followed it.
@@ -269,8 +271,10 @@ impl InputSession {
         word: &str,
         selected_scheme: SchemeType,
     ) -> bool {
-        // Japanese and native wubi selections always finish: their advancement never continues.
-        if self.is_japanese() || selected_scheme == SchemeType::Wubi {
+        // Japanese, Korean and native wubi selections always finish: their advancement never continues.
+        if self.engine.current_scheme_type().selection_completes()
+            || selected_scheme == SchemeType::Wubi
+        {
             return true;
         }
         let request = self.engine.request();
@@ -475,7 +479,13 @@ impl InputSession {
         };
         match self.engine.current_scheme_type() {
             SchemeType::Wubi => request.raw_input.clone(),
-            SchemeType::JapaneseRomaji | SchemeType::Korean => self.raw_with_cases().to_owned(),
+            SchemeType::JapaneseRomaji
+            | SchemeType::Korean
+            | SchemeType::Cantonese
+            | SchemeType::Zhuyin
+            | SchemeType::Vietnamese
+            | SchemeType::Tibetan
+            | SchemeType::Stroke => self.raw_with_cases().to_owned(),
             SchemeType::Shuangpin if self.shuangpin_preedit_uses_raw => {
                 with_trailing_separator(if request.raw_segmentation.is_empty() {
                     request.raw_input.clone()
@@ -494,8 +504,13 @@ impl InputSession {
         match self.engine.current_scheme_type() {
             SchemeType::Wubi => request.valid,
             SchemeType::JapaneseRomaji => convert_romaji(&request.raw_input).complete,
-            // Hangul is not pinyin.
-            SchemeType::Korean => false,
+            // 韩文、粤拼、注音、越南文、藏文和笔画都不是拼音。
+            SchemeType::Korean
+            | SchemeType::Cantonese
+            | SchemeType::Zhuyin
+            | SchemeType::Vietnamese
+            | SchemeType::Tibetan
+            | SchemeType::Stroke => false,
             SchemeType::Shuangpin => {
                 let profile = self.shuangpin_profile();
                 let base = resolve_shuangpin_composition_base(request, profile);
@@ -529,7 +544,14 @@ impl InputSession {
     pub(super) fn has_active_helpcode(&self) -> bool {
         let request = self.engine.request();
         match self.engine.current_scheme_type() {
-            SchemeType::Wubi | SchemeType::JapaneseRomaji | SchemeType::Korean => false,
+            SchemeType::Wubi
+            | SchemeType::JapaneseRomaji
+            | SchemeType::Korean
+            | SchemeType::Cantonese
+            | SchemeType::Zhuyin
+            | SchemeType::Vietnamese
+            | SchemeType::Tibetan
+            | SchemeType::Stroke => false,
             SchemeType::Shuangpin => {
                 active_shuangpin_helpcode_length(request, self.shuangpin_profile()) > 0
             }
@@ -561,6 +583,15 @@ impl InputSession {
                     }
                     _ => String::new(),
                 })
+                .collect();
+        }
+        // A Hanja row shows its 훈음 (나라 이름 한), the reading a Korean user picks a Hanja by.
+        if self.korean_rules_apply() {
+            let syllable = &self.engine.request().normalized_segmentation;
+            return self
+                .candidates()
+                .iter()
+                .map(|item| crate::korean::hanja::gloss(syllable, &item.word).to_owned())
                 .collect();
         }
         let enabled = self.helpcode_enabled();
@@ -628,7 +659,10 @@ impl InputSession {
 
     /// Whether the list reads the composition as pinyin, so selections advance and learn as pinyin.
     pub(super) fn candidates_follow_pinyin(&self) -> bool {
-        self.engine.current_scheme_type().is_pinyin() || !self.wubi_candidates_are_native()
+        self.engine
+            .current_scheme_type()
+            .follows_pinyin_candidates()
+            || !self.wubi_candidates_are_native()
     }
 }
 

@@ -17,8 +17,10 @@ export enum ReturnDispatch {
   FINISH_COMPOSITION = "finish-composition",
   COMMIT_HIGHLIGHTED = "commit-highlighted",
   COMMIT_READING = "commit-reading",
-  /** Korean: commit the open syllable, then let Return do what it does in the editor. */
+  /** Korean and Vietnamese: commit the open composition, then let Return do what it does in the editor. */
   FINISH_THEN_EDITOR = "finish-then-editor",
+  /** Stroke: commit the typed letters (MSIME_COMMIT_RAW), whatever the candidates. */
+  COMMIT_RAW = "commit-raw",
 }
 
 export class ReturnKeyAction {
@@ -28,10 +30,25 @@ export class ReturnKeyAction {
     candidateCount: number,
     japaneseConverted: boolean = false,
     korean: boolean = false,
+    vietnamese: boolean = false,
+    stroke: boolean = false,
   ): ReturnDispatch {
-    // A Korean syllable is finished text rather than a spelling to confirm, so Return commits it and still breaks the line or submits, as every Korean keyboard does.
-    if (korean) {
+    // Stroke's Return commits the typed letters even with candidates on the strip, as a hardware Return (MSIME_COMMIT_RAW) does here and the iOS and Android keyboards do; Space is what picks the highlighted character.
+    if (stroke) {
+      return composing ? ReturnDispatch.COMMIT_RAW : ReturnDispatch.EDITOR;
+    }
+    // A Vietnamese word is finished text with no list behind it, so Return commits it and still breaks the line or submits, as for a Korean syllable.
+    if (vietnamese) {
       return composing ? ReturnDispatch.FINISH_THEN_EDITOR : ReturnDispatch.EDITOR;
+    }
+    // A Korean syllable is finished text rather than a spelling to confirm, so Return commits it and still breaks the line or submits, as every Korean keyboard does. The one exception is the syllable's open Hanja list, the only candidates Korean has: there Return chooses the highlighted Hanja, which only the session knows (msime_client.h).
+    if (korean) {
+      if (!composing) {
+        return ReturnDispatch.EDITOR;
+      }
+      return candidateCount > 0
+        ? ReturnDispatch.COMMIT_HIGHLIGHTED
+        : ReturnDispatch.FINISH_THEN_EDITOR;
     }
     if (japanese && composing) {
       return japaneseConverted ? ReturnDispatch.COMMIT_HIGHLIGHTED : ReturnDispatch.COMMIT_READING;

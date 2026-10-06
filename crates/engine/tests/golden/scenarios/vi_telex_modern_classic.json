@@ -1,0 +1,97 @@
+{
+ "name": "vi_telex_modern_classic",
+ "source": "crates/engine/src/vietnamese (no C++ reference: the Vietnamese scheme is Rust-only, so the expected file was recorded from this engine and checked by hand)",
+ "covers": [
+  "vietnamese telex",
+  "vietnamese modern tone placement",
+  "vietnamese classic tone placement",
+  "vietnamese uppercase",
+  "vietnamese commit on a non-spelling key",
+  "vietnamese half-width punctuation"
+ ],
+ "fixture": {},
+ "options": {
+  "scheme": "vietnamese",
+  "vietnamese_input_method": "telex",
+  "vietnamese_tone_style": "modern"
+ },
+ "steps": [
+  {
+   "op": "type",
+   "arg": "hoaf"
+  },
+  {
+   "op": "char",
+   "arg": " "
+  },
+  {
+   "op": "type",
+   "arg": "Vieejt"
+  },
+  {
+   "op": "punctuation",
+   "arg": "."
+  },
+  {
+   "op": "char",
+   "arg": "N",
+   "shift": true
+  },
+  {
+   "op": "type",
+   "arg": "GUOWIF"
+  },
+  {
+   "op": "command",
+   "arg": "CommitCandidate"
+  },
+  {
+   "op": "char",
+   "arg": "1"
+  },
+  {
+   "op": "type",
+   "arg": "thuyr"
+  },
+  {
+   "op": "command",
+   "arg": "MoveLeft"
+  },
+  {
+   "op": "type",
+   "arg": "tieengs"
+  },
+  {
+   "op": "finish"
+  },
+  {
+   "op": "reopen",
+   "options": {
+    "vietnamese_tone_style": "classic"
+   }
+  },
+  {
+   "op": "type",
+   "arg": "hoaf"
+  },
+  {
+   "op": "command",
+   "arg": "CommitRaw"
+  },
+  {
+   "op": "type",
+   "arg": "HOAF"
+  },
+  {
+   "op": "finish"
+  },
+  {
+   "op": "type",
+   "arg": "khoer"
+  },
+  {
+   "op": "char",
+   "arg": " "
+  }
+ ]
+}

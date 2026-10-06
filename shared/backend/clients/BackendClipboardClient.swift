@@ -11,6 +11,7 @@ extension BackendAccountClient {
     let items: [ClipboardItem]
   }
   func clipboard(token: String, search: String = "") async throws -> ClipboardPage {
+    guard Self.validClipboardSearch(search) else { throw Failure(status: 400) }
     var components = URLComponents()
     components.path = "/v1/users/me/clipboard"
     components.queryItems = [URLQueryItem(name: "q", value: search)]
@@ -26,8 +27,7 @@ extension BackendAccountClient {
                           body: JSONEncoder().encode(Body(enabled: enabled)))
   }
   func addClipboard(_ text: String, token: String) async throws -> ClipboardItem {
-    guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-          text.utf16.count <= 4000, !text.contains("\0") else { throw Failure(status: 400) }
+    guard Self.validClipboardText(text) else { throw Failure(status: 400) }
     struct Body: Encodable { let text: String }
     let item: ClipboardItem = try await json("POST", "/v1/users/me/clipboard", token: token,
                                              body: JSONEncoder().encode(Body(text: text)))
@@ -41,15 +41,23 @@ extension BackendAccountClient {
     _ = try await request("DELETE", "/v1/users/me/clipboard" + (id.map { "/" + $0 } ?? ""), token: token)
   }
 
+  private static func validClipboardText(_ text: String) -> Bool {
+    !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      && text.utf16.count <= 4000
+      && !text.unicodeScalars.contains { scalar in
+        scalar.properties.generalCategory == .control && ![9, 10, 13].contains(scalar.value)
+      }
+  }
+
+  private static func validClipboardSearch(_ search: String) -> Bool {
+    search.utf8.count <= 1024
+      && !search.unicodeScalars.contains { $0.properties.generalCategory == .control }
+  }
+
   private static func validClipboardItem(_ item: ClipboardItem) -> Bool {
     item.id.utf8.count == 64
       && item.id.utf8.allSatisfy { (48...57).contains($0) || (97...102).contains($0) }
-      && !item.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-      && item.text.utf16.count <= 4000
-      && !item.text.unicodeScalars.contains { scalar in
-        scalar.value == 0 || (scalar.properties.generalCategory == .control
-          && ![9, 10, 13].contains(scalar.value))
-      }
+      && validClipboardText(item.text)
       && !item.updated_at.isEmpty
       && item.updated_at.utf8.count <= 128
       && !item.updated_at.unicodeScalars.contains { $0.properties.generalCategory == .control }

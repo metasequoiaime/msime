@@ -1,30 +1,59 @@
 #import <Foundation/Foundation.h>
+#import "../core/EditionIdentity.h"
+#include <cerrno>
+#include <cstdint>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
-// The settings app's bundle identifier, which is also the name of the default state directory under Application Support that the settings app and this input method share.
-static NSString *const MSIMEClientApplicationIdentifier = @"app.msime.macos";
-// The identifier and state directory before the settings app became app.msime.macos. The settings app copies it to the new directory on its first launch (macos_launch.rs); until then the input method keeps reading the prepared options it left behind, so installing only the input method never leaves it without a session.
-static NSString *const MSIMELegacyClientApplicationIdentifier = @"app.msime.client";
+// macOS 宿主与其它平台一样只读取有限大小的运行时配置，避免环境变量指向异常文件时无界分配。
+static constexpr NSUInteger MSIMERuntimeOptionsReadLimit = 2 * 1024 * 1024;
 
+static inline NSData *MSIMEReadRuntimeOptionsData(NSString *path) {
+    if (!path.length) return nil;
+    const int descriptor = open(path.fileSystemRepresentation, O_RDONLY | O_NOFOLLOW);
+    if (descriptor < 0) return nil;
+    struct stat fileStat = {};
+    if (fstat(descriptor, &fileStat) != 0 || !S_ISREG(fileStat.st_mode) ||
+        fileStat.st_size < 0 ||
+        static_cast<uint64_t>(fileStat.st_size) > MSIMERuntimeOptionsReadLimit) {
+        close(descriptor);
+        return nil;
+    }
+    NSMutableData *data = [NSMutableData dataWithCapacity:static_cast<NSUInteger>(fileStat.st_size)];
+    uint8_t buffer[8192];
+    for (;;) {
+        const ssize_t count = read(descriptor, buffer, sizeof(buffer));
+        if (count == 0) break;
+        if (count < 0) {
+            if (errno == EINTR) continue;
+            close(descriptor);
+            return nil;
+        }
+        if (data.length > MSIMERuntimeOptionsReadLimit - static_cast<NSUInteger>(count)) {
+            close(descriptor);
+            return nil;
+        }
+        [data appendBytes:buffer length:static_cast<NSUInteger>(count)];
+    }
+    close(descriptor);
+    return data;
+}
+
+// 设置应用的 bundle identifier，也是设置应用和本输入法共用的、Application Support 下默认状态目录的名字。它随版本而变（full 是 app.msime.macos），见 EditionIdentity.h。
+#define MSIMEClientApplicationIdentifier MSIMESettingsBundleIdentifier()
 static inline NSURL *MSIMEClientStateDirectory(NSFileManager *fileManager, NSString *identifier) {
     NSURL *support = [[fileManager URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask] firstObject];
     return [support URLByAppendingPathComponent:identifier isDirectory:YES];
 }
 
-static inline NSString *MSIMELegacyRuntimeOptionsPath(NSFileManager *fileManager) {
-    return [[MSIMEClientStateDirectory(fileManager, MSIMELegacyClientApplicationIdentifier) URLByAppendingPathComponent:@"runtime-options.json"] path];
-}
-
 static inline NSString *MSIMEDefaultRuntimeOptionsPath(NSFileManager *fileManager) {
-    NSString *path = [[MSIMEClientStateDirectory(fileManager, MSIMEClientApplicationIdentifier) URLByAppendingPathComponent:@"runtime-options.json"] path];
-    if (!path || [fileManager fileExistsAtPath:path]) return path;
-    NSString *legacy = MSIMELegacyRuntimeOptionsPath(fileManager);
-    return legacy && [fileManager fileExistsAtPath:legacy] ? legacy : path;
+    return [[MSIMEClientStateDirectory(fileManager, MSIMEClientApplicationIdentifier) URLByAppendingPathComponent:@"runtime-options.json"] path];
 }
 
-// Where default state lives right now: app.msime.client until the settings app has migrated it, app.msime.macos from then on. Nothing may be written to app.msime.macos before that, because the settings app migrates only into an empty directory.
+// Where default state lives: the settings app's state directory under Application Support.
 static inline NSURL *MSIMEDefaultClientStateDirectory(NSFileManager *fileManager) {
-    NSString *options = MSIMEDefaultRuntimeOptionsPath(fileManager);
-    return options ? [NSURL fileURLWithPath:options.stringByDeletingLastPathComponent isDirectory:YES] : nil;
+    return MSIMEClientStateDirectory(fileManager, MSIMEClientApplicationIdentifier);
 }
 
 static inline NSString *MSIMERuntimeOptionsPath(void) {
@@ -35,7 +64,7 @@ static inline NSString *MSIMERuntimeOptionsPath(void) {
 static inline NSDictionary *MSIMELoadRuntimeOptions(void) {
     NSString *path = MSIMERuntimeOptionsPath();
     if (!path) return nil;
-    NSData *data = [NSData dataWithContentsOfFile:path];
+    NSData *data = MSIMEReadRuntimeOptionsData(path);
     id options = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
     return [options isKindOfClass:NSDictionary.class] ? options : nil;
 }

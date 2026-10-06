@@ -14,6 +14,7 @@ use crate::words::{
     WordListRequest,
 };
 use msime_client_core::dictionary::quiesce::QuiescedHosts;
+use msime_client_core::file_lock;
 use msime_host_api::{DictionaryOptions, QuickPhrase, QuickPhraseEdit, WordEdit};
 use rmcp::handler::server::router::prompt::PromptRouter;
 use rmcp::handler::server::router::tool::ToolRouter;
@@ -22,9 +23,11 @@ use rmcp::model::{Implementation, ServerCapabilities, ServerConfig};
 use rmcp::schemars::JsonSchema;
 use rmcp::{prompt_handler, tool, tool_handler, tool_router, Json, ServerHandler};
 use serde::{Deserialize, Serialize};
+use std::fs::File;
+use std::io::{Seek, SeekFrom, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const DEFAULT_PAGE: usize = 100;
 const MAX_PAGE: usize = 1000;
@@ -32,6 +35,10 @@ const MAX_PAGE: usize = 1000;
 const MAX_EDITS: usize = 50;
 /// The shortest gap between two writing calls, so an agent stuck in a loop cannot rewrite the dictionary or the preferences many times a second.
 const WRITE_INTERVAL: Duration = Duration::from_secs(1);
+/// In the state directory: when the last write began, shared by every server and command line on this computer.
+const WRITE_LOCK: &str = "mcp-write.lock";
+/// 写锁只保存一个毫秒时间戳，拒绝异常膨胀的内容以免无界分配内存。
+const WRITE_LOCK_READ_LIMIT: u64 = 128;
 
 const WRITE_TOOLS: [&str; 3] = [
     "create_candidate_skin",
@@ -240,6 +247,7 @@ impl MsimeServer {
         let edits: Vec<QuickPhraseEdit> = request.edits.into_iter().map(Into::into).collect();
         let outcome = blocking(move || {
             let _guard = guard;
+            let _shared = claim_shared_write(&config)?;
             let options = DictionaryOptions::from_host_document(config.read_host_options()?)?;
             Ok(apply_edits(
                 &options,
@@ -268,15 +276,16 @@ impl MsimeServer {
     async fn get_preferences(&self) -> Result<Json<PreferencesView>, String> {
         let config = self.config.clone();
         blocking(move || {
-            let state_dir = config.state_dir(&config.read_options()?)?;
-            preferences::load(&state_dir).map(Json)
+            let document = config.read_options()?;
+            let state_dir = config.state_dir(&document)?;
+            preferences::load(&state_dir, config.edition(&document)?).map(Json)
         })
         .await
     }
 
     #[tool(
         name = "update_preferences",
-        description = "Change some of the preferences get_preferences returns. Only the fields given change. Refused when the preferences changed since expected_revision was read.",
+        description = "Change some of the preferences get_preferences returns. Only the fields given change. Refused when the preferences changed since expected_revision was read, and for a scheme the installed edition of the input method does not offer.",
         annotations(
             read_only_hint = false,
             destructive_hint = false,
@@ -296,8 +305,11 @@ impl MsimeServer {
         let config = self.config.clone();
         let result = blocking(move || {
             let _guard = guard;
-            let state_dir = config.state_dir(&config.read_options()?)?;
-            preferences::update(&state_dir, &config.options, &change).map(Json)
+            let _shared = claim_shared_write(&config)?;
+            let document = config.read_options()?;
+            let state_dir = config.state_dir(&document)?;
+            let edition = config.edition(&document)?;
+            preferences::update(&state_dir, &config.options, edition, &change).map(Json)
         })
         .await;
         eprintln!(
@@ -323,7 +335,7 @@ impl MsimeServer {
 
     #[tool(
         name = "create_candidate_skin",
-        description = "Install a candidate-window skin from a skin.toml and its images. The manifest is TOML: schema_version = 1; id (equal to package_id); name (at most 80 bytes); version; base, the built-in theme drawn under it (system, shuishan, light, paper, night or ink); preview, the path of a PNG or JPEG shown in the skin list; optional author, description and [license] code, assets and source; [supports] layouts (horizontal, vertical) and themes (dark, light); [candidate_window] min_width_dip (0-1000), optional corner_radius_dip (0-32), optional [candidate_window.decoration] top_inset_dip, width_dip, image and align (left, center, right), optional [candidate_window.background] image, fit (cover, contain, stretch) and opacity (0-1); [candidate.dark] and [candidate.light] colours accent, selected, hover, surface, border, text, number and translation as #RRGGBB or #RRGGBBAA, plus show_selected_bar. images must hold exactly the images the manifest references. A stylesheet is not accepted, so the skin can be synced and shared. Refused when the skin exists, unless replace is true.",
+        description = "Install a candidate-window skin from a skin.toml and its images. The manifest is TOML: schema_version = 1; id (equal to package_id); name (at most 80 bytes); version; base, the look drawn under it: a built-in theme (system, shuishan, light, paper, night or ink) or an msime-windows built-in look (fluent, wechat, graphite, willow_green, autumn_osmanthus or microsoft), whose colours fill the ones the manifest leaves out; preview, the path of a PNG or JPEG shown in the skin list; optional author, description and [license] code, assets and source; [supports] layouts (horizontal, vertical) and themes (dark, light); [candidate_window] min_width_dip (0-1000), optional corner_radius_dip (0-32), optional [candidate_window.decoration] top_inset_dip, width_dip, image and align (left, center, right), optional [candidate_window.background] image, fit (cover, contain, stretch) and opacity (0-1); [candidate.dark] and [candidate.light] colours accent, selected, hover, surface, border, text, number and translation as #RRGGBB or #RRGGBBAA, plus show_selected_bar. images must hold exactly the images the manifest references. A stylesheet is not accepted, so the skin can be synced and shared. Refused when the skin exists, unless replace is true.",
         annotations(
             read_only_hint = false,
             destructive_hint = true,
@@ -339,6 +351,7 @@ impl MsimeServer {
         let config = self.config.clone();
         let result = blocking(move || {
             let _guard = guard;
+            let _shared = claim_shared_write(&config)?;
             let state_dir = config.state_dir(&config.read_options()?)?;
             skins::create(&state_dir, &request).map(Json)
         })
@@ -406,8 +419,11 @@ impl MsimeServer {
         let config = self.config.clone();
         let result = blocking(move || {
             let _guard = guard;
-            let state_dir = config.state_dir(&config.read_options()?)?;
-            diagnostics::set(&state_dir, &config.options, request.enabled).map(Json)
+            let _shared = claim_shared_write(&config)?;
+            let document = config.read_options()?;
+            let state_dir = config.state_dir(&document)?;
+            let edition = config.edition(&document)?;
+            diagnostics::set(&state_dir, &config.options, edition, request.enabled).map(Json)
         })
         .await;
         eprintln!(
@@ -480,6 +496,7 @@ impl MsimeServer {
         let edits: Vec<WordEdit> = request.edits.into_iter().map(Into::into).collect();
         let outcome = blocking(move || {
             let _guard = guard;
+            let _shared = claim_shared_write(&config)?;
             let options = DictionaryOptions::from_host_document(config.read_host_options()?)?;
             Ok(apply_edits(
                 &options,
@@ -523,6 +540,7 @@ impl MsimeServer {
         let new_words = request.new_words();
         let result = blocking(move || {
             let _guard = guard;
+            let _shared = claim_shared_write(&config)?;
             let options = DictionaryOptions::from_host_document(config.read_host_options()?)?;
             let request_id = msime_client_core::uuid::Uuid::new_v4().simple().to_string();
             let mut hosts = QuiescedHosts::new(Some(options.user_data()), || {});
@@ -580,7 +598,10 @@ impl ServerHandler for MsimeServer {
                 .enable_prompts()
                 .build(),
         )
-        .with_server_info(Implementation::new("msime", env!("CARGO_PKG_VERSION")))
+        .with_server_info(Implementation::new(
+            self.config.server_name(),
+            env!("MSIME_APP_VERSION"),
+        ))
         .with_instructions(INSTRUCTIONS)
     }
 }
@@ -607,6 +628,32 @@ impl MsimeServer {
         *last = Some(now);
         Ok(guard)
     }
+}
+
+/// Space writes across processes as `claim_write` spaces them within one: each `msime-mcp call` is a process of its own, and a server may run beside it. The returned file holds the lock for the whole write, so two processes never overlap on a check-then-write edit either. Waits for a write another process is running, then refuses when that one began less than the interval ago.
+fn claim_shared_write(config: &Config) -> Result<File, String> {
+    let state_dir = config.state_dir(&config.read_options()?)?;
+    let mut file = file_lock::open_private_lock_file(state_dir.join(WRITE_LOCK))
+        .map_err(|_| "cannot open the write lock in the state directory")?;
+    file_lock::exclusive(&file).map_err(|_| "cannot take the write lock")?;
+    let bytes = crate::bounded::read(&file, WRITE_LOCK_READ_LIMIT)
+        .map_err(|_| "cannot read the write lock")?;
+    let text = std::str::from_utf8(&bytes).map_err(|_| "cannot read the write lock")?;
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| "the system clock is before 1970")?
+        .as_millis();
+    // A time ahead of the clock is a clock set back, not a recent write.
+    if let Ok(previous) = text.trim().parse::<u128>() {
+        if previous <= now && now - previous < WRITE_INTERVAL.as_millis() {
+            return Err("writes are limited to one a second; try again shortly".into());
+        }
+    }
+    file.set_len(0)
+        .and_then(|()| file.seek(SeekFrom::Start(0)))
+        .and_then(|_| file.write_all(now.to_string().as_bytes()))
+        .map_err(|_| "cannot record the write")?;
+    Ok(file)
 }
 
 /// Clears the write-in-progress flag when the write it covers ends, however it ends.
@@ -757,6 +804,25 @@ mod tests {
         // The refusal did not take the slot.
         drop(guard);
         server.claim_write().unwrap();
+    }
+
+    #[test]
+    fn oversized_shared_write_lock_is_rejected() {
+        let directory = tempfile::tempdir().unwrap();
+        let options = directory.path().join("runtime-options.json");
+        std::fs::write(&options, b"{}").unwrap();
+        std::fs::write(directory.path().join(WRITE_LOCK), vec![b'x'; 129]).unwrap();
+        let config = Config {
+            options,
+            state_dir: Some(directory.path().to_owned()),
+            allow_write: true,
+            allow_dictionary_read: false,
+        };
+
+        assert_eq!(
+            claim_shared_write(&config).unwrap_err(),
+            "cannot read the write lock"
+        );
     }
 
     #[tokio::test]

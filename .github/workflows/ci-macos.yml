@@ -22,12 +22,18 @@ on:
 
   merge_group:
 
+  # 每天在默认分支上完整构建并跑一遍 CTest。push 和 PR 只在改动碰到 macOS 相关路径时才跑 Test，其余改动带进来的回归（2026-10-02 一次攒到 9 项）要等到下一个碰巧触发构建的 PR 才暴露；定时运行不走路径判断，最多隔一天就会报出来。
+  schedule:
+    - cron: "17 18 * * *"
+
 concurrency:
   # Keyed by event as well as branch: promote-release-branch.sh and merge-release-pr.sh dispatch this workflow and wait on that exact run, so a pull_request run on the same branch must not cancel it.
   #
   # 拉取请求那一半按 PR 号而不是 head 分支名:head.ref 是 head 仓库上的裸名字,这是个公开仓库,fork 里的 `fix/foo` 和本仓的 `fix/foo` 会落进同一个组、互相取消。非 PR 事件仍旧回退到 ref_name,行为不变。
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref_name }}
-  cancel-in-progress: true
+  #
+  # Only pull_request runs cancel their superseded predecessor. A push run on develop or main is the check run on that commit, and a release branch is cut from a develop commit: if the next develop push cancelled it, the release PR would carry those cancelled runs as failed checks (ci.yml, ci-docs.yml, ci-ios.yml and ci-platforms.yml follow the same rule).
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -39,6 +45,8 @@ jobs:
     timeout-minutes: 5
     outputs:
       build: ${{ steps.decide.outputs.build }}
+      # x86_64 与 Sanitizers 要不要跑。见下面 `Decide the extra legs`。
+      full: ${{ steps.scope.outputs.full }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -55,11 +63,24 @@ jobs:
           if [[ "$GITHUB_EVENT_NAME" != push && "$GITHUB_EVENT_NAME" != pull_request ]]; then
             echo "build=true" >> "$GITHUB_OUTPUT"; exit 0
           fi
-          # 拿不到可比的两端时也构建。范围算不出来不等于没有改动,而少构建一次的代价是把问题放过去。
-          if [[ ! "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || ! git cat-file -e "$BASE_SHA" 2>/dev/null; then
+          # 推送（develop 和 main）不构建：同一份改动在 PR 上已经构建并测过，合并后再跑一遍只是和排队的 PR 抢那 5 台 macOS runner（2026-10-03 实测一个动到 macOS 的 PR 就占满 5 台约 30 分钟，合并后的推送再占一轮；0.51.0 合进 main 的推送又占了 4 台）。合并后的回归由每天的定时运行兜底；发往 main 的发布 PR 会完整跑一遍，发版脚本另有手动触发的运行。
+          if [[ "$GITHUB_EVENT_NAME" == push ]]; then
+            echo "build=false" >> "$GITHUB_OUTPUT"; echo "推送不构建（PR 上已跑过）。"; exit 0
+          fi
+          # 拿不到可比的两端时也构建。范围算不出来不等于没有改动,而少构建一次的代价是把问题放过去。PR 合并得比这个 job 拉代码还快时，分支已被自动删除、squash 前的 head 提交也不在任何分支上，检出里就没有 HEAD_SHA（2026-10-02 #3118）。
+          if [[ ! "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || ! git cat-file -e "$BASE_SHA" 2>/dev/null || ! git cat-file -e "$HEAD_SHA" 2>/dev/null; then
             echo "build=true" >> "$GITHUB_OUTPUT"; exit 0
           fi
-          changed=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
+          # PR 合并或关闭后合并引用被删，签出拿不到 head 提交，下面三个点的 diff 会直接报错（2026-10-02 #3118 合并 13 秒后才开跑的 iOS CI 就红在这里）。PR 已经不在了，不必构建。
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]] && ! git cat-file -e "$HEAD_SHA^{commit}" 2>/dev/null; then
+            printf 'build=false\n' >> "$GITHUB_OUTPUT"; echo "PR 的 head 提交已取不到（PR 已关闭），跳过。"; exit 0
+          fi
+          # PR 要比的是它自己从分叉点起改了什么（三个点）。base.sha 是事件发生时目标分支的最新提交，PR 分支往往从更早的 develop 切出；两个点的 diff 比的是两棵树，会把分叉之后 develop 合进来的改动也算成本 PR 的，于是只改一个 workflow 的 PR 也被判成要编译全部平台（2026-10-02 #2902）。push 的 BASE_SHA 是推送前的提交，两个点正好是这次推送带来的改动。
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+            changed=$(git diff --name-only "$BASE_SHA...$HEAD_SHA")
+          else
+            changed=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
+          fi
           printf '改动文件:\n%s\n' "$changed"
           while IFS= read -r path; do
             [[ -z "$path" ]] && continue
@@ -71,7 +92,7 @@ jobs:
               # 工作区清单与工具链:Dependabot 的 cargo 分组只改这几个。crates/ 只列这条构建真正编译的:
               # CMakeLists.txt 直接编 host-macos/native,cargo build -p msime-host-api 带上它依赖的三个 crate。
               # host-windows、mcp-server 等改动重编 macOS 不会多发现什么,理由同下面 scripts/ 那段。
-              Cargo.toml|Cargo.lock|rust-toolchain.toml|.cargo/*|crates/host-macos/*|crates/host-api/*|crates/client-core/*|crates/engine/*|crates/input-runtime/*)
+              Cargo.toml|Cargo.lock|rust-toolchain.toml|.cargo/*|crates/host-macos/*|crates/host-api/*|crates/path-trust/*|crates/client-core/*|crates/engine/*|crates/input-runtime/*)
                 echo "build=true" >> "$GITHUB_OUTPUT"; echo "Rust 输入改动: $path"; exit 0 ;;
               # scripts/ 里只有这些进得了 macOS 的构建。其余七十来个是各平台自己的契约检查,由 Core CI
               # 和 verify-local.sh 跑,改它们重编一次 macOS 不会多发现任何东西 —— 而 `scripts/*` 让每一个
@@ -85,6 +106,19 @@ jobs:
           done <<< "$changed"
           echo "build=false" >> "$GITHUB_OUTPUT"
           echo "本次改动不涉及macOS,跳过构建。"
+      # 发往 develop 的 PR 只跑 arm64：x86_64（中位 30 分钟，落在更紧俏的 macos-15-intel 上）和 Sanitizers（13 分钟）查的是架构相关和内存/未定义行为问题，留给发往 main 的发布 PR、定时运行、手动触发和合并队列，PR 阶段每次省下两台 runner。
+      - name: Decide the extra legs
+        id: scope
+        env:
+          BUILD: ${{ steps.decide.outputs.build }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          if [[ "$BUILD" == true && ( "$GITHUB_EVENT_NAME" != pull_request || "$BASE_REF" == main ) ]]; then
+            echo "full=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "full=false" >> "$GITHUB_OUTPUT"; echo "不跑 x86_64 与 Sanitizers。"
+          fi
 
   macos:
     needs: changes
@@ -93,11 +127,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # `build` 决定这一条腿是否真的构建：arm64 跟随改动范围，x86_64 另外要求 `full`。
         include:
           - runner: macos-15
             architecture: arm64
+            build: ${{ needs.changes.outputs.build }}
           - runner: macos-15-intel
             architecture: x86_64
+            build: ${{ needs.changes.outputs.full }}
     # 只有真要构建时才落到 macOS runner 上。要出现的 check 名字由 `name:` 决定,和跑在哪台机器无关,
     # 所以分支保护照样等到 `macOS 15 arm64` 和 `macOS 15 x86_64`,上面那段注释说的问题不会回来。
     #
@@ -105,7 +142,7 @@ jobs:
     # 而 build=false 时它们只做一次签出:格式检查那一步在本仓库走的是 scripts/format.sh 不存在的分支,
     # 只 echo 一行。公开仓库的 macOS 并发额度本来就只有个位数,iOS CI 还和它抢同一批机器,于是十来个
     # 活跃分支就能把队列堵死,而堵住队列的绝大多数 job 什么也没做。
-    runs-on: ${{ needs.changes.outputs.build == 'true' && matrix.runner || 'ubuntu-24.04' }}
+    runs-on: ${{ matrix.build == 'true' && matrix.runner || 'ubuntu-24.04' }}
     timeout-minutes: 60
     steps:
       - name: Check out source
@@ -117,17 +154,17 @@ jobs:
         run: if [[ -x scripts/format.sh ]]; then scripts/format.sh --check; else echo 'format script is not present in this branch; skipped'; fi
       # runner 上下文在 job 级 env 里不可用,所以在这里写进 GITHUB_ENV,后面的步骤都能读到。
       - name: Point the Sparkle download at the cache
-        if: ${{ needs.changes.outputs.build == 'true' }}
+        if: ${{ matrix.build == 'true' }}
         run: echo "METASEQUOIA_SPARKLE_CACHE_DIR=$RUNNER_TEMP/sparkle" >> "$GITHUB_ENV"
       - name: Cache the pinned Sparkle archive
-        if: ${{ needs.changes.outputs.build == 'true' }}
+        if: ${{ matrix.build == 'true' }}
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/sparkle-archive
           # 版本和摘要写在 platforms/macos/CMakeLists.txt 里,键要指向那个文件。仓库根目录没有 CMakeLists.txt,而 hashFiles 对不存在的路径返回空串 —— 原来的键因此是常量 `sparkle-macOS-`,版本一动它也不动,恰好是这条注释说要避免的情况。
           key: sparkle-2.9.6-${{ runner.os }}-${{ hashFiles('platforms/macos/CMakeLists.txt') }}
       - name: Prepare pinned Sparkle
-        if: ${{ needs.changes.outputs.build == 'true' }}
+        if: ${{ matrix.build == 'true' }}
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/sparkle-archive"
@@ -147,29 +184,29 @@ jobs:
           test -d "$RUNNER_TEMP/sparkle/Sparkle.framework"
           echo "MSIME_SPARKLE_ROOT=$RUNNER_TEMP/sparkle" >> "$GITHUB_ENV"
       - name: Remove unused runner taps
-        if: ${{ needs.changes.outputs.build == 'true' }}
+        if: ${{ matrix.build == 'true' }}
         run: if brew tap | grep -Fxq aws/tap; then brew untap aws/tap; fi
       - name: Install dependencies
-        if: ${{ needs.changes.outputs.build == 'true' }}
+        if: ${{ matrix.build == 'true' }}
         run: brew install nlohmann-json
       # Against /usr/bin/python3 specifically, which is the Command Line Tools interpreter a
       # contributor gets by default and is several minor versions behind the runner's python3. A
       # PEP 701 f-string shipped in fetch_dictionary.py and broke build.sh on a clean machine while
       # CI stayed green, because CI never ran it under that interpreter.
       - name: Check the tooling parses under the stock macOS interpreter
-        if: ${{ needs.changes.outputs.build == 'true' }}
+        if: ${{ matrix.build == 'true' }}
         run: /usr/bin/python3 -m compileall -q scripts platforms/macos/tests platforms/ios/scripts platforms/ios/tests
       - name: Build the Rust host library
-        if: ${{ needs.changes.outputs.build == 'true' }}
+        if: ${{ matrix.build == 'true' }}
         run: cargo build --locked -p msime-host-api
       # The unit tests run against a fixture rather than the released database: they assert behaviour
       # around composition, not dictionary content, and downloading 100 MB per run to do it would buy
       # nothing. The release build is what verifies the real data, against the digests in the lock.
       - name: Create test dictionary
-        if: ${{ needs.changes.outputs.build == 'true' }}
-        run: python3 platforms/macos/tests/create_fixture_dictionary.py "$RUNNER_TEMP/msime.db"
+        if: ${{ matrix.build == 'true' }}
+        run: python3 platforms/macos/tests/create_fixture_dictionary.py "$RUNNER_TEMP/msime-pinyin.db"
       - name: Type-check registration helper
-        if: ${{ needs.changes.outputs.build == 'true' }}
+        if: ${{ matrix.build == 'true' }}
         run: |
           if [[ -f platforms/macos/scripts/register_input_source.swift ]]; then
             xcrun swiftc -typecheck platforms/macos/scripts/register_input_source.swift
@@ -177,21 +214,21 @@ jobs:
             echo 'register_input_source.swift is not present in this branch; skipped.'
           fi
       - name: Configure
-        if: ${{ needs.changes.outputs.build == 'true' }}
-        run: cmake -S platforms/macos -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$(brew --prefix)" -DMSIME_SPARKLE_ROOT="$MSIME_SPARKLE_ROOT" -DMETASEQUOIA_IME_DICTIONARY="$RUNNER_TEMP/msime.db"
+        if: ${{ matrix.build == 'true' }}
+        run: cmake -S platforms/macos -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$(brew --prefix)" -DMSIME_SPARKLE_ROOT="$MSIME_SPARKLE_ROOT" -DMETASEQUOIA_IME_DICTIONARY="$RUNNER_TEMP/msime-pinyin.db"
       # An explicit job count: with the Makefile generator a bare `--parallel` becomes `make -j` with no limit, which starts every ready compile at once. Once whisper and ggml were linked into the input method (4737c9651) that was enough to run the 7 GB arm64 runner out of memory, and the step sat swapping until the 60-minute job limit cancelled it on every run that built.
       - name: Build
-        if: ${{ needs.changes.outputs.build == 'true' }}
+        if: ${{ matrix.build == 'true' }}
         run: cmake --build build --parallel "$(sysctl -n hw.logicalcpu)"
       # On the Intel runner every view SwiftUI draws through RenderBox aborted inside Metal: loading RenderBox's precompiled binary archive asks the paravirtual GPU for an architecture it does not report ("Target device architecture is nil"), and nothing of ours is on that stack. RenderBox's own switches skip the archive and the GPU, so these tests still lay out and draw there, on the CPU.
       - name: Test
-        if: ${{ needs.changes.outputs.build == 'true' }}
+        if: ${{ matrix.build == 'true' }}
         run: |
           if [[ "$(uname -m)" == x86_64 ]]; then export RB_USE_BINARY_ARCHIVE=0 RB_DISABLE_GPU=1; fi
           ctest --no-tests=error --test-dir build --output-on-failure --timeout 20
       # A test that aborts inside a system framework prints only the assertion; the stack is in the crash report, which the runner discards with the machine.
       - name: Upload crash reports
-        if: ${{ failure() && needs.changes.outputs.build == 'true' }}
+        if: ${{ failure() && matrix.build == 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: crash-reports-${{ matrix.architecture }}
@@ -200,7 +237,7 @@ jobs:
           retention-days: 7
       # The build leaves the bundle as the linker signed it, which codesign rejects as a bundle; scripts/install.sh re-signs a staged copy before anything registers it. Do the same here with an ad-hoc identity, so what is checked is that the bundle can be sealed - a flattened framework or stray file breaks exactly that. The product is built for the runner's architecture only; nothing here produces a universal binary.
       - name: Verify input method bundle
-        if: ${{ needs.changes.outputs.build == 'true' }}
+        if: ${{ matrix.build == 'true' }}
         run: |
           set -euo pipefail
           staged="$RUNNER_TEMP/verify/水杉输入法.app"
@@ -222,6 +259,33 @@ jobs:
           test "$(/usr/libexec/PlistBuddy -c 'Print :InputMethodServerControllerClass' "$plist")" = "MSIMEInputController"
           test "$(/usr/libexec/PlistBuddy -c 'Print :ComponentInputModeDict:tsInputModeListKey:app.msime.inputmethod.MetasequoiaIME.Hans:TISInputSourceID' "$plist")" = "app.msime.inputmethod.MetasequoiaIME.Hans"
           test "$(/usr/libexec/PlistBuddy -c 'Print :ComponentInputModeDict:tsInputModeListKey:app.msime.inputmethod.MetasequoiaIME.Hans:tsInputModeScriptKey' "$plist")" = "smSimpChinese"
+          # 发布包把同一个 bundle 改成其他版本（package-release.sh），这里用五笔版走一遍同样的变换：改完仍能签名封装，模式和标识是五笔版的，带的东西与 full 一样齐。
+          wubi="$RUNNER_TEMP/verify/$(python3 platforms/macos/scripts/edition_bundle.py field --edition wubi bundle_name)"
+          ditto build/水杉输入法.app "$wubi"
+          python3 platforms/macos/scripts/edition_bundle.py apply --edition wubi "$wubi"
+          codesign --force --deep --options runtime --entitlements platforms/macos/resources/VoiceInput.entitlements --sign - "$wubi"
+          codesign --verify --deep --strict --verbose=2 "$wubi"
+          python3 platforms/macos/tests/settings/bundle_contents.py "$wubi" --languages zh-Hans,en
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$wubi/Contents/Info.plist")" = "app.msime.inputmethod.wubi"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :InputMethodConnectionName' "$wubi/Contents/Info.plist")" = "app.msime.inputmethod.wubi_Connection"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :ComponentInputModeDict:tsInputModeListKey:app.msime.inputmethod.wubi.Hans:tsInputModeMenuIconFileKey' "$wubi/Contents/Info.plist")" = "MSIMEClientInputMethodMenuIconWubi.tiff"
+          # 日文、越南文、藏文版只有一个语言方案：主模式 .Hans 用这个方案的图标，主模式和「英」都登记在这个语言下（ja、vi、bo），系统设置的「添加」对话框才会把它列在这个语言下。
+          for pair in japanese:ja:Japanese vietnamese:vi:Vietnamese tibetan:bo:Tibetan; do
+            IFS=: read -r edition language icon <<< "$pair"
+            bundle="$RUNNER_TEMP/verify/$(python3 platforms/macos/scripts/edition_bundle.py field --edition "$edition" bundle_name)"
+            ditto build/水杉输入法.app "$bundle"
+            python3 platforms/macos/scripts/edition_bundle.py apply --edition "$edition" "$bundle"
+            codesign --force --deep --options runtime --entitlements platforms/macos/resources/VoiceInput.entitlements --sign - "$bundle"
+            codesign --verify --deep --strict --verbose=2 "$bundle"
+            python3 platforms/macos/tests/settings/bundle_contents.py "$bundle" --languages zh-Hans,en
+            plist="$bundle/Contents/Info.plist"
+            test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist")" = "app.msime.inputmethod.$edition"
+            test "$(/usr/libexec/PlistBuddy -c 'Print :InputMethodConnectionName' "$plist")" = "app.msime.inputmethod.${edition}_Connection"
+            test "$(/usr/libexec/PlistBuddy -c "Print :ComponentInputModeDict:tsInputModeListKey:app.msime.inputmethod.$edition.Hans:tsInputModeMenuIconFileKey" "$plist")" = "MSIMEClientInputMethodMenuIcon$icon.tiff"
+            for mode in Hans Roman; do
+              test "$(/usr/libexec/PlistBuddy -c "Print :ComponentInputModeDict:tsInputModeListKey:app.msime.inputmethod.$edition.$mode:TISIntendedLanguage" "$plist")" = "$language"
+            done
+          done
 
   # MSIME-Linux's ci.yml already reasons this out: "the frontend layer had none -- and that is the
   # layer that parses untrusted input", written after an audit of a sibling frontend turned up a
@@ -233,7 +297,7 @@ jobs:
   # specific, and a second sanitized leg would double a 60-plus-minute job for very little.
   sanitizers:
     needs: changes
-    if: ${{ needs.changes.outputs.build == 'true' }}
+    if: ${{ needs.changes.outputs.full == 'true' }}
     name: Sanitizers
     runs-on: macos-15
     timeout-minutes: 90
@@ -277,7 +341,7 @@ jobs:
       - name: Create test dictionary
         run: |
           mkdir -p "$RUNNER_TEMP/dictionary"
-          if [[ -f platforms/macos/tests/create_fixture_dictionary.py ]]; then python3 platforms/macos/tests/create_fixture_dictionary.py "$RUNNER_TEMP/dictionary/msime.db"; else touch "$RUNNER_TEMP/dictionary/msime.db"; fi
+          if [[ -f platforms/macos/tests/create_fixture_dictionary.py ]]; then python3 platforms/macos/tests/create_fixture_dictionary.py "$RUNNER_TEMP/dictionary/msime-pinyin.db"; else touch "$RUNNER_TEMP/dictionary/msime-pinyin.db"; fi
       - name: Build the Rust host library
         run: cargo build --locked -p msime-host-api
       # OBJCXX is its own CMake language here, so CXX flags alone left every .mm unsanitized. Templates such as vector<uint8_t> are instantiated on both sides, and the linker keeping one copy from each can let instrumented code check container annotations the uninstrumented half never wrote - a container-overflow inside nlohmann's lexer.
@@ -286,7 +350,7 @@ jobs:
           cmake -S platforms/macos -B build-sanitizers -DCMAKE_BUILD_TYPE=Debug
           -DCMAKE_PREFIX_PATH="$(brew --prefix)"
           -DMSIME_SPARKLE_ROOT="$MSIME_SPARKLE_ROOT"
-          -DMETASEQUOIA_IME_DICTIONARY="$RUNNER_TEMP/dictionary/msime.db"
+          -DMETASEQUOIA_IME_DICTIONARY="$RUNNER_TEMP/dictionary/msime-pinyin.db"
           -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
           -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
           -DCMAKE_OBJCXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"

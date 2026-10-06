@@ -24,8 +24,6 @@ const MAX_AI_PROFILES: usize = 16;
 const AI_FILE: &str = "ai-provider.json";
 const TENCENT_FILE: &str = "tencent-provider.json";
 const VOICE_FILE: &str = "voice-provider.json";
-const VOICE_SOCKET_UNIT: &str = "msime-linux-voice.socket";
-const VOICE_SERVICE_UNIT: &str = "msime-linux-voice.service";
 /// The voice provider's `LOCAL_PROVIDER`: on-device recognition, whose file entry, when a user writes one, carries only the provider name.
 const LOCAL_ASR_PROVIDER: &str = "local";
 /// The voice provider's `ASR_PROVIDERS` and `POLISH_PROVIDERS`.
@@ -187,7 +185,12 @@ fn config_directory() -> Result<PathBuf, CredentialError> {
         return Err(CredentialError::Location);
     }
     config_home(xdg.as_deref(), std::env::var_os("HOME").as_deref())
-        .map(|base| base.join("msime-client"))
+        .map(|base| {
+            base.join(
+                &msime_client_core::edition::Edition::linux_package_identity_or_full()
+                    .client_directory,
+            )
+        })
         .ok_or(CredentialError::Location)
 }
 
@@ -216,7 +219,7 @@ fn read_private(path: &Path) -> Result<Option<Map<String, Value>>, CredentialErr
         return Err(CredentialError::Existing);
     }
     let text = std::str::from_utf8(&bytes).map_err(|_| CredentialError::Storage)?;
-    match serde_json::from_str::<Value>(&text) {
+    match serde_json::from_str::<Value>(text) {
         Ok(Value::Object(map)) => Ok(Some(map)),
         _ => Err(CredentialError::Existing),
     }
@@ -517,7 +520,7 @@ fn doubao_auth_mode(entry: &Map<String, Value>) -> &'static str {
     {
         Some("api_key") => "api_key",
         Some("legacy") => "legacy",
-        _ if !entry_text(entry, "app_key").is_empty() => "legacy",
+        // An absent or empty mode is the single API key, whatever else the entry carries.
         _ => "api_key",
     }
 }
@@ -789,8 +792,14 @@ pub(crate) fn enable_voice_service() -> bool {
             .status()
             .is_ok_and(|status| status.success())
     };
-    let _ = systemctl(&["reset-failed", VOICE_SERVICE_UNIT]);
-    systemctl(&["enable", "--now", VOICE_SOCKET_UNIT])
+    // 单元名随本安装包所属的版本（full 是 msime-linux-voice.*），只启用本版本的语音服务。
+    let identity = msime_client_core::edition::Edition::linux_package_identity_or_full();
+    let _ = systemctl(&["reset-failed", identity.user_unit("voice.service").as_str()]);
+    systemctl(&[
+        "enable",
+        "--now",
+        identity.user_unit("voice.socket").as_str(),
+    ])
 }
 
 /// Store the credential for `provider`, bound to `endpoint` and `model`. A `None` token keeps the stored one, so the user can rebind an endpoint or model without pasting the key again.
@@ -1204,7 +1213,7 @@ mod tests {
         let real = parent.path().join("real");
         std::fs::create_dir(&real).unwrap();
         let linked = real.join("linked");
-        std::os::unix::fs::symlink(outside.path(), &linked).unwrap();
+        msime_path_trust::untrusted_symlink(outside.path(), &linked).unwrap();
 
         assert_eq!(
             save_ai_in(
@@ -1417,6 +1426,13 @@ mod tests {
             Some("volc.bigasr.sauc.duration")
         );
         assert_eq!(status.voice_asr[0].auth_mode.as_deref(), Some("legacy"));
+        let mut stored = document.clone();
+        stored["asr"]["doubao_auth_mode"] = Value::String(String::new());
+        write_private(&root.join(VOICE_FILE), Some(&stored)).unwrap();
+        assert_eq!(
+            status_in(root).unwrap().voice_asr[0].auth_mode.as_deref(),
+            Some("api_key")
+        );
 
         // Switching to the single API key drops the stored App Key.
         let mut api_key = voice(VoiceKind::Asr, "doubao", "", None);

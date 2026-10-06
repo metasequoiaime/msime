@@ -1,4 +1,5 @@
 import * as account from "./account-style";
+import { ActionButton } from "../core/action-button";
 
 export type AccountConfirmationAction = "logout" | "logout-all" | "relogin" | "delete";
 
@@ -13,7 +14,7 @@ export interface AccountConfirmationProps {
 const details: Record<AccountConfirmationAction, { label: string; message: string }> = {
   logout: {
     label: "确认退出登录",
-    message: "退出登录后，社区功能需要重新登录才能使用。",
+    message: "退出登录后，云端功能和社区发布都需要重新登录才能使用。",
   },
   "logout-all": {
     label: "确认退出所有设备",
@@ -41,17 +42,13 @@ export function AccountConfirmation({
     <div className={account.confirmation} role="alertdialog" aria-label={detail.label}>
       <p className={account.note}>{detail.message}</p>
       <div className={account.actionRow}>
-        <button
-          type="button"
+        <ActionButton
+          action={onConfirm}
           className={action === "delete" ? account.dangerButton : account.primary}
           disabled={busy}
-          onClick={onConfirm}
-        >
-          {confirmLabel ?? detail.label}
-        </button>
-        <button type="button" className="secondary" disabled={busy} onClick={onCancel}>
-          取消
-        </button>
+          label={confirmLabel ?? detail.label}
+        />
+        <ActionButton action={onCancel} disabled={busy} label="取消" />
       </div>
     </div>
   );

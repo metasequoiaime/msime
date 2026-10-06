@@ -5,6 +5,7 @@ import hashlib
 import pathlib
 import sys
 import tempfile
+import urllib.request
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -39,7 +40,7 @@ def exercise(module, failures):
         "sha256": hashlib.sha256(expected).hexdigest(),
         "size": len(expected),
     }
-    original_urlopen = module.urllib.request.urlopen
+    original_urlopen = urllib.request.urlopen
     fetcher = getattr(module, "fetch", None) or module.download
     try:
         with tempfile.TemporaryDirectory() as directory:
@@ -48,7 +49,7 @@ def exercise(module, failures):
                 ("header", Response([], "4")),
                 ("stream", Response([b"ab", b"cd"])),
             ):
-                module.urllib.request.urlopen = lambda *_args, **_kwargs: response
+                urllib.request.urlopen = lambda *_args, **_kwargs: response
                 try:
                     fetcher(artifact, destination)
                     failures.append(f"{module.__name__} accepted oversized {label}")
@@ -60,12 +61,12 @@ def exercise(module, failures):
                 if destination.exists() or list(pathlib.Path(directory).iterdir()):
                     failures.append(f"{module.__name__} left a partial file after oversized {label}")
 
-            module.urllib.request.urlopen = lambda *_args, **_kwargs: Response([expected])
+            urllib.request.urlopen = lambda *_args, **_kwargs: Response([expected])
             fetcher(artifact, destination)
             if destination.read_bytes() != expected:
                 failures.append(f"{module.__name__} rejected a valid response without Content-Length")
     finally:
-        module.urllib.request.urlopen = original_urlopen
+        urllib.request.urlopen = original_urlopen
 
 
 def main():

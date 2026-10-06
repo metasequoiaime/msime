@@ -345,6 +345,9 @@ public final class VoiceRecognitionActivity extends Activity {
                     case EMPTY -> "没有听到内容";
                     case CANCELLED -> null;
                 };
+            } catch (RuntimeException | LinkageError error) {
+                // 识别组件的意外失败也必须结束请求，不能让录音页永远停在转写中。
+                message = "语音识别服务未响应，请稍后重试";
             }
             String finalText = text;
             String finalMessage = message;
@@ -447,6 +450,9 @@ public final class VoiceRecognitionActivity extends Activity {
                     case EMPTY -> "没有听到内容";
                     case CANCELLED -> null;
                 };
+            } catch (RuntimeException | LinkageError error) {
+                // 本地模型或 JNI 的意外失败也要回到可重试的页面状态。
+                message = "本地语音识别组件无法加载";
             }
             String finalMessage = message;
             String polishedText = text == null ? null : polished(text);
@@ -485,12 +491,21 @@ public final class VoiceRecognitionActivity extends Activity {
         if (providerWorker == null) providerWorker = Executors.newSingleThreadExecutor();
         DoubaoRecognizer running = streaming;
         providerWorker.execute(() -> {
-            String text = running.recognize(endpoint, headers, itn, punctuation, ddc, boosting,
-                null);
+            String text = null;
+            String message = null;
+            try {
+                text = running.recognize(endpoint, headers, itn, punctuation, ddc, boosting,
+                    null);
+            } catch (RuntimeException | LinkageError error) {
+                // 参数、TLS 或共享 JNI 的意外失败不能让请求悬挂在录音窗口。
+                message = "语音识别服务未响应，请稍后重试";
+            }
             String polishedText = text == null ? null : polished(text);
+            String finalMessage = message;
             runOnUiThread(() -> {
                 if (finished) return;
                 if (polishedText != null && !polishedText.isEmpty()) saveResult(polishedText);
+                else if (finalMessage != null) fail(finalMessage);
                 else fail("语音识别未返回结果");
                 finishRequest();
             });

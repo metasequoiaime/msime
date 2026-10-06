@@ -73,6 +73,7 @@ impl LocalModelInstalls {
             .is_some()
     }
 
+    #[cfg(test)]
     pub(crate) fn running(&self, id: &str) -> bool {
         self.0
             .lock()
@@ -109,24 +110,7 @@ fn app_model_root<R: tauri::Runtime>(
     let directory = app.path().app_data_dir().map_err(|_| HostActionError {
         code: "local_model_invalid_root",
     })?;
-    Ok(model_root_for(&directory))
-}
-
-/// Models an earlier version downloaded under the shared `app.msime.client` directory stay where they are, because `voice_input.asr_model_path` names them by absolute path; the list keeps reading them until this identifier's directory has models of its own.
-#[cfg(not(any(target_os = "android", target_os = "ios", target_os = "macos")))]
-fn model_root_for(app_data: &Path) -> PathBuf {
-    let current = local_model_root(app_data);
-    let legacy = local_model_root(&crate::legacy_app_data_dir(app_data));
-    if !current.exists() && legacy.is_dir() {
-        legacy
-    } else {
-        current
-    }
-}
-
-#[cfg(any(target_os = "android", target_os = "ios", target_os = "macos"))]
-fn model_root_for(app_data: &Path) -> PathBuf {
-    local_model_root(app_data)
+    Ok(local_model_root(&directory))
 }
 
 fn valid_model_id(id: &str) -> Result<(), HostActionError> {
@@ -173,18 +157,11 @@ pub(crate) async fn voice_local_models<R: tauri::Runtime>(
     })
 }
 
-/// Download and install one catalog model, resolving to the installed directory. The mirror is the saved `voice_input.asr_model_mirror`, so a mirror typed into the page applies once the preferences are saved.
-#[tauri::command]
-pub(crate) async fn voice_local_model_install<R: tauri::Runtime>(
-    app: tauri::AppHandle<R>,
-    installs: tauri::State<'_, LocalModelInstalls>,
-    store: tauri::State<'_, Arc<PreferencesStore>>,
-    id: String,
+/// 读取已保存的 `voice_input.asr_model_mirror`。语音模型和 macOS 资源包下载都用这个镜像前缀，页面上填写的镜像要保存偏好后才生效。
+pub(crate) async fn saved_model_mirror(
+    store: Arc<PreferencesStore>,
 ) -> Result<String, HostActionError> {
-    valid_model_id(&id)?;
-    let root = app_model_root(&app)?;
-    let store = store.inner().clone();
-    let mirror = tauri::async_runtime::spawn_blocking(move || {
+    tauri::async_runtime::spawn_blocking(move || {
         store
             .load()
             .map(|snapshot| snapshot.preferences.voice_input.asr_model_mirror)
@@ -195,35 +172,73 @@ pub(crate) async fn voice_local_model_install<R: tauri::Runtime>(
     })?
     .map_err(|_| HostActionError {
         code: "unavailable",
-    })?;
+    })
+}
+
+/// 在 `installs` 里以 `key` 登记一次安装（已有同 key 的安装或删除在跑时返回 `busy`），在阻塞线程上运行 `job`，把它的进度以 `event` 事件、`progress_id` 为 id 发给页面，结束后无论成败都注销登记，错误映射成设置页认识的错误码。
+pub(crate) async fn run_install<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    installs: &LocalModelInstalls,
+    key: &str,
+    event: &'static str,
+    progress_id: String,
+    job: impl FnOnce(
+            &mut dyn FnMut(local_models::InstallProgress),
+            &AtomicBool,
+        ) -> Result<PathBuf, LocalModelError>
+        + Send
+        + 'static,
+) -> Result<PathBuf, HostActionError> {
     let cancel = installs
-        .begin(&id)
+        .begin(key)
         .ok_or(HostActionError { code: "busy" })?;
     let worker_app = app.clone();
-    let worker_id = id.clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
-        let mut progress = |event: local_models::InstallProgress| {
+        let mut progress = |update: local_models::InstallProgress| {
             let _ = worker_app.emit(
-                LOCAL_MODEL_PROGRESS_EVENT,
+                event,
                 LocalModelProgress {
-                    id: worker_id.clone(),
-                    stage: event.stage,
-                    downloaded: event.downloaded,
-                    total: event.total,
+                    id: progress_id.clone(),
+                    stage: update.stage,
+                    downloaded: update.downloaded,
+                    total: update.total,
                 },
             );
         };
-        local_models::install(&root, &worker_id, &mirror, &mut progress, &cancel)
+        job(&mut progress, &cancel)
     })
     .await;
-    installs.finish(&id);
-    let path = result
+    installs.finish(key);
+    result
         .map_err(|_| HostActionError {
             code: "unavailable",
         })?
         .map_err(|error| HostActionError {
             code: local_model_error_code(&error),
-        })?;
+        })
+}
+
+/// Download and install one catalog model, resolving to the installed directory. The mirror is the saved `voice_input.asr_model_mirror`, so a mirror typed into the page applies once the preferences are saved.
+#[tauri::command]
+pub(crate) async fn voice_local_model_install<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    installs: tauri::State<'_, LocalModelInstalls>,
+    store: tauri::State<'_, Arc<PreferencesStore>>,
+    id: String,
+) -> Result<String, HostActionError> {
+    valid_model_id(&id)?;
+    let root = app_model_root(&app)?;
+    let mirror = saved_model_mirror(store.inner().clone()).await?;
+    let worker_id = id.clone();
+    let path = run_install(
+        &app,
+        &installs,
+        &id,
+        LOCAL_MODEL_PROGRESS_EVENT,
+        id.clone(),
+        move |progress, cancel| local_models::install(&root, &worker_id, &mirror, progress, cancel),
+    )
+    .await?;
     // On Linux the recording runs in the user's voice service, which on-device recognition needs even when no cloud credential was ever saved, the one other step that enables its socket. `msime-linux-setup` enables it too; this covers a socket an earlier version disabled. Without a user service manager the model is installed all the same.
     #[cfg(target_os = "linux")]
     let _ = tauri::async_runtime::spawn_blocking(

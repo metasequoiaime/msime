@@ -1,0 +1,64 @@
+name: Conflict label
+
+# 给与目标分支有冲突的拉取请求打上 conflict 标签，冲突解决后摘掉。目标分支每推进一次，开着的 PR 都可能因此冲突，所以在 develop、main 的推送上把所有开着的 PR 过一遍；PR 自己推新提交时也过一遍，好及时摘掉标签。
+#
+# 冲突与否直接读 GitHub 算好的 mergeable 字段。推送刚发生时它可能还是 null（GitHub 在后台重算），这时等一会儿再读，几次后仍未知的留到下一次触发。
+#
+# 用 pull_request_target 是为了在 fork 的 PR 上也能写标签；它不检出、不执行 PR 的代码，只调用 GitHub API。
+
+on:
+  push:
+    branches:
+      - develop
+      - main
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+concurrency:
+  # 每次都检查全部开着的 PR，所以同一来源连续触发时只需要最新的一次：push 按分支、PR 按编号各自分组。不能所有触发共用一组：develop 一推送，push 和 develop→main 发布 PR 的 synchronize 会在同一个提交上几乎同时触发，后到的取消先到的，被取消的那次就作为失败挂在发布 PR 上；两个 PR 同时推送也会这样互相取消。分组后同一个提交上不会再有被取消的运行，被取消的只剩已不是任何 PR 头部的旧提交。两组偶尔并行各扫一遍，加、摘标签前都先读当前状态，重复执行无害。
+  group: conflict-label-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  label:
+    name: Label conflicting pull requests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      LABEL: conflict
+    steps:
+      - name: Ensure the label exists
+        run: |
+          set -euo pipefail
+          if ! gh label list --limit 500 --json name --jq '.[].name' | grep -qx "$LABEL"; then
+            gh label create "$LABEL" --color B60205 --description "与目标分支有合并冲突，需要先解决"
+          fi
+
+      - name: Label pull requests by their mergeable state
+        run: |
+          set -euo pipefail
+          # 批量列表（包括 GraphQL 的 pullRequests 连接）不会触发 GitHub 计算 mergeable，一直是 UNKNOWN；逐个 GET /pulls/{number} 才会。所以先列出编号，再一个个读，读到 null 说明还在算，隔 10 秒再读，最多 4 次。
+          gh pr list --state open --limit 500 --json number,labels \
+            --jq '.[] | "\(.number) \(any(.labels[]; .name == env.LABEL))"' > prs.txt
+          while read -r number labelled; do
+            mergeable=null
+            for attempt in 1 2 3 4; do
+              mergeable=$(gh api "repos/$GH_REPO/pulls/$number" --jq '.mergeable')
+              [ "$mergeable" != null ] && break
+              [ "$attempt" = 4 ] || sleep 10
+            done
+            if [ "$mergeable" = false ] && [ "$labelled" = false ]; then
+              gh pr edit "$number" --add-label "$LABEL" >/dev/null && echo "#$number 有冲突，已加 $LABEL"
+            elif [ "$mergeable" = true ] && [ "$labelled" = true ]; then
+              gh pr edit "$number" --remove-label "$LABEL" >/dev/null && echo "#$number 冲突已解决，已摘掉 $LABEL"
+            elif [ "$mergeable" = null ]; then
+              echo "#$number 的合并状态还没算出来，留到下一次"
+            fi
+          done < prs.txt

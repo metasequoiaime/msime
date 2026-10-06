@@ -1,0 +1,11 @@
+<!-- 整个 Rust 工作区（Host API、桌面二进制与 Tauri/WebKitGTK）加 C++ 宿主的 Release 构建和完整 ctest：OBS 默认的小规格构建机内存不够，链接阶段会被 OOM 杀掉。 -->
+<constraints>
+  <hardware>
+    <memory>
+      <size unit="G">8</size>
+    </memory>
+    <disk>
+      <size unit="G">40</size>
+    </disk>
+  </hardware>
+</constraints>

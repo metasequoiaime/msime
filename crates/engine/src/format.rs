@@ -13,12 +13,22 @@ pub fn quanpin_table(syllables: usize, initial: u8) -> Option<String> {
     if syllables == 0 || !initial.is_ascii_lowercase() {
         return None;
     }
-    let bucket = if syllables <= MAXIMUM_NUMBERED_SYLLABLES {
-        syllables.to_string()
-    } else {
-        OVERFLOW_BUCKET.to_owned()
+    let bucket = match syllables {
+        1 => "1",
+        2 => "2",
+        3 => "3",
+        4 => "4",
+        5 => "5",
+        6 => "6",
+        7 => "7",
+        _ => OVERFLOW_BUCKET,
     };
-    Some(format!("{TABLE_PREFIX}{bucket}_{}", initial as char))
+    let mut table = String::with_capacity(TABLE_PREFIX.len() + bucket.len() + 2);
+    table.push_str(TABLE_PREFIX);
+    table.push_str(bucket);
+    table.push('_');
+    table.push(initial as char);
+    Some(table)
 }
 
 /// The table for a segmented key: by segment count and the first letter of the first segment.
@@ -36,6 +46,11 @@ mod tests {
         assert_eq!(quanpin_table(2, b'n').as_deref(), Some("tbl_2_n"));
         assert_eq!(quanpin_table(7, b'a').as_deref(), Some("tbl_7_a"));
         assert_eq!(quanpin_table(8, b'z').as_deref(), Some("tbl_others_z"));
+        assert_eq!(quanpin_table(2, b'n').unwrap().capacity(), "tbl_2_n".len());
+        assert_eq!(
+            quanpin_table(8, b'z').unwrap().capacity(),
+            "tbl_others_z".len()
+        );
         assert_eq!(quanpin_table(0, b'a'), None);
         assert_eq!(quanpin_table(1, b'A'), None);
         assert_eq!(

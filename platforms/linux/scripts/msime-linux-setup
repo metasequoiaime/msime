@@ -13,7 +13,7 @@ Windows 安装程序注册 TSF profile，装完输入法就出现在输入法列
 
 Windows 卸载程序注销 TSF profile 和类别，输入法随之从列表里消失，并删除水杉留下的全部状态；对应的是 --unregister：卸载时（.deb 的 prerm、CMake 卸载）在删除文件之前把输入法从这些列表里移除，再把宿主改过的桌面候选面板设置（Fcitx5 classicui 的主题、字体和滚轮翻页，IBus 面板的字体）恢复成接管之前的值——用户之后自己改过的不动——并删除水杉生成的 Fcitx5 主题。只做这些，不准备状态也不下载。
 
---update 对应 Windows 安装程序升级时的用户词库回放。随包提供词库的安装由包管理器换掉词库，宿主启动时自己切换代次；自行下载的词库没有人替换，升级抬高词库版本后宿主只能继续用旧的。--update 读出已有状态记录的词库目录，按已安装的词库锁核对；不符时加 --download 在旁边另建一份新词库目录，与旧目录一致的几项直接链接过去，只取回缺失或不符的几项，旧目录一个文件都不动。锁已去掉的 dict_pinyin.dat 不算不符：宿主校验词库时自己把它从原目录删掉。随后请两个宿主关掉输入会话，用 msime-linux-prepare --refresh 切到新代次并回放用户词库，再让它们重新打开。已有状态时给 --download 即视为 --update。
+--update 对应 Windows 安装程序升级时的用户词库回放。随包提供词库的安装由包管理器换掉词库，宿主启动时自己切换代次；自行下载的词库没有人替换，升级抬高词库版本后宿主只能继续用旧的。--update 读出已有状态记录的词库目录，按已安装的词库锁核对；不符时加 --download 在旁边另建一份新词库目录，与旧目录一致的几项直接链接过去，只取回缺失或不符的几项，旧目录一个文件都不动。随后请两个宿主关掉输入会话，用 msime-linux-prepare --refresh 切到新代次并回放用户词库，再让它们重新打开。已有状态时给 --download 即视为 --update。
 """
 from __future__ import annotations
 
@@ -112,12 +112,9 @@ def digest(path: Path) -> str:
 # The Engine's helpcode tables live in this subdirectory of the resource directory; the host's verification lets it through (crates/client-core/src/resources.rs).
 HELPCODE_DIRECTORY = "helpcodes"
 
-# Files an earlier lock pinned and the current one no longer does. The host's verification deletes such a regular file in place instead of refusing the directory (RETIRED_ARTIFACTS in crates/client-core/src/resources.rs), so a directory still holding one is usable as it is. Exact names only, and only as a regular file: a directory or symlink by that name is refused by the host and reported here too.
-RETIRED_ARTIFACTS = frozenset({"dict_pinyin.dat"})
-
 
 def unexpected_entries(directory: Path, lock: dict) -> list[str]:
-    """目录里锁之外的条目。宿主要求词库目录恰好是锁里那几项，多一个文件就拒绝整份词库；下载补不掉它们，得由用户移走。例外是锁已去掉的旧词库文件（RETIRED_ARTIFACTS，换成 Rust Engine 之后的 dict_pinyin.dat）：宿主校验时自己把它删掉，这里不算。"""
+    """目录里锁之外的条目。宿主要求词库目录恰好是锁里那几项，多一个文件就拒绝整份词库；下载补不掉它们，得由用户移走。"""
     if not directory.is_dir():
         return []
     names = {artifact["name"] for artifact in lock["artifacts"]}
@@ -125,7 +122,6 @@ def unexpected_entries(directory: Path, lock: dict) -> list[str]:
         f"{entry.name} 不在词库锁中或不是普通文件，宿主会拒绝这份词库；请把它移出 {directory}"
         for entry in sorted(os.scandir(directory), key=lambda item: item.name)
         if not (entry.name == HELPCODE_DIRECTORY and entry.is_dir(follow_symlinks=False))
-        and not (entry.name in RETIRED_ARTIFACTS and entry.is_file(follow_symlinks=False))
         and (entry.name not in names or not entry.is_file(follow_symlinks=False))
     ]
 
@@ -133,7 +129,7 @@ def unexpected_entries(directory: Path, lock: dict) -> list[str]:
 def verify_directory(directory: Path, lock: dict) -> list[str]:
     """锁文件与目录不符之处，逐条列出；空列表表示这份词库可用。
 
-    与宿主的校验一致，锁之外的条目也算：升级去掉某项词库时旧文件会留在下载目录里，在这里报出来，而不是等宿主拒绝后只剩一句笼统的失败。宿主自己删掉的 RETIRED_ARTIFACTS 不算。"""
+    与宿主的校验一致，锁之外的条目也算：升级去掉某项词库时旧文件会留在下载目录里，在这里报出来，而不是等宿主拒绝后只剩一句笼统的失败。"""
     problems = unexpected_entries(directory, lock)
     for artifact in lock["artifacts"]:
         name = artifact["name"]
@@ -201,8 +197,8 @@ def download_artifacts(lock: dict, directory: Path) -> None:
 
 
 def prepare_command(command: Path, resources: Path, state: Path, cloud_candidates: bool) -> list[str]:
-    """云候选是装完就会联网的唯一一项，与 Windows 安装程序的「联网功能」页一样，在首次准备时决定。"""
-    flags = [] if cloud_candidates else ["--no-cloud-candidates"]
+    """云候选新装默认关闭，与 Windows 安装程序的「联网功能」页一样，在首次准备时由用户决定是否打开。"""
+    flags = ["--cloud-candidates"] if cloud_candidates else []
     return [str(command), *flags, str(resources), str(state)]
 
 
@@ -300,7 +296,7 @@ def link_or_copy(source: str, target: str) -> None:
 def staged_resources(resources: Path, lock: dict) -> Path:
     """新版本词库的目录：与正在使用的那份并列，按锁的内容命名，中断后再运行会接着用同一个目录。
 
-    正在使用的目录不能原地更新：旧代次的会话每次查询都按路径打开其中的 others.db 等文件，换掉其中几项它就读到新旧混杂的一份，切换失败时也无法退回。与锁一致的文件直接硬链接过来，只有缺失或不符的几项需要下载；下载总是改名替换，不写已有文件，所以链接不会改到旧目录。"""
+    正在使用的目录不能原地更新：旧代次的会话每次查询都按路径打开其中的 msime-others.db 等文件，换掉其中几项它就读到新旧混杂的一份，切换失败时也无法退回。与锁一致的文件直接硬链接过来，只有缺失或不符的几项需要下载；下载总是改名替换，不写已有文件，所以链接不会改到旧目录。"""
     tag = hashlib.sha256(
         "\n".join(f"{artifact['name']}:{artifact['sha256']}" for artifact in lock["artifacts"]).encode()
     ).hexdigest()[:16]
@@ -366,7 +362,8 @@ def hosts_held_off(user_data: Path):
     try:
         publish()
         renewer.start()
-        descriptor = os.open(user_data / ACCESS_LOCK, os.O_RDWR | os.O_CREAT | os.O_CLOEXEC, 0o600)
+        descriptor = os.open(user_data / ACCESS_LOCK,
+                             os.O_RDWR | os.O_CREAT | os.O_CLOEXEC | os.O_NOFOLLOW, 0o600)
         deadline = time.monotonic() + QUIESCE_BUDGET
         while True:
             try:
@@ -493,18 +490,6 @@ def enable_services(units: list[str]) -> None:
     if shutil.which("systemctl") is None:
         print("没有 systemctl：在线和语音服务可用 msime-linux-provider-session online|voice 手动启动。")
         return
-    # Remove the pre-rename units first. Their sockets listen on the same paths,
-    # so leaving an old msime-client-online.socket enabled would prevent the
-    # renamed msime-linux-online.socket from activating.
-    subprocess.run(
-        [
-            "systemctl", "--user", "disable", "--now",
-            "msime-client-online.socket", "msime-client-online.service",
-            "msime-client-voice.socket", "msime-client-voice.service",
-            "msime-client-clipboard.service",
-        ],
-        capture_output=True, text=True, check=False,
-    )
     result = subprocess.run(
         ["systemctl", "--user", "enable", "--now", *units], capture_output=True, text=True, check=False
     )
@@ -1034,15 +1019,19 @@ def restore_panel_settings() -> None:
         print(f"恢复记录保留在 {record_file}，可稍后再次运行 msime-linux-setup --unregister。", file=sys.stderr)
 
 
+def use_runtime_session_bus() -> None:
+    runtime = os.environ.get("XDG_RUNTIME_DIR")
+    if not os.environ.get("DBUS_SESSION_BUS_ADDRESS") and runtime and (Path(runtime) / "bus").exists():
+        # A transient unit in the user's systemd manager inherits only what the desktop imported into it; without the session bus address gsettings would write to a throwaway backend and gdbus would find no bus. The user bus of systemd sessions lives at this path.
+        os.environ["DBUS_SESSION_BUS_ADDRESS"] = f"unix:path={Path(runtime) / 'bus'}"
+
+
 def unregister_input_method() -> None:
     """Remove the input method from every list setup may have added it to, one list at a time so a missing tool or bus only skips its own list.
 
     Unlike registering, this does not depend on which host is running or on the desktop: the uninstaller runs it from the user's systemd manager, where XDG_CURRENT_DESKTOP is often unset, and a list can hold the entry from an earlier session under another desktop. Both IBus lists are cleaned whenever their schema is installed.
     """
-    runtime = os.environ.get("XDG_RUNTIME_DIR")
-    if not os.environ.get("DBUS_SESSION_BUS_ADDRESS") and runtime and (Path(runtime) / "bus").exists():
-        # A transient unit in the user's systemd manager inherits only what the desktop imported into it; without the session bus address gsettings would write to a throwaway backend and gdbus would find no bus. The user bus of systemd sessions lives at this path.
-        os.environ["DBUS_SESSION_BUS_ADDRESS"] = f"unix:path={Path(runtime) / 'bus'}"
+    use_runtime_session_bus()
     steps = [unregister_fcitx5]
     try:
         schemas = set(command_output(["gsettings", "list-schemas"]).split())
@@ -1061,6 +1050,34 @@ def unregister_input_method() -> None:
         if removed:
             print(removed)
     restore_panel_settings()
+
+
+def register_again() -> int:
+    """已完成首次配置的用户：重新启用用户服务、链回 Omarchy 的钩子和插件，并把输入法加回正在运行的宿主的输入法列表，即撤销 --unregister 和卸载时停用单元的那两步。
+
+    发行版仓库里的 msime 包替换发布页的 msime-linux 包（或 AUR 的 msime 与 msime-bin 互换）时，被替换的包按卸载处理，它的卸载脚本对每个用户停用单元并运行 --unregister，而文件仍由新包提供；新包装好之后以临时单元替每个用户运行这里。只看默认位置的状态目录（剪贴板监视器和首次配置引导读的也是它）；没有 runtime-options.json 说明这个用户没配置过，什么也不做。不检查、不下载词库，也不改状态目录里的任何文件。
+    """
+    use_runtime_session_bus()
+    state = config_home() / "msime-client"
+    options_file = state / "runtime-options.json"
+    if not options_file.is_file():
+        print(f"{state} 里没有 runtime-options.json，还没有完成首次配置，没有要恢复的。")
+        return 0
+    prefix = install_prefix()
+    enable_services(service_units(state, state))
+    link_omarchy_theme_hook(prefix, options_file)
+    link_omarchy_plugin(prefix)
+    host = active_host()
+    registered = register_input_method(host)
+    if registered:
+        print(registered)
+    elif host == "fcitx5":
+        print(f"下一步：用 fcitx5-configtool 把「{FCITX5_NAME}」（英文界面显示为「MSIME」）加入当前输入法组。")
+    elif host == "ibus":
+        print(f"下一步：ibus restart，再在输入源里添加「{IBUS_NAME}」。")
+    else:
+        print("Fcitx5 和 IBus 都没有在运行，输入法列表没有改动；启动其中一个后再运行 msime-linux-setup --register。")
+    return 0
 
 
 def active_host() -> str | None:
@@ -1100,8 +1117,52 @@ def next_steps(state: Path, host: str | None, registered: str | None) -> None:
     print("设置面板：msime-linux-settings（需要安装时提供了桌面二进制）")
 
 
+# 各版本（full、拼音、五笔等）是各自独立的安装包，可以同时安装，每个包带着自己的这个脚本：它只配置、注销本版本，状态目录、词库、用户服务和输入法条目都是本版本自己的。IBUS_ENGINE 就是包名，full 是 msime-linux，其他版本是 msime-linux-<id>。
+EDITION_PACKAGE_PREFIX = "msime-linux-"
+EDITION_ID = re.compile(r"[a-z][a-z0-9]*")
+
+
+def installed_edition() -> str:
+    """本脚本所属安装包的版本 id。"""
+    return IBUS_ENGINE[len(EDITION_PACKAGE_PREFIX):] if IBUS_ENGINE.startswith(EDITION_PACKAGE_PREFIX) else "full"
+
+
+def edition_setup_program(edition: str) -> Path:
+    """另一个版本的首次配置命令：它在 /usr/bin 下以那个版本的包名命名（full 是 msime-linux-setup，其他版本是指向 /opt/msime-linux-<id> 的 msime-linux-<id>-setup）。"""
+    package = EDITION_PACKAGE_PREFIX.rstrip("-") if edition == "full" else EDITION_PACKAGE_PREFIX + edition
+    return Path("/usr/bin") / f"{package}-setup"
+
+
+def delegate_to_edition(edition: str, argv: list[str]) -> None:
+    """--edition 指的不是本版本时，换成那个版本自己的命令来做，参数原样带过去；那个版本没装时报错，不拿本版本去配置它。"""
+    if not EDITION_ID.fullmatch(edition):
+        raise SystemExit(f"版本 id 只能是小写字母和数字：{edition}")
+    program = edition_setup_program(edition)
+    if not os.access(program, os.X_OK):
+        raise SystemExit(f"没有安装 {edition} 版本：找不到 {program}")
+    os.execv(program, [str(program), *argv])
+
+
+def without_edition_argument(argv: list[str]) -> list[str]:
+    """去掉命令行里的 --edition 及其值。"""
+    remaining = []
+    skip = False
+    for argument in argv:
+        if skip:
+            skip = False
+        elif argument == "--edition":
+            skip = True
+        elif not argument.startswith("--edition="):
+            remaining.append(argument)
+    return remaining
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="水杉输入法 Linux 首次配置")
+    parser.add_argument(
+        "--edition",
+        help=f"要配置的版本（full、pinyin、wubi 等），默认是本命令所属的版本 {installed_edition()}；指定另一个版本时交给那个版本自己的首次配置命令",
+    )
     parser.add_argument("--resources", type=Path, help="已备齐的词库目录（绝对路径）")
     parser.add_argument("--state", type=Path, help="要创建的状态目录，默认 $XDG_CONFIG_HOME/msime-client")
     parser.add_argument(
@@ -1114,10 +1175,16 @@ def main() -> int:
         action="store_true",
         help="升级之后把已有状态记录的词库补到当前版本并切换过去，用户词库随之回放；缺的词库要配合 --download 取回",
     )
-    parser.add_argument(
+    cloud = parser.add_mutually_exclusive_group()
+    cloud.add_argument(
+        "--cloud-candidates",
+        action="store_true",
+        help="启用云候选（默认关闭）：输入过程中把正在输入的拼写经 HTTPS 发给 Google input-tools（inputtools.google.com）换回一条额外候选；已上屏文本、词库和词频不会发送。之后可在设置里改",
+    )
+    cloud.add_argument(
         "--no-cloud-candidates",
         action="store_true",
-        help="关闭云候选：默认开启时，输入过程中会把正在输入的拼写经 HTTPS 发给 Google input-tools（inputtools.google.com）换回一条额外候选；已上屏文本、词库和词频不会发送。之后可在设置里改",
+        help="保持云候选关闭；现在默认就是关闭，保留给旧的调用方",
     )
     parser.add_argument(
         "--no-register",
@@ -1129,10 +1196,21 @@ def main() -> int:
         action="store_true",
         help="把水杉输入法从 GNOME 输入源、IBus 预载引擎和 Fcitx5 当前输入法组中移除，恢复被改过的候选面板主题、字体和滚轮翻页设置后退出，不准备状态也不下载；卸载时自动执行",
     )
+    parser.add_argument(
+        "--register",
+        action="store_true",
+        help="已完成首次配置时，重新启用在线、语音和剪贴板服务，并把水杉输入法加回正在运行的 Fcitx5 或 IBus 的输入法列表，不检查词库也不改状态；还没有配置过时什么也不做。发行版仓库的包替换掉另一个同样内容的包（例如 msime 替换发布页的 msime-linux）之后自动执行：被替换的包卸载时撤销了这两样",
+    )
     arguments = parser.parse_args()
+    if arguments.register and arguments.unregister:
+        parser.error("--register 与 --unregister 不能同时使用")
+    if arguments.edition and arguments.edition != installed_edition():
+        delegate_to_edition(arguments.edition, without_edition_argument(sys.argv[1:]))
     if arguments.unregister:
         unregister_input_method()
         return 0
+    if arguments.register:
+        return register_again()
 
     prefix = install_prefix()
     state = (arguments.state or config_home() / "msime-client").expanduser()
@@ -1190,7 +1268,7 @@ def main() -> int:
             return 1
 
     print(f"词库已校验：{resources}")
-    prepare_state(prefix, resources, state, not arguments.no_cloud_candidates)
+    prepare_state(prefix, resources, state, arguments.cloud_candidates)
     ensure_anonymous_account(prefix)
     enable_services(service_units(state, config_home() / "msime-client"))
     link_omarchy_theme_hook(prefix, options_file)

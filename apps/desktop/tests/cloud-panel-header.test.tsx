@@ -22,7 +22,7 @@ test("cloud panel header exposes title, close, and optional back actions", () =>
   render(<Header title="导入与导出" onBack={onBack} onClose={onClose} />);
 
   expect(screen.getByText("导入与导出")).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "返回云词典" }));
+  fireEvent.click(screen.getByRole("button", { name: "返回云词库" }));
   fireEvent.click(screen.getByRole("button", { name: "关闭" }));
   expect(onBack).toHaveBeenCalledOnce();
   expect(onClose).toHaveBeenCalledOnce();

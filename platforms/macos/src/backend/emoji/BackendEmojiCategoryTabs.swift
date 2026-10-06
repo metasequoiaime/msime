@@ -25,6 +25,14 @@ enum MacEmojiCategoryIcons {
       return .init(id: parent, title: parent, icon: icon)
     }
   }
+  /// 符号页的插件上级分类，每个插件包一个，按返回顺序（包名排序）排在内置分类之后。图标取该包 `symbols` 组的第一个符号，没有符号的包不出现。
+  static func pluginSymbolTabs(_ groups: [MacEmojiPluginSymbolGroup]) -> [MacEmojiCategoryTab<String>] {
+    var seen = Set<String>()
+    return groups.compactMap { group in
+      guard group.tab == .symbols, let icon = group.items.first, seen.insert(group.pack).inserted else { return nil }
+      return .init(id: MacEmojiPluginSymbolGroup.parentID(pack: group.pack), title: group.packName, icon: icon)
+    }
+  }
   static func width(available: CGFloat, count: Int) -> CGFloat {
     guard available.isFinite, available > 0, count > 0 else { return 0 }
     return min(52 * 2 / 3, available / CGFloat(count))

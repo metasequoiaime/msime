@@ -1,6 +1,7 @@
 #include "ServerSession.h"
 #include "CandidateCompletionPolicy.h"
 #include "EditPolicy.h"
+#include "InputSchemeTraits.h"
 #include "input/CandidateTextPolicy.h"
 #include "KeyEvent.h"
 #include "PunctuationPolicy.h"
@@ -78,9 +79,18 @@ void ServerSession::set_input_enabled(uint64_t epoch, bool enabled) {
     input_enabled_ = enabled;
   }
 }
+nlohmann::json ServerSession::cancel_again(nlohmann::json result) {
+  // 韩文汉字列表或注音列表打开时，MSIME_CANCEL 只关闭列表、组字保留（msime_client.h）；越南文词和藏文音节串上的第一次只把原文重新显示出来；第二次才丢弃它。
+  if (result.at("commit").is_null() &&
+      scheme::AlwaysInlinePreedit(static_cast<int>(result.at("view").value("scheme", 0u))) &&
+      !result.at("view").at("editing_text").get<std::string>().empty())
+    return response(msime_client_command(session_, MSIME_CANCEL));
+  return result;
+}
 void ServerSession::cancel_composition(uint64_t epoch) {
   check_active(epoch);
   auto result = response(msime_client_command(session_, MSIME_CANCEL));
+  result = cancel_again(std::move(result));
   if (!result.at("commit").is_null() ||
       !result.at("view").at("editing_text").get<std::string>().empty() ||
       !result.at("view").at("candidates").empty())
@@ -89,6 +99,12 @@ void ServerSession::cancel_composition(uint64_t epoch) {
 nlohmann::json ServerSession::finish_composition(uint64_t epoch) {
   check_active(epoch);
   return response(msime_client_command(session_, MSIME_FINISH_COMPOSITION));
+}
+nlohmann::json ServerSession::command(uint64_t epoch, uint32_t command) {
+  check_active(epoch);
+  if (!input_enabled_)
+    throw std::logic_error("Session command while input disabled");
+  return response(msime_client_command(session_, command));
 }
 void ServerSession::reset_cache() {
   check_thread();
@@ -155,9 +171,12 @@ KeyResult ServerSession::key(const FanyImeNamedpipeData &packet,
   // more candidates would have been worse, committing candidate 17 for a
   // letter press. Typing shuangpin through this path could not work at all,
   // and nothing noticed because these suites had never been run.
-  // Korean has no candidates to choose: a digit is text that ends the syllable, which the Engine does when it receives it as a character.
-  const bool selection_digit = digit_key >= '1' && digit_key <= '9' &&
-                               !(current.is_object() && current.value("scheme", 0u) == 4u);
+  // 韩文和注音只在列表打开时有候选，这时数字从中选择；越南文和藏文没有候选。其他情况下数字是文字，引擎作为字符收到时要么拼写它，要么让它结束组字。
+  const bool selection_digit =
+      digit_key >= '1' && digit_key <= '9' &&
+      !(current.is_object() &&
+        scheme::AlwaysInlinePreedit(static_cast<int>(current.value("scheme", 0u))) &&
+        current.at("candidates").empty());
   if (selection_digit && !current.is_null() &&
       digit_selects_candidate(
           current.at("local_mode").get<std::string>(),
@@ -192,6 +211,11 @@ KeyResult ServerSession::key(const FanyImeNamedpipeData &packet,
       return {client_, epoch_, packet.request_id, false, std::move(result)};
     }
     result = response(msime_client_command(session_, action.value));
+    // A reset discards the composition, as the TIP discards it from its own host session. Escape on a word whose first cancel only shows its raw keys again stops there, as the TIP does (scheme::CancelRestoresRaw).
+    if (action.kind == KeyKind::LocalReset &&
+        !(packet.keycode == kVirtualKeyEscape &&
+          scheme::CancelRestoresRaw(static_cast<int>(result.at("view").value("scheme", 0u)))))
+      result = cancel_again(std::move(result));
     if (action.kind == KeyKind::CancelAndForward ||
         action.kind == KeyKind::LocalReset)
       result["handled"] = false;
@@ -232,11 +256,11 @@ ServerSession::navigate(const FanyImeNamedpipeData &packet, uint64_t epoch,
   const auto current = view();
   if (current.at("editing_text").get<std::string>().empty())
     return std::nullopt;
-  // Japanese (3) and Korean (4) are schemes, not local modes; no local mode is ever named after them. Both keep '-' and '=' as text rather than paging keys.
-  const auto scheme = current.value("scheme", 0u);
+  // 日文、韩文、注音、越南文和藏文是方案，不是本地模式，没有本地模式以它们命名。它们把 '-' 和 '=' 当作文字而不是翻页键：注音列表用 Page Up/Down 和方向键翻页（KoreanHanjaKey.h），藏文的 '-' 是威利拼写符号。
+  const int scheme = static_cast<int>(current.value("scheme", 0u));
   action = navigation_action(packet, bindings,
                              current.at("local_mode").get<std::string>() == "unicode",
-                             scheme == 3u || scheme == 4u);
+                             scheme == scheme::Japanese || scheme::AlwaysInlinePreedit(scheme));
   if (!action)
     return std::nullopt;
   auto result = action->command
@@ -553,11 +577,11 @@ ServerSession::word_character(const FanyImeNamedpipeData &packet,
   if (!input_enabled_)
     return std::nullopt;
   const auto current = view();
-  // Korean has no candidate to take a character from; its '-', '=', '[' and ']' are punctuation.
+  // 不论汉字列表是否打开，韩文的 '-'、'='、'[' 和 ']' 都是标点：引擎关闭列表，把韩文连同标点写出，和其他宿主一样，而不是取单个汉字的首尾字。注音、越南文和藏文同样在 TIP 自己的宿主会话里组字，所以也不取首尾字。
   // A key the Engine spells in its current state (V mode's '-') is input, as `edit_kind` routes it; taking it here first would commit the highlighted row instead.
   if (current.at("local_mode") == "unknown" ||
       current.at("editing_text").get<std::string>().empty() ||
-      current.value("scheme", 0u) == 4u ||
+      scheme::AlwaysInlinePreedit(static_cast<int>(current.value("scheme", 0u))) ||
       spelled_by_engine(current.value("spelling_symbols", std::string{}),
                         static_cast<uint32_t>(packet.wch)) ||
       !word_character_edge(packet, binding, current.value("scheme", 0u) == 3u))

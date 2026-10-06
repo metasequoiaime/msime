@@ -90,11 +90,11 @@ static void TestEngineMaintenance() {
         options[name] = path;
     }
     sqlite3 *database = nullptr;
-    assert(sqlite3_open([[options[@"dictionaries"] stringByAppendingPathComponent:@"msime.db"] fileSystemRepresentation], &database) == SQLITE_OK);
+    assert(sqlite3_open([[options[@"dictionaries"] stringByAppendingPathComponent:@"msime-pinyin.db"] fileSystemRepresentation], &database) == SQLITE_OK);
     assert(sqlite3_exec(database, "CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);"
         "INSERT INTO tbl_2_n VALUES('ni''hao','nh','你好',10000),('ni''hao','nh','拟好',9000);", nullptr, nullptr, nullptr) == SQLITE_OK);
     assert(sqlite3_close(database) == SQLITE_OK);
-    assert(sqlite3_open([[options[@"dictionaries"] stringByAppendingPathComponent:@"english.db"] fileSystemRepresentation], &database) == SQLITE_OK);
+    assert(sqlite3_open([[options[@"dictionaries"] stringByAppendingPathComponent:@"msime-english.db"] fileSystemRepresentation], &database) == SQLITE_OK);
     assert(sqlite3_exec(database, "CREATE TABLE english_words(word TEXT,display TEXT,weight INTEGER);"
         "INSERT INTO english_words VALUES('hello','hello',100);"
         "CREATE TABLE en_zh_glosses(english TEXT COLLATE BINARY PRIMARY KEY,chinese_gloss TEXT NOT NULL) WITHOUT ROWID;"
@@ -474,6 +474,9 @@ static void TestTrackedMarkedText() {
 
 int main() {
     @autoreleasepool {
+        assert(MSIMEPreeditCaretPosition(@"abc", @"abc", @1) == 1);
+        for (id invalid in @[@YES, @0.5, @1.5])
+            assert(MSIMEPreeditCaretPosition(@"abc", @"abc", invalid) == 3);
         TestTrackedMarkedText();
         FakeTextClient *client = [FakeTextClient new];
         client.events = [NSMutableArray array];
@@ -527,6 +530,13 @@ int main() {
         MSIMEApplyTransition(@{@"view": @{@"editing_text": @"nihon", @"reading": @"にほん",
                                           @"caret_position": @2}}, client);
         assert([client.markedString isEqual:@"nihon"] && client.selection.location == 2);
+        // 笔画走同一条 reading 路径：editing_text 是键入的 hspnzx 字母，reading 与 preedit 是笔画字形，两种内嵌样式都画字形，光标落在末尾。
+        for (NSNumber *style in @[@(MSIMEInlinePreeditStylePinyin), @(MSIMEInlinePreeditStyleRaw)]) {
+            MSIMEApplyTransitionWithPendingClosing(
+                @{@"view": @{@"scheme": @9, @"editing_text": @"hspx", @"preedit": @"一丨丿＊", @"reading": @"一丨丿＊", @"caret_position": @4}},
+                client, (MSIMEInlinePreeditStyle)style.integerValue, nil);
+            assert([client.markedString isEqual:@"一丨丿＊"] && client.selection.location == 4);
+        }
         // Every other scheme is untouched: an empty reading is what they all carry.
         MSIMEApplyTransition(@{@"view": @{@"editing_text": @"nihao", @"reading": @"",
                                           @"caret_position": @5}}, client);
@@ -637,6 +647,14 @@ int main() {
         assert([client.markedString isEqual:@"bing"] && client.selection.location == 4);
         MSIMEApplyTransitionWithPreeditStyle(styled, client, MSIMEInlinePreeditStyleEmpty);
         assert([client.markedString length] == 0 && client.selection.location == 0);
+        MSIMEApplyTransitionWithPreeditStyle(
+            @{ @"view": @{ @"editing_text": @"abc", @"preedit": @"abc", @"caret_position": @0.5 } },
+            client, MSIMEInlinePreeditStyleRaw);
+        assert([client.markedString isEqual:@"abc"] && client.selection.location == 3);
+        MSIMEApplyTransition(
+            @{ @"view": @{ @"editing_text": @"nihon", @"reading": @"にほん", @"caret_position": @0.5 } },
+            client);
+        assert([client.markedString isEqual:@"にほん"] && client.selection.location == 3);
         client.documentSelection = NSMakeRange(4, 0);
         client.following = @"】";
         assert([[MSIMETextClientFollowingCharacter(client) copy] isEqual:@"】"]);

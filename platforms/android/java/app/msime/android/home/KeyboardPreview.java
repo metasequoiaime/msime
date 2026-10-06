@@ -5,13 +5,10 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.RectF;
-import android.graphics.drawable.GradientDrawable;
 import android.util.AttributeSet;
 import android.view.View;
 import androidx.annotation.Nullable;
-import androidx.core.content.ContextCompat;
 import app.msime.android.KeyboardSkin;
-import app.msime.android.R;
 
 /**
  * A still picture of the keyboard the user actually has.
@@ -26,26 +23,32 @@ import app.msime.android.R;
  * their own skin was a card that contradicted itself.
  */
 public final class KeyboardPreview extends View {
+    /** 九键：左列符号，右列退格 / 拆分 / 0 / 回车；底行与设计一致。 */
     private static final String[][] NINE_KEY_ROWS = {
-        {"，", "分词", "ABC", "DEF", "⌫"},
-        {"。", "GHI", "JKL", "MNO", "."},
+        {"，", "@#", "ABC", "DEF", "⌫"},
+        {"。", "GHI", "JKL", "MNO", "拆分"},
         {"？", "PQRS", "TUV", "WXYZ", "0"},
-        {"！", "符", "123", "空格", "中", "换行"},
+        {"123", "中", "，", "空格", "。", "↵"},
     };
+    /** 设计的全键盘：中文模式小写字母，底行 `123 | 中 | ， | 空格 | 。 | ↵`。 */
     private static final String[][] FULL_ROWS = {
-        {"Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"},
-        {"A", "S", "D", "F", "G", "H", "J", "K", "L"},
-        {"⇧", "Z", "X", "C", "V", "B", "N", "M", "⌫"},
-        {"符", "123", "，", "空格", "中", "换行"},
+        {"q", "w", "e", "r", "t", "y", "u", "i", "o", "p"},
+        {"a", "s", "d", "f", "g", "h", "j", "k", "l"},
+        {"⇧", "z", "x", "c", "v", "b", "n", "m", "⌫"},
+        {"123", "中", "，", "空格", "。", "↵"},
     };
+    /** 画成功能键底色的键面。 */
+    private static final java.util.Set<String> FUNCTION_KEYS = java.util.Set.of(
+        "⇧", "⌫", "123", "中", "拆分", "@#", "，", "。", "？", "0");
 
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final RectF key = new RectF();
-    private String[][] rows = NINE_KEY_ROWS;
-    private String caption = "九键";
+    private String[][] rows = FULL_ROWS;
+    private String caption = "";
     @Nullable private KeyboardSkin skin;
+    private float cornerRadiusDp = 16f;
 
-    /** Inflated from the keyboard page's layout, so it takes the two-argument constructor. */
+    /** Inflated from a layout, so it takes the two-argument constructor. */
     public KeyboardPreview(Context context, AttributeSet attributes) {
         super(context, attributes);
         applyBackground();
@@ -62,7 +65,7 @@ public final class KeyboardPreview extends View {
      *
      * @param skin the resolved skin, or null to keep the page's own palette
      * @param nineKey whether the grid is three columns rather than 26 keys
-     * @param caption the short label in the corner of the candidate strip
+     * @param caption the short label on the space bar (the scheme), may be empty
      */
     public void setKeyboard(@Nullable KeyboardSkin skin, boolean nineKey, String caption) {
         this.skin = skin;
@@ -72,18 +75,47 @@ public final class KeyboardPreview extends View {
         invalidate();
     }
 
-    private void applyBackground() {
-        GradientDrawable background = new GradientDrawable();
-        background.setColor(skin == null ? Color.rgb(240, 245, 242) : parse(skin.background()));
-        background.setCornerRadius(dp(14));
-        setBackground(background);
+    /** {@link #setKeyboard(KeyboardSkin, boolean, String)} without a space-bar label. */
+    public void setKeyboard(@Nullable KeyboardSkin skin, boolean nineKey) {
+        setKeyboard(skin, nineKey, "");
     }
 
-    private int parse(String colour) {
+    /** 圆角半径（dp）；默认 16，社区皮肤卡上的小预览用 6，与外面那圈描边对齐。 */
+    public void setCornerRadiusDp(float radius) {
+        cornerRadiusDp = Math.max(0f, radius);
+        applyBackground();
+        invalidate();
+    }
+
+    private void applyBackground() {
+        int radius = Ui.dp(getContext(), cornerRadiusDp);
+        int base = skin == null ? Ui.card(getContext()) : parse(skin.background(), Ui.card(getContext()));
+        android.graphics.drawable.GradientDrawable surface = Ui.rounded(base, radius);
+        // 设计皮肤的底是一道渐变，和键盘本身一样画出来；只画纯色时，深色设计上的功能键和回车显得格外跳。
+        String end = skin != null && skin.designed() ? skin.gradientEnd() : null;
+        if (end != null && !end.isEmpty()) {
+            surface.setOrientation(skin.gradientHorizontal()
+                ? android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT
+                : android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM);
+            surface.setColors(new int[] {base, parse(end, base)});
+        }
+        setBackground(surface);
+        setClipToOutline(true);
+    }
+
+    /** 设计皮肤的字母键与功能键按其键帽不透明度叠在背景上，与键盘的 KeyboardSkinKeyDrawable 一致；回车不透明。 */
+    private int withKeyOpacity(int colour) {
+        if (skin == null || !skin.designed()) return colour;
+        int alpha = (int) Math.round(Color.alpha(colour) * Math.max(0d, Math.min(1d, skin.keyOpacity())));
+        return Color.argb(alpha, Color.red(colour), Color.green(colour), Color.blue(colour));
+    }
+
+    private static int parse(@Nullable String colour, int fallback) {
+        if (colour == null || colour.isEmpty()) return fallback;
         try {
             return Color.parseColor(colour);
         } catch (IllegalArgumentException error) {
-            return Color.rgb(240, 245, 242);
+            return fallback;
         }
     }
 
@@ -92,64 +124,135 @@ public final class KeyboardPreview extends View {
     }
 
     private int ink() {
-        return skin == null ? ContextCompat.getColor(getContext(), R.color.ink)
-            : parse(skin.keyForeground());
+        return skin == null ? Ui.text(getContext()) : parse(skin.keyForeground(), Ui.text(getContext()));
     }
 
-    private int forest() {
-        return skin == null ? ContextCompat.getColor(getContext(), R.color.forest)
-            : parse(skin.accent());
+    private int letterCap() {
+        return skin == null ? Ui.page(getContext()) : parse(skin.keyBackground(), Color.WHITE);
     }
 
-    private int cap() {
-        return skin == null ? Color.WHITE : parse(skin.keyBackground());
+    private int functionCap() {
+        return skin == null ? Ui.accentSoft(getContext())
+            : parse(skin.functionBackground(), letterCap());
     }
 
-    private int accentLabel() {
-        return skin == null ? Color.WHITE : parse(skin.onAccent());
+    private int returnCap() {
+        return skin == null ? Ui.accent(getContext()) : parse(skin.returnBackground(), Ui.accent(getContext()));
+    }
+
+    private int returnLabel() {
+        return skin == null ? Ui.onAccent(getContext()) : parse(skin.returnForeground(), Color.WHITE);
     }
 
     private int secondary() {
-        return skin == null ? ContextCompat.getColor(getContext(), R.color.text_secondary)
-            : parse(skin.secondary());
+        return skin == null ? Ui.subText(getContext()) : parse(skin.secondary(), Ui.subText(getContext()));
+    }
+
+    /** 参考键盘的宽度：6 dp 边距 ×2、10 列 32 dp 键宽、9 个 5 dp 键距。 */
+    private static final float REFERENCE_WIDTH_DP = 6f * 2 + 32f * 10 + 5f * 9;
+    /** 参考键盘的高度：6 dp 边距 ×2、24 dp 候选条、4 行 46 dp（设计的键高）、3 个 5 dp 行距。 */
+    private static final float REFERENCE_HEIGHT_DP = 6f * 2 + 24f + 46f * 4 + 5f * 3;
+
+    /**
+     * 布局没有给定高度时（wrap_content），按参考键盘的宽高比由宽度推出高度。
+     *
+     * 社区皮肤卡原先把预览框写死为 80 dp 高，手机上约 170 dp 宽，比键盘本身扁得多，键面被横向拉宽压扁。由宽度推高度后，缩略图与真实键盘同一比例。
+     */
+    @Override protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+        if (MeasureSpec.getMode(heightMeasureSpec) == MeasureSpec.EXACTLY) {
+            super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+            return;
+        }
+        int width = MeasureSpec.getSize(widthMeasureSpec);
+        int height = Math.round(width * REFERENCE_HEIGHT_DP / REFERENCE_WIDTH_DP);
+        if (MeasureSpec.getMode(heightMeasureSpec) == MeasureSpec.AT_MOST) {
+            height = Math.min(height, MeasureSpec.getSize(heightMeasureSpec));
+        }
+        setMeasuredDimension(width, height);
+    }
+
+    /**
+     * 按视图实际尺寸等比缩放的系数，上限 1。
+     *
+     * 边距、键距、候选条和字号是按设置首页那张整宽预览定的；社区皮肤卡上的缩略图只有约 170×106 dp，原样套用这些固定值时每行只剩几 dp 高，键面缩成细条而 13 dp 的字溢出到键外。以参考键盘为基准整体缩小；整宽预览不小于参考尺寸，系数为 1，外观不变。
+     */
+    private float scale() {
+        return Math.min(1f, Math.min(getWidth() / dp(REFERENCE_WIDTH_DP), getHeight() / dp(REFERENCE_HEIGHT_DP)));
+    }
+
+    /** 字号取设计值与键面能容下的较小者，保证标签不出键。 */
+    private void fitText(String label, float designSize, RectF bounds) {
+        float size = Math.min(designSize, bounds.height() * 0.62f);
+        paint.setTextSize(size);
+        float limit = bounds.width() * 0.86f;
+        float measured = paint.measureText(label);
+        if (measured > limit && measured > 0f) paint.setTextSize(size * limit / measured);
     }
 
     @Override protected void onDraw(Canvas canvas) {
-        float pad = dp(8);
-        float gap = dp(5);
-        float stripHeight = dp(26);
-        float radius = skin == null ? dp(7) : dp((float) skin.cornerRadius());
+        if (getWidth() <= 0 || getHeight() <= 0) return;
+        float s = scale();
+        // 缩小时按参考键盘的宽高比等比画，居中放进视图，空出的边露出皮肤底色；只缩不拉，键面不会被卡片的扁长比例压扁。整宽预览（s 为 1）仍铺满视图。
+        float w = s < 1f ? dp(REFERENCE_WIDTH_DP) * s : getWidth();
+        float h = s < 1f ? dp(REFERENCE_HEIGHT_DP) * s : getHeight();
+        int saved = canvas.save();
+        canvas.translate((getWidth() - w) / 2f, (getHeight() - h) / 2f);
+        float pad = dp(6) * s;
+        float gap = dp(5) * s;
+        float stripHeight = dp(24) * s;
+        float radius = (skin == null ? dp(6) : Math.min(dp((float) skin.cornerRadius()), dp(12))) * s;
 
-        paint.setColor(ink());
-        paint.setTextSize(dp(12));
+        // 候选条：一个拼音和两枚候选，首选用强调色。
+        float baseline = pad + stripHeight * 0.68f;
         paint.setTextAlign(Paint.Align.LEFT);
-        canvas.drawText("ni hao", pad + dp(6), pad + stripHeight * 0.66f, paint);
-        paint.setColor(forest());
-        canvas.drawText("你好", pad + dp(52), pad + stripHeight * 0.66f, paint);
+        paint.setTextSize(dp(12) * s);
         paint.setColor(secondary());
-        canvas.drawText("你号", pad + dp(84), pad + stripHeight * 0.66f, paint);
-        paint.setTextAlign(Paint.Align.RIGHT);
-        canvas.drawText(caption, getWidth() - pad - dp(6), pad + stripHeight * 0.66f, paint);
+        canvas.drawText("ni hao", pad + dp(6) * s, baseline, paint);
+        paint.setTextSize(dp(13) * s);
+        paint.setColor(returnCap());
+        canvas.drawText("你好", pad + dp(52) * s, baseline, paint);
+        paint.setColor(ink());
+        canvas.drawText("拟好", pad + dp(90) * s, baseline, paint);
 
         float top = pad + stripHeight;
-        float available = getHeight() - top - pad;
+        float available = h - top - pad;
         float rowHeight = (available - gap * (rows.length - 1)) / rows.length;
+        float unit = (w - pad * 2 - gap * 9) / 10f;
         paint.setTextAlign(Paint.Align.CENTER);
         for (int r = 0; r < rows.length; r++) {
             String[] row = rows[r];
-            float width = (getWidth() - pad * 2 - gap * (row.length - 1)) / (float) row.length;
             float y = top + r * (rowHeight + gap);
+            boolean bottom = r == rows.length - 1;
+            float[] widths = new float[row.length];
+            float total = 0;
             for (int c = 0; c < row.length; c++) {
-                float x = pad + c * (width + gap);
+                float weight = bottom ? ("空格".equals(row[c]) ? 4f : "↵".equals(row[c]) || "123".equals(row[c]) ? 1.5f : 1f)
+                    : rows == FULL_ROWS && r == 2 && ("⇧".equals(row[c]) || "⌫".equals(row[c])) ? 1.5f : 1f;
+                widths[c] = weight;
+                total += weight;
+            }
+            float rowWidth = w - pad * 2 - gap * (row.length - 1);
+            // 全键盘第二行比第一行少一键，按设计居中缩进半个键位。
+            float x = pad;
+            if (rows == FULL_ROWS && r == 1) x = (w - (unit * 9 + gap * 8)) / 2f;
+            for (int c = 0; c < row.length; c++) {
+                float width = rows == FULL_ROWS && r == 1 ? unit : rowWidth * widths[c] / total;
                 key.set(x, y, x + width, y + rowHeight);
-                boolean accent = "换行".equals(row[c]) || "中".equals(row[c]);
-                paint.setColor(accent ? forest() : cap());
+                String face = row[c];
+                boolean action = "↵".equals(face);
+                boolean function = !action && FUNCTION_KEYS.contains(face);
+                paint.setColor(action ? returnCap() : withKeyOpacity(function ? functionCap() : letterCap()));
                 canvas.drawRoundRect(key, radius, radius, paint);
-                paint.setColor(accent ? accentLabel() : ink());
-                paint.setTextSize(dp(row[c].length() > 2 ? 10 : 12));
-                canvas.drawText(row[c], key.centerX(),
-                    key.centerY() + paint.getTextSize() * 0.36f, paint);
+                String label = "空格".equals(face) ? caption : face;
+                if (!label.isEmpty()) {
+                    paint.setColor(action ? returnLabel() : "空格".equals(face) ? secondary() : ink());
+                    fitText(label, dp(label.length() > 2 ? 10 : 13) * s, key);
+                    Paint.FontMetrics metrics = paint.getFontMetrics();
+                    canvas.drawText(label, key.centerX(), key.centerY() - (metrics.ascent + metrics.descent) / 2f, paint);
+                }
+                x += width + gap;
             }
         }
+        canvas.restoreToCount(saved);
     }
 }

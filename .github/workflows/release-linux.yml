@@ -4,20 +4,48 @@ on:
     inputs:
       version: {description: Semantic version (defaults to platforms/linux/version.txt), required: false, type: string}
       prerelease: {description: Mark as prerelease, required: false, default: false, type: boolean}
-      publish: {description: Publish the build as a linux-v release (otherwise it is only uploaded as a workflow artifact), required: false, default: false, type: boolean}
+      publish: {description: Publish the build as a linux-v release (otherwise it is only uploaded as a workflow artifact), required: false, default: true, type: boolean}
 permissions: {contents: write}
 concurrency: {group: release-linux, cancel-in-progress: false}
 jobs:
-  deb:
+  # Resolves the dispatched commit up front, so the deb and rpm builds and the publish job (tag target, release notes) use the same source even if the branch moves during the run.
+  # 从旧的分支或标签触发时，源码里可能还没有 platforms/linux/packaging/ 的脚本；packaging 输出记下源码里有没有它们，没有时跳过 distro-sources 与 package-definitions，发布只带 deb、rpm 和 tar.gz。
+  source:
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with: {fetch-depth: 0, persist-credentials: false}
+        with: {ref: "${{ github.sha }}", persist-credentials: false}
+      - id: commit
+        run: |
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          if [[ -f platforms/linux/packaging/make-source-tarballs.sh && -f platforms/linux/packaging/render-definitions.sh ]]; then echo "packaging=true" >> "$GITHUB_OUTPUT"; else echo "packaging=false" >> "$GITHUB_OUTPUT"; echo "::notice::$(git rev-parse --short HEAD) has no platforms/linux/packaging scripts; skipping distro source tarballs and package definitions"; fi
+    outputs:
+      sha: ${{ steps.commit.outputs.sha }}
+      packaging: ${{ steps.commit.outputs.packaging }}
+  # Each architecture builds natively on its own runner (package-container.sh builds its images for the host, and the voice runtime is picked by uname -m); there is no cross-compilation.
+  deb:
+    needs: source
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - {arch: x86_64, runner: ubuntu-24.04}
+          - {arch: aarch64, runner: ubuntu-24.04-arm}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {ref: "${{ needs.source.outputs.sha }}", fetch-depth: 0, persist-credentials: false}
+      # The packages keep the plain X.Y.Z (Info.plist, versionName, Tauri, deb and rpm metadata take nothing else); the release tag and title carry the branch the run was dispatched from: none on main, -beta on develop, -alpha anywhere else. A suffixed release is always published as a prerelease, which the in-app update checks skip.
       - id: version
         env: {REQUESTED: "${{ inputs.version }}"}
         run: |
           version="${REQUESTED:-$(tr -d '[:space:]' < platforms/linux/version.txt)}"; [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; echo "value=$version" >> "$GITHUB_OUTPUT"
+          case "$GITHUB_REF_NAME" in main) suffix= ;; develop) suffix=-beta ;; *) suffix=-alpha ;; esac; echo "release=${version}${suffix}" >> "$GITHUB_OUTPUT"
+      # The arm64 runner image carries fewer preinstalled tools than the x64 one, so Node is set up explicitly on both.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with: {node-version: 24}
       # The desktop binary embeds the web frontend at compile time; package-container.sh has no Node toolchain and requires this output.
       - name: Build desktop frontend
         run: |
@@ -27,38 +55,77 @@ jobs:
       # package-container.sh installs target/offline-glosses when it is there.
       - name: Fetch the locked offline candidate glosses
         run: python3 scripts/fetch_offline_glosses.py
-      # Builds the Release host library and desktop binary, configures the native hosts for /usr with packaging on, runs the same ctest suite the pull-request gate runs (on the Release build, where the tests keep their assertions), then produces the .deb, the .tar.gz and SHA256SUMS.
+      # package-container.sh installs target/language-dictionaries (Cantonese and Zhuyin, with their licences) when it is there; until a release is pinned the script prints a skipped line.
+      - name: Fetch the locked language dictionaries
+        run: python3 scripts/fetch_language_dictionaries.py
+      # Builds the Release host library and desktop binary, configures the native hosts for /usr with packaging on, runs the same ctest suite the pull-request gate runs (on the Release build, where the tests keep their assertions), then produces the .deb, the .tar.gz and SHA256SUMS. 每个有 Linux 段的版本各出一个包（full 是 msime-linux，其他版本是装在 /opt 下的 msime-linux-<id>），共用同一次构建的宿主库和桌面二进制。
       - name: Build Linux packages
         env: {VERSION: "${{ steps.version.outputs.value }}"}
         run: bash platforms/linux/package-container.sh "$VERSION"
-      # Asset names come from CPack (msime-linux_VERSION_ARCH.deb, msime-linux-VERSION-linux-ARCH.tar.gz). The in-app update check selects releases by the linux-v tag prefix and opens the release page; it shows the digest GitHub computes for the single .deb (else .tar.gz), matching only the extension, so it does not depend on the version or arch parts of the names.
+      # Asset names come from CPack (<package>_VERSION_ARCH.deb with dpkg's amd64/arm64, <package>-VERSION-linux-ARCH.tar.gz with x86_64/aarch64, <package> 取自版本表：full 是 msime-linux，其他版本是 msime-linux-<id>). The in-app update check selects releases by the linux-v tag prefix and opens the release page; it shows the digest GitHub computes for the edition's own .deb (else .tar.gz) for the host's architecture, picked by the package name and that architecture part (packages/ui/src/settings/update-manifest.ts).
       - name: Verify Linux packages
+        env: {VERSION: "${{ steps.version.outputs.value }}"}
         run: |
           shopt -s nullglob
+          # check-deb-maintainer-scripts.sh lints the maintainer scripts with shellcheck, which the arm64 runner image does not ship.
+          command -v shellcheck >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck; }
           dist=target/linux-package/dist
           debs=("$dist"/*.deb); tarballs=("$dist"/*.tar.gz)
-          [[ ${#debs[@]} -eq 1 && ${#tarballs[@]} -eq 1 && -s "$dist/SHA256SUMS" ]] || { echo "expected one .deb, one .tar.gz and SHA256SUMS in $dist" >&2; exit 1; }
+          IFS=, read -r -a editions <<<"$(python3 platforms/linux/scripts/edition_linux.py editions)"
+          [[ ${#debs[@]} -eq ${#editions[@]} && ${#tarballs[@]} -eq ${#editions[@]} && -s "$dist/SHA256SUMS" ]] || { echo "expected one .deb and one .tar.gz per edition (${editions[*]}) and SHA256SUMS in $dist" >&2; exit 1; }
           (cd "$dist" && sha256sum -c SHA256SUMS)
-          # prerm stops the user services on removal and postinst restarts them after an upgrade; a package without them leaves services running deleted programs. The runner image ships dpkg-deb and shellcheck.
-          bash platforms/linux/tests/tools/check-deb-maintainer-scripts.sh "${debs[0]}"
+          # 按版本逐个核对：每个版本恰好一个 .deb 和一个 .tar.gz，包名、版本与版本表一致；prerm stops the user services on removal and postinst restarts them after an upgrade, so every package must carry them. The runner image ships dpkg-deb and shellcheck.
+          edition_debs=()
+          for edition in "${editions[@]}"; do
+            package=$(python3 platforms/linux/scripts/edition_linux.py field --edition "$edition" package)
+            deb=("$dist/${package}_${VERSION}_"*.deb); tarball=("$dist/${package}-${VERSION}-linux-"*.tar.gz)
+            [[ ${#deb[@]} -eq 1 && ${#tarball[@]} -eq 1 ]] || { echo "edition $edition: expected ${package}_${VERSION}_*.deb and ${package}-${VERSION}-linux-*.tar.gz in $dist" >&2; exit 1; }
+            [[ $(dpkg-deb -f "${deb[0]}" Package) == "$package" && $(dpkg-deb -f "${deb[0]}" Version) == "$VERSION" ]] || { echo "edition $edition: ${deb[0]} is not $package $VERSION" >&2; exit 1; }
+            bash platforms/linux/tests/tools/check-deb-maintainer-scripts.sh "${deb[0]}"
+            # CPack 写出的是 data.tar.xz 加 control.tar.gz；出现 control.tar.xz 说明 package-container.sh 已经用 xz -9 重新打包了这个 .deb。
+            members=$(ar t "${deb[0]}" | tr '\n' ' ')
+            [[ $members == "debian-binary control.tar.xz data.tar.xz " ]] || { echo "edition $edition: ${deb[0]} has members $members, not the xz -9 repack" >&2; exit 1; }
+            # 除了预编译的 sherpa-onnx 和 ONNX Runtime 库按上游构建原样发布外，每个 ELF 文件都已 strip（CMake 目标靠 CPACK_STRIP_FILES，Rust 目标靠 CARGO_PROFILE_RELEASE_STRIP）。
+            unpacked=$(mktemp -d)
+            dpkg-deb -x "${deb[0]}" "$unpacked"
+            unstripped=$(find "$unpacked" -type f ! -name 'libonnxruntime.so*' ! -name 'libsherpa-onnx-c-api.so*' -exec file {} + | grep ': *ELF' | grep -v ', stripped' || true)
+            # 发布页的包不带离线手写模型（package-container.sh 以 -DMSIME_BUNDLE_HANDWRITING_MODEL=OFF 配置），由设置应用按需下载。
+            bundled_model=$(find "$unpacked" -name 'handwriting-zh_CN.model')
+            rm -rf "$unpacked"
+            [[ -z $bundled_model ]] || { echo "edition $edition: ${deb[0]} bundles the handwriting model: $bundled_model" >&2; exit 1; }
+            [[ -z $unstripped ]] || { echo "edition $edition: unstripped ELF files in ${deb[0]}:" >&2; echo "$unstripped" >&2; exit 1; }
+            edition_debs+=("${deb[0]}")
+          done
+          # 几个版本一起装进同一个 Debian 容器、再逐个卸载：dpkg 不报文件冲突，卸载一个版本不带走另一个版本的文件。
+          bash platforms/linux/tests/tools/check-deb-coexistence.sh "${edition_debs[@]}"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: msime-linux-deb-${{ steps.version.outputs.value }}
+          name: msime-linux-deb-${{ matrix.arch }}-${{ steps.version.outputs.value }}
           path: target/linux-package/dist/
           if-no-files-found: error
     outputs:
       version: ${{ steps.version.outputs.value }}
+      release: ${{ steps.version.outputs.release }}
   # The RPM is built separately in a Fedora container rather than converted from the .deb: rpmbuild records the libraries the binaries link as Requires, and Debian's carry sonames and symbol versions no Fedora package provides (#2095).
   rpm:
-    runs-on: ubuntu-24.04
+    needs: source
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - {arch: x86_64, runner: ubuntu-24.04}
+          - {arch: aarch64, runner: ubuntu-24.04-arm}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with: {persist-credentials: false}
+        with: {ref: "${{ needs.source.outputs.sha }}", persist-credentials: false}
       - id: version
         env: {REQUESTED: "${{ inputs.version }}"}
         run: |
           version="${REQUESTED:-$(tr -d '[:space:]' < platforms/linux/version.txt)}"; [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; echo "value=$version" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with: {node-version: 24}
       - name: Build desktop frontend
         run: |
           corepack enable
@@ -66,41 +133,133 @@ jobs:
           pnpm --filter @msime/desktop build
       - name: Fetch the locked offline candidate glosses
         run: python3 scripts/fetch_offline_glosses.py
+      # package-container.sh installs target/language-dictionaries (Cantonese and Zhuyin, with their licences) when it is there; until a release is pinned the script prints a skipped line.
+      - name: Fetch the locked language dictionaries
+        run: python3 scripts/fetch_language_dictionaries.py
       - name: Build Linux RPM
         env: {VERSION: "${{ steps.version.outputs.value }}", MSIME_PACKAGE_FORMAT: rpm}
         run: bash platforms/linux/package-container.sh "$VERSION"
-      # Installs the RPM into a clean Fedora container and erases it again, which is where an unsatisfiable Requires shows up.
+      # Installs the RPMs into a clean Fedora container and erases them again, which is where an unsatisfiable Requires shows up; every edition's RPM goes in together, and removing one must leave the others' files in place.
       - name: Verify Linux RPM
+        env: {VERSION: "${{ steps.version.outputs.value }}"}
         run: |
           shopt -s nullglob
           dist=target/linux-package-rpm/dist
           rpms=("$dist"/*.rpm)
-          [[ ${#rpms[@]} -eq 1 && -s "$dist/SHA256SUMS" ]] || { echo "expected one .rpm and SHA256SUMS in $dist" >&2; exit 1; }
+          IFS=, read -r -a editions <<<"$(python3 platforms/linux/scripts/edition_linux.py editions)"
+          [[ ${#rpms[@]} -eq ${#editions[@]} && -s "$dist/SHA256SUMS" ]] || { echo "expected one .rpm per edition (${editions[*]}) and SHA256SUMS in $dist" >&2; exit 1; }
           (cd "$dist" && sha256sum -c SHA256SUMS)
-          bash platforms/linux/tests/tools/check-rpm-install.sh "${rpms[0]}"
+          edition_rpms=()
+          for edition in "${editions[@]}"; do
+            package=$(python3 platforms/linux/scripts/edition_linux.py field --edition "$edition" package)
+            rpm=("$dist/${package}-${VERSION}-"*.rpm)
+            [[ ${#rpm[@]} -eq 1 ]] || { echo "edition $edition: expected ${package}-${VERSION}-*.rpm in $dist" >&2; exit 1; }
+            edition_rpms+=("${rpm[0]}")
+          done
+          bash platforms/linux/tests/tools/check-rpm-install.sh "${edition_rpms[@]}"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: msime-linux-rpm-${{ steps.version.outputs.value }}
+          name: msime-linux-rpm-${{ matrix.arch }}-${{ steps.version.outputs.value }}
           path: target/linux-package-rpm/dist/
           if-no-files-found: error
+  # 发行版源码构建要的 tarball（COPR、OBS 与 PPA 用源码与 vendor 包，Gentoo 只用前端包；AUR 的 msime 从 GitHub 的标签归档构建，不用这些）：当前提交的源码、离线构建用的 vendor 包（crate、构建好的前端、按锁文件取回的数据）和单独的前端包，见 platforms/linux/packaging/make-source-tarballs.sh。随发布一起上传，各包定义按发布页地址引用它们。只打 full。
+  distro-sources:
+    needs: source
+    if: ${{ needs.source.outputs.packaging == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {ref: "${{ needs.source.outputs.sha }}", persist-credentials: false}
+      - id: version
+        env: {REQUESTED: "${{ inputs.version }}"}
+        run: |
+          version="${REQUESTED:-$(tr -d '[:space:]' < platforms/linux/version.txt)}"; [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; echo "value=$version" >> "$GITHUB_OUTPUT"
+      # 文件名都用 .tar.xz：应用内更新检查在发布里按包名挑 .deb，没有时找 .tar.gz，不能让它们混进去。
+      - name: Build distro source tarballs
+        env: {VERSION: "${{ steps.version.outputs.value }}"}
+        run: |
+          corepack enable
+          bash platforms/linux/packaging/make-source-tarballs.sh "$VERSION" target/distro-sources
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: msime-linux-sources-${{ steps.version.outputs.value }}
+          path: target/distro-sources/
+          if-no-files-found: error
   publish:
-    needs: [deb, rpm]
-    if: ${{ inputs.publish }}
+    needs: [source, deb, rpm, distro-sources]
+    # distro-sources 被跳过时照样发布（见 source 的说明），它失败时不发布。
+    if: ${{ !cancelled() && inputs.publish && needs.deb.result == 'success' && needs.rpm.result == 'success' && (needs.distro-sources.result == 'success' || needs.distro-sources.result == 'skipped') }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with: {fetch-depth: 0, persist-credentials: false}
+        with: {ref: "${{ needs.source.outputs.sha }}", fetch-depth: 0, persist-credentials: false}
+      # 只取要发布的产物：两个架构各自的 msime-linux-deb/rpm-ARCH-VERSION 与 msime-linux-sources-VERSION。
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with: {path: dist, merge-multiple: true}
-      # workflow_dispatch runs on whatever ref it is given, so publishing has to be asked for rather than implied. Without the gate a dispatch on a feature branch cuts a real public release.
+        with:
+          pattern: msime-linux-*-${{ needs.deb.outputs.version }}
+          path: dist
+          merge-multiple: true
+      # The build takes the dispatched commit, so publishing has to be asked for rather than implied. Without the gate a build of a feature branch cuts a real public release.
       - name: Publish independent Linux release
-        env: {GH_TOKEN: "${{ github.token }}", VERSION: "${{ needs.deb.outputs.version }}", PRERELEASE: "${{ inputs.prerelease }}"}
+        # RELEASE_PUBLISH_TOKEN (org secret, a fine-grained token with Contents and Workflows write) creates the tag: GitHub refuses GITHUB_TOKEN a new ref whose .github/workflows differs from the default branch, which is the case whenever develop takes a workflow change while the release builds (Release Linux run 37259338700, 403 Resource not accessible by integration). Without the secret, as on a fork, it falls back to GITHUB_TOKEN.
+        env: {GH_TOKEN: "${{ secrets.RELEASE_PUBLISH_TOKEN || github.token }}", VERSION: "${{ needs.deb.outputs.version }}", RELEASE: "${{ needs.deb.outputs.release }}", PRERELEASE: "${{ inputs.prerelease }}", EVERYAPI_RELEASE_NOTES_TOKEN: "${{ secrets.EVERYAPI_RELEASE_NOTES_TOKEN }}", EVERYAPI_RELEASE_NOTES_MODEL: "${{ vars.EVERYAPI_RELEASE_NOTES_MODEL }}"}
         run: |
           dist=dist
-          # Each build wrote a SHA256SUMS of its own; the release carries one covering every package.
-          (cd "$dist" && rm -f SHA256SUMS && sha256sum -- *.deb *.rpm *.tar.gz > SHA256SUMS)
-          # --generate-notes otherwise starts from whichever tag in the repository is newest, and the six platforms interleave prefixes, so a macOS release could be described by the diff since an ios-v tag. fetch-depth: 0 above is what makes this list complete.
-          start=$(git tag --list 'linux-v*' --sort=-v:refname | head -1)
-          tag="linux-v${VERSION}"; flags=(); [[ "$PRERELEASE" == true ]] && flags+=(--prerelease)
-          [[ -n "$start" ]] && flags+=(--notes-start-tag "$start")
-          gh release create "$tag" "$dist"/*.deb "$dist"/*.rpm "$dist"/*.tar.gz "$dist/SHA256SUMS" --target "$GITHUB_SHA" --title "Linux ${VERSION}" --generate-notes "${flags[@]}"
+          # 没有 distro-sources 时 dist 里没有 .tar.xz，nullglob 让这个模式展开为空而不是原样传给 sha256sum 和 gh。
+          shopt -s nullglob
+          # Each build wrote a SHA256SUMS of its own, and merging the artifacts kept only one of them; the release carries one covering every package of both architectures.
+          (cd "$dist" && rm -f SHA256SUMS && sha256sum -- *.deb *.rpm *.tar.gz *.tar.xz > SHA256SUMS)
+          tag="linux-v${RELEASE}"
+          [[ "$RELEASE" == "$VERSION" ]] || export PRERELEASE=true
+          # A re-run for the same version overwrites its release (scripts/publish-release.sh), so the notes start at the release before it rather than at its own tag. A final release starts at the previous final release, a -beta or -alpha one at the latest release of either kind.
+          stable='^linux-v[0-9]+\.[0-9]+\.[0-9]+$'; [[ "$RELEASE" == "$VERSION" ]] || stable=.
+          start=$(git tag --list 'linux-v*' --sort=-v:refname | grep -vxF "$tag" | grep -E "$stable" | head -1 || true)
+          python3 scripts/generate-release-notes.py --platform linux --version "$RELEASE" --start-tag "$start" --end-ref "$(git rev-parse HEAD)" --output release-notes.md
+          bash scripts/publish-release.sh "$tag" "$(git rev-parse HEAD)" "Linux ${RELEASE}" release-notes.md "$dist"/*.deb "$dist"/*.rpm "$dist"/*.tar.gz "$dist"/*.tar.xz "$dist/SHA256SUMS"
+  # 按刚发布的 linux-vVERSION 渲染各发行版的包定义（RPM 规格与 SRPM、Debian 源码包、AUR 的两个 PKGBUILD 与 .SRCINFO、Gentoo overlay），作为构建产物上传，由维护者按 platforms/linux/README.md「包管理器」一节发布到各自的仓库；这里不向任何外部仓库推送。放在发布之后，因为这些定义按发布页地址取文件，SHA256SUMS 也以发布页上的为准。
+  package-definitions:
+    needs: [source, deb, publish]
+    # Only for a final release from main: the definitions fetch the assets from linux-vVERSION, which a -beta or -alpha release is not tagged as, and a distribution repository takes final releases only.
+    if: ${{ inputs.publish && needs.source.outputs.packaging == 'true' && github.ref_name == 'main' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {ref: "${{ needs.source.outputs.sha }}", persist-credentials: false}
+      - name: Render package manager definitions
+        env: {VERSION: "${{ needs.deb.outputs.version }}"}
+        run: bash platforms/linux/packaging/render-definitions.sh "$VERSION" target/package-definitions
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: msime-package-definitions-linux-${{ needs.deb.outputs.version }}
+          path: target/package-definitions/
+          include-hidden-files: true
+          if-no-files-found: error
+  # 把同一个版本提交到 openSUSE OBS，由它构建并托管 apt、dnf 与 zypper 软件源。和上面的包定义一样只对从 main 发出的正式版本；逻辑在 publish-linux-obs.yml，提交失败时单独手动触发它即可，不用重新发版。
+  obs:
+    needs: [deb, package-definitions]
+    if: ${{ needs.package-definitions.result == 'success' }}
+    permissions: {contents: read}
+    uses: ./.github/workflows/publish-linux-obs.yml
+    with:
+      version: ${{ needs.deb.outputs.version }}
+    secrets: inherit
+  # 同一个版本交给 Fedora COPR 构建，用户用 dnf copr enable msime/msime 安装；同样只对从 main 发出的正式版本，逻辑在 publish-linux-copr.yml，失败时单独手动触发它。
+  copr:
+    needs: [deb, package-definitions]
+    if: ${{ needs.package-definitions.result == 'success' }}
+    permissions: {contents: read}
+    uses: ./.github/workflows/publish-linux-copr.yml
+    with:
+      version: ${{ needs.deb.outputs.version }}
+    secrets: inherit
+  # 同一个版本作为签名源码包上传到 Launchpad PPA，用户用 add-apt-repository ppa:msime/ppa 安装；同样只对从 main 发出的正式版本，逻辑在 publish-linux-ppa.yml，失败时单独手动触发它。
+  ppa:
+    needs: [deb, package-definitions]
+    if: ${{ needs.package-definitions.result == 'success' }}
+    permissions: {contents: read}
+    uses: ./.github/workflows/publish-linux-ppa.yml
+    with:
+      version: ${{ needs.deb.outputs.version }}
+    secrets: inherit

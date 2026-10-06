@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { testHost } from "../support/host";
 import { settingsFormReady, saveSettingsNow } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -155,11 +156,17 @@ test("a cancel the user asked for is not reported as a failure", () => {
   expect(localModelErrorMessage(new Error("boom"))).toBe("操作失败，请重试。");
 });
 
-test("a mirror is empty or an https prefix", () => {
+test("a mirror is empty or a complete https URL without credentials or query", () => {
   expect(validModelMirror("")).toBe(true);
   expect(validModelMirror("https://ghproxy.example.com")).toBe(true);
+  expect(validModelMirror("https://ghproxy.example.com/prefix/")).toBe(true);
+  expect(validModelMirror(`https://ghproxy.example.com/${"中".repeat(700)}`)).toBe(false);
   expect(validModelMirror("http://ghproxy.example.com")).toBe(false);
   expect(validModelMirror("https://")).toBe(false);
+  expect(validModelMirror("https:///missing-host")).toBe(false);
+  expect(validModelMirror("https://user:pass@ghproxy.example.com")).toBe(false);
+  expect(validModelMirror("https://ghproxy.example.com/?token=synthetic")).toBe(false);
+  expect(validModelMirror("https://ghproxy.example.com/#fragment")).toBe(false);
   expect(validModelMirror("https://a b")).toBe(false);
 });
 
@@ -291,6 +298,75 @@ test("a previous client's model list cannot replace the active client after a ho
   expect(screen.getByRole("listitem", { name: "快速整句" })).toBeTruthy();
 });
 
+test("clears the previous client's model list while the replacement loads", async () => {
+  const first = fakeClient([streaming]);
+  let resolveSecond!: (value: { models: LocalVoiceModel[]; default: string; root: string }) => void;
+  const second = fakeClient([sense]);
+  vi.mocked(second.client.list).mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        resolveSecond = resolve;
+      }),
+  );
+  const props = {
+    mobile: false,
+    modelPath: "",
+    onUse: vi.fn(),
+    onRemoved: vi.fn(),
+    confirm: vi.fn(async () => true),
+  };
+  const view = render(<LocalModelManager {...props} client={first.client} />);
+  await screen.findByRole("listitem", { name: "中英流式" });
+
+  view.rerender(<LocalModelManager {...props} client={second.client} />);
+  expect(screen.queryByRole("listitem", { name: "中英流式" })).toBeNull();
+
+  resolveSecond({ models: [sense], default: sense.id, root });
+  await screen.findByRole("listitem", { name: "快速整句" });
+});
+
+test("returning to a model client ignores progress from its previous subscription", async () => {
+  const first = fakeClient([streaming]);
+  const second = fakeClient([streaming]);
+  const listeners: ((progress: LocalVoiceModelProgress) => void)[] = [];
+  const resolveSubscriptions: ((stop: () => void) => void)[] = [];
+  vi.mocked(first.client.onProgress).mockImplementation((listener) => {
+    listeners.push(listener);
+    return new Promise((resolve) => resolveSubscriptions.push(resolve));
+  });
+  const props = {
+    mobile: false,
+    modelPath: "",
+    onUse: vi.fn(),
+    onRemoved: vi.fn(),
+    confirm: vi.fn(async () => true),
+  };
+  const view = render(<LocalModelManager {...props} client={first.client} />);
+  await screen.findByRole("listitem", { name: "中英流式" });
+  view.rerender(<LocalModelManager {...props} client={second.client} />);
+  view.rerender(<LocalModelManager {...props} client={first.client} />);
+
+  const card = within(await screen.findByRole("listitem", { name: "中英流式" }));
+  fireEvent.click(card.getByRole("button", { name: /下载/ }));
+  act(() => {
+    listeners[1]({ id: streaming.id, stage: "download", downloaded: 22, total: 100 });
+    listeners[0]({ id: streaming.id, stage: "download", downloaded: 77, total: 100 });
+  });
+  expect(card.getByText("下载中 22%")).toBeTruthy();
+
+  const stopOld = vi.fn();
+  const stopCurrent = vi.fn();
+  await act(async () => {
+    resolveSubscriptions[0](stopOld);
+    resolveSubscriptions[1](stopCurrent);
+  });
+  expect(stopOld).toHaveBeenCalledOnce();
+  expect(stopCurrent).not.toHaveBeenCalled();
+  await first.finish(streaming.path);
+  view.unmount();
+  expect(stopCurrent).toHaveBeenCalledOnce();
+});
+
 test("cancelling a download stops it without an error", async () => {
   const fake = fakeClient([streaming]);
   const { onUse } = renderManager(fake.client);
@@ -379,6 +455,33 @@ const snapshot: Snapshot = {
   },
 };
 
+// 语音页把本地模型放进「识别服务配置」组：模型列表在组里，下载镜像和手动目录收在默认关闭的「更多选项」里。
+test("the voice page keeps the local models in the service group with the mirror folded away", async () => {
+  const fake = fakeClient([{ ...sense, installed: true }]);
+  render(
+    <SettingsPage
+      client={{
+        load: async () => snapshot,
+        save: vi.fn(),
+        host: testHost({ platform: "windows" }),
+        localVoiceModels: fake.client,
+      }}
+    />,
+  );
+  await settingsFormReady();
+  fireEvent.click(screen.getByRole("button", { name: "语音输入" }));
+
+  const service = await screen.findByRole("region", { name: "识别服务配置" });
+  expect(within(service).getByRole("group", { name: "本地识别模型" })).toBeTruthy();
+  const more = within(service).getByText("更多选项").closest("details");
+  expect(more).not.toBeNull();
+  expect(more!.open).toBe(false);
+  expect(more!.contains(screen.getByLabelText("模型下载镜像"))).toBe(true);
+  expect(more!.contains(screen.getByLabelText("本地模型目录"))).toBe(true);
+  // 折叠区统一叫「更多选项」，旧的「高级：」说法只留在嵌入式面板里。
+  expect(screen.queryByText("高级：手动指定本地模型目录")).toBeNull();
+});
+
 test("the settings page picks a model and a mirror into the saved preferences", async () => {
   const fake = fakeClient([{ ...sense, installed: true }]);
   const save = vi.fn(async (_revision: number, preferences: Snapshot["preferences"]) => ({
@@ -391,7 +494,7 @@ test("the settings page picks a model and a mirror into the saved preferences", 
       client={{
         load: async () => snapshot,
         save,
-        host: { platform: "windows" } as never,
+        host: testHost({ platform: "windows" }),
         localVoiceModels: fake.client,
       }}
     />,
@@ -409,8 +512,8 @@ test("the settings page picks a model and a mirror into the saved preferences", 
   });
   saveSettingsNow();
 
-  await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
-  const saved = save.mock.calls[0]?.[1]?.voice_input;
+  await waitFor(() => expect(save).toHaveBeenCalled());
+  const saved = save.mock.calls.at(-1)?.[1]?.voice_input;
   expect(saved?.asr_model_path).toBe(sense.path);
   expect(saved?.asr_model_mirror).toBe("https://ghproxy.example.com");
   expect(

@@ -4,7 +4,22 @@
 
 Windows 平台的实现源码在 `src/` 下；`tsf/`、`msimeui/`、`tests/`、`installer/` 各自守着协议、UI、测试与打包的边界，`experiments/` 放不进产品的验证工具。平台根目录放构建文件、脚本、清单和文档。
 
-`common/` 只收 TSF DLL 与 Server 两侧都要编译的协议头：`PipeMetadata.h`（主管道元数据位）、`AuxMessage.h`（Aux 管道消息的编码与解析）、`TsfFocusLeaseProtocol.h`（焦点租约帧）、`KeyEventSendResult.h`（按键写入结果的三分类；`tsf/IPC/KeyEventSendResult.h` 只是把它以 DLL 原有的全局名转出来）和 `StateDirectory.h`（状态目录的解析顺序：`METASEQUOIA_IME_DATA_DIR`、HKLM 64 位视图的 `DataDir`、`%LOCALAPPDATA%\MSIME-Client`，两个进程各自解析，但必须落到同一个根；`crates/host-windows` 的 `server_state_directory` 是它的 Rust 副本，`scripts/test-windows-state-dir-parity.py` 核对两边的名字）。`tsf/` 只能以相对路径（`../common/`、`../../common/`）引用这里的头文件，不得再伸进 `src/`；Server 侧经全局 include 路径按文件名引用。往这里加头文件等于扩大 DLL ↔ Server 的契约，只放两侧确实共用的定义。
+`common/` 只收 TSF DLL 与 Server 两侧都要编译的协议头：`PipeMetadata.h`（主管道元数据位）、`AuxMessage.h`（Aux 管道消息的编码与解析）、`TsfFocusLeaseProtocol.h`（焦点租约帧）、`KeyEventSendResult.h`（按键写入结果的三分类；`tsf/IPC/KeyEventSendResult.h` 只是把它以 DLL 原有的全局名转出来）和 `StateDirectory.h`（状态目录的解析顺序：本版本的数据目录环境变量（full 是 `METASEQUOIA_IME_DATA_DIR`）、本版本 HKLM 键在 64 位视图下的 `DataDir`、`%LOCALAPPDATA%\<本版本的状态目录>`（full 是 `MSIME-Client`），两个进程各自解析，但必须落到同一个根；`crates/host-windows` 的 `server_state_directory` 是它的 Rust 副本，`scripts/test-windows-state-dir-parity.py` 核对两边都从版本表取这些名字）。`tsf/` 只能以相对路径（`../common/`、`../../common/`）引用这里的头文件，不得再伸进 `src/`；Server 侧经全局 include 路径按文件名引用。往这里加头文件等于扩大 DLL ↔ Server 的契约，只放两侧确实共用的定义。
+
+## 产品版本（edition）
+
+同一套源码按 `shared/contracts/editions.json` 打出几个可以同时安装、彼此完全隔离的产品：full（水杉输入法，引入版本之前的产品本身）、pinyin（水杉拼音）、wubi（水杉五笔）、japanese（水杉日语）、vietnamese（水杉越南语）和 tibetan（水杉藏文）。每个版本有自己的 TSF CLSID、profile 和全部 TSF 内部 GUID、Inno AppId、Program Files 下的安装目录、HKLM 键、状态目录、用户目录（匿名账号和使用统计）、数据目录环境变量、看门狗计划任务、host DLL 名、`MSIME.exe` 的 Tauri identifier 和安装包名；命名管道、命名事件、互斥量和窗口类名都带 `.<id>` 后缀。full 的后缀是空串，所有标识与引入版本之前相同。
+
+- `platforms/windows/scripts/edition_windows.py gen` 从版本表生成并提交 `shared/contracts/msime_edition.h`（C++ 读的宏）和 `installer/editions.iss`（Inno Setup 读的 `#define`）。构建必须定义且只定义一个 `MSIME_EDITION_<ID>`：CMake 由缓存变量 `MSIME_EDITION`（`Edition.cmake`，缺省 full）定义，WinUI 设置窗口工程由 `MsimeEdition` 属性定义；少了它头文件以 `#error` 停下，不会悄悄编成 full。
+- TSF DLL、Server、看门狗、prepare 工具和设置窗口在编译期绑定一个版本，所以每个版本各编一次：`Build-Client.ps1 -Edition <id>` 和 `build-cross.sh <arch> <id>` 的输出在 `target/windows-<id>`（full 仍是 `target/windows-full`）。host DLL 改成版本表里的名字（例如 `msime_host_api_wubi.dll`），再按原 DLL 的导出表生成同名导入库（MSVC 用 `lib /DEF`，MinGW 用 `dlltool`）：两个版本的 TIP 被同一个应用加载时，按导入表找 DLL 会拿到先加载的那一个。
+- `MSIME.exe` 和 `msime-mcp.exe` 所有版本共用一份构建，运行时读 Server 目录里的 `edition.json`（只有不是 full 的包才有，由 `Prepare-PackageFiles.ps1 -Edition` 写入）决定管道后缀、状态目录和 Tauri identifier。
+- 每个版本注册在它的默认方案所属的语言下（版本表 `langid`，经 `msime_edition.h` 的 `MSIME_EDITION_LANGID` 进入 TSF 的 `RegisterProfile`、看门狗和设置窗口的「添加到键盘列表」）：中文版本是简体中文 0x0804，日文版 0x0411（日语），越南文版 0x042A（越南语），藏文版 0x0451（藏语），于是在 Windows 设置里分别列在这几种语言下。TIP 的行为不按语言分支：保留键、开关和标点 compartment、转换模式和语言栏按钮在各版本都一样，提交的文字按注册语言标上 `GUID_PROP_LANGID`；唯一按语言取的是触摸键盘布局（中文版本是优化的简体拼音布局，日文版是优化的日文布局，越南文和藏文版没有优化布局，用经典布局）。未在真机核实：注册在日语下时，系统的输入指示器按 TIP 写的转换模式位（`TF_CONVERSIONMODE_NATIVE`、`FULLSHAPE`）显示成什么样子，以及触摸键盘是否按上面的布局弹出。
+- 日文、越南文和藏文版不带中文主词库、n-gram 和整句模型（资源锁见 `resources/editions/<id>.lock.json`），`Prepare-PackageFiles.ps1` 也不给它们装非英文离线释义（版本表 `features.offline_glosses` 为 false），托盘菜单和原生设置窗口也没有手写（`features.handwriting` 为 false）；越南文和藏文版只带 core，日文版另带日文词典。
+- Server 把版本 id 交给宿主库准备状态根，宿主库按版本选资源锁、收窄方案；托盘和设置窗口只列出本版本提供的方案和本版本带的快捷模式（五笔版没有临时日语，也没有全拼、双拼的辅助码）。几个版本的 Server 同时运行时，维护快捷键由焦点所在版本的 Server 处理（每个生产 Server 用命名事件 `MetasequoiaImeServer_ModeActive<后缀>` 发布本版本的模式是否活动）；没有任何版本的模式活动时，由先收到按键的 Server 处理，不会谁都不管。
+- 数据目录的所有权标记文件名也按版本取：full 是 `.metasequoiaime-data`，其他版本接上名字后缀（例如 `.metasequoiaime-data.wubi`）。每个版本的安装器（包括 full）只认本版本的标记，目录里只要有别的版本的标记就不认，即使那是它自己的默认数据目录，所以不会接管、清理或删除别的版本的数据目录。full 的标记文件名和内容不变，以前的 full 写下的标记照样认。
+- 标记只看目录顶层，看不到嵌在子目录里的别的版本，所以安装器还按 `editions.iss` 里别的版本的注册表键和安装目录名（由 `edition_windows.py gen` 从版本表生成）找出别的版本的数据目录：它们登记的 `DataDir` 和默认目录 `%LOCALAPPDATA%\<安装目录>`。本版本的数据目录不能和这些目录重叠或互相包含，向导和 `/DATADIR` 都会拒绝；卸载和更换数据目录时，嵌在本版本目录里的别的版本的数据目录原样留下，迁移也不把它当作用户数据复制。
+- 升级和卸载前，每个版本的安装器（包括 full）只结束可执行文件在本安装 `server` 目录里的进程，不按映像名结束：几个版本的 Server、看门狗、设置窗口、`MSIME.exe` 和 `msime-mcp.exe` 同名，`taskkill /IM` 会把同时安装的其他版本一起停掉。已经发出去的旧版 full 仍按映像名结束进程，所以卸载旧版 full、或运行旧版 full 的安装包时，同时安装的其他版本的进程会被停一次；数据和安装不受影响，Server 在下次需要时由 TSF 重新拉起，看门狗在下次登录时由计划任务拉起。
+- `scripts/test-editions.py` 检查版本表（GUID 两两不同、名字不撞、目录不嵌套），`scripts/test-windows-editions.py` 检查生成文件没有漂移、安装脚本按版本展开后互不越界、每个版本的 `langid` 是它默认方案所属的语言、`release-windows.yml` 的发布矩阵恰好是有 Windows 段的全部版本，并且 Windows 源码不再自己写 full 的 CLSID 和注册表键。
 
 `src/` 按职责分目录，每个目录一句话说清它收什么：
 
@@ -23,11 +38,17 @@ Windows 平台的实现源码在 `src/` 下；`tsf/`、`msimeui/`、`tests/`、`
 
 ### `panels/` 是什么
 
-`EmojiPanel.h`、`HandwritingPanel.h` 和 `EmojiPanelIcons.{h,cpp}` 不在 `CMakeLists.txt` 里，也没有任何文件 include 它们——它们不参与构建。产品里的表情/符号面板和手写识别板由共享桌面面板宿主（Tauri）提供，托盘菜单通过 `MSIME_CLIENT_PANEL` 拉起，见下文「托盘菜单与共享界面」。`msimeui/demos/` 下另有一份**在构建的** `EmojiPanel`，但那是 demo，比这里这份短（163 行对 210 行），且不接 `ClipboardHistory` 与 `NativeTextInput`。这里这份是原生面板的另一条实现路线，单独成目录保留，让它的状态一眼可见，而不是混在 `system/` 里。
+`EmojiPanel.h`、`HandwritingPanel.h` 和 `EmojiPanelIcons.{h,cpp}` 不在 `CMakeLists.txt` 里，也没有任何文件 include 它们——它们不参与构建。产品里的表情/符号面板和手写识别板由共享桌面面板宿主（Tauri）提供，托盘菜单通过 `--route` 拉起，见下文「托盘菜单与共享界面」。`msimeui/demos/` 下另有一份**在构建的** `EmojiPanel`，但那是 demo，比这里这份短（163 行对 210 行），且不接 `ClipboardHistory` 与 `NativeTextInput`。这里这份是原生面板的另一条实现路线，单独成目录保留，让它的状态一眼可见，而不是混在 `system/` 里。
 
 本目录以 MSIME-Windows 的完整功能和既有 TSF DLL / Server 协议为基线：Rust/C++ 共享会话、管道、焦点和回复编排，以及 TSF 注册、Server/Host DLL、原生候选窗口、语音与安装打包都在这里落地。
 
 固定 Engine 的 `FanyImeNamedpipeData` 键包通过 `msime-host-api` 接入。共享库只进入独立 Server，不加载到注入应用的 TSF DLL 中；TSF DLL / Server 进程隔离、版本化 Named Pipe 契约和 UI 原生窗口所有权是这条边界上不变的三条约束。
+
+## 包管理器（winget、Scoop、Chocolatey）
+
+`packaging/` 下是 winget（`Metasequoia.MetasequoiaIME`）、Scoop（`msime`）与 Chocolatey（`msime`）的包定义模板和渲染脚本 `packaging/render.py`。三个包都只静默运行发布页上 full 的 Inno Setup 安装包，不另编二进制；包描述和主页 `https://github.com/metasequoiaime/msime` 与 Linux 各发行版的定义一致。包管理器只能指向签过名的安装包：`release-windows.yml` 先行发布的安装包未签名，其 uiAccess Server 无法启动，所以 `render.py` 拒绝没有有效 Authenticode 签名的安装包；维护者把 SimplySign 签名的安装包替换到发布上之后，手动触发 `package-definitions-windows.yml` 渲染并上传构建产物 `msime-package-definitions-windows-<版本>`（含 `.nupkg`），不向任何外部仓库推送。`scripts/test-windows-package-managers.py`（由 `scripts/run-checks.sh` 自动运行）核对模板里的安装包事实与 `installer/msime_setup.iss`、`installer/editions.iss` 和发布流程一致。
+
+上架之后的安装方式：`winget install Metasequoia.MetasequoiaIME`；`scoop bucket add msime https://github.com/metasequoiaime/scoop-bucket` 后 `scoop install msime`；`choco install msime`。各仓库的发布步骤（winget-pkgs PR、Scoop bucket、`choco push`）见 [packaging/README.md](packaging/README.md#发布步骤)。
 
 ## 原生界面渲染与皮肤
 
@@ -127,7 +148,7 @@ PreviousCandidate/NextCandidate/PreviousPage/NextPage 路径消费共享导航�
 
 `bash platforms/windows/run-tests-wine.sh x64` 把交叉构建出的 C++ 套件（`windows-*.exe`、`msime-tsf-*.exe`、`bin/msimeui-tests.exe`）和 `cargo test --no-run` 产出的 Rust 套件一起放在 `xvfb-run -a wine` 下执行，每个 120 秒超时，结果与 `scripts/known-failures.txt` 比对；不带 `--quick` 的 `scripts/verify-local.sh` 会自动调用它。
 
-CI（`.github/workflows/ci-platforms.yml` 的 windows job）在 `debian:trixie-slim` 容器里跑 `build-cross.sh x64`——Ubuntu 24.04 的 MinGW 头文件缺 `d2d1_3.h`。`release-windows.yml` 是手动 `workflow_dispatch`，同样走 `build-cross.sh x64`，把 `target/windows-full/x64/` 压成 zip 发布。安装器由 Windows 上的 `installer/Package-SimplySign.ps1` 编译和签名，不在 CI 里产出。
+CI（`.github/workflows/ci-platforms.yml` 的 windows job）在 `debian:trixie-slim` 容器里跑 `build-cross.sh x64`——Ubuntu 24.04 的 MinGW 头文件缺 `d2d1_3.h`。`release-windows.yml` 是手动 `workflow_dispatch`，在 Windows runner 上按版本矩阵（full、wubi、pinyin）各跑一遍 `Build-Client.ps1 -Edition`、打包和装卸冒烟，再用 `installer/tests/coexistence-smoke.ps1` 把几个版本装到同一台机器上，检查它们并存、卸掉一个版本不碰 full，并在 `windows-11-arm` runner 上装卸每个版本、检查 Arm64X TIP 能在原生 ARM64 和模拟 x64 进程里创建，最后一起发布。安装器由 Windows 上的 `installer/Package-SimplySign.ps1` 编译和签名，不在 CI 里产出。
 
 ## 管道 I/O 与进程身份绑定
 
@@ -145,9 +166,9 @@ CI（`.github/workflows/ci-platforms.yml` 的 windows job）在 `debian:trixie-s
 
 `accept_reverse` 按固定大小读取 FanyImePipeHello、检查监听端预期角色并绑定真实进程，发送该角色专属的 PipeReady 后才返回 Ready 和进程绑定。回复端点是 416 字节，worker 端点是 404 字节；确认帧显式写字段并清零填充，不发送 C++ 内存填充区。此函数不修改全局注册表，调用者只能在成功后发布端点，失败需关闭端点。
 
-`accept_main` 依赖已经 Ready 的 ToTsf 回复端点及其进程绑定，读取主连接 ClientHello、复用固定 Engine 的 Negotiate，再次复核两条端点身份后，经回复端点发送 ProtocolReady 或 ProtocolMismatch。旧版 unversioned hello 不额外发送协议确认；非法客户端或无法表示的请求 ID 不发送确认。只有 HandshakeStatus::Ready 可进入下一注册步骤，单独的 negotiation.accepted 或 io.complete() 不代表握手成功。能力位必须由已实现的分发层显式提供，没有默认启用语音或字符集快捷键。
+`accept_main` 依赖已经 Ready 的 ToTsf 回复端点及其进程绑定，读取主连接 ClientHello、复用固定 Engine 的 Negotiate，再次复核两条端点身份后，经回复端点发送 ProtocolReady 或 ProtocolMismatch。不带版本号的 hello 被拒绝；非法客户端或无法表示的请求 ID 不发送确认。只有 HandshakeStatus::Ready 可进入下一注册步骤，单独的 negotiation.accepted 或 io.complete() 不代表握手成功。能力位必须由已实现的分发层显式提供，没有默认启用语音或字符集快捷键。
 
-两函数仅用于 I/O 工作线程，超时按每次 I/O 计算；调用方须保证借用句柄有效，在握手期间排除同端点的其他写入、关闭与替换，并把返回结果绑定到同一 registration generation。这里不建立路由注册表，也不赋予焦点所有权。主握手传入的回复管道必须确实是已注册 ToTsf 而不是 worker，不能只因 PID 相同就任意替换；生产入口由 `PipeService` 的 intake 回调把成功登记交给 `RegistrationInbox`，再由 `SessionController` 消费。测试覆盖编码字节、两类 PipeReady、版本协商、未实现的必需能力拒绝、旧握手无 ACK、错误客户端/角色及预取消；编码部分可在任意主机跑，管道握手部分需要真实 Named Pipe，因此在 Windows 或 Wine 下执行。
+两函数仅用于 I/O 工作线程，超时按每次 I/O 计算；调用方须保证借用句柄有效，在握手期间排除同端点的其他写入、关闭与替换，并把返回结果绑定到同一 registration generation。这里不建立路由注册表，也不赋予焦点所有权。主握手传入的回复管道必须确实是已注册 ToTsf 而不是 worker，不能只因 PID 相同就任意替换；生产入口由 `PipeService` 的 intake 回调把成功登记交给 `RegistrationInbox`，再由 `SessionController` 消费。测试覆盖编码字节、两类 PipeReady、版本协商、未实现的必需能力拒绝、不带版本号的握手被拒且无 ACK、错误客户端/角色及预取消；编码部分可在任意主机跑，管道握手部分需要真实 Named Pipe，因此在 Windows 或 Wine 下执行。
 
 ## 安全监听与连接所有权
 
@@ -317,7 +338,7 @@ key_bindings 可选对象示例：
 
 #### 托盘菜单与共享界面
 
-托盘菜单七项与成品一致：悬浮工具栏开关由 Server 自己处理；设置和关于在独立的 WinUI 3 `msime-client-settings.exe` 中打开，表情/符号面板、手写识别板和屏幕键盘仍在共享桌面面板宿主（Tauri）中打开。两类窗口与 Linux 的 IBus 属性菜单共用同一套路由契约——用 `MSIME_CLIENT_PANEL` 指定面板，`MSIME_CLIENT_SETTINGS_PAGE` 指定设置分类（关于用 `about`），二者都只接受小写 ASCII 标识符，进程自身继承到的同名变量会被丢弃，不会盖过实际点击的那一行。Windows 语音输入由 Server 内置的 VoiceInputSession 和波形浮层负责录音、识别及 TSF 提交；共享外壳的语音入口通过固定 Aux 管道发送 `ToggleVoiceInput`，由 Server 主线程消费，避免让 Tauri 伪造一个无法录音的面板。
+托盘菜单七项与成品一致：悬浮工具栏开关由 Server 自己处理；设置和关于在独立的 WinUI 3 `msime-client-settings.exe` 中打开，表情/符号面板、手写识别板和屏幕键盘仍在共享桌面面板宿主（Tauri）中打开。两类窗口与 Linux 的 IBus 属性菜单共用同一套路由契约——用 `--route=<面板>` 指定面板，`--route=settings:<分类>` 指定设置分类（关于用 `settings:about`），只接受小写 ASCII 标识符；同一路由也写进子进程的 `MSIME_CLIENT_ROUTE`，进程自身继承到的同名变量会被丢弃，不会盖过实际点击的那一行。Windows 语音输入由 Server 内置的 VoiceInputSession 和波形浮层负责录音、识别及 TSF 提交；共享外壳的语音入口通过固定 Aux 管道发送 `ToggleVoiceInput`，由 Server 主线程消费，避免让 Tauri 伪造一个无法录音的面板。
 
 设置外壳按 `MSIME_CLIENT_SETTINGS_COMMAND`（须为绝对路径且存在）、Server 同目录的 `msime-client-settings.exe` 查找；面板外壳使用同目录的 `MSIME.exe`。找不到时这些行保持可见但禁用，点击不会做任何事，也不会声称已打开；启动失败同样按未处理返回，菜单不会因为一个没发生的动作而关闭。两个外壳都用 `CreateProcessW` 启动并继承本进程令牌，因此打包时它们与 Server 的完整性级别一致。
 
@@ -413,7 +434,41 @@ InputState::edit(lease, packet, style) 按 Engine 当前模式判定字母、组
 
 V（计算与数字）、/（指令）和 @（名字与地点）三个局部模式默认关闭，只在拼音方案下由 Engine 打开：空组合时 Shift+V 进入 V，`/` 与 `@` 在中文标点下进入另外两个。Engine 在 View.spelling_symbols 里列出它当前当作输入的字符：V 模式是 `0123456789+-*/.()%^`，Unicode 模式是十个数字，空组合的拼音会话是已开启的 `/`、`@`。Server 只按这份数据分流，不自己猜模式：`src/input/EditPolicy.h` 的 `edit_kind` 把文本在其中的键交给 Engine 作输入，`digit_selects_candidate` 决定数字键是否选词。Unicode 保留原来按 VK 的规则（Shift+数字选词、裸数字编码）；V 模式里数字与运算符是输入（包括 Shift+8 的 `*`、在别处翻页的 `-`），打出其他字符的数字键（美式布局的 Shift+1 即 `!`，或数字行要按 Shift 的布局上的裸数字键）按槽位选词；其余模式仍是裸数字选词。
 
-TSF 在收到 Server 回复之前就要决定一个键是组合输入还是选词，所以同一条规则在 `tsf/Global/LocalModeKeyPolicy.h` 里还有一份：键击缓冲以 V 开头且 V 模式开启时按上面的规则分类，空组合的 `/`、`@` 在中文标点且对应模式开启时作为组合的第一个字符，而不是标点。V 模式符号表的两份拷贝由 `scripts/test-windows-expression-symbols-parity.py` 核对。三个开关由 Server 经 Worker 帧 LocalModeTriggersChanged（28，载荷为 V、/、@ 三个 `0`/`1`）随其余 TSF 本地设置一起推送，只在拼音方案下为真；格式不对时 TIP 三个全关，旧版 TIP 把未知类型直接丢弃。这些模式上屏的是生成文本：commit_context.typing_statistics 为 false 时 Server 不记打字统计，也就不触发成就音。
+TSF 在收到 Server 回复之前就要决定一个键是组合输入还是选词，所以同一条规则在 `tsf/Global/LocalModeKeyPolicy.h` 里还有一份：键击缓冲以 V 开头且 V 模式开启时按上面的规则分类，空组合的 `/`、`@` 在中文标点且对应模式开启时作为组合的第一个字符，而不是标点。网址模式没有开关，在全拼、双拼、五笔（TIP 记作 quanpin，`scheme::DetectsUrls`）且不在专用英文模式时生效：键击缓冲恰好是 `www`、`http`、`https` 或 `ftp`、光标在末尾时，紧跟的 `.` 或 `:` 作为输入进入缓冲，而不是翻页或标点，TIP 同时记下已进入网址模式。之后 TIP 不再从缓冲前缀推断（光标处的编辑会让缓冲开头不再是触发词加触发键，而 Engine 仍在网址模式），与 Engine 一样只在删掉的恰好是触发键（剩下的正好是触发词）、缓冲删空或组字结束时退出。网址模式里网址的数字和符号 `0123456789-._~:/?#[]@!$&'()*+,;=%^`（包括 Shift+数字行的符号和别处翻页的 `-` `=` `,` `.` `[` `]`）都是输入，打出其他字符的数字键按槽位选词，规则与 V 模式相同。Server 按 Engine 列出的 spelling_symbols 做同样的判断。五笔在 `http` 后的 `s` 上已进入网址模式、在网址模式里把 `https` 删成 `http` 时退出，TIP 分不出五笔和全拼，要等触发键之后才按网址分类，删成 `http` 后也仍按网址分类；TIP 的键击缓冲最长 64 个字符，网址在 Windows 上超过这个长度后的按键输入不进去。V 模式和网址模式的符号表、网址触发词，两份拷贝都由 `scripts/test-windows-expression-symbols-parity.py` 核对。三个开关由 Server 经 Worker 帧 LocalModeTriggersChanged（28，载荷为 V、/、@ 三个 `0`/`1`）随其余 TSF 本地设置一起推送，只在拼音方案下为真；格式不对时 TIP 三个全关，旧版 TIP 把未知类型直接丢弃。这些模式上屏的是生成文本：commit_context.typing_statistics 为 false 时 Server 不记打字统计，也就不触发成就音。
+
+### 韩语的汉字转换
+
+韩语（Dubeolsik）组字时按汉字键（VK_HANJA，0x19），或者单独轻按一下右 Ctrl（按下到松开之间没有别的键，且在 500 ms 内松开），发送 `MSIME_CONVERT_HANJA`，列出正在组字的那一个音节的汉字，再按一次关闭。右 Ctrl 只在韩语有音节在组字时这样解释，这时它优先于“单击 Ctrl 切换语言”；没有组字时两个键都照旧交给应用或切换语言。纯辅音（ㄱ）没有汉字，按键被吞掉，音节继续组字。已经上屏的音节不转换。
+
+列表打开时的按键规则只有一份，在 `common/KoreanHanjaKey.h`：TIP 用它驱动自己的 host session，Server 用它驱动自己的会话（`ReplyComposer::korean_hanja`），两边对同一个键做同一件事，不看中文候选的翻页绑定。数字 1-9（主键盘或小键盘）选本页，空格和回车选高亮项，方向键移动高亮，PageUp/PageDown 翻页，Home/End 到首尾，Esc 和退格只关闭列表、保留音节。其余键照没有列表时的规则：字母关闭列表并继续组字；标点（包括 `-` `=` `[` `]` `,` `.`）、`0`、Tab、Insert、Delete 关闭列表并提交韩文，与 macOS 和 Linux 一致。TIP 上屏的是自己 host session 选出的汉字，Server 对这些键不回帧，只计入打字统计；在候选窗口里点选时由 Server 选出，TIP 写入后丢弃 host session 里的音节。TIP 先决定吃不吃键、再执行：排在别的键后面的键，按“前面的键执行完以后列表开没开”的推算来分类。推算从 host session 的实际状态出发，汉字键打开或关闭列表，Esc、退格、选字和字母关闭列表。推算列表关着时，每个键照没有列表时的规则分类，所以从不按汉字键的韩文输入和以前完全一样；推算列表开着时，列表的键在执行时再按 host session 的实际状态决定，Server 也按自己会话的状态决定，两边一致。纯辅音按汉字键不会打开列表，推算会暂时偏开，但键在执行时仍按实际状态处理，只是排在后面的键的推算要等队列排空才校正。Ctrl+Enter 在韩语下始终交给应用，Server 的 `commit_candidate_translation` 遇到韩语也不提交，汉字候选的훈음和译文都只用于显示。列表在音节仍在组字时关闭，TIP 的候选 presenter 会安静地撤掉，不发 HideCandidateWnd，否则 Server 会取消它仍在组的音节；Server 的 `cancel_composition` 遇到列表打开时会连发两次 `MSIME_CANCEL`。汉字候选不提供置顶、固定排位和删除菜单。
+
+汉字候选的훈음（音训，例如 `나라 이름 한, 한나라 한`）由 Engine 放在候选的 annotation 里。`CandidatePresentation.h` 在韩语汉字列表（scheme 4，不在专用英文模式和任何局部模式下）里把它从 annotation 挪到 `PresentationCandidate::gloss`，所以候选正文只有汉字本身，훈음画在翻译那一段：字号是候选的 0.78 倍（`translation_font`），颜色是翻译的颜色，摆放规则也和翻译一样（竖排放得下时跟在汉字后面，横排或放不下时在汉字下面），不看候选翻译和英文释义开关。翻译查询对韩语和中文一样发出（共享库的 `msime_client_translation_query` 不再对 scheme 4 返回 null，繁体汉字查不到时按简体字再查一次），有译文时훈음在上、译文另起一行在下：`candidate_secondary_text` 用换行连接两者，`CandidateItemWidths::translation_lines` 为 2，这样的一段总是放到汉字下面，高度按两行实测。훈음只存在于这份显示投影里，从不写进 Engine 的 translation，Ctrl+Enter 等提交译文的路径读到的始终是 Engine 自己的 translation。
+
+未在真机核实：TIP 只注册在 zh-CN 配置下，韩国键盘的汉字键在这种情况下能否送到 0x19，以及右 Ctrl 在各种键盘驱动下是否作为右 Ctrl 而不是汉字键上报。
+
+### 粤拼、注音、越南语与藏语
+
+这四个方案和全拼、双拼、五笔、日语、韩语一样在托盘菜单、工具栏和设置里可选，仍只注册一个 zh-CN TSF 配置，Watchdog 不变。按方案决定的行为集中在 `common/InputSchemeTraits.h`，Server 与 TIP 共用；其中镜像 Engine `SchemeType` 谓词的部分由 `scripts/test-scheme-traits-parity.py` 与 `crates/engine/src/types.rs` 核对。Server 经 InputModeChanged 把输入模式告诉 TIP，载荷是一个字符：`0` 中文（全拼、双拼、五笔）、`1` 日语、`2` 韩语、`3` 粤拼、`4` 注音、`5` 越南语、`6` 藏语、`7` 笔画（见下文）。旧版 TIP 只认 `1`、`2`，把新代码当作中文。粤拼和注音是中文方案，切换到它们会更新 `last_chinese_scheme`；越南语、藏语与日语、韩语一样是单独的语言，切过去时记住被替换的中文方案。
+
+粤拼（scheme 5）按中文方案走候选窗，标点、翻页和以词定字与全拼相同；它的词库本身是繁体，繁体输出开关不再转换。注音（scheme 6，只有大千键位）、越南语（scheme 7）和藏语（scheme 8）像韩语一样由 TIP 在自己的 host session 里组字，组合始终内嵌显示在文档里，光标锁在组合末尾，失去焦点、切换方案或模式时提交而不是丢弃；Server 对这些键不回帧，只计入打字统计（`ReplyPath::SyllableCommit`）。TIP 的分类规则在 `tsf/HostKoreanKey.h` 的 `host_composed_key_action`，立即路径和排队路径共用：
+
+- 注音：小写字母和大千符号键拼注音；空组合时 `1`、`2`、`5`、`8`、`9`、`0`、`,`、`.`、`/`、`;`、`-` 起一个音节，组字中十个数字、这些标点和空格都参与拼写（空格是一声，或在音节完整时打开列表）。下方向键打开候选列表；列表打开时数字、空格、回车、方向键和翻页键属于列表，`0` 和标点仍在拼写，选字只固定一个读音、继续组字。回车提交，Tab、方向键、Home/End、PageUp/PageDown、Delete 提交后交给应用，Shift 标点经中文标点表随转换一起提交，Shift 加字母提交转换并跟上该字母。执行时以 View.spelling_symbols 为准再判断一次，排队时用相同的静态表推算。在候选窗口里点选注音候选会被拒绝，列表只用键盘操作。
+- 越南语：Telex 或 VNI（设置里选择），字母按原样大小写组字，Caps Lock 下的大写字母照样组字，与 macOS 一致；VNI 下组字中的数字是声调。没有候选列表。空格、数字（Telex）、标点提交单词并跟上该字符，标点是半角；方向键等提交后交给应用；Esc 丢弃整个单词。关闭中文时越南语与韩语一样直接输出半角 ASCII。
+- 藏语：威利转写（EWTS），没有可选项。字母按原样大小写组字（`T`、`D`、`N`、`Sh`、`A`、`I`、`U`、`M`、`H` 都是不同的字母），Caps Lock 下的大写字母照样送进宿主会话；威利读不了的字母（`A`、`D`、`H`、`I`、`M`、`N`、`R`、`S`、`T`、`U`、`W`、`X`、`Y` 以外的大写字母，以及小写 `q`、`x`）不进组合，引擎先上屏已有的藏文再原样写出该字母，拉丁字母不会混进转换结果；`'` 随时参与拼写（可以开头 achung 音节），`+`、`.`、`-` 在组字中参与拼写。组合里保存当前音节串的威利原文，内嵌显示的是转换出的藏文，没有候选列表。组字中空格上屏藏文并加音节点 `་`，`/` 上屏藏文并加垂符 `།`（以 ང 结尾时垂符前保留音节点，`ང་།`），空组合时 `/` 单独输出垂符；回车只上屏藏文，按键被吃掉；数字和其他标点上屏藏文并跟上该字符（半角，数字保持原样）；方向键等提交后交给应用。第一次 Esc 把组合切回拉丁原文并继续组字，第二次 Esc 丢弃；原文显示时空格上屏原文并跟上空格。排队时用引擎的静态拼写表（`kTibetanIdleSymbols`、`kTibetanComposingSymbols`）推算，执行时以 View.spelling_symbols 为准再判断一次。
+
+粤拼和注音需要安装包附带的词库：`Prepare-PackageFiles.ps1` 从 `target/language-dictionaries`（`scripts/fetch_language_dictionaries.py` 按 `resources/language-dictionaries.lock.json` 下载）把 `msime-cantonese.db`、`msime-zhuyin.db` 连同各自的授权声明放进 `server_exe/language-dictionaries`，安装后位于 `server\language-dictionaries`，与 `server\resources` 同级，宿主库在那里找到它们并写进运行时配置。缺少某个词库时，托盘里对应的项不可选，已选的方案按宿主库的 `effective_scheme` 退回上次的中文方案（再不行就是全拼），TIP 和托盘都按实际运行的方案处理。越南语和藏语不需要数据。设置 `MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1` 时缺少任一词库会让打包失败。
+
+未在真机核实：注音、越南语与藏语的 TIP 行为只在 macOS 上用交叉编译和单元测试验证过，没有在 Windows 上实际打字。语言栏图标没有新增，这几个方案显示中文图标。
+
+### 笔画
+
+笔画（scheme 9）是中文方案，在托盘菜单「输入方案」里排在藏文之后，设置页的分段控件里同样可选，工具栏语言按钮显示「笔」。它有自己的输入模式代码 `7`：它的 trait 与全拼不同（不做繁简转换、不显示译文），TIP 的按键分类也不同。Engine 谓词逐项照抄粤拼，所以它和粤拼一样走 Server 的候选窗，标点、翻页、数字选词与全拼相同，候选来自只读的 `msime-stroke.db`，不提供置顶、固定和删除，繁体输出开关不再转换，打字统计记在 `stroke` 名下。
+
+键位：`h` 横、`s` 竖、`p` 撇、`n` 点、`z` 折，`x` 是匹配任意一笔的通配符。空组合时只有 `hspnz` 开始组合，`x`、其他字母和大写字母交给应用（`InputSchemeTraits.h` 的 `LetterPassesWhileIdle`，立即路径和排队路径共用）。Engine 自己的英文模式（Ctrl+Shift+E、工具栏或托盘的英文）例外：那时 TSF 仍报告中文，Engine 先于方案判断英文模式、组合每一个字母，所以 Server 用 Worker 帧 DedicatedEnglishChanged（29，载荷 `0`/`1`）把这个状态推给 TIP，打开时所有字母都交给 Engine，否则 "apple" 的 a 会直接进应用。这个状态随 Server 每 250 毫秒读一次焦点会话的英文模式推送；TIP 吞下 Ctrl+Shift+E 时先在本地翻转（`common/DedicatedEnglishMirror.h`），所以切换后立刻键入的字母已按新状态分类。这个先行值 1 秒内没有被推送确认（按键在发出前被丢弃，或 Server 没有切换），就退回 Server 推送过的值。组合中 TIP 收下所有字母，Engine 在两边都吞掉笔画以外的字母，组合不变。数字 1-9 选词，空格提交高亮候选，回车提交键入的字母，Backspace 删最后一笔，Esc 清空。组合中的 `'` 不是音节分隔符（Engine 的 `accepts_apostrophe` 对笔画为假）：TIP 和 Server 都按 `ApostropheIsPunctuationWhileComposing` 把它当标点，和逗号一样先上屏高亮候选再上屏标点，与 Linux、macOS 一致。预编辑显示笔画字形 一丨丿丶乛＊：候选窗的预编辑行和 TIP 的内嵌组合都取 View 的 `preedit`（TIP 读自己 host session 的 View），`editing_text` 仍是 ASCII 字母，只用来对齐光标和校验回车提交的文本。
+
+词库：`Prepare-PackageFiles.ps1` 把 `msime-stroke.db` 连同 `msime-rime_stroke_LICENSE.txt` 与粤拼、注音词库一起放进 `server_exe/language-dictionaries`；Server、TIP（`FanyUtils.cpp` 的 `ReadConfiguredRunningScheme`）和托盘都按这个文件是否存在决定笔画能否运行，缺少时托盘里的「笔画」不可选，已选的笔画按 `effective_scheme` 退回上次的中文方案。`MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1` 要求 `resources/language-dictionaries.lock.json` 固定的每一份词库都在；锁固定 `msime-stroke.db` 之前笔画词库存在就装入，缺少也不让打包失败。`tests/input/stroke_keys.cpp` 用入库的合成词库 `tests/input/fixtures/msime-stroke.db` 对真实 Engine 会话跑这些键。
+
+未在真机核实：笔画的 TIP 行为和十个方案的设置页分段控件宽度只在 macOS 上用 MinGW 语法检查、本机运行的测试验证过，没有在 Windows 上实际打字或查看。
 
 ### 按键音、上屏音与背景音乐
 

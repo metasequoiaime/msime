@@ -62,11 +62,14 @@ export class VoiceResponsePolicy {
    * the microphone open.
    */
   static streamingFrame(payload: string, last: boolean): VoiceOutcome {
-    let document: Record<string, Object>;
+    let document: Record<string, Object> | null;
     try {
-      document = JSON.parse(payload) as Record<string, Object>;
+      document = VoiceResponsePolicy.record(JSON.parse(payload));
     } catch (error) {
       return { text: "", failure: "豆包返回了无效 JSON。", last: last };
+    }
+    if (document === null) {
+      return { text: "", failure: "豆包返回了无效响应。", last: last };
     }
     if (VoiceResponsePolicy.refused(document)) {
       return { text: "", failure: "豆包语音识别返回错误。", last: last };
@@ -96,8 +99,11 @@ export class VoiceResponsePolicy {
     return error !== undefined && error !== null;
   }
 
-  private static record(value: Object | undefined): Record<string, Object> | null {
-    return value !== undefined && value !== null && typeof value === "object"
+  private static record(value: unknown): Record<string, Object> | null {
+    return value !== undefined &&
+      value !== null &&
+      typeof value === "object" &&
+      !Array.isArray(value)
       ? (value as Record<string, Object>)
       : null;
   }

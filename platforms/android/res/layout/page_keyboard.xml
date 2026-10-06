@@ -1,278 +1,226 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The 设置 tab, laid out as the design's Android settings home: a large title, the search pill, the accentSoft status card with the two setup checks, the keyboard preview with 试用键盘, then the setting groups as M3 rows (built in KeyboardFragment). A compact bar fades in over the top once the large title has scrolled away. -->
+<!-- 设置 tab，按设计的 Android 设置首页排：大标题「设置」、搜索胶囊、r24 状态卡（logo 圆盘、名字、状态行、两条检查、系统输入法设置、整宽「试用键盘」药丸）、通知横幅，然后是各组导航行（KeyboardFragment 用 HomeNavGroup 生成）。大标题滚走后顶部淡入一条紧凑标题栏。 -->
 <FrameLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="match_parent"
+    android:background="?android:attr/colorBackground">
 
     <androidx.core.widget.NestedScrollView
         android:id="@+id/keyboard_scroll"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:clipToPadding="false"
-        android:paddingBottom="120dp">
+        android:clipToPadding="false">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical">
+            android:orientation="vertical"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp">
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:accessibilityHeading="true"
-                android:paddingStart="16dp"
+                android:paddingStart="4dp"
                 android:paddingTop="22dp"
-                android:paddingEnd="16dp"
-                android:paddingBottom="10dp"
+                android:paddingBottom="18dp"
                 android:text="@string/tab_settings"
-                android:textColor="@color/ink"
+                android:textColor="?attr/colorOnSurface"
                 android:textSize="28sp" />
 
-            <!-- The design's search pill. It filters the rows below by name, current value and what their sheets contain (KeyboardFragment.applySearch). -->
-            <com.google.android.material.textfield.TextInputLayout
-                android:id="@+id/keyboard_search_field"
-                style="@style/Widget.Material3.TextInputLayout.FilledBox"
+            <!-- 设计的搜索胶囊：按 PageId 的标题与关键词找页面，也按本页各行的名字和当前值过滤（KeyboardFragment.applySearch）。 -->
+            <app.msime.android.home.SearchPill
+                android:id="@+id/keyboard_search"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
+
+            <!-- 水杉团队的通知（GET /v1/notices，channel app），由 NoticeBanner 填充；没有通知时不占位。 -->
+            <LinearLayout
+                android:id="@+id/keyboard_notices"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="16dp"
-                android:layout_marginTop="4dp"
-                android:layout_marginEnd="16dp"
-                app:boxBackgroundColor="@color/search_field"
-                app:boxCornerRadiusBottomEnd="28dp"
-                app:boxCornerRadiusBottomStart="28dp"
-                app:boxCornerRadiusTopEnd="28dp"
-                app:boxCornerRadiusTopStart="28dp"
-                app:boxStrokeWidth="0dp"
-                app:boxStrokeWidthFocused="0dp"
-                app:endIconMode="clear_text"
-                app:hintEnabled="false"
-                app:startIconDrawable="@drawable/ic_search"
-                app:startIconTint="@color/text_secondary">
+                android:orientation="vertical" />
 
-                <com.google.android.material.textfield.TextInputEditText
-                    android:id="@+id/keyboard_search"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:hint="@string/keyboard_search_hint"
-                    android:imeOptions="actionSearch"
-                    android:inputType="text"
-                    android:paddingTop="14dp"
-                    android:paddingBottom="14dp"
-                    android:singleLine="true"
-                    android:textColor="@color/ink"
-                    android:textColorHint="@color/text_secondary"
-                    android:textSize="15sp" />
-            </com.google.android.material.textfield.TextInputLayout>
-
-            <com.google.android.material.card.MaterialCardView
+            <LinearLayout
                 android:id="@+id/keyboard_status_card"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="16dp"
                 android:layout_marginTop="12dp"
-                android:layout_marginEnd="16dp"
-                app:cardBackgroundColor="@color/surface_variant"
-                app:cardCornerRadius="24dp"
-                app:cardElevation="0dp"
-                app:strokeWidth="0dp">
+                android:orientation="vertical"
+                android:paddingStart="16dp"
+                android:paddingTop="16dp"
+                android:paddingEnd="16dp"
+                android:paddingBottom="16dp">
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:padding="16dp">
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <ImageView
+                        android:layout_width="52dp"
+                        android:layout_height="52dp"
+                        android:importantForAccessibility="no"
+                        android:src="@drawable/ms_w2_home_logo_disc" />
 
                     <LinearLayout
-                        android:layout_width="match_parent"
+                        android:layout_width="0dp"
                         android:layout_height="wrap_content"
-                        android:gravity="center_vertical"
-                        android:orientation="horizontal">
-
-                        <ImageView
-                            android:layout_width="44dp"
-                            android:layout_height="44dp"
-                            android:importantForAccessibility="no"
-                            android:src="@drawable/splash_mark" />
-
-                        <LinearLayout
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_marginStart="12dp"
-                            android:layout_weight="1"
-                            android:orientation="vertical">
-
-                            <TextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="@string/app_name"
-                                android:textColor="@color/ink"
-                                android:textFontWeight="600"
-                                android:textSize="17sp"
-                                android:textStyle="bold" />
-
-                            <TextView
-                                android:id="@+id/keyboard_status_line"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:layout_marginTop="2dp"
-                                android:text="@string/keyboard_status_checking"
-                                android:textColor="@color/text_secondary"
-                                android:textSize="13sp" />
-                        </LinearLayout>
-                    </LinearLayout>
-
-                    <LinearLayout
-                        android:id="@+id/keyboard_check_enabled"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="14dp"
-                        android:gravity="center_vertical"
-                        android:minHeight="28dp"
-                        android:orientation="horizontal">
+                        android:layout_marginStart="12dp"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
 
                         <TextView
-                            android:id="@+id/keyboard_check_enabled_mark"
-                            android:layout_width="20dp"
-                            android:layout_height="20dp"
-                            android:gravity="center"
-                            android:importantForAccessibility="no"
-                            android:textSize="12sp" />
-
-                        <TextView
-                            android:id="@+id/keyboard_check_enabled_label"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_marginStart="10dp"
-                            android:layout_weight="1"
-                            android:text="@string/settings_check_enabled"
-                            android:textColor="@color/ink"
-                            android:textSize="14sp" />
-
-                        <com.google.android.material.button.MaterialButton
-                            android:id="@+id/keyboard_check_enabled_action"
-                            style="@style/Widget.Material3.Button.TextButton"
                             android:layout_width="wrap_content"
-                            android:layout_height="36dp"
-                            android:insetTop="0dp"
-                            android:insetBottom="0dp"
-                            android:minWidth="0dp"
-                            android:paddingStart="8dp"
-                            android:paddingEnd="8dp"
-                            android:text="@string/settings_action_enable"
-                            android:textSize="14sp"
-                            android:visibility="gone" />
-                    </LinearLayout>
-
-                    <LinearLayout
-                        android:id="@+id/keyboard_check_default"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="4dp"
-                        android:gravity="center_vertical"
-                        android:minHeight="28dp"
-                        android:orientation="horizontal">
-
-                        <TextView
-                            android:id="@+id/keyboard_check_default_mark"
-                            android:layout_width="20dp"
-                            android:layout_height="20dp"
-                            android:gravity="center"
-                            android:importantForAccessibility="no"
-                            android:textSize="12sp" />
-
-                        <TextView
-                            android:id="@+id/keyboard_check_default_label"
-                            android:layout_width="0dp"
                             android:layout_height="wrap_content"
-                            android:layout_marginStart="10dp"
-                            android:layout_weight="1"
-                            android:text="@string/settings_check_default"
-                            android:textColor="@color/ink"
-                            android:textSize="14sp" />
+                            android:text="@string/app_name"
+                            android:textColor="?attr/colorOnSurface"
+                            android:textFontWeight="600"
+                            android:textSize="17sp"
+                            android:textStyle="bold" />
 
-                        <com.google.android.material.button.MaterialButton
-                            android:id="@+id/keyboard_check_default_action"
-                            style="@style/Widget.Material3.Button.TextButton"
+                        <TextView
+                            android:id="@+id/keyboard_status_line"
                             android:layout_width="wrap_content"
-                            android:layout_height="36dp"
-                            android:insetTop="0dp"
-                            android:insetBottom="0dp"
-                            android:minWidth="0dp"
-                            android:paddingStart="8dp"
-                            android:paddingEnd="8dp"
-                            android:text="@string/settings_action_default"
-                            android:textSize="14sp"
-                            android:visibility="gone" />
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:text="@string/keyboard_status_checking"
+                            android:textColor="?attr/colorOnSurfaceVariant"
+                            android:textSize="13sp" />
                     </LinearLayout>
-
-                    <TextView
-                        android:id="@+id/keyboard_preparation"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="12dp"
-                        android:background="@drawable/bg_field"
-                        android:lineSpacingExtra="3dp"
-                        android:padding="12dp"
-                        android:textColor="@color/ink"
-                        android:textSize="13sp"
-                        android:visibility="gone" />
                 </LinearLayout>
-            </com.google.android.material.card.MaterialCardView>
-
-            <com.google.android.material.card.MaterialCardView
-                android:id="@+id/keyboard_card"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="16dp"
-                android:layout_marginTop="12dp"
-                android:layout_marginEnd="16dp"
-                app:cardBackgroundColor="@color/surface"
-                app:cardCornerRadius="16dp"
-                app:cardElevation="0dp"
-                app:strokeWidth="0dp">
 
                 <LinearLayout
+                    android:id="@+id/keyboard_check_enabled"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:padding="16dp">
+                    android:layout_marginTop="14dp"
+                    android:gravity="center_vertical"
+                    android:minHeight="28dp"
+                    android:orientation="horizontal">
 
                     <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="@string/keyboard_card_title"
-                        android:textColor="@color/ink"
-                        android:textSize="16sp" />
+                        android:id="@+id/keyboard_check_enabled_mark"
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:gravity="center"
+                        android:importantForAccessibility="no"
+                        android:textSize="12sp"
+                        android:textStyle="bold" />
 
                     <TextView
-                        android:id="@+id/keyboard_summary"
-                        android:layout_width="wrap_content"
+                        android:id="@+id/keyboard_check_enabled_label"
+                        android:layout_width="0dp"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="1dp"
-                        android:textColor="@color/text_secondary"
+                        android:layout_marginStart="10dp"
+                        android:layout_weight="1"
+                        android:text="@string/settings_check_enabled"
+                        android:textColor="?attr/colorOnSurface"
                         android:textSize="14sp" />
 
-                    <app.msime.android.home.KeyboardPreview
-                        android:id="@+id/keyboard_preview"
-                        android:layout_width="match_parent"
-                        android:layout_height="210dp"
-                        android:layout_marginTop="12dp" />
-
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/keyboard_try"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="12dp"
-                        android:minHeight="48dp"
-                        android:text="@string/keyboard_try"
+                    <TextView
+                        android:id="@+id/keyboard_check_enabled_action"
+                        android:layout_width="wrap_content"
+                        android:layout_height="36dp"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:gravity="center"
+                        android:paddingStart="8dp"
+                        android:paddingEnd="4dp"
+                        android:text="@string/settings_action_enable"
+                        android:textColor="?attr/colorPrimary"
                         android:textSize="14sp"
-                        app:cornerRadius="24dp"
-                        app:icon="@drawable/ic_tab_keyboard"
-                        app:iconGravity="textStart" />
+                        android:visibility="gone" />
                 </LinearLayout>
-            </com.google.android.material.card.MaterialCardView>
+
+                <LinearLayout
+                    android:id="@+id/keyboard_check_default"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:gravity="center_vertical"
+                    android:minHeight="28dp"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:id="@+id/keyboard_check_default_mark"
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:gravity="center"
+                        android:importantForAccessibility="no"
+                        android:textSize="12sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/keyboard_check_default_label"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="10dp"
+                        android:layout_weight="1"
+                        android:text="@string/settings_check_default"
+                        android:textColor="?attr/colorOnSurface"
+                        android:textSize="14sp" />
+
+                    <TextView
+                        android:id="@+id/keyboard_check_default_action"
+                        android:layout_width="wrap_content"
+                        android:layout_height="36dp"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:gravity="center"
+                        android:paddingStart="8dp"
+                        android:paddingEnd="4dp"
+                        android:text="@string/settings_action_default"
+                        android:textColor="?attr/colorPrimary"
+                        android:textSize="14sp"
+                        android:visibility="gone" />
+                </LinearLayout>
+
+                <!-- P11：系统输入法设置放进状态卡，是一条强调色的文字链接。 -->
+                <TextView
+                    android:id="@+id/keyboard_system_settings"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:layout_marginTop="2dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:gravity="center_vertical"
+                    android:paddingStart="30dp"
+                    android:paddingEnd="4dp"
+                    android:textColor="?attr/colorPrimary"
+                    android:textSize="13sp" />
+
+                <TextView
+                    android:id="@+id/keyboard_preparation"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:lineSpacingExtra="3dp"
+                    android:padding="12dp"
+                    android:textColor="?attr/colorOnSurface"
+                    android:textSize="13sp"
+                    android:visibility="gone" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/keyboard_try"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:layout_marginTop="12dp"
+                    android:backgroundTint="?attr/colorPrimary"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp"
+                    android:text="@string/keyboard_try"
+                    android:textColor="?attr/colorOnPrimary"
+                    android:textFontWeight="600"
+                    android:textSize="15sp"
+                    app:cornerRadius="24dp"
+                    app:icon="@drawable/ic_ms_keyboard"
+                    app:iconGravity="textStart"
+                    app:iconPadding="8dp"
+                    app:iconSize="18dp"
+                    app:iconTint="?attr/colorOnPrimary" />
+            </LinearLayout>
 
             <LinearLayout
                 android:id="@+id/keyboard_rows"
@@ -280,6 +228,15 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="12dp"
                 android:orientation="vertical" />
+
+            <!-- 搜索时代替上面各块：匹配到的页面和本页行。 -->
+            <LinearLayout
+                android:id="@+id/keyboard_search_results"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:orientation="vertical"
+                android:visibility="gone" />
 
             <TextView
                 android:id="@+id/keyboard_search_empty"
@@ -291,25 +248,25 @@
                 android:paddingTop="24dp"
                 android:paddingEnd="24dp"
                 android:text="@string/keyboard_search_empty"
-                android:textColor="@color/text_secondary"
+                android:textColor="?attr/colorOnSurfaceVariant"
                 android:textSize="14sp"
                 android:visibility="gone" />
         </LinearLayout>
     </androidx.core.widget.NestedScrollView>
 
-    <!-- The collapsed top bar. It never takes touches: it only restates where the user is once the large title is gone. -->
+    <!-- 收起后的顶栏：不接触摸，只在大标题滚走后说明用户在哪一页。 -->
     <TextView
         android:id="@+id/keyboard_bar"
         android:layout_width="match_parent"
         android:layout_height="64dp"
         android:alpha="0"
-        android:background="@color/nav_bar"
+        android:background="?android:attr/colorBackground"
         android:gravity="center_vertical"
         android:importantForAccessibility="no"
-        android:paddingStart="16dp"
+        android:paddingStart="20dp"
         android:paddingEnd="16dp"
         android:text="@string/tab_settings"
-        android:textColor="@color/ink"
+        android:textColor="?attr/colorOnSurface"
         android:textSize="22sp"
         android:visibility="invisible" />
 </FrameLayout>

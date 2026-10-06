@@ -49,7 +49,7 @@ struct SkinSettingsView: View {
                            detail: savedDesigns == 0 ? "还没有命名保存的方案" : "本机保存了 \(savedDesigns) 套方案",
                            symbol: "paintbrush.pointed.fill")
         }.accessibilityIdentifier("customSkinEditorLink")
-        Button { navigation.discoverSkins() } label: { Label("去社区发现皮肤", systemImage: "square.grid.2x2") }
+        Button { navigation.discoverSkins() } label: { Label("去社区找皮肤", systemImage: "square.grid.2x2") }
           .accessibilityIdentifier("skinCommunityLink")
       } header: {
         Text("自定义主题")
@@ -148,7 +148,7 @@ struct SkinSettingsView: View {
   /// 「键盘明暗」 from the shared document (see KeyboardAppearancePreference). iPad lists the panels beside the keyboard; the phone folds them away, since most people only ever set the keyboard.
   private var appearanceSection: some View {
     Section {
-      Picker("主题模式", selection: theme(AppAppearancePreference.globalKey, fallback: "system")) {
+      Picker("颜色模式", selection: theme(AppAppearancePreference.globalKey, fallback: "system")) {
         ForEach(AppAppearancePreference.globalOptions, id: \.id) { Text($0.title).tag($0.id) }
       }.accessibilityIdentifier("globalTheme")
       Picker("设置界面", selection: theme(AppAppearancePreference.settingsKey)) {
@@ -167,7 +167,7 @@ struct SkinSettingsView: View {
     } footer: {
       Text(themeSaveFailed
         ? "设置没有保存，键盘可能正在写入同一份设置，请再试一次。"
-        : "与电脑版的主题模式、设置界面、屏幕键盘、手写、表情和语音主题同步。主题模式是各处选“跟随”时的默认值；设置界面就是这个 App，立即生效。键盘选“跟随系统”时先看主题模式，再跟随当前 App 的外观；面板选“跟随键盘”时和键盘一致。键盘和面板下次打开水杉键盘时应用。")
+        : "与电脑版的颜色模式、设置界面、屏幕键盘、手写、表情和语音主题同步。颜色模式是各处选“跟随”时的默认值；设置界面就是这个 App，立即生效。键盘选“跟随系统”时先看颜色模式，再跟随当前 App 的外观；面板选“跟随键盘”时和键盘一致。键盘和面板下次打开水杉键盘时应用。")
     }
   }
 
@@ -231,7 +231,7 @@ struct DictionarySettingsView: View {
   @State private var habits = InputHabitPreference.mirrored
   @State private var saveFailed = false
   private var manifest: [String: Any] {
-    guard let url = Bundle.main.url(forResource: "dictionary-manifest", withExtension: "json"),
+    guard let url = Bundle.main.url(forResource: "msime-dictionary-manifest", withExtension: "json"),
           let data = try? Data(contentsOf: url),
           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [:] }
     return object
@@ -299,7 +299,7 @@ struct DictionarySettingsView: View {
       }
       Section("已安装词库") {
         Label("内置离线多方案词库", systemImage: "checkmark.circle.fill")
-        Text("支持全拼 26 键、全拼 9 键、小鹤／自然码／微软／首道双拼、86 五笔、日语罗马字和韩语两套式；提供英文补全、快捷短语、表情及颜文字。")
+        Text("支持全拼 26 键、全拼 9 键、小鹤／自然码／微软／首道双拼、86／98 五笔、日语罗马字、韩语两套式、粤拼、大千注音（繁体输出）、越南语 Telex／VNI、藏文威利转写（EWTS）和笔画（横竖撇点折五键加通配）；粤拼、注音和笔画需要安装包里带有对应的语言词库，默认不启用，可在方案设置里打开；提供英文补全、快捷短语、表情及颜文字。")
           .foregroundStyle(.secondary)
         HStack {
           Text("更新方式")
@@ -324,7 +324,7 @@ struct DictionarySettingsView: View {
         Label("长按候选词", systemImage: "hand.tap")
         Text("全拼 26 键、九键、双拼和五笔支持长按候选词：优先显示、固定到前五位中的某一位、取消固定或删除词条。删除需要再次确认，单个汉字由引擎保护。")
           .foregroundStyle(.secondary)
-        Text("日语、韩语和本地工具暂不支持候选词管理。第三方词库文件（词在前、编码在前或 Rime 格式）在「个人词库」的「导入个人词库」里导入。")
+        Text("日语、韩语、粤拼、注音、越南语、藏文、笔画和本地工具暂不支持候选词管理。第三方词库文件（词在前、编码在前或 Rime 格式）在「个人词库」的「导入个人词库」里导入。")
           .foregroundStyle(.secondary)
       }
     }
@@ -419,7 +419,7 @@ struct ServiceSettingsView: View {
               }
             }
         } footer: {
-          Text("开启后点击“保存配置”，即可在键盘“更多 → AI 润色”或“高情商回复”方案中使用。需要允许完全访问；每次发送前会预览文字。")
+          Text("开启后点击“保存配置”，即可在键盘“更多 → AI 润色”或工具栏的“高情商回复”按钮中使用。需要允许完全访问；每次发送前会预览文字。")
         }
         if keyboardAIEnabled {
           Section {
@@ -626,7 +626,7 @@ struct ServiceSettingsView: View {
       Toggle("识别后自动润色", isOn: $voiceSettings.polishEnabled)
         .accessibilityIdentifier("voicePolishEnabled")
       if voiceSettings.polishEnabled {
-        Picker("润色方式", selection: Binding(get: { voiceSettings.promptID }, set: { voiceSettings.select($0) })) {
+        Picker("润色方式", selection: $voiceSettings.promptID) {
           ForEach(VoicePolishSettings.presets, id: \.id) { Text($0.title).tag($0.id) }
         }
         .accessibilityIdentifier("voicePolishPreset")
@@ -634,14 +634,10 @@ struct ServiceSettingsView: View {
           TextEditor(text: $voiceSettings.customPrompts[slot]).frame(minHeight: 100)
             .accessibilityLabel("自定义润色提示词").accessibilityIdentifier("voicePolishCustomPrompt")
         } else {
-          // The desktop's prompt box: a built-in preset can be edited too, and the edit is kept until 恢复默认 or another preset is picked.
-          DisclosureGroup(voiceSettings.legacyPrompt.isEmpty ? "查看或修改提示词" : "提示词（已修改）") {
-            TextEditor(text: $voiceSettings.presetPromptText).font(.footnote).frame(minHeight: 140)
-              .accessibilityLabel("润色提示词").accessibilityIdentifier("voicePolishPresetPrompt")
-            if !voiceSettings.legacyPrompt.isEmpty {
-              Button("恢复默认") { voiceSettings.legacyPrompt = "" }
-                .accessibilityIdentifier("voicePolishPromptReset")
-            }
+          // A built-in preset's text is shown as is; a different prompt goes into one of the custom slots.
+          DisclosureGroup("查看提示词") {
+            Text(voiceSettings.systemPrompt).font(.footnote).textSelection(.enabled)
+              .accessibilityIdentifier("voicePolishPresetPrompt")
           }
           .accessibilityIdentifier("voicePolishPromptDisclosure")
         }

@@ -23,8 +23,6 @@ from pathlib import Path
 # is exactly what a defect looks like from the outside.
 NOT_APPLICABLE = {
     "settings_theme": "the settings application's own appearance; the input method has no window to theme",
-    "ui_backend": "which settings surface the host opens, chosen by the host rather than read from itself",
-    "touch_keyboard_schemes": "the touch keyboard, which macOS has no equivalent of; the screen keyboard is a separate surface with its own preferences",
     "touch_key_spacing_tenths": "the touch keyboard",
     "touch_row_spacing_tenths": "the touch keyboard",
     "touch_keyboard_height_adjustment": "the touch keyboard",
@@ -32,7 +30,7 @@ NOT_APPLICABLE = {
     "touch_toolbar": "the touch keyboard's row above the keys",
     "number_row_selection": "releasing the number row back to the editor, offered only where the host advertises it - Linux and HarmonyOS; Windows and macOS both keep number selection",
     "english_suggestions": "the mobile suggestion strip; desktop hosts show English candidates through mixed_input instead",
-    "telemetry_enabled": "the Windows Server's opt-in for its start and crash events; the macOS input method reports through BackendTelemetryClient, which reads no preference, and the settings page offers this switch on Windows only",
+    "show_candidate_page_number": "offered only where the host advertises candidate_page_number - Linux alone (7508f045e); the macOS candidate window always draws its page indicator and the shared page does not show the switch here",
 }
 
 

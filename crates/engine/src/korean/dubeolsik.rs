@@ -189,7 +189,7 @@ impl Syllable {
 
 /// The syllables `keys` compose to, each with the key index it starts at. Keys that are not layout letters are skipped.
 fn fold(keys: &[u8]) -> Vec<Syllable> {
-    let mut syllables = Vec::new();
+    let mut syllables = Vec::with_capacity(keys.len());
     let mut current = Syllable::starting_at(0);
     for (index, &key) in keys.iter().enumerate() {
         let Some(jamo) = jamo_for_key(key) else {
@@ -253,7 +253,7 @@ fn fold(keys: &[u8]) -> Vec<Syllable> {
 
 /// The Hangul text `keys` spell.
 pub fn compose(keys: &str) -> String {
-    let mut output = String::new();
+    let mut output = String::with_capacity(keys.len().saturating_mul(3));
     for syllable in fold(keys.as_bytes()) {
         syllable.render(&mut output);
     }
@@ -266,7 +266,7 @@ pub fn split_finished(keys: &str) -> (String, &str) {
     let Some((last, finished)) = syllables.split_last() else {
         return (String::new(), keys);
     };
-    let mut text = String::new();
+    let mut text = String::with_capacity(finished.len().saturating_mul(3));
     for syllable in finished {
         syllable.render(&mut text);
     }
@@ -276,6 +276,23 @@ pub fn split_finished(keys: &str) -> (String, &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fold_reserves_one_slot_per_key() {
+        let syllables = fold(b"rkrk");
+        assert_eq!(syllables.capacity(), 4);
+    }
+
+    #[test]
+    fn rendered_text_reserves_utf8_bytes() {
+        let composed = compose("rkrk");
+        assert_eq!(composed, "가가");
+        assert_eq!(composed.capacity(), 12);
+        let (finished, rest) = split_finished("rkrk");
+        assert_eq!(finished, "가");
+        assert_eq!(rest, "rk");
+        assert_eq!(finished.capacity(), 3);
+    }
 
     #[test]
     fn every_letter_types_its_dubeolsik_jamo() {

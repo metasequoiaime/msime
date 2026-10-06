@@ -50,12 +50,11 @@ public final class PreferencesDeviceSmoke extends DeviceSmoke {
             snapshot.put("revision", revision + 2);
             snapshot.getJSONObject("preferences").put("candidate_page_size", 2).put("chinese_punctuation", false);
             publish(preferences, snapshot.toString().getBytes(StandardCharsets.UTF_8));
-            await(imeTextContains("MSIME Preview · 设置将在组词结束后应用"));
+            await(imeTextContains("设置将在组词结束后应用"));
             await(field("msime-test-plain").and(node -> equalsText("nihao", node.getText())));
             stage = "commit preserves composition";
             tap(key("空格"));
             await(field("msime-test-plain").and(node -> equalsText("你好", node.getText())));
-            await(key("MSIME Preview"));
             stage = "updated punctuation";
             tapSymbol(",");
             await(field("msime-test-plain").and(node -> equalsText("你好,", node.getText())));
@@ -69,7 +68,7 @@ public final class PreferencesDeviceSmoke extends DeviceSmoke {
             stage = "malformed preferences preserve working input";
             byte[] broken = "broken".getBytes(StandardCharsets.UTF_8);
             publish(preferences, broken);
-            await(key("MSIME Preview · 设置读取或应用失败，保留当前设置"));
+            await(key("设置读取或应用失败，保留当前设置"));
             typePhrase();
             tap(key("空格"));
             await(field("msime-test-plain").and(node -> node.getText() != null && node.getText().toString().endsWith("你好")));
@@ -78,7 +77,6 @@ public final class PreferencesDeviceSmoke extends DeviceSmoke {
             snapshot.put("revision", revision + 3);
             snapshot.getJSONObject("preferences").put("chinese_punctuation", true);
             publish(preferences, snapshot.toString().getBytes(StandardCharsets.UTF_8));
-            await(key("MSIME Preview"));
             tapSymbol(",");
             await(field("msime-test-plain").and(node -> node.getText() != null && node.getText().toString().endsWith("你好，")));
         } catch (Exception | AssertionError error) {

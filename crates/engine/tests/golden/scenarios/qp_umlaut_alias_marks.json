@@ -9,7 +9,7 @@
  ],
  "fixture": {
   "databases": {
-   "msime.db": "CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_n VALUES('nve', 'n', '虐', 100);INSERT INTO tbl_1_n VALUES('nv', 'n', '女', 90);INSERT INTO tbl_1_n VALUES('nu', 'n', '怒', 80);CREATE TABLE tbl_1_l(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_l VALUES('lve', 'l', '略', 100);INSERT INTO tbl_1_l VALUES('lv', 'l', '绿', 90);INSERT INTO tbl_1_l VALUES('lu', 'l', '路', 80);CREATE TABLE tbl_1_j(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_j VALUES('jue', 'j', '决', 100);CREATE TABLE tbl_1_e(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_e VALUES('e', 'e', '鹅', 50);CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_2_n VALUES('nu''e', 'ne', '怒鹅', 30);"
+   "msime-pinyin.db": "CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_n VALUES('nve', 'n', '虐', 100);INSERT INTO tbl_1_n VALUES('nv', 'n', '女', 90);INSERT INTO tbl_1_n VALUES('nu', 'n', '怒', 80);CREATE TABLE tbl_1_l(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_l VALUES('lve', 'l', '略', 100);INSERT INTO tbl_1_l VALUES('lv', 'l', '绿', 90);INSERT INTO tbl_1_l VALUES('lu', 'l', '路', 80);CREATE TABLE tbl_1_j(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_j VALUES('jue', 'j', '决', 100);CREATE TABLE tbl_1_e(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_e VALUES('e', 'e', '鹅', 50);CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_2_n VALUES('nu''e', 'ne', '怒鹅', 30);"
   }
  },
  "options": {
@@ -116,7 +116,7 @@
   },
   {
    "op": "query",
-   "db": "msime.db",
+   "db": "msime-pinyin.db",
    "arg": "SELECT key,value,weight FROM tbl_1_n ORDER BY 1,2"
   },
   {

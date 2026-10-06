@@ -5,6 +5,7 @@ import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.stream.Stream;
 import java.nio.charset.StandardCharsets;
+import java.io.ByteArrayInputStream;
 
 public final class BootstrapMarkerSmoke {
     static void check(boolean condition) { if (!condition) throw new AssertionError(); }
@@ -12,15 +13,37 @@ public final class BootstrapMarkerSmoke {
     public static void main(String[] args) throws Exception {
         Path exact = Files.createTempFile("bootstrap-marker", ".txt");
         Path oversized = Files.createTempFile("bootstrap-marker", ".txt");
+        Path markerRoot = Files.createTempDirectory("bootstrap-marker-link");
+        Path markerOutside = Files.createTempFile("bootstrap-marker-outside", ".txt");
         try {
             String stamp = "1234567890123";
             Files.write(exact, stamp.getBytes(StandardCharsets.UTF_8));
             Files.write(oversized, new byte[65]);
             check(stamp.equals(Bootstrap.readMarker(exact)));
             check(Bootstrap.readMarker(oversized) == null);
+            Files.write(markerOutside, stamp.getBytes(StandardCharsets.UTF_8));
+            Path linked = markerRoot.resolve(".package");
+            Files.createSymbolicLink(linked, markerOutside);
+            check(Bootstrap.readMarker(linked) == null);
+
+            Path configurationOutside = Files.createTempFile("bootstrap-config-outside", ".json");
+            Path configurationLink = markerRoot.resolve("runtime-options.json");
+            Files.createSymbolicLink(configurationLink, configurationOutside);
+            boolean configurationRejected = false;
+            try {
+                Bootstrap.existingConfiguration(configurationLink.toFile());
+            } catch (java.io.IOException expected) {
+                configurationRejected = true;
+            }
+            check(configurationRejected);
+            Files.deleteIfExists(configurationOutside);
         } finally {
             Files.deleteIfExists(exact);
             Files.deleteIfExists(oversized);
+            Files.deleteIfExists(markerRoot.resolve(".package"));
+            Files.deleteIfExists(markerRoot.resolve("runtime-options.json"));
+            Files.deleteIfExists(markerRoot);
+            Files.deleteIfExists(markerOutside);
         }
         Path root = Files.createTempDirectory("bootstrap-delete-tree");
         Path outside = Files.createTempDirectory("bootstrap-delete-outside");
@@ -86,6 +109,50 @@ public final class BootstrapMarkerSmoke {
             Files.deleteIfExists(boundaryRoot);
             Files.deleteIfExists(boundaryOutside.resolve("resources"));
             Files.deleteIfExists(boundaryOutside);
+        }
+        // 系统自己的链接（Android 应用 mount namespace 里的 `/data/user/0 -> /data/data`，macOS 的 `/tmp` 和 `/var`）只有目标完全一致时才放行；拒绝它们的设备永远准备不好词库。
+        check(SafePaths.trustedSystemAliasTarget(Path.of("/data/user/0"), Path.of("/data/data")));
+        check(SafePaths.trustedSystemAliasTarget(Path.of("/var"), Path.of("private/var")));
+        check(!SafePaths.trustedSystemAliasTarget(Path.of("/data/user/0"), Path.of("/data/local/tmp")));
+        check(!SafePaths.trustedSystemAliasTarget(Path.of("/data/user/10"), Path.of("/data/data")));
+        check(!SafePaths.trustedSystemAliasTarget(Path.of("/data/user/0/app"), Path.of("/data/data/app")));
+        Path aliasRoot = Files.createTempDirectory("bootstrap-alias-root").toRealPath();
+        Path aliasOutside = Files.createTempDirectory("bootstrap-alias-outside");
+        try {
+            Path planted = aliasRoot.resolve("files");
+            Files.createSymbolicLink(planted, aliasOutside);
+            boolean rejected = false;
+            try {
+                SafePaths.ensureDirectory(planted.resolve("bootstrap"));
+            } catch (java.io.IOException expected) {
+                rejected = true;
+            }
+            check(rejected);
+            check(!Files.exists(aliasOutside.resolve("bootstrap")));
+            SafePaths.ensureDirectory(aliasRoot.resolve("real/bootstrap"));
+            check(Files.isDirectory(aliasRoot.resolve("real/bootstrap")));
+        } finally {
+            Files.deleteIfExists(aliasRoot.resolve("real/bootstrap"));
+            Files.deleteIfExists(aliasRoot.resolve("real"));
+            Files.deleteIfExists(aliasRoot.resolve("files"));
+            Files.deleteIfExists(aliasRoot);
+            Files.deleteIfExists(aliasOutside);
+        }
+        Path copyRoot = Files.createTempDirectory("bootstrap-copy-root");
+        Path copyOutside = Files.createTempDirectory("bootstrap-copy-outside");
+        try {
+            Path destination = copyRoot.resolve("table.txt");
+            Path sentinel = copyOutside.resolve("sentinel.txt");
+            Files.writeString(sentinel, "keep");
+            Files.createSymbolicLink(destination, sentinel);
+            Bootstrap.copyAsset(new ByteArrayInputStream("replacement".getBytes(StandardCharsets.UTF_8)), destination);
+            check(Files.readString(sentinel).equals("keep"));
+            check(Files.readString(destination).equals("replacement"));
+        } finally {
+            Files.deleteIfExists(copyRoot.resolve("table.txt"));
+            Files.deleteIfExists(copyRoot);
+            Files.deleteIfExists(copyOutside.resolve("sentinel.txt"));
+            Files.deleteIfExists(copyOutside);
         }
         System.out.println("Android bootstrap marker bounds passed");
     }

@@ -7,9 +7,11 @@ pub mod registry;
 pub mod scheme;
 
 use std::collections::HashSet;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::assets;
+use crate::error::Result;
 use crate::helpcode::SharedKeymap;
 use crate::paths::RuntimePaths;
 use crate::pinyin::autocorrect::autocorrect_suppression_key;
@@ -21,10 +23,14 @@ use crate::shuangpin::query::{
 };
 use crate::shuangpin::ShuangpinProfile;
 use crate::types::{
-    autocorrect_type, CandidateSource, FuzzyPinyinOptions, QueryRequest, SchemeKey, SchemeType,
-    SentenceAssociationOptions, ShuangpinProfileKind, WordItem, WubiInputOptions,
+    autocorrect_type, CandidateSource, FuzzyPinyinOptions, QueryRequest, SchemeKey, SchemeSet,
+    SchemeType, SentenceAssociationOptions, ShuangpinProfileKind, WordItem, WubiInputOptions,
 };
 use crate::user_dictionary::typo_profile::PersonalTypoProfile;
+use crate::vietnamese::{
+    InputMethod as VietnameseInputMethod, ToneStyle as VietnameseToneStyle, VietnameseScheme,
+};
+use crate::zhuyin::scheme::{ZhuyinKey, ZhuyinScheme};
 
 use registry::ProviderRegistry;
 use scheme::Scheme;
@@ -35,6 +41,8 @@ pub struct CompositionState {
     pub preedit: String,
     pub request: QueryRequest,
     pub candidates: Vec<WordItem>,
+    /// 候选对应的完整五笔 86 编码，仅供宿主显示反查提示。
+    pub wubi_codes: Vec<String>,
 }
 
 /// One decode of a request, before it is stored as the live state.
@@ -49,9 +57,13 @@ pub struct ImeSession {
     registry: ProviderRegistry,
     state: CompositionState,
     profile: ShuangpinProfileKind,
+    vietnamese_method: VietnameseInputMethod,
+    vietnamese_style: VietnameseToneStyle,
     wubi_options: WubiInputOptions,
     /// Mixed wubi only: a pinyin candidate was picked out of this composition, so the rest decodes as quanpin until the composition ends (product decision 2026-09-30, the intent of test_wubi_mixed_input_session.cpp:194-212). Cleared by `reset`, `switch_scheme`, turning mixed input off, and an emptied composition.
     pinyin_tail: bool,
+    /// 注音九键模式。注音编辑器被换掉再新建时（切到别的方案再切回来）由这里带过去。
+    zhuyin_nine_key: bool,
     autocorrect_types: u32,
     quanpin_helpcode: bool,
     shuangpin_helpcode: bool,
@@ -63,15 +75,46 @@ pub struct ImeSession {
 }
 
 impl ImeSession {
-    /// ime_session.cpp:42-49.
-    pub fn new(scheme: SchemeType, profile: ShuangpinProfileKind, paths: &RuntimePaths) -> Self {
+    /// ime_session.cpp:42-49. `cantonese_dictionary`, `zhuyin_dictionary` and `stroke_dictionary` are where `msime-cantonese.db`, `msime-zhuyin.db` and `msime-stroke.db` are, each read only when its scheme is activated; starting in Cantonese, Zhuyin or Stroke fails as `switch_scheme` does when its file cannot be opened. `japanese_dictionary` 是 `msime-japanese.dat` 的位置，为空时读资源目录里的那份。`enabled` 是会话允许运行的方案，`scheme` 不在其中时报 `INPUT_SCHEME_NOT_ENABLED`。
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        scheme: SchemeType,
+        enabled: SchemeSet,
+        profile: ShuangpinProfileKind,
+        paths: &RuntimePaths,
+        cantonese_dictionary: PathBuf,
+        zhuyin_dictionary: PathBuf,
+        stroke_dictionary: PathBuf,
+        japanese_dictionary: PathBuf,
+    ) -> Result<Self> {
+        let mut registry = ProviderRegistry::new(
+            enabled,
+            profile,
+            paths,
+            cantonese_dictionary,
+            zhuyin_dictionary,
+            stroke_dictionary,
+            japanese_dictionary,
+        );
+        registry.activate(scheme)?;
+        let zhuyin = registry.take_dictionary(scheme);
         let mut session = Self {
-            scheme: Scheme::new(scheme, profile),
-            registry: ProviderRegistry::new(profile, paths),
+            scheme: Scheme::new(
+                scheme,
+                profile,
+                VietnameseInputMethod::default(),
+                VietnameseToneStyle::default(),
+                registry.cantonese_inventory(),
+                zhuyin,
+            )?,
+            registry,
             state: CompositionState::default(),
             profile,
+            vietnamese_method: VietnameseInputMethod::default(),
+            vietnamese_style: VietnameseToneStyle::default(),
             wubi_options: WubiInputOptions::default(),
             pinyin_tail: false,
+            zhuyin_nine_key: false,
             autocorrect_types: 0,
             quanpin_helpcode: false,
             shuangpin_helpcode: false,
@@ -82,11 +125,20 @@ impl ImeSession {
             typo_profile: PersonalTypoProfile::shared(&paths.user(assets::USER_JOURNAL)),
         };
         session.bind_wubi_scheme();
-        session
+        Ok(session)
     }
 
     pub fn candidates(&self) -> &[WordItem] {
         &self.state.candidates
+    }
+
+    pub fn candidate_wubi_code(&self, word: &str) -> Option<&str> {
+        self.state
+            .candidates
+            .iter()
+            .zip(&self.state.wubi_codes)
+            .find(|(candidate, _)| candidate.word == word)
+            .and_then(|(_, code)| (!code.is_empty()).then_some(code.as_str()))
     }
 
     pub fn request(&self) -> &QueryRequest {
@@ -101,6 +153,11 @@ impl ImeSession {
         self.scheme.scheme_type()
     }
 
+    /// 会话允许运行的方案。
+    pub fn enabled_schemes(&self) -> SchemeSet {
+        self.registry.enabled()
+    }
+
     /// `scheme.handle_key` then `refresh_candidates`; `SchemeKey::Requery` only refreshes.
     pub fn handle_key(&mut self, key: SchemeKey) {
         if key != SchemeKey::Requery {
@@ -109,12 +166,48 @@ impl ImeSession {
         self.refresh_candidates();
     }
 
-    /// A new scheme and an empty state.
-    pub fn switch_scheme(&mut self, scheme: SchemeType) {
-        self.scheme = Scheme::new(scheme, self.profile);
+    /// Opens what `scheme` reads (`msime-cantonese.db` for Cantonese, `msime-zhuyin.db` for Zhuyin, `msime-stroke.db` for Stroke) without switching to it, so a caller can learn that the scheme is unavailable before it discards anything; `switch_scheme` to an activated scheme cannot fail. A live Zhuyin scheme already holds `msime-zhuyin.db`, so activating Zhuyin again opens nothing.
+    pub fn activate(&mut self, scheme: SchemeType) -> Result<()> {
+        if scheme == SchemeType::Zhuyin && self.scheme.as_zhuyin().is_some() {
+            return Ok(());
+        }
+        self.registry.activate(scheme)
+    }
+
+    /// A new scheme and an empty state. Cantonese, Zhuyin and Stroke open their dictionary the first time they are activated and keep it for the session; when that fails (`LANGUAGE_DICTIONARY_UNAVAILABLE`, `LANGUAGE_DICTIONARY_VERSION_UNSUPPORTED`) the scheme is unavailable and the current scheme and its composition stay as they were. 不在 `enabled_schemes` 里的方案同样不可用（`INPUT_SCHEME_NOT_ENABLED`），当前方案和组合保持不变。
+    pub fn switch_scheme(&mut self, scheme: SchemeType) -> Result<()> {
+        self.activate(scheme)?;
+        if let Some(zhuyin) = self
+            .scheme
+            .as_zhuyin_mut()
+            .filter(|_| scheme == SchemeType::Zhuyin)
+        {
+            // The live editor holds `msime-zhuyin.db`; an idle editor over the same connection is the new scheme.
+            zhuyin.reset();
+        } else {
+            let next = Scheme::new(
+                scheme,
+                self.profile,
+                self.vietnamese_method,
+                self.vietnamese_style,
+                self.registry.cantonese_inventory(),
+                self.registry.take_dictionary(scheme),
+            )?;
+            if let Some(dictionary) =
+                std::mem::replace(&mut self.scheme, next).into_zhuyin_dictionary()
+            {
+                self.registry.return_dictionary(dictionary);
+            }
+            // 新建的注音编辑器沿用会话的九键模式；上面复用编辑器的分支只 `reset`，模式本来就在。
+            let nine_key = self.zhuyin_nine_key;
+            if let Some(zhuyin) = self.scheme.as_zhuyin_mut() {
+                zhuyin.set_nine_key(nine_key);
+            }
+        }
         self.bind_wubi_scheme();
         self.state = CompositionState::default();
         self.pinyin_tail = false;
+        Ok(())
     }
 
     pub fn reset(&mut self) {
@@ -151,12 +244,194 @@ impl ImeSession {
         true
     }
 
+    /// Opens the Hanja list of the composing Korean syllable. False, with the list left closed, for every other scheme and for a composition the table has no Hanja for (a lone jamo).
+    pub fn open_korean_hanja(&mut self) -> bool {
+        let Scheme::Korean(korean) = &mut self.scheme else {
+            return false;
+        };
+        korean.open_hanja();
+        self.refresh_candidates();
+        if !self.state.candidates.is_empty() {
+            return true;
+        }
+        self.close_korean_hanja();
+        false
+    }
+
+    /// Closes the Hanja list, so the composition answers nothing again; false when no list was open.
+    pub fn close_korean_hanja(&mut self) -> bool {
+        let Scheme::Korean(korean) = &mut self.scheme else {
+            return false;
+        };
+        if !korean.hanja_open() {
+            return false;
+        }
+        korean.close_hanja();
+        self.refresh_candidates();
+        true
+    }
+
+    pub fn korean_hanja_open(&self) -> bool {
+        matches!(&self.scheme, Scheme::Korean(korean) if korean.hanja_open())
+    }
+
     /// The Korean syllables the last key finished, which leave the composition as a commit; empty for every other scheme.
     pub fn take_korean_commit(&mut self) -> String {
         let Scheme::Korean(korean) = &mut self.scheme else {
             return String::new();
         };
         korean.take_committed()
+    }
+
+    /// The Telex or VNI method and the tone style Vietnamese spells with. A composing Vietnamese word keeps its keystrokes and is shown again under the new rules, or as the raw keys if the first Esc already showed them.
+    pub fn set_vietnamese_options(
+        &mut self,
+        method: VietnameseInputMethod,
+        style: VietnameseToneStyle,
+    ) {
+        self.vietnamese_method = method;
+        self.vietnamese_style = style;
+        let Scheme::Vietnamese(vietnamese) = &mut self.scheme else {
+            return;
+        };
+        let raw = vietnamese.raw().to_owned();
+        let locked = vietnamese.raw_locked();
+        *vietnamese = VietnameseScheme::new(method, style);
+        vietnamese.set_raw_input(&raw, &raw);
+        if locked {
+            vietnamese.restore_raw();
+        }
+        self.refresh_candidates();
+    }
+
+    /// The first Esc of a Vietnamese word: the display becomes the raw keystrokes. False for every other scheme, with nothing composing, or when the raw keys already show, so the caller cancels instead.
+    pub fn restore_vietnamese_raw(&mut self) -> bool {
+        let Scheme::Vietnamese(vietnamese) = &mut self.scheme else {
+            return false;
+        };
+        if !vietnamese.restore_raw() {
+            return false;
+        }
+        self.refresh_candidates();
+        true
+    }
+
+    /// The non-letter keys the composing Vietnamese word spells with (VNI's digits); empty for every other scheme.
+    pub fn vietnamese_spelling_symbols(&self) -> &'static str {
+        match &self.scheme {
+            Scheme::Vietnamese(vietnamese) => vietnamese.spelling_symbols(),
+            _ => "",
+        }
+    }
+
+    /// 藏文音节串的第一次 Esc：显示切换为威利原文。其他方案、没有组字或原文已在显示时返回 false，由调用方取消组字。
+    pub fn restore_tibetan_raw(&mut self) -> bool {
+        let Scheme::Tibetan(tibetan) = &mut self.scheme else {
+            return false;
+        };
+        if !tibetan.restore_raw() {
+            return false;
+        }
+        self.refresh_candidates();
+        true
+    }
+
+    /// 藏文组字已被 Esc 锁定为原文：此时它只是拉丁字母，结束键不再附加音节点或垂符。其他方案为 false。
+    pub fn tibetan_raw_locked(&self) -> bool {
+        matches!(&self.scheme, Scheme::Tibetan(tibetan) if tibetan.raw_locked())
+    }
+
+    /// 藏文当前状态下这个字母是否进入威利原文（威利读不了的字母不接收，由会话原样写出）；其他方案为 false。
+    pub fn tibetan_claims_letter(&self, letter: u8) -> bool {
+        matches!(&self.scheme, Scheme::Tibetan(tibetan) if tibetan.claims_letter(letter))
+    }
+
+    /// 藏文当前状态下要作为字符交给会话的非字母键（拼写符号和 `/`）；其他方案为空。
+    pub fn tibetan_spelling_symbols(&self) -> &'static str {
+        match &self.scheme {
+            Scheme::Tibetan(tibetan) => tibetan.spelling_symbols(),
+            _ => "",
+        }
+    }
+
+    /// Takes the letters a selected Cantonese row covers out of the composition and answers what is left; returns whether letters are left composing.
+    pub fn select_cantonese(&mut self, item: &WordItem) -> bool {
+        let composing = self.scheme.select_cantonese(item);
+        self.refresh_candidates();
+        composing
+    }
+
+    /// Hands one key to the Zhuyin editor and shows its new state; returns whether the editor claimed the key. False for every other scheme. Text the key committed waits in `take_zhuyin_committed`.
+    pub fn handle_zhuyin_key(&mut self, key: ZhuyinKey) -> Result<bool> {
+        let Some(zhuyin) = self.scheme.as_zhuyin_mut() else {
+            return Ok(false);
+        };
+        let claimed = zhuyin.handle_key(key);
+        self.refresh_candidates();
+        claimed
+    }
+
+    /// Pins the text of Zhuyin list row `index` and closes the list, committing nothing; false when no Zhuyin list is open or it has no such row.
+    pub fn select_zhuyin(&mut self, index: usize) -> Result<bool> {
+        let Some(zhuyin) = self.scheme.as_zhuyin_mut() else {
+            return Ok(false);
+        };
+        let selected = zhuyin.select(index);
+        self.refresh_candidates();
+        selected
+    }
+
+    /// The text the last Zhuyin key committed (Enter, Shift punctuation, an auto-shift); empty for every other scheme.
+    pub fn take_zhuyin_committed(&mut self) -> String {
+        self.scheme
+            .as_zhuyin_mut()
+            .map(ZhuyinScheme::take_committed)
+            .unwrap_or_default()
+    }
+
+    /// Ends the Zhuyin composition and returns its converted text; the pending syllable is dropped. Empty for every other scheme.
+    pub fn take_zhuyin_text(&mut self) -> String {
+        let Some(zhuyin) = self.scheme.as_zhuyin_mut() else {
+            return String::new();
+        };
+        let text = zhuyin.take_text();
+        self.refresh_candidates();
+        text
+    }
+
+    /// 打开或关闭注音九键模式。当前方案是注音时立即作用到编辑器（丢掉它的组字），否则在下次建出注音编辑器时生效。
+    pub fn set_zhuyin_nine_key(&mut self, enabled: bool) {
+        self.zhuyin_nine_key = enabled;
+        if let Some(zhuyin) = self.scheme.as_zhuyin_mut() {
+            zhuyin.set_nine_key(enabled);
+            self.refresh_candidates();
+        }
+    }
+
+    /// 把注音九键的第 `index` 个候选读音钉为目标音节的读音；没有注音编辑器、列表打开、没有目标或下标越界时为 false。
+    pub fn choose_zhuyin_spelling(&mut self, index: usize) -> Result<bool> {
+        let Some(zhuyin) = self.scheme.as_zhuyin_mut() else {
+            return Ok(false);
+        };
+        let chosen = zhuyin.choose_spelling(index);
+        self.refresh_candidates();
+        chosen
+    }
+
+    /// 注音九键供用户钉读音的候选读音；其他方案为空。
+    pub fn zhuyin_spellings(&self) -> &[String] {
+        self.scheme.as_zhuyin().map_or(&[], ZhuyinScheme::spellings)
+    }
+
+    pub fn zhuyin_list_open(&self) -> bool {
+        self.scheme.as_zhuyin().is_some_and(ZhuyinScheme::list_open)
+    }
+
+    /// The non-letter keys the Zhuyin editor claims in its state; empty for every other scheme.
+    pub fn zhuyin_spelling_symbols(&self) -> &'static str {
+        self.scheme
+            .as_zhuyin()
+            .map_or("", ZhuyinScheme::spelling_symbols)
     }
 
     /// Whether the active scheme is wubi and its code is exactly four letters.
@@ -189,9 +464,18 @@ impl ImeSession {
                 .expand_initial_candidates(&request, candidates)
     }
 
-    /// The request a scratch scheme of the current type builds for `raw`, with the session's switches applied.
+    /// The request a scratch scheme of the current type builds for `raw`, with the session's switches applied. The current scheme was activated before it became current, so building its scratch twin cannot fail, except for Zhuyin, whose `msime-zhuyin.db` connection belongs to the live editor: an invalid request stands for both, and Zhuyin keeps its caret at the end, so it never decodes a caret prefix.
     fn raw_request(&self, raw: &str, raw_with_cases: &str) -> QueryRequest {
-        let mut scratch = Scheme::new(self.current_scheme_type(), self.profile);
+        let Ok(mut scratch) = Scheme::new(
+            self.current_scheme_type(),
+            self.profile,
+            self.vietnamese_method,
+            self.vietnamese_style,
+            self.registry.cantonese_inventory(),
+            None,
+        ) else {
+            return QueryRequest::default();
+        };
         if let Some(wubi) = scratch.as_wubi_mut() {
             wubi.set_mixed_pinyin_allowed(self.wubi_options.mixed_pinyin);
             wubi.set_extended_length_allowed(self.wubi_options.mixed_pinyin);
@@ -205,8 +489,13 @@ impl ImeSession {
         self.refresh_candidates();
     }
 
+    pub fn wubi_input_options(&self) -> WubiInputOptions {
+        self.wubi_options
+    }
+
     pub fn set_wubi_input_options(&mut self, options: WubiInputOptions) {
         self.wubi_options = options;
+        self.registry.set_wubi_profile(options.profile);
         self.pinyin_tail &= options.mixed_pinyin;
         self.bind_wubi_scheme();
     }
@@ -257,8 +546,13 @@ impl ImeSession {
     }
 
     pub fn expand_initial_candidates(&mut self) -> bool {
-        self.registry
-            .expand_initial_candidates(&self.state.request, &mut self.state.candidates)
+        let grew = self
+            .registry
+            .expand_initial_candidates(&self.state.request, &mut self.state.candidates);
+        if grew {
+            self.refresh_wubi_codes();
+        }
+        grew
     }
 
     /// Insert online rows for the current request and refresh; false when the provider could not take them.
@@ -282,10 +576,18 @@ impl ImeSession {
             self.pinyin_tail = false;
             self.state.request = request;
             self.state.candidates.clear();
+            self.state.wubi_codes.clear();
             return;
         }
 
-        let decoded = self.decode(&request);
+        // The Zhuyin list is the editor's own: its rows exist only while the user has it open.
+        let decoded = match self.scheme.as_zhuyin() {
+            Some(zhuyin) => Decoded {
+                candidates: zhuyin_rows(zhuyin),
+                wubi_table_answered: false,
+            },
+            None => self.decode(&request),
+        };
         // A fifth letter is only allowed once the table has failed the code typed so far.
         let extended = self.wubi_options.mixed_pinyin && !decoded.wubi_table_answered;
         if let Some(wubi) = self.scheme.as_wubi_mut() {
@@ -293,6 +595,16 @@ impl ImeSession {
         }
         self.state.request = request;
         self.state.candidates = decoded.candidates;
+        self.refresh_wubi_codes();
+    }
+
+    /// 宿主只在五笔方案里显示反查编码（含混输拼音的候选），其他方案的每次刷新都不必逐个候选去查五笔表。
+    fn refresh_wubi_codes(&mut self) {
+        self.state.wubi_codes = if self.current_scheme_type() == SchemeType::Wubi {
+            self.registry.reverse_wubi_codes(&self.state.candidates)
+        } else {
+            Vec::new()
+        };
     }
 
     /// The scheme's request with the session's switches, autocorrect suppression and the shuangpin double-helpcode segmentation applied.
@@ -384,6 +696,20 @@ impl ImeSession {
     }
 }
 
+/// The open Zhuyin list as session rows, in list order. Each row is keyed by nothing: Zhuyin learns nothing, so no row is ever written back under a reading.
+fn zhuyin_rows(zhuyin: &ZhuyinScheme) -> Vec<WordItem> {
+    zhuyin
+        .candidates()
+        .iter()
+        .map(|candidate| {
+            let mut item =
+                WordItem::new("", candidate.text.clone(), 0, CandidateSource::Database, "");
+            item.scheme = SchemeType::Zhuyin;
+            item
+        })
+        .collect()
+}
+
 /// A row for the whole code answers it; the prefix rows the wubi query also returns do not, so they must not suppress the pinyin fallback.
 fn wubi_table_answered(candidates: &[WordItem], code: &str) -> bool {
     candidates.iter().any(|item| item.pinyin == code)
@@ -401,6 +727,8 @@ fn merge_pinyin_fallback(
         .map(|item| seen.insert(item.word.as_str()))
         .collect::<Vec<_>>();
     drop(seen);
+    let unique_count = unique.iter().filter(|&&is_unique| is_unique).count();
+    candidates.reserve(unique_count);
     candidates.extend(
         pinyin_rows
             .into_iter()
@@ -430,17 +758,23 @@ fn apply_shuangpin_helpcode_segmentation(request: &mut QueryRequest, profile: &S
     let effective_with_cases = remove_manual_delimiters(&request.raw_input_with_cases);
     let help_codes = &effective_with_cases[effective_with_cases.len() - HELPCODE_LENGTH..];
 
-    request.raw_segmentation = format!(
-        "{}'{help_codes}",
-        apply_segmentation_cases(&base_segmentation, &base_raw_with_cases)
+    request.raw_segmentation = append_help_codes(
+        apply_segmentation_cases(&base_segmentation, &base_raw_with_cases),
+        help_codes,
     );
-    request.normalized_segmentation = format!(
-        "{}'{help_codes}",
-        to_quanpin_segmentation(&base_segmentation, profile)
+    request.normalized_segmentation = append_help_codes(
+        to_quanpin_segmentation(&base_segmentation, profile),
+        help_codes,
     );
     request
         .segmentation
         .clone_from(&request.normalized_segmentation);
+}
+
+fn append_help_codes(mut segmentation: String, help_codes: &str) -> String {
+    segmentation.push('\'');
+    segmentation.push_str(help_codes);
+    segmentation
 }
 
 #[cfg(test)]
@@ -498,10 +832,29 @@ mod tests {
     }
 
     #[test]
+    fn pinyin_fallback_reserves_unique_rows() {
+        let pinyin: Vec<_> = (0..23)
+            .map(|index| quanpin("ni'hao", &format!("字{index:02}")))
+            .collect();
+        let list = merge_pinyin_fallback(Vec::new(), pinyin);
+        assert_eq!(list.len(), 23);
+        assert_eq!(list.capacity(), list.len());
+    }
+
+    #[test]
     fn nothing_at_all_is_not_a_fallback_answer() {
         let list = merge_pinyin_fallback(Vec::new(), Vec::new());
         assert!(list.is_empty());
         assert!(!only_pinyin_rows(&list));
+    }
+
+    #[test]
+    fn appending_help_codes_extends_the_existing_segmentation() {
+        let mut segmentation = String::with_capacity("ni'hao'ab".len());
+        segmentation.push_str("ni'hao");
+        let result = append_help_codes(segmentation, "ab");
+        assert_eq!(result, "ni'hao'ab");
+        assert_eq!(result.capacity(), result.len());
     }
 
     #[test]

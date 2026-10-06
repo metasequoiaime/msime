@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Segmented control fill: accentSoft under the selected segment, nothing under the rest. -->
+<!-- 分段控件的底：选中的那一段是 accentSoft（原型漏出的绿色 #CFE9D6 改成每季的 accentSoft），其余透明。 -->
 <selector xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:color="@color/surface_variant" android:state_checked="true" />
+    <item android:color="?attr/colorPrimaryContainer" android:state_checked="true" />
     <item android:color="@android:color/transparent" />
 </selector>

@@ -1,4 +1,5 @@
 #include "DiagnosticLog.h"
+#include "SystemPathAlias.h"
 
 #include <algorithm>
 #include <atomic>
@@ -14,11 +15,20 @@
 #include <pthread.h>
 #include <string>
 #include <sys/stat.h>
+#include <system_error>
 #include <unistd.h>
 
 namespace {
 constexpr std::uintmax_t kMaxLogBytes = 1024 * 1024;
 constexpr std::size_t kMaxEventBytes = 192;
+
+bool directoryIsSafe(const std::filesystem::path &directory) noexcept {
+  try {
+    return msime::mac::StoragePathIsSafe(directory, true);
+  } catch (...) {
+    return false;
+  }
+}
 
 // Mirrors Log::enabled_ for lock-free checks; configure() is the only writer.
 std::atomic_bool gEnabled{false};
@@ -27,17 +37,19 @@ class Log {
 public:
   void configure(const std::string &directory, bool enabled) noexcept {
     std::lock_guard lock(mutex_);
-    enabled_ = enabled && !directory.empty() && directory.front() == '/' &&
-               directory.size() <= 4096;
+    const auto root = std::filesystem::path(directory);
+    enabled_ = enabled && !directory.empty() && directory.size() <= 4096 &&
+               directoryIsSafe(root);
     path_.clear();
     gEnabled.store(enabled_, std::memory_order_relaxed);
     if (enabled_)
-      path_ = (std::filesystem::path(directory) / "diagnostic.log").string();
+      path_ = (root / "diagnostic.log").string();
   }
 
   void write(std::string_view event) noexcept {
     std::lock_guard lock(mutex_);
-    if (!enabled_ || path_.empty())
+    if (!enabled_ || path_.empty() ||
+        !directoryIsSafe(std::filesystem::path(path_).parent_path()))
       return;
     try {
       rotateIfNeeded();

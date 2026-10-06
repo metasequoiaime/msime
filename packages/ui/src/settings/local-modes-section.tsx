@@ -1,5 +1,6 @@
-import { GroupList, Row, Switch } from "../core/platform-controls";
+import { GroupList } from "../core/platform-controls";
 import { iosLocalModeEntry } from "./local-mode-text";
+import { SwitchRow } from "./switch-row";
 
 export type LocalModeKey =
   | "unicode"
@@ -110,7 +111,7 @@ const mentionPlacesRow: [LocalModeKey, string, string] = [
 
 /** Why /fy gives nothing while no translation service is chosen: it asks the chosen service only, and never falls back to another. */
 const commandTranslationNotice =
-  "fy 翻译需要先在「表达 → 候选词翻译」选择翻译服务，目前未选择，fy 不会出结果。";
+  "fy 翻译需要先在「标点与翻译 → 候选词翻译」选择翻译服务，目前未选择，fy 不会出结果。";
 
 const iosLocalModeDescriptions: Partial<Record<LocalModeKey, string>> = {
   quick_phrase: `${iosLocalModeEntry("快捷短语")}再输入编码即可调用快捷短语`,
@@ -132,29 +133,35 @@ export interface LocalModesSectionProps {
   mentions?: boolean;
   /** A translation service is chosen, which the / mode's fy command asks. When false, the / row says fy gives nothing; absent where the host offers no choice of service. */
   translationService?: boolean;
+  /** 本版本带临时日文（`HostCapabilities.edition.temporary_japanese`）；为 false 时不列出临时日语开关。缺省为 true。 */
+  temporaryJapanese?: boolean;
   onChange: (preferences: LocalModePreferences) => void;
 }
 
-/** Shared local input mode switches for desktop and touch settings hosts: the 实用功能 group. */
+/** 桌面和触屏宿主共用的本地输入模式开关：输入页「快捷模式」组。组名不带「Shift+字母」：iOS 从「更多 → 本地输入」进入，V、/、@ 三种也不是 Shift 组合。 */
 export function LocalModesSection({
   preferences,
   ios,
   triggers = false,
   mentions = false,
   translationService,
+  temporaryJapanese = true,
   onChange,
 }: LocalModesSectionProps) {
+  const modeRows = temporaryJapanese
+    ? localModeRows
+    : localModeRows.filter(([key]) => key !== "temporary_japanese");
   const rows = triggers
     ? [
-        ...localModeRows,
+        ...modeRows,
         ...triggerModeRows.filter(([key]) => key !== "mention" || mentions),
         ...(mentions ? [mentionPlacesRow] : []),
       ]
-    : localModeRows;
+    : modeRows;
   return (
-    <GroupList title="实用功能">
+    <GroupList title="快捷模式">
       {rows.map(([key, label, description]) => (
-        <Row
+        <SwitchRow
           key={key}
           title={label}
           description={
@@ -164,13 +171,10 @@ export function LocalModesSection({
                 ? (iosLocalModeDescriptions[key] ?? description)
                 : description
           }
-        >
-          <Switch
-            checked={preferences[key] ?? false}
-            disabled={key === "mention_places" && !preferences.mention}
-            onChange={(checked) => onChange({ ...preferences, [key]: checked })}
-          />
-        </Row>
+          checked={preferences[key] ?? false}
+          disabled={key === "mention_places" && !preferences.mention}
+          onChange={(checked) => onChange({ ...preferences, [key]: checked })}
+        />
       ))}
     </GroupList>
   );

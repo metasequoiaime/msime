@@ -1,0 +1,13 @@
+schema_version = 1
+kind = "helpcode"
+id = "fixture-helpcode"
+name = "Fixture"
+version = "1.0.0"
+license = "CC0-1.0"
+author = "MSIME"
+description = "Shared parser fixture"
+permissions = []
+[helpcode]
+table = "table.txt"
+schema = "custom"
+

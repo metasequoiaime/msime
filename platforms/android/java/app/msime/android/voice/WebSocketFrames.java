@@ -61,10 +61,37 @@ public final class WebSocketFrames {
             .append("Sec-WebSocket-Version: 13\r\n");
         if (headers != null) {
             for (int index = 0; index + 1 < headers.length; index += 2) {
-                request.append(headers[index]).append(": ").append(headers[index + 1]).append("\r\n");
+                String name = headers[index];
+                String value = headers[index + 1];
+                if (validHeaderName(name) && validHeaderValue(value)) {
+                    request.append(name).append(": ").append(value).append("\r\n");
+                }
             }
         }
         return request.append("\r\n").toString();
+    }
+
+    private static boolean validHeaderName(String value) {
+        if (value == null || value.isEmpty()) return false;
+        for (int index = 0; index < value.length(); index++) {
+            char character = value.charAt(index);
+            if (character > 0x7e || !(character >= 'a' && character <= 'z')
+                    && !(character >= 'A' && character <= 'Z')
+                    && !(character >= '0' && character <= '9')
+                    && !"!#$%&'*+-.^_`|~".contains(String.valueOf(character))) return false;
+        }
+        return true;
+    }
+
+    private static boolean validHeaderValue(String value) {
+        if (value == null) return false;
+        for (int index = 0; index < value.length(); index++) {
+            char character = value.charAt(index);
+            if (character > 0x7e) return false;
+            if (character == '\r' || character == '\n'
+                    || (character < 0x20 && character != '\t') || character == 0x7f) return false;
+        }
+        return true;
     }
 
     /** Whether the response line and headers are a successful upgrade for this key. */
@@ -129,6 +156,7 @@ public final class WebSocketFrames {
         if (buffer == null || available < 2) return null;
         boolean fin = (buffer[0] & 0x80) != 0;
         int opcode = buffer[0] & 0x0f;
+        if ((buffer[0] & 0x70) != 0) return null;
         if ((buffer[1] & 0x80) != 0) return null;
         long length = buffer[1] & 0x7f;
         int offset = 2;
@@ -146,7 +174,8 @@ public final class WebSocketFrames {
         }
         // A frame this host could not hold is refused rather than allocated: the recogniser sends
         // transcripts, and anything of this size is a wrong endpoint or a hostile one.
-        if (length < 0 || length > 8L * 1024 * 1024) return null;
+        if (length < 0 || length > 8L * 1024 * 1024
+                || ((opcode & 0x8) != 0 && (!fin || length > 125))) return null;
         if (available < offset + length) return null;
         byte[] payload = new byte[(int) length];
         System.arraycopy(buffer, offset, payload, 0, (int) length);

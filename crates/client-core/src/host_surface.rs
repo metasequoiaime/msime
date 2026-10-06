@@ -5,6 +5,8 @@
 //! from injected capabilities instead of sniffing the user agent. Both sides of
 //! that agreement live here so no host re-implements the strings.
 
+use crate::edition::Edition;
+use crate::preferences::InputScheme;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -85,11 +87,15 @@ pub enum CandidatePanelLimit {
 
 impl CandidatePanelLimit {
     /// The file the running Linux host writes its finding to: `candidate-panel.json` under `$XDG_RUNTIME_DIR/msime-client`, the per-session directory that goes away with the session the finding describes. A relative or missing runtime directory yields nothing.
+    ///
+    /// 目录名随本进程所在安装包的版本（`Edition::linux_package_identity_or_full`，full 是 `msime-client`），读的是同一版本宿主写的那一份。
     pub fn status_file(runtime_directory: Option<&std::ffi::OsStr>) -> Option<std::path::PathBuf> {
         let directory = std::path::PathBuf::from(runtime_directory?);
-        directory
-            .is_absolute()
-            .then(|| directory.join("msime-client").join("candidate-panel.json"))
+        directory.is_absolute().then(|| {
+            directory
+                .join(&crate::edition::Edition::linux_package_identity_or_full().client_directory)
+                .join("candidate-panel.json")
+        })
     }
 
     /// Reads the host's report, `{"host": "ibus" | "fcitx5", "limit": <name> | null}`. Anything else - no file, a panel that honours the settings, a name this build does not know - reads as no limit, so the page never warns on a guess.
@@ -138,12 +144,12 @@ pub struct HostCapabilities {
     /// The toolbar carries a button that opens the handwriting panel. The
     /// reference's toolbar has six components and this is not one of them, so
     /// only the host that draws the button offers the switch for it.
-    #[serde(default)]
     pub floating_toolbar_handwriting: bool,
     /// The toolbar carries a button that starts and stops voice input, for the
     /// same reason as `floating_toolbar_handwriting`.
-    #[serde(default)]
     pub floating_toolbar_voice: bool,
+    /// 工具栏带切换输入方案的按钮。目前只有 macOS 的工具栏画它，其它宿主不提供这个开关。
+    pub floating_toolbar_input_scheme: bool,
     /// The host consumes the shared `keybindings` preferences to switch
     /// Chinese/English and simplified/traditional mode.
     pub mode_switch_shortcuts: bool,
@@ -151,7 +157,6 @@ pub struct HostCapabilities {
     pub panel_shortcuts: bool,
     /// The host can let the user release number-row candidate selection back
     /// to the focused application.
-    #[serde(default)]
     pub number_row_selection: bool,
     /// The host can enumerate audio capture devices for voice input.
     pub voice_capture_devices: bool,
@@ -160,10 +165,8 @@ pub struct HostCapabilities {
     /// The composition drawn beside the candidates has its own size. Linux reads the family and
     /// candidate size into the desktop panel's single font, but the composition itself is drawn by
     /// the focused application, so a separate preedit size would have nothing to change there.
-    #[serde(default)]
     pub candidate_preedit_font: bool,
     /// The host can hide the candidate panel's page indicator without changing pagination.
-    #[serde(default)]
     pub candidate_page_number: bool,
     /// The host can apply candidate foreground/background RGB row colors.
     /// Linux exposes these through IBusText attributes even though it cannot
@@ -172,16 +175,12 @@ pub struct HostCapabilities {
     /// The host can apply candidate accent, selection, hover and border appearance.
     pub candidate_selection_appearance: bool,
     /// The host outlines the candidate panel in the border colour. Separate from `candidate_selection_appearance` because Linux draws the border (the Fcitx5 classic UI theme carries it) while neither Linux panel has a hover state.
-    #[serde(default)]
     pub candidate_border_color: bool,
     /// The host draws its own floating candidate window and multiplies its font and geometry by `candidate_scale_percent`. A host whose list lives in a desktop panel, or in a strip on the keyboard that already follows the font size, has nothing else to scale.
-    #[serde(default)]
     pub candidate_window_scale: bool,
     /// The host can lower the alpha of its candidate card fill, border and skin background by `candidate_opacity_percent` while keeping text opaque. A panel the desktop draws, or a strip that is part of an opaque keyboard, cannot.
-    #[serde(default)]
     pub candidate_window_opacity: bool,
     /// The host rounds its candidate card by `candidate_corner_radius`, ahead of the skin package's radius and its own constant.
-    #[serde(default)]
     pub candidate_corner_radius: bool,
     /// The host places its own candidate window and can therefore pin it where
     /// it first appeared. A host whose desktop owns the placement - IBus draws
@@ -192,7 +191,6 @@ pub struct HostCapabilities {
     /// focused editor, so choosing between them is a real choice. A host with a
     /// single commit path does not offer it: a control with one outcome reads
     /// as a setting that is being ignored.
-    #[serde(default)]
     pub voice_commit_mode: bool,
     /// The host renders the Engine's composition text itself, so the choice
     /// between the raw shuangpin keys and the expanded pinyin is visible there.
@@ -200,14 +198,12 @@ pub struct HostCapabilities {
     /// the result where a user would see the difference. A host that hands the
     /// snapshot's `preedit` to a desktop panel still decides which string goes
     /// there, so the difference is its to show.
-    #[serde(default)]
     pub shuangpin_preedit: bool,
     /// The host tells the runtime which character width it is in, so the Engine
     /// widens what it commits. The preference is the width a session starts at;
     /// the host's own toolbar, menu or chord moves it from there. A host that
     /// never makes that call cannot honour the preference at all, and offering
     /// the switch there would be a control with nothing behind it.
-    #[serde(default)]
     pub character_width: bool,
     /// The host runs the configured transcription provider itself, so the provider, model and
     /// credential controls have something behind them.
@@ -222,26 +218,21 @@ pub struct HostCapabilities {
     /// Touch reaches both by gesture — a long press on the candidate, and nothing at all for the
     /// cache — so a keyboard needs the chords or cannot reach them. Declared rather than inferred
     /// from "draws desktop panels", which is what it used to be read off and is a different fact.
-    #[serde(default)]
     pub maintenance_shortcuts: bool,
     /// The host reserves the Option/Alt+Shift+H chord for the character width, so the switch that
     /// gives it back to the application belongs on its settings page.
-    #[serde(default)]
     pub fullwidth_chord: bool,
-    #[serde(default)]
     pub voice_provider_settings: bool,
     /// The host draws the recogniser's interim text while the user is still speaking.
     ///
     /// Every host can ask a streaming provider for partial results; this says which of them has
     /// somewhere to put one. A host without that surface would be offering a switch whose only
     /// effect is on a display it does not have.
-    #[serde(default)]
     pub voice_stream_preedit: bool,
     /// The host shows read-only English word completions while typing directly
     /// in English, governed by the shared `english_suggestions` preference. iOS
     /// offers the same surface but keeps its switch in the native App Group
     /// store, so it reads this as false and shows its own control.
-    #[serde(default)]
     pub english_suggestions: bool,
     /// A letter becomes a helper code because the user held Shift for it, rather
     /// than because of where it sits in the spelling. Windows appends helper
@@ -249,14 +240,12 @@ pub struct HostCapabilities {
     /// does, or the letter would be eaten as more pinyin. The hosts that mark
     /// them this way are the ones running the ported ChineseHelpcodePolicy, and
     /// the settings page explains the gesture only where it applies.
-    #[serde(default)]
     pub helpcode_shift_entry: bool,
     /// A skin arrives by being picked rather than by being dropped into a
     /// folder. The source opens its skin folder so the user can put one there;
     /// a host whose folder is inside an application sandbox has nothing to
     /// open, so it asks the user to point at the skin instead. The page needs
     /// to know which of the two it is, because the button says so.
-    #[serde(default)]
     pub skin_directory_import: bool,
     /// The one candidate page size the host draws, when it offers no choice. The iOS keyboard numbers its strip's chips 1-9 to match the digits on its symbol layer and lays the expanded panel out in nines, so it holds the Engine to nine whatever the shared setting says; the page shows the count instead of a selector that would do nothing. Absent on a host that pages by the setting.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -264,47 +253,38 @@ pub struct HostCapabilities {
     /// The one candidate layout the host draws, when it offers no choice. The iOS candidate strip is a horizontal row above the keys, so an external skin is adopted there only for its horizontal layout; the skin page has to judge compatibility by that rather than by the shared setting, which defaults to vertical. Absent on a host that follows the setting.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fixed_candidate_layout: Option<crate::preferences::CandidateLayout>,
-    /// The touch keyboard reads `touch_toolbar` to choose the buttons on the row above its keys. Only the iOS keyboard does so far; elsewhere the switches would hide nothing.
-    #[serde(default)]
+    /// The touch keyboard reads `touch_toolbar` to choose the buttons on the row above its keys. iOS 与 Android 的键盘读它；其他宿主上这些开关什么也不会隐藏。
     pub touch_toolbar_components: bool,
     /// The host applies a separate family for Latin text in the candidate panel.
     /// A host whose renderer resolves one family list per glyph, or which draws
     /// Latin from its own font, can honour this; one with a single typeface for
     /// the whole row cannot, and does not offer the choice.
-    #[serde(default)]
     pub candidate_english_font: bool,
     /// The AI service's credential lives with the host's provider rather than in
     /// the settings document, so the settings page must not ask for a token and
     /// must not gate the service controls on having one. The host still reaches
     /// the service - through that provider - so the model listing and the polish
     /// test are offered; what it cannot do is hold the secret.
-    #[serde(default)]
     pub ai_provider_credentials: bool,
     /// The host draws a short, non-activating badge near the caret after the
     /// Chinese/English mode changes. A host with no way to put a window beside
     /// the caret, or one whose keyboard already shows the mode on its own key
     /// faces, has nothing to switch on and does not offer the choice.
-    #[serde(default)]
     pub input_mode_hud: bool,
     /// The host can run a 背单词 review session — that is, it has wired the shared vocabulary
     /// entry point and can reach the review store.
-    ///
-    /// Defaulting to false is the point: a host built before this field existed sends a document
-    /// without it, and the page must then stay hidden rather than offer 认识 / 不认识 buttons whose
-    /// every press fails. The same rule the other optional capabilities follow.
-    #[serde(default)]
     pub vocabulary_review: bool,
+    /// 背单词书目里列出单词本插件（`pack-<插件 id>` 词书）：宿主把插件目录交给背单词的入口。
+    pub wordbook_packs: bool,
+    /// 宿主的符号面板显示已安装的符号集插件。没打开时插件详情说明本机的符号面板不显示插件符号集。
+    pub symbol_set_packs: bool,
     /// The host plays the sound packs in `plugins`: a sample per key class, the melody, the commit sound and the achievement jingle. Only an input process that sees the keys can, and only where it has somewhere to play them; a host without the player keeps the settings but offers no switches for them.
-    #[serde(default)]
     pub key_sound: bool,
     /// The host routes the `/` command and `@` mention modes: it hands `/` and `@` to the runtime, stops treating digits as candidate numbers while a mode spells with them, and loads the enabled command tables and the name list into the Engine. The `V` mode needs only the digit routing and is covered by the same flag.
-    #[serde(default)]
     pub plugin_triggers: bool,
     /// The host streams the selected music pack while it is the active input method.
-    #[serde(default)]
     pub music: bool,
     /// The host draws the typing effects and the combo count that `msime_client_typing_effect` answers with. Each host flips this only in the change that wires the call, as with the flags above.
-    #[serde(default)]
     pub typing_effects: bool,
     /// The operating system release, as the machine reports it, for the feedback
     /// page to attach. Not a platform assumption like the flags above -- the host
@@ -313,9 +293,83 @@ pub struct HostCapabilities {
     /// falls back to what the web view knows about itself.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub os_version: Option<String>,
+    /// The CPU architecture the host was built for, as Rust names it (`std::env::consts::ARCH`: `x86_64`, `aarch64`). A Linux release carries one package per architecture, and the update check picks this machine's by it. Filled in at runtime like `os_version`; absent from a host that does not report it, where the check offers a package only when the release has a single one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub arch: Option<String>,
     /// Why the desktop's candidate panel on this machine ignores the candidate font, colour and skin settings, when the running Linux host has found that it does. Filled in at runtime from what the host reports, the way `os_version` is; absent when the panel honours them or nothing has been reported.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub candidate_panel_limit: Option<CandidatePanelLimit>,
+    /// The input schemes this host offers; the settings page shows the others disabled. A host may narrow the list at runtime the way it fills `os_version`, for instance when the Cantonese, Zhuyin or Stroke dictionary is not installed.
+    ///
+    /// 不是 full 的版本还会经 [`HostCapabilities::narrow_to_edition`] 去掉本版本不含的方案；那些方案在本版本里不存在，设置页应该直接不列出，而不是显示为禁用，`edition` 就是用来区分这两种情况的。
+    pub input_schemes: Vec<InputScheme>,
+    /// 运行中的版本，不是 full 时才有。缺省（包括引入版本之前的宿主）就是 full：所有方案都属于本版本，`input_schemes` 之外的方案只是这个宿主暂不支持，显示为禁用。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edition: Option<EditionInfo>,
+    /// 输入页辅助码设置可选的内置辅助码方案（`HelpcodeSchema` 的 id），按设置页列出的顺序。目前只有 Android 宿主列出，其他宿主为空、不写进文档，序列化结果与加这一项之前相同。郑码只在有带授权的内置码表（按 `resources/helpcodes/NOTICE.md` 登记）时列入，现在没有。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub helpcode_schemas: Vec<String>,
+}
+
+/// Android 输入页列出的内置辅助码方案。不含郑码：仓库里还没有带授权的郑码码表。
+const ANDROID_HELPCODE_SCHEMAS: [&str; 6] = [
+    "ziranma",
+    "xiaohe",
+    "lantian",
+    "shouyou2_0",
+    "shouyouplus",
+    "jiajia",
+];
+
+/// 设置页需要知道的版本信息。
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EditionInfo {
+    /// 版本 id。
+    pub id: String,
+    /// 版本的中文产品名（版本表 `display_name.zh-Hans`），例如「水杉五笔」。macOS 设置页用它称呼本版本在输入法菜单里的各个入口。
+    pub display_name: String,
+    /// 本版本提供的方案；不在其中的方案在本版本里不存在。
+    pub input_schemes: Vec<InputScheme>,
+    /// 本版本的默认方案，偏好里的方案不可用时回退到它。
+    pub default_scheme: InputScheme,
+    /// 本版本是否带临时日文。不带时设置页不列出临时日语开关，host-api 也始终把它关掉。
+    pub temporary_japanese: bool,
+    /// 本版本是否带键盘神经联想用的模型（`sentence-model.safetensors`）。不带时设置页不列出触屏宿主的神经联想开关，host-api 也始终把它关掉。桌面的神经联想用资源目录旁的 settled 模型，不归这一项管。
+    pub neural_keyboard: bool,
+    /// 本版本是否带非英文目标语言的离线候选释义。不带时宿主不打包这些数据库，候选翻译的非英文目标只靠联网服务。
+    pub offline_glosses: bool,
+    /// 本版本是否提供手写。不提供时设置页不列出手写设置页和悬浮工具栏的手写按钮，宿主也不打开手写面板、不下载手写模型。
+    pub handwriting: bool,
+    /// 本版本里五笔混拼的默认值，偏好文档缺这一项时设置页按它显示。
+    pub wubi_mixed_pinyin_default: bool,
+}
+
+/// 基础方案加上粤拼、注音、越南文、藏文和笔画，所有宿主都提供。
+const ALL_INPUT_SCHEMES: [InputScheme; 10] = [
+    InputScheme::Quanpin,
+    InputScheme::Shuangpin,
+    InputScheme::Wubi,
+    InputScheme::Japanese,
+    InputScheme::Korean,
+    InputScheme::Cantonese,
+    InputScheme::Zhuyin,
+    InputScheme::Vietnamese,
+    InputScheme::Tibetan,
+    InputScheme::Stroke,
+];
+
+/// 本构建交给 Engine 的方案：所有宿主都是全部十个，因为每个宿主都路由粤拼、注音、越南文、藏文和笔画的按键，并放置粤拼、注音和笔画的词库（越南文和藏文不需要词库）。偏好文档里写的其他方案由 host-api 回退；粤拼、注音和笔画在词库没装时仍然回退。
+pub fn compiled_input_schemes() -> &'static [InputScheme] {
+    &ALL_INPUT_SCHEMES
+}
+
+/// `edition` 交给 Engine 的方案：[`compiled_input_schemes`] 里本版本提供的那些，顺序不变。full 得到的就是全部八个。host-api 对偏好里其他的方案一律回退到本版本的方案，所以在不是 full 的版本里，任何偏好文档都不会让 Engine 跑一个本版本不含的方案。
+pub fn offered_input_schemes(edition: &Edition) -> Vec<InputScheme> {
+    ALL_INPUT_SCHEMES
+        .into_iter()
+        .filter(|scheme| edition.offers(*scheme))
+        .collect()
 }
 
 impl HostCapabilities {
@@ -388,11 +442,8 @@ impl HostCapabilities {
             // Only this client's macOS toolbar draws these two.
             floating_toolbar_handwriting: platform == HostPlatform::Macos,
             floating_toolbar_voice: platform == HostPlatform::Macos,
-            // The IBus host consumes these directly. The Windows Server now
-            // mirrors them into the shared config.toml the TIP reads at
-            // activation, so the toggles take effect there too. The HarmonyOS
-            // host reads all four in its hardware key router, which only a
-            // machine with a physical keyboard has anything to route.
+            floating_toolbar_input_scheme: platform == HostPlatform::Macos,
+            // The IBus host consumes these directly, and the Windows TIP reads them from the shared preferences document at activation. The HarmonyOS host reads all four in its hardware key router, which only a machine with a physical keyboard has anything to route.
             mode_switch_shortcuts: matches!(
                 platform,
                 HostPlatform::Linux
@@ -416,9 +467,7 @@ impl HostCapabilities {
                     | HostPlatform::Macos
                     | HostPlatform::Harmony
             ),
-            // Harmony 2-in-1 hardware keyboards use the same candidate number
-            // row as Windows; the ArkTS router releases digits when this
-            // preference is enabled, so the focused editor can consume them.
+            // Harmony 2-in-1 hardware keyboards use the same candidate number row as Windows: the ArkTS router picks with 1 through 9 while this preference is on and gives the digits to the focused editor once it is turned off.
             number_row_selection: matches!(
                 platform,
                 HostPlatform::Linux | HostPlatform::Android | HostPlatform::Harmony
@@ -452,7 +501,7 @@ impl HostCapabilities {
                     | HostPlatform::Ios
             ),
             // IBus exposes candidate and label foreground/background RGB
-            // attributes, but not native hover state or card borders. The iOS strip resolves every candidate colour once the keyboard's 「使用桌面候选皮肤」 switch is on, which the shared skin page now carries.
+            // attributes, but not native hover state or card borders. The iOS strip resolves every candidate colour once the keyboard's 「候选栏使用主题配色」 switch is on, which the shared skin page now carries.
             candidate_row_colors: matches!(
                 platform,
                 HostPlatform::Windows
@@ -550,27 +599,66 @@ impl HostCapabilities {
             fixed_candidate_page_size: (platform == HostPlatform::Ios).then_some(9),
             fixed_candidate_layout: (platform == HostPlatform::Ios)
                 .then_some(crate::preferences::CandidateLayout::Horizontal),
-            // The iOS shortcut bar is the touch counterpart of the Windows floating toolbar, and its buttons follow the same kind of per-component switches.
-            touch_toolbar_components: platform == HostPlatform::Ios,
+            // The iOS shortcut bar is the touch counterpart of the Windows floating toolbar, and its buttons follow the same kind of per-component switches. Android 的原生键盘工具栏也按 `touch_toolbar` 选按钮。
+            touch_toolbar_components: matches!(platform, HostPlatform::Ios | HostPlatform::Android),
             // Linux keeps AI credentials in the provider service's owner-only
             // configuration file and passes only non-sensitive options over its
             // socket. Every other host holds the token itself.
             ai_provider_credentials: platform == HostPlatform::Linux,
             // Windows draws Latin from its own family, macOS and Android name it ahead of the primary one, and ArkUI resolves a family list per glyph, so HarmonyOS reaches the same result the same way. Both Linux hosts write one Pango font description for the desktop panel, and Pango resolves its family list per glyph too, so they name it first there.
             candidate_english_font: true,
-            // Every host reaches the same shared store through the same entry point, so there is
-            // no platform here that can and one that cannot. The flag exists for the version
-            // skew: a host binary older than the entry point sends no field and gets `false`.
+            // Every host reaches the same shared store through the same entry point, so there is no platform here that can and one that cannot.
             vocabulary_review: true,
+            // 桌面宿主的背单词由 Tauri 层传入插件目录；HarmonyOS 在自己的设置投影里按形态打开；Android 和 iOS 不传插件目录。
+            wordbook_packs: platform.is_desktop(),
+            // Windows 和 Linux 桌面的符号面板是 Tauri 层的表情面板（`load_emoji_catalog`），Linux 的 Fcitx5 菜单和 macOS 的原生表情与符号面板另外读同一批插件组。HarmonyOS 在自己的设置投影里按形态打开；Android 和 iOS 没有接入。
+            symbol_set_packs: platform.is_desktop(),
             // The three desktop hosts play the packs, route V, / and @ by the Engine's spelling symbols and stream music while they are the active input method. HarmonyOS claims key sounds, music and the triggers per form factor in its own settings projection (2in1 only); the phone and tablet hosts wire none of them. A switch with nothing behind it reads as a setting being ignored, so each host flips here only in the change that wires it.
-            key_sound: platform.is_desktop(),
+            // Android 的按键音由 IME 进程的 SoundPool 播放（与本项同一波接入），所以 Android 也声明；手机和平板上的 HarmonyOS 与 iOS 仍未接入。
+            key_sound: platform.is_desktop() || platform == HostPlatform::Android,
             plugin_triggers: platform.is_desktop(),
             music: platform.is_desktop(),
             // macOS draws the sparks, the card flash and the combo badge (TypingEffectPanel.mm), Windows the flash and the badge on its candidate window (CandidateWindow.cpp), both Linux hosts the combo count in the candidate aux line (KeySound.h), and HarmonyOS the flash and the combo badge on its KeyboardView. Linux draws no style, only the count; the settings page hides the style controls there itself (`showTypingEffectStyles`). HarmonyOS still narrows this per form factor in its own settings projection; Android and iOS wire none.
             typing_effects: platform.is_desktop() || platform == HostPlatform::Harmony,
             os_version: None,
+            arch: None,
             candidate_panel_limit: None,
+            // 每个宿主都路由粤拼、注音、越南文、藏文和笔画的按键，并附带粤拼、注音和笔画需要的词库。
+            input_schemes: ALL_INPUT_SCHEMES.to_vec(),
+            edition: None,
+            helpcode_schemas: if platform == HostPlatform::Android {
+                ANDROID_HELPCODE_SCHEMAS
+                    .iter()
+                    .map(|schema| (*schema).to_owned())
+                    .collect()
+            } else {
+                Vec::new()
+            },
         }
+    }
+
+    /// 收窄到 `edition`：去掉本版本不含的方案，并在不是 full 时带上版本信息。对 full 什么也不改，序列化结果与引入版本之前相同。
+    pub fn narrow_to_edition(&mut self, edition: &Edition) {
+        if edition.is_full() {
+            return;
+        }
+        self.input_schemes.retain(|scheme| edition.offers(*scheme));
+        // 手写面板只认汉字，不提供手写的版本（日文、越南文和藏文版）在悬浮工具栏上也不放手写按钮。
+        self.floating_toolbar_handwriting &= edition.features.handwriting;
+        self.edition = Some(EditionInfo {
+            id: edition.id.clone(),
+            display_name: edition.display_name.zh_hans.clone(),
+            input_schemes: offered_input_schemes(edition),
+            default_scheme: edition.default_scheme,
+            temporary_japanese: edition.features.temporary_japanese,
+            neural_keyboard: edition.features.neural_keyboard,
+            offline_glosses: edition.features.offline_glosses,
+            handwriting: edition.features.handwriting,
+            wubi_mixed_pinyin_default: edition
+                .preference_defaults
+                .wubi_mixed_pinyin
+                .unwrap_or(crate::preferences::Preferences::default().wubi_mixed_pinyin),
+        });
     }
 }
 
@@ -583,15 +671,11 @@ pub enum SettingsCategory {
     Account,
     Chat,
     Community,
-    /// 其他平台下载: where to get the client for the user's other devices.
-    Download,
     Appearance,
     Input,
-    /// 表达, the parent of the AI assistant and AI conversation pages.
+    /// 标点与翻译.
     Expression,
     TypingStatistics,
-    /// No longer a page of its own: the helper-code settings are a group of 输入, and the shared UI opens that page for this id (`settingsPageAliases`). Hosts keep sending it.
-    Helpcode,
     Shortcuts,
     Dictionary,
     /// 背单词. Next to the dictionary because both are word lists the user manages, and away from
@@ -601,6 +685,7 @@ pub enum SettingsCategory {
     ScreenKeyboard,
     Handwriting,
     Voice,
+    /// AI 辅助, a page of the 工具 group and the parent of the AI conversation page.
     Ai,
     Tools,
     /// 插件: sound packs, background music, command tables and the @ name list.
@@ -620,12 +705,10 @@ impl SettingsCategory {
             SettingsCategory::Account => "account",
             SettingsCategory::Chat => "chat",
             SettingsCategory::Community => "community",
-            SettingsCategory::Download => "download",
             SettingsCategory::Appearance => "appearance",
             SettingsCategory::Input => "input",
             SettingsCategory::Expression => "expression",
             SettingsCategory::TypingStatistics => "typing-statistics",
-            SettingsCategory::Helpcode => "helpcode",
             SettingsCategory::Shortcuts => "shortcuts",
             SettingsCategory::Dictionary => "dictionary",
             SettingsCategory::Vocabulary => "vocabulary",
@@ -649,12 +732,10 @@ impl SettingsCategory {
             "account" => Ok(SettingsCategory::Account),
             "chat" => Ok(SettingsCategory::Chat),
             "community" => Ok(SettingsCategory::Community),
-            "download" => Ok(SettingsCategory::Download),
             "appearance" => Ok(SettingsCategory::Appearance),
             "input" => Ok(SettingsCategory::Input),
             "expression" => Ok(SettingsCategory::Expression),
             "typing-statistics" => Ok(SettingsCategory::TypingStatistics),
-            "helpcode" => Ok(SettingsCategory::Helpcode),
             "shortcuts" => Ok(SettingsCategory::Shortcuts),
             "dictionary" => Ok(SettingsCategory::Dictionary),
             "vocabulary" => Ok(SettingsCategory::Vocabulary),
@@ -675,16 +756,14 @@ impl SettingsCategory {
         }
     }
 
-    pub const ALL: [SettingsCategory; 24] = [
+    pub const ALL: [SettingsCategory; 22] = [
         SettingsCategory::Account,
         SettingsCategory::Chat,
         SettingsCategory::Community,
-        SettingsCategory::Download,
         SettingsCategory::Appearance,
         SettingsCategory::Input,
         SettingsCategory::Expression,
         SettingsCategory::TypingStatistics,
-        SettingsCategory::Helpcode,
         SettingsCategory::Shortcuts,
         SettingsCategory::Dictionary,
         SettingsCategory::Vocabulary,
@@ -854,7 +933,7 @@ impl SurfaceRoute {
             SurfaceRoute::CloudDictionary => Some(PanelSurface {
                 label: "cloud-dictionary-panel",
                 query: "cloud-dictionary",
-                title: "水杉云词典",
+                title: "水杉云词库",
                 width: 760,
                 height: 700,
                 placement: PanelPlacement::BottomCenter,

@@ -9,6 +9,7 @@
 #include "WindowShadow.h"
 #include <algorithm>
 #include <iterator>
+#include "../../../../shared/contracts/msime_edition.h"
 
 namespace msime::windows {
 namespace {
@@ -33,7 +34,7 @@ bool installed_font(const std::wstring &family) {
   ReleaseDC(nullptr, dc);
   return found;
 }
-constexpr wchar_t class_name[] = L"MSIME.Client.Preview.Candidates";
+constexpr wchar_t class_name[] = L"MSIME.Client.Preview.Candidates" MSIME_EDITION_NAME_SUFFIX;
 // The typing flash repaints at about 30 frames a second while it fades, then its timer is killed; the combo timer fires once, when the count it shows goes stale.
 constexpr UINT_PTR typing_flash_timer = 0x4501;
 constexpr UINT_PTR typing_combo_timer = 0x4502;
@@ -324,6 +325,7 @@ bool CandidateWindow::set_fonts(const CandidateFontSettings &settings) {
     // Resolve all names before replacing any live display state.
     auto primary = wide(settings.family);
     std::vector<std::wstring> fallback;
+    fallback.reserve(settings.fallback.size());
     for (const auto &name : settings.fallback)
       fallback.push_back(wide(name));
     if (!installed_font(primary)) {
@@ -409,9 +411,14 @@ void CandidateWindow::refresh() {
   try {
     reposition();
   } catch (...) {
-    failed_ = true;
-    hide();
+    fail(failure_at_stage("refresh", static_cast<uint32_t>(GetLastError())));
   }
+}
+void CandidateWindow::fail(ComponentFailureSite site) {
+  if (!failed_)
+    failure_site_ = site;
+  failed_ = true;
+  hide();
 }
 void CandidateWindow::reposition() {
   auto value = reader_();
@@ -565,7 +572,7 @@ CandidateBounds CandidateWindow::card_bounds(const CandidatePresentation &value,
                                              static_cast<int>(shadow_right),
                                              static_cast<int>(shadow_bottom)});
 }
-// The shipped presenter draws three runs per candidate: the text with its badge, the annotation (辅助码) and the translation, the last at a smaller size. Measuring them apart is what lets a long annotation or translation wrap under the text instead of being clipped off the end of one long label.
+// The shipped presenter draws three runs per candidate: the text with its badge, the annotation (辅助码) and the translation, the last at a smaller size. Measuring them apart is what lets a long annotation or translation wrap under the text instead of being clipped off the end of one long label. The translation run is candidate_secondary_text, which puts a Korean Hanja's 훈음 above its translation.
 std::vector<CandidateItemWidths>
 CandidateWindow::measure_items(const CandidatePresentation &value) {
   const auto metrics =
@@ -577,9 +584,11 @@ CandidateWindow::measure_items(const CandidatePresentation &value) {
       return measured_width(device_, wide(text), font_family_,
                             static_cast<float>(size), font_fallback_.Get());
     };
-    items.push_back({width(candidate.text + candidate.badge, font_size_),
+    items.push_back({width(candidate_primary_text(candidate), font_size_),
                      width(candidate.annotation, font_size_),
-                     width(candidate.translation, metrics.translation_font)});
+                     width(candidate_secondary_text(candidate),
+                           metrics.translation_font),
+                     candidate_secondary_lines(candidate)});
   }
   return items;
 }
@@ -594,8 +603,9 @@ CandidateWindow::wrap_measure(const CandidatePresentation &value) {
   std::vector<Runs> runs;
   runs.reserve(value.candidates.size());
   for (const auto &candidate : value.candidates)
-    runs.push_back({wide(candidate.text + candidate.badge),
-                    wide(candidate.annotation), wide(candidate.translation)});
+    runs.push_back({wide(candidate_primary_text(candidate)),
+                    wide(candidate.annotation),
+                    wide(candidate_secondary_text(candidate))});
   return [this, runs = std::move(runs), font = static_cast<float>(font_size_),
           translation_font = static_cast<float>(metrics.translation_font)](
              size_t index, CandidateRun run, double width) {
@@ -910,13 +920,13 @@ void CandidateWindow::paint() {
       if (value->candidates[i].highlighted && palette_.show_selected_bar) {
         const auto extent = candidate_selection_bar(
             rect.left, rect.top, rect.bottom, metrics.candidate_row);
-        const float radius =
+        const float bar_radius =
             static_cast<float>(candidate_selection_bar_width * 0.5);
         const D2D1_ROUNDED_RECT bar{{static_cast<float>(extent.left),
                                      static_cast<float>(extent.top),
                                      static_cast<float>(extent.right),
                                      static_cast<float>(extent.bottom)},
-                                    radius, radius};
+                                    bar_radius, bar_radius};
         target->FillRoundedRectangle(bar, brush(palette_.accent));
       }
     }
@@ -928,13 +938,13 @@ void CandidateWindow::paint() {
     const auto row_text_color =
         candidate_row_text_color(palette_, text_color, selected,
                                  value->candidates[i].fixed_position != 0);
-    const auto label = std::to_wstring(i + 1);
-    target->DrawText(label.c_str(), static_cast<UINT32>(label.size()),
+    const auto number_label = std::to_wstring(i + 1);
+    target->DrawText(number_label.c_str(), static_cast<UINT32>(number_label.size()),
                       format(font_size_, DWRITE_TEXT_ALIGNMENT_TRAILING),
                       D2D1_RECT_F{rect.left, rect.top, rect.left + number,
                                   rect.top + first_line},
                       brush(number_color));
-    const auto text = wide(value->candidates[i].text + value->candidates[i].badge);
+    const auto text = wide(candidate_primary_text(value->candidates[i]));
     // Text wider than its column was laid out wrapped (wrapped_height() at this same width), and the row already grew by that height, so it wraps here inside the row that hit testing uses. Text that fits keeps the single-line format, so rounding cannot wrap what was laid out as one line. Still clipped to the row as a guard: without it anything the layout did not account for would paint past the card edge onto the transparent shadow margin.
     target->DrawText(
         text.c_str(), static_cast<UINT32>(text.size()),
@@ -963,7 +973,7 @@ void CandidateWindow::paint() {
     };
     draw_run(value->candidates[i].annotation, item.annotation, font_size_,
              annotation_color);
-    draw_run(value->candidates[i].translation, item.translation,
+    draw_run(candidate_secondary_text(value->candidates[i]), item.translation,
              metrics.translation_font, translation_color);
   }
   const HRESULT drawn = target->EndDraw();
@@ -995,7 +1005,7 @@ void CandidateWindow::paint() {
     rendered_(*painted_);
 }
 std::optional<CandidateClick> CandidateWindow::hit(int x, int y) {
-  if (!click_ || !painted_ || !IsWindowVisible(window_))
+  if (!click_ || !painted_ || !painted_->pointer_input || !IsWindowVisible(window_))
     return std::nullopt;
   RECT bounds{};
   if (!GetClientRect(window_, &bounds))
@@ -1021,7 +1031,8 @@ std::optional<CandidateClick> CandidateWindow::hit(int x, int y) {
                         candidate.generation, candidate.index};
 }
 std::optional<bool> CandidateWindow::pager_hit(int x, int y) {
-  if (!page_ || !painted_ || !painted_pager_ || !IsWindowVisible(window_))
+  if (!page_ || !painted_ || !painted_->pointer_input || !painted_pager_ ||
+      !IsWindowVisible(window_))
     return std::nullopt;
   const double scale = layout_scale(painted_dpi_);
   // The same conversion into the visible card as hit().
@@ -1097,7 +1108,8 @@ LRESULT CALLBACK CandidateWindow::procedure(HWND window, UINT message,
           self->wheel_accumulator_ = 0;
           return DefWindowProcW(window, message, wparam, lparam);
         }
-        if (!self->page_ || !self->painted_ || !IsWindowVisible(window)) {
+        if (!self->page_ || !self->painted_ || !self->painted_->pointer_input ||
+            !IsWindowVisible(window)) {
           self->wheel_accumulator_ = 0;
           return 0;
         }
@@ -1242,8 +1254,8 @@ LRESULT CALLBACK CandidateWindow::procedure(HWND window, UINT message,
         break;
       }
     } catch (...) {
-      self->failed_ = true;
-      self->hide(); // No exception/input text may cross the Win32 callback.
+      // No exception/input text may cross the Win32 callback.
+      self->fail(failure_in_message(message, static_cast<uint32_t>(GetLastError())));
       return 0;
     }
   }

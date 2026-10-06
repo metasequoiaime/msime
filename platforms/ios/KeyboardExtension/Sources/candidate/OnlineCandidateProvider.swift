@@ -1,4 +1,5 @@
 import Foundation
+import CoreFoundation
 
 /// 云候选和 AI 候选：组字停下来之后再问，不是每敲一个键都问。
 ///
@@ -19,6 +20,11 @@ final class OnlineCandidateProvider {
   private var epoch: UInt64 = 0
   private var debounce: Timer?
   private var task: Task<Void, Never>?
+
+  static func shouldRetryAfterFetch(cloudRequested: Bool, cloudApplied: Bool,
+                                    aiRequested: Bool, aiApplied: Bool) -> Bool {
+    (cloudRequested && !cloudApplied) || (aiRequested && !aiApplied)
+  }
 
   init(session: MetasequoiaInputSessionBridge,
        transport: any OnlineCandidateTransport = URLSessionOnlineCandidateTransport()) {
@@ -56,22 +62,37 @@ final class OnlineCandidateProvider {
   }
 
   private func fetch(document: Data, epoch target: UInt64) async {
+    let initialQuery = Self.object(document)
+    let cloudRequested = initialQuery.map(Self.requestsCloud) ?? false
+    var cloudApplied = false
+    var aiRequested = false
+    var aiApplied = false
+    defer {
+      // 云候选成功不代表后续 AI 也成功；只要当前代次还有失败的请求，就释放签名允许重试。
+      if Self.shouldRetryAfterFetch(cloudRequested: cloudRequested, cloudApplied: cloudApplied,
+                                    aiRequested: aiRequested, aiApplied: aiApplied),
+         target == epoch { signature = nil }
+    }
     var aiDocument = document
     if let query = Self.object(document), Self.requestsCloud(query),
        let url = MetasequoiaInputSessionBridge.cloudRequestURL(query: document),
        let body = await transport.fetch(Self.cloudRequest(url)), target == epoch,
        // Applying a cloud result advances the Engine's generation, so the AI request has to be built from the query as it stands afterwards or it arrives stale.
        let refreshed = apply({ try self.session.applyCloudResponse(query: document, body: body) }) {
+      cloudApplied = true
       aiDocument = refreshed
     }
     guard target == epoch, let query = Self.object(aiDocument), Self.requestsAI(query),
           let limit = Self.aiCandidateLimit(query),
           let descriptor = session.aiRequest(query: aiDocument),
-          let request = Self.aiRequest(descriptor),
-          let body = await transport.fetch(request), target == epoch else { return }
+          let request = Self.aiRequest(descriptor) else { return }
+    aiRequested = true
+    guard let body = await transport.fetch(request), target == epoch else { return }
     let candidates = MetasequoiaInputSessionBridge.parseAIResponse(body, limit: limit)
     guard !candidates.isEmpty else { return }
-    _ = apply { try self.session.applyOnlineCandidates(query: aiDocument, candidates: candidates, source: 1) }
+    if apply({ try self.session.applyOnlineCandidates(query: aiDocument, candidates: candidates, source: 1) }) != nil {
+      aiApplied = true
+    }
   }
 
   /// Hand one provider's result to the session and render it. Returns the query as it stands afterwards, or nil when nothing was applied.
@@ -94,7 +115,7 @@ final class OnlineCandidateProvider {
 
   /// The assistant's candidate limit, or nil when it is outside what the shared parser accepts.
   static func aiCandidateLimit(_ query: [String: Any]) -> Int? {
-    let limit = ((query["ai_assistant"] as? [String: Any])?["candidate_limit"] as? NSNumber)?.intValue ?? 0
+    let limit = integer((query["ai_assistant"] as? [String: Any])?["candidate_limit"]) ?? 0
     return (1...10).contains(limit) ? limit : nil
   }
 
@@ -125,6 +146,8 @@ final class OnlineCandidateProvider {
   /// The POST the session's descriptor describes, or nil when it is not an HTTPS POST with a JSON body.
   static func aiRequest(_ descriptor: [String: Any]) -> OnlineCandidateRequest? {
     guard let text = descriptor["url"] as? String, let url = URL(string: text), url.scheme == "https",
+          let host = url.host, !host.isEmpty,
+          url.user == nil, url.password == nil, url.fragment == nil,
           (descriptor["method"] as? String ?? "POST") == "POST",
           let body = descriptor["body"], JSONSerialization.isValidJSONObject(body),
           let payload = try? JSONSerialization.data(withJSONObject: body) else { return nil }
@@ -134,17 +157,34 @@ final class OnlineCandidateProvider {
     for (name, value) in descriptor["headers"] as? [String: String] ?? [:] {
       request.setValue(value, forHTTPHeaderField: name)
     }
-    let maxBytes = min(maxAIResponseBytes, (descriptor["max_response_bytes"] as? NSNumber)?.intValue ?? maxAIResponseBytes)
+    let maxBytes: Int
+    if descriptor["max_response_bytes"] == nil {
+      maxBytes = maxAIResponseBytes
+    } else {
+      guard let value = integer(descriptor["max_response_bytes"]), value > 0 else { return nil }
+      maxBytes = min(maxAIResponseBytes, value)
+    }
+    guard let connectTimeout = seconds(descriptor["connect_timeout_ms"], fallback: 2500),
+          let requestTimeout = seconds(descriptor["timeout_ms"], fallback: 8000) else { return nil }
     return OnlineCandidateRequest(urlRequest: request,
-                                  connectTimeout: seconds(descriptor["connect_timeout_ms"], fallback: 2500),
-                                  timeout: seconds(descriptor["timeout_ms"], fallback: 8000),
+                                  connectTimeout: connectTimeout,
+                                  timeout: requestTimeout,
                                   maxBytes: max(1, maxBytes))
   }
 
   /// Milliseconds from the descriptor, held to the 1-10 s the Android host allows.
-  private static func seconds(_ value: Any?, fallback: Int) -> TimeInterval {
-    let milliseconds = (value as? NSNumber)?.intValue ?? fallback
+  private static func seconds(_ value: Any?, fallback: Int) -> TimeInterval? {
+    let milliseconds = value == nil ? fallback : integer(value)
+    guard let milliseconds, milliseconds > 0 else { return nil }
     return TimeInterval(min(10_000, max(1_000, milliseconds))) / 1000
+  }
+
+  private static func integer(_ value: Any?) -> Int? {
+    guard let number = value as? NSNumber,
+          CFGetTypeID(number) != CFBooleanGetTypeID(),
+          let integer = Int(number.stringValue),
+          NSNumber(value: integer).compare(number) == .orderedSame else { return nil }
+    return integer
   }
 
   private static func object(_ document: Data) -> [String: Any]? {

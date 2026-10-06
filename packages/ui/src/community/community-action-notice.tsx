@@ -1,0 +1,16 @@
+import type { ReactNode } from "react";
+import { StatusMessage } from "../core/status-message";
+import * as style from "./community-style";
+
+export interface CommunityActionNoticeProps {
+  children: ReactNode;
+}
+
+/** Shared status message styling for completed community actions. */
+export function CommunityActionNotice({ children }: CommunityActionNoticeProps) {
+  return (
+    <StatusMessage role="status" className={style.actionNotice}>
+      {children}
+    </StatusMessage>
+  );
+}

@@ -1,7 +1,11 @@
 import http from '@ohos.net.http';
 import fs from '@ohos.file.fs';
 import util from '@ohos.util';
-import { AccountSessionStore, AccountTransport, AccountTransportResponse } from './AccountCloudBridge';
+import {
+  AccountSessionStore, AccountTransport, AccountTransportResponse, parseResponseContentLength
+} from './AccountCloudBridge';
+import { installNoRedirectGuard, noRedirectOptions } from '../network/HarmonyHttpSecurity';
+import { sessionFitsStorage } from './AccountSessionPolicy';
 
 /**
  * The account session file and the HTTPS transport, shared by the settings application and the keyboard extension.
@@ -16,10 +20,12 @@ export const ACCOUNT_ORIGIN: string = 'https://api.msime.app';
  * Two processes read this file. `AccountCloudBridge` refuses and clears a document it cannot parse, so a reader that caught a truncate-then-write halfway would sign the user out; writing a uniquely named sibling and renaming it means a reader only ever sees the old document or the new one.
  */
 export class FileSessionStore implements AccountSessionStore {
+  private readonly directory: string;
   private readonly file: string;
   private readonly lockFile: string;
 
   constructor(directory: string) {
+    this.directory = directory;
     this.file = `${directory}/account-session.json`;
     this.lockFile = `${directory}/account-session.lock`;
   }
@@ -30,6 +36,9 @@ export class FileSessionStore implements AccountSessionStore {
    * The service rotates refresh tokens and revokes the session when a spent one is presented, so the settings application and the keyboard extension must never refresh at the same time or from a stale read. Every refresh in either process happens inside this lock, after `AccountCloudBridge` has re-read the session file. The lock is per open file, so two bridges in one process exclude each other too, and the kernel releases it if the holder dies.
    */
   async exclusive<T>(body: () => Promise<T>): Promise<T> {
+    if (!this.prepareDirectory() || this.isSymbolicLink(this.lockFile)) {
+      throw new Error('account_storage');
+    }
     const lock: fs.File = fs.openSync(this.lockFile, fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE);
     try {
       await lock.lock(true);
@@ -45,13 +54,19 @@ export class FileSessionStore implements AccountSessionStore {
 
   load(): string | null {
     try {
-      return fs.accessSync(this.file) ? fs.readTextSync(this.file) : null;
+      if (!this.safeDirectory()) return null;
+      const stat: fs.Stat = fs.lstatSync(this.file);
+      if (stat.isSymbolicLink() || !stat.isFile() || stat.size > MAX_SESSION_BYTES) return null;
+      return fs.readTextSync(this.file);
     } catch {
       return null;
     }
   }
 
   save(value: string): void {
+    if (!sessionFitsStorage(value) || !this.prepareDirectory() || this.isSymbolicLink(this.file)) {
+      throw new Error('account_storage');
+    }
     const staging: string = `${this.file}.${util.generateRandomUUID(false)}.tmp`;
     let renamed: boolean = false;
     try {
@@ -78,9 +93,36 @@ export class FileSessionStore implements AccountSessionStore {
 
   clear(): void {
     try {
+      if (!this.safeDirectory() || this.isSymbolicLink(this.file)) return;
       if (fs.accessSync(this.file)) fs.unlinkSync(this.file);
     } catch {
       // Clearing an already absent session is idempotent.
+    }
+  }
+
+  private prepareDirectory(): boolean {
+    try {
+      if (!fs.accessSync(this.directory)) fs.mkdirSync(this.directory, true);
+      return this.safeDirectory();
+    } catch {
+      return false;
+    }
+  }
+
+  private safeDirectory(): boolean {
+    try {
+      const stat: fs.Stat = fs.lstatSync(this.directory);
+      return !stat.isSymbolicLink() && stat.isDirectory();
+    } catch {
+      return false;
+    }
+  }
+
+  private isSymbolicLink(path: string): boolean {
+    try {
+      return fs.lstatSync(path).isSymbolicLink();
+    } catch {
+      return false;
     }
   }
 }
@@ -106,8 +148,7 @@ export function responseHeader(headers: Object, name: string): string | undefine
 export function responseContentLength(headers: Object): number | undefined {
   const raw: string | undefined = responseHeader(headers, 'content-length');
   if (raw === undefined) return undefined;
-  const parsed: number = Number(raw);
-  return Number.isInteger(parsed) && parsed >= 0 ? parsed : -1;
+  return parseResponseContentLength(raw);
 }
 
 export function responseContentType(headers: Object): string | undefined {
@@ -124,6 +165,7 @@ export class HarmonyAccountTransport implements AccountTransport {
     timeoutMs?: number, requestTag?: string): Promise<AccountTransportResponse> {
     if (!path.startsWith('/v1/') || path.includes('\\')) throw new Error('account_invalid');
     const request = http.createHttp();
+    installNoRedirectGuard(request);
     if (requestTag !== undefined && requestTag.length > 0) {
       let requests: Set<http.HttpRequest> | undefined = this.activeRequests.get(requestTag);
       if (requests === undefined) {
@@ -136,13 +178,13 @@ export class HarmonyAccountTransport implements AccountTransport {
     if (token !== undefined) headers.Authorization = `Bearer ${token}`;
     // Only the read side takes the caller's budget. Connecting is connecting on every endpoint, and
     // a chat request to an unreachable host should still fail in seconds rather than in two minutes.
-    const options: http.HttpRequestOptions = {
+    const options = noRedirectOptions({
       method: this.method(method),
       header: headers,
       connectTimeout: 30000,
       readTimeout: timeoutMs === undefined ? 30000 : timeoutMs,
       extraData: body === undefined ? undefined : JSON.stringify(body)
-    };
+    });
     try {
       const response = await request.request(`${ACCOUNT_ORIGIN}${path}`, options);
       return {

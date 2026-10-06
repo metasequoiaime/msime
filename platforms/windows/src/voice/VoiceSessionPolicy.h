@@ -1,7 +1,7 @@
 #pragma once
 // Decisions VoiceInputSession makes that need no Win32: how much of a capture callback a batch recording keeps, and which sentence the person dictating is shown when a recording cannot start or does not produce text. The wording is MSIME-Windows voice_input_service.cpp's, which shows each of these in a message box; this host shows them on the voice overlay instead.
 
-#include "VoiceProviders.h"
+#include "../../../../shared/voice/VoiceProviders.h"
 
 #include <cstddef>
 #include <exception>

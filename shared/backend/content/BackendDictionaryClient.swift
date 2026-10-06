@@ -2,10 +2,11 @@ import Foundation
 
 extension BackendAccountClient {
   enum DictionaryKind: String, CaseIterable, Identifiable, Codable, Sendable {
-    case pinyin, wubi, quick, english
+    /// `wubi98` 是 98 五笔码表的词条，云端路径同名；`wubi` 仍是 86 五笔。
+    case pinyin, wubi, wubi98, quick, english
     var id: String { rawValue }
     var title: String {
-      switch self { case .pinyin: return "拼音"; case .wubi: return "五笔"; case .quick: return "快捷短语"; case .english: return "英文" }
+      switch self { case .pinyin: return "拼音"; case .wubi: return "86 五笔"; case .wubi98: return "98 五笔"; case .quick: return "快捷短语"; case .english: return "英文" }
     }
   }
   struct DictionaryEntry: Decodable, Identifiable, Sendable {
@@ -208,6 +209,7 @@ extension BackendAccountClient {
     switch kind {
     case "pinyin", "jianpin": return .pinyin
     case "wubi": return .wubi
+    case "wubi98": return .wubi98
     case "english": return .english
     default: return nil
     }

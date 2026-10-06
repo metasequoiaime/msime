@@ -4,8 +4,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 use std::time::Duration;
 
-use rusqlite::types::ToSql;
-use rusqlite::{Connection, OpenFlags, Row};
+use rusqlite::{params_from_iter, Connection, OpenFlags, Row};
 
 use super::{column_i64, column_text, sql_limit, DictRow};
 use crate::error::{EngineError, Result};
@@ -71,6 +70,35 @@ impl PinyinDatabase {
         changed
     }
 
+    /// 开一个读事务，直到 `end_read` 为止的查询共用一把共享锁和同一份快照。自动提交模式下每条语句都要自己加锁、检查热日志、解锁（`stat`/`fcntl`/`pread`），九键一次刷新几百条语句，这部分开销在手机上和查询本身相当。上次的事务没收尾（中途出错）就先结束它。
+    pub fn begin_read(&self) {
+        let Some(connection) = &self.connection else {
+            return;
+        };
+        if !connection.is_autocommit() {
+            // 失败时下面的 `BEGIN` 也会失败，查询照常按自动提交执行。
+            let _ = connection.execute_batch("COMMIT");
+        }
+        let _ = connection.execute_batch("BEGIN");
+    }
+
+    /// 结束 `begin_read` 开的读事务；只读事务提交不写任何东西。
+    pub fn end_read(&self) {
+        let Some(connection) = &self.connection else {
+            return;
+        };
+        if !connection.is_autocommit() {
+            let _ = connection.execute_batch("COMMIT");
+        }
+    }
+
+    /// 当前的 `PRAGMA data_version`，不改 `database_changed` 记下的值；词典没打开或读取失败时为 `None`。
+    pub fn data_version(&self) -> Option<i64> {
+        let connection = self.connection.as_ref()?;
+        let mut statement = connection.prepare_cached("PRAGMA data_version").ok()?;
+        statement.query_row((), |row| row.get::<_, i64>(0)).ok()
+    }
+
     /// Runs the cascade for `n` and `ni` once so the first keystroke does not pay for statement preparation (QQ:1052-1065).
     pub fn warm_up(&self) {
         intact_pinyin_set();
@@ -108,10 +136,10 @@ impl PinyinDatabase {
         if !first.is_ascii_lowercase() || limit == 0 {
             return Vec::new();
         }
-        let sql = initial_sql(first);
+        let sql = initial_sql(first, sql_limit(limit));
         // The upper bound is written out here in the reference too (QQ:1083).
         let upper_bound = key_prefix_upper_bound(prefix);
-        self.rows(&sql, (prefix, upper_bound.as_str(), sql_limit(limit)))
+        self.rows(&sql, [prefix, upper_bound.as_str()], query_capacity(limit))
     }
 
     /// Whole-syllable continuations of complete `segments` over 1..=`extra_syllables` more syllables, deduplicated by value, weight-sorted, at most `limit` (QQ:1305-1343).
@@ -139,8 +167,9 @@ impl PinyinDatabase {
                 continue;
             };
             rows.extend(self.rows(
-                &range_sql(&table),
-                (prefix.as_str(), upper_bound.as_str(), sql_limit(limit)),
+                &range_sql(&table, sql_limit(limit)),
+                [prefix.as_str(), upper_bound.as_str()],
+                query_capacity(limit),
             ));
         }
         deduplicate_by_value(&mut rows);
@@ -204,7 +233,11 @@ impl PinyinDatabase {
                 continue;
             };
             if segments.len() == 1 {
-                let rows = self.rows(&exact_sql(&table), (key.as_str(), sql_limit(per_key_limit)));
+                let rows = self.rows(
+                    &exact_sql(&table, sql_limit(per_key_limit)),
+                    [key.as_str()],
+                    query_capacity(per_key_limit),
+                );
                 if !rows.is_empty() {
                     result.insert(key.clone(), rows);
                 }
@@ -248,8 +281,7 @@ impl PinyinDatabase {
                 return false;
             };
             // A table that fails to prepare is skipped (QQ:1034-1038).
-            let Ok(mut statement) = connection
-                .prepare_cached(&format!("SELECT 1 FROM \"{table}\" WHERE value=?1 LIMIT 1"))
+            let Ok(mut statement) = connection.prepare_cached(&han_char_exists_sql(table.as_str()))
             else {
                 return false;
             };
@@ -262,11 +294,7 @@ impl PinyinDatabase {
         let connection = self.connection.as_ref()?;
         let table = build_table_name(&split_segments(key))?;
         // A missing table or a failed step is "not found" in the reference (QD:490-497).
-        let mut statement = connection
-            .prepare_cached(&format!(
-                "SELECT weight FROM \"{table}\" WHERE key=?1 AND value=?2 LIMIT 1"
-            ))
-            .ok()?;
+        let mut statement = connection.prepare_cached(&find_weight_sql(&table)).ok()?;
         let mut rows = statement.query((key, value)).ok()?;
         let row = rows.next().ok()??;
         column_i64(row, 0).ok()
@@ -280,9 +308,7 @@ impl PinyinDatabase {
             .ok_or_else(|| EngineError::invalid(INVALID_DICTIONARY_KEY))?;
         let jp = segments_to_jianpin(&segments);
         connection
-            .prepare_cached(&format!(
-                "INSERT INTO \"{table}\" (\"key\", \"jp\", \"value\", \"weight\") VALUES (?1, ?2, ?3, ?4)"
-            ))?
+            .prepare_cached(&insert_word_sql(&table))?
             .execute((key, jp.as_str(), value, INSERTED_WEIGHT))?;
         Ok(())
     }
@@ -308,7 +334,11 @@ impl PinyinDatabase {
         let bound = sql_limit(limit);
 
         if can_match_exact_key(segments) {
-            let rows = self.rows(&exact_sql(&table), (key.as_str(), bound));
+            let rows = self.rows(
+                &exact_sql(&table, bound),
+                [key.as_str()],
+                query_capacity(limit),
+            );
             if !rows.is_empty() {
                 return rows;
             }
@@ -318,20 +348,32 @@ impl PinyinDatabase {
         let pattern = build_key_like_pattern(segments);
         let prefix = &pattern[..pattern.len() - 1];
         let upper_bound = key_prefix_upper_bound(prefix);
-        let rows = self.rows(&range_sql(&table), (prefix, upper_bound.as_str(), bound));
+        let rows = self.rows(
+            &range_sql(&table, bound),
+            [prefix, upper_bound.as_str()],
+            query_capacity(limit),
+        );
         if !rows.is_empty() {
             return rows;
         }
 
-        let jp_sql = jianpin_sql(&table);
         if needs_mixed_jianpin_query(segments, source) {
-            let scan_limit = sql_limit(build_mixed_jianpin_scan_limit(limit));
-            let rows: Vec<DictRow> = self
-                .rows(&jp_sql, (jp.as_str(), scan_limit))
+            let scan_limit_value = build_mixed_jianpin_scan_limit(limit);
+            let scan_limit = sql_limit(scan_limit_value);
+            // The scan has a minimum page of 128 rows; use it as a bounded
+            // initial buffer without turning an unbounded caller limit into
+            // an enormous allocation.
+            let mut rows = Vec::with_capacity(limit.min(128));
+            rows.extend(
+                self.rows(
+                    &jianpin_sql(&table, scan_limit),
+                    [jp.as_str()],
+                    query_capacity(scan_limit_value),
+                )
                 .into_iter()
                 .filter(|row| matches_mixed_segments(&row.key, segments, source))
-                .take(limit)
-                .collect();
+                .take(limit),
+            );
             if !rows.is_empty() {
                 return rows;
             }
@@ -340,7 +382,11 @@ impl PinyinDatabase {
         if !is_pure_jianpin(segments) {
             return Vec::new();
         }
-        self.rows(&jp_sql, (jp.as_str(), bound))
+        self.rows(
+            &jianpin_sql(&table, bound),
+            [jp.as_str()],
+            query_capacity(limit),
+        )
     }
 
     /// QQ:686-740: one `IN (...)` statement per key count, which `prepare_cached` keeps apart by its text.
@@ -348,15 +394,17 @@ impl PinyinDatabase {
         if table.is_empty() || keys.is_empty() || limit == 0 {
             return Vec::new();
         }
-        let sql = batch_sql(table, keys.len());
-        let bound = sql_limit(limit);
-        let mut params: Vec<&dyn ToSql> = keys.iter().map(|key| key as &dyn ToSql).collect();
-        params.push(&bound);
-        self.rows(&sql, params.as_slice())
+        let sql = batch_sql(table, keys.len(), sql_limit(limit));
+        self.rows(&sql, params_from_iter(keys), query_capacity(limit))
     }
 
     /// Runs a `"key", "value", "weight"` statement. A statement that fails to prepare (the table does not exist) yields no rows, and a failed step ends the rows read so far, exactly as the reference's `while (sqlite3_step(...) == SQLITE_ROW)` loops did (QQ:584-605).
-    fn rows(&self, sql: &str, params: impl rusqlite::Params) -> Vec<DictRow> {
+    fn rows(
+        &self,
+        sql: &str,
+        params: impl rusqlite::Params,
+        capacity: Option<usize>,
+    ) -> Vec<DictRow> {
         let Some(connection) = &self.connection else {
             return Vec::new();
         };
@@ -366,7 +414,7 @@ impl PinyinDatabase {
         let Ok(mut rows) = statement.query(params) else {
             return Vec::new();
         };
-        let mut result = Vec::new();
+        let mut result = capacity.map_or_else(Vec::new, Vec::with_capacity);
         while let Ok(Some(row)) = rows.next() {
             match dict_row(row) {
                 Ok(item) => result.push(item),
@@ -394,20 +442,48 @@ fn open_connection(path: &Path) -> Option<Connection> {
     Some(connection)
 }
 
-fn exact_sql(table: &str) -> String {
-    let mut sql = String::with_capacity(table.len() + 86);
-    sql.push_str("SELECT \"key\", \"value\", \"weight\" FROM \"");
+const SELECT_ROWS: &str = "SELECT \"key\", \"value\", \"weight\" FROM \"";
+
+/// 行数上限写成字面量，不用 `LIMIT ?`。SQLite 规划查询时会读 `LIMIT` 绑定的值，于是这样的语句每执行一次都过期、整条重新解析和规划一遍（`sqlite3Reprepare`），九键每按一键要查几百次，这部分开销和查询本身相当。重新规划时看到的正是这个值，写成字面量得到同样的计划和同样的行序；不同上限按语句文本分别缓存，上限只有少数几种。
+fn push_limit(sql: &mut String, limit: i64) {
+    use std::fmt::Write;
+    // 写进 `String` 不会失败。
+    let _ = write!(sql, "{limit}");
+}
+
+/// `push_limit` 写出的字节数，好让语句一次分配到位。
+fn limit_len(limit: i64) -> usize {
+    let digits = limit
+        .unsigned_abs()
+        .checked_ilog10()
+        .map_or(1, |log| log as usize + 1);
+    digits + usize::from(limit < 0)
+}
+
+fn select_rows_sql(table: &str, condition: &str, limit: i64) -> String {
+    let mut sql =
+        String::with_capacity(SELECT_ROWS.len() + table.len() + condition.len() + limit_len(limit));
+    sql.push_str(SELECT_ROWS);
     sql.push_str(table);
-    sql.push_str("\" WHERE \"key\" = ? ORDER BY \"weight\" DESC LIMIT ?");
+    sql.push_str(condition);
+    push_limit(&mut sql, limit);
     sql
 }
 
-fn range_sql(table: &str) -> String {
-    let mut sql = String::with_capacity(table.len() + 101);
-    sql.push_str("SELECT \"key\", \"value\", \"weight\" FROM \"");
-    sql.push_str(table);
-    sql.push_str("\" WHERE \"key\" >= ? AND \"key\" < ? ORDER BY \"weight\" DESC LIMIT ?");
-    sql
+fn exact_sql(table: &str, limit: i64) -> String {
+    select_rows_sql(
+        table,
+        "\" WHERE \"key\" = ? ORDER BY \"weight\" DESC LIMIT ",
+        limit,
+    )
+}
+
+fn range_sql(table: &str, limit: i64) -> String {
+    select_rows_sql(
+        table,
+        "\" WHERE \"key\" >= ? AND \"key\" < ? ORDER BY \"weight\" DESC LIMIT ",
+        limit,
+    )
 }
 
 fn longer_phrase_prefix(segments: &[String]) -> String {
@@ -423,14 +499,15 @@ fn longer_phrase_prefix(segments: &[String]) -> String {
     prefix
 }
 
-fn batch_sql(table: &str, key_count: usize) -> String {
+fn batch_sql(table: &str, key_count: usize, limit: i64) -> String {
     let mut sql = String::with_capacity(
         table
             .len()
             .saturating_add(key_count.saturating_mul(2))
-            .saturating_add(96),
+            .saturating_add(96)
+            .saturating_add(limit_len(limit)),
     );
-    sql.push_str("SELECT \"key\", \"value\", \"weight\" FROM \"");
+    sql.push_str(SELECT_ROWS);
     sql.push_str(table);
     sql.push_str("\" WHERE \"key\" IN (");
     for index in 0..key_count {
@@ -439,23 +516,59 @@ fn batch_sql(table: &str, key_count: usize) -> String {
         }
         sql.push('?');
     }
-    sql.push_str(") ORDER BY \"weight\" DESC LIMIT ?");
+    sql.push_str(") ORDER BY \"weight\" DESC LIMIT ");
+    push_limit(&mut sql, limit);
     sql
 }
 
-fn jianpin_sql(table: &str) -> String {
-    let mut sql = String::with_capacity(table.len() + 85);
-    sql.push_str("SELECT \"key\", \"value\", \"weight\" FROM \"");
+fn jianpin_sql(table: &str, limit: i64) -> String {
+    select_rows_sql(
+        table,
+        "\" WHERE \"jp\" = ? ORDER BY \"weight\" DESC LIMIT ",
+        limit,
+    )
+}
+
+fn han_char_exists_sql(table: &str) -> String {
+    const PREFIX: &str = "SELECT 1 FROM \"";
+    const SUFFIX: &str = "\" WHERE value=?1 LIMIT 1";
+    let mut sql = String::with_capacity(PREFIX.len() + table.len() + SUFFIX.len());
+    sql.push_str(PREFIX);
     sql.push_str(table);
-    sql.push_str("\" WHERE \"jp\" = ? ORDER BY \"weight\" DESC LIMIT ?");
+    sql.push_str(SUFFIX);
     sql
 }
 
-fn initial_sql(first: u8) -> String {
-    let mut sql = String::with_capacity(111);
-    sql.push_str("SELECT \"key\", \"value\", \"weight\" FROM \"tbl_1_");
+fn find_weight_sql(table: &str) -> String {
+    const PREFIX: &str = "SELECT weight FROM \"";
+    const SUFFIX: &str = "\" WHERE key=?1 AND value=?2 LIMIT 1";
+    let mut sql = String::with_capacity(PREFIX.len() + table.len() + SUFFIX.len());
+    sql.push_str(PREFIX);
+    sql.push_str(table);
+    sql.push_str(SUFFIX);
+    sql
+}
+
+fn insert_word_sql(table: &str) -> String {
+    const PREFIX: &str = "INSERT INTO \"";
+    const SUFFIX: &str = "\" (\"key\", \"jp\", \"value\", \"weight\") VALUES (?1, ?2, ?3, ?4)";
+    let mut sql = String::with_capacity(PREFIX.len() + table.len() + SUFFIX.len());
+    sql.push_str(PREFIX);
+    sql.push_str(table);
+    sql.push_str(SUFFIX);
+    sql
+}
+
+fn initial_sql(first: u8, limit: i64) -> String {
+    const SUFFIX: &str = "\" WHERE \"key\" >= ?1 AND \"key\" < ?2 ORDER BY \"weight\" DESC LIMIT ";
+    let mut sql = String::with_capacity(
+        SELECT_ROWS.len() + "tbl_1_".len() + 1 + SUFFIX.len() + limit_len(limit),
+    );
+    sql.push_str(SELECT_ROWS);
+    sql.push_str("tbl_1_");
     sql.push(first as char);
-    sql.push_str("\" WHERE \"key\" >= ?1 AND \"key\" < ?2 ORDER BY \"weight\" DESC LIMIT ?3");
+    sql.push_str(SUFFIX);
+    push_limit(&mut sql, limit);
     sql
 }
 
@@ -469,6 +582,10 @@ fn dict_row(row: &Row<'_>) -> rusqlite::Result<DictRow> {
         value: column_text(row, 1)?,
         weight: column_i64(row, 2)?,
     })
+}
+
+fn query_capacity(limit: usize) -> Option<usize> {
+    (limit < i32::MAX as usize).then_some(limit)
 }
 
 /// First occurrence wins (QQ:774-780).
@@ -520,47 +637,83 @@ mod tests {
     #[test]
     fn batch_sql_writes_placeholders_without_intermediate_vectors() {
         assert_eq!(
-            batch_sql("tbl_2_n", 3),
-            "SELECT \"key\", \"value\", \"weight\" FROM \"tbl_2_n\" WHERE \"key\" IN (?,?,?) ORDER BY \"weight\" DESC LIMIT ?"
+            batch_sql("tbl_2_n", 3, 32),
+            "SELECT \"key\", \"value\", \"weight\" FROM \"tbl_2_n\" WHERE \"key\" IN (?,?,?) ORDER BY \"weight\" DESC LIMIT 32"
         );
     }
 
     #[test]
+    fn limit_len_counts_the_written_digits() {
+        for limit in [0, 7, 10, 32, 128, i64::from(i32::MAX), -5] {
+            let mut written = String::new();
+            push_limit(&mut written, limit);
+            assert_eq!(limit_len(limit), written.len(), "{limit}");
+        }
+    }
+
+    #[test]
     fn exact_sql_writes_the_lookup_statement_directly() {
-        let sql = exact_sql("tbl_2_n");
+        let sql = exact_sql("tbl_2_n", 2147483647);
         assert_eq!(
             sql,
-            "SELECT \"key\", \"value\", \"weight\" FROM \"tbl_2_n\" WHERE \"key\" = ? ORDER BY \"weight\" DESC LIMIT ?"
+            "SELECT \"key\", \"value\", \"weight\" FROM \"tbl_2_n\" WHERE \"key\" = ? ORDER BY \"weight\" DESC LIMIT 2147483647"
         );
         assert_eq!(sql.capacity(), sql.len());
     }
 
     #[test]
     fn range_sql_writes_the_lookup_statement_directly() {
-        let sql = range_sql("tbl_2_n");
+        let sql = range_sql("tbl_2_n", 32);
         assert_eq!(
             sql,
-            "SELECT \"key\", \"value\", \"weight\" FROM \"tbl_2_n\" WHERE \"key\" >= ? AND \"key\" < ? ORDER BY \"weight\" DESC LIMIT ?"
+            "SELECT \"key\", \"value\", \"weight\" FROM \"tbl_2_n\" WHERE \"key\" >= ? AND \"key\" < ? ORDER BY \"weight\" DESC LIMIT 32"
         );
         assert_eq!(sql.capacity(), sql.len());
     }
 
     #[test]
     fn jianpin_sql_writes_the_lookup_statement_directly() {
-        let sql = jianpin_sql("tbl_2_n");
+        let sql = jianpin_sql("tbl_2_n", 128);
         assert_eq!(
             sql,
-            "SELECT \"key\", \"value\", \"weight\" FROM \"tbl_2_n\" WHERE \"jp\" = ? ORDER BY \"weight\" DESC LIMIT ?"
+            "SELECT \"key\", \"value\", \"weight\" FROM \"tbl_2_n\" WHERE \"jp\" = ? ORDER BY \"weight\" DESC LIMIT 128"
+        );
+        assert_eq!(sql.capacity(), sql.len());
+    }
+
+    #[test]
+    fn han_char_exists_sql_writes_the_lookup_statement_directly() {
+        let sql = han_char_exists_sql("tbl_1_n");
+        assert_eq!(sql, "SELECT 1 FROM \"tbl_1_n\" WHERE value=?1 LIMIT 1");
+        assert_eq!(sql.capacity(), sql.len());
+    }
+
+    #[test]
+    fn find_weight_sql_writes_the_lookup_statement_directly() {
+        let sql = find_weight_sql("tbl_2_n");
+        assert_eq!(
+            sql,
+            "SELECT weight FROM \"tbl_2_n\" WHERE key=?1 AND value=?2 LIMIT 1"
+        );
+        assert_eq!(sql.capacity(), sql.len());
+    }
+
+    #[test]
+    fn insert_word_sql_writes_the_lookup_statement_directly() {
+        let sql = insert_word_sql("tbl_2_n");
+        assert_eq!(
+            sql,
+            "INSERT INTO \"tbl_2_n\" (\"key\", \"jp\", \"value\", \"weight\") VALUES (?1, ?2, ?3, ?4)"
         );
         assert_eq!(sql.capacity(), sql.len());
     }
 
     #[test]
     fn initial_sql_writes_the_lookup_statement_directly() {
-        let sql = initial_sql(b'n');
+        let sql = initial_sql(b'n', 24);
         assert_eq!(
             sql,
-            "SELECT \"key\", \"value\", \"weight\" FROM \"tbl_1_n\" WHERE \"key\" >= ?1 AND \"key\" < ?2 ORDER BY \"weight\" DESC LIMIT ?3"
+            "SELECT \"key\", \"value\", \"weight\" FROM \"tbl_1_n\" WHERE \"key\" >= ?1 AND \"key\" < ?2 ORDER BY \"weight\" DESC LIMIT 24"
         );
         assert_eq!(sql.capacity(), sql.len());
     }
@@ -591,7 +744,7 @@ mod tests {
     #[test]
     fn a_missing_file_stays_missing_and_answers_empty() {
         let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("msime.db");
+        let path = directory.path().join("msime-pinyin.db");
         let mut database = PinyinDatabase::open(&path);
         assert!(!database.is_open());
         assert!(!path.exists(), "opening must not create the dictionary");
@@ -610,6 +763,7 @@ mod tests {
         let database = cascade_fixture(directory.path());
         assert!(database.is_open());
         let rows = database.query_initial("n", 10);
+        assert_eq!(rows.capacity(), 10);
         assert_eq!(values(&rows), ["你", "您", "那"]);
         assert_eq!(
             rows[0],
@@ -644,7 +798,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let mut database = cascade_fixture(directory.path());
         assert!(!database.database_changed());
-        let other = Connection::open(directory.path().join("msime.db")).unwrap();
+        let other = Connection::open(directory.path().join("msime-pinyin.db")).unwrap();
         other
             .execute(
                 "INSERT INTO tbl_1_n (key, jp, value, weight) VALUES ('ni', 'n', '伱', 1)",
@@ -703,6 +857,16 @@ mod tests {
         assert!(query(&[], usize::MAX).is_empty());
         // Duplicate shipped rows are tolerated.
         assert_eq!(values(&query(&["zha", "ba"], usize::MAX)), ["扎吧"]);
+    }
+
+    #[test]
+    fn mixed_jianpin_filter_reserves_the_requested_limit() {
+        let directory = tempfile::tempdir().unwrap();
+        let database = cascade_fixture(directory.path());
+        let rows =
+            database.query_single_cut_keyed(&strings(&["n", "hao"]), 1, QuerySource::Quanpin);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows.capacity(), 1);
     }
 
     #[test]
@@ -840,7 +1004,7 @@ mod tests {
     #[test]
     fn lattice_span_is_exact_and_canonicalises_umlaut_spellings() {
         let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("msime.db");
+        let path = directory.path().join("msime-pinyin.db");
         let connection = Connection::open(&path).unwrap();
         connection
             .execute_batch(

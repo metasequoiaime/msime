@@ -4,6 +4,7 @@
 #include <set>
 #include <stdexcept>
 #include <string>
+#include <utility>
 
 using namespace msime::windows;
 namespace {
@@ -100,7 +101,7 @@ int main() {
               0xE7B5);
 
       ToolbarLanguageState japanese;
-      japanese.japanese = true;
+      japanese.mode = scheme::InputMode::Japanese;
       require(toolbar_icon(kToolbarLanguage, true, japanese).codepoint == 0xE7DE);
       // But the temporary English toggle beats it, as upstream orders these:
       // the toggle is what the next key actually does, and 日 over a keystroke
@@ -109,21 +110,37 @@ int main() {
 
       // Korean draws its syllable as text: the icon font has no Hangul glyph, and a codepoint it lacks would render as a blank box. The English toggle and Caps Lock beat it exactly as they beat Japanese.
       ToolbarLanguageState korean;
-      korean.korean = true;
+      korean.mode = scheme::InputMode::Korean;
       const auto hangul = toolbar_icon(kToolbarLanguage, true, korean);
       require(!hangul.codepoint && std::wcscmp(hangul.fallback, L"한") == 0);
       require(!hangul.underline);
       require(toolbar_icon(kToolbarLanguage, false, korean).codepoint == 0xE983);
       ToolbarLanguageState capped_korean;
       capped_korean.caps_lock = true;
-      capped_korean.korean = true;
+      capped_korean.mode = scheme::InputMode::Korean;
       require(toolbar_icon(kToolbarLanguage, true, capped_korean).codepoint == 0xE7B5);
+
+      // 粤拼、注音、越南文、藏文和笔画同样把各自的字当文字画出来，排在 Caps Lock 和英文切换之后。
+      const std::pair<scheme::InputMode, const wchar_t *> drawn[] = {{scheme::InputMode::Cantonese, L"粤"},
+                                                                     {scheme::InputMode::Zhuyin, L"注"},
+                                                                     {scheme::InputMode::Vietnamese, L"越"},
+                                                                     {scheme::InputMode::Tibetan, L"藏"},
+                                                                     {scheme::InputMode::Stroke, L"笔"}};
+      for (const auto &[mode, text] : drawn) {
+        ToolbarLanguageState language;
+        language.mode = mode;
+        const auto icon = toolbar_icon(kToolbarLanguage, true, language);
+        require(!icon.codepoint && std::wcscmp(icon.fallback, text) == 0 && !icon.underline);
+        require(toolbar_icon(kToolbarLanguage, false, language).codepoint == 0xE983);
+        language.caps_lock = true;
+        require(toolbar_icon(kToolbarLanguage, true, language).codepoint == 0xE7B5);
+      }
 
       // Caps Lock beats Japanese too, and the two together are not a fourth
       // state.
       ToolbarLanguageState both;
       both.caps_lock = true;
-      both.japanese = true;
+      both.mode = scheme::InputMode::Japanese;
       require(toolbar_icon(kToolbarLanguage, true, both).codepoint == 0xE7B5);
 
       // With neither, the button is the ordinary CN/EN pair.
@@ -162,7 +179,7 @@ int main() {
       // state.
       ToolbarLanguageState english_and_japanese;
       english_and_japanese.dedicated_english = true;
-      english_and_japanese.japanese = true;
+      english_and_japanese.mode = scheme::InputMode::Japanese;
       require(
           toolbar_icon(kToolbarLanguage, true, english_and_japanese).underline);
 

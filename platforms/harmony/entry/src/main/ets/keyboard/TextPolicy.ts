@@ -16,6 +16,11 @@ export class TextPolicy {
       && !value.includes("@") && !value.includes("#");
   }
 
+  /** A web URL the settings page may hand to the system browser. */
+  static validExternalWebUrl(value: string): boolean {
+    return TextPolicy.validAuthority(value, ['https://', 'http://']);
+  }
+
   /** Allows plaintext only for a loopback authority; credentials remain HTTPS-only. */
   static validSecureAuthority(value: string, allowHttp: boolean, maxBytes: number = 2048): boolean {
     if (!TextPolicy.validAuthority(value, allowHttp ? ["https://", "http://"] : ["https://"], maxBytes)) {

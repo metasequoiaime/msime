@@ -2,7 +2,7 @@
 //!
 //! Built by `scripts/fetch_wordbooks.py` from ECDICT (MIT), whose `tag` column marks each word
 //! against the published syllabuses — zk / gk / cet4 / cet6 / ky / ielts / toefl / gre. The shipped
-//! `english.db` carries Chinese glosses and corpus frequency, which is enough to build "the
+//! `msime-english.db` carries Chinese glosses and corpus frequency, which is enough to build "the
 //! thousand commonest words" but not enough to say a word is on the CET-4 list; that is a
 //! published syllabus, and putting the label on a page that nothing behind it supports would be
 //! inventing it.

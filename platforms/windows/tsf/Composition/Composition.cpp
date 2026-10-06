@@ -1104,15 +1104,11 @@ STDAPI CMetasequoiaIME::OnCompositionTerminated(TfEditCookie ecWrite, _In_ ITfCo
         _compositionEpoch.fetch_add(1, std::memory_order_acq_rel);
     }
 
-    // An application that ends a Korean composition keeps its syllable in the document as text. The host session has to let go of it as well, or the next letter would build on that syllable and commit it a second time. An ending this TIP made itself has already settled the host, which may by then hold the next syllable.
-    if (!_terminatingOwnComposition && Global::KoreanInputModeEnabled.load(std::memory_order_relaxed) &&
-        _pCompositionProcessorEngine)
+    // 应用结束韩文、注音、越南文或藏文的组字时，文字留在文档里（scheme::AlwaysInlinePreedit 不论预编辑偏好如何都把它画在那里）。宿主会话也必须放开它，否则下一个键会在这段文字上继续组字，再上屏一次。TIP 自己结束的组字已经处理过宿主，那时宿主可能已经在组下一段。
+    if (!_terminatingOwnComposition &&
+        msime::windows::scheme::AlwaysInlinePreedit(Global::InputModeScheme.load(std::memory_order_relaxed)))
     {
-        if (auto *host = _pCompositionProcessorEngine->GetHostEngineAdapter(); host && host->valid())
-        {
-            std::string raw, error;
-            (void)host->command(MSIME_CANCEL, &raw, &error);
-        }
+        (void)_CancelHostComposition();
     }
 
     // Detach and end the old candidate/session before the COM cleanup calls

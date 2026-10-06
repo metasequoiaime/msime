@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 本版本的产品名，覆盖主资源里 full 的「水杉输入法」：启动器、应用信息、系统输入法列表和键盘切换器里显示的都是它。取值等于版本表 shared/contracts/editions.json 的 display_name.zh-Hans，下面两句与主资源的同名字符串只差这个名字，scripts/test-editions.py 检查两者没有走偏。 -->
+    <string name="app_name">水杉越南语</string>
+    <string name="tryout_body">点下面的输入框就能调出水杉越南语。试试你的皮肤、输入方案和模糊音；这里打的字只留在这一页，不会被读取或保存。</string>
+    <string name="tryout_switch_ime">当前不是水杉越南语？点此切换</string>
+</resources>

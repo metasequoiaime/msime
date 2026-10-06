@@ -1,14 +1,10 @@
 /**
  * Shared preference gates for the two optional annotations a candidate can carry.
  *
- * Both arrive in the prepared host document, and the two differ in what an absent value means, which
- * is the whole reason this is a policy rather than a pair of reads at the call site. `wubi_code_hint`
- * is an optional field the shared store omits entirely when it has never been set, and the shared
- * `Preferences::wubi_code_hint_enabled` reads that absence as on; `candidate_english_gloss` is always
- * serialised and defaults to off, so anything that is not literally true leaves the gloss hidden.
+ * Both arrive in the prepared host document, where the shared store always writes them, and they differ in their defaults: `wubi_code_hint` is on unless the document says otherwise, `candidate_english_gloss` is off unless it says otherwise.
  */
 export class CandidateAnnotationPreferencePolicy {
-  /** Absent or malformed means on, matching the shared accessor rather than the JSON default. */
+  /** Anything but an explicit false keeps the hint on, matching the shared default. */
   static wubiCodeHint(value: unknown): boolean {
     return value !== false;
   }

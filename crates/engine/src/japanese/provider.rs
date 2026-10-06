@@ -23,6 +23,13 @@ const SENTENCE_LIMIT: usize = 12;
 /// Two kana: a one-kana reading is already answered by the kana rows and the sentence search.
 const MIN_PREFIX_READING_BYTES: usize = 6;
 
+fn join_reading(prefix: &str, suffix: &str) -> String {
+    let mut reading = String::with_capacity(prefix.len() + suffix.len());
+    reading.push_str(prefix);
+    reading.push_str(suffix);
+    reading
+}
+
 pub struct JapaneseProvider {
     model: PathBuf,
     /// `None` until the first query, then the shared model or `Some(None)` when it is missing or invalid; a failed load is not retried by this provider, as in the reference.
@@ -109,7 +116,7 @@ impl JapaneseProvider {
                         .saturating_add(SENTENCE_LIMIT + 1),
                 );
                 for kana in pending_kana {
-                    let prefix = format!("{}{kana}", conversion.hiragana);
+                    let prefix = join_reading(&conversion.hiragana, kana);
                     for lemma in dictionary.prefix_lemmas(&prefix, PENDING_PREFIX_LEMMAS) {
                         rows.push(
                             &lemma.surface,
@@ -205,6 +212,13 @@ mod tests {
 
     fn words(items: &[WordItem]) -> Vec<&str> {
         items.iter().map(|item| item.word.as_str()).collect()
+    }
+
+    #[test]
+    fn join_reading_allocates_only_result_bytes() {
+        let reading = join_reading("か", "き");
+        assert_eq!(reading, "かき");
+        assert_eq!(reading.capacity(), reading.len());
     }
 
     fn provider_with(model: Option<Vec<u8>>) -> (tempfile::TempDir, JapaneseProvider) {

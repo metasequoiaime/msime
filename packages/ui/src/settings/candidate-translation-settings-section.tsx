@@ -8,7 +8,7 @@ import {
   TranslationServiceSelectorSection,
   type TranslationProvider,
 } from "./translation-service-selector-section";
-import * as settings from "./settings-style";
+import { SettingsGroupBlock } from "./settings-group-block";
 
 export interface CandidateTranslationSettingsSectionProps extends CandidateTranslationOptionsSectionProps {
   grouped?: boolean;
@@ -36,15 +36,22 @@ export function CandidateTranslationSettingsSection({
   const content = (
     <>
       <CandidateTranslationOptionsSection {...options} />
-      {onDeviceMissingLanguages.length > 0 && (
-        <div className={grouped ? settings.groupBlock : undefined}>
+      {onDeviceMissingLanguages.length > 0 &&
+        (grouped ? (
+          <SettingsGroupBlock>
+            <OnDeviceTranslationNotice
+              languages={onDeviceMissingLanguages}
+              openSettings={openSettings}
+              onError={onError}
+            />
+          </SettingsGroupBlock>
+        ) : (
           <OnDeviceTranslationNotice
             languages={onDeviceMissingLanguages}
             openSettings={openSettings}
             onError={onError}
           />
-        </div>
-      )}
+        ))}
       {showTranslationService && onTranslationProviderChange && (
         <TranslationServiceSelectorSection
           grouped={grouped}

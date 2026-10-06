@@ -9,7 +9,6 @@ test("composes candidate and provider bindings while omitting providers on Andro
     grouped: true,
     client: {
       providerCredentials: undefined,
-      customTranslations: { load: async () => "", save: async () => undefined },
     },
     candidateTranslations: true,
     translationTargetLanguage: "en",
@@ -23,7 +22,6 @@ test("composes candidate and provider bindings while omitting providers on Andro
     windows: false,
     harmony: false,
     linux: false,
-    mobile: false,
     translationAccount: false,
     onPreferencesChange: () => undefined,
     onDeviceMissingLanguages: [],
@@ -44,14 +42,6 @@ test("composes candidate and provider bindings while omitting providers on Andro
     providerCredentialMessages: {},
     runProviderCredential: async () => undefined,
     credentialTestControl: () => null,
-    customTranslationsText: "",
-    customTranslationsPlaceholder: "synthetic",
-    customTranslationsNotice: "",
-    customTranslationsSummary: "",
-    customTranslationsSaveState: "idle",
-    customTranslationsSaveError: "",
-    onCustomTranslationsChange: () => undefined,
-    onFlushCustomTranslations: () => undefined,
   } satisfies TranslationSettingsBindingsOptions;
   const bindings = createTranslationSettingsBindings(options);
 

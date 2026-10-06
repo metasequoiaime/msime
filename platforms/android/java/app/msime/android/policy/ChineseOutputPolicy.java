@@ -9,10 +9,11 @@ public final class ChineseOutputPolicy {
 
     private ChineseOutputPolicy() {}
 
-    /** Japanese (3) and Korean (4) text is not Chinese, so it is never converted. */
+    /** 只转换全拼、双拼和五笔的上屏：日语、韩语、越南语和藏文不是中文，粤拼和注音本来就写繁体字，笔画上屏的就是按笔画查到的那个字。本宿主不认识的方案序号沿用原来的答案，照常转换。 */
     public static boolean applies(boolean dedicatedEnglish, int scheme, String localMode) {
-        return !dedicatedEnglish && scheme != 3 && scheme != KoreanInputPolicy.KOREAN_SCHEME
-            && !"temporary_japanese".equals(localMode);
+        boolean schemeConverts = !InputSchemeTraits.known(scheme)
+            || InputSchemeTraits.scriptConversionApplies(scheme);
+        return !dedicatedEnglish && schemeConverts && !"temporary_japanese".equals(localMode);
     }
 
     public static String output(String text, boolean traditional, boolean applies,

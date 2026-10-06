@@ -9,6 +9,7 @@ final class CloudDictionaryTransferTests: XCTestCase {
   func testCloudKindsUseEngineValidationBeforeLocalQueue() throws {
     XCTAssertEqual(try entry("pinyin", "ni'hao", "你好").localWord().kind, .pinyin)
     XCTAssertEqual(try entry("wubi", "wq", "你").localWord().kind, .wubi)
+    XCTAssertEqual(try entry("wubi98", "wq", "你").localWord().kind, .wubi98)
     XCTAssertEqual(try entry("english", "hello", "Hello").localWord().kind, .english)
     XCTAssertEqual(try entry("quick", "test", "合成短语").localWord().kind, .quickPhrase)
     XCTAssertThrowsError(try entry("pinyin", "nihao", "你好").localWord())

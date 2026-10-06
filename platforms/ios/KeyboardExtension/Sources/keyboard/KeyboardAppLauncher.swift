@@ -6,10 +6,10 @@ import UIKit
 ///
 /// 独立成一个类型而不是写在控制器里,是为了能测:响应链可以由测试自己搭一条假的,而控制器要跑起来得有整个输入法环境。
 enum KeyboardAppLauncher {
-  /// 键盘要打开的目标。scheme 在 `platforms/ios/project.yml` 的 `CFBundleURLTypes` 里注册。
-  static let settingsURL = URL(string: "msime://settings")!
+  /// 键盘要打开的目标。scheme 是本版本的 `MSIMEAppEdition.urlScheme`,在 `platforms/ios/project.yml` 的 `CFBundleURLTypes` 里注册;按版本区分,装了多个版本时才不会拉起另一个版本的 App。
+  static let settingsURL = URL(string: "\(MSIMEAppEdition.urlScheme)://settings")!
   /// 语音录音页。iOS 键盘扩展拿不到麦克风,录音只能在应用里做,识别结果再经语音交接回到键盘。
-  static let voiceURL = URL(string: "msime://voice")!
+  static let voiceURL = URL(string: "\(MSIMEAppEdition.urlScheme)://voice")!
 
   /// 返回值是「找到了能打开的对象」,不是「应用已经到前台」—— 后者由系统决定,扩展这边看不到结果。
   @discardableResult

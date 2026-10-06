@@ -1,3 +1,5 @@
+import { ActionButton } from "./action-button";
+
 export interface DictionaryPaginationProps {
   busy: boolean;
   offset: number;
@@ -18,23 +20,17 @@ export function DictionaryPagination({
 }: DictionaryPaginationProps) {
   return (
     <div className="flex items-center justify-center gap-4 text-xs text-secondary">
-      <button
-        type="button"
-        className="secondary"
+      <ActionButton
+        action={() => onPageChange(Math.max(0, offset - pageSize))}
         disabled={busy || offset === 0}
-        onClick={() => onPageChange(Math.max(0, offset - pageSize))}
-      >
-        上一页
-      </button>
+        label="上一页"
+      />
       <span aria-live="polite">{status}</span>
-      <button
-        type="button"
-        className="secondary"
+      <ActionButton
+        action={() => onPageChange(offset + pageSize)}
         disabled={busy || !hasMore}
-        onClick={() => onPageChange(offset + pageSize)}
-      >
-        下一页
-      </button>
+        label="下一页"
+      />
     </div>
   );
 }

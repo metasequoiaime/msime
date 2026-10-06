@@ -7,19 +7,14 @@ struct MetasequoiaImeApp: App {
   @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
 
   init() {
-    Task { await BackendTelemetryClient.shared.recordFirstLaunch() }
     // The device's anonymous MSIME account is registered on first launch, before the keyboard needs it. The identity and session live in the app group, so the keyboard reuses them. A saved signed-in or anonymous session, even an expired one, skips the request rather than refreshing it on every launch; a failure is retried on the next launch.
     Task.detached(priority: .utility) {
       if (try? BackendKeychain().load()) != nil { return }
       if (try? BackendAnonymousAccount.sessionStorage().load()) != nil { return }
       _ = try? await BackendAnonymousAccount.ensureSignedIn(session: BackendAnonymousAccount.session, client: BackendAccountClient())
     }
-    NSSetUncaughtExceptionHandler { exception in
-      BackendTelemetryClient.persistCrash(message: exception.reason ?? exception.name.rawValue,
-                                          stack: exception.callStackSymbols.joined(separator: "\n"))
-    }
+    CrashDiagnostics.shared.start()
     try? KeyboardSkinTrialStore().restorePending()
-    CharacterWidthPreference.migrateLegacySwitch()
     #if DEBUG
     let arguments = ProcessInfo.processInfo.arguments
     if arguments.contains("--reset-onboarding-for-ui-tests") {
@@ -66,7 +61,12 @@ struct MetasequoiaImeApp: App {
       applicationContent
       #endif
     }
-    .onChange(of: scenePhase) { if $0 == .active { applyAppearance() } }
+    .onChange(of: scenePhase) { phase in
+      guard phase == .active else { return }
+      applyAppearance()
+      // Sends what the keyboard queued, which it cannot send itself without Full Access.
+      Task.detached(priority: .utility) { UsageReporting.flush() }
+    }
   }
 
   /// 设置界面主题 (see AppAppearancePreference) on every window. A window override rather than `preferredColorScheme`, so going back to 跟随系统 hands the style back to the device reliably and sheets follow too.
@@ -158,10 +158,9 @@ private struct MainTabView: View {
     }
     .environmentObject(navigation)
     .tint(MetasequoiaTheme.accent)
-    // 键盘的「应用设置」发来的 msime://。不加这一条应用照样会被拉起来,但会停在上次离开的那个标签页 ——
-    // 用户是从键盘的设置面板点过来的,落点应该是设置。
+    // 键盘的「应用设置」发来的本版本 URL scheme（`MSIMEAppEdition.urlScheme`，full 是 msime://）。不加这一条应用照样会被拉起来,但会停在上次离开的那个标签页 —— 用户是从键盘的设置面板点过来的,落点应该是设置。
     .onOpenURL { url in
-      guard url.scheme == "msime" else { return }
+      guard url.scheme == MSIMEAppEdition.urlScheme else { return }
       navigation.tab = .settings
       if url.host == "voice" { navigation.recordsVoice = true }
     }

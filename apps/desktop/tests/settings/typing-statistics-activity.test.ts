@@ -7,6 +7,9 @@ import {
   dailySpeeds,
   formatActiveTime,
   longestStreak,
+  statisticDayKeys,
+  statisticsOverviewDetails,
+  statisticsOverviewMetrics,
   usualHours,
   type TypingStatistics,
 } from "@msime/ui";
@@ -25,6 +28,17 @@ test("day arithmetic crosses months, years and leap days without a calendar libr
   expect(addDays("2026-02-28", 1)).toBe("2026-03-01");
   // A key that is not a date is returned unchanged rather than becoming "NaN-NaN-NaN".
   expect(addDays("not-a-day", 1)).toBe("not-a-day");
+});
+
+test("statistic day keys ignore malformed entries and stay chronologically sorted", () => {
+  expect(
+    statisticDayKeys({
+      "2026-09-21": 1,
+      "not-a-day": 2,
+      "2026-01-02": 3,
+      "2026-1-03": 4,
+    }),
+  ).toEqual(["2026-01-02", "2026-09-21"]);
 });
 
 test("today still in progress does not break a streak", () => {
@@ -98,7 +112,7 @@ test("days that predate the measurement are unknown rather than instant", () => 
 });
 
 test("the per-day average divides the recorded days, not a total that outlived them", () => {
-  // A document pruned by an older build keeps a running total above what its remaining days hold. The baseline divides the sum of its day rows by their count, so the dropped history must not inflate the average.
+  // A document may keep a running total above what its remaining days hold. The baseline divides the sum of its day rows by their count, so the dropped history must not inflate the average.
   const value = statistics({
     total: 900,
     days: { "2026-09-19": 200, "2026-09-20": 300 },
@@ -150,6 +164,62 @@ test("an empty document derives zeroes rather than NaN", () => {
     bestDay: null,
     todayHours: null,
     hasActivity: false,
+  });
+});
+
+test("overview metric descriptors keep labels, units and notes together", () => {
+  const activity = {
+    recordedDays: 1,
+    averagePerDay: 12,
+    todayActiveMs: 120_000,
+    totalActiveMs: 120_000,
+    todaySpeed: 6,
+    averageSpeed: 6,
+    fastestSpeed: 6,
+    fastestDay: "2026-09-21",
+    currentStreak: 1,
+    longestStreak: 1,
+    bestDay: "2026-09-21",
+    bestDayCharacters: 12,
+    todayHours: null,
+    hasActivity: true,
+  };
+  const metrics = statisticsOverviewMetrics({
+    statistics: statistics({ days: { "2026-09-21": 12 } }),
+    todayKey: "2026-09-21",
+    scopeTitle: "累计输入",
+    scopeTotal: 12,
+    activity,
+  });
+
+  expect(metrics).toEqual([
+    { label: "今日输入", value: "12", unit: "字符", ariaLabel: "今日输入字符数" },
+    { label: "累计输入", value: "12", unit: "字符", ariaLabel: "当前范围输入字符数" },
+    {
+      label: "今日活跃",
+      title: "连续打字的时间",
+      value: "2分",
+      ariaLabel: "今日活跃时长",
+    },
+    { label: "今日速度", value: "6", unit: "字 / 分钟", ariaLabel: "今日输入速度" },
+    {
+      label: "平均速度",
+      value: "6",
+      unit: "字 / 分钟",
+      ariaLabel: "平均输入速度",
+      note: "共 2分",
+    },
+    {
+      label: "连续天数",
+      value: "1",
+      unit: "天",
+      ariaLabel: "连续输入天数",
+      note: "最长 1 天",
+    },
+  ]);
+  expect(statisticsOverviewDetails(activity)).toEqual({
+    summary: "日均 12 字符 · 1 天有记录",
+    best: "最多 9月21日，12 字符 · 最快 9月21日，6 字 / 分钟",
   });
 });
 

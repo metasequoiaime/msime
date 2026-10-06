@@ -1,5 +1,6 @@
 import type { Dispatch, SetStateAction } from "react";
 import * as settings from "./settings-style";
+import { SettingsGroupBlock } from "./settings-group-block";
 import type {
   Preferences,
   ProviderCredentialClient,
@@ -21,7 +22,7 @@ import {
 import { VoiceAsrServiceTestSection } from "./voice-asr-service-test-section";
 import { VoiceHotkeysSection } from "./voice-hotkeys-section";
 import { VoicePolishSettingsSection } from "./voice-polish-settings-section";
-import { DoubaoOptionsSection } from "./doubao-options-section";
+import { DoubaoOptionsRows } from "./doubao-options-section";
 import { VoiceRecordingBehaviorSettingsSection } from "./voice-recording-behavior-settings-section";
 import { VoiceCredentialControl } from "./voice-credential-control";
 import {
@@ -33,9 +34,9 @@ import {
 import type { ProviderPresetControlFactory } from "./provider-preset-control";
 import type { useProviderCredentials } from "./use-provider-credentials";
 import { GroupList } from "../core/platform-controls";
+import { SettingsPageFieldset } from "./settings-page-fieldset";
 
 export interface VoiceSettingsContentProps {
-  grouped?: boolean;
   disabled: boolean;
   hidden: boolean;
   client: SettingsClient;
@@ -82,9 +83,8 @@ export interface VoiceSettingsContentProps {
   windowsPlatform: boolean;
   mobilePlatform: boolean;
   nativeVoicePlatform: boolean;
-  desktopPanels: boolean;
-  showVoiceHotkeys?: boolean;
-  showCredentialTests?: boolean;
+  showVoiceHotkeys: boolean;
+  showCredentialTests: boolean;
   showVoiceProviderSettings: boolean;
   showVoiceStreamPreedit: boolean;
   showVoiceCommitMode: boolean;
@@ -94,7 +94,6 @@ export interface VoiceSettingsContentProps {
 
 /** Complete shared voice settings page; host state and effects stay with SettingsPage. */
 export function VoiceSettingsContent({
-  grouped = false,
   disabled,
   hidden,
   client,
@@ -128,16 +127,14 @@ export function VoiceSettingsContent({
   windowsPlatform,
   mobilePlatform,
   nativeVoicePlatform,
-  desktopPanels,
   showVoiceHotkeys,
-  showCredentialTests = true,
+  showCredentialTests,
   showVoiceProviderSettings,
   showVoiceStreamPreedit,
   showVoiceCommitMode,
   showVoiceCaptureDevices,
   captureBackendOptions,
 }: VoiceSettingsContentProps) {
-  const hotkeysVisible = showVoiceHotkeys ?? desktopPanels;
   const polishEnabled = isVoicePolishEnabled(voiceInput);
   const asrProviderSettings = (
     <VoiceAsrProviderSettingsSection
@@ -147,7 +144,7 @@ export function VoiceSettingsContent({
       linux={linuxPlatform}
       doubaoAuthMode={doubaoAuthMode}
       providerPresetControls={providerPresetControls}
-      providerPresetClassName={grouped ? settings.managerBlock : undefined}
+      providerPresetClassName={settings.managerBlock}
       updateVoice={updateVoice}
     />
   );
@@ -177,173 +174,164 @@ export function VoiceSettingsContent({
           polishServiceCredentialTestDisabled(voiceInput),
         )
       : null;
+  const basics = (
+    <VoiceInputBasicsSection
+      localVoice={localVoice}
+      localVoiceModelsAvailable={Boolean(client.localVoiceModels)}
+      systemVoice={systemVoice}
+      systemVoiceHostName={systemVoiceHostName}
+      android={androidPlatform}
+      ios={iosPlatform}
+      macos={macosPlatform}
+      harmony={harmonyPlatform}
+      linux={linuxPlatform}
+      showVoiceProviderSettings={showVoiceProviderSettings}
+      localVoiceAvailable={localVoiceAvailable}
+      nativeVoicePlatform={nativeVoicePlatform}
+      harmonyUnsupportedAsr={harmonyUnsupportedAsr}
+      voiceInput={voiceInput}
+      updateVoice={updateVoice}
+      onOpenVoice={client.openVoice ? () => void openPanel(client.openVoice) : undefined}
+    />
+  );
+  const localModelSettings = (
+    <VoiceLocalModelSettingsSection
+      client={client}
+      localVoice={localVoice}
+      mobile={mobilePlatform}
+      voiceInput={voiceInput}
+      setDraft={setDraft}
+      confirm={confirm}
+      openExternalUrl={openExternalUrl}
+      updateVoice={updateVoice}
+    />
+  );
+  const credentialControl = (kind: VoiceCredentialKind) => (
+    <VoiceCredentialControl
+      available={Boolean(client.providerCredentials)}
+      kind={kind}
+      voiceInput={voiceInput}
+      doubaoAuthMode={doubaoAuthMode}
+      providerCredentials={providerCredentials}
+      voiceCredentialInput={voiceCredentialInput}
+      setVoiceCredentialInput={setVoiceCredentialInput}
+      providerCredentialBusy={providerCredentialBusy}
+      providerCredentialMessages={providerCredentialMessages}
+      runVoiceCredential={runVoiceCredential}
+    />
+  );
+  const asrCredentialVisible =
+    linuxPlatform && isAsrServiceProvider(voiceInput.asr_provider ?? "doubao");
+  const doubaoOptionsProps = {
+    linux: linuxPlatform,
+    enableItn: voiceInput.doubao_enable_itn !== false,
+    enablePunc: voiceInput.doubao_enable_punc !== false,
+    enableDdc: voiceInput.doubao_enable_ddc === true,
+    boostingTableId: voiceInput.doubao_boosting_table_id ?? "",
+    onEnableItnChange: (doubao_enable_itn: boolean) => updateVoice({ doubao_enable_itn }),
+    onEnablePuncChange: (doubao_enable_punc: boolean) => updateVoice({ doubao_enable_punc }),
+    onEnableDdcChange: (doubao_enable_ddc: boolean) => updateVoice({ doubao_enable_ddc }),
+    onBoostingTableIdChange: (doubao_boosting_table_id: string) =>
+      updateVoice({ doubao_boosting_table_id }),
+  };
+  const doubaoOptionsVisible = showVoiceProviderSettings && voiceInput.asr_provider === "doubao";
+  const hotkeys = showVoiceHotkeys && (
+    <VoiceHotkeysSection
+      platform={
+        macosPlatform
+          ? "macos"
+          : windowsPlatform
+            ? "windows"
+            : linuxPlatform
+              ? "linux"
+              : harmonyPlatform
+                ? "harmony"
+                : "other"
+      }
+      values={draft.voice_input ?? {}}
+      onChange={(key, enabled) => updateVoice({ [key]: enabled })}
+    />
+  );
+  const recognitionResult = (
+    <VoiceRecognitionResultSection
+      showStreamPreedit={showVoiceStreamPreedit}
+      showCommitMode={showVoiceCommitMode}
+      macos={macosPlatform}
+      streamInlinePreedit={voiceInput.stream_inline_preedit === true}
+      commitMode={voiceInput.commit_mode ?? "tsf"}
+      onStreamInlinePreeditChange={(stream_inline_preedit) =>
+        updateVoice({ stream_inline_preedit })
+      }
+      onCommitModeChange={(commit_mode) => updateVoice({ commit_mode })}
+    />
+  );
+  const captureDevices = showVoiceCaptureDevices && (
+    <VoiceCaptureDevicesSection
+      windows={windowsPlatform}
+      harmony={harmonyPlatform}
+      backend={voiceInput.capture_backend ?? ""}
+      device={voiceInput.capture_device ?? ""}
+      backendOptions={captureBackendOptions}
+      readDevices={client.listVoiceCaptureDevices!}
+      onBackendChange={(capture_backend, capture_device) =>
+        updateVoice({ capture_backend, capture_device })
+      }
+      onDeviceChange={(capture_device) => updateVoice({ capture_device })}
+    />
+  );
+  const recordingBehavior = (
+    <VoiceRecordingBehaviorSettingsSection
+      android={androidPlatform}
+      linux={linuxPlatform}
+      voiceInput={voiceInput}
+      updateVoice={updateVoice}
+    />
+  );
+  const providerConfigVisible =
+    (showVoiceProviderSettings && (serviceVoice || voiceInput.asr_provider === "doubao")) ||
+    localVoice ||
+    asrCredentialVisible ||
+    Boolean(asrCredentialTest);
+  // 设置窗口的语音页：先选服务并把它配好（识别服务配置的末尾是检查按钮），再是快捷键、录音时的行为和识别结果怎么用，润色是可选的另一项服务，录音设备很少要改，放在最后。
   const content = (
     <>
-      <VoiceInputBasicsSection
-        localVoice={localVoice}
-        localVoiceModelsAvailable={Boolean(client.localVoiceModels)}
-        systemVoice={systemVoice}
-        systemVoiceHostName={systemVoiceHostName}
-        android={androidPlatform}
-        ios={iosPlatform}
-        macos={macosPlatform}
-        harmony={harmonyPlatform}
-        linux={linuxPlatform}
-        showVoiceProviderSettings={showVoiceProviderSettings}
-        localVoiceAvailable={localVoiceAvailable}
-        nativeVoicePlatform={nativeVoicePlatform}
-        harmonyUnsupportedAsr={harmonyUnsupportedAsr}
-        voiceInput={voiceInput}
-        updateVoice={updateVoice}
-        onOpenVoice={client.openVoice ? () => void openPanel(client.openVoice) : undefined}
-      />
-      <VoiceLocalModelSettingsSection
-        client={client}
-        localVoice={localVoice}
-        mobile={mobilePlatform}
-        voiceInput={voiceInput}
-        setDraft={setDraft}
-        confirm={confirm}
-        openExternalUrl={openExternalUrl}
-        updateVoice={updateVoice}
-      />
-      {grouped ? (
-        showVoiceProviderSettings && (serviceVoice || voiceInput.asr_provider === "doubao") ? (
-          <GroupList title="识别服务配置">{asrProviderSettings}</GroupList>
-        ) : null
-      ) : (
-        asrProviderSettings
+      {basics}
+      {providerConfigVisible && (
+        <GroupList title="识别服务配置">
+          {asrProviderSettings}
+          {asrCredentialVisible && credentialControl("asr")}
+          {doubaoOptionsVisible && <DoubaoOptionsRows {...doubaoOptionsProps} />}
+          {localModelSettings}
+          {asrCredentialTest && <SettingsGroupBlock>{asrCredentialTest}</SettingsGroupBlock>}
+          <VoiceAsrServiceTestSection
+            available={windowsPlatform || macosPlatform || harmonyPlatform}
+            voiceInput={voiceInput}
+            doubaoAuthMode={doubaoAuthMode}
+            credentialTestControl={credentialTestControl}
+          />
+        </GroupList>
       )}
-      {linuxPlatform && isAsrServiceProvider(voiceInput.asr_provider ?? "doubao") && (
-        <VoiceCredentialControl
-          available={Boolean(client.providerCredentials)}
-          kind="asr"
-          voiceInput={voiceInput}
-          doubaoAuthMode={doubaoAuthMode}
-          providerCredentials={providerCredentials}
-          voiceCredentialInput={voiceCredentialInput}
-          setVoiceCredentialInput={setVoiceCredentialInput}
-          providerCredentialBusy={providerCredentialBusy}
-          providerCredentialMessages={providerCredentialMessages}
-          runVoiceCredential={runVoiceCredential}
-        />
-      )}
-      {grouped ? (
-        asrCredentialTest ? (
-          <GroupList title="检查识别配置">
-            <div className={settings.groupBlock}>{asrCredentialTest}</div>
-          </GroupList>
-        ) : null
-      ) : (
-        asrCredentialTest
-      )}
-      {/* Doubao belongs in this list, not in a HarmonyOS-only arm: the probe is the shared one, and Windows and macOS have had it since it was added. Gating it on HarmonyOS alone silently dropped the button on the two hosts whose tests cover it. */}
-      <VoiceAsrServiceTestSection
-        available={windowsPlatform || macosPlatform || harmonyPlatform}
-        voiceInput={voiceInput}
-        doubaoAuthMode={doubaoAuthMode}
-        credentialTestControl={credentialTestControl}
-      />
-      <VoiceRecognitionResultSection
-        showStreamPreedit={showVoiceStreamPreedit}
-        showCommitMode={showVoiceCommitMode}
-        macos={macosPlatform}
-        streamInlinePreedit={voiceInput.stream_inline_preedit === true}
-        commitMode={voiceInput.commit_mode ?? "tsf"}
-        onStreamInlinePreeditChange={(stream_inline_preedit) =>
-          updateVoice({ stream_inline_preedit })
-        }
-        onCommitModeChange={(commit_mode) => updateVoice({ commit_mode })}
-        grouped={grouped}
-      />
-      {showVoiceCaptureDevices && (
-        <VoiceCaptureDevicesSection
-          windows={windowsPlatform}
-          harmony={harmonyPlatform}
-          backend={voiceInput.capture_backend ?? ""}
-          device={voiceInput.capture_device ?? ""}
-          backendOptions={captureBackendOptions}
-          readDevices={client.listVoiceCaptureDevices!}
-          onBackendChange={(capture_backend, capture_device) =>
-            updateVoice({ capture_backend, capture_device })
-          }
-          onDeviceChange={(capture_device) => updateVoice({ capture_device })}
-        />
-      )}
-      <VoiceRecordingBehaviorSettingsSection
-        android={androidPlatform}
-        linux={linuxPlatform}
-        voiceInput={voiceInput}
-        updateVoice={updateVoice}
-      />
-      {showVoiceProviderSettings && voiceInput.asr_provider === "doubao" && (
-        <DoubaoOptionsSection
-          linux={linuxPlatform}
-          enableItn={voiceInput.doubao_enable_itn !== false}
-          enablePunc={voiceInput.doubao_enable_punc !== false}
-          enableDdc={voiceInput.doubao_enable_ddc === true}
-          boostingTableId={voiceInput.doubao_boosting_table_id ?? ""}
-          onEnableItnChange={(doubao_enable_itn) => updateVoice({ doubao_enable_itn })}
-          onEnablePuncChange={(doubao_enable_punc) => updateVoice({ doubao_enable_punc })}
-          onEnableDdcChange={(doubao_enable_ddc) => updateVoice({ doubao_enable_ddc })}
-          onBoostingTableIdChange={(doubao_boosting_table_id) =>
-            updateVoice({ doubao_boosting_table_id })
-          }
-        />
-      )}
+      {hotkeys}
+      {recordingBehavior}
+      {recognitionResult}
       {showVoiceProviderSettings && (
         <VoicePolishSettingsSection
           voiceInput={voiceInput}
           linux={linuxPlatform}
           providerPresetControls={providerPresetControls}
           updateVoice={updateVoice}
+          linuxCredentials={credentialControl("polish")}
         >
-          {!grouped && polishProviderCredentialTest}
+          {polishProviderCredentialTest}
           {polishServiceCredentialTest}
         </VoicePolishSettingsSection>
       )}
-      {showVoiceProviderSettings && linuxPlatform && (
-        <VoiceCredentialControl
-          available={Boolean(client.providerCredentials)}
-          kind="polish"
-          voiceInput={voiceInput}
-          doubaoAuthMode={doubaoAuthMode}
-          providerCredentials={providerCredentials}
-          voiceCredentialInput={voiceCredentialInput}
-          setVoiceCredentialInput={setVoiceCredentialInput}
-          providerCredentialBusy={providerCredentialBusy}
-          providerCredentialMessages={providerCredentialMessages}
-          runVoiceCredential={runVoiceCredential}
-        />
-      )}
-      {grouped && showVoiceProviderSettings && polishProviderCredentialTest ? (
-        <GroupList title="检查润色配置">
-          <div className={settings.groupBlock}>{polishProviderCredentialTest}</div>
-        </GroupList>
-      ) : null}
-      {hotkeysVisible && (
-        <VoiceHotkeysSection
-          platform={
-            macosPlatform
-              ? "macos"
-              : windowsPlatform
-                ? "windows"
-                : linuxPlatform
-                  ? "linux"
-                  : harmonyPlatform && grouped
-                    ? "harmony"
-                    : "other"
-          }
-          values={draft.voice_input ?? {}}
-          onChange={(key, enabled) => updateVoice({ [key]: enabled })}
-        />
-      )}
+      {captureDevices}
     </>
   );
-
   return (
-    <fieldset disabled={disabled} hidden={hidden} aria-label="语音输入">
-      {grouped ? <div className={settings.groups}>{content}</div> : content}
-    </fieldset>
+    <SettingsPageFieldset disabled={disabled} hidden={hidden} ariaLabel="语音输入">
+      {content}
+    </SettingsPageFieldset>
   );
 }

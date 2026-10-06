@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { ActionButton } from "./action-button";
 
 export interface SettingsFormFrameProps {
   children: ReactNode;
@@ -21,9 +22,7 @@ export function SettingsFormFrame({
         {children}
       </form>
       {showReload && onReload && (
-        <button type="button" className="secondary" disabled={busy} onClick={onReload}>
-          重新读取
-        </button>
+        <ActionButton action={onReload} disabled={busy} label="重新读取" />
       )}
     </>
   );

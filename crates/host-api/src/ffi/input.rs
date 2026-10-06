@@ -90,7 +90,18 @@ pub extern "C" fn msime_client_set_english_mode(handle: u64, enabled: bool) -> *
     })
 }
 
-/// Enable Engine-owned quanpin nine-key digit handling after composition is idle.
+/// 标出隐私会话：隐私模式或不允许学习的输入框。只影响打字统计（选词位置和上屏效率不计），学习仍由偏好里的 `learning` 决定。
+#[no_mangle]
+pub extern "C" fn msime_client_set_private_session(handle: u64, enabled: bool) -> *mut c_char {
+    response(|| {
+        with_session(handle, |session| {
+            session.statistics_private = enabled;
+            Ok(Value::Bool(enabled))
+        })
+    })
+}
+
+/// 在组字空闲后开启引擎负责的九键数字处理：全拼九宫格，或注音九键。
 #[no_mangle]
 pub extern "C" fn msime_client_set_nine_key_mode(handle: u64, enabled: bool) -> *mut c_char {
     response(|| {
@@ -149,6 +160,7 @@ pub extern "C" fn msime_client_command(handle: u64, command: u32) -> *mut c_char
         13 => Action::SegmentMoveLeft,
         14 => Action::SegmentMoveRight,
         15 => Action::Command(Command::CommitRawWithoutLearning),
+        16 => Action::Command(Command::ConvertHanja),
         100 => Action::NextPage,
         101 => Action::PreviousPage,
         102 => Action::NextCandidate,
@@ -265,15 +277,23 @@ pub unsafe extern "C" fn msime_client_smart_punctuation_arm(
                 .get(&handle)
                 .ok_or_else(|| "unknown session or wrong thread".to_owned())?;
             let smart = session.applied.smart_punctuation;
-            // The repeat gesture turns an ASCII mark into a Chinese one; Korean writes only ASCII marks, so it never arms there.
-            let korean = session.runtime.scheme() == KOREAN_SCHEME;
+            // 重复按键手势把 ASCII 标点换成中文标点。韩文、越南文和藏文只写 ASCII 标点，注音的标点键用来拼注音符号，所以这几个方案里从不启用；日文照旧启用。
+            let smart_scheme = !matches!(
+                SchemeType::from_u8(session.runtime.scheme()),
+                Some(
+                    SchemeType::Korean
+                        | SchemeType::Zhuyin
+                        | SchemeType::Vietnamese
+                        | SchemeType::Tibetan
+                )
+            );
             let repeat = msime_client_core::punctuation::arm_repeat(
                 value.ascii,
                 &value.commit,
                 value.timestamp_ms,
                 value.editor_generation,
             )
-            .filter(|_| smart && session.applied.smart_punctuation_repeat && !korean);
+            .filter(|_| smart && session.applied.smart_punctuation_repeat && smart_scheme);
             let space = msime_client_core::punctuation::arm_space_convert(
                 &value.commit,
                 value.auto_closed_pair,

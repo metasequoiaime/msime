@@ -7,6 +7,13 @@ pub const MAX_NODES_PER_ROW: usize = 8;
 pub const MAX_LEMMA_MORA: usize = 16;
 pub const UNKNOWN_KANA_COST: i32 = 12_000;
 
+fn join_text(first: &str, second: &str) -> String {
+    let mut text = String::with_capacity(first.len() + second.len());
+    text.push_str(first);
+    text.push_str(second);
+    text
+}
+
 /// A converted text and its cost (sentence cost or lemma word cost).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct JapaneseConversion {
@@ -110,7 +117,7 @@ pub fn search_converted(
                         + i64::from(lemma.word_cost)
                         + i64::from(dictionary.connection_cost(previous.right_id, lemma.left_id));
                     rows[end].push(Node {
-                        text: format!("{}{}", previous.text, lemma.surface),
+                        text: join_text(&previous.text, &lemma.surface),
                         cost,
                         right_id: lemma.right_id,
                     });
@@ -121,7 +128,7 @@ pub fn search_converted(
         let kana = &reading[start_byte..boundaries[start + 1]];
         for previous in &previous_row {
             rows[start + 1].push(Node {
-                text: format!("{}{kana}", previous.text),
+                text: join_text(&previous.text, kana),
                 cost: previous.cost + i64::from(UNKNOWN_KANA_COST),
                 right_id: 0,
             });
@@ -144,7 +151,7 @@ pub fn search_converted(
 
     if !pending.is_empty() {
         for kana in &pending_kana {
-            for lemma in dictionary.exact_lemmas(&format!("{reading}{kana}"), 16) {
+            for lemma in dictionary.exact_lemmas(&join_text(reading, kana), 16) {
                 output.push(&lemma.surface, i64::from(lemma.word_cost));
             }
         }
@@ -183,13 +190,20 @@ mod tests {
         matrix: &[i16],
     ) -> JapaneseDictionary {
         let root = tempfile::tempdir().expect("temporary directory");
-        let path = root.path().join("dict_japanese.dat");
+        let path = root.path().join("msime-japanese.dat");
         std::fs::write(&path, test_model::bytes(entries, size, matrix)).expect("write model");
         JapaneseDictionary::load(&path).expect("model loads")
     }
 
     fn texts(results: &[JapaneseConversion]) -> Vec<&str> {
         results.iter().map(|result| result.text.as_str()).collect()
+    }
+
+    #[test]
+    fn join_text_allocates_only_result_bytes() {
+        let text = super::join_text("蚊", "な");
+        assert_eq!(text, "蚊な");
+        assert_eq!(text.capacity(), text.len());
     }
 
     fn search(

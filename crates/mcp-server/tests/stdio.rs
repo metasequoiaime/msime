@@ -20,7 +20,7 @@ fn fixture(root: &Path) -> std::path::PathBuf {
     for name in ["resources", "dictionaries"] {
         let path = root.join(name);
         std::fs::create_dir(&path).unwrap();
-        rusqlite::Connection::open(path.join("msime.db"))
+        rusqlite::Connection::open(path.join("msime-pinyin.db"))
             .unwrap()
             .execute_batch(tables)
             .unwrap();
@@ -558,4 +558,395 @@ async fn an_agent_turns_on_and_reads_the_diagnostic_log() {
     assert_eq!(view["lines"].as_array().unwrap().len(), 4);
 
     client.cancel().await.unwrap();
+}
+
+/// The command line: one tool per run, under the same flags and with the same answers as the server.
+fn run_cli(options: &Path, args: &[&str], stdin: Option<&str>) -> (i32, Value, String) {
+    let (code, stdout, stderr) = run_cli_text(options, args, stdin);
+    let stdout = if stdout.is_empty() {
+        Value::Null
+    } else {
+        serde_json::from_str(&stdout).unwrap()
+    };
+    (code, stdout, stderr)
+}
+
+fn run_cli_text(options: &Path, args: &[&str], stdin: Option<&str>) -> (i32, String, String) {
+    use std::io::Write;
+    let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_msime-mcp"));
+    command.arg("--options").arg(options).args(args);
+    for name in [
+        "MSIME_CLIENT_HOST_OPTIONS",
+        "MSIME_IBUS_OPTIONS",
+        "MSIME_CLIENT_STATE_DIR",
+    ] {
+        command.env_remove(name);
+    }
+    let mut child = command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(stdin.unwrap_or("").as_bytes())
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    (
+        output.status.code().unwrap(),
+        String::from_utf8(output.stdout).unwrap(),
+        String::from_utf8(output.stderr).unwrap(),
+    )
+}
+
+#[test]
+fn the_command_line_runs_the_same_tools() {
+    let directory = tempfile::tempdir().unwrap();
+    let options = fixture(directory.path());
+
+    let (code, tools, _) = run_cli(&options, &["tools"], None);
+    assert_eq!(code, 0);
+    let mut names: Vec<&str> = tools
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|tool| tool["name"].as_str().unwrap())
+        .collect();
+    names.sort();
+    assert_eq!(
+        names,
+        [
+            "get_preferences",
+            "get_typing_statistics",
+            "list_candidate_skins",
+            "list_quick_phrases",
+            "read_diagnostic_log",
+            "set_diagnostic_log"
+        ]
+    );
+    assert!(tools[0]["inputSchema"].is_object());
+
+    let edit = r#"{"edits":[{"op":"add","code":"yx","text":"someone@example.com"}]}"#;
+    let (code, _, error) = run_cli(&options, &["call", "edit_quick_phrases", edit], None);
+    assert_eq!(code, 1);
+    assert!(error.contains("--allow-write"), "{error}");
+
+    let (code, outcome, _) = run_cli(
+        &options,
+        &["--allow-write", "call", "edit-quick-phrases", "-"],
+        Some(edit),
+    );
+    assert_eq!(code, 0);
+    assert_eq!(outcome, json!({ "applied": 1 }));
+
+    let (code, page, _) = run_cli(
+        &options,
+        &["call", "list_quick_phrases", r#"{"code_prefix":"y"}"#],
+        None,
+    );
+    assert_eq!(code, 0);
+    assert_eq!(
+        page,
+        json!({ "phrases": [{ "code": "yx", "text": "someone@example.com" }], "has_more": false })
+    );
+
+    let (code, _, error) = run_cli(
+        &options,
+        &["call", "list_quick_phrases", r#"{"limit":0}"#],
+        None,
+    );
+    assert_eq!(code, 1);
+    assert!(
+        error.contains("limit must be between 1 and 1000"),
+        "{error}"
+    );
+
+    let (code, _, error) = run_cli(&options, &["call", "list_quick_phrases", "[]"], None);
+    assert_eq!(code, 2);
+    assert!(error.contains("JSON object"), "{error}");
+}
+
+#[test]
+fn expand_and_config_print_lines_for_testing_by_hand() {
+    let directory = tempfile::tempdir().unwrap();
+    let options = fixture(directory.path());
+
+    // 测试里 stderr 是管道，和助手运行命令时一样：快捷命令要有用户选的开关，缺了就在启动服务器之前说明缺哪一个。
+    let (code, _, error) = run_cli_text(&options, &["expand", "aaaa"], None);
+    assert_eq!(code, 1);
+    assert!(error.contains("needs --allow-dictionary-read"), "{error}");
+    let (code, _, error) = run_cli_text(&options, &["config", "set", "scheme=wubi"], None);
+    assert_eq!(code, 1);
+    assert!(error.contains("needs --allow-write"), "{error}");
+
+    // 方案默认是用户当前的（这里是全拼），五笔词要指定 --scheme。
+    let (code, lines, error) = run_cli_text(
+        &options,
+        &[
+            "--allow-dictionary-read",
+            "expand",
+            "aaaa",
+            "--scheme",
+            "wubi",
+        ],
+        None,
+    );
+    assert_eq!(code, 0, "{error}");
+    assert_eq!(lines, "1\t合成工\taaaa\tdictionary\t500\n");
+    let (code, view, error) = run_cli(
+        &options,
+        &[
+            "--allow-dictionary-read",
+            "expand",
+            "aaaa",
+            "--scheme",
+            "wubi",
+            "--json",
+        ],
+        None,
+    );
+    assert_eq!(code, 0, "{error}");
+    assert_eq!(view["candidates"][0]["text"], "合成工");
+    let (code, _, error) = run_cli_text(
+        &options,
+        &["--allow-dictionary-read", "expand", "AAAA"],
+        None,
+    );
+    assert_eq!(code, 1);
+    assert!(error.contains("lowercase"), "{error}");
+
+    let (code, before, error) = run_cli_text(&options, &["config"], None);
+    assert_eq!(code, 0, "{error}");
+    assert!(
+        before.lines().any(|line| line == "scheme = quanpin"),
+        "{before}"
+    );
+
+    // config set 自己读 revision。
+    let (code, after, error) = run_cli_text(
+        &options,
+        &[
+            "--allow-write",
+            "config",
+            "set",
+            "scheme=wubi",
+            "candidate_page_size=9",
+        ],
+        None,
+    );
+    assert_eq!(code, 0, "{error}");
+    assert!(after.lines().any(|line| line == "scheme = wubi"), "{after}");
+    assert!(
+        after.lines().any(|line| line == "candidate_page_size = 9"),
+        "{after}"
+    );
+    // 下一次运行读到的就是新的偏好：expand 不指定方案也按五笔查。
+    let (code, lines, error) = run_cli_text(
+        &options,
+        &["--allow-dictionary-read", "expand", "aaaa"],
+        None,
+    );
+    assert_eq!(code, 0, "{error}");
+    assert_eq!(lines, "1\t合成工\taaaa\tdictionary\t500\n");
+
+    let (code, _, error) = run_cli_text(
+        &options,
+        &["--allow-write", "config", "set", "no_such_key=1"],
+        None,
+    );
+    assert_eq!(code, 1);
+    assert!(error.contains("no_such_key"), "{error}");
+
+    // config get 只给值，按要的顺序。
+    let (code, values, error) = run_cli_text(
+        &options,
+        &["config", "get", "candidate-page-size", "scheme"],
+        None,
+    );
+    assert_eq!(code, 0, "{error}");
+    assert_eq!(values, "9\nwubi\n");
+    let (code, _, error) = run_cli_text(&options, &["config", "get", "no_such_key"], None);
+    assert_eq!(code, 1);
+    assert!(error.contains("no preference named no_such_key"), "{error}");
+
+    // 一串查不到候选时 stdout 为空，stderr 说明。
+    let (code, lines, error) = run_cli_text(
+        &options,
+        &["--allow-dictionary-read", "expand", "bbbb"],
+        None,
+    );
+    assert_eq!((code, lines.as_str()), (0, ""));
+    assert!(error.contains("bbbb offers no candidates"), "{error}");
+
+    // 几串一起查，`-` 从 stdin 读，空行和注释跳过；查不了的一串不影响其余，最后以 1 退出。
+    let (code, lines, error) = run_cli_text(
+        &options,
+        &["--allow-dictionary-read", "expand", "aaaa", "-"],
+        Some("# 一份编码清单\n\nAAAA\n  aaaa  \n"),
+    );
+    assert_eq!(code, 1);
+    assert_eq!(
+        lines,
+        "# aaaa\n1\t合成工\taaaa\tdictionary\t500\n# AAAA\n# aaaa\n1\t合成工\taaaa\tdictionary\t500\n"
+    );
+    assert!(error.contains("AAAA: the code must be"), "{error}");
+    let (code, lines, error) = run_cli_text(
+        &options,
+        &[
+            "--allow-dictionary-read",
+            "expand",
+            "aaaa",
+            "AAAA",
+            "--json",
+        ],
+        None,
+    );
+    assert_eq!(code, 1, "{error}");
+    let lines: Vec<Value> = lines
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(lines.len(), 2);
+    assert_eq!(lines[0]["code"], "aaaa");
+    assert_eq!(lines[0]["candidates"][0]["text"], "合成工");
+    assert_eq!(lines[1]["code"], "AAAA");
+    assert!(lines[1]["error"].is_string());
+}
+
+/// `--version` 报告输入法本身的版本：所编平台的 `version.txt`（构建时没有显式的 `MSIME_VERSION`），而不是 crate 的 0.1.0。
+#[test]
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+fn the_version_is_the_input_method_s() {
+    let platform = if cfg!(target_os = "macos") {
+        "macos"
+    } else if cfg!(target_os = "linux") {
+        "linux"
+    } else {
+        "windows"
+    };
+    let expected = option_env!("MSIME_VERSION")
+        .map(str::to_owned)
+        .unwrap_or_else(|| {
+            std::fs::read_to_string(
+                Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("../../platforms")
+                    .join(platform)
+                    .join("version.txt"),
+            )
+            .unwrap()
+        });
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_msime-mcp"))
+        .arg("--version")
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8(output.stderr).unwrap().trim(),
+        format!("msime-mcp {}", expected.trim())
+    );
+}
+
+#[test]
+fn writes_from_separate_runs_are_spaced_out_too() {
+    let directory = tempfile::tempdir().unwrap();
+    let options = fixture(directory.path());
+    let add = |text: &str| format!(r#"{{"edits":[{{"op":"add","code":"yx","text":"{text}"}}]}}"#);
+    let (code, _, error) = run_cli(
+        &options,
+        &[
+            "--allow-write",
+            "call",
+            "edit_quick_phrases",
+            &add("one@example.com"),
+        ],
+        None,
+    );
+    assert_eq!(code, 0, "{error}");
+    let (code, _, error) = run_cli(
+        &options,
+        &[
+            "--allow-write",
+            "call",
+            "edit_quick_phrases",
+            &add("two@example.com"),
+        ],
+        None,
+    );
+    assert_eq!(code, 1);
+    assert!(error.contains("one a second"), "{error}");
+    std::thread::sleep(Duration::from_millis(1100));
+    let (code, _, error) = run_cli(
+        &options,
+        &[
+            "--allow-write",
+            "call",
+            "edit_quick_phrases",
+            &add("two@example.com"),
+        ],
+        None,
+    );
+    assert_eq!(code, 0, "{error}");
+}
+
+#[test]
+fn the_command_line_prints_the_prompts() {
+    let directory = tempfile::tempdir().unwrap();
+    let options = fixture(directory.path());
+    let (code, prompts, _) = run_cli(&options, &["prompts"], None);
+    assert_eq!(code, 0);
+    let names: Vec<&str> = prompts
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|prompt| prompt["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, ["diagnose"]);
+
+    let (code, text, _) = run_cli_text(
+        &options,
+        &["prompt", "diagnose", r#"{"problem":"候选窗不见了"}"#],
+        None,
+    );
+    assert_eq!(code, 0);
+    assert!(text.contains("候选窗不见了"), "{text}");
+    assert!(text.contains("read_diagnostic_log"), "{text}");
+    assert!(text.contains("msime-mcp <the same flags> call"), "{text}");
+
+    let (code, _, error) = run_cli_text(&options, &["prompt", "make-skin"], None);
+    assert_eq!(code, 1);
+    assert!(error.contains("--allow-write"), "{error}");
+    let (code, text, _) = run_cli_text(&options, &["--allow-write", "prompt", "make-skin"], None);
+    assert_eq!(code, 0);
+    assert!(text.contains("create_candidate_skin"), "{text}");
+}
+
+#[test]
+fn arguments_can_come_from_a_file() {
+    let directory = tempfile::tempdir().unwrap();
+    let options = fixture(directory.path());
+    let file = directory.path().join("edit.json");
+    std::fs::write(
+        &file,
+        r#"{"edits":[{"op":"add","code":"dz","text":"北京市海淀区"}]}"#,
+    )
+    .unwrap();
+    let argument = format!("@{}", file.display());
+    let (code, _, error) = run_cli(
+        &options,
+        &["--allow-write", "call", "edit_quick_phrases", &argument],
+        None,
+    );
+    assert_eq!(code, 0, "{error}");
+    let (_, page, _) = run_cli(&options, &["call", "list_quick_phrases"], None);
+    assert_eq!(page["phrases"][0]["text"], "北京市海淀区");
+    let (code, _, error) = run_cli(
+        &options,
+        &["call", "list_quick_phrases", "@/nonexistent/args.json"],
+        None,
+    );
+    assert_eq!(code, 2);
+    assert!(error.contains("cannot read the arguments"), "{error}");
 }

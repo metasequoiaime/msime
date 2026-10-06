@@ -73,6 +73,11 @@ class CCandidateListUIPresenter : public CTfTextLayoutSink,
                                         _In_ ITfRange *pRangeComposition, UINT wndWidth);
     void _EndCandidateList();
     void _PrepareForAsyncCleanup();
+    // End without a HideCandidateWnd to the Server, which would cancel its composition. For a Korean Hanja list: every Korean key reaches the Server, whose session settles its own syllable from it, and a list that closes leaves that syllable composing.
+    void _ForgetCandidateUiSession()
+    {
+        _candidateUiSessionActive = FALSE;
+    }
     BOOL _IsAsyncCleanupPending() const
     {
         return _asyncCleanupPending;
@@ -137,7 +142,6 @@ class CCandidateListUIPresenter : public CTfTextLayoutSink,
     void UpdateCandidateUiSession();
     void MoveCandidateUiSession();
     void EndCandidateUiSession();
-    void _LoadUiLessCandidatesFromSharedMemory();
     void _RequestCancelComposition();
     void _ReplaceCandidateListFromPage(_In_ const std::wstring &page);
 

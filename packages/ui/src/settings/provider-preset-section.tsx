@@ -1,3 +1,6 @@
+import { ModelSettingField } from "./model-setting-field";
+import { ActionButton } from "./action-button";
+
 export interface ProviderPreset {
   models?: readonly string[];
   documentation?: string;
@@ -28,34 +31,21 @@ export function ProviderPresetSection({
   return (
     <div className={className}>
       {models.length > 0 && (
-        <label className="section-header">
-          <span className="section-title">
-            预置模型<small>服务商已知支持的模型；也可以在模型框中自行填写</small>
-          </span>
-          <select
-            aria-label={`${label}预置模型`}
-            value={models.includes(model) ? model : ""}
-            onChange={(event) => {
-              if (event.target.value) onSelectModel(event.target.value);
-            }}
-          >
-            <option value="">自定义模型…</option>
-            {models.map((entry) => (
-              <option key={entry} value={entry}>
-                {entry}
-              </option>
-            ))}
-          </select>
-        </label>
+        <ModelSettingField
+          label="预置模型"
+          inputLabel={`${label}预置模型`}
+          description="服务商已知支持的模型；也可以在模型框中自行填写"
+          models={models}
+          model={model}
+          emptyLabel="自定义模型…"
+          onSelect={onSelectModel}
+        />
       )}
       {linkable && (
-        <button
-          type="button"
-          className="secondary"
-          onClick={() => void openExternalUrl?.(documentation!)}
-        >
-          {label}接入说明与 API Key
-        </button>
+        <ActionButton
+          action={() => openExternalUrl?.(documentation!)}
+          label={`${label}接入说明与 API Key`}
+        />
       )}
     </div>
   );

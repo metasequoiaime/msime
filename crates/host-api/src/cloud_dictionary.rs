@@ -126,11 +126,12 @@ pub struct CloudDictionaryValue {
 }
 
 pub fn validate_cloud_request(request: &CloudDictionaryRequest) -> Result<(), &'static str> {
-    let valid_kind = |kind: &str| matches!(kind, "pinyin" | "wubi" | "quick" | "english");
+    let valid_kind =
+        |kind: &str| matches!(kind, "pinyin" | "wubi" | "wubi98" | "quick" | "english");
     let valid_token = |token: &str| msime_client_core::is_bounded_ascii_identifier(token, 96);
     let valid_value = |kind: &str, code: &str, word: &str, weight: i64| {
         let max_code_bytes = match kind {
-            "wubi" => 4,
+            "wubi" | "wubi98" => 4,
             "quick" => 32,
             "english" => 64,
             _ => 256,
@@ -139,7 +140,7 @@ pub fn validate_cloud_request(request: &CloudDictionaryRequest) -> Result<(), &'
             "quick" => {
                 msime_client_core::dictionary::quick_phrase_transport_code_is_well_formed(code)
             }
-            "wubi" => msime_client_core::dictionary::wubi_code_is_well_formed(code),
+            "wubi" | "wubi98" => msime_client_core::dictionary::wubi_code_is_well_formed(code),
             "english" => msime_client_core::is_ascii_alphabetic(code),
             _ => msime_client_core::dictionary::pinyin_code_is_well_formed(code, true),
         };

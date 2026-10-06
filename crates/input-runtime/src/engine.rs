@@ -14,7 +14,7 @@ pub enum RuntimeError {
     IdentityExhausted,
     #[error("cannot replace an engine while composition is active")]
     CompositionActive,
-    #[error("nine-key mode requires the quanpin scheme")]
+    #[error("nine-key mode requires the quanpin or zhuyin scheme")]
     InvalidNineKeyScheme,
     #[error("punctuation action requires an ASCII punctuation character")]
     InvalidPunctuation,
@@ -77,6 +77,14 @@ pub trait InputEngine {
     }
     /// Replace the `/` mode's command table. Engines without the mode ignore it.
     fn set_command_table(&mut self, _table: &[CommandTableEntry]) -> Result<(), RuntimeError> {
+        Ok(())
+    }
+    /// 替换宿主给的辅助码表；`None` 回到方案自己的表。没有辅助码的引擎忽略它。
+    fn set_helpcode_table(&mut self, _table: Option<SharedKeymap>) -> Result<(), RuntimeError> {
+        Ok(())
+    }
+    /// 替换 K 模式的宿主短语表。没有这个模式的引擎忽略它。
+    fn set_quick_phrase_table(&mut self, _table: &[QuickPhraseEntry]) -> Result<(), RuntimeError> {
         Ok(())
     }
     /// Replace the `@` mode's name list. Engines without the mode ignore it.
@@ -240,6 +248,13 @@ impl InputEngine for Session {
     }
     fn set_command_table(&mut self, table: &[CommandTableEntry]) -> Result<(), RuntimeError> {
         Session::set_command_table(self, table).map_err(|e| RuntimeError::Engine(e.to_string()))
+    }
+    fn set_quick_phrase_table(&mut self, table: &[QuickPhraseEntry]) -> Result<(), RuntimeError> {
+        Session::set_quick_phrase_table(self, table)
+            .map_err(|e| RuntimeError::Engine(e.to_string()))
+    }
+    fn set_helpcode_table(&mut self, table: Option<SharedKeymap>) -> Result<(), RuntimeError> {
+        Session::set_helpcode_table(self, table).map_err(|e| RuntimeError::Engine(e.to_string()))
     }
     fn set_mention_entries(&mut self, entries: &[MentionEntry]) -> Result<(), RuntimeError> {
         Session::set_mention_entries(self, entries).map_err(|e| RuntimeError::Engine(e.to_string()))

@@ -1,4 +1,5 @@
 import Foundation
+import CoreFoundation
 
 /// Bounded request/response validation for the session-free offline gloss worker.
 enum CandidateGlossModel {
@@ -22,9 +23,9 @@ enum CandidateGlossModel {
     let copied = try candidates.map { candidate -> [String: Any] in
       guard let text = candidate["text"] as? String,
             let source = candidate["source"] as? NSNumber,
-            source.intValue >= 0, source.intValue <= 255,
+            let sourceValue = integerValue(source, maximum: 255),
             isBounded(text) else { throw Failure.invalidRequest }
-      return ["text": text, "source": source.intValue]
+      return ["text": text, "source": sourceValue]
     }
     var object: [String: Any] = ["generation": generation, "candidates": copied]
     if let targetLanguage {
@@ -38,11 +39,10 @@ enum CandidateGlossModel {
 
   static func decode(_ value: [String: Any]) throws -> (generation: UInt64, translations: Data) {
     guard let generationValue = value["generation"] as? NSNumber,
-          generationValue.int64Value >= 0,
+          let generation = integerValue(generationValue, maximum: UInt64.max),
           let entries = value["translations"] as? [[String: Any]], entries.count <= 4096 else {
       throw Failure.invalidResponse
     }
-    let generation = generationValue.uint64Value
     for entry in entries {
       guard let text = entry["text"] as? String,
             let translation = entry["translation"] as? String,
@@ -51,6 +51,14 @@ enum CandidateGlossModel {
     let translations = try JSONSerialization.data(withJSONObject: entries)
     guard translations.count <= maxResponseBytes else { throw Failure.oversized }
     return (generation, translations)
+  }
+
+  static func integerValue(_ value: NSNumber, maximum: UInt64) -> UInt64? {
+    guard CFGetTypeID(value) != CFBooleanGetTypeID(),
+          let integer = UInt64(value.stringValue),
+          NSNumber(value: integer).compare(value) == .orderedSame,
+          integer <= maximum else { return nil }
+    return integer
   }
 
 }

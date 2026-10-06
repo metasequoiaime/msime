@@ -6,6 +6,21 @@ import {
   providerSettingValue,
 } from "../voice/voice-providers";
 
+function serviceCredentialTestConfig(
+  provider: string | undefined,
+  endpoint: string | undefined,
+  model: string | undefined,
+  token: string | undefined,
+  defaults: Record<string, { endpoint: string; model: string }>,
+): Record<string, unknown> {
+  return {
+    provider,
+    endpoint: providerSettingValue(endpoint, provider, defaults, "endpoint"),
+    model: providerSettingValue(model, provider, defaults, "model"),
+    token: token ?? "",
+  };
+}
+
 /** Configuration sent to the Linux voice provider when checking ASR settings. */
 export function asrProviderCredentialTestConfig(
   voiceInput: VoiceInputPreferences,
@@ -29,15 +44,13 @@ export function asrServiceCredentialTestConfig(
 ): Record<string, unknown> {
   const provider = voiceInput.asr_provider;
   return {
-    provider,
-    endpoint: providerSettingValue(
-      voiceInput.asr_endpoint,
+    ...serviceCredentialTestConfig(
       provider,
+      voiceInput.asr_endpoint,
+      voiceInput.asr_model,
+      voiceInput.asr_token,
       ASR_PROVIDER_DEFAULTS,
-      "endpoint",
     ),
-    model: providerSettingValue(voiceInput.asr_model, provider, ASR_PROVIDER_DEFAULTS, "model"),
-    token: voiceInput.asr_token ?? "",
     ...(provider === "doubao"
       ? {
           auth_mode: doubaoAuthMode,
@@ -80,22 +93,13 @@ export function polishServiceCredentialTestConfig(
   voiceInput: VoiceInputPreferences,
 ): Record<string, unknown> {
   const provider = voiceInput.polish_provider ?? "siliconflow";
-  return {
+  return serviceCredentialTestConfig(
     provider,
-    endpoint: providerSettingValue(
-      voiceInput.polish_endpoint,
-      provider,
-      POLISH_PROVIDER_DEFAULTS,
-      "endpoint",
-    ),
-    model: providerSettingValue(
-      voiceInput.polish_model,
-      provider,
-      POLISH_PROVIDER_DEFAULTS,
-      "model",
-    ),
-    token: voiceInput.polish_token ?? "",
-  };
+    voiceInput.polish_endpoint,
+    voiceInput.polish_model,
+    voiceInput.polish_token,
+    POLISH_PROVIDER_DEFAULTS,
+  );
 }
 
 /** Whether the remote polish credential test lacks its API token. */

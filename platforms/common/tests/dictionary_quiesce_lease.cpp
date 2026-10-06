@@ -11,6 +11,7 @@
 int main() {
   using msime::dictionary_lease::dictionary_quiesce_lease_live;
   using msime::dictionary_lease::dictionary_quiesced;
+  using msime::dictionary_lease::raise_dictionary_quiesce_lease;
 
   assert(dictionary_quiesce_lease_live("1010000", 1000000));
   assert(dictionary_quiesce_lease_live("1010000\n", 1000000));
@@ -29,6 +30,23 @@ int main() {
   assert(!dictionary_quiesced(root.string(), 1000000));
   assert(!dictionary_quiesced("", 1000000));
   assert(!dictionary_quiesced("relative", 1000000));
+
+  // 临时文件名可预测时，不能跟随预先放置的符号链接写到外部文件。
+  char staged_outside_pattern[] = "/tmp/msime-quiesce-staged-outside-XXXXXX";
+  const std::filesystem::path staged_outside = mkdtemp(staged_outside_pattern);
+  const auto staged_target = staged_outside / "target";
+  std::ofstream(staged_target) << "keep";
+  const auto staged = root / (".msime-dictionary-quiesce." + std::to_string(getpid()) + "-0");
+  std::filesystem::create_symlink(staged_target, staged);
+  std::string staged_written;
+  assert(!raise_dictionary_quiesce_lease(root.string(), staged_written, 1000000));
+  {
+    std::ifstream preserved(staged_target);
+    assert(std::string(std::istreambuf_iterator<char>(preserved), std::istreambuf_iterator<char>()) == "keep");
+  }
+  std::filesystem::remove(staged);
+  std::filesystem::remove_all(staged_outside);
+
   {
     std::ofstream(root / ".msime-dictionary-quiesce") << "1005000";
   }

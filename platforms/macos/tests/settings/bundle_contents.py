@@ -168,6 +168,22 @@ def main() -> int:
     # The engine embeds the place names `@` mode offers from modood/Administrative-divisions-of-China.
     if not (contents / "Resources" / "Licenses" / "Administrative-divisions-of-China-WTFPL.txt").is_file():
         failures.append("Contents/Resources/Licenses/Administrative-divisions-of-China-WTFPL.txt is missing; the built-in place names ship without their licence")
+    # The engine embeds the Korean Hanja table from libhangul, whose BSD-3-Clause licence requires the notice in binary distributions.
+    if not (contents / "Resources" / "Licenses" / "libhangul-hanja-BSD-3-Clause.txt").is_file():
+        failures.append("Contents/Resources/Licenses/libhangul-hanja-BSD-3-Clause.txt is missing; the built-in Korean Hanja table ships without its licence")
+    # Cantonese and Zhuyin read dictionaries built from rime-cantonese (CC BY 4.0) and libchewing-data (LGPL-2.1-or-later). The notices ship unconditionally, so a build that later gains the dictionaries is never without them.
+    for notice in ("rime-cantonese-CC-BY-4.0.txt", "libchewing-data-LGPL-2.1.txt"):
+        if not (contents / "Resources" / "Licenses" / notice).is_file():
+            failures.append(f"Contents/Resources/Licenses/{notice} is missing; Cantonese and Zhuyin ship without the licence of their data")
+    # Stroke reads a dictionary built from rime-stroke (LGPL-3.0, with the CNS11643 attribution); its notice ships unconditionally as well.
+    if not (contents / "Resources" / "Licenses" / "rime-stroke-LGPL-3.0.txt").is_file():
+        failures.append("Contents/Resources/Licenses/rime-stroke-LGPL-3.0.txt is missing; Stroke ships without the licence of its data")
+    # Vietnamese links the MIT-licensed vi crate, whose copyright and permission notice has to travel with the binary.
+    if not (contents / "Resources" / "Licenses" / "vi-MIT.txt").is_file():
+        failures.append("Contents/Resources/Licenses/vi-MIT.txt is missing; the vi crate Vietnamese mode links ships without its licence")
+    # 藏文方案链接 MIT 许可的 ewts crate，它的版权和许可声明必须随二进制一起发布。
+    if not (contents / "Resources" / "Licenses" / "ewts-MIT.txt").is_file():
+        failures.append("Contents/Resources/Licenses/ewts-MIT.txt is missing; the ewts crate Tibetan mode links ships without its licence")
 
     if failures:
         for failure in failures:

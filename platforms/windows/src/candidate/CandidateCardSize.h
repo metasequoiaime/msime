@@ -15,6 +15,8 @@ namespace msime::windows {
 // Measured single-line widths of one candidate's three runs, each at its own font size: the text (with its badge) and the annotation at the candidate size, the translation at CandidateCardMetrics::translation_font. All three zero hides the row.
 struct CandidateItemWidths {
   double text = 0.0, annotation = 0.0, translation = 0.0;
+  // Lines the translation run holds before any wrapping, `translation` being the widest of them. More than one (a Korean Hanja's 훈음 with its translation under it) always puts the run under the text, at the height of all its lines.
+  size_t translation_lines = 1;
 };
 enum class CandidateRun { text, annotation, translation };
 // Height of candidate `index`'s run once wrapped to `width` DIPs. The text run is the candidate text with its badge, at the candidate size. The window answers with DirectWrite; without one the layout estimates from the single-line width.
@@ -203,15 +205,16 @@ candidate_item_layout(const CandidateItemWidths &item, double content_width,
   content_width = (std::max)(content_width, 1.0);
   CandidateItemLayout layout;
   layout.text_width = (std::min)(item.text, content_width);
-  // Height of a run of `natural` single-line width once it sits in `width`: one `line` unless it has to wrap.
+  // Height of a run of `natural` width and `lines` lines once it sits in `width`: one `line` each unless it has to wrap. A run of several lines is always measured, because its height is more than one line even when none of them wraps.
   auto run_height = [&](CandidateRun run, double natural, double width,
-                        double line) {
-    double height = line;
-    if (natural > width)
+                        double line, size_t lines = 1) {
+    const double unwrapped = line * static_cast<double>((std::max)(lines, size_t{1}));
+    double height = unwrapped;
+    if (natural > width || lines > 1)
       height = wrapped ? wrapped(run, width)
-                       : std::ceil(natural / width) * line;
-    // A failed or nonsense measurement still reserves the single line.
-    return std::isfinite(height) ? (std::max)(height, line) : line;
+                       : std::ceil(natural / width) * unwrapped;
+    // A failed or nonsense measurement still reserves the lines.
+    return std::isfinite(height) ? (std::max)(height, unwrapped) : unwrapped;
   };
   // Without a measure a wrapped text line is estimated at the candidate size's line height, like an annotation line.
   layout.text_wrapped = item.text > content_width;
@@ -223,8 +226,9 @@ candidate_item_layout(const CandidateItemWidths &item, double content_width,
           : metrics.candidate_row;
   layout.height = layout.text_height;
   double line_end = layout.text_width;
-  auto below = [&](CandidateRun run, double natural, double width, double line) {
-    const double height = run_height(run, natural, width, line);
+  auto below = [&](CandidateRun run, double natural, double width, double line,
+                   size_t lines = 1) {
+    const double height = run_height(run, natural, width, line, lines);
     CandidateRunBox box{0.0, layout.height, width, height, true};
     layout.height += height;
     return box;
@@ -242,17 +246,18 @@ candidate_item_layout(const CandidateItemWidths &item, double content_width,
   }
   if (item.translation > 0.0) {
     const double width = (std::min)(item.translation, content_width);
-    if (!horizontal && !layout.annotation.below &&
+    if (!horizontal && !layout.annotation.below && item.translation_lines <= 1 &&
         line_end + metrics.translation_gap + width <= content_width)
       layout.translation = {line_end + metrics.translation_gap, 0.0, width,
                             metrics.candidate_row, false};
     else
       layout.translation = below(CandidateRun::translation, item.translation,
-                                 width, metrics.translation_line);
+                                 width, metrics.translation_line,
+                                 item.translation_lines);
   }
   return layout;
 }
-// Width a candidate's row asks for with nothing wrapped: its selection number and bar plus the content. A vertical row keeps the translation on the text's line; a horizontal one stacks it under the text, so the wider of the two lines decides. Zero for a hidden candidate, whose three runs all measured zero.
+// Width a candidate's row asks for with nothing wrapped: its selection number and bar plus the content. A vertical row keeps a one-line translation on the text's line; a horizontal one, and a translation of several lines, stack it under the text, so the wider of the two lines decides. Zero for a hidden candidate, whose three runs all measured zero.
 inline double candidate_item_natural_width(const CandidateItemWidths &item,
                                            const CandidateCardMetrics &metrics,
                                            bool horizontal) {
@@ -262,10 +267,11 @@ inline double candidate_item_natural_width(const CandidateItemWidths &item,
       item.text +
       (item.annotation > 0.0 ? metrics.annotation_gap + item.annotation : 0.0);
   const double content =
-      horizontal ? (std::max)(line, item.translation)
-                 : line + (item.translation > 0.0
-                               ? metrics.translation_gap + item.translation
-                               : 0.0);
+      horizontal || item.translation_lines > 1
+          ? (std::max)(line, item.translation)
+          : line + (item.translation > 0.0
+                        ? metrics.translation_gap + item.translation
+                        : 0.0);
   return content + metrics.number_and_bar;
 }
 // The narrowest a horizontal page's columns can be on one line, column gaps included: each candidate's line (text and annotation) with its number and bar, the translations left to wrap under them. The macOS port is SingleLineMinimumWidth.
@@ -292,6 +298,8 @@ candidate_single_line_columns(const std::vector<CandidateItemWidths> &items,
                               double line_width,
                               const CandidateCardMetrics &metrics) {
   std::vector<double> natural, firm;
+  natural.reserve(items.size());
+  firm.reserve(items.size());
   double natural_total = 0.0, firm_total = 0.0;
   for (const auto &item : items) {
     auto line = item;

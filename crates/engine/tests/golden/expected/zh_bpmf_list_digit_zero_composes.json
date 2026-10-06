@@ -1,0 +1,316 @@
+{
+ "name": "zh_bpmf_list_digit_zero_composes",
+ "steps": [
+  {
+   "op": "open",
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "zhuyin",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "w96",
+   "op": "type",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 3,
+    "dedicated_english": false,
+    "editing_text": "w96",
+    "local_mode": "none",
+    "normalized_segmentation": "台",
+    "preedit": "台",
+    "raw_segmentation": "w96",
+    "scheme": "zhuyin",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "ConvertHanja",
+   "op": "command",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 2,
+    "candidates": [
+     {
+      "answers_key": true,
+      "canonical_pinyin": "",
+      "pinyin": "",
+      "scheme": "zhuyin",
+      "source": 0,
+      "weight": 0,
+      "word": "台"
+     },
+     {
+      "answers_key": true,
+      "canonical_pinyin": "",
+      "pinyin": "",
+      "scheme": "zhuyin",
+      "source": 0,
+      "weight": 0,
+      "word": "臺"
+     }
+    ],
+    "caret": 3,
+    "dedicated_english": false,
+    "editing_text": "w96",
+    "local_mode": "none",
+    "normalized_segmentation": "台",
+    "preedit": "台",
+    "raw_segmentation": "w96",
+    "scheme": "zhuyin",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "2",
+   "op": "char",
+   "result": {
+    "handled": false
+   },
+   "snapshot": {
+    "candidate_count": 2,
+    "candidates": [
+     {
+      "answers_key": true,
+      "canonical_pinyin": "",
+      "pinyin": "",
+      "scheme": "zhuyin",
+      "source": 0,
+      "weight": 0,
+      "word": "台"
+     },
+     {
+      "answers_key": true,
+      "canonical_pinyin": "",
+      "pinyin": "",
+      "scheme": "zhuyin",
+      "source": 0,
+      "weight": 0,
+      "word": "臺"
+     }
+    ],
+    "caret": 3,
+    "dedicated_english": false,
+    "editing_text": "w96",
+    "local_mode": "none",
+    "normalized_segmentation": "台",
+    "preedit": "台",
+    "raw_segmentation": "w96",
+    "scheme": "zhuyin",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "2",
+   "op": "candidate_key",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 3,
+    "dedicated_english": false,
+    "editing_text": "w96",
+    "local_mode": "none",
+    "normalized_segmentation": "臺",
+    "preedit": "臺",
+    "raw_segmentation": "w96",
+    "scheme": "zhuyin",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "ConvertHanja",
+   "op": "command",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 2,
+    "candidates": [
+     {
+      "answers_key": true,
+      "canonical_pinyin": "",
+      "pinyin": "",
+      "scheme": "zhuyin",
+      "source": 0,
+      "weight": 0,
+      "word": "台"
+     },
+     {
+      "answers_key": true,
+      "canonical_pinyin": "",
+      "pinyin": "",
+      "scheme": "zhuyin",
+      "source": 0,
+      "weight": 0,
+      "word": "臺"
+     }
+    ],
+    "caret": 3,
+    "dedicated_english": false,
+    "editing_text": "w96",
+    "local_mode": "none",
+    "normalized_segmentation": "臺",
+    "preedit": "臺",
+    "raw_segmentation": "w96",
+    "scheme": "zhuyin",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "0",
+   "op": "char",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 4,
+    "dedicated_english": false,
+    "editing_text": "w960",
+    "local_mode": "none",
+    "normalized_segmentation": "臺ㄢ",
+    "preedit": "臺ㄢ",
+    "raw_segmentation": "w960",
+    "scheme": "zhuyin",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "j ",
+   "op": "type",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 6,
+    "dedicated_english": false,
+    "editing_text": "w96j0 ",
+    "local_mode": "none",
+    "normalized_segmentation": "臺彎",
+    "preedit": "臺彎",
+    "raw_segmentation": "w96j0 ",
+    "scheme": "zhuyin",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "ConvertHanja",
+   "op": "command",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 4,
+    "candidates": [
+     {
+      "answers_key": true,
+      "canonical_pinyin": "",
+      "pinyin": "",
+      "scheme": "zhuyin",
+      "source": 0,
+      "weight": 0,
+      "word": "臺灣"
+     },
+     {
+      "answers_key": true,
+      "canonical_pinyin": "",
+      "pinyin": "",
+      "scheme": "zhuyin",
+      "source": 0,
+      "weight": 0,
+      "word": "台灣"
+     },
+     {
+      "answers_key": true,
+      "canonical_pinyin": "",
+      "pinyin": "",
+      "scheme": "zhuyin",
+      "source": 0,
+      "weight": 0,
+      "word": "彎"
+     },
+     {
+      "answers_key": true,
+      "canonical_pinyin": "",
+      "pinyin": "",
+      "scheme": "zhuyin",
+      "source": 0,
+      "weight": 0,
+      "word": "灣"
+     }
+    ],
+    "caret": 6,
+    "dedicated_english": false,
+    "editing_text": "w96j0 ",
+    "local_mode": "none",
+    "normalized_segmentation": "臺彎",
+    "preedit": "臺彎",
+    "raw_segmentation": "w96j0 ",
+    "scheme": "zhuyin",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "s",
+   "op": "char",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 7,
+    "dedicated_english": false,
+    "editing_text": "w96j0 s",
+    "local_mode": "none",
+    "normalized_segmentation": "臺彎ㄋ",
+    "preedit": "臺彎ㄋ",
+    "raw_segmentation": "w96j0 s",
+    "scheme": "zhuyin",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "CommitRaw",
+   "op": "command",
+   "result": {
+    "commit": "臺彎",
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "zhuyin",
+    "shuangpin_profile": "xiaohe"
+   }
+  }
+ ]
+}

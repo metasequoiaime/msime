@@ -69,6 +69,9 @@ int main() {
     REQUIRE(edit_kind(key(0xDE, '\''), "none", true) == EditKind::Character);
     REQUIRE(edit_kind(key(0xDE, '\''), "none", false) == EditKind::None);
     REQUIRE(edit_kind(key(0xDE, '\''), "emoji", true) == EditKind::None);
+    // Under Stroke the Engine refuses the separator, so a composing apostrophe is punctuation (scheme::ApostropheIsPunctuationWhileComposing) and not composition input.
+    REQUIRE(edit_kind(key(0xDE, '\''), "none", true, false, {}, 0, false, {}, true) == EditKind::None);
+    REQUIRE(edit_kind(key('A', 'a'), "none", true, false, {}, 0, false, {}, true) == EditKind::Character);
 
     // Japanese reserves the OEM minus key for the long vowel mark. Elsewhere
     // that key is navigation or punctuation and must not reach the composition.
@@ -132,6 +135,22 @@ int main() {
     REQUIRE(edit_kind(key('2', '@', shift), "none", false, false, {}, 0, false, "/") ==
             EditKind::None);
     REQUIRE(edit_kind(key(0xBF, '/'), "none", false) == EditKind::None);
+    // 网址模式：组字 `www` 时 Engine 列出 `.`，它就是输入而不是翻页；进入后网址的数字和符号都是输入，包括 Shift 打出的 `@`、`#` 和在别处翻页的 `,` `=` `[`。
+    REQUIRE(edit_kind(key(0xBE, '.'), "none", true, false, "www", 3, false, ".") == EditKind::Character);
+    REQUIRE(edit_kind(key(0xBE, '.'), "none", true, false, "www", 3, false, {}) == EditKind::None);
+    constexpr std::string_view url = "0123456789-._~:/?#[]@!$&'()*+,;=%^";
+    const auto url_input = [&](FanyImeNamedpipeData packet) {
+      return edit_kind(packet, "url", true, false, {}, 0, false, url);
+    };
+    REQUIRE(url_input(key('1', '1')) == EditKind::Character);
+    REQUIRE(url_input(key('2', '@', shift)) == EditKind::Character);
+    REQUIRE(url_input(key('3', '#', shift)) == EditKind::Character);
+    REQUIRE(url_input(key(0xBC, ',')) == EditKind::Character);
+    REQUIRE(url_input(key(0xBB, '=')) == EditKind::Character);
+    REQUIRE(url_input(key(0xDB, '[')) == EditKind::Character);
+    REQUIRE(url_input(key(0xBA, ':', shift)) == EditKind::Character);
+    REQUIRE(url_input(key(0xBC, '<', shift)) == EditKind::None);
+    REQUIRE(url_input(key(0xDC, '\\')) == EditKind::None);
     // Unicode keeps its key-based rule whatever the symbols say.
     REQUIRE(edit_kind(key('4', '$', shift), "unicode", true, false, {}, 0, false,
                       "0123456789") == EditKind::None);
@@ -152,6 +171,12 @@ int main() {
     REQUIRE(!digit_selects_candidate("expression", expression, '%', shift));
     REQUIRE(digit_selects_candidate("expression", expression, '&', 0));
     REQUIRE(!digit_selects_candidate("expression", expression, '!', control));
+    // 网址模式：Shift+数字行的符号都在表里，数字键不选词；只有打出表外字符的数字键（AZERTY 的裸 2 是 é）选词。
+    REQUIRE(!digit_selects_candidate("url", url, '1', 0));
+    REQUIRE(!digit_selects_candidate("url", url, '!', shift));
+    REQUIRE(!digit_selects_candidate("url", url, '@', shift));
+    REQUIRE(!digit_selects_candidate("url", url, '(', shift));
+    REQUIRE(digit_selects_candidate("url", url, 0xE9, 0));
     // An unknown mode never selects.
     REQUIRE(!digit_selects_candidate("unknown", "", '1', 0));
 

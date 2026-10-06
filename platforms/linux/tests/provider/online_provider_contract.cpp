@@ -73,7 +73,7 @@ int main() {
       require(received.size() <= 16384, "query exceeded the request bound");
     }
     require(received.find("version") != std::string::npos, "query was not sent");
-    const std::string reply = "{\"text\":\"candidate\",\"source\":0}\n";
+    const std::string reply = "{\"candidates\":[{\"text\":\"candidate\",\"source\":0}]}\n";
     require(write(client, reply.data(), reply.size()) ==
                 static_cast<ssize_t>(reply.size()),
             "reply failed");
@@ -89,7 +89,7 @@ int main() {
   auto result = response(msime_client_online_provider_request(
       reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size(),
       reinterpret_cast<const uint8_t *>(socket_path.data()), socket_path.size()));
-  require(result.at("ok").get<bool>() && result.at("value").at("text") == "candidate",
+  require(result.at("ok").get<bool>() && result.at("value").at("candidates").at(0).at("text") == "candidate",
           "provider candidate mismatch");
   provider.join();
   unlink(socket_path.c_str());

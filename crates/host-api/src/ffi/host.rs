@@ -125,6 +125,9 @@ pub unsafe extern "C" fn msime_client_prepare_host(
     struct Bootstrap {
         resources: String,
         state_root: String,
+        /// 版本 id，缺省是 full；见 `prepare_host_configuration_for_edition`。
+        #[serde(default)]
+        edition: Option<String>,
     }
     response(|| {
         if options.is_null() || length > 16384 {
@@ -139,12 +142,17 @@ pub unsafe extern "C" fn msime_client_prepare_host(
         if !resources.is_absolute() || !state.is_absolute() {
             return Err("bootstrap paths must be absolute".into());
         }
-        let document = prepare_host_configuration(resources, state).map_err(|e| e.to_string())?;
+        let edition = match options.edition.as_deref() {
+            None => msime_client_core::edition::Edition::full(),
+            Some(id) => msime_client_core::edition::Edition::by_id(id).ok_or("unknown edition")?,
+        };
+        let document = prepare_host_configuration_for_edition(resources, state, edition)
+            .map_err(|e| e.to_string())?;
         serde_json::from_str(&document).map_err(|e| e.to_string())
     })
 }
 
-/// Re-prepare a published runtime options file whose working dictionaries belong to an older resource generation, as after a package upgrade. Returns whether the file was rewritten. Call before creating any session from that file.
+/// Re-prepare a published runtime options file whose working dictionaries belong to an older resource generation, as after a package upgrade, and record the language dictionaries installed beside the resources (see [`refresh_host_options_with_language_dictionaries`]). Returns whether the file was rewritten. Only the input method host calls this, before creating any session from that file.
 /// # Safety
 /// `path` points to `length` readable UTF-8 bytes naming an absolute file. Null is rejected.
 #[no_mangle]
@@ -161,7 +169,7 @@ pub unsafe extern "C" fn msime_client_refresh_host(path: *const u8, length: usiz
         if !path.is_absolute() {
             return Err("options path must be absolute".into());
         }
-        refresh_host_options(path)
+        refresh_host_options_with_language_dictionaries(path)
             .map(Value::Bool)
             .map_err(|e| e.to_string())
     })
@@ -262,7 +270,6 @@ pub unsafe extern "C" fn msime_client_mobile_voice_configuration(
                 "model": value.model,
                 "token": value.token,
                 "promptId": value.prompt_id,
-                "promptLegacy": value.prompt_legacy,
                 "promptCustom1": value.prompt_custom_1,
                 "promptCustom2": value.prompt_custom_2,
                 "promptCustom3": value.prompt_custom_3,
@@ -298,6 +305,18 @@ struct ResolveThemeRequest {
     layout: msime_client_core::preferences::CandidateLayout,
     skins_directory: Option<String>,
     package: Option<serde_json::Value>,
+}
+
+/// 应用主题请求里的月份所在的季节；没传月份时按 UTC 月份，月份不在 1..=12 时请求失败。
+fn requested_season(
+    month: Option<u8>,
+    invalid: &str,
+) -> Result<msime_client_core::skin::season::Season, String> {
+    match month {
+        Some(month) => msime_client_core::skin::season::season_for_month(month)
+            .ok_or_else(|| invalid.to_owned()),
+        None => Ok(msime_client_core::skin::season::current_utc_season()),
+    }
 }
 
 /// Resolve the colours a host draws for a global theme.
@@ -360,6 +379,92 @@ pub unsafe extern "C" fn msime_client_resolve_theme(
             package.as_ref(),
         );
         serde_json::to_value(resolved).map_err(|error| error.to_string())
+    })
+}
+
+/// 应用主题的选择器：每个应用主题的 ID、标题、固定的季节和浅色、深色的颜色，以及默认 ID。
+///
+/// `siji` 的 `season` 为 `null`、`seasonal` 为真，它的颜色固定画秋杉，所以这份目录不随时钟变化；宿主画当季颜色时调 `msime_client_resolve_app_theme`。宿主不保存 ID、标题或色值的副本。
+#[no_mangle]
+pub extern "C" fn msime_client_app_theme_catalog() -> *mut c_char {
+    response(|| {
+        Ok(json!({
+            "app_themes": msime_client_core::skin::app_theme::catalog(),
+            "default": msime_client_core::skin::app_theme::AppTheme::default(),
+        }))
+    })
+}
+
+/// 解析应用主题请求的上限。请求只有三个短字段。
+const MAX_APP_THEME_REQUEST_BYTES: usize = 4096;
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ResolveAppThemeRequest {
+    app_theme: msime_client_core::skin::app_theme::AppTheme,
+    #[serde(default)]
+    month: Option<u8>,
+    dark: bool,
+}
+
+/// 应用主题在宿主当前月份和明暗模式下的颜色：`{id, season, accent, accent_soft, on_accent, background, card, hair}`。纯计算，不读写文件。
+/// # Safety
+/// `request` points to `length` readable UTF-8 JSON bytes. Null is rejected.
+/// The returned response must be released with `msime_client_string_free`.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_resolve_app_theme(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        if request.is_null() || length == 0 || length > MAX_APP_THEME_REQUEST_BYTES {
+            return Err("invalid app theme request".into());
+        }
+        // SAFETY: guaranteed by the documented caller contract; size checked above.
+        let bytes = unsafe { std::slice::from_raw_parts(request, length) };
+        let request: ResolveAppThemeRequest =
+            serde_json::from_slice(bytes).map_err(|_| "invalid app theme request")?;
+        let season = requested_season(request.month, "invalid app theme request")?;
+        let resolved = msime_client_core::skin::app_theme::resolve_app_theme(
+            request.app_theme,
+            season,
+            request.dark,
+        );
+        serde_json::to_value(resolved).map_err(|error| error.to_string())
+    })
+}
+
+/// 「重置所有设置」：在偏好锁里读出当前文档，换成本存储所属版本的默认偏好（服务凭据和 `fuzzy_pinyin.seeded` 保留，见 `Preferences::restored_to_defaults_for`），再按 `expected_revision` 比较并交换写回，返回新的快照。修订号不符时以 `preferences changed; reload before saving` 失败，什么也不写。词库、统计和剪贴板历史不受影响；默认关闭剪贴板历史时与保存偏好一样清空已存的历史。
+/// # Safety
+/// `directory` must point to `length` readable bytes. Null is rejected.
+/// The returned response must be released with `msime_client_string_free`.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_restore_default_preferences(
+    directory: *const u8,
+    length: usize,
+    expected_revision: u64,
+) -> *mut c_char {
+    response(|| {
+        if directory.is_null() || length > 16384 {
+            return Err("invalid preferences directory buffer".into());
+        }
+        // SAFETY: guaranteed by the documented caller contract.
+        let bytes = unsafe { std::slice::from_raw_parts(directory, length) };
+        let directory = super::parse_absolute_path(
+            bytes,
+            "invalid preferences directory encoding",
+            "preferences directory must be absolute",
+        )?;
+        let store = PreferencesStore::new(directory);
+        let restored = store
+            .restore_defaults(expected_revision)
+            .map_err(|e| e.to_string())?;
+        if !restored.preferences.clipboard_history {
+            store
+                .clear_disabled_clipboard_history()
+                .map_err(|e| e.to_string())?;
+        }
+        serde_json::to_value(restored).map_err(|e| e.to_string())
     })
 }
 
@@ -499,6 +604,21 @@ pub unsafe extern "C" fn msime_client_typing_statistics(
             day: String,
             keys: std::collections::BTreeMap<String, u64>,
         },
+        /// 派生指标（概览、习惯、按键、徽章），新解锁的徽章在锁内写进 `achievements`。隐私模式不影响它：它只读已经记下的数据。
+        Summary {
+            day: String,
+            #[serde(default)]
+            user_words: Option<u64>,
+        },
+        /// 一次语音输入的时长，计在宿主的本地日 `day` 上。
+        RecordVoice {
+            day: String,
+            milliseconds: u64,
+        },
+        /// 用过一款皮肤（徽章「换装达人」）。
+        RecordSkin {
+            id: String,
+        },
         Reset,
     }
     response(|| {
@@ -549,6 +669,25 @@ pub unsafe extern "C" fn msime_client_typing_statistics(
                 let recorded = store
                     .record_keys(&day, &keys)
                     .map_err(|error| error.to_string())?;
+                Ok(json!({"recorded": recorded}))
+            }
+            StatisticsAction::Summary { day, user_words } => serde_json::to_value(
+                store
+                    .summary(
+                        &day,
+                        &msime_client_core::typing_statistics::SummaryInputs { user_words },
+                    )
+                    .map_err(|error| error.to_string())?,
+            )
+            .map_err(|_| "typing statistics response failed".to_owned()),
+            StatisticsAction::RecordVoice { day, milliseconds } => {
+                let recorded = store
+                    .record_voice(&day, milliseconds)
+                    .map_err(|error| error.to_string())?;
+                Ok(json!({"recorded": recorded}))
+            }
+            StatisticsAction::RecordSkin { id } => {
+                let recorded = store.record_skin(&id).map_err(|error| error.to_string())?;
                 Ok(json!({"recorded": recorded}))
             }
             StatisticsAction::SetEnabled { enabled } => serde_json::to_value(
@@ -1242,7 +1381,7 @@ pub unsafe extern "C" fn msime_client_dictionary_manifest(
         }
         // Bounded before parsing: this is a packaged file, and one that has grown to megabytes is
         // not a manifest whatever it parses as.
-        let file = path.join("dictionary-manifest.json");
+        let file = path.join("msime-dictionary-manifest.json");
         let bytes = crate::bounded_file::read(
             std::fs::File::open(&file).map_err(|_| "dictionary_manifest_unavailable")?,
             1024 * 1024,
@@ -1297,29 +1436,17 @@ pub unsafe extern "C" fn msime_client_load_clipboard_history(
             .map_err(|_| "clipboard history unavailable")?;
         let mut entries = Vec::with_capacity(history.entries().len());
         entries.extend(history.entries().iter().map(|entry| entry.text.as_str()));
-        // Keep the existing ABI shape until native hosts opt into the
-        // structured history bridge in their platform-specific migrations.
+        // This ABI returns plain entry text; the structured history is not exposed through it.
         Ok(serde_json::json!({"enabled": true, "entries": entries}))
     })
 }
 
 const MAX_MOBILE_CLIPBOARD_REQUEST_BYTES: usize = 524_288;
-const MAX_APPLE_LEGACY_CLIPBOARD_BYTES: u64 = 4_000_000;
-const APPLE_REFERENCE_DATE_UNIX_SECONDS: f64 = 978_307_200.0;
-
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct MobileClipboardRequest {
     directory: String,
-    #[serde(default)]
-    legacy: Option<MobileClipboardLegacy>,
     action: MobileClipboardAction,
-}
-
-#[derive(Clone, Copy, Deserialize)]
-#[serde(rename_all = "snake_case")]
-enum MobileClipboardLegacy {
-    HarmonyState,
 }
 
 #[derive(Deserialize)]
@@ -1332,247 +1459,7 @@ enum MobileClipboardAction {
     Clear,
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct AppleLegacyClipboardEntry {
-    id: String,
-    text: String,
-    date: f64,
-    pinned: bool,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct HarmonyLegacyClipboardEntry {
-    text: String,
-    at: f64,
-    pinned: bool,
-}
-
-fn apple_date_to_unix_ms(value: f64) -> Option<u64> {
-    let milliseconds = (value + APPLE_REFERENCE_DATE_UNIX_SECONDS) * 1000.0;
-    (milliseconds.is_finite() && milliseconds >= 0.0 && milliseconds <= u64::MAX as f64)
-        .then(|| milliseconds.round() as u64)
-}
-
-/// Check every existing component from `path` up to and including `root` before a migration opens or removes it. Legacy subdirectories below the root can be replaced independently, so checking only the final entry still lets `File::open` follow a symlinked ancestor. Components above the root belong to the host and the OS, not to this migration: a host directory can legitimately sit under a system symlink such as `/var -> /private/var` on Apple platforms, and walking past the root to `/` would reject every such path and turn migration off. The shared store under `MSIME/` applies client-core's own storage rule on top of this.
-fn reject_symlinked_path(root: &std::path::Path, path: &std::path::Path) -> Result<(), String> {
-    if !path.starts_with(root) {
-        return Err("clipboard migration path unavailable".into());
-    }
-    let mut current = path;
-    loop {
-        match std::fs::symlink_metadata(current) {
-            Ok(metadata) if metadata.file_type().is_symlink() => {
-                return Err("clipboard migration path is a symbolic link".into());
-            }
-            Ok(_) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(_) => return Err("clipboard migration path unavailable".into()),
-        }
-        if current == root {
-            return Ok(());
-        }
-        current = current
-            .parent()
-            .ok_or_else(|| "clipboard migration path unavailable".to_owned())?;
-    }
-}
-
-fn apple_clipboard_migration_lock(root: &std::path::Path) -> Result<std::fs::File, String> {
-    reject_symlinked_path(root, root)?;
-    std::fs::create_dir_all(root).map_err(|_| "clipboard migration unavailable")?;
-    let lock_path = root.join(".msime-clipboard-history-migration.lock");
-    let lock = msime_client_core::file_lock::open_private_lock_file(lock_path)
-        .map_err(|_| "clipboard migration unavailable")?;
-    // Not `File::lock`: std has no implementation of it on Android, so it fails outright there and
-    // takes every shared clipboard operation with it. `client-core` already owns the per-target
-    // answer, and this is the only place in the workspace that had its own.
-    msime_client_core::file_lock::exclusive(&lock)
-        .map_err(|_| "clipboard migration unavailable")?;
-    Ok(lock)
-}
-
-/// Migrate the fixed legacy Apple history into the shared mobile state once.
-/// The source is removed only after the destination has been persisted.
-pub fn migrate_apple_clipboard_history(root: &std::path::Path) -> Result<bool, String> {
-    let _lock = apple_clipboard_migration_lock(root)?;
-
-    let shared_path = root.join("MSIME").join("clipboard_history.json");
-    let mut shared = msime_client_core::clipboard::ClipboardHistoryStore::open(&shared_path);
-    shared
-        .load()
-        .map_err(|_| "shared clipboard history unavailable")?;
-    if !shared.entries().is_empty() {
-        return Ok(false);
-    }
-
-    let legacy_path = root.join("Clipboard").join("history.json");
-    reject_symlinked_path(root, &legacy_path)?;
-    let metadata = match std::fs::symlink_metadata(&legacy_path) {
-        Ok(metadata) => metadata,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
-        Err(_) => return Err("legacy clipboard history unavailable".into()),
-    };
-    if !metadata.file_type().is_file() {
-        return Err("invalid legacy clipboard history".into());
-    }
-    let bytes = crate::bounded_file::read(
-        std::fs::File::open(&legacy_path).map_err(|_| "legacy clipboard history unavailable")?,
-        MAX_APPLE_LEGACY_CLIPBOARD_BYTES,
-    )
-    .map_err(|error| {
-        if error.kind() == std::io::ErrorKind::InvalidData {
-            "invalid legacy clipboard history"
-        } else {
-            "legacy clipboard history unavailable"
-        }
-    })?;
-    let legacy: Vec<AppleLegacyClipboardEntry> =
-        serde_json::from_slice(&bytes).map_err(|_| "invalid legacy clipboard history")?;
-    if legacy.len() > 50 {
-        return Err("invalid legacy clipboard history".into());
-    }
-    let mut ids = std::collections::HashSet::with_capacity(legacy.len());
-    let mut texts = std::collections::HashSet::with_capacity(legacy.len());
-    let mut entries = Vec::with_capacity(legacy.len());
-    for entry in legacy {
-        let Some(timestamp_ms) = apple_date_to_unix_ms(entry.date) else {
-            return Err("invalid legacy clipboard history".into());
-        };
-        if !crate::valid_uuid_string(&entry.id)
-            || !ids.insert(entry.id)
-            || !texts.insert(entry.text.clone())
-            || !msime_client_core::clipboard::mobile_text_is_valid(&entry.text)
-        {
-            return Err("invalid legacy clipboard history".into());
-        }
-        entries.push(msime_client_core::clipboard::ClipboardHistoryEntry {
-            text: entry.text,
-            timestamp_ms,
-            pinned: entry.pinned,
-        });
-    }
-    let imported = shared
-        .import_if_empty(entries)
-        .map_err(|_| "clipboard migration failed")?;
-    if imported {
-        std::fs::remove_file(&legacy_path).map_err(|_| "clipboard migration cleanup failed")?;
-    }
-    Ok(imported)
-}
-
-/// Migrate the first Harmony host's local structured history into the shared mobile store.
-/// The caller opts into this path explicitly, so an unrelated `state` directory in an Apple App
-/// Group can never be mistaken for Harmony data.
-fn migrate_harmony_clipboard_history(root: &std::path::Path) -> Result<bool, String> {
-    let _lock = apple_clipboard_migration_lock(root)?;
-    let shared_path = root.join("MSIME").join("clipboard_history.json");
-    let mut shared = msime_client_core::clipboard::ClipboardHistoryStore::open(&shared_path);
-    shared
-        .load()
-        .map_err(|_| "shared clipboard history unavailable")?;
-    if !shared.entries().is_empty() {
-        return Ok(false);
-    }
-
-    let legacy_path = root.join("state").join("clipboard-history.json");
-    reject_symlinked_path(root, &legacy_path)?;
-    let metadata = match std::fs::symlink_metadata(&legacy_path) {
-        Ok(metadata) => metadata,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
-        Err(_) => return Err("legacy clipboard history unavailable".into()),
-    };
-    if !metadata.file_type().is_file() {
-        return Err("invalid legacy clipboard history".into());
-    }
-    let bytes = crate::bounded_file::read(
-        std::fs::File::open(&legacy_path).map_err(|_| "legacy clipboard history unavailable")?,
-        MAX_APPLE_LEGACY_CLIPBOARD_BYTES,
-    )
-    .map_err(|error| {
-        if error.kind() == std::io::ErrorKind::InvalidData {
-            "invalid legacy clipboard history"
-        } else {
-            "legacy clipboard history unavailable"
-        }
-    })?;
-    let legacy: Vec<HarmonyLegacyClipboardEntry> =
-        serde_json::from_slice(&bytes).map_err(|_| "invalid legacy clipboard history")?;
-    if legacy.len() > 50 {
-        return Err("invalid legacy clipboard history".into());
-    }
-    let mut texts = std::collections::HashSet::with_capacity(legacy.len());
-    let mut entries = Vec::with_capacity(legacy.len());
-    for entry in legacy {
-        if !entry.at.is_finite()
-            || entry.at < 0.0
-            || entry.at > u64::MAX as f64
-            || !texts.insert(entry.text.clone())
-            || !msime_client_core::clipboard::mobile_text_is_valid(&entry.text)
-        {
-            return Err("invalid legacy clipboard history".into());
-        }
-        entries.push(msime_client_core::clipboard::ClipboardHistoryEntry {
-            text: entry.text,
-            timestamp_ms: entry.at.round() as u64,
-            pinned: entry.pinned,
-        });
-    }
-    let imported = shared
-        .import_if_empty(entries)
-        .map_err(|_| "clipboard migration failed")?;
-    if imported {
-        std::fs::remove_file(&legacy_path).map_err(|_| "clipboard migration cleanup failed")?;
-    }
-    Ok(imported)
-}
-
-/// Clear shared mobile history and its fixed Apple legacy source under one lock.
-fn clear_mobile_clipboard_history_with_legacy(
-    root: &std::path::Path,
-    legacy: Option<MobileClipboardLegacy>,
-) -> Result<(), String> {
-    let _lock = apple_clipboard_migration_lock(root)?;
-    let legacy_path = root.join("Clipboard").join("history.json");
-    reject_symlinked_path(root, &legacy_path)?;
-    match std::fs::symlink_metadata(&legacy_path) {
-        Ok(metadata) if metadata.file_type().is_file() => {
-            std::fs::remove_file(&legacy_path).map_err(|_| "mobile clipboard clear failed")?;
-        }
-        Ok(_) => return Err("mobile clipboard clear failed".into()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(_) => return Err("mobile clipboard clear failed".into()),
-    }
-    if matches!(legacy, Some(MobileClipboardLegacy::HarmonyState)) {
-        let harmony_path = root.join("state").join("clipboard-history.json");
-        reject_symlinked_path(root, &harmony_path)?;
-        match std::fs::symlink_metadata(&harmony_path) {
-            Ok(metadata) if metadata.file_type().is_file() => {
-                std::fs::remove_file(harmony_path).map_err(|_| "mobile clipboard clear failed")?;
-            }
-            Ok(_) => return Err("mobile clipboard clear failed".into()),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(_) => return Err("mobile clipboard clear failed".into()),
-        }
-    }
-    msime_client_core::clipboard::ClipboardHistoryStore::open(
-        root.join("MSIME").join("clipboard_history.json"),
-    )
-    .clear()
-    .map_err(|_| "mobile clipboard clear failed".to_owned())
-}
-
-/// Clear the shared mobile and Apple legacy history for native callers that do not request a
-/// platform-specific migration path.
-pub fn clear_mobile_clipboard_history(root: &std::path::Path) -> Result<(), String> {
-    clear_mobile_clipboard_history_with_legacy(root, None)
-}
-
-/// Structured mobile clipboard history operations. The directory is the trusted
-/// App Group root; shared data lives below MSIME and the fixed Apple legacy path
-/// is migrated under a stable lock. This intentionally does not read or change
-/// the desktop automatic-capture preference: mobile access is host-permission gated.
+/// Structured mobile clipboard history operations. The directory is the trusted App Group root; shared data lives below MSIME. This intentionally does not read or change the desktop automatic-capture preference: mobile access is host-permission gated.
 /// # Safety
 /// `request` points to `length` readable JSON bytes. Null is rejected.
 #[no_mangle]
@@ -1592,14 +1479,6 @@ pub unsafe extern "C" fn msime_client_mobile_clipboard_history(
         if !root.is_absolute() || request.directory.len() > 16384 {
             return Err("invalid mobile clipboard directory".into());
         }
-        if matches!(&request.action, MobileClipboardAction::Clear) {
-            clear_mobile_clipboard_history_with_legacy(root, request.legacy)?;
-            return Ok(json!({"cleared": true, "migrated": false, "entries": []}));
-        }
-        let mut migrated = migrate_apple_clipboard_history(root)?;
-        if matches!(request.legacy, Some(MobileClipboardLegacy::HarmonyState)) {
-            migrated = migrate_harmony_clipboard_history(root)? || migrated;
-        }
         let path = root.join("MSIME").join("clipboard_history.json");
         let mut history = msime_client_core::clipboard::ClipboardHistoryStore::open(path);
         match request.action {
@@ -1607,13 +1486,11 @@ pub unsafe extern "C" fn msime_client_mobile_clipboard_history(
                 history
                     .load()
                     .map_err(|_| "mobile clipboard history unavailable")?;
-                Ok(json!({"entries": history.entries(), "migrated": migrated}))
+                Ok(json!({"entries": history.entries()}))
             }
             MobileClipboardAction::Capture { text } => {
                 if !msime_client_core::clipboard::mobile_text_is_valid(&text) {
-                    return Ok(
-                        json!({"captured": false, "reason": "invalid", "migrated": migrated}),
-                    );
+                    return Ok(json!({"captured": false, "reason": "invalid"}));
                 }
                 let captured = history
                     .push_mobile(text)
@@ -1621,7 +1498,6 @@ pub unsafe extern "C" fn msime_client_mobile_clipboard_history(
                 Ok(json!({
                     "captured": captured,
                     "reason": (!captured).then_some("full"),
-                    "migrated": migrated,
                     "entries": history.entries()
                 }))
             }
@@ -1636,7 +1512,6 @@ pub unsafe extern "C" fn msime_client_mobile_clipboard_history(
                     .map_err(|_| "mobile clipboard pin update failed")?;
                 Ok(json!({
                     "updated": updated,
-                    "migrated": migrated,
                     "entries": history.entries()
                 }))
             }
@@ -1651,11 +1526,15 @@ pub unsafe extern "C" fn msime_client_mobile_clipboard_history(
                     .map_err(|_| "mobile clipboard removal failed")?;
                 Ok(json!({
                     "removed": removed,
-                    "migrated": migrated,
                     "entries": history.entries()
                 }))
             }
-            MobileClipboardAction::Clear => unreachable!("clear handled before migration"),
+            MobileClipboardAction::Clear => {
+                history
+                    .clear()
+                    .map_err(|_| "mobile clipboard clear failed")?;
+                Ok(json!({"cleared": true, "entries": []}))
+            }
         }
     })
 }
@@ -1890,6 +1769,9 @@ pub unsafe extern "C" fn msime_client_vocabulary_review(
         /// both per-day and this layer cannot resolve the host's timezone.
         day: String,
         action: session::ReviewAction,
+        /// 插件目录的绝对路径：其中的单词本插件作为 `pack-<插件 id>` 词书列出。不传的宿主（Android、iOS）只有内置和导入的书。
+        #[serde(default)]
+        plugins: Option<String>,
     }
 
     response(|| {
@@ -1911,46 +1793,19 @@ pub unsafe extern "C" fn msime_client_vocabulary_review(
         {
             return Err("invalid vocabulary review directory".into());
         }
+        if request.plugins.as_deref().is_some_and(|plugins| {
+            plugins.len() > 16_384 || !std::path::Path::new(plugins).is_absolute()
+        }) {
+            return Err("invalid vocabulary review directory".into());
+        }
         let status = session::apply(
             std::path::Path::new(&request.directory),
             std::path::Path::new(&request.resources),
+            request.plugins.as_deref().map(std::path::Path::new),
             &request.day,
             request.action,
         )
         .map_err(|error| error.to_string())?;
         serde_json::to_value(status).map_err(|_| "vocabulary review response failed".to_owned())
     })
-}
-
-#[cfg(all(test, unix))]
-mod migration_path_tests {
-    use super::reject_symlinked_path;
-    use std::os::unix::fs::symlink;
-
-    #[test]
-    fn symlinks_are_checked_from_the_path_up_to_the_root_only() {
-        let host = tempfile::tempdir().unwrap();
-        let real = host.path().join("real");
-        std::fs::create_dir_all(real.join("root/Clipboard")).unwrap();
-        symlink(&real, host.path().join("link")).unwrap();
-        let root = host.path().join("link/root");
-        let legacy = root.join("Clipboard/history.json");
-        assert_eq!(reject_symlinked_path(&root, &root), Ok(()));
-        assert_eq!(reject_symlinked_path(&root, &legacy), Ok(()));
-
-        std::fs::remove_dir(real.join("root/Clipboard")).unwrap();
-        symlink(host.path(), real.join("root/Clipboard")).unwrap();
-        assert_eq!(
-            reject_symlinked_path(&root, &legacy),
-            Err("clipboard migration path is a symbolic link".to_owned())
-        );
-        assert_eq!(
-            reject_symlinked_path(&root, &host.path().join("elsewhere")),
-            Err("clipboard migration path unavailable".to_owned())
-        );
-        assert_eq!(
-            reject_symlinked_path(std::path::Path::new("/"), std::path::Path::new("/")),
-            Ok(())
-        );
-    }
 }

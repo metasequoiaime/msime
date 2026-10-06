@@ -1,12 +1,15 @@
-# Run from a Windows MSVC build environment with both Rust MSVC targets and
-# prebuilt native dependency prefixes. This script never signs or installs.
+# Run from a Windows MSVC build environment with the MSVC ARM64 and ARM64EC build tools and prebuilt native dependency prefixes. Unless -RustOutputs names the Rust half already built by Build-RustOutputs.ps1, it builds that first, which also needs the x64, x86 and ARM64 Rust MSVC targets, pnpm and clang on PATH (ring builds its ARM64 assembly with it). This script never signs or installs.
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][string]$X64Dependencies,
     [Parameter(Mandatory)][string]$X86Dependencies,
     [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
     [string]$Generator = 'Visual Studio 17 2022',
-    [string]$TargetVersion = ''
+    [string]$TargetVersion = '',
+    # 产品版本（shared/contracts/editions.json 里有 Windows 段的 id）。TSF DLL、Server、看门狗、prepare 工具和 WinUI 设置窗口在编译期绑定到这个版本；full 的输出在 target/windows-full，其他版本在 target/windows-<id>，可以一个接一个地构建而不互相覆盖。
+    [ValidatePattern('^[a-z][a-z0-9]*$')][string]$Edition = 'full',
+    # Build-RustOutputs.ps1's output directory with its x64, x86 and arm64 subdirectories. None of it depends on the edition, so a release builds it once for every edition; without it this script builds it under target/windows-rust.
+    [string]$RustOutputs = ''
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -25,17 +28,25 @@ function Invoke-ClientBuild {
     if ($LASTEXITCODE -ne 0) { throw "Client build command failed: $Command ($LASTEXITCODE)" }
 }
 
+if ($RustOutputs -ne '' -and (-not [IO.Path]::IsPathRooted($RustOutputs) -or -not (Test-Path -LiteralPath $RustOutputs -PathType Container))) {
+    throw 'RustOutputs must be an absolute, existing directory'
+}
 foreach ($prefix in @($X64Dependencies, $X86Dependencies)) {
     if (-not [IO.Path]::IsPathRooted($prefix) -or -not (Test-Path -LiteralPath $prefix -PathType Container)) {
         throw 'Provide absolute, existing x64 and x86 native dependency prefixes'
     }
 }
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
+$editionTable = Get-Content -LiteralPath (Join-Path $RepoRoot 'shared/contracts/editions.json') -Raw | ConvertFrom-Json
+$editionEntry = @($editionTable.editions | Where-Object { $_.id -ceq $Edition -and $null -ne $_.platforms.windows })
+if ($editionEntry.Count -ne 1) { throw "Edition $Edition has no Windows identifiers in shared/contracts/editions.json" }
+# 两个版本的 TIP 被同一个应用加载时，按导入表找 msime_host_api.dll 会拿到先加载的那一个，所以不是 full 的版本把它改成自己的名字（版本表 host_dll），并生成同名的导入库给 TSF DLL、Server 和设置窗口链接。
+$hostDll = [string]$editionEntry[0].platforms.windows.host_dll
+$buildRoot = Join-Path $RepoRoot "target/windows-$Edition"
 foreach ($relative in @('Cargo.toml', 'crates/engine/Cargo.toml',
                          'platforms/windows/CMakeLists.txt', 'platforms/windows/tsf/CMakeLists.txt',
                          'platforms/windows/settings/MSIME.Settings.vcxproj',
-                         'apps/desktop/package.json', 'scripts/fetch_voice_runtime.py',
-                         'scripts/fetch_handwriting_model.py')) {
+                         'apps/desktop/package.json', 'scripts/fetch_voice_runtime.py')) {
     if (-not (Test-Path -LiteralPath (Join-Path $RepoRoot $relative) -PathType Leaf)) {
         throw "Missing Client build source: $relative"
     }
@@ -43,25 +54,38 @@ foreach ($relative in @('Cargo.toml', 'crates/engine/Cargo.toml',
 # The on-device speech runtime staged beside the Server; Prepare-PackageFiles.ps1 and install-smoke.ps1 name the same three files.
 $voiceRuntimeLibraries = @('sherpa-onnx-c-api.dll', 'onnxruntime.dll', 'onnxruntime_providers_shared.dll')
 $previousPrefix = $env:CMAKE_PREFIX_PATH
-$previousTarget = $env:CARGO_TARGET_DIR
-$previousDebug = $env:CARGO_PROFILE_RELEASE_DEBUG
+# The ARM64 host DLL that the native half of the Arm64X TIP imports (edition_windows.py arm64_host_dll): it sits beside the x64 host in the same version directory.
+$arm64HostDll = [IO.Path]::GetFileNameWithoutExtension($hostDll) + '_arm64.dll'
 Push-Location $RepoRoot
 try {
-    $env:CARGO_TARGET_DIR = Join-Path $RepoRoot 'target'
-    $env:CARGO_PROFILE_RELEASE_DEBUG = '2'
+    $rust = $RustOutputs
+    if ($rust -eq '') {
+        $rust = Join-Path $RepoRoot 'target/windows-rust'
+        foreach ($arch in @('x64', 'x86', 'arm64')) {
+            & (Join-Path $PSScriptRoot 'Build-RustOutputs.ps1') -Architecture $arch -OutputDirectory $rust -RepoRoot $RepoRoot -TargetVersion $TargetVersion
+        }
+    }
     foreach ($arch in @('x64', 'x86')) {
-        $triple = if ($arch -eq 'x64') { 'x86_64-pc-windows-msvc' } else { 'i686-pc-windows-msvc' }
         $platform = if ($arch -eq 'x64') { 'x64' } else { 'Win32' }
         $env:CMAKE_PREFIX_PATH = if ($arch -eq 'x64') { $X64Dependencies } else { $X86Dependencies }
-        $release = Join-Path $env:CARGO_TARGET_DIR "$triple/release"
-        $output = Join-Path $RepoRoot "target/windows-full/$arch"
+        $release = Join-Path $rust $arch
+        $output = Join-Path $buildRoot $arch
         $bin = Join-Path $output 'bin'
-        Invoke-ClientBuild cargo @('build', '--locked', '--release', '--target', $triple, '-p', 'msime-host-api')
+        $hostLibrary = Join-Path $release 'msime_host_api.dll.lib'
+        if ($Edition -ne 'full') {
+            New-Item -ItemType Directory -Force -Path $output | Out-Null
+            $hostDefinition = Join-Path $output ([IO.Path]::ChangeExtension($hostDll, '.def'))
+            Invoke-ClientBuild python @((Join-Path $RepoRoot 'platforms/windows/scripts/edition_windows.py'), 'host-def',
+                '--edition', $Edition, '--dll', (Join-Path $release 'msime_host_api.dll'), '--output', $hostDefinition)
+            $hostLibrary = Join-Path $output "$hostDll.lib"
+            $machine = if ($arch -eq 'x64') { 'X64' } else { 'X86' }
+            Invoke-ClientBuild lib @('/NOLOGO', "/DEF:$hostDefinition", "/OUT:$hostLibrary", "/MACHINE:$machine")
+        }
         $source = if ($arch -eq 'x64') { 'platforms/windows' } else { 'platforms/windows/tsf' }
         $configure = @('-S', (Join-Path $RepoRoot $source), '-B', $output,
             '-G', $Generator, '-A', $platform,
             "-DCMAKE_PREFIX_PATH=$($env:CMAKE_PREFIX_PATH)",
-            "-DMSIME_HOST_LIBRARY=$(Join-Path $release 'msime_host_api.dll.lib')",
+            "-DMSIME_HOST_LIBRARY=$hostLibrary", "-DMSIME_EDITION=$Edition",
             "-DCMAKE_RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO=$bin",
             '-DMSIMEUI_BUILD_HANDWRITING_DEMO=OFF')
         if ($arch -eq 'x64') { $configure += '-DMSIME_SERVER_UIACCESS=ON' }
@@ -71,80 +95,75 @@ try {
             @('msime-client-server', 'msime-client-watchdog', 'msime-client-prepare', 'msime-tsf')
         } else { @('msime-tsf') }
         Invoke-ClientBuild cmake (@('--build', $output, '--config', 'RelWithDebInfo', '--parallel', '4', '--target') + $targets)
-        Invoke-ClientBuild cmake @('-E', 'copy_if_different', (Join-Path $release 'msime_host_api.dll'), $bin)
+        # 宿主 DLL 的 PDB 保留 DLL 内嵌的文件名；Collect-Symbols.ps1 把它打进符号包。
+        Invoke-ClientBuild cmake @('-E', 'copy_if_different', (Join-Path $release 'msime_host_api.dll'), (Join-Path $bin $hostDll))
+        Invoke-ClientBuild cmake @('-E', 'copy_if_different', (Join-Path $release 'msime_host_api.pdb'), (Join-Path $bin 'msime_host_api.pdb'))
         if ($arch -eq 'x64') {
-            Invoke-ClientBuild cargo @('build', '--locked', '--release', '--target', $triple,
-                '-p', 'msime-engine', '--bin', 'MetasequoiaImeDictionaryReplay')
-            Invoke-ClientBuild cmake @('-E', 'copy_if_different',
-                (Join-Path $release 'MetasequoiaImeDictionaryReplay.exe'), $bin)
-            Invoke-ClientBuild cmake @('-E', 'copy_if_different',
-                (Join-Path $release 'MetasequoiaImeDictionaryReplay.pdb'), $bin)
-            Invoke-ClientBuild cargo @('build', '--locked', '--release', '--target', $triple,
-                '-p', 'msime-mcp-server', '--bin', 'msime-mcp')
-            Invoke-ClientBuild cmake @('-E', 'copy_if_different', (Join-Path $release 'msime-mcp.exe'), $bin)
-            # As for the desktop below, the PDB can carry the normalized crate name; the package wants it beside the executable under the same name.
-            $mcpPdbs = @('msime_mcp.pdb', 'msime-mcp.pdb') |
-                ForEach-Object { Join-Path $release $_ } |
-                Where-Object { Test-Path -LiteralPath $_ -PathType Leaf }
-            if (@($mcpPdbs).Count -ne 1) { throw 'Expected one MCP server PDB output' }
-            Invoke-ClientBuild cmake @('-E', 'copy_if_different', @($mcpPdbs)[0], (Join-Path $bin 'msime-mcp.pdb'))
+            $x64HostLibrary = $hostLibrary
+            # The Rust outputs: the MCP server and the shared Tauri panel shell, each with its PDB under the name the package wants.
+            Invoke-ClientBuild cmake (@('-E', 'copy_if_different') +
+                @('msime-mcp.exe', 'msime-mcp.pdb', 'MSIME.exe', 'MSIME.pdb' | ForEach-Object { Join-Path $release $_ }) + @($bin))
 
             # Windows settings are a native WinUI 3 app. Keep the shared Tauri
             # shell below for the emoji/handwriting/keyboard panels, but do not
             # use it as the settings product anymore.
             $settingsProject = Join-Path $RepoRoot 'platforms/windows/settings/MSIME.Settings.vcxproj'
             $settingsIntermediate = Join-Path $output 'settings-obj'
-            Invoke-ClientBuild msbuild @($settingsProject, '/t:Restore,Build',
+            # -restore rather than /t:Restore,Build: restore writes obj\*.nuget.g.targets, where the CppWinRT and Windows App SDK build logic lives, and only a separate evaluation after it imports them. In one evaluation the build skips header generation, which only a previously restored obj directory hides.
+            # Built under the name the Server launcher, PE checks and packaging expect. Renaming the output afterwards would leave its resource index behind as MSIME.Settings.pri, which MRT Core looks up by the executable's name.
+            Invoke-ClientBuild msbuild @($settingsProject, '-restore', '/t:Build',
                 '/p:Configuration=RelWithDebInfo', '/p:Platform=x64',
-                "/p:HostApiLibrary=$(Join-Path $release 'msime_host_api.dll.lib')",
+                '/p:TargetName=msime-client-settings',
+                "/p:HostApiLibrary=$hostLibrary", "/p:MsimeEdition=$Edition",
                 "/p:OutDir=$bin\", "/p:IntDir=$settingsIntermediate\")
-            $settingsPdb = Join-Path $bin 'MSIME.Settings.pdb'
+            $settingsPdb = Join-Path $bin 'msime-client-settings.pdb'
             if (-not (Test-Path -LiteralPath $settingsPdb -PathType Leaf)) {
                 throw "Expected one WinUI settings PDB output: $settingsPdb"
             }
-            Invoke-ClientBuild cmake @('-E', 'copy_if_different', $settingsPdb,
-                (Join-Path $bin 'msime-client-settings.pdb'))
         }
     }
     $env:CMAKE_PREFIX_PATH = $X64Dependencies
-    Invoke-ClientBuild pnpm @('install', '--frozen-lockfile')
-    Invoke-ClientBuild pnpm @('--filter', '@msime/desktop', 'typecheck')
-    $desktopBuild = @('--filter', '@msime/desktop', 'tauri', 'build', '--no-bundle',
-        '--target', 'x86_64-pc-windows-msvc')
-    if ($TargetVersion -ne '') {
-        # Pass a file rather than inline JSON: pnpm is a .cmd shim on Windows, and PowerShell hands batch files their arguments without escaping the embedded quotes.
-        $versionConfig = Join-Path $RepoRoot 'target/windows-full/tauri-version.json'
-        [IO.File]::WriteAllText($versionConfig, (@{ version = $TargetVersion } | ConvertTo-Json -Compress))
-        $desktopBuild += @('--config', $versionConfig)
-    }
-    Invoke-ClientBuild pnpm $desktopBuild
-    Invoke-ClientBuild cmake @('-E', 'copy_if_different',
-        (Join-Path $env:CARGO_TARGET_DIR 'x86_64-pc-windows-msvc/release/msime-desktop.exe'),
-        (Join-Path $RepoRoot 'target/windows-full/x64/bin/MSIME.exe'))
-    # Rust/toolchain output can use the normalized crate name for the PDB.
-    # Require one unambiguous symbol file rather than accepting stale symbols.
-    $desktopPdbs = @('msime_desktop.pdb', 'msime-desktop.pdb') |
-        ForEach-Object { Join-Path $env:CARGO_TARGET_DIR "x86_64-pc-windows-msvc/release/$_" } |
-        Where-Object { Test-Path -LiteralPath $_ -PathType Leaf }
-    if (@($desktopPdbs).Count -ne 1) { throw 'Expected one Tauri desktop PDB output' }
-    Invoke-ClientBuild cmake @('-E', 'copy_if_different', @($desktopPdbs)[0],
-        (Join-Path $RepoRoot 'target/windows-full/x64/bin/MSIME.pdb'))
     # The Server recognizes speech on-device through the pinned sherpa-onnx runtime (resources/voice-runtime.lock.json), which it loads with LoadLibrary from its own directory; onnxruntime.dll resolves beside sherpa-onnx-c-api.dll. The fetch verifies the archive's SHA-256 before extracting and reuses a verified copy on later runs. These are upstream MSVC /MD builds, so they need the same VC runtime the installer already requires.
     $voiceRuntime = Join-Path $RepoRoot 'target/voice-runtime/windows-x64'
     Invoke-ClientBuild python @((Join-Path $RepoRoot 'scripts/fetch_voice_runtime.py'),
         '--platform', 'windows-x64', '--out', $voiceRuntime)
     Invoke-ClientBuild cmake (@('-E', 'copy_if_different') +
         @($voiceRuntimeLibraries | ForEach-Object { Join-Path $voiceRuntime $_ }) +
-        @((Join-Path $RepoRoot 'target/windows-full/x64/bin')))
-    # The offline handwriting model and its LGPL-2.1 licence, pinned by resources/handwriting-model.lock.json. Prepare-PackageFiles.ps1 stages both beside the Server from target/handwriting-model and Collect-Notices.ps1 reads the licence there. The fetch discards anything that does not match the lock and leaves a matching copy alone.
-    Invoke-ClientBuild python @((Join-Path $RepoRoot 'scripts/fetch_handwriting_model.py'),
-        '--out', (Join-Path $RepoRoot 'target/handwriting-model'))
+        @((Join-Path $buildRoot 'x64/bin')))
+    # Windows on Arm: the 64-bit TIP there is Arm64X (tsf/CMakeLists.txt, MSIME_TSF_ARM64X), linked from an ARM64 and an ARM64EC build of the same sources. Its ARM64 half imports the ARM64 host (Build-RustOutputs.ps1, with a static C runtime like the TIP's, so it needs no ARM64 Visual C++ runtime) under its own name; its ARM64EC half runs in emulated x64 processes and imports the x64 host. Everything else stays x64 and runs emulated. The TIP takes only header-only libraries from its prefix, so both passes use the x64 one.
+    $arm64Release = Join-Path $rust 'arm64'
+    $arm64Output = Join-Path $buildRoot 'arm64'
+    $arm64Bin = Join-Path $arm64Output 'bin'
+    New-Item -ItemType Directory -Force -Path $arm64Output | Out-Null
+    $arm64HostDefinition = Join-Path $arm64Output ([IO.Path]::ChangeExtension($arm64HostDll, '.def'))
+    Invoke-ClientBuild python @((Join-Path $RepoRoot 'platforms/windows/scripts/edition_windows.py'), 'host-def',
+        '--edition', $Edition, '--arm64', '--dll', (Join-Path $arm64Release 'msime_host_api.dll'), '--output', $arm64HostDefinition)
+    $arm64HostLibrary = Join-Path $arm64Output "$arm64HostDll.lib"
+    Invoke-ClientBuild lib @('/NOLOGO', "/DEF:$arm64HostDefinition", "/OUT:$arm64HostLibrary", '/MACHINE:ARM64')
+    $arm64Response = Join-Path $arm64Output 'msime-tsf-arm64.rsp'
+    foreach ($pass in @('ARM64', 'ARM64EC')) {
+        $passOutput = Join-Path $arm64Output $pass.ToLowerInvariant()
+        # The ARM64 pass's own DLL is only an input to the Arm64X link, so it stays in its build tree.
+        $passBin = if ($pass -eq 'ARM64EC') { $arm64Bin } else { Join-Path $passOutput 'bin' }
+        $passHost = if ($pass -eq 'ARM64EC') { $x64HostLibrary } else { $arm64HostLibrary }
+        $configure = @('-S', (Join-Path $RepoRoot 'platforms/windows/tsf'), '-B', $passOutput,
+            '-G', $Generator, '-A', $pass,
+            "-DCMAKE_PREFIX_PATH=$X64Dependencies",
+            "-DMSIME_HOST_LIBRARY=$passHost", "-DMSIME_EDITION=$Edition",
+            "-DMSIME_TSF_ARM64X=$pass", "-DMSIME_TSF_ARM64X_RESPONSE=$arm64Response",
+            "-DCMAKE_RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO=$passBin")
+        if ($TargetVersion -ne '') { $configure += "-DMSIME_WINDOWS_VERSION=$TargetVersion" }
+        Invoke-ClientBuild cmake $configure
+        Invoke-ClientBuild cmake @('--build', $passOutput, '--config', 'RelWithDebInfo', '--parallel', '4', '--target', 'msime-tsf')
+    }
+    Invoke-ClientBuild cmake @('-E', 'copy_if_different', (Join-Path $arm64Release 'msime_host_api.dll'), (Join-Path $arm64Bin $arm64HostDll))
+    Invoke-ClientBuild cmake @('-E', 'copy_if_different', (Join-Path $arm64Release 'msime_host_api.pdb'), (Join-Path $arm64Bin 'msime_host_api.pdb'))
     foreach ($arch in @('x64', 'x86')) {
-        $bin = Join-Path $RepoRoot "target/windows-full/$arch/bin"
+        $bin = Join-Path $buildRoot "$arch/bin"
         $prefix = if ($arch -eq 'x64') { $X64Dependencies } else { $X86Dependencies }
         & (Join-Path $PSScriptRoot 'Copy-RuntimeDependencies.ps1') `
             -DependencyPrefix $prefix -Destination $bin -Architecture $arch
-        foreach ($dll in @('MetasequoiaImeTsf.dll', 'msime_host_api.dll')) {
+        foreach ($dll in @('MetasequoiaImeTsf.dll', $hostDll)) {
             & (Join-Path $PSScriptRoot 'Test-PortableExecutable.ps1') -LiteralPath (Join-Path $bin $dll) -Architecture $arch -Kind dll
         }
         if ($arch -eq 'x64') {
@@ -152,16 +171,16 @@ try {
                 & (Join-Path $PSScriptRoot 'Test-PortableExecutable.ps1') -LiteralPath (Join-Path $bin $dll) -Architecture x64 -Kind dll
             }
             foreach ($exe in @('MetasequoiaImeServer.exe', 'MetasequoiaImeWatchdog.exe',
-                'msime-client-prepare.exe', 'MetasequoiaImeDictionaryReplay.exe', 'msime-mcp.exe',
+                'msime-client-prepare.exe', 'msime-mcp.exe',
                 'msime-client-settings.exe', 'MSIME.exe')) {
                 & (Join-Path $PSScriptRoot 'Test-PortableExecutable.ps1') -LiteralPath (Join-Path $bin $exe) -Architecture x64 -Kind exe
             }
         }
     }
+    & (Join-Path $PSScriptRoot 'Test-PortableExecutable.ps1') -LiteralPath (Join-Path $arm64Bin 'MetasequoiaImeTsf.dll') -Architecture arm64x -Kind dll
+    & (Join-Path $PSScriptRoot 'Test-PortableExecutable.ps1') -LiteralPath (Join-Path $arm64Bin $arm64HostDll) -Architecture arm64 -Kind dll
     Write-Output 'Client build commands and PE architecture checks completed; no signing, packaging or installation performed.'
 } finally {
     $env:CMAKE_PREFIX_PATH = $previousPrefix
-    $env:CARGO_TARGET_DIR = $previousTarget
-    $env:CARGO_PROFILE_RELEASE_DEBUG = $previousDebug
     Pop-Location
 }

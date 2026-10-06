@@ -1,6 +1,8 @@
 import * as skin from "../keyboard/touch-skin-style";
-import * as settings from "./settings-style";
-import { Row, Switch } from "../core/platform-controls";
+import { SettingsRowStack } from "./settings-row-stack";
+import { Row } from "../core/platform-controls";
+import { ActionButton } from "../core/action-button";
+import { SwitchRow } from "./switch-row";
 
 export interface TouchKeyboardSchemesSectionProps {
   options: readonly (readonly [string, string])[];
@@ -19,7 +21,7 @@ export function TouchKeyboardSchemesSection({
   onToggle,
 }: TouchKeyboardSchemesSectionProps) {
   return (
-    <div role="group" aria-label="输入方案" className={settings.rowStack}>
+    <SettingsRowStack role="group" aria-label="输入方案">
       <Row
         title="输入方案"
         description="开启的方案会显示在键盘快捷切换中，至少保留一种。点击名称设为当前方案。"
@@ -28,31 +30,30 @@ export function TouchKeyboardSchemesSection({
         const isEnabled = enabled.includes(scheme);
         const isSelected = selected === scheme;
         return (
-          <Row
+          <SwitchRow
             key={scheme}
             title={
-              <button
-                type="button"
+              <ActionButton
+                action={() => onSelect(scheme)}
+                ariaLabel={`设为当前输入方案 ${label}`}
+                ariaPressed={isSelected}
                 className={skin.schemeSelect(isSelected)}
-                aria-label={`设为当前输入方案 ${label}`}
-                aria-pressed={isSelected}
                 disabled={!isEnabled}
-                onClick={() => onSelect(scheme)}
-              >
-                <span>{label}</span>
-                {isSelected && <span aria-hidden="true">✓</span>}
-              </button>
+                label={
+                  <>
+                    <span>{label}</span>
+                    {isSelected && <span aria-hidden="true">✓</span>}
+                  </>
+                }
+              />
             }
-          >
-            <Switch
-              aria-label={`显示输入方案 ${label}`}
-              checked={isEnabled}
-              disabled={isEnabled && enabled.length === 1}
-              onChange={(checked) => onToggle(scheme, checked)}
-            />
-          </Row>
+            aria-label={`显示输入方案 ${label}`}
+            checked={isEnabled}
+            disabled={isEnabled && enabled.length === 1}
+            onChange={(checked) => onToggle(scheme, checked)}
+          />
         );
       })}
-    </div>
+    </SettingsRowStack>
   );
 }

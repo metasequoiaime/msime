@@ -3,16 +3,26 @@
 //! keystroke path.
 
 use super::*;
+use msime_engine::SchemeType;
 
 /// Build the default cloud request for an eligible online query. Hosts perform
 /// the actual network I/O through their injected transport and then submit the
 /// result to `Runtime::apply_online_candidate`.
 pub fn cloud_request_url(query: &OnlineQuery) -> Option<String> {
-    // Korean syllables are already the text; no cloud provider converts them.
-    if !query.cloud_eligible || !query.cloud_candidates || query.scheme == KOREAN_SCHEME {
+    if !cloud_query_allowed(query) {
         return None;
     }
-    msime_client_core::cloud::candidates::build_google_url(&query.query_text, query.scheme == 3)
+    msime_client_core::cloud::candidates::build_google_url(
+        &query.query_text,
+        SchemeType::from_u8(query.scheme) == Some(SchemeType::JapaneseRomaji),
+    )
+}
+
+/// Whether a cloud provider may answer `query`: the query asks for cloud candidates and its scheme is one a cloud provider converts. Korean syllables, for one, are already the text, so a query claiming eligibility for them is refused, as is one naming a scheme the Engine does not have.
+fn cloud_query_allowed(query: &OnlineQuery) -> bool {
+    query.cloud_eligible
+        && query.cloud_candidates
+        && SchemeType::from_u8(query.scheme).is_some_and(SchemeType::cloud_eligible)
 }
 
 /// Convert a host-fetched Google response into a bounded online result.
@@ -20,7 +30,7 @@ pub fn cloud_candidate_from_response(
     query: OnlineQuery,
     response: &[u8],
 ) -> Option<OnlineCandidate> {
-    if !query.cloud_eligible || !query.cloud_candidates || query.scheme == KOREAN_SCHEME {
+    if !cloud_query_allowed(&query) {
         return None;
     }
     let text = msime_client_core::cloud::candidates::parse_google_response(response)?;
@@ -60,6 +70,26 @@ fn valid_ai_provider_endpoint(provider: &str, endpoint: &str) -> bool {
         && msime_client_core::is_bounded_text(provider, 64)
         && !endpoint.is_empty()
         && msime_client_core::is_bounded_text(endpoint, 2048)
+}
+
+#[cfg(unix)]
+fn provider_path_has_no_symlink_ancestors(path: &Path) -> bool {
+    for ancestor in path.ancestors() {
+        if ancestor.as_os_str().is_empty() {
+            continue;
+        }
+        match std::fs::symlink_metadata(ancestor) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                if msime_path_trust::is_trusted_system_alias(ancestor) {
+                    continue;
+                }
+                return false;
+            }
+            Ok(_) => {}
+            Err(_) => return false,
+        }
+    }
+    true
 }
 
 // Read one newline-delimited response before the deadline, retaining only the
@@ -180,6 +210,9 @@ impl UnixSocketProvider {
     pub(crate) fn connect(&self) -> Option<UnixStream> {
         use std::os::unix::fs::{FileTypeExt, MetadataExt};
 
+        if !provider_path_has_no_symlink_ancestors(&self.path) {
+            return None;
+        }
         let parent = self.path.parent()?;
         let parent_metadata = std::fs::symlink_metadata(parent).ok()?;
         let socket_metadata = std::fs::symlink_metadata(&self.path).ok()?;
@@ -303,7 +336,7 @@ impl UnixSocketProvider {
             return None;
         }
         // Translation switched off: no candidate text leaves the host, not even to the local provider.
-        if query.provider == Some(TranslationService::Off) {
+        if query.provider == TranslationService::Off {
             return Some(Vec::new());
         }
         let mut stream = self.connect()?;
@@ -588,10 +621,7 @@ impl UnixSocketProvider {
         .filter(|text| !text.is_empty())
     }
 
-    /// Run a newline-delimited voice provider stream. Provider updates use
-    /// `{text, type:"partial"}` (or `interim`) and the terminal update uses
-    /// `{text, type:"final"}`. A legacy single `{text}` response is treated
-    /// as final. Only bounded UTF-8 text crosses the host boundary.
+    /// Run a newline-delimited voice provider stream. Every event carries the request `generation`. Provider updates use `{text, type:"partial"}` (or `interim`) and the terminal update uses `{text, type:"final"}`. Only bounded UTF-8 text crosses the host boundary.
     #[cfg(unix)]
     pub fn voice_stream_with_options_cancelled(
         &self,
@@ -727,18 +757,9 @@ impl UnixSocketProvider {
         loop {
             let line = read_voice_provider_line(&mut stream, &mut pending, deadline, cancelled)?;
             let value = serde_json::from_str::<Value>(line.trim_end()).ok()?;
-            // Explicit stream events belong to the request generation. Keep
-            // the documented bare terminal response from pre-stream
-            // providers, but do not let a typed event omit its binding.
-            let event_generation = value.get("generation").and_then(Value::as_u64);
-            if event_generation != Some(generation) {
-                // Keep compatibility with pre-stream providers, which return
-                // a bare {"text": ...} terminal object, but require a binding
-                // for every explicitly typed stream event.
-                let typed_event = value.get("type").is_some() || value.get("event").is_some();
-                if typed_event || event_generation.is_some() {
-                    return None;
-                }
+            // Every stream event belongs to the request generation.
+            if value.get("generation").and_then(Value::as_u64) != Some(generation) {
+                return None;
             }
             if value.get("ok").and_then(Value::as_bool) == Some(false) {
                 if value.get("error").and_then(Value::as_str) == Some("voice_dependency_missing") {

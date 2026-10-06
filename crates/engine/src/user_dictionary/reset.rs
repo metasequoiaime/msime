@@ -12,7 +12,7 @@ use crate::assets;
 use crate::diagnostics;
 use crate::error::{EngineError, Result};
 use crate::paths::RuntimePaths;
-use crate::user_dictionary::generation::weakly_canonical;
+use crate::user_dictionary::generation::{merge_split_wubi, weakly_canonical};
 use crate::user_dictionary::journal::{close_cached_journals, ensure_schema, open_database};
 
 /// SQLite files that sit beside the journal. A leftover `-wal` would bring the learned data the user just erased back on the next open.
@@ -29,13 +29,22 @@ struct Replacement {
 
 /// The caller must have quiesced every session on these paths.
 pub fn reset_learned_data(paths: &RuntimePaths) -> Result<()> {
+    reset_learned_data_with(paths, true)
+}
+
+/// [`reset_learned_data`]，`main_dictionary` 为假（代次里没有 `msime-pinyin.db`，见 `SchemeSet::reads_main_dictionary`）时只换回 `msime-english.db` 和清空日志，不要求也不复制 `msime-pinyin.db`。
+pub fn reset_learned_data_with(paths: &RuntimePaths, main_dictionary: bool) -> Result<()> {
     paths.validate()?;
     if weakly_canonical(&paths.resources)? == weakly_canonical(&paths.dictionaries)? {
         return Err(EngineError::invalid(diagnostics::RESET_IN_PLACE));
     }
-    let main_source = paths.resource(assets::MAIN_DICTIONARY);
-    let english_source = paths.resource(assets::ENGLISH_DICTIONARY);
-    if !is_real_file(&main_source) || !is_real_file(&english_source) {
+    let names: &[&str] = if main_dictionary {
+        &[assets::MAIN_DICTIONARY, assets::ENGLISH_DICTIONARY]
+    } else {
+        &[assets::ENGLISH_DICTIONARY]
+    };
+    let sources: Vec<PathBuf> = names.iter().map(|name| paths.resource(name)).collect();
+    if !sources.iter().all(|source| is_real_file(source)) {
         return Err(EngineError::failed(
             diagnostics::PACKAGED_DICTIONARY_UNAVAILABLE,
         ));
@@ -55,35 +64,41 @@ pub fn reset_learned_data(paths: &RuntimePaths) -> Result<()> {
         .map_or(0, |elapsed| elapsed.as_nanos())
         .to_string();
     let journal = paths.user(assets::USER_JOURNAL);
-    let mut replacements: Vec<Replacement> = [
-        paths.dictionary(assets::MAIN_DICTIONARY),
-        paths.dictionary(assets::ENGLISH_DICTIONARY),
-        journal.clone(),
-    ]
-    .into_iter()
-    .map(|target| Replacement {
-        temporary: affixed(&target, ".reset.", &stamp),
-        backup: affixed(&target, ".backup.", &stamp),
-        target,
-        had_original: false,
-        published: false,
-    })
-    .collect();
+    // 词库在前、日志在最后：`swap` 按顺序把 `sources` 配给前面的词库。
+    let mut replacements: Vec<Replacement> = names
+        .iter()
+        .map(|name| paths.dictionary(name))
+        .chain([journal.clone()])
+        .map(|target| Replacement {
+            temporary: affixed(&target, ".reset.", &stamp),
+            backup: affixed(&target, ".backup.", &stamp),
+            target,
+            had_original: false,
+            published: false,
+        })
+        .collect();
+    let journal_temporary = replacements[names.len()].temporary.clone();
 
     // The empty journal gets its own connection, closed before it is published: a cached one would keep the renamed file open.
     let prepared = (|| -> Result<()> {
         let connection = open_database(
-            &replacements[2].temporary,
+            &journal_temporary,
             OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE,
         )?;
         ensure_schema(&connection)
     })();
     if prepared.is_err() {
-        remove_ignoring_errors(&replacements[2].temporary);
+        remove_ignoring_errors(&journal_temporary);
         return Err(EngineError::failed(diagnostics::RESET_JOURNAL_FAILED));
     }
 
-    let swapped = swap(&mut replacements, &main_source, &english_source, &journal);
+    let swapped = swap(
+        &mut replacements,
+        &paths.resources,
+        main_dictionary,
+        &sources,
+        &journal,
+    );
     match swapped {
         Ok(()) => {
             // Every replacement is published; the originals are no longer needed.
@@ -101,16 +116,19 @@ pub fn reset_learned_data(paths: &RuntimePaths) -> Result<()> {
 
 fn swap(
     replacements: &mut [Replacement],
-    main_source: &Path,
-    english_source: &Path,
+    resources: &Path,
+    main_dictionary: bool,
+    sources: &[PathBuf],
     journal: &Path,
 ) -> Result<()> {
     // A plain copy, as the reference made: the packaged bundle is immutable, so it has no WAL to lose.
-    for (source, replacement) in [main_source, english_source]
-        .iter()
-        .zip(replacements.iter())
-    {
+    for (source, replacement) in sources.iter().zip(replacements.iter()) {
         fs::copy(source, &replacement.temporary)
+            .map_err(|_| EngineError::failed(diagnostics::RESET_STAGE_DICTIONARIES_FAILED))?;
+    }
+    // 与准备代次相同：单独发布的五笔码表并回新的工作主词库，否则重置之后五笔学习与删词都找不到表。没有工作主词库时 `replacements[0]` 是英文词库，不并。
+    if main_dictionary {
+        merge_split_wubi(resources, &replacements[0].temporary)
             .map_err(|_| EngineError::failed(diagnostics::RESET_STAGE_DICTIONARIES_FAILED))?;
     }
     for replacement in replacements.iter_mut() {
@@ -179,8 +197,7 @@ fn reject_redirected_directory(path: &Path) -> std::io::Result<()> {
     for ancestor in path.ancestors() {
         match fs::symlink_metadata(ancestor) {
             Ok(metadata) if metadata.file_type().is_symlink() => {
-                #[cfg(target_os = "macos")]
-                if ancestor == Path::new("/var") || ancestor == Path::new("/tmp") {
+                if crate::paths::is_trusted_system_alias(ancestor) {
                     continue;
                 }
                 return Err(std::io::Error::new(
@@ -219,6 +236,45 @@ mod tests {
             cache: path("cache"),
             dictionaries: path("dictionaries"),
         }
+    }
+
+    /// 拆分发布布局：`msime-pinyin.db` 没有五笔表，重置后的工作主词库要把 `msime-wubi.db` 的码表并回来，五笔学习与删词才有表可写。
+    #[test]
+    fn reset_merges_the_split_wubi_tables_into_the_fresh_working_copy() {
+        let temporary = tempfile::tempdir().unwrap();
+        let paths = paths(temporary.path());
+        sql(
+            &paths.resource(assets::MAIN_DICTIONARY),
+            "CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);",
+        );
+        sql(
+            &paths.resource(assets::WUBI_DICTIONARY),
+            "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);
+             INSERT INTO wubi86 VALUES('aaaa','工',200);
+             CREATE TABLE wubi98(key TEXT,value TEXT,weight INTEGER);",
+        );
+        sql(
+            &paths.resource(assets::ENGLISH_DICTIONARY),
+            "CREATE TABLE english_words(word TEXT,display TEXT,weight INTEGER);",
+        );
+
+        reset_learned_data(&paths).unwrap();
+
+        assert_eq!(
+            weight(
+                &paths.dictionary(assets::MAIN_DICTIONARY),
+                "SELECT weight FROM wubi86 WHERE key='aaaa'"
+            ),
+            Some(200)
+        );
+        assert_eq!(
+            weight(
+                &paths.dictionary(assets::MAIN_DICTIONARY),
+                "SELECT count(*) FROM wubi98"
+            ),
+            Some(0)
+        );
+        assert!(!paths.dictionary(assets::WUBI_DICTIONARY).exists());
     }
 
     // engine-bridge tests.rs `reset_learned_data_restores_packaged_dictionaries_and_clears_journal`, for an ASCII root and one carrying Chinese characters.
@@ -311,6 +367,60 @@ mod tests {
         assert_eq!(error.to_string(), diagnostics::RESET_IN_PLACE);
     }
 
+    /// 没有 `msime-pinyin.db` 的代次：重置只换回 `msime-english.db`、清空日志，不要求资源目录里有 `msime-pinyin.db`，也不在代次里留下它；同一个资源目录按有 `msime-pinyin.db` 重置仍然被拒。
+    #[test]
+    fn reset_without_the_main_dictionary_restores_only_english() {
+        let root = tempfile::tempdir().unwrap();
+        let paths = paths(root.path());
+        sql(
+            &paths.resource(assets::ENGLISH_DICTIONARY),
+            "CREATE TABLE english_words(word TEXT,display TEXT,weight INTEGER);
+             INSERT INTO english_words VALUES('word','word',100);",
+        );
+        fs::copy(
+            paths.resource(assets::ENGLISH_DICTIONARY),
+            paths.dictionary(assets::ENGLISH_DICTIONARY),
+        )
+        .unwrap();
+        sql(
+            &paths.dictionary(assets::ENGLISH_DICTIONARY),
+            "UPDATE english_words SET weight=1",
+        );
+        let journal = paths.user(assets::USER_JOURNAL);
+        sql(
+            &journal,
+            "CREATE TABLE user_dictionary_operations(dictionary TEXT,key TEXT,value TEXT,operation TEXT,weight INTEGER,display TEXT,user_inserted INTEGER);
+             INSERT INTO user_dictionary_operations VALUES('english','word','word','upsert',1,'word',0);",
+        );
+
+        assert_eq!(
+            reset_learned_data(&paths).unwrap_err().to_string(),
+            diagnostics::PACKAGED_DICTIONARY_UNAVAILABLE
+        );
+        reset_learned_data_with(&paths, false).unwrap();
+
+        assert_eq!(
+            weight(
+                &paths.dictionary(assets::ENGLISH_DICTIONARY),
+                "SELECT weight FROM english_words WHERE word='word'"
+            ),
+            Some(100)
+        );
+        assert_eq!(
+            weight(&journal, "SELECT count(*) FROM user_dictionary_operations"),
+            Some(0)
+        );
+        assert!(!paths.dictionary(assets::MAIN_DICTIONARY).exists());
+        assert!(!paths.resource(assets::MAIN_DICTIONARY).exists());
+        let leftovers: Vec<_> = [&paths.user_data, &paths.dictionaries]
+            .iter()
+            .flat_map(|directory| fs::read_dir(directory).unwrap())
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|name| name.starts_with('.'))
+            .collect();
+        assert!(leftovers.is_empty(), "{leftovers:?}");
+    }
+
     #[cfg(unix)]
     #[test]
     fn reset_rejects_a_symlinked_packaged_dictionary() {
@@ -322,7 +432,7 @@ mod tests {
             &paths.resource(assets::ENGLISH_DICTIONARY),
             "CREATE TABLE english_words(word TEXT,display TEXT,weight INTEGER);",
         );
-        let external = root.path().join("external-msime.db");
+        let external = root.path().join("external-msime-pinyin.db");
         sql(
             &external,
             "CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);",

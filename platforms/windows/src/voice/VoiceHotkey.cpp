@@ -3,6 +3,7 @@
 #include <windows.h>
 
 #include <utility>
+#include "../../../../shared/contracts/msime_edition.h"
 
 namespace msime::windows {
 // The policy header names these so it can be compiled and tested without
@@ -18,7 +19,7 @@ static_assert(voice_key_space == VK_SPACE);
 static_assert(voice_key_escape == VK_ESCAPE);
 
 namespace {
-constexpr wchar_t kClassName[] = L"MSIMEClientVoiceHotkeyWindow";
+constexpr wchar_t kClassName[] = L"MSIMEClientVoiceHotkeyWindow" MSIME_EDITION_NAME_SUFFIX;
 constexpr UINT kStartMessage = WM_APP + 200;
 constexpr UINT kToggleMessage = WM_APP + 201;
 constexpr UINT kStopMessage = WM_APP + 202;

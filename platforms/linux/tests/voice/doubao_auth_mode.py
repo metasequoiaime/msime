@@ -28,18 +28,12 @@ class DoubaoAuthMode(unittest.TestCase):
             {"X-Api-App-Key": "synthetic-app-id", "X-Api-Access-Key": "synthetic-token"},
         )
 
-    def test_missing_mode_preserves_legacy_config(self):
-        self.assertEqual(
-            MODULE.doubao_auth_headers(self.config, {}),
-            {"X-Api-App-Key": "synthetic-app-id", "X-Api-Access-Key": "synthetic-token"},
-        )
-
-    def test_missing_mode_without_app_id_uses_api_key(self):
-        config = {"app_key": "", "token": "synthetic-token"}
-        self.assertEqual(
-            MODULE.doubao_auth_headers(config, {}),
-            {"X-Api-Key": "synthetic-token"},
-        )
+    def test_missing_mode_uses_api_key_even_with_an_app_id(self):
+        for options in ({}, {"doubao_auth_mode": ""}):
+            self.assertEqual(
+                MODULE.doubao_auth_headers(self.config, options),
+                {"X-Api-Key": "synthetic-token"},
+            )
 
     def test_legacy_mode_without_app_id_is_rejected(self):
         with self.assertRaises(ValueError):
@@ -48,16 +42,9 @@ class DoubaoAuthMode(unittest.TestCase):
                 {"doubao_auth_mode": "legacy"},
             )
 
-    def test_unknown_mode_keeps_old_inference(self):
+    def test_unknown_mode_uses_api_key(self):
         self.assertEqual(
             MODULE.doubao_auth_headers(self.config, {"doubao_auth_mode": "old-console"}),
-            {"X-Api-App-Key": "synthetic-app-id", "X-Api-Access-Key": "synthetic-token"},
-        )
-
-    def test_placeholder_app_id_is_not_inferred_as_legacy(self):
-        config = {"app_key": "<not-a-credential>", "token": "synthetic-token"}
-        self.assertEqual(
-            MODULE.doubao_auth_headers(config, {}),
             {"X-Api-Key": "synthetic-token"},
         )
 

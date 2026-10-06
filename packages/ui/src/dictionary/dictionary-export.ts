@@ -7,7 +7,8 @@ import {
 
 const personalDictionaryExportKinds: readonly [LocalDictionaryKind, string][] = [
   ["pinyin", "拼音"],
-  ["wubi", "五笔"],
+  ["wubi", "86 五笔"],
+  ["wubi98", "98 五笔"],
   ["quick_phrase", "快捷短语"],
   ["english", "英文"],
 ];
@@ -64,6 +65,7 @@ export function dictionaryExportName(kind: LocalDictionaryKind): string {
   const names: Record<LocalDictionaryKind, string> = {
     pinyin: "水杉IME-拼音用户词库.txt",
     wubi: "水杉IME-五笔用户词库.txt",
+    wubi98: "水杉IME-98五笔用户词库.txt",
     english: "水杉IME-英文用户词库.txt",
     quick_phrase: "水杉IME-快捷短语用户词库.txt",
   };
@@ -74,7 +76,8 @@ export function dictionaryKindLabel(kind: string): string {
   return (
     {
       pinyin: "全拼",
-      wubi: "五笔",
+      wubi: "86 五笔",
+      wubi98: "98 五笔",
       english: "英文",
       quick_phrase: "快捷短语",
     }[kind] ?? "词库"

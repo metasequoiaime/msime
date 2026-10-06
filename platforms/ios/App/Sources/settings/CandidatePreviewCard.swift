@@ -3,7 +3,7 @@ import UIKit
 
 /// The candidate preview card that leads the 主题, 候选栏 and 输入 pages of the mobile design (dc.html L708-730, data L2157-2165): the spelling line, then six candidates on the keyboard's own background, the first in the accent and each with its gloss under it.
 ///
-/// It draws what the keyboard strip would draw for the selected theme: the keyboard palette, or the resolved candidate palette when the iOS 使用桌面候选皮肤 switch is on (see CandidatePalette). The words are fixed sample text, not engine output.
+/// It draws what the keyboard strip would draw for the selected theme: the keyboard palette, or the resolved candidate palette when the iOS 候选栏使用主题配色 switch is on (see CandidatePalette). The words are fixed sample text, not engine output.
 struct CandidatePreviewCard: View {
   let theme: KeyboardTheme
   /// The candidate palette the strip draws instead of the keyboard palette, nil while it follows the keyboard.

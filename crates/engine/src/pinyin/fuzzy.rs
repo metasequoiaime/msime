@@ -28,7 +28,12 @@ fn with_partners<'a>(
     pairs: &[(&'a str, &'a str, u32)],
     options: FuzzyPinyinOptions,
 ) -> Vec<&'a str> {
-    let mut variants = vec![part];
+    let additional = pairs
+        .iter()
+        .filter(|&&(a, b, rule)| options.enabled(rule) && (part == a || part == b))
+        .count();
+    let mut variants = Vec::with_capacity(1 + additional);
+    variants.push(part);
     for &(a, b, rule) in pairs {
         if !options.enabled(rule) {
             continue;
@@ -61,7 +66,8 @@ pub fn fuzzy_syllables(syllable: &str, options: FuzzyPinyinOptions) -> Vec<Strin
     let (initial, final_part) = syllable.split_at(initial_length);
     let starts = with_partners(initial, &INITIAL_PAIRS, options);
     let ends = with_partners(final_part, &FINAL_PAIRS, options);
-    let mut result = vec![syllable.to_owned()];
+    let mut result = Vec::with_capacity(starts.len().saturating_mul(ends.len()));
+    result.push(syllable.to_owned());
     for start in &starts {
         for end in &ends {
             let mut candidate = String::with_capacity(start.len() + end.len());
@@ -162,6 +168,11 @@ mod tests {
             ["lan", "nan", "ran"]
         );
         assert_eq!(fuzzy_syllables("an", rules(fuzzy_rule::ALL)), ["an", "ang"]);
+        let lan = fuzzy_syllables("lan", rules(fuzzy_rule::ALL));
+        assert_eq!(lan.capacity(), 6);
+        assert_eq!(lan.len(), 6);
+        let initial_partners = with_partners("l", &INITIAL_PAIRS, rules(fuzzy_rule::ALL));
+        assert_eq!(initial_partners.capacity(), 3);
         assert_eq!(fuzzy_syllables("zh", rules(fuzzy_rule::ALL)), ["zh"]);
         assert_eq!(fuzzy_syllables("bian", rules(fuzzy_rule::AN_ANG)), ["bian"]);
         assert_eq!(fuzzy_syllables("zan", rules(0)), ["zan"]);

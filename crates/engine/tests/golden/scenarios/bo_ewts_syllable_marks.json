@@ -1,0 +1,89 @@
+{
+ "name": "bo_ewts_syllable_marks",
+ "source": "crates/engine/src/tibetan (no C++ reference: the Tibetan scheme is Rust-only, so the expected file was recorded from this engine and checked by hand)",
+ "covers": [
+  "tibetan ewts",
+  "tibetan space commits with tsheg",
+  "tibetan slash commits with shad",
+  "tibetan enter commits without tsheg",
+  "tibetan idle slash is shad",
+  "tibetan plus stacking",
+  "tibetan uppercase letters spell",
+  "tibetan half-width punctuation",
+  "tibetan finish commits the conversion"
+ ],
+ "fixture": {},
+ "options": {
+  "scheme": "tibetan"
+ },
+ "steps": [
+  {
+   "op": "type",
+   "arg": "bkra"
+  },
+  {
+   "op": "char",
+   "arg": " "
+  },
+  {
+   "op": "type",
+   "arg": "shis"
+  },
+  {
+   "op": "char",
+   "arg": "/"
+  },
+  {
+   "op": "type",
+   "arg": "sangs"
+  },
+  {
+   "op": "command",
+   "arg": "CommitCandidate"
+  },
+  {
+   "op": "type",
+   "arg": "rgyas"
+  },
+  {
+   "op": "command",
+   "arg": "CommitRaw"
+  },
+  {
+   "op": "char",
+   "arg": "/"
+  },
+  {
+   "op": "type",
+   "arg": "pad"
+  },
+  {
+   "op": "char",
+   "arg": "+"
+  },
+  {
+   "op": "type",
+   "arg": "ma"
+  },
+  {
+   "op": "punctuation",
+   "arg": ","
+  },
+  {
+   "op": "char",
+   "arg": "T",
+   "shift": true
+  },
+  {
+   "op": "type",
+   "arg": "a"
+  },
+  {
+   "op": "finish"
+  },
+  {
+   "op": "char",
+   "arg": " "
+  }
+ ]
+}

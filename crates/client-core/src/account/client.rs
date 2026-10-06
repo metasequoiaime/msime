@@ -228,6 +228,36 @@ impl BackendAccountClient {
         serde_json::from_slice(&bytes).map_err(|_| AccountError::Unavailable)
     }
 
+    /// POSTs a JSON `body` to `path` without credentials and reports the response status with its `Retry-After` delay (seconds form only), for callers whose handling depends on the status itself rather than on a decoded document, such as telemetry delivery. The response body is discarded. A request that never got a response is `Err(Unavailable)`.
+    pub(crate) fn post_for_status(
+        &self,
+        path: &str,
+        body: Vec<u8>,
+        maximum_request_bytes: usize,
+        timeout: Duration,
+    ) -> Result<(StatusCode, Option<Duration>), AccountError> {
+        if !path.starts_with("/v1/") || path.contains('\\') || body.len() > maximum_request_bytes {
+            return Err(AccountError::Invalid);
+        }
+        let url = self.origin.join(path).map_err(|_| AccountError::Invalid)?;
+        let response = self
+            .client
+            .post(url)
+            .header(reqwest::header::ACCEPT, "application/json")
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .body(body)
+            .timeout(timeout)
+            .send()
+            .map_err(|_| AccountError::Unavailable)?;
+        let retry_after = response
+            .headers()
+            .get(reqwest::header::RETRY_AFTER)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.trim().parse::<u64>().ok())
+            .map(Duration::from_secs);
+        Ok((response.status(), retry_after))
+    }
+
     fn empty<B: Serialize>(
         &self,
         method: Method,
@@ -425,7 +455,7 @@ impl BackendAccountClient {
             .send()
             .map_err(|_| AccountError::Unavailable)?;
         if !response.status().is_success() {
-            return Err(AccountError::from_status(response.status()));
+            return Err(error_from_response(response));
         }
         if response
             .content_length()

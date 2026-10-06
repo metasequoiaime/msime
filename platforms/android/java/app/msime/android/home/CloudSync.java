@@ -1,0 +1,657 @@
+package app.msime.android.home;
+
+import android.app.Activity;
+import android.content.Context;
+import android.content.SharedPreferences;
+import android.util.Log;
+import app.msime.android.AndroidLocalSettings;
+import app.msime.android.CloudApi;
+import app.msime.android.CommonPhrasesStore;
+import app.msime.android.CustomSkinLibrary;
+import app.msime.android.DictionarySnapshotQueue;
+import app.msime.android.KeyboardFeedbackPreferences;
+import app.msime.android.KeyboardFeedbackStore;
+import app.msime.android.NativeClient;
+import app.msime.android.SyncApi;
+import app.msime.android.SyncMergePolicy;
+import app.msime.android.SyncSwitch;
+import app.msime.android.policy.HostOptionsPolicy;
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.lang.ref.WeakReference;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
+
+/**
+ * 宿主进程的云同步控制器：设置（含自定义键盘皮肤库）、无编码常用语、个人词库快照。
+ *
+ * <p>只在真实账号（{@link SyncSwitch#LOGIN_KINDS}）且用户打开了同步开关时运行，登录本身不触发。{@link HomeActivity} 每次回到前台调用 {@link #onResume}，距上次尝试满 5 分钟、或有分类带着待上传标记且满 30 秒时才真正跑（{@link SyncMergePolicy#due}）。某个分类第一次同步而云端已有数据时，先弹「合并 / 使用云端」让用户选，选了才执行。
+ *
+ * <p>失败静默，下次回到前台再试；最近一次的失败原因只留一行给「我的」页的同步行副标题（{@link #statusLine}）。命名词库的名字与启用状态不同步，只同步词条（{@link #SCOPE_NOTE}）。隐私模式、开发者选项、诊断日志与语音数据贡献在 client-core 的导出里已经排除，这里上传前和应用前再各过滤一次（{@link SyncMergePolicy#withoutLocalOnly}）。
+ */
+public final class CloudSync {
+    /** 同步开关副标题里要说明的范围。 */
+    public static final String SCOPE_NOTE = "同步设置、常用语、自定义皮肤和词库词条；命名词库的名字与启用状态不同步";
+
+    private static final String TAG = "MSIMECloudSync";
+    private static final String STATUS = "msime_cloud_sync_status";
+    private static final String KEY_LAST_ATTEMPT = "last_attempt";
+    private static final String KEY_PROMPTED_AT = "prompted_at";
+    private static final String KEY_ERROR = "error";
+    private static final String KEY_SKINS_TRIMMED = "skins_trimmed";
+    private static final String QUEUE_PATH = "bootstrap/state/dictionary-snapshots";
+    private static final String WORK_PATH = "bootstrap/state/cloud-sync";
+
+    private static final ExecutorService WORKER = Executors.newSingleThreadExecutor();
+    private static final AtomicBoolean RUNNING = new AtomicBoolean();
+
+    private CloudSync() {}
+
+    /** 回到前台时调用，按节流决定要不要跑。 */
+    public static void onResume(Activity activity) {
+        request(activity, null, false);
+    }
+
+    /** 用户刚打开同步开关时调用：不等节流，马上比对一次（首次需要选择时会弹出选择）。 */
+    public static void runNow(Activity activity) {
+        request(activity, null, true);
+    }
+
+    /** 「我的」页同步行副标题用的一行状态：最近一次失败的原因、皮肤库被裁剪的提示，或云端常用语本机收不下的提示；都没有时为空串。 */
+    public static String statusLine(Context context) {
+        SharedPreferences status = status(context);
+        String error = status.getString(KEY_ERROR, "");
+        if (!error.isEmpty()) return error;
+        if (status.getBoolean(KEY_SKINS_TRIMMED, false)) return "自定义皮肤太多，只同步了最近的设计";
+        int unheld = SyncSwitch.unheldPhrases(context).size();
+        return unheld > 0 ? "云端有 " + unheld + " 条常用语超出本机上限，未下载但已保留" : "";
+    }
+
+    private static void request(Activity activity, SyncMergePolicy.Choice choice, boolean force) {
+        Context application = activity.getApplicationContext();
+        WeakReference<Activity> owner = new WeakReference<>(activity);
+        if (!RUNNING.compareAndSet(false, true)) return;
+        WORKER.execute(() -> {
+            try {
+                run(application, owner, choice, force);
+            } finally {
+                RUNNING.set(false);
+            }
+        });
+    }
+
+    private static boolean eligible(Context context) {
+        return SyncSwitch.enabled(context) && SyncSwitch.validLoginKind(SyncSwitch.loginKind(context))
+            && HostStore.prepared(context);
+    }
+
+    private static void run(Context context, WeakReference<Activity> owner, SyncMergePolicy.Choice choice,
+            boolean force) {
+        if (!eligible(context)) return;
+        boolean anyDirty = false;
+        for (String section : SyncSwitch.SECTIONS) anyDirty |= SyncSwitch.dirty(context, section);
+        long now = System.currentTimeMillis();
+        SharedPreferences status = status(context);
+        if (!force && choice == null && !SyncMergePolicy.due(now, status.getLong(KEY_LAST_ATTEMPT, 0L), anyDirty)) {
+            return;
+        }
+        status.edit().putLong(KEY_LAST_ATTEMPT, now).apply();
+        Session session = new Session(context, new SyncApi(context), choice);
+        String failure;
+        try {
+            if (!session.probe()) {
+                long promptedAt = status.getLong(KEY_PROMPTED_AT, 0L);
+                if (force || promptedAt <= 0 || now < promptedAt || now - promptedAt >= SyncMergePolicy.THROTTLE_MILLIS) {
+                    status.edit().putLong(KEY_PROMPTED_AT, now).apply();
+                    askFirstRun(owner);
+                }
+                return;
+            }
+            failure = session.run();
+        } catch (CloudApi.Failure error) {
+            Log.w(TAG, "cloud sync probe failed: " + error.status + " " + error.code);
+            failure = message(error);
+        }
+        // 跑的过程中退出登录或换了账号：结果作废，不写进度。
+        if (!eligible(context)) return;
+        SharedPreferences.Editor editor = status.edit().putBoolean(KEY_SKINS_TRIMMED, session.skinsTrimmed);
+        if (failure.isEmpty()) {
+            SyncSwitch.setLastSyncedAt(context, System.currentTimeMillis());
+            editor.remove(KEY_ERROR);
+        } else {
+            editor.putString(KEY_ERROR, failure);
+        }
+        editor.apply();
+    }
+
+    /** 首次同步而云端已有数据：问用户「合并」还是「使用云端」；取消就什么也不做，过一阵回到前台再问。 */
+    private static void askFirstRun(WeakReference<Activity> owner) {
+        Activity activity = owner.get();
+        if (activity == null) return;
+        activity.runOnUiThread(() -> {
+            Activity current = owner.get();
+            if (current == null || current.isFinishing() || current.isDestroyed()) return;
+            new OptionSheet(current, "云端已有同步数据", "合并会保留两边的内容，同一项以本机为准；使用云端会用云端的内容替换本机")
+                .option("合并", false, () -> request(current, SyncMergePolicy.Choice.MERGE, true))
+                .option("使用云端", false, () -> request(current, SyncMergePolicy.Choice.USE_CLOUD, true))
+                .show();
+        });
+    }
+
+    private static String message(CloudApi.Failure failure) {
+        if (failure.network()) return "网络不可用，稍后自动重试";
+        if (failure.signedOut()) return "登录已失效，请重新登录后再同步";
+        if (failure.unavailable()) return "云同步暂时不可用";
+        return "同步失败，稍后自动重试";
+    }
+
+    /** 应用一次云端常用语的结果：成功写入本机的次数（每次都会把代数加一），以及本机收不下的正文。 */
+    private record PhraseApply(int writes, Set<String> unheld) {}
+
+    private static SharedPreferences status(Context context) {
+        return context.getApplicationContext().getSharedPreferences(STATUS, Context.MODE_PRIVATE);
+    }
+
+    /** 一次同步：先把三类云端状态都读一遍，决定要不要问用户，再逐类执行；一类失败不挡其他类。 */
+    private static final class Session {
+        private final Context context;
+        private final SyncApi api;
+        private final SyncMergePolicy.Choice choice;
+        private final String directory;
+        private JSONObject schema;
+        private SyncApi.Preferences preferences;
+        private SyncApi.Phrases phrases;
+        private SyncApi.DictionaryProbe dictionary;
+        boolean skinsTrimmed;
+
+        Session(Context context, SyncApi api, SyncMergePolicy.Choice choice) {
+            this.context = context;
+            this.api = api;
+            this.choice = choice;
+            this.directory = HostStore.directory(context);
+        }
+
+        private boolean first(String section) {
+            return SyncSwitch.cursor(context, section).isEmpty();
+        }
+
+        /** 读云端状态；返回 false 表示有分类第一次同步而云端已有数据，需要先问用户。 */
+        boolean probe() throws CloudApi.Failure {
+            schema = api.preferencesSchema();
+            preferences = api.preferences();
+            phrases = api.phrases();
+            dictionary = api.dictionaryChangedSince(first(SyncSwitch.DICTIONARY) ? 0L : cursorRevision(SyncSwitch.DICTIONARY));
+            if (choice != null) return true;
+            boolean needs = first(SyncSwitch.SETTINGS) && !preferences.settings().isEmpty()
+                || first(SyncSwitch.PHRASES) && !phrases.phrases().isEmpty()
+                || first(SyncSwitch.DICTIONARY) && dictionary.changed();
+            return !needs;
+        }
+
+        /** 逐类执行，返回第一条要展示的失败原因，全部成功时为空串。 */
+        String run() {
+            String failure = "";
+            try {
+                settings();
+            } catch (CloudApi.Failure error) {
+                Log.w(TAG, "settings sync failed: " + error.status + " " + error.code);
+                failure = message(error);
+            } catch (IOException | JSONException | IllegalStateException error) {
+                Log.w(TAG, "settings sync failed", error);
+                failure = "设置同步失败，稍后自动重试";
+            }
+            try {
+                phrases();
+            } catch (CloudApi.Failure error) {
+                Log.w(TAG, "phrases sync failed: " + error.status + " " + error.code);
+                if (failure.isEmpty()) failure = message(error);
+            } catch (IllegalStateException error) {
+                Log.w(TAG, "phrases sync failed", error);
+                if (failure.isEmpty()) failure = "常用语同步失败，稍后自动重试";
+            }
+            try {
+                dictionary();
+            } catch (CloudApi.Failure error) {
+                Log.w(TAG, "dictionary sync failed: " + error.status + " " + error.code);
+                if (failure.isEmpty()) failure = message(error);
+            } catch (IOException | JSONException | DictionarySnapshotQueue.Failure | IllegalStateException error) {
+                Log.w(TAG, "dictionary sync failed", error);
+                if (failure.isEmpty()) failure = "词库同步失败，稍后自动重试";
+            }
+            return failure;
+        }
+
+        private long cursorRevision(String section) {
+            try {
+                return Math.max(0L, Long.parseLong(SyncSwitch.cursor(context, section)));
+            } catch (NumberFormatException never) {
+                return 0L;
+            }
+        }
+
+        private SyncMergePolicy.Mode mode(String section, boolean cloudHasData, boolean cloudChanged, boolean dirty) {
+            if (first(section)) {
+                SyncMergePolicy.Mode mode = SyncMergePolicy.firstRun(cloudHasData, choice);
+                return mode == null ? SyncMergePolicy.Mode.NONE : mode;
+            }
+            return SyncMergePolicy.incremental(cloudChanged, dirty);
+        }
+
+        // ---- 设置与皮肤库 ----
+
+        private void settings() throws CloudApi.Failure, IOException, JSONException {
+            // 先记下改动代数再读本机：上传期间用户又改了设置，代数会变大，标记留着，下一轮再传。
+            long settingsGeneration = SyncSwitch.generation(context, SyncSwitch.SETTINGS);
+            long skinsGeneration = SyncSwitch.generation(context, SyncSwitch.SKINS);
+            String cursor = SyncSwitch.cursor(context, SyncSwitch.SETTINGS);
+            boolean dirty = SyncSwitch.dirty(context, SyncSwitch.SETTINGS) || SyncSwitch.dirty(context, SyncSwitch.SKINS);
+            SyncApi.Preferences cloud = preferences;
+            SyncMergePolicy.Mode mode = mode(SyncSwitch.SETTINGS, !cloud.settings().isEmpty(),
+                SyncMergePolicy.cloudChanged(cursor, cloud.revision()), dirty);
+            SyncApi.Preferences result = cloud;
+            for (int attempt = 0; ; attempt++) {
+                if (mode == SyncMergePolicy.Mode.NONE) break;
+                if (mode == SyncMergePolicy.Mode.DOWNLOAD) {
+                    apply(cloud);
+                    result = cloud;
+                    break;
+                }
+                // 合并时先把云端皮肤库并进本机（按 id 和更新时间），否则本机的库会整份盖掉云端的设计。
+                if (mode == SyncMergePolicy.Mode.MERGE && cloud.settings().get(SyncMergePolicy.SKINS_KEY) instanceof String library) {
+                    CustomSkinLibrary.importDesigns(Paths.get(directory), library);
+                }
+                Map<String, Object> merged = exportMerged(cloud);
+                try {
+                    result = api.putPreferences(cloud.revision(), merged);
+                } catch (CloudApi.Failure failure) {
+                    if (!SyncApi.conflict(failure) || attempt >= SyncMergePolicy.MAX_CONFLICT_RETRIES) throw failure;
+                    // 别的设备先写了：重新拉，以本机为后写合并后再试。
+                    cloud = api.preferences();
+                    mode = SyncMergePolicy.Mode.MERGE;
+                    continue;
+                }
+                // 合并结果里可能有云端独有的键，应用回本机；与本机相同的部分 client-core 不会重写。
+                apply(result);
+                break;
+            }
+            SyncSwitch.setCursor(context, SyncSwitch.SETTINGS, Long.toString(result.revision()));
+            SyncSwitch.setCursor(context, SyncSwitch.SKINS, Long.toString(result.revision()));
+            SyncSwitch.clearDirtyIf(context, SyncSwitch.SETTINGS, settingsGeneration);
+            SyncSwitch.clearDirtyIf(context, SyncSwitch.SKINS, skinsGeneration);
+        }
+
+        /** 本机设置叠加到云端文档上的整份结果；皮肤库按剩下的字节预算从最近的设计装起。 */
+        private Map<String, Object> exportMerged(SyncApi.Preferences cloud) throws IOException, JSONException {
+            JSONObject request = new JSONObject()
+                .put("preferences_directory", directory)
+                .put("feedback", feedback())
+                .put("android_local", new JSONObject(AndroidLocalSettings.load(context).synced()))
+                .put("schema", schema)
+                .put("cloud", document(cloud.revision(), cloud.settings()));
+            JSONObject withoutSkins = settingsOf(nativeValue(NativeClient.accountSettingsExport(request.toString()))
+                .getJSONObject("merged"));
+            withoutSkins.remove(SyncMergePolicy.SKINS_KEY);
+            long otherBytes = new JSONObject().put("revision", cloud.revision()).put("settings", withoutSkins)
+                .toString().getBytes(StandardCharsets.UTF_8).length;
+            List<CustomSkinLibrary.Item> items = SyncMergePolicy.newestFirst(
+                CustomSkinLibrary.read(Paths.get(directory)), CustomSkinLibrary.Item::updatedAt);
+            String library = CustomSkinLibrary.exportDesigns(items, SyncMergePolicy.skinBudget(otherBytes));
+            int kept = new JSONArray(library).length();
+            skinsTrimmed = SyncMergePolicy.skinsTrimmed(items.size(), kept);
+            if (skinsTrimmed) Log.i(TAG, "custom skin library trimmed to " + kept + " of " + items.size());
+            request.put("custom_keyboard_skins", library);
+            JSONObject merged = settingsOf(nativeValue(NativeClient.accountSettingsExport(request.toString()))
+                .getJSONObject("merged"));
+            return SyncMergePolicy.withoutLocalOnly(map(merged));
+        }
+
+        /** 把一份云端文档应用到本机：偏好由 client-core 按修订号保存，按键反馈、皮肤库和 Android 本地设置由这里写回各自的存储。 */
+        private void apply(SyncApi.Preferences cloud) throws IOException, JSONException {
+            JSONObject request = new JSONObject()
+                .put("preferences_directory", directory)
+                .put("cloud", document(cloud.revision(), SyncMergePolicy.withoutLocalOnly(cloud.settings())))
+                .put("schema", schema)
+                .put("feedback", feedback());
+            JSONObject value = nativeValue(NativeClient.accountSettingsApply(request.toString()));
+            JSONObject applied = value.optJSONObject("feedback");
+            if (applied != null) {
+                KeyboardFeedbackStore.save(context, new KeyboardFeedbackStore.Settings(
+                    applied.optBoolean("soundEnabled", true), applied.optBoolean("hapticsEnabled", false),
+                    KeyboardFeedbackPreferences.strength(applied.optString("hapticStrength", "medium"))));
+            }
+            if (value.opt("custom_keyboard_skins") instanceof String library) {
+                CustomSkinLibrary.importDesigns(Paths.get(directory), library);
+            }
+            JSONObject local = value.optJSONObject("android_local");
+            if (local != null) AndroidLocalSettings.applySynced(context, map(local));
+            JSONArray skipped = value.optJSONArray("skipped");
+            if (skipped != null && skipped.length() > 0) Log.i(TAG, "settings skipped on this device: " + skipped);
+        }
+
+        private JSONObject feedback() throws JSONException {
+            KeyboardFeedbackStore.Settings settings = KeyboardFeedbackStore.load(context);
+            return new JSONObject()
+                .put("soundEnabled", settings.soundEnabled())
+                .put("hapticsEnabled", settings.hapticsEnabled())
+                .put("hapticStrength", settings.hapticStrength().id());
+        }
+
+        // ---- 常用语 ----
+
+        private void phrases() throws CloudApi.Failure {
+            long generation = SyncSwitch.generation(context, SyncSwitch.PHRASES);
+            Map<String, String> local = ownPhrases();
+            SyncApi.Phrases cloud = phrases;
+            String cursor = SyncSwitch.cursor(context, SyncSwitch.PHRASES);
+            SyncMergePolicy.Mode mode = mode(SyncSwitch.PHRASES, !cloud.phrases().isEmpty(),
+                SyncMergePolicy.cloudChanged(cursor, cloud.revision()), SyncSwitch.dirty(context, SyncSwitch.PHRASES));
+            long revision = cloud.revision();
+            List<SyncMergePolicy.Phrase> target = null;
+            for (int attempt = 0; ; attempt++) {
+                if (mode == SyncMergePolicy.Mode.NONE) break;
+                if (mode == SyncMergePolicy.Mode.DOWNLOAD) {
+                    target = cloud.phrases();
+                    break;
+                }
+                List<SyncMergePolicy.Phrase> upload = mode == SyncMergePolicy.Mode.MERGE
+                    ? SyncMergePolicy.mergePhrases(asPhrases(local, cloud.phrases()), cloud.phrases())
+                    : SyncMergePolicy.uploadPhrases(asPhrases(local, cloud.phrases()), cloud.phrases(),
+                        SyncSwitch.unheldPhrases(context));
+                try {
+                    SyncApi.Phrases saved = api.putPhrases(cloud.revision(), upload);
+                    revision = saved.revision();
+                    target = saved.phrases();
+                } catch (CloudApi.Failure failure) {
+                    if (!SyncApi.conflict(failure) || attempt >= SyncMergePolicy.MAX_CONFLICT_RETRIES) throw failure;
+                    cloud = api.phrases();
+                    mode = SyncMergePolicy.Mode.MERGE;
+                    continue;
+                }
+                break;
+            }
+            int ownWrites = 0;
+            if (target != null) {
+                adoptStarters(target);
+                PhraseApply applied = applyPhrases(local, target);
+                ownWrites = applied.writes();
+                SyncSwitch.setUnheldPhrases(context, applied.unheld());
+            }
+            SyncSwitch.setCursor(context, SyncSwitch.PHRASES, Long.toString(revision));
+            // 本机写入也会经 CommonPhrasesStore 把代数加一，每次成功写入一次；只在代数恰好是「读快照前 + 自己的写入」时清标记，期间用户的改动留到下一轮上传。
+            SyncSwitch.clearDirtyIf(context, SyncSwitch.PHRASES, generation + ownWrites);
+        }
+
+        /**
+         * 用户自己添加的常用语（id → 正文），按本机顺序；社区短语包里的不同步，装包的设备各自管理。
+         *
+         * <p>本机预置、还没被认领的示例也跳过：它们不上传，合并时也就不会出现在用户已经删掉它们的别的设备上；不在这份列表里，下载和「使用云端」也不会把它们当成本机多出来的删掉。
+         */
+        private Map<String, String> ownPhrases() {
+            CommonPhrasesStore.Result result = CommonPhrasesStore.load(context);
+            if (!result.ok()) throw new IllegalStateException("common phrases unavailable: " + result.failure());
+            Set<String> starters;
+            try {
+                starters = CommonPhrasesStore.untouchedStarters(context);
+            } catch (IOException error) {
+                throw new IllegalStateException("starter phrase record unavailable", error);
+            }
+            LinkedHashMap<String, String> own = new LinkedHashMap<>();
+            for (CommonPhrasesStore.Phrase phrase : result.document().phrases()) {
+                if (phrase.own() && !starters.contains(phrase.text())) own.put(phrase.id(), phrase.text());
+            }
+            return own;
+        }
+
+        /** 云端或合并结果里已有的正文即使和本机的示例相同，也是用户的常用语了：先认领，免得之后只有本机改动的上传把它从云端删掉。写不下认领记录就放弃这一轮，游标不前进，下一轮重来。 */
+        private void adoptStarters(List<SyncMergePolicy.Phrase> target) {
+            List<String> texts = new ArrayList<>();
+            for (SyncMergePolicy.Phrase phrase : target) texts.add(phrase.text());
+            try {
+                CommonPhrasesStore.adoptStarters(context, texts);
+            } catch (IOException error) {
+                throw new IllegalStateException("starter phrase record unavailable", error);
+            }
+        }
+
+        /** 本机列表换成云端格式；同一正文在云端有分组时沿用云端的分组。 */
+        private List<SyncMergePolicy.Phrase> asPhrases(Map<String, String> local, List<SyncMergePolicy.Phrase> cloud) {
+            HashMap<String, String> groups = new HashMap<>();
+            for (SyncMergePolicy.Phrase phrase : cloud) groups.putIfAbsent(phrase.text(), phrase.group());
+            List<SyncMergePolicy.Phrase> result = new ArrayList<>();
+            for (Map.Entry<String, String> entry : local.entrySet()) {
+                result.add(new SyncMergePolicy.Phrase(entry.getKey(), entry.getValue(),
+                    groups.getOrDefault(entry.getValue(), ""), result.size()));
+            }
+            return result;
+        }
+
+        /** 把本机改成 `target`，返回成功写入的次数和本机收不下的正文（过长、超出条数上限或写入失败；已经有的不算）。 */
+        private PhraseApply applyPhrases(Map<String, String> local, List<SyncMergePolicy.Phrase> target) {
+            SyncMergePolicy.LocalPlan plan = SyncMergePolicy.localPlan(local, target);
+            int writes = 0;
+            for (String id : plan.remove()) {
+                CommonPhrasesStore.Result removed = CommonPhrasesStore.remove(context, id);
+                if (removed.ok()) writes++;
+                else Log.w(TAG, "phrase remove skipped: " + removed.failure());
+            }
+            String duplicate = CommonPhrasesStore.failureMessage("common_phrases_duplicate");
+            Set<String> unheld = new HashSet<>();
+            for (String text : plan.add()) {
+                if (!CommonPhrasesStore.validText(text)) {
+                    unheld.add(text);
+                    continue;
+                }
+                CommonPhrasesStore.Result added = CommonPhrasesStore.add(context, text);
+                if (added.ok()) {
+                    writes++;
+                } else if (!duplicate.equals(added.failure())) {
+                    unheld.add(text);
+                    Log.w(TAG, "phrase add skipped: " + added.failure());
+                }
+            }
+            if (!unheld.isEmpty()) Log.i(TAG, unheld.size() + " cloud phrases kept in the cloud but not on this device");
+            return new PhraseApply(writes, unheld);
+        }
+
+        // ---- 个人词库 ----
+
+        private void dictionary() throws CloudApi.Failure, IOException, JSONException, DictionarySnapshotQueue.Failure {
+            boolean firstRun = first(SyncSwitch.DICTIONARY);
+            boolean dirty = SyncSwitch.dirty(context, SyncSwitch.DICTIONARY);
+            SyncMergePolicy.Mode mode;
+            if (firstRun) {
+                boolean localHasWords = dictionary.changed() && choice == SyncMergePolicy.Choice.MERGE && userWordCount() > 0;
+                mode = SyncMergePolicy.dictionaryFirstRun(dictionary.changed(), localHasWords, choice);
+                if (mode == null) mode = SyncMergePolicy.Mode.NONE;
+            } else {
+                mode = SyncMergePolicy.incremental(dictionary.changed(), dirty);
+            }
+            Path work = workDirectory();
+            if (mode == SyncMergePolicy.Mode.UPLOAD) {
+                if (SyncMergePolicy.uploadBlocked(pendingQueueCount())) {
+                    Log.i(TAG, "dictionary upload postponed until the keyboard applies queued words");
+                    return;
+                }
+                Path file = work.resolve("upload.ndjson");
+                long generation = SyncSwitch.generation(context, SyncSwitch.DICTIONARY);
+                try {
+                    exportSnapshot(file);
+                    try {
+                        long revision = api.uploadSnapshot(file, dictionary.revision());
+                        SyncSwitch.setCursor(context, SyncSwitch.DICTIONARY, Long.toString(revision));
+                        // 导出之后又有词库改动时代数已经变大，标记留着，下一轮再整份上传。
+                        SyncSwitch.clearDirtyIf(context, SyncSwitch.DICTIONARY, generation);
+                        return;
+                    } catch (CloudApi.Failure failure) {
+                        if (!SyncApi.conflict(failure)) throw failure;
+                        // 云端在我们探测之后变了：并入云端的词，标记保留，等键盘应用后下一轮再整份上传。
+                        mode = SyncMergePolicy.Mode.MERGE;
+                    }
+                } finally {
+                    Files.deleteIfExists(file);
+                }
+            }
+            if (mode == SyncMergePolicy.Mode.NONE) {
+                if (firstRun) SyncSwitch.setCursor(context, SyncSwitch.DICTIONARY, Long.toString(dictionary.revision()));
+                return;
+            }
+            Path file = work.resolve("download.ndjson");
+            try {
+                long revision = api.downloadSnapshot(file);
+                if (mode == SyncMergePolicy.Mode.DOWNLOAD) {
+                    enqueueSnapshot(file, revision);
+                    SyncSwitch.clearDirty(context, SyncSwitch.DICTIONARY);
+                } else {
+                    importWords(SyncApi.snapshotWords(file));
+                    SyncSwitch.markDirty(context, SyncSwitch.DICTIONARY);
+                }
+                SyncSwitch.setCursor(context, SyncSwitch.DICTIONARY, Long.toString(revision));
+            } finally {
+                Files.deleteIfExists(file);
+            }
+        }
+
+        private Path workDirectory() throws IOException {
+            File files = context.getFilesDir();
+            if (files == null) throw new IOException("private files unavailable");
+            Path work = files.toPath().resolve(WORK_PATH);
+            Files.createDirectories(work);
+            return work;
+        }
+
+        private String hostOptions() throws IOException {
+            File files = context.getFilesDir();
+            if (files == null) throw new IOException("private files unavailable");
+            return HostOptionsPolicy.read(new File(files, "runtime-options.json"));
+        }
+
+        private int userWordCount() throws IOException, JSONException {
+            JSONObject value = nativeValue(NativeClient.dictionary(new JSONObject()
+                .put("options", new JSONObject(hostOptions()))
+                .put("action", new JSONObject().put("operation", "count").put("user_only", true)).toString()));
+            return value.optInt("count", 0);
+        }
+
+        private int pendingQueueCount() throws IOException, JSONException {
+            JSONObject value = nativeValue(NativeClient.personalDictionaryRequest(new JSONObject()
+                .put("options", new JSONObject(hostOptions()))
+                .put("action", new JSONObject().put("operation", "list").put("offset", 0).put("limit", 1)
+                    .put("user_only", true)).toString()));
+            return value.optInt("pending_count", 0);
+        }
+
+        private void exportSnapshot(Path destination) throws IOException, JSONException {
+            Files.deleteIfExists(destination);
+            nativeValue(NativeClient.dictionary(new JSONObject()
+                .put("options", new JSONObject(hostOptions()))
+                .put("action", new JSONObject().put("operation", "export_snapshot")
+                    .put("destination", destination.toAbsolutePath().toString())).toString()));
+        }
+
+        /** 下载的快照交给现有的激活队列，键盘下次没有会话时整份激活。 */
+        private void enqueueSnapshot(Path file, long revision) throws IOException, DictionarySnapshotQueue.Failure {
+            File files = context.getFilesDir();
+            if (files == null) throw new IOException("private files unavailable");
+            Path root = files.toPath().toAbsolutePath().normalize();
+            DictionarySnapshotQueue queue = new DictionarySnapshotQueue(root, root.resolve(QUEUE_PATH));
+            String localVersion = queue.read().localVersion();
+            if (localVersion == null) throw new IOException("keyboard has not published a dictionary version yet");
+            queue.enqueue(file.toAbsolutePath(), SyncSwitch.accountId(context), revision, localVersion, sha256(file));
+        }
+
+        /** 「合并」：把云端的词经个人词库队列导入本机，键盘下次开会话时应用。整批被拒时逐条再试，坏的那条跳过。 */
+        private void importWords(List<SyncMergePolicy.Word> words) throws IOException, JSONException {
+            String options = hostOptions();
+            for (List<SyncMergePolicy.Word> batch : SyncMergePolicy.batches(words, SyncMergePolicy.PERSONAL_IMPORT_BATCH)) {
+                if (queueImport(options, batch)) continue;
+                for (SyncMergePolicy.Word word : batch) {
+                    if (!queueImport(options, List.of(word))) Log.w(TAG, "cloud word skipped during merge");
+                }
+            }
+        }
+
+        private boolean queueImport(String options, List<SyncMergePolicy.Word> words) throws JSONException {
+            JSONArray entries = new JSONArray();
+            for (SyncMergePolicy.Word word : words) {
+                entries.put(new JSONObject().put("kind", word.kind()).put("key", word.key())
+                    .put("value", word.value()).put("weight", word.weight()));
+            }
+            String file = new JSONObject().put("format", "msime-personal-dictionary").put("version", 1)
+                .put("entries", entries).toString();
+            JSONObject response = new JSONObject(NativeClient.personalDictionaryRequest(new JSONObject()
+                .put("options", new JSONObject(options))
+                .put("action", new JSONObject().put("operation", "import_personal").put("text", file)
+                    .put("request_id", "cloud-merge-" + UUID.randomUUID())).toString()));
+            return response.optBoolean("ok", false);
+        }
+    }
+
+    // ---- JSON 小工具 ----
+
+    /** client-core 的标准响应 `{ok, value, error}`：失败时抛出，信息只进日志。 */
+    private static JSONObject nativeValue(String response) throws JSONException {
+        JSONObject root = new JSONObject(response == null ? "" : response);
+        if (!root.optBoolean("ok", false)) throw new IllegalStateException(root.optString("error", "native call failed"));
+        JSONObject value = root.optJSONObject("value");
+        return value == null ? new JSONObject() : value;
+    }
+
+    private static JSONObject document(long revision, Map<String, Object> settings) throws JSONException {
+        JSONObject values = new JSONObject();
+        for (Map.Entry<String, Object> entry : settings.entrySet()) values.put(entry.getKey(), entry.getValue());
+        return new JSONObject().put("revision", revision).put("settings", values);
+    }
+
+    private static JSONObject settingsOf(JSONObject document) throws JSONException {
+        return document.getJSONObject("settings");
+    }
+
+    private static Map<String, Object> map(JSONObject settings) {
+        LinkedHashMap<String, Object> result = new LinkedHashMap<>();
+        Iterator<String> keys = settings.keys();
+        while (keys.hasNext()) {
+            String key = keys.next();
+            Object value = settings.opt(key);
+            if (value instanceof String || value instanceof Boolean || value instanceof Number) result.put(key, value);
+        }
+        return result;
+    }
+
+    private static String sha256(Path file) throws IOException {
+        MessageDigest digest;
+        try {
+            digest = MessageDigest.getInstance("SHA-256");
+        } catch (NoSuchAlgorithmException impossible) {
+            throw new IllegalStateException(impossible);
+        }
+        byte[] buffer = new byte[16 * 1024];
+        try (InputStream input = Files.newInputStream(file)) {
+            int read;
+            while ((read = input.read(buffer)) != -1) digest.update(buffer, 0, read);
+        }
+        StringBuilder hex = new StringBuilder(64);
+        for (byte value : digest.digest()) hex.append(Character.forDigit((value >> 4) & 0xf, 16))
+            .append(Character.forDigit(value & 0xf, 16));
+        return hex.toString();
+    }
+}

@@ -1,0 +1,8 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.version.1.12.0.schema.json
+# 模板：platforms/windows/packaging/render.py 按一个 windows-v 发布填写 @...@ 字段。
+
+PackageIdentifier: Metasequoia.MetasequoiaIME
+PackageVersion: "@VERSION@"
+DefaultLocale: en-US
+ManifestType: version
+ManifestVersion: 1.12.0

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A section title inside the listing, such as 「AI 回复模板」 under the phrase packs: accent 14sp / 500, on the group-title inset. -->
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/community_item_name"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:accessibilityHeading="true"
+    android:paddingStart="14dp"
+    android:paddingTop="20dp"
+    android:paddingEnd="14dp"
+    android:paddingBottom="8dp"
+    android:textColor="?attr/colorPrimary"
+    android:textFontWeight="500"
+    android:textSize="14sp" />

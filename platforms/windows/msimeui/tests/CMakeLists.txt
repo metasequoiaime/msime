@@ -7,9 +7,11 @@ add_executable(${TEST_EXECUTABLE_NAME}
     # whole msimeui suite stopped configuring, and therefore stopped reporting.
     src/main.cpp
     src/test_device_resources.cpp
+    src/test_debug_log.cpp
     src/test_font_fallback.cpp
     src/test_fonts.cpp
     src/test_layout.cpp
+    src/test_lru_cache.cpp
     src/test_menu_flyout_item.cpp
     src/test_text_selection.cpp
     includes/test_framework.h

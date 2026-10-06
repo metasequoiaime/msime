@@ -295,13 +295,9 @@ def transcribe(pcm, config, language, session):
 
 
 def polish_prompt(options):
-    # The prompt box text wins whenever the host sends it, as in the Windows service: it is a built-in preset as the user edited it, or the selected custom slot.
-    if options.get("polish_prompt"):
-        return options["polish_prompt"]
+    # A custom scheme polishes with its slot's text, and an empty slot with the built-in cleanup prompt.
     preset = options.get("polish_prompt_id") or "cleanup"
-    if preset in ("custom", "custom_1"):
-        return options.get("polish_prompt_custom_1") or options.get("polish_prompt") or PROMPTS["cleanup"]
-    if preset in ("custom_2", "custom_3"):
+    if preset in ("custom_1", "custom_2", "custom_3"):
         return options.get("polish_prompt_" + preset) or PROMPTS["cleanup"]
     return PROMPTS.get(preset, PROMPTS["cleanup"])
 
@@ -1344,8 +1340,7 @@ def load_config(path):
                     entry[key] = value
                 if not isinstance(value, str) or len(value) > 512 or any(ord(c) < 33 or ord(c) > 126 for c in value):
                     raise ValueError()
-            entry["doubao_auth_mode"] = normalize_doubao_auth_mode(
-                entry.get("doubao_auth_mode"), entry["app_key"])
+            entry["doubao_auth_mode"] = normalize_doubao_auth_mode(entry.get("doubao_auth_mode"))
             if (not entry["resource_id"] or entry["app_key"].startswith(("<", "FAKESECRET_")) or
                     (entry["doubao_auth_mode"] == "legacy" and not entry["app_key"])):
                 raise ValueError()
@@ -1421,8 +1416,9 @@ def main():
     server.hotword_corrector = msime_voice_local.HotwordCorrector(host_library_path())
     identity = args.socket.stat() if service_lock is not None else None
 
+    # Raising from the handler lost the stop whenever the signal landed in a weakref callback, where Python reports the exception and carries on, and the provider then served on past its terminate. Stop the loop from another thread instead: shutdown() waits for serve_forever, which this thread is running.
     def stop(signum, frame):
-        raise KeyboardInterrupt()
+        threading.Thread(target=server.shutdown, daemon=True).start()
 
     signal.signal(signal.SIGTERM, stop)
     try:

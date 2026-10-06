@@ -1,26 +1,25 @@
 //! Desktop account commands shared by the macOS, Windows and Linux shells.
 //!
-//! The fourteen commands, their state and the blocking-call bridge are the same on all three desktop hosts; only where the session tokens are kept differs. Each platform module owns its [`AccountSessionStorage`](msime_client_core::account::AccountSessionStorage) implementation and a thin `setup` that builds it and hands it to [`manage`]: the macOS Keychain item written by the Swift backend, the per-user Windows Credential Manager, or an owner-only file in the Linux shared state directory. The React surface only receives the same redacted DTOs as the mobile hosts; the tokens never leave this process.
+//! The fourteen commands, their state and the blocking-call bridge are the same on all three desktop hosts, and so is the store: an owner-only `account-session.json` ([`FileAccountSessionStorage`]). Each platform module only chooses its directory and file layout in a thin `setup` that hands the store to [`manage`]: on macOS the input method's Application Support directory, shared with the input method, in the Swift backend's layout; on Windows the user's local application data; on Linux the shared state directory. The React surface only receives the same redacted DTOs as the mobile hosts; the tokens never leave this process.
 
 use crate::platform::account_helpers::call_session;
 use crate::platform::desktop::desktop_candidate_skin_community::CandidateSkinCommunityState;
+use crate::platform::desktop::desktop_community_report::CommunityReportState;
 use crate::platform::desktop::desktop_plugin_community::PluginCommunityState;
 use crate::shared::account_dto::{
     providers_response, ChallengeResponse, ProfileResponse, ProvidersResponse, StatusResponse,
 };
-use msime_client_core::account::{AccountError, BackendAccountClient, BackendAccountSession};
+use msime_client_core::account::{
+    AccountError, BackendAccountClient, BackendAccountSession, FileAccountSessionStorage,
+};
+use msime_client_core::community::report::BackendCommunityReportService;
 use msime_client_core::plugins::community::BackendCommunityPluginService;
 use msime_client_core::skin::candidate_community::BackendCandidateSkinCommunityService;
 use std::sync::Arc;
 use tauri::Manager;
 use tauri_plugin_dialog::DialogExt;
 
-#[cfg(target_os = "macos")]
-pub(crate) type Storage = crate::platform::macos::macos_account::MacosAccountStorage;
-#[cfg(target_os = "windows")]
-pub(crate) type Storage = crate::platform::windows::windows_account::WindowsAccountStorage;
-#[cfg(target_os = "linux")]
-pub(crate) type Storage = crate::platform::linux::linux_account::LinuxAccountStorage;
+pub(crate) type Storage = FileAccountSessionStorage;
 
 pub(crate) type Session = BackendAccountSession<BackendAccountClient, Storage>;
 
@@ -28,7 +27,7 @@ pub struct AccountState {
     pub(crate) session: Arc<Session>,
 }
 
-/// Builds the backend client and registers the account state around the platform's session storage, plus the candidate-skin and plugin community services that authenticate through the same session.
+/// Builds the backend client and registers the account state around the platform's session storage, plus the candidate-skin, plugin and report community services that authenticate through the same session.
 pub(crate) fn manage(
     app: &tauri::AppHandle,
     storage: Storage,
@@ -37,6 +36,12 @@ pub(crate) fn manage(
     let session = Arc::new(BackendAccountSession::new(client.clone(), storage));
     app.manage(CandidateSkinCommunityState {
         service: Arc::new(BackendCandidateSkinCommunityService::new(
+            client.clone(),
+            Arc::clone(&session),
+        )),
+    });
+    app.manage(CommunityReportState {
+        service: Arc::new(BackendCommunityReportService::new(
             client.clone(),
             Arc::clone(&session),
         )),

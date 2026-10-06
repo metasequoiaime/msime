@@ -308,6 +308,7 @@ fn item() -> CommunityPlugin {
         owned: false,
         my_rating: 0,
         created_at: "2026-09-01T00:00:00Z".into(),
+        moderation: None,
     }
 }
 
@@ -394,12 +395,14 @@ impl CommunityPluginApi for FakeApi {
         _: usize,
         _: &str,
         _: Option<PluginKind>,
+        _: bool,
         bearer: Option<&str>,
     ) -> Result<CommunityPluginPage, AccountError> {
         self.call(bearer)?;
         Ok(CommunityPluginPage {
             plugins: vec![item()],
             has_more: false,
+            skipped: 0,
         })
     }
     fn community_plugin(
@@ -458,15 +461,15 @@ fn service_refuses_bad_requests_and_anonymous_writes_before_any_transport_call()
     assert_eq!(service.rate(publication(), 6), Err(AccountError::Invalid));
     assert_eq!(service.delete(Uuid::nil()), Err(AccountError::Invalid));
     assert_eq!(
-        service.list(MAX_COMMUNITY_OFFSET + 1, "", None),
+        service.list(MAX_COMMUNITY_OFFSET + 1, "", None, false),
         Err(AccountError::Invalid)
     );
     assert_eq!(
-        service.list(0, &"a".repeat(129), None),
+        service.list(0, &"a".repeat(129), None, false),
         Err(AccountError::Invalid)
     );
     assert_eq!(
-        service.list(0, "", Some(PluginKind::Effect)),
+        service.list(0, "", Some(PluginKind::Effect), false),
         Err(AccountError::Invalid)
     );
     let mut request = publish_request();
@@ -505,7 +508,7 @@ fn service_reads_anonymously_and_writes_refresh_once() {
     let api = FakeApi::default();
     let storage = MemoryStorage::default();
     let anonymous = service(&api, storage.clone());
-    assert_eq!(anonymous.list(0, "", None).unwrap().plugins.len(), 1);
+    assert_eq!(anonymous.list(0, "", None, false).unwrap().plugins.len(), 1);
     assert_eq!(
         anonymous.detail(publication()).unwrap().plugin_id,
         "signature"
@@ -554,10 +557,12 @@ fn responses_are_validated() {
     let duplicate = CommunityPluginPage {
         plugins: vec![item(), item()],
         has_more: false,
+        skipped: 0,
     };
     let endless = CommunityPluginPage {
         plugins: Vec::new(),
         has_more: true,
+        skipped: 0,
     };
     let long = CommunityPluginPage {
         plugins: (0..=MAXIMUM_PAGE_ITEMS)
@@ -568,9 +573,10 @@ fn responses_are_validated() {
             })
             .collect(),
         has_more: false,
+        skipped: 0,
     };
     for page in [duplicate, endless, long] {
-        assert_eq!(validate_page(&page), Err(AccountError::Unavailable));
+        assert_eq!(validate_page(page), Err(AccountError::Unavailable));
     }
 
     let packed = packed_signature();
@@ -632,22 +638,182 @@ fn serve_once(response: Vec<u8>) -> (String, mpsc::Receiver<(String, Vec<u8>)>) 
 
 #[test]
 fn transport_lists_by_kind_with_an_encoded_search() {
-    let response = serde_json::to_vec(&CommunityPluginPage {
-        plugins: vec![item()],
-        has_more: false,
-    })
-    .unwrap();
+    let response =
+        serde_json::to_vec(&serde_json::json!({ "plugins": [item()], "has_more": false })).unwrap();
     let (origin, received) = serve_once(response);
     let client = BackendAccountClient::loopback(&origin).unwrap();
     let page = client
-        .community_plugins(20, "签 名", Some(PluginKind::CommandTable), None)
+        .community_plugins(20, "签 名", Some(PluginKind::CommandTable), false, None)
         .unwrap();
     assert_eq!(page.plugins, vec![item()]);
     let (head, _) = received.recv().unwrap();
-    assert!(head.starts_with(
-        "GET /v1/community/plugins?offset=20&q=%E7%AD%BE%20%E5%90%8D&kind=command_table HTTP/1.1"
-    ));
+    assert!(head.starts_with(&format!(
+        "GET /v1/community/plugins?offset=20&q=%E7%AD%BE%20%E5%90%8D&kind=command_table&{KINDS_DECLARATION} HTTP/1.1"
+    )));
     assert!(!head.contains("authorization:"));
+}
+
+#[test]
+fn transport_lists_the_installable_items_of_a_page_that_also_holds_effect_packs() {
+    // The server lists effect packs too, which this client cannot install; they are left out and counted, and the rest of the page still reads.
+    let mut effect = serde_json::to_value(item()).unwrap();
+    effect["id"] = "10000000-0000-4000-8000-000000000002".into();
+    effect["kind"] = "effect".into();
+    effect["plugin_id"] = "sparkle".into();
+    let mut sound = item();
+    sound.kind = PluginKind::Sound;
+    sound.plugin_id = "rain".into();
+    let response = serde_json::to_vec(&serde_json::json!({
+        "plugins": [effect, serde_json::to_value(&sound).unwrap()],
+        "has_more": true,
+    }))
+    .unwrap();
+    let (origin, _received) = serve_once(response);
+    let client = BackendAccountClient::loopback(&origin).unwrap();
+    let page = client.community_plugins(0, "", None, false, None).unwrap();
+    assert_eq!(page.plugins, vec![sound]);
+    assert!(page.has_more);
+    assert_eq!(page.skipped, 1);
+}
+
+#[test]
+fn a_page_of_only_effect_packs_still_pages_on() {
+    let mut effect = item();
+    effect.kind = PluginKind::Effect;
+    let page = validate_page(CommunityPluginPage {
+        plugins: vec![effect],
+        has_more: true,
+        skipped: 0,
+    })
+    .unwrap();
+    assert!(page.plugins.is_empty());
+    assert!(page.has_more);
+    assert_eq!(page.skipped, 1);
+}
+
+#[test]
+fn a_page_cannot_claim_skipped_items_itself() {
+    let value = serde_json::json!({ "plugins": [], "has_more": false, "skipped": 3 });
+    assert!(serde_json::from_value::<CommunityPluginPage>(value.clone()).is_err());
+    assert!(serde_json::from_value::<CommunityPluginPageWire>(value).is_err());
+}
+
+/// 一页里混着本客户端不认识的类型：跳过并计数，其余照常。
+fn page_with(other: serde_json::Value) -> serde_json::Value {
+    let mut sound = item();
+    sound.kind = PluginKind::Sound;
+    sound.plugin_id = "rain".into();
+    serde_json::json!({
+        "plugins": [other, serde_json::to_value(&sound).unwrap()],
+        "has_more": true,
+    })
+}
+
+fn decode(value: serde_json::Value) -> Result<CommunityPluginPage, AccountError> {
+    let wire = serde_json::from_value::<CommunityPluginPageWire>(value)
+        .map_err(|_| AccountError::Unavailable)?;
+    validate_page(decode_page(wire)?)
+}
+
+#[test]
+fn a_page_skips_kinds_this_client_does_not_know() {
+    let mut future = serde_json::to_value(item()).unwrap();
+    future["id"] = "10000000-0000-4000-8000-000000000003".into();
+    future["kind"] = "hologram".into();
+    // 未知类型的条目可以带本客户端不认识的字段，它根本不会被解析。
+    future["frames"] = 12.into();
+    let page = decode(page_with(future)).unwrap();
+    assert_eq!(page.skipped, 1);
+    assert_eq!(page.plugins.len(), 1);
+    assert_eq!(page.plugins[0].plugin_id, "rain");
+    assert!(page.has_more);
+
+    // 只有未知类型的一页仍然可以继续翻页。
+    let mut only = serde_json::to_value(item()).unwrap();
+    only["kind"] = "hologram".into();
+    let page = decode(serde_json::json!({ "plugins": [only], "has_more": true })).unwrap();
+    assert!(page.plugins.is_empty());
+    assert_eq!(page.skipped, 1);
+}
+
+#[test]
+fn a_known_kind_stays_strict_inside_a_tolerant_page() {
+    // 已知类型的条目多一个字段，整页失败。
+    let mut extra = serde_json::to_value(item()).unwrap();
+    extra["id"] = "10000000-0000-4000-8000-000000000004".into();
+    extra["extra"] = true.into();
+    assert_eq!(decode(page_with(extra)), Err(AccountError::Unavailable));
+    // `kind` 不是字符串，整页失败。
+    for kind in [
+        serde_json::json!(3),
+        serde_json::json!(null),
+        serde_json::json!(["sound"]),
+    ] {
+        let mut odd = serde_json::to_value(item()).unwrap();
+        odd["id"] = "10000000-0000-4000-8000-000000000005".into();
+        odd["kind"] = kind;
+        assert_eq!(decode(page_with(odd)), Err(AccountError::Unavailable));
+    }
+    // 没有 `kind` 的条目同样整页失败。
+    let mut missing = serde_json::to_value(item()).unwrap();
+    missing.as_object_mut().unwrap().remove("kind");
+    assert_eq!(decode(page_with(missing)), Err(AccountError::Unavailable));
+    // 页本身多一个字段，整页失败。
+    let mut page = page_with(serde_json::to_value(item()).unwrap());
+    page["total"] = 2.into();
+    assert_eq!(decode(page), Err(AccountError::Unavailable));
+}
+
+#[test]
+fn transport_skips_unknown_kinds_and_declares_the_kinds_it_installs() {
+    let mut future = serde_json::to_value(item()).unwrap();
+    future["id"] = "10000000-0000-4000-8000-000000000006".into();
+    future["kind"] = "hologram".into();
+    let response = serde_json::to_vec(&page_with(future)).unwrap();
+    let (origin, received) = serve_once(response);
+    let client = BackendAccountClient::loopback(&origin).unwrap();
+    let page = client.community_plugins(0, "", None, false, None).unwrap();
+    assert_eq!(page.skipped, 1);
+    assert_eq!(page.plugins.len(), 1);
+    let (head, _) = received.recv().unwrap();
+    assert!(head.starts_with(&format!(
+        "GET /v1/community/plugins?offset=0&q=&{KINDS_DECLARATION} HTTP/1.1"
+    )));
+
+    // 详情同样带声明；未知类型的详情照旧失败。
+    let (origin, received) = serve_once(serde_json::to_vec(&item()).unwrap());
+    let client = BackendAccountClient::loopback(&origin).unwrap();
+    assert_eq!(
+        client.community_plugin(publication(), None).unwrap(),
+        item()
+    );
+    let (head, _) = received.recv().unwrap();
+    assert!(head.starts_with(&format!(
+        "GET /v1/community/plugins/{}?fields=moderation&{KINDS_DECLARATION} HTTP/1.1",
+        publication().hyphenated()
+    )));
+    let mut future = serde_json::to_value(item()).unwrap();
+    future["kind"] = "hologram".into();
+    let (origin, _received) = serve_once(serde_json::to_vec(&future).unwrap());
+    let client = BackendAccountClient::loopback(&origin).unwrap();
+    assert!(client.community_plugin(publication(), None).is_err());
+}
+
+#[test]
+fn kinds_declaration_lists_the_new_publishable_kinds() {
+    // 后端冻结的旧类型集合，不需要声明。
+    const LEGACY: [PluginKind; 4] = [
+        PluginKind::Sound,
+        PluginKind::Music,
+        PluginKind::CommandTable,
+        PluginKind::Effect,
+    ];
+    let declared: Vec<&str> = PUBLISHABLE_KINDS
+        .iter()
+        .filter(|kind| !LEGACY.contains(kind))
+        .map(|kind| kind.as_str())
+        .collect();
+    assert_eq!(KINDS_DECLARATION, format!("kinds={}", declared.join(",")));
 }
 
 #[test]
@@ -734,5 +900,42 @@ fn transport_rates_and_deletes_by_id() {
     assert_eq!(
         client.delete_community_plugin(publication(), &token(b'e')),
         Err(AccountError::Unavailable)
+    );
+}
+
+#[test]
+fn the_own_list_asks_for_the_moderation_state_and_reads_it() {
+    let mut own = serde_json::to_value(item()).unwrap();
+    own["owned"] = true.into();
+    own["moderation"] = "removed".into();
+    let response =
+        serde_json::to_vec(&serde_json::json!({ "plugins": [own], "has_more": false })).unwrap();
+    let (origin, received) = serve_once(response);
+    let client = BackendAccountClient::loopback(&origin).unwrap();
+    let page = client
+        .community_plugins(0, "", None, true, Some(&"a".repeat(43)))
+        .unwrap();
+    assert_eq!(
+        page.plugins[0].moderation,
+        Some(crate::community::CommunityModeration::Removed)
+    );
+    assert!(page.plugins[0].moderation.unwrap().is_removed());
+    // A state a newer server adds still reads.
+    assert_eq!(
+        serde_json::from_value::<crate::community::CommunityModeration>("frozen".into()).unwrap(),
+        crate::community::CommunityModeration::Unknown
+    );
+    let (head, _) = received.recv().unwrap();
+    assert!(head.starts_with(&format!(
+        "GET /v1/community/plugins?offset=0&q=&scope=mine&fields=moderation&{KINDS_DECLARATION} HTTP/1.1"
+    )));
+    // Without the field the item serializes exactly as before.
+    assert!(serde_json::to_value(item())
+        .unwrap()
+        .get("moderation")
+        .is_none());
+    assert_eq!(
+        client.community_plugins(0, "", None, true, None),
+        Err(AccountError::Unauthorized)
     );
 }

@@ -1,0 +1,328 @@
+{
+ "name": "yue_segmentation_select",
+ "steps": [
+  {
+   "op": "open",
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "cantonese",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "neihou",
+   "op": "type",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 4,
+    "candidates": [
+     {
+      "answers_key": true,
+      "canonical_pinyin": "nei hou",
+      "pinyin": "neihou",
+      "scheme": "cantonese",
+      "source": 0,
+      "weight": 900,
+      "word": "你好"
+     },
+     {
+      "answers_key": true,
+      "canonical_pinyin": "nei hou",
+      "pinyin": "neihou",
+      "scheme": "cantonese",
+      "source": 0,
+      "weight": 40,
+      "word": "妳好"
+     },
+     {
+      "answers_key": false,
+      "canonical_pinyin": "nei",
+      "pinyin": "nei",
+      "scheme": "cantonese",
+      "source": 0,
+      "weight": 5000,
+      "word": "你"
+     },
+     {
+      "answers_key": false,
+      "canonical_pinyin": "nei",
+      "pinyin": "nei",
+      "scheme": "cantonese",
+      "source": 0,
+      "weight": 300,
+      "word": "妳"
+     }
+    ],
+    "caret": 7,
+    "dedicated_english": false,
+    "editing_text": "nei hou",
+    "local_mode": "none",
+    "normalized_segmentation": "nei hou",
+    "preedit": "neihou",
+    "raw_segmentation": "neihou",
+    "scheme": "cantonese",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": 0,
+   "op": "select",
+   "result": {
+    "commit": "你好",
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "cantonese",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "gwongdungwaa",
+   "op": "type",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 4,
+    "candidates": [
+     {
+      "answers_key": true,
+      "canonical_pinyin": "gwong dung waa",
+      "pinyin": "gwongdungwaa",
+      "scheme": "cantonese",
+      "source": 0,
+      "weight": 800,
+      "word": "廣東話"
+     },
+     {
+      "answers_key": false,
+      "canonical_pinyin": "gwong dung",
+      "pinyin": "gwongdung",
+      "scheme": "cantonese",
+      "source": 0,
+      "weight": 1200,
+      "word": "廣東"
+     },
+     {
+      "answers_key": false,
+      "canonical_pinyin": "gwong",
+      "pinyin": "gwong",
+      "scheme": "cantonese",
+      "source": 0,
+      "weight": 2000,
+      "word": "光"
+     },
+     {
+      "answers_key": false,
+      "canonical_pinyin": "gwong",
+      "pinyin": "gwong",
+      "scheme": "cantonese",
+      "source": 0,
+      "weight": 900,
+      "word": "廣"
+     }
+    ],
+    "caret": 14,
+    "dedicated_english": false,
+    "editing_text": "gwong dung waa",
+    "local_mode": "none",
+    "normalized_segmentation": "gwong dung waa",
+    "preedit": "gwongdungwaa",
+    "raw_segmentation": "gwongdungwaa",
+    "scheme": "cantonese",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "1",
+   "op": "candidate_key",
+   "result": {
+    "commit": "廣東話",
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "cantonese",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "neih",
+   "op": "type",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 5,
+    "candidates": [
+     {
+      "answers_key": true,
+      "canonical_pinyin": "nei hou",
+      "pinyin": "neih",
+      "scheme": "cantonese",
+      "source": 0,
+      "weight": 900,
+      "word": "你好"
+     },
+     {
+      "answers_key": true,
+      "canonical_pinyin": "nei hou",
+      "pinyin": "neih",
+      "scheme": "cantonese",
+      "source": 0,
+      "weight": 40,
+      "word": "妳好"
+     },
+     {
+      "answers_key": true,
+      "canonical_pinyin": "nei hoeng",
+      "pinyin": "neih",
+      "scheme": "cantonese",
+      "source": 0,
+      "weight": 3,
+      "word": "你向"
+     },
+     {
+      "answers_key": false,
+      "canonical_pinyin": "nei",
+      "pinyin": "nei",
+      "scheme": "cantonese",
+      "source": 0,
+      "weight": 5000,
+      "word": "你"
+     },
+     {
+      "answers_key": false,
+      "canonical_pinyin": "nei",
+      "pinyin": "nei",
+      "scheme": "cantonese",
+      "source": 0,
+      "weight": 300,
+      "word": "妳"
+     }
+    ],
+    "caret": 5,
+    "dedicated_english": false,
+    "editing_text": "nei h",
+    "local_mode": "none",
+    "normalized_segmentation": "nei h",
+    "preedit": "neih",
+    "raw_segmentation": "neih",
+    "scheme": "cantonese",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": {
+    "word": "你向"
+   },
+   "op": "select",
+   "result": {
+    "commit": "你向",
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "cantonese",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "gw",
+   "op": "type",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 2,
+    "candidates": [
+     {
+      "answers_key": true,
+      "canonical_pinyin": "gwong",
+      "pinyin": "gw",
+      "scheme": "cantonese",
+      "source": 0,
+      "weight": 2000,
+      "word": "光"
+     },
+     {
+      "answers_key": true,
+      "canonical_pinyin": "gwong",
+      "pinyin": "gw",
+      "scheme": "cantonese",
+      "source": 0,
+      "weight": 900,
+      "word": "廣"
+     }
+    ],
+    "caret": 2,
+    "dedicated_english": false,
+    "editing_text": "gw",
+    "local_mode": "none",
+    "normalized_segmentation": "gw",
+    "preedit": "gw",
+    "raw_segmentation": "gw",
+    "scheme": "cantonese",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": {
+    "word": "廣"
+   },
+   "op": "select",
+   "result": {
+    "commit": "廣",
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "cantonese",
+    "shuangpin_profile": "xiaohe"
+   }
+  }
+ ]
+}

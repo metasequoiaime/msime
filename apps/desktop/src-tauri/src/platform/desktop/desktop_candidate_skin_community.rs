@@ -8,8 +8,8 @@ use crate::{CommandError, RuntimeOptionsState, SkinCatalogResponse, SkinDirector
 use msime_client_core::account::AccountError;
 use msime_client_core::account::BackendAccountClient;
 use msime_client_core::skin::candidate_community::{
-    self, BackendCandidateSkinCommunityService, CandidateSkinItem, CandidateSkinPackage,
-    CandidateSkinPage, CandidateSkinVisibility,
+    self, BackendCandidateSkinCommunityService, CandidateSkinCategory, CandidateSkinItem,
+    CandidateSkinPackage, CandidateSkinPage, CandidateSkinVisibility,
 };
 use msime_client_core::skin::candidate_sync::{
     self, CandidateSkinPublishError, CandidateSkinSyncReport,
@@ -70,7 +70,8 @@ fn install_and_rescan(
 ) -> Result<SkinCatalogResponse, CommandError> {
     candidate_community::install(&root, package, replace).map_err(package_error)?;
     // Sync then knows where the package came from: someone else's publication stays out of the user's library.
-    candidate_sync::record_install(&sync_state(&root), &package.package_id, package.id);
+    candidate_sync::record_install(&sync_state(&root), &package.package_id, package.id)
+        .map_err(package_error)?;
     Ok(crate::rescan_skin_catalog(root, runtime))
 }
 
@@ -80,9 +81,11 @@ pub async fn candidate_skin_community_list(
     offset: usize,
     search: String,
     mine: bool,
+    // 不传或为 null 时列出全部分类。
+    category: Option<CandidateSkinCategory>,
 ) -> Result<CandidateSkinPage, CommandError> {
     community_service_call(Arc::clone(&state.service), move |service| {
-        service.list(offset, &search, mine)
+        service.list(offset, &search, mine, category)
     })
     .await
 }
@@ -197,6 +200,8 @@ pub async fn candidate_skin_community_add_license(
     .map_err(|_| CommandError { code: "storage" })?
 }
 
+// 每个参数都是前端调用这条命令时传的字段，合并成结构体会改掉 IPC 契约。
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn candidate_skin_community_publish(
     state: State<'_, CandidateSkinCommunityState>,
@@ -207,6 +212,8 @@ pub async fn candidate_skin_community_publish(
     description: String,
     // None publishes publicly, as every page did before private packages.
     visibility: Option<CandidateSkinVisibility>,
+    // 不传时不发送分类，由服务端归入默认分类。
+    category: Option<CandidateSkinCategory>,
 ) -> Result<CandidateSkinItem, CommandError> {
     let id = community_id(&id)?;
     let service = Arc::clone(&state.service);
@@ -221,6 +228,7 @@ pub async fn candidate_skin_community_publish(
             name,
             description,
             visibility.unwrap_or_default(),
+            category,
         )
         .map_err(|error| match error {
             CandidateSkinPublishError::Package(code) => package_error(code),
@@ -256,6 +264,19 @@ pub async fn candidate_skin_community_set_visibility(
     let id = community_id(&id)?;
     community_service_call(Arc::clone(&state.service), move |service| {
         service.set_visibility(id, visibility)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn candidate_skin_community_set_category(
+    state: State<'_, CandidateSkinCommunityState>,
+    id: String,
+    category: CandidateSkinCategory,
+) -> Result<CandidateSkinItem, CommandError> {
+    let id = community_id(&id)?;
+    community_service_call(Arc::clone(&state.service), move |service| {
+        service.set_category(id, category)
     })
     .await
 }
@@ -322,7 +343,14 @@ mod tests {
     use super::*;
     use std::sync::Mutex;
 
-    const PNG: &[u8] = &[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 1, 2, 3];
+    /// 一张完整的 1×1 PNG：打包和安装都会完整解码图片，只有签名的字节过不了。
+    const PNG: &[u8] = &[
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44,
+        0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F,
+        0x15, 0xC4, 0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0x60,
+        0x60, 0x60, 0x60, 0x00, 0x00, 0x00, 0x05, 0x00, 0x01, 0xA5, 0xF6, 0x45, 0x40, 0x00, 0x00,
+        0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+    ];
 
     /// A package as another user would have published it: packed from a folder in a separate root.
     fn published_package() -> CandidateSkinPackage {

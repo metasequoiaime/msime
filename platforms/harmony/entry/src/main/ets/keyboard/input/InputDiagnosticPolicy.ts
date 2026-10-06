@@ -17,7 +17,16 @@ export class InputDiagnosticPolicy {
     if (normalized.length <= InputDiagnosticPolicy.MAX_LENGTH) {
       return normalized;
     }
-    return normalized.substring(0, InputDiagnosticPolicy.MAX_LENGTH - 1) + "…";
+    let end: number = InputDiagnosticPolicy.MAX_LENGTH - 1;
+    // 避免截断 emoji 时把孤立的高代理项带入诊断提示。
+    if (
+      end > 0 &&
+      normalized.charCodeAt(end - 1) >= 0xd800 &&
+      normalized.charCodeAt(end - 1) <= 0xdbff
+    ) {
+      end -= 1;
+    }
+    return normalized.substring(0, end) + "…";
   }
 
   static visible(value: string | null): boolean {

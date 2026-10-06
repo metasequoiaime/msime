@@ -37,4 +37,10 @@ int main() {
   assert(!command_translation_query("command", false));
   assert(!command_translation_query("none", true));
   assert(!command_translation_query("mention", true));
+
+  using msime::linux_host::should_retry_translation_after_provider;
+  assert(should_retry_translation_after_provider(true, false, false));
+  assert(should_retry_translation_after_provider(true, true, false));
+  assert(!should_retry_translation_after_provider(true, true, true));
+  assert(!should_retry_translation_after_provider(false, false, false));
 }

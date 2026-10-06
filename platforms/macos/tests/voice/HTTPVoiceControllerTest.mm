@@ -50,6 +50,8 @@
 - (NSDictionary *)setPairedPunctuationEnabled:(BOOL)enabled error:(NSError **)error { (void)enabled; (void)error; return nil; }
 - (NSDictionary *)setPunctuationLock:(NSString *)lock error:(NSError **)error { (void)lock; (void)error; return nil; }
 - (NSDictionary *)setCharacterWidthFull:(BOOL)full error:(NSError **)error { (void)full; (void)error; return nil; }
+// 换客户端获得焦点后控制器会读一次打字特效设置（429ce0d01）；这个夹具没有特效可给。
+- (NSDictionary *)typingEffectSettingsWithError:(NSError **)error { (void)error; return nil; }
 - (NSDictionary *)applyVoiceText:(NSString *)text generation:(uint64_t)generation error:(NSError **)error {
     (void)error; assert(NSThread.isMainThread && generation == 42 && [text isEqual:@"synthetic"]);
     ++self.submissions; return @{@"commit": text};

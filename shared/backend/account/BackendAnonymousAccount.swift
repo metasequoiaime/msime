@@ -26,9 +26,17 @@ enum BackendAnonymousAccount {
 
   /// Discard the local-only identity and its session after it has been replaced
   /// by a real account or explicitly deleted by the user.
-  static func discard() {
-    try? BackendLocalStore(fileName: fileName).clear()
-    try? sessionStorage().clear()
+  static func discard() async throws {
+    try await discard(accountSession: session,
+                      identityStorage: BackendLocalStore(fileName: fileName),
+                      sessionStorage: sessionStorage())
+  }
+  static func discard(accountSession: BackendAccountSession,
+                      identityStorage: any BackendSessionStorage,
+                      sessionStorage: any BackendSessionStorage) async throws {
+    try await accountSession.forget()
+    try identityStorage.clear()
+    try sessionStorage.clear()
   }
 
   static func ensureSignedIn(session: BackendAccountSession,

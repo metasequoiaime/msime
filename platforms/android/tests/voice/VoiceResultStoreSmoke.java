@@ -25,12 +25,13 @@ public final class VoiceResultStoreSmoke {
             VoiceResultStore store = new VoiceResultStore(directory);
             long now = 1_000_000L;
             Path outside = Files.createDirectory(directory.resolve("outside"));
+            Files.createDirectories(outside.resolve("middle/nested"));
             Path linkedParent = directory.resolve("linked-parent");
             Files.createSymbolicLink(linkedParent, outside);
             VoiceResultStore linkedStore = new VoiceResultStore(
                 linkedParent.resolve("middle").resolve("nested"));
             fails(VoiceResultStore.Reason.UNAVAILABLE, () -> linkedStore.save("synthetic", now));
-            check(!Files.exists(outside.resolve("middle")));
+            check(!Files.exists(outside.resolve("middle/nested/result.bin")));
             Files.delete(linkedParent);
             Path outsideLock = Files.createTempFile("msime-voice-lock-target-", ".lock");
             Files.writeString(outsideLock, "synthetic-lock-target");
@@ -60,6 +61,10 @@ public final class VoiceResultStoreSmoke {
             check(store.read(now + VoiceResultStore.LIFETIME_MILLIS) == null);
             store.save("未来时间测试结果", now + 60_001L);
             check(store.read(now) == null);
+
+            long nearMaximum = Long.MAX_VALUE - VoiceResultStore.LIFETIME_MILLIS;
+            VoiceResultStore.Entry nearMaximumEntry = store.save("接近时间上限", nearMaximum);
+            check(store.read(Long.MAX_VALUE - 30_000L).equals(nearMaximumEntry));
 
             Files.createDirectories(directory);
             Files.write(directory.resolve("result.bin"), new byte[] { 1, 2, 3 });

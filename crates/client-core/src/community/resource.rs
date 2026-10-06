@@ -1,4 +1,4 @@
-//! Bounded community dictionaries and reply templates.
+//! Bounded community dictionaries, reply templates and phrase packs.
 //! Network, credentials, and UI state stay outside client-core.
 
 use crate::account::{
@@ -8,7 +8,7 @@ use crate::account::{
 use crate::cloud::dictionary::{percent_encode, DictionaryKind};
 use crate::community::{
     valid_author, valid_description, valid_name, valid_query, valid_rating, valid_text,
-    MAXIMUM_JAVASCRIPT_INTEGER, MAXIMUM_PAGE_ITEMS,
+    CommunityModeration, MAXIMUM_JAVASCRIPT_INTEGER, MAXIMUM_PAGE_ITEMS, MODERATION_FIELDS,
 };
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
@@ -16,9 +16,16 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 const MAXIMUM_CONTENT_BYTES: usize = 350_000;
+/// 一个社区短语包最多的条数，与后端 `validateResource` 的 `phrase` 分支一致。
+pub const MAXIMUM_SHARED_PHRASES: usize = 200;
+/// 社区短语每条最多的 UTF-16 单元数，与后端一致；本地常用语存储的上限更小，安装时由 [`crate::common_phrases`] 再筛一次。
+pub const MAXIMUM_SHARED_PHRASE_UTF16: usize = 2_000;
+/// 短语分组名最多的字符数。
+pub const MAXIMUM_SHARED_PHRASE_GROUP_CHARS: usize = 32;
 
 pub(super) fn reply_content_has_prompt(content: &CommunityResourceContent) -> bool {
     content.entries.is_empty()
+        && content.phrases.is_empty()
         && content
             .prompt
             .as_deref()
@@ -30,6 +37,8 @@ pub(super) fn reply_content_has_prompt(content: &CommunityResourceContent) -> bo
 pub enum CommunityResourceKind {
     Dictionary,
     Reply,
+    /// 不带编码的常用语包，wire 值 `phrase`；安装进本地的无编码常用语（[`crate::common_phrases`]），服务端的 `/apply` 不接受它。
+    Phrase,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -41,6 +50,15 @@ pub struct SharedWord {
     pub weight: i64,
 }
 
+/// 社区短语包里的一条：多行文本，以及可选的分组名（空串表示不分组）。
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SharedPhrase {
+    pub text: String,
+    #[serde(default)]
+    pub group: String,
+}
+
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct CommunityResourceContent {
@@ -48,6 +66,9 @@ pub struct CommunityResourceContent {
     pub entries: Vec<SharedWord>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prompt: Option<String>,
+    /// 只有 `phrase` 类资源有；其他类资源为空时不序列化，旧服务端和旧客户端看到的文档不变。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub phrases: Vec<SharedPhrase>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -66,6 +87,9 @@ pub struct CommunityResource {
     pub rating_count: u64,
     pub rating_average: f64,
     pub my_rating: u8,
+    /// The moderation state, sent only for the signed-in user's own item and only to a request that asked for it with `fields=moderation`; other users' items and older servers leave it out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub moderation: Option<CommunityModeration>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -165,8 +189,14 @@ impl CommunityResourceApi for BackendAccountClient {
         token: Option<&str>,
     ) -> Result<CommunityResourcePage, AccountError> {
         validate_query(offset, search, scope, token)?;
+        // The user's own list is where a removed item still shows, so it asks for the moderation state.
+        let fields = if scope == CommunityResourceScope::Mine {
+            format!("&{MODERATION_FIELDS}")
+        } else {
+            String::new()
+        };
         let path = format!(
-            "/v1/community/resources?kind={}&scope={}&q={}&offset={offset}",
+            "/v1/community/resources?kind={}&scope={}&q={}&offset={offset}{fields}",
             kind_name(kind),
             scope.query(),
             percent_encode(search)
@@ -192,7 +222,10 @@ impl CommunityResourceApi for BackendAccountClient {
         }
         let value = self.json_with_limit::<CommunityResource, ()>(
             Method::GET,
-            &format!("/v1/community/resources/{}", id.hyphenated()),
+            &format!(
+                "/v1/community/resources/{}?{MODERATION_FIELDS}",
+                id.hyphenated()
+            ),
             token,
             None,
             3 * 1024 * 1024,
@@ -483,6 +516,7 @@ fn kind_name(kind: CommunityResourceKind) -> &'static str {
     match kind {
         CommunityResourceKind::Dictionary => "dictionary",
         CommunityResourceKind::Reply => "reply",
+        CommunityResourceKind::Phrase => "phrase",
     }
 }
 
@@ -516,7 +550,7 @@ fn validate_page(
     Ok(())
 }
 
-pub(super) fn validate_resource(value: &CommunityResource) -> Result<(), AccountError> {
+pub(crate) fn validate_resource(value: &CommunityResource) -> Result<(), AccountError> {
     if value.id.is_nil()
         || value.revision == 0
         || !valid_name(&value.name)
@@ -569,7 +603,10 @@ fn validate_content(
             }
         }
         CommunityResourceKind::Dictionary => {
-            if content.prompt.is_some() || !(1..=128).contains(&content.entries.len()) {
+            if content.prompt.is_some()
+                || !content.phrases.is_empty()
+                || !(1..=128).contains(&content.entries.len())
+            {
                 return Err(AccountError::Unavailable);
             }
             let mut seen = std::collections::BTreeSet::new();
@@ -587,8 +624,29 @@ fn validate_content(
                 }
             }
         }
+        CommunityResourceKind::Phrase => {
+            if content.prompt.is_some()
+                || !content.entries.is_empty()
+                || !(1..=MAXIMUM_SHARED_PHRASES).contains(&content.phrases.len())
+                || content
+                    .phrases
+                    .iter()
+                    .any(|phrase| !valid_shared_phrase(phrase))
+            {
+                return Err(AccountError::Unavailable);
+            }
+        }
     }
     Ok(())
+}
+
+/// 社区短语的单条校验：正文 1–2000 个 UTF-16 单元、只允许换行这一种控制字符，分组名单行且不超过 32 个字符。
+fn valid_shared_phrase(phrase: &SharedPhrase) -> bool {
+    !phrase.text.trim().is_empty()
+        && crate::text::is_bounded_utf16(&phrase.text, MAXIMUM_SHARED_PHRASE_UTF16)
+        && !crate::has_disallowed_control_with_line_breaks(&phrase.text)
+        && valid_text(&phrase.group, 0, MAXIMUM_SHARED_PHRASE_GROUP_CHARS, false)
+        && phrase.group.trim() == phrase.group
 }
 
 #[cfg(test)]
@@ -620,6 +678,109 @@ mod tests {
                     weight: 1,
                 }],
                 prompt: None,
+                phrases: Vec::new(),
+            }
+        )
+        .is_err());
+    }
+
+    fn phrase(text: &str) -> SharedPhrase {
+        SharedPhrase {
+            text: text.into(),
+            group: String::new(),
+        }
+    }
+
+    #[test]
+    fn phrase_packs_are_a_kind_of_their_own_on_the_wire() {
+        assert_eq!(
+            serde_json::to_value(CommunityResourceKind::Phrase).unwrap(),
+            serde_json::json!("phrase")
+        );
+        assert_eq!(kind_name(CommunityResourceKind::Phrase), "phrase");
+        let content: CommunityResourceContent = serde_json::from_value(serde_json::json!({
+            "phrases": [{"text": "此致\n敬礼", "group": "签名"}, {"text": "会议纪要"}]
+        }))
+        .unwrap();
+        assert_eq!(content.phrases[0].group, "签名");
+        assert_eq!(content.phrases[1].group, "");
+        assert!(validate_content(CommunityResourceKind::Phrase, &content).is_ok());
+        // 其他类资源的内容里没有短语时，序列化结果不出现 `phrases`，旧服务端看到的请求体不变。
+        let reply = CommunityResourceContent {
+            prompt: Some("请简洁回复".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            serde_json::to_value(&reply).unwrap(),
+            serde_json::json!({"prompt": "请简洁回复"})
+        );
+    }
+
+    #[test]
+    fn phrase_pack_content_is_bounded_like_the_server() {
+        let valid = |phrases: Vec<SharedPhrase>| {
+            validate_content(
+                CommunityResourceKind::Phrase,
+                &CommunityResourceContent {
+                    phrases,
+                    ..Default::default()
+                },
+            )
+            .is_ok()
+        };
+        assert!(!valid(Vec::new()));
+        assert!(valid(vec![phrase("好"); MAXIMUM_SHARED_PHRASES]));
+        assert!(!valid(vec![phrase("好"); MAXIMUM_SHARED_PHRASES + 1]));
+        assert!(valid(vec![phrase(
+            &"字".repeat(MAXIMUM_SHARED_PHRASE_UTF16)
+        )]));
+        assert!(!valid(vec![phrase(
+            &"字".repeat(MAXIMUM_SHARED_PHRASE_UTF16 + 1)
+        )]));
+        // 补充平面的字占两个 UTF-16 单元。
+        assert!(!valid(vec![phrase(&"𠀀".repeat(1_001))]));
+        assert!(valid(vec![phrase("第一行\r\n第二行")]));
+        assert!(!valid(vec![phrase("制表\t符")]));
+        assert!(!valid(vec![phrase(" \n ")]));
+        assert!(!valid(vec![SharedPhrase {
+            text: "好".into(),
+            group: "字".repeat(MAXIMUM_SHARED_PHRASE_GROUP_CHARS + 1),
+        }]));
+        assert!(!valid(vec![SharedPhrase {
+            text: "好".into(),
+            group: "换\n行".into(),
+        }]));
+
+        // 短语包不能带词条或提示词，词库和回复模板也不能带短语。
+        assert!(validate_content(
+            CommunityResourceKind::Phrase,
+            &CommunityResourceContent {
+                prompt: Some("提示".into()),
+                phrases: vec![phrase("好")],
+                ..Default::default()
+            }
+        )
+        .is_err());
+        assert!(validate_content(
+            CommunityResourceKind::Reply,
+            &CommunityResourceContent {
+                prompt: Some("提示".into()),
+                phrases: vec![phrase("好")],
+                ..Default::default()
+            }
+        )
+        .is_err());
+        assert!(validate_content(
+            CommunityResourceKind::Dictionary,
+            &CommunityResourceContent {
+                entries: vec![SharedWord {
+                    kind: DictionaryKind::Quick,
+                    code: "x".into(),
+                    word: "y".into(),
+                    weight: 1,
+                }],
+                phrases: vec![phrase("好")],
+                ..Default::default()
             }
         )
         .is_err());

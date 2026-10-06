@@ -1,4 +1,4 @@
-#include "VoiceProviders.h"
+#include "../../../../shared/voice/VoiceProviders.h"
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -26,7 +26,7 @@ int main() {
     require(!is_doubao_asr_provider("openai"));
     require(!is_doubao_asr_provider("siliconflow"));
     require(!is_doubao_asr_provider("groq"));
-    // "cloud" is the legacy spelling of siliconflow, not Doubao.
+    // A provider id this host does not know is not Doubao either.
     require(!is_doubao_asr_provider("cloud"));
 
     require(voice_endpoint_is_websocket("wss://openspeech.bytedance.com/api"));

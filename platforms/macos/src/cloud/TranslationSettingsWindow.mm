@@ -1,6 +1,16 @@
 #import "TranslationSettingsWindow.h"
 #import "MSIMEClientSession.h"
 
+static BOOL MSIMETranslationStrictRevision(id value, uint64_t *result) {
+    if (![value isKindOfClass:NSNumber.class] || CFGetTypeID((__bridge CFTypeRef)value) == CFBooleanGetTypeID() || CFNumberIsFloatType((__bridge CFNumberRef)value)) return NO;
+    NSNumber *number = (NSNumber *)value;
+    if ([number compare:@0] == NSOrderedAscending) return NO;
+    uint64_t revision = number.unsignedLongLongValue;
+    if ([number compare:@(revision)] != NSOrderedSame) return NO;
+    if (result) *result = revision;
+    return YES;
+}
+
 static NSArray *TranslationLanguages() { return @[@"en", @"fr", @"ja", @"es", @"ru", @"de", @"ko"]; }
 
 /// Mirrors `usable_credential` in crates/client-core/src/translation.rs.
@@ -24,15 +34,17 @@ static NSDictionary *TranslationPreferencesApplying(NSDictionary *preferences, N
 static NSDictionary *SaveTranslationEdits(NSString *directory, NSDictionary *snapshot, NSDictionary *edits) {
     NSMutableDictionary *next = [snapshot mutableCopy];
     next[@"preferences"] = TranslationPreferencesApplying(snapshot[@"preferences"], edits);
-    uint64_t revision = [snapshot[@"revision"] unsignedLongLongValue];
+    uint64_t revision = 0;
+    if (!MSIMETranslationStrictRevision(snapshot[@"revision"], &revision)) return nil;
     NSDictionary *saved = [MSIMEClientSession savePreferencesInDirectory:directory expectedRevision:revision snapshot:next error:nil];
     if (saved) return saved;
     NSDictionary *latest = [MSIMEClientSession loadPreferencesInDirectory:directory error:nil];
     // The same revision means the document itself was refused (a malformed value), which another attempt cannot fix.
-    if (!latest || [latest[@"revision"] unsignedLongLongValue] == revision) return nil;
+    uint64_t latestRevision = 0;
+    if (!latest || !MSIMETranslationStrictRevision(latest[@"revision"], &latestRevision) || latestRevision == revision) return nil;
     next = [latest mutableCopy];
     next[@"preferences"] = TranslationPreferencesApplying(latest[@"preferences"], edits);
-    return [MSIMEClientSession savePreferencesInDirectory:directory expectedRevision:[latest[@"revision"] unsignedLongLongValue] snapshot:next error:nil];
+    return [MSIMEClientSession savePreferencesInDirectory:directory expectedRevision:latestRevision snapshot:next error:nil];
 }
 
 @interface MSIMETranslationSettingsWindow () <NSTextFieldDelegate>
@@ -57,6 +69,7 @@ static NSDictionary *SaveTranslationEdits(NSString *directory, NSDictionary *sna
     NSTextField *_appId, *_plainNiuTransKey;
     BOOL _busy, _saving, _pending, _holdCommits;
     NSUInteger _epoch;
+    NSUInteger _callbackGeneration;
 }
 - (instancetype)initWithDirectory:(NSString *)directory saved:(void (^)(NSDictionary *))saved {
     if ((self = [super initWithWindow:nil])) {
@@ -136,6 +149,9 @@ static NSDictionary *SaveTranslationEdits(NSString *directory, NSDictionary *sna
 - (void)showWindow:(id)sender {
     if (!self.window) [self loadWindow];
     [super showWindow:sender]; [self reload:nil];
+}
+- (void)invalidatePendingCallbacks {
+    ++_callbackGeneration;
 }
 - (void)updateControls:(id)sender {
     (void)sender;
@@ -315,9 +331,10 @@ static NSDictionary *SaveTranslationEdits(NSString *directory, NSDictionary *sna
     dispatch_async(_queue, ^{
         NSDictionary *saved = SaveTranslationEdits(directory, snapshot, edits);
         dispatch_async(dispatch_get_main_queue(), ^{
-            if (saved && savedHandler) savedHandler(saved[@"preferences"]);
             MSIMETranslationSettingsWindow *current = weakSelf;
             if (!current || current->_epoch != epoch) return;
+            // 保存排队期间窗口可能已经关闭或开始新一轮加载；这个结果属于旧页面，不能通知当前宿主。
+            if (saved && savedHandler) savedHandler(saved[@"preferences"]);
             current->_saving = NO;
             if (saved) { current->_snapshot = saved; current->_committed = form; }
             current->_status.stringValue = saved ? @"已保存到本机配置。" : @"保存失败，修改尚未写入；再次修改或关闭窗口时会重试。";
@@ -337,9 +354,14 @@ static NSDictionary *SaveTranslationEdits(NSString *directory, NSDictionary *sna
             NSString *directory = _directory;
             NSDictionary *snapshot = _snapshot;
             void (^savedHandler)(NSDictionary *) = _saved;
+            NSUInteger callbackGeneration = _callbackGeneration;
+            __weak MSIMETranslationSettingsWindow *weakSelf = self;
             dispatch_async(_queue, ^{
                 NSDictionary *saved = SaveTranslationEdits(directory, snapshot, edits);
-                if (saved && savedHandler) dispatch_async(dispatch_get_main_queue(), ^{ savedHandler(saved[@"preferences"]); });
+                if (saved && savedHandler) dispatch_async(dispatch_get_main_queue(), ^{
+                    MSIMETranslationSettingsWindow *current = weakSelf;
+                    if (current && current->_callbackGeneration == callbackGeneration) savedHandler(saved[@"preferences"]);
+                });
             });
         }
     }

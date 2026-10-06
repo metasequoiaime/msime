@@ -78,10 +78,12 @@ impl AccountSessionStorage for AnonymousSessionStorage {
 
     fn save(&self, session: &SavedAccountSession) -> Result<(), AccountError> {
         let bytes = serde_json::to_vec(session).map_err(|_| AccountError::Storage)?;
+        prepare_directory(&self.directory)?;
         write_private(&self.directory, ANONYMOUS_SESSION_FILE, &bytes, false).map(|_| ())
     }
 
     fn clear(&self) -> Result<(), AccountError> {
+        crate::storage::reject_symlink(&self.directory).map_err(|_| AccountError::Storage)?;
         match std::fs::remove_file(self.directory.join(ANONYMOUS_SESSION_FILE)) {
             Ok(()) => Ok(()),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -103,7 +105,7 @@ pub(super) fn ensure_anonymous_account_with<A: AccountApi>(
     api: A,
     directory: &Path,
 ) -> Result<(), AccountError> {
-    std::fs::create_dir_all(directory).map_err(|_| AccountError::Storage)?;
+    prepare_directory(directory)?;
     if has_session(directory) {
         return Ok(());
     }
@@ -137,19 +139,57 @@ fn anonymous_identity(directory: &Path) -> Result<AnonymousIdentity, AccountErro
         .ok_or(AccountError::Storage)
 }
 
+fn prepare_directory(directory: &Path) -> Result<(), AccountError> {
+    crate::storage::create_directory_and_check(directory).map_err(|_| AccountError::Storage)?;
+    let metadata = std::fs::symlink_metadata(directory).map_err(|_| AccountError::Storage)?;
+    if !metadata.file_type().is_dir() {
+        return Err(AccountError::Storage);
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if metadata.permissions().mode() & 0o077 != 0 {
+            std::fs::set_permissions(directory, std::fs::Permissions::from_mode(0o700))
+                .map_err(|_| AccountError::Storage)?;
+        }
+    }
+    Ok(())
+}
+
+fn read_private_file(file: std::fs::File) -> Result<Vec<u8>, AccountError> {
+    crate::bounded_io::read_bounded_file_with(
+        file,
+        MAX_FILE_BYTES,
+        || AccountError::Storage,
+        |_| AccountError::Storage,
+    )
+}
+
 fn read_private_json<T: DeserializeOwned>(path: &Path) -> Result<Option<T>, AccountError> {
-    let file = match std::fs::File::open(path) {
-        Ok(file) => file,
+    if let Some(parent) = path.parent() {
+        crate::storage::reject_symlink(parent).map_err(|_| AccountError::Storage)?;
+    }
+    let metadata = match std::fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(_) => return Err(AccountError::Storage),
     };
-    let mut bytes = Vec::new();
-    file.take(MAX_FILE_BYTES + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|_| AccountError::Storage)?;
-    if bytes.len() as u64 > MAX_FILE_BYTES {
+    if !metadata.file_type().is_file() {
         return Err(AccountError::Storage);
     }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let Some(parent) = path.parent() else {
+            return Err(AccountError::Storage);
+        };
+        let directory = std::fs::symlink_metadata(parent).map_err(|_| AccountError::Storage)?;
+        if metadata.mode() & 0o077 != 0 || metadata.uid() != directory.uid() {
+            return Err(AccountError::Storage);
+        }
+    }
+    // Bound the read through the handle so a concurrent replacement cannot bypass the size limit.
+    let bytes = read_private_file(std::fs::File::open(path).map_err(|_| AccountError::Storage)?)?;
     serde_json::from_slice(&bytes)
         .map(Some)
         .map_err(|_| AccountError::Storage)
@@ -162,6 +202,7 @@ fn write_private(
     bytes: &[u8],
     no_clobber: bool,
 ) -> Result<bool, AccountError> {
+    prepare_directory(directory)?;
     let mut temporary =
         tempfile::NamedTempFile::new_in(directory).map_err(|_| AccountError::Storage)?;
     temporary
@@ -368,5 +409,54 @@ mod tests {
         }
         assert!(!valid_anonymous_subject("msime-ABCDEFGHIJKLMNOP"));
         assert!(!valid_anonymous_subject("someone@example.com"));
+    }
+
+    #[test]
+    fn anonymous_json_file_read_reserves_file_size() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("identity.json");
+        let contents = br#"{"subject":"msime-synthetic","secret":"synthetic"}"#;
+        std::fs::write(&path, contents).unwrap();
+
+        let bytes = read_private_file(std::fs::File::open(path).unwrap()).unwrap();
+        assert_eq!(bytes, contents);
+        assert_eq!(bytes.capacity(), contents.len());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_a_symlinked_anonymous_directory() {
+        use std::os::unix::fs::symlink;
+
+        let outside = tempfile::tempdir().unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let linked = root.path().join("anonymous");
+        symlink(outside.path(), &linked).unwrap();
+
+        assert_eq!(
+            ensure_anonymous_account_with(RegisteringApi::default(), &linked).err(),
+            Some(AccountError::Storage)
+        );
+        assert!(!outside.path().join(ANONYMOUS_ACCOUNT_FILE).exists());
+        assert!(!outside.path().join(ANONYMOUS_SESSION_FILE).exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_a_symlinked_anonymous_session_file() {
+        use std::os::unix::fs::symlink;
+
+        let outside = tempfile::tempdir().unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let target = outside.path().join("session.json");
+        std::fs::write(&target, br#"{}"#).unwrap();
+        let linked = root.path().join(ANONYMOUS_SESSION_FILE);
+        symlink(&target, &linked).unwrap();
+
+        assert_eq!(
+            AnonymousSessionStorage::new(root.path()).load().err(),
+            Some(AccountError::Storage)
+        );
+        assert_eq!(std::fs::read(&target).unwrap(), br#"{}"#);
     }
 }

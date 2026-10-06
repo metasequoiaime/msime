@@ -1,5 +1,8 @@
-import * as settings from "./settings-style";
-import { GroupList, Row, Select, Switch } from "../core/platform-controls";
+import { SettingsRowStack } from "./settings-row-stack";
+import { GroupList, Row, Select } from "../core/platform-controls";
+import { EnglishSuggestionsSection } from "./english-suggestions-section";
+import { SwitchRow } from "./switch-row";
+import { ActionButton } from "./action-button";
 
 export type MobileKeyboardFeedback = {
   soundEnabled: boolean;
@@ -27,9 +30,26 @@ export interface MobileKeyboardFeedbackSectionProps {
   value: MobileKeyboardFeedback;
   busy: boolean;
   ios: boolean;
+  /** 是否在这一组里画 iOS 的「英文建议」，默认跟随 `ios`。设置窗口把它放在输入页「候选与联想」组，所以屏幕键盘页传 false。 */
+  showEnglishSuggestions?: boolean;
   canPreview: boolean;
   onChange: (value: MobileKeyboardFeedback) => void;
   onPreview: () => void;
+}
+
+/** iOS 键盘的「英文建议」开关，存在原生 App Group 里，而不是共享偏好的 `english_suggestions`。 */
+export function MobileEnglishSuggestionsRow({
+  value,
+  busy,
+  onChange,
+}: Pick<MobileKeyboardFeedbackSectionProps, "value" | "busy" | "onChange">) {
+  return (
+    <EnglishSuggestionsSection
+      disabled={busy}
+      value={value.englishSuggestions !== false}
+      onChange={(englishSuggestions) => onChange({ ...value, englishSuggestions })}
+    />
+  );
 }
 
 /** Shared mobile keyboard sound, haptic, and iOS English suggestion controls: the 屏幕键盘 page's 按键反馈 group. */
@@ -37,36 +57,33 @@ export function MobileKeyboardFeedbackSection({
   value,
   busy,
   ios,
+  showEnglishSuggestions = ios,
   canPreview,
   onChange,
   onPreview,
 }: MobileKeyboardFeedbackSectionProps) {
   return (
     <GroupList title="按键反馈">
-      <div className={settings.rowStack} role="group" aria-label="按键反馈">
-        <Row title="按键音" description="按键音受系统静音设置控制">
-          <Switch
-            disabled={busy}
-            checked={value.soundEnabled}
-            onChange={(checked) => onChange({ ...value, soundEnabled: checked })}
-          />
-        </Row>
+      <SettingsRowStack role="group" aria-label="按键反馈">
+        <SwitchRow
+          title="按键音"
+          description="按键音受系统静音设置控制"
+          disabled={busy}
+          checked={value.soundEnabled}
+          onChange={(checked) => onChange({ ...value, soundEnabled: checked })}
+        />
         {value.hapticsAvailable !== false && (
-          <Row title="按键振动" description="振动效果取决于设备与系统支持">
-            <Switch
-              disabled={busy}
-              checked={value.hapticsEnabled}
-              onChange={(checked) => onChange({ ...value, hapticsEnabled: checked })}
-            />
-          </Row>
+          <SwitchRow
+            title="按键振动"
+            description="振动效果取决于设备与系统支持"
+            disabled={busy}
+            checked={value.hapticsEnabled}
+            onChange={(checked) => onChange({ ...value, hapticsEnabled: checked })}
+          />
         )}
         {value.hapticsAvailable !== false && value.hapticsEnabled && (
           <Row title="振动强度">
-            {canPreview && (
-              <button type="button" className="secondary" disabled={busy} onClick={onPreview}>
-                试一下振动
-              </button>
-            )}
+            {canPreview && <ActionButton action={onPreview} disabled={busy} label="试一下振动" />}
             <Select
               disabled={busy}
               value={value.hapticStrength}
@@ -83,20 +100,10 @@ export function MobileKeyboardFeedbackSection({
             </Select>
           </Row>
         )}
-        {ios && (
-          <Row
-            title="英文建议"
-            description="英文 26 键直接输入时，在候选栏显示当前单词的补全建议；关闭后仍可正常输入英文。"
-          >
-            <Switch
-              disabled={busy}
-              checked={value.englishSuggestions !== false}
-              onChange={(checked) => onChange({ ...value, englishSuggestions: checked })}
-            />
-          </Row>
+        {showEnglishSuggestions && (
+          <MobileEnglishSuggestionsRow value={value} busy={busy} onChange={onChange} />
         )}
-      </div>
+      </SettingsRowStack>
     </GroupList>
   );
 }
-import { SettingToggle } from "./setting-toggle";

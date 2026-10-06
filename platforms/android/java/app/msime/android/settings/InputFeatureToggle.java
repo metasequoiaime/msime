@@ -13,12 +13,7 @@ import java.util.List;
  * <p>Grouped rather than listed flat because the sheets they appear in are grouped, and a toggle
  * that moves between sheets should move by changing its group here.
  *
- * <p>Only preferences that really are one top-level boolean belong here. 自动纠错 used to, writing
- * `autocorrect`; the shared crate has since retired that key - it no longer enables either
- * correction type - and split the feature into the two nested `quanpin` fields, both off by
- * default. The switch went on rendering as checked for a feature that was off and could not be
- * turned on. It is now two rows built by hand in the sheet, because nesting is not something this
- * table can express and pretending otherwise is what let the key go stale unnoticed.
+ * <p>Only preferences that really are one top-level boolean belong here. 自动纠错 is the two nested `quanpin` fields, both off by default, built by hand in the sheet because nesting is not something this table can express.
  */
 public enum InputFeatureToggle {
     LEARNING(Group.DICTIONARY, "learning", true, "记忆新词",
@@ -44,7 +39,9 @@ public enum InputFeatureToggle {
     CANDIDATE_TRANSLATION_ACCOUNT(Group.PRIVACY, "translation_account", false, "用水杉账号翻译候选",
         "把当前页的中文候选词发送到 api.msime.app 翻译，首次使用会创建匿名账号；不开启则不联网翻译"),
     CANDIDATE_ENGLISH_GLOSS(Group.PRIVACY, "candidate_english_gloss", false, "候选英文释义",
-        "用打包的离线词典给候选词标注释义");
+        "用打包的离线词典给候选词标注释义"),
+    USAGE_REPORTING(Group.PRIVACY, "usage_reporting", true, "匿名使用统计",
+        "向 api.msime.app 发送当天是否使用、键盘会话是否正常结束和崩溃摘要，附应用版本与随机安装编号；不含输入内容和账号。关闭后立即停止并清空待发数据");
 
     /** Which sheet an entry belongs to. */
     public enum Group {

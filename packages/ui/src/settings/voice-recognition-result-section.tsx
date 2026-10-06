@@ -10,10 +10,9 @@ export interface VoiceRecognitionResultSectionProps {
   commitMode: VoiceCommitMode;
   onStreamInlinePreeditChange: (enabled: boolean) => void;
   onCommitModeChange: (mode: VoiceCommitMode) => void;
-  grouped?: boolean;
 }
 
-/** Shared recognition result controls; desktop pages group the rows while panels leave that layout to their host. */
+/** Shared recognition result controls: the 识别结果 group. */
 export function VoiceRecognitionResultSection({
   showStreamPreedit,
   showCommitMode,
@@ -22,12 +21,11 @@ export function VoiceRecognitionResultSection({
   commitMode,
   onStreamInlinePreeditChange,
   onCommitModeChange,
-  grouped = false,
 }: VoiceRecognitionResultSectionProps) {
   if (!showStreamPreedit && !showCommitMode) return null;
 
-  const content = (
-    <>
+  return (
+    <GroupList title="识别结果">
       {showStreamPreedit && (
         <VoiceStreamPreeditSection
           enabled={streamInlinePreedit}
@@ -37,8 +35,6 @@ export function VoiceRecognitionResultSection({
       {showCommitMode && (
         <VoiceCommitModeSection macos={macos} value={commitMode} onChange={onCommitModeChange} />
       )}
-    </>
+    </GroupList>
   );
-
-  return grouped ? <GroupList title="识别结果">{content}</GroupList> : content;
 }

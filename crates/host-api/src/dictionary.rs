@@ -1,14 +1,14 @@
 //! Native management requests. The native caller owns and authorizes all paths.
 
 use super::{
-    edit_personal_dictionary, invalid_dictionary_entry, response, DictionaryAccess, HostOptions,
-    DICTIONARY_REQUEST_LIMIT,
+    edit_personal_dictionary, invalid_dictionary_entry, require_dictionary_kind, response,
+    DictionaryAccess, HostOptions, DICTIONARY_REQUEST_LIMIT,
 };
 use msime_client_core::dictionary::import::{dictionary_row_matches, PageSelector};
 use msime_client_core::dictionary::is_han_character;
 use msime_client_core::dictionary::personal::{
-    PersonalDictionaryError, PersonalDictionaryStore, PersonalWord, PersonalWordKind,
-    PersonalWordRequestStatus,
+    PersonalDictionaryError, PersonalDictionaryStore, PersonalWord, PersonalWordApplied,
+    PersonalWordKind, PersonalWordRequestStatus,
 };
 use msime_engine::host::{DictionaryEntry, DictionaryKind};
 use serde::{Deserialize, Serialize};
@@ -23,6 +23,7 @@ enum Kind {
     Wubi,
     QuickPhrase,
     English,
+    Wubi98,
 }
 
 /// Where a listed row comes from. A bundled row shipped with the dictionary (or was learned from typing rather than added): its code and word are fixed, so it can only be given another weight or deleted.
@@ -102,6 +103,7 @@ impl From<Entry> for DictionaryEntry {
                 Kind::Wubi => DictionaryKind::Wubi,
                 Kind::QuickPhrase => DictionaryKind::QuickPhrase,
                 Kind::English => DictionaryKind::English,
+                Kind::Wubi98 => DictionaryKind::Wubi98,
             },
             key: entry.key,
             value: entry.value,
@@ -117,6 +119,7 @@ impl From<Kind> for msime_engine::host::DictionaryKind {
             Kind::Wubi => Self::Wubi,
             Kind::QuickPhrase => Self::QuickPhrase,
             Kind::English => Self::English,
+            Kind::Wubi98 => Self::Wubi98,
         }
     }
 }
@@ -130,6 +133,7 @@ impl TryFrom<DictionaryEntry> for Entry {
             DictionaryKind::Wubi => Kind::Wubi,
             DictionaryKind::QuickPhrase => Kind::QuickPhrase,
             DictionaryKind::English => Kind::English,
+            DictionaryKind::Wubi98 => Kind::Wubi98,
             _ => return Err("unsupported dictionary kind"),
         };
         Ok(Self {
@@ -191,6 +195,17 @@ enum Operation {
     },
     DismissFailure {
         request_id: String,
+    },
+    /// 词条数，只读。没有 `kind` 时数全部词库。`user_only` 为真时只数用户自己的词；为假（缺省）时拼音还计入学习过权重的内置词，与导出的口径相同。
+    Count {
+        #[serde(default)]
+        kind: Option<Kind>,
+        #[serde(default)]
+        user_only: bool,
+    },
+    /// 把用户词库导出成与 `/v1/users/me/dictionary/snapshot` 相同的 NDJSON 文件，`destination` 是绝对路径。
+    ExportSnapshot {
+        destination: String,
     },
 }
 
@@ -589,6 +604,7 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
             text,
             request_id,
         } => {
+            require_dictionary_kind(&options, kind.into())?;
             let (entries, report) = if format == "hans" {
                 (parse_hans_import(&kind, &text, &options)?, None)
             } else {
@@ -747,6 +763,81 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
         Operation::Retry { .. } | Operation::DismissFailure { .. } => {
             Err("dictionary failure actions require the Android personal dictionary API".into())
         }
+        Operation::Count { kind, user_only } => {
+            let _access = DictionaryAccess::try_session(
+                Path::new(&options.user_data),
+                Path::new(&options.dictionaries),
+            )
+            .map_err(|_| "dictionary access unavailable")?
+            .ok_or("dictionary maintenance busy")?;
+            count_entries(&options, kind, user_only)
+        }
+        Operation::ExportSnapshot { destination } => {
+            let _access = DictionaryAccess::try_session(
+                Path::new(&options.user_data),
+                Path::new(&options.dictionaries),
+            )
+            .map_err(|_| "dictionary access unavailable")?
+            .ok_or("dictionary maintenance busy")?;
+            crate::dictionary_snapshot::export_local_snapshot(&options, Path::new(&destination))
+                .map_err(str::to_owned)
+        }
+    }
+}
+
+/// `count` 的实现：分页扫完整个用户词库，最多扫一百万行。
+fn count_entries(
+    options: &msime_engine::host::EngineOptions,
+    kind: Option<Kind>,
+    user_only: bool,
+) -> Result<serde_json::Value, String> {
+    const CHUNK: usize = 1000;
+    const SCAN_LIMIT: usize = 1_000_000;
+    let mut counts = std::collections::BTreeMap::<&'static str, u64>::new();
+    let mut scanned = 0usize;
+    let mut complete = true;
+    loop {
+        let page = if user_only {
+            msime_engine::host::dictionary_entries(options, scanned, CHUNK)
+        } else {
+            msime_engine::host::dictionary_export_entries(
+                options,
+                scanned,
+                CHUNK,
+                kind.is_none_or(|kind| kind == Kind::Pinyin),
+            )
+        }
+        .map_err(|_| "dictionary read rejected")?;
+        let count = page.entries.len();
+        for entry in page.entries {
+            let Ok(entry) = Entry::try_from(entry) else {
+                continue;
+            };
+            if kind.is_some_and(|wanted| wanted != entry.kind) {
+                continue;
+            }
+            *counts.entry(kind_name(entry.kind)).or_default() += 1;
+        }
+        scanned = scanned.saturating_add(count);
+        if !page.has_more || count == 0 {
+            break;
+        }
+        if scanned >= SCAN_LIMIT {
+            complete = false;
+            break;
+        }
+    }
+    let total: u64 = counts.values().sum();
+    Ok(json!({ "count": total, "kinds": counts, "complete": complete }))
+}
+
+fn kind_name(kind: Kind) -> &'static str {
+    match kind {
+        Kind::Pinyin => "pinyin",
+        Kind::Wubi => "wubi",
+        Kind::QuickPhrase => "quick_phrase",
+        Kind::English => "english",
+        Kind::Wubi98 => "wubi98",
     }
 }
 
@@ -933,6 +1024,9 @@ pub fn personal_dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Valu
             let state = store.read().map_err(personal_dictionary_error)?;
             Ok(json!({ "pending_count": state.pending_count() }))
         }
+        Operation::Count { .. } | Operation::ExportSnapshot { .. } => {
+            Err("dictionary read operations require msime_client_dictionary".into())
+        }
         Operation::DismissFailure { request_id } => {
             store
                 .dismiss_failure(&request_id)
@@ -1041,8 +1135,10 @@ pub fn personal_dictionary_sync_json(bytes: &[u8]) -> Result<serde_json::Value, 
     if bytes.len() > DICTIONARY_REQUEST_LIMIT {
         return Err("invalid dictionary buffer".into());
     }
-    let options: HostOptions =
-        serde_json::from_slice(bytes).map_err(|_| "invalid dictionary request".to_owned())?;
+    let options = serde_json::from_slice(bytes)
+        .ok()
+        .and_then(HostOptions::from_document)
+        .ok_or_else(|| "invalid dictionary request".to_owned())?;
     if options.api_version != 1 {
         return Err("unsupported host API version".into());
     }
@@ -1057,17 +1153,29 @@ pub fn personal_dictionary_sync_json(bytes: &[u8]) -> Result<serde_json::Value, 
         .ok_or("personal dictionary shared directory unavailable")?;
     let store = PersonalDictionaryStore::new(Path::new(directory).join("PersonalDictionary"));
     let options = options.into_engine_options();
+    // Read once per synchronization, and only when a collection addition is pending.
+    let mut user_words: Option<std::collections::HashSet<String>> = None;
     store
-        .synchronize(
+        .synchronize_reporting_present(
             |queued| {
                 let previous = queued.previous.as_ref().map(personal_engine_entry);
                 let replacement = queued.replacement.as_ref().map(personal_engine_entry);
+                if let (None, Some(entry)) = (&previous, &replacement) {
+                    if queued.id.starts_with(COLLECTION_REQUEST_PREFIX) {
+                        let words =
+                            user_words.get_or_insert_with(|| user_word_identities(&options));
+                        if user_word_present(words, entry) {
+                            return Ok(PersonalWordApplied::AlreadyPresent);
+                        }
+                    }
+                }
                 edit_personal_dictionary(
                     &options,
                     previous.as_ref(),
                     replacement.as_ref(),
                     &queued.id,
                 )
+                .map(|()| PersonalWordApplied::Written)
             },
             |request| {
                 let (entries, has_more) = user_entries_page(
@@ -1098,6 +1206,53 @@ pub fn personal_dictionary_sync_json(bytes: &[u8]) -> Result<serde_json::Value, 
         "pending_count": state.pending_count(),
         "snapshot_error": state.snapshot_error,
     }))
+}
+
+/// The request id prefix `msime_client_core::dictionary::collections` gives what it queues.
+const COLLECTION_REQUEST_PREFIX: &str = "collections-";
+
+/// Identities of the user's own rows (`user_inserted`), the ones a dictionary collection must neither overwrite nor later remove. A store the Engine cannot read answers empty, so the addition is written as it was before this check existed.
+fn user_word_identities(
+    options: &msime_engine::host::EngineOptions,
+) -> std::collections::HashSet<String> {
+    const CHUNK: usize = 1000;
+    const SCAN_LIMIT: usize = 1_000_000;
+    let mut identities = std::collections::HashSet::new();
+    let mut offset = 0usize;
+    loop {
+        let Ok(page) = msime_engine::host::dictionary_entries(options, offset, CHUNK) else {
+            return std::collections::HashSet::new();
+        };
+        let count = page.entries.len();
+        for raw in page.entries {
+            if let Ok(entry) = Entry::try_from(raw) {
+                identities.insert(engine_identity(&DictionaryEntry::from(entry)));
+            }
+        }
+        offset = offset.saturating_add(count);
+        if !page.has_more || count == 0 || offset >= SCAN_LIMIT {
+            return identities;
+        }
+    }
+}
+
+/// Whether `entry`, normalized as the Engine would store it, is already one of the user's rows.
+fn user_word_present(
+    identities: &std::collections::HashSet<String>,
+    entry: &DictionaryEntry,
+) -> bool {
+    msime_engine::host::dictionary_validate(entry)
+        .is_ok_and(|normalized| identities.contains(&engine_identity(&normalized)))
+}
+
+fn engine_identity(entry: &DictionaryEntry) -> String {
+    PersonalWord {
+        kind: personal_kind(entry.kind),
+        key: entry.key.clone(),
+        value: entry.value.clone(),
+        weight: 0,
+    }
+    .identity()
 }
 
 /// JNI entry point for the Android IME worker.
@@ -1153,6 +1308,7 @@ fn personal_engine_entry(word: &PersonalWord) -> msime_engine::host::DictionaryE
             PersonalWordKind::Wubi => DictionaryKind::Wubi,
             PersonalWordKind::QuickPhrase => DictionaryKind::QuickPhrase,
             PersonalWordKind::English => DictionaryKind::English,
+            PersonalWordKind::Wubi98 => DictionaryKind::Wubi98,
         },
         key: word.key.clone(),
         value: word.value.clone(),
@@ -1195,6 +1351,7 @@ fn edit_bundled_entry(
     weight: Option<i64>,
     request_id: &str,
 ) -> Result<serde_json::Value, String> {
+    require_dictionary_kind(options, previous.kind.into())?;
     let _access = DictionaryAccess::try_maintenance(
         Path::new(&options.user_data),
         Path::new(&options.dictionaries),
@@ -1221,6 +1378,7 @@ fn personal_kind(kind: DictionaryKind) -> PersonalWordKind {
         DictionaryKind::Wubi => PersonalWordKind::Wubi,
         DictionaryKind::QuickPhrase => PersonalWordKind::QuickPhrase,
         DictionaryKind::English => PersonalWordKind::English,
+        DictionaryKind::Wubi98 => PersonalWordKind::Wubi98,
         _ => unreachable!("unsupported personal dictionary kind"),
     }
 }
@@ -1229,6 +1387,7 @@ fn personal_to_kind(kind: PersonalWordKind) -> Kind {
     match kind {
         PersonalWordKind::Pinyin => Kind::Pinyin,
         PersonalWordKind::Wubi => Kind::Wubi,
+        PersonalWordKind::Wubi98 => Kind::Wubi98,
         PersonalWordKind::QuickPhrase => Kind::QuickPhrase,
         PersonalWordKind::English => Kind::English,
     }
@@ -1262,13 +1421,15 @@ fn validate_previous_entry(entry: &Entry) -> Result<(), String> {
 fn validate_entry_up_to(entry: &Entry, max_weight: i64) -> Result<(), String> {
     let key_limit = match entry.kind {
         Kind::Pinyin => 512,
-        Kind::Wubi => 4,
+        Kind::Wubi | Kind::Wubi98 => 4,
         Kind::QuickPhrase => 32,
         Kind::English => 64,
     };
     let key_valid = match entry.kind {
         Kind::Pinyin => msime_client_core::dictionary::pinyin_code_is_well_formed(&entry.key, true),
-        Kind::Wubi => msime_client_core::dictionary::wubi_code_is_well_formed(&entry.key),
+        Kind::Wubi | Kind::Wubi98 => {
+            msime_client_core::dictionary::wubi_code_is_well_formed(&entry.key)
+        }
         Kind::QuickPhrase => {
             msime_client_core::dictionary::quick_phrase_transport_code_is_well_formed(&entry.key)
         }
@@ -1321,6 +1482,7 @@ impl From<&Kind> for msime_client_core::dictionary::import::ImportKind {
             Kind::Wubi => ImportKind::Wubi,
             Kind::QuickPhrase => ImportKind::QuickPhrase,
             Kind::English => ImportKind::English,
+            Kind::Wubi98 => ImportKind::Wubi98,
         }
     }
 }
@@ -1428,8 +1590,8 @@ impl DictionaryOptions {
         if let Some(object) = document.as_object_mut() {
             object.remove("candidate_skin_catalog");
         }
-        let options: HostOptions =
-            serde_json::from_value(document).map_err(|_| "invalid host options".to_owned())?;
+        let options = HostOptions::from_document(document)
+            .ok_or_else(|| "invalid host options".to_owned())?;
         if options.api_version != 1 {
             return Err("unsupported host API version".into());
         }
@@ -1582,6 +1744,7 @@ pub fn edit_user_quick_phrase(
     request_id: &str,
 ) -> Result<(), String> {
     let options = &options.0;
+    require_dictionary_kind(options, DictionaryKind::QuickPhrase)?;
     let (previous, replacement) = match edit {
         QuickPhraseEdit::Add(phrase) => {
             let replacement = quick_phrase_entry(phrase, NEW_QUICK_PHRASE_WEIGHT)?;
@@ -1616,6 +1779,8 @@ pub enum WordKind {
     Pinyin,
     Wubi,
     English,
+    /// 98 五笔码表。
+    Wubi98,
 }
 
 impl From<WordKind> for Kind {
@@ -1624,6 +1789,7 @@ impl From<WordKind> for Kind {
             WordKind::Pinyin => Kind::Pinyin,
             WordKind::Wubi => Kind::Wubi,
             WordKind::English => Kind::English,
+            WordKind::Wubi98 => Kind::Wubi98,
         }
     }
 }
@@ -1734,7 +1900,7 @@ fn comparable_code(kind: WordKind, code: &str) -> String {
     let code = code.trim().to_ascii_lowercase();
     match kind {
         WordKind::Pinyin => code.chars().filter(|c| !matches!(c, '\'' | ' ')).collect(),
-        WordKind::Wubi | WordKind::English => code,
+        WordKind::Wubi | WordKind::Wubi98 | WordKind::English => code,
     }
 }
 
@@ -1807,6 +1973,12 @@ pub fn edit_dictionary_word(
     request_id: &str,
 ) -> Result<(), String> {
     let options = &options.0;
+    let kind = match edit {
+        WordEdit::Add(kind, _)
+        | WordEdit::SetWeight { kind, .. }
+        | WordEdit::Remove { kind, .. } => *kind,
+    };
+    require_dictionary_kind(options, Kind::from(kind).into())?;
     let lookup = |kind: WordKind, code: &str, word: &str| {
         let _access = DictionaryAccess::try_session(
             Path::new(&options.user_data),
@@ -1876,6 +2048,7 @@ pub fn import_dictionary_words(
         return Err("invalid dictionary request ID".into());
     }
     let options = &options.0;
+    require_dictionary_kind(options, Kind::from(kind).into())?;
     let _access = DictionaryAccess::try_maintenance(
         Path::new(&options.user_data),
         Path::new(&options.dictionaries),
@@ -1911,7 +2084,7 @@ pub fn import_dictionary_words(
     Ok(outcome)
 }
 
-/// The scheme a candidate lookup types in. Japanese and Korean are left out: Japanese candidates come through a kana reading, not a code, and Korean has no candidates.
+/// 候选查询所用的方案：候选来自共享词库、按编码查到的那些方案，即 engine 方案码 0 到 2。日文和韩文不在其中：日文候选经由假名读音而不是编码得到，韩文唯一的候选是正在组字的音节对应的汉字，也不是按编码查到的行。粤拼、注音和笔画读各自的语言词库，只有提供这些方案的宿主才会安装；越南文和藏文没有候选。所以这五个方案在这里也都不提供。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LookupScheme {
     Quanpin,
@@ -1973,6 +2146,12 @@ pub fn lookup_candidates(
     if !matches!(options.scheme, 0..=2) {
         return Err("candidates can only be looked up in pinyin, double pinyin or wubi".into());
     }
+    // 本版本的 Engine 跑不了这个方案（例如五笔版查全拼），直接说明原因，不要让建会话失败报成词库打不开。
+    if !msime_engine::SchemeType::from_u8(options.scheme)
+        .is_some_and(|scheme| options.enabled_schemes.contains(scheme))
+    {
+        return Err("this edition does not offer that scheme".into());
+    }
     // A semicolon is a key only in double pinyin; elsewhere it is punctuation and would end the composition.
     let allowed = |byte: u8| {
         byte.is_ascii_lowercase() || byte == b'\'' || (byte == b';' && options.scheme == 1)
@@ -2005,31 +2184,50 @@ pub fn lookup_candidates(
         msime_input_runtime::Runtime::new(session, 9).map_err(|error| error.to_string())?;
     // An unfocused runtime drops every keystroke.
     runtime.focus(true).map_err(|error| error.to_string())?;
-    for value in code.bytes() {
-        runtime
+    // 五笔四码唯一时，第四键直接上屏（`input-runtime` 的自动上屏），之后候选列表是空的。这时上屏的那个词就是这串编码给出的唯一候选，要照样报告。`committed` 只留最后一键的上屏，连同它的编码从哪一键开始。
+    let mut committed = None;
+    let mut start = 0;
+    for (index, value) in code.bytes().enumerate() {
+        let transition = runtime
             .dispatch(msime_input_runtime::Action::Character {
                 value,
                 shift: false,
             })
             .map_err(|error| error.to_string())?;
+        committed = transition
+            .commit
+            .map(|text| (code[start..].to_owned(), text));
+        if committed.is_some() {
+            start = index + 1;
+        }
     }
     // The Engine reports a user's word as a dictionary one, so each is looked up as the row it came from.
-    let word_kind = if options.scheme == 2 {
+    let word_kind = if options.scheme == 2 && options.wubi_profile == 1 {
+        WordKind::Wubi98
+    } else if options.scheme == 2 {
         WordKind::Wubi
     } else {
         WordKind::Pinyin
     };
-    runtime
+    let mut candidates: Vec<(String, String, u8)> = runtime
         .all_candidates()
         .candidates
         .into_iter()
+        .map(|candidate| (candidate.text, candidate.code, candidate.source))
+        .collect();
+    if candidates.is_empty() {
+        // 自动上屏的只会是五笔词条，按词库候选（source 0）去查它的来源。
+        candidates.extend(committed.map(|(code, text)| (text, code, 0)));
+    }
+    candidates
+        .into_iter()
         .take(limit)
-        .map(|candidate| {
+        .map(|(text, code, source)| {
             let row = |kind: WordKind| -> Result<Option<Entry>, String> {
-                stored_word(&options, kind, &candidate.code, &candidate.text)
-                    .map(|entry| entry.filter(|_| !candidate.code.is_empty()))
+                stored_word(&options, kind, &code, &text)
+                    .map(|entry| entry.filter(|_| !code.is_empty()))
             };
-            let (origin, weight) = match candidate.source {
+            let (origin, weight) = match source {
                 0 | 1 => match row(word_kind)? {
                     Some(entry) if entry.is_bundled() => {
                         (CandidateOrigin::Dictionary, Some(entry.weight))
@@ -2050,8 +2248,8 @@ pub fn lookup_candidates(
                 _ => return Err("the lookup produced a candidate that is not local".to_owned()),
             };
             Ok(LookupCandidate {
-                text: candidate.text,
-                code: candidate.code,
+                text,
+                code,
                 origin,
                 weight,
             })

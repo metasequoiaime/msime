@@ -11,18 +11,16 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn online_candidate_response_preserves_legacy_first_candidate_and_batch() {
+    fn online_candidate_response_carries_only_the_batch() {
         let value =
             online_candidate_response(vec![("first".to_owned(), 0), ("second".to_owned(), 1)]);
 
-        assert_eq!(value["text"], json!("first"));
-        assert_eq!(value["source"], json!(0));
         assert_eq!(
-            value["candidates"],
-            json!([
+            value,
+            json!({"candidates": [
                 {"text": "first", "source": 0},
                 {"text": "second", "source": 1},
-            ])
+            ]})
         );
     }
 }
@@ -32,10 +30,7 @@ fn online_candidate_response(candidates: Vec<(String, u8)>) -> Value {
     for (text, source) in candidates {
         rows.push(json!({"text": text, "source": source}));
     }
-    // Preserve the single-result fields for older CLI consumers.
-    let mut value = rows.first().cloned().unwrap_or(json!({}));
-    value["candidates"] = json!(rows);
-    value
+    json!({"candidates": rows})
 }
 
 #[no_mangle]
@@ -294,10 +289,12 @@ pub extern "C" fn msime_client_translation_query(handle: u64) -> *mut c_char {
             let Some(candidates_view) = session.runtime.translation_candidates() else {
                 return Ok(Value::Null);
             };
-            // Windows does not request glosses for Japanese candidates. Use Engine's active mode, including temporary Japanese composition. Korean has no candidates to gloss.
-            if candidates_view.scheme == 3
-                || candidates_view.scheme == KOREAN_SCHEME
-                || candidates_view.local_mode == "temporary_japanese"
+            // 只有显示释义的方案才请求释义：Windows 不为日文候选请求释义，而韩文的汉字候选和中文一样带释义：훈음 由宿主自己画出，与这里的回答无关，翻译或释义画在它下面一行。按引擎当前的本地模式判断，临时日文组字同样不请求。网址模式也不请求：网址可能带着私密路径和参数，不能发给翻译服务。
+            if !SchemeType::from_u8(candidates_view.scheme).is_some_and(SchemeType::shows_glosses)
+                || matches!(
+                    candidates_view.local_mode.as_str(),
+                    "temporary_japanese" | "url"
+                )
             {
                 return Ok(Value::Null);
             }
@@ -650,9 +647,14 @@ pub(crate) struct EmojiCatalogQuery {
     pub(crate) parent: String,
     #[serde(default)]
     pub(crate) cursor: bool,
+    /// 插件目录的绝对路径，`list_plugin_symbol_groups` 从这里读符号集。
+    #[serde(default)]
+    pub(crate) plugins: Option<String>,
+    #[serde(default)]
+    pub(crate) list_plugin_symbol_groups: bool,
 }
 
-/// Query the local verified `others.db` Emoji catalog without a provider socket.
+/// Query the local verified `msime-others.db` Emoji catalog without a provider socket.
 /// Success contains `{items:[{text,annotation,group}]}` in the response envelope.
 /// With `cursor:true`, also returns `next_offset` and `complete`, preserves
 /// duplicate entries, and advances past invalid rows without treating them as EOF.
@@ -693,6 +695,17 @@ pub unsafe extern "C" fn msime_client_emoji_catalog_request(
             let groups = msime_engine::host::emoji_catalog_groups(resources, &query.panel.category)
                 .map_err(|_| "local emoji catalog unavailable")?;
             return Ok(json!({"groups": groups}));
+        }
+        if query.list_plugin_symbol_groups {
+            // 符号集插件不依赖 msime-others.db：目录不可用时内置符号读不出来，插件组照样给。没传插件目录时没有插件组。
+            let groups = match query.plugins.as_deref() {
+                None => Vec::new(),
+                Some(plugins) if std::path::Path::new(plugins).is_absolute() => {
+                    crate::plugin_symbol_groups(std::path::Path::new(plugins))
+                }
+                Some(_) => return Err("plugins path must be absolute".into()),
+            };
+            return Ok(json!({ "plugin_symbol_groups": groups }));
         }
         if query.list_symbol_groups {
             let groups = msime_engine::host::emoji_symbol_groups(resources)

@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
+import { testHost } from "../support/host";
 import { settingsFormReady, saveSettingsNow } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { SettingsPage, type SettingsClient, type Snapshot, type HostCapabilities } from "@msime/ui";
+import { SettingsPage, type SettingsClient, type Snapshot } from "@msime/ui";
 
 afterEach(cleanup);
 
@@ -40,7 +41,7 @@ test("macOS system recognition is configurable without cloud ASR fields", async 
     .mockImplementation(async (_revision, preferences) => ({ ...base, revision: 5, preferences }));
   mount({
     save,
-    host: { platform: "macos" } as HostCapabilities,
+    host: testHost({ platform: "macos" }),
     load: async () => ({
       ...base,
       preferences: {
@@ -86,7 +87,7 @@ test("macOS system recognition is configurable without cloud ASR fields", async 
 test("a stored system provider is preserved on macOS and marked unavailable elsewhere", async () => {
   for (const platform of ["macos", "windows", "linux"]) {
     mount({
-      host: { platform } as HostCapabilities,
+      host: testHost({ platform }),
       load: async () => ({
         ...base,
         preferences: {

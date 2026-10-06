@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
+import { testHost } from "../support/host";
 import { settingsFormReady } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
-import { SettingsPage, type HostCapabilities, type Snapshot } from "@msime/ui";
+import { cleanup, render } from "@testing-library/react";
+import { SettingsPage, type Snapshot } from "@msime/ui";
 
 afterEach(() => {
   cleanup();
@@ -23,13 +24,13 @@ const initial: Snapshot = {
   },
 };
 
-async function shellFor(host: Partial<HostCapabilities> | undefined) {
+async function shellFor(host: Parameters<typeof testHost>[0] | undefined) {
   const { container } = render(
     <SettingsPage
       client={{
         load: async () => initial,
         save: vi.fn(),
-        host: host as HostCapabilities | undefined,
+        host: host && testHost(host),
       }}
     />,
   );

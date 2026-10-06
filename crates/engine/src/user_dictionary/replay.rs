@@ -9,7 +9,7 @@ use rusqlite::{params, Connection, OpenFlags, Row, ToSql};
 
 use crate::dictionary::english::ensure_english_schema;
 use crate::format;
-use crate::user_dictionary::journal::open_database;
+use crate::user_dictionary::journal::{open_database, BUSY_TIMEOUT_MS};
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ReplayResult {
@@ -22,6 +22,26 @@ pub struct ReplayResult {
 
 /// Apply every operation in `(updated_at, rowid)` order to `main_db` and `english_db` (J:1642-1735). Never panics or errors; failures are counted and described.
 pub fn replay(user_db: &Path, main_db: &Path, english_db: &Path) -> ReplayResult {
+    replay_with(user_db, Some(main_db), english_db)
+}
+
+/// 没有 `msime-pinyin.db` 的代次（方案集合不读它，见 `SchemeSet::reads_main_dictionary`）：只把英文行回放进 `english_db`。拼音、五笔和快捷短语的行在这里没有能写的表，计入 `skipped` 而不是 `failed`，所以它们（例如从别的版本恢复来的快照）不会让这个代次被拒；行本身留在日志里不动。
+pub fn replay_english(user_db: &Path, english_db: &Path) -> ReplayResult {
+    replay_with(user_db, None, english_db)
+}
+
+/// 不带 `msime-pinyin.db` 时代替它的连接：一个内存库，`msime-english.db` 和日志照常 attach 上去，写进去的只有 attach 的那几个库。等待锁的时间与 `open_database` 打开的连接相同。
+pub(super) fn open_without_main_dictionary() -> rusqlite::Result<Connection> {
+    let connection = Connection::open_in_memory_with_flags(
+        OpenFlags::SQLITE_OPEN_READ_WRITE
+            | OpenFlags::SQLITE_OPEN_CREATE
+            | OpenFlags::SQLITE_OPEN_FULL_MUTEX,
+    )?;
+    connection.busy_timeout(std::time::Duration::from_millis(BUSY_TIMEOUT_MS))?;
+    Ok(connection)
+}
+
+fn replay_with(user_db: &Path, main_db: Option<&Path>, english_db: &Path) -> ReplayResult {
     let mut result = ReplayResult::default();
     // A first install has no journal and nothing to replay; replay never creates one (J:1646-1647).
     if !user_db.exists() {
@@ -37,7 +57,11 @@ pub fn replay(user_db: &Path, main_db: &Path, english_db: &Path) -> ReplayResult
     if ensure_english_schema(english_db).is_err() {
         return fail(result, "cannot migrate English dictionary database");
     }
-    let Ok(main) = open_database(main_db, OpenFlags::SQLITE_OPEN_READ_WRITE) else {
+    let main = match main_db {
+        Some(main_db) => open_database(main_db, OpenFlags::SQLITE_OPEN_READ_WRITE).ok(),
+        None => open_without_main_dictionary().ok(),
+    };
+    let Some(main) = main else {
         return fail(result, "cannot open target dictionary database");
     };
     if attach(&main, english_db, "replay_english").is_err() {
@@ -56,6 +80,10 @@ pub fn replay(user_db: &Path, main_db: &Path, english_db: &Path) -> ReplayResult
         let mut cursor = rows.query([])?;
         while let Some(row) = cursor.next()? {
             let operation = JournalRow::read(row)?;
+            if main_db.is_none() && operation.kind != b"english" {
+                result.skipped += 1;
+                continue;
+            }
             if operation.kind == b"pinyin"
                 && operation.operation == b"upsert"
                 && operation.weight < 1
@@ -133,6 +161,7 @@ impl JournalRow {
         match self.kind.as_slice() {
             b"pinyin" => apply_pinyin(main, &self.key, &self.value, delete, self.weight),
             b"wubi" => apply_simple(main, "wubi86", &self.key, &self.value, delete, self.weight),
+            b"wubi98" => apply_simple(main, "wubi98", &self.key, &self.value, delete, self.weight),
             b"quick" => apply_simple(
                 main,
                 "quick_parases",
@@ -308,8 +337,8 @@ pub(super) mod tests {
     fn fixture() -> Fixture {
         let root = tempfile::tempdir().unwrap();
         let journal = root.path().join("msime_user.db");
-        let main = root.path().join("msime.db");
-        let english = root.path().join("english.db");
+        let main = root.path().join("msime-pinyin.db");
+        let english = root.path().join("msime-english.db");
         sql(
             &main,
             "CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);
@@ -317,6 +346,7 @@ pub(super) mod tests {
              CREATE TABLE tbl_7_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);
              CREATE TABLE tbl_others_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);
              CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);
+             CREATE TABLE wubi98(key TEXT,value TEXT,weight INTEGER);
              CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);",
         );
         sql(&journal, OPERATIONS_DDL);
@@ -332,6 +362,26 @@ pub(super) mod tests {
         sql(
             &fixture.journal,
             &format!("INSERT INTO user_dictionary_operations(dictionary,key,value,operation,weight,display,updated_at) VALUES{row};"),
+        );
+    }
+
+    #[test]
+    fn wubi_and_wubi98_rows_land_in_their_own_tables() {
+        let fixture = fixture();
+        journal_row(&fixture, "('wubi','kl','号','upsert',11,'',1)");
+        journal_row(&fixture, "('wubi98','kg','号','upsert',12,'',2)");
+        replay(&fixture.journal, &fixture.main, &fixture.english);
+        assert_eq!(
+            weight(&fixture.main, "SELECT weight FROM wubi86 WHERE key='kl'"),
+            Some(11)
+        );
+        assert_eq!(
+            weight(&fixture.main, "SELECT weight FROM wubi98 WHERE key='kg'"),
+            Some(12)
+        );
+        assert_eq!(
+            weight(&fixture.main, "SELECT weight FROM wubi86 WHERE key='kg'"),
+            None
         );
     }
 
@@ -591,5 +641,46 @@ pub(super) mod tests {
         // The exclusive lock already blocks the English attach, which reads the main schema; either way the replay must not report success.
         assert!(!result.error.is_empty());
         assert_eq!(result.applied, 0);
+    }
+
+    /// 没有 `msime-pinyin.db` 的代次只回放英文行：拼音、五笔和快捷短语的行跳过，不算失败，也不会去碰（或创建）`msime-pinyin.db`。
+    #[test]
+    fn without_the_main_dictionary_only_english_rows_are_replayed() {
+        let fixture = fixture();
+        std::fs::remove_file(&fixture.main).unwrap();
+        journal_row(&fixture, "('pinyin','ni''hao','您好','upsert',500,'',1)");
+        journal_row(&fixture, "('wubi','wq','你','upsert',9,'',2)");
+        journal_row(&fixture, "('quick','dh','电话','upsert',10,'',3)");
+        journal_row(
+            &fixture,
+            "('english','hello','Hello','upsert',300,'Hello',4)",
+        );
+        journal_row(&fixture, "('english','world','World','upsert',301,'',5)");
+
+        let result = replay_english(&fixture.journal, &fixture.english);
+        assert_eq!(
+            result,
+            ReplayResult {
+                applied: 2,
+                skipped: 3,
+                failed: 0,
+                error: String::new(),
+            }
+        );
+        assert!(!fixture.main.exists());
+        assert_eq!(
+            weight(
+                &fixture.english,
+                "SELECT weight FROM english_words WHERE word='hello' AND display='Hello'"
+            ),
+            Some(300)
+        );
+        assert_eq!(
+            weight(
+                &fixture.english,
+                "SELECT weight FROM english_words WHERE word='world' AND display='World'"
+            ),
+            Some(301)
+        );
     }
 }

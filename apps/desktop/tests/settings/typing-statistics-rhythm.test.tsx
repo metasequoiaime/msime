@@ -9,6 +9,11 @@ import {
 
 afterEach(cleanup);
 
+// 页面默认打开「按键」，时段分布、速度趋势和按日明细都在「趋势」标签下。
+async function openTrend() {
+  fireEvent.click(await screen.findByRole("tab", { name: "趋势" }));
+}
+
 function today(): string {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
@@ -41,10 +46,11 @@ test("the rhythm cards read the measured activity", async () => {
   // 360 characters over two active minutes.
   expect((await screen.findByLabelText("今日输入速度")).textContent).toContain("180");
   expect(screen.getByLabelText("平均输入速度").textContent).toContain("180");
-  // The source prints the cumulative active time under the average speed.
-  expect(screen.getByText("字 / 分钟 · 共 2分")).toBeTruthy();
+  // 平均输入速度下方写着累计活跃时长。
+  expect(screen.getByText("共 2分")).toBeTruthy();
   expect(screen.getByLabelText("今日活跃时长").textContent).toContain("2分");
   expect(screen.getByLabelText("连续输入天数").textContent).toContain("1");
+  await openTrend();
   expect(screen.getByLabelText("今日各时段输入分布")).toBeTruthy();
   expect(screen.getByLabelText("9 时，360 字符")).toBeTruthy();
 });
@@ -57,7 +63,7 @@ test("a document with no measured activity says so instead of showing a zero spe
   expect((await screen.findByLabelText("今日输入速度")).textContent).toContain("0");
   // Nothing has ever timed typing here, which is different from typing at zero speed.
   expect(screen.getByText(/还没有测量到活跃时长/)).toBeTruthy();
-  expect(screen.queryByText(/字 \/ 分钟 · 共/)).toBeNull();
+  expect(screen.queryByText(/^共 /)).toBeNull();
   // No hours recorded, so the section is absent rather than drawn empty.
   expect(screen.queryByLabelText("今日各时段输入分布")).toBeNull();
 });
@@ -89,6 +95,7 @@ const detailed: TypingStatistics = {
 
 test("the desktop page lists recorded days in the per-day detail table", async () => {
   render(<TypingStatisticsPage client={client(detailed)} />);
+  await openTrend();
   expect(await screen.findByRole("heading", { name: "按日明细 · 最近 30 天" })).toBeTruthy();
   const table = screen.getByRole("table", { name: "按日明细 · 最近 30 天" });
   expect(
@@ -147,6 +154,7 @@ test("today's hours are set against the usual day once earlier days recorded hou
       })}
     />,
   );
+  await openTrend();
   expect(await screen.findByRole("img", { name: "今日各时段输入分布，与平时对比" })).toBeTruthy();
   expect(screen.getByText("平时（前 1 天平均）")).toBeTruthy();
   expect(screen.getByLabelText("21 时，0 字符").getAttribute("title")).toBe(
@@ -171,6 +179,7 @@ test("the speed trend explains itself until a day holds a minute of typing", asy
       })}
     />,
   );
+  await openTrend();
   expect(await screen.findByRole("heading", { name: "速度趋势" })).toBeTruthy();
   expect(screen.queryByRole("img", { name: /每日输入速度折线图/ })).toBeNull();
   expect(screen.getByText(/还没有测量到足够的活跃时长/)).toBeTruthy();
@@ -198,14 +207,21 @@ test("desktop shares are donuts beside their legend and schemes are a ranking", 
     />,
   );
   fireEvent.click(await screen.findByRole("tab", { name: "类型" }));
-  expect(screen.getByRole("img", { name: "字符类型环形图" })).toBeTruthy();
+  const donut = screen.getByRole("img", { name: "字符类型环形图" });
   expect(screen.getByLabelText("汉字 70 字符，70.0%")).toBeTruthy();
+  // 环是两段实心扇区，不再是 conic-gradient 加遮罩画出的细线；总数写在圆心。
+  const segments = donut.querySelectorAll("[data-donut-segment]");
+  expect(Array.from(segments).map((segment) => segment.tagName.toLowerCase())).toEqual([
+    "path",
+    "path",
+  ]);
+  expect(within(donut).getByText("100")).toBeTruthy();
   fireEvent.click(screen.getByRole("tab", { name: "方案" }));
   const ranking = screen.getByRole("img", { name: "输入方案排行" });
   // Largest first, and only schemes that were used: the ranking is the legend.
   expect(Array.from(ranking.children).map((row) => row.getAttribute("aria-label"))).toEqual([
     "全拼 26 键 60 字符，60.0%",
-    "86 五笔 30 字符，30.0%",
+    "五笔 30 字符，30.0%",
     "英文键盘 10 字符，10.0%",
   ]);
   expect(screen.getAllByLabelText(/^全拼 26 键 /)).toHaveLength(1);

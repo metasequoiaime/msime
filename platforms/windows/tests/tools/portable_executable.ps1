@@ -5,13 +5,21 @@ $root = Join-Path ([IO.Path]::GetTempPath()) ('msime-pe-' + [Guid]::NewGuid())
 $path = Join-Path $root 'synthetic image.bin'
 $verify = Join-Path $PSScriptRoot '../../Test-PortableExecutable.ps1'
 try {
-    foreach ($arch in @('x86', 'x64')) {
+    $architectures = @('x86', 'x64', 'arm64', 'arm64x')
+    foreach ($arch in $architectures) {
         foreach ($kind in @('exe', 'dll')) {
             Write-PEFixture $path $arch $kind
+            if ($arch -in 'arm64', 'arm64x') {
+                $fixtureBytes = [IO.File]::ReadAllBytes($path)
+                if ([BitConverter]::ToUInt16($fixtureBytes, 132) -ne 0xaa64) {
+                    throw 'Final ARM64/Arm64X fixture must use AA64 machine'
+                }
+            }
             & $verify -LiteralPath $path -Architecture $arch -Kind $kind
-            $otherArch = if ($arch -eq 'x64') { 'x86' } else { 'x64' }
             $otherKind = if ($kind -eq 'exe') { 'dll' } else { 'exe' }
-            foreach ($mismatch in @(@($otherArch, $kind), @($arch, $otherKind))) {
+            # Every other architecture is rejected, including arm64 for an Arm64X image and arm64x for a plain ARM64 one.
+            $mismatches = @($architectures | Where-Object { $_ -ne $arch } | ForEach-Object { , @($_, $kind) }) + @(, @($arch, $otherKind))
+            foreach ($mismatch in $mismatches) {
                 $rejected = $false
                 try { & $verify -LiteralPath $path -Architecture $mismatch[0] -Kind $mismatch[1] } catch { $rejected = $true }
                 if (-not $rejected) { throw 'Mismatched image accepted' }

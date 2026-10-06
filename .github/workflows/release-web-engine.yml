@@ -1,0 +1,174 @@
+name: Release Web Engine
+
+# 构建网页内置输入法用的引擎包（msime-engine-wasm 的 wasm、加载代码、裁剪后的拼音库和五笔 86 库、整句模型、NOTICE、清单和校验和）以及 npm 包 @msime/web-engine，只有 publish 为 true 时才发布为 web-engine-vX.Y.Z release 并发布到 npm。
+#
+# TapTapGo 在 data/msime/web-engine.lock.json 里按 sha256 和大小钉住这个 release 的每个文件，构建时下载并逐个校验。因此发布出去的 release 不能删除，附件也不能替换：哪怕只是重新上传同名文件，已经钉住它的每个构建都会校验失败。要修正就发一个新版本号。
+#
+# 词库和模型按 resources/desktop-dictionary.lock.json 下载并校验。web_article_eval（文章跟打的首选命中率）的输入不在本仓库，这里不跑；发布人在本地运行后把结果那一行补进 release notes。
+on:
+  workflow_dispatch:
+    inputs:
+      version: {description: "Semantic version of the web engine release (web-engine-vX.Y.Z); empty takes the highest existing web-engine-v release plus one patch, or 0.1.0 for the first", required: false, default: "", type: string}
+      prerelease: {description: Mark as prerelease, required: false, default: false, type: boolean}
+      publish: {description: "Publish the build as a web-engine-v release and to npm (only from main; otherwise it is only uploaded as a workflow artifact)", required: false, default: false, type: boolean}
+      # 门槛按 GitHub 的 ubuntu-24.04 runner 校准：同一份 wasm 在 Apple Silicon 开发机上 p95 约 27-30 ms，在这个 runner 上约 64 ms。100 ms 给共享 runner 的抖动留约 1.5 倍余量，仍能拦下明显的变慢，并低于慢帧熔断的 120 ms（过了那条线模型会被关掉）。
+      max_p95_ms: {description: "Gate on the p95 of one keys() call in latency.mjs, in milliseconds", required: false, default: '100', type: string}
+permissions: {contents: read}
+concurrency: {group: release-web-engine, cancel-in-progress: false}
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      # 发布只能从 main：npm 的 latest 会被 ^ 版本范围和不带版本号的 CDN 地址自动取走，从哪个分支发就决定了所有接入方拿到什么，所以必须是走过发版 PR 的 main（AGENTS.md「发版」）。只构建不发布时任何分支都可以。放在第一步，选错分支几秒内就失败，不用等构建跑完。
+      - name: Publishing builds from main only
+        if: ${{ inputs.publish }}
+        env: {REF: "${{ github.ref }}"}
+        run: |
+          if [[ "$REF" != refs/heads/main ]]; then
+            echo "::error::publish 只能在 main 上运行，这次是 $REF。先用 scripts/release-pr.sh 把 develop 发版到 main，再从 main 触发；只想验证构建就不要勾选 publish。"
+            exit 1
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {ref: "${{ github.sha }}", persist-credentials: false}
+      # 构建触发时的那个提交；清单里的 source_commit 和 release 的 tag 都以它为准。
+      - id: source
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - id: version
+        env: {REQUESTED: "${{ inputs.version }}", MAX_P95: "${{ inputs.max_p95_ms }}"}
+        run: |
+          set -euo pipefail
+          [[ "$MAX_P95" =~ ^[0-9]+(\.[0-9]+)?$ ]] || { echo "max_p95_ms must be a number, got '$MAX_P95'" >&2; exit 1; }
+          # Every existing web-engine-vX.Y.Z tag on the remote (prereleases with a suffix are not counted for the automatic bump).
+          tags=$(git ls-remote --tags --refs "https://github.com/${GITHUB_REPOSITORY}.git" 'web-engine-v*' | sed 's|.*refs/tags/web-engine-v||')
+          if [[ -z "$REQUESTED" ]]; then
+            latest=$(printf '%s\n' "$tags" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -t. -k1,1n -k2,2n -k3,3n | tail -1 || true)
+            if [[ -z "$latest" ]]; then REQUESTED=0.1.0; else IFS=. read -r major minor patch <<< "$latest"; REQUESTED="${major}.${minor}.$((patch + 1))"; fi
+            echo "No version given; using $REQUESTED (highest existing: ${latest:-none})"
+          fi
+          # A build from develop is X.Y.Z-beta and one from any other branch but main X.Y.Z-alpha, in the manifest, the npm package and the artifact names alike. Publishing stays main-only (the first step), so a suffixed version only ever names a workflow artifact.
+          case "$GITHUB_REF_NAME" in main) ;; develop) REQUESTED="${REQUESTED}-beta" ;; *) REQUESTED="${REQUESTED}-alpha" ;; esac
+          [[ "$REQUESTED" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "version must be X.Y.Z or X.Y.Z-pre, got '$REQUESTED'" >&2; exit 1; }
+          if printf '%s\n' "$tags" | grep -qxF "$REQUESTED"; then echo "web-engine-v$REQUESTED already exists; releases are never replaced" >&2; exit 1; fi
+          echo "value=$REQUESTED" >> "$GITHUB_OUTPUT"
+      # 与 ci-platforms.yml 的 web-engine 作业用同样的两份官方 tarball 和 SHA-256。
+      - name: Install LLVM, the wasm target, wasm-bindgen and wasm-opt
+        env:
+          WASM_BINDGEN_URL: https://github.com/wasm-bindgen/wasm-bindgen/releases/download/0.2.128/wasm-bindgen-0.2.128-x86_64-unknown-linux-musl.tar.gz
+          WASM_BINDGEN_SHA256: b51f0208fdff83515a787bd8ab9ac5865ed84dabb66d0c709957bb59793c645f
+          BINARYEN_URL: https://github.com/WebAssembly/binaryen/releases/download/version_133/binaryen-version_133-x86_64-linux.tar.gz
+          BINARYEN_SHA256: 2dc9c7813f5375db93d96ead4b78222fcc3e2677bbb832297af4797782a37489
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y clang llvm
+          # Installs the toolchain rust-toolchain.toml pins.
+          rustup toolchain install
+          rustup target add wasm32-unknown-unknown
+          tools="$RUNNER_TEMP/web-engine-tools"
+          mkdir -p "$tools"
+          curl -sSfL -o "$tools/wasm-bindgen.tar.gz" "$WASM_BINDGEN_URL"
+          echo "$WASM_BINDGEN_SHA256  $tools/wasm-bindgen.tar.gz" | sha256sum -c -
+          tar -xzf "$tools/wasm-bindgen.tar.gz" -C "$tools"
+          curl -sSfL -o "$tools/binaryen.tar.gz" "$BINARYEN_URL"
+          echo "$BINARYEN_SHA256  $tools/binaryen.tar.gz" | sha256sum -c -
+          tar -xzf "$tools/binaryen.tar.gz" -C "$tools"
+          echo "$tools/wasm-bindgen-0.2.128-x86_64-unknown-linux-musl" >> "$GITHUB_PATH"
+          echo "$tools/binaryen-version_133/bin" >> "$GITHUB_PATH"
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+      # 1. 输入：词库 release 里的 msime-pinyin.db、msime-wubi.db 和 chinese-ime-lm 的整句模型，按锁文件的 URL 下载，长度和 SHA-256 都对上才用。
+      - name: Download the pinned dictionary and model
+        run: |
+          set -euo pipefail
+          lock=resources/desktop-dictionary.lock.json
+          inputs=target/web-engine/inputs
+          mkdir -p "$inputs"
+          for name in msime-pinyin.db msime-wubi.db sentence-model.safetensors; do
+            url="$(jq -er --arg n "$name" '.artifacts[] | select(.name == $n) | .url' "$lock")"
+            sha="$(jq -er --arg n "$name" '.artifacts[] | select(.name == $n) | .sha256' "$lock")"
+            size="$(jq -er --arg n "$name" '.artifacts[] | select(.name == $n) | .size' "$lock")"
+            curl -sSfL --retry 3 -o "$inputs/$name" "$url"
+            actual="$(stat -c %s "$inputs/$name")"
+            [[ "$actual" == "$size" ]] || { echo "$name is $actual bytes, the lock says $size" >&2; exit 1; }
+            echo "$sha  $inputs/$name" | sha256sum -c -
+          done
+      # 2. 构建；脚本内部调用 `msime-dict-build web` 裁词库，跑 NOTICE 检查和体积门槛。
+      - name: Build the web engine
+        env: {VERSION: "${{ steps.version.outputs.value }}"}
+        run: |
+          scripts/build-web-engine.sh --version "$VERSION" \
+            --pinyin target/web-engine/inputs/msime-pinyin.db --wubi target/web-engine/inputs/msime-wubi.db \
+            --model target/web-engine/inputs/sentence-model.safetensors
+      # 3. 冒烟测试、按键延迟门槛和校验和。
+      - name: Smoke test the built glue and wasm in Node
+        run: |
+          cargo run --locked -p msime-engine-wasm --example make_fixture -- target/web-engine/fixture/msime.db
+          node crates/engine-wasm/tests/smoke.mjs target/web-engine/fixture/msime.db
+      - name: Test the web engine SDK
+        run: |
+          node --test 'packages/web-engine/test/*.test.mjs'
+          node packages/web-engine/test/smoke.mjs target/web-engine/fixture/msime.db
+          node packages/web-engine/test/candidates.browser.mjs
+      - name: Keystroke latency
+        env: {MAX_P95: "${{ inputs.max_p95_ms }}"}
+        run: node crates/engine-wasm/bench/latency.mjs --max-p95 "$MAX_P95"
+      - name: Verify the release files
+        env: {VERSION: "${{ steps.version.outputs.value }}", SOURCE_SHA: "${{ steps.source.outputs.sha }}"}
+        run: |
+          set -euo pipefail
+          dist=target/web-engine/dist
+          (cd "$dist" && sha256sum -c SHA256SUMS.txt)
+          jq -e --arg v "$VERSION" --arg c "$SOURCE_SHA" '.version == $v and .source_commit == $c and ([.artifacts[].role] | sort) == (["glue", "model", "notice", "pinyin", "wasm", "wubi86"])' "$dist/web-engine-manifest.json" > /dev/null || { echo "web-engine-manifest.json does not match this build" >&2; cat "$dist/web-engine-manifest.json" >&2; exit 1; }
+          if grep -q '{{source_commit}}' "$dist/NOTICE.md"; then echo "NOTICE.md still has the source commit placeholder" >&2; exit 1; fi
+      # 4. 不论是否发布，都上传为 workflow artifact。
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: web-engine-${{ steps.version.outputs.value }}
+          path: target/web-engine/dist/
+          if-no-files-found: error
+      # npm 包 @msime/web-engine 单独上传：它不属于 dist，不能出现在 TapTapGo 钉住的清单和校验和里。
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: web-engine-npm-${{ steps.version.outputs.value }}
+          path: target/web-engine/npm/msime-web-engine-${{ steps.version.outputs.value }}.tgz
+          if-no-files-found: error
+    outputs:
+      version: ${{ steps.version.outputs.value }}
+      sha: ${{ steps.source.outputs.sha }}
+  publish:
+    needs: [build]
+    if: ${{ inputs.publish }}
+    runs-on: ubuntu-24.04
+    permissions: {contents: write}
+    steps:
+      # Only for scripts/publish-release.sh, which overwrites a release of the same version.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {sparse-checkout: scripts/publish-release.sh, sparse-checkout-cone-mode: false, persist-credentials: false}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with: {name: "web-engine-${{ needs.build.outputs.version }}", path: dist}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with: {name: "web-engine-npm-${{ needs.build.outputs.version }}", path: npm}
+      # 构建的可以是任意分支的提交，所以发布必须显式要求，不能默认发生；否则构建一次功能分支就会发出一个公开且不能撤回的 release。
+      # 5. 发布 web-engine-vX.Y.Z，带上 dist/ 里的全部文件。不标为 latest：仓库的最新版本应当仍是客户端的发布。
+      - name: Publish web engine release
+        # RELEASE_PUBLISH_TOKEN (org secret, a fine-grained token with Contents and Workflows write) creates the tag: GitHub refuses GITHUB_TOKEN a new ref whose .github/workflows differs from the default branch, which is the case whenever develop takes a workflow change while the release builds (Release Linux run 37259338700, 403 Resource not accessible by integration). Without the secret, as on a fork, it falls back to GITHUB_TOKEN.
+        env: {GH_TOKEN: "${{ secrets.RELEASE_PUBLISH_TOKEN || github.token }}", GH_REPO: "${{ github.repository }}", VERSION: "${{ needs.build.outputs.version }}", PRERELEASE: "${{ inputs.prerelease }}", SOURCE_SHA: "${{ needs.build.outputs.sha }}"}
+        run: |
+          set -euo pipefail
+          dist=dist
+          (cd "$dist" && sha256sum -c SHA256SUMS.txt)
+          jq -r '"Built by scripts/build-web-engine.sh from metasequoiaime/msime \(.source_commit) (pinyin dictionary keeps \(.keep_multi) multi-character words).\n\nInputs: msime-pinyin.db, msime-wubi.db and sentence-model.safetensors as pinned in resources/desktop-dictionary.lock.json at that commit. Licences: NOTICE.md. Checksums: SHA256SUMS.txt; web-engine-manifest.json lists every file with its sha256 and size for data/msime/web-engine.lock.json in TapTapGo.\n\nPublished assets are never replaced or deleted, because TapTapGo pins them by sha256."' "$dist/web-engine-manifest.json" > notes.md
+          tag="web-engine-v${VERSION}"
+          RELEASE_LATEST=false bash scripts/publish-release.sh "$tag" "$SOURCE_SHA" "Web engine ${VERSION}" notes.md "$dist"/msime_engine_bg.wasm "$dist"/msime_engine.js "$dist"/msime-pinyin.db.gz "$dist"/msime-wubi86.db.gz "$dist"/sentence-model.safetensors.gz "$dist"/NOTICE.md "$dist"/web-engine-manifest.json "$dist"/SHA256SUMS.txt "npm/msime-web-engine-${VERSION}.tgz"
+  # 6. 把附到 release 上的同一个 tgz 发布为 npm 包 @msime/web-engine。发布逻辑在 publish-web-engine-npm.yml：npm 失败时单独触发它补发这个版本，不用重跑这里，也不会再动已经发布的 release；npm 上已有的版本不能替换，同一版本重新发布时 npm 保留最初那次的包。预发布版本打 next 标签，不会成为 npm install 的默认版本。
+  npm:
+    needs: [build, publish]
+    if: ${{ inputs.publish }}
+    permissions: {contents: read, id-token: write}
+    uses: ./.github/workflows/publish-web-engine-npm.yml
+    with:
+      version: ${{ needs.build.outputs.version }}
+      prerelease: ${{ inputs.prerelease }}
+    secrets: inherit

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { InputSourceStartupStatus, SettingsClient } from "../index";
 import { inputSourceNeedsAdding } from "./input-source-startup-notice";
+import { useAsyncGeneration } from "./use-async-generation";
 
 /** How often the settings page reads the input source list again while the notice waits for the user to act in System Settings or Finder; a focus change reads it at once. */
 export const INPUT_SOURCE_RECHECK_MS = 3000;
@@ -27,10 +28,11 @@ export function useMacosSettings({ client, macos, setError }: UseMacosSettingsOp
   const [savedShuangpinKeymap, setSavedShuangpinKeymap] = useState<boolean>();
   const [wubiAutoCommitUnique, setWubiAutoCommitUnique] = useState<boolean>();
   const [savedWubiAutoCommitUnique, setSavedWubiAutoCommitUnique] = useState<boolean>();
+  const clientGeneration = useAsyncGeneration(client, macos);
 
   // Set once the user dismisses the notice, so a later focus refresh does not bring it back in this window.
   const inputSourceDismissed = useRef(false);
-  const inputSourceRequest = useRef(0);
+  const inputSourceRequest = useAsyncGeneration(client, macos);
   const refreshInputSourceStartup = useCallback(async () => {
     const startup = macos ? client.inputSourceStartup : undefined;
     const request = ++inputSourceRequest.current;
@@ -87,23 +89,22 @@ export function useMacosSettings({ client, macos, setError }: UseMacosSettingsOp
       setOnDeviceDownloadable([]);
       return;
     }
-    let active = true;
+    const generation = clientGeneration.current;
     const refresh = () =>
       void onDeviceTranslation
         .downloadableLanguages()
         .then((codes) => {
-          if (active) setOnDeviceDownloadable(codes);
+          if (generation === clientGeneration.current) setOnDeviceDownloadable(codes);
         })
         .catch(() => {
-          if (active) setOnDeviceDownloadable([]);
+          if (generation === clientGeneration.current) setOnDeviceDownloadable([]);
         });
     refresh();
     window.addEventListener("focus", refresh);
     return () => {
-      active = false;
       window.removeEventListener("focus", refresh);
     };
-  }, [client, macos]);
+  }, [client, clientGeneration, macos]);
 
   useEffect(() => {
     if (!macos || !client.loadMacosShuangpinKeymap) {
@@ -111,21 +112,18 @@ export function useMacosSettings({ client, macos, setError }: UseMacosSettingsOp
       setSavedShuangpinKeymap(undefined);
       return;
     }
-    let active = true;
+    const generation = clientGeneration.current;
     void client
       .loadMacosShuangpinKeymap()
       .then((value) => {
-        if (!active) return;
+        if (generation !== clientGeneration.current) return;
         setShuangpinKeymap(value);
         setSavedShuangpinKeymap(value);
       })
       .catch(() => {
-        if (active) setError("无法读取双拼键位提示设置，请重试。");
+        if (generation === clientGeneration.current) setError("无法读取双拼键位提示设置，请重试。");
       });
-    return () => {
-      active = false;
-    };
-  }, [client, macos]);
+  }, [client, clientGeneration, macos]);
 
   useEffect(() => {
     if (!macos || !client.loadMacosWubiAutoCommitUnique) {
@@ -133,21 +131,18 @@ export function useMacosSettings({ client, macos, setError }: UseMacosSettingsOp
       setSavedWubiAutoCommitUnique(undefined);
       return;
     }
-    let active = true;
+    const generation = clientGeneration.current;
     void client
       .loadMacosWubiAutoCommitUnique()
       .then((value) => {
-        if (!active) return;
+        if (generation !== clientGeneration.current) return;
         setWubiAutoCommitUnique(value);
         setSavedWubiAutoCommitUnique(value);
       })
       .catch(() => {
-        if (active) setError("无法读取五笔自动上屏设置，请重试。");
+        if (generation === clientGeneration.current) setError("无法读取五笔自动上屏设置，请重试。");
       });
-    return () => {
-      active = false;
-    };
-  }, [client, macos]);
+  }, [client, clientGeneration, macos]);
 
   return {
     dismissInputSourceStartup,

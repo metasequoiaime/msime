@@ -75,6 +75,14 @@ if /build/stage/usr/local/bin/msime-linux-clipboard "$clipboard_fixture/history.
 fi
 echo "Linux clipboard stream acceptance passed"
 
+/build/stage/usr/local/bin/msime-linux-clipboard "$clipboard_fixture/history.json" remove $'first\nentry\r'
+if /build/stage/usr/local/bin/msime-linux-clipboard "$clipboard_fixture/history.json" get 1 >/dev/null; then
+  echo "Linux clipboard remove did not normalize the requested value" >&2
+  exit 1
+fi
+[[ $(/build/stage/usr/local/bin/msime-linux-clipboard "$clipboard_fixture/history.json" get 0) == "second" ]]
+echo "Linux clipboard normalized remove passed"
+
 python3 - "$clipboard_fixture/history.json" <<'PYTHON'
 import sys
 from pathlib import Path
@@ -87,6 +95,8 @@ if [[ $(/build/stage/usr/local/bin/msime-linux-clipboard "$clipboard_fixture/his
 fi
 echo "Linux clipboard history size limit passed"
 
+# The size-limit check left an empty history, so put back the entry remove-index must keep.
+/build/stage/usr/local/bin/msime-linux-clipboard "$clipboard_fixture/history.json" add second
 unicode_text='水杉输入法 😀'
 /build/stage/usr/local/bin/msime-linux-clipboard "$clipboard_fixture/history.json" add "$unicode_text"
 [[ $(/build/stage/usr/local/bin/msime-linux-clipboard "$clipboard_fixture/history.json" get 0) == "$unicode_text" ]]
@@ -125,8 +135,13 @@ assert json.loads((state / "preferences.json").read_text())["preferences"]["clou
 assert json.loads((state / "runtime-options.json").read_text())["preferences"]["cloud_candidates"] is False
 print("Declined cloud candidates are recorded at preparation")
 PYTHON
-/build/stage/usr/local/bin/msime-linux-prepare /resources "$declined/default" >/dev/null
-python3 -c 'import json,sys; assert json.load(open(sys.argv[1]))["preferences"]["cloud_candidates"] is True' "$declined/default/runtime-options.json"
+# Cloud candidates start off; only an accepted choice at preparation turns them on.
+/build/stage/usr/local/bin/msime-linux-prepare --cloud-candidates /resources "$declined/accepted" >/dev/null
+python3 -c 'import json,sys; assert json.load(open(sys.argv[1]))["preferences"]["cloud_candidates"] is True' "$declined/accepted/runtime-options.json"
+# A user that has never logged in to a desktop may not have ~/.config yet: prepare creates the missing parents, private to the user, instead of failing.
+/build/stage/usr/local/bin/msime-linux-prepare /resources "$declined/home/.config/default" >/dev/null
+python3 -c 'import json,sys; assert json.load(open(sys.argv[1]))["preferences"]["cloud_candidates"] is False' "$declined/home/.config/default/runtime-options.json"
+test "$(stat -c %a "$declined/home/.config")" = 700
 rm -rf "$declined"
 fixture=$(mktemp -d /tmp/msime-ibus-bootstrap.XXXXXX)
 options=$(cargo run --quiet -p msime-host-api --example prepare_host --locked -- /resources "$fixture")

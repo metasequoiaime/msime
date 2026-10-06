@@ -11,8 +11,8 @@ use crate::user_dictionary::journal::{open_database, pinyin_table};
 use crate::user_dictionary::personal::{
     check_receipt, column_i64, column_text, failed, open_edit_connection, page_bind, save_receipt,
     valid_request_id, Receipt, DICTIONARY_NOT_OPENED, EDIT_NOT_BEGUN, ENTRY_CHANGED,
-    INVALID_REQUEST_ID, MAX_ENTRY_WEIGHT, MAX_PAGE_LIMIT, MAX_PAGE_OFFSET, RETRY_NOT_FINISHED,
-    STORAGE_NOT_ATTACHED, STORAGE_UNAVAILABLE,
+    INVALID_REQUEST_ID, MAX_ENTRY_WEIGHT, MAX_PAGE_LIMIT, MAX_PAGE_OFFSET, NO_CHINESE_DICTIONARY,
+    RETRY_NOT_FINISHED, STORAGE_NOT_ATTACHED, STORAGE_UNAVAILABLE,
 };
 use crate::user_dictionary::replay::attach;
 
@@ -97,15 +97,7 @@ pub fn dictionary_table_entries(
             .is_ok_and(|found| found.is_some())
         };
 
-    let tables: Vec<String> = match kind {
-        // Every syllable count of the query's initial, the overflow bucket included, since separators are ignored and the query does not say how many syllables the key has.
-        PersonalDictionaryKind::Pinyin => (1..=format::MAXIMUM_NUMBERED_SYLLABLES + 1)
-            .filter_map(|syllables| format::quanpin_table(syllables, code.as_bytes()[0]))
-            .collect(),
-        PersonalDictionaryKind::Wubi => vec!["wubi86".to_owned()],
-        PersonalDictionaryKind::QuickPhrase => vec!["quick_parases".to_owned()],
-        PersonalDictionaryKind::English => vec!["english_words".to_owned()],
-    };
+    let tables = lookup_tables(kind, &code);
     let (key_column, value_column) = if english {
         ("word", "display")
     } else {
@@ -121,27 +113,31 @@ pub fn dictionary_table_entries(
             "lower(key)=?1".to_owned(),
         ),
         // Wubi and English codes are stored lower-case, so the prefix is a range the primary index answers.
-        PersonalDictionaryKind::Wubi | PersonalDictionaryKind::English => (
+        PersonalDictionaryKind::Wubi
+        | PersonalDictionaryKind::Wubi98
+        | PersonalDictionaryKind::English => (
             format!("{key_column}>=?1 AND {key_column}<?3"),
             format!("{key_column}=?1"),
         ),
     };
-    let mut rows = Vec::new();
-    for table in &tables {
-        let present = connection
-            .query_row(
-                "SELECT 1 FROM main.sqlite_master WHERE type='table' AND name=?1",
-                [table],
-                |_| Ok(()),
-            )
-            .optional()
-            .map_err(|_| failed(DICTIONARY_NOT_READ))?;
-        if present.is_some() {
-            rows.push(format!(
-                "SELECT {key_column} AS key,{value_column} AS value,weight,{exact} AS exact FROM main.\"{table}\" WHERE {matches}"
-            ));
-        }
-    }
+    let rows = lookup_rows(
+        &tables,
+        key_column,
+        value_column,
+        &exact,
+        &matches,
+        |table| {
+            connection
+                .query_row(
+                    "SELECT 1 FROM main.sqlite_master WHERE type='table' AND name=?1",
+                    [table],
+                    |_| Ok(()),
+                )
+                .optional()
+                .map(|present| present.is_some())
+        },
+    )
+    .map_err(|_| failed(DICTIONARY_NOT_READ))?;
     if rows.is_empty() {
         return Ok(DictionaryTablePage::default());
     }
@@ -212,6 +208,17 @@ pub fn edit_bundled_dictionary_entry(
     weight: Option<i64>,
     request_id: &str,
 ) -> Result<()> {
+    edit_bundled_dictionary_entry_with(paths, true, previous, weight, request_id)
+}
+
+/// [`edit_bundled_dictionary_entry`]，`main_dictionary` 说明代次里有没有 `msime-pinyin.db`。没有时只有英文词库的行能改，其余种类以 `NO_CHINESE_DICTIONARY` 失败。
+pub fn edit_bundled_dictionary_entry_with(
+    paths: &RuntimePaths,
+    main_dictionary: bool,
+    previous: &PersonalDictionaryEntry,
+    weight: Option<i64>,
+    request_id: &str,
+) -> Result<()> {
     if !valid_request_id(request_id) {
         return Err(failed(INVALID_REQUEST_ID));
     }
@@ -229,6 +236,9 @@ pub fn edit_bundled_dictionary_entry(
         return Err(failed(INVALID_BUNDLED_ENTRY));
     }
     let english = previous.kind == PersonalDictionaryKind::English;
+    if !main_dictionary && !english {
+        return Err(failed(NO_CHINESE_DICTIONARY));
+    }
     let target = format!(
         "{}.\"{table}\"",
         if english { "replay_english" } else { "main" }
@@ -241,7 +251,7 @@ pub fn edit_bundled_dictionary_entry(
     let dictionary = previous.kind.journal_name();
 
     paths.validate().map_err(|_| failed(STORAGE_UNAVAILABLE))?;
-    let mut connection = open_edit_connection(paths)?;
+    let mut connection = open_edit_connection(paths, main_dictionary)?;
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(|_| failed(EDIT_NOT_BEGUN))?;
@@ -332,10 +342,63 @@ pub fn edit_bundled_dictionary_entry(
 fn bundled_table(kind: PersonalDictionaryKind, key: &str) -> Option<String> {
     match kind {
         PersonalDictionaryKind::Pinyin => pinyin_table(key),
-        PersonalDictionaryKind::Wubi => Some("wubi86".to_owned()),
+        PersonalDictionaryKind::Wubi | PersonalDictionaryKind::Wubi98 => {
+            kind.wubi_table().map(str::to_owned)
+        }
         PersonalDictionaryKind::QuickPhrase => Some("quick_parases".to_owned()),
         PersonalDictionaryKind::English => Some("english_words".to_owned()),
     }
+}
+
+/// Every table a prefix lookup can inspect: all numbered pinyin tables plus
+/// the overflow bucket, or the single table used by another dictionary kind.
+fn lookup_tables(kind: PersonalDictionaryKind, code: &str) -> Vec<String> {
+    let capacity = match kind {
+        PersonalDictionaryKind::Pinyin => format::MAXIMUM_NUMBERED_SYLLABLES + 1,
+        PersonalDictionaryKind::Wubi
+        | PersonalDictionaryKind::Wubi98
+        | PersonalDictionaryKind::QuickPhrase
+        | PersonalDictionaryKind::English => 1,
+    };
+    let mut tables = Vec::with_capacity(capacity);
+    match kind {
+        // Every syllable count of the query's initial, the overflow bucket included, since separators are ignored and the query does not say how many syllables the key has.
+        PersonalDictionaryKind::Pinyin => {
+            for syllables in 1..=format::MAXIMUM_NUMBERED_SYLLABLES + 1 {
+                if let Some(table) = format::quanpin_table(syllables, code.as_bytes()[0]) {
+                    tables.push(table);
+                }
+            }
+        }
+        PersonalDictionaryKind::Wubi | PersonalDictionaryKind::Wubi98 => {
+            tables.extend(kind.wubi_table().map(str::to_owned))
+        }
+        PersonalDictionaryKind::QuickPhrase => tables.push("quick_parases".to_owned()),
+        PersonalDictionaryKind::English => tables.push("english_words".to_owned()),
+    }
+    tables
+}
+
+fn lookup_rows<F>(
+    tables: &[String],
+    key_column: &str,
+    value_column: &str,
+    exact: &str,
+    matches: &str,
+    mut table_exists: F,
+) -> rusqlite::Result<Vec<String>>
+where
+    F: FnMut(&str) -> rusqlite::Result<bool>,
+{
+    let mut rows = Vec::with_capacity(tables.len());
+    for table in tables {
+        if table_exists(table)? {
+            rows.push(format!(
+                "SELECT {key_column} AS key,{value_column} AS value,weight,{exact} AS exact FROM main.\"{table}\" WHERE {matches}"
+            ));
+        }
+    }
+    Ok(rows)
 }
 
 /// The query folded to the form codes of the kind are stored in, or `None` when it holds a character no such code can contain. Pinyin drops its separators so a query matches a key however it was split (J:2033-2049).
@@ -448,6 +511,27 @@ mod tests {
 
     fn values(rows: &[DictionaryTableEntry]) -> Vec<&str> {
         rows.iter().map(|row| row.entry.value.as_str()).collect()
+    }
+
+    #[test]
+    fn lookup_tables_reserve_the_bounded_table_count() {
+        use PersonalDictionaryKind::*;
+
+        let pinyin = lookup_tables(Pinyin, "ni");
+        assert_eq!(pinyin.len(), format::MAXIMUM_NUMBERED_SYLLABLES + 1);
+        assert_eq!(pinyin.capacity(), format::MAXIMUM_NUMBERED_SYLLABLES + 1);
+
+        let wubi = lookup_tables(Wubi, "wqv");
+        assert_eq!(wubi.capacity(), 1);
+    }
+
+    #[test]
+    fn lookup_rows_reserve_the_bounded_table_count() {
+        let tables = vec!["tbl_a".to_owned(), "tbl_b".to_owned(), "tbl_c".to_owned()];
+        let rows = lookup_rows(&tables, "key", "value", "exact", "matches", |_| Ok(true)).unwrap();
+
+        assert_eq!(rows.len(), tables.len());
+        assert!(rows.capacity() >= tables.len());
     }
 
     #[test]

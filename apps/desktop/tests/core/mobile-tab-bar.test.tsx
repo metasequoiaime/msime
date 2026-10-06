@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
+import { testHost } from "../support/host";
 import { settingsFormReady } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import { SettingsPage, type HostCapabilities, type Snapshot } from "@msime/ui";
+import { SettingsPage, type Snapshot } from "@msime/ui";
 
 afterEach(() => {
   cleanup();
@@ -36,7 +37,7 @@ function mount() {
         communitySkins: {
           list: vi.fn().mockResolvedValue({ skins: [], has_more: false }),
         } as never,
-        host: { platform: "harmony" } as HostCapabilities,
+        host: testHost({ platform: "harmony" }),
       }}
     />,
   );
@@ -91,6 +92,26 @@ test("every page the sidebar reaches is reachable on a phone", async () => {
     .map((button) => button.textContent ?? "")
     .filter((title) => !reachable.has(title));
   expect(stranded).toEqual([]);
+});
+
+// 「全部设置」按导航分组列出页面，每组上方是组名；在标签栏或「我的」里已有入口的组整组不列。
+test("the 全部设置 list is grouped under the navigation group titles", async () => {
+  mount();
+  await settingsFormReady();
+
+  fireEvent.click(screen.getByRole("button", { name: /全部设置/ }));
+  const list = screen.getByRole("region", { name: "全部设置" });
+  const groups = within(list)
+    .getAllByRole("group")
+    .map((group) => ({
+      title: group.getAttribute("aria-labelledby")
+        ? document.getElementById(group.getAttribute("aria-labelledby")!)?.textContent
+        : undefined,
+      pages: [...group.querySelectorAll("strong")].map((item) => item.textContent),
+    }));
+  expect(groups.map((group) => group.title)).toEqual(["打字", "外观", "键盘、语音与手写", "工具"]);
+  expect(groups[0].pages[0]).toBe("输入");
+  expect(within(list).getByRole("group", { name: "打字" })).toBeTruthy();
 });
 
 // Drilling into a page that has no tab does not leave the bar blank: the page was reached from the

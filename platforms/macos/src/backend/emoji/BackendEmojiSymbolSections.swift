@@ -41,6 +41,17 @@ enum MacEmojiSymbolSections {
     return sections
   }
 
+  /// 颜文字页的分组：内置颜文字为 All，插件 `kaomoji` 组依次排在后面；没有内置命中时不出现 All。`start` 是在拼接后列表里的全局下标。
+  static func kaomoji(builtIn: [MacEmojiCatalogItem], plugins: [MacEmojiPluginSymbolGroup], search: String) -> [MacEmojiSymbolSection] {
+    var sections: [MacEmojiSymbolSection] = []
+    func append(_ title: String, _ items: [MacEmojiCatalogItem]) {
+      sections.append(.init(title: title, start: (sections.last.map { $0.start + $0.items.count }) ?? 0, items: items))
+    }
+    if !builtIn.isEmpty { append("All", builtIn) }
+    for group in MacEmojiPluginSymbolGroup.kaomojiSections(plugins, search: search) { append(group.title, group.items) }
+    return sections
+  }
+
   static func height(_ section: MacEmojiSymbolSection) -> CGFloat {
     titleHeight + MacEmojiGridMetrics.height(count: section.items.count) + bottomPadding
   }

@@ -2,13 +2,17 @@ export type EmojiCatalogItem = { text: string; keywords: string };
 export type EmojiCatalogGroup = {
   title: string;
   parent?: string;
+  /** 符号集插件组所属的包 id；内置组没有。插件组和插件分类的键都带上它，不会和内置的撞上。 */
+  pack?: string;
+  /** 整组共用的搜索词（符号集插件组的 `keywords`）：只参与搜索，不改写各项自己的 `keywords`。 */
+  keywords?: string;
   icon: string;
   items: EmojiCatalogItem[];
 };
 
 // The Windows resource catalog is larger and is supplied by the native host
 // when available. This compact catalog keeps the shared panel useful in
-// browser previews and on hosts that have not packaged others.db yet.
+// browser previews and on hosts that have not packaged msime-others.db yet.
 export const fallbackEmojiGroups: EmojiCatalogGroup[] = [
   {
     title: "Smileys and emotion",

@@ -35,13 +35,19 @@ cargo run --release -p msime-input-runtime --example rerank_latency -- \
 
 ### `quanpin-words-v1.tsv` — 25,119 条词级
 
-由 `build_eval_set` 从 microsoft/Windows-classic-samples 的 `SampleIMESimplifiedQuanPin.txt` 固化而来，MIT 授权，本仓库不收录该文件，没有任何构建脚本读它，也不进入 `msime.db`，所以一次性固化进仓库；重新生成需要自备那份源文件。
+由 `build_eval_set` 从 microsoft/Windows-classic-samples 的 `SampleIMESimplifiedQuanPin.txt` 固化而来，MIT 授权，本仓库不收录该文件，没有任何构建脚本读它，也不进入 `msime-pinyin.db`，所以一次性固化进仓库；重新生成需要自备那份源文件。
 
 生成时丢弃 27,561 条单字、1,955 条截断条目，无解析失败。截断过滤用 Engine 自己的 `normalize_full_pinyin` 判断「key 能否恰好切成 gold 字数个音节」，而不是长度阈值——该格式在 12 字符处截断，但 `chulufengma`、`shumenshul` 这类更短的 key 同样被砍，长度阈值漏得掉。
 
 **它测的是词典命中与排序，不是整句能力。** 实测 `gold_source` 几乎全是 `database`，词图一次都没有贡献过正确答案。
 
-**不要用 `msime.db` 自身出题。** 它就是解码器查的那张表，等于让系统考自己；而 1–2 音节的排序实现就是 `ORDER BY weight DESC`，拿 weight 当金标准是在考 SQLite。
+**不要用 `msime-pinyin.db` 自身出题。** 它就是解码器查的那张表，等于让系统考自己；而 1–2 音节的排序实现就是 `ORDER BY weight DESC`，拿 weight 当金标准是在考 SQLite。
+
+#### `--nine-key`：同一个词级集在九键上打
+
+`convert_eval --nine-key` 打开 Runtime 的九键模式，把每条用例的字母换成键盘上印在旁边的数字（a–c 是 2，w–z 是 9）再逐键输入，金标准不变。全键盘上 xi'an 和 yi'an 是两个输入，九键上是同一串 9426，所以权重口径不一致的词在这里才暴露出来（一按 压过 西安）；全拼的数字测不到这一层。
+
+`verify-local.sh` 以 `--limit 3000 --nine-key` 跑它，对照 `baseline-nine-key.json`。完整 25,119 条上，九键 top-1 0.552、top-5 0.826，全拼是 0.753 / 0.941（同一份锁定词库，挂着重排模型）：九键比全键盘少对两成，这个差距就是九键排序要追的东西。
 
 ### `sentences-v2.tsv` — 310 条收割，带上文
 

@@ -2,12 +2,14 @@ import Foundation
 import Darwin
 
 enum PersonalWordKind: String, Codable, CaseIterable, Identifiable, Sendable {
-  case pinyin, wubi, quickPhrase, english
+  /// `wubi` 是 86 五笔的词条，`wubi98` 是 98 五笔的，两套码表的个人词条分开存。
+  case pinyin, wubi, wubi98, quickPhrase, english
   var id: String { rawValue }
   var title: String {
     switch self {
     case .pinyin: return "拼音"
-    case .wubi: return "五笔"
+    case .wubi: return "86 五笔"
+    case .wubi98: return "98 五笔"
     case .quickPhrase: return "快捷短语"
     case .english: return "英文"
     }
@@ -48,20 +50,13 @@ struct PersonalWordRequest: Codable, Identifiable, Sendable {
 }
 
 struct PersonalDictionaryState: Codable, Sendable {
-  // The Rust queue uses serde's camelCase conversion (`refreshId`), while
-  // Swift's conventional acronym spelling would otherwise encode `refreshID`.
-  // Keep the on-disk contract explicit so the Tauri host and keyboard can
-  // acknowledge the same refresh cycle instead of silently resetting it.
+  // The Rust queue uses serde's camelCase conversion (`refreshId`), while Swift's conventional acronym spelling would otherwise encode `refreshID`. Keep the on-disk contract explicit so the Tauri host and keyboard can acknowledge the same refresh cycle instead of silently resetting it.
   enum CodingKeys: String, CodingKey {
     case version, requests, entries, hasMore, snapshotDate, snapshotError
     case pageOffset, requestedPageOffset, requestedKind, requestedQuery, pageKind, pageQuery
     case exportRequest, exportResult
     case refreshID = "refreshId"
     case completedRefreshID = "completedRefreshId"
-  }
-  private enum LegacyCodingKeys: String, CodingKey {
-    case refreshID = "refreshID"
-    case completedRefreshID = "completedRefreshID"
   }
   var version = 1
   var requests: [PersonalWordRequest] = []
@@ -87,7 +82,6 @@ struct PersonalDictionaryState: Codable, Sendable {
 
   init(from decoder: Decoder) throws {
     let values = try decoder.container(keyedBy: CodingKeys.self)
-    let legacy = try decoder.container(keyedBy: LegacyCodingKeys.self)
     version = try values.decodeIfPresent(Int.self, forKey: .version) ?? 1
     requests = try values.decodeIfPresent([PersonalWordRequest].self, forKey: .requests) ?? []
     entries = try values.decodeIfPresent([PersonalWord].self, forKey: .entries) ?? []
@@ -100,10 +94,8 @@ struct PersonalDictionaryState: Codable, Sendable {
     requestedQuery = try values.decodeIfPresent(String.self, forKey: .requestedQuery) ?? ""
     pageKind = try values.decodeIfPresent(PersonalWordKind.self, forKey: .pageKind)
     pageQuery = try values.decodeIfPresent(String.self, forKey: .pageQuery) ?? ""
-    refreshID = try values.decodeIfPresent(UUID.self, forKey: .refreshID)
-      ?? legacy.decodeIfPresent(UUID.self, forKey: .refreshID) ?? UUID()
+    refreshID = try values.decodeIfPresent(UUID.self, forKey: .refreshID) ?? UUID()
     completedRefreshID = try values.decodeIfPresent(UUID.self, forKey: .completedRefreshID)
-      ?? legacy.decodeIfPresent(UUID.self, forKey: .completedRefreshID)
     exportRequest = try values.decodeIfPresent(PersonalExportRequest.self, forKey: .exportRequest)
     exportResult = try values.decodeIfPresent(PersonalExportResult.self, forKey: .exportResult)
   }
@@ -204,7 +196,12 @@ final class PersonalDictionaryStore: @unchecked Sendable {
     return encoder
   }
 
-  init(directory: URL? = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.app.msime.ios")) {
+  /// 共享的 App Group 状态必须留在容器内。在创建任何目录或访问任何文件之前，先拒绝事先存在的符号链接。
+  private func rejectSymlinkAncestors(_ path: URL) throws {
+    guard !SafePath.hasRefusedSymbolicLink(path) else { throw StoreError.unavailable }
+  }
+
+  init(directory: URL? = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: MSIMEAppEdition.appGroupIdentifier)) {
     self.directory = directory?.appendingPathComponent("PersonalDictionary", isDirectory: true)
   }
 
@@ -214,6 +211,7 @@ final class PersonalDictionaryStore: @unchecked Sendable {
   }
 
   private func readFile(at file: URL) throws -> PersonalDictionaryState {
+    try rejectSymlinkAncestors(file)
     guard FileManager.default.fileExists(atPath: file.path) else { return PersonalDictionaryState() }
     let size = try file.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
     guard size <= maximumBytes else { throw StoreError.invalidState }
@@ -242,6 +240,7 @@ final class PersonalDictionaryStore: @unchecked Sendable {
     guard let directory else { throw StoreError.unavailable }
     Self.processLock.lock()
     defer { Self.processLock.unlock() }
+    try rejectSymlinkAncestors(directory)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     let descriptor = open(directory.appendingPathComponent("sync.lock").path,
                           O_CREAT | O_RDWR | O_NOFOLLOW | O_CLOEXEC, S_IRUSR | S_IWUSR)
@@ -261,6 +260,7 @@ final class PersonalDictionaryStore: @unchecked Sendable {
     guard let directory else { throw StoreError.unavailable }
     Self.processLock.lock()
     defer { Self.processLock.unlock() }
+    try rejectSymlinkAncestors(directory)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     let descriptor = open(directory.appendingPathComponent("sync.lock").path,
                           O_CREAT | O_RDWR | O_NOFOLLOW | O_CLOEXEC, S_IRUSR | S_IWUSR)

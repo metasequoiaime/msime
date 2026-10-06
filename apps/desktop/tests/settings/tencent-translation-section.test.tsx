@@ -8,26 +8,24 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-test("forwards provider toggle and credential edits", () => {
-  const onToggle = vi.fn();
+test("forwards credential edits and leaves choosing the service to 翻译服务", () => {
   const onSecretIdChange = vi.fn();
   const onSecretKeyChange = vi.fn();
   const onRegionChange = vi.fn();
   render(
     <TencentTranslationSection
-      enabled
       available
       secretId="synthetic-id"
       secretKey="synthetic-key"
       region="synthetic-region"
-      onToggle={onToggle}
       onSecretIdChange={onSecretIdChange}
       onSecretKeyChange={onSecretKeyChange}
       onRegionChange={onRegionChange}
     />,
   );
 
-  fireEvent.click(screen.getByRole("switch", { name: "腾讯云机器翻译" }));
+  // 服务只能从「翻译服务」下拉框开启，所以它自己的设置里没有开关。
+  expect(screen.queryByRole("switch")).toBeNull();
   fireEvent.change(screen.getByLabelText("腾讯云 SecretId"), {
     target: { value: "updated-id" },
   });
@@ -38,7 +36,6 @@ test("forwards provider toggle and credential edits", () => {
     target: { value: "updated-region" },
   });
 
-  expect(onToggle).toHaveBeenCalledWith(false);
   expect(onSecretIdChange).toHaveBeenCalledWith("updated-id");
   expect(onSecretKeyChange).toHaveBeenCalledWith("updated-key");
   expect(onRegionChange).toHaveBeenCalledWith("updated-region");
@@ -47,13 +44,11 @@ test("forwards provider toggle and credential edits", () => {
 test("shows validation and missing credential warnings", () => {
   const { rerender } = render(
     <TencentTranslationSection
-      enabled
       available
       secretId="bad id"
       secretKey="synthetic-key"
       region="synthetic-region"
       credentialIssue="SecretId 只能包含字母、数字、下划线和连字符。"
-      onToggle={vi.fn()}
       onSecretIdChange={vi.fn()}
       onSecretKeyChange={vi.fn()}
       onRegionChange={vi.fn()}
@@ -63,13 +58,11 @@ test("shows validation and missing credential warnings", () => {
   expect(screen.getByRole("status").textContent).toContain("SecretId");
   rerender(
     <TencentTranslationSection
-      enabled
       available
       secretId=""
       secretKey=""
       region="synthetic-region"
       showMissingCredentialsWarning
-      onToggle={vi.fn()}
       onSecretIdChange={vi.fn()}
       onSecretKeyChange={vi.fn()}
       onRegionChange={vi.fn()}
@@ -81,21 +74,17 @@ test("shows validation and missing credential warnings", () => {
 test("disables fields when candidate translations are unavailable", () => {
   render(
     <TencentTranslationSection
-      enabled
       available={false}
       secretId="synthetic-id"
       secretKey="synthetic-key"
       region="synthetic-region"
-      onToggle={vi.fn()}
       onSecretIdChange={vi.fn()}
       onSecretKeyChange={vi.fn()}
       onRegionChange={vi.fn()}
     />,
   );
 
-  expect(
-    (screen.getByRole("switch", { name: "腾讯云机器翻译" }) as HTMLInputElement).disabled,
-  ).toBe(true);
+  expect((screen.getByLabelText("腾讯云 SecretKey") as HTMLInputElement).disabled).toBe(true);
   expect((screen.getByLabelText("腾讯云 SecretId") as HTMLInputElement).disabled).toBe(true);
   expect((screen.getByLabelText("腾讯云地域") as HTMLInputElement).disabled).toBe(true);
 });

@@ -18,20 +18,19 @@
 
 int main()
 {
-    // Wire bytes, not just matching C++ declarations: existing v1 DLLs write
-    // these offsets on both x86 and x64. Changes must not move UTF-16 data.
+    // Wire bytes, not just matching C++ declarations: the x86 and x64 DLLs both write these offsets to the same Server, so changes must not move UTF-16 data.
     std::array<unsigned char, 304> bytes{};
     bytes[0] = 10; // ClientHello
     bytes[8] = 7;  // client id
-    FanyImeNamedpipeData legacy{};
-    std::memcpy(&legacy, bytes.data(), bytes.size());
-    CHECK(legacy.client_id == 7);
-    CHECK(FanyImeProtocol::Negotiate(legacy).legacy);
-    CHECK(FanyImeProtocol::Negotiate(legacy).accepted);
+    FanyImeNamedpipeData unversioned{};
+    std::memcpy(&unversioned, bytes.data(), bytes.size());
+    CHECK(unversioned.client_id == 7);
+    // A hello without the magic, version and request id is rejected.
+    CHECK(!FanyImeProtocol::Negotiate(unversioned).accepted);
 
     auto hello = FanyImeProtocol::Hello(7, 19);
     auto result = FanyImeProtocol::Negotiate(hello);
-    CHECK(result.accepted && !result.legacy);
+    CHECK(result.accepted);
     auto reply = FanyImeProtocol::Reply(hello, result);
     CHECK(FanyImeProtocol::AcceptReply(reply, 19));
     CHECK(!FanyImeProtocol::AcceptReply(reply, 18)); // stale reconnect ACK

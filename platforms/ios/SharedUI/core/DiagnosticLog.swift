@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 
 /// 「诊断日志」: the keyboard's host log, the iOS counterpart of the macOS and Linux host logs, turned on by the shared `diagnostic_log.server`.
 ///
@@ -19,9 +20,14 @@ final class DiagnosticLog: @unchecked Sendable {
   static let maxBytes = 1024 * 1024
   static let maxEventBytes = 192
 
+  private static func rejectsSymlinkAncestors(_ path: URL) -> Bool {
+    SafePath.hasRefusedSymbolicLink(path)
+  }
+
   /// Reads at most `maximumBytes` from the end while retaining the file's full size for display.
   static func readTail(from url: URL, maximumBytes: Int) throws -> TailRead {
     guard maximumBytes > 0 else { throw TailReadFailure.invalidLimit }
+    guard !rejectsSymlinkAncestors(url) else { throw TailReadFailure.tooLarge }
     let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
     let fileSize = (attributes[.size] as? NSNumber)?.int64Value ?? 0
     guard fileSize >= 0, fileSize <= Int64(Int.max) else { throw TailReadFailure.tooLarge }
@@ -60,6 +66,7 @@ final class DiagnosticLog: @unchecked Sendable {
   func write(_ event: String) {
     lock.lock(); defer { lock.unlock() }
     guard let file else { return }
+    guard !Self.rejectsSymlinkAncestors(file) else { return }
     let manager = FileManager.default
     if let size = (try? manager.attributesOfItem(atPath: file.path))?[.size] as? NSNumber, size.intValue > Self.maxBytes {
       let rotated = file.appendingPathExtension("1")

@@ -48,17 +48,40 @@ uint32_t msime_client_abi_version(void);
  * Verifies pinned resources, delegates working data preparation to Engine and
  * returns HostOptions. Maximum 16384 bytes; no session may use state_root during
  * preparation. Caller publishes the returned config atomically after success.
+ * 可选的 edition 是版本 id（shared/contracts/editions.json），缺省为 full；不是 full 时返回的 HostOptions 带 edition 键，未知 id 返回错误。
  */
 char *msime_client_prepare_host(const uint8_t *options, size_t length);
-/* path is an absolute UTF-8 runtime options file path of length bytes; maximum 4096. When its dictionaries directory is not the installed resource generation (after a package upgrade), prepares that generation, replays the user dictionary into it and atomically rewrites resources/dictionaries, keeping every other key. Value is true when the file was rewritten. Call before creating any session from the file. When the recorded resource directory does not match the compiled dictionary lock (downloaded dictionaries an upgrade did not replace) the error text begins with "dictionary_outdated:" and the file is left unchanged; the rest of that text may name private paths. */
+/* path is an absolute UTF-8 runtime options file path of length bytes; maximum 4096. When its dictionaries directory is not the installed resource generation (after a package upgrade), prepares that generation, replays the user dictionary into it and atomically rewrites resources/dictionaries, keeping every other key. It also keeps language_dictionaries in step with the Cantonese, Zhuyin and Stroke dictionaries installed beside the resources, whatever the generation; only an input method host may call it, because a host older than this library rejects that key. Value is true when the file was rewritten. Call before creating any session from the file. When the recorded resource directory does not match the compiled dictionary lock (downloaded dictionaries an upgrade did not replace) the error text begins with "dictionary_outdated:" and the file is left unchanged; the rest of that text may name private paths. */
 char *msime_client_refresh_host(const uint8_t *path, size_t length);
 /* directory is an absolute UTF-8 directory path of length bytes; maximum 4096. Registers the device's anonymous MSIME account at https://api.msime.app unless anonymous-session.json already exists there, keeping the identity in anonymous-account.json and the session in anonymous-session.json (both owner-only). Blocks on the network: call off the input thread. Value is true once a session exists. A failure leaves the identity for the next call, so call again on a later start. */
 char *msime_client_ensure_anonymous_account(const uint8_t *directory, size_t length);
+/* Anonymous usage reporting to https://api.msime.app/v1/telemetry/events (no credentials). Every request is UTF-8 JSON of length bytes; maximum 16 KiB (256 KiB for record_crash). directory is an absolute directory the host owns for its telemetry files (the queue telemetry.json, telemetry-state.json with the random install id, the session marker and telemetry-crashes/). platform is windows, macos, linux, android, ios or harmony (aliases such as win, darwin, ohos are mapped); version is the real app version. Consent: enabled (the usage_reporting switch, default on) or, for hosts on the shared preferences, preferences_directory to read usage_reporting from; with reporting off, begin and flush clear everything and send nothing.
+ * begin {directory, platform, version, enabled?|preferences_directory?}: call once at host start. Closes the previous session (session_crash only when it left a crash record; a leftover marker alone is no crash), queues crash records as crash events with paths reduced to file names, queues today's active, writes a new marker. Value {enabled, crash_record_path?, previous_session_crashed?, crashes?}. No network.
+ * end {directory}: the host is exiting normally; queues the session event. Value true when a session was running. No network.
+ * record_crash {directory, message, stack}: from a crash handler that may allocate (C++ terminate handler). Writes the session's crash record only; first line of message is the summary, stack is frames as module+offset or symbol. Value false when no session runs or a record exists. An async-signal handler instead writes crash_record_path from begin itself: open(O_WRONLY|O_CREAT|O_EXCL, 0600), the summary line, '\n', the frames.
+ * flush (same request as begin): queues today's active and sends the queue oldest first; 400 drops an event, 429/5xx/network keep it (Retry-After honoured across processes). Value {enabled, sent, dropped, remaining, deferred}. Blocks on the network: background thread only.
+ * clear {directory}: usage reporting was just turned off. */
+char *msime_client_telemetry_begin(const uint8_t *request, size_t length);
+char *msime_client_telemetry_end(const uint8_t *request, size_t length);
+char *msime_client_telemetry_record_crash(const uint8_t *request, size_t length);
+char *msime_client_telemetry_flush(const uint8_t *request, size_t length);
+char *msime_client_telemetry_clear(const uint8_t *request, size_t length);
+/* Notices from GET https://api.msime.app/v1/notices (no credentials). request {directory, platform, channel?} (channel app by default); directory is an absolute directory for notices.json. Value {items:[{id,title,body,html,targets,channels,published_at}]}, newest first, without the ones dismissed; html is body rendered as by msime_client_markdown_to_html. The feed is fetched at most once a minute (the cached copy otherwise, and when the request fails). Blocks on the network: call off the input thread when the settings window or app home opens, never on a timer in the input method. */
+char *msime_client_notices(const uint8_t *request, size_t length);
+/* request {directory, id}: remember that the user dismissed notice id. */
+char *msime_client_notice_dismiss(const uint8_t *request, size_t length);
+/* text is UTF-8 Markdown of length bytes; maximum 256 KiB. Value is HTML for a rich-text view: raw HTML in the source is escaped, only http, https and mailto links are kept, images become links and are never loaded. Open links externally. */
+char *msime_client_markdown_to_html(const uint8_t *text, size_t length);
+/* Community moderation for hosts that send community requests through their own HTTP stack. Request is UTF-8 JSON of length bytes; maximum 64 KiB. Publishing is post-moderated: an item is public at once and moderators may remove it. To learn the state of the user's own items add fields=moderation to scope=mine lists and to the detail request (skins, candidate-skins, plugins, resources); each own item then carries moderation "approved"|"pending"|"removed". Show only a 已下架 badge for removed and treat pending as approved; never show a reason. Without fields=moderation the responses are unchanged.
+ * {operation:"reasons"}: value is the report reasons in dialog order, each the exact string to send: ["侵权/抄袭","色情低俗","违法违规","垃圾广告","恶意插件","其他"].
+ * {operation:"report",kind,item_id,reason,detail?}: kind is skins, candidate-skins, plugins, dictionaries or replies; item_id the item's UUID; reason one of the reasons; detail optional, at most 1000 characters. Value {method:"POST",path:"/v1/community/reports",body}: send body as JSON with the signed-in session's bearer (the device's anonymous account counts). A bad field is error community_invalid.
+ * {operation:"error",status,body?}: status and body of a failed community response. Value {code,message,retry}: code is account_blocked_content (422 blocked_content: the text must change; never say the service is down), account_screening_unavailable (503 screening_unavailable: honour Retry-After), account_banned (403 account_banned) or the generic account_* code; message is the Chinese sentence to show for the first three and null otherwise; retry says whether the same request may be sent again later. */
+char *msime_client_community_moderation(const uint8_t *request, size_t length);
 /* options is a readable UTF-8 buffer of length bytes; maximum 1 MiB.
  * Object: api_version=1, resources/user_data/cache/dictionaries (absolute paths),
  * preferences={scheme, candidate_page_size, learning, chinese_punctuation,
- *              shuangpin_profile?}. Missing profile defaults to xiaohe; allowed
- * profiles: xiaohe, ziranma, shoudao, microsoft. Unknown values are rejected.
+ *              shuangpin_profile?, wubi_profile?}. Missing profile defaults to xiaohe; allowed
+ * profiles: xiaohe, ziranma, shoudao, microsoft. 缺省 wubi_profile 为 wubi86，可选 wubi86、wubi98。 Unknown values are rejected.
  * Optional preferences_directory is bootstrap metadata for host file monitoring;
  * session creation itself does not monitor or load it.
  * Optional phrase_preedit=true asks for a half-composed phrase to stay in the
@@ -88,7 +111,7 @@ char *msime_client_create(const uint8_t *options, size_t length);
  * {options: <same HostOptions as create>, action: {operation:"list",offset:0,limit:100}}
  * List takes optional kind and query (a code prefix). Without them it lists the user's own words; with a kind and a nonblank query (quick_phrase needs none) it also finds the bundled words of that dictionary, user words first. user_only:true keeps any list to the user's own words, filtered by the kind and code prefix across the whole store.
  * or action:{operation:"edit",previous:null|Entry,replacement:null|Entry,request_id:"..."}.
- * Batch import: action:{operation:"import",kind:"pinyin"|"wubi"|"quick_phrase"|"english",
+ * Batch import: action:{operation:"import",kind:"pinyin"|"wubi"|"wubi98"|"quick_phrase"|"english",
  * format:"standard"|"windows"|"rime"|"hans",text:"word<TAB>code<TAB>weight\\n",request_id:"..."}.
  * Standard rows are word, code, weight; Windows rows are code, word, weight. Rime rows are
  * word, code, optional weight and may include YAML front matter between --- and ...; Rime's
@@ -99,9 +122,11 @@ char *msime_client_create(const uint8_t *options, size_t length);
  * with deterministic receipt IDs derived from request_id so retries are safe.
  * Export: action:{operation:"export",kind,format:"standard"|"windows",offset,limit} returns
  * {text,has_more}; use pages of at most 1000 rows. Standard output is word, code, weight.
- * Entry:{kind:"pinyin"|"wubi"|"quick_phrase"|"english",key,value,weight,source?:"user"|"bundled"}.
+ * Entry:{kind:"pinyin"|"wubi"|"wubi98"|"quick_phrase"|"english",key,value,weight,source?:"user"|"bundled"}.
  * List returns {entries,has_more} and sets source on every entry; edit returns {applied:true}. Errors are redacted.
  * A bundled entry passed back as previous can only be re-weighted (replacement with the same kind, key and value) or deleted (replacement null); anything else fails with "bundled dictionary entry is read-only". Export of pinyin also carries the weights set or learned for bundled words and omits single characters; the other kinds export user words only.
+ * 计数（只读）：action:{operation:"count",kind?,user_only?:bool} 返回 {count,kinds:{kind:n},complete}；user_only:true 只数用户自己的词，否则拼音还会数上学到或设过权重的随包词（也就是导出的那些行）。扫描在 1,000,000 行处停下时 complete 为 false。
+ * 快照导出：action:{operation:"export_snapshot",destination:绝对路径} 把用户的词写成与 GET /v1/users/me/dictionary/snapshot 相同的 NDJSON msime-dictionary-snapshot v1 文档（header、每个词一条 entry 和一条 overlay、带正文 SHA-256 的 footer；revision 为 1，不含位置和选择），用云端格式自己的校验器检查后返回那份元数据加上 path。不需要账号。
  * Native host owns/authorizes paths; never accept arbitrary webview paths or log payloads.
  * Run on a worker thread. Edit returns busy until all participating sessions are
  * destroyed, then holds exclusive access; recreate sessions after success.
@@ -164,6 +189,9 @@ char *msime_client_snapshot_activate(uint64_t handle, const uint8_t *expected_ve
  * is optional, its members are not.
  */
 char *msime_client_default_preferences(void);
+/* 「重置所有设置」：directory 是绝对的偏好目录（UTF-8，<=16384 字节）。在偏好锁里读出当前文档，换成本目录所属版本的默认偏好（服务凭据与 fuzzy_pinyin.seeded 保留），再按 expected_revision 比较并交换写回，返回新的 PreferencesSnapshot。修订号不符时失败且不写入。词库、统计不受影响；默认关闭剪贴板历史，因此与 msime_client_save_preferences 一样清空已存的历史。会读写文件，请在工作线程调用。 */
+char *msime_client_restore_default_preferences(const uint8_t *directory, size_t length,
+                                               uint64_t expected_revision);
 /* The transcription provider and optional rewrite this device is configured for, read from an
  * absolute preferences directory. Response value: {provider:{...}|null, polish:{...}|null}; both
  * absent means nothing is configured and the host uses whatever it falls back to. Contains
@@ -173,6 +201,10 @@ char *msime_client_mobile_voice_configuration(const uint8_t *directory, size_t l
 char *msime_client_theme_catalog(void);
 /* Resolve the colours for the selected global theme. JSON request (<=1048576 bytes, unknown keys rejected): {global_theme:string, custom_theme?:Preferences.custom_theme, dark:bool, layout:"horizontal"|"vertical", skins_directory?:absolute skin root | package?:one candidate_skin_catalog entry}. global_theme must be one of the seven catalog ids; any other id fails the request. custom_theme is validated like the preference. dark is the host's effective mode; it only matters for custom over a system base, because a built-in base (custom_theme.base, or the applied package's manifest base) fixes the mode and its package palette is the one for that mode. layout is the candidate window being drawn: a package is drawn only in a layout and a mode its manifest declares, and candidate_skin is set only when it is, so a host draws the package decoration and minimum width exactly when candidate_skin is not null. skins_directory is for hosts that scan the skin root (every host but Linux); package is one entry of the Linux candidate_skin_catalog, and anything else there (a msime_client_skin_catalog SkinSummary included) fails the request. Response value: {id,source:"system"|"builtin"|"custom",appearance:"light"|"dark"|null, candidate:{surface,border,text,number,secondary,accent,selected,selected_text,selected_number,hover,show_selected_bar}|null, keyboard:{background,key,function_key,text,secondary,accent,on_accent}|null, candidate_skin:string|null}. appearance, when not null, is the mode the returned surfaces are in. keyboard.accent is the touch strip's selected candidate text (no fill); the return key keeps the platform accent. on_accent is black or white, readable on an accent fill. Every colour is #RRGGBB or #RRGGBBAA. A null palette or null slot means the host's own native token, never transparent. A package missing from the root, invalid on disk or not the one custom_theme.candidate_skin names is left out rather than failing the call. skins_directory reads the package: resolve on a theme, appearance or package change, never while drawing. */
 char *msime_client_resolve_theme(const uint8_t *request, size_t length);
+/* 应用主题（Android 本地设置里的 app_theme，不在共享偏好里）选择器：{app_themes:[{id,title,season,seasonal,light:{accent,accent_soft,on_accent,background,card,hair},dark:{...同上}}],default:"siji"}。id 按选择器顺序为 siji、chunya、xiayin、qiushan、dongxue；season 是固定的那一季（"spring"|"summer"|"autumn"|"winter"），siji 为 null 且 seasonal 为 true，它的颜色固定画秋杉，目录因此不随时钟变化。颜色为 #RRGGBB 或 #RRGGBBAA；accent_soft 是强调色加 22（浅色）或 40（深色）透明度，浅色 on_accent 为 #FFFFFF，深色 on_accent 是强调色与黑色 25% 比 75% 的混合。纯计算。 */
+char *msime_client_app_theme_catalog(void);
+/* 应用主题在宿主当前月份与明暗模式下的颜色。JSON 请求（<=4096 字节，拒绝未知键）{app_theme:"siji"|"chunya"|"xiayin"|"qiushan"|"dongxue", month?:1-12, dark:bool}；month 是宿主本地日历的月份，只影响 siji，省略时用 UTC 月份，超出 1-12 时请求失败。返回 {id, season, accent, accent_soft, on_accent, background, card, hair}，season 是实际画的那一季。纯计算，可在主线程调用。 */
+char *msime_client_resolve_app_theme(const uint8_t *request, size_t length);
 /* Per-key double-pinyin hint text for one profile name, as a JSON object mapping
  * an uppercase key to "initials / finals" - or to whichever side that key carries.
  * Read out of the Engine's own profile tables so a keyboard face never carries a
@@ -211,6 +243,8 @@ char *msime_client_load_preferences(const uint8_t *directory, size_t length);
  *   An unknown id or a zero count rejects the whole batch; never invent ids.
  *   Returns {recorded:n}, 0 when statistics are off (nothing is written).
  *   Hosts batch in memory and call this from a worker, never per key.
+ * {directory,action:{operation:"summary",day:"YYYY-MM-DD",user_words?:n}} 返回调用方本地 `day` 的派生指标（总览、习惯、按键、成就）；统计开着时，新解锁的成就在锁内写下。user_words 是词库 "count" 加 user_only:true 的结果。隐私模式不影响它：它只读。
+ * {directory,action:{operation:"record_voice",day,milliseconds}} 记一次语音输入的时长；{directory,action:{operation:"record_skin",id}} 记一次用到的皮肤。两者都返回 {recorded}。
  */
 char *msime_client_typing_statistics(const uint8_t *request, size_t length);
 /* Read only the aggregate-statistics master switch from an absolute UTF-8
@@ -234,6 +268,7 @@ int32_t msime_client_typing_statistics_enabled(const uint8_t *directory, size_t 
  *   text is a CSV/TXT word list; the library mints the id and selects the book.
  * {directory,resources,day,action:{operation:"remove",wordbook}}
  * {directory,resources,day,action:{operation:"reset"}} clears progress, keeps the books.
+ * 可选的 plugins 是插件目录的绝对路径：其中的单词本插件按 pack-<插件 id> 列在内置书之后、导入的书之前，带 pack:true；对它们的 remove 失败（在插件页卸载），卸载后复习进度保留。不传 plugins 的宿主只有内置和导入的书。
  * `day` is the caller's local day and is required by every action: the counts and
  * the queue are per-day and this layer cannot resolve the host's timezone.
  * Requests may be up to 8 MiB rather than the usual 64 KiB, because an imported
@@ -304,7 +339,7 @@ char *msime_client_community_resource_library(const uint8_t *request, size_t len
  * the prompt names the exact document the parser accepts. */
 char *msime_client_ai_skin_plan(const uint8_t *request, size_t length);
 /* Absolute staged engine resources; returns {profile,sourceCommit} from the
- * packaged dictionary-manifest.json. Two fields only: the page is asking what
+ * packaged msime-dictionary-manifest.json. Two fields only: the page is asking what
  * dictionary is installed and where it came from, not for journal modes or
  * third-party references. Missing or unreadable is reported, never guessed -
  * showing the wrong dictionary version is worse than showing none. */
@@ -318,8 +353,7 @@ char *msime_client_capture_clipboard_history(const uint8_t *request, size_t leng
 /* Structured mobile history, independent of the desktop automatic-capture preference.
  * JSON {directory:absolute App Group root,action:{operation:"load"|"clear"}}
  * or action:{operation:"capture"|"remove",text} or
- * action:{operation:"set_pinned",text,pinned}. The fixed Apple legacy file is
- * validated and migrated to directory/MSIME/clipboard_history.json before use. */
+ * action:{operation:"set_pinned",text,pinned}. History lives in directory/MSIME/clipboard_history.json. */
 char *msime_client_mobile_clipboard_history(const uint8_t *request, size_t length);
 /* Same validation as load_preferences; ok:true,value:null means lock busy.
  * Does not wait for the writer lock. Disk I/O may still block: use a worker.
@@ -335,15 +369,7 @@ char *msime_client_recover_preferences(const uint8_t *directory, size_t length);
 char *msime_client_save_preferences(const uint8_t *directory, size_t directory_length,
                                     uint64_t expected_revision,
                                     const uint8_t *snapshot, size_t snapshot_length);
-/* Call on the session thread with a PreferencesSnapshot JSON buffer (<=1048576):
- * {format_version:1, revision, preferences:{...}}. Revision order is per session;
- * identical retries are allowed, older/conflicting snapshots are rejected.
- * Returns {revision, deferred, view}. Active composition defers application until
- * a successful dispatch/focus leaves it idle. Newer snapshots replace pending ones.
- * Build failure retains the old session and pending snapshot for retry; dispatch
- * reports retry failure in diagnostic without losing completed input.
- * Does not read/write preferences files; the host supplies an already loaded snapshot.
- */
+/* Call on the session thread with a PreferencesSnapshot JSON buffer (<=1048576): {format_version:1, revision, preferences:{...}}. Revision order is per session; identical retries are allowed, older/conflicting snapshots are rejected. Returns {revision, deferred, view, diagnostic?}; diagnostic is present only when the preferred input scheme could not run and a fallback scheme was applied. Active composition defers application until a successful dispatch/focus leaves it idle. Newer snapshots replace pending ones. Build failure retains the old session and pending snapshot for retry; dispatch reports retry failure in diagnostic without losing completed input. Does not read/write preferences files; the host supplies an already loaded snapshot. */
 char *msime_client_update_preferences(uint64_t session, const uint8_t *snapshot, size_t length);
 char *msime_client_focus(uint64_t session, bool focused);
 /* Clear the current session's Engine candidate cache and refresh its view. */
@@ -357,7 +383,7 @@ char *msime_client_voice_apply(uint64_t session, uint64_t generation,
                                const uint8_t *text, size_t length);
 /* On-device speech models and user-dictionary hotwords. JSON request buffers of length bytes; standard responses. Error text of the model calls is a stable code beginning with "local_model_".
  * voice_hotwords: {options: HostOptions as msime_client_dictionary, limit?: 200} -> {hotwords:[{text,pinyin}]}, the user's own pinyin words (two or more Chinese characters), heaviest first. Worker thread; fails with "dictionary maintenance busy" while maintenance holds the store. <=1 MiB.
- * voice_hotword_correct: {text, hotwords:[{text,pinyin}]} -> {text}. Pinyin-similarity replacement for models whose msime-model.json has "hotwords":"pinyin". Pure. <=1048576 bytes.
+ * voice_hotword_correct: {text, hotwords:[{text,pinyin}]} -> {text}. Pinyin-similarity replacement for models whose msime-model.json has "hotwords":"pinyin". Pure. The transcript is limited to 10000 Unicode scalar values, with at most 1000 hotwords; each hotword text is <=256 bytes and pinyin <=1024 bytes. The JSON request is <=1048576 bytes.
  * voice_local_models: {root: absolute dir} -> {models:[{id,title,description,languages,streaming,default,desktop_only,installed,path,installed_size,archive_size,memory,license_spdx,license_source,license_terms,license_notice,hotwords}], default: id}. path is <root>/<id>, the value for voice_input.asr_model_path.
  * voice_local_model_install: {root, id, mirror?: "https://..." prefix} -> {path}. Blocks for the whole download: worker thread only. progress (nullable) gets {id,stage:"download"|"verify"|"extract"|"done",downloaded,total} on the calling thread; copy the buffer before returning. One install per id at a time ("local_model_install_running").
  * voice_local_model_cancel: {id} cancels that install, NULL/0 or {} cancels all; value is whether one was running. Any thread.
@@ -418,7 +444,7 @@ char *msime_client_apply_translations(uint64_t session, uint64_t generation,
                                       const uint8_t *translations, size_t length);
 /* Resolve copied candidates against the packaged offline English dictionary.
  * JSON request: {generation,candidates:[{text,source}],user_data?,target_language?}; the generation is echoed for the host to pass to apply_translations on the session thread. This function owns no session handle and may run on a worker thread.
- * target_language absent or "en" reads english.db and the user's glosses. fr/ja/es/ru/de/ko read only offline-glosses/zh-<lang>.db beside resources and ignore user_data; when that file is not installed the result is {generation,translations:[]}, not an error. Any other value is an invalid request. Only Chinese candidates get a non-English gloss. */
+ * target_language absent or "en" reads msime-english.db and the user's glosses. fr/ja/es/ru/de/ko read only offline-glosses/zh-<lang>.db beside resources and ignore user_data; when that file is not installed the result is {generation,translations:[]}, not an error. Any other value is an invalid request. Only Chinese candidates get a non-English gloss. */
 char *msime_client_candidate_gloss_request(const uint8_t *request, size_t request_length,
                                            const uint8_t *resources, size_t resources_length);
 /* Pronounce copied English texts without a session, for the line a host draws beside a gloss.
@@ -438,12 +464,12 @@ char *msime_client_english_completions_request(const uint8_t *request,
 char *msime_client_set_chinese_punctuation(uint64_t session, bool enabled);
 char *msime_client_set_character_width(uint64_t session, bool fullwidth);
 char *msime_client_set_english_mode(uint64_t session, bool enabled);
-/* Engine-owned quanpin nine-key mode. Call only after finishing composition.
- * View.nine_key and View.nine_key_spellings are authoritative. Enabling for
- * another scheme or changing mode during composition is rejected.
- * View.touch_keyboard_layout is the applied host presentation preference; a
- * Japanese nine-key host uses it without enabling Engine quanpin nine-key. */
+/* 引擎负责的九键模式，用于全拼九宫格或注音九键（注音下 View.nine_key_spellings 是目标音节的候选读音）。只在组字结束后调用。View.nine_key 和 View.nine_key_spellings 是权威状态。对其他方案开启、或在组字中切换模式都会被拒绝。
+ * 创建和重建会话时按偏好自动开启：全拼看 touch_keyboard_layout 是否为 nine_key；注音还要求 touch_keyboard_schemes 选中（或在没有选中项时启用了）zhuyin_nine_key，这个方案只有 Android 写，桌面宿主为全拼九宫格写下的 nine_key 不会让注音会话离开大千键位。
+ * View.touch_keyboard_layout 是已应用的宿主呈现偏好；日文九键宿主只用它，不开启引擎的九键模式。 */
 char *msime_client_set_nine_key_mode(uint64_t session, bool enabled);
+/* 标出隐私会话（隐私模式、不允许学习的输入框）：这个会话的选词位置和上屏效率不记入打字统计。用户在设置里关掉学习不算隐私会话。学习本身仍由偏好里的 learning 决定。Value 是设下的布尔值。 */
+char *msime_client_set_private_session(uint64_t session, bool enabled);
 char *msime_client_set_paired_punctuation(uint64_t session, bool enabled);
 char *msime_client_set_punctuation_lock(uint64_t session, uint8_t lock);
 char *msime_client_set_candidate_page_size(uint64_t session, uint8_t size);
@@ -464,7 +490,12 @@ char *msime_client_balance_paired_punctuation_after_auto_close(uint64_t session,
 // Hosts use this for platform smart-punctuation decisions based on editor
 // context; invalid non-punctuation bytes fail without modifying the session.
 char *msime_client_punctuation_ascii(uint64_t session, uint8_t ascii);
-/* View.scheme and commit_context.scheme: 0 quanpin, 1 shuangpin, 2 wubi, 3 japanese, 4 korean (preferences scheme "korean"). Korean is a Dubeolsik Hangul automaton with no candidates: send every letter through msime_client_character with its case (Shift+Q/W/E/R/T/O/P type ㅃ ㅉ ㄸ ㄲ ㅆ ㅒ ㅖ); View.reading and View.preedit hold the composing Hangul to mark inline with the caret at its end, while editing_text holds the key letters of the open syllable and is non-empty exactly while composing. A transition may carry a commit together with a new composition (the previous syllable finished when a new one started) and a commit with handled=false (Space, Enter, a caret key, Delete or a digit ended the syllable): always insert the commit first, then let an unhandled key do its normal work in the application. Punctuation is always half-width ASCII and never converted to full width. MSIME_BACKSPACE removes one jamo; MSIME_CANCEL discards the open syllable; msime_client_focus(false) commits it, while msime_client_focus(true) discards it so a syllable left open in one client never reaches the next. */
+/* View.scheme and commit_context.scheme: 0 quanpin, 1 shuangpin, 2 wubi, 3 japanese, 4 korean (preferences scheme "korean"). Korean is a Dubeolsik Hangul automaton: send every letter through msime_client_character with its case (Shift+Q/W/E/R/T/O/P type ㅃ ㅉ ㄸ ㄲ ㅆ ㅒ ㅖ); View.reading and View.preedit hold the composing Hangul to mark inline with the caret at its end, while editing_text holds the key letters of the open syllable and is non-empty exactly while composing. A transition may carry a commit together with a new composition (the previous syllable finished when a new one started) and a commit with handled=false (Space, Enter, a caret key, Delete or a digit ended the syllable): always insert the commit first, then let an unhandled key do its normal work in the application. Punctuation is always half-width ASCII and never converted to full width. With no Hanja list open there are no candidates: MSIME_BACKSPACE removes one jamo; MSIME_CANCEL discards the open syllable; msime_client_focus(false) commits it, while msime_client_focus(true) discards it so a syllable left open in one client never reaches the next.
+ * Hanja: candidates appear only after MSIME_CONVERT_HANJA while a syllable is composing, so a host reads scheme 4 with a non-empty candidate list as "the Hanja list is open". The list holds the Hanja of the composing syllable (a syllable already committed is not converted), each candidate's annotation is its 훈음 when it has one, and its code is the key letters, which a host should not draw. MSIME_CONVERT_HANJA answers handled=false when the composition has no Hanja (a lone jamo) or nothing is composing; a host should then swallow its trigger key while composing rather than pass it on. Sending it again closes the list. While the list is open the candidate commands work as for any list (MSIME_COMMIT_CANDIDATE, digits 1-9 on the visible page, paging and MSIME_NEXT/PREVIOUS_CANDIDATE), and choosing commits the Hanja with handled=true; send MSIME_COMMIT_CANDIDATE for Return as well, since only the session knows the highlight. MSIME_CANCEL and MSIME_BACKSPACE only close the list and keep the syllable composing. A letter closes the list and composes as usual. Punctuation, MSIME_FINISH_COMPOSITION and msime_client_focus(false) close the list and commit the Hangul, never a Hanja, whatever is highlighted; msime_client_focus(true) still discards the syllable. */
+/* View.scheme 和 commit_context.scheme 续：8 tibetan（藏文，偏好方案 "tibetan"），在拉丁字母键盘上按 EWTS（扩展威利转写）输入，不需要词库，所有宿主都提供，和越南文一样默认不启用。威利转写区分大小写，大写字母（T D N Sh A I U M H 等）是拼写：带大小写原样送进 msime_client_character，不要当成 Shift 命令。组字保存当前音节串的威利原文，View.preedit 和 editing_text 显示转换后的藏文，候选列表始终为空。View.spelling_symbols 空闲时为 "'/"，组字时为 "'+-./"，这些键要作为字符交给引擎，尤其 '/' 不能由宿主自己插入 ASCII 斜杠。组字时空格（字符 ' ' 或 MSIME_COMMIT_CANDIDATE）上屏藏文加音节点 U+0F0B，'/' 上屏藏文加垂符 U+0F0D，两者都是 handled=true；没有组字时 '/' 单独上屏垂符，空格和数字交回宿主。MSIME_COMMIT_RAW（回车）只上屏藏文、不加音节点，handled=true。MSIME_BACKSPACE 删掉一个原文按键；第一次 MSIME_CANCEL 把显示退回威利原文，第二次丢弃组字。数字、光标键、Delete、Tab 和 MSIME_COMMIT_READING 按显示上屏后 handled=false：先插入 commit，再让按键在应用里照常生效。其他标点先上屏藏文再跟半角 ASCII 标点，从不转成中文或全角标点。msime_client_focus(false) 上屏组字。数字保持原样，不转成藏文数字。 */
+/* View.scheme and commit_context.scheme, continued: 5 cantonese (Jyutping), 6 zhuyin (Dachen bopomofo), 7 vietnamese (Telex or VNI), 9 stroke (笔画: five-stroke order 横竖撇点折 typed as the letters h s p n z, with x matching any one stroke), each the preferences scheme of the same name. Every host offers them, and Cantonese, Zhuyin and Stroke only with their language dictionaries installed; where a scheme cannot run, a preferences document naming it runs the last Chinese scheme or quanpin instead and msime_client_update_preferences says so in its diagnostic.
+ * Stroke: only h s p n z start a composition; x and other letters return handled=false while idle, so a host inserts them as usual. While composing x appends a wildcard, other letters are swallowed with handled=true, and digits 1-9 pick candidates. View.reading and View.preedit hold the stroke glyphs 一丨丿丶乛＊, one per typed letter, which a host draws inline; editing_text and caret_position count the ASCII letters. MSIME_COMMIT_RAW commits the typed letters, MSIME_COMMIT_CANDIDATE the highlighted character (the letters when there is none), and focus loss does not commit.
+ * MSIME_OPEN_CANDIDATE_LIST is MSIME_CONVERT_HANJA under the name that says what it does in every scheme: open the active scheme's candidate list. Korean opens and closes its Hanja list as described above; Zhuyin opens the candidate list of its composition; every other scheme answers handled=false. */
 enum MsimeCommand {
     MSIME_BACKSPACE = 0, MSIME_COMMIT_CANDIDATE = 1, MSIME_COMMIT_RAW = 2,
     MSIME_CANCEL = 3, MSIME_MOVE_LEFT = 4, MSIME_MOVE_RIGHT = 5,
@@ -473,6 +504,8 @@ enum MsimeCommand {
     MSIME_CYCLE_KANA_VARIANT = 10, MSIME_COMMIT_READING = 11,
     MSIME_BACKSPACE_SEGMENT = 12, MSIME_MOVE_LEFT_SEGMENT = 13, MSIME_MOVE_RIGHT_SEGMENT = 14,
     MSIME_COMMIT_RAW_WITHOUT_LEARNING = 15,
+    MSIME_CONVERT_HANJA = 16,
+    MSIME_OPEN_CANDIDATE_LIST = 16,
     MSIME_NEXT_PAGE = 100, MSIME_PREVIOUS_PAGE = 101,
     MSIME_NEXT_CANDIDATE = 102, MSIME_PREVIOUS_CANDIDATE = 103,
     MSIME_FIRST_CANDIDATE = 104, MSIME_LAST_CANDIDATE = 105
@@ -497,7 +530,7 @@ char *msime_client_fix_candidate_position(uint64_t session, uint64_t generation,
                                           uint8_t position);
 /* Clear a previously fixed dictionary candidate position. */
 char *msime_client_clear_candidate_position(uint64_t session, uint64_t generation, size_t index);
-/* Select an entry from View.nine_key_spellings. The generation rejects stale UI. */
+/* 从 View.nine_key_spellings 里选一项，generation 拒绝过期的界面。全拼下把这个拼写锁进数字；注音下只钉住目标音节的读音（不上屏），nine_key_spellings 随后换成下一个有歧义的音节。 */
 char *msime_client_choose_nine_key_spelling(uint64_t session, uint64_t generation, size_t index);
 enum MsimeCandidateEdge { MSIME_FIRST_HAN = 0, MSIME_LAST_HAN = 1 };
 /* Engine selects one Han character and clears composition on success.
@@ -512,8 +545,8 @@ char *msime_client_all_candidates(uint64_t session);
 /* Return read-only English completions for a bounded ASCII prefix. */
 char *msime_client_english_completions(uint64_t session, const uint8_t *prefix,
                                        size_t prefix_length, size_t limit);
-/* View.local_mode is the Engine-owned mode, not a preedit-prefix heuristic: View.microsoft_shuangpin reports the applied Engine configuration, never a newer deferred preference. Hosts use it with mode, editing text and caret. none, unicode, date_time, quick_phrase, emoji, kaomoji, super_jianpin, temporary_english, temporary_japanese, expression, command, mention. Treat unknown as unusable state.
- * View.spelling_symbols lists the non-letter keys the Engine takes as input in this state: the active mode's spelling (digits and operators in expression, digits in unicode) or, with nothing composed, the keys that open a mode (/ and @). Send them as characters; a digit listed there is input, not a candidate shortcut. A transition's commit_context.typing_statistics is false for text the expression, command and mention modes generated, which is not counted as typing.
+/* View.local_mode 是 Engine 自己的模式，不是从预编辑前缀猜出来的；View.microsoft_shuangpin 报告 Engine 已应用的配置，不是尚未生效的新偏好。宿主结合模式、编辑文本和光标使用它。取值为 none、unicode、date_time、quick_phrase、emoji、kaomoji、super_jianpin、temporary_english、temporary_japanese、expression、command、mention、url，未知取值视为不可用状态。
+ * View.spelling_symbols 列出 Engine 在当前状态下当作输入的非字母键：当前模式的拼写（expression 的数字和运算符、unicode 的数字、url 的数字和网址符号）；没有组字时打开模式的键（`/` 和 `@`）；全拼、双拼、五笔组字中原文恰好是 www、http、https、ftp 时打开网址模式的键（`.` 或 `:`）。宿主要把它们当字符发送；列在里面的数字是输入，不是选候选的快捷键。转换结果的 commit_context.typing_statistics 对 expression、command、mention 模式生成的文本为 false，这些文本不计入打字统计。
  */
 char *msime_client_view(uint64_t session);
 /* Return a copied OnlineQuery JSON object, or null when the current composition
@@ -615,13 +648,17 @@ char *msime_client_emoji_provider_request(const uint8_t *query,
                                           size_t query_length,
                                           const uint8_t *socket_path,
                                           size_t socket_length);
-/* Query the verified local others.db Emoji catalog. Resources is an absolute
- * generation directory containing others.db; no provider socket is needed.
+/* Query the verified local msime-others.db Emoji catalog. Resources is an absolute
+ * generation directory containing msime-others.db; no provider socket is needed.
  * Optional offset is a nonnegative SQL row offset (default 0); limit is 1..255.
  * Optional group filters a catalog subdivision; list_groups:true returns
  * {groups:[name,...]} in catalog order instead of an item page.
  * list_symbol_groups:true returns {symbol_groups:[{parent,title},...]}.
  * Optional parent narrows symbols to a parent category before paging.
+ * list_plugin_symbol_groups:true with plugins (absolute plugins directory) returns
+ * {plugin_symbol_groups:[{pack,pack_name,tab:"symbols"|"kaomoji",title,keywords,items:[text,...]},...]}:
+ * 已安装符号集插件的全部组，包按名字排序、组按清单顺序；keywords 没写时为空串。宿主把 symbols 组追加在内置符号之后、以 pack_name 为上级分类，
+ * kaomoji 组追加在颜文字 All 之后，不与内置目录去重。没传 plugins 时为空列表。
  * Advance offset by limit, not returned item count: each page deduplicates text. */
 char *msime_client_emoji_catalog_request(const uint8_t *query,
                                          size_t query_length,
@@ -629,7 +666,7 @@ char *msime_client_emoji_catalog_request(const uint8_t *query,
                                          size_t resources_length);
 #endif
 /* Shared Doubao authentication policy. Input (max 32768 bytes):
- * {auth_mode,app_id,token,resource_id}; absent mode supports legacy documents.
+ * {auth_mode,app_id,token,resource_id}; an absent or empty mode means api_key.
  * Response value: {headers:[[name,value],...]}. Contains credentials: never
  * log/persist the response; release with msime_client_string_free. */
 char *msime_client_doubao_auth_headers(const uint8_t *request, size_t length);
@@ -727,9 +764,9 @@ char *msime_client_resolve_font_families(const uint8_t *value, size_t length);
 /* Describe what the named host ("windows"/"macos"/"linux"/"android"/"ios") can
  * do, so the shared UI renders from capabilities rather than the user agent. */
 char *msime_client_host_capabilities(const uint8_t *platform, size_t length);
-/* msime-mcp beside the calling executable, for a settings host other than the desktop shell. JSON request (<=65536 bytes) {options:absolute runtime options path|null}. Returns {command,installed,options,config,clients:[{id,path,configured}]}. Reads the assistants' configuration files: use a worker thread. */
+/* 调用方可执行文件旁的 msime-mcp，供桌面外壳以外的设置宿主使用。JSON 请求（<=65536 字节）{options:运行时选项的绝对路径|null}。返回 {command,installed,options,config,clients:[{id,path,configured,flags}]}，flags 是已写入条目带的权限参数。会读取助手的配置文件，请在工作线程调用。 */
 char *msime_client_mcp_status(const uint8_t *request, size_t length);
-/* Write the msime entry into one assistant's configuration, keeping every other key. JSON request {options,client:"claude_desktop"|"cursor",replace:bool}. Returns "added"|"replaced"|"unchanged"; a different msime entry fails with mcp_entry_exists unless replace is set. Writes a file: use a worker thread. */
+/* 把 msime 条目写进一个助手的配置，保留其它所有键。JSON 请求 {options,client:"claude_desktop"|"cursor",flags?:["--allow-write"|"--allow-dictionary-read"],replace:bool}，flags 省略时写只读条目。返回 "added"|"updated"|"replaced"|"unchanged"；已有条目只差权限参数时直接更新，其它不同的 msime 条目在未设 replace 时以 mcp_entry_exists 失败。会写文件，请在工作线程调用。 */
 char *msime_client_mcp_install(const uint8_t *request, size_t length);
 /* Effect sounds and background music, played by this library on macOS, Windows and Linux from the session's preferences.plugins. The three calls below are for the key path: they return whether a request was queued, never block, decode or read files, and need no free. False means nothing is switched on, the session handle is unknown or on another thread, the queue is full, this platform does not play (iOS, Android, HarmonyOS), or sound failed earlier in this process, which turns it off until the process restarts with one line on stderr. Nothing starts - no thread, no audio device - until a call finds something switched on, so a process that never calls them (the Windows TSF DLL) pays nothing; the device is let go again after 30 s without a sound or playing music. Do not call them for keys typed into a secure (password) field.
  * key_sound: key_class 0 any other key, 1 space, 2 enter, 3 backspace; anything else queues nothing. Plays the key pack's sample for the class, or the melody pack's next note in melody mode.
@@ -753,11 +790,21 @@ char *msime_client_music_pack(const uint8_t *request, size_t length);
 /* The settings page's pack store and @ name list, for a settings host other than the desktop shell (HarmonyOS). Request (<=2 MiB): {state_root: absolute, sound_packs: absolute|null, action}; packs and mentions.json live in state_root/plugins, sound_packs is the bundle's built-in sound pack root. action.operation:
  * "catalog": value {packages:[...], issues:[{kind, folder, reason}]}, every installed pack and the built-in sound packs, as the desktop shell lists them.
  * "import" {source: absolute path of a pack folder or .zip file}: installs it, replacing an installed pack of the same id whole; value is the installed pack.
- * "remove" {kind: "sound"|"music"|"command_table"|"effect", id}: value null; a pack that is not installed is already removed.
+ * "remove" {kind: "sound"|"music"|"command_table"|"effect"|"phrase_table"|"helpcode"|"wordbook"|"symbol_set", id}: value null; a pack that is not installed is already removed.
  * "load_mentions": value [{text, key}], empty before a list was saved.
  * "save_mentions" {entries:[{text, key}]}: replaces the list; value null.
  * A failure is {ok:false, error: code, detail?}: the codes are the desktop shell's (invalid, storage, plugin_invalid, plugin_unsupported_source, plugin_archive, plugin_reserved, plugin_storage, mention_invalid, mention_format, mention_storage) and detail, when present, is the rule a refused pack or entry broke, in Chinese for the page. Reads and writes files, and an import copies up to a music pack's size: use a worker thread where the host has one. */
 char *msime_client_plugins(const uint8_t *request, size_t length);
+/* 不带编码的常用语（<=4 MiB）：{directory: 偏好目录的绝对路径, action:{operation:"load"|"add"{text}|"remove"{id}|"replace"{id,text}|"move"{id,index}|"install_pack"{resource}|"remove_pack"{id}}}。Value 是整份文档 {phrases:[{id,text,pack}],packs:[{id,name,revision}],skipped?}；错误是固定的代码（common_phrases_io、_corrupt、_invalid、_duplicate、_limit、_too_large、_not_found）。设置进程和键盘进程都会调用，调用时锁住文件。在工作线程上调用。 */
+char *msime_client_common_phrases(const uint8_t *request, size_t length);
+/* 具名词库集合（<=17 MiB）：{options: 带 preferences_directory 的 HostOptions, action:{operation:"load"|"create"|"rename"|"delete"|"set_enabled"|"add_words"|"remove_words"|"import"|"install_community"|"flush", ...}}，格式见 client-core 的 dictionary::collections。词条经个人词库队列传过去，键盘在下一次会话时应用。Value 是集合视图；错误是固定的代码（collections_*、builtin_locked、unsupported_format、import_*、personal_dictionary_*）。在工作线程上调用。 */
+char *msime_client_dictionary_collections(const uint8_t *request, size_t length);
+/* 诊断包（<=65536 字节）：{state_root: 偏好目录, include:{crash_logs,performance_logs,input_events,config_snapshot}, sources:{crash_logs,performance_logs,input_events: 绝对路径|null}, destination: .zip 的绝对路径|null}。输入事件和性能记录只有恰好是 {t_ms, kind (key_down|key_up|candidate_shown|candidate_selected|commit|backspace|panel_open|panel_close|ime_start|ime_finish), duration_ms} 时才保留，带其他任何键（text、key、candidate……）的整行都丢掉并计数。崩溃记录只保留异常类型和栈帧：异常说明可能带着正在输入的文字，message 只留冒号前的异常类型，stack 的说明行同样处理，路径只留文件名。配置快照把所有凭据换成 "<redacted>"。给了 destination 时写出 zip，value 是 {path,bytes,counts}；没给时 value 是 {counts,sections}，sections 是上传请求体的对象（crash_logs、perf_trace、input_events、config_snapshot）。错误：diagnostics_invalid、diagnostics_source、diagnostics_preferences、diagnostics_write。在工作线程上调用。 */
+char *msime_client_diagnostic_bundle(const uint8_t *request, size_t length);
+/* 账号设置文档导出（<=4 MiB）：{preferences_directory, feedback?:{soundEnabled,hapticsEnabled,hapticStrength}|null, custom_keyboard_skins?: JSON 数组字符串|null, android_local?: {同步键: 值}|null, schema?: 偏好字段表|null, cloud?: {revision,settings}|null}。Value {settings, merged?}：settings 按本版本过滤（给了 schema 时再按它的字段过滤）；同时给了 schema 和 cloud 时，merged 是带着云端 revision 去 PUT 的整份文档。android_local 是 Android 本机设置文件里参与同步的值（应用主题、单手模式、按键细节、工具栏的常用语/方案/隐藏项、手写、离线语音），不认识的键和非法值不导出。凭据和诊断日志从不导出；隐私模式、开发者选项和语音贡献只在 Android 本机文件里，从不同步。 */
+char *msime_client_account_settings_export(const uint8_t *request, size_t length);
+/* 账号设置文档应用（<=4 MiB）：{preferences_directory, cloud:{revision,settings}, schema, feedback?: 宿主当前的按键反馈|null}。把文档应用到本机偏好，按读到的 revision 做比较并交换后保存。本机不认识或超出范围的取值只跳过那一个键。Value {preferences: 保存后的快照, feedback: 应用后的按键反馈|null（宿主自己存）, custom_keyboard_skins: 云端皮肤库 JSON|null（宿主合并）, android_local:{同步键: 值}（宿主写进本机设置文件）, skipped:[键]}。 */
+char *msime_client_account_settings_apply(const uint8_t *request, size_t length);
 char *msime_client_destroy(uint64_t session);
 /* Write the selection counts held by every session on the calling thread and all queued personal-context learning, without ending any session. Call from the host's will-terminate hook (e.g. NSApplicationWillTerminateNotification) on the thread that owns the sessions; the C++ Engine did this from atexit. Returns null on success. */
 char *msime_client_flush_all(void);

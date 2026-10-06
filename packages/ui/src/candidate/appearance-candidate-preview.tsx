@@ -1,5 +1,5 @@
 import type { Preferences } from "../index";
-import { SkinCandidatePreview } from "../skin/skin-candidate-preview";
+import { ReservedCandidatePreview, type PreviewReserve } from "../skin/skin-candidate-preview";
 import { candidateFontSize, candidateFontStyle } from "./candidate-font-size";
 import { candidateFamilyStyle } from "./candidate-font-family";
 import { candidateWindowStyle } from "./candidate-window-style";
@@ -8,7 +8,9 @@ import type { SkinCatalog } from "../skin/external-skins";
 import type { SkinImageReader } from "../skin/skin-image";
 import { useCandidatePreviewTheme } from "./candidate-preview-theme";
 import { useResolvedCandidateFonts, type FontFamilyResolver } from "./resolved-candidate-fonts";
-import * as settings from "../settings/settings-style";
+import { SettingsPreviewBlock } from "../settings/settings-preview-block";
+import { SkinPreviewStage } from "../skin/skin-preview-stage";
+import { SkinPreviewSurface } from "../skin/skin-preview-surface";
 import { defaultHelpcode } from "../settings/pages/helpcode-page";
 import {
   customCandidateStyle,
@@ -27,6 +29,7 @@ export function AppearanceCandidatePreview({
   active = true,
   revision = 0,
   mobile = false,
+  reserve,
 }: {
   preferences: Preferences;
   scan?: () => Promise<SkinCatalog>;
@@ -37,6 +40,8 @@ export function AppearanceCandidatePreview({
   active?: boolean;
   revision?: number;
   mobile?: boolean;
+  /** 设置页按能切换的最高排布预留预览高度，见 `ReservedCandidatePreview`；不传就随样例伸缩。 */
+  reserve?: PreviewReserve;
 }) {
   const preferences = useResolvedCandidateFonts(
     storedPreferences,
@@ -60,16 +65,14 @@ export function AppearanceCandidatePreview({
     (schemeHelpcode.show_in_candidate_window ?? true);
   const surfaceName = mobile ? "候选栏" : "候选窗口";
   return (
-    <section className="section" aria-label={`${surfaceName}预览`}>
-      <div className="section-header">
-        <span className="section-title">
-          {surfaceName}预览<small>固定样例随当前设置草稿变化，不代表实际输入候选。</small>
-        </span>
-      </div>
+    <SettingsPreviewBlock
+      as="section"
+      aria-label={`${surfaceName}预览`}
+      label="预览：固定样例随当前设置草稿变化，不代表实际输入候选。"
+    >
       {builtin ? (
-        <div
-          data-skin-preview=""
-          className={`${settings.skinCardPreview} appearance-candidate-preview`}
+        <SkinPreviewSurface
+          className="appearance-candidate-preview"
           data-global-theme={globalTheme}
           data-preview-theme={theme}
           data-font-size={candidateFontSize(preferences.candidate_font_size)}
@@ -82,15 +85,16 @@ export function AppearanceCandidatePreview({
           }}
           aria-hidden="true"
         >
-          <div className={settings.skinPreviewStage} data-skin-stage="">
-            <SkinCandidatePreview
+          <SkinPreviewStage>
+            <ReservedCandidatePreview
+              reserve={reserve}
               orientation={preferences.candidate_layout ?? "vertical"}
               count={preferences.candidate_page_size}
               preedit={preferences.candidate_preedit_style !== "empty"}
               helpcode={helpcode}
             />
-          </div>
-        </div>
+          </SkinPreviewStage>
+        </SkinPreviewSurface>
       ) : (
         <ExternalAppearancePreview
           preferences={preferences}
@@ -101,8 +105,9 @@ export function AppearanceCandidatePreview({
           active={active}
           revision={revision}
           helpcode={helpcode}
+          reserve={reserve}
         />
       )}
-    </section>
+    </SettingsPreviewBlock>
   );
 }

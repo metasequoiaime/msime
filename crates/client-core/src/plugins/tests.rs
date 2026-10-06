@@ -3,6 +3,7 @@
 use super::command_table::CommandRow;
 use super::sound_pack::{SequenceAdvance, SoundMode};
 use super::*;
+use crate::vocabulary::wordbook;
 use std::io::Write;
 use tempfile::tempdir;
 
@@ -179,6 +180,35 @@ fn scan_lists_each_kind_and_reports_what_is_not_a_pack() {
     assert_eq!(json["sounds"]["default"], "key.wav");
     assert_eq!(json["builtin"], false);
     assert!(json.get("directory").is_none());
+}
+
+#[test]
+fn unknown_kinds_on_disk_never_fail_the_catalog() {
+    // 新版本装进来的类型目录（这里是 `theme`）不被扫描；已知目录里声明了未知 kind 的包记为一条 issue。旧版本因此不会因为新类型整页失败。
+    let root = tempdir().unwrap();
+    installed_sound(root.path(), SOUND);
+    let future = root.path().join("theme").join("neon");
+    fs::create_dir_all(&future).unwrap();
+    fs::write(
+        future.join(MANIFEST_FILE),
+        "schema_version = 1\nkind = 'theme'\nid = 'neon'\nname = 'Neon'\nversion = '1'\nlicense = 'CC0-1.0'\n",
+    )
+    .unwrap();
+    let stray = kind_directory(root.path(), PluginKind::Sound).join("x");
+    fs::create_dir_all(&stray).unwrap();
+    fs::write(
+        stray.join(MANIFEST_FILE),
+        "schema_version = 1\nkind = 'theme'\nid = 'x'\nname = 'X'\nversion = '1'\nlicense = 'CC0-1.0'\n",
+    )
+    .unwrap();
+
+    let catalog = scan(root.path(), None);
+    let listed: Vec<_> = catalog.packages.iter().map(|p| p.id.as_str()).collect();
+    assert_eq!(listed, ["typewriter"]);
+    assert_eq!(catalog.issues.len(), 1, "{:?}", catalog.issues);
+    assert_eq!(catalog.issues[0].kind, PluginKind::Sound);
+    assert_eq!(catalog.issues[0].folder, "x");
+    assert_eq!(catalog.issues[0].reason, "kind 不是已知的插件类型");
 }
 
 #[test]
@@ -604,6 +634,10 @@ fn enabled_command_tables_merge_in_priority_order() {
     );
     assert!(enabled(&[]).is_empty());
     assert!(enabled(&["../first"]).is_empty());
+    assert_eq!(
+        command_table::enabled_commands(root.path(), &[]).capacity(),
+        command_table::MAX_COMMANDS
+    );
 
     // The merged table stops where the Engine would.
     let many = |offset: usize| -> String {
@@ -929,6 +963,16 @@ fn import_follows_no_symbolic_link() {
     assert!(fs::read_dir(outside.path()).unwrap().next().is_none());
 }
 
+#[test]
+fn plugin_file_names_refuse_windows_device_names_on_every_platform() {
+    for name in [
+        "CON", "con.txt", "PRN.md", "AUX", "NUL", "COM1.wav", "lpt9.tsv",
+    ] {
+        assert!(!valid_file_name(name), "{name} must be refused");
+    }
+    assert!(valid_file_name("COM10.wav"));
+}
+
 /// An archive member: `(name, Some(bytes))` for a file, `(name, None)` for a directory.
 type Member<'a> = (&'a str, Option<&'a [u8]>);
 
@@ -1102,6 +1146,88 @@ fn hostile_archives_are_refused_before_anything_is_installed() {
         .filter(|name| name != import::LOCK_FILE)
         .collect();
     assert!(leftovers.is_empty(), "{leftovers:?}");
+}
+
+#[test]
+fn archives_with_absolute_wrapped_paths_are_refused() {
+    let files = tempdir().unwrap();
+    let state = tempdir().unwrap();
+    let root = state.path().join("plugins");
+    let wav = wav();
+    for prefix in ["/", "\\", "C:/", "C:", "//synthetic/share/"] {
+        let archive = files.path().join("absolute-wrapped.zip");
+        let manifest = format!("{prefix}typewriter/plugin.toml");
+        let key = format!("{prefix}typewriter/key.wav");
+        let space = format!("{prefix}typewriter/space.wav");
+        zip_file(
+            &archive,
+            &[
+                (&manifest, Some(SOUND.as_bytes())),
+                (&key, Some(&wav)),
+                (&space, Some(&wav)),
+            ],
+        );
+        assert!(
+            matches!(validate(&archive), Err(PluginError::Archive(_))),
+            "{prefix}"
+        );
+        assert!(
+            matches!(import(&archive, &root), Err(PluginError::Archive(_))),
+            "{prefix}"
+        );
+        assert!(!root.join("sound/typewriter").exists());
+    }
+}
+
+#[test]
+fn archives_with_normalized_parent_paths_are_refused() {
+    let files = tempdir().unwrap();
+    let state = tempdir().unwrap();
+    let root = state.path().join("plugins");
+    let wav = wav();
+    let archive = files.path().join("normalized-parent.zip");
+    for prefix in ["typewriter/../typewriter/", "typewriter\\..\\typewriter\\"] {
+        let key = format!("{prefix}key.wav");
+        let space = format!("{prefix}space.wav");
+        zip_file(
+            &archive,
+            &[
+                ("typewriter/plugin.toml", Some(SOUND.as_bytes())),
+                (&key, Some(&wav)),
+                (&space, Some(&wav)),
+            ],
+        );
+        assert!(
+            matches!(validate(&archive), Err(PluginError::Archive(_))),
+            "{prefix}"
+        );
+        assert!(
+            matches!(import(&archive, &root), Err(PluginError::Archive(_))),
+            "{prefix}"
+        );
+        assert!(!root.join("sound/typewriter").exists());
+    }
+}
+
+#[test]
+fn archives_with_current_directory_prefixes_still_install() {
+    let files = tempdir().unwrap();
+    let state = tempdir().unwrap();
+    let wav = wav();
+    let archive = files.path().join("current-directory.zip");
+    zip_file(
+        &archive,
+        &[
+            ("./typewriter/plugin.toml", Some(SOUND.as_bytes())),
+            ("./typewriter/./key.wav", Some(&wav)),
+            ("./typewriter/space.wav", Some(&wav)),
+        ],
+    );
+    assert_eq!(validate(&archive).unwrap().id, "typewriter");
+    assert_eq!(
+        import(&archive, &state.path().join("plugins")).unwrap().id,
+        "typewriter"
+    );
 }
 
 #[cfg(unix)]
@@ -1469,4 +1595,642 @@ fn validate_applies_the_import_rules_without_installing() {
         .collect();
     left.sort();
     assert_eq!(left, ["typewriter"]);
+}
+
+#[test]
+fn data_files_are_checked_by_name_size_and_extension_not_as_notices() {
+    let pack = tempdir().unwrap();
+    let directory = pack.path();
+    fs::write(directory.join(MANIFEST_FILE), "x").unwrap();
+    // 比说明文件的上限大，作为数据文件仍然允许。
+    let table = vec![b'a'; MAX_NOTICE_BYTES as usize + 1];
+    fs::write(directory.join("table.txt"), &table).unwrap();
+    fs::write(directory.join("README.md"), "说明").unwrap();
+    let data = |name: &str, max_bytes: u64, extension: &'static str| DataFile {
+        name: name.into(),
+        max_bytes,
+        extension,
+    };
+    let check = |data: &[DataFile]| {
+        let files = list_files(directory).unwrap();
+        check_files(directory, &files, &[], AudioLimits::NONE, data)
+    };
+    check(&[data("table.txt", 1024 * 1024, "txt")]).unwrap();
+    // 不点名时它只是一个太大的说明文件。
+    assert_eq!(check(&[]).unwrap_err(), "table.txt 太大");
+    assert_eq!(
+        check(&[data("table.txt", MAX_NOTICE_BYTES, "txt")]).unwrap_err(),
+        "table.txt 为空或太大"
+    );
+    assert_eq!(
+        check(&[data("table.txt", 1024 * 1024, "tsv")]).unwrap_err(),
+        "table.txt 的扩展名必须是 .tsv"
+    );
+    assert_eq!(
+        check(&[data("words.tsv", 1024 * 1024, "tsv")]).unwrap_err(),
+        "缺少数据文件 words.tsv"
+    );
+    assert_eq!(
+        check(&[data(MANIFEST_FILE, 1024, "toml")]).unwrap_err(),
+        "plugin.toml 不能同时用作别的文件"
+    );
+    fs::write(directory.join("empty.txt"), "").unwrap();
+    assert_eq!(
+        check(&[
+            data("table.txt", 1024 * 1024, "txt"),
+            data("empty.txt", 1024, "txt")
+        ])
+        .unwrap_err(),
+        "empty.txt 为空或太大"
+    );
+}
+
+/// `tests/fixtures/plugin-packs` 下的共享 fixture 包：`valid/<kind>-<case>` 必须通过、类型与目录名前缀一致；`invalid/<kind>-<case>` 必须因为下表写的原因被拒绝。后端（msime-cloud）的 Go 校验器在自己的测试里放一份相同内容的 fixture，两边对同一批包给出同样的接受与拒绝。
+fn fixture_packs() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/plugin-packs")
+}
+
+/// 每个 invalid fixture 被拒绝的原因（原因文本的一部分）。
+const FIXTURE_REFUSALS: &[(&str, &str)] = &[
+    (
+        "helpcode-ascii-char",
+        "table.txt 第 1 行的字不能是 ASCII、空白或控制字符",
+    ),
+    (
+        "helpcode-bad-file-name",
+        "helpcode.table 的文件名 ../table.txt 无效",
+    ),
+    (
+        "helpcode-blank-line-with-space",
+        "table.txt 第 2 行不是「字=码」",
+    ),
+    (
+        "helpcode-control-char",
+        "table.txt 第 1 行的字不能是 ASCII、空白或控制字符",
+    ),
+    (
+        "helpcode-digit-code",
+        "table.txt 第 1 行的码必须是 1 到 2 个小写字母",
+    ),
+    (
+        "helpcode-duplicate-char",
+        "table.txt 里「啊」出现了不止一次",
+    ),
+    (
+        "helpcode-empty-code",
+        "table.txt 第 1 行的码必须是 1 到 2 个小写字母",
+    ),
+    ("helpcode-empty-file", "table.txt 为空或太大"),
+    ("helpcode-invalid-utf8", "table.txt 不是 UTF-8 编码"),
+    (
+        "helpcode-leading-space",
+        "table.txt 第 1 行等号左边必须恰好是一个字",
+    ),
+    (
+        "helpcode-lone-cr",
+        "table.txt 第 1 行的码必须是 1 到 2 个小写字母",
+    ),
+    ("helpcode-missing-file", "缺少数据文件 table.txt"),
+    ("helpcode-missing-table-key", "helpcode.table 必须是字符串"),
+    (
+        "helpcode-no-char",
+        "table.txt 第 1 行等号左边必须恰好是一个字",
+    ),
+    ("helpcode-no-equals", "table.txt 第 1 行不是「字=码」"),
+    ("helpcode-only-comments", "table.txt 里没有任何辅助码"),
+    (
+        "helpcode-space-after-equals",
+        "table.txt 第 1 行的码必须是 1 到 2 个小写字母",
+    ),
+    (
+        "helpcode-space-before-equals",
+        "table.txt 第 1 行等号左边必须恰好是一个字",
+    ),
+    (
+        "helpcode-three-letter-code",
+        "table.txt 第 1 行的码必须是 1 到 2 个小写字母",
+    ),
+    (
+        "helpcode-trailing-space",
+        "table.txt 第 1 行的码必须是 1 到 2 个小写字母",
+    ),
+    (
+        "helpcode-two-chars",
+        "table.txt 第 1 行等号左边必须恰好是一个字",
+    ),
+    ("helpcode-unknown-key", "helpcode 里有未知的键 schema"),
+    (
+        "helpcode-uppercase-code",
+        "table.txt 第 1 行的码必须是 1 到 2 个小写字母",
+    ),
+    (
+        "helpcode-whitespace-char",
+        "table.txt 第 1 行的字不能是 ASCII、空白或控制字符",
+    ),
+    ("helpcode-wrong-extension", "table.tsv 的扩展名必须是 .txt"),
+    ("phrase_table-blank-text", "短语 dh 的文本为空或太长"),
+    (
+        "phrase_table-digit-key",
+        "短语编码 d1 必须是 1 到 32 个小写字母",
+    ),
+    ("phrase_table-duplicate", "短语 dh 的「电话」重复了"),
+    ("phrase_table-empty", "短语表的条数不在允许范围内"),
+    (
+        "phrase_table-empty-key",
+        "短语编码  必须是 1 到 32 个小写字母",
+    ),
+    ("phrase_table-empty-text", "短语 dh 的文本为空或太长"),
+    (
+        "phrase_table-long-key",
+        "短语编码 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 必须是 1 到 32 个小写字母",
+    ),
+    ("phrase_table-long-text", "短语 dh 的文本为空或太长"),
+    ("phrase_table-missing", "短语表缺少 phrases"),
+    ("phrase_table-missing-text", "每条短语都需要 text"),
+    (
+        "phrase_table-newline-in-text",
+        "短语 dh 的文本含有换行、制表符等控制字符",
+    ),
+    ("phrase_table-non-string-text", "每条短语都需要 text"),
+    (
+        "phrase_table-permissions",
+        "插件不能申请权限，permissions 必须为空",
+    ),
+    (
+        "phrase_table-tab-in-text",
+        "短语 dh 的文本含有换行、制表符等控制字符",
+    ),
+    (
+        "phrase_table-unknown-row-key",
+        "a phrase 里有未知的键 weight",
+    ),
+    (
+        "phrase_table-unknown-top-key",
+        "plugin.toml 里有未知的键 commands",
+    ),
+    (
+        "phrase_table-unnamed-data-file",
+        "table.tsv 没有在 plugin.toml 里用到",
+    ),
+    (
+        "phrase_table-uppercase-key",
+        "短语编码 Dh 必须是 1 到 32 个小写字母",
+    ),
+    (
+        "symbol_set-bad-tab",
+        "第 1 组的 tab 只能是 symbols 或 kaomoji",
+    ),
+    (
+        "symbol_set-blank-item",
+        "第 1 组有一项为空、超过 64 个 UTF-16 单元或含有控制字符",
+    ),
+    (
+        "symbol_set-blank-title",
+        "第 1 组的 title 为空、超过 48 字节或含有控制字符",
+    ),
+    (
+        "symbol_set-control-in-keywords",
+        "第 1 组的 keywords 为空、超过 256 字节或含有控制字符",
+    ),
+    (
+        "symbol_set-control-item",
+        "第 1 组有一项为空、超过 64 个 UTF-16 单元或含有控制字符",
+    ),
+    ("symbol_set-duplicate-item", "第 1 组里「→」重复了"),
+    (
+        "symbol_set-duplicate-title",
+        "第 2 组的 title「箭头」与同一标签页的另一组重复了",
+    ),
+    (
+        "symbol_set-empty-item",
+        "第 1 组有一项为空、超过 64 个 UTF-16 单元或含有控制字符",
+    ),
+    (
+        "symbol_set-empty-keywords",
+        "第 1 组的 keywords 为空、超过 256 字节或含有控制字符",
+    ),
+    (
+        "symbol_set-long-item",
+        "第 1 组有一项为空、超过 64 个 UTF-16 单元或含有控制字符",
+    ),
+    (
+        "symbol_set-long-keywords",
+        "第 1 组的 keywords 为空、超过 256 字节或含有控制字符",
+    ),
+    (
+        "symbol_set-long-title",
+        "第 1 组的 title 为空、超过 48 字节或含有控制字符",
+    ),
+    ("symbol_set-missing-items", "第 1 组需要 items"),
+    (
+        "symbol_set-missing-tab",
+        "第 1 组的 tab 只能是 symbols 或 kaomoji",
+    ),
+    ("symbol_set-missing-title", "第 1 组需要字符串 title"),
+    ("symbol_set-no-groups", "符号集必须有 1 到 32 组"),
+    ("symbol_set-no-items", "第 1 组必须有 1 到 512 项"),
+    ("symbol_set-number-item", "第 1 组的每一项都必须是字符串"),
+    ("symbol_set-too-many-groups", "符号集必须有 1 到 32 组"),
+    (
+        "symbol_set-too-many-items-in-group",
+        "第 1 组必须有 1 到 512 项",
+    ),
+    ("symbol_set-too-many-items-total", "符号集合计超过 2048 项"),
+    (
+        "symbol_set-unknown-group-key",
+        "a symbol group 里有未知的键 parent",
+    ),
+    (
+        "symbol_set-with-data-file",
+        "symbols.tsv 没有在 plugin.toml 里用到",
+    ),
+    (
+        "wordbook-control-in-meaning",
+        "words.tsv 第 1 行的单词或释义为空，或者某一列太长、含有控制字符",
+    ),
+    (
+        "wordbook-duplicate-word",
+        "words.tsv 里「cache」出现了不止一次",
+    ),
+    ("wordbook-empty-file", "words.tsv 为空或太大"),
+    (
+        "wordbook-empty-meaning",
+        "words.tsv 第 1 行的单词或释义为空，或者某一列太长、含有控制字符",
+    ),
+    (
+        "wordbook-empty-meaning-three-columns",
+        "words.tsv 第 1 行的单词或释义为空，或者某一列太长、含有控制字符",
+    ),
+    (
+        "wordbook-empty-word",
+        "words.tsv 第 1 行的单词或释义为空，或者某一列太长、含有控制字符",
+    ),
+    ("wordbook-four-columns", "words.tsv 第 1 行必须是「单词"),
+    (
+        "wordbook-id-too-long",
+        "单词本的 id 只能由小写字母、数字和 - 组成，首尾不能是 -，且不超过 59 个字符",
+    ),
+    (
+        "wordbook-id-trailing-dash",
+        "单词本的 id 只能由小写字母、数字和 - 组成，首尾不能是 -，且不超过 59 个字符",
+    ),
+    (
+        "wordbook-id-with-dot",
+        "单词本的 id 只能由小写字母、数字和 - 组成，首尾不能是 -，且不超过 59 个字符",
+    ),
+    (
+        "wordbook-id-with-underscore",
+        "单词本的 id 只能由小写字母、数字和 - 组成，首尾不能是 -，且不超过 59 个字符",
+    ),
+    ("wordbook-invalid-utf8", "words.tsv 不是 UTF-8 编码"),
+    (
+        "wordbook-lone-cr",
+        "words.tsv 第 1 行的单词或释义为空，或者某一列太长、含有控制字符",
+    ),
+    (
+        "wordbook-long-meaning",
+        "words.tsv 第 1 行的单词或释义为空，或者某一列太长、含有控制字符",
+    ),
+    (
+        "wordbook-long-phonetic",
+        "words.tsv 第 1 行的单词或释义为空，或者某一列太长、含有控制字符",
+    ),
+    (
+        "wordbook-long-word",
+        "words.tsv 第 1 行的单词或释义为空，或者某一列太长、含有控制字符",
+    ),
+    ("wordbook-missing-file", "缺少数据文件 words.tsv"),
+    ("wordbook-name-too-long", "单词本的 name 不能超过 64 个字符"),
+    ("wordbook-one-column", "words.tsv 第 1 行必须是「单词"),
+    ("wordbook-only-comments", "words.tsv 里没有任何单词"),
+    ("wordbook-txt-extension", "words.txt 的扩展名必须是 .tsv"),
+    ("wordbook-unknown-key", "wordbook 里有未知的键 format"),
+    ("wordbook-wrong-extension", "words.csv 的扩展名必须是 .tsv"),
+];
+
+/// `group` 下的 fixture，按名字排序。
+fn fixture_cases(group: &str) -> Vec<(String, PathBuf)> {
+    let mut cases: Vec<_> = fs::read_dir(fixture_packs().join(group))
+        .unwrap()
+        .map(|entry| {
+            let entry = entry.unwrap();
+            (entry.file_name().into_string().unwrap(), entry.path())
+        })
+        .collect();
+    cases.sort();
+    cases
+}
+
+#[test]
+fn shared_fixture_packs_are_accepted_and_refused_as_listed() {
+    for (case, path) in fixture_cases("valid") {
+        let summary = validate(&path).unwrap_or_else(|error| panic!("{case}: {error}"));
+        let kind = case.split_once('-').unwrap().0;
+        assert_eq!(summary.kind().as_str(), kind, "{case}");
+    }
+    let invalid = fixture_cases("invalid");
+    let mut report = String::new();
+    for (case, path) in &invalid {
+        let actual = match validate(path) {
+            Err(PluginError::Invalid(actual)) => actual,
+            other => format!("NOT REFUSED AS INVALID: {other:?}"),
+        };
+        report.push_str(&format!("    (\"{case}\", \"{actual}\"),\n"));
+    }
+    let names: Vec<&str> = invalid.iter().map(|(case, _)| case.as_str()).collect();
+    let listed: Vec<&str> = FIXTURE_REFUSALS.iter().map(|(case, _)| *case).collect();
+    assert_eq!(
+        names, listed,
+        "每个 invalid fixture 都要在 FIXTURE_REFUSALS 里写明原因：\n{report}"
+    );
+    for (case, path) in &invalid {
+        let reason = FIXTURE_REFUSALS
+            .iter()
+            .find(|(listed, _)| listed == case)
+            .unwrap()
+            .1;
+        match validate(path) {
+            Err(PluginError::Invalid(actual)) => {
+                assert!(actual.contains(reason), "{case}: {actual}")
+            }
+            other => panic!("{case}: {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn phrase_tables_hold_bounded_rows_and_merge_in_priority_order() {
+    let root = tempdir().unwrap();
+    let install = |id: &str, rows: &str| {
+        let pack = kind_directory(root.path(), PluginKind::PhraseTable).join(id);
+        fs::create_dir_all(&pack).unwrap();
+        fs::write(
+            pack.join(MANIFEST_FILE),
+            format!("schema_version = 1\nkind = 'phrase_table'\nid = '{id}'\nname = '短语'\nversion = '1'\nlicense = 'CC0-1.0'\n{rows}"),
+        )
+        .unwrap();
+    };
+    let row = |key: &str, text: &str| format!("[[phrases]]\nkey = '{key}'\ntext = '{text}'\n");
+    install("office", &(row("dh", "电话") + &row("yx", "邮箱")));
+    install("home", &(row("dh", "电话") + &row("dz", "地址")));
+    // 2000 行可以，2001 行不行。
+    let many = |count: usize| {
+        (0..count)
+            .map(|index| row("zz", &index.to_string()))
+            .collect::<String>()
+    };
+    install("full", &many(phrase_table::MAX_PHRASES));
+    install("over", &many(phrase_table::MAX_PHRASES + 1));
+    assert!(load_package(root.path(), None, PluginKind::PhraseTable, "full").is_ok());
+    assert_eq!(
+        reason(root.path(), PluginKind::PhraseTable, "over"),
+        "短语表的条数不在允许范围内"
+    );
+
+    let rows: Vec<_> = phrase_table::enabled_phrases(
+        root.path(),
+        &["home".into(), "missing".into(), "office".into()],
+    )
+    .into_iter()
+    .map(|row| (row.key, row.text))
+    .collect();
+    assert_eq!(
+        rows,
+        [
+            ("dh".to_owned(), "电话".to_owned()),
+            ("dz".to_owned(), "地址".to_owned()),
+            ("dh".to_owned(), "电话".to_owned()),
+            ("yx".to_owned(), "邮箱".to_owned()),
+        ]
+    );
+    assert_eq!(
+        phrase_table::enabled_phrases(root.path(), &[]).capacity(),
+        phrase_table::MAX_ENABLED_PHRASES
+    );
+    let summary = load_package(root.path(), None, PluginKind::PhraseTable, "office").unwrap();
+    let json = serde_json::to_value(&summary).unwrap();
+    assert_eq!(json["kind"], "phrase_table");
+    assert_eq!(json["phrases"][1]["text"], "邮箱");
+}
+
+fn installed_helpcode(root: &Path, id: &str, table: &[u8]) -> PathBuf {
+    let pack = kind_directory(root, PluginKind::Helpcode).join(id);
+    fs::create_dir_all(&pack).unwrap();
+    fs::write(
+        pack.join(MANIFEST_FILE),
+        format!("schema_version = 1\nkind = 'helpcode'\nid = '{id}'\nname = '部首码'\nversion = '1'\nlicense = 'CC0-1.0'\n[helpcode]\ntable = 'table.txt'\n"),
+    )
+    .unwrap();
+    fs::write(pack.join("table.txt"), table).unwrap();
+    pack
+}
+
+/// 从 U+4E00 起连续 `count` 个汉字，每个一条 `字=码`。
+fn helpcode_lines(count: u32) -> Vec<u8> {
+    (0..count)
+        .map(|index| format!("{}=ab\n", char::from_u32(0x4E00 + index).unwrap()))
+        .collect::<String>()
+        .into_bytes()
+}
+
+#[test]
+fn helpcode_tables_are_bounded_and_load_as_codes() {
+    let root = tempdir().unwrap();
+    installed_helpcode(root.path(), "full", &helpcode_lines(30_000));
+    installed_helpcode(root.path(), "over", &helpcode_lines(30_001));
+    let full = load_package(root.path(), None, PluginKind::Helpcode, "full").unwrap();
+    let json = serde_json::to_value(&full).unwrap();
+    assert_eq!(json["kind"], "helpcode");
+    assert_eq!(json["table"], "table.txt");
+    assert_eq!(json["entries"], 30_000);
+    assert_eq!(
+        json["preview"].as_array().unwrap().len(),
+        helpcode_pack::PREVIEW_ENTRIES
+    );
+    assert_eq!(
+        json["preview"][0],
+        serde_json::json!({"character": "一", "code": "ab"})
+    );
+    assert_eq!(
+        reason(root.path(), PluginKind::Helpcode, "over"),
+        "table.txt 的条数超过 30000"
+    );
+
+    // 1 MiB 以内可以，多一个字节就不行。
+    let mut large = b"# ".to_vec();
+    large.resize(helpcode_pack::MAX_TABLE_BYTES as usize - 6, b'x');
+    large.extend_from_slice("\n啊=a".as_bytes());
+    assert_eq!(large.len() as u64, helpcode_pack::MAX_TABLE_BYTES);
+    installed_helpcode(root.path(), "large", &large);
+    assert!(load_package(root.path(), None, PluginKind::Helpcode, "large").is_ok());
+    large.push(b'\n');
+    installed_helpcode(root.path(), "larger", &large);
+    assert_eq!(
+        reason(root.path(), PluginKind::Helpcode, "larger"),
+        "table.txt 为空或太大"
+    );
+
+    installed_helpcode(
+        root.path(),
+        "small",
+        "\u{FEFF}# 注释\r\n你=ni\r\n好=h\r\n".as_bytes(),
+    );
+    let codes = helpcode_pack::load_codes(root.path(), "small").unwrap();
+    assert_eq!(codes.len(), 2);
+    assert_eq!(codes["你"], "ni");
+    assert_eq!(codes["好"], "h");
+    assert!(helpcode_pack::load_codes(root.path(), "missing").is_err());
+    // `load_codes` 只解析一遍码表，但 `load_package` 拒绝的包它同样拒绝。
+    assert_eq!(
+        helpcode_pack::load_codes(root.path(), "larger").unwrap_err(),
+        "table.txt 为空或太大"
+    );
+    installed_helpcode(root.path(), "twice", "你=a\n你=b\n".as_bytes());
+    assert!(helpcode_pack::load_codes(root.path(), "twice").is_err());
+}
+
+#[test]
+fn helpcode_parser_reserves_its_bounded_entry_capacity() {
+    let entries = helpcode_pack::parse_table("你=ni\n".as_bytes(), "table.txt").unwrap();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries.capacity(), helpcode_pack::MAX_ENTRIES);
+}
+
+#[test]
+fn data_file_capacity_matches_the_only_file_backed_plugin_kinds() {
+    assert_eq!(data_file_capacity(PluginKind::Helpcode), 1);
+    assert_eq!(data_file_capacity(PluginKind::Wordbook), 1);
+    for kind in [
+        PluginKind::Sound,
+        PluginKind::Music,
+        PluginKind::CommandTable,
+        PluginKind::Effect,
+        PluginKind::PhraseTable,
+        PluginKind::SymbolSet,
+    ] {
+        assert_eq!(data_file_capacity(kind), 0, "{kind:?}");
+    }
+}
+
+fn installed_wordbook(root: &Path, id: &str, words: &[u8]) {
+    let pack = kind_directory(root, PluginKind::Wordbook).join(id);
+    fs::create_dir_all(&pack).unwrap();
+    fs::write(
+        pack.join(MANIFEST_FILE),
+        format!("schema_version = 1\nkind = 'wordbook'\nid = '{id}'\nname = '词汇'\nversion = '1'\nlicense = 'CC0-1.0'\n[wordbook]\nfile = 'words.tsv'\n"),
+    )
+    .unwrap();
+    fs::write(pack.join("words.tsv"), words).unwrap();
+}
+
+#[test]
+fn wordbooks_are_bounded_and_load_as_books() {
+    let root = tempdir().unwrap();
+    let words = |count: usize| {
+        (0..count)
+            .map(|index| format!("w{index}\tn. 词{index}\n"))
+            .collect::<String>()
+            .into_bytes()
+    };
+    installed_wordbook(root.path(), "full", &words(20_000));
+    installed_wordbook(root.path(), "over", &words(20_001));
+    let full = load_package(root.path(), None, PluginKind::Wordbook, "full").unwrap();
+    let json = serde_json::to_value(&full).unwrap();
+    assert_eq!(json["kind"], "wordbook");
+    assert_eq!(json["word_count"], 20_000);
+    assert_eq!(
+        json["first_words"],
+        serde_json::json!(["w0", "w1", "w2", "w3", "w4"])
+    );
+    assert_eq!(
+        reason(root.path(), PluginKind::Wordbook, "over"),
+        "words.tsv 的单词数超过 20000"
+    );
+
+    // 4 MiB 以内可以，多一个字节就不行。
+    let mut large = b"#".to_vec();
+    large.resize(wordbook_pack::MAX_FILE_BYTES as usize - 8, b'x');
+    large.extend_from_slice(b"\nab\tn. c");
+    assert_eq!(large.len() as u64, wordbook_pack::MAX_FILE_BYTES);
+    installed_wordbook(root.path(), "large", &large);
+    assert!(load_package(root.path(), None, PluginKind::Wordbook, "large").is_ok());
+    large.push(b'\n');
+    installed_wordbook(root.path(), "larger", &large);
+    assert_eq!(
+        reason(root.path(), PluginKind::Wordbook, "larger"),
+        "words.tsv 为空或太大"
+    );
+
+    let book = wordbook_pack::load_book(root.path(), "pack-full").unwrap();
+    assert_eq!(book.id, "pack-full");
+    assert!(book.is_valid());
+    assert!(wordbook_pack::load_book(root.path(), "pack-missing").is_none());
+    assert!(wordbook_pack::load_book(root.path(), "full").is_none());
+    // `load_book` 只解析一遍词表，但 `load_package` 拒绝的包它同样拒绝。
+    assert!(wordbook_pack::load_book(root.path(), "pack-over").is_none());
+    assert!(wordbook_pack::load_book(root.path(), "pack-larger").is_none());
+    installed_wordbook(root.path(), "twice", b"a\tn. x\na\tn. y\n");
+    assert!(wordbook_pack::load_book(root.path(), "pack-twice").is_none());
+}
+
+#[test]
+fn wordbook_parser_reserves_its_bounded_entry_capacity() {
+    let entries = wordbook_pack::parse_words(b"synthetic\tmeaning\n", "words.tsv").unwrap();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries.capacity(), wordbook::MAX_ENTRIES);
+}
+
+#[test]
+fn symbol_sets_list_their_groups_by_pack_name_in_manifest_order() {
+    let root = tempdir().unwrap();
+    let install = |id: &str, name: &str, groups: &str| {
+        let pack = kind_directory(root.path(), PluginKind::SymbolSet).join(id);
+        fs::create_dir_all(&pack).unwrap();
+        fs::write(
+            pack.join(MANIFEST_FILE),
+            format!("schema_version = 1\nkind = 'symbol_set'\nid = '{id}'\nname = '{name}'\nversion = '1'\nlicense = 'CC0-1.0'\n{groups}"),
+        )
+        .unwrap();
+    };
+    install(
+        "math",
+        "数学",
+        "[[groups]]\ntab = 'symbols'\ntitle = '运算'\nitems = ['±', '×']\n[[groups]]\ntab = 'kaomoji'\ntitle = '算不出'\nkeywords = 'suan'\nitems = ['(・_・;)']\n",
+    );
+    install(
+        "arrows",
+        "箭头",
+        "[[groups]]\ntab = 'symbols'\ntitle = '箭头'\nitems = ['→']\n",
+    );
+    install(
+        "broken",
+        "坏的",
+        "[[groups]]\ntab = 'emoji'\ntitle = 'x'\nitems = ['x']\n",
+    );
+    let groups = symbol_set::plugin_symbol_groups(root.path());
+    let listed: Vec<_> = groups
+        .iter()
+        .map(|group| {
+            (
+                group.pack.as_str(),
+                group.tab.as_str(),
+                group.title.as_str(),
+            )
+        })
+        .collect();
+    // 包按名字排序（「数学」在「箭头」之前），组按清单顺序；载不入的包不贡献组。
+    assert_eq!(
+        listed,
+        [
+            ("math", "symbols", "运算"),
+            ("math", "kaomoji", "算不出"),
+            ("arrows", "symbols", "箭头"),
+        ]
+    );
+    assert_eq!(groups[1].keywords, "suan");
+    assert_eq!(groups[0].keywords, "");
+    let summary = load_package(root.path(), None, PluginKind::SymbolSet, "math").unwrap();
+    let json = serde_json::to_value(&summary).unwrap();
+    assert_eq!(json["kind"], "symbol_set");
+    assert_eq!(json["groups"][1]["tab"], "kaomoji");
 }

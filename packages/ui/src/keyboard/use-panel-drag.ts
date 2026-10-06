@@ -1,19 +1,18 @@
 import { useEffect, useRef, type HTMLAttributes } from "react";
+import { useMountedRef } from "../settings/use-mounted-ref";
 
 export function usePanelDrag(
   client: { beginWindowDrag?(): Promise<void> },
   onFailure: () => void,
 ): HTMLAttributes<HTMLElement> {
   const pendingDrag = useRef<{ id: number; x: number; y: number } | null>(null);
-  const mounted = useRef(true);
+  const mounted = useMountedRef();
   const reset = () => {
     pendingDrag.current = null;
   };
   useEffect(() => {
-    mounted.current = true;
     window.addEventListener("blur", reset);
     return () => {
-      mounted.current = false;
       reset();
       window.removeEventListener("blur", reset);
     };

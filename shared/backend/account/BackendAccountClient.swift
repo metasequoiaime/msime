@@ -1,5 +1,74 @@
 import Foundation
 
+/// iOS App 和键盘扩展所属的产品版本（edition），以及两者共用的 App Group。
+///
+/// App Group 标识只写在这里一处，其他代码一律引用 `appGroupIdentifier`：`UserDefaults(suiteName:) ?? .standard` 和 `containerURL(...)` 在标识不对时不报错，漏改的那一处会悄悄读写另一份数据。放在这个文件里，是因为 iOS App、键盘扩展、各测试目标和 Tauri 公共组件的 iOS 工程都编译它。
+///
+/// 版本身份写在 App 和键盘扩展各自的 Info.plist 里，键名与 macOS 相同（platforms/macos/src/core/EditionIdentity.h）：`MSIMEEdition` 是版本 id，`MSIMEInputSchemes` 是本版本提供的方案，`MSIMEDefaultScheme` 是回退方案，`MSIMEWubiMixedPinyinDefault` 是五笔混拼的默认值。full 不带这些键，没有 `MSIMEEdition` 就是 full，每个值都取引入版本之前的那个；测试进程同样读到 full。其他版本的 App Group 是 full 的标识加 `.<版本 id>`，两个版本同时装在一台设备上也不会读写对方的数据。只有 iOS 读 Info.plist，macOS 等平台编译这个文件时始终是 full，它们的版本身份另有来源。
+enum MSIMEAppEdition {
+  static let fullIdentifier = "full"
+  static let fullAppGroupIdentifier = "group.app.msime.ios"
+  static let fullDefaultScheme = "quanpin"
+  static let fullURLScheme = "msime"
+
+  #if os(iOS)
+  private static var info: [String: Any] { Bundle.main.infoDictionary ?? [:] }
+  #else
+  private static var info: [String: Any] { [:] }
+  #endif
+
+  /// 本进程的版本 id。
+  static let identifier = identifier(in: info)
+  /// App 与键盘扩展共用的 App Group，也是两者共用的钥匙串访问组。
+  static let appGroupIdentifier = appGroupIdentifier(in: info)
+  /// 键盘扩展拉起本版本 App 用的 URL scheme，App 在 Info.plist 的 `CFBundleURLTypes` 里注册它。多个 App 声明同一个自定义 scheme 时由系统任选一个打开，所以每个版本各用一个：full 是 `msime`，其他版本是 `msime-<版本 id>`。
+  static let urlScheme = urlScheme(in: info)
+  /// 本版本提供的方案（版本表里的方案名）；nil 表示 full，即全部方案。
+  static let inputSchemes = inputSchemes(in: info)
+  /// 本版本的默认方案，也是偏好里的方案本版本没有时的回退值。
+  static let defaultScheme = defaultScheme(in: info)
+  /// 五笔混拼开关没被用户动过时的值：full 是关，五笔版是开（版本表的 `preference_defaults`）。
+  static let wubiMixedPinyinDefault = wubiMixedPinyinDefault(in: info)
+
+  static var isFull: Bool { identifier == fullIdentifier }
+
+  /// 本版本是否提供这个方案（`quanpin`、`wubi` 等偏好取值）。
+  static func offers(_ scheme: String) -> Bool { inputSchemes?.contains(scheme) ?? true }
+
+  static func identifier(in info: [String: Any]) -> String {
+    guard let value = info["MSIMEEdition"] as? String, !value.isEmpty else { return fullIdentifier }
+    return value
+  }
+
+  static func appGroupIdentifier(in info: [String: Any]) -> String {
+    let edition = identifier(in: info)
+    return edition == fullIdentifier ? fullAppGroupIdentifier : "\(fullAppGroupIdentifier).\(edition)"
+  }
+
+  static func urlScheme(in info: [String: Any]) -> String {
+    let edition = identifier(in: info)
+    return edition == fullIdentifier ? fullURLScheme : "\(fullURLScheme)-\(edition)"
+  }
+
+  static func inputSchemes(in info: [String: Any]) -> [String]? {
+    guard identifier(in: info) != fullIdentifier,
+          let schemes = info["MSIMEInputSchemes"] as? [String], !schemes.isEmpty else { return nil }
+    return schemes
+  }
+
+  static func wubiMixedPinyinDefault(in info: [String: Any]) -> Bool {
+    guard identifier(in: info) != fullIdentifier else { return false }
+    return info["MSIMEWubiMixedPinyinDefault"] as? Bool ?? false
+  }
+
+  /// 声明的默认方案不在本版本的方案里时取第一个方案，保证回退到的方案本版本一定能跑。
+  static func defaultScheme(in info: [String: Any]) -> String {
+    guard let schemes = inputSchemes(in: info) else { return fullDefaultScheme }
+    if let declared = info["MSIMEDefaultScheme"] as? String, schemes.contains(declared) { return declared }
+    return schemes[0]
+  }
+}
+
 /// Shared account transport. Platform UI owns consent and Keychain persistence.
 struct BackendAccountClient: Sendable {
   /// Backend bearer sessions are short-lived; reject responses that would create a practically permanent local session.
@@ -34,7 +103,25 @@ struct BackendAccountClient: Sendable {
   }
   struct Failure: Error, LocalizedError, Sendable {
     let status: Int
+    /// The server's `error.code`, read from the body of a refused request; nil when there was none.
+    var code: String? = nil
+
+    /// The community moderation refusals, which the user has to be told apart from an outage.
+    static let moderationMessages = [
+      "blocked_content": "内容包含不允许发布的词语，请修改后再提交",
+      "screening_unavailable": "审核服务暂时不可用，请稍后重试",
+      "account_banned": "该账号已被封禁，暂时无法使用账号相关功能",
+    ]
+    static let moderationStatuses = ["blocked_content": 422, "screening_unavailable": 503, "account_banned": 403]
+
+    /// The Chinese sentence for a moderation refusal, or nil when this failure is not one.
+    var moderationMessage: String? {
+      guard let code, Self.moderationStatuses[code] == status else { return nil }
+      return Self.moderationMessages[code]
+    }
+
     var errorDescription: String? {
+      if let moderationMessage { return moderationMessage }
       switch status {
       case 400: return "请求内容无效或超出大小限制，请检查后重试。"
       case 401: return "登录已失效，请重新登录。"
@@ -132,7 +219,9 @@ struct BackendAccountClient: Sendable {
     let request = try makeRequest(method, path, token: token, body: body, timeout: timeout)
     let (bytes, response) = try await session.bytes(for: request)
     guard let response = response as? HTTPURLResponse else { throw Failure(status: 0) }
-    guard (200..<300).contains(response.statusCode) else { throw Failure(status: response.statusCode) }
+    guard (200..<300).contains(response.statusCode) else {
+      throw Failure(status: response.statusCode, code: try? await Self.errorCode(bytes))
+    }
     guard response.expectedContentLength <= maximumResponseBytes else { throw Failure(status: 0) }
     var data = Data()
     for try await byte in bytes {
@@ -142,6 +231,26 @@ struct BackendAccountClient: Sendable {
     try Task.checkCancellation()
     return data
   }
+  /// `error.code` of a refusal body `{"error":{"code":...}}`, reading at most 4 KiB. The server's message text is never shown.
+  static func errorCode(_ bytes: URLSession.AsyncBytes) async throws -> String? {
+    var data = Data()
+    for try await byte in bytes {
+      guard data.count < 4096 else { return nil }
+      data.append(byte)
+    }
+    return errorCode(data)
+  }
+
+  static func errorCode(_ data: Data) -> String? {
+    guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          let error = root["error"] as? [String: Any],
+          let code = error["code"] as? String,
+          (1...64).contains(code.utf8.count),
+          code.utf8.allSatisfy({ (97...122).contains($0) || (48...57).contains($0) || $0 == 95 })
+    else { return nil }
+    return code
+  }
+
   private func makeRequest(_ method: String, _ path: String, token: String?, body: Data?, timeout: TimeInterval = 30) throws -> URLRequest {
     guard path.hasPrefix("/v1/"), !path.contains("\\"),
           let url = URL(string: path, relativeTo: origin)?.absoluteURL,
@@ -258,5 +367,57 @@ struct BackendAccountClient: Sendable {
   private func validated(_ tokens: Tokens) throws -> Tokens {
     try Self.validate(tokens)
     return tokens
+  }
+}
+
+/// 存储路径的符号链接策略，防止被人放进去的链接把客户端的写入重定向到别处。它是 `crates/path-trust/src/lib.rs` 中 `SYSTEM_ALIASES` 和 `reject_symlinked_components` 在 macOS 与 iOS 上的对应实现，必须与之保持一致：逐层检查路径时拒绝所有符号链接，只有至多一个受信任的系统别名例外，而且最后一级永远不能是链接。
+///
+/// 放在这个文件里，是因为它是 `shared/backend` 中唯一一个所有使用方（Swift package、所有 iOS target、macOS 的 CMake target 和 Tauri 的 Apple 工程）都会编译的源文件，这样 iOS `SharedUI` 的各个 store 和后端 store 可以共用它，而不必在每份构建清单里登记新文件。
+enum SafePath {
+  /// 存储路径可以经过的系统链接，以及每条链接唯一受信任的目标。macOS 和 iOS 上 `/tmp`、`/var` 是指向 `/private` 的链接，临时目录以及真机上的应用容器和 App Group 容器都在它们下面。必须与 `crates/path-trust/src/lib.rs` 里的 `SYSTEM_ALIASES` 保持一致。
+  static let systemAliases: [(alias: String, target: String)] = [("/tmp", "/private/tmp"), ("/var", "/private/var")]
+
+  /// 判断 `path` 是否是系统别名之一，并且从它读出的 `target`（可能是相对路径）相对链接所在目录按字面解析后，正好是该别名唯一受信任的指向。光凭名字不能证明链接归系统所有，所以目标也要核对。
+  static func isTrustedSystemAliasTarget(_ path: String, target: String) -> Bool {
+    guard let expected = systemAliases.first(where: { $0.alias == path })?.target else { return false }
+    let parent = (path as NSString).deletingLastPathComponent
+    let joined = target.hasPrefix("/") ? target : (parent.isEmpty ? "/" : parent) + "/" + target
+    return normalizedLexically(joined) == expected
+  }
+
+  /// 判断 `path` 是否是系统放置的符号链接：属于系统别名之一，且链接目标与预期一致。
+  static func isTrustedSystemAlias(_ path: String) -> Bool {
+    guard let target = try? FileManager.default.destinationOfSymbolicLink(atPath: path) else { return false }
+    return isTrustedSystemAliasTarget(path, target: target)
+  }
+
+  /// 判断 `url` 本身或其上层是否有应拒绝的符号链接：任何一级上的链接（包括最后一级）都算，唯一的例外是最后一级之上至多一个受信任的系统别名。不存在的层级可以接受，调用方正要创建它；其它 `lstat` 失败一律视为拒绝。
+  static func hasRefusedSymbolicLink(_ url: URL) -> Bool {
+    let components = url.standardizedFileURL.pathComponents
+    guard components.first == "/" else { return true }
+    var current = ""
+    var sawSystemAlias = false
+    for (index, component) in components.enumerated().dropFirst() {
+      current += "/" + component
+      var status = stat()
+      if lstat(current, &status) != 0 {
+        if errno == ENOENT { continue }
+        return true
+      }
+      guard status.st_mode & S_IFMT == S_IFLNK else { continue }
+      if index == components.count - 1 || sawSystemAlias || !isTrustedSystemAlias(current) { return true }
+      sawSystemAlias = true
+    }
+    return false
+  }
+
+  private static func normalizedLexically(_ path: String) -> String {
+    var parts: [Substring] = []
+    for part in path.split(separator: "/") {
+      if part == "." { continue }
+      if part == ".." { _ = parts.popLast(); continue }
+      parts.append(part)
+    }
+    return "/" + parts.joined(separator: "/")
   }
 }

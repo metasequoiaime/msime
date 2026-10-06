@@ -16,9 +16,7 @@ inline std::string usable_provider_token(std::string_view token) {
   return std::string(token);
 }
 
-// Provider IDs are persisted configuration values and older settings files can
-// contain a different ASCII casing. Match them like the Windows reference
-// provider resolver does, while keeping the stored token itself untouched.
+// Provider IDs match case-insensitively, like the Windows reference provider resolver, while the stored token itself stays untouched.
 inline std::string provider_token(const nlohmann::json &input,
                                   const char *slots_key, const char *flat_key,
                                   const std::string &provider) {

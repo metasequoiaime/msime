@@ -1,0 +1,362 @@
+{
+ "name": "vi_vni_raw_restore_backspace",
+ "steps": [
+  {
+   "op": "open",
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "vietnamese",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "6",
+   "op": "char",
+   "result": {
+    "handled": false
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "vietnamese",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "viet65",
+   "op": "type",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 6,
+    "dedicated_english": false,
+    "editing_text": "việt",
+    "local_mode": "none",
+    "normalized_segmentation": "việt",
+    "preedit": "việt",
+    "raw_segmentation": "viet65",
+    "scheme": "vietnamese",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "Backspace",
+   "op": "command",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 5,
+    "dedicated_english": false,
+    "editing_text": "viêt",
+    "local_mode": "none",
+    "normalized_segmentation": "viêt",
+    "preedit": "viêt",
+    "raw_segmentation": "viet6",
+    "scheme": "vietnamese",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "Backspace",
+   "op": "command",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 4,
+    "dedicated_english": false,
+    "editing_text": "viet",
+    "local_mode": "none",
+    "normalized_segmentation": "viet",
+    "preedit": "viet",
+    "raw_segmentation": "viet",
+    "scheme": "vietnamese",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "65",
+   "op": "type",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 6,
+    "dedicated_english": false,
+    "editing_text": "việt",
+    "local_mode": "none",
+    "normalized_segmentation": "việt",
+    "preedit": "việt",
+    "raw_segmentation": "viet65",
+    "scheme": "vietnamese",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "Cancel",
+   "op": "command",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 6,
+    "dedicated_english": false,
+    "editing_text": "viet65",
+    "local_mode": "none",
+    "normalized_segmentation": "viet65",
+    "preedit": "viet65",
+    "raw_segmentation": "viet65",
+    "scheme": "vietnamese",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "x",
+   "op": "type",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 7,
+    "dedicated_english": false,
+    "editing_text": "viet65x",
+    "local_mode": "none",
+    "normalized_segmentation": "viet65x",
+    "preedit": "viet65x",
+    "raw_segmentation": "viet65x",
+    "scheme": "vietnamese",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "Backspace",
+   "op": "command",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 6,
+    "dedicated_english": false,
+    "editing_text": "viet65",
+    "local_mode": "none",
+    "normalized_segmentation": "viet65",
+    "preedit": "viet65",
+    "raw_segmentation": "viet65",
+    "scheme": "vietnamese",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "Cancel",
+   "op": "command",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "vietnamese",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "d9u7o7ng",
+   "op": "type",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 8,
+    "dedicated_english": false,
+    "editing_text": "đương",
+    "local_mode": "none",
+    "normalized_segmentation": "đương",
+    "preedit": "đương",
+    "raw_segmentation": "d9u7o7ng",
+    "scheme": "vietnamese",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "2",
+   "op": "candidate_key",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 9,
+    "dedicated_english": false,
+    "editing_text": "đường",
+    "local_mode": "none",
+    "normalized_segmentation": "đường",
+    "preedit": "đường",
+    "raw_segmentation": "d9u7o7ng2",
+    "scheme": "vietnamese",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "CommitCandidate",
+   "op": "command",
+   "result": {
+    "commit": "đường",
+    "handled": false
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "vietnamese",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "ab",
+   "op": "type",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 2,
+    "dedicated_english": false,
+    "editing_text": "ab",
+    "local_mode": "none",
+    "normalized_segmentation": "ab",
+    "preedit": "ab",
+    "raw_segmentation": "ab",
+    "scheme": "vietnamese",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "Backspace",
+   "op": "command",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 1,
+    "dedicated_english": false,
+    "editing_text": "a",
+    "local_mode": "none",
+    "normalized_segmentation": "a",
+    "preedit": "a",
+    "raw_segmentation": "a",
+    "scheme": "vietnamese",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "Backspace",
+   "op": "command",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "vietnamese",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "Backspace",
+   "op": "command",
+   "result": {
+    "handled": false
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "vietnamese",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "5",
+   "op": "char",
+   "result": {
+    "handled": false
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "vietnamese",
+    "shuangpin_profile": "xiaohe"
+   }
+  }
+ ]
+}

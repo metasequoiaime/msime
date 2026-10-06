@@ -1,5 +1,6 @@
 import { errorCode } from "../core/error-code";
 import { clamp } from "../core/number";
+import { utf8ByteLength } from "../core/text";
 import type { LocalVoiceModel, LocalVoiceModelProgress } from "./local-models";
 
 const LANGUAGE_NAMES: Record<string, string> = {
@@ -63,7 +64,7 @@ export function localModelErrorMessage(error: unknown): string | null {
     case "local_model_cancelled":
       return null;
     case "local_model_network":
-      return "下载失败：无法连接下载服务器。请检查网络，或在下方填写下载镜像后再试。";
+      return "下载失败：无法连接下载服务器。请检查网络，或设置下载镜像后再试。";
     case "local_model_http_status":
       return "下载失败：服务器拒绝了请求。请稍后重试，或更换下载镜像。";
     case "local_model_checksum_mismatch":
@@ -87,11 +88,27 @@ export function localModelErrorMessage(error: unknown): string | null {
 }
 
 export function validModelMirror(mirror: string): boolean {
+  if (mirror === "") return true;
+  if (
+    utf8ByteLength(mirror) > 2048 ||
+    !mirror.startsWith("https://") ||
+    mirror.slice("https://".length).startsWith("/") ||
+    /[\s\u0000-\u001f\u007f]/.test(mirror) ||
+    mirror.includes("?") ||
+    mirror.includes("#")
+  ) {
+    return false;
+  }
+  let url: URL;
+  try {
+    url = new URL(mirror);
+  } catch {
+    return false;
+  }
   return (
-    mirror === "" ||
-    (mirror.length <= 2048 &&
-      mirror.length > "https://".length &&
-      mirror.startsWith("https://") &&
-      !/[\s\u0000-\u001f\u007f]/.test(mirror))
+    url.protocol === "https:" &&
+    url.hostname !== "" &&
+    url.username === "" &&
+    url.password === ""
   );
 }

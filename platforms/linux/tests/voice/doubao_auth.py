@@ -80,11 +80,12 @@ class WebsocketDependency(unittest.TestCase):
 
 
 class DoubaoAuthentication(unittest.TestCase):
-    def test_explicit_modes_override_legacy_inference(self):
-        self.assertEqual(normalize_doubao_auth_mode("api_key", "fixture-app"), "api_key")
-        self.assertEqual(normalize_doubao_auth_mode("legacy", ""), "legacy")
-        self.assertEqual(normalize_doubao_auth_mode("unknown", "fixture-app"), "legacy")
-        self.assertEqual(normalize_doubao_auth_mode("unknown", ""), "api_key")
+    def test_only_a_named_legacy_mode_is_legacy(self):
+        self.assertEqual(normalize_doubao_auth_mode("api_key"), "api_key")
+        self.assertEqual(normalize_doubao_auth_mode("legacy"), "legacy")
+        self.assertEqual(normalize_doubao_auth_mode("unknown"), "api_key")
+        self.assertEqual(normalize_doubao_auth_mode(""), "api_key")
+        self.assertEqual(normalize_doubao_auth_mode(None), "api_key")
 
         common = {"resource_id": "fixture-resource", "token": "fixture-token",
                   "app_key": "fixture-app", "doubao_auth_mode": "api_key"}
@@ -108,8 +109,12 @@ class DoubaoAuthentication(unittest.TestCase):
 
         api = read_config({"provider": "doubao", "token": "fixture-token"})
         self.assertEqual(api["doubao_auth_mode"], "api_key")
-        legacy = read_config({"provider": "doubao", "token": "fixture-token",
+        # An App ID alone does not select the legacy console.
+        absent = read_config({"provider": "doubao", "token": "fixture-token",
                               "app_key": "fixture-app"})
+        self.assertEqual(absent["doubao_auth_mode"], "api_key")
+        legacy = read_config({"provider": "doubao", "token": "fixture-token",
+                              "app_key": "fixture-app", "doubao_auth_mode": "legacy"})
         self.assertEqual(legacy["doubao_auth_mode"], "legacy")
         explicit = read_config({"provider": "doubao", "token": "fixture-token",
                                 "app_key": "stale-app", "doubao_auth_mode": "api_key"})

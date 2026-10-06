@@ -28,7 +28,7 @@ static inline NSString *MSIMEVoiceProviderSocketFromOptionsPath(NSString *option
                                                                 NSDictionary *environment,
                                                                 NSFileManager *fileManager) {
     if (!optionsPath) optionsPath = MSIMEDefaultRuntimeOptionsPath(fileManager);
-    NSData *data = optionsPath.length ? [NSData dataWithContentsOfFile:optionsPath] : nil;
+    NSData *data = MSIMEReadRuntimeOptionsData(optionsPath);
     NSDictionary *options = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
     return MSIMEVoiceProviderSocketFromConfiguration(options, environment, fileManager);
 }

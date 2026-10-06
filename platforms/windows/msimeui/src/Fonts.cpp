@@ -245,6 +245,7 @@ void ApplyFontFallback(IDWriteFactory *factory, IDWriteTextFormat *format, const
     if (FAILED(factory2->CreateFontFallbackBuilder(&builder)))
         return;
     std::vector<const wchar_t *> names;
+    names.reserve(families.size());
     for (const auto &family : families)
         if (!family.empty())
             names.push_back(family.c_str());

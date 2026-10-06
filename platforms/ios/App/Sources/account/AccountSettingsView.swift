@@ -402,7 +402,7 @@ struct AccountProfileEditor: View {
       Button("放弃修改", role: .destructive) { dismiss() }
       Button("继续编辑", role: .cancel) {}
     }
-    .confirmationDialog("退出登录后，社区功能要重新登录才能使用。", isPresented: $confirmSignOut, titleVisibility: .visible) {
+    .confirmationDialog("退出登录后，设置同步、云词库、云剪贴板和发布作品都需要重新登录才能使用。", isPresented: $confirmSignOut, titleVisibility: .visible) {
       Button("退出登录", role: .destructive) { perform { try await SkinCommunityAPI.shared.logout() } }
     }
     .confirmationDialog("退出所有设备后，所有设备都需要重新登录。", isPresented: $confirmLogoutAll, titleVisibility: .visible) {

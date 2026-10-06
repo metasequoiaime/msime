@@ -52,6 +52,9 @@ int main()
         assert(msime::linux_host::split_translation_gloss(gloss) == expected);
     }
 
+    const auto reserved = msime::input::gloss_senses("a;b;c;d;e");
+    assert(reserved.capacity() == 5);
+
     assert(msime::windows::first_translation_sense("hello; hi") == "hello");
     assert(msime::windows::first_translation_sense(" ; ").empty());
     return 0;

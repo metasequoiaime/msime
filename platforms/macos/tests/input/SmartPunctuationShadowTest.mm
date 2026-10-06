@@ -189,6 +189,7 @@ static void TestRewriteRoute() {
 }
 
 int main() {
+    assert(MSIMESmartPunctuationRewrite::kEventCount == 4);
     @autoreleasepool {
         [NSApplication sharedApplication];
         TestRewriteRoute();

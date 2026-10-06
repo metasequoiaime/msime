@@ -1,7 +1,5 @@
 package app.msime.android;
 
-import android.content.Context;
-import android.content.SharedPreferences;
 import android.util.Log;
 import java.io.File;
 import java.util.ArrayList;
@@ -20,25 +18,17 @@ import org.json.JSONObject;
  *
  * <p>Nothing about the history is decided here now. Ordering, the fifty-entry limit, eviction, the
  * pinned-entries-cannot-be-evicted rule and the on-disk format all belong to the shared store; this
- * class turns its answers into the model this keyboard draws, and carries the one-time move of
- * whatever the old private document still held.
+ * class turns its answers into the model this keyboard draws.
  */
 public final class ClipboardHistoryStore {
     private static final String TAG = "MSIMEClipboard";
-    private static final String LEGACY_DOCUMENT = "clipboard-history";
-    private static final String LEGACY_ITEMS_KEY = "items";
-    private static final String LEGACY_MIGRATED_KEY = "migrated-to-shared";
-
-    private final SharedPreferences legacy;
     private final String directory;
 
     /**
      * @param directory the host's own data directory; the shared store keeps its file beneath it
      */
-    public ClipboardHistoryStore(Context context, File directory) {
-        this.legacy = context.getSharedPreferences(LEGACY_DOCUMENT, Context.MODE_PRIVATE);
+    public ClipboardHistoryStore(File directory) {
         this.directory = directory == null ? null : directory.getAbsolutePath();
-        migrate();
     }
 
     public List<ClipboardHistory.Item> load() {
@@ -134,53 +124,10 @@ public final class ClipboardHistoryStore {
             if (entry == null) continue;
             String text = entry.optString("text", "");
             if (text.isEmpty()) continue;
-            items.add(new ClipboardHistory.Item(text, entry.optLong("timestampMs", 0),
+            items.add(new ClipboardHistory.Item(text,
+                ClipboardHistoryPolicy.timestampValue(entry.opt("timestampMs")),
                 entry.optBoolean("pinned", false)));
         }
         return items;
-    }
-
-    /**
-     * Move whatever the private document still holds into the shared store, once.
-     *
-     * <p>Without this the change would read as "the keyboard lost my clipboard history". Oldest
-     * first so the shared store's own ordering ends up the same way round, and pinned entries are
-     * re-pinned afterwards because capture does not carry that flag.
-     */
-    private void migrate() {
-        if (directory == null || legacy.getBoolean(LEGACY_MIGRATED_KEY, false)) return;
-        String encoded = legacy.getString(LEGACY_ITEMS_KEY, null);
-        if (encoded == null || encoded.isEmpty()) {
-            markMigrated();
-            return;
-        }
-        try {
-            JSONArray array = new JSONArray(encoded);
-            List<JSONObject> ordered = new ArrayList<>();
-            for (int index = 0; index < array.length(); index++) {
-                JSONObject value = array.optJSONObject(index);
-                if (value != null) ordered.add(value);
-            }
-            ordered.sort((left, right) ->
-                Long.compare(left.optLong("timestamp", 0), right.optLong("timestamp", 0)));
-            for (JSONObject value : ordered) {
-                String text = value.optString("text", "");
-                if (!ClipboardHistoryPolicy.hasText(text)) continue;
-                // A refusal leaves the legacy document in place so a later launch can retry after
-                // the shared store becomes available or has room. Captures are content-deduplicated
-                // by the shared store, so retrying entries already moved is safe.
-                if (add(text) != null) return;
-                if (value.optBoolean("pinned", false)) setPinned(text, true);
-            }
-            markMigrated();
-        } catch (JSONException | IllegalStateException | IllegalArgumentException ignored) {
-            // Malformed legacy data is not recoverable. Shared-store failures leave it untouched so
-            // a later launch can retry instead of losing entries during a transient outage.
-            if (ignored instanceof JSONException) markMigrated();
-        }
-    }
-
-    private void markMigrated() {
-        legacy.edit().putBoolean(LEGACY_MIGRATED_KEY, true).remove(LEGACY_ITEMS_KEY).apply();
     }
 }
