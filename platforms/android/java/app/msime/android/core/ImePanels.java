@@ -772,7 +772,7 @@ final class ImePanels {
         for (Button segment : new Button[] {s.replyReplyModeButton, s.replyPolishModeButton}) {
             boolean selected = segment.isSelected();
             segment.setBackground(selected ? replySurface(Color.parseColor(s.skin.keyBackground()),
-                BoundsPolicy.nonNegative(radius - s.pixels(2))) : null);
+                Math.max(0f, radius - s.pixels(2))) : null);
             segment.setTextColor(foreground);
             segment.setTypeface(Typeface.create(base, selected ? Typeface.BOLD : Typeface.NORMAL));
             segment.setElevation(0);
