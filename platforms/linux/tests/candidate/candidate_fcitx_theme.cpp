@@ -34,12 +34,16 @@ void write(const std::filesystem::path &file, const std::string &bytes) {
   out << bytes;
 }
 
-// A PNG signature and IHDR chunk header, which is as much of the image as the host reads.
+// 可完整解码的合成 PNG；填充色变化用于检查图片缓存失效。
 std::string png(std::uint32_t height, char fill = 0) {
-  std::string bytes("\x89PNG\r\n\x1a\n\0\0\0\x0dIHDR\0\0\0\x10", 20);
-  for (int shift = 24; shift >= 0; shift -= 8) bytes.push_back(static_cast<char>((height >> shift) & 0xffu));
-  bytes.append(16, fill);
-  return bytes;
+  host::FcitxCanvas canvas(16, static_cast<int>(height), 1);
+  host::fcitx_fill_rounded(canvas, {0, 0, 16, static_cast<double>(height)}, 0,
+                           static_cast<unsigned char>(fill));
+  return host::fcitx_png_encode(canvas);
+}
+
+std::vector<std::string> png_copies(const std::string &name) {
+  return {name, name.substr(0, name.size() - 4) + "@2x.png"};
 }
 
 // The value of the Overlay key in a theme, empty when it has none.
@@ -491,11 +495,31 @@ int main() {
   // Staging copies the image next to theme.conf under a content-hash name, and the theme names that copy.
   const auto skins = root / "skins";
   std::filesystem::create_directories(skins);
+  // 高分辨率装饰按声明的逻辑宽度缩放，不能以原始像素尺寸裁掉顶部。
+  host::FcitxCanvas mascot(496, 388, 1);
+  host::fcitx_fill_rounded(mascot, {0, 0, 496, 388}, 0, 0x13579bu);
+  write(skins / "scale.png", host::fcitx_png_encode(mascot));
+  const host::CandidateSkinDecoration scaled{(skins / "scale.png").string(), 97, 124};
+  assert(host::write_fcitx_candidate_theme(file, wechat_dark, true, scaled));
+  const auto scaled_conf = read(file);
+  const auto scaled_name = overlay_of(scaled_conf);
+  const auto scaled_png = read(directory / scaled_name);
+  assert(be32(scaled_png, 16) == 124 && host::fcitx_png_height(scaled_png) == 97);
+  assert(contains(scaled_conf, "OverlayOffsetY=15\n"));
+  const auto scaled2x = read(directory / (scaled_name.substr(0, scaled_name.size() - 4) + "@2x.png"));
+  assert(be32(scaled2x, 16) == 248 && host::fcitx_png_height(scaled2x) == 194);
+  auto wider = scaled;
+  wider.width_dip = 248;
+  assert(host::fcitx_overlay_stamp(wider) != host::fcitx_overlay_stamp(scaled));
+  assert(host::write_fcitx_candidate_theme(file, wechat_dark, true, wider));
+  const auto fitted_png = read(directory / overlay_of(read(file)));
+  assert(be32(fitted_png, 16) == 133 && host::fcitx_png_height(fitted_png) == 104);
+  assert(contains(read(file), "OverlayOffsetY=8\n"));
   write(skins / "ears.png", png(15, 'a'));
   write(skins / "tall.PNG", png(40, 'b'));
   write(skins / "halo.svg", "<svg xmlns=\"http://www.w3.org/2000/svg\"/>");
   write(skins / "notes.txt", "not an image");
-  const host::CandidateSkinDecoration ears{(skins / "ears.png").string(), 24.5, 180};
+  const host::CandidateSkinDecoration ears{(skins / "ears.png").string(), 24.5, 16};
   assert(host::write_fcitx_candidate_theme(file, wechat_dark, true, ears));
   const auto ears_theme = read(file);
   const auto ears_copy = overlay_of(ears_theme);
@@ -503,7 +527,7 @@ int main() {
   assert(ears_copy.compare(ears_copy.size() - 4, 4, ".png") == 0);
   assert(read(directory / ears_copy) == png(15, 'a'));
   assert(contains(ears_theme, "OverlayOffsetY=25\n") && contains(ears_theme, "Top=40\n"));
-  assert(staged(directory) == std::vector<std::string>{ears_copy});
+  assert(staged(directory) == png_copies(ears_copy));
   assert(files_with(directory, "shape-") == shapes_named(ears_theme) && shapes_named(ears_theme) != shapes_named(theme));
   // An unchanged image is not written again.
   const auto copied = std::filesystem::last_write_time(directory / ears_copy);
@@ -513,16 +537,17 @@ int main() {
   write(skins / "ears.png", png(15, 'c'));
   assert(host::write_fcitx_candidate_theme(file, wechat_dark, true, ears));
   const auto repainted = overlay_of(read(file));
-  assert(repainted != ears_copy && staged(directory) == std::vector<std::string>{repainted});
+  assert(repainted != ears_copy && staged(directory) == png_copies(repainted));
 
   // Switching skins removes the previous skin's image; the extension is kept lower-cased, since it picks the loader.
-  const host::CandidateSkinDecoration tall{(skins / "tall.PNG").string(), 24.5, 180};
+  const host::CandidateSkinDecoration tall{(skins / "tall.PNG").string(), 24.5, 16};
   assert(host::write_fcitx_candidate_theme(file, wechat_dark, true, tall));
   const auto tall_theme = read(file);
   const auto tall_copy = overlay_of(tall_theme);
   assert(tall_copy.compare(tall_copy.size() - 4, 4, ".png") == 0);
-  assert(contains(tall_theme, "OverlayOffsetY=0\n"));
-  assert(staged(directory) == std::vector<std::string>{tall_copy});
+  assert(host::fcitx_png_height(read(directory / tall_copy)) == 32);
+  assert(contains(tall_theme, "OverlayOffsetY=8\n"));
+  assert(staged(directory) == png_copies(tall_copy));
   const host::CandidateSkinDecoration halo{(skins / "halo.svg").string(), 30, 100};
   assert(host::write_fcitx_candidate_theme(file, wechat_dark, true, halo));
   const auto halo_theme = read(file);

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cmath>
 #include <cstdint>
@@ -14,6 +15,8 @@
 #include <string_view>
 #include <system_error>
 #include <vector>
+
+#include <cairo.h>
 
 #include "CandidateColors.h"
 #include "CandidatePalette.h"
@@ -179,7 +182,7 @@ inline std::string fcitx_margin(int left, int right, int top, int bottom) {
 //
 // The brand mark leads the header row as on every other host, but the classic UI lays every row out with the same content margin and has no slot for an image beside the preedit. So the mark is painted into the card image's top-left corner slice, which is never stretched, at the content's top-left corner and the text margin's top, and the content margin grows by the mark and its gap: the preedit follows the mark as the design's header does, and the candidate rows below keep the same left edge as the preedit. Without the mark the theme is unchanged.
 //
-// A decoration is drawn as the background's overlay, with the geometry every host shares: the panel is top_inset_dip (the band) taller than the card, the band is transparent, and the image sits in it with its bottom one card padding below the card's top edge, over the card, aligned left, centre or right with the same padding in from the card's side. The panel image carries the band as fully transparent rows above the card (the shadow keeps the margin above the card it has without a decoration) and counts them in the nine-slice top margin, so they are never stretched; the shadow margin and the content margin both grow by the band, so X11 places the card, not the band, at the cursor and the candidates start below the card's top edge as they do without a decoration. The classic UI paints the overlay while it paints the background, before the candidates, so the part over the card is under the preedit and the highlight; it ends where the content starts, so nothing is covered. The classic UI draws an overlay at its own pixel size and cannot scale it to width_dip the way Windows does: an image whose height is known is placed by its bottom edge, and one taller than the band is cut at the band's top; an image of unknown height starts at the band's top and is drawn at full length.
+// 装饰图位于卡片上方的透明预留区域，底边深入卡片一个内边距，按皮肤的左、中、右对齐绘制。预留高度计入九宫格顶部、阴影和内容边距，候选从卡片内边距之后开始。PNG 在暂存时按声明宽度等比缩放；超过预留高度加内边距时整体缩小，完整放入窗口，并生成 @2x 副本。其他格式沿用 classicui 的原尺寸解码，高度未知时从预留区域顶部绘制。
 //
 // `user_radius` says whether `corner_radius` is the user's own setting rather than the skin package's: only then does the highlight follow a card tighter than its 6 px, so a package's radius leaves the rows as they were drawn before the setting existed.
 inline FcitxThemeFiles fcitx_candidate_theme_files(const CandidateColors &colors, bool dark,
@@ -404,7 +407,7 @@ inline constexpr std::string_view kFcitxOverlayPrefix = "decoration-";
 // The largest decoration image copied, the same limit the shared layer puts on any skin asset (skin::catalog::MAX_RESOURCE_BYTES).
 inline constexpr std::uintmax_t kFcitxOverlayMaxBytes = 8u * 1024u * 1024u;
 
-// The height recorded in a PNG header, which is all this host reads of an image. Other formats are drawn without it.
+// PNG 头里的像素高度，用于校验解码尺寸和放置缩放后的装饰图。
 inline std::optional<int> fcitx_png_height(const std::string &bytes) {
   static constexpr char signature[] = "\x89PNG\r\n\x1a\n";
   if (bytes.size() < 24 || bytes.compare(0, 8, signature, 8) != 0 || bytes.compare(12, 4, "IHDR") != 0)
@@ -415,9 +418,67 @@ inline std::optional<int> fcitx_png_height(const std::string &bytes) {
   return static_cast<int>(height);
 }
 
-// Copy the decoration image into the theme directory, where the classic UI looks for an overlay (themes/<theme>/<Overlay>), with the same policy as theme.conf: atomically, and only when the copy does not already hold the same bytes. Only the image types a skin package may ship are taken, keeping their extension, which is how the classic UI picks a loader. Nothing is staged for a file that is missing, empty or over kFcitxOverlayMaxBytes.
+// PNG 按声明宽度等比缩放，超过预留高度加卡片内边距时再缩小，和其他宿主的装饰布局一致。
+inline std::optional<std::array<std::string, 2>> scale_fcitx_overlay_png(
+    const std::string &bytes, double width_dip, int room) {
+  const auto natural_height = fcitx_png_height(bytes);
+  if (!natural_height) return std::nullopt;
+  std::uint32_t natural_width = 0;
+  for (std::size_t i = 16; i < 20; ++i) natural_width = (natural_width << 8) | static_cast<unsigned char>(bytes[i]);
+  // 解码前沿用共享皮肤导入的单边 2048 像素上限，避免运行配置绕过图片分配限制。
+  if (!natural_width || natural_width > 2048 || *natural_height > 2048) return std::nullopt;
+  std::istringstream input(bytes);
+  auto *source = cairo_image_surface_create_from_png_stream(
+      [](void *closure, unsigned char *data, unsigned int length) {
+        auto &stream = *static_cast<std::istringstream *>(closure);
+        stream.read(reinterpret_cast<char *>(data), length);
+        return stream ? CAIRO_STATUS_SUCCESS : CAIRO_STATUS_READ_ERROR;
+      }, &input);
+  if (cairo_surface_status(source) != CAIRO_STATUS_SUCCESS) {
+    cairo_surface_destroy(source);
+    return std::nullopt;
+  }
+  const double ratio = std::min(width_dip / natural_width, static_cast<double>(room) / *natural_height);
+  const int width = std::max(1, static_cast<int>(std::lround(natural_width * ratio)));
+  const int height = std::max(1, static_cast<int>(std::lround(*natural_height * ratio)));
+  std::array<std::string, 2> images;
+  for (int scale : {1, 2}) {
+    if (scale == 1 && width == static_cast<int>(natural_width) && height == *natural_height) {
+      images[0] = bytes;
+      continue;
+    }
+    auto *surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, width * scale, height * scale);
+    auto *context = cairo_create(surface);
+    cairo_scale(context, static_cast<double>(width * scale) / natural_width,
+                static_cast<double>(height * scale) / *natural_height);
+    cairo_set_source_surface(context, source, 0, 0);
+    cairo_pattern_set_filter(cairo_get_source(context), CAIRO_FILTER_BEST);
+    cairo_paint(context);
+    auto status = cairo_status(context);
+    if (status == CAIRO_STATUS_SUCCESS)
+      status = cairo_surface_write_to_png_stream(surface,
+          [](void *closure, const unsigned char *data, unsigned int length) {
+            try {
+              static_cast<std::string *>(closure)->append(reinterpret_cast<const char *>(data), length);
+              return CAIRO_STATUS_SUCCESS;
+            } catch (...) { return CAIRO_STATUS_NO_MEMORY; }
+          }, &images[scale - 1]);
+    cairo_destroy(context);
+    cairo_surface_destroy(surface);
+    if (status != CAIRO_STATUS_SUCCESS) {
+      cairo_surface_destroy(source);
+      return std::nullopt;
+    }
+  }
+  cairo_surface_destroy(source);
+  return images;
+}
+
+// 装饰图原子暂存到主题目录，PNG 生成逻辑尺寸与 @2x 两份，并按输出内容命名。
+// ponytail: 非 PNG 仍交给 classicui 原样解码；需要同样缩放时接入宿主已有的通用图片解码器。
+
 inline std::optional<FcitxThemeOverlay> stage_fcitx_overlay(const std::filesystem::path &directory,
-                                                            const CandidateSkinDecoration &decoration) {
+                                                            const CandidateSkinDecoration &decoration, int padding) {
   const std::filesystem::path source(decoration.image);
   auto extension = source.extension().string();
   std::transform(extension.begin(), extension.end(), extension.begin(),
@@ -439,10 +500,19 @@ inline std::optional<FcitxThemeOverlay> stage_fcitx_overlay(const std::filesyste
     if (in.bad()) return std::nullopt;
   }
   if (bytes.empty() || bytes.size() > kFcitxOverlayMaxBytes) return std::nullopt;
-  auto file = std::string(kFcitxOverlayPrefix) + fcitx_content_hash(bytes) + extension;
+  const int band = static_cast<int>(std::ceil(decoration.top_dip));
+  std::string doubled;
+  if (extension == ".png") {
+    const auto scaled = scale_fcitx_overlay_png(bytes, decoration.width_dip, band + padding);
+    if (!scaled) return std::nullopt;
+    bytes = (*scaled)[0];
+    doubled = (*scaled)[1];
+  }
+  const auto stem = std::string(kFcitxOverlayPrefix) + fcitx_content_hash(bytes + doubled);
+  auto file = stem + extension;
+  if (!doubled.empty() && !write_fcitx_theme(directory / (stem + "@2x.png"), doubled)) return std::nullopt;
   if (!write_fcitx_theme(directory / file, bytes)) return std::nullopt;
-  return FcitxThemeOverlay{std::move(file), static_cast<int>(std::ceil(decoration.top_dip)), fcitx_png_height(bytes),
-                           decoration.align};
+  return FcitxThemeOverlay{std::move(file), band, fcitx_png_height(bytes), decoration.align};
 }
 
 // Remove every file with `prefix` whose name is not in `keep`, so the theme directory holds only the images the current theme names.
@@ -458,7 +528,7 @@ inline void remove_stale_fcitx_files(const std::filesystem::path &directory, std
   for (const auto &file : stale) std::filesystem::remove(file, error);
 }
 
-// What the overlay depends on, read without opening the image: its path, size and modification time and the declared band. The host compares this instead of copying the image on every refresh; a changed image changes the stamp and is staged again.
+// 装饰缓存包含图像路径、大小、修改时间、逻辑宽度、预留高度和对齐方式，任一变化都会重新暂存图片。
 inline std::string fcitx_overlay_stamp(const std::optional<CandidateSkinDecoration> &decoration) {
   if (!decoration) return {};
   std::error_code size_error;
@@ -466,7 +536,7 @@ inline std::string fcitx_overlay_stamp(const std::optional<CandidateSkinDecorati
   const auto size = std::filesystem::file_size(decoration->image, size_error);
   const auto time = std::filesystem::last_write_time(decoration->image, time_error);
   std::ostringstream stamp;
-  stamp << "\n# overlay " << decoration->image << ' ' << decoration->top_dip << ' '
+  stamp << "\n# overlay " << decoration->image << ' ' << decoration->top_dip << ' ' << decoration->width_dip << ' '
         << static_cast<int>(decoration->align) << ' '
         << (size_error ? 0 : size) << ' ' << (time_error ? 0LL : static_cast<long long>(time.time_since_epoch().count())) << '\n';
   return stamp.str();
@@ -480,7 +550,8 @@ inline bool write_fcitx_candidate_theme(const std::filesystem::path &file, const
                                         bool user_radius = false) {
   const auto directory = file.parent_path();
   if (!prepare_candidate_directory(directory)) return false;
-  const auto overlay = decoration ? stage_fcitx_overlay(directory, *decoration) : std::nullopt;
+  const int padding = std::max(1, colors.border ? colors.border_width : 0) + FcitxPanelGeometry::padding;
+  const auto overlay = decoration ? stage_fcitx_overlay(directory, *decoration, padding) : std::nullopt;
   const auto theme = fcitx_candidate_theme_files(colors, dark, overlay, corner_radius, logo, user_radius);
   std::vector<std::string> shapes;
   fcitx_collect_shape_names(theme, shapes);
@@ -488,7 +559,13 @@ inline bool write_fcitx_candidate_theme(const std::filesystem::path &file, const
     if (!write_fcitx_theme(directory / image.file, image.bytes)) return false;
   }
   if (!write_fcitx_theme(file, theme.conf)) return false;
-  remove_stale_fcitx_files(directory, kFcitxOverlayPrefix, overlay ? std::vector<std::string>{overlay->file} : std::vector<std::string>{});
+  std::vector<std::string> decorations;
+  if (overlay) {
+    decorations.push_back(overlay->file);
+    if (std::filesystem::path(overlay->file).extension() == ".png")
+      decorations.push_back(overlay->file.substr(0, overlay->file.size() - 4) + "@2x.png");
+  }
+  remove_stale_fcitx_files(directory, kFcitxOverlayPrefix, decorations);
   remove_stale_fcitx_files(directory, kFcitxShapePrefix, shapes);
   return true;
 }

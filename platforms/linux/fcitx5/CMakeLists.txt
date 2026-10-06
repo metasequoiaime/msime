@@ -229,6 +229,7 @@ if(BUILD_TESTING)
   target_link_libraries(linux-candidate-fcitx-logo-test PRIVATE PkgConfig::CAIRO nlohmann_json::nlohmann_json)
   add_test(NAME linux-candidate-fcitx-logo
     COMMAND linux-candidate-fcitx-logo-test "${CMAKE_CURRENT_SOURCE_DIR}/../data/icons/hicolor")
+  add_test(NAME fcitx5-candidate-decoration COMMAND fcitx5-native-test --theme-decoration)
   # 仅装开发库的构建环境可能没有 classicui 运行库；真实主题检查需要它。
   find_library(MSIME_FCITX5_CLASSICUI NAMES classicui PATH_SUFFIXES fcitx5)
   if(MSIME_FCITX5_CLASSICUI)

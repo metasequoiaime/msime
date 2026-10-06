@@ -92,8 +92,10 @@ void candidateThemeDecoration() {
   std::filesystem::create_directories(image.parent_path());
   {
     std::ofstream out(image, std::ios::binary);
-    // PNG signature and IHDR header of a 32 x 12 image.
-    out << std::string("\x89PNG\r\n\x1a\n\0\0\0\x0dIHDR\0\0\0\x20\0\0\0\x0c\x08\x06\0\0\0", 29);
+    // 装饰暂存会真正解码 PNG，合成图必须包含完整的像素数据。
+    host::FcitxCanvas canvas(32, 12, 1);
+    host::fcitx_fill_rounded(canvas, {0, 0, 32, 12}, 0, 0x13579bu);
+    out << host::fcitx_png_encode(canvas);
   }
   const Json catalog = {{"packages", Json::array({{{"id", "sakura"},
                                                    {"title", "樱花"},
@@ -101,7 +103,7 @@ void candidateThemeDecoration() {
                                                    {"layouts", Json::array({"horizontal", "vertical"})},
                                                    {"candidate", {{"light", Json::object()}}},
                                                    {"decoration_top_dip", 24.5},
-                                                   {"decoration_width_dip", 180},
+                                                   {"decoration_width_dip", 32},
                                                    {"decoration_image", image.string()}}})}};
   const auto themeFor = [&](const Json &preferences) {
     const auto theme = resolveCandidateTheme(preferences, false, catalog);
@@ -116,6 +118,7 @@ void candidateThemeDecoration() {
     std::vector<std::string> names;
     for (const auto &entry : std::filesystem::directory_iterator(themeDirectory))
       if (entry.path().filename().string().rfind("decoration-", 0) == 0) names.push_back(entry.path().filename().string());
+    std::sort(names.begin(), names.end());
     return names;
   };
   // The shared layer reports the package as drawn (candidate_skin) only because the manifest declares this layout and mode; that is what brings its decoration.
@@ -123,7 +126,8 @@ void candidateThemeDecoration() {
   const auto named = decorated.find("\nOverlay=decoration-");
   require(named != std::string::npos, "decorated skin names its overlay");
   const auto copy = decorated.substr(named + 9, decorated.find('\n', named + 1) - named - 9);
-  require(copies() == std::vector<std::string>{copy}, "overlay image staged beside theme.conf");
+  require(copies() == std::vector<std::string>{copy, copy.substr(0, copy.size() - 4) + "@2x.png"},
+          "overlay images staged at 1x and 2x beside theme.conf");
   require(std::filesystem::file_size(themeDirectory / copy) == std::filesystem::file_size(image), "overlay is the skin's image");
   require(decorated.find("Gravity=Top Right\nOverlayOffsetX=19\nOverlayOffsetY=28\nHideOverlayIfOversize=False\n") !=
               std::string::npos,
@@ -306,6 +310,11 @@ int candidateThemePriority() {
 }
 int main(int argc, char **argv) {
   try {
+    if (argc == 2 && std::string(argv[1]) == "--theme-decoration") {
+      candidateThemeDecoration();
+      std::cout << "Fcitx5 candidate decoration passed\n";
+      return 0;
+    }
     if (argc == 2 && std::string(argv[1]) == "--theme-priority") {
       return candidateThemePriority();
     }
