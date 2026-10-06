@@ -1,5 +1,6 @@
 //! `E` and `M` modes and the mixed emoji / kaomoji rows (emoji_query.cpp:59-140, kaomoji_query.cpp). Shuangpin also queries the code normalised to quanpin.
 
+use std::collections::HashSet;
 use std::path::Path;
 
 use rusqlite::Connection;
@@ -119,6 +120,7 @@ fn read(
     let mut statement = connection.prepare_cached(sql)?;
     let capacity = limit.saturating_mul(prefixes.len());
     let mut entries = Vec::with_capacity(capacity);
+    let mut seen = HashSet::with_capacity(capacity);
     for prefix in prefixes {
         let upper_bound = prefix_upper_bound(prefix);
         let rows = statement.query_map(
@@ -132,7 +134,7 @@ fn read(
         )?;
         for row in rows {
             if let (Some(text), sort_order) = row? {
-                if !contains_text(&entries, &text) {
+                if seen.insert(text.clone()) {
                     entries.push((text, sort_order.unwrap_or(0)));
                 }
             }
@@ -149,6 +151,7 @@ fn prefix_upper_bound(prefix: &str) -> String {
     upper_bound
 }
 
+#[cfg(test)]
 fn contains_text(entries: &[(String, i64)], text: &str) -> bool {
     entries.iter().any(|(entry, _)| entry == text)
 }
