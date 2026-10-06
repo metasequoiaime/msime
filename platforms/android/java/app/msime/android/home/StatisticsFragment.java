@@ -22,6 +22,7 @@ import androidx.annotation.Nullable;
 import androidx.core.content.ContextCompat;
 import app.msime.android.NativeClient;
 import app.msime.android.BoundsPolicy;
+import app.msime.android.KeyPressIds;
 import app.msime.android.R;
 import app.msime.android.TypingStatisticsModel;
 import app.msime.android.TypingStatisticsSummary;
@@ -346,7 +347,7 @@ public final class StatisticsFragment extends HomeTabFragment {
 
     /** 近 7 天每个键的按键次数，和按键 KPI 同一个时间窗。 */
     private Map<String, Long> weekKeys() {
-        Map<String, Long> result = new LinkedHashMap<>();
+        Map<String, Long> result = new LinkedHashMap<>(KeyPressIds.KEY_IDS.size());
         if (statistics == null) return result;
         LocalDate today = LocalDate.now();
         for (int offset = 0; offset < WEEK; offset++) {
