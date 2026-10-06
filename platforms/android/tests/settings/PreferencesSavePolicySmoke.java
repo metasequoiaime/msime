@@ -7,6 +7,9 @@ public final class PreferencesSavePolicySmoke {
         check(PreferencesSavePolicy.shouldApplyResponse(10, 10));
         check(PreferencesSavePolicy.shouldApplyResponse(10, 11));
         check(!PreferencesSavePolicy.shouldApplyResponse(11, 10));
+        check(PreferencesSavePolicy.accepted(Boolean.TRUE));
+        check(!PreferencesSavePolicy.accepted("true"));
+        check(!PreferencesSavePolicy.accepted(Integer.valueOf(1)));
         System.out.println("Android preference saves preserve newer reloads passed");
     }
 }

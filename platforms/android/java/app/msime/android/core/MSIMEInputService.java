@@ -4139,7 +4139,7 @@ public final class MSIMEInputService extends InputMethodService {
                     response = NativeClient.savePreferences(targetDirectory, expectedRevision, pending.toString());
                     // 本地的按键动画只在偏好写入成功后再写：CAS 冲突时界面回到原皮肤，磁盘上也不能留下新动画。
                     if (animation != null && response != null
-                            && new JSONObject(response).optBoolean("ok", false)) {
+                            && PreferencesSavePolicy.accepted(new JSONObject(response).opt("ok"))) {
                         AndroidLocalSettings.put(this, AndroidLocalSettings.KEY_ANIMATION, animation);
                     }
                 }
@@ -4666,7 +4666,7 @@ public final class MSIMEInputService extends InputMethodService {
                 response = NativeClient.savePreferences(targetDirectory, expectedRevision,
                     pending.toString());
                 // 本地高度只在偏好写入成功后再写：CAS 冲突时界面回到原高度，磁盘上也不能留下新高度。
-                if (response != null && new JSONObject(response).optBoolean("ok", false)) {
+                if (response != null && PreferencesSavePolicy.accepted(new JSONObject(response).opt("ok"))) {
                     AndroidLocalSettings.put(this, AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT, height);
                 }
             } catch (Exception | LinkageError error) {
