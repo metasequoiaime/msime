@@ -1,6 +1,7 @@
 import app.msime.android.KeyboardActionRow;
 import app.msime.android.KeyboardActionRow.Slot;
 import app.msime.android.KeyboardLayout;
+import app.msime.android.ZhuyinKeyboardLayout;
 import java.util.List;
 
 public final class KeyboardActionRowSmoke {
@@ -77,9 +78,18 @@ public final class KeyboardActionRowSmoke {
         check(slots(KeyboardLayout.ZHUYIN_LAYOUT, true).equals(
                 slots(KeyboardLayout.STANDARD_TOUCH_LAYOUT, true)),
             "the Dachen rows keep the standard action row");
-        check(KeyboardActionRow.letterRowEdgeWeight(false)
-            > KeyboardActionRow.letterRowEdgeWeight(true),
+        int standard = KeyboardLayout.STANDARD_TOUCH_LAYOUT;
+        int zhuyin = KeyboardLayout.ZHUYIN_LAYOUT;
+        check(KeyboardActionRow.letterRowEdgeWeight(standard, false)
+            > KeyboardActionRow.letterRowEdgeWeight(standard, true),
             "the ten-key symbol row leaves its edges less room than the seven-key letter row");
+        // ㄈ…ㄥ plus ⌫ spans the same eleven shares as the digit row, so every key on both rows is one width.
+        check(ZhuyinKeyboardLayout.rows().get(3).size() + KeyboardActionRow.letterRowEdgeWeight(zhuyin, false)
+                == ZhuyinKeyboardLayout.rows().get(0).size(),
+            "the Dachen ⌫ takes one key's share");
+        check(KeyboardActionRow.letterRowEdgeWeight(zhuyin, true)
+                == KeyboardActionRow.letterRowEdgeWeight(standard, true),
+            "the Dachen symbol page keeps the standard edges");
 
         check("123".equals(KeyboardActionRow.layerTitle(KeyboardLayout.STANDARD_TOUCH_LAYOUT, false)),
             "letters offer the digit page");
