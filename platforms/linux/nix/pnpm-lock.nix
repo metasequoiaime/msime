@@ -3,7 +3,7 @@
 #
 # 只认 lockfile v9 的 packages: 段里 registry 包的写法（resolution 只有 integrity），逐行匹配，
 # 不是通用的 YAML 解析；遇到别的写法（git、tarball 地址等）求值时直接失败，而不是装出缺包的结果。
-# 带 os、cpu、libc 限制的包只取本机能用的，其余不下载，pnpm 本来也会跳过它们。
+# 带 os、cpu、libc 限制的包只取构建机能用的，其余不下载，pnpm 本来也会跳过它们。node 和 vite 在构建机上跑，交叉编译时要的是构建机的原生包（rolldown、lightningcss 等），不是目标机的。
 {
   lib,
   stdenv,
@@ -71,10 +71,10 @@ let
       lines;
 
   # npm 的平台字段：全是 "!xxx" 时是排除列表，否则是允许列表。
-  host = {
-    os = stdenv.hostPlatform.node.platform;
-    cpu = stdenv.hostPlatform.node.arch;
-    libc = if stdenv.hostPlatform.isMusl then "musl" else "glibc";
+  build = {
+    os = stdenv.buildPlatform.node.platform;
+    cpu = stdenv.buildPlatform.node.arch;
+    libc = if stdenv.buildPlatform.isMusl then "musl" else "glibc";
   };
   allows =
     package: field:
@@ -84,11 +84,11 @@ let
     list == [ ]
     || (
       if lib.all (lib.hasPrefix "!") list then
-        !(lib.elem "!${host.${field}}" list)
+        !(lib.elem "!${build.${field}}" list)
       else
-        lib.elem host.${field} list
+        lib.elem build.${field} list
     );
-  usable = package: lib.all (allows package) (builtins.attrNames host);
+  usable = package: lib.all (allows package) (builtins.attrNames build);
 
   tarball =
     key: package:
