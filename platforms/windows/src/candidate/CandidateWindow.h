@@ -10,6 +10,7 @@
 #include "CandidateSkin.h"
 #include "TypingEffectPolicy.h"
 #include "CandidateWindowStyle.h"
+#include "ComponentFailure.h"
 #include <functional>
 #include <memory>
 // windows.h first: its DrawText macro has to reach the Direct2D declarations,
@@ -80,11 +81,15 @@ public:
   bool set_style(const CandidateWindowStyle &style);
   void hide();
   bool failed() const { return failed_; }
+  // 第一次失败的位置，只有固定标签和数字，可以写进诊断日志。
+  const std::optional<ComponentFailureSite> &failure_site() const { return failure_site_; }
   HWND handle() const { return window_; }
 
 private:
   static LRESULT CALLBACK procedure(HWND, UINT, WPARAM, LPARAM) noexcept;
   void reposition();
+  // 记下第一次失败并隐藏；error 由 catch 现场先取，免得隐藏窗口时被改写。
+  void fail(ComponentFailureSite site);
   void invalidate_geometry();
   CandidateBounds card_bounds(const CandidatePresentation &value,
                               const RECT &work, unsigned dpi);
@@ -124,6 +129,7 @@ private:
   std::optional<size_t> hovered_;
   unsigned painted_dpi_ = 0;
   bool failed_ = false;
+  std::optional<ComponentFailureSite> failure_site_;
   unsigned font_size_ = 16;
   unsigned preedit_font_size_ = 16;
   // Direct2D's imaging factory is a COM server, and this thread is the Server's
