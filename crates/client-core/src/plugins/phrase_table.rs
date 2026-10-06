@@ -9,7 +9,7 @@
 //! 编码是 1 到 32 个小写 ASCII 字母，即 K 之后输入的字母；文本非空白、1 到 199 个 UTF-16 单元，不含任何控制字符（包括换行和制表符：候选只显示一行，换行会不声不响地进到应用里）。同一编码可以对应多段文本，但同一对编码和文本不能重复。一个包 1 到 2000 行。Engine 用同样的规则跳过它用不了的行（`crates/engine/src/local/quick_phrase.rs`），这里重复一遍，让包带着原因被拒绝，而不是丢了行却没人知道。
 
 use serde::Serialize;
-use std::collections::BTreeSet;
+use std::collections::HashSet;
 use toml::Value;
 
 use super::{only_keys, PluginKind};
@@ -46,7 +46,7 @@ pub(crate) fn parse(table: &toml::map::Map<String, Value>) -> Result<PhraseTable
         return Err("短语表的条数不在允许范围内".into());
     }
     let mut phrases = Vec::with_capacity(items.len());
-    let mut seen = BTreeSet::new();
+    let mut seen = HashSet::with_capacity(items.len());
     for item in items {
         let row = item.as_table().ok_or("每条短语都必须是一个表")?;
         only_keys(row, &["key", "text"], "a phrase")?;
