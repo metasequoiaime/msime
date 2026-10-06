@@ -102,7 +102,9 @@ final class CustomServiceTests: XCTestCase {
       audioFrame: { _, _, _ in Data([0x02]) },
       decodeFrame: { frame in frame == Data([0xFF]) ? (true, "fixture transcript") : nil }
     )
-    let configuration = CustomServiceConfiguration.loadVoicePreset(.doubao)
+    var configuration = CustomServiceConfiguration.loadVoicePreset(.doubao)
+    configuration.voiceAppKey = "fixture-app"
+    configuration.voiceResourceID = "fixture-resource"
     do {
       _ = try await CustomServiceClient.request(
         kind: .voice, configuration: configuration, pcm: Data([0x01]), token: "fixture-access",
