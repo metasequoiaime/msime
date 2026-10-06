@@ -216,7 +216,7 @@ public final class DictionaryCollectionsStore {
 
     /** 整个词库按 `standard`（词、编码、权重，制表符分隔）导出成文本，分页读完再交给调用方写文件。 */
     public static Result<String> export(Context context, String kind) {
-        StringBuilder text = new StringBuilder();
+        StringBuilder text = null;
         int bytes = 0;
         int offset = 0;
         try {
@@ -227,6 +227,7 @@ public final class DictionaryCollectionsStore {
                 String page = value.optString("text", "");
                 int nextBytes = exportBytesAfterPage(bytes, page);
                 if (nextBytes < 0) return Result.failed(failureMessage("collections_too_large"));
+                if (text == null) text = new StringBuilder(Math.max(16, page.length()));
                 text.append(page);
                 bytes = nextBytes;
                 if (!value.optBoolean("has_more", false)) break;
@@ -235,7 +236,7 @@ public final class DictionaryCollectionsStore {
         } catch (JSONException error) {
             return Result.failed(failureMessage(""));
         }
-        return Result.of(text.toString());
+        return Result.of(text == null ? "" : text.toString());
     }
 
     /** 返回追加一页后的 UTF-8 字节数；超出导出上限时返回负数。 */
