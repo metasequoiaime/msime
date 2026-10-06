@@ -437,7 +437,7 @@ public final class BackendAccount {
         if (models == null || models.isEmpty() || models.size() > MAX_CHAT_MODELS || defaultModel == null
                 || defaultModel.isEmpty() || TextPolicy.utf8Length(defaultModel) > 200)
             return false;
-        java.util.HashSet<String> ids = new java.util.HashSet<>();
+        java.util.HashSet<String> ids = new java.util.HashSet<>(models.size());
         boolean hasDefault = false;
         for (ChatModel model : models) {
             if (model == null || model.id() == null || model.id().isEmpty()
