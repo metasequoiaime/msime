@@ -259,13 +259,14 @@ public final class CloudClipboardPage extends DetailPage {
 
     /** 「已置顶 · 设备 · 时间」，没有的部分省掉。 */
     private static String meta(CloudClipboardApi.Item item) {
-        StringBuilder out = new StringBuilder();
+        String when = relative(item.updatedAt());
+        int capacity = (item.pinned() ? 3 : 0) + item.device().length() + when.length() + 6;
+        StringBuilder out = new StringBuilder(capacity);
         if (item.pinned()) out.append("已置顶");
         if (!item.device().isEmpty()) {
             if (out.length() > 0) out.append(" · ");
             out.append(item.device());
         }
-        String when = relative(item.updatedAt());
         if (!when.isEmpty()) {
             if (out.length() > 0) out.append(" · ");
             out.append(when);
