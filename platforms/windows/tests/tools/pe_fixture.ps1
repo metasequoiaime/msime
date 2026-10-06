@@ -10,7 +10,8 @@ function Write-PEFixture {
         'x64' { 0x8664 }
         'x86' { 0x14c }
         'arm64' { 0xaa64 }
-        'arm64x' { 0xa64e }
+        # 与 Test-PortableExecutable.ps1 相同：Arm64X 映像的文件头是 0xAA64，区别只在混合元数据。
+        'arm64x' { 0xaa64 }
         default { throw "Unsupported fixture architecture: $Architecture" }
     }
     $magic = if ($Architecture -eq 'x86') { 0x10b } else { 0x20b }

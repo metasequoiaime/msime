@@ -24,7 +24,8 @@ try {
         'x64' { 0x8664 }
         'x86' { 0x14c }
         'arm64' { 0xaa64 }
-        'arm64x' { 0xa64e }
+        # Arm64X 映像的文件头和 ARM64 一样是 0xAA64，靠混合（CHPE）元数据区分，下面单独核对。0xA64E（IMAGE_FILE_MACHINE_ARM64X）只出现在 COFF 目标文件与导入库里，链接出的 DLL/EXE 不会用它：#3815 的 Release Windows 在 ARM64 机器上对真实构建的 Arm64X TIP 跑过本脚本，按 0xAA64 加混合元数据通过。
+        'arm64x' { 0xaa64 }
         default { throw "Unsupported architecture: $Architecture" }
     }
     if ($machine -ne $expected) { throw 'PE architecture mismatch' }
