@@ -42,7 +42,6 @@ final class NoticeBanner {
     }
 
     private static List<Notice> fetch(Context context) {
-        List<Notice> notices = new ArrayList<>();
         try {
             JSONObject request = new JSONObject()
                 .put("directory", directory(context))
@@ -51,7 +50,7 @@ final class NoticeBanner {
             JSONObject root = new JSONObject(NativeClient.notices(request.toString()));
             JSONObject value = root.optBoolean("ok", false) ? root.optJSONObject("value") : null;
             JSONArray items = value == null ? null : value.optJSONArray("items");
-            notices = new ArrayList<>(items == null ? 0 : items.length());
+            List<Notice> notices = new ArrayList<>(items == null ? 0 : items.length());
             for (int index = 0; items != null && index < items.length(); index++) {
                 JSONObject item = items.optJSONObject(index);
                 if (item == null) continue;
@@ -60,11 +59,12 @@ final class NoticeBanner {
                 if (id.isEmpty() || title.isEmpty()) continue;
                 notices.add(new Notice(id, title, item.optString("body", "")));
             }
+            return notices;
         } catch (Exception | LinkageError error) {
             // No notices is the right thing to show when the feed or the host cannot answer.
             android.util.Log.i("MSIMENotices", "Notices unavailable", error);
+            return List.of();
         }
-        return notices;
     }
 
     private static void show(Fragment fragment, LinearLayout container,
