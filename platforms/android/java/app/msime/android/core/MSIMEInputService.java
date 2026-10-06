@@ -2278,7 +2278,7 @@ public final class MSIMEInputService extends InputMethodService {
      * {@link OnlineCandidatePolicy}, so only the envelope shape is read here.
      */
     private java.util.List<String> aiCandidateTexts(String body) {
-        java.util.ArrayList<String> texts = new java.util.ArrayList<>();
+        java.util.List<String> texts = java.util.List.of();
         if (!OnlineCandidatePolicy.acceptsAiBody(body)) return texts;
         try {
             JSONObject envelope = new JSONObject(body);
@@ -2291,15 +2291,14 @@ public final class MSIMEInputService extends InputMethodService {
             if (!OnlineCandidatePolicy.acceptsAiContent(content)) return texts;
             JSONArray entries = new JSONObject(content).optJSONArray("candidates");
             if (entries == null) return texts;
-            texts.ensureCapacity(entries.length());
+            texts = new java.util.ArrayList<>(entries.length());
             for (int index = 0; index < entries.length(); index++) {
                 JSONObject entry = entries.optJSONObject(index);
                 if (entry != null) texts.add(entry.optString("text", ""));
             }
             return texts;
         } catch (JSONException | RuntimeException error) {
-            texts.clear();
-            return texts;
+            return java.util.List.of();
         }
     }
 
