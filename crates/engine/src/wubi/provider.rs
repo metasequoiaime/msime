@@ -1,21 +1,66 @@
-//! The `wubi86` provider (`R/providers/wubi_candidate_provider.cpp`, with the wubi_prefix_learning overlay): exact code first, then weight, no value dedup, at most 50 rows. The provider only reads: learning and removal of a wubi row go through `session`, which journals them with the wubi kind and then resets this cache.
+//! 五笔码表的 provider（`R/providers/wubi_candidate_provider.cpp`，含 wubi_prefix_learning overlay）：按 `WubiProfileKind` 读 `wubi86` 或 `wubi98`。Exact code first, then weight, no value dedup, at most 50 rows. The provider only reads: learning and removal of a wubi row go through `session`, which journals them with the wubi kind and then resets this cache.
 
+use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 
+use lru::LruCache;
 use rusqlite::types::ValueRef;
-use rusqlite::{Connection, OpenFlags};
+use rusqlite::{Connection, OpenFlags, OptionalExtension};
 
 use crate::dictionary::pinyin::BUSY_TIMEOUT;
-use crate::types::{CandidateSource, QueryRequest, SchemeType, WordItem};
+use crate::types::{CandidateSource, QueryRequest, SchemeType, WordItem, WubiProfileKind};
 
 const QUERY_LIMIT: i64 = 50;
+const REVERSE_CACHE_CAPACITY: usize = 1024;
+const REVERSE_QUERY_SQL_86: &str = "SELECT \"key\" FROM wubi86 WHERE \"value\" = ?1 ORDER BY length(\"key\") DESC, \"weight\" DESC, \"key\" ASC, rowid ASC LIMIT 1";
+const REVERSE_QUERY_SQL_98: &str = "SELECT \"key\" FROM wubi98 WHERE \"value\" = ?1 ORDER BY length(\"key\") DESC, \"weight\" DESC, \"key\" ASC, rowid ASC LIMIT 1";
 
 /// A prefix query: the typed code's own rows lead, then every longer code it prefixes by weight. The same word reached through several codes (工 at a, aaa and aaaa) is kept once per code, because ranking and removal act on the code the row arrived with.
-const QUERY_SQL: &str = "SELECT \"key\", \"value\", \"weight\" FROM wubi86 WHERE \"key\" >= ?1 AND \"key\" < ?2 ORDER BY (\"key\" = ?1) DESC, \"weight\" DESC, \"key\" ASC, rowid ASC LIMIT ?3";
+const QUERY_SQL_86: &str = "SELECT \"key\", \"value\", \"weight\" FROM wubi86 WHERE \"key\" >= ?1 AND \"key\" < ?2 ORDER BY (\"key\" = ?1) DESC, \"weight\" DESC, \"key\" ASC, rowid ASC LIMIT ?3";
+/// 与 `QUERY_SQL_86` 相同，只是读 `wubi98`。
+const QUERY_SQL_98: &str = "SELECT \"key\", \"value\", \"weight\" FROM wubi98 WHERE \"key\" >= ?1 AND \"key\" < ?2 ORDER BY (\"key\" = ?1) DESC, \"weight\" DESC, \"key\" ASC, rowid ASC LIMIT ?3";
+
+/// 反查按 `"value"` 找行，而发布词库只有 `("key","value")` 的唯一约束和 `("key","weight")` 索引，没有索引时每次反查都要扫整张表。每张五笔表配一个只按词条建的索引，由 [`ensure_reverse_indexes`] 在可写的代次副本里补上。
+const REVERSE_INDEXES: [(&str, &str, &str); 2] = [
+    (
+        "wubi86",
+        "idx_wubi86_value",
+        "CREATE INDEX IF NOT EXISTS idx_wubi86_value ON wubi86(\"value\")",
+    ),
+    (
+        "wubi98",
+        "idx_wubi98_value",
+        "CREATE INDEX IF NOT EXISTS idx_wubi98_value ON wubi98(\"value\")",
+    ),
+];
+
+/// 给库里已有的五笔表补上反查索引；按表名判断而不是按文件名，所以词库无论拆成几个文件都能调用。表不存在就跳过，索引已在时只读一次 schema、不开写事务，可以每次准备代次都调用。
+pub(crate) fn ensure_reverse_indexes(connection: &Connection) -> rusqlite::Result<()> {
+    for (table, index, create) in REVERSE_INDEXES {
+        let (has_table, has_index): (bool, bool) = connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1), EXISTS(SELECT 1 FROM sqlite_master WHERE type='index' AND name=?2)",
+            (table, index),
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        if has_table && !has_index {
+            connection.execute_batch(create)?;
+        }
+    }
+    Ok(())
+}
+
+fn query_sql(profile: WubiProfileKind) -> &'static str {
+    match profile {
+        WubiProfileKind::Wubi86 => QUERY_SQL_86,
+        WubiProfileKind::Wubi98 => QUERY_SQL_98,
+    }
+}
 
 pub struct WubiProvider {
     main_db: PathBuf,
+    profile: WubiProfileKind,
     connection: Option<Connection>,
+    reverse_cache: LruCache<String, Option<String>>,
 }
 
 impl WubiProvider {
@@ -23,8 +68,16 @@ impl WubiProvider {
     pub fn new(main_db: &Path) -> Self {
         Self {
             main_db: main_db.to_path_buf(),
+            profile: WubiProfileKind::Wubi86,
             connection: None,
+            reverse_cache: LruCache::new(NonZeroUsize::new(REVERSE_CACHE_CAPACITY).unwrap()),
         }
+    }
+
+    /// 切换码表版本；下一次查询起读新表。
+    pub fn set_profile(&mut self, profile: WubiProfileKind) {
+        self.profile = profile;
+        self.reverse_cache.clear();
     }
 
     /// `SELECT "key","value","weight" FROM wubi86 WHERE "key" >= ?1 AND "key" < ?2 ORDER BY ("key" = ?1) DESC, "weight" DESC, "key" ASC, rowid ASC LIMIT ?3`, `?2` = the code with its last letter incremented and `?3` = 50. Rows carry `scheme = Wubi`. Any SQLite failure is an empty answer, as in the reference.
@@ -35,10 +88,11 @@ impl WubiProvider {
         {
             return Vec::new();
         }
+        let profile = self.profile;
         let Some(connection) = self.connection() else {
             return Vec::new();
         };
-        match query_rows(connection, &request.normalized_input) {
+        match query_rows(connection, profile, &request.normalized_input) {
             Ok(rows) => rows,
             Err(_) => {
                 // The reference dropped a statement that failed and prepared it again on the next key; closing gives the same retry.
@@ -51,6 +105,23 @@ impl WubiProvider {
     /// Closes the connection, so the next query sees what learning or removal wrote since.
     pub fn reset_cache(&mut self) {
         self.connection = None;
+        self.reverse_cache.clear();
+    }
+
+    /// 返回词条的完整五笔 86 编码。反查只服务于候选展示，不改变候选排序或选择身份；同一词条的多个编码优先取完整编码、再取词库权重最高的一条。
+    pub fn reverse_code(&mut self, word: &str) -> Option<String> {
+        if word.is_empty() {
+            return None;
+        }
+        if let Some(code) = self.reverse_cache.get(word) {
+            return code.clone();
+        }
+        let profile = self.profile;
+        let code = self
+            .connection()
+            .and_then(|connection| reverse_code(connection, profile, word).ok().flatten());
+        self.reverse_cache.put(word.to_owned(), code.clone());
+        code
     }
 
     fn connection(&mut self) -> Option<&Connection> {
@@ -85,8 +156,12 @@ fn prefix_upper_bound(code: &str) -> String {
     upper
 }
 
-fn query_rows(connection: &Connection, code: &str) -> rusqlite::Result<Vec<WordItem>> {
-    let mut statement = connection.prepare_cached(QUERY_SQL)?;
+fn query_rows(
+    connection: &Connection,
+    profile: WubiProfileKind,
+    code: &str,
+) -> rusqlite::Result<Vec<WordItem>> {
+    let mut statement = connection.prepare_cached(query_sql(profile))?;
     let upper = prefix_upper_bound(code);
     let mut rows = statement.query((code, upper.as_str(), QUERY_LIMIT))?;
     let mut candidates = Vec::with_capacity(QUERY_LIMIT as usize);
@@ -110,6 +185,21 @@ fn query_rows(connection: &Connection, code: &str) -> rusqlite::Result<Vec<WordI
     Ok(candidates)
 }
 
+fn reverse_code(
+    connection: &Connection,
+    profile: WubiProfileKind,
+    word: &str,
+) -> rusqlite::Result<Option<String>> {
+    // 每次刷新会对几十到几百个候选逐个反查；有了索引后单次查询只要几微秒，重复解析 SQL 反而成了大头，所以复用已准备的语句。
+    connection
+        .prepare_cached(match profile {
+            WubiProfileKind::Wubi86 => REVERSE_QUERY_SQL_86,
+            WubiProfileKind::Wubi98 => REVERSE_QUERY_SQL_98,
+        })?
+        .query_row([word], |row| row.get(0))
+        .optional()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -121,7 +211,7 @@ mod tests {
 
     fn fixture(sql: &str) -> Fixture {
         let root = tempfile::tempdir().expect("temporary directory");
-        let main_db = root.path().join("msime.db");
+        let main_db = root.path().join("msime-pinyin.db");
         Connection::open(&main_db)
             .expect("fixture database")
             .execute_batch(sql)
@@ -163,6 +253,22 @@ mod tests {
         INSERT INTO wubi86 VALUES('wqb','爷',20);\
         INSERT INTO wubi86 VALUES('wqi','你',10);\
         INSERT INTO wubi86 VALUES('wqbb','父子',30);";
+
+    #[test]
+    fn the_profile_picks_the_table() {
+        let mut fixture = fixture(
+            "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);\
+             INSERT INTO wubi86 VALUES('kl','号',10);\
+             CREATE TABLE wubi98(key TEXT,value TEXT,weight INTEGER);\
+             INSERT INTO wubi98 VALUES('kg','号',10);",
+        );
+        let provider = &mut fixture.provider;
+        assert_eq!(rows(provider, "kl"), vec![row("kl", "号", 10)]);
+        assert!(rows(provider, "kg").is_empty());
+        provider.set_profile(WubiProfileKind::Wubi98);
+        assert_eq!(rows(provider, "kg"), vec![row("kg", "号", 10)]);
+        assert!(rows(provider, "kl").is_empty());
+    }
 
     #[test]
     fn exact_code_leads_then_weight_without_word_dedup() {
@@ -282,5 +388,98 @@ mod tests {
             rows(&mut fixture.provider, "wqbb"),
             vec![row("wqbb", "父子", 99)]
         );
+    }
+
+    fn reverse_plan(connection: &Connection, profile: WubiProfileKind) -> String {
+        let sql = match profile {
+            WubiProfileKind::Wubi86 => REVERSE_QUERY_SQL_86,
+            WubiProfileKind::Wubi98 => REVERSE_QUERY_SQL_98,
+        };
+        let mut statement = connection
+            .prepare(&format!("EXPLAIN QUERY PLAN {sql}"))
+            .unwrap();
+        let details: Vec<String> = statement
+            .query_map(["你好"], |row| row.get(3))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        details.join("; ")
+    }
+
+    #[test]
+    fn reverse_indexes_are_created_once_for_the_tables_present() {
+        let both = fixture(
+            "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER,UNIQUE(key,value));\
+             CREATE TABLE wubi98(key TEXT,value TEXT,weight INTEGER,UNIQUE(key,value));",
+        );
+        let connection = Connection::open(&both.provider.main_db).unwrap();
+        assert!(reverse_plan(&connection, WubiProfileKind::Wubi86).contains("SCAN wubi86"));
+        ensure_reverse_indexes(&connection).unwrap();
+        ensure_reverse_indexes(&connection).unwrap();
+        let indexes: i64 = connection
+            .query_row(
+                "SELECT count(*) FROM sqlite_master WHERE type='index' AND name IN ('idx_wubi86_value','idx_wubi98_value')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(indexes, 2);
+        assert!(reverse_plan(&connection, WubiProfileKind::Wubi86)
+            .contains("USING INDEX idx_wubi86_value"));
+        assert!(reverse_plan(&connection, WubiProfileKind::Wubi98)
+            .contains("USING INDEX idx_wubi98_value"));
+
+        // 没有五笔表的库（例如 english.db）原样不动。
+        let other = fixture("CREATE TABLE english_words(word TEXT);");
+        let connection = Connection::open(&other.provider.main_db).unwrap();
+        ensure_reverse_indexes(&connection).unwrap();
+        let tables: i64 = connection
+            .query_row("SELECT count(*) FROM sqlite_master", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(tables, 1);
+    }
+
+    #[test]
+    fn the_reverse_index_does_not_change_which_code_is_shown() {
+        // 同一词条的多个编码：完整编码优先，同长度按权重，再按编码；索引只改变查法，不改变答案。
+        let sql = "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER,UNIQUE(key,value));\
+             INSERT INTO wubi86 VALUES('a','工',900);\
+             INSERT INTO wubi86 VALUES('aaaa','工',10);\
+             INSERT INTO wubi86 VALUES('aaab','工',20);\
+             INSERT INTO wubi86 VALUES('wqvb','你好',300);\
+             INSERT INTO wubi86 VALUES('wqvc','你好',300);\
+             INSERT INTO wubi86 VALUES('wq','你',10);";
+        let words = ["工", "你好", "你", "缺"];
+        let mut plain = fixture(sql);
+        let before: Vec<Option<String>> = words
+            .iter()
+            .map(|word| plain.provider.reverse_code(word))
+            .collect();
+        assert_eq!(
+            before,
+            [
+                Some("aaab".to_owned()),
+                Some("wqvb".to_owned()),
+                Some("wq".to_owned()),
+                None
+            ]
+        );
+        let mut indexed = fixture(sql);
+        ensure_reverse_indexes(&Connection::open(&indexed.provider.main_db).unwrap()).unwrap();
+        let after: Vec<Option<String>> = words
+            .iter()
+            .map(|word| indexed.provider.reverse_code(word))
+            .collect();
+        assert_eq!(after, before);
+    }
+
+    #[test]
+    fn reverse_cache_does_not_grow_without_bound() {
+        let mut fixture = fixture("CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);");
+        for index in 0..=1024 {
+            let word = format!("合成{index:04}");
+            assert_eq!(fixture.provider.reverse_code(&word), None);
+        }
+        assert!(fixture.provider.reverse_cache.len() <= 1024);
     }
 }

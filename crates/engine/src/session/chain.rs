@@ -1,6 +1,8 @@
 //! The committed-word chain personal context learns along (`R/core/commit_chain.h`).
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+use crate::time::Instant;
 
 /// How long a chain survives without input before the next word starts a new one.
 pub const COMMIT_CHAIN_PAUSE_SECONDS: u64 = 8;

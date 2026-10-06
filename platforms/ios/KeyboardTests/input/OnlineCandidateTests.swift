@@ -35,6 +35,74 @@ final class OnlineCandidateTests: XCTestCase {
     XCTAssertTrue(try bridge.snapshot(from: applied).candidates.contains("泥壕云"))
   }
 
+  func testBridgeRejectsMalformedUnsignedIntegers() {
+    XCTAssertEqual(MetasequoiaInputSessionBridge.strictUInt64(NSNumber(value: 7)), 7)
+    XCTAssertNil(MetasequoiaInputSessionBridge.strictUInt64(NSNumber(value: 7.5)))
+    XCTAssertNil(MetasequoiaInputSessionBridge.strictUInt64(NSNumber(value: true)))
+    XCTAssertNil(MetasequoiaInputSessionBridge.strictUInt64(NSNumber(value: -1)))
+  }
+
+  func testTransportRejectsUnsafeURLComponents() {
+    for value in [
+      "https://user:password@example.invalid/translate",
+      "https://example.invalid/translate#fragment",
+      "https:///translate",
+    ] {
+      XCTAssertFalse(URLSessionOnlineCandidateTransport.validURL(URL(string: value)), value)
+    }
+    XCTAssertTrue(URLSessionOnlineCandidateTransport.validURL(
+      URL(string: "https://example.invalid/translate")))
+  }
+
+  func testSnapshotRejectsCandidateRowsWithoutText() throws {
+    let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
+    let malformed: [String: Any] = [
+      "view": [
+        "candidates": [["code": "ni", "source": 0], ["text": "你", "code": "ni"]],
+      ],
+    ]
+    XCTAssertThrowsError(try bridge.snapshot(from: malformed))
+  }
+
+  func testSnapshotRejectsMalformedCandidateNumericFields() {
+    let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
+    for field in ["source", "fixed_position"] {
+      for invalid: Any in [1.5, true, -1, 256, "1", NSNull()] {
+        let malformed: [String: Any] = ["view": ["candidates": [["text": "合成", field: invalid]]]]
+        XCTAssertThrowsError(try bridge.snapshot(from: malformed), "\(field): \(invalid)")
+      }
+    }
+  }
+
+  func testSnapshotRejectsMalformedPageCountsAndCaretOffsets() {
+    let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
+    for field in ["page_count", "caret_position"] {
+      for invalid: Any in [1.5, true, -1, "1", NSNull(), NSNumber(value: UInt64.max)] {
+        let malformed: [String: Any] = ["view": ["editing_text": "ni", field: invalid]]
+        XCTAssertThrowsError(try bridge.snapshot(from: malformed), "\(field): \(invalid)")
+      }
+    }
+    XCTAssertThrowsError(try bridge.snapshot(from: ["view": ["editing_text": "ni", "caret_position": 3]]))
+  }
+
+  func testSnapshotPreservesIntegerBoundsAndUTF8CaretOffsets() throws {
+    let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
+    let snapshot = try bridge.snapshot(from: ["view": [
+      "candidates": [["text": "合成", "source": 255, "fixed_position": 255]],
+      "page_count": Int.max, "editing_text": "việt", "caret_position": "việt".utf8.count,
+    ]])
+    XCTAssertEqual(snapshot.candidateSources, [255])
+    XCTAssertEqual(snapshot.candidateFixedPositions, [255])
+    XCTAssertEqual(snapshot.candidatePageCount, Int.max)
+    XCTAssertEqual(snapshot.caretPosition, "việt".utf8.count)
+
+    let defaults = try bridge.snapshot(from: ["view": ["candidates": [["text": "合成"]]]])
+    XCTAssertEqual(defaults.candidateSources, [-1])
+    XCTAssertEqual(defaults.candidateFixedPositions, [0])
+    XCTAssertEqual(defaults.candidatePageCount, 0)
+    XCTAssertEqual(defaults.caretPosition, 0)
+  }
+
   func testCloudCandidatesStayOffUntilTheSwitchIsOn() async throws {
     CloudCandidatePreference.enabled = false
     // A document synced from a desktop, where cloud candidates are on.
@@ -104,6 +172,28 @@ final class OnlineCandidateTests: XCTestCase {
     XCTAssertEqual(requests.first?.maxBytes, 256 * 1024)
   }
 
+  func testAFailedRequestCanBeRetriedForTheSameComposition() throws {
+    CloudCandidatePreference.enabled = true
+    let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
+    let transport = FlakyTransport(body: Self.cloudBody)
+    let provider = OnlineCandidateProvider(session: bridge, transport: transport)
+
+    type(bridge, "nihao")
+    let firstCall = expectation(description: "first request")
+    transport.onCall = { if $0 == 1 { firstCall.fulfill() } }
+    provider.refresh(allowed: true)
+    wait(for: [firstCall], timeout: 5)
+    RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+    XCTAssertEqual(transport.callCount, 1)
+
+    let rendered = expectation(description: "rendered after retry")
+    provider.onApplied = { _ in rendered.fulfill() }
+    provider.refresh(allowed: true)
+    wait(for: [rendered], timeout: 5)
+    XCTAssertEqual(transport.callCount, 2)
+    provider.cancel()
+  }
+
   func testNothingIsAskedWithoutTheHostsPermission() {
     CloudCandidatePreference.enabled = true
     let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
@@ -137,6 +227,59 @@ final class OnlineCandidateTests: XCTestCase {
     XCTAssertNil(OnlineCandidateProvider.aiRequest(get))
   }
 
+  func testTheAIDescriptorRejectsCredentialsFragmentsAndMissingHosts() {
+    let descriptor: [String: Any] = [
+      "url": "https://example.invalid/v1/chat/completions", "method": "POST",
+      "body": ["model": "m"],
+    ]
+    for url in [
+      "https://user:password@example.invalid/v1/chat/completions",
+      "https://example.invalid/v1/chat/completions#fragment",
+      "https:///v1/chat/completions",
+    ] {
+      var malformed = descriptor
+      malformed["url"] = url
+      XCTAssertNil(OnlineCandidateProvider.aiRequest(malformed), "must reject \(url)")
+    }
+  }
+
+  func testAIDescriptorRejectsMalformedNumericFields() {
+    let descriptor: [String: Any] = [
+      "url": "https://example.invalid/v1/chat/completions", "method": "POST",
+      "body": ["model": "m"], "timeout_ms": 8000, "connect_timeout_ms": 2500,
+      "max_response_bytes": 1_048_576,
+    ]
+    var fractional = descriptor
+    fractional["timeout_ms"] = 8000.5
+    XCTAssertNil(OnlineCandidateProvider.aiRequest(fractional))
+    var boolean = descriptor
+    boolean["max_response_bytes"] = true
+    XCTAssertNil(OnlineCandidateProvider.aiRequest(boolean))
+    var negative = descriptor
+    negative["connect_timeout_ms"] = -1
+    XCTAssertNil(OnlineCandidateProvider.aiRequest(negative))
+
+    XCTAssertNil(OnlineCandidateProvider.aiCandidateLimit([
+      "ai_eligible": true, "ai_assistant": ["enabled": true, "candidate_limit": 1.5],
+    ]))
+    XCTAssertNil(OnlineCandidateProvider.aiCandidateLimit([
+      "ai_eligible": true, "ai_assistant": ["enabled": true, "candidate_limit": true],
+    ]))
+  }
+
+  func testTheAIDescriptorDefaultsAbsentTransportLimits() {
+    let descriptor: [String: Any] = [
+      "url": "https://example.invalid/v1/chat/completions", "method": "POST",
+      "body": ["model": "m"],
+    ]
+    let request = OnlineCandidateProvider.aiRequest(descriptor)
+    XCTAssertEqual(request?.timeout, 8)
+    XCTAssertEqual(request?.connectTimeout, 2.5)
+    XCTAssertEqual(request?.maxBytes, 1_048_576)
+    XCTAssertNil(OnlineCandidateProvider.aiCandidateLimit(["ai_assistant": ["candidate_limit": true]]))
+    XCTAssertNil(OnlineCandidateProvider.aiCandidateLimit(["ai_assistant": ["candidate_limit": 2.5]]))
+  }
+
   func testTheSignatureIgnoresTheGenerationButNotTheAssistant() {
     let query: [String: Any] = [
       "session_id": 1, "generation": 3, "cache_key": "nihao", "identity": "q", "cloud_candidates": true,
@@ -157,6 +300,19 @@ final class OnlineCandidateTests: XCTestCase {
     XCTAssertNotEqual(OnlineCandidateProvider.signature(splitCache), OnlineCandidateProvider.signature(splitIdentity))
   }
 
+  func testCloudSuccessStillAllowsRetryWhenAIHasNoAnswer() {
+    XCTAssertTrue(
+      OnlineCandidateProvider.shouldRetryAfterFetch(
+        cloudRequested: true, cloudApplied: true, aiRequested: true, aiApplied: false),
+      "云候选成功但 AI 没有结果时必须释放签名，以便同一组字重试 AI")
+    XCTAssertFalse(
+      OnlineCandidateProvider.shouldRetryAfterFetch(
+        cloudRequested: true, cloudApplied: true, aiRequested: true, aiApplied: true))
+    XCTAssertFalse(
+      OnlineCandidateProvider.shouldRetryAfterFetch(
+        cloudRequested: true, cloudApplied: true, aiRequested: false, aiApplied: false))
+  }
+
   private func type(_ bridge: MetasequoiaInputSessionBridge, _ letters: String) {
     _ = bridge.cancel()
     for letter in letters { _ = bridge.handleCharacter(String(letter)) }
@@ -175,5 +331,30 @@ private final class RecordingTransport: OnlineCandidateTransport, @unchecked Sen
   func fetch(_ request: OnlineCandidateRequest) async -> Data? {
     lock.withLock { recorded.append(request) }
     return body
+  }
+}
+
+private final class FlakyTransport: OnlineCandidateTransport, @unchecked Sendable {
+  private let body: Data
+  private let lock = NSLock()
+  private var calls = 0
+  var onCall: ((Int) -> Void)?
+
+  init(body: Data) { self.body = body }
+
+  var callCount: Int { lock.withLock { calls } }
+
+  func fetch(_ request: OnlineCandidateRequest) async -> Data? {
+    let call = lock.withLock {
+      calls += 1
+      return calls
+    }
+    if call == 1 {
+      // 在提供器处理完失败返回后再通知测试，避免把仍在执行的请求误当成已结束。
+      DispatchQueue.main.async { [weak self] in self?.onCall?(call) }
+    } else {
+      onCall?(call)
+    }
+    return call == 1 ? nil : body
   }
 }

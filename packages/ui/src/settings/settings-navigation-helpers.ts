@@ -15,13 +15,11 @@ export function mobileTabForPage(page: string): MobilePrimaryPageId {
     : "home";
 }
 
-/** Resolves a host route through aliases, known pages, and the shell's fallback page. */
+/** Resolves a host route to one of `pages`, or to the shell's fallback page for an id that is not among them. */
 export function requestedPage<PageId extends string>(
   value: string | undefined,
   pages: readonly { id: PageId }[],
-  aliases: Readonly<Record<string, PageId>>,
   fallback: PageId,
 ): PageId {
-  if (value !== undefined && Object.hasOwn(aliases, value)) return aliases[value];
   return pages.some((page) => page.id === value) ? (value as PageId) : fallback;
 }

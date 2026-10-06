@@ -59,6 +59,17 @@ export class HttpAsrConfigurationPolicy {
       : this.providerToken(config.asr_tokens ?? {}, config.asr_provider);
   }
 
+  static transcriptionLanguage(provider: string, value: string): string {
+    if (provider === "siliconflow") return "";
+    const language: string = value.trim().toLowerCase();
+    if (language.length === 0 || language === "auto") return "";
+    const hyphen: number = language.indexOf("-");
+    const underscore: number = language.indexOf("_");
+    let separator: number = hyphen;
+    if (separator < 0 || (underscore >= 0 && underscore < separator)) separator = underscore;
+    return separator < 0 ? language : language.slice(0, separator);
+  }
+
   static valid(config: VoiceInputConfiguration): boolean {
     const endpoint: string = this.endpoint(config);
     const model: string = this.model(config);

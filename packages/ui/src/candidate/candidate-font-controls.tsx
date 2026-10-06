@@ -6,6 +6,7 @@ import {
 import { candidateMainFontPatch } from "./candidate-font-presets";
 import { useFontCatalog, type FontCatalogReader } from "./font-catalog";
 import { FontFamilyInput } from "./font-family-input";
+import { ActionButton } from "../core/action-button";
 import { Row } from "../core/platform-controls";
 
 /**
@@ -17,14 +18,12 @@ export function CandidateFontControls({
   readFonts,
   windows = false,
   englishFont = windows,
-  mobile = false,
 }: {
   value: CandidateFontPreferences;
   onChange: (patch: CandidateFontPreferences) => void;
   readFonts?: FontCatalogReader;
   windows?: boolean;
   englishFont?: boolean;
-  mobile?: boolean;
 }) {
   const catalog = useFontCatalog(readFonts);
   const englishFontValue =
@@ -32,7 +31,6 @@ export function CandidateFontControls({
     (windows
       ? defaultCandidateEnglishFont
       : (value.candidate_font_family ?? defaultCandidateFontFamily));
-  const surfaceName = mobile ? "候选栏" : "候选窗";
   const catalogStatus =
     catalog.status === "unsupported"
       ? "当前宿主未接入系统字体列表，请输入完整字体名。"
@@ -43,16 +41,27 @@ export function CandidateFontControls({
           : catalog.status === "ready" && !catalog.fonts.length
             ? "系统字体列表为空，可手动输入。"
             : "";
-  // Rows of the page's 字体 group: each font is a row with its input on the trailing edge.
+  // 该页「字体与大小」组里的各行：每种字体一行，输入控件在行尾；主字体排在最前，因为英文字体会回退到它。
   return (
     <>
+      <Row title="主字体">
+        <FontFamilyInput
+          label="主字体"
+          value={value.candidate_font_family ?? defaultCandidateFontFamily}
+          fonts={catalog.fonts}
+          enabled={!!readFonts}
+          ready={catalog.status === "ready"}
+          request={catalog.request}
+          onChange={(font) => onChange(candidateMainFontPatch(font, windows, value))}
+        />
+      </Row>
       {englishFont && (
         <Row
-          title={`${surfaceName}英文字体`}
+          title="英文字体"
           description={`优先用于候选和预编辑；缺字时使用主字体，不限英文输入模式。${windows ? "保存后自动应用。" : "未设置时跟随候选主字体。"}`}
         >
           <FontFamilyInput
-            label={`${surfaceName}英文字体`}
+            label="英文字体"
             value={englishFontValue}
             fonts={catalog.fonts}
             enabled={!!readFonts}
@@ -62,28 +71,15 @@ export function CandidateFontControls({
           />
         </Row>
       )}
-      <Row title={`${surfaceName}主字体`}>
-        <FontFamilyInput
-          label={`${surfaceName}主字体`}
-          value={value.candidate_font_family ?? defaultCandidateFontFamily}
-          fonts={catalog.fonts}
-          enabled={!!readFonts}
-          ready={catalog.status === "ready"}
-          request={catalog.request}
-          onChange={(font) => onChange(candidateMainFontPatch(font, windows, value))}
-        />
-      </Row>
       {/* The live region stays mounted while empty, so the status it later takes is announced. */}
       <Row title="系统字体列表" description={<span role="status">{catalogStatus}</span>}>
         {readFonts && (
-          <button
-            type="button"
+          <ActionButton
+            action={catalog.refresh}
             className="secondary m-0"
             disabled={catalog.status === "loading"}
-            onClick={catalog.refresh}
-          >
-            刷新字体列表
-          </button>
+            label="刷新字体列表"
+          />
         )}
       </Row>
     </>

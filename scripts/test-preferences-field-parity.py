@@ -27,14 +27,7 @@ UI = ROOT / "packages/ui/src/index.tsx"
 RUST = ROOT / "crates/client-core/src/preferences.rs"
 
 # Rust fields with no control on the settings page, and why.
-RUST_ONLY = {
-    "Preferences": {
-        # Preserved so the Windows default config keeps a counterpart for every
-        # key of the source's, even though this client renders candidates with
-        # Direct2D only and offers no choice to make.
-        "ui_backend",
-    },
-}
+RUST_ONLY: dict[str, set[str]] = {}
 
 
 MEMBER = re.compile(r"\s*(\w+)\??\s*:")

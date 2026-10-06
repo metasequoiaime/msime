@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
+import { StrictMode } from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { DesktopCloudDictionary } from "../../src/dictionary/desktop-cloud-dictionary";
 import {
@@ -152,6 +153,22 @@ test("cloud dictionary file snapshot export ignores a response from a replaced c
   expect(screen.getByRole("status").textContent).not.toContain("完整云词库快照已导出");
 });
 
+test("cloud dictionary file snapshot export works after StrictMode effect replay", async () => {
+  const request = vi.fn().mockResolvedValue({
+    text: '{"type":"header"}\n',
+    filename: "snapshot.ndjson",
+  });
+  render(
+    <StrictMode>
+      <CloudDictionaryFilesPanel client={{ close: async () => {}, request, snapshot: true }} />
+    </StrictMode>,
+  );
+
+  fireEvent.click(screen.getByRole("button", { name: "导出完整快照" }));
+
+  await waitFor(() => expect(request).toHaveBeenCalledWith({ operation: "snapshot_export" }));
+});
+
 test("cloud dictionary apply ignores status from a replaced client", async () => {
   let resolveOld: ((value: object) => void) | undefined;
   const oldRequest = vi.fn().mockImplementation(
@@ -189,7 +206,7 @@ test("desktop dictionary subpages reuse the session client and return without cl
   );
   fireEvent.click(screen.getByRole("button", { name: "完整目录" }));
   expect(screen.getByText("完整云词库目录")).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "返回云词典" }));
+  fireEvent.click(screen.getByRole("button", { name: "返回云词库" }));
   await waitFor(() =>
     expect(screen.getByRole("button", { name: "云端候选排序" }).hasAttribute("disabled")).toBe(
       false,
@@ -338,7 +355,7 @@ test("desktop dictionary file page reuses the authenticated client and returns t
   );
   fireEvent.click(screen.getByRole("button", { name: "导入与导出" }));
   expect(screen.getByText("导入与导出")).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "返回云词典" }));
+  fireEvent.click(screen.getByRole("button", { name: "返回云词库" }));
   await waitFor(() => expect(screen.getByRole("button", { name: "导入与导出" })).toBeTruthy());
   expect(close).not.toHaveBeenCalled();
 });

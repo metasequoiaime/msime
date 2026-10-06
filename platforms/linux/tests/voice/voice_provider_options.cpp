@@ -8,9 +8,8 @@ using Json = nlohmann::json;
 using msime::linux_host::voice_provider_options;
 
 int main() {
-  // An edited built-in prompt reaches the provider, which polishes with it as the Windows service does.
-  auto options = voice_provider_options(Json{{"voice_input", {{"polish_prompt_id", "cleanup"}, {"polish_prompt", "只修正错别字"}, {"polish_enabled", true}}}});
-  assert(options.at("polish_prompt") == "只修正错别字");
+  // A built-in scheme travels by id alone; the provider carries its text.
+  auto options = voice_provider_options(Json{{"voice_input", {{"polish_prompt_id", "cleanup"}, {"polish_prompt_custom_1", "一号"}, {"polish_enabled", true}}}});
   assert(options.at("polish_prompt_id") == "cleanup");
   assert(options.at("polish_enabled") == true);
   assert(!options.contains("polish_prompt_custom_1"));
@@ -19,12 +18,13 @@ int main() {
   options = voice_provider_options(Json{{"voice_input", {{"polish_prompt_id", "custom_2"}, {"polish_prompt_custom_2", "二号"}, {"polish_prompt_custom_3", "三号"}}}});
   assert(options.at("polish_prompt_custom_2") == "二号");
   assert(!options.contains("polish_prompt_custom_3"));
-  assert(!options.contains("polish_prompt"));
 
-  // Legacy "custom" is slot one; empty prompts are not sent.
-  options = voice_provider_options(Json{{"voice_input", {{"polish_prompt_id", "custom"}, {"polish_prompt_custom_1", "一号"}, {"polish_prompt", ""}}}});
-  assert(options.at("polish_prompt_custom_1") == "一号");
-  assert(!options.contains("polish_prompt"));
+  // An empty slot is not sent, and the provider falls back to the built-in prompt.
+  options = voice_provider_options(Json{{"voice_input", {{"polish_prompt_id", "custom_1"}, {"polish_prompt_custom_1", ""}}}});
+  assert(!options.contains("polish_prompt_custom_1"));
+  // "custom" names no slot.
+  options = voice_provider_options(Json{{"voice_input", {{"polish_prompt_id", "custom"}, {"polish_prompt_custom_1", "一号"}}}});
+  assert(!options.contains("polish_prompt_custom_1"));
 
   // Short strings are cut on a UTF-8 boundary, never through a character.
   std::string long_device(170, 'a');
@@ -43,7 +43,7 @@ int main() {
   // An oversized prompt is refused rather than truncated.
   bool refused = false;
   try {
-    voice_provider_options(Json{{"voice_input", {{"polish_prompt", std::string(8193, 'x')}}}});
+    voice_provider_options(Json{{"voice_input", {{"polish_prompt_id", "custom_2"}, {"polish_prompt_custom_2", std::string(8193, 'x')}}}});
   } catch (const std::runtime_error &) {
     refused = true;
   }

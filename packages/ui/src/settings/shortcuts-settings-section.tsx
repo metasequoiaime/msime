@@ -1,12 +1,10 @@
 import type { InputModeShortcutPreferences } from "./input-mode-shortcuts-section";
 import { InputModeShortcutsSection } from "./input-mode-shortcuts-section";
 import { CandidateShortcutsSection } from "./candidate-shortcuts-section";
-import { MaintenanceShortcutsSection } from "./maintenance-shortcuts-section";
 import { PanelShortcutsSection } from "./panel-shortcuts-section";
-import { InputMethodServiceSection } from "./input-method-service-section";
 import { ShortcutsIntroSection } from "./shortcuts-intro-section";
-import * as settings from "./settings-style";
-import type { NavigationPreferences } from "./word-character-section";
+import type { NavigationPreferences, WordCharacterPreferences } from "./word-character-section";
+import { SettingsPageFieldset } from "./settings-page-fieldset";
 
 export interface ShortcutsSettingsSectionProps {
   disabled: boolean;
@@ -14,94 +12,65 @@ export interface ShortcutsSettingsSectionProps {
   mobile: boolean;
   keybindings: InputModeShortcutPreferences;
   onKeybindingsChange: (patch: Partial<InputModeShortcutPreferences>) => void;
-  onInputModeHUDChange: (value: boolean) => void;
   showModeSwitchShortcuts: boolean;
   macos: boolean;
-  showInputModeHUD: boolean;
-  inputModeHUD: boolean;
+  linux?: boolean;
   showFullwidthChord: boolean;
   fullwidthChord: string;
   windows: boolean;
   navigation: NavigationPreferences;
+  /** 以词定字的设置，用来在「候选操作」里列出它占用的键；没有实体键的宿主不传。 */
+  wordCharacter?: WordCharacterPreferences;
   numberRowSelection: boolean;
   showNumberRowSelection: boolean;
   onNumberRowSelectionChange: (value: boolean) => void;
   showPanelShortcuts: boolean;
   harmony: boolean;
-  showDesktopMaintenanceShortcuts: boolean;
-  linux: boolean;
-  maintenanceChord: string;
-  showRestartInputMethod: boolean;
-  restartInputMethod?: () => Promise<void>;
-  installInputSource?: () => Promise<void>;
 }
 
-/** Shortcut settings page composition shared by desktop and mobile hosts. */
+/** 桌面和触屏宿主共用的快捷键页：输入模式切换、候选操作速查、面板快捷键。中英文切换提示在输入页，重启与重新注册输入法在「维护与诊断」页。 */
 export function ShortcutsSettingsSection({
   disabled,
   hidden,
   mobile,
   keybindings,
   onKeybindingsChange,
-  onInputModeHUDChange,
   showModeSwitchShortcuts,
   macos,
-  showInputModeHUD,
-  inputModeHUD,
+  linux,
   showFullwidthChord,
   fullwidthChord,
   windows,
   navigation,
+  wordCharacter,
   numberRowSelection,
   showNumberRowSelection,
   onNumberRowSelectionChange,
   showPanelShortcuts,
   harmony,
-  showDesktopMaintenanceShortcuts,
-  linux,
-  maintenanceChord,
-  showRestartInputMethod,
-  restartInputMethod,
-  installInputSource,
 }: ShortcutsSettingsSectionProps) {
   return (
-    <fieldset disabled={disabled} hidden={hidden} aria-label="快捷键">
+    <SettingsPageFieldset disabled={disabled} hidden={hidden} ariaLabel="快捷键">
       <ShortcutsIntroSection mobile={mobile} />
-      <div className={settings.groups}>
-        <InputModeShortcutsSection
-          keybindings={keybindings}
-          onChange={onKeybindingsChange}
-          onInputModeHUDChange={onInputModeHUDChange}
-          showModeSwitchShortcuts={showModeSwitchShortcuts}
-          macos={macos}
-          showInputModeHUD={showInputModeHUD}
-          inputModeHUD={inputModeHUD}
-          showFullwidthChord={showFullwidthChord}
-          fullwidthChord={fullwidthChord}
-          windows={windows}
-        />
-        <PanelShortcutsSection visible={showPanelShortcuts} macos={macos} harmony={harmony} />
-        <CandidateShortcutsSection
-          navigation={navigation}
-          numberRowSelection={numberRowSelection}
-          showNumberRowSelection={showNumberRowSelection}
-          mobile={mobile}
-          onNumberRowSelectionChange={onNumberRowSelectionChange}
-        />
-        <MaintenanceShortcutsSection
-          visible={showDesktopMaintenanceShortcuts}
-          macos={macos}
-          linux={linux}
-          maintenanceChord={maintenanceChord}
-        />
-        <InputMethodServiceSection
-          visible={showRestartInputMethod}
-          macos={macos}
-          linux={linux}
-          restartInputMethod={restartInputMethod}
-          installInputSource={installInputSource}
-        />
-      </div>
-    </fieldset>
+      <InputModeShortcutsSection
+        keybindings={keybindings}
+        onChange={onKeybindingsChange}
+        showModeSwitchShortcuts={showModeSwitchShortcuts}
+        macos={macos}
+        linux={linux}
+        showFullwidthChord={showFullwidthChord}
+        fullwidthChord={fullwidthChord}
+        windows={windows}
+      />
+      <CandidateShortcutsSection
+        navigation={navigation}
+        wordCharacter={wordCharacter}
+        numberRowSelection={numberRowSelection}
+        showNumberRowSelection={showNumberRowSelection}
+        mobile={mobile}
+        onNumberRowSelectionChange={onNumberRowSelectionChange}
+      />
+      <PanelShortcutsSection visible={showPanelShortcuts} macos={macos} harmony={harmony} />
+    </SettingsPageFieldset>
   );
 }

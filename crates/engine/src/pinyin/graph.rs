@@ -29,9 +29,14 @@ pub fn build_syllable_graph(pinyin: &str) -> SyllableGraph {
         return graph;
     }
     for start in 0..length {
+        let bucket_capacity = MAX_SYLLABLE_LENGTH.min(length - start);
         for end in (start + 1..=length.min(start + MAX_SYLLABLE_LENGTH)).rev() {
             if let Some(syllable) = intact_piece(&bytes[start..end]) {
-                graph.edges[start].push(SyllableEdge { end, syllable });
+                let edges = &mut graph.edges[start];
+                if edges.capacity() == 0 {
+                    edges.reserve(bucket_capacity);
+                }
+                edges.push(SyllableEdge { end, syllable });
             }
         }
     }
@@ -125,6 +130,29 @@ mod tests {
         let from_start: Vec<_> = graph.edges[0].iter().map(|edge| edge.syllable).collect();
         // `zhong` is the only syllable at the start (`zhon`, `zho` and `zh` are prefixes), and it reaches `e`.
         assert_eq!(from_start, ["zhong"]);
+    }
+
+    #[test]
+    fn edge_buckets_reserve_the_candidate_window() {
+        let graph = build_syllable_graph("xianxian");
+
+        for (start, edges) in graph.edges.iter().enumerate() {
+            let expected = MAX_SYLLABLE_LENGTH.min(graph.input_length.saturating_sub(start));
+            if !edges.is_empty() {
+                assert!(
+                    edges.capacity() >= expected,
+                    "edge bucket at {start} has capacity {}, expected at least {expected}",
+                    edges.capacity()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn unreadable_input_does_not_allocate_edge_buckets() {
+        let graph = build_syllable_graph(&"z".repeat(256));
+
+        assert!(graph.edges.iter().all(|edges| edges.capacity() == 0));
     }
 
     #[test]

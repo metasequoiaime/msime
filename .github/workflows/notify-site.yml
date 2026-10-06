@@ -1,0 +1,41 @@
+name: Notify site
+
+# 让 msime.app 的下载页和各平台客户端读的清单在发行版变化后立刻跟上。下载页的数据由 metasequoiaime/msime-web 的 sync-downloads 工作流从本仓库的发行版生成，它自己的半小时定时任务被 GitHub 限流后实际三到六小时才跑一次，2026-10-05 macOS 0.51.1 的发行版补发之后，下载页还停在 v0.50.0-build.9。sync-downloads 本来就接收 repository_dispatch 的 sync-platforms 事件，这里就是发送方。
+#
+# 两个触发缺一不可。release 事件覆盖人在网页或 gh 上做的发布、编辑和删除，以及发版工作流用 RELEASE_PUBLISH_TOKEN 创建的发行版；没有配置这个 secret 时发版工作流退回 GITHUB_TOKEN，GitHub 不会为它产生的事件再触发工作流，所以另外在这些工作流结束时通知一次（workflow_run 不受这条限制）。没有发布的运行也会通知，同步时清单没有变化就什么都不提交，多一次无害。
+#
+# 跨仓库触发要一个能写 msime-web 的令牌：仓库 secret MSIME_WEB_DISPATCH_TOKEN，细粒度令牌只授予 metasequoiaime/msime-web 的 Contents: Read and write 即可。没有配置时只留一条警告，不让这里失败。
+
+on:
+  release:
+    # 只订阅 published，不要 created、released、prereleased：发布一个版本时 published 和 released（预发布是 prereleased）同时到达，非草稿发布还会再来一个 created，几次运行落在同一个并发组里，多出来的那次总是被取消，留下一条「Canceling since a higher priority waiting request」的错误注解（run 37286838303）。published 已经覆盖正式版和预发布版的发布。
+    types: [published, unpublished, edited, deleted]
+  workflow_run:
+    workflows: [Release Android, Release HarmonyOS, Release iOS, Release Linux, Release macOS, Release Windows]
+    types: [completed]
+
+concurrency:
+  # 连续几次变化只需要最后一次同步：sync-downloads 每次都从发行版列表整份重算。
+  group: notify-site
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  notify:
+    name: Ask msime-web to refresh its download manifests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Send sync-platforms to msime-web
+        env:
+          GH_TOKEN: ${{ secrets.MSIME_WEB_DISPATCH_TOKEN }}
+          REASON: ${{ github.event_name }} ${{ github.event.action || github.event.workflow_run.name }} ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$GH_TOKEN" ]]; then
+            echo "::warning::MSIME_WEB_DISPATCH_TOKEN is not set; msime.app picks up this change at its next scheduled sync"
+            exit 0
+          fi
+          gh api repos/metasequoiaime/msime-web/dispatches -f event_type=sync-platforms -F "client_payload[reason]=$REASON"
+          echo "sent sync-platforms to metasequoiaime/msime-web ($REASON)"

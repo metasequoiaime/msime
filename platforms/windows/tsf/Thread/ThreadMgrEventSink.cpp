@@ -18,11 +18,12 @@ void CMetasequoiaIME::_SyncHostContextFocus(_In_opt_ ITfContext *context)
             if (!host->focus(focused, &raw, &error)) return false;
             msime::tsf::EngineResult result;
             koreanFinished = msime::tsf::EngineSessionAdapter::parse_result(raw, &result, &error) &&
-                             result.has_commit && !result.commit.empty() && result.view.scheme == 4;
+                             result.has_commit && !result.commit.empty() &&
+                             msime::windows::scheme::CommitsOnBlur(static_cast<int>(result.view.scheme));
             return true;
         });
         if (!success) context = nullptr;
-        // A focus change finishes a Korean syllable in the host instead of discarding it. The syllable is already on screen as the composition, so end that composition where it is, or the next letter would replace it.
+        // 焦点变化时，宿主会结束韩文音节、注音转换、越南文词或藏文音节串而不是丢弃它（scheme::CommitsOnBlur）。它已经作为组字显示在屏幕上，所以就地结束这个组字，否则下一个键会替换掉它。
         if (koreanFinished && _IsComposing() && _pContext)
         {
             _KEYSTROKE_STATE keyState = {};

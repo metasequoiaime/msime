@@ -10,8 +10,9 @@ import hashlib
 import json
 import sys
 import tempfile
-import urllib.request
 from pathlib import Path
+
+import download_retry
 
 ROOT = Path(__file__).resolve().parents[1]
 LOCK = ROOT / "resources/handwriting-model.lock.json"
@@ -41,10 +42,11 @@ def fetch(artifact: dict, destination: Path) -> None:
     if not url.startswith("https://"):
         raise SystemExit(f"{artifact['name']}: refusing a non-HTTPS source")
     print(f"  fetching {artifact['name']} ({artifact['size'] / 1e6:.1f} MB)", file=sys.stderr)
-    with tempfile.NamedTemporaryFile(dir=destination.parent, delete=False) as staged:
-        staged_path = Path(staged.name)
-        try:
-            with urllib.request.urlopen(url, timeout=300) as response:
+    staged = tempfile.NamedTemporaryFile(dir=destination.parent, delete=False)
+    staged_path = Path(staged.name)
+    try:
+        with staged:
+            with download_retry.urlopen(url, timeout=300) as response:
                 advertised = response.headers.get("Content-Length")
                 if advertised is not None and advertised.isdigit() and int(advertised) > artifact["size"]:
                     raise SystemExit(f"{artifact['name']}: response is larger than the lock")
@@ -54,9 +56,10 @@ def fetch(artifact: dict, destination: Path) -> None:
                     if size > artifact["size"]:
                         raise SystemExit(f"{artifact['name']}: response is larger than the lock")
                     staged.write(block)
-        except BaseException:
-            staged_path.unlink(missing_ok=True)
-            raise
+    except BaseException:
+        # Deleted only once the with block has closed it: Windows refuses to delete an open file, and the PermissionError would replace the download's own error.
+        staged_path.unlink(missing_ok=True)
+        raise
     if not matches(staged_path, artifact):
         actual, size = digest(staged_path), staged_path.stat().st_size
         staged_path.unlink(missing_ok=True)

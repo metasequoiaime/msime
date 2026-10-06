@@ -3,6 +3,9 @@
 //! Both targets used to carry their own copy of these commands, identical apart from the account storage type the services authenticate through. The services live in [`MobileCommunityState`], which each target's setup manages next to its own account state; the session they share is the target's account session.
 
 use msime_client_core::account::{AccountError, BackendAccountClient, BackendAccountSession};
+use msime_client_core::community::report::{
+    BackendCommunityReportService, CommunityReport, CommunityReportKind, CommunityReportReason,
+};
 use msime_client_core::community::resource::{
     BackendCommunityResourceService, CommunityResource, CommunityResourceApplication,
     CommunityResourceContent, CommunityResourceKind, CommunityResourcePage,
@@ -13,6 +16,7 @@ use msime_client_core::community::resource_library::{
 };
 use msime_client_core::preferences::TouchKeyboardSkinDesign;
 use msime_client_core::skin::ai::{AiSkinError, AiSkinProposal, BackendAiSkinService};
+use msime_client_core::skin::category::SkinCategory;
 use msime_client_core::skin::community::{
     BackendCommunitySkinService, CommunitySkin, CommunitySkinPage,
 };
@@ -23,11 +27,10 @@ use msime_client_core::skin::keyboard_trial::{
     KeyboardSkinTrial, KeyboardSkinTrialError, KeyboardSkinTrialStore,
 };
 use serde::Serialize;
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tauri::{Emitter, State, Wry};
 
+use super::mobile_ai_skin_requests::{finish_after_worker, AiSkinRequests};
 use super::MobileStorage;
 
 type Session = BackendAccountSession<BackendAccountClient, MobileStorage>;
@@ -35,16 +38,18 @@ type CommunityService = BackendCommunitySkinService<BackendAccountClient, Mobile
 type CommunityResourceService =
     BackendCommunityResourceService<BackendAccountClient, MobileStorage>;
 type AiSkinService = BackendAiSkinService<BackendAccountClient, MobileStorage>;
+type CommunityReportService = BackendCommunityReportService<BackendAccountClient, MobileStorage>;
 
 pub(crate) struct MobileCommunityState {
     community: Arc<CommunityService>,
     resources: Arc<CommunityResourceService>,
     ai_skin: Arc<AiSkinService>,
-    ai_skin_requests: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
+    reports: Arc<CommunityReportService>,
+    ai_skin_requests: AiSkinRequests,
 }
 
 impl MobileCommunityState {
-    /// Builds the three services over the account session. `client` is the one the session was built with; the resource and AI skin services each get a client of their own.
+    /// Builds the four services over the account session. `client` is the one the session was built with; the resource, AI skin and report services each get a client of their own.
     pub(crate) fn new(
         client: BackendAccountClient,
         session: &Arc<Session>,
@@ -61,11 +66,16 @@ impl MobileCommunityState {
             BackendAccountClient::new()?,
             Arc::clone(session),
         ));
+        let reports = Arc::new(BackendCommunityReportService::new(
+            BackendAccountClient::new()?,
+            Arc::clone(session),
+        ));
         Ok(Self {
             community,
             resources,
             ai_skin,
-            ai_skin_requests: Arc::new(Mutex::new(HashMap::new())),
+            reports,
+            ai_skin_requests: AiSkinRequests::default(),
         })
     }
 }
@@ -82,6 +92,9 @@ fn community_error(error: AccountError) -> crate::CommandError {
             AccountError::Storage => "community_storage",
             AccountError::Conflict => "community_conflict",
             AccountError::Unavailable => "community_unavailable",
+            AccountError::BlockedContent => "community_blocked_content",
+            AccountError::ScreeningUnavailable => "community_screening_unavailable",
+            AccountError::Banned => "community_account_banned",
         },
     }
 }
@@ -124,27 +137,14 @@ pub async fn ai_skin_generate(
             code: "ai_skin_invalid",
         });
     }
-    let cancelled = Arc::new(AtomicBool::new(false));
-    {
-        let mut requests = state
-            .ai_skin_requests
-            .lock()
-            .map_err(|_| crate::CommandError {
-                code: "ai_skin_unavailable",
-            })?;
-        if requests
-            .insert(request_id.clone(), Arc::clone(&cancelled))
-            .is_some()
-        {
-            return Err(crate::CommandError {
-                code: "ai_skin_busy",
-            });
-        }
-    }
+    let cancelled = state
+        .ai_skin_requests
+        .begin(&request_id)
+        .map_err(|code| crate::CommandError { code })?;
     let service = Arc::clone(&state.ai_skin);
     let progress_app = app.clone();
     let progress_request_id = request_id.clone();
-    let result = tauri::async_runtime::spawn_blocking(move || {
+    let worker_result = tauri::async_runtime::spawn_blocking(move || {
         service.generate(&prompt, &cancelled, move |completed| {
             let _ = progress_app.emit(
                 "ai-skin-progress",
@@ -155,15 +155,12 @@ pub async fn ai_skin_generate(
             );
         })
     })
-    .await
-    .map_err(|_| crate::CommandError {
-        code: "ai_skin_unavailable",
-    })?
-    .map_err(ai_skin_error);
-    if let Ok(mut requests) = state.ai_skin_requests.lock() {
-        requests.remove(&request_id);
-    }
-    result
+    .await;
+    finish_after_worker(&state.ai_skin_requests, &request_id, worker_result)
+        .map_err(|_| crate::CommandError {
+            code: "ai_skin_unavailable",
+        })
+        .and_then(|result| result.map_err(ai_skin_error))
 }
 
 #[tauri::command]
@@ -176,16 +173,10 @@ pub async fn ai_skin_cancel(
             code: "ai_skin_invalid",
         });
     }
-    let requests = state
+    state
         .ai_skin_requests
-        .lock()
-        .map_err(|_| crate::CommandError {
-            code: "ai_skin_unavailable",
-        })?;
-    if let Some(cancelled) = requests.get(&request_id) {
-        cancelled.store(true, Ordering::Release);
-    }
-    Ok(())
+        .cancel(&request_id)
+        .map_err(|code| crate::CommandError { code })
 }
 
 async fn service_call<T, S, F>(service: Arc<S>, operation: F) -> Result<T, crate::CommandError>
@@ -268,9 +259,12 @@ pub async fn community_skin_list(
     state: State<'_, MobileCommunityState>,
     offset: usize,
     search: String,
+    mine: Option<bool>,
+    // 不传或为 null 时列出全部分类。
+    category: Option<SkinCategory>,
 ) -> Result<CommunitySkinPage, crate::CommandError> {
     service_call(Arc::clone(&state.community), move |service| {
-        service.list(offset, &search)
+        service.list(offset, &search, mine.unwrap_or(false), category)
     })
     .await
 }
@@ -337,10 +331,25 @@ pub async fn community_skin_publish(
     name: String,
     description: String,
     design: TouchKeyboardSkinDesign,
+    // 不传时不发送分类，由服务端归入默认分类。
+    category: Option<SkinCategory>,
 ) -> Result<(), crate::CommandError> {
     let id = community_id(&id)?;
     service_call(Arc::clone(&state.community), move |service| {
-        service.publish(id, &name, &description, &design)
+        service.publish(id, &name, &description, &design, category)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn community_skin_set_category(
+    state: State<'_, MobileCommunityState>,
+    id: String,
+    category: SkinCategory,
+) -> Result<CommunitySkin, crate::CommandError> {
+    let id = community_id(&id)?;
+    service_call(Arc::clone(&state.community), move |service| {
+        service.set_category(id, category)
     })
     .await
 }
@@ -491,4 +500,24 @@ pub async fn community_resource_remove_reply(
     let id = community_id(&id)?;
     let library = library.inner().clone();
     storage_call(move || library.remove(id), resource_library_error).await
+}
+
+/// Files one report on another user's skin, dictionary or reply template. `reason` is the label of one of [`CommunityReportReason::ALL`]; anything else, a malformed id or a detail past the limit is `community_invalid`.
+#[tauri::command]
+pub async fn community_report(
+    state: State<'_, MobileCommunityState>,
+    kind: CommunityReportKind,
+    id: String,
+    reason: String,
+    detail: Option<String>,
+) -> Result<(), crate::CommandError> {
+    let item_id = community_id(&id)?;
+    let reason = CommunityReportReason::from_label(&reason).ok_or(crate::CommandError {
+        code: "community_invalid",
+    })?;
+    service_call(Arc::clone(&state.reports), move |service| {
+        let report = CommunityReport::new(kind, item_id, reason, detail.as_deref().unwrap_or(""))?;
+        service.report(&report)
+    })
+    .await
 }

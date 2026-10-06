@@ -12,8 +12,8 @@ use crate::account::{
 };
 use crate::cloud::dictionary::percent_encode;
 use crate::community::{
-    valid_author, valid_description, valid_name, valid_query, valid_rating,
-    MAXIMUM_JAVASCRIPT_INTEGER, MAXIMUM_PAGE_ITEMS,
+    valid_author, valid_description, valid_name, valid_query, valid_rating, CommunityModeration,
+    MAXIMUM_JAVASCRIPT_INTEGER, MAXIMUM_PAGE_ITEMS, MODERATION_FIELDS,
 };
 use crate::skin::catalog::safe_id;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
@@ -29,11 +29,17 @@ use std::time::Duration;
 use uuid::Uuid;
 
 /// The kinds the library accepts. An effect pack is a few parameters for a style built into every host, so there is nothing in it worth sharing as a file.
-pub const PUBLISHABLE_KINDS: [PluginKind; 3] = [
+pub const PUBLISHABLE_KINDS: [PluginKind; 7] = [
     PluginKind::Sound,
     PluginKind::Music,
     PluginKind::CommandTable,
+    PluginKind::PhraseTable,
+    PluginKind::Helpcode,
+    PluginKind::Wordbook,
+    PluginKind::SymbolSet,
 ];
+/// 向服务端声明本客户端能安装的新插件类型（`sound`、`music`、`command_table`、`effect` 之外的）。服务端只把冻结的旧类型集合与这里声明的类型返回给列表和详情请求，因此不带声明的已发布客户端永远不会收到它不认识的类型。每支持一种新类型就把它追加进来；`kinds_declaration_lists_the_new_publishable_kinds` 测试保证它与 [`PUBLISHABLE_KINDS`] 一致。
+pub(crate) const KINDS_DECLARATION: &str = "kinds=phrase_table,helpcode,wordbook,symbol_set";
 /// Largest archive the server stores for one pack.
 pub const MAX_COMMUNITY_ARCHIVE_BYTES: usize = 8 * 1024 * 1024;
 /// Largest offset the server pages to.
@@ -79,6 +85,9 @@ pub struct CommunityPlugin {
     pub owned: bool,
     pub my_rating: u8,
     pub created_at: String,
+    /// The moderation state, sent only for the signed-in user's own item and only to a request that asked for it with `fields=moderation`; other users' items and older servers leave it out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub moderation: Option<CommunityModeration>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -86,6 +95,42 @@ pub struct CommunityPlugin {
 pub struct CommunityPluginPage {
     pub plugins: Vec<CommunityPlugin>,
     pub has_more: bool,
+    /// How many items of a kind this client cannot install (an effect pack) the server listed on this page and [`validate_page`] left out. The gallery adds them to the next offset so 加载更多 resumes after them. Only the client sets it: a server response that carries it is refused.
+    #[serde(default, skip_deserializing)]
+    pub skipped: usize,
+}
+
+/// 列表响应的线格式：先逐个元素按 JSON 读进来，再由 [`decode_page`] 跳过本客户端不认识的类型，所以一种新类型不会让整页读不出来。页本身仍然拒绝未知字段。
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CommunityPluginPageWire {
+    plugins: Vec<serde_json::Value>,
+    has_more: bool,
+}
+
+/// 把线格式解成 [`CommunityPluginPage`]：`kind` 是本客户端不认识的字符串的元素计入 `skipped`；其余元素按 [`CommunityPlugin`] 严格解析，已知类型的条目多一个字段或类型不对仍让整页失败。
+fn decode_page(wire: CommunityPluginPageWire) -> Result<CommunityPluginPage, AccountError> {
+    let mut plugins = Vec::with_capacity(wire.plugins.len());
+    let mut skipped = 0;
+    for value in wire.plugins {
+        if value
+            .get("kind")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|kind| PluginKind::parse(kind).is_none())
+        {
+            skipped += 1;
+            continue;
+        }
+        plugins.push(
+            serde_json::from_value::<CommunityPlugin>(value)
+                .map_err(|_| AccountError::Unavailable)?,
+        );
+    }
+    Ok(CommunityPluginPage {
+        plugins,
+        has_more: wire.has_more,
+        skipped,
+    })
 }
 
 /// A downloaded pack: the archive in standard base64 with the size and SHA-256 the server recorded for it. [`install`] checks both before anything is written.
@@ -141,11 +186,13 @@ struct CommunityPluginDeleteResponse {
 }
 
 pub trait CommunityPluginApi: Send + Sync + 'static {
+    /// One page of published packs; `mine` lists only the signed-in user's own, removed ones included, with their moderation state.
     fn community_plugins(
         &self,
         offset: usize,
         search: &str,
         kind: Option<PluginKind>,
+        mine: bool,
         token: Option<&str>,
     ) -> Result<CommunityPluginPage, AccountError>;
     fn community_plugin(
@@ -173,19 +220,27 @@ impl CommunityPluginApi for BackendAccountClient {
         offset: usize,
         search: &str,
         kind: Option<PluginKind>,
+        mine: bool,
         token: Option<&str>,
     ) -> Result<CommunityPluginPage, AccountError> {
         validate_query(offset, search, kind)?;
+        if mine && token.is_none() {
+            return Err(AccountError::Unauthorized);
+        }
         let kind = kind
             .map(|kind| format!("&kind={}", kind.as_str()))
             .unwrap_or_default();
+        let scope = if mine {
+            format!("&scope=mine&{MODERATION_FIELDS}")
+        } else {
+            String::new()
+        };
         let path = format!(
-            "/v1/community/plugins?offset={offset}&q={}{kind}",
+            "/v1/community/plugins?offset={offset}&q={}{kind}{scope}&{KINDS_DECLARATION}",
             percent_encode(search)
         );
-        let page = self.json::<CommunityPluginPage, ()>(Method::GET, &path, token, None)?;
-        validate_page(&page)?;
-        Ok(page)
+        let wire = self.json::<CommunityPluginPageWire, ()>(Method::GET, &path, token, None)?;
+        validate_page(decode_page(wire)?)
     }
 
     fn community_plugin(
@@ -196,7 +251,10 @@ impl CommunityPluginApi for BackendAccountClient {
         if id.is_nil() {
             return Err(AccountError::Invalid);
         }
-        let path = format!("/v1/community/plugins/{}", id.hyphenated());
+        let path = format!(
+            "/v1/community/plugins/{}?{MODERATION_FIELDS}&{KINDS_DECLARATION}",
+            id.hyphenated()
+        );
         let item = self.json::<CommunityPlugin, ()>(Method::GET, &path, token, None)?;
         validate_item(&item)?;
         if item.id != id {
@@ -309,16 +367,17 @@ where
     A: AccountApi + CommunityPluginApi,
     S: AccountSessionStorage,
 {
-    /// One page of published packs, newest first, of one kind or of every kind. Signed in, each item also says whether it is the user's own and how the user rated it.
+    /// One page of published packs, newest first, of one kind or of every kind. Signed in, each item also says whether it is the user's own and how the user rated it. `mine` lists only the user's own, removed ones included, and so requires a session.
     pub fn list(
         &self,
         offset: usize,
         search: &str,
         kind: Option<PluginKind>,
+        mine: bool,
     ) -> Result<CommunityPluginPage, AccountError> {
         validate_query(offset, search, kind)?;
-        request_with_account_session(&self.api, &self.session, false, |api, token| {
-            api.community_plugins(offset, search, kind, token)
+        request_with_account_session(&self.api, &self.session, mine, |api, token| {
+            api.community_plugins(offset, search, kind, mine, token)
         })
     }
 
@@ -425,18 +484,22 @@ fn validate_publish(request: &CommunityPluginPublishRequest) -> Result<(), Accou
     Ok(())
 }
 
-fn validate_page(page: &CommunityPluginPage) -> Result<(), AccountError> {
-    if page.plugins.len() > MAXIMUM_PAGE_ITEMS
-        || (page.has_more && page.plugins.is_empty())
-        || page.plugins.iter().any(|item| validate_item(item).is_err())
-    {
+/// 检查一页列表，去掉本客户端不能安装的类型（特效包）。服务端会列出它接受的每种类型，所以这样的一条不能让整页读不出来；去掉的条目连同 [`decode_page`] 已跳过的未知类型一起计入 `skipped`，让翻页与服务端的 offset 对齐。
+fn validate_page(mut page: CommunityPluginPage) -> Result<CommunityPluginPage, AccountError> {
+    let listed = page.plugins.len() + page.skipped;
+    if listed > MAXIMUM_PAGE_ITEMS || (page.has_more && listed == 0) {
+        return Err(AccountError::Unavailable);
+    }
+    page.plugins.retain(|item| publishable(item.kind));
+    page.skipped = listed - page.plugins.len();
+    if page.plugins.iter().any(|item| validate_item(item).is_err()) {
         return Err(AccountError::Unavailable);
     }
     let mut ids = BTreeSet::new();
     if page.plugins.iter().any(|item| !ids.insert(item.id)) {
         return Err(AccountError::Unavailable);
     }
-    Ok(())
+    Ok(page)
 }
 
 fn validate_item(item: &CommunityPlugin) -> Result<(), AccountError> {

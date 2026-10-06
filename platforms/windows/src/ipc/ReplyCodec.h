@@ -1,5 +1,6 @@
 #pragma once
 #include "windows_ipc.h"
+#include "InputSchemeTraits.h"
 #include "../../../shared/contracts/voice_composition_pipe.h"
 #include <array>
 #include <optional>
@@ -78,15 +79,13 @@ struct TsfLocalConfig {
   bool smart_punctuation = false;
   bool smart_punctuation_repeat_to_chinese = false;
   bool smart_punctuation_space_convert = false;
-  // Fine-grained direct ASCII punctuation policy. These ride on the
-  // punctuation-lock frame extension so older worker opcodes remain valid.
+  // Fine-grained direct ASCII punctuation policy, carried by the punctuation-lock frame.
   bool smart_punctuation_direct_digit = false;
   bool smart_punctuation_direct_letter = false;
   bool paired_punctuation = true;
   bool microsoft_shuangpin = false;
-  bool japanese_input_mode = false;
-  // Rides on the same input-mode frame as Japanese; the two schemes exclude each other.
-  bool korean_input_mode = false;
+  // The configured scheme's family, sent as the InputModeChanged code (common/InputSchemeTraits.h).
+  scheme::InputMode input_mode = scheme::InputMode::Chinese;
   bool tsf_diagnostic_log = false;
   // 0 follow, 1 always Chinese, 2 always English.
   uint8_t punctuation_lock = 0;
@@ -94,7 +93,7 @@ struct TsfLocalConfig {
   bool expression_mode = false;
   bool command_mode = false;
   bool mention_mode = false;
-  // The focused client's Engine is in its own English mode, where a capital is composed English and V is a letter rather than the expression mode. Not a preference: the Server follows the focused session and sends the V, "/" and "@" flags off while it holds, so the TIP keeps digits selecting and '-'/'.' paging in an English word that starts with V.
+  // The focused client's Engine is in its own English mode, where a capital is composed English and V is a letter rather than the expression mode. Not a preference: the Server follows the focused session and sends the V, "/" and "@" flags off while it holds, so the TIP keeps digits selecting and '-'/'.' paging in an English word that starts with V. It also travels on its own DedicatedEnglishChanged frame, so the TIP gives every letter to the Engine there rather than handing idle non-stroke letters to the application under Stroke.
   bool dedicated_english = false;
 };
 // One frame per setting, in the order the reference pushes them.

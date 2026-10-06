@@ -12,7 +12,7 @@ import android.widget.TextView;
 
 import java.util.List;
 
-/** Android equivalent of Apple's full-screen, categorized symbol surface. */
+/** 分类符号面板：盖在键区上（不盖顶部一行），左列分类、右侧五列网格，底部返回 / 锁定 / 删除；从 #+= 层的「符号」键进入。 */
 public final class SymbolPanelView extends LinearLayout {
     public interface ButtonFactory {
         Button create(String title, String description, Runnable action, boolean actionStyle);
@@ -53,7 +53,8 @@ public final class SymbolPanelView extends LinearLayout {
 
         LinearLayout title = new LinearLayout(context);
         title.setGravity(Gravity.CENTER_VERTICAL);
-        Button back = buttons.create("‹", "返回键盘", listener::close, true);
+        // 这个键只是关掉面板，回到打开它的那一层（字母、#+= 或手写），不一定是字母键盘。
+        Button back = buttons.create("‹", "关闭符号面板", listener::close, true);
         back.setLayoutParams(new LinearLayout.LayoutParams(dp(56), dp(42)));
         title.addView(back);
         TextView heading = new TextView(context);
@@ -70,8 +71,14 @@ public final class SymbolPanelView extends LinearLayout {
         LinearLayout body = new LinearLayout(context);
         body.setOrientation(HORIZONTAL);
         categories.setOrientation(VERTICAL);
-        categories.setGravity(Gravity.CENTER);
-        body.addView(categories, new LinearLayout.LayoutParams(dp(76), 0, 1));
+        categories.setGravity(Gravity.TOP);
+        // 空白网格的根因：body 是横排 LinearLayout，权重只分宽度；这里和网格原先写的高度 0 是字面上的 0 像素，分类列和网格都被测成零高，面板中间于是什么都没有（面板本身又没底色，透出底下的字母键）。高度要铺满 body。
+        // 分类列放进可滚动的容器、每类固定 40 dp：键盘区扣掉标题和底栏只剩百来 dp，五类按权重平分时每类二十来 dp，按钮默认的 48 dp 最小高度和内边距把字挤没了，只剩选中那块底色。
+        ScrollView categoryScroll = new ScrollView(context);
+        categoryScroll.setVerticalScrollBarEnabled(false);
+        categoryScroll.addView(categories, new ScrollView.LayoutParams(
+            LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT));
+        body.addView(categoryScroll, new LinearLayout.LayoutParams(dp(76), LayoutParams.MATCH_PARENT));
         grid.setColumnCount(SymbolPanelModel.COLUMNS);
         grid.setUseDefaultMargins(false);
         grid.setAlignmentMode(GridLayout.ALIGN_BOUNDS);
@@ -79,7 +86,7 @@ public final class SymbolPanelView extends LinearLayout {
         gridScroll.setContentDescription("符号网格；每行五个");
         gridScroll.addView(grid, new ScrollView.LayoutParams(
             LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT));
-        body.addView(gridScroll, new LinearLayout.LayoutParams(0, 0, 4));
+        body.addView(gridScroll, new LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1));
         addView(body, new LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, 0, 1));
 
         LinearLayout bottom = new LinearLayout(context);
@@ -98,9 +105,13 @@ public final class SymbolPanelView extends LinearLayout {
             Button button = buttons.create(values.get(index).title(),
                 "符号分类 " + values.get(index).title(), () -> select(category), true);
             button.setGravity(Gravity.CENTER);
+            button.setMinHeight(0);
+            button.setMinimumHeight(0);
+            button.setPadding(0, 0, 0, 0);
+            button.setTextSize(13);
             categoryButtons.add(button);
             categories.addView(button, new LinearLayout.LayoutParams(
-                LayoutParams.MATCH_PARENT, 0, 1));
+                LayoutParams.MATCH_PARENT, dp(40)));
         }
         select(0);
     }

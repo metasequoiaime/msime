@@ -1,5 +1,6 @@
 #import "CloudDictionaryClient.h"
 #import "CloudURLSession.h"
+#import "../core/BoundedFileReader.h"
 void MSIMEFetchCloudDictionary(NSString *kind, NSString *search, NSUInteger offset, NSString *bearerToken, MSIMECloudDictionaryCompletion completion) {
     if (kind.length == 0 || search.length > 1024 || offset > 1000000 || bearerToken.length == 0) { if (completion) completion(nil, 400, [NSError errorWithDomain:@"MSIMECloud" code:400 userInfo:nil]); return; }
     NSURLComponents *components = [NSURLComponents componentsWithString:@"https://api.msime.app/v1/users/me/dictionaries"];
@@ -61,7 +62,7 @@ void MSIMEFetchCloudDictionaryChanges(long long after, NSUInteger limit, NSStrin
 
 NSString *MSIMEReadDictionaryImportFile(NSURL *url, NSError **error) {
     if (!url || ![url isFileURL]) { if (error) *error = [NSError errorWithDomain:@"MSIMECloud" code:400 userInfo:nil]; return nil; }
-    NSData *data = [NSData dataWithContentsOfURL:url options:NSDataReadingMappedIfSafe error:error];
+    NSData *data = MSIMEReadFileUpTo(url, 65536, error);
     if (!data || data.length == 0 || data.length > 65536) { if (error && !*error) *error = [NSError errorWithDomain:@"MSIMECloud" code:400 userInfo:nil]; return nil; }
     NSString *text = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
     if (!text.length || [text rangeOfString:@"\0"].location != NSNotFound) { if (error) *error = [NSError errorWithDomain:@"MSIMECloud" code:400 userInfo:nil]; return nil; }

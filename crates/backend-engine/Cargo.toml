@@ -1,0 +1,21 @@
+[package]
+name = "msime-backend-engine"
+description = "The query process msime-cloud runs once per request: one JSON request on stdin, one JSON response on stdout, answered by msime-engine from the pinned dictionary release. Replaces the C++ bridge that linked the archived MSIME-Engine."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish = false
+
+[[bin]]
+name = "msime-backend-engine"
+path = "src/main.rs"
+
+[dependencies]
+msime-engine = { path = "../engine" }
+# Only for its Simplified to Traditional conversion (the OpenCC s2t tables), which the server's `convert` operation answers.
+msime-client-core = { path = "../client-core" }
+
+[lints]
+workspace = true

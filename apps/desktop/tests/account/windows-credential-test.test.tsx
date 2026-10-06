@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { testHost } from "../support/host";
 import { settingsFormReady } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -45,13 +46,13 @@ test.each(["windows", "macos"])(
           load: async () => snapshot,
           save: vi.fn(),
           testApiCredential: probe,
-          host: { platform } as never,
+          host: testHost({ platform }),
         }}
       />,
     );
     await settingsFormReady();
     expect(probe).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "表达" }));
+    fireEvent.click(screen.getByRole("button", { name: "标点与翻译" }));
     fireEvent.click(screen.getByRole("button", { name: "AI 辅助" }));
     fireEvent.change(screen.getByLabelText("AI 模型"), { target: { value: "edited-model" } });
     fireEvent.click(screen.getByRole("button", { name: "测试 AI 辅助配置" }));

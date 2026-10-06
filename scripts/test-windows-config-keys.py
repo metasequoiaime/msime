@@ -39,6 +39,11 @@ REFERENCE = reference_root(ROOT)
 # the same name. Each needs the reason, because "it is handled elsewhere" is exactly what someone
 # would write to make this check quiet.
 ANSWERED_ELSEWHERE: dict[str, str] = {
+    "ai_assistant.prompt": (
+        "the shared preferences keep the three AI prompt slots as prompt_custom_1..3 and the "
+        "selected slot as prompt_id; the settings page and desktop host resolve that selection "
+        "through the shared AI assistant settings"
+    ),
     "appearance.cand_text_color": (
         "candidate text colours come from the shared preferences global_theme / custom_theme "
         "(custom_theme.candidate_colors), resolved through msime_client_resolve_theme and chosen "
@@ -48,6 +53,22 @@ ANSWERED_ELSEWHERE: dict[str, str] = {
         "the candidate window, toolbar, menu and screen keyboard skin comes from the shared "
         "preferences global_theme / custom_theme (custom_theme.candidate_skin), resolved through "
         "msime_client_resolve_theme and chosen in 设置 → 主题"
+    ),
+    "appearance.ui_backend": (
+        "the Windows host has one supported candidate renderer here (Direct2D), so there is no "
+        "backend choice to persist or expose"
+    ),
+    "general.candidate_window_diagnostic_log": (
+        "candidate diagnostics are represented by the shared diagnostic_log.server preference; "
+        "the legacy Windows alias is intentionally not duplicated"
+    ),
+    "input.session_backend": (
+        "the current host always uses the Engine session through input-runtime, so the legacy "
+        "backend selector has no product behavior to configure"
+    ),
+    "voice_input.polish_prompt": (
+        "the old single prompt migrated to voice_input.polish_prompt_custom_1; the shared voice "
+        "prompt selector resolves the three custom slots and keeps the old value as slot one"
     ),
 }
 

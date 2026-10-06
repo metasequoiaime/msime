@@ -1,8 +1,5 @@
 //! Bounded worker-thread operations on the private learned-gloss store.
 use msime_client_core::is_bounded_text;
-use msime_client_core::translation::store::{
-    GlossDirection, GlossStoreError, TranslationGlossStore,
-};
 use msime_client_core::translation::{
     format_translation_gloss, is_cloud_translatable_chinese, is_cloud_translatable_english,
     is_supported_translation_language, is_valid_source_text, should_persist_translation,
@@ -13,25 +10,8 @@ use std::fs;
 use std::path::Path;
 
 fn reject_symlinked_path(path: &Path) -> Result<(), &'static str> {
-    let mut current = path;
-    loop {
-        match fs::symlink_metadata(current) {
-            Ok(metadata) if metadata.file_type().is_symlink() => {
-                return Err("learned translation storage unavailable")
-            }
-            Ok(_) => return Ok(()),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                let Some(parent) = current.parent() else {
-                    return Ok(());
-                };
-                if parent == current {
-                    return Ok(());
-                }
-                current = parent;
-            }
-            Err(_) => return Err("learned translation storage unavailable"),
-        }
-    }
+    msime_path_trust::reject_symlinked_components(path)
+        .map_err(|_| "learned translation storage unavailable")
 }
 
 fn prepare_storage_directory(directory: &Path) -> Result<(), &'static str> {
@@ -43,6 +23,13 @@ fn prepare_storage_directory(directory: &Path) -> Result<(), &'static str> {
         return Err("learned translation storage unavailable");
     }
     Ok(())
+}
+
+#[derive(Clone, Copy, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+enum GlossDirection {
+    EnglishToChinese,
+    ChineseToEnglish,
 }
 
 #[derive(Deserialize, PartialEq)]
@@ -94,9 +81,7 @@ pub fn execute(bytes: &[u8]) -> Result<Value, &'static str> {
     reject_symlinked_path(directory)?;
     let database = directory.join("translation-glosses.db");
     reject_symlinked_path(&database)?;
-    // Preserve previous JSON records as read-only fallback. New writes use the
-    // same Engine-owned user database as other native hosts, never resources.
-    let legacy = TranslationGlossStore::new(directory);
+    // Glosses live in the same Engine-owned user database as other native hosts use, never resources.
     let mut translations = Vec::with_capacity(request.items.len());
     let mut saved = 0;
     if request.target_language != "en" {
@@ -119,24 +104,34 @@ pub fn execute(bytes: &[u8]) -> Result<Value, &'static str> {
         };
         match request.action {
             Action::Lookup => {
-                let learned = msime_engine::host::candidate_glosses_with_user(
-                    "",
-                    &request.directory,
-                    &[(key, if chinese { 0 } else { 4 })],
-                )
-                .ok()
-                .and_then(|values| values.into_iter().next())
-                .filter(|text| !text.is_empty());
-                if let Some(translation) = learned {
-                    translations.push(json!({"text":item.text,"translation":translation}));
-                    continue;
-                }
-                match legacy.lookup(&request.target_language, item.direction, &item.text) {
-                    Ok(Some(translation)) => {
-                        translations.push(json!({"text":item.text,"translation":translation}))
+                // The glossary is keyed by the text a gloss was learned for, which is almost always Simplified, so a Traditional candidate - a Korean Hanja such as 韓, or any candidate under Traditional output - is looked up again under its Simplified characters when its own spelling finds nothing. The reply still names the candidate as shown.
+                let mut keys = vec![key];
+                if chinese {
+                    let simplified =
+                        msime_client_core::chinese_conversion::traditional_to_simplified_characters(
+                            &item.text,
+                        );
+                    if simplified != item.text {
+                        keys.push(simplified);
                     }
-                    Ok(None) | Err(GlossStoreError::InvalidRecord) => {}
-                    Err(_) => return Err("learned translation storage unavailable"),
+                }
+                let mut found = None;
+                for key in keys {
+                    let learned = msime_engine::host::candidate_glosses_with_user(
+                        "",
+                        &request.directory,
+                        &[(key.clone(), if chinese { 0 } else { 4 })],
+                    )
+                    .ok()
+                    .and_then(|values| values.into_iter().next())
+                    .filter(|text| !text.is_empty());
+                    if learned.is_some() {
+                        found = learned;
+                        break;
+                    }
+                }
+                if let Some(translation) = found {
+                    translations.push(json!({"text":item.text,"translation":translation}));
                 }
             }
             Action::Remember => {
@@ -213,6 +208,31 @@ mod tests {
         assert_eq!(run(&read).unwrap()["translations"], json!([]));
     }
     #[test]
+    fn a_traditional_candidate_finds_the_gloss_learned_for_its_simplified_form() {
+        let root = tempfile::tempdir().unwrap();
+        let write = request(
+            root.path(),
+            "remember",
+            json!([
+            {"text":"韩","direction":"chinese_to_english","translation":"Han"},
+            {"text":"寒","direction":"chinese_to_english","translation":"Cold"}]),
+        );
+        assert_eq!(run(&write).unwrap()["saved"], 2);
+        let read = request(
+            root.path(),
+            "lookup",
+            json!([
+            {"text":"韓","direction":"chinese_to_english"},
+            {"text":"寒","direction":"chinese_to_english"},
+            {"text":"閑","direction":"chinese_to_english"}]),
+        );
+        // 韓 is answered under 韩 and named as shown; 寒 is the same in both scripts; 閑 has nothing learned under either spelling.
+        assert_eq!(
+            run(&read).unwrap()["translations"],
+            json!([{"text":"韓","translation":"Han"},{"text":"寒","translation":"Cold"}])
+        );
+    }
+    #[test]
     fn malformed_batch_never_partially_writes() {
         let root = tempfile::tempdir().unwrap();
         let valid = request(
@@ -239,18 +259,13 @@ mod tests {
         assert!(run(&bad).is_err());
         bad["items"] = json!(vec![valid["items"][0].clone(); 10]);
         assert!(run(&bad).is_err());
-        assert!(!root.path().join("learned-translations-v1").exists());
         assert!(!root.path().join("translation-glosses.db").exists());
     }
 
     #[test]
-    fn canonical_engine_store_and_legacy_fallback_interoperate() {
+    fn canonical_engine_store_interoperates() {
         let root = tempfile::tempdir().unwrap();
         let directory = root.path().to_str().unwrap();
-        let legacy = TranslationGlossStore::new(root.path());
-        legacy
-            .remember("en", GlossDirection::EnglishToChinese, "hello", "旧释义")
-            .unwrap();
         let read = request(
             root.path(),
             "lookup",
@@ -258,11 +273,8 @@ mod tests {
             {"text":"HELLO","direction":"english_to_chinese"},
             {"text":"测试","direction":"chinese_to_english"}]),
         );
-        assert_eq!(
-            run(&read).unwrap()["translations"][0]["translation"],
-            "旧释义"
-        );
-        assert!(!root.path().join("translation-glosses.db").exists()); // Reads do not migrate or write.
+        assert_eq!(run(&read).unwrap()["translations"], json!([]));
+        assert!(!root.path().join("translation-glosses.db").exists()); // Reads do not write.
         let write = request(
             root.path(),
             "remember",
@@ -282,13 +294,6 @@ mod tests {
             run(&read).unwrap()["translations"],
             json!([
             {"text":"HELLO","translation":"新释义"},{"text":"测试","translation":"test"}])
-        );
-        assert_eq!(
-            legacy
-                .lookup("en", GlossDirection::EnglishToChinese, "hello")
-                .unwrap()
-                .as_deref(),
-            Some("旧释义")
         );
         #[cfg(unix)]
         {
@@ -325,11 +330,8 @@ mod tests {
     }
 
     #[test]
-    fn damaged_database_preserves_legacy_and_reports_write_failure() {
+    fn damaged_database_reports_write_failure() {
         let root = tempfile::tempdir().unwrap();
-        TranslationGlossStore::new(root.path())
-            .remember("en", GlossDirection::EnglishToChinese, "hello", "旧释义")
-            .unwrap();
         let database = root.path().join("translation-glosses.db");
         std::fs::write(&database, b"synthetic damaged database").unwrap();
         let read = request(
@@ -338,10 +340,7 @@ mod tests {
             json!([
             {"text":"Hello","direction":"english_to_chinese"}]),
         );
-        assert_eq!(
-            run(&read).unwrap()["translations"][0]["translation"],
-            "旧释义"
-        );
+        assert_eq!(run(&read).unwrap()["translations"], json!([]));
         let write = request(
             root.path(),
             "remember",
@@ -358,7 +357,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn rejects_a_symlinked_ancestor_before_creating_the_engine_database() {
-        use std::os::unix::fs::symlink;
+        use msime_path_trust::untrusted_symlink as symlink;
 
         let outside = tempfile::tempdir().unwrap();
         let parent = tempfile::tempdir().unwrap();
@@ -373,6 +372,29 @@ mod tests {
 
         assert_eq!(run(&write), Err("learned translation storage unavailable"));
         assert!(!outside.path().join("missing").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_an_existing_directory_below_a_symlinked_ancestor() {
+        use msime_path_trust::untrusted_symlink as symlink;
+
+        let outside = tempfile::tempdir().unwrap();
+        let parent = tempfile::tempdir().unwrap();
+        let linked = parent.path().join("linked");
+        symlink(outside.path(), &linked).unwrap();
+        std::fs::create_dir(outside.path().join("existing")).unwrap();
+        let write = request(
+            &linked.join("existing"),
+            "remember",
+            json!([{"text":"Hello","direction":"english_to_chinese","translation":"你好"}]),
+        );
+
+        assert_eq!(run(&write), Err("learned translation storage unavailable"));
+        assert!(!outside
+            .path()
+            .join("existing/translation-glosses.db")
+            .exists());
     }
 
     #[cfg(unix)]

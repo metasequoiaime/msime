@@ -1,4 +1,5 @@
-import { Row, Segmented, Switch } from "../core/platform-controls";
+import { SegmentedRow } from "./segmented-row";
+import { SwitchRow } from "./switch-row";
 
 export type WordCharacterPreferences = {
   enabled: boolean;
@@ -32,7 +33,7 @@ const wordCharacterKeyOptions = [
   { value: "minus_equal", label: "- / =" },
 ] as const satisfies readonly { value: WordCharacterPreferences["keys"]; label: string }[];
 
-/** Shared 以词定字 controls and their mutual exclusion with paging shortcuts: rows of the 选词 group. */
+/** 共用的以词定字设置及其与翻页键的互斥：输入页「选词与翻页」组里的几行。 */
 export function WordCharacterSection({
   preferences,
   navigation,
@@ -41,38 +42,33 @@ export function WordCharacterSection({
 }: WordCharacterSectionProps) {
   return (
     <>
-      <Row
+      <SwitchRow
         title="以词定字"
         description={
           ios
             ? "开启后，长按两个字以上的候选，可以只上屏它的首字或末字"
             : "开启后，按所选键组的左键上屏高亮候选的首个汉字，右键上屏末个汉字"
         }
-      >
-        <Switch
-          checked={preferences.enabled}
-          onChange={(enabled) =>
-            onChange({
-              wordCharacter: { ...preferences, enabled },
-              navigation: enabled ? { ...navigation, [preferences.keys]: false } : navigation,
-            })
-          }
-        />
-      </Row>
+        checked={preferences.enabled}
+        onChange={(enabled) =>
+          onChange({
+            wordCharacter: { ...preferences, enabled },
+            navigation: enabled ? { ...navigation, [preferences.keys]: false } : navigation,
+          })
+        }
+      />
       {/* An iOS keyboard extension never receives hardware keys; its candidates offer the first and last character on a long press instead. */}
       {!ios && (
-        <Row title="以词定字快捷键">
-          <Segmented
-            options={wordCharacterKeyOptions.map((option) => ({
-              ...option,
-              disabled: navigation[option.value],
-            }))}
-            value={preferences.keys}
-            onChange={(keys) => onChange({ wordCharacter: { ...preferences, keys }, navigation })}
-          />
-        </Row>
+        <SegmentedRow
+          title="以词定字快捷键"
+          options={wordCharacterKeyOptions.map((option) => ({
+            ...option,
+            disabled: navigation[option.value],
+          }))}
+          value={preferences.keys}
+          onChange={(keys) => onChange({ wordCharacter: { ...preferences, keys }, navigation })}
+        />
       )}
     </>
   );
 }
-import { SettingToggle } from "./setting-toggle";

@@ -38,4 +38,23 @@ inline bool valid_candidate_url(std::string_view url, bool allow_http = false)
     const auto host = authority.substr(0, colon);
     return host == "localhost" || host == "127.0.0.1";
 }
+
+inline bool valid_candidate_header_name(std::string_view name)
+{
+    if (name.empty())
+        return false;
+    return std::all_of(name.begin(), name.end(), [](unsigned char ch) {
+        return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
+               (ch >= '0' && ch <= '9') ||
+               std::string_view("!#$%&'*+-.^_`|~").find(static_cast<char>(ch)) !=
+                   std::string_view::npos;
+    });
+}
+
+inline bool valid_candidate_header_value(std::string_view value)
+{
+    return std::all_of(value.begin(), value.end(), [](unsigned char ch) {
+        return ch == '\t' || (ch >= 0x20 && ch != 0x7f);
+    });
+}
 } // namespace msime::windows

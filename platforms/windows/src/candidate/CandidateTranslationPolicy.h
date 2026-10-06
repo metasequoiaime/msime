@@ -61,6 +61,7 @@ inline std::vector<std::string> untranslated_texts(
 inline void fill_offline_glosses(
     std::vector<std::pair<std::string, std::string>> &answered,
     const std::vector<std::pair<std::string, std::string>> &offline) {
+  answered.reserve(answered.size() + offline.size());
   for (const auto &entry : offline) {
     if (entry.first.empty() || entry.second.empty())
       continue;

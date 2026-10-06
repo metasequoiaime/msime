@@ -1,3 +1,5 @@
+import { SchemeTraits } from "../SchemeTraits";
+
 /**
  * Candidate-management menu order and host operation metadata, ported from
  * platforms/android/java/app/msime/android/CandidateManagementAction.java.
@@ -92,9 +94,9 @@ export class CandidateManagementAction {
     return Array.from(text).length !== 1;
   }
 
-  /** Dictionary mutations are only valid for local/user-dictionary candidates. */
+  /** Dictionary mutations are only valid for local/user-dictionary candidates, in a scheme that learns into the main dictionary; the others' candidates are not in it to pin, demote or remove. */
   static candidateActionsAvailable(scheme: string, source: number): boolean {
-    if (scheme === "japanese" || scheme === "korean") {
+    if (!SchemeTraits.learnsIntoMainDictionary(SchemeTraits.fromName(scheme))) {
       return false;
     }
     return source === 0 || source === 1 || source === 4;

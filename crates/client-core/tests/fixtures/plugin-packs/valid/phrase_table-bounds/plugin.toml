@@ -1,0 +1,13 @@
+schema_version = 1
+kind = "phrase_table"
+id = "fixture-phrases"
+name = "Fixture"
+version = "1.0.0"
+license = "CC0-1.0"
+author = "MSIME"
+description = "Shared parser fixture"
+permissions = []
+
+[[phrases]]
+key = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"
+text = "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀a"

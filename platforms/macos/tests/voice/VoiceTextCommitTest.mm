@@ -2,6 +2,7 @@
 #include <cassert>
 
 int main() {
+    assert(MSIMEVoiceCommitRoute::kEventChunkUnits == 16);
     @autoreleasepool {
         MSIMEVoiceCommitRoute route;
         route.mode = @"sendinput"; route.pid = 12345;

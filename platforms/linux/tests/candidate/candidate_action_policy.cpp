@@ -26,6 +26,19 @@ int main() {
   assert(!candidate_dictionary_removal_available(0, 4, "a\xff"));
   assert(!candidate_dictionary_removal_available(3, 0, "词语"));
   assert(!candidate_dictionary_removal_available(4, 0, "词语"));
+  // 粤拼、注音、越南文、藏文和笔画的候选同样不是用户词库条目。
+  assert(!candidate_dictionary_removal_available(5, 0, "你好"));
+  assert(!candidate_dictionary_removal_available(6, 0, "你好"));
+  assert(!candidate_dictionary_removal_available(7, 0, "xin"));
+  assert(!candidate_dictionary_removal_available(8, 0, "བཀྲ་ཤིས"));
+  assert(!candidate_dictionary_removal_available(9, 0, "一二"));
+  assert(candidate_dictionary_removal_available(2, 0, "词语"));
+  using msime::linux_host::candidate_dictionary_actions_available;
+  assert(candidate_dictionary_actions_available(0, 0));
+  assert(candidate_dictionary_actions_available(1, 4));
+  assert(!candidate_dictionary_actions_available(0, 2));
+  for (std::uint64_t scheme : {3, 4, 5, 6, 7, 8, 9, 255, 256})
+    assert(!candidate_dictionary_actions_available(scheme, 0));
   assert(!candidate_dictionary_removal_available(0, 2, "词语"));
   assert(candidate_removal_slot('1', 0) == 0);
   assert(candidate_removal_slot('8', 0) == 7);

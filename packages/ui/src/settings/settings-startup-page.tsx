@@ -1,3 +1,6 @@
+import { ActionButton } from "../core/action-button";
+import { StatusMessage } from "../core/status-message";
+
 export function SettingsStartupPage({ onClose }: { onClose?: () => void }) {
   return (
     <main className="settings-startup" aria-label="设置加载中" aria-busy="true">
@@ -8,16 +11,14 @@ export function SettingsStartupPage({ onClose }: { onClose?: () => void }) {
         <i />
       </div>
       <h1>正在打开设置</h1>
-      <p role="status">冷启动可能需要稍等片刻</p>
+      <StatusMessage role="status">冷启动可能需要稍等片刻</StatusMessage>
       {onClose && (
-        <button
-          type="button"
+        <ActionButton
+          action={onClose}
           className="settings-startup-close"
-          aria-label="关闭设置"
-          onClick={onClose}
-        >
-          ×
-        </button>
+          ariaLabel="关闭设置"
+          label="×"
+        />
       )}
     </main>
   );

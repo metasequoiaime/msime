@@ -115,11 +115,13 @@ static void testBatch() {
     KeyPressBatch batch;
     assert(batch.empty());
     assert(!batch.drain());
-    assert(batch.record("2026-09-30", "KeyA").empty());
+    auto due = batch.record("2026-09-30", "KeyA");
+    assert(due.empty());
+    assert(due.capacity() >= 2);
     assert(batch.record("2026-09-30", "KeyA").empty());
     assert(batch.record("2026-09-30", "Space").empty());
     // Past midnight: the presses before it are handed back under their own day before the new day collects.
-    std::vector<KeyPressFlush> due = batch.record("2026-10-01", "KeyB");
+    due = batch.record("2026-10-01", "KeyB");
     assert(due.size() == 1);
     assert(due[0].day == "2026-09-30");
     assert(due[0].keys.size() == 2 && due[0].keys.at("KeyA") == 2 && due[0].keys.at("Space") == 1);

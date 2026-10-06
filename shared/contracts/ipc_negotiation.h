@@ -2,8 +2,7 @@
 
 #include "windows_ipc.h"
 
-// Main ClientHello reuses fields that legacy clients left zero/unused. No
-// packet size, existing opcode or reverse-pipe handshake layout changes.
+// Main ClientHello carries the protocol fields in otherwise unused FanyImeNamedpipeData members, so the packet size, opcodes and reverse-pipe handshake layout stay those of every other frame.
 namespace FanyImeProtocol
 {
 constexpr std::uint32_t Magic = 0x4D534950; // MSIP
@@ -24,7 +23,6 @@ constexpr std::uint32_t RequiredCapabilities = RequestIds | FocusEpochs;
 struct Negotiation
 {
     bool accepted = false;
-    bool legacy = false;
     std::uint32_t capabilities = 0;
 };
 
@@ -47,10 +45,6 @@ inline Negotiation Negotiate(const FanyImeNamedpipeData &hello, std::uint32_t ca
 {
     if (hello.event_type != FanyImePipeEventType::ClientHello || hello.client_id == 0)
         return {};
-    // Existing installed DLLs use this exact unversioned hello shape. Retain
-    // their established protocol during an upgrade without sending a new ACK.
-    if (hello.keycode == 0 && hello.wch == 0 && hello.request_id == 0 && hello.modifiers_down == 0)
-        return {true, true, capabilities};
     if (hello.keycode != Magic || hello.wch != Major || hello.request_id == 0 ||
         hello.request_id == FANY_IME_NO_REQUEST_ID || hello.point[0] < 0 || hello.point[1] < 0)
         return {};
@@ -58,7 +52,7 @@ inline Negotiation Negotiate(const FanyImeNamedpipeData &hello, std::uint32_t ca
     const auto common = hello.modifiers_down & capabilities;
     if ((required & common) != required || (common & RequiredCapabilities) != RequiredCapabilities)
         return {};
-    return {true, false, common};
+    return {true, common};
 }
 
 inline FanyImeNamedpipeDataToTsf Reply(const FanyImeNamedpipeData &hello, Negotiation result)

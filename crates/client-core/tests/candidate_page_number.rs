@@ -23,7 +23,7 @@ fn legacy_preferences_show_page_numbers_and_the_toggle_roundtrips() {
 }
 
 #[test]
-fn only_linux_exposes_the_page_number_control_and_old_hosts_do_not() {
+fn only_linux_exposes_the_page_number_control() {
     for platform in [
         HostPlatform::Linux,
         HostPlatform::Windows,
@@ -37,15 +37,4 @@ fn only_linux_exposes_the_page_number_control_and_old_hosts_do_not() {
             platform == HostPlatform::Linux
         );
     }
-    let mut legacy =
-        serde_json::to_value(HostCapabilities::for_platform(HostPlatform::Linux)).unwrap();
-    legacy
-        .as_object_mut()
-        .unwrap()
-        .remove("candidate_page_number");
-    assert!(
-        !serde_json::from_value::<HostCapabilities>(legacy)
-            .unwrap()
-            .candidate_page_number
-    );
 }

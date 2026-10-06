@@ -227,7 +227,7 @@ impl ShuangpinDictionary {
 
         let mut candidates = self.generate(pure, segmentation, rows_key);
         // Every shorter prefix group follows, longest first; phrase creation picks from them (SD:215-231). The reference appended each group whole, so a word several groups answer (a manual delimiter leaves empty pieces, and ni'''nn'i holds the ni group three times) was listed once per group; a word already listed keeps its first, longest-prefix seat instead.
-        let mut prefix_rows = Vec::new();
+        let mut prefix_rows = Vec::with_capacity(prefix_group_count(segmentation));
         let mut prefix = segmentation;
         while let Some(cut) = prefix.rfind('\'') {
             prefix = &prefix[..cut];
@@ -246,6 +246,7 @@ impl ShuangpinDictionary {
             .collect::<Vec<_>>();
         drop(listed);
         for (rows, unique) in prefix_rows.into_iter().zip(unique) {
+            candidates.reserve(rows.len());
             candidates.extend(
                 rows.into_iter()
                     .zip(unique)
@@ -353,6 +354,7 @@ impl ShuangpinDictionary {
             .map(|item| listed.insert(item.word.as_str()))
             .collect::<Vec<_>>();
         drop(listed);
+        result.reserve(rows.len());
         result.extend(
             rows.into_iter()
                 .zip(unique)
@@ -564,14 +566,25 @@ impl ShuangpinDictionary {
     }
 }
 
+fn prefix_group_count(segmentation: &str) -> usize {
+    segmentation.matches('\'').count()
+}
+
 #[cfg(test)]
 mod tests {
     use super::double_helpcode_cache_key;
+    use super::prefix_group_count;
 
     #[test]
     fn double_helpcode_cache_keys_use_exact_string_capacity() {
         let key = double_helpcode_cache_key("ni'hao", "ab");
         assert_eq!(key, "ni'hao:ab");
         assert_eq!(key.capacity(), key.len());
+    }
+
+    #[test]
+    fn prefix_group_count_matches_manual_boundaries() {
+        assert_eq!(prefix_group_count("ni'hao'ba"), 2);
+        assert_eq!(prefix_group_count("nihao"), 0);
     }
 }

@@ -303,8 +303,10 @@ BOOL CCompositionProcessorEngine::AddVirtualKey(WCHAR wch)
 
     DWORD_PTR srgKeystrokeBufLen = _keystrokeBuffer.GetLength();
     _caretPosition = min(_caretPosition, srgKeystrokeBufLen);
-    if (wch == L'\'' && ((_caretPosition > 0 && _keystrokeBuffer.Get()[_caretPosition - 1] == L'\'') ||
-                         (_caretPosition < srgKeystrokeBufLen && _keystrokeBuffer.Get()[_caretPosition] == L'\'')))
+    // 连续的分隔符只留一个，网址模式除外：那里的 `'` 是网址里的字符，Engine 照收不误。
+    if (wch == L'\'' && !_urlMode &&
+        ((_caretPosition > 0 && _keystrokeBuffer.Get()[_caretPosition - 1] == L'\'') ||
+         (_caretPosition < srgKeystrokeBufLen && _keystrokeBuffer.Get()[_caretPosition] == L'\'')))
     {
         return TRUE;
     }
@@ -323,6 +325,10 @@ BOOL CCompositionProcessorEngine::AddVirtualKey(WCHAR wch)
     {
         return FALSE;
     }
+    const bool opensUrlMode = Global::OpensUrlMode(
+        _keystrokeBuffer.Get(), srgKeystrokeBufLen, _caretPosition, wch,
+        msime::windows::scheme::DetectsUrls(Global::InputModeScheme.load(std::memory_order_relaxed)),
+        Global::DedicatedEnglish.active(GetTickCount64()));
 
     memcpy(pwch, _keystrokeBuffer.Get(), _caretPosition * sizeof(WCHAR));
     pwch[_caretPosition] = wch;
@@ -336,6 +342,7 @@ BOOL CCompositionProcessorEngine::AddVirtualKey(WCHAR wch)
     }
 
     _keystrokeBuffer.Set(pwch, srgKeystrokeBufLen + 1);
+    _urlMode = _urlMode || opensUrlMode;
 
     std::wstring keyString(pwch, srgKeystrokeBufLen + 1);
     Global::PinyinString = keyString;
@@ -361,6 +368,7 @@ void CCompositionProcessorEngine::RemoveVirtualKey(DWORD_PTR dwIndex)
         return;
     }
 
+    const WCHAR removed = _keystrokeBuffer.Get()[dwIndex];
     if (dwIndex + 1 < srgKeystrokeBufLen)
     {
         // shift following eles left
@@ -370,6 +378,7 @@ void CCompositionProcessorEngine::RemoveVirtualKey(DWORD_PTR dwIndex)
     }
 
     _keystrokeBuffer.Set(_keystrokeBuffer.Get(), srgKeystrokeBufLen - 1);
+    _urlMode = Global::UrlModeAfterDeletion(_urlMode, _keystrokeBuffer.Get(), _keystrokeBuffer.GetLength(), removed);
     if (_caretPosition > dwIndex)
     {
         --_caretPosition;
@@ -442,6 +451,7 @@ void CCompositionProcessorEngine::PurgeVirtualKey()
         _keystrokeBuffer.Set(NULL, 0);
     }
     _caretPosition = 0;
+    _urlMode = false;
     _renderedPreedit.clear();
     _renderedPreeditPrefixLength = 0;
 }
@@ -604,7 +614,7 @@ namespace
 bool IsJapaneseLongVowelKey(UINT uCode, WCHAR wch)
 {
     return uCode == VK_OEM_MINUS && wch == L'-' &&
-           Global::JapaneseInputModeEnabled.load(std::memory_order_relaxed);
+           Global::InputModeScheme.load(std::memory_order_relaxed) == msime::windows::scheme::Japanese;
 }
 
 // In Japanese mode '=' and non-long-vowel '-' are punctuation rather than
@@ -617,7 +627,7 @@ bool IsJapaneseMinusEqualPunctuationKey(UINT uCode, WCHAR wch, BOOL fComposing, 
     {
         return false;
     }
-    if (keystrokeLength == 0 || !Global::JapaneseInputModeEnabled.load(std::memory_order_relaxed))
+    if (keystrokeLength == 0 || Global::InputModeScheme.load(std::memory_order_relaxed) != msime::windows::scheme::Japanese)
     {
         return false;
     }
@@ -652,6 +662,12 @@ bool IsManualPinyinSeparatorInComposition(WCHAR wch, BOOL fComposing, CANDIDATE_
         return false;
     }
     if (keystrokeLength == 0)
+    {
+        return false;
+    }
+    // Under Stroke the apostrophe separates nothing: it takes the punctuation route below, which commits the highlighted row followed by the mark.
+    if (msime::windows::scheme::ApostropheIsPunctuationWhileComposing(
+            Global::InputModeScheme.load(std::memory_order_relaxed)))
     {
         return false;
     }
@@ -1113,7 +1129,7 @@ void CCompositionProcessorEngine::OnPreservedKey( //
             Global::ModifiersDown &= ~0b00000001;
         if (notifyServer)
         {
-            WriteDataToSharedMemory(Global::Keycode, L'\0', Global::ModifiersDown, nullptr, 0, L"", 0b000111);
+            WriteDataToNamedPipe(Global::Keycode, L'\0', Global::ModifiersDown, nullptr, 0, L"", 0b000111);
             SendKeyEventToUIProcess();
             ClearNamedpipeDataIfExists();
         }
@@ -1468,9 +1484,9 @@ void CCompositionProcessorEngine::InitializeMetasequoiaIMECompartment(_In_ ITfTh
 {
     // Default CN/EN on IME activate / switch-in (input.default_ime_mode).
     const BOOL openChinese = FanyUtils::ReadConfiguredDefaultImeModeChinese();
-    const std::string configuredScheme = FanyUtils::ReadConfiguredInputScheme();
-    Global::JapaneseInputModeEnabled.store(configuredScheme == "japanese", std::memory_order_relaxed);
-    Global::KoreanInputModeEnabled.store(configuredScheme == "korean", std::memory_order_relaxed);
+    Global::InputModeScheme.store(
+        msime::windows::scheme::mode_scheme(msime::windows::scheme::input_mode(FanyUtils::ReadConfiguredRunningScheme())),
+        std::memory_order_relaxed);
     // Use the suppressing writer so the OPENCLOSE sink does not treat this as
     // a user choice and drop the defense we are about to arm.
     SetKeyboardOpenCompartment(pThreadMgr, tfClientId, openChinese);
@@ -2139,7 +2155,7 @@ BOOL CCompositionProcessorEngine::IsVirtualKeyNeed( //
     // V-mode: its digits and operators compose, ahead of the paging and punctuation meanings of '-', '+', '.' and '/'; a digit key printing anything else selects. Ctrl and Alt chords never reach here.
     if (IsExpressionModeComposition())
     {
-        switch (Global::ClassifyExpressionKey(uCode, pwch ? *pwch : 0))
+        switch (Global::ClassifyModeKey(Global::ExpressionSpellingSymbols, uCode, pwch ? *pwch : 0))
         {
         case Global::ExpressionKey::Input:
             if (pKeyState)
@@ -2158,6 +2174,41 @@ BOOL CCompositionProcessorEngine::IsVirtualKeyNeed( //
         case Global::ExpressionKey::Unclaimed:
             break;
         }
+    }
+    // 网址模式：触发词后的 `.`、`:` 打开它，之后网址的数字和符号都是输入，排在 '-'、'='、','、'.'、'[' 和 ']' 的翻页、标点和数字选词之前；打出其他字符的数字键选词。
+    const bool detectsUrls =
+        msime::windows::scheme::DetectsUrls(Global::InputModeScheme.load(std::memory_order_relaxed));
+    if (_urlMode)
+    {
+        switch (Global::ClassifyModeKey(Global::UrlSpellingSymbols, uCode, pwch ? *pwch : 0))
+        {
+        case Global::ExpressionKey::Input:
+            if (pKeyState)
+            {
+                pKeyState->Category = CATEGORY_COMPOSING;
+                pKeyState->Function = FUNCTION_INPUT;
+            }
+            return TRUE;
+        case Global::ExpressionKey::SelectByNumber:
+            if (pKeyState)
+            {
+                pKeyState->Category = CATEGORY_CANDIDATE;
+                pKeyState->Function = FUNCTION_SELECT_BY_NUMBER;
+            }
+            return TRUE;
+        case Global::ExpressionKey::Unclaimed:
+            break;
+        }
+    }
+    else if (Global::OpensUrlMode(_keystrokeBuffer.Get(), _keystrokeBuffer.GetLength(), _caretPosition,
+                                  pwch ? *pwch : 0, detectsUrls, Global::DedicatedEnglish.active(GetTickCount64())))
+    {
+        if (pKeyState)
+        {
+            pKeyState->Category = CATEGORY_COMPOSING;
+            pKeyState->Function = FUNCTION_INPUT;
+        }
+        return TRUE;
     }
 
     if (IsJapaneseLongVowelKey(uCode, pwch ? *pwch : 0))
@@ -2187,7 +2238,7 @@ BOOL CCompositionProcessorEngine::IsVirtualKeyNeed( //
     const bool isCommaPeriodPagingKey = uCode == VK_OEM_COMMA || uCode == VK_OEM_PERIOD;
     const bool isBracketPagingKey = uCode == VK_OEM_4 || uCode == VK_OEM_6;
     const bool isMinusEqualPagingKey = (uCode == VK_OEM_MINUS || uCode == VK_OEM_PLUS) &&
-                                       !Global::JapaneseInputModeEnabled.load(std::memory_order_relaxed);
+                                       Global::InputModeScheme.load(std::memory_order_relaxed) != msime::windows::scheme::Japanese;
     if (candidateMode != CANDIDATE_NONE &&
         (isMinusEqualPagingKey || isCommaPeriodPagingKey || isBracketPagingKey || uCode == VK_TAB ||
          uCode == VK_PRIOR || uCode == VK_NEXT || uCode == VK_UP || uCode == VK_DOWN))

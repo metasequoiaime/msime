@@ -1,0 +1,2 @@
+# 插件解析器的共享 fixture 要逐字节保留（CRLF、BOM、行尾空格和非法字节都是用例的一部分），不做换行转换，也不做空白检查。
+crates/client-core/tests/fixtures/plugin-packs/** -text -whitespace

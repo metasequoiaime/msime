@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
+import { testHost } from "../support/host";
 import { saveSettingsNow, settingsFormReady } from "../support/settings-form";
+import { useState } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import {
@@ -12,6 +14,7 @@ import {
   pluginErrorMessage,
   pluginPreferences,
   settingsCapabilities,
+  withPackSelected,
   withoutRemovedPack,
   type MentionEntry,
   type PluginCatalogResult,
@@ -36,7 +39,7 @@ test("ignores a duplicate plugin import while the first import is pending", asyn
       client={{
         load: async () => snapshot,
         save: vi.fn(),
-        host: { platform: "linux", plugin_triggers: true } as never,
+        host: testHost({ platform: "linux", plugin_triggers: true }),
         plugins: client,
       }}
     />,
@@ -78,8 +81,8 @@ test("a plugin removal response from a replaced client cannot update preferences
       confirm={vi.fn(async () => true)}
     />,
   );
-  const list = await screen.findByLabelText("已安装的插件");
-  fireEvent.click(within(list).getByRole("button", { name: "删除打字机" }));
+  await openPack("打字机");
+  fireEvent.click(screen.getByRole("button", { name: "删除打字机" }));
   await waitFor(() => expect(oldClient.remove).toHaveBeenCalledWith("sound", "typewriter"));
 
   view.rerender(
@@ -95,13 +98,35 @@ test("a plugin removal response from a replaced client cannot update preferences
       confirm={vi.fn(async () => true)}
     />,
   );
-  await screen.findByLabelText("已安装的插件");
+  await waitFor(() => expect(nextClient.catalog).toHaveBeenCalled());
   await act(async () => {
     resolveRemove();
     await Promise.resolve();
     await Promise.resolve();
   });
   expect(onChange).not.toHaveBeenCalled();
+  // Nor close the detail it was started from.
+  expect(screen.getByRole("heading", { name: "打字机" })).toBeTruthy();
+});
+
+test("marks plugin removal busy while the host removes the pack", async () => {
+  let resolveRemove!: () => void;
+  const remove = vi.fn(
+    () =>
+      new Promise<void>((resolve) => {
+        resolveRemove = resolve;
+      }),
+  );
+  renderSection({ client: fakeClient({ remove }) });
+  await openPack("打字机");
+
+  fireEvent.click(screen.getByRole("button", { name: "删除打字机" }));
+  await waitFor(() => expect(remove).toHaveBeenCalledWith("sound", "typewriter"));
+
+  const button = screen.getByRole("button", { name: "删除打字机" });
+  expect(button.getAttribute("aria-busy")).toBe("true");
+  expect((button as HTMLButtonElement).disabled).toBe(true);
+  resolveRemove();
 });
 
 const pack = (overrides: Partial<PluginPackage> & Pick<PluginPackage, "id" | "kind">) =>
@@ -167,8 +192,29 @@ function renderSection(
   return { onChange, onError, confirm, client };
 }
 
+/** Opens the 声音与效果 view from the 我的插件 list. */
+function openSoundEffects() {
+  fireEvent.click(screen.getByRole("button", { name: "声音与效果" }));
+}
+
+/** Opens an installed pack's detail from the list, once the catalog has listed it. */
+async function openPack(name: string) {
+  const list = await screen.findByLabelText("已安装的插件");
+  fireEvent.click(await within(list).findByRole("button", { name }));
+  await screen.findByRole("heading", { name });
+}
+
+function openMentions() {
+  fireEvent.click(screen.getByRole("button", { name: "@ 名单" }));
+}
+
+function backToList() {
+  fireEvent.click(screen.getByRole("button", { name: "返回我的插件" }));
+}
+
 test("switches key sounds and keeps the other effect settings", () => {
   const { onChange } = renderSection({ client: undefined });
+  openSoundEffects();
 
   fireEvent.click(screen.getByRole("switch", { name: "按键音" }));
   expect(onChange).toHaveBeenLastCalledWith({
@@ -195,15 +241,17 @@ test("switches key sounds and keeps the other effect settings", () => {
   });
 });
 
-test("offers the melody pack only in melody mode, and the mode only while key sounds are on", async () => {
+test("offers the melody only in melody mode, and the mode only while key sounds are on", async () => {
   const on = {
     ...defaultPluginPreferences,
     key_sound: { ...defaultPluginPreferences.key_sound, enabled: true },
   };
   const { onChange } = renderSection({}, on);
-  await screen.findByText("打字机 1.0.0");
+  await screen.findByRole("button", { name: "打字机" });
+  openSoundEffects();
 
-  expect(screen.queryByRole("combobox", { name: "旋律" })).toBeNull();
+  // The 旋律 row is kept but hidden while the mode plays the key classes.
+  expect(screen.getByText("小星星（内置）").closest("[hidden]")).not.toBeNull();
   fireEvent.click(screen.getByRole("radio", { name: "按键旋律" }));
   expect(onChange).toHaveBeenLastCalledWith({
     ...on,
@@ -212,61 +260,224 @@ test("offers the melody pack only in melody mode, and the mode only while key so
 
   cleanup();
   renderSection({}, { ...on, key_sound: { ...on.key_sound, mode: "melody" } });
-  await screen.findByText("打字机 1.0.0");
-  const melody = screen.getByRole("combobox", { name: "旋律" });
-  expect(
-    within(melody)
-      .getAllByRole("option")
-      .map((option) => option.textContent),
-  ).toEqual(["小星星（内置）"]);
-  const packs = screen.getByRole("combobox", { name: "音效包" });
-  expect(
-    within(packs)
-      .getAllByRole("option")
-      .map((option) => option.textContent),
-  ).toEqual(["默认（内置）", "打字机"]);
+  await screen.findByRole("button", { name: "打字机" });
+  openSoundEffects();
+  expect(screen.getByText("小星星（内置）").closest("[hidden]")).toBeNull();
+  expect(screen.getByText("默认（内置）")).toBeTruthy();
 
   cleanup();
   renderSection({ client: undefined });
+  openSoundEffects();
   expect(
     screen.getByRole("radiogroup", { name: "发声方式" }).querySelector("input")?.disabled,
   ).toBe(true);
 });
 
-test("names a selected pack that is no longer installed instead of showing another", async () => {
-  renderSection(
-    {},
-    {
-      ...defaultPluginPreferences,
-      key_sound: { ...defaultPluginPreferences.key_sound, pack: "gone" },
-    },
-  );
-  await screen.findByText("打字机 1.0.0");
-  const packs = screen.getByRole("combobox", { name: "音效包" }) as HTMLSelectElement;
-  expect(packs.value).toBe("gone");
-  expect(within(packs).getByRole("option", { name: "gone（未找到）" })).toBeTruthy();
+test("a melody pack is chosen on its own detail, which says where the mode is switched", async () => {
+  const melodies = fakeClient({
+    catalog: vi.fn(async () => ({
+      packages: [
+        ...catalog.packages,
+        pack({ id: "canon", kind: "sound", name: "卡农", mode: "sequence" }),
+      ],
+      issues: [],
+    })),
+  });
+  const { onChange } = renderSection({ client: melodies });
+  await openPack("卡农");
+  expect(screen.getByText(/把发声方式设为按键旋律后/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "设为按键旋律" }));
+  // The mode is left as it was: choosing a melody does not start playing it.
+  expect(onChange).toHaveBeenLastCalledWith({
+    ...defaultPluginPreferences,
+    melody: { pack: "canon" },
+  });
+
+  backToList();
+  await openPack("小星星");
+  const current = screen.getByRole("button", { name: "使用中" }) as HTMLButtonElement;
+  expect(current.disabled).toBe(true);
+});
+
+test("lists a selected pack that is no longer installed, and drops it from its own view", async () => {
+  const gone = {
+    ...defaultPluginPreferences,
+    key_sound: { ...defaultPluginPreferences.key_sound, pack: "gone" },
+  };
+  const { onChange } = renderSection({}, gone);
+  const list = await screen.findByLabelText("已安装的插件");
+  const row = await within(list).findByRole("button", { name: "gone（未找到）" });
+  expect(row.textContent).toContain("当前音效包，已不在本机");
+
+  openSoundEffects();
+  expect(screen.getByText("gone（未找到）")).toBeTruthy();
+  backToList();
+
+  fireEvent.click(await screen.findByRole("button", { name: "gone（未找到）" }));
+  expect(screen.getByRole("heading", { name: "gone（未找到）" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "改回默认" }));
+  expect(onChange).toHaveBeenLastCalledWith(defaultPluginPreferences);
+  expect(await screen.findByLabelText("已安装的插件")).toBeTruthy();
 
   cleanup();
   // A host with no pack store lists nothing, so the selection is shown as it is rather than as missing.
   renderSection({ client: undefined });
-  const selected = screen.getByRole("combobox", { name: "音效包" });
-  expect(
-    within(selected)
-      .getAllByRole("option")
-      .map((option) => option.textContent),
-  ).toEqual(["default"]);
+  openSoundEffects();
+  expect(screen.getByText("default")).toBeTruthy();
+  expect(screen.queryByText("default（未找到）")).toBeNull();
 });
 
-test("chooses a music pack, which starts unselected", async () => {
-  const { onChange } = renderSection();
-  await screen.findByText("雨声 1.0.0");
-  const select = screen.getByRole("combobox", { name: "音乐包" }) as HTMLSelectElement;
-  expect(select.value).toBe("");
+test("a sound pack selected in the other mode is listed as unusable and reset on its own", async () => {
+  const crossed = {
+    ...defaultPluginPreferences,
+    key_sound: { ...defaultPluginPreferences.key_sound, pack: "twinkle" },
+  };
+  const { onChange } = renderSection({}, crossed);
+  const list = await screen.findByLabelText("已安装的插件");
+  const row = await within(list).findByRole("button", { name: "twinkle（不可用）" });
+  expect(row.textContent).toContain("当前音效包，但它是按键旋律，不能用作按键音效");
+  const sounds = within(list).getByRole("region", { name: "音效包" });
+  expect(sounds.textContent).not.toContain("使用中");
 
-  fireEvent.change(select, { target: { value: "rain" } });
+  openSoundEffects();
+  expect(screen.getByText("twinkle（不可用）")).toBeTruthy();
+  backToList();
+
+  fireEvent.click(await screen.findByRole("button", { name: "twinkle（不可用）" }));
+  fireEvent.click(screen.getByRole("button", { name: "改回默认" }));
+  // The melody keeps the pack, which is rightly selected there.
+  expect(onChange).toHaveBeenLastCalledWith(defaultPluginPreferences);
+
+  cleanup();
+  const melodyCrossed = { ...defaultPluginPreferences, melody: { pack: "typewriter" } };
+  renderSection({}, melodyCrossed);
+  const melodyRow = await screen.findByRole("button", { name: "typewriter（不可用）" });
+  expect(melodyRow.textContent).toContain("当前旋律，但它不是按键旋律");
+});
+
+test("the list says the catalog is being read, or could not be, rather than that nothing is installed", async () => {
+  renderSection({
+    client: fakeClient({ catalog: vi.fn(() => new Promise<PluginCatalogResult>(() => {})) }),
+  });
+  expect(screen.getByText("正在读取插件…")).toBeTruthy();
+  expect(screen.queryByText("没有插件")).toBeNull();
+  expect(screen.queryByText("还没有导入指令表。")).toBeNull();
+
+  cleanup();
+  const { onError } = renderSection({
+    client: fakeClient({ catalog: vi.fn(async () => Promise.reject(new Error("offline"))) }),
+  });
+  expect(await screen.findByText(/插件列表没有读取成功/)).toBeTruthy();
+  expect(onError).toHaveBeenCalled();
+  expect(screen.queryByText("没有插件")).toBeNull();
+  expect(screen.queryByText("还没有导入指令表。")).toBeNull();
+  expect(screen.queryByText("正在读取插件…")).toBeNull();
+});
+
+test("without a pack store, 声音与效果 does not point at packs the list cannot show", () => {
+  renderSection({ client: undefined, typingEffects: true, effectStyles: true, effectPacks: true });
+  openSoundEffects();
+  expect(screen.queryByText(/在「我的插件」里打开/)).toBeNull();
+  expect(screen.getAllByText(/这台设备只能使用内置的包。/).length).toBeGreaterThan(0);
+});
+
+test("a pack of a kind the host does not act on is listed but not marked in use", async () => {
+  const selected = {
+    ...defaultPluginPreferences,
+    key_sound: { ...defaultPluginPreferences.key_sound, pack: "typewriter" },
+    music: { ...defaultPluginPreferences.music, pack: "rain" },
+  };
+  renderSection({ keySound: false, music: false }, selected);
+  const list = await screen.findByLabelText("已安装的插件");
+  const row = await within(list).findByRole("button", { name: "打字机" });
+  expect(row.textContent).not.toContain("使用中");
+  expect(within(list).getByRole("button", { name: "小星星" }).textContent).not.toContain(
+    "当前旋律",
+  );
+  expect(within(list).getByRole("button", { name: "雨声" }).textContent).not.toContain("使用中");
+});
+
+test("after deleting a pack or dropping a missing selection, focus lands on the list, not the page body", async () => {
+  let removed = false;
+  renderSection({
+    client: fakeClient({
+      catalog: vi.fn(async () =>
+        removed
+          ? { ...catalog, packages: catalog.packages.filter((item) => item.id !== "typewriter") }
+          : catalog,
+      ),
+      remove: vi.fn(async () => {
+        removed = true;
+      }),
+    }),
+  });
+  await openPack("打字机");
+  fireEvent.click(screen.getByRole("button", { name: "删除打字机" }));
+  const list = await screen.findByLabelText("已安装的插件");
+  const sounds = within(list).getByRole("region", { name: "音效包" });
+  await waitFor(() =>
+    expect(document.activeElement).toBe(within(sounds).getAllByRole("button")[0]),
+  );
+
+  cleanup();
+  const gone = {
+    ...defaultPluginPreferences,
+    music: { ...defaultPluginPreferences.music, pack: "gone" },
+  };
+  const client = fakeClient();
+  // The page holds the preferences, so dropping the selection and closing the view land in one render.
+  function Page() {
+    const [preferences, setPreferences] = useState<PluginPreferences>(gone);
+    return (
+      <PluginsSection
+        client={client}
+        preferences={preferences}
+        keySound
+        music
+        triggers
+        active
+        onChange={setPreferences}
+        onError={vi.fn()}
+        confirm={vi.fn(async () => true)}
+      />
+    );
+  }
+  render(<Page />);
+  fireEvent.click(await screen.findByRole("button", { name: "gone（未找到）" }));
+  fireEvent.click(screen.getByRole("button", { name: "不再使用" }));
+  expect(screen.queryByRole("button", { name: "gone（未找到）" })).toBeNull();
+  await waitFor(() =>
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "雨声" })),
+  );
+});
+
+test("chooses a music pack on its detail, which starts unselected", async () => {
+  const { onChange } = renderSection();
+  await screen.findByRole("button", { name: "雨声" });
+  openSoundEffects();
+  expect(screen.getByText("未选择")).toBeTruthy();
+  backToList();
+
+  await openPack("雨声");
+  expect(screen.getByText("a.ogg")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "设为当前音乐包" }));
   expect(onChange).toHaveBeenLastCalledWith({
     ...defaultPluginPreferences,
     music: { ...defaultPluginPreferences.music, pack: "rain" },
+  });
+
+  cleanup();
+  const playing = {
+    ...defaultPluginPreferences,
+    music: { enabled: true, pack: "rain", volume: 30 },
+  };
+  const next = renderSection({}, playing);
+  await openPack("雨声");
+  expect((screen.getByRole("button", { name: "使用中" }) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "不再使用" }));
+  expect(next.onChange).toHaveBeenLastCalledWith({
+    ...playing,
+    music: { ...playing.music, pack: "" },
   });
 });
 
@@ -277,10 +488,18 @@ test("says built-in commands still work where command tables cannot be imported"
   ).toBeTruthy();
   expect(screen.queryByText("还没有导入指令表。")).toBeNull();
   expect(screen.queryByText("@ 名单")).toBeNull();
+  expect(screen.queryByRole("button", { name: "导入文件夹" })).toBeNull();
+  // The settings that belong to no pack are still reachable without a pack store.
+  openSoundEffects();
+  expect(screen.getByRole("switch", { name: "按键音" })).toBeTruthy();
+  expect(screen.getByRole("switch", { name: "背景音乐" })).toBeTruthy();
+  backToList();
+  expect(screen.getByRole("button", { name: "声音与效果" })).toBeTruthy();
 });
 
 test("does not promise a password-field pause the Windows host cannot make", () => {
   renderSection();
+  openSoundEffects();
   expect(
     screen.getByText("默认关闭。只在输入法处于活动状态时播放，切换到其他输入法时暂停。"),
   ).toBeTruthy();
@@ -288,6 +507,7 @@ test("does not promise a password-field pause the Windows host cannot make", () 
 
 test("hides the groups a host does not back", () => {
   renderSection({ client: undefined, keySound: false, music: false, triggers: false });
+  expect(screen.queryByRole("button", { name: "声音与效果" })).toBeNull();
   expect(screen.queryByRole("switch", { name: "按键音" })).toBeNull();
   expect(screen.queryByRole("switch", { name: "背景音乐" })).toBeNull();
   expect(screen.queryByText("指令表")).toBeNull();
@@ -295,26 +515,155 @@ test("hides the groups a host does not back", () => {
   expect(screen.queryByRole("button", { name: "导入文件夹" })).toBeNull();
 });
 
-test("lists every pack with its licence and removes only installed ones", async () => {
+test("lists the installed packs by kind with what each is used as, and removes only installed ones", async () => {
   const selected = {
     ...defaultPluginPreferences,
     key_sound: { ...defaultPluginPreferences.key_sound, pack: "typewriter" },
   };
   const { client, confirm, onChange } = renderSection({}, selected);
   const list = await screen.findByLabelText("已安装的插件");
+  await within(list).findByRole("button", { name: "打字机" });
 
-  await waitFor(() => expect(within(list).getByText("打字机 1.0.0")).toBeTruthy());
-  expect(within(list).getByText("音效包 · 作者 测试者 · 许可证 CC0-1.0")).toBeTruthy();
-  expect(within(list).getAllByText("音效包 · 内置 · 许可证 CC0-1.0")).toHaveLength(2);
-  expect(within(list).getByText("音乐包 · 许可证 CC-BY-4.0")).toBeTruthy();
-  expect(within(list).queryByRole("button", { name: "删除默认" })).toBeNull();
+  expect(
+    within(list)
+      .getAllByRole("region")
+      .map((group) => group.querySelector("h3")?.textContent),
+  ).toEqual(["音效包", "音乐包", "指令表"]);
+  const sounds = within(list).getByRole("region", { name: "音效包" });
+  const rows = within(sounds).getAllByRole("button");
+  expect(rows.map((row) => row.getAttribute("aria-label"))).toEqual(["默认", "小星星", "打字机"]);
+  expect(rows.every((row) => row.getAttribute("type") === "button")).toBe(true);
+  expect(rows[0].textContent).toBe("默认›");
+  expect(rows[1].textContent).toBe("小星星按键旋律当前旋律›");
+  expect(rows[2].textContent).toBe("打字机1.0.0 · 作者 测试者使用中›");
+  // 导入是少见的操作，所以这一行放在已安装的插件之后，而不是夹在上面的设置入口和插件列表之间。
+  const importGroup = screen.getByRole("region", { name: "导入插件" });
+  expect(list.compareDocumentPosition(importGroup) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(within(list).getByRole("button", { name: "雨声" }).textContent).not.toContain("使用中");
   expect(screen.getByText("音效包 broken 无法载入：缺少 plugin.toml")).toBeTruthy();
 
-  fireEvent.click(within(list).getByRole("button", { name: "删除打字机" }));
+  await openPack("默认");
+  expect(screen.getByText("内置，不能删除")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "删除默认" })).toBeNull();
+  backToList();
+
+  await openPack("打字机");
+  expect(screen.getByText("CC0-1.0")).toBeTruthy();
+  expect(screen.getByText("测试者")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "删除打字机" }));
   await waitFor(() => expect(client!.remove).toHaveBeenCalledWith("sound", "typewriter"));
   expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ danger: true }));
   // The selection falls back to the built-in pack rather than naming one that is gone.
   expect(onChange).toHaveBeenCalledWith(defaultPluginPreferences);
+  // The detail of a deleted pack closes back to the list.
+  expect(await screen.findByLabelText("已安装的插件")).toBeTruthy();
+  expect(screen.queryByRole("heading", { name: "打字机" })).toBeNull();
+});
+
+test.each([false, true])(
+  "clears the catalog when the active host loses plugin support (detail=%s)",
+  async (detailOpen) => {
+    const oldClient = fakeClient();
+    const props = {
+      preferences: defaultPluginPreferences,
+      keySound: true,
+      music: true,
+      triggers: true,
+      active: true,
+      onChange: vi.fn(),
+      onError: vi.fn(),
+      confirm: vi.fn(async () => true),
+    };
+    const view = render(<PluginsSection {...props} client={oldClient} />);
+    await screen.findByRole("button", { name: "打字机" });
+    if (detailOpen) await openPack("打字机");
+
+    view.rerender(<PluginsSection {...props} client={undefined} />);
+    await waitFor(() => expect(screen.queryByRole("button", { name: "打字机" })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "打字机" })).toBeNull());
+  },
+);
+
+test("a row opens its pack's detail and the back button returns focus to it", async () => {
+  renderSection();
+  const row = await within(await screen.findByLabelText("已安装的插件")).findByRole("button", {
+    name: "签名",
+  });
+  expect(row.tagName).toBe("BUTTON");
+  row.focus();
+  fireEvent.click(row);
+  const back = screen.getByRole("button", { name: "返回我的插件" });
+  expect(document.activeElement).toBe(back);
+  expect(screen.getByRole("heading", { name: "签名" })).toBeTruthy();
+  expect(screen.queryByLabelText("已安装的插件")).toBeNull();
+
+  fireEvent.click(back);
+  const again = await within(screen.getByLabelText("已安装的插件")).findByRole("button", {
+    name: "签名",
+  });
+  expect(document.activeElement).toBe(again);
+});
+
+test("leaving the page closes an open view, so the next visit starts at the list", async () => {
+  const client = fakeClient();
+  const props = {
+    client,
+    preferences: defaultPluginPreferences,
+    keySound: true,
+    music: true,
+    triggers: true,
+    onChange: vi.fn(),
+    onError: vi.fn(),
+    confirm: vi.fn(async () => true),
+  };
+  const view = render(<PluginsSection {...props} active />);
+  await openPack("打字机");
+  view.rerender(<PluginsSection {...props} active={false} />);
+  view.rerender(<PluginsSection {...props} active />);
+  expect(screen.queryByRole("heading", { name: "打字机" })).toBeNull();
+  expect(await screen.findByLabelText("已安装的插件")).toBeTruthy();
+
+  openSoundEffects();
+  view.rerender(<PluginsSection {...props} active={false} />);
+  view.rerender(<PluginsSection {...props} active />);
+  expect(screen.queryByRole("switch", { name: "按键音" })).toBeNull();
+});
+
+test("an import left behind when the page was closed releases the buttons once it settles", async () => {
+  let resolveImport!: (value: null) => void;
+  const client = fakeClient({
+    importPack: vi.fn(() => new Promise<null>((resolve) => (resolveImport = resolve))),
+  });
+  const props = {
+    client,
+    preferences: defaultPluginPreferences,
+    keySound: true,
+    music: true,
+    triggers: true,
+    onChange: vi.fn(),
+    onError: vi.fn(),
+    confirm: vi.fn(async () => true),
+  };
+  const view = render(<PluginsSection {...props} active />);
+  await screen.findByRole("button", { name: "打字机" });
+  fireEvent.click(screen.getByRole("button", { name: "导入文件夹" }));
+  await waitFor(() =>
+    expect((screen.getByRole("button", { name: "导入文件夹" }) as HTMLButtonElement).disabled).toBe(
+      true,
+    ),
+  );
+  view.rerender(<PluginsSection {...props} active={false} />);
+  await act(async () => {
+    resolveImport(null);
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  view.rerender(<PluginsSection {...props} active />);
+  await waitFor(() =>
+    expect((screen.getByRole("button", { name: "导入文件夹" }) as HTMLButtonElement).disabled).toBe(
+      false,
+    ),
+  );
 });
 
 test("keeps a pack when the removal is not confirmed", async () => {
@@ -332,15 +681,17 @@ test("keeps a pack when the removal is not confirmed", async () => {
       confirm={async () => false}
     />,
   );
-  fireEvent.click(await screen.findByRole("button", { name: "删除打字机" }));
+  await openPack("打字机");
+  fireEvent.click(screen.getByRole("button", { name: "删除打字机" }));
   await waitFor(() => expect(client.remove).not.toHaveBeenCalled());
+  expect(screen.getByRole("heading", { name: "打字机" })).toBeTruthy();
 });
 
 test("imports through the host picker and reports what was installed", async () => {
   const imported = pack({ id: "piano", kind: "sound", name: "钢琴", version: "2.0.0" });
   const client = fakeClient({ importPack: vi.fn(async () => imported) });
   renderSection({ client });
-  await screen.findByText("打字机 1.0.0");
+  await screen.findByRole("button", { name: "打字机" });
 
   fireEvent.click(screen.getByRole("button", { name: "导入 .zip" }));
   await waitFor(() => expect(client.importPack).toHaveBeenCalledWith("archive"));
@@ -358,7 +709,7 @@ test("says which rule a refused pack broke", async () => {
     }),
   });
   const { onError } = renderSection({ client });
-  await screen.findByText("打字机 1.0.0");
+  await screen.findByRole("button", { name: "打字机" });
 
   fireEvent.click(screen.getByRole("button", { name: "导入文件夹" }));
   await waitFor(() =>
@@ -371,34 +722,52 @@ test("says which rule a refused pack broke", async () => {
 test("a cancelled picker changes nothing", async () => {
   const client = fakeClient();
   renderSection({ client });
-  await screen.findByText("打字机 1.0.0");
+  await screen.findByRole("button", { name: "打字机" });
   fireEvent.click(screen.getByRole("button", { name: "导入文件夹" }));
   await waitFor(() => expect(client.importPack).toHaveBeenCalled());
   expect(client.catalog).toHaveBeenCalledTimes(1);
   expect(screen.queryByRole("status")).toBeNull();
 });
 
-test("enables command tables in order and lists enabled tables that are gone", async () => {
+test("enables a command table on its detail and drops an enabled table that is gone", async () => {
   const { onChange } = renderSection(
     {},
     { ...defaultPluginPreferences, command_tables: ["removed"] },
   );
-  const table = await screen.findByRole("switch", { name: "签名" });
-  expect(screen.getByText("1 条指令：/sig 签名")).toBeTruthy();
+  const list = await screen.findByLabelText("已安装的插件");
+  const tables = within(list).getByRole("region", { name: "指令表" });
+  await within(tables).findByRole("button", { name: "removed（未找到）" });
 
+  await openPack("签名");
+  expect(screen.getByText("/sig")).toBeTruthy();
+  const table = screen.getByRole("switch", { name: "启用" });
   fireEvent.click(table);
   expect(onChange).toHaveBeenLastCalledWith({
     ...defaultPluginPreferences,
     command_tables: ["removed", "signature"],
   });
+  backToList();
 
-  fireEvent.click(screen.getByRole("switch", { name: "removed（未找到）" }));
+  fireEvent.click(await screen.findByRole("button", { name: "removed（未找到）" }));
+  fireEvent.click(screen.getByRole("button", { name: "移除" }));
   expect(onChange).toHaveBeenLastCalledWith({ ...defaultPluginPreferences, command_tables: [] });
+});
+
+test("marks an enabled command table with its place", async () => {
+  renderSection({}, { ...defaultPluginPreferences, command_tables: ["signature"] });
+  const row = await screen.findByRole("button", { name: "签名" });
+  expect(row.textContent).toContain("已启用 · 第 1 位");
+  await openPack("签名");
+  expect((screen.getByRole("switch", { name: "启用" }) as HTMLInputElement).checked).toBe(true);
 });
 
 test("edits the local @ list and refuses a malformed reading before saving", async () => {
   const client = fakeClient();
   renderSection({ client });
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "@ 名单" }).textContent).toContain("1 条"),
+  );
+  openMentions();
   expect(await screen.findByDisplayValue("张三")).toBeTruthy();
   expect(screen.getByText(/名单只保存在本机，不随账号同步/)).toBeTruthy();
   const save = screen.getByRole("button", { name: "保存名单" }) as HTMLButtonElement;
@@ -425,6 +794,11 @@ test("edits the local @ list and refuses a malformed reading before saving", asy
 
   fireEvent.click(screen.getByRole("button", { name: "删除第 1 行" }));
   expect(screen.queryByDisplayValue("张三")).toBeNull();
+  // Unsaved edits survive leaving the view, and the entry says so.
+  backToList();
+  expect(screen.getByRole("button", { name: "@ 名单" }).textContent).toContain("有未保存的修改");
+  openMentions();
+  expect(screen.getByDisplayValue("北京")).toBeTruthy();
 });
 
 test("checks a name list the way the host does", () => {
@@ -466,6 +840,7 @@ test("decodes host failures, falling back for unknown ones", () => {
 
 test("hides the typing effects where the host draws none", () => {
   renderSection({ client: undefined });
+  openSoundEffects();
   expect(screen.queryByText("打字效果")).toBeNull();
   expect(screen.queryByRole("switch", { name: "连击计数" })).toBeNull();
 });
@@ -476,6 +851,7 @@ test("switches the typing effect style, intensity, combo count and tier sound", 
     typingEffects: true,
     effectStyles: true,
   });
+  openSoundEffects();
   const intensity = screen.getByRole("slider", { name: "效果强度" }) as HTMLInputElement;
   // Nothing is drawn while the style is off, so its size has nothing to act on.
   expect(intensity.disabled).toBe(true);
@@ -503,6 +879,7 @@ test("switches the typing effect style, intensity, combo count and tier sound", 
     combo_counter: true,
   };
   const next = renderSection({ client: undefined, typingEffects: true, effectStyles: true }, on);
+  openSoundEffects();
   fireEvent.change(screen.getByRole("slider", { name: "效果强度" }), { target: { value: "80" } });
   expect(next.onChange).toHaveBeenLastCalledWith({ ...on, effect_intensity: 80 });
   fireEvent.click(screen.getByRole("switch", { name: "升档音" }));
@@ -525,32 +902,47 @@ test("selects an installed effect pack, which takes over the style and intensity
     effectStyles: true,
     effectPacks: true,
   });
-  const select = (await screen.findByRole("combobox", { name: "特效包" })) as HTMLSelectElement;
-  await within(select).findByRole("option", { name: "霓虹" });
-  fireEvent.change(select, { target: { value: "neon" } });
+  await openPack("霓虹");
+  expect(screen.getByText("火花")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "使用此特效包" }));
   expect(onChange).toHaveBeenLastCalledWith({ ...defaultPluginPreferences, effect_pack: "neon" });
 
   cleanup();
-  renderSection(
+  const using = {
+    ...defaultPluginPreferences,
+    effect_style: "flash" as const,
+    effect_pack: "neon",
+  };
+  const next = renderSection(
     { client: effects, typingEffects: true, effectStyles: true, effectPacks: true },
-    { ...defaultPluginPreferences, effect_style: "flash", effect_pack: "neon" },
+    using,
   );
-  await within(screen.getByRole("combobox", { name: "特效包" })).findByRole("option", {
-    name: "霓虹",
-  });
+  expect((await screen.findByRole("button", { name: "霓虹" })).textContent).toContain("使用中");
+  openSoundEffects();
+  expect(screen.getByText("霓虹")).toBeTruthy();
   expect((screen.getByRole("radio", { name: "闪光" }) as HTMLInputElement).disabled).toBe(true);
   expect((screen.getByRole("slider", { name: "效果强度" }) as HTMLInputElement).disabled).toBe(
     true,
   );
+  backToList();
+  await openPack("霓虹");
+  fireEvent.click(screen.getByRole("button", { name: "停用" }));
+  expect(next.onChange).toHaveBeenLastCalledWith({ ...using, effect_pack: "" });
 
   cleanup();
   renderSection({ client: effects, typingEffects: true, effectStyles: true, effectPacks: false });
+  await openPack("霓虹");
+  expect(screen.getByText("这台设备不绘制特效包。")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "使用此特效包" })).toBeNull();
+  backToList();
+  openSoundEffects();
   expect(screen.getByRole("radiogroup", { name: "效果样式" })).toBeTruthy();
-  expect(screen.queryByRole("combobox", { name: "特效包" })).toBeNull();
+  expect(screen.queryByText("特效包")).toBeNull();
 });
 
 test("offers only the combo count where the host draws no effect styles", () => {
   renderSection({ client: undefined, typingEffects: true, effectStyles: false });
+  openSoundEffects();
   expect(screen.getByRole("switch", { name: "连击计数" })).toBeTruthy();
   expect(screen.queryByRole("radiogroup", { name: "效果样式" })).toBeNull();
   expect(screen.queryByRole("slider", { name: "效果强度" })).toBeNull();
@@ -583,15 +975,24 @@ test("lists the built-in packs by their Chinese names, each under its own kind",
       key_sound: { ...defaultPluginPreferences.key_sound, mode: "melody" },
     },
   );
-  await screen.findByText("卡农 1.0.0");
-  const options = (name: string) =>
-    within(screen.getByRole("combobox", { name }))
-      .getAllByRole("option")
-      .map((option) => option.textContent);
-  expect(options("音效包")).toEqual(["清脆键盘（内置）", "打字机（内置）", "8 位游戏机（内置）"]);
-  expect(options("旋律")).toEqual(["小星星（内置）", "卡农（内置）"]);
-  expect(options("音乐包")).toEqual(["未选择", "Lo-fi 午后（内置）"]);
+  const list = await screen.findByLabelText("已安装的插件");
+  await within(list).findByRole("button", { name: "卡农" });
+  const names = (kind: string) =>
+    within(within(list).getByRole("region", { name: kind }))
+      .getAllByRole("button")
+      .map((row) => row.getAttribute("aria-label"));
+  expect(names("音效包")).toEqual(["清脆键盘", "打字机", "8 位游戏机", "小星星", "卡农"]);
+  expect(names("音乐包")).toEqual(["Lo-fi 午后"]);
+
+  openSoundEffects();
+  expect(screen.getByText("清脆键盘（内置）")).toBeTruthy();
+  expect(screen.getByText("小星星（内置）")).toBeTruthy();
+  expect(screen.getByText("未选择")).toBeTruthy();
+  backToList();
+
   // Built-in music cannot be removed any more than the built-in sound packs.
+  await openPack("Lo-fi 午后");
+  expect(screen.getByText("lofi.wav")).toBeTruthy();
   expect(screen.queryByRole("button", { name: "删除Lo-fi 午后" })).toBeNull();
 });
 
@@ -611,6 +1012,25 @@ test("fills the defaults the document leaves out and forgets removed packs", () 
       plugins: { effect_pack: "neon" } as unknown as Preferences["plugins"],
     }).effect_pack,
   ).toBe("neon");
+  // 短语表和辅助码表包的选择同样在保存时保留，缺省时为空。
+  expect(defaultPluginPreferences).toMatchObject({
+    phrase_tables: [],
+    helpcode_pack_quanpin: "",
+    helpcode_pack_shuangpin: "",
+  });
+  expect(
+    pluginPreferences({
+      plugins: {
+        phrase_tables: ["office"],
+        helpcode_pack_quanpin: "radicals",
+        helpcode_pack_shuangpin: "strokes",
+      } as unknown as Preferences["plugins"],
+    }),
+  ).toMatchObject({
+    phrase_tables: ["office"],
+    helpcode_pack_quanpin: "radicals",
+    helpcode_pack_shuangpin: "strokes",
+  });
   // A document written before the effect fields reads them as their defaults, and one that has them keeps them.
   expect(
     pluginPreferences({
@@ -647,6 +1067,28 @@ test("fills the defaults the document leaves out and forgets removed packs", () 
   expect(withoutRemovedPack(selected, "effect", "other")).toBe(selected);
   // A removed sound pack of the same id leaves the effect selection alone.
   expect(withoutRemovedPack(selected, "sound", "neon").effect_pack).toBe("neon");
+
+  expect(withPackSelected(selected, { kind: "sound", id: "piano", mode: "keys" })).toEqual({
+    ...selected,
+    key_sound: { ...selected.key_sound, pack: "piano" },
+  });
+  expect(withPackSelected(selected, { kind: "sound", id: "canon", mode: "sequence" })).toEqual({
+    ...selected,
+    melody: { pack: "canon" },
+  });
+  // Choosing music leaves whether it plays as it was.
+  expect(withPackSelected(selected, { kind: "music", id: "sea" }).music).toEqual({
+    enabled: true,
+    pack: "sea",
+    volume: 40,
+  });
+  expect(withPackSelected(selected, { kind: "effect", id: "fire" }).effect_pack).toBe("fire");
+  expect(withPackSelected(selected, { kind: "command_table", id: "c" }).command_tables).toEqual([
+    "a",
+    "b",
+    "c",
+  ]);
+  expect(withPackSelected(selected, { kind: "command_table", id: "a" })).toBe(selected);
 });
 
 test("shows the V, / and @ switches only where the host routes them", () => {
@@ -708,7 +1150,7 @@ test("offers the built-in places under the @ switch, switchable only while @ is 
 });
 
 test("says /fy needs a translation service only while none is chosen", () => {
-  const notice = /fy 翻译需要先在「表达 → 候选词翻译」选择翻译服务/;
+  const notice = /fy 翻译需要先在「标点与翻译 → 候选词翻译」选择翻译服务/;
   render(
     <LocalModesSection
       preferences={defaultLocalModes}
@@ -757,7 +1199,7 @@ test("the 插件 page saves plugin settings into the preferences document", asyn
       client={{
         load: async () => snapshot,
         save,
-        host: { platform: "macos", key_sound: true, music: true, plugin_triggers: true } as never,
+        host: testHost({ platform: "macos", key_sound: true, music: true, plugin_triggers: true }),
         plugins: fakeClient(),
       }}
     />,
@@ -765,8 +1207,9 @@ test("the 插件 page saves plugin settings into the preferences document", asyn
   await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "插件" }));
   const form = screen.getByRole("group", { name: "插件" });
-  await within(form).findByText("打字机 1.0.0");
+  await within(form).findByRole("button", { name: "打字机" });
 
+  fireEvent.click(within(form).getByRole("button", { name: "声音与效果" }));
   fireEvent.click(within(form).getByRole("switch", { name: "按键音" }));
   saveSettingsNow();
   await waitFor(() => expect(save).toHaveBeenCalled());
@@ -784,13 +1227,15 @@ test("the 插件 page offers the typing effects where the host draws them, and o
       client={{
         load: async () => snapshot,
         save,
-        host: { platform: "macos", typing_effects: true } as never,
+        host: testHost({ platform: "macos", typing_effects: true }),
       }}
     />,
   );
   await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "插件" }));
   const form = screen.getByRole("group", { name: "插件" });
+  // No pack store on this host, and the switches are still one step away.
+  fireEvent.click(within(form).getByRole("button", { name: "声音与效果" }));
   expect(within(form).getByRole("radiogroup", { name: "效果样式" })).toBeTruthy();
   fireEvent.click(within(form).getByRole("radio", { name: "火花" }));
   saveSettingsNow();
@@ -803,13 +1248,14 @@ test("the 插件 page offers the typing effects where the host draws them, and o
       client={{
         load: async () => snapshot,
         save: vi.fn(),
-        host: { platform: "linux", typing_effects: true } as never,
+        host: testHost({ platform: "linux", typing_effects: true }),
       }}
     />,
   );
   await settingsFormReady();
   fireEvent.click(screen.getByRole("button", { name: "插件" }));
   const linux = screen.getByRole("group", { name: "插件" });
+  fireEvent.click(within(linux).getByRole("button", { name: "声音与效果" }));
   expect(within(linux).getByRole("switch", { name: "连击计数" })).toBeTruthy();
   expect(within(linux).queryByRole("radiogroup", { name: "效果样式" })).toBeNull();
   expect(within(linux).queryByRole("switch", { name: "升档音" })).toBeNull();
@@ -818,7 +1264,7 @@ test("the 插件 page offers the typing effects where the host draws them, and o
 test("effect packs are offered where the host draws a style, not on Linux", () => {
   const capabilities = (platform: "macos" | "windows" | "harmony" | "linux") =>
     settingsCapabilities({
-      host: { platform, typing_effects: true } as never,
+      host: testHost({ platform, typing_effects: true }),
       linux: platform === "linux",
       android: false,
       ios: false,
@@ -843,7 +1289,7 @@ test("the @ switch is offered only where the host can edit the name list", async
       client={{
         load: async () => snapshot,
         save: vi.fn(),
-        host: { platform: "macos", plugin_triggers: true } as never,
+        host: testHost({ platform: "macos", plugin_triggers: true }),
       }}
     />,
   );
@@ -860,7 +1306,7 @@ test("the 插件 page is not offered on a phone or a host that backs none of it"
       client={{
         load: async () => snapshot,
         save: vi.fn(),
-        host: { platform: "macos" } as never,
+        host: testHost({ platform: "macos" }),
       }}
     />,
   );
@@ -873,11 +1319,237 @@ test("the 插件 page is not offered on a phone or a host that backs none of it"
       client={{
         load: async () => snapshot,
         save: vi.fn(),
-        host: { platform: "android", key_sound: true, plugin_triggers: true } as never,
+        host: testHost({ platform: "android", key_sound: true, plugin_triggers: true }),
         plugins: fakeClient(),
       }}
     />,
   );
   await settingsFormReady();
   expect(screen.queryByRole("button", { name: "插件" })).toBeNull();
+});
+
+test("a phrase table shows its rows and is enabled in priority order", async () => {
+  const phrases = Array.from({ length: 25 }, (_, index) => ({
+    key: `k${String.fromCharCode(97 + (index % 26))}`,
+    text: `短语${index}`,
+  }));
+  const client = fakeClient({
+    catalog: vi.fn(async () => ({
+      packages: [
+        ...catalog.packages,
+        pack({ id: "office", kind: "phrase_table", name: "办公短语", phrases }),
+      ],
+      issues: [],
+    })),
+  });
+  const onOpenPage = vi.fn();
+  const { onChange } = renderSection(
+    { client, quickPhraseMode: false, onOpenPage },
+    { ...defaultPluginPreferences, phrase_tables: ["home"] },
+  );
+  await openPack("办公短语");
+  expect(screen.getByText("短语表")).toBeTruthy();
+  expect(screen.getByText("短语（25）")).toBeTruthy();
+  expect(screen.getByText("短语0")).toBeTruthy();
+  expect(screen.getByText("短语19")).toBeTruthy();
+  expect(screen.queryByText("短语20")).toBeNull();
+  expect(screen.getByText("只显示前 20 条。")).toBeTruthy();
+  fireEvent.click(screen.getByRole("switch", { name: "启用" }));
+  expect(onChange).toHaveBeenLastCalledWith({
+    ...defaultPluginPreferences,
+    phrase_tables: ["home", "office"],
+  });
+  // K 模式关闭时提示，并能跳到输入页。
+  expect(screen.getByText(/快捷短语（K 模式）已关闭/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "前往输入设置" }));
+  expect(onOpenPage).toHaveBeenCalledWith("input");
+});
+
+test("an enabled phrase table that is gone is listed as missing and can be dropped", async () => {
+  const { onChange } = renderSection(
+    {},
+    { ...defaultPluginPreferences, phrase_tables: ["gone", "other"] },
+  );
+  const list = await screen.findByLabelText("已安装的插件");
+  fireEvent.click(await within(list).findByRole("button", { name: "gone（未找到）" }));
+  fireEvent.click(screen.getByRole("button", { name: "移除" }));
+  expect(onChange).toHaveBeenLastCalledWith({
+    ...defaultPluginPreferences,
+    phrase_tables: ["other"],
+  });
+  expect(
+    withPackSelected(defaultPluginPreferences, { kind: "phrase_table", id: "a" }).phrase_tables,
+  ).toEqual(["a"]);
+  expect(
+    withoutRemovedPack(
+      { ...defaultPluginPreferences, phrase_tables: ["a", "b"] },
+      "phrase_table",
+      "a",
+    ).phrase_tables,
+  ).toEqual(["b"]);
+});
+
+test("a helpcode pack shows its preview and is used per scheme", async () => {
+  const client = fakeClient({
+    catalog: vi.fn(async () => ({
+      packages: [
+        ...catalog.packages,
+        pack({
+          id: "radicals",
+          kind: "helpcode",
+          name: "部首码",
+          table: "table.txt",
+          entries: 3000,
+          preview: [
+            { character: "一", code: "yi" },
+            { character: "丁", code: "di" },
+          ],
+        }),
+      ],
+      issues: [],
+    })),
+  });
+  const onOpenPage = vi.fn();
+  const { onChange } = renderSection(
+    { client, helpcode: true, onOpenPage },
+    { ...defaultPluginPreferences, helpcode_pack_shuangpin: "radicals" },
+  );
+  const list = await screen.findByLabelText("已安装的插件");
+  expect(within(list).getByRole("button", { name: "部首码" }).textContent).toContain("用于双拼");
+  await openPack("部首码");
+  expect(screen.getByText("辅助码表")).toBeTruthy();
+  expect(screen.getByText("辅助码（3000 个字）")).toBeTruthy();
+  expect(screen.getByText("只显示前 2 个字。")).toBeTruthy();
+  fireEvent.click(screen.getByRole("switch", { name: "用于全拼" }));
+  expect(onChange).toHaveBeenLastCalledWith({
+    ...defaultPluginPreferences,
+    helpcode_pack_quanpin: "radicals",
+    helpcode_pack_shuangpin: "radicals",
+  });
+  fireEvent.click(screen.getByRole("switch", { name: "用于双拼" }));
+  expect(onChange).toHaveBeenLastCalledWith(defaultPluginPreferences);
+  fireEvent.click(screen.getByRole("button", { name: "前往辅助码设置" }));
+  expect(onOpenPage).toHaveBeenCalledWith("input");
+  expect(
+    withoutRemovedPack(
+      {
+        ...defaultPluginPreferences,
+        helpcode_pack_quanpin: "radicals",
+        helpcode_pack_shuangpin: "b",
+      },
+      "helpcode",
+      "radicals",
+    ),
+  ).toEqual({ ...defaultPluginPreferences, helpcode_pack_shuangpin: "b" });
+});
+
+test("a wordbook pack previews its words and opens 背单词 on its book", async () => {
+  const client = fakeClient({
+    catalog: vi.fn(async () => ({
+      packages: [
+        ...catalog.packages,
+        pack({
+          id: "cs-words",
+          kind: "wordbook",
+          name: "计算机词汇",
+          file: "words.tsv",
+          word_count: 300,
+          first_words: ["algorithm", "cache", "compiler", "kernel", "thread"],
+        }),
+      ],
+      issues: [],
+    })),
+  });
+  const onOpenWordbook = vi.fn();
+  renderSection({ client, wordbookPacks: true, onOpenWordbook });
+  await openPack("计算机词汇");
+  expect(screen.getByText("单词本")).toBeTruthy();
+  expect(screen.getByText("单词（300）")).toBeTruthy();
+  expect(screen.getByText("thread")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "去背单词" }));
+  expect(onOpenWordbook).toHaveBeenCalledWith("pack-cs-words");
+  expect(withoutRemovedPack(defaultPluginPreferences, "wordbook", "cs-words")).toBe(
+    defaultPluginPreferences,
+  );
+});
+
+test("a symbol set lists its groups and says when the panel does not show it", async () => {
+  const items = Array.from({ length: 20 }, (_, index) => `s${index}`);
+  const client = fakeClient({
+    catalog: vi.fn(async () => ({
+      packages: [
+        ...catalog.packages,
+        pack({
+          id: "math",
+          kind: "symbol_set",
+          name: "数学符号",
+          groups: [
+            { tab: "symbols", title: "运算", keywords: "", items },
+            { tab: "kaomoji", title: "开心", keywords: "kaixin", items: ["(^_^)"] },
+          ],
+        }),
+      ],
+      issues: [],
+    })),
+  });
+  renderSection({ client });
+  await openPack("数学符号");
+  expect(screen.getByText("符号集")).toBeTruthy();
+  expect(screen.getByText("符号 · 运算（20）")).toBeTruthy();
+  expect(screen.getByText("颜文字 · 开心（1）")).toBeTruthy();
+  expect(screen.getByText(`${items.slice(0, 16).join(" ")} …`)).toBeTruthy();
+  expect(screen.getByText("这台设备的符号面板不显示插件符号集。")).toBeTruthy();
+  cleanup();
+  renderSection({ client, symbolSetPacks: true });
+  await openPack("数学符号");
+  expect(screen.getByText(/装上即在符号面板里显示/)).toBeTruthy();
+});
+
+test("names an imported or removed melody pack 音效包·旋律", async () => {
+  const melody = pack({
+    id: "tune",
+    kind: "sound",
+    mode: "sequence",
+    name: "晚安曲",
+    version: "1.0.0",
+  });
+  const client = fakeClient({ importPack: vi.fn(async () => melody) });
+  const confirm = vi.fn(async () => false);
+  render(
+    <PluginsSection
+      client={client}
+      preferences={defaultPluginPreferences}
+      keySound
+      music
+      triggers
+      active
+      onChange={vi.fn()}
+      onError={vi.fn()}
+      confirm={confirm}
+    />,
+  );
+  await screen.findByRole("button", { name: "打字机" });
+  fireEvent.click(screen.getByRole("button", { name: "导入 .zip" }));
+  expect(await screen.findByText("已导入音效包·旋律「晚安曲」1.0.0。")).toBeTruthy();
+
+  client.catalog = vi.fn(async () => ({ ...catalog, packages: [...catalog.packages, melody] }));
+  cleanup();
+  render(
+    <PluginsSection
+      client={client}
+      preferences={defaultPluginPreferences}
+      keySound
+      music
+      triggers
+      active
+      onChange={vi.fn()}
+      onError={vi.fn()}
+      confirm={confirm}
+    />,
+  );
+  await openPack("晚安曲");
+  fireEvent.click(screen.getByRole("button", { name: "删除晚安曲" }));
+  await waitFor(() =>
+    expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ title: "删除音效包·旋律" })),
+  );
 });

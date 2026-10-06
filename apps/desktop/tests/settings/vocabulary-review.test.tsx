@@ -121,6 +121,8 @@ test("only one request is in flight, so a double tap grades once", async () => {
 
   const known = await screen.findByRole("button", { name: "认识" });
   fireEvent.click(known);
+  expect(known.getAttribute("aria-busy")).toBe("true");
+  expect((known as HTMLButtonElement).disabled).toBe(true);
   fireEvent.click(known);
   expect(answer).toHaveBeenCalledTimes(1);
   release(status());
@@ -189,6 +191,21 @@ test("clearing the progress asks first and does nothing when cancelled", async (
   expect(await screen.findByText("今天的复习已经完成。")).toBeTruthy();
 });
 
+test("marks progress reset busy while it is clearing", async () => {
+  let finish!: (value: VocabularyReviewStatus) => void;
+  const reset = vi.fn(() => new Promise<VocabularyReviewStatus>((resolve) => (finish = resolve)));
+  render(<VocabularyReviewPage client={client({ reset })} />);
+
+  fireEvent.click(await screen.findByRole("button", { name: "清空复习进度" }));
+  await answerConfirm("confirm");
+  await waitFor(() => expect(reset).toHaveBeenCalledOnce());
+
+  const button = screen.getByRole("button", { name: "清空复习进度" });
+  expect(button.getAttribute("aria-busy")).toBe("true");
+  expect((button as HTMLButtonElement).disabled).toBe(true);
+  finish(status());
+});
+
 test("a host that cannot import a file renders no import button", async () => {
   render(<VocabularyReviewPage client={client()} />);
   await screen.findByText("背单词");
@@ -198,6 +215,25 @@ test("a host that cannot import a file renders no import button", async () => {
   cleanup();
   render(<VocabularyReviewPage client={client({ importWordbook: vi.fn(async () => status()) })} />);
   expect(await screen.findByRole("button", { name: "导入词表文件" })).toBeTruthy();
+});
+
+test("marks the import action busy while another vocabulary operation runs", async () => {
+  let finish!: (value: VocabularyReviewStatus) => void;
+  const reset = vi.fn(() => new Promise<VocabularyReviewStatus>((resolve) => (finish = resolve)));
+  render(
+    <VocabularyReviewPage
+      client={client({ reset, importWordbook: vi.fn(async () => status()) })}
+    />,
+  );
+
+  const importButton = await screen.findByRole("button", { name: "导入词表文件" });
+  fireEvent.click(screen.getByRole("button", { name: "清空复习进度" }));
+  await answerConfirm("confirm");
+  await waitFor(() => expect(reset).toHaveBeenCalledOnce());
+
+  expect(importButton.getAttribute("aria-busy")).toBe("true");
+  expect((importButton as HTMLButtonElement).disabled).toBe(true);
+  finish(status());
 });
 
 test("a word list over 1 MiB is refused with a message instead of failing silently", async () => {
@@ -230,6 +266,29 @@ test("a bundled wordbook offers no delete, an imported one does", async () => {
   fireEvent.click(await screen.findByRole("button", { name: "删除这个词表" }));
   await answerConfirm("confirm");
   await waitFor(() => expect(removeWordbook).toHaveBeenCalledWith("user-list"));
+});
+
+test("marks wordbook deletion busy while it is being removed", async () => {
+  let finish!: (value: VocabularyReviewStatus) => void;
+  const removeWordbook = vi.fn(
+    () => new Promise<VocabularyReviewStatus>((resolve) => (finish = resolve)),
+  );
+  const imported = client({
+    removeWordbook,
+    load: vi.fn(async () =>
+      status({ settings: { wordbook: "user-list", newPerDay: 20, sessionLimit: 200 } }),
+    ),
+  });
+  render(<VocabularyReviewPage client={imported} />);
+
+  fireEvent.click(await screen.findByRole("button", { name: "删除这个词表" }));
+  await answerConfirm("confirm");
+  await waitFor(() => expect(removeWordbook).toHaveBeenCalledWith("user-list"));
+
+  const button = screen.getByRole("button", { name: "删除这个词表" });
+  expect(button.getAttribute("aria-busy")).toBe("true");
+  expect((button as HTMLButtonElement).disabled).toBe(true);
+  finish(status());
 });
 
 test("no wordbook selected asks for one instead of showing an empty card", async () => {
@@ -283,4 +342,24 @@ test("a host without panels keeps the review on the page rather than losing it",
   expect(await screen.findByText("ubiquitous")).toBeTruthy();
   expect(screen.getByRole("button", { name: "认识" })).toBeTruthy();
   expect(screen.getByLabelText("词书")).toBeTruthy();
+});
+
+test("a wordbook from a plugin is marked and cannot be deleted here", async () => {
+  const removeWordbook = vi.fn(async () => status());
+  const fromPack = client({
+    removeWordbook,
+    load: vi.fn(async () =>
+      status({
+        wordbooks: [
+          { id: "cet-4", name: "CET-4", total: 4500, builtin: true },
+          { id: "pack-cs-words", name: "计算机词汇", total: 300, builtin: false, pack: true },
+        ],
+        settings: { wordbook: "pack-cs-words", newPerDay: 20, sessionLimit: 200 },
+      }),
+    ),
+  });
+  render(<VocabularyReviewPage client={fromPack} />);
+  expect(await screen.findByRole("option", { name: "计算机词汇（300 词） · 插件" })).toBeTruthy();
+  expect(screen.getByText(/这本书来自插件，在「插件」页卸载/)).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "删除这个词表" })).toBeNull();
 });

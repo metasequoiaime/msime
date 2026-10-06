@@ -62,6 +62,7 @@ public final class ReplyKeyboardSmoke {
         check(model.source().isEmpty() && model.status().contains("一万字"));
 
         Path directory = Files.createTempDirectory("msime-community-test");
+        Path outside = null;
         try {
             Path file = directory.resolve("CommunityLibrary.json");
             Files.writeString(file, "[{\"id\":\"dictionary\",\"kind\":\"dictionary\",\"name\":\"ignored\",\"content\":{}},"
@@ -76,10 +77,30 @@ public final class ReplyKeyboardSmoke {
                 + "{\"id\":\"last\",\"kind\":\"reply\",\"name\":\"last\",\"content\":{\"prompt\":\"last\"}}]");
             try { CommunityReplyLibrary.read(file); throw new AssertionError(); }
             catch (java.io.IOException expected) { check(expected.getMessage().contains("Invalid")); }
+            Files.writeString(file, "[{\"id\":\"long\",\"kind\":\"reply\",\"name\":\"x\",\"content\":{\"prompt\":\""
+                + "x".repeat(2_001) + "\"}}]");
+            try { CommunityReplyLibrary.read(file); throw new AssertionError(); }
+            catch (java.io.IOException expected) { check(expected.getMessage().contains("Invalid")); }
+            Files.writeString(file, "[{\"id\":\"same\",\"kind\":\"reply\",\"name\":\"x\",\"content\":{\"prompt\":\"x\"}},"
+                + "{\"id\":\"same\",\"kind\":\"reply\",\"name\":\"y\",\"content\":{\"prompt\":\"y\"}}]");
+            try { CommunityReplyLibrary.read(file); throw new AssertionError(); }
+            catch (java.io.IOException expected) { check(expected.getMessage().contains("Invalid")); }
+
+            outside = Files.createTempDirectory("msime-community-outside");
+            Path linkedParent = directory.resolve("linked-parent");
+            Files.createSymbolicLink(linkedParent, outside);
+            Files.writeString(outside.resolve("CommunityLibrary.json"), "[]");
+            try { CommunityReplyLibrary.read(linkedParent.resolve("CommunityLibrary.json")); throw new AssertionError(); }
+            catch (java.io.IOException expected) { check(expected.getMessage().contains("symbolic link")); }
         } finally {
             Files.walk(directory).sorted(java.util.Comparator.reverseOrder()).forEach(path -> {
                 try { Files.delete(path); } catch (java.io.IOException error) { throw new RuntimeException(error); }
             });
+            if (outside != null) {
+                Files.walk(outside).sorted(java.util.Comparator.reverseOrder()).forEach(path -> {
+                    try { Files.delete(path); } catch (java.io.IOException error) { throw new RuntimeException(error); }
+                });
+            }
         }
         System.out.println("Android thoughtful reply: styles, prompts, cancellation, stale guards, insertion, dedupe and community bounds passed");
     }

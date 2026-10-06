@@ -1,8 +1,6 @@
 //! Shared authentication policy for credential probes and native recognition.
 
-/// Produces sensitive request headers; callers must not log or persist them.
-/// An absent historical mode infers legacy auth from a usable App ID. Explicit
-/// API-key mode always ignores stale App IDs, including masked placeholders.
+/// Produces sensitive request headers; callers must not log or persist them. An empty mode means API-key auth, which always ignores stale App IDs, including masked placeholders.
 pub fn headers(
     mode: &str,
     app_id: &str,
@@ -11,14 +9,16 @@ pub fn headers(
 ) -> Option<Vec<(&'static str, String)>> {
     let (app_id, token, resource_id) = (app_id.trim(), token.trim(), resource_id.trim());
     let legacy = match mode.trim() {
-        "api_key" => false,
+        "api_key" | "" => false,
         "legacy" => true,
-        "" => crate::credential::usable_token(app_id),
         _ => return None,
     };
     if !crate::credential::usable_token(token)
         || !crate::credential::usable_token(resource_id)
         || (legacy && !crate::credential::usable_token(app_id))
+        || !token.is_ascii()
+        || !resource_id.is_ascii()
+        || (legacy && !app_id.is_ascii())
     {
         return None;
     }
@@ -40,12 +40,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn explicit_mode_wins_and_legacy_documents_remain_compatible() {
+    fn explicit_mode_wins_and_empty_mode_means_api_key() {
         for (mode, app, legacy) in [
             ("api_key", "stale-app", false),
             ("api_key", "<stored>", false),
             ("legacy", "synthetic-app", true),
-            ("", "synthetic-app", true),
+            ("", "synthetic-app", false),
             ("", "", false),
         ] {
             let result = headers(mode, app, " synthetic-token ", " fixture-resource ").unwrap();
@@ -72,5 +72,12 @@ mod tests {
             assert!(headers("api_key", "ignored", "synthetic-token", value).is_none());
         }
         assert!(headers("api_key", "", &"x".repeat(8193), "resource").is_none());
+    }
+
+    #[test]
+    fn non_ascii_header_credentials_are_rejected_before_ascii_handshake() {
+        assert!(headers("api_key", "ignored", "密钥", "resource").is_none());
+        assert!(headers("api_key", "ignored", "synthetic-token", "资源").is_none());
+        assert!(headers("legacy", "应用", "synthetic-token", "resource").is_none());
     }
 }

@@ -9,14 +9,14 @@
  "fixture": {
   "english_schema": true,
   "databases": {
-   "msime.db": "CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_n VALUES('ni','n','你',10000),('ni','n','拟',9000);CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);INSERT INTO quick_parases VALUES('x','你短语',10);CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_2_n VALUES('ni''hao','nh','你好',10000),('ni''hao','nh','拟好',9000);CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);INSERT INTO wubi86 VALUES('wq','你好',10000),('wq','拟好',9000);",
-   "english.db": "INSERT INTO english_words(word,display,weight) VALUES('hello','hello',10);INSERT INTO english_words(word,display,weight) VALUES('help','help',5);"
+   "msime-pinyin.db": "CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_n VALUES('ni','n','你',10000),('ni','n','拟',9000);CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);INSERT INTO quick_parases VALUES('x','你短语',10);CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_2_n VALUES('ni''hao','nh','你好',10000),('ni''hao','nh','拟好',9000);CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);INSERT INTO wubi86 VALUES('wq','你好',10000),('wq','拟好',9000);",
+   "msime-english.db": "INSERT INTO english_words(word,display,weight) VALUES('hello','hello',10);INSERT INTO english_words(word,display,weight) VALUES('help','help',5);"
   },
   "files": {
    "custom_translations.txt": "hello\t你翻译\n",
    "helpcodes/helpcode.txt": "你=aa\n拟=cc\n",
    "helpcodes/xiaohe_helpcode.txt": "你=cc\n拟=aa\n",
-   "dict_japanese.dat": "MSJPDT1\u0000\u0001\u0000\u0000\u0000\u0001\u0000\u0000\u0000\u0001\u0000\u0000\u0000\u0000\u0000\u0000\u00008\u0000\u0000\u0000\u0000\u0000\u0000\u0000L\u0000\u0000\u0000\u0000\u0000\u0000\u0000N\u0000\u0000\u0000\u0000\u0000\u0000\u0000\t\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0006\u0000\u0006\u0000\u0000\u0000\u0003\u0000\u0000\u0000\u0000\u0000\u0001\u0000\u0000\u0000\u0000\u0000かな甲"
+   "msime-japanese.dat": "MSJPDT1\u0000\u0001\u0000\u0000\u0000\u0001\u0000\u0000\u0000\u0001\u0000\u0000\u0000\u0000\u0000\u0000\u00008\u0000\u0000\u0000\u0000\u0000\u0000\u0000L\u0000\u0000\u0000\u0000\u0000\u0000\u0000N\u0000\u0000\u0000\u0000\u0000\u0000\u0000\t\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0006\u0000\u0006\u0000\u0000\u0000\u0003\u0000\u0000\u0000\u0000\u0000\u0001\u0000\u0000\u0000\u0000\u0000かな甲"
   }
  },
  "options": {

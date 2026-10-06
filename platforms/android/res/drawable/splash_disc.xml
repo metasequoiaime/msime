@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 开屏的 180dp 圆盘：mix(accent 12%, #FFF)，即本季的 ?attr/msSplashDisc。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <solid android:color="?attr/msSplashDisc" />
+</shape>

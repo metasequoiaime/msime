@@ -30,6 +30,7 @@ import {
   WelcomeFlowPage,
   LinuxSetupPage,
   MacosInstallPage,
+  savedModelMirror,
   useCandidatePreviewTheme,
   type AccountClient,
   type AccountProfile,
@@ -55,6 +56,7 @@ import {
   type VoicePanelClient,
   type Preferences,
   type PreferencesRecovery,
+  type AppNotice,
   type SettingsClient,
   type Snapshot,
   type DictionaryClient,
@@ -69,15 +71,19 @@ import {
   type LinuxSetupLine,
   type LinuxSetupStatus,
   type McpClientId,
+  type McpFlag,
   type McpInstallOutcome,
   type McpServerStatus,
   type LocalVoiceModelList,
   type LocalVoiceModelProgress,
   type MentionEntry,
+  type ResourcePackClient,
+  type ResourcePackStatus,
   type PluginCatalogResult,
   type PluginClient,
   type PluginPackage,
   UNBATCHED_DICTIONARY_FILE_BYTES,
+  StatusMessage,
 } from "@msime/ui";
 import "@msime/ui/styles.css";
 import { subscribeWindowState } from "./input/window-state";
@@ -93,17 +99,9 @@ import {
 } from "./core/desktop-host-services";
 
 const dictionary: DictionaryClient = {
-  // kind and query are omitted when absent so an older host still sees the
-  // request shape it knows.
   list: (offset, limit, kind, query) =>
     invoke("dictionary_request", {
-      action: {
-        operation: "list",
-        offset,
-        limit,
-        ...(kind ? { kind } : {}),
-        ...(query ? { query } : {}),
-      },
+      action: { operation: "list", offset, limit, kind, query },
     }),
   edit: (
     previous: DictionaryEntry | null,
@@ -212,6 +210,18 @@ const inputSourceStartup: NonNullable<SettingsClient["inputSourceStartup"]> = {
   status: () => invoke("input_source_startup_status"),
   openSettings: () => invoke("open_input_source_settings"),
 };
+const macosInputModes: NonNullable<SettingsClient["macosInputModes"]> = {
+  enabled: () => invoke("enabled_input_modes"),
+  openSettings: () => invoke("open_input_source_settings"),
+};
+// 桌面按需下载的资源包（macOS 的日文词库和「粤语、注音与笔画词库」，三个桌面平台的手写模型和桌面神经联想模型）；这些命令只在桌面宿主上注册，所以只在宿主报告桌面平台时提供给页面。本机提供哪些由宿主的列表决定。
+const resourcePacks: ResourcePackClient = {
+  list: () => invoke<ResourcePackStatus[]>("resource_packs"),
+  install: (id) => invoke<string>("resource_pack_install", { id }),
+  cancel: (id) => invoke<boolean>("resource_pack_cancel", { id }),
+  onProgress: (listener) =>
+    listen<LocalVoiceModelProgress>("resource-pack-progress", (event) => listener(event.payload)),
+};
 const macosInstallClient: MacosInstallClient = {
   install: () => invoke("run_first_input_source_install"),
 };
@@ -228,12 +238,6 @@ const client: SettingsClient = {
   readSkinImage: (id, relative) => invoke("read_skin_image", { id, relative }),
   readSkinFont: (id, relative) => invoke("read_skin_font", { id, relative }),
   openSkinDirectory: () => invoke("open_skin_directory"),
-  // The reference tells the user to drop this file into the profile directory. On macOS that directory
-  // is inside ~/Library, which the Finder hides, so the page edits it instead.
-  customTranslations: {
-    load: () => invoke("read_custom_translations"),
-    save: (text) => invoke("write_custom_translations", { text }),
-  },
   load: () => {
     if (!isTauri())
       return Promise.reject(new Error("请通过客户端应用打开设置。浏览器预览不会写入本地配置。"));
@@ -244,6 +248,11 @@ const client: SettingsClient = {
   onPreferencesChanged: (listener) =>
     listen<Snapshot>("preferences-changed", (event) => listener(event.payload)),
   openExternalUrl: (url) => invoke("open_external_url", { url }),
+  // The settings window asks for the console's notices when it opens; the host caches the feed for the server's one minute and keeps dismissals per notice id.
+  notices: {
+    list: () => invoke<AppNotice[]>("notices_list"),
+    dismiss: (id) => invoke<void>("notice_dismiss", { id }),
+  },
   openThirdPartyLicenses: () => invoke("open_third_party_licenses"),
   loadMacosShuangpinKeymap: () => invoke<boolean>("load_macos_shuangpin_keymap"),
   saveMacosShuangpinKeymap: (enabled) => invoke("save_macos_shuangpin_keymap", { enabled }),
@@ -262,6 +271,7 @@ const client: SettingsClient = {
   restartInputMethod: () => invoke("restart_input_method"),
   installInputSource: () => invoke("install_input_source"),
   inputSourceStartup,
+  macosInputModes,
   onDeviceTranslation: {
     downloadableLanguages: () => invoke<string[]>("on_device_translation_downloadable_languages"),
     openSettings: () => invoke("open_translation_language_settings"),
@@ -315,8 +325,6 @@ const client: SettingsClient = {
     setPinned: (text, pinned) => invoke("set_clipboard_history_pinned", { text, pinned }),
   },
   dictionary,
-  resetLearnedData: () =>
-    invoke("dictionary_request", { action: { operation: "reset" } }).then(() => undefined),
   loadDefaultPreferences: () => invoke<Preferences>("restored_default_preferences"),
   /* mobile host services are injected after host_capabilities resolves */
 };
@@ -426,9 +434,25 @@ const panelClients: {
   },
 };
 const panel = new URLSearchParams(window.location.search).get("panel");
+// 桌面的手写面板在宿主列出手写模型时第一次打开就下载它，下载失败时就地设置下载镜像。客户端固定为模块级对象，避免每次渲染换一个 client 让面板重置识别队列。
+const desktopHandwritingClient: PanelClient = {
+  ...panelClients.handwriting,
+  resourcePacks,
+  modelMirror: savedModelMirror(client),
+};
 function DesktopHandwriting({ theme }: { theme: "dark" | "light" }) {
   const platform = useHostPlatform(client.host);
-  return <HandwritingPanel client={panelClients.handwriting} theme={theme} platform={platform} />;
+  return (
+    <HandwritingPanel
+      client={
+        platform === "macos" || platform === "windows" || platform === "linux"
+          ? desktopHandwritingClient
+          : panelClients.handwriting
+      }
+      theme={theme}
+      platform={platform}
+    />
+  );
 }
 
 function DesktopPanelTheme({
@@ -449,16 +473,10 @@ function DesktopPanelTheme({
         : snapshot?.preferences.emoji_theme;
   return children(useCandidatePreviewTheme(snapshot?.preferences.theme, surfaceTheme));
 }
-// The host reports what it supports. Typing statistics were previously gated on
-// an Android user-agent match, which left the category dead on every desktop
-// even though the commands were registered.
+// The host reports what it supports; outside Tauri (the browser preview) there is no host.
 async function discoverHostCapabilities(): Promise<HostCapabilities | null> {
   if (!isTauri()) return null;
-  try {
-    return await invoke<HostCapabilities>("host_capabilities");
-  } catch {
-    return null; // A host without the command keeps its previous behaviour.
-  }
+  return await invoke<HostCapabilities>("host_capabilities");
 }
 
 function DesktopSettings() {
@@ -467,6 +485,8 @@ function DesktopSettings() {
   const [linuxSetup, setLinuxSetup] = useState<LinuxSetupStatus | null>(null);
   const [macosInstall, setMacosInstall] = useState(false);
   const [replayOnboarding, setReplayOnboarding] = useState(false);
+  // 首启引导准备资源之后重新读到的版本：第一次启动时 HostOptions 由这一步写下，发现宿主能力时还读不到版本。
+  const [preparedEdition, setPreparedEdition] = useState<HostCapabilities["edition"]>();
   const [mobilePanel, setMobilePanel] = useState<
     | "voice"
     | "emoji"
@@ -664,12 +684,16 @@ function DesktopSettings() {
                       },
                 }
               : {}),
+            ...(host.platform === "macos" ||
+            host.platform === "linux" ||
+            host.platform === "windows"
+              ? { resourcePacks }
+              : {}),
             // The macOS input method writes diagnostic.log under Application Support, which the Finder hides; the host reveals it rather than asking the user to navigate there.
             ...(host.platform === "macos"
               ? { openDiagnosticLogDirectory: () => invoke<void>("open_diagnostic_log_directory") }
               : {}),
-            // A host binary older than the capability sends no field and reads as false, which
-            // hides the page rather than offering buttons whose every press would fail.
+            // A host that has not wired 背单词 hides the page rather than offering buttons whose every press would fail.
             ...(host.vocabulary_review ? { vocabularyReview } : {}),
             // This shell registers no download handler, and the macOS WKWebView cancels every download link without one, so the host writes the export into Downloads itself and the page can say where the file went. Linux runs the same shell and takes the same path; Windows' WebView2 and the mobile webviews keep the download link.
             ...(host.platform === "macos" || host.platform === "linux"
@@ -684,14 +708,28 @@ function DesktopSettings() {
             host.platform === "windows"
               ? { plugins }
               : {}),
+            // 只有三个桌面宿主真正能清除学习数据：Android 的个人词库对 `reset` 一律报错，iOS 的 `reset` 不经过键盘扩展的个人词库，走的是 App 自己的引擎数据，不能保证清掉键盘扩展学到的内容，所以移动端不提供 `resetLearnedData`，设置页也就不显示这个按钮。
+            ...(host.platform === "macos" ||
+            host.platform === "linux" ||
+            host.platform === "windows"
+              ? {
+                  resetLearnedData: () =>
+                    invoke("dictionary_request", { action: { operation: "reset" } }).then(
+                      () => undefined,
+                    ),
+                }
+              : {}),
             // msime-mcp is packaged beside the settings app on the three desktop hosts only.
             ...(host.platform === "macos" ||
             host.platform === "linux" ||
             host.platform === "windows"
               ? {
                   mcpServerStatus: () => invoke<McpServerStatus>("mcp_server_status"),
-                  installMcpClient: (client: McpClientId, replace: boolean) =>
-                    invoke<McpInstallOutcome>("install_mcp_client", { client, replace }),
+                  installMcpClient: (
+                    client: McpClientId,
+                    replace: boolean,
+                    flags: readonly McpFlag[],
+                  ) => invoke<McpInstallOutcome>("install_mcp_client", { client, replace, flags }),
                 }
               : {}),
             ...(host.fuzzy_pinyin ? { fuzzyPinyin: true } : {}),
@@ -861,7 +899,10 @@ function DesktopSettings() {
     platform: onboardingPlatform === "ios" ? "ios" : "android",
     prepareResources:
       onboardingPlatform === "android" || !onboardingPlatform
-        ? () => invoke("android_prepare_bootstrap").then(() => undefined)
+        ? async () => {
+            await invoke("android_prepare_bootstrap");
+            setPreparedEdition((await discoverHostCapabilities())?.edition);
+          }
         : async () => undefined,
     openSystemKeyboardSettings:
       onboardingPlatform === "ios"
@@ -915,6 +956,7 @@ function DesktopSettings() {
         onSkip={skipOnboarding}
         // The splash belongs to a first launch; replaying the flow from settings skips it.
         splash={Boolean(bootstrapRequired) && !replayOnboarding}
+        edition={preparedEdition ?? settingsClient?.host?.edition}
       />
     );
   if (!settingsClient)
@@ -1046,7 +1088,7 @@ function DesktopCloudDictionarySurface() {
       active = false;
     };
   }, []);
-  if (host === undefined) return <p role="status">正在连接云词库…</p>;
+  if (host === undefined) return <StatusMessage role="status">正在连接云词库…</StatusMessage>;
   const capabilities = cloudDictionaryCapabilities(host?.platform);
   const cloudDictionary = {
     ...panelClients.cloudDictionary,
@@ -1104,7 +1146,7 @@ function DesktopEmojiPanel({
   return emojiClient ? (
     <EmojiPanel client={emojiClient} theme={theme} initialPage={initialPage} />
   ) : (
-    <p role="status">正在连接面板…</p>
+    <StatusMessage role="status">正在连接面板…</StatusMessage>
   );
 }
 

@@ -7,7 +7,8 @@ enum CommunityPreviewFixtures {
     CustomKeyboardSkin.templates.prefix(2).enumerated().map { index, template in
       CommunitySkin(id: "20000000-0000-4000-8000-00000000000\(index + 1)", name: template.0,
         description: "试用皮肤", author: "水杉精选", design: template.1, downloads: 0,
-        rating_count: 0, rating_average: 0, owned: false, my_rating: 0)
+        rating_count: 0, rating_average: 0, owned: false, my_rating: 0,
+        category: index == 0 ? .minimal : .nature)
     }
   }
   static let items: [CommunityResource] = [

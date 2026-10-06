@@ -232,11 +232,64 @@ impl AccountSessionStorage for MemoryStorage {
     }
 }
 
+#[derive(Clone, Default)]
+struct SharedMemoryStorage(MemoryStorage);
+
+impl AccountSessionStorage for SharedMemoryStorage {
+    fn load(&self) -> Result<Option<SavedAccountSession>, AccountError> {
+        self.0.load()
+    }
+
+    fn save(&self, session: &SavedAccountSession) -> Result<(), AccountError> {
+        self.0.save(session)
+    }
+
+    fn clear(&self) -> Result<(), AccountError> {
+        self.0.clear()
+    }
+
+    fn shared_across_processes(&self) -> bool {
+        true
+    }
+}
+
+#[derive(Clone, Default)]
+struct FailingLockStorage(MemoryStorage);
+
+impl AccountSessionStorage for FailingLockStorage {
+    fn load(&self) -> Result<Option<SavedAccountSession>, AccountError> {
+        self.0.load()
+    }
+
+    fn save(&self, session: &SavedAccountSession) -> Result<(), AccountError> {
+        self.0.save(session)
+    }
+
+    fn clear(&self) -> Result<(), AccountError> {
+        self.0.clear()
+    }
+
+    fn shared_across_processes(&self) -> bool {
+        true
+    }
+
+    fn with_refresh_lock<T>(
+        &self,
+        _body: impl FnOnce() -> Result<T, AccountError>,
+    ) -> Result<T, AccountError> {
+        Err(AccountError::Unavailable)
+    }
+}
+
 #[derive(Clone)]
 struct FakeApi {
     refreshes: Arc<AtomicUsize>,
     reject_refresh: Arc<AtomicBool>,
     refresh_gate: Option<Arc<(Mutex<bool>, Condvar)>>,
+    preferences_started: Arc<AtomicBool>,
+    preferences_gate: Option<Arc<(Mutex<bool>, Condvar)>>,
+    put_preferences_started: Arc<AtomicBool>,
+    put_preferences_gate: Option<Arc<(Mutex<bool>, Condvar)>>,
     logins: Arc<Mutex<Vec<(String, String)>>>,
 }
 
@@ -246,6 +299,10 @@ impl FakeApi {
             refreshes: Arc::new(AtomicUsize::new(0)),
             reject_refresh: Arc::new(AtomicBool::new(false)),
             refresh_gate: None,
+            preferences_started: Arc::new(AtomicBool::new(false)),
+            preferences_gate: None,
+            put_preferences_started: Arc::new(AtomicBool::new(false)),
+            put_preferences_gate: None,
             logins: Arc::new(Mutex::new(Vec::new())),
         }
     }
@@ -360,6 +417,14 @@ impl AccountApi for FakeApi {
         if access_token == token(b'a') {
             return Err(AccountError::Unauthorized);
         }
+        self.preferences_started.store(true, Ordering::SeqCst);
+        if let Some(gate) = &self.preferences_gate {
+            let (lock, ready) = &**gate;
+            let mut open = lock.lock().map_err(|_| AccountError::Unavailable)?;
+            while !*open {
+                open = ready.wait(open).map_err(|_| AccountError::Unavailable)?;
+            }
+        }
         Ok(AccountPreferences {
             revision: 42,
             settings: BTreeMap::from([
@@ -382,6 +447,14 @@ impl AccountApi for FakeApi {
     ) -> Result<AccountPreferences, AccountError> {
         if access_token == token(b'a') {
             return Err(AccountError::Unauthorized);
+        }
+        self.put_preferences_started.store(true, Ordering::SeqCst);
+        if let Some(gate) = &self.put_preferences_gate {
+            let (lock, ready) = &**gate;
+            let mut open = lock.lock().map_err(|_| AccountError::Unavailable)?;
+            while !*open {
+                open = ready.wait(open).map_err(|_| AccountError::Unavailable)?;
+            }
         }
         Ok(AccountPreferences {
             revision: preferences.revision + 1,
@@ -658,6 +731,26 @@ fn late_refresh_cannot_restore_forgotten_session() {
 }
 
 #[test]
+fn sign_out_does_not_clear_when_shared_lock_cannot_be_taken() {
+    let storage = FailingLockStorage::default();
+    storage
+        .0
+        .save(&SavedAccountSession {
+            tokens: tokens(b'a', b'b', 900),
+            expires_at_unix_ms: valid_future_expiry(),
+        })
+        .unwrap();
+    let session = BackendAccountSession::new(FakeApi::new(), storage.clone());
+
+    assert_eq!(session.forget(), Err(AccountError::Unavailable));
+    assert_eq!(
+        storage.load().unwrap().unwrap().tokens.refresh_token,
+        token(b'b'),
+        "an unlocked clear could race an in-flight refresh and resurrect the session"
+    );
+}
+
+#[test]
 fn generation_exhaustion_refuses_async_account_operations() {
     let storage = MemoryStorage::default();
     installed(&storage, 0);
@@ -685,6 +778,130 @@ fn logout_clears_local_session_before_remote_result() {
     session.logout(true).unwrap();
     assert!(storage.load().unwrap().is_none());
     assert_eq!(session.status().unwrap(), None);
+}
+
+#[test]
+fn authenticated_operation_is_cancelled_when_session_changes_before_completion() {
+    let storage = MemoryStorage::default();
+    installed(&storage, valid_future_expiry());
+    let gate = Arc::new((Mutex::new(false), Condvar::new()));
+    let mut api = FakeApi::new();
+    let started = Arc::clone(&api.preferences_started);
+    api.preferences_gate = Some(Arc::clone(&gate));
+    let session = Arc::new(BackendAccountSession::new(api, storage));
+    let worker = {
+        let session = Arc::clone(&session);
+        thread::spawn(move || session.preferences())
+    };
+    while !started.load(Ordering::SeqCst) {
+        thread::yield_now();
+    }
+    session.forget().unwrap();
+    let (lock, ready) = &*gate;
+    *lock.lock().unwrap() = true;
+    ready.notify_all();
+    assert_eq!(worker.join().unwrap(), Err(AccountError::Cancelled));
+}
+
+#[test]
+fn account_request_is_cancelled_when_same_user_signs_in_again_before_completion() {
+    let storage = MemoryStorage::default();
+    installed(&storage, valid_future_expiry());
+    let session = Arc::new(BackendAccountSession::new(FakeApi::new(), storage));
+    let gate = Arc::new((Mutex::new(false), Condvar::new()));
+    let started = Arc::new(AtomicBool::new(false));
+    let worker = {
+        let session = Arc::clone(&session);
+        let gate = Arc::clone(&gate);
+        let started = Arc::clone(&started);
+        thread::spawn(move || {
+            request_with_account_session(&FakeApi::new(), &session, true, |_api, _token| {
+                started.store(true, Ordering::SeqCst);
+                let (lock, ready) = &*gate;
+                let mut open = lock.lock().map_err(|_| AccountError::Unavailable)?;
+                while !*open {
+                    open = ready.wait(open).map_err(|_| AccountError::Unavailable)?;
+                }
+                Ok::<_, AccountError>("stale result")
+            })
+        })
+    };
+    while !started.load(Ordering::SeqCst) {
+        thread::yield_now();
+    }
+    session.forget().unwrap();
+    session.sign_in("synthetic-challenge", "123456").unwrap();
+    let (lock, ready) = &*gate;
+    *lock.lock().unwrap() = true;
+    ready.notify_all();
+    assert_eq!(worker.join().unwrap(), Err(AccountError::Cancelled));
+}
+
+#[test]
+fn a_generation_guard_rejects_a_same_user_relogin_before_local_write() {
+    let storage = MemoryStorage::default();
+    installed(&storage, valid_future_expiry());
+    let session = BackendAccountSession::new(FakeApi::new(), storage);
+    let (_, _, generation) = session
+        .credentials_with_generation(None, Some("fixture-user"))
+        .unwrap();
+
+    session.forget().unwrap();
+    session.sign_in("synthetic-challenge", "123456").unwrap();
+
+    let mut wrote = false;
+    assert_eq!(
+        session.with_generation(generation, Some("fixture-user"), || {
+            wrote = true;
+            Ok::<_, AccountError>(())
+        }),
+        Err(AccountError::Cancelled)
+    );
+    assert!(
+        !wrote,
+        "a stale account operation must not reach its local write"
+    );
+
+    let cloud = AccountPreferences {
+        revision: 1,
+        settings: BTreeMap::new(),
+    };
+    assert_eq!(
+        session.put_preferences_with_generation(&cloud, generation, "fixture-user"),
+        Err(AccountError::Cancelled)
+    );
+}
+
+#[test]
+fn a_shared_logout_during_preference_upload_reports_cancellation() {
+    let storage = SharedMemoryStorage::default();
+    installed(&storage.0, valid_future_expiry());
+    let api = FakeApi::new();
+    let gate = Arc::new((Mutex::new(false), Condvar::new()));
+    let mut api_for_request = api.clone();
+    api_for_request.put_preferences_gate = Some(Arc::clone(&gate));
+    let session = Arc::new(BackendAccountSession::new(api_for_request, storage.clone()));
+    let (_, _, generation) = session
+        .credentials_with_generation(None, Some("fixture-user"))
+        .unwrap();
+    let cloud = AccountPreferences {
+        revision: 1,
+        settings: BTreeMap::new(),
+    };
+    let request_session = Arc::clone(&session);
+    let request = thread::spawn(move || {
+        request_session.put_preferences_with_generation(&cloud, generation, "fixture-user")
+    });
+    while !api.put_preferences_started.load(Ordering::SeqCst) {
+        thread::yield_now();
+    }
+    storage.clear().unwrap();
+    {
+        let (lock, ready) = &*gate;
+        *lock.lock().unwrap() = true;
+        ready.notify_all();
+    }
+    assert_eq!(request.join().unwrap(), Err(AccountError::Cancelled));
 }
 
 fn serve_once(response: Vec<u8>) -> String {
@@ -1655,7 +1872,13 @@ fn avatar_uploads_are_read_by_their_contents() {
     let empty = directory.path().join("empty.png");
     std::fs::write(&empty, b"").unwrap();
     let link = directory.path().join("link.png");
-    std::os::unix::fs::symlink(&png, &link).unwrap();
+    msime_path_trust::untrusted_symlink(&png, &link).unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let outside_png = outside.path().join("outside.png");
+    std::fs::write(&outside_png, b"\x89PNG\r\n\x1a\nexternal").unwrap();
+    let linked_parent = directory.path().join("linked-parent");
+    msime_path_trust::untrusted_symlink(outside.path(), &linked_parent).unwrap();
+    let nested_link = linked_parent.join("outside.png");
     for path in [&gif, &webp, &large, &empty, &link, directory.path()] {
         assert_eq!(
             read_account_avatar_upload(path),
@@ -1663,6 +1886,10 @@ fn avatar_uploads_are_read_by_their_contents() {
             "{path:?}"
         );
     }
+    assert_eq!(
+        read_account_avatar_upload(&nested_link),
+        Err(AccountError::Invalid)
+    );
     assert_eq!(
         read_account_avatar_upload(Path::new("relative.png")),
         Err(AccountError::Invalid)
@@ -1766,4 +1993,274 @@ fn user_profile_fields_are_optional_and_bounded() {
         bytes: vec![1, 2, 3],
     };
     assert_eq!(image.data_url(), "data:image/jpeg;base64,AQID");
+}
+
+/// The backend's refresh contract: each refresh token works once, and presenting a spent one revokes the session (`msime-cloud` `Store.Refresh`).
+#[derive(Clone)]
+struct RotatingBackend {
+    state: Arc<Mutex<RotatingState>>,
+    /// Runs inside `refresh` before it answers, standing in for another process that writes the store without taking the lock.
+    during_refresh: Option<Arc<dyn Fn() + Send + Sync>>,
+}
+
+struct RotatingState {
+    current: Option<String>,
+    next: u8,
+    refreshes: usize,
+    revoked: bool,
+}
+
+impl RotatingBackend {
+    fn new(refresh_token: &str) -> Self {
+        Self {
+            state: Arc::new(Mutex::new(RotatingState {
+                current: Some(refresh_token.into()),
+                next: 0,
+                refreshes: 0,
+                revoked: false,
+            })),
+            during_refresh: None,
+        }
+    }
+}
+
+impl AccountApi for RotatingBackend {
+    fn providers(&self) -> Result<HashMap<String, bool>, AccountError> {
+        Ok(HashMap::new())
+    }
+
+    fn challenge(&self, _provider: &str, _target: &str) -> Result<AccountChallenge, AccountError> {
+        Err(AccountError::Unavailable)
+    }
+
+    fn login(&self, _challenge: &str, _credential: &str) -> Result<AccountTokens, AccountError> {
+        Err(AccountError::Unavailable)
+    }
+
+    fn refresh(&self, refresh_token: &str) -> Result<AccountTokens, AccountError> {
+        if let Some(hook) = &self.during_refresh {
+            hook();
+        }
+        let mut state = self.state.lock().unwrap();
+        state.refreshes += 1;
+        if state.current.as_deref() != Some(refresh_token) {
+            state.current = None;
+            state.revoked = true;
+            return Err(AccountError::Unauthorized);
+        }
+        const HEX: &[u8; 16] = b"0123456789abcdef";
+        let access = HEX[usize::from(state.next % 16)];
+        let refresh = HEX[usize::from((state.next + 8) % 16)];
+        state.next += 1;
+        state.current = Some(token(refresh));
+        Ok(tokens(access, refresh, 900))
+    }
+
+    fn profile(&self, _access_token: &str) -> Result<AccountProfile, AccountError> {
+        Err(AccountError::Unavailable)
+    }
+
+    fn rename(&self, _display_name: &str, _access_token: &str) -> Result<(), AccountError> {
+        Err(AccountError::Unavailable)
+    }
+
+    fn logout(&self, _access_token: &str, _all: bool) -> Result<(), AccountError> {
+        Ok(())
+    }
+
+    fn delete_account(&self, _access_token: &str) -> Result<(), AccountError> {
+        Err(AccountError::Unavailable)
+    }
+}
+
+fn expired_session() -> SavedAccountSession {
+    SavedAccountSession {
+        tokens: tokens(b'a', b'b', 900),
+        expires_at_unix_ms: 1,
+    }
+}
+
+fn session_file(directory: &Path) -> FileAccountSessionStorage {
+    FileAccountSessionStorage::new(directory, AccountSessionFileLayout::Apple)
+}
+
+#[test]
+fn a_session_shared_through_the_file_is_not_refreshed_from_a_spent_token() {
+    let directory = tempfile::tempdir().unwrap();
+    session_file(directory.path())
+        .save(&expired_session())
+        .unwrap();
+    let backend = RotatingBackend::new(&token(b'b'));
+    // The settings app and the input method, each with its own copy of the session in memory.
+    let settings = BackendAccountSession::new(backend.clone(), session_file(directory.path()));
+    let input_method = BackendAccountSession::new(backend.clone(), session_file(directory.path()));
+    assert!(settings.status().unwrap().is_some());
+
+    let rotated = input_method.access_token(None).unwrap();
+    // Before the fix the settings app refreshed from the token the input method had already spent, the backend revoked the session, and the settings app deleted it.
+    assert_eq!(settings.access_token(None).unwrap(), rotated);
+
+    let state = backend.state.lock().unwrap();
+    assert_eq!(state.refreshes, 1);
+    assert!(!state.revoked);
+    drop(state);
+    assert!(session_file(directory.path()).load().unwrap().is_some());
+}
+
+#[test]
+fn a_rejected_refresh_keeps_a_session_another_process_saved_meanwhile() {
+    let directory = tempfile::tempdir().unwrap();
+    session_file(directory.path())
+        .save(&expired_session())
+        .unwrap();
+    let mut backend = RotatingBackend::new(&token(b'f'));
+    let other = directory.path().to_path_buf();
+    backend.during_refresh = Some(Arc::new(move || {
+        session_file(&other)
+            .save(&SavedAccountSession {
+                tokens: tokens(b'c', b'f', 900),
+                expires_at_unix_ms: valid_future_expiry(),
+            })
+            .unwrap();
+    }));
+    let session = BackendAccountSession::new(backend, session_file(directory.path()));
+
+    assert_eq!(session.access_token(None).unwrap(), token(b'c'));
+    let kept = session_file(directory.path()).load().unwrap().unwrap();
+    assert_eq!(kept.tokens.refresh_token, token(b'f'));
+}
+
+#[test]
+fn signing_out_in_one_process_signs_out_the_other() {
+    let directory = tempfile::tempdir().unwrap();
+    session_file(directory.path())
+        .save(&expired_session())
+        .unwrap();
+    let backend = RotatingBackend::new(&token(b'b'));
+    let settings = BackendAccountSession::new(backend.clone(), session_file(directory.path()));
+    let input_method = BackendAccountSession::new(backend, session_file(directory.path()));
+    assert!(settings.status().unwrap().is_some());
+
+    input_method.forget().unwrap();
+    assert!(settings.status().unwrap().is_none());
+    assert!(matches!(
+        settings.access_token(None),
+        Err(AccountError::Unauthorized)
+    ));
+}
+
+#[test]
+fn session_file_layouts_round_trip_and_read_each_other() {
+    let directory = tempfile::tempdir().unwrap();
+    let session = SavedAccountSession {
+        tokens: tokens(b'a', b'b', 900),
+        expires_at_unix_ms: 1_790_000_000_123,
+    };
+    let apple = session_file(directory.path());
+    apple.save(&session).unwrap();
+    let text = std::fs::read_to_string(directory.path().join(ACCOUNT_SESSION_FILE)).unwrap();
+    let value: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert!(value.get("expiresAt").is_some());
+    assert!(value.get("expires_at_unix_ms").is_none());
+
+    let native = FileAccountSessionStorage::new(directory.path(), AccountSessionFileLayout::Native);
+    assert_eq!(
+        native.load().unwrap().unwrap().expires_at_unix_ms,
+        session.expires_at_unix_ms
+    );
+    native.save(&session).unwrap();
+    assert_eq!(
+        apple.load().unwrap().unwrap().expires_at_unix_ms,
+        session.expires_at_unix_ms
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn session_file_is_owner_only_and_a_widened_one_is_refused() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = tempfile::tempdir().unwrap();
+    let directory = root.path().join("state");
+    let storage = session_file(&directory);
+    storage.save(&expired_session()).unwrap();
+    let file = directory.join(ACCOUNT_SESSION_FILE);
+    let mode = |path: &Path| std::fs::metadata(path).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode(&directory), 0o700);
+    assert_eq!(mode(&file), 0o600);
+
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
+    assert!(matches!(storage.load(), Err(AccountError::Storage)));
+}
+
+#[test]
+fn oversized_session_file_is_refused() {
+    let directory = tempfile::tempdir().unwrap();
+    let storage = session_file(directory.path());
+    storage.save(&expired_session()).unwrap();
+    std::fs::write(
+        directory.path().join(ACCOUNT_SESSION_FILE),
+        vec![b' '; 64 * 1024 + 1],
+    )
+    .unwrap();
+    assert!(matches!(storage.load(), Err(AccountError::Storage)));
+}
+
+#[test]
+fn moderation_refusals_are_told_apart_by_the_error_code() {
+    for (status, code, expected) in [
+        (
+            "422 Unprocessable Entity",
+            "blocked_content",
+            AccountError::BlockedContent,
+        ),
+        (
+            "400 Bad Request",
+            "blocked_content",
+            AccountError::BlockedContent,
+        ),
+        (
+            "503 Service Unavailable",
+            "screening_unavailable",
+            AccountError::ScreeningUnavailable,
+        ),
+        ("403 Forbidden", "account_banned", AccountError::Banned),
+        ("403 Forbidden", "forbidden", AccountError::Forbidden),
+        (
+            "503 Service Unavailable",
+            "auth_unavailable",
+            AccountError::Unavailable,
+        ),
+    ] {
+        let body = format!(r#"{{"error":{{"code":"{code}","message":"{code}"}}}}"#);
+        let response = format!(
+            "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nRetry-After: 30\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        let client = BackendAccountClient::loopback(&serve_once(response.into_bytes())).unwrap();
+        let result = client.json::<serde_json::Value, ()>(
+            Method::POST,
+            "/v1/community/resources",
+            Some(&token(b'a')),
+            None,
+        );
+        assert_eq!(result, Err(expected.clone()), "{status} {code}");
+    }
+    // A body that is not the server's error document falls back to the status.
+    let response =
+        b"HTTP/1.1 422 Unprocessable Entity\r\nContent-Length: 2\r\nConnection: close\r\n\r\nno"
+            .to_vec();
+    let client = BackendAccountClient::loopback(&serve_once(response)).unwrap();
+    assert_eq!(
+        client.json::<serde_json::Value, ()>(Method::GET, "/v1/community/skins", None, None),
+        Err(AccountError::Unavailable)
+    );
+    assert_eq!(
+        AccountError::BlockedContent.code(),
+        "account_blocked_content"
+    );
+    assert_eq!(
+        AccountError::ScreeningUnavailable.code(),
+        "account_screening_unavailable"
+    );
+    assert_eq!(AccountError::Banned.code(), "account_banned");
 }

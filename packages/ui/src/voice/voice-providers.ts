@@ -13,7 +13,7 @@
  * endpoint and how to obtain an API key. Both are presentation only -- the model
  * a request actually sends is still whatever is stored in preferences.
  */
-import { fillIfDefault, known, swapTokenSlot, type TokenMap } from "./provider-helpers";
+import { fillProviderDefaults, known, swapTokenSlot, type TokenMap } from "./provider-helpers";
 
 export type ProviderDefaults = {
   endpoint: string;
@@ -115,9 +115,6 @@ export const POLISH_PROVIDER_DEFAULTS: Record<string, ProviderDefaults> = {
   },
 };
 
-/** An older SiliconFlow default that should still be treated as untouched. */
-const LEGACY_ASR_MODELS = ["TeleAI/TeleSpeechASR"];
-
 /** The voice fields to update when the recognition provider changes. */
 export function asrProviderUpdate(
   provider: string,
@@ -153,17 +150,16 @@ export function asrProviderUpdate(
     delete update.asr_tokens[provider];
   }
   if (!defaults) return update;
-  const endpoint = fillIfDefault(
+  const fields = fillProviderDefaults(
     current.asr_endpoint,
+    current.asr_model,
     defaults.endpoint,
+    defaults.model,
     known(ASR_PROVIDER_DEFAULTS, "endpoint"),
+    known(ASR_PROVIDER_DEFAULTS, "model"),
   );
-  if (endpoint !== undefined) update.asr_endpoint = endpoint;
-  const model = fillIfDefault(current.asr_model, defaults.model, [
-    ...known(ASR_PROVIDER_DEFAULTS, "model"),
-    ...LEGACY_ASR_MODELS,
-  ]);
-  if (model !== undefined) update.asr_model = model;
+  if (fields.endpoint !== undefined) update.asr_endpoint = fields.endpoint;
+  if (fields.model !== undefined) update.asr_model = fields.model;
   return update;
 }
 
@@ -197,18 +193,16 @@ export function polishProviderUpdate(
     polish_tokens: swapped.tokens,
   };
   if (!defaults) return update;
-  const endpoint = fillIfDefault(
+  const fields = fillProviderDefaults(
     current.polish_endpoint,
-    defaults.endpoint,
-    known(POLISH_PROVIDER_DEFAULTS, "endpoint"),
-  );
-  if (endpoint !== undefined) update.polish_endpoint = endpoint;
-  const model = fillIfDefault(
     current.polish_model,
+    defaults.endpoint,
     defaults.model,
+    known(POLISH_PROVIDER_DEFAULTS, "endpoint"),
     known(POLISH_PROVIDER_DEFAULTS, "model"),
   );
-  if (model !== undefined) update.polish_model = model;
+  if (fields.endpoint !== undefined) update.polish_endpoint = fields.endpoint;
+  if (fields.model !== undefined) update.polish_model = fields.model;
   return update;
 }
 

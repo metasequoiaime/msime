@@ -17,5 +17,5 @@ test("forwards resource ID edits", () => {
   });
 
   expect(onChange).toHaveBeenCalledWith("updated-resource");
-  expect(screen.getByText(/仅由 Doubao provider 使用/)).toBeTruthy();
+  expect(screen.getByText(/仅豆包识别使用/)).toBeTruthy();
 });

@@ -1,0 +1,14 @@
+{
+  "clauses": 1419,
+  "top1_pct": 40.9,
+  "top5_pct": 50.4,
+  "top9_pct": 50.4,
+  "anywhere_pct": 53.4,
+  "picks_per_clause": 2.62,
+  "page_turns_per_clause": 0.228,
+  "stuck": 0,
+  "model": true,
+  "context": true,
+  "clauses_sha256": "f0d13299e637c2512245ee3213e5b76bcbcd81633c7d038cfd1307b9183a1593",
+  "db_sha256": "6735ec8a0fbaa7240b2342cc7fcce8c43e3bd2f128bf08a440e8e131f5980df8"
+}

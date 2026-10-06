@@ -56,11 +56,11 @@ M_FILES = {
     "helpcodes/shouyouplus_helpcode.txt": "你=ab\n拟=cd\n好=ef\n",
     "helpcodes/xiaohe_helpcode.txt": "你=ab\n拟=cd\n好=ef\n",
 }
-M = {"databases": {"msime.db": M_SQL}, "files": M_FILES}
+M = {"databases": {"msime-pinyin.db": M_SQL}, "files": M_FILES}
 M_SRC = T + "test_input_session.cpp:384-430,534-535"
 
 # test_input_session.cpp:131-144 (FQ), :146-159 (FMX), :161-170 (FSP), :172-181 (FWB).
-FQ = {"databases": {"msime.db": "BEGIN;"
+FQ = {"databases": {"msime-pinyin.db": "BEGIN;"
       "CREATE TABLE tbl_1_n(key TEXT, jp TEXT, value TEXT, weight INTEGER);"
       "INSERT INTO tbl_1_n VALUES('ni', 'n', '甲', 100);"
       "INSERT INTO tbl_1_n VALUES('ni', 'n', '乙', 90);"
@@ -69,35 +69,35 @@ FQ = {"databases": {"msime.db": "BEGIN;"
       "INSERT INTO tbl_1_n VALUES('ni', 'n', '戊', 60);"
       "INSERT INTO tbl_1_n VALUES('ni', 'n', '己', 50);"
       "COMMIT;"}}
-FMX = {"databases": {"msime.db": "BEGIN;"
+FMX = {"databases": {"msime-pinyin.db": "BEGIN;"
        "CREATE TABLE tbl_1_n(key TEXT, jp TEXT, value TEXT, weight INTEGER);"
        "INSERT INTO tbl_1_n VALUES('na', 'n', '甲', 5000000);"
        "INSERT INTO tbl_1_n VALUES('ne', 'n', '乙', 5000000);"
        "INSERT INTO tbl_1_n VALUES('ni', 'n', '丙', 3000000);"
        "COMMIT;"}}
-FSP = {"databases": {"msime.db": "BEGIN;"
+FSP = {"databases": {"msime-pinyin.db": "BEGIN;"
        "CREATE TABLE tbl_2_n(key TEXT, jp TEXT, value TEXT, weight INTEGER);"
        "INSERT INTO tbl_2_n VALUES('ni''hao', 'nh', '你好', 100);"
        "INSERT INTO tbl_2_n VALUES('ni''hao', 'nh', '拟好', 50);"
        "COMMIT;"}}
-FWB = {"databases": {"msime.db": "BEGIN;"
+FWB = {"databases": {"msime-pinyin.db": "BEGIN;"
        "CREATE TABLE wubi86(key TEXT, value TEXT, weight INTEGER);"
        "INSERT INTO wubi86 VALUES('aaaa', '工', 100);"
        "INSERT INTO wubi86 VALUES('aaaa', '或', 50);"
        "COMMIT;"}}
 
 # test_input_session.cpp:1436-1441 (QPH), :1501-1508 (EXP).
-QPH = {"databases": {"msime.db": "CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);"
+QPH = {"databases": {"msime-pinyin.db": "CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);"
        "INSERT INTO quick_parases VALUES('ab','快捷短语一',20);"
        "INSERT INTO quick_parases VALUES('aa','快捷短语二',10);"}}
-EXP = {"databases": {"others.db": "CREATE TABLE emoji_pinyin(key TEXT,emoji TEXT,sort_order INTEGER);"
+EXP = {"databases": {"msime-others.db": "CREATE TABLE emoji_pinyin(key TEXT,emoji TEXT,sort_order INTEGER);"
        "INSERT INTO emoji_pinyin VALUES('xiaolian','😀',10);"
        "INSERT INTO emoji_pinyin VALUES('xiao''lian','😄',20);"
        "CREATE TABLE kaomoji(pinyin TEXT,jianpin TEXT,kaomoji TEXT,sort_order INTEGER);"
        "INSERT INTO kaomoji VALUES('haixiu','hx','(*/ω＼*)',10);"}}
 
 # test_temporary_input_session.cpp:86-95.
-TMP = {"databases": {"english.db": "CREATE TABLE english_words(word TEXT COLLATE BINARY NOT NULL,display TEXT NOT NULL,"
+TMP = {"databases": {"msime-english.db": "CREATE TABLE english_words(word TEXT COLLATE BINARY NOT NULL,display TEXT NOT NULL,"
        "weight INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(word,display)) WITHOUT ROWID;"
        "CREATE TABLE en_zh_glosses(english TEXT PRIMARY KEY,chinese_gloss TEXT NOT NULL);"
        "CREATE TABLE zh_en_glosses(chinese TEXT PRIMARY KEY,english_gloss TEXT NOT NULL);"
@@ -108,10 +108,10 @@ TMP_SRC = T + "test_temporary_input_session.cpp:86-95"
 
 # test_english_input_session.cpp:102-133.
 ENG = {"databases": {
-    "msime.db": "CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);"
+    "msime-pinyin.db": "CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);"
                 "INSERT INTO tbl_1_n VALUES('ni','n','你',200);"
                 "INSERT INTO tbl_1_n VALUES('ni','n','倪',100);",
-    "english.db": "CREATE TABLE english_words(word TEXT COLLATE BINARY NOT NULL,display TEXT NOT NULL,"
+    "msime-english.db": "CREATE TABLE english_words(word TEXT COLLATE BINARY NOT NULL,display TEXT NOT NULL,"
                   "weight INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(word,display)) WITHOUT ROWID;"
                   "CREATE TABLE en_zh_glosses(english TEXT PRIMARY KEY,chinese_gloss TEXT NOT NULL);"
                   "CREATE TABLE zh_en_glosses(chinese TEXT PRIMARY KEY,english_gloss TEXT NOT NULL);"
@@ -124,7 +124,7 @@ ENG = {"databases": {
 ENG_SRC = T + "test_english_input_session.cpp:102-133"
 
 # test_jianpin_input_session.cpp:84-104.
-JP = {"databases": {"msime.db": "BEGIN;"
+JP = {"databases": {"msime-pinyin.db": "BEGIN;"
       "CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);"
       "INSERT INTO tbl_1_n VALUES('ni','n','你',300);"
       "INSERT INTO tbl_1_n VALUES('na','n','拿',200);"
@@ -144,7 +144,7 @@ JP_SRC = T + "test_jianpin_input_session.cpp:84-104"
 
 # test_nine_key_session.cpp:44-68.
 NK = {"databases": {
-    "msime.db": "CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);"
+    "msime-pinyin.db": "CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);"
                 "INSERT INTO tbl_1_n VALUES('ni','n','你',100);"
                 "CREATE TABLE tbl_1_m(key TEXT,jp TEXT,value TEXT,weight INTEGER);"
                 "INSERT INTO tbl_1_m VALUES('mi','m','米',50);"
@@ -152,7 +152,7 @@ NK = {"databases": {
                 "INSERT INTO tbl_1_h VALUES('hao','h','好',100);"
                 "CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);"
                 "INSERT INTO tbl_2_n VALUES('ni''hao','nh','你好',1000);",
-    "english.db": "CREATE TABLE english_words(word TEXT,display TEXT,weight INTEGER);"
+    "msime-english.db": "CREATE TABLE english_words(word TEXT,display TEXT,weight INTEGER);"
                   "INSERT INTO english_words VALUES('ok','ok',900);"
                   "INSERT INTO english_words VALUES('old','old',1000);"
                   "INSERT INTO english_words VALUES('older','older',800);"
@@ -160,7 +160,7 @@ NK = {"databases": {
 NK_SRC = T + "test_nine_key_session.cpp:44-68"
 
 # test_wubi_input_session.cpp:68-74.
-WB = {"english_schema": True, "databases": {"msime.db": "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);"
+WB = {"english_schema": True, "databases": {"msime-pinyin.db": "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);"
       "INSERT INTO wubi86 VALUES('w','人',20);"
       "INSERT INTO wubi86 VALUES('wq','你',10);"
       "INSERT INTO wubi86 VALUES('wqb','爷',20);"
@@ -169,7 +169,7 @@ WB = {"english_schema": True, "databases": {"msime.db": "CREATE TABLE wubi86(key
 WB_SRC = T + "test_wubi_input_session.cpp:68-74"
 
 # test_wubi_mixed_input_session.cpp:70-79.
-WM = {"english_schema": True, "databases": {"msime.db":
+WM = {"english_schema": True, "databases": {"msime-pinyin.db":
       "CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);"
       "INSERT INTO tbl_1_n VALUES('ni','n','你',10000);"
       "CREATE TABLE tbl_1_z(key TEXT,jp TEXT,value TEXT,weight INTEGER);"
@@ -183,25 +183,25 @@ WM_SRC = T + "test_wubi_mixed_input_session.cpp:70-79"
 # test_candidate_removal.cpp:77-89.
 CR = {"english_schema": True,
       "databases": {
-          "msime.db": "CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);"
+          "msime-pinyin.db": "CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);"
                       "INSERT INTO tbl_1_n VALUES('ni','n','你',10000);"
                       "CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);"
                       "INSERT INTO tbl_2_n VALUES('ni''hao','nh','你好',10000),('ni''hao','nh','拟好',9000);"
                       "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);"
                       "INSERT INTO wubi86 VALUES('wq','你好',10000),('wq','拟好',9000);",
-          "english.db": "INSERT INTO english_words(word,display,weight) VALUES('hello','hello',100),('help','help',50);"},
+          "msime-english.db": "INSERT INTO english_words(word,display,weight) VALUES('hello','hello',100),('help','help',50);"},
       "files": {"helpcodes/helpcode.txt": "你=aa\n拟=cc\n"}}
 CR_SRC = T + "test_candidate_removal.cpp:77-89"
 
 # test_shuangpin.cpp:129-136.
-SP_HC = {"databases": {"msime.db": "CREATE TABLE tbl_1_s(key TEXT, jp TEXT, value TEXT, weight INTEGER);"
+SP_HC = {"databases": {"msime-pinyin.db": "CREATE TABLE tbl_1_s(key TEXT, jp TEXT, value TEXT, weight INTEGER);"
          "INSERT INTO tbl_1_s VALUES('shi', 's', '使', 200);"
          "INSERT INTO tbl_1_s VALUES('shi', 's', '是', 100);"},
          "files": {"helpcodes/helpcode.txt": "使=ab\n是=uc\n"}}
 SP_HC_SRC = T + "test_shuangpin.cpp:129-136"
 
 # test_personal_dictionary.cpp:53-60.
-PD = {"english_schema": True, "databases": {"msime.db":
+PD = {"english_schema": True, "databases": {"msime-pinyin.db":
       "CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);"
       "CREATE TABLE tbl_7_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);"
       "CREATE TABLE tbl_others_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);"
@@ -250,16 +250,16 @@ PORT = {"autocorrect_types": 1, "helpcode": False}
 
 # ---- quanpin basics (test_input_session.cpp) ------------------------------
 add("qp_portable_selection", M_SRC + "; cases :432-446", M, PORT,
-    [ty("xi'te'le"), selw("西"), selw("特乐"), q("msime.db", "SELECT key,value FROM tbl_3_x ORDER BY 1,2"),
+    [ty("xi'te'le"), selw("西"), selw("特乐"), q("msime-pinyin.db", "SELECT key,value FROM tbl_3_x ORDER BY 1,2"),
      ty("xi'te'le"), selw("西"), CANCEL], covers=["partial commit", "phrase learning", "cancel"])
 add("qp_backspace_abandoned_phrase", M_SRC + "; case :448-459", M, PORT,
     [ty("xi'te'le"), selw("西")] + [cmd("Backspace")] * 6 + [ty("nihao"), selw("你好"),
-     q("msime.db", "SELECT key,value FROM tbl_3_x ORDER BY 1,2")], covers=["backspace", "partial commit"])
+     q("msime-pinyin.db", "SELECT key,value FROM tbl_3_x ORDER BY 1,2")], covers=["backspace", "partial commit"])
 add("qp_punctuation_finishes_composition", M_SRC + "; case :461-468", M,
     {"autocorrect_types": 1, "helpcode": False, "learning": False},
     [ty("xi'te'le"), selw("西"), punct(",")], covers=["punctuation", "partial commit"])
 add("qp_generated_sentence", M_SRC + "; case :507-530", M, PORT,
-    [ty("xi'te'le'hao"), selw("西"), sel(0), q("msime.db", "SELECT key,value FROM tbl_4_x ORDER BY 1,2")],
+    [ty("xi'te'le'hao"), selw("西"), sel(0), q("msime-pinyin.db", "SELECT key,value FROM tbl_4_x ORDER BY 1,2")],
     covers=["lattice sentence", "phrase learning"])
 add("qp_umlaut_v_syllables", M_SRC + "; case :624-637", M, {},
     [ty("jv"), CANCEL, ty("qv"), CANCEL, ty("xv"), CANCEL, ty("yv")], covers=["quanpin basics"])
@@ -355,7 +355,7 @@ add("english_minimum_prefix", ENG_SRC + "; case :150-158", ENG,
     {"english": {"mixed_candidates": True, "minimum_prefix": 3}}, [ty("ni"), ch("n")], covers=["english"])
 add("english_dedicated_mode", ENG_SRC + "; case :167-201", ENG, {},
     [op("set_dedicated_english", True), ty("HE"), sel(1), ty("Codex"), cmd("CommitRaw"),
-     q("english.db", "SELECT word,display,weight FROM english_words WHERE word='codex'"), JOURNAL],
+     q("msime-english.db", "SELECT word,display,weight FROM english_words WHERE word='codex'"), JOURNAL],
     covers=["english", "learning"])
 
 # ---- frequency learning (test_input_session.cpp:1083-1245) -----------------

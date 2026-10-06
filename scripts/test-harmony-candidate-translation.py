@@ -22,7 +22,8 @@ def main() -> int:
         and "glossRows(): number" in session,
         "word-sized unglossed chips": "CandidateChipWidth.chip(word, false, 0, padding)" in view,
         "dedicated horizontal gloss line": "candidateUsesGlossLine()" in view
-        and "candidate.annotationIsTranslation ? candidate.annotation : ' '" in view,
+        and "this.candidateGlossLine(candidate)" in view
+        and "CandidateGlossPolicy.glossLine(candidate.hunEum" in view,
         "fixed gloss height": "CANDIDATE_GLOSS_LINE_HEIGHT_VP: number = 14" in metrics
         and "KeyboardMetrics.glossHeightVp" in view,
         "native panel resize": "KeyboardSession.shared.glossRows()" in ability,

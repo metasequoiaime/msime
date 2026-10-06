@@ -39,14 +39,16 @@ public final class CandidatePanelDeviceSmoke extends DeviceSmoke {
             && node.getText().length() > 0 && !equalsText("ni", node.getText())));
     }
 
+    /** The expanded grid draws no title; its description carries the composition and the complete count, as 完整候选列表；ni；N 个候选. */
     private Predicate<AccessibilityNodeInfo> completeCount() {
         return node -> {
             if (!equalsText("app.msime.android", node.getPackageName())
-                    || node.getText() == null) return false;
-            String value = node.getText().toString();
-            if (!value.endsWith(" 个候选")) return false;
+                    || node.getContentDescription() == null) return false;
+            String value = node.getContentDescription().toString();
+            if (!value.startsWith("完整候选列表；") || !value.endsWith(" 个候选")) return false;
+            int start = value.lastIndexOf('；') + 1;
             try {
-                return Integer.parseInt(value.substring(0, value.length() - 4)) > 9;
+                return Integer.parseInt(value.substring(start, value.length() - 4)) > 9;
             } catch (NumberFormatException ignored) {
                 return false;
             }

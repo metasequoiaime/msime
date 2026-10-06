@@ -44,6 +44,14 @@ struct Fixture {
   }
   std::string editing() const { return session.view().at("editing_text").get<std::string>(); }
   std::string reading() const { return session.view().at("reading").get<std::string>(); }
+  nlohmann::json candidates() const { return session.view().at("candidates"); }
+  std::string candidate(size_t slot) const { return candidates().at(slot).at("text").get<std::string>(); }
+  std::string highlighted() const {
+    for (const auto &item : candidates())
+      if (item.at("highlighted").get<bool>())
+        return item.at("text").get<std::string>();
+    return {};
+  }
 };
 } // namespace
 
@@ -154,5 +162,141 @@ int main() {
     const auto cancelled = korean.press(0x1B, 0);
     assert(cancelled && !cancelled->committed_text);
     assert(korean.editing().empty());
+  }
+
+  // The Hanja key lists the composing syllable's Hanja and sends nothing back: the TIP converts in its own host session, and the candidate window draws the delivered view.
+  {
+    Fixture korean(serialized);
+    korean.type("gks");
+    const auto opened = korean.press(0x19, 0);
+    assert(opened && !opened->encoded && !opened->committed_text);
+    assert(korean.editing() == "gks" && korean.reading() == "한");
+    assert(korean.candidates().size() > 1 && korean.candidate(0) == "韓");
+    // Again closes it and keeps the syllable.
+    const auto closed = korean.press(0x19, 0);
+    assert(closed && !closed->encoded && !closed->committed_text);
+    assert(korean.candidates().empty() && korean.editing() == "gks");
+  }
+
+  // A digit chooses from the visible page, the row's or the numpad's, and only the chosen Hanja is committed.
+  for (const uint32_t code : {uint32_t{'2'}, 0x62u}) {
+    Fixture korean(serialized);
+    korean.type("gks");
+    assert(korean.press(0x19, 0));
+    const auto second = korean.candidate(1);
+    const auto chosen = korean.press(code, u'2');
+    assert(chosen && !chosen->encoded && chosen->committed_text && *chosen->committed_text == second);
+    assert(korean.editing().empty() && korean.candidates().empty());
+  }
+
+  // Space and Enter choose the highlighted Hanja, which the arrows move.
+  for (const auto &[code, text] : {std::pair<uint32_t, char16_t>{0x20, u' '}, {0x0D, u'\r'}}) {
+    Fixture korean(serialized);
+    korean.type("gks");
+    assert(korean.press(0x19, 0));
+    const auto second = korean.candidate(1);
+    assert(korean.press(0x28, 0) && korean.highlighted() == second);
+    assert(korean.press(0x26, 0) && korean.highlighted() == korean.candidate(0));
+    assert(korean.press(0x27, 0) && korean.highlighted() == second);
+    const auto chosen = korean.press(code, text);
+    assert(chosen && chosen->committed_text && *chosen->committed_text == second);
+    assert(korean.editing().empty());
+  }
+
+  // Page Down turns the page and Page Up turns it back, whatever the paging bindings say.
+  {
+    Fixture korean(serialized);
+    korean.paging = NavigationBindings{};
+    korean.type("gks");
+    assert(korean.press(0x19, 0));
+    const auto first = korean.candidate(0);
+    assert(korean.press(0x22, 0) && korean.candidate(0) != first && korean.editing() == "gks");
+    assert(korean.press(0x21, 0) && korean.candidate(0) == first);
+  }
+
+  // Escape and Backspace only close the list; the syllable keeps composing, and a mark then commits the Hangul.
+  for (const auto &[code, text] : {std::pair<uint32_t, char16_t>{0x1B, 0}, {0x08, u'\b'}}) {
+    Fixture korean(serialized);
+    korean.type("gks");
+    assert(korean.press(0x19, 0));
+    const auto closed = korean.press(code, text);
+    assert(closed && !closed->committed_text);
+    assert(korean.candidates().empty() && korean.editing() == "gks" && korean.reading() == "한");
+    const auto ended = korean.press(0xBE, u'.');
+    assert(ended && ended->committed_text && *ended->committed_text == "한.");
+  }
+
+  // With the list open a mark stays punctuation and commits the Hangul, never a Hanja, even with '-' bound to paging and to word-to-character.
+  for (const auto binding : {WordCharacterBinding::Disabled, WordCharacterBinding::MinusEqual}) {
+    Fixture korean(serialized);
+    korean.type("gks");
+    assert(korean.press(0x19, 0));
+    const auto ended = korean.press(0xBD, u'-', 0, TsfPreeditStyle::Local, binding);
+    assert(ended && ended->committed_text && *ended->committed_text == "한-");
+    assert(korean.editing().empty());
+  }
+
+  // A letter closes the list and composes as usual: ㄴ plus ㄱ is not a compound final, so 한 is committed and ㄱ starts the next syllable.
+  {
+    Fixture korean(serialized);
+    korean.type("gks");
+    assert(korean.press(0x19, 0));
+    const auto next = korean.press('R', u'r');
+    assert(next && next->committed_text && *next->committed_text == "한");
+    assert(korean.candidates().empty() && korean.reading() == "ㄱ");
+  }
+
+  // A digit past the visible page chooses nothing and leaves the list open.
+  {
+    Fixture korean(serialized);
+    korean.type("gks");
+    assert(korean.press(0x19, 0));
+    const auto page = korean.candidates().size();
+    if (page < 9) {
+      const auto past = korean.press('9', u'9');
+      assert(past && !past->committed_text);
+      assert(korean.candidates().size() == page && korean.editing() == "gks");
+    }
+  }
+
+  // A lone jamo has no Hanja, and the Hanja key with nothing composing is spent; neither fails the reply.
+  {
+    Fixture korean(serialized);
+    korean.type("r");
+    const auto jamo = korean.press(0x19, 0);
+    assert(jamo && !jamo->committed_text && korean.candidates().empty() && korean.reading() == "ㄱ");
+    assert(korean.press(0x1B, 0));
+    assert(korean.editing().empty());
+    const auto idle = korean.press(0x19, 0);
+    assert(idle && !idle->encoded && !idle->committed_text);
+  }
+
+  // The routed clear a terminated composition sends discards the syllable even with its list open, where one MSIME_CANCEL only closes the list.
+  {
+    Fixture korean(serialized);
+    korean.type("gks");
+    assert(korean.press(0x19, 0));
+    korean.session.cancel_composition(1);
+    assert(korean.editing().empty() && korean.candidates().empty());
+  }
+
+  // The Hanja list is glossed like a Chinese page: the Server asks for its translations, the 훈음 stays the annotation and never becomes the translation, and Ctrl+Enter commits neither. The TIP keeps Ctrl+Enter for the application in Korean; the Server refuses it too, because a commit made here would leave the syllable composing in the TIP's host session.
+  {
+    auto translated = options;
+    translated["preferences"]["candidate_translations"] = true;
+    Fixture korean(translated.dump());
+    korean.type("gks");
+    assert(korean.press(0x19, 0));
+    const auto query = korean.session.translation_query(1);
+    assert(query);
+    const auto asked = nlohmann::json::parse(*query);
+    assert(!asked.at("candidates").empty() && asked.at("candidates").at(0).at("text") == "韓");
+    const auto generation = korean.session.view().at("generation").get<uint64_t>();
+    assert(korean.session.apply_translations(1, generation, R"([{"text":"韓","translation":"Korea"}])"));
+    const auto row = korean.candidates().at(0);
+    assert(row.at("text") == "韓" && row.at("annotation") == "나라 이름 한, 한나라 한" && row.at("translation") == "Korea");
+    const auto enter = korean.press(0x0D, u'\r', PipeMetadata::CandidateActive | 2u);
+    assert(!enter || (!enter->committed_text && !enter->encoded));
+    assert(korean.editing() == "gks" && !korean.candidates().empty());
   }
 }

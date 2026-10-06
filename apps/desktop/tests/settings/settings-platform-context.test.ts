@@ -1,8 +1,9 @@
+import { testHost } from "../support/host";
 import { expect, test } from "vitest";
 import { settingsPlatformContext, type HostCapabilities } from "@msime/ui";
 
 const host = (platform: HostCapabilities["platform"], mobile_settings?: boolean) =>
-  ({ platform, mobile_settings }) as HostCapabilities;
+  testHost({ platform, mobile_settings });
 
 test("derives release and diagnostics platforms from Android and iOS hosts", () => {
   expect(settingsPlatformContext(host("android"))).toMatchObject({

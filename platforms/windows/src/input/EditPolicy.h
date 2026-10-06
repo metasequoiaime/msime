@@ -40,7 +40,8 @@ inline EditKind edit_kind(const FanyImeNamedpipeData &packet,
                           bool microsoft_shuangpin = false,
                           std::string_view editing = {}, size_t caret = 0,
                           bool japanese_scheme = false,
-                          std::string_view spelling_symbols = {}) {
+                          std::string_view spelling_symbols = {},
+                          bool apostrophe_is_punctuation = false) {
   if (packet.event_type != FanyImePipeEventType::KeyEvent || mode == "unknown")
     return EditKind::None;
   const auto modifiers = PipeMetadata::key_modifiers(packet.modifiers_down);
@@ -60,6 +61,9 @@ inline EditKind edit_kind(const FanyImeNamedpipeData &packet,
     if (key == 0x25 || key == 0x27)
       return EditKind::Caret;
   }
+  // A scheme that spells with Space lists it among its spelling symbols (Zhuyin's first tone). Its Space command then types that key rather than picking a row (the runtime's SelectHighlighted), so it is composition input like any spelled symbol.
+  if (key == 0x20 && modifiers == 0 && spelling_symbols.find(' ') != std::string_view::npos)
+    return EditKind::Character;
   if (translate_key(packet).kind != KeyKind::Character)
     return EditKind::None;
   if (microsoft_shuangpin && mode == "none" && key == 0xBA && text == ';') {
@@ -71,7 +75,8 @@ inline EditKind edit_kind(const FanyImeNamedpipeData &packet,
     if ((caret - start) % 2 == 1)
       return EditKind::Character;
   }
-  if (composing && modifiers == 0 && text == '\'' && mode == "none")
+  // The pinyin syllable separator. Under Stroke (scheme::ApostropheIsPunctuationWhileComposing) the Engine refuses it, so it goes on to the punctuation route like a comma.
+  if (composing && modifiers == 0 && text == '\'' && mode == "none" && !apostrophe_is_punctuation)
     return EditKind::Character;
   if (key >= 'A' && key <= 'Z' &&
       ((text >= 'a' && text <= 'z') || (text >= 'A' && text <= 'Z')))

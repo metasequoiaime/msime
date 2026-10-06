@@ -5,6 +5,26 @@
 use crate::*;
 use msime_client_core::is_bounded_text;
 
+fn traditional_retry_inputs(
+    candidates: &[(String, u8)],
+    glosses: &[String],
+) -> (Vec<(String, u8)>, Vec<usize>) {
+    let mut retry = Vec::with_capacity(candidates.len());
+    let mut retry_index = Vec::with_capacity(candidates.len());
+    for (index, ((text, source), gloss)) in candidates.iter().zip(glosses).enumerate() {
+        if !gloss.is_empty() {
+            continue;
+        }
+        let simplified =
+            msime_client_core::chinese_conversion::traditional_to_simplified_characters(text);
+        if simplified != *text {
+            retry.push((simplified, *source));
+            retry_index.push(index);
+        }
+    }
+    (retry, retry_index)
+}
+
 /// Plan eligible visible candidates using shared script filters. No I/O.
 /// # Safety
 /// `request` must reference `length` readable bytes for this call.
@@ -571,54 +591,64 @@ pub unsafe extern "C" fn msime_client_candidate_gloss_request(
         {
             return Err("user data path must be absolute".into());
         }
-        let glosses = match target_language.as_deref() {
-            None | Some("en") => {
-                let mut glosses = msime_engine::host::candidate_glosses_with_user(
-                    resources,
-                    user_data,
-                    &candidates,
-                )
-                .map_err(|_| "candidate gloss dictionary unavailable")?;
-                // What the user's own glossary contributed is what differs from the packaged answer; that stays.
-                let learned = if user_data.is_empty() {
-                    vec![false; glosses.len()]
-                } else {
-                    msime_engine::host::candidate_glosses(resources, &candidates)
-                        .map(|packaged| {
-                            glosses
-                                .iter()
-                                .zip(&packaged)
-                                .map(|(gloss, packaged)| gloss != packaged)
-                                .collect::<Vec<_>>()
-                        })
-                        .unwrap_or_else(|_| vec![true; glosses.len()])
-                };
-                crate::supplementary_glosses::prefer(
-                    std::path::Path::new(resources),
-                    &candidates,
-                    &mut glosses,
-                    &learned,
-                );
-                glosses
-            }
-            // Another language reads only its offline dictionary: the learned store and custom_translations.txt hold English. A dictionary that is not installed answers nothing, so the host keeps whatever the online path brings.
-            Some(language) if crate::OFFLINE_GLOSS_LANGUAGES.contains(&language) => {
-                let Some(database) =
-                    crate::offline_glosses_beside(std::path::Path::new(resources), language)
-                else {
-                    return Ok(json!({
-                        "generation": generation,
-                        "translations": [],
-                    }));
-                };
-                let database = database
-                    .to_str()
-                    .ok_or("candidate gloss dictionary unavailable")?;
-                msime_engine::host::candidate_target_glosses(database, language, &candidates)
-                    .map_err(|_| "candidate gloss dictionary unavailable")?
-            }
-            Some(_) => return Err("invalid candidate gloss request".into()),
+        let lookup = |candidates: &[(String, u8)]| -> Result<Vec<String>, String> {
+            Ok(match target_language.as_deref() {
+                None | Some("en") => {
+                    let mut glosses = msime_engine::host::candidate_glosses_with_user(
+                        resources, user_data, candidates,
+                    )
+                    .map_err(|_| "candidate gloss dictionary unavailable")?;
+                    // What the user's own glossary contributed is what differs from the packaged answer; that stays.
+                    let learned = if user_data.is_empty() {
+                        vec![false; glosses.len()]
+                    } else {
+                        msime_engine::host::candidate_glosses(resources, candidates)
+                            .map(|packaged| {
+                                glosses
+                                    .iter()
+                                    .zip(&packaged)
+                                    .map(|(gloss, packaged)| gloss != packaged)
+                                    .collect::<Vec<_>>()
+                            })
+                            .unwrap_or_else(|_| vec![true; glosses.len()])
+                    };
+                    crate::supplementary_glosses::prefer(
+                        std::path::Path::new(resources),
+                        candidates,
+                        &mut glosses,
+                        &learned,
+                    );
+                    glosses
+                }
+                // Another language reads only its offline dictionary: the learned store and custom_translations.txt hold English. A dictionary that is not installed answers nothing, so the host keeps whatever the online path brings.
+                Some(language) if crate::OFFLINE_GLOSS_LANGUAGES.contains(&language) => {
+                    let Some(database) =
+                        crate::offline_glosses_beside(std::path::Path::new(resources), language)
+                    else {
+                        return Ok(vec![String::new(); candidates.len()]);
+                    };
+                    let database = database
+                        .to_str()
+                        .ok_or("candidate gloss dictionary unavailable")?;
+                    msime_engine::host::candidate_target_glosses(database, language, candidates)
+                        .map_err(|_| "candidate gloss dictionary unavailable")?
+                }
+                Some(_) => return Err("invalid candidate gloss request".into()),
+            })
         };
+        let mut glosses = lookup(&candidates)?;
+        // The gloss tables are keyed by Simplified text, so a Traditional candidate - a Korean Hanja such as 韓, or any candidate under Traditional output - finds nothing under its own spelling. Ask again under the Simplified characters for the ones that missed; the reply still names the candidate as shown.
+        if glosses.len() == candidates.len() {
+            let (retry, retry_index) = traditional_retry_inputs(&candidates, &glosses);
+            if !retry.is_empty() {
+                let found = lookup(&retry)?;
+                if found.len() == retry.len() {
+                    for (index, gloss) in retry_index.into_iter().zip(found) {
+                        glosses[index] = gloss;
+                    }
+                }
+            }
+        }
         if glosses.len() != candidates.len() {
             return Err("candidate gloss response mismatch".into());
         }
@@ -847,4 +877,20 @@ pub unsafe extern "C" fn msime_client_english_completions_request(
         .map_err(|_| "English completion dictionary unavailable")?;
         Ok(json!({"prefix": request.prefix, "items": items}))
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn traditional_retry_inputs_reserve_candidate_capacity() {
+        let candidates = vec![("學".to_owned(), 1), ("你好".to_owned(), 2)];
+        let glosses = vec![String::new(), String::new()];
+        let (retry, indexes) = traditional_retry_inputs(&candidates, &glosses);
+        assert_eq!(retry.len(), 1);
+        assert_eq!(indexes, [0]);
+        assert!(retry.capacity() >= candidates.len());
+        assert!(indexes.capacity() >= candidates.len());
+    }
 }

@@ -62,6 +62,18 @@ std::vector<std::string> files_with(const std::filesystem::path &directory, cons
 
 std::vector<std::string> staged(const std::filesystem::path &directory) { return files_with(directory, "decoration-"); }
 
+struct ShapeNameProbe {
+  std::size_t reserved = 0;
+  std::vector<std::string> names;
+
+  void reserve(std::size_t count) {
+    reserved = count;
+    names.reserve(count);
+  }
+
+  void push_back(std::string name) { names.push_back(std::move(name)); }
+};
+
 // Every Image= value in a theme with the @2x copy of each, sorted.
 std::vector<std::string> shapes_named(const std::string &theme) {
   std::vector<std::string> names;
@@ -247,6 +259,10 @@ int main() {
   // The images: every name the theme gives is generated, with an @2x copy, and they decode as the shapes they stand for.
   const auto files = host::fcitx_candidate_theme_files(wechat_dark, true);
   assert(files.conf == theme);
+  ShapeNameProbe shape_names;
+  host::fcitx_collect_shape_names(files, shape_names);
+  assert(shape_names.reserved == files.images.size());
+  assert(shape_names.names.size() == files.images.size());
   std::vector<std::string> generated;
   for (const auto &image : files.images) generated.push_back(image.file);
   std::sort(generated.begin(), generated.end());
@@ -528,6 +544,16 @@ int main() {
   assert(host::write_fcitx_candidate_theme(file, wechat_dark, true, std::nullopt));
   assert(read(file) == theme && staged(directory).empty());
   assert(files_with(directory, "shape-") == shapes_named(theme));
+
+  const auto outside = root / "outside-theme-state";
+  const auto linked = root / "linked-theme-state";
+  std::filesystem::create_directory(outside);
+  std::filesystem::create_directory_symlink(outside, linked);
+  // 以 root 身份运行时（Linux 容器里就是这样），root 自己不对外开放的目录里的链接会被当成受信任的系统链接（见 `src/core/SafePath.h`）；把目录改成其他人可写，这条链接就成了任何人都可能放进去的链接。
+  std::filesystem::permissions(root, std::filesystem::perms::others_write, std::filesystem::perm_options::add);
+  const auto linked_file = linked / "new-dir" / "theme.conf";
+  assert(!host::write_fcitx_candidate_theme(linked_file, plain, false, std::nullopt));
+  assert(!std::filesystem::exists(outside / "new-dir"));
 
   // The stamp stands in for the image between refreshes: nothing without a decoration, and a different one once the image changes.
   assert(host::fcitx_overlay_stamp(std::nullopt).empty());

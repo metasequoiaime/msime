@@ -57,13 +57,14 @@ mod tests {
             };
             assert_eq!(result["ok"], true);
             let headers = result["value"]["headers"].as_array().unwrap();
+            // An empty mode means api_key.
             assert_eq!(
                 headers.iter().any(|h| h[0] == "x-api-key"),
-                mode == "api_key"
+                mode != "legacy"
             );
             assert_eq!(
                 headers.iter().any(|h| h[0] == "x-api-app-key"),
-                mode != "api_key"
+                mode == "legacy"
             );
         }
         for request in [

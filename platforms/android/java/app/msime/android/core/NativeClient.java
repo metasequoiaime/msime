@@ -24,6 +24,7 @@ public final class NativeClient {
     /** The shared provider FFI rejects an online query document larger than this. */
     private static final int ONLINE_QUERY_LIMIT = 16_384;
     private static final int ENGLISH_COMPLETION_RESPONSE_LIMIT = 262_144;
+    private static final int ENGLISH_COMPLETION_RESOURCES_LIMIT = 4 * 1024;
     private static final int SHUANGPIN_PROFILE_LIMIT = 64;
     private static final int SHUANGPIN_HINT_RESPONSE_LIMIT = 65_536;
     private static final int SMART_PUNCTUATION_REQUEST_LIMIT = 4_096;
@@ -34,6 +35,8 @@ public final class NativeClient {
     private static String text(byte[] value) { return new String(value, StandardCharsets.UTF_8); }
     public static String create(String options) { return text(createRaw(options.getBytes(StandardCharsets.UTF_8))); }
     public static String prepareHost(String options) { return text(prepareHostRaw(options.getBytes(StandardCharsets.UTF_8))); }
+    /** Runs the shared `msime_client_refresh_host` on the runtime options file at the absolute `path`. */
+    public static String refreshHost(String path) { return text(refreshHostRaw(path.getBytes(StandardCharsets.UTF_8))); }
     /** Reads the current native dictionary version without creating a session. */
     public static String snapshotVersion(String options) {
         return text(snapshotVersionRaw(options.getBytes(StandardCharsets.UTF_8)));
@@ -63,6 +66,79 @@ public final class NativeClient {
     public static String themeCatalog() { return text(themeCatalogRaw()); }
     /** Resolves the colours of the selected global theme for one mode. Pure computation, safe on the main thread. */
     public static String resolveTheme(String request) { return text(resolveThemeRaw(request.getBytes(StandardCharsets.UTF_8))); }
+    /** 应用主题目录：`{app_themes:[{id,title,season,seasonal,light,dark}],default}`。纯计算。 */
+    public static String appThemeCatalog() { return text(appThemeCatalogRaw()); }
+    /** 应用主题在本地月份与明暗模式下的颜色：`{id,season,accent,accent_soft,on_accent,background,card,hair}`。纯计算，可在主线程调用。 */
+    public static String resolveAppTheme(String appTheme, int month, boolean dark) {
+        validateMonth(month);
+        try {
+            JSONObject request = new JSONObject().put("app_theme", appTheme).put("month", month)
+                .put("dark", dark);
+            return text(resolveAppThemeRaw(request.toString().getBytes(StandardCharsets.UTF_8)));
+        } catch (org.json.JSONException error) {
+            throw new IllegalArgumentException("Invalid app theme request", error);
+        }
+    }
+    /** 「重置所有设置」：把偏好按修订号比较并交换换回默认值，返回新的快照。读写文件，在工作线程调用。 */
+    public static String restoreDefaultPreferences(String directory, long expectedRevision) {
+        if (expectedRevision < 0) throw new IllegalArgumentException("Invalid preferences revision");
+        return text(restoreDefaultPreferencesRaw(utf8(directory), expectedRevision));
+    }
+    /** 本版本的默认偏好文档（Android 新装默认值）。纯计算。 */
+    public static String defaultPreferences() { return text(defaultPreferencesRaw()); }
+    /** 指定宿主（如 "android"）的能力描述。纯计算。 */
+    public static String hostCapabilities(String platform) { return text(hostCapabilitiesRaw(utf8(platform))); }
+    /** 词库管理请求 `{options,action}`（列表、搜索、编辑、导入、导出）。会等待词库锁，在工作线程调用。 */
+    public static String dictionary(String request) { return text(dictionaryRaw(utf8(request))); }
+    /** 个人词库队列请求，键盘活着时也能写词条和导入。在工作线程调用。 */
+    public static String personalDictionaryRequest(String request) {
+        return text(personalDictionaryRequestRaw(utf8(request)));
+    }
+    /** 每行一个纯汉字词，答复为按规范拼音生成的词条 `{entries}`。只读内置词库，在工作线程调用。 */
+    public static String dictionaryHansEntries(String text, String resources) {
+        return text(dictionaryHansEntriesRaw(utf8(text), utf8(resources)));
+    }
+    /** 导入前预览：词库文件 `{kind,format,text}` 解析成可入队的词条与导入报告。在工作线程调用。 */
+    public static String dictionaryImportEntries(String request, String resources) {
+        return text(dictionaryImportEntriesRaw(utf8(request), utf8(resources)));
+    }
+    /** 内置词库的版本信息 `{profile,sourceCommit}`。读文件，在工作线程调用。 */
+    public static String dictionaryManifest(String resources) { return text(dictionaryManifestRaw(utf8(resources))); }
+    /** 插件包仓库与 @ 名单请求 `{state_root,sound_packs,action}`。读写文件，在工作线程调用。 */
+    public static String plugins(String request) { return text(pluginsRaw(utf8(request))); }
+    /** 社区资源本地库（保留的回复模板等）请求。持有文件锁，在工作线程调用。 */
+    public static String communityResourceLibrary(String request) {
+        return text(communityResourceLibraryRaw(utf8(request)));
+    }
+    /** AI 设计皮肤的 compose / parse / artwork 决策；HTTP 由宿主自己发。纯计算。 */
+    public static String aiSkinPlan(String request) { return text(aiSkinPlanRaw(utf8(request))); }
+    /** 皮肤试用的结束与崩溃恢复。写偏好，在工作线程调用。 */
+    public static String keyboardSkinTrial(String request) { return text(keyboardSkinTrialRaw(utf8(request))); }
+    /** 社区皮肤安装并开始试用。写偏好与两个加锁文件，在工作线程调用。 */
+    public static String communitySkinInstall(String request) { return text(communitySkinInstallRaw(utf8(request))); }
+    /** 一个按键音包校验后的文件清单 `{state_root,sound_packs,pack}`。读文件，不在按键路径上调用。 */
+    public static String keySoundPack(String request) { return text(keySoundPackRaw(utf8(request))); }
+    /** 无编码常用语 `{directory,action}`，返回整份文档；设置进程和键盘进程都用。持有文件锁，在工作线程调用。 */
+    public static String commonPhrases(String request) { return text(commonPhrasesRaw(utf8(request))); }
+    /** 命名词库 `{options,action}`，词条经个人词库队列送进 Engine。读写文件，在工作线程调用。 */
+    public static String dictionaryCollections(String request) {
+        return text(dictionaryCollectionsRaw(utf8(request)));
+    }
+    /** 诊断包 `{state_root,include,sources,destination}`：写 zip，或不带 destination 时返回上传用的 sections。输入事件只保留白名单字段，配置快照已脱敏。在工作线程调用。 */
+    public static String diagnosticBundle(String request) { return text(diagnosticBundleRaw(utf8(request))); }
+    /** 本机设置导出成账号设置文档的键值（可附带合并后的整份文档）；凭据与设备本地设置不导出。读偏好，在工作线程调用。 */
+    public static String accountSettingsExport(String request) {
+        return text(accountSettingsExportRaw(utf8(request)));
+    }
+    /** 把云端设置文档应用到本机偏好并按修订号保存，返回保存后的快照、按键反馈、皮肤库与跳过的键。在工作线程调用。 */
+    public static String accountSettingsApply(String request) {
+        return text(accountSettingsApplyRaw(utf8(request)));
+    }
+
+    private static void validateMonth(int month) {
+        if (month < 1 || month > 12) throw new IllegalArgumentException("Month must be between 1 and 12");
+    }
+
     /** Classifies committed text and adds batched per-key press counts in native memory, and persists only aggregate counts. Call on a worker. */
     public static String typingStatistics(String request) {
         return text(typingStatisticsRaw(request.getBytes(StandardCharsets.UTF_8)));
@@ -121,6 +197,8 @@ public final class NativeClient {
             JSONObject request = new JSONObject().put("prefix", prefix).put("limit", 12);
             byte[] requestBytes = request.toString().getBytes(StandardCharsets.UTF_8);
             byte[] resourcesBytes = resources.getBytes(StandardCharsets.UTF_8);
+            if (resourcesBytes.length > ENGLISH_COMPLETION_RESOURCES_LIMIT)
+                throw new IllegalArgumentException("English completion resources are too large");
             byte[] result = englishCompletionsRaw(requestBytes, resourcesBytes);
             if (result == null || result.length > ENGLISH_COMPLETION_RESPONSE_LIMIT)
                 throw new IllegalStateException("English completion response is too large");
@@ -132,14 +210,10 @@ public final class NativeClient {
     /**
      * The polish prompt the selected slot resolves to.
      *
-     * <p>Decided by the shared C++ header the other hosts read, not by this host: the
-     * slot-versus-legacy precedence has been wrong on individual hosts before, and the preset
-     * bodies carry their own prompt-injection wording that must not drift between copies.
+     * <p>Decided by the shared C++ header the other hosts read, not by this host: slot precedence has been wrong on individual hosts before, and the preset bodies carry their own prompt-injection wording that must not drift between copies.
      */
-    public static String polishPrompt(String id, String legacy, String custom1, String custom2,
-                                      String custom3) {
-        return text(polishPromptRaw(utf8(id), utf8(legacy), utf8(custom1), utf8(custom2),
-                                    utf8(custom3)));
+    public static String polishPrompt(String id, String custom1, String custom2, String custom3) {
+        return text(polishPromptRaw(utf8(id), utf8(custom1), utf8(custom2), utf8(custom3)));
     }
 
     private static byte[] utf8(String value) {
@@ -195,11 +269,24 @@ public final class NativeClient {
         return text(savePreferencesRaw(directory.getBytes(StandardCharsets.UTF_8), expectedRevision,
             snapshot.getBytes(StandardCharsets.UTF_8)));
     }
+    /** Usage reporting (msime_client_telemetry_*): begin, end and clear touch only files; flush blocks on the network. Call on a worker. */
+    public static String telemetryBegin(String request) { return text(telemetryBeginRaw(request.getBytes(StandardCharsets.UTF_8))); }
+    public static String telemetryEnd(String request) { return text(telemetryEndRaw(request.getBytes(StandardCharsets.UTF_8))); }
+    public static String telemetryFlush(String request) { return text(telemetryFlushRaw(request.getBytes(StandardCharsets.UTF_8))); }
+    public static String telemetryClear(String request) { return text(telemetryClearRaw(request.getBytes(StandardCharsets.UTF_8))); }
+    /** The app notices feed (cached for a minute, dismissed ones left out). Blocks on the network: call on a worker, from the app, never from the input method. */
+    public static String notices(String request) { return text(noticesRaw(request.getBytes(StandardCharsets.UTF_8))); }
+    public static String noticeDismiss(String request) { return text(noticeDismissRaw(request.getBytes(StandardCharsets.UTF_8))); }
     /** Applies a bounded batch of queued personal dictionary edits. Call with no active session. */
     public static String personalDictionarySync(String options) {
         return text(personalDictionarySyncRaw(options.getBytes(StandardCharsets.UTF_8)));
     }
     public static String focus(long session, boolean focused) { return text(focusRaw(session, focused)); }
+    /** 标出隐私会话：选词位置和上屏效率不记入打字统计。 */
+    public static String setPrivateSession(long session, boolean enabled) {
+        return text(setPrivateSessionRaw(session, enabled));
+    }
+
     public static String setNineKeyMode(long session, boolean enabled) {
         return text(setNineKeyModeRaw(session, enabled));
     }
@@ -422,21 +509,49 @@ public final class NativeClient {
     public static String destroy(long session) { return text(destroyRaw(session)); }
     private static native byte[] createRaw(byte[] options);
     private static native byte[] prepareHostRaw(byte[] options);
+    private static native byte[] refreshHostRaw(byte[] path);
     private static native byte[] snapshotVersionRaw(byte[] options);
     private static native byte[] snapshotPrepareRaw(byte[] request, byte[] file);
     private static native byte[] snapshotDiscardRaw(long handle);
     private static native byte[] snapshotActivateRaw(long handle, byte[] expectedVersion);
     private static native byte[] loadPreferencesRaw(byte[] directory);
+    private static native byte[] telemetryBeginRaw(byte[] request);
+    private static native byte[] telemetryEndRaw(byte[] request);
+    private static native byte[] telemetryFlushRaw(byte[] request);
+    private static native byte[] telemetryClearRaw(byte[] request);
+    private static native byte[] noticesRaw(byte[] request);
+    private static native byte[] noticeDismissRaw(byte[] request);
     private static native byte[] typingStatisticsRaw(byte[] request);
     private static native int typingStatisticsEnabledRaw(byte[] directory);
     private static native byte[] themeCatalogRaw();
     private static native byte[] resolveThemeRaw(byte[] request);
+    private static native byte[] appThemeCatalogRaw();
+    private static native byte[] resolveAppThemeRaw(byte[] request);
+    private static native byte[] restoreDefaultPreferencesRaw(byte[] directory, long expectedRevision);
+    private static native byte[] defaultPreferencesRaw();
+    private static native byte[] hostCapabilitiesRaw(byte[] platform);
+    private static native byte[] dictionaryRaw(byte[] request);
+    private static native byte[] personalDictionaryRequestRaw(byte[] request);
+    private static native byte[] dictionaryHansEntriesRaw(byte[] text, byte[] resources);
+    private static native byte[] dictionaryImportEntriesRaw(byte[] request, byte[] resources);
+    private static native byte[] dictionaryManifestRaw(byte[] resources);
+    private static native byte[] pluginsRaw(byte[] request);
+    private static native byte[] communityResourceLibraryRaw(byte[] request);
+    private static native byte[] aiSkinPlanRaw(byte[] request);
+    private static native byte[] keyboardSkinTrialRaw(byte[] request);
+    private static native byte[] communitySkinInstallRaw(byte[] request);
+    private static native byte[] keySoundPackRaw(byte[] request);
+    private static native byte[] commonPhrasesRaw(byte[] request);
+    private static native byte[] dictionaryCollectionsRaw(byte[] request);
+    private static native byte[] diagnosticBundleRaw(byte[] request);
+    private static native byte[] accountSettingsExportRaw(byte[] request);
+    private static native byte[] accountSettingsApplyRaw(byte[] request);
     private static native byte[] vocabularyReviewRaw(byte[] request);
     private static native byte[] emojiCatalogRaw(byte[] query, byte[] resources);
     private static native byte[] candidateGlossesRaw(byte[] request, byte[] resources);
     private static native byte[] englishCompletionsRaw(byte[] request, byte[] resources);
-    private static native byte[] polishPromptRaw(byte[] id, byte[] legacy, byte[] custom1,
-        byte[] custom2, byte[] custom3);
+    private static native byte[] polishPromptRaw(byte[] id, byte[] custom1, byte[] custom2,
+        byte[] custom3);
     private static native byte[] mobileClipboardHistoryRaw(byte[] request);
     private static native byte[] doubaoDecodeFrameRaw(byte[] frame);
     private static native byte[] doubaoStartFrameRaw(boolean itn, boolean punctuation, boolean ddc,
@@ -448,6 +563,7 @@ public final class NativeClient {
     private static native byte[] personalDictionarySyncRaw(byte[] options);
     private static native byte[] focusRaw(long session, boolean focused);
     private static native byte[] setNineKeyModeRaw(long session, boolean enabled);
+    private static native byte[] setPrivateSessionRaw(long session, boolean enabled);
     private static native byte[] setEnglishModeRaw(long session, boolean enabled);
     private static native byte[] mobileVoiceConfigurationRaw(byte[] directory);
     private static native byte[] simplifiedToTraditionalRaw(byte[] text);

@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { useConfirm } from "../core/confirm";
 import { errorCode } from "../core/error-code";
+import { ActionButton } from "../core/action-button";
 import * as chat from "./chat-style";
 import { boundedHistory, chatMessageByteLength, MAX_MESSAGE_BYTES } from "./chat-history";
 import { chatError } from "./chat-errors";
+import { useAsyncGeneration } from "../settings/use-async-generation";
+import { useMountedRef } from "../settings/use-mounted-ref";
 
 export type ChatMessage = {
   role: "user" | "assistant" | "system";
@@ -47,15 +50,18 @@ export function ChatPage({
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const [loginNeeded, setLoginNeeded] = useState(false);
-  const generation = useRef(0);
-  const modelGeneration = useRef(0);
-  const mounted = useRef(true);
+  const generation = useAsyncGeneration(client);
+  const modelGeneration = useAsyncGeneration(client);
+  const mounted = useMountedRef();
+  const sendingRef = useRef(false);
+  const modelsRunning = useRef(false);
   const nextMessageId = useRef(1);
   const composer = useRef<HTMLTextAreaElement>(null);
 
   const loadModels = async () => {
-    if (!mounted.current) return;
-    const current = ++modelGeneration.current;
+    if (!mounted.current || modelsRunning.current) return;
+    modelsRunning.current = true;
+    const current = modelGeneration.current;
     setLoadingModels(true);
     setError("");
     setLoginNeeded(false);
@@ -72,17 +78,16 @@ export function ChatPage({
       setLoginNeeded(unauthorized);
       setError(chatError(cause));
     } finally {
+      if (modelGeneration.current === current) modelsRunning.current = false;
       if (mounted.current && modelGeneration.current === current) setLoadingModels(false);
     }
   };
 
   useEffect(() => {
-    mounted.current = true;
     void loadModels();
     return () => {
-      mounted.current = false;
-      modelGeneration.current += 1;
-      generation.current += 1;
+      sendingRef.current = false;
+      modelsRunning.current = false;
     };
   }, [client]);
 
@@ -93,8 +98,9 @@ export function ChatPage({
   }, [autoFocus]);
 
   const requestReply = async (history: DisplayMessage[]) => {
-    if (sending || !selectedModel) return;
+    if (sending || sendingRef.current || !selectedModel) return;
     const version = ++generation.current;
+    sendingRef.current = true;
     setSending(true);
     setError("");
     try {
@@ -110,7 +116,10 @@ export function ChatPage({
       setLoginNeeded(unauthorized);
       setError(chatError(cause));
     } finally {
-      if (generation.current === version) setSending(false);
+      if (generation.current === version) {
+        sendingRef.current = false;
+        setSending(false);
+      }
     }
   };
 
@@ -140,6 +149,7 @@ export function ChatPage({
 
   const cancel = () => {
     generation.current += 1;
+    sendingRef.current = false;
     setSending(false);
   };
 
@@ -176,28 +186,22 @@ export function ChatPage({
               </select>
             )
           )}
-          <button
-            type="button"
+          <ActionButton
+            action={() => void loadModels()}
             className="secondary"
             disabled={loadingModels || sending}
-            onClick={() => void loadModels()}
-          >
-            刷新模型
-          </button>
+            label="刷新模型"
+          />
         </div>
       </div>
       {loginNeeded && onLogin && (
-        <button type="button" className={`primary ${chat.login}`} onClick={onLogin}>
-          登录使用 AI
-        </button>
+        <ActionButton action={onLogin} className={`primary ${chat.login}`} label="登录使用 AI" />
       )}
       {error && (
         <div className={chat.error} role="alert">
           <span>{error}</span>
           {!loginNeeded && messages.at(-1)?.role === "user" && (
-            <button type="button" className="secondary" disabled={sending} onClick={retry}>
-              重试
-            </button>
+            <ActionButton action={retry} className="secondary" disabled={sending} label="重试" />
           )}
         </div>
       )}
@@ -238,11 +242,8 @@ export function ChatPage({
           }}
         />
         <div className={chat.actions}>
-          <button
-            type="button"
-            className="secondary"
-            disabled={!messages.length && !draft}
-            onClick={() => {
+          <ActionButton
+            action={() => {
               if (!messages.length) {
                 clear();
                 return;
@@ -255,22 +256,19 @@ export function ChatPage({
                 if (confirmed) clear();
               });
             }}
-          >
-            新对话
-          </button>
+            className="secondary"
+            disabled={!messages.length && !draft}
+            label="新对话"
+          />
           {sending ? (
-            <button type="button" className="secondary" onClick={cancel}>
-              取消
-            </button>
+            <ActionButton action={cancel} className="secondary" label="取消" />
           ) : (
-            <button
-              type="button"
+            <ActionButton
+              action={send}
               className="primary"
               disabled={!draft.trim() || (!loginNeeded && !selectedModel)}
-              onClick={send}
-            >
-              发送
-            </button>
+              label="发送"
+            />
           )}
         </div>
         <small>

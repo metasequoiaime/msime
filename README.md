@@ -15,7 +15,7 @@
 
 水杉输入法（MSIME）是面向 Android、iOS、macOS、Linux、Windows 与 HarmonyOS 的多平台中文输入法。六个平台各有自己的原生输入法宿主，都接入同一套共享输入运行时和同一份 React 设置界面；React 管理界面通过 Tauri 调用普通 Rust 业务库；输入算法由 msime-engine 提供。
 
-项目主页：[msime.app](https://msime.app/) · [GitHub 仓库](https://github.com/metasequoiaime/msime) · [贡献者](https://github.com/metasequoiaime/msime/graphs/contributors) · [问题反馈](https://github.com/metasequoiaime/msime/issues)
+项目主页：[msime.app](https://msime.app/) · [GitHub 仓库](https://github.com/metasequoiaime/msime) · [贡献者](https://github.com/metasequoiaime/msime/graphs/contributors) · [问题反馈](https://github.com/metasequoiaime/msime/issues) · [代码签名策略 / Code signing policy](https://github.com/metasequoiaime/msime-windows/blob/develop/docs/code-signing-policy.md)
 
 ## Star History
 
@@ -23,7 +23,7 @@
 
 > **关于名称**：MSIME 是 Metasequoia IME（水杉输入法）的缩写，与 Microsoft IME 无关，也与微软没有任何关联。代码、包名和仓库名中的 `msime` 一律是这个含义。设置中的 `shuangpin_profile: microsoft` 是「微软双拼」方案，与小鹤、自然码、首道并列的四个键位方案之一，供习惯该键位的用户选择，同样不代表任何关联。
 
-**输入法能看到你输入的一切，所以这个问题应该有一个能逐条核对的答案：[哪些数据会离开设备](PRIVACY.md)。**简短版本：默认配置下只有云联想一个功能会把正在组的拼音发出去（发给 Google 输入工具，可关闭），其余联网功能都要你自己填凭据才会工作。另有一条不携带输入内容的自有上报：macOS、iOS、Android、Linux、HarmonyOS 会在启动时向 `api.msime.app` 发一次安装计数，其中除 HarmonyOS 外还会在崩溃时发送异常信息，默认开启且目前没有开关；Windows 上同一条上报默认关闭，要在设置页「关于」里打开「匿名使用统计」才会发送——字段、逐平台差异和落盘位置逐条列在 [PRIVACY.md](PRIVACY.md#安装与崩溃上报)。仓库不接入任何第三方统计或崩溃上报 SDK。
+**输入法能看到你输入的一切，所以这个问题应该有一个能逐条核对的答案：[哪些数据会离开设备](PRIVACY.md)。**简短版本：新装的默认配置下没有功能会把你输入的内容发出设备；云联想（把正在组的拼音发给 Google 输入工具）要你在首次询问或设置里打开，其余联网功能都要你自己填凭据或选择服务才会工作。另有一条不携带输入内容的自有匿名使用统计：六个平台都会向 `api.msime.app` 发送每日活跃、会话和崩溃（错误摘要与去掉目录的调用栈）记录，默认开启，可以在设置的「匿名使用统计」里关闭——字段、逐平台差异和落盘位置逐条列在 [PRIVACY.md](PRIVACY.md#使用统计与崩溃上报默认开启可关闭)。仓库不接入任何第三方统计或崩溃上报 SDK。
 
 ## 模块边界
 
@@ -56,7 +56,7 @@
 
 ## 开发
 
-贡献代码前请阅读 [架构说明](ARCHITECTURE.md)、[贡献指南](CONTRIBUTING.md)、[安全策略](SECURITY.md)、[网络请求与数据流向](PRIVACY.md) 和 [行为准则](CODE_OF_CONDUCT.md)。准备公开源代码或平台构建物时，再阅读 [开源发布清单](docs/open-source-release.md) 和[第三方组件清单](docs/third-party.md)；它们列出第三方通知、资源许可、敏感文件检查和验证边界。各平台宿主的构建、测试与安装细节以对应的 `platforms/<os>/README.md` 为准。制作音效包、音乐包、指令表或特效包，见[扩展包作者指南](docs/plugins.md)。
+贡献代码前请阅读 [架构说明](ARCHITECTURE.md)、[贡献指南](CONTRIBUTING.md)、[安全策略](SECURITY.md)、[网络请求与数据流向](PRIVACY.md) 和 [行为准则](CODE_OF_CONDUCT.md)。准备公开源代码或平台构建物时，再阅读 [开源发布清单](docs/open-source-release.md) 和[第三方组件清单](docs/third-party.md)；它们列出第三方通知、资源许可、敏感文件检查和验证边界。各平台宿主的构建、测试与安装细节以对应的 `platforms/<os>/README.md` 为准。制作音效包、音乐包、指令表、特效包、短语表、辅助码表、单词本或符号集，见[插件作者指南](docs/plugins.md)。
 
 跨平台的本地验证入口是 `bash scripts/verify-local.sh`：`--quick` 只跑编译阶段，是合并前的门禁；无参数跑全量，包含 Rust 测试、fmt、clippy、依赖审计、前端 lint 与类型检查、各原生宿主的 ctest 以及整句转换与逐键延迟评测。每个阶段把失败的测试名与 `scripts/known-failures.txt` 比对，只对不在清单里的名字失败。`git config core.hooksPath .githooks` 可以把 `--quick` 挂到 pre-push 上。
 
@@ -72,15 +72,15 @@ pnpm tauri dev
 
 桌面构建需要 [Tauri 平台依赖](https://tauri.app/start/prerequisites/)。`pnpm tauri build --debug --no-bundle` 构建不打包的开发二进制；面向用户的安装包由各平台自己的打包链产出——macOS 的 CMake bundle、Windows 的 `platforms/windows/installer/msime_setup.iss`、Linux 的 CPack（`-DMSIME_ENABLE_PACKAGING=ON`）、Android 的 `platforms/android/build-apk.sh`、HarmonyOS 的 `hvigorw assembleHap`、iOS 的 Xcode 工程。普通浏览器中只显示无法访问本地配置的提示，不模拟保存成功。
 
-桌面设置的应用标识和默认应用数据目录按平台命名：macOS 是 `app.msime.macos`，Windows 是 `app.msime.windows`，Linux 是 `app.msime.linux`；三者此前共用的 `app.msime.client` 只作为旧数据的来源继续读取。偏好保存在其中的 `preferences.json`。macOS 首次用正式标识启动时会完成默认状态初始化并重建其中的绝对路径；也可用绝对路径环境变量 `MSIME_CLIENT_STATE_DIR` 指向隔离开发目录。macOS 原生宿主读取同一份配置并在当前组词结束后应用更新；多个设置窗口同时保存时通过 revision 检测冲突，用户须显式重新读取后决定是否覆盖。
+桌面设置的应用标识和默认应用数据目录按平台命名：macOS 是 `app.msime.macos`，Windows 是 `app.msime.windows`，Linux 是 `app.msime.linux`。偏好保存在其中的 `preferences.json`。也可用绝对路径环境变量 `MSIME_CLIENT_STATE_DIR` 指向隔离开发目录。macOS 原生宿主读取同一份配置并在当前组词结束后应用更新；多个设置窗口同时保存时通过 revision 检测冲突，用户须显式重新读取后决定是否覆盖。
 
 Android 合包构建和设备测试见 [Android 宿主](platforms/android/README.md#tauri--react-共享设置合包)。Tauri 设置与原生 `:ime` 服务同包、不同进程，共享私有 files/bootstrap/state；关闭设置窗口不结束输入法进程。iOS 的产品宿主是 `platforms/ios` 的原生 App，它嵌入原生键盘扩展并通过 App Group 共享状态；Tauri/React 在 iOS 上只作为共享功能与界面的公共组件，不作为独立 App 启动。签名与设备安装步骤见 [iOS 宿主](platforms/ios/README.md)。
 
-共享设置支持 shuangpin_profile：xiaohe（小鹤）、ziranma（自然码）、shoudao（首道）、microsoft（微软）。旧配置缺省按小鹤读取且不自动改写，未知值拒绝；设置页在非双拼方案下禁用此选择但保留已选值。方案更改沿用组词结束后替换 Engine 的规则。新宿主会写出此字段，旧版本严格解析器可能拒绝新配置，设置端和宿主应成套更新，不得通过删除未知字段强行降级。
+共享设置支持 shuangpin_profile：xiaohe（小鹤）、ziranma（自然码）、shoudao（首道）、microsoft（微软）。缺省按小鹤读取，未知值拒绝；设置页在非双拼方案下禁用此选择但保留已选值。方案更改沿用组词结束后替换 Engine 的规则。
 
 Linux 本地构建、隔离 D-Bus / IBus 测试和安装后的首次配置见 [Linux 宿主](platforms/linux/README.md)。宿主支持设置文件自动重读，安装后由随装的 `msime-linux-setup` 备齐词库并准备运行配置；`msime-linux-setup --download` 按 `resources/desktop-dictionary.lock.json` 取回缺失词库，图形入口在缺少 `runtime-options.json` 时会打开同一套首次配置页。
 
-功能对齐以 MSIME-Windows 的完整功能为行为基线：公共业务和界面逐项接入共享层与 Tauri，Windows TSF DLL / Server 的进程和协议边界原样保留，Android、iOS、macOS、Linux 与 HarmonyOS 按各自系统能力适配。`scripts/test-reference-*.py` 把这条基线固化成可复跑的门禁——参考实现的出厂配置键、四个界面的机器可读能力清单、changelog 的每条特性、以及 `windows/`、`server/`、`ui/src` 下的每个源文件，都必须对应到本仓库的实现或一条写明理由的缺席记录。
+功能对齐以 MSIME-Windows 的完整功能为行为基线：公共业务和界面逐项接入共享层与 Tauri，Windows 沿用 TSF DLL 与 Server 分进程的结构，但两者之间的协议只服务本仓库同版本构建，不再兼容 MSIME-Windows 的旧配置、共享内存、无版本握手和旧语音管道，Android、iOS、macOS、Linux 与 HarmonyOS 按各自系统能力适配。`scripts/test-reference-*.py` 把这条基线固化成可复跑的门禁——参考实现的出厂配置键、四个界面的机器可读能力清单、changelog 的每条特性、以及 `windows/`、`server/`、`ui/src` 下的每个源文件，都必须对应到本仓库的实现或一条写明理由的缺席记录。
 
 ## 输入引擎
 
@@ -100,7 +100,7 @@ cargo test -p msime-engine --locked
 
 ## 固定词库资源
 
-`resources/desktop-dictionary.lock.json` 固定已发布 `dict-v2.0.1` 的来源、长度和 SHA-256。其中 `mozc_dictionary_oss_README.txt` 是日文词库的许可证全文，IPAdic 与 ICOT 的条款都要求它随词库一同分发，重新打包时不可省略；详见[第三方组件清单](docs/third-party.md#日文词库的分发义务)。首次下载约 170 MB。词库锁的 `source_commit` 记录这批词库是上游 Engine 哪次提交产出的，其中 `bigram.bin` 与 `trigram.bin` 是整句词格仲裁的语言模型表。表缺失时 engine 不报错，只是整句路径不加权——候选照出，顺序变差，所以换词库版本时要确认 `crates/engine` 还读得了新表，并重跑句子转换评测。开发准备命令：
+`resources/desktop-dictionary.lock.json` 固定 `metasequoiaime/msime-dictionary` 已发布 `dict-v2.0.14` 的来源、长度和 SHA-256。其中 `msime-mozc_dictionary_oss_README.txt` 与 `msime-mozc_LICENSE.txt` 是日文词库的许可证全文（前者是 IPAdic 与 ICOT 的条款，后者是 Mozc 的三条款 BSD），`msime-scowl_Copyright.txt` 是 `msime-english.db` 里 SCOWL 词表的版权与许可声明，它们的条款都要求随数据一同分发，重新打包时不可省略；详见[第三方组件清单](docs/third-party.md#日文词库的分发义务)。首次下载约 189 MB。词库锁的 `source_commit` 记录这批词库是本仓库哪次提交用 `msime-dict-build` 产出的，其中 `msime-bigram.bin` 与 `msime-trigram.bin` 是整句词格仲裁的语言模型表。表缺失时 engine 不报错，只是整句路径不加权——候选照出，顺序变差，所以换词库版本时要确认 `crates/engine` 还读得了新表，并重跑句子转换评测。开发准备命令：
 
 ```sh
 cargo run -p msime-client-core --example install_resources -- target/resources
@@ -120,9 +120,17 @@ cargo run -p msime-engine --example query_dictionary -- <上一步返回的资�
 python3 scripts/fetch_neural_model.py --out target/neural-model
 ```
 
-下载只接受 HTTPS，先写入临时文件，再逐个核对锁定的长度和 SHA-256 后改名发布；已有摘要匹配的文件会跳过。macOS、Windows 和 Linux 的资源打包会优先继续接受历史的 `target/settled-model` 目录，并在它缺失时自动使用这个 `target/neural-model` 目录里的桌面模型。键盘模型仍由 `desktop-dictionary.lock.json` 的词库资源安装器校验并复制进 EngineResources，两个锁都保留作来源记录。
+下载只接受 HTTPS，先写入临时文件，再逐个核对锁定的长度和 SHA-256 后改名发布；已有摘要匹配的文件会跳过。发布的安装包都不带桌面模型，用户打开「桌面神经联想」时由设置应用按需下载（资源包 `settled-model`）；本地构建和发行版打包仍可以随包带上它，这时资源打包优先接受历史的 `target/settled-model` 目录，缺失时自动使用这个 `target/neural-model` 目录里的桌面模型，随包的那份优先于下载的。键盘模型仍由 `desktop-dictionary.lock.json` 的词库资源安装器校验并复制进 EngineResources，两个锁都保留作来源记录。
 
 macOS 原生 IMK bundle 的构建、隔离状态目录与安装见 [macOS 宿主](platforms/macos/README.md)。`platforms/macos/scripts/install.sh` 用 Developer ID 重签并原子替换到 `~/Library/Input Methods`，失败回滚；`platforms/macos/scripts/check_input_source.swift` 核查输入源注册结果。
+
+## 代码签名策略 / Code signing policy
+
+Windows 正式版目前由 [msime-windows](https://github.com/metasequoiaime/msime-windows) 构建、签名和发布，签名适用那边的 [Code signing policy](https://github.com/metasequoiaime/msime-windows/blob/develop/docs/code-signing-policy.md)：
+
+Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/).
+
+本仓库的 `release-windows.yml` 只产出未签名的 Windows 安装包，不使用任何签名凭据。其余平台按各自平台的机制签名，不经过 SignPath。隐私说明见 [PRIVACY.md](PRIVACY.md)。
 
 ## 许可证
 

@@ -5,6 +5,7 @@ import {
   validFontFamily,
   type CandidateFontPreferences,
 } from "./candidate-font-family";
+import { useAsyncGeneration } from "../settings/use-async-generation";
 
 export type FontFamilyResolver = (names: string[]) => Promise<string[]>;
 
@@ -28,14 +29,15 @@ export function useResolvedCandidateFonts<T extends CandidateFontPreferences>(
     [encoded, resolve],
   );
   const [result, setResult] = useState<{ request: typeof request; names: string[] }>();
+  const generation = useAsyncGeneration(request);
   useEffect(() => {
-    let active = true;
+    const requestGeneration = generation.current;
     if (request.resolve && request.names.length <= 33 && request.names.every(validFontFamily)) {
       void (async () => {
         try {
           const resolved: unknown = await request.resolve!(request.names);
           if (
-            active &&
+            generation.current === requestGeneration &&
             Array.isArray(resolved) &&
             resolved.length === request.names.length &&
             resolved.every((name) => validFontFamily(name) && !/[\x00-\x1f\x7f]/.test(name))
@@ -43,14 +45,11 @@ export function useResolvedCandidateFonts<T extends CandidateFontPreferences>(
             setResult({ request, names: resolved });
           }
         } catch {
-          /* Older hosts and unavailable fonts keep literal names. */
+          /* Unavailable fonts keep literal names. */
         }
       })();
     }
-    return () => {
-      active = false;
-    };
-  }, [request]);
+  }, [request, generation]);
   if (result?.request !== request) return preferences;
   return {
     ...preferences,

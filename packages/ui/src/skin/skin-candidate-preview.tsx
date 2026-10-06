@@ -22,6 +22,39 @@ export type PreviewBackground = {
   opacity: number;
 };
 
+/** 预览要预留的最高排布：设置页上能切换的排列方式和每页数量里最高的那一种。 */
+export type PreviewReserve = { orientation: "horizontal" | "vertical"; count: number };
+
+type SkinCandidatePreviewProps = Parameters<typeof SkinCandidatePreview>[0];
+
+/**
+ * 设置页顶部的候选预览：高度按 `reserve` 预留，切换横向／纵向或拖动每页数量时预览框不变高、不变矮，下面的控件就不会在鼠标底下跳动。
+ *
+ * 预留靠一份不可见的同款样例撑开：它和实际样例叠在同一个网格单元里，用同样的字号、皮肤几何和装饰带，量出来的就是那种排布真实的高度，不必按行高去估算，也就不会裁掉大皮肤或装饰图。实际样例在格子里垂直居中。不传 `reserve` 时与 `SkinCandidatePreview` 完全相同。
+ */
+export function ReservedCandidatePreview({
+  reserve,
+  ...props
+}: SkinCandidatePreviewProps & { reserve?: PreviewReserve }) {
+  if (!reserve) return <SkinCandidatePreview {...props} />;
+  return (
+    <div className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)] items-center justify-items-start [&>*]:[grid-area:1/1]">
+      <SkinCandidatePreview {...props} />
+      {/* 只为占位：不画图片（装饰图和背景图都是绝对定位，不影响尺寸），始终带拼音行，免得隐藏拼音行时预览变矮。 */}
+      <div className="invisible" aria-hidden="true" data-preview-reserve="">
+        <SkinCandidatePreview
+          orientation={reserve.orientation}
+          count={reserve.count}
+          preedit
+          helpcode={props.helpcode}
+          decorated={props.decorated}
+          ghost
+        />
+      </div>
+    </div>
+  );
+}
+
 export function SkinCandidatePreview({
   orientation,
   decorated = false,
@@ -32,6 +65,7 @@ export function SkinCandidatePreview({
   count = 6,
   preedit = true,
   helpcode = false,
+  ghost = false,
 }: {
   orientation: "horizontal" | "vertical";
   decorated?: boolean;
@@ -43,6 +77,8 @@ export function SkinCandidatePreview({
   preedit?: boolean;
   /** Off unless the caller says otherwise: the core's default scheme is 全拼, whose helper codes stay out of the candidate window by default. */
   helpcode?: boolean;
+  /** 只用来占位的那一份不带 `data-preview-layout`，读预览排布的地方只会找到实际样例。 */
+  ghost?: boolean;
 }) {
   const horizontal = orientation === "horizontal";
   const visibleCount = Number.isFinite(count) ? clamp(Math.trunc(count), 1, 9) : 6;
@@ -100,7 +136,10 @@ export function SkinCandidatePreview({
     </div>
   );
   return (
-    <div className={`candidate wnd-${horizontal ? "h" : "v"}`} data-preview-layout={orientation}>
+    <div
+      className={`candidate wnd-${horizontal ? "h" : "v"}`}
+      data-preview-layout={ghost ? undefined : orientation}
+    >
       {decorated ? (
         <div className="containerParent">
           {image && (

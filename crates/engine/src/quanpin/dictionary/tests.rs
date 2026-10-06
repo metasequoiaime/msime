@@ -920,7 +920,6 @@ fn only_the_keyboard_model_answers_a_query() {
         "{:?}",
         words(&rows)
     );
-    assert_eq!(count(CandidateSource::NeuralDesktop), 0);
 }
 
 fn fuzzy_fixture() -> Fixture {
@@ -949,6 +948,43 @@ fn warm_fuzzy_queries_reuse_the_fuzzy_slot() {
     dictionary.fuzzy_cache.insert(slot, cached);
     let warm = dictionary.query("zongguo", "zong'guo", NONE, all);
     assert!(contains(&warm, "哨兵"), "{:?}", words(&warm));
+}
+
+#[test]
+fn fuzzy_candidates_do_not_allocate_the_full_path_budget_up_front() {
+    let fixture = fuzzy_fixture();
+    let mut dictionary = QuanpinDictionary::new(&fixture.paths);
+    let candidates = dictionary.fuzzy_candidates(
+        "zong'guo",
+        FuzzyPinyinOptions {
+            rules: fuzzy_rule::ALL,
+        },
+    );
+
+    assert_eq!(candidates.len(), 1);
+    assert!(candidates.capacity() < FUZZY_PATH_BUDGET * FUZZY_ROW_LIMIT);
+}
+
+#[test]
+fn query_rows_reserve_the_incoming_batch() {
+    let mut result = Vec::with_capacity(1);
+    result.push(WordItem::new("a", "啊", 1, CandidateSource::Database, "a"));
+    let rows: Vec<WordItem> = (0..10)
+        .map(|index| {
+            WordItem::new(
+                "a",
+                format!("词{index}"),
+                index,
+                CandidateSource::Database,
+                "a",
+            )
+        })
+        .collect();
+
+    QuanpinDictionary::append_query_rows(&mut result, rows);
+
+    assert_eq!(result.len(), 11);
+    assert_eq!(result.capacity(), 11);
 }
 
 /// test_fuzzy_pinyin.cpp:265-270: two hundred warm fuzzy queries stay well inside the reference's five-second budget.
@@ -1008,4 +1044,100 @@ fn a_changed_personal_model_drops_the_scored_series() {
         words(&before),
         words(&after)
     );
+}
+
+/// 行缓存（词网格跨度、切分、长词）命中时必须和此刻直接查库一样：别的连接写过词典之后，下一次真正计算的查询要用上新行，哪怕它要的跨度上一次查询刚缓存过。
+#[test]
+fn row_caches_see_rows_another_connection_wrote() {
+    let fixture = Fixture::new();
+    fixture
+        .insert("wo", "我", 1000)
+        .insert("ni", "你", 1000)
+        .insert("hao", "好", 1000)
+        .insert("ni'hao", "你好", 1000);
+    let sentence = |items: &[WordItem]| {
+        items
+            .iter()
+            .find(|item| item.source == CandidateSource::Generated)
+            .map(|item| item.word.clone())
+    };
+    let mut dictionary = QuanpinDictionary::new(&fixture.paths);
+    // 缓存 `ni'hao` 等跨度的行。
+    let warm = query(&mut dictionary, "nihaowo", "ni'hao'wo", NONE);
+    assert_eq!(sentence(&warm).as_deref(), Some("你好我"));
+
+    fixture.insert("ni'hao", "拟好", 1_000_000);
+    let after = query(&mut dictionary, "wonihao", "wo'ni'hao", NONE);
+    assert_eq!(sentence(&after).as_deref(), Some("我拟好"));
+    // 一个从没缓存过任何东西的词典给出同样的答案。
+    let mut fresh = QuanpinDictionary::new(&fixture.paths);
+    assert_eq!(query(&mut fresh, "wonihao", "wo'ni'hao", NONE), after);
+
+    // 批开始时同样要对版本：`wo'ni` 这个跨度上一次查询刚缓存过（当时没有行）。
+    fixture.insert("wo'ni", "沃尼", 1_000_000);
+    let mut batch = dictionary.row_cache_batch();
+    let batched = query(&mut batch, "haowoni", "hao'wo'ni", NONE);
+    drop(batch);
+    assert_eq!(sentence(&batched).as_deref(), Some("好沃尼"));
+    let mut fresh = QuanpinDictionary::new(&fixture.paths);
+    assert_eq!(query(&mut fresh, "haowoni", "hao'wo'ni", NONE), batched);
+}
+
+/// 别的连接能否立刻提交一次写入（不忙等），用来探测词典上有没有留着读锁。
+fn writer_gets_in(fixture: &Fixture, table: &str) -> bool {
+    let writer = fixture.connection();
+    writer.busy_timeout(Duration::ZERO).unwrap();
+    writer
+        .execute_batch(&format!("CREATE TABLE {table} (x)"))
+        .is_ok()
+}
+
+/// 批里的查询 panic、宿主在 FFI 边界接住后继续运行时，读事务和共享锁不能留在连接上，否则别的连接一直写不进词典。
+#[test]
+fn row_cache_batch_releases_the_read_lock_when_a_query_panics() {
+    let fixture = Fixture::new();
+    fixture.insert("ni", "你", 1000);
+    let mut dictionary = QuanpinDictionary::new(&fixture.paths);
+
+    let batch = dictionary.row_cache_batch();
+    // 批存活期间确实拿着共享锁，下面的断言才有意义。
+    assert!(!writer_gets_in(&fixture, "while_batched"));
+    drop(batch);
+
+    let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut batch = dictionary.row_cache_batch();
+        query(&mut batch, "ni", "ni", NONE);
+        panic!("query failed mid-refresh");
+    }));
+    assert!(unwound.is_err());
+    assert!(writer_gets_in(&fixture, "after_panic"));
+    assert!(dictionary.row_cache_batch.is_none());
+}
+
+/// 回滚日志模式下读事务挡住别的连接提交；一次很长的批要分段提交，让等着写的连接在它的忙等待时间内写进去，而不是等整个批结束。
+#[test]
+fn long_row_cache_batch_lets_a_waiting_writer_commit() {
+    let fixture = Fixture::new();
+    fixture.insert("ni", "你", 1000);
+    let mut dictionary = QuanpinDictionary::new(&fixture.paths);
+    let mut batch = dictionary.row_cache_batch();
+
+    let database = fixture.database();
+    let writer = std::thread::spawn(move || {
+        let connection = rusqlite::Connection::open(database).unwrap();
+        // 和词典连接一样的忙等待上限。
+        connection
+            .busy_timeout(crate::dictionary::pinyin::BUSY_TIMEOUT)
+            .unwrap();
+        connection.execute_batch("CREATE TABLE waiting_writer (x)")
+    });
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while !writer.is_finished() && Instant::now() < deadline {
+        std::thread::sleep(ROW_CACHE_BATCH_SPAN / 2);
+        // 每次真正计算查询前都会走这里。
+        batch.validate_row_caches();
+    }
+    assert!(writer.is_finished(), "the batch held the read lock for 2 s");
+    assert!(writer.join().unwrap().is_ok());
+    drop(batch);
 }

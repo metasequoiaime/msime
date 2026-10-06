@@ -48,8 +48,17 @@ int main() {
     if (!msime::input::composition_shows_reading(korean.view.reading, korean.view.caret,
                                                  korean.view.editing_text.size()))
       return EXIT_FAILURE;
-    // A view without the field is read as quanpin, the scheme every older host assumed.
+    // A view without the field is read as quanpin.
     if (result.view.scheme != 0)
+      return EXIT_FAILURE;
+  }
+  // A Zhuyin view names the keys that spell its composition, so the TIP keeps them in the composition instead of committing.
+  {
+    EngineResult zhuyin;
+    const std::string spelled =
+        R"({"ok":true,"value":{"handled":true,"commit":null,"diagnostic":null,"view":{"preedit":"你","editing_text":"su3","reading":"","caret_position":3,"scheme":6,"spelling_symbols":"1234567890,./;- ","candidates":[]}}})";
+    if (!EngineSessionAdapter::parse_result(spelled, &zhuyin, &error) || zhuyin.view.scheme != 6 ||
+        zhuyin.view.spelling_symbols != "1234567890,./;- " || !result.view.spelling_symbols.empty())
       return EXIT_FAILURE;
   }
   if (EngineSessionAdapter::parse_result(

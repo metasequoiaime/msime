@@ -1,9 +1,4 @@
 //! Parsing and validation helpers for DeepLX-compatible custom translation services.
-//!
-//! The learned-translation store lives in [`store`]; this module is the
-//! translation request contract itself.
-
-pub mod store;
 
 use hmac::{Hmac, KeyInit, Mac};
 use md5::Md5;

@@ -185,15 +185,14 @@ struct KeyboardLayoutSettingsView: View {
     // The document is what the keyboard will use, including a value synced from another device that no keyboard has mirrored into the App Group yet.
     guard let preferences = MetasequoiaInputSessionBridge.loadSharedPreferences() else { return }
     tabOpensCandidates = KeyboardLayoutPreference.tabShowsMoreCandidates(preferences)
-    if let tenths = (preferences["touch_key_spacing_tenths"] as? NSNumber)?.doubleValue {
-      keySpacing = KeyboardGeometry.clamped(tenths / 10, 3, 6)
+    if let spacing = KeyboardLayoutPreference.sharedKeySpacing(preferences["touch_key_spacing_tenths"]) {
+      keySpacing = spacing
     }
-    if let tenths = (preferences["touch_row_spacing_tenths"] as? NSNumber)?.doubleValue {
-      rowSpacing = KeyboardGeometry.clamped(tenths / 10, 4, 10)
+    if let spacing = KeyboardLayoutPreference.sharedRowSpacing(preferences["touch_row_spacing_tenths"]) {
+      rowSpacing = spacing
     }
-    if let adjustment = (preferences["touch_keyboard_height_adjustment"] as? NSNumber)?.doubleValue,
-       adjustment.isFinite {
-      height = KeyboardGeometry.clamped(adjustment, -12, 48)
+    if let adjustment = KeyboardLayoutPreference.sharedHeightAdjustment(preferences["touch_keyboard_height_adjustment"]) {
+      height = adjustment
     }
     voice = preferences["touch_voice_shortcut"] as? Bool ?? voice
   }

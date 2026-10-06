@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { testHost } from "../support/host";
 import { settingsFormReady } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -27,32 +28,7 @@ test("the activity AI settings page uses the shared AI settings content", () => 
   expect(source).toContain('import { AiSettingsContent } from "../ai-settings-content";');
   expect(source).toContain("<AiSettingsContent");
   expect(source).not.toContain('<fieldset disabled={busy} hidden={page !== "ai"}');
-});
-
-test("the page and embedded panel use one shared AI settings content component", () => {
-  const pageSource = Object.values(
-    import.meta.glob<string>("../../../../packages/ui/src/settings/pages/ai-page.tsx", {
-      eager: true,
-      query: "?raw",
-      import: "default",
-    }),
-  )[0];
-  const panelSource = Object.values(
-    import.meta.glob<string>("../../../../packages/ui/src/settings/ai-settings-panel.tsx", {
-      eager: true,
-      query: "?raw",
-      import: "default",
-    }),
-  )[0];
-
-  expect(pageSource).toContain('import { AiSettingsContent } from "../ai-settings-content";');
-  expect(panelSource).toContain(
-    'import { AiSettingsContent, type AiSettingsContentProps } from "./ai-settings-content";',
-  );
-  expect(pageSource).toContain("<AiSettingsContent");
-  expect(panelSource).toContain("<AiSettingsContent");
-  expect(pageSource).not.toContain("<AiSettingsPageSection");
-  expect(panelSource).not.toContain("<AiSettingsPageSection");
+  expect(source).not.toContain("<AiSettingsPageSection");
 });
 
 const snapshot: Snapshot = {
@@ -82,11 +58,11 @@ const snapshot: Snapshot = {
 async function openAi(platform: string) {
   render(
     <SettingsPage
-      client={{ load: async () => snapshot, save: vi.fn(), host: { platform } as never }}
+      client={{ load: async () => snapshot, save: vi.fn(), host: testHost({ platform }) }}
     />,
   );
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "表达" }));
+  fireEvent.click(screen.getByRole("button", { name: "标点与翻译" }));
   fireEvent.click(screen.getByRole("button", { name: "AI 辅助" }));
 }
 
@@ -135,13 +111,13 @@ test("Linux writes the AI token to the provider file, bound to the current setti
       client={{
         load: async () => snapshot,
         save: vi.fn(),
-        host: { platform: "linux" } as never,
+        host: testHost({ platform: "linux" }),
         providerCredentials: credentials,
       }}
     />,
   );
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "表达" }));
+  fireEvent.click(screen.getByRole("button", { name: "标点与翻译" }));
   fireEvent.click(screen.getByRole("button", { name: "AI 辅助" }));
   const group = screen.getByRole("group", { name: "AI 凭据" });
   expect(group.textContent).toContain("尚未保存");
@@ -188,13 +164,13 @@ test("Linux reports a provider file it cannot use", async () => {
       client={{
         load: async () => snapshot,
         save: vi.fn(),
-        host: { platform: "linux" } as never,
+        host: testHost({ platform: "linux" }),
         providerCredentials: credentials,
       }}
     />,
   );
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "表达" }));
+  fireEvent.click(screen.getByRole("button", { name: "标点与翻译" }));
   fireEvent.click(screen.getByRole("button", { name: "AI 辅助" }));
   await screen.findByText(/现有 ai-provider.json 无效/);
   fireEvent.change(screen.getByLabelText("AI API Token"), { target: { value: "sk-live" } });
@@ -227,7 +203,7 @@ test("Linux lets the user reveal the AI token before saving it", async () => {
       client={{
         load: async () => snapshot,
         save: vi.fn(),
-        host: { platform: "linux" } as never,
+        host: testHost({ platform: "linux" }),
         providerCredentials: credentialClient({
           ai: [],
           aiInvalid: false,
@@ -241,7 +217,7 @@ test("Linux lets the user reveal the AI token before saving it", async () => {
     />,
   );
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "表达" }));
+  fireEvent.click(screen.getByRole("button", { name: "标点与翻译" }));
   fireEvent.click(screen.getByRole("button", { name: "AI 辅助" }));
   await screen.findByRole("group", { name: "AI 凭据" });
 

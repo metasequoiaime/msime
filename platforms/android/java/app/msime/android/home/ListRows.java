@@ -1,7 +1,6 @@
 package app.msime.android.home;
 
 import android.content.Context;
-import android.graphics.Typeface;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -9,19 +8,18 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import androidx.annotation.DrawableRes;
 import androidx.annotation.Nullable;
-import androidx.core.content.ContextCompat;
 import app.msime.android.R;
 import com.google.android.material.imageview.ShapeableImageView;
 
 /**
- * Material 3 list rows and group titles for the host's pages.
+ * 宿主各页共用的导航行和组标题。
  *
- * <p>One place for the row the design uses everywhere on Android -- leading glyph, title, value as a supporting line, no chevron -- so the settings tab, 我的 and the download page cannot drift into three slightly different rows again.
+ * <p>设计在 Android 上到处用同一种行：前面一个线框图标、标题、下面一行当前值、没有 ›。集中在这里，设置 tab、我的、下载页就不会再长出三种略有差别的行。行的样式在 `item_setting_row.xml`，颜色全部取 M3 主题属性；放进圆角卡片时用 {@link HomeNavGroup}。
  */
 final class ListRows {
     private ListRows() {}
 
-    /** Add a row; a null action leaves it visibly disabled rather than silently dead. */
+    /** 加一行；action 为 null 时这一行显示为禁用，而不是看起来能点却没反应。 */
     static View add(ViewGroup parent, @DrawableRes int icon, CharSequence title,
             @Nullable CharSequence value, @Nullable Runnable action) {
         View row = LayoutInflater.from(parent.getContext())
@@ -39,29 +37,28 @@ final class ListRows {
         return row;
     }
 
-    /** An M3 group title: accent colour, 14sp, medium weight, aligned with the rows' glyphs. */
+    /** M3 组标题：强调色、14sp、500 字重，与行里的图标左对齐。 */
     static TextView heading(ViewGroup parent, CharSequence text) {
         Context context = parent.getContext();
         TextView heading = new TextView(context);
         heading.setText(text);
-        heading.setTextSize(14);
-        heading.setTypeface(Typeface.create(Typeface.DEFAULT, 500, false));
-        heading.setTextColor(ContextCompat.getColor(context, R.color.forest));
+        Ui.style(heading, Ui.TEXT_GROUP_TITLE, 500, Ui.accent(context));
         heading.setAccessibilityHeading(true);
-        heading.setPadding(dp(context, 24), dp(context, 16), dp(context, 24), dp(context, 4));
+        heading.setPadding(dp(context, Ui.NAV_ROW_PADDING_H), dp(context, 16),
+            dp(context, Ui.NAV_ROW_PADDING_H), dp(context, 4));
         parent.addView(heading, new LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         return heading;
     }
 
-    /** The space the design puts between groups instead of a rule. */
+    /** 设计在两组之间留的空白，代替分隔线。 */
     static void gap(ViewGroup parent) {
         View space = new View(parent.getContext());
         parent.addView(space, new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, dp(parent.getContext(), 20)));
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(parent.getContext(), Ui.GROUP_GAP)));
     }
 
     static int dp(Context context, int value) {
-        return Math.round(value * context.getResources().getDisplayMetrics().density);
+        return Ui.dp(context, value);
     }
 }

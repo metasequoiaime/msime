@@ -1,12 +1,13 @@
 #include "VoiceInputSession.h"
 #include "AudioCapture.h"
 #include "PolishPrompt.h"
+#include "VoiceHotwordTexts.h"
 
 #include "LocalAsr.h"
 #include "LocalAsrAudioQueue.h"
 #include "ReplyCodec.h"
 #include "SystemAudioMuter.h"
-#include "VoiceProviders.h"
+#include "../../../../shared/voice/VoiceProviders.h"
 #include "VoiceSessionPolicy.h"
 #include "msime_client.h"
 
@@ -16,8 +17,6 @@
 #include <condition_variable>
 #include <cstring>
 #include <exception>
-#include <filesystem>
-#include <fstream>
 #include <nlohmann/json.hpp>
 #include <type_traits>
 
@@ -62,31 +61,6 @@ nlohmann::json local_hotwords(const VoiceInputConfig &config) {
   if (hotwords == value->end() || !hotwords->is_array())
     return none;
   return *hotwords;
-}
-
-std::vector<std::string> hotword_texts(const nlohmann::json &hotwords) {
-  std::vector<std::string> texts;
-  for (const auto &hotword : hotwords) {
-    const auto text = hotword.find("text");
-    if (hotword.is_object() && text != hotword.end() && text->is_string())
-      texts.push_back(text->get<std::string>());
-  }
-  return texts;
-}
-
-// Whether the installed model's manifest asks the host to correct the final text against the hotwords by pinyin, because the model cannot take them itself.
-bool local_model_corrects_by_pinyin(const std::string &model_path) {
-  std::ifstream input(std::filesystem::u8path(model_path) /
-                          std::string(msime::voice::local_model_manifest),
-                      std::ios::binary);
-  if (!input)
-    return false;
-  const auto manifest = nlohmann::json::parse(input, nullptr, false);
-  if (!manifest.is_object())
-    return false;
-  const auto hotwords = manifest.find("hotwords");
-  return hotwords != manifest.end() && hotwords->is_string() &&
-         hotwords->get<std::string>() == "pinyin";
 }
 
 // The text with near-miss spellings of the user's words replaced. Best-effort: any failure keeps what the recognizer produced.
@@ -135,10 +109,12 @@ bool should_polish(const VoiceInputConfig &config, std::string_view text) {
 }
 
 std::string polish_prompt(const VoiceInputConfig &config) {
-  return polish_prompt_for({config.polish_prompt_id, config.polish_prompt,
-                            config.polish_prompt_custom_1,
-                            config.polish_prompt_custom_2,
-                            config.polish_prompt_custom_3});
+  PolishPromptSlots slots;
+  slots.id = config.polish_prompt_id;
+  slots.custom_1 = config.polish_prompt_custom_1;
+  slots.custom_2 = config.polish_prompt_custom_2;
+  slots.custom_3 = config.polish_prompt_custom_3;
+  return polish_prompt_for(slots);
 }
 
 void send_text_via_send_input(std::wstring_view text) {
@@ -310,7 +286,7 @@ public:
         }
       }
       if (!cancelled_->load() && !text.empty() && !hotwords.empty() &&
-          local_model_corrects_by_pinyin(config.asr_model_path))
+          msime::voice::local_model_uses_pinyin_hotwords(config.asr_model_path))
         text = correct_with_hotwords(text, hotwords);
     } catch (...) {
       error = std::current_exception();
@@ -965,7 +941,7 @@ std::string VoiceInputSession::recognize_local(
                                   config.language, cancelled,
                                   hotword_texts(hotwords));
   if (!text.empty() && !hotwords.empty() &&
-      local_model_corrects_by_pinyin(config.asr_model_path))
+      msime::voice::local_model_uses_pinyin_hotwords(config.asr_model_path))
     text = correct_with_hotwords(text, hotwords);
   return text;
 }

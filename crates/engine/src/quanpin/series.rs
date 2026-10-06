@@ -220,18 +220,7 @@ pub fn merge_alternative_segmentations(
     merged.extend(primary_full);
     merged.extend(alternatives);
     merged.sort_by_key(|item| std::cmp::Reverse(item.weight));
-    // Deduplicate the sorted rows by borrowed keys, then move the first occurrence of each word.
-    let mut seen = HashSet::with_capacity(merged.len());
-    let unique = merged
-        .iter()
-        .map(|item| seen.insert(item.word.as_str()))
-        .collect::<Vec<_>>();
-    drop(seen);
-    merged = merged
-        .into_iter()
-        .zip(unique)
-        .filter_map(|(item, unique)| unique.then_some(item))
-        .collect();
+    retain_unique_sorted_rows(&mut merged);
 
     if promote {
         if let Some(at) = merged.iter().position(|item| item.word == best_word) {
@@ -247,6 +236,23 @@ pub fn merge_alternative_segmentations(
     merged
 }
 
+/// Deduplicate rows that are already sorted by weight while keeping the merged vector's allocation.
+fn retain_unique_sorted_rows(rows: &mut Vec<WordItem>) {
+    // Borrow words while calculating each first occurrence, then retain in place after releasing the set.
+    let mut seen = HashSet::with_capacity(rows.len());
+    let unique = rows
+        .iter()
+        .map(|item| seen.insert(item.word.as_str()))
+        .collect::<Vec<_>>();
+    drop(seen);
+    let mut index = 0;
+    rows.retain(|_| {
+        let keep = unique[index];
+        index += 1;
+        keep
+    });
+}
+
 /// Append the rows whose word is not already present (QD:993-1004). A row repeated inside `rows` is kept once, as the reference's scan over the growing list does.
 pub fn append_unique_words(result: &mut Vec<WordItem>, rows: Vec<WordItem>) {
     // Borrow words while checking duplicates, then release the borrows before moving rows into the result.
@@ -257,6 +263,7 @@ pub fn append_unique_words(result: &mut Vec<WordItem>, rows: Vec<WordItem>) {
         .map(|item| seen.insert(item.word.as_str()))
         .collect::<Vec<_>>();
     drop(seen);
+    result.reserve(rows.len());
     result.extend(
         rows.into_iter()
             .zip(unique)
@@ -417,6 +424,21 @@ mod tests {
     }
 
     #[test]
+    fn alternative_dedup_keeps_sorted_storage() {
+        let mut rows = vec![
+            row("xian", "甲", 3),
+            row("xi'an", "乙", 2),
+            row("xian", "甲", 1),
+        ];
+        let pointer = rows.as_ptr();
+
+        retain_unique_sorted_rows(&mut rows);
+
+        assert_eq!(rows.as_ptr(), pointer);
+        assert_eq!(words(&rows), ["甲", "乙"]);
+    }
+
+    #[test]
     fn rare_alternative_is_not_promoted() {
         let primary: Vec<WordItem> = (0..10)
             .map(|i| row("xie", &format!("写{i}"), 1_000_000 - i))
@@ -471,5 +493,19 @@ mod tests {
         );
         assert_eq!(words(&result), ["啊", "阿"]);
         assert_eq!(result[1].weight, 3);
+    }
+
+    #[test]
+    fn append_unique_words_reserves_the_incoming_rows() {
+        let mut result = Vec::with_capacity(1);
+        result.push(row("a", "啊", 1));
+        let rows: Vec<WordItem> = (0..10)
+            .map(|index| row("a", &format!("词{index}"), index))
+            .collect();
+
+        append_unique_words(&mut result, rows);
+
+        assert_eq!(result.len(), 11);
+        assert_eq!(result.capacity(), 11);
     }
 }

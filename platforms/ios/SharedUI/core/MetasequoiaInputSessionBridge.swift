@@ -1,3 +1,4 @@
+import CoreFoundation
 import Foundation
 
 private typealias MSIMEByte = UInt8
@@ -149,7 +150,7 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
   let candidates: [String]
   let candidateCodes: [String]
   let candidateGlosses: [String]
-  /// The Engine's display suffix for each candidate, aligned with `candidates`: its helpcode when the scheme's "show helpcode" setting is on, or the spelling a typo correction replaced. Never part of the committed text.
+  /// The Engine's display suffix for each candidate, aligned with `candidates`: its helpcode when the scheme's "show helpcode" setting is on, the spelling a typo correction replaced, or a Korean Hanja's 훈음. Never part of the committed text.
   let candidateAnnotations: [String]
   /// The Engine `CandidateSource` (cloud, AI, dictionary...) and pinned slot of each candidate, aligned with `candidates`; a source of -1 means the row carried none, and a fixed position of zero is a word ranked by use.
   let candidateSources: [Int]
@@ -250,11 +251,6 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     self.appliedFuzzyPinyinRules = nil
     do {
       let bootstrap = Self.bootstrapOptions(resources: resources, stateRoot: stateRoot)
-      if EnglishMixedCandidatesMigration.shouldMigrate(customStateRoot: stateRoot),
-         let path = bootstrap["state_root"] as? String {
-        EnglishMixedCandidatesMigration.migrateIfNeeded(
-          stateRoot: URL(fileURLWithPath: path, isDirectory: true))
-      }
       options = try Self.callOptions(msimeClientPrepareHost,
                                      bootstrap)
       self.stateRoot = options["preferences_directory"] as? String
@@ -287,7 +283,17 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     guard let mode = try? localMode() else { return false }
     return !mode.isEmpty && mode != "none"
   }
-  var isInUnicodeMode: Bool { (try? localMode()) == "unicode" }
+
+  /// 组字中或本地模式里，Engine 把这个单个 ASCII 符号列在 `spelling_symbols` 里时它是 Engine 的输入，要作为字符交给会话，而不是选候选或标点：网址模式的数字和网址符号、`www` 之后的 `.`、U 模式的十六进制数字。没有组字时列出的 `/` 和 `@` 不在此列。
+  func engineSpellsWhileComposing(_ symbol: String) -> Bool {
+    guard symbol.count == 1, let scalar = symbol.unicodeScalars.first,
+          scalar.value > 0x20, scalar.value < 0x7f,
+          let current = try? view() else { return false }
+    let mode = current["local_mode"] as? String ?? "none"
+    let editing = current["editing_text"] as? String ?? ""
+    let symbols = current["spelling_symbols"] as? String ?? ""
+    return (mode != "none" || !editing.isEmpty) && symbols.contains(symbol)
+  }
 
   /// Reload the canonical PreferencesStore written by the Tauri settings host.
   /// Disk and lock work stays off the keyboard thread; the accepted snapshot is
@@ -295,11 +301,9 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   func reloadSharedPreferences(completion: @escaping (Bool) -> Void) {
     guard handle != 0, let stateRoot else { completion(false); return }
     let path = Data(stateRoot.utf8)
-    // Keep the bridge alive until the main-thread callback has applied the snapshot. A weak
-    // capture here can drop the bridge while the worker is reading, leaving callers waiting
-    // forever for a completion that is never delivered. Capturing it strongly in both closures
-    // also keeps the final release on the main queue, where the session handle is owned.
-    DispatchQueue.global(qos: .utility).async { [self, path] in
+    // Keep the bridge alive until the main-thread callback has applied the snapshot. A weak capture here can drop the bridge while the worker is reading, leaving callers waiting forever for a completion that is never delivered. Capturing it strongly in both closures also keeps the final release on the main queue, where the session handle is owned.
+    // The visible keyboard waits on this read, so it runs at userInitiated: Darwin throttles utility-QoS disk I/O whenever other I/O is busy, and that stalled the lock and the small document read for over 15 seconds on a loaded simulator.
+    DispatchQueue.global(qos: .userInitiated).async { [self, path] in
       let snapshot: [String: Any]?
       do {
         snapshot = try path.withUnsafeBytes { bytes in
@@ -316,7 +320,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
           completion(false)
           return
         }
-        guard revision.uint64Value >= self.documentRevision else {
+        guard let revision = Self.strictUInt64(revision), revision >= self.documentRevision else {
           completion(false)
           return
         }
@@ -327,8 +331,8 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
         let applied = (self.options["preferences"] as? [String: Any]) ?? [:]
         let overridden = Self.hostOverrides(applyingTo: preferences)
         self.options["preferences"] = overridden
-        self.revision = max(self.revision, revision.uint64Value)
-        self.documentRevision = revision.uint64Value
+        self.revision = max(self.revision, revision)
+        self.documentRevision = revision
         self.applyAppEditedPreferences(from: overridden, over: applied)
         completion(true)
       }
@@ -362,23 +366,6 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     _ = try? Self.callUpdate(msimeClientUpdatePreferences, handle, snapshot)
   }
 
-  /// The active fuzzy-pinyin bitset from the shared PreferencesStore.
-  /// `nil` is reserved for an unavailable/legacy session so the native
-  /// compatibility preference can still be used by older hosts.
-  var sharedFuzzyPinyinRules: UInt32? {
-    guard let preferences = options["preferences"] as? [String: Any],
-          let fuzzy = preferences["fuzzy_pinyin"] as? [String: Any],
-          let enabled = fuzzy["enabled"] as? Bool,
-          let names = fuzzy["rules"] as? [String] else { return nil }
-    guard enabled else { return 0 }
-    let ruleIDs = ["z-zh", "c-ch", "s-sh", "n-l", "f-h", "r-l",
-                   "an-ang", "en-eng", "in-ing", "ian-iang", "uan-uang"]
-    let selected = Set(names)
-    return ruleIDs.enumerated().reduce(UInt32(0)) { value, entry in
-      selected.contains(entry.element) ? value | (1 << entry.offset) : value
-    }
-  }
-
   var fuzzyPinyinRulesApplied: UInt32? { appliedFuzzyPinyinRules }
 
   /// The latest canonical PreferencesStore document, exposed as a read-only
@@ -388,9 +375,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     options["preferences"] as? [String: Any]
   }
 
-  /// Show touch keyboard geometry on the live session while it is being dragged.
-  /// Native App Group keys remain a compatibility layer for older hosts, but the
-  /// shared snapshot is the source that is reloaded when the extension appears.
+  /// Show touch keyboard geometry on the live session while it is being dragged. The shared snapshot is the source that is reloaded when the extension appears.
   @discardableResult
   func setTouchKeyboardGeometry(keySpacing: Double, rowSpacing: Double,
                                 heightAdjustment: Double, voiceEnabled: Bool) -> Bool {
@@ -439,9 +424,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     }
   }
 
-  /// Persist the selected touch scheme and its presentation mapping in one
-  /// canonical snapshot. The App Group preference remains a compatibility
-  /// mirror for the legacy SwiftUI settings host.
+  /// Persist the selected touch scheme and its presentation mapping in one canonical snapshot.
   @discardableResult
   func setTouchKeyboardScheme(_ scheme: ChineseInputScheme,
                               enabledSchemes: [ChineseInputScheme]) -> Bool {
@@ -452,17 +435,12 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   /// The document fields a scheme selection writes; nil when no scheme is enabled. The settings app writes the same fields, so the keyboard does not put its own older selection back.
   static func schemeMapping(_ scheme: ChineseInputScheme,
                             enabledSchemes: [ChineseInputScheme]) -> ((inout [String: Any]) -> Void)? {
-    let enabled = ChineseInputScheme.allCases.filter { enabledSchemes.contains($0) }
+    // 本版本不提供的入口不写进共享文档：写进去的方案 host-api 会按版本回退，文档里记的和 Engine 跑的就对不上了。full 提供全部入口，这里不过滤任何东西。
+    let enabled = ChineseInputScheme.allCases.filter { enabledSchemes.contains($0) && $0.isOfferedByEdition }
     guard !enabled.isEmpty else { return nil }
     let selected = enabled.contains(scheme) ? scheme : enabled[0]
-    let engineScheme: String
-    switch selected {
-    case .wubi: engineScheme = "wubi"
-    case .japanese, .japaneseNineKey: engineScheme = "japanese"
-    case .korean: engineScheme = "korean"
-    case .shuangpin, .ziranma, .microsoft, .shoudao: engineScheme = "shuangpin"
-    case .quanpin, .nineKey, .handwriting, .thoughtfulReply: engineScheme = "quanpin"
-    }
+    // 手写写的是本版本的默认方案（full 是全拼）：识别由平台识别器完成，手写面板背后的 Engine 只需要跑一个本版本提供的方案，否则 host-api 会把它当作本版本不含的方案回退，偏好里记的和 Engine 跑的就对不上了。
+    let engineScheme = selected == .handwriting ? MSIMEAppEdition.defaultScheme : selected.engineScheme
     let layout: String
     switch selected {
     case .nineKey, .japaneseNineKey: layout = "nine_key"
@@ -476,13 +454,14 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     let selectedID = selected.sharedIdentifier
     let mapping: (inout [String: Any]) -> Void = { preferences in
       preferences["scheme"] = engineScheme
-      // `last_chinese_scheme` is the Chinese scheme to come back to, so neither Japanese nor Korean replaces it.
-      if engineScheme != "japanese" && engineScheme != "korean" {
+      // `last_chinese_scheme` 是切回中文时要回到的方案，所以写其他语言的日语、韩语、越南语和藏文从不替换它；粤拼、注音和笔画是中文方案，会替换。
+      if !["japanese", "korean", "vietnamese", "tibetan"].contains(engineScheme) {
         preferences["last_chinese_scheme"] = engineScheme
       }
       if let profile = selected.shuangpinProfile {
         preferences["shuangpin_profile"] = profile
       }
+      // 五笔版本 `wubi_profile` 不随方案选择写入：文档里已有的版本原样保留，切到五笔就沿用它；只有设置页的版本选项会改它（`WubiProfilePreference.save`）。
       preferences["touch_keyboard_layout"] = layout
       preferences["touch_keyboard_schemes"] = [
         "enabled": enabled.map(\.sharedIdentifier),
@@ -555,12 +534,12 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     let directory = Data(stateRoot.utf8)
     guard !directory.isEmpty, directory.count <= 16_384 else { return nil }
     guard let stored = try? callDirectory(msimeClientLoadPreferences, directory),
-          let storedRevision = stored["revision"] as? NSNumber,
+          let storedRevision = Self.strictUInt64(stored["revision"]),
           let previous = stored["preferences"] as? [String: Any] else { return nil }
     var preferences = previous
     mutate(&preferences)
     guard !NSDictionary(dictionary: preferences).isEqual(to: previous) else {
-      return storedRevision.uint64Value
+      return storedRevision
     }
     let document: [String: Any] = ["format_version": 1, "revision": storedRevision,
                                    "preferences": preferences]
@@ -573,7 +552,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
         try snapshot.withUnsafeBytes { snapshotBytes -> [String: Any] in
           let value = try decode(msimeClientSavePreferences(
             directoryBytes.bindMemory(to: MSIMEByte.self).baseAddress, UInt(directory.count),
-            storedRevision.uint64Value,
+            storedRevision,
             snapshotBytes.bindMemory(to: MSIMEByte.self).baseAddress, UInt(snapshot.count)))
           guard let dictionary = value as? [String: Any] else {
             throw InputBridgeFailure.invalidResponse
@@ -584,7 +563,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     } catch {
       return nil
     }
-    return (saved["revision"] as? NSNumber)?.uint64Value ?? storedRevision.uint64Value
+    return Self.strictUInt64(saved["revision"]) ?? storedRevision
   }
 
   /// Apply a global theme change made in this keyboard (a GlobalThemePreference mapping) to the live session and the shared document. The caller mirrors the document into the App Group afterwards.
@@ -678,16 +657,18 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   func moveCaretToStart() -> MetasequoiaInputSnapshot { command(6) }
   func moveCaretToEnd() -> MetasequoiaInputSnapshot { command(7) }
   func deleteForward() -> MetasequoiaInputSnapshot { command(8) }
+  /// MSIME_CONVERT_HANJA (msime_client.h): lists the Hanja of the composing Korean syllable as candidates, or closes that list when it is open. Unhandled when nothing is composing or the composition is a lone jamo, which has no Hanja.
+  func convertHanja() -> MetasequoiaInputSnapshot { command(16) }
   /// Drops the Engine's cached candidate lookups, which Windows does on Ctrl+Shift+Alt+C.
   func resetCache() -> MetasequoiaInputSnapshot { dispatch { msimeClientResetCache(handle) } }
 
   func selectCandidate(at index: UInt) -> MetasequoiaInputSnapshot {
     guard let rows = try? currentCandidates(), rows.indices.contains(Int(index)),
           let identity = rows[Int(index)]["id"] as? [String: Any],
-          let generation = identity["generation"] as? NSNumber,
-          let globalIndex = identity["index"] as? NSNumber else { return diagnostic("候选已失效") }
+          let generation = Self.strictUInt64(identity["generation"]),
+          let globalIndex = Self.strictUInt64(identity["index"]) else { return diagnostic("候选已失效") }
     return selectCandidate(
-      generation: generation.uint64Value, globalIndex: globalIndex.uint64Value)
+      generation: generation, globalIndex: globalIndex)
   }
 
   func selectCandidate(generation: UInt64, globalIndex: UInt64) -> MetasequoiaInputSnapshot {
@@ -706,8 +687,8 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     guard let rows = try? currentCandidates() else { return false }
     return rows.contains { row in
       guard let identity = row["id"] as? [String: Any] else { return false }
-      return (identity["generation"] as? NSNumber)?.uint64Value == generation
-        && (identity["index"] as? NSNumber)?.uint64Value == globalIndex
+      return Self.strictUInt64(identity["generation"]) == generation
+        && Self.strictUInt64(identity["index"]) == globalIndex
     }
   }
 
@@ -715,9 +696,9 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   func selectCandidateEdge(at index: UInt, last: Bool) -> MetasequoiaInputSnapshot {
     guard let rows = try? currentCandidates(), rows.indices.contains(Int(index)),
           let identity = rows[Int(index)]["id"] as? [String: Any],
-          let generation = identity["generation"] as? NSNumber,
-          let globalIndex = identity["index"] as? NSNumber else { return diagnostic("候选已失效") }
-    return selectCandidateEdge(generation: generation.uint64Value, globalIndex: globalIndex.uint64Value, last: last)
+          let generation = Self.strictUInt64(identity["generation"]),
+          let globalIndex = Self.strictUInt64(identity["index"]) else { return diagnostic("候选已失效") }
+    return selectCandidateEdge(generation: generation, globalIndex: globalIndex, last: last)
   }
 
   func selectCandidateEdge(generation: UInt64, globalIndex: UInt64, last: Bool) -> MetasequoiaInputSnapshot {
@@ -920,7 +901,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   }
 
   func chooseNineKeySpelling(at index: UInt) -> MetasequoiaInputSnapshot {
-    let generation = (try? view()["generation"] as? NSNumber)?.uint64Value ?? 0
+    let generation = (try? view()).flatMap { Self.strictUInt64($0["generation"]) } ?? 0
     return dispatch { msimeClientChooseNineKeySpelling(handle, generation, index) }
   }
 
@@ -985,20 +966,33 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     }
     return response as? Bool == true
   }
+  /// 只改 `scheme`，会话里的 `wubi_profile` 不动，所以切过去仍是当前的 86 或 98 五笔。
   func switchToWubi() -> MetasequoiaInputSnapshot { switchScheme("wubi", profile: nil) }
+  /// 手写面板背后跑本版本的默认方案，与 `schemeMapping` 写进偏好的一致；full 是全拼。
+  func switchToHandwriting() -> MetasequoiaInputSnapshot { switchScheme(MSIMEAppEdition.defaultScheme, profile: nil) }
   func switchToJapanese() -> MetasequoiaInputSnapshot { switchScheme("japanese", profile: nil) }
   /// Korean Hangul (Dubeolsik). Switching discards an open syllable, so callers finish the composition first.
   func switchToKorean() -> MetasequoiaInputSnapshot { switchScheme("korean", profile: nil) }
+  /// Cantonese Jyutping. Without msime-cantonese.db beside EngineResources the runtime keeps running the last Chinese scheme instead, so the keyboard only offers it when the file is installed.
+  func switchToCantonese() -> MetasequoiaInputSnapshot { switchScheme("cantonese", profile: nil) }
+  /// Dachen Zhuyin with Traditional output. Without msime-zhuyin.db beside EngineResources the runtime keeps running the last Chinese scheme instead, so the keyboard only offers it when the file is installed. Switching discards an open conversion, so callers finish the composition first.
+  func switchToZhuyin() -> MetasequoiaInputSnapshot { switchScheme("zhuyin", profile: nil) }
+  /// Vietnamese Telex and VNI, composed in place with no candidates. Switching discards an open word, so callers finish the composition first.
+  func switchToVietnamese() -> MetasequoiaInputSnapshot { switchScheme("vietnamese", profile: nil) }
+  /// 藏文 EWTS 威利转写，就地组字，没有候选。切换会丢掉正在组的音节，所以调用方先结束组字。
+  func switchToTibetan() -> MetasequoiaInputSnapshot { switchScheme("tibetan", profile: nil) }
+  /// 笔画输入，按笔顺查单字。缺少 language-dictionaries 里的 msime-stroke.db 时运行时继续用最近一次的中文方案，所以键盘只在文件在时提供它。
+  func switchToStroke() -> MetasequoiaInputSnapshot { switchScheme("stroke", profile: nil) }
 
   func editCandidate(at index: UInt, expectedWord: String, action: MetasequoiaCandidateAction) -> MetasequoiaInputSnapshot {
     guard let row = (try? currentCandidates())?[safe: Int(index)],
           row["text"] as? String == expectedWord,
           let identity = row["id"] as? [String: Any],
-          let generation = identity["generation"] as? NSNumber,
-          let globalIndex = identity["index"] as? NSNumber else {
+          let generation = Self.strictUInt64(identity["generation"]),
+          let globalIndex = Self.strictUInt64(identity["index"]) else {
       return diagnostic("候选已失效")
     }
-    return editCandidate(generation: generation.uint64Value, globalIndex: globalIndex.uint64Value,
+    return editCandidate(generation: generation, globalIndex: globalIndex,
                          action: action)
   }
 
@@ -1299,13 +1293,16 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
 
   private static func bootstrapOptions(resources resourceOverride: URL?, stateRoot stateOverride: URL?) -> [String: Any] {
     let fm = FileManager.default
-    let group = fm.containerURL(forSecurityApplicationGroupIdentifier: "group.app.msime.ios")
+    let group = fm.containerURL(forSecurityApplicationGroupIdentifier: MSIMEAppEdition.appGroupIdentifier)
       ?? fm.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
     let root = stateOverride ?? group.appendingPathComponent("MSIME", isDirectory: true)
     let resources = resourceOverride
       ?? Bundle.main.resourceURL?.appendingPathComponent("EngineResources", isDirectory: true)
       ?? root.appendingPathComponent("resources", isDirectory: true)
-    return ["resources": resources.path, "state_root": root.path]
+    var options: [String: Any] = ["resources": resources.path, "state_root": root.path]
+    // full 不传版本，请求与引入版本之前相同；其他版本让 host-api 按版本收窄方案并写进 HostOptions。
+    if !MSIMEAppEdition.isFull { options["edition"] = MSIMEAppEdition.identifier }
+    return options
   }
 
   /// `View.scheme` for double pinyin, as the shared runtime numbers the Engine's schemes.
@@ -1317,13 +1314,28 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   }
 
   private static func number(_ value: Any?) throws -> UInt64 {
-    guard let number = value as? NSNumber else { throw InputBridgeFailure.invalidResponse }
-    return number.uint64Value
+    guard let value = strictUInt64(value) else { throw InputBridgeFailure.invalidResponse }
+    return value
+  }
+
+  /// NSNumber's unsigned accessors truncate fractions and convert booleans; bridge identities and
+  /// revisions are protocol integers, so malformed values must be rejected at the boundary.
+  static func strictUInt64(_ value: Any?) -> UInt64? {
+    guard let number = value as? NSNumber else { return nil }
+    return CandidateGlossModel.integerValue(number, maximum: UInt64.max)
   }
 
   private static func snapshot(_ value: [String: Any]) throws -> MetasequoiaInputSnapshot {
     let view = value["view"] as? [String: Any] ?? [:]
     let rows = view["candidates"] as? [[String: Any]] ?? []
+    guard rows.allSatisfy({ $0["text"] is String }) else {
+      throw InputBridgeFailure.invalidResponse
+    }
+    let candidateSources = try rows.map { try strictInt($0["source"], fallback: -1, range: 0...255) }
+    let candidateFixedPositions = try rows.map { try strictInt($0["fixed_position"], fallback: 0, range: 0...255) }
+    let pageCount = try strictInt(view["page_count"], fallback: 0, range: 0...Int.max)
+    let editingText = view["editing_text"] as? String ?? ""
+    let caretPosition = try strictInt(view["caret_position"], fallback: 0, range: 0...editingText.utf8.count)
     return MetasequoiaInputSnapshot(isHandled: value["handled"] as? Bool ?? false,
       commitText: value["commit"] as? String, preedit: view["preedit"] as? String ?? "",
       reading: view["reading"] as? String ?? "",
@@ -1332,15 +1344,25 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
       candidateCodes: rows.map { $0["code"] as? String ?? "" },
       candidateGlosses: rows.map { $0["translation"] as? String ?? "" },
       candidateAnnotations: rows.map { $0["annotation"] as? String ?? "" },
-      candidateSources: rows.map { ($0["source"] as? NSNumber)?.intValue ?? -1 },
-      candidateFixedPositions: rows.map { ($0["fixed_position"] as? NSNumber)?.intValue ?? 0 },
-      candidatePageCount: max(0, (view["page_count"] as? NSNumber)?.intValue ?? 0),
+      candidateSources: candidateSources,
+      candidateFixedPositions: candidateFixedPositions,
+      candidatePageCount: pageCount,
       answeredByPinyinFallback: view["answered_by_pinyin_fallback"] as? Bool ?? false,
       diagnosticText: value["diagnostic"] as? String,
       localMode: view["local_mode"] as? String ?? "none",
       nineKeySpellings: view["nine_key_spellings"] as? [String] ?? [],
-      editingText: view["editing_text"] as? String ?? "",
-      caretPosition: (view["caret_position"] as? NSNumber)?.intValue ?? 0)
+      editingText: editingText,
+      caretPosition: caretPosition)
+  }
+
+  private static func strictInt(_ value: Any?, fallback: Int, range: ClosedRange<Int>) throws -> Int {
+    guard let value else { return fallback }
+    guard let number = value as? NSNumber,
+          CFGetTypeID(number) != CFBooleanGetTypeID(),
+          let integer = Int(number.stringValue),
+          NSNumber(value: integer).compare(number) == .orderedSame,
+          range.contains(integer) else { throw InputBridgeFailure.invalidResponse }
+    return integer
   }
 
   private static func decode(_ pointer: UnsafeMutablePointer<CChar>?) throws -> Any {

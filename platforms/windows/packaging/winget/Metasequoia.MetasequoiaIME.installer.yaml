@@ -1,0 +1,44 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.12.0.schema.json
+# 模板：platforms/windows/packaging/render.py 按一个 windows-v 发布填写 @...@ 字段。
+# 下面的事实取自 platforms/windows/installer/msime_setup.iss 与它包含的 editions.iss 里 full 的那一份：AppId（ProductCode 是这个 GUID 加上 Inno 的「_is1」后缀）、PrivilegesRequired=admin、ArchitecturesAllowed=x64compatible、AppName 与 AppPublisher。scripts/test-windows-package-managers.py 核对它们仍然一致。
+
+PackageIdentifier: Metasequoia.MetasequoiaIME
+PackageVersion: "@VERSION@"
+InstallerLocale: zh-CN
+Platform:
+  - Windows.Desktop
+# 候选窗口用 Per-Monitor V2 DPI 上下文，要求 Windows 10 1703 起。
+MinimumOSVersion: 10.0.15063.0
+InstallerType: inno
+Scope: machine
+InstallModes:
+  - interactive
+  - silent
+  - silentWithProgress
+InstallerSwitches:
+  Silent: /SP- /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
+  SilentWithProgress: /SP- /SILENT /SUPPRESSMSGBOXES /NORESTART
+# 安装包就地升级并保留用户的数据目录；先卸载会删掉这个目录，因为卸载程序会删除它拥有的数据目录。
+UpgradeBehavior: install
+ElevationRequirement: elevatesSelf
+# 安装包不带这两样，静默安装缺了也照样继续（msime_setup.iss 的 InitializeSetup 只把缺的写进日志）。
+Dependencies:
+  PackageDependencies:
+    - PackageIdentifier: Microsoft.VCRedist.2015+.x64
+    - PackageIdentifier: Microsoft.EdgeWebView2Runtime
+ProductCode: "{A7C3E91F-4B2D-4E8A-9F1C-6D5E8B0A2C4D}_is1"
+ReleaseDate: "@RELEASE_DATE@"
+AppsAndFeaturesEntries:
+  - DisplayName: Metasequoia IME 水杉输入法
+    Publisher: Metasequoia
+    DisplayVersion: "@VERSION@"
+    ProductCode: "{A7C3E91F-4B2D-4E8A-9F1C-6D5E8B0A2C4D}_is1"
+    InstallerType: inno
+InstallationMetadata:
+  DefaultInstallLocation: "%ProgramFiles%\\metasequoiaime"
+Installers:
+  - Architecture: x64
+    InstallerUrl: "@INSTALLER_URL@"
+    InstallerSha256: "@SHA256_UPPER@"
+ManifestType: installer
+ManifestVersion: 1.12.0

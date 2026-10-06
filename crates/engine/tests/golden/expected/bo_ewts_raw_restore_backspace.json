@@ -1,0 +1,324 @@
+{
+ "name": "bo_ewts_raw_restore_backspace",
+ "steps": [
+  {
+   "op": "open",
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "tibetan",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "'od",
+   "op": "type",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 9,
+    "dedicated_english": false,
+    "editing_text": "འོད",
+    "local_mode": "none",
+    "normalized_segmentation": "འོད",
+    "preedit": "འོད",
+    "raw_segmentation": "'od",
+    "scheme": "tibetan",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "Backspace",
+   "op": "command",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 6,
+    "dedicated_english": false,
+    "editing_text": "འོ",
+    "local_mode": "none",
+    "normalized_segmentation": "འོ",
+    "preedit": "འོ",
+    "raw_segmentation": "'o",
+    "scheme": "tibetan",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "Backspace",
+   "op": "command",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 3,
+    "dedicated_english": false,
+    "editing_text": "འ",
+    "local_mode": "none",
+    "normalized_segmentation": "འ",
+    "preedit": "འ",
+    "raw_segmentation": "'",
+    "scheme": "tibetan",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "bsgrubs",
+   "op": "type",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 24,
+    "dedicated_english": false,
+    "editing_text": "འབསྒྲུབས",
+    "local_mode": "none",
+    "normalized_segmentation": "འབསྒྲུབས",
+    "preedit": "འབསྒྲུབས",
+    "raw_segmentation": "'bsgrubs",
+    "scheme": "tibetan",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "Cancel",
+   "op": "command",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 8,
+    "dedicated_english": false,
+    "editing_text": "'bsgrubs",
+    "local_mode": "none",
+    "normalized_segmentation": "'bsgrubs",
+    "preedit": "'bsgrubs",
+    "raw_segmentation": "'bsgrubs",
+    "scheme": "tibetan",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": " ",
+   "op": "char",
+   "result": {
+    "commit": "'bsgrubs",
+    "handled": false
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "tibetan",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "g.yag",
+   "op": "type",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 9,
+    "dedicated_english": false,
+    "editing_text": "གཡག",
+    "local_mode": "none",
+    "normalized_segmentation": "གཡག",
+    "preedit": "གཡག",
+    "raw_segmentation": "g.yag",
+    "scheme": "tibetan",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "/",
+   "op": "punctuation",
+   "result": {
+    "commit": "གཡག།",
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "tibetan",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "bod",
+   "op": "type",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 9,
+    "dedicated_english": false,
+    "editing_text": "བོད",
+    "local_mode": "none",
+    "normalized_segmentation": "བོད",
+    "preedit": "བོད",
+    "raw_segmentation": "bod",
+    "scheme": "tibetan",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "Cancel",
+   "op": "command",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 3,
+    "dedicated_english": false,
+    "editing_text": "bod",
+    "local_mode": "none",
+    "normalized_segmentation": "bod",
+    "preedit": "bod",
+    "raw_segmentation": "bod",
+    "scheme": "tibetan",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "Cancel",
+   "op": "command",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "tibetan",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "1",
+   "op": "char",
+   "result": {
+    "handled": false
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "tibetan",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "kA",
+   "op": "type",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 6,
+    "dedicated_english": false,
+    "editing_text": "ཀཱ",
+    "local_mode": "none",
+    "normalized_segmentation": "ཀཱ",
+    "preedit": "ཀཱ",
+    "raw_segmentation": "kA",
+    "scheme": "tibetan",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "2",
+   "op": "candidate_key",
+   "result": {
+    "handled": false
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 6,
+    "dedicated_english": false,
+    "editing_text": "ཀཱ",
+    "local_mode": "none",
+    "normalized_segmentation": "ཀཱ",
+    "preedit": "ཀཱ",
+    "raw_segmentation": "kA",
+    "scheme": "tibetan",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "MoveLeft",
+   "op": "command",
+   "result": {
+    "commit": "ཀཱ",
+    "handled": false
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "tibetan",
+    "shuangpin_profile": "xiaohe"
+   }
+  }
+ ]
+}

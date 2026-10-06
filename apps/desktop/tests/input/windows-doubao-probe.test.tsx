@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { testHost } from "../support/host";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { ASR_PROVIDER_DEFAULTS, SettingsPage, type Snapshot } from "@msime/ui";
@@ -38,7 +39,7 @@ test.each(
         load: async () => snapshot,
         save: vi.fn(),
         testApiCredential: probe,
-        host: { platform } as never,
+        host: testHost({ platform }),
       }}
     />,
   );

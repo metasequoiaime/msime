@@ -35,6 +35,7 @@ public final class CandidateTranslationPolicySmoke {
         check(CandidateTranslationPolicy.glossLines(List.of("en", "ja"), false, false, Set.of("ja")) == 0,
             "the offline switch also gates the offline dictionaries");
         Path root = Files.createTempDirectory("msime-offline-glosses");
+        Path outside = null;
         try {
             Path resources = Files.createDirectories(root.resolve("resources"));
             Path glosses = Files.createDirectories(root.resolve("offline-glosses"));
@@ -44,12 +45,18 @@ public final class CandidateTranslationPolicySmoke {
                     .equals(List.of("ja")), "only installed non-English dictionaries are offline targets");
             check(CandidateTranslationPolicy.offlineTargets(List.of("fr"), resources.toString()).isEmpty(),
                 "a missing dictionary is not an offline target");
+            outside = Files.createTempFile("msime-offline-gloss-outside", ".db");
+            Path linked = glosses.resolve("zh-fr.db");
+            Files.createSymbolicLink(linked, outside);
+            check(CandidateTranslationPolicy.offlineTargets(List.of("fr"), resources.toString()).isEmpty(),
+                "a linked dictionary is not an offline target");
             check(CandidateTranslationPolicy.offlineTargets(List.of("ja"), "").isEmpty(),
                 "no resources means no offline targets");
         } finally {
             try (var paths = Files.walk(root)) {
                 paths.sorted(java.util.Comparator.reverseOrder()).forEach(path -> path.toFile().delete());
             }
+            if (outside != null) Files.deleteIfExists(outside);
         }
         check(CandidateTranslationPolicy.mergeGlosses(List.of("en", "ja"),
                 Map.of("en", "hello", "ja", "こんにちは"), Map.of("en", "hi", "ja", "やあ"))
@@ -67,6 +74,22 @@ public final class CandidateTranslationPolicySmoke {
             "actual two-row gloss gets two rows");
         check(CandidateTranslationPolicy.renderedGlossLines(null) == 1,
             "missing rendered gloss stays one row");
+        check(CandidateTranslationPolicy.renderedOwnRowLines("") == 1
+                && CandidateTranslationPolicy.renderedOwnRowLines(null) == 1,
+            "a Hanja with no secondary text stays one row");
+        check(CandidateTranslationPolicy.renderedOwnRowLines("나라 이름 한") == 2,
+            "the 훈음 takes its own row under the Hanja");
+        check(CandidateTranslationPolicy.renderedOwnRowLines("나라 이름 한\nKorea\n韓国") == 4,
+            "each gloss row follows the 훈음 row");
+        check(CandidateTranslationPolicy.reservedGlossRows(0, false) == 0
+                && CandidateTranslationPolicy.reservedGlossRows(1, false) == 1
+                && CandidateTranslationPolicy.reservedGlossRows(2, false) == 2,
+            "every gloss row under the candidate reserves a row of strip height");
+        check(CandidateTranslationPolicy.reservedGlossRows(0, true) == 1,
+            "Korean reserves the 훈음 row with glosses off");
+        check(CandidateTranslationPolicy.reservedGlossRows(1, true) == 1
+                && CandidateTranslationPolicy.reservedGlossRows(2, true) == 2,
+            "the 훈음 shares the first gloss row, so Korean reserves no more rows than any other scheme");
         // The account endpoint receives candidate words, so only an explicit choice may reach it.
         check(!CandidateTranslationPolicy.accountSelected(true, false, false, false),
             "candidate translations alone never select the account");

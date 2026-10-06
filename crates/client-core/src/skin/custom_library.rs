@@ -78,8 +78,10 @@ impl CustomSkinLibraryStore {
     }
 
     pub fn load(&self) -> Result<Vec<SavedTouchKeyboardSkin>, CustomSkinLibraryError> {
-        if !self.path().exists() {
-            return Ok(Vec::new());
+        match fs::symlink_metadata(self.path()) {
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(error) => return Err(error.into()),
         }
         let _lock = self.lock()?;
         self.read_locked()
@@ -430,6 +432,17 @@ mod tests {
             design: TouchKeyboardSkinDesign::default(),
         }];
         fs::write(store.path(), serde_json::to_vec(&nil_id).unwrap()).unwrap();
+        assert!(matches!(store.load(), Err(CustomSkinLibraryError::Invalid)));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn load_rejects_a_dangling_library_link_instead_of_reporting_an_empty_library() {
+        let root = tempfile::tempdir().unwrap();
+        let store = CustomSkinLibraryStore::new(root.path());
+        std::fs::create_dir_all(store.path().parent().unwrap()).unwrap();
+        std::os::unix::fs::symlink(root.path().join("missing-library.json"), store.path()).unwrap();
+
         assert!(matches!(store.load(), Err(CustomSkinLibraryError::Invalid)));
     }
 

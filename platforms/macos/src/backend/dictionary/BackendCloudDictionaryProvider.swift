@@ -61,13 +61,13 @@ final class BackendCloudDictionaryProvider: NSObject {
     return value
   }
   private static func dictionaryValue(_ request: NSDictionary, kind: BackendAccountClient.DictionaryKind) throws -> BackendAccountClient.DictionaryValue {
-    let maximum = kind == .wubi ? 4 : kind == .quick ? 32 : kind == .english ? 64 : 256
+    let maximum = kind == .wubi || kind == .wubi98 ? 4 : kind == .quick ? 32 : kind == .english ? 64 : 256
     let code = try text(request["code"], limit: maximum)
     let word = try text(request["word"], limit: 1024)
     guard code.utf8.allSatisfy({ byte in
       switch kind {
       case .pinyin: return (97...122).contains(byte) || byte == 39 || byte == 32
-      case .wubi: return (97...122).contains(byte)
+      case .wubi, .wubi98: return (97...122).contains(byte)
       case .quick: return (97...122).contains(byte) || (48...57).contains(byte)
       case .english: return (97...122).contains(byte) || (65...90).contains(byte)
       }
@@ -99,7 +99,7 @@ final class BackendCloudDictionaryProvider: NSObject {
         self = .setPosition(try text(request["context"], limit: 1024), try text(request["code"], limit: 256), try text(request["word"], limit: 1024), position, try number(request["revision"])); return
       }
       if ["candidates", "rank", "remove_candidate"].contains(operation ?? "") {
-        guard let kind = request["kind"] as? String, ["pinyin", "jianpin", "wubi", "quick", "english"].contains(kind) else { throw BackendAccountClient.Failure(status: 400) }
+        guard let kind = request["kind"] as? String, ["pinyin", "jianpin", "wubi", "wubi98", "quick", "english"].contains(kind) else { throw BackendAccountClient.Failure(status: 400) }
         let query = BackendAccountClient.CandidateQuery(text: try text(request["text"], limit: 256), kind: kind,
           scheme: try text(request["scheme"], limit: 64), profile: try text(request["profile"], limit: 64), limit: Int(try number(request["limit"], minimum: 1, maximum: 100)))
         guard ["pinyin", "shuangpin"].contains(query.scheme), ["xiaohe", "ziranma", "microsoft", "shoudao"].contains(query.profile) else { throw BackendAccountClient.Failure(status: 400) }

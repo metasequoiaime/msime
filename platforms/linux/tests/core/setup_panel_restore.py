@@ -25,8 +25,8 @@ assert _setup_spec and _setup_spec.loader
 _setup_module = importlib.util.module_from_spec(_setup_spec)
 _setup_spec.loader.exec_module(_setup_module)
 
-STUB = r'''#!/usr/bin/env python3
-import ast, json, os, re, sys
+# 首行用跑测试的同一个解释器，不经 /usr/bin/env：没有 FHS 布局的环境（Nix 构建沙箱）里没有它。
+STUB = f"#!{sys.executable}\n" + r'''import ast, json, os, re, sys
 from pathlib import Path
 
 name = Path(sys.argv[0]).name

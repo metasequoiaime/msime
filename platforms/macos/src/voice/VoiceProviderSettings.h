@@ -18,9 +18,8 @@ FOUNDATION_EXPORT BOOL MSIMEVoiceASRProviderUsesService(NSString *provider);
 @property(nonatomic, copy) NSString *polishEndpoint;
 @property(nonatomic, copy) NSString *polishModel;
 @property(nonatomic, copy) NSString *polishToken;
-/// Which of the seven polish presets is in force, the wording it resolves to, and the three slots a custom preset stores its own wording in. A built-in preset leaves `polishPrompt` empty and the recogniser uses the preset's own text; a custom preset keeps its text in its slot and in `polishPrompt`, which is the field the runtime reads.
+/// Which of the seven polish presets is in force, and the three slots a custom preset stores its own wording in. A built-in preset uses its own text, as does a custom preset whose slot is empty.
 @property(nonatomic, copy) NSString *polishPromptID;
-@property(nonatomic, copy) NSString *polishPrompt;
 @property(nonatomic, copy) NSString *polishPromptCustom1;
 @property(nonatomic, copy) NSString *polishPromptCustom2;
 @property(nonatomic, copy) NSString *polishPromptCustom3;

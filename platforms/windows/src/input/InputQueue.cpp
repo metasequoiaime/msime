@@ -390,7 +390,8 @@ void InputState::publish_preferences(const PreferenceSnapshot &snapshot) {
   character_set_shortcut_enabled_ = character_set_shortcut;
   for (auto &[id, client] : clients_) {
     (void)id;
-    client.session->queue_current_preferences(snapshot.serialized());
+    if (client.session)
+      client.session->queue_current_preferences(snapshot.serialized());
   }
 }
 bool InputState::queue_preferences(const FocusLease &lease,

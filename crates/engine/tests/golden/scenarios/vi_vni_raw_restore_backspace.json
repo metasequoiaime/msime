@@ -1,0 +1,87 @@
+{
+ "name": "vi_vni_raw_restore_backspace",
+ "source": "crates/engine/src/vietnamese (no C++ reference: the Vietnamese scheme is Rust-only, so the expected file was recorded from this engine and checked by hand)",
+ "covers": [
+  "vietnamese vni",
+  "vietnamese idle digit",
+  "vietnamese digit as a candidate key",
+  "vietnamese keystroke backspace",
+  "vietnamese raw restore",
+  "vietnamese second esc cancels"
+ ],
+ "fixture": {},
+ "options": {
+  "scheme": "vietnamese",
+  "vietnamese_input_method": "vni"
+ },
+ "steps": [
+  {
+   "op": "char",
+   "arg": "6"
+  },
+  {
+   "op": "type",
+   "arg": "viet65"
+  },
+  {
+   "op": "command",
+   "arg": "Backspace"
+  },
+  {
+   "op": "command",
+   "arg": "Backspace"
+  },
+  {
+   "op": "type",
+   "arg": "65"
+  },
+  {
+   "op": "command",
+   "arg": "Cancel"
+  },
+  {
+   "op": "type",
+   "arg": "x"
+  },
+  {
+   "op": "command",
+   "arg": "Backspace"
+  },
+  {
+   "op": "command",
+   "arg": "Cancel"
+  },
+  {
+   "op": "type",
+   "arg": "d9u7o7ng"
+  },
+  {
+   "op": "candidate_key",
+   "arg": "2"
+  },
+  {
+   "op": "command",
+   "arg": "CommitCandidate"
+  },
+  {
+   "op": "type",
+   "arg": "ab"
+  },
+  {
+   "op": "command",
+   "arg": "Backspace"
+  },
+  {
+   "op": "command",
+   "arg": "Backspace"
+  },
+  {
+   "op": "command",
+   "arg": "Backspace"
+  },
+  {
+   "op": "char",
+   "arg": "5"
+  }
+ ]
+}

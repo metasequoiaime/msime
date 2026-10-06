@@ -74,6 +74,13 @@ final class MacSettingsModel: ObservableObject {
       for key in ["platform.macos.global_theme", "platform.macos.custom_theme_base", "platform.macos.custom_candidate_skin", "platform.macos.shuangpin_preedit_uses_raw"] where values[key] == nil {
         values[key] = before[key]
       }
+      // 云端的方案是本版本没有的（比如五笔版上传的五笔落到拼音版）：当作没有这一项，保留本机的方案，其余设置照常应用。规则与 client-core 的 filter_downloaded_account_settings 相同；只有一个方案的版本的本机快照里根本没有这个键，上面已经把它滤掉了。
+      if let offered = BackendEdition.inputSchemes, case .integer(let index)? = values["platform.macos.input_scheme"] {
+        let schemes = ["quanpin", "shuangpin", "wubi"]
+        if index < 0 || index >= Int64(schemes.count) || !offered.contains(schemes[Int(index)]) {
+          values["platform.macos.input_scheme"] = before["platform.macos.input_scheme"]
+        }
+      }
       guard values.count == before.count else {
         self.message = "云端还没有完整的 macOS 设置，可以先上传本机设置。"; return
       }
@@ -147,7 +154,7 @@ struct MacCloudSettingsView: View {
   }
   private func label(_ key: String) -> String {
     if key == "platform.macos.shuangpin_preedit_uses_raw" { return "双拼预编辑" }
-    let names = ["global_theme":"全局主题", "custom_theme_base":"自定义主题底色", "custom_candidate_skin":"自定义候选皮肤", "input_scheme":"输入方案", "quanpin_helpcode_schema":"全拼辅助码", "shuangpin_helpcode_schema":"双拼辅助码", "candidate_panel_style":"候选布局", "candidate_page_size":"每页候选数", "candidate_font_size":"候选字号", "candidate_page_shortcut":"翻页快捷键", "autocorrect":"拼音纠错", "helpcode":"辅助码", "chinese_punctuation":"中文标点", "smart_punctuation":"智能标点", "smart_punctuation_repeat":"重复标点转中文", "candidate_learning":"候选学习", "english_input_mode":"英文模式", "input_mode_shortcut":"中英切换快捷键", "full_width_input":"全角输入", "floating_toolbar":"悬浮工具栏", "traditional_chinese_output":"繁体输出", "wubi_auto_commit_unique":"五笔唯一候选自动上屏", "shuangpin_keymap":"双拼键位图", "local_input_modes":"本地扩展模式"]
+    let names = ["global_theme":"全局主题", "custom_theme_base":"自定义主题底色", "custom_candidate_skin":"自定义候选皮肤", "input_scheme":"输入方案", "quanpin_helpcode_schema":"全拼辅助码", "shuangpin_helpcode_schema":"双拼辅助码", "candidate_panel_style":"候选布局", "candidate_page_size":"每页候选数", "candidate_font_size":"候选字号", "candidate_page_shortcut":"翻页快捷键", "autocorrect":"拼音纠错", "helpcode":"辅助码", "chinese_punctuation":"中文标点", "smart_punctuation":"智能标点", "smart_punctuation_repeat":"重复标点转中文", "candidate_learning":"候选学习", "english_input_mode":"英文模式", "input_mode_shortcut":"中英切换快捷键", "full_width_input":"全角输入", "floating_toolbar":"悬浮工具栏", "traditional_chinese_output":"繁体输出", "wubi_auto_commit_unique":"五笔唯一候选自动上屏", "shuangpin_keymap":"双拼键位图", "local_input_modes":"快捷模式"]
     return names[String(key.dropFirst("platform.macos.".count))] ?? "桌面设置"
   }
   private func display(_ value: BackendPreferenceValue, key: String) -> String {

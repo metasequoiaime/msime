@@ -1,0 +1,41 @@
+name: Cancel closed pull request runs
+
+# 拉取请求合并或关闭后，取消它还在排队的 CI。已经开始跑的运行让它跑完：develop 上的推送多数会跳过 macOS 测试，合并时正在跑的那一次往往是这份代码唯一一次完整验证（2026-10-02 #2807 的 macOS CI 就是在合并后被取消，修复因此没在 CI 上跑过）。各 CI 的 concurrency 只在同一个 PR 推新提交时取消旧的一次，合并不会在同组里再起一次运行，所以合并前排上的 macOS、iOS 运行会一直等 macOS 机器。公开仓库的 macOS 并发只有个位数，2026-10-02 就积压了 180 多个属于已合并 PR 的运行，开着的 PR 和手动调试的运行都排不上。
+#
+# 用 pull_request_target 是为了在 fork 的 PR 上也拿到可写的令牌（pull_request 事件给 fork 的令牌只读，取消不了运行）；它绝不检出或执行 PR 的代码，PR 的字段只经环境变量进入脚本，不经 ${{ }} 插值进命令行。
+
+on:
+  pull_request_target:
+    types: [closed]
+
+permissions:
+  actions: write
+
+jobs:
+  cancel:
+    name: Cancel queued runs of the closed pull request
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Cancel queued pull request runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          # 按「源仓库 + 分支」匹配：fork 上的同名分支是另一个 PR 的运行，不能因分支名相同被取消。只取消 pull_request 触发的运行，push、merge_group、手动和定时的运行一概不动。
+          for status in queued waiting; do
+            gh api --paginate -X GET "repos/$REPO/actions/runs" \
+              -f event=pull_request -f status="$status" -f branch="$HEAD_REF" -f per_page=100 \
+              --jq ".workflow_runs[] | select(.head_repository.full_name == env.HEAD_REPO and (.id | tostring) != env.RUN_ID) | .id"
+          done | sort -u | while read -r id; do
+            # 运行可能在列出之后、取消之前自己结束，那时 GitHub 回 409，不算失败。
+            if gh api -X POST "repos/$REPO/actions/runs/$id/cancel" >/dev/null 2>&1; then
+              echo "已取消运行 $id"
+            else
+              echo "运行 $id 已结束或无法取消，跳过"
+            fi
+          done

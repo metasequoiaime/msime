@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { runAsyncAction } from "../core/async-action";
 import { aiCredentialOrigin } from "./credential-utils";
 import { aiPolishTestPrompt } from "./ai-assistant-defaults";
+import { useAsyncGeneration } from "./use-async-generation";
 import type { AiAssistantClient, AiAssistantPreferences } from "../index";
 
 export interface UseAiAssistantOptions {
@@ -25,11 +26,11 @@ export function useAiAssistant({
   const [testOutput, setTestOutput] = useState("");
   const [testStatus, setTestStatus] = useState("");
   const [testBusy, setTestBusy] = useState(false);
-  const requestGeneration = useRef(0);
+  const requestGeneration = useAsyncGeneration(client);
   const modelsActionBusy = useRef(false);
-  const modelsActionOwner = useRef(0);
+  const modelsActionOwner = useAsyncGeneration();
   const testActionBusy = useRef(false);
-  const testActionOwner = useRef(0);
+  const testActionOwner = useAsyncGeneration();
   const origin = aiCredentialOrigin(ai.endpoint);
   const token = origin ? (ai.tokens?.[origin] ?? "") : "";
 
@@ -64,7 +65,6 @@ export function useAiAssistant({
   };
 
   useEffect(() => {
-    requestGeneration.current += 1;
     modelsActionOwner.current += 1;
     modelsActionBusy.current = false;
     testActionOwner.current += 1;
@@ -75,9 +75,6 @@ export function useAiAssistant({
     setTestOutput("");
     setTestStatus("");
     setTestBusy(false);
-    return () => {
-      requestGeneration.current += 1;
-    };
   }, [client]);
 
   const updateAi = (patch: Partial<AiAssistantPreferences>) => {

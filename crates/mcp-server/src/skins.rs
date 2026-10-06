@@ -54,7 +54,7 @@ pub struct CreateSkinRequest {
     pub package_id: String,
     /// The whole `skin.toml`, at most 64 KiB.
     pub manifest: String,
-    /// Each image the manifest references (`preview`, `candidate_window.decoration.image`, `candidate_window.background.image`), keyed by its path relative to the skin folder, in standard base64. PNG or JPEG only, at most 3 images, 1 MiB each and 2 MiB together, the preview at most 256 KiB.
+    /// Each image the manifest references (`preview`, `candidate_window.decoration.image`, `candidate_window.background.image`), keyed by its path relative to the skin folder, in standard base64. PNG or JPEG only, each a complete image that decodes with the codec its extension names, at most 3 images, 1 MiB and 2048 pixels on each side each, 2 MiB and 8,000,000 pixels together, the preview at most 256 KiB.
     pub images: BTreeMap<String, String>,
     /// Replace an existing skin of this id whole. Without it an existing skin is left alone and the call refused.
     #[serde(default)]
@@ -125,8 +125,8 @@ fn explain(code: &str) -> &'static str {
         "candidate_skin_exists" => "a skin with this package_id is already installed; list_candidate_skins shows it. Pass replace: true to replace it whole, or choose another id",
         "candidate_skin_file_path" => "images must hold 1 to 3 entries, each a relative path inside the skin folder other than skin.toml, unique ignoring case",
         "candidate_skin_file_type" => "every image must be a .png, .jpg or .jpeg file",
-        "candidate_skin_too_large" => "too large: the manifest may be 64 KiB, each image 1 MiB, all images 2 MiB together and the preview 256 KiB",
-        "candidate_skin_image_invalid" => "an image is not valid standard base64, or its bytes are not the PNG or JPEG its extension names",
+        "candidate_skin_too_large" => "too large: the manifest may be 64 KiB, each image 1 MiB and 2048 pixels on each side, all images 2 MiB and 8,000,000 pixels together, and the preview 256 KiB",
+        "candidate_skin_image_invalid" => "an image is not valid standard base64, or its bytes cannot be decoded as the PNG or JPEG its extension names: it may be truncated or corrupted, so generate it again and pass the whole base64",
         "storage" => "the skin folder could not be written",
         _ => "the skin was refused",
     }
@@ -265,7 +265,14 @@ mod tests {
         not_png.images = BTreeMap::from([("preview.png".into(), "bm90IGEgcG5n".into())]);
         assert!(create(state.path(), &not_png)
             .unwrap_err()
-            .contains("not the PNG or JPEG"));
+            .contains("cannot be decoded"));
+
+        // 签名和 IHDR 完好、像素数据和 IEND 都缺失：只看签名的检查会把它当成 PNG 装进去。
+        let mut truncated = request("sunset", "Sunset", false);
+        truncated.images = BTreeMap::from([("preview.png".into(), PNG[..44].into())]);
+        assert!(create(state.path(), &truncated)
+            .unwrap_err()
+            .contains("cannot be decoded as the PNG or JPEG"));
 
         assert!(list(state.path()).skins.is_empty());
     }

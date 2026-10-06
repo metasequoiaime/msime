@@ -73,7 +73,11 @@ final class KeyboardCloudClipboard {
     if case .disabled = state { return true }
     return false
   }
-  var canUpload: Bool { active && signedIn && !isDisabled && !uploading }
+  var canUpload: Bool {
+    guard active && signedIn && !uploading && fieldAllowsCloud() else { return false }
+    if case .loaded = state { return true }
+    return false
+  }
   var message: String {
     switch state {
     case .needsFullAccess: return Self.needsFullAccessMessage
@@ -126,6 +130,7 @@ final class KeyboardCloudClipboard {
     notice = "正在发到云剪贴板…"
     onChange?()
     let service = service
+    let uploadGeneration = generation
     Task { [weak self] in
       var refreshed: State?
       var notice: String
@@ -149,7 +154,7 @@ final class KeyboardCloudClipboard {
       self.notice = notice
       if let refreshed {
         // A newer list or a refresh still in flight wins over what this upload saw.
-        if !self.isLoading { self.state = refreshed }
+        if self.generation == uploadGeneration && !self.isLoading { self.state = refreshed }
         if refreshed.isSignedOut { self.signedIn = false }
       }
       self.onChange?()

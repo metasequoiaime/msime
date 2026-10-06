@@ -9,6 +9,9 @@ def main() -> int:
     voice = (root / "platforms/harmony/entry/src/main/ets/keyboard/input/HarmonyVoiceRecognizer.ets").read_text()
     behaviour = (root / "platforms/harmony/entry/src/main/ets/keyboard/input/HarmonyVoiceRecordingBehaviour.ets").read_text()
     ability = (root / "platforms/harmony/entry/src/main/ets/inputmethodextability/KeyboardExtensionAbility.ets").read_text()
+    finish_helper = voice.split("private finishSystemSession(session: string): void {", 1)[-1].split(
+        "private deliver(", 1
+    )[0]
 
     checks = {
         "voice creation uses a local engine":
@@ -22,6 +25,17 @@ def main() -> int:
             and "this.cancelSystemSession();" in voice
             and "this.resultHandler = undefined;" in voice
             and "this.errorHandler = undefined;" in voice,
+        "voice completion releases the write-audio capture":
+            "onComplete: (session: string): void => {" in voice
+            and "this.finishSystemSession(session);" in voice
+            and "private finishSystemSession(session: string): void {" in voice
+            and "void this.capture.stop();" in voice,
+        "voice completion invalidates the finished system session":
+            "this.sessionId = '';" in finish_helper
+            and "if (session !== this.sessionId) return;" in finish_helper
+            and "this.engine.cancel(session);" not in finish_helper,
+        "voice cancellation does not cancel an idle CoreSpeechKit session":
+            "if (this.engine !== undefined && session.length > 0 && this.engine.isBusy())" in voice,
         "voice tone closes raw file after player creation failure":
             "let rawFdOpen: boolean = false;" in behaviour
             and "rawFdOpen = true;" in behaviour

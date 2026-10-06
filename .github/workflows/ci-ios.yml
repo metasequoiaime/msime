@@ -24,7 +24,7 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref_name }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -52,11 +52,24 @@ jobs:
           if [[ "$GITHUB_EVENT_NAME" != push && "$GITHUB_EVENT_NAME" != pull_request ]]; then
             echo "build=true" >> "$GITHUB_OUTPUT"; exit 0
           fi
-          # 拿不到可比的两端时也构建。范围算不出来不等于没有改动,而少构建一次的代价是把问题放过去。
-          if [[ ! "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || ! git cat-file -e "$BASE_SHA" 2>/dev/null; then
+          # 推送（develop 和 main）不构建，理由同 ci-macos.yml：PR 上已经跑过，合并后再跑一遍只是抢 macOS runner。
+          if [[ "$GITHUB_EVENT_NAME" == push ]]; then
+            echo "build=false" >> "$GITHUB_OUTPUT"; echo "推送不构建（PR 上已跑过）。"; exit 0
+          fi
+          # 拿不到可比的两端时也构建。范围算不出来不等于没有改动,而少构建一次的代价是把问题放过去。PR 合并得比这个 job 拉代码还快时，分支已被自动删除、squash 前的 head 提交也不在任何分支上，检出里就没有 HEAD_SHA（2026-10-02 #3118）。
+          if [[ ! "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || ! git cat-file -e "$BASE_SHA" 2>/dev/null || ! git cat-file -e "$HEAD_SHA" 2>/dev/null; then
             echo "build=true" >> "$GITHUB_OUTPUT"; exit 0
           fi
-          changed=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
+          # PR 合并或关闭后合并引用被删，签出拿不到 head 提交，下面三个点的 diff 会直接报错（2026-10-02 #3118 合并 13 秒后才开跑的 iOS CI 就红在这里）。PR 已经不在了，不必构建。
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]] && ! git cat-file -e "$HEAD_SHA^{commit}" 2>/dev/null; then
+            printf 'build=false\n' >> "$GITHUB_OUTPUT"; echo "PR 的 head 提交已取不到（PR 已关闭），跳过。"; exit 0
+          fi
+          # PR 要比的是它自己从分叉点起改了什么（三个点）。base.sha 是事件发生时目标分支的最新提交，PR 分支往往从更早的 develop 切出；两个点的 diff 比的是两棵树，会把分叉之后 develop 合进来的改动也算成本 PR 的，于是只改一个 workflow 的 PR 也被判成要编译全部平台（2026-10-02 #2902）。push 的 BASE_SHA 是推送前的提交，两个点正好是这次推送带来的改动。
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+            changed=$(git diff --name-only "$BASE_SHA...$HEAD_SHA")
+          else
+            changed=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
+          fi
           printf '改动文件:\n%s\n' "$changed"
           while IFS= read -r path; do
             [[ -z "$path" ]] && continue
@@ -67,7 +80,7 @@ jobs:
                 echo "build=true" >> "$GITHUB_OUTPUT"; echo "共享输入改动: $path"; exit 0 ;;
               # 同 ci-macos.yml:工作区清单与工具链,以及 build-native.sh 的 cargo build -p msime-host-api
               # 和它依赖的三个 crate(client-core 的 example 也由本工作流运行)。
-              Cargo.toml|Cargo.lock|rust-toolchain.toml|.cargo/*|crates/host-api/*|crates/client-core/*|crates/engine/*|crates/input-runtime/*)
+              Cargo.toml|Cargo.lock|rust-toolchain.toml|.cargo/*|crates/host-api/*|crates/path-trust/*|crates/client-core/*|crates/engine/*|crates/input-runtime/*)
                 echo "build=true" >> "$GITHUB_OUTPUT"; echo "Rust 输入改动: $path"; exit 0 ;;
               # 同 ci-macos.yml:scripts/ 下只有真正进得了这条构建的才触发。run_ui_tests.sh 在 platforms/ios/scripts/ 下,已由 platforms/ios/* 覆盖。
               # fetch_voice_runtime.py 与它读的 lock 决定 MSIMEApp 嵌入的 sherpa-onnx 运行时。

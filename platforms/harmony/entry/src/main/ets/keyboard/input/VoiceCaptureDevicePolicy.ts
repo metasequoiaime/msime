@@ -52,8 +52,19 @@ export class VoiceCaptureDevicePolicy {
     for (const candidate of candidates) {
       const printable: string = VoiceCaptureDevicePolicy.printable(candidate).trim();
       if (printable.length > 0) {
-        return printable.length > MAX_LABEL_LENGTH
-          ? printable.substring(0, MAX_LABEL_LENGTH - 1) + '…' : printable;
+        if (printable.length <= MAX_LABEL_LENGTH) {
+          return printable;
+        }
+        let end: number = MAX_LABEL_LENGTH - 1;
+        // 避免截断 emoji 时把孤立的高代理项带入设备名称。
+        if (
+          end > 0 &&
+          printable.charCodeAt(end - 1) >= 0xd800 &&
+          printable.charCodeAt(end - 1) <= 0xdbff
+        ) {
+          end -= 1;
+        }
+        return printable.substring(0, end) + '…';
       }
     }
     return `录音设备 ${Number.isInteger(deviceType) ? deviceType : 0}`;

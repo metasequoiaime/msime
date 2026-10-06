@@ -30,7 +30,6 @@ fn settings_deep_link_names_a_category() {
     // The pages the redesigned navigation added are routable by their page ids.
     for (argument, category) in [
         ("settings:expression", SettingsCategory::Expression),
-        ("settings:download", SettingsCategory::Download),
         ("settings:developer", SettingsCategory::Developer),
         ("settings:plugins", SettingsCategory::Plugins),
     ] {
@@ -215,8 +214,7 @@ fn capabilities_describe_each_host() {
     // explanation of the gesture would be describing something that does not happen here.
     assert!(!windows.helpcode_shift_entry);
     assert!(!windows.skin_directory_import);
-    // The Server mirrors these into the shared config.toml the TIP reads,
-    // so the controls offer settings that actually take effect.
+    // The TIP reads the CN/EN and 简繁 hotkeys from the shared preferences document, so the toggles take effect.
     assert!(windows.mode_switch_shortcuts);
     assert!(
         windows.floating_toolbar
@@ -303,14 +301,17 @@ fn capabilities_describe_each_host() {
         let other = HostCapabilities::for_platform(platform);
         assert_eq!(other.fixed_candidate_page_size, None);
         assert_eq!(other.fixed_candidate_layout, None);
-        assert!(!other.touch_toolbar_components);
+        // 只有 iOS 和 Android 的键盘工具栏按 `touch_toolbar` 选按钮。
+        assert_eq!(
+            other.touch_toolbar_components,
+            platform == HostPlatform::Android
+        );
     }
     assert!(ios.touch_toolbar_components);
     // Windows handles Ctrl+Shift+Win+K on its maintenance hook, so the
     // panel shortcut row is real there now.
     assert!(windows.panel_shortcuts);
-    // The CN/EN and 简繁 hotkeys are editable now: the Server mirrors them
-    // into the config.toml the TIP reads, so the toggles take effect.
+    // The TIP reads the CN/EN and 简繁 hotkeys from the shared preferences document, so the toggles take effect.
     assert!(windows.mode_switch_shortcuts);
     assert!(windows.system_fonts);
 
@@ -340,6 +341,55 @@ fn capabilities_round_trip_and_reject_unknown_keys() {
     let mut document: serde_json::Value = serde_json::from_str(&text).expect("valid JSON");
     document["unexpected"] = serde_json::Value::Bool(true);
     assert!(serde_json::from_value::<HostCapabilities>(document).is_err());
+}
+
+#[test]
+fn every_host_offers_cantonese_zhuyin_vietnamese_tibetan_and_stroke() {
+    use crate::preferences::InputScheme;
+    for platform in [
+        HostPlatform::Macos,
+        HostPlatform::Windows,
+        HostPlatform::Linux,
+        HostPlatform::Android,
+        HostPlatform::Ios,
+        HostPlatform::Harmony,
+    ] {
+        let schemes = HostCapabilities::for_platform(platform).input_schemes;
+        assert_eq!(schemes.len(), 10, "{platform:?}");
+        for scheme in [
+            InputScheme::Cantonese,
+            InputScheme::Zhuyin,
+            InputScheme::Vietnamese,
+            InputScheme::Tibetan,
+            InputScheme::Stroke,
+        ] {
+            assert!(schemes.contains(&scheme), "{platform:?} {scheme:?}");
+        }
+    }
+}
+
+#[test]
+fn a_build_compiles_the_schemes_its_platform_offers() {
+    // 每个目标平台都编译全部十个方案。
+    let platform = if cfg!(target_os = "macos") {
+        HostPlatform::Macos
+    } else if cfg!(target_os = "android") {
+        HostPlatform::Android
+    } else if cfg!(target_os = "ios") {
+        HostPlatform::Ios
+    } else if cfg!(target_env = "ohos") {
+        HostPlatform::Harmony
+    } else if cfg!(target_os = "linux") {
+        HostPlatform::Linux
+    } else {
+        HostPlatform::Windows
+    };
+    assert_eq!(
+        compiled_input_schemes(),
+        HostCapabilities::for_platform(platform)
+            .input_schemes
+            .as_slice()
+    );
 }
 
 #[test]
@@ -535,7 +585,7 @@ fn voice_commit_mode_is_offered_only_where_a_host_chooses_between_paths() {
     }
 }
 
-/// No host plays sound packs, routes the `/` and `@` modes or streams music yet, and a host binary from before the flags sends a document without them; both must read as "not offered".
+/// Only the hosts that wire them claim sound packs, the `/` and `@` modes, music and typing effects.
 #[test]
 fn plugin_surfaces_are_claimed_only_by_the_hosts_that_wire_them() {
     for platform in [
@@ -552,15 +602,20 @@ fn plugin_surfaces_are_claimed_only_by_the_hosts_that_wire_them() {
             "{platform:?}"
         );
     }
-    // HarmonyOS claims its 2in1 sound and trigger surfaces in its own form-factor projection; Android and iOS wire none.
+    // HarmonyOS claims its 2in1 sound and trigger surfaces in its own form-factor projection; iOS wires none. Android 的 IME 进程播放按键音，其余仍未接入。
     for platform in [
         HostPlatform::Android,
         HostPlatform::Ios,
         HostPlatform::Harmony,
     ] {
         let capabilities = HostCapabilities::for_platform(platform);
+        assert_eq!(
+            capabilities.key_sound,
+            platform == HostPlatform::Android,
+            "{platform:?}"
+        );
         assert!(
-            !capabilities.key_sound && !capabilities.plugin_triggers && !capabilities.music,
+            !capabilities.plugin_triggers && !capabilities.music,
             "{platform:?}"
         );
         // The HarmonyOS KeyboardView draws the flash and the combo badge itself.
@@ -570,14 +625,19 @@ fn plugin_surfaces_are_claimed_only_by_the_hosts_that_wire_them() {
             "{platform:?}"
         );
     }
-    let mut document =
-        serde_json::to_value(HostCapabilities::for_platform(HostPlatform::Macos)).unwrap();
-    let fields = document.as_object_mut().unwrap();
-    for key in ["key_sound", "plugin_triggers", "music", "typing_effects"] {
-        assert!(fields.remove(key).is_some(), "{key}");
-    }
-    let older: HostCapabilities = serde_json::from_value(document).unwrap();
-    assert!(!older.key_sound && !older.plugin_triggers && !older.music && !older.typing_effects);
+    // 只有 Android 列出可选的内置辅助码方案，没有带授权码表的郑码不在其中；其他宿主不写这一项。
+    let android = HostCapabilities::for_platform(HostPlatform::Android);
+    assert!(android
+        .helpcode_schemas
+        .iter()
+        .any(|schema| schema == "ziranma"));
+    assert!(!android
+        .helpcode_schemas
+        .iter()
+        .any(|schema| schema == "zhengma"));
+    let windows =
+        serde_json::to_value(HostCapabilities::for_platform(HostPlatform::Windows)).unwrap();
+    assert!(windows.get("helpcode_schemas").is_none());
     let mut claimed = HostCapabilities::for_platform(HostPlatform::Windows);
     claimed.key_sound = true;
     let text = serde_json::to_string(&claimed).unwrap();
@@ -605,20 +665,109 @@ fn candidate_window_style_is_offered_where_the_host_draws_the_card() {
     assert_eq!(flags(HostPlatform::Harmony), (false, true, true));
     assert_eq!(flags(HostPlatform::Android), (false, false, false));
     assert_eq!(flags(HostPlatform::Ios), (false, false, false));
+}
 
-    // A host built before these flags existed sends a document without them, and the page must then hide the controls.
-    let mut legacy =
-        serde_json::to_value(HostCapabilities::for_platform(HostPlatform::Windows)).unwrap();
-    let object = legacy.as_object_mut().unwrap();
-    for key in [
-        "candidate_window_scale",
-        "candidate_window_opacity",
-        "candidate_corner_radius",
+#[test]
+fn full_offers_every_compiled_scheme_and_leaves_the_capabilities_alone() {
+    let full = Edition::full();
+    assert_eq!(offered_input_schemes(full), compiled_input_schemes());
+    for platform in [
+        HostPlatform::Macos,
+        HostPlatform::Windows,
+        HostPlatform::Linux,
+        HostPlatform::Android,
+        HostPlatform::Ios,
+        HostPlatform::Harmony,
     ] {
-        assert_eq!(object.remove(key), Some(serde_json::Value::Bool(true)));
+        let before = HostCapabilities::for_platform(platform);
+        let mut after = before.clone();
+        after.narrow_to_edition(full);
+        assert_eq!(after, before);
+        // full 的能力文档里没有 `edition` 键，与引入版本之前逐字节相同。
+        assert!(serde_json::to_value(&after)
+            .unwrap()
+            .get("edition")
+            .is_none());
     }
-    let decoded: HostCapabilities = serde_json::from_value(legacy).unwrap();
-    assert!(!decoded.candidate_window_scale);
-    assert!(!decoded.candidate_window_opacity);
-    assert!(!decoded.candidate_corner_radius);
+}
+
+#[test]
+fn a_narrower_edition_drops_its_missing_schemes_and_says_which_edition_it_is() {
+    use crate::preferences::InputScheme;
+    let wubi = Edition::by_id("wubi").unwrap();
+    assert_eq!(offered_input_schemes(wubi), [InputScheme::Wubi]);
+    let mut capabilities = HostCapabilities::for_platform(HostPlatform::Macos);
+    capabilities.narrow_to_edition(wubi);
+    assert_eq!(capabilities.input_schemes, [InputScheme::Wubi]);
+    assert_eq!(
+        capabilities.edition,
+        Some(EditionInfo {
+            id: "wubi".into(),
+            display_name: "水杉五笔".into(),
+            input_schemes: vec![InputScheme::Wubi],
+            default_scheme: InputScheme::Wubi,
+            temporary_japanese: false,
+            neural_keyboard: false,
+            offline_glosses: true,
+            handwriting: true,
+            wubi_mixed_pinyin_default: true,
+        })
+    );
+    let document = serde_json::to_value(&capabilities).unwrap();
+    assert_eq!(
+        document["edition"],
+        serde_json::json!({
+            "id": "wubi",
+            "display_name": "水杉五笔",
+            "input_schemes": ["wubi"],
+            "default_scheme": "wubi",
+            "temporary_japanese": false,
+            "neural_keyboard": false,
+            "offline_glosses": true,
+            "handwriting": true,
+            "wubi_mixed_pinyin_default": true,
+        })
+    );
+    assert_eq!(
+        serde_json::from_value::<HostCapabilities>(document).unwrap(),
+        capabilities
+    );
+
+    // 宿主先在运行时去掉了某个方案（这里是双拼），版本再收窄时不会把它加回来；`edition` 里仍列出本版本的全部方案。
+    let pinyin = Edition::by_id("pinyin").unwrap();
+    let mut capabilities = HostCapabilities::for_platform(HostPlatform::Linux);
+    capabilities
+        .input_schemes
+        .retain(|scheme| *scheme != InputScheme::Shuangpin);
+    capabilities.narrow_to_edition(pinyin);
+    assert_eq!(capabilities.input_schemes, [InputScheme::Quanpin]);
+    let edition = capabilities.edition.unwrap();
+    assert_eq!(
+        edition.input_schemes,
+        [InputScheme::Quanpin, InputScheme::Shuangpin]
+    );
+    assert!(edition.temporary_japanese);
+    assert!(!edition.wubi_mixed_pinyin_default);
+}
+
+/// 不提供中文方案的版本（日文、越南文和藏文版）不带离线释义也不提供手写：设置页据此藏起手写页，macOS 悬浮工具栏的手写按钮开关也随之消失。提供中文方案的版本保持原样。
+#[test]
+fn editions_without_a_chinese_scheme_offer_no_handwriting_or_offline_glosses() {
+    for id in ["japanese", "vietnamese", "tibetan"] {
+        let mut capabilities = HostCapabilities::for_platform(HostPlatform::Macos);
+        assert!(capabilities.floating_toolbar_handwriting);
+        capabilities.narrow_to_edition(Edition::by_id(id).unwrap());
+        assert!(!capabilities.floating_toolbar_handwriting, "{id}");
+        let edition = capabilities.edition.unwrap();
+        assert!(!edition.handwriting, "{id}");
+        assert!(!edition.offline_glosses, "{id}");
+    }
+    for id in ["pinyin", "wubi"] {
+        let mut capabilities = HostCapabilities::for_platform(HostPlatform::Macos);
+        capabilities.narrow_to_edition(Edition::by_id(id).unwrap());
+        assert!(capabilities.floating_toolbar_handwriting, "{id}");
+        let edition = capabilities.edition.unwrap();
+        assert!(edition.handwriting, "{id}");
+        assert!(edition.offline_glosses, "{id}");
+    }
 }

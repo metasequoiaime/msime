@@ -5,12 +5,16 @@ Nothing fails when the key is missing. TISRegisterInputSource still returns noEr
 
 A rename is what produces that. The identifiers live in Info.plist.in and the names live in one .strings per language, with nothing connecting the two files, so changing the identifiers in the plist leaves the old keys behind as valid syntax attached to an input source that no longer exists.
 
-The bundle declares a Chinese, a Shuangpin, a Wubi, a Japanese, a Korean and an English mode, so each appears as its own entry in the input menu and in System Settings. They must read differently in every language, or the list shows the same name twice and the user cannot tell which entry types Chinese.
+bundle 声明了中文、双拼、五笔、粤拼、注音、日语、韩语、越南语、藏语、笔画和英文十一个模式，每个在输入菜单和系统设置里各占一条。它们在每种语言下都必须读起来不同，否则列表里会出现两个同名条目，用户分不清哪一条打中文。
 
 Hence both directions: every identifier the plist declares must be named in every language, and every identifier-shaped key in a .strings must name something the plist still declares. The plist's mode identifier and TISInputSourceID are checked against each other for the same reason - a mode whose identifier disagrees, or that is absent from the visible order, is registered and then never offered.
 
 The names are not the only thing keyed on the identifier, so the last pass reads the sources: the settings app validates the packaged bundle by looking the identifier up inside it, launches the input method by it, and reads the preferences domain NSUserDefaults derives from it, and the uninstaller deletes that domain. Each of those is a string literal in another language in another directory, and each fails silently in its own way - an install that rejects the correct bundle, a restart that finds no application, a settings page that saves into a plist nobody reads.
+
+多个版本（edition）共用同一份源码，每个版本的 bundle 声明各自的标识（platforms/macos/scripts/edition_bundle.py 从版本表生成）。所以源码里的字面量只要属于某个版本声明的标识就算数，而被测的 plist 自己声明的标识仍须一个不差地有名字；这样检查任何一个版本的 plist 时，其他版本留在源码和测试里的标识都不会被误判，而真正拼错、改名后留下的字面量仍然会被拦下。
 """
+
+import importlib.util
 
 import plistlib
 import re
@@ -28,6 +32,20 @@ IDENTIFIER = re.compile(r"app\.msime\.[A-Za-z0-9._-]*inputmethod[A-Za-z0-9._-]*"
 def localized(path: Path) -> dict[str, str]:
     """The .strings sources are UTF-8 key/value pairs; the staged copies are binary plists, which are checked in bundle_contents.py instead."""
     return dict(re.findall(r'"([^"]+)"\s*=\s*"([^"]*)"', path.read_text(encoding="utf-8")))
+
+
+def edition_identifiers(repository: Path) -> set[str]:
+    """版本表里每个版本的 bundle 声明的标识，由生成 Info.plist 的同一个脚本算出。"""
+    spec = importlib.util.spec_from_file_location("edition_bundle", repository / "platforms/macos/scripts/edition_bundle.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    declared: set[str] = set()
+    for entry in module.load_table()["editions"]:
+        if entry["platforms"].get("macos") is None:
+            continue
+        bundle = entry["platforms"]["macos"]["input_method_bundle_id"]
+        declared |= module.declared_identifiers(entry) | {f"{bundle}.settings"}
+    return declared
 
 
 def main() -> int:
@@ -61,6 +79,10 @@ def main() -> int:
     for mode in visible:
         if mode not in modes:
             failures.append(f"tsVisibleInputModeOrderedArrayKey lists {mode}, which tsInputModeListKey does not declare")
+    # 其他形式会被 imklaunchagent 拒绝，输入法不再被按需拉起，它的模式在输入菜单里就变灰。
+    connection = plist.get("InputMethodConnectionName")
+    if bundle and connection != f"{bundle}_Connection":
+        failures.append(f"InputMethodConnectionName is {connection!r}; imklaunchagent only launches the input method under {bundle}_Connection")
 
     # The bundle's own identifier names the input method in System Settings; the mode identifiers name the entries in the input menu.
     identifiers = {value for value in (bundle, source) if value} | set(modes)
@@ -95,6 +117,9 @@ def main() -> int:
 
     # The settings application is its own bundle, named after the input method it installs and launches.
     consumable = (identifiers | {f"{bundle}.settings"}) if bundle else identifiers
+    # 其他版本声明的标识同样是合法的字面量（见文件开头的说明）。
+    if repository:
+        consumable = consumable | edition_identifiers(repository)
     consumers = 0
     for root in (repository / name for name in CONSUMER_ROOTS) if repository else ():
         for path in sorted(root.rglob("*")):
@@ -105,7 +130,7 @@ def main() -> int:
                     consumers += 1
                     if literal not in consumable:
                         failures.append(
-                            f"{path.relative_to(repository)}:{number} names {literal}, which {plist_path.name} no longer declares; "
+                            f"{path.relative_to(repository)}:{number} names {literal}, which neither {plist_path.name} nor any edition declares; "
                             f"the bundle now ships as {bundle}"
                         )
 

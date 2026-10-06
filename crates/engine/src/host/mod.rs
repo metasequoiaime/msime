@@ -10,10 +10,11 @@ pub mod session;
 mod tests;
 pub mod text;
 
+pub use crate::helpcode::{load_helpcode_keymap, HelpcodeKeymap, SharedKeymap};
 pub use crate::local::catalog::{EmojiCatalogItem, EmojiCatalogSlice, EmojiSymbolGroup};
 pub use crate::shuangpin::hints::ShuangpinKeyHint;
 pub use crate::types::{
-    CandidateEdge, CommandTableEntry, CommandTranslationQuery, MentionEntry,
+    CandidateEdge, CommandTableEntry, CommandTranslationQuery, MentionEntry, QuickPhraseEntry,
     SentenceAssociationOptions,
 };
 // Hosts call one of these at shutdown (or before replacing a data directory) so the delayed personal-context writes reach the journal; the bridge had no counterpart because the C++ flushed from `atexit`.
@@ -29,7 +30,7 @@ pub use glosses::{
     candidate_glosses, candidate_glosses_with_user, candidate_target_glosses, english_completions,
     english_phonetics, save_candidate_gloss,
 };
-pub use options::{prepare_options, EngineOptions};
+pub use options::{prepare_options, prepare_options_for, EngineOptions};
 pub use session::{
     local_mode_counts_as_typing, Command, EngineResult, EngineSnapshot, OnlineQuerySnapshot,
     Session,

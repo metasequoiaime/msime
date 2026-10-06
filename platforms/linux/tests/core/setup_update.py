@@ -21,8 +21,8 @@ ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts/msime-linux-setup"
 
 # Stands in for msime-linux-prepare. --refresh points the options at a new generation, the observable effect of the real command, unless STUB_REFRESH_EXIT asks for a failure. It also records what the hosts would see at that moment: whether the quiesce lease is live and whether the session lock is held exclusively, and which resource directory it was asked to prepare.
-PREPARE_STUB = r'''#!/usr/bin/env python3
-import fcntl, json, os, sys, time
+# 首行用跑测试的同一个解释器，不经 /usr/bin/env：没有 FHS 布局的环境（Nix 构建沙箱）里没有它。
+PREPARE_STUB = f"#!{sys.executable}\n" + r'''import fcntl, json, os, sys, time
 from pathlib import Path
 
 with open(os.environ["STUB_LOG"], "a") as log:
@@ -211,6 +211,21 @@ def check_setup(harness: Harness) -> None:
     assert leftovers(state) == [], leftovers(state)
     assert (harness.staged(Path(options(state)["resources"])) / "b.db").read_bytes() == harness.current["b.db"]
 
+    # A replaced access lock must not redirect the update's exclusive lock to an
+    # unrelated file. The host and setup script share this lock, so accepting a
+    # symlink here would let a hostile state directory make the refresh wait on
+    # or lock an external inode.
+    state = harness.installed("state-linked-access-lock")
+    access_lock = state / "user/.msime-dictionary-access.lock"
+    outside_lock = harness.scratch / "outside-access.lock"
+    outside_lock.write_bytes(b"keep")
+    access_lock.symlink_to(outside_lock)
+    result = harness.run("--update", "--download", "--state", str(state))
+    assert result.returncode == 1, result
+    assert "切换词库失败" in result.stderr, result.stderr
+    assert outside_lock.read_bytes() == b"keep"
+    assert harness.prepare_calls() == []
+
     # Without --download an outdated dictionary is reported and left alone, and nothing switches.
     state = harness.installed("state-no-download")
     before = (state / "runtime-options.json").read_bytes()
@@ -248,27 +263,6 @@ def check_setup(harness: Harness) -> None:
     assert Artifacts.requested == ["/b.db"], Artifacts.requested
     assert sorted(path.name for path in harness.staged(resources).iterdir()) == ["a.db", "b.db"]
     assert (resources / "retired.db").is_file() and (resources / "b.db").read_bytes() == harness.previous_b
-
-    # dict_pinyin.dat, the C++ Engine's system dictionary, is the one file a dropped lock entry may leave behind without the directory being refused: the host library deletes it in place when it verifies the directory. So a directory that differs from the lock in that file alone is current, --update stages nothing and downloads nothing, and the file is left for the host.
-    state = harness.installed("state-retired-pinyin")
-    resources = Path(options(state)["resources"])
-    (resources / "b.db").write_bytes(harness.current["b.db"])
-    (resources / "dict_pinyin.dat").write_bytes(b"the C++ Engine's system dictionary")
-    result = harness.run("--update", "--state", str(state))
-    assert result.returncode == 0, result
-    assert Artifacts.requested == [], Artifacts.requested
-    assert not harness.staged(resources).exists()
-    assert harness.refreshes() == [{"lease": True, "locked": True, "resources": str(resources)}], harness.refreshes()
-    assert (resources / "dict_pinyin.dat").is_file()
-
-    # Only as a regular file: a directory by that name is refused by the host, so it is reported like any other unpinned entry.
-    state = harness.installed("state-retired-pinyin-directory")
-    resources = Path(options(state)["resources"])
-    (resources / "b.db").write_bytes(harness.current["b.db"])
-    (resources / "dict_pinyin.dat").mkdir()
-    result = harness.run("--update", "--state", str(state))
-    assert result.returncode == 1 and "dict_pinyin.dat" in result.stderr, result
-    assert harness.prepare_calls() == [], harness.prepare_calls()
 
     # A refresh that fails leaves the options naming the previous directory, which was never written, and says where the new dictionaries wait.
     state = harness.installed("state-refresh-failed")

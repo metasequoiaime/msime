@@ -204,7 +204,6 @@ class AiServiceContract(unittest.TestCase):
             "endpoint": PRIVATE["endpoint"],
             "candidate_limit": 3,
             "prompt_id": "custom_1",
-            "prompt": "",
             "prompt_custom_1": "",
             "prompt_custom_2": "",
             "prompt_custom_3": "",
@@ -222,9 +221,9 @@ class AiServiceContract(unittest.TestCase):
 
         online.fetch = fetch
         # A prompt someone cleared by hand, whitespace included, is still "not customised".
-        for legacy in ("", "  \n"):
+        for blank in ("", "  \n"):
             sent.clear()
-            rows = online.ai(query | {"ai_assistant": options | {"prompt": legacy}}, PRIVATE)
+            rows = online.ai(query | {"ai_assistant": options | {"prompt_custom_1": blank}}, PRIVATE)
             self.assertEqual([row["text"] for row in rows], ["输入法", "书入法"])
             system = sent[0]["messages"][0]
             self.assertEqual(system["role"], "system")
@@ -235,14 +234,14 @@ class AiServiceContract(unittest.TestCase):
         sent.clear()
         online.ai(query | {"ai_assistant": options | {"prompt_custom_1": "synthetic prompt"}}, PRIVATE)
         self.assertEqual(sent[0]["messages"][0]["content"], "synthetic prompt")
-        # Slot one alone inherits the legacy prompt; an empty slot two or three gets the built-in text, not the legacy one, as client-core does.
-        sent.clear()
-        online.ai(query | {"ai_assistant": options | {"prompt": "legacy prompt"}}, PRIVATE)
-        self.assertEqual(sent[0]["messages"][0]["content"], "legacy prompt")
+        # An empty slot two or three gets the built-in text too, not slot one's, as client-core does; "custom" names no slot and sends nothing.
         for slot in ("custom_2", "custom_3"):
             sent.clear()
-            online.ai(query | {"ai_assistant": options | {"prompt_id": slot, "prompt": "legacy prompt"}}, PRIVATE)
+            online.ai(query | {"ai_assistant": options | {"prompt_id": slot, "prompt_custom_1": "synthetic prompt"}}, PRIVATE)
             self.assertEqual(sent[0]["messages"][0]["content"], online.DEFAULT_AI_PROMPT)
+        sent.clear()
+        online.ai(query | {"ai_assistant": options | {"prompt_id": "custom", "prompt_custom_1": "synthetic prompt"}}, PRIVATE)
+        self.assertEqual(sent, [])
 
     def test_builtin_prompt_matches_client_core(self):
         # The provider cannot import the Rust constant at run time, so keep the two copies from drifting apart here. The Rust literal only uses escapes JSON shares (\n and \").

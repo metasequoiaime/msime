@@ -1,6 +1,24 @@
 import XCTest
 
 final class VoiceTextHandoffTests: XCTestCase {
+  func testHandoffDirectorySymlinkFailsClosedBeforeWritingExternalResult() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("msime-voice-directory-link-test-\(UUID().uuidString)")
+    let outsideDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("msime-voice-directory-link-target-\(UUID().uuidString)")
+    defer {
+      try? FileManager.default.removeItem(at: root)
+      try? FileManager.default.removeItem(at: outsideDirectory)
+    }
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: outsideDirectory, withIntermediateDirectories: true)
+    try FileManager.default.createSymbolicLink(
+      at: root.appendingPathComponent("VoiceHandoff", isDirectory: true),
+      withDestinationURL: outsideDirectory)
+
+    XCTAssertThrowsError(try VoiceTextHandoffStore(directory: root).save("synthetic voice result"))
+    XCTAssertFalse(FileManager.default.fileExists(atPath: outsideDirectory.appendingPathComponent("result.json").path))
+    XCTAssertFalse(FileManager.default.fileExists(atPath: outsideDirectory.appendingPathComponent("transfer.lock").path))
+  }
+
   func testOneTimeClaimReplacementAndExpiry() throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: root) }

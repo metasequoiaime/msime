@@ -26,6 +26,11 @@ public final class DoubaoAsrPolicy {
         return PROVIDER.equals(provider);
     }
 
+    /** A streaming response carries text; reject non-string JSON values before display. */
+    static String strictText(Object value) {
+        return value instanceof String ? (String) value : "";
+    }
+
     static boolean validEndpoint(String endpoint) {
         return TextPolicy.validAuthority(endpoint, "wss://", 2048);
     }
@@ -41,22 +46,29 @@ public final class DoubaoAsrPolicy {
         if (!validEndpoint(endpoint)) {
             return false;
         }
-        if (headerNames == null || headerNames.size() < 3 || headerNames.size() > 8) return false;
-        boolean resource = false;
-        boolean request = false;
-        boolean credential = false;
+        if (headerNames == null || headerNames.size() < 3 || headerNames.size() > 4) return false;
+        int resource = 0;
+        int request = 0;
+        int apiKey = 0;
+        int appKey = 0;
+        int accessKey = 0;
         for (String name : headerNames) {
             if (name == null || name.isEmpty() || TextPolicy.hasControl(name)) return false;
             switch (name) {
-                case RESOURCE_HEADER -> resource = true;
-                case REQUEST_HEADER -> request = true;
+                case RESOURCE_HEADER -> resource++;
+                case REQUEST_HEADER -> request++;
                 // Either the single API key or the app-key/access-key pair, depending on the mode
                 // the shared policy resolved; one of them being present is what makes it usable.
-                case "x-api-key", "x-api-access-key" -> credential = true;
-                default -> { }
+                case "x-api-key" -> apiKey++;
+                case "x-api-app-key" -> appKey++;
+                case "x-api-access-key" -> accessKey++;
+                default -> { return false; }
             }
         }
-        return resource && request && credential;
+        boolean shared = resource == 1 && request == 1;
+        boolean apiKeyMode = apiKey == 1 && appKey == 0 && accessKey == 0;
+        boolean legacyMode = apiKey == 0 && appKey == 1 && accessKey == 1;
+        return shared && (apiKeyMode || legacyMode);
     }
 
 }

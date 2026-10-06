@@ -14,7 +14,8 @@ path = "src/main.rs"
 [dependencies]
 msime-client-core = { path = "../client-core" }
 msime-host-api = { path = "../host-api" }
-rmcp = { version = "3.4.1", default-features = false, features = ["server", "macros", "transport-io"] }
+# client: the command line calls the server in process, as an MCP client would.
+rmcp = { version = "3.4.1", default-features = false, features = ["server", "client", "macros", "transport-io"] }
 serde.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true

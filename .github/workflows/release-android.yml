@@ -4,44 +4,109 @@ on:
     inputs:
       version: {description: Semantic version (defaults to platforms/android/version.txt), required: false, type: string}
       prerelease: {description: Mark as prerelease, required: false, default: false, type: boolean}
-      publish: {description: Publish the build as an android-v release (otherwise it is only uploaded as a workflow artifact), required: false, default: false, type: boolean}
+      publish: {description: Publish the build as an android-v release (otherwise it is only uploaded as a workflow artifact), required: false, default: true, type: boolean}
 permissions: {contents: write}
 concurrency: {group: release-android, cancel-in-progress: false}
 jobs:
-  release:
+  # Resolves the dispatched commit up front, so every edition and the publish job (tag target, release notes) use the same source even if the branch moves during the run.
+  source:
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with: {fetch-depth: 0, persist-credentials: false}
+        with: {ref: "${{ github.sha }}", persist-credentials: false}
+      - id: commit
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+    outputs:
+      sha: ${{ steps.commit.outputs.sha }}
+  # 每个版本（shared/contracts/editions.json 里有 Android 段的 id，也是 gradle-app 的 flavor 名）各打一个 APK，applicationId 各不相同，可以同时装在一台设备上。full 的 applicationId 和 APK 名（msime-client.apk）与引入版本之前相同。
+  release:
+    needs: source
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: true
+      matrix:
+        edition: [full, wubi, pinyin, japanese, vietnamese, tibetan]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {ref: "${{ needs.source.outputs.sha }}", fetch-depth: 0, persist-credentials: false}
+      # The packages keep the plain X.Y.Z (Info.plist, versionName, Tauri, deb and rpm metadata take nothing else); the release tag and title carry the branch the run was dispatched from: none on main, -beta on develop, -alpha anywhere else. A suffixed release is always published as a prerelease, which the in-app update checks skip.
       - id: version
         env: {REQUESTED: "${{ inputs.version }}"}
         run: |
           version="${REQUESTED:-$(tr -d '[:space:]' < platforms/android/version.txt)}"; [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; echo "value=$version" >> "$GITHUB_OUTPUT"
+          case "$GITHUB_REF_NAME" in main) suffix= ;; develop) suffix=-beta ;; *) suffix=-alpha ;; esac; echo "release=${version}${suffix}" >> "$GITHUB_OUTPUT"
       # build-apk.sh takes the directory install_resources verified and unpacked, not the repository's
       # resources/ directory -- that one holds the lock files install_resources reads.
       # build-apk.sh packs target/offline-glosses when it is there.
       - name: Fetch the locked offline candidate glosses
         run: python3 scripts/fetch_offline_glosses.py
-      - name: Build native Android host
+      # build-apk.sh packs the language dictionaries the edition needs from target/language-dictionaries (Cantonese, Zhuyin and Stroke, with their licences, for full; none for the other editions); a release must carry every one of them that resources/language-dictionaries.lock.json pins, so it fails rather than packing fewer.
+      - name: Fetch the locked language dictionaries
+        run: python3 scripts/fetch_language_dictionaries.py
+      # build-native.sh 需要固定提交的 vcpkg（只用来装 nlohmann-json）和 arm64 的 Android Rust target（build-apk.sh 默认只打 arm64-v8a）；runner 上都没有。bootstrap-vcpkg.sh 放在 platforms/windows 下但不限平台，装到 build-native.sh 默认读取的 target/tooling/vcpkg。
+      - name: Prepare pinned vcpkg and Rust targets
         run: |
           set -euo pipefail
+          bash platforms/windows/bootstrap-vcpkg.sh
+          rustup target add aarch64-linux-android
+      - name: Build native Android host
+        # 发布包必须用仓库 secrets 里的发布密钥签名：此前用的是 runner 上临时生成的开发密钥，每次发版签名都不同，用户无法覆盖升级。缺少 secrets 时直接失败，不退回开发密钥。
+        env:
+          MSIME_ANDROID_VERSION: "${{ steps.version.outputs.value }}"
+          MSIME_EDITION: "${{ matrix.edition }}"
+          MSIME_REQUIRE_LANGUAGE_DICTIONARIES: "1"
+          RELEASE_KEYSTORE_BASE64: "${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}"
+          MSIME_ANDROID_RELEASE_KEYSTORE_PASSWORD: "${{ secrets.ANDROID_RELEASE_KEYSTORE_PASSWORD }}"
+        run: |
+          set -euo pipefail
+          [[ -n "$RELEASE_KEYSTORE_BASE64" && -n "$MSIME_ANDROID_RELEASE_KEYSTORE_PASSWORD" ]] || { echo "ANDROID_RELEASE_KEYSTORE_BASE64 and ANDROID_RELEASE_KEYSTORE_PASSWORD secrets are required" >&2; exit 1; }
+          export MSIME_ANDROID_RELEASE_KEYSTORE="$RUNNER_TEMP/msime-release.p12"
+          trap 'rm -f "$MSIME_ANDROID_RELEASE_KEYSTORE"' EXIT
+          printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 --decode > "$MSIME_ANDROID_RELEASE_KEYSTORE"
           mkdir -p target/resources
           resource_dir="$(cargo run --quiet -p msime-client-core --example install_resources -- target/resources)"
           bash platforms/android/build-apk.sh "$resource_dir"
+          # 按版本取 APK 名（full 是 msime-client，五笔版是 msime-client-wubi），放进 dist/ 交给汇总发布的那一步。
+          apk_name="$(python3 platforms/android/scripts/edition_android.py field --edition "$MSIME_EDITION" apk_name)"
+          mkdir -p dist
+          cp "target/android/$apk_name.apk" dist/
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: msime-android-${{ steps.version.outputs.value }}
-          path: target/android/msime-client.apk
+          name: msime-android-${{ matrix.edition }}-${{ steps.version.outputs.value }}
+          path: dist/
           if-no-files-found: error
-      # workflow_dispatch runs on whatever ref it is given, so publishing has to be asked for rather
-      # than implied. Without the gate a dispatch on a feature branch cuts a real public release.
+    outputs:
+      version: ${{ steps.version.outputs.value }}
+      release: ${{ steps.version.outputs.release }}
+  publish:
+    needs: [source, release]
+    # The build takes the dispatched commit, so publishing has to be asked for rather than implied. Without the gate a build of a feature branch cuts a real public release.
+    if: inputs.publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {ref: "${{ needs.source.outputs.sha }}", fetch-depth: 0, persist-credentials: false}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: msime-android-*-${{ needs.release.outputs.version }}
+          path: dist
+          merge-multiple: true
       - name: Publish independent Android release
-        if: ${{ inputs.publish }}
-        env: {GH_TOKEN: "${{ github.token }}", VERSION: "${{ steps.version.outputs.value }}", PRERELEASE: "${{ inputs.prerelease }}"}
+        # RELEASE_PUBLISH_TOKEN (org secret, a fine-grained token with Contents and Workflows write) creates the tag: GitHub refuses GITHUB_TOKEN a new ref whose .github/workflows differs from the default branch, which is the case whenever develop takes a workflow change while the release builds (Release Linux run 37259338700, 403 Resource not accessible by integration). Without the secret, as on a fork, it falls back to GITHUB_TOKEN.
+        env: {GH_TOKEN: "${{ secrets.RELEASE_PUBLISH_TOKEN || github.token }}", VERSION: "${{ needs.release.outputs.version }}", RELEASE: "${{ needs.release.outputs.release }}", PRERELEASE: "${{ inputs.prerelease }}", EVERYAPI_RELEASE_NOTES_TOKEN: "${{ secrets.EVERYAPI_RELEASE_NOTES_TOKEN }}", EVERYAPI_RELEASE_NOTES_MODEL: "${{ vars.EVERYAPI_RELEASE_NOTES_MODEL }}"}
         run: |
-          # --generate-notes otherwise starts from whichever tag in the repository is newest, and the six platforms interleave prefixes, so a macOS release could be described by the diff since an ios-v tag. fetch-depth: 0 above is what makes this list complete.
-          start=$(git tag --list 'android-v*' --sort=-v:refname | head -1)
-          tag="android-v${VERSION}"; flags=(); [[ "$PRERELEASE" == true ]] && flags+=(--prerelease)
-          [[ -n "$start" ]] && flags+=(--notes-start-tag "$start")
-          gh release create "$tag" target/android/msime-client.apk --target "$GITHUB_SHA" --title "Android ${VERSION}" --generate-notes "${flags[@]}"
+          # 每个版本的 APK 都要在：少一个就不发，免得版本页上缺了某个版本的包。
+          for edition in $(python3 platforms/android/scripts/edition_android.py editions | tr ',' ' '); do
+            apk_name="$(python3 platforms/android/scripts/edition_android.py field --edition "$edition" apk_name)"
+            [[ -f "dist/$apk_name.apk" ]] || { echo "dist/$apk_name.apk for edition $edition is missing" >&2; exit 1; }
+          done
+          tag="android-v${RELEASE}"
+          [[ "$RELEASE" == "$VERSION" ]] || export PRERELEASE=true
+          # A re-run for the same version overwrites its release (scripts/publish-release.sh), so the notes start at the release before it rather than at its own tag. A final release starts at the previous final release, a -beta or -alpha one at the latest release of either kind.
+          stable='^android-v[0-9]+\.[0-9]+\.[0-9]+$'; [[ "$RELEASE" == "$VERSION" ]] || stable=.
+          start=$(git tag --list 'android-v*' --sort=-v:refname | grep -vxF "$tag" | grep -E "$stable" | head -1 || true)
+          python3 scripts/generate-release-notes.py --platform android --version "$RELEASE" --start-tag "$start" --end-ref "$(git rev-parse HEAD)" --output release-notes.md
+          bash scripts/publish-release.sh "$tag" "$(git rev-parse HEAD)" "Android ${RELEASE}" release-notes.md dist/*.apk

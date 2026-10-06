@@ -1,7 +1,6 @@
 import Foundation
 
-// Output script shared by the host app and the keyboard extension. The key is new in the App Group,
-// so unlike the input scheme there is no standard-defaults value to migrate.
+// Output script shared by the host app and the keyboard extension, kept in the App Group.
 enum ChineseOutputPreference {
   private static let key = "chineseOutputUsesTraditional"
 

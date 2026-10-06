@@ -117,9 +117,9 @@ public final class HandwritingDeviceSmoke extends DeviceSmoke {
             stage = "handwriting symbol layer open";
             accessibleClick(description("切换符号键盘"));
             stage = "handwriting symbol layer ready";
-            awaitAnyFor(description("切换字母键盘"), 15_000);
+            awaitAnyFor(description("关闭符号面板"), 15_000);
             stage = "handwriting letter layer restore";
-            accessibleClick(description("切换字母键盘"));
+            accessibleClick(description("关闭符号面板"));
             stage = "handwriting UI restored after symbols";
             awaitFor(imeTextContains("在此手写，停笔后选字"), 30_000);
             completed = true;

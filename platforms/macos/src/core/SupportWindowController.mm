@@ -1,5 +1,6 @@
 #import "SupportWindowController.h"
 #import "WindowPresentation.h"
+#import "EditionIdentity.h"
 
 namespace {
 
@@ -114,8 +115,8 @@ void OpenPreferences(void) {
     NSString *title;
     switch (page) {
         case MSIMESupportPageAbout: {
-            title = @"关于水杉输入法";
-            NSString *version = NSBundle.mainBundle.infoDictionary[@"CFBundleShortVersionString"] ?: @"0.50.0";
+            title = [@"关于" stringByAppendingString:MSIMEEditionDisplayName()];
+            NSString *version = NSBundle.mainBundle.infoDictionary[@"CFBundleShortVersionString"] ?: @"0.52.0";
             views = @[
                 Heading(@"水杉 IME"),
                 Body(@"为现代 macOS 桌面体验打造的开放中文输入法。"),
@@ -146,7 +147,7 @@ void OpenPreferences(void) {
             break;
         case MSIMESupportPageHelp:
         default:
-            title = @"水杉输入法帮助";
+            title = [MSIMEEditionDisplayName() stringByAppendingString:@"帮助"];
             views = @[
                 Heading(@"帮助"),
                 Body(@"水杉输入法是一款 macOS 平台的中文输入法。请先在系统设置的键盘输入法中启用水杉输入法，再使用系统配置的输入法切换快捷键。"),

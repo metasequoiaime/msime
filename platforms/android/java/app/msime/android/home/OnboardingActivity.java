@@ -18,10 +18,12 @@ import androidx.annotation.DrawableRes;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.core.content.ContextCompat;
 import androidx.core.widget.NestedScrollView;
+import app.msime.android.AppEdition;
+import app.msime.android.FirstRunPreparation;
 import app.msime.android.KeyboardScheme;
 import app.msime.android.R;
+import app.msime.android.SchemePreferences;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.materialswitch.MaterialSwitch;
 import com.google.android.material.progressindicator.LinearProgressIndicator;
@@ -33,12 +35,15 @@ import org.json.JSONObject;
  *
  * <p>The design's Android flow: a progress bar rather than a counter, an accent glyph, a kicker, a large regular-weight title and a body line, then the step's own content. The left button reads 跳过 on the first step and 上一步 after it; a horizontal swipe moves between steps too.
  *
- * <p>Every control on these pages changes something real. The scheme cards write the same preferences the settings tab's scheme picker writes, through the same mapping; the 显示译文 switch is the offline English gloss preference the keyboard reads. The last step's 登录 is the same Google sign-in 我的 offers ({@link SignIn}), shown only when that is offered: then the primary button reads 登录 with 稍后再说 beside it, and after a successful sign-in, or when sign-in is not offered at all, it reads 开始使用.
+ * <p>Every control on these pages changes something real. The scheme cards write through {@link SchemePreferences#withScheme}, the same mapping the settings tab's scheme picker uses; the 显示译文 switch is the offline English gloss preference the keyboard reads. The last step's 登录 opens {@link LoginSheet} (Apple / Google / 邮箱，按后端接受的方式), shown only when sign-in is offered; after a successful sign-in, after the sheet was closed without signing in, or when sign-in is not offered at all, it reads 开始使用. 设计没有「稍后再说」（与「跳过」重复，P12），所以这里也没有。
  */
 public final class OnboardingActivity extends AppCompatActivity {
     private static final String STORE = "msime_onboarding_v1";
     private static final String SEEN = "seen";
-    private static final int PAGES = 4;
+    private static final int STEP_ENABLE = 0;
+    private static final int STEP_SCHEMES = 1;
+    private static final int STEP_TRANSLATION = 2;
+    private static final int STEP_SYNC = 3;
     private static final String STATE_PAGE = "onboarding-page";
     /** The keyboard reads this key for the per-candidate English line; the core's default is off. */
     private static final String GLOSS = "candidate_english_gloss";
@@ -55,6 +60,12 @@ public final class OnboardingActivity extends AppCompatActivity {
     /** One scheme card: what it is called here, its supporting line, and the scheme it selects. */
     private record SchemeCard(String label, String detail, KeyboardScheme scheme) {}
 
+    /** 本版本走的步骤，顺序固定。只有一个方案的版本（五笔版）没有方案可选，跳过「选一套输入方案」这一步。 */
+    private final int[] steps = AppEdition.current().offersSchemeChoice()
+        ? new int[] {STEP_ENABLE, STEP_SCHEMES, STEP_TRANSLATION, STEP_SYNC}
+        : new int[] {STEP_ENABLE, STEP_TRANSLATION, STEP_SYNC};
+    private final int pages = steps.length;
+
     private int page;
     @Nullable private JSONObject snapshot;
     private boolean loaded;
@@ -64,22 +75,32 @@ public final class OnboardingActivity extends AppCompatActivity {
     /** Whether the last step can offer sign-in; null until the off-thread check answers, which reads as not offered. */
     @Nullable private SignIn.State account;
     private boolean signingIn;
+    /** 在最后一步打开过登录面板又没登录就关掉了：主按钮改为「开始使用」，不再反复弹出面板（设计去掉了「稍后再说」，P12）。 */
+    private boolean declined;
     private OnBackPressedCallback back;
     private GestureDetector swipe;
+    /** 首次安装时，引导页打开时词库还在准备，准备完成前读不到偏好设置；如果不在完成后重新读取，方案页和释义页会一直显示「词库还在准备」。 */
+    private final FirstRunPreparation.Listener preparation = status -> {
+        if (status == FirstRunPreparation.State.READY && preferences() == null && !isFinishing() && !isDestroyed()) reload();
+    };
 
     @Override protected void onCreate(@Nullable Bundle state) {
         AppMode.restore(this);
         super.onCreate(state);
         setContentView(R.layout.activity_onboarding);
-        if (state != null) page = Math.max(0, Math.min(PAGES - 1, state.getInt(STATE_PAGE, 0)));
+        // The layout's max is the four-step flow; an edition with a single scheme skips the scheme step, and the bar must still fill on its last page.
+        LinearProgressIndicator progress = findViewById(R.id.onboarding_progress);
+        progress.setMax(pages);
+        progress.setIndicatorColor(Ui.accent(this));
+        progress.setTrackColor(Ui.accentSoft(this));
+        if (state != null) page = Math.max(0, Math.min(pages - 1, state.getInt(STATE_PAGE, 0)));
         findViewById(R.id.onboarding_skip).setOnClickListener(ignored -> finishFlow());
         findViewById(R.id.onboarding_previous).setOnClickListener(ignored -> go(page - 1));
         findViewById(R.id.onboarding_next).setOnClickListener(ignored -> {
-            if (page < PAGES - 1) go(page + 1);
-            else if (account == SignIn.State.OFFERED) signIn();
+            if (page < pages - 1) go(page + 1);
+            else if (account == SignIn.State.OFFERED && !declined) signIn();
             else finishFlow();
         });
-        findViewById(R.id.onboarding_later).setOnClickListener(ignored -> finishFlow());
         // Back steps back through the flow; on the first step it leaves without marking the flow seen, as it always has, so the guide comes back on the next launch.
         back = new OnBackPressedCallback(false) {
             @Override public void handleOnBackPressed() { go(page - 1); }
@@ -93,14 +114,20 @@ public final class OnboardingActivity extends AppCompatActivity {
                 float dy = end.getY() - start.getY();
                 // The design's rule: at least 50 px across, and clearly more across than down, so a vertical scroll never turns the page.
                 if (Math.abs(dx) < pixels(50) || Math.abs(dx) < Math.abs(dy) * 1.5f) return false;
-                if (dx < 0 && page < PAGES - 1) go(page + 1);
+                if (dx < 0 && page < pages - 1) go(page + 1);
                 else if (dx > 0 && page > 0) go(page - 1);
                 return true;
             }
         });
         render(false);
         reload();
+        FirstRunPreparation.observe(preparation);
         probeAccount();
+    }
+
+    @Override protected void onDestroy() {
+        FirstRunPreparation.stopObserving(preparation);
+        super.onDestroy();
     }
 
     @Override protected void onSaveInstanceState(@NonNull Bundle state) {
@@ -125,7 +152,7 @@ public final class OnboardingActivity extends AppCompatActivity {
     }
 
     private void go(int target) {
-        if (target < 0 || target >= PAGES || target == page) return;
+        if (target < 0 || target >= pages || target == page) return;
         page = target;
         note = null;
         render(true);
@@ -136,20 +163,19 @@ public final class OnboardingActivity extends AppCompatActivity {
             .setProgressCompat(page + 1, animate);
         findViewById(R.id.onboarding_skip).setVisibility(page == 0 ? View.VISIBLE : View.GONE);
         findViewById(R.id.onboarding_previous).setVisibility(page == 0 ? View.GONE : View.VISIBLE);
-        boolean offer = page == PAGES - 1 && account == SignIn.State.OFFERED;
+        boolean offer = page == pages - 1 && account == SignIn.State.OFFERED && !declined;
         MaterialButton next = findViewById(R.id.onboarding_next);
-        next.setText(page < PAGES - 1 ? R.string.onboarding_next
+        next.setText(page < pages - 1 ? R.string.onboarding_next
             : offer ? R.string.onboarding_sign_in : R.string.onboarding_done);
         next.setEnabled(!signingIn);
-        findViewById(R.id.onboarding_later).setVisibility(offer ? View.VISIBLE : View.GONE);
         back.setEnabled(page > 0);
 
         LinearLayout column = findViewById(R.id.onboarding_page);
         column.removeAllViews();
-        switch (page) {
-            case 0 -> enable(column);
-            case 1 -> schemes(column);
-            case 2 -> translation(column);
+        switch (steps[page]) {
+            case STEP_ENABLE -> enable(column);
+            case STEP_SCHEMES -> schemes(column);
+            case STEP_TRANSLATION -> translation(column);
             default -> sync(column);
         }
         if (animate) {
@@ -160,8 +186,13 @@ public final class OnboardingActivity extends AppCompatActivity {
 
     // ---- steps ----
 
+    /** 当前这一步是第几步：跳过了选方案的版本，后面的步骤依次往前挪。 */
+    private String ordinal() {
+        return "第" + "一二三四".charAt(page) + "步";
+    }
+
     private void enable(LinearLayout column) {
-        header(column, R.drawable.ic_tab_keyboard, "第一步 · 约 30 秒", "把水杉加进键盘",
+        header(column, R.drawable.ic_ms_keyboard, ordinal() + " · 约 30 秒", "把水杉加进键盘",
             "在系统设置里启用水杉，并设为默认输入法，之后在任何应用里都能直接用。");
         boolean enabled = ImeSetup.enabled(this);
         boolean current = enabled && ImeSetup.isDefault(this);
@@ -173,24 +204,39 @@ public final class OnboardingActivity extends AppCompatActivity {
     }
 
     private void schemes(LinearLayout column) {
-        header(column, R.drawable.ic_feature_scheme, "第二步 · 随时可以改", "选一套输入方案",
-            "全拼、9 键、双拼和五笔都在这里，之后随时可以在「设置 → 输入」里换。");
+        AppEdition edition = AppEdition.current();
         JSONObject preferences = preferences();
         KeyboardScheme current = preferences == null ? null : KeyboardScheme.fromPreferences(
-            preferences.optString("scheme", "quanpin"),
+            preferences.optString("scheme", edition.defaultScheme()),
             preferences.optString("shuangpin_profile", "xiaohe"),
-            preferences.optString("touch_keyboard_layout", "twenty_six_key"));
+            preferences.optString("touch_keyboard_layout", "twenty_six_key"), edition);
         // 双拼 keeps whichever double-pinyin profile is already chosen; only a first pick lands on 小鹤, as the design's 默认小鹤 says.
         KeyboardScheme shuangpin = current != null && current.shuangpinProfile() != null
             ? current : KeyboardScheme.XIAOHE;
-        SchemeCard[] cards = {
+        // 五笔同理沿用已选的版本（选五笔不改 `wubi_profile`），说明文字照实写出当前是 86 还是 98。
+        boolean wubi98 = preferences != null && KeyboardScheme.WUBI_98.equals(
+            KeyboardScheme.normalizedWubiProfile(preferences.optString("wubi_profile", KeyboardScheme.WUBI_86)));
+        SchemeCard[] all = {
             new SchemeCard("全拼 26 键", "最常用，完整拼音", KeyboardScheme.QUANPIN),
             new SchemeCard("全拼 9 键", "单手更顺手", KeyboardScheme.QUANPIN_NINE_KEY),
             new SchemeCard("双拼", "每字两键 · 默认小鹤", shuangpin),
-            new SchemeCard("五笔", "形码 · 默认 86 版", KeyboardScheme.WUBI),
+            new SchemeCard("五笔", wubi98 ? "形码 · 当前 98 版" : "形码 · 默认 86 版", KeyboardScheme.WUBI),
         };
-        for (int index = 0; index < cards.length; index++) {
-            schemeCard(column, cards[index], cards[index].scheme() == current, index == 0 ? 6 : 10);
+        // 说明里的简称与上面的卡片一一对应，只列本版本有的那几张。
+        String[] names = {"全拼", "9 键", "双拼", "五笔"};
+        java.util.List<SchemeCard> cards = new java.util.ArrayList<>();
+        java.util.List<String> offered = new java.util.ArrayList<>();
+        for (int index = 0; index < all.length; index++) {
+            if (!all[index].scheme().offeredBy(edition)) continue;
+            cards.add(all[index]);
+            offered.add(names[index]);
+        }
+        String listed = offered.size() == 1 ? offered.get(0)
+            : String.join("、", offered.subList(0, offered.size() - 1)) + "和" + offered.get(offered.size() - 1);
+        header(column, R.drawable.ic_ms_text_fields, ordinal() + " · 随时可以改", "选一套输入方案",
+            listed + "用的是同一套引擎，词库和自造词通用。之后随时可以在「设置 → 输入」里换。");
+        for (int index = 0; index < cards.size(); index++) {
+            schemeCard(column, cards.get(index), cards.get(index).scheme() == current, index == 0 ? 6 : 10);
         }
         if (preferences == null) {
             footnote(column, loaded ? "词库还在准备，暂时不能保存方案。稍后可以在「设置 → 输入」里选。"
@@ -201,7 +247,7 @@ public final class OnboardingActivity extends AppCompatActivity {
     }
 
     private void translation(LinearLayout column) {
-        header(column, R.drawable.ic_onboarding_translate, "第三步 · 水杉的特点", "候选下方就是译文",
+        header(column, R.drawable.ic_onboarding_translate, ordinal() + " · 水杉的特点", "候选下方就是译文",
             "打开后，每个候选词下面会多一行小字的英文释义，来自随应用打包的离线词典，不联网。");
         JSONObject preferences = preferences();
         boolean on = preferences != null && preferences.optBoolean(GLOSS, false);
@@ -210,7 +256,7 @@ public final class OnboardingActivity extends AppCompatActivity {
         LinearLayout strip = new LinearLayout(this);
         strip.setOrientation(LinearLayout.HORIZONTAL);
         strip.setPadding(pixels(10), pixels(12), pixels(10), pixels(12));
-        strip.setBackground(rounded(color(R.color.search_field), pixels(20)));
+        strip.setBackground(rounded(Ui.accentSoft(this), pixels(20)));
         strip.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
         String[][] samples = {{"候选", "candidate"}, {"后选", "choice"}, {"侯选", "option"}, {"候", "wait"}};
         for (int index = 0; index < samples.length; index++) {
@@ -218,10 +264,10 @@ public final class OnboardingActivity extends AppCompatActivity {
             cell.setOrientation(LinearLayout.VERTICAL);
             cell.setGravity(Gravity.CENTER_HORIZONTAL);
             cell.setPadding(pixels(10), 0, pixels(10), 0);
-            TextView word = text(samples[index][0], 19, index == 0 ? R.color.forest : R.color.ink);
+            TextView word = text(samples[index][0], 19, index == 0 ? Ui.accent(this) : Ui.text(this));
             if (index == 0) word.setTypeface(Typeface.create(Typeface.DEFAULT, 600, false));
             cell.addView(word);
-            if (on) cell.addView(text(samples[index][1], 11, R.color.text_secondary));
+            if (on) cell.addView(text(samples[index][1], 11, Ui.subText(this)));
             strip.addView(cell);
         }
         column.addView(strip, blockParams(6));
@@ -230,8 +276,8 @@ public final class OnboardingActivity extends AppCompatActivity {
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(pixels(14), pixels(12), pixels(14), pixels(12));
-        row.setBackground(rounded(color(R.color.surface), pixels(20)));
-        TextView label = text("显示译文", 16, R.color.ink);
+        row.setBackground(rounded(Ui.card(this), pixels(20)));
+        TextView label = text("显示译文", 16, Ui.text(this));
         row.addView(label, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
         MaterialSwitch toggle = new MaterialSwitch(this);
         toggle.setChecked(on);
@@ -255,14 +301,12 @@ public final class OnboardingActivity extends AppCompatActivity {
 
     private void sync(LinearLayout column) {
         String body = account == SignIn.State.SIGNED_IN
-            ? "你已登录，云词库、云剪贴板和社区作品会跟着你的账号走。"
-            : account == SignIn.State.OFFERED
-                ? "登录后，云词库、云剪贴板和社区作品会跟着你的账号走。日常输入不需要登录，也可以稍后在「我的」里登录。"
-                : "登录后，云词库、云剪贴板和社区作品会跟着你的账号走。日常输入不需要登录。";
-        header(column, R.drawable.ic_onboarding_sync, "最后一步", "登录后多端同步", body);
-        perk(column, R.drawable.ic_feature_dictionary, "云词库：个人词条与候选", 6);
-        perk(column, R.drawable.ic_onboarding_clipboard, "云剪贴板：你明确添加的内容", 10);
-        perk(column, R.drawable.ic_feature_skin, "社区作品：发布与收藏的皮肤和词库", 10);
+            ? "你已登录。打开「我的 → 云同步」后，词库、自造词、皮肤和云剪贴板会在手机、平板和电脑之间同步。"
+            : "登录后词库、自造词、皮肤和云剪贴板会在手机、平板和电脑之间同步。日常输入不需要登录。";
+        header(column, R.drawable.ic_ms_sync, "最后一步", "登录后多端同步", body);
+        perk(column, R.drawable.ic_ms_menu_book, "词库和自造词", 6);
+        perk(column, R.drawable.ic_ms_palette, "皮肤与主题", 10);
+        perk(column, R.drawable.ic_ms_content_paste, "云剪贴板", 10);
         if (note != null) footnote(column, note);
     }
 
@@ -276,12 +320,12 @@ public final class OnboardingActivity extends AppCompatActivity {
             runOnUiThread(() -> {
                 if (isFinishing() || isDestroyed()) return;
                 account = state;
-                if (page == PAGES - 1) render(false);
+                if (page == pages - 1) render(false);
             });
         }, () -> runOnUiThread(() -> {
             if (isFinishing() || isDestroyed()) return;
             account = SignIn.State.ABSENT;
-            if (page == PAGES - 1) render(false);
+            if (page == pages - 1) render(false);
         }));
     }
 
@@ -296,6 +340,9 @@ public final class OnboardingActivity extends AppCompatActivity {
             if (failure.isEmpty()) {
                 account = SignIn.State.SIGNED_IN;
                 note = null;
+            } else if (LoginSheet.CANCELLED.equals(failure)) {
+                declined = true;
+                note = null;
             } else {
                 note = failure;
             }
@@ -308,7 +355,7 @@ public final class OnboardingActivity extends AppCompatActivity {
     private void selectScheme(KeyboardScheme scheme) {
         JSONObject current = snapshot;
         if (current == null || saving) return;
-        JSONObject pending = KeyboardSheets.withScheme(current, scheme);
+        JSONObject pending = SchemePreferences.withScheme(current, scheme, null);
         if (pending == null) {
             note = "切换失败，保留当前方案";
             render(false);
@@ -364,12 +411,12 @@ public final class OnboardingActivity extends AppCompatActivity {
                 if (isFinishing() || isDestroyed()) return;
                 snapshot = value;
                 loaded = true;
-                if (page == 1 || page == 2) render(false);
+                if (steps[page] == STEP_SCHEMES || steps[page] == STEP_TRANSLATION) render(false);
             });
         }, () -> runOnUiThread(() -> {
             if (isFinishing() || isDestroyed()) return;
             loaded = true;
-            if (page == 1 || page == 2) render(false);
+            if (steps[page] == STEP_SCHEMES || steps[page] == STEP_TRANSLATION) render(false);
         }));
     }
 
@@ -384,22 +431,22 @@ public final class OnboardingActivity extends AppCompatActivity {
             String body) {
         ImageView glyph = new ImageView(this);
         glyph.setImageResource(icon);
-        glyph.setImageTintList(ColorStateList.valueOf(color(R.color.forest)));
+        glyph.setImageTintList(ColorStateList.valueOf(Ui.accent(this)));
         glyph.setScaleType(ImageView.ScaleType.FIT_START);
         glyph.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         column.addView(glyph, new LinearLayout.LayoutParams(pixels(36), pixels(36)));
 
-        TextView kick = text(kicker, 13, R.color.forest);
+        TextView kick = text(kicker, 13, Ui.accent(this));
         kick.setTypeface(Typeface.create(Typeface.DEFAULT, 600, false));
         kick.setLetterSpacing(0.04f);
         column.addView(kick, blockParams(14 + 6));
 
-        TextView heading = text(title, 32, R.color.ink);
+        TextView heading = text(title, 32, Ui.text(this));
         heading.setLineSpacing(0, 1.1f);
         heading.setAccessibilityHeading(true);
         column.addView(heading, blockParams(14));
 
-        TextView line = text(body, 16, R.color.text_secondary);
+        TextView line = text(body, 16, Ui.subText(this));
         line.setLineSpacing(0, 1.35f);
         column.addView(line, blockParams(14));
     }
@@ -407,7 +454,7 @@ public final class OnboardingActivity extends AppCompatActivity {
     private LinearLayout card(LinearLayout column, int top) {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
-        card.setBackground(rounded(color(R.color.surface), pixels(20)));
+        card.setBackground(rounded(Ui.card(this), pixels(20)));
         column.addView(card, blockParams(14 + top));
         return card;
     }
@@ -417,7 +464,7 @@ public final class OnboardingActivity extends AppCompatActivity {
             Runnable fix, boolean divider) {
         if (divider) {
             View line = new View(this);
-            line.setBackgroundColor(color(R.color.hairline));
+            line.setBackgroundColor(Ui.hairline(this));
             card.addView(line, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, Math.max(1, pixels(1) / 2)));
         }
@@ -431,15 +478,15 @@ public final class OnboardingActivity extends AppCompatActivity {
         mark.setGravity(Gravity.CENTER);
         mark.setTextSize(13);
         mark.setText(done ? "✓" : "!");
-        mark.setTextColor(done ? color(R.color.on_accent) : 0xFFFFFFFF);
+        mark.setTextColor(done ? Ui.onAccent(this) : 0xFFFFFFFF);
         GradientDrawable disc = new GradientDrawable();
         disc.setShape(GradientDrawable.OVAL);
-        disc.setColor(color(done ? R.color.forest : R.color.attention));
+        disc.setColor(done ? Ui.accent(this) : Ui.color(this, R.attr.msWarn));
         mark.setBackground(disc);
         mark.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         row.addView(mark, new LinearLayout.LayoutParams(pixels(24), pixels(24)));
 
-        TextView text = text(label, 16, R.color.ink);
+        TextView text = text(label, 16, Ui.text(this));
         LinearLayout.LayoutParams textParams =
             new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1);
         textParams.setMarginStart(pixels(12));
@@ -447,7 +494,7 @@ public final class OnboardingActivity extends AppCompatActivity {
         text.setContentDescription(label + (done ? "，已完成" : "，未完成"));
 
         if (!done) {
-            TextView button = text(action, 15, R.color.forest);
+            TextView button = text(action, 15, Ui.accent(this));
             button.setGravity(Gravity.CENTER);
             button.setPadding(pixels(8), 0, pixels(8), 0);
             android.util.TypedValue ripple = new android.util.TypedValue();
@@ -467,16 +514,16 @@ public final class OnboardingActivity extends AppCompatActivity {
         card.setOrientation(LinearLayout.HORIZONTAL);
         card.setGravity(Gravity.CENTER_VERTICAL);
         card.setPadding(pixels(16), pixels(14), pixels(16), pixels(14));
-        GradientDrawable face = rounded(color(R.color.surface), pixels(20));
-        if (selected) face.setStroke(pixels(2), color(R.color.forest));
+        GradientDrawable face = rounded(Ui.card(this), pixels(20));
+        if (selected) face.setStroke(pixels(2), Ui.accent(this));
         card.setBackground(face);
 
         LinearLayout text = new LinearLayout(this);
         text.setOrientation(LinearLayout.VERTICAL);
-        TextView heading = text(option.label(), 16, R.color.ink);
+        TextView heading = text(option.label(), 16, Ui.text(this));
         heading.setTypeface(Typeface.create(Typeface.DEFAULT, 600, false));
         text.addView(heading);
-        TextView detail = text(option.detail(), 13, R.color.text_secondary);
+        TextView detail = text(option.detail(), 13, Ui.subText(this));
         LinearLayout.LayoutParams detailParams = new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         detailParams.topMargin = pixels(2);
@@ -487,12 +534,12 @@ public final class OnboardingActivity extends AppCompatActivity {
         GradientDrawable dot = new GradientDrawable();
         dot.setShape(GradientDrawable.OVAL);
         if (selected) {
-            dot.setColor(color(R.color.mist));
-            dot.setStroke(pixels(6), color(R.color.forest));
+            dot.setColor(Ui.page(this));
+            dot.setStroke(pixels(6), Ui.accent(this));
         } else {
             dot.setColor(0);
             dot.setStroke(Math.max(1, Math.round(1.5f * getResources().getDisplayMetrics().density)),
-                color(R.color.text_secondary));
+                Ui.subText(this));
         }
         radio.setBackground(dot);
         LinearLayout.LayoutParams radioParams = new LinearLayout.LayoutParams(pixels(22), pixels(22));
@@ -513,15 +560,15 @@ public final class OnboardingActivity extends AppCompatActivity {
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(pixels(14), pixels(12), pixels(14), pixels(12));
-        row.setBackground(rounded(color(R.color.surface), pixels(20)));
+        row.setBackground(rounded(Ui.card(this), pixels(20)));
         ImageView badge = new ImageView(this);
         badge.setImageResource(icon);
-        badge.setImageTintList(ColorStateList.valueOf(color(R.color.forest)));
+        badge.setImageTintList(ColorStateList.valueOf(Ui.accent(this)));
         badge.setPadding(pixels(7), pixels(7), pixels(7), pixels(7));
-        badge.setBackground(rounded(color(R.color.surface_variant), pixels(9)));
+        badge.setBackground(rounded(Ui.accentSoft(this), pixels(9)));
         badge.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         row.addView(badge, new LinearLayout.LayoutParams(pixels(32), pixels(32)));
-        TextView text = text(label, 15, R.color.ink);
+        TextView text = text(label, 15, Ui.text(this));
         LinearLayout.LayoutParams textParams =
             new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1);
         textParams.setMarginStart(pixels(12));
@@ -530,7 +577,7 @@ public final class OnboardingActivity extends AppCompatActivity {
     }
 
     private void footnote(LinearLayout column, String message) {
-        TextView view = text(message, 13, R.color.text_secondary);
+        TextView view = text(message, 13, Ui.subText(this));
         view.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
         column.addView(view, blockParams(14));
     }
@@ -539,7 +586,7 @@ public final class OnboardingActivity extends AppCompatActivity {
         TextView view = new TextView(this);
         view.setText(value);
         view.setTextSize(size);
-        view.setTextColor(color(colour));
+        view.setTextColor(colour);
         return view;
     }
 
@@ -548,10 +595,6 @@ public final class OnboardingActivity extends AppCompatActivity {
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         params.topMargin = pixels(top);
         return params;
-    }
-
-    private int color(int id) {
-        return ContextCompat.getColor(this, id);
     }
 
     private static GradientDrawable rounded(int colour, int radius) {

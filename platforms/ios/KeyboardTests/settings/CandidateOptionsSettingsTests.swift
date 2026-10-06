@@ -3,6 +3,12 @@ import XCTest
 /// The settings app's candidate page merges single fields into nested objects of the shared document; the keyboard has to act on them.
 @MainActor
 final class CandidateOptionsSettingsTests: XCTestCase {
+  func testMinimumPrefixRejectsFractionalAndBooleanValues() {
+    XCTAssertNil(CandidateOptionsSettingsView.minimumPrefix(NSNumber(value: 2.5)))
+    XCTAssertNil(CandidateOptionsSettingsView.minimumPrefix(NSNumber(value: true)))
+    XCTAssertEqual(CandidateOptionsSettingsView.minimumPrefix(NSNumber(value: 4)), 4)
+  }
+
   private var state: URL!
 
   override func setUp() {

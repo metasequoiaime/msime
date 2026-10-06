@@ -45,10 +45,10 @@ struct CandidateMenuItem {
 // why the shipped menu hides the row rather than disabling it.
 inline std::vector<CandidateMenuItem>
 candidate_menu_items(size_t code_points, bool actionable = true) {
-  std::vector<CandidateMenuItem> items{
-      {CandidateMenuCommand::PinToTop, "置顶", false, false, actionable},
-      {CandidateMenuCommand::FixPosition, "固定排位", true, false, actionable},
-  };
+  std::vector<CandidateMenuItem> items;
+  items.reserve(3);
+  items.push_back({CandidateMenuCommand::PinToTop, "置顶", false, false, actionable});
+  items.push_back({CandidateMenuCommand::FixPosition, "固定排位", true, false, actionable});
   if (code_points != 1)
     items.push_back({CandidateMenuCommand::Remove, "删除", false, false,
                      actionable});
@@ -59,6 +59,7 @@ candidate_menu_items(size_t code_points, bool actionable = true) {
 inline std::vector<CandidateMenuItem>
 candidate_menu_submenu_items(bool actionable = true, int fixed_position = 0) {
   std::vector<CandidateMenuItem> items;
+  items.reserve(7);
   for (unsigned position = 1; position <= 5; ++position)
     items.push_back({CandidateMenuCommand::FixAtPosition,
                      "第 " + std::to_string(position) + " 位", false, false,

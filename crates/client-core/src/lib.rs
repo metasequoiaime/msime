@@ -23,19 +23,25 @@ pub mod candidate_document;
 pub mod chinese_conversion;
 pub mod clipboard;
 pub mod cloud;
+pub mod common_phrases;
 pub mod community;
 pub mod credential;
+pub mod diagnostics;
 pub mod dictionary;
+pub mod edition;
 pub mod file_lock;
 pub mod helpcode;
 pub mod host_surface;
+pub mod notices;
 pub mod panels;
 pub mod plugins;
 pub mod preferences;
 pub mod punctuation;
+pub mod resource_packs;
 pub mod resources;
 pub mod skin;
 mod storage;
+pub mod telemetry;
 mod text;
 
 /// Shared text and hexadecimal validation predicates used by host boundaries.

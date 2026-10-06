@@ -25,7 +25,11 @@ export class PreferenceRevisionPolicy {
    * longer describes the file.
    */
   static changed(observed: number, current: number): boolean {
-    if (!Number.isFinite(observed) || !Number.isFinite(current)) {
+    if (
+      !Number.isSafeInteger(observed) ||
+      !Number.isSafeInteger(current) ||
+      current < 0
+    ) {
       return false;
     }
     return observed !== current;
@@ -38,6 +42,6 @@ export class PreferenceRevisionPolicy {
    * next comparison would read as a change.
    */
   static observe(previous: number, reported: number): number {
-    return Number.isFinite(reported) && reported >= 0 ? reported : previous;
+    return Number.isSafeInteger(reported) && reported >= 0 ? reported : previous;
   }
 }

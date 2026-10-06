@@ -120,8 +120,8 @@ test("the iOS switch is system green while every other platform's follows its ac
 });
 
 test("the host and viewport choose the settings platform", () => {
-  const narrow = { wide: false, linuxUserAgent: false };
-  const wide = { wide: true, linuxUserAgent: false };
+  const narrow = { wide: false };
+  const wide = { wide: true };
   expect(settingsPlatformOf({ platform: "windows" }, narrow)).toBe("win");
   expect(settingsPlatformOf({ platform: "macos" }, narrow)).toBe("mac");
   expect(settingsPlatformOf({ platform: "linux" }, narrow)).toBe("linux");
@@ -132,5 +132,4 @@ test("the host and viewport choose the settings platform", () => {
   expect(settingsPlatformOf({ platform: "harmony" }, narrow)).toBe("harmony");
   expect(settingsPlatformOf({ platform: "harmony", mobile_settings: false }, wide)).toBe("hm2");
   expect(settingsPlatformOf(undefined, narrow)).toBe("win");
-  expect(settingsPlatformOf(undefined, { wide: false, linuxUserAgent: true })).toBe("linux");
 });

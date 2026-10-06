@@ -171,12 +171,21 @@ public final class DictionarySnapshotQueue {
                 || cloudRevision < 0 || !validVersion(expectedLocalVersion)
                 || !validDigest(fileSha256)) throw new Failure(Reason.INVALID);
         UUID id = UUID.randomUUID();
-        Path incoming;
+        Path incoming = null;
+        boolean staged = false;
         try {
             incoming = Files.createTempFile(root(), "snapshot-", ".incoming");
             copyAndHash(source, incoming, fileSha256);
+            staged = true;
         } catch (Failure error) { throw error; }
         catch (IOException | SecurityException error) { throw new Failure(Reason.UNAVAILABLE, error); }
+        finally {
+            if (!staged && incoming != null) {
+                try { Files.deleteIfExists(incoming); }
+                catch (IOException | SecurityException ignored) { }
+            }
+        }
+        final Path stagedIncoming = incoming;
         Path destination = directory.resolve(id + ".ndjson");
         boolean committed = false;
         try {
@@ -186,7 +195,7 @@ public final class DictionarySnapshotQueue {
                     throw new Failure(Reason.BUSY);
                 if (!expectedLocalVersion.equals(before.localVersion()))
                     throw new Failure(Reason.CONFLICT);
-                try { Files.move(incoming, destination, StandardCopyOption.ATOMIC_MOVE); }
+                try { Files.move(stagedIncoming, destination, StandardCopyOption.ATOMIC_MOVE); }
                 catch (IOException error) { throw new Failure(Reason.UNAVAILABLE, error); }
                 Request request = new Request(id, accountId, cloudRevision, expectedLocalVersion,
                     fileSha256, Status.QUEUED);
@@ -206,8 +215,11 @@ public final class DictionarySnapshotQueue {
     public WorkerLease acquireWorkerLease() throws Failure {
         try {
             Path queueRoot = root();
-            FileChannel channel = FileChannel.open(queueRoot.resolve(WORKER_LOCK_NAME),
-                StandardOpenOption.CREATE, StandardOpenOption.READ, StandardOpenOption.WRITE);
+            Path lockPath = queueRoot.resolve(WORKER_LOCK_NAME);
+            rejectLockPath(lockPath);
+            FileChannel channel = FileChannel.open(lockPath,
+                StandardOpenOption.CREATE, StandardOpenOption.READ, StandardOpenOption.WRITE,
+                LinkOption.NOFOLLOW_LINKS);
             try {
                 FileLock lock;
                 try { lock = channel.tryLock(); }
@@ -369,8 +381,11 @@ public final class DictionarySnapshotQueue {
     private <T> T locked(LockedAction<T> action) throws Failure {
         try {
             Path queueRoot = root();
-            try (FileChannel channel = FileChannel.open(queueRoot.resolve(LOCK_NAME),
-                    StandardOpenOption.CREATE, StandardOpenOption.READ, StandardOpenOption.WRITE)) {
+            Path lockPath = queueRoot.resolve(LOCK_NAME);
+            rejectLockPath(lockPath);
+            try (FileChannel channel = FileChannel.open(lockPath,
+                    StandardOpenOption.CREATE, StandardOpenOption.READ, StandardOpenOption.WRITE,
+                    LinkOption.NOFOLLOW_LINKS)) {
                 FileLock lock;
                 try { lock = channel.tryLock(); }
                 catch (OverlappingFileLockException error) { throw new Failure(Reason.BUSY, error); }
@@ -381,6 +396,13 @@ public final class DictionarySnapshotQueue {
         } catch (Failure error) { throw error; }
         catch (IOException | SecurityException error) { throw new Failure(Reason.UNAVAILABLE, error); }
         catch (Exception error) { throw new Failure(Reason.UNAVAILABLE, error); }
+    }
+
+    private static void rejectLockPath(Path path) throws IOException {
+        if (Files.isSymbolicLink(path)
+                || (Files.exists(path, LinkOption.NOFOLLOW_LINKS)
+                    && !Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)))
+            throw new IOException("snapshot queue lock is not a private regular file");
     }
 
     private State readUnlocked() throws Failure {
@@ -405,15 +427,9 @@ public final class DictionarySnapshotQueue {
     /** Read only the metadata envelope, even if a replaced state file grows after inspection. */
     private static byte[] readBounded(Path file) throws IOException {
         try (InputStream input = Files.newInputStream(file)) {
-            ByteArrayOutputStream bytes = new ByteArrayOutputStream(MAXIMUM_STATE_BYTES);
-            byte[] buffer = new byte[4096];
-            int count;
-            while ((count = input.read(buffer)) != -1) {
-                if (bytes.size() + count > MAXIMUM_STATE_BYTES)
-                    throw new IOException("snapshot state too large");
-                bytes.write(buffer, 0, count);
-            }
-            return bytes.toByteArray();
+            byte[] bytes = HttpBodyPolicy.readBounded(input, MAXIMUM_STATE_BYTES);
+            if (bytes == null) throw new IOException("snapshot state too large");
+            return bytes;
         }
     }
 

@@ -1,7 +1,4 @@
-import type { SettingsPageId as MobileSettingsPageId } from "./mobile-navigation";
-import type { SettingsPageId as RegistrySettingsPageId } from "./settings-page-registry";
-
-type SettingsPageId = MobileSettingsPageId | RegistrySettingsPageId;
+import type { SettingsPageId } from "./settings-page-registry";
 
 const formExcludedPages: readonly SettingsPageId[] = [
   "typing-statistics",
@@ -20,6 +17,23 @@ const reloadExcludedPages: readonly SettingsPageId[] = [
   "community",
 ];
 
+/** 页脚显示「恢复默认设置」的偏好页。关于、反馈、帮助、维护与诊断这类页面不改偏好，在那里出现这个按钮会让人以为它只恢复当前页。 */
+const restoreDefaultsPages: readonly SettingsPageId[] = [
+  "skin",
+  "appearance",
+  "floating-toolbar",
+  "input",
+  "expression",
+  "ai",
+  "shortcuts",
+  "dictionary",
+  "screen-keyboard",
+  "voice",
+  "handwriting",
+  "tools",
+  "plugins",
+];
+
 /** Whether the shared settings form is mounted for a page. */
 export function isSettingsFormPage(page: SettingsPageId) {
   return !formExcludedPages.includes(page);
@@ -28,4 +42,9 @@ export function isSettingsFormPage(page: SettingsPageId) {
 /** Whether the page can discard its draft through the reload action. */
 export function canReloadSettingsPage(page: SettingsPageId) {
   return !reloadExcludedPages.includes(page);
+}
+
+/** 页面的页脚是否显示「恢复默认设置」。 */
+export function canRestoreDefaultsOnPage(page: SettingsPageId) {
+  return restoreDefaultsPages.includes(page);
 }

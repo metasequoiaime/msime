@@ -80,6 +80,23 @@ test("refreshes selected detail after rating and clears it after unpublishing", 
   expect(result.current.actionNotice).toBe("已下架。");
 });
 
+test("replaces the selected detail and matching list item together", async () => {
+  const first = item("one");
+  const gallery = client({
+    list: vi.fn().mockResolvedValue({ items: [first], has_more: false }),
+  });
+  const { result } = renderHook(() => useCommunityGallery({ client: gallery }));
+
+  await waitFor(() => expect(result.current.items).toHaveLength(1));
+  act(() => result.current.open(first));
+  await waitFor(() => expect(result.current.selected?.id).toBe("one"));
+
+  act(() => result.current.replaceSelected({ ...first, name: "更新后的作品" }));
+
+  expect(result.current.selected?.name).toBe("更新后的作品");
+  expect(result.current.items[0]?.name).toBe("更新后的作品");
+});
+
 test("maps request failures and exposes when sign-in is required", async () => {
   const failure = galleryFailure;
   const gallery = client({ list: vi.fn().mockRejectedValue(failure) });

@@ -1,0 +1,85 @@
+{
+ "name": "stroke_wildcard_edit",
+ "source": "crates/engine/src/stroke (no C++ reference: the Stroke scheme is Rust-only, so the expected file was recorded from this engine and checked by hand)",
+ "covers": [
+  "stroke",
+  "wildcard",
+  "idle keys go to the host",
+  "other letters swallowed while composing",
+  "backspace",
+  "cancel",
+  "enter commits the typed letters",
+  "caret insertion",
+  "no candidates"
+ ],
+ "fixture": {
+  "databases": {
+   "msime-stroke.db": "CREATE TABLE metadata(name TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;CREATE TABLE syllables(syllable TEXT PRIMARY KEY) WITHOUT ROWID;CREATE TABLE entries(key TEXT NOT NULL, text TEXT NOT NULL, weight INTEGER NOT NULL, PRIMARY KEY(key, text)) WITHOUT ROWID;CREATE INDEX entries_by_key_weight ON entries(key, weight DESC);INSERT INTO metadata VALUES('format_version','1');INSERT INTO syllables VALUES('h'),('s'),('p'),('n'),('z');INSERT INTO entries VALUES('h','一',9000),('hh','二',5000),('hhh','三',4000),('hs','十',4500),('hsh','土',2000),('hshh','土',10),('hhsh','王',2500),('hhs','干',1500),('hpn','大',5500),('pn','人',6000),('szh','口',3500);"
+  }
+ },
+ "options": {
+  "scheme": "stroke"
+ },
+ "steps": [
+  {
+   "op": "char",
+   "arg": "x"
+  },
+  {
+   "op": "char",
+   "arg": "a"
+  },
+  {
+   "op": "type",
+   "arg": "hx"
+  },
+  {
+   "op": "char",
+   "arg": "a"
+  },
+  {
+   "op": "type",
+   "arg": "h"
+  },
+  {
+   "op": "command",
+   "arg": "Backspace"
+  },
+  {
+   "op": "command",
+   "arg": "Cancel"
+  },
+  {
+   "op": "type",
+   "arg": "hh"
+  },
+  {
+   "op": "command",
+   "arg": "MoveLeft"
+  },
+  {
+   "op": "char",
+   "arg": "s"
+  },
+  {
+   "op": "command",
+   "arg": "MoveHome"
+  },
+  {
+   "op": "char",
+   "arg": "x"
+  },
+  {
+   "op": "command",
+   "arg": "CommitRaw"
+  },
+  {
+   "op": "type",
+   "arg": "zzzz"
+  },
+  {
+   "op": "command",
+   "arg": "CommitCandidate"
+  }
+ ]
+}

@@ -22,6 +22,10 @@ public final class KeyboardPressFeedback {
 
     /** Animate `view` into or out of its pressed state, or settle it when it cannot animate. */
     public static void update(View view, boolean pressed) {
+        if (pressed) KeyPressAnimator.cancel(view);
+        // A bounce / lift started by the click already settles the key at rest; a release spring on
+        // top of it would fight over the same scale and translation.
+        else if (KeyPressAnimator.isAnimating(view)) return;
         view.animate().cancel();
         if (!view.isAttachedToWindow() || !view.isEnabled() || !animationsEnabled(view)) {
             reset(view);

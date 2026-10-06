@@ -1,6 +1,6 @@
 # TSF host configuration
 
-The Windows DLL requires `MSIME_HOST_LIBRARY` at CMake configure time. Supply an absolute path to the Cargo-built host static library or DLL import library for the same architecture; runtime legacy fallback does not remove this link-time dependency. Missing paths and directories are rejected before native dependency discovery. The linker remains responsible for format, architecture and symbols. Portable component tests and the standalone export fixture do not require it.
+The Windows DLL requires `MSIME_HOST_LIBRARY` at CMake configure time. Supply an absolute path to the Cargo-built host static library or DLL import library for the same architecture. Missing paths and directories are rejected before native dependency discovery. The linker remains responsible for format, architecture and symbols. Portable component tests and the standalone export fixture do not require it.
 
 The DLL version resource uses the standard `VS_VERSION_INFO` identifier, the workspace package version with a zero Windows revision, and the actual `MetasequoiaImeTsf.dll` output name. The portable CMake tests verify this source contract without loading or registering the DLL.
 

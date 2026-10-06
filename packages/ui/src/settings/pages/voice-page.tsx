@@ -47,7 +47,6 @@ export function VoiceSettingsPage() {
 
   return (
     <VoiceSettingsContent
-      grouped
       disabled={busy}
       hidden={page !== "voice"}
       client={client}
@@ -81,7 +80,6 @@ export function VoiceSettingsPage() {
       windowsPlatform={windowsPlatform}
       mobilePlatform={mobilePlatform}
       nativeVoicePlatform={nativeVoicePlatform}
-      desktopPanels={false}
       showVoiceHotkeys={showVoiceHotkeys}
       showCredentialTests={Boolean(client.testApiCredential)}
       showVoiceProviderSettings={showVoiceProviderSettings}

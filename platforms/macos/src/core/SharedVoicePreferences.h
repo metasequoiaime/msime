@@ -110,7 +110,6 @@ static inline NSDictionary *MSIMEVoicePreferencesFromDefaults(NSUserDefaults *de
         @"polish_model": @"MSIMEClientVoicePolishModel",
         @"polish_token": @"MSIMEClientVoicePolishToken",
         @"polish_prompt_id": @"MSIMEClientVoicePolishPromptID",
-        @"polish_prompt": @"MSIMEClientVoicePolishPrompt",
         @"polish_prompt_custom_1": @"MSIMEClientVoicePolishPromptCustom1",
         @"polish_prompt_custom_2": @"MSIMEClientVoicePolishPromptCustom2",
         @"polish_prompt_custom_3": @"MSIMEClientVoicePolishPromptCustom3"
@@ -171,7 +170,7 @@ static inline BOOL MSIMEApplySharedVoicePreferences(id voice, NSUserDefaults *de
         @"doubao_boosting_table_id": @"DoubaoBoostingTableID",
         @"polish_provider": @"PolishProvider", @"polish_endpoint": @"PolishEndpoint",
         @"polish_model": @"PolishModel", @"polish_token": @"PolishToken",
-        @"polish_prompt_id": @"PolishPromptID", @"polish_prompt": @"PolishPrompt",
+        @"polish_prompt_id": @"PolishPromptID",
         @"polish_prompt_custom_1": @"PolishPromptCustom1",
         @"polish_prompt_custom_2": @"PolishPromptCustom2",
         @"polish_prompt_custom_3": @"PolishPromptCustom3"

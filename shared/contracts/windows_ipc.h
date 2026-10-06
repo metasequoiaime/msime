@@ -5,67 +5,84 @@
 // so the same ABI assertions can run on every platform and on x86/x64 Windows.
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 #include "ipc_protocol_limits.h"
+#include "msime_edition.h"
 #ifdef _WIN32
 using FanyImeWireChar = wchar_t;
 #else
 using FanyImeWireChar = char16_t;
 #endif
 
-inline const wchar_t *FANY_IME_SHARED_MEMORY = L"Local\\FanyImeSharedMemory";
-inline const int BUFFER_SIZE = 4096;
-
-inline const wchar_t *FANY_IME_NAMED_PIPE = L"\\\\.\\pipe\\FanyImeNamedPipe";
-inline const wchar_t *FANY_IME_TO_TSF_NAMED_PIPE = L"\\\\.\\pipe\\FanyImeToTsfNamedPipe";
-inline const wchar_t *FANY_IME_TO_TSF_WORKER_THREAD_NAMED_PIPE = L"\\\\.\\pipe\\FanyImeToTsfWorkerThreadNamedPipe";
-inline const wchar_t *FANY_IME_AUX_NAMED_PIPE = L"\\\\.\\pipe\\FanyImeAuxNamedPipe";
-inline const wchar_t *FANY_IME_TSF_DIAGNOSTIC_NAMED_PIPE = L"\\\\.\\pipe\\FanyImeTsfDiagnosticNamedPipe";
+// 管道和下面的命名事件都带版本后缀（msime_edition.h 的 MSIME_EDITION_NAME_SUFFIX）：几个版本的 Server 可以同时运行，每个版本的 TSF 只连自己版本的 Server。full 的后缀是空串，名字与引入版本之前相同。crates/client-core 的 `WindowsIdentity::pipe_name` 按同一规则拼出 Rust 侧连接的名字。
+inline const wchar_t *FANY_IME_NAMED_PIPE = L"\\\\.\\pipe\\FanyImeNamedPipe" MSIME_EDITION_NAME_SUFFIX;
+inline const wchar_t *FANY_IME_TO_TSF_NAMED_PIPE = L"\\\\.\\pipe\\FanyImeToTsfNamedPipe" MSIME_EDITION_NAME_SUFFIX;
+inline const wchar_t *FANY_IME_TO_TSF_WORKER_THREAD_NAMED_PIPE = L"\\\\.\\pipe\\FanyImeToTsfWorkerThreadNamedPipe" MSIME_EDITION_NAME_SUFFIX;
+inline const wchar_t *FANY_IME_AUX_NAMED_PIPE = L"\\\\.\\pipe\\FanyImeAuxNamedPipe" MSIME_EDITION_NAME_SUFFIX;
+inline const wchar_t *FANY_IME_TSF_DIAGNOSTIC_NAMED_PIPE = L"\\\\.\\pipe\\FanyImeTsfDiagnosticNamedPipe" MSIME_EDITION_NAME_SUFFIX;
 inline constexpr uint32_t FANY_IME_TSF_DIAGNOSTIC_MAGIC = 0x474F4C54; // "TLOG"
 inline constexpr uint32_t FANY_IME_TSF_DIAGNOSTIC_VERSION = 1;
 inline constexpr size_t FANY_IME_TSF_DIAGNOSTIC_MAX_FRAME_BYTES = 16 * 1024;
 inline constexpr uint64_t FANY_IME_UNSOLICITED_REQUEST_ID = 0;
 inline constexpr uint64_t FANY_IME_NO_REQUEST_ID = UINT64_MAX;
 
+// TSF diagnostics are assembled as UTF-16 records, but the Server log and
+// diagnostic batch contract use UTF-8. Keep the conversion here so both sides
+// share the same surrogate and size semantics without depending on a platform
+// conversion API.
+inline std::optional<std::string> diagnostic_utf8(std::u16string_view text) {
+    std::string result;
+    result.reserve(text.size());
+    for (size_t index = 0; index < text.size(); ++index) {
+        uint32_t scalar = text[index];
+        if (scalar >= 0xd800 && scalar <= 0xdbff) {
+            if (index + 1 >= text.size())
+                return std::nullopt;
+            const uint32_t low = text[++index];
+            if (low < 0xdc00 || low > 0xdfff)
+                return std::nullopt;
+            scalar = 0x10000 + ((scalar - 0xd800) << 10) + (low - 0xdc00);
+        } else if (scalar >= 0xdc00 && scalar <= 0xdfff) {
+            return std::nullopt;
+        }
+        if (scalar <= 0x7f) {
+            result.push_back(static_cast<char>(scalar));
+        } else if (scalar <= 0x7ff) {
+            result.push_back(static_cast<char>(0xc0 | (scalar >> 6)));
+            result.push_back(static_cast<char>(0x80 | (scalar & 0x3f)));
+        } else if (scalar <= 0xffff) {
+            result.push_back(static_cast<char>(0xe0 | (scalar >> 12)));
+            result.push_back(static_cast<char>(0x80 | ((scalar >> 6) & 0x3f)));
+            result.push_back(static_cast<char>(0x80 | (scalar & 0x3f)));
+        } else {
+            result.push_back(static_cast<char>(0xf0 | (scalar >> 18)));
+            result.push_back(static_cast<char>(0x80 | ((scalar >> 12) & 0x3f)));
+            result.push_back(static_cast<char>(0x80 | ((scalar >> 6) & 0x3f)));
+            result.push_back(static_cast<char>(0x80 | (scalar & 0x3f)));
+        }
+    }
+    return result;
+}
+
 inline const std::vector<std::wstring> FANY_IME_EVENT_ARRAY = {
-    L"FanyImeKeyEvent",           // Event sent to UI process to notify time to update UI by new pinyin_string
-    L"FanyHideCandidateWndEvent", // Event sent to UI process to notify time to hide candidate window
-    L"FanyShowCandidateWndEvent", // Event sent to UI process to notify time to show candidate window
-    L"FanyMoveCandidateWndEvent", // Event sent to UI process to notify time to move candidate window
+    L"FanyImeKeyEvent" MSIME_EDITION_NAME_SUFFIX,           // Event sent to UI process to notify time to update UI by new pinyin_string
+    L"FanyHideCandidateWndEvent" MSIME_EDITION_NAME_SUFFIX, // Event sent to UI process to notify time to hide candidate window
+    L"FanyShowCandidateWndEvent" MSIME_EDITION_NAME_SUFFIX, // Event sent to UI process to notify time to show candidate window
+    L"FanyMoveCandidateWndEvent" MSIME_EDITION_NAME_SUFFIX, // Event sent to UI process to notify time to move candidate window
 };
 
 //
-// modifiers:
-//   0: non
-//   1: shift
-//   2: control
-//   3: alt
-//   4: win
-//   5: to be supplemented
-//
-struct FanyImeSharedMemoryData
-{
-    std::uint32_t keycode;
-    FanyImeWireChar wch;
-    std::uint32_t modifiers_down = 0;
-    int point[2] = {100, 100};
-    int pinyin_length = 0;
-    FanyImeWireChar pinyin_string[128];
-    FanyImeWireChar candidate_string[1024];
-    FanyImeWireChar selected_candiate_string[128];
-};
-
-//
-// For uwp/metro apps, here we do not need candidate_string and selected_candiate_string,
-// just let server process to handle them
+// Main-pipe frame from the TSF to the Server. Candidates are resolved by the Server, so the frame carries only the key and the pinyin.
 //
 // event_type
 //   0: FanyImeKeyEvent
 //   1: FanyHideCandidateWndEvent
 //   2: FanyShowCandidateWndEvent
 //   3: FanyMoveCandidateWndEvent
-//   4: FanyLangbarRightClickEvent (legacy Main enum; tip now sends via Aux)
+//   4: FanyLangbarRightClickEvent (sent on Aux, never on Main)
 //
 struct alignas(8) FanyImeNamedpipeData
 {
@@ -189,6 +206,7 @@ struct FanyImeTsfDiagnosticBatchHeader
     uint32_t magic = FANY_IME_TSF_DIAGNOSTIC_MAGIC;
     uint32_t version = FANY_IME_TSF_DIAGNOSTIC_VERSION;
     uint32_t header_size = 28;
+    // UTF-8 bytes immediately following this header.
     uint32_t payload_bytes = 0;
     uint32_t record_count = 0;
     uint32_t dropped_count = 0;
@@ -267,7 +285,7 @@ constexpr std::uint32_t UpdateVoiceComposition = 15;
 constexpr std::uint32_t CancelVoiceComposition = 16;
 // Streaming ASR: replace the inline composition with this snapshot and commit.
 constexpr std::uint32_t CommitVoiceComposition = 17;
-// Payload "1" when the scheme is Japanese, "2" when it is Korean, otherwise "0".
+// Payload: one character naming the configured scheme's family, "0" quanpin, shuangpin or wubi, "1" Japanese, "2" Korean, "3" Cantonese, "4" Zhuyin, "5" Vietnamese, "6" Tibetan, "7" Stroke (platforms/windows/common/InputSchemeTraits.h InputMode). A DLL reads a code it does not know as "0".
 constexpr std::uint32_t InputModeChanged = 18;
 // Payload "1" when Caps Lock is on. Server is the source of truth.
 constexpr std::uint32_t CapsLockChanged = 19;
@@ -283,7 +301,9 @@ constexpr std::uint32_t CancelKeyboardComposition = 22;
 constexpr std::uint32_t CommitCandidateAndContinue = 27;
 // Which of the V, "/" and "@" local modes the Engine opens, so the TIP routes their keys as composition input. Payload: three '0'/'1' flags in that order. Each is already false outside the pinyin schemes, where the Engine opens none of them.
 constexpr std::uint32_t LocalModeTriggersChanged = 28;
-constexpr std::uint32_t MaxKnown = LocalModeTriggersChanged;
+// Payload "1" while the focused client's Engine is in its own English mode (Ctrl+Shift+E, the toolbar or tray English), "0" otherwise. The TIP keeps reporting Chinese there, so this is the only way it learns that every letter belongs to the Engine: under Stroke it otherwise hands idle letters other than the five strokes to the application (InputSchemeTraits.h LetterPassesWhileIdle).
+constexpr std::uint32_t DedicatedEnglishChanged = 29;
+constexpr std::uint32_t MaxKnown = DedicatedEnglishChanged;
 // Source compatibility for the Server's historical spellings.
 constexpr std::uint32_t SwitchToEn = SwitchToEnglish;
 constexpr std::uint32_t SwitchToCn = SwitchToChinese;

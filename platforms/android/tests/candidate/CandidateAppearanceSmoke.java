@@ -19,15 +19,21 @@ public final class CandidateAppearanceSmoke {
         // which the design draws with no fill.
         CandidateAppearance.Palette system = CandidateAppearance.fromSkin(KeyboardSkin.system(false));
         check("system".equals(system.id()));
-        check(system.surface() == 0xffe6eae2);
+        check(system.surface() == 0xffdfecdf);
         check(system.text() == 0xff191c19);
-        check(system.number() == 0xff414941);
+        check(system.number() == 0xff56685a);
         check(system.accent() == 0xff2c7a4b);
         check(system.selected() == 0 && system.border() == 0);
         check(system.hover() == 0x0f191c19);
         check(system.textFor(true) == 0xff2c7a4b && system.textFor(false) == 0xff191c19);
+        // 新设计的首选 chip：底为字母键色、字为强调色 600。
+        check(system.chip() == 0xfffdfefc && system.chipText() == 0xff2c7a4b);
+        check(system.chipFor(true) == 0xfffdfefc && system.chipFor(false) == 0);
+        check(system.weightFor(true) == 600 && system.weightFor(false) == 400);
+        check(CandidateAppearance.SELECTED_FONT_WEIGHT == 600);
         CandidateAppearance.Palette dark = CandidateAppearance.fromSkin(KeyboardSkin.system(true));
-        check(dark.surface() == 0xff1d201d && dark.accent() == 0xff8fd5a6);
+        check(dark.surface() == 0xff222a24 && dark.accent() == 0xff8fd5a6);
+        check(dark.chip() == 0xff424b45);
         check(!dark.key().equals(system.key()));
 
         CandidateAppearance.Palette night = CandidateAppearance.fromSkin(KeyboardSkin.palette(
@@ -36,6 +42,7 @@ public final class CandidateAppearanceSmoke {
         check("night".equals(night.id()));
         check(night.surface() == 0xff0f1b22 && night.text() == 0xffe6f1f4);
         check(night.number() == 0xff86a6b0 && night.accent() == 0xff4fd1c5);
+        check(night.chip() == 0xff1d3340 && night.chipText() == 0xff4fd1c5);
         // An alpha-last hint colour from the contract reaches the strip with its alpha intact.
         CandidateAppearance.Palette translucent = CandidateAppearance.fromSkin(KeyboardSkin.palette(
             "custom", "自定义", false, null, null, null, "#123456", "#12345699", null, null));

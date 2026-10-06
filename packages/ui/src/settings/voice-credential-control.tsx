@@ -67,7 +67,7 @@ export function VoiceCredentialControl({
         void runVoiceCredential(
           kind,
           (credentials) => credentials.saveVoice(credential),
-          "凭据已保存，语音 provider 下次请求时生效。",
+          "凭据已保存，语音服务下次请求时生效。",
         )
       }
       onClear={() =>

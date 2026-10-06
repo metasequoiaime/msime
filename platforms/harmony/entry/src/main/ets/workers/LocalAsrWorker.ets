@@ -1,5 +1,6 @@
 import { ErrorEvent, MessageEvents, ThreadWorkerGlobalScope, worker } from '@kit.ArkTS';
 import fs from '@ohos.file.fs';
+import util from '@ohos.util';
 import {
   OfflineRecognizer,
   OfflineRecognizerConfig,
@@ -25,6 +26,8 @@ import {
   LocalAsrRequest,
   LocalModelPlan
 } from '../keyboard/input/LocalAsrPolicy';
+import { LocalAsrPathTrust, PathTrustStat } from '../keyboard/input/LocalAsrPathTrust';
+import { LocalAsrTextReader, LocalAsrTextReaderApi } from '../keyboard/input/LocalAsrTextReader';
 import { utf8Length } from '../keyboard/Utf8';
 
 /**
@@ -68,32 +71,78 @@ function reply(type: string, id: number, text: string, correct: boolean): void {
   workerPort.postMessage(message);
 }
 
-function readText(path: string): string {
-  return fs.readTextSync(path);
+const textReaderApi: LocalAsrTextReaderApi = {
+  open: (path: string, mode: number): { fd: number } => {
+    const file: fs.File = fs.openSync(path, mode);
+    return { fd: file.fd };
+  },
+  read: (fd: number, buffer: ArrayBuffer): number => fs.readSync(fd, buffer),
+  close: (file: { fd: number }): void => fs.closeSync(file.fd),
+  decode: (bytes: Uint8Array): string => util.TextDecoder.create('utf-8').decode(bytes),
+};
+
+function readText(path: string, maximumBytes: number): string {
+  return LocalAsrTextReader.read(path, maximumBytes, textReaderApi, fs.OpenMode.READ_ONLY);
 }
 
-function exists(path: string): boolean {
+function lookup(path: string, follow: boolean): PathTrustStat | null {
   try {
-    return fs.accessSync(path);
+    const stat: fs.Stat = follow ? fs.statSync(path) : fs.lstatSync(path);
+    const found: PathTrustStat = {
+      isSymbolicLink: stat.isSymbolicLink(),
+      isDirectory: stat.isDirectory(),
+      isFile: stat.isFile(),
+      uid: stat.uid,
+      mode: stat.mode
+    };
+    return found;
   } catch (error) {
-    return false;
+    return null;
   }
 }
 
-function readPlan(directory: string): LocalModelPlan {
+function lstatPath(path: string): PathTrustStat | null {
+  return lookup(path, false);
+}
+
+function statPath(path: string): PathTrustStat | null {
+  return lookup(path, true);
+}
+
+/** 从 `/` 起逐级检查，规则见 `LocalAsrPathTrust`（与 `crates/path-trust/src/lib.rs` 一致）：至多一个仅 root 可改的系统链接，最后一级不能是链接。 */
+function trustedDirectory(path: string): boolean {
+  return LocalAsrPathTrust.trusted(path, false, lstatPath, statPath);
+}
+
+function realFile(path: string): boolean {
+  return LocalAsrPathTrust.trusted(path, true, lstatPath, statPath);
+}
+
+function readPlan(directory: string, root: string): LocalModelPlan {
   const manifest: string = `${directory}/${LOCAL_MODEL_MANIFEST}`;
-  if (!exists(manifest)) throw new Error('所选路径不是已安装的本地语音模型');
-  const plan: LocalModelPlan | null = LocalAsrPolicy.plan(directory, readText(manifest));
+  if (LocalAsrPolicy.modelUnderRoot(directory, root).length === 0
+      || !trustedDirectory(directory) || !realFile(manifest)) {
+    throw new Error('所选路径不是已安装的本地语音模型');
+  }
+  const plan: LocalModelPlan | null = LocalAsrPolicy.plan(
+    directory,
+    readText(manifest, LocalAsrPolicy.textFileLimit('manifest')),
+  );
   if (plan === null) throw new Error('本地语音模型清单无效或不受支持');
-  for (const path of LocalAsrPolicy.requiredFiles(plan)) {
-    if (!exists(path)) throw new Error('本地语音模型文件不完整，请重新下载');
+  const files: string[] = LocalAsrPolicy.requiredFiles(plan);
+  if (LocalAsrPolicy.transducerNativeHotwords(plan)) files.push(plan.bpeVocab);
+  for (const path of files) {
+    if (!realFile(path)) throw new Error('本地语音模型文件不完整，请重新下载');
   }
   return plan;
 }
 
 function transducerHotwords(plan: LocalModelPlan, words: string[]): string {
   if (!LocalAsrPolicy.transducerNativeHotwords(plan) || words.length === 0) return '';
-  return LocalAsrPolicy.transducerHotwords(words, LocalAsrPolicy.tokenSet(readText(plan.tokens)));
+  return LocalAsrPolicy.transducerHotwords(
+    words,
+    LocalAsrPolicy.tokenSet(readText(plan.tokens, LocalAsrPolicy.textFileLimit('tokens'))),
+  );
 }
 
 function createOnline(plan: LocalModelPlan, hotwords: string, threads: number): OnlineRecognizer {
@@ -152,7 +201,7 @@ function createOffline(plan: LocalModelPlan, language: string, hotwords: string,
 
 /** Reuses the loaded recognizer when everything baked into it matches; otherwise drops it first, because two resident models would double the largest allocation the keyboard makes. */
 function acquire(request: LocalAsrRequest): LoadedModel {
-  const plan: LocalModelPlan = readPlan(request.directory);
+  const plan: LocalModelPlan = readPlan(request.directory, request.root);
   const threads: number = LocalAsrPolicy.threads(request.threads);
   let hotwords: string = '';
   let language: string = '';

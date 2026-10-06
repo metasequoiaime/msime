@@ -1,4 +1,5 @@
 #include "FocusedSession.h"
+#include "InputSchemeTraits.h"
 #include "KeySoundPolicy.h"
 #include "TypingEffectPolicy.h"
 #include "TypingEffectSignal.h"
@@ -310,6 +311,9 @@ FocusedSession::page_candidate(const FocusLease &lease, uint64_t session,
     if (!current.at("focused").get<bool>() ||
         current.at("session").get<uint64_t>() != session ||
         current.at("generation").get<uint64_t>() != generation)
+      return;
+    // A page turned here would leave the list the TIP drives from its own host session on another page.
+    if (scheme::KeyboardOnlyCandidateList(static_cast<int>(current.value("scheme", 0u))))
       return;
     result = session_.page_candidate(lease.epoch, session, generation,
                                      previous, steps);

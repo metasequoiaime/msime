@@ -13,6 +13,8 @@ export interface UseTouchKeyboardSettingsResetOptions {
   setError: (error: string) => void;
   setNotice: (notice: string) => void;
   confirm: (options: TouchKeyboardSettingsResetConfirmOptions) => Promise<boolean>;
+  /** False where the host's keyboard draws no voice button at the top (macOS), so the confirmation does not name a setting the page does not show. */
+  voiceShortcut?: boolean;
 }
 
 /** Resets optional touch-keyboard overrides by removing them from the draft. */
@@ -22,12 +24,15 @@ export function useTouchKeyboardSettingsReset({
   setError,
   setNotice,
   confirm,
+  voiceShortcut = true,
 }: UseTouchKeyboardSettingsResetOptions) {
   async function resetTouchKeyboardSettings() {
     if (!draft) return;
     const confirmed = await confirm({
       title: "恢复屏幕键盘默认值",
-      message: "高度、间距、顶部语音入口和工具栏按钮都会回到默认。",
+      message: voiceShortcut
+        ? "高度、间距、顶部语音入口和工具栏按钮都会回到默认。"
+        : "高度、间距和工具栏按钮都会回到默认。",
       confirmLabel: "恢复",
     });
     if (!confirmed || !draft) return;

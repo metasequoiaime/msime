@@ -56,9 +56,18 @@ fn byte_device_id(prefix: &str, native: &str) -> Option<String> {
     encoded_device_id(prefix, native.bytes().map(u32::from), 2, 256)
 }
 
+fn bounded_collect<T, I>(iter: I, limit: usize) -> Vec<T>
+where
+    I: IntoIterator<Item = T>,
+{
+    let mut values = Vec::with_capacity(limit);
+    values.extend(iter.into_iter().take(limit));
+    values
+}
+
 #[cfg(not(any(target_os = "ios", target_env = "ohos")))]
 mod backend {
-    use super::{capacity, MAX_DEVICES, MAX_MILLISECONDS, SAMPLE_RATE};
+    use super::{bounded_collect, capacity, MAX_DEVICES, MAX_MILLISECONDS, SAMPLE_RATE};
     use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
     use cpal::{FromSample, SampleFormat, SizedSample, StreamConfig};
     use rubato::audioadapter_buffers::direct::InterleavedSlice;
@@ -219,8 +228,8 @@ mod backend {
         let Ok(devices) = host.input_devices() else {
             return Vec::new();
         };
-        devices
-            .filter_map(|device| {
+        bounded_collect(
+            devices.filter_map(|device| {
                 let native = device.id().ok()?;
                 let id = match native.host() {
                     #[cfg(target_os = "windows")]
@@ -240,9 +249,9 @@ mod backend {
                 }?;
                 let label = device.description().ok()?.name().to_owned();
                 (!label.is_empty()).then_some((id, label))
-            })
-            .take(MAX_DEVICES)
-            .collect()
+            }),
+            MAX_DEVICES,
+        )
     }
 }
 
@@ -318,5 +327,13 @@ mod tests {
         assert!(capture_audio(MAX_MILLISECONDS + 1).is_empty());
         assert_eq!(capacity(1000), 16_000);
         assert_eq!(capacity(MAX_MILLISECONDS), 960_000);
+    }
+
+    #[test]
+    fn bounded_device_collection_reserves_the_listing_limit() {
+        let devices = bounded_collect([("id", "label")], MAX_DEVICES);
+
+        assert_eq!(devices.len(), 1);
+        assert!(devices.capacity() >= MAX_DEVICES);
     }
 }

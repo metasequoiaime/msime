@@ -37,8 +37,6 @@ std::string lower(std::string_view value) {
 
 std::string normalize_voice_provider(std::string_view provider) {
   const auto result = lower(provider);
-  if (result == "cloud")
-    return "siliconflow";
   return result.empty() ? "doubao" : result;
 }
 

@@ -3,6 +3,7 @@ package app.msime.android;
 import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
+import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -28,16 +29,20 @@ public final class FirstRunPreparation {
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
     private static final AtomicBoolean RUNNING = new AtomicBoolean();
     private static volatile State state = State.IDLE;
-    private static volatile Listener listener;
+    private static final CopyOnWriteArraySet<Listener> LISTENERS = new CopyOnWriteArraySet<>();
 
     private FirstRunPreparation() { }
 
     public static State state() { return state; }
 
-    /** Observes the current and subsequent states. One surface at a time; passing null detaches. */
+    /** 观察当前及之后的状态，直到用同一个 listener 调用 {@link #stopObserving}。每个等待词库的界面各自观察：引导页叠在键盘页签之上打开，两者都需要知道准备已经完成。 */
     public static void observe(Listener target) {
-        listener = target;
-        if (target != null) target.onPreparationState(state);
+        LISTENERS.add(target);
+        target.onPreparationState(state);
+    }
+
+    public static void stopObserving(Listener target) {
+        LISTENERS.remove(target);
     }
 
     /**
@@ -76,8 +81,7 @@ public final class FirstRunPreparation {
     private static void publish(State next) {
         state = next;
         MAIN.post(() -> {
-            Listener target = listener;
-            if (target != null) target.onPreparationState(next);
+            for (Listener target : LISTENERS) target.onPreparationState(next);
         });
     }
 }

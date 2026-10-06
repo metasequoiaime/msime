@@ -11,7 +11,47 @@ struct CommunitySkin: Codable, Identifiable, Sendable {
   let rating_average: Double
   let owned: Bool
   let my_rating: Int
+  /// "approved", "pending" or "removed" on the user's own skins when the request asked for fields=moderation.
+  var moderation: String? = nil
+  /// Post-moderation: only a removal is shown to the author, never a pending state or a reason.
+  var removed: Bool { owned && moderation == "removed" }
+  /// 发布分类。每个返回皮肤条目的请求都带 `include=category`；早于分类功能的服务端不返回该字段，此时为 `nil`。
+  var category: CommunitySkinCategory? = nil
 }
+
+/// 社区键盘皮肤的发布分类，与候选窗口皮肤共用同一组固定 id。分类只是发布元数据，不计入任何请求摘要。
+enum CommunitySkinCategory: String, CaseIterable, Identifiable, Codable, Sendable {
+  case nature, guofeng, acg, cute, food, tech, minimal, other
+
+  var id: String { rawValue }
+
+  /// 界面上显示的分类名称，`allCases` 的顺序即筛选按钮的顺序。
+  var label: String {
+    switch self {
+    case .nature: "自然"
+    case .guofeng: "国风"
+    case .acg: "二次元"
+    case .cute: "可爱"
+    case .food: "美食"
+    case .tech: "科技夜色"
+    case .minimal: "简约"
+    case .other: "其他"
+    }
+  }
+
+  /// 服务端将来新增的分类 id 一律读作 `other`，旧客户端不会因此丢掉整个条目。
+  init(from decoder: Decoder) throws {
+    let value = try decoder.singleValueContainer().decode(String.self)
+    self = Self(rawValue: value) ?? .other
+  }
+}
+
+enum CommunitySkinCategorySelectionPolicy {
+  static func afterFailedLoad(previous: CommunitySkinCategory?) -> CommunitySkinCategory? {
+    previous
+  }
+}
+
 struct CommunityPage: Decodable, Sendable { let skins: [CommunitySkin]; let has_more: Bool }
 struct CommunityChallenge: Decodable, Sendable { let challenge_id: String; let nonce: String }
 typealias CommunityUser = BackendAccountClient.User
@@ -108,6 +148,8 @@ enum CommunityProfilePolicy {
 actor SkinCommunityAPI {
   static let shared = SkinCommunityAPI()
   private static let maximumPageItems = 20
+  /// 每个返回皮肤条目的请求都带上它，服务端才会在条目里附带 `category`。
+  private static let includeCategory = URLQueryItem(name: "include", value: "category")
   private let client: BackendAccountClient
   private let account: BackendAccountSession
   init(client: BackendAccountClient = BackendAccountClient(), account: BackendAccountSession = .shared) {
@@ -132,13 +174,13 @@ actor SkinCommunityAPI {
         data = try await client.request(method, path, token: fresh.token, body: body, maximumResponseBytes: maximumResponseBytes)
       }
       guard try await account.user()?.id == identity?.userID else { throw CancellationError() }
-    } catch let error as BackendAccountClient.Failure { throw Self.failure(Data(), status: error.status) }
+    } catch let error as BackendAccountClient.Failure { throw Self.failure(error) }
     try Task.checkCancellation()
     return try JSONDecoder().decode(T.self, from: data.isEmpty ? Data("{}".utf8) : data)
   }
-  private static func failure(_ data: Data, status: Int) -> CommunityFailure {
-    let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-    let code = (root?["error"] as? [String: String])?["code"] ?? ""
+  private static func failure(_ error: BackendAccountClient.Failure) -> CommunityFailure {
+    if let moderation = error.moderationMessage { return CommunityFailure(message: moderation) }
+    let code = error.code ?? "", status = error.status
     let message: String
     switch code {
     case "provider_disabled", "user_auth_disabled": message = "社区登录尚未启用，请稍后重试。"
@@ -159,6 +201,20 @@ actor SkinCommunityAPI {
     }
     return CommunityFailure(message: message)
   }
+
+  /// Run one account request with the token that was actually used. A session may still look
+  /// unexpired locally when the backend has revoked that access token, so retry exactly once after
+  /// rotating it. Callers receive the token paired with the successful result for session updates.
+  private func accountRequest<T>(_ operation: (String) async throws -> T) async throws -> (value: T, token: String) {
+    var token = try await account.accessToken()
+    do {
+      return (try await operation(token), token)
+    } catch let error as BackendAccountClient.Failure where error.status == 401 {
+      token = try await account.accessToken(retrying: token)
+      return (try await operation(token), token)
+    }
+  }
+
   func challenge() async throws -> CommunityChallenge {
     let value = try await client.challenge(provider: "apple")
     guard let nonce = value.nonce else { throw CommunityFailure(message: "Apple 登录暂不可用，请稍后重试。") }
@@ -168,9 +224,9 @@ actor SkinCommunityAPI {
     try await account.signIn(challenge: challenge, credential: identityToken)
   }
   func profile() async throws -> CommunityProfile {
-    let token = try await account.accessToken()
-    let profile = try await client.profile(token: token)
-    try await account.updateUser(profile.user, matching: token)
+    let result = try await accountRequest { token in try await client.profile(token: token) }
+    try await account.updateUser(result.value.user, matching: result.token)
+    let profile = result.value
     return profile
   }
   func updateProfile(name: String) async throws -> CommunityProfile {
@@ -178,29 +234,35 @@ actor SkinCommunityAPI {
     guard CommunityProfilePolicy.validName(name) else {
       throw CommunityFailure(message: "昵称需为 1–64 个字符，不能包含换行或控制字符。")
     }
-    let token = try await account.accessToken()
-    try await client.rename(name, token: token)
-    let profile = try await client.profile(token: token)
-    try await account.updateUser(profile.user, matching: token)
-    return profile
+    _ = try await accountRequest { token in try await client.rename(name, token: token) }
+    let result = try await accountRequest { token in try await client.profile(token: token) }
+    try await account.updateUser(result.value.user, matching: result.token)
+    return result.value
   }
   func logout(deleteAccount: Bool = false, all: Bool = false) async throws {
     if deleteAccount {
-      let token = try await account.accessToken()
-      try await client.deleteAccount(token: token)
+      _ = try await accountRequest { token in try await client.deleteAccount(token: token) }
       try await account.forget()
     } else { try await account.logout(all: all) }
   }
   func clearExpiredLogin() async throws { try await account.forget() }
-  func list(offset: Int = 0, search: String = "") async throws -> CommunityPage {
+  /// `category` 为 `nil` 时不按分类筛选。
+  func list(offset: Int = 0, search: String = "", mine: Bool = false,
+            category: CommunitySkinCategory? = nil) async throws -> CommunityPage {
     #if DEBUG && targetEnvironment(simulator)
-    if CommunityPreviewFixtures.enabled { return CommunityPage(skins: CommunityPreviewFixtures.skins, has_more: false) }
+    if CommunityPreviewFixtures.enabled {
+      return CommunityPage(skins: CommunityPreviewFixtures.skins.filter { category == nil || $0.category == category }, has_more: false)
+    }
     #endif
     var parts = URLComponents()
     parts.path = "/v1/community/skins"
     parts.queryItems = [.init(name: "offset", value: String(offset)), .init(name: "q", value: search)]
+    if let category { parts.queryItems!.append(.init(name: "category", value: category.rawValue)) }
+    // The author's own list, with each skin's moderation state so a removed one can be marked.
+    if mine { parts.queryItems! += [.init(name: "scope", value: "mine"), .init(name: "fields", value: "moderation")] }
+    parts.queryItems!.append(Self.includeCategory)
     parts.percentEncodedQuery = parts.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
-    let page: CommunityPage = try await request(parts.string!)
+    let page: CommunityPage = try await request(parts.string!, authenticated: mine)
     guard Self.validPage(page.skins, hasMore: page.has_more),
           page.skins.allSatisfy(CommunityResponseValidation.validSkin) else {
       throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
@@ -214,23 +276,47 @@ actor SkinCommunityAPI {
     guard CommunityResponseValidation.validID(id) else {
       throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
     }
-    let skin: CommunitySkin = try await request("/v1/community/skins/\(id)")
+    let skin: CommunitySkin = try await request(Self.skinPath(id))
     guard CommunityResponseValidation.validSkin(skin),
           CommunityResponseValidation.matchesID(skin.id, requested: id) else {
       throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
     }
     return skin
   }
-  func publish(id: String, name: String, description: String, design: CustomKeyboardSkin) async throws {
-    struct Payload: Encodable { let id: String; let name: String; let description: String; let design: CustomKeyboardSkin }
+  func publish(id: String, name: String, description: String, design: CustomKeyboardSkin,
+               category: CommunitySkinCategory = .other) async throws {
+    struct Payload: Encodable {
+      let id: String; let name: String; let description: String; let design: CustomKeyboardSkin
+      let category: CommunitySkinCategory
+    }
     struct Result: Decodable { let id: String }
     guard CommunityResponseValidation.validID(id) else {
       throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
     }
-    let result: Result = try await request("/v1/community/skins", method: "POST", body: JSONEncoder().encode(Payload(id: id, name: name, description: description, design: design.normalized)), authenticated: true)
+    let result: Result = try await request("/v1/community/skins", method: "POST", body: JSONEncoder().encode(Payload(id: id, name: name, description: description, design: design.normalized, category: category)), authenticated: true)
     guard CommunityResponseValidation.matchesID(result.id, requested: id) else {
       throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
     }
+  }
+  /// 作者修改自己作品的分类，返回更新后的条目。请求体只能有 `category` 一个键，服务端对多余的键回 400。返回的条目不带 `moderation`，调用方要沿用原条目的审核状态。
+  func setCategory(_ id: String, category: CommunitySkinCategory) async throws -> CommunitySkin {
+    guard CommunityResponseValidation.validID(id) else {
+      throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
+    }
+    let skin: CommunitySkin = try await request(Self.skinPath(id, moderation: false), method: "PATCH",
+      body: JSONEncoder().encode(["category": category]), authenticated: true)
+    guard CommunityResponseValidation.validSkin(skin),
+          CommunityResponseValidation.matchesID(skin.id, requested: id), skin.category == category else {
+      throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
+    }
+    return skin
+  }
+  /// 单个皮肤条目的路径，总是带分类；详情另外带上审核状态，作者据此看到已下架标记。
+  private static func skinPath(_ id: String, moderation: Bool = true) -> String {
+    var parts = URLComponents()
+    parts.path = "/v1/community/skins/\(id)"
+    parts.queryItems = (moderation ? [URLQueryItem(name: "fields", value: "moderation")] : []) + [includeCategory]
+    return parts.string!
   }
   func download(_ id: String) async throws -> CustomKeyboardSkin {
     #if DEBUG && targetEnvironment(simulator)
@@ -276,6 +362,7 @@ actor SkinCommunityAPI {
     var parts = URLComponents(); parts.path = "/v1/community/resources"
     parts.queryItems = [.init(name: "kind", value: kind.rawValue), .init(name: "scope", value: scope),
       .init(name: "q", value: search), .init(name: "offset", value: String(offset))]
+    if scope == "mine" { parts.queryItems!.append(.init(name: "fields", value: "moderation")) }
     parts.percentEncodedQuery = parts.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
     let page: ResourcePage = try await request(parts.string!, maximumResponseBytes: 48 * 1024 * 1024)
     guard Self.validPage(page.items, hasMore: page.has_more),
@@ -285,10 +372,10 @@ actor SkinCommunityAPI {
     return page
   }
 
-  private static func validPage<T: Identifiable>(_ items: [T], hasMore: Bool) -> Bool {
+  private static func validPage<T: Identifiable>(_ items: [T], hasMore: Bool) -> Bool where T.ID == String {
     guard items.count <= maximumPageItems, !(hasMore && items.isEmpty) else { return false }
-    var ids = Set<AnyHashable>()
-    return items.allSatisfy { ids.insert(AnyHashable($0.id)).inserted }
+    var ids = Set<String>()
+    return items.allSatisfy { ids.insert($0.id.lowercased()).inserted }
   }
 
   func resource(_ id: String) async throws -> CommunityResource {
@@ -298,7 +385,7 @@ actor SkinCommunityAPI {
     guard CommunityResponseValidation.validID(id) else {
       throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
     }
-    let resource: CommunityResource = try await request("/v1/community/resources/\(id)", maximumResponseBytes: 3 * 1024 * 1024)
+    let resource: CommunityResource = try await request("/v1/community/resources/\(id)?fields=moderation", maximumResponseBytes: 3 * 1024 * 1024)
     guard CommunityResponseValidation.validResource(resource, expectedKind: resource.kind),
           CommunityResponseValidation.matchesID(resource.id, requested: id) else {
       throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
@@ -342,6 +429,33 @@ actor SkinCommunityAPI {
     guard result.stars == stars else {
       throw CommunityFailure(message: "社区暂时不可用，请稍后重试。")
     }
+  }
+  /// Report another user's work. Signed in or not: without a signed-in account the device's anonymous account sends it.
+  func report(kind: String, itemID: String, reason: String, detail: String) async throws {
+    let detail = detail.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard CommunityResponseValidation.validID(itemID), BackendAccountClient.reportReasons.contains(reason),
+          CommunityResponseValidation.validText(detail, minimum: 0, maximum: 1_000, multiline: true) else {
+      throw CommunityFailure(message: "请选择举报原因，补充说明不超过 1000 字。")
+    }
+    guard let id = UUID(uuidString: itemID) else { throw CommunityFailure(message: "作品不存在或已下架。") }
+    do {
+      if try await account.user() != nil {
+        _ = try await accountRequest { token in
+          try await client.reportContent(kind: kind, itemID: id, reason: reason, detail: detail, token: token)
+        }
+        return
+      }
+      let anonymous = BackendAnonymousAccount.session
+      if (try? await anonymous.accessToken()) == nil {
+        _ = try await BackendAnonymousAccount.ensureSignedIn(session: anonymous, client: client)
+      }
+      let token = try await anonymous.accessToken()
+      do { try await client.reportContent(kind: kind, itemID: id, reason: reason, detail: detail, token: token) }
+      catch let error as BackendAccountClient.Failure where error.status == 401 {
+        let fresh = try await anonymous.accessToken(retrying: token)
+        try await client.reportContent(kind: kind, itemID: id, reason: reason, detail: detail, token: fresh)
+      }
+    } catch let error as BackendAccountClient.Failure { throw Self.failure(error) }
   }
   func unpublishResource(_ id: String) async throws {
     struct Result: Decodable { let deleted: Bool }

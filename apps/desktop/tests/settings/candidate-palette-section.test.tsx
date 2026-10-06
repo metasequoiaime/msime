@@ -12,7 +12,7 @@ test("changes whether the mobile candidate strip follows desktop colors", () => 
   const onChange = vi.fn();
   render(<CandidatePaletteSection value={false} busy={false} onChange={onChange} />);
 
-  fireEvent.click(screen.getByRole("checkbox", { name: "使用桌面候选皮肤" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "候选栏使用主题配色" }));
   expect(onChange).toHaveBeenCalledWith(true);
 });
 
@@ -20,6 +20,6 @@ test("disables the switch while feedback settings are saving", () => {
   render(<CandidatePaletteSection value={true} busy={true} onChange={vi.fn()} />);
 
   expect(
-    (screen.getByRole("checkbox", { name: "使用桌面候选皮肤" }) as HTMLInputElement).disabled,
+    (screen.getByRole("checkbox", { name: "候选栏使用主题配色" }) as HTMLInputElement).disabled,
   ).toBe(true);
 });

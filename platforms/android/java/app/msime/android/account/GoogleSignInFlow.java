@@ -39,6 +39,11 @@ public final class GoogleSignInFlow {
             return "已取消 Google 登录";
         }
         if (error instanceof androidx.credentials.exceptions.NoCredentialException) {
+            // 如果 Android OAuth client 没有登记这个包名和签名证书，Play services 同样报告为 no credential，只是消息里带有状态码 `28444`；这种情况下设备上通常是有账号的，提示「没有账号」会把人引到错误的方向。
+            String detail = error.getMessage();
+            if (detail != null && (detail.contains("28444") || detail.contains("Developer console"))) {
+                return "Google 登录未配置：这个安装包的签名证书没有登记到 Google Cloud 的 Android OAuth 客户端";
+            }
             return "这台设备上没有可用的 Google 账号";
         }
         String detail = error.getMessage();

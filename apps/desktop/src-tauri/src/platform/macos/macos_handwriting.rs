@@ -1,4 +1,6 @@
-//! The engine owns handwriting recognition; macOS only locates packaged data.
+//! 手写识别由引擎负责，macOS 这边只负责找到模型文件。
+//!
+//! 发布包不再内置手写模型，第一次打开手写面板时下载到 `<state_root>/resource-packs/handwriting/`，查找时优先用这份已下载的模型（三个桌面平台共用的 `downloaded_handwriting_model`）；从内置模型的旧版本升级上来、还没下载时，退回 app 里的 `Contents/Resources/handwriting/`（[`bundled_model`]）。
 use std::path::{Path, PathBuf};
 
 pub(crate) fn bundled_model(executable: &Path) -> Option<PathBuf> {
@@ -119,7 +121,7 @@ mod tests {
     }
 
     #[test]
-    fn macos_package_ships_the_model_with_its_licenses() {
+    fn macos_package_downloads_the_model_on_demand() {
         let configuration: serde_json::Value =
             serde_json::from_str(include_str!("../../../tauri.macos.conf.json")).unwrap();
         let resources = configuration["bundle"]["resources"].as_object().unwrap();
@@ -127,11 +129,12 @@ mod tests {
             .values()
             .any(|path| path == "handwriting/Zinnia-LICENSE.txt"));
         assert_eq!(configuration["bundle"]["active"], true);
-        // The model and its licence are copied into the app by the release script rather than declared here, so a development build does not need the download; the script must still put both where bundled_model looks.
+        // 发布包不再带手写模型：首次打开手写面板时由 App 下载到 resource-packs/handwriting。打包脚本要在编译前用同一个安装器确认资源包可下载，并断言包里没有模型。
         let package = include_str!("../../../../../../platforms/macos/package-release.sh");
-        assert!(package.contains("scripts/fetch_handwriting_model.py"));
-        assert!(package.contains(
-            r#""$handwriting_model/handwriting-zh_CN.model" "$handwriting_model/HandwritingModel-LICENSE.txt" "$app/Contents/Resources/handwriting/""#
-        ));
+        assert!(package.contains("install_resource_pack"));
+        assert!(
+            package.contains(r#"test ! -e "$resources_dir/handwriting/handwriting-zh_CN.model""#)
+        );
+        assert!(!package.contains("fetch_handwriting_model.py"));
     }
 }

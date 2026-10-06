@@ -126,7 +126,7 @@ public final class KeyboardLayoutAdjustView extends FrameLayout {
                 // pass puts them, so they take the colour that fill is paired with. `accent` is
                 // that same fill in the shipped skins: 恢复默认 and 完成 were dark green text on a
                 // dark green button, and the bar read as three blank tiles.
-                button.setTextColor(color(skin.actionForeground()));
+                button.setTextColor(color(skin.functionForeground()));
                 button.setAllCaps(false);
             }
         }

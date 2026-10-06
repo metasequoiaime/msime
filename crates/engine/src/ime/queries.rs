@@ -12,14 +12,16 @@ use crate::local::emoji::{query_emoji, query_kaomoji, MIXED_RESULT_LIMIT, MODE_R
 use crate::local::expression::query_expression;
 use crate::local::jianpin::{query_jianpin, result_limit};
 use crate::local::mention::{mention_annotation, query_mentions, usable_mentions};
-use crate::local::quick_phrase::query_quick_phrases;
+use crate::local::quick_phrase::{
+    merge_quick_phrases, query_quick_phrases, usable_quick_phrase_table,
+};
 use crate::local::unicode::query_unicode;
 use crate::local::LocalQueryResult;
 use crate::paths::RuntimePaths;
 use crate::shuangpin::profile::profile;
 use crate::types::{
     CandidateSource, CommandTableEntry, EnglishInputOptions, LocalInputMode, MentionEntry,
-    MixedExpressiveOptions, SchemeType, ShuangpinProfileKind, WordItem,
+    MixedExpressiveOptions, QuickPhraseEntry, SchemeType, ShuangpinProfileKind, WordItem,
 };
 
 pub const MIXED_ENGLISH_LIMIT: usize = 5;
@@ -31,6 +33,8 @@ pub struct CandidateQueries {
     english: Option<EnglishDictionary>,
     /// The host's command table, usable rows only.
     command_table: Vec<CommandTableEntry>,
+    /// 宿主的短语表（插件），只保留能用的行，按编码排序。
+    quick_phrase_table: Vec<QuickPhraseEntry>,
     /// The host's mention list, usable entries only.
     mentions: Vec<MentionEntry>,
     /// Whether `@` mode offers the embedded places after the list.
@@ -44,6 +48,7 @@ impl CandidateQueries {
             profile,
             english: None,
             command_table: Vec::new(),
+            quick_phrase_table: Vec::new(),
             mentions: Vec::new(),
             mention_places: false,
         }
@@ -52,6 +57,11 @@ impl CandidateQueries {
     /// Keeps the rows `/` mode can use and drops the rest.
     pub fn set_command_table(&mut self, table: &[CommandTableEntry]) {
         self.command_table = usable_command_table(table);
+    }
+
+    /// 保留 K 模式能用的宿主短语行，丢弃其余。
+    pub fn set_quick_phrase_table(&mut self, table: &[QuickPhraseEntry]) {
+        self.quick_phrase_table = usable_quick_phrase_table(table);
     }
 
     /// Keeps the entries `@` mode can use and drops the rest.
@@ -114,9 +124,11 @@ impl CandidateQueries {
             LocalInputMode::None => LocalQueryResult::default(),
             LocalInputMode::Unicode => rows(query_unicode(code)),
             LocalInputMode::DateTime => rows(query_date_time(code, now)),
-            LocalInputMode::QuickPhrase => {
-                query_quick_phrases(code, &self.paths.dictionary(assets::MAIN_DICTIONARY))
-            }
+            LocalInputMode::QuickPhrase => merge_quick_phrases(
+                code,
+                query_quick_phrases(code, &self.paths.dictionary(assets::MAIN_DICTIONARY)),
+                &self.quick_phrase_table,
+            ),
             LocalInputMode::Emoji => query_emoji(
                 code,
                 scheme,
@@ -145,6 +157,8 @@ impl CandidateQueries {
             LocalInputMode::Mention => {
                 rows(query_mentions(code, &self.mentions, self.mention_places))
             }
+            // 网址模式不查任何候选，只留显示整段预编辑的兜底行。
+            LocalInputMode::Url => LocalQueryResult::default(),
         }
     }
 
@@ -153,10 +167,11 @@ impl CandidateQueries {
         if raw.is_empty() {
             return Vec::new();
         }
-        let mut candidates = vec![WordItem::new("", raw, 0, CandidateSource::Generated, "")];
         let completions = self
             .english_dictionary()
             .query_prefix(&raw.to_ascii_lowercase(), MODE_ENGLISH_LIMIT);
+        let mut candidates = Vec::with_capacity(completions.len().saturating_add(1));
+        candidates.push(WordItem::new("", raw, 0, CandidateSource::Generated, ""));
         candidates.extend(
             completions
                 .into_iter()
@@ -183,7 +198,7 @@ impl CandidateQueries {
         if !anything_enabled
             || dedicated_english
             || local_mode != LocalInputMode::None
-            || !scheme.is_pinyin()
+            || !scheme.allows_english_emoji_mixing()
             || prefix.is_empty()
         {
             return candidates;
@@ -245,6 +260,8 @@ fn insert_mixed_rows(
             .filter_map(|(item, unique)| unique.then_some(item))
             .collect(),
     ];
+    let extra = groups.iter().map(Vec::len).sum();
+    candidates.reserve(extra);
 
     let has_source = |source| candidates.iter().any(|item| item.source == source);
     let mut slot = if has_source(CandidateSource::AiSuggestion) {
@@ -279,6 +296,8 @@ fn unique_mask<'a>(rows: &'a [WordItem], seen: &mut HashSet<&'a str>) -> Vec<boo
 
 #[cfg(test)]
 mod tests {
+    use rusqlite::Connection;
+
     use super::*;
 
     fn row(word: &str, source: CandidateSource) -> WordItem {
@@ -366,6 +385,25 @@ mod tests {
             Vec::new(),
         );
         assert_eq!(words(&list), vec!["Ni", "😀", "Ninja"]);
+    }
+
+    #[test]
+    fn mixed_rows_reserve_the_extra_candidate_capacity() {
+        let list = insert_mixed_rows(
+            vec![row("你", CandidateSource::Database)],
+            (0..5)
+                .map(|index| row(&format!("en{index}"), CandidateSource::EnglishDictionary))
+                .collect(),
+            (0..3)
+                .map(|index| row(&format!("😀{index}"), CandidateSource::Emoji))
+                .collect(),
+            (0..3)
+                .map(|index| row(&format!("ka{index}"), CandidateSource::Kaomoji))
+                .collect(),
+        );
+
+        assert_eq!(list.len(), 12);
+        assert_eq!(list.capacity(), 12);
     }
 
     #[test]
@@ -474,5 +512,43 @@ mod tests {
             queries.english.is_none(),
             "no pass-through opens the English dictionary"
         );
+    }
+
+    #[test]
+    fn temporary_english_reserves_the_generated_row_capacity() {
+        let directory = tempfile::tempdir().unwrap();
+        let words = [
+            ("he00", "he00", 0),
+            ("he01", "he01", 0),
+            ("he02", "he02", 0),
+            ("he03", "he03", 0),
+            ("he04", "he04", 0),
+            ("he05", "he05", 0),
+            ("he06", "he06", 0),
+            ("he07", "he07", 0),
+            ("he08", "he08", 0),
+            ("he09", "he09", 0),
+        ];
+        let database = directory.path().join(assets::ENGLISH_DICTIONARY);
+        crate::ensure_english_schema(&database).unwrap();
+        let connection = Connection::open(&database).unwrap();
+        for word in words {
+            connection
+                .execute(
+                    "INSERT INTO english_words(word,display,weight) VALUES(?1,?2,?3)",
+                    word,
+                )
+                .unwrap();
+        }
+        let paths = RuntimePaths {
+            dictionaries: directory.path().to_owned(),
+            ..RuntimePaths::default()
+        };
+        let mut queries = CandidateQueries::new(&paths, ShuangpinProfileKind::Xiaohe);
+
+        let candidates = queries.temporary_english("he");
+
+        assert_eq!(candidates.len(), 11);
+        assert_eq!(candidates.capacity(), 11);
     }
 }

@@ -1,5 +1,7 @@
-import * as settings from "./settings-style";
-import { GroupList, Row } from "../core/platform-controls";
+import { SettingsGroupNote } from "./settings-group-note";
+import { SettingsRowStack } from "./settings-row-stack";
+import { GroupList } from "../core/platform-controls";
+import { ActionRow } from "./action-row";
 
 export interface DataDirectoryInfo {
   path: string;
@@ -28,13 +30,13 @@ export function DataDirectorySection({
 
   return (
     <GroupList title="数据目录">
-      <div className={settings.rowStack} role="group" aria-label="数据目录">
-        <p className={settings.groupNote}>
+      <SettingsRowStack role="group" aria-label="数据目录">
+        <SettingsGroupNote>
           词库、学习记录、皮肤、剪贴板历史和设置共用此位置。可移动到其他磁盘。
           {linux &&
             "输入法入口配置和在线服务、语音服务的凭据固定保存在 ~/.config/msime-client，不随数据移动。"}
-        </p>
-        <Row
+        </SettingsGroupNote>
+        <ActionRow
           title="当前目录"
           description={
             <>
@@ -42,23 +44,13 @@ export function DataDirectorySection({
               {dataDirectory?.isDefault ? "（默认）" : ""}
             </>
           }
-        >
-          <button
-            type="button"
-            className="secondary"
-            disabled={busy || !dataDirectory}
-            aria-busy={busy}
-            onClick={onChoose}
-          >
-            {busy ? "正在移动…" : "选择位置…"}
-          </button>
-        </Row>
-        {result && (
-          <p className={settings.groupNote} role="status">
-            {result}
-          </p>
-        )}
-      </div>
+          action={onChoose}
+          disabled={busy || !dataDirectory}
+          ariaBusy={busy}
+          label={busy ? (dataDirectory ? "正在移动…" : "正在读取…") : "选择位置…"}
+        />
+        {result && <SettingsGroupNote role="status">{result}</SettingsGroupNote>}
+      </SettingsRowStack>
     </GroupList>
   );
 }

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 设计令牌里 M3 主题角色装不下的颜色。宿主 UI 用 ?attr/ms* 读它们；随季节的那几项由 ThemeOverlay.MSIME.Season.* 覆盖，其余深浅各一值、不随季节。 -->
+<resources>
+    <!-- 开屏：底色 mix(accent 20%, #0A0B0A)、圆盘 mix(accent 12%, #FFF)、进度条 mix(accent 70%, #FFF)、光晕中心 accent@0.34。随季节。 -->
+    <attr name="msSplashBg" format="color" />
+    <attr name="msSplashDisc" format="color" />
+    <attr name="msSplashBar" format="color" />
+    <attr name="msSplashGlow" format="color" />
+    <!-- 统计：非高亮的柱子，以及热力图从浅到深五档。随季节。 -->
+    <attr name="msStatBar" format="color" />
+    <attr name="msHeat0" format="color" />
+    <attr name="msHeat1" format="color" />
+    <attr name="msHeat2" format="color" />
+    <attr name="msHeat3" format="color" />
+    <attr name="msHeat4" format="color" />
+    <!-- 行与 sheet 选项按下时的底、悬停的底、待办橙点 #FF9500、遮罩 #00000059。不随季节。 -->
+    <attr name="msPressBg" format="color" />
+    <attr name="msHover" format="color" />
+    <attr name="msWarn" format="color" />
+    <attr name="msScrim" format="color" />
+</resources>

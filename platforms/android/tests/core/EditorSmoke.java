@@ -13,6 +13,7 @@ public final class EditorSmoke {
         public boolean commit(String value) { calls.add("commit:" + value); return !reject; }
         public boolean compose(String value) { calls.add("compose:" + value); return !reject; }
         public boolean finish() { calls.add("finish"); return true; }
+        public boolean select(int start, int end) { calls.add("select:" + start + "," + end); return true; }
         public void end() { calls.add("end"); }
     }
     static void check(boolean condition) { if (!condition) throw new AssertionError(); }
@@ -29,6 +30,30 @@ public final class EditorSmoke {
         sink.calls.clear();
         bridge.abandon(sink);
         check(sink.calls.equals(List.of("finish")));
+        sink.calls.clear();
+        // A Stroke composition is glyphs, not text: a tap elsewhere removes the marked 一丨 (offsets 4..6) and puts the tapped caret back, shifted when it lies after the region.
+        check(bridge.apply(sink, null, "一丨"));
+        sink.calls.clear();
+        bridge.discard(sink, 4, 6, 10, 10);
+        check(sink.calls.equals(List.of("begin", "compose:", "finish", "select:8,8", "end")));
+        sink.calls.clear();
+        bridge.discard(sink, 4, 6, 1, 3);
+        check(sink.calls.equals(List.of("begin", "compose:", "finish", "select:1,3", "end")));
+        sink.calls.clear();
+        // A selection reaching into the removed region keeps what survives of it.
+        bridge.discard(sink, 4, 6, 5, 9);
+        check(sink.calls.equals(List.of("begin", "compose:", "finish", "select:4,7", "end")));
+        sink.calls.clear();
+        // Without a reported region, or when the session stops, the region still goes and nothing is selected.
+        bridge.discard(sink, -1, -1, 10, 10);
+        check(sink.calls.equals(List.of("begin", "compose:", "finish", "end")));
+        sink.calls.clear();
+        bridge.discard(sink);
+        check(sink.calls.equals(List.of("begin", "compose:", "finish", "end")));
+        sink.calls.clear();
+        // After a discard the bridge composes nothing, so an empty update does not touch the editor again.
+        check(bridge.apply(sink, null, ""));
+        check(sink.calls.equals(List.of("begin", "end")));
         sink.calls.clear();
         sink.reject = true;
         check(!bridge.apply(sink, "🌲", "next"));
@@ -61,6 +86,6 @@ public final class EditorSmoke {
         check(EditorPolicy.capitalizationMode(InputType.TYPE_CLASS_TEXT
             | InputType.TYPE_TEXT_VARIATION_URI | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES)
             == EnglishCapitalizationPolicy.Mode.NONE);
-        System.out.println("Android editor contract: composition order, failure, external selection and sensitive editor policy passed");
+        System.out.println("Android editor contract: composition order, failure, external selection, discarded glyph composition and sensitive editor policy passed");
     }
 }

@@ -20,6 +20,11 @@ enum class TypingSource {
     Wubi,
     Japanese,
     Korean,
+    Cantonese,
+    Zhuyin,
+    Vietnamese,
+    Tibetan,
+    Stroke,
     Handwriting,
     English,
     Local,
@@ -40,6 +45,11 @@ constexpr std::string_view TypingSourceId(TypingSource source) {
     case TypingSource::Wubi: return "wubi";
     case TypingSource::Japanese: return "japanese";
     case TypingSource::Korean: return "korean";
+    case TypingSource::Cantonese: return "cantonese";
+    case TypingSource::Zhuyin: return "zhuyin";
+    case TypingSource::Vietnamese: return "vietnamese";
+    case TypingSource::Tibetan: return "tibetan";
+    case TypingSource::Stroke: return "stroke";
     case TypingSource::Handwriting: return "handwriting";
     case TypingSource::English: return "english";
     case TypingSource::Local: return "local";
@@ -51,7 +61,7 @@ constexpr std::string_view TypingSourceId(TypingSource source) {
     return "unknown";
 }
 
-// View exposes the applied Engine scheme: 0 quanpin, 1 shuangpin, 2 wubi, 3 Japanese, 4 Korean. Local modes take precedence, matching the other native hosts.
+// 视图给出实际生效的引擎方案：0 全拼、1 双拼、2 五笔、3 日文、4 韩文、5 粤拼、6 注音、7 越南文、8 藏文、9 笔画。本地模式优先，与其他原生宿主一致。
 constexpr TypingSource ResolveTypingSource(int scheme, bool nineKey,
                                             bool dedicatedEnglish,
                                             std::string_view localMode,
@@ -69,6 +79,11 @@ constexpr TypingSource ResolveTypingSource(int scheme, bool nineKey,
     case 2: return TypingSource::Wubi;
     case 3: return TypingSource::Japanese;
     case 4: return TypingSource::Korean;
+    case 5: return TypingSource::Cantonese;
+    case 6: return TypingSource::Zhuyin;
+    case 7: return TypingSource::Vietnamese;
+    case 8: return TypingSource::Tibetan;
+    case 9: return TypingSource::Stroke;
     default: return TypingSource::Unknown;
     }
 }
@@ -238,6 +253,7 @@ public:
     // Counts one press of `keyId` on `day` and returns the batches now due, oldest first: the previous day's counts when `day` differs from theirs, then this day's once they reach kFlushThreshold.
     std::vector<KeyPressFlush> record(std::string_view day, std::string_view keyId) {
         std::vector<KeyPressFlush> due;
+        due.reserve(2);
         if (presses_ != 0 && day != day_) due.push_back(*drain());
         if (presses_ == 0) day_.assign(day);
         ++keys_[std::string(keyId)];

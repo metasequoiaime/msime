@@ -4,11 +4,9 @@ import { NiuTransSection } from "./niutrans-section";
 
 export interface NiuTransSettingsSectionProps {
   grouped?: boolean;
-  enabled: boolean;
   available: boolean;
   appId: string;
   apiKey: string;
-  onToggle: (enabled: boolean) => void;
   onAppIdChange: (value: string) => void;
   onApiKeyChange: (value: string) => void;
   credentialTest?: ReactNode;
@@ -17,22 +15,18 @@ export interface NiuTransSettingsSectionProps {
 /** Shared NiuTrans settings binding; hosts choose whether the section owns a group wrapper. */
 export function NiuTransSettingsSection({
   grouped = false,
-  enabled,
   available,
   appId,
   apiKey,
-  onToggle,
   onAppIdChange,
   onApiKeyChange,
   credentialTest,
 }: NiuTransSettingsSectionProps) {
   const content = (
     <NiuTransSection
-      enabled={enabled}
       available={available}
       appId={appId}
       apiKey={apiKey}
-      onToggle={onToggle}
       onAppIdChange={onAppIdChange}
       onApiKeyChange={onApiKeyChange}
     >

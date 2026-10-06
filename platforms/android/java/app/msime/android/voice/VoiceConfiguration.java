@@ -95,8 +95,8 @@ public final class VoiceConfiguration {
      * Decode one shared answer.
      *
      * <p>A request qualifies for exactly one transport: on-device recognition, Doubao's streaming
-     * socket or the OpenAI-compatible upload. Anything the host cannot speak leaves all three null
-     * and the platform recogniser runs, rather than the voice button failing.
+     * socket or the OpenAI-compatible upload. 网络 provider 无法使用时才回到系统识别；明确选择
+     * local 却没有可用模型时必须保留这个选择，让上层报告本地模型错误。
      */
     public static VoiceConfiguration decode(String response, String requestId) {
         try {
@@ -114,6 +114,9 @@ public final class VoiceConfiguration {
             String token = provider.optString("token", "");
             String[] headers = headers(provider.optJSONArray("headers"));
             String modelPath = provider.isNull("modelPath") ? "" : provider.optString("modelPath", "");
+            if ("local".equals(name)) {
+                return fromProvider(name, modelPath, polish);
+            }
             if (LocalAsrPolicy.usable(name, modelPath)) {
                 return new VoiceConfiguration(name, null, null, null, null, polish, modelPath);
             }
@@ -135,11 +138,18 @@ public final class VoiceConfiguration {
         }
     }
 
+    /** 即使本机无法使用路径，也保留明确选择的本地识别，不能静默切到系统云端识别。 */
+    static VoiceConfiguration fromProvider(String name, String modelPath,
+                                           VoiceRecognitionActivity.Polish polish) {
+        if (!"local".equals(name)) return none();
+        return new VoiceConfiguration(name, null, null, null, null, polish, modelPath);
+    }
+
     private static VoiceRecognitionActivity.Polish polish(JSONObject value, String requestId) {
         if (value == null) return null;
         String prompt = NativeClient.polishPrompt(value.optString("promptId", ""),
-            value.optString("promptLegacy", ""), value.optString("promptCustom1", ""),
-            value.optString("promptCustom2", ""), value.optString("promptCustom3", ""));
+            value.optString("promptCustom1", ""), value.optString("promptCustom2", ""),
+            value.optString("promptCustom3", ""));
         String endpoint = value.optString("endpoint", "");
         String model = value.optString("model", "");
         String token = value.optString("token", "");

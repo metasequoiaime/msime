@@ -1,5 +1,8 @@
-import { useEffect, useRef, useState } from "react";
-import { runAsyncAction } from "../core/async-action";
+import { SettingsGroupNote } from "./settings-group-note";
+import { SettingsManagerNote } from "./settings-manager-note";
+import { SettingsManagerActions } from "./settings-manager-actions";
+import { useRef, useState } from "react";
+import { useAsyncActionRunner } from "../core/use-async-action";
 import {
   parsePersonalDictionaryImport,
   personalDictionaryExample,
@@ -7,9 +10,14 @@ import {
   type PersonalDictionaryImportEntry,
 } from "../dictionary/dictionary-file";
 import { GroupList } from "../core/platform-controls";
+import { rowTitle } from "../core/platform-controls-style";
 import { personalDictionaryKindTitle } from "../dictionary/dictionary-messages";
 import * as settings from "./settings-style";
-import { useMountedRef } from "./use-mounted-ref";
+import { SettingsManagerBlock } from "./settings-manager-block";
+import { ActionButton } from "./action-button";
+import { ErrorAlert } from "../core/error-alert";
+import { SettingsNotice } from "./settings-notice";
+import { StatusMessage } from "../core/status-message";
 
 export interface PersonalDictionaryImportClient {
   importPersonal?: (
@@ -21,56 +29,22 @@ export interface PersonalDictionaryImportClient {
 export interface PersonalDictionaryImportCardProps {
   dictionary: PersonalDictionaryImportClient;
   platform?: string;
+  /** 词库页把它并进「导入与导出」组时为真：画成组内带名字的一块（`role="group"`），不再自成一组。 */
+  embedded?: boolean;
 }
 
 /** Imports an Apple-compatible personal dictionary into the host's sync queue. */
 export function PersonalDictionaryImportCard({
   dictionary,
   platform,
+  embedded = false,
 }: PersonalDictionaryImportCardProps) {
   const input = useRef<HTMLInputElement>(null);
   const [fileName, setFileName] = useState("");
   const [entries, setEntries] = useState<PersonalDictionaryImportEntry[] | null>(null);
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const mounted = useMountedRef();
-  const dictionaryGeneration = useRef(0);
-  const actionRunning = useRef(false);
-
-  useEffect(() => {
-    dictionaryGeneration.current++;
-    actionRunning.current = false;
-    setBusy(false);
-    return () => {
-      actionRunning.current = false;
-      dictionaryGeneration.current++;
-    };
-  }, [dictionary]);
-
-  async function runDictionaryAction(
-    operation: (isCurrent: () => boolean) => Promise<void>,
-    formatError: (error: unknown) => string,
-  ) {
-    if (actionRunning.current || !mounted.current) return;
-    actionRunning.current = true;
-    const generation = dictionaryGeneration.current;
-    try {
-      await runAsyncAction(
-        {
-          busy: false,
-          isCurrent: () => mounted.current && generation === dictionaryGeneration.current,
-          setBusy,
-          setError,
-          setNotice,
-        },
-        operation,
-        { formatError },
-      );
-    } finally {
-      actionRunning.current = false;
-    }
-  }
+  const { busy, run: runDictionaryAction } = useAsyncActionRunner(setError, setNotice, dictionary);
 
   const chooseFile = async (file: File | undefined) => {
     if (!file || busy) return;
@@ -83,7 +57,10 @@ export function PersonalDictionaryImportCard({
         if (!isCurrent()) return;
         setEntries(parsed);
       },
-      (cause) => (cause instanceof Error ? cause.message : "无法读取所选文件，请重新选择。"),
+      {
+        formatError: (cause) =>
+          cause instanceof Error ? cause.message : "无法读取所选文件，请重新选择。",
+      },
     );
   };
 
@@ -101,7 +78,9 @@ export function PersonalDictionaryImportCard({
         setEntries(null);
         setFileName("");
       },
-      (cause) => (cause instanceof Error ? cause.message : "导入失败，请稍后重试。"),
+      {
+        formatError: (cause) => (cause instanceof Error ? cause.message : "导入失败，请稍后重试。"),
+      },
     );
   };
 
@@ -124,76 +103,80 @@ export function PersonalDictionaryImportCard({
         .join(" · ")
     : "";
 
+  const note = (
+    <>
+      导入 Apple 兼容的 JSON 词条，确认后加入
+      {platform === "ios" ? " iOS " : platform === "android" ? " Android " : ""}
+      键盘同步队列；文件内容不会上传。
+    </>
+  );
+  const content = (
+    <>
+      <SettingsManagerActions>
+        <ActionButton
+          action={() => input.current?.click()}
+          disabled={busy}
+          label="选择 JSON 文件"
+        />
+        <ActionButton action={saveExample} disabled={busy} label="保存示例文件" />
+        <input
+          ref={input}
+          hidden
+          type="file"
+          aria-label="选择个人词库 JSON 文件"
+          accept=".json,application/json"
+          onChange={(event) => {
+            void chooseFile(event.currentTarget.files?.[0]);
+            event.currentTarget.value = "";
+          }}
+        />
+      </SettingsManagerActions>
+      {busy && <StatusMessage role="status">正在读取或加入同步队列…</StatusMessage>}
+      {fileName && entries && (
+        <div className={settings.importPreview}>
+          <strong>{fileName}</strong>
+          <span>
+            已校验 {entries.length} 条（{countByKind}），确认后逐条同步。
+          </span>
+          {entries.map((entry, index) => (
+            <div key={`${entry.kind}-${entry.key}-${index}`}>
+              <span>{entry.value}</span>
+              <code>
+                {personalDictionaryKindTitle(entry.kind)} · {entry.key}
+              </code>
+            </div>
+          ))}
+        </div>
+      )}
+      {error && <ErrorAlert>{error}</ErrorAlert>}
+      {notice && <SettingsNotice role="status">{notice}</SettingsNotice>}
+      {entries && (
+        <ActionButton
+          action={() => void importEntries()}
+          className="primary"
+          disabled={busy}
+          label="确认导入"
+        />
+      )}
+    </>
+  );
+  if (embedded) {
+    return (
+      <SettingsManagerBlock role="group" aria-label="个人词库文件">
+        <div>
+          <span className={rowTitle} data-row-title="">
+            个人词库文件
+          </span>
+          <SettingsManagerNote>{note}</SettingsManagerNote>
+        </div>
+        {content}
+      </SettingsManagerBlock>
+    );
+  }
   return (
     <GroupList title="个人词库文件">
-      <p className={settings.groupNote}>
-        导入 Apple 兼容的 JSON 词条，确认后加入
-        {platform === "ios" ? " iOS " : platform === "android" ? " Android " : ""}
-        键盘同步队列；文件内容不会上传。
-      </p>
-      <div className={settings.managerBlock}>
-        <div className={settings.managerActions}>
-          <button
-            type="button"
-            className="secondary"
-            disabled={busy}
-            onClick={() => input.current?.click()}
-          >
-            选择 JSON 文件
-          </button>
-          <button type="button" className="secondary" disabled={busy} onClick={saveExample}>
-            保存示例文件
-          </button>
-          <input
-            ref={input}
-            hidden
-            type="file"
-            aria-label="选择个人词库 JSON 文件"
-            accept=".json,application/json"
-            onChange={(event) => {
-              void chooseFile(event.currentTarget.files?.[0]);
-              event.currentTarget.value = "";
-            }}
-          />
-        </div>
-        {busy && <p role="status">正在读取或加入同步队列…</p>}
-        {fileName && entries && (
-          <div className={settings.importPreview}>
-            <strong>{fileName}</strong>
-            <span>
-              已校验 {entries.length} 条（{countByKind}），确认后逐条同步。
-            </span>
-            {entries.map((entry, index) => (
-              <div key={`${entry.kind}-${entry.key}-${index}`}>
-                <span>{entry.value}</span>
-                <code>
-                  {personalDictionaryKindTitle(entry.kind)} · {entry.key}
-                </code>
-              </div>
-            ))}
-          </div>
-        )}
-        {error && (
-          <p role="alert" className="error">
-            {error}
-          </p>
-        )}
-        {notice && (
-          <p role="status" className="notice">
-            {notice}
-          </p>
-        )}
-        {entries && (
-          <button
-            type="button"
-            className="primary"
-            disabled={busy}
-            onClick={() => void importEntries()}
-          >
-            确认导入
-          </button>
-        )}
-      </div>
+      <SettingsGroupNote>{note}</SettingsGroupNote>
+      <SettingsManagerBlock>{content}</SettingsManagerBlock>
     </GroupList>
   );
 }

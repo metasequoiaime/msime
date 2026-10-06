@@ -18,11 +18,6 @@
 #include <fmt/xchar.h>
 #include "../Utils/PerfTimer.h"
 
-static thread_local HANDLE hMapFile = nullptr;
-static thread_local void *pBuf = nullptr;
-static thread_local FanyImeSharedMemoryData *sharedData = nullptr;
-static thread_local bool canUseSharedMemory = false;
-
 static thread_local HANDLE hPipe = nullptr;
 static thread_local uint32_t negotiatedServerCapabilities = 0;
 static thread_local HANDLE hFromServerPipe = nullptr;
@@ -62,6 +57,18 @@ uint32_t diagnosticLogDroppedCount = 0;
 bool diagnosticFlushScheduled = false;
 std::atomic<uint64_t> issue47Sequence{0};
 
+std::optional<std::string> diagnostic_record_utf8(std::wstring_view record)
+{
+    static_assert(sizeof(wchar_t) == sizeof(char16_t));
+    std::u16string utf16;
+    utf16.reserve(record.size());
+    for (const wchar_t unit : record)
+    {
+        utf16.push_back(static_cast<char16_t>(unit));
+    }
+    return diagnostic_utf8(utf16);
+}
+
 void CALLBACK FlushTsfDiagnosticLogs(PTP_CALLBACK_INSTANCE, PVOID);
 
 // The pipe names are machine-global, so another logged-on user can create them
@@ -98,7 +105,7 @@ void ScheduleDiagnosticFlushLocked()
     }
 }
 
-bool SendDiagnosticBatch(const FanyImeTsfDiagnosticBatchHeader &header, const std::wstring &payload)
+bool SendDiagnosticBatch(const FanyImeTsfDiagnosticBatchHeader &header, const std::string &payload)
 {
     HANDLE pipe = INVALID_HANDLE_VALUE;
     for (int attempt = 0; attempt < 2; ++attempt)
@@ -124,7 +131,7 @@ bool SendDiagnosticBatch(const FanyImeTsfDiagnosticBatchHeader &header, const st
         return false;
     }
 
-    const size_t payloadBytes = payload.size() * sizeof(wchar_t);
+    const size_t payloadBytes = payload.size();
     std::vector<unsigned char> frame(sizeof(header) + payloadBytes);
     memcpy(frame.data(), &header, sizeof(header));
     if (payloadBytes != 0)
@@ -143,10 +150,9 @@ void CALLBACK FlushTsfDiagnosticLogs(PTP_CALLBACK_INSTANCE instance, PVOID conte
     Sleep(DiagnosticFlushDelayMs);
 
     FanyImeTsfDiagnosticBatchHeader header;
-    std::vector<std::wstring> batchRecords;
+    std::vector<std::string> batchRecords;
     batchRecords.reserve(MaxDiagnosticRecordCount);
-    size_t batchUnits = 0;
-    std::wstring payload;
+    size_t batchBytes = 0;
     bool loggingDisabled = false;
     {
         std::lock_guard lock(diagnosticLogMutex);
@@ -160,21 +166,38 @@ void CALLBACK FlushTsfDiagnosticLogs(PTP_CALLBACK_INSTANCE instance, PVOID conte
         }
         else
         {
-            const size_t maxPayloadUnits =
-                (FANY_IME_TSF_DIAGNOSTIC_MAX_FRAME_BYTES - sizeof(FanyImeTsfDiagnosticBatchHeader)) / sizeof(wchar_t);
+            const size_t maxPayloadBytes =
+                FANY_IME_TSF_DIAGNOSTIC_MAX_FRAME_BYTES - sizeof(FanyImeTsfDiagnosticBatchHeader);
             while (!diagnosticLogRecords.empty())
             {
                 const std::wstring &record = diagnosticLogRecords.front();
-                if (!batchRecords.empty() && batchUnits + record.size() > maxPayloadUnits)
+                const auto recordUnits = record.size();
+                const auto encoded = diagnostic_record_utf8(record);
+                if (!encoded)
                 {
+                    diagnosticLogRecords.pop_front();
+                    diagnosticLogQueuedUnits -= recordUnits;
+                    ++diagnosticLogDroppedCount;
+                    continue;
+                }
+                if (encoded->size() > maxPayloadBytes ||
+                    (!batchRecords.empty() && batchBytes + encoded->size() > maxPayloadBytes))
+                {
+                    if (encoded->size() > maxPayloadBytes)
+                    {
+                        diagnosticLogRecords.pop_front();
+                        diagnosticLogQueuedUnits -= recordUnits;
+                        ++diagnosticLogDroppedCount;
+                        continue;
+                    }
                     break;
                 }
-                batchUnits += (std::min)(record.size(), maxPayloadUnits - batchUnits);
+                batchBytes += encoded->size();
                 diagnosticLogQueuedUnits -= record.size();
-                batchRecords.push_back(std::move(diagnosticLogRecords.front()));
+                batchRecords.push_back(*encoded);
                 diagnosticLogRecords.pop_front();
                 ++header.record_count;
-                if (batchUnits == maxPayloadUnits)
+                if (batchBytes == maxPayloadBytes)
                 {
                     break;
                 }
@@ -189,12 +212,13 @@ void CALLBACK FlushTsfDiagnosticLogs(PTP_CALLBACK_INSTANCE instance, PVOID conte
         return;
     }
 
-    payload.reserve(batchUnits);
-    for (const std::wstring &record : batchRecords)
+    std::string payload;
+    payload.reserve(batchBytes);
+    for (const std::string &record : batchRecords)
     {
-        payload.append(record.data(), (std::min)(record.size(), batchUnits - payload.size()));
+        payload += record;
     }
-    header.payload_bytes = static_cast<uint32_t>(payload.size() * sizeof(wchar_t));
+    header.payload_bytes = static_cast<uint32_t>(payload.size());
 
     const bool sent = header.record_count != 0 && SendDiagnosticBatch(header, payload);
     {
@@ -788,70 +812,6 @@ bool MarkNamedpipeSessionDirtyForOwner(const void *owner)
     return true;
 }
 
-int InitIpc()
-{
-    // The live protocol is named-pipe-only. Keep the legacy mapping open for
-    // ABI compatibility, but never advertise or select it for new traffic.
-    canUseSharedMemory = false;
-    sharedData = nullptr;
-    pBuf = nullptr;
-
-    //
-    // Shared memory, open here
-    //
-    hMapFile = OpenFileMappingW( //
-        FILE_MAP_ALL_ACCESS,     //
-        FALSE,                   //
-        FANY_IME_SHARED_MEMORY   //
-    );
-
-    //
-    // Shared memory is not available, try to use namedpipe
-    //
-    InitNamedpipe();
-
-    if (!hMapFile)
-    {
-        // Error handling
-        canUseSharedMemory = false;
-
-        // TODO: Log error
-
-        return 0;
-    }
-
-    pBuf = MapViewOfFile(    //
-        hMapFile,            //
-        FILE_MAP_ALL_ACCESS, //
-        0,                   //
-        0,                   //
-        BUFFER_SIZE          //
-    );                       //
-
-    if (!pBuf)
-    {
-        CloseHandle(hMapFile);
-        hMapFile = nullptr;
-        sharedData = nullptr;
-        canUseSharedMemory = false;
-        return 0;
-    }
-
-    sharedData = static_cast<FanyImeSharedMemoryData *>(pBuf);
-
-    return 0;
-}
-
-bool TryReadCandidatePageFromSharedMemory(std::wstring *candidatePage)
-{
-    if (candidatePage == nullptr || sharedData == nullptr)
-    {
-        return false;
-    }
-    candidatePage->assign(sharedData->candidate_string);
-    return !candidatePage->empty();
-}
-
 int InitNamedpipe()
 {
     return ConnectToAllNamedpipe();
@@ -894,24 +854,6 @@ int CloseIpc()
     // Namedpipe
     //
     CloseNamedpipe();
-    const int result = canUseSharedMemory ? 0 : -1;
-
-    //
-    // Shared memory
-    //
-    if (pBuf)
-    {
-        UnmapViewOfFile(pBuf);
-        pBuf = nullptr;
-    }
-    sharedData = nullptr;
-
-    if (hMapFile)
-    {
-        CloseHandle(hMapFile);
-        hMapFile = nullptr;
-    }
-    canUseSharedMemory = false;
 
     //
     // Events
@@ -929,7 +871,7 @@ int CloseIpc()
         }
     }
 
-    return result;
+    return 0;
 }
 
 int CloseNamedpipe()
@@ -963,22 +905,6 @@ bool SupportsKeyboardCompositionCancel(const void *owner)
 HANDLE GetToTsfWorkerThreadNamedpipe()
 {
     return hToTsfWorkerThreadPipe;
-}
-
-int WriteDataToSharedMemory(           //
-    UINT keycode,                      //
-    WCHAR wch,                         //
-    UINT modifiers_down,               //
-    const int point[2],                //
-    int pinyin_length,                 //
-    const std::wstring &pinyin_string, //
-    UINT write_flag                    //
-)
-{
-    // The shared-memory protocol has no client_id/request_id and cannot be
-    // made safe in a multi-TSF-thread process. Keep the mapping code only for
-    // legacy compatibility; all live event payloads use the named-pipe ABI.
-    return WriteDataToNamedPipe(keycode, wch, modifiers_down, point, pinyin_length, pinyin_string, write_flag);
 }
 
 /**
@@ -1274,21 +1200,9 @@ bool SendToNamedpipe(bool *deliveryAmbiguous = nullptr)
  * server
  *
  */
-void ClearNamedpipeDataIfExists(bool force)
+void ClearNamedpipeDataIfExists()
 {
-    // Request IDs make destructive draining both unnecessary and incorrect:
-    // an async edit session may still own any frame currently in this pipe.
-    // Mismatched replies are retained by TryReadData... in pendingReplies.
-    if (force)
-    {
-        // Compatibility path for Server-initiated candidate clicks: legacy
-        // Server builds deliver the same candidate both on the worker pipe and
-        // as one unsolicited (request_id == 0) reply. The worker payload has
-        // already been consumed by the caller, so discard exactly that one
-        // duplicate. TryRead caches every nonzero request reply it encounters
-        // and ignores PipeReady, preserving all edit-session-owned frames.
-        (void)TryReadDataFromServerPipeWithTimeout(FANY_IME_UNSOLICITED_REQUEST_ID);
-    }
+    // Request IDs make destructive draining both unnecessary and incorrect: an async edit session may still own any frame currently in this pipe. Mismatched replies are retained by TryReadData... in pendingReplies.
 }
 
 /**

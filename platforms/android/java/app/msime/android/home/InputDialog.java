@@ -1,0 +1,224 @@
+package app.msime.android.home;
+
+import android.content.Context;
+import android.graphics.Color;
+import android.graphics.drawable.ColorDrawable;
+import android.graphics.drawable.GradientDrawable;
+import android.text.Editable;
+import android.text.InputType;
+import android.text.TextWatcher;
+import android.view.Gravity;
+import android.view.View;
+import android.view.ViewGroup;
+import android.view.Window;
+import android.view.WindowManager;
+import android.view.inputmethod.EditorInfo;
+import android.widget.EditText;
+import android.widget.LinearLayout;
+import android.widget.TextView;
+import androidx.annotation.Nullable;
+import androidx.appcompat.app.AppCompatDialog;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.function.Consumer;
+import java.util.function.Predicate;
+
+/**
+ * 居中的输入对话框（新建词库、添加词条、添加常用语、导入来源）：r28 的卡片，居中的标题和说明，一到几个输入框，底下「取消 | 确认」两个等宽按钮。
+ *
+ * <p>排版照设计：标题 17sp/600、说明 13sp 次要文字色，按钮之间和上方各一条分隔线，「取消」是强调色，确认按钮加粗；输入框没填好时确认按钮变淡且不响应。底色 `colorSurfaceContainerLow`，遮罩是设计的 35 % 黑。打开时焦点落在第一个输入框并弹出键盘。
+ */
+public final class InputDialog {
+    private final Context context;
+    private final AppCompatDialog dialog;
+    private final LinearLayout fields;
+    private final List<EditText> inputs = new ArrayList<>();
+    private final TextView primary;
+    private Predicate<List<String>> valid = values -> {
+        for (String value : values) if (value.isEmpty()) return false;
+        return true;
+    };
+    @Nullable private Consumer<List<String>> action;
+
+    public InputDialog(Context context, CharSequence title, @Nullable CharSequence message) {
+        this.context = context;
+        dialog = new AppCompatDialog(context);
+        dialog.supportRequestWindowFeature(Window.FEATURE_NO_TITLE);
+
+        LinearLayout root = new LinearLayout(context);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackground(Ui.rounded(Ui.sheetBackground(context), dp(Ui.DIALOG_RADIUS)));
+        root.setClipToOutline(true);
+
+        TextView heading = new TextView(context);
+        heading.setText(title);
+        heading.setGravity(Gravity.CENTER);
+        Ui.style(heading, Ui.TEXT_DIALOG_TITLE, 600, Ui.text(context));
+        heading.setAccessibilityHeading(true);
+        LinearLayout.LayoutParams headingParams = matchWidth();
+        headingParams.topMargin = dp(20);
+        headingParams.leftMargin = dp(20);
+        headingParams.rightMargin = dp(20);
+        root.addView(heading, headingParams);
+
+        if (message != null && message.length() > 0) {
+            TextView note = new TextView(context);
+            note.setText(message);
+            note.setGravity(Gravity.CENTER);
+            Ui.style(note, Ui.TEXT_SHEET_HEADER, 400, Ui.subText(context));
+            LinearLayout.LayoutParams params = matchWidth();
+            params.topMargin = dp(4);
+            params.leftMargin = dp(20);
+            params.rightMargin = dp(20);
+            root.addView(note, params);
+        }
+
+        fields = new LinearLayout(context);
+        fields.setOrientation(LinearLayout.VERTICAL);
+        fields.setPadding(dp(16), dp(6), dp(16), dp(16));
+        root.addView(fields, matchWidth());
+
+        root.addView(rule(true));
+        LinearLayout buttons = new LinearLayout(context);
+        buttons.setOrientation(LinearLayout.HORIZONTAL);
+        TextView cancel = button("取消", 400, Ui.accent(context));
+        cancel.setOnClickListener(ignored -> dialog.cancel());
+        buttons.addView(cancel, new LinearLayout.LayoutParams(0, dp(48), 1f));
+        buttons.addView(rule(false));
+        primary = button("确定", 600, Ui.text(context));
+        primary.setOnClickListener(ignored -> submit());
+        buttons.addView(primary, new LinearLayout.LayoutParams(0, dp(48), 1f));
+        root.addView(buttons, matchWidth());
+
+        dialog.setContentView(root);
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            window.setLayout(Math.min(dp(Ui.DIALOG_WIDTH),
+                context.getResources().getDisplayMetrics().widthPixels - dp(48)),
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+            window.setDimAmount(0.35f);
+            window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE
+                | WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+        }
+        refresh();
+    }
+
+    /**
+     * 加一个输入框，返回它以便调用方加长度限制之类的过滤器。
+     *
+     * @param inputType `InputType` 的组合；0 表示普通单行文字
+     */
+    public EditText addField(CharSequence hint, @Nullable CharSequence initial, int inputType) {
+        EditText input = new EditText(context);
+        input.setHint(hint);
+        input.setText(initial);
+        input.setSingleLine(true);
+        input.setInputType(inputType == 0 ? InputType.TYPE_CLASS_TEXT : inputType);
+        Ui.style(input, 15, 400, Ui.text(context));
+        input.setHintTextColor(Ui.subText(context));
+        GradientDrawable field = Ui.rounded(Ui.rowBackground(context), dp(10));
+        field.setStroke(Math.max(1, dp(1)), Ui.hairline(context));
+        input.setBackground(field);
+        input.setPadding(dp(12), 0, dp(12), 0);
+        input.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence text, int start, int count, int after) {}
+
+            @Override public void onTextChanged(CharSequence text, int start, int before, int count) {}
+
+            @Override public void afterTextChanged(Editable text) { refresh(); }
+        });
+        input.setOnEditorActionListener((view, actionId, event) -> {
+            int index = inputs.indexOf(input);
+            if (index < inputs.size() - 1) return false;
+            submit();
+            return true;
+        });
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(40));
+        params.topMargin = dp(8);
+        fields.addView(input, params);
+        // 前面的输入框回车跳到下一个，最后一个回车就是提交。
+        for (EditText earlier : inputs) earlier.setImeOptions(EditorInfo.IME_ACTION_NEXT);
+        input.setImeOptions(EditorInfo.IME_ACTION_DONE);
+        inputs.add(input);
+        refresh();
+        return input;
+    }
+
+    /** 确认按钮的文字（例如「创建」「添加」）和动作；动作收到各输入框去掉首尾空白后的内容，按添加顺序排列。 */
+    public InputDialog setPrimary(CharSequence label, Consumer<List<String>> action) {
+        primary.setText(label);
+        this.action = action;
+        return this;
+    }
+
+    /** 替换「所有输入框都非空」这条默认的可提交条件。 */
+    public InputDialog setValidator(Predicate<List<String>> valid) {
+        this.valid = valid;
+        refresh();
+        return this;
+    }
+
+    public void show() {
+        dialog.show();
+        if (!inputs.isEmpty()) {
+            EditText first = inputs.get(0);
+            first.requestFocus();
+            first.setSelection(first.length());
+        }
+    }
+
+    public void dismiss() { dialog.dismiss(); }
+
+    private List<String> values() {
+        List<String> values = new ArrayList<>(inputs.size());
+        for (EditText input : inputs) values.add(input.getText().toString().trim());
+        return Collections.unmodifiableList(values);
+    }
+
+    private void refresh() {
+        boolean ok = valid.test(values());
+        primary.setEnabled(ok);
+        primary.setAlpha(ok ? 1f : 0.38f);
+    }
+
+    private void submit() {
+        List<String> values = values();
+        if (!valid.test(values)) return;
+        dialog.dismiss();
+        if (action != null) action.accept(values);
+    }
+
+    private TextView button(CharSequence label, int weight, int color) {
+        TextView button = new TextView(context);
+        button.setText(label);
+        button.setGravity(Gravity.CENTER);
+        Ui.style(button, Ui.TEXT_DIALOG_TITLE, weight, color);
+        button.setBackground(Ui.ripple(context));
+        button.setClickable(true);
+        button.setFocusable(true);
+        return button;
+    }
+
+    /** 分隔线：横的在按钮上方，竖的在两个按钮之间。 */
+    private View rule(boolean horizontal) {
+        View rule = new View(context);
+        rule.setBackgroundColor(Ui.hairline(context));
+        int thin = Math.max(1, dp(0.5f));
+        rule.setLayoutParams(horizontal
+            ? new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, thin)
+            : new LinearLayout.LayoutParams(thin, ViewGroup.LayoutParams.MATCH_PARENT));
+        return rule;
+    }
+
+    private static LinearLayout.LayoutParams matchWidth() {
+        return new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT);
+    }
+
+    private int dp(float value) {
+        return Ui.dp(context, value);
+    }
+}

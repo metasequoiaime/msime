@@ -1,0 +1,49 @@
+name: Web Engine Demo
+
+# 把 packages/web-engine/demo 部署到 GitHub Pages（https://wasm.msime.app/，自定义域名在仓库的 Pages 设置里，DNS 是 Cloudflare 上 msime.app 的 CNAME wasm → metasequoiaime.github.io，必须是 DNS only，否则 GitHub 签不了证书），作为 @msime/web-engine 的在线演示和宣传页。examples/static-site 是给开发者照抄的最简模板，不在这里部署。
+#
+# 演示页在 demo/package.json 里写死它用的 SDK 版本，SDK 取那个版本的 web-engine-vX.Y.Z release 附带的 msime-web-engine-X.Y.Z.tgz（与 npm 上的包逐字节相同，也不受 npm 刚发布时的同步延迟影响）。页面跟着 develop 改，随时部署；要用新版 SDK 的功能，就在新版本发布后把那里的版本号改上去，页面代码和 SDK 永远对得上。
+on:
+  push:
+    branches: [develop]
+    paths: [packages/web-engine/demo/**, packages/ui/src/assets/msime.svg, .github/workflows/web-engine-demo.yml]
+  workflow_dispatch:
+permissions: {contents: read}
+concurrency: {group: web-engine-demo, cancel-in-progress: false}
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {persist-credentials: false}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+      - name: Build the demo with its pinned SDK release
+        working-directory: packages/web-engine/demo
+        env: {GH_TOKEN: "${{ github.token }}", GH_REPO: "${{ github.repository }}"}
+        run: |
+          set -euo pipefail
+          version=$(jq -er '.dependencies["@msime/web-engine"]' package.json)
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "demo/package.json must pin @msime/web-engine to an exact X.Y.Z, got '$version'" >&2; exit 1; }
+          gh release download "web-engine-v${version}" --pattern "msime-web-engine-${version}.tgz" --dir "$RUNNER_TEMP"
+          # 本地 tgz 要用绝对路径或 ./ 开头的路径，否则 npm 会把它当成 GitHub 简写。
+          npm install --no-audit --no-fund --no-save "$RUNNER_TEMP/msime-web-engine-${version}.tgz"
+          npm run build
+          test -f site/msime/assets/msime_engine_bg.wasm
+          test -f site/msime.svg
+      - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with: {path: packages/web-engine/demo/site}
+  deploy:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions: {pages: write, id-token: write}
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

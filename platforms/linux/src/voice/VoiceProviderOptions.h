@@ -11,7 +11,7 @@ namespace msime::linux_host {
 
 // The voice preferences a host forwards to the voice provider with each request. Both Linux hosts send the same set: the Fcitx5 host once kept its own list and dropped the prompt text, so custom polishing schemes silently fell back to the cleanup prompt there.
 //
-// `polish_prompt` is what the settings page shows in the prompt box, whichever scheme is selected: a built-in preset's text as the user may have edited it, or the selected custom slot's text. The Windows service polishes with it whenever it is non-empty (ResolvePolishSystemPrompt), so it is forwarded as well and the provider prefers it. The selected custom slot is still sent on its own for a preferences file written before the box was mirrored. A prompt over 8 KiB is refused rather than cut, since a truncated instruction would change what polishing does.
+// A built-in scheme is named by `polish_prompt_id` and the provider carries its text; a custom scheme also sends the selected slot's text, and the provider falls back to the built-in cleanup prompt when that slot is empty. A prompt over 8 KiB is refused rather than cut, since a truncated instruction would change what polishing does.
 inline nlohmann::json voice_provider_options(const nlohmann::json &preferences) {
   const auto voice = preferences.value("voice_input", nlohmann::json::object());
   nlohmann::json options = nlohmann::json::object();
@@ -47,8 +47,6 @@ inline nlohmann::json voice_provider_options(const nlohmann::json &preferences) 
     if (prompt.size() > 8192) throw std::runtime_error("Voice prompt exceeds limit");
     return prompt;
   };
-  if (auto prompt = prompt_text("polish_prompt"); !prompt.empty())
-    options["polish_prompt"] = std::move(prompt);
   // The installed model directory the `local` provider recognises with. A path is refused rather than cut: a truncated one names another directory, or none.
   if (voice.contains("asr_model_path") && voice.at("asr_model_path").is_string()) {
     auto path = voice.at("asr_model_path").get<std::string>();
@@ -57,7 +55,7 @@ inline nlohmann::json voice_provider_options(const nlohmann::json &preferences) 
   }
   const auto preset = voice.value("polish_prompt_id", std::string{"cleanup"});
   const char *slot = nullptr;
-  if (preset == "custom" || preset == "custom_1") slot = "polish_prompt_custom_1";
+  if (preset == "custom_1") slot = "polish_prompt_custom_1";
   else if (preset == "custom_2") slot = "polish_prompt_custom_2";
   else if (preset == "custom_3") slot = "polish_prompt_custom_3";
   if (slot) {

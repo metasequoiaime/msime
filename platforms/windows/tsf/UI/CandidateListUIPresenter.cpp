@@ -77,6 +77,12 @@ HRESULT CMetasequoiaIME::_HandleCandidateFinalize(TfEditCookie ec, _In_ ITfConte
             {
                 return hr;
             }
+            // A Hanja clicked in the candidate window was chosen by the Server's session. The host session still holds the syllable with its list open, and would otherwise build the next letter on it. The Server refuses a click on a Zhuyin row, which would commit nothing, so only a commit made this way reaches here.
+            if (hostOwnsComposition &&
+                msime::windows::scheme::AlwaysInlinePreedit(Global::InputModeScheme.load(std::memory_order_relaxed)))
+            {
+                (void)_CancelHostComposition();
+            }
 
             PerfTimer completeTimer;
             _HandleCompleteCommitFirst(ec, pContext);
@@ -705,10 +711,6 @@ STDAPI CCandidateListUIPresenter::GetDocumentMgr(ITfDocumentMgr **ppdim)
 
 STDAPI CCandidateListUIPresenter::GetCount(UINT *pCandidateCount)
 {
-    if (!_isShowMode)
-    {
-        _LoadUiLessCandidatesFromSharedMemory();
-    }
     *pCandidateCount = _candidateState.GetCount();
     return S_OK;
 }
@@ -721,10 +723,6 @@ STDAPI CCandidateListUIPresenter::GetCount(UINT *pCandidateCount)
 
 STDAPI CCandidateListUIPresenter::GetSelection(UINT *pSelectedCandidateIndex)
 {
-    if (!_isShowMode)
-    {
-        _LoadUiLessCandidatesFromSharedMemory();
-    }
     *pSelectedCandidateIndex = _candidateState.GetSelection();
     return S_OK;
 }
@@ -737,10 +735,6 @@ STDAPI CCandidateListUIPresenter::GetSelection(UINT *pSelectedCandidateIndex)
 
 STDAPI CCandidateListUIPresenter::GetString(UINT uIndex, BSTR *pbstr)
 {
-    if (!_isShowMode)
-    {
-        _LoadUiLessCandidatesFromSharedMemory();
-    }
     if (uIndex >= _candidateState.GetCount())
     {
         return E_FAIL;
@@ -1001,8 +995,7 @@ void CCandidateListUIPresenter::_SetText(_In_ CMetasequoiaImeArray<CCandidateLis
     PerfTimer timer;
     if (pCandidateList && pCandidateList->Count() && pCandidateList->GetAt(0)->_EngineSession != 0)
     {
-        // Render the host snapshot and its identities together, including in
-        // UIless mode; a legacy shared-memory page has no host candidate IDs.
+        // Render the host snapshot and its identities together, including in UIless mode.
         _candidateState.Clear();
         AddCandidateToCandidateListUI(pCandidateList, isAddFindKeyCode);
         SetPageIndexWithScrollInfo(pCandidateList);
@@ -1014,12 +1007,7 @@ void CCandidateListUIPresenter::_SetText(_In_ CMetasequoiaImeArray<CCandidateLis
     }
     if (!_isShowMode)
     {
-        // Prefer the synchronous UiLessComposition pipe payload (already applied
-        // via _ApplyUiLessCandidatePage). Fall back to shared memory if needed.
-        if (_candidateState.GetCount() == 0)
-        {
-            _LoadUiLessCandidatesFromSharedMemory();
-        }
+        // The synchronous UiLessComposition pipe payload was already applied via _ApplyUiLessCandidatePage.
         if (_candidateState.GetCount() == 0 && pCandidateList != nullptr && pCandidateList->Count() != 0)
         {
             AddCandidateToCandidateListUI(pCandidateList, isAddFindKeyCode);
@@ -1502,7 +1490,7 @@ void CCandidateListUIPresenter::WriteCandidateUiPayload(_In_ UINT writeFlag)
     Global::PinyinLength = static_cast<int>(pinyinString.length());
 
     PerfTimer writeTimer;
-    WriteDataToSharedMemory(   //
+    WriteDataToNamedPipe(      //
         Global::Keycode,       //
         Global::wch,           //
         Global::ModifiersDown, //
@@ -1654,16 +1642,6 @@ void CCandidateListUIPresenter::_NotifyUiLessHost()
     _updatedFlags = TF_CLUIE_DOCUMENTMGR | TF_CLUIE_COUNT | TF_CLUIE_SELECTION | TF_CLUIE_STRING | TF_CLUIE_PAGEINDEX |
                     TF_CLUIE_CURRENTPAGE;
     _UpdateUIElement();
-}
-
-void CCandidateListUIPresenter::_LoadUiLessCandidatesFromSharedMemory()
-{
-    std::wstring page;
-    if (!TryReadCandidatePageFromSharedMemory(&page) || page == _lastUiLessCandidatePage)
-    {
-        return;
-    }
-    _ReplaceCandidateListFromPage(page);
 }
 
 void CCandidateListUIPresenter::_RequestCancelComposition()

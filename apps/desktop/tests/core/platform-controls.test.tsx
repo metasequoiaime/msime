@@ -7,7 +7,9 @@ import controlStyles from "../../../../packages/ui/src/core/platform-controls-st
 import {
   Checks,
   GroupList,
+  LinkRow,
   NavItem,
+  PageIntro,
   Row,
   Segmented,
   Select,
@@ -242,6 +244,38 @@ test("only the selected navigation item is the current page", () => {
   expect(input.getAttribute("aria-current")).toBeNull();
   fireEvent.click(input);
   expect(onSelect).toHaveBeenCalledOnce();
+});
+
+test("a link row is a button named by its title, described by its description, marked › inside the app and ↗ outside it", () => {
+  const onOpen = vi.fn();
+  const onLink = vi.fn();
+  render(
+    <GroupList title="更多">
+      <LinkRow title="背单词" description="用输入过的英文单词复习词汇" onClick={onOpen} />
+      <LinkRow title="隐私政策" external onClick={onLink} />
+    </GroupList>,
+  );
+  const group = screen.getByRole("region", { name: "更多" });
+  const internal = within(group).getByRole("button", { name: "背单词" });
+  expect(internal.getAttribute("aria-describedby")).toBe(
+    screen.getByText("用输入过的英文单词复习词汇").id,
+  );
+  expect(internal.textContent?.endsWith("›")).toBe(true);
+  const external = within(group).getByRole("button", { name: "隐私政策" });
+  expect(external.getAttribute("aria-describedby")).toBeNull();
+  expect(external.textContent?.endsWith("↗")).toBe(true);
+
+  fireEvent.click(internal);
+  fireEvent.click(external);
+  expect(onOpen).toHaveBeenCalledOnce();
+  expect(onLink).toHaveBeenCalledOnce();
+});
+
+test("a page intro is a paragraph of the page, not a group", () => {
+  render(<PageIntro>选择候选窗使用的主题。</PageIntro>);
+  const intro = screen.getByText("选择候选窗使用的主题。");
+  expect(intro.tagName).toBe("P");
+  expect(screen.queryByRole("region")).toBeNull();
 });
 
 test("every platform token the controls read is one the platform layer defines", () => {

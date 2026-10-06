@@ -1,4 +1,4 @@
-//! Korean Hangul key handling on the Dubeolsik layout. The composition is the key letters of the open syllable; a key that starts the next syllable moves the finished one into `committed`, which the session hands to the host with the key's result.
+//! Korean Hangul key handling on the Dubeolsik layout. The composition is the key letters of the open syllable; a key that starts the next syllable moves the finished one into `committed`, which the session hands to the host with the key's result. While the Hanja list is open the request asks for the syllable's Hanja; any edit of the composition closes the list.
 
 use super::dubeolsik::{compose, split_finished};
 use crate::types::{QueryRequest, SchemeKey, SchemeType};
@@ -9,6 +9,8 @@ pub struct KoreanScheme {
     raw: String,
     /// Syllables the last key finished, waiting for the session to commit them.
     committed: String,
+    /// The Hanja list of the composing syllable is open.
+    hanja: bool,
 }
 
 impl KoreanScheme {
@@ -19,15 +21,18 @@ impl KoreanScheme {
     pub fn reset(&mut self) {
         self.raw.clear();
         self.committed.clear();
+        self.hanja = false;
     }
 
-    /// Letters feed the automaton and Backspace removes the last jamo keystroke; every other key is ignored. A letter that opens a new syllable moves the finished ones to `committed`.
+    /// Letters feed the automaton and Backspace removes the last jamo keystroke; every other key is ignored. A letter that opens a new syllable moves the finished ones to `committed`. Both edit the syllable the Hanja list was for, so both close it.
     pub fn handle_key(&mut self, key: SchemeKey) {
         match key {
             SchemeKey::Backspace => {
+                self.hanja = false;
                 self.raw.pop();
             }
             SchemeKey::Letter(letter) if letter.is_ascii_alphabetic() => {
+                self.hanja = false;
                 self.raw.push(char::from(letter));
                 let (finished, open) = split_finished(&self.raw);
                 if !finished.is_empty() {
@@ -39,11 +44,12 @@ impl KoreanScheme {
             | SchemeKey::Apostrophe
             | SchemeKey::Semicolon
             | SchemeKey::Minus
+            | SchemeKey::Symbol(_)
             | SchemeKey::Requery => {}
         }
     }
 
-    /// Only the composing text is described; there is no dictionary behind it, so `normalized_segmentation` carries the Hangul the way the Japanese scheme carries its kana reading.
+    /// Only the composing text is described: `normalized_segmentation` carries the Hangul the way the Japanese scheme carries its kana reading, and is the syllable the Hanja table is read with while the list is open.
     pub fn build_request(&self) -> QueryRequest {
         let hangul = compose(&self.raw);
         QueryRequest {
@@ -54,6 +60,7 @@ impl KoreanScheme {
             raw_segmentation: self.raw.clone(),
             normalized_segmentation: hangul.clone(),
             segmentation: hangul,
+            korean_hanja: self.hanja,
             valid: !self.raw.is_empty(),
             ..QueryRequest::default()
         }
@@ -71,8 +78,24 @@ impl KoreanScheme {
         } else {
             raw_with_cases
         };
-        self.raw = source.chars().filter(char::is_ascii_alphabetic).collect();
+        let mut filtered = String::with_capacity(source.len());
+        filtered.extend(source.chars().filter(char::is_ascii_alphabetic));
+        self.raw = filtered;
         self.committed.clear();
+        self.hanja = false;
+    }
+
+    /// Asks for the Hanja of the composing text; the session keeps the list open only if the table has some.
+    pub fn open_hanja(&mut self) {
+        self.hanja = !self.raw.is_empty();
+    }
+
+    pub fn close_hanja(&mut self) {
+        self.hanja = false;
+    }
+
+    pub fn hanja_open(&self) -> bool {
+        self.hanja
     }
 
     /// The syllables the last key finished; empty when it finished none.
@@ -165,6 +188,8 @@ mod tests {
             SchemeKey::Minus,
             SchemeKey::Requery,
             SchemeKey::Letter(b'1'),
+            SchemeKey::Symbol(b';'),
+            SchemeKey::Symbol(b' '),
         ] {
             scheme.handle_key(key);
         }
@@ -193,6 +218,17 @@ mod tests {
         restored.handle_key(SchemeKey::Letter(b'g'));
         assert_eq!(restored.take_committed(), "안녕");
         assert_eq!(restored.preedit(), "ㅎ");
+    }
+
+    #[test]
+    fn set_raw_input_reserves_source_capacity() {
+        let source: String = (0..100)
+            .map(|index| if index % 5 == 0 { '1' } else { 'a' })
+            .collect();
+        let mut scheme = KoreanScheme::new();
+        scheme.set_raw_input(&source, "");
+        assert_eq!(scheme.raw.len(), 80);
+        assert_eq!(scheme.raw.capacity(), source.len());
     }
 
     #[test]

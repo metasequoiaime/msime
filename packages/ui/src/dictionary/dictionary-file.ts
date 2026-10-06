@@ -51,7 +51,7 @@ export async function readDictionaryFile(
 }
 
 export type PersonalDictionaryImportEntry = {
-  kind: "pinyin" | "wubi" | "quickPhrase" | "english";
+  kind: "pinyin" | "wubi" | "wubi98" | "quickPhrase" | "english";
   key: string;
   value: string;
   weight: number;
@@ -60,6 +60,7 @@ export type PersonalDictionaryImportEntry = {
 const personalDictionaryKinds = new Set<PersonalDictionaryImportEntry["kind"]>([
   "pinyin",
   "wubi",
+  "wubi98",
   "quickPhrase",
   "english",
 ]);
@@ -121,7 +122,7 @@ export function parsePersonalDictionaryImport(text: string): PersonalDictionaryI
     const keyValid =
       entry.kind === "pinyin"
         ? normalizedKey.length > 0 && keyBytes <= 512 && /^[a-z']+$/.test(normalizedKey)
-        : entry.kind === "wubi"
+        : entry.kind === "wubi" || entry.kind === "wubi98"
           ? normalizedKey.length > 0 && keyBytes <= 4 && /^[a-z]+$/.test(normalizedKey)
           : entry.kind === "quickPhrase"
             ? normalizedKey.length > 0 && keyBytes <= 32 && /^[a-z]+$/.test(normalizedKey)
@@ -164,7 +165,7 @@ export const personalDictionaryExample = JSON.stringify(
 
 export const DICTIONARY_PAGE_SIZE = 100;
 
-export type LocalDictionaryKind = "pinyin" | "wubi" | "quick_phrase" | "english";
+export type LocalDictionaryKind = "pinyin" | "wubi" | "wubi98" | "quick_phrase" | "english";
 export type LocalDictionaryFormat = "standard" | "windows" | "rime" | "hans";
 export type DictionaryEntry = {
   kind: LocalDictionaryKind;

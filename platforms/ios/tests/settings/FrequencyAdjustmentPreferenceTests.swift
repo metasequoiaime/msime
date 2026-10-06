@@ -18,6 +18,8 @@ enum FrequencyAdjustmentPreferenceTests {
     precondition(FrequencyAdjustmentPreference.resolvedCount(10) == 10)
     precondition(FrequencyAdjustmentPreference.resolvedCount(11) == 1)
     precondition(FrequencyAdjustmentPreference.resolvedCount(NSNumber(value: 4)) == 4)
+    precondition(FrequencyAdjustmentPreference.resolvedCount(NSNumber(value: 2.5)) == 1)
+    precondition(FrequencyAdjustmentPreference.resolvedCount(NSNumber(value: true)) == 1)
     precondition(FrequencyAdjustmentMode.pin.title == "一次置顶")
     precondition(FrequencyAdjustmentMode.promote.title == "一次置前")
     precondition(FrequencyAdjustmentMode.disabled.title == "不调频")

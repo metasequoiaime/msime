@@ -24,6 +24,9 @@ public final class HandwritingCanvas extends View {
     private final RectF cardRect = new RectF();
     private Listener listener;
     private boolean acceptsInk = true;
+    /** 用户选的笔迹颜色；null 表示跟随皮肤的按键文字色。 */
+    private Integer inkColor;
+    private int skinInkColor = Color.BLACK;
 
     public HandwritingCanvas(Context context) { this(context, null); }
 
@@ -59,8 +62,22 @@ public final class HandwritingCanvas extends View {
         int foreground = Color.parseColor(skin.keyForeground());
         int accent = Color.parseColor(skin.accent());
         background.setColor(keyBackground);
-        stroke.setColor(foreground);
+        skinInkColor = foreground;
+        stroke.setColor(inkColor == null ? foreground : inkColor);
         guide.setColor(Color.argb(31, Color.red(accent), Color.green(accent), Color.blue(accent)));
+        invalidate();
+    }
+
+    /**
+     * 笔迹颜色与粗细（`touch_handwriting.stroke_color` / `stroke_width`）。
+     *
+     * @param color 笔迹颜色；null 表示跟随皮肤
+     * @param widthPixels 笔迹粗细（像素），不大于 0 时保持原来的粗细
+     */
+    public void setInk(Integer color, float widthPixels) {
+        inkColor = color;
+        stroke.setColor(color == null ? skinInkColor : color);
+        if (widthPixels > 0) stroke.setStrokeWidth(widthPixels);
         invalidate();
     }
 

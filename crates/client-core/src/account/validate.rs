@@ -50,7 +50,9 @@ pub(super) fn validate_clipboard_page(value: &AccountClipboardPage) -> Result<()
 fn dictionary_code_is_well_formed(kind: DictionaryKind, code: &str) -> bool {
     match kind {
         DictionaryKind::Pinyin => crate::dictionary::pinyin_code_is_well_formed(code, true),
-        DictionaryKind::Wubi => crate::dictionary::wubi_code_is_well_formed(code),
+        DictionaryKind::Wubi | DictionaryKind::Wubi98 => {
+            crate::dictionary::wubi_code_is_well_formed(code)
+        }
         DictionaryKind::Quick => {
             crate::dictionary::quick_phrase_transport_code_is_well_formed(code)
         }
@@ -175,6 +177,7 @@ pub(super) fn dictionary_kind_for_candidate(
     match query.kind.as_str() {
         "pinyin" | "jianpin" => Ok(DictionaryKind::Pinyin),
         "wubi" => Ok(DictionaryKind::Wubi),
+        "wubi98" => Ok(DictionaryKind::Wubi98),
         "quick" => Ok(DictionaryKind::Quick),
         "english" => Ok(DictionaryKind::English),
         _ => Err(AccountError::Invalid),
@@ -280,7 +283,7 @@ pub(super) fn validate_dictionary_value(
     validate_dictionary_fields(kind, code, word)?;
     let code_limit = match kind {
         DictionaryKind::Pinyin => 256,
-        DictionaryKind::Wubi => 4,
+        DictionaryKind::Wubi | DictionaryKind::Wubi98 => 4,
         DictionaryKind::Quick => 32,
         DictionaryKind::English => 64,
     };
@@ -381,7 +384,7 @@ pub(super) fn read_bounded_response(
     maximum_response_bytes: usize,
 ) -> Result<Vec<u8>, AccountError> {
     if !response.status().is_success() {
-        return Err(AccountError::from_status(response.status()));
+        return Err(error_from_response(response));
     }
     if response
         .content_length()
@@ -391,6 +394,15 @@ pub(super) fn read_bounded_response(
     }
     crate::bounded_io::read_bounded(response, maximum_response_bytes as u64)
         .map_err(|_| AccountError::Unavailable)
+}
+
+/// Largest error body read to find the server's error code; the backend's error documents are a few dozen bytes.
+const MAX_ERROR_BODY_BYTES: u64 = 4096;
+
+pub(super) fn error_from_response(response: Response) -> AccountError {
+    let status = response.status();
+    let body = crate::bounded_io::read_bounded(response, MAX_ERROR_BODY_BYTES).unwrap_or_default();
+    AccountError::from_response(status, &body)
 }
 
 pub fn validate_account_preferences(value: &AccountPreferences) -> Result<(), AccountError> {

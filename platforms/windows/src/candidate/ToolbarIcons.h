@@ -1,4 +1,5 @@
 #pragma once
+#include "InputSchemeTraits.h"
 #include <optional>
 
 namespace msime::windows {
@@ -38,11 +39,11 @@ enum ToolbarButton {
 // rather than a guessed state, which would tell the user the wrong thing.
 // Extra state the language button reflects beyond Chinese/English.
 //
-// The shipped toolbar renders these distinct things there: 'A' while Caps Lock is on, 日 in Japanese input mode, 한 in Korean input mode, and 中/英 otherwise. Showing 中 while Caps Lock is on tells the user the wrong thing about what the next key will do.
+// 出厂工具栏在这里显示这些不同的状态：Caps Lock 开着时是 'A'，日文模式是 日，韩文模式是 한，粤拼是 粤，注音是 注，越南文是 越，藏文是 藏，笔画是 笔，其余是 中/英。 Showing 中 while Caps Lock is on tells the user the wrong thing about what the next key will do.
 struct ToolbarLanguageState {
   bool caps_lock = false;
-  bool japanese = false;
-  bool korean = false;
+  // The configured scheme's family, as the TIP is told it.
+  scheme::InputMode mode = scheme::InputMode::Chinese;
   // The Engine's own English mode, as opposed to the temporary Chinese/English
   // toggle carried in `state`. It outlives a commit, so it is worth telling
   // apart on the button.
@@ -63,11 +64,25 @@ inline ToolbarIcon toolbar_icon(int button, std::optional<bool> state,
       return {0xE983, L"英"}; // 英
     if (language.dedicated_english)
       return {0, L"En", true};
-    if (language.japanese)
+    switch (language.mode) {
+    case scheme::InputMode::Japanese:
       return {0xE7DE, L"日"};
-    // The icon font has no Hangul glyph, so the syllable itself is drawn.
-    if (language.korean)
+    // The icon font has no glyph for these, so the character itself is drawn.
+    case scheme::InputMode::Korean:
       return {0, L"한"};
+    case scheme::InputMode::Cantonese:
+      return {0, L"粤"};
+    case scheme::InputMode::Zhuyin:
+      return {0, L"注"};
+    case scheme::InputMode::Vietnamese:
+      return {0, L"越"};
+    case scheme::InputMode::Tibetan:
+      return {0, L"藏"};
+    case scheme::InputMode::Stroke:
+      return {0, L"笔"};
+    case scheme::InputMode::Chinese:
+      break;
+    }
     if (!state)
       return unknown;
     return ToolbarIcon{0xE982, L"中"}; // 中

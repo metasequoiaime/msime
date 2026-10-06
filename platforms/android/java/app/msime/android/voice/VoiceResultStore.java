@@ -152,7 +152,7 @@ public final class VoiceResultStore {
                         && !Files.isRegularFile(lockPath, LinkOption.NOFOLLOW_LINKS)))
                 throw new Failure(Reason.UNAVAILABLE);
             try (FileChannel channel = FileChannel.open(lockPath, StandardOpenOption.CREATE,
-                    StandardOpenOption.READ, StandardOpenOption.WRITE)) {
+                    StandardOpenOption.READ, StandardOpenOption.WRITE, LinkOption.NOFOLLOW_LINKS)) {
                 FileLock lock;
                 try { lock = channel.tryLock(); }
                 catch (OverlappingFileLockException error) { throw new Failure(Reason.BUSY, error); }
@@ -168,16 +168,7 @@ public final class VoiceResultStore {
     }
 
     private static void rejectSymlinkComponents(Path path) throws IOException {
-        Path absolute = path.toAbsolutePath().normalize();
-        Path existing = absolute;
-        while (existing != null
-                && !Files.exists(existing, LinkOption.NOFOLLOW_LINKS)) {
-            existing = existing.getParent();
-        }
-        if (existing == null || Files.isSymbolicLink(existing))
-            throw new IOException("voice result path contains a symbolic link");
-        if (!Files.isDirectory(existing, LinkOption.NOFOLLOW_LINKS))
-            throw new IOException("voice result directory is not a directory");
+        SafePaths.rejectSymlinkComponents(path);
     }
 
     private static Entry readFile(Path result, long nowMillis) throws Failure, IOException {
@@ -196,8 +187,9 @@ public final class VoiceResultStore {
                 || !validText(entry.text())
                 || entry.expiresAtMillis() - entry.createdAtMillis() != LIFETIME_MILLIS)
             throw new Failure(Reason.INVALID);
-        if (entry.expiresAtMillis() <= nowMillis
-                || entry.createdAtMillis() > nowMillis + FUTURE_TOLERANCE_MILLIS) {
+        boolean tooFarInFuture = entry.createdAtMillis() > nowMillis
+            && entry.createdAtMillis() - nowMillis > FUTURE_TOLERANCE_MILLIS;
+        if (entry.expiresAtMillis() <= nowMillis || tooFarInFuture) {
             Files.delete(result);
             return null;
         }
@@ -207,15 +199,9 @@ public final class VoiceResultStore {
     /** Read only the accepted envelope size, even if an opened file grows after inspection. */
     private static byte[] readBounded(Path file) throws IOException {
         try (InputStream input = Files.newInputStream(file)) {
-            ByteArrayOutputStream bytes = new ByteArrayOutputStream(MAXIMUM_FILE_BYTES);
-            byte[] buffer = new byte[8192];
-            int count;
-            while ((count = input.read(buffer)) != -1) {
-                if (bytes.size() + count > MAXIMUM_FILE_BYTES)
-                    throw new IOException("voice result too large");
-                bytes.write(buffer, 0, count);
-            }
-            return bytes.toByteArray();
+            byte[] bytes = HttpBodyPolicy.readBounded(input, MAXIMUM_FILE_BYTES);
+            if (bytes == null) throw new IOException("voice result too large");
+            return bytes;
         }
     }
 

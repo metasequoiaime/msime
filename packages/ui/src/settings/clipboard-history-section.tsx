@@ -1,6 +1,10 @@
+import { SettingsGroupNote } from "./settings-group-note";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import * as settings from "./settings-style";
-import { GroupList, Row, Switch } from "../core/platform-controls";
+import { SettingsEmptyMessage } from "./settings-empty-message";
+import { SettingsManagerBlock } from "./settings-manager-block";
+import { SettingsManagerActions } from "./settings-manager-actions";
+import { GroupList, Row } from "../core/platform-controls";
 import {
   CLOUD_CLIPBOARD_MAX_UTF16,
   cloudClipboardAvailabilityNote,
@@ -8,6 +12,9 @@ import {
   type CloudClipboardAvailability,
   type CloudClipboardRequest,
 } from "./cloud-clipboard-send";
+import { ActionButton } from "./action-button";
+import { SwitchRow } from "./switch-row";
+import { useAsyncGeneration } from "./use-async-generation";
 
 export type ClipboardHistoryEntry = { text: string; timestampMs: number; pinned: boolean };
 
@@ -34,7 +41,7 @@ export interface ClipboardHistorySectionProps {
   children?: ReactNode;
 }
 
-/** Shared local clipboard history controls used by desktop and mobile settings hosts: the 剪贴板 and 历史记录 groups of the 云剪贴板 page, followed by whatever the host adds (its cloud panels). */
+/** 桌面和移动设置宿主共用的本地剪贴板历史控件：「剪贴板」页的「剪贴板」和「历史记录」两组，后面接宿主追加的内容（它的云剪贴板）。 */
 export function ClipboardHistorySection({
   client,
   historyEnabled,
@@ -52,14 +59,20 @@ export function ClipboardHistorySection({
   const [cloud, setCloud] = useState<CloudClipboardAvailability>("checking");
   const [cloudNotice, setCloudNotice] = useState("");
   const [sending, setSending] = useState(false);
-  const cloudRevision = useRef(0);
-  const historyGeneration = useRef(0);
-  const historyActionBusy = useRef(false);
   const historyShown = historyEnabled && Boolean(client?.list);
+  const cloudRevision = useAsyncGeneration(cloudRequest, historyShown);
+  const historyGeneration = useAsyncGeneration(
+    client,
+    ios,
+    page,
+    persistedHistoryEnabled,
+    revision,
+  );
+  const historyActionBusy = useRef(false);
 
   // The account state and the server's enabled flag are read once each time the page is opened with the history showing; there is no polling.
   useEffect(() => {
-    const revision = ++cloudRevision.current;
+    const revision = cloudRevision.current;
     setCloud("checking");
     setCloudNotice("");
     setSending(false);
@@ -73,10 +86,7 @@ export function ClipboardHistorySection({
         if (revision === cloudRevision.current) setCloud(cloudClipboardFailure(error));
       },
     );
-    return () => {
-      cloudRevision.current++;
-    };
-  }, [cloudRequest, historyShown]);
+  }, [cloudRequest, cloudRevision, historyShown]);
 
   const sendToCloud = async (text: string) => {
     if (!cloudRequest || cloud !== "ready" || sending) return;
@@ -105,29 +115,30 @@ export function ClipboardHistorySection({
   const cloudNote = cloudRequest ? cloudNotice || cloudClipboardAvailabilityNote(cloud) : undefined;
 
   useEffect(() => {
-    const currentGeneration = ++historyGeneration.current;
-    let active = true;
+    const currentGeneration = historyGeneration.current;
     if (!ios && !persistedHistoryEnabled) {
       setEntries([]);
       setClearArmed(false);
       return;
     }
-    if (!client?.list) return;
+    if (!client?.list) {
+      setEntries([]);
+      setClearArmed(false);
+      return;
+    }
     void client
       .list()
       .then((next) => {
-        if (active && currentGeneration === historyGeneration.current) {
+        if (currentGeneration === historyGeneration.current) {
           setEntries(next);
           setClearArmed(false);
         }
       })
       .catch(() => undefined);
     return () => {
-      active = false;
-      historyGeneration.current++;
       historyActionBusy.current = false;
     };
-  }, [client, ios, page, persistedHistoryEnabled, revision]);
+  }, [client, historyGeneration]);
 
   const mutate = async (action: () => Promise<void>, failure: string) => {
     if (historyActionBusy.current) return;
@@ -158,28 +169,30 @@ export function ClipboardHistorySection({
     }
   };
 
+  const clipboardDescription = ios
+    ? "由键盘的“允许完全访问”权限控制；记录仅保存在本机。"
+    : "开启后记录复制的文本；保存关闭设置后清空已保存记录，且只记录文本类型。";
+
   return (
     <>
       <GroupList title="剪贴板">
-        <Row
-          title="剪贴板管理"
-          description={
-            ios
-              ? "由键盘的“允许完全访问”权限控制；记录仅保存在本机。"
-              : "开启后记录复制的文本；保存关闭设置后清空已保存记录，且只记录文本类型。"
-          }
-        >
-          {!ios && <Switch aria-label="剪贴板管理" checked={historyEnabled} onChange={toggle} />}
-        </Row>
+        {ios ? (
+          <Row title="剪贴板历史" description={clipboardDescription} />
+        ) : (
+          <SwitchRow
+            title="剪贴板历史"
+            description={clipboardDescription}
+            aria-label="剪贴板历史"
+            checked={historyEnabled}
+            onChange={toggle}
+          />
+        )}
         {((!ios && client?.sync) || (client && entries.length > 0)) && (
-          <div className={settings.managerBlock}>
-            <div className={settings.managerActions}>
+          <SettingsManagerBlock>
+            <SettingsManagerActions>
               {!ios && client?.sync && (
-                <button
-                  type="button"
-                  className="secondary"
-                  disabled={!historyEnabled || !persistedHistoryEnabled}
-                  onClick={() => {
+                <ActionButton
+                  action={() => {
                     const currentGeneration = historyGeneration.current;
                     void client.sync!()
                       .then((next) => {
@@ -192,40 +205,33 @@ export function ClipboardHistorySection({
                           onError("无法同步剪贴板历史");
                       });
                   }}
-                >
-                  从系统剪贴板同步
-                </button>
+                  disabled={!historyEnabled || !persistedHistoryEnabled}
+                  label="从系统剪贴板同步"
+                />
               )}
               {client && entries.length > 0 && (
-                <button
-                  type="button"
-                  className="secondary"
-                  disabled={!historyEnabled}
-                  onClick={() => {
+                <ActionButton
+                  action={() => {
                     if (!clearArmed) {
                       setClearArmed(true);
                       return;
                     }
                     void mutate(() => client.clear(), "无法清空剪贴板历史，请稍后重试。");
                   }}
-                >
-                  {clearArmed ? "确认清空" : "清空历史"}
-                </button>
+                  disabled={!historyEnabled}
+                  label={clearArmed ? "确认清空" : "清空历史"}
+                />
               )}
-            </div>
-          </div>
+            </SettingsManagerActions>
+          </SettingsManagerBlock>
         )}
       </GroupList>
       {historyEnabled && client?.list && (
         <GroupList title="历史记录">
-          {cloudNote && (
-            <p className={settings.groupNote} role="status">
-              {cloudNote}
-            </p>
-          )}
+          {cloudNote && <SettingsGroupNote role="status">{cloudNote}</SettingsGroupNote>}
           <div className={settings.clipboardList} aria-label="剪贴板历史">
             {entries.length === 0 ? (
-              <p className={settings.clipboardEmpty}>暂无历史记录</p>
+              <SettingsEmptyMessage>暂无历史记录</SettingsEmptyMessage>
             ) : (
               entries.map((entry) => (
                 <div className={settings.clipboardRow} data-clipboard-entry-row="" key={entry.text}>
@@ -240,50 +246,35 @@ export function ClipboardHistorySection({
                   </span>
                   <span className={settings.clipboardActions}>
                     {client.copy && (
-                      <button
-                        type="button"
-                        className="secondary"
-                        onClick={() => void client.copy!(entry.text)}
-                      >
-                        重新复制
-                      </button>
+                      <ActionButton action={() => void client.copy!(entry.text)} label="重新复制" />
                     )}
                     {cloudRequest && (
-                      <button
-                        type="button"
-                        className="secondary"
+                      <ActionButton
+                        action={() => void sendToCloud(entry.text)}
                         disabled={cloud !== "ready" || sending}
-                        onClick={() => void sendToCloud(entry.text)}
-                      >
-                        发到云剪贴板
-                      </button>
+                        label="发到云剪贴板"
+                      />
                     )}
                     {client.setPinned && (
-                      <button
-                        type="button"
-                        className="secondary"
-                        aria-label={`${entry.pinned ? "取消固定" : "固定"}剪贴板记录`}
-                        onClick={() =>
+                      <ActionButton
+                        action={() =>
                           void mutate(
                             () => client.setPinned!(entry.text, !entry.pinned),
                             "无法更新剪贴板固定状态",
                           )
                         }
-                      >
-                        {entry.pinned ? "取消固定" : "固定"}
-                      </button>
+                        ariaLabel={`${entry.pinned ? "取消固定" : "固定"}剪贴板记录`}
+                        label={entry.pinned ? "取消固定" : "固定"}
+                      />
                     )}
                     {client.remove && (
-                      <button
-                        type="button"
-                        className="secondary"
-                        aria-label="删除剪贴板记录"
-                        onClick={() =>
+                      <ActionButton
+                        action={() =>
                           void mutate(() => client.remove!(entry.text), "无法删除剪贴板记录")
                         }
-                      >
-                        删除
-                      </button>
+                        ariaLabel="删除剪贴板记录"
+                        label="删除"
+                      />
                     )}
                   </span>
                 </div>

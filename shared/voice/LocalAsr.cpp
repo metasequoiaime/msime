@@ -10,6 +10,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <map>
 #include <mutex>
 #include <set>
@@ -17,6 +18,7 @@
 #include <thread>
 #include <tuple>
 #include <utility>
+#include <vector>
 
 #if defined(_WIN32)
 #ifndef NOMINMAX
@@ -25,6 +27,9 @@
 #include <windows.h>
 #else
 #include <dlfcn.h>
+#if defined(__unix__)
+#include <sys/stat.h>
+#endif
 #include <unistd.h>
 #endif
 #if defined(__APPLE__)
@@ -39,6 +44,31 @@ namespace fs = std::filesystem;
 constexpr int kSampleRate = 16000;
 constexpr int32_t kVadWindow = 512;
 constexpr size_t kMaxManifestBytes = 256 * 1024;
+
+nlohmann::json read_manifest(const fs::path &directory) {
+  std::ifstream input(directory / fs::u8path(std::string(local_model_manifest)),
+                      std::ios::binary);
+  if (!input)
+    throw VoiceError("Not an installed local speech model");
+  std::array<char, 8192> buffer{};
+  std::string payload;
+  while (input) {
+    input.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
+    const auto count = input.gcount();
+    if (count <= 0)
+      continue;
+    const auto bytes = static_cast<size_t>(count);
+    if (payload.size() > kMaxManifestBytes - bytes)
+      throw VoiceError("Local speech model manifest is too large");
+    payload.append(buffer.data(), bytes);
+  }
+  if (!input.eof())
+    throw VoiceError("Local speech model manifest could not be read");
+  auto manifest = nlohmann::json::parse(payload, nullptr, false);
+  if (manifest.is_discarded())
+    throw VoiceError("Local speech model manifest is malformed");
+  return manifest;
+}
 
 // ---- runtime loading ----
 
@@ -125,6 +155,7 @@ fs::path executable_directory() {
 
 std::vector<fs::path> library_candidates() {
   std::vector<fs::path> candidates;
+  candidates.reserve(5);
   if (!configured_library.empty())
     candidates.emplace_back(fs::u8path(configured_library));
   if (const char *overridden = std::getenv("MSIME_SHERPA_ONNX_LIBRARY"); overridden && *overridden)
@@ -245,6 +276,69 @@ bool model_path_inside(const fs::path &directory, const fs::path &candidate) {
   return true;
 }
 
+// A storage path may pass through one system-owned alias, matching the Rust
+// installer and the other native hosts. Linux has no fixed alias list because
+// distributions commonly link /home or /bin into another tree; a link is
+// trusted only when root owns it and its parent is a closed root directory.
+bool trusted_model_path_link(const fs::path &path) {
+#if defined(__linux__)
+  struct stat link {};
+  if (::lstat(path.c_str(), &link) != 0 || !S_ISLNK(link.st_mode) || link.st_uid != 0)
+    return false;
+  struct stat parent {};
+  const auto parent_path = path.parent_path();
+  return ::stat(parent_path.c_str(), &parent) == 0 && S_ISDIR(parent.st_mode) && parent.st_uid == 0 &&
+         (parent.st_mode & 022) == 0;
+#elif defined(__APPLE__)
+  const fs::path expected = path == fs::path("/var")   ? fs::path("/private/var")
+                            : path == fs::path("/tmp") ? fs::path("/private/tmp")
+                                                       : fs::path();
+  if (expected.empty())
+    return false;
+  std::error_code error;
+  const auto target = fs::read_symlink(path, error);
+  if (error)
+    return false;
+  return (path.parent_path() / target).lexically_normal() == expected;
+#else
+  (void)path;
+  return false;
+#endif
+}
+
+// Check the path itself and every existing ancestor without following a link. The model path comes
+// from preferences, so checking only the final directory would let a link in the middle redirect
+// the recognizer to a different tree. The one trusted alias is never the final path component.
+bool model_directory_has_real_ancestors(const fs::path &directory) {
+  if (!directory.is_absolute())
+    return false;
+  std::vector<fs::path> ancestors;
+  ancestors.reserve(
+      static_cast<std::size_t>(std::distance(directory.begin(), directory.end())));
+  for (fs::path current = directory; !current.empty(); current = current.parent_path()) {
+    ancestors.push_back(current);
+    if (current.parent_path() == current)
+      break;
+  }
+  std::error_code error;
+  bool saw_trusted_link = false;
+  for (auto it = ancestors.rbegin(); it != ancestors.rend(); ++it) {
+    const auto status = fs::symlink_status(*it, error);
+    if (error)
+      return false;
+    if (fs::is_symlink(status)) {
+      const bool last = std::next(it) == ancestors.rend();
+      if (last || saw_trusted_link || !trusted_model_path_link(*it))
+        return false;
+      saw_trusted_link = true;
+      continue;
+    }
+    if (!fs::is_directory(status))
+      return false;
+  }
+  return true;
+}
+
 struct ModelDescription {
   ModelKind kind{};
   fs::path directory;
@@ -270,24 +364,8 @@ struct ModelDescription {
 ModelDescription read_model(const std::string &directory) {
   ModelDescription model;
   model.directory = fs::u8path(directory);
-  std::ifstream input(model.directory / fs::u8path(std::string(local_model_manifest)), std::ios::binary);
-  if (!input)
-    throw VoiceError("Not an installed local speech model");
-  std::array<char, 8192> buffer{};
-  std::string payload;
-  while (input) {
-    input.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
-    const auto count = input.gcount();
-    if (count <= 0) continue;
-    const auto bytes = static_cast<size_t>(count);
-    if (payload.size() > kMaxManifestBytes - bytes)
-      throw VoiceError("Local speech model manifest is too large");
-    payload.append(buffer.data(), bytes);
-  }
-  if (!input.eof())
-    throw VoiceError("Local speech model manifest could not be read");
   try {
-    const auto manifest = nlohmann::json::parse(payload);
+    const auto manifest = read_manifest(model.directory);
     const auto kind = manifest.at("kind").get<std::string>();
     if (kind == "online_transducer")
       model.kind = ModelKind::OnlineTransducer;
@@ -307,12 +385,18 @@ ModelDescription read_model(const std::string &directory) {
   return model;
 }
 
-int thread_count(int requested) {
+} // namespace
+
+int local_asr_thread_count(int requested) {
   if (requested > 0)
-    return requested;
+    return (std::min)(requested, 4);
   const unsigned hardware = std::max(1u, std::thread::hardware_concurrency());
   return static_cast<int>(std::clamp(hardware / 2u, 1u, 4u));
 }
+
+namespace {
+
+int thread_count(int requested) { return local_asr_thread_count(requested); }
 
 std::string lower(std::string_view text) {
   std::string out(text);
@@ -680,6 +764,8 @@ struct LocalAsrSession::Impl {
 LocalAsrSession::LocalAsrSession(const LocalAsrOptions &options, PartialCallback on_partial,
                                  std::shared_ptr<std::atomic_bool> cancelled)
     : impl_(std::make_unique<Impl>()) {
+  if (!is_local_model_dir(options.model_dir))
+    throw VoiceError("Not an installed local speech model");
   const auto &api = require_runtime();
   const auto model = read_model(options.model_dir);
   impl_->on_partial = std::move(on_partial);
@@ -778,6 +864,8 @@ bool is_local_model_dir(std::string_view path) {
     return false;
   std::error_code error;
   const auto directory = fs::u8path(std::string(path));
+  if (!model_directory_has_real_ancestors(directory))
+    return false;
   const auto manifest = directory / fs::u8path(std::string(local_model_manifest));
   const auto directory_status = fs::symlink_status(directory, error);
   if (error || !fs::is_directory(directory_status))
@@ -786,6 +874,21 @@ bool is_local_model_dir(std::string_view path) {
   if (error || !fs::is_regular_file(manifest_status))
     return false;
   return fs::file_size(manifest, error) <= kMaxManifestBytes && !error;
+}
+
+bool local_model_uses_pinyin_hotwords(std::string_view path) {
+  if (!is_local_model_dir(path))
+    return false;
+  try {
+    const auto manifest = read_manifest(fs::u8path(std::string(path)));
+    if (!manifest.is_object())
+      return false;
+    const auto hotwords = manifest.find("hotwords");
+    return hotwords != manifest.end() && hotwords->is_string() &&
+           hotwords->get<std::string>() == "pinyin";
+  } catch (const VoiceError &) {
+    return false;
+  }
 }
 
 std::string recognize_local_model(const std::vector<float> &samples, const LocalAsrOptions &options,

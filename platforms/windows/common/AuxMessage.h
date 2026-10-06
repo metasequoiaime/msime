@@ -100,6 +100,7 @@ parse_aux_langbar_right_click(const std::wstring &text) {
       text[verb.size()] != L'|')
     return std::nullopt;
   std::vector<std::wstring_view> fields;
+  fields.reserve(4);
   std::wstring_view rest(text);
   rest.remove_prefix(verb.size() + 1);
   while (true) {
@@ -214,6 +215,9 @@ aux_typing_statistics_messages(bool english, std::wstring characters) {
   prefix += english ? L"|E|" : L"|C|";
   const size_t room = max_aux_message_bytes / sizeof(wchar_t) - prefix.size();
   std::vector<std::wstring> messages;
+  const size_t message_count =
+      characters.empty() ? 0 : (characters.size() - 1) / room + 1;
+  messages.reserve(message_count);
   for (size_t offset = 0; offset < characters.size(); offset += room)
     messages.push_back(prefix + characters.substr(offset, room));
   return messages;
@@ -263,6 +267,7 @@ aux_typing_keys_messages(const std::wstring &day,
   const std::wstring prefix = aux_typing_keys_probe(day);
   const size_t room = max_aux_message_bytes / sizeof(wchar_t);
   std::vector<std::wstring> messages;
+  messages.reserve(counts.size());
   std::wstring message = prefix;
   for (const auto &[key, count] : counts) {
     if (count == 0)

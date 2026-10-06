@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import * as onboarding from "./onboarding-style";
 import { linuxSetupFailureMessage } from "./linux-setup-errors";
+import { ActionButton } from "../core/action-button";
+import { useAsyncActionRunner } from "../core/use-async-action";
 
 export interface LinuxSetupStatus {
   prepared: boolean;
@@ -16,7 +18,7 @@ export interface LinuxSetupLine {
 
 export interface LinuxSetupChoices {
   download: boolean;
-  /** Cloud candidates are the one network feature active without any token, so the first setup asks, as the Windows installer does. */
+  /** 云候选会把正在输入的拼写发出设备，新装默认关闭；与 Windows 安装器一样在首次配置时询问，勾选才打开。 */
   cloudCandidates: boolean;
 }
 
@@ -38,20 +40,12 @@ export function LinuxSetupPage({
   onComplete: () => void;
 }) {
   const [download, setDownload] = useState(false);
-  const [cloudCandidates, setCloudCandidates] = useState(true);
-  const [busy, setBusy] = useState(false);
+  const [cloudCandidates, setCloudCandidates] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState("");
   const [lines, setLines] = useState<LinuxSetupLine[]>([]);
   const log = useRef<HTMLPreElement>(null);
-  const mounted = useRef(true);
-  const actionRunning = useRef(false);
-  useEffect(
-    () => () => {
-      mounted.current = false;
-    },
-    [],
-  );
+  const { busy, run } = useAsyncActionRunner(setError, undefined, client);
   const directory = status.stateDirectory ?? "~/.config/msime-client";
   const blocked = !status.setupAvailable
     ? linuxSetupFailureMessage({ code: "setup_unavailable" })
@@ -64,24 +58,20 @@ export function LinuxSetupPage({
   }, [lines]);
 
   const start = async () => {
-    if (busy || actionRunning.current || !mounted.current) return;
-    actionRunning.current = true;
-    setBusy(true);
+    if (busy) return;
     setError("");
     setLines([]);
-    try {
-      const result = await client.run({ download, cloudCandidates }, (line) => {
-        if (mounted.current) setLines((current) => [...current, line]);
-      });
-      if (!mounted.current) return;
-      if (result.prepared) setDone(true);
-      else setError(linuxSetupFailureMessage(null));
-    } catch (failure) {
-      if (mounted.current) setError(linuxSetupFailureMessage(failure));
-    } finally {
-      actionRunning.current = false;
-      if (mounted.current) setBusy(false);
-    }
+    await run(
+      async (isCurrent) => {
+        const result = await client.run({ download, cloudCandidates }, (line) => {
+          if (isCurrent()) setLines((current) => [...current, line]);
+        });
+        if (!isCurrent()) return;
+        if (result.prepared) setDone(true);
+        else setError(linuxSetupFailureMessage(null));
+      },
+      { formatError: linuxSetupFailureMessage },
+    );
   };
 
   return (
@@ -123,7 +113,7 @@ export function LinuxSetupPage({
                 onChange={(event) => setCloudCandidates(event.target.checked)}
               />{" "}
               启用云候选：输入过程中把正在输入的拼写通过 HTTPS 发送给 Google 的 input-tools
-              服务（inputtools.google.com），换回一条额外候选。已上屏的文本、词库内容和学习到的词频都不会发送。这是唯一一项配置完就会联网的功能，之后可在设置里更改。
+              服务（inputtools.google.com），换回一条额外候选。已上屏的文本、词库内容和学习到的词频都不会发送。默认不启用，之后可在设置里更改。
             </label>
           )}
           {lines.length > 0 && (
@@ -154,18 +144,18 @@ export function LinuxSetupPage({
       )}
       <footer className={onboarding.footer}>
         {done ? (
-          <button type="button" className={`primary ${onboarding.next}`} onClick={onComplete}>
-            进入设置
-          </button>
+          <ActionButton
+            action={onComplete}
+            className={`primary ${onboarding.next}`}
+            label="进入设置"
+          />
         ) : (
-          <button
-            type="button"
+          <ActionButton
+            action={() => void start()}
             className={`primary ${onboarding.next}`}
             disabled={busy || Boolean(blocked)}
-            onClick={() => void start()}
-          >
-            {busy ? "正在配置…" : error ? "重新配置" : "开始配置"}
-          </button>
+            label={busy ? "正在配置…" : error ? "重新配置" : "开始配置"}
+          />
         )}
       </footer>
     </main>

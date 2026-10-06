@@ -21,6 +21,7 @@ struct AuxStats {
   // A well-formed verb from a peer not allowed to send it. Kept apart from
   // unknown_verb so a forged request is not mistaken for a protocol mismatch.
   uint64_t rejected = 0;
+  uint64_t callback_failures = 0;
 };
 
 // A fourth, session-less pipe endpoint. The TSF DLL writes one message and
@@ -65,6 +66,7 @@ private:
   AuxListener() = default;
   void run();
   void write_ok(HANDLE connection);
+  void callback_failed() noexcept;
   std::unique_ptr<PipeListener> listener_;
   Sink sink_;
   MessageSink message_sink_;

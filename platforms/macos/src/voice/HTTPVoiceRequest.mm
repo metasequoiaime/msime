@@ -34,9 +34,12 @@ std::string Polish(std::string text, NSDictionary *options, const std::shared_pt
         auto model = String(options, @"polish_model");
         if (endpoint.empty()) endpoint = msime::voice::default_polish_endpoint(provider);
         if (model.empty()) model = msime::voice::default_polish_model(provider);
-        auto prompt = msime::windows::polish_prompt_for({String(options, @"polish_prompt_id"),
-            String(options, @"polish_prompt"), String(options, @"polish_prompt_custom_1"),
-            String(options, @"polish_prompt_custom_2"), String(options, @"polish_prompt_custom_3")});
+        msime::windows::PolishPromptSlots slots;
+        slots.id = String(options, @"polish_prompt_id");
+        slots.custom_1 = String(options, @"polish_prompt_custom_1");
+        slots.custom_2 = String(options, @"polish_prompt_custom_2");
+        slots.custom_3 = String(options, @"polish_prompt_custom_3");
+        auto prompt = msime::windows::polish_prompt_for(slots);
         if (Endpoint(endpoint)) {
             // A block captures a C++ reference as the reference, not as a copy of what it names. This one
             // runs on main after Polish has returned, when the request owning `cancelled` may already be
@@ -79,7 +82,7 @@ std::string Polish(std::string text, NSDictionary *options, const std::shared_pt
     NSMutableDictionary *snapshot = [NSMutableDictionary dictionary];
     for (NSString *key in @[@"asr_provider", @"asr_endpoint", @"asr_model", @"asr_model_path", @"asr_token", @"language",
         @"polish_provider", @"polish_endpoint", @"polish_model", @"polish_token", @"polish_prompt_id",
-        @"polish_prompt", @"polish_prompt_custom_1", @"polish_prompt_custom_2", @"polish_prompt_custom_3"]) {
+        @"polish_prompt_custom_1", @"polish_prompt_custom_2", @"polish_prompt_custom_3"]) {
         id value = options[key];
         if (value && (![value isKindOfClass:NSString.class] || [value length] > 8192 ||
             ![value dataUsingEncoding:NSUTF8StringEncoding])) {

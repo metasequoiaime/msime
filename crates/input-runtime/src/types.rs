@@ -77,9 +77,15 @@ pub enum CharacterWidth {
 #[derive(Clone, Debug, Serialize)]
 pub struct View {
     pub scheme: u8,
+    /// The active scheme writes Chinese (`SchemeType::is_chinese`): what 中文 returns to and what the Chinese statistics count. Hosts branch on this rather than on scheme ordinals.
+    pub chinese_text: bool,
+    /// The host's Simplified-to-Traditional conversion applies to this view's preedit and to its commits: a scheme it applies to (`SchemeType::script_conversion_applies`) outside the `unicode` and `temporary_japanese` modes, whose text is not Chinese to convert.
+    pub script_conversion: bool,
     /// Engine-owned mobile layout mode. Digits are input, never candidate shortcuts, while active.
     pub nine_key: bool,
     pub nine_key_spellings: Vec<String>,
+    /// 全拼九键组字时，首选候选覆盖的数字显示成它的拼音（`xi'an`），给键盘的读音行用；其他情况为空，包括注音九键。全拼下 `preedit` 仍是数字；注音下是转换结果加上未完成的数字。
+    pub nine_key_reading: String,
     /// Applied touch presentation, independent of Engine-owned Chinese nine-key digit handling.
     pub touch_keyboard_layout: TouchKeyboardLayout,
     /// Applied Engine configuration, not a newer deferred preference snapshot.
@@ -114,6 +120,8 @@ pub struct View {
     pub page: usize,
     pub page_size: usize,
     pub page_count: usize,
+    /// The scheme's openable candidate list (the Korean Hanja list) is showing. Hosts read this instead of inferring it from the scheme and a non-empty candidate list.
+    pub candidate_list_open: bool,
     pub candidates: Vec<Candidate>,
 }
 
@@ -121,6 +129,8 @@ pub struct View {
 pub struct OutputContext {
     pub scheme: u8,
     pub local_mode: String,
+    /// Whether the host's Simplified-to-Traditional conversion applies to this commit, decided by the mode the commit was made in ([`View::script_conversion`]).
+    pub script_conversion: bool,
     /// Whether the host counts this commit in typing statistics. False for text the Engine generated in the expression, command and mention modes, which the user did not type out.
     pub typing_statistics: bool,
 }
@@ -149,8 +159,6 @@ pub struct AiAssistantProviderConfig {
     pub candidate_limit: u8,
     #[serde(default)]
     pub prompt_id: String,
-    #[serde(default)]
-    pub prompt: String,
     #[serde(default)]
     pub prompt_custom_1: String,
     #[serde(default)]
@@ -258,9 +266,8 @@ pub struct TranslationQuery {
         skip_serializing_if = "is_false"
     )]
     pub sentence: bool,
-    /// Absent only in documents from a host that predates the field; the provider then keeps its legacy choice (NiuTrans, then custom, then Tencent) so mixed versions behave as before.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub provider: Option<TranslationService>,
+    /// The service the user selected; every query carries it so the provider never guesses.
+    pub provider: TranslationService,
     /// The user explicitly selected the hosted MSIME translation account. Linux
     /// carries this flag through its provider socket; it is not a provider enum
     /// value because the provider owns the account credentials.

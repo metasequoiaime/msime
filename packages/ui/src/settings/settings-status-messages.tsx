@@ -1,4 +1,7 @@
-import { unreadablePreferencesMessage } from "./preferences-recovery-message";
+import { unreadablePreferencesMessage } from "../core/error-message";
+import { ActionButton } from "./action-button";
+import { ErrorAlert } from "../core/error-alert";
+import { SettingsNotice } from "./settings-notice";
 
 export interface SettingsStatusMessagesProps {
   error: string;
@@ -27,38 +30,31 @@ export function SettingsStatusMessages({
   return (
     <>
       {error && (
-        <p role="alert" className="error">
+        <ErrorAlert>
           {error}
           {error === unreadablePreferencesMessage && canRecover && (
             <>
               {" "}
-              <button type="button" className="secondary" disabled={busy} onClick={onRecover}>
-                修复配置文件…
-              </button>
+              <ActionButton action={onRecover} disabled={busy} label="修复配置文件…" />
             </>
           )}
-        </p>
+        </ErrorAlert>
       )}
       {notice && (
-        <p role="status" className="notice">
+        <SettingsNotice role="status">
           {notice}
           {recoveredBackup && openPreferencesDirectory && (
             <>
               {" "}
-              <button
-                type="button"
-                className="secondary"
-                onClick={() =>
-                  void openPreferencesDirectory().catch(() =>
-                    onError("无法打开配置文件所在的文件夹。"),
-                  )
+              <ActionButton
+                action={() =>
+                  openPreferencesDirectory().catch(() => onError("无法打开配置文件所在的文件夹。"))
                 }
-              >
-                {macos ? "在 Finder 中显示" : "打开所在文件夹"}
-              </button>
+                label={macos ? "在 Finder 中显示" : "打开所在文件夹"}
+              />
             </>
           )}
-        </p>
+        </SettingsNotice>
       )}
     </>
   );

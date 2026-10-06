@@ -13,6 +13,7 @@ test("draft components and size update the SVG toolbar including language visibi
   const preferences: FloatingToolbarPreferences = {
     enabled: true,
     english_mode: true,
+    input_scheme: true,
     fullwidth: true,
     punctuation: true,
     character_set: true,

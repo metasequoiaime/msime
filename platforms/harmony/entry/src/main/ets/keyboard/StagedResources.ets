@@ -59,6 +59,20 @@ export class StagedResources {
     }
   }
 
+  /**
+   * The Cantonese, Zhuyin and Stroke dictionaries, from `language-dictionaries` under `resourceDir` to `language-dictionaries` beside the staged Engine resources in `filesDir`, where host-api looks for them. A package built without them removes any an earlier one left, and those schemes are then not offered; either way the keyboard still starts.
+   */
+  static stageLanguageDictionaries(resourceDir: string, filesDir: string): void {
+    const packaged: string = `${resourceDir}/language-dictionaries`;
+    const destination: string = `${filesDir}/language-dictionaries`;
+    const marker: string = `${filesDir}/language-dictionaries.ready`;
+    if (fs.accessSync(packaged)) {
+      StagedResources.stage(packaged, destination, marker);
+    } else {
+      StagedResources.unstage(destination, marker);
+    }
+  }
+
   /** Removes a staged directory and its marker, for resources the installed package no longer carries. */
   static unstage(destination: string, marker: string): void {
     try {
@@ -78,7 +92,10 @@ export class StagedResources {
     const directory: string = relative.length === 0 ? root : `${root}/${relative}`;
     for (const name of fs.listFileSync(directory)) {
       const path: string = relative.length === 0 ? name : `${relative}/${name}`;
-      const stat = fs.statSync(`${root}/${path}`);
+      const stat: fs.Stat = fs.lstatSync(`${root}/${path}`);
+      if (stat.isSymbolicLink()) {
+        throw new Error(`packaged resource is a symbolic link: ${path}`);
+      }
       if (stat.isDirectory()) {
         StagedResources.listFiles(root, path, into);
       } else {
@@ -97,12 +114,20 @@ export class StagedResources {
 
   /** Remove a staged tree before replacing it; rmdirSync only accepts empty directories. */
   static removeDirectory(directory: string): void {
-    if (!fs.accessSync(directory)) {
+    let directoryStat: fs.Stat;
+    try {
+      directoryStat = fs.lstatSync(directory);
+    } catch {
+      return;
+    }
+    if (directoryStat.isSymbolicLink() || !directoryStat.isDirectory()) {
+      // 清理阶段遇到外部链接或意外的普通文件时，只删除目录项，绝不跟随到目录外。
+      fs.unlinkSync(directory);
       return;
     }
     for (const entry of fs.listFileSync(directory)) {
       const child: string = `${directory}/${entry}`;
-      if (fs.statSync(child).isDirectory()) {
+      if (fs.lstatSync(child).isDirectory()) {
         StagedResources.removeDirectory(child);
       } else {
         fs.unlinkSync(child);

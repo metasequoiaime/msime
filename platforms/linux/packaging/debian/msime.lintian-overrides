@@ -1,0 +1,17 @@
+# 维护脚本是 platforms/linux/cmake/deb-*.in 配置出的那两份，与发布页的 .deb 相同：逐个登录用户停用、重启 systemd 用户单元，并且按设计不让任何一步失败包事务，所以不带 set -e。
+maintainer-script-calls-systemctl [postinst:*]
+maintainer-script-calls-systemctl [prerm:*]
+maintainer-script-ignores-errors [postinst]
+maintainer-script-ignores-errors [prerm]
+# 这些入口由输入法、systemd 用户单元和设置窗口调用，不是给人在终端里用的命令，上游没有手册页。
+no-manual-page
+# 语音服务按文件名导入这几个模块（msime_voice_paths.py 由 CMake 配置出安装路径），它们与 msime-linux-voice-provider 放在同一目录；挪走会改变上游的安装布局。
+script-with-language-extension [usr/bin/msime_*.py]
+executable-not-elf-or-script [usr/bin/msime_*.py]
+# 数据的许可证要与数据放在一起：手写模型、方言词库和离线释义的加载方都按同一目录找它们，CMake 安装时也逐个核对。
+package-contains-documentation-outside-usr-share-doc [usr/share/msime-client/*]
+# sherpa-onnx 与 ONNX Runtime 是 resources/voice-runtime.lock.json 钉住的上游预构建库，按原样安装（debian/rules 让 dh_strip 跳过它们：上游构建本就不带调试信息，剥离只会多出一个空的 -dbgsym 文件）。
+unstripped-binary-or-object [usr/lib/*/msime-client/libonnxruntime.so]
+unstripped-binary-or-object [usr/lib/*/msime-client/libsherpa-onnx-c-api.so]
+hardening-no-bindnow [usr/lib/*/msime-client/libonnxruntime.so]
+hardening-no-bindnow [usr/lib/*/msime-client/libsherpa-onnx-c-api.so]

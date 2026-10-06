@@ -17,8 +17,6 @@ use msime_client_core::clipboard::ClipboardHistoryStore;
 use msime_client_core::preferences::PreferencesStore;
 #[cfg(target_os = "ios")]
 use msime_tauri_mobile_platform::MobilePlatform;
-#[cfg(target_os = "ios")]
-use std::path::PathBuf;
 use std::sync::Arc;
 #[cfg(target_os = "linux")]
 use std::sync::Mutex;
@@ -220,23 +218,6 @@ pub(crate) async fn clear_clipboard_history(
 pub(crate) fn clear_clipboard_history_blocking(
     state: &ClipboardHistoryState,
 ) -> Result<(), HostActionError> {
-    #[cfg(target_os = "ios")]
-    {
-        let state_root = std::env::var_os("MSIME_CLIENT_STATE_DIR")
-            .map(PathBuf::from)
-            .filter(|path| path.is_absolute())
-            .ok_or(HostActionError {
-                code: "unavailable",
-            })?;
-        let root = state_root.parent().ok_or(HostActionError {
-            code: "unavailable",
-        })?;
-        let _ = state;
-        return msime_host_api::clear_mobile_clipboard_history(root).map_err(|_| HostActionError {
-            code: "unavailable",
-        });
-    }
-    #[cfg(not(target_os = "ios"))]
     state
         .0
         .lock()

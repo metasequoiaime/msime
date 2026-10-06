@@ -611,8 +611,12 @@ private struct IOSKeyboardPreferenceStore {
   static let maximumCustomSkinBytes = 800_000
   static let schemeOrder = [
     "quanpin", "nineKey", "shuangpin", "ziranma", "microsoft", "shoudao", "wubi",
-    "japaneseNineKey", "japanese", "korean", "handwriting", "thoughtfulReply",
+    "japaneseNineKey", "japanese", "korean", "handwriting", "cantonese", "zhuyin", "vietnamese",
+    "tibetan",
+    "stroke",
   ]
+  /// 没有存过 `enabledInputSchemes` 的键盘不打开这些方案，所以新增它们不会改变已有的键盘；由用户在设置里打开。
+  static let optInSchemes: Set<String> = ["cantonese", "zhuyin", "vietnamese", "tibetan", "stroke"]
   /// The global theme ids (`GlobalTheme::ALL` in client-core), the only values `globalTheme` may hold.
   static let themeOrder = ["system", "shuishan", "light", "paper", "night", "ink", "custom"]
   static let hapticStrengths = ["light", "medium", "strong"]
@@ -621,24 +625,9 @@ private struct IOSKeyboardPreferenceStore {
     UserDefaults(suiteName: "group.app.msime.ios") ?? .standard
   }
 
-  private func migrateJapaneseSchemes() {
-    guard !defaults.bool(forKey: "japaneseSchemesSplit") else { return }
-    if var enabled = defaults.stringArray(forKey: "enabledInputSchemes"),
-       enabled.contains("japanese"), !enabled.contains("japaneseNineKey") {
-      enabled.append("japaneseNineKey")
-      defaults.set(enabled, forKey: "enabledInputSchemes")
-    }
-    if defaults.string(forKey: "chineseInputScheme") == "japanese",
-       !defaults.bool(forKey: "japaneseRomanKeys") {
-      defaults.set("japaneseNineKey", forKey: "chineseInputScheme")
-    }
-    defaults.set(true, forKey: "japaneseSchemesSplit")
-  }
-
   private func enabledSchemes() -> [String] {
-    migrateJapaneseSchemes()
     guard let stored = defaults.stringArray(forKey: "enabledInputSchemes") else {
-      return Self.schemeOrder
+      return Self.schemeOrder.filter { !Self.optInSchemes.contains($0) }
     }
     let enabled = Self.schemeOrder.filter(stored.contains)
     return enabled.isEmpty ? ["quanpin"] : enabled
@@ -646,8 +635,7 @@ private struct IOSKeyboardPreferenceStore {
 
   private func selectedScheme() -> String {
     let enabled = enabledSchemes()
-    let legacy = defaults.bool(forKey: "inputSchemeUsesShuangpin") ? "shuangpin" : "quanpin"
-    let selected = defaults.string(forKey: "chineseInputScheme") ?? legacy
+    let selected = defaults.string(forKey: "chineseInputScheme") ?? "quanpin"
     return enabled.contains(selected) ? selected : enabled[0]
   }
 
@@ -698,8 +686,6 @@ private struct IOSKeyboardPreferenceStore {
     let enabled = enabledSchemes()
     let selected = enabled.contains(args.inputScheme) ? args.inputScheme : enabled[0]
     defaults.set(selected, forKey: "chineseInputScheme")
-    defaults.set(["shuangpin", "ziranma", "microsoft", "shoudao"].contains(selected),
-                 forKey: "inputSchemeUsesShuangpin")
     defaults.set(args.traditionalChineseOutput, forKey: "chineseOutputUsesTraditional")
     defaults.set(args.soundEnabled, forKey: "keyboardSoundEnabled")
     defaults.set(args.hapticsEnabled, forKey: "keyboardHapticsEnabled")
@@ -730,14 +716,6 @@ private struct AccountSessionKeychain {
     ]
   }
 
-  private var legacyQuery: [String: Any] {
-    [
-      kSecClass as String: kSecClassGenericPassword,
-      kSecAttrService as String: "app.msime.ios.community",
-      kSecAttrAccount as String: "api.msime.app",
-    ]
-  }
-
   private func loadData(_ baseQuery: [String: Any]) throws -> Data? {
     var lookup = baseQuery
     lookup[kSecReturnData as String] = true
@@ -762,10 +740,7 @@ private struct AccountSessionKeychain {
   }
 
   func load() throws -> String? {
-    if let data = try loadData(query) {
-      return try decode(data)
-    }
-    guard let data = try loadData(legacyQuery) else {
+    guard let data = try loadData(query) else {
       return nil
     }
     return try decode(data)
@@ -787,18 +762,9 @@ private struct AccountSessionKeychain {
     guard status == errSecSuccess else {
       throw NSError(domain: "secure_storage", code: Int(status))
     }
-    try clearLegacy()
-  }
-
-  private func clearLegacy() throws {
-    let status = SecItemDelete(legacyQuery as CFDictionary)
-    guard status == errSecSuccess || status == errSecItemNotFound else {
-      throw NSError(domain: "secure_storage", code: Int(status))
-    }
   }
 
   func clear() throws {
-    try clearLegacy()
     let status = SecItemDelete(query as CFDictionary)
     guard status == errSecSuccess || status == errSecItemNotFound else {
       throw NSError(domain: "secure_storage", code: Int(status))

@@ -1,4 +1,5 @@
 import * as style from "./community-style";
+import { ActionButton } from "../core/action-button";
 
 export interface CommunityScopeButtonsProps {
   ariaLabel: string;
@@ -18,26 +19,22 @@ export function CommunityScopeButtons({
 }: CommunityScopeButtonsProps) {
   return (
     <div className={style.scopeButtons} role="group" aria-label={ariaLabel}>
-      <button
-        type="button"
-        className={mineOnly ? "secondary" : "primary"}
-        aria-pressed={!mineOnly}
-        onClick={() => {
+      <ActionButton
+        action={() => {
           if (mineOnly) onMineOnlyChange(false);
         }}
-      >
-        {allLabel}
-      </button>
-      <button
-        type="button"
-        className={mineOnly ? "primary" : "secondary"}
-        aria-pressed={mineOnly}
-        onClick={() => {
+        className={mineOnly ? "secondary" : "primary"}
+        ariaPressed={!mineOnly}
+        label={allLabel}
+      />
+      <ActionButton
+        action={() => {
           if (!mineOnly) onMineOnlyChange(true);
         }}
-      >
-        {mineLabel}
-      </button>
+        className={mineOnly ? "primary" : "secondary"}
+        ariaPressed={mineOnly}
+        label={mineLabel}
+      />
     </div>
   );
 }

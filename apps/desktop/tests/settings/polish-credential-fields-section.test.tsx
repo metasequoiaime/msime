@@ -29,6 +29,6 @@ test("forwards endpoint and token edits", () => {
 
   expect(onEndpointChange).toHaveBeenCalledWith("https://updated.example.test");
   expect(onTokenChange).toHaveBeenCalledWith("updated-token");
-  expect(screen.getByText(/留空使用当前 provider 默认地址/)).toBeTruthy();
+  expect(screen.getByText(/留空使用当前服务的默认地址/)).toBeTruthy();
   expect(screen.getByText("仅保存在本机设置中")).toBeTruthy();
 });

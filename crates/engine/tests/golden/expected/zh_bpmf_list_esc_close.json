@@ -1,0 +1,199 @@
+{
+ "name": "zh_bpmf_list_esc_close",
+ "steps": [
+  {
+   "op": "open",
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "zhuyin",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "su3",
+   "op": "type",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 3,
+    "dedicated_english": false,
+    "editing_text": "su3",
+    "local_mode": "none",
+    "normalized_segmentation": "你",
+    "preedit": "你",
+    "raw_segmentation": "su3",
+    "scheme": "zhuyin",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "ConvertHanja",
+   "op": "command",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 2,
+    "candidates": [
+     {
+      "answers_key": true,
+      "canonical_pinyin": "",
+      "pinyin": "",
+      "scheme": "zhuyin",
+      "source": 0,
+      "weight": 0,
+      "word": "你"
+     },
+     {
+      "answers_key": true,
+      "canonical_pinyin": "",
+      "pinyin": "",
+      "scheme": "zhuyin",
+      "source": 0,
+      "weight": 0,
+      "word": "妳"
+     }
+    ],
+    "caret": 3,
+    "dedicated_english": false,
+    "editing_text": "su3",
+    "local_mode": "none",
+    "normalized_segmentation": "你",
+    "preedit": "你",
+    "raw_segmentation": "su3",
+    "scheme": "zhuyin",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "Cancel",
+   "op": "command",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 3,
+    "dedicated_english": false,
+    "editing_text": "su3",
+    "local_mode": "none",
+    "normalized_segmentation": "你",
+    "preedit": "你",
+    "raw_segmentation": "su3",
+    "scheme": "zhuyin",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "ConvertHanja",
+   "op": "command",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 2,
+    "candidates": [
+     {
+      "answers_key": true,
+      "canonical_pinyin": "",
+      "pinyin": "",
+      "scheme": "zhuyin",
+      "source": 0,
+      "weight": 0,
+      "word": "你"
+     },
+     {
+      "answers_key": true,
+      "canonical_pinyin": "",
+      "pinyin": "",
+      "scheme": "zhuyin",
+      "source": 0,
+      "weight": 0,
+      "word": "妳"
+     }
+    ],
+    "caret": 3,
+    "dedicated_english": false,
+    "editing_text": "su3",
+    "local_mode": "none",
+    "normalized_segmentation": "你",
+    "preedit": "你",
+    "raw_segmentation": "su3",
+    "scheme": "zhuyin",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "Backspace",
+   "op": "command",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 3,
+    "dedicated_english": false,
+    "editing_text": "su3",
+    "local_mode": "none",
+    "normalized_segmentation": "你",
+    "preedit": "你",
+    "raw_segmentation": "su3",
+    "scheme": "zhuyin",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "Cancel",
+   "op": "command",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "zhuyin",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "Cancel",
+   "op": "command",
+   "result": {
+    "handled": false
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "zhuyin",
+    "shuangpin_profile": "xiaohe"
+   }
+  }
+ ]
+}

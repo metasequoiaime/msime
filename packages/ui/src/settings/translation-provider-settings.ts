@@ -1,6 +1,5 @@
 import type { Preferences, ProviderCredentialStatus, SettingsClient } from "../index";
 import type { useProviderCredentials } from "./use-provider-credentials";
-import type { SettingsSaveState } from "./use-settings-persistence";
 import {
   customTranslationCredentialTestConfig,
   customTranslationCredentialTestDisabled,
@@ -21,9 +20,8 @@ type ProviderCredentials = ReturnType<typeof useProviderCredentials>;
 
 export interface TranslationProviderSettingsOptions {
   grouped?: boolean;
-  client: Pick<SettingsClient, "providerCredentials" | "customTranslations">;
+  client: Pick<SettingsClient, "providerCredentials">;
   candidateTranslations: boolean;
-  mobile: boolean;
   linux: boolean;
   windows: boolean;
   macos: boolean;
@@ -38,16 +36,7 @@ export interface TranslationProviderSettingsOptions {
   providerCredentialMessages: ProviderCredentials["providerCredentialMessages"];
   runProviderCredential: ProviderCredentials["runProviderCredential"];
   credentialTestControl: ProviderCredentials["credentialTestControl"];
-  customTranslationsText: string;
-  customTranslationsPlaceholder: string;
-  customTranslationsNotice: string;
-  customTranslationsSummary: string;
-  customTranslationsSaveState: SettingsSaveState;
-  customTranslationsSaveError: string;
-  onCustomTranslationsChange: (value: string) => void;
-  onFlushCustomTranslations: () => void;
   onPreferencesChange: (patch: Partial<Preferences>) => void;
-  setTranslationProvider: (provider: TranslationProvider) => void;
   /** The embedded panel only offers the service credential test when Tencent is enabled. */
   serviceCredentialEnabled?: boolean;
 }
@@ -57,7 +46,6 @@ export function createTranslationProviderSettings({
   grouped = false,
   client,
   candidateTranslations,
-  mobile,
   linux,
   windows,
   macos,
@@ -72,16 +60,7 @@ export function createTranslationProviderSettings({
   providerCredentialMessages,
   runProviderCredential,
   credentialTestControl,
-  customTranslationsText,
-  customTranslationsPlaceholder,
-  customTranslationsNotice,
-  customTranslationsSummary,
-  customTranslationsSaveState,
-  customTranslationsSaveError,
-  onCustomTranslationsChange,
-  onFlushCustomTranslations,
   onPreferencesChange,
-  setTranslationProvider,
   serviceCredentialEnabled = true,
 }: TranslationProviderSettingsOptions): TranslationProviderSettingsSectionProps {
   const tencentIssue = tencentCredentialIssue(
@@ -92,12 +71,11 @@ export function createTranslationProviderSettings({
 
   return {
     grouped,
+    provider: translationProvider,
     niutrans: {
-      enabled: niutrans.enabled,
       available: candidateTranslations,
       appId: niutrans.app_id,
       apiKey: niutrans.apikey,
-      onToggle: (enabled) => setTranslationProvider(enabled ? "niutrans" : "none"),
       onAppIdChange: (app_id) => onPreferencesChange({ niutrans: { ...niutrans, app_id } }),
       onApiKeyChange: (apikey) => onPreferencesChange({ niutrans: { ...niutrans, apikey } }),
       credentialTest: credentialTestControl(
@@ -111,7 +89,6 @@ export function createTranslationProviderSettings({
       linux,
       available: candidateTranslations,
       linuxCredentialsAvailable: Boolean(client.providerCredentials),
-      enabled: tencentTranslation.enabled,
       secretId: tencentTranslation.secret_id,
       secretKey: tencentTranslation.secret_key,
       region: tencentTranslation.region,
@@ -129,12 +106,6 @@ export function createTranslationProviderSettings({
       input: tencentCredentialInput,
       busy: providerCredentialBusy === "tencent",
       message: providerCredentialMessages.tencent,
-      onToggle: (enabled) =>
-        onPreferencesChange({
-          tencent_tmt: { ...tencentTranslation, enabled },
-          // Turning on a service of the user's own ends the account choice, so the account never keeps receiving candidates behind a visible selection.
-          ...(enabled ? { translation_account: undefined } : {}),
-        }),
       onSecretIdChange: (secret_id) =>
         onPreferencesChange({ tencent_tmt: { ...tencentTranslation, secret_id } }),
       onSecretKeyChange: (secret_key) =>
@@ -173,16 +144,6 @@ export function createTranslationProviderSettings({
         ),
     },
     custom: {
-      mobile,
-      customTranslationsAvailable: Boolean(client.customTranslations),
-      customTranslationsText,
-      customTranslationsPlaceholder,
-      customTranslationsNotice,
-      customTranslationsSummary,
-      customTranslationsSaveState,
-      customTranslationsSaveError,
-      onCustomTranslationsChange,
-      onFlushCustomTranslations,
       customTranslation,
       candidateTranslations,
       onPreferencesChange,

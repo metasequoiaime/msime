@@ -1,4 +1,5 @@
 import * as settings from "./settings-style";
+import { ActionButton } from "./action-button";
 
 export interface DictionaryFailureNotice {
   request_id: string;
@@ -36,22 +37,16 @@ export function DictionaryFailuresNotice({
               <small>{failure.error}</small>
             </span>
             <span>
-              <button
-                type="button"
-                className="secondary"
+              <ActionButton
+                action={() => onRetry(failure.request_id)}
                 disabled={busy || !canRetry}
-                onClick={() => onRetry(failure.request_id)}
-              >
-                重试
-              </button>{" "}
-              <button
-                type="button"
-                className="secondary"
+                label="重试"
+              />{" "}
+              <ActionButton
+                action={() => onDismiss(failure.request_id)}
                 disabled={busy || !canDismiss}
-                onClick={() => onDismiss(failure.request_id)}
-              >
-                移除记录
-              </button>
+                label="移除记录"
+              />
             </span>
           </li>
         ))}

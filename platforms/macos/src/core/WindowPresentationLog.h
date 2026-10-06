@@ -1,6 +1,7 @@
 #pragma once
 #import <AppKit/AppKit.h>
 #import <os/log.h>
+#import "EditionIdentity.h"
 
 // Window presentation tracing for the windows the input method opens on the user's behalf: which button or menu asked, whether the settings app was found and launched or the in-process fallback taken, how long a window took to build, and where it stood among the other applications' windows afterwards.
 //
@@ -9,7 +10,8 @@
 static inline os_log_t MSIMEUILog(void) {
     static os_log_t log;
     static dispatch_once_t once;
-    dispatch_once(&once, ^{ log = os_log_create("app.msime.inputmethod.MetasequoiaIME", "ui"); });
+    // 子系统是本版本输入法的 bundle id，同时安装的几个版本的日志不会混在一起。
+    dispatch_once(&once, ^{ log = os_log_create(MSIMEInputMethodBundleIdentifier().UTF8String, "ui"); });
     return log;
 }
 

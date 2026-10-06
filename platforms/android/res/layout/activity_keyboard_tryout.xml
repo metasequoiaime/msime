@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- 试用键盘，按设计的聊天样式：顶栏「‹ 设置 | 试用键盘 | 清空」，下面是对话气泡（第一条是水杉的问候），底部是「打字试试」输入框和圆形发送键，系统把真正的水杉键盘接在它下面。输入框上方一排小按钮：切换输入法、加载 AI 模型、收起键盘。 -->
 <LinearLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
@@ -8,176 +9,165 @@
     android:background="?android:attr/colorBackground"
     android:orientation="vertical">
 
-    <com.google.android.material.appbar.MaterialToolbar
-        android:id="@+id/tryout_bar"
+    <FrameLayout
         android:layout_width="match_parent"
-        android:layout_height="?attr/actionBarSize"
-        app:navigationIcon="@drawable/ic_tryout_back"
-        app:navigationContentDescription="@string/tryout_back"
-        app:title="@string/keyboard_try"
-        app:titleCentered="true"
-        app:titleTextColor="@color/ink">
+        android:layout_height="56dp">
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/tryout_dismiss"
-            style="@style/Widget.Material3.Button.TonalButton"
+        <TextView
+            android:id="@+id/tryout_back"
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent"
+            android:layout_gravity="start|center_vertical"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/tryout_back"
+            android:gravity="center_vertical"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:text="‹ 设置"
+            android:textColor="?attr/colorPrimary"
+            android:textSize="16sp" />
+
+        <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_gravity="end"
-            android:insetTop="0dp"
-            android:insetBottom="0dp"
-            android:minHeight="0dp"
-            android:paddingTop="8dp"
-            android:paddingBottom="8dp"
-            android:text="@string/tryout_dismiss_keyboard"
-            android:textSize="13sp"
-            app:cornerRadius="18dp" />
+            android:layout_gravity="center"
+            android:accessibilityHeading="true"
+            android:text="@string/keyboard_try"
+            android:textColor="?attr/colorOnSurface"
+            android:textFontWeight="600"
+            android:textSize="17sp"
+            android:textStyle="bold" />
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/tryout_ai_load"
-            style="@style/Widget.Material3.Button.TextButton"
+        <TextView
+            android:id="@+id/tryout_clear"
             android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="end"
-            android:insetTop="0dp"
-            android:insetBottom="0dp"
-            android:minHeight="0dp"
-            android:text="加载 AI"
-            android:textSize="13sp" />
-    </com.google.android.material.appbar.MaterialToolbar>
+            android:layout_height="match_parent"
+            android:layout_gravity="end|center_vertical"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:gravity="center_vertical"
+            android:paddingStart="12dp"
+            android:paddingEnd="16dp"
+            android:text="清空"
+            android:textColor="?attr/colorPrimary"
+            android:textSize="16sp" />
+    </FrameLayout>
 
-    <androidx.core.widget.NestedScrollView
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="?attr/colorOutlineVariant" />
+
+    <ScrollView
+        android:id="@+id/tryout_scroll"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
         android:clipToPadding="false"
-        android:padding="16dp">
+        android:fillViewport="true">
 
-        <com.google.android.material.card.MaterialCardView
+        <LinearLayout
+            android:id="@+id/tryout_chat"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            app:cardBackgroundColor="@color/surface"
-            app:cardCornerRadius="20dp"
-            app:cardElevation="0dp"
-            app:strokeWidth="0dp">
+            android:orientation="vertical"
+            android:paddingStart="14dp"
+            android:paddingTop="14dp"
+            android:paddingEnd="14dp"
+            android:paddingBottom="8dp" />
+    </ScrollView>
 
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="20dp">
-
-                <LinearLayout
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal">
-
-                    <ImageView
-                        android:layout_width="22dp"
-                        android:layout_height="22dp"
-                        android:contentDescription="@null"
-                        android:src="@drawable/ic_tab_keyboard"
-                        app:tint="@color/ink" />
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginStart="8dp"
-                        android:text="@string/tryout_heading"
-                        android:textColor="@color/ink"
-                        android:textSize="18sp"
-                        android:textStyle="bold" />
-                </LinearLayout>
-
-                <TextView
-                    android:id="@+id/tryout_chat"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="16dp"
-                    android:background="@color/mist"
-                    android:padding="12dp"
-                    android:textColor="@color/ink"
-                    android:textSize="14sp"
-                    android:visibility="gone" />
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
-                    android:lineSpacingExtra="4dp"
-                    android:text="@string/tryout_body"
-                    android:textColor="@color/text_secondary"
-                    android:textSize="14sp" />
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/tryout_switch"
-                    style="@style/Widget.Material3.Button.TextButton"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="6dp"
-                    android:paddingStart="0dp"
-                    android:text="@string/tryout_switch_ime"
-                    android:textSize="13sp"
-                    app:iconPadding="6dp" />
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
-                    android:lineSpacingExtra="3dp"
-                    android:text="@string/tryout_ai_absent"
-                    android:textColor="@color/text_secondary"
-                    android:textSize="12sp" />
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
-    </androidx.core.widget.NestedScrollView>
-
-    <LinearLayout
+    <HorizontalScrollView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginStart="12dp"
-        android:layout_marginEnd="12dp"
-        android:layout_marginBottom="12dp"
-        android:gravity="bottom"
-        android:orientation="horizontal">
+        android:scrollbars="none">
 
-      <com.google.android.material.textfield.TextInputLayout
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:layout_weight="1"
-        app:boxBackgroundColor="@color/surface"
-        app:boxCornerRadiusBottomEnd="14dp"
-        app:boxCornerRadiusBottomStart="14dp"
-        app:boxCornerRadiusTopEnd="14dp"
-        app:boxCornerRadiusTopStart="14dp"
-        app:boxStrokeWidth="0dp"
-        app:boxStrokeWidthFocused="0dp"
-        app:hintEnabled="false"
-        style="@style/Widget.Material3.TextInputLayout.FilledBox">
-
-        <com.google.android.material.textfield.TextInputEditText
-            android:id="@+id/tryout_field"
-            android:layout_width="match_parent"
+        <LinearLayout
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:background="@null"
-            android:hint="@string/tryout_hint"
-            android:inputType="textMultiLine|textCapSentences"
-            android:maxLines="5"
-            android:minHeight="52dp"
-            android:paddingStart="14dp"
-            android:paddingEnd="14dp"
-            android:textColor="@color/ink"
-            android:textColorHint="@color/text_secondary"
+            android:orientation="horizontal"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/tryout_switch"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                android:minWidth="0dp"
+                android:paddingStart="8dp"
+                android:paddingEnd="8dp"
+                android:text="@string/tryout_switch_ime"
+                android:textColor="?attr/colorPrimary"
+                android:textSize="12sp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/tryout_dismiss"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                android:minWidth="0dp"
+                android:paddingStart="8dp"
+                android:paddingEnd="8dp"
+                android:text="@string/tryout_dismiss_keyboard"
+                android:textColor="?attr/colorPrimary"
+                android:textSize="12sp" />
+        </LinearLayout>
+    </HorizontalScrollView>
+
+    <LinearLayout
+        android:id="@+id/tryout_input_bar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="bottom"
+        android:orientation="horizontal"
+        android:paddingStart="12dp"
+        android:paddingTop="8dp"
+        android:paddingEnd="12dp"
+        android:paddingBottom="8dp">
+
+        <EditText
+            android:id="@+id/tryout_field"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:hint="打字试试"
+            android:importantForAutofill="no"
+            android:imeOptions="actionSend"
+            android:inputType="text|textCapSentences"
+            android:maxLines="4"
+            android:minHeight="40dp"
+            android:paddingStart="16dp"
+            android:paddingTop="8dp"
+            android:paddingEnd="16dp"
+            android:paddingBottom="8dp"
+            android:textColor="?attr/colorOnSurface"
+            android:textColorHint="?attr/colorOnSurfaceVariant"
             android:textSize="16sp" />
-      </com.google.android.material.textfield.TextInputLayout>
-      <com.google.android.material.button.MaterialButton
-          android:id="@+id/tryout_ai_send"
-          style="@style/Widget.Material3.Button.TonalButton"
-          android:layout_width="wrap_content"
-          android:layout_height="wrap_content"
-          android:layout_marginStart="6dp"
-          android:text="发送"
-          android:enabled="false" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/tryout_ai_send"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_marginStart="8dp"
+            android:backgroundTint="?attr/colorPrimary"
+            android:contentDescription="发送"
+            android:enabled="false"
+            android:insetLeft="0dp"
+            android:insetTop="0dp"
+            android:insetRight="0dp"
+            android:insetBottom="0dp"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:padding="9dp"
+            app:cornerRadius="20dp"
+            app:icon="@drawable/ms_w2_home_send"
+            app:iconGravity="textStart"
+            app:iconPadding="0dp"
+            app:iconSize="22dp"
+            app:iconTint="?attr/colorOnPrimary" />
     </LinearLayout>
 </LinearLayout>

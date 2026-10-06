@@ -10,6 +10,8 @@ pub enum DictionaryKind {
     Wubi,
     Quick,
     English,
+    /// 98 五笔，云端路径 `wubi98`。
+    Wubi98,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -40,6 +42,7 @@ pub(crate) fn kind_path(kind: DictionaryKind) -> &'static str {
     match kind {
         DictionaryKind::Pinyin => "pinyin",
         DictionaryKind::Wubi => "wubi",
+        DictionaryKind::Wubi98 => "wubi98",
         DictionaryKind::Quick => "quick",
         DictionaryKind::English => "english",
     }
@@ -116,7 +119,10 @@ pub fn valid_candidate_query(
 ) -> bool {
     !text.is_empty()
         && crate::is_bounded_text(text, 256)
-        && matches!(kind, "pinyin" | "jianpin" | "wubi" | "quick" | "english")
+        && matches!(
+            kind,
+            "pinyin" | "jianpin" | "wubi" | "wubi98" | "quick" | "english"
+        )
         && matches!(scheme, "pinyin" | "shuangpin")
         && matches!(profile, "xiaohe" | "ziranma" | "microsoft" | "shoudao")
         && (1..=100).contains(&limit)

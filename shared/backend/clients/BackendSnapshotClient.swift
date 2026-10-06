@@ -238,7 +238,7 @@ private enum SnapshotRecordFields {
               type != "entry" || value.boolValue else { throw bad }
       }
       guard keys == ["id", "kind", "code", "word", "weight", "revision", "updated_at"],
-            let kind = data["kind"] as? String, ["pinyin", "wubi", "english", "quick"].contains(kind),
+            let kind = data["kind"] as? String, ["pinyin", "wubi", "wubi98", "english", "quick"].contains(kind),
             data["id"] is String else { throw bad }
       if type == "entry" { _ = try text("id", maximum: 128) }
       let weight = try integer("weight"), recordRevision = try integer("revision")

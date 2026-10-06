@@ -19,7 +19,7 @@ use crate::pinyin::typos::syllable_typo_kind;
 use crate::text::{count_utf8_chars, is_all_han, is_han};
 use crate::types::{
     CandidateSource, FrequencyAdjustmentMode, FrequencyAdjustmentOptions, LocalInputMode,
-    PersonalDictionaryKind, SchemeType, WordItem,
+    PersonalDictionaryKind, WordItem,
 };
 use crate::user_dictionary::journal::is_user_deleted;
 use crate::user_dictionary::picks::{clear_pick_transition, record_pick_transition};
@@ -46,6 +46,24 @@ fn normalized_syllables(pinyin: &str) -> Vec<String> {
     segments
 }
 
+fn join_words(first: &str, second: &str) -> String {
+    let mut word = String::with_capacity(first.len() + second.len());
+    word.push_str(first);
+    word.push_str(second);
+    word
+}
+
+fn english_context_key(context: &str) -> String {
+    let mut key = String::with_capacity("english:".len() + context.len());
+    key.push_str("english:");
+    key.extend(
+        context
+            .chars()
+            .map(|character| character.to_ascii_lowercase()),
+    );
+    key
+}
+
 impl InputSession {
     /// input_session.cpp:1274-1319; `index` is in ranking order.
     pub(super) fn learn_candidate(&mut self, index: usize) -> Option<String> {
@@ -68,7 +86,12 @@ impl InputSession {
         if self.frequency.mode == FrequencyAdjustmentMode::Disabled || index == 0 {
             return None;
         }
-        if !selected.source.is_dictionary() || self.is_japanese() {
+        if !selected.source.is_dictionary()
+            || !self
+                .engine
+                .current_scheme_type()
+                .learns_into_main_dictionary()
+        {
             return None;
         }
         self.adjust_candidate_frequency(index, self.frequency, false)
@@ -93,7 +116,7 @@ impl InputSession {
             } else {
                 self.engine.request().raw_input.clone()
             };
-            let context_key = format!("english:{}", context.to_ascii_lowercase());
+            let context_key = english_context_key(&context);
             let english_rows: Vec<WordItem> = ordered
                 .into_iter()
                 .filter(|item| item.source == CandidateSource::EnglishDictionary)
@@ -164,7 +187,7 @@ impl InputSession {
             trigger_count: options.trigger_count,
             force_top,
             kind: if wubi_row {
-                PersonalDictionaryKind::Wubi
+                self.engine.wubi_input_options().profile.dictionary_kind()
             } else {
                 PersonalDictionaryKind::Pinyin
             },
@@ -185,7 +208,10 @@ impl InputSession {
         // Local shortcuts and English/Japanese modes also use Generated candidates, but they are not pinyin sentences and must never enter the pinyin user dictionary. A native wubi row is not one either, while a pinyin row beside it in a mixed list is (overlays.md §3.3).
         if self.local_mode != LocalInputMode::None
             || self.dedicated_english
-            || self.is_japanese()
+            || !self
+                .engine
+                .current_scheme_type()
+                .learns_into_main_dictionary()
             || Self::is_wubi_native_candidate(selected)
         {
             return None;
@@ -242,7 +268,7 @@ impl InputSession {
         if selected.source != CandidateSource::Generated
             || !selected.sentence_association
             || selected.corrected_from.is_empty()
-            || self.scheme() != SchemeType::Quanpin
+            || !self.scheme().supports_autocorrect()
         {
             return None;
         }
@@ -270,7 +296,7 @@ impl InputSession {
     /// On CommitRaw while a correction is offered (input_session_composition.cpp:629-656).
     pub(super) fn learn_rejected_correction(&mut self) -> Option<String> {
         if !self.learning_enabled
-            || self.scheme() != SchemeType::Quanpin
+            || !self.scheme().supports_autocorrect()
             || self.local_mode != LocalInputMode::None
             || self.dedicated_english
             || self.autocorrect_types == 0
@@ -319,7 +345,7 @@ impl InputSession {
         {
             return None;
         }
-        let word = format!("{}{}", previous.word, current.word);
+        let word = join_words(&previous.word, &current.word);
         if count_utf8_chars(&word) > MAX_PICK_PAIR_WORD_CHARS || !is_all_han(&word) {
             return None;
         }
@@ -421,7 +447,7 @@ impl InputSession {
             && self.personal_context_enabled
             && self.local_mode == LocalInputMode::None
             && !self.dedicated_english
-            && self.scheme().is_pinyin()
+            && self.scheme().reranks_with_sentence_model()
     }
 }
 
@@ -436,7 +462,7 @@ mod tests {
     use super::*;
     use crate::paths::RuntimePaths;
     use crate::session::{Clock, Session, SessionOptions};
-    use crate::types::{autocorrect_type, ShuangpinProfileKind};
+    use crate::types::{autocorrect_type, SchemeType, ShuangpinProfileKind};
     use crate::user_dictionary::ngram_store::flush_all;
 
     struct Fixture {
@@ -571,6 +597,20 @@ mod tests {
         }
     }
 
+    #[test]
+    fn joined_words_allocates_only_result_bytes() {
+        let word = join_words("你好", "世界");
+        assert_eq!(word, "你好世界");
+        assert_eq!(word.capacity(), word.len());
+    }
+
+    #[test]
+    fn english_context_key_allocates_only_result_bytes() {
+        let key = english_context_key("HeLLo");
+        assert_eq!(key, "english:hello");
+        assert_eq!(key.capacity(), key.len());
+    }
+
     /// F1 (test_input_session.cpp:1091-1119): the pick's place in a new session, per mode.
     #[test]
     fn frequency_modes_reorder_the_next_session() {
@@ -653,7 +693,7 @@ mod tests {
             });
             type_text(&mut session, "nihc");
             select_word(&mut session, "拟好");
-            session.switch_scheme(SchemeType::Wubi);
+            session.switch_scheme(SchemeType::Wubi).unwrap();
             type_text(&mut session, "aaaa");
             select_word(&mut session, "或");
         }
@@ -671,9 +711,61 @@ mod tests {
         });
         type_text(&mut session, "nihc");
         assert_eq!(words(&session)[0], "拟好");
-        session.switch_scheme(SchemeType::Wubi);
+        session.switch_scheme(SchemeType::Wubi).unwrap();
         type_text(&mut session, "aaaa");
         assert_eq!(words(&session)[0], "或");
+    }
+
+    /// 发布布局：`msime-pinyin.db` 没有五笔表，码表单独在只读的 `msime-wubi.db` 里。准备出的代次把码表并回工作主词库，五笔选词学到的权重写得进去、下一次会话读得到，换一个代次（升级）时日志里的五笔行也能回放。
+    #[test]
+    fn wubi_learning_survives_the_split_dictionary_layout() {
+        let root = tempfile::tempdir().unwrap();
+        let resources = root.path().join("resources");
+        std::fs::create_dir_all(resources.join("helpcodes")).unwrap();
+        std::fs::write(resources.join("helpcodes/helpcode.txt"), "你=ab\n").unwrap();
+        Connection::open(resources.join(assets::MAIN_DICTIONARY))
+            .unwrap()
+            .execute_batch(
+                "CREATE TABLE tbl_1_n(key TEXT, jp TEXT, value TEXT, weight INTEGER);
+                 INSERT INTO tbl_1_n VALUES('ni','n','你',100);",
+            )
+            .unwrap();
+        Connection::open(resources.join(assets::WUBI_DICTIONARY))
+            .unwrap()
+            .execute_batch(
+                "CREATE TABLE wubi86(key TEXT NOT NULL, value TEXT NOT NULL, weight INTEGER NOT NULL DEFAULT 0, UNIQUE(key, value));
+                 CREATE TABLE wubi98(key TEXT NOT NULL, value TEXT NOT NULL, weight INTEGER NOT NULL DEFAULT 0, UNIQUE(key, value));
+                 INSERT INTO wubi86 VALUES('aaaa','工',200),('aaaa','或',100);",
+            )
+            .unwrap();
+        crate::dictionary::english::ensure_english_schema(
+            &resources.join(assets::ENGLISH_DICTIONARY),
+        )
+        .unwrap();
+        let user = root.path().join("user");
+        let cache = root.path().join("cache");
+        let open = |content_id: &str| {
+            let paths = crate::user_dictionary::generation::prepare_runtime_paths(
+                &resources, &user, &cache, content_id,
+            )
+            .unwrap();
+            let mut options = SessionOptions::new(paths);
+            options.frequency = frequency(FrequencyAdjustmentMode::Pin, 1, 1);
+            options.scheme = SchemeType::Wubi;
+            Session::new(options).unwrap()
+        };
+        {
+            let mut session = open("v1");
+            type_text(&mut session, "aaaa");
+            assert_eq!(words(&session)[..2], ["工", "或"]);
+            assert_eq!(select_word(&mut session, "或").diagnostic, None);
+        }
+        flush_all();
+        for content_id in ["v1", "v2"] {
+            let mut session = open(content_id);
+            type_text(&mut session, "aaaa");
+            assert_eq!(words(&session)[0], "或", "{content_id}");
+        }
     }
 
     /// F7 (test_input_session.cpp:1204-1217): the commit survives, and the diagnostic carries no input text.

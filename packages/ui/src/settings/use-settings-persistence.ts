@@ -16,6 +16,7 @@ import {
   preferenceChanges,
   preferenceChangesCollide,
 } from "./preference-changes";
+import { useAsyncGeneration } from "./use-async-generation";
 import { useFlushOnWindowLeave } from "./use-flush-on-window-leave";
 
 /** Where the automatic save of the settings form stands, for the quiet status in its action row. */
@@ -80,15 +81,19 @@ export function useSettingsPersistence({
   const snapshotRef = useRef(snapshot);
   const draftRef = useRef(draft);
   const clientRef = useRef(client);
+  const loadingClientRef = useRef<SettingsClient | undefined>(undefined);
   clientRef.current = client;
   const [saveState, setSaveState] = useState<SettingsSaveState>("idle");
   const [saveError, setSaveError] = useState("");
   const [loadFailed, setLoadFailed] = useState(false);
+  const reloadInFlightRef = useRef<Promise<void> | undefined>(undefined);
+  const generation = useAsyncGeneration(client);
 
   useEffect(() => {
+    if (loadingClientRef.current === client) return;
     snapshotRef.current = snapshot;
     draftRef.current = draft;
-  }, [snapshot, draft]);
+  }, [client, snapshot, draft]);
 
   // The macOS-only preferences live outside the shared document; the save loop reads them through this so a value changed while a save is in flight is still seen.
   const nativeRef = useRef({
@@ -146,10 +151,12 @@ export function useSettingsPersistence({
       current
         ? applyPreferenceChanges(value.preferences, preferenceChanges(sent, current))
         : value.preferences;
+    const nextDraft = keepNewer(draftRef.current);
     snapshotRef.current = value;
-    draftRef.current = keepNewer(draftRef.current);
+    draftRef.current = nextDraft;
+    if (!mounted.current) return;
     setSnapshot(value);
-    setDraft(keepNewer);
+    setDraft(nextDraft);
   };
 
   // Moves the local edits made since `base` onto `latest`, another writer's newer revision. A field both changed keeps the local value; the result says whether that happened.
@@ -160,10 +167,12 @@ export function useSettingsPersistence({
         : latest.preferences;
     const local = preferenceChanges(base.preferences, draftRef.current);
     const remote = preferenceChanges(base.preferences, latest.preferences);
+    const nextDraft = onto(draftRef.current);
     snapshotRef.current = latest;
-    draftRef.current = onto(draftRef.current);
+    draftRef.current = nextDraft;
+    if (!mounted.current) return preferenceChangesCollide(local, remote, latest.preferences);
     setSnapshot(latest);
-    setDraft(onto);
+    setDraft(nextDraft);
     return preferenceChangesCollide(local, remote, latest.preferences);
   };
 
@@ -171,6 +180,7 @@ export function useSettingsPersistence({
   // judged against the revision the save is about to replace; the revision check then drops the
   // echo and still applies another window's later write.
   const savingRef = useRef(false);
+  const saveTokenRef = useAsyncGeneration();
   const heldChange = useRef<Snapshot>(undefined);
   const applyPreferencesChange = (value: Snapshot) => {
     const currentSnapshot = snapshotRef.current;
@@ -192,11 +202,11 @@ export function useSettingsPersistence({
 
   useEffect(() => {
     if (!client.onPreferencesChanged) return;
-    let active = true;
+    const current = generation.current;
     let unsubscribe: (() => void) | undefined;
     void client
       .onPreferencesChanged((value) => {
-        if (!active) return;
+        if (generation.current !== current) return;
         if (savingRef.current) {
           if (!heldChange.current || value.revision > heldChange.current.revision)
             heldChange.current = value;
@@ -205,58 +215,81 @@ export function useSettingsPersistence({
         applyPreferencesChangeRef.current(value);
       })
       .then((value) => {
-        if (active) unsubscribe = value;
+        if (generation.current === current) unsubscribe = value;
         else value();
       })
       .catch(() => undefined);
     return () => {
-      active = false;
       unsubscribe?.();
     };
-  }, [client]);
+  }, [client, generation]);
 
   useEffect(() => {
-    let active = true;
+    clearAutosave();
+    clearTimeout(savedStatusTimer.current);
+    saveTokenRef.current += 1;
+    savingRef.current = false;
+    heldChange.current = undefined;
+    loadingClientRef.current = client;
+    snapshotRef.current = undefined;
+    draftRef.current = undefined;
+    setBusy(true);
+    setLoadFailed(false);
+    setSaveState("idle");
+    setSaveError("");
+  }, [client, generation]);
+
+  useEffect(() => {
+    const current = generation.current;
     client
       .load()
       .then((value) => {
-        if (!active) return;
+        if (generation.current !== current) return;
+        loadingClientRef.current = undefined;
         adoptSnapshot(value);
         setLoadFailed(false);
       })
       .catch((reason) => {
-        if (!active) return;
+        if (generation.current !== current) return;
         setError(errorMessage(reason));
         setLoadFailed(true);
       })
       .finally(() => {
-        if (active) setBusy(false);
+        if (generation.current === current) setBusy(false);
       });
-    return () => {
-      active = false;
-    };
-  }, [client]);
+  }, [client, generation]);
 
   async function reload() {
     if (!mounted.current) return;
-    clearAutosave();
-    setBusy(true);
-    setError("");
-    setNotice("");
-    setRecoveredBackup("");
+    const inFlight = reloadInFlightRef.current;
+    if (inFlight) return inFlight;
+    const operation = (async () => {
+      clearAutosave();
+      setBusy(true);
+      setError("");
+      setNotice("");
+      setRecoveredBackup("");
+      try {
+        const value = await client.load();
+        if (!mounted.current) return;
+        loadingClientRef.current = undefined;
+        adoptSnapshot(value);
+        setLoadFailed(false);
+        setSaveState("idle");
+        setSaveError("");
+      } catch (reason) {
+        if (!mounted.current) return;
+        setError(errorMessage(reason));
+        setLoadFailed(true);
+      } finally {
+        if (mounted.current) setBusy(false);
+      }
+    })();
+    reloadInFlightRef.current = operation;
     try {
-      const value = await client.load();
-      if (!mounted.current) return;
-      adoptSnapshot(value);
-      setLoadFailed(false);
-      setSaveState("idle");
-      setSaveError("");
-    } catch (reason) {
-      if (!mounted.current) return;
-      setError(errorMessage(reason));
-      setLoadFailed(true);
+      await operation;
     } finally {
-      if (mounted.current) setBusy(false);
+      if (reloadInFlightRef.current === operation) reloadInFlightRef.current = undefined;
     }
   }
 
@@ -276,12 +309,31 @@ export function useSettingsPersistence({
   }
 
   /**
-   * Saves whatever differs from the saved state now, then keeps saving while edits made during the save are still unsaved. Only one save runs at a time; a call while one is in flight is absorbed by it.
+   * Saves whatever differs from the saved state now, then keeps saving while edits made during the save are still unsaved. Only one save runs at a time: a call while one is in flight waits for it and then saves whatever it left unsaved, so once the returned promise resolves the draft as it stood at the call has been written (or the save failed).
    */
-  async function flush() {
+  const saveInFlightRef = useRef<Promise<void>>(undefined);
+  async function flush(): Promise<void> {
+    const inFlight = saveInFlightRef.current;
+    if (savingRef.current && inFlight) {
+      clearAutosave();
+      await inFlight;
+      return flushRef.current();
+    }
+    const operation = saveNow();
+    saveInFlightRef.current = operation;
+    try {
+      await operation;
+    } finally {
+      if (saveInFlightRef.current === operation) saveInFlightRef.current = undefined;
+    }
+  }
+
+  async function saveNow() {
     clearAutosave();
     if (!mounted.current || savingRef.current || !savePending()) return;
     if (draftRef.current && !validCandidateFonts(draftRef.current)) return;
+    const saveClient = client;
+    const saveToken = ++saveTokenRef.current;
     savingRef.current = true;
     clearTimeout(savedStatusTimer.current);
     setSaveState("saving");
@@ -289,7 +341,9 @@ export function useSettingsPersistence({
     let failed = false;
     let conflicts = 0;
     try {
-      while (mounted.current && savePending()) {
+      // 即使设置页在请求期间卸载，也继续写完这段时间产生的编辑。卸载后 refs 和 client 仍可用，只有 React 状态更新停止。
+      while (savePending()) {
+        if (clientRef.current !== saveClient) break;
         const base = snapshotRef.current;
         const sent = draftRef.current;
         if (!base || !sent || !validCandidateFonts(sent)) break;
@@ -297,44 +351,49 @@ export function useSettingsPersistence({
           let value: Snapshot;
           try {
             value = await client.save(base.revision, sent);
+            if (clientRef.current !== saveClient) break;
           } catch (reason) {
             if (errorCode(reason) !== "conflict" || conflicts >= CONFLICT_RETRIES) throw reason;
             conflicts += 1;
             // Another window saved first: take its revision, put this window's edits on top, and save again.
             const latest = await client.load();
-            if (!mounted.current) return;
-            if (rebase(latest, base)) setNotice(mergedNotice);
+            if (clientRef.current !== saveClient) break;
+            if (rebase(latest, base) && mounted.current) setNotice(mergedNotice);
             continue;
           }
-          if (!mounted.current) return;
           adoptSaved(value, sent);
         }
+        if (clientRef.current !== saveClient) break;
         // The native macOS preferences follow the shared document, in the order the save button used to write them.
         if (shuangpinPending() && saveMacosShuangpinKeymap) {
           const enabled = nativeRef.current.shuangpin === true;
           await saveMacosShuangpinKeymap(enabled);
-          if (!mounted.current) return;
+          if (clientRef.current !== saveClient) break;
           nativeRef.current = { ...nativeRef.current, savedShuangpin: enabled };
-          setSavedMacosShuangpinKeymap(enabled);
+          if (mounted.current) setSavedMacosShuangpinKeymap(enabled);
         }
         if (wubiPending() && saveMacosWubiAutoCommitUnique) {
           const enabled = nativeRef.current.wubi === true;
           await saveMacosWubiAutoCommitUnique(enabled);
-          if (!mounted.current) return;
+          if (clientRef.current !== saveClient) break;
           nativeRef.current = { ...nativeRef.current, savedWubi: enabled };
-          setSavedMacosWubiAutoCommitUnique(enabled);
+          if (mounted.current) setSavedMacosWubiAutoCommitUnique(enabled);
         }
       }
     } catch (reason) {
       failed = true;
-      if (mounted.current) {
+      if (mounted.current && clientRef.current === saveClient) {
         setSaveState("failed");
         setSaveError(errorMessage(reason));
       }
     } finally {
-      savingRef.current = false;
+      if (saveTokenRef.current === saveToken) savingRef.current = false;
     }
     if (!mounted.current) return;
+    if (clientRef.current !== saveClient) {
+      if (savePending()) scheduleAutosave();
+      return;
+    }
     if (!failed) {
       if (savePending()) {
         // Edited again after the loop last looked; save that too once the edits pause.
@@ -355,6 +414,34 @@ export function useSettingsPersistence({
   const flushRef = useRef(flush);
   flushRef.current = flush;
   useFlushOnWindowLeave(() => void flushRef.current());
+
+  // 组件可能在自动保存收到首次响应前卸载。这里沿用挂载路径的有界冲突重试，但只修改本地副本；
+  // 卸载后不再有可更新的 React 状态。
+  async function saveDetached(
+    saveClient: SettingsClient,
+    initialBase: Snapshot,
+    initialDraft: Preferences,
+  ): Promise<void> {
+    let base = initialBase;
+    let sent = initialDraft;
+    let conflicts = 0;
+    while (!deepEqual(sent, base.preferences)) {
+      if (!validCandidateFonts(sent)) return;
+      try {
+        await saveClient.save(base.revision, sent);
+        return;
+      } catch (reason) {
+        if (errorCode(reason) !== "conflict" || conflicts >= CONFLICT_RETRIES) return;
+        conflicts += 1;
+        const latest = await saveClient.load();
+        sent = applyPreferenceChanges(
+          latest.preferences,
+          preferenceChanges(base.preferences, sent),
+        );
+        base = latest;
+      }
+    }
+  }
 
   // Every edit restarts the countdown; the loop in `flush` picks up edits made while a save is in flight, so nothing is scheduled then.
   useEffect(() => {
@@ -385,9 +472,7 @@ export function useSettingsPersistence({
       if (deepEqual(currentDraft, currentSnapshot.preferences)) return;
       if (!validCandidateFonts(currentDraft)) return;
       const unmountedClient = clientRef.current;
-      void Promise.resolve()
-        .then(() => unmountedClient.save(currentSnapshot.revision, currentDraft))
-        .catch(() => undefined);
+      void saveDetached(unmountedClient, currentSnapshot, currentDraft).catch(() => undefined);
     },
     [],
   );

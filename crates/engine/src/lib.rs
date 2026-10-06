@@ -5,7 +5,9 @@
 //! Two public layers: `Session` and the functions beside it mirror the C++ `metasequoia::` API the golden fixtures were recorded against, and `host` is the flattened surface host-api and input-runtime call. The module map and who owns what is `.migration/spec/modules.md`.
 
 pub mod assets;
+pub mod backend;
 mod cache;
+pub mod cantonese;
 pub mod diagnostics;
 mod dictionary;
 mod error;
@@ -16,19 +18,28 @@ pub mod host;
 mod ime;
 mod japanese;
 mod korean;
+pub mod language_dictionary;
 mod lattice;
 mod local;
 mod nine_key;
+pub mod ordering;
 mod paths;
 mod pinyin;
 mod punctuation;
 mod quanpin;
 mod session;
 mod shuangpin;
+pub mod stroke;
 mod text;
+mod tibetan;
+pub mod time;
 mod types;
 mod user_dictionary;
+pub mod vietnamese;
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+pub mod web;
 mod wubi;
+pub mod zhuyin;
 
 pub use error::{EngineError, Result};
 #[cfg(not(any(target_os = "android", target_env = "ohos")))]
@@ -41,7 +52,8 @@ pub use types::{
     Command, CommandTranslationQuery, EnglishInputOptions, FrequencyAdjustmentMode,
     FrequencyAdjustmentOptions, FuzzyPinyinOptions, KeyResult, LocalInputMode, LocalModeOptions,
     MixedExpressiveOptions, OnlineQuery, PersonalDictionaryEntry, PersonalDictionaryKind,
-    SchemeType, SentenceAssociationOptions, ShuangpinProfileKind, WordItem, WubiInputOptions,
+    SchemeSet, SchemeType, SentenceAssociationOptions, ShuangpinProfileKind, WordItem,
+    WubiInputOptions, WubiProfileKind,
 };
 pub use user_dictionary::bundled::{
     dictionary_table_entries, edit_bundled_dictionary_entry, DictionaryTableEntry,
@@ -60,8 +72,9 @@ pub use user_dictionary::state::{
 };
 
 pub use local::date_time::LocalDateTime;
+pub use local::url;
 
-/// Create or migrate an `english.db` to the schema the engine reads. Fixtures without one need it; `prepare_runtime_paths` copies both dictionaries.
+/// Create or migrate an `msime-english.db` to the schema the engine reads. Fixtures without one need it; `prepare_runtime_paths` copies both dictionaries.
 pub fn ensure_english_schema(path: &std::path::Path) -> Result<()> {
     dictionary::english::ensure_english_schema(path)
 }

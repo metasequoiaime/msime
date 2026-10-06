@@ -8,11 +8,14 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+msime-path-trust = { path = "../path-trust" }
 chinese-ime-lm = { git = "https://github.com/metasequoiaime/chinese-ime-lm", rev = "7e02487323ee5047a07a36b6e20d766d7c2f381d" }
 chinese-number = { version = "0.8", default-features = false, features = ["std", "number-to-chinese"] }
+# 藏文方案的 EWTS（扩展威利转写）到 Unicode 藏文的转换。MIT OR Apache-2.0，无依赖。
+ewts = "0.1.3"
 exmex = "0.21"
 hex = "0.4"
-lru = "0.16"
+lru = "0.18"
 lunar-lite = "0.1"
 memmap2 = "0.9"
 # V-mode unit conversion. MPL-2.0, used unmodified, so shipping the licence text (resources/licenses/MPL-2.0.txt) and naming the crate is all it asks. `bundle-files` embeds definitions.units; the live currency data, the one part that would need the network, is never loaded.
@@ -24,7 +27,13 @@ sha2.workspace = true
 thiserror.workspace = true
 time = { workspace = true, features = ["formatting", "local-offset"] }
 unicode-segmentation.workspace = true
-wana_kana = "4"
+# Vietnamese Telex and VNI transforms. MIT; pinned exactly because the uppercase workaround in vietnamese/scheme.rs is written against this version's output.
+vi = "=0.8.0"
+wana_kana = "5"
+
+[target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
+# web.rs 通过 rusqlite::ffi::MemVfsUtil 导入词库，依赖这个 feature
+rusqlite = { workspace = true, features = ["bundled", "backup", "ffi-sqlite-wasm-rs"] }
 
 [dev-dependencies]
 tempfile.workspace = true

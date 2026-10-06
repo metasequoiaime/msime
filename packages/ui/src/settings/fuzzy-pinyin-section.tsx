@@ -1,6 +1,11 @@
 import type { ConfirmRequest } from "../core/confirm";
-import { Row, Switch } from "../core/platform-controls";
-import * as settings from "./settings-style";
+import { SwitchRow } from "./switch-row";
+import { SettingCheck } from "./setting-check";
+import { SettingSectionTitle } from "./setting-section-title";
+import { ActionButton } from "../core/action-button";
+import { SettingsInputDescription } from "./settings-input-description";
+import { SettingsGroupBlock } from "./settings-group-block";
+import { SettingsRowStack } from "./settings-row-stack";
 
 export type FuzzyPinyinPreferences = { enabled: boolean; rules: string[]; seeded?: boolean };
 
@@ -48,59 +53,55 @@ export interface FuzzyPinyinSectionProps {
   confirm: (request: ConfirmRequest) => Promise<boolean>;
 }
 
-/** Shared fuzzy-pinyin rule controls used by settings hosts that expose the capability: the body of the 拼写纠错 group on the 表达 page. */
+/** 有模糊音能力的宿主共用的模糊音设置：输入页「模糊音」组的内容。总开关关闭时收起规则列表和重置按钮，只留总开关；关闭总开关仍保留已选规则，重新打开后原样展开。 */
 export function FuzzyPinyinSection({ preferences, onChange, confirm }: FuzzyPinyinSectionProps) {
   return (
-    <div role="group" aria-label="模糊音" className={settings.rowStack}>
-      <Row title="模糊音" description="全拼、九键与双拼均支持；更改会在当前输入结束后生效">
-        <Switch
-          aria-label="启用模糊音"
-          checked={preferences.enabled}
-          onChange={(enabled) => {
-            const firstEnable = enabled && !preferences.seeded;
-            onChange({
-              ...preferences,
-              enabled,
-              ...(firstEnable ? { rules: fuzzyPinyinRuleIds, seeded: true } : {}),
-            });
-          }}
-        />
-      </Row>
-      <div className={settings.groupBlock}>
-        <p className="input-setting-description">
+    <SettingsRowStack role="group" aria-label="模糊音">
+      <SwitchRow
+        title="启用模糊音"
+        description="全拼、九键与双拼均支持；更改会在当前输入结束后生效"
+        aria-label="启用模糊音"
+        checked={preferences.enabled}
+        onChange={(enabled) => {
+          const firstEnable = enabled && !preferences.seeded;
+          onChange({
+            ...preferences,
+            enabled,
+            ...(firstEnable ? { rules: fuzzyPinyinRuleIds, seeded: true } : {}),
+          });
+        }}
+      />
+      <SettingsGroupBlock hidden={!preferences.enabled}>
+        <SettingsInputDescription>
           勾选容易混淆的读音后，会补充对应候选。关闭总开关会保留已选规则。
-        </p>
+        </SettingsInputDescription>
         {fuzzyPinyinGroups.map(([title, rules]) => (
           <div key={title} className="fuzzy-pinyin-group">
-            <div className="section-title">{title}</div>
+            <SettingSectionTitle as="div" title={title} />
             <div className="input-option-content">
               {rules.map(([id, label], index) => (
                 <div className="input-option-item" key={id}>
                   {index > 0 && <div className="input-option-divider" />}
-                  <label className="check-option">
-                    <input
-                      aria-label={`模糊音规则 ${id}`}
-                      type="checkbox"
-                      disabled={!preferences.enabled}
-                      checked={preferences.rules.includes(id)}
-                      onChange={(event) => {
-                        const selected = new Set(preferences.rules);
-                        if (event.target.checked) selected.add(id);
-                        else selected.delete(id);
-                        onChange({ ...preferences, rules: [...selected].sort() });
-                      }}
-                    />
-                    <span>{label}</span>
-                  </label>
+                  <SettingCheck
+                    label={label}
+                    ariaLabel={`模糊音规则 ${id}`}
+                    disabled={!preferences.enabled}
+                    checked={preferences.rules.includes(id)}
+                    onChange={(checked) => {
+                      const selected = new Set(preferences.rules);
+                      if (checked) selected.add(id);
+                      else selected.delete(id);
+                      onChange({ ...preferences, rules: [...selected].sort() });
+                    }}
+                  />
                 </div>
               ))}
             </div>
           </div>
         ))}
-        <button
-          type="button"
+        <ActionButton
           className="secondary fuzzy-pinyin-reset"
-          onClick={() => {
+          action={() => {
             void confirm({
               title: "关闭模糊音",
               message: "所有模糊音规则会被清空。",
@@ -115,10 +116,9 @@ export function FuzzyPinyinSection({ preferences, onChange, confirm }: FuzzyPiny
               });
             });
           }}
-        >
-          重置模糊音配置
-        </button>
-      </div>
-    </div>
+          label="重置模糊音配置"
+        />
+      </SettingsGroupBlock>
+    </SettingsRowStack>
   );
 }

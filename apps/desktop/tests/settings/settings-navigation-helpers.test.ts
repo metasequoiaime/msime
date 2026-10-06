@@ -19,10 +19,9 @@ test("mobile navigation reuses the shared tab mapping", () => {
   expect(mobileNavigation.mobileTabForPage).toBe(mobileTabForPage);
 });
 
-test("resolves aliases before known pages and falls back for unknown routes", () => {
-  const aliases = { helpcode: "input" as const };
-  expect(requestedPage("helpcode", pages, aliases, "appearance")).toBe("input");
-  expect(requestedPage("home", pages, aliases, "appearance")).toBe("home");
-  expect(requestedPage("missing", pages, aliases, "appearance")).toBe("appearance");
-  expect(requestedPage(undefined, pages, aliases, "appearance")).toBe("appearance");
+test("resolves known pages and falls back for routes outside the list", () => {
+  expect(requestedPage("home", pages, "appearance")).toBe("home");
+  expect(requestedPage("helpcode", pages, "appearance")).toBe("appearance");
+  expect(requestedPage("missing", pages, "appearance")).toBe("appearance");
+  expect(requestedPage(undefined, pages, "appearance")).toBe("appearance");
 });

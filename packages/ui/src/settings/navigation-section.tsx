@@ -1,7 +1,7 @@
+import { SettingsGroupNote } from "./settings-group-note";
 import { Checks } from "../core/platform-controls";
-import * as settings from "./settings-style";
 import type { NavigationPreferences, WordCharacterPreferences } from "./word-character-section";
-import { SettingCheck } from "./setting-check";
+import { SettingsGroupBlock } from "./settings-group-block";
 
 export const defaultNavigation: NavigationPreferences = {
   minus_equal: true,
@@ -18,7 +18,7 @@ const navigationOptions: [keyof NavigationPreferences, string][] = [
   ["brackets", "[ / ]"],
   ["tab", "Shift+Tab / Tab"],
   ["page_up_down", "PageUp / PageDown"],
-  ["mouse_wheel", "鼠标滚轮（候选面板支持时翻页）"],
+  ["mouse_wheel", "鼠标滚轮（候选窗口支持时翻页）"],
   ["arrows", "上 / 下（移动候选项）"],
 ];
 
@@ -35,7 +35,7 @@ export interface NavigationSectionProps {
   }) => void;
 }
 
-/** Shared candidate paging controls and their mutual exclusion with 以词定字: the contents of the 翻页 group. */
+/** 共用的候选翻页设置及其与以词定字的互斥：输入页「选词与翻页」组里以词定字之后的部分。 */
 export function NavigationSection({
   navigation,
   wordCharacter,
@@ -44,7 +44,7 @@ export function NavigationSection({
 }: NavigationSectionProps) {
   return (
     <>
-      <div className={settings.groupBlock}>
+      <SettingsGroupBlock>
         <Checks
           legend="翻页方式"
           items={navigationOptions.map(([key, label]) => ({
@@ -63,9 +63,9 @@ export function NavigationSection({
             })
           }
         />
-      </div>
+      </SettingsGroupBlock>
       {/* IBus pages on the panel's cursor_up/down and button 4/5 only with the switch on; Fcitx5 classic UI pages by itself, so the host writes the switch into classicui's WheelForPaging once it leaves the default (platforms/linux/README.md). */}
-      {linux && <p className={settings.groupNote}>{linuxWheelPagingNote}</p>}
+      {linux && <SettingsGroupNote>{linuxWheelPagingNote}</SettingsGroupNote>}
     </>
   );
 }

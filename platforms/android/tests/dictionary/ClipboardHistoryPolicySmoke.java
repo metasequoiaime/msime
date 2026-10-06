@@ -1,4 +1,5 @@
 import app.msime.android.ClipboardHistoryPolicy;
+import app.msime.android.ClipboardHistoryStore;
 
 public final class ClipboardHistoryPolicySmoke {
     static void check(boolean condition, String message) {
@@ -40,6 +41,14 @@ public final class ClipboardHistoryPolicySmoke {
         check(!ClipboardHistoryPolicy.message(ClipboardHistoryPolicy.Rejection.EMPTY)
             .equals(ClipboardHistoryPolicy.message(ClipboardHistoryPolicy.Rejection.TOO_LONG)),
             "the two refusals ask for different things");
+        check(ClipboardHistoryPolicy.timestampValue(Long.valueOf(123)) == 123,
+            "integer timestamp is preserved");
+        check(ClipboardHistoryPolicy.timestampValue(Double.valueOf(123.5)) == 0,
+            "fractional timestamp is rejected");
+        check(ClipboardHistoryPolicy.timestampValue(Boolean.TRUE) == 0,
+            "boolean timestamp is rejected");
+        check(ClipboardHistoryPolicy.timestampValue(Long.valueOf(-1)) == 0,
+            "negative timestamp is rejected");
         try {
             ClipboardHistoryPolicy.message(null);
             throw new AssertionError("there is no message for \"accepted\"");

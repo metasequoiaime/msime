@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useConfirm } from "../core/confirm";
 import {
   keyboardHeatmapModel,
@@ -8,38 +8,55 @@ import {
   type KeyboardHeatmapKey,
 } from "./keyboard-heatmap";
 import { scopedBreakdown } from "./typing-breakdown";
-import { chartGradient } from "./typing-chart";
+import { DONUT_OUTER, DONUT_THICKNESS, donutSegments } from "./typing-chart";
+import { SelectSettingField } from "./select-setting-field";
+import { SettingToggle } from "./setting-toggle";
+import { ActionButton } from "./action-button";
+import { ErrorAlert } from "../core/error-alert";
+import { StatusMessage } from "../core/status-message";
+import { formatZhNumber, formatZhPercent } from "../core/format-number";
+import { SettingsEmptyMessage } from "./settings-empty-message";
 import {
   charactersPerMinute,
   readableCharacters,
   withUnknown,
   type TypingBreakdown,
 } from "./typing-speed";
+import { useMountedRef } from "./use-mounted-ref";
+import { useAsyncGeneration } from "./use-async-generation";
 export type { TypingBreakdown } from "./typing-speed";
 import {
-  dayKey,
   dayLabel,
-  addDays,
   currentStreak,
   formatActiveTime,
   longestStreak,
   mobileTrendLength,
   recentDays,
+  statisticDayKeys,
   statisticsHeatmapWeeks,
   sumStatisticValues,
 } from "./typing-statistics-helpers";
+import {
+  StatisticsMetric,
+  statisticsOverviewDetails,
+  statisticsOverviewMetrics,
+} from "./typing-statistics-overview";
 export {
   addDays,
   currentStreak,
   formatActiveTime,
   longestStreak,
+  statisticDayKeys,
 } from "./typing-statistics-helpers";
+export {
+  statisticsOverviewDetails,
+  statisticsOverviewMetrics,
+  type StatisticsOverviewMetric,
+} from "./typing-statistics-overview";
 
 const heading = "m-0 [font-size:var(--p-row-fs)] font-semibold [color:var(--p-text)]";
-const metric =
-  "flex min-w-0 flex-col gap-1 [&>span]:[font-size:var(--p-sub-fs)] [&>span]:[color:var(--p-sub)]";
-const metricValue =
-  "text-[30px] font-[650] leading-tight break-anywhere tabular-nums [color:var(--p-accent-text)]";
+// 摘要在标签行上方，切换标签时保持不动，所以压成紧凑的 3 × 2 网格，单位和数字放在同一行；会随标签变化的内容都放在标签下方。
+const metricGrid = "grid grid-cols-3 gap-x-6 gap-y-[18px] max-phone:grid-cols-2 max-phone:gap-x-3";
 const footerNote = "mt-3.5 mb-0 text-xs leading-relaxed [color:var(--p-sub)]";
 const privacy = "mt-4 mb-0 text-xs leading-[1.7] [color:var(--p-sub)]";
 const overviewPollMs = 5_000;
@@ -57,7 +74,6 @@ const menuItem =
 // loaded -- and the loading branch was the one that got left behind when the class it used was
 // replaced.
 const page = "flex flex-col gap-3.5 max-phone:gap-2.5";
-const empty = "mt-0.5 mb-3.5 text-center text-muted";
 const rankChart = "mt-4 mb-[18px] flex flex-col gap-[11px]";
 // The first column has to hold the longest label without the row's ellipsis cutting it. The count and share columns are fixed rather than auto because every row is its own grid: sized to their own content, a seven-digit count beside a two-digit one would start each track at a different x.
 const rankRow =
@@ -83,6 +99,36 @@ const heatCell = "block size-[14px] box-border rounded-[3px] border-0 p-0";
 const heatWeek = "grid grid-rows-[repeat(7,14px)] gap-[3px]";
 const bar = "block w-full min-h-0.5 rounded-t-[3px] rounded-b-[1px]";
 const axis = "mt-[7px] flex justify-between text-xs text-muted";
+
+/** Shared selection semantics for the statistics charts; each chart supplies its own face and contents. */
+function StatisticsChartButton({
+  className,
+  title,
+  ariaLabel,
+  selected,
+  onClick,
+  children,
+}: {
+  className: string;
+  title: string;
+  ariaLabel: string;
+  selected: boolean;
+  onClick: () => void;
+  children?: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      className={className}
+      title={title}
+      aria-label={ariaLabel}
+      aria-pressed={selected}
+      onClick={onClick}
+    >
+      {children}
+    </button>
+  );
+}
 
 // The segmented control behind the content tabs. The column count is a parameter because the tab row silently kept four columns after a fifth tab was added -- the extra one wrapped onto a second row at a quarter width. Each count is spelled out so Tailwind sees the class.
 const segmentedColumns: Record<number, string> = {
@@ -179,9 +225,14 @@ const sources = [
   ["ziranma", "自然码双拼"],
   ["microsoft", "微软双拼"],
   ["shoudao", "首道双拼"],
-  ["wubi", "86 五笔"],
+  ["wubi", "五笔"],
   ["japanese", "日语"],
   ["korean", "韩语"],
+  ["cantonese", "粤拼"],
+  ["zhuyin", "注音"],
+  ["vietnamese", "越南语"],
+  ["tibetan", "藏文"],
+  ["stroke", "笔画"],
   ["handwriting", "手写"],
   ["english", "英文键盘"],
   ["local", "本地输入"],
@@ -210,6 +261,11 @@ const sourceSymbols: Record<string, string> = {
   wubi: "五",
   japanese: "日",
   korean: "韩",
+  cantonese: "粤",
+  zhuyin: "注",
+  vietnamese: "越",
+  tibetan: "藏",
+  stroke: "笔",
   handwriting: "手",
   english: "A",
   local: "本",
@@ -271,9 +327,7 @@ export type ActivityMetrics = {
  * arguments alone.
  */
 export function activityMetrics(statistics: TypingStatistics, todayKey: string): ActivityMetrics {
-  const recorded = Object.keys(statistics.days)
-    .filter((key) => /^\d{4}-\d{2}-\d{2}$/.test(key))
-    .sort();
+  const recorded = statisticDayKeys(statistics.days);
   const activeByDay = statistics.dailyActiveMs ?? {};
   let totalActiveMs = 0;
   let totalReadable = 0;
@@ -281,7 +335,7 @@ export function activityMetrics(statistics: TypingStatistics, todayKey: string):
   let fastestDay: string | null = null;
   let bestDay: string | null = null;
   let bestDayCharacters = 0;
-  // The baseline's average is the sum of its day rows over the row count, so it divides what the recorded days hold rather than `total`, which a document pruned by an older build can keep above them.
+  // The baseline's average is the sum of its day rows over the row count, so it divides what the recorded days hold rather than `total`, which the host's validation allows to run above them.
   let recordedCharacters = 0;
   for (const key of recorded) {
     const activeMs = activeByDay[key] ?? 0;
@@ -397,9 +451,8 @@ export function dailyDetailRows(
   todayKey: string,
   days = DETAIL_DAYS,
 ): DailyDetailRow[] {
-  const keys = Object.keys(statistics.days)
-    .filter((key) => /^\d{4}-\d{2}-\d{2}$/.test(key) && key <= todayKey)
-    .sort()
+  const keys = statisticDayKeys(statistics.days)
+    .filter((key) => key <= todayKey)
     .slice(-days)
     .reverse();
   return keys.map((key) => {
@@ -441,14 +494,16 @@ const detailColumns = [
 ] as const;
 
 function DailyDetails({ rows }: { rows: DailyDetailRow[] }) {
-  const count = (value: number) => value.toLocaleString("zh-CN");
+  const count = (value: number) => formatZhNumber(value);
   return (
     <section className="section m-0" aria-labelledby="statistics-details-title">
       <h2 className={heading} id="statistics-details-title">
         按日明细 · 最近 {DETAIL_DAYS} 天
       </h2>
       {rows.length === 0 ? (
-        <p className={`${empty} mt-3.5`}>暂无输入记录</p>
+        <SettingsEmptyMessage centered className="mt-3.5">
+          暂无输入记录
+        </SettingsEmptyMessage>
       ) : (
         <div className="mt-3 overflow-x-auto">
           <table
@@ -540,13 +595,12 @@ function StatisticsHeatmap({
                   const level =
                     day.count === 0 ? 0 : Math.max(1, Math.ceil((day.count / maximum) * 4));
                   return (
-                    <button
-                      type="button"
+                    <StatisticsChartButton
                       className={`${heatCell} ${heatLevels[level]} cursor-pointer${selectedDay === day.key ? " outline-2 outline-offset-1 outline-[#e59b43]" : ""}`}
                       key={day.key}
-                      title={`${day.label}：${day.count > 0 ? `${day.count.toLocaleString("zh-CN")} 字符` : "无记录"}`}
-                      aria-label={`热力图：${day.label}，${day.count} 字符`}
-                      aria-pressed={selectedDay === day.key}
+                      title={`${day.label}：${day.count > 0 ? `${formatZhNumber(day.count)} 字符` : "无记录"}`}
+                      ariaLabel={`热力图：${day.label}，${day.count} 字符`}
+                      selected={selectedDay === day.key}
                       onClick={() => onSelect(day.key)}
                     />
                   );
@@ -586,7 +640,7 @@ function KeyboardHeatmapRows({
             if (!key.code)
               return <span className="min-w-0" style={style} key={index} aria-hidden="true" />;
             const level = keyHeatLevel(key.count, maximum);
-            const name = `${key.name}，${key.count.toLocaleString("zh-CN")} 次`;
+            const name = `${key.name}，${formatZhNumber(key.count)} 次`;
             return (
               <span
                 role="img"
@@ -629,14 +683,16 @@ function KeyboardHeatmap({
   platform?: string;
 }) {
   const model = keyboardHeatmapModel(scopedKeyCounts(dailyKeys, scopeKeys), mobile, platform);
-  const count = (value: number) => value.toLocaleString("zh-CN");
+  const count = (value: number) => formatZhNumber(value);
   return (
     <section className="section m-0" aria-labelledby="statistics-keys-title">
       <h2 className={heading} id="statistics-keys-title">
         按键热力图 · {scopeLabel}
       </h2>
       {model.total === 0 ? (
-        <p className={`${empty} mt-3.5`}>这段时间还没有按键记录</p>
+        <SettingsEmptyMessage centered className="mt-3.5">
+          这段时间还没有按键记录
+        </SettingsEmptyMessage>
       ) : (
         <>
           <p className="mt-[7px] mb-0 text-xs text-muted">
@@ -770,12 +826,12 @@ function SpeedTrend({
   selectedDay: string | null;
 }) {
   const known = speeds.filter((speed): speed is number => speed !== null);
-  const count = (value: number) => Math.round(value).toLocaleString("zh-CN");
+  const count = (value: number) => formatZhNumber(Math.round(value));
   if (known.length === 0)
     return (
-      <p className={`${empty} mt-3.5`}>
+      <SettingsEmptyMessage centered className="mt-3.5">
         这段时间还没有测量到足够的活跃时长。每天连续打字满 1 分钟后，这里会画出当天的速度。
-      </p>
+      </SettingsEmptyMessage>
     );
   const high = Math.max(...known, averageSpeed);
   const low = Math.min(...known, averageSpeed);
@@ -935,9 +991,6 @@ function StatisticsTrendLine({
  */
 type DistributionVariant = "donut" | "rank";
 
-const shareText = (count: number, total: number) =>
-  total === 0 ? "—" : `${((count / total) * 100).toFixed(1)}%`;
-
 function ShapeChart({
   title,
   slices,
@@ -959,7 +1012,7 @@ function ShapeChart({
             className={`${rankRow} animate-row-reveal motion-reduce:animate-none`}
             style={{ animationDelay: `${Math.min(index, 8) * 0.03}s` }}
             key={slice.id}
-            aria-label={`${slice.title} ${slice.count} 字符，${shareText(slice.count, total)}`}
+            aria-label={`${slice.title} ${slice.count} 字符，${formatZhPercent(slice.count, total)}`}
           >
             <span>{slice.title}</span>
             <div className={rankTrack}>
@@ -968,8 +1021,8 @@ function ShapeChart({
                 style={{ width: `${(slice.count / peak) * 100}%` }}
               />
             </div>
-            <strong>{slice.count.toLocaleString("zh-CN")}</strong>
-            <small>{shareText(slice.count, total)}</small>
+            <strong>{formatZhNumber(slice.count)}</strong>
+            <small>{formatZhPercent(slice.count, total)}</small>
           </div>
         ))}
       </div>
@@ -977,16 +1030,33 @@ function ShapeChart({
   }
   return (
     <div
-      className="relative mx-auto mt-4 mb-[18px] grid size-[190px] place-items-center"
+      className="relative mx-auto size-[190px] shrink-0"
       role="img"
       aria-label={`${title}环形图`}
     >
-      <div
-        className="size-full rounded-full [mask:radial-gradient(circle,transparent_0_61%,#000_62%)]"
-        style={{ background: chartGradient(slices, Math.max(1, total)) }}
-      />
-      <div className="absolute flex size-[106px] flex-col items-center justify-center rounded-full bg-card">
-        <strong className="text-[25px] text-body">{total.toLocaleString("zh-CN")}</strong>
+      {/* 用 SVG 画环：环宽约为外半径的四分之一，扇区之间留底色缝隙，原先用 conic-gradient 加遮罩只能画出一道细线。 */}
+      <svg className="block size-full" viewBox="0 0 100 100" aria-hidden="true">
+        {donutSegments(slices).map((segment, index) =>
+          "ring" in segment ? (
+            <circle
+              key={index}
+              cx="50"
+              cy="50"
+              r={DONUT_OUTER - DONUT_THICKNESS / 2}
+              fill="none"
+              stroke={segment.color}
+              strokeWidth={DONUT_THICKNESS}
+              data-donut-segment=""
+            />
+          ) : (
+            <path key={index} d={segment.d} fill={segment.color} data-donut-segment="" />
+          ),
+        )}
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <strong className="text-[25px] leading-tight font-semibold tabular-nums text-body">
+          {formatZhNumber(total)}
+        </strong>
         <span className="text-[11px] text-muted">字符</span>
       </div>
     </div>
@@ -1010,17 +1080,20 @@ function Distribution({
   const total = slices.reduce((value, slice) => value + slice.count, 0);
   const visible = slices.filter((slice) => slice.count > 0 || slice.id !== "unknown");
   return (
-    <section className="section m-0" aria-labelledby={`statistics-${title}`}>
+    <section className="section m-0 @container" aria-labelledby={`statistics-${title}`}>
       <h2 className={heading} id={`statistics-${title}`}>
         {title}
       </h2>
       {total === 0 ? (
-        <p className={`${empty} mt-3.5`}>暂无输入记录</p>
+        <SettingsEmptyMessage centered className="mt-3.5">
+          暂无输入记录
+        </SettingsEmptyMessage>
       ) : (
+        // 标题独占一行，图表区整体放在标题下方；宽版按容器宽度而不是视口宽度决定是否并排，窄窗口里环形图回到图例上方，不再把图例挤成一字一行。
         <div
           className={
-            wide && variant === "donut"
-              ? "grid grid-cols-[190px_minmax(0,1fr)] items-center gap-8"
+            variant === "donut"
+              ? `mt-4 grid gap-5 ${wide ? "@min-[520px]:grid-cols-[190px_minmax(0,1fr)] @min-[520px]:items-center @min-[520px]:gap-8" : ""}`
               : undefined
           }
         >
@@ -1035,7 +1108,7 @@ function Distribution({
                   className={legendRow}
                   style={{ animationDelay: `${Math.min(index, 8) * 0.03}s` }}
                   key={slice.id}
-                  aria-label={`${slice.title} ${slice.count} 字符，${shareText(slice.count, total)}`}
+                  aria-label={`${slice.title} ${slice.count} 字符，${formatZhPercent(slice.count, total)}`}
                 >
                   <span
                     className={legendDot}
@@ -1045,8 +1118,8 @@ function Distribution({
                     {slice.symbol}
                   </span>
                   <span>{slice.title}</span>
-                  <strong>{slice.count.toLocaleString("zh-CN")}</strong>
-                  <small>{shareText(slice.count, total)}</small>
+                  <strong>{formatZhNumber(slice.count)}</strong>
+                  <small>{formatZhPercent(slice.count, total)}</small>
                 </div>
               ))}
             </div>
@@ -1083,7 +1156,6 @@ function CandidateRanks({ selections }: { selections: SelectionCounts | undefine
     })),
     { id: "beyond", label: "第 10 条以后", count: beyond },
   ];
-  const share = (count: number) => (total === 0 ? "—" : `${((count / total) * 100).toFixed(1)}%`);
   return (
     <section className="section m-0" aria-labelledby="statistics-candidate-ranks">
       <h2 className={heading} id="statistics-candidate-ranks">
@@ -1091,24 +1163,26 @@ function CandidateRanks({ selections }: { selections: SelectionCounts | undefine
       </h2>
       <p className="mt-3.5 mb-1 flex items-baseline gap-2">
         <strong className="text-[30px] leading-[1.1] tabular-nums" aria-label="首选命中率">
-          {total === 0 ? "—" : `${((ranks[0] / total) * 100).toFixed(1)}%`}
+          {formatZhPercent(ranks[0], total)}
         </strong>
         <span className="text-[13px] text-secondary" aria-hidden="true">
           首选命中率
         </span>
         <small className="ml-auto text-xs text-muted">
-          {total === 0 ? "暂无记录" : `共 ${total.toLocaleString("zh-CN")} 次上屏`}
+          {total === 0 ? "暂无记录" : `共 ${formatZhNumber(total)} 次上屏`}
         </small>
       </p>
       {total === 0 ? (
-        <p className={empty}>暂无候选记录。用水杉键盘上屏几次后再回来查看。</p>
+        <SettingsEmptyMessage centered>
+          暂无候选记录。用水杉键盘上屏几次后再回来查看。
+        </SettingsEmptyMessage>
       ) : (
         <div className={rankChart} role="img" aria-label="候选命中位置分布">
           {rows.map((row) => (
             <div
               className={rankRow}
               key={row.id}
-              aria-label={`${row.label}：${row.count} 次，${share(row.count)}`}
+              aria-label={`${row.label}：${row.count} 次，${formatZhPercent(row.count, total)}`}
             >
               <span>{row.label}</span>
               <div className={rankTrack}>
@@ -1117,8 +1191,8 @@ function CandidateRanks({ selections }: { selections: SelectionCounts | undefine
                   style={{ width: `${(row.count / peak) * 100}%`, backgroundColor: palette[0] }}
                 />
               </div>
-              <strong>{row.count.toLocaleString("zh-CN")}</strong>
-              <small>{share(row.count)}</small>
+              <strong>{formatZhNumber(row.count)}</strong>
+              <small>{formatZhPercent(row.count, total)}</small>
             </div>
           ))}
         </div>
@@ -1144,7 +1218,7 @@ function StatisticsHourlyBars({
 }) {
   const peak = Math.max(1, ...hours, ...(usual?.hours ?? []));
   const total = hours.reduce((sum, count) => sum + count, 0);
-  const count = (value: number) => Math.round(value).toLocaleString("zh-CN");
+  const count = (value: number) => formatZhNumber(Math.round(value));
   return (
     <>
       <p className="mt-[7px] mb-0 text-xs text-muted">
@@ -1158,7 +1232,7 @@ function StatisticsHourlyBars({
           </span>
           <span className="flex items-center gap-1.5">
             <i className="block h-0.5 w-3.5 rounded-full bg-[var(--text-secondary)]" />
-            平时（前 {usual.days.toLocaleString("zh-CN")} 天平均）
+            平时（前 {formatZhNumber(usual.days)} 天平均）
           </span>
         </div>
       )}
@@ -1249,17 +1323,18 @@ export function TypingStatisticsPage({
   const { confirm, confirmation } = useConfirm();
   const [status, setStatus] = useState<TypingStatisticsStatus>();
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
+  // 打开页面时先看按键热力图，它排在标签行的第一位；标签只存在组件状态里，不跨次打开记忆。
   const [contentTab, setContentTab] = useState<
-    "trend" | "kind" | "mode" | "scheme" | "ranks" | "keys"
-  >("trend");
+    "keys" | "trend" | "kind" | "mode" | "scheme" | "ranks"
+  >("keys");
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState("");
   const requestRef = useRef<Promise<TypingStatisticsStatus> | null>(null);
   const requestStartedAtRef = useRef(0);
   const lastRequestAtRef = useRef(0);
   const statusSignatureRef = useRef("");
-  const mounted = useRef(true);
-  const clientGeneration = useRef(0);
+  const mounted = useMountedRef();
+  const clientGeneration = useAsyncGeneration(client);
   const mobileTrendDays = useMemo(
     () => recentDays(mobileTrendLength(status?.statistics.days ?? {})),
     [status?.statistics.days],
@@ -1267,27 +1342,19 @@ export function TypingStatisticsPage({
   const desktopTrendDays = useMemo(() => recentDays(DESKTOP_TREND_DAYS), []);
   const trendDays = mobile ? mobileTrendDays : desktopTrendDays;
 
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
+  useEffect(
+    () => () => {
       requestRef.current = null;
-    };
-  }, []);
+    },
+    [],
+  );
 
   useEffect(() => {
-    const generation = ++clientGeneration.current;
     requestRef.current = null;
     requestStartedAtRef.current = 0;
     lastRequestAtRef.current = 0;
     setBusy(false);
     setError("");
-    return () => {
-      if (generation === clientGeneration.current) {
-        clientGeneration.current++;
-        requestRef.current = null;
-      }
-    };
   }, [client]);
 
   async function update(operation: () => Promise<TypingStatisticsStatus>, overview = false) {
@@ -1325,7 +1392,6 @@ export function TypingStatisticsPage({
   }
 
   useEffect(() => {
-    let active = true;
     const generation = clientGeneration.current;
     const refreshWhenVisible = () => {
       if (!mounted.current || clientGeneration.current !== generation) return;
@@ -1343,8 +1409,7 @@ export function TypingStatisticsPage({
       requestStartedAtRef.current = now;
       void request
         .then((next) => {
-          if (!active || clientGeneration.current !== generation || requestRef.current !== request)
-            return;
+          if (clientGeneration.current !== generation || requestRef.current !== request) return;
           const signature = JSON.stringify(next);
           if (signature !== statusSignatureRef.current) {
             statusSignatureRef.current = signature;
@@ -1352,14 +1417,13 @@ export function TypingStatisticsPage({
           }
         })
         .catch(() => {
-          if (active && clientGeneration.current === generation && requestRef.current === request)
+          if (clientGeneration.current === generation && requestRef.current === request)
             setError("无法读取或保存统计，请稍后重试。原有统计不会被自动重置。");
         })
         .finally(() => {
           if (requestRef.current === request) {
             requestRef.current = null;
-            if (active && mounted.current && clientGeneration.current === generation)
-              setBusy(false);
+            if (mounted.current && clientGeneration.current === generation) setBusy(false);
           }
         });
     };
@@ -1368,22 +1432,19 @@ export function TypingStatisticsPage({
     document.addEventListener("visibilitychange", refreshWhenVisible);
     const poll = window.setInterval(refreshWhenVisible, overviewPollMs);
     return () => {
-      active = false;
       window.clearInterval(poll);
       window.removeEventListener("focus", refreshWhenVisible);
       document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
-  }, [client]);
+  }, [client, clientGeneration]);
 
   if (!status)
     return (
       <div className={page}>
         {error ? (
-          <p role="alert" className="error">
-            {error}
-          </p>
+          <ErrorAlert>{error}</ErrorAlert>
         ) : (
-          <p role="status">正在读取打字统计…</p>
+          <StatusMessage role="status">正在读取打字统计…</StatusMessage>
         )}
       </div>
     );
@@ -1402,6 +1463,7 @@ export function TypingStatisticsPage({
   const keyScopeLabel = selectedLabel ?? "累计";
   const maximum = Math.max(1, ...trendDays.map((day) => statistics.days[day.key] ?? 0));
   const activity = activityMetrics(statistics, today.key);
+  const overviewDetails = statisticsOverviewDetails(activity);
   // The reference line is the average of the window's recorded days, the same "日均" the rhythm card uses, so empty days do not drag it down.
   const trendRecorded = trendDays
     .map((day) => statistics.days[day.key] ?? 0)
@@ -1436,6 +1498,9 @@ export function TypingStatisticsPage({
         "microsoft",
         "shoudao",
         "wubi",
+        "cantonese",
+        "zhuyin",
+        "stroke",
       ]),
       color: palette[0],
       symbol: "中",
@@ -1453,6 +1518,22 @@ export function TypingStatisticsPage({
       count: breakdown.sources.korean ?? 0,
       color: palette[6],
       symbol: "韩",
+    },
+    {
+      id: "vietnamese",
+      title: "越南语模式",
+      count: breakdown.sources.vietnamese ?? 0,
+      // Every palette colour already names a slice here, so this one has its own, as 高情商回复 does.
+      color: "#d0605e",
+      symbol: "越",
+    },
+    {
+      id: "tibetan",
+      title: "藏文模式",
+      count: breakdown.sources.tibetan ?? 0,
+      // 调色板的颜色都已被这里的扇区占用，藏文和越南语一样用自己的颜色。
+      color: "#b8873a",
+      symbol: "藏",
     },
     {
       id: "english",
@@ -1514,11 +1595,7 @@ export function TypingStatisticsPage({
   return (
     <div className={page}>
       {confirmation}
-      {error && (
-        <p role="alert" className="error">
-          {error}
-        </p>
-      )}
+      {error && <ErrorAlert>{error}</ErrorAlert>}
       {mobile && (
         <div className="-mb-1 flex min-h-0 justify-end">
           <details className="relative z-[3]">
@@ -1537,23 +1614,21 @@ export function TypingStatisticsPage({
                   onChange={(event) => void update(() => client.setEnabled(event.target.checked))}
                 />
               </label>
-              <button
-                type="button"
-                role="menuitem"
+              <ActionButton
+                action={() => void update(() => client.load(), true)}
+                ariaBusy={busy}
+                className=""
                 disabled={busy}
-                onClick={() => void update(() => client.load(), true)}
-              >
-                {busy ? "处理中…" : "刷新统计"}
-              </button>
-              <button
-                type="button"
+                label={busy ? "处理中…" : "刷新统计"}
                 role="menuitem"
+              />
+              <ActionButton
+                action={() => void resetStatistics()}
                 className={`${menuItem} text-danger`}
                 disabled={busy}
-                onClick={() => void resetStatistics()}
-              >
-                清空统计
-              </button>
+                label="清空统计"
+                role="menuitem"
+              />
             </div>
           </details>
         </div>
@@ -1566,111 +1641,30 @@ export function TypingStatisticsPage({
           <p className="mt-2 mb-0 leading-relaxed text-secondary">
             开启后这里会显示输入字数、速度、时段分布与按键热力图。统计只保存在本机，不记录输入内容，也不联网。
           </p>
-          <button
-            type="button"
+          <ActionButton
+            action={() => void update(() => client.setEnabled(true))}
+            ariaBusy={busy}
             className="secondary"
             disabled={busy}
-            onClick={() => void update(() => client.setEnabled(true))}
-          >
-            {busy ? "处理中…" : "启用输入统计"}
-          </button>
+            label={busy ? "处理中…" : "启用输入统计"}
+          />
         </section>
       )}
-      <section className="section m-0">
-        <div className={segmented(6)} role="tablist" aria-label="统计内容">
-          {(
-            [
-              ["trend", "趋势"],
-              ["kind", "类型"],
-              ["mode", "模式"],
-              ["scheme", "方案"],
-              ["ranks", "候选"],
-              ["keys", "按键"],
-            ] as const
-          ).map(([value, label]) => (
-            <button
-              type="button"
-              role="tab"
-              key={value}
-              aria-selected={contentTab === value}
-              onClick={() => {
-                setContentTab(value);
-                // The desktop keeps a picked day across tabs: its bars sit on 趋势, and the day's breakdown is what the other tabs are for.
-                if (mobile) setSelectedDay(null);
-              }}
-            >
-              {label}
-            </button>
+      <section className="section m-0" aria-label="统计概览">
+        <div className={metricGrid}>
+          {statisticsOverviewMetrics({
+            statistics,
+            todayKey: today.key,
+            scopeTitle,
+            scopeTotal,
+            activity,
+          }).map((metric) => (
+            <StatisticsMetric key={metric.ariaLabel} metric={metric} />
           ))}
         </div>
-        <div className="mt-[22px] grid grid-cols-2 gap-6 max-phone:gap-3">
-          <div className={metric}>
-            <span className="text-secondary">今日输入</span>
-            <strong className={metricValue} aria-label="今日输入字符数">
-              {(statistics.days[today.key] ?? 0).toLocaleString("zh-CN")}
-            </strong>
-            <small className="m-0">字符</small>
-          </div>
-          <div className={metric}>
-            <span className="text-secondary">{scopeTitle}</span>
-            <strong className={metricValue} aria-label="当前范围输入字符数">
-              {scopeTotal.toLocaleString("zh-CN")}
-            </strong>
-            <small className="m-0">字符</small>
-          </div>
-        </div>
-      </section>
-      <section className="section m-0" aria-labelledby="statistics-rhythm-title">
-        <h2 className={heading} id="statistics-rhythm-title">
-          输入节奏
-        </h2>
-        <div className="mt-[22px] grid grid-cols-2 gap-6 max-phone:gap-3">
-          <div className={metric}>
-            <span className="text-secondary">今日速度</span>
-            <strong className={metricValue} aria-label="今日输入速度">
-              {Math.round(activity.todaySpeed).toLocaleString("zh-CN")}
-            </strong>
-            <small className="m-0">字 / 分钟</small>
-          </div>
-          <div className={metric}>
-            <span className="text-secondary">平均速度</span>
-            <strong className={metricValue} aria-label="平均输入速度">
-              {Math.round(activity.averageSpeed).toLocaleString("zh-CN")}
-            </strong>
-            <small className="m-0">
-              {activity.hasActivity
-                ? `字 / 分钟 · 共 ${formatActiveTime(activity.totalActiveMs)}`
-                : "字 / 分钟"}
-            </small>
-          </div>
-          <div className={metric}>
-            <span className="text-secondary">今日活跃</span>
-            <strong className={metricValue} aria-label="今日活跃时长">
-              {formatActiveTime(activity.todayActiveMs)}
-            </strong>
-            <small className="m-0">连续打字的时间</small>
-          </div>
-          <div className={metric}>
-            <span className="text-secondary">连续天数</span>
-            <strong className={metricValue} aria-label="连续输入天数">
-              {activity.currentStreak.toLocaleString("zh-CN")}
-            </strong>
-            <small className="m-0">最长 {activity.longestStreak.toLocaleString("zh-CN")} 天</small>
-          </div>
-        </div>
         <div className={`${axis} flex-wrap gap-x-4`}>
-          <span>
-            日均 {Math.round(activity.averagePerDay).toLocaleString("zh-CN")} 字符 ·{" "}
-            {activity.recordedDays.toLocaleString("zh-CN")} 天有记录
-          </span>
-          <span>
-            {activity.bestDay
-              ? `最多 ${dayLabel(activity.bestDay)}，${activity.bestDayCharacters.toLocaleString("zh-CN")} 字符`
-              : "还没有记录"}
-            {activity.fastestDay
-              ? ` · 最快 ${dayLabel(activity.fastestDay)}，${Math.round(activity.fastestSpeed).toLocaleString("zh-CN")} 字 / 分钟`
-              : ""}
-          </span>
+          <span>{overviewDetails.summary}</span>
+          <span>{overviewDetails.best}</span>
         </div>
         <p className={footerNote}>
           {activity.hasActivity
@@ -1678,17 +1672,32 @@ export function TypingStatisticsPage({
             : "还没有测量到活跃时长。这项从本次更新后开始记录，之前的输入只有字数。"}
         </p>
       </section>
-      {activity.todayHours && (
-        <section className="section m-0" aria-labelledby="statistics-hours-title">
-          <h2 className={heading} id="statistics-hours-title">
-            今日时段
-          </h2>
-          <StatisticsHourlyBars
-            hours={activity.todayHours}
-            usual={usualHours(statistics.dailyHours, today.key)}
-          />
-        </section>
-      )}
+      <div className={segmented(6)} role="tablist" aria-label="统计内容">
+        {(
+          [
+            ["keys", "按键"],
+            ["trend", "趋势"],
+            ["kind", "类型"],
+            ["mode", "模式"],
+            ["scheme", "方案"],
+            ["ranks", "候选"],
+          ] as const
+        ).map(([value, label]) => (
+          <button
+            type="button"
+            role="tab"
+            key={value}
+            aria-selected={contentTab === value}
+            onClick={() => {
+              setContentTab(value);
+              // 桌面端切换标签时保留选中的那一天：它的柱子在「趋势」里，而其他标签正是用来看这一天的分项。
+              if (mobile) setSelectedDay(null);
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
       {contentTab === "trend" && (
         <section className="section m-0" aria-labelledby="statistics-trend-title">
           <h2 className={heading} id="statistics-trend-title">
@@ -1698,10 +1707,9 @@ export function TypingStatisticsPage({
             最高{" "}
             {maximum === 1 && trendDays.every((day) => !statistics.days[day.key])
               ? 0
-              : maximum.toLocaleString("zh-CN")}{" "}
+              : formatZhNumber(maximum)}{" "}
             字符 / 天
-            {trendAverage > 0 &&
-              ` · 虚线为日均 ${Math.round(trendAverage).toLocaleString("zh-CN")} 字符`}
+            {trendAverage > 0 && ` · 虚线为日均 ${formatZhNumber(Math.round(trendAverage))} 字符`}
           </p>
           {mobile ? (
             <StatisticsTrendLine
@@ -1722,13 +1730,12 @@ export function TypingStatisticsPage({
                 // already holds it, so the state answers directly.
                 const dimmed = selectedDay !== null && !chosen;
                 return (
-                  <button
-                    type="button"
+                  <StatisticsChartButton
                     className="flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-1 border-0 bg-transparent p-0 text-[10px] text-muted"
                     key={day.key}
                     title={`${day.label}：${count} 字符`}
-                    aria-label={`${day.label}，${count} 字符`}
-                    aria-pressed={chosen}
+                    ariaLabel={`${day.label}，${count} 字符`}
+                    selected={chosen}
                     onClick={() =>
                       setSelectedDay((current) => (current === day.key ? null : day.key))
                     }
@@ -1738,7 +1745,7 @@ export function TypingStatisticsPage({
                       className={`${bar} ${chosen ? "bg-[#e59b43]" : "bg-accent"} ${dimmed ? "opacity-40" : chosen ? "opacity-100" : "opacity-85"}`}
                       style={{ height: `${Math.max(2, (count / maximum) * 100)}%` }}
                     />
-                  </button>
+                  </StatisticsChartButton>
                 );
               })}
               {trendAverage > 0 && <ReferenceLine bottom={(trendAverage / maximum) * 100} />}
@@ -1762,10 +1769,19 @@ export function TypingStatisticsPage({
             {mobile ? "点按热力图查看当天的分类与占比。" : "点按柱形查看当天的分类与占比。"}
           </p>
           {selectedDay && (
-            <button type="button" className="secondary" onClick={() => setSelectedDay(null)}>
-              返回整个时间范围
-            </button>
+            <ActionButton action={() => setSelectedDay(null)} label="返回整个时间范围" />
           )}
+        </section>
+      )}
+      {contentTab === "trend" && activity.todayHours && (
+        <section className="section m-0" aria-labelledby="statistics-hours-title">
+          <h2 className={heading} id="statistics-hours-title">
+            今日时段
+          </h2>
+          <StatisticsHourlyBars
+            hours={activity.todayHours}
+            usual={usualHours(statistics.dailyHours, today.key)}
+          />
         </section>
       )}
       {contentTab === "trend" && (
@@ -1823,7 +1839,7 @@ export function TypingStatisticsPage({
           title="输入方案"
           slices={sourceSlices}
           variant="rank"
-          footer="输入方案统计其上屏字符数；拼音等按键另由按键热力图计数，只记每个键每天的按下次数。旧版本总数保留为历史未分类，新输入开始记录细分。"
+          footer="输入方案统计其上屏字符数；拼音等按键另由按键热力图计数，只记每个键每天的按下次数。来源无法归类的字数计入历史未分类。"
         />
       )}
       {!mobile && contentTab === "trend" && (
@@ -1838,78 +1854,71 @@ export function TypingStatisticsPage({
         </section>
       ) : (
         <section className="section m-0">
-          <label className="section-header mb-4">
-            <span className="section-title">
-              记录打字统计<small>关闭后，新提交不会增加统计。</small>
-            </span>
-            <input
-              aria-label="记录打字统计"
-              className="toggle"
-              type="checkbox"
-              checked={statistics.enabled}
-              disabled={busy}
-              onChange={(event) => void update(() => client.setEnabled(event.target.checked))}
-            />
-          </label>
+          <SettingToggle
+            label="记录打字统计"
+            description="关闭后，新提交不会增加统计。"
+            ariaLabel="记录打字统计"
+            rowClassName="mb-4"
+            compact
+            checked={statistics.enabled}
+            disabled={busy}
+            onChange={(enabled) => void update(() => client.setEnabled(enabled))}
+          />
           {client.setRetention && (
-            <label className="section-header mb-4">
-              <span className="section-title">
-                自动清理
-                <small>按保留策略删除超期的每日记录并从累计中扣除，跨天后首次记录时执行。</small>
-              </span>
-              <select
-                aria-label="自动清理"
-                value={statistics.retention ?? "forever"}
-                disabled={busy}
-                onChange={(event) => {
-                  const setRetention = client.setRetention;
-                  if (!setRetention) return;
-                  const chosen = event.target.value as StatisticsRetention;
-                  void update(() => setRetention(chosen));
-                }}
-              >
-                {retentionChoices.map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <SelectSettingField
+              label="自动清理"
+              inputLabel="自动清理"
+              description="按保留策略删除超期的每日记录并从累计中扣除，跨天后首次记录时执行。"
+              fieldClassName="section-header mb-4"
+              value={statistics.retention ?? "forever"}
+              disabled={busy}
+              onChange={(value) => {
+                const setRetention = client.setRetention;
+                if (!setRetention) return;
+                const chosen = value as StatisticsRetention;
+                void update(() => setRetention(chosen));
+              }}
+            >
+              {retentionChoices.map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </SelectSettingField>
           )}
           <div className="flex flex-wrap gap-[9px]">
-            <button
-              type="button"
+            <ActionButton
+              action={() => void update(() => client.load(), true)}
+              ariaBusy={busy}
               className="secondary m-0"
               disabled={busy}
-              onClick={() => void update(() => client.load(), true)}
-            >
-              {busy ? "处理中…" : "刷新统计"}
-            </button>
+              label={busy ? "处理中…" : "刷新统计"}
+            />
             {client.openDirectory && (
-              <button
-                type="button"
-                className="secondary m-0"
-                disabled={busy}
-                onClick={() => {
+              <ActionButton
+                action={async () => {
                   const openDirectory = client.openDirectory;
                   if (!openDirectory) return;
                   setError("");
-                  void openDirectory().catch(() =>
-                    setError("无法打开数据目录，可能是文件管理器不可用。"),
-                  );
+                  try {
+                    await openDirectory();
+                  } catch {
+                    setError("无法打开数据目录，可能是文件管理器不可用。");
+                  }
                 }}
-              >
-                打开数据目录
-              </button>
+                ariaBusy={busy}
+                className="secondary m-0"
+                disabled={busy}
+                label="打开数据目录"
+              />
             )}
-            <button
-              type="button"
+            <ActionButton
+              action={() => void resetStatistics()}
+              ariaBusy={busy}
               className="secondary m-0 text-danger"
               disabled={busy}
-              onClick={() => void resetStatistics()}
-            >
-              清空统计
-            </button>
+              label="清空统计"
+            />
           </div>
           <p className={privacy}>
             字数统计水杉键盘提交的字符，以及英文模式和放行给应用的字母、数字与符号（按按键时估计），含标点及表情，不含空格和换行。组合表情计为一个字符，删除文字不扣减。按键热力图只保存每个键每天被按下的次数，不保存按键顺序和输入内容。仅在本机保存日期、分类和数量，不保存输入内容。每日明细默认永久保留，可在「自动清理」中改为只保留最近一段时间；清理删除的日期同时从累计总数与分类中扣除。
@@ -1921,9 +1930,7 @@ export function TypingStatisticsPage({
           <h2 className={heading}>统计没有数据</h2>
           <p className="mt-2 mb-0 leading-relaxed text-secondary">{availabilityMessage}</p>
           {iosPlatform && status.availability === "neverWritten" && openSystemSettings && (
-            <button type="button" className="secondary" onClick={() => void openSystemSettings()}>
-              打开系统键盘设置
-            </button>
+            <ActionButton action={openSystemSettings} label="打开系统键盘设置" />
           )}
         </section>
       )}

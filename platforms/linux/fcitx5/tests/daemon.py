@@ -49,6 +49,8 @@ def main():
         assert result["ok"], "Host preparation failed"
         options = result["value"]
         options["preferences"].update(learning=False, cloud_candidates=False)
+        if "--wayland-punctuation" in sys.argv[4:]:
+            options["preferences"]["usage_reporting"] = False
         (root / "options.json").write_text(json.dumps(options))
         config = root / "config" / "fcitx5"
         config.mkdir(parents=True)
@@ -72,6 +74,10 @@ def main():
                    FCITX_ADDON_DIRS=f"{addon.parent}:{system_lib}/fcitx5")
         if "--page-number" in sys.argv[4:]:
             env["FCITX_X11_USE_CLIENT_SIDE_UI"] = "1"
+        if "--wayland-punctuation" in sys.argv[4:]:
+            assert env.get("MSIME_ISOLATED_LINUX_TEST") == "1"
+            assert Path(env.get("WAYLAND_DISPLAY", "")).is_absolute(), "需要独立合成器的绝对 socket 路径"
+            env.pop("DISPLAY", None)
         with (root / "daemon.log").open("w") as log:
             daemon = subprocess.Popen(["fcitx5", "-D", "--keep"], env=env,
                                       stdout=log, stderr=log)
@@ -80,6 +86,13 @@ def main():
                 service = "org.fcitx.Fcitx5"
                 control = dbus.Interface(bus.get_object(service, "/controller"),
                                          "org.fcitx.Fcitx.Controller1")
+                if "--wayland-punctuation" in sys.argv[4:]:
+                    # 复用隔离 daemon 和合成配置，但按键走真实 Wayland/Chrome，不走 D-Bus 模拟前端。
+                    subprocess.run(["node", str(source / "tests" / "wayland_punctuation.mjs")],
+                                   cwd=source.parents[2], env=env, check=True, timeout=60)
+                    control.Exit()
+                    assert daemon.wait(timeout=10) == 0, "测试 daemon 未正常退出"
+                    return
                 frontend = dbus.Interface(bus.get_object(service, "/org/freedesktop/portal/inputmethod"),
                                           "org.fcitx.Fcitx.InputMethod1")
                 path, _ = frontend.CreateInputContext([("program", "msime-synthetic-editor")])

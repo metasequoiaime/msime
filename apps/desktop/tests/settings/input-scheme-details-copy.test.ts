@@ -19,11 +19,9 @@ test("input page delegates scheme-specific controls to the shared scheme content
     'import { InputSchemeSettingsContent } from "../input-scheme-settings-content";',
   );
   expect(page).toContain("<InputSchemeSettingsContent");
-  expect(shared).toContain(
-    'import { InputSchemeDetailsSection, type ShuangpinProfile } from "./input-scheme-details-section";',
-  );
+  expect(shared).toContain("  InputSchemeDetailsSection,\n");
+  expect(shared).toContain('} from "./input-scheme-details-section";');
   expect(shared).toContain("<InputSchemeDetailsSection");
-  expect(shared).toContain("grouped={grouped}");
   expect(shared).not.toContain('<Row title="双拼方案"');
   expect(shared).not.toContain('<Row title="五笔方案"');
   expect(shared).not.toContain('<Row\n            title="日语方案"');

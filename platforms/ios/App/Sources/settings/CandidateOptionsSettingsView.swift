@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import CoreFoundation
 
 /// The candidate preview, text size and font, what the strip shows while spelling, 以词定字, cloud candidates, and what gets mixed into the Chinese candidates.
 ///
@@ -106,7 +107,7 @@ struct CandidateOptionsSettingsView: View {
       } header: {
         Text("预编辑")
       } footer: {
-        Text("行内预编辑默认关闭；个别 App 显示输入框里的组字不完整时可以关掉。韩语正在拼的音节总是写在输入框里，不受这项影响。候选栏预编辑选「不显示」时，候选栏不再显示正在拼写的编码，把位置留给候选；已选定的半个词和本地输入模式的名称仍会显示。")
+        Text("行内预编辑默认关闭；个别 App 显示输入框里的组字不完整时可以关掉。韩语正在拼的音节、注音正在转换的文字、越南语正在拼的词和藏文正在拼的音节总是写在输入框里，不受这项影响。笔画方案在「原始按键」下也显示笔画（一丨丿丶乛＊），不显示按键字母。候选栏预编辑选「不显示」时，候选栏不再显示正在拼写的编码，把位置留给候选；已选定的半个词和快捷模式的名称仍会显示。")
       }
       Section {
         Toggle(isOn: stored("word_character", "enabled", $wordCharacter)) {
@@ -208,7 +209,7 @@ struct CandidateOptionsSettingsView: View {
     guard let preferences = MetasequoiaInputSessionBridge.loadSharedPreferences() else { return }
     let mixed = preferences["mixed_input"] as? [String: Any] ?? [:]
     english = mixed["english"] as? Bool ?? english
-    minimumPrefix = (mixed["minimum_prefix"] as? NSNumber)?.intValue ?? minimumPrefix
+    minimumPrefix = Self.minimumPrefix(mixed["minimum_prefix"]) ?? minimumPrefix
     emoji = mixed["emoji"] as? Bool ?? emoji
     kaomoji = mixed["kaomoji"] as? Bool ?? kaomoji
     candidateSize = CandidateFontPreference.candidateSize(in: preferences, tablet: tablet)
@@ -220,6 +221,15 @@ struct CandidateOptionsSettingsView: View {
     document = preferences
     shuangpinRaw = preferences["shuangpin_preedit_uses_raw"] as? Bool ?? true
     wordCharacter = (preferences["word_character"] as? [String: Any])?["enabled"] as? Bool ?? wordCharacter
+  }
+
+  static func minimumPrefix(_ value: Any?) -> Int? {
+    guard let number = value as? NSNumber,
+          CFGetTypeID(number) != CFBooleanGetTypeID(),
+          let integer = Int(number.stringValue),
+          NSNumber(value: integer).compare(number) == .orderedSame,
+          (1...8).contains(integer) else { return nil }
+    return integer
   }
 }
 

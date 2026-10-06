@@ -6,7 +6,7 @@
  ],
  "fixture": {
   "databases": {
-   "others.db": "CREATE TABLE emoji_pinyin(key TEXT,emoji TEXT,sort_order INTEGER);INSERT INTO emoji_pinyin VALUES('xiaolian','😀',10);INSERT INTO emoji_pinyin VALUES('xiao''lian','😄',20);CREATE TABLE kaomoji(pinyin TEXT,jianpin TEXT,kaomoji TEXT,sort_order INTEGER);INSERT INTO kaomoji VALUES('haixiu','hx','(*/ω＼*)',10);"
+   "msime-others.db": "CREATE TABLE emoji_pinyin(key TEXT,emoji TEXT,sort_order INTEGER);INSERT INTO emoji_pinyin VALUES('xiaolian','😀',10);INSERT INTO emoji_pinyin VALUES('xiao''lian','😄',20);CREATE TABLE kaomoji(pinyin TEXT,jianpin TEXT,kaomoji TEXT,sort_order INTEGER);INSERT INTO kaomoji VALUES('haixiu','hx','(*/ω＼*)',10);"
   }
  },
  "options": {},

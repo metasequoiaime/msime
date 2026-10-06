@@ -2,17 +2,17 @@
 
 pub const ENV_FLAG: &str = "MSIME_DICT_INCLUDE_UNLICENSED";
 
-pub const BASE_DICT_PART1: &str = "cn/BaseDictAllV1Part1.txt";
-pub const BASE_DICT_PART2: &str = "cn/BaseDictAllV1Part2.txt";
-pub const SINGLE_CHAR_WHITELIST: &str = "cn/SingleCharWhitelist.txt";
-pub const OALDPE_WORDS: &str = "en/oaldpe_words.txt";
+pub const BASE_DICT_PART1: &str = "sources/unlicensed/custom-pinyin-dictionary-part1.txt";
+pub const BASE_DICT_PART2: &str = "sources/unlicensed/custom-pinyin-dictionary-part2.txt";
+pub const SINGLE_CHAR_WHITELIST: &str = "sources/unlicensed/single-char-whitelist.txt";
+pub const OALDPE_WORDS: &str = "sources/unlicensed/oaldpe-words.txt";
 
 /// Input, why it cannot be redistributed, and the licensed input used in its place.
 pub const UNLICENSED_INPUTS: &[(&str, &str, Option<&str>)] = &[
     (
         BASE_DICT_PART1,
         "merged from CustomPinyinDictionary, which declares no licence",
-        Some("cn/BaseDictIceV1.txt"),
+        Some("sources/pinyin/rime-ice.txt"),
     ),
     (
         BASE_DICT_PART2,

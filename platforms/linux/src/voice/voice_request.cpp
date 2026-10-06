@@ -21,7 +21,7 @@ int main(int argc, char **argv) {
   if (argc == 2 && std::string(argv[1]) == "--help") {
     std::cout << "Usage: msime-linux-voice [--stream] [provider-socket]\n"
                  "Defaults to MSIME_VOICE_PROVIDER_SOCKET, then "
-                 "$XDG_RUNTIME_DIR/msime-client/voice.sock.\n";
+                 "$XDG_RUNTIME_DIR/" MSIME_EDITION_CLIENT_DIRECTORY "/voice.sock.\n";
     return 0;
   }
   const bool stream = argc >= 2 && std::string(argv[1]) == "--stream";

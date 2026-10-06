@@ -1,4 +1,5 @@
 import Foundation
+import CoreFoundation
 
 private typealias SnapshotByte = UInt8
 private typealias SnapshotNext = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutablePointer<SnapshotByte>?, Int) -> Int
@@ -77,7 +78,7 @@ enum DictionarySnapshotBridge {
       try decode(msimeClientSnapshotPrepare(bytes.bindMemory(to: SnapshotByte.self).baseAddress,
                                             UInt(data.count), snapshotNext, opaque))
     }
-    guard let handle = (response["handle"] as? NSNumber)?.uint64Value,
+    guard let handle = unsignedIntegerValue(response["handle"]),
           let sourceVersion = response["source_version"] as? String else {
       throw SnapshotBridgeFailure.invalid
     }
@@ -86,17 +87,28 @@ enum DictionarySnapshotBridge {
     return MSIMEPreparedDictionarySnapshot(handle: handle, identifier: identifier, sourceVersion: sourceVersion)
   }
 
+  static func unsignedIntegerValue(_ value: Any?) -> UInt64? {
+    guard let number = value as? NSNumber,
+          CFGetTypeID(number) != CFBooleanGetTypeID(),
+          let integer = UInt64(number.stringValue),
+          NSNumber(value: integer).compare(number) == .orderedSame else { return nil }
+    return integer
+  }
+
   private static func snapshotOptions(resources: URL, user: URL) -> [String: Any] {
     let root = user.deletingLastPathComponent()
     for path in [user, root.appendingPathComponent("cache", isDirectory: true),
                  root.appendingPathComponent("dictionaries", isDirectory: true)] {
       try? FileManager.default.createDirectory(at: path, withIntermediateDirectories: true)
     }
-    return ["api_version": 1, "resources": resources.path, "user_data": user.path,
+    var options: [String: Any] = ["api_version": 1, "resources": resources.path, "user_data": user.path,
             "cache": root.appendingPathComponent("cache", isDirectory: true).path,
             "dictionaries": root.appendingPathComponent("dictionaries", isDirectory: true).path,
-            "preferences": ["scheme": "quanpin", "candidate_page_size": 9,
+            "preferences": ["scheme": MSIMEAppEdition.defaultScheme, "candidate_page_size": 9,
                              "learning": true, "chinese_punctuation": true]]
+    // 与键盘的 HostOptions 一样：full 不带版本，与引入版本之前相同；其他版本让 host-api 按本版本的方案和资源锁处理。
+    if !MSIMEAppEdition.isFull { options["edition"] = MSIMEAppEdition.identifier }
+    return options
   }
 
   private static func version(_ options: [String: Any]) throws -> String {

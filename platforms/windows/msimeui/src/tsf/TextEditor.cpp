@@ -40,6 +40,7 @@ std::filesystem::path FindDictionaryPath()
     GetModuleFileNameW(nullptr, modulePath, MAX_PATH);
 
     std::vector<std::filesystem::path> roots;
+    roots.reserve(2);
     roots.emplace_back(std::filesystem::current_path());
     roots.emplace_back(std::filesystem::path(modulePath).parent_path());
 

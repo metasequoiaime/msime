@@ -44,6 +44,13 @@ int main() {
   assert(!safe_skin_id("unsafe/id"));
   assert(!safe_skin_id(""));
   assert(safe_skin_id("solarized"));
+  Json oversized = Json{{"candidate_skin_catalog", { {"packages", Json::array()} }}};
+  for (int index = 0; index < 40; ++index) {
+    oversized["candidate_skin_catalog"]["packages"].push_back(
+        Json{{"id", "skin" + std::to_string(index)}, {"title", "Skin"},
+             {"base", "system"}, {"layouts", Json::array({"vertical"})}});
+  }
+  assert(parse_configured_skins(oversized).size() == 32);
   assert(parse_configured_skins(Json::object()).empty());
   assert(parse_configured_skins(Json{{"candidate_skin_catalog", {{"packages", Json::object()}}}}).empty());
 

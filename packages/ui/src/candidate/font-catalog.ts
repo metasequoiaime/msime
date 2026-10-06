@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { validFontFamily } from "./candidate-font-family";
+import { useAsyncGeneration } from "../settings/use-async-generation";
 export type FontCatalogReader = () => Promise<string[]>;
 export function normalizeFontCatalog(value: unknown): string[] {
   if (!Array.isArray(value) || value.length > 16384 || !value.every(validFontFamily))
@@ -11,21 +12,19 @@ export function useFontCatalog(read?: FontCatalogReader) {
     [revision, setRevision] = useState(0);
   const key = useMemo(() => ({}), [read, revision]);
   const [result, setResult] = useState<{ key: object; fonts: string[]; failed?: boolean }>();
+  const generation = useAsyncGeneration(read, revision, requested);
   useEffect(() => {
-    let active = true;
+    const requestGeneration = generation.current;
     if (requested && read)
       void (async () => {
         try {
           const fonts = normalizeFontCatalog(await read());
-          if (active) setResult({ key, fonts });
+          if (generation.current === requestGeneration) setResult({ key, fonts });
         } catch {
-          if (active) setResult({ key, fonts: [], failed: true });
+          if (generation.current === requestGeneration) setResult({ key, fonts: [], failed: true });
         }
       })();
-    return () => {
-      active = false;
-    };
-  }, [read, key, requested]);
+  }, [read, key, requested, generation]);
   const current = result?.key === key ? result : undefined;
   const status = !read
     ? "unsupported"

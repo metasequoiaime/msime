@@ -55,6 +55,9 @@ pub(super) fn extract(strokes: &[InkStroke], size: u32) -> Option<Vec<FeatureNod
         let sid = sid as i32;
         let mut pairs = [None; MAX_VERTEX_ID + 1];
         vertices(stroke, 0, stroke.len() - 1, 0, &mut pairs);
+        let pair_count = pairs.iter().filter(|pair| pair.is_some()).count();
+        let move_count = usize::from(previous_last.is_some());
+        features.reserve_exact(pair_count.saturating_add(move_count).saturating_mul(12));
         for (id, pair) in pairs.iter().enumerate() {
             if let Some((first, last)) = pair {
                 basic_features(
@@ -71,6 +74,7 @@ pub(super) fn extract(strokes: &[InkStroke], size: u32) -> Option<Vec<FeatureNod
         previous_last = Some(stroke[stroke.len() - 1]);
     }
     let stroke_count = nodes.len() as i32;
+    features.reserve_exact(2);
     push(&mut features, 2_000_000, stroke_count as f32);
     push(&mut features, 2_000_000 + stroke_count, 10.0);
     features.sort_by_key(|feature| feature.index);
@@ -227,5 +231,14 @@ mod tests {
             .filter(|feature| feature.index < 2_000_000 && feature.index % 20 == 1)
             .count();
         assert!(pairs > 5, "{pairs}");
+    }
+
+    #[test]
+    fn feature_output_reserves_generated_nodes() {
+        let zigzag: Vec<(i32, i32)> = (0..512)
+            .map(|index| (index * 1000 / 512, if index % 2 == 0 { 100 } else { 900 }))
+            .collect();
+        let features = extract(&[zigzag], 1000).unwrap();
+        assert_eq!(features.capacity(), features.len());
     }
 }

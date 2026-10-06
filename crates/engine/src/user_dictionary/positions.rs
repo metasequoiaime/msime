@@ -11,6 +11,8 @@ use crate::types::{CandidateSource, WordItem};
 /// Looks a fixed row up by `(entry_key, value)` when it is not in the list; the session passes its engine's `find_candidate`.
 pub type FindCandidate<'a> = dyn FnMut(&str, &str) -> Option<WordItem> + 'a;
 
+const FIXED_SLOT_COUNT: usize = 5;
+
 /// Slot 1..=5; the previous owner of the slot is evicted (J:905-927).
 pub fn set_fixed_position(
     user_db: &Path,
@@ -19,7 +21,7 @@ pub fn set_fixed_position(
     value: &str,
     position: i32,
 ) -> Result<()> {
-    if !(1..=5).contains(&position)
+    if !(1..=FIXED_SLOT_COUNT as i32).contains(&position)
         || context.is_empty()
         || entry_key.is_empty()
         || value.is_empty()
@@ -80,7 +82,11 @@ fn fixed_rows(user_db: &Path, context: &str) -> Result<Vec<(String, String, i32)
     let rows = statement.query_map(params![context], |row| {
         Ok((row.get(0)?, row.get(1)?, row.get(2)?))
     })?;
-    Ok(rows.collect::<rusqlite::Result<_>>()?)
+    let mut result = Vec::with_capacity(FIXED_SLOT_COUNT);
+    for row in rows {
+        result.push(row?);
+    }
+    Ok(result)
 }
 
 /// Move the context's fixed rows into their slots, matching by word; with `include_missing`, rows not in the list are fetched through `find_candidate(entry_key, value)`. Online rows are lifted out and put back at 1 (cloud) and 2 (AI) unless `keep_dynamic_candidate_positions` (J:1272-1346). No journal file means nothing to apply.
@@ -250,6 +256,19 @@ mod tests {
         let mut never = |_: &str, _: &str| -> Option<WordItem> { panic!("looked up") };
         apply_fixed_positions(&journal, "ni", &mut list, false, Some(&mut never), true);
         assert_eq!(words(&list), ["丙", "甲", "云"]);
+    }
+
+    #[test]
+    fn fixed_rows_reserve_the_five_available_slots() {
+        let dir = Dir::new();
+        let journal = dir.journal();
+        for position in 1..=5 {
+            set_fixed_position(&journal, "ni", "ni", &format!("字{position}"), position).unwrap();
+        }
+
+        let rows = fixed_rows(&journal, "ni").unwrap();
+        assert_eq!(rows.len(), 5);
+        assert_eq!(rows.capacity(), 5);
     }
 
     #[test]

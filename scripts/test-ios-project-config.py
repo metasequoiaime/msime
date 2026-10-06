@@ -64,6 +64,7 @@ class IOSProjectConfigTests(unittest.TestCase):
         self.assertIn("task.maximumMessageSize = Self.maximumFrameBytes", doubao)
         self.assertIn("private static let pcmChunkBytes = 6_400", doubao)
         self.assertIn("willPerformHTTPRedirection", doubao)
+        self.assertIn("$0.unicodeScalars.allSatisfy({ $0.value < 0x80 })", doubao)
         self.assertIn("MobileVoiceRequestHeader", rust_voice)
         # The resolution moved into the shared crate so the Android keyboard, which never goes
         # through this shell, reads the same answer. What this pins is unchanged: the Doubao
@@ -85,7 +86,12 @@ class IOSProjectConfigTests(unittest.TestCase):
         with privacy_path.resolve().open("rb") as file:
             privacy = plistlib.load(file)
         self.assertFalse(privacy["NSPrivacyTracking"])
-        self.assertEqual(privacy["NSPrivacyCollectedDataTypes"], [])
+        # Anonymous usage reporting: crash reports, keyboard sessions and daily activity, and the random install id, none linked to the user or used for tracking.
+        self.assertEqual(privacy["NSPrivacyCollectedDataTypes"], [
+            {"NSPrivacyCollectedDataType": "NSPrivacyCollectedDataTypeCrashData", "NSPrivacyCollectedDataTypeLinked": False, "NSPrivacyCollectedDataTypeTracking": False, "NSPrivacyCollectedDataTypePurposes": ["NSPrivacyCollectedDataTypePurposeAnalytics", "NSPrivacyCollectedDataTypePurposeAppFunctionality"]},
+            {"NSPrivacyCollectedDataType": "NSPrivacyCollectedDataTypeProductInteraction", "NSPrivacyCollectedDataTypeLinked": False, "NSPrivacyCollectedDataTypeTracking": False, "NSPrivacyCollectedDataTypePurposes": ["NSPrivacyCollectedDataTypePurposeAnalytics"]},
+            {"NSPrivacyCollectedDataType": "NSPrivacyCollectedDataTypeDeviceID", "NSPrivacyCollectedDataTypeLinked": False, "NSPrivacyCollectedDataTypeTracking": False, "NSPrivacyCollectedDataTypePurposes": ["NSPrivacyCollectedDataTypePurposeAnalytics"]},
+        ])
         project = (APPLE_ROOT / "project.yml").read_text()
         reference = "path: ../../../../../platforms/ios/SharedResources/PrivacyInfo.xcprivacy"
         self.assertEqual(project.count(reference), 2)
@@ -110,7 +116,7 @@ class IOSProjectConfigTests(unittest.TestCase):
             ["group.app.msime.ios"],
         )
 
-    def test_tauri_ios_onboarding_reuses_the_legacy_app_marker(self):
+    def test_tauri_ios_onboarding_reuses_the_native_app_marker(self):
         plugin = TAURI_ROOT / "../../../crates/tauri-mobile-platform"
         rust = (plugin / "src/lib.rs").read_text()
         swift = (plugin / "ios/Sources/MobilePlatformPlugin.swift").read_text()
@@ -148,6 +154,21 @@ class IOSProjectConfigTests(unittest.TestCase):
         self.assertIn("KeyboardBrand.png in Resources", generated)
         self.assertGreaterEqual(generated.count("KeyboardBrand.png in Resources"), 2)
 
+    def test_language_dictionaries_are_bundled_beside_engine_resources_for_app_and_extension(self):
+        project = (APPLE_ROOT / "project.yml").read_text()
+        generated = (APPLE_ROOT / "msime-desktop.xcodeproj/project.pbxproj").read_text()
+        rust_entry = (TAURI_ROOT / "src/lib.rs").read_text()
+
+        entry = (
+            "      - path: ../../../../../target/ios/language-dictionaries\n"
+            "        buildPhase: resources\n"
+            "        type: folder\n"
+            "        optional: true\n"
+        )
+        self.assertEqual(project.count(entry), 2)
+        self.assertEqual(generated.count("language-dictionaries in Resources */,"), 2)
+        self.assertIn("msime_host_api::installed_language_dictionaries(resources)", rust_entry)
+
     def test_tauri_app_embeds_the_native_keyboard_extension(self):
         project = (APPLE_ROOT / "project.yml").read_text()
         self.assertIn("  MSIMEKeyboardExtension:\n    type: app-extension", project)
@@ -179,7 +200,7 @@ class IOSProjectConfigTests(unittest.TestCase):
 
         # The checked-in XcodeGen output is the shipping project used by Tauri. Keep the
         # generated target in lockstep with project.yml so a newly added keyboard dependency
-        # cannot silently compile only in the legacy native project.
+        # cannot silently compile only in the native project.
         self.assertIn("../../../../../platforms/ios/KeyboardExtension/Sources", project)
         self.assertIn("../../../../../platforms/ios/SharedUI", project)
         sources = [
@@ -257,7 +278,7 @@ class IOSProjectConfigTests(unittest.TestCase):
         self.assertIn('kSecAttrService as String: "app.msime.backend.account"', swift)
         self.assertIn('kSecAttrAccount as String: "https://api.msime.app"', swift)
         self.assertIn("kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly", swift)
-        self.assertIn('kSecAttrService as String: "app.msime.ios.community"', swift)
+        self.assertNotIn("app.msime.ios.community", swift)
         self.assertIn("static let maximumPayloadBytes = 16 * 1024", swift)
         self.assertIn("@objc public func loadSession", swift)
         self.assertIn("@objc public func saveSession", swift)

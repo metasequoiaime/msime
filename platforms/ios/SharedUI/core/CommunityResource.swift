@@ -1,9 +1,10 @@
 import Foundation
+import Darwin
 
 enum CommunityResourceKind: String, Codable, CaseIterable, Identifiable, Sendable {
   case dictionary, reply
   var id: String { rawValue }
-  var title: String { self == .dictionary ? "词库" : "回复" }
+  var title: String { self == .dictionary ? "词库" : "回复模板" }
   var icon: String { self == .dictionary ? "character.book.closed.fill" : "text.bubble.fill" }
 }
 struct CommunityWord: Codable, Sendable {
@@ -40,6 +41,10 @@ struct CommunityResource: Codable, Identifiable, Sendable {
   var rating_count: Int
   var rating_average: Double
   var my_rating: Int
+  /// "approved", "pending" or "removed" on the user's own works when the request asked for fields=moderation.
+  var moderation: String? = nil
+  /// Post-moderation: only a removal is shown to the author, never a pending state or a reason.
+  var removed: Bool { owned && moderation == "removed" }
 }
 
 // Only explicit downloads are shared with the keyboard; never credentials or source messages.
@@ -48,6 +53,10 @@ enum CommunityLibrary {
   private static let maximumItems = 50
   private static let maximumJavaScriptInteger = 9_007_199_254_740_991
 
+  private static func rejectSymlinkAncestors(_ path: URL) throws {
+    guard !SafePath.hasRefusedSymbolicLink(path) else { throw PersonalDictionaryStore.StoreError.unavailable }
+  }
+
   private static func file(in directory: URL? = nil) -> URL? {
     (directory ?? FileManager.default.containerURL(
       forSecurityApplicationGroupIdentifier: InputSchemePreference.appGroupIdentifier))?
@@ -55,6 +64,7 @@ enum CommunityLibrary {
   }
   static func read(in directory: URL? = nil) throws -> [CommunityResource] {
     guard let file = file(in: directory) else { throw PersonalDictionaryStore.StoreError.unavailable }
+    try rejectSymlinkAncestors(file)
     guard FileManager.default.fileExists(atPath: file.path) else { return [] }
     guard let size = try file.resourceValues(forKeys: [.fileSizeKey]).fileSize, size <= maximumBytes else {
       throw PersonalDictionaryStore.StoreError.invalidState
@@ -88,6 +98,7 @@ enum CommunityLibrary {
     guard let file = file(in: directory) else { throw PersonalDictionaryStore.StoreError.unavailable }
     let data = try JSONEncoder().encode(items)
     guard data.count <= maximumBytes else { throw PersonalDictionaryStore.StoreError.tooManyRequests }
+    try rejectSymlinkAncestors(file)
     try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
     try data.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
   }

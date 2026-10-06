@@ -1,0 +1,24 @@
+schema_version = 1
+kind = "phrase_table"
+id = "office-phrases"
+name = "办公短语"
+version = "1.0.0"
+license = "CC0-1.0"
+author = "Fixture"
+permissions = []
+
+[[phrases]]
+key = "dh"
+text = "电话"
+
+[[phrases]]
+key = "dh"
+text = "电话号码"
+
+[[phrases]]
+key = "yx"
+text = "someone@example.com"
+
+[[phrases]]
+key = "zfh"
+text = "😀 表情也可以"

@@ -103,7 +103,7 @@ enum SnapshotQueueAction {
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-struct SnapshotMetadata {
+pub(crate) struct SnapshotMetadata {
     cloud_revision: i64,
     sha256: String,
     file_sha256: String,
@@ -185,7 +185,9 @@ fn inspect_snapshot_record(
             let dictionary_kind = data
                 .get("kind")
                 .and_then(Value::as_str)
-                .filter(|value| matches!(*value, "pinyin" | "wubi" | "english" | "quick"))
+                .filter(|value| {
+                    matches!(*value, "pinyin" | "wubi" | "wubi98" | "english" | "quick")
+                })
                 .ok_or("invalid snapshot document")?
                 .to_owned();
             let id = data
@@ -276,10 +278,15 @@ fn inspect_snapshot_record(
     }
 }
 
+fn reject_symlinked_snapshot_path(path: &Path) -> Result<(), &'static str> {
+    msime_path_trust::reject_symlinked_components(path).map_err(|_| "snapshot file unavailable")
+}
+
 /// Validate the complete NDJSON envelope before a host calls the expensive Engine staging path.
 /// Header/footer order, exact body checksum, category order and record bounds are all part of the
 /// cloud format. Engine records receive their deeper scheme-specific validation during prepare.
-fn inspect_snapshot(path: &Path) -> Result<SnapshotMetadata, &'static str> {
+pub(crate) fn inspect_snapshot(path: &Path) -> Result<SnapshotMetadata, &'static str> {
+    reject_symlinked_snapshot_path(path)?;
     let metadata = std::fs::symlink_metadata(path).map_err(|_| "snapshot file unavailable")?;
     if !metadata.file_type().is_file() || metadata.len() == 0 || metadata.len() > MAX_SNAPSHOT_BYTES
     {
@@ -444,6 +451,150 @@ fn inspect_snapshot(path: &Path) -> Result<SnapshotMetadata, &'static str> {
     })
 }
 
+/// 把本机用户词库写成与 `GET /v1/users/me/dictionary/snapshot` 相同的 NDJSON（`msime-dictionary-snapshot` 第 1 版：header、每个词一条 `entry` 和一条同权重的 `overlay`、footer 带正文 SHA-256），写完再用 [`inspect_snapshot`] 按云端格式校验一遍，返回同样的元数据。
+///
+/// 这是离线导出：不需要登录，修订号固定为 1。位置调整和选词计数是 Engine 内部的学习状态，没有只读接口，不导出。调用方已经持有词库的会话访问权。
+pub(crate) fn export_local_snapshot(
+    options: &EngineOptions,
+    destination: &Path,
+) -> Result<Value, &'static str> {
+    use msime_engine::host::DictionaryKind;
+    const REVISION: i64 = 1;
+    const CHUNK: usize = 1000;
+    let parent = destination
+        .parent()
+        .filter(|_| destination.is_absolute() && destination.file_name().is_some())
+        .ok_or("invalid snapshot destination")?;
+    if destination.is_dir() {
+        return Err("invalid snapshot destination");
+    }
+    let now = time::OffsetDateTime::now_utc();
+    let updated_at = format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
+        now.year(),
+        u8::from(now.month()),
+        now.day(),
+        now.hour(),
+        now.minute(),
+        now.second()
+    );
+    let mut rows = Vec::new();
+    let mut seen = HashSet::new();
+    // Rows the cloud snapshot format cannot carry: a quick phrase may hold a line break or a tab, which `required_text` refuses. They are left out and counted so the host can tell the user, instead of the whole export failing.
+    let mut skipped = 0usize;
+    let mut offset = 0usize;
+    loop {
+        let page = msime_engine::host::dictionary_entries(options, offset, CHUNK)
+            .map_err(|_| "dictionary read rejected")?;
+        let count = page.entries.len();
+        for entry in page.entries {
+            let kind = match entry.kind {
+                DictionaryKind::Pinyin => "pinyin",
+                DictionaryKind::Wubi => "wubi",
+                DictionaryKind::Wubi98 => "wubi98",
+                DictionaryKind::QuickPhrase => "quick",
+                DictionaryKind::English => "english",
+                _ => continue,
+            };
+            if !snapshot_safe(&entry.key) || !snapshot_safe(&entry.value) {
+                skipped += 1;
+                continue;
+            }
+            if entry.key.is_empty()
+                || entry.key.len() > 512
+                || entry.value.is_empty()
+                || entry.value.len() > 2048
+                || !seen.insert((kind, entry.key.clone(), entry.value.clone()))
+            {
+                continue;
+            }
+            rows.push((
+                kind,
+                entry.key,
+                entry.value,
+                entry.weight.clamp(1, 100_000_000),
+            ));
+        }
+        offset = offset.saturating_add(count);
+        if !page.has_more || count == 0 || rows.len() >= 100_000 {
+            break;
+        }
+    }
+    rows.truncate(100_000);
+    let mut body = Vec::new();
+    let mut push = |line: Value| {
+        body.extend_from_slice(line.to_string().as_bytes());
+        body.push(b'\n');
+    };
+    push(json!({
+        "type": "header",
+        "format": "msime-dictionary-snapshot",
+        "version": 1,
+        "revision": REVISION,
+    }));
+    let id = |kind: &str, code: &str, word: &str| {
+        let mut digest = Sha256::new();
+        digest.update(kind.as_bytes());
+        digest.update(b"\t");
+        digest.update(code.as_bytes());
+        digest.update(b"\t");
+        digest.update(word.as_bytes());
+        hex::encode(&digest.finalize()[..16])
+    };
+    for (kind, code, word, weight) in &rows {
+        push(json!({"type": "entry", "data": {
+            "id": id(kind, code, word),
+            "kind": kind,
+            "code": code,
+            "word": word,
+            "weight": weight,
+            "revision": REVISION,
+            "updated_at": updated_at,
+        }}));
+    }
+    for (kind, code, word, weight) in &rows {
+        push(json!({"type": "overlay", "deleted": false, "data": {
+            "id": id(kind, code, word),
+            "kind": kind,
+            "code": code,
+            "word": word,
+            "weight": weight,
+            "revision": REVISION,
+            "updated_at": updated_at,
+            "user_inserted": true,
+        }}));
+    }
+    let records = 1 + rows.len() * 2;
+    let checksum = hex::encode(Sha256::digest(&body));
+    body.extend_from_slice(
+        json!({"type": "footer", "records": records, "sha256": checksum})
+            .to_string()
+            .as_bytes(),
+    );
+    body.push(b'\n');
+    let mut temporary =
+        tempfile::NamedTempFile::new_in(parent).map_err(|_| "snapshot file unavailable")?;
+    temporary
+        .write_all(&body)
+        .and_then(|()| temporary.as_file().sync_all())
+        .map_err(|_| "snapshot file unavailable")?;
+    let metadata = inspect_snapshot(temporary.path())?;
+    temporary
+        .persist(destination)
+        .map_err(|_| "snapshot file unavailable")?;
+    let mut value = serde_json::to_value(metadata).map_err(|_| "snapshot file unavailable")?;
+    value["path"] = json!(destination.to_string_lossy());
+    value["skipped"] = json!(skipped);
+    Ok(value)
+}
+
+/// The same byte test `snapshot_validation::required_text` applies to a code or word, so an exported row is never one `inspect_snapshot` refuses.
+fn snapshot_safe(text: &str) -> bool {
+    !text
+        .bytes()
+        .any(|byte| matches!(byte, 0 | b'\t' | b'\n' | b'\r'))
+}
+
 fn restore_snapshot_with(
     request: RestoreRequest,
     path: &Path,
@@ -469,8 +620,10 @@ fn parse_options(bytes: &[u8]) -> Result<EngineOptions, &'static str> {
     if bytes.len() > REQUEST_LIMIT {
         return Err("invalid snapshot options");
     }
-    let options: HostOptions =
-        serde_json::from_slice(bytes).map_err(|_| "invalid snapshot options")?;
+    let options = serde_json::from_slice(bytes)
+        .ok()
+        .and_then(HostOptions::from_document)
+        .ok_or("invalid snapshot options")?;
     validate_options(options)
 }
 fn validate_options(options: HostOptions) -> Result<EngineOptions, &'static str> {
@@ -511,7 +664,8 @@ fn version(options: &EngineOptions) -> Result<String, &'static str> {
 
 fn activation_receipt(options: &EngineOptions) -> Result<Option<String>, &'static str> {
     let path = Path::new(&options.user_data).join(ACTIVATION_RECEIPT_NAME);
-    let file = match std::fs::File::open(path) {
+    reject_symlinked_snapshot_path(&path).map_err(|_| "snapshot activation receipt unavailable")?;
+    let file = match std::fs::File::open(&path) {
         Ok(file) => file,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(_) => return Err("snapshot activation receipt unavailable"),
@@ -559,6 +713,7 @@ fn write_activation_receipt_at(
 fn prepare(
     request: PrepareRequest,
     specification: &ResourceSet,
+    on_demand: &[&str],
     stream: impl Iterator<Item = Result<msime_engine::host::DictionaryStateRecord, SnapshotReadError>>
         + 'static,
 ) -> Result<Prepared, &'static str> {
@@ -597,8 +752,11 @@ fn prepare(
             return Err("snapshot staging overlaps active paths");
         }
     }
+    // 与 `prepare_host_configuration` 相同的发货规则；内容标识仍按完整清单计算。
+    let shipped =
+        crate::shipped_specification(specification, Path::new(&options.resources), on_demand);
     ResourceStore::new(&options.resources)
-        .verify(Path::new(&options.resources), specification)
+        .verify(Path::new(&options.resources), &shipped)
         .map_err(|_| "snapshot resources rejected")?;
     let content_id = specification
         .generation()
@@ -895,6 +1053,7 @@ struct SnapshotFileRecords {
 
 impl SnapshotFileRecords {
     fn open(path: &Path) -> Result<Self, &'static str> {
+        reject_symlinked_snapshot_path(path)?;
         let file = std::fs::File::open(path).map_err(|_| "snapshot file unavailable")?;
         Ok(Self {
             reader: BufReader::with_capacity(MAX_SNAPSHOT_LINE_BYTES, file),
@@ -1035,10 +1194,11 @@ fn snapshot_queue_process(
         .map_err(snapshot_queue_error)?
         .to_owned();
     let stream = SnapshotFileRecords::open(&path).map_err(str::to_owned)?;
-    let specification: ResourceSet = serde_json::from_str(include_str!(
-        "../../../resources/desktop-dictionary.lock.json"
-    ))
-    .map_err(|_| "snapshot resources rejected".to_owned())?;
+    // 与准备宿主时相同：按文档记录的版本的锁校验资源、计算代次。
+    let specification = options
+        .edition()
+        .resource_set()
+        .map_err(|_| "snapshot resources rejected".to_owned())?;
     let prepared = prepare(
         PrepareRequest {
             options,
@@ -1048,6 +1208,7 @@ fn snapshot_queue_process(
             activation_id: Some(request.id.to_string()),
         },
         &specification,
+        crate::ON_DEMAND_ARTIFACTS,
         stream,
     );
     let prepared = match prepared {
@@ -1251,10 +1412,12 @@ pub unsafe extern "C" fn msime_client_snapshot_prepare(
         let request: PrepareRequest =
             serde_json::from_slice(unsafe { std::slice::from_raw_parts(request, length) })
                 .map_err(|_| "invalid snapshot request")?;
-        let specification: ResourceSet = serde_json::from_str(include_str!(
-            "../../../resources/desktop-dictionary.lock.json"
-        ))
-        .map_err(|_| "snapshot resources rejected")?;
+        // 与准备宿主时相同：按文档记录的版本的锁校验资源、计算代次。
+        let specification = request
+            .options
+            .edition()
+            .resource_set()
+            .map_err(|_| "snapshot resources rejected")?;
         let mut buffer = vec![0; BUFFER_LIMIT];
         let stream = std::iter::from_fn(move || {
             let length = unsafe { next(context, buffer.as_mut_ptr(), buffer.len()) };
@@ -1266,7 +1429,7 @@ pub unsafe extern "C" fn msime_client_snapshot_prepare(
             }
             Some(record::decode(&buffer[..length as usize]))
         });
-        let prepared = prepare(request, &specification, stream)?;
+        let prepared = prepare(request, &specification, crate::ON_DEMAND_ARTIFACTS, stream)?;
         register(prepared).map_err(Into::into)
     })
 }

@@ -5,7 +5,7 @@ int main() {
     @autoreleasepool {
         NSDictionary *originalAI = @{
             @"enabled": @YES, @"provider": @"openai", @"model": @"old-model",
-            @"candidate_limit": @3, @"prompt": @"old-prompt",
+            @"candidate_limit": @3,
             @"token": @"synthetic-legacy", @"token_openai": @"synthetic-openai",
             @"token_deepseek": @"synthetic-deepseek",
             @"token_siliconflow": @"synthetic-siliconflow", @"token_groq": @"synthetic-groq",
@@ -17,7 +17,7 @@ int main() {
         NSDictionary *edits = @{
             @"enabled": @NO, @"provider": @"deepseek", @"model": @"new-model",
             @"endpoint": @"https://synthetic.invalid/chat", @"candidate_limit": @7,
-            @"prompt": @"new-prompt", @"prompt_custom_1": @"new-one",
+            @"prompt_custom_1": @"new-one",
             @"prompt_custom_2": @"new-two", @"prompt_custom_3": @"new-three"
         };
         NSDictionary *merged = MSIMEAISettingsMerge(original, edits);

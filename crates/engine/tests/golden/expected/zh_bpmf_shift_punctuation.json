@@ -1,0 +1,248 @@
+{
+ "name": "zh_bpmf_shift_punctuation",
+ "steps": [
+  {
+   "op": "open",
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "zhuyin",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "su3",
+   "op": "type",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 3,
+    "dedicated_english": false,
+    "editing_text": "su3",
+    "local_mode": "none",
+    "normalized_segmentation": "你",
+    "preedit": "你",
+    "raw_segmentation": "su3",
+    "scheme": "zhuyin",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "<",
+   "op": "char",
+   "result": {
+    "commit": "你，",
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "zhuyin",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "?",
+   "op": "punctuation",
+   "result": {
+    "commit": "？",
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "zhuyin",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "cl3",
+   "op": "type",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 3,
+    "dedicated_english": false,
+    "editing_text": "cl3",
+    "local_mode": "none",
+    "normalized_segmentation": "好",
+    "preedit": "好",
+    "raw_segmentation": "cl3",
+    "scheme": "zhuyin",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "[",
+   "op": "punctuation",
+   "result": {
+    "commit": "好「",
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "zhuyin",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": ",",
+   "op": "punctuation",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 1,
+    "dedicated_english": false,
+    "editing_text": ",",
+    "local_mode": "none",
+    "normalized_segmentation": "ㄝ",
+    "preedit": "ㄝ",
+    "raw_segmentation": ",",
+    "scheme": "zhuyin",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "]",
+   "op": "punctuation",
+   "result": {
+    "commit": "」",
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "zhuyin",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "su3",
+   "op": "type",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 3,
+    "dedicated_english": false,
+    "editing_text": "su3",
+    "local_mode": "none",
+    "normalized_segmentation": "你",
+    "preedit": "你",
+    "raw_segmentation": "su3",
+    "scheme": "zhuyin",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "!",
+   "op": "punctuation",
+   "result": {
+    "commit": "你！",
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "zhuyin",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "{",
+   "op": "punctuation",
+   "result": {
+    "commit": "『",
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "zhuyin",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": ":",
+   "op": "char",
+   "result": {
+    "commit": "：",
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "zhuyin",
+    "shuangpin_profile": "xiaohe"
+   }
+  }
+ ]
+}

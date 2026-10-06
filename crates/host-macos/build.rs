@@ -8,7 +8,6 @@ fn main() {
     println!("cargo:rerun-if-changed=native/clipboard.mm");
     println!("cargo:rerun-if-changed=native/uninstaller.mm");
     println!("cargo:rerun-if-changed=native/dictionary.mm");
-    println!("cargo:rerun-if-changed=native/account.mm");
     println!("cargo:rerun-if-changed=native/file_picker.mm");
     println!("cargo:rerun-if-changed=native/process.mm");
     // voice_capture_devices.mm includes this; the path moved with `refactor(macos): organize tests by
@@ -21,7 +20,6 @@ fn main() {
         .file("native/clipboard.mm")
         .file("native/uninstaller.mm")
         .file("native/dictionary.mm")
-        .file("native/account.mm")
         .file("native/file_picker.mm")
         .file("native/process.mm")
         .flag("-fobjc-arc")

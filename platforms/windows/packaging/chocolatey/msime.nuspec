@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 模板：platforms/windows/packaging/render.py 按一个 windows-v 发布填写 @...@ 字段。 -->
+<package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
+  <metadata>
+    <id>msime</id>
+    <version>@VERSION@</version>
+    <packageSourceUrl>https://github.com/metasequoiaime/msime/tree/develop/platforms/windows/packaging/chocolatey</packageSourceUrl>
+    <owners>Metasequoia</owners>
+    <title>Metasequoia IME (水杉输入法)</title>
+    <authors>Metasequoia</authors>
+    <projectUrl>https://github.com/metasequoiaime/msime</projectUrl>
+    <iconUrl>https://raw.githubusercontent.com/metasequoiaime/msime/develop/apps/desktop/src-tauri/icons/128x128.png</iconUrl>
+    <licenseUrl>https://github.com/metasequoiaime/msime/blob/develop/LICENSE</licenseUrl>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <projectSourceUrl>https://github.com/metasequoiaime/msime</projectSourceUrl>
+    <docsUrl>https://github.com/metasequoiaime/msime/tree/develop/platforms/windows</docsUrl>
+    <bugTrackerUrl>https://github.com/metasequoiaime/msime/issues</bugTrackerUrl>
+    <tags>msime metasequoia ime input-method chinese pinyin shuangpin wubi tsf</tags>
+    <summary>Metasequoia IME (水杉输入法): Chinese input method for Windows</summary>
+    <description><![CDATA[Metasequoia IME (水杉输入法, MSIME) is a Chinese input method for Windows, macOS, Linux, Android, iOS and HarmonyOS. On Windows it is a Text Services Framework input method with its own Server process, a native candidate window and a settings app.
+
+MSIME is short for Metasequoia IME; it has nothing to do with Microsoft IME.
+
+This package runs the released Inno Setup installer silently; the input method is installed machine-wide under Program Files.
+
+## Package parameters
+
+- `/DataDir:` - an empty directory for the input method's data (dictionaries, settings, skins). Without it the installer keeps the directory of an earlier install, or uses `%LOCALAPPDATA%\metasequoiaime`.
+
+Example: `choco install msime --params "'/DataDir:D:\msime-data'"`
+
+## Notes
+
+Uninstalling deletes the input method's data directory, including your own dictionary words, settings and skins. Upgrading keeps it.
+
+Installing as SYSTEM (for example from an RMM tool or a scheduled task) needs `/DataDir:`: without it the installer picks the SYSTEM account's local app data, which lies inside `C:\Windows`, rejects it and the install fails.
+]]></description>
+    <releaseNotes>@RELEASE_NOTES_URL@</releaseNotes>
+    <dependencies>
+      <dependency id="vcredist140" version="14.20" />
+      <dependency id="webview2-runtime" />
+    </dependencies>
+  </metadata>
+  <files>
+    <file src="tools\**" target="tools" />
+  </files>
+</package>

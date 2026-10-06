@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <map>
 #include <memory>
 #include <nlohmann/json.hpp>
 #include <poll.h>
@@ -43,6 +44,8 @@ struct Observation {
   std::vector<PreeditAttribute> preedit_attributes;
   std::string auxiliary;
   gboolean auxiliary_visible = FALSE;
+  // HideLookupTable and HideAuxiliaryText in the order they arrived.
+  std::vector<std::string> hides;
   std::vector<std::string> candidates;
   std::vector<std::string> labels;
   std::string forbidden_gloss;
@@ -50,17 +53,24 @@ struct Observation {
   guint first_candidate_color = 0;
   guint first_candidate_background = 0;
   guint second_candidate_background = 0;
+  // The second row is not highlighted, so it carries the picked text and number colours themselves.
+  guint second_candidate_color = 0;
+  guint second_candidate_number_color = 0;
   guint first_candidate_number_color = 0;
   std::string first_candidate_fix_name;
   std::string first_candidate_clear_name;
   // Page positions of the rows the host offers candidate actions for, which it does only for dictionary rows (see candidate_actions in ClientEngine.cpp). Generated sentences are absent.
   std::vector<guint> dictionary_slots;
+  // How many candidate menus have arrived. The host publishes one on a timer after the page changes, so this is what says the slots above belong to the page on screen.
+  unsigned candidate_menus = 0;
   std::string clipboard_clear_name;
   bool desktop_help = false;
   bool desktop_feedback = false;
   bool desktop_dictionary = false;
   // Keys of the last RegisterProperties, top level only, in menu order.
   std::vector<std::string> registered_keys;
+  // The 输入方案 menu's entries as it was last sent, each with whether it is checked. An update sends the entries before the menu, so the list is whole once the menu itself arrives.
+  std::map<std::string, bool> scheme_entries;
   bool lookup_visible = false;
   bool preedit_visible = false;
   guint cursor = 0;
@@ -107,10 +117,12 @@ void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
     return;
   }
   if (std::string(name) == "HideLookupTable") {
+    seen.hides.emplace_back(name);
     seen.lookup_visible = false;
     return;
   }
   if (std::string(name) == "HideAuxiliaryText") {
+    seen.hides.emplace_back(name);
     seen.auxiliary.clear();
     seen.auxiliary_visible = FALSE;
     return;
@@ -147,6 +159,7 @@ void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
   auto observe_property = [&](auto &&self, IBusProperty *property) -> void {
     const std::string key = ibus_property_get_key(property);
     if (key == "CandidateActions") {
+      ++seen.candidate_menus;
       seen.first_candidate_fix_name.clear();
       seen.first_candidate_clear_name.clear();
       seen.dictionary_slots.clear();
@@ -161,6 +174,9 @@ void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
       seen.clipboard_clear_name.clear();
       seen.clipboard_clear_sensitive = false;
     }
+    if (key == "Scheme") seen.scheme_entries.clear();
+    if (key.rfind("Scheme/", 0) == 0 && ibus_property_get_prop_type(property) == PROP_TYPE_RADIO)
+      seen.scheme_entries[key] = ibus_property_get_state(property) == PROP_STATE_CHECKED;
     if (key == "DesktopTools/Help") seen.desktop_help = true;
     if (key == "DesktopTools/Feedback") seen.desktop_feedback = true;
     if (key == "DesktopTools/Dictionary") seen.desktop_dictionary = true;
@@ -266,10 +282,17 @@ void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
         seen.first_candidate_color = ibus_attribute_get_value(attribute);
       if (auto attribute = ibus_attr_list_get(attributes, 1))
         seen.first_candidate_background = ibus_attribute_get_value(attribute);
-      if (ibus_lookup_table_get_number_of_candidates(table) > 1)
-        if (auto second = ibus_text_get_attributes(ibus_lookup_table_get_candidate(table, 1)))
+      if (ibus_lookup_table_get_number_of_candidates(table) > 1) {
+        if (auto second = ibus_text_get_attributes(ibus_lookup_table_get_candidate(table, 1))) {
+          if (auto attribute = ibus_attr_list_get(second, 0))
+            seen.second_candidate_color = ibus_attribute_get_value(attribute);
           if (auto attribute = ibus_attr_list_get(second, 1))
             seen.second_candidate_background = ibus_attribute_get_value(attribute);
+        }
+        if (auto label_attributes = ibus_text_get_attributes(ibus_lookup_table_get_label(table, 1)))
+          if (auto attribute = ibus_attr_list_get(label_attributes, 0))
+            seen.second_candidate_number_color = ibus_attribute_get_value(attribute);
+      }
       auto label = ibus_lookup_table_get_label(table, 0);
       if (auto label_attributes = ibus_text_get_attributes(label))
         if (auto attribute = ibus_attr_list_get(label_attributes, 0))
@@ -317,7 +340,8 @@ GVariant *call(GDBusConnection *connection, const char *destination,
 } // namespace
 
 int main(int argc, char **argv) {
-  if (argc != 2 && !(argc == 3 && std::string(argv[2]) == "--page-number"))
+  if (argc != 2 && !(argc == 3 && (std::string(argv[2]) == "--page-number" ||
+                                  std::string(argv[2]) == "--ctrl-space")))
     return 2;
   try {
     // This fixture asserts RegisterProperties and must exercise the real menu path.
@@ -366,7 +390,7 @@ int main(int argc, char **argv) {
     options["preferences"]["voice_input"]["hotkey_rctrl_ralt"] = true;
     options["preferences"]["global_theme"] = "custom";
     options["preferences"]["custom_theme"]["candidate_colors"] = {
-        {"text", "#123456"}, {"surface", "#654321"}, {"number", "#abcdef"}, {"selected", "#fedcba"}};
+        {"text", "#123456"}, {"surface", "#654321"}, {"number", "#abcdef"}, {"selected", "#204060"}};
     options["preferences"]["candidate_page_size"] = 2;
     options["preferences"]["default_ime_mode"] = "chinese";
     options["preferences"]["smart_punctuation_space_convert"] = true;
@@ -480,6 +504,13 @@ int main(int argc, char **argv) {
                             .c_str());
     };
     invoke("FocusIn");
+    // #2589: a new focus shows the current mode the way a switch does, then the hint goes away by itself. The replay IBus sends while it names the client is the same focus and must not show it again.
+    require(wait_until([&] { return seen.auxiliary == "中" && seen.auxiliary_visible; }),
+            "Focus did not show the input mode");
+    require(wait_until([&] { return !seen.auxiliary_visible; }), "Focus mode hint did not hide");
+    invoke("FocusIn");
+    require(!wait_until([&] { return seen.auxiliary_visible; }) || seen.auxiliary != "中",
+            "A repeated focus showed the input mode again");
     const auto finish = [&] {
       g_dbus_connection_signal_unsubscribe(client, subscription);
       ibus_object_destroy(IBUS_OBJECT(engine));
@@ -491,6 +522,60 @@ int main(int argc, char **argv) {
       g_test_dbus_down(bus);
       g_object_unref(bus);
     };
+    if (argc == 3 && std::string(argv[2]) == "--ctrl-space") {
+      msime_ibus_configure(options.dump());
+      invoke("FocusIn");
+      const auto chord = [&] {
+        const bool pressed = key(IBUS_space, IBUS_CONTROL_MASK);
+        require(key(IBUS_space, IBUS_CONTROL_MASK | IBUS_RELEASE_MASK) == pressed,
+                "Ctrl+Space press and release have different ownership");
+        return pressed;
+      };
+      require(chord() && !seen.input_enabled && chord() && seen.input_enabled,
+              "Default Ctrl+Space does not switch in both directions");
+      const auto set_binding = [&](bool enabled) {
+        nlohmann::json snapshot;
+        std::ifstream(root / "preferences.json") >> snapshot;
+        snapshot["revision"] = snapshot.at("revision").get<uint64_t>() + 1;
+        snapshot["preferences"]["keybindings"]["switch_language_ctrl_space"] = enabled;
+        std::ofstream(root / "next.json") << snapshot.dump();
+        std::filesystem::rename(root / "next.json", root / "preferences.json");
+      };
+      set_binding(false);
+      require(wait_until([&] {
+                if (!chord()) return true;
+                chord();
+                return false;
+              }), "Disabled Ctrl+Space did not hot-reload");
+      for (guint mode : {guint(PROP_STATE_CHECKED), guint(PROP_STATE_UNCHECKED)}) {
+        invoke("PropertyActivate", g_variant_new("(su)", "InputMode", mode));
+        const bool before = seen.input_enabled;
+        for (int repeat = 0; repeat < 3; ++repeat)
+          require(!key(IBUS_space, IBUS_CONTROL_MASK) && seen.input_enabled == before,
+                  "Disabled Ctrl+Space press was intercepted or switched mode");
+        require(!key(IBUS_space, IBUS_CONTROL_MASK | IBUS_RELEASE_MASK),
+                "Disabled Ctrl+Space release was intercepted");
+      }
+      invoke("PropertyActivate", g_variant_new("(su)", "InputMode", PROP_STATE_CHECKED));
+      phrase();
+      const auto committed = seen.committed;
+      require(!chord() && seen.preedit == "nihao" && seen.committed == committed,
+              "Disabled Ctrl+Space changed the active composition");
+      invoke("Reset");
+      set_binding(true);
+      require(wait_until([&] { return chord(); }), "Enabled Ctrl+Space did not hot-reload");
+      invoke("PropertyActivate", g_variant_new("(su)", "InputMode", PROP_STATE_CHECKED));
+      for (int repeat = 0; repeat < 3; ++repeat)
+        require(key(IBUS_space, IBUS_CONTROL_MASK) && !seen.input_enabled,
+                "Held Ctrl+Space toggled more than once");
+      require(key(IBUS_space, IBUS_RELEASE_MASK) && !seen.input_enabled,
+              "Consumed Ctrl+Space release escaped after Ctrl was released");
+      require(chord() && seen.input_enabled, "Ctrl+Space did not restore Chinese mode");
+      invoke("Disable");
+      finish();
+      std::cout << "IBus Ctrl+Space defaults, passthrough, hot-reload and repeat passed\n";
+      return 0;
+    }
     if (argc == 3) {
       auto visibility = options;
       visibility.erase("preferences_directory");
@@ -532,6 +617,15 @@ int main(int argc, char **argv) {
       std::cout << "IBus page-number visibility, paging and selection passed\n";
       return 0;
     }
+    // #3759: hiding the auxiliary line ahead of the list shrinks a window that is still showing, and GNOME then moves it from above the cursor to below it until the list hides.
+    phrase();
+    require(seen.lookup_visible, "Phrase did not show candidates");
+    seen.hides.clear();
+    require(key(IBUS_space) && seen.committed == "你好" &&
+                wait_until([&] { return !seen.lookup_visible && !seen.auxiliary_visible; }) &&
+                !seen.hides.empty() && seen.hides.front() == "HideLookupTable",
+            "Selection hid the auxiliary line before the candidate list");
+    seen.committed.clear();
     require(!seen.emoji_candidates,
             "Missing mixed Emoji preference did not default to disabled");
     require(seen.global_theme == "system",
@@ -1470,7 +1564,7 @@ int main(int argc, char **argv) {
       translated["translation_provider_socket"] = socket;
       translated["preferences"]["candidate_translations"] = true;
       translated["preferences"]["candidate_page_size"] = 2;
-      // Not English. The packaged english.db answers 你好 offline with the single
+      // Not English. The packaged msime-english.db answers 你好 offline with the single
       // sense "hello", and an offline hit is shown without ever reaching the
       // provider - which is the documented behaviour and what Windows does. With
       // English as the target, the provider's multi-sense gloss therefore landed
@@ -1739,7 +1833,7 @@ int main(int argc, char **argv) {
       const auto panel_marker = root / "panel-launches.log";
       const auto panel_launcher = root / "panel-launcher";
       std::ofstream(panel_launcher)
-          << "#!/bin/sh\nprintf '%s\\n' \"$MSIME_CLIENT_ROUTE\" >> \""
+          << "#!/bin/sh\ncase \"$1\" in --route=*) route=${1#--route=} ;; *) route=\"unexpected: $*\" ;; esac\nprintf '%s\\n' \"$route\" >> \""
           << panel_marker.string() << "\"\n";
       std::filesystem::permissions(panel_launcher,
                                    std::filesystem::perms::owner_read |
@@ -2569,11 +2663,14 @@ int main(int argc, char **argv) {
             "Candidate signal mismatch");
     require(!seen.labels.empty() && seen.labels.front().rfind("1", 0) == 0,
             "Candidate numeric label missing");
-    require(seen.first_candidate_color == 0x123456,
+    require(seen.second_candidate_color == 0x123456,
             "Candidate text color attribute missing");
-    require(seen.first_candidate_background == 0xfedcba,
+    // A picked selection colour carries black or white text by its luminance (client-core skin/theme.rs), so the dark fixture fill gives white.
+    require(seen.first_candidate_color == 0xffffff,
+            "Highlighted candidate text is not readable on the picked selection colour");
+    require(seen.first_candidate_background == 0x204060,
             "Selected candidate color attribute missing");
-    require(seen.first_candidate_number_color == 0xabcdef,
+    require(seen.second_candidate_number_color == 0xabcdef,
             "Candidate number color attribute missing");
     // The host publishes the candidate menu on a 400ms timer after the page changes, so wait for it rather than reading it in the turn that drew the page.
     const auto candidate_actions_deadline = g_get_monotonic_time() + 2 * G_USEC_PER_SEC;
@@ -2590,11 +2687,17 @@ int main(int argc, char **argv) {
                          PROP_STATE_UNCHECKED));
     require(seen.candidates.front().find("固定1") != std::string::npos,
             "Candidate position action did not fix the highlighted candidate");
-    require(seen.first_candidate_color == 0x123456,
+    require(seen.first_candidate_color == 0xffffff,
             "Highlighted fixed candidate did not keep selected-row text color");
+    // Candidate actions are named by the generation they act on, and fixing advanced it, so the clear action is the one the republished menu carries; the one read before the fix is stale and refused.
+    seen.first_candidate_clear_name.clear();
+    require(wait_until([&] { return !seen.first_candidate_clear_name.empty(); }),
+            "Fixed candidate did not republish its clear action");
     invoke("PropertyActivate",
            g_variant_new("(su)", seen.first_candidate_clear_name.c_str(),
                          PROP_STATE_UNCHECKED));
+    require(seen.candidates.front().find("固定") == std::string::npos,
+            "Candidate position clear did not release the fixed candidate");
     require(key(IBUS_Left) && seen.auxiliary.find("niha|o") != std::string::npos,
             "Candidate auxiliary text did not expose the preedit caret");
     const auto stale_candidate_action = seen.first_candidate_fix_name;
@@ -3031,6 +3134,57 @@ int main(int argc, char **argv) {
       require(key('r') && key('k') && !key('1') &&
                   seen.committed == before + "안녀가.가" && !seen.preedit_visible,
               "A digit did not end the Korean syllable");
+      // Hangul_Hanja or a bare F9 converts the composing syllable to Hanja (msime_client.h, MSIME_CONVERT_HANJA). With the list open the candidate keys choose, Escape only closes it, a paging mark writes the Hangul with it, and a trigger is never passed on while a syllable composes.
+      auto hanja_commit = seen.committed;
+      require(!key(IBUS_F9) && !key(IBUS_Hangul_Hanja) && seen.committed == hanja_commit,
+              "A Hanja key with nothing composing was not left to the application");
+      require(key('g') && key('k') && key('s') && key(IBUS_Hangul_Hanja) && seen.lookup_visible &&
+                  !seen.candidates.empty() &&
+                  seen.candidates.front() == "韓 · 나라 이름 한, 한나라 한" &&
+                  seen.preedit == "한" && seen.committed == hanja_commit,
+              "Hangul_Hanja did not open the Hanja list with its 훈음 as the row's gloss");
+      require(key(IBUS_F9) && seen.preedit == "한" && seen.committed == hanja_commit,
+              "The trigger did not keep the syllable when closing the list");
+      settle_lookup();
+      require(!seen.lookup_visible, "The trigger did not close the Hanja list");
+      require(key(IBUS_F9) && seen.lookup_visible && key(IBUS_Down) && key(IBUS_Return) &&
+                  seen.committed == hanja_commit + "漢" && !seen.preedit_visible,
+              "Return did not choose the highlighted Hanja");
+      hanja_commit = seen.committed;
+      require(key('g') && key('k') && key('s') && key(IBUS_F9) && key(IBUS_space) &&
+                  seen.committed == hanja_commit + "韓",
+              "Space did not choose the highlighted Hanja");
+      hanja_commit = seen.committed;
+      require(key('g') && key('k') && key('s') && key(IBUS_F9) && key(IBUS_2) &&
+                  seen.committed == hanja_commit + "漢",
+              "A digit did not choose from the Hanja page");
+      hanja_commit = seen.committed;
+      require(key('g') && key('k') && key('s') && key(IBUS_F9) && key(IBUS_Escape) &&
+                  seen.preedit == "한" && seen.committed == hanja_commit,
+              "Escape did not close the Hanja list and keep the syllable");
+      require(key(IBUS_F9) && key(IBUS_period) && seen.committed == hanja_commit + "한." &&
+                  !seen.preedit_visible,
+              "A paging mark turned a page instead of writing the Hangul with it");
+      hanja_commit = seen.committed;
+      require(key('r') && key(IBUS_F9) && seen.preedit == "ㄱ" && seen.committed == hanja_commit,
+              "The trigger of a lone jamo was passed on");
+      require(key(IBUS_Escape) && !seen.preedit_visible, "Escape did not discard the lone jamo");
+      // With number-row selection off a digit is the application's, and it must not land in the document before a syllable and list left hanging: the Hangul is written first.
+      invoke("PropertyActivate",
+             g_variant_new("(su)", "NumberRowSelection", PROP_STATE_UNCHECKED));
+      require(wait_saved_preferences([](const nlohmann::json &preferences) {
+                return !preferences.value("number_row_selection", true);
+              }),
+              "Korean number-row selection was not turned off");
+      require(key('g') && key('k') && key('s') && key(IBUS_F9) && seen.lookup_visible &&
+                  !key(IBUS_1) && seen.committed == hanja_commit + "한" && !seen.preedit_visible,
+              "With number-row selection off a digit did not write the Hangul before reaching the application");
+      invoke("PropertyActivate",
+             g_variant_new("(su)", "NumberRowSelection", PROP_STATE_CHECKED));
+      require(wait_saved_preferences([](const nlohmann::json &preferences) {
+                return preferences.value("number_row_selection", false);
+              }),
+              "Korean number-row selection was not restored");
     }
     invoke("Reset");
     invoke("PropertyActivate",
@@ -3254,7 +3408,7 @@ int main(int argc, char **argv) {
     phrase();
     require(seen.candidates.size() == 3,
             "Deferred preferences did not apply after reset");
-    require(seen.first_candidate_color == 0xabcdef,
+    require(seen.second_candidate_color == 0xabcdef,
             "Reloaded candidate text color did not apply");
     std::ofstream(root / "preferences.json") << "invalid";
     settle();
@@ -3297,12 +3451,16 @@ int main(int argc, char **argv) {
             "Settings did not recover after writer unlock");
     // Only a dictionary row has a weight for the configured frequency mode to move. The lattice puts its generated sentences for nihao (倪好, 你号, ...) straight after the exact dictionary hits at the top, so the first two-character rows after 你好 are usually generated. Selecting one of those stores it as a user phrase instead (the Engine's standalone sentence learning, ported from MSIME-Windows 01c5bca3), which ignores the frequency mode and gives the row a fixed starting weight; it is not expected to come first. Learn a two-character dictionary row - one that shares nihao's two segments - wherever it is paged to. Returns its page position, or -1 if none shows up.
     auto dictionary_two_segment_index = [&] {
+      auto menus = seen.candidate_menus;
       for (int page = 0; page < 24; ++page) {
+        // The slots come with the candidate menu, which the host publishes 400ms after the page changes; reading them sooner reads the previous page's, or none.
+        wait_until([&] { return seen.candidate_menus != menus; });
         for (const auto slot : seen.dictionary_slots)
           if ((page > 0 || slot > 0) && slot < seen.candidates.size() &&
               g_utf8_strlen(seen.candidates[slot].c_str(), -1) == 2)
             return static_cast<int>(slot);
         const auto before = seen.candidates;
+        menus = seen.candidate_menus;
         if (!key(IBUS_Page_Down) || seen.candidates == before)
           break;
       }
@@ -3757,6 +3915,258 @@ int main(int argc, char **argv) {
     }
     invoke("Disable");
     require(!key('n'), "Disabled engine consumed input");
+    // 注音、越南文、藏文和笔画各自跑在单独的引擎上，上面的用例不受它们留下的状态影响。注入的选项是权威来源，所以从菜单选的方案立即生效，而不是经由偏好存储。
+    {
+      const auto dictionaries = root / "language-dictionaries";
+      std::filesystem::create_directory(dictionaries);
+      auto languages = options;
+      languages.erase("preferences_directory");
+      languages["language_dictionaries"] = dictionaries.string();
+      languages["preferences"]["scheme"] = "zhuyin";
+      languages["preferences"]["last_chinese_scheme"] = "quanpin";
+      languages["preferences"]["character_width"] = "halfwidth";
+      languages["preferences"]["vietnamese"]["input_method"] = "vni";
+      const auto restart = [&] {
+        ibus_object_destroy(IBUS_OBJECT(engine));
+        g_object_unref(engine);
+        msime_ibus_configure(languages.dump());
+        engine = create_engine();
+        seen = Observation{};
+        invoke("FocusIn");
+      };
+      const auto offered = [&](const char *entry) { return seen.scheme_entries.count(entry) != 0; };
+      const auto checked = [&](const char *entry) {
+        const auto found = seen.scheme_entries.find(entry);
+        return found != seen.scheme_entries.end() && found->second;
+      };
+      // Zhuyin saved as the scheme while its dictionary is missing: host-api runs the last Chinese scheme instead, and the menu neither offers Zhuyin nor claims it is in use.
+      restart();
+      require(offered("Scheme/Quanpin") && offered("Scheme/Vietnamese") && !offered("Scheme/Zhuyin") &&
+                  !offered("Scheme/Cantonese") && !offered("Scheme/Stroke"),
+              "The scheme menu offered Zhuyin or Stroke without its dictionary");
+      require(checked("Scheme/Chinese") && checked("Scheme/Quanpin"),
+              "The scheme menu did not mark the quanpin fallback of a missing Zhuyin dictionary");
+      require(key('n') && seen.preedit == "n" && seen.lookup_visible && !seen.candidates.empty(),
+              "A missing Zhuyin dictionary did not fall back to quanpin");
+      invoke("Reset");
+      invoke("PropertyActivate", g_variant_new("(su)", "Scheme/Zhuyin", PROP_STATE_CHECKED));
+      require(key('n') && seen.preedit == "n" && seen.lookup_visible,
+              "Zhuyin was selected without its dictionary");
+      invoke("Reset");
+      invoke("PropertyActivate", g_variant_new("(su)", "Scheme/Stroke", PROP_STATE_CHECKED));
+      require(key('n') && seen.preedit == "n" && seen.lookup_visible && !checked("Scheme/Stroke"),
+              "Stroke was selected without its dictionary");
+      invoke("Reset");
+      // With the dictionary installed the saved Zhuyin runs and is offered.
+      const auto fixture = std::string("python3 '") + MSIME_ZHUYIN_DICTIONARY_FIXTURE + "' '" + dictionaries.string() + "'";
+      require(std::system(fixture.c_str()) == 0, "Zhuyin dictionary fixture was not written");
+      restart();
+      require(offered("Scheme/Zhuyin") && checked("Scheme/Chinese") && checked("Scheme/Zhuyin") &&
+                  !checked("Scheme/Quanpin") && !offered("Scheme/Cantonese"),
+              "The scheme menu did not offer and mark Zhuyin with its dictionary installed");
+      // 1 8 spells ㄅㄚ: the digit is a bopomofo key, not a candidate shortcut, and Space is the first tone, which converts without opening a list.
+      auto before = seen.committed;
+      require(key('1') && seen.preedit_visible && key('8') && seen.committed == before,
+              "Zhuyin did not spell with the digit row");
+      require(key(IBUS_space) && seen.preedit == "八" && seen.committed == before &&
+                  seen.preedit_mode == IBUS_ENGINE_PREEDIT_COMMIT,
+              "Space did not give the Zhuyin syllable its first tone");
+      settle_lookup();
+      require(!seen.lookup_visible, "The first tone opened the Zhuyin list");
+      require(key(IBUS_Down) && seen.lookup_visible && seen.candidates.size() == 2 &&
+                  seen.candidates[0].rfind("八", 0) == 0 && seen.candidates[1].rfind("巴", 0) == 0,
+              "Down did not open the Zhuyin list");
+      require(key('2') && seen.preedit == "巴" && seen.committed == before,
+              "A digit did not pick from the open Zhuyin list without committing");
+      settle_lookup();
+      require(!seen.lookup_visible, "Picking a Zhuyin candidate left the list open");
+      require(key(IBUS_Down) && seen.lookup_visible && key('1') && seen.preedit == "八" &&
+                  seen.committed == before,
+              "1 did not pick the first row of the Zhuyin list");
+      require(key(IBUS_Return) && seen.committed == before + "八" && !seen.preedit_visible,
+              "Return did not commit the Zhuyin conversion");
+      // F9 opens the list too, Escape closes it and keeps the conversion, and a second Escape discards it.
+      before = seen.committed;
+      require(key('1') && key('8') && key(IBUS_space) && key(IBUS_F9) && seen.lookup_visible,
+              "F9 did not open the Zhuyin list");
+      require(key(IBUS_Escape) && seen.preedit == "八", "Escape did not close the Zhuyin list");
+      settle_lookup();
+      require(!seen.lookup_visible && key(IBUS_Escape) && !seen.preedit_visible && seen.committed == before,
+              "Escape did not discard the Zhuyin conversion");
+      // The comma is ㄝ on the Dachen keyboard, not Chinese punctuation.
+      require(key(IBUS_comma) && key(IBUS_space) && seen.preedit == "欸" && seen.committed == before,
+              "The comma did not spell ㄝ");
+      require(key(IBUS_Return) && seen.committed == before + "欸", "Return did not commit 欸");
+      // Vietnamese: VNI digits mark the word, drawn inline in COMMIT mode, and it never opens a list.
+      invoke("PropertyActivate", g_variant_new("(su)", "Scheme/Vietnamese", PROP_STATE_CHECKED));
+      require(wait_until([&] { return checked("Scheme/Vietnamese") && !checked("Scheme/Chinese"); }),
+              "The scheme menu did not select Vietnamese");
+      before = seen.committed;
+      require(!key('6') && seen.committed == before, "An idle VNI digit was not left to the application");
+      for (char c : std::string("viet65"))
+        require(key(c), "A VNI key was not consumed");
+      require(seen.preedit == "việt" && seen.preedit_visible && seen.preedit_mode == IBUS_ENGINE_PREEDIT_COMMIT &&
+                  seen.committed == before,
+              "VNI digits did not compose việt inline");
+      settle_lookup();
+      require(!seen.lookup_visible, "Vietnamese opened a candidate list");
+      // A mark follows the word as ASCII, also with fullwidth output on, and an idle mark is the application's.
+      invoke("PropertyActivate", g_variant_new("(su)", "CharacterMode", PROP_STATE_CHECKED));
+      require(wait_until([&] { return seen.character_width; }), "Fullwidth output was not turned on");
+      key(IBUS_comma);
+      require(seen.committed == before + "việt," && !seen.preedit_visible,
+              "The comma after a Vietnamese word was not committed as ASCII with it");
+      require(!key(IBUS_comma) && seen.committed == before + "việt,",
+              "An idle Vietnamese comma was widened or kept from the application");
+      require(key('a') && seen.preedit == "a" && !key(IBUS_space) && seen.committed == before + "việt,a",
+              "Space did not commit the Vietnamese word unwidened and reach the application");
+      invoke("PropertyActivate", g_variant_new("(su)", "CharacterMode", PROP_STATE_UNCHECKED));
+      require(wait_until([&] { return !seen.character_width; }), "Fullwidth output was not turned off");
+      // Caps Lock types a capital, which starts a word rather than going to the application.
+      before = seen.committed;
+      require(key('A', IBUS_LOCK_MASK) && seen.preedit == "A" && seen.committed == before,
+              "Caps Lock did not start a Vietnamese word with a capital");
+      require(!key(IBUS_Return) && seen.committed == before + "A" && !seen.preedit_visible,
+              "Return did not commit the Vietnamese word and reach the application");
+      // Leaving the field hands the word to the client in COMMIT mode, so the host commits nothing of its own and the next field starts empty.
+      before = seen.committed;
+      require(key('v') && key('i') && seen.preedit == "vi" && seen.preedit_mode == IBUS_ENGINE_PREEDIT_COMMIT,
+              "Vietnamese word for the focus change");
+      invoke("FocusOut");
+      require(wait_until([&] { return !seen.preedit_visible; }) && seen.committed == before,
+              "Focus out did not leave the Vietnamese word to IBus");
+      invoke("FocusIn");
+      require(key('a') && seen.preedit == "a" && seen.committed == before,
+              "The Vietnamese word survived the focus change");
+      invoke("Reset");
+      // 藏文：威利原文在 COMMIT 模式下内嵌显示为转换后的藏文，从不打开列表。空格带音节点上屏、斜杠带垂符上屏，两者都被吞掉；回车只上屏藏文，同样被吞掉。
+      require(offered("Scheme/Tibetan"), "The scheme menu did not offer Tibetan");
+      invoke("PropertyActivate", g_variant_new("(su)", "Scheme/Tibetan", PROP_STATE_CHECKED));
+      require(wait_until([&] { return checked("Scheme/Tibetan") && !checked("Scheme/Vietnamese") &&
+                                      !checked("Scheme/Chinese"); }),
+              "The scheme menu did not select Tibetan");
+      before = seen.committed;
+      require(!key('1') && seen.committed == before, "An idle digit was not left to the application in Tibetan");
+      for (char c : std::string("bkra"))
+        require(key(c), "A Wylie letter was not consumed");
+      require(seen.preedit == "བཀྲ" && seen.preedit_visible && seen.preedit_mode == IBUS_ENGINE_PREEDIT_COMMIT &&
+                  seen.committed == before,
+              "Wylie did not compose བཀྲ inline");
+      settle_lookup();
+      require(!seen.lookup_visible, "Tibetan opened a candidate list");
+      require(key(IBUS_space) && seen.committed == before + "བཀྲ་" && !seen.preedit_visible,
+              "Space did not commit the Tibetan syllable with a tsheg and keep the key");
+      for (char c : std::string("shis"))
+        require(key(c), "A Wylie letter was not consumed");
+      require(key(IBUS_slash) && seen.committed == before + "བཀྲ་ཤིས།" && !seen.preedit_visible,
+              "The slash did not commit the Tibetan syllable with a shad");
+      require(key(IBUS_slash) && seen.committed == before + "བཀྲ་ཤིས།།", "An idle slash did not write a shad");
+      // 撇号在空闲时也是拼写（achung 开头的音节），加号是叠写；带 Shift 或 CapsLock 的大写字母是另一个字母，不交给应用。
+      before = seen.committed;
+      require(key(IBUS_apostrophe) && key('o') && key('d') && seen.preedit == "འོད" && seen.committed == before,
+              "An apostrophe did not start an achung syllable");
+      require(key(IBUS_Return) && seen.committed == before + "འོད" && !seen.preedit_visible,
+              "Return did not commit the Tibetan syllable without a tsheg and keep the key");
+      before = seen.committed;
+      require(key('p') && key('a') && key('d') && key(IBUS_plus, IBUS_SHIFT_MASK) && key('m') && key('a') &&
+                  seen.preedit == "པདྨ" && seen.committed == before,
+              "The plus did not stack the Wylie letters");
+      require(key(IBUS_Return) && seen.committed == before + "པདྨ", "Return did not commit the stacked syllable");
+      before = seen.committed;
+      require(key('T', IBUS_SHIFT_MASK) && key('a') && seen.preedit == "ཊ" && seen.committed == before,
+              "Shift did not type the uppercase Wylie letter");
+      require(key(IBUS_Return) && seen.committed == before + "ཊ", "Return did not commit the retroflex letter");
+      before = seen.committed;
+      require(key('D', IBUS_LOCK_MASK) && key('a', IBUS_LOCK_MASK) && seen.preedit == "ཌ" && seen.committed == before,
+              "Caps Lock did not start a Tibetan syllable with the uppercase Wylie letter");
+      require(key(IBUS_Return) && seen.committed == before + "ཌ", "Return did not commit the Caps Lock syllable");
+      // 第一次 Esc 把显示退回威利原文，Backspace 删一个原文按键，第二次 Esc 丢弃组字。
+      before = seen.committed;
+      require(key('k') && key('a') && seen.preedit == "ཀ" && key(IBUS_Escape) && seen.preedit == "ka" &&
+                  seen.committed == before,
+              "Escape did not restore the raw Wylie");
+      require(key(IBUS_Escape) && !seen.preedit_visible && seen.committed == before,
+              "A second Escape did not discard the Tibetan composition");
+      require(key('k') && key('a') && key(IBUS_BackSpace) && seen.preedit == "ཀ" && seen.committed == before,
+              "Backspace did not take back one Wylie key");
+      require(key(IBUS_Escape) && key(IBUS_Escape) && !seen.preedit_visible, "The Tibetan composition was not discarded");
+      // 其他标点跟在藏文后面写成 ASCII，全角输出打开时也一样；空闲的标点和空格都交给应用，不变全角。
+      invoke("PropertyActivate", g_variant_new("(su)", "CharacterMode", PROP_STATE_CHECKED));
+      require(wait_until([&] { return seen.character_width; }), "Fullwidth output was not turned on");
+      before = seen.committed;
+      require(key('k') && key('a') && seen.preedit == "ཀ", "Wylie did not compose before the comma");
+      key(IBUS_comma);
+      require(seen.committed == before + "ཀ," && !seen.preedit_visible,
+              "The comma after a Tibetan syllable was not committed as ASCII with it");
+      require(!key(IBUS_comma) && !key(IBUS_space) && seen.committed == before + "ཀ,",
+              "An idle Tibetan comma or space was widened or kept from the application");
+      invoke("PropertyActivate", g_variant_new("(su)", "CharacterMode", PROP_STATE_UNCHECKED));
+      require(wait_until([&] { return !seen.character_width; }), "Fullwidth output was not turned off");
+      // 导航键先把藏文按显示写出去（不带音节点），再交给应用。
+      before = seen.committed;
+      require(key('k') && key('a') && !key(IBUS_Left) && seen.committed == before + "ཀ" && !seen.preedit_visible,
+              "Left did not write the Tibetan syllable out without a tsheg and reach the application");
+      // 离开输入框时组字以 COMMIT 模式交给客户端，宿主自己不上屏，下一个输入框从空开始。
+      before = seen.committed;
+      require(key('k') && key('a') && seen.preedit == "ཀ" && seen.preedit_mode == IBUS_ENGINE_PREEDIT_COMMIT,
+              "Tibetan syllable for the focus change");
+      invoke("FocusOut");
+      require(wait_until([&] { return !seen.preedit_visible; }) && seen.committed == before,
+              "Focus out did not leave the Tibetan syllable to IBus");
+      invoke("FocusIn");
+      require(key('g') && key('a') && seen.preedit == "ག" && seen.committed == before,
+              "The Tibetan syllable survived the focus change");
+      invoke("Reset");
+      // 笔画：装好 msime-stroke.db 并重新读取选项后出现在菜单里，并从菜单选中，这样能发现 PropertyActivate 白名单或 id 映射漏掉的 Scheme/Stroke 一项。
+      const auto stroke_fixture =
+          std::string("python3 '") + MSIME_STROKE_DICTIONARY_FIXTURE + "' '" + dictionaries.string() + "'";
+      require(std::system(stroke_fixture.c_str()) == 0, "Stroke dictionary fixture was not written");
+      languages["preferences"]["scheme"] = "quanpin";
+      // The shared fixture pages two candidates at a time; the stroke lists below are read as one page.
+      languages["preferences"]["candidate_page_size"] = 5;
+      restart();
+      require(offered("Scheme/Stroke") && offered("Scheme/Zhuyin") && !checked("Scheme/Stroke") &&
+                  checked("Scheme/Quanpin"),
+              "The scheme menu did not offer Stroke with its dictionary installed");
+      invoke("PropertyActivate", g_variant_new("(su)", "Scheme/Stroke", PROP_STATE_CHECKED));
+      require(wait_until([&] { return checked("Scheme/Stroke") && checked("Scheme/Chinese"); }),
+              "The scheme menu did not select Stroke");
+      // 空闲时只有五个笔画字母开始组合：通配符 x 和其他字母都交给应用。
+      before = seen.committed;
+      require(!key('x') && !seen.preedit_visible && !key('a') && !seen.preedit_visible && seen.committed == before,
+              "An idle Stroke wildcard or other letter was not left to the application");
+      // 原样预编辑样式画出 Engine 放在 `reading` 里的笔画字形，editing_text 仍是 ASCII 字母，所以原样样式的可打印 ASCII 检查不会拒绝它。
+      require(key('h') && seen.preedit_visible && seen.preedit == "一" && seen.lookup_visible &&
+                  !seen.candidates.empty() && seen.candidates[0].rfind("一", 0) == 0,
+              "h did not compose the stroke 一");
+      require(key('s') && seen.preedit == "一丨" && seen.candidates.size() >= 3 &&
+                  seen.candidates[0].rfind("十", 0) == 0 && seen.candidates[1].rfind("木", 0) == 0 &&
+                  seen.candidates[2].rfind("古", 0) == 0,
+              "h s did not list 十 exactly and then its completions");
+      // 组字中其他字母被吞掉，组合不变。
+      require(key('q') && seen.preedit == "一丨" && seen.committed == before,
+              "A non-stroke letter changed the Stroke composition");
+      require(key(IBUS_space) && seen.committed == before + "十" && !seen.preedit_visible,
+              "Space did not commit the highlighted Stroke candidate");
+      // 组字中 x 是通配符：h x 先列出两笔的码，再列更长的。
+      before = seen.committed;
+      require(key('h') && key('x') && seen.preedit == "一＊" && seen.candidates.size() >= 2 &&
+                  seen.candidates[0].rfind("十", 0) == 0 && seen.candidates[1].rfind("二", 0) == 0,
+              "The Stroke wildcard did not match any one stroke");
+      require(key('2') && seen.committed == before + "二" && !seen.preedit_visible,
+              "A digit did not pick the Stroke candidate");
+      // Backspace 删掉最后一笔，回车写出键入的字母，Esc 清空。
+      before = seen.committed;
+      require(key('h') && key('s') && key(IBUS_BackSpace) && seen.preedit == "一" && seen.committed == before,
+              "Backspace did not remove the last stroke");
+      require(key('s') && key(IBUS_Return) && seen.committed == before + "hs" && !seen.preedit_visible,
+              "Return did not commit the typed stroke letters");
+      before = seen.committed;
+      require(key('p') && key('n') && seen.preedit == "丿丶" && key(IBUS_Escape) && !seen.preedit_visible &&
+                  seen.committed == before,
+              "Escape did not clear the Stroke composition");
+      invoke("Reset");
+    }
     finish();
     std::cout << "IBus D-Bus shared-runtime acceptance passed\n";
   } catch (const std::exception &error) {

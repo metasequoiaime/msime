@@ -3,16 +3,20 @@
 #include <cassert>
 
 static NSMutableArray *pending;
+static NSMutableArray *pendingAdds;
 static NSString *removedID;
 void MSIMEFetchCloudClipboard(NSString *, NSString *, MSIMECloudClipboardCompletion completion) {
     [pending addObject:[completion copy]];
 }
-void MSIMEAddCloudClipboard(NSString *, NSString *, MSIMECloudClipboardCompletion) {}
+void MSIMEAddCloudClipboard(NSString *, NSString *, MSIMECloudClipboardCompletion completion) {
+    [pendingAdds addObject:[completion copy]];
+}
 void MSIMERemoveCloudClipboard(NSString *itemID, NSString *, MSIMECloudClipboardCompletion) {
     removedID = itemID;
 }
 @interface MSIMECloudClipboardWindowController (Testing)
 - (void)deleteItem:(id)sender;
+- (void)upload:(id)sender;
 - (void)refresh:(id)sender;
 @end
 @interface HiddenClipboardController : MSIMECloudClipboardWindowController
@@ -24,10 +28,15 @@ static void Complete(NSUInteger index, NSArray *items) {
     MSIMECloudClipboardCompletion completion = pending[index];
     completion([NSJSONSerialization dataWithJSONObject:@{@"items":items} options:0 error:nil], 200, nil);
 }
+static void CompleteAdd(NSUInteger index, NSInteger status) {
+    MSIMECloudClipboardCompletion completion = pendingAdds[index];
+    completion(nil, status, nil);
+}
 int main() {
     @autoreleasepool {
         [NSApplication sharedApplication];
         pending = [NSMutableArray array];
+        pendingAdds = [NSMutableArray array];
         HiddenClipboardController *controller = [HiddenClipboardController new];
         [controller showWithToken:@"synthetic-session"];
         NSArray *entries = @[@{@"id":@"first", @"text":@"sample"},
@@ -70,5 +79,14 @@ int main() {
         failed(nil, 200, nil);
         assert(items.string.length == 0);
         assert([[[controller valueForKey:@"status"] stringValue] isEqualToString:@"刷新失败"]);
+
+        NSTextView *editor = [controller valueForKey:@"editor"];
+        editor.string = @"旧账号上传";
+        [controller upload:nil];
+        assert(pendingAdds.count == 1);
+        [controller showWithToken:@"synthetic-new-session"];
+        assert(pending.count == 6);
+        CompleteAdd(0, 200);
+        assert(pending.count == 6);
     }
 }

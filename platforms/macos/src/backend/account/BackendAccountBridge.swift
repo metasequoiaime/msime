@@ -1,20 +1,11 @@
 import Foundation
 
-@_cdecl("MSIMEStartTelemetry")
-public func msimeStartTelemetry() {
-  Task { await BackendTelemetryClient.shared.recordFirstLaunch() }
-  NSSetUncaughtExceptionHandler { exception in
-    BackendTelemetryClient.persistCrash(message: exception.reason ?? exception.name.rawValue,
-                                        stack: exception.callStackSymbols.joined(separator: "\n"))
-  }
-}
-
 /// Synchronous account state used by native settings surfaces that only need to
 /// decide whether to offer sign-in. The access token itself never crosses this
 /// bridge.
 @_cdecl("MSIMEBackendAccountSignedIn")
 public func msimeBackendAccountSignedIn() -> Bool {
-  if ((try? BackendKeychain().load()) ?? nil) != nil { return true }
+  if ((try? BackendDesktopSessionFile().load()) ?? nil) != nil { return true }
   return ((try? BackendAnonymousAccount.sessionStorage().load()) ?? nil) != nil
 }
 

@@ -101,7 +101,11 @@ ANSWERED_BY: dict[str, str] = {
     # The reference's `VoiceInput::` free functions (toggle, start, stop, cancel, recording state) are the methods of this session object; the keyboard hook it refreshes is `VoiceHotkeyController`.
     "voice_input_service": "platforms/windows/src/voice/VoiceInputSession.h",
     "voice_input_overlay_utils": "platforms/windows/src/voice/WaveOverlayUtils.cpp",
-    "mvi_utils": "platforms/windows/src/voice/VoiceProviders.h",
+    # Provider defaults and request validation are shared by all native hosts; the extraction moved
+    # them out of the Windows directory, so the shared header answers both reference provider files.
+    "voice_providers": "shared/voice/VoiceProviders.h",
+    # Monitor selection and scale/placement moved into the Windows overlay utility.
+    "mvi_utils": "platforms/windows/src/voice/WaveOverlayUtils.h",
     # Sessions and the pipe. The reference's policy headers land on this repository's own
     # decomposition of the same protocol rather than one-for-one.
     "input_session": "platforms/windows/src/input/FocusedSession.h",
@@ -133,16 +137,11 @@ ANSWERED_BY: dict[str, str] = {
 # because "handled differently" is the sentence that would make this check worthless.
 DELIBERATELY_ABSENT: dict[str, str] = {
     # The WebView2 candidate backend. The reference can render its candidate window either with
-    # Direct2D or with a WebView2 document; this repository has only the Direct2D one, and
-    # `ui_backend` survives as a configuration contract (registered RUST_ONLY in the field-drift
-    # gate) so a profile carrying it still loads.
+    # Direct2D or with a WebView2 document; this repository has only the Direct2D one and no `ui_backend` preference.
     "windows_webview2": "The candidate window has one renderer here, Direct2D. See docs/windows-parity.md.",
     "ui_backend_policy": (
         "Chooses between the two renderers per surface. With one renderer there is nothing to "
-        "choose, and the key is inert here (registered RUST_ONLY in the field-drift gate). What "
-        "the policy also carries - that `d2d`, `webview` and `web` are spellings this product has "
-        "written - is migrated into UiBackend's serde aliases, so a profile written by either side "
-        "is read rather than rejected."
+        "choose, so the shared preferences have no `ui_backend` field."
     ),
     "webview_utils": "WebView2 host helpers. The webview here is Tauri's, which brings its own.",
     # Engine-owned. These call into the Engine's own tables; the Engine is vendored whole, so the

@@ -20,7 +20,7 @@ pub const REBALANCE_COUNT: usize = 16;
 /// A fixed candidate keeps its slot by position, not by weight, so learning never moves it (J:1356-1358).
 const FIXED_CANDIDATE: &str = "The candidate has a fixed position";
 
-/// One learning pick. `main_db` is `msime.db` for pinyin and wubi and `english.db` for English.
+/// One learning pick. `main_db` is `msime-pinyin.db` for pinyin and wubi and `msime-english.db` for English.
 #[derive(Debug, Clone, Copy)]
 pub struct RankingRequest<'a> {
     pub main_db: &'a Path,
@@ -149,28 +149,27 @@ fn update_pinyin_weight(
 fn update_wubi_weight(
     main: &Connection,
     journal: &Connection,
+    kind: PersonalDictionaryKind,
     key: &str,
     value: &str,
     weight: i64,
 ) -> Result<()> {
     let weight = clamp_managed_weight(weight);
+    let Some(table) = kind.wubi_table() else {
+        return Err(EngineError::invalid(UNSTORABLE_ENTRY));
+    };
     if key.is_empty() || value.is_empty() {
         return Err(EngineError::invalid(UNSTORABLE_ENTRY));
     }
     let changed = main
-        .prepare_cached("UPDATE wubi86 SET weight=?1 WHERE key=?2 AND value=?3")?
+        .prepare_cached(&format!(
+            "UPDATE {table} SET weight=?1 WHERE key=?2 AND value=?3"
+        ))?
         .execute(params![weight, key, value])?;
     if changed == 0 {
         return Err(EngineError::failed(MISSING_ROW));
     }
-    write_upsert(
-        journal,
-        PersonalDictionaryKind::Wubi,
-        key,
-        value,
-        weight,
-        "",
-    )
+    write_upsert(journal, kind, key, value, weight, "")
 }
 
 fn update_ranked_weight(
@@ -181,8 +180,8 @@ fn update_ranked_weight(
     value: &str,
     weight: i64,
 ) -> Result<()> {
-    if kind == PersonalDictionaryKind::Wubi {
-        update_wubi_weight(main, journal, key, value, weight)
+    if kind.is_wubi() {
+        update_wubi_weight(main, journal, kind, key, value, weight)
     } else {
         update_pinyin_weight(main, journal, key, value, weight)
     }
@@ -265,7 +264,7 @@ fn plan_weights(weights: &[i64], owns_entry_key: &[bool], target: usize) -> Weig
             promote_selection_alone(&mut new_weight, &mut need_rebalance);
         }
     }
-    let mut staircase = Vec::new();
+    let mut staircase = Vec::with_capacity(rebalance_end.saturating_sub(target));
     if need_rebalance {
         let mut base = if target == 0 {
             MANAGED_WEIGHT_CEILING - REBALANCE_GAP
@@ -326,7 +325,7 @@ pub fn adjust_candidate_ranking(request: &RankingRequest<'_>) -> Result<bool> {
     let owns_entry_key: Vec<bool> = database_candidates
         .iter()
         .map(|item| {
-            if request.kind == PersonalDictionaryKind::Wubi {
+            if request.kind.is_wubi() {
                 item.pinyin == request.entry_key
             } else {
                 candidate_dictionary_key(item, request.context_key) == request.entry_key
@@ -424,7 +423,7 @@ pub fn adjust_english_candidate_ranking(request: &RankingRequest<'_>) -> Result<
     };
 
     let english = open_dictionary_for_writing(request.main_db)?;
-    // Journal the new weight before english.db carries it. The journal upsert is idempotent and replay reapplies it, so a journal row one step ahead of the dictionary is recoverable, while a boosted weight that never reached the journal is silently reverted at the next dictionary upgrade. The row must already exist, otherwise replay would insert a word the user never learned.
+    // Journal the new weight before msime-english.db carries it. The journal upsert is idempotent and replay reapplies it, so a journal row one step ahead of the dictionary is recoverable, while a boosted weight that never reached the journal is silently reverted at the next dictionary upgrade. The row must already exist, otherwise replay would insert a word the user never learned.
     let exists = english
         .prepare_cached("SELECT 1 FROM english_words WHERE word=?1 AND display=?2")?
         .exists(params![request.entry_key, request.value])?;
@@ -750,6 +749,59 @@ mod tests {
         assert!(adjust_candidate_ranking(&request).is_err());
     }
 
+    #[test]
+    fn wubi98_writes_to_wubi98_under_its_own_kind() {
+        let dir = Dir::new();
+        dir.wubi(&[("aaaa", "工", 100)]);
+        let main_db = dir.main_db();
+        Sqlite::open(&main_db)
+            .unwrap()
+            .execute_batch(
+                "CREATE TABLE wubi98(key TEXT,value TEXT,weight INTEGER);\
+                 INSERT INTO wubi98 VALUES('aaaa','工',100);\
+                 INSERT INTO wubi98 VALUES('aaaa','式',50);",
+            )
+            .unwrap();
+        let mut ordered = vec![item("aaaa", "工", 100), item("aaaa", "式", 50)];
+        for row in &mut ordered {
+            row.canonical_pinyin.clear();
+        }
+        let user_db = dir.journal();
+        let request = RankingRequest {
+            main_db: &main_db,
+            user_db: &user_db,
+            context_key: "aaaa",
+            ordered: &ordered,
+            entry_key: "aaaa",
+            value: "式",
+            mode: FrequencyAdjustmentMode::Pin,
+            linear_step: 1,
+            trigger_count: 1,
+            force_top: true,
+            kind: PersonalDictionaryKind::Wubi98,
+        };
+        assert!(adjust_candidate_ranking(&request).unwrap());
+        assert_eq!(
+            query_i64(&main_db, "SELECT weight FROM wubi98 WHERE value='式'"),
+            Some(600)
+        );
+        assert_eq!(
+            query_i64(&main_db, "SELECT weight FROM wubi86 WHERE value='工'"),
+            Some(100)
+        );
+        assert_eq!(
+            count(&user_db, "SELECT count(*) FROM user_dictionary_operations WHERE dictionary='wubi98' AND key='aaaa' AND value='式' AND weight=600"),
+            1
+        );
+        assert_eq!(
+            count(
+                &user_db,
+                "SELECT count(*) FROM user_dictionary_operations WHERE dictionary='wubi'"
+            ),
+            0
+        );
+    }
+
     fn plan(weights: &[i64], owned: &[bool], target: usize) -> WeightPlan {
         plan_weights(weights, owned, target)
     }
@@ -791,6 +843,20 @@ mod tests {
         assert_eq!(
             clamp_managed_weight(extreme.selected),
             MANAGED_WEIGHT_CEILING
+        );
+    }
+
+    #[test]
+    fn staircase_reserves_the_rebalance_window_capacity() {
+        let weights = [100_000; REBALANCE_COUNT + 1];
+        let owns_entry_key = [true; REBALANCE_COUNT + 1];
+        let target = 3;
+        let plan = plan(&weights, &owns_entry_key, target);
+
+        assert_eq!(
+            plan.staircase.capacity(),
+            weights.len() - target,
+            "the staircase should reserve its maximum number of entries"
         );
     }
 
@@ -971,7 +1037,7 @@ mod tests {
         assert_eq!(dir.weight("xi'e", "西鄂"), Some(6));
     }
 
-    /// test_english_input_session.cpp:203-240: while another connection holds the journal's write lock the pick fails before english.db is opened, so the dictionary never carries a weight the journal lacks.
+    /// test_english_input_session.cpp:203-240: while another connection holds the journal's write lock the pick fails before msime-english.db is opened, so the dictionary never carries a weight the journal lacks.
     #[test]
     fn a_locked_journal_leaves_english_db_untouched() {
         let dir = Dir::new();

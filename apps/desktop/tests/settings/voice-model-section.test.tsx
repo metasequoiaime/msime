@@ -12,7 +12,7 @@ test("renders the provider model field and forwards changes", () => {
   const onChange = vi.fn();
   render(<VoiceModelSection value="model-v1" onChange={onChange} />);
 
-  expect(screen.getByText("由 provider 服务选择对应模型")).toBeTruthy();
+  expect(screen.getByText("由语音服务选择对应模型")).toBeTruthy();
   fireEvent.change(screen.getByRole("textbox", { name: "识别模型" }), {
     target: { value: "model-v2" },
   });

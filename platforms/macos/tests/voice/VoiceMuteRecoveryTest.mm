@@ -40,8 +40,7 @@ OSStatus Set(AudioObjectID object, const AudioObjectPropertyAddress *address,
     // Both mute and restore must retain a valid recovery record until completion.
     NSDictionary *record = [NSJSONSerialization JSONObjectWithData:[NSData dataWithContentsOfURL:Journal()]
         options:0 error:nil];
-    assert(([record[@"uid"] isEqual:@"synthetic-recovery-output"] && [record[@"previous"] isEqual:@0]) ||
-        [record[@"uids"] isEqual:@[@"synthetic-recovery-output"]]);
+    assert([record[@"version"] isEqual:@2] && [record[@"uids"] isEqual:@[@"synthetic-recovery-output"]]);
     if (crashBeforeWrite) _exit(78);
     ++writes;
     if (failWrite) return kAudioHardwareUnspecifiedError;
@@ -114,8 +113,7 @@ int main(int argc, const char *argv[]) {
         assert([muter mute:nil]); [muter restore]; assert(muted == 1 && writes == before && JournalSize() == 0);
         muted = 0;
         for (id invalid in @[@{}, @{@"version":@2, @"uid":@"synthetic-recovery-output", @"previous":@0},
-                            @{@"version":@1, @"uid":@"", @"previous":@0},
-                            @{@"version":@1, @"uid":@"synthetic-recovery-output", @"previous":@1},
+                            @{@"version":@1, @"uid":@"synthetic-recovery-output", @"previous":@0},
                             @{@"version":@2, @"uids":@[]}, @{@"version":@2, @"uids":@[@""]},
                             @{@"version":@2, @"uids":@[@"synthetic-recovery-output", @3]},
                             @{@"version":@2, @"uids":@[@"a", @"b", @"c", @"d", @"e", @"f", @"g", @"h", @"i"]}]) {
@@ -123,7 +121,7 @@ int main(int argc, const char *argv[]) {
             assert([data writeToURL:Journal() options:0 error:nil]);
             [muter restore]; assert(![muter mute:nil] && writes == before && JournalSize() == data.length);
         }
-        // A record owing several devices (the default moved while one was gone) is recovered like the single-device one.
+        // A valid record is recovered.
         NSData *multiple = [NSJSONSerialization dataWithJSONObject:@{@"version":@2, @"uids":@[@"synthetic-recovery-output"]}
             options:0 error:nil];
         assert([multiple writeToURL:Journal() options:0 error:nil]);

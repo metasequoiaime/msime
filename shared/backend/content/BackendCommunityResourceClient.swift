@@ -31,6 +31,10 @@ extension BackendAccountClient {
     let rating_count: Int
     let rating_average: Double
     let my_rating: Int
+    /// "approved", "pending" or "removed" on the user's own items when the request asked for fields=moderation; absent otherwise.
+    var moderation: String? = nil
+    /// Post-moderation: an item is public at once, so only a removal is shown to its author, never a pending state or a reason.
+    var removed: Bool { owned && moderation == "removed" }
   }
   struct ResourcePage: Decodable, Sendable {
     let items: [CommunityResource]
@@ -50,6 +54,8 @@ extension BackendAccountClient {
     parts.path = "/v1/community/resources"
     parts.queryItems = [.init(name: "kind", value: kind.rawValue), .init(name: "scope", value: scope.rawValue),
                         .init(name: "q", value: search), .init(name: "offset", value: String(offset))]
+    // The author's own list carries each item's moderation state only when asked for.
+    if scope == .mine { parts.queryItems?.append(.init(name: "fields", value: "moderation")) }
     guard let path = Self.encodedPath(parts) else { throw Failure(status: 400) }
     let page: ResourcePage = try await json("GET", path, token: token, maximumResponseBytes: 48 * 1024 * 1024)
     guard page.items.count <= 20, !page.has_more || !page.items.isEmpty,
@@ -58,7 +64,7 @@ extension BackendAccountClient {
     return page
   }
   func communityResource(_ id: UUID, token: String? = nil) async throws -> CommunityResource {
-    let value: CommunityResource = try await json("GET", Self.resourcePath(id), token: token,
+    let value: CommunityResource = try await json("GET", Self.resourcePath(id) + "?fields=moderation", token: token,
                                                  maximumResponseBytes: 3 * 1024 * 1024)
     guard value.id == id, Self.validResponse(value, expectedKind: value.kind) else { throw Failure(status: 502) }
     return value
@@ -119,6 +125,19 @@ extension BackendAccountClient {
     struct Result: Decodable { let deleted: Bool }
     let response: Result = try await json("DELETE", Self.resourcePath(id), token: token)
     guard response.deleted else { throw Failure(status: 502) }
+  }
+  /// The fixed report reasons, in dialog order; each is the exact string the server accepts.
+  static let reportReasons = ["侵权/抄袭", "色情低俗", "违法违规", "垃圾广告", "恶意插件", "其他"]
+  /// Report another user's item to the moderators. kind is skins, candidate-skins, plugins, dictionaries or replies; any signed-in session counts, the device's anonymous account included.
+  func reportContent(kind: String, itemID: UUID, reason: String, detail: String, token: String) async throws {
+    let detail = detail.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard ["skins", "candidate-skins", "plugins", "dictionaries", "replies"].contains(kind),
+          Self.reportReasons.contains(reason),
+          Self.resourceText(detail, minimum: 0, maximum: 1000, multiline: true) else { throw Failure(status: 400) }
+    struct Body: Encodable { let kind: String; let item_id: String; let reason: String; let detail: String? }
+    let body = try JSONEncoder().encode(Body(kind: kind, item_id: itemID.uuidString.lowercased(), reason: reason,
+                                             detail: detail.isEmpty ? nil : detail))
+    _ = try await request("POST", "/v1/community/reports", token: token, body: body)
   }
   private static func resourcePath(_ id: UUID) -> String { "/v1/community/resources/" + id.uuidString.lowercased() }
   private static func validSharedWord(_ entry: SharedWord) -> Bool {

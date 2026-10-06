@@ -42,7 +42,9 @@ pub fn delete_dictionary_candidate(
     }
     let table = match kind {
         PersonalDictionaryKind::Pinyin => super::journal::pinyin_table(key),
-        PersonalDictionaryKind::Wubi => Some("wubi86".to_owned()),
+        PersonalDictionaryKind::Wubi | PersonalDictionaryKind::Wubi98 => {
+            kind.wubi_table().map(str::to_owned)
+        }
         PersonalDictionaryKind::English => Some("english_words".to_owned()),
         PersonalDictionaryKind::QuickPhrase => None,
     }

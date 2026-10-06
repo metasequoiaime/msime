@@ -547,41 +547,38 @@ IDWriteTextFormat *DeviceResources::GetTextFormat(const std::wstring &fontFamily
         return nullptr;
     }
 
-    for (auto &entry : textFormatCache_)
+    TextFormatKey key;
+    key.fontFamily = fontFamily;
+    key.fontSize = fontSize;
+    key.fontWeight = fontWeight;
+    key.textAlignment = textAlignment;
+    key.paragraphAlignment = paragraphAlignment;
+    key.wordWrapping = wordWrapping;
+    if (Microsoft::WRL::ComPtr<IDWriteTextFormat> *cached = textFormatCache_.Find(key); cached && *cached)
     {
-        if (entry.fontFamily == fontFamily && entry.fontSize == fontSize && entry.fontWeight == fontWeight &&
-            entry.textAlignment == textAlignment && entry.paragraphAlignment == paragraphAlignment &&
-            entry.wordWrapping == wordWrapping && entry.format)
-        {
-            return entry.format.Get();
-        }
+        return cached->Get();
     }
 
-    TextFormatCacheEntry entry;
-    entry.fontFamily = fontFamily;
-    entry.fontSize = fontSize;
-    entry.fontWeight = fontWeight;
-    entry.textAlignment = textAlignment;
-    entry.paragraphAlignment = paragraphAlignment;
-    entry.wordWrapping = wordWrapping;
-    if (FAILED(dwriteFactory_->CreateTextFormat(entry.fontFamily.c_str(), nullptr, entry.fontWeight,
-                                                DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, entry.fontSize,
-                                                L"", entry.format.GetAddressOf())))
+    Microsoft::WRL::ComPtr<IDWriteTextFormat> format;
+    if (FAILED(dwriteFactory_->CreateTextFormat(key.fontFamily.c_str(), nullptr, key.fontWeight,
+                                                DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, key.fontSize,
+                                                L"", format.GetAddressOf())))
     {
-        if (FAILED(dwriteFactory_->CreateTextFormat(L"Microsoft YaHei", nullptr, entry.fontWeight,
+        if (FAILED(dwriteFactory_->CreateTextFormat(L"Microsoft YaHei", nullptr, key.fontWeight,
                                                     DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-                                                    entry.fontSize, L"", entry.format.GetAddressOf())))
+                                                    key.fontSize, L"", format.GetAddressOf())))
         {
             return nullptr;
         }
     }
 
-    entry.format->SetTextAlignment(entry.textAlignment);
-    entry.format->SetParagraphAlignment(entry.paragraphAlignment);
-    entry.format->SetWordWrapping(entry.wordWrapping);
-    ApplyUiFontFallback(dwriteFactory_.Get(), entry.format.Get());
-    textFormatCache_.push_back(std::move(entry));
-    return textFormatCache_.back().format.Get();
+    format->SetTextAlignment(key.textAlignment);
+    format->SetParagraphAlignment(key.paragraphAlignment);
+    format->SetWordWrapping(key.wordWrapping);
+    ApplyUiFontFallback(dwriteFactory_.Get(), format.Get());
+    textFormatCache_.Insert(key, format);
+    Microsoft::WRL::ComPtr<IDWriteTextFormat> *cached = textFormatCache_.Find(key);
+    return cached ? cached->Get() : nullptr;
 }
 
 ID2D1Bitmap *DeviceResources::GetBitmapFromFile(const std::wstring &filePath, D2D1_SIZE_F *size)

@@ -26,11 +26,13 @@ final class KeyboardSkinDocumentTests: XCTestCase {
 
   func testBuiltInSelectionReachesTheDocument() throws {
     _ = MetasequoiaInputSessionBridge(stateRoot: state)
+    // 触屏键盘的新文档自带薄荷晨光的自定义主题（#2178），所以这里比较的是选择前后，而不是要求它为空。
+    let before = GlobalThemePreference.customTheme(in: MetasequoiaInputSessionBridge.loadSharedPreferences(stateRoot: state))
     XCTAssertTrue(GlobalThemePreference.save("night", stateRoot: state))
     let document = try XCTUnwrap(MetasequoiaInputSessionBridge.loadSharedPreferences(stateRoot: state))
     XCTAssertEqual(document["global_theme"] as? String, "night")
-    // Selecting a built-in theme leaves the custom theme empty.
-    XCTAssertTrue(GlobalThemePreference.customTheme(in: document).isEmpty)
+    // 选择内置主题不改动自定义主题：底色、外部皮肤、取色和键盘设计都原样保留，切回 `custom` 时还是原来那套。
+    XCTAssertEqual(GlobalThemePreference.customTheme(in: document) as NSDictionary, before as NSDictionary)
     XCTAssertEqual(GlobalThemePreference.selected, "night")
     // A retired built-in skin id is not a theme; the document refuses it and nothing changes.
     XCTAssertFalse(GlobalThemePreference.save("midnight", stateRoot: state))

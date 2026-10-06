@@ -64,7 +64,7 @@ test("missing optional mouse wheel preference renders unchecked", () => {
     />,
   );
 
-  expect(screen.getByRole("checkbox", { name: "鼠标滚轮（候选面板支持时翻页）" })).toHaveProperty(
+  expect(screen.getByRole("checkbox", { name: "鼠标滚轮（候选窗口支持时翻页）" })).toHaveProperty(
     "checked",
     false,
   );

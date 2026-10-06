@@ -1,32 +1,16 @@
 //! Windows desktop account session storage.
 //!
-//! Session tokens stay in the per-user Windows Credential Manager. The commands themselves live in [`crate::platform::desktop::desktop_account`], and the React surface only receives the same redacted DTOs as the mobile hosts.
+//! The commands themselves live in [`crate::platform::desktop::desktop_account`]. The session is an `account-session.json` in this user's local application data directory, which the profile's ACL keeps from other accounts; the input method's state directory is not used, because the installer can place that one machine-wide.
 
 use crate::platform::desktop::desktop_account;
-use msime_client_core::account::{AccountError, AccountSessionStorage, SavedAccountSession};
+use msime_client_core::account::{AccountSessionFileLayout, FileAccountSessionStorage};
+use tauri::Manager;
 
-#[derive(Clone, Copy)]
-pub(crate) struct WindowsAccountStorage;
-
-impl AccountSessionStorage for WindowsAccountStorage {
-    fn load(&self) -> Result<Option<SavedAccountSession>, AccountError> {
-        msime_host_windows::load_account_session()
-            .map_err(|_| AccountError::Storage)?
-            .map(|value| serde_json::from_str(&value).map_err(|_| AccountError::Storage))
-            .transpose()
-    }
-
-    fn save(&self, session: &SavedAccountSession) -> Result<(), AccountError> {
-        let value = serde_json::to_string(session).map_err(|_| AccountError::Storage)?;
-        msime_host_windows::save_account_session(Some(&value)).map_err(|_| AccountError::Storage)
-    }
-
-    fn clear(&self) -> Result<(), AccountError> {
-        msime_host_windows::save_account_session(None).map_err(|_| AccountError::Storage)
-    }
-}
-
-/// Registers the shared desktop account state around the Credential Manager store.
+/// Registers the shared desktop account state around the per-user session file.
 pub fn setup(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
-    desktop_account::manage(app, WindowsAccountStorage)
+    let directory = app.path().app_local_data_dir()?;
+    desktop_account::manage(
+        app,
+        FileAccountSessionStorage::new(directory, AccountSessionFileLayout::Native),
+    )
 }

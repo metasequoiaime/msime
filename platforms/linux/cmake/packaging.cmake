@@ -3,8 +3,9 @@
 if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
   message(FATAL_ERROR "MSIME packaging requires a Linux build")
 endif()
-if(NOT CMAKE_INSTALL_PREFIX STREQUAL "/usr")
-  message(FATAL_ERROR "Configure distributable Linux packages with CMAKE_INSTALL_PREFIX=/usr")
+# full 的包装在 /usr 下；其他版本的包装在版本表给的前缀（/opt/msime-linux-<id>）下，两者都由 cmake/Edition.cmake 读出。
+if(NOT CMAKE_INSTALL_PREFIX STREQUAL MSIME_EDITION_INSTALL_PREFIX)
+  message(FATAL_ERROR "Configure distributable Linux packages of edition ${MSIME_EDITION} with CMAKE_INSTALL_PREFIX=${MSIME_EDITION_INSTALL_PREFIX}")
 endif()
 if(MSIME_RUNTIME_OPTIONS_FILE)
   message(FATAL_ERROR "Packaged builds must not include prepared runtime options; leave MSIME_RUNTIME_OPTIONS_FILE empty")
@@ -15,17 +16,22 @@ endif()
 
 # CMakeLists.txt resolves the version before the IBus host is compiled, because the host reports the same version at startup.
 set(CPACK_PACKAGE_VERSION "${MSIME_LINUX_VERSION}")
-set(CPACK_PACKAGE_NAME "msime-linux")
+# 包名取自版本表（full 是 msime-linux）：各版本是互不替换的独立包，可以同时安装。
+set(CPACK_PACKAGE_NAME "${MSIME_EDITION_PACKAGE}")
 set(CPACK_PACKAGE_VENDOR "Metasequoia IME")
 set(CPACK_PACKAGE_CONTACT "Metasequoia IME <metasequoiaime@gmail.com>")
-set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "MSIME Linux IBus host and desktop tools (Fcitx5 addon available)")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "${MSIME_EDITION_DISPLAY_NAME_EN} Linux IBus host and desktop tools (Fcitx5 addon available)")
 set(CPACK_PACKAGE_HOMEPAGE_URL "https://github.com/metasequoiaime/msime")
 set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/../../LICENSE")
 set(CPACK_GENERATOR "TGZ")
 set(CPACK_SET_DESTDIR ON)
 set(CPACK_PACKAGE_RELOCATABLE FALSE)
+# strip CMake 构建并通过 install(TARGETS) 安装的产物：原生宿主、Fcitx5 插件和 msime-voice-local。Rust 二进制经 install(FILES/PROGRAMS) 安装，这个开关管不到，所以由 package-container.sh 直接构建出 strip 过的版本；sherpa-onnx 和 ONNX Runtime 库是上游的预编译文件，保持原样，与 debian/rules 的处理一致。只有 CPack 读取这个设置：debian/rules、rpm/msime.spec 和 PKGBUILD 用 cmake --install 安装，dh_strip 和 find-debuginfo 仍能拿到它们要拆分出去的调试信息。
+set(CPACK_STRIP_FILES TRUE)
 set(CPACK_PACKAGE_FILE_NAME "${CPACK_PACKAGE_NAME}-${CPACK_PACKAGE_VERSION}-linux-${CMAKE_SYSTEM_PROCESSOR}")
 set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
+# data.tar 用 xz 而不是 gzip。Dockerfile.package 里的 CMake 3.25 没有 CPACK_DEBIAN_COMPRESSION_LEVEL，只用 xz 预设 6，所以 package-container.sh 再用 dpkg-deb 以 -9 重新打包每个 .deb。本包支持的所有 dpkg 版本都能读 xz 成员。.tar.gz 仍用 gzip：应用内更新检查会按文件名回退到它。
+set(CPACK_DEBIAN_COMPRESSION_TYPE "xz")
 set(CPACK_DEBIAN_PACKAGE_SECTION "utils")
 set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
 # procps provides the pgrep msime-linux-setup uses to see whether the input method is running before it switches dictionaries; a system without it fails every dictionary switch. Debian marks procps important rather than required, so a minimal install can lack it.
@@ -42,7 +48,7 @@ set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS_PRIVATE_DIRS "${MSIME_HOST_LIBRARY_DIR};${MSI
 # prerm stops and disables the user units of logged-in users on removal and postinst restarts running services after an upgrade; CMakeLists.txt configures both from the unit list the CMake uninstall uses.
 # The clipboard XDG autostart entry is the package's one file under /etc (a /usr prefix puts MSIME_XDG_AUTOSTART_DIR there), and Debian policy requires /etc files to be conffiles so an administrator who edits or deletes it keeps that change across upgrades. CPack's DEB generator marks nothing by itself; the list travels as a control file like the maintainer scripts.
 file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/debian/conffiles"
-     CONTENT "${MSIME_XDG_AUTOSTART_DIR}/msime-linux-clipboard.desktop\n")
+     CONTENT "${MSIME_XDG_AUTOSTART_DIR}/${MSIME_EDITION_PACKAGE}-clipboard.desktop\n")
 set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA "${CMAKE_CURRENT_BINARY_DIR}/debian/prerm;${CMAKE_CURRENT_BINARY_DIR}/debian/postinst;${CMAKE_CURRENT_BINARY_DIR}/debian/conffiles")
 set(CPACK_DEBIAN_PACKAGE_CONTROL_STRICT_PERMISSION ON)
 
@@ -58,8 +64,10 @@ endif()
 # The same voice runtime as the .deb Recommends, in Fedora's package names; a rich dependency expresses the alternatives.
 set(CPACK_RPM_PACKAGE_RECOMMENDS "python3-websockets >= 15, (pulseaudio-utils or pipewire-utils or alsa-utils)")
 # The host library and the sherpa-onnx runtime ship in the package's private directory, as CPACK_DEBIAN_PACKAGE_SHLIBDEPS_PRIVATE_DIRS says for the .deb: nothing may require them from the system, and the package must not advertise them as system libraries either.
-set(CPACK_RPM_SPEC_MORE_DEFINE "%global __requires_exclude ^lib(msime_host_api|sherpa-onnx-c-api|onnxruntime)\\\\.so.*$
-%global __provides_exclude_from ^${CMAKE_INSTALL_FULL_LIBDIR}/msime-client/.*$")
+# payload 与 .deb 一样用 xz 9 级，而不是 rpmbuild 默认的 zstd；CPACK_RPM_COMPRESSION_TYPE 设为 xz 只能得到 7 级。payload 字符串里不带 T 时 rpm 单线程压缩，xz -9 所需的 674 MiB 内存就不会再乘以核数。
+set(CPACK_RPM_SPEC_MORE_DEFINE "%global __requires_exclude ^lib(${MSIME_HOST_LIBRARY_STEM}|sherpa-onnx-c-api|onnxruntime)\\\\.so.*$
+%global __provides_exclude_from ^${CMAKE_INSTALL_FULL_LIBDIR}/${MSIME_CLIENT_DIRECTORY}/.*$
+%define _binary_payload w9.xzdio")
 # Directories the base system owns. An RPM that lists them conflicts with the filesystem package and with the desktop, IBus, Fcitx5 and systemd packages that own them.
 list(APPEND CPACK_RPM_EXCLUDE_FROM_AUTO_FILELIST_ADDITION
   /etc/xdg /etc/xdg/autostart
@@ -68,8 +76,20 @@ list(APPEND CPACK_RPM_EXCLUDE_FROM_AUTO_FILELIST_ADDITION
   /usr/share/ibus /usr/share/ibus/component
   /usr/share/fcitx5 /usr/share/fcitx5/addon /usr/share/fcitx5/inputmethod
   "${CMAKE_INSTALL_FULL_LIBDIR}/fcitx5")
+# 装在 /opt 下的版本：/opt 归 filesystem 包，插件目录取自 Fcitx5Core.pc（fcitx5/CMakeLists.txt），也归 fcitx5。
+if(NOT MSIME_EDITION_IS_FULL)
+  list(APPEND CPACK_RPM_EXCLUDE_FROM_AUTO_FILELIST_ADDITION /opt /usr/bin)
+  if(MSIME_FCITX5_ADDON_DIR AND IS_ABSOLUTE "${MSIME_FCITX5_ADDON_DIR}")
+    list(APPEND CPACK_RPM_EXCLUDE_FROM_AUTO_FILELIST_ADDITION "${MSIME_FCITX5_ADDON_DIR}")
+  endif()
+  # The Fcitx5 addon has to sit in the system fcitx5 addon directory while the host library stays in this edition's private directory under /opt, so fcitx5/CMakeLists.txt gives the addon an absolute RUNPATH to that directory on purpose; no $ORIGIN path survives the two moving independently. Fedora's check-rpaths (run from %__os_install_post) rejects any absolute RPATH outside the standard library directories as 0x0002 "invalid" and fails %install, so for this package only that one bit is allowed. The check itself still runs, and every other RPATH problem (empty, relative, '..' or $ORIGIN out of order) still fails the build. The full edition installs under /usr with $ORIGIN-relative RUNPATHs and keeps the default check.
+  if(MSIME_ENABLE_FCITX5)
+    string(APPEND CPACK_RPM_SPEC_MORE_DEFINE "
+%global __brp_check_rpaths QA_RPATHS=0x0002 %{_rpmconfigdir}/check-rpaths")
+  endif()
+endif()
 # The autostart entry is the package's one file under /etc: the RPM counterpart of the Debian conffile above.
-set(CPACK_RPM_USER_FILELIST "%config(noreplace) ${MSIME_XDG_AUTOSTART_DIR}/msime-linux-clipboard.desktop")
+set(CPACK_RPM_USER_FILELIST "%config(noreplace) ${MSIME_XDG_AUTOSTART_DIR}/${MSIME_EDITION_PACKAGE}-clipboard.desktop")
 # The maintainer scripts are the Debian ones, which dispatch on dpkg's arguments. RPM passes the number of installed instances instead (%post: 1 on install, 2 or more on upgrade; %preun: 0 on removal, 1 or more on upgrade), so each script is prefixed with the translation to the dpkg call it corresponds to.
 file(READ "${CMAKE_CURRENT_BINARY_DIR}/debian/postinst" MSIME_DEB_POSTINST)
 file(READ "${CMAKE_CURRENT_BINARY_DIR}/debian/prerm" MSIME_DEB_PRERM)
@@ -82,5 +102,5 @@ set(CPACK_RPM_PRE_UNINSTALL_SCRIPT_FILE "${CMAKE_CURRENT_BINARY_DIR}/rpm/preun")
 
 # The license (as copyright) and the third-party notices are installed by CMakeLists.txt for every install; configuration already failed there if any of them was missing.
 install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/README.md"
-        DESTINATION "${CMAKE_INSTALL_DATADIR}/doc/msime-client" RENAME README.md)
+        DESTINATION "${CMAKE_INSTALL_DATADIR}/doc/${MSIME_CLIENT_DIRECTORY}" RENAME README.md)
 include(CPack)

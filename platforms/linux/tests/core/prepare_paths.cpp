@@ -1,4 +1,5 @@
 #include "../src/core/PreparePaths.h"
+#include "../src/core/PrepareState.h"
 
 #include <cassert>
 #include <filesystem>
@@ -26,6 +27,15 @@ int main() {
   assert(msime_linux::installed_sound_pack_directory(executable) ==
          std::filesystem::canonical(root / "share/msime-client/sound-packs").string());
   assert(msime_linux::installed_sound_pack_directory("bin/msime-linux-ibus").empty());
+
+  const auto outside = root / "outside";
+  std::filesystem::create_directories(outside);
+  const auto linked = root / "linked";
+  std::filesystem::create_directory_symlink(outside, linked);
+  // 以 root 身份运行时（Linux 容器里就是这样），root 自己不对外开放的目录里的链接会被当成受信任的系统链接（见 `src/core/SafePath.h`）；把目录改成其他人可写，这条链接就成了任何人都可能放进去的链接。
+  std::filesystem::permissions(root, std::filesystem::perms::others_write, std::filesystem::perm_options::add);
+  assert(!msime_linux::state_directory_path_is_safe(linked / "new-state"));
+  assert(msime_linux::state_directory_path_is_safe(root / "fresh-state"));
 
   std::filesystem::remove_all(root, error);
   return 0;

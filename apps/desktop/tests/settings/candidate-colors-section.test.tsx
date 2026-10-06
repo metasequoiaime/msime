@@ -92,6 +92,6 @@ test("candidate color controls honor host capability limits", () => {
   expect(screen.queryByLabelText("候选选中色")).toBeNull();
   expect(screen.queryByLabelText("候选悬停色")).toBeNull();
   expect(screen.queryByLabelText("候选边框色")).toBeNull();
-  expect(screen.getByText(/候选面板不支持强调或选中行颜色/)).toBeTruthy();
+  expect(screen.getByText(/候选窗口不支持强调或选中行颜色/)).toBeTruthy();
   expect(screen.getAllByText(/Fcitx5 经典界面/).length).toBeGreaterThan(0);
 });

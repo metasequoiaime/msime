@@ -1,4 +1,5 @@
 import Foundation
+import CoreFoundation
 
 private typealias MSIMEClipboardByte = UInt8
 
@@ -26,14 +27,12 @@ struct ClipboardHistoryStore {
   static let limit = 50
   let root: URL
   let file: URL
-  let legacyFile: URL
 
   init(directory: URL? = nil) {
     root = directory ?? FileManager.default.containerURL(
       forSecurityApplicationGroupIdentifier: InputSchemePreference.appGroupIdentifier)
       ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
     file = root.appendingPathComponent("MSIME/clipboard_history.json")
-    legacyFile = root.appendingPathComponent("Clipboard/history.json")
   }
 
   func load() throws -> [ClipboardHistoryItem] {
@@ -43,14 +42,23 @@ struct ClipboardHistoryStore {
     }
     return try rows.map { row in
       guard let text = row["text"] as? String,
-            let timestamp = row["timestampMs"] as? NSNumber,
+            let rawTimestamp = row["timestampMs"] as? NSNumber,
+            let timestamp = Self.strictTimestampMilliseconds(rawTimestamp),
             let pinned = row["pinned"] as? Bool,
             !text.contains("\0")
       else { throw Failure.invalidFile }
       return ClipboardHistoryItem(
-        text: text, date: Date(timeIntervalSince1970: timestamp.doubleValue / 1_000),
+        text: text, date: Date(timeIntervalSince1970: Double(timestamp) / 1_000),
         pinned: pinned)
     }
+  }
+
+  /// The shared store writes a non-negative JSON `u64`; reject NSNumber's boolean and lossy conversions.
+  static func strictTimestampMilliseconds(_ value: NSNumber) -> UInt64? {
+    guard CFGetTypeID(value) != CFBooleanGetTypeID(),
+          let integer = UInt64(value.stringValue),
+          NSNumber(value: integer).compare(value) == .orderedSame else { return nil }
+    return integer
   }
 
   func add(_ text: String) throws {

@@ -13,21 +13,20 @@
 ;   4. Sign-Installer-Local.ps1         用同一张本机测试证书给安装包签名
 ;
 ; 也可以直接运行 .\test.ps1 走完整测试流程。
-; 只改 TSF / Server / HTML 时用 .\test-light.ps1：ISCC /DLightPackage=1，
+; 只改 TSF / Server 时用 .\test-light.ps1：ISCC /DLightPackage=1，
 ; 打出不含词库的轻量包，安装时也不会删本机已有词库。
 ; 本仓库不包含任何预置代码签名证书。
 
-#define MyAppName      "Metasequoia IME 水杉输入法"
+#include "editions.iss"
+#define MyAppName      MyEditionAppName
 #define MyAppVersion   "0.0.1"
 #define MyAppPublisher "Metasequoia"
 #define MyAppExeName   "MetasequoiaImeServer.exe"
 #define MySettingsExeName "msime-client-settings.exe"
 #define MyWatchdogName "MetasequoiaImeWatchdog.exe"
-#define MyWatchdogTaskName "Metasequoia IME Watchdog"
-#define MyReplayName   "MetasequoiaImeDictionaryReplay.exe"
-#define MyMcpName      "msime-mcp.exe"
+#define MyWatchdogTaskName MyEditionWatchdogTask
 ; Global::MetasequoiaIMECLSID in platforms/windows/tsf/Global/Globals.cpp.
-#define MyTipKey       "SOFTWARE\Microsoft\CTF\TIP\{E3062E9A-D834-4637-8958-ED8CFA427D01}"
+#define MyTipKey       "SOFTWARE\Microsoft\CTF\TIP\" + MyEditionClsid
 #define MyVersionDirBase "msime_v" + MyAppVersion
 #define MySourceRoot   "."
 #ifdef LightPackage
@@ -37,18 +36,18 @@
 #endif
 
 [Setup]
-AppId={{A7C3E91F-4B2D-4E8A-9F1C-6D5E8B0A2C4D}
+AppId={#MyEditionAppId}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
-DefaultDirName={autopf}\metasequoiaime
+DefaultDirName={autopf}\{#MyEditionInstallDir}
 DefaultGroupName={#MyAppName}
 DisableDirPage=yes
 ; DisableDirPage=yes 时就绪页默认不显示目标目录，显式打开以便用户确认装到哪。
 AlwaysShowDirOnReadyPage=yes
 DisableProgramGroupPage=yes
 OutputDir=Output
-OutputBaseFilename=MetasequoiaIME_Setup_v{#MyAppVersion}{#MyOutputSuffix}
+OutputBaseFilename={#MyEditionInstallerBaseName}_v{#MyAppVersion}{#MyOutputSuffix}
 SetupIconFile={#MySourceRoot}\MetasequoiaIME.ico
 Compression=lzma2
 SolidCompression=yes
@@ -59,7 +58,7 @@ UsedUserAreasWarning=no
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 UninstallDisplayName={#MyAppName}
-UninstallDisplayIcon={commonpf64}\metasequoiaime\MetasequoiaIME.ico
+UninstallDisplayIcon={commonpf64}\{#MyEditionInstallDir}\MetasequoiaIME.ico
 VersionInfoVersion={#MyAppVersion}
 
 [Languages]
@@ -67,103 +66,119 @@ Name: "chinesesimplified"; MessagesFile: "compiler:Languages\ChineseSimplified.i
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Dirs]
-Name: "{commonpf32}\metasequoiaime\{code:GetVersionDir}"
-Name: "{commonpf64}\metasequoiaime\{code:GetVersionDir}"
-Name: "{commonpf64}\metasequoiaime\server"
+Name: "{commonpf32}\{#MyEditionInstallDir}\{code:GetVersionDir}"
+Name: "{commonpf64}\{#MyEditionInstallDir}\{code:GetVersionDir}"
+Name: "{commonpf64}\{#MyEditionInstallDir}\server"
 ; Server 与设置窗口是中完整性的用户进程，要写这里的配置、用户词库和 runtime-options.json；安装器以高完整性建的目录它们改不动，数据目录放到其他盘时继承来的 ACL 也未必允许普通用户写。ssPostInstall 里的 EnsureImeUserDataDir 再对已有目录补一遍。
 Name: "{code:GetDataDir}"; Permissions: users-modify
-; WebView2 子进程是中完整性，写不进内置 Administrator 的高完整性 LocalAppData。
-Name: "{commonappdata}\metasequoiaime"
-Name: "{commonappdata}\metasequoiaime\webview2"; Permissions: users-modify
-Name: "{commonappdata}\metasequoiaime\webview2-settings"; Permissions: users-modify
 
 [Files]
 ; 独立安装应用图标，供 Windows“已安装的应用”列表稳定显示。
 Source: "{#MySourceRoot}\MetasequoiaIME.ico"; \
-    DestDir: "{commonpf64}\metasequoiaime"; Flags: ignoreversion
+    DestDir: "{commonpf64}\{#MyEditionInstallDir}"; Flags: ignoreversion
 
 ; 第三方声明随包安装。词库主体含 rime-ice（GPL-3.0）内容，其许可要求保留署名，
 ; 因此这份文件必须落到用户磁盘上，而不能只存在于源码仓库里。
 Source: "{#MySourceRoot}\THIRD_PARTY_NOTICES.txt"; \
-    DestDir: "{commonpf64}\metasequoiaime"; Flags: ignoreversion
+    DestDir: "{commonpf64}\{#MyEditionInstallDir}"; Flags: ignoreversion
 
 ; GPLv3 第 4、6 条要求分发时向接收者提供许可证副本，而 THIRD_PARTY_NOTICES.txt 只是指向
 ; "the LICENSE file"、本身不含 GPL 正文。macOS 与 Linux 的 CMake 安装规则早已随包装入许可证，
 ; Windows 是唯一大规模分发却漏掉这一步的平台。
 Source: "{#MySourceRoot}\LICENSE.txt"; \
-    DestDir: "{commonpf64}\metasequoiaime"; Flags: ignoreversion
+    DestDir: "{commonpf64}\{#MyEditionInstallDir}"; Flags: ignoreversion
 
 ; TSF DLL 使用版本独立目录，避免升级时覆盖仍被进程加载的 DLL。
-; PDB 与对应 DLL 放在同一目录，调试器可按二进制的内嵌路径自动找到符号。
+; PDB 不随安装包分发：Collect-Symbols.ps1（release-windows.yml 和 Package-SimplySign.ps1 都调用它）把暂存的符号打成单独的 msime-windows-<edition>-<version>-symbols.zip 发布，分析崩溃时让调试器指向解压出的目录。
 ; Install Host API and ordinary dependencies before registering the TIP.
 Source: "{#MySourceRoot}\tsf_dll\32\*.dll"; \
     Excludes: "MetasequoiaImeTsf.dll"; \
-    DestDir: "{commonpf32}\metasequoiaime\{code:GetVersionDir}"; \
+    DestDir: "{commonpf32}\{#MyEditionInstallDir}\{code:GetVersionDir}"; \
     Flags: ignoreversion 32bit
 
 Source: "{#MySourceRoot}\tsf_dll\64\*.dll"; \
     Excludes: "MetasequoiaImeTsf.dll"; \
-    DestDir: "{commonpf64}\metasequoiaime\{code:GetVersionDir}"; \
+    DestDir: "{commonpf64}\{#MyEditionInstallDir}\{code:GetVersionDir}"; \
     Flags: ignoreversion
 
 Source: "{#MySourceRoot}\tsf_dll\32\MetasequoiaImeTsf.dll"; \
-    DestDir: "{commonpf32}\metasequoiaime\{code:GetVersionDir}"; \
+    DestDir: "{commonpf32}\{#MyEditionInstallDir}\{code:GetVersionDir}"; \
     Flags: ignoreversion regserver 32bit
 
 Source: "{#MySourceRoot}\tsf_dll\64\MetasequoiaImeTsf.dll"; \
-    DestDir: "{commonpf64}\metasequoiaime\{code:GetVersionDir}"; \
-    Flags: ignoreversion regserver
+    DestDir: "{commonpf64}\{#MyEditionInstallDir}\{code:GetVersionDir}"; \
+    Flags: ignoreversion regserver; Check: not IsArm64
 
-Source: "{#MySourceRoot}\tsf_dll\32\*.pdb"; \
-    DestDir: "{commonpf32}\metasequoiaime\{code:GetVersionDir}"; \
+; Windows on Arm 上 64 位 TIP 换成 Arm64X 的那一份：原生 ARM64 进程（资源管理器、Edge、记事本等）和模拟运行的 x64 进程共用同一个 InprocServer32 路径，x64 TIP 只能被后者加载。它原生的那一半导入同目录的 ARM64 宿主 DLL，ARM64EC 那一半导入上面装进同一目录的 x64 宿主 DLL。Server 和其余程序仍是 x64，在模拟下运行。
+Source: "{#MySourceRoot}\tsf_dll\arm64\*.dll"; \
+    Excludes: "MetasequoiaImeTsf.dll"; \
+    DestDir: "{commonpf64}\{#MyEditionInstallDir}\{code:GetVersionDir}"; \
+    Flags: ignoreversion; Check: IsArm64
+
+Source: "{#MySourceRoot}\tsf_dll\arm64\MetasequoiaImeTsf.dll"; \
+    DestDir: "{commonpf64}\{#MyEditionInstallDir}\{code:GetVersionDir}"; \
+    Flags: ignoreversion regserver; Check: IsArm64
+
+; Server、设置窗口和 MCP 服务需要与 64 位 TIP 相同的 x64 宿主 DLL 和运行时 DLL。Prepare-PackageFiles.ps1 只把它们暂存在 tsf_dll\64 下，而 Inno 对同一个源文件无论有几条安装条目都只存一份，所以包里只有一份。
+Source: "{#MySourceRoot}\tsf_dll\64\*.dll"; \
+    Excludes: "MetasequoiaImeTsf.dll"; \
+    DestDir: "{commonpf64}\{#MyEditionInstallDir}\server"; \
     Flags: ignoreversion
 
-Source: "{#MySourceRoot}\tsf_dll\64\*.pdb"; \
-    DestDir: "{commonpf64}\metasequoiaime\{code:GetVersionDir}"; \
-    Flags: ignoreversion
-
-; server_exe 含本地语音识别运行时（sherpa-onnx-c-api.dll、onnxruntime.dll、onnxruntime_providers_shared.dll）。Server 从自身目录 LoadLibrary 加载它们，因此必须与 MetasequoiaImeServer.exe 同目录；ignoreversion 保证升级时换成本包锁定的版本。
+; server_exe 含本地语音识别运行时（sherpa-onnx-c-api.dll、onnxruntime.dll、onnxruntime_providers_shared.dll）。Server 从自身目录 LoadLibrary 加载它们，因此必须与 MetasequoiaImeServer.exe 同目录；ignoreversion 保证升级时换成本包锁定的版本。PDB 和链接器的 .ilk 不装，见上面 TSF 一节。
 Source: "{#MySourceRoot}\server_exe\*"; \
-    DestDir: "{commonpf64}\metasequoiaime\server"; \
+    Excludes: "*.pdb,*.ilk"; \
+    DestDir: "{commonpf64}\{#MyEditionInstallDir}\server"; \
     Flags: ignoreversion recursesubdirs createallsubdirs
 
 #ifndef LightPackage
 ; 包内故意不带 config.toml。通配复制再排除一次，防止以后又把用户配置打进包内。
 Source: "{#MySourceRoot}\app_data\*"; DestDir: "{code:GetDataDir}"; \
-    Excludes: "\config.toml,\config.base.toml,\config.default.toml,\html\*"; \
+    Excludes: "\config.toml,\config.default.toml"; \
     Flags: ignoreversion recursesubdirs createallsubdirs uninsneveruninstall
 
-; 用户配置只在首次安装时从出厂模板生成。升级时绝不覆盖已有 config.toml；
-; Server 启动时再以 config.default.toml 合并：保留用户改过的值，带入新版新增项。
+; 用户配置只在首次安装时从出厂模板生成。升级时绝不覆盖已有 config.toml。
 Source: "{#MySourceRoot}\app_data\config.default.toml"; \
     DestDir: "{code:GetDataDir}"; DestName: "config.toml"; \
     Flags: onlyifdoesntexist uninsneveruninstall
-Source: "{#MySourceRoot}\app_data\config.default.toml"; \
-    DestDir: "{code:GetDataDir}"; DestName: "config.default.toml"; \
-    Flags: ignoreversion uninsneveruninstall
 #endif
+
+[InstallDelete]
+; 符号改为单独发布资产之前的包会把所有 PDB、设置程序增量链接的 .ilk 和一份多余的 TSF DLL 装进 Server 目录，而升级沿用这个目录；这里删掉它们，让升级收回空间。那里的 TSF DLL 从未被加载或注册：TIP 从版本目录运行。
+Type: files; Name: "{commonpf64}\{#MyEditionInstallDir}\server\*.pdb"
+Type: files; Name: "{commonpf64}\{#MyEditionInstallDir}\server\*.ilk"
+Type: files; Name: "{commonpf64}\{#MyEditionInstallDir}\server\MetasequoiaImeTsf.dll"
+; 手写模型和落定重排模型改为由设置应用按需下载到数据目录的 resource-packs 之前，包把它们装在 Server 目录的 handwriting 和 settled-model 下。升级时删掉这两份旧副本：宿主优先用随包的那份，留着它们会让按锁更新过的下载永远轮不到，还白占约 50 MB。
+Type: filesandordirs; Name: "{commonpf64}\{#MyEditionInstallDir}\server\handwriting"
+Type: filesandordirs; Name: "{commonpf64}\{#MyEditionInstallDir}\server\settled-model"
 
 [Icons]
 Name: "{group}\{#MyAppName}"; \
-    Filename: "{commonpf64}\metasequoiaime\server\{#MySettingsExeName}"; \
-    WorkingDir: "{commonpf64}\metasequoiaime\server"
+    Filename: "{commonpf64}\{#MyEditionInstallDir}\server\{#MySettingsExeName}"; \
+    WorkingDir: "{commonpf64}\{#MyEditionInstallDir}\server"
 Name: "{group}\卸载 {#MyAppName}"; Filename: "{uninstallexe}"
 
 [Registry]
-Root: HKLM; Subkey: "Software\Metasequoia\MetasequoiaIME"; \
+Root: HKLM; Subkey: "{#MyEditionRegistryKey}"; \
     ValueType: string; ValueName: "VersionDir"; ValueData: "{code:GetVersionDir}"; \
     Flags: uninsdeletevalue
-Root: HKLM; Subkey: "Software\Metasequoia\MetasequoiaIME"; \
+Root: HKLM; Subkey: "{#MyEditionRegistryKey}"; \
     ValueType: string; ValueName: "ServerPath"; \
-    ValueData: "{commonpf64}\metasequoiaime\server\{#MyAppExeName}"; \
+    ValueData: "{commonpf64}\{#MyEditionInstallDir}\server\{#MyAppExeName}"; \
     Flags: uninsdeletevalue
-Root: HKLM; Subkey: "Software\Metasequoia\MetasequoiaIME"; \
+Root: HKLM; Subkey: "{#MyEditionRegistryKey}"; \
     ValueType: string; ValueName: "DataDir"; ValueData: "{code:GetDataDir}"; \
     Flags: uninsdeletevalue
 
 [Code]
 const
-  DataDirMarkerName = '.metasequoiaime-data';
+  { 所有权标记的文件名按版本取（editions.iss，full 是 .metasequoiaime-data，其他版本接上自己的名字后缀），都以 DataDirMarkerPrefix 开头。几个版本可以同时安装：OwnsDataDir 只认本版本的标记，目录里只要有别的版本的标记就不归本安装器管，所以一个版本不会接管、清理或删除另一个版本的数据目录。 }
+  DataDirMarkerName = '{#MyEditionDataDirMarker}';
+  DataDirMarkerPrefix = '{#MyDataDirMarkerPrefix}';
+#if !MyEditionIsFull
+  { 本版本写进所有权标记的内容。标记里带着版本 id，OwnsDataDir 只认它，不认别的版本的标记。 }
+  DataDirMarkerText = 'This directory is managed by Metasequoia IME (edition {#Edition}).';
+#endif
 
   { WebView2 Evergreen Runtime 在 EdgeUpdate 里的固定客户端 ID。}
   WebView2ClientKey =
@@ -186,6 +201,9 @@ var
   PreviousDataDir: String;
   { Set once MigrateUserDataDir has copied every user item out of a different previous directory; FinishDataDirMove only removes that directory when it is. }
   DataDirMigrated: Boolean;
+  { OtherEditionDataDirs 的缓存：安装和卸载期间别的版本的登记不会变。 }
+  OtherEditionDataDirList: TArrayOfString;
+  OtherEditionDataDirsLoaded: Boolean;
 
 { WebView2 Runtime 与 VC 运行库都不随包分发：前者有自己的 Evergreen 更新通道，
   后者是系统级共享组件，安装器不该替用户装。但缺了任何一个，输入法装完就是坏的，
@@ -328,12 +346,12 @@ begin
     Recorded := '';
     if (RegQueryStringValue(
           HKLM,
-          'Software\Metasequoia\MetasequoiaIME',
+          '{#MyEditionRegistryKey}',
           'DataDir',
           Recorded)) and (Trim(Recorded) <> '') then
       PreviousDataDir := RemoveBackslashUnlessRoot(Trim(Recorded))
     else
-      PreviousDataDir := ExpandConstant('{localappdata}\metasequoiaime');
+      PreviousDataDir := ExpandConstant('{localappdata}\{#MyEditionInstallDir}');
   end;
   Result := PreviousDataDir;
 end;
@@ -415,12 +433,50 @@ begin
   Result := AddBackslash(Directory) + DataDirMarkerName;
 end;
 
-function OwnsDataDir(const Directory: String): Boolean;
+{ 目录里有没有别的版本的所有权标记：以 DataDirMarkerPrefix 开头、又不是本版本标记文件名的文件。 }
+function HasOtherEditionDataDirMarker(const Directory: String): Boolean;
+var
+  FindRec: TFindRec;
 begin
-  Result :=
-    (CompareText(Directory, ExpandConstant('{localappdata}\metasequoiaime')) = 0) or
-    FileExists(DataDirMarkerPath(Directory));
+  Result := False;
+  if FindFirst(AddBackslash(Directory) + DataDirMarkerPrefix + '*', FindRec) then
+  begin
+    try
+      repeat
+        if CompareText(FindRec.Name, DataDirMarkerName) <> 0 then
+        begin
+          Result := True;
+          Exit;
+        end;
+      until not FindNext(FindRec);
+    finally
+      FindClose(FindRec);
+    end;
+  end;
 end;
+
+function OwnsDataDir(const Directory: String): Boolean;
+#if MyEditionIsFull
+begin
+  { 带着另一个版本标记的目录不归本安装器管，即使它就是本版本的默认数据目录：升级不能清理它，卸载也不能删它。.metasequoiaime-data 这个文件名只有 full 会写，所以只看文件在不在、不核对内容，以前的 full 写下的标记照样认。 }
+  Result :=
+    (not HasOtherEditionDataDirMarker(Directory)) and
+    ((CompareText(Directory, ExpandConstant('{localappdata}\{#MyEditionInstallDir}')) = 0) or
+     FileExists(DataDirMarkerPath(Directory)));
+end;
+#else
+var
+  Lines: TArrayOfString;
+begin
+  { 几个版本可以同时安装。只认写着本版本 id 的所有权标记：带着另一个版本标记的目录不归本安装器管，即使它就是本版本的默认数据目录，升级不能清理它，卸载也不能删它。 }
+  Result :=
+    (not HasOtherEditionDataDirMarker(Directory)) and
+    ((CompareText(Directory, ExpandConstant('{localappdata}\{#MyEditionInstallDir}')) = 0) or
+     (LoadStringsFromFile(DataDirMarkerPath(Directory), Lines) and
+      (GetArrayLength(Lines) > 0) and
+      (Lines[0] = DataDirMarkerText)));
+end;
+#endif
 
 procedure WriteDataDirMarker(const Directory: String);
 var
@@ -431,8 +487,98 @@ begin
   if FileExists(DataDirMarkerPath(Directory)) then
     Exit;
   SetArrayLength(Lines, 1);
+#if MyEditionIsFull
   Lines[0] := 'This directory is managed by Metasequoia IME.';
+#else
+  Lines[0] := DataDirMarkerText;
+#endif
   SaveStringsToFile(DataDirMarkerPath(Directory), Lines, False);
+end;
+
+{ 从以 | 分隔的列表 List 里取出第一项，并把它从 List 里去掉。 }
+function TakeListItem(var List: String): String;
+var
+  Separator: Integer;
+begin
+  Separator := Pos('|', List);
+  if Separator = 0 then
+  begin
+    Result := List;
+    List := '';
+  end
+  else
+  begin
+    Result := Copy(List, 1, Separator - 1);
+    List := Copy(List, Separator + 1, Length(List));
+  end;
+end;
+
+{ 别的版本的数据目录：每个版本的默认数据目录（%LOCALAPPDATA% 下与它的安装目录同名的目录，还没装的版本以后会落到这里），以及它在自己的 HKLM 键下登记的 DataDir。名单由 editions.iss 从版本表生成。几个版本可以同时安装，本版本的数据目录不能和这些目录重叠或互相包含：外层的版本卸载或更换数据目录时递归删除自己的目录，会把里层版本还在用的目录一起删掉；HasOtherEditionDataDirMarker 只看目录顶层，看不到嵌在子目录里的别的版本。 }
+function OtherEditionDataDirs: TArrayOfString;
+var
+  RegistryKeys: String;
+  InstallDirs: String;
+  RegistryKey: String;
+  Recorded: String;
+  Count: Integer;
+begin
+  if not OtherEditionDataDirsLoaded then
+  begin
+    RegistryKeys := '{#MyOtherEditionRegistryKeys}';
+    InstallDirs := '{#MyOtherEditionInstallDirs}';
+    Count := 0;
+    SetArrayLength(OtherEditionDataDirList, 0);
+    while InstallDirs <> '' do
+    begin
+      RegistryKey := TakeListItem(RegistryKeys);
+      SetArrayLength(OtherEditionDataDirList, Count + 2);
+      OtherEditionDataDirList[Count] :=
+        AddBackslash(ExpandConstant('{localappdata}')) + TakeListItem(InstallDirs);
+      Count := Count + 1;
+      Recorded := '';
+      if RegQueryStringValue(HKLM, RegistryKey, 'DataDir', Recorded) and
+        (Trim(Recorded) <> '') then
+      begin
+        OtherEditionDataDirList[Count] := RemoveBackslashUnlessRoot(Trim(Recorded));
+        Count := Count + 1;
+      end;
+      SetArrayLength(OtherEditionDataDirList, Count);
+    end;
+    OtherEditionDataDirsLoaded := True;
+  end;
+  Result := OtherEditionDataDirList;
+end;
+
+{ 落在 Directory 里面（或就是它）的另一个版本的数据目录；没有时返回空串。 }
+function OtherEditionDataDirWithin(const Directory: String): String;
+var
+  Dirs: TArrayOfString;
+  Index: Integer;
+begin
+  Result := '';
+  Dirs := OtherEditionDataDirs;
+  for Index := 0 to GetArrayLength(Dirs) - 1 do
+    if IsPathInside(Dirs[Index], Directory) then
+    begin
+      Result := Dirs[Index];
+      Exit;
+    end;
+end;
+
+{ 包含 Directory（或就是它）的另一个版本的数据目录；没有时返回空串。 }
+function OtherEditionDataDirAround(const Directory: String): String;
+var
+  Dirs: TArrayOfString;
+  Index: Integer;
+begin
+  Result := '';
+  Dirs := OtherEditionDataDirs;
+  for Index := 0 to GetArrayLength(Dirs) - 1 do
+    if IsPathInside(Directory, Dirs[Index]) then
+    begin
+      Result := Dirs[Index];
+      Exit;
+    end;
 end;
 
 { 返回空串表示目录可以安全交给输入法管理；否则返回面向用户的原因。
@@ -446,6 +592,7 @@ var
   Index: Integer;
   ProbePath: String;
   WithSlash: String;
+  Overlap: String;
 begin
   Result := '';
   if (Length(Directory) < 4) or (Directory[2] <> ':') or
@@ -512,6 +659,18 @@ begin
     end;
   end;
 
+  { 空目录也要拒绝：它可能是别的版本以后要用的默认数据目录的上级，或者落在别的版本的数据目录里面。 }
+  Overlap := OtherEditionDataDirWithin(Directory);
+  if Overlap = '' then
+    Overlap := OtherEditionDataDirAround(Directory);
+  if Overlap <> '' then
+  begin
+    Result :=
+      '这个目录与水杉输入法另一个版本的数据目录（' + Overlap + '）重叠或互相包含。' +
+      '几个版本的数据目录必须彼此独立，否则卸载其中一个版本或更换它的数据目录时，会把另一个版本的数据一起删除。请另选一个目录。';
+    Exit;
+  end;
+
   if not ForceDirectories(Directory) then
   begin
     Result := '无法创建目录 ' + Directory + '，请检查权限或换一个位置。';
@@ -557,9 +716,7 @@ begin
     DataDirPage.Values[0] := Chosen;
 end;
 
-{ 云候选是唯一一个装完就会联网的功能：输入过程中把当前拼写发给 Google 的 input-tools 服务。
-  出厂默认开启，而安装器此前没有任何一屏提到过它，用户要读文档才会知道。这一页把它摆到安装
-  过程里，选择写进首次生成的 config.toml。
+{ 云候选输入过程中把当前拼写发给 Google 的 input-tools 服务，出厂默认关闭。这一页把它摆到安装过程里，勾选默认不选，用户勾上才写进首次生成的 config.toml。
 
   升级时跳过：那时 config.toml 已经属于用户，安装器不该替他重新决定。}
 procedure InitializeWizard;
@@ -572,7 +729,7 @@ begin
     '输入法数据存放在哪里',
     '请选择输入法数据（词库、配置、皮肤）的专用空目录。',
     True,
-    'metasequoiaime'
+    '{#MyEditionInstallDir}'
   );
   DataDirPage.Add('');
   DataDirPage.Values[0] := GetDataDir('');
@@ -584,9 +741,9 @@ begin
     '联网功能',
     '选择安装后哪些功能可以联网',
     '拼音切分、候选排序和词频学习全部在本机完成，不联网。' + #13#10 +
-    '下面这一项是唯一一个装完就会发送输入内容的联网功能。AI 联想、候选翻译、语音输入都需要你自己填入 API token 之后才会发出任何请求。' + #13#10 +
+    '下面这一项会把输入内容发出设备，默认不启用，勾选后才开启。AI 联想和语音输入要你自己填入 API token，候选翻译要你在设置里选择翻译服务，之后才会发出请求。' + #13#10 +
     'Server 首次启动时会向 api.msime.app 注册一个本机匿名水杉账号，只发送本机随机生成的标识和口令，不含输入内容，失败时下次启动重试。' + #13#10 +
-    '匿名使用统计默认关闭，只有在「设置 → 关于」里开启后才会发送：Server 每次启动向 api.msime.app 发一条只含随机事件 id、类型、平台名和版本号的事件，崩溃时再发一条另带固定文本 std::terminate 的事件，不含输入内容。' + #13#10#13#10 +
+    '匿名使用统计默认开启，可在「设置 → 关于」里关闭：每天一条活跃记录、每次正常退出一条会话记录，崩溃后下次启动补发一条含异常摘要和调用栈（只有模块文件名和偏移）的崩溃记录；只带随机事件 id、本机随机生成的安装 id、平台名和版本号，不含输入内容、账号或设备信息。' + #13#10#13#10 +
     '安装后随时可以在「设置 → 输入」里改变云候选的选择。',
     False,
     False
@@ -594,7 +751,7 @@ begin
   CloudCandidatesIndex := NetworkPage.Add(
     '启用云候选：输入过程中把当前正在输入的拼写通过 HTTPS 发送给 Google 的 input-tools 服务' +
     '（inputtools.google.com），换回一条额外候选。已上屏的文本、词库内容和学习到的词频都不会发送。');
-  NetworkPage.Values[CloudCandidatesIndex] := True;
+  NetworkPage.Values[CloudCandidatesIndex] := False;
 #endif
 end;
 
@@ -605,18 +762,22 @@ begin
     Result := UserConfigExistedBeforeInstall;
 end;
 
-{ 只在本次安装刚生成 config.toml 时写入，且只改 [general] 段里的这一个键。找不到就什么都不做——
-  这一步失败不应该让安装失败。}
+{ 只在全新安装（本次安装刚生成 config.toml）时记录。运行中的宿主只读共享偏好，不读 config.toml，所以选择写进数据目录的 installer-choices.json，由 Server 首次准备状态后写进共享偏好并删掉它（platforms/windows/src/system/FirstRun.h 的 take_installer_cloud_choice）。config.toml 里 [general] 的同一个键也跟着改，免得模板与实际选择对不上。写不进去就算了——这一步失败不应该让安装失败，偏好保持默认关闭。}
 procedure ApplyNetworkChoiceToUserConfig;
 var
   Lines: TArrayOfString;
   Index: Integer;
   Trimmed: String;
   InGeneral: Boolean;
+  Choice: String;
 begin
   if UserConfigExistedBeforeInstall or (NetworkPage = nil) then
     Exit;
+  Choice := 'false';
   if NetworkPage.Values[CloudCandidatesIndex] then
+    Choice := 'true';
+  SaveStringToFile(AddBackslash(GetDataDir('')) + 'installer-choices.json', '{"cloud_candidates": ' + Choice + '}', False);
+  if Choice = 'false' then
     Exit;
   if not LoadStringsFromFile(UserConfigPath, Lines) then
     Exit;
@@ -629,7 +790,7 @@ begin
       InGeneral := (Trimmed = '[general]')
     else if InGeneral and (Pos('cloud_candidates', Trimmed) = 1) then
     begin
-      Lines[Index] := 'cloud_candidates = false';
+      Lines[Index] := 'cloud_candidates = true';
       SaveStringsToFile(UserConfigPath, Lines, False);
       Exit;
     end;
@@ -644,7 +805,7 @@ begin
     完成页点击 Finish 后，以原用户身份执行 ShellExecute（等同双击）。}
   ShellExecAsOriginalUser(
     '',
-    ExpandConstant('{commonpf64}\metasequoiaime\server\{#MyAppExeName}'),
+    ExpandConstant('{commonpf64}\{#MyEditionInstallDir}\server\{#MyAppExeName}'),
     '--production',
     '',
     SW_SHOWNORMAL,
@@ -653,7 +814,7 @@ begin
   );
   ShellExecAsOriginalUser(
     '',
-    ExpandConstant('{commonpf64}\metasequoiaime\server\{#MyWatchdogName}'),
+    ExpandConstant('{commonpf64}\{#MyEditionInstallDir}\server\{#MyWatchdogName}'),
     '',
     '',
     SW_SHOWNORMAL,
@@ -675,7 +836,9 @@ begin
     Reason := DataDirRejectionReason(Chosen);
     if Reason <> '' then
     begin
-      MsgBox(Reason, mbError, MB_OK);
+      { 静默安装（winget、Chocolatey、以 SYSTEM 运行的托管部署）不能停在一个看不见的对话框上：/SUPPRESSMSGBOXES 只压得住 SuppressibleMsgBox，返回 False 时静默安装直接退出，包管理器拿到失败的退出码，原因写进日志。}
+      Log('数据目录被拒绝：' + Chosen + '：' + Reason);
+      SuppressibleMsgBox(Reason, mbError, MB_OK, IDOK);
       Result := False;
       Exit;
     end;
@@ -713,9 +876,9 @@ begin
     Suffix := 0;
     while
       DirExists(ExpandConstant(
-        '{commonpf32}\metasequoiaime\' + Candidate)) or
+        '{commonpf32}\{#MyEditionInstallDir}\' + Candidate)) or
       DirExists(ExpandConstant(
-        '{commonpf64}\metasequoiaime\' + Candidate))
+        '{commonpf64}\{#MyEditionInstallDir}\' + Candidate))
     do
     begin
       Suffix := Suffix + 1;
@@ -726,67 +889,31 @@ begin
   Result := VersionDirName;
 end;
 
-function IsUserDatabaseFile(const FileName: String): Boolean;
-begin
-  { WAL 中可能还有尚未 checkpoint 的用户操作，必须与主库一起保留。}
-  Result :=
-    (CompareText(FileName, 'msime_user.db') = 0) or
-    (CompareText(FileName, 'msime_user.db-wal') = 0) or
-    (CompareText(FileName, 'msime_user.db-shm') = 0) or
-    (CompareText(FileName, 'msime_user.db-journal') = 0);
-end;
-
 function IsUserConfigFile(const FileName: String): Boolean;
 begin
-  { config.toml 是用户配置，config.base.toml 是上次合并用的模板基线：
-    没有它，Server 就无法判断某一项到底是用户改的还是旧版默认值。}
-  Result :=
-    (CompareText(FileName, 'config.toml') = 0) or
-    (CompareText(FileName, 'config.base.toml') = 0);
+  Result := CompareText(FileName, 'config.toml') = 0;
 end;
 
 function IsUserSkinDirectory(const FileName: String): Boolean;
 begin
-  { 外部皮肤在 %LOCALAPPDATA%\metasequoiaime\skins，升级安装不得清掉。}
+  { 外部皮肤在 %LOCALAPPDATA%\{#MyEditionInstallDir}\skins，升级安装不得清掉。}
   Result := CompareText(FileName, 'skins') = 0;
 end;
 
-function IsPackageDatabaseItem(const FileName, DatabaseName: String): Boolean;
-begin
-  Result :=
-    (CompareText(FileName, DatabaseName) = 0) or
-    (CompareText(FileName, DatabaseName + '-wal') = 0) or
-    (CompareText(FileName, DatabaseName + '-shm') = 0) or
-    (CompareText(FileName, DatabaseName + '-journal') = 0);
-end;
-
-{ DataDir 顶层里属于安装包的条目：Prepare-PackageFiles.ps1 放进 app_data 的每一项（每次完整安装都会重新写入），加上来源安装包布局独有的几项和早期版本的 html 目录。除此之外的一切都是用户状态：来源布局的 msime_user.db / config.toml / skins，以及本仓库 Server 以 DataDir 为状态根写下的 preferences.json、user\、cache\、logs\、runtime-options.json、统计与剪贴板历史等。}
+{ DataDir 顶层里属于安装包的条目：Prepare-PackageFiles.ps1 放进 app_data 的每一项，每次完整安装都会重新写入。除此之外的一切都是用户状态：config.toml、skins，以及 Server 以 DataDir 为状态根写下的 preferences.json、user\、cache\、logs\、runtime-options.json、统计与剪贴板历史等。}
 function IsPackageAppDataItem(const FileName: String): Boolean;
 begin
   Result :=
-    (CompareText(FileName, 'pinyin.txt') = 0) or
-    IsPackageDatabaseItem(FileName, 'msime.db') or
-    (CompareText(FileName, 'dictionary-manifest.json') = 0) or
-    (CompareText(FileName, 'dict_japanese.dat') = 0) or
-    (CompareText(FileName, 'MOZC_DICTIONARY_LICENSE.txt') = 0) or
-    IsPackageDatabaseItem(FileName, 'english.db') or
-    IsPackageDatabaseItem(FileName, 'others.db') or
-    (CompareText(FileName, 'config.default.toml') = 0) or
     (CompareText(FileName, 'helpcodes') = 0) or
     (CompareText(FileName, 'audios') = 0) or
-    (CompareText(FileName, 'sound-packs') = 0) or
-    (CompareText(FileName, 'html') = 0) or
-    (CompareText(FileName, 'dict_pinyin.dat') = 0) or
-    (CompareText(FileName, 'sc.lm') = 0) or
-    (CompareText(FileName, 'libime-lm-NOTICE.md') = 0);
+    (CompareText(FileName, 'sound-packs') = 0);
 end;
 
 function IsPreservedAppDataItem(const FileName: String): Boolean;
 begin
   { 所有权标记也要留下。PrepareToInstall 先写标记再清理旧文件，ssPostInstall 才重写；安装若在两者之间失败，没有标记的非空自定义目录就不再被认作我们建的，重试安装会拒绝它，卸载也会跳过它。}
-  { 升级只清安装包自己的条目。Server 的状态根就是 DataDir，按来源布局只留 msime_user.db / config.toml / skins 会在每次完整升级时删掉 preferences.json、user\ 里的用户词库和其余状态。}
+  { 升级只清安装包自己的条目。Server 的状态根就是 DataDir，只按名单保留会在每次完整升级时删掉 preferences.json、user\ 里的用户词库和其余状态。}
   Result :=
-    IsUserDatabaseFile(FileName) or
     IsUserConfigFile(FileName) or
     IsUserSkinDirectory(FileName) or
     (CompareText(FileName, DataDirMarkerName) = 0) or
@@ -797,7 +924,7 @@ function InitializeUninstall(): Boolean;
 begin
   RegQueryStringValue(
     HKLM,
-    'Software\Metasequoia\MetasequoiaIME',
+    '{#MyEditionRegistryKey}',
     'VersionDir',
     VersionDirName
   );
@@ -806,13 +933,21 @@ begin
   Result := True;
 end;
 
-procedure StopProcess(const ImageName: String);
+{ 只停可执行文件在本安装的 server 目录里的进程。几个版本的 Server、看门狗、设置窗口、MSIME.exe 和 msime-mcp.exe 同名，按映像名结束（taskkill /IM）会把同时安装的其他版本一起停掉，所以每个版本（包括 full）都按路径停。ProcessName 为空时停目录里的全部进程。 }
+procedure StopProcessesUnder(const Directory, ProcessName: String);
 var
   ResultCode: Integer;
+  Filter: String;
 begin
+  Filter := '';
+  if ProcessName <> '' then
+    Filter := ' -and ($_.ProcessName -ieq ''' + ProcessName + ''')';
   Exec(
-    ExpandConstant('{sys}\taskkill.exe'),
-    '/F /T /IM "' + ImageName + '"',
+    ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+    '-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "' +
+    '$root = ''' + AddBackslash(Directory) + '''; ' +
+    'Get-Process | Where-Object { $_.Path -and $_.Path.StartsWith($root, [StringComparison]::OrdinalIgnoreCase)' + Filter + ' } | ' +
+    'Stop-Process -Force -ErrorAction SilentlyContinue"',
     '',
     SW_HIDE,
     ewWaitUntilTerminated,
@@ -821,22 +956,21 @@ begin
 end;
 
 procedure StopImeProcesses;
+var
+  ServerDir: String;
 begin
+  ServerDir := ExpandConstant('{commonpf64}\{#MyEditionInstallDir}\server');
   { Watchdog 必须先停，否则它可能在升级或卸载期间重新启动 Server。}
-  StopProcess('{#MyWatchdogName}');
-  StopProcess('{#MyAppExeName}');
-  { 设置窗口是独立的 WinUI 3 msime-client-settings.exe；表情 / 手写 / 屏幕键盘面板仍由同目录的 Tauri MSIME.exe 承载。两个进程都不在 Server 的进程树里，覆盖安装和卸载前由安装器统一停止。}
-  StopProcess('{#MySettingsExeName}');
-  StopProcess('MSIME.exe');
-  { AI 助手按需拉起的 msime-mcp.exe 同样不在 Server 的进程树里，助手开着就一直驻留，也会占住 server 目录。}
-  StopProcess('{#MyMcpName}');
+  StopProcessesUnder(ServerDir, 'MetasequoiaImeWatchdog');
+  { 然后是 Server、WinUI 设置窗口、承载面板的 MSIME.exe 和 AI 助手拉起的 msime-mcp.exe：它们都在 server 目录里，也都不在 Server 的进程树里。}
+  StopProcessesUnder(ServerDir, '');
 end;
 
 procedure DeleteWatchdogLogonTask;
 var
   ResultCode: Integer;
 begin
-  { /F makes this idempotent when upgrading from a build without the task. }
+  { /F makes this idempotent when the task does not exist. }
   Exec(
     ExpandConstant('{sys}\schtasks.exe'),
     '/Delete /F /TN "{#MyWatchdogTaskName}"',
@@ -852,7 +986,7 @@ var
   AppDataPath: String;
   ResultCode: Integer;
 begin
-  // [Dirs] 的 Permissions 只作用于目录本身；安装器以高完整性复制进去的词库、配置和回放后的用户词库还带着高完整性标签和父目录继承来的 ACL，中完整性的 Server 与设置窗口改不动它们。和 webview2 目录一样，给 Users 修改权限并降到中完整性。
+  // [Dirs] 的 Permissions 只作用于目录本身；安装器以高完整性复制进去的资源和配置还带着高完整性标签和父目录继承来的 ACL，中完整性的 Server 与设置窗口改不动它们。给 Users 修改权限并降到中完整性。
   AppDataPath := GetDataDir('');
   ForceDirectories(AppDataPath);
   Exec(
@@ -873,34 +1007,6 @@ begin
   );
 end;
 
-procedure EnsureSharedWebView2DataDir;
-var
-  RootPath: String;
-  ResultCode: Integer;
-begin
-  { Edge 子进程需要 Users 可写、中完整性的目录。安装器本身是高完整性，
-    只 CreateDir 会带上高完整性标签，所以还要降完整性。 }
-  RootPath := ExpandConstant('{commonappdata}\metasequoiaime');
-  ForceDirectories(RootPath + '\webview2');
-  ForceDirectories(RootPath + '\webview2-settings');
-  Exec(
-    ExpandConstant('{sys}\icacls.exe'),
-    '"' + RootPath + '" /grant *S-1-5-32-545:(OI)(CI)M /T /C /Q',
-    '',
-    SW_HIDE,
-    ewWaitUntilTerminated,
-    ResultCode
-  );
-  Exec(
-    ExpandConstant('{sys}\icacls.exe'),
-    '"' + RootPath + '" /setintegritylevel (OI)(CI)M /T /C /Q',
-    '',
-    SW_HIDE,
-    ewWaitUntilTerminated,
-    ResultCode
-  );
-end;
-
 procedure CreateWatchdogLogonTask;
 var
   WatchdogPath: String;
@@ -909,7 +1015,7 @@ var
 begin
   ResultCode := -1;
   WatchdogPath := ExpandConstant(
-    '{commonpf64}\metasequoiaime\server\{#MyWatchdogName}');
+    '{commonpf64}\{#MyEditionInstallDir}\server\{#MyWatchdogName}');
   { /F replaces the same fixed-name task during an upgrade. /IT keeps the
     task in the interactive user's session; LIMITED avoids an elevated token.
     schtasks splits the /TR value at its first space into program and arguments unless the program itself is quoted, so the Program Files path would become the program "C:\Program" with the rest as its arguments. The escaped inner quotes survive schtasks' own argument parsing and keep the path whole. }
@@ -973,104 +1079,6 @@ begin
   end;
 end;
 
-function RemoveFileWithRetry(const Path: String): Boolean;
-var
-  Attempt: Integer;
-begin
-  for Attempt := 1 to 5 do
-  begin
-    if not FileExists(Path) then
-    begin
-      Result := True;
-      exit;
-    end;
-    DeleteFile(Path);
-    if not FileExists(Path) then
-    begin
-      Result := True;
-      exit;
-    end;
-    Sleep(200);
-  end;
-  Result := not FileExists(Path);
-end;
-
-function RemoveOldTargetDatabaseFiles(var FailedPath: String): Boolean;
-var
-  AppDataPath: String;
-  FileNames: array[0..11] of String;
-  Index: Integer;
-  Path: String;
-begin
-  AppDataPath := GetDataDir('');
-  { A custom DataDir may already contain files owned by another application.
-    Marker/default ownership is required before removing any database names. }
-  if not OwnsDataDir(AppDataPath) then
-  begin
-    Result := True;
-    exit;
-  end;
-  { 先删 sidecar；若仍被占用，可在动主库和其他应用数据前安全中止。}
-  FileNames[0] := 'msime.db-wal';
-  FileNames[1] := 'msime.db-shm';
-  FileNames[2] := 'msime.db-journal';
-  FileNames[3] := 'english.db-wal';
-  FileNames[4] := 'english.db-shm';
-  FileNames[5] := 'english.db-journal';
-  FileNames[6] := 'others.db-wal';
-  FileNames[7] := 'others.db-shm';
-  FileNames[8] := 'others.db-journal';
-  FileNames[9] := 'msime.db';
-  FileNames[10] := 'english.db';
-  FileNames[11] := 'others.db';
-
-  for Index := 0 to 11 do
-  begin
-    Path := AddBackslash(AppDataPath) + FileNames[Index];
-    if not RemoveFileWithRetry(Path) then
-    begin
-      FailedPath := Path;
-      Result := False;
-      exit;
-    end;
-  end;
-  Result := True;
-end;
-
-procedure ReplayUserDictionary;
-var
-  ReplayPath: String;
-  DataPath: String;
-  ResultCode: Integer;
-begin
-  DataPath := GetDataDir('');
-  if not FileExists(AddBackslash(DataPath) + 'msime_user.db') then
-  begin
-    Log('User dictionary replay skipped: msime_user.db does not exist.');
-    exit;
-  end;
-
-  ReplayPath := ExpandConstant(
-    '{commonpf64}\metasequoiaime\server\{#MyReplayName}');
-  Log('Starting user dictionary replay.');
-  if not Exec(
-    ReplayPath,
-    '--data-dir "' + DataPath + '"',
-    '',
-    SW_HIDE,
-    ewWaitUntilTerminated,
-    ResultCode
-  ) then
-    RaiseException(
-      '无法启动用户词库回放程序。请确认安装文件完整后重试。');
-
-  if ResultCode <> 0 then
-    RaiseException(
-      '用户词库回放失败（退出码：' + IntToStr(ResultCode) +
-      '）。安装已停止，以避免启动未恢复用户词库的新版本。');
-  Log('User dictionary replay completed successfully.');
-end;
-
 procedure TryDeleteOldVersionDirs(const RootPath: String);
 var
   FindRec: TFindRec;
@@ -1089,6 +1097,49 @@ begin
           (CompareText(FindRec.Name, VersionDirName) <> 0)
         then
           TryDeleteTree(AddBackslash(RootPath) + FindRec.Name);
+      until not FindNext(FindRec);
+    finally
+      FindClose(FindRec);
+    end;
+  end;
+end;
+
+{ 删除本版本不再使用的数据目录 Directory。Keep 是要留下的目录，可以为空（新的数据目录可能就在旧目录里面——来源安装包递归删除整个旧目录，把刚迁过去的数据一起删掉了）。Keep 或另一个版本的数据目录落在 Directory 里面时不能递归删除整个目录，只删顶层里不包含它们的条目；Directory 落在另一个版本的数据目录里面（或就是它）时什么都不删。 }
+procedure DeleteDataDir(const Directory, Keep: String);
+var
+  FindRec: TFindRec;
+  ItemPath: String;
+begin
+  if OtherEditionDataDirAround(Directory) <> '' then
+  begin
+    Log('Keeping ' + Directory + ': it lies inside another edition''s data directory ' + OtherEditionDataDirAround(Directory) + '.');
+    exit;
+  end;
+  if ((Keep = '') or (not IsPathInside(Keep, Directory))) and
+    (OtherEditionDataDirWithin(Directory) = '') then
+  begin
+    TryDeleteTree(Directory);
+    exit;
+  end;
+  Log('Removing the entries of ' + Directory + ' around the directories inside it that must stay.');
+  if FindFirst(AddBackslash(Directory) + '*', FindRec) then
+  begin
+    try
+      repeat
+        if (FindRec.Name <> '.') and (FindRec.Name <> '..') then
+        begin
+          ItemPath := AddBackslash(Directory) + FindRec.Name;
+          if ((Keep = '') or (not IsPathInside(Keep, ItemPath))) and
+            (OtherEditionDataDirWithin(ItemPath) = '') then
+          begin
+            if (FindRec.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0 then
+              TryDeleteTree(ItemPath)
+            else
+              DeleteFile(ItemPath);
+          end
+          else
+            Log('Keeping ' + ItemPath + '.');
+        end;
       until not FindNext(FindRec);
     finally
       FindClose(FindRec);
@@ -1122,7 +1173,7 @@ begin
   ) and (ResultCode >= 0) and (ResultCode < 8);
 end;
 
-{ 与来源安装包一样是"移动"数据目录：旧目录里的全部用户状态搬到新目录，安装成功后旧目录被删除。但分两步做：这里只复制，原目录保持不动；删除推迟到 ssPostInstall 的最后（FinishDataDirMove），用户词库回放或登录任务失败都会在那之前中止，旧数据因此在任何半途失败后都还在。来源安装包直接使用破坏性的移动参数，主库可能先被移走而 WAL 或配置失败，两边都不剩完整状态。}
+{ 与来源安装包一样是"移动"数据目录：旧目录里的全部用户状态搬到新目录，安装成功后旧目录被删除。但分两步做：这里只复制，原目录保持不动；删除推迟到 ssPostInstall 的最后（FinishDataDirMove），登录任务失败会在那之前中止，旧数据因此在任何半途失败后都还在。来源安装包直接使用破坏性的移动参数，主库可能先被移走而 WAL 或配置失败，两边都不剩完整状态。}
 function MigrateUserDataDir(const OldDir, NewDir: String): String;
 var
   FindRec: TFindRec;
@@ -1148,10 +1199,11 @@ begin
       repeat
         Source := AddBackslash(OldDir) + FindRec.Name;
         Destination := AddBackslash(NewDir) + FindRec.Name;
-        { 新目录就在这一项里面（新目录是旧目录的子目录）时跳过：它不是用户数据，不能复制进自己。}
+        { 新目录就在这一项里面（新目录是旧目录的子目录）时跳过：它不是用户数据，不能复制进自己。另一个版本的数据目录在这一项里面时也跳过：那是另一个版本的数据，不归本版本搬。}
         if (FindRec.Name <> '.') and (FindRec.Name <> '..') and
           IsMigratedDataItem(FindRec.Name) and
-          (not IsPathInside(NewDir, Source)) then
+          (not IsPathInside(NewDir, Source)) and
+          (OtherEditionDataDirWithin(Source) = '') then
         begin
           { 目标恰好就是旧目录或它的上级（旧目录是新目录的子目录且同名），复制会写进源头自身。}
           if IsPathInside(OldDir, Destination) then
@@ -1181,13 +1233,11 @@ begin
   DataDirMigrated := True;
 end;
 
-{ 安装全部成功后才删除旧目录，而且只删带所有权标记（或默认位置）的目录。新目录在旧目录里面时不能递归删除整个旧目录——来源安装包就是这样把刚迁过去的数据一起删掉的——只删旧目录顶层除新目录所在那一项之外的条目。}
+{ 安装全部成功后才删除旧目录，而且只删带所有权标记（或默认位置）的目录；新目录和另一个版本的数据目录在旧目录里面时由 DeleteDataDir 留下。}
 procedure FinishDataDirMove;
 var
   OldDir: String;
   NewDir: String;
-  FindRec: TFindRec;
-  ItemPath: String;
 begin
   if not DataDirMigrated then
     exit;
@@ -1196,42 +1246,14 @@ begin
   if (CompareText(OldDir, NewDir) = 0) or (not DirExists(OldDir)) or
     (not OwnsDataDir(OldDir)) then
     exit;
-  if not IsPathInside(NewDir, OldDir) then
-  begin
-    Log('Removing the previous data directory after a successful move.');
-    TryDeleteTree(OldDir);
-    exit;
-  end;
-  Log('Removing the previous data directory''s entries around the new one inside it.');
-  if FindFirst(AddBackslash(OldDir) + '*', FindRec) then
-  begin
-    try
-      repeat
-        if (FindRec.Name <> '.') and (FindRec.Name <> '..') then
-        begin
-          ItemPath := AddBackslash(OldDir) + FindRec.Name;
-          if not IsPathInside(NewDir, ItemPath) then
-          begin
-            if (FindRec.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0 then
-              TryDeleteTree(ItemPath)
-            else
-              DeleteFile(ItemPath);
-          end;
-        end;
-      until not FindNext(FindRec);
-    finally
-      FindClose(FindRec);
-    end;
-  end;
+  Log('Removing the previous data directory after a successful move.');
+  DeleteDataDir(OldDir, NewDir);
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   MigrationError: String;
   DataDirError: String;
-#ifndef LightPackage
-  FailedPath: String;
-#endif
 begin
   { 先锁定本次目录名，再清理能够释放的旧版本 DLL。}
   VersionDirName := GetVersionDir('');
@@ -1264,31 +1286,16 @@ begin
     Result := MigrationError;
     exit;
   end;
-#ifdef LightPackage
-  { 轻量包不替换词库：只清 HTML 和 Server/TSF，保留本机 msime.db 等。}
-  TryDeleteTree(AddBackslash(GetDataDir('')) + 'html');
-#else
-  { 不能让旧 WAL/SHM 与即将复制的新主数据库混用。}
-  if not RemoveOldTargetDatabaseFiles(FailedPath) then
-  begin
-    Result :=
-      '无法删除旧词库文件：' + FailedPath + #13#10 +
-      '它可能仍被输入法相关进程占用。请关闭相关程序后重试安装。';
-    exit;
-  end;
-  { 目标词库已安全移除，再清理旧前端资源与 WebView2 用户数据。
-    用户配置和外部皮肤目录在这里保留；webview2 目录故意重建，
-    由 Server 冷启动路径保证 FTB/候选窗仍能稳定揭罩。}
+#ifndef LightPackage
+  { 轻量包不带 app_data，只替换 Server/TSF。完整包先清掉安装包自己的条目，用户配置、皮肤和 Server 状态保留。}
   CleanAppDataExceptUserFiles;
 #endif
-  TryDeleteTree(ExpandConstant('{commonappdata}\metasequoiaime\webview2'));
-  TryDeleteTree(ExpandConstant('{commonappdata}\metasequoiaime\webview2-settings'));
   TryDeleteTree(ExpandConstant(
-    '{commonpf64}\metasequoiaime\server'));
+    '{commonpf64}\{#MyEditionInstallDir}\server'));
   TryDeleteOldVersionDirs(ExpandConstant(
-    '{commonpf32}\metasequoiaime'));
+    '{commonpf32}\{#MyEditionInstallDir}'));
   TryDeleteOldVersionDirs(ExpandConstant(
-    '{commonpf64}\metasequoiaime'));
+    '{commonpf64}\{#MyEditionInstallDir}'));
   { 随后的 [Files] 与 ssPostInstall 会写入新 Server 和登录任务。}
   Result := '';
 end;
@@ -1299,19 +1306,10 @@ begin
   begin
     WriteDataDirMarker(GetDataDir(''));
 #ifndef LightPackage
-    ReplayUserDictionary;
     ApplyNetworkChoiceToUserConfig;
 #endif
     CreateWatchdogLogonTask;
     EnsureImeUserDataDir;
-    EnsureSharedWebView2DataDir;
-    { Keep the old autostart intact until its scheduled-task replacement has
-      been created successfully, then remove the Explorer-delayed Run entry. }
-    RegDeleteValue(
-      HKLM,
-      'Software\Microsoft\Windows\CurrentVersion\Run',
-      'MetasequoiaImeWatchdog'
-    );
     { Last: every step above that can fail raises before this, so a failed install keeps the previous data directory. }
     FinishDataDirMove;
   end;
@@ -1322,11 +1320,6 @@ begin
   if CurUninstallStep = usUninstall then
   begin
     DeleteWatchdogLogonTask;
-    RegDeleteValue(
-      HKLM,
-      'Software\Microsoft\Windows\CurrentVersion\Run',
-      'MetasequoiaImeWatchdog'
-    );
     StopImeProcesses;
   end
   else if CurUninstallStep = usPostUninstall then
@@ -1335,19 +1328,18 @@ begin
     RegDeleteKeyIncludingSubkeys(HKLM64, '{#MyTipKey}');
     RegDeleteKeyIncludingSubkeys(HKLM32, '{#MyTipKey}');
     TryDeleteTree(ExpandConstant(
-      '{commonpf64}\metasequoiaime\server'));
+      '{commonpf64}\{#MyEditionInstallDir}\server'));
     if VersionDirName <> '' then
     begin
       TryDeleteTree(ExpandConstant(
-        '{commonpf32}\metasequoiaime\' + VersionDirName));
+        '{commonpf32}\{#MyEditionInstallDir}\' + VersionDirName));
       TryDeleteTree(ExpandConstant(
-        '{commonpf64}\metasequoiaime\' + VersionDirName));
+        '{commonpf64}\{#MyEditionInstallDir}\' + VersionDirName));
     end;
-    TryDeleteTree(ExpandConstant('{commonpf32}\metasequoiaime'));
-    TryDeleteTree(ExpandConstant('{commonpf64}\metasequoiaime'));
+    TryDeleteTree(ExpandConstant('{commonpf32}\{#MyEditionInstallDir}'));
+    TryDeleteTree(ExpandConstant('{commonpf64}\{#MyEditionInstallDir}'));
     { 用 InitializeUninstall 缓存的路径：此时注册表里的 DataDir 已被删除。}
     if OwnsDataDir(ResolvePreviousDataDir) then
-      TryDeleteTree(ResolvePreviousDataDir);
-    TryDeleteTree(ExpandConstant('{commonappdata}\metasequoiaime'));
+      DeleteDataDir(ResolvePreviousDataDir, '');
   end;
 end;

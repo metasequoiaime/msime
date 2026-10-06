@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "exports": { ".": "./src/index.tsx", "./styles.css": "./src/styles.css" },
-  "dependencies": { "postcss": "8.5.28" },
+  "dependencies": { "markdown-it": "^15.0.2", "postcss": "8.5.28" },
   "peerDependencies": { "react": "^19.3.0" },
-  "devDependencies": { "@types/react": "19.3.0" }
+  "devDependencies": { "@types/markdown-it": "^14.2.0", "@types/react": "19.3.0" }
 }

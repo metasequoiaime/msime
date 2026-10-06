@@ -1,4 +1,5 @@
 import * as cloud from "./cloud-panel-style";
+import { ActionButton } from "../core/action-button";
 
 export interface CloudDictionaryEntryFormValue {
   code: string;
@@ -53,12 +54,8 @@ export function CloudDictionaryEntryForm({
           onChange={(event) => onChange({ weight: Number(event.target.value) })}
         />
       </label>
-      <button type="button" onClick={onSave} disabled={busy}>
-        保存
-      </button>
-      <button type="button" className="secondary" onClick={onCancel} disabled={busy}>
-        取消
-      </button>
+      <ActionButton action={onSave} disabled={busy} label="保存" />
+      <ActionButton action={onCancel} className="secondary" disabled={busy} label="取消" />
     </div>
   );
 }

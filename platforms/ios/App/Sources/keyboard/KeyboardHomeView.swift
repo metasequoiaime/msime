@@ -9,6 +9,8 @@ struct SettingsView: View {
   /// The candidate font size the keyboard draws (dc.html NAV_VAL: 候选栏 shows it as "18px").
   @State private var candidateSize = CandidateFontPreference.defaultCandidateSize
   @State private var query = ""
+  /// The notices not yet dismissed, newest first; the newest is shown.
+  @State private var notices: [AppNotice] = []
 
   private var skinName: String {
     guard let design = skin.design else { return skin.title }
@@ -19,6 +21,14 @@ struct SettingsView: View {
     let groups = SettingsPage.matching(query)
     List {
       if query.isEmpty {
+        if let notice = notices.first {
+          Section {
+            NoticeBanner(notice: notice) {
+              notices.removeFirst()
+              Task.detached(priority: .utility) { AppNotices.dismiss(notice.id) }
+            }
+          }
+        }
         Section {
           KeyboardStatusCard(scheme: scheme)
           NavigationLink(destination: KeyboardTryoutView(focusOnAppear: true)) {
@@ -47,7 +57,8 @@ struct SettingsView: View {
     .navigationBarTitleDisplayMode(.large)
     .searchable(text: $query, prompt: "搜索设置")
     .onAppear { refresh() }
-    .onChange(of: scenePhase) { if $0 == .active { refresh() } }
+    .onChange(of: scenePhase) { if $0 == .active { refresh(); Task { await loadNotices() } } }
+    .task { await loadNotices() }
     .tint(MetasequoiaTheme.accent)
   }
 
@@ -58,6 +69,10 @@ struct SettingsView: View {
     case .candidate: return "\(candidateSize)px"
     default: return nil
     }
+  }
+
+  @MainActor private func loadNotices() async {
+    notices = await Task.detached(priority: .utility) { AppNotices.load() }.value
   }
 
   private func refresh() {

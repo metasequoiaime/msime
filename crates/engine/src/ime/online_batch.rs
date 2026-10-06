@@ -8,6 +8,29 @@ pub const AI_QUOTA: usize = 10;
 pub const CLOUD_QUOTA: usize = 1;
 pub const MAX_ONLINE_WORD_BYTES: usize = 4_096;
 
+/// Validate a provider batch without constructing rows that a caller may immediately discard.
+pub(crate) fn validate_online_candidate_batch(words: &[String], source: CandidateSource) -> bool {
+    let quota = match source {
+        CandidateSource::AiSuggestion => AI_QUOTA,
+        CandidateSource::CloudSuggestion => CLOUD_QUOTA,
+        _ => return false,
+    };
+    if words.is_empty() {
+        return false;
+    }
+    let mut seen = HashSet::with_capacity(words.len().min(quota));
+    for word in words {
+        if !is_acceptable_online_word(word) {
+            return false;
+        }
+        if seen.len() == quota && !seen.contains(word.as_str()) {
+            return false;
+        }
+        seen.insert(word.as_str());
+    }
+    true
+}
+
 /// Validate, deduplicate, enforce the quota, drop the source's previous rows and insert at 1 (cloud) or 2 (AI), skipping words already listed; after a cloud insert the AI rows move as a block to index 2. False leaves `list` untouched.
 pub fn replace_online_candidate_batch(
     list: &mut Vec<WordItem>,
@@ -39,6 +62,11 @@ pub fn replace_online_candidate_batch(
     }
 
     list.retain(|item| item.source != source);
+    let additional = unique
+        .iter()
+        .filter(|word| list.iter().all(|item| item.word.as_str() != **word))
+        .count();
+    list.reserve(additional);
     let mut index = list.len().min(if source == CandidateSource::AiSuggestion {
         2
     } else {
@@ -93,6 +121,32 @@ mod tests {
             row("尼", CandidateSource::Database),
             row("泥", CandidateSource::Database),
         ]
+    }
+
+    #[test]
+    fn validates_online_batches_without_constructing_candidate_rows() {
+        assert!(validate_online_candidate_batch(
+            &words(&["智一", "智二", "智一"]),
+            CandidateSource::AiSuggestion
+        ));
+        assert!(!validate_online_candidate_batch(
+            &words(&[
+                "词0", "词1", "词2", "词3", "词4", "词5", "词6", "词7", "词8", "词9", "词10"
+            ]),
+            CandidateSource::AiSuggestion
+        ));
+        assert!(!validate_online_candidate_batch(
+            &words(&["好", "坏\n"]),
+            CandidateSource::AiSuggestion
+        ));
+        assert!(!validate_online_candidate_batch(
+            &[],
+            CandidateSource::CloudSuggestion
+        ));
+        assert!(!validate_online_candidate_batch(
+            &words(&["好"]),
+            CandidateSource::Database
+        ));
     }
 
     #[test]
@@ -300,5 +354,21 @@ mod tests {
                 ("智二", CandidateSource::AiSuggestion),
             ]
         );
+    }
+
+    #[test]
+    fn batch_insertion_reserves_new_rows() {
+        let mut list = Vec::with_capacity(1);
+        list.push(row("你", CandidateSource::Database));
+        let batch: Vec<String> = (0..10).map(|index| format!("词{index}")).collect();
+
+        assert!(replace_online_candidate_batch(
+            &mut list,
+            "ni",
+            &batch,
+            CandidateSource::AiSuggestion
+        ));
+        assert_eq!(list.len(), 11);
+        assert_eq!(list.capacity(), 11);
     }
 }

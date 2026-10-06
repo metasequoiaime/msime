@@ -37,6 +37,25 @@ int main() {
     reject([&] { msime::windows::prepare_host_state("relative", root / "bad", host); });
     reject([&] { msime::windows::prepare_host_state(resources, root / "missing" / "child", host); });
     if (calls != 1) throw std::runtime_error("Invalid request reached host");
+
+    // 临时配置文件必须独占创建，不能覆盖预先存在的文件或跟随符号链接。
+    const auto staged_state = root / "staged-state";
+    fs::create_directory(staged_state);
+    const auto staged_target = root / "staged-target";
+    std::ofstream(staged_target) << "keep";
+    const auto staged = staged_state / ".runtime-options-prepared";
+#ifdef _WIN32
+    std::ofstream(staged) << "keep";
+#else
+    fs::create_symlink(staged_target, staged);
+#endif
+    reject([&] { msime::windows::prepare_host_state_in_directory(resources, staged_state, host); });
+    std::ifstream preserved(staged_target);
+    std::string preserved_value;
+    preserved >> preserved_value;
+    if (preserved_value != "keep" || fs::exists(staged_state / "runtime-options.json"))
+      throw std::runtime_error("Followed or replaced staged configuration");
+
     for (const std::string response : {"{", "{\"ok\":false}",
                                       "{\"ok\":true,\"value\":null}"}) {
       const auto failed = root / ("failure-" + std::to_string(++calls));

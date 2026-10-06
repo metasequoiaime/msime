@@ -1,12 +1,13 @@
 //! Neural reranking of the lattice's n-best (overlays.md §1.6.2-§1.6.3) on the `chinese-ime-lm` crate. The model never generates sentences; it only reorders lattice paths and contributes one row. Only the keyboard model runs here, synchronously on the session's own `Reranker` on every keystroke, whose prefix cache keeps it cheap. The desktop model, whose p95 of 153 ms does not fit a keystroke, is not the engine's: the input runtime runs it as its settled reranker once typing pauses.
 
-use std::collections::HashMap;
 use std::fs::File;
 use std::io::Read;
+use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
 use chinese_ime_lm::{Reranker, SentenceModel};
+use lru::LruCache;
 
 use super::decode::SentencePath;
 use crate::text::last_characters;
@@ -17,9 +18,12 @@ pub const MAX_RERANK_PATHS: usize = 12;
 pub const CONTEXT_CHARACTERS: usize = 64;
 /// The shipped keyboard model is about 4.5 MiB; the bound leaves room for a larger compatible model without letting a stray file make a session allocate without bound.
 pub const MAX_MODEL_BYTES: u64 = 64 * 1024 * 1024;
+const MODEL_CACHE_CAPACITY: usize = 8;
 
 /// The lattice score is converted as log10 the way the C++ did (patch:869-871); the arithmetic is ported unchanged so the two models' blend keeps the weight it was tuned with.
 const LOG10_TO_NATS: f64 = std::f64::consts::LN_10;
+
+static MODELS: OnceLock<Mutex<LruCache<PathBuf, Option<Arc<SentenceModel>>>>> = OnceLock::new();
 
 /// A shipped model for tests: from `MSIME_EVAL_RESOURCES` (the dictionary resource set), else from `MSIME_NEURAL_MODEL_DIR` (where `scripts/fetch_neural_model.py` puts both models, `target/neural-model` by default); the error is the reason a test skips.
 #[cfg(test)]
@@ -41,17 +45,22 @@ pub(crate) fn test_model_path(name: &str) -> Result<PathBuf, String> {
         })
 }
 
-/// One model per path for the process; a load failure is remembered as `None`, so a missing file is not re-read on every keystroke (patch:902-912).
+/// Cache recent models by path; a load failure is remembered as `None`, so a missing file is not re-read on every keystroke (patch:902-912).
 pub fn shared_sentence_model(path: &Path) -> Option<Arc<SentenceModel>> {
-    static MODELS: OnceLock<Mutex<HashMap<PathBuf, Option<Arc<SentenceModel>>>>> = OnceLock::new();
     let mut models = MODELS
-        .get_or_init(|| Mutex::new(HashMap::new()))
+        .get_or_init(|| {
+            Mutex::new(LruCache::new(
+                NonZeroUsize::new(MODEL_CACHE_CAPACITY).unwrap(),
+            ))
+        })
         .lock()
         .unwrap_or_else(PoisonError::into_inner);
-    models
-        .entry(path.to_path_buf())
-        .or_insert_with(|| load_model(path))
-        .clone()
+    if let Some(cached) = models.get(path) {
+        return cached.clone();
+    }
+    let model = load_model(path);
+    models.put(path.to_path_buf(), model.clone());
+    model
 }
 
 /// A missing, oversized or malformed model means no neural rows, never a failed session: the lattice still answers.
@@ -230,6 +239,19 @@ mod tests {
             shared_sentence_model(&garbage).is_none(),
             "a malformed model loads as nothing"
         );
+    }
+
+    #[test]
+    fn the_model_cache_is_bounded_across_paths() {
+        let mut directories = Vec::new();
+        for index in 0..=MODEL_CACHE_CAPACITY {
+            let directory = tempfile::tempdir().unwrap();
+            let path = directory.path().join(format!("model-{index}.safetensors"));
+            assert!(shared_sentence_model(&path).is_none());
+            directories.push(directory);
+        }
+        let cache = MODELS.get().unwrap().lock().unwrap();
+        assert!(cache.len() <= MODEL_CACHE_CAPACITY);
     }
 
     #[cfg(unix)]

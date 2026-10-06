@@ -48,6 +48,7 @@ impl WubiScheme {
             | SchemeKey::Apostrophe
             | SchemeKey::Semicolon
             | SchemeKey::Minus
+            | SchemeKey::Symbol(_)
             | SchemeKey::Requery => {}
         }
     }
@@ -131,6 +132,15 @@ mod tests {
         typed(&mut scheme, "'");
         assert_eq!(scheme.preedit(), "abcd");
         assert!(scheme.has_complete_code());
+    }
+
+    #[test]
+    fn symbol_keys_are_ignored() {
+        let mut scheme = WubiScheme::new();
+        typed(&mut scheme, "ab");
+        scheme.handle_key(SchemeKey::Symbol(b';'));
+        scheme.handle_key(SchemeKey::Symbol(b' '));
+        assert_eq!(scheme.preedit(), "ab");
     }
 
     #[test]

@@ -12,7 +12,7 @@ settings:
   base:
     SWIFT_VERSION: 5.0
     DEVELOPMENT_TEAM: LXCL4Z68GU
-    MARKETING_VERSION: 1.0.0
+    MARKETING_VERSION: 0.52.0
     CURRENT_PROJECT_VERSION: 1
     PRODUCT_NAME: "$(TARGET_NAME)"
 schemes:
@@ -66,7 +66,7 @@ targets:
       - path: SharedUI
       - path: App/Resources/Assets.xcassets
       - path: App/Resources/LaunchScreen.storyboard
-      - path: ../../target/ios/EngineResources/dictionary-manifest.json
+      - path: ../../target/ios/EngineResources/msime-dictionary-manifest.json
         buildPhase: resources
       - path: SharedResources/MLKit-NOTICES.txt
         buildPhase: resources
@@ -77,12 +77,32 @@ targets:
         buildPhase: resources
       - path: ../linux/data/licenses/onnxruntime-ThirdPartyNotices.txt
         buildPhase: resources
+      # The input engine in libmsime_host_api, linked into this app and into the keyboard extension it embeds, carries the Korean Hanja table from libhangul's data/hanja/hanja.txt, whose BSD-3-Clause licence requires the notice in binary distributions.
+      - path: ../../resources/licenses/libhangul-hanja-BSD-3-Clause.txt
+        buildPhase: resources
+      # The same engine's Cantonese and Zhuyin schemes take their syllables and words from data derived from rime-cantonese (CC BY 4.0) and libchewing-data (LGPL-2.1-or-later); their notices travel with every engine build even where those schemes are not offered.
+      - path: ../../resources/licenses/rime-cantonese-CC-BY-4.0.txt
+        buildPhase: resources
+      - path: ../../resources/licenses/libchewing-data-LGPL-2.1.txt
+        buildPhase: resources
+      # The Stroke scheme's stroke orders come from rime-stroke (LGPL-3.0, with the CNS11643 attribution); its notice travels the same way.
+      - path: ../../resources/licenses/rime-stroke-LGPL-3.0.txt
+        buildPhase: resources
+      # 同一个 Engine 的越南文和藏文方案编入了 vi crate（MIT）和 ewts crate（MIT OR Apache-2.0，按 MIT 使用），它们的许可证全文随每个 Engine 构建分发。
+      - path: ../../resources/licenses/vi-MIT.txt
+        buildPhase: resources
+      - path: ../../resources/licenses/ewts-MIT.txt
+        buildPhase: resources
       - path: SharedResources/PrivacyInfo.xcprivacy
         buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.msime.ios
         PRODUCT_NAME: MSIMEApp
+        # 发布时由 upload-testflight.sh 在命令行传入描述文件名，配合 CODE_SIGN_STYLE=Manual 让 App 与键盘各用各的 App Store 描述文件；本地开发不传，值为空，仍是自动签名。
+        PROVISIONING_PROFILE_SPECIFIER: "$(MSIME_IOS_APP_PROFILE)"
+        # 出口合规：只用系统提供的 HTTPS 等豁免加密。写进 Info.plist 后上传的构建自带答案，不会停在 App Store Connect 的「缺少合规信息」而无法分发给 TestFlight 测试组（此前每个构建都在网页上手动答「否」）。
+        INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO
         CODE_SIGN_ENTITLEMENTS: App/Resources/MSIMEApp.entitlements
         GENERATE_INFOPLIST_FILE: YES
         # 主屏、设置和系统的应用列表都显示这个名字。没有它时 iOS 退回 CFBundleName,也就是 PRODUCT_NAME,装出来的图标底下写的是 MSIMEApp。
@@ -90,6 +110,8 @@ targets:
         # LaunchScreen.storyboard 一直被编进 bundle,但没有这个键就没人指向它,启动屏等于白打包。
         INFOPLIST_KEY_UILaunchStoryboardName: LaunchScreen
         INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        # App 同时支持 iPad（xcodegen 对 iOS 应用默认 TARGETED_DEVICE_FAMILY 为 1,2）。支持 iPad 分屏多任务必须声明全部四个方向，否则 App Store Connect 上传校验以 409 Invalid bundle 拒收（2026-10-02 首次自动上传 TestFlight 时）。iPhone 仍用上面三个方向。
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         INFOPLIST_KEY_NSMicrophoneUsageDescription: "仅在你开始语音输入时录音：本地模型在本机识别，系统语音识别交由 iOS 处理，其他识别服务会把录音发送到你配置的服务。"
         # 语音服务选「系统语音识别」时由 Speech 框架识别录音，第一次使用前系统按这句话询问授权。
         INFOPLIST_KEY_NSSpeechRecognitionUsageDescription: "仅在你选择“系统语音识别”并开始录音时，用 iOS 的语音识别把录音转成文字。"
@@ -170,6 +192,11 @@ targets:
         buildPhase: resources
         type: folder
         optional: true
+      # Staged by stage-resources.sh beside EngineResources, where host-api looks for the Cantonese and Zhuyin dictionaries; empty when none were built or fetched, and those schemes are then not offered.
+      - path: ../../target/ios/language-dictionaries
+        buildPhase: resources
+        type: folder
+        optional: true
       - path: SharedResources/KeyboardBrand.png
         buildPhase: resources
       - path: SharedResources/PrivacyInfo.xcprivacy
@@ -178,6 +205,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.msime.ios.keyboard
         PRODUCT_NAME: MSIMEKeyboardExtension
+        # 同 MSIMEApp，见那里的说明。
+        PROVISIONING_PROFILE_SPECIFIER: "$(MSIME_IOS_KEYBOARD_PROFILE)"
         CODE_SIGN_ENTITLEMENTS: KeyboardExtension/Resources/MSIMEKeyboardExtension.entitlements
         SWIFT_OBJC_BRIDGING_HEADER: "$(SRCROOT)/KeyboardExtension/Sources/core/MetasequoiaKeyboard-Bridging-Header.h"
         EXCLUDED_SOURCE_FILE_NAMES[sdk=iphoneos*]: HandwritingInputViewFallback.swift
@@ -201,6 +230,11 @@ targets:
         type: folder
       # Staged by stage-resources.sh, empty unless offline gloss dictionaries were given to it.
       - path: ../../target/ios/offline-glosses
+        buildPhase: resources
+        type: folder
+        optional: true
+      # Staged by stage-resources.sh beside EngineResources, where host-api looks for the Cantonese and Zhuyin dictionaries; empty when none were built or fetched, and those schemes are then not offered.
+      - path: ../../target/ios/language-dictionaries
         buildPhase: resources
         type: folder
         optional: true
@@ -232,6 +266,10 @@ targets:
       - path: App/Services/DoubaoWebSocketTransport.swift
       - path: App/Services/KeyboardAIService.swift
       - path: App/Services/SkinCommunityAPI.swift
+      - path: App/Sources/dictionary/TauriPersonalDictionaryBridge.swift
+      - path: App/Sources/settings/CandidateOptionsSettingsView.swift
+      - path: App/Sources/settings/CandidatePreviewCard.swift
+      - path: App/Sources/keyboard/KeyboardChatHistoryPolicy.swift
       - path: ../../shared/backend
         excludes:
           - Tests/**

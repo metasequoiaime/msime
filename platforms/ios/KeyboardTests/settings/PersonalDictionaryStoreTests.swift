@@ -7,6 +7,56 @@ private func letterCode(_ prefix: String, _ index: Int) -> String {
 }
 
 final class PersonalDictionaryStoreTests: XCTestCase {
+  func testTauriPagingRejectsBooleanIntegers() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let request = try JSONSerialization.data(withJSONObject: [
+      "operation": "list", "offset": true, "limit": 1,
+    ])
+    XCTAssertThrowsError(try TauriPersonalDictionaryBridge.request(
+      request, store: PersonalDictionaryStore(directory: root)))
+  }
+
+  func testReadRejectsASymlinkedPersonalDictionaryDirectory() throws {
+    #if canImport(Darwin)
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("msime-personal-directory-link-\(UUID().uuidString)")
+    let outside = FileManager.default.temporaryDirectory.appendingPathComponent("msime-personal-directory-target-\(UUID().uuidString)")
+    defer {
+      try? FileManager.default.removeItem(at: root)
+      try? FileManager.default.removeItem(at: outside)
+    }
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+    try FileManager.default.createSymbolicLink(at: root.appendingPathComponent("PersonalDictionary", isDirectory: true),
+                                               withDestinationURL: outside)
+
+    XCTAssertThrowsError(try PersonalDictionaryStore(directory: root).read())
+    XCTAssertFalse(FileManager.default.fileExists(atPath: outside.appendingPathComponent("sync.lock").path))
+    #endif
+  }
+
+  func testEnqueueRejectsASymlinkedStateFileWithoutWritingExternalFile() throws {
+    #if canImport(Darwin)
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("msime-personal-file-link-\(UUID().uuidString)")
+    let outside = FileManager.default.temporaryDirectory.appendingPathComponent("msime-personal-file-target-\(UUID().uuidString)")
+    defer {
+      try? FileManager.default.removeItem(at: root)
+      try? FileManager.default.removeItem(at: outside)
+    }
+    let directory = root.appendingPathComponent("PersonalDictionary", isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+    let externalState = outside.appendingPathComponent("state.json")
+    try Data("synthetic-state".utf8).write(to: externalState)
+    try FileManager.default.createSymbolicLink(at: directory.appendingPathComponent("sync.json"),
+                                               withDestinationURL: externalState)
+
+    XCTAssertThrowsError(try PersonalDictionaryStore(directory: root).enqueue(previous: nil,
+      replacement: PersonalWord(key: "ni'hao", value: "拟好")))
+    XCTAssertEqual(try Data(contentsOf: externalState), Data("synthetic-state".utf8))
+    #endif
+  }
+
   func testQueueAcknowledgementFailureAndPaging() throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: root) }
@@ -88,6 +138,12 @@ final class PersonalDictionaryStoreTests: XCTestCase {
     let word = try PersonalWord(key: "NI HAO", value: "拟好").validated()
     XCTAssertEqual(word.key, "ni'hao")
     XCTAssertEqual(try PersonalWord(bridgeValue: word.bridgeValue), word)
+    XCTAssertThrowsError(try PersonalWord(bridgeValue: [
+      "kind": "pinyin", "key": "ni", "value": "你好", "weight": NSNumber(value: 2.5),
+    ]))
+    XCTAssertThrowsError(try PersonalWord(bridgeValue: [
+      "kind": "pinyin", "key": "ni", "value": "你好", "weight": NSNumber(value: true),
+    ]))
     XCTAssertThrowsError(try PersonalWord(key: "nihao", value: "你好").validated())
     XCTAssertThrowsError(try PersonalWord(key: "ni'hao", value: "你").validated())
     XCTAssertThrowsError(try PersonalWord(kind: .wubi, key: "abcde", value: "词").validated())

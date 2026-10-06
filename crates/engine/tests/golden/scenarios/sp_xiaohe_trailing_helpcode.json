@@ -8,7 +8,7 @@
  ],
  "fixture": {
   "databases": {
-   "msime.db": "CREATE TABLE tbl_1_s(key TEXT, jp TEXT, value TEXT, weight INTEGER);INSERT INTO tbl_1_s VALUES('shi', 's', '使', 200);INSERT INTO tbl_1_s VALUES('shi', 's', '是', 100);"
+   "msime-pinyin.db": "CREATE TABLE tbl_1_s(key TEXT, jp TEXT, value TEXT, weight INTEGER);INSERT INTO tbl_1_s VALUES('shi', 's', '使', 200);INSERT INTO tbl_1_s VALUES('shi', 's', '是', 100);"
   },
   "files": {
    "helpcodes/helpcode.txt": "使=ab\n是=uc\n"

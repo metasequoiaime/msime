@@ -1,5 +1,6 @@
 import UIKit
 import ImageIO
+import Darwin
 
 enum SkinKeyShape: String, Codable, CaseIterable, Sendable {
   case rounded, capsule, ticket, pebble
@@ -132,13 +133,19 @@ struct SavedKeyboardSkin: Codable, Identifiable, Equatable {
 
 enum CustomSkinLibrary {
   // Keep the multi-photo library out of preferences, which the keyboard reads on each key.
-  private static var file: URL {
-    let root = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: InputSchemePreference.appGroupIdentifier)
+  private static func file(in directory: URL? = nil) -> URL {
+    let root = directory ?? FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: InputSchemePreference.appGroupIdentifier)
       ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
     return root.appendingPathComponent("CustomSkins", isDirectory: true).appendingPathComponent("library.json")
   }
-  static var designs: [SavedKeyboardSkin] {
-    guard let size = try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+  private static func rejectsSymlinkAncestors(_ path: URL) -> Bool {
+    SafePath.hasRefusedSymbolicLink(path)
+  }
+  static var designs: [SavedKeyboardSkin] { designs(in: nil) }
+  static func designs(in directory: URL?) -> [SavedKeyboardSkin] {
+    let file = file(in: directory)
+    guard !rejectsSymlinkAncestors(file),
+          let size = try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize,
           size <= 9_000_000,
           let data = try? BoundedFileReader.read(from: file, maximumBytes: 9_000_000),
           let items = try? JSONDecoder().decode([SavedKeyboardSkin].self, from: data) else { return [] }
@@ -152,10 +159,12 @@ enum CustomSkinLibrary {
   /// Empties the library. Only the UI suite's reset argument calls this: the library lives in the
   /// app group, which survives uninstalling the app, so a test that leaks a skin has no other way
   /// of getting back to a known state.
-  static func removeAll() { try? FileManager.default.removeItem(at: file) }
+  static func removeAll() { try? FileManager.default.removeItem(at: file()) }
   #endif
   @discardableResult
-  static func save(_ items: [SavedKeyboardSkin]) -> Bool {
+  static func save(_ items: [SavedKeyboardSkin], in directory: URL? = nil) -> Bool {
+    let file = file(in: directory)
+    guard !rejectsSymlinkAncestors(file) else { return false }
     let items = items.prefix(12).map { item in
       var item = item
       item.name = String(item.name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(32))

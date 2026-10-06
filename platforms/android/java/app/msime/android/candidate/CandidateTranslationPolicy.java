@@ -1,6 +1,9 @@
 package app.msime.android;
 
 import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.LinkOption;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -79,7 +82,9 @@ public final class CandidateTranslationPolicy {
         for (String target : targets) {
             String code = normalize(target);
             if (OFFLINE_GLOSS_LANGUAGES.contains(code)
-                    && new File(parent, "offline-glosses/zh-" + code + ".db").isFile()) result.add(code);
+                    && Files.isRegularFile(
+                        new File(parent, "offline-glosses/zh-" + code + ".db").toPath(),
+                        LinkOption.NOFOLLOW_LINKS)) result.add(code);
         }
         return List.copyOf(result);
     }
@@ -100,6 +105,25 @@ public final class CandidateTranslationPolicy {
     /** Number of rows needed by one rendered candidate label, based on actual annotation text. */
     public static int renderedGlossLines(String annotation) {
         return annotation != null && annotation.indexOf('\n') >= 0 ? 2 : 1;
+    }
+
+    /** Rows of a candidate label whose secondary text starts on its own row under the candidate, as a Korean Hanja row does: the candidate, then one row per annotation line. */
+    public static int renderedOwnRowLines(String annotation) {
+        if (annotation == null || annotation.isEmpty()) return 1;
+        int lines = 2;
+        for (int index = annotation.indexOf('\n'); index >= 0; index = annotation.indexOf('\n', index + 1))
+            lines++;
+        return lines;
+    }
+
+    /**
+     * 候选条在基础高度之上为 {@code glossLines} 行释义预留的行数。
+     *
+     * <p>每行释义都在候选下面另起一行，所以有几行释义就预留几行。韩语汉字行的 훈음 和第一行释义同在一行（{@link CandidateGlossPolicy#hanjaAnnotation}），所以只保证至少一行，不再多占一行：多占时韩语的候选条和空闲工具栏都比其他方案高，切换布局键盘高度就跳。不论汉字列表是否展开都一样，列表展开时候选条不会变高。
+     */
+    public static int reservedGlossRows(int glossLines, boolean hanjaRows) {
+        int lines = Math.max(0, glossLines);
+        return hanjaRows ? Math.max(1, lines) : lines;
     }
 
     private static String normalize(String value) {

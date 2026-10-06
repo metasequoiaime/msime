@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { parseVersion } from "./update-manifest";
+import { useMountedRef } from "./use-mounted-ref";
+import { useAsyncGeneration } from "./use-async-generation";
 
 export interface UseAppVersionOptions {
   readAppVersion?: () => Promise<string>;
@@ -9,22 +11,22 @@ export interface UseAppVersionOptions {
 /** Reads the host application version while retaining a stable fallback. */
 export function useAppVersion({ readAppVersion, fallbackVersion }: UseAppVersionOptions) {
   const [version, setVersion] = useState(fallbackVersion);
+  const mounted = useMountedRef();
+  const generation = useAsyncGeneration(fallbackVersion, readAppVersion);
 
   useEffect(() => {
-    let active = true;
+    const current = generation.current;
     setVersion(fallbackVersion);
     if (readAppVersion) {
       void readAppVersion()
         .then((value) => {
           const parsed = parseVersion(value);
-          if (active && parsed) setVersion(parsed.display);
+          if (mounted.current && generation.current === current && parsed)
+            setVersion(parsed.display);
         })
         .catch(() => undefined);
     }
-    return () => {
-      active = false;
-    };
-  }, [fallbackVersion, readAppVersion]);
+  }, [fallbackVersion, readAppVersion, mounted]);
 
   return version;
 }

@@ -1,0 +1,116 @@
+#!/usr/bin/make -f
+# 水杉输入法 Linux 完整版的 Debian 源码包构建，供 Launchpad PPA 或 OBS 使用。构建步骤照搬 platforms/linux/package-container.sh：Release 的 Host API、MCP 服务和 Tauri 设置窗口，再以 MSIME_ENABLE_PACKAGING=ON 配置 CMake，跑与门禁相同的 ctest。
+#
+# 构建农场没有网络。Cargo 依赖、设置窗口的前端和需要下载的数据来自组件 tarball msime_VERSION.orig-vendor.tar.xz，dpkg-source 把它解到 vendor/；它就是发布页上的 msime-VERSION-vendor.tar.xz，由 platforms/linux/packaging/make-source-tarballs.sh 生成。
+
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+export PYTHONDONTWRITEBYTECODE = 1
+include /usr/share/dpkg/architecture.mk
+include /usr/share/dpkg/buildopts.mk
+include /usr/share/dpkg/pkg-info.mk
+
+VENDOR := $(CURDIR)/vendor
+CMAKE_BUILD := debian/build-cmake
+PRIVATE_LIB := $(CURDIR)/debian/msime/usr/lib/$(DEB_HOST_MULTIARCH)/msime-client
+
+export CARGO_HOME := $(CURDIR)/debian/cargo-home
+export CARGO_NET_OFFLINE := true
+# Release 配置默认不带调试信息，-dbgsym 包里 Rust 编译的三个程序就是空的；只带行号表，足够还原崩溃栈，编译开销也小。
+export CARGO_PROFILE_RELEASE_DEBUG := line-tables-only
+ifneq (,$(DEB_BUILD_OPTION_PARALLEL))
+export CARGO_BUILD_JOBS := $(DEB_BUILD_OPTION_PARALLEL)
+endif
+# Ubuntu 24.04 的 cargo 是 1.75，低于锁定依赖要求的 1.90；那里装的是 cargo-1.91 这类带版本号的工具链，放到 PATH 最前面。没有时用默认的 cargo。
+RUST_VERSIONED_BIN := $(lastword $(sort $(wildcard /usr/lib/rust-1.*/bin)))
+ifneq (,$(RUST_VERSIONED_BIN))
+export PATH := $(RUST_VERSIONED_BIN):$(PATH)
+endif
+
+# 语音运行库只为这两个架构钉住了上游构建（resources/voice-runtime.lock.json）。
+VOICE_PLATFORM_amd64 := linux-x86_64
+VOICE_PLATFORM_arm64 := linux-aarch64
+VOICE_PLATFORM := $(VOICE_PLATFORM_$(DEB_HOST_ARCH))
+
+%:
+	dh $@ --buildsystem=cmake --sourcedirectory=platforms/linux --builddirectory=$(CMAKE_BUILD)
+
+# CMake 配置时就要链接 Host API 并核对各项通知文件，所以 Cargo 构建放在配置之前。
+override_dh_auto_configure:
+	mkdir -p $(CARGO_HOME)
+	sed 's|^directory = .*|directory = "$(VENDOR)/cargo"|' $(VENDOR)/cargo-config.toml > $(CARGO_HOME)/config.toml
+	# 对着源码树里的锁文件核对 vendor 里的数据。文件已在锁定的摘要上时这些脚本不联网；对不上就会去下载，在没有网络的构建农场里直接失败。语音运行库从归档解到 debian/ 下，不改动 vendor/。
+	mkdir -p debian/voice-runtime
+	cp -a $(VENDOR)/voice-runtime/$(VOICE_PLATFORM)/.archive debian/voice-runtime/
+	python3 scripts/fetch_voice_runtime.py --platform $(VOICE_PLATFORM) --out debian/voice-runtime
+	python3 scripts/fetch_handwriting_model.py --out $(VENDOR)/handwriting-model
+	python3 scripts/fetch_offline_glosses.py --out $(VENDOR)/offline-glosses
+	python3 scripts/fetch_language_dictionaries.py --out $(VENDOR)/language-dictionaries
+	# msime-desktop 编译时把前端嵌进去。tauri/custom-protocol 是 `tauri build` 打开的特性，没有它就是加载 devUrl 的开发构建；TAURI_CONFIG 设定应用报告的版本。
+	rm -rf apps/desktop/dist
+	cp -a $(VENDOR)/frontend/dist apps/desktop/dist
+	cargo build --release --locked --offline -p msime-host-api
+	cargo build --release --locked --offline -p msime-mcp-server --bin msime-mcp
+	TAURI_CONFIG='{"version":"$(DEB_VERSION_UPSTREAM)"}' \
+	  cargo build --release --locked --offline -p msime-desktop --bin msime-desktop --features tauri/custom-protocol
+	python3 platforms/linux/collect-notices.py cargo debian/notices/rust-crates-NOTICES.txt \
+	  msime-host-api msime-mcp-server msime-desktop:tauri/custom-protocol
+	# Release 与发布页的 .deb 一致：测试目标自带 -UNDEBUG，产品代码的 assert 不进发布构建。
+	dh_auto_configure -- \
+	  -DCMAKE_BUILD_TYPE=Release \
+	  -DMSIME_EDITION=full \
+	  -DMSIME_ENABLE_PACKAGING=ON \
+	  -DMSIME_ENABLE_FCITX5=ON \
+	  -DMSIME_PACKAGE_VERSION=$(DEB_VERSION_UPSTREAM) \
+	  -DMSIME_HOST_LIBRARY=$(CURDIR)/target/release/libmsime_host_api.so \
+	  -DMSIME_MCP_BINARY=$(CURDIR)/target/release/msime-mcp \
+	  -DMSIME_DESKTOP_BINARY=$(CURDIR)/target/release/msime-desktop \
+	  -DMSIME_RUST_NOTICES=$(CURDIR)/debian/notices/rust-crates-NOTICES.txt \
+	  -DMSIME_FRONTEND_NOTICES=$(VENDOR)/frontend/frontend-npm-NOTICES.txt \
+	  -DMSIME_VOICE_RUNTIME_DIR=$(CURDIR)/debian/voice-runtime \
+	  -DMSIME_HANDWRITING_MODEL_DIR=$(VENDOR)/handwriting-model \
+	  -DMSIME_OFFLINE_GLOSSES=$(VENDOR)/offline-glosses \
+	  -DMSIME_LANGUAGE_DICTIONARIES=$(VENDOR)/language-dictionaries \
+	  -DMSIME_REQUIRE_LANGUAGE_DICTIONARIES=ON
+
+override_dh_auto_test:
+ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
+	ctest --test-dir $(CMAKE_BUILD) --output-on-failure -j$(or $(DEB_BUILD_OPTION_PARALLEL),1)
+endif
+
+# ctest 跑的是构建目录，看不到装出去的程序能不能加载。Fcitx5 插件、IBus engine 和本地语音运行库都按 RUNPATH 找包内私有目录里的库，它们必须解析到同一个目录。
+execute_after_dh_auto_install:
+ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
+	desktop-file-validate debian/msime/usr/share/applications/msime-linux.desktop
+	set -e; for binary in debian/msime/usr/lib/$(DEB_HOST_MULTIARCH)/fcitx5/libmsime-fcitx5.so debian/msime/usr/bin/msime-linux-ibus; do \
+	  resolved=$$(ldd $$binary | awk '$$1 == "libmsime_host_api.so" { print $$3 }'); \
+	  echo "$$binary: libmsime_host_api.so => $$resolved"; \
+	  test "$$(realpath -- "$$resolved")" = "$$(realpath -- $(PRIVATE_LIB)/libmsime_host_api.so)"; \
+	done
+	set -e; resolved=$$(ldd $(PRIVATE_LIB)/libsherpa-onnx-c-api.so | awk '$$1 == "libonnxruntime.so" { print $$3 }'); \
+	  echo "libsherpa-onnx-c-api.so: libonnxruntime.so => $$resolved"; \
+	  test "$$(realpath -- "$$resolved")" = "$$(realpath -- $(PRIVATE_LIB)/libonnxruntime.so)"
+	# 插件条目按绝对路径指向插件：fcitx5 插件目录不是多架构目录的发行版（AOSC OS）装这个包时，插件才加载得到。
+	grep -qx 'Library=/usr/lib/$(DEB_HOST_MULTIARCH)/fcitx5/libmsime-fcitx5' debian/msime/usr/share/fcitx5/addon/msime.conf
+endif
+
+# 维护脚本用 CMake 由 platforms/linux/cmake/deb-*.in 配置出的那两份，与发布页的 .deb 是同一份；只在结尾的 exit 0 前给 debhelper 留出插入点。postinst 在那之前再接上 debian/postinst-register：每次安装（替换掉 msime-linux，或从 config-files 状态重装）之后替每个用户恢复卸载时撤下的用户单元和输入法列表，「这次是安装」由 debian/msime.preinst 留下的标记告诉它，debian/msime.postrm 在 purge 与 abort-install 时清掉没用上的标记。
+execute_before_dh_installdeb:
+	test "$$(tail -n 1 $(CMAKE_BUILD)/debian/postinst)" = "exit 0"
+	{ sed '$$d' $(CMAKE_BUILD)/debian/postinst; cat debian/postinst-register; printf '#DEBHELPER#\nexit 0\n'; } > debian/msime.postinst
+	sed '$$s/^exit 0$$/#DEBHELPER#\nexit 0/' $(CMAKE_BUILD)/debian/prerm > debian/msime.prerm
+	grep -q '^#DEBHELPER#$$' debian/msime.prerm
+
+# dh_clean 默认删除源码树里所有 *.orig 文件，而 vendor/cargo 里每个 crate 都带一份 Cargo.toml.orig，并记在 .cargo-checksum.json 里；删掉后 Cargo 校验目录源失败。Launchpad 构建前同样先跑 clean。
+override_dh_clean:
+	dh_clean -Xvendor/cargo/
+
+# sherpa-onnx 与 ONNX Runtime 是上游的预构建库，不带调试信息，ONNX Runtime 的节区顺序还会让 dwz 直接报错；dwz 和 strip 都只处理本包编译出的程序，上游的库原样安装。
+override_dh_dwz:
+	dh_dwz -Xlibonnxruntime.so -Xlibsherpa-onnx-c-api.so
+
+override_dh_strip:
+	dh_strip -Xlibonnxruntime.so -Xlibsherpa-onnx-c-api.so
+
+# Host API 与 sherpa-onnx 运行库装在包内私有目录，不是系统库，dpkg-shlibdeps 要在那里找它们。
+override_dh_shlibdeps:
+	dh_shlibdeps -l$(PRIVATE_LIB)

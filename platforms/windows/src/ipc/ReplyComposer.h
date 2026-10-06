@@ -107,7 +107,11 @@ public:
   std::optional<PendingReply> restore_segment(
       ServerSession &session, const FanyImeNamedpipeData &packet,
       uint64_t epoch);
-  // A Korean caret or editing key (Enter, Tab, arrows, Home/End, Page Up/Down, Delete) that the TIP ate because earlier keys were still queued ends the open syllable. Null for every other key and scheme.
+  // The key that opens a scheme's candidate list while it composes (the Korean Hanja key, Zhuyin's Down), and the keys an open Hanja or Zhuyin list takes (KoreanHanjaKey.h), applied to the Server's session exactly as the TIP applies them to its host session. Nothing is sent back: the TIP writes what its own session chose, and the candidate window follows the delivered view. Null for every other key, scheme and state, which keep their routes.
+  std::optional<PendingReply> korean_hanja(
+      ServerSession &session, const FanyImeNamedpipeData &packet,
+      uint64_t epoch);
+  // 韩文、注音、越南文或藏文的光标或编辑键（回车、Tab、方向键、Home/End、Page Up/Down、Delete），因前面的键还在排队而被 TIP 吃掉，或是 TIP 据以上屏的键，会结束当前组字。其他按键和方案返回空。
   std::optional<PendingReply> korean_syllable_end(
       ServerSession &session, const FanyImeNamedpipeData &packet,
       uint64_t epoch);

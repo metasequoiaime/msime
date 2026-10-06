@@ -1,0 +1,58 @@
+{
+ "name": "yue_segmentation_select",
+ "source": "crates/engine/src/cantonese (no C++ reference: the Cantonese scheme is Rust-only, so the expected file was recorded from this engine and checked by hand)",
+ "covers": [
+  "cantonese",
+  "segmentation",
+  "prefix completion",
+  "selection",
+  "digit selection",
+  "traditional output"
+ ],
+ "fixture": {
+  "databases": {
+   "msime-cantonese.db": "CREATE TABLE metadata(name TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;CREATE TABLE syllables(syllable TEXT PRIMARY KEY) WITHOUT ROWID;CREATE TABLE entries(key TEXT NOT NULL, text TEXT NOT NULL, weight INTEGER NOT NULL, PRIMARY KEY(key, text)) WITHOUT ROWID;CREATE INDEX entries_by_key_weight ON entries(key, weight DESC);INSERT INTO metadata VALUES('format_version','1');INSERT INTO syllables VALUES('nei'),('hou'),('hoeng'),('ngo'),('ngoi'),('oi'),('i'),('gwong'),('dung'),('waa');INSERT INTO entries VALUES('nei hou','你好',900),('nei hou','妳好',40),('nei hoeng','你向',3),('nei','你',5000),('nei','妳',300),('hou','好',4000),('hou','號',500),('gwong dung waa','廣東話',800),('gwong dung','廣東',1200),('gwong','光',2000),('gwong','廣',900),('dung','東',1500),('waa','話',3000),('ngo','我',6000),('oi','愛',2500),('ngoi','外',1000),('i','衣',100);"
+  }
+ },
+ "options": {
+  "scheme": "cantonese"
+ },
+ "steps": [
+  {
+   "op": "type",
+   "arg": "neihou"
+  },
+  {
+   "op": "select",
+   "arg": 0
+  },
+  {
+   "op": "type",
+   "arg": "gwongdungwaa"
+  },
+  {
+   "op": "candidate_key",
+   "arg": "1"
+  },
+  {
+   "op": "type",
+   "arg": "neih"
+  },
+  {
+   "op": "select",
+   "arg": {
+    "word": "你向"
+   }
+  },
+  {
+   "op": "type",
+   "arg": "gw"
+  },
+  {
+   "op": "select",
+   "arg": {
+    "word": "廣"
+   }
+  }
+ ]
+}

@@ -100,15 +100,21 @@ final class CandidateTranslationStore {
       let id = UUID()
       let task = Task { [weak self] in
         defer { self?.tasks[id] = nil }
-        guard let glosses = try? await service.translate(words: missing, target: code) else { return }
-        guard !Task.isCancelled, self?.scope == scope else { return }
-        self?.absorb(code: code, words: missing, glosses: glosses)
+        guard let glosses = try? await service.translate(words: missing, target: code) else {
+          // 请求失败时释放当前签名，让同一候选页在下一次刷新时可以重试；较新的请求已经换代时不能误清它的签名。
+          if self?.signature == stamp { self?.signature = nil }
+          return
+        }
+        guard !Task.isCancelled, let self, self.scope == scope else { return }
+        if !self.absorb(code: code, words: missing, glosses: glosses), self.signature == stamp {
+          self.signature = nil
+        }
       }
       tasks[id] = task
     }
   }
-  private func absorb(code: String, words: [String], glosses: [String]) {
-    guard words.count == glosses.count else { return }
+  private func absorb(code: String, words: [String], glosses: [String]) -> Bool {
+    guard words.count == glosses.count else { return false }
     var arrived = false
     for (word, gloss) in zip(words, glosses) {
       let text = gloss.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -116,5 +122,6 @@ final class CandidateTranslationStore {
       cache["\(code)|\(word)"] = text; arrived = true
     }
     if arrived { onArrival?() }
+    return true
   }
 }

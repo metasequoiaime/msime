@@ -74,7 +74,12 @@ class ProjectConfigurationTests(unittest.TestCase):
             accessed["NSPrivacyAccessedAPICategorySystemBootTime"], ["35F9.1"]
         )
         self.assertFalse(privacy["NSPrivacyTracking"])
-        self.assertEqual(privacy["NSPrivacyCollectedDataTypes"], [])
+        # Anonymous usage reporting: crash reports, keyboard sessions and daily activity, and the random install id, none linked to the user or used for tracking.
+        self.assertEqual(privacy["NSPrivacyCollectedDataTypes"], [
+            {"NSPrivacyCollectedDataType": "NSPrivacyCollectedDataTypeCrashData", "NSPrivacyCollectedDataTypeLinked": False, "NSPrivacyCollectedDataTypeTracking": False, "NSPrivacyCollectedDataTypePurposes": ["NSPrivacyCollectedDataTypePurposeAnalytics", "NSPrivacyCollectedDataTypePurposeAppFunctionality"]},
+            {"NSPrivacyCollectedDataType": "NSPrivacyCollectedDataTypeProductInteraction", "NSPrivacyCollectedDataTypeLinked": False, "NSPrivacyCollectedDataTypeTracking": False, "NSPrivacyCollectedDataTypePurposes": ["NSPrivacyCollectedDataTypePurposeAnalytics"]},
+            {"NSPrivacyCollectedDataType": "NSPrivacyCollectedDataTypeDeviceID", "NSPrivacyCollectedDataTypeLinked": False, "NSPrivacyCollectedDataTypeTracking": False, "NSPrivacyCollectedDataTypePurposes": ["NSPrivacyCollectedDataTypePurposeAnalytics"]},
+        ])
         project = (IOS_ROOT / "project.yml").read_text()
         self.assertEqual(project.count("path: SharedResources/PrivacyInfo.xcprivacy"), 2)
         generated = (IOS_ROOT / "MSIMEClient.xcodeproj/project.pbxproj").read_text()
@@ -92,6 +97,37 @@ class ProjectConfigurationTests(unittest.TestCase):
             self.assertTrue(any((IOS_ROOT / path).is_file() for path in (f"SharedResources/{resource}", f"../linux/data/licenses/{resource}")))
             self.assertEqual(generated.count(f"{resource} in Resources"), 2)
 
+    def test_app_ships_the_licence_of_the_embedded_hanja_table(self):
+        # The engine linked into the app and its keyboard extension embeds libhangul's Hanja table, which is BSD-3-Clause.
+        project = (IOS_ROOT / "project.yml").read_text()
+        app = dict(target_blocks(project))["MSIMEApp"]
+        blocks = source_path_blocks(app, "../../resources/licenses/libhangul-hanja-BSD-3-Clause.txt")
+        self.assertEqual(len(blocks), 1)
+        self.assertIn("buildPhase: resources", blocks[0])
+        self.assertIn("Choe Hwanjin", (IOS_ROOT / "../../resources/licenses/libhangul-hanja-BSD-3-Clause.txt").read_text())
+
+    def test_app_ships_the_licences_of_the_language_dictionary_data(self):
+        # The engine linked into the app and its keyboard extension has Cantonese, Zhuyin and Stroke schemes whose data derives from rime-cantonese (CC BY 4.0), libchewing-data (LGPL-2.1-or-later) and rime-stroke (LGPL-3.0, with the CNS11643 attribution).
+        project = (IOS_ROOT / "project.yml").read_text()
+        app = dict(target_blocks(project))["MSIMEApp"]
+        for licence, holder in (("rime-cantonese-CC-BY-4.0.txt", "CanCLID"), ("libchewing-data-LGPL-2.1.txt", "libchewing Core Team"), ("rime-stroke-LGPL-3.0.txt", "CNS11643中文標準交換碼全字庫網站")):
+            path = f"../../resources/licenses/{licence}"
+            blocks = source_path_blocks(app, path)
+            self.assertEqual(len(blocks), 1)
+            self.assertIn("buildPhase: resources", blocks[0])
+            self.assertIn(holder, (IOS_ROOT / path).read_text())
+
+    def test_app_ships_the_licences_of_the_vietnamese_and_tibetan_crates(self):
+        # 链接进 App 和键盘扩展的 Engine 编入了越南文方案的 vi crate 和藏文方案的 ewts crate，二者都按 MIT 使用。
+        project = (IOS_ROOT / "project.yml").read_text()
+        app = dict(target_blocks(project))["MSIMEApp"]
+        for licence, holder in (("vi-MIT.txt", "Hung Nguyen"), ("ewts-MIT.txt", "Maxim Zommer")):
+            path = f"../../resources/licenses/{licence}"
+            blocks = source_path_blocks(app, path)
+            self.assertEqual(len(blocks), 1)
+            self.assertIn("buildPhase: resources", blocks[0])
+            self.assertIn(holder, (IOS_ROOT / path).read_text())
+
     def test_app_and_keyboard_share_the_declared_app_group(self):
         expected = "group.app.msime.ios"
         app = (IOS_ROOT / "App/Resources/MSIMEApp.entitlements").read_text()
@@ -101,6 +137,52 @@ class ProjectConfigurationTests(unittest.TestCase):
         project = (IOS_ROOT / "project.yml").read_text()
         self.assertIn("CODE_SIGN_ENTITLEMENTS: App/Resources/MSIMEApp.entitlements", project)
         self.assertIn("CODE_SIGN_ENTITLEMENTS: KeyboardExtension/Resources/MSIMEKeyboardExtension.entitlements", project)
+
+    def test_app_group_identifier_is_written_once(self):
+        # App Group 标识只写在 MSIMEAppEdition 一处，其他 Swift 代码都引用它；漏掉的那一处会因为 `?? .standard` 悄悄读写另一份数据，其他版本也会读到 full 的数据。测试和 Tauri 公共组件（只有 full）不在检查范围内。
+        literal = '"group.app.msime.ios"'
+        repo = IOS_ROOT.parents[1]
+        owner = repo / "shared/backend/account/BackendAccountClient.swift"
+        self.assertIn(f"static let fullAppGroupIdentifier = {literal}", owner.read_text())
+        roots = [IOS_ROOT / "App", IOS_ROOT / "KeyboardExtension", IOS_ROOT / "SharedUI", repo / "shared/backend"]
+        offenders = [
+            str(path.relative_to(repo))
+            for root in roots
+            for path in sorted(root.rglob("*.swift"))
+            if path != owner and "Tests" not in path.relative_to(repo).parts and literal in path.read_text()
+        ]
+        self.assertEqual(offenders, [])
+
+    def test_url_scheme_is_derived_from_the_edition(self):
+        # 键盘拉起 App 的 URL scheme 只写在 MSIMEAppEdition 一处，按版本推出；多个版本装在同一台设备上时，写死的 msime 会让系统任选一个 App 打开，语音交接和设置入口就落到另一个版本。full 的 project.yml 注册的仍是 msime。
+        repo = IOS_ROOT.parents[1]
+        owner = repo / "shared/backend/account/BackendAccountClient.swift"
+        self.assertIn('static let fullURLScheme = "msime"', owner.read_text())
+        project = (IOS_ROOT / "project.yml").read_text()
+        self.assertIn("CFBundleURLSchemes: [msime]", project)
+        roots = [IOS_ROOT / "App", IOS_ROOT / "KeyboardExtension", IOS_ROOT / "SharedUI", repo / "shared/backend"]
+        offenders = [
+            str(path.relative_to(repo))
+            for root in roots
+            for path in sorted(root.rglob("*.swift"))
+            if path != owner and "Tests" not in path.relative_to(repo).parts
+            and re.search(r'"msime://|scheme == "msime"', path.read_text())
+        ]
+        self.assertEqual(offenders, [])
+        launcher = (IOS_ROOT / "KeyboardExtension/Sources/keyboard/KeyboardAppLauncher.swift").read_text()
+        self.assertIn('URL(string: "\\(MSIMEAppEdition.urlScheme)://settings")', launcher)
+        self.assertIn('URL(string: "\\(MSIMEAppEdition.urlScheme)://voice")', launcher)
+        app = (IOS_ROOT / "App/Sources/MetasequoiaImeApp.swift").read_text()
+        self.assertIn("url.scheme == MSIMEAppEdition.urlScheme", app)
+
+    def test_scheme_choices_are_narrowed_by_edition(self):
+        # 首次引导和方案页都只列本版本的入口；写共享文档的 schemeMapping 也丢掉本版本没有的入口，任何调用方都写不进 host-api 会回退掉的方案。
+        welcome = (IOS_ROOT / "App/Sources/app/WelcomeFlowView.swift").read_text()
+        self.assertIn("].filter { $0.scheme.isOfferedByEdition }", welcome)
+        onboarding = (IOS_ROOT / "App/Sources/app/OnboardingView.swift").read_text()
+        self.assertIn("ChineseInputScheme.allCases.filter(\\.isOfferedByEdition)", onboarding)
+        bridge = (IOS_ROOT / "SharedUI/core/MetasequoiaInputSessionBridge.swift").read_text()
+        self.assertIn("enabledSchemes.contains($0) && $0.isOfferedByEdition", bridge)
 
     def test_app_icon_assets_and_alternate_names_are_configured(self):
         project = (IOS_ROOT / "project.yml").read_text()

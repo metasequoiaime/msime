@@ -1,0 +1,160 @@
+{
+ "name": "zh_bpmf_space_opens_list",
+ "steps": [
+  {
+   "op": "open",
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "zhuyin",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "su3",
+   "op": "type",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 3,
+    "dedicated_english": false,
+    "editing_text": "su3",
+    "local_mode": "none",
+    "normalized_segmentation": "你",
+    "preedit": "你",
+    "raw_segmentation": "su3",
+    "scheme": "zhuyin",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": " ",
+   "op": "char",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 2,
+    "candidates": [
+     {
+      "answers_key": true,
+      "canonical_pinyin": "",
+      "pinyin": "",
+      "scheme": "zhuyin",
+      "source": 0,
+      "weight": 0,
+      "word": "你"
+     },
+     {
+      "answers_key": true,
+      "canonical_pinyin": "",
+      "pinyin": "",
+      "scheme": "zhuyin",
+      "source": 0,
+      "weight": 0,
+      "word": "妳"
+     }
+    ],
+    "caret": 3,
+    "dedicated_english": false,
+    "editing_text": "su3",
+    "local_mode": "none",
+    "normalized_segmentation": "你",
+    "preedit": "你",
+    "raw_segmentation": "su3",
+    "scheme": "zhuyin",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": " ",
+   "op": "char",
+   "result": {
+    "handled": false
+   },
+   "snapshot": {
+    "candidate_count": 2,
+    "candidates": [
+     {
+      "answers_key": true,
+      "canonical_pinyin": "",
+      "pinyin": "",
+      "scheme": "zhuyin",
+      "source": 0,
+      "weight": 0,
+      "word": "你"
+     },
+     {
+      "answers_key": true,
+      "canonical_pinyin": "",
+      "pinyin": "",
+      "scheme": "zhuyin",
+      "source": 0,
+      "weight": 0,
+      "word": "妳"
+     }
+    ],
+    "caret": 3,
+    "dedicated_english": false,
+    "editing_text": "su3",
+    "local_mode": "none",
+    "normalized_segmentation": "你",
+    "preedit": "你",
+    "raw_segmentation": "su3",
+    "scheme": "zhuyin",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "1",
+   "op": "candidate_key",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 3,
+    "dedicated_english": false,
+    "editing_text": "su3",
+    "local_mode": "none",
+    "normalized_segmentation": "你",
+    "preedit": "你",
+    "raw_segmentation": "su3",
+    "scheme": "zhuyin",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "CommitRaw",
+   "op": "command",
+   "result": {
+    "commit": "你",
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "zhuyin",
+    "shuangpin_profile": "xiaohe"
+   }
+  }
+ ]
+}

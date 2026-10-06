@@ -122,8 +122,8 @@ case "$host" in
 esac
 
 if [ -n "$settings" ]; then
-  # The window opens on its first-run page on its own; strip any panel request inherited from the caller so nothing routes it elsewhere.
-  detach env -u MSIME_CLIENT_PANEL -u MSIME_CLIENT_ROUTE -u MSIME_CLIENT_SETTINGS_PAGE "$settings"
+  # The window opens on its first-run page on its own; strip any route inherited from the caller so nothing routes it elsewhere.
+  detach env -u MSIME_CLIENT_ROUTE "$settings"
   body="已打开「水杉输入法」设置，请在首次配置页完成配置。$resume"
 else
   body="请在终端运行 msime-linux-setup 完成首次配置。$resume"

@@ -1,4 +1,4 @@
-import { Row } from "../core/platform-controls";
+import { TextInputRow } from "./text-input-row";
 
 export interface DoubaoResourceIdSectionProps {
   value: string;
@@ -8,12 +8,12 @@ export interface DoubaoResourceIdSectionProps {
 /** Doubao resource identifier used by the selected voice provider. */
 export function DoubaoResourceIdSection({ value, onChange }: DoubaoResourceIdSectionProps) {
   return (
-    <Row title="Doubao 资源 ID" description="仅由 Doubao provider 使用">
-      <input
-        aria-label="Doubao 资源 ID"
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-      />
-    </Row>
+    <TextInputRow
+      title="Doubao 资源 ID"
+      description="仅豆包识别使用"
+      label="Doubao 资源 ID"
+      value={value}
+      onChange={onChange}
+    />
   );
 }

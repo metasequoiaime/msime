@@ -1,0 +1,13 @@
+#!/bin/sh
+# 清掉 debian/msime.preinst 留下、postinst 还没来得及消费的标记：安装中途失败（abort-install）或 purge 时。
+set -e
+
+case "$1" in
+  purge|abort-install)
+    rm -f /var/lib/msime/register-users
+    rmdir /var/lib/msime 2>/dev/null || true
+    ;;
+esac
+
+#DEBHELPER#
+exit 0

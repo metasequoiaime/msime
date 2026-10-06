@@ -44,7 +44,6 @@ export const rowStack =
 
 // ---- the theme page: its card gallery ----
 
-export const skinIntro = "mt-0 mb-3.5 leading-relaxed text-muted";
 export const externalHeading =
   "mx-1 mt-7 mb-3 flex items-start justify-between gap-[18px] [&>div]:min-w-0";
 export const externalActions =
@@ -64,9 +63,10 @@ export const themeCarouselNav = "mt-2 flex items-center justify-center gap-3";
 export const themeCarouselArrow =
   "flex size-7 items-center justify-center rounded-full border border-edge bg-[var(--p-group-bg)] p-0 text-lg leading-none text-muted hover:text-body disabled:opacity-40 disabled:hover:text-muted";
 export const themeCarouselDots = "flex items-center gap-1.5";
-export const themeCarouselDot = (active: boolean) =>
-  `size-2 rounded-full border-0 p-0 ${active ? "bg-accent" : "bg-[var(--toggle-off-bg)] hover:bg-edge-strong"}`;
-export const themeCarouselCount = "min-w-10 text-center text-xs text-muted tabular-nums";
+export const themeCarouselDot = (active: boolean, edge = false) =>
+  `${edge ? "size-1.5" : "size-2"} shrink-0 rounded-full border-0 p-0 ${active ? "bg-accent" : "bg-[var(--toggle-off-bg)] hover:bg-edge-strong"}`;
+export const themeCarouselCount =
+  "min-w-10 shrink-0 text-center text-xs whitespace-nowrap text-muted tabular-nums";
 export const skinCard = (selected: boolean) =>
   `block overflow-hidden rounded-[var(--p-group-r)] border bg-[var(--p-group-bg)] p-0 focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-accent hover:border-edge-strong ${
     selected
@@ -106,9 +106,6 @@ export const skinCandidateStages = "flex flex-wrap items-start [&>*]:max-w-full 
 
 // ---- the floating toolbar editor ----
 
-export const toolbarPreviewArea =
-  "min-h-[190px] overflow-hidden bg-subtle px-6 pt-5 pb-[30px] max-phone:px-4";
-export const toolbarPreviewLabel = "mb-7 text-xs text-muted";
 export const toolbarPreview = (enabled: boolean) =>
   `mx-auto flex min-h-[35px] w-max max-w-full origin-center items-center gap-1.5 rounded-lg border border-white/15 bg-[#1a1a1a] px-[7px] py-1 whitespace-nowrap text-white shadow-[4px_4px_4px_rgba(0,0,0,0.3)] ${
     enabled ? "" : "opacity-45"
@@ -120,11 +117,12 @@ export const toolbarRequiredLabel = "ml-auto text-xs text-muted";
 
 // ---- shortcuts ----
 
-export const shortcutIntro = "leading-relaxed text-secondary";
 /** A key chord shown as the control of a shortcut row. */
 export const shortcutKey =
   "min-w-30 rounded-[5px] border border-edge bg-[var(--button-secondary-bg)] px-2 py-1 text-center font-[inherit] text-xs text-body";
 export const shortcutRowDanger = "text-danger";
+/** 一行里并列的几组按键，例如「向前 / 向后翻页」同时开着的几种翻页键；排在行标题下方、靠左换行，标题保持一行。 */
+export const shortcutKeys = "mt-1 flex flex-wrap justify-start gap-1.5";
 
 // ---- service actions ----
 
@@ -184,9 +182,9 @@ export const empty = "text-muted";
 
 // ---- panel launchers ----
 
-/** A launcher's live preview, shown as the last block of its group. */
+/** 预览块：屏幕键盘、手写、候选窗口和悬浮工具栏页的实时预览都用它，放在它所画的那组设置上方或组内。 */
 export const groupPreview =
-  "min-w-0 border-t border-[var(--p-row-divider)] px-6 pt-5 pb-[30px] max-phone:px-4";
+  "min-w-0 border-t border-[var(--p-row-divider)] px-6 pt-5 pb-[30px] first:border-t-0 max-phone:px-4";
 export const launchCard = "overflow-hidden p-0";
 export const launchRow = "px-6 py-5";
 export const openButton = "mt-0 min-w-18 shrink-0 grow-0 basis-auto";
@@ -246,8 +244,9 @@ export const sidebar =
 /** The iPad sidebar's large 设置 title, sized like a page title. */
 export const sidebarTitle =
   "m-0 px-1 pt-1.5 pb-2.5 text-[length:var(--p-title-fs)] leading-tight [font-weight:var(--p-title-w)]";
+/** 侧栏顶部的品牌行：24px 图标加产品名，水平内边距取导航项的 `--p-nav-pad`，图标与下面各项的图标左对齐；文字颜色沿用侧栏，跟随明暗主题和自定义主题。 */
 export const sidebarHeader =
-  "mb-2 flex items-center gap-1.5 px-3 pt-0 pb-3 [&>img]:size-[25px] [&>img]:translate-y-px [&>img]:rounded-md [&>span]:ml-[3px] [&>span]:text-[19px] [&>span]:font-medium";
+  "mt-1 mb-3 flex shrink-0 items-center gap-2 [padding:var(--p-nav-pad)] select-none [&>img]:size-6 [&>img]:shrink-0 [&>img]:rounded-md [&>span]:min-w-0 [&>span]:truncate [&>span]:text-[15px] [&>span]:font-semibold";
 /*
  * A group of sidebar items, which are the shared `NavItem`: its height, radius, padding and selected fill come from the `--p-nav-*` tokens, Windows' 3x16 accent bar included. Windows insets each item 2px by 4px and gaps its icon 16px; the rest set the space between groups (macOS 18, HarmonyOS 12, GNOME 10).
  */
@@ -257,6 +256,9 @@ export const sidebarSection = (first: boolean) =>
       ? ""
       : "mt-3.5 mac:mt-[18px] linux:mt-2.5 hm2:mt-3 ipad:mt-5 win:mt-1 win:border-t win:border-[rgba(255,255,255,0.0837)] win:pt-1 win:light-theme:border-[rgba(0,0,0,0.0803)]"
   }`;
+/** 侧栏一组页面的组名：小号灰字，水平内边距取导航项的 `--p-nav-pad`，与下面的页名左对齐。iPad 的每组是一张圆角卡片，组名放进卡片里会像多出一行，所以 iPad 不显示。 */
+export const sidebarGroupTitle =
+  "mt-1 mb-0.5 [padding:var(--p-nav-pad)] text-[11px] font-semibold text-[var(--p-sub)] select-none ipad:hidden";
 /** The item glyphs ship light and are inverted on a light theme. Windows draws them at 16, macOS at 15, HarmonyOS at 17, GNOME at 18 and iPadOS at 20. */
 export const sidebarGlyph =
   "block size-4 object-contain opacity-90 light-theme:[filter:invert(1)_brightness(0.25)] mac:size-[15px] linux:size-[18px] hm2:size-[17px] ipad:size-5";
@@ -286,9 +288,15 @@ export const contentColumn =
   "mx-auto w-full max-w-[900px] px-7 pt-3.5 pb-6 max-phone:px-3 max-phone:py-3 win:px-14 win:pt-9 win:pb-12 mac:max-w-none mac:px-12 mac:pt-6 mac:pb-11 linux:max-w-[680px] linux:px-8 linux:pt-6 linux:pb-7 hm2:max-w-[760px] hm2:px-7 hm2:pt-2 hm2:pb-7 ipad:max-w-[720px] ipad:px-7 ipad:pt-4 ipad:pb-7 max-phone:win:px-4 max-phone:win:pt-5 max-phone:mac:px-4 max-phone:linux:px-4 max-phone:hm2:px-4";
 /** The page's large title, sized by the platform's `--p-title-*` tokens. macOS puts it in the toolbar instead. */
 export const pageHeader = "mb-6 flex items-center gap-2.5 hm2:mb-4";
-/** The way back from a sub-page (AI 辅助, 背单词, 帮助) to the page it opens from, above the title. */
+/** The way back from a sub-page (AI 对话, 背单词, 帮助) to the page it opens from, above the title. */
 export const backLink =
   "mb-1 inline-flex min-h-8 items-center self-start rounded-md border-0 bg-transparent px-0 text-[13px] text-accent hover:underline focus-visible:outline-2 focus-visible:outline-accent";
+/** A view inside a page (a plugin's detail on 插件): the back link over a title one step below the page's own. */
+export const subViewHeader = "flex min-w-0 flex-col items-start gap-1";
+/** A stack of groups inside a page's own stack, spaced as the page spaces them. */
+export const subViewStack = "flex min-w-0 flex-col gap-6";
+export const subViewTitle =
+  "m-0 text-[20px] leading-tight font-semibold [color:var(--p-text)] break-anywhere";
 export const pageTitle =
   "m-0 text-[length:var(--p-title-fs)] leading-tight [font-weight:var(--p-title-w)]";
 /**

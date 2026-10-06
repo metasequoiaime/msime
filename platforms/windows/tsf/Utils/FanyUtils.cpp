@@ -1,7 +1,6 @@
 #include <algorithm>
 #include <cstdlib>
 #include <filesystem>
-#include <fstream>
 #include <memory>
 #include <optional>
 #include <string>
@@ -10,6 +9,7 @@
 #include "FanyUtils.h"
 #include "Ipc.h"
 #include "../HostOptionsPaths.h"
+#include "../../common/InputSchemeTraits.h"
 #include <msime_client.h>
 #include <nlohmann/json.hpp>
 #include <utf8cpp/utf8.h>
@@ -59,54 +59,6 @@ std::optional<nlohmann::json> ReadSharedPreferences()
         return std::nullopt;
     }
 }
-
-std::string TrimAscii(const std::string &value)
-{
-    size_t begin = 0;
-    while (begin < value.size() && (value[begin] == ' ' || value[begin] == '\t' || value[begin] == '\r'))
-    {
-        ++begin;
-    }
-    size_t end = value.size();
-    while (end > begin && (value[end - 1] == ' ' || value[end - 1] == '\t' || value[end - 1] == '\r'))
-    {
-        --end;
-    }
-    return value.substr(begin, end - begin);
-}
-
-std::string UnquoteTomlBasicString(const std::string &value)
-{
-    if (value.size() >= 2 && value.front() == '"' && value.back() == '"')
-    {
-        return value.substr(1, value.size() - 2);
-    }
-    return value;
-}
-
-bool ParseTomlBool(const std::string &raw, bool fallback)
-{
-    const std::string value = to_lower_copy(UnquoteTomlBasicString(TrimAscii(raw)));
-    if (value == "true" || value == "1")
-    {
-        return true;
-    }
-    if (value == "false" || value == "0")
-    {
-        return false;
-    }
-    return fallback;
-}
-
-std::filesystem::path SharedConfigPath()
-{
-    // Build a wide path and open it as such. A narrow std::string path would be opened through the
-    // ANSI code page, which cannot round-trip a non-ASCII (e.g. Chinese) user profile path on a
-    // non-UTF-8 system, so the TSF would read the wrong file or fail to find the config.
-    const auto state = msime::tsf::default_state_directory();
-    return state.empty() ? std::filesystem::path{} :
-                           std::filesystem::u8path(state) / L"config.toml";
-}
 } // namespace
 
 BOOL ReadConfiguredDefaultImeModeChinese()
@@ -114,54 +66,6 @@ BOOL ReadConfiguredDefaultImeModeChinese()
     if (const auto preferences = ReadSharedPreferences())
     {
         return preferences->value("default_ime_mode", std::string{"chinese"}) != "english";
-    }
-    const std::filesystem::path configPath = SharedConfigPath();
-    if (configPath.empty())
-    {
-        return TRUE;
-    }
-
-    std::ifstream input(configPath);
-    if (!input)
-    {
-        return TRUE;
-    }
-
-    bool inInputSection = false;
-    std::string line;
-    while (std::getline(input, line))
-    {
-        const size_t comment = line.find('#');
-        if (comment != std::string::npos)
-        {
-            line = line.substr(0, comment);
-        }
-        line = TrimAscii(line);
-        if (line.empty())
-        {
-            continue;
-        }
-        if (line.front() == '[' && line.back() == ']')
-        {
-            inInputSection = (line == "[input]");
-            continue;
-        }
-        if (!inInputSection)
-        {
-            continue;
-        }
-        const size_t eq = line.find('=');
-        if (eq == std::string::npos)
-        {
-            continue;
-        }
-        const std::string key = TrimAscii(line.substr(0, eq));
-        if (key != "default_ime_mode")
-        {
-            continue;
-        }
-        const std::string value = to_lower_copy(UnquoteTomlBasicString(TrimAscii(line.substr(eq + 1))));
-        return value != "english";
     }
     return TRUE;
 }
@@ -181,62 +85,6 @@ int ReadConfiguredPunctuationLock()
         }
         return Global::PunctuationLock::Follow;
     }
-    const std::filesystem::path configPath = SharedConfigPath();
-    if (configPath.empty())
-    {
-        return Global::PunctuationLock::Follow;
-    }
-
-    std::ifstream input(configPath);
-    if (!input)
-    {
-        return Global::PunctuationLock::Follow;
-    }
-
-    bool inInputSection = false;
-    std::string line;
-    while (std::getline(input, line))
-    {
-        const size_t comment = line.find('#');
-        if (comment != std::string::npos)
-        {
-            line = line.substr(0, comment);
-        }
-        line = TrimAscii(line);
-        if (line.empty())
-        {
-            continue;
-        }
-        if (line.front() == '[' && line.back() == ']')
-        {
-            inInputSection = (line == "[input]");
-            continue;
-        }
-        if (!inInputSection)
-        {
-            continue;
-        }
-        const size_t eq = line.find('=');
-        if (eq == std::string::npos)
-        {
-            continue;
-        }
-        const std::string key = TrimAscii(line.substr(0, eq));
-        if (key != "punctuation_lock")
-        {
-            continue;
-        }
-        const std::string value = to_lower_copy(UnquoteTomlBasicString(TrimAscii(line.substr(eq + 1))));
-        if (value == "chinese")
-        {
-            return Global::PunctuationLock::AlwaysChinese;
-        }
-        if (value == "english")
-        {
-            return Global::PunctuationLock::AlwaysEnglish;
-        }
-        return Global::PunctuationLock::Follow;
-    }
     return Global::PunctuationLock::Follow;
 }
 
@@ -245,69 +93,42 @@ void RefreshPunctuationLockFromConfig()
     Global::PunctuationLockMode.store(ReadConfiguredPunctuationLock(), std::memory_order_relaxed);
 }
 
-namespace
-{
-// The legacy config.toml `[input] mode`, lower-cased, or empty when the file or the key is missing.
-std::string ReadLegacyConfiguredInputMode()
-{
-    const std::filesystem::path configPath = SharedConfigPath();
-    if (configPath.empty())
-    {
-        return {};
-    }
-
-    std::ifstream input(configPath);
-    if (!input)
-    {
-        return {};
-    }
-
-    bool inInputSection = false;
-    std::string line;
-    while (std::getline(input, line))
-    {
-        const size_t comment = line.find('#');
-        if (comment != std::string::npos)
-        {
-            line = line.substr(0, comment);
-        }
-        line = TrimAscii(line);
-        if (line.empty())
-        {
-            continue;
-        }
-        if (line.front() == '[' && line.back() == ']')
-        {
-            inInputSection = (line == "[input]");
-            continue;
-        }
-        if (!inInputSection)
-        {
-            continue;
-        }
-        const size_t eq = line.find('=');
-        if (eq == std::string::npos)
-        {
-            continue;
-        }
-        const std::string key = TrimAscii(line.substr(0, eq));
-        if (key != "mode")
-        {
-            continue;
-        }
-        return to_lower_copy(UnquoteTomlBasicString(TrimAscii(line.substr(eq + 1))));
-    }
-    return {};
-}
-} // namespace
-
 std::string ReadConfiguredInputScheme()
 {
     if (const auto preferences = ReadSharedPreferences())
     {
         return preferences->value("scheme", std::string{"quanpin"});
     }
-    return ReadLegacyConfiguredInputMode();
+    return "quanpin";
+}
+
+int ReadConfiguredRunningScheme()
+{
+    const std::string configured = ReadConfiguredInputScheme();
+    std::string lastChinese;
+    if (const auto preferences = ReadSharedPreferences())
+    {
+        const auto last = preferences->find("last_chinese_scheme");
+        if (last != preferences->end() && last->is_string())
+        {
+            lastChinese = last->get<std::string>();
+        }
+    }
+    msime::windows::scheme::LanguageDictionaryPresence installed;
+    const auto options = nlohmann::json::parse(msime::tsf::default_host_options_json(), nullptr, false);
+    if (options.is_object())
+    {
+        const auto directory = options.find("language_dictionaries");
+        if (directory != options.end() && directory->is_string())
+        {
+            const auto path = std::filesystem::u8path(directory->get<std::string>());
+            std::error_code ec;
+            installed.cantonese = std::filesystem::is_regular_file(path / "msime-cantonese.db", ec);
+            installed.zhuyin = std::filesystem::is_regular_file(path / "msime-zhuyin.db", ec);
+            installed.stroke = std::filesystem::is_regular_file(path / "msime-stroke.db", ec);
+        }
+    }
+    return msime::windows::scheme::effective_scheme(configured, lastChinese, installed);
 }
 
 BOOL ReadConfiguredJapaneseInputMode()
@@ -330,79 +151,6 @@ SwitchLanguageHotkeys ReadConfiguredSwitchLanguageHotkeys()
             return result;
         }
     }
-    const std::filesystem::path configPath = SharedConfigPath();
-    if (configPath.empty())
-    {
-        return result;
-    }
-
-    std::ifstream input(configPath);
-    if (!input)
-    {
-        return result;
-    }
-
-    bool inKeybindings = false;
-    bool sawShift = false;
-    bool sawCtrl = false;
-    bool sawCtrlAltSpace = false;
-    std::string line;
-    while (std::getline(input, line))
-    {
-        const size_t comment = line.find('#');
-        if (comment != std::string::npos)
-        {
-            line = line.substr(0, comment);
-        }
-        line = TrimAscii(line);
-        if (line.empty())
-        {
-            continue;
-        }
-        if (line.front() == '[' && line.back() == ']')
-        {
-            inKeybindings = (line == "[keybindings]");
-            continue;
-        }
-        if (!inKeybindings)
-        {
-            continue;
-        }
-        const size_t eq = line.find('=');
-        if (eq == std::string::npos)
-        {
-            continue;
-        }
-        const std::string key = TrimAscii(line.substr(0, eq));
-        const std::string raw = line.substr(eq + 1);
-        if (key == "switch_language_shift")
-        {
-            result.shift = ParseTomlBool(raw, true);
-            sawShift = true;
-        }
-        else if (key == "switch_language_ctrl")
-        {
-            result.ctrl = ParseTomlBool(raw, false);
-            sawCtrl = true;
-        }
-        else if (key == "switch_language_ctrl_alt_space")
-        {
-            result.ctrl_alt_space = ParseTomlBool(raw, true);
-            sawCtrlAltSpace = true;
-        }
-        else if (key == "toggle_character_set_ctrl_shift_f")
-        {
-            result.character_set_ctrl_shift_f = ParseTomlBool(raw, true);
-        }
-        else if (key == "switch_language" && !sawShift && !sawCtrlAltSpace)
-        {
-            // Legacy array: switch_language = ["Ctrl+Space", "Shift"]
-            result.shift = raw.find("Shift") != std::string::npos;
-            result.ctrl_alt_space =
-                raw.find("Ctrl+Alt+Space") != std::string::npos || raw.find("Ctrl+Space") != std::string::npos;
-        }
-    }
-    (void)sawCtrl;
     return result;
 }
 

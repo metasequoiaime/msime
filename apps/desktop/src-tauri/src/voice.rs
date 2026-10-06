@@ -22,7 +22,9 @@ pub(crate) struct VoiceRecognitionResult {
 
 // Resolved in the shared layer so the Android keyboard, which never goes through this shell,
 // reads the same answer through the C ABI rather than growing a second implementation.
+// 润色配置只有 Android 的语音面板读；iOS 和测试构建只用到提供方配置。
 #[cfg(any(target_os = "ios", target_os = "android", test))]
+#[cfg_attr(not(target_os = "android"), allow(unused_imports))]
 pub(crate) use msime_client_core::voice::provider::{
     mobile_voice_polish_configuration, mobile_voice_provider_configuration,
 };
@@ -111,19 +113,13 @@ pub(crate) fn voice_provider_options(document: &Value) -> Result<Value, HostActi
         .and_then(Value::as_str)
         .unwrap_or("cleanup");
     let prompt_key = match preset {
-        "custom" | "custom_1" => Some("polish_prompt_custom_1"),
+        "custom_1" => Some("polish_prompt_custom_1"),
         "custom_2" => Some("polish_prompt_custom_2"),
         "custom_3" => Some("polish_prompt_custom_3"),
         _ => None,
     };
     if let Some(key) = prompt_key {
-        let mut prompt = voice.get(key).and_then(Value::as_str).unwrap_or("");
-        if prompt.is_empty() && key == "polish_prompt_custom_1" {
-            prompt = voice
-                .get("polish_prompt")
-                .and_then(Value::as_str)
-                .unwrap_or("");
-        }
+        let prompt = voice.get(key).and_then(Value::as_str).unwrap_or("");
         if prompt.len() > 8192 {
             return Err(HostActionError {
                 code: "invalid_voice",
@@ -278,7 +274,6 @@ pub(crate) async fn recognize_voice(
             model: configuration.model,
             token: configuration.token,
             prompt_id: configuration.prompt_id,
-            prompt_legacy: configuration.prompt_legacy,
             prompt_custom_1: configuration.prompt_custom_1,
             prompt_custom_2: configuration.prompt_custom_2,
             prompt_custom_3: configuration.prompt_custom_3,

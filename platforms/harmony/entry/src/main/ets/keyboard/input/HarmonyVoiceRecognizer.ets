@@ -19,6 +19,7 @@ export type VoiceErrorHandler = (message: string) => void;
  */
 export class HarmonyVoiceRecognizer {
   private engine: speechRecognizer.SpeechRecognitionEngine | undefined = undefined;
+  private engineLanguage: string = '';
   private sessionId: string = '';
   private generation: number = 0;
   private resultHandler: VoiceResultHandler | undefined = undefined;
@@ -46,7 +47,8 @@ export class HarmonyVoiceRecognizer {
     if (httpProvider && this.httpAsr.isActive()) throw new Error('语音识别正在进行');
     const localProvider: boolean = config.asr_provider === 'local';
     if (localProvider && this.local.isActive()) throw new Error('语音识别正在进行');
-    if (localProvider && !LocalAsrPolicy.usesLocalModel(config.asr_provider, config.asr_model_path)) {
+    if (localProvider && !LocalAsrPolicy.usesLocalModel(
+      config.asr_provider, config.asr_model_path, config.local_model_root)) {
       throw new Error('请先在设置中下载并选择本地语音模型');
     }
     // The recognizers all own the same microphone and the keyboard has one recording
@@ -88,10 +90,21 @@ export class HarmonyVoiceRecognizer {
     this.generation = (this.generation + 1) % 1000000000;
     this.sessionId = VoiceRecognitionPolicy.sessionId(this.generation);
     const session: string = this.sessionId;
+    const requestedLanguage: string = VoiceRecognitionPolicy.language(language);
+    if (this.engine !== undefined && VoiceRecognitionPolicy.engineLanguageChanged(
+      this.engineLanguage, requestedLanguage)) {
+      try {
+        this.engine.shutdown();
+      } catch (error) {
+        // 框架可能已经释放了空闲引擎。
+      }
+      this.engine = undefined;
+      this.engineLanguage = '';
+    }
     if (this.engine === undefined) {
       const created: speechRecognizer.SpeechRecognitionEngine =
         await speechRecognizer.createEngine({
-        language: VoiceRecognitionPolicy.language(language),
+        language: requestedLanguage,
         // CoreSpeechKit's offline recognizer is the platform-specific Harmony path.
         online: 1,
         extraParams: { recognizerMode: 'short' }
@@ -108,6 +121,7 @@ export class HarmonyVoiceRecognizer {
         return;
       }
       this.engine = created;
+      this.engineLanguage = requestedLanguage;
       this.engine.setListener({
         onStart: (): void => {},
         onEvent: (): void => {},
@@ -120,7 +134,12 @@ export class HarmonyVoiceRecognizer {
           this.deliver(config, whole, result.isLast);
         },
         onComplete: (session: string): void => {
-          if (session === this.sessionId) this.deliver(config, this.lastResultText, true);
+          if (session !== this.sessionId) return;
+          // CoreSpeechKit may complete a write-audio session without a preceding stop().
+          // Release the capturer and invalidate the session before delivering the result so
+          // a completion handler cannot cancel an already-finished CoreSpeechKit session.
+          this.finishSystemSession(session);
+          this.deliver(config, this.lastResultText, true);
         },
         onError: (session: string, code: number, message: string): void => {
           if (session !== this.sessionId) return;
@@ -215,6 +234,7 @@ export class HarmonyVoiceRecognizer {
         // The service may already have released a failed engine.
       }
       this.engine = undefined;
+      this.engineLanguage = '';
     }
     this.resultHandler = undefined;
     this.errorHandler = undefined;
@@ -233,9 +253,17 @@ export class HarmonyVoiceRecognizer {
     this.sentences.reset();
     const session: string = this.sessionId;
     this.sessionId = '';
-    if (this.engine !== undefined && session.length > 0) {
+    if (this.engine !== undefined && session.length > 0 && this.engine.isBusy()) {
       this.engine.cancel(session);
     }
+  }
+
+  private finishSystemSession(session: string): void {
+    if (session !== this.sessionId) return;
+    void this.capture.stop();
+    this.slicer.reset();
+    this.sentences.reset();
+    this.sessionId = '';
   }
 
   private deliver(config: VoiceInputConfiguration, text: string, final: boolean): void {

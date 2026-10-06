@@ -99,6 +99,11 @@ ALLOWED: dict[str, str] = {
 
 # Symbol -> what the gap behind it actually is. Expected to reach zero.
 PENDING: dict[str, str] = {
+    "AppEdition.of":
+        "parses an edition a build declares; HarmonyOS has a single product today (build-profile.json5 "
+        "`default`, the full edition), so AppEdition.current() returns FULL without parsing anything. "
+        "It is called once a per-edition product passes its id, schemes and default scheme as build "
+        "parameters for current() to read; see the 产品版本 section of platforms/harmony/README.md",
 }
 
 

@@ -1,4 +1,5 @@
 import * as style from "./community-style";
+import { CommunityPublicationMetadataFields } from "./community-publication-metadata-fields";
 
 export interface CommunitySkinPublicationFieldsProps {
   name: string;
@@ -23,41 +24,21 @@ export function CommunitySkinPublicationFields({
   onAgreedChange,
 }: CommunitySkinPublicationFieldsProps) {
   return (
-    <>
-      <label className={style.field}>
-        皮肤名称
-        <input
-          className={style.fieldControl}
-          aria-label="发布皮肤名称"
-          maxLength={32}
-          value={name}
-          disabled={busy}
-          onChange={(event) => onNameChange(event.target.value)}
-        />
-      </label>
-      <label className={style.field}>
-        设计说明
-        <textarea
-          className={style.textArea}
-          aria-label="发布设计说明"
-          maxLength={280}
-          rows={4}
-          value={description}
-          disabled={busy}
-          onChange={(event) => onDescriptionChange(event.target.value)}
-        />
-      </label>
-      <label className={style.agreement}>
-        <input
-          className={style.agreementBox}
-          type="checkbox"
-          aria-label="确认拥有发布素材权利"
-          checked={agreed}
-          disabled={busy}
-          onChange={(event) => onAgreedChange(event.target.checked)}
-        />
-        {agreementText}
-      </label>
-    </>
+    <CommunityPublicationMetadataFields
+      name={name}
+      description={description}
+      agreed={agreed}
+      busy={busy}
+      nameLabel="皮肤名称"
+      nameAriaLabel="发布皮肤名称"
+      descriptionLabel="设计说明"
+      descriptionAriaLabel="发布设计说明"
+      agreementText={agreementText}
+      agreementAriaLabel="确认拥有发布素材权利"
+      agreementClassName={style.agreementBox}
+      onNameChange={onNameChange}
+      onDescriptionChange={onDescriptionChange}
+      onAgreedChange={onAgreedChange}
+    />
   );
 }

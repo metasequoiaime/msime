@@ -1,11 +1,12 @@
-import type { ReactNode } from "react";
-import { GroupList, Row, Select } from "../core/platform-controls";
+import { GroupList } from "../core/platform-controls";
 import { ScreenKeyboardThemeSection } from "./screen-keyboard-theme-section";
+import { SurfaceThemeRow } from "./surface-theme-row";
+import type { SurfaceTheme } from "./surface-theme-select";
 
 export type ThemeMode = "dark" | "light" | "system";
-export type SurfaceTheme = "follow" | "dark" | "light";
+export type { SurfaceTheme } from "./surface-theme-select";
 
-/** The surfaces that can hold their own light or dark over the colour mode. The colour mode itself (`theme`) is the 外观 group's segmented control on the 主题 page, not one of these. */
+/** 可以在颜色模式之上单独设置明暗的各个界面。颜色模式本身（`theme`）是「主题」页「明暗」组的分段控件，不属于这些界面。 */
 export type ThemePreferenceKey =
   | "settings_theme"
   | "screen_keyboard_theme"
@@ -25,33 +26,6 @@ export interface ThemeSettingsSectionProps {
   floatingToolbar: boolean;
   desktopPanels: boolean;
   onChange: (key: ThemePreferenceKey, value: SurfaceTheme) => void;
-}
-
-/** One of the per-surface light/dark overrides in 高级. */
-function SurfaceThemeRow({
-  title,
-  description,
-  value,
-  onChange,
-}: {
-  title: string;
-  description: ReactNode;
-  value: SurfaceTheme | undefined;
-  onChange: (value: SurfaceTheme) => void;
-}) {
-  return (
-    <Row title={title} description={description}>
-      <Select
-        aria-label={title}
-        value={value ?? "follow"}
-        onChange={(event) => onChange(event.target.value as SurfaceTheme)}
-      >
-        <option value="follow">跟随全局</option>
-        <option value="dark">深色</option>
-        <option value="light">浅色</option>
-      </Select>
-    </Row>
-  );
 }
 
 /** The 主题 page's 高级 group, shared by desktop and touch settings hosts: each surface can still hold its own light or dark over the colour mode. */
@@ -82,8 +56,8 @@ export function ThemeSettingsSection({
           mobile
             ? "覆盖候选栏的明暗外观；跟随时使用键盘主题"
             : linux
-              ? "预览跟随颜色模式；IBus 候选窗与 Fcitx5 经典界面按此明暗着色"
-              : "预览跟随颜色模式"
+              ? "覆盖颜色模式；IBus 候选窗口与 Fcitx5 经典界面按此明暗着色"
+              : "覆盖颜色模式，只影响候选窗口"
         }
         value={preferences.candidate_theme}
         onChange={(value) => onChange("candidate_theme", value)}
@@ -92,7 +66,7 @@ export function ThemeSettingsSection({
       {floatingToolbar && !linux && (
         <SurfaceThemeRow
           title="悬浮工具栏主题"
-          description="覆盖颜色模式；当前影响工具栏设置预览，原生工具栏需宿主支持"
+          description="覆盖颜色模式，只影响悬浮工具栏"
           value={preferences.toolbar_theme}
           onChange={(value) => onChange("toolbar_theme", value)}
         />

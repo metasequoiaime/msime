@@ -7,6 +7,8 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -56,7 +58,10 @@ public final class VoicePolisher {
             // replay it after a redirect to another host or protocol.
             connection.setInstanceFollowRedirects(false);
             connection.setFixedLengthStreamingMode(body.length);
-            connection.setRequestProperty("Authorization", "Bearer " + token);
+            for (Map.Entry<String, String> header : authenticationHeaders(
+                    endpoint, token).entrySet()) {
+                connection.setRequestProperty(header.getKey(), header.getValue());
+            }
             connection.setRequestProperty("Content-Type", "application/json");
             connection.setRequestProperty("Accept", "application/json");
             try (OutputStream out = connection.getOutputStream()) {
@@ -103,9 +108,33 @@ public final class VoicePolisher {
             JSONArray choices = new JSONObject(response).optJSONArray("choices");
             JSONObject first = choices == null ? null : choices.optJSONObject(0);
             JSONObject message = first == null ? null : first.optJSONObject("message");
-            return message == null ? "" : message.optString("content", "");
+            return message == null ? "" : strictContent(message.opt("content"));
         } catch (JSONException error) {
             return "";
         }
+    }
+
+    /** Chat completions carry text; do not let org.json turn malformed values into visible prose. */
+    static String strictContent(Object value) {
+        return value instanceof String ? (String) value : "";
+    }
+
+    /** Authentication headers for the provider endpoint, matching the shared AI transport. */
+    public static Map<String, String> authenticationHeaders(String endpoint, String token) {
+        Map<String, String> headers = new LinkedHashMap<>();
+        if (token == null || token.isEmpty()) return headers;
+        String host;
+        try {
+            host = new URL(endpoint).getHost();
+        } catch (IOException | SecurityException error) {
+            host = "";
+        }
+        if ("api.anthropic.com".equalsIgnoreCase(host)) {
+            headers.put("x-api-key", token);
+            headers.put("anthropic-version", "2023-06-01");
+        } else {
+            headers.put("Authorization", "Bearer " + token);
+        }
+        return headers;
     }
 }

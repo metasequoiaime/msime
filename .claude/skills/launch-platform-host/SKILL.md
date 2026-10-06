@@ -56,7 +56,7 @@ CARGO_TARGET_DIR=target/macos-cargo cargo build -p msime-host-api --locked \
 - **不要**把最低版本写成全局 `MACOSX_DEPLOYMENT_TARGET`：rustc 会把它一并应用到为宿主编译的 proc-macro 动态库上，冷缓存构建以 `can't find crate for zerofrom_derive` 失败；cargo 不把该变量算进指纹，坏掉的产物会被后续构建继续复用，失败因此看起来时有时无。
 - bundle 名字是中文。`cp -R target/macos-isolated/水杉输入法.app …` 会因 APFS 的 NFC/NFD 归一化报 `No such file or directory`——用 `find target/macos-isolated -maxdepth 1 -name "*.app" -exec cp -R {} <目标> \;`。
 - 安装与输入源注册走 `platforms/macos/scripts/install.sh`。注册后有分钟级不稳定窗口：`check_input_source.swift` 要隔几秒多查几次再下结论，只查一次两个方向都可能误判。
-- **装完还打不出中文是正常的：`install.sh` 不准备词库。** 输入会话要 `~/Library/Application Support/app.msime.macos/runtime-options.json`（旧安装是 `app.msime.client`），开发构建里没有（发布包由设置应用首次启动时写）。没有会话的控制器把按键原样交给应用，看起来就是「选了中文却打出英文」。补齐的三条命令在 `platforms/macos/README.md` 的《安装与输入源注册》开头；资源别留在 `target/resources`，那里会被清掉。查现象用 `log show --predicate 'process == "水杉输入法"'` 找 `MSIME has no input session`。
+- **装完还打不出中文是正常的：`install.sh` 不准备词库。** 输入会话要 `~/Library/Application Support/app.msime.macos/runtime-options.json`，开发构建里没有（发布包由设置应用首次启动时写）。没有会话的控制器把按键原样交给应用，看起来就是「选了中文却打出英文」。补齐的三条命令在 `platforms/macos/README.md` 的《安装与输入源注册》开头；资源别留在 `target/resources`，那里会被清掉。查现象用 `log show --predicate 'process == "水杉输入法"'` 找 `MSIME has no input session`。
 - 产品是 `src/input/InputController.mm` 和 `src/core/ClientDictionaryRuntime.mm`，改动要落在这两处；`scripts/test-macos-orphan-sources.py` 守着不让不参与构建的源文件留在树里。
 - 换新 bundle identifier 需要重新登录一次，这是 macOS 本身的限制，与签名和 plist 无关。
 - `check_input_source.swift` 报某个模式 `disabled`（典型是英文模式 `.Roman`）而中文模式 enabled 时，安装是成功的，别去重新登录或反复重装：macOS 27 上进程启用不了键盘输入模式，`TISEnableInputSource` 返回 noErr 而状态不变，苹果自己的模式一样如此。该脚本为此退 2（可用但有源未启用），退 1 才是不可用。测量见 `docs/macos-parity.md`。
@@ -69,6 +69,8 @@ cargo run --quiet -p msime-client-core --example install_resources --locked -- t
 bash platforms/macos/stage-resources.sh target/resources/<上一步返回的目录>
 mkdir -p target/macos && find target/macos-isolated -maxdepth 1 -name "*.app" -exec cp -R {} target/macos/ \;
 ```
+
+开发构建照旧暂存全部资源（含日文词典，和 `target/language-dictionaries` 里有的粤拼、注音、笔画词库），它们是按需下载之外的内置兜底，所以开发包里这几个方案装好就能用。发布包只带核心词库，日文词典、粤拼/注音/笔画词库和手写模型由设置应用下载到 `~/Library/Application Support/app.msime.macos/resource-packs/<id>/`。要在本机测试下载流程，暂存时改用 `MSIME_MACOS_OMIT_ON_DEMAND=1 bash platforms/macos/stage-resources.sh <目录>`（不准备 `target/language-dictionaries`），并先删掉 `resource-packs/` 下已装的资源包；`cargo run --quiet --locked -p msime-client-core --example install_resource_pack -- <绝对路径的 state_root> [japanese|language-dictionaries|handwriting]` 用 App 同一个安装器直接装资源包。
 
 ## iOS
 
@@ -87,7 +89,7 @@ cargo run --quiet -p msime-client-core --example install_resources --locked -- t
 ```
 
 - scheme 是 `MSIMEClientTests`，`MSIMEKeyboardTests` 是 target 名，直接用它报 "does not contain a scheme"。`xcodebuild -list` 查全部。
-- `xcodegen generate` 会做 spec 校验，缺 `target/ios/EngineResources` 及其中的 `dictionary-manifest.json` 直接失败——先 stage 再生成工程。
+- `xcodegen generate` 会做 spec 校验，缺 `target/ios/EngineResources` 及其中的 `msime-dictionary-manifest.json` 直接失败——先 stage 再生成工程。
 - 改了 `App/Sources`、`SharedUI`、`KeyboardTests` 下的文件要 `xcodegen generate` 并提交 `project.pbxproj`：它逐个列出源文件，不重新生成，新文件不会被编译。
 - Xcode 27 的模拟器界面是 `DeviceHub.app`，`Simulator.app` 已不存在；`xcrun simctl` 一切照常，设备状态以 `xcrun simctl list devices` 为准。
 

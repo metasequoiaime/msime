@@ -2,6 +2,7 @@ package app.msime.android;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.net.URL;
 
 /**
  * Bounds and identifies asynchronous cloud and AI results before they return to Engine.
@@ -17,6 +18,8 @@ import java.util.List;
 public final class OnlineCandidatePolicy {
     /** How long a composition has to hold still before either provider is asked. */
     public static final long QUIET_INTERVAL_MILLIS = 350;
+    /** 云候选的连接时限和整体时限，与 client-core 的 `CONNECT_TIMEOUT_MS` / `REQUEST_TIMEOUT_MS` 相同，由 scripts/test-cloud-request-budget.py 核对。 */
+    public static final int CLOUD_TIMEOUT_MILLIS = 2_000;
     public static final int MAX_CLOUD_RESPONSE_BYTES = 256 * 1024;
     public static final int MAX_AI_RESPONSE_BYTES = 1024 * 1024;
     public static final int MAX_AI_CONTENT_BYTES = 64 * 1024;
@@ -24,6 +27,18 @@ public final class OnlineCandidatePolicy {
     private static final int MAX_CANDIDATE_LIMIT = 10;
 
     private OnlineCandidatePolicy() {}
+
+    public static boolean validURL(URL target) {
+        return target != null && "https".equalsIgnoreCase(target.getProtocol())
+            && target.getHost() != null && !target.getHost().isEmpty()
+            && target.getUserInfo() == null && target.getRef() == null;
+    }
+
+    /** Read the positive host session id without JSONObject's lossy numeric conversions. */
+    public static long sessionId(Object raw, long fallback) {
+        long value = KeyboardGeometry.strictLong(raw, fallback);
+        return value > 0 ? value : fallback;
+    }
 
     /**
      * Identity of one online request.
@@ -40,6 +55,14 @@ public final class OnlineCandidatePolicy {
             + "|assistant=" + field(assistant);
     }
 
+    /** 判断失败请求是否仍可释放当前签名，让同一输入在下一次渲染时重试。 */
+    public static boolean shouldReleaseAfterFailure(String requestSignature,
+            String currentSignature, long requestEpoch, long currentEpoch,
+            long targetSession, long currentSession) {
+        return requestEpoch == currentEpoch && targetSession == currentSession
+            && requestSignature != null && requestSignature.equals(currentSignature);
+    }
+
     /** Whether the cloud provider should be asked for this query. */
     public static boolean requestsCloud(boolean cloudCandidates, boolean cloudEligible) {
         return cloudCandidates && cloudEligible;
@@ -54,6 +77,7 @@ public final class OnlineCandidatePolicy {
     public static int aiCandidateLimit(int limit) {
         return limit >= 1 && limit <= MAX_CANDIDATE_LIMIT ? limit : 0;
     }
+
 
     /** Whether a cloud body is small enough to hand to the shared parser. */
     public static boolean acceptsCloudBody(String body) {

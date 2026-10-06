@@ -1,4 +1,5 @@
 import Foundation
+import CoreFoundation
 
 private typealias MSIMEVocabularyByte = UInt8
 
@@ -166,19 +167,19 @@ struct VocabularyReviewStore {
         return VocabularyWordbook(
           id: id,
           name: book["name"] as? String ?? id,
-          total: book["total"] as? Int ?? 0,
+          total: integer(book["total"]) ?? 0,
           builtin: book["builtin"] as? Bool ?? false)
       }
     }
     if let settings = value["settings"] as? [String: Any] {
       status.wordbook = settings["wordbook"] as? String ?? ""
-      status.newPerDay = settings["newPerDay"] as? Int ?? 0
-      status.sessionLimit = settings["sessionLimit"] as? Int ?? 0
+      status.newPerDay = integer(settings["newPerDay"]) ?? 0
+      status.sessionLimit = integer(settings["sessionLimit"]) ?? 0
     }
-    status.due = value["due"] as? Int ?? 0
-    status.answeredToday = value["answeredToday"] as? Int ?? 0
-    status.introducing = value["introducing"] as? Int ?? 0
-    status.remaining = value["remaining"] as? Int ?? 0
+    status.due = integer(value["due"]) ?? 0
+    status.answeredToday = integer(value["answeredToday"]) ?? 0
+    status.introducing = integer(value["introducing"]) ?? 0
+    status.remaining = integer(value["remaining"]) ?? 0
     if let cards = value["queue"] as? [[String: Any]] {
       status.queue = cards.compactMap { card in
         // A card with no word could never be answered: the answer is keyed by it.
@@ -190,6 +191,15 @@ struct VocabularyReviewStore {
       }
     }
     return status
+  }
+
+  private static func integer(_ value: Any?) -> Int? {
+    guard let number = value as? NSNumber,
+          CFGetTypeID(number) != CFBooleanGetTypeID(),
+          let integer = Int(number.stringValue),
+          integer >= 0,
+          NSNumber(value: integer).compare(number) == .orderedSame else { return nil }
+    return integer
   }
 
   private func protectSharedState() {

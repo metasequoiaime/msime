@@ -21,10 +21,7 @@ pub fn program_available(name: &str) -> bool {
 /// The child is always reaped so a timed-out helper cannot remain attached to
 /// the desktop command that launched it.
 pub fn run_status(program: &str, arguments: &[&str], timeout: Duration) -> bool {
-    let arguments: Vec<&OsStr> = arguments
-        .iter()
-        .map(|argument| OsStr::new(argument))
-        .collect();
+    let arguments: Vec<&OsStr> = arguments.iter().map(OsStr::new).collect();
     run_status_os(OsStr::new(program), &arguments, timeout)
 }
 

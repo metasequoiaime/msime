@@ -2,6 +2,7 @@ import type { MobilePrimaryPageId } from "./mobile-navigation";
 import { mobileTabIcon, mobileTabTitle } from "./mobile-tab-helpers";
 import * as settings from "./settings-style";
 import type { CSSProperties } from "react";
+import { ActionButton } from "../core/action-button";
 
 export interface MobileSettingsTab {
   id: MobilePrimaryPageId;
@@ -22,32 +23,31 @@ export function MobileSettingsTabs<T extends { id: string; title: string; icon: 
   onSelect,
 }: MobileSettingsTabsProps<T>) {
   return (
-    <nav
-      className={settings.mobileTabBar}
-      aria-label="主要功能"
-    >
+    <nav className={settings.mobileTabBar} aria-label="主要功能">
       {tabs.map((item) => (
-        <button
+        <ActionButton
           key={item.id}
-          type="button"
+          action={() => onSelect(item.id)}
           className={settings.mobileTab(activeTab === item.id)}
-          aria-current={activeTab === item.id ? "page" : undefined}
-          onClick={() => onSelect(item.id)}
-        >
-          <span className={settings.mobileTabPill(activeTab === item.id)}>
-            <span
-              className={settings.mobileTabIcon}
-              style={
-                {
-                  "--tab-icon": `url("${mobileTabIcon(item.id, item.icon)}")`,
-                } as CSSProperties
-              }
-              data-tab-icon={mobileTabIcon(item.id, item.icon)}
-              aria-hidden="true"
-            />
-          </span>
-          {mobileTabTitle(item.id, item.title)}
-        </button>
+          ariaCurrent={activeTab === item.id ? "page" : undefined}
+          label={
+            <>
+              <span className={settings.mobileTabPill(activeTab === item.id)}>
+                <span
+                  className={settings.mobileTabIcon}
+                  style={
+                    {
+                      "--tab-icon": `url("${mobileTabIcon(item.id, item.icon)}")`,
+                    } as CSSProperties
+                  }
+                  data-tab-icon={mobileTabIcon(item.id, item.icon)}
+                  aria-hidden="true"
+                />
+              </span>
+              {mobileTabTitle(item.id, item.title)}
+            </>
+          }
+        />
       ))}
     </nav>
   );

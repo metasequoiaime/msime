@@ -25,11 +25,6 @@ export interface EditorTraits {
 }
 
 export class EditorPolicy {
-  /** A text-change echo is external only when no keyboard-owned mutation is waiting for it. */
-  static isExternalTextChange(pendingOwnEdits: number): boolean {
-    return pendingOwnEdits <= 0;
-  }
-
   /** A late editor-attribute callback must not reset text typed while the query was in flight. */
   static appliesDelayedLanguage(
     composing: boolean,

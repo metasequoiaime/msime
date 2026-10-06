@@ -14,7 +14,7 @@ msime-client-core = { path = "../client-core" }
 # panels need live here behind safe wrappers.
 [target.'cfg(windows)'.dependencies]
 msime-client-core = { path = "../client-core" }
-windows-sys = { version = "0.59", features = [
+windows-sys = { version = "0.61", features = [
   "Win32_Foundation",
   "Win32_Graphics_Gdi",
   "Win32_UI_Input_KeyboardAndMouse",
@@ -32,7 +32,6 @@ windows-sys = { version = "0.59", features = [
   "Win32_System_IO",
   "Win32_Storage_FileSystem",
   "Win32_Security",
-  "Win32_Security_Credentials",
 ] }
 # Windows Ink handwriting recognition is WinRT, which windows-sys does not
 # project; this is the same InkRecognizerContainer the reference panel uses.

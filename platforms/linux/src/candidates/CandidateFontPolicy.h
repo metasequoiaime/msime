@@ -69,6 +69,7 @@ inline std::string trimmed_font_family(const std::string &value) {
 // The description lists the English family when one is chosen, then the primary family and the fallbacks, without repeats, and ends the family list with a comma so that a name ending in a word Pango knows as a style ("Bold", "Light") stays part of the name. The size is in pixels, the unit the shared preference is written in.
 inline std::string candidate_pango_font(const CandidateFont &font) {
   std::vector<std::string> families;
+  families.reserve(font.fallbacks.size() + 2);
   auto add = [&](const std::string &value) {
     auto family = trimmed_font_family(value);
     if (!family.empty() && std::find(families.begin(), families.end(), family) == families.end())

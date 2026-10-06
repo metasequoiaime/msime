@@ -1,5 +1,6 @@
 #include "../src/overlay/WaveOverlayPlacement.h"
 #include "../src/overlay/ModeBadgeStyle.h"
+#include "../src/overlay/WaveOverlayX11Placement.h"
 
 #include <cassert>
 #include <optional>
@@ -8,6 +9,12 @@
 int main() {
   using msime::linux_host::wave_overlay_bottom_center;
   using msime::linux_host::WaveOverlayWorkArea;
+  using msime::linux_host::x11_placement::work_area_rectangles;
+
+  const auto bounded_work_areas = work_area_rectangles(
+      {0, 0, 100, 100, 100, 100, 200, 200}, 0, 8);
+  assert(bounded_work_areas.size() == 2);
+  assert(bounded_work_areas.capacity() >= 8);
 
   const auto primary = wave_overlay_bottom_center({0, 0, 1920, 1080}, 420, 132);
   assert(primary.x == 750);

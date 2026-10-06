@@ -1,3 +1,5 @@
+import { ActionButton } from "./action-button";
+
 export interface OnDeviceTranslationNoticeProps {
   languages: readonly string[];
   openSettings?: () => Promise<void>;
@@ -22,13 +24,10 @@ export function OnDeviceTranslationNotice({
         请在 系统设置 &gt; 通用 &gt; 语言与地区 &gt; 翻译语言
         中下载，然后回到输入框继续输入即可生效。也可以在下方选择一个在线翻译服务。
         {openSettings && (
-          <button
-            type="button"
-            className="secondary"
-            onClick={() => void openSettings().catch(() => onError?.(openSettingsError))}
-          >
-            打开语言与地区
-          </button>
+          <ActionButton
+            action={() => openSettings().catch(() => onError?.(openSettingsError))}
+            label="打开语言与地区"
+          />
         )}
       </p>
     </div>

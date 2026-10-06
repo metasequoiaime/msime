@@ -21,8 +21,7 @@ final class VoicePolishTests: XCTestCase {
     XCTAssertEqual(settings.systemPrompt, "只改错别字")
 
     settings.promptID = "custom_1"
-    settings.legacyPrompt = "旧的提示词"
-    XCTAssertEqual(settings.systemPrompt, "旧的提示词")
+    XCTAssertEqual(settings.systemPrompt, cleanup)
     settings.customPrompts[0] = "第一槽"
     XCTAssertEqual(settings.systemPrompt, "第一槽")
   }
@@ -64,34 +63,6 @@ final class VoicePolishTests: XCTestCase {
     XCTAssertEqual(voice?["sound_enabled"] as? Bool, false)
     XCTAssertEqual(voice?["stream_inline_preedit"] as? Bool, true)
     XCTAssertEqual(voice?["mute_system_audio"] as? Bool, false)
-  }
-
-  func testAnEditedPresetOverridesItsTextUntilResetOrAnotherPreset() {
-    var settings = VoicePolishSettings(["voice_input": ["polish_prompt_id": "faithful"]])
-    let builtIn = settings.builtInPrompt
-    XCTAssertFalse(builtIn.isEmpty)
-    XCTAssertEqual(settings.presetPromptText, builtIn)
-
-    settings.presetPromptText = "只改错别字。"
-    XCTAssertEqual(settings.systemPrompt, "只改错别字。")
-    var document: [String: Any] = [:]
-    settings.write(into: &document)
-    XCTAssertEqual((document["voice_input"] as? [String: Any])?["polish_prompt"] as? String, "只改错别字。")
-
-    // Writing the built-in text back, or clearing the box, is not an edit.
-    settings.presetPromptText = builtIn
-    XCTAssertEqual(settings.legacyPrompt, "")
-    settings.presetPromptText = "只改错别字。"
-    settings.presetPromptText = "  "
-    XCTAssertEqual(settings.systemPrompt, builtIn)
-
-    // Picking a custom slot keeps the edit, which the empty first slot falls back to; another preset drops it.
-    settings.presetPromptText = "只改错别字。"
-    settings.select("custom_2")
-    XCTAssertEqual(settings.legacyPrompt, "只改错别字。")
-    settings.select("zh2en")
-    XCTAssertEqual(settings.legacyPrompt, "")
-    XCTAssertEqual(settings.systemPrompt, settings.builtInPrompt)
   }
 
   func testUnknownValuesFallBackToTheDefaults() {

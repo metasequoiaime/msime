@@ -46,8 +46,10 @@ REVIEWED: dict[str, str] = {
     ),
     "**installer:** 首次安装时询问云候选，不再默认静默联网": (
         "platforms/windows/installer/msime_setup.iss: CreateInputOptionPage after the licence "
-        "page, skipped on upgrade, writing only [general].cloud_candidates of a config.toml this "
-        "install created. macOS: platforms/macos/src/input/InputController.mm activateServer: "
+        "page, skipped on upgrade; on a fresh install the choice goes to installer-choices.json in the "
+        "data directory, which the Server applies to the shared preferences on its first preparation "
+        "(platforms/windows/src/system/FirstRun.h take_installer_cloud_choice), and to "
+        "[general].cloud_candidates of the config.toml this install created. macOS: platforms/macos/src/input/InputController.mm activateServer: "
         "prompt (requestCloudCandidatesConsentIfNeeded) plus the MSIMEClientCloudCandidatesConsent "
         "key in platforms/macos/src/settings/AppearancePreferences.mm, asked on a fresh profile only."
     ),
@@ -138,7 +140,7 @@ REVIEWED_COMMITS: dict[str, str] = {
         "front of it in either scheme."
     ),
     "feat(installer): 打包时生成并安装词格语言模型 sc.lm": (
-        "Deliberately absent with the KenLM scorer below: the lattice reads bigram.bin/trigram.bin, "
+        "Deliberately absent with the KenLM scorer below: the lattice reads msime-bigram.bin/msime-trigram.bin, "
         "which ship with the pinned dictionary release in resources/desktop-dictionary.lock.json."
     ),
     "feat(engine): 词格整句改用 kenlm 三元模型打分": (
@@ -223,10 +225,10 @@ REVIEWED_COMMITS: dict[str, str] = {
         "platforms/windows/installer/config.default.toml."
     ),
     "feat(engine): ü 系拼写别名归一，非标准拼法候选带轻标记": (
-        "Partly ported. The alias normalisation is in crates/engine/src/pinyin/syllables.rs and "
-        "crates/engine/src/pinyin/autocorrect.rs (reference commit 94abc08e). The light "
-        "`*` marker is not drawn on Windows: the view carries `corrected` per candidate but "
-        "platforms/windows/src/candidate/CandidatePresentation.h never reads it."
+        "The alias normalisation is in crates/engine/src/pinyin/syllables.rs and "
+        "crates/engine/src/pinyin/autocorrect.rs (reference commit 94abc08e). Windows projects "
+        "the view's `corrected` flag in platforms/windows/src/candidate/CandidatePresentation.h "
+        "and draws the same light `*` marker as the other hosts."
     ),
     "feat(engine): 全拼纠错补齐漏字/多字，k-best 切分按词频消解歧义": (
         "crates/engine/src/pinyin/autocorrect.rs and crates/engine/src/pinyin/typos.rs, with the "
@@ -289,10 +291,10 @@ REVIEWED_COMMITS: dict[str, str] = {
         "platforms/windows/installer/config.default.toml."
     ),
     "feat(server): 全拼纠错分类开关配置接线与候选标记": (
-        "Partly ported. The two switches reach the Engine through crates/host-api/src/lib.rs "
-        "(options.autocorrect_transposition/neighbor). The `*` marker on corrected candidates is "
-        "not drawn on Windows: platforms/windows/src/candidate/CandidatePresentation.h ignores the "
-        "candidate's `corrected` flag."
+        "The two switches reach the Engine through crates/host-api/src/lib.rs "
+        "(options.autocorrect_transposition/neighbor), and Windows carries each candidate's "
+        "`corrected` flag through platforms/windows/src/candidate/CandidatePresentation.h to the "
+        "display-only `*` marker."
     ),
     "feat(tsf): convert edit session keys for client router (#301)": (
         "client_key_event in platforms/windows/tsf/Key/KeyStateCategory.h."

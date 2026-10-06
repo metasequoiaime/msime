@@ -1,5 +1,6 @@
 #pragma once
 #import <AppKit/AppKit.h>
+#include <cstddef>
 #include <functional>
 #include <memory>
 #include <vector>
@@ -23,6 +24,7 @@ struct MSIMESmartPunctuationRewriteIO {
 };
 
 struct MSIMESmartPunctuationRewrite {
+    static constexpr std::size_t kEventCount = 4;
     pid_t pid = 0;
     NSTimeInterval deadline = 0;
     // Still the application the client belongs to, frontmost and running.
@@ -34,6 +36,7 @@ struct MSIMESmartPunctuationRewrite {
         if (!io.permitted() || !current() || io.now() > deadline) return false;
         using Event = std::unique_ptr<__CGEvent, decltype(&CFRelease)>;
         std::vector<Event> events;
+        events.reserve(kEventCount);
         for (const bool unicode : {false, true}) {
             for (const bool down : {true, false}) {
                 Event event(io.create(unicode ? 0 : MSIMESmartPunctuationRewriteDeleteKey, down), CFRelease);

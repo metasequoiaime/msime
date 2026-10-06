@@ -37,6 +37,7 @@ function invalidDictionaryEntryMessage(kind?: string): string {
     case "pinyin":
       return "拼音必须由完整音节组成，音节数需与汉字数一致，例如“你好”填 nihao 或 ni'hao。";
     case "wubi":
+    case "wubi98":
       return "五笔编码须为 1 到 4 个字母。";
     case "quick_phrase":
       return "快捷短语编码只能包含英文字母，长度 1 到 32。";

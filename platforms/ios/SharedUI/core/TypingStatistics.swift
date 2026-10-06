@@ -1,8 +1,9 @@
 import Foundation
 import Darwin
+import CoreFoundation
 
 enum TypingSource: String, CaseIterable {
-  case quanpin, nineKey, shuangpin, ziranma, microsoft, shoudao, wubi, japanese, korean, handwriting, english, local, ai, reply, voice, unknown
+  case quanpin, nineKey, shuangpin, ziranma, microsoft, shoudao, wubi, japanese, korean, cantonese, zhuyin, vietnamese, tibetan, stroke, handwriting, english, local, ai, reply, voice, unknown
   var title: String {
     switch self {
     case .quanpin: "全拼 26 键"
@@ -11,9 +12,15 @@ enum TypingSource: String, CaseIterable {
     case .ziranma: "自然码双拼"
     case .microsoft: "微软双拼"
     case .shoudao: "首道双拼"
-    case .wubi: "86 五笔"
+    // 86 与 98 五笔共用一个统计来源，这里只写「五笔」。
+    case .wubi: "五笔"
     case .japanese: "日语"
     case .korean: "韩语"
+    case .cantonese: "粤语"
+    case .zhuyin: "注音"
+    case .vietnamese: "越南语"
+    case .tibetan: "藏文"
+    case .stroke: "笔画"
     case .handwriting: "手写"
     case .english: "英文键盘"
     case .local: "本地输入"
@@ -95,7 +102,7 @@ struct TypingStatistics: Decodable {
 
   init() {}
   private enum CodingKeys: String, CodingKey {
-    case enabled, total, days, detail, dailyDetails, retention, retentionDays, dailyActiveMs, dailyHours, dailyKeys
+    case enabled, total, days, detail, dailyDetails, retention, dailyActiveMs, dailyHours, dailyKeys
   }
   init(from decoder: Decoder) throws {
     let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -104,12 +111,7 @@ struct TypingStatistics: Decodable {
     days = try values.decodeIfPresent([String: Int].self, forKey: .days) ?? [:]
     detail = try values.decodeIfPresent(TypingBreakdown.self, forKey: .detail) ?? TypingBreakdown()
     dailyDetails = try values.decodeIfPresent([String: TypingBreakdown].self, forKey: .dailyDetails) ?? [:]
-    if let retention = try values.decodeIfPresent(String.self, forKey: .retention) {
-      retentionDays = Self.retentionDays(retention)
-    } else {
-      // Written by the Swift store this one replaced, before the shared document was the only format.
-      retentionDays = try values.decodeIfPresent(Int.self, forKey: .retentionDays)
-    }
+    retentionDays = try values.decodeIfPresent(String.self, forKey: .retention).flatMap(Self.retentionDays)
     dailyActiveMs = try values.decodeIfPresent([String: Int].self, forKey: .dailyActiveMs) ?? [:]
     dailyHours = try values.decodeIfPresent([String: [Int]].self, forKey: .dailyHours) ?? [:]
     dailyKeys = try values.decodeIfPresent([String: [String: Int]].self, forKey: .dailyKeys) ?? [:]
@@ -314,19 +316,28 @@ extension TypingStatistics {
 
 /// The key ids the shared store accepts, W3C `KeyboardEvent.code` names plus the on-screen keys a touch keyboard has and a hardware one does not. A copy of `KEY_IDS` in `crates/client-core/src/typing_statistics.rs`: the store rejects a whole batch that carries any other id, so a key that maps to nothing here is left uncounted rather than given a made-up name.
 enum TypingKeyID {
-  static let all: [String] =
-    (UnicodeScalar("A").value...UnicodeScalar("Z").value).map { "Key\(Character(UnicodeScalar($0)!))" }
-    + (0...9).map { "Digit\($0)" }
-    + ["Backquote", "Minus", "Equal", "BracketLeft", "BracketRight", "Backslash", "Semicolon", "Quote", "Comma", "Period", "Slash",
-       "IntlBackslash", "IntlRo", "IntlYen", "Lang1", "Lang2", "Convert", "NonConvert", "KanaMode",
-       "Space", "Enter", "Backspace", "Tab", "Escape", "Delete", "Insert", "Home", "End", "PageUp", "PageDown",
-       "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight",
-       "CapsLock", "ShiftLeft", "ShiftRight", "ControlLeft", "ControlRight", "AltLeft", "AltRight", "MetaLeft", "MetaRight", "Fn", "ContextMenu"]
-    + (1...12).map { "F\($0)" }
-    + (0...9).map { "Numpad\($0)" }
-    + ["NumpadDecimal", "NumpadEnter", "NumpadAdd", "NumpadSubtract", "NumpadMultiply", "NumpadDivide", "NumLock"]
-    + (0...9).map { "Nine\($0)" }
-    + ["SoftPunctuation", "SoftSymbol", "SoftLayer", "SoftLanguage", "SoftGlobe", "SoftEmoji", "SoftVoice"]
+  // Built from typed parts: as one chain of `+` over closures and literals, the Xcode 26.2 compiler gives up with
+  // "unable to type-check this expression in reasonable time" and the keyboard extension does not build.
+  static let all: [String] = {
+    let letters: [String] = (UnicodeScalar("A").value...UnicodeScalar("Z").value).map { "Key\(Character(UnicodeScalar($0)!))" }
+    let digits: [String] = (0...9).map { "Digit\($0)" }
+    let editing: [String] = [
+      "Backquote", "Minus", "Equal", "BracketLeft", "BracketRight", "Backslash", "Semicolon", "Quote", "Comma", "Period", "Slash",
+      "IntlBackslash", "IntlRo", "IntlYen", "Lang1", "Lang2", "Convert", "NonConvert", "KanaMode",
+      "Space", "Enter", "Backspace", "Tab", "Escape", "Delete", "Insert", "Home", "End", "PageUp", "PageDown",
+      "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight",
+      "CapsLock", "ShiftLeft", "ShiftRight", "ControlLeft", "ControlRight", "AltLeft", "AltRight", "MetaLeft", "MetaRight", "Fn", "ContextMenu"]
+    let functionKeys: [String] = (1...12).map { "F\($0)" }
+    let numpadDigits: [String] = (0...9).map { "Numpad\($0)" }
+    let numpad: [String] = ["NumpadDecimal", "NumpadEnter", "NumpadAdd", "NumpadSubtract", "NumpadMultiply", "NumpadDivide", "NumLock"]
+    let nineKey: [String] = (0...9).map { "Nine\($0)" }
+    let soft: [String] = ["SoftPunctuation", "SoftSymbol", "SoftLayer", "SoftLanguage", "SoftGlobe", "SoftEmoji", "SoftVoice"]
+    var keys: [String] = letters
+    for part in [digits, editing, functionKeys, numpadDigits, numpad, nineKey, soft] {
+      keys += part
+    }
+    return keys
+  }()
   static let known = Set(all)
 
   static let space = "Space"
@@ -550,29 +561,27 @@ enum TypingStatisticsError: LocalizedError {
 // The keyboard writes only aggregate counts, never document text or preedit. Every read and write goes through the shared Rust store behind `msime_client_typing_statistics`, the one macOS and the shared statistics page use, so active time, the hourly buckets and the retention window are recorded by the same rules everywhere and no host rewrites the document without the fields it does not know. The store's lock file serializes the extension and app processes.
 struct TypingStatisticsStore {
   let directory: URL?
-  private let legacyDirectory: URL?
 
   init() {
-    let container = FileManager.default.containerURL(
-      forSecurityApplicationGroupIdentifier: "group.app.msime.ios")
-    directory = container?.appendingPathComponent("MSIME", isDirectory: true)
-    legacyDirectory = container
+    directory = FileManager.default.containerURL(
+      forSecurityApplicationGroupIdentifier: MSIMEAppEdition.appGroupIdentifier)?.appendingPathComponent("MSIME", isDirectory: true)
   }
 
-  init(directory: URL?, legacyDirectory: URL? = nil) {
+  init(directory: URL?) {
     self.directory = directory
-    self.legacyDirectory = legacyDirectory
   }
 
   /// The request buffer the ABI accepts.
   private static let maximumRequestBytes = 65_536
   /// A commit is split into pieces this size, well inside the store's 40,000-byte commit limit and, even with every byte escaped, inside the request limit.
   private static let maximumChunkBytes = 8_000
-  /// Keep migrations aligned with the shared Rust store's document ceiling before JSON decoding allocates.
-  static let maximumDocumentBytes = 64 * 1_048_576
 
   private static let preparedLock = NSLock()
   private static var prepared = Set<String>()
+
+  private static func rejectsSymlinkAncestors(_ path: URL) -> Bool {
+    SafePath.hasRefusedSymbolicLink(path)
+  }
 
   private func call(_ action: [String: Any]) throws -> Any {
     guard let directory else { throw CocoaError(.fileNoSuchFile) }
@@ -594,70 +603,14 @@ struct TypingStatisticsStore {
     return envelope["value"] ?? NSNull()
   }
 
-  /// Once per directory and process: move the pre-shared file out of the App Group root, and carry a retention window the Swift store wrote as `retentionDays` over to the shared `retention` field before the shared store rewrites the document without it.
+  /// Once per directory and process: create the directory, refusing one reached through a symbolic link.
   private func prepare(_ directory: URL) throws {
     Self.preparedLock.lock()
     defer { Self.preparedLock.unlock() }
     guard !Self.prepared.contains(directory.path) else { return }
+    guard !Self.rejectsSymlinkAncestors(directory) else { throw CocoaError(.fileWriteNoPermission) }
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    // The shared store takes the same lock file, and flock locks per open file, so this must be released before any call into it.
-    let lockURL = directory.appendingPathComponent("typing-statistics.lock")
-    let descriptor = open(lockURL.path, O_CREAT | O_RDWR | O_NOFOLLOW | O_CLOEXEC, S_IRUSR | S_IWUSR)
-    guard descriptor >= 0 else { throw CocoaError(.fileWriteNoPermission) }
-    defer { close(descriptor) }
-    guard flock(descriptor, LOCK_EX) == 0 else { throw CocoaError(.fileLocking) }
-    defer { flock(descriptor, LOCK_UN) }
-    let url = directory.appendingPathComponent("typing-statistics.json")
-    try migrateLegacyFileIfNeeded(to: url)
-    try migrateLegacyRetention(at: url)
     Self.prepared.insert(directory.path)
-  }
-
-  private func migrateLegacyRetention(at url: URL) throws {
-    guard FileManager.default.fileExists(atPath: url.path),
-          var document = try JSONSerialization.jsonObject(with: Self.readBoundedDocument(from: url)) as? [String: Any],
-          let legacy = document["retentionDays"] else { return }
-    document.removeValue(forKey: "retentionDays")
-    if document["retention"] == nil {
-      document["retention"] = TypingStatistics.retentionID((legacy as? NSNumber)?.intValue)
-    }
-    try JSONSerialization.data(withJSONObject: document).write(to: url, options: .atomic)
-  }
-
-  private func migrateLegacyFileIfNeeded(to destination: URL) throws {
-    guard !FileManager.default.fileExists(atPath: destination.path),
-          let legacyDirectory,
-          legacyDirectory.standardizedFileURL != directory?.standardizedFileURL else { return }
-    let source = legacyDirectory.appendingPathComponent("typing-statistics.json")
-    guard FileManager.default.fileExists(atPath: source.path) else { return }
-
-    let legacyLockURL = legacyDirectory.appendingPathComponent("typing-statistics.lock")
-    let descriptor = open(legacyLockURL.path, O_CREAT | O_RDWR | O_NOFOLLOW | O_CLOEXEC, S_IRUSR | S_IWUSR)
-    guard descriptor >= 0 else { throw CocoaError(.fileWriteNoPermission) }
-    defer { close(descriptor) }
-    guard flock(descriptor, LOCK_EX) == 0 else { throw CocoaError(.fileLocking) }
-    defer { flock(descriptor, LOCK_UN) }
-
-    guard !FileManager.default.fileExists(atPath: destination.path),
-          FileManager.default.fileExists(atPath: source.path) else { return }
-    _ = try JSONDecoder().decode(TypingStatistics.self, from: Self.readBoundedDocument(from: source))
-    try FileManager.default.moveItem(at: source, to: destination)
-  }
-
-  /// Read only the shared store's accepted document size, even if a legacy file grows after inspection.
-  private static func readBoundedDocument(from url: URL) throws -> Data {
-    let handle = try FileHandle(forReadingFrom: url)
-    defer { try? handle.close() }
-    var data = Data()
-    while data.count <= maximumDocumentBytes {
-      let chunk = try handle.read(upToCount: min(65_536, maximumDocumentBytes + 1 - data.count)) ?? Data()
-      if chunk.isEmpty { break }
-      data.append(chunk)
-    }
-    guard data.count <= maximumDocumentBytes else {
-      throw TypingStatisticsError.store("统计文件过大")
-    }
-    return data
   }
 
   func load() throws -> TypingStatistics {
@@ -678,11 +631,6 @@ struct TypingStatisticsStore {
     guard let directory else { return .containerUnavailable }
     let url = directory.appendingPathComponent("typing-statistics.json")
     if let attributes = try? FileManager.default.attributesOfItem(atPath: url.path) {
-      return .ready(lastWritten: attributes[.modificationDate] as? Date)
-    }
-    if let legacyDirectory,
-       let attributes = try? FileManager.default.attributesOfItem(
-         atPath: legacyDirectory.appendingPathComponent("typing-statistics.json").path) {
       return .ready(lastWritten: attributes[.modificationDate] as? Date)
     }
     return .neverWritten
@@ -735,8 +683,24 @@ struct TypingStatisticsStore {
   func recordKeys(_ keys: [String: Int], day: String) throws -> Int {
     guard !keys.isEmpty else { return 0 }
     let value = try call(["operation": "record_keys", "day": day, "keys": keys])
-    guard let recorded = (value as? [String: Any])?["recorded"] as? NSNumber else { throw TypingStatisticsError.invalidResponse }
-    return recorded.intValue
+    let maximum = keys.values.filter { $0 > 0 }.reduce(0) { partial, count in
+      partial > Int.max - count ? Int.max : partial + count
+    }
+    guard let recorded = Self.strictRecordedCount((value as? [String: Any])?["recorded"], maximum: maximum) else {
+      throw TypingStatisticsError.invalidResponse
+    }
+    return recorded
+  }
+
+  /// Native JSON must return a non-negative integral count that cannot exceed the submitted batch.
+  static func strictRecordedCount(_ value: Any?, maximum: Int) -> Int? {
+    guard let number = value as? NSNumber,
+          CFGetTypeID(number) != CFBooleanGetTypeID(),
+          let integer = Int(number.stringValue),
+          integer >= 0,
+          integer <= maximum,
+          NSNumber(value: integer).compare(number) == .orderedSame else { return nil }
+    return integer
   }
 
   /// Whether the user has statistics on. The keyboard asks once per appearance so that, while they are off, it does not even keep key counts in memory.

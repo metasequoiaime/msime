@@ -1,0 +1,83 @@
+{
+ "name": "zh_bpmf_auto_shift_21",
+ "steps": [
+  {
+   "op": "open",
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "zhuyin",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "su3su3su3su3su3su3su3su3su3su3su3su3su3su3su3su3su3su3su3su3",
+   "op": "type",
+   "result": {
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 60,
+    "dedicated_english": false,
+    "editing_text": "su3su3su3su3su3su3su3su3su3su3su3su3su3su3su3su3su3su3su3su3",
+    "local_mode": "none",
+    "normalized_segmentation": "你你你你你你你你你你你你你你你你你你你你",
+    "preedit": "你你你你你你你你你你你你你你你你你你你你",
+    "raw_segmentation": "su3su3su3su3su3su3su3su3su3su3su3su3su3su3su3su3su3su3su3su3",
+    "scheme": "zhuyin",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "su3",
+   "op": "type",
+   "result": {
+    "commit": "你",
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 60,
+    "dedicated_english": false,
+    "editing_text": "su3su3su3su3su3su3su3su3su3su3su3su3su3su3su3su3su3su3su3su3",
+    "local_mode": "none",
+    "normalized_segmentation": "你你你你你你你你你你你你你你你你你你你你",
+    "preedit": "你你你你你你你你你你你你你你你你你你你你",
+    "raw_segmentation": "su3su3su3su3su3su3su3su3su3su3su3su3su3su3su3su3su3su3su3su3",
+    "scheme": "zhuyin",
+    "shuangpin_profile": "xiaohe"
+   }
+  },
+  {
+   "arg": "CommitRaw",
+   "op": "command",
+   "result": {
+    "commit": "你你你你你你你你你你你你你你你你你你你你",
+    "handled": true
+   },
+   "snapshot": {
+    "candidate_count": 0,
+    "candidates": [],
+    "caret": 0,
+    "dedicated_english": false,
+    "editing_text": "",
+    "local_mode": "none",
+    "normalized_segmentation": "",
+    "preedit": "",
+    "raw_segmentation": "",
+    "scheme": "zhuyin",
+    "shuangpin_profile": "xiaohe"
+   }
+  }
+ ]
+}

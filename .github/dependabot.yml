@@ -22,6 +22,12 @@ updates:
     commit-message:
       prefix: build
     labels: [dependencies]
+    # windows-collections and windows-numerics are direct dependencies of host-windows only because the windows 0.62 projection takes IIterable and Matrix3x2 from them, so they have to stay on the versions windows 0.62 itself depends on. The windows-rs group cannot hold them there: windows-collections 0.100 was published without a matching windows release, Dependabot raised it alone (#3109), and the two IIterable types stopped being the same type, failing the Windows release build. Raise these bounds by hand together with windows.
+    ignore:
+      - dependency-name: windows-collections
+        versions: [">= 0.4"]
+      - dependency-name: windows-numerics
+        versions: [">= 0.4"]
     groups:
       # Families whose members share types across crate boundaries, so upgrading one alone does not compile: windows 0.61 exposes windows-numerics 0.2 types, and hmac 0.13 needs a sha2 and md-5 on the same digest release. Separate pull requests for these (#535, #536) could never pass. They come together, whatever the update type, and ahead of cargo-minor because a dependency joins the first group it matches.
       rustcrypto:
@@ -41,6 +47,13 @@ updates:
     commit-message:
       prefix: build
     labels: [dependencies, platform/android]
+    # AGP 的大版本要求更新的 Gradle，而本工程借用 Tauri 生成工程的 Gradle wrapper（见 platforms/android/build-apk.sh），两边只能一起升。
+    # androidx.core 1.19 起要求 AGP 9.1，同理不能单独升。#639 已经因此退回过一次，没有这条规则 Dependabot 又把两者升了上去（2026-10-01）。
+    ignore:
+      - dependency-name: com.android.application
+        update-types: [version-update:semver-major]
+      - dependency-name: androidx.core:core
+        versions: [">= 1.19.0"]
     groups:
       gradle-minor:
         update-types: [minor, patch]

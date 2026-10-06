@@ -30,7 +30,8 @@ env "CC_${underscored}=$compiler" "CXX_${underscored}=${compiler}++" \
 output="$repo_root/target/ohos/libs/$abi"
 mkdir -p "$output"
 cp "$repo_root/target/ohos-cargo/$rust_target/release/libmsime_host_api.so" "$output/"
-"$ndk/llvm/bin/llvm-readobj" --file-headers "$output/libmsime_host_api.so" | grep -q "EM_AARCH64\|EM_ARM\|EM_X86_64"
+# 不用 grep -q：它匹配到就提前退出，llvm-readobj 还在写时收到 EPIPE，pipefail 下整条管道判失败，而且时有时无（本机 2026-10-03 出现过 `write on a pipe with no reader`，脚本在编 NAPI 库之前就退出了）。
+"$ndk/llvm/bin/llvm-readobj" --file-headers "$output/libmsime_host_api.so" | grep "EM_AARCH64\|EM_ARM\|EM_X86_64" >/dev/null
 # miniaudio decodes and pitches the key-sound samples (native/key_sound_render.cpp). It is the single header the Windows host already pins, and like there its implementation is third-party code compiled at the toolchain's default warning level, outside the -Werror set below.
 miniaudio="platforms/windows/third_party/miniaudio"
 "${compiler}++" -std=c++17 -fPIC -O2 -c platforms/harmony/native/miniaudio.cpp -I"$miniaudio" \
@@ -41,7 +42,7 @@ miniaudio="platforms/windows/third_party/miniaudio"
   platforms/harmony/native/client_napi.cpp platforms/harmony/native/key_sound_render.cpp \
   "$output/miniaudio.o" -Icrates/host-api/include -I"$miniaudio" \
   -L"$output" -lmsime_host_api -lace_napi.z -lz -lm -o "$output/libmsimeclient.so"
-"$ndk/llvm/bin/llvm-nm" -D --defined-only "$output/libmsimeclient.so" | grep -q RegisterClientModule
+"$ndk/llvm/bin/llvm-nm" -D --defined-only "$output/libmsimeclient.so" | grep RegisterClientModule >/dev/null
 # The C++ runtime has to travel with the module. OpenHarmony does not expose a system libc++_shared.so to applications, so leaving it out makes the NAPI import fail on the device with "Error loading shared library libc++_shared.so" while the build itself stays perfectly green.
 runtime="$ndk/llvm/lib/$runtime_triple/libc++_shared.so"
 [[ -f "$runtime" ]] || { echo "Missing $runtime in this NDK" >&2; exit 1; }

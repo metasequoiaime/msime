@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Material Symbols「devices」（Apache 2.0），设计稿用于我的 → 我的设备。默认着次要文字色，使用处可以另行着色。 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="960"
+    android:viewportHeight="960"
+    android:tint="?attr/colorOnSurfaceVariant">
+    <!-- Material Symbols 的 viewBox 是 0 -960 960 960，平移回画布内。 -->
+    <group android:translateY="960">
+        <path
+            android:fillColor="@android:color/white"
+            android:pathData="M501-540Zm-30 380H110q-12.75 0-21.37-8.68-8.63-8.67-8.63-21.5 0-12.82 8.63-21.32Q97.25-220 110-220h361q12.75 0 21.38 8.68 8.62 8.67 8.62 21.5 0 12.82-8.62 21.32-8.63 8.5-21.38 8.5ZM180-280q-24 0-42-18t-18-42v-400q0-24 18-42t42-18h630q12.75 0 21.38 8.68 8.62 8.67 8.62 21.5 0 12.82-8.62 21.32-8.63 8.5-21.38 8.5H180v400h291q12.75 0 21.38 8.68 8.62 8.67 8.62 21.5 0 12.82-8.62 21.32-8.63 8.5-21.38 8.5H180Zm640 60v-400H621v400h199Zm-214 60q-18 0-31.5-13.5T561-205v-430q0-18 13.5-31.5T606-680h229q18 0 31.5 13.5T880-635v430q0 18-13.5 31.5T835-160H606Zm115-360q12 0 21-9t9-21q0-12-9-21t-21.48-9Q709-580 700-571t-9 21.48q0 11.52 9 20.52t21 9Zm0 100Z" />
+    </group>
+</vector>

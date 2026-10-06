@@ -11,6 +11,7 @@ fn import_engine_options() -> msime_engine::host::EngineOptions {
         cache: String::new(),
         dictionaries: String::new(),
         scheme: 0,
+        enabled_schemes: msime_engine::SchemeSet::ALL,
         shuangpin_profile: 0,
         shuangpin_preedit_uses_raw: true,
         learning: false,
@@ -18,6 +19,7 @@ fn import_engine_options() -> msime_engine::host::EngineOptions {
         autocorrect_neighbor: true,
         fuzzy_pinyin_rules: 0,
         wubi_mixed_pinyin: false,
+        wubi_profile: 0,
         helpcode: false,
         show_helpcode: true,
         helpcode_schema: "ziranma".into(),
@@ -44,6 +46,8 @@ fn import_engine_options() -> msime_engine::host::EngineOptions {
         local_mention: false,
         command_table: Vec::new(),
         mention_entries: Vec::new(),
+        quick_phrase_table: Vec::new(),
+        helpcode_table: None,
         sentence_association: msime_engine::host::SentenceAssociationOptions {
             word_lattice: true,
             neural_keyboard: false,
@@ -51,6 +55,12 @@ fn import_engine_options() -> msime_engine::host::EngineOptions {
         },
         rescoring_context: String::new(),
         sentence_alternatives: true,
+        vietnamese_input_method: 0,
+        vietnamese_tone_style: 0,
+        cantonese_dictionary: String::new(),
+        zhuyin_dictionary: String::new(),
+        stroke_dictionary: String::new(),
+        japanese_dictionary: String::new(),
     }
 }
 
@@ -75,7 +85,7 @@ fn typed_quick_phrase_edits_find_rows_by_code_and_text_and_list_only_user_phrase
     for name in ["resources", "dictionaries"] {
         let path = directory.path().join(name);
         std::fs::create_dir(&path).unwrap();
-        rusqlite::Connection::open(path.join("msime.db"))
+        rusqlite::Connection::open(path.join("msime-pinyin.db"))
             .unwrap()
             .execute_batch(fixture)
             .unwrap();
@@ -208,7 +218,7 @@ fn word_fixture(directory: &Path, bundled: &str) -> DictionaryOptions {
     for name in ["resources", "dictionaries"] {
         let path = directory.join(name);
         std::fs::create_dir(&path).unwrap();
-        let connection = rusqlite::Connection::open(path.join("msime.db")).unwrap();
+        let connection = rusqlite::Connection::open(path.join("msime-pinyin.db")).unwrap();
         connection.execute_batch(fixture).unwrap();
         connection.execute_batch(bundled).unwrap();
     }
@@ -482,6 +492,75 @@ fn a_lookup_names_where_each_candidate_came_from_and_leaves_the_user_data_alone(
     assert!(lookup_candidates(&options, None, "ceshi", 0).is_err());
     assert!(lookup_candidates(&options, None, "ceshi", MAX_LOOKUP_CANDIDATES + 1).is_err());
     assert_eq!(tree(&directory.path().join("user")), before);
+}
+
+/// 五笔四码唯一的词在第四键就自动上屏了，查询仍要把它报告成这串编码的唯一候选，而不是空列表。
+#[test]
+#[cfg(not(target_os = "android"))]
+fn a_unique_four_letter_wubi_code_still_reports_its_word() {
+    let directory = tempfile::tempdir().unwrap();
+    let options = word_fixture(
+        directory.path(),
+        "INSERT INTO wubi86 VALUES('aaad','合成期',500);",
+    );
+    let before = tree(&directory.path().join("user"));
+    let candidates = lookup_candidates(&options, Some(LookupScheme::Wubi), "aaad", 10).unwrap();
+    assert_eq!(
+        candidates
+            .iter()
+            .map(|candidate| (
+                candidate.text.as_str(),
+                candidate.code.as_str(),
+                candidate.origin,
+                candidate.weight
+            ))
+            .collect::<Vec<_>>(),
+        [("合成期", "aaad", CandidateOrigin::Dictionary, Some(500))]
+    );
+    // 自动上屏走的是选词，但查询关了学习，用户数据里除了词库访问锁（空目录第一次查询时才建）什么都不多。
+    let mut after = tree(&directory.path().join("user"));
+    after.retain(|(path, _)| !path.ends_with(".msime-dictionary-access.lock"));
+    assert_eq!(after, before);
+}
+
+/// 五笔版的 Engine 只跑五笔：查五笔（显式或按用户方案）照常，查全拼、双拼直接说明本版本没有这个方案，不报成词库打不开。
+#[test]
+#[cfg(not(target_os = "android"))]
+fn a_wubi_edition_lookup_refuses_schemes_it_does_not_offer() {
+    let directory = tempfile::tempdir().unwrap();
+    word_fixture(
+        directory.path(),
+        "INSERT INTO wubi86 VALUES('aaa','合成工',500);
+             INSERT INTO tbl_2_c VALUES('ce''shi','cs','测试',100);",
+    );
+    let root = directory.path().to_str().unwrap();
+    let wubi = msime_client_core::edition::Edition::by_id("wubi").unwrap();
+    let options = DictionaryOptions::from_host_document(json!({
+        "api_version": 1,
+        "resources": format!("{root}/resources"),
+        "user_data": format!("{root}/user"),
+        "cache": format!("{root}/cache"),
+        "dictionaries": format!("{root}/dictionaries"),
+        "preferences": msime_client_core::preferences::Preferences::for_edition(wubi),
+        "preferences_directory": root,
+        "edition": "wubi",
+    }))
+    .unwrap();
+    for scheme in [None, Some(LookupScheme::Wubi)] {
+        // 三码不会因唯一四码直接上屏，候选留在列表里。
+        let candidates = lookup_candidates(&options, scheme, "aaa", 5).unwrap();
+        assert_eq!(
+            candidates.first().map(|candidate| candidate.text.as_str()),
+            Some("合成工"),
+            "{scheme:?}"
+        );
+    }
+    for scheme in [LookupScheme::Quanpin, LookupScheme::Shuangpin] {
+        assert_eq!(
+            lookup_candidates(&options, Some(scheme), "ceshi", 5).unwrap_err(),
+            "this edition does not offer that scheme"
+        );
+    }
 }
 
 #[test]

@@ -27,6 +27,13 @@ pub struct ResourceSet {
     pub artifacts: Vec<Artifact>,
 }
 
+/// macOS 发布包不内置、改为按需下载的桌面词库文件。三者作为一个整体出现或缺席：日文词典与它的两份许可文本（Mozc 词典说明里的 IPAdic/ICOT 条款、Mozc 的 BSD 许可）必须同时在场，只缺一部分时按原规则校验失败。
+pub const MACOS_ON_DEMAND_ARTIFACTS: [&str; 3] = [
+    "msime-japanese.dat",
+    "msime-mozc_dictionary_oss_README.txt",
+    "msime-mozc_LICENSE.txt",
+];
+
 #[derive(Debug, thiserror::Error)]
 pub enum ResourceError {
     #[error("invalid pinned resource set")]
@@ -84,6 +91,44 @@ impl ResourceSet {
         self.validate()?;
         let encoded = serde_json::to_vec(self).map_err(|_| ResourceError::InvalidManifest)?;
         Ok(hex::encode(Sha256::digest(encoded)))
+    }
+
+    /// 只保留 `names` 中列出的文件，顺序与锁文件一致，source_commit 不变。
+    pub fn only(&self, names: &[&str]) -> ResourceSet {
+        self.filtered(|name| names.contains(&name))
+    }
+
+    /// 去掉 `names` 中列出的文件，是 [`ResourceSet::only`] 的补集。
+    pub fn without(&self, names: &[&str]) -> ResourceSet {
+        self.filtered(|name| !names.contains(&name))
+    }
+
+    /// 目录实际按哪一份清单发货。`on_demand` 中的文件全部不存在（连符号链接也没有）时，说明这是不内置按需文件的发布包，返回去掉它们的子集；其余情况（列表为空、部分存在、是符号链接、读取出错）一律返回完整清单，让 `verify` 像以前一样报告缺一半或文件损坏。
+    pub fn as_shipped_in(&self, directory: &Path, on_demand: &[&str]) -> ResourceSet {
+        let all_absent = !on_demand.is_empty()
+            && on_demand.iter().all(|name| {
+                matches!(
+                    fs::symlink_metadata(directory.join(name)),
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound
+                )
+            });
+        if all_absent {
+            self.without(on_demand)
+        } else {
+            self.clone()
+        }
+    }
+
+    fn filtered(&self, keep: impl Fn(&str) -> bool) -> ResourceSet {
+        ResourceSet {
+            source_commit: self.source_commit.clone(),
+            artifacts: self
+                .artifacts
+                .iter()
+                .filter(|artifact| keep(&artifact.name))
+                .cloned()
+                .collect(),
+        }
     }
 }
 
@@ -144,7 +189,7 @@ impl ResourceStore {
         Ok(destination)
     }
 
-    /// Check that `directory` holds exactly the artifacts `specification` pins, each with its pinned length and SHA-256, and nothing else. Two exceptions: a real `helpcodes/` directory is let through for the Engine's helpcode tables, and a regular file named in `RETIRED_ARTIFACTS` that the specification does not pin is deleted in place rather than refused. That deletion is the only write `verify` makes; if it fails the directory is refused as before.
+    /// Check that `directory` holds exactly the artifacts `specification` pins, each with its pinned length and SHA-256, and nothing else. One exception: a real `helpcodes/` directory is let through for the Engine's helpcode tables. `verify` never writes.
     pub fn verify(
         &self,
         directory: &Path,
@@ -184,9 +229,6 @@ impl ResourceStore {
                 )));
             }
             if !expected.contains(name) {
-                if RETIRED_ARTIFACTS.contains(&name) && remove_retired(&entry.path()) {
-                    continue;
-                }
                 return Err(ResourceError::ExistingGeneration(format!(
                     "{name} in {} is not in the pinned resource set",
                     directory.display()
@@ -220,18 +262,7 @@ impl ResourceStore {
 
 /// Where the Engine looks for helpcode tables, relative to the resource directory (`helpcodes/…` in its asset contract).
 const HELPCODE_DIRECTORY: &str = "helpcodes";
-/// Files an earlier lock pinned and the current one no longer does. A directory a user downloaded for a previous release still holds them, and nothing else there needs replacing, so `verify` deletes such a regular file instead of refusing the whole directory. Only exact names listed here are touched; a directory or symlink by that name, and every other unpinned entry, is still refused.
-///
-/// `dict_pinyin.dat` was the googlepinyinime system dictionary, which the Rust engine does not use.
-const RETIRED_ARTIFACTS: &[&str] = &["dict_pinyin.dat"];
 
-/// Delete a retired artifact, reporting whether it is gone. Another host verifying the same directory at the same moment may have removed it first, which counts as gone. Any other failure, such as a read-only packaged directory, leaves the file in place and lets `verify` refuse the directory as before, so the host still reports the dictionary as outdated.
-fn remove_retired(path: &Path) -> bool {
-    match fs::remove_file(path) {
-        Ok(()) => true,
-        Err(error) => error.kind() == std::io::ErrorKind::NotFound,
-    }
-}
 /// Verification markers are generated locally and contain only the pinned
 /// artifact names and metadata. Keep a corrupt or replaced marker from
 /// allocating without bound before it is discarded as a cache miss.
@@ -437,8 +468,8 @@ mod tests {
         ResourceSet {
             source_commit: "a".repeat(40),
             artifacts: vec![Artifact {
-                name: "msime.db".into(),
-                url: "https://example.invalid/msime.db".into(),
+                name: "msime-pinyin.db".into(),
+                url: "https://example.invalid/msime-pinyin.db".into(),
                 sha256: hex::encode(Sha256::digest(b"fixture")),
                 size: 7,
             }],
@@ -446,6 +477,152 @@ mod tests {
     }
     fn source(bytes: &[u8]) -> Box<dyn Read> {
         Box::new(Cursor::new(bytes.to_vec()))
+    }
+
+    fn fixture_artifact(name: &str, bytes: &[u8]) -> Artifact {
+        Artifact {
+            name: name.into(),
+            url: format!("https://example.invalid/{name}"),
+            sha256: hex::encode(Sha256::digest(bytes)),
+            size: bytes.len() as u64,
+        }
+    }
+
+    /// 在现有夹具上追加三个按需下载的文件，夹在核心文件中间，用来检查顺序保持不变。
+    fn desktop_specification() -> ResourceSet {
+        let mut set = specification();
+        set.artifacts
+            .push(fixture_artifact(MACOS_ON_DEMAND_ARTIFACTS[0], b"japanese"));
+        set.artifacts
+            .push(fixture_artifact(MACOS_ON_DEMAND_ARTIFACTS[1], b"readme"));
+        set.artifacts
+            .push(fixture_artifact(MACOS_ON_DEMAND_ARTIFACTS[2], b"license"));
+        set.artifacts
+            .push(fixture_artifact("msime-english.db", b"english"));
+        set
+    }
+
+    fn write_core(directory: &Path) {
+        fs::write(directory.join("msime-pinyin.db"), b"fixture").unwrap();
+        fs::write(directory.join("msime-english.db"), b"english").unwrap();
+    }
+
+    fn names(set: &ResourceSet) -> Vec<&str> {
+        set.artifacts.iter().map(|a| a.name.as_str()).collect()
+    }
+
+    #[test]
+    fn only_and_without_partition_the_set_in_lock_order() {
+        let spec = desktop_specification();
+        let on_demand = spec.only(&MACOS_ON_DEMAND_ARTIFACTS);
+        let core = spec.without(&MACOS_ON_DEMAND_ARTIFACTS);
+        assert_eq!(
+            names(&on_demand),
+            [
+                "msime-japanese.dat",
+                "msime-mozc_dictionary_oss_README.txt",
+                "msime-mozc_LICENSE.txt"
+            ]
+        );
+        assert_eq!(names(&core), ["msime-pinyin.db", "msime-english.db"]);
+        assert_eq!(on_demand.source_commit, spec.source_commit);
+        assert_eq!(core.source_commit, spec.source_commit);
+        assert!(on_demand.validate().is_ok() && core.validate().is_ok());
+    }
+
+    #[test]
+    fn a_core_only_directory_ships_and_verifies_the_subset() {
+        let directory = tempfile::tempdir().unwrap();
+        write_core(directory.path());
+        let spec = desktop_specification();
+        let shipped = spec.as_shipped_in(directory.path(), &MACOS_ON_DEMAND_ARTIFACTS);
+        assert_eq!(names(&shipped), ["msime-pinyin.db", "msime-english.db"]);
+        let store = ResourceStore::new(directory.path());
+        assert!(store.verify(directory.path(), &shipped).is_ok());
+        assert_ne!(spec.generation().unwrap(), shipped.generation().unwrap());
+    }
+
+    #[test]
+    fn a_half_present_pair_is_verified_against_the_full_set() {
+        let directory = tempfile::tempdir().unwrap();
+        write_core(directory.path());
+        fs::write(directory.path().join("msime-japanese.dat"), b"japanese").unwrap();
+        let spec = desktop_specification();
+        let shipped = spec.as_shipped_in(directory.path(), &MACOS_ON_DEMAND_ARTIFACTS);
+        assert_eq!(names(&shipped), names(&spec));
+        let error = ResourceStore::new(directory.path())
+            .verify(directory.path(), &shipped)
+            .unwrap_err();
+        assert!(
+            matches!(&error, ResourceError::ExistingGeneration(message) if message.contains("msime-mozc_dictionary_oss_README.txt") && message.contains("msime-mozc_LICENSE.txt")),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn a_complete_directory_ships_the_full_set() {
+        let directory = tempfile::tempdir().unwrap();
+        write_core(directory.path());
+        fs::write(directory.path().join("msime-japanese.dat"), b"japanese").unwrap();
+        fs::write(
+            directory
+                .path()
+                .join("msime-mozc_dictionary_oss_README.txt"),
+            b"readme",
+        )
+        .unwrap();
+        fs::write(directory.path().join("msime-mozc_LICENSE.txt"), b"license").unwrap();
+        let spec = desktop_specification();
+        let shipped = spec.as_shipped_in(directory.path(), &MACOS_ON_DEMAND_ARTIFACTS);
+        assert_eq!(names(&shipped), names(&spec));
+        assert!(ResourceStore::new(directory.path())
+            .verify(directory.path(), &shipped)
+            .is_ok());
+    }
+
+    /// 用户词库代际取自完整锁文件的 generation，裁剪发货清单不能改变它。
+    #[test]
+    fn the_full_generation_is_unchanged() {
+        let lock: ResourceSet = serde_json::from_str(include_str!(
+            "../../../resources/desktop-dictionary.lock.json"
+        ))
+        .unwrap();
+        let before = lock.generation().unwrap();
+        let empty = tempfile::tempdir().unwrap();
+        let _ = lock.only(&MACOS_ON_DEMAND_ARTIFACTS);
+        let _ = lock.without(&MACOS_ON_DEMAND_ARTIFACTS);
+        let shipped = lock.as_shipped_in(empty.path(), &MACOS_ON_DEMAND_ARTIFACTS);
+        assert_eq!(lock.generation().unwrap(), before);
+        assert_eq!(lock.artifacts.len(), 12);
+        assert_eq!(shipped.artifacts.len(), 9);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlinked_on_demand_file_still_fails_verification() {
+        let directory = tempfile::tempdir().unwrap();
+        write_core(directory.path());
+        let outside = tempfile::tempdir().unwrap();
+        let target = outside.path().join("msime-japanese.dat");
+        fs::write(&target, b"japanese").unwrap();
+        std::os::unix::fs::symlink(&target, directory.path().join("msime-japanese.dat")).unwrap();
+        let spec = desktop_specification();
+        let shipped = spec.as_shipped_in(directory.path(), &MACOS_ON_DEMAND_ARTIFACTS);
+        assert_eq!(names(&shipped), names(&spec));
+        assert!(ResourceStore::new(directory.path())
+            .verify(directory.path(), &shipped)
+            .is_err());
+    }
+
+    #[test]
+    fn an_empty_on_demand_list_keeps_the_full_set() {
+        let directory = tempfile::tempdir().unwrap();
+        write_core(directory.path());
+        let spec = desktop_specification();
+        assert_eq!(
+            names(&spec.as_shipped_in(directory.path(), &[])),
+            names(&spec)
+        );
     }
     #[test]
     fn an_artifact_needs_an_https_url() {
@@ -465,14 +642,14 @@ mod tests {
         let store = ResourceStore::new(root.path());
         let spec = specification();
         let path = store.install(&spec, |_| Ok(source(b"fixture"))).unwrap();
-        assert_eq!(fs::read(path.join("msime.db")).unwrap(), b"fixture");
+        assert_eq!(fs::read(path.join("msime-pinyin.db")).unwrap(), b"fixture");
         assert_eq!(
             store
                 .install(&spec, |_| panic!("must not fetch cached resources"))
                 .unwrap(),
             path
         );
-        fs::write(path.join("msime.db"), b"damaged").unwrap();
+        fs::write(path.join("msime-pinyin.db"), b"damaged").unwrap();
         assert!(matches!(
             store.install(&spec, |_| panic!("must not overwrite active resources")),
             Err(ResourceError::Integrity)
@@ -515,7 +692,7 @@ mod tests {
         let spec = specification();
         let stale = root.path().join("incoming-abandoned");
         fs::create_dir(&stale).unwrap();
-        fs::write(stale.join("msime.db"), b"fix").unwrap();
+        fs::write(stale.join("msime-pinyin.db"), b"fix").unwrap();
         let path = store.install(&spec, |_| Ok(source(b"fixture"))).unwrap();
         assert!(!stale.exists());
         assert_eq!(fs::read_dir(root.path()).unwrap().count(), 2);
@@ -541,7 +718,7 @@ mod tests {
         assert!(store
             .install(&spec, |_| Err(std::io::Error::other("offline")))
             .is_err());
-        assert_eq!(fs::read(old.join("msime.db")).unwrap(), b"fixture");
+        assert_eq!(fs::read(old.join("msime-pinyin.db")).unwrap(), b"fixture");
     }
     #[test]
     fn verification_admits_the_engine_helpcode_directory_only() {
@@ -560,94 +737,6 @@ mod tests {
         fs::create_dir(path.join("extra")).unwrap();
         assert!(store.verify(&path, &spec).is_err());
     }
-    #[test]
-    fn verification_deletes_a_retired_artifact_and_nothing_else() {
-        let root = tempfile::tempdir().unwrap();
-        let store = ResourceStore::new(root.path());
-        let spec = specification();
-        let path = store.install(&spec, |_| Ok(source(b"fixture"))).unwrap();
-        // A directory downloaded for a release whose lock still pinned `dict_pinyin.dat`.
-        fs::write(path.join("dict_pinyin.dat"), b"retired").unwrap();
-        store.verify(&path, &spec).unwrap();
-        assert!(!path.join("dict_pinyin.dat").exists());
-        assert_eq!(fs::read(path.join("msime.db")).unwrap(), b"fixture");
-        // Only a regular file by that exact name is deleted.
-        fs::create_dir(path.join("dict_pinyin.dat")).unwrap();
-        assert!(matches!(
-            store.verify(&path, &spec),
-            Err(ResourceError::ExistingGeneration(_))
-        ));
-        assert!(path.join("dict_pinyin.dat").is_dir());
-        fs::remove_dir(path.join("dict_pinyin.dat")).unwrap();
-        // A symlink by that name is refused, and neither it nor its target is touched.
-        #[cfg(unix)]
-        {
-            let target = root.path().join("outside.dat");
-            fs::write(&target, b"outside").unwrap();
-            std::os::unix::fs::symlink(&target, path.join("dict_pinyin.dat")).unwrap();
-            assert!(matches!(
-                store.verify(&path, &spec),
-                Err(ResourceError::ExistingGeneration(_))
-            ));
-            assert!(fs::symlink_metadata(path.join("dict_pinyin.dat"))
-                .unwrap()
-                .file_type()
-                .is_symlink());
-            assert_eq!(fs::read(&target).unwrap(), b"outside");
-            fs::remove_file(path.join("dict_pinyin.dat")).unwrap();
-        }
-        for other in ["DICT_PINYIN.DAT", "dict_pinyin.dat.bak", "extra.db"] {
-            fs::write(path.join(other), b"unpinned").unwrap();
-            assert!(matches!(
-                store.verify(&path, &spec),
-                Err(ResourceError::ExistingGeneration(_))
-            ));
-            assert!(path.join(other).is_file());
-            fs::remove_file(path.join(other)).unwrap();
-        }
-        store.verify(&path, &spec).unwrap();
-    }
-
-    #[test]
-    fn a_retired_name_that_the_lock_pins_is_verified_and_kept() {
-        let root = tempfile::tempdir().unwrap();
-        let store = ResourceStore::new(root.path());
-        let mut spec = specification();
-        spec.artifacts.push(Artifact {
-            name: "dict_pinyin.dat".into(),
-            url: "https://example.invalid/dict_pinyin.dat".into(),
-            ..spec.artifacts[0].clone()
-        });
-        let path = store.install(&spec, |_| Ok(source(b"fixture"))).unwrap();
-        store.verify(&path, &spec).unwrap();
-        assert_eq!(fs::read(path.join("dict_pinyin.dat")).unwrap(), b"fixture");
-        // Pinned, it is checked like any other artifact instead of being deleted.
-        fs::write(path.join("dict_pinyin.dat"), b"altered").unwrap();
-        assert!(store.verify(&path, &spec).is_err());
-        assert_eq!(fs::read(path.join("dict_pinyin.dat")).unwrap(), b"altered");
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn a_retired_artifact_that_cannot_be_deleted_still_refuses_the_directory() {
-        use std::os::unix::fs::PermissionsExt;
-        let root = tempfile::tempdir().unwrap();
-        let store = ResourceStore::new(root.path());
-        let spec = specification();
-        let path = store.install(&spec, |_| Ok(source(b"fixture"))).unwrap();
-        fs::write(path.join("dict_pinyin.dat"), b"retired").unwrap();
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o555)).unwrap();
-        // Root ignores the mode, so there is no read-only directory to test with.
-        if fs::write(path.join("probe"), b"").is_ok() {
-            fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
-            return;
-        }
-        let result = store.verify(&path, &spec);
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
-        // The error host-api maps to `dictionary_outdated:`, the same answer as before the file was retired.
-        assert!(matches!(result, Err(ResourceError::ExistingGeneration(_))));
-        assert!(path.join("dict_pinyin.dat").is_file());
-    }
 
     #[test]
     fn rejects_path_aliases_and_duplicate_names() {
@@ -657,7 +746,7 @@ mod tests {
             "a\\b",
             "CON",
             "nul.db",
-            "msime.db.",
+            "msime-pinyin.db.",
             ".hidden",
         ] {
             let mut spec = specification();
@@ -666,7 +755,7 @@ mod tests {
         }
         let mut spec = specification();
         let mut duplicate = spec.artifacts[0].clone();
-        duplicate.name = "MSIME.DB".into();
+        duplicate.name = "MSIME-PINYIN.DB".into();
         spec.artifacts.push(duplicate);
         assert!(spec.validate().is_err());
     }
@@ -681,7 +770,7 @@ mod tests {
     fn a_recorded_verification_only_matches_the_files_it_recorded() {
         let directory = tempfile::tempdir().unwrap();
         let spec = specification();
-        fs::write(directory.path().join("msime.db"), b"fixture").unwrap();
+        fs::write(directory.path().join("msime-pinyin.db"), b"fixture").unwrap();
 
         let recorded = VerifiedMarker::describe(directory.path(), &spec)
             .unwrap()
@@ -703,7 +792,7 @@ mod tests {
 
         // Same length, written again: the modification time moves and the record stops matching.
         std::thread::sleep(std::time::Duration::from_millis(20));
-        fs::write(directory.path().join("msime.db"), b"FIXTURE").unwrap();
+        fs::write(directory.path().join("msime-pinyin.db"), b"FIXTURE").unwrap();
         assert_ne!(
             VerifiedMarker::describe(directory.path(), &spec).unwrap(),
             Some(recorded.clone()),
@@ -711,14 +800,18 @@ mod tests {
         );
 
         // A different length is caught whatever the clock did.
-        fs::write(directory.path().join("msime.db"), b"fixture-and-more").unwrap();
+        fs::write(
+            directory.path().join("msime-pinyin.db"),
+            b"fixture-and-more",
+        )
+        .unwrap();
         let grown = VerifiedMarker::describe(directory.path(), &spec)
             .unwrap()
             .expect("still present");
         assert_ne!(grown.files[0].1, recorded.files[0].1);
 
         // A missing artifact is not describable, so there is nothing to compare and it is hashed.
-        fs::remove_file(directory.path().join("msime.db")).unwrap();
+        fs::remove_file(directory.path().join("msime-pinyin.db")).unwrap();
         assert_eq!(
             VerifiedMarker::describe(directory.path(), &spec).unwrap(),
             None
@@ -729,7 +822,7 @@ mod tests {
     fn marker_misses_unpinned_entries_and_symlinked_artifacts() {
         let directory = tempfile::tempdir().unwrap();
         let spec = specification();
-        fs::write(directory.path().join("msime.db"), b"fixture").unwrap();
+        fs::write(directory.path().join("msime-pinyin.db"), b"fixture").unwrap();
         assert!(VerifiedMarker::describe(directory.path(), &spec)
             .unwrap()
             .is_some());
@@ -748,8 +841,8 @@ mod tests {
             use std::os::unix::fs::symlink;
             let target = directory.path().join("target.db");
             fs::write(&target, b"fixture").unwrap();
-            fs::remove_file(directory.path().join("msime.db")).unwrap();
-            symlink(&target, directory.path().join("msime.db")).unwrap();
+            fs::remove_file(directory.path().join("msime-pinyin.db")).unwrap();
+            symlink(&target, directory.path().join("msime-pinyin.db")).unwrap();
             assert_eq!(
                 VerifiedMarker::describe(directory.path(), &spec).unwrap(),
                 None
@@ -771,7 +864,7 @@ mod tests {
         let spec = specification();
         let resources = directory.path().join("resources");
         fs::create_dir(&resources).unwrap();
-        fs::write(resources.join("msime.db"), b"fixture").unwrap();
+        fs::write(resources.join("msime-pinyin.db"), b"fixture").unwrap();
         let marker = VerifiedMarker::describe(&resources, &spec)
             .unwrap()
             .unwrap();
@@ -818,7 +911,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let resources = root.path().join("resources");
         fs::create_dir(&resources).unwrap();
-        fs::write(resources.join("msime.db"), b"fixture").unwrap();
+        fs::write(resources.join("msime-pinyin.db"), b"fixture").unwrap();
         let marker = VerifiedMarker::describe(&resources, &specification())
             .unwrap()
             .unwrap();
@@ -840,7 +933,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let resources = root.path().join("resources");
         fs::create_dir(&resources).unwrap();
-        fs::write(resources.join("msime.db"), b"fixture").unwrap();
+        fs::write(resources.join("msime-pinyin.db"), b"fixture").unwrap();
         let marker = VerifiedMarker::describe(&resources, &specification())
             .unwrap()
             .unwrap();

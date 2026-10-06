@@ -31,7 +31,7 @@ constexpr CGFloat kToolbarLogoMarkSide = 22.0;
         NSString *path = [[NSBundle bundleForClass:self.class] pathForResource:@"MSIMEClientInputMethod" ofType:@"icns"];
         _image = path == nil ? nil : [[NSImage alloc] initWithContentsOfFile:path];
         self.accessibilityIdentifier = @"MetasequoiaFloatingToolbarLogo";
-        self.accessibilityLabel = @"水杉输入法";
+        self.accessibilityLabel = MSIMEEditionDisplayName();
     }
     return self;
 }
@@ -217,15 +217,11 @@ CGFloat ToolbarPreferredWidth(NSUInteger count, CGFloat fontSize, CGFloat scale)
     return std::ceil((buttons * (fontSize + kToolbarButtonPadding) + gaps * kToolbarButtonSpacing + kToolbarTrailingChrome + kToolbarLeadingChrome) * scale);
 }
 
-// Default row: the five buttons a profile that has not chosen gets - 中/英, punctuation, full width,
-// simplified/traditional and settings - at 24pt and 100%. Emoji, handwriting, voice and the screen
-// keyboard are opt-in (see FloatingToolbarPreferences::default() in crates/client-core). This is the
-// size the window opens at, before any preferences are applied, so a wider value here would show a
-// toolbar that immediately shrinks.
-constexpr CGFloat kToolbarWidth = 221.0;
-static_assert(kToolbarWidth >= 5 * (24.0 + kToolbarButtonPadding) + 4 * kToolbarButtonSpacing + kToolbarTrailingChrome + kToolbarLeadingChrome &&
-                  kToolbarWidth < 5 * (24.0 + kToolbarButtonPadding) + 4 * kToolbarButtonSpacing + kToolbarTrailingChrome + kToolbarLeadingChrome + 1.0,
-              "kToolbarWidth must be ToolbarPreferredWidth(5, 24, 1)");
+// 默认的一行：没做过选择的配置得到的六个按钮——中/英、切换输入方案、标点、全半角、简繁和设置——24 点、100%。表情、手写、语音和屏幕键盘需要手动打开（见 crates/client-core 的 FloatingToolbarPreferences::default()）。这是窗口在应用任何偏好之前打开时的尺寸，写宽了会先显示一个随即缩窄的工具栏。
+constexpr CGFloat kToolbarWidth = 255.0;
+static_assert(kToolbarWidth >= 6 * (24.0 + kToolbarButtonPadding) + 5 * kToolbarButtonSpacing + kToolbarTrailingChrome + kToolbarLeadingChrome &&
+                  kToolbarWidth < 6 * (24.0 + kToolbarButtonPadding) + 5 * kToolbarButtonSpacing + kToolbarTrailingChrome + kToolbarLeadingChrome + 1.0,
+              "kToolbarWidth must be ToolbarPreferredWidth(6, 24, 1)");
 constexpr CGFloat kToolbarHeight = 44.0;
 NSString *const kToolbarFrameAutosaveName = @"MetasequoiaFloatingToolbarFrame";
 
@@ -374,7 +370,7 @@ NSRect MetasequoiaFloatingToolbarFrame(NSRect proposedFrame, NSRect visibleFrame
 
 NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
 {
-    NSMenu *menu = [[NSMenu alloc] initWithTitle:@"水杉输入法"];
+    NSMenu *menu = [[NSMenu alloc] initWithTitle:MSIMEEditionDisplayName()];
     // Every item targets the panel, an NSWindow subclass, and NSMenu's automatic enabling asks
     // NSWindow's own -validateMenuItem: about each one. NSWindow implements -hideToolbar: for real
     // toolbars and answers NO when the window has none, which greyed out 隐藏悬浮状态栏 and swallowed
@@ -401,7 +397,7 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     [menu addItem:website];
     for (NSMenuItem *item in @[
              [[NSMenuItem alloc] initWithTitle:@"使用帮助…" action:@selector(openHelp:) keyEquivalent:@""],
-             [[NSMenuItem alloc] initWithTitle:@"关于水杉输入法…" action:@selector(openAbout:) keyEquivalent:@""],
+             [[NSMenuItem alloc] initWithTitle:[NSString stringWithFormat:@"关于%@…", MSIMEEditionDisplayName()] action:@selector(openAbout:) keyEquivalent:@""],
              [[NSMenuItem alloc] initWithTitle:@"问题反馈…" action:@selector(openFeedback:) keyEquivalent:@""],
          ])
     {
@@ -464,6 +460,7 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
 {
     MetasequoiaFloatingToolbarChromeView *_chrome;
     NSButton *_inputModeButton;
+    NSButton *_inputSchemeButton;
     NSButton *_punctuationButton;
     NSButton *_fullWidthButton;
     NSButton *_traditionalOutputButton;
@@ -547,6 +544,11 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
     self.contentView = _chrome;
 
     _inputModeButton = ToolbarButton(@"中", @"MetasequoiaFloatingToolbarInputMode", self, @selector(toggleInputMode:));
+    // 点开列出可用的输入方案。macOS 27 上粤、注、笔这类菜单栏入口只能由用户自己去系统设置添加，有了它不加入口也能切换。
+    _inputSchemeButton = ToolbarButton(@"", @"MetasequoiaFloatingToolbarInputScheme", self, @selector(showInputSchemeMenu:));
+    _inputSchemeButton.image = [NSImage imageWithSystemSymbolName:@"list.bullet" accessibilityDescription:@"输入方案"];
+    _inputSchemeButton.accessibilityLabel = @"切换输入方案";
+    _inputSchemeButton.toolTip = _inputSchemeButton.accessibilityLabel;
     _punctuationButton =
         ToolbarButton(@"。", @"MetasequoiaFloatingToolbarPunctuation", self, @selector(togglePunctuation:));
     _fullWidthButton = ToolbarButton(@"半", @"MetasequoiaFloatingToolbarFullWidth", self, @selector(toggleFullWidth:));
@@ -572,11 +574,11 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
     _settingsButton = ToolbarButton(@"", @"MetasequoiaFloatingToolbarSettings", self, @selector(openSettings:));
     _settingsButton.image = [NSImage imageWithSystemSymbolName:@"gearshape" accessibilityDescription:@"设置"];
     _settingsButton.menu = CreateMetasequoiaFloatingToolbarUtilityMenu(self);
-    _settingsButton.accessibilityLabel = @"打开水杉输入法设置";
+    _settingsButton.accessibilityLabel = [NSString stringWithFormat:@"打开%@设置", MSIMEEditionDisplayName()];
     _settingsButton.toolTip = _settingsButton.accessibilityLabel;
 
     NSStackView *actions = [NSStackView stackViewWithViews:@[
-        _inputModeButton, _punctuationButton, _fullWidthButton, _traditionalOutputButton, _emojiButton,
+        _inputModeButton, _inputSchemeButton, _punctuationButton, _fullWidthButton, _traditionalOutputButton, _emojiButton,
         _handwritingButton, _keyboardButton, _voiceButton, _settingsButton
     ]];
     actions.translatesAutoresizingMaskIntoConstraints = NO;
@@ -681,8 +683,8 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
     id fontValue = toolbar[@"font_size"] ?: @24;
     const CGFloat scale = [@[@75, @100, @125, @150] containsObject:scaleValue] ? [scaleValue doubleValue] / 100.0 : 1.0;
     const CGFloat fontSize = [@[@16, @18, @20, @22, @24, @26, @28] containsObject:fontValue] ? [fontValue doubleValue] : 24.0;
-    NSArray<NSString *> *keys = @[@"english_mode", @"punctuation", @"fullwidth", @"character_set", @"emoji", @"handwriting", @"screen_keyboard", @"voice", @"settings"];
-    NSArray<NSButton *> *optionalButtons = @[_inputModeButton, _punctuationButton, _fullWidthButton, _traditionalOutputButton, _emojiButton, _handwritingButton, _keyboardButton, _voiceButton, _settingsButton];
+    NSArray<NSString *> *keys = @[@"english_mode", @"input_scheme", @"punctuation", @"fullwidth", @"character_set", @"emoji", @"handwriting", @"screen_keyboard", @"voice", @"settings"];
+    NSArray<NSButton *> *optionalButtons = @[_inputModeButton, _inputSchemeButton, _punctuationButton, _fullWidthButton, _traditionalOutputButton, _emojiButton, _handwritingButton, _keyboardButton, _voiceButton, _settingsButton];
     NSUInteger mask = 0;
     // Every button on this toolbar can now be turned off; the row can be empty.
     NSUInteger count = 0;
@@ -691,7 +693,9 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
         // Keep optional utility buttons off when an older or partial settings
         // snapshot omits their keys. They can still be enabled explicitly.
         const BOOL defaultEnabled = ![@[@"emoji", @"handwriting", @"voice", @"screen_keyboard"] containsObject:keys[index]];
-        const BOOL enabled = [value isKindOfClass:NSNumber.class] ? [value boolValue] : defaultEnabled;
+        // 不提供手写的版本（日文、越南文和藏文版）不放手写按钮，偏好里同步来的开关也不算。
+        const BOOL offered = ![keys[index] isEqualToString:@"handwriting"] || MSIMEEditionOffersHandwriting();
+        const BOOL enabled = offered && ([value isKindOfClass:NSNumber.class] ? [value boolValue] : defaultEnabled);
         if (enabled) { mask |= 1u << index; ++count; }
     }
     if (scale == _appliedScale && fontSize == _appliedFontSize && mask == _appliedComponentMask) return;
@@ -700,7 +704,7 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
     _appliedComponentMask = mask;
     for (NSUInteger index = 0; index < optionalButtons.count; ++index)
         optionalButtons[index].hidden = (mask & (1u << index)) == 0;
-    for (NSButton *button in @[_inputModeButton, _punctuationButton, _fullWidthButton, _traditionalOutputButton, _emojiButton, _handwritingButton, _keyboardButton, _voiceButton, _settingsButton]) {
+    for (NSButton *button in @[_inputModeButton, _inputSchemeButton, _punctuationButton, _fullWidthButton, _traditionalOutputButton, _emojiButton, _handwritingButton, _keyboardButton, _voiceButton, _settingsButton]) {
         for (NSLayoutConstraint *constraint in button.constraints) {
             if (constraint.firstItem != button || constraint.secondItem != nil) continue;
             if ([constraint.identifier isEqualToString:@"ToolbarButtonWidth"]) constraint.constant = (fontSize + kToolbarButtonPadding) * scale;
@@ -710,6 +714,7 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
     }
     _settingsButton.symbolConfiguration = [NSImageSymbolConfiguration configurationWithPointSize:fontSize * scale weight:NSFontWeightRegular];
     _emojiButton.symbolConfiguration = _settingsButton.symbolConfiguration;
+    _inputSchemeButton.symbolConfiguration = _settingsButton.symbolConfiguration;
     _handwritingButton.symbolConfiguration = _settingsButton.symbolConfiguration;
     _keyboardButton.symbolConfiguration = _settingsButton.symbolConfiguration;
     _voiceButton.symbolConfiguration = _settingsButton.symbolConfiguration;
@@ -792,7 +797,7 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
     // A package's `[toolbar]` divider colour when it has one. Its `handle` colour has no target here: the logo is the drag handle and keeps the brand mark's colours.
     _divider.fillColor = MetasequoiaColorFromRgba(tokens.divider.value_or(tokens.border));
     for (MetasequoiaFloatingToolbarButton *button in
-         @[ _inputModeButton, _punctuationButton, _fullWidthButton, _traditionalOutputButton, _emojiButton, _handwritingButton, _keyboardButton, _voiceButton, _settingsButton ])
+         @[ _inputModeButton, _inputSchemeButton, _punctuationButton, _fullWidthButton, _traditionalOutputButton, _emojiButton, _handwritingButton, _keyboardButton, _voiceButton, _settingsButton ])
     {
         button.contentTintColor = text;
         button.hoverFillColor = hoverFill;
@@ -819,7 +824,7 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
     if (_inputModeButton == nil || _settingsButton == nil) return;
     // A hidden window gets no mouseExited:, so a button hovered at the moment the toolbar hides would come back highlighted.
     for (MetasequoiaFloatingToolbarButton *button in
-         @[ _inputModeButton, _punctuationButton, _fullWidthButton, _traditionalOutputButton, _emojiButton, _handwritingButton, _keyboardButton, _voiceButton, _settingsButton ])
+         @[ _inputModeButton, _inputSchemeButton, _punctuationButton, _fullWidthButton, _traditionalOutputButton, _emojiButton, _handwritingButton, _keyboardButton, _voiceButton, _settingsButton ])
         [button setHovered:NO];
 }
 
@@ -865,7 +870,7 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
     traditionalChineseOutputEnabled:(BOOL)traditionalChineseOutputEnabled
 {
     NSDictionary<NSString *, NSString *> *schemeBadges =
-        @{@"shuangpin": @"双", @"wubi": @"五", @"japanese": @"日", @"korean": @"한"};
+        @{@"shuangpin": @"双", @"wubi": @"五", @"japanese": @"日", @"korean": @"한", @"cantonese": @"粤", @"zhuyin": @"注", @"vietnamese": @"越", @"tibetan": @"ཀ", @"stroke": @"笔"};
     NSString *inputModeTitle = capsLock ? @"A" :
         (englishInputMode ? @"英" : (englishCandidateMode ? @"En" : (schemeBadges[scheme] ?: @"中")));
     _inputModeButton.title = inputModeTitle;
@@ -1021,6 +1026,15 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
     (void)sender;
     MSIMELogToolbarAction("openSettings", self.toolbarDelegate != nil, sender);
     [self.toolbarDelegate floatingToolbarDidRequestOpenSettings:self];
+}
+
+// 方案菜单由代理（输入控制器）给出，和输入法菜单里的「输入方案」子菜单是同一份：同样只列可用的方案、勾上正在用的那个，选中后走同一条切换路径。
+- (void)showInputSchemeMenu:(id)sender
+{
+    MSIMELogToolbarAction("showInputSchemeMenu", self.toolbarDelegate != nil, sender);
+    NSMenu *menu = [self.toolbarDelegate floatingToolbarInputSchemeMenu:self];
+    if (menu.numberOfItems == 0) return;
+    [menu popUpMenuPositioningItem:nil atLocation:NSMakePoint(0.0, NSHeight(_inputSchemeButton.bounds) + 4.0) inView:_inputSchemeButton];
 }
 
 - (void)openEmoji:(id)sender

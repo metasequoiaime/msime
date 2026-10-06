@@ -39,7 +39,7 @@ struct BackendCommunityResourcesView: View {
         ForEach(items) { item in
           Button { selected = item } label: {
             SettingsRowLabel(title: item.name,
-                             detail: "\(item.author) · 版本 \(item.revision) · \(item.saves) 人收藏",
+                             detail: (item.removed ? "已下架 · " : "") + "\(item.author) · 版本 \(item.revision) · \(item.saves) 人收藏",
                              symbol: kind == .dictionary ? "character.book.closed.fill" : "text.bubble.fill")
           }.buttonStyle(.plain)
         }
@@ -127,6 +127,8 @@ private struct CommunityResourceDetailView: View {
   @State private var pending: Task<Void, Never>?
   @State private var deleting = false
   @State private var editing = false
+  @State private var reportReason = BackendAccountClient.reportReasons[0]
+  @State private var reportDetail = ""
   private let client = BackendAccountClient()
   private var value: BackendAccountClient.CommunityResource { current ?? initial }
   var body: some View {
@@ -134,6 +136,9 @@ private struct CommunityResourceDetailView: View {
       HStack { Text(value.name).font(.title2); Spacer(); Button("关闭") { dismiss() } }.padding()
       List {
         Text("\(value.author) · 版本 \(value.revision)").font(.caption)
+        if value.removed {
+          Text("已下架").font(.caption.bold()).foregroundStyle(.red).accessibilityIdentifier("communityResourceRemoved")
+        }
         Text(value.description)
         if let prompt = value.content.prompt { Text(prompt).textSelection(.enabled) }
         if let entries = value.content.entries {
@@ -160,6 +165,21 @@ private struct CommunityResourceDetailView: View {
         if value.owned {
           Button("编辑并发布新版本") { editing = true }.disabled(busy)
           Button("删除我的发布", role: .destructive) { deleting = true }.disabled(busy)
+        } else {
+          Section("举报") {
+            Picker("原因", selection: $reportReason) {
+              ForEach(BackendAccountClient.reportReasons, id: \.self) { Text($0).tag($0) }
+            }
+            TextField("补充说明（选填，最多 1000 字）", text: $reportDetail)
+            Button("举报") {
+              let reason = reportReason, detail = reportDetail
+              run(refresh: false) { token in
+                try await client.reportContent(kind: value.kind == .dictionary ? "dictionaries" : "replies", itemID: value.id,
+                                               reason: reason, detail: detail, token: token)
+                _ = try await authorize(); reportDetail = ""; message = "已收到举报，我们会尽快处理。"
+              }
+            }.disabled(busy || reportDetail.unicodeScalars.count > 1000).accessibilityIdentifier("reportCommunityResource")
+          }
         }
         if busy { ProgressView() }
         if let message { Text(message).foregroundStyle(.secondary) }

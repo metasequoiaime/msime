@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>水杉输入法网页引擎</title>
+    <style>
+      html, body { background-color: #fafafa; color: #222; }
+      body { max-width: 720px; margin: 40px auto; padding: 0 16px; font: 16px/1.6 system-ui, sans-serif; }
+      textarea { width: 100%; height: 200px; padding: 8px; font: inherit; box-sizing: border-box; }
+      .bar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 8px; }
+      #status { color: #666; font-size: 14px; }
+    </style>
+  </head>
+  <body>
+    <h1>水杉输入法网页引擎</h1>
+    <div class="bar">
+      <label>方案
+        <select id="scheme">
+          <option value="quanpin">全拼</option>
+          <option value="xiaohe">小鹤双拼</option>
+          <option value="ziranma">自然码双拼</option>
+          <option value="wubi86">五笔 86</option>
+        </select>
+      </label>
+      <label>皮肤
+        <select id="skin">
+          <option value="shuishan">水杉</option>
+          <option value="system">跟随系统</option>
+          <option value="light">浅色</option>
+          <option value="paper">纸白</option>
+          <option value="night">夜青</option>
+          <option value="ink">墨</option>
+          <option value="wechat">微信绿</option>
+          <option value="graphite">石墨</option>
+          <option value="willow_green">杨柳青</option>
+          <option value="autumn_osmanthus">秋桂</option>
+          <option value="microsoft">微软</option>
+        </select>
+      </label>
+      <label>排列
+        <select id="layout">
+          <option value="horizontal">横排</option>
+          <option value="vertical">竖排</option>
+        </select>
+      </label>
+      <label>明暗
+        <select id="dark">
+          <option value="auto">跟随页面</option>
+          <option value="light">浅色</option>
+          <option value="dark">深色</option>
+        </select>
+      </label>
+      <span id="status">加载中…</span>
+    </div>
+    <textarea id="text" placeholder="加载完成后在这里打字。单按 Shift 切换中英文。" disabled></textarea>
+    <p><small>引擎完全运行在你的浏览器里，输入的内容不会发送到任何服务器。<a href="msime/assets/NOTICE.md">第三方许可声明</a></small></p>
+    <script type="module">
+      // msime/ 是 `msime-web-engine copy site/msime` 复制出来的目录；改用 CDN 时把这里换成 https://cdn.jsdelivr.net/npm/@msime/web-engine@<版本>/index.js。
+      import { createMsimeEngine, attachInput } from "./msime/index.js";
+
+      const text = document.getElementById("text");
+      const status = document.getElementById("status");
+      const select = document.getElementById("scheme");
+      const skin = document.getElementById("skin");
+      const layout = document.getElementById("layout");
+      const dark = document.getElementById("dark");
+      let engine = null;
+      let detach = () => {};
+
+      // 候选栏的皮肤、排列和明暗；只有 system 和后五个 Windows 外观跟随明暗，五个全局主题自带明暗。
+      function attach() {
+        detach();
+        detach = attachInput(text, engine, {
+          skin: skin.value,
+          layout: layout.value,
+          dark: dark.value === "auto" ? "auto" : dark.value === "dark",
+        });
+      }
+
+      async function load(scheme) {
+        // 拼音方案之间只需切换；和五笔互换要换词库，新建一个引擎。
+        if (engine && scheme !== "wubi86" && engine.scheme !== "wubi86") {
+          await engine.setScheme(scheme);
+          return;
+        }
+        detach();
+        engine?.dispose();
+        engine = null;
+        text.disabled = true;
+        status.textContent = "加载中…";
+        try {
+          engine = await createMsimeEngine({
+            scheme,
+            onProgress: (loaded, total) => (status.textContent = `下载中 ${Math.round((loaded / total) * 100)}%`),
+          });
+        } catch (e) {
+          status.textContent = `加载失败（${e.code}）：${e.message}`;
+          return;
+        }
+        engine.onError((e) => (status.textContent = `引擎出错：${e.message}`));
+        attach();
+        text.disabled = false;
+        text.focus();
+        status.textContent = `就绪：${engine.build}`;
+      }
+
+      select.addEventListener("change", () => load(select.value));
+      // 换皮肤时先丢掉正在组的字，再按新的选项重新接上，引擎不用重建。
+      for (const control of [skin, layout, dark]) {
+        control.addEventListener("change", async () => {
+          if (!engine) return;
+          await engine.reset();
+          attach();
+          text.focus();
+        });
+      }
+      load(select.value);
+    </script>
+  </body>
+</html>

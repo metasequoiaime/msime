@@ -96,6 +96,7 @@ std::vector<std::string> StringArrayField(NSDictionary *object, NSString *key)
     {
         return values;
     }
+    values.reserve(items.count);
     for (NSString *item in items)
     {
         if ([item isKindOfClass:NSString.class])
@@ -403,6 +404,7 @@ SkinCatalog ScanSkinCatalog(const std::filesystem::path &skinsRoot)
         NSArray *packages = catalog[@"packages"];
         if ([packages isKindOfClass:NSArray.class])
         {
+            result.packages.reserve(packages.count);
             for (id entry in packages)
             {
                 if (auto package = PackageFromJSON(entry))
@@ -414,6 +416,7 @@ SkinCatalog ScanSkinCatalog(const std::filesystem::path &skinsRoot)
         NSArray *issues = catalog[@"issues"];
         if ([issues isKindOfClass:NSArray.class])
         {
+            result.issues.reserve(issues.count);
             for (NSDictionary *issue in issues)
             {
                 if ([issue isKindOfClass:NSDictionary.class])
@@ -448,6 +451,7 @@ const std::vector<ThemeCatalogEntry> &ThemeCatalog()
             {
                 return result;
             }
+            result.reserve(themes.count);
             for (NSDictionary *theme in themes)
             {
                 if (![theme isKindOfClass:NSDictionary.class])

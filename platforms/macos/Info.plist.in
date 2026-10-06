@@ -11,7 +11,7 @@
 <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
 <key>NSPrincipalClass</key><string>NSApplication</string>
 <key>CFBundleVersion</key><string>${MACOSX_BUNDLE_BUNDLE_VERSION}</string>
-<key>CFBundleShortVersionString</key><string>0.50.0</string>
+<key>CFBundleShortVersionString</key><string>0.52.0</string>
 <key>NSMicrophoneUsageDescription</key><string>仅在开始语音输入时录音，用于识别并输入您说出的文字。</string>
 <!-- The macOS 系统识别 provider asks SFSpeechRecognizer for authorization. TCC refuses a request for a
      protected resource that the bundle has not declared a purpose for, and terminates the process rather
@@ -20,13 +20,14 @@
 <key>NSSpeechRecognitionUsageDescription</key><string>选择 macOS 系统识别时，把录音交给系统语音识别，用于转写您说出的文字。</string>
 <key>LSBackgroundOnly</key><true/>
 <key>LSMinimumSystemVersion</key><string>13.0</string>
-<key>InputMethodConnectionName</key><string>MSIMEClientPreviewConnection</string>
+<!-- macOS 27 上 imklaunchagent 拒绝不是 `<CFBundleIdentifier>_Connection` 形式的连接名（"unrecognized 'InputMethodConnectionName' value"），之后再也不按需拉起输入法：在别的途径启动进程之前，它的模式在输入菜单里一直是灰的。input_method_main.mm 使用从这里读到的名字，info-plist-names 检查它的形式。 -->
+<key>InputMethodConnectionName</key><string>app.msime.inputmethod.MetasequoiaIME_Connection</string>
 <key>InputMethodServerControllerClass</key><string>MSIMEInputController</string>
 <key>InputMethodServerDelegateClass</key><string>MSIMEInputController</string>
 <key>InputMethodServerPreferencesWindowControllerClass</key><string>MSIMEPreferencesWindowController</string>
-<!-- 输入菜单经 HIToolbox 绘制图标，它读的是文件里的页，而不是某一页的 DPI。把 256 点的应用图标放进这个槽位，会被当作图片缩进 16 点的菜单槽而不是模板，于是没法跟随深色模式或高亮菜单行着色。下面六个输入模式各用一张带角标的标志（中、双、五、日、한、英），菜单栏和系统的 Ctrl+空格 切换条才分得清是哪个模式——几条都用同一个标志时它们一模一样。每张都带 16x16 @72dpi 和 32x32 @144dpi 两页，这是苹果自家输入法的配法，图形是纯黑、形状完全由 alpha 通道承载。改过旁边的 SVG 之后用 scripts/render_menu_icon.swift 把这七张一起重新生成；页数由 info-plist-icons 检查。CFBundleIconFile 仍然是 .icns：那是设置窗口的 Dock 图标，要的是全彩图。 -->
+<!-- 输入菜单经 HIToolbox 绘制图标，它读的是文件里的页，而不是某一页的 DPI。把 256 点的应用图标放进这个槽位，会被当作图片缩进 16 点的菜单槽而不是模板，于是没法跟随深色模式或高亮菜单行着色。下面十一个输入模式各用一张带角标的标志（中、双、五、粤、注、日、한、越、ཀ、笔、英），菜单栏和系统的 Ctrl+空格 切换条才分得清是哪个模式——几条都用同一个标志时它们一模一样。每张都带 16x16 @72dpi 和 32x32 @144dpi 两页，这是苹果自家输入法的配法，图形是纯黑、形状完全由 alpha 通道承载。改过旁边的 SVG 之后用 scripts/render_menu_icon.swift 把这十二张一起重新生成；页数由 info-plist-icons 检查。CFBundleIconFile 仍然是 .icns：那是设置窗口的 Dock 图标，要的是全彩图。 -->
 <key>tsInputMethodIconFileKey</key><string>MSIMEClientInputMethodMenuIcon.tiff</string>
-<!-- macOS 通过输入法的可见输入模式来提供它，本 bundle 声明了六个：中文模式、双拼模式、五笔模式、英文模式、日语模式与韩语模式。六个模式的图标都是产品标志，右下角的角标写着模式的字，所以菜单栏图标随模式变化。控制器与系统的模式报告双向保持一致：英文模式跟随中英文切换，双拼、五笔、日语、韩语模式分别跟随输入方案 shuangpin、wubi、japanese、korean。六个模式都默认启用：第三方输入法的模式在系统设置的「添加」对话框里不单独列出，默认不启用的模式用户无处可加。经 Sparkle 更新只替换 bundle、不重新登记，所以输入法启动时还会把新增的模式各启用一次（MSIMEEnableNewInputModes），用户之后在系统设置里移除的不会被加回来。在这些模式之外再留一个顶层 TISInputSourceID，会多出一条本地化名称相同的菜单项，所以 bundle 那一级的输入源刻意交给系统处理；每个模式在 InfoPlist.strings 里带各自的本地化名称——水杉输入法 · 中、· 双拼、· 五笔、· 日、· 韩、· 英——几条读起来才不一样，可见顺序按中、双、五、日、한、英排列。模式标识符在 src/input/InputModeIdentifiers.h 里有一份对应。 -->
+<!-- macOS 通过输入法的可见输入模式来提供它，本 bundle 声明了十一个：中文模式、双拼模式、五笔模式、粤拼模式、注音模式、英文模式、日语模式、韩语模式、越南语模式、藏语模式与笔画模式。十一个模式的图标都是产品标志，右下角的角标写着模式的字，所以菜单栏图标随模式变化。控制器与系统的模式报告双向保持一致：英文模式跟随中英文切换，其余模式分别跟随输入方案 shuangpin、wubi、cantonese、zhuyin、japanese、korean、vietnamese、tibetan、stroke。中、双、五、英、日、韩六个模式默认启用，装好即可使用。系统设置的「添加」对话框会列出第三方输入法的各个模式，但按各自的 TISIntendedLanguage 分到不同语言下：中、双、五、笔、英在「简体中文」，粤在「粤语」，注在「繁体中文」，日、韩、越、藏在各自的语言下，只看「简体中文」会以为其余模式不存在。经 Sparkle 更新只替换 bundle、不重新登记，所以输入法启动时还会把新增的模式各启用一次（MSIMEEnableNewInputModes），用户之后在系统设置里移除的不会被加回来。粤、注、越、藏、笔五个模式是例外，按需启用：tsInputModeDefaultStateKey 为 false，登记时跳过，MSIMEEnableNewInputModes 只记录不启用（系统若无视这个键自行启用了，就在第一次记录时关掉一次），用户在菜单或设置里选中对应输入方案时才由控制器请求启用该模式，切走方案也不会关掉它。macOS 27 不允许进程启用键盘输入模式，这个请求在那里不生效，用户要在系统设置的「添加」对话框里自己加：粤在「粤语」下，注在「繁体中文」下，越在「越南语」下，藏在「藏语」下，笔在「简体中文」下；设置页的「菜单栏入口」会列出还没加入的模式。在这些模式之外再留一个顶层 TISInputSourceID，会多出一条本地化名称相同的菜单项，所以 bundle 那一级的输入源刻意交给系统处理；每个模式在 InfoPlist.strings 里带各自的本地化名称——水杉输入法 · 中、· 双、· 五、· 粤、· 注、· 日、· 韩、· 越、· 藏、· 笔、· 英——几条读起来才不一样，可见顺序按中、双、五、粤、注、日、한、越、藏、笔、英排列。模式标识符在 src/input/InputModeIdentifiers.h 里有一份对应。 -->
 <key>ComponentInputModeDict</key>
 <dict>
   <key>tsInputModeListKey</key>
@@ -103,8 +104,69 @@
       <key>tsInputModePrimaryInScriptKey</key><true/>
       <key>tsInputModeScriptKey</key><string>smKorean</string>
     </dict>
+    <key>app.msime.inputmethod.MetasequoiaIME.Cantonese</key>
+    <dict>
+      <key>TISInputSourceID</key><string>app.msime.inputmethod.MetasequoiaIME.Cantonese</string>
+      <key>TISIntendedLanguage</key><string>yue-Hant</string>
+      <key>tsInputModeCharacterRepertoireKey</key><array><string>Hant</string></array>
+      <key>tsInputModeDefaultStateKey</key><false/>
+      <key>tsInputModeIsVisibleKey</key><true/>
+      <key>tsInputModeMenuIconFileKey</key><string>MSIMEClientInputMethodMenuIconCantonese.tiff</string>
+      <key>tsInputModePaletteIconFileKey</key><string>MSIMEClientInputMethodMenuIconCantonese.tiff</string>
+      <key>tsInputModePrimaryInScriptKey</key><true/>
+      <key>tsInputModeScriptKey</key><string>smTradChinese</string>
+    </dict>
+    <key>app.msime.inputmethod.MetasequoiaIME.Zhuyin</key>
+    <dict>
+      <key>TISInputSourceID</key><string>app.msime.inputmethod.MetasequoiaIME.Zhuyin</string>
+      <key>TISIntendedLanguage</key><string>zh-Hant</string>
+      <key>tsInputModeCharacterRepertoireKey</key><array><string>Bopo</string><string>Hant</string></array>
+      <key>tsInputModeDefaultStateKey</key><false/>
+      <key>tsInputModeIsVisibleKey</key><true/>
+      <key>tsInputModeMenuIconFileKey</key><string>MSIMEClientInputMethodMenuIconZhuyin.tiff</string>
+      <key>tsInputModePaletteIconFileKey</key><string>MSIMEClientInputMethodMenuIconZhuyin.tiff</string>
+      <key>tsInputModePrimaryInScriptKey</key><false/>
+      <key>tsInputModeScriptKey</key><string>smTradChinese</string>
+    </dict>
+    <key>app.msime.inputmethod.MetasequoiaIME.Stroke</key>
+    <dict>
+      <key>TISInputSourceID</key><string>app.msime.inputmethod.MetasequoiaIME.Stroke</string>
+      <key>TISIntendedLanguage</key><string>zh-Hans</string>
+      <key>tsInputModeCharacterRepertoireKey</key><array><string>Hans</string></array>
+      <key>tsInputModeDefaultStateKey</key><false/>
+      <key>tsInputModeIsVisibleKey</key><true/>
+      <key>tsInputModeMenuIconFileKey</key><string>MSIMEClientInputMethodMenuIconStroke.tiff</string>
+      <key>tsInputModePaletteIconFileKey</key><string>MSIMEClientInputMethodMenuIconStroke.tiff</string>
+      <key>tsInputModePrimaryInScriptKey</key><false/>
+      <key>tsInputModeScriptKey</key><string>smSimpChinese</string>
+    </dict>
+    <key>app.msime.inputmethod.MetasequoiaIME.Vietnamese</key>
+    <dict>
+      <key>TISInputSourceID</key><string>app.msime.inputmethod.MetasequoiaIME.Vietnamese</string>
+      <key>TISIntendedLanguage</key><string>vi</string>
+      <key>tsInputModeCharacterRepertoireKey</key><array><string>Latn</string></array>
+      <key>tsInputModeDefaultStateKey</key><false/>
+      <key>tsInputModeIsVisibleKey</key><true/>
+      <key>tsInputModeMenuIconFileKey</key><string>MSIMEClientInputMethodMenuIconVietnamese.tiff</string>
+      <key>tsInputModePaletteIconFileKey</key><string>MSIMEClientInputMethodMenuIconVietnamese.tiff</string>
+      <key>tsInputModePrimaryInScriptKey</key><false/>
+      <key>tsInputModeScriptKey</key><string>smRoman</string>
+    </dict>
+    <!-- 藏语模式：在拉丁键盘上打威利转写（EWTS），写出的是藏文。旧的 Script Manager 没有对应藏文的常用脚本码，苹果自家的泰米尔、阿伊努输入法这类脚本都用 smUnicodeScript，这里照做；字符集写 Tibt，「添加」对话框按 TISIntendedLanguage bo 把它归在「藏语」下。 -->
+    <key>app.msime.inputmethod.MetasequoiaIME.Tibetan</key>
+    <dict>
+      <key>TISInputSourceID</key><string>app.msime.inputmethod.MetasequoiaIME.Tibetan</string>
+      <key>TISIntendedLanguage</key><string>bo</string>
+      <key>tsInputModeCharacterRepertoireKey</key><array><string>Tibt</string></array>
+      <key>tsInputModeDefaultStateKey</key><false/>
+      <key>tsInputModeIsVisibleKey</key><true/>
+      <key>tsInputModeMenuIconFileKey</key><string>MSIMEClientInputMethodMenuIconTibetan.tiff</string>
+      <key>tsInputModePaletteIconFileKey</key><string>MSIMEClientInputMethodMenuIconTibetan.tiff</string>
+      <key>tsInputModePrimaryInScriptKey</key><false/>
+      <key>tsInputModeScriptKey</key><string>smUnicodeScript</string>
+    </dict>
   </dict>
   <key>tsVisibleInputModeOrderedArrayKey</key>
-  <array><string>app.msime.inputmethod.MetasequoiaIME.Hans</string><string>app.msime.inputmethod.MetasequoiaIME.Shuangpin</string><string>app.msime.inputmethod.MetasequoiaIME.Wubi</string><string>app.msime.inputmethod.MetasequoiaIME.Japanese</string><string>app.msime.inputmethod.MetasequoiaIME.Korean</string><string>app.msime.inputmethod.MetasequoiaIME.Roman</string></array>
+  <array><string>app.msime.inputmethod.MetasequoiaIME.Hans</string><string>app.msime.inputmethod.MetasequoiaIME.Shuangpin</string><string>app.msime.inputmethod.MetasequoiaIME.Wubi</string><string>app.msime.inputmethod.MetasequoiaIME.Cantonese</string><string>app.msime.inputmethod.MetasequoiaIME.Zhuyin</string><string>app.msime.inputmethod.MetasequoiaIME.Japanese</string><string>app.msime.inputmethod.MetasequoiaIME.Korean</string><string>app.msime.inputmethod.MetasequoiaIME.Vietnamese</string><string>app.msime.inputmethod.MetasequoiaIME.Tibetan</string><string>app.msime.inputmethod.MetasequoiaIME.Stroke</string><string>app.msime.inputmethod.MetasequoiaIME.Roman</string></array>
 </dict>
 </dict></plist>

@@ -113,7 +113,7 @@ int main() {
       frame.generation = 1;
       frame.visible = true;
       frame.preedit = "U4e2d";
-      frame.candidates.push_back({1, 1, 0, "中", true, {}, {}, false, {}});
+      frame.candidates.push_back({1, 1, 0, "中", true, false, {}, {}, false, {}});
       value = frame;
       value->y = invalid_candidate_anchor_y;
       window.refresh();
@@ -338,6 +338,41 @@ int main() {
       StateRootLease reacquired(root);
     }
     require(std::filesystem::exists(root / L".msime-client-server.lock"));
+    // 与 Rust 的 `is_symlink` 一致：符号链接、目录联接拒绝，OneDrive 云文件和 App 执行别名这类非名称代理重解析点放行。
+    require(is_name_surrogate_reparse_point(FILE_ATTRIBUTE_REPARSE_POINT, IO_REPARSE_TAG_SYMLINK));
+    require(is_name_surrogate_reparse_point(FILE_ATTRIBUTE_REPARSE_POINT, IO_REPARSE_TAG_MOUNT_POINT));
+    require(!is_name_surrogate_reparse_point(FILE_ATTRIBUTE_REPARSE_POINT, IO_REPARSE_TAG_CLOUD));
+    require(!is_name_surrogate_reparse_point(FILE_ATTRIBUTE_REPARSE_POINT, IO_REPARSE_TAG_APPEXECLINK));
+    require(!is_name_surrogate_reparse_point(FILE_ATTRIBUTE_DIRECTORY, IO_REPARSE_TAG_SYMLINK));
+    {
+      // 最后一级：普通文件可信，指向它的文件符号链接不可信（创建符号链接需要开发者模式或权限，失败时跳过）。
+      const auto open_leaf = [](const std::filesystem::path &path) {
+        return CreateFileW(path.c_str(), FILE_READ_ATTRIBUTES,
+                           FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                           OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT,
+                           nullptr);
+      };
+      const auto lock_file = root / L".msime-client-server.lock";
+      HANDLE plain = open_leaf(lock_file);
+      require(plain != INVALID_HANDLE_VALUE);
+      require(handle_is_trusted_file(plain));
+      CloseHandle(plain);
+      const auto leaf_link = root / L"leaf-link.lock";
+      if (CreateSymbolicLinkW(leaf_link.c_str(), lock_file.c_str(), 0)) {
+        HANDLE linked_leaf = open_leaf(leaf_link);
+        require(linked_leaf != INVALID_HANDLE_VALUE);
+        require(!handle_is_trusted_file(linked_leaf));
+        CloseHandle(linked_leaf);
+        std::filesystem::remove(leaf_link);
+      }
+      HANDLE directory = CreateFileW(root.c_str(), FILE_READ_ATTRIBUTES,
+                                     FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                                     OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS,
+                                     nullptr);
+      require(directory != INVALID_HANDLE_VALUE);
+      require(!handle_is_trusted_file(directory));
+      CloseHandle(directory);
+    }
     const auto outside = root.parent_path() / (root.filename().wstring() + L"-outside");
     require(std::filesystem::create_directory(outside));
     const auto linked = root.parent_path() / (root.filename().wstring() + L"-linked");

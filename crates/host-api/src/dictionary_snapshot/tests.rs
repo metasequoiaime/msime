@@ -28,6 +28,36 @@ fn activation_receipt_does_not_follow_a_fixed_temporary_symlink() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn activation_receipt_rejects_a_symlinked_receipt() {
+    use msime_client_core::preferences::Preferences;
+    use std::fs;
+    use std::os::unix::fs::symlink;
+
+    let root = tempfile::tempdir().unwrap();
+    let user = root.path().join("user");
+    let outside = tempfile::tempdir().unwrap();
+    fs::create_dir(&user).unwrap();
+    let outside_file = outside.path().join("receipt");
+    fs::write(&outside_file, b"10000000-0000-4000-8000-000000000001").unwrap();
+    symlink(&outside_file, user.join(super::ACTIVATION_RECEIPT_NAME)).unwrap();
+    let options: super::HostOptions = serde_json::from_value(serde_json::json!({
+        "api_version": 1,
+        "resources": root.path().join("resources"),
+        "user_data": user,
+        "cache": root.path().join("cache"),
+        "dictionaries": root.path().join("dictionaries"),
+        "preferences": Preferences::default(),
+    }))
+    .unwrap();
+
+    assert_eq!(
+        super::activation_receipt(&options.into_engine_options()),
+        Err("snapshot activation receipt unavailable")
+    );
+}
+
 #[test]
 fn queue_state_can_be_polled_while_an_engine_session_holds_shared_access() {
     use msime_client_core::dictionary::access::DictionaryAccess;
@@ -120,6 +150,28 @@ fn inspection_requires_the_complete_counted_snapshot_envelope() {
     );
     fs::write(&file, malformed).unwrap();
     assert!(super::inspect_snapshot(&file).is_err());
+}
+
+#[cfg(unix)]
+#[test]
+fn inspection_rejects_a_snapshot_below_a_symlinked_parent() {
+    use msime_path_trust::untrusted_symlink as symlink;
+    use sha2::{Digest, Sha256};
+    use std::fs;
+
+    let root = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let body = concat!(
+        r#"{"type":"header","format":"msime-dictionary-snapshot","version":1,"revision":7}"#,
+        "\n"
+    );
+    let digest = hex::encode(Sha256::digest(body.as_bytes()));
+    let snapshot = format!("{body}{{\"type\":\"footer\",\"records\":1,\"sha256\":\"{digest}\"}}\n");
+    fs::write(outside.path().join("snapshot.ndjson"), snapshot).unwrap();
+    symlink(outside.path(), root.path().join("linked")).unwrap();
+
+    let path = root.path().join("linked/snapshot.ndjson");
+    assert!(super::inspect_snapshot(&path).is_err());
 }
 
 #[test]
@@ -239,6 +291,7 @@ fn discard_does_not_require_maintenance_lock_for_live_paths() {
         cache: root.path().join("cache").to_string_lossy().into_owned(),
         dictionaries: dictionaries.to_string_lossy().into_owned(),
         scheme: 0,
+        enabled_schemes: msime_engine::SchemeSet::ALL,
         shuangpin_profile: 0,
         shuangpin_preedit_uses_raw: true,
         learning: false,
@@ -246,6 +299,7 @@ fn discard_does_not_require_maintenance_lock_for_live_paths() {
         autocorrect_neighbor: true,
         fuzzy_pinyin_rules: 0,
         wubi_mixed_pinyin: false,
+        wubi_profile: 0,
         helpcode: false,
         show_helpcode: true,
         helpcode_schema: "ziranma".into(),
@@ -272,6 +326,8 @@ fn discard_does_not_require_maintenance_lock_for_live_paths() {
         local_mention: false,
         command_table: Vec::new(),
         mention_entries: Vec::new(),
+        quick_phrase_table: Vec::new(),
+        helpcode_table: None,
         sentence_association: msime_engine::host::SentenceAssociationOptions {
             word_lattice: true,
             neural_keyboard: false,
@@ -279,6 +335,12 @@ fn discard_does_not_require_maintenance_lock_for_live_paths() {
         },
         rescoring_context: String::new(),
         sentence_alternatives: true,
+        vietnamese_input_method: 0,
+        vietnamese_tone_style: 0,
+        cantonese_dictionary: String::new(),
+        zhuyin_dictionary: String::new(),
+        stroke_dictionary: String::new(),
+        japanese_dictionary: String::new(),
     };
     registry().lock().unwrap().insert(
         456,
@@ -330,6 +392,7 @@ fn activation_case(nested_dictionaries: bool, hold_session: bool, handle: u64) {
         cache: base.join("cache").to_str().unwrap().into(),
         dictionaries: base.join(dictionaries).to_str().unwrap().into(),
         scheme: 0,
+        enabled_schemes: msime_engine::SchemeSet::ALL,
         shuangpin_profile: 0,
         shuangpin_preedit_uses_raw: true,
         learning: false,
@@ -337,6 +400,7 @@ fn activation_case(nested_dictionaries: bool, hold_session: bool, handle: u64) {
         autocorrect_neighbor: true,
         fuzzy_pinyin_rules: 0,
         wubi_mixed_pinyin: false,
+        wubi_profile: 0,
         helpcode: false,
         show_helpcode: true,
         helpcode_schema: "ziranma".into(),
@@ -363,7 +427,15 @@ fn activation_case(nested_dictionaries: bool, hold_session: bool, handle: u64) {
         local_mention: false,
         command_table: Vec::new(),
         mention_entries: Vec::new(),
+        quick_phrase_table: Vec::new(),
+        helpcode_table: None,
         sentence_alternatives: true,
+        vietnamese_input_method: 0,
+        vietnamese_tone_style: 0,
+        cantonese_dictionary: String::new(),
+        zhuyin_dictionary: String::new(),
+        stroke_dictionary: String::new(),
+        japanese_dictionary: String::new(),
         sentence_association: msime_engine::host::SentenceAssociationOptions {
             word_lattice: true,
             neural_keyboard: false,
@@ -542,7 +614,7 @@ fn activation_reopens_the_personal_context_store_on_the_restored_journal() {
             fs::create_dir_all(base.join(name)).unwrap();
         }
         for name in ["resources", "dictionaries"] {
-            rusqlite::Connection::open(base.join(name).join("msime.db"))
+            rusqlite::Connection::open(base.join(name).join("msime-pinyin.db"))
                 .unwrap()
                 .execute_batch(fixture)
                 .unwrap();
@@ -554,6 +626,7 @@ fn activation_reopens_the_personal_context_store_on_the_restored_journal() {
         cache: base.join("cache").to_str().unwrap().into(),
         dictionaries: base.join("dictionaries").to_str().unwrap().into(),
         scheme: 0,
+        enabled_schemes: msime_engine::SchemeSet::ALL,
         shuangpin_profile: 0,
         shuangpin_preedit_uses_raw: true,
         learning: true,
@@ -561,6 +634,7 @@ fn activation_reopens_the_personal_context_store_on_the_restored_journal() {
         autocorrect_neighbor: true,
         fuzzy_pinyin_rules: 0,
         wubi_mixed_pinyin: false,
+        wubi_profile: 0,
         helpcode: false,
         show_helpcode: true,
         helpcode_schema: "ziranma".into(),
@@ -587,7 +661,15 @@ fn activation_reopens_the_personal_context_store_on_the_restored_journal() {
         local_mention: false,
         command_table: Vec::new(),
         mention_entries: Vec::new(),
+        quick_phrase_table: Vec::new(),
+        helpcode_table: None,
         sentence_alternatives: true,
+        vietnamese_input_method: 0,
+        vietnamese_tone_style: 0,
+        cantonese_dictionary: String::new(),
+        zhuyin_dictionary: String::new(),
+        stroke_dictionary: String::new(),
+        japanese_dictionary: String::new(),
         sentence_association: msime_engine::host::SentenceAssociationOptions {
             word_lattice: true,
             neural_keyboard: false,
@@ -652,4 +734,49 @@ fn activation_reopens_the_personal_context_store_on_the_restored_journal() {
     pick("你好");
     assert_eq!(learned("你好"), 1, "learning after the restore was lost");
     assert_eq!(learned("拟好"), 0, "the pre-restore context came back");
+}
+
+/// 快照准备与 `prepare_host_configuration` 用同一条发货规则：给出按需清单时，不含日文词典的资源目录通过校验；不给时照旧拒绝。
+#[test]
+fn snapshot_preparation_accepts_resources_shipped_without_the_on_demand_pair() {
+    use super::*;
+    use msime_client_core::resources::MACOS_ON_DEMAND_ARTIFACTS;
+    use std::fs;
+
+    let root = tempfile::tempdir().unwrap();
+    let resources = root.path().join("resources");
+    let specification = crate::tests::synthetic_desktop_lock(&resources);
+    fs::remove_file(resources.join("msime-japanese.dat")).unwrap();
+    fs::remove_file(resources.join("msime-mozc_dictionary_oss_README.txt")).unwrap();
+    fs::remove_file(resources.join("msime-mozc_LICENSE.txt")).unwrap();
+    for name in ["user", "cache", "dictionaries", "staging"] {
+        fs::create_dir_all(root.path().join(name)).unwrap();
+    }
+    let document = serde_json::json!({
+        "api_version": 1,
+        "resources": resources,
+        "user_data": root.path().join("user"),
+        "cache": root.path().join("cache"),
+        "dictionaries": root.path().join("dictionaries"),
+        "preferences": msime_client_core::preferences::Preferences::default(),
+    });
+    let request = || -> PrepareRequest {
+        let options: HostOptions = serde_json::from_value(document.clone()).unwrap();
+        let expected_version = version(&options.clone().into_engine_options()).unwrap();
+        PrepareRequest {
+            options,
+            staging_root: root.path().join("staging").to_str().unwrap().into(),
+            expected_version,
+            records: 0,
+            activation_id: None,
+        }
+    };
+    let rejected = |on_demand: &[&str]| {
+        matches!(
+            prepare(request(), &specification, on_demand, std::iter::empty()),
+            Err("snapshot resources rejected")
+        )
+    };
+    assert!(rejected(&[]));
+    assert!(!rejected(&MACOS_ON_DEMAND_ARTIFACTS));
 }

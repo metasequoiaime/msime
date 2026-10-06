@@ -1,5 +1,7 @@
 #pragma once
 
+#include "LruCache.h"
+
 #include <d2d1.h>
 #include <d2d1_1.h>
 #include <d3d11.h>
@@ -56,7 +58,7 @@ class DeviceResources
         Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> brush;
     };
 
-    struct TextFormatCacheEntry
+    struct TextFormatKey
     {
         std::wstring fontFamily;
         float fontSize = 0.0f;
@@ -64,7 +66,13 @@ class DeviceResources
         DWRITE_TEXT_ALIGNMENT textAlignment = DWRITE_TEXT_ALIGNMENT_LEADING;
         DWRITE_PARAGRAPH_ALIGNMENT paragraphAlignment = DWRITE_PARAGRAPH_ALIGNMENT_NEAR;
         DWRITE_WORD_WRAPPING wordWrapping = DWRITE_WORD_WRAPPING_WRAP;
-        Microsoft::WRL::ComPtr<IDWriteTextFormat> format;
+
+        bool operator==(const TextFormatKey &other) const
+        {
+            return fontFamily == other.fontFamily && fontSize == other.fontSize && fontWeight == other.fontWeight &&
+                   textAlignment == other.textAlignment && paragraphAlignment == other.paragraphAlignment &&
+                   wordWrapping == other.wordWrapping;
+        }
     };
 
     struct BitmapCacheEntry
@@ -116,7 +124,8 @@ class DeviceResources
     Microsoft::WRL::ComPtr<IDCompositionTarget> dcompTarget_;
     Microsoft::WRL::ComPtr<IDCompositionVisual> dcompVisual_;
     std::vector<BrushCacheEntry> brushCache_;
-    std::vector<TextFormatCacheEntry> textFormatCache_;
+    LruCache<TextFormatKey, Microsoft::WRL::ComPtr<IDWriteTextFormat>> textFormatCache_{
+        kTextFormatCacheCapacity};
     std::vector<BitmapCacheEntry> bitmapCache_;
 };
 } // namespace msimeui

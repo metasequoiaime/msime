@@ -50,6 +50,7 @@ add_library(msimeui STATIC
     include/msimeui/Theme.h
     include/msimeui/Types.h
     include/msimeui/Window.h
+    include/msimeui/LruCache.h
     src/tsf/DisplayAttribute.h
     src/tsf/private.h
     src/tsf/TextContainer.h

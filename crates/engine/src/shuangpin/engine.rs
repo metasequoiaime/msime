@@ -198,6 +198,8 @@ impl ShuangpinEngine {
             .map(|item| seen.insert(item.word.as_str()))
             .collect::<Vec<_>>();
         drop(seen);
+        let unique_count = unique.iter().filter(|&&is_unique| is_unique).count();
+        exact.reserve(unique_count);
         exact.extend(
             fuzzy
                 .into_iter()

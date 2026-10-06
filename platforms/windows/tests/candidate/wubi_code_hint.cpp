@@ -34,6 +34,12 @@ nlohmann::json view() {
                          {candidate(0, "王", "gg"), candidate(1, "五", "gghy"),
                           candidate(2, "一", "ggll", "engine")}}};
 }
+
+nlohmann::json corrected_view() {
+  auto result = view();
+  result["candidates"][1]["corrected"] = true;
+  return result;
+}
 } // namespace
 int main() {
   try {
@@ -74,6 +80,14 @@ int main() {
     auto local = view();
     local["local_mode"] = "unicode";
     require(candidate_presentation_from_view(lease, local, 0, 0, "").candidates[1].wubi_code_hint.empty());
+
+    const auto corrected = candidate_presentation_from_view(lease, corrected_view(), 0, 0, "");
+    require(corrected.candidates[1].corrected);
+    require(!corrected.candidates[0].corrected);
+    require(candidate_primary_text(corrected.candidates[1]) == "五*");
+    auto corrected_cloud = corrected;
+    corrected_cloud.candidates[1].badge = " ☁️";
+    require(candidate_primary_text(corrected_cloud.candidates[1]) == "五* ☁️");
   } catch (const std::exception &error) {
     std::cerr << error.what() << '\n';
     return 1;

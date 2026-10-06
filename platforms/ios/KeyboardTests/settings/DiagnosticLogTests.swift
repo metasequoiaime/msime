@@ -19,6 +19,20 @@ final class DiagnosticLogTests: XCTestCase {
 
   private var file: URL { state.appendingPathComponent(DiagnosticLog.fileName) }
 
+  func testWriteRejectsASymlinkedDirectoryBeforeCreatingExternalLog() throws {
+    #if canImport(Darwin)
+    let linked = state.appendingPathComponent("linked", isDirectory: true)
+    let outside = state.appendingPathComponent("outside", isDirectory: true)
+    try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+    try FileManager.default.createSymbolicLink(at: linked, withDestinationURL: outside)
+
+    log.configure(directory: linked.path, enabled: true)
+    log.write("synthetic_event")
+
+    XCTAssertFalse(FileManager.default.fileExists(atPath: outside.appendingPathComponent(DiagnosticLog.fileName).path))
+    #endif
+  }
+
   /// Only a real `true` under `diagnostic_log.server` turns it on; the Windows-only `tsf` field does not.
   func testOnlyTheServerBooleanEnablesTheLog() {
     XCTAssertTrue(DiagnosticLog.isEnabled(in: ["diagnostic_log": ["server": true, "tsf": false]]))

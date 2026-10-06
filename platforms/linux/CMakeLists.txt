@@ -2,23 +2,28 @@ cmake_minimum_required(VERSION 3.25)
 project(MSIMEClientLinux LANGUAGES CXX)
 find_package(CURL REQUIRED)
 include(GNUInstallDirs)
+include(cmake/Edition.cmake)
 # The user units msime-linux-setup can enable. The CMake uninstall and the Debian maintainer scripts all stop them, so the list is defined once here; each socket precedes its service so stopping in this order does not activate the service again. The maintainer scripts restart only the services: sockets run no program.
-set(MSIME_USER_UNITS msime-linux-online.socket msime-linux-online.service msime-linux-voice.socket
-    msime-linux-voice.service msime-linux-clipboard.service)
+# 单元名以版本的包名开头（full 是 msime-linux），几个版本的用户服务可以同时启用。
+set(MSIME_USER_UNITS ${MSIME_EDITION_PACKAGE}-online.socket ${MSIME_EDITION_PACKAGE}-online.service ${MSIME_EDITION_PACKAGE}-voice.socket
+    ${MSIME_EDITION_PACKAGE}-voice.service ${MSIME_EDITION_PACKAGE}-clipboard.service)
 set(MSIME_USER_SERVICES ${MSIME_USER_UNITS})
 list(FILTER MSIME_USER_SERVICES INCLUDE REGEX "\\.service$")
 list(JOIN MSIME_USER_UNITS " " MSIME_USER_UNIT_LIST)
 list(JOIN MSIME_USER_SERVICES " " MSIME_USER_SERVICE_LIST)
 # Session managers read XDG autostart entries from $XDG_CONFIG_DIRS/autostart, /etc/xdg/autostart by default. GNUInstallDirs maps the system configuration directory of a /usr prefix to /etc, so only then is the entry installed there, as an absolute directory the CMake uninstall accepts as a second root. Every other prefix keeps the directory relative, so `cmake --install --prefix` relocates it with the rest of the installation; that includes /opt/<name>, whose /etc/opt/<name> no session manager reads.
-if(CMAKE_INSTALL_FULL_SYSCONFDIR STREQUAL "/etc")
+# 装在 /opt/<package> 下的版本，GNUInstallDirs 给的系统配置目录是 /etc/opt/<package>，会话管理器不读那里，所以自启动项同样装进 /etc/xdg/autostart。
+if(CMAKE_INSTALL_FULL_SYSCONFDIR STREQUAL "/etc" OR MSIME_EDITION_SYSTEM_PATHS)
   set(MSIME_XDG_AUTOSTART_DIR "/etc/xdg/autostart")
 else()
   set(MSIME_XDG_AUTOSTART_DIR "${CMAKE_INSTALL_SYSCONFDIR}/xdg/autostart")
 endif()
-configure_file(cmake/uninstall.cmake.in ${CMAKE_CURRENT_BINARY_DIR}/uninstall.cmake @ONLY)
+msime_edition_source(MSIME_UNINSTALL_SOURCE cmake/uninstall.cmake.in)
+configure_file("${MSIME_UNINSTALL_SOURCE}" ${CMAKE_CURRENT_BINARY_DIR}/uninstall.cmake @ONLY)
 # Configured for every build, not only packaging ones, so the gate's ctest exercises the scripts the .deb ships; packaging.cmake hands them to CPack.
 foreach(MSIME_DEB_SCRIPT prerm postinst)
-  configure_file(cmake/deb-${MSIME_DEB_SCRIPT}.in ${CMAKE_CURRENT_BINARY_DIR}/debian/${MSIME_DEB_SCRIPT} @ONLY
+  msime_edition_source(MSIME_DEB_SCRIPT_SOURCE cmake/deb-${MSIME_DEB_SCRIPT}.in)
+  configure_file("${MSIME_DEB_SCRIPT_SOURCE}" ${CMAKE_CURRENT_BINARY_DIR}/debian/${MSIME_DEB_SCRIPT} @ONLY
                  FILE_PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
 endforeach()
 add_custom_target(uninstall
@@ -51,7 +56,11 @@ if(WAYLAND_CLIENT_FOUND AND WAYLAND_SCANNER_EXECUTABLE)
       "${MSIME_WAYLAND_PROTOCOL_DIR}/wlr-layer-shell-unstable-v1-client-protocol.h")
   set(MSIME_LAYER_SHELL_CODE
       "${MSIME_WAYLAND_PROTOCOL_DIR}/wlr-layer-shell-unstable-v1-protocol.c")
+  # wayland-protocols 的 .pc 给出它的数据目录；只搜 /usr/share 的话，装在别处的（例如 Nix store）
+  # 找不到，Wayland 浮层被静默跳过。原有路径留作没有 .pc 时的退路。
+  pkg_get_variable(MSIME_WAYLAND_PROTOCOLS_DIR wayland-protocols pkgdatadir)
   find_path(MSIME_XDG_SHELL_DIR NAMES xdg-shell.xml
+            HINTS "${MSIME_WAYLAND_PROTOCOLS_DIR}/stable/xdg-shell"
             PATHS /usr/share/wayland-protocols/stable/xdg-shell
                   /usr/local/share/wayland-protocols/stable/xdg-shell)
   set(MSIME_XDG_SHELL_XML "${MSIME_XDG_SHELL_DIR}/xdg-shell.xml")
@@ -100,11 +109,13 @@ set(MSIME_RUNTIME_OPTIONS_FILE "" CACHE FILEPATH "Prepared runtime options")
 set(MSIME_DESKTOP_BINARY "" CACHE FILEPATH "Cargo-built Tauri desktop binary")
 set(MSIME_MCP_BINARY "" CACHE FILEPATH "Cargo-built MCP server (msime-mcp)")
 set(MSIME_HANDWRITING_MODEL_DIR "" CACHE PATH "Offline handwriting model with its license, as fetched by scripts/fetch_handwriting_model.py; empty uses target/handwriting-model when it is there")
+option(MSIME_BUNDLE_HANDWRITING_MODEL "Install the offline handwriting model with its license and require it when packaging; OFF leaves it to the settings app to download on demand" ON)
 set(MSIME_EMOJI_RESOURCES "" CACHE PATH "Trusted packaged Engine Emoji resource directory")
 set(MSIME_ENGINE_RESOURCES "" CACHE PATH "Trusted packaged Engine desktop resource directory")
 if(NOT EXISTS "${MSIME_HOST_LIBRARY}")
   message(FATAL_ERROR "Build msime-host-api for Linux first")
 endif()
+msime_edition_host_library(MSIME_HOST_LIBRARY)
 add_library(msime-ibus-host STATIC
   src/core/ClientEngine.cpp src/system/DiagnosticLog.cpp src/system/ChineseTextConversion.cpp src/overlay/WaveOverlayIbusSurface.cpp
   src/overlay/WaveOverlaySurfaceFactory.cpp)
@@ -144,7 +155,7 @@ add_executable(msime-linux-ibus src/entrypoints/ibus_main.cpp src/system/SystemT
 target_sources(msime-linux-ibus PRIVATE ../common/Telemetry.cpp)
 target_include_directories(msime-linux-ibus PRIVATE ../common)
 target_compile_definitions(msime-linux-ibus PRIVATE MSIME_LINUX_VERSION="${MSIME_LINUX_VERSION}")
-target_link_libraries(msime-linux-ibus PRIVATE CURL::libcurl Threads::Threads)
+target_link_libraries(msime-linux-ibus PRIVATE Threads::Threads)
 target_compile_options(msime-linux-ibus PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(msime-linux-ibus PRIVATE msime-ibus-host)
 add_executable(msime-linux-dictionary src/providers/dictionary_request.cpp)
@@ -153,13 +164,13 @@ target_compile_options(msime-linux-prepare PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(msime-linux-prepare PRIVATE msime-ibus-host)
 file(RELATIVE_PATH MSIME_INSTALLED_RESOURCE_RELATIVE_DIR
      "${CMAKE_INSTALL_FULL_BINDIR}"
-     "${CMAKE_INSTALL_FULL_DATADIR}/msime-client/resources")
+     "${CMAKE_INSTALL_FULL_DATADIR}/${MSIME_CLIENT_DIRECTORY}/resources")
 target_compile_definitions(msime-linux-prepare PRIVATE
   MSIME_INSTALLED_RESOURCE_RELATIVE_DIR="${MSIME_INSTALLED_RESOURCE_RELATIVE_DIR}")
 # The IBus engine names the installed built-in sound packs to the Host API, found from its own executable as the prepare tool finds the resources (core/PreparePaths.h).
 file(RELATIVE_PATH MSIME_INSTALLED_SOUND_PACKS_RELATIVE_DIR
      "${CMAKE_INSTALL_FULL_BINDIR}"
-     "${CMAKE_INSTALL_FULL_DATADIR}/msime-client/sound-packs")
+     "${CMAKE_INSTALL_FULL_DATADIR}/${MSIME_CLIENT_DIRECTORY}/sound-packs")
 target_compile_definitions(msime-ibus-host PRIVATE
   MSIME_INSTALLED_SOUND_PACKS_RELATIVE_DIR="${MSIME_INSTALLED_SOUND_PACKS_RELATIVE_DIR}")
 target_compile_options(msime-linux-dictionary PRIVATE -Wall -Wextra -Werror)
@@ -210,6 +221,10 @@ target_link_libraries(msime-linux-emoji PRIVATE msime-ibus-host)
 add_executable(ibus-engine-smoke tests/runtime/engine_smoke.cpp)
 target_compile_options(ibus-engine-smoke PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(ibus-engine-smoke PRIVATE msime-ibus-host)
+# The Zhuyin and Stroke cases install these dictionaries into a directory of their own; the locked resources carry none.
+target_compile_definitions(ibus-engine-smoke PRIVATE
+  MSIME_ZHUYIN_DICTIONARY_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/tests/runtime/zhuyin_dictionary.py"
+  MSIME_STROKE_DICTIONARY_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/tests/runtime/stroke_dictionary.py")
 if(BUILD_TESTING AND MSIME_ENGINE_RESOURCES)
   add_test(NAME ibus-page-number-visibility
     COMMAND ibus-engine-smoke "${MSIME_ENGINE_RESOURCES}" --page-number)
@@ -225,6 +240,16 @@ target_compile_options(linux-spelling-symbols-test PRIVATE -Wall -Wextra -Werror
 target_include_directories(linux-spelling-symbols-test PRIVATE src)
 target_link_libraries(linux-spelling-symbols-test PRIVATE nlohmann_json::nlohmann_json)
 add_test(NAME linux-spelling-symbols COMMAND linux-spelling-symbols-test)
+add_executable(linux-input-schemes-test tests/input/input_schemes.cpp)
+target_compile_options(linux-input-schemes-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+target_include_directories(linux-input-schemes-test PRIVATE src)
+target_link_libraries(linux-input-schemes-test PRIVATE nlohmann_json::nlohmann_json)
+add_test(NAME linux-input-schemes COMMAND linux-input-schemes-test)
+add_executable(linux-korean-hanja-test tests/input/korean_hanja.cpp)
+target_compile_options(linux-korean-hanja-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+target_include_directories(linux-korean-hanja-test PRIVATE src)
+target_link_libraries(linux-korean-hanja-test PRIVATE nlohmann_json::nlohmann_json PkgConfig::IBUS)
+add_test(NAME linux-korean-hanja COMMAND linux-korean-hanja-test)
 add_executable(linux-key-sound-test tests/input/key_sound.cpp)
 target_compile_options(linux-key-sound-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
 target_include_directories(linux-key-sound-test PRIVATE src)
@@ -237,6 +262,10 @@ add_executable(linux-shuangpin-profile-names-test tests/input/shuangpin_profile_
 target_compile_options(linux-shuangpin-profile-names-test PRIVATE -Wall -Wextra -Werror)
 target_include_directories(linux-shuangpin-profile-names-test PRIVATE src)
 add_test(NAME linux-shuangpin-profile-names COMMAND linux-shuangpin-profile-names-test)
+add_executable(linux-wubi-profile-names-test tests/input/wubi_profile_names.cpp)
+target_compile_options(linux-wubi-profile-names-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+target_include_directories(linux-wubi-profile-names-test PRIVATE src)
+add_test(NAME linux-wubi-profile-names COMMAND linux-wubi-profile-names-test)
 add_executable(linux-candidate-palette-test tests/candidate/candidate_palette.cpp)
 target_compile_options(linux-candidate-palette-test PRIVATE -Wall -Wextra -Werror)
 target_include_directories(linux-candidate-palette-test PRIVATE src)
@@ -279,6 +308,11 @@ target_compile_options(linux-input-status-test PRIVATE -Wall -Wextra -Werror)
 target_include_directories(linux-input-status-test PRIVATE src)
 target_link_libraries(linux-input-status-test PRIVATE nlohmann_json::nlohmann_json)
 add_test(NAME linux-input-status COMMAND linux-input-status-test)
+add_executable(linux-json-integer-test tests/core/json_integer.cpp)
+target_compile_options(linux-json-integer-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+target_include_directories(linux-json-integer-test PRIVATE src)
+target_link_libraries(linux-json-integer-test PRIVATE nlohmann_json::nlohmann_json)
+add_test(NAME linux-json-integer COMMAND linux-json-integer-test)
 add_executable(linux-candidate-translation-policy-test tests/candidate/candidate_translation_policy.cpp)
 target_compile_options(linux-candidate-translation-policy-test PRIVATE -Wall -Wextra -Werror)
 target_include_directories(linux-candidate-translation-policy-test PRIVATE src)
@@ -291,14 +325,19 @@ add_executable(linux-dictionary-quiesce-lease-test tests/core/dictionary_quiesce
 target_compile_options(linux-dictionary-quiesce-lease-test PRIVATE -Wall -Wextra -Werror)
 target_include_directories(linux-dictionary-quiesce-lease-test PRIVATE src)
 add_test(NAME linux-dictionary-quiesce-lease COMMAND linux-dictionary-quiesce-lease-test)
+add_executable(linux-emoji-plugin-groups-test tests/core/emoji_plugin_groups.cpp)
+target_compile_options(linux-emoji-plugin-groups-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+target_include_directories(linux-emoji-plugin-groups-test PRIVATE src)
+target_link_libraries(linux-emoji-plugin-groups-test PRIVATE nlohmann_json::nlohmann_json)
+add_test(NAME linux-emoji-plugin-groups COMMAND linux-emoji-plugin-groups-test)
 add_executable(common-dictionary-quiesce-lease-test ../common/tests/dictionary_quiesce_lease.cpp)
 target_compile_options(common-dictionary-quiesce-lease-test PRIVATE -Wall -Wextra -Werror)
 add_test(NAME common-dictionary-quiesce-lease COMMAND common-dictionary-quiesce-lease-test)
-add_executable(common-telemetry-store-test ../common/tests/telemetry_store.cpp)
-target_compile_options(common-telemetry-store-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
-target_include_directories(common-telemetry-store-test PRIVATE ../common)
-target_link_libraries(common-telemetry-store-test PRIVATE CURL::libcurl Threads::Threads)
-add_test(NAME common-telemetry-store COMMAND common-telemetry-store-test)
+add_executable(common-telemetry-test ../common/tests/telemetry.cpp ../common/Telemetry.cpp)
+target_compile_options(common-telemetry-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+target_include_directories(common-telemetry-test PRIVATE ../common ../../crates/host-api/include)
+target_link_libraries(common-telemetry-test PRIVATE nlohmann_json::nlohmann_json "${MSIME_HOST_LIBRARY}" Threads::Threads)
+add_test(NAME common-telemetry COMMAND common-telemetry-test)
 add_executable(linux-input-mode-indicator-test tests/core/input_mode_indicator.cpp)
 target_compile_options(linux-input-mode-indicator-test PRIVATE -Wall -Wextra -Werror)
 target_include_directories(linux-input-mode-indicator-test PRIVATE src)
@@ -312,6 +351,10 @@ add_executable(linux-prepare-paths-test tests/core/prepare_paths.cpp)
 target_compile_options(linux-prepare-paths-test PRIVATE -Wall -Wextra -Werror)
 target_include_directories(linux-prepare-paths-test PRIVATE src)
 add_test(NAME linux-prepare-paths COMMAND linux-prepare-paths-test)
+add_executable(linux-safe-path-test tests/core/safe_path.cpp)
+target_compile_options(linux-safe-path-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+target_include_directories(linux-safe-path-test PRIVATE src)
+add_test(NAME linux-safe-path COMMAND linux-safe-path-test)
 add_executable(linux-key-router-adapter-test tests/input/key_router_adapter.cpp)
 target_compile_options(linux-key-router-adapter-test PRIVATE -Wall -Wextra -Werror)
 target_include_directories(linux-key-router-adapter-test PRIVATE src ../../crates/host-api/include)
@@ -325,6 +368,11 @@ target_compile_options(linux-diagnostic-log-test PRIVATE -Wall -Wextra -Werror)
 target_include_directories(linux-diagnostic-log-test PRIVATE src)
 target_sources(linux-diagnostic-log-test PRIVATE src/system/DiagnosticLog.cpp)
 add_test(NAME linux-diagnostic-log COMMAND linux-diagnostic-log-test)
+add_executable(linux-surrounding-characters-test tests/core/surrounding_characters.cpp)
+target_compile_options(linux-surrounding-characters-test PRIVATE -Wall -Wextra -Werror)
+target_include_directories(linux-surrounding-characters-test PRIVATE src)
+target_link_libraries(linux-surrounding-characters-test PRIVATE PkgConfig::IBUS)
+add_test(NAME linux-surrounding-characters COMMAND linux-surrounding-characters-test)
 # The composition both front ends draw while a phrase is being assembled: the piece already picked
 # leads the reading, and the caret has to move past it in the unit each toolkit counts in - bytes
 # for fcitx5, Unicode scalars for IBus.
@@ -370,7 +418,7 @@ add_test(NAME linux-settings-launcher-contract
 add_test(NAME linux-deb-maintainer-scripts
          COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/deb_maintainer_scripts.py"
                  "${CMAKE_CURRENT_BINARY_DIR}/debian" "${CMAKE_CURRENT_BINARY_DIR}/uninstall.cmake" "${MSIME_USER_UNIT_LIST}"
-                 "${CMAKE_INSTALL_FULL_BINDIR}/msime-linux-setup")
+                 "${CMAKE_INSTALL_FULL_BINDIR}/${MSIME_EDITION_PACKAGE}-setup")
 add_test(NAME linux-uninstall-unregister
          COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/uninstall_unregister.py"
                  "${CMAKE_COMMAND}" "${CMAKE_CURRENT_BINARY_DIR}/uninstall.cmake")
@@ -431,36 +479,51 @@ if(MSIME_LINUX_VOICE)
  target_include_directories(msime-voice-worker-test PRIVATE src)
  add_test(NAME linux-voice-worker COMMAND msime-voice-worker-test)
 endif()
-configure_file(data/msime-linux.xml.in ${CMAKE_CURRENT_BINARY_DIR}/msime-linux.xml @ONLY)
+# IBus 组件文件以版本的包名命名，组件名和引擎名也随版本（full 仍是 msime-linux.xml）。
+msime_edition_source(MSIME_IBUS_COMPONENT_SOURCE data/msime-linux.xml.in)
+configure_file("${MSIME_IBUS_COMPONENT_SOURCE}" ${CMAKE_CURRENT_BINARY_DIR}/${MSIME_EDITION_PACKAGE}.xml @ONLY)
 install(TARGETS msime-linux-ibus msime-linux-dictionary msime-linux-cloud-dictionary msime-linux-cloud-clipboard msime-linux-online msime-linux-translation msime-linux-clipboard
                 msime-linux-handwriting msime-linux-voice msime-linux-emoji msime-linux-clipboard-capture msime-linux-prepare
                 RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
 if(MSIME_LINUX_VOICE)
  install(TARGETS msime-voice-worker-test RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
 endif()
-install(PROGRAMS scripts/msime-linux-ibus-launcher scripts/msime-linux-first-run-guide scripts/msime-linux-online-provider scripts/msime-linux-voice-provider scripts/msime-linux-provider-session DESTINATION "${CMAKE_INSTALL_BINDIR}")
+# 带着每用户目录名、单元名或命令名的脚本按版本改写（full 原样安装）；其余脚本只按自己的目录找同级程序，各版本相同。
+foreach(MSIME_EDITION_SCRIPT msime-linux-ibus-launcher msime-linux-first-run-guide msime-linux-online-provider msime-linux-provider-session)
+  msime_edition_source(MSIME_EDITION_SCRIPT_SOURCE scripts/${MSIME_EDITION_SCRIPT})
+  install(PROGRAMS "${MSIME_EDITION_SCRIPT_SOURCE}" DESTINATION "${CMAKE_INSTALL_BINDIR}")
+endforeach()
+install(PROGRAMS scripts/msime-linux-voice-provider DESTINATION "${CMAKE_INSTALL_BINDIR}")
 install(PROGRAMS scripts/msime-linux-clipboard-monitor DESTINATION "${CMAKE_INSTALL_BINDIR}")
 # 安装后的首次配置入口。词库与状态目录此前没有任何产品侧的路径：词库要么在配置阶段随包装好，要么只能在仓库检出里跑一个 Cargo 示例去取，于是只拿到安装包的用户凑不齐词库，而没有词库一个候选都出不来。词库锁无条件随装，它是这个入口据以校验和取回的依据——它此前只在 MSIME_ENGINE_RESOURCES 存在时才安装，也就是最需要它的那种安装里反而没有。
-install(PROGRAMS scripts/msime-linux-setup DESTINATION "${CMAKE_INSTALL_BINDIR}")
+# 命令名以版本的包名开头（full 仍是 msime-linux-setup）；随装的词库锁是本版本的锁（full 是 desktop-dictionary.lock.json 本身，其他版本是 resources/editions/<id>.lock.json），装成同一个文件名，msime-linux-setup 据它校验和取回本版本的词库。
+msime_edition_source(MSIME_SETUP_SOURCE scripts/msime-linux-setup)
+install(PROGRAMS "${MSIME_SETUP_SOURCE}" DESTINATION "${CMAKE_INSTALL_BINDIR}" RENAME ${MSIME_EDITION_PACKAGE}-setup)
 if(NOT MSIME_ENGINE_RESOURCES)
-  install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/desktop-dictionary.lock.json"
-          DESTINATION "${CMAKE_INSTALL_DATADIR}/msime-client")
+  install(FILES "${MSIME_EDITION_RESOURCE_LOCK}"
+          DESTINATION "${CMAKE_INSTALL_DATADIR}/${MSIME_CLIENT_DIRECTORY}" RENAME desktop-dictionary.lock.json)
 endif()
-set(MSIME_SYSTEMD_USER_UNIT_DIR "${CMAKE_INSTALL_DATADIR}/systemd/user" CACHE PATH "systemd user unit installation directory")
+set(MSIME_SYSTEMD_USER_UNIT_DIR "${MSIME_SYSTEM_DATADIR}/systemd/user" CACHE PATH "systemd user unit installation directory")
 foreach(MSIME_PROVIDER online voice clipboard)
-  configure_file(data/msime-linux-${MSIME_PROVIDER}.service.in
-                 ${CMAKE_CURRENT_BINARY_DIR}/msime-linux-${MSIME_PROVIDER}.service @ONLY)
-  install(FILES ${CMAKE_CURRENT_BINARY_DIR}/msime-linux-${MSIME_PROVIDER}.service
+  msime_edition_source(MSIME_UNIT_SOURCE data/msime-linux-${MSIME_PROVIDER}.service.in)
+  configure_file("${MSIME_UNIT_SOURCE}"
+                 ${CMAKE_CURRENT_BINARY_DIR}/${MSIME_EDITION_PACKAGE}-${MSIME_PROVIDER}.service @ONLY)
+  install(FILES ${CMAKE_CURRENT_BINARY_DIR}/${MSIME_EDITION_PACKAGE}-${MSIME_PROVIDER}.service
           DESTINATION "${MSIME_SYSTEMD_USER_UNIT_DIR}")
 endforeach()
 # Starts the clipboard service at login on sessions without graphical-session.target, for users who enabled it; see the comment in the file. Its own component lets the test install just this file.
-install(FILES data/msime-linux-clipboard.desktop DESTINATION "${MSIME_XDG_AUTOSTART_DIR}" COMPONENT clipboard-autostart)
+msime_edition_source(MSIME_CLIPBOARD_AUTOSTART_SOURCE data/msime-linux-clipboard.desktop)
+install(FILES "${MSIME_CLIPBOARD_AUTOSTART_SOURCE}" DESTINATION "${MSIME_XDG_AUTOSTART_DIR}"
+        RENAME ${MSIME_EDITION_PACKAGE}-clipboard.desktop COMPONENT clipboard-autostart)
 # Socket units keep the provider paths present from login, so the input method and the panels find the services the way the Windows server is simply there; systemd starts a provider on its first request.
-install(FILES data/msime-linux-online.socket data/msime-linux-voice.socket
-        DESTINATION "${MSIME_SYSTEMD_USER_UNIT_DIR}")
+foreach(MSIME_PROVIDER online voice)
+  msime_edition_source(MSIME_UNIT_SOURCE data/msime-linux-${MSIME_PROVIDER}.socket)
+  install(FILES "${MSIME_UNIT_SOURCE}" DESTINATION "${MSIME_SYSTEMD_USER_UNIT_DIR}"
+          RENAME ${MSIME_EDITION_PACKAGE}-${MSIME_PROVIDER}.socket)
+endforeach()
 install(FILES scripts/msime_voice_doubao.py scripts/msime_voice_local.py scripts/msime_provider_runtime.py DESTINATION "${CMAKE_INSTALL_BINDIR}")
 # The helper and the sherpa-onnx runtime share the host library's private directory: the helper finds the runtime in its own directory, and libsherpa-onnx-c-api.so finds libonnxruntime.so through its $ORIGIN RPATH.
-install(TARGETS msime-voice-local RUNTIME DESTINATION "${CMAKE_INSTALL_LIBDIR}/msime-client")
+install(TARGETS msime-voice-local RUNTIME DESTINATION "${CMAKE_INSTALL_LIBDIR}/${MSIME_CLIENT_DIRECTORY}")
 set(MSIME_VOICE_RUNTIME_DIR "" CACHE PATH "sherpa-onnx runtime for on-device recognition, as unpacked by scripts/fetch_voice_runtime.py --platform linux-<arch>")
 set(MSIME_VOICE_RUNTIME_LIBRARIES libsherpa-onnx-c-api.so libonnxruntime.so)
 if(MSIME_VOICE_RUNTIME_DIR)
@@ -468,26 +531,44 @@ if(MSIME_VOICE_RUNTIME_DIR)
     if(NOT EXISTS "${MSIME_VOICE_RUNTIME_DIR}/${MSIME_VOICE_RUNTIME_LIBRARY}")
       message(FATAL_ERROR "MSIME_VOICE_RUNTIME_DIR has no ${MSIME_VOICE_RUNTIME_LIBRARY}; run scripts/fetch_voice_runtime.py --platform linux-<arch> --out <dir>")
     endif()
-    install(FILES "${MSIME_VOICE_RUNTIME_DIR}/${MSIME_VOICE_RUNTIME_LIBRARY}" DESTINATION "${CMAKE_INSTALL_LIBDIR}/msime-client")
+    install(FILES "${MSIME_VOICE_RUNTIME_DIR}/${MSIME_VOICE_RUNTIME_LIBRARY}" DESTINATION "${CMAKE_INSTALL_LIBDIR}/${MSIME_CLIENT_DIRECTORY}")
   endforeach()
 elseif(MSIME_ENABLE_PACKAGING)
   # A package without the runtime would offer on-device recognition that fails at the first dictation.
   message(FATAL_ERROR "Packaging requires MSIME_VOICE_RUNTIME_DIR; fetch it with scripts/fetch_voice_runtime.py (package-container.sh does)")
 endif()
-install(FILES scripts/requirements-voice.txt DESTINATION "${CMAKE_INSTALL_DATADIR}/msime-client")
+# 上面只核对运行库的文件在不在；这里让构建出的 msime-voice-local 真正打开它（dlopen 并解析全部符号），各打包路线的 ctest 都会跑到。
+if(BUILD_TESTING AND MSIME_VOICE_RUNTIME_DIR)
+  add_test(NAME linux-voice-local-runtime
+           COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/voice/local_runtime.py"
+                   $<TARGET_FILE:msime-voice-local> "${MSIME_VOICE_RUNTIME_DIR}/libsherpa-onnx-c-api.so")
+endif()
+install(FILES scripts/requirements-voice.txt DESTINATION "${CMAKE_INSTALL_DATADIR}/${MSIME_CLIENT_DIRECTORY}")
 file(RELATIVE_PATH MSIME_VOICE_CUE_RELATIVE "${CMAKE_INSTALL_FULL_BINDIR}"
-     "${CMAKE_INSTALL_FULL_DATADIR}/msime-client/voice")
+     "${CMAKE_INSTALL_FULL_DATADIR}/${MSIME_CLIENT_DIRECTORY}/voice")
 file(RELATIVE_PATH MSIME_VOICE_LOCAL_HELPER_RELATIVE "${CMAKE_INSTALL_FULL_BINDIR}"
-     "${CMAKE_INSTALL_FULL_LIBDIR}/msime-client/msime-voice-local")
+     "${CMAKE_INSTALL_FULL_LIBDIR}/${MSIME_CLIENT_DIRECTORY}/msime-voice-local")
 get_filename_component(MSIME_HOST_LIBRARY_NAME "${MSIME_HOST_LIBRARY}" NAME)
 file(RELATIVE_PATH MSIME_HOST_LIBRARY_RELATIVE "${CMAKE_INSTALL_FULL_BINDIR}"
-     "${CMAKE_INSTALL_FULL_LIBDIR}/msime-client/${MSIME_HOST_LIBRARY_NAME}")
+     "${CMAKE_INSTALL_FULL_LIBDIR}/${MSIME_CLIENT_DIRECTORY}/${MSIME_HOST_LIBRARY_NAME}")
 configure_file(data/msime_voice_paths.py.in msime_voice_paths.py @ONLY)
 install(FILES "${CMAKE_CURRENT_BINARY_DIR}/msime_voice_paths.py" DESTINATION "${CMAKE_INSTALL_BINDIR}")
 install(FILES data/voice/start.pcm data/voice/end.pcm data/voice/SOURCE.md
-        DESTINATION "${CMAKE_INSTALL_DATADIR}/msime-client/voice")
-# The zinnia model `msime-linux-handwriting --local` recognises with, and its LGPL-2.1 license. At 26.8 MB it is not committed: scripts/fetch_handwriting_model.py downloads what resources/handwriting-model.lock.json pins into target/handwriting-model, which is picked up when present, and every file is checked against the lock here. Packaging requires it, because a package without it would offer an offline recognizer that fails on the first stroke; a development install without it only leaves --local reporting that no model is installed.
-if(NOT MSIME_HANDWRITING_MODEL_DIR AND
+        DESTINATION "${CMAKE_INSTALL_DATADIR}/${MSIME_CLIENT_DIRECTORY}/voice")
+# `msime-linux-handwriting --local` 识别用的 zinnia 模型及其 LGPL-2.1 许可证。它有 26.8 MB，不进版本库：scripts/fetch_handwriting_model.py 把 resources/handwriting-model.lock.json 锁定的文件下载到 target/handwriting-model，存在时这里取用，并逐个文件按锁校验。MSIME_BUNDLE_HANDWRITING_MODEL 打开时（默认如此，packaging/ 下的发行版构建和 nix 都依赖这个默认值）打包必须带上模型，否则包里的离线识别器第一笔就会失败；关闭时（我们自己发布的 deb/rpm，由 package-container.sh 关闭）不安装模型，由设置应用按需下载到用户目录。开发安装没有模型时，只是 --local 报告未安装模型。
+# 模型只认汉字：不提供手写的版本（版本表 `features.handwriting` 为 false 的日文、越南文和藏文版）即使下载或指定了模型，也既不装模型也不装它的许可证，打包时也不要求有模型。
+# 我们自己发布的 deb/rpm（package-container.sh）传 -DMSIME_BUNDLE_HANDWRITING_MODEL=OFF：包里不带模型和它的许可证，设置应用在需要时按同一份锁把两者下载到用户的状态目录（client-core 的手写资源包）。发行版仓库的包不传这个选项，照旧随包。
+if(NOT MSIME_EDITION_HANDWRITING)
+  if(MSIME_HANDWRITING_MODEL_DIR)
+    message(STATUS "Edition ${MSIME_EDITION} offers no handwriting; not installing the model in ${MSIME_HANDWRITING_MODEL_DIR}")
+  endif()
+  set(MSIME_HANDWRITING_MODEL_DIR "")
+elseif(NOT MSIME_BUNDLE_HANDWRITING_MODEL)
+  if(MSIME_HANDWRITING_MODEL_DIR)
+    message(STATUS "MSIME_BUNDLE_HANDWRITING_MODEL is OFF; not installing the model in ${MSIME_HANDWRITING_MODEL_DIR}")
+  endif()
+  set(MSIME_HANDWRITING_MODEL_DIR "")
+elseif(NOT MSIME_HANDWRITING_MODEL_DIR AND
    EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../../target/handwriting-model/handwriting-zh_CN.model")
   get_filename_component(MSIME_HANDWRITING_MODEL_DIR
                          "${CMAKE_CURRENT_SOURCE_DIR}/../../target/handwriting-model" ABSOLUTE)
@@ -523,25 +604,30 @@ if(MSIME_HANDWRITING_MODEL_DIR)
         "${MSIME_HANDWRITING_NAME} in ${MSIME_HANDWRITING_MODEL_DIR} does not match resources/handwriting-model.lock.json")
     endif()
     install(FILES "${MSIME_HANDWRITING_FILE}"
-            DESTINATION "${CMAKE_INSTALL_DATADIR}/msime-client/handwriting")
+            DESTINATION "${CMAKE_INSTALL_DATADIR}/${MSIME_CLIENT_DIRECTORY}/handwriting")
   endforeach()
-  install(FILES "${MSIME_HANDWRITING_LOCK_FILE}" DESTINATION "${CMAKE_INSTALL_DATADIR}/msime-client")
-elseif(MSIME_ENABLE_PACKAGING)
-  message(FATAL_ERROR "Packaging requires the handwriting model; fetch it with scripts/fetch_handwriting_model.py (package-container.sh does)")
+  install(FILES "${MSIME_HANDWRITING_LOCK_FILE}" DESTINATION "${CMAKE_INSTALL_DATADIR}/${MSIME_CLIENT_DIRECTORY}")
+elseif(MSIME_ENABLE_PACKAGING AND MSIME_EDITION_HANDWRITING AND MSIME_BUNDLE_HANDWRITING_MODEL)
+  message(FATAL_ERROR "Packaging requires the handwriting model; fetch it with scripts/fetch_handwriting_model.py, or configure with -DMSIME_BUNDLE_HANDWRITING_MODEL=OFF to leave it to the on-demand download")
+endif()
+# 上面只按锁核对模型的字节；这里用构建出的识别入口真正加载它并识别一笔，各打包路线的 ctest 都会跑到。
+if(BUILD_TESTING AND MSIME_HANDWRITING_MODEL_DIR)
+  add_test(NAME linux-handwriting-local-model
+           COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/provider/handwriting_local_model.py"
+                   $<TARGET_FILE:msime-linux-handwriting> "${MSIME_HANDWRITING_MODEL_DIR}/handwriting-zh_CN.model")
 endif()
 if(MSIME_EMOJI_RESOURCES)
   if(NOT IS_DIRECTORY "${MSIME_EMOJI_RESOURCES}")
     message(FATAL_ERROR "MSIME_EMOJI_RESOURCES is not a directory: ${MSIME_EMOJI_RESOURCES}")
   endif()
   install(DIRECTORY "${MSIME_EMOJI_RESOURCES}/"
-          DESTINATION "${CMAKE_INSTALL_DATADIR}/msime-client/emoji")
+          DESTINATION "${CMAKE_INSTALL_DATADIR}/${MSIME_CLIENT_DIRECTORY}/emoji")
 endif()
 if(MSIME_ENGINE_RESOURCES)
   if(NOT IS_DIRECTORY "${MSIME_ENGINE_RESOURCES}")
     message(FATAL_ERROR "MSIME_ENGINE_RESOURCES is not a directory: ${MSIME_ENGINE_RESOURCES}")
   endif()
-  file(READ "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/desktop-dictionary.lock.json"
-       MSIME_ENGINE_RESOURCE_LOCK)
+  file(READ "${MSIME_EDITION_RESOURCE_LOCK}" MSIME_ENGINE_RESOURCE_LOCK)
   string(JSON MSIME_ENGINE_RESOURCE_COUNT LENGTH "${MSIME_ENGINE_RESOURCE_LOCK}" artifacts)
   math(EXPR MSIME_ENGINE_RESOURCE_LAST "${MSIME_ENGINE_RESOURCE_COUNT} - 1")
   foreach(MSIME_ENGINE_RESOURCE_INDEX RANGE 0 ${MSIME_ENGINE_RESOURCE_LAST})
@@ -565,10 +651,8 @@ if(MSIME_ENGINE_RESOURCES)
         "Engine resource ${MSIME_ENGINE_RESOURCE_NAME} does not match the reviewed lock")
     endif()
     install(FILES "${MSIME_ENGINE_RESOURCE_FILE}"
-            DESTINATION "${CMAKE_INSTALL_DATADIR}/msime-client/resources")
+            DESTINATION "${CMAKE_INSTALL_DATADIR}/${MSIME_CLIENT_DIRECTORY}/resources")
   endforeach()
-  # Earlier releases installed dict_pinyin.dat, the C++ Engine's system dictionary, into this directory. The lock no longer pins it. The hosts delete it themselves when they verify a directory they can write, but an installed prefix is normally root-owned, where the deletion fails and they refuse the whole directory instead, so an install over such a prefix removes it, as the Windows installer does in DataDir on upgrade. Packages need no help: the package manager drops what the new package no longer carries.
-  install(CODE "file(REMOVE \"\$ENV{DESTDIR}${CMAKE_INSTALL_FULL_DATADIR}/msime-client/resources/dict_pinyin.dat\")")
   # The helpcode tables are not part of the dictionary release; the repository carries them in resources/helpcodes, and the Engine reads them from helpcodes/ under the resource directory (crates/engine/src/assets.rs names the six files). The hosts' verification lets a real helpcodes/ directory through. Their notices are installed with the others below.
   install(FILES
             "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/helpcodes/helpcode.txt"
@@ -577,12 +661,12 @@ if(MSIME_ENGINE_RESOURCES)
             "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/helpcodes/shouyouplus_helpcode.txt"
             "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/helpcodes/xiaohe_helpcode.txt"
             "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/helpcodes/jiajia_helpcode.txt"
-          DESTINATION "${CMAKE_INSTALL_DATADIR}/msime-client/resources/helpcodes")
+          DESTINATION "${CMAKE_INSTALL_DATADIR}/${MSIME_CLIENT_DIRECTORY}/resources/helpcodes")
   # Keep the reviewed lock beside the installed bundle as provenance metadata;
   # it is not copied into the runtime directory because the Engine verifier
   # requires that directory to contain exactly the pinned artifacts.
-  install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/desktop-dictionary.lock.json"
-          DESTINATION "${CMAKE_INSTALL_DATADIR}/msime-client")
+  install(FILES "${MSIME_EDITION_RESOURCE_LOCK}"
+          DESTINATION "${CMAKE_INSTALL_DATADIR}/${MSIME_CLIENT_DIRECTORY}" RENAME desktop-dictionary.lock.json)
 endif()
 # The settled-rerank model, installed as a sibling of the resource bundle.
 #
@@ -595,7 +679,13 @@ endif()
 # harvested failure set, at a cost that keeps it off the keystroke path and on the settle timer.
 # Fetch it with `scripts/fetch_neural_model.py`, which writes `target/neural-model` by default.
 # The historical one-artifact `scripts/fetch_settled_model.py` output remains accepted below.
-if(NOT MSIME_SETTLED_MODEL AND
+# 不带中文主词库的版本（cmake/Edition.cmake 的 MSIME_EDITION_CHINESE_MAIN）没有中文整句可以重排，不装这个模型，也不从暂存目录捡。
+if(NOT MSIME_EDITION_CHINESE_MAIN)
+  if(MSIME_SETTLED_MODEL)
+    message(STATUS "Edition ${MSIME_EDITION} has no Chinese main dictionary; not installing the settled model")
+  endif()
+  set(MSIME_SETTLED_MODEL "")
+elseif(NOT MSIME_SETTLED_MODEL AND
    EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../../target/neural-model/sentence-model-desktop.safetensors")
   get_filename_component(MSIME_SETTLED_MODEL
                          "${CMAKE_CURRENT_SOURCE_DIR}/../../target/neural-model" ABSOLUTE)
@@ -630,16 +720,19 @@ if(MSIME_SETTLED_MODEL)
         "Settled model ${MSIME_SETTLED_NAME} does not match the reviewed lock")
     endif()
     install(FILES "${MSIME_SETTLED_FILE}"
-            DESTINATION "${CMAKE_INSTALL_DATADIR}/msime-client/settled-model")
+            DESTINATION "${CMAKE_INSTALL_DATADIR}/${MSIME_CLIENT_DIRECTORY}/settled-model")
   endforeach()
   install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/settled-model.lock.json"
-          DESTINATION "${CMAKE_INSTALL_DATADIR}/msime-client")
+          DESTINATION "${CMAKE_INSTALL_DATADIR}/${MSIME_CLIENT_DIRECTORY}")
   install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/neural-model.lock.json"
-          DESTINATION "${CMAKE_INSTALL_DATADIR}/msime-client")
+          DESTINATION "${CMAKE_INSTALL_DATADIR}/${MSIME_CLIENT_DIRECTORY}")
 endif()
 # Offline glosses for non-English translation targets, one zh-<lang>.db per language built by `scripts/build_offline_glosses.py`, installed as a sibling of the resource bundle for the same reason as the settled model; the Engine looks for them there. Optional: without them the candidate glosses stay English only. Their notice is required with them, since the databases are CC BY-SA and must travel with their attribution.
 set(MSIME_OFFLINE_GLOSSES "" CACHE PATH "Offline gloss databases with their notice, e.g. target/offline-glosses")
-if(MSIME_OFFLINE_GLOSSES)
+# 离线释义按中文候选查：不提供中文方案的版本（版本表 `features.offline_glosses` 为 false 的日文、越南文和藏文版）即使指定了 `MSIME_OFFLINE_GLOSSES` 也不装。
+if(MSIME_OFFLINE_GLOSSES AND NOT MSIME_EDITION_OFFLINE_GLOSSES)
+  message(STATUS "Edition ${MSIME_EDITION} offers no Chinese scheme; not installing the offline glosses in ${MSIME_OFFLINE_GLOSSES}")
+elseif(MSIME_OFFLINE_GLOSSES)
   if(NOT EXISTS "${MSIME_OFFLINE_GLOSSES}/offline-glosses-NOTICE.txt")
     message(FATAL_ERROR "MSIME_OFFLINE_GLOSSES has no offline-glosses-NOTICE.txt: ${MSIME_OFFLINE_GLOSSES}")
   endif()
@@ -648,7 +741,73 @@ if(MSIME_OFFLINE_GLOSSES)
     message(FATAL_ERROR "MSIME_OFFLINE_GLOSSES has no zh-*.db: ${MSIME_OFFLINE_GLOSSES}")
   endif()
   install(FILES ${MSIME_OFFLINE_GLOSS_FILES} "${MSIME_OFFLINE_GLOSSES}/offline-glosses-NOTICE.txt"
-          DESTINATION "${CMAKE_INSTALL_DATADIR}/msime-client/offline-glosses")
+          DESTINATION "${CMAKE_INSTALL_DATADIR}/${MSIME_CLIENT_DIRECTORY}/offline-glosses")
+endif()
+# The Cantonese, Zhuyin and Stroke dictionaries fetched by scripts/fetch_language_dictionaries.py (or built by `msime-dict-build languages`), installed as the `language-dictionaries` sibling of the resource bundle for the same reason as the settled model: the resource directory must match the dictionary lock exactly. msime_client_refresh_host names the directory in the runtime options when the host starts, and a scheme whose dictionary is missing is shown as unavailable and falls back. Optional, picked up from target/language-dictionaries when present; each dictionary is installed only with its licence text, which must travel with the data. MSIME_REQUIRE_LANGUAGE_DICTIONARIES makes a package fail instead of shipping without any dictionary the lock pins.
+set(MSIME_LANGUAGE_DICTIONARIES "" CACHE PATH "Cantonese, Zhuyin and Stroke dictionaries with their licences, e.g. target/language-dictionaries")
+option(MSIME_REQUIRE_LANGUAGE_DICTIONARIES "Fail unless every dictionary resources/language-dictionaries.lock.json pins is installed" OFF)
+# 不用粤语、注音和笔画的版本（版本表的 language_dictionaries 为空）不装这些词库，也不从暂存目录捡。
+if(NOT MSIME_EDITION_LANGUAGE_DICTIONARIES)
+  set(MSIME_LANGUAGE_DICTIONARIES "")
+elseif(NOT MSIME_LANGUAGE_DICTIONARIES AND
+   IS_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../../target/language-dictionaries")
+  get_filename_component(MSIME_LANGUAGE_DICTIONARIES
+                         "${CMAKE_CURRENT_SOURCE_DIR}/../../target/language-dictionaries" ABSOLUTE)
+  message(STATUS "Using language dictionary staging directory: ${MSIME_LANGUAGE_DICTIONARIES}")
+endif()
+set(MSIME_LANGUAGE_DICTIONARY_COUNT 0)
+set(MSIME_LANGUAGE_DICTIONARIES_INSTALLED)
+if(MSIME_LANGUAGE_DICTIONARIES)
+  if(NOT IS_DIRECTORY "${MSIME_LANGUAGE_DICTIONARIES}")
+    message(FATAL_ERROR "MSIME_LANGUAGE_DICTIONARIES is not a directory: ${MSIME_LANGUAGE_DICTIONARIES}")
+  endif()
+  foreach(MSIME_LANGUAGE_PAIR "msime-cantonese.db:msime-rime_cantonese_LICENSE.txt" "msime-zhuyin.db:msime-libchewing_data_LICENSE.txt"
+          "msime-stroke.db:msime-rime_stroke_LICENSE.txt")
+    string(REPLACE ":" ";" MSIME_LANGUAGE_PAIR "${MSIME_LANGUAGE_PAIR}")
+    list(GET MSIME_LANGUAGE_PAIR 0 MSIME_LANGUAGE_DATABASE)
+    list(GET MSIME_LANGUAGE_PAIR 1 MSIME_LANGUAGE_LICENSE)
+    set(MSIME_LANGUAGE_DATABASE_FILE "${MSIME_LANGUAGE_DICTIONARIES}/${MSIME_LANGUAGE_DATABASE}")
+    if(NOT EXISTS "${MSIME_LANGUAGE_DATABASE_FILE}" OR IS_DIRECTORY "${MSIME_LANGUAGE_DATABASE_FILE}")
+      continue()
+    endif()
+    if(NOT EXISTS "${MSIME_LANGUAGE_DICTIONARIES}/${MSIME_LANGUAGE_LICENSE}")
+      message(FATAL_ERROR "${MSIME_LANGUAGE_DATABASE_FILE} has no ${MSIME_LANGUAGE_LICENSE} beside it; refusing to install the data without its licence")
+    endif()
+    install(FILES "${MSIME_LANGUAGE_DATABASE_FILE}" "${MSIME_LANGUAGE_DICTIONARIES}/${MSIME_LANGUAGE_LICENSE}"
+            DESTINATION "${CMAKE_INSTALL_DATADIR}/${MSIME_CLIENT_DIRECTORY}/language-dictionaries")
+    math(EXPR MSIME_LANGUAGE_DICTIONARY_COUNT "${MSIME_LANGUAGE_DICTIONARY_COUNT} + 1")
+    list(APPEND MSIME_LANGUAGE_DICTIONARIES_INSTALLED "${MSIME_LANGUAGE_DATABASE}")
+  endforeach()
+endif()
+if(MSIME_LANGUAGE_DICTIONARY_COUNT EQUAL 0)
+  message(STATUS "No language dictionaries; Cantonese, Zhuyin and Stroke stay unavailable")
+endif()
+# A release requires every dictionary resources/language-dictionaries.lock.json pins, not a fixed list: a dictionary that has not been released yet is installed when present but cannot fail a release, and the lock bump that publishes it makes it required.
+if(MSIME_REQUIRE_LANGUAGE_DICTIONARIES)
+  set(MSIME_LANGUAGE_DICTIONARIES_LOCK "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/language-dictionaries.lock.json")
+  if(NOT EXISTS "${MSIME_LANGUAGE_DICTIONARIES_LOCK}")
+    message(FATAL_ERROR "MSIME_REQUIRE_LANGUAGE_DICTIONARIES is ON but ${MSIME_LANGUAGE_DICTIONARIES_LOCK} does not exist")
+  endif()
+  file(READ "${MSIME_LANGUAGE_DICTIONARIES_LOCK}" MSIME_LANGUAGE_LOCK_JSON)
+  string(JSON MSIME_LANGUAGE_LOCK_LENGTH LENGTH "${MSIME_LANGUAGE_LOCK_JSON}" artifacts)
+  set(MSIME_LANGUAGE_DICTIONARIES_PINNED)
+  if(MSIME_LANGUAGE_LOCK_LENGTH GREATER 0)
+    math(EXPR MSIME_LANGUAGE_LOCK_LAST "${MSIME_LANGUAGE_LOCK_LENGTH} - 1")
+    foreach(MSIME_LANGUAGE_LOCK_INDEX RANGE ${MSIME_LANGUAGE_LOCK_LAST})
+      string(JSON MSIME_LANGUAGE_LOCK_NAME GET "${MSIME_LANGUAGE_LOCK_JSON}" artifacts ${MSIME_LANGUAGE_LOCK_INDEX} name)
+      if(MSIME_LANGUAGE_LOCK_NAME MATCHES "\\.db$")
+        list(APPEND MSIME_LANGUAGE_DICTIONARIES_PINNED "${MSIME_LANGUAGE_LOCK_NAME}")
+      endif()
+    endforeach()
+  endif()
+  if(NOT MSIME_LANGUAGE_DICTIONARIES_PINNED)
+    message(FATAL_ERROR "MSIME_REQUIRE_LANGUAGE_DICTIONARIES is ON but ${MSIME_LANGUAGE_DICTIONARIES_LOCK} pins no dictionary")
+  endif()
+  foreach(MSIME_LANGUAGE_DATABASE IN LISTS MSIME_LANGUAGE_DICTIONARIES_PINNED)
+    if(NOT MSIME_LANGUAGE_DATABASE IN_LIST MSIME_LANGUAGE_DICTIONARIES_INSTALLED)
+      message(FATAL_ERROR "MSIME_REQUIRE_LANGUAGE_DICTIONARIES is ON but ${MSIME_LANGUAGE_DATABASE}, pinned by resources/language-dictionaries.lock.json, was not found in '${MSIME_LANGUAGE_DICTIONARIES}'")
+    endif()
+  endforeach()
 endif()
 if(MSIME_DESKTOP_BINARY)
   if(NOT EXISTS "${MSIME_DESKTOP_BINARY}")
@@ -656,21 +815,28 @@ if(MSIME_DESKTOP_BINARY)
   endif()
   # Quote the configured path as one POSIX shell word, including apostrophes.
   string(REPLACE "'" "'\\''" MSIME_SETTINGS_SYSTEM_CONFIG
-         "${CMAKE_INSTALL_FULL_SYSCONFDIR}/msime-client/runtime-options.json")
-  configure_file(data/msime-linux-settings.in ${CMAKE_CURRENT_BINARY_DIR}/msime-linux-settings @ONLY)
-  configure_file(data/msime-linux.desktop.in ${CMAKE_CURRENT_BINARY_DIR}/msime-linux.desktop @ONLY)
+         "${CMAKE_INSTALL_FULL_SYSCONFDIR}/${MSIME_CLIENT_DIRECTORY}/runtime-options.json")
+  # 设置命令和桌面入口以版本的包名命名（full 仍是 msime-linux-settings 和 msime-linux.desktop）。
+  msime_edition_source(MSIME_SETTINGS_SOURCE data/msime-linux-settings.in)
+  msime_edition_source(MSIME_DESKTOP_ENTRY_SOURCE data/msime-linux.desktop.in)
+  configure_file("${MSIME_SETTINGS_SOURCE}" ${CMAKE_CURRENT_BINARY_DIR}/${MSIME_EDITION_PACKAGE}-settings @ONLY)
+  configure_file("${MSIME_DESKTOP_ENTRY_SOURCE}" ${CMAKE_CURRENT_BINARY_DIR}/${MSIME_EDITION_PACKAGE}.desktop @ONLY)
   install(PROGRAMS "${MSIME_DESKTOP_BINARY}" DESTINATION "${CMAKE_INSTALL_BINDIR}" RENAME msime-linux-desktop)
-  install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/msime-linux-settings DESTINATION "${CMAKE_INSTALL_BINDIR}")
-  install(FILES ${CMAKE_CURRENT_BINARY_DIR}/msime-linux.desktop DESTINATION "${CMAKE_INSTALL_DATADIR}/applications")
+  install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/${MSIME_EDITION_PACKAGE}-settings DESTINATION "${CMAKE_INSTALL_BINDIR}")
+  install(FILES ${CMAKE_CURRENT_BINARY_DIR}/${MSIME_EDITION_PACKAGE}.desktop DESTINATION "${MSIME_SYSTEM_DATADIR}/applications")
   # The Omarchy theme-set hook runs msime-linux-settings, so it ships with it; msime-linux-setup links it into ~/.config/omarchy/hooks/theme-set.d on an Omarchy desktop.
-  configure_file(data/omarchy/theme-set.in ${CMAKE_CURRENT_BINARY_DIR}/omarchy/theme-set @ONLY)
-  install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/omarchy/theme-set DESTINATION "${CMAKE_INSTALL_DATADIR}/msime-client/omarchy")
+  msime_edition_source(MSIME_OMARCHY_SOURCE data/omarchy/theme-set.in)
+  configure_file("${MSIME_OMARCHY_SOURCE}" ${CMAKE_CURRENT_BINARY_DIR}/omarchy/theme-set @ONLY)
+  install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/omarchy/theme-set DESTINATION "${CMAKE_INSTALL_DATADIR}/${MSIME_CLIENT_DIRECTORY}/omarchy")
   # The bar widget and its menu stand in for the tray Omarchy disables; the menu opens msime-linux-settings panels, so both ship with it too. msime-linux-setup links the plugin directory into ~/.config/omarchy/plugins.
-  configure_file(data/omarchy/menu.in ${CMAKE_CURRENT_BINARY_DIR}/omarchy/menu @ONLY)
-  configure_file(data/omarchy/plugin/Widget.qml.in ${CMAKE_CURRENT_BINARY_DIR}/omarchy/plugin/Widget.qml @ONLY)
-  install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/omarchy/menu DESTINATION "${CMAKE_INSTALL_DATADIR}/msime-client/omarchy")
-  install(FILES data/omarchy/plugin/manifest.json ${CMAKE_CURRENT_BINARY_DIR}/omarchy/plugin/Widget.qml
-          DESTINATION "${CMAKE_INSTALL_DATADIR}/msime-client/omarchy/plugin")
+  msime_edition_source(MSIME_OMARCHY_SOURCE data/omarchy/menu.in)
+  configure_file("${MSIME_OMARCHY_SOURCE}" ${CMAKE_CURRENT_BINARY_DIR}/omarchy/menu @ONLY)
+  msime_edition_source(MSIME_OMARCHY_SOURCE data/omarchy/plugin/Widget.qml.in)
+  configure_file("${MSIME_OMARCHY_SOURCE}" ${CMAKE_CURRENT_BINARY_DIR}/omarchy/plugin/Widget.qml @ONLY)
+  msime_edition_source(MSIME_OMARCHY_MANIFEST_SOURCE data/omarchy/plugin/manifest.json)
+  install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/omarchy/menu DESTINATION "${CMAKE_INSTALL_DATADIR}/${MSIME_CLIENT_DIRECTORY}/omarchy")
+  install(FILES "${MSIME_OMARCHY_MANIFEST_SOURCE}" ${CMAKE_CURRENT_BINARY_DIR}/omarchy/plugin/Widget.qml
+          DESTINATION "${CMAKE_INSTALL_DATADIR}/${MSIME_CLIENT_DIRECTORY}/omarchy/plugin")
 endif()
 # Nothing here starts the MCP server: an agent's MCP configuration names the command and runs it over stdio, so it only has to be on PATH.
 if(MSIME_MCP_BINARY)
@@ -678,25 +844,69 @@ if(MSIME_MCP_BINARY)
     message(FATAL_ERROR "MSIME_MCP_BINARY does not exist: ${MSIME_MCP_BINARY}")
   endif()
   install(PROGRAMS "${MSIME_MCP_BINARY}" DESTINATION "${CMAKE_INSTALL_BINDIR}")
+  # full 再以 msime 的名字放一个指向它的相对链接，供在终端里手动敲 msime expand、msime config，与 macOS 的 Homebrew cask 相同。其他版本装在自己的前缀下，那里的 bin 不在 PATH 上，同名的命令也只能有一个，留给 full。
+  if(MSIME_EDITION_IS_FULL)
+    file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/mcp")
+    file(CREATE_LINK msime-mcp "${CMAKE_CURRENT_BINARY_DIR}/mcp/msime" SYMBOLIC)
+    install(FILES "${CMAKE_CURRENT_BINARY_DIR}/mcp/msime" DESTINATION "${CMAKE_INSTALL_BINDIR}")
+  endif()
 endif()
 # The built-in sound packs, synthesized by scripts/generate_sound_packs.py and dedicated to the public domain, beside the resource directory rather than in it: that directory has to hold exactly what the dictionary lock pins. The hosts and the settings window name this directory to client-core as the built-in pack root.
 install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/sound-packs/"
-        DESTINATION "${CMAKE_INSTALL_DATADIR}/msime-client/sound-packs")
+        DESTINATION "${CMAKE_INSTALL_DATADIR}/${MSIME_CLIENT_DIRECTORY}/sound-packs")
 # 桌面入口的 Icon=msime-linux、Fcitx5 输入法条目的 Icon 和 IBus 组件的 <icon> 都按名字
 # 解析，所以这些文件决定了托盘、输入法列表和启动器上显示的是 logo 还是占位图。它们此前
 # 装在桌面二进制那个分支里，于是只装输入法、不装设置窗口的安装一张图标都没有，而那恰恰
 # 是最小可用的安装方式。
-install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/data/icons/"
-        DESTINATION "${CMAKE_INSTALL_DATADIR}/icons")
+# 所有版本用同一个图标，其他版本把同样的文件装成以自己包名命名的图标，几个版本的包才不会争同一个文件。
+if(MSIME_EDITION_IS_FULL)
+  install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/data/icons/"
+          DESTINATION "${CMAKE_INSTALL_DATADIR}/icons")
+else()
+  file(GLOB MSIME_ICON_FILES RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}/data/icons"
+       "${CMAKE_CURRENT_SOURCE_DIR}/data/icons/hicolor/*/apps/msime-linux.*")
+  foreach(MSIME_ICON_FILE IN LISTS MSIME_ICON_FILES)
+    get_filename_component(MSIME_ICON_DIRECTORY "${MSIME_ICON_FILE}" DIRECTORY)
+    get_filename_component(MSIME_ICON_EXTENSION "${MSIME_ICON_FILE}" LAST_EXT)
+    install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/data/icons/${MSIME_ICON_FILE}"
+            DESTINATION "${MSIME_SYSTEM_DATADIR}/icons/${MSIME_ICON_DIRECTORY}"
+            RENAME "${MSIME_EDITION_PACKAGE}${MSIME_ICON_EXTENSION}")
+  endforeach()
+endif()
 configure_file(cmake/icon-cache.cmake.in ${CMAKE_CURRENT_BINARY_DIR}/icon-cache.cmake @ONLY)
 install(SCRIPT ${CMAKE_CURRENT_BINARY_DIR}/icon-cache.cmake)
 if(MSIME_RUNTIME_OPTIONS_FILE)
- install(FILES "${MSIME_RUNTIME_OPTIONS_FILE}" DESTINATION "${CMAKE_INSTALL_SYSCONFDIR}/msime-client" RENAME runtime-options.json)
+ install(FILES "${MSIME_RUNTIME_OPTIONS_FILE}" DESTINATION "${CMAKE_INSTALL_SYSCONFDIR}/${MSIME_CLIENT_DIRECTORY}" RENAME runtime-options.json)
 endif()
-install(FILES ${CMAKE_CURRENT_BINARY_DIR}/msime-linux.xml DESTINATION "${CMAKE_INSTALL_DATADIR}/ibus/component")
-install(FILES "${MSIME_HOST_LIBRARY}" DESTINATION "${CMAKE_INSTALL_LIBDIR}/msime-client")
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/${MSIME_EDITION_PACKAGE}.xml DESTINATION "${MSIME_SYSTEM_DATADIR}/ibus/component")
+# 其他版本在前缀的 bin 目录里声明自己的版本（crates/client-core 的 Edition::of_linux_package），设置应用和 msime-mcp 据此找到本版本的状态目录和 socket；full 不带这个文件。
+if(NOT MSIME_EDITION_IS_FULL)
+  execute_process(
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/edition_linux.py"
+            marker --edition "${MSIME_EDITION}" --output "${CMAKE_CURRENT_BINARY_DIR}/edition/edition.json"
+    RESULT_VARIABLE MSIME_EDITION_MARKER_RESULT)
+  if(NOT MSIME_EDITION_MARKER_RESULT EQUAL 0)
+    message(FATAL_ERROR "Cannot write the edition marker for ${MSIME_EDITION}")
+  endif()
+  install(FILES "${CMAKE_CURRENT_BINARY_DIR}/edition/edition.json" DESTINATION "${CMAKE_INSTALL_BINDIR}")
+endif()
+# 装在自己前缀下的版本在 /usr/bin 放两个指向前缀的命令（<package>-setup、<package>-settings），用户和桌面入口不必知道前缀在哪。符号链接按原样安装；链接目标是前缀里的绝对路径。
+if(MSIME_EDITION_SYSTEM_PATHS)
+  set(MSIME_USER_COMMANDS setup)
+  if(MSIME_DESKTOP_BINARY)
+    list(APPEND MSIME_USER_COMMANDS settings)
+  endif()
+  file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/edition/usr-bin")
+  foreach(MSIME_USER_COMMAND IN LISTS MSIME_USER_COMMANDS)
+    file(CREATE_LINK "${CMAKE_INSTALL_FULL_BINDIR}/${MSIME_EDITION_PACKAGE}-${MSIME_USER_COMMAND}"
+         "${CMAKE_CURRENT_BINARY_DIR}/edition/usr-bin/${MSIME_EDITION_PACKAGE}-${MSIME_USER_COMMAND}" SYMBOLIC)
+    install(FILES "${CMAKE_CURRENT_BINARY_DIR}/edition/usr-bin/${MSIME_EDITION_PACKAGE}-${MSIME_USER_COMMAND}"
+            DESTINATION "/usr/bin")
+  endforeach()
+endif()
+install(FILES "${MSIME_HOST_LIBRARY}" DESTINATION "${CMAKE_INSTALL_LIBDIR}/${MSIME_CLIENT_DIRECTORY}")
 file(RELATIVE_PATH MSIME_HOST_LIBRARY_RELATIVE_DIR
-  "${CMAKE_INSTALL_FULL_BINDIR}" "${CMAKE_INSTALL_FULL_LIBDIR}/msime-client")
+  "${CMAKE_INSTALL_FULL_BINDIR}" "${CMAKE_INSTALL_FULL_LIBDIR}/${MSIME_CLIENT_DIRECTORY}")
 set_target_properties(msime-linux-ibus msime-linux-dictionary msime-linux-cloud-dictionary msime-linux-cloud-clipboard msime-linux-online msime-linux-translation msime-linux-handwriting
                       msime-linux-voice msime-linux-emoji msime-linux-clipboard-capture msime-linux-prepare PROPERTIES
   INSTALL_RPATH "$ORIGIN/${MSIME_HOST_LIBRARY_RELATIVE_DIR}")
@@ -732,12 +942,15 @@ if(WAYLAND_CLIENT_FOUND AND WAYLAND_SCANNER_EXECUTABLE AND MSIME_XDG_SHELL_XML)
   endif()
 endif()
 add_test(NAME linux-wave-overlay-model COMMAND linux-wave-overlay-model-test)
-add_executable(linux-wave-overlay-placement-test tests/runtime/wave_overlay_placement.cpp)
-target_compile_features(linux-wave-overlay-placement-test PRIVATE cxx_std_17)
-target_compile_options(linux-wave-overlay-placement-test PRIVATE -Wall -Wextra -Werror)
-target_include_directories(linux-wave-overlay-placement-test PRIVATE src)
-target_link_libraries(linux-wave-overlay-placement-test PRIVATE nlohmann_json::nlohmann_json)
-add_test(NAME linux-wave-overlay-placement COMMAND linux-wave-overlay-placement-test)
+# The placement it tests is X11's and reads the RandR headers, so it builds where the X11 surface does.
+if(X11_SURFACE_FOUND)
+  add_executable(linux-wave-overlay-placement-test tests/runtime/wave_overlay_placement.cpp)
+  target_compile_features(linux-wave-overlay-placement-test PRIVATE cxx_std_17)
+  target_compile_options(linux-wave-overlay-placement-test PRIVATE -Wall -Wextra -Werror)
+  target_include_directories(linux-wave-overlay-placement-test PRIVATE src)
+  target_link_libraries(linux-wave-overlay-placement-test PRIVATE nlohmann_json::nlohmann_json)
+  add_test(NAME linux-wave-overlay-placement COMMAND linux-wave-overlay-placement-test)
+endif()
 add_executable(linux-mode-badge-style-test tests/runtime/mode_badge_style.cpp)
 target_compile_features(linux-mode-badge-style-test PRIVATE cxx_std_17)
 target_compile_options(linux-mode-badge-style-test PRIVATE -Wall -Wextra -Werror)
@@ -768,7 +981,7 @@ if(NOT MSIME_ENABLE_FCITX5)
   message(STATUS "跳过：Fcitx5 插件；请安装 Fcitx5 开发包（Fcitx5Core 5.0.20+），"
                  "或在配置时传入 -DMSIME_ENABLE_FCITX5=ON")
 endif()
-# License and third-party notices, the Linux counterpart of the macOS bundle's Resources/Licenses. Every install redistributes the code compiled into the host library, so plain `cmake --install` gets them as well, not only packages. The project license is `copyright` here (GPL-3.0.txt on macOS); it also covers the input engine (crates/engine), which is this project's code. What the engine carries from elsewhere keeps its own notice: zinnia, whose recognizer crates/engine/src/handwriting ports; the place names `@` mode offers, from modood/Administrative-divisions-of-China (WTFPL); the provenance of the dictionary data msime-linux-setup downloads, carried verbatim from msime-engine as resources/licenses/msime-engine-dictionary-NOTICE.md, the copy every platform ships; and the provenance of the helpcode tables installed into the packaged resource directory: the five the Engine brought (ENGINE-NOTICE.md) and jiajia (NOTICE.md).
+# License and third-party notices, the Linux counterpart of the macOS bundle's Resources/Licenses. Every install redistributes the code compiled into the host library, so plain `cmake --install` gets them as well, not only packages. The project license is `copyright` here (GPL-3.0.txt on macOS); it also covers the input engine (crates/engine), which is this project's code. What the engine carries from elsewhere keeps its own notice: zinnia, whose recognizer crates/engine/src/handwriting ports; the place names `@` mode offers, from modood/Administrative-divisions-of-China (WTFPL); the Korean Hanja table, from libhangul's data/hanja/hanja.txt (BSD-3-Clause); the Jyutping and bopomofo data of the Cantonese and Zhuyin schemes, from rime-cantonese (CC BY 4.0) and libchewing-data (LGPL-2.1-or-later), and the stroke orders of the Stroke scheme, from rime-stroke (LGPL-3.0, with the CNS11643 attribution), whose notices travel with every engine build even where those schemes are not offered; the provenance of the dictionary data msime-linux-setup downloads, carried verbatim from msime-engine as resources/licenses/msime-engine-dictionary-NOTICE.md, the copy every platform ships; and the provenance of the helpcode tables installed into the packaged resource directory: the five the Engine brought (ENGINE-NOTICE.md) and jiajia (NOTICE.md).
 set(MSIME_NOTICE_SOURCES
   "${CMAKE_CURRENT_SOURCE_DIR}/../../LICENSE"
   "${CMAKE_CURRENT_SOURCE_DIR}/data/THIRD_PARTY_NOTICES.txt"
@@ -777,6 +990,11 @@ set(MSIME_NOTICE_SOURCES
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/helpcodes/NOTICE.md"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/Zinnia-LICENSE.txt"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/Administrative-divisions-of-China-WTFPL.txt"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/libhangul-hanja-BSD-3-Clause.txt"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/rime-cantonese-CC-BY-4.0.txt"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/libchewing-data-LGPL-2.1.txt"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/ewts-MIT.txt"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/rime-stroke-LGPL-3.0.txt"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../crates/client-core/data/opencc/LICENSE")
 # `copyright` is the name Debian policy requires for the package license.
 set(MSIME_NOTICE_NAMES
@@ -787,6 +1005,11 @@ set(MSIME_NOTICE_NAMES
   msime-helpcode-jiajia-NOTICE.md
   Zinnia-LICENSE.txt
   Administrative-divisions-of-China-WTFPL.txt
+  libhangul-hanja-BSD-3-Clause.txt
+  rime-cantonese-CC-BY-4.0.txt
+  libchewing-data-LGPL-2.1.txt
+  ewts-MIT.txt
+  rime-stroke-LGPL-3.0.txt
   OpenCC-Apache-2.0.txt)
 # The handwriting model's LGPL-2.1 license travels with the model, so it is a notice only when the model is installed.
 if(MSIME_HANDWRITING_MODEL_DIR)
@@ -841,7 +1064,7 @@ set(MSIME_MISSING_NOTICES "")
 foreach(MSIME_NOTICE_SOURCE MSIME_NOTICE_NAME IN ZIP_LISTS MSIME_NOTICE_SOURCES MSIME_NOTICE_NAMES)
   if(EXISTS "${MSIME_NOTICE_SOURCE}" AND NOT IS_DIRECTORY "${MSIME_NOTICE_SOURCE}")
     install(FILES "${MSIME_NOTICE_SOURCE}"
-            DESTINATION "${CMAKE_INSTALL_DATADIR}/doc/msime-client" RENAME "${MSIME_NOTICE_NAME}")
+            DESTINATION "${CMAKE_INSTALL_DATADIR}/doc/${MSIME_CLIENT_DIRECTORY}" RENAME "${MSIME_NOTICE_NAME}")
   else()
     list(APPEND MSIME_MISSING_NOTICES "${MSIME_NOTICE_SOURCE}")
   endif()
@@ -854,11 +1077,12 @@ if(MSIME_MISSING_NOTICES)
   endif()
   message(WARNING "Installing without these third-party notices:\n  ${MSIME_MISSING_NOTICE_LIST}")
 endif()
-if(MSIME_ENABLE_PACKAGING)
-  include(cmake/packaging.cmake)
-endif()
+# Fcitx5 插件先配置：打包要知道它的插件目录（装在自己前缀下的版本取自 Fcitx5Core.pc），才能把那个归 fcitx5 所有的目录排除在 RPM 的文件列表之外。
 if(MSIME_ENABLE_FCITX5)
   add_subdirectory(fcitx5)
+endif()
+if(MSIME_ENABLE_PACKAGING)
+  include(cmake/packaging.cmake)
 endif()
 
 # assert() 是这些测试唯一的断言手段，而 Release 配置定义的 NDEBUG 会把它们整个消掉：

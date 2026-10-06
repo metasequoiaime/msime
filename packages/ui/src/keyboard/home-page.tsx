@@ -1,7 +1,10 @@
+import { useId } from "react";
 import { ScreenKeyboardPreview } from "./screen-keyboard-preview";
+import { groupTitle } from "../core/platform-controls-style";
 import { keyboardThemeId, themeEntry } from "../theme/global-theme";
 import { useCandidatePreviewTheme } from "../candidate/candidate-preview-theme";
-import type { Preferences, TouchKeyboardScheme } from "../index";
+import { ActionButton } from "../core/action-button";
+import type { Preferences } from "../index";
 import { touchKeyboardSchemeTitle } from "../settings/touch-keyboard-scheme-helpers";
 
 // Every tappable surface on this page is the same card: full width, a hairline that strengthens on
@@ -110,6 +113,12 @@ export interface MoreSettingsPage {
   icon: string;
 }
 
+/** 「全部设置」里的一组页面；`title` 是导航组名，为空时不显示组名。 */
+export interface MoreSettingsGroup {
+  title?: string;
+  pages: readonly MoreSettingsPage[];
+}
+
 export interface HomePageActions {
   openKeyboard?: () => Promise<void>;
   openEmojiPanel?: () => Promise<void>;
@@ -122,16 +131,17 @@ export function HomePage({
   preferences,
   actions,
   onOpenPage,
-  onSelectScheme,
   onOpenChat,
   touchLayout = false,
+  ios = false,
 }: {
   preferences: Preferences;
   actions?: HomePageActions;
   onOpenPage: (page: string) => void;
   onOpenChat?: () => void;
-  onSelectScheme?: (scheme: TouchKeyboardScheme) => void;
   touchLayout?: boolean;
+  /** iOS opens the keyboard extension's settings, where 完全访问 lives; Android and HarmonyOS open the system input method settings. */
+  ios?: boolean;
 }) {
   const theme = useCandidatePreviewTheme(preferences.theme, preferences.screen_keyboard_theme);
   const selected = themeEntry(preferences.global_theme).id;
@@ -214,7 +224,7 @@ export function HomePage({
             glyph="◈"
             icon={new URL("../assets/skin.svg", import.meta.url).href}
           />
-          <strong className={quickTitle}>皮肤</strong>
+          <strong className={quickTitle}>主题</strong>
           <small className={quickNote}>{skinTitle}</small>
         </button>
         <button type="button" className={quickTile} onClick={() => onOpenPage("input")}>
@@ -273,17 +283,10 @@ export function HomePage({
             icon={new URL("../assets/utilities.svg", import.meta.url).href}
           />
           <strong className={quickTitle}>系统设置</strong>
-          <small className={quickNote}>启用与完全访问</small>
+          <small className={quickNote}>{ios ? "启用与完全访问" : "启用与设为默认"}</small>
         </button>
       </div>
-      <button
-        type="button"
-        className={rowCard}
-        onClick={() => {
-          onSelectScheme?.("thoughtful_reply");
-          onOpenPage("input");
-        }}
-      >
+      <button type="button" className={rowCard} onClick={() => onOpenPage("ai")}>
         <span
           className="grid size-[34px] shrink-0 grow-0 basis-[34px] place-items-center rounded-[10px] bg-accent-soft text-[18px] text-accent"
           aria-hidden="true"
@@ -292,7 +295,7 @@ export function HomePage({
         </span>
         <span className={rowBody}>
           <strong className={cardTitle}>高情商回复</strong>
-          <small className={cardNote}>切换回复键盘，试试更合适的表达</small>
+          <small className={cardNote}>点键盘工具栏上的回复，试试更合适的表达</small>
         </span>
         <span className={rowChevron} aria-hidden="true">
           ↗
@@ -323,7 +326,7 @@ export function HomePage({
         />
         <span className={rowBody}>
           <strong className={cardTitle}>全部设置</strong>
-          <small className={cardNote}>输入偏好、词库、AI 与语音</small>
+          <small className={cardNote}>打字、外观、语音与词库</small>
         </span>
         <span className={rowChevron} aria-hidden="true">
           ›
@@ -331,40 +334,32 @@ export function HomePage({
       </button>
       <div className="flex flex-wrap gap-[9px]">
         {actions?.openEmojiPanel && (
-          <button
-            type="button"
+          <ActionButton
+            action={() => invokeAction(actions.openEmojiPanel)}
             className="secondary m-0"
-            onClick={() => invokeAction(actions.openEmojiPanel)}
-          >
-            表情与符号
-          </button>
+            label="表情与符号"
+          />
         )}
         {actions?.openClipboardPanel && (
-          <button
-            type="button"
+          <ActionButton
+            action={() => invokeAction(actions.openClipboardPanel)}
             className="secondary m-0"
-            onClick={() => invokeAction(actions.openClipboardPanel)}
-          >
-            剪贴板历史
-          </button>
+            label="剪贴板历史"
+          />
         )}
         {actions?.openSystemKeyboardSettings && (
-          <button
-            type="button"
+          <ActionButton
+            action={() => invokeAction(actions.openSystemKeyboardSettings)}
             className="secondary m-0"
-            onClick={() => invokeAction(actions.openSystemKeyboardSettings)}
-          >
-            系统键盘设置
-          </button>
+            label={ios ? "系统键盘设置" : "系统输入法设置"}
+          />
         )}
         {actions?.showInputMethodPicker && (
-          <button
-            type="button"
+          <ActionButton
+            action={() => invokeAction(actions.showInputMethodPicker)}
             className="secondary m-0"
-            onClick={() => invokeAction(actions.showInputMethodPicker)}
-          >
-            选择输入法
-          </button>
+            label="选择输入法"
+          />
         )}
       </div>
     </section>
@@ -372,42 +367,66 @@ export function HomePage({
 }
 
 /**
- * The pages that have no tab of their own.
+ * 没有独立标签的设置页。
  *
- * Reached from the 键盘 tab rather than from a fifth cell in the bar, because the source's bar is
- * four tabs and its other pages sit one level down inside the first of them. One grouped list with
- * a hairline between the rows, not a card per page.
+ * 从「键盘」标签进入，而不是在标签栏里加第五格：来源应用的标签栏只有四格，其余页面都在第一个标签下一层。每组画成一张带分隔线的列表，而不是每页一张卡片。
+ *
+ * 每组列表上方显示导航的组名（与桌面侧栏同一份 `settingsNavGroups`），手机上只剩一项的组也能看出它属于哪一类。
  */
 export function MoreSettingsPage({
   groups,
   onOpenPage,
 }: {
-  /** The design's navigation groups, each drawn as one list. */
-  groups: readonly (readonly MoreSettingsPage[])[];
+  /** 导航分组，每组画成组名下的一张列表。 */
+  groups: readonly MoreSettingsGroup[];
   onOpenPage: (page: string) => void;
 }) {
   return (
     <section className="flex flex-col gap-3" aria-label="全部设置">
-      {groups.map((pages) => (
-        <div key={pages[0]?.id} className={listGroup}>
-          {pages.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              className={listRow}
-              onClick={() => onOpenPage(item.id)}
-            >
-              <img src={item.icon} alt="" aria-hidden="true" className="size-[20px] shrink-0" />
-              <span className={rowBody}>
-                <strong className="block font-medium">{item.title}</strong>
-              </span>
-              <span className={rowChevron} aria-hidden="true">
-                ›
-              </span>
-            </button>
-          ))}
-        </div>
+      {groups.map((group) => (
+        <MoreSettingsGroupList key={group.pages[0]?.id} group={group} onOpenPage={onOpenPage} />
       ))}
     </section>
+  );
+}
+
+function MoreSettingsGroupList({
+  group,
+  onOpenPage,
+}: {
+  group: MoreSettingsGroup;
+  onOpenPage: (page: string) => void;
+}) {
+  const titleId = useId();
+  return (
+    <div
+      className="flex flex-col gap-[var(--p-g-title-gap)]"
+      role={group.title ? "group" : undefined}
+      aria-labelledby={group.title ? titleId : undefined}
+    >
+      {group.title && (
+        <h3 id={titleId} className={groupTitle}>
+          {group.title}
+        </h3>
+      )}
+      <div className={listGroup}>
+        {group.pages.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            className={listRow}
+            onClick={() => onOpenPage(item.id)}
+          >
+            <img src={item.icon} alt="" aria-hidden="true" className="size-[20px] shrink-0" />
+            <span className={rowBody}>
+              <strong className="block font-medium">{item.title}</strong>
+            </span>
+            <span className={rowChevron} aria-hidden="true">
+              ›
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }

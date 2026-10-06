@@ -61,7 +61,7 @@ public final class TypingStatisticsDocument {
             // written documents opt-in on Android as well; showing them as enabled would expose
             // statistics the user never turned on.
             root.optBoolean("enabled", false),
-            Math.max(0, root.optLong("total", 0)),
+            Math.max(0, KeyboardGeometry.strictLong(root.opt("total"), 0)),
             root.optString("retention", "forever"),
             counts(root.optJSONObject("days")),
             detail == null ? Map.of() : counts(detail.optJSONObject("characters")),
@@ -76,7 +76,7 @@ public final class TypingStatisticsDocument {
         Map<String, Long> result = new LinkedHashMap<>();
         for (Iterator<String> keys = value.keys(); keys.hasNext();) {
             String key = keys.next();
-            long count = value.optLong(key, 0);
+            long count = KeyboardGeometry.strictLong(value.opt(key), 0);
             if (count > 0) result.put(key, count);
         }
         return Map.copyOf(result);

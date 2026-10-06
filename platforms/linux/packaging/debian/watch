@@ -1,0 +1,8 @@
+version=4
+# 发布页上的源码包与 vendor 组件包都由 release-linux.yml 随 linux-vVERSION 上传；GitHub 的发布页面由脚本渲染，这里读发布 API 的 JSON。
+opts="searchmode=plain" \
+  https://api.github.com/repos/metasequoiaime/msime/releases?per_page=100 \
+  https://github.com/metasequoiaime/msime/releases/download/linux-v[\d.]+/msime-([\d.]+)\.tar\.xz
+opts="searchmode=plain,component=vendor" \
+  https://api.github.com/repos/metasequoiaime/msime/releases?per_page=100 \
+  https://github.com/metasequoiaime/msime/releases/download/linux-v[\d.]+/msime-([\d.]+)-vendor\.tar\.xz same

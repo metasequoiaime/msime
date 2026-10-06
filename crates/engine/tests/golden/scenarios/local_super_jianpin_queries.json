@@ -8,7 +8,7 @@
  ],
  "fixture": {
   "databases": {
-   "msime.db": "BEGIN;CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_n VALUES('ni','n','你',300);INSERT INTO tbl_1_n VALUES('na','n','拿',200);CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_2_n VALUES('ni''hao','nh','你好',300);INSERT INTO tbl_2_n VALUES('ni''hao','nh','拟好',200);INSERT INTO tbl_2_n VALUES('na''han','nh','呐喊',100);INSERT INTO tbl_2_n VALUES('ni''shuo','ns','你说',290);INSERT INTO tbl_2_n VALUES('ni''si','ns','你思',280);INSERT INTO tbl_2_n VALUES('ni''u','nu','你屋',100);CREATE TABLE tbl_2_a(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_2_a VALUES('ai''ni','an','爱你',250);CREATE TABLE tbl_2_z(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_2_z VALUES('zhi''chi','zc','知耻',240);COMMIT;"
+   "msime-pinyin.db": "BEGIN;CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_n VALUES('ni','n','你',300);INSERT INTO tbl_1_n VALUES('na','n','拿',200);CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_2_n VALUES('ni''hao','nh','你好',300);INSERT INTO tbl_2_n VALUES('ni''hao','nh','拟好',200);INSERT INTO tbl_2_n VALUES('na''han','nh','呐喊',100);INSERT INTO tbl_2_n VALUES('ni''shuo','ns','你说',290);INSERT INTO tbl_2_n VALUES('ni''si','ns','你思',280);INSERT INTO tbl_2_n VALUES('ni''u','nu','你屋',100);CREATE TABLE tbl_2_a(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_2_a VALUES('ai''ni','an','爱你',250);CREATE TABLE tbl_2_z(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_2_z VALUES('zhi''chi','zc','知耻',240);COMMIT;"
   }
  },
  "options": {},

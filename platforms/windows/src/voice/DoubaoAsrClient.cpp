@@ -125,6 +125,7 @@ bool ReceiveMessage(HINTERNET websocket, std::vector<std::uint8_t> &message)
 {
     message.clear();
     std::array<std::uint8_t, 8192> buffer{};
+    message.reserve(buffer.size());
     for (;;)
     {
         DWORD bytes_read = 0;

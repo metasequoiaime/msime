@@ -20,7 +20,7 @@ struct CommunityHomeView: View {
       HStack(spacing: 0) {
         categoryButton(0, title: "皮肤")
         categoryButton(1, title: "词库")
-        categoryButton(2, title: "回复")
+        categoryButton(2, title: "回复模板")
       }
       .padding(2)
       .background(Color(uiColor: .tertiarySystemFill), in: Capsule())
@@ -175,7 +175,10 @@ struct CommunityResourceDetail: View {
   var body: some View {
     ScrollView {
       VStack(alignment: .leading, spacing: 18) {
-        Label(item.name, systemImage: item.kind.icon).font(.title2.bold())
+        HStack {
+          Label(item.name, systemImage: item.kind.icon).font(.title2.bold())
+          if item.removed { CommunityRemovedBadge() }
+        }
         Text("\(item.author) · v\(item.revision)").foregroundStyle(.secondary)
         Text(item.description)
         HStack {
@@ -203,7 +206,7 @@ struct CommunityResourceDetail: View {
           Text(item.content.prompt ?? "").font(.body).textSelection(.enabled)
             .padding().frame(maxWidth: .infinity, alignment: .leading)
             .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
-          Button("添加到回复键盘") { run {
+          Button("添加到高情商回复键盘") { run {
             try await SkinCommunityAPI.shared.saveResource(item.id, saved: true)
             let latest = try await SkinCommunityAPI.shared.resource(item.id)
             try CommunityLibrary.save(latest); updated = latest
@@ -215,7 +218,7 @@ struct CommunityResourceDetail: View {
           updated = try await SkinCommunityAPI.shared.resource(item.id)
         }}.disabled(busy)
         if item.kind == .reply {
-          Button("从本机回复键盘移除") { run { try CommunityLibrary.remove(item.id); message = "已从本机移除，社区收藏保留。" } }.disabled(busy)
+          Button("从本机高情商回复键盘移除") { run { try CommunityLibrary.remove(item.id); message = "已从本机移除，社区收藏保留。" } }.disabled(busy)
         }
         if !item.owned {
           HStack {
@@ -228,6 +231,7 @@ struct CommunityResourceDetail: View {
                 .accessibilityLabel("\(stars) 星").disabled(busy || !item.saved)
             }
           }
+          CommunityReportButton(kind: item.kind == .dictionary ? "dictionaries" : "replies", itemID: item.id)
         } else {
           Button("编辑并发布新版本") { editing = true }.disabled(busy)
           Button("下架作品", role: .destructive) { confirmDelete = true }.disabled(busy)
@@ -256,6 +260,11 @@ struct CommunityResourceDetail: View {
     guard !busy else { return }; busy = true
     Task { defer { busy = false }; do { try await action() } catch { message = error.localizedDescription } }
   }
+}
+
+private extension PersonalWordKind {
+  /// 社区词库收的种类（`pinyin`、`wubi`、`quick`、`english`，见 `SkinCommunityAPI.validResource`），不含 98 五笔。
+  static let communityCases = allCases.filter { $0 != .wubi98 }
 }
 
 struct CommunityResourceEditor: View {
@@ -290,7 +299,7 @@ struct CommunityResourceEditor: View {
           }
         } else {
           Section("添加词条") {
-            Picker("类型", selection: $wordKind) { ForEach(PersonalWordKind.allCases) { Text($0.title).tag($0) } }
+            Picker("类型", selection: $wordKind) { ForEach(PersonalWordKind.communityCases) { Text($0.title).tag($0) } }
             TextField("编码，例如 ni hao", text: $code).textInputAutocapitalization(.never).autocorrectionDisabled()
             TextField("词语或短语", text: $word)
             Button("添加到待发布词库") {
@@ -335,6 +344,7 @@ struct CommunityResourceEditor: View {
             do {
               let url = try result.get()
               let imported = try await Task.detached { try PersonalDictionaryImport.read(from: url) }.value
+              guard imported.entries.allSatisfy({ PersonalWordKind.communityCases.contains($0.kind) }) else { throw CommunityFailure(message: "社区词库暂不支持 98 五笔词条，请从文件中去掉后再选择。") }
               let ids = Set(words.map(\.id)); let additions = imported.entries.filter { !ids.contains($0.id) }
               guard words.count + additions.count <= 128 else { throw CommunityFailure(message: "每份社区词库最多 128 条，请先精简文件。") }
               words += additions

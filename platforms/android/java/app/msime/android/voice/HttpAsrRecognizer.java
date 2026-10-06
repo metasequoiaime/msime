@@ -199,7 +199,7 @@ public final class HttpAsrRecognizer {
     /** The one field these APIs agree on. Anything else in the response is ignored. */
     private static String text(String response) {
         try {
-            return new JSONObject(response).optString("text", "").trim();
+            return HttpAsrPolicy.strictText(new JSONObject(response).opt("text")).trim();
         } catch (JSONException error) {
             return "";
         }

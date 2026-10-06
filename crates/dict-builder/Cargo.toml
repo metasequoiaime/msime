@@ -1,6 +1,6 @@
 [package]
 name = "msime-dict-builder"
-description = "Builds the shipped dictionary artifacts (msime.db, english.db, others.db, dict_japanese.dat, bigram.bin, trigram.bin and the manifest) from pinned sources. Replaces the Python pipeline under MSIME-Engine dictionary/."
+description = "Builds the shipped dictionary artifacts (msime-pinyin.db, msime-wubi.db, msime-english.db, msime-others.db, msime-japanese.dat, msime-bigram.bin, msime-trigram.bin and the manifest) from pinned sources. Replaces the Python pipeline under MSIME-Engine dictionary/."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

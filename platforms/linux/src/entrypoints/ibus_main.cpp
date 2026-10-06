@@ -1,16 +1,16 @@
 #include "../core/ClientEngine.h"
 #include "../core/FirstRunGuidance.h"
+#include "../core/LinuxEdition.h"
 #include "../core/RuntimeOptionsRefresh.h"
 #include "../system/SystemTheme.h"
 #include <array>
-#include <curl/curl.h>
 #include <fstream>
 #include <iostream>
 #include <iterator>
 #include <exception>
 #include <filesystem>
 #include <cstdlib>
-#include <thread>
+#include <nlohmann/json.hpp>
 #include "Telemetry.h"
 
 namespace {
@@ -52,13 +52,13 @@ void restore_global_engine(IBusBus *bus) {
         // An error here is the daemon reporting that no global engine is set.
         auto current = ibus_bus_get_global_engine_async_finish(bus, result, nullptr);
         const gchar *name = current ? ibus_engine_desc_get_name(current) : nullptr;
-        const bool restore = name == nullptr || *name == '\0' || g_strcmp0(name, "msime-linux") == 0;
+        const bool restore = name == nullptr || *name == '\0' || g_strcmp0(name, MSIME_EDITION_IBUS_ENGINE) == 0;
         if (current)
           g_object_unref(current);
         if (!restore)
           return;
         ibus_bus_set_global_engine_async(
-            bus, "msime-linux", -1, nullptr,
+            bus, MSIME_EDITION_IBUS_ENGINE, -1, nullptr,
             +[](GObject *source, GAsyncResult *result, gpointer) {
               GError *error = nullptr;
               if (!ibus_bus_set_global_engine_async_finish(IBUS_BUS(source), result, &error))
@@ -86,9 +86,9 @@ void notify_dictionary_outdated() {
 } // namespace
 
 int main(int argc, char **argv) {
-  // Before any thread exists: libcurl's global init is not thread-safe, and both the startup event's thread and a crash report on any thread use it.
-  curl_global_init(CURL_GLOBAL_DEFAULT);
-  std::set_terminate([] { msime::telemetry::crash("linux", MSIME_LINUX_VERSION, "std::terminate"); std::abort(); });
+  // Crash capture only writes this session's crash record to disk; the next start reports it. Armed by telemetry::begin below, so a crash before that records nothing.
+  std::set_terminate([] { msime::telemetry::record_terminate(); std::abort(); });
+  msime::telemetry::install_crash_handlers();
   // --recovered is passed only by the launcher's crash supervisor when it restarts this process.
   const bool recovered = argc == 3 && g_strcmp0(argv[1], "--recovered") == 0;
   if ((argc != 2 && !recovered) || argv[argc - 1][0] != '/') {
@@ -113,6 +113,7 @@ int main(int argc, char **argv) {
   } catch (...) {
     std::cerr << "Cannot update the dictionary to the installed generation; keeping the current one\n";
   }
+  std::string preferences_directory;
   try {
     std::ifstream file(options_path);
     if (!file)
@@ -124,10 +125,21 @@ int main(int argc, char **argv) {
       throw std::runtime_error("Cannot read configuration");
     std::string options(buffer.data(), static_cast<size_t>(file.gcount()));
     msime_ibus_configure(options);
+    if (const auto parsed = nlohmann::json::parse(options, nullptr, false); parsed.is_object())
+      preferences_directory = parsed.value("preferences_directory", std::string{});
   } catch (...) {
     std::cerr << "Cannot load configuration\n";
     return 1;
   }
+  // One reporting session per host process, a supervisor restart included: the session the crash ended is closed by this start (session_crash only when it left a crash record), and active is queued at most once a day whatever the number of starts. The usage_reporting switch is read from the shared preferences; off clears what is queued and sends nothing. begin is file I/O only, and runs before the bus so a crash while starting is recorded too.
+  // 使用统计目录按版本分开：default_directory() 是 $XDG_STATE_HOME/msime，其他版本换成同级的 msime-<id>（LinuxEdition.h），full 的结果不变。
+  auto telemetry_directory = msime::telemetry::default_directory();
+  if (!telemetry_directory.empty())
+    telemetry_directory = telemetry_directory.parent_path() / MSIME_EDITION_TELEMETRY_DIRECTORY;
+  msime::telemetry::begin({"linux", MSIME_LINUX_VERSION, telemetry_directory, std::nullopt,
+                           preferences_directory.empty() || preferences_directory.front() != '/'
+                               ? std::filesystem::path()
+                               : std::filesystem::path(preferences_directory)});
   ibus_init();
   auto bus = ibus_bus_new();
   if (!ibus_bus_is_connected(bus)) {
@@ -136,12 +148,12 @@ int main(int argc, char **argv) {
     return recovered ? 0 : 1;
   }
   auto factory = ibus_factory_new(ibus_bus_get_connection(bus));
-  ibus_factory_add_engine(factory, "msime-linux",
+  ibus_factory_add_engine(factory, MSIME_EDITION_IBUS_ENGINE,
                           msime_ibus_engine_get_type());
 #if IBUS_CHECK_VERSION(1, 5, 27)
   g_signal_connect(factory, "create-engine",
       G_CALLBACK(+[](IBusFactory *factory, const gchar *name, gpointer) -> IBusEngine * {
-        if (g_strcmp0(name, "msime-linux") != 0)
+        if (g_strcmp0(name, MSIME_EDITION_IBUS_ENGINE) != 0)
           return nullptr;
         static guint64 sequence = 0;
         auto path = g_strdup_printf("/org/freedesktop/IBus/Engine/MSIME/%" G_GUINT64_FORMAT,
@@ -155,14 +167,15 @@ int main(int argc, char **argv) {
         return engine;
       }), nullptr);
 #endif
+  // 组件名、引擎名、显示名和登记的语言按版本取（LinuxEdition.h）：几个版本的 IBus 宿主是各自的进程，名字不同才能同时注册；日文、越南文、藏文版登记在各自的语言下。
   auto component = ibus_component_new(
-      "app.msime.linux", "Metasequoia 水杉输入法", "0.1.0",
+      MSIME_EDITION_TAURI_IDENTIFIER, MSIME_EDITION_IBUS_LONGNAME, "0.1.0",
       "GPL-3.0-only", "MSIME contributors",
       "https://github.com/metasequoiaime/msime", "", "");
   ibus_component_add_engine(
       component,
-      ibus_engine_desc_new("msime-linux", "Metasequoia 水杉输入法",
-                           "Shared MSIME Linux input runtime", "zh",
+      ibus_engine_desc_new(MSIME_EDITION_IBUS_ENGINE, MSIME_EDITION_IBUS_LONGNAME,
+                           "Shared MSIME Linux input runtime", MSIME_EDITION_IBUS_LANGUAGE,
                            "GPL-3.0-only", "MSIME contributors", "", "us"));
   if (!ibus_bus_register_component(bus, component)) {
     g_object_unref(component);
@@ -175,9 +188,8 @@ int main(int argc, char **argv) {
                    nullptr);
   if (recovered)
     restore_global_engine(bus);
-  else
-    // One event per start the user or ibus-daemon asked for, never per supervisor restart. It runs after registration and off the main thread so an unreachable endpoint (up to the 8 s request timeout) cannot delay the engine; the thread is never joined, so exiting mid-request only drops this event.
-    std::thread([] { msime::telemetry::start("linux", MSIME_LINUX_VERSION); }).detach();
+  // Delivery runs after registration on a thread that is never joined, so an unreachable endpoint cannot delay the engine and exiting mid-request only leaves the events queued.
+  msime::telemetry::start_flushing();
   auto config_file = g_file_new_for_path(options_path);
   OptionsWatch options_watch{options_path, config_file, 0, {}};
   auto config_directory = g_file_get_parent(config_file);
@@ -224,6 +236,8 @@ int main(int argc, char **argv) {
   g_object_unref(component);
   g_object_unref(factory);
   g_object_unref(bus);
+  // Every way out of the main loop is a normal end of this session.
+  msime::telemetry::end();
   // 0 means the bus went away because ibus-daemon is exiting or restarting, so the supervisor must not restart this host. After `ibus restart` the new daemon starts the launcher again when the engine is selected; after `ibus exit` nothing runs again, which is intended.
   if (msime_ibus_maintenance_stop_requested())
     return msime_ibus_maintenance_stop_exit;

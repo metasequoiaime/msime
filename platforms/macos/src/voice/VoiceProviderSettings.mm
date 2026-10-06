@@ -6,6 +6,7 @@
 NSNotificationName const MSIMEVoiceProviderSettingsDidChangeNotification = @"MSIMEClientVoiceProviderSettingsDidChange";
 #import <Security/Security.h>
 #import "../core/WindowPresentation.h"
+#import "../core/EditionIdentity.h"
 #include <sys/stat.h>
 
 namespace
@@ -92,10 +93,11 @@ static NSString *const MSIMEVoiceProviderPolishScope = @"polish";
 
 namespace
 {
-NSString *const service = @"app.msime.client.voice.providers";
+// 错误域不随版本而变：VoiceFailureMessages 按 app.msime.client.voice 前缀认出语音错误。钥匙串服务名随版本而变，见 MSIMEVoiceProviderKeychainService。
+NSString *const errorDomain = @"app.msime.client.voice.providers";
 NSError *Error(NSString *message, NSString *scope)
 {
-    return [NSError errorWithDomain:service
+    return [NSError errorWithDomain:errorDomain
                                code:1
                            userInfo:@{NSLocalizedDescriptionKey : message, MSIMEVoiceProviderErrorScopeKey : scope}];
 }
@@ -103,19 +105,8 @@ NSDictionary *Key(NSString *kind, NSString *provider, NSString *endpoint)
 {
     return @{
         (__bridge id)kSecClass : (__bridge id)kSecClassGenericPassword,
-        (__bridge id)kSecAttrService : service,
+        (__bridge id)kSecAttrService : MSIMEVoiceProviderKeychainService(),
         (__bridge id)kSecAttrAccount : MSIMEVoiceProviderCredentialAccount(kind, provider, endpoint)
-    };
-}
-NSDictionary *LegacyKey(NSString *kind, NSString *endpoint)
-{
-    NSURLComponents *url = [NSURLComponents componentsWithString:endpoint ?: @""];
-    NSString *origin = [NSString stringWithFormat:@"%@://%@:%@", url.scheme.lowercaseString ?: @"",
-                                                   url.host.lowercaseString ?: @"", url.port ?: @443];
-    return @{
-        (__bridge id)kSecClass : (__bridge id)kSecClassGenericPassword,
-        (__bridge id)kSecAttrService : service,
-        (__bridge id)kSecAttrAccount : [kind stringByAppendingFormat:@"|%@", origin]
     };
 }
 NSString *ReadKey(NSDictionary *key)
@@ -130,10 +121,9 @@ NSString *ReadKey(NSDictionary *key)
     NSString *text = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
     return text ? text : @"";
 }
-NSString *ReadToken(NSString *kind, NSString *provider, NSString *endpoint, BOOL allowLegacy)
+NSString *ReadToken(NSString *kind, NSString *provider, NSString *endpoint)
 {
-    NSString *token = ReadKey(Key(kind, provider, endpoint));
-    return token.length || !allowLegacy ? token : ReadKey(LegacyKey(kind, endpoint));
+    return ReadKey(Key(kind, provider, endpoint));
 }
 void DeleteKey(NSDictionary *key)
 {
@@ -171,7 +161,6 @@ BOOL WriteToken(NSString *kind, NSString *provider, NSString *endpoint, NSString
 void DeleteToken(NSString *kind, NSString *provider, NSString *endpoint)
 {
     DeleteKey(Key(kind, provider, endpoint));
-    DeleteKey(LegacyKey(kind, endpoint));
 }
 BOOL IsEndpoint(NSString *value)
 {
@@ -198,11 +187,11 @@ static NSString *StringSetting(NSDictionary *saved, NSString *key, NSString *fal
     return [value isKindOfClass:[NSString class]] ? (NSString *)value : fallback;
 }
 
-static NSString *SharedSetting(NSDictionary *saved, NSString *key, NSString *fallback)
+static NSString *SharedSetting(NSString *key, NSString *fallback)
 {
     NSString *sharedKey = MSIMEVoiceProviderSharedKeys()[key];
     return MSIMEVoiceProviderSharedSetting(
-        saved, key, sharedKey ? [NSUserDefaults.standardUserDefaults objectForKey:sharedKey] : nil, fallback);
+        sharedKey ? [NSUserDefaults.standardUserDefaults objectForKey:sharedKey] : nil, fallback);
 }
 
 + (instancetype)loadSettings
@@ -213,32 +202,28 @@ static NSString *SharedSetting(NSDictionary *saved, NSString *key, NSString *fal
     if (!saved)
         saved = @{};
     NSString *rawProvider =
-        SharedSetting(saved, @"provider", @"doubao").lowercaseString;
-    // Keep legacy cloud settings readable while matching the Windows provider contract.
-    if ([rawProvider isEqualToString:@"cloud"])
-        rawProvider = @"siliconflow";
+        SharedSetting(@"provider", @"doubao").lowercaseString;
     if (![MSIMEVoiceASRProviderIDs() containsObject:rawProvider])
         rawProvider = @"doubao";
     value.provider = rawProvider;
-    value.endpoint = SharedSetting(saved, @"endpoint", @"");
-    value.model = SharedSetting(saved, @"model", @"");
+    value.endpoint = SharedSetting(@"endpoint", @"");
+    value.model = SharedSetting(@"model", @"");
     if (value.endpoint.length == 0)
         value.endpoint = MSIMEVoiceASRProviderDefaultEndpoint(rawProvider);
     if (value.model.length == 0)
         value.model = MSIMEVoiceASRProviderDefaultModel(rawProvider);
-    value.modelPath = SharedSetting(saved, @"modelPath", @"");
+    value.modelPath = SharedSetting(@"modelPath", @"");
     id polishEnabled = saved[@"polishEnabled"];
     value.polishEnabled =
         [polishEnabled isKindOfClass:[NSNumber class]] || [polishEnabled isKindOfClass:[NSString class]]
             ? [polishEnabled boolValue]
             : NO;
-    value.polishEndpoint = SharedSetting(saved, @"polishEndpoint", MSIMEVoicePolishDefaultEndpoint);
-    value.polishModel = SharedSetting(saved, @"polishModel", MSIMEVoicePolishDefaultModel);
-    value.polishPromptID = MSIMEPolishPromptIdentifierOrDefault(SharedSetting(saved, @"polishPromptID", @""));
-    value.polishPrompt = SharedSetting(saved, @"polishPrompt", @"");
-    value.polishPromptCustom1 = SharedSetting(saved, @"polishPromptCustom1", @"");
-    value.polishPromptCustom2 = SharedSetting(saved, @"polishPromptCustom2", @"");
-    value.polishPromptCustom3 = SharedSetting(saved, @"polishPromptCustom3", @"");
+    value.polishEndpoint = SharedSetting(@"polishEndpoint", MSIMEVoicePolishDefaultEndpoint);
+    value.polishModel = SharedSetting(@"polishModel", MSIMEVoicePolishDefaultModel);
+    value.polishPromptID = MSIMEPolishPromptIdentifierOrDefault(SharedSetting(@"polishPromptID", @""));
+    value.polishPromptCustom1 = SharedSetting(@"polishPromptCustom1", @"");
+    value.polishPromptCustom2 = SharedSetting(@"polishPromptCustom2", @"");
+    value.polishPromptCustom3 = SharedSetting(@"polishPromptCustom3", @"");
     id sharedCaptureDevice = [defaults objectForKey:@"MSIMEClientVoiceCaptureDevice"];
     value.captureDevice = [sharedCaptureDevice isKindOfClass:NSString.class]
         ? sharedCaptureDevice : StringSetting(saved, @"captureDevice", @"");
@@ -249,7 +234,7 @@ static NSString *SharedSetting(NSDictionary *saved, NSString *key, NSString *fal
                                      [defaults stringForKey:@"MSIMEClientVoiceASRToken"])
         : @"";
     value.token = sharedToken.length ? sharedToken
-        : (serviceProvider ? ReadToken(@"asr", rawProvider, value.endpoint, YES) : @"");
+        : (serviceProvider ? ReadToken(@"asr", rawProvider, value.endpoint) : @"");
     if (serviceProvider && value.token.length) {
         NSMutableDictionary *slots = [value.tokenSlots mutableCopy];
         slots[rawProvider] = value.token;
@@ -260,7 +245,7 @@ static NSString *SharedSetting(NSDictionary *saved, NSString *key, NSString *fal
         defaults, @"MSIMEClientVoicePolishTokens", polishProvider,
         [defaults stringForKey:@"MSIMEClientVoicePolishToken"]);
     value.polishToken = sharedPolishToken.length
-        ? sharedPolishToken : ReadToken(@"polish", polishProvider, value.polishEndpoint, YES);
+        ? sharedPolishToken : ReadToken(@"polish", polishProvider, value.polishEndpoint);
     return value;
 }
 - (BOOL)validate:(NSError **)error
@@ -316,9 +301,6 @@ static NSString *SharedSetting(NSDictionary *saved, NSString *key, NSString *fal
         (serviceProvider && !WriteToken(@"asr", self.provider, self.endpoint, self.token, error)) ||
         !WriteToken(@"polish", polishProvider, self.polishEndpoint, self.polishToken, error))
         return NO;
-    if (migratePrevious) DeleteKey(LegacyKey(@"asr", previousEndpoint));
-    if (!changedProvider) DeleteKey(LegacyKey(@"asr", self.endpoint));
-    DeleteKey(LegacyKey(@"polish", self.polishEndpoint));
     // An endpoint edit for the same provider retires that provider's old
     // credential. Switching providers preserves the provider being left.
     if (MSIMEVoiceProviderShouldDeletePreviousCredential(previousProvider, previousEndpoint,
@@ -351,7 +333,6 @@ static NSString *SharedSetting(NSDictionary *saved, NSString *key, NSString *fal
         @"polishModel" : self.polishModel,
         @"polishToken" : self.polishToken,
         @"polishPromptID" : self.polishPromptID ?: MSIMEPolishPromptIdentifiers().firstObject,
-        @"polishPrompt" : self.polishPrompt ?: @"",
         @"polishPromptCustom1" : self.polishPromptCustom1 ?: @"",
         @"polishPromptCustom2" : self.polishPromptCustom2 ?: @"",
         @"polishPromptCustom3" : self.polishPromptCustom3 ?: @"",
@@ -398,7 +379,7 @@ static NSString *SharedSetting(NSDictionary *saved, NSString *key, NSString *fal
     NSMutableDictionary<NSString *, NSString *> *_tokenDrafts;
     /// The three custom presets' wording, the preset the prompt field's text belongs to, and the override stored against a built-in preset. The field shows one preset at a time and the other two must survive being switched away from, exactly as the per-provider keys do in _tokenDrafts.
     NSMutableDictionary<NSString *, NSString *> *_polishPromptDrafts;
-    NSString *_polishPromptSelection, *_polishPromptOverride;
+    NSString *_polishPromptSelection;
     /// Set while the controls are being filled from storage, so populating them saves nothing.
     BOOL _loading;
 }
@@ -582,7 +563,6 @@ static void ShowNotice(NSTextField *label, NSString *message, NSColor *color)
         @"custom_2" : value.polishPromptCustom2 ?: @"",
         @"custom_3" : value.polishPromptCustom3 ?: @""
     } mutableCopy];
-    _polishPromptOverride = [value.polishPrompt ?: @"" copy];
     _polishPromptSelection = [value.polishPromptID copy];
     _polishPrompt.stringValue = [self polishPromptForPreset:value.polishPromptID];
     [self updateEnabled:nil];
@@ -591,12 +571,10 @@ static void ShowNotice(NSTextField *label, NSString *message, NSColor *color)
     _loading = NO;
 }
 
-/// What the prompt field shows for a preset: a custom preset's own slot, or — for a built-in one — the override stored on top of the recogniser's own wording. An empty field is what tells the recogniser to use that wording.
+/// What the prompt field shows for a preset: a custom preset's own slot, and nothing for a built-in one, whose wording is not editable. An empty slot tells the recogniser to use the built-in default.
 - (NSString *)polishPromptForPreset:(NSString *)identifier
 {
-    NSString *slot = _polishPromptDrafts[identifier ?: @""];
-    if (slot != nil) return slot;
-    return [identifier isEqual:_polishPromptSelection] ? (_polishPromptOverride ?: @"") : @"";
+    return _polishPromptDrafts[identifier ?: @""] ?: @"";
 }
 
 /// Selecting another preset puts that preset's wording in the field rather than leaving the previous one there under a new name, and keeps what was in the field for the preset being left.
@@ -607,17 +585,15 @@ static void ShowNotice(NSTextField *label, NSString *message, NSColor *color)
     NSString *identifier = MSIMEPolishPromptIdentifierForIndex(_polishPromptID.indexOfSelectedItem);
     _polishPrompt.stringValue = [self polishPromptForPreset:identifier];
     _polishPromptSelection = [identifier copy];
+    [self updateEnabled:nil];
     [self commit:nil];
 }
 
 /// Keeps what is in the prompt field against the preset that is currently selected, so that a preset returned to still reads what was written into it.
 - (void)retainEditedPolishPrompt
 {
-    NSString *text = _polishPrompt.stringValue ?: @"";
     if (_polishPromptDrafts[_polishPromptSelection ?: @""] != nil)
-        _polishPromptDrafts[_polishPromptSelection] = text;
-    else if (_polishPromptSelection.length)
-        _polishPromptOverride = [text copy];
+        _polishPromptDrafts[_polishPromptSelection] = _polishPrompt.stringValue ?: @"";
 }
 
 - (void)providerChanged:(id)sender
@@ -636,7 +612,7 @@ static void ShowNotice(NSTextField *label, NSString *message, NSColor *color)
         _model.stringValue, MSIMEVoiceASRProviderDefaultModel(provider), ProviderValues(@"model"));
     id draft = _tokenDrafts[provider];
     _token.stringValue = MSIMEVoiceASRProviderUsesService(provider)
-        ? ([draft isKindOfClass:NSString.class] ? draft : ReadToken(@"asr", provider, _endpoint.stringValue, NO))
+        ? ([draft isKindOfClass:NSString.class] ? draft : ReadToken(@"asr", provider, _endpoint.stringValue))
         : @"";
     _loadedProvider = provider;
     _tokenEndpoint = [_endpoint.stringValue copy];
@@ -669,7 +645,8 @@ static void ShowNotice(NSTextField *label, NSString *message, NSColor *color)
     _polishModel.enabled = polish;
     _polishToken.enabled = polish;
     _polishPromptID.enabled = polish;
-    _polishPrompt.enabled = polish;
+    // Only a custom preset has wording of its own to edit.
+    _polishPrompt.enabled = polish && _polishPromptDrafts[_polishPromptSelection ?: @""] != nil;
 }
 
 /// The warning that has to come before the key is cleared, not after it: a key belongs to the service that issued it, so an address that moves to another host leaves it behind. This used to happen from -controlTextDidChange:, which cleared the key on the first keystroke of an edit that had not been made yet and never said that it had.
@@ -760,8 +737,6 @@ static void ShowNotice(NSTextField *label, NSString *message, NSColor *color)
     value.polishPromptCustom1 = _polishPromptDrafts[@"custom_1"] ?: @"";
     value.polishPromptCustom2 = _polishPromptDrafts[@"custom_2"] ?: @"";
     value.polishPromptCustom3 = _polishPromptDrafts[@"custom_3"] ?: @"";
-    // What the recogniser reads is this one field; the slot it came from is what brings it back when the preset is returned to.
-    value.polishPrompt = _polishPrompt.stringValue ?: @"";
     id captureDevice = _captureDevice.selectedItem.representedObject;
     value.captureDevice = [captureDevice isKindOfClass:NSString.class] ? captureDevice : @"";
     NSError *error = nil;

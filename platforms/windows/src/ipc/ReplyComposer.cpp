@@ -1,6 +1,8 @@
 #include "ReplyComposer.h"
 #include "CandidateTranslationPolicy.h"
 #include "ChineseTextConversion.h"
+#include "InputSchemeTraits.h"
+#include "KoreanHanjaKey.h"
 #include "PunctuationPolicy.h"
 #include <algorithm>
 #include <limits>
@@ -28,9 +30,11 @@ std::optional<NavigationReply> navigation_for(ReplyPath path) {
 EncodedReply uiless_composition(uint64_t request, const std::string &display,
                                 const nlohmann::json &view) {
   std::vector<std::string> candidates;
+  const auto &view_candidates = view.at("candidates");
+  candidates.reserve(view_candidates.size());
   size_t highlighted = 0;
   bool found_highlight = false;
-  for (const auto &candidate : view.at("candidates")) {
+  for (const auto &candidate : view_candidates) {
     if (candidate.at("highlighted").get<bool>()) {
       if (found_highlight)
         throw std::logic_error("Ambiguous candidate highlight");
@@ -43,13 +47,14 @@ EncodedReply uiless_composition(uint64_t request, const std::string &display,
     throw std::logic_error("Missing candidate highlight");
   return uiless_reply(request, display, candidates, highlighted);
 }
-// The reference's CandidateTextForOutput: the Japanese scheme's kana and kanji never go through the simplified-to-traditional table, whatever the character-set toggle says. Korean Hangul is not Chinese text either. The toggle itself is untouched, so leaving Japanese or Korean restores traditional output.
+// 参考实现的 CandidateTextForOutput：不论简繁开关怎样，日文方案的假名和汉字都不经过简转繁表。韩文、越南文和藏文也不是中文文字，粤拼和注音本来就是繁体，笔画按词库存储的字形原样上屏（scheme::ScriptConversionApplies）。开关本身不变，所以离开这些方案后繁体输出恢复。
 bool traditional_projection(const ServerSession &session) {
   if (!session.traditional_output())
     return false;
-  const auto scheme = session.view().value("scheme", 0u);
-  return scheme != 3u && scheme != 4u;
+  return scheme::ScriptConversionApplies(static_cast<int>(session.view().value("scheme", 0u)));
 }
+// The view's scheme, as the scheme traits take it.
+int view_scheme(const nlohmann::json &view) { return static_cast<int>(view.value("scheme", 0u)); }
 } // namespace
 ReplyComposer::ReplyComposer(uint64_t client, uint64_t epoch)
     : client_(client), epoch_(epoch) {
@@ -306,10 +311,19 @@ std::optional<PendingReply> ReplyComposer::basic_key(
     if (auto translation = translation_page_key(session, packet, epoch))
       return translation;
   }
+  // Ahead of the reset route, which would treat Escape as discarding the syllable when with the list open it only closes the list.
+  if (auto hanja = korean_hanja(session, packet, epoch))
+    return hanja;
   const auto action = translate_key(packet);
   const bool uiless = (packet.modifiers_down & FanyImePipeFlags::UiLess) != 0;
-  if (action.kind == KeyKind::LocalReset)
-    return dispatch(session, packet, epoch, ReplyPath::LocalCancel, uiless);
+  if (action.kind == KeyKind::LocalReset) {
+    // 越南文词或藏文音节串上的第一次 Esc 重新显示原文并继续组字，所以没有被清空的组字要报告；TIP 带着同样的按键继续组字。
+    const auto current = session.view();
+    const bool restores_raw = packet.keycode == kVirtualKeyEscape && session.input_enabled() &&
+                              scheme::CancelRestoresRaw(view_scheme(current)) &&
+                              !current.at("editing_text").get<std::string>().empty();
+    return dispatch(session, packet, epoch, restores_raw ? ReplyPath::NoReply : ReplyPath::LocalCancel, uiless);
+  }
   if (action.kind == KeyKind::Ignore)
     return dispatch(session, packet, epoch, ReplyPath::NoReply, uiless);
   // Ctrl+Shift+E reaches the Server as an ordinary key whose composition the TSF has already cancelled without reading a reply, the same contract as Escape. Toggle the mode here, as the reference does unconditionally, instead of letting the generic modifier fallback drop it.
@@ -402,8 +416,15 @@ ReplyComposer::edit(ServerSession &session, const FanyImeNamedpipeData &packet,
                 before.at("editing_text").get<std::string>(),
                 before.at("caret_position").get<size_t>(),
                 before.value("scheme", 0u) == 3u,
-                before.value("spelling_symbols", std::string{}));
-  if (kind == EditKind::None)
+                before.value("spelling_symbols", std::string{}),
+                scheme::ApostropheIsPunctuationWhileComposing(view_scheme(before)));
+  // 藏文组字时的空格是组字输入，不是选词：引擎把音节串连同音节点上屏，TIP 已经从自己的宿主会话写出同样的文字（host_composition_takes_key），所以它和注音的空格一样走编辑路径，这里只计数。
+  const bool tibetan_space = kind == EditKind::None && view_scheme(before) == scheme::Tibetan &&
+                             !before.value("dedicated_english", false) &&
+                             before.at("local_mode").get<std::string>() == "none" &&
+                             !before.at("editing_text").get<std::string>().empty() && packet.keycode == 0x20 &&
+                             PipeMetadata::key_modifiers(packet.modifiers_down) == 0;
+  if (kind == EditKind::None && !tibetan_space)
     return std::nullopt;
   auto result = session.key(packet, epoch);
   const bool uiless = (packet.modifiers_down & FanyImePipeFlags::UiLess) != 0;
@@ -421,13 +442,13 @@ ReplyComposer::edit(ServerSession &session, const FanyImeNamedpipeData &packet,
       !result.transition.at("commit").is_null() &&
       !result.transition.at("commit_context").is_null() &&
       result.transition.at("commit_context").value("scheme", 255u) == 2u;
-  // A Korean letter that starts a new syllable carries the finished one as its commit.
-  const bool korean_commit =
+  // 开始新音节的韩文字母带着已完成的音节作为上屏，完成的越南文词之后打的键上屏它，超出转换长度的注音音节上屏第一个词，藏文的空格和 `/` 带音节点或垂符上屏整串音节，空闲的 `/` 直接上屏垂符。TIP 从自己的宿主会话写出这些文字（scheme::AlwaysInlinePreedit），所以这里只计数。
+  const bool tip_commit =
       !result.transition.at("commit").is_null() &&
-      result.transition.at("view").value("scheme", 0u) == 4u;
+      scheme::AlwaysInlinePreedit(view_scheme(result.transition.at("view")));
   return stage(result,
                auto_wubi_commit ? ReplyPath::AutoCommitAndContinue
-               : korean_commit  ? ReplyPath::SyllableCommit
+               : tip_commit     ? ReplyPath::SyllableCommit
                                 : path,
                uiless);
 }
@@ -494,6 +515,9 @@ std::optional<PendingReply> ReplyComposer::select_candidate(ServerSession &sessi
   if (!expected_session || view.at("session") != expected_session ||
       (session_ && session_ != expected_session) ||
       view.at("generation") != generation || !view.at("focused").get<bool>())
+    return std::nullopt;
+  // A pick made here would leave the TIP's own host session behind (scheme::KeyboardOnlyCandidateList).
+  if (scheme::KeyboardOnlyCandidateList(view_scheme(view)))
     return std::nullopt;
   const auto raw_before = view.at("editing_text").get<std::string>();
   if (translation_page_active_) {
@@ -580,6 +604,9 @@ std::optional<PendingReply> ReplyComposer::commit_candidate_translation(
   traditional_output_ = traditional_projection(session);
   const auto view = session.view();
   if (!view.at("focused").get<bool>() || view.at("candidates").empty())
+    return std::nullopt;
+  // TIP 从不为韩文、注音、越南文或藏文发送这个请求：它们在 TIP 自己的宿主会话里组字，这里做的上屏会让那个会话落后。汉字行的译文和它的 훈음 一样只用于显示，훈음 根本不会进入视图的译文。
+  if (scheme::AlwaysInlinePreedit(view_scheme(view)))
     return std::nullopt;
   const auto generation = view.at("generation").get<uint64_t>();
   const auto expected_session = view.at("session").get<uint64_t>();
@@ -680,6 +707,53 @@ std::optional<PendingReply> ReplyComposer::restore_segment(
   return pending_;
 }
 
+std::optional<PendingReply> ReplyComposer::korean_hanja(
+    ServerSession &session, const FanyImeNamedpipeData &packet,
+    uint64_t epoch) {
+  if (!session.input_enabled() ||
+      packet.event_type != FanyImePipeEventType::KeyEvent ||
+      (PipeMetadata::key_modifiers(packet.modifiers_down) & ~1u) != 0)
+    return std::nullopt;
+  const auto key = korean_hanja_key(packet.keycode, static_cast<uint32_t>(packet.wch));
+  if (key.kind == KoreanHanjaKeyKind::None)
+    return std::nullopt;
+  const auto current = session.view();
+  const int scheme = view_scheme(current);
+  // The scheme's rules hold only outside the dedicated English mode and every local mode, which keep their own rules in that scheme.
+  const bool rules = scheme::OpensCandidateList(scheme) &&
+                     !current.value("dedicated_english", false) &&
+                     current.at("local_mode").get<std::string>() == "none";
+  const bool composing = rules && !current.at("editing_text").get<std::string>().empty();
+  // Under these rules the Engine lists candidates only once the list is opened, so a composing view with candidates is the open list.
+  const bool list_open = composing && !current.at("candidates").empty();
+  const bool trigger = composing && opens_candidate_list(scheme, packet.keycode, list_open);
+  const bool hanja_key = packet.keycode == kVirtualKeyHanja;
+  if (!trigger && !hanja_key && !list_open)
+    return std::nullopt;
+  const bool uiless = (packet.modifiers_down & FanyImePipeFlags::UiLess) != 0;
+  nlohmann::json transition;
+  if (!trigger && (hanja_key || !list_open)) {
+    // The TIP eats the Hanja key only while a Korean syllable composes. One that arrives after the syllable ended, or after the scheme changed, is spent here too rather than left with no reply; in every other scheme it is no key of a list and is spent the same way.
+    transition = {{"handled", false}, {"commit", nullptr}, {"view", current}};
+  } else if (trigger) {
+    transition = session.command(epoch, MSIME_OPEN_CANDIDATE_LIST);
+  } else if (key.kind == KoreanHanjaKeyKind::Select) {
+    // A digit past the visible page chooses nothing.
+    const auto &page = current.at("candidates");
+    if (key.value < page.size()) {
+      const auto &id = page.at(key.value).at("id");
+      transition = session.select(epoch, id.at("generation").get<uint64_t>(), id.at("index").get<size_t>());
+    } else {
+      transition = {{"handled", true}, {"commit", nullptr}, {"view", current}};
+    }
+  } else {
+    transition = session.command(epoch, key.value);
+  }
+  // The TIP has already written a chosen Hanja from its own session, so a commit is only counted, as for a syllable. A Zhuyin choice commits nothing: it fixes that span of the conversion, which keeps composing.
+  const auto path = transition.at("commit").is_null() ? ReplyPath::NoReply : ReplyPath::SyllableCommit;
+  return stage({client_, epoch_, packet.request_id, false, std::move(transition)}, path, uiless);
+}
+
 std::optional<PendingReply> ReplyComposer::korean_syllable_end(
     ServerSession &session, const FanyImeNamedpipeData &packet,
     uint64_t epoch) {
@@ -705,11 +779,12 @@ std::optional<PendingReply> ReplyComposer::korean_syllable_end(
     return std::nullopt;
   }
   const auto current = session.view();
-  if (current.value("scheme", 0u) != 4u ||
+  // 韩文、注音、越南文和藏文在 TIP 自己的宿主会话里组字，按键离开组字时把它写出来（scheme::CommitsOnBlur）；打开的注音列表已经在 korean_hanja 里接收了它的按键。藏文的回车也走这里：只上屏藏文，不加音节点。
+  if (!scheme::CommitsOnBlur(view_scheme(current)) ||
       current.at("local_mode").get<std::string>() != "none" ||
       current.at("editing_text").get<std::string>().empty())
     return std::nullopt;
-  // The TIP committed the syllable and the key goes on to the application, directly or replayed after a queued commit, so nothing is sent back.
+  // The TIP committed the composition and the key goes on to the application, directly or replayed after a queued commit (Zhuyin's Enter only commits), so nothing is sent back.
   return stage({client_, epoch_, packet.request_id, false,
                 session.finish_composition(epoch)},
                ReplyPath::SyllableCommit,
@@ -821,8 +896,9 @@ std::optional<PendingReply> ReplyComposer::configured_key(
       !current.at("editing_text").get<std::string>().empty();
   // Checked first: the numpad decimal is also on the candidate punctuation list, where it would be translated to '。'.
   if ((composing && literal_candidate_punctuation(packet)) ||
-      candidate_punctuation(packet, bindings, current.value("scheme", 0u) == 3u,
-                            current.value("scheme", 0u) == 4u))
+      candidate_punctuation(packet, bindings, view_scheme(current) == scheme::Japanese,
+                            !scheme::UsesChinesePunctuation(view_scheme(current)) ||
+                                scheme::OpensCandidateList(view_scheme(current))))
     return dispatch(session, packet, epoch, ReplyPath::Punctuation,
                     (packet.modifiers_down & FanyImePipeFlags::UiLess) != 0);
   if (!composing)

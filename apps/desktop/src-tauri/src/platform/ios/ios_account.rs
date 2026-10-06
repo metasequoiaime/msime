@@ -9,16 +9,17 @@ use crate::platform::mobile::mobile_account_helpers::{
     account_profile as shared_account_profile, account_rename as shared_account_rename,
     account_request_code as shared_account_request_code, account_status as shared_account_status,
     call_session, cleanup_stale_snapshot_previews, clear_snapshot_previews,
-    clear_snapshot_previews_after, cloud_dictionary_account_request, replace_pending_snapshot,
-    snapshot_command_error, snapshot_response_without_account, snapshot_text_within_limit,
-    take_pending_snapshot, valid_mobile_haptic_strength, validate_pending_snapshot,
-    PendingSnapshot, SnapshotMetadata,
+    clear_snapshot_previews_after, cloud_dictionary_account_request, prepare_snapshot_directory,
+    replace_pending_snapshot, snapshot_command_error, snapshot_response_without_account,
+    snapshot_text_within_limit, take_pending_snapshot, valid_mobile_haptic_strength,
+    validate_pending_snapshot, PendingSnapshot, SnapshotMetadata,
 };
 #[cfg(target_os = "ios")]
 use crate::shared::account_dto::{
     providers_response, ChallengeResponse, ProfileResponse, ProvidersResponse, StatusResponse,
 };
 use crate::shared::account_dto::{ChatModelsResponse, ChatResponse, PreferenceSchemaResponse};
+#[cfg(target_os = "ios")]
 use std::collections::BTreeMap;
 #[cfg(target_os = "ios")]
 use std::collections::HashMap;
@@ -26,7 +27,7 @@ use std::collections::HashMap;
 #[cfg(target_os = "ios")]
 use serde_json::Value;
 
-#[cfg(target_os = "ios")]
+#[cfg(any(target_os = "ios", test))]
 mod account_preferences;
 
 #[cfg(target_os = "ios")]
@@ -111,7 +112,7 @@ pub fn setup(app: &AppHandle<Wry>) -> Result<(), AccountError> {
     let community = MobileCommunityState::new(client, &session)?;
     let snapshot_directory =
         std::env::temp_dir().join(format!("msime-ios-tauri-snapshots-{}", std::process::id()));
-    fs::create_dir_all(&snapshot_directory).map_err(|_| AccountError::Storage)?;
+    prepare_snapshot_directory(&snapshot_directory).map_err(|_| AccountError::Storage)?;
     cleanup_stale_snapshot_previews(&snapshot_directory).map_err(|_| AccountError::Storage)?;
     app.manage(AccountState {
         session,
@@ -352,7 +353,7 @@ async fn dictionary_snapshot_preview(
     let token = uuid::Uuid::new_v4().to_string();
     let file_token = token.clone();
     let (account_id, path, metadata) = tauri::async_runtime::spawn_blocking(move || {
-        fs::create_dir_all(&directory).map_err(|_| snapshot_command_error())?;
+        prepare_snapshot_directory(&directory).map_err(|_| snapshot_command_error())?;
         let profile = session.profile().map_err(account_command_error)?;
         let path = directory.join(format!("download-{file_token}.ndjson"));
         if let Err(error) = session.dictionary_snapshot_to_file(&path) {
@@ -436,7 +437,7 @@ async fn dictionary_snapshot_export(
     let directory = state.snapshot_directory.clone();
     let token = uuid::Uuid::new_v4().to_string();
     tauri::async_runtime::spawn_blocking(move || {
-        fs::create_dir_all(&directory).map_err(|_| snapshot_command_error())?;
+        prepare_snapshot_directory(&directory).map_err(|_| snapshot_command_error())?;
         let path = directory.join(format!("export-{token}.ndjson"));
         let result = (|| {
             session
@@ -474,7 +475,7 @@ async fn dictionary_snapshot_restore_preview(
     let directory = state.snapshot_directory.clone();
     let token = uuid::Uuid::new_v4().to_string();
     tauri::async_runtime::spawn_blocking(move || {
-        fs::create_dir_all(&directory).map_err(|_| snapshot_command_error())?;
+        prepare_snapshot_directory(&directory).map_err(|_| snapshot_command_error())?;
         let path = directory.join(format!("restore-{token}.ndjson"));
         let result = (|| {
             fs::write(&path, text.as_bytes()).map_err(|_| snapshot_command_error())?;
@@ -513,7 +514,7 @@ async fn dictionary_snapshot_restore(
     let directory = state.snapshot_directory.clone();
     let token = uuid::Uuid::new_v4().to_string();
     tauri::async_runtime::spawn_blocking(move || {
-        fs::create_dir_all(&directory).map_err(|_| snapshot_command_error())?;
+        prepare_snapshot_directory(&directory).map_err(|_| snapshot_command_error())?;
         let path = directory.join(format!("restore-{token}.ndjson"));
         let result = (|| {
             fs::write(&path, text.as_bytes()).map_err(|_| snapshot_command_error())?;
@@ -625,32 +626,38 @@ pub async fn account_preferences_load(
 #[cfg(target_os = "ios")]
 #[tauri::command]
 pub async fn account_preferences_upload(
+    app: tauri::AppHandle,
     state: State<'_, AccountState>,
     store: State<'_, Arc<PreferencesStore>>,
 ) -> Result<AccountPreferences, crate::CommandError> {
     let session = Arc::clone(&state.session);
     let platform = state.platform.clone();
     let store = store.inner().clone();
+    let edition = crate::host_edition(&app);
     tauri::async_runtime::spawn_blocking(move || {
+        let (user_id, _, generation) = session.credentials_with_generation(None, None)?;
         let schema = session.preference_schema()?;
         let cloud = session.preferences()?;
         let native = platform
             .load_keyboard_preferences()
             .map_err(|_| AccountError::Storage)?;
         let local = store.load().map_err(|_| AccountError::Storage)?;
-        let values = account_preferences::local_account_preferences(
+        let mut values = account_preferences::local_account_preferences(
             &native,
             &local.preferences,
             local.preferences.custom_theme.keyboard.as_ref(),
-        )?
-        .into_iter()
-        .filter(|(key, _)| schema.fields.contains_key(key))
-        .collect::<BTreeMap<_, _>>();
+        )?;
+        // 单方案版本不上传方案，多方案版本只上传本版本提供的方案。
+        msime_client_core::edition::filter_uploaded_account_settings(edition, &mut values);
+        let values = values
+            .into_iter()
+            .filter(|(key, _)| schema.fields.contains_key(key))
+            .collect::<BTreeMap<_, _>>();
         if values.is_empty() {
             return Err(AccountError::Unavailable);
         }
         let merged = merge_account_preferences(&cloud, &values, &schema)?;
-        session.put_preferences(&merged)
+        session.put_preferences_with_generation(&merged, generation, &user_id)
     })
     .await
     .map_err(|_| crate::CommandError {
@@ -662,34 +669,43 @@ pub async fn account_preferences_upload(
 #[cfg(target_os = "ios")]
 #[tauri::command]
 pub async fn account_preferences_apply(
+    app: tauri::AppHandle,
     state: State<'_, AccountState>,
     store: State<'_, Arc<PreferencesStore>>,
     user_id: String,
-    preferences: AccountPreferences,
+    mut preferences: AccountPreferences,
 ) -> Result<(), crate::CommandError> {
     let session = Arc::clone(&state.session);
     let platform = state.platform.clone();
     let store = store.inner().clone();
+    // 单方案版本不应用账号里的方案，多方案版本把本版本没有的方案当作缺失。
+    msime_client_core::edition::filter_downloaded_account_settings(
+        crate::host_edition(&app),
+        &mut preferences.settings,
+    );
     tauri::async_runtime::spawn_blocking(move || {
-        session.credentials(None, Some(&user_id))?;
+        let (_, _, generation) = session.credentials_with_generation(None, Some(&user_id))?;
         let plan = account_preferences::IosPreferencePlan::from_cloud(&preferences)?;
         let local = store.load().map_err(|_| AccountError::Storage)?;
         let previous_native = platform
             .load_keyboard_preferences()
             .map_err(|_| AccountError::Storage)?;
         let requested = plan.requested_native(&previous_native)?;
-        let saved_native = platform
-            .save_keyboard_preferences(&requested)
-            .map_err(|_| AccountError::Storage)?;
-        let mut next = local.preferences.clone();
-        if let Err(error) = plan.apply_shared(&saved_native, &mut next) {
-            let _ = platform.save_keyboard_preferences(&previous_native);
-            return Err(error);
-        }
-        if store.save(local.revision, next).is_err() {
-            let _ = platform.save_keyboard_preferences(&previous_native);
-            return Err(AccountError::Storage);
-        }
+        session.with_generation(generation, Some(&user_id), || {
+            let saved_native = platform
+                .save_keyboard_preferences(&requested)
+                .map_err(|_| AccountError::Storage)?;
+            let mut next = local.preferences.clone();
+            if let Err(error) = plan.apply_shared(&saved_native, &mut next) {
+                let _ = platform.save_keyboard_preferences(&previous_native);
+                return Err(error);
+            }
+            if store.save(local.revision, next).is_err() {
+                let _ = platform.save_keyboard_preferences(&previous_native);
+                return Err(AccountError::Storage);
+            }
+            Ok::<(), AccountError>(())
+        })?;
         Ok::<(), AccountError>(())
     })
     .await
@@ -890,5 +906,18 @@ mod tests {
                 "revisionRequired":true
             })
         );
+    }
+
+    #[test]
+    fn preference_upload_is_fenced_by_the_session_generation() {
+        let source = include_str!("ios_account.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap();
+        assert!(source.contains(
+            "let (user_id, _, generation) = session.credentials_with_generation(None, None)?;"
+        ));
+        assert!(source
+            .contains("session.put_preferences_with_generation(&merged, generation, &user_id)"));
     }
 }

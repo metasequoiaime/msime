@@ -21,6 +21,13 @@ use symphonia::core::io::MediaSourceStream;
 /// Frames of silence a finished track hands the mixer until the player stops it.
 const SILENCE_FRAMES: usize = 1024;
 
+fn sample_frame_capacity(declared: Option<u64>, limit: u64) -> usize {
+    declared
+        .filter(|frames| *frames <= limit)
+        .and_then(|frames| usize::try_from(frames).ok())
+        .unwrap_or(0)
+}
+
 /// An opened file's audio track.
 struct Source {
     reader: Box<dyn FormatReader>,
@@ -123,7 +130,7 @@ pub(super) fn sample(path: &Path) -> Result<StaticSoundData, String> {
         }
     }
     let limit = sound_pack::MAX_SAMPLE_MILLIS * u64::from(rate) / 1_000;
-    let mut frames: Vec<Frame> = Vec::new();
+    let mut frames: Vec<Frame> = Vec::with_capacity(sample_frame_capacity(source.frames, limit));
     while let Some(chunk) = source.next()? {
         // A header that understates the length is stopped here, not at the end of the file.
         if (frames.len() + chunk.len()) as u64 > limit {
@@ -204,5 +211,17 @@ impl Decoder for TrackDecoder {
             self.ended.store(true, Ordering::Release);
         }
         Ok(index)
+    }
+}
+
+#[cfg(test)]
+mod capacity_tests {
+    use super::*;
+
+    #[test]
+    fn sample_frame_capacity_uses_a_valid_declared_length() {
+        assert_eq!(sample_frame_capacity(Some(123), 1_000), 123);
+        assert_eq!(sample_frame_capacity(None, 1_000), 0);
+        assert_eq!(sample_frame_capacity(Some(1_001), 1_000), 0);
     }
 }

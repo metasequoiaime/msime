@@ -120,7 +120,7 @@ fn read(
     let capacity = limit.saturating_mul(prefixes.len());
     let mut entries = Vec::with_capacity(capacity);
     for prefix in prefixes {
-        let upper_bound = format!("{prefix}\x7f");
+        let upper_bound = prefix_upper_bound(prefix);
         let rows = statement.query_map(
             rusqlite::params![prefix, upper_bound, super::sql_limit(limit)],
             |row| {
@@ -142,6 +142,13 @@ fn read(
     Ok(entries)
 }
 
+fn prefix_upper_bound(prefix: &str) -> String {
+    let mut upper_bound = String::with_capacity(prefix.len() + 1);
+    upper_bound.push_str(prefix);
+    upper_bound.push('\x7f');
+    upper_bound
+}
+
 fn contains_text(entries: &[(String, i64)], text: &str) -> bool {
     entries.iter().any(|(entry, _)| entry == text)
 }
@@ -161,7 +168,7 @@ mod tests {
     };
 
     fn fixture(dir: &Path) -> PathBuf {
-        let path = dir.join("others.db");
+        let path = dir.join("msime-others.db");
         Connection::open(&path)
             .unwrap()
             .execute_batch(
@@ -197,6 +204,14 @@ mod tests {
         let entries = vec![("😀".to_owned(), 1)];
         assert!(contains_text(&entries, "😀"));
         assert!(!contains_text(&entries, "😄"));
+    }
+
+    #[test]
+    fn prefix_upper_bound_allocates_only_result_bytes() {
+        let prefix = "xiao'lian";
+        let upper_bound = prefix_upper_bound(prefix);
+        assert_eq!(upper_bound, "xiao'lian\x7f");
+        assert_eq!(upper_bound.capacity(), upper_bound.len());
     }
 
     /// test_local_modes.cpp:269-296, the quanpin half.

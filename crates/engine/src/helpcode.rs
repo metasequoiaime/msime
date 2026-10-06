@@ -39,6 +39,11 @@ impl HelpcodeKeymap {
     pub(crate) fn len(&self) -> usize {
         self.codes.len()
     }
+
+    /// A built-in table that is missing from the resources loads as an empty map rather than failing.
+    pub(crate) fn is_empty(&self) -> bool {
+        self.codes.is_empty()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -80,9 +85,12 @@ pub fn helpcode_path(resources: &Path, schema: &str) -> Result<PathBuf> {
         return Ok(resources.join(file));
     }
     match custom_schema_stem(schema) {
-        Some(stem) => Ok(resources
-            .join(CUSTOM_HELPCODE_DIRECTORY)
-            .join(format!("{stem}.txt"))),
+        Some(stem) => {
+            let mut filename = String::with_capacity(stem.len() + ".txt".len());
+            filename.push_str(stem);
+            filename.push_str(".txt");
+            Ok(resources.join(CUSTOM_HELPCODE_DIRECTORY).join(filename))
+        }
         None => Err(EngineError::invalid(UNKNOWN_HELPCODE_SCHEMA)),
     }
 }
@@ -112,31 +120,32 @@ pub fn load_helpcode_keymap(resources: &Path, schema: &str) -> Result<HelpcodeKe
         }
     }
     let bytes = match File::open(&path) {
-        Ok(file) => {
-            if file
-                .metadata()
-                .map(|metadata| metadata.len())
-                .unwrap_or(MAX_HELPCODE_BYTES + 1)
-                > MAX_HELPCODE_BYTES
-            {
-                return Ok(HelpcodeKeymap::default());
-            }
-            let mut bytes = Vec::new();
-            // Bound the read again in case the file grows after the metadata check.
-            if file
-                .take(MAX_HELPCODE_BYTES + 1)
-                .read_to_end(&mut bytes)
-                .is_err()
-                || bytes.len() as u64 > MAX_HELPCODE_BYTES
-            {
-                return Ok(HelpcodeKeymap::default());
-            }
-            bytes
-        }
+        Ok(file) => match read_helpcode_file(file) {
+            Some(bytes) => bytes,
+            None => return Ok(HelpcodeKeymap::default()),
+        },
         // The C++ reads the table through an `ifstream` that is never checked (helpcode_utils.cpp:57-67), so any open or read failure (a resource tree without the built-in file, which fixtures and hosts rely on for the default `lantian` schema, a directory in its place, no permission, a Windows sharing violation on a custom table being edited, an I/O error) gives an empty table and the session is still created.
         Err(_) => return Ok(HelpcodeKeymap::default()),
     };
     Ok(HelpcodeKeymap::from_codes(parse_helpcode_table(&bytes)))
+}
+
+fn read_helpcode_file(file: File) -> Option<Vec<u8>> {
+    let size = file.metadata().ok()?.len();
+    if size > MAX_HELPCODE_BYTES {
+        return None;
+    }
+    let mut bytes = Vec::with_capacity(usize::try_from(size).ok()?);
+    // Bound the read again in case the file grows after the metadata check.
+    if file
+        .take(MAX_HELPCODE_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .is_err()
+        || bytes.len() as u64 > MAX_HELPCODE_BYTES
+    {
+        return None;
+    }
+    Some(bytes)
 }
 
 fn parse_helpcode_table(bytes: &[u8]) -> HashMap<String, String> {
@@ -177,8 +186,9 @@ fn parse_helpcode_table(bytes: &[u8]) -> HashMap<String, String> {
 
 /// The annotation shown beside a candidate: a single character's full code, or the first letters of the first and last Han characters' codes; wrapped in parentheses; uppercase entirely when `uppercase_all`, else only the second letter (helpcode_utils.cpp:189-241). Empty when a code is missing.
 pub fn compute_helpcodes(word: &str, uppercase_all: bool, keymap: &HelpcodeKeymap) -> String {
-    let mut code = if count_han_chars(word) == 1 {
-        keymap.code(word).unwrap_or_default().to_owned()
+    let single = count_han_chars(word) == 1;
+    let (first, last) = if single {
+        (keymap.code(word), None)
     } else {
         let (Some(first), Some(last)) = (
             keymap.code(first_han_char(word)),
@@ -186,17 +196,38 @@ pub fn compute_helpcodes(word: &str, uppercase_all: bool, keymap: &HelpcodeKeyma
         ) else {
             return String::new();
         };
-        format!("{}{}", &first[..1], &last[..1])
+        (Some(first), Some(last))
     };
-    if code.is_empty() {
-        return code;
+    let Some(first) = first else {
+        return String::new();
+    };
+    if first.is_empty() {
+        return String::new();
     }
-    if uppercase_all {
-        code.make_ascii_uppercase();
-    } else if code.len() >= 2 {
-        code[1..2].make_ascii_uppercase();
+    let capacity = if single { first.len() + 2 } else { 4 };
+    let mut result = String::with_capacity(capacity);
+    result.push('(');
+    if single {
+        for (index, character) in first.chars().enumerate() {
+            result.push(if uppercase_all || index == 1 {
+                character.to_ascii_uppercase()
+            } else {
+                character
+            });
+        }
+    } else {
+        let character = first.chars().next().expect("helpcode is non-empty");
+        result.push(if uppercase_all {
+            character.to_ascii_uppercase()
+        } else {
+            character
+        });
+        let last = last.expect("multi-character helpcode has a last code");
+        let character = last.chars().next().expect("helpcode is non-empty");
+        result.push(character.to_ascii_uppercase());
     }
-    format!("({code})")
+    result.push(')');
+    result
 }
 
 /// Longer than one letter, not double mode, last letter uppercase.
@@ -483,6 +514,18 @@ mod tests {
         );
     }
 
+    #[test]
+    fn bounded_helpcode_read_reserves_file_size() {
+        let resources = tempfile::tempdir().unwrap();
+        let path = resources.path().join("table.txt");
+        let contents = b"\xE4\xBD\xA0=aa\n\xE5\xA5\xBD=bb\n";
+        std::fs::write(&path, contents).unwrap();
+
+        let bytes = read_helpcode_file(File::open(path).unwrap()).unwrap();
+        assert_eq!(bytes, contents);
+        assert_eq!(bytes.capacity(), contents.len());
+    }
+
     #[cfg(unix)]
     #[test]
     fn custom_tables_reject_symlinked_files_and_directories() {
@@ -527,10 +570,16 @@ mod tests {
     #[test]
     fn annotations() {
         let map = keymap(&[("阿", "ek"), ("姨", "nr"), ("一", "y")]);
-        assert_eq!(compute_helpcodes("阿", false, &map), "(eK)");
-        assert_eq!(compute_helpcodes("阿", true, &map), "(EK)");
+        let single = compute_helpcodes("阿", false, &map);
+        assert_eq!(single, "(eK)");
+        assert_eq!(single.capacity(), single.len());
+        let uppercase = compute_helpcodes("阿", true, &map);
+        assert_eq!(uppercase, "(EK)");
+        assert_eq!(uppercase.capacity(), uppercase.len());
         assert_eq!(compute_helpcodes("一", false, &map), "(y)");
-        assert_eq!(compute_helpcodes("阿姨", false, &map), "(eN)");
+        let pair = compute_helpcodes("阿姨", false, &map);
+        assert_eq!(pair, "(eN)");
+        assert_eq!(pair.capacity(), pair.len());
         assert_eq!(compute_helpcodes("A阿姨B", true, &map), "(EN)");
         assert_eq!(compute_helpcodes("阿好", false, &map), "");
         assert_eq!(compute_helpcodes("好", false, &map), "");

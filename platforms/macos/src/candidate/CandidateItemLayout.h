@@ -163,6 +163,8 @@ inline std::optional<std::vector<double>> SingleLineColumns(const std::vector<Ca
                                                             const CandidateLayoutMetrics &metrics)
 {
     std::vector<double> natural, firm;
+    natural.reserve(items.size());
+    firm.reserve(items.size());
     double naturalTotal = 0.0, firmTotal = 0.0;
     for (const auto &item : items)
     {

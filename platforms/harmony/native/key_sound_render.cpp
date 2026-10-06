@@ -3,7 +3,11 @@
 #include "key_sound_miniaudio.h"
 #include <cmath>
 #include <cstdio>
+#include <filesystem>
 #include <fstream>
+#include <fcntl.h>
+#include <system_error>
+#include <unistd.h>
 
 namespace {
 
@@ -34,12 +38,33 @@ bool writeNote(const std::string &path, const std::vector<int16_t> &pcm, ma_uint
                ma_uint64 frames) {
     const ma_encoder_config config = ma_encoder_config_init(ma_encoding_format_wav, ma_format_s16,
         channels, kKeySoundOutputRate);
+    std::string pattern = path + ".tmp-XXXXXX";
+    std::vector<char> temporary_name(pattern.begin(), pattern.end());
+    temporary_name.push_back('\0');
+    const int descriptor = ::mkstemp(temporary_name.data());
+    if (descriptor < 0) return false;
+    const std::string temporary(temporary_name.data());
+    if (::close(descriptor) != 0) {
+        std::remove(temporary.c_str());
+        return false;
+    }
     ma_encoder encoder;
-    if (ma_encoder_init_file(path.c_str(), &config, &encoder) != MA_SUCCESS) return false;
+    if (ma_encoder_init_file(temporary.c_str(), &config, &encoder) != MA_SUCCESS) {
+        std::remove(temporary.c_str());
+        return false;
+    }
     ma_uint64 written = 0;
     const ma_result status = ma_encoder_write_pcm_frames(&encoder, pcm.data(), frames, &written);
     ma_encoder_uninit(&encoder);
-    return status == MA_SUCCESS && written == frames;
+    if (status != MA_SUCCESS || written != frames) {
+        std::remove(temporary.c_str());
+        return false;
+    }
+    std::error_code error;
+    std::filesystem::rename(temporary, path, error);
+    if (!error) return true;
+    std::remove(temporary.c_str());
+    return false;
 }
 
 }  // namespace

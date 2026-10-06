@@ -31,6 +31,31 @@ static bool SpinUntil(bool (^condition)(void)) {
     return condition();
 }
 
+static void TestUnavailableFamilyKeysAreReleased() {
+    // 不运行主循环、也不变更系统字体集，单独验证配置持续换名时缓存本身会回收旧 key。
+    [NSNotificationCenter.defaultCenter postNotificationName:NSFontSetChangedNotification object:nil];
+    __weak NSString *oldFamily;
+    @autoreleasepool {
+        NSString *family = [[NSString alloc] initWithFormat:@"MSIME Synthetic Cache Capacity Family %lu", (unsigned long)0];
+        oldFamily = family;
+        assert(!MSIMEInstalledFontFamilyDescriptor(family));
+    }
+    assert(oldFamily != nil);
+
+    __weak NSString *newestFamily;
+    for (NSUInteger index = 1; index <= 128; ++index) {
+        @autoreleasepool {
+            NSString *family = [[NSString alloc] initWithFormat:@"MSIME Synthetic Cache Capacity Family %lu", (unsigned long)index];
+            newestFamily = family;
+            assert(!MSIMEInstalledFontFamilyDescriptor(family));
+        }
+    }
+    assert(oldFamily == nil && "旧的字体族名仍被缓存永久持有");
+    assert(newestFamily != nil);
+    [NSNotificationCenter.defaultCenter postNotificationName:NSFontSetChangedNotification object:nil];
+    assert(newestFamily == nil);
+}
+
 int main() {
     @autoreleasepool {
         [NSApplication sharedApplication];
@@ -42,6 +67,11 @@ int main() {
         NSFontDescriptor *uncached = [[NSFontDescriptor fontDescriptorWithFontAttributes:@{NSFontFamilyAttribute:@"Menlo"}] matchingFontDescriptorWithMandatoryKeys:[NSSet setWithObject:NSFontFamilyAttribute]];
         assert([[NSFont fontWithDescriptor:menlo size:18] isEqual:[NSFont fontWithDescriptor:uncached size:18]]);
         assert([[NSFont fontWithDescriptor:menlo size:18].familyName isEqual:@"Menlo"]);
+
+        // 可下载但还没下载的系统字体（字体预设里的楷体、圆体等）不拿去匹配：匹配会让 CoreText 经 FontRegistryUI 同步等待下载确认，调用线程就此挂起，CI 的 macOS 15 上设置窗口就是这样卡死的。答案只看本机已激活的字体族，所以这台机器下载过的照常命中，没下载的立即答 nil。
+        NSSet<NSString *> *available = [NSSet setWithArray:(__bridge_transfer NSArray<NSString *> *)CTFontManagerCopyAvailableFontFamilyNames()];
+        for (NSString *family in @[@"Songti SC", @"PingFang SC", @"Kaiti SC", @"STKaiti", @"Yuanti SC"])
+            assert((MSIMEInstalledFontFamilyDescriptor(family) != nil) == [available containsObject:family]);
 
         // A family that is not installed resolves to nil, and so does every later lookup of it.
         assert(!MSIMEInstalledFontFamilyDescriptor(SyntheticFamily));
@@ -68,6 +98,8 @@ int main() {
         // Menlo was dropped with everything else and matches again.
         assert([MSIMEInstalledFontFamilyDescriptor(@"Menlo") isEqual:menlo]);
         [NSFileManager.defaultManager removeItemAtURL:directory error:nil];
+
+        TestUnavailableFamilyKeysAreReleased();
 
         // Lookups and clears from many threads at once neither crash nor return a wrong family.
         NSFontDescriptor *helvetica = MSIMEInstalledFontFamilyDescriptor(@"Helvetica");

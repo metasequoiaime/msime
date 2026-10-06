@@ -4,6 +4,7 @@ import type { FloatingToolbarPreferences } from "../index";
 export const defaultFloatingToolbar: FloatingToolbarPreferences = {
   enabled: true,
   english_mode: true,
+  input_scheme: true,
   fullwidth: true,
   punctuation: true,
   character_set: true,

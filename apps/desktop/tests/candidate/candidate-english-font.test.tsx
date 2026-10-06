@@ -12,12 +12,12 @@ afterEach(cleanup);
 test("Windows exposes an independent English face with a platform default", () => {
   const onChange = vi.fn();
   const view = render(<CandidateFontControls value={{}} onChange={onChange} windows />);
-  const input = view.getByLabelText("候选窗英文字体") as HTMLInputElement;
+  const input = view.getByLabelText("英文字体") as HTMLInputElement;
   expect(input.value).toBe("Segoe UI");
   fireEvent.change(input, { target: { value: "Synthetic Latin" } });
   expect(onChange).toHaveBeenCalledWith({ candidate_english_font: "Synthetic Latin" });
   view.rerender(<CandidateFontControls value={{}} onChange={onChange} />);
-  expect(view.queryByLabelText("候选窗英文字体")).toBeNull();
+  expect(view.queryByLabelText("英文字体")).toBeNull();
 });
 
 test("macOS exposes the English face while following the primary face by default", () => {
@@ -29,7 +29,7 @@ test("macOS exposes the English face while following the primary face by default
       englishFont
     />,
   );
-  const input = view.getByLabelText("候选窗英文字体") as HTMLInputElement;
+  const input = view.getByLabelText("英文字体") as HTMLInputElement;
   expect(input.value).toBe("PingFang SC");
   fireEvent.change(input, { target: { value: "Helvetica" } });
   expect(onChange).toHaveBeenCalledWith({ candidate_english_font: "Helvetica" });

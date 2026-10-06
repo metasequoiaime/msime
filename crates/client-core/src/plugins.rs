@@ -1,8 +1,8 @@
-//! Plugin packs: sound packs, background music, command tables and typing-effect parameters, as validated data.
+//! 插件包：音效包、背景音乐、指令表、打字特效参数、短语表、辅助码表、单词本和符号集，全部是经过校验的数据。
 //!
 //! Nothing in a pack runs. The kinds are a closed set, each with a fixed manifest shape that this module parses in full, and a pack that asks for any permission is refused, so a third party can supply samples, tracks and text templates and nothing else. Hosts play the audio, hand the command rows to the Engine and draw their own built-in effects with an effect pack's parameters; all of them only ever see a pack this module has accepted.
 //!
-//! A pack lives in `<root>/<kind>/<id>/`, where `root` is the `plugins` directory under the host's state root and `kind` is `sound`, `music`, `command_table` or `effect`. The directory holds `plugin.toml` and the flat files it names, plus optional text notices, and nothing else: no subdirectories, no symbolic links, no file the manifest does not account for. Built-in sound packs ship inside each platform's bundle rather than under `root`, in a directory the host names (`resources/sound-packs` in the repository), and are listed beside the installed ones.
+//! 一个包放在 `<root>/<kind>/<id>/`：`root` 是宿主状态根目录下的 `plugins` 目录，`kind` 是 `PluginKind::as_str` 给出的名字（`sound`、`music`、`command_table`、`effect`、`phrase_table` 等）。目录里只有 `plugin.toml`、清单点名的平铺文件（音频或数据文件）和可选的说明文本，别的一律没有：没有子目录、没有符号链接、没有清单不认账的文件。内置音效包随各平台的安装包分发，不在 `root` 下，而在宿主指定的目录里（仓库中是 `resources/sound-packs`），与已安装的包并列列出。
 //!
 //! `mentions.json` beside the kind directories is the @ mode's name list, kept by `mentions`. It lives here rather than in the preferences document because that document is the one hosts copy and account sync reads from, and a contact list belongs to neither.
 
@@ -10,10 +10,14 @@ pub mod command_table;
 pub mod community;
 pub mod effect_pack;
 mod failure;
+pub mod helpcode_pack;
 mod import;
 pub mod mentions;
 pub mod music_pack;
+pub mod phrase_table;
 pub mod sound_pack;
+pub mod symbol_set;
+pub mod wordbook_pack;
 
 pub use failure::{remove_named, PluginFailure};
 pub use import::{import, validate};
@@ -81,10 +85,27 @@ pub enum PluginKind {
     CommandTable,
     /// Parameters for one of the hosts' built-in typing effects: a style and a few bounded hints, no files.
     Effect,
+    /// K 模式的短语：编码和文本，全部写在清单里。
+    PhraseTable,
+    /// 辅助码表：一个 `.txt` 数据文件，替换全拼或双拼方案的辅助码。
+    Helpcode,
+    /// 单词本：一个 `.tsv` 数据文件，作为一本词书出现在背单词里。
+    Wordbook,
+    /// 符号集：追加到符号面板的符号组和颜文字组，全部写在清单里。
+    SymbolSet,
 }
 
 impl PluginKind {
-    pub const ALL: [Self; 4] = [Self::Sound, Self::Music, Self::CommandTable, Self::Effect];
+    pub const ALL: [Self; 8] = [
+        Self::Sound,
+        Self::Music,
+        Self::CommandTable,
+        Self::Effect,
+        Self::PhraseTable,
+        Self::Helpcode,
+        Self::Wordbook,
+        Self::SymbolSet,
+    ];
 
     /// The manifest's `kind` and the directory under the plugins root.
     pub fn as_str(self) -> &'static str {
@@ -93,6 +114,10 @@ impl PluginKind {
             Self::Music => "music",
             Self::CommandTable => "command_table",
             Self::Effect => "effect",
+            Self::PhraseTable => "phrase_table",
+            Self::Helpcode => "helpcode",
+            Self::Wordbook => "wordbook",
+            Self::SymbolSet => "symbol_set",
         }
     }
 
@@ -106,7 +131,12 @@ pub fn is_builtin(kind: PluginKind, id: &str) -> bool {
     match kind {
         PluginKind::Sound => BUILTIN_SOUND_PACKS.contains(&id),
         PluginKind::Music => BUILTIN_MUSIC_PACKS.contains(&id),
-        PluginKind::CommandTable | PluginKind::Effect => false,
+        PluginKind::CommandTable
+        | PluginKind::Effect
+        | PluginKind::PhraseTable
+        | PluginKind::Helpcode
+        | PluginKind::Wordbook
+        | PluginKind::SymbolSet => false,
     }
 }
 
@@ -168,6 +198,10 @@ impl PluginSummary {
             PluginContent::Music(_) => PluginKind::Music,
             PluginContent::CommandTable(_) => PluginKind::CommandTable,
             PluginContent::Effect(_) => PluginKind::Effect,
+            PluginContent::PhraseTable(_) => PluginKind::PhraseTable,
+            PluginContent::Helpcode(_) => PluginKind::Helpcode,
+            PluginContent::Wordbook(_) => PluginKind::Wordbook,
+            PluginContent::SymbolSet(_) => PluginKind::SymbolSet,
         }
     }
 }
@@ -179,6 +213,10 @@ pub enum PluginContent {
     Music(music_pack::MusicPack),
     CommandTable(command_table::CommandTable),
     Effect(effect_pack::EffectPack),
+    PhraseTable(phrase_table::PhraseTable),
+    Helpcode(helpcode_pack::HelpcodePack),
+    Wordbook(wordbook_pack::WordbookPack),
+    SymbolSet(symbol_set::SymbolSet),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -264,7 +302,9 @@ fn scan_builtin(directory: &Path, catalog: &mut PluginCatalog) {
             PluginKind::Sound
         };
         let loaded = match entry.file_type() {
-            Ok(file_type) if file_type.is_dir() => load_installed(directory, &folder, kind, true),
+            Ok(file_type) if file_type.is_dir() => {
+                load_installed(directory, &folder, kind, true, DataFiles::Summarize)
+            }
             _ => Err("不是插件文件夹".to_owned()),
         };
         match loaded {
@@ -278,6 +318,17 @@ fn scan_builtin(directory: &Path, catalog: &mut PluginCatalog) {
     }
 }
 
+/// `root` 下某一类型能载入的已安装包，载不入的略过：只要一种类型时不必读整个插件目录。
+pub(crate) fn scan_kind_packages(root: &Path, kind: PluginKind) -> Vec<PluginSummary> {
+    let directory = kind_directory(root, kind);
+    if !fs::symlink_metadata(&directory).is_ok_and(|metadata| metadata.is_dir()) {
+        return Vec::new();
+    }
+    let mut catalog = PluginCatalog::default();
+    scan_kind(&directory, kind, false, &mut catalog);
+    catalog.packages
+}
+
 fn scan_kind(directory: &Path, kind: PluginKind, builtin: bool, catalog: &mut PluginCatalog) {
     let Ok(entries) = fs::read_dir(directory) else {
         return;
@@ -289,7 +340,7 @@ fn scan_kind(directory: &Path, kind: PluginKind, builtin: bool, catalog: &mut Pl
         }
         let loaded = match entry.file_type() {
             Ok(file_type) if file_type.is_dir() => {
-                load_installed(directory, &folder, kind, builtin)
+                load_installed(directory, &folder, kind, builtin, DataFiles::Summarize)
             }
             _ => Err("不是插件文件夹".to_owned()),
         };
@@ -316,9 +367,42 @@ pub fn load_package(
     }
     if is_builtin(kind, id) {
         let builtin = builtin_sounds.ok_or("内置音效包不可用")?;
-        return load_installed(builtin, id, kind, true);
+        return load_installed(builtin, id, kind, true, DataFiles::Summarize);
     }
-    load_installed(&kind_directory(root, kind), id, kind, false)
+    load_installed(
+        &kind_directory(root, kind),
+        id,
+        kind,
+        false,
+        DataFiles::Summarize,
+    )
+}
+
+/// 与 [`load_package`] 同样校验一个已安装的包（清单、文件清单、数据文件的存在与大小），但不读数据文件的内容：`content` 里的摘要是占位值。只给自己要完整解析数据文件的调用方用（`wordbook_pack::load_book`、`helpcode_pack::load_codes`），它们的解析就是对内容的校验，这样一个最大 4 MiB 的文件只解析一遍。
+pub(crate) fn load_package_unread(
+    root: &Path,
+    kind: PluginKind,
+    id: &str,
+) -> Result<PluginSummary, String> {
+    if !safe_id(id) {
+        return Err("插件 id 无效".into());
+    }
+    load_installed(
+        &kind_directory(root, kind),
+        id,
+        kind,
+        false,
+        DataFiles::Unread,
+    )
+}
+
+/// 载入包时是否读出数据文件（辅助码表、单词本）的摘要。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DataFiles {
+    /// 读出并严格解析，摘要（条数、预览）写进 `content`。
+    Summarize,
+    /// 只检查文件存在、大小和扩展名，内容由调用方自己解析。
+    Unread,
 }
 
 /// A pack in `<directory>/<folder>`, whose manifest must name `folder` as its id and `kind` as its kind.
@@ -327,6 +411,7 @@ fn load_installed(
     folder: &str,
     kind: PluginKind,
     builtin: bool,
+    data_files: DataFiles,
 ) -> Result<PluginSummary, String> {
     crate::storage::reject_symlink(directory).map_err(|_| "插件所在目录是符号链接".to_owned())?;
     if !safe_id(folder) {
@@ -343,7 +428,7 @@ fn load_installed(
     if !contained(directory, &package) {
         return Err("插件指向了所在目录之外".into());
     }
-    let mut summary = load_directory(&package)?;
+    let mut summary = load_directory_with(&package, data_files)?;
     if summary.id != folder {
         return Err("plugin.toml 里的 id 与文件夹名不一致".into());
     }
@@ -372,6 +457,10 @@ pub(crate) type PackFiles = BTreeMap<String, u64>;
 
 /// Parse and check the pack in `directory` whatever its folder is called. `import` runs this on the staged copy before anything is installed, and every load runs it again.
 pub(crate) fn load_directory(directory: &Path) -> Result<PluginSummary, String> {
+    load_directory_with(directory, DataFiles::Summarize)
+}
+
+fn load_directory_with(directory: &Path, data_files: DataFiles) -> Result<PluginSummary, String> {
     let files = list_files(directory)?;
     if !files.contains_key(MANIFEST_FILE) {
         return Err("缺少 plugin.toml".into());
@@ -416,6 +505,10 @@ pub(crate) fn load_directory(directory: &Path) -> Result<PluginSummary, String> 
         PluginKind::Music => &music_pack::MANIFEST_KEYS,
         PluginKind::CommandTable => &command_table::MANIFEST_KEYS,
         PluginKind::Effect => &effect_pack::MANIFEST_KEYS,
+        PluginKind::PhraseTable => &phrase_table::MANIFEST_KEYS,
+        PluginKind::Helpcode => &helpcode_pack::MANIFEST_KEYS,
+        PluginKind::Wordbook => &wordbook_pack::MANIFEST_KEYS,
+        PluginKind::SymbolSet => &symbol_set::MANIFEST_KEYS,
     };
     if let Some(key) = table
         .keys()
@@ -423,6 +516,7 @@ pub(crate) fn load_directory(directory: &Path) -> Result<PluginSummary, String> 
     {
         return Err(format!("plugin.toml 里有未知的键 {key}"));
     }
+    let mut data: Vec<DataFile> = Vec::with_capacity(data_file_capacity(kind));
     let (content, audio, limits) = match kind {
         PluginKind::Sound => {
             let pack = sound_pack::parse(table)?;
@@ -444,8 +538,64 @@ pub(crate) fn load_directory(directory: &Path) -> Result<PluginSummary, String> 
             Vec::new(),
             AudioLimits::NONE,
         ),
+        PluginKind::PhraseTable => (
+            PluginContent::PhraseTable(phrase_table::parse(table)?),
+            Vec::new(),
+            AudioLimits::NONE,
+        ),
+        PluginKind::Helpcode => {
+            // 码表内容要等文件检查过之后再读，这里先占位，下面换成解析结果。
+            let name = helpcode_pack::parse(table)?;
+            data.push(DataFile {
+                name: name.clone(),
+                max_bytes: helpcode_pack::MAX_TABLE_BYTES,
+                extension: helpcode_pack::TABLE_EXTENSION,
+            });
+            (
+                PluginContent::Helpcode(helpcode_pack::HelpcodePack {
+                    table: name,
+                    entries: 0,
+                    preview: Vec::new(),
+                }),
+                Vec::new(),
+                AudioLimits::NONE,
+            )
+        }
+        PluginKind::SymbolSet => (
+            PluginContent::SymbolSet(symbol_set::parse(table)?),
+            Vec::new(),
+            AudioLimits::NONE,
+        ),
+        PluginKind::Wordbook => {
+            wordbook_pack::check_identity(&id, &name)?;
+            let file = wordbook_pack::parse(table)?;
+            data.push(DataFile {
+                name: file.clone(),
+                max_bytes: wordbook_pack::MAX_FILE_BYTES,
+                extension: wordbook_pack::FILE_EXTENSION,
+            });
+            (
+                PluginContent::Wordbook(wordbook_pack::WordbookPack {
+                    file,
+                    word_count: 0,
+                    first_words: Vec::new(),
+                }),
+                Vec::new(),
+                AudioLimits::NONE,
+            )
+        }
     };
-    check_files(directory, &files, &audio, limits)?;
+    check_files(directory, &files, &audio, limits, &data)?;
+    let content = match content {
+        content if data_files == DataFiles::Unread => content,
+        PluginContent::Helpcode(pack) => {
+            PluginContent::Helpcode(helpcode_pack::read(directory, &pack.table)?)
+        }
+        PluginContent::Wordbook(pack) => {
+            PluginContent::Wordbook(wordbook_pack::read(directory, &pack.file)?)
+        }
+        other => other,
+    };
     Ok(PluginSummary {
         id,
         name,
@@ -457,6 +607,14 @@ pub(crate) fn load_directory(directory: &Path) -> Result<PluginSummary, String> 
         directory: directory.to_path_buf(),
         content,
     })
+}
+
+fn data_file_capacity(kind: PluginKind) -> usize {
+    if matches!(kind, PluginKind::Helpcode | PluginKind::Wordbook) {
+        1
+    } else {
+        0
+    }
 }
 
 /// Bounds on the audio files of one kind.
@@ -473,6 +631,15 @@ impl AudioLimits {
         file_bytes: 0,
         total_bytes: 0,
     };
+}
+
+/// 清单点名的一个数据文件（辅助码表、单词表）。它必须存在、大小在 1..=`max_bytes` 之间、扩展名是 `extension`；它不按说明文件处理，也不做签名检查，内容由该类型自己的解析器通过 [`read_file`] 校验。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DataFile {
+    pub name: String,
+    pub max_bytes: u64,
+    /// 小写扩展名，不带点。
+    pub extension: &'static str,
 }
 
 /// The regular files of a pack directory, hidden names aside. Anything else in it - a subdirectory, a symbolic link, a device - refuses the pack, as does a name that is not one plain component or an entry count past `MAX_PACK_FILES`.
@@ -513,6 +680,15 @@ fn list_files(directory: &Path) -> Result<PackFiles, String> {
 
 /// One plain file name: ASCII letters, digits, `_`, `-` and dots, starting with a letter or digit.
 pub(crate) fn valid_file_name(name: &str) -> bool {
+    let stem = name
+        .split('.')
+        .next()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let reserved = matches!(stem.as_str(), "con" | "prn" | "aux" | "nul")
+        || (stem.len() == 4
+            && (stem.starts_with("com") || stem.starts_with("lpt"))
+            && stem.as_bytes()[3].is_ascii_digit());
     name.len() <= 64
         && name
             .as_bytes()
@@ -520,6 +696,19 @@ pub(crate) fn valid_file_name(name: &str) -> bool {
             .is_some_and(u8::is_ascii_alphanumeric)
         && crate::skin::catalog::safe_resource(name, 64)
         && !name.contains('/')
+        && !reserved
+}
+
+/// 数据文件按行切开：整个文件必须是 UTF-8（开头可以有 BOM），按 `\n` 分行，每行去掉一个行尾的 `\r`；其余位置的 `\r` 和别的控制字符一样留给各类型的行规则拒绝。返回从 1 开始的行号和行内容。
+pub(crate) fn data_lines<'a>(bytes: &'a [u8], name: &str) -> Result<Vec<(usize, &'a str)>, String> {
+    let bytes = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(bytes);
+    let text = std::str::from_utf8(bytes).map_err(|_| format!("{name} 不是 UTF-8 编码"))?;
+    Ok(text
+        .split('\n')
+        .map(|line| line.strip_suffix('\r').unwrap_or(line))
+        .enumerate()
+        .map(|(index, line)| (index + 1, line))
+        .collect())
 }
 
 /// The lower-case extension of a file name.
@@ -543,12 +732,13 @@ fn is_notice(name: &str) -> bool {
     matches!(extension(name).as_str(), "txt" | "md")
 }
 
-/// Every file is the manifest, an audio file the manifest names, or a notice; every named audio file is there, within `limits`, and starts the way its format does.
+/// 每个文件要么是清单，要么是清单点名的音频或数据文件，要么是说明文件；点名的音频文件都在、不超出 `limits`、文件头与格式相符；点名的数据文件都在、大小与扩展名符合 [`DataFile`] 的要求。
 fn check_files(
     directory: &Path,
     files: &PackFiles,
     audio: &[String],
     limits: AudioLimits,
+    data: &[DataFile],
 ) -> Result<(), String> {
     let mut distinct: Vec<&str> = audio.iter().map(String::as_str).collect();
     distinct.sort_unstable();
@@ -572,8 +762,25 @@ fn check_files(
     if total > limits.total_bytes {
         return Err("音频文件加起来太大".into());
     }
+    for file in data {
+        if distinct.contains(&file.name.as_str()) || file.name == MANIFEST_FILE {
+            return Err(format!("{} 不能同时用作别的文件", file.name));
+        }
+        if extension(&file.name) != file.extension {
+            return Err(format!("{} 的扩展名必须是 .{}", file.name, file.extension));
+        }
+        let size = *files
+            .get(&file.name)
+            .ok_or_else(|| format!("缺少数据文件 {}", file.name))?;
+        if size == 0 || size > file.max_bytes {
+            return Err(format!("{} 为空或太大", file.name));
+        }
+    }
     for (name, size) in files {
-        if name == MANIFEST_FILE || distinct.contains(&name.as_str()) {
+        if name == MANIFEST_FILE
+            || distinct.contains(&name.as_str())
+            || data.iter().any(|file| file.name == *name)
+        {
             continue;
         }
         if !is_notice(name) {

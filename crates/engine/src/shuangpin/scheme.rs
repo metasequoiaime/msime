@@ -43,7 +43,8 @@ impl ShuangpinScheme {
             SchemeKey::Letter(letter) if letter.is_ascii_alphabetic() => {
                 self.raw.push(char::from(letter));
             }
-            SchemeKey::Letter(_) | SchemeKey::Minus | SchemeKey::Requery => {}
+            SchemeKey::Letter(_) | SchemeKey::Minus | SchemeKey::Symbol(_) | SchemeKey::Requery => {
+            }
         }
     }
 
@@ -142,6 +143,8 @@ mod tests {
         typed.handle_key(SchemeKey::Minus);
         typed.handle_key(SchemeKey::Letter(b'1'));
         typed.handle_key(SchemeKey::Requery);
+        typed.handle_key(SchemeKey::Symbol(b';'));
+        typed.handle_key(SchemeKey::Symbol(b' '));
         assert_eq!(typed.preedit(), "'ni'Hc");
         typed.handle_key(SchemeKey::Backspace);
         assert_eq!(typed.preedit(), "'ni'H");

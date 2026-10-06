@@ -2,10 +2,15 @@
 "CFBundleName" = "水杉输入法";
 "app.msime.inputmethod.MetasequoiaIME" = "水杉输入法";
 "app.msime.inputmethod.MetasequoiaIME.Hans" = "水杉输入法 · 中";
-"app.msime.inputmethod.MetasequoiaIME.Shuangpin" = "水杉输入法 · 双拼";
-"app.msime.inputmethod.MetasequoiaIME.Wubi" = "水杉输入法 · 五笔";
+"app.msime.inputmethod.MetasequoiaIME.Shuangpin" = "水杉输入法 · 双";
+"app.msime.inputmethod.MetasequoiaIME.Wubi" = "水杉输入法 · 五";
 "app.msime.inputmethod.MetasequoiaIME.Roman" = "水杉输入法 · 英";
 "app.msime.inputmethod.MetasequoiaIME.Japanese" = "水杉输入法 · 日";
 "app.msime.inputmethod.MetasequoiaIME.Korean" = "水杉输入法 · 韩";
+"app.msime.inputmethod.MetasequoiaIME.Cantonese" = "水杉输入法 · 粤";
+"app.msime.inputmethod.MetasequoiaIME.Zhuyin" = "水杉输入法 · 注";
+"app.msime.inputmethod.MetasequoiaIME.Vietnamese" = "水杉输入法 · 越";
+"app.msime.inputmethod.MetasequoiaIME.Tibetan" = "水杉输入法 · 藏";
+"app.msime.inputmethod.MetasequoiaIME.Stroke" = "水杉输入法 · 笔";
 "NSMicrophoneUsageDescription" = "仅在开始语音输入时录音，用于识别并输入您说出的文字。";
 "NSSpeechRecognitionUsageDescription" = "选择 macOS 系统识别时，把录音交给系统语音识别，用于转写您说出的文字。";

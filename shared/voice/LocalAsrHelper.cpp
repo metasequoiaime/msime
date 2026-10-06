@@ -151,8 +151,11 @@ public:
     // poll() makes the reader interruptible even when the parent keeps the
     // helper's stdin open while the idle timer expires. Join before this
     // object is destroyed; the old detached reader could outlive Server.
+    // 被信号打断时重试：这一字节没写进去，reader 就永远不醒，下面的 join 会一直挂着。
+    // 不能写成 `(void)::write(...)`，带 _FORTIFY_SOURCE 的 GCC 不认这种写法，在 -Werror 下直接编不过。
     const char stop = 1;
-    (void)::write(stop_pipe_[1], &stop, 1);
+    while (::write(stop_pipe_[1], &stop, 1) < 0 && errno == EINTR) {
+    }
 #else
     // The Windows CRT has no pollable stdin descriptor. Closing the helper's
     // inherited input handle wakes getline so the reader can be joined before
@@ -181,7 +184,8 @@ private:
         break;
       }
       if (descriptors[0].revents & POLLIN) break;
-      if (!(descriptors[1].revents & (POLLIN | POLLHUP | POLLERR))) continue;
+      // macOS 的 poll() 不支持 /dev/null 这类设备文件，只回 POLLNVAL；不认它的话这里会立刻再 poll、空转到空闲退出（CI 里 `msime-voice-local < /dev/null` 因此每次卡满 600 秒）。交给下面的 read() 判断：/dev/null 读到 0 即 EOF，真正失效的描述符读出错，两种都结束循环。
+      if (!(descriptors[1].revents & (POLLIN | POLLHUP | POLLERR | POLLNVAL))) continue;
       const auto count = ::read(STDIN_FILENO, buffer.data(), buffer.size());
       if (count == 0) break;
       if (count < 0) {

@@ -1,5 +1,5 @@
+import { SettingsGroupNote } from "./settings-group-note";
 import { HostActionButton } from "../keyboard/HostActionButton";
-import * as settings from "./settings-style";
 import { GroupList, Row } from "../core/platform-controls";
 
 export interface InputMethodServiceSectionProps {
@@ -22,13 +22,13 @@ export function InputMethodServiceSection({
 
   return (
     <GroupList title="输入法服务">
-      <p className={settings.groupNote}>
+      <SettingsGroupNote>
         {macos
           ? "重新注册并启用已安装的水杉输入源；当前输入法进程继续按系统生命周期运行。"
           : linux
             ? "重启 IBus 输入法服务；使用 Fcitx5 时重载水杉插件，关闭并重建所有输入会话，不影响其他输入法。"
             : "请求受监督的输入法服务重新启动。"}
-      </p>
+      </SettingsGroupNote>
       <Row title={macos ? "重新注册当前输入源" : "立即重启输入法服务"}>
         <HostActionButton
           action={restartInputMethod}

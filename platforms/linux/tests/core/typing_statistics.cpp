@@ -337,6 +337,28 @@ int main() {
          TypingSource::Korean);
   assert(typing_source_id(TypingSource::Korean) ==
          std::string_view("korean"));
+  assert(resolve_typing_source(5, false, false, "none", "xiaohe") ==
+         TypingSource::Cantonese);
+  assert(resolve_typing_source(6, false, false, "none", "xiaohe") ==
+         TypingSource::Zhuyin);
+  assert(resolve_typing_source(7, false, false, "none", "xiaohe") ==
+         TypingSource::Vietnamese);
+  assert(typing_source_id(TypingSource::Cantonese) ==
+         std::string_view("cantonese"));
+  assert(typing_source_id(TypingSource::Zhuyin) ==
+         std::string_view("zhuyin"));
+  assert(typing_source_id(TypingSource::Vietnamese) ==
+         std::string_view("vietnamese"));
+  assert(resolve_typing_source(8, false, false, "none", "xiaohe") ==
+         TypingSource::Tibetan);
+  assert(typing_source_id(TypingSource::Tibetan) ==
+         std::string_view("tibetan"));
+  assert(resolve_typing_source(9, false, false, "none", "xiaohe") ==
+         TypingSource::Stroke);
+  assert(typing_source_id(TypingSource::Stroke) ==
+         std::string_view("stroke"));
+  assert(resolve_typing_source(10, false, false, "none", "xiaohe") ==
+         TypingSource::Unknown);
   assert(resolve_typing_source(0, false, true, "none", "xiaohe") ==
          TypingSource::English);
   assert(resolve_typing_source(0, false, false, "temporary_japanese",

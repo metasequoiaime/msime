@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <string>
 #include <vector>
@@ -159,6 +160,23 @@ int main(int argc, char **argv) {
         "more notes than a melody may have are refused");
     check(!renderKeySoundNotes(sample, {0}, "relative", 1500).ok, "a relative directory is refused");
     check(!renderKeySoundNotes(root + "/missing.wav", {0}, root, 1500).ok, "a missing file is refused");
+
+    // 输出文件是符号链接时，不能把生成的音频写到链接目标。
+    const std::string outside = root + "/outside.wav";
+    write(outside, {'k', 'e', 'e', 'p'});
+    const std::string linked_note = root + "/note-0.wav";
+    std::remove(linked_note.c_str());
+    std::error_code symlink_error;
+    std::filesystem::create_symlink(outside, linked_note, symlink_error);
+    if (symlink_error) {
+        check(false, "create output symlink");
+    } else {
+        const KeySoundRender linked = renderKeySoundNotes(sample, {0}, root, 1500);
+        std::ifstream preserved(outside, std::ios::binary);
+        std::string bytes((std::istreambuf_iterator<char>(preserved)), std::istreambuf_iterator<char>());
+        check(linked.ok && bytes == "keep" && !std::filesystem::is_symlink(linked_note),
+            "output replaces a symlink without writing through it");
+    }
 
     std::printf("%d failure(s)\n", failures);
     return failures == 0 ? 0 : 1;

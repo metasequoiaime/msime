@@ -1,5 +1,6 @@
-import { GroupList, Row, Switch } from "../core/platform-controls";
-import * as settings from "./settings-style";
+import { SettingsGroupNote } from "./settings-group-note";
+import { TextInputRow } from "./text-input-row";
+import { SwitchRow } from "./switch-row";
 
 export interface DoubaoOptionsSectionProps {
   linux: boolean;
@@ -13,8 +14,8 @@ export interface DoubaoOptionsSectionProps {
   onBoostingTableIdChange: (value: string) => void;
 }
 
-/** Doubao recognition flags and hotword table settings. */
-export function DoubaoOptionsSection({
+/** 豆包识别的几个开关和热词表，不带组；语音页把它们接在「识别服务配置」组里豆包的设置后面。 */
+export function DoubaoOptionsRows({
   linux,
   enableItn,
   enablePunc,
@@ -26,27 +27,34 @@ export function DoubaoOptionsSection({
   onBoostingTableIdChange,
 }: DoubaoOptionsSectionProps) {
   return (
-    <GroupList title="豆包识别选项">
-      <p className={settings.groupNote}>
-        {linux ? "由 provider 服务应用" : "随识别请求发送给豆包"}
-      </p>
-      <Row title="数字格式化">
-        <Switch aria-label="数字格式化" checked={enableItn} onChange={onEnableItnChange} />
-      </Row>
-      <Row title="标点预测">
-        <Switch aria-label="标点预测" checked={enablePunc} onChange={onEnablePuncChange} />
-      </Row>
-      <Row title="语义顺滑">
-        <Switch aria-label="语义顺滑" checked={enableDdc} onChange={onEnableDdcChange} />
-      </Row>
-      <Row title="热词表 ID">
-        <input
-          aria-label="热词表 ID"
-          value={boostingTableId}
-          onChange={(event) => onBoostingTableIdChange(event.target.value)}
-        />
-      </Row>
-    </GroupList>
+    <>
+      <SettingsGroupNote>
+        {linux ? "以下豆包识别选项由语音服务应用" : "以下豆包识别选项随识别请求发送给豆包"}
+      </SettingsGroupNote>
+      <SwitchRow
+        title="数字格式化"
+        aria-label="数字格式化"
+        checked={enableItn}
+        onChange={onEnableItnChange}
+      />
+      <SwitchRow
+        title="标点预测"
+        aria-label="标点预测"
+        checked={enablePunc}
+        onChange={onEnablePuncChange}
+      />
+      <SwitchRow
+        title="语义顺滑"
+        aria-label="语义顺滑"
+        checked={enableDdc}
+        onChange={onEnableDdcChange}
+      />
+      <TextInputRow
+        title="热词表 ID"
+        label="热词表 ID"
+        value={boostingTableId}
+        onChange={onBoostingTableIdChange}
+      />
+    </>
   );
 }
-import { SettingToggle } from "./setting-toggle";

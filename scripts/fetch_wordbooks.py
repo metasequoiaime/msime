@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Fetch ECDICT and expand it into the 背单词 wordbooks the settings page offers.
 
-The exam syllabuses are not something this project can derive. The shipped ``english.db`` carries
+The exam syllabuses are not something this project can derive. The shipped ``msime-english.db`` carries
 Chinese glosses and corpus frequency, which is enough to build "the thousand commonest words" but
 not enough to say a word is on the CET-4 list — that is a published syllabus, and inventing the
 label would put a name on the page that nothing behind it supports.
@@ -30,8 +30,9 @@ import hashlib
 import json
 import sys
 import tempfile
-import urllib.request
 from pathlib import Path
+
+import download_retry
 
 ROOT = Path(__file__).resolve().parents[1]
 LOCK = ROOT / "resources/wordbook.lock.json"
@@ -65,7 +66,7 @@ def fetch(artifact: dict, cache: Path) -> Path:
         temporary = Path(handle.name)
     try:
         size = 0
-        with urllib.request.urlopen(artifact["url"], timeout=300) as response:
+        with download_retry.urlopen(artifact["url"], timeout=300) as response:
             with temporary.open("wb") as out:
                 while True:
                     chunk = response.read(1024 * 1024)

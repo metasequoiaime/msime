@@ -244,14 +244,3 @@ final class PersonalDictionaryStoreTests: XCTestCase {
     XCTAssertNoThrow(try store.read())
   }
 }
-import XCTest
-
-@MainActor
-final class FuzzyPinyinPreferenceTests: XCTestCase {
-  func testFirstEnableSeedsEveryRuleOnce() {
-    let seeded = FuzzyPinyinPreference.seededSelection(enabled: true, seeded: false, current: "")
-    XCTAssertEqual(seeded.split(separator: ",").map(String.init), FuzzyPinyinPreference.ruleIDs)
-    XCTAssertEqual(FuzzyPinyinPreference.seededSelection(enabled: true, seeded: true, current: "z-zh"), "z-zh")
-    XCTAssertEqual(FuzzyPinyinPreference.seededSelection(enabled: false, seeded: false, current: ""), "")
-  }
-}

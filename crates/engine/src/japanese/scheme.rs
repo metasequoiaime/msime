@@ -29,7 +29,10 @@ impl JapaneseRomajiScheme {
             SchemeKey::Letter(letter) if letter.is_ascii_alphabetic() => {
                 self.raw.push(char::from(letter))
             }
-            SchemeKey::Letter(_) | SchemeKey::Semicolon | SchemeKey::Requery => {}
+            SchemeKey::Letter(_)
+            | SchemeKey::Semicolon
+            | SchemeKey::Symbol(_)
+            | SchemeKey::Requery => {}
         }
     }
 
@@ -126,6 +129,8 @@ mod tests {
         let mut scheme = typed("ka");
         scheme.handle_key(SchemeKey::Semicolon);
         scheme.handle_key(SchemeKey::Letter(b'1'));
+        scheme.handle_key(SchemeKey::Symbol(b'-'));
+        scheme.handle_key(SchemeKey::Symbol(b';'));
         assert_eq!(scheme.preedit(), "ka");
     }
 
