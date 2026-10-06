@@ -403,8 +403,9 @@ pub(super) fn decode_graph(
     });
 
     // 同一列里很多假设经由同一个词到达，只是更早的历史不同；它们对每条出边查到的二元分完全一样。按前一个词把这一列所有出边的二元分记下来，同一个词只查一遍表。
-    let mut bigram_rows: Vec<(&str, Vec<f32>)> = Vec::new();
-    let mut bigram_row_indices: HashMap<&str, usize> = HashMap::new();
+    let row_capacity = options.beam.max(options.nbest);
+    let mut bigram_rows: Vec<(&str, Vec<f32>)> = Vec::with_capacity(row_capacity);
+    let mut bigram_row_indices: HashMap<&str, usize> = HashMap::with_capacity(row_capacity);
     // 这一列的出边，按原来的顺序（先图里的，再 `extra` 的）收集一次，每个假设都按这个顺序展开。
     let mut outgoing: Vec<&Edge> = Vec::new();
     for pos in 0..n {
