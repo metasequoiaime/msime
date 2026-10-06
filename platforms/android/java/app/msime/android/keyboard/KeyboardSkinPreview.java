@@ -53,6 +53,11 @@ public final class KeyboardSkinPreview extends View {
         text.setTextAlign(Paint.Align.CENTER);
         text.setTypeface(skin.monospaced() ? Typeface.MONOSPACE : Typeface.DEFAULT);
         text.setTextSize(KeyboardGeometry.bounded(rowHeight * .42f, 7f, 14f * density));
+        int keyFill = Color.parseColor(skin.keyBackground());
+        int actionFill = Color.parseColor(skin.actionBackground());
+        int keyText = Color.parseColor(skin.keyForeground());
+        int actionText = Color.parseColor(skin.actionForeground());
+        RectF key = new RectF();
         for (int rowIndex = 0; rowIndex < rows.length; rowIndex++) {
             String[] row = rows[rowIndex];
             float rowInset = rowIndex == 1 ? bounds.width() * .04f : 0;
@@ -61,15 +66,15 @@ public final class KeyboardSkinPreview extends View {
             for (int index = 0; index < row.length; index++) {
                 float left = bounds.left + rowInset + index * (keyWidth + gap);
                 float top = bounds.top + rowIndex * (rowHeight + gap);
-                RectF key = new RectF(left, top, left + keyWidth, top + rowHeight);
+                key.set(left, top, left + keyWidth, top + rowHeight);
                 boolean action = rowIndex == rows.length - 1 || index == 0 && rowIndex == 2;
-                int fill = Color.parseColor(action ? skin.actionBackground() : skin.keyBackground());
+                int fill = action ? actionFill : keyFill;
                 KeyboardSkinKeyDrawable drawable = new KeyboardSkinKeyDrawable(
                     skin, fill, action, density);
                 drawable.setBounds(Math.round(key.left), Math.round(key.top),
                     Math.round(key.right), Math.round(key.bottom));
                 drawable.draw(canvas);
-                text.setColor(Color.parseColor(action ? skin.actionForeground() : skin.keyForeground()));
+                text.setColor(action ? actionText : keyText);
                 Paint.FontMetrics metrics = text.getFontMetrics();
                 float baseline = key.centerY() - (metrics.ascent + metrics.descent) / 2;
                 canvas.drawText(row[index], key.centerX(), baseline, text);
