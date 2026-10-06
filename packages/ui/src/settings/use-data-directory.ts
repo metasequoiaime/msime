@@ -1,8 +1,6 @@
 import { useEffect, useState } from "react";
 import { errorCode } from "../core/error-code";
 import { useAsyncActionRunner } from "../core/use-async-action";
-import { useMountedRef } from "./use-mounted-ref";
-import { useAsyncGeneration } from "./use-async-generation";
 
 export interface DataDirectoryClient {
   status(): Promise<{ path: string; isDefault: boolean }>;
@@ -34,24 +32,20 @@ export function useDataDirectory({ client, enabled, confirm }: UseDataDirectoryO
     isDefault: boolean;
   }>();
   const [result, setResult] = useState("");
-  const mounted = useMountedRef();
-  const generation = useAsyncGeneration(client, enabled);
   const { busy, run } = useAsyncActionRunner(setResult, undefined, client, enabled);
 
   useEffect(() => {
-    const current = generation.current;
     setDataDirectory(undefined);
     setResult("");
     if (!enabled || !client) return;
-    void client
-      .status()
-      .then((value) => {
-        if (mounted.current && generation.current === current) setDataDirectory(value);
-      })
-      .catch(() => {
-        if (mounted.current && generation.current === current) setResult("无法读取当前数据目录。");
-      });
-  }, [client, enabled, mounted]);
+    void run(
+      async (isCurrent) => {
+        const value = await client.status();
+        if (isCurrent()) setDataDirectory(value);
+      },
+      { formatError: () => "无法读取当前数据目录。" },
+    );
+  }, [client, enabled, run]);
 
   async function choose() {
     if (!client || busy) return;
