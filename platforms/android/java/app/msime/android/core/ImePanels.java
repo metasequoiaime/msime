@@ -378,16 +378,23 @@ final class ImePanels {
             // 写到一半的自定义库不能把主题也藏起来。
         }
         // 社区里还没获取的皮肤：目录由 App 缓存（键盘不为浏览目录联网），选中时先存进皮肤库再换上。
-        java.util.Map<MSIMEInputService.SkinChoice, CommunitySkinCache.Entry> uninstalled = new java.util.HashMap<>();
+        final java.util.Map<MSIMEInputService.SkinChoice, CommunitySkinCache.Entry> uninstalled;
         if (!s.preferencesDirectory.isEmpty()) {
-            for (CommunitySkinCache.Entry entry : CommunitySkinCache.read(java.nio.file.Paths.get(s.preferencesDirectory))) {
+            java.util.List<CommunitySkinCache.Entry> cached =
+                CommunitySkinCache.read(java.nio.file.Paths.get(s.preferencesDirectory));
+            java.util.Map<MSIMEInputService.SkinChoice, CommunitySkinCache.Entry> loaded =
+                new java.util.HashMap<>(cached.size());
+            for (CommunitySkinCache.Entry entry : cached) {
                 if (libraryIds.contains(entry.id())) continue;
                 KeyboardSkin skin = KeyboardSkin.custom(entry.design(), hostDark);
                 if (!namedKeys.add(skin.key())) continue;
                 MSIMEInputService.SkinChoice choice = new MSIMEInputService.SkinChoice("custom", entry.name(), skin, entry.design());
-                uninstalled.put(choice, entry);
+                loaded.put(choice, entry);
                 choices.add(choice);
             }
+            uninstalled = loaded;
+        } else {
+            uninstalled = java.util.Map.of();
         }
         choices.removeIf(choice -> "custom".equals(choice.id()) && choice.design() == null
             && namedKeys.contains(choice.skin().key()));
