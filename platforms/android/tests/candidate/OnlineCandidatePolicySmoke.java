@@ -28,6 +28,7 @@ public final class OnlineCandidatePolicySmoke {
         check(!OnlineCandidatePolicy.validURL(new URL("https://example.invalid/translate#fragment")));
         check(!OnlineCandidatePolicy.validURL(new URL("https:///translate")));
         check(OnlineCandidatePolicy.validURL(new URL("https://example.invalid/translate")));
+        check(OnlineCandidatePolicy.CLOUD_TIMEOUT_MILLIS == 2_000);
 
         check(OnlineCandidatePolicy.aiCandidateLimit(3) == 3);
         check(OnlineCandidatePolicy.aiCandidateLimit(1) == 1);

@@ -18,6 +18,7 @@ import java.net.URL;
 public final class OnlineCandidatePolicy {
     /** How long a composition has to hold still before either provider is asked. */
     public static final long QUIET_INTERVAL_MILLIS = 350;
+    public static final int CLOUD_TIMEOUT_MILLIS = 2_000;
     public static final int MAX_CLOUD_RESPONSE_BYTES = 256 * 1024;
     public static final int MAX_AI_RESPONSE_BYTES = 1024 * 1024;
     public static final int MAX_AI_CONTENT_BYTES = 64 * 1024;
