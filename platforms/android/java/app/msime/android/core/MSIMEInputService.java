@@ -2155,7 +2155,7 @@ public final class MSIMEInputService extends InputMethodService {
         JSONArray entries = view.optJSONArray("candidates");
         long generation = CandidateGlossPolicy.strictOr(view.opt("generation"), -1);
         if (entries == null || entries.length() == 0 || generation < 0) return;
-        java.util.ArrayList<String> words = new java.util.ArrayList<>();
+        java.util.ArrayList<String> words = new java.util.ArrayList<>(Math.min(entries.length(), 32));
         for (int index = 0; index < Math.min(entries.length(), 32); index++) {
             JSONObject candidate = entries.optJSONObject(index);
             if (candidate != null) words.add(candidate.optString("text", ""));
