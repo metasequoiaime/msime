@@ -563,7 +563,7 @@ public final class DeveloperPage extends DetailPage {
     }
 
     private static String categories(DiagnosticsApi.Include include) {
-        List<String> names = new ArrayList<>();
+        List<String> names = new ArrayList<>(4);
         if (include.crashLogs()) names.add("崩溃日志");
         if (include.performanceLogs()) names.add("性能日志");
         if (include.inputEvents()) names.add("输入事件");

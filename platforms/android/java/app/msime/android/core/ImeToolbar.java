@@ -22,6 +22,16 @@ final class ImeToolbar {
     static final int EXTRA_GLOSS_ROW_DP = 14;
 
     private final MSIMEInputService s;
+    private Button[] shortcutButtons;
+    private String styleCacheKey;
+    private int iconColor;
+    private int activeIconColor;
+    private int activeBackgroundColor;
+    private int foregroundColor;
+    private int hairlineColor;
+    private int hintColor;
+    private int returnBackgroundColor;
+    private int returnForegroundColor;
 
     ImeToolbar(MSIMEInputService s) {
         this.s = s;
@@ -33,6 +43,8 @@ final class ImeToolbar {
         s.dismissShortcutButton = dismissButton;
         Button[] buttons = {s.moreButton, s.emojiShortcutButton, s.phraseShortcutButton,
             s.clipboardShortcutButton, s.skinButton, s.schemeButton, dismissButton};
+        shortcutButtons = new Button[] {s.emojiShortcutButton, s.phraseShortcutButton,
+            s.clipboardShortcutButton, s.skinButton, s.schemeButton};
         for (Button button : buttons) {
             if (button.getParent() instanceof LinearLayout parent) parent.removeView(button);
             LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
@@ -212,34 +224,41 @@ final class ImeToolbar {
     /** 每次 render 末尾：工具栏图标色、激活底、品牌键配色、展开键与高度条的颜色。 */
     void styleTopRow() {
         KeyboardSkin skin = s.skin;
-        int icon = Color.parseColor(skin.toolbarIcon());
-        int active = Color.parseColor(skin.toolbarActiveIcon());
-        int soft = Color.parseColor(skin.toolbarActiveBackground());
-        int fg = Color.parseColor(skin.keyForeground());
-        for (Button button : new Button[] {s.emojiShortcutButton, s.phraseShortcutButton,
-                s.clipboardShortcutButton, s.skinButton, s.schemeButton}) {
+        String cacheKey = skin.key() + ":" + s.imeStyler.appThemeSeed();
+        if (!cacheKey.equals(styleCacheKey)) {
+            styleCacheKey = cacheKey;
+            iconColor = Color.parseColor(skin.toolbarIcon());
+            activeIconColor = Color.parseColor(skin.toolbarActiveIcon());
+            activeBackgroundColor = Color.parseColor(skin.toolbarActiveBackground());
+            foregroundColor = Color.parseColor(skin.keyForeground());
+            hairlineColor = Color.parseColor(skin.hairline());
+            hintColor = Color.parseColor(skin.hint());
+            returnBackgroundColor = Color.parseColor(skin.returnBackground());
+            returnForegroundColor = Color.parseColor(skin.returnForeground());
+        }
+        for (Button button : shortcutButtons == null ? new Button[0] : shortcutButtons) {
             if (button instanceof KeyboardShortcutButton shortcut) {
-                shortcut.setActiveFill(soft);
-                shortcut.setIconColors(icon, active);
+                shortcut.setActiveFill(activeBackgroundColor);
+                shortcut.setIconColors(iconColor, activeIconColor);
             }
         }
         if (s.dismissShortcutButton instanceof KeyboardShortcutButton dismiss)
-            dismiss.setIconColors(fg, fg);
+            dismiss.setIconColors(foregroundColor, foregroundColor);
         if (s.moreButton instanceof KeyboardBrandButton brand) {
             // 设计的 logoCirc / logoBg 是应用主题的季节色（与开屏、设置页的 logo 同一套），不是从键盘皮肤的强调色混出来的。
             AppThemePalette palette = AppThemePalette.of(s.imeStyler.appThemeSeed(), skin.dark());
             brand.setLogoColors(palette.logoDisc, palette.logoBackground);
-            brand.setPanelOpen(s.anyToolbarPanelOpen(), soft);
+            brand.setPanelOpen(s.anyToolbarPanelOpen(), activeBackgroundColor);
         }
         if (s.expandCandidates instanceof CandidateChevronButton chevron) {
-            chevron.setColors(fg, Color.parseColor(skin.hairline()));
+            chevron.setColors(foregroundColor, hairlineColor);
             chevron.setExpanded(s.candidatePanelOpen, true);
         }
         if (s.inlineHeightBar != null)
-            s.inlineHeightBar.setColors(fg, Color.parseColor(skin.hint()),
-                Color.parseColor(skin.returnBackground()), Color.parseColor(skin.returnForeground()));
+            s.inlineHeightBar.setColors(foregroundColor, hintColor,
+                returnBackgroundColor, returnForegroundColor);
         if (s.preedit != null) {
-            s.preedit.setTextColor(Color.parseColor(skin.hint()));
+            s.preedit.setTextColor(hintColor);
             s.preedit.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
             s.preedit.setBackground(null);
             s.preedit.setPadding(0, 0, 0, 0);

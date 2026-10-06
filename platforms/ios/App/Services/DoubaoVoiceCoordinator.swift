@@ -11,6 +11,8 @@ protocol DoubaoVoiceTransport: AnyObject {
 /// Coordinates a host transport with generation-checked voice text application.
 final class DoubaoVoiceCoordinator {
   static let pcmChunkBytes = 6400
+  static let maximumResponseFrameBytes = 1_048_576
+  enum Failure: Error { case responseTooLarge }
   typealias ApplyText = (_ text: String, _ generation: UInt64) -> Void
   typealias DecodeFrame = (_ frame: Data) -> (isFinal: Bool, text: String?)?
   typealias AudioFrameBuilder = (_ sequence: Int32, _ pcm: Data, _ final: Bool) -> Data
@@ -128,7 +130,9 @@ final class DoubaoVoiceCoordinator {
 
   private func receiveUntilFinal(generation: UInt64, decode: @escaping DecodeFrame) async throws {
     while true {
-      guard let response = decode(try await transport.receive()) else { continue }
+      let frame = try await transport.receive()
+      guard frame.count <= Self.maximumResponseFrameBytes else { throw Failure.responseTooLarge }
+      guard let response = decode(frame) else { continue }
       if let text = response.text, !text.isEmpty { applyText(text, generation) }
       if response.isFinal { return }
     }

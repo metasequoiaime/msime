@@ -88,7 +88,7 @@ public final class FunctionPanelModel {
 
     /** 全部开关条目。 */
     public static List<Item> toggles() {
-        List<Item> result = new ArrayList<>();
+        List<Item> result = new ArrayList<>(ITEMS.size());
         for (Item item : ITEMS) if (item.toggle()) result.add(item);
         return List.copyOf(result);
     }

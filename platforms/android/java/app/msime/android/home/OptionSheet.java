@@ -44,7 +44,7 @@ public final class OptionSheet {
         LinearLayout header = new LinearLayout(context);
         header.setOrientation(LinearLayout.VERTICAL);
         header.setGravity(Gravity.CENTER_HORIZONTAL);
-        header.setPadding(dp(16), 0, dp(16), dp(12));
+        header.setPadding(Ui.dp(context, 16), 0, Ui.dp(context, 16), Ui.dp(context, 12));
         TextView heading = new TextView(context);
         heading.setText(title);
         heading.setGravity(Gravity.CENTER);
@@ -58,7 +58,7 @@ public final class OptionSheet {
             Ui.style(note, Ui.TEXT_SHEET_HEADER, 400, Ui.subText(context));
             LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            params.topMargin = dp(2);
+            params.topMargin = Ui.dp(context, 2);
             header.addView(note, params);
         }
         root.addView(header);
@@ -75,7 +75,7 @@ public final class OptionSheet {
         // 「取消」与选项之间一条页面底色的带子，代替设计里分开的两块卡片。
         View band = new View(context);
         band.setBackgroundColor(Ui.page(context));
-        root.addView(band, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(8)));
+        root.addView(band, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(context, 8)));
         root.addView(optionView("取消", false, false, false, Ui.accent(context), true, dialog::cancel));
         dialog.setContentView(root);
     }
@@ -115,7 +115,7 @@ public final class OptionSheet {
             View rule = new View(context);
             rule.setBackgroundColor(Ui.hairline(context));
             options.addView(rule, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
-                Math.max(1, dp(0.5f))));
+                Math.max(1, Ui.dp(context, 0.5f))));
         }
         options.addView(view);
         count++;
@@ -124,7 +124,7 @@ public final class OptionSheet {
     private View optionView(CharSequence label, boolean selected, boolean checkable, boolean nested,
             int color, boolean bold, Runnable action) {
         FrameLayout row = new FrameLayout(context);
-        row.setMinimumHeight(dp(Ui.SHEET_OPTION_HEIGHT));
+        row.setMinimumHeight(Ui.dp(context, Ui.SHEET_OPTION_HEIGHT));
         row.setBackground(Ui.ripple(context));
         row.setClickable(true);
         row.setFocusable(true);
@@ -137,10 +137,10 @@ public final class OptionSheet {
         FrameLayout.LayoutParams textParams = new FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER);
         // 两侧各留出 ✓ 的位置，长选项不会压到它。
-        textParams.leftMargin = dp(48);
-        textParams.rightMargin = dp(48);
-        textParams.topMargin = dp(8);
-        textParams.bottomMargin = dp(8);
+        textParams.leftMargin = Ui.dp(context, 48);
+        textParams.rightMargin = Ui.dp(context, 48);
+        textParams.topMargin = Ui.dp(context, 8);
+        textParams.bottomMargin = Ui.dp(context, 8);
         row.addView(text, textParams);
 
         if (selected) {
@@ -148,9 +148,9 @@ public final class OptionSheet {
             check.setImageResource(R.drawable.ms_w1_a2_check);
             check.setImageTintList(ColorStateList.valueOf(Ui.accent(context)));
             check.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-            FrameLayout.LayoutParams checkParams = new FrameLayout.LayoutParams(dp(18), dp(18),
+            FrameLayout.LayoutParams checkParams = new FrameLayout.LayoutParams(Ui.dp(context, 18), Ui.dp(context, 18),
                 Gravity.CENTER_VERTICAL | Gravity.END);
-            checkParams.setMarginEnd(dp(20));
+            checkParams.setMarginEnd(Ui.dp(context, 20));
             row.addView(check, checkParams);
         }
 
@@ -166,7 +166,4 @@ public final class OptionSheet {
         return row;
     }
 
-    private int dp(float value) {
-        return Ui.dp(context, value);
-    }
 }

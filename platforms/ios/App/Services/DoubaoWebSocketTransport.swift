@@ -55,6 +55,7 @@ final class DoubaoWebSocketTransport: NSObject, URLSessionWebSocketDelegate, Dou
     var request = URLRequest(url: endpoint)
     request.allHTTPHeaderFields = headers
     let task = session.webSocketTask(with: request)
+    task.maximumMessageSize = DoubaoVoiceCoordinator.maximumResponseFrameBytes
     self.session = session
     self.task = task
     task.resume()

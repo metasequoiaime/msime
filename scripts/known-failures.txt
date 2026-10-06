@@ -149,28 +149,6 @@ native windows-session
 # shortcut-translations came off with it: it was recorded as load-dependent, "observed failing once in a
 # full parallel run alongside the aborting shortcut test", and the aborting shortcut test is gone.
 
-# rerank-latency sentences breaches the frame budget the benchmark checks: p95
-# with the model is 20.64ms against 16.00ms, 129 of 1320 keystrokes (9.8%) cost
-# more than one frame, and the slowest is 40.76ms. Measured on the locked
-# resource set, 60 sentence cases, paired arms. A second run on the same
-# machine gave p95 19.29ms and 8.9%, so read these as the scale of the
-# overshoot rather than an exact figure - which is also why the gate records
-# a name here instead of a committed millisecond threshold.
-#
-# This is pre-existing debt, not a regression. The benchmark landed in 418b4fb78
-# and nothing ever invoked it, so a budget that fails has been failing unseen
-# ever since; wiring it into this script without recording the current state
-# would turn the whole run red on a cost this change did not create.
-#
-# The overshoot is not spread evenly. Reranking cost grows with the length of
-# the sentence being scored, so it concentrates in the longest inputs - s-053
-# 40.8ms, s-052 34.7ms, s-051 31.5ms - which are also where the model's own
-# accuracy is weakest. The median keystroke pays 0.36ms, because most keystrokes
-# never reach the model at all.
-#
-# Delete this line when p95 comes back under budget.
-rerank-latency sentences
-
 # Desktop frontend, recorded the first time the phase actually ran. This is the union of several runs, as the header asks: the settings and external-skins entries did not reproduce on two consecutive full runs afterwards, so they are timing-dependent rather than always-failing.
 #
 # 2026-09-23: keyboard-repeat and the four windows-doubao-probe cases, recorded as failing every time, are gone. They passed on three consecutive full runs of the suite on c3bcde034 and again with their two files run alone. The timing-dependent entries below also passed all three runs, which is what a 1-in-3 failure does often enough that it proves nothing, so they stay.

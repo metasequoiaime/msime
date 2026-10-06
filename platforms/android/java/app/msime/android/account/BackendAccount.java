@@ -672,7 +672,8 @@ public final class BackendAccount {
             try (InputStream input = connection.getInputStream()) {
                 if (type == null || !type.toLowerCase(Locale.ROOT).startsWith("text/event-stream")) {
                     // 没按流式回答（例如中间层吞掉了 stream）：按普通 JSON 回复读，整段一次交出去。
-                    String reply = chatContent(new JSONObject(new String(readBounded(input), StandardCharsets.UTF_8)));
+                    byte[] response = HttpBodyPolicy.readRequired(input, MAX_RESPONSE_BYTES);
+                    String reply = chatContent(new JSONObject(new String(response, StandardCharsets.UTF_8)));
                     if (call.cancelled()) throw new CancellationException("chat cancelled");
                     listener.onDelta(reply);
                     return reply;
@@ -876,7 +877,7 @@ public final class BackendAccount {
             // 状态码带进消息里：503 是这个登录方式没配，401 是凭据不对，两件事不该长同一个样子。
             if (status / 100 != 2) throw new RequestException(status);
             try (InputStream input = connection.getInputStream()) {
-                byte[] response = readBounded(input);
+                byte[] response = HttpBodyPolicy.readRequired(input, MAX_RESPONSE_BYTES);
                 if (response.length == 0) return new JSONObject();
                 return new JSONObject(new String(response, StandardCharsets.UTF_8));
             }
@@ -885,9 +886,4 @@ public final class BackendAccount {
         }
     }
 
-    private static byte[] readBounded(InputStream input) throws Exception {
-        byte[] response = HttpBodyPolicy.readBounded(input, MAX_RESPONSE_BYTES);
-        if (response == null) throw new IllegalStateException("response too large");
-        return response;
-    }
 }

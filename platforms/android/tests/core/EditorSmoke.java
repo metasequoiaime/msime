@@ -59,7 +59,10 @@ public final class EditorSmoke {
         check(!bridge.apply(sink, "🌲", "next"));
         check(sink.calls.equals(List.of("begin", "commit:🌲", "end")));
         check(EditorPolicy.useEngine(1));
-        for (int type : new int[] {0, 2, 3, 0x81, 0x91, 0xe1, 0x80001}) check(!EditorPolicy.useEngine(type));
+        // No-suggestion text, and Chrome's address bar (URI + no suggestions), still compose.
+        check(EditorPolicy.useEngine(0x80001));
+        check(EditorPolicy.useEngine(0x80011));
+        for (int type : new int[] {0, 2, 3, 0x81, 0x91, 0xe1}) check(!EditorPolicy.useEngine(type));
         check(EditorPolicy.allowLearning(0));
         check(!EditorPolicy.allowLearning(0x1000000));
         // Key heatmap exclusion: text and numeric passwords, and fields that ask for no learning.

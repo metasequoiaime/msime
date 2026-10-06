@@ -189,7 +189,7 @@ public final class AboutPage extends DetailPage {
         name.setGravity(Gravity.CENTER);
         Ui.style(name, 22, 700, Ui.text(context));
         name.setAccessibilityHeading(true);
-        LinearLayout.LayoutParams nameParams = wrap();
+        LinearLayout.LayoutParams nameParams = Ui.wrap();
         nameParams.topMargin = Ui.dp(context, 18);
         header.addView(name, nameParams);
 
@@ -197,7 +197,7 @@ public final class AboutPage extends DetailPage {
         version.setText("版本 " + UpdateJobService.currentVersion(context) + " · Android");
         version.setGravity(Gravity.CENTER);
         Ui.style(version, 13, 400, Ui.subText(context));
-        LinearLayout.LayoutParams versionParams = wrap();
+        LinearLayout.LayoutParams versionParams = Ui.wrap();
         versionParams.topMargin = Ui.dp(context, 6);
         header.addView(version, versionParams);
 
@@ -214,16 +214,12 @@ public final class AboutPage extends DetailPage {
             button.setFocusable(true);
             button.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
             button.setOnClickListener(ignored -> onPill());
-            LinearLayout.LayoutParams pillParams = wrap();
+            LinearLayout.LayoutParams pillParams = Ui.wrap();
             pillParams.topMargin = Ui.dp(context, 14);
             header.addView(button, pillParams);
             pill = button;
         }
         return header;
-    }
-
-    private static LinearLayout.LayoutParams wrap() {
-        return new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
     }
 
     private void renderPill() {
@@ -373,13 +369,14 @@ public final class AboutPage extends DetailPage {
 
     /** APK 里随包带的许可通知文件（相对 assets 的路径），按名字排序。 */
     private static List<String> listNotices(AssetManager assets) throws IOException {
-        List<String> found = new ArrayList<>();
         String[] abis = assets.list("native-notices");
+        List<String> found = new ArrayList<>();
         if (abis != null && abis.length > 0) {
             // 每个 ABI 一份同样的清单，列一份就够。
             java.util.Arrays.sort(abis);
             String[] files = assets.list("native-notices/" + abis[0]);
             if (files != null) {
+                found = new ArrayList<>(files.length);
                 for (String file : files) found.add("native-notices/" + abis[0] + "/" + file);
             }
         }

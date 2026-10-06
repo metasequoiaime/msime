@@ -208,7 +208,7 @@ public final class LexiconPage extends DetailPage {
         TextView state = new TextView(context);
         state.setText(value);
         Ui.style(state, Ui.TEXT_ROW_SUBTITLE, 500, active ? Ui.accent(context) : Ui.subText(context));
-        LinearLayout.LayoutParams stateParams = wrap();
+        LinearLayout.LayoutParams stateParams = Ui.wrap();
         stateParams.setMarginStart(Ui.dp(context, Ui.ROW_GAP));
         row.addView(state, stateParams);
         ImageView chevron = new ImageView(context);
@@ -278,7 +278,7 @@ public final class LexiconPage extends DetailPage {
         button.setFocusable(enabled);
         if (enabled) button.setOnClickListener(ignored -> install(item));
         button.setAccessibilityDelegate(buttonDelegate(button.getText() + "，" + item.name()));
-        LinearLayout.LayoutParams params = wrap();
+        LinearLayout.LayoutParams params = Ui.wrap();
         params.setMarginStart(Ui.dp(context, Ui.ROW_GAP));
         row.addView(button, params);
         return row;
@@ -334,10 +334,6 @@ public final class LexiconPage extends DetailPage {
                 info.setContentDescription(description);
             }
         };
-    }
-
-    private static LinearLayout.LayoutParams wrap() {
-        return new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
     }
 
     private static String initial(String name) {

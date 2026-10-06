@@ -140,10 +140,38 @@ struct BackendDesktopSessionFile: BackendSessionStorage {
     guard status.st_mode & S_IFMT == S_IFREG, status.st_mode & 0o077 == 0, status.st_uid == geteuid(),
           status.st_size <= Self.maximumBytes else { throw BackendAccountClient.Failure(status: 0) }
     let data: Data
-    do { data = try Data(contentsOf: url) } catch { throw BackendAccountClient.Failure(status: 0) }
-    guard data.count <= Self.maximumBytes else { throw BackendAccountClient.Failure(status: 0) }
+    do { data = try Self.readBounded(url, maximumBytes: Self.maximumBytes) }
+    catch { throw BackendAccountClient.Failure(status: 0) }
     do { return try BackendSavedSession.validated(JSONDecoder().decode(BackendSavedSession.self, from: data)) }
     catch { throw BackendAccountClient.Failure(status: 0) }
+  }
+
+  /// 上面的元数据检查只能快速拒绝超限文件。分块读取确保检查后被替换的文件不会让会话加载器无限分配内存。
+  static func readBounded(_ url: URL, maximumBytes: Int) throws -> Data {
+    guard maximumBytes >= 0 else { throw BackendAccountClient.Failure(status: 0) }
+    // `load()` checks the path with `lstat`, but another process could replace it before a
+    // path-based FileHandle opens it. Keep the final component pinned and reject symlinks at
+    // the open itself.
+    let descriptor = open(url.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+    guard descriptor >= 0 else { throw BackendAccountClient.Failure(status: 0) }
+    defer { close(descriptor) }
+    var data = Data()
+    data.reserveCapacity(min(maximumBytes, 64 * 1024))
+    var buffer = [UInt8](repeating: 0, count: maximumBytes < 64 * 1024 ? maximumBytes + 1 : 64 * 1024)
+    while true {
+      let count = buffer.withUnsafeMutableBytes { bytes in
+        read(descriptor, bytes.baseAddress, bytes.count)
+      }
+      if count == 0 { return data }
+      if count < 0 {
+        if errno == EINTR { continue }
+        throw BackendAccountClient.Failure(status: 0)
+      }
+      guard count <= maximumBytes - data.count else {
+        throw BackendAccountClient.Failure(status: 0)
+      }
+      data.append(contentsOf: buffer[..<count])
+    }
   }
 
   func save(_ session: BackendSavedSession) throws {

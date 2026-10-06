@@ -229,7 +229,7 @@ public final class LexiconDetailPage extends DetailPage {
             return;
         }
         if (!DictionaryCollectionsStore.validPinyin(code)) {
-            List<DictionaryCollectionsStore.Word> filtered = new ArrayList<>();
+            List<DictionaryCollectionsStore.Word> filtered = new ArrayList<>(current.words().size());
             for (DictionaryCollectionsStore.Word word : current.words()) {
                 if (word.value().contains(text)) filtered.add(word);
             }

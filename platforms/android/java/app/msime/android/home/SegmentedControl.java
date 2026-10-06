@@ -21,7 +21,7 @@ import java.util.function.IntConsumer;
  * <p>自己画而不用 `MaterialButtonToggleGroup`：后者把各段画成相连的描边按钮，和设计「容器描边、选中段是里面一枚胶囊」的样子不同；Material 1.13 的 `MaterialButtonGroup` 又超出了 Tauri 合包的 Material 1.12（计划 G13）。原型漏出的绿色选中底（`#CFE9D6` / `#2A4F37`）在这里一律是 accentSoft。读屏把每一段读成单选按钮并报告选中状态。
  */
 public final class SegmentedControl extends LinearLayout {
-    private final List<TextView> segments = new ArrayList<>();
+    private final ArrayList<TextView> segments = new ArrayList<>();
     private int selected = -1;
     private boolean fill;
     @Nullable private IntConsumer listener;
@@ -45,6 +45,7 @@ public final class SegmentedControl extends LinearLayout {
     public void setOptions(List<? extends CharSequence> labels, int selected) {
         removeAllViews();
         segments.clear();
+        segments.ensureCapacity(labels.size());
         Context context = getContext();
         for (int i = 0; i < labels.size(); i++) {
             int index = i;

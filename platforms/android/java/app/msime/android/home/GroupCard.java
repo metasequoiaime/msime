@@ -38,25 +38,25 @@ public final class GroupCard {
         group.setOrientation(LinearLayout.VERTICAL);
         LinearLayout.LayoutParams groupParams = new LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        if (parent.getChildCount() > 0) groupParams.topMargin = dp(Ui.GROUP_GAP);
+        if (parent.getChildCount() > 0) groupParams.topMargin = Ui.dp(context, Ui.GROUP_GAP);
 
         if (title != null && title.length() > 0) {
             TextView heading = new TextView(context);
             heading.setText(title);
             Ui.style(heading, Ui.TEXT_GROUP_TITLE, 500, Ui.accent(context));
             heading.setAccessibilityHeading(true);
-            heading.setPadding(dp(Ui.GROUP_TITLE_INSET), 0, dp(Ui.GROUP_TITLE_INSET), dp(2));
-            LinearLayout.LayoutParams params = matchWidth();
-            params.bottomMargin = dp(2);
+            heading.setPadding(Ui.dp(context, Ui.GROUP_TITLE_INSET), 0, Ui.dp(context, Ui.GROUP_TITLE_INSET), Ui.dp(context, 2));
+            LinearLayout.LayoutParams params = Ui.matchWidth();
+            params.bottomMargin = Ui.dp(context, 2);
             group.addView(heading, params);
         }
 
         card = new LinearLayout(context);
         card.setOrientation(LinearLayout.VERTICAL);
-        card.setBackground(Ui.rounded(Ui.card(context), dp(Ui.GROUP_RADIUS)));
+        card.setBackground(Ui.rounded(Ui.card(context), Ui.dp(context, Ui.GROUP_RADIUS)));
         // 行的按压波纹裁在卡片圆角里，首尾两行不会露出直角。
         card.setClipToOutline(true);
-        group.addView(card, matchWidth());
+        group.addView(card, Ui.matchWidth());
         parent.addView(group, groupParams);
     }
 
@@ -86,8 +86,8 @@ public final class GroupCard {
         chevron.setImageResource(R.drawable.ms_w1_a2_chevron);
         chevron.setImageTintList(ColorStateList.valueOf(Ui.subText(context)));
         chevron.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(Ui.CHEVRON_SIZE), dp(Ui.CHEVRON_SIZE));
-        params.setMarginStart(dp(6));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(Ui.dp(context, Ui.CHEVRON_SIZE), Ui.dp(context, Ui.CHEVRON_SIZE));
+        params.setMarginStart(Ui.dp(context, 6));
         row.view.addView(chevron, params);
         row.setAction(action);
         return add(row);
@@ -111,7 +111,7 @@ public final class GroupCard {
         control.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        params.setMarginStart(dp(Ui.ROW_GAP));
+        params.setMarginStart(Ui.dp(context, Ui.ROW_GAP));
         row.view.addView(control, params);
         row.toggle = control;
         row.view.setOnClickListener(ignored -> {
@@ -146,8 +146,8 @@ public final class GroupCard {
         control.setValue(value);
         control.setContentDescription(title);
         LinearLayout.LayoutParams sliderParams = new LinearLayout.LayoutParams(
-            dp(Ui.SLIDER_WIDTH), dp(Ui.SLIDER_TOUCH_HEIGHT));
-        sliderParams.setMarginStart(dp(Ui.ROW_GAP));
+            Ui.dp(context, Ui.SLIDER_WIDTH), Ui.dp(context, Ui.SLIDER_TOUCH_HEIGHT));
+        sliderParams.setMarginStart(Ui.dp(context, Ui.ROW_GAP));
         row.view.addView(control, sliderParams);
 
         TextView text = new TextView(context);
@@ -156,7 +156,7 @@ public final class GroupCard {
         Ui.style(text, 13, 400, Ui.subText(context));
         text.setText(label.apply(control.value()));
         text.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        row.view.addView(text, new LinearLayout.LayoutParams(dp(Ui.SLIDER_LABEL_WIDTH),
+        row.view.addView(text, new LinearLayout.LayoutParams(Ui.dp(context, Ui.SLIDER_LABEL_WIDTH),
             ViewGroup.LayoutParams.WRAP_CONTENT));
         control.setOnValueChange(current -> {
             CharSequence shown = label.apply(current);
@@ -179,8 +179,8 @@ public final class GroupCard {
         button.setSingleLine(true);
         Ui.style(button, Ui.TEXT_BUTTON_SMALL, 500, Ui.accent(context));
         button.setBackground(Ui.rippleOn(context, Ui.accentSoft(context), 9999f));
-        button.setPadding(dp(14), dp(5), dp(14), dp(5));
-        button.setMinHeight(dp(32));
+        button.setPadding(Ui.dp(context, 14), Ui.dp(context, 5), Ui.dp(context, 14), Ui.dp(context, 5));
+        button.setMinHeight(Ui.dp(context, 32));
         button.setClickable(true);
         button.setFocusable(true);
         button.setOnClickListener(ignored -> action.run());
@@ -194,7 +194,7 @@ public final class GroupCard {
         });
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        params.setMarginStart(dp(Ui.ROW_GAP));
+        params.setMarginStart(Ui.dp(context, Ui.ROW_GAP));
         row.view.addView(button, params);
         row.button = button;
         return add(row);
@@ -205,9 +205,9 @@ public final class GroupCard {
         TextView note = new TextView(context);
         note.setText(text);
         Ui.style(note, Ui.TEXT_ROW_SUBTITLE, 400, Ui.subText(context));
-        note.setPadding(dp(Ui.ROW_PADDING_H), dp(12), dp(Ui.ROW_PADDING_H), dp(12));
+        note.setPadding(Ui.dp(context, Ui.ROW_PADDING_H), Ui.dp(context, 12), Ui.dp(context, Ui.ROW_PADDING_H), Ui.dp(context, 12));
         addDivider();
-        card.addView(note, matchWidth());
+        card.addView(note, Ui.matchWidth());
         return note;
     }
 
@@ -216,21 +216,21 @@ public final class GroupCard {
         TextView note = new TextView(context);
         note.setText(text);
         Ui.style(note, 13, 400, Ui.subText(context));
-        note.setPadding(dp(Ui.GROUP_TITLE_INSET), dp(8), dp(Ui.GROUP_TITLE_INSET), 0);
-        group.addView(note, matchWidth());
+        note.setPadding(Ui.dp(context, Ui.GROUP_TITLE_INSET), Ui.dp(context, 8), Ui.dp(context, Ui.GROUP_TITLE_INSET), 0);
+        group.addView(note, Ui.matchWidth());
         return note;
     }
 
     /** 放一个自定义的行（例如语言卡的行、词条行），按需要在它前面画分隔线。 */
     public <T extends View> T addView(T row) {
         addDivider();
-        card.addView(row, matchWidth());
+        card.addView(row, Ui.matchWidth());
         return row;
     }
 
     private Row add(Row row) {
         addDivider();
-        card.addView(row.view, matchWidth());
+        card.addView(row.view, Ui.matchWidth());
         return row;
     }
 
@@ -239,8 +239,8 @@ public final class GroupCard {
         View rule = new View(context);
         rule.setBackgroundColor(Ui.hairline(context));
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, Math.max(1, dp(0.5f)));
-        params.setMarginStart(dp(dividerInset));
+            ViewGroup.LayoutParams.MATCH_PARENT, Math.max(1, Ui.dp(context, 0.5f)));
+        params.setMarginStart(Ui.dp(context, dividerInset));
         card.addView(rule, params);
     }
 
@@ -250,7 +250,7 @@ public final class GroupCard {
         Ui.style(text, Ui.TEXT_ROW_TITLE, 400, Ui.subText(context));
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        params.setMarginStart(dp(Ui.ROW_GAP));
+        params.setMarginStart(Ui.dp(context, Ui.ROW_GAP));
         row.view.addView(text, params);
         setText(text, value);
         return text;
@@ -259,15 +259,6 @@ public final class GroupCard {
     private static void setText(TextView view, @Nullable CharSequence text) {
         view.setText(text);
         view.setVisibility(text == null || text.length() == 0 ? View.GONE : View.VISIBLE);
-    }
-
-    private static LinearLayout.LayoutParams matchWidth() {
-        return new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT);
-    }
-
-    private int dp(float value) {
-        return Ui.dp(context, value);
     }
 
     /** 一行设置；保留各部件的引用，页面在数据变化后原地改写它们。 */
@@ -288,9 +279,9 @@ public final class GroupCard {
             } : new LinearLayout(context);
             view.setOrientation(LinearLayout.HORIZONTAL);
             view.setGravity(Gravity.CENTER_VERTICAL);
-            view.setMinimumHeight(owner.dp(Ui.ROW_MIN_HEIGHT));
-            view.setPadding(owner.dp(Ui.ROW_PADDING_H), owner.dp(Ui.ROW_PADDING_V),
-                owner.dp(Ui.ROW_PADDING_H), owner.dp(Ui.ROW_PADDING_V));
+            view.setMinimumHeight(Ui.dp(owner.context, Ui.ROW_MIN_HEIGHT));
+            view.setPadding(Ui.dp(owner.context, Ui.ROW_PADDING_H), Ui.dp(owner.context, Ui.ROW_PADDING_V),
+                Ui.dp(owner.context, Ui.ROW_PADDING_H), Ui.dp(owner.context, Ui.ROW_PADDING_V));
 
             LinearLayout texts = new LinearLayout(context);
             texts.setOrientation(LinearLayout.VERTICAL);
@@ -302,7 +293,7 @@ public final class GroupCard {
             Ui.style(subtitle, Ui.TEXT_ROW_SUBTITLE, 400, Ui.subText(context));
             LinearLayout.LayoutParams subtitleParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            subtitleParams.topMargin = owner.dp(1);
+            subtitleParams.topMargin = Ui.dp(owner.context, 1);
             texts.addView(subtitle, subtitleParams);
             setText(subtitle, subtitleText);
             view.addView(texts, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));

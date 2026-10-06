@@ -40,7 +40,11 @@ public final class CommunityReplyLibrary {
         rejectSymlinkComponents(file);
         if (!Files.exists(file, LinkOption.NOFOLLOW_LINKS)) return List.of();
         if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) throw new IOException("Invalid community library");
-        byte[] bytes = readBounded(file);
+        byte[] bytes;
+        try (InputStream input = Files.newInputStream(file, LinkOption.NOFOLLOW_LINKS)) {
+            bytes = HttpBodyPolicy.readBounded(input, MAXIMUM_BYTES);
+            if (bytes == null) throw new IOException("Community library is too large");
+        }
         final String json;
         try {
             json = StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
@@ -81,15 +85,6 @@ public final class CommunityReplyLibrary {
         return List.copyOf(replies);
     }
 
-    /** Read only the library envelope, even if a replaced file grows after inspection. */
-    private static byte[] readBounded(Path file) throws IOException {
-        try (InputStream input = Files.newInputStream(file)) {
-            byte[] bytes = HttpBodyPolicy.readBounded(input, MAXIMUM_BYTES);
-            if (bytes == null) throw new IOException("Community library is too large");
-            return bytes;
-        }
-    }
-
     private static void rejectSymlinkComponents(Path path) throws IOException {
         SafePaths.rejectSymlinkComponents(path);
     }
@@ -127,7 +122,7 @@ public final class CommunityReplyLibrary {
 
         private List<Object> array(int depth) {
             index++;
-            List<Object> values = new ArrayList<>();
+            List<Object> values = new ArrayList<>(MAXIMUM_CONTAINER_ITEMS);
             whitespace();
             if (take(']')) return values;
             while (true) {
@@ -141,7 +136,7 @@ public final class CommunityReplyLibrary {
 
         private Map<String, Object> object(int depth) {
             index++;
-            Map<String, Object> values = new LinkedHashMap<>();
+            Map<String, Object> values = new LinkedHashMap<>(MAXIMUM_CONTAINER_ITEMS);
             whitespace();
             if (take('}')) return values;
             while (true) {

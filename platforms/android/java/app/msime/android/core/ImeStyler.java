@@ -11,6 +11,8 @@ import android.view.View;
 import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.TextView;
+import java.util.HashMap;
+import java.util.Map;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import org.json.JSONException;
@@ -19,9 +21,20 @@ import org.json.JSONObject;
 /** 键盘的着色与几何：按键样式、皮肤套用、键距行距与键盘高度；从 MSIMEInputService 原样搬出。 */
 final class ImeStyler {
     private final MSIMEInputService s;
+    private final Map<String, Integer> colorCache = new HashMap<>();
 
     ImeStyler(MSIMEInputService s) {
         this.s = s;
+    }
+
+    /** Skin colours repeat across every key in a render; keep the bounded palette parsed once. */
+    private int color(String value) {
+        Integer cached = colorCache.get(value);
+        if (cached != null) return cached;
+        if (colorCache.size() >= 64) colorCache.clear();
+        int parsed = Color.parseColor(value);
+        colorCache.put(value, parsed);
+        return parsed;
     }
 
     // 偏好里没有 `app_theme` 时的默认值，与 Rust 的 `AppTheme::default()` 一致。
@@ -210,11 +223,11 @@ final class ImeStyler {
         if (face == KeyboardKeyRole.PILL) {
             // The pill is a label on the strip rather than a key, so it keeps a plain rounded face even over a designed skin, inset so the 44dp target stays.
             GradientDrawable pill = new GradientDrawable();
-            pill.setColor(Color.parseColor(target.keyBackground()));
+            pill.setColor(color(target.keyBackground()));
             pill.setCornerRadius(s.pixels(14));
             button.setBackground(new InsetDrawable(pill,
                 s.pixels(2), s.pixels(8), s.pixels(2), s.pixels(8)));
-            button.setTextColor(Color.parseColor(target.keyForeground()));
+            button.setTextColor(color(target.keyForeground()));
             button.setTypeface(target.monospaced() ? Typeface.MONOSPACE : Typeface.DEFAULT);
             button.setElevation(0);
             return;
@@ -223,10 +236,10 @@ final class ImeStyler {
             button.setBackground(null);
             String label = face.usesAccentLabel() ? target.accent() : target.keyForeground();
             if (button instanceof KeyboardShortcutButton shortcut) {
-                shortcut.setActiveFill(Color.parseColor(target.accentSoft()));
+                shortcut.setActiveFill(color(target.accentSoft()));
                 if (selected) label = target.accentText();
             }
-            button.setTextColor(Color.parseColor(label));
+            button.setTextColor(color(label));
             button.setTypeface(target.monospaced() ? Typeface.MONOSPACE : Typeface.DEFAULT);
             button.setElevation(0);
             return;
@@ -248,27 +261,27 @@ final class ImeStyler {
         if (press == null || !press.keepsFace(target, role, selected, density)) {
             if (target.designed()) {
                 button.setBackground(new KeyboardSkinKeyDrawable(target,
-                    Color.parseColor(background), selected || action || confirm, density));
+                    color(background), selected || action || confirm, density));
             } else {
                 GradientDrawable drawable = new GradientDrawable();
-                drawable.setColor(Color.parseColor(background));
+                drawable.setColor(color(background));
                 drawable.setCornerRadius(s.pixels(tile ? MoreToolsLayout.TILE_RADIUS_DP : target.cornerRadius()));
                 int borderWidth = s.pixels(target.borderWidth());
                 if (borderWidth > 0)
-                    drawable.setStroke(borderWidth, Color.parseColor(target.borderColor()));
+                    drawable.setStroke(borderWidth, color(target.borderColor()));
                 button.setBackground(drawable);
             }
             if (press != null) press.rememberFace(target, role, selected, density);
         }
-        button.setTextColor(Color.parseColor(foreground));
+        button.setTextColor(color(foreground));
         if (button instanceof KeyHintButton hintButton) {
-            hintButton.setHintColor(Color.parseColor(target.accent()));
-            hintButton.setCornerHintColor(Color.parseColor(target.hint()));
+            hintButton.setHintColor(color(target.accent()));
+            hintButton.setCornerHintColor(color(target.hint()));
         }
         if (button instanceof SpaceKeyFace space)
-            space.setFaceColor(Color.parseColor(target.toolbarIcon()));
+            space.setFaceColor(color(target.toolbarIcon()));
         if (button instanceof NineKeyDigitButton digitButton)
-            digitButton.setDigitColor(Color.parseColor(target.accent()));
+            digitButton.setDigitColor(color(target.accent()));
         button.setTypeface(target.monospaced() ? Typeface.MONOSPACE : Typeface.DEFAULT);
         int shadowAlpha = (int) Math.round(255 * target.shadowOpacity());
         int shadowColor = Color.argb(shadowAlpha, 0, 0, 0);
@@ -293,19 +306,19 @@ final class ImeStyler {
         if (!key.keepsFace(target, remembered, false, density)) {
             if (target.designed()) {
                 key.setBackground(new KeyboardSkinKeyDrawable(target,
-                    Color.parseColor(background), !on, density));
+                    color(background), !on, density));
             } else {
                 GradientDrawable drawable = new GradientDrawable();
-                drawable.setColor(Color.parseColor(background));
+                drawable.setColor(color(background));
                 drawable.setCornerRadius(s.pixels(target.cornerRadius()));
                 int borderWidth = s.pixels(target.borderWidth());
                 if (borderWidth > 0)
-                    drawable.setStroke(borderWidth, Color.parseColor(target.borderColor()));
+                    drawable.setStroke(borderWidth, color(target.borderColor()));
                 key.setBackground(drawable);
             }
             key.rememberFace(target, remembered, false, density);
         }
-        key.setTextColor(Color.parseColor(foreground));
+        key.setTextColor(color(foreground));
         int shadowAlpha = (int) Math.round(255 * target.shadowOpacity());
         int shadowColor = Color.argb(shadowAlpha, 0, 0, 0);
         key.setOutlineAmbientShadowColor(shadowColor);
@@ -376,7 +389,7 @@ final class ImeStyler {
                 ((Button) node).setTextColor(Color.RED);
         } else if (node instanceof TextView) {
             TextView text = (TextView) node;
-            text.setTextColor(candidate ? s.candidateAppearance.text() : Color.parseColor(target.keyForeground()));
+            text.setTextColor(candidate ? s.candidateAppearance.text() : color(target.keyForeground()));
             text.setTypeface(candidate ? candidateTypeface()
                 : target.monospaced() ? Typeface.MONOSPACE : Typeface.DEFAULT);
         }
@@ -393,8 +406,8 @@ final class ImeStyler {
         s.skin = themed(s.skin);
         s.emojiSkin = themed(s.emojiSkin);
         s.handwritingSkin = themed(s.handwritingSkin);
-        s.keyboardRoot.setBackgroundColor(Color.parseColor(s.skin.background()));
-        s.imeFrame.applyNavigationBar(Color.parseColor(s.skin.background()), s.skin.dark());
+        s.keyboardRoot.setBackgroundColor(color(s.skin.background()));
+        s.imeFrame.applyNavigationBar(color(s.skin.background()), s.skin.dark());
         if (s.keyboardSurface != null) applySkinBackground(s.keyboardSurface);
         if (s.candidateViewport != null)
             s.candidateViewport.setBackgroundColor(s.candidateAppearance.surface());
@@ -435,7 +448,7 @@ final class ImeStyler {
         if (s.preedit != null) {
             // Idle, this is the brand badge the shared design draws as an outlined pill; composing, it is the reading itself, set in the strip's typeface and its secondary colour above the candidates.
             s.preedit.setTextColor(s.brandPillVisible
-                ? Color.parseColor(s.skin.accent()) : s.candidateAppearance.number());
+                ? color(s.skin.accent()) : s.candidateAppearance.number());
             s.preedit.setTypeface(candidateTypeface());
             s.preedit.setTextSize(TypedValue.COMPLEX_UNIT_SP,
                 s.brandPillVisible ? 12 : s.candidatePreeditFontSize);

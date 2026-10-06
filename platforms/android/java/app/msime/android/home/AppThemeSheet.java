@@ -65,7 +65,7 @@ final class AppThemeSheet {
         LinearLayout header = new LinearLayout(context);
         header.setOrientation(LinearLayout.VERTICAL);
         header.setGravity(Gravity.CENTER_HORIZONTAL);
-        header.setPadding(dp(context, 16), 0, dp(context, 16), dp(context, 12));
+        header.setPadding(Ui.dp(context, 16), 0, Ui.dp(context, 16), Ui.dp(context, 12));
         TextView heading = new TextView(context);
         heading.setText("应用主题");
         heading.setGravity(Gravity.CENTER);
@@ -76,8 +76,8 @@ final class AppThemeSheet {
         note.setText("四季会随季节自动更换配色");
         note.setGravity(Gravity.CENTER);
         Ui.style(note, Ui.TEXT_SHEET_HEADER, 400, Ui.subText(context));
-        LinearLayout.LayoutParams noteParams = wrap();
-        noteParams.topMargin = dp(context, 2);
+        LinearLayout.LayoutParams noteParams = Ui.wrap();
+        noteParams.topMargin = Ui.dp(context, 2);
         header.addView(note, noteParams);
 
         // 颜色模式：键盘和本应用的浅色 / 深色，与应用主题的季节无关。
@@ -91,8 +91,8 @@ final class AppThemeSheet {
             dialog.dismiss();
             save(host, "theme", MODES[index][0], refresh);
         });
-        LinearLayout.LayoutParams modeParams = wrap();
-        modeParams.topMargin = dp(context, 12);
+        LinearLayout.LayoutParams modeParams = Ui.wrap();
+        modeParams.topMargin = Ui.dp(context, 12);
         header.addView(modes, modeParams);
         root.addView(header);
 
@@ -108,7 +108,7 @@ final class AppThemeSheet {
 
         View band = new View(context);
         band.setBackgroundColor(Ui.page(context));
-        root.addView(band, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(context, 8)));
+        root.addView(band, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(context, 8)));
         root.addView(option(context, "取消", false, Ui.accent(context), dialog::cancel));
         dialog.setContentView(root);
         dialog.show();
@@ -178,7 +178,7 @@ final class AppThemeSheet {
 
     private static View option(Context context, CharSequence label, boolean selected, int color, Runnable action) {
         FrameLayout row = new FrameLayout(context);
-        row.setMinimumHeight(dp(context, Ui.SHEET_OPTION_HEIGHT));
+        row.setMinimumHeight(Ui.dp(context, Ui.SHEET_OPTION_HEIGHT));
         row.setBackground(Ui.ripple(context));
         row.setClickable(true);
         row.setFocusable(true);
@@ -189,19 +189,19 @@ final class AppThemeSheet {
         Ui.style(text, Ui.TEXT_SHEET_OPTION, selected ? 600 : 400, color);
         FrameLayout.LayoutParams textParams = new FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER);
-        textParams.leftMargin = dp(context, 48);
-        textParams.rightMargin = dp(context, 48);
-        textParams.topMargin = dp(context, 8);
-        textParams.bottomMargin = dp(context, 8);
+        textParams.leftMargin = Ui.dp(context, 48);
+        textParams.rightMargin = Ui.dp(context, 48);
+        textParams.topMargin = Ui.dp(context, 8);
+        textParams.bottomMargin = Ui.dp(context, 8);
         row.addView(text, textParams);
         if (selected) {
             ImageView check = new ImageView(context);
             check.setImageResource(R.drawable.ms_w1_a2_check);
             check.setImageTintList(ColorStateList.valueOf(Ui.accent(context)));
             check.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-            FrameLayout.LayoutParams checkParams = new FrameLayout.LayoutParams(dp(context, 18), dp(context, 18),
+            FrameLayout.LayoutParams checkParams = new FrameLayout.LayoutParams(Ui.dp(context, 18), Ui.dp(context, 18),
                 Gravity.CENTER_VERTICAL | Gravity.END);
-            checkParams.setMarginEnd(dp(context, 20));
+            checkParams.setMarginEnd(Ui.dp(context, 20));
             row.addView(check, checkParams);
         }
         ViewCompat.setAccessibilityDelegate(row, new AccessibilityDelegateCompat() {
@@ -218,15 +218,8 @@ final class AppThemeSheet {
         View rule = new View(context);
         rule.setBackgroundColor(Ui.hairline(context));
         rule.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
-            Math.max(1, dp(context, 0.5f))));
+            Math.max(1, Ui.dp(context, 0.5f))));
         return rule;
     }
 
-    private static LinearLayout.LayoutParams wrap() {
-        return new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-    }
-
-    private static int dp(Context context, float value) {
-        return Ui.dp(context, value);
-    }
 }

@@ -94,7 +94,7 @@ public final class CommonPhrasesStore {
         if (directory.isEmpty()) return result;
         File marker = new File(directory, STARTER_MARKER);
         if (marker.exists()) return result;
-        List<String> seeded = new ArrayList<>();
+        List<String> seeded = new ArrayList<>(STARTER_PHRASES.size());
         if (result.document().phrases().isEmpty() && result.document().packs().isEmpty()
                 && !SyncSignals.state(context).enabled()) {
             for (String text : STARTER_PHRASES) {

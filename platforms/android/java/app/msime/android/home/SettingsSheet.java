@@ -26,7 +26,7 @@ public final class SettingsSheet {
         dialog = new BottomSheetDialog(context);
         LinearLayout root = new LinearLayout(context);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(24), 0, dp(24), dp(24));
+        root.setPadding(Ui.dp(context, 24), 0, Ui.dp(context, 24), Ui.dp(context, 24));
 
         // 拖动条既是可见的把手，也给读屏提供「收起面板」的操作。
         BottomSheetDragHandleView handle = new BottomSheetDragHandleView(context);
@@ -46,7 +46,7 @@ public final class SettingsSheet {
             Ui.style(note, Ui.TEXT_ROW_SUBTITLE, 400, Ui.subText(context));
             LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            params.topMargin = dp(4);
+            params.topMargin = Ui.dp(context, 4);
             root.addView(note, params);
         }
 
@@ -57,7 +57,7 @@ public final class SettingsSheet {
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         LinearLayout.LayoutParams scrollParams = new LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        scrollParams.topMargin = dp(12);
+        scrollParams.topMargin = Ui.dp(context, 12);
         root.addView(scroll, scrollParams);
         dialog.setContentView(root);
     }
@@ -73,8 +73,8 @@ public final class SettingsSheet {
         heading.setAccessibilityHeading(true);
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        params.topMargin = dp(16);
-        params.bottomMargin = dp(2);
+        params.topMargin = Ui.dp(context, 16);
+        params.bottomMargin = Ui.dp(context, 2);
         content.addView(heading, params);
     }
 
@@ -85,7 +85,7 @@ public final class SettingsSheet {
         Ui.style(note, 12, 400, Ui.subText(context));
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        params.topMargin = dp(14);
+        params.topMargin = Ui.dp(context, 14);
         content.addView(note, params);
     }
 
@@ -96,8 +96,8 @@ public final class SettingsSheet {
         status.setGravity(Gravity.CENTER_VERTICAL);
         status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, dp(20));
-        params.topMargin = dp(10);
+            ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(context, 20));
+        params.topMargin = Ui.dp(context, 10);
         content.addView(status, params);
         return status;
     }
@@ -114,7 +114,4 @@ public final class SettingsSheet {
     /** 面板关闭时（不论怎么关的）运行 `action`，边改边存的面板借此写下还没保存的内容。 */
     public void setOnDismiss(Runnable action) { dialog.setOnDismissListener(ignored -> action.run()); }
 
-    private int dp(int value) {
-        return Ui.dp(context, value);
-    }
 }

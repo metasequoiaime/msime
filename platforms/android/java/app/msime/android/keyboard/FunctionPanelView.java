@@ -10,7 +10,6 @@ import android.graphics.drawable.Drawable;
 import android.os.Build;
 import android.text.TextPaint;
 import android.text.TextUtils;
-import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
@@ -65,7 +64,7 @@ public final class FunctionPanelView extends LinearLayout {
 
     private final PagedTileGrid grid;
     private final KeyboardPagerDots dots;
-    private final List<Tile> tiles = new ArrayList<>();
+    private final ArrayList<Tile> tiles = new ArrayList<>();
     private int foreground = Color.BLACK;
     private int accent = Color.BLUE;
     private int panelBackground = Color.WHITE;
@@ -104,6 +103,7 @@ public final class FunctionPanelView extends LinearLayout {
     public void setEntries(List<Entry> entries) {
         grid.removeAllViews();
         tiles.clear();
+        tiles.ensureCapacity(entries.size());
         for (Entry entry : entries) {
             Tile tile = new Tile(getContext(), this, entry);
             tiles.add(tile);
@@ -207,7 +207,7 @@ public final class FunctionPanelView extends LinearLayout {
             int color = on ? panel.accent : panel.foreground;
             if (isPressed()) color = Color.argb(Color.alpha(color) * PRESSED_ALPHA / 255,
                 Color.red(color), Color.green(color), Color.blue(color));
-            textPaint.setTextSize(sp(LABEL_SP));
+            textPaint.setTextSize(KeyboardGeometry.sp(getContext(), LABEL_SP));
             textPaint.setTypeface(on ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
             Paint.FontMetrics label = textPaint.getFontMetrics();
             float labelHeight = label.descent - label.ascent;
@@ -229,7 +229,7 @@ public final class FunctionPanelView extends LinearLayout {
                 float radius = GLYPH_RADIUS_DP * density;
                 canvas.drawRoundRect(rect, radius, radius, boxPaint);
                 Paint glyph = textPaint;
-                glyph.setTextSize(sp(GLYPH_SP));
+                glyph.setTextSize(KeyboardGeometry.sp(getContext(), GLYPH_SP));
                 glyph.setTypeface(Typeface.DEFAULT_BOLD);
                 glyph.setColor(color);
                 Paint.FontMetrics metrics = glyph.getFontMetrics();
@@ -237,7 +237,7 @@ public final class FunctionPanelView extends LinearLayout {
                     iconCenterY - (metrics.ascent + metrics.descent) / 2f, glyph);
                 iconRight = centerX + box / 2f;
                 iconBottom = iconCenterY + box / 2f;
-                textPaint.setTextSize(sp(LABEL_SP));
+                textPaint.setTextSize(KeyboardGeometry.sp(getContext(), LABEL_SP));
                 textPaint.setTypeface(on ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
             } else {
                 float size = ICON_DP * density;
@@ -274,10 +274,6 @@ public final class FunctionPanelView extends LinearLayout {
                 TextUtils.TruncateAt.END).toString();
         }
 
-        private float sp(float value) {
-            return TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, value,
-                getResources().getDisplayMetrics());
-        }
     }
 
     @Override protected void onDetachedFromWindow() {

@@ -62,8 +62,6 @@ public final class KeyboardSkinBackgroundDrawable extends Drawable {
         shade.setColor(Color.BLACK);
     }
 
-    private float dp(double value) { return (float) value * density; }
-
     /**
      * 照片按字节内容缓存解码结果：同一张照片只解码一次，所有底图共用这一个只读的 `Bitmap`。
      *
@@ -118,29 +116,33 @@ public final class KeyboardSkinBackgroundDrawable extends Drawable {
         float right = getBounds().right;
         float bottom = getBounds().bottom;
         if (patternId == 1) {
-            float diameter = dp(1.5);
-            for (float y = top + dp(8); y < bottom; y += dp(16)) {
-                for (float x = left + dp(8); x < right; x += dp(16))
+            float diameter = KeyboardGeometry.floatPixels(1.5, density);
+            for (float y = top + KeyboardGeometry.floatPixels(8, density); y < bottom;
+                 y += KeyboardGeometry.floatPixels(16, density)) {
+                for (float x = left + KeyboardGeometry.floatPixels(8, density); x < right;
+                     x += KeyboardGeometry.floatPixels(16, density))
                     canvas.drawOval(x, y, x + diameter, y + diameter, pattern);
             }
             return;
         }
         pattern.setStyle(Paint.Style.STROKE);
         if (patternId == 2) {
-            pattern.setStrokeWidth(dp(0.5));
-            for (float x = left; x < right; x += dp(20))
+            pattern.setStrokeWidth(KeyboardGeometry.floatPixels(0.5, density));
+            for (float x = left; x < right; x += KeyboardGeometry.floatPixels(20, density))
                 canvas.drawLine(x, top, x, bottom, pattern);
-            for (float y = top; y < bottom; y += dp(20))
+            for (float y = top; y < bottom; y += KeyboardGeometry.floatPixels(20, density))
                 canvas.drawLine(left, y, right, y, pattern);
             return;
         }
-        pattern.setStrokeWidth(dp(2));
+        pattern.setStrokeWidth(KeyboardGeometry.floatPixels(2, density));
         float width = right - left;
         Path wave = new Path();
-        for (float offset = top - dp(100); offset < bottom + width; offset += dp(24)) {
+        for (float offset = top - KeyboardGeometry.floatPixels(100, density);
+             offset < bottom + width; offset += KeyboardGeometry.floatPixels(24, density)) {
             wave.moveTo(left, offset);
-            wave.cubicTo(left + width * 0.35f, offset - dp(90),
-                left + width * 0.65f, offset + dp(20), right, offset - dp(70));
+            wave.cubicTo(left + width * 0.35f, offset - KeyboardGeometry.floatPixels(90, density),
+                left + width * 0.65f, offset + KeyboardGeometry.floatPixels(20, density), right,
+                offset - KeyboardGeometry.floatPixels(70, density));
         }
         canvas.drawPath(wave, pattern);
     }

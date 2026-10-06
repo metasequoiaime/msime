@@ -85,7 +85,9 @@ public final class SkinsPage extends DetailPage {
         String directory = HostStore.directory(context);
         if (!directory.isEmpty()) {
             try {
-                for (CustomSkinLibrary.Item item : CustomSkinLibrary.read(Paths.get(directory))) {
+                List<CustomSkinLibrary.Item> storedDesigns = CustomSkinLibrary.read(Paths.get(directory));
+                designs = new ArrayList<>(storedDesigns.size());
+                for (CustomSkinLibrary.Item item : storedDesigns) {
                     boolean selected = !storedKey.isEmpty()
                         && storedKey.equals(CustomKeyboardSkin.from(item.design()).key());
                     designs.add(new Card(item.id(), item.name(), KeyboardSkin.custom(item.design(), systemDark),

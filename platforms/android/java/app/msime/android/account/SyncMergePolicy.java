@@ -72,7 +72,9 @@ public final class SyncMergePolicy {
      * @param other 另一方（云端），只补上 `preferred` 里没有的
      */
     public static List<Phrase> mergePhrases(List<Phrase> preferred, List<Phrase> other) {
-        LinkedHashMap<String, Phrase> byId = new LinkedHashMap<>();
+        int capacity = Math.min(MAX_PHRASES,
+            Math.min(MAX_PHRASES, preferred.size()) + Math.min(MAX_PHRASES, other.size()));
+        LinkedHashMap<String, Phrase> byId = new LinkedHashMap<>(capacity);
         for (Phrase phrase : preferred) if (usable(phrase)) byId.putIfAbsent(phrase.id(), phrase);
         for (Phrase phrase : other) if (usable(phrase)) byId.putIfAbsent(phrase.id(), phrase);
         return normalized(new ArrayList<>(byId.values()));
@@ -80,7 +82,7 @@ public final class SyncMergePolicy {
 
     /** 按正文去重、重排 position 并截断；上传前对任何一份列表都要过这一步。 */
     public static List<Phrase> normalized(List<Phrase> phrases) {
-        Set<String> texts = new HashSet<>();
+        Set<String> texts = new HashSet<>(phrases.size());
         List<Phrase> result = new ArrayList<>(Math.min(MAX_PHRASES, phrases.size()));
         for (Phrase phrase : phrases) {
             if (!usable(phrase) || !texts.add(phrase.text())) continue;
@@ -143,7 +145,7 @@ public final class SyncMergePolicy {
 
     /** 去掉设备本地且涉及隐私的键（隐私模式、开发者选项、诊断日志、语音贡献）。 */
     public static Map<String, Object> withoutLocalOnly(Map<String, Object> settings) {
-        LinkedHashMap<String, Object> kept = new LinkedHashMap<>();
+        LinkedHashMap<String, Object> kept = new LinkedHashMap<>(settings.size());
         for (Map.Entry<String, Object> entry : settings.entrySet()) {
             if (!localOnly(entry.getKey())) kept.put(entry.getKey(), entry.getValue());
         }
@@ -216,9 +218,9 @@ public final class SyncMergePolicy {
     /** 把要导入的词按 种类 + 编码 + 词 去重，再切成每批不超过 `size` 条（导入文件里有重复会整批失败）。 */
     public static List<List<Word>> batches(List<Word> words, int size) {
         if (size <= 0) throw new IllegalArgumentException("batch size");
-        Set<String> seen = new HashSet<>();
-        List<List<Word>> result = new ArrayList<>();
-        List<Word> current = new ArrayList<>();
+        Set<String> seen = new HashSet<>(words.size());
+        List<List<Word>> result = new ArrayList<>((words.size() + size - 1) / size);
+        List<Word> current = new ArrayList<>(Math.min(words.size(), size));
         for (Word word : words) {
             if (word == null || personalKind(word.kind()) == null || word.key() == null || word.key().isEmpty()
                 || word.value() == null || word.value().isEmpty()) continue;
@@ -226,7 +228,7 @@ public final class SyncMergePolicy {
             current.add(new Word(personalKind(word.kind()), word.key(), word.value(), word.weight()));
             if (current.size() == size) {
                 result.add(Collections.unmodifiableList(current));
-                current = new ArrayList<>();
+                current = new ArrayList<>(Math.min(words.size() - result.size() * size, size));
             }
         }
         if (!current.isEmpty()) result.add(Collections.unmodifiableList(current));

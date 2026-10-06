@@ -387,7 +387,7 @@ public final class TypingStatisticsSummary {
 
     private static Map<String, Long> counts(JSONObject object) {
         if (object == null) return Map.of();
-        Map<String, Long> result = new LinkedHashMap<>();
+        Map<String, Long> result = new LinkedHashMap<>(object.length());
         Iterator<String> keys = object.keys();
         while (keys.hasNext()) {
             String key = keys.next();

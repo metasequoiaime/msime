@@ -49,14 +49,6 @@ HOST_DIFFERENCES = {
         "embedded-NUL case cannot be expressed"
     ),
     "ui/shell_surfaces.cpp": "asserts on Windows path and environment-block semantics",
-    "runtime/session_pump.cpp": (
-        "does not compile here: it takes a path's u8string(), which is "
-        "std::u8string, where the Windows build's own conversion applies"
-    ),
-    "runtime/session_smoke.cpp": (
-        "does not compile here: it calls preference_monitor_tests, declared "
-        "only for the Windows build"
-    ),
 }
 
 # Sources whose `main` takes an argument the build system supplies.
@@ -262,7 +254,7 @@ def accepts_declspec(driver: str) -> bool:
     if shutil.which(driver) is None:
         return False
     probe = subprocess.run(
-        [driver, "-std=c++20", "-w", "-fdeclspec", "-fsyntax-only", "-x", "c++", "-"],
+        [driver, "-std=c++17", "-w", "-fdeclspec", "-fsyntax-only", "-x", "c++", "-"],
         input="int main() { return 0; }\n",
         capture_output=True,
         text=True,
@@ -299,7 +291,11 @@ def build(
         # -fdeclspec: these sources are written for MSVC, and a `__declspec(dllexport)` on a
         # function is not something to work around - clang accepts it behind this flag, and
         # without it a source that is otherwise perfectly portable stops at its first line.
-        [compiler(), "-std=c++20", "-w", "-fdeclspec", *flags, "-o", str(binary), str(source), *companions],
+        # -std=c++17: the language the Windows build compiles these sources in (CMAKE_CXX_STANDARD in
+        # platforms/windows/CMakeLists.txt). Under C++20 `path::u8string()` returns std::u8string
+        # rather than std::string, so a fixture that puts one in a JSON document gets an array of
+        # character codes and the code under test sees a type error the Windows build never has.
+        [compiler(), "-std=c++17", "-w", "-fdeclspec", *flags, "-o", str(binary), str(source), *companions],
         capture_output=True,
         text=True,
     )

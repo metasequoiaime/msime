@@ -14,6 +14,13 @@ public final class HttpBodyPolicy {
         return readBounded(input, limit, () -> false);
     }
 
+    /** Reads a bounded body and turns an over-limit response into an I/O failure. */
+    public static byte[] readRequired(InputStream input, int limit) throws IOException {
+        byte[] body = readBounded(input, limit);
+        if (body == null) throw new IOException("response too large");
+        return body;
+    }
+
     /** Reads a bounded body while allowing a caller to stop between input chunks. */
     public static byte[] readBounded(InputStream input, int limit,
             BooleanSupplier cancelled) throws IOException {

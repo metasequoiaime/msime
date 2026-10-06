@@ -19,6 +19,14 @@ public final class KeyboardSkinKeyDrawable extends Drawable {
     private final float density;
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint overlay = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Path shapePath = new Path();
+    private final RectF shapeBounds = new RectF();
+    private final RectF faceBounds = new RectF();
+    private final RectF gradientBounds = new RectF();
+    private final int borderColor;
+    private Shader overlayGradient;
+    private boolean shapeValid;
+    private boolean gradientValid;
     private int alpha = 255;
 
     public KeyboardSkinKeyDrawable(KeyboardSkin skin, int fillColor, boolean action, float density) {
@@ -26,54 +34,59 @@ public final class KeyboardSkinKeyDrawable extends Drawable {
         this.fillColor = fillColor;
         this.action = action;
         this.density = density;
+        borderColor = Color.parseColor(skin.borderColor());
     }
 
     private float dp(double value) { return (float) value * density; }
 
     private Path path(RectF rect) {
-        Path path = new Path();
+        if (shapeValid && shapeBounds.equals(rect)) return shapePath;
+        shapePath.reset();
         switch (skin.keyShape()) {
-            case "capsule" -> path.addRoundRect(rect, rect.height() / 2, rect.height() / 2,
+            case "capsule" -> shapePath.addRoundRect(rect, rect.height() / 2, rect.height() / 2,
                 Path.Direction.CW);
             case "pebble" -> {
                 float x = rect.left, y = rect.top, width = rect.width(), height = rect.height();
-                path.moveTo(x + width * .35f, y);
-                path.cubicTo(x + width * .83f, y, x + width, y + height * .04f,
+                shapePath.moveTo(x + width * .35f, y);
+                shapePath.cubicTo(x + width * .83f, y, x + width, y + height * .04f,
                     x + width, y + height * .3f);
-                path.cubicTo(x + width, y + height * .85f, x + width * .9f, y + height,
+                shapePath.cubicTo(x + width, y + height * .85f, x + width * .9f, y + height,
                     x + width * .68f, y + height);
-                path.cubicTo(x + width * .18f, y + height, x, y + height * .97f,
+                shapePath.cubicTo(x + width * .18f, y + height, x, y + height * .97f,
                     x, y + height * .7f);
-                path.cubicTo(x, y + height * .2f, x + width * .06f, y,
+                shapePath.cubicTo(x, y + height * .2f, x + width * .06f, y,
                     x + width * .35f, y);
-                path.close();
+                shapePath.close();
             }
             case "ticket" -> {
                 float notch = Math.min(rect.width(), rect.height()) * .12f;
-                path.moveTo(rect.left, rect.top);
-                path.lineTo(rect.right, rect.top);
-                path.lineTo(rect.right, rect.centerY() - notch);
-                path.arcTo(new RectF(rect.right - notch, rect.centerY() - notch,
+                shapePath.moveTo(rect.left, rect.top);
+                shapePath.lineTo(rect.right, rect.top);
+                shapePath.lineTo(rect.right, rect.centerY() - notch);
+                shapePath.arcTo(new RectF(rect.right - notch, rect.centerY() - notch,
                     rect.right + notch, rect.centerY() + notch), -90, -180);
-                path.lineTo(rect.right, rect.bottom);
-                path.lineTo(rect.left, rect.bottom);
-                path.lineTo(rect.left, rect.centerY() + notch);
-                path.arcTo(new RectF(rect.left - notch, rect.centerY() - notch,
+                shapePath.lineTo(rect.right, rect.bottom);
+                shapePath.lineTo(rect.left, rect.bottom);
+                shapePath.lineTo(rect.left, rect.centerY() + notch);
+                shapePath.arcTo(new RectF(rect.left - notch, rect.centerY() - notch,
                     rect.left + notch, rect.centerY() + notch), 90, -180);
-                path.close();
+                shapePath.close();
             }
             default -> {
                 float radius = Math.min(dp(skin.cornerRadius()),
                     Math.min(rect.width(), rect.height()) / 2);
-                path.addRoundRect(rect, radius, radius, Path.Direction.CW);
+                shapePath.addRoundRect(rect, radius, radius, Path.Direction.CW);
             }
         }
-        return path;
+        shapeBounds.set(rect);
+        shapeValid = true;
+        return shapePath;
     }
 
     @Override public void draw(Canvas canvas) {
         float depth = "raised".equals(skin.keyMaterial()) ? dp(3) : 0;
-        RectF face = new RectF(getBounds());
+        faceBounds.set(getBounds());
+        RectF face = faceBounds;
         face.inset(dp(1), dp(1));
         face.bottom -= depth;
         Path shape = path(face);
@@ -98,10 +111,15 @@ public final class KeyboardSkinKeyDrawable extends Drawable {
         canvas.clipPath(shape);
         if ("glass".equals(skin.keyMaterial()) || "raised".equals(skin.keyMaterial())) {
             boolean glass = "glass".equals(skin.keyMaterial());
-            overlay.setShader(new LinearGradient(face.centerX(), face.top, face.centerX(), face.bottom,
-                new int[] {Color.argb((int) (255 * (glass ? .24 : .13)), 255, 255, 255),
-                    Color.TRANSPARENT, Color.argb((int) (255 * (glass ? .03 : .10)), 0, 0, 0)},
-                new float[] {0, .48f, 1}, Shader.TileMode.CLAMP));
+            if (!gradientValid || !gradientBounds.equals(face)) {
+                overlayGradient = new LinearGradient(face.centerX(), face.top, face.centerX(), face.bottom,
+                    new int[] {Color.argb((int) (255 * (glass ? .24 : .13)), 255, 255, 255),
+                        Color.TRANSPARENT, Color.argb((int) (255 * (glass ? .03 : .10)), 0, 0, 0)},
+                    new float[] {0, .48f, 1}, Shader.TileMode.CLAMP);
+                gradientBounds.set(face);
+                gradientValid = true;
+            }
+            overlay.setShader(overlayGradient);
             overlay.setAlpha(alpha);
             canvas.drawRect(face, overlay);
             if (glass) {
@@ -129,10 +147,16 @@ public final class KeyboardSkinKeyDrawable extends Drawable {
         if (skin.borderWidth() > 0) {
             paint.setStyle(Paint.Style.STROKE);
             paint.setStrokeWidth(dp(skin.borderWidth()));
-            paint.setColor(Color.parseColor(skin.borderColor()));
+            paint.setColor(borderColor);
             paint.setAlpha(alpha);
             canvas.drawPath(shape, paint);
         }
+    }
+
+    @Override protected void onBoundsChange(android.graphics.Rect bounds) {
+        super.onBoundsChange(bounds);
+        shapeValid = false;
+        gradientValid = false;
     }
 
     @Override public void setAlpha(int value) {

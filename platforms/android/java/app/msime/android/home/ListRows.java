@@ -44,8 +44,8 @@ final class ListRows {
         heading.setText(text);
         Ui.style(heading, Ui.TEXT_GROUP_TITLE, 500, Ui.accent(context));
         heading.setAccessibilityHeading(true);
-        heading.setPadding(dp(context, Ui.NAV_ROW_PADDING_H), dp(context, 16),
-            dp(context, Ui.NAV_ROW_PADDING_H), dp(context, 4));
+        heading.setPadding(Ui.dp(context, Ui.NAV_ROW_PADDING_H), Ui.dp(context, 16),
+            Ui.dp(context, Ui.NAV_ROW_PADDING_H), Ui.dp(context, 4));
         parent.addView(heading, new LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         return heading;
@@ -55,10 +55,6 @@ final class ListRows {
     static void gap(ViewGroup parent) {
         View space = new View(parent.getContext());
         parent.addView(space, new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, dp(parent.getContext(), Ui.GROUP_GAP)));
-    }
-
-    static int dp(Context context, int value) {
-        return Ui.dp(context, value);
+            ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(parent.getContext(), Ui.GROUP_GAP)));
     }
 }

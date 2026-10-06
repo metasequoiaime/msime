@@ -86,7 +86,7 @@ public final class EmojiCatalogModel {
         if (selected == null || selected.isEmpty()
                 || selected.codePointCount(0, selected.length()) > MAX_TEXT_CODE_POINTS)
             throw new IllegalArgumentException("Invalid recent emoji");
-        ArrayList<String> reordered = new ArrayList<>();
+        ArrayList<String> reordered = new ArrayList<>(RECENTS_LIMIT);
         reordered.add(selected);
         for (String text : normalizeRecents(stored)) {
             if (!selected.equals(text)) reordered.add(text);

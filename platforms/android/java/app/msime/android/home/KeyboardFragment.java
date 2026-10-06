@@ -49,7 +49,7 @@ public final class KeyboardFragment extends HomeTabFragment {
     @Nullable private FirstRunPreparation.Listener preparationListener;
     /** 首页的一行和搜索按什么文字匹配它。 */
     private record HomeRow(PageId page, @DrawableRes int icon, String title, HomeNavGroup.Row row) {}
-    private final List<HomeRow> homeRows = new ArrayList<>();
+    private final ArrayList<HomeRow> homeRows = new ArrayList<>(9);
 
     @Override public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup parent,
                                        @Nullable Bundle state) {
