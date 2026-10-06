@@ -1217,7 +1217,7 @@ fn user_word_identities(
 ) -> std::collections::HashSet<String> {
     const CHUNK: usize = 1000;
     const SCAN_LIMIT: usize = 1_000_000;
-    let mut identities = std::collections::HashSet::new();
+    let mut identities = std::collections::HashSet::with_capacity(CHUNK);
     let mut offset = 0usize;
     loop {
         let Ok(page) = msime_engine::host::dictionary_entries(options, offset, CHUNK) else {
