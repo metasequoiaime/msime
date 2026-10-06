@@ -2083,7 +2083,7 @@ public final class MSIMEInputService extends InputMethodService {
                         NativeClient.candidateGlosses(request, targetResources));
                     java.util.Map<String, java.util.Map<String, String>> offline = null;
                     if (!targetRequests.isEmpty()) {
-                        offline = new java.util.HashMap<>();
+                        offline = new java.util.HashMap<>(targetRequests.size() + 1);
                         offline.put("en", glossMap(result));
                         for (java.util.Map.Entry<String, String> target : targetRequests.entrySet()) {
                             try {
