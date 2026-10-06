@@ -42,7 +42,7 @@ public final class VoiceContributionApi {
 
     /** PCM 的时长（毫秒）：16 kHz 单声道 16 位。 */
     public static long durationMillis(int pcmBytes) {
-        return Math.max(0, pcmBytes) / 2L * 1000L / WavAudio.SAMPLE_RATE;
+        return BoundsPolicy.nonNegative(pcmBytes) / 2L * 1000L / WavAudio.SAMPLE_RATE;
     }
 
     private static boolean nonEmpty(String value) {

@@ -65,7 +65,7 @@ public final class PagedTileGrid extends ViewGroup {
 
     /** 第 {@code index} 个条目所在的页。 */
     public static int pageOf(int index, int perPage) {
-        return Math.max(0, index) / Math.max(1, perPage);
+        return BoundsPolicy.nonNegative(index) / Math.max(1, perPage);
     }
 
     /**
@@ -133,7 +133,7 @@ public final class PagedTileGrid extends ViewGroup {
             + getPaddingTop() + getPaddingBottom();
         int height = resolveSize(desiredHeight, heightMeasureSpec);
         float inner = width - px(sidePaddingDp) * 2 - px(columnGapDp) * (columns - 1);
-        int cellWidth = Math.max(0, Math.round(inner / columns));
+        int cellWidth = BoundsPolicy.nonNegative(Math.round(inner / columns));
         int childWidth = MeasureSpec.makeMeasureSpec(cellWidth, MeasureSpec.EXACTLY);
         int childHeight = MeasureSpec.makeMeasureSpec(rowHeight, MeasureSpec.EXACTLY);
         for (int index = 0; index < getChildCount(); index++) {
@@ -218,7 +218,7 @@ public final class PagedTileGrid extends ViewGroup {
                 if (dragging) {
                     float delta = lastX - event.getX();
                     int max = (pageCount() - 1) * getWidth();
-                    int next = Math.round(Math.max(0, Math.min(max, getScrollX() + delta)));
+                    int next = Math.round(BoundsPolicy.bounded(getScrollX() + delta, 0f, max));
                     scrollTo(next, 0);
                 }
                 lastX = event.getX();

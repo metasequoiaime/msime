@@ -212,7 +212,7 @@ public final class FunctionPanelView extends LinearLayout {
             int color = on ? panel.accent : panel.foreground;
             if (isPressed()) color = Color.argb(Color.alpha(color) * PRESSED_ALPHA / 255,
                 Color.red(color), Color.green(color), Color.blue(color));
-            textPaint.setTextSize(KeyboardGeometry.sp(getContext(), LABEL_SP));
+            textPaint.setTextSize(KeyboardGeometry.keySp(getContext(), LABEL_SP));
             textPaint.setTypeface(on ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
             Paint.FontMetrics label = textPaint.getFontMetrics();
             float labelHeight = label.descent - label.ascent;
@@ -234,7 +234,7 @@ public final class FunctionPanelView extends LinearLayout {
                 float radius = GLYPH_RADIUS_DP * density;
                 canvas.drawRoundRect(rect, radius, radius, boxPaint);
                 Paint glyph = textPaint;
-                glyph.setTextSize(KeyboardGeometry.sp(getContext(), GLYPH_SP));
+                glyph.setTextSize(KeyboardGeometry.keySp(getContext(), GLYPH_SP));
                 glyph.setTypeface(Typeface.DEFAULT_BOLD);
                 glyph.setColor(color);
                 Paint.FontMetrics metrics = glyph.getFontMetrics();
@@ -242,7 +242,7 @@ public final class FunctionPanelView extends LinearLayout {
                     iconCenterY - (metrics.ascent + metrics.descent) / 2f, glyph);
                 iconRight = centerX + box / 2f;
                 iconBottom = iconCenterY + box / 2f;
-                textPaint.setTextSize(KeyboardGeometry.sp(getContext(), LABEL_SP));
+                textPaint.setTextSize(KeyboardGeometry.keySp(getContext(), LABEL_SP));
                 textPaint.setTypeface(on ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
             } else {
                 float size = ICON_DP * density;

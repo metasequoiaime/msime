@@ -3,6 +3,11 @@
 #include "TextInputCtrl.h"
 #include <tsattrs.h>
 
+#include <algorithm>
+#include <limits>
+
+using std::min;
+
 //+---------------------------------------------------------------------------
 //
 // IUnknown
@@ -130,8 +135,15 @@ STDAPI CTextStore::GetStatus(TS_STATUS *pdcs)
 STDAPI CTextStore::QueryInsert(LONG acpInsertStart, LONG acpInsertEnd, ULONG cch, LONG *pacpResultStart,
                                LONG *pacpResultEnd)
 {
+    if (!pacpResultStart || !pacpResultEnd || acpInsertStart < 0 || acpInsertEnd < acpInsertStart ||
+        acpInsertEnd > static_cast<LONG>(_pEditor->GetTextLength()) ||
+        cch > CTextContainer::kMaxTextUnits -
+                   (_pEditor->GetTextLength() - static_cast<ULONG>(acpInsertEnd - acpInsertStart)) ||
+        cch > static_cast<ULONG>(std::numeric_limits<LONG>::max() - acpInsertStart))
+        return E_INVALIDARG;
+
     *pacpResultStart = acpInsertStart;
-    *pacpResultEnd = acpInsertEnd;
+    *pacpResultEnd = acpInsertStart + static_cast<LONG>(cch);
     return S_OK;
 }
 
@@ -166,6 +178,10 @@ STDAPI CTextStore::SetSelection(ULONG ulCount, const TS_SELECTION_ACP *pSelectio
 {
     if (ulCount > 0)
     {
+        if (!pSelection || pSelection[0].acpStart < 0 || pSelection[0].acpEnd < pSelection[0].acpStart ||
+            pSelection[0].acpEnd > static_cast<LONG>(_pEditor->GetTextLength()))
+            return E_INVALIDARG;
+
         _pEditor->MoveSelection(pSelection[0].acpStart, pSelection[0].acpEnd);
         _pEditor->UpdateLayout();
         _pEditor->InvalidateRect();
@@ -186,16 +202,30 @@ STDAPI CTextStore::GetText(LONG acpStart, LONG acpEnd, __out_ecount(cchPlainReq)
                            ULONG *pcchPlainOut, TS_RUNINFO *prgRunInfo, ULONG ulRunInfoReq, ULONG *pulRunInfoOut,
                            LONG *pacpNext)
 {
+    if (!pcchPlainOut || !pulRunInfoOut || !pacpNext || (cchPlainReq && !pchPlain) ||
+        (ulRunInfoReq && !prgRunInfo))
+        return E_INVALIDARG;
+
+    *pcchPlainOut = 0;
+    *pulRunInfoOut = 0;
 
     if ((cchPlainReq == 0) && (ulRunInfoReq == 0))
     {
         return S_OK;
     }
 
-    if (acpEnd == -1)
-        acpEnd = _pEditor->GetTextLength();
+    const LONG textLength = static_cast<LONG>(_pEditor->GetTextLength());
+    if (acpStart < 0 || acpStart > textLength)
+        return E_INVALIDARG;
 
-    acpEnd = min(acpEnd, acpStart + (int)cchPlainReq);
+    if (acpEnd == -1)
+        acpEnd = textLength;
+    if (acpEnd < acpStart)
+        return E_INVALIDARG;
+    acpEnd = min(acpEnd, textLength);
+
+    const ULONG available = static_cast<ULONG>(acpEnd - acpStart);
+    acpEnd = acpStart + static_cast<LONG>(min(cchPlainReq, available));
 
     if ((acpStart != acpEnd) && !_pEditor->GetText(acpStart, pchPlain, acpEnd - acpStart))
     {
@@ -224,19 +254,25 @@ STDAPI CTextStore::GetText(LONG acpStart, LONG acpEnd, __out_ecount(cchPlainReq)
 STDAPI CTextStore::SetText(DWORD dwFlags, LONG acpStart, LONG acpEnd, __in_ecount(cch) const WCHAR *pchText, ULONG cch,
                            TS_TEXTCHANGE *pChange)
 {
+    if (!pChange || (cch && !pchText))
+        return E_INVALIDARG;
+
+    const LONG textLength = static_cast<LONG>(_pEditor->GetTextLength());
+    if (acpStart < 0 || acpEnd < acpStart || acpStart > textLength || acpEnd > textLength)
+        return E_INVALIDARG;
+
+    const ULONG removed = static_cast<ULONG>(acpEnd - acpStart);
+    if (cch > CTextContainer::kMaxTextUnits - (_pEditor->GetTextLength() - removed) ||
+        cch > static_cast<ULONG>(std::numeric_limits<LONG>::max() - acpStart))
+        return E_INVALIDARG;
+
     // Check the composition status
     if (cch == 0 && _pCurrentCompositionView)
     {
         _pEditor->TerminateCompositionString();
     }
 
-    LONG acpRemovingEnd;
-
-    if (acpStart > (LONG)_pEditor->GetTextLength())
-        return E_INVALIDARG;
-
-    acpRemovingEnd = min(acpEnd, (LONG)_pEditor->GetTextLength() + 1);
-    if (!_pEditor->RemoveText(acpStart, acpRemovingEnd - acpStart))
+    if (!_pEditor->RemoveText(acpStart, removed))
         return E_FAIL;
 
     if (!_pEditor->InsertText(acpStart, pchText, cch))
@@ -244,10 +280,10 @@ STDAPI CTextStore::SetText(DWORD dwFlags, LONG acpStart, LONG acpEnd, __in_ecoun
 
     pChange->acpStart = acpStart;
     pChange->acpOldEnd = acpEnd;
-    pChange->acpNewEnd = acpStart + cch;
+    pChange->acpNewEnd = acpStart + static_cast<LONG>(cch);
 
     // Update selection after text change
-    _pEditor->MoveSelection(acpStart + cch, acpStart + cch);
+    _pEditor->MoveSelection(acpStart + static_cast<LONG>(cch), acpStart + static_cast<LONG>(cch));
     _pEditor->UpdateLayout();
 
     _pEditor->InvalidateRect();
@@ -489,15 +525,22 @@ STDAPI CTextStore::InsertTextAtSelection(DWORD dwFlags, __in_ecount(cch) const W
 {
     LONG acpStart = _pEditor->GetSelectionStart();
     LONG acpEnd = _pEditor->GetSelectionEnd();
+    const ULONG removed = static_cast<ULONG>(acpEnd - acpStart);
+
+    if ((cch && !pchText) || cch > CTextContainer::kMaxTextUnits - (_pEditor->GetTextLength() - removed) ||
+        cch > static_cast<ULONG>(std::numeric_limits<LONG>::max() - acpStart))
+        return E_INVALIDARG;
 
     if (dwFlags & TS_IAS_QUERYONLY)
     {
+        if (!pacpStart || !pacpEnd)
+            return E_INVALIDARG;
         *pacpStart = acpStart;
-        *pacpEnd = acpStart + cch;
+        *pacpEnd = acpStart + static_cast<LONG>(cch);
         return S_OK;
     }
 
-    if (!_pEditor->RemoveText(acpStart, acpEnd - acpStart))
+    if (!_pEditor->RemoveText(acpStart, removed))
         return E_FAIL;
 
     if (pchText && !_pEditor->InsertText(acpStart, pchText, cch))
@@ -510,17 +553,17 @@ STDAPI CTextStore::InsertTextAtSelection(DWORD dwFlags, __in_ecount(cch) const W
 
     if (pacpEnd)
     {
-        *pacpEnd = acpStart + cch;
+        *pacpEnd = acpStart + static_cast<LONG>(cch);
     }
 
     if (pChange)
     {
         pChange->acpStart = acpStart;
         pChange->acpOldEnd = acpEnd;
-        pChange->acpNewEnd = acpStart + cch;
+        pChange->acpNewEnd = acpStart + static_cast<LONG>(cch);
     }
 
-    _pEditor->MoveSelection(acpStart, acpStart + cch);
+    _pEditor->MoveSelection(acpStart, acpStart + static_cast<LONG>(cch));
     _pEditor->UpdateLayout();
     _pEditor->InvalidateRect();
     return S_OK;

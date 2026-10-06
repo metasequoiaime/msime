@@ -1,3 +1,4 @@
+import app.msime.android.BoundsPolicy;
 import app.msime.android.KeyboardGapPolicy;
 import app.msime.android.KeyboardGeometry;
 import app.msime.android.KeyboardLayout;
@@ -8,6 +9,8 @@ public final class KeyboardGeometrySmoke {
     public static void main(String[] args) {
         // 与 crates/client-core 的 default_touch_key_spacing_tenths / default_touch_row_spacing_tenths 同值。
         check(KeyboardGeometry.keySpacing(-1) == 60);
+        check(BoundsPolicy.nonNegative(-1) == 0 && BoundsPolicy.nonNegative(7) == 7);
+        check(BoundsPolicy.nonNegative(-1L) == 0L && BoundsPolicy.nonNegative(7L) == 7L);
         check(KeyboardGeometry.rowSpacing(-1) == 70);
         check(KeyboardGeometry.DESIGN_KEY_GAP_DP == 5 && KeyboardGeometry.DESIGN_ROW_GAP_DP == 8);
         check(KeyboardGeometry.DESIGN_PADDING_TOP_DP == 8
@@ -71,6 +74,14 @@ public final class KeyboardGeometrySmoke {
         check(KeyboardGapPolicy.inside(-4, 100) == 1f);
         check(KeyboardGapPolicy.inside(104, 100) == 99f);
         check(KeyboardGapPolicy.inside(37.5f, 100) == 37.5f);
+        // 键盘文字随系统字体调小照样跟随，调大时封顶：国产机出厂的「大」「超大」字体会把固定高度的键帽撑爆。
+        check(KeyboardGeometry.keyboardFontScale(0.85f) == 0.85f);
+        check(KeyboardGeometry.keyboardFontScale(1f) == 1f);
+        check(KeyboardGeometry.keyboardFontScale(1.3f) == KeyboardGeometry.MAX_KEYBOARD_FONT_SCALE);
+        check(KeyboardGeometry.keyboardFontScale(2f) == KeyboardGeometry.MAX_KEYBOARD_FONT_SCALE);
+        check(KeyboardGeometry.keyboardFontScale(0f) == 1f);
+        check(KeyboardGeometry.keyboardFontScale(Float.NaN) == 1f);
+        check(KeyboardGeometry.keyboardFontScale(Float.POSITIVE_INFINITY) == 1f);
         System.out.println("Android keyboard geometry: Apple defaults, bounds and precision passed");
     }
 }

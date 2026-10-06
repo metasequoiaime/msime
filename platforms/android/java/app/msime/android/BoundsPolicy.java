@@ -19,4 +19,12 @@ public final class BoundsPolicy {
     public static double bounded(double value, double minimum, double maximum) {
         return Math.max(minimum, Math.min(value, maximum));
     }
+
+    public static int nonNegative(int value) {
+        return Math.max(0, value);
+    }
+
+    public static long nonNegative(long value) {
+        return Math.max(0, value);
+    }
 }

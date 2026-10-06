@@ -32,8 +32,8 @@ public final class DownloadPage extends DetailPage {
     private static final String DOWNLOAD_LABEL = "msime.app/download";
 
     /** 本次打开页面后已经发送过的平台；按钮显示「已发送」。 */
-    private final Set<String> sentPlatforms = new HashSet<>();
-    private final Set<String> sending = new HashSet<>();
+    private final Set<String> sentPlatforms = new HashSet<>(6);
+    private final Set<String> sending = new HashSet<>(6);
 
     @Override protected void buildContent(LinearLayout column, Bundle args) {
         Context context = requireContext();

@@ -1,6 +1,7 @@
 package app.msime.android;
 
 import android.graphics.Color;
+import android.content.res.ColorStateList;
 
 /** Shared parsing for optional Android theme and skin colours. */
 public final class ColorPolicy {
@@ -19,6 +20,14 @@ public final class ColorPolicy {
         int g = Math.round(((from >> 8) & 0xFF) + (((to >> 8) & 0xFF) - ((from >> 8) & 0xFF)) * amount);
         int b = Math.round((from & 0xFF) + ((to & 0xFF) - (from & 0xFF)) * amount);
         return (a << 24) | (r << 16) | (g << 8) | b;
+    }
+
+    /** Build a color state list while validating that each state has a matching color. */
+    public static ColorStateList stateList(int[][] states, int[] colors) {
+        if (states == null || colors == null || states.length != colors.length) {
+            throw new IllegalArgumentException("state and color counts differ");
+        }
+        return new ColorStateList(states, colors);
     }
 
     /** Return the fallback when the value is missing, empty, or not a valid Android colour. */

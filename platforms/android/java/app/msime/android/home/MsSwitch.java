@@ -1,7 +1,6 @@
 package app.msime.android.home;
 
 import android.content.Context;
-import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.util.AttributeSet;
 import androidx.annotation.Nullable;
@@ -25,9 +24,10 @@ public final class MsSwitch extends MaterialSwitch {
         int off = Ui.color(context, com.google.android.material.R.attr.colorSurfaceContainerHighest);
         int outline = Ui.outline(context);
         // 禁用态整体变淡由所在的行负责（Ui.setEnabledLook），这里颜色只按开与关区分，禁用的打开态仍然看得出是打开的。
-        setTrackTintList(new ColorStateList(states, new int[] {accent, off}));
-        setThumbTintList(new ColorStateList(states, new int[] {onAccent, outline}));
-        setTrackDecorationTintList(new ColorStateList(states, new int[] {Color.TRANSPARENT, outline}));
+        setTrackTintList(ColorPolicy.stateList(states, new int[] {accent, off}));
+        setThumbTintList(ColorPolicy.stateList(states, new int[] {onAccent, outline}));
+        setTrackDecorationTintList(ColorPolicy.stateList(states,
+            new int[] {Color.TRANSPARENT, outline}));
         setThumbIconDrawable(null);
         setText(null);
     }

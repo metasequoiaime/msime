@@ -7,6 +7,7 @@ import android.graphics.RectF;
 import android.util.AttributeSet;
 import android.view.View;
 import androidx.annotation.Nullable;
+import app.msime.android.BoundsPolicy;
 import app.msime.android.R;
 import app.msime.android.TypingStatisticsSummary.DayCount;
 import java.util.List;
@@ -84,7 +85,7 @@ public final class HeatmapView extends View {
         float radius = Ui.dp(context, 4);
         int total = COLUMNS * ROWS;
         // 不足 84 天时前面补空格，让今天始终落在右下角。
-        List<DayCount> shown = days.subList(Math.max(0, days.size() - total), days.size());
+        List<DayCount> shown = days.subList(BoundsPolicy.nonNegative(days.size() - total), days.size());
         int offset = total - shown.size();
         for (int index = 0; index < total; index++) {
             int column = index / ROWS;

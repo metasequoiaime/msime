@@ -278,9 +278,29 @@ public final class Ui {
         return DrawablePolicy.circle(color);
     }
 
+    /** Filled circle with a visible outline. */
+    public static GradientDrawable circleOutlined(@ColorInt int fillColor, int strokeWidth,
+                                                  @ColorInt int strokeColor) {
+        return DrawablePolicy.circleOutlined(fillColor, strokeWidth, strokeColor);
+    }
+
     /** 纯色圆角矩形。 */
     public static GradientDrawable rounded(@ColorInt int color, float radiusPx) {
         return DrawablePolicy.rounded(color, radiusPx);
+    }
+
+    /** Filled rounded rectangle with a theme-aware outline. */
+    public static GradientDrawable outlined(@ColorInt int fillColor, float radiusPx,
+                                            int strokeWidth, @ColorInt int strokeColor) {
+        return DrawablePolicy.outlined(fillColor, radiusPx, strokeWidth, strokeColor);
+    }
+
+    /** Filled rounded rectangle with a dashed outline. */
+    public static GradientDrawable outlinedDashed(@ColorInt int fillColor, float radiusPx,
+                                                  int strokeWidth, @ColorInt int strokeColor,
+                                                  float dashWidth, float dashGap) {
+        return DrawablePolicy.outlinedDashed(fillColor, radiusPx, strokeWidth, strokeColor,
+            dashWidth, dashGap);
     }
 
     /** 胶囊形状：GradientDrawable 会把过大的圆角夹到短边的一半，所以高度怎么变两端都是半圆。 */

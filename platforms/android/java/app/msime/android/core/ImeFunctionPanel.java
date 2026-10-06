@@ -42,7 +42,7 @@ final class ImeFunctionPanel {
         boolean navigates = section == MoreToolsLayout.Section.LOCAL_INPUT_BACK;
         String label = MoreToolsLayout.icon(title) + "  " + title;
         card.setText(navigates ? label + "  ›" : label);
-        card.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        KeyboardGeometry.setKeyTextSize(card, 14);
         card.setGravity(navigates ? Gravity.CENTER_VERTICAL | Gravity.START : Gravity.CENTER);
         card.setPadding(s.pixels(12), s.pixels(5), s.pixels(12), s.pixels(5));
         card.setContentDescription(title);
@@ -62,7 +62,7 @@ final class ImeFunctionPanel {
         if (!section.title().isEmpty()) {
             TextView label = new TextView(s);
             label.setText(section.title());
-            label.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+            KeyboardGeometry.setKeyTextSize(label, 11);
             label.setGravity(Gravity.CENTER_VERTICAL);
             s.moreToolsPanel.addView(label, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, s.pixels(20)));
@@ -303,7 +303,7 @@ final class ImeFunctionPanel {
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         TextView hint = new TextView(s);
         hint.setText("回复：粘贴对方的话，生成几种语气的回复。润色：先选中要改的文字。");
-        hint.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        KeyboardGeometry.setKeyTextSize(hint, 12);
         hint.setPadding(s.pixels(4), s.pixels(10), s.pixels(4), 0);
         s.moreToolsPanel.addView(hint);
     }
@@ -312,7 +312,7 @@ final class ImeFunctionPanel {
         KeyboardPressButton button = new KeyboardPressButton(s);
         button.setAllCaps(false);
         button.setText(label);
-        button.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        KeyboardGeometry.setKeyTextSize(button, 15);
         button.setContentDescription(description);
         button.setKeyboardRole(KeyboardKeyRole.ACCENT);
         button.setEnabled(enabled);

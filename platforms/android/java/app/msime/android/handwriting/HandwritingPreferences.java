@@ -62,6 +62,6 @@ public record HandwritingPreferences(Mode mode, int delayMillis, boolean showPin
      * 键盘服务自己的停笔防抖之外还要再等多久（毫秒）：服务固定等 {@code serviceDebounce}，用户要的更长时补上差值；更短时无法提前，按服务的时间识别。
      */
     public long extraDelay(long serviceDebounce) {
-        return Math.max(0, delayMillis - serviceDebounce);
+        return BoundsPolicy.nonNegative(delayMillis - serviceDebounce);
     }
 }

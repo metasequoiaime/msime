@@ -75,7 +75,7 @@ public final class KeyboardLayoutAdjustView extends FrameLayout {
 
         hint = new TextView(context);
         hint.setGravity(android.view.Gravity.CENTER);
-        hint.setTextSize(13);
+        KeyboardGeometry.setKeyTextSize(hint, 13);
         hint.setMaxLines(2);
         hint.setContentDescription("布局调整说明");
         bar.addView(hint, new LinearLayout.LayoutParams(0,
@@ -110,9 +110,9 @@ public final class KeyboardLayoutAdjustView extends FrameLayout {
         int keyBackground = color(skin.keyBackground());
         int foreground = color(skin.keyForeground());
         int accent = color(skin.accent());
-        GradientDrawable surface = DrawablePolicy.rounded(keyBackground,
-            KeyboardGeometry.pixels(getContext(), 10));
-        surface.setStroke(KeyboardGeometry.atLeastOnePixel(getContext(), 1), accent);
+        GradientDrawable surface = DrawablePolicy.outlined(keyBackground,
+            KeyboardGeometry.pixels(getContext(), 10),
+            KeyboardGeometry.atLeastOnePixel(getContext(), 1), accent);
         bar.setBackground(surface);
         hint.setTextColor(foreground);
         voiceShortcut.setTextColor(foreground);

@@ -27,7 +27,7 @@ final class BackendAnonymousAccount {
 
         RateLimited(long retryAfterMillis) {
             super("anonymous login rate limited");
-            this.retryAfterMillis = Math.max(0, retryAfterMillis);
+            this.retryAfterMillis = BoundsPolicy.nonNegative(retryAfterMillis);
         }
 
         long retryAfterMillis() { return retryAfterMillis; }

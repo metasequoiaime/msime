@@ -1,6 +1,7 @@
 package app.msime.android;
 
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -95,6 +96,12 @@ public final class CommunityRequest {
     /** 社区页顶部的三个分段，顺序即展示顺序；回复模板放在「短语」分段里作为第二个小节「AI 回复模板」。 */
     public static List<Kind> segments() { return List.of(Kind.SKIN, Kind.DICTIONARY, Kind.PHRASE); }
 
+    /** Copy at most {@code limit} catalogue entries for a bounded discovery section. */
+    public static <T> List<T> limitedCopy(List<T> values, int limit) {
+        if (values == null || values.isEmpty() || limit <= 0) return new ArrayList<>(0);
+        return new ArrayList<>(values.subList(0, Math.min(limit, values.size())));
+    }
+
     /** 一个短语包最多 200 条。 */
     public static final int MAX_PHRASES = 200;
     /** 每条短语最多 2000 个 UTF-16 单元，与服务端的限制一致。 */
@@ -148,7 +155,7 @@ public final class CommunityRequest {
     public static String path(Kind kind, String scope, String search, int offset,
             Category category) {
         String bounded = search == null ? "" : search.trim();
-        int page = Math.max(0, offset);
+        int page = BoundsPolicy.nonNegative(offset);
         if (kind == Kind.SKIN) {
             return "/v1/community/skins?offset=" + page + "&q=" + encode(bounded)
                 + (category == null ? "" : "&category=" + category.id())
@@ -195,7 +202,7 @@ public final class CommunityRequest {
 
     /** 皮肤卡上的使用次数：一万以下照写，一万起按「万」取一位小数（去掉 `.0`），如「15.8 万 次使用」。 */
     public static String usesLabel(long downloads) {
-        long count = Math.max(0, downloads);
+        long count = BoundsPolicy.nonNegative(downloads);
         if (count < 10_000) return count + " 次使用";
         long tenths = Math.round(count / 1_000.0);
         String value = tenths % 10 == 0 ? Long.toString(tenths / 10) : (tenths / 10) + "." + (tenths % 10);
@@ -204,7 +211,7 @@ public final class CommunityRequest {
 
     /** 条数按千位分隔，如「4,812 条」。 */
     public static String entriesLabel(int count) {
-        return String.format(java.util.Locale.ROOT, "%,d 条", Math.max(0, count));
+        return String.format(java.util.Locale.ROOT, "%,d 条", BoundsPolicy.nonNegative(count));
     }
 
     /**

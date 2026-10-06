@@ -1,5 +1,6 @@
 package app.msime.android.home;
 
+import app.msime.android.KeyboardGeometry;
 import android.animation.ValueAnimator;
 import android.content.Context;
 import android.graphics.Canvas;
@@ -14,6 +15,7 @@ import android.os.Bundle;
 import android.util.AttributeSet;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
+import app.msime.android.BoundsPolicy;
 import android.view.View;
 import android.view.animation.LinearInterpolator;
 import androidx.annotation.NonNull;
@@ -23,7 +25,6 @@ import androidx.core.view.ViewCompat;
 import androidx.core.view.accessibility.AccessibilityNodeInfoCompat;
 import androidx.customview.widget.ExploreByTouchHelper;
 import app.msime.android.TypingStatisticsSummary;
-import app.msime.android.keyboard.KeyboardGeometry;
 import app.msime.android.TypingStatisticsSummary.Achievement;
 import java.util.List;
 import java.util.function.Consumer;
@@ -186,7 +187,7 @@ public final class BadgeGridView extends View {
 
     @Override protected void onMeasure(int widthSpec, int heightSpec) {
         int rows = (badges.size() + COLUMNS - 1) / COLUMNS;
-        float height = rows * TILE_HEIGHT + Math.max(0, rows - 1) * GAP;
+        float height = rows * TILE_HEIGHT + BoundsPolicy.nonNegative(rows - 1) * GAP;
         setMeasuredDimension(MeasureSpec.getSize(widthSpec),
             resolveSize(Ui.dp(getContext(), height), heightSpec));
     }

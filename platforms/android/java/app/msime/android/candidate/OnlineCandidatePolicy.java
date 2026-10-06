@@ -103,7 +103,7 @@ public final class OnlineCandidatePolicy {
     public static List<String> aiCandidates(List<String> texts, int limit) {
         int boundedLimit = aiCandidateLimit(limit);
         if (texts == null || boundedLimit == 0) return new ArrayList<>();
-        List<String> result = new ArrayList<>(Math.min(texts.size(), boundedLimit));
+        List<String> result = new ArrayList<>(BoundsPolicy.bounded(texts.size(), 0, boundedLimit));
         for (String text : texts) {
             if (result.size() == boundedLimit) break;
             if (text == null || text.trim().isEmpty() || TextPolicy.utf8Length(text) > MAX_CANDIDATE_BYTES

@@ -1,5 +1,7 @@
 #include "TextContainer.h"
 
+#include <algorithm>
+
 //----------------------------------------------------------------
 //
 //
@@ -8,6 +10,15 @@
 
 BOOL CTextContainer::InsertText(int nPos, const WCHAR *psz, UINT nCnt)
 {
+    if (nPos < 0 || static_cast<UINT>(nPos) > _nTextSize)
+        return FALSE;
+
+    if (!nCnt)
+        return TRUE;
+
+    if (!psz || nCnt > kMaxTextUnits - _nTextSize)
+        return FALSE;
+
     if (!EnsureBuffer(_nTextSize + nCnt))
     {
         return FALSE;
@@ -27,13 +38,15 @@ BOOL CTextContainer::InsertText(int nPos, const WCHAR *psz, UINT nCnt)
 
 BOOL CTextContainer::RemoveText(int nPos, UINT nCnt)
 {
+    if (nPos < 0 || static_cast<UINT>(nPos) > _nTextSize)
+        return FALSE;
+
+    nCnt = std::min(nCnt, _nTextSize - static_cast<UINT>(nPos));
     if (!nCnt)
         return TRUE;
 
-    if (nPos + nCnt - 1 > _nTextSize)
-        nCnt = _nTextSize - nPos;
-
-    memmove(_psz + nPos, _psz + nPos + nCnt, (_nTextSize - nPos - nCnt) * sizeof(WCHAR));
+    memmove(_psz + nPos, _psz + nPos + nCnt,
+            (_nTextSize - static_cast<UINT>(nPos) - nCnt) * sizeof(WCHAR));
     _nTextSize -= nCnt;
     return TRUE;
 }
@@ -46,13 +59,13 @@ BOOL CTextContainer::RemoveText(int nPos, UINT nCnt)
 
 BOOL CTextContainer::GetText(int nPos, WCHAR *psz, UINT nCnt)
 {
-    if (!nCnt)
+    if (!nCnt || !psz || nPos < 0 || static_cast<UINT>(nPos) > _nTextSize)
         return FALSE;
 
-    if (nPos + nCnt - 1 > _nTextSize)
-        nCnt = _nTextSize - nPos;
+    nCnt = std::min(nCnt, _nTextSize - static_cast<UINT>(nPos));
 
-    memcpy(psz, _psz + nPos, nCnt * sizeof(WCHAR));
+    if (nCnt)
+        memcpy(psz, _psz + nPos, nCnt * sizeof(WCHAR));
 
     return TRUE;
 }
@@ -75,12 +88,18 @@ BOOL CTextContainer::EnsureBuffer(UINT nNewTextSize)
         return FALSE;
     }
 
+    if (nNewTextSize > kMaxTextUnits ||
+        static_cast<size_t>(nNewTextSize) > std::numeric_limits<size_t>::max() / sizeof(WCHAR))
+        return FALSE;
+
     if (nNewTextSize <= _nTextSize)
         goto Exit;
 
+    const size_t bytes = static_cast<size_t>(nNewTextSize) * sizeof(WCHAR);
+
     if (_psz)
     {
-        void *pvNew = LocalReAlloc(_psz, nNewTextSize * sizeof(WCHAR), LMEM_MOVEABLE | LMEM_ZEROINIT);
+        void *pvNew = LocalReAlloc(_psz, bytes, LMEM_MOVEABLE | LMEM_ZEROINIT);
         if (!pvNew)
             return FALSE;
 
@@ -88,7 +107,7 @@ BOOL CTextContainer::EnsureBuffer(UINT nNewTextSize)
     }
     else
     {
-        _psz = (WCHAR *)LocalAlloc(LPTR, nNewTextSize * sizeof(WCHAR));
+        _psz = (WCHAR *)LocalAlloc(LPTR, bytes);
         if (!_psz)
             return FALSE;
     }

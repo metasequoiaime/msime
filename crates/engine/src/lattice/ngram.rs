@@ -54,8 +54,8 @@ impl NgramTable {
             return None;
         }
         let count = read_u32(&header, 8) as usize;
-        let needed = HEADER_BYTES + count * ENTRY_BYTES;
-        if count > MAX_ENTRIES || needed as u64 > size {
+        let needed = table_size(count)?;
+        if needed as u64 > size {
             return None;
         }
         // Only `needed` bytes are mapped: trailing bytes are legal (NG:124-126), and the header alone bounds the mapping, so a foreign file cannot make it larger than the largest valid table.
@@ -171,6 +171,16 @@ impl NgramTable {
             0.0
         }
     }
+}
+
+/// 先检查条目上限，再用 checked 算术计算映射长度，避免 32 位目标上的恶意计数触发整数溢出。
+fn table_size(count: usize) -> Option<usize> {
+    if count > MAX_ENTRIES {
+        return None;
+    }
+    count
+        .checked_mul(ENTRY_BYTES)
+        .and_then(|entries| HEADER_BYTES.checked_add(entries))
 }
 
 fn read_u32(bytes: &[u8], at: usize) -> u32 {
@@ -344,6 +354,16 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn rejects_counts_before_calculating_the_table_size() {
+        assert_eq!(
+            table_size(MAX_ENTRIES),
+            Some(HEADER_BYTES + MAX_ENTRIES * ENTRY_BYTES)
+        );
+        assert_eq!(table_size(MAX_ENTRIES + 1), None);
+        assert_eq!(table_size(u32::MAX as usize), None);
+    }
+
+    #[test]
     fn rejects_bad_files() {
         let directory = tempfile::tempdir().unwrap();
         let dir = directory.path();
@@ -406,6 +426,18 @@ pub(super) mod tests {
         assert!(
             NgramTable::load(&oversized).is_none(),
             "a count past the cap is rejected"
+        );
+
+        let overflowing_count = dir.join("overflowing-count.bin");
+        let mut header = Vec::new();
+        header.extend_from_slice(MAGIC);
+        header.extend_from_slice(&1u32.to_le_bytes());
+        header.extend_from_slice(&u32::MAX.to_le_bytes());
+        header.extend_from_slice(&0u32.to_le_bytes());
+        std::fs::write(&overflowing_count, header).unwrap();
+        assert!(
+            NgramTable::load(&overflowing_count).is_none(),
+            "a count whose size arithmetic overflows on 32-bit targets is rejected"
         );
 
         let trailing = dir.join("trailing.bin");

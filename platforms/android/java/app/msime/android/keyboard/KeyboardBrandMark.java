@@ -68,8 +68,8 @@ public final class KeyboardBrandMark extends View {
             color = Color.WHITE;
         }
         mark.setColor(color);
-        int width = Math.max(0, getWidth() - getPaddingLeft() - getPaddingRight());
-        int height = Math.max(0, getHeight() - getPaddingTop() - getPaddingBottom());
+        int width = KeyboardGeometry.contentWidth(this);
+        int height = KeyboardGeometry.contentHeight(this);
         draw(canvas, mark, getPaddingLeft(), getPaddingTop(), width, height, 1f);
     }
 }

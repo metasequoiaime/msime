@@ -143,7 +143,7 @@ public final class LexiconPage extends DetailPage {
                     discoverFailure = page == null ? "暂时连不上社区，稍后再试。" : page.failure();
                 } else {
                     List<CommunityCatalog.Item> items = page.items();
-                    discover = new ArrayList<>(items.subList(0, Math.min(DISCOVER_LIMIT, items.size())));
+                    discover = CommunityRequest.limitedCopy(items, DISCOVER_LIMIT);
                     discoverFailure = null;
                 }
                 render();

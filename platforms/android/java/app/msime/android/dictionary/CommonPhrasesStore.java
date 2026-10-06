@@ -251,7 +251,7 @@ public final class CommonPhrasesStore {
     /** 把一条移到第 `index` 位（从 0 数）。 */
     public static Result move(Context context, String id, int index) {
         try {
-            return perform(context, action("move").put("id", id).put("index", Math.max(0, index)), true);
+            return perform(context, action("move").put("id", id).put("index", BoundsPolicy.nonNegative(index)), true);
         } catch (JSONException error) {
             return Result.failed(failureMessage(""));
         }

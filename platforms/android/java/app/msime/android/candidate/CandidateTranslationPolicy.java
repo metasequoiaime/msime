@@ -122,7 +122,7 @@ public final class CandidateTranslationPolicy {
      * <p>每行释义都在候选下面另起一行，所以有几行释义就预留几行。韩语汉字行的 훈음 和第一行释义同在一行（{@link CandidateGlossPolicy#hanjaAnnotation}），所以只保证至少一行，不再多占一行：多占时韩语的候选条和空闲工具栏都比其他方案高，切换布局键盘高度就跳。不论汉字列表是否展开都一样，列表展开时候选条不会变高。
      */
     public static int reservedGlossRows(int glossLines, boolean hanjaRows) {
-        int lines = Math.max(0, glossLines);
+        int lines = BoundsPolicy.nonNegative(glossLines);
         return hanjaRows ? Math.max(1, lines) : lines;
     }
 

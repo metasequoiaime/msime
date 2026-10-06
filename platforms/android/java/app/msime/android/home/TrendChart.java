@@ -54,7 +54,9 @@ public final class TrendChart extends View {
 
     @Override protected void onMeasure(int widthSpec, int heightSpec) {
         Context context = getContext();
-        int height = Ui.dp(context, BAR_MAX + LABEL_GAP + LABEL_SIZE + 6);
+        // 星期标签按 sp 画，高度也按它实际的字号和下沉量算；按 dp 估算时系统字体一调大，标签下半截就落到控件外被裁掉。
+        int height = Math.round(Ui.dp(context, BAR_MAX + LABEL_GAP + 2) + label.getTextSize()
+            + label.getFontMetrics().descent);
         setMeasuredDimension(MeasureSpec.getSize(widthSpec), resolveSize(height, heightSpec));
     }
 

@@ -7,6 +7,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::fs;
+use std::io::Cursor;
 use std::path::Path;
 use toml::Value;
 
@@ -494,7 +495,7 @@ fn load(root: &Path, folder: &str) -> Result<SkinSummary, String> {
             .clone()
             .filter(|preview| decorated && is_image(preview))
     });
-    Ok(SkinSummary {
+    let summary = SkinSummary {
         id,
         name,
         version,
@@ -515,7 +516,9 @@ fn load(root: &Path, folder: &str) -> Result<SkinSummary, String> {
         preview,
         candidate,
         license,
-    })
+    };
+    validate_image_dimensions(&dir, &summary)?;
+    Ok(summary)
 }
 
 /// `[candidate_window]` 里只有 msime-windows 会画的键：外框线宽、高亮圆角、阴影、字体和翻页箭头。别的平台不画它们，但按 Windows 的规则校验，同一个包在每个平台上才会有同样的加载结果。
@@ -563,6 +566,66 @@ fn number_in(value: &Value, range: std::ops::RangeInclusive<f64>) -> Option<f64>
 
 pub(crate) fn is_image(relative: &str) -> bool {
     resource_content_type(relative).is_some_and(|kind| kind.starts_with("image/"))
+}
+
+/// 单张图片每边最多的像素数，与社区皮肤服务端的 `maxCandidateSide` 一致。
+pub(crate) const MAX_IMAGE_SIDE: u32 = 2048;
+/// 一个包里引用图片解码后的像素合计上限，与社区皮肤服务端的 `maxCandidatePixels` 一致。
+pub(crate) const MAX_PACKAGE_PIXELS: u64 = 8_000_000;
+pub(crate) const IMAGE_DIMENSIONS_TOO_LARGE: &str = "image dimensions exceed limits";
+
+/// 检查清单引用的 PNG/JPEG 尺寸，避免宿主把声明为极大尺寸的压缩图片交给系统解码器。
+/// 不能解析的旧资源仍由宿主按原有方式处理；社区发布和安装会再做完整解码检查。
+fn validate_image_dimensions(dir: &Path, summary: &SkinSummary) -> Result<(), String> {
+    let mut paths = Vec::new();
+    for path in [
+        summary.decoration_image.as_deref(),
+        summary
+            .background
+            .as_ref()
+            .map(|background| background.image.as_str()),
+        summary.preview.as_deref().filter(|path| is_image(path)),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        if !paths.iter().any(|existing| existing == &path) {
+            paths.push(path);
+        }
+    }
+
+    let mut pixels = 0_u64;
+    for path in paths {
+        let input = fs::File::open(dir.join(path)).map_err(|_| "image is unavailable")?;
+        let bytes = crate::bounded_io::read_bounded_file_with(
+            input,
+            MAX_RESOURCE_BYTES as u64,
+            || "image is too large".to_owned(),
+            |_| "image is unavailable".to_owned(),
+        )?;
+        let Ok(reader) = image::ImageReader::new(Cursor::new(bytes)).with_guessed_format() else {
+            continue;
+        };
+        if !matches!(
+            reader.format(),
+            Some(image::ImageFormat::Png | image::ImageFormat::Jpeg)
+        ) {
+            continue;
+        }
+        let Ok((width, height)) = reader.into_dimensions() else {
+            continue;
+        };
+        if width == 0 || height == 0 || width > MAX_IMAGE_SIDE || height > MAX_IMAGE_SIDE {
+            return Err(IMAGE_DIMENSIONS_TOO_LARGE.into());
+        }
+        pixels = pixels
+            .checked_add(u64::from(width) * u64::from(height))
+            .ok_or_else(|| IMAGE_DIMENSIONS_TOO_LARGE.to_owned())?;
+        if pixels > MAX_PACKAGE_PIXELS {
+            return Err(IMAGE_DIMENSIONS_TOO_LARGE.into());
+        }
+    }
+    Ok(())
 }
 
 /// A package-relative image that exists inside the package directory.

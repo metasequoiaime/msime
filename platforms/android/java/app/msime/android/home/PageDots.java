@@ -9,6 +9,7 @@ import android.util.AttributeSet;
 import android.view.View;
 import androidx.annotation.Nullable;
 import app.msime.android.ColorPolicy;
+import app.msime.android.BoundsPolicy;
 import app.msime.android.KeyboardGeometry;
 
 /**
@@ -42,8 +43,8 @@ public final class PageDots extends View {
     }
 
     public void setCount(int count) {
-        this.count = Math.max(0, count);
-        selected = KeyboardGeometry.bounded(selected, 0, Math.max(0, this.count - 1));
+        this.count = BoundsPolicy.nonNegative(count);
+        selected = KeyboardGeometry.bounded(selected, 0, BoundsPolicy.nonNegative(this.count - 1));
         previous = selected;
         progress = 1f;
         updateDescription();

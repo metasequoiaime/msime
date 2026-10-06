@@ -7,6 +7,7 @@ import android.graphics.Paint;
 import android.graphics.RectF;
 import android.view.View;
 import app.msime.android.KeyboardGeometry;
+import app.msime.android.BoundsPolicy;
 
 /**
  * 分页面板下方的页点：6 dp 高，当前页 16 dp 宽 accent，其余 6 dp 宽 kbHair，间距 6 dp，切页时宽度与颜色用 200 ms 过渡。
@@ -45,10 +46,10 @@ public final class KeyboardPagerDots extends View {
     }
 
     public void setCount(int value) {
-        int next = Math.max(0, value);
+        int next = BoundsPolicy.nonNegative(value);
         if (count == next) return;
         count = next;
-        active = KeyboardGeometry.bounded(active, 0, Math.max(0, count - 1));
+        active = KeyboardGeometry.bounded(active, 0, BoundsPolicy.nonNegative(count - 1));
         previous = active;
         progress = 1f;
         setVisibility(count > 1 ? VISIBLE : GONE);
@@ -61,7 +62,7 @@ public final class KeyboardPagerDots extends View {
     public int active() { return active; }
 
     public void setActive(int value, boolean animate) {
-        int next = KeyboardGeometry.bounded(value, 0, Math.max(0, count - 1));
+        int next = KeyboardGeometry.bounded(value, 0, BoundsPolicy.nonNegative(count - 1));
         if (next == active) return;
         previous = active;
         active = next;

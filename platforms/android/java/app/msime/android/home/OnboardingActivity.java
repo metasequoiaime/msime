@@ -1,5 +1,6 @@
 package app.msime.android.home;
 
+import app.msime.android.KeyboardGeometry;
 import android.content.Context;
 import android.content.res.ColorStateList;
 import android.graphics.Typeface;
@@ -476,7 +477,8 @@ public final class OnboardingActivity extends AppCompatActivity {
 
         TextView mark = new TextView(this);
         mark.setGravity(Gravity.CENTER);
-        mark.setTextSize(13);
+        // 字形画在固定 dp 的圆里，跟圆一起按 dp 定大小；按 sp 时系统字体一调大，对勾就被圆的边界切掉。
+        mark.setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP, 13);
         mark.setText(done ? "✓" : "!");
         mark.setTextColor(done ? Ui.onAccent(this) : 0xFFFFFFFF);
         GradientDrawable disc = Ui.circle(done ? Ui.accent(this) : Ui.color(this, R.attr.msWarn));
@@ -512,8 +514,9 @@ public final class OnboardingActivity extends AppCompatActivity {
         card.setOrientation(LinearLayout.HORIZONTAL);
         card.setGravity(Gravity.CENTER_VERTICAL);
         card.setPadding(Ui.dp(this, 16), Ui.dp(this, 14), Ui.dp(this, 16), Ui.dp(this, 14));
-        GradientDrawable face = Ui.rounded(Ui.card(this), Ui.dp(this, 20));
-        if (selected) face.setStroke(Ui.dp(this, 2), Ui.accent(this));
+        GradientDrawable face = selected
+            ? Ui.outlined(Ui.card(this), Ui.dp(this, 20), Ui.dp(this, 2), Ui.accent(this))
+            : Ui.rounded(Ui.card(this), Ui.dp(this, 20));
         card.setBackground(face);
 
         LinearLayout text = new LinearLayout(this);
@@ -529,13 +532,9 @@ public final class OnboardingActivity extends AppCompatActivity {
         card.addView(text, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
 
         View radio = new View(this);
-        GradientDrawable dot = DrawablePolicy.circle(selected ? Ui.page(this) : 0);
-        if (selected) {
-            dot.setStroke(Ui.dp(this, 6), Ui.accent(this));
-        } else {
-            dot.setStroke(Ui.atLeastOnePx(this, 1.5f),
-                Ui.subText(this));
-        }
+        GradientDrawable dot = Ui.circleOutlined(selected ? Ui.page(this) : 0,
+            selected ? Ui.dp(this, 6) : Ui.atLeastOnePx(this, 1.5f),
+            selected ? Ui.accent(this) : Ui.subText(this));
         radio.setBackground(dot);
         LinearLayout.LayoutParams radioParams = new LinearLayout.LayoutParams(Ui.dp(this, 22), Ui.dp(this, 22));
         radioParams.setMarginStart(Ui.dp(this, 12));

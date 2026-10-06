@@ -218,7 +218,7 @@ public final class TypingStatisticsSummary {
     /** 徽章下的一行：已解锁写说明，未解锁时能算出差多少就写「还差 …」，否则仍写说明。 */
     public static String caption(Achievement badge) {
         if (badge.unlocked()) return badge.description();
-        long missing = Math.max(0, badge.target() - badge.current());
+        long missing = BoundsPolicy.nonNegative(badge.target() - badge.current());
         String unit = unit(badge.id());
         if (unit == null || missing == 0) return badge.description();
         if ("字".equals(unit)) return "还差 " + characters(missing);
@@ -258,7 +258,7 @@ public final class TypingStatisticsSummary {
         for (Map.Entry<String, Long> entry : sources.entrySet()) {
             switch (entry.getKey()) {
                 case "nineKey", "voice", "handwriting", "unknown", "ai", "reply" -> { }
-                default -> full += Math.max(0, entry.getValue());
+                default -> full += BoundsPolicy.nonNegative(entry.getValue());
             }
         }
         Map<String, Long> groups = new LinkedHashMap<>(4);
@@ -293,7 +293,7 @@ public final class TypingStatisticsSummary {
 
     private static long value(Map<String, Long> values, String key) {
         Long value = values.get(key);
-        return value == null ? 0 : Math.max(0, value);
+        return value == null ? 0 : BoundsPolicy.nonNegative(value);
     }
 
     /** 各徽章进度的单位；速度、命中率、早起鸟这类阈值不是「差几个」能说清的，返回 null。 */
@@ -353,7 +353,7 @@ public final class TypingStatisticsSummary {
 
     private static long count(Object value) {
         if (!(value instanceof Number number)) return 0;
-        return Math.max(0, number.longValue());
+        return BoundsPolicy.nonNegative(number.longValue());
     }
 
     private static List<DayCount> days(JSONArray array) {

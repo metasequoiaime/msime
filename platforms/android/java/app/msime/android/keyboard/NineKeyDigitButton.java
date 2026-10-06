@@ -20,6 +20,7 @@ public final class NineKeyDigitButton extends KeyboardPressButton {
 
     public NineKeyDigitButton(Context context) {
         super(context);
+        KeyboardGeometry.normalizeKeyCap(this);
         basePaddingTop = getPaddingTop();
         digitPaint.setTextAlign(Paint.Align.CENTER);
         setAllCaps(false);
@@ -44,7 +45,7 @@ public final class NineKeyDigitButton extends KeyboardPressButton {
     @Override protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
         if (digitText.isEmpty() || getWidth() <= 0 || getHeight() <= 0) return;
-        digitPaint.setTextSize(KeyboardGeometry.sp(getContext(), 10));
+        digitPaint.setTextSize(KeyboardGeometry.keySp(getContext(), 10));
         digitPaint.setColor(digitColor);
         digitPaint.setAlpha(isEnabled() ? 204 : 96);
         Paint.FontMetrics metrics = digitPaint.getFontMetrics();

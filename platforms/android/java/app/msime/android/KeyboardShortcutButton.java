@@ -78,8 +78,8 @@ public final class KeyboardShortcutButton extends KeyboardPressButton {
     }
 
     @Override protected void onDraw(Canvas canvas) {
-        int width = Math.max(0, getWidth() - getPaddingLeft() - getPaddingRight());
-        int height = Math.max(0, getHeight() - getPaddingTop() - getPaddingBottom());
+        int width = KeyboardGeometry.contentWidth(this);
+        int height = KeyboardGeometry.contentHeight(this);
         if (KeyboardShortcutIconPolicy.materialGlyph(icon)) {
             drawMaterial(canvas, width, height);
             return;

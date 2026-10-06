@@ -24,6 +24,7 @@ public final class KeyboardIconKey extends KeyboardPressButton {
 
     public KeyboardIconKey(Context context, Kind kind) {
         super(context);
+        KeyboardGeometry.normalizeKeyCap(this);
         this.kind = kind;
         setAllCaps(false);
     }
@@ -76,8 +77,8 @@ public final class KeyboardIconKey extends KeyboardPressButton {
             super.onDraw(canvas);
             return;
         }
-        int width = Math.max(0, getWidth() - getPaddingLeft() - getPaddingRight());
-        int height = Math.max(0, getHeight() - getPaddingTop() - getPaddingBottom());
+        int width = KeyboardGeometry.contentWidth(this);
+        int height = KeyboardGeometry.contentHeight(this);
         float size = Math.min(Math.min(width, height),
             KeyboardGeometry.floatPixels(getContext(), ICON_DP));
         if (size <= 0) return;

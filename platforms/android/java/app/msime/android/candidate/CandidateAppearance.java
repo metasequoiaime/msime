@@ -67,8 +67,9 @@ public final class CandidateAppearance {
 
     private static List<String> fallbackFonts(JSONArray values) {
         if (values == null) return List.of("Noto Sans SC", "Microsoft YaHei");
-        ArrayList<String> result = new ArrayList<>(Math.min(values.length(), 32));
-        for (int index = 0; index < Math.min(values.length(), 32); index++) {
+        int limit = BoundsPolicy.bounded(values.length(), 0, 32);
+        ArrayList<String> result = new ArrayList<>(limit);
+        for (int index = 0; index < limit; index++) {
             String value = values.optString(index, "");
             if (validFont(value)) result.add(value);
         }
@@ -76,7 +77,8 @@ public final class CandidateAppearance {
     }
 
     private static List<String> safeFallbackFonts(List<String> values) {
-        ArrayList<String> result = new ArrayList<>(values == null ? 0 : Math.min(values.size(), 32));
+        ArrayList<String> result = new ArrayList<>(values == null ? 0
+            : BoundsPolicy.bounded(values.size(), 0, 32));
         if (values != null) {
             for (String value : values) {
                 if (result.size() >= 32) break;

@@ -1,6 +1,5 @@
 package app.msime.android.home;
 
-import android.content.res.ColorStateList;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -17,6 +16,7 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import app.msime.android.ColorPolicy;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
@@ -51,7 +51,7 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
     private static final String FAILURE = "请求失败，请检查登录状态或稍后重试。";
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
-    private final List<BackendAccount.ChatModel> models = new ArrayList<>();
+    private final ArrayList<BackendAccount.ChatModel> models = new ArrayList<>();
     private final List<BackendAccount.ChatMessage> messages = new ArrayList<>(13);
     private Future<?> operation;
     private int generation;
@@ -89,8 +89,8 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
         View inputBar = findViewById(R.id.tryout_input_bar);
         inputBar.setBackgroundColor(Ui.card(this));
         // 固定 20 dp 圆角而不是全圆：单行 40 dp 高时看起来仍是胶囊，长到几行时是圆角矩形，不会撑成一个椭圆。
-        android.graphics.drawable.GradientDrawable pill = Ui.rounded(Ui.page(this), Ui.dp(this, 20));
-        pill.setStroke(Ui.dp(this, 1), Ui.hairline(this));
+        android.graphics.drawable.GradientDrawable pill = Ui.outlined(Ui.page(this),
+            Ui.dp(this, 20), Ui.dp(this, 1), Ui.hairline(this));
         field.setBackground(pill);
         // 聊天页的回车是发送：键盘回车显示「发送」，按下等同右边的发送键，不再插入换行把输入框越撑越高。长句仍会折行显示，最多 4 行。
         field.setHorizontallyScrolling(false);
@@ -102,7 +102,7 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
             return true;
         });
         int accent = Ui.accent(this);
-        sendAi.setBackgroundTintList(new ColorStateList(
+        sendAi.setBackgroundTintList(ColorPolicy.stateList(
             new int[][] {{-android.R.attr.state_enabled}, {}},
             new int[] {Ui.withAlpha(accent, 0.38f), accent}));
 
@@ -171,6 +171,7 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
                 runOnUiThread(() -> {
                     if (isFinishing() || isDestroyed()) return;
                     models.clear();
+                    models.ensureCapacity(loaded.size());
                     models.addAll(loaded);
                     loadingModels = false;
                     // The draft may have been typed while the catalogue was loading. Refresh

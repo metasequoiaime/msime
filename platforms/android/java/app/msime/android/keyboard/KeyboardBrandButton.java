@@ -64,8 +64,8 @@ public final class KeyboardBrandButton extends KeyboardPressButton {
     public boolean isPanelOpen() { return panelOpen; }
 
     @Override protected void onDraw(Canvas canvas) {
-        int width = Math.max(0, getWidth() - getPaddingLeft() - getPaddingRight());
-        int height = Math.max(0, getHeight() - getPaddingTop() - getPaddingBottom());
+        int width = KeyboardGeometry.contentWidth(this);
+        int height = KeyboardGeometry.contentHeight(this);
         if (designed) {
             drawDesigned(canvas, width, height);
             return;

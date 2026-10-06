@@ -8,6 +8,7 @@ import android.graphics.Typeface;
 import android.util.AttributeSet;
 import android.view.View;
 import androidx.annotation.Nullable;
+import app.msime.android.BoundsPolicy;
 import app.msime.android.KeyPressIds;
 import app.msime.android.R;
 import app.msime.android.TypingStatisticsSummary;
@@ -87,7 +88,7 @@ public final class KeyHeatmapView extends View {
     public void setKeys(Map<String, Long> values) {
         counts = values == null ? Map.of() : Map.copyOf(values);
         long sum = 0;
-        for (long value : counts.values()) sum += Math.max(0, value);
+        for (long value : counts.values()) sum += BoundsPolicy.nonNegative(value);
         total = sum;
         describe();
         invalidate();

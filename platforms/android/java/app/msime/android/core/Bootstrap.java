@@ -36,6 +36,7 @@ public final class Bootstrap {
                 return false;
             }
             extractDictionary(context, resources);
+            clearInterruptedStaging(new File(root, "bootstrap/state/user/dictionaries"));
             JSONObject request = new JSONObject().put("resources", resources.getAbsolutePath())
                 .put("state_root", new File(root, "bootstrap/state").getAbsolutePath());
             // 不是 full 的版本把版本 id 交给 host-api：它按本版本的资源锁校验 APK 里的词库，在状态目录记下版本，从此没有偏好文件时读到的就是本版本的默认偏好（五笔版默认五笔、混拼打开）。full 不带这个键，请求与引入版本之前相同。
@@ -54,6 +55,18 @@ public final class Bootstrap {
                 throw error;
             }
             return true;
+        }
+    }
+
+    /**
+     * 删掉上一次首次准备被打断时留下的 `<content id>.incoming` 暂存目录。
+     *
+     * <p>引擎准备代次时独占地建这个目录，失败会自己删掉，但进程在复制约 190 MB 词库的途中被杀时它就留下了，此后每次准备（包括「点此重试」）都报 `RUNTIME_STAGING_EXISTS`，键盘永远只能直接输入。首启引导恰好在这几秒里把用户送去系统设置启用键盘，小米等系统会把退到后台的应用杀掉。这里只在还没有配置时调用，并且持有 `bootstrap.lock`：没有配置就没有会话，不会有别的进程正在暂存。
+     */
+    static void clearInterruptedStaging(File dictionaries) throws java.io.IOException {
+        File[] entries = dictionaries.listFiles();
+        for (File entry : entries == null ? new File[0] : entries) {
+            if (entry.getName().endsWith(".incoming")) deleteTree(entry);
         }
     }
 
@@ -223,7 +236,7 @@ public final class Bootstrap {
             manifest = new JSONObject(new String(bytes, StandardCharsets.UTF_8));
         }
         JSONArray artifacts = manifest.getJSONArray("artifacts");
-        java.util.Set<String> names = new java.util.HashSet<>();
+        java.util.Set<String> names = new java.util.HashSet<>(artifacts.length());
         for (int index = 0; index < artifacts.length(); index++) {
             String name = artifacts.getJSONObject(index).getString("name");
             if (!name.matches("[A-Za-z0-9_.-]+") || name.contains("..")) throw new IllegalArgumentException("Invalid asset name");

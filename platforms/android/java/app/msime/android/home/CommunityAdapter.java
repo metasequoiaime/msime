@@ -81,6 +81,7 @@ public final class CommunityAdapter extends RecyclerView.Adapter<CommunityAdapte
 
     /** Start a new section, such as 「AI 回复模板」 under the phrase packs. */
     public void appendHeader(String title) {
+        entries.ensureCapacity(entries.size() + 1);
         entries.add(new Entry(null, title));
         notifyItemInserted(entries.size() - 1);
         if (entries.size() > 1) notifyItemChanged(entries.size() - 2);

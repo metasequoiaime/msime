@@ -146,8 +146,9 @@ final class ImeStyler {
             s.actionRow.requestLayout();
         }
         // 设计的键区左右外边距 6 dp 量到键的边缘；键自己带半个键距的外边距，所以容器只补差值。
-        int edge = Math.max(0, s.pixels(KeyboardGeometry.DESIGN_PADDING_HORIZONTAL_DP)
-            - s.halfSpacingPixels(layoutKeySpacingTenths()));
+        int edge = BoundsPolicy.nonNegative(
+            s.pixels(KeyboardGeometry.DESIGN_PADDING_HORIZONTAL_DP)
+                - s.halfSpacingPixels(layoutKeySpacingTenths()));
         s.keyRows.setPadding(edge, s.keyRows.getPaddingTop(), edge, s.keyRows.getPaddingBottom());
         if (s.actionRow != null)
             s.actionRow.setPadding(edge, s.actionRow.getPaddingTop(), edge,
@@ -441,8 +442,7 @@ final class ImeStyler {
             s.preedit.setTextColor(s.brandPillVisible
                 ? color(s.skin.accent()) : s.candidateAppearance.number());
             s.preedit.setTypeface(candidateTypeface());
-            s.preedit.setTextSize(TypedValue.COMPLEX_UNIT_SP,
-                s.brandPillVisible ? 12 : s.candidatePreeditFontSize);
+            KeyboardGeometry.setKeyTextSize(s.preedit, s.brandPillVisible ? 12 : s.candidatePreeditFontSize);
             s.preedit.setBackground(s.brandPillVisible ? brandPillDrawable() : null);
             s.preedit.setPadding(s.pixels(s.brandPillVisible ? 12 : 2), s.pixels(s.brandPillVisible ? 4 : 0),
                 s.pixels(s.brandPillVisible ? 12 : 2), s.pixels(s.brandPillVisible ? 4 : 0));

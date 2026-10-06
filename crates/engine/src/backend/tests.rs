@@ -412,6 +412,33 @@ fn english_completes_prefixes_and_glosses_both_ways() {
     );
 }
 
+#[test]
+fn english_completion_keeps_a_prefix_ending_at_the_maximum_scalar() {
+    let resources = resources();
+    let connection = Connection::open(resources.path().join(assets::ENGLISH_DICTIONARY)).unwrap();
+    let maximum = "\u{10ffff}";
+    let suffix = format!("{maximum}suffix");
+    connection
+        .execute("INSERT INTO english_words VALUES(?1, ?1, 1)", [maximum])
+        .unwrap();
+    connection
+        .execute("INSERT INTO english_words VALUES(?1, ?1, 2)", [&suffix])
+        .unwrap();
+
+    assert_eq!(
+        run(
+            json!({"operation": "dictionary", "kind": "english", "text": maximum}),
+            resources.path()
+        )["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|entry| entry["code"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        vec![maximum, suffix.as_str()]
+    );
+}
+
 /// Answer a personal request with `snapshot` as the server's snapshot file.
 fn personal(request: Value, snapshot: &str, resources: &Path) -> Value {
     let scratch = tempfile::tempdir().unwrap();

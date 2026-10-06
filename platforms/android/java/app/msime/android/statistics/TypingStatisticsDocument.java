@@ -61,7 +61,7 @@ public final class TypingStatisticsDocument {
             // written documents opt-in on Android as well; showing them as enabled would expose
             // statistics the user never turned on.
             root.optBoolean("enabled", false),
-            Math.max(0, KeyboardGeometry.strictLong(root.opt("total"), 0)),
+            BoundsPolicy.nonNegative(KeyboardGeometry.strictLong(root.opt("total"), 0)),
             root.optString("retention", "forever"),
             counts(root.optJSONObject("days")),
             detail == null ? Map.of() : counts(detail.optJSONObject("characters")),

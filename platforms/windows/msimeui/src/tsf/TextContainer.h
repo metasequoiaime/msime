@@ -2,6 +2,9 @@
 
 #include <Windows.h>
 
+#include <cstddef>
+#include <limits>
+
 //----------------------------------------------------------------
 //
 //
@@ -11,6 +14,11 @@
 class CTextContainer
 {
   public:
+    // Keep the TSF text store bounded to the same UTF-16 size accepted by the
+    // native text box clipboard contract.  This also keeps all ACP positions
+    // representable as non-negative LONG values.
+    static constexpr UINT kMaxTextUnits = 999'999;
+
     CTextContainer()
     {
         _psz = NULL;

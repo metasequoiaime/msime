@@ -28,6 +28,7 @@ public class KeyHintButton extends KeyboardPressButton {
     @SuppressWarnings("this-escape")
     public KeyHintButton(Context context) {
         super(context);
+        KeyboardGeometry.normalizeKeyCap(this);
         basePaddingTop = getPaddingTop();
         basePaddingBottom = getPaddingBottom();
         hintPaint.setTextAlign(Paint.Align.CENTER);
@@ -40,9 +41,8 @@ public class KeyHintButton extends KeyboardPressButton {
         String next = value == null ? "" : value;
         if (hintText.equals(next)) return;
         hintText = next;
-        // TextView 把文字裁在内边距围出的框里：在按钮默认的上下内边距之外再留出提示的高度，46 dp 的键只剩不到 30 dp，22 sp 的字母连同字体留白放不下，被裁掉下半截、压在提示上。有提示时上边距归零、去掉字体留白，下边只留提示那一行。
+        // 键帽的上下内边距和字体留白在构造时已归零（KeyboardGeometry.normalizeKeyCap）；有提示时下边只留提示那一行，字母在剩下的高度里居中。
         boolean hinted = !hintText.isEmpty();
-        setIncludeFontPadding(!hinted);
         setPadding(getPaddingLeft(), hinted ? 0 : basePaddingTop, getPaddingRight(),
             hinted ? KeyboardGeometry.pixels(getContext(), 11) : basePaddingBottom);
         invalidate();
@@ -78,7 +78,7 @@ public class KeyHintButton extends KeyboardPressButton {
     }
 
     private void drawCornerHint(Canvas canvas) {
-        cornerPaint.setTextSize(KeyboardGeometry.sp(getContext(), CORNER_HINT_SP));
+        cornerPaint.setTextSize(KeyboardGeometry.keySp(getContext(), CORNER_HINT_SP));
         cornerPaint.setColor(cornerHintColor);
         if (!isEnabled()) cornerPaint.setAlpha(96);
         Paint.FontMetrics metrics = cornerPaint.getFontMetrics();
@@ -89,13 +89,13 @@ public class KeyHintButton extends KeyboardPressButton {
     }
 
     private void drawBottomHint(Canvas canvas) {
-        float size = KeyboardGeometry.sp(getContext(), 9);
+        float size = KeyboardGeometry.keySp(getContext(), 9);
         float available = Math.max(1, getWidth() - getPaddingLeft() - getPaddingRight()
             - KeyboardGeometry.pixels(getContext(), 4));
         hintPaint.setTextSize(size);
-        while (size > KeyboardGeometry.sp(getContext(), 6)
+        while (size > KeyboardGeometry.keySp(getContext(), 6)
                 && hintPaint.measureText(hintText) > available) {
-            size -= KeyboardGeometry.sp(getContext(), 0.5f);
+            size -= KeyboardGeometry.keySp(getContext(), 0.5f);
             hintPaint.setTextSize(size);
         }
         hintPaint.setColor(hintColor);

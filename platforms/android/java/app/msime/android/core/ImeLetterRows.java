@@ -393,7 +393,7 @@ final class ImeLetterRows {
                     s.shuangpinKeyInputs.add(input);
                     String hint = cornerHints ? LetterHintTable.hint(input) : null;
                     hintButton.setCornerHint(hint);
-                    hintButton.setTextSize(TypedValue.COMPLEX_UNIT_SP, 22);
+                    KeyboardGeometry.setKeyTextSize(hintButton, 22);
                     bindLetterGestures(hintButton, face, hint);
                 } else {
                     keyButton = s.keyboardKey(face, face, () -> s.type(input.charAt(0)));
@@ -420,7 +420,7 @@ final class ImeLetterRows {
                     "Semicolon");
                 s.shuangpinKeyButtons.add((ShuangpinHintButton) s.microsoftFinalKey);
                 s.shuangpinKeyInputs.add(";");
-                s.microsoftFinalKey.setTextSize(TypedValue.COMPLEX_UNIT_SP, 22);
+                KeyboardGeometry.setKeyTextSize(s.microsoftFinalKey, 22);
                 row.addView(s.microsoftFinalKey, new LinearLayout.LayoutParams(0,
                     LinearLayout.LayoutParams.MATCH_PARENT, 1));
             }
@@ -496,7 +496,7 @@ final class ImeLetterRows {
         switch (layerKey.kind()) {
             case CHARACTER -> {
                 key = s.keyboardKey(text, text, () -> s.imeLayoutRows.commitNineKeyLiteral(text));
-                key.setTextSize(TypedValue.COMPLEX_UNIT_SP, firstRow ? 20 : 18);
+                KeyboardGeometry.setKeyTextSize(key, firstRow ? 20 : 18);
                 if (key instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.KEY);
                 if (text.length() == 1) s.keyId(key, KeyPressIds.forCharacter(text.charAt(0)));
                 return key;
@@ -554,7 +554,7 @@ final class ImeLetterRows {
         }
         // 功能键（层切换、返回字母、表情、符号）：功能键底色、15 sp，描述按 §2.8。
         key.setContentDescription(layerKey.description());
-        key.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        KeyboardGeometry.setKeyTextSize(key, 15);
         if (key instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
         s.imeStyler.styleButton(key, KeyboardKeyRole.ACCENT, s.skin);
         return key;

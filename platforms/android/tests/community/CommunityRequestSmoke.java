@@ -8,6 +8,10 @@ public final class CommunityRequestSmoke {
         check(CommunityRequest.kinds().size() == 4, "skins, dictionaries, replies and phrases");
         check(List.of(Kind.SKIN, Kind.DICTIONARY, Kind.PHRASE).equals(CommunityRequest.segments()),
             "the tab shows skins, dictionaries and phrases; replies live inside phrases");
+        check(List.of("a", "b").equals(CommunityRequest.limitedCopy(List.of("a", "b", "c"), 2)),
+            "a bounded catalogue copy keeps order and truncates at the limit");
+        check(CommunityRequest.limitedCopy(List.of("a"), 0).isEmpty(),
+            "a non-positive catalogue limit returns an empty copy");
         check("phrase".equals(Kind.PHRASE.id()) && "短语".equals(Kind.PHRASE.title()), "phrase kind");
         check(CommunityRequest.path(Kind.PHRASE, "", "签名", 0).startsWith("/v1/community/resources?kind=phrase&"),
             "phrase packs share the resource endpoint");

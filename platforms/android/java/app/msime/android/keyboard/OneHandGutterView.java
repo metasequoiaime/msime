@@ -41,12 +41,12 @@ public final class OneHandGutterView extends LinearLayout {
 
     /** 侧栏宽度（像素）：总宽的 15%。 */
     public static int gutterWidth(int totalWidth) {
-        return Math.round(Math.max(0, totalWidth) * GUTTER_FRACTION);
+        return Math.round(BoundsPolicy.nonNegative(totalWidth) * GUTTER_FRACTION);
     }
 
     /** 键区宽度（像素）：总宽减去侧栏。 */
     public static int keysWidth(int totalWidth) {
-        return Math.max(0, totalWidth) - gutterWidth(totalWidth);
+        return BoundsPolicy.nonNegative(totalWidth) - gutterWidth(totalWidth);
     }
 
     public void setOnSwap(Runnable action) { swap.setOnClickListener(view -> action.run()); }

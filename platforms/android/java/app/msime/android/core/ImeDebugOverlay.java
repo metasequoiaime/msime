@@ -67,14 +67,14 @@ final class ImeDebugOverlay {
         /** 一行输入事件：只有时间戳与种类。 */
         static String line(Event kind, long timeMillis) {
             if (kind == null) throw new IllegalArgumentException("event kind");
-            return "{\"t_ms\":" + Math.max(0, timeMillis) + ",\"kind\":\"" + kind.wire() + "\"}\n";
+            return "{\"t_ms\":" + BoundsPolicy.nonNegative(timeMillis) + ",\"kind\":\"" + kind.wire() + "\"}\n";
         }
 
         /** 一行耗时记录：时间戳、种类与耗时（毫秒）。 */
         static String line(Event kind, long timeMillis, long durationMillis) {
             if (kind == null) throw new IllegalArgumentException("event kind");
-            return "{\"t_ms\":" + Math.max(0, timeMillis) + ",\"kind\":\"" + kind.wire()
-                + "\",\"duration_ms\":" + Math.max(0, durationMillis) + "}\n";
+            return "{\"t_ms\":" + BoundsPolicy.nonNegative(timeMillis) + ",\"kind\":\"" + kind.wire()
+                + "\",\"duration_ms\":" + BoundsPolicy.nonNegative(durationMillis) + "}\n";
         }
 
         /**
@@ -85,7 +85,7 @@ final class ImeDebugOverlay {
         static byte[] trimmed(byte[] existing, int incoming, long cap) {
             if (existing.length + (long) incoming <= cap) return existing;
             long keep = KeyboardGeometry.bounded(cap * 3 / 4, 0L, cap - incoming);
-            int start = (int) Math.max(0, existing.length - keep);
+            int start = (int) BoundsPolicy.nonNegative(existing.length - keep);
             while (start < existing.length && start > 0 && existing[start - 1] != '\n') start++;
             byte[] kept = new byte[existing.length - start];
             System.arraycopy(existing, start, kept, 0, kept.length);
@@ -248,7 +248,7 @@ final class ImeDebugOverlay {
     static String debugLine(long engineMillis, int candidateCount, String firstWeight) {
         StringBuilder line = new StringBuilder("调试 · 引擎 ");
         line.append(engineMillis < 0 ? "—" : engineMillis + " ms");
-        line.append(" · 候选 ").append(Math.max(0, candidateCount));
+        line.append(" · 候选 ").append(BoundsPolicy.nonNegative(candidateCount));
         if (firstWeight != null && !firstWeight.isEmpty()) line.append(" · 首选词频 ").append(firstWeight);
         return line.toString();
     }

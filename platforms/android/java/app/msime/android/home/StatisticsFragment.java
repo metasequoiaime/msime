@@ -291,8 +291,9 @@ public final class StatisticsFragment extends HomeTabFragment {
         LinearLayout row = header(context, content, "按键热力图", null);
         SegmentedControl layout = new SegmentedControl(context);
         layout.setOptions(List.of("26 键", "9 键"), nine ? 1 : 0);
+        layout.setMinimumHeight(Ui.dp(context, 32));
         row.addView(layout, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
-            Ui.dp(context, 32)));
+            ViewGroup.LayoutParams.WRAP_CONTENT));
         LinearLayout board = card(context, content, 12);
         KeyHeatmapView heatmap = new KeyHeatmapView(context);
         heatmap.setNineKey(nine);
@@ -429,7 +430,8 @@ public final class StatisticsFragment extends HomeTabFragment {
         if (trailing != null) row.addView(label(context, trailing, 13, Ui.subText(context)));
         LinearLayout.LayoutParams params = Ui.matchWidth();
         params.topMargin = Ui.dp(context, 22);
-        params.height = Ui.dp(context, 32);
+        // 最小 32 dp 而不是固定 32 dp：系统字体调大后标题和右侧的分段控件都比它高。
+        row.setMinimumHeight(Ui.dp(context, 32));
         parent.addView(row, params);
         return row;
     }

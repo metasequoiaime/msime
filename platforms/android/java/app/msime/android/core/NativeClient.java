@@ -363,7 +363,7 @@ public final class NativeClient {
 
     /** Drop loaded models idle for `idleMillis`, or every model not in use for 0. */
     public static int localSpeechRelease(long idleMillis) {
-        return localSpeechReleaseRaw(Math.max(0, idleMillis));
+        return localSpeechReleaseRaw(BoundsPolicy.nonNegative(idleMillis));
     }
 
     /**

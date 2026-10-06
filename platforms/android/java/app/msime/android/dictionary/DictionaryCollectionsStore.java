@@ -203,7 +203,7 @@ public final class DictionaryCollectionsStore {
      */
     public static Result<WordPage> words(Context context, String kind, String query, int offset, int limit) {
         try {
-            JSONObject request = action("list").put("kind", kind).put("offset", Math.max(0, offset))
+            JSONObject request = action("list").put("kind", kind).put("offset", BoundsPolicy.nonNegative(offset))
                 .put("limit", KeyboardGeometry.bounded(limit, 1, 1000));
             if (query != null && !query.isEmpty()) request.put("query", query);
             JSONObject value = dictionary(context, request);
@@ -304,7 +304,7 @@ public final class DictionaryCollectionsStore {
 
     /** 条数的展示写法，例如 `128,406 条`。 */
     public static String countLabel(long count) {
-        return String.format(Locale.ROOT, "%,d 条", Math.max(0, count));
+        return String.format(Locale.ROOT, "%,d 条", BoundsPolicy.nonNegative(count));
     }
 
     /** 从文件名得到新词库的名字：去掉扩展名（`.dict.yaml` 算一个），截到 32 个字，收不出来时用「导入的词库」。 */
