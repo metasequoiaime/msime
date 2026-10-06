@@ -2073,15 +2073,30 @@ pub fn is_absolute_model_path(path: &str) -> bool {
     bytes.len() > 2 && bytes[0] == b'\\' && bytes[1] == b'\\' && bytes[2] != b'\\'
 }
 
-/// Whether `mirror` is an acceptable `asr_model_mirror`: empty, or an `https://` URL of at most 2048 bytes with no control characters or whitespace.
+/// 判断本地模型镜像：空字符串，或不带凭据、查询和片段的 HTTPS 前缀。
 pub fn valid_model_mirror(mirror: &str) -> bool {
-    mirror.is_empty()
-        || (mirror.len() <= 2048
-            && mirror.len() > "https://".len()
-            && mirror.starts_with("https://")
-            && !mirror
-                .chars()
-                .any(|ch| ch.is_control() || ch.is_whitespace()))
+    if mirror.is_empty() {
+        return true;
+    }
+    if mirror.len() > 2048
+        || mirror
+            .chars()
+            .any(|ch| ch.is_control() || ch.is_whitespace())
+        || !mirror
+            .strip_prefix("https://")
+            .is_some_and(|rest| rest.as_bytes().first().is_some_and(|byte| *byte != b'/'))
+    {
+        return false;
+    }
+    let Ok(url) = reqwest::Url::parse(mirror) else {
+        return false;
+    };
+    url.scheme() == "https"
+        && url.host_str().is_some_and(|host| !host.is_empty())
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.query().is_none()
+        && url.fragment().is_none()
 }
 
 fn default_shuangpin_helpcode() -> HelpcodePreferences {

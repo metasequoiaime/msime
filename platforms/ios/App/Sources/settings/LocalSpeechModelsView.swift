@@ -124,8 +124,7 @@ final class LocalSpeechModelManager: ObservableObject {
   }
 
   static func isValidMirror(_ value: String) -> Bool {
-    if value.isEmpty { return true }
-    return CustomServiceConfiguration.validatedEndpoint(value, maximumCharacters: 2048) != nil
+    LocalSpeechModelStore.isValidMirror(value)
   }
 
   @discardableResult

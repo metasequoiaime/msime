@@ -42,6 +42,13 @@ enum LocalSpeechModelStore {
     let `default`: String
   }
 
+  static func isValidMirror(_ value: String) -> Bool {
+    if value.isEmpty { return true }
+    guard let url = CustomServiceConfiguration.validatedEndpoint(value, maximumCharacters: 2048),
+          url.query == nil else { return false }
+    return true
+  }
+
   static func catalog(root: URL) throws -> Catalog {
     let value = try call(msimeClientVoiceLocalModels, ["root": root.path])
     let data = try JSONSerialization.data(withJSONObject: value)

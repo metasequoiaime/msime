@@ -255,6 +255,10 @@ fn local_model_mirror_is_empty_or_an_https_prefix() {
     for rejected in [
         "http://ghproxy.example.test",
         "https://",
+        "https:///path",
+        "https://user:pass@mirror.example.test",
+        "https://mirror.example.test?query=unexpected",
+        "https://mirror.example.test/#fragment",
         "ghproxy.example.test",
         "https://mirror.example.test/\n",
         "https://mirror example.test",
