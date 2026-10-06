@@ -94,8 +94,9 @@ pub fn query_command(
 ) -> Vec<WordItem> {
     let clock = clock(now);
     let mut rows: Vec<(String, String)> = Vec::with_capacity(RESULT_LIMIT);
+    let mut seen_texts = HashSet::with_capacity(RESULT_LIMIT);
     let mut push = |trigger: &str, text: String| {
-        if fits(&text) && !rows.iter().any(|(_, kept)| *kept == text) {
+        if fits(&text) && seen_texts.insert(text.clone()) {
             rows.push((trigger.to_owned(), text));
         }
     };
