@@ -2,6 +2,7 @@ package app.msime.android;
 
 import android.content.Context;
 import android.graphics.Color;
+import android.graphics.Path;
 import android.graphics.drawable.GradientDrawable;
 import android.util.TypedValue;
 import android.view.Gravity;
@@ -228,6 +229,7 @@ public final class KeyboardSchemeCard extends FrameLayout {
     private static final class CheckShape extends android.graphics.drawable.shapes.Shape {
         private final android.graphics.Paint paint = new android.graphics.Paint(
             android.graphics.Paint.ANTI_ALIAS_FLAG);
+        private final Path path = new Path();
 
         CheckShape(int color) {
             paint.setColor(color);
@@ -240,7 +242,7 @@ public final class KeyboardSchemeCard extends FrameLayout {
             float width = getWidth();
             float height = getHeight();
             paint.setStrokeWidth(Math.max(1f, width * .16f));
-            android.graphics.Path path = new android.graphics.Path();
+            path.reset();
             path.moveTo(width * .28f, height * .52f);
             path.lineTo(width * .44f, height * .68f);
             path.lineTo(width * .73f, height * .34f);
