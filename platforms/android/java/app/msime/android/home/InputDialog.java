@@ -172,7 +172,7 @@ public final class InputDialog {
 
     private void refresh() {
         boolean ok = valid.test(values());
-        Ui.setEnabledLook(primary, ok);
+        ViewPolicy.setEnabledWithAlpha(primary, ok, 0.38f);
     }
 
     private void submit() {
