@@ -182,11 +182,12 @@ public final class FeedbackPage extends DetailPage {
         if (context == null || counter == null || submit == null) return;
         int length = FeedbackApi.length(draft);
         counter.setText(length + " / " + FeedbackApi.MAX_TEXT);
-        counter.setTextColor(length > FeedbackApi.MAX_TEXT ? Ui.danger(context) : Ui.subText(context));
+        ViewPolicy.setTextColor(counter,
+            length > FeedbackApi.MAX_TEXT ? Ui.danger(context) : Ui.subText(context));
         boolean ready = !sending && !sent && FeedbackApi.validText(draft);
         submit.setText(sent ? "已提交" : sending ? "正在提交…" : "提交");
         submit.setEnabled(ready);
-        submit.setTextColor(ready ? Ui.onAccent(context) : Ui.subText(context));
+        ViewPolicy.setTextColor(submit, ready ? Ui.onAccent(context) : Ui.subText(context));
         int fill = ready ? Ui.accent(context)
             : Ui.color(context, com.google.android.material.R.attr.colorSurfaceContainerHighest);
         submit.setBackground(Ui.rippleOn(context, fill, Ui.dp(requireContext(), Ui.GROUP_RADIUS)));

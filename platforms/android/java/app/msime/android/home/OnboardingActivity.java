@@ -328,7 +328,7 @@ public final class OnboardingActivity extends AppCompatActivity {
         String reason = FirstRunPreparation.failure();
         TextView view = footnote(column, "词库准备失败" + (reason.isEmpty() ? "" : "：" + reason)
             + "。点这里重试，" + subject + "会在准备好后自动保存。");
-        view.setTextColor(Ui.accent(this));
+        ViewPolicy.setTextColor(view, Ui.accent(this));
         ViewPolicy.bindClick(view, () -> {
             FirstRunPreparation.retry(this);
             render(false);
