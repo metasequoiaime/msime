@@ -298,26 +298,42 @@ pub fn matches_double_helpcodes(word: &str, help_codes: &str, keymap: &HelpcodeK
 
 /// First and Both matches, then Last, then the rest, each stable; unchanged unless `help_code` is one letter.
 pub fn reorder_candidates_with_single_helpcode(
-    candidates: Vec<WordItem>,
+    mut candidates: Vec<WordItem>,
     help_code: &str,
     keymap: &HelpcodeKeymap,
 ) -> Vec<WordItem> {
     if help_code.len() != 1 {
         return candidates;
     }
-    let mut first = Vec::with_capacity(candidates.len());
-    let mut last = Vec::with_capacity(candidates.len());
-    let mut rest = Vec::with_capacity(candidates.len());
-    for candidate in candidates {
-        match match_single_helpcode(&candidate.word, help_code, keymap) {
-            SingleHelpcodeMatch::First | SingleHelpcodeMatch::Both => first.push(candidate),
-            SingleHelpcodeMatch::Last => last.push(candidate),
-            SingleHelpcodeMatch::None => rest.push(candidate),
+
+    let mut boundary = 0;
+    let mut index = 0;
+    while index < candidates.len() {
+        let is_first = matches!(
+            match_single_helpcode(&candidates[index].word, help_code, keymap),
+            SingleHelpcodeMatch::First | SingleHelpcodeMatch::Both
+        );
+        if is_first {
+            candidates[boundary..=index].rotate_right(1);
+            boundary += 1;
         }
+        index += 1;
     }
-    first.extend(last);
-    first.extend(rest);
-    first
+
+    index = boundary;
+    while index < candidates.len() {
+        let is_last = matches!(
+            match_single_helpcode(&candidates[index].word, help_code, keymap),
+            SingleHelpcodeMatch::Last
+        );
+        if is_last {
+            candidates[boundary..=index].rotate_right(1);
+            boundary += 1;
+        }
+        index += 1;
+    }
+
+    candidates
 }
 
 /// Only the double-helpcode matches; empty unless `help_codes` is two letters.
@@ -647,6 +663,17 @@ mod tests {
         assert!(!matches_double_helpcodes("阿姨", "ek", &map));
         assert!(!matches_double_helpcodes("阿好", "eh", &map));
         assert!(!matches_double_helpcodes("阿", "e", &map));
+    }
+
+    #[test]
+    fn single_helpcode_reorder_reuses_the_input_buffer() {
+        let map = keymap(&[("你", "ab"), ("拟", "ba"), ("泥", "cc"), ("妮", "bb")]);
+        let candidates = items(&["泥", "你", "拟", "妮", "好"]);
+        let (reordered, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            reorder_candidates_with_single_helpcode(candidates, "b", &map)
+        });
+        assert_eq!(words(&reordered), ["拟", "妮", "你", "泥", "好"]);
+        assert_eq!(allocations, 0);
     }
 
     #[test]
