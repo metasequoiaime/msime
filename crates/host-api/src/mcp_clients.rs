@@ -105,10 +105,10 @@ pub fn server_command(executable: &Path) -> Option<PathBuf> {
         .map(|directory| directory.join(format!("msime-mcp{}", std::env::consts::EXE_SUFFIX)))
 }
 
-/// Nix 的 store。装在这里的程序路径带着版本哈希，升级后就不再是当前版本，垃圾回收后连文件都没了。
+/// Nix 的 store。这里的路径带着版本哈希，升级后不再是当前版本，垃圾回收后文件也没了，所以不写进助手配置。
 const NIX_STORE: &str = "/nix/store";
 
-/// 写进助手配置的 `msime-mcp`：通常就是 `server_command` 的结果；它在 Nix store 里时换成 PATH 上由 Nix profile 链接进来的那一个（见 [`stable_command_in`]）。
+/// 写进助手配置的 `msime-mcp`：`server_command` 在 Nix store 里时换成 PATH 上 Nix profile 的链接（比如 `/run/current-system/sw/bin/msime-mcp`），它随每次切换指向当前版本。
 fn assistant_command(
     executable: &Path,
     env: impl Fn(&str) -> Option<std::ffi::OsString>,
@@ -116,7 +116,7 @@ fn assistant_command(
     server_command(executable).map(|command| stable_command_in(command, Path::new(NIX_STORE), env))
 }
 
-/// `command` 在 `store` 下时，返回 PATH 上第一个同名、自己不在 `store` 下、解析掉符号链接后落在 `store` 里的程序，比如 `/run/current-system/sw/bin/msime-mcp`、`/etc/profiles/per-user/<用户>/bin/msime-mcp` 或 `~/.nix-profile/bin/msime-mcp`。这些链接随每次切换指向当前版本，写进助手配置后升级和垃圾回收都不会让它失效。找不到这样的链接（比如只用 `nix run` 起了设置窗口）时仍返回 `command`。PATH 上不在 store 里的同名程序（另装的 deb 包之类）是另一份安装，不选。
+/// `command` 在 `store` 下时，返回 PATH 上第一个同名、自己不在 `store` 下、解析后落在 `store` 里的程序；没有时（比如只用 `nix run` 起了设置窗口）原样返回。解析后不在 `store` 里的同名程序是另一份安装（deb 包之类），不选。
 fn stable_command_in(
     command: PathBuf,
     store: &Path,
@@ -178,7 +178,11 @@ pub fn entry_flags(existing: &Value, base: &Value) -> Option<Vec<McpFlag>> {
         stripped.get("command"),
         base.get("command").and_then(Value::as_str),
     ) {
-        if command != expected && same_program(command, expected) {
+        // Nix store 里的命令只有原样相同才算：当前版本的 store 路径也会在升级后失效，让设置页把它当作别的条目替换成 profile 链接。
+        if command != expected
+            && !Path::new(command).starts_with(NIX_STORE)
+            && same_program(command, expected)
+        {
             stripped.insert("command".to_owned(), Value::String(expected.to_owned()));
         }
     }
@@ -252,7 +256,7 @@ pub fn client_paths(env: impl Fn(&str) -> Option<std::ffi::OsString>) -> Vec<(Mc
     clients
 }
 
-/// `msime-mcp` beside `executable`（在 Nix store 里时换成 PATH 上的 profile 链接，见 [`stable_command_in`]）, the entry pointing it at `options`, and whether each assistant offered here already has it. Without `options` the input method is not set up yet, so there is no entry to show or compare.
+/// `msime-mcp` beside `executable`, the entry pointing it at `options`, and whether each assistant offered here already has it. Without `options` the input method is not set up yet, so there is no entry to show or compare.
 pub fn status(
     executable: &Path,
     options: Option<&Path>,
@@ -285,7 +289,7 @@ pub fn status(
     })
 }
 
-/// 把 `executable` 旁边 `msime-mcp`（Nix store 里的换成 profile 链接）的条目（`args` 末尾加上 `flags`）写进 `client` 的配置文件；保留什么、什么时候替换见 `install`。
+/// 把 `executable` 旁边 `msime-mcp` 的条目（`args` 末尾加上 `flags`）写进 `client` 的配置文件；保留什么、什么时候替换见 `install`。
 pub fn install_client(
     executable: &Path,
     options: Option<&Path>,
@@ -812,33 +816,40 @@ mod tests {
     #[test]
     fn a_server_in_the_nix_store_is_registered_through_the_profile_link() {
         let root = tempfile::tempdir().unwrap();
-        let store = root.path().join("store");
-        let package = store.join("hash-msime-fcitx5").join("bin");
-        std::fs::create_dir_all(&package).unwrap();
-        let server = package.join("msime-mcp");
+        let directory = |path: &[&str]| {
+            let directory = path
+                .iter()
+                .fold(root.path().to_owned(), |at, part| at.join(part));
+            std::fs::create_dir_all(&directory).unwrap();
+            directory
+        };
+        let path_env = |directories: &[&PathBuf]| {
+            let path = std::env::join_paths(directories).unwrap();
+            move |name: &str| (name == "PATH").then(|| path.clone())
+        };
+        let store = directory(&["store"]);
+        let server = directory(&["store", "hash-msime-fcitx5", "bin"]).join("msime-mcp");
         std::fs::write(&server, b"").unwrap();
         // PATH 上依次是：store 里另一个包的 bin、不是 Nix 装的副本、空目录、profile 链接。
-        let other_package = store.join("hash-other").join("bin");
-        std::fs::create_dir_all(&other_package).unwrap();
+        let other_package = directory(&["store", "hash-other", "bin"]);
         std::os::unix::fs::symlink(&server, other_package.join("msime-mcp")).unwrap();
-        let system = root.path().join("usr-bin");
-        std::fs::create_dir(&system).unwrap();
-        std::fs::write(system.join("msime-mcp"), b"").unwrap();
-        let empty = root.path().join("empty");
-        std::fs::create_dir(&empty).unwrap();
-        let profile = root.path().join("profile-bin");
-        std::fs::create_dir(&profile).unwrap();
-        let link = profile.join("msime-mcp");
+        let system = directory(&["usr-bin"]);
+        let packaged = system.join("msime-mcp");
+        std::fs::write(&packaged, b"").unwrap();
+        let empty = directory(&["empty"]);
+        let link = directory(&["profile-bin"]).join("msime-mcp");
         std::os::unix::fs::symlink(&server, &link).unwrap();
-        let path = std::env::join_paths([&other_package, &system, &empty, &profile]).unwrap();
-        let env = |name: &str| (name == "PATH").then(|| path.clone());
-        assert_eq!(stable_command_in(server.clone(), &store, env), link);
+        let env = path_env(&[
+            &other_package,
+            &system,
+            &empty,
+            &link.parent().unwrap().to_owned(),
+        ]);
+        assert_eq!(stable_command_in(server.clone(), &store, &env), link);
 
         // 没有 profile 链接时仍用 store 里的路径。
-        let without_profile = std::env::join_paths([&system, &empty]).unwrap();
         assert_eq!(
-            stable_command_in(server.clone(), &store, |name: &str| (name == "PATH")
-                .then(|| without_profile.clone())),
+            stable_command_in(server.clone(), &store, path_env(&[&system, &empty])),
             server
         );
         assert_eq!(
@@ -846,8 +857,46 @@ mod tests {
             server
         );
         // 不在 store 里的安装（deb、rpm、Homebrew）原样使用，即使 PATH 上有 profile 链接。
-        let packaged = system.join("msime-mcp");
-        assert_eq!(stable_command_in(packaged.clone(), &store, env), packaged);
+        assert_eq!(stable_command_in(packaged.clone(), &store, &env), packaged);
+    }
+
+    /// 已写进配置的 store 路径即使就是当前版本，也不算已连接：升级后它就失效了。设置页按别的条目处理，替换一次换成 profile 链接。只在 NixOS 这类 PATH 上有链接进 store 的程序的机器上能跑。
+    #[cfg(unix)]
+    #[test]
+    fn a_store_path_entry_is_replaced_by_the_profile_link() {
+        let path = std::env::var_os("PATH").unwrap_or_default();
+        let Some((link, target)) = std::env::split_paths(&path)
+            .filter(|directory| !directory.starts_with(NIX_STORE))
+            .map(|directory| directory.join("sh"))
+            .find_map(|link| {
+                let target = std::fs::canonicalize(&link).ok()?;
+                target.starts_with(NIX_STORE).then_some((link, target))
+            })
+        else {
+            return;
+        };
+        let directory = tempfile::tempdir().unwrap();
+        let config = directory.path().join("mcp.json");
+        let options = Path::new("/state/runtime-options.json");
+        let base = server_entry(&link, options);
+        std::fs::write(
+            &config,
+            serde_json::to_vec(
+                &json!({ "mcpServers": { "msime": server_entry(&target, options) } }),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(configured_flags(&config, SERVER_NAME, &base), None);
+        assert_eq!(
+            install(&config, SERVER_NAME, &base, &[], false),
+            Err("mcp_entry_exists")
+        );
+        assert_eq!(
+            install(&config, SERVER_NAME, &base, &[], true),
+            Ok(InstallOutcome::Replaced)
+        );
+        assert_eq!(configured_flags(&config, SERVER_NAME, &base), Some(vec![]));
     }
 
     #[test]
