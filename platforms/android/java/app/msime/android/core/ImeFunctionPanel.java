@@ -46,7 +46,7 @@ final class ImeFunctionPanel {
         KeyboardGeometry.setPaddingDp(card, s, 12, 5, 12, 5);
         card.setContentDescription(title);
         ViewPolicy.setSelected(card, active);
-        card.setEnabled(enabled);
+        ViewPolicy.setEnabled(card, enabled);
         s.applyToolCardState(card, enabled);
         if (Build.VERSION.SDK_INT >= 30) card.setStateDescription(state);
         s.imeStyler.styleButton(card, KeyboardKeyRole.ACCENT, s.skin);
