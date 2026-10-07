@@ -663,9 +663,9 @@ public final class Ui {
         TextView button = new TextView(context);
         button.setText(label);
         ViewPolicy.setCentered(button);
-        button.setSingleLine(true);
+        ViewPolicy.setSingleLine(button);
         style(button, Math.round(sizeSp), weight, ink);
-        button.setBackground(pillRipple(context, fill));
+        ViewPolicy.setBackground(button, pillRipple(context, fill));
         setSymmetricPaddingDp(button, context, horizontalPaddingDp, verticalPaddingDp);
         setTextMinHeightDp(button, context, minHeightDp);
         if (minWidthDp > 0) setTextMinWidthDp(button, context, minWidthDp);
@@ -687,7 +687,7 @@ public final class Ui {
         button.setText(label);
         ViewPolicy.setCentered(button);
         style(button, sizeSp, weight, ink);
-        button.setBackground(background);
+        ViewPolicy.setBackground(button, background);
         setTextMinHeightDp(button, context, minHeightDp);
         bindClick(button, action);
         return button;
@@ -706,7 +706,7 @@ public final class Ui {
         button.setImageDrawable(icon);
         setImageTint(button, tint);
         button.setScaleType(ImageView.ScaleType.CENTER);
-        button.setBackground(ripple(context));
+        ViewPolicy.setBackground(button, ripple(context));
         button.setContentDescription(description);
         bindClick(button, action);
         int size = dp(context, sizeDp);
