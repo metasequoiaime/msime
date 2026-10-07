@@ -250,11 +250,11 @@ public final class CommunityAdapter extends RecyclerView.Adapter<CommunityAdapte
         if (pill == null) return;
         String label = label(item, action);
         if (label.isEmpty()) {
-            pill.setVisibility(View.GONE);
+            ViewPolicy.hide(pill);
             pill.setOnClickListener(null);
             return;
         }
-        pill.setVisibility(View.VISIBLE);
+        ViewPolicy.show(pill);
         pill.setText(label);
         boolean skin = item.kind() == CommunityRequest.Kind.SKIN;
         // 「已添加」是终态：没有底色、正文色、不响应；皮肤拿到之后的「使用」仍是可点的 tonal 按钮。

@@ -87,7 +87,7 @@ public final class KeyboardFragment extends HomeTabFragment {
                 if (collapsed == (bar.getVisibility() == View.VISIBLE)) return;
                 bar.animate().cancel();
                 if (collapsed) {
-                    bar.setVisibility(View.VISIBLE);
+                    ViewPolicy.show(bar);
                     bar.animate().alpha(1f).setDuration(Ui.APP_BAR_FADE_MILLIS).start();
                 } else {
                     bar.setVisibility(View.INVISIBLE);
@@ -120,7 +120,7 @@ public final class KeyboardFragment extends HomeTabFragment {
                 case RUNNING -> {
                     preparation.setText(R.string.preparation_running);
                     preparation.setClickable(false);
-                    preparation.setVisibility(View.VISIBLE);
+                    ViewPolicy.show(preparation);
                 }
                 case FAILED -> {
                     String reason = FirstRunPreparation.failure();
@@ -128,10 +128,10 @@ public final class KeyboardFragment extends HomeTabFragment {
                     if (reason.isEmpty()) preparation.setText(R.string.preparation_failed);
                     else preparation.setText(getString(R.string.preparation_failed_reason, reason));
                     preparation.setClickable(true);
-                    preparation.setVisibility(View.VISIBLE);
+                    ViewPolicy.show(preparation);
                 }
                 default -> {
-                    preparation.setVisibility(View.GONE);
+                    ViewPolicy.hide(preparation);
                     // The store only becomes readable once preparation finishes, so the rows have
                     // to be asked again; otherwise they keep saying 尚未准备 until the tab is left.
                     reload();
