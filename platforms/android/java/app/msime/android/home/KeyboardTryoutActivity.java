@@ -143,7 +143,7 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
             if (sending) cancelChat(sendAi);
             else sendChat(field, sendAi);
         });
-        findViewById(R.id.tryout_clear).setOnClickListener(ignored -> clear(field, sendAi));
+        ViewPolicy.bindClick(findViewById(R.id.tryout_clear), () -> clear(field, sendAi));
 
         greet();
         // 进页面就在后台加载模型目录，不再要用户先点「加载 AI」。
