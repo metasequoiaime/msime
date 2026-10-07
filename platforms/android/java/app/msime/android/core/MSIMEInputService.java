@@ -6724,7 +6724,8 @@ public final class MSIMEInputService extends InputMethodService {
         }
         if (schemeButton != null) {
             ViewPolicy.setVisible(schemeButton, toolbarScheme);
-            schemeButton.setSelected(schemeScroll != null && schemeScroll.getVisibility() == View.VISIBLE);
+            ViewPolicy.setSelected(schemeButton,
+                schemeScroll != null && schemeScroll.getVisibility() == View.VISIBLE);
             schemeButton.setText(selectedScheme.glyph() + selectedScheme.badge(wubiProfile));
             schemeButton.setContentDescription("输入方案：" + selectedScheme.title(wubiProfile));
             // 只按「会话与偏好是否就绪」决定可用：简繁、键高、方案的保存都在一瞬间完成，若跟着保存状态禁用，图标每切一次简繁就变灰再变回来。保存进行中的点按由 showSchemePicker 忽略。
