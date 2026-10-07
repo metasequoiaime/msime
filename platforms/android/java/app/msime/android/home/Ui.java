@@ -774,7 +774,7 @@ public final class Ui {
 
     /** Apply the standard ripple and keyboard-accessible click behavior to a view. */
     public static void makeClickable(View view, Context context, Runnable action) {
-        view.setBackground(ripple(context));
+        ViewPolicy.setBackground(view, ripple(context));
         bindClick(view, action);
     }
 
@@ -786,15 +786,15 @@ public final class Ui {
     /** Create a vertically arranged rounded surface for page cards. */
     public static LinearLayout verticalCard(Context context, float radiusDp) {
         LinearLayout card = column(context);
-        card.setBackground(rounded(card(context), dp(context, radiusDp)));
+        ViewPolicy.setBackground(card, rounded(card(context), dp(context, radiusDp)));
         return card;
     }
 
     /** 设置字号（sp）与字重。 */
     public static void style(TextView view, int sizeSp, int weight, @ColorInt int color) {
-        view.setTextSize(TypedValue.COMPLEX_UNIT_SP, sizeSp);
+        ViewPolicy.setTextSizeSp(view, sizeSp);
         view.setTypeface(Typeface.create(Typeface.DEFAULT, weight, false));
-        view.setTextColor(color);
+        ViewPolicy.setTextColor(view, color);
     }
 
     /** 把一个 view 的透明度和可点按状态一起切换；禁用的行仍然可见，只是变淡且不响应。 */
