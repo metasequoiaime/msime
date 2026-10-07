@@ -27,6 +27,9 @@ use crate::text::last_characters;
 use crate::types::{CandidateSource, SentenceAssociationOptions, WordItem};
 use crate::user_dictionary::ngram_store::PersonalNgramStore;
 
+// 双拼前缀候选的短合并直接扫描已有词，避免临时哈希表和重复索引分配。
+const SMALL_PREFIX_DEDUP: usize = 64;
+
 /// The reference passed `INT_MAX` as "no limit" to the row queries (SD:899, SD:543).
 const UNLIMITED_ROWS: usize = i32::MAX as usize;
 /// Once the tracked personal-scored keys outgrow twice the series cache they cannot all still be cached, so the evicted ones are pruned (SD:289-301).
@@ -234,32 +237,7 @@ impl ShuangpinDictionary {
             let prefix_pure = remove_manual_delimiters(prefix);
             prefix_rows.push(self.generate(&prefix_pure, prefix, ""));
         }
-        // Borrow words while calculating each group's first occurrence, then release the set before moving rows into candidates.
-        let mut listed: HashSet<&str> = candidates.iter().map(|item| item.word.as_str()).collect();
-        let duplicates = prefix_rows
-            .iter()
-            .map(|rows| {
-                rows.iter()
-                    .enumerate()
-                    .filter_map(|(index, item)| {
-                        (!listed.insert(item.word.as_str())).then_some(index)
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .collect::<Vec<_>>();
-        drop(listed);
-        for (rows, duplicates) in prefix_rows.into_iter().zip(duplicates) {
-            candidates.reserve(rows.len());
-            let mut duplicates = duplicates.into_iter().peekable();
-            candidates.extend(rows.into_iter().enumerate().filter_map(|(index, item)| {
-                if duplicates.peek() == Some(&index) {
-                    duplicates.next();
-                    None
-                } else {
-                    Some(item)
-                }
-            }));
-        }
+        append_prefix_rows(&mut candidates, prefix_rows);
 
         let segments = split_segments(&convert_seg_shuangpin_to_seg_complete_pinyin(
             segmentation,
@@ -582,10 +560,60 @@ fn prefix_group_count(segmentation: &str) -> usize {
     segmentation.matches('\'').count()
 }
 
+fn append_prefix_rows(candidates: &mut Vec<WordItem>, prefix_rows: Vec<Vec<WordItem>>) {
+    let total = candidates.len().saturating_add(
+        prefix_rows
+            .iter()
+            .fold(0usize, |total, rows| total.saturating_add(rows.len())),
+    );
+    if total <= SMALL_PREFIX_DEDUP {
+        candidates.reserve(total.saturating_sub(candidates.len()));
+        for rows in prefix_rows {
+            for item in rows {
+                if candidates.iter().any(|existing| existing.word == item.word) {
+                    continue;
+                }
+                candidates.push(item);
+            }
+        }
+        return;
+    }
+    // Borrow words while calculating each group's first occurrence, then release the set before moving rows into candidates.
+    let mut listed: HashSet<&str> = candidates.iter().map(|item| item.word.as_str()).collect();
+    let duplicates = prefix_rows
+        .iter()
+        .map(|rows| {
+            rows.iter()
+                .enumerate()
+                .filter_map(|(index, item)| (!listed.insert(item.word.as_str())).then_some(index))
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    drop(listed);
+    for (rows, duplicates) in prefix_rows.into_iter().zip(duplicates) {
+        candidates.reserve(rows.len());
+        let mut duplicates = duplicates.into_iter().peekable();
+        candidates.extend(rows.into_iter().enumerate().filter_map(|(index, item)| {
+            if duplicates.peek() == Some(&index) {
+                duplicates.next();
+                None
+            } else {
+                Some(item)
+            }
+        }));
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use super::append_prefix_rows;
     use super::double_helpcode_cache_key;
     use super::prefix_group_count;
+    use crate::types::{CandidateSource, WordItem};
+
+    fn row(word: &str) -> WordItem {
+        WordItem::new("ni", word, 1, CandidateSource::Database, "ni")
+    }
 
     #[test]
     fn double_helpcode_cache_keys_use_exact_string_capacity() {
@@ -598,5 +626,24 @@ mod tests {
     fn prefix_group_count_matches_manual_boundaries() {
         assert_eq!(prefix_group_count("ni'hao'ba"), 2);
         assert_eq!(prefix_group_count("nihao"), 0);
+    }
+
+    #[test]
+    fn short_prefix_rows_are_appended_without_temporary_heap_state() {
+        let mut candidates = Vec::with_capacity(8);
+        candidates.push(row("你"));
+        let prefix_rows = vec![vec![row("你"), row("好")], vec![row("好"), row("吗")]];
+        let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            append_prefix_rows(&mut candidates, prefix_rows);
+        });
+
+        assert_eq!(allocations, 0);
+        assert_eq!(
+            candidates
+                .iter()
+                .map(|item| item.word.as_str())
+                .collect::<Vec<_>>(),
+            ["你", "好", "吗"]
+        );
     }
 }
