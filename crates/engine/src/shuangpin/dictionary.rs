@@ -331,25 +331,7 @@ impl ShuangpinDictionary {
         let original_segmentation = pinyin_segmentation(raw, self.profile);
         let whole = self.generate_series(raw, &original_segmentation, "");
         // The reference appended the whole-input answer and then the unmatched rows whole, so a word already among the matched rows, or in both lists, was listed again; a word already listed keeps its first seat.
-        // Keep duplicate keys borrowed while checking both owned append lists, then move rows after releasing the set.
-        let mut listed: HashSet<&str> = result.iter().map(|item| item.word.as_str()).collect();
-        let rows = whole.into_iter().chain(unmatched).collect::<Vec<_>>();
-        let duplicates = rows
-            .iter()
-            .enumerate()
-            .filter_map(|(index, item)| (!listed.insert(item.word.as_str())).then_some(index))
-            .collect::<Vec<_>>();
-        drop(listed);
-        result.reserve(rows.len());
-        let mut duplicates = duplicates.into_iter().peekable();
-        result.extend(rows.into_iter().enumerate().filter_map(|(index, item)| {
-            if duplicates.peek() == Some(&index) {
-                duplicates.next();
-                None
-            } else {
-                Some(item)
-            }
-        }));
+        append_helpcode_rows(&mut result, whole, unmatched);
         result
     }
 
@@ -604,8 +586,55 @@ fn append_prefix_rows(candidates: &mut Vec<WordItem>, prefix_rows: Vec<Vec<WordI
     }
 }
 
+fn append_helpcode_rows(
+    result: &mut Vec<WordItem>,
+    whole: Vec<WordItem>,
+    unmatched: Vec<WordItem>,
+) {
+    let total = result
+        .len()
+        .saturating_add(whole.len())
+        .saturating_add(unmatched.len());
+    if total <= SMALL_PREFIX_DEDUP {
+        result.reserve(total.saturating_sub(result.len()));
+        for item in whole.into_iter().chain(unmatched) {
+            if result.iter().any(|existing| existing.word == item.word) {
+                continue;
+            }
+            result.push(item);
+        }
+        return;
+    }
+    // 借用词面计算重复项，释放集合后再移动整行，避免移动时仍持有借用。
+    let mut listed: HashSet<&str> = result.iter().map(|item| item.word.as_str()).collect();
+    let duplicates = whole
+        .iter()
+        .chain(unmatched.iter())
+        .enumerate()
+        .filter_map(|(index, item)| (!listed.insert(item.word.as_str())).then_some(index))
+        .collect::<Vec<_>>();
+    drop(listed);
+    result.reserve(whole.len().saturating_add(unmatched.len()));
+    let mut duplicates = duplicates.into_iter().peekable();
+    result.extend(
+        whole
+            .into_iter()
+            .chain(unmatched)
+            .enumerate()
+            .filter_map(|(index, item)| {
+                if duplicates.peek() == Some(&index) {
+                    duplicates.next();
+                    None
+                } else {
+                    Some(item)
+                }
+            }),
+    );
+}
+
 #[cfg(test)]
 mod tests {
+    use super::append_helpcode_rows;
     use super::append_prefix_rows;
     use super::double_helpcode_cache_key;
     use super::prefix_group_count;
@@ -644,6 +673,48 @@ mod tests {
                 .map(|item| item.word.as_str())
                 .collect::<Vec<_>>(),
             ["你", "好", "吗"]
+        );
+    }
+
+    #[test]
+    fn short_helpcode_rows_are_appended_without_temporary_heap_state() {
+        let mut result = Vec::with_capacity(8);
+        result.push(row("你"));
+        let whole = vec![row("你"), row("好")];
+        let unmatched = vec![row("好"), row("吗")];
+        let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            append_helpcode_rows(&mut result, whole, unmatched);
+        });
+
+        assert_eq!(allocations, 0);
+        assert_eq!(
+            result
+                .iter()
+                .map(|item| item.word.as_str())
+                .collect::<Vec<_>>(),
+            ["你", "好", "吗"]
+        );
+    }
+
+    #[test]
+    fn large_helpcode_rows_keep_first_occurrence_order() {
+        let mut result = Vec::with_capacity(70);
+        result.push(row("已有"));
+        let whole = (0..32)
+            .map(|index| row(if index == 0 { "已有" } else { "整" }))
+            .collect();
+        let unmatched = (0..33)
+            .map(|index| row(if index == 0 { "未" } else { "整" }))
+            .collect();
+
+        append_helpcode_rows(&mut result, whole, unmatched);
+
+        assert_eq!(
+            result
+                .iter()
+                .map(|item| item.word.as_str())
+                .collect::<Vec<_>>(),
+            ["已有", "整", "未"]
         );
     }
 }
