@@ -100,7 +100,7 @@ public final class GroupCard {
         LinearLayout.LayoutParams params = Ui.rowGapParams(context);
         row.view.addView(control, params);
         row.toggle = control;
-        row.view.setOnClickListener(ignored -> {
+        ViewPolicy.bindClick(row.view, () -> {
             control.toggle();
             onChange.accept(control.isChecked());
         });
