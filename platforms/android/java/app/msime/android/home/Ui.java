@@ -181,7 +181,7 @@ public final class Ui {
     public static void setRowPadding(View view, Context context) {
         int horizontal = dp(context, ROW_PADDING_H);
         int vertical = dp(context, ROW_PADDING_V);
-        view.setPadding(horizontal, vertical, horizontal, vertical);
+        ViewPolicy.setPadding(view, horizontal, vertical, horizontal, vertical);
     }
 
     /** Apply the standard minimum height for a detail row. */
@@ -208,13 +208,13 @@ public final class Ui {
     public static void setButtonPadding(View view, Context context) {
         int horizontal = dp(context, BUTTON_PADDING_H);
         int vertical = dp(context, BUTTON_PADDING_V);
-        view.setPadding(horizontal, vertical, horizontal, vertical);
+        ViewPolicy.setPadding(view, horizontal, vertical, horizontal, vertical);
     }
 
     /** Apply the shared bottom-sheet title-area insets to a view. */
     public static void setSheetHeaderPadding(View view, Context context) {
         int horizontal = dp(context, 16);
-        view.setPadding(horizontal, 0, horizontal, dp(context, 12));
+        ViewPolicy.setPadding(view, horizontal, 0, horizontal, dp(context, 12));
     }
 
     /** Apply symmetric padding expressed in density-independent pixels. */
@@ -222,35 +222,35 @@ public final class Ui {
                                              float horizontalDp, float verticalDp) {
         int horizontal = dp(context, horizontalDp);
         int vertical = dp(context, verticalDp);
-        view.setPadding(horizontal, vertical, horizontal, vertical);
+        ViewPolicy.setPadding(view, horizontal, vertical, horizontal, vertical);
     }
 
     /** Apply equal padding on all sides when the value is already in pixels. */
     public static void setSymmetricPaddingPx(View view, int padding) {
-        view.setPadding(padding, padding, padding, padding);
+        ViewPolicy.setPadding(view, padding, padding, padding, padding);
     }
 
     /** Apply equal horizontal padding when the value is already in pixels. */
     public static void setHorizontalPaddingPx(View view, int horizontal) {
-        view.setPadding(horizontal, 0, horizontal, 0);
+        ViewPolicy.setPadding(view, horizontal, 0, horizontal, 0);
     }
 
     /** Apply equal horizontal dp padding with no vertical padding. */
     public static void setHorizontalPaddingDp(View view, Context context, float horizontalDp) {
         int horizontal = dp(context, horizontalDp);
-        view.setPadding(horizontal, 0, horizontal, 0);
+        ViewPolicy.setPadding(view, horizontal, 0, horizontal, 0);
     }
 
     /** Apply four-sided padding expressed in density-independent pixels. */
     public static void setPaddingDp(View view, Context context, float leftDp, float topDp,
                                     float rightDp, float bottomDp) {
-        view.setPadding(dp(context, leftDp), dp(context, topDp),
+        ViewPolicy.setPadding(view, dp(context, leftDp), dp(context, topDp),
             dp(context, rightDp), dp(context, bottomDp));
     }
 
     /** Replace only the bottom padding while preserving the other three sides. */
     public static void setBottomPadding(View view, int bottomPixels) {
-        view.setPadding(view.getPaddingLeft(), view.getPaddingTop(), view.getPaddingRight(),
+        ViewPolicy.setPadding(view, view.getPaddingLeft(), view.getPaddingTop(), view.getPaddingRight(),
             bottomPixels);
     }
 
