@@ -261,7 +261,7 @@ public final class VoiceResultStore {
     }
 
     private static boolean validText(String text) {
-        return text != null && !text.strip().isEmpty()
+        return text != null && !TextPolicy.stripped(text).isEmpty()
             && TextPolicy.withinCodePoints(text, MAXIMUM_CHARACTERS)
             && !TextPolicy.hasControlExceptWhitespace(text)
             && TextPolicy.validUnicode(text);

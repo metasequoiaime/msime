@@ -95,6 +95,11 @@ public final class TextPolicy {
         return value == null ? "" : value.trim();
     }
 
+    /** Return text with Unicode whitespace stripped, treating null as empty. */
+    public static String stripped(String value) {
+        return value == null ? "" : value.strip();
+    }
+
     /** Return the number of Unicode code points in text, or zero for null. */
     public static int codePointLength(String value) {
         return value == null ? 0 : value.codePointCount(0, value.length());

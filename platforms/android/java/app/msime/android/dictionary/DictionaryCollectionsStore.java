@@ -292,7 +292,7 @@ public final class DictionaryCollectionsStore {
 
     /** 集合名能否使用，与 client-core 一致：1–32 个字，首尾没有空白，不含控制字符和换行。 */
     public static boolean validName(String name) {
-        if (name == null || name.isEmpty() || !name.equals(name.strip())) return false;
+        if (name == null || name.isEmpty() || !name.equals(TextPolicy.stripped(name))) return false;
         if (!TextPolicy.withinCodePoints(name, MAX_NAME_CHARS)) return false;
         for (int index = 0; index < name.length(); index++) {
             if (Character.isISOControl(name.charAt(index))) return false;
@@ -318,7 +318,7 @@ public final class DictionaryCollectionsStore {
     /** 把用户输入的拼音收成编码：去掉空白、转小写，空格和中文撇号都当作音节分隔。 */
     public static String normalizePinyin(String input) {
         if (input == null) return "";
-        String lower = input.strip().toLowerCase(Locale.ROOT).replace('’', '\'').replace('‘', '\'');
+        String lower = TextPolicy.stripped(input).toLowerCase(Locale.ROOT).replace('’', '\'').replace('‘', '\'');
         return lower.replaceAll("\\s+", "'");
     }
 
@@ -334,7 +334,7 @@ public final class DictionaryCollectionsStore {
 
     /** 从文件名得到新词库的名字：去掉扩展名（`.dict.yaml` 算一个），截到 32 个字，收不出来时用「导入的词库」。 */
     public static String nameFromFile(String displayName) {
-        String name = displayName == null ? "" : displayName.strip();
+        String name = TextPolicy.stripped(displayName);
         String lower = name.toLowerCase(Locale.ROOT);
         if (lower.endsWith(".dict.yaml")) {
             name = name.substring(0, name.length() - ".dict.yaml".length());
@@ -351,7 +351,7 @@ public final class DictionaryCollectionsStore {
             kept.appendCodePoint(codePoint);
             count++;
         }
-        String result = kept.toString().strip();
+        String result = TextPolicy.stripped(kept.toString());
         return validName(result) ? result : "导入的词库";
     }
 
