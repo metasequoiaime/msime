@@ -51,7 +51,7 @@ public final class AccountFragment extends HomeTabFragment {
 
     @Override public void onViewCreated(@NonNull View view, @Nullable Bundle state) {
         View card = view.findViewById(R.id.account_card);
-        card.setBackground(Ui.rippleOn(requireContext(), Ui.card(requireContext()), Ui.dp(requireContext(), 20)));
+        ViewPolicy.setBackground(card, Ui.rippleOn(requireContext(), Ui.card(requireContext()), Ui.dp(requireContext(), 20)));
         ViewPolicy.bindClick(card, this::openProfile);
         render();
     }
@@ -241,7 +241,7 @@ public final class AccountFragment extends HomeTabFragment {
             }
         });
         if (real) {
-            sync.setBackground(Ui.ripple(context));
+            ViewPolicy.setBackground(sync, Ui.ripple(context));
             ViewPolicy.setInteractive(sync, true);
             ViewPolicy.bindClick(sync, () -> setSync(!toggle.isChecked()));
         } else {
