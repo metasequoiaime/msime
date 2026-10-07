@@ -243,8 +243,8 @@ describe("the MSIME account translation is an explicit choice", () => {
     expect(saved.translation_account).toBeUndefined();
   });
 
-  test("the fresh-install default shows the account despite Tencent's credential-less default", async () => {
-    // Fresh macOS and Linux installs store `translation_account: true` beside Tencent's default `enabled: true`; the host translates through the account, so the page must say so.
+  test("a chosen account shows despite Tencent's credential-less default", async () => {
+    // 显式选了水杉账号的文档旁边还留着腾讯云默认的 `enabled: true`（没有凭据）；宿主走的是账号，页面必须显示账号。
     await mountOn("macos", {
       translation_account: true,
       custom_translation: { enabled: false, endpoint: "", api_key: "" },

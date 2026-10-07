@@ -15,27 +15,45 @@ permissions:
 jobs:
   greet:
     name: First interaction
-    # first-interaction has no notion of a bot account, so Dependabot's first bump in this repository qualifies as a first pull request and gets a greeting written for a person. Skip anything ending in [bot].
+    # The greeting is written for a person, but Dependabot's first bump in this repository would qualify as a first pull request. Skip anything ending in [bot].
     #
-    # 仓库所有者、成员和协作者不可能是第一次来，跳过他们。first-interaction 判断是否首次的办法是把作者在本仓库的全部 issue 和 PR 逐页翻一遍：维护者有几千条，2026-10-02 #2898 翻到第 58 页时 GitHub 回了 502，job 失败，PR 上平白多一个红叉（日志最后照样是 Not First Contribution）。author_association 随事件给出，不用再调 API。
+    # 仓库所有者、成员和协作者不可能是第一次来，跳过他们。判断是否首次要把作者在本仓库的全部 issue 和 PR 逐页翻一遍：维护者有几千条，2026-10-02 #2898 翻到第 58 页时 GitHub 回了 502，job 失败，PR 上平白多一个红叉（日志最后照样是 Not First Contribution）。author_association 随事件给出，不用再调 API。
     if: >-
       ${{ !endsWith(github.actor, '[bot]')
       && !contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.issue.author_association || github.event.pull_request.author_association) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - uses: actions/first-interaction@1c4688942c71f71d4f5502a26ea67c331730fa4d # v3.1.0
-        with:
-          issue_message: |
+      # actions/first-interaction 不能用：v3.1.0 只要「作者没开过 issue」或「仓库里没有更早的 PR」任一成立就发欢迎语，而且不区分当前是 issue 还是 PR，PR 那一项也没按作者过滤。于是只提 PR、从不开 issue 的贡献者每个 PR 都会收到「感谢你的第一个 PR」（2026-10-06 yangkx1024 的 #3574 到 #3852 五个 PR 全都收到了）。这里改为按作者列出本仓库的 issue 和 PR，只数与当前事件同类、编号更小的那些。
+      - name: Greet a first issue or pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          AUTHOR: ${{ github.event.issue.user.login || github.event.pull_request.user.login }}
+          NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
+          IS_PR: ${{ github.event_name == 'pull_request_target' }}
+          ISSUE_MESSAGE: |
             感谢报告！这是你在本仓库的第一个 issue。
 
             - 请确认内容里没有真实输入文本、凭据、个人资料或私人路径；如有，请编辑删除。
             - 缺陷请写明平台、版本和最小复现步骤，这能大大加快定位。
             - 安全问题请改走 [私下报告入口](https://github.com/metasequoiaime/msime/security/advisories/new)，不要在公开 issue 里讨论细节。
-          pr_message: |
+          PR_MESSAGE: |
             感谢你的第一个 PR！合并前请留意：
 
             - 日常改动请以 `develop` 为目标分支，`main` 只接受发布提升。
             - PR 标题使用 Conventional Commits（例如 `fix(linux): ...`），squash 合并时它会成为提交信息。
             - 合并前本地跑一次 `bash scripts/verify-local.sh --quick`，并在 PR 描述里写明实际执行过的验证和未覆盖的平台。
             - 架构边界与验证分级见 [ARCHITECTURE.md](https://github.com/metasequoiaime/msime/blob/develop/ARCHITECTURE.md)，贡献流程见 [CONTRIBUTING.md](https://github.com/metasequoiaime/msime/blob/develop/CONTRIBUTING.md)。
+        run: |
+          set -euo pipefail
+          # The issues endpoint returns both issues and pull requests; pull requests carry a pull_request key.
+          earlier=$(gh api --paginate "repos/$REPO/issues?creator=$AUTHOR&state=all&per_page=100" \
+            --jq ".[] | select(.number < $NUMBER and ((.pull_request != null) == $IS_PR)) | .number" | wc -l)
+          if [ "$earlier" -gt 0 ]; then
+            echo "$AUTHOR has $earlier earlier $([ "$IS_PR" = true ] && echo 'pull requests' || echo issues); not greeting."
+            exit 0
+          fi
+          if [ "$IS_PR" = true ]; then body=$PR_MESSAGE; else body=$ISSUE_MESSAGE; fi
+          gh api "repos/$REPO/issues/$NUMBER/comments" -f body="$body" >/dev/null
+          echo "Greeted #$NUMBER."

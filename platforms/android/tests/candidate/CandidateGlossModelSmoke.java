@@ -14,15 +14,15 @@ public final class CandidateGlossModelSmoke {
         check(CandidateGlossPolicy.annotation("", "x".repeat(4097), true).isEmpty(),
             "oversized gloss hidden");
 
-        // Korean Hanja rows: the 훈음 always shows, on its own row, and a gloss follows it rather than being displaced.
+        // Korean Hanja rows: the 훈음 always shows, and a gloss shares its row rather than displacing it or adding a row.
         check(CandidateGlossPolicy.hanjaAnnotation("나라 이름 한", "", false).equals("나라 이름 한"),
             "the 훈음 shows with glosses off");
         check(CandidateGlossPolicy.hanjaAnnotation("나라 이름 한", "Korea", false).equals("나라 이름 한"),
             "a gloss stays hidden while glosses are off");
-        check(CandidateGlossPolicy.hanjaAnnotation("나라 이름 한", "Korea", true).equals("나라 이름 한\nKorea"),
-            "a gloss follows the 훈음 on the next row");
+        check(CandidateGlossPolicy.hanjaAnnotation("나라 이름 한", "Korea", true).equals("나라 이름 한 · Korea"),
+            "a gloss follows the 훈음 on the same row");
         check(CandidateGlossPolicy.hanjaAnnotation("나라 이름 한", "Korea\n韓国", true)
-                .equals("나라 이름 한\nKorea\n韓国"), "two-language glosses keep their rows under the 훈음");
+                .equals("나라 이름 한 · Korea\n韓国"), "a second-language gloss keeps its own row");
         check(CandidateGlossPolicy.hanjaAnnotation("", "Korea", true).equals("Korea"),
             "a Hanja without 훈음 shows its gloss alone");
         check(CandidateGlossPolicy.hanjaAnnotation(null, null, true).isEmpty(),
@@ -56,6 +56,15 @@ public final class CandidateGlossModelSmoke {
             "strict fallback rejects booleans");
         check(CandidateGlossPolicy.strictString("hello").equals("hello"),
             "JSON strings are accepted");
+        check(Boolean.TRUE.equals(CandidateGlossPolicy.strictBoolean(Boolean.TRUE)),
+            "JSON booleans are accepted");
+        check(CandidateGlossPolicy.strictBoolean("true") == null,
+            "boolean strings are rejected instead of coerced");
+        check(CandidateGlossPolicy.isApplied(Boolean.TRUE),
+            "translation application accepts a JSON true flag");
+        check(!CandidateGlossPolicy.isApplied("true")
+                && !CandidateGlossPolicy.isApplied(Integer.valueOf(1)),
+            "translation application rejects coercible flags");
         for (Object invalid : new Object[] {
                 null, Long.valueOf(7), Boolean.TRUE, java.util.List.of("hello"),
                 java.util.Map.of("text", "hello")}) {

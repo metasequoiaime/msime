@@ -62,11 +62,11 @@ test("bare URLs become links", () => {
   );
 });
 
-test("a link that is not http, https or mailto is not opened", async () => {
+test("a link that is not HTTPS is not opened", async () => {
   const openExternalUrl = vi.fn();
   render(
     <NoticeBanner
-      client={client([notice({ body: "[本地](file:///etc/passwd)" })])}
+      client={client([notice({ body: "[不安全](http://example.invalid/)" })])}
       openExternalUrl={openExternalUrl}
     />,
   );

@@ -16,8 +16,6 @@ export const UPDATE_CHECK_TIMEOUT_MS = 10_000;
 export const licenseUrl = "https://github.com/metasequoiaime/msime/blob/develop/LICENSE";
 export const privacyUrl = "https://msime.app/privacy/";
 export const androidPrivacyUrl = "https://msime.app/privacy/";
-// Linux links to the data-flow document shipped with this code.
-export const linuxPrivacyUrl = "https://github.com/metasequoiaime/msime/blob/develop/PRIVACY.md";
 export const linuxLicenseUrl = "https://github.com/metasequoiaime/msime/blob/develop/LICENSE";
 export const linuxIssuesUrl = "https://github.com/metasequoiaime/msime/issues";
 export const desktopDownloadUrl = "https://msime.app/download/";

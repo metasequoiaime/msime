@@ -45,3 +45,13 @@ test("data directory section shows Linux credential note and status", () => {
   );
   expect(screen.getByRole("status").textContent).toContain("数据已移动");
 });
+
+test("describes the initial directory read while it is busy", () => {
+  const onChoose = vi.fn();
+  render(<DataDirectorySection visible linux={false} busy result="" onChoose={onChoose} />);
+
+  const button = screen.getByRole("button", { name: "正在读取…" }) as HTMLButtonElement;
+  expect(button.disabled).toBe(true);
+  fireEvent.click(button);
+  expect(onChoose).not.toHaveBeenCalled();
+});

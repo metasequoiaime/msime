@@ -14,7 +14,7 @@ pub enum RuntimeError {
     IdentityExhausted,
     #[error("cannot replace an engine while composition is active")]
     CompositionActive,
-    #[error("nine-key mode requires the quanpin scheme")]
+    #[error("nine-key mode requires the quanpin or zhuyin scheme")]
     InvalidNineKeyScheme,
     #[error("punctuation action requires an ASCII punctuation character")]
     InvalidPunctuation,

@@ -1,33 +1,145 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Material 3 tokens of the all-platform design (Android column). Every name here has a dark twin in values-night/colors.xml; the pages read these through R.color and the theme roles, so switching the system to dark mode repaints the whole host without a line of Java knowing about it. The IME itself draws from the keyboard theme and never reads these. -->
+<!-- 全平台设计稿 Android 一栏的颜色令牌（浅色）。深色同名令牌在 values-night/colors.xml。宿主页面应当读主题属性（res/values/themes.xml 的 M3 角色与 ?attr/ms*），季节由 ThemeOverlay.MSIME.Season.* 叠加；这里的 ms_<季节>_* 是那几层叠加的取值，ms_* 不带季节的是基础主题（秋杉）。季节色由 settings/AppThemePalette.java 的同一套公式算出，改公式或种子时两边一起改。输入法进程不用 R，它自己从 AppThemePalette 取色。 -->
 <resources>
-    <!-- The one accent. It used to be #185C48; the design moved every platform to this green. -->
-    <color name="forest">#2C7A4B</color>
-    <!-- Text and icons that sit on the accent fill: white in light, deep green in dark. -->
-    <color name="on_accent">#FFFFFF</color>
-    <color name="needle">#4D8A72</color>
-    <!-- Page background. -->
-    <color name="mist">#F7FBF3</color>
-    <color name="cone">#A7673B</color>
-    <!-- Primary text. -->
-    <color name="ink">#191C19</color>
-    <!-- Card and grouped-container fill; the bottom bar uses the same tone. -->
-    <color name="surface">#EBEFE7</color>
-    <!-- Secondary text and inactive icons. -->
-    <color name="text_secondary">#414941</color>
-    <color name="outline">#717970</color>
-    <color name="hairline">#DDE5DB</color>
-    <!-- accentSoft: the active indicator, tonal buttons, the status card and every glyph box. -->
-    <color name="surface_variant">#CFE9D6</color>
-    <!-- 图标那块底，与 surface_variant 同一个 accentSoft；另起名字是因为读的人不同。 -->
-    <color name="badge_field">#CFE9D6</color>
-    <color name="nav_bar">#EBEFE7</color>
-    <color name="search_field">#E6EAE2</color>
-    <!-- 「尚未完成」那一项的警示色，与 Apple 端的 systemOrange 同值。 -->
-    <color name="attention">#FF9500</color>
-    <!-- 开屏动画的底，深浅模式同一块近黑：那一屏是品牌时刻，不跟着系统换。 -->
-    <color name="splash_field">#0E100E</color>
-    <color name="splash_glow">#477FE08E</color>
-    <!-- 图标那块深色场，自适应图标的背景层取它，于是遮罩切出来的永远是这块底而不是灰板。 -->
+    <!-- ==== 不随应用主题变化的中性色 ==== -->
+    <color name="ms_text">#191C19</color>
+    <color name="ms_sub">#414941</color>
+    <color name="ms_outline">#717970</color>
+    <color name="ms_switch_off">#DFE4DB</color>
+    <color name="ms_kb_sub">#56685A</color>
+    <color name="ms_kb_hair">#1F000000</color>
+    <color name="ms_press">#12000000</color>
+    <color name="ms_hover">#0D000000</color>
+    <color name="ms_toast_bg">#1C1C1E</color>
+    <color name="ms_toast_fg">#FFFFFF</color>
+    <!-- 「设为默认输入法」尚未完成那一项的橙点。 -->
+    <color name="ms_warn">#FF9500</color>
+    <!-- 退出登录、注销账号这类破坏性操作。 -->
+    <color name="ms_danger">#FF3B30</color>
+    <!-- sheet 与对话框背后的遮罩。 -->
+    <color name="ms_scrim">#59000000</color>
+
+    <!-- ==== 每季的种子与派生色：accent、onAccent、accentSoft、bg、andCard（card）、rowBg、hair、logo 两色、开屏四色、统计柱、热力图五档 ==== -->
+    <!-- 春芽 -->
+    <color name="ms_spring_accent">#4E9A3A</color>
+    <color name="ms_spring_on_accent">#FFFFFF</color>
+    <color name="ms_spring_accent_soft">#224E9A3A</color>
+    <color name="ms_spring_bg">#EAF4E0</color>
+    <color name="ms_spring_card">#F6FAF1</color>
+    <color name="ms_spring_row_bg">#FAFDF6</color>
+    <color name="ms_spring_hair">#2E4E9A3A</color>
+    <color name="ms_spring_logo_bg">#407E30</color>
+    <color name="ms_spring_logo_disc">#DEEDD7</color>
+    <color name="ms_spring_splash_bg">#182814</color>
+    <color name="ms_spring_splash_disc">#EAF3E7</color>
+    <color name="ms_spring_splash_bar">#83B875</color>
+    <color name="ms_spring_splash_glow">#574E9A3A</color>
+    <color name="ms_spring_stat_bar">#D7E9D0</color>
+    <color name="ms_spring_heat_0">#EBF4E6</color>
+    <color name="ms_spring_heat_1">#D7E9D0</color>
+    <color name="ms_spring_heat_2">#B6D6AB</color>
+    <color name="ms_spring_heat_3">#8EBE80</color>
+    <color name="ms_spring_heat_4">#5FA44C</color>
+    <!-- 夏荫 -->
+    <color name="ms_summer_accent">#17704A</color>
+    <color name="ms_summer_on_accent">#FFFFFF</color>
+    <color name="ms_summer_accent_soft">#2217704A</color>
+    <color name="ms_summer_bg">#DDEFE4</color>
+    <color name="ms_summer_card">#F0F8F3</color>
+    <color name="ms_summer_row_bg">#F6FBF8</color>
+    <color name="ms_summer_hair">#2E17704A</color>
+    <color name="ms_summer_logo_bg">#135C3D</color>
+    <color name="ms_summer_logo_disc">#D1E5DB</color>
+    <color name="ms_summer_splash_bg">#0D1F17</color>
+    <color name="ms_summer_splash_disc">#E3EEE9</color>
+    <color name="ms_summer_splash_bar">#5D9B80</color>
+    <color name="ms_summer_splash_glow">#5717704A</color>
+    <color name="ms_summer_stat_bar">#C9DFD4</color>
+    <color name="ms_summer_heat_0">#E3F0E9</color>
+    <color name="ms_summer_heat_1">#C9DFD4</color>
+    <color name="ms_summer_heat_2">#9DC4B3</color>
+    <color name="ms_summer_heat_3">#69A48A</color>
+    <color name="ms_summer_heat_4">#2D7E5B</color>
+    <!-- 秋杉 -->
+    <color name="ms_autumn_accent">#B5562B</color>
+    <color name="ms_autumn_on_accent">#FFFFFF</color>
+    <color name="ms_autumn_accent_soft">#22B5562B</color>
+    <color name="ms_autumn_bg">#F6E9DC</color>
+    <color name="ms_autumn_card">#FBF5EF</color>
+    <color name="ms_autumn_row_bg">#FFFBF6</color>
+    <color name="ms_autumn_hair">#33B5562B</color>
+    <color name="ms_autumn_logo_bg">#944723</color>
+    <color name="ms_autumn_logo_disc">#F1DFD4</color>
+    <color name="ms_autumn_splash_bg">#2C1A11</color>
+    <color name="ms_autumn_splash_disc">#F6EBE6</color>
+    <color name="ms_autumn_splash_bar">#CB896B</color>
+    <color name="ms_autumn_splash_glow">#57B5562B</color>
+    <color name="ms_autumn_stat_bar">#EED8CC</color>
+    <color name="ms_autumn_heat_0">#F7ECE3</color>
+    <color name="ms_autumn_heat_1">#EED8CC</color>
+    <color name="ms_autumn_heat_2">#E0B9A5</color>
+    <color name="ms_autumn_heat_3">#D09276</color>
+    <color name="ms_autumn_heat_4">#BC663F</color>
+    <!-- 冬雪 -->
+    <color name="ms_winter_accent">#3A6A8A</color>
+    <color name="ms_winter_on_accent">#FFFFFF</color>
+    <color name="ms_winter_accent_soft">#223A6A8A</color>
+    <color name="ms_winter_bg">#E6EEF4</color>
+    <color name="ms_winter_card">#F4F7FA</color>
+    <color name="ms_winter_row_bg">#FAFCFE</color>
+    <color name="ms_winter_hair">#2E3A6A8A</color>
+    <color name="ms_winter_logo_bg">#305771</color>
+    <color name="ms_winter_logo_disc">#DAE4EA</color>
+    <color name="ms_winter_splash_bg">#141E24</color>
+    <color name="ms_winter_splash_disc">#E7EDF1</color>
+    <color name="ms_winter_splash_bar">#7597AD</color>
+    <color name="ms_winter_splash_glow">#573A6A8A</color>
+    <color name="ms_winter_stat_bar">#D2DEE6</color>
+    <color name="ms_winter_heat_0">#E9EFF3</color>
+    <color name="ms_winter_heat_1">#D2DEE6</color>
+    <color name="ms_winter_heat_2">#ADC2CF</color>
+    <color name="ms_winter_heat_3">#81A0B5</color>
+    <color name="ms_winter_heat_4">#4D7895</color>
+
+    <!-- ==== 基础主题：秋杉 ==== -->
+    <color name="ms_accent">@color/ms_autumn_accent</color>
+    <color name="ms_on_accent">@color/ms_autumn_on_accent</color>
+    <color name="ms_accent_soft">@color/ms_autumn_accent_soft</color>
+    <color name="ms_bg">@color/ms_autumn_bg</color>
+    <color name="ms_card">@color/ms_autumn_card</color>
+    <color name="ms_row_bg">@color/ms_autumn_row_bg</color>
+    <color name="ms_hair">@color/ms_autumn_hair</color>
+    <color name="ms_logo_bg">@color/ms_autumn_logo_bg</color>
+    <color name="ms_logo_disc">@color/ms_autumn_logo_disc</color>
+    <color name="ms_splash_bg">@color/ms_autumn_splash_bg</color>
+    <color name="ms_splash_disc">@color/ms_autumn_splash_disc</color>
+    <color name="ms_splash_bar">@color/ms_autumn_splash_bar</color>
+    <color name="ms_splash_glow">@color/ms_autumn_splash_glow</color>
+    <color name="ms_stat_bar">@color/ms_autumn_stat_bar</color>
+    <color name="ms_heat_0">@color/ms_autumn_heat_0</color>
+    <color name="ms_heat_1">@color/ms_autumn_heat_1</color>
+    <color name="ms_heat_2">@color/ms_autumn_heat_2</color>
+    <color name="ms_heat_3">@color/ms_autumn_heat_3</color>
+    <color name="ms_heat_4">@color/ms_autumn_heat_4</color>
+
+    <!-- ==== 旧名字：还在被布局和 Java 直接引用，保留为指向新令牌的别名，深浅跟着新令牌走。它们固定是基础主题的秋杉，不随季节叠加层变化，所以新代码一律读主题属性。 ==== -->
+    <color name="forest">@color/ms_accent</color>
+    <color name="on_accent">@color/ms_on_accent</color>
+    <color name="needle">@color/ms_accent</color>
+    <color name="mist">@color/ms_bg</color>
+    <color name="cone">@color/ms_logo_bg</color>
+    <color name="ink">@color/ms_text</color>
+    <color name="surface">@color/ms_card</color>
+    <color name="text_secondary">@color/ms_sub</color>
+    <color name="outline">@color/ms_outline</color>
+    <color name="hairline">@color/ms_hair</color>
+    <color name="surface_variant">@color/ms_accent_soft</color>
+    <color name="badge_field">@color/ms_accent_soft</color>
+    <color name="nav_bar">@color/ms_card</color>
+    <color name="search_field">@color/ms_card</color>
+    <color name="attention">@color/ms_warn</color>
+    <color name="splash_field">@color/ms_splash_bg</color>
+    <color name="splash_glow">@color/ms_splash_glow</color>
+    <!-- 图标那块深色场，自适应图标的背景层取它，于是遮罩切出来的永远是这块底而不是灰板。它属于 App 图标，不是设计令牌，深浅相同。 -->
     <color name="app_icon_field">#252525</color>
 </resources>

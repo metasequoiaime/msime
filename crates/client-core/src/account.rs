@@ -423,6 +423,8 @@ mod client;
 mod file_storage;
 mod google;
 mod session;
+/// 本地偏好与账号设置同步文档之间的映射，Tauri 和安卓原生宿主共用。
+pub mod settings_sync;
 mod validate;
 
 pub use anonymous::{

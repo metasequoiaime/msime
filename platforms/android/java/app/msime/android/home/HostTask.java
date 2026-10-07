@@ -28,6 +28,12 @@ public final class HostTask {
         thread.setDaemon(true);
         return thread;
     });
+    /** HTTP calls get their own threads: one can block for a full connect plus read timeout, and the shared store's reads and writes must not queue behind it. */
+    private static final ExecutorService NETWORK = Executors.newCachedThreadPool(runnable -> {
+        Thread thread = new Thread(runnable, "msime-settings-network");
+        thread.setDaemon(true);
+        return thread;
+    });
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
 
     private HostTask() {}
@@ -35,13 +41,23 @@ public final class HostTask {
     /** Run `work` off the main thread and hand its result to `done` if the fragment is still up. */
     public static <T> void run(Fragment fragment, Function<Context, T> work,
             Consumer<T> done) {
+        submit(WORKER, fragment, work, done);
+    }
+
+    /** Like {@link #run}, but for HTTP calls, which can block for a full connect plus read timeout; store calls stay on {@link #run} so they remain serialized on one thread. */
+    public static <T> void runNetwork(Fragment fragment, Function<Context, T> work, Consumer<T> done) {
+        submit(NETWORK, fragment, work, done);
+    }
+
+    private static <T> void submit(ExecutorService executor, Fragment fragment, Function<Context, T> work,
+            Consumer<T> done) {
         View ownerView = fragment.getView();
         if (ownerView == null) return;
         Lifecycle ownerLifecycle = fragment.getViewLifecycleOwner().getLifecycle();
         Context context = fragment.getContext();
         if (context == null) return;
         Context application = context.getApplicationContext();
-        WORKER.execute(() -> {
+        executor.execute(() -> {
             final T result;
             try {
                 result = work.apply(application);

@@ -1,11 +1,11 @@
 package app.msime.android;
 
+import app.msime.android.policy.HostOptionsPolicy;
 import android.content.Context;
 import android.util.AtomicFile;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
@@ -29,6 +29,7 @@ public final class Bootstrap {
             installHelpcodes(context, new File(root, "bootstrap/resources/helpcodes"));
             // Before the configuration exists, so that prepare_host below finds them beside the resources and records them.
             installLanguageDictionaries(context, new File(root, "bootstrap/language-dictionaries"));
+            installSoundPacks(context, HostOptionsPolicy.soundPacksDirectory(root));
             File configuration = new File(root, "runtime-options.json");
             File resources = new File(root, "bootstrap/resources");
             if (existingConfiguration(configuration)) {
@@ -36,13 +37,17 @@ public final class Bootstrap {
                 return false;
             }
             extractDictionary(context, resources);
+            clearInterruptedStaging(new File(root, "bootstrap/state/user/dictionaries"));
             JSONObject request = new JSONObject().put("resources", resources.getAbsolutePath())
                 .put("state_root", new File(root, "bootstrap/state").getAbsolutePath());
             // 不是 full 的版本把版本 id 交给 host-api：它按本版本的资源锁校验 APK 里的词库，在状态目录记下版本，从此没有偏好文件时读到的就是本版本的默认偏好（五笔版默认五笔、混拼打开）。full 不带这个键，请求与引入版本之前相同。
             AppEdition edition = AppEdition.current();
             if (!edition.isFull()) request.put("edition", edition.id());
             JSONObject result = new JSONObject(NativeClient.prepareHost(request.toString()));
-            if (!result.getBoolean("ok")) throw new IllegalStateException("Shared resource verification/preparation failed: " + result.optString("error"));
+            if (!Boolean.TRUE.equals(result.opt("ok"))) {
+                throw new IllegalStateException("Shared resource verification/preparation failed: "
+                    + result.optString("error"));
+            }
             AtomicFile destination = new AtomicFile(configuration);
             FileOutputStream output = null;
             try {
@@ -54,6 +59,18 @@ public final class Bootstrap {
                 throw error;
             }
             return true;
+        }
+    }
+
+    /**
+     * 删掉上一次首次准备被打断时留下的 `<content id>.incoming` 暂存目录。
+     *
+     * <p>引擎准备代次时独占地建这个目录，失败会自己删掉，但进程在复制约 190 MB 词库的途中被杀时它就留下了，此后每次准备（包括「点此重试」）都报 `RUNTIME_STAGING_EXISTS`，键盘永远只能直接输入。首启引导恰好在这几秒里把用户送去系统设置启用键盘，小米等系统会把退到后台的应用杀掉。这里只在还没有配置时调用，并且持有 `bootstrap.lock`：没有配置就没有会话，不会有别的进程正在暂存。
+     */
+    static void clearInterruptedStaging(File dictionaries) throws java.io.IOException {
+        File[] entries = dictionaries.listFiles();
+        for (File entry : entries == null ? new File[0] : entries) {
+            if (entry.getName().endsWith(".incoming")) deleteTree(entry);
         }
     }
 
@@ -172,6 +189,45 @@ public final class Bootstrap {
     }
 
     /**
+     * 内置按键音包（resources/sound-packs 里 `mode = "keys"` 的包，连同各自的 plugin.toml 许可信息），解到 `<filesDir>/sound-packs/<id>/`，键盘经 `NativeClient.keySoundPack` 校验后用 SoundPool 播放其中的样本。
+     *
+     * <p>与离线释义、语言词库同样的规则：不属于校验过的词库，跟着安装包走；安装包变了就经同级的暂存目录整体替换，旧包留下的目录一起去掉。失败时键盘只用系统按键音。
+     */
+    private static void installSoundPacks(Context context, File destination) {
+        try {
+            String stamp = Long.toString(context.getPackageManager()
+                .getPackageInfo(context.getPackageName(), 0).lastUpdateTime);
+            File marker = new File(destination, ".package");
+            if (Files.isRegularFile(marker.toPath(), LinkOption.NOFOLLOW_LINKS)
+                    && stamp.equals(readMarker(marker.toPath()))) return;
+            File staging = new File(destination.getParentFile(), "sound-packs.staging");
+            ensureSafeDirectory(destination.getParentFile().toPath());
+            deleteTree(staging);
+            ensureSafeDirectory(staging.toPath());
+            String[] packs = context.getAssets().list("sound-packs");
+            for (String pack : packs == null ? new String[0] : packs) {
+                if (!pack.matches("[A-Za-z0-9_.-]+") || pack.contains("..")) throw new IllegalArgumentException("Invalid asset name");
+                String[] names = context.getAssets().list("sound-packs/" + pack);
+                if (names == null || names.length == 0) continue;
+                File directory = new File(staging, pack);
+                ensureSafeDirectory(directory.toPath());
+                for (String name : names) {
+                    if (!name.matches("[A-Za-z0-9_.-]+") || name.contains("..")) throw new IllegalArgumentException("Invalid asset name");
+                    try (InputStream input = context.getAssets().open("sound-packs/" + pack + "/" + name)) {
+                        copyAsset(input, new File(directory, name).toPath());
+                    }
+                }
+            }
+            writeAtomically(new File(staging, ".package").toPath(), stamp.getBytes(StandardCharsets.UTF_8));
+            deleteTree(destination);
+            Files.move(staging.toPath(), destination.toPath(), StandardCopyOption.ATOMIC_MOVE);
+        } catch (Exception error) {
+            // Bootstrap has no editor or session input; never use this logging for keystrokes.
+            android.util.Log.w("MSIMEBootstrap", "Sound pack extraction failed", error);
+        }
+    }
+
+    /**
      * 把 APK 里 `desktop-dictionary.lock.json` 固定的词库解包到 `resources`。共享校验要求资源目录恰好是锁里的文件（外加 `helpcodes/`），所以先删掉锁里没有的条目（例如统一 `msime-` 前缀之前的旧文件名），`helpcodes/` 连同用户自己的辅助码表原样保留。每个文件经临时同级文件原子替换，中途失败时下次启动的刷新仍报词库过期，会再解包一次。
      */
     private static void extractDictionary(Context context, File resources) throws Exception {
@@ -180,17 +236,11 @@ public final class Bootstrap {
         // 各版本的 APK 都把本版本的资源锁放在这个文件名下（build-apk.sh 选的；full 的就是 resources/desktop-dictionary.lock.json 本身），下面只解出锁里列的文件。
         try (InputStream input = context.getAssets().open("desktop-dictionary.lock.json")) {
             // Small immutable APK manifest; large dictionary files are streamed below.
-            java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
-            byte[] buffer = new byte[8192];
-            int count;
-            while ((count = input.read(buffer)) != -1) {
-                if (bytes.size() + count > 16384) throw new IllegalArgumentException("Manifest too large");
-                bytes.write(buffer, 0, count);
-            }
-            manifest = new JSONObject(bytes.toString(StandardCharsets.UTF_8.name()));
+            byte[] bytes = HttpBodyPolicy.readRequired(input, 16384);
+            manifest = new JSONObject(new String(bytes, StandardCharsets.UTF_8));
         }
         JSONArray artifacts = manifest.getJSONArray("artifacts");
-        java.util.Set<String> names = new java.util.HashSet<>();
+        java.util.Set<String> names = new java.util.HashSet<>(artifacts.length());
         for (int index = 0; index < artifacts.length(); index++) {
             String name = artifacts.getJSONObject(index).getString("name");
             if (!name.matches("[A-Za-z0-9_.-]+") || name.contains("..")) throw new IllegalArgumentException("Invalid asset name");
@@ -230,7 +280,7 @@ public final class Bootstrap {
     /** 刷新一次配置；成功时返回 `null`，失败时记日志并返回共享层的错误文本。 */
     private static String refreshHost(File configuration) throws Exception {
         JSONObject result = new JSONObject(NativeClient.refreshHost(configuration.getAbsolutePath()));
-        if (result.optBoolean("ok")) return null;
+        if (Boolean.TRUE.equals(result.opt("ok"))) return null;
         String error = result.optString("error");
         android.util.Log.w("MSIMEBootstrap", "Runtime options refresh failed: "
             + (error.startsWith("dictionary_outdated") ? "dictionary_outdated" : "error"));
@@ -239,30 +289,20 @@ public final class Bootstrap {
 
     /** 配置里记录的 `resources`；超过 1 MiB 或读不出来时为 `null`。按块读并限长，文件在检查之后变大也不会无界分配。 */
     private static String readConfiguredResources(File configuration) throws Exception {
-        ByteArrayOutputStream bytes = new ByteArrayOutputStream(8192);
         try (InputStream input = Files.newInputStream(configuration.toPath(), LinkOption.NOFOLLOW_LINKS)) {
-            byte[] buffer = new byte[8192];
-            int count;
-            while ((count = input.read(buffer)) != -1) {
-                if (bytes.size() > 1024 * 1024 - count) return null;
-                bytes.write(buffer, 0, count);
-            }
+            byte[] bytes = HttpBodyPolicy.readBounded(input, 1024 * 1024);
+            if (bytes == null) return null;
+            String resources = new JSONObject(new String(bytes, StandardCharsets.UTF_8))
+                .optString("resources", "");
+            return resources.isEmpty() ? null : resources;
         }
-        String resources = new JSONObject(bytes.toString(StandardCharsets.UTF_8.name())).optString("resources", "");
-        return resources.isEmpty() ? null : resources;
     }
 
     static String readMarker(java.nio.file.Path file) {
         if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) return null;
-        try (InputStream input = Files.newInputStream(file)) {
-            ByteArrayOutputStream bytes = new ByteArrayOutputStream(64);
-            byte[] buffer = new byte[64];
-            int count;
-            while ((count = input.read(buffer)) != -1) {
-                if (bytes.size() > 64 - count) return null;
-                bytes.write(buffer, 0, count);
-            }
-            return bytes.toString(StandardCharsets.UTF_8.name());
+        try (InputStream input = Files.newInputStream(file, LinkOption.NOFOLLOW_LINKS)) {
+            byte[] bytes = HttpBodyPolicy.readBounded(input, 64);
+            return bytes == null ? null : new String(bytes, StandardCharsets.UTF_8);
         } catch (Exception ignored) {
             return null;
         }

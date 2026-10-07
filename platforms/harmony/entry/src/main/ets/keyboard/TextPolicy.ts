@@ -16,6 +16,11 @@ export class TextPolicy {
       && !value.includes("@") && !value.includes("#");
   }
 
+  /** A web URL the settings page may hand to the system browser. */
+  static validExternalWebUrl(value: string): boolean {
+    return TextPolicy.validAuthority(value, ['https://', 'http://']);
+  }
+
   /** Allows plaintext only for a loopback authority; credentials remain HTTPS-only. */
   static validSecureAuthority(value: string, allowHttp: boolean, maxBytes: number = 2048): boolean {
     if (!TextPolicy.validAuthority(value, allowHttp ? ["https://", "http://"] : ["https://"], maxBytes)) {
@@ -38,6 +43,21 @@ export class TextPolicy {
       const code: number = character.codePointAt(0) ?? 0;
       return code <= 0x1f || (code >= 0x7f && code <= 0x9f);
     });
+  }
+
+  /** 拒绝未配对的 UTF-16 代理项，避免原生或网络文本带着非法 Unicode 进入编辑器。 */
+  static validUnicode(value: string): boolean {
+    for (let index: number = 0; index < value.length; index++) {
+      const unit: number = value.charCodeAt(index);
+      if (unit >= 0xd800 && unit <= 0xdbff) {
+        if (index + 1 >= value.length) return false;
+        const next: number = value.charCodeAt(++index);
+        if (next < 0xdc00 || next > 0xdfff) return false;
+      } else if (unit >= 0xdc00 && unit <= 0xdfff) {
+        return false;
+      }
+    }
+    return true;
   }
 
   /** Bounds text while allowing the line breaks and tabs used in prompts and transcripts. */

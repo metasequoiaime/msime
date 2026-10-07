@@ -18,8 +18,15 @@ protocol OnlineCandidateTransport: Sendable {
 
 /// HTTPS only, no redirects, no cookies or cache, and nothing kept between requests.
 struct URLSessionOnlineCandidateTransport: OnlineCandidateTransport {
+  static func validURL(_ url: URL?) -> Bool {
+    guard let url, url.scheme == "https",
+          let host = url.host, !host.isEmpty,
+          url.user == nil, url.password == nil, url.fragment == nil else { return false }
+    return true
+  }
+
   func fetch(_ request: OnlineCandidateRequest) async -> Data? {
-    guard request.urlRequest.url?.scheme == "https" else { return nil }
+    guard Self.validURL(request.urlRequest.url) else { return nil }
     let configuration = URLSessionConfiguration.ephemeral
     configuration.timeoutIntervalForRequest = request.connectTimeout
     configuration.timeoutIntervalForResource = request.timeout

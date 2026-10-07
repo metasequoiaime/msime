@@ -84,6 +84,8 @@ pub struct View {
     /// Engine-owned mobile layout mode. Digits are input, never candidate shortcuts, while active.
     pub nine_key: bool,
     pub nine_key_spellings: Vec<String>,
+    /// 全拼九键组字时，首选候选覆盖的数字显示成它的拼音（`xi'an`），给键盘的读音行用；其他情况为空，包括注音九键。全拼下 `preedit` 仍是数字；注音下是转换结果加上未完成的数字。
+    pub nine_key_reading: String,
     /// Applied touch presentation, independent of Engine-owned Chinese nine-key digit handling.
     pub touch_keyboard_layout: TouchKeyboardLayout,
     /// Applied Engine configuration, not a newer deferred preference snapshot.

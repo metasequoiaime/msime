@@ -25,7 +25,7 @@ public final class EnglishSuggestionModel {
         if (prefixValue == null || prefixValue.value().isEmpty()
                 || prefixValue.value().length() > MAX_WORD_LENGTH)
             throw new IllegalArgumentException("Invalid English completion response");
-        ArrayList<String> items = new ArrayList<>();
+        ArrayList<String> items = new ArrayList<>(MAX_ITEMS);
         int offset = itemsStart + 9;
         while (offset < response.length() && response.charAt(offset) != ']') {
             if (response.charAt(offset) != '"' || items.size() >= MAX_ITEMS)
@@ -48,7 +48,7 @@ public final class EnglishSuggestionModel {
 
     private static ParsedString parseString(String text, int quoteOffset) {
         if (quoteOffset < 0 || quoteOffset >= text.length() || text.charAt(quoteOffset) != '"') return null;
-        StringBuilder value = new StringBuilder();
+        StringBuilder value = new StringBuilder(text.length() - quoteOffset - 1);
         for (int offset = quoteOffset + 1; offset < text.length(); offset++) {
             char current = text.charAt(offset);
             if (current == '"') return new ParsedString(value.toString(), offset + 1);

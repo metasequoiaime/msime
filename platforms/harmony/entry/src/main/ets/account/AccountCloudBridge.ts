@@ -1,6 +1,7 @@
 import { utf8Length } from "../keyboard/Utf8";
 import { CustomKeyboardSkin, CustomSkinDocument } from "../keyboard/skin/CustomKeyboardSkin";
 import { CloudClipboardPolicy } from "../keyboard/clipboard/CloudClipboardPolicy";
+import { TextPolicy } from "../keyboard/TextPolicy";
 
 export type AccountTransportResponse = { status: number; body: string; contentLength?: number };
 export type AccountDownloadResponse = {
@@ -146,10 +147,9 @@ function validCommunityText(
   if (typeof value !== "string") return false;
   const characters = [...value];
   if (characters.length < minimum || characters.length > maximum) return false;
-  return !characters.some((character) => {
+  return TextPolicy.validUnicode(value) && !characters.some((character) => {
     if (multiline && (character === "\n" || character === "\t")) return false;
-    const code = character.codePointAt(0) ?? 0;
-    return code <= 0x1f || code === 0x7f;
+    return TextPolicy.hasControl(character);
   });
 }
 
@@ -600,15 +600,26 @@ function success(value: unknown): string {
   return JSON.stringify({ ok: true, value });
 }
 
+/** 账号桥接信封只有布尔值 `true` 才表示成功，拒绝其它 truthy 值。 */
+export function strictAccountOk(value: unknown): value is true {
+  return value === true;
+}
+
+/** 原生账号成功信封必须同时带有非空 value，避免缺失值流入后续请求。 */
+export function accountReplyValue<T>(reply: unknown): T | null {
+  if (reply === null || typeof reply !== "object" || Array.isArray(reply)) return null;
+  const value: unknown = (reply as { value?: unknown }).value;
+  return strictAccountOk((reply as { ok?: unknown }).ok) && value !== undefined && value !== null
+    ? value as T : null;
+}
+
 function validString(value: unknown, maximum: number, allowEmpty = false): value is string {
   return (
     typeof value === "string" &&
     (allowEmpty || value.length > 0) &&
     value.length <= maximum &&
-    ![...value].some((character) => {
-      const code = character.codePointAt(0) ?? 0;
-      return code <= 0x1f || code === 0x7f;
-    })
+    !TextPolicy.hasControl(value) &&
+    TextPolicy.validUnicode(value)
   );
 }
 
@@ -920,7 +931,7 @@ export class AccountCloudBridge {
       "GET",
       "/v1/users/me/dictionaries/quick/catalog?q=&offset=0&limit=100&scheme=pinyin&profile=xiaohe",
     );
-    if (result.error !== undefined || result.value === undefined)
+    if (result.error !== undefined || result.value === undefined || result.value === null)
       return { error: result.error ?? "account_unavailable" };
     const revision = result.value.revision;
     if (typeof revision !== "number" || !Number.isSafeInteger(revision) || revision < 0)
@@ -1082,13 +1093,15 @@ export class AccountCloudBridge {
   private async logout(action: Action): Promise<string> {
     if (typeof action.all !== "boolean") return error("account_invalid");
     const result = await this.authenticated("POST", "/v1/auth/logout", { all: action.all });
-    if (JSON.parse(result).ok) await this.signOut();
+    const reply = parseJson(result);
+    if (reply !== null && strictAccountOk(reply.ok)) await this.signOut();
     return result;
   }
 
   private async deleteAccount(): Promise<string> {
     const result = await this.authenticated("DELETE", "/v1/users/me");
-    if (JSON.parse(result).ok) await this.signOut();
+    const reply = parseJson(result);
+    if (reply !== null && strictAccountOk(reply.ok)) await this.signOut();
     return result;
   }
 
@@ -1115,7 +1128,10 @@ export class AccountCloudBridge {
       const result = await this.authenticated("PUT", "/v1/users/me/clipboard/settings", {
         enabled: action.enabled,
       });
-      return JSON.parse(result).ok ? success({ enabled: action.enabled }) : result;
+      const reply = parseJson(result);
+      return reply !== null && strictAccountOk(reply.ok)
+        ? success({ enabled: action.enabled })
+        : result;
     }
     return error("account_invalid");
   }
@@ -1139,7 +1155,7 @@ export class AccountCloudBridge {
     const result = await this.authenticatedJson("GET", "/v1/models");
     if (result.error !== undefined) return error(result.error);
     const value = result.value;
-    if (value === undefined) return error("account_unavailable");
+    if (value === undefined || value === null) return error("account_unavailable");
     const data = value.data;
     if (
       !Array.isArray(data) ||
@@ -1215,7 +1231,7 @@ export class AccountCloudBridge {
       CHAT_TIMEOUT_MS,
     );
     if (result.error !== undefined) return error(result.error);
-    if (result.value === undefined) return error("account_unavailable");
+    if (result.value === undefined || result.value === null) return error("account_unavailable");
     const choices = result.value.choices;
     if (!Array.isArray(choices) || choices.length === 0) return error("account_unavailable");
     const first = choices[0] as unknown;

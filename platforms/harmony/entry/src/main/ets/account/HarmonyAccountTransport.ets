@@ -5,6 +5,7 @@ import {
   AccountSessionStore, AccountTransport, AccountTransportResponse, parseResponseContentLength
 } from './AccountCloudBridge';
 import { installNoRedirectGuard, noRedirectOptions } from '../network/HarmonyHttpSecurity';
+import { sessionFitsStorage } from './AccountSessionPolicy';
 
 /**
  * The account session file and the HTTPS transport, shared by the settings application and the keyboard extension.
@@ -12,7 +13,6 @@ import { installNoRedirectGuard, noRedirectOptions } from '../network/HarmonyHtt
  * Both processes belong to the one `entry` module, so `<files>/state` is the same sandbox directory in each, and the keyboard reads the session the settings page signed in with rather than holding a copy of its own. Nothing here is exported to a WebView.
  */
 export const ACCOUNT_ORIGIN: string = 'https://api.msime.app';
-const MAX_SESSION_BYTES: number = 64 * 1024;
 
 /**
  * `<state>/account-session.json`, written whole and then renamed into place.
@@ -64,7 +64,7 @@ export class FileSessionStore implements AccountSessionStore {
   }
 
   save(value: string): void {
-    if (value.length > MAX_SESSION_BYTES || !this.prepareDirectory() || this.isSymbolicLink(this.file)) {
+    if (!sessionFitsStorage(value) || !this.prepareDirectory() || this.isSymbolicLink(this.file)) {
       throw new Error('account_storage');
     }
     const staging: string = `${this.file}.${util.generateRandomUUID(false)}.tmp`;

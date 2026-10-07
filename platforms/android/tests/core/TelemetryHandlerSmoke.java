@@ -11,6 +11,8 @@ public final class TelemetryHandlerSmoke {
     }
 
     public static void main(String[] args) throws Exception {
+        check(!Telemetry.booleanValue("true", false), "string consent must not enable telemetry");
+        check(Telemetry.booleanValue(Boolean.TRUE, false), "typed consent is accepted");
         Thread.UncaughtExceptionHandler previous = Thread.getDefaultUncaughtExceptionHandler();
         try {
             check(Telemetry.installCrashHandler(null), "first installation must succeed");
@@ -77,6 +79,45 @@ public final class TelemetryHandlerSmoke {
             sessionCrashRecord.setAccessible(true);
             sessionCrashRecord.set(null, null);
             try (Stream<Path> paths = Files.walk(root)) {
+                paths.sorted(java.util.Comparator.reverseOrder()).forEach(path -> {
+                    try { Files.deleteIfExists(path); }
+                    catch (Exception cleanupError) { throw new IllegalStateException(cleanupError); }
+                });
+            }
+        }
+
+        Path sessionRoot = Files.createTempDirectory("msime-telemetry-session-");
+        try {
+            Path outside = Files.createDirectory(sessionRoot.resolve("outside"));
+            Path crashRoot = Files.createDirectory(sessionRoot.resolve("telemetry-crashes"));
+            Path linkedParent = crashRoot.resolve("session-link");
+            Files.createSymbolicLink(linkedParent, outside);
+            java.lang.reflect.Field crashDirectory = Telemetry.class
+                .getDeclaredField("crashDirectory");
+            crashDirectory.setAccessible(true);
+            java.lang.reflect.Field sessionCrashRecord = Telemetry.class
+                .getDeclaredField("sessionCrashRecord");
+            sessionCrashRecord.setAccessible(true);
+            java.lang.reflect.Method writeCrashRecord = Telemetry.class
+                .getDeclaredMethod("writeCrashRecord", Throwable.class);
+            writeCrashRecord.setAccessible(true);
+            crashDirectory.set(null, crashRoot.toFile());
+            sessionCrashRecord.set(null, linkedParent.resolve("session.crash").toFile());
+            writeCrashRecord.invoke(null, new RuntimeException("synthetic session"));
+            try (Stream<Path> children = Files.list(outside)) {
+                check(children.findAny().isEmpty(),
+                    "session crash records must not follow a replaced parent symlink");
+            }
+        } finally {
+            java.lang.reflect.Field crashDirectory = Telemetry.class
+                .getDeclaredField("crashDirectory");
+            crashDirectory.setAccessible(true);
+            crashDirectory.set(null, null);
+            java.lang.reflect.Field sessionCrashRecord = Telemetry.class
+                .getDeclaredField("sessionCrashRecord");
+            sessionCrashRecord.setAccessible(true);
+            sessionCrashRecord.set(null, null);
+            try (Stream<Path> paths = Files.walk(sessionRoot)) {
                 paths.sorted(java.util.Comparator.reverseOrder()).forEach(path -> {
                     try { Files.deleteIfExists(path); }
                     catch (Exception cleanupError) { throw new IllegalStateException(cleanupError); }

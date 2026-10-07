@@ -7,8 +7,8 @@ use super::{
 use msime_client_core::dictionary::import::{dictionary_row_matches, PageSelector};
 use msime_client_core::dictionary::is_han_character;
 use msime_client_core::dictionary::personal::{
-    PersonalDictionaryError, PersonalDictionaryStore, PersonalWord, PersonalWordKind,
-    PersonalWordRequestStatus,
+    PersonalDictionaryError, PersonalDictionaryStore, PersonalWord, PersonalWordApplied,
+    PersonalWordKind, PersonalWordRequestStatus,
 };
 use msime_engine::host::{DictionaryEntry, DictionaryKind};
 use serde::{Deserialize, Serialize};
@@ -195,6 +195,17 @@ enum Operation {
     },
     DismissFailure {
         request_id: String,
+    },
+    /// 词条数，只读。没有 `kind` 时数全部词库。`user_only` 为真时只数用户自己的词；为假（缺省）时拼音还计入学习过权重的内置词，与导出的口径相同。
+    Count {
+        #[serde(default)]
+        kind: Option<Kind>,
+        #[serde(default)]
+        user_only: bool,
+    },
+    /// 把用户词库导出成与 `/v1/users/me/dictionary/snapshot` 相同的 NDJSON 文件，`destination` 是绝对路径。
+    ExportSnapshot {
+        destination: String,
     },
 }
 
@@ -752,6 +763,81 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
         Operation::Retry { .. } | Operation::DismissFailure { .. } => {
             Err("dictionary failure actions require the Android personal dictionary API".into())
         }
+        Operation::Count { kind, user_only } => {
+            let _access = DictionaryAccess::try_session(
+                Path::new(&options.user_data),
+                Path::new(&options.dictionaries),
+            )
+            .map_err(|_| "dictionary access unavailable")?
+            .ok_or("dictionary maintenance busy")?;
+            count_entries(&options, kind, user_only)
+        }
+        Operation::ExportSnapshot { destination } => {
+            let _access = DictionaryAccess::try_session(
+                Path::new(&options.user_data),
+                Path::new(&options.dictionaries),
+            )
+            .map_err(|_| "dictionary access unavailable")?
+            .ok_or("dictionary maintenance busy")?;
+            crate::dictionary_snapshot::export_local_snapshot(&options, Path::new(&destination))
+                .map_err(str::to_owned)
+        }
+    }
+}
+
+/// `count` 的实现：分页扫完整个用户词库，最多扫一百万行。
+fn count_entries(
+    options: &msime_engine::host::EngineOptions,
+    kind: Option<Kind>,
+    user_only: bool,
+) -> Result<serde_json::Value, String> {
+    const CHUNK: usize = 1000;
+    const SCAN_LIMIT: usize = 1_000_000;
+    let mut counts = std::collections::BTreeMap::<&'static str, u64>::new();
+    let mut scanned = 0usize;
+    let mut complete = true;
+    loop {
+        let page = if user_only {
+            msime_engine::host::dictionary_entries(options, scanned, CHUNK)
+        } else {
+            msime_engine::host::dictionary_export_entries(
+                options,
+                scanned,
+                CHUNK,
+                kind.is_none_or(|kind| kind == Kind::Pinyin),
+            )
+        }
+        .map_err(|_| "dictionary read rejected")?;
+        let count = page.entries.len();
+        for entry in page.entries {
+            let Ok(entry) = Entry::try_from(entry) else {
+                continue;
+            };
+            if kind.is_some_and(|wanted| wanted != entry.kind) {
+                continue;
+            }
+            *counts.entry(kind_name(entry.kind)).or_default() += 1;
+        }
+        scanned = scanned.saturating_add(count);
+        if !page.has_more || count == 0 {
+            break;
+        }
+        if scanned >= SCAN_LIMIT {
+            complete = false;
+            break;
+        }
+    }
+    let total: u64 = counts.values().sum();
+    Ok(json!({ "count": total, "kinds": counts, "complete": complete }))
+}
+
+fn kind_name(kind: Kind) -> &'static str {
+    match kind {
+        Kind::Pinyin => "pinyin",
+        Kind::Wubi => "wubi",
+        Kind::QuickPhrase => "quick_phrase",
+        Kind::English => "english",
+        Kind::Wubi98 => "wubi98",
     }
 }
 
@@ -938,6 +1024,9 @@ pub fn personal_dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Valu
             let state = store.read().map_err(personal_dictionary_error)?;
             Ok(json!({ "pending_count": state.pending_count() }))
         }
+        Operation::Count { .. } | Operation::ExportSnapshot { .. } => {
+            Err("dictionary read operations require msime_client_dictionary".into())
+        }
         Operation::DismissFailure { request_id } => {
             store
                 .dismiss_failure(&request_id)
@@ -1064,17 +1153,29 @@ pub fn personal_dictionary_sync_json(bytes: &[u8]) -> Result<serde_json::Value, 
         .ok_or("personal dictionary shared directory unavailable")?;
     let store = PersonalDictionaryStore::new(Path::new(directory).join("PersonalDictionary"));
     let options = options.into_engine_options();
+    // Read once per synchronization, and only when a collection addition is pending.
+    let mut user_words: Option<std::collections::HashSet<String>> = None;
     store
-        .synchronize(
+        .synchronize_reporting_present(
             |queued| {
                 let previous = queued.previous.as_ref().map(personal_engine_entry);
                 let replacement = queued.replacement.as_ref().map(personal_engine_entry);
+                if let (None, Some(entry)) = (&previous, &replacement) {
+                    if queued.id.starts_with(COLLECTION_REQUEST_PREFIX) {
+                        let words =
+                            user_words.get_or_insert_with(|| user_word_identities(&options));
+                        if user_word_present(words, entry) {
+                            return Ok(PersonalWordApplied::AlreadyPresent);
+                        }
+                    }
+                }
                 edit_personal_dictionary(
                     &options,
                     previous.as_ref(),
                     replacement.as_ref(),
                     &queued.id,
                 )
+                .map(|()| PersonalWordApplied::Written)
             },
             |request| {
                 let (entries, has_more) = user_entries_page(
@@ -1105,6 +1206,53 @@ pub fn personal_dictionary_sync_json(bytes: &[u8]) -> Result<serde_json::Value, 
         "pending_count": state.pending_count(),
         "snapshot_error": state.snapshot_error,
     }))
+}
+
+/// The request id prefix `msime_client_core::dictionary::collections` gives what it queues.
+const COLLECTION_REQUEST_PREFIX: &str = "collections-";
+
+/// Identities of the user's own rows (`user_inserted`), the ones a dictionary collection must neither overwrite nor later remove. A store the Engine cannot read answers empty, so the addition is written as it was before this check existed.
+fn user_word_identities(
+    options: &msime_engine::host::EngineOptions,
+) -> std::collections::HashSet<String> {
+    const CHUNK: usize = 1000;
+    const SCAN_LIMIT: usize = 1_000_000;
+    let mut identities = std::collections::HashSet::with_capacity(CHUNK);
+    let mut offset = 0usize;
+    loop {
+        let Ok(page) = msime_engine::host::dictionary_entries(options, offset, CHUNK) else {
+            return std::collections::HashSet::new();
+        };
+        let count = page.entries.len();
+        for raw in page.entries {
+            if let Ok(entry) = Entry::try_from(raw) {
+                identities.insert(engine_identity(&DictionaryEntry::from(entry)));
+            }
+        }
+        offset = offset.saturating_add(count);
+        if !page.has_more || count == 0 || offset >= SCAN_LIMIT {
+            return identities;
+        }
+    }
+}
+
+/// Whether `entry`, normalized as the Engine would store it, is already one of the user's rows.
+fn user_word_present(
+    identities: &std::collections::HashSet<String>,
+    entry: &DictionaryEntry,
+) -> bool {
+    msime_engine::host::dictionary_validate(entry)
+        .is_ok_and(|normalized| identities.contains(&engine_identity(&normalized)))
+}
+
+fn engine_identity(entry: &DictionaryEntry) -> String {
+    PersonalWord {
+        kind: personal_kind(entry.kind),
+        key: entry.key.clone(),
+        value: entry.value.clone(),
+        weight: 0,
+    }
+    .identity()
 }
 
 /// JNI entry point for the Android IME worker.

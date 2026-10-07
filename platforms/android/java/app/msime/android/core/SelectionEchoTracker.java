@@ -38,8 +38,8 @@ public final class SelectionEchoTracker {
         composingEnd = -1;
         slack = 0;
         known = start >= 0 && end >= 0;
-        selectionStart = Math.min(start, end);
-        selectionEnd = Math.max(start, end);
+        selectionStart = BoundsPolicy.atMost(start, end);
+        selectionEnd = BoundsPolicy.atLeast(start, end);
     }
 
     /** 这次写入的结果算不出来（发按键事件、编辑器拒绝了写入、删除时有选区或组字区等）。 */
@@ -111,11 +111,11 @@ public final class SelectionEchoTracker {
      * <p>回声按发出的顺序到达，所以对上第 i 条预期时，它之前那些（编辑器没为它们单独回报，比如写完选区没变）也一并作废。对不上的回报是外部变化，以它为准重新定基并清空预期。
      */
     public boolean acknowledge(int newStart, int newEnd, int newComposingStart, int newComposingEnd) {
-        int start = Math.min(newStart, newEnd);
-        int end = Math.max(newStart, newEnd);
+        int start = BoundsPolicy.atMost(newStart, newEnd);
+        int end = BoundsPolicy.atLeast(newStart, newEnd);
         boolean composing = newComposingStart >= 0 && newComposingEnd >= 0;
-        int reportedComposingStart = composing ? Math.min(newComposingStart, newComposingEnd) : -1;
-        int reportedComposingEnd = composing ? Math.max(newComposingStart, newComposingEnd) : -1;
+        int reportedComposingStart = composing ? BoundsPolicy.atMost(newComposingStart, newComposingEnd) : -1;
+        int reportedComposingEnd = composing ? BoundsPolicy.atLeast(newComposingStart, newComposingEnd) : -1;
         for (int index = 0; index < pendingCount; index++) {
             int shift = pendingStart[index] - start;
             if (shift < 0 || shift > pendingSlack[index] || pendingEnd[index] - shift != end) continue;

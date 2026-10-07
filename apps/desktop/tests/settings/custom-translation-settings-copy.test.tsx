@@ -13,8 +13,8 @@ test("expression page uses the shared translation settings composition", () => {
     'import { TranslationSettingsContent } from "../translation-settings-content";',
   );
   expect(page).toContain("<TranslationSettingsContent");
-  // 自定义释义编辑器放在「显示英文释义」旁边，而不在某个服务的组里，所以由宿主自行摆放，但一律通过共享绑定，而不是手工接线它的 props。
-  expect(page).toContain("<CustomTranslationsSection {...translation.customGlosses} />");
+  // 设置页不再提供自定义候选释义编辑器；Engine 仍读取用户目录里的 custom_translations.txt。
+  expect(page).not.toContain("CustomTranslationsSection");
   expect(page).not.toContain("onFlush={");
   expect(page).not.toContain("<TranslationProviderSettingsSection");
 });

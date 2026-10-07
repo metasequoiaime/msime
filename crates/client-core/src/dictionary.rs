@@ -5,6 +5,7 @@
 //! modes and different validation.
 
 pub mod access;
+pub mod collections;
 pub mod import;
 pub mod personal;
 pub mod quiesce;

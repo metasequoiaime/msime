@@ -46,8 +46,8 @@ public final class VocabularyReviewDocument {
         JSONObject settings = root.optJSONObject("settings");
         if (settings == null) return null;
 
-        List<VocabularyReviewModel.Wordbook> wordbooks = new ArrayList<>();
         JSONArray books = root.optJSONArray("wordbooks");
+        List<VocabularyReviewModel.Wordbook> wordbooks = new ArrayList<>(books == null ? 0 : books.length());
         if (books != null) {
             for (int index = 0; index < books.length(); index++) {
                 JSONObject book = books.optJSONObject(index);
@@ -62,8 +62,8 @@ public final class VocabularyReviewDocument {
             }
         }
 
-        List<VocabularyReviewModel.Card> queue = new ArrayList<>();
         JSONArray cards = root.optJSONArray("queue");
+        List<VocabularyReviewModel.Card> queue = new ArrayList<>(cards == null ? 0 : cards.length());
         if (cards != null) {
             for (int index = 0; index < cards.length(); index++) {
                 JSONObject card = cards.optJSONObject(index);

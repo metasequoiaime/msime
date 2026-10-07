@@ -409,7 +409,7 @@ V、`/`、`@` 三个模式的按键由 Engine 导出的 `spelling_symbols` 决�
 - `build-native.sh`、`stage-resources.sh`、`stage-voice-runtime.sh`：共享 Host API、NAPI 库、固定资源和 sherpa-onnx HAR 的构建/暂存入口。
 - `entry/src/main/resources/rawfile/settings/index.html`：设置页的单文件打包产物，由 `stage-settings.sh` 从 `apps/harmony` 生成，不提交，见下方[设置页打包](#设置页打包)。
 
-Windows 文档里的“自定义候选窗翻译”在 Harmony 上改由设置页提供。Engine 本来就在每个宿主上读这份覆盖层——`prepare_translation_sidecar` 先看用户数据目录再看资源目录——所以缺的从来不是功能，而是投放途径：没人能把文件放进应用沙盒。设置页的“自定义候选释义”把同一份内容写到 Engine 已经在看的位置（`<state>/user/custom_translations.txt`），解析规则逐条对齐 `EnglishDictionary::load_custom_translations`（Tab 分隔、`#` 注释、首尾空白修剪、源词含非 ASCII 即中译英、同源词后者覆盖前者），页面因此能在保存前说清楚这份文件里到底有多少条、多少行读不出来。留空即删除该文件，而不是留下一份 Engine 每次都读成空集的文档。**不写进已暂存的资源目录**：那里按锁文件逐项精确校验，多一个文件就会让键盘拒绝启动。
+Windows 文档里的“自定义候选窗翻译”在 Harmony 上没有设置入口。Engine 仍在每个宿主上读这份覆盖层——`prepare_translation_sidecar` 先看用户数据目录（`<state>/user/custom_translations.txt`）再看资源目录——但应用沙盒里的这个文件用户无法直接放入，设置页也不再提供编辑它的「自定义候选释义」。**不要把它写进已暂存的资源目录**：那里按锁文件逐项精确校验，多一个文件就会让键盘拒绝启动。
 
 设置页的本地词库管理复用共享设置 UI 和 `msime_client_dictionary`：可分页查看、编辑、导入、导出和处理失败队列。ArkTS 设置桥只接受操作 JSON；引擎资源和状态目录始终由宿主从应用沙盒准备，WebView 不能提交路径。词库写操作需要 Engine 独占维护窗口：空闲时会短暂重建会话并恢复语言、九键和焦点状态；正在组合输入时会返回忙碌错误，不会替用户取消输入。读取操作可与活动会话并行。
 

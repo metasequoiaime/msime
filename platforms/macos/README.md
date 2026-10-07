@@ -165,7 +165,7 @@ SwiftUI 设置同步覆盖 26 个当前宿主偏好：全局主题、自定义�
 
 皮肤浏览入口优先打开共享 Tauri `settings:skin` 页面，Tauri 不可用时回退到按固定 Apple `SkinSettingsView` 迁移的原生卡片式页面：七个全局主题、外部包描述、每卡独立预览与单选启用开关（固定明暗的主题不提供预览明暗切换），已启用项再次点击不会关闭；「不使用外部皮肤」让自定义主题回到纯取色器配色。外部包通过“打开目录 → 复制皮肤文件夹 → 刷新皮肤”加载，提供空状态和无效包扫描诊断。固定 macOS 源码没有内置导入/删除按钮，本页保持该目录管理流程，不另外创建导入器。目录打开仅由用户点击触发；宿主目录创建/打开失败会显示错误，不触碰 MSIME-Apple 目录。共享页面与原生回退共用同一受控皮肤目录和设置快照。
 
-macOS 原生候选翻译回退窗口与共享 Tauri 设置保持一致：可直接开关不联网的英文释义，并写入同一 `candidate_english_gloss` 偏好。在线候选翻译关闭但离线释义开启时，主、次目标语言仍可编辑；两种释义都关闭时才禁用语言选择。保存仍使用共享快照的 CAS 版本检查，不放宽凭据验证或并发写入保护。翻译服务可选腾讯云、小牛翻译、自定义 DeepLX 或「水杉账号」；新装与恢复默认设置时选中「水杉账号」（`translation_account`），把当前页的中文候选词发送到 `api.msime.app`；已有配置里没有这个字段的按未选择处理，升级不会替用户打开。腾讯云默认的 `enabled: true` 在没有可用凭据时不算用户的选择，不会盖过水杉账号；没有选择「水杉账号」、也没有填好自己服务的凭据时翻译不联网。输入法首次激活时会向 `api.msime.app` 注册本机的匿名水杉账号（`MSIMEEnsureAnonymousAccount`，每个进程一次，已有登录或匿名会话时直接返回），只发送本机随机生成的标识与口令，不含输入内容。
+macOS 原生候选翻译回退窗口与共享 Tauri 设置保持一致：可直接开关不联网的英文释义，并写入同一 `candidate_english_gloss` 偏好。在线候选翻译关闭但离线释义开启时，主、次目标语言仍可编辑；两种释义都关闭时才禁用语言选择。保存仍使用共享快照的 CAS 版本检查，不放宽凭据验证或并发写入保护。翻译服务可选腾讯云、小牛翻译、自定义 DeepLX 或「水杉账号」；选择「水杉账号」（`translation_account`）后把当前页的中文候选词发送到 `api.msime.app`；新装与恢复默认设置时都不选它，已有配置里没有这个字段的按未选择处理，升级不会替用户打开。腾讯云默认的 `enabled: true` 在没有可用凭据时不算用户的选择，不会盖过显式选择的水杉账号；没有选择「水杉账号」、也没有填好自己服务的凭据时翻译不联网。输入法首次激活时会向 `api.msime.app` 注册本机的匿名水杉账号（`MSIMEEnsureAnonymousAccount`，每个进程一次，已有登录或匿名会话时直接返回），只发送本机随机生成的标识与口令，不含输入内容。
 
 没有选择任何翻译服务时，macOS 26 及以上用 Apple 的 Translation 框架（`TranslationSession(installedSource:target:)`）在本机为离线词典答不上的中文候选补释义，排在英文词典与非英语离线词典之后，只填它们留空的行。只用系统设置里已下载的语言对，未下载的对 30 秒内不再询问；每种目标语言同时只有一批在途，新页替换排队中的旧页。结果进内存翻译缓存，与原文相同的译文按空值缓存，同一候选不再重复请求。`Translation.framework` 以弱链接载入，macOS 13–25 上不调用。该文件需要 Swift 6.2（macOS 26 SDK）编译，更旧的工具链编译出的后端不含这项功能，输入法经弱引用的入口为空时照常只用离线词典，与 SpeechAnalyzer 语音识别相同。
 
@@ -193,7 +193,7 @@ AI 候选与候选释义相互独立：与来源的 `ai_eligible` / `UpdateAiInp
 
 ## 云候选的首次同意
 
-云候选是唯一一项装完就会把输入内容发出设备的功能：输入过程中把正在输入的拼写通过 HTTPS 发送给 Google 的 input-tools 服务（inputtools.google.com），换回一条额外候选；已上屏的文本、词库内容和学习到的词频都不会发送。全新配置下，输入法第一次激活时弹出「联网功能」对话框说明这一点，按钮为「启用云候选」（默认）与「不启用」，回答之前不发任何云候选请求。对话框不阻塞当前应用的输入，没有回答就在下次激活时再问。升级不问：宿主偏好里已有云候选选择，或输入法第一次判断时共享 `preferences.json` 已存在、Engine 用户数据目录已有内容（用过输入法但从没改过设置的配置也算），就沿用原值。判断结果只做一次，记在宿主偏好 `MSIMEClientCloudCandidatesConsent`；答案写入共享偏好 `cloud_candidates`，之后可在原生设置的「云端与智能候选」或 Tauri 设置输入页的「云候选」里更改，原生设置里改动开关本身也算作回答。实现在 `src/settings/AppearancePreferences.mm`（`resolveCloudCandidatesConsentWithPreferencesDirectory:userDataDirectory:`、`cloudCandidatesEnabled`、`answerCloudCandidates:`）与 `src/input/InputController.mm`（`requestCloudCandidatesConsentIfNeeded`、`presentCloudConsent:`）。
+云候选是唯一一项在首次使用时询问、会把输入内容发出设备的功能，新装默认关闭：输入过程中把正在输入的拼写通过 HTTPS 发送给 Google 的 input-tools 服务（inputtools.google.com），换回一条额外候选；已上屏的文本、词库内容和学习到的词频都不会发送。全新配置下，输入法第一次激活时弹出「联网功能」对话框说明这一点，按钮为「不启用」（默认，对应回车）与「启用云候选」，回答之前不发任何云候选请求。对话框不阻塞当前应用的输入，没有回答就在下次激活时再问。升级不问：宿主偏好里已有云候选选择，或输入法第一次判断时共享 `preferences.json` 已存在、Engine 用户数据目录已有内容（用过输入法但从没改过设置的配置也算），就沿用原值；没有任何已存值的按共享默认值关闭。判断结果只做一次，记在宿主偏好 `MSIMEClientCloudCandidatesConsent`；答案写入共享偏好 `cloud_candidates`，之后可在原生设置的「云端与智能候选」或 Tauri 设置输入页的「云候选」里更改，原生设置里改动开关本身也算作回答。实现在 `src/settings/AppearancePreferences.mm`（`resolveCloudCandidatesConsentWithPreferencesDirectory:userDataDirectory:`、`cloudCandidatesEnabled`、`answerCloudCandidates:`）与 `src/input/InputController.mm`（`requestCloudCandidatesConsentIfNeeded`、`presentCloudConsent:`）。
 
 ## 语音输入
 

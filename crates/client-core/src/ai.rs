@@ -54,7 +54,7 @@ pub fn chat_completion_body(
     if !AI_PROVIDERS.contains(&provider)
         || model.is_empty()
         || !crate::text::is_bounded_text(model, 256)
-        || prompt.len() > 16384
+        || !crate::text::is_bounded_text_with_options(prompt, 16384, true)
     {
         return Err(AiError::InvalidConfiguration);
     }
@@ -223,11 +223,11 @@ impl AiSuggestionRequest {
             || self
                 .segmented_pinyin
                 .iter()
-                .any(|part| part.is_empty() || part.len() > 32)
+                .any(|part| part.is_empty() || !crate::text::is_bounded_text(part, 32))
         {
             return Err(AiError::InvalidSegments);
         }
-        if self.context.len() > 16 * 1024 {
+        if !crate::text::is_bounded_text_with_options(&self.context, 16 * 1024, true) {
             return Err(AiError::ContextTooLarge);
         }
         if !(1..=10).contains(&self.candidate_limit) {
@@ -245,7 +245,9 @@ impl AiSuggestionResponse {
         if self
             .candidates
             .iter()
-            .any(|candidate| candidate.text.is_empty() || candidate.text.len() > 4096)
+            .any(|candidate| {
+                candidate.text.is_empty() || !crate::text::is_bounded_text(&candidate.text, 4096)
+            })
         {
             return Err(AiError::InvalidCandidate);
         }
@@ -286,6 +288,34 @@ mod tests {
         request.candidate_limit = 1;
         request.segmented_pinyin[0] = String::new();
         assert_eq!(request.validate(), Err(AiError::InvalidSegments));
+    }
+
+    #[test]
+    fn rejects_control_characters_in_model_inputs() {
+        let mut request = AiSuggestionRequest {
+            segmented_pinyin: vec!["ni\u{0}".into()],
+            context: String::new(),
+            candidate_limit: 1,
+        };
+        assert_eq!(request.validate(), Err(AiError::InvalidSegments));
+        request.segmented_pinyin[0] = "ni".into();
+        request.context = "context\u{0}".into();
+        assert_eq!(request.validate(), Err(AiError::ContextTooLarge));
+        request.context.clear();
+        assert_eq!(
+            chat_completion_body(&request, "openai", "model", "prompt\u{0}"),
+            Err(AiError::InvalidConfiguration)
+        );
+    }
+
+    #[test]
+    fn rejects_control_characters_in_suggestions() {
+        let response = AiSuggestionResponse {
+            candidates: vec![AiSuggestion {
+                text: "候选\u{0}".into(),
+            }],
+        };
+        assert_eq!(response.validate(1), Err(AiError::InvalidCandidate));
     }
 
     #[test]

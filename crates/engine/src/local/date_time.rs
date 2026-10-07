@@ -1,7 +1,7 @@
 //! `T` mode (date_time_query.cpp, core-session.md §10.2): `rq`/`riqi`/`date`, `sj`/`shijian`/`time`, `xq`/`xingqi`/`week`, formatted from an injected local time. The lunar date comes from `lunar-lite` rather than the hand-typed 1900-2100 table.
 
 use lunar_lite::{solar_to_lunar, SolarDate};
-use time::OffsetDateTime;
+use time::{Date, Month, OffsetDateTime};
 
 use crate::types::{CandidateSource, WordItem};
 
@@ -17,6 +17,20 @@ pub struct LocalDateTime {
     pub hour: u32,
     pub minute: u32,
     pub second: u32,
+}
+
+/// Whether the date fields describe a real Gregorian calendar date.
+pub(crate) fn is_valid_calendar_date(year: i32, month: u32, day: u32) -> bool {
+    let Some(month) = u8::try_from(month)
+        .ok()
+        .and_then(|month| Month::try_from(month).ok())
+    else {
+        return false;
+    };
+    let Some(day) = u8::try_from(day).ok() else {
+        return false;
+    };
+    Date::from_calendar_date(year, month, day).is_ok()
 }
 
 pub(crate) const WEEKDAYS: [&str; 7] = [

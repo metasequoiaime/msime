@@ -85,15 +85,17 @@ static NSDictionary *decode(char *response, NSError **error) {
     return decode(msime_client_voice_provider_request((const uint8_t *)q.bytes, q.length, (const uint8_t *)s.bytes, s.length), error);
 }
 - (BOOL)voiceProviderStream:(NSDictionary *)query socket:(NSString *)socket update:(MSIMEVoiceProviderUpdate)update phase:(MSIMEVoiceProviderPhase)phase error:(NSError **)error {
-    if (![NSJSONSerialization isValidJSONObject:query] || !socket.length || !update) { setError(error,@"语音流请求格式错误"); return NO; }
+    if (![NSJSONSerialization isValidJSONObject:query] || ![socket isKindOfClass:NSString.class] || !socket.length || !update) { setError(error,@"语音流请求格式错误"); return NO; }
     NSData *q=[NSJSONSerialization dataWithJSONObject:query options:0 error:error], *s=[socket dataUsingEncoding:NSUTF8StringEncoding]; if(!q||q.length>65536||!s||s.length>4096){setError(error,@"语音流请求过大");return NO;}
     VoiceStreamContext context={ [update copy], [phase copy] }; char *response=msime_client_voice_provider_stream_events((const uint8_t *)q.bytes,q.length,(const uint8_t *)s.bytes,s.length,VoiceUpdate,VoicePhase,&context); BOOL ok=decode(response,error)!=nil; return ok;
 }
 - (BOOL)voiceProviderCancelSocket:(NSString *)socket generation:(uint64_t)generation error:(NSError **)error {
+    if (![socket isKindOfClass:NSString.class] || !socket.isAbsolutePath || !socket.length) { setError(error, @"语音取消路径无效"); return NO; }
     NSData *path=[socket dataUsingEncoding:NSUTF8StringEncoding]; if(!path.length || path.length>4096){setError(error,@"语音取消路径无效");return NO;}
     return decode(msime_client_voice_provider_cancel((const uint8_t *)path.bytes,path.length,generation),error)!=nil;
 }
 - (BOOL)voiceProviderStopSocket:(NSString *)socket generation:(uint64_t)generation error:(NSError **)error {
+    if (![socket isKindOfClass:NSString.class] || !socket.isAbsolutePath || !socket.length) { setError(error, @"语音停止路径无效"); return NO; }
     NSData *path=[socket dataUsingEncoding:NSUTF8StringEncoding]; if(!path.length || path.length>4096){setError(error,@"语音停止路径无效");return NO;}
     return decode(msime_client_voice_provider_stop((const uint8_t *)path.bytes,path.length,generation),error)!=nil;
 }
@@ -301,7 +303,7 @@ static NSDictionary *decode(char *response, NSError **error) {
     return decode(msime_client_dictionary(static_cast<const uint8_t *>(data.bytes), data.length), error);
 }
 + (NSDictionary *)handwritingProviderRequest:(NSDictionary<NSString *, id> *)request error:(NSError **)error {
-    if (![NSJSONSerialization isValidJSONObject:request]) { setError(error, @"手写请求格式错误"); return nil; }
+    if (![request isKindOfClass:NSDictionary.class] || ![NSJSONSerialization isValidJSONObject:request]) { setError(error, @"手写请求格式错误"); return nil; }
     NSString *socketPath = request[@"socket_path"];
     if (![socketPath isKindOfClass:NSString.class] || !socketPath.isAbsolutePath || socketPath.length > 4096) { setError(error, @"手写 provider 路径无效"); return nil; }
     NSData *data = [NSJSONSerialization dataWithJSONObject:request options:0 error:error];
@@ -360,6 +362,9 @@ static NSDictionary *decode(char *response, NSError **error) {
 }
 + (NSDictionary *)emojiCatalogRequest:(NSDictionary<NSString *, id> *)request {
     NSError *error = nil;
+    if (![request isKindOfClass:NSDictionary.class]) {
+        return @{ @"error": [NSError errorWithDomain:MSIMEClientErrorDomain code:1 userInfo:nil] };
+    }
     NSString *resources = request[@"resources"];
     if (![resources isKindOfClass:NSString.class] || !resources.isAbsolutePath ||
         ![NSJSONSerialization isValidJSONObject:request]) {
@@ -395,6 +400,10 @@ static NSDictionary *decode(char *response, NSError **error) {
 }
 + (NSDictionary *)discardSnapshot:(NSDictionary<NSString *, id> *)parameters {
     NSError *error = nil;
+    if (![parameters isKindOfClass:NSDictionary.class]) {
+        setError(&error, @"本地词库准备参数无效");
+        return @{ @"error": error };
+    }
     uint64_t handle = 0;
     if (!parseUInt64(parameters[@"handle"], @"本地词库准备句柄", &handle, &error) || !handle) {
         if (!handle && !error) setError(&error, @"本地词库准备句柄无效");
@@ -446,6 +455,10 @@ static NSDictionary *decode(char *response, NSError **error) {
 }
 + (NSDictionary *)applySnapshot:(NSDictionary<NSString *, id> *)parameters {
     NSError *error = nil;
+    if (![parameters isKindOfClass:NSDictionary.class]) {
+        setError(&error, @"本地词库准备参数无效");
+        return @{ @"error": error };
+    }
     uint64_t handle = 0;
     if (!parseUInt64(parameters[@"handle"], @"本地词库准备句柄", &handle, &error) || !handle) {
         if (!handle && !error) setError(&error, @"本地词库准备句柄无效");
@@ -482,13 +495,18 @@ static NSDictionary *decode(char *response, NSError **error) {
 }
 + (NSDictionary *)prepareSnapshot:(NSDictionary<NSString *, id> *)parameters {
     NSError *error = nil;
+    if (![parameters isKindOfClass:NSDictionary.class]) {
+        setError(&error, @"本地词库快照参数无效");
+        return @{ @"error": error };
+    }
     NSDictionary *request = parameters[@"request"];
     MSIMESnapshotNextRecord next = parameters[@"nextRecord"];
     NSDictionary *result = [self prepareSnapshotRequest:request nextRecord:next error:&error];
     return result ?: @{ @"error": error ?: [NSError errorWithDomain:MSIMEClientErrorDomain code:1 userInfo:nil] };
 }
 + (NSDictionary *)prepareHostWithResourcesDirectory:(NSString *)resourcesDirectory stateRoot:(NSString *)stateRoot error:(NSError **)error {
-    if (![resourcesDirectory isAbsolutePath] || ![stateRoot isAbsolutePath] || resourcesDirectory.length == 0 || stateRoot.length == 0) {
+    if (![resourcesDirectory isKindOfClass:NSString.class] || ![stateRoot isKindOfClass:NSString.class] ||
+        !resourcesDirectory.isAbsolutePath || !stateRoot.isAbsolutePath || resourcesDirectory.length == 0 || stateRoot.length == 0) {
         setError(error, @"词库准备目录必须是绝对路径"); return nil;
     }
     NSDictionary *request = @{@"resources": resourcesDirectory, @"state_root": stateRoot};
@@ -497,19 +515,19 @@ static NSDictionary *decode(char *response, NSError **error) {
     return decode(msime_client_prepare_host(static_cast<const uint8_t *>(data.bytes), data.length), error);
 }
 + (NSDictionary *)savePreferencesInDirectory:(NSString *)directory expectedRevision:(uint64_t)revision snapshot:(NSDictionary *)snapshot error:(NSError **)error {
-    if (![directory isAbsolutePath] || ![NSJSONSerialization isValidJSONObject:snapshot]) { setError(error, @"偏好保存参数无效"); return nil; }
+    if (![directory isKindOfClass:NSString.class] || !directory.isAbsolutePath || ![NSJSONSerialization isValidJSONObject:snapshot]) { setError(error, @"偏好保存参数无效"); return nil; }
     NSData *dir = [directory dataUsingEncoding:NSUTF8StringEncoding];
     NSData *data = [NSJSONSerialization dataWithJSONObject:snapshot options:0 error:error];
     if (!data || data.length > 16384) { setError(error, @"偏好快照过大"); return nil; }
     return decode(msime_client_save_preferences(static_cast<const uint8_t *>(dir.bytes), dir.length, revision, static_cast<const uint8_t *>(data.bytes), data.length), error);
 }
 + (NSDictionary *)loadPreferencesInDirectory:(NSString *)directory error:(NSError **)error {
-    if (![directory isAbsolutePath] || directory.length == 0) { setError(error, @"偏好目录必须是绝对路径"); return nil; }
+    if (![directory isKindOfClass:NSString.class] || !directory.isAbsolutePath || directory.length == 0) { setError(error, @"偏好目录必须是绝对路径"); return nil; }
     NSData *dir = [directory dataUsingEncoding:NSUTF8StringEncoding];
     return decode(msime_client_load_preferences(static_cast<const uint8_t *>(dir.bytes), dir.length), error);
 }
 + (NSDictionary *)recoverPreferencesInDirectory:(NSString *)directory error:(NSError **)error {
-    if (![directory isAbsolutePath] || directory.length == 0) { setError(error, @"偏好目录必须是绝对路径"); return nil; }
+    if (![directory isKindOfClass:NSString.class] || !directory.isAbsolutePath || directory.length == 0) { setError(error, @"偏好目录必须是绝对路径"); return nil; }
     NSData *dir = [directory dataUsingEncoding:NSUTF8StringEncoding];
     return decode(msime_client_recover_preferences(static_cast<const uint8_t *>(dir.bytes), dir.length), error);
 }
@@ -692,6 +710,7 @@ static NSDictionary *decode(char *response, NSError **error) {
 - (BOOL)cancelVoiceWithError:(NSError **)error { if (![self checkThreadAndHandle:error]) return NO; return decode(msime_client_voice_cancel(_handle), error) != nil; }
 - (NSDictionary *)applyVoiceText:(NSString *)text generation:(uint64_t)generation error:(NSError **)error {
     if (![self checkThreadAndHandle:error]) return nil;
+    if (![text isKindOfClass:NSString.class]) { setError(error, @"语音文本无效"); return nil; }
     NSData *data = [text dataUsingEncoding:NSUTF8StringEncoding];
     if (!data || data.length > 65536) { setError(error, @"语音文本无效"); return nil; }
     // Snapshot before consuming the final-only token, so a view failure cannot
@@ -717,6 +736,9 @@ static NSDictionary *decode(char *response, NSError **error) {
 - (void)reloadPreferencesDirectory:(NSString *)directory completion:(void (^)(NSDictionary *, NSError *))completion {
     NSError *error = nil;
     if (![self checkThreadAndHandle:&error]) { completion(nil, error); return; }
+    if (![directory isKindOfClass:NSString.class] || !directory.isAbsolutePath || directory.length == 0) {
+        setError(&error, @"偏好目录必须是绝对路径"); completion(nil, error); return;
+    }
     NSData *path = [directory dataUsingEncoding:NSUTF8StringEncoding];
     __weak MSIMEClientSession *weakSelf = self;
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{

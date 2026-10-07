@@ -62,6 +62,8 @@ pub struct ImeSession {
     wubi_options: WubiInputOptions,
     /// Mixed wubi only: a pinyin candidate was picked out of this composition, so the rest decodes as quanpin until the composition ends (product decision 2026-09-30, the intent of test_wubi_mixed_input_session.cpp:194-212). Cleared by `reset`, `switch_scheme`, turning mixed input off, and an emptied composition.
     pinyin_tail: bool,
+    /// 注音九键模式。注音编辑器被换掉再新建时（切到别的方案再切回来）由这里带过去。
+    zhuyin_nine_key: bool,
     autocorrect_types: u32,
     quanpin_helpcode: bool,
     shuangpin_helpcode: bool,
@@ -112,6 +114,7 @@ impl ImeSession {
             vietnamese_style: VietnameseToneStyle::default(),
             wubi_options: WubiInputOptions::default(),
             pinyin_tail: false,
+            zhuyin_nine_key: false,
             autocorrect_types: 0,
             quanpin_helpcode: false,
             shuangpin_helpcode: false,
@@ -194,6 +197,11 @@ impl ImeSession {
                 std::mem::replace(&mut self.scheme, next).into_zhuyin_dictionary()
             {
                 self.registry.return_dictionary(dictionary);
+            }
+            // 新建的注音编辑器沿用会话的九键模式；上面复用编辑器的分支只 `reset`，模式本来就在。
+            let nine_key = self.zhuyin_nine_key;
+            if let Some(zhuyin) = self.scheme.as_zhuyin_mut() {
+                zhuyin.set_nine_key(nine_key);
             }
         }
         self.bind_wubi_scheme();
@@ -389,6 +397,30 @@ impl ImeSession {
         let text = zhuyin.take_text();
         self.refresh_candidates();
         text
+    }
+
+    /// 打开或关闭注音九键模式。当前方案是注音时立即作用到编辑器（丢掉它的组字），否则在下次建出注音编辑器时生效。
+    pub fn set_zhuyin_nine_key(&mut self, enabled: bool) {
+        self.zhuyin_nine_key = enabled;
+        if let Some(zhuyin) = self.scheme.as_zhuyin_mut() {
+            zhuyin.set_nine_key(enabled);
+            self.refresh_candidates();
+        }
+    }
+
+    /// 把注音九键的第 `index` 个候选读音钉为目标音节的读音；没有注音编辑器、列表打开、没有目标或下标越界时为 false。
+    pub fn choose_zhuyin_spelling(&mut self, index: usize) -> Result<bool> {
+        let Some(zhuyin) = self.scheme.as_zhuyin_mut() else {
+            return Ok(false);
+        };
+        let chosen = zhuyin.choose_spelling(index);
+        self.refresh_candidates();
+        chosen
+    }
+
+    /// 注音九键供用户钉读音的候选读音；其他方案为空。
+    pub fn zhuyin_spellings(&self) -> &[String] {
+        self.scheme.as_zhuyin().map_or(&[], ZhuyinScheme::spellings)
     }
 
     pub fn zhuyin_list_open(&self) -> bool {

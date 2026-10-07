@@ -209,6 +209,18 @@ final class LocalSpeechModelTests: XCTestCase {
     XCTAssertEqual(LocalSpeechModelStore.hotwords(resources: scratch.appendingPathComponent("missing"), stateRoot: scratch), [])
   }
 
+  func testMirrorRejectsCredentialsQueriesAndFragments() {
+    XCTAssertTrue(LocalSpeechModelStore.isValidMirror("https://mirror.example.test/gh/"))
+    for value in [
+      "https://user:pass@mirror.example.test",
+      "https://mirror.example.test?query=unexpected",
+      "https://mirror.example.test/#fragment",
+      "https:///path",
+    ] {
+      XCTAssertFalse(LocalSpeechModelStore.isValidMirror(value), value)
+    }
+  }
+
   @discardableResult
   private func makeModel(id: String, manifest: [String: Any], files: [String], root: URL? = nil) throws -> URL {
     let directory = (root ?? scratch).appendingPathComponent(id, isDirectory: true)

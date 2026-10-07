@@ -2,7 +2,7 @@ import Foundation
 
 /// Whether the keyboard may ask the cloud candidate service while a composition is paused.
 ///
-/// The shared preference document turns cloud candidates on by default, as Windows and Android do. On iOS the keyboard is offline by default and says so in the app, so this switch is the only source for the session's `cloud_candidates`: it lives in the App Group, starts off, and the bridge lays it over whatever the shared document holds. A document synced from a desktop where cloud candidates are on therefore never sends an iPhone's typing to a remote service by itself. The request also needs the keyboard's Full Access.
+/// 共享偏好文档里的 `cloud_candidates` 新装是关闭的，但旧文档或从桌面同步来的文档可能是开启。iOS 键盘默认离线并在 App 里这样写明，所以会话的 `cloud_candidates` 只看这个开关：它存在 App Group 里、起始关闭，由 bridge 盖在共享文档的值之上。于是一份云候选开着的桌面文档同步过来，也不会让 iPhone 自己把输入发给远程服务。请求另外还需要键盘的「完全访问」。
 enum CloudCandidatePreference {
   static let key = "candidate.cloudCandidates"
 

@@ -6,7 +6,7 @@ test("uses the Linux resources for a Linux host", () => {
     releasesPageUrl: "https://github.com/metasequoiaime/msime/releases",
     licenseUrl: "https://github.com/metasequoiaime/msime/blob/develop/LICENSE",
     issuesUrl: "https://github.com/metasequoiaime/msime/issues",
-    privacyUrl: "https://github.com/metasequoiaime/msime/blob/develop/PRIVACY.md",
+    privacyUrl: "https://msime.app/privacy/",
   });
 });
 

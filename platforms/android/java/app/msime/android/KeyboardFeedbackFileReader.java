@@ -1,6 +1,5 @@
 package app.msime.android;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
@@ -17,15 +16,8 @@ final class KeyboardFeedbackFileReader {
         if (file == null || Files.isSymbolicLink(file)
                 || !Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS))
             throw new IOException("feedback path is not a regular file");
-        try (InputStream input = Files.newInputStream(file)) {
-            ByteArrayOutputStream bytes = new ByteArrayOutputStream(MAX_BYTES);
-            byte[] buffer = new byte[8192];
-            int count;
-            while ((count = input.read(buffer)) != -1) {
-                if (bytes.size() > MAX_BYTES - count) throw new IOException("feedback size");
-                bytes.write(buffer, 0, count);
-            }
-            return bytes.toByteArray();
+        try (InputStream input = Files.newInputStream(file, LinkOption.NOFOLLOW_LINKS)) {
+            return HttpBodyPolicy.readRequired(input, MAX_BYTES);
         }
     }
 }

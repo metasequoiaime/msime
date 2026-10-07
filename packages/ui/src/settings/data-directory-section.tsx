@@ -47,7 +47,7 @@ export function DataDirectorySection({
           action={onChoose}
           disabled={busy || !dataDirectory}
           ariaBusy={busy}
-          label={busy ? "正在移动…" : "选择位置…"}
+          label={busy ? (dataDirectory ? "正在移动…" : "正在读取…") : "选择位置…"}
         />
         {result && <SettingsGroupNote role="status">{result}</SettingsGroupNote>}
       </SettingsRowStack>

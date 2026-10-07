@@ -32,7 +32,7 @@ public enum TypingSource {
             case JAPANESE, JAPANESE_NINE_KEY -> JAPANESE;
             case KOREAN -> KOREAN;
             case CANTONESE -> CANTONESE;
-            case ZHUYIN -> ZHUYIN;
+            case ZHUYIN, ZHUYIN_NINE_KEY -> ZHUYIN;
             case VIETNAMESE -> VIETNAMESE;
             case TIBETAN -> TIBETAN;
             case STROKE -> STROKE;

@@ -256,6 +256,66 @@ fn online_provider_deduplicates_before_enforcing_source_quota() {
 
 #[cfg(unix)]
 #[test]
+fn online_provider_rejects_control_characters_in_query_fields() {
+    let directory = private_tempdir();
+    let socket = directory.path().join("missing.sock");
+    for field in ["ai_context", "query_text", "identity", "cache_key"] {
+        let mut document = json!({
+            "scheme": 0,
+            "generation": 1,
+            "identity": "identity",
+            "query_text": "nihao",
+            "cache_key": "cache",
+            "pinyin_segments": ["ni", "hao"],
+            "cloud_eligible": true,
+            "ai_eligible": true,
+            "session_id": 5,
+            "ai_assistant": {"enabled": true, "candidate_limit": 1}
+        });
+        document[field] = json!("safe\u{0}text");
+        let query: OnlineQuery = serde_json::from_value(document).unwrap();
+        assert!(
+            UnixSocketProvider::new(&socket)
+                .query_candidates(query)
+                .is_none(),
+            "field {field} must reject control characters"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn panel_provider_rejects_unsafe_text_and_handwriting_language() {
+    let directory = private_tempdir();
+    let socket = directory.path().join("missing.sock");
+    assert!(UnixSocketProvider::new(&socket)
+        .ai_test(
+            "synthetic",
+            "https://ai.invalid/v1",
+            "model",
+            "prompt\u{0}",
+            "sample"
+        )
+        .is_none());
+    assert!(UnixSocketProvider::new(&socket)
+        .handwriting(HandwritingQuery {
+            language: "zh\u{0}CN".into(),
+            strokes: vec![vec![HandwritingPoint { x: 0.0, y: 0.0 }]],
+        })
+        .is_none());
+    assert!(UnixSocketProvider::new(&socket)
+        .handwriting(HandwritingQuery {
+            language: "zh-CN".into(),
+            strokes: vec![vec![HandwritingPoint {
+                x: f32::NAN,
+                y: 0.0,
+            }]],
+        })
+        .is_none());
+}
+
+#[cfg(unix)]
+#[test]
 fn translation_provider_rejects_controls_at_the_socket_boundary() {
     let directory = private_tempdir();
     let request_socket = directory.path().join("translation-request.sock");
@@ -488,6 +548,156 @@ fn voice_provider_rejects_events_without_generation_binding() {
 
 #[cfg(unix)]
 #[test]
+fn voice_provider_rejects_unknown_event_types() {
+    let directory = private_tempdir();
+    let socket = directory.path().join("voice.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut request = String::new();
+        std::io::BufRead::read_line(
+            &mut std::io::BufReader::new(stream.try_clone().unwrap()),
+            &mut request,
+        )
+        .unwrap();
+        std::io::Write::write_all(
+            &mut stream,
+            br#"{"generation":7,"type":"unexpected","text":"synthetic"}"#,
+        )
+        .unwrap();
+        std::io::Write::write_all(&mut stream, b"\n").unwrap();
+    });
+    let provider = UnixSocketProvider::new(socket);
+    let mut updates = Vec::new();
+    assert!(provider
+        .voice_stream_with_options_feedback(
+            "zh-cn",
+            7,
+            &Value::Null,
+            None,
+            &mut |text, final_result| updates.push((text.to_owned(), final_result)),
+            None,
+            None,
+        )
+        .is_none());
+    assert!(
+        updates.is_empty(),
+        "unknown event reached transcript callbacks"
+    );
+    server.join().unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn voice_provider_rejects_control_characters_in_transcripts() {
+    let directory = private_tempdir();
+    let socket = directory.path().join("voice.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut request = String::new();
+        std::io::BufRead::read_line(
+            &mut std::io::BufReader::new(stream.try_clone().unwrap()),
+            &mut request,
+        )
+        .unwrap();
+        std::io::Write::write_all(
+            &mut stream,
+            br#"{"generation":7,"type":"final","text":"bad\u0000text","ok":true}"#,
+        )
+        .unwrap();
+        std::io::Write::write_all(&mut stream, b"\n").unwrap();
+    });
+    let provider = UnixSocketProvider::new(socket);
+    let mut updates = Vec::new();
+    assert!(provider
+        .voice_stream_with_options_feedback(
+            "zh-cn",
+            7,
+            &Value::Null,
+            None,
+            &mut |text, final_result| updates.push((text.to_owned(), final_result)),
+            None,
+            None,
+        )
+        .is_none());
+    assert!(updates.is_empty(), "control-bearing transcript reached callbacks");
+    server.join().unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn emoji_provider_rejects_control_characters_in_items() {
+    let directory = private_tempdir();
+    let socket = directory.path().join("emoji.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut request = String::new();
+        std::io::BufRead::read_line(
+            &mut std::io::BufReader::new(stream.try_clone().unwrap()),
+            &mut request,
+        )
+        .unwrap();
+        std::io::Write::write_all(
+            &mut stream,
+            r#"{"items":[{"text":"😀","annotation":"bad\u0000annotation"}]}"#
+                .as_bytes(),
+        )
+        .unwrap();
+        std::io::Write::write_all(&mut stream, b"\n").unwrap();
+    });
+    let provider = UnixSocketProvider::new(socket);
+    assert!(provider
+        .emoji(EmojiPanelQuery {
+            search: String::new(),
+            category: String::new(),
+            limit: 1,
+        })
+        .is_none());
+    server.join().unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn voice_provider_rejects_final_events_without_success_envelope() {
+    let directory = private_tempdir();
+    let socket = directory.path().join("voice.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut request = String::new();
+        std::io::BufRead::read_line(
+            &mut std::io::BufReader::new(stream.try_clone().unwrap()),
+            &mut request,
+        )
+        .unwrap();
+        std::io::Write::write_all(
+            &mut stream,
+            br#"{"generation":7,"type":"final","text":"synthetic"}"#,
+        )
+        .unwrap();
+        std::io::Write::write_all(&mut stream, b"\n").unwrap();
+    });
+    let provider = UnixSocketProvider::new(socket);
+    let mut updates = Vec::new();
+    assert!(provider
+        .voice_stream_with_options_feedback(
+            "zh-cn",
+            7,
+            &Value::Null,
+            None,
+            &mut |text, final_result| updates.push((text.to_owned(), final_result)),
+            None,
+            None,
+        )
+        .is_none());
+    assert!(updates.is_empty(), "missing ok reached transcript callbacks");
+    server.join().unwrap();
+}
+
+#[cfg(unix)]
+#[test]
 fn voice_provider_names_only_known_missing_dependencies() {
     for (reply, expected) in [
         (
@@ -646,6 +856,7 @@ impl InputEngine for Fixture {
             scheme: self.scheme,
             nine_key: self.nine_key,
             nine_key_spellings: self.nine_key_spellings.clone(),
+            nine_key_reading: String::new(),
             candidate_codes: self.codes.clone(),
             candidate_annotations: self
                 .words
@@ -1425,6 +1636,7 @@ impl InputEngine for PhraseEngine {
             scheme: 0,
             nine_key: false,
             nine_key_spellings: Vec::new(),
+            nine_key_reading: String::new(),
             candidate_codes: Vec::new(),
             candidate_annotations: vec![String::new(); self.words.len()],
             candidate_sources: vec![0; self.words.len()],
@@ -3408,6 +3620,7 @@ impl InputEngine for DigitCommitsEngine {
             scheme: KOREAN_SCHEME,
             nine_key: false,
             nine_key_spellings: Vec::new(),
+            nine_key_reading: String::new(),
             candidate_codes: vec![self.reading.clone(); count],
             candidate_annotations: vec![String::new(); count],
             candidate_sources: vec![0; count],
@@ -4064,6 +4277,7 @@ impl InputEngine for WubiMixedEngine {
             scheme: self.scheme,
             nine_key: false,
             nine_key_spellings: Vec::new(),
+            nine_key_reading: String::new(),
             candidate_codes: ["dyn", "dynn", "dun"]
                 .into_iter()
                 .take(count)
@@ -4838,6 +5052,7 @@ impl InputEngine for SpellingMarksEngine {
             scheme: self.scheme,
             nine_key: false,
             nine_key_spellings: Vec::new(),
+            nine_key_reading: String::new(),
             candidate_codes: Vec::new(),
             candidate_annotations: Vec::new(),
             candidate_sources: Vec::new(),
@@ -5572,8 +5787,8 @@ fn zhuyin_dictionary(directory: &std::path::Path) -> String {
         .unwrap();
     connection
         .execute_batch(
-            "INSERT INTO syllables VALUES ('ㄋㄧˇ'),('ㄏㄠˇ'),('ㄊㄞˊ'),('ㄨㄢ'),('ㄇㄚ˙'),('ㄇㄚ'),('ㄝ');\
-             INSERT INTO entries VALUES ('ㄋㄧˇ','你',1000),('ㄋㄧˇ','妳',300),('ㄏㄠˇ','好',2000),('ㄏㄠˇ','郝',10),('ㄋㄧˇ ㄏㄠˇ','你好',500),('ㄊㄞˊ','台',900),('ㄊㄞˊ','臺',400),('ㄨㄢ','彎',500),('ㄨㄢ','灣',300),('ㄊㄞˊ ㄨㄢ','臺灣',800),('ㄊㄞˊ ㄨㄢ','台灣',600),('ㄇㄚ˙','嗎',800),('ㄇㄚ','媽',700),('ㄝ','欸',50);",
+            "INSERT INTO syllables VALUES ('ㄋㄧˇ'),('ㄌㄧˇ'),('ㄏㄠˇ'),('ㄊㄞˊ'),('ㄨㄢ'),('ㄇㄚ˙'),('ㄇㄚ'),('ㄝ');\
+             INSERT INTO entries VALUES ('ㄋㄧˇ','你',1000),('ㄋㄧˇ','妳',300),('ㄌㄧˇ','李',1200),('ㄏㄠˇ','好',2000),('ㄏㄠˇ','郝',10),('ㄋㄧˇ ㄏㄠˇ','你好',500),('ㄊㄞˊ','台',900),('ㄊㄞˊ','臺',400),('ㄨㄢ','彎',500),('ㄨㄢ','灣',300),('ㄊㄞˊ ㄨㄢ','臺灣',800),('ㄊㄞˊ ㄨㄢ','台灣',600),('ㄇㄚ˙','嗎',800),('ㄇㄚ','媽',700),('ㄝ','欸',50);",
         )
         .unwrap();
     path.to_str().unwrap().to_owned()
@@ -5603,6 +5818,61 @@ fn compose_zhuyin(runtime: &mut Runtime, keys: &str) -> Transition {
         last = Some(transition);
     }
     last.unwrap()
+}
+
+/// 注音九键：方案 6 接受九键模式，数字和声调字母拼音节，空格命令是一声；候选读音和全拼九键一样按代次校验，选读音只钉住读音、不提交。
+#[test]
+fn zhuyin_nine_key_spells_with_digits_and_scopes_reading_choices_by_generation() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut runtime = zhuyin_runtime(directory.path());
+    runtime.set_nine_key_enabled(true).unwrap();
+    let idle = runtime.view();
+    assert!(idle.nine_key);
+    assert_eq!(idle.spelling_symbols, "1234567890");
+
+    let typed = compose_zhuyin(&mut runtime, "28c39c17");
+    assert_eq!(typed.view.preedit, "你好17");
+    assert_eq!(typed.view.spelling_symbols, "1234567890 ");
+    // 空格命令在九键下也是一声。
+    let space = runtime.dispatch(Action::SelectHighlighted).unwrap();
+    assert!(space.handled && space.commit.is_none());
+    assert_eq!(space.view.preedit, "你好媽");
+    assert_eq!(space.view.editing_text, "28c39c17 ");
+    assert_eq!(space.view.nine_key_spellings, ["ㄋㄧˇ", "ㄌㄧˇ"]);
+    assert!(space.view.candidates.is_empty());
+
+    let generation = space.view.generation;
+    let id = |generation, index| NineKeySpellingId {
+        session: space.view.session,
+        generation,
+        index,
+    };
+    assert!(matches!(
+        runtime.dispatch(Action::ChooseNineKeySpelling(id(generation - 1, 0))),
+        Err(RuntimeError::StaleNineKeySpelling)
+    ));
+    assert!(matches!(
+        runtime.dispatch(Action::ChooseNineKeySpelling(id(generation, 2))),
+        Err(RuntimeError::StaleNineKeySpelling)
+    ));
+    let chosen = runtime
+        .dispatch(Action::ChooseNineKeySpelling(id(generation, 1)))
+        .unwrap();
+    assert!(chosen.handled && chosen.commit.is_none());
+    assert_eq!(chosen.view.preedit, "李好媽");
+    assert!(chosen.view.nine_key_spellings.is_empty());
+
+    assert!(matches!(
+        runtime.set_nine_key_enabled(false),
+        Err(RuntimeError::CompositionActive)
+    ));
+    let enter = runtime
+        .dispatch(Action::Command(Command::CommitRaw))
+        .unwrap();
+    assert_eq!(enter.commit.as_deref(), Some("李好媽"));
+    runtime.set_nine_key_enabled(false).unwrap();
+    assert!(!runtime.view().nine_key);
+    assert_eq!(runtime.view().spelling_symbols, "125890,./;-");
 }
 
 /// The Dachen keys that are digits and marks spell even with nothing composed, on the character route and on both punctuation routes, while a tone key with nothing to complete is the host's to type. The scheme is Chinese but writes Traditional as stored, and the bopomofo keys overlap the host's smart punctuation, so the host has none.

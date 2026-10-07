@@ -117,7 +117,7 @@ public final class TypingStatisticsModel {
         LocalDate end = day(today);
         if (start == null || end == null || start.isAfter(end)) return 0;
         long span = end.toEpochDay() - start.toEpochDay() + 1;
-        return KeyboardGeometry.bounded((int) Math.min(MAX_TREND_DAYS, span), 1, MAX_TREND_DAYS);
+        return (int) BoundsPolicy.bounded(span, 1L, MAX_TREND_DAYS);
     }
 
     /**
@@ -134,7 +134,7 @@ public final class TypingStatisticsModel {
         if (end == null) return series;
         for (int index = 0; index < bounded; index++) {
             LocalDate date = end.minusDays(bounded - 1L - index);
-            series[index] = (int) Math.min(Integer.MAX_VALUE, count(date.toString()));
+            series[index] = (int) BoundsPolicy.bounded(count(date.toString()), 0L, Integer.MAX_VALUE);
         }
         return series;
     }
@@ -180,7 +180,12 @@ public final class TypingStatisticsModel {
      */
     public Map<String, Long> keys(String day) {
         if (day != null) return dailyKeys.getOrDefault(day, Map.of());
-        Map<String, Long> result = new LinkedHashMap<>();
+        int capacity = 0;
+        for (Map<String, Long> counts : dailyKeys.values()) {
+            capacity = BoundsPolicy.bounded(capacity, 0, Integer.MAX_VALUE - counts.size())
+                + counts.size();
+        }
+        Map<String, Long> result = new LinkedHashMap<>(capacity);
         for (Map<String, Long> counts : dailyKeys.values()) {
             for (Map.Entry<String, Long> entry : counts.entrySet()) {
                 result.merge(entry.getKey(), entry.getValue(), TypingStatisticsModel::saturatingAdd);
@@ -191,8 +196,9 @@ public final class TypingStatisticsModel {
 
     /** The pressed keys of a scope, most pressed first, titled the way the page prints them. */
     private List<Slice> rankedKeys(String day) {
-        List<Slice> slices = new ArrayList<>();
-        for (Map.Entry<String, Long> entry : keys(day).entrySet()) {
+        Map<String, Long> counts = keys(day);
+        List<Slice> slices = new ArrayList<>(counts.size());
+        for (Map.Entry<String, Long> entry : counts.entrySet()) {
             if (entry.getValue() > 0) {
                 slices.add(new Slice(entry.getKey(), KeyPressIds.label(entry.getKey()),
                     entry.getValue()));
@@ -226,7 +232,7 @@ public final class TypingStatisticsModel {
     private static List<Slice> modes(Map<String, Long> values) {
         long chinese = 0;
         for (String id : CHINESE_SOURCES) chinese += values.getOrDefault(id, 0L);
-        List<Slice> slices = new ArrayList<>();
+        List<Slice> slices = new ArrayList<>(12);
         slices.add(new Slice("chinese", "中文模式", chinese));
         slices.add(new Slice("japanese", "日语模式", values.getOrDefault("japanese", 0L)));
         slices.add(new Slice("korean", "韩语模式", values.getOrDefault("korean", 0L)));
@@ -275,7 +281,7 @@ public final class TypingStatisticsModel {
     }
 
     private static Map<String, String> kinds() {
-        Map<String, String> titles = new LinkedHashMap<>();
+        Map<String, String> titles = new LinkedHashMap<>(8);
         titles.put("han", "汉字");
         titles.put("latin", "拉丁字母");
         titles.put("otherLetter", "其他文字");
@@ -289,7 +295,7 @@ public final class TypingStatisticsModel {
     }
 
     private static Map<String, String> sources() {
-        Map<String, String> titles = new LinkedHashMap<>();
+        Map<String, String> titles = new LinkedHashMap<>(21);
         titles.put("quanpin", "全拼 26 键");
         titles.put("nineKey", "全拼 9 键");
         titles.put("shuangpin", "小鹤双拼");

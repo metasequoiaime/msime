@@ -46,8 +46,10 @@ REVIEWED: dict[str, str] = {
     ),
     "**installer:** 首次安装时询问云候选，不再默认静默联网": (
         "platforms/windows/installer/msime_setup.iss: CreateInputOptionPage after the licence "
-        "page, skipped on upgrade, writing only [general].cloud_candidates of a config.toml this "
-        "install created. macOS: platforms/macos/src/input/InputController.mm activateServer: "
+        "page, skipped on upgrade; on a fresh install the choice goes to installer-choices.json in the "
+        "data directory, which the Server applies to the shared preferences on its first preparation "
+        "(platforms/windows/src/system/FirstRun.h take_installer_cloud_choice), and to "
+        "[general].cloud_candidates of the config.toml this install created. macOS: platforms/macos/src/input/InputController.mm activateServer: "
         "prompt (requestCloudCandidatesConsentIfNeeded) plus the MSIMEClientCloudCandidatesConsent "
         "key in platforms/macos/src/settings/AppearancePreferences.mm, asked on a fresh profile only."
     ),

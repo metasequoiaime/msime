@@ -79,4 +79,20 @@ final class KeyboardServiceFallbackTests: XCTestCase {
       XCTAssertFalse(KeyboardFallbackFixture.requestedSecret)
     }
   }
+
+  func testRejectsOverlongOrControlCharacterConfigurationBeforeRequest() {
+    var configuration = configuration(
+      endpoint: "https://fixture.invalid/" + String(repeating: "a", count: 2_048))
+    XCTAssertThrowsError(try configuration.validatedURL())
+
+    configuration.endpoint = "https://fixture.invalid/" + String(repeating: "界", count: 700)
+    XCTAssertThrowsError(try configuration.validatedURL())
+
+    configuration.endpoint = "https://fixture.invalid/v1/\u{001B}chat"
+    XCTAssertThrowsError(try configuration.validatedURL())
+
+    configuration.endpoint = "https://fixture.invalid/v1/chat"
+    configuration.model = String(repeating: "m", count: 257)
+    XCTAssertThrowsError(try configuration.validatedURL())
+  }
 }

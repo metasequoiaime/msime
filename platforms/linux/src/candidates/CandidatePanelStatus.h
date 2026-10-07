@@ -80,10 +80,11 @@ inline CandidatePanelLimit fcitx_candidate_panel_limit(std::string_view current_
   return CandidatePanelLimit::None;
 }
 
-// Replace the status file atomically when its content changes. The directory is shared with the session's sockets, so it has to belong to this user and admit no one else's writes, the same check the panel input socket makes.
+// Replace the status file atomically when its content changes. The directory is shared with the session's sockets, so it has to belong to this user and admit no one else's writes, the same check the panel input socket makes. Whoever comes first creates it, so it is created 0700 here as the socket does: `create_directories` would follow the umask, and under the common 002 the directory comes out group-writable and every later check refuses it.
 inline bool write_candidate_panel_status(const std::filesystem::path &file, const std::string &document) {
   const auto directory = file.parent_path();
-  if (!prepare_candidate_directory(directory)) return false;
+  if (!candidate_directory_path_is_safe(directory)) return false;
+  if (::mkdir(directory.c_str(), 0700) != 0 && errno != EEXIST) return false;
   struct stat info {};
   if (::lstat(directory.c_str(), &info) != 0 || !S_ISDIR(info.st_mode) || info.st_uid != ::getuid() ||
       (info.st_mode & 022) != 0)

@@ -57,7 +57,9 @@ extension BackendAccountClient {
   }
   func putPreferences(_ preferences: Preferences, token: String) async throws -> Preferences {
     guard Self.validPreferences(preferences) else { throw Failure(status: 400) }
-    let result: Preferences = try await json("PUT", "/v1/users/me/preferences", token: token, body: JSONEncoder().encode(preferences))
+    let body = try JSONEncoder().encode(preferences)
+    guard body.count <= 1024 * 1024 else { throw Failure(status: 400) }
+    let result: Preferences = try await json("PUT", "/v1/users/me/preferences", token: token, body: body)
     guard Self.validPreferences(result) else { throw Failure(status: 0) }
     return result
   }

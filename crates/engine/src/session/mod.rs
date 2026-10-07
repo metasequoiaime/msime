@@ -60,11 +60,11 @@ impl Session {
         self.input.clock = clock;
     }
 
-    /// One ASCII character; `shift_only` is a bare Shift+letter (local mode entry). Digits 2-9 go to the nine-key session while it is enabled and nothing else is composing.
+    /// One ASCII character; `shift_only` is a bare Shift+letter (local mode entry). 全拼下九键开启且没有别的组字时，数字 2-9 交给九宫格会话；注音九键的数字由注音编辑器自己处理。
     pub fn character(&mut self, value: u8, shift_only: bool) -> KeyResult {
-        // English is a mode rather than a scheme, so the grid stays available in it: the same digits spell words instead of syllables. A local mode still takes the keys, and the scheme underneath must be quanpin, the only one whose syllables the grid knows.
+        // English is a mode rather than a scheme, so the grid stays available in it: the same digits spell words instead of syllables. A local mode still takes the keys, and the scheme underneath must be quanpin: 拼音九宫格只认得全拼音节，注音九键走注音编辑器。
         if self.nine_key_enabled
-            && self.input.scheme().nine_key()
+            && self.input.scheme() == SchemeType::Quanpin
             && self.input.local_mode == LocalInputMode::None
             && self.input.preedit().is_empty()
             && (b'2'..=b'9').contains(&value)
@@ -73,20 +73,30 @@ impl Session {
             return self.after_nine_key(result);
         }
         if self.nine_key.active() {
+            // `'` splits the grid's syllables where the user is typing; any other key is still the host's to handle.
+            if value == b'\'' {
+                let result = self.nine_key.character(value);
+                return self.after_nine_key(result);
+            }
             return KeyResult::unhandled();
         }
         self.input.handle_character(value, shift_only)
     }
 
-    /// Cancels any nine-key digits first. Call with nothing composing when the keyboard layout changes.
+    /// Cancels any nine-key digits first. Call with nothing composing when the keyboard layout changes. 同时切换注音编辑器的九键模式（注音组字会被丢掉）。
     pub fn set_nine_key_enabled(&mut self, enabled: bool) {
         self.nine_key.command(Command::Cancel);
         self.nine_key_enabled = enabled;
         self.nine_key
             .set_english_only(enabled && self.input.dedicated_english);
+        self.input.set_zhuyin_nine_key(enabled);
     }
 
+    /// 九宫格会话活跃时选它的拼写；否则在注音里钉目标音节的读音。
     pub fn choose_nine_key_spelling(&mut self, index: usize) -> KeyResult {
+        if !self.nine_key.active() && self.input.zhuyin_rules_apply() {
+            return self.input.choose_zhuyin_spelling(index);
+        }
         let result = self.nine_key.choose_spelling(index);
         self.after_nine_key(result)
     }
@@ -348,7 +358,8 @@ impl Session {
             dedicated_english: input.dedicated_english,
             editing_text: input.editing_text(),
             caret_position: input.caret_position(),
-            nine_key_spellings: Vec::new(),
+            nine_key_spellings: input.zhuyin_spellings(),
+            nine_key_reading: String::new(),
             answered_by_pinyin_fallback: input.answered_by_pinyin_fallback(),
             wubi_unique_four_code: input.wubi_unique_four_code(),
             shuangpin_profile: input.profile.name().to_owned(),

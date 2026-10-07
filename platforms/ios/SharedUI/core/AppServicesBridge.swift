@@ -3,9 +3,16 @@ import Foundation
 enum AppServicesBridge {
   private static let maximumVoiceTextCharacters = 10_000
   private static let maximumPolishTextBytes = 32 * 1024
+  private static let maximumVoiceAudioBytes = 2_100_000
 
   static func polishBody(_ model: String, prompt: String, text: String) throws -> Data {
-    try JSONSerialization.data(withJSONObject: [
+    guard prompt.utf8.count <= maximumPolishTextBytes else {
+      throw ServiceFailure(message: "润色提示词过长。")
+    }
+    guard text.utf8.count <= maximumPolishTextBytes else {
+      throw ServiceFailure(message: "润色文本过长。")
+    }
+    return try JSONSerialization.data(withJSONObject: [
       "model": model,
       "messages": [["role": "system", "content": prompt], ["role": "user", "content": text]],
       "stream": false
@@ -13,6 +20,9 @@ enum AppServicesBridge {
   }
 
   static func transcriptionBody(_ wav: Data, model: String, language: String? = nil) throws -> [String: Any] {
+    guard wav.count <= maximumVoiceAudioBytes else {
+      throw ServiceFailure(message: "语音文件过大。")
+    }
     let boundary = "Boundary-\(UUID().uuidString)"
     var body = Data()
     func append(_ text: String) { body.append(contentsOf: text.utf8) }

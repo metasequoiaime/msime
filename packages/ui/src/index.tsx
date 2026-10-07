@@ -102,7 +102,6 @@ import { WindowTitlebar } from "./settings/window-titlebar";
 import { useProviderCredentials } from "./settings/use-provider-credentials";
 import { useFeedbackReport } from "./settings/use-feedback-report";
 import { useDataDirectory } from "./settings/use-data-directory";
-import { useCustomTranslations } from "./settings/use-custom-translations";
 import { usePreferenceRecovery } from "./settings/use-preference-recovery";
 import { useSettingsPersistence } from "./settings/use-settings-persistence";
 import { useInputSourceUninstall } from "./settings/use-input-source-uninstall";
@@ -136,11 +135,6 @@ export {
   type DataDirectoryConfirmOptions,
   type UseDataDirectoryOptions,
 } from "./settings/use-data-directory";
-export {
-  useCustomTranslations,
-  type CustomTranslationsClient,
-  type UseCustomTranslationsOptions,
-} from "./settings/use-custom-translations";
 export {
   usePreferenceRecovery,
   type PreferenceRecoveryConfirmOptions,
@@ -1085,10 +1079,6 @@ export {
   type CustomTranslationSectionProps,
 } from "./settings/custom-translation-section";
 export {
-  CustomTranslationsSection,
-  type CustomTranslationsSectionProps,
-} from "./settings/custom-translations-section";
-export {
   TencentTranslationSection,
   type TencentTranslationSectionProps,
 } from "./settings/tencent-translation-section";
@@ -1510,13 +1500,6 @@ export {
   type CloudDictionaryQueryToolbarProps,
 } from "./keyboard/cloud-dictionary-query-toolbar";
 export type { EmojiCatalogGroup } from "./emoji/emoji-catalog";
-export {
-  customTranslationsExample,
-  customTranslationsWithinBounds,
-  parseCustomTranslations,
-  type CustomTranslationEntry,
-  type CustomTranslationReport,
-} from "./dictionary/custom-translations";
 export type { VoiceCaptureDevice, VoiceDeviceReader } from "./voice/voice-device-picker";
 export {
   LocalModelManager,
@@ -1642,6 +1625,8 @@ export interface HostCapabilities {
   voice_commit_mode: boolean;
   /** The OS release the host is running on, for the feedback page to attach. */
   os_version?: string;
+  /** The CPU architecture the host was built for (Rust's `std::env::consts::ARCH`, e.g. `x86_64`, `aarch64`); the update check picks this machine's Linux package by it. */
+  arch?: string;
   /** Why the Linux desktop panel drawing the candidate list ignores the candidate font, colours and skin, as the running host reported it. Absent when the panel honours them. */
   candidate_panel_limit?: "gnome_shell" | "fcitx_theme" | "kimpanel";
   /** The host plays the sound packs in `plugins`: key sounds, the melody, the commit sound and the achievement jingle. */
@@ -2059,11 +2044,6 @@ export interface SettingsClient {
   /** Desktop community commands that publish, install and rate plugin packs; installs land in the store behind `plugins`. */
   communityPlugins?: CommunityPluginClient;
   listVoiceCaptureDevices?: VoiceDeviceReader;
-  /**
-   * The user's own candidate glosses. Windows delivers these as a file dropped in the profile
-   * directory; a host whose user data lives in an app sandbox has to offer a way in instead.
-   */
-  customTranslations?: { load(): Promise<string>; save(text: string): Promise<void> };
   listFontFamilies?: FontCatalogReader;
   resolveFontFamilies?: (names: string[]) => Promise<string[]>;
   scanSkinCatalog?: () => Promise<SkinCatalog>;
@@ -2465,16 +2445,6 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     onError: setError,
   });
   const {
-    text: customTranslationsText,
-    setText: setCustomTranslationsText,
-    notice: customTranslationsNotice,
-    summary: customTranslationsSummary,
-    saveState: customTranslationsSaveState,
-    saveError: customTranslationsSaveError,
-    placeholder: customTranslationsPlaceholder,
-    flush: flushCustomTranslations,
-  } = useCustomTranslations({ client: client.customTranslations });
-  const {
     phrases,
     setPhrases,
     phrasePage,
@@ -2631,6 +2601,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     clientHostedPlatform,
     releasePlatform: client.host?.platform ?? null,
     edition: client.host?.edition?.id,
+    arch: client.host?.arch,
     releasePageUrl: platformReleasesPageUrl,
     currentAppVersion,
   });
@@ -2953,13 +2924,6 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     feedbackReportCopied,
     mobileKeyboardFeedback,
     mobileKeyboardFeedbackBusy,
-    customTranslationsText,
-    setCustomTranslationsText,
-    customTranslationsNotice,
-    customTranslationsPlaceholder,
-    customTranslationsSaveState,
-    customTranslationsSaveError,
-    customTranslationsSummary,
     macosShuangpinKeymap,
     setShuangpinKeymap,
     macosWubiAutoCommitUnique,
@@ -3009,7 +2973,6 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     supportDiagnostics: diagnosticsText,
     feedbackReport,
     submitFeedback,
-    flushCustomTranslations,
     reload,
     retrySave,
     saveState,

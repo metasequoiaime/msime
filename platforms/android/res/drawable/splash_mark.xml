@@ -1,29 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!--
-  启动画面上的那枚标，与应用图标同一份几何：面板、边框、笔画都取自 apps/desktop/app-icon.svg。
-  这里是矢量而不是位图，因为启动画面要给它做描边动画；位图没有路径可以走。
--->
+<!-- 开屏圆盘里的那枚标：设计稿 Android 开屏的笔画（viewBox 116×132，描边 9、圆头），颜色是本季的 logoBg（?attr/colorTertiary = mix(accent 82%, #000)），画在浅色圆盘上。矢量而不是位图，因为开屏要给笔画做描边动画。 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="110dp"
-    android:height="110dp"
-    android:viewportWidth="110"
-    android:viewportHeight="110">
-
-    <path
-        android:name="panel"
-        android:pathData="M15 5H95V105H15V5Z"
-        android:fillColor="@color/app_icon_field" />
-
-    <path
-        android:name="frame"
-        android:pathData="M15 5H95V105H15V5Z"
-        android:strokeColor="#A8DF8E"
-        android:strokeWidth="5" />
+    android:width="100dp"
+    android:height="100dp"
+    android:viewportWidth="116"
+    android:viewportHeight="132">
 
     <path
         android:name="mark"
-        android:pathData="M74.7234 14L35.1501 29.1727L74.7234 40.5522L35.1501 59.518C72.562 65.84 107.728 71.024 33 95"
-        android:strokeColor="#FFFFFF"
-        android:strokeWidth="8"
-        android:strokeLineCap="round" />
+        android:pathData="M80.394 18.8335L34.3451 36.489L80.394 49.7306L34.3451 71.7999C77.8789 79.1564 118.8 85.1887 31.8431 113.088"
+        android:strokeColor="?attr/colorTertiary"
+        android:strokeWidth="9"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
 </vector>

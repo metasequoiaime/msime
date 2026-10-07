@@ -123,4 +123,24 @@ final class BackendCommunityModerationTests: XCTestCase {
     }
     XCTAssertTrue(ModerationProtocol.sent.isEmpty)
   }
+  func testReportRejectsUnconfirmedResponseAndNilItemID() async throws {
+    ModerationProtocol.reply = (200, ["reported": false])
+    do {
+      try await client().reportContent(kind: "replies", itemID: id, reason: "其他", detail: "", token: "token")
+      XCTFail("unconfirmed report was accepted")
+    } catch let failure as BackendAccountClient.Failure {
+      XCTAssertEqual(failure.status, 502)
+    }
+    XCTAssertEqual(ModerationProtocol.sent.count, 1)
+
+    ModerationProtocol.sent = []
+    let nilID = UUID(uuidString: "00000000-0000-0000-0000-000000000000")!
+    do {
+      try await client().reportContent(kind: "replies", itemID: nilID, reason: "其他", detail: "", token: "token")
+      XCTFail("nil item ID was sent")
+    } catch let failure as BackendAccountClient.Failure {
+      XCTAssertEqual(failure.status, 400)
+    }
+    XCTAssertTrue(ModerationProtocol.sent.isEmpty)
+  }
 }

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- One segment of an M3 segmented control; the group owning it supplies the text and the id. -->
+<!-- One segment of an M3 segmented control; the group owning it supplies the text and the id. The selected segment is filled with accentSoft by Widget.MSIME.Segment, never the prototype's green. -->
 <com.google.android.material.button.MaterialButton
     xmlns:android="http://schemas.android.com/apk/res/android"
     style="@style/Widget.MSIME.Segment"

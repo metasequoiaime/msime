@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 圆盘外的涟漪（设计的 msRipple）：与圆盘同色的 6dp 圆环，由 HomeActivity 放大并淡出两次。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <stroke android:width="6dp" android:color="?attr/msSplashDisc" />
+</shape>

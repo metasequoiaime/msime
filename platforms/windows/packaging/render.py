@@ -55,8 +55,8 @@ class RenderError(Exception):
 
 
 def installer_name(version: str) -> str:
-    # msime_setup.iss 的 OutputBaseFilename 是 {#MyEditionInstallerBaseName}_v{#MyAppVersion}，full 的前缀是 MetasequoiaIME_Setup（版本表的 installer_base_name）；release-windows.yml 以这个名字发布。
-    return f"MetasequoiaIME_Setup_v{version}.exe"
+    # msime_setup.iss 的 OutputBaseFilename 是 {#MyEditionInstallerBaseName}_v{#MyAppVersion}，full 的前缀是 MetasequoiaIME-Full_Setup（版本表的 installer_base_name）；release-windows.yml 以这个名字发布。不带版本名的 MetasequoiaIME_Setup 是 msime-windows 的安装包。
+    return f"MetasequoiaIME-Full_Setup_v{version}.exe"
 
 
 def release_download_url(repo: str, version: str) -> str:

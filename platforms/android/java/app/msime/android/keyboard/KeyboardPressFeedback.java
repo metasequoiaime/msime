@@ -1,5 +1,7 @@
 package app.msime.android;
 
+import app.msime.android.KeyboardGeometry;
+
 import android.provider.Settings;
 import android.view.View;
 import android.view.animation.DecelerateInterpolator;
@@ -18,25 +20,34 @@ public final class KeyboardPressFeedback {
     private static final long PRESS_DURATION_MILLIS = 60L;
     private static final long RELEASE_DURATION_MILLIS = 180L;
 
+    private static final class Interpolators {
+        static final DecelerateInterpolator PRESS = new DecelerateInterpolator();
+        static final OvershootInterpolator RELEASE = new OvershootInterpolator(1.1f);
+    }
+
     private KeyboardPressFeedback() {}
 
     /** Animate `view` into or out of its pressed state, or settle it when it cannot animate. */
     public static void update(View view, boolean pressed) {
+        if (pressed) KeyPressAnimator.cancel(view);
+        // A bounce / lift started by the click already settles the key at rest; a release spring on
+        // top of it would fight over the same scale and translation.
+        else if (KeyPressAnimator.isAnimating(view)) return;
         view.animate().cancel();
         if (!view.isAttachedToWindow() || !view.isEnabled() || !animationsEnabled(view)) {
             reset(view);
             return;
         }
         if (pressed) {
-            view.animate().translationY(PRESSED_TRANSLATION_DP
-                    * view.getResources().getDisplayMetrics().density)
+            view.animate().translationY(KeyboardGeometry.floatPixels(view.getContext(),
+                    PRESSED_TRANSLATION_DP))
                 .scaleX(PRESSED_SCALE).scaleY(PRESSED_SCALE)
                 .setDuration(PRESS_DURATION_MILLIS)
-                .setInterpolator(new DecelerateInterpolator()).start();
+                .setInterpolator(Interpolators.PRESS).start();
         } else {
             view.animate().translationY(0f).scaleX(1f).scaleY(1f)
                 .setDuration(RELEASE_DURATION_MILLIS)
-                .setInterpolator(new OvershootInterpolator(1.1f)).start();
+                .setInterpolator(Interpolators.RELEASE).start();
         }
     }
 

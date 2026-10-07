@@ -59,6 +59,15 @@ for table in helpcode.txt zrm_helpcode_big_unique.txt shouyou2_0_helpcode.txt sh
 done
 cp resources/helpcodes/ENGINE-NOTICE.md "$assets/helpcodes/NOTICE.md"
 cp resources/helpcodes/NOTICE.md "$assets/helpcodes/NOTICE-jiajia.md"
+# 内置按键音包：resources/sound-packs 里 `mode = "keys"` 的包整目录打进 assets/sound-packs（样本连同写着许可的 plugin.toml），Bootstrap 解到 files/sound-packs，键盘经 NativeClient.keySoundPack 校验后播放。旋律包和音乐包 Android 不播，不打包。
+mkdir -p "$assets/sound-packs"
+for pack_dir in resources/sound-packs/*/; do
+  pack=$(basename "$pack_dir")
+  grep -qx 'kind = "sound"' "$pack_dir/plugin.toml" || continue
+  grep -qx 'mode = "keys"' "$pack_dir/plugin.toml" || continue
+  cp -R "${pack_dir%/}" "$assets/sound-packs/$pack"
+done
+[ -f "$assets/sound-packs/default/plugin.toml" ] || { echo "the default key sound pack was not packaged" >&2; exit 1; }
 # Optional non-English candidate glosses (scripts/build_offline_glosses.py). Bootstrap extracts them beside the resources, where the Engine looks for one zh-<lang>.db per target language; without them only English is glossed offline.
 glosses_source=${MSIME_OFFLINE_GLOSSES:-$repo_root/target/offline-glosses}
 rm -rf "$assets/offline-glosses"

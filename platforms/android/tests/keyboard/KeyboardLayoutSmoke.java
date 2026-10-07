@@ -11,17 +11,49 @@ public final class KeyboardLayoutSmoke {
         check(letters.get(0).equals(List.of("q", "w", "e", "r", "t", "y", "u", "i", "o", "p")));
         check(letters.get(2).equals(List.of("z", "x", "c", "v", "b", "n", "m")));
 
-        // What a key sends and what it shows are answered separately. A Chinese keyboard draws its
-        // 26 keys in caps, and the engine still has to receive the lowercase letter: sending the
-        // drawn form made the engine decline it and the host commit `N` literally.
+        // 键发出什么和键面画什么分开回答：发给 Engine 的一律是小写字母；新设计里中文模式键面也画小写，英文 Shift 才画大写。
         for (List<String> row : letters) {
             for (String key : row) {
                 check(key.equals(key.toLowerCase(java.util.Locale.ROOT)));
-                check(LetterKeyFacePolicy.face(key, true, false, false)
+                check(LetterKeyFacePolicy.face(key, true, false, false).equals(key));
+                check(LetterKeyFacePolicy.face(key, false, false, true)
                     .equals(key.toUpperCase(java.util.Locale.ROOT)));
                 check(LetterKeyFacePolicy.face(key, false, false, false).equals(key));
             }
         }
+
+        // 新设计的 123 层（中文）。
+        List<List<KeyboardLayout.LayerKey>> number = KeyboardLayout.numberLayer(true);
+        check(number.size() == 4);
+        check(texts(number.get(0)).equals(List.of("1", "2", "3", "4", "5", "6", "7", "8", "9", "0")));
+        check(texts(number.get(1)).equals(List.of("-", "/", "：", "；", "（", "）", "¥", "@", "“", "”")));
+        check(texts(number.get(2)).equals(List.of("#+=", "。", "，", "、", "？", "！", "⌫")));
+        check(number.get(2).get(0).description().equals("更多符号"));
+        check(number.get(2).get(6).description().equals("删除"));
+        List<KeyboardLayout.LayerKey> bottom = number.get(3);
+        check(texts(bottom).equals(List.of("拼音", "😀", "空格", "换行")));
+        check(bottom.get(0).description().equals("切换到字母键盘")
+            && bottom.get(0).kind() == KeyboardLayout.LayerKeyKind.LETTERS);
+        check(bottom.get(1).kind() == KeyboardLayout.LayerKeyKind.EMOJI);
+        float total = 0;
+        for (KeyboardLayout.LayerKey key : bottom) total += key.weight();
+        check(Math.abs(total - 10.2f) < 1e-4);
+        // 英文 123 层是 ASCII 版，底行返回键为 ABC。
+        List<List<KeyboardLayout.LayerKey>> english = KeyboardLayout.numberLayer(false);
+        check(texts(english.get(1)).equals(List.of("-", "/", ":", ";", "(", ")", "$", "@", "\"", "'")));
+        check(texts(english.get(2)).equals(List.of("#+=", ".", ",", "?", "!", "…", "⌫")));
+        check(english.get(3).get(0).text().equals("ABC")
+            && english.get(3).get(0).description().equals("切换到字母键盘"));
+        // #+= 层：左下原表情位是打开符号面板的「符号」键，切换键翻成 123。
+        List<List<KeyboardLayout.LayerKey>> more = KeyboardLayout.moreSymbolLayer(true);
+        check(texts(more.get(0)).equals(List.of("[", "]", "{", "}", "#", "%", "^", "*", "+", "=")));
+        check(texts(more.get(1)).equals(List.of("_", "\\", "|", "~", "《", "》", "€", "&", "·", "…")));
+        check(more.get(2).get(0).text().equals("123")
+            && more.get(2).get(0).description().equals("切换到数字和符号"));
+        check(more.get(3).get(1).text().equals("符号")
+            && more.get(3).get(1).description().equals("切换符号键盘")
+            && more.get(3).get(1).kind() == KeyboardLayout.LayerKeyKind.SYMBOL_PANEL);
+        check(KeyboardLayout.moreSymbolLayer(false).get(3).get(0).text().equals("ABC"));
 
         List<List<String>> symbols = KeyboardLayout.rows(KeyboardLayout.Layer.SYMBOLS);
         check(symbols.size() == 3);
@@ -62,6 +94,17 @@ public final class KeyboardLayoutSmoke {
             == KeyboardLayout.ZHUYIN_LAYOUT);
         check(KeyboardLayout.resolveTouchLayout(true, true, 6, "handwriting")
             == KeyboardLayout.ZHUYIN_LAYOUT);
+        check(KeyboardLayout.resolveTouchLayout(true, false, 6, "handwriting")
+            == KeyboardLayout.ZHUYIN_LAYOUT);
+        // 注音 9 键按存下的布局字符串判断（与日语九键相同），不看 view 的 nine_key 标志。
+        check(KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT == 7);
+        check(KeyboardLayout.resolveTouchLayout(false, true, 6, "nine_key")
+            == KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT);
+        check(KeyboardLayout.resolveTouchLayout(false, false, 6, "nine_key")
+            == KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT);
+        check(!KeyboardLayout.carriesLetterCase(KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT));
+        check(KeyboardLayout.rows(KeyboardLayout.Layer.SYMBOLS, KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT)
+            == KeyboardLayout.rows(KeyboardLayout.Layer.SYMBOLS));
         check(KeyboardLayout.resolveTouchLayout(false, false, 5, "twenty_six_key")
             == KeyboardLayout.STANDARD_TOUCH_LAYOUT);
         check(KeyboardLayout.resolveTouchLayout(false, false, 7, "twenty_six_key")
@@ -90,5 +133,11 @@ public final class KeyboardLayoutSmoke {
             == KeyboardLayout.rows(KeyboardLayout.Layer.LETTERS));
 
         System.out.println("Android keyboard layers: canonical keys, faces and symbol layouts passed");
+    }
+
+    private static List<String> texts(List<KeyboardLayout.LayerKey> row) {
+        List<String> result = new java.util.ArrayList<>();
+        for (KeyboardLayout.LayerKey key : row) result.add(key.text());
+        return result;
     }
 }

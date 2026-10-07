@@ -42,6 +42,8 @@ interface AiContent {
 /** Bounds and identifies asynchronous cloud/AI results before they return to Engine. */
 export class OnlineCandidatePolicy {
   static readonly QUIET_INTERVAL_MS: number = 350;
+  /** 云候选的连接时限和整体时限，与 client-core 的 `CONNECT_TIMEOUT_MS` / `REQUEST_TIMEOUT_MS` 相同，由 scripts/test-cloud-request-budget.py 核对。系统 http 模块的 readTimeout 对应 libcurl 的 `CURLOPT_TIMEOUT_MS`，限的是整个请求，不是读空闲。 */
+  static readonly CLOUD_TIMEOUT_MS: number = 2_000;
   static readonly MAX_CLOUD_RESPONSE_BYTES: number = 256 * 1024;
   static readonly MAX_AI_RESPONSE_BYTES: number = 1024 * 1024;
 

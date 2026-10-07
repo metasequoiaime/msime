@@ -16,7 +16,6 @@ $packageArgs = @{
     url64bit       = '@INSTALLER_URL@'
     checksum64     = '@SHA256@'
     checksumType64 = 'sha256'
-    softwareName   = 'Metasequoia IME*'
     silentArgs     = $silentArgs
     validExitCodes = @(0)
 }

@@ -96,6 +96,7 @@ struct CustomKeyboardSkin: Codable, Equatable, Hashable, Sendable {
 
 enum CustomKeyboardSkinStore {
   static let key = "customKeyboardSkin.v1"
+  private static let maximumEncodedBytes = 1_000_000
   private static let cache = Cache()
   static var current: CustomKeyboardSkin { cache.load() }
   /// The saved design, or nil when there is none: `current` falls back to the editor's starting design, which is not one the user applied.
@@ -117,7 +118,10 @@ enum CustomKeyboardSkinStore {
       defer { lock.unlock() }
       if data != previousData {
         previousData = data
-        value = data.flatMap { try? JSONDecoder().decode(CustomKeyboardSkin.self, from: $0) }?.normalized
+        value = data.flatMap { data -> CustomKeyboardSkin? in
+          guard data.count <= CustomKeyboardSkinStore.maximumEncodedBytes else { return nil }
+          return try? JSONDecoder().decode(CustomKeyboardSkin.self, from: data)
+        }?.normalized
           ?? CustomKeyboardSkin()
       }
       return value
@@ -149,6 +153,7 @@ enum CustomSkinLibrary {
           size <= 9_000_000,
           let data = try? BoundedFileReader.read(from: file, maximumBytes: 9_000_000),
           let items = try? JSONDecoder().decode([SavedKeyboardSkin].self, from: data) else { return [] }
+    guard items.count <= 12 else { return [] }
     return Array(items.prefix(12)).map { item in
       var item = item
       item.design = item.design.normalized
@@ -210,8 +215,15 @@ extension CustomKeyboardSkin {
 
 // Decode only a bounded thumbnail, even when the chosen original is a large panorama.
 enum SkinPhotoData {
+  static let maximumSourceBytes = 16 * 1024 * 1024
+
+  static func sourceData(at url: URL) -> Data? {
+    try? BoundedFileReader.read(from: url, maximumBytes: maximumSourceBytes)
+  }
+
   static func thumbnail(at url: URL) -> Data? {
-    guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+    guard let data = sourceData(at: url),
+          let source = CGImageSourceCreateWithData(data as CFData, nil),
           let cg = CGImageSourceCreateThumbnailAtIndex(source, 0, [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,

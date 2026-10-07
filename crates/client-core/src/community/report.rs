@@ -29,6 +29,8 @@ pub enum CommunityReportKind {
     Dictionaries,
     /// Shared reply templates (community resources of kind `reply`).
     Replies,
+    /// 社区短语包（kind 为 `phrase` 的社区资源）。
+    Phrases,
 }
 
 /// The fixed reasons a report offers, serialized as the label the moderators see.
@@ -323,6 +325,24 @@ mod tests {
         let request = received.recv().unwrap();
         assert!(!request.contains("detail"));
         assert!(request.contains("\"kind\":\"replies\""));
+    }
+
+    #[test]
+    fn phrase_packs_are_reported_under_the_phrases_kind() {
+        for (kind, name) in [
+            (CommunityReportKind::Dictionaries, "dictionaries"),
+            (CommunityReportKind::Replies, "replies"),
+            (CommunityReportKind::Phrases, "phrases"),
+        ] {
+            assert_eq!(
+                serde_json::to_value(kind).unwrap(),
+                serde_json::Value::String(name.into())
+            );
+            assert_eq!(
+                serde_json::from_value::<CommunityReportKind>(name.into()).unwrap(),
+                kind
+            );
+        }
     }
 
     #[test]

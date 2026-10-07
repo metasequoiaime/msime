@@ -1,0 +1,225 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 设计稿 Android 一栏的组件样式与文字样式。颜色一律读主题属性，季节叠加层换掉主题里的角色，这些样式就跟着换色。只用 Material 1.12.0 已有的属性：Tauri 合包编译同一份 res，依赖的是 1.12.0。 -->
+<resources>
+    <!-- ==== 形状 ==== -->
+    <style name="ShapeAppearance.MSIME.Pill" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">50%</item>
+    </style>
+
+    <!-- bottom sheet 只圆两个顶角。 -->
+    <style name="ShapeAppearance.MSIME.Sheet" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSizeTopLeft">@dimen/ms_radius_sheet</item>
+        <item name="cornerSizeTopRight">@dimen/ms_radius_sheet</item>
+        <item name="cornerSizeBottomLeft">0dp</item>
+        <item name="cornerSizeBottomRight">0dp</item>
+    </style>
+
+    <style name="ShapeAppearance.MSIME.Dialog" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">@dimen/ms_radius_dialog</item>
+    </style>
+
+    <style name="ShapeAppearance.MSIME.NavIndicator" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">@dimen/ms_radius_nav_indicator</item>
+    </style>
+
+    <!-- ==== 文字 ==== -->
+    <!-- 大标题：设置 / 社区 / 统计 / 我的，以及详情页标题。 -->
+    <style name="TextAppearance.MSIME.PageTitle" parent="TextAppearance.Material3.HeadlineMedium">
+        <item name="android:textSize">@dimen/ms_text_page_title</item>
+        <item name="android:textFontWeight">400</item>
+        <item name="android:textColor">?attr/colorOnSurface</item>
+        <item name="android:lineHeight">35sp</item>
+    </style>
+
+    <!-- 滚动后收起的顶栏标题。 -->
+    <style name="TextAppearance.MSIME.AppBarTitle" parent="TextAppearance.Material3.TitleLarge">
+        <item name="android:textSize">@dimen/ms_text_app_bar_title</item>
+        <item name="android:textFontWeight">400</item>
+        <item name="android:textColor">?attr/colorOnSurface</item>
+    </style>
+
+    <!-- 状态卡标题「水杉输入法」：17sp、600。 -->
+    <style name="TextAppearance.MSIME.CardTitle" parent="TextAppearance.Material3.TitleMedium">
+        <item name="android:textSize">@dimen/ms_text_card_title</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textFontWeight">600</item>
+        <item name="android:textColor">?attr/colorOnSurface</item>
+    </style>
+
+    <!-- 列表行标题。 -->
+    <style name="TextAppearance.MSIME.Body" parent="TextAppearance.Material3.BodyLarge">
+        <item name="android:textSize">@dimen/ms_text_body</item>
+        <item name="android:textFontWeight">400</item>
+        <item name="android:textColor">?attr/colorOnSurface</item>
+    </style>
+
+    <!-- 行副标题、行右侧的值。 -->
+    <style name="TextAppearance.MSIME.Supporting" parent="TextAppearance.Material3.BodyMedium">
+        <item name="android:textSize">@dimen/ms_text_supporting</item>
+        <item name="android:textFontWeight">400</item>
+        <item name="android:textColor">?attr/colorOnSurfaceVariant</item>
+    </style>
+
+    <!-- 组标题（语言与方案、中文、我的内容）：14sp、500、accent。 -->
+    <style name="TextAppearance.MSIME.GroupTitle" parent="TextAppearance.Material3.TitleSmall">
+        <item name="android:textSize">@dimen/ms_text_supporting</item>
+        <item name="android:textFontWeight">500</item>
+        <item name="android:textColor">?attr/colorPrimary</item>
+    </style>
+
+    <!-- 状态行、滑块数值、分段选项。 -->
+    <style name="TextAppearance.MSIME.Label" parent="TextAppearance.Material3.LabelLarge">
+        <item name="android:textSize">@dimen/ms_text_label</item>
+        <item name="android:textFontWeight">400</item>
+        <item name="android:textColor">?attr/colorOnSurfaceVariant</item>
+    </style>
+
+    <!-- 实心按钮标签（试用键盘）：15sp、600。 -->
+    <style name="TextAppearance.MSIME.Button" parent="TextAppearance.Material3.LabelLarge">
+        <item name="android:textSize">@dimen/ms_text_button</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textFontWeight">600</item>
+    </style>
+
+    <!-- 底部导航标签：12sp，未选中 500，选中 600 并用主文字色（颜色由 res/color/nav_item.xml 给）。 -->
+    <style name="TextAppearance.MSIME.NavLabel" parent="TextAppearance.Material3.LabelMedium">
+        <item name="android:textSize">@dimen/ms_text_caption</item>
+        <item name="android:textStyle">normal</item>
+        <item name="android:textFontWeight">500</item>
+    </style>
+
+    <style name="TextAppearance.MSIME.NavLabel.Active">
+        <item name="android:textStyle">bold</item>
+        <item name="android:textFontWeight">600</item>
+    </style>
+
+    <!-- ==== 底部导航：80dp、andCard 底、选中图标背后 64×32 的 accentSoft 药丸、图标 22dp ==== -->
+    <style name="Widget.MSIME.BottomNavigation" parent="Widget.Material3.BottomNavigationView">
+        <item name="android:minHeight">@dimen/ms_bottom_nav_height</item>
+        <item name="android:background">?attr/colorSurfaceContainer</item>
+        <item name="itemActiveIndicatorStyle">@style/Widget.MSIME.BottomNavigation.Indicator</item>
+        <item name="itemIconSize">@dimen/ms_bottom_nav_icon</item>
+        <item name="itemIconTint">@color/nav_item</item>
+        <item name="itemTextColor">@color/nav_item</item>
+        <item name="itemTextAppearanceActive">@style/TextAppearance.MSIME.NavLabel.Active</item>
+        <item name="itemTextAppearanceInactive">@style/TextAppearance.MSIME.NavLabel</item>
+        <item name="itemPaddingTop">@dimen/ms_bottom_nav_padding_top</item>
+        <item name="activeIndicatorLabelPadding">@dimen/ms_bottom_nav_label_gap</item>
+        <item name="labelVisibilityMode">labeled</item>
+    </style>
+
+    <style name="Widget.MSIME.BottomNavigation.Indicator" parent="Widget.Material3.BottomNavigationView.ActiveIndicator">
+        <item name="android:color">?attr/colorSecondaryContainer</item>
+        <item name="android:width">@dimen/ms_nav_indicator_width</item>
+        <item name="android:height">@dimen/ms_nav_indicator_height</item>
+        <item name="shapeAppearance">@style/ShapeAppearance.MSIME.NavIndicator</item>
+    </style>
+
+    <!-- ==== 开关：52×32 轨道，开启时轨道 accent、滑块 onAccent（深色是每季的深色 onAccent，不是原型漏出的 #003920），关闭时轨道 swOff、滑块与描边 outline。这些正是 M3 MaterialSwitch 读的角色，所以只需继承。 ==== -->
+    <style name="Widget.MSIME.Switch" parent="Widget.Material3.CompoundButton.MaterialSwitch" />
+
+    <!-- ==== 滑块：6dp accentSoft 轨道、accent 已选段、4×28 的条形滑块，滑块与轨道之间没有缝，不显示气泡标签（数值写在右侧）。 ==== -->
+    <style name="Widget.MSIME.Slider" parent="Widget.Material3.Slider">
+        <item name="trackHeight">@dimen/ms_slider_track</item>
+        <item name="trackColorActive">?attr/colorPrimary</item>
+        <item name="trackColorInactive">?attr/colorPrimaryContainer</item>
+        <item name="thumbColor">?attr/colorPrimary</item>
+        <item name="thumbWidth">@dimen/ms_slider_thumb_width</item>
+        <item name="thumbHeight">@dimen/ms_slider_thumb_height</item>
+        <item name="thumbTrackGapSize">0dp</item>
+        <item name="trackStopIndicatorSize">0dp</item>
+        <item name="trackInsideCornerSize">0dp</item>
+        <item name="haloRadius">0dp</item>
+        <item name="labelBehavior">gone</item>
+        <item name="tickVisible">false</item>
+    </style>
+
+    <!-- ==== 分段控件的容器：描边分段由 Widget.MSIME.Segment 画，这里只让按钮之间不留缝、只能单选。 ==== -->
+    <style name="Widget.MSIME.SegmentGroup" parent="Widget.Material3.MaterialButtonToggleGroup">
+        <item name="singleSelection">true</item>
+        <item name="selectionRequired">true</item>
+    </style>
+
+    <!-- ==== 搜索药丸：52dp 高、andCard 底、全圆角、左右 18dp。 ==== -->
+    <style name="Widget.MSIME.SearchPill" parent="Widget.Material3.CardView.Filled">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">@dimen/ms_search_height</item>
+        <item name="cardBackgroundColor">?attr/colorSurfaceContainer</item>
+        <item name="cardElevation">0dp</item>
+        <item name="strokeWidth">0dp</item>
+        <item name="shapeAppearance">@style/ShapeAppearance.MSIME.Pill</item>
+        <item name="contentPaddingLeft">@dimen/ms_search_padding_horizontal</item>
+        <item name="contentPaddingRight">@dimen/ms_search_padding_horizontal</item>
+    </style>
+
+    <!-- ==== 卡片：首页分组卡 r24、详情页分组卡 r16，都是 andCard 底、无阴影无描边。 ==== -->
+    <style name="Widget.MSIME.HomeCard" parent="Widget.Material3.CardView.Filled">
+        <item name="cardBackgroundColor">?attr/colorSurfaceContainer</item>
+        <item name="cardCornerRadius">@dimen/ms_radius_home_card</item>
+        <item name="cardElevation">0dp</item>
+        <item name="strokeWidth">0dp</item>
+    </style>
+
+    <style name="Widget.MSIME.GroupCard" parent="Widget.MSIME.HomeCard">
+        <item name="cardCornerRadius">@dimen/ms_radius_card</item>
+    </style>
+
+    <!-- ==== 按钮 ==== -->
+    <!-- 实心药丸（试用键盘、下一步）：40dp 高、accent 底、onAccent 字、15sp 600，图标 16dp、与字间隔 6dp。 -->
+    <style name="Widget.MSIME.FilledButton" parent="Widget.Material3.Button">
+        <item name="android:minHeight">@dimen/ms_button_height</item>
+        <item name="android:insetTop">0dp</item>
+        <item name="android:insetBottom">0dp</item>
+        <item name="android:textAppearance">@style/TextAppearance.MSIME.Button</item>
+        <item name="backgroundTint">?attr/colorPrimary</item>
+        <item name="android:textColor">?attr/colorOnPrimary</item>
+        <item name="iconTint">?attr/colorOnPrimary</item>
+        <item name="iconSize">@dimen/ms_button_icon</item>
+        <item name="iconPadding">@dimen/ms_button_icon_gap</item>
+        <item name="shapeAppearance">@style/ShapeAppearance.MSIME.Pill</item>
+    </style>
+
+    <!-- 详情页里的 tonal 按钮：accentSoft 底、accent 字、13sp，内边距 5/14。原型这里漏出的绿色 #CFE9D6 / #2A4F37 改成每季的 accentSoft。 -->
+    <style name="Widget.MSIME.TonalButton" parent="Widget.Material3.Button.TonalButton">
+        <item name="android:minHeight">0dp</item>
+        <item name="android:minWidth">0dp</item>
+        <item name="android:insetTop">0dp</item>
+        <item name="android:insetBottom">0dp</item>
+        <item name="android:paddingTop">@dimen/ms_tonal_button_padding_vertical</item>
+        <item name="android:paddingBottom">@dimen/ms_tonal_button_padding_vertical</item>
+        <item name="android:paddingStart">@dimen/ms_tonal_button_padding_horizontal</item>
+        <item name="android:paddingEnd">@dimen/ms_tonal_button_padding_horizontal</item>
+        <item name="android:textSize">@dimen/ms_text_label</item>
+        <item name="backgroundTint">?attr/colorPrimaryContainer</item>
+        <item name="android:textColor">?attr/colorPrimary</item>
+        <item name="iconTint">?attr/colorPrimary</item>
+        <item name="shapeAppearance">@style/ShapeAppearance.MSIME.Pill</item>
+    </style>
+
+    <!-- 社区卡片上的「获取」「使用」：25dp 高、12sp 600。 -->
+    <style name="Widget.MSIME.TonalButton.Chip">
+        <item name="android:minHeight">@dimen/ms_chip_height</item>
+        <item name="android:paddingTop">0dp</item>
+        <item name="android:paddingBottom">0dp</item>
+        <item name="android:paddingStart">@dimen/ms_chip_padding_horizontal</item>
+        <item name="android:paddingEnd">@dimen/ms_chip_padding_horizontal</item>
+        <item name="android:textSize">@dimen/ms_text_caption</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textFontWeight">600</item>
+    </style>
+
+    <!-- ==== bottom sheet 与对话框 ==== -->
+    <style name="Widget.MSIME.BottomSheet" parent="Widget.Material3.BottomSheet.Modal">
+        <item name="backgroundTint">?attr/colorSurfaceContainerLow</item>
+        <item name="shapeAppearance">@style/ShapeAppearance.MSIME.Sheet</item>
+    </style>
+
+    <style name="MaterialAlertDialog.MSIME" parent="MaterialAlertDialog.Material3">
+        <item name="backgroundTint">?attr/colorSurfaceContainerLowest</item>
+        <item name="shapeAppearance">@style/ShapeAppearance.MSIME.Dialog</item>
+    </style>
+</resources>

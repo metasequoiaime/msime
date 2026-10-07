@@ -1,12 +1,8 @@
 package app.msime.android;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.ByteBuffer;
 import java.nio.charset.CharacterCodingException;
-import java.nio.charset.CodingErrorAction;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
@@ -41,11 +37,13 @@ public final class CommunityReplyLibrary {
         rejectSymlinkComponents(file);
         if (!Files.exists(file, LinkOption.NOFOLLOW_LINKS)) return List.of();
         if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) throw new IOException("Invalid community library");
-        byte[] bytes = readBounded(file);
+        byte[] bytes;
+        try (InputStream input = Files.newInputStream(file, LinkOption.NOFOLLOW_LINKS)) {
+            bytes = HttpBodyPolicy.readRequired(input, MAXIMUM_BYTES);
+        }
         final String json;
         try {
-            json = StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
-                .onUnmappableCharacter(CodingErrorAction.REPORT).decode(ByteBuffer.wrap(bytes)).toString();
+            json = TextPolicy.utf8Strict(bytes);
         } catch (CharacterCodingException error) {
             throw new IOException("Community library is not UTF-8", error);
         }
@@ -54,8 +52,8 @@ public final class CommunityReplyLibrary {
         catch (IllegalArgumentException error) { throw new IOException("Invalid community library", error); }
         if (!(decoded instanceof List<?> items) || items.size() > MAXIMUM_ITEMS)
             throw new IOException("Invalid community library");
-        List<Template> replies = new ArrayList<>();
-        Set<String> ids = new HashSet<>();
+        List<Template> replies = new ArrayList<>(items.size());
+        Set<String> ids = new HashSet<>(items.size());
         for (Object value : items) {
             if (!(value instanceof Map<?, ?> item)) throw new IOException("Invalid community library");
             String id = string(item.get("id"));
@@ -68,33 +66,18 @@ public final class CommunityReplyLibrary {
             String prompt = string(content.get("prompt"));
             if (name == null || id.isEmpty() || name.isEmpty() || prompt == null
                     || TextPolicy.blank(id) || TextPolicy.blank(name) || TextPolicy.blank(prompt)
-                    || !name.equals(name.trim()) || !ids.add(id))
+                    || !TextPolicy.trimmed(name).equals(name) || !ids.add(id))
                 throw new IOException("Invalid community library");
             if (!TextPolicy.validUnicode(id) || !TextPolicy.validUnicode(name)
                     || !TextPolicy.validUnicode(prompt) || TextPolicy.hasControl(id)
                     || TextPolicy.hasControl(name) || TextPolicy.hasControl(prompt)
                     || TextPolicy.utf8Length(id) > MAXIMUM_ID_BYTES
-                    || name.codePointCount(0, name.length()) > MAXIMUM_NAME_CHARACTERS
-                    || prompt.codePointCount(0, prompt.length()) > MAXIMUM_PROMPT_CHARACTERS)
+                    || !TextPolicy.withinCodePoints(name, MAXIMUM_NAME_CHARACTERS)
+                    || !TextPolicy.withinCodePoints(prompt, MAXIMUM_PROMPT_CHARACTERS))
                 throw new IOException("Invalid community library");
             replies.add(new Template(id, name, prompt));
         }
         return List.copyOf(replies);
-    }
-
-    /** Read only the library envelope, even if a replaced file grows after inspection. */
-    private static byte[] readBounded(Path file) throws IOException {
-        try (InputStream input = Files.newInputStream(file)) {
-            ByteArrayOutputStream bytes = new ByteArrayOutputStream(MAXIMUM_BYTES);
-            byte[] buffer = new byte[8192];
-            int count;
-            while ((count = input.read(buffer)) != -1) {
-                if (bytes.size() + count > MAXIMUM_BYTES)
-                    throw new IOException("Community library is too large");
-                bytes.write(buffer, 0, count);
-            }
-            return bytes.toByteArray();
-        }
     }
 
     private static void rejectSymlinkComponents(Path path) throws IOException {
@@ -134,7 +117,7 @@ public final class CommunityReplyLibrary {
 
         private List<Object> array(int depth) {
             index++;
-            List<Object> values = new ArrayList<>();
+            List<Object> values = new ArrayList<>(MAXIMUM_CONTAINER_ITEMS);
             whitespace();
             if (take(']')) return values;
             while (true) {
@@ -148,7 +131,7 @@ public final class CommunityReplyLibrary {
 
         private Map<String, Object> object(int depth) {
             index++;
-            Map<String, Object> values = new LinkedHashMap<>();
+            Map<String, Object> values = new LinkedHashMap<>(MAXIMUM_CONTAINER_ITEMS);
             whitespace();
             if (take('}')) return values;
             while (true) {
@@ -168,7 +151,7 @@ public final class CommunityReplyLibrary {
 
         private String string() {
             require('"');
-            StringBuilder result = new StringBuilder();
+            StringBuilder result = new StringBuilder(input.length() - index);
             while (index < input.length()) {
                 char value = input.charAt(index++);
                 if (value == '"') return result.toString();

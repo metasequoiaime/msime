@@ -2,9 +2,11 @@ package app.msime.android;
 
 import java.io.BufferedInputStream;
 import java.io.ByteArrayOutputStream;
-import java.io.FileInputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.LinkOption;
+import java.nio.file.Paths;
 import java.security.MessageDigest;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -66,6 +68,79 @@ public final class NativeClient {
     public static String themeCatalog() { return text(themeCatalogRaw()); }
     /** Resolves the colours of the selected global theme for one mode. Pure computation, safe on the main thread. */
     public static String resolveTheme(String request) { return text(resolveThemeRaw(request.getBytes(StandardCharsets.UTF_8))); }
+    /** 应用主题目录：`{app_themes:[{id,title,season,seasonal,light,dark}],default}`。纯计算。 */
+    public static String appThemeCatalog() { return text(appThemeCatalogRaw()); }
+    /** 应用主题在本地月份与明暗模式下的颜色：`{id,season,accent,accent_soft,on_accent,background,card,hair}`。纯计算，可在主线程调用。 */
+    public static String resolveAppTheme(String appTheme, int month, boolean dark) {
+        validateMonth(month);
+        try {
+            JSONObject request = new JSONObject().put("app_theme", appTheme).put("month", month)
+                .put("dark", dark);
+            return text(resolveAppThemeRaw(request.toString().getBytes(StandardCharsets.UTF_8)));
+        } catch (org.json.JSONException error) {
+            throw new IllegalArgumentException("Invalid app theme request", error);
+        }
+    }
+    /** 「重置所有设置」：把偏好按修订号比较并交换换回默认值，返回新的快照。读写文件，在工作线程调用。 */
+    public static String restoreDefaultPreferences(String directory, long expectedRevision) {
+        if (expectedRevision < 0) throw new IllegalArgumentException("Invalid preferences revision");
+        return text(restoreDefaultPreferencesRaw(utf8(directory), expectedRevision));
+    }
+    /** 本版本的默认偏好文档（Android 新装默认值）。纯计算。 */
+    public static String defaultPreferences() { return text(defaultPreferencesRaw()); }
+    /** 指定宿主（如 "android"）的能力描述。纯计算。 */
+    public static String hostCapabilities(String platform) { return text(hostCapabilitiesRaw(utf8(platform))); }
+    /** 词库管理请求 `{options,action}`（列表、搜索、编辑、导入、导出）。会等待词库锁，在工作线程调用。 */
+    public static String dictionary(String request) { return text(dictionaryRaw(utf8(request))); }
+    /** 个人词库队列请求，键盘活着时也能写词条和导入。在工作线程调用。 */
+    public static String personalDictionaryRequest(String request) {
+        return text(personalDictionaryRequestRaw(utf8(request)));
+    }
+    /** 每行一个纯汉字词，答复为按规范拼音生成的词条 `{entries}`。只读内置词库，在工作线程调用。 */
+    public static String dictionaryHansEntries(String text, String resources) {
+        return text(dictionaryHansEntriesRaw(utf8(text), utf8(resources)));
+    }
+    /** 导入前预览：词库文件 `{kind,format,text}` 解析成可入队的词条与导入报告。在工作线程调用。 */
+    public static String dictionaryImportEntries(String request, String resources) {
+        return text(dictionaryImportEntriesRaw(utf8(request), utf8(resources)));
+    }
+    /** 内置词库的版本信息 `{profile,sourceCommit}`。读文件，在工作线程调用。 */
+    public static String dictionaryManifest(String resources) { return text(dictionaryManifestRaw(utf8(resources))); }
+    /** 插件包仓库与 @ 名单请求 `{state_root,sound_packs,action}`。读写文件，在工作线程调用。 */
+    public static String plugins(String request) { return text(pluginsRaw(utf8(request))); }
+    /** 社区资源本地库（保留的回复模板等）请求。持有文件锁，在工作线程调用。 */
+    public static String communityResourceLibrary(String request) {
+        return text(communityResourceLibraryRaw(utf8(request)));
+    }
+    /** AI 设计皮肤的 compose / parse / artwork 决策；HTTP 由宿主自己发。纯计算。 */
+    public static String aiSkinPlan(String request) { return text(aiSkinPlanRaw(utf8(request))); }
+    /** 皮肤试用的结束与崩溃恢复。写偏好，在工作线程调用。 */
+    public static String keyboardSkinTrial(String request) { return text(keyboardSkinTrialRaw(utf8(request))); }
+    /** 社区皮肤安装并开始试用。写偏好与两个加锁文件，在工作线程调用。 */
+    public static String communitySkinInstall(String request) { return text(communitySkinInstallRaw(utf8(request))); }
+    /** 一个按键音包校验后的文件清单 `{state_root,sound_packs,pack}`。读文件，不在按键路径上调用。 */
+    public static String keySoundPack(String request) { return text(keySoundPackRaw(utf8(request))); }
+    /** 无编码常用语 `{directory,action}`，返回整份文档；设置进程和键盘进程都用。持有文件锁，在工作线程调用。 */
+    public static String commonPhrases(String request) { return text(commonPhrasesRaw(utf8(request))); }
+    /** 命名词库 `{options,action}`，词条经个人词库队列送进 Engine。读写文件，在工作线程调用。 */
+    public static String dictionaryCollections(String request) {
+        return text(dictionaryCollectionsRaw(utf8(request)));
+    }
+    /** 诊断包 `{state_root,include,sources,destination}`：写 zip，或不带 destination 时返回上传用的 sections。输入事件只保留白名单字段，配置快照已脱敏。在工作线程调用。 */
+    public static String diagnosticBundle(String request) { return text(diagnosticBundleRaw(utf8(request))); }
+    /** 本机设置导出成账号设置文档的键值（可附带合并后的整份文档）；凭据与设备本地设置不导出。读偏好，在工作线程调用。 */
+    public static String accountSettingsExport(String request) {
+        return text(accountSettingsExportRaw(utf8(request)));
+    }
+    /** 把云端设置文档应用到本机偏好并按修订号保存，返回保存后的快照、按键反馈、皮肤库与跳过的键。在工作线程调用。 */
+    public static String accountSettingsApply(String request) {
+        return text(accountSettingsApplyRaw(utf8(request)));
+    }
+
+    private static void validateMonth(int month) {
+        if (month < 1 || month > 12) throw new IllegalArgumentException("Month must be between 1 and 12");
+    }
+
     /** Classifies committed text and adds batched per-key press counts in native memory, and persists only aggregate counts. Call on a worker. */
     public static String typingStatistics(String request) {
         return text(typingStatisticsRaw(request.getBytes(StandardCharsets.UTF_8)));
@@ -144,7 +219,7 @@ public final class NativeClient {
     }
 
     private static byte[] utf8(String value) {
-        return (value == null ? "" : value).getBytes(StandardCharsets.UTF_8);
+        return TextPolicy.utf8Bytes(value);
     }
 
     /**
@@ -209,6 +284,11 @@ public final class NativeClient {
         return text(personalDictionarySyncRaw(options.getBytes(StandardCharsets.UTF_8)));
     }
     public static String focus(long session, boolean focused) { return text(focusRaw(session, focused)); }
+    /** 标出隐私会话：选词位置和上屏效率不记入打字统计。 */
+    public static String setPrivateSession(long session, boolean enabled) {
+        return text(setPrivateSessionRaw(session, enabled));
+    }
+
     public static String setNineKeyMode(long session, boolean enabled) {
         return text(setNineKeyModeRaw(session, enabled));
     }
@@ -253,7 +333,7 @@ public final class NativeClient {
      */
     public static String localSpeechStart(long handle, String modelDirectory, String language,
                                           String hotwords, int threads) {
-        if (handle == 0) throw new IllegalArgumentException("Invalid local speech handle");
+        NativeHandlePolicy.requirePositive(handle);
         byte[] error = localSpeechStartRaw(handle, utf8(modelDirectory), utf8(language),
             utf8(hotwords), threads);
         return error == null ? null : text(error);
@@ -261,29 +341,33 @@ public final class NativeClient {
 
     /** Feed 16 kHz mono PCM16. Returns the transcript so far when it changed, else null. Throws IllegalStateException once cancelled or on a recognizer failure. */
     public static String localSpeechAccept(long handle, short[] pcm, int count) {
-        if (handle == 0) throw new IllegalArgumentException("Invalid local speech handle");
+        NativeHandlePolicy.requirePositive(handle);
         byte[] partial = localSpeechAcceptRaw(handle, pcm, count);
         return partial == null ? null : text(partial);
     }
 
     /** Flush and return the whole transcript. Throws IllegalStateException once cancelled or on failure. */
     public static String localSpeechFinish(long handle) {
-        if (handle == 0) throw new IllegalArgumentException("Invalid local speech handle");
+        NativeHandlePolicy.requirePositive(handle);
         return text(localSpeechFinishRaw(handle));
     }
 
     /** Any thread, while the handle is alive: stops a decode in progress. */
     public static void localSpeechCancel(long handle) {
-        if (handle != 0) localSpeechCancelRaw(handle);
+        if (!NativeHandlePolicy.isOptional(handle))
+            throw new IllegalArgumentException("Invalid local speech handle");
+        if (handle > 0) localSpeechCancelRaw(handle);
     }
 
     public static void localSpeechDestroy(long handle) {
-        if (handle != 0) localSpeechDestroyRaw(handle);
+        if (!NativeHandlePolicy.isOptional(handle))
+            throw new IllegalArgumentException("Invalid local speech handle");
+        if (handle > 0) localSpeechDestroyRaw(handle);
     }
 
     /** Drop loaded models idle for `idleMillis`, or every model not in use for 0. */
     public static int localSpeechRelease(long idleMillis) {
-        return localSpeechReleaseRaw(Math.max(0, idleMillis));
+        return localSpeechReleaseRaw(BoundsPolicy.nonNegative(idleMillis));
     }
 
     /**
@@ -447,6 +531,27 @@ public final class NativeClient {
     private static native int typingStatisticsEnabledRaw(byte[] directory);
     private static native byte[] themeCatalogRaw();
     private static native byte[] resolveThemeRaw(byte[] request);
+    private static native byte[] appThemeCatalogRaw();
+    private static native byte[] resolveAppThemeRaw(byte[] request);
+    private static native byte[] restoreDefaultPreferencesRaw(byte[] directory, long expectedRevision);
+    private static native byte[] defaultPreferencesRaw();
+    private static native byte[] hostCapabilitiesRaw(byte[] platform);
+    private static native byte[] dictionaryRaw(byte[] request);
+    private static native byte[] personalDictionaryRequestRaw(byte[] request);
+    private static native byte[] dictionaryHansEntriesRaw(byte[] text, byte[] resources);
+    private static native byte[] dictionaryImportEntriesRaw(byte[] request, byte[] resources);
+    private static native byte[] dictionaryManifestRaw(byte[] resources);
+    private static native byte[] pluginsRaw(byte[] request);
+    private static native byte[] communityResourceLibraryRaw(byte[] request);
+    private static native byte[] aiSkinPlanRaw(byte[] request);
+    private static native byte[] keyboardSkinTrialRaw(byte[] request);
+    private static native byte[] communitySkinInstallRaw(byte[] request);
+    private static native byte[] keySoundPackRaw(byte[] request);
+    private static native byte[] commonPhrasesRaw(byte[] request);
+    private static native byte[] dictionaryCollectionsRaw(byte[] request);
+    private static native byte[] diagnosticBundleRaw(byte[] request);
+    private static native byte[] accountSettingsExportRaw(byte[] request);
+    private static native byte[] accountSettingsApplyRaw(byte[] request);
     private static native byte[] vocabularyReviewRaw(byte[] request);
     private static native byte[] emojiCatalogRaw(byte[] query, byte[] resources);
     private static native byte[] candidateGlossesRaw(byte[] request, byte[] resources);
@@ -464,6 +569,7 @@ public final class NativeClient {
     private static native byte[] personalDictionarySyncRaw(byte[] options);
     private static native byte[] focusRaw(long session, boolean focused);
     private static native byte[] setNineKeyModeRaw(long session, boolean enabled);
+    private static native byte[] setPrivateSessionRaw(long session, boolean enabled);
     private static native byte[] setEnglishModeRaw(long session, boolean enabled);
     private static native byte[] mobileVoiceConfigurationRaw(byte[] directory);
     private static native byte[] simplifiedToTraditionalRaw(byte[] text);
@@ -528,7 +634,8 @@ public final class NativeClient {
         boolean ended = false;
         String footerHash = null;
         int footerRecords = -1;
-        try (BufferedInputStream input = new BufferedInputStream(new FileInputStream(file))) {
+        try (BufferedInputStream input = new BufferedInputStream(
+                Files.newInputStream(Paths.get(file), LinkOption.NOFOLLOW_LINKS))) {
             ByteArrayOutputStream line = new ByteArrayOutputStream();
             int value;
             while ((value = input.read()) != -1) {
@@ -574,20 +681,10 @@ public final class NativeClient {
             if (line.size() != 0) throw new IOException("unterminated snapshot line");
         }
         if (!header || footerHash == null || footerRecords != dataRecords
-                || !footerHash.equals(hex(digest.digest())) || engineRecords > 500_000) {
+                || !footerHash.equals(DigestPolicy.hex(digest.digest())) || engineRecords > 500_000) {
             throw new IOException("invalid snapshot envelope");
         }
         return engineRecords;
     }
 
-    private static String hex(byte[] bytes) {
-        char[] digits = "0123456789abcdef".toCharArray();
-        char[] output = new char[bytes.length * 2];
-        for (int index = 0; index < bytes.length; index++) {
-            int value = bytes[index] & 0xff;
-            output[index * 2] = digits[value >>> 4];
-            output[index * 2 + 1] = digits[value & 0x0f];
-        }
-        return new String(output);
-    }
 }

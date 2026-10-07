@@ -25,6 +25,7 @@ public final class MlKitHandwritingRecognizer implements HandwritingRecognizer {
     private volatile Availability availability = Availability.DOWNLOADING;
     private long generation;
     private boolean closed;
+    private volatile String preContext = "";
 
     public MlKitHandwritingRecognizer(Context context) throws MlKitException {
         Objects.requireNonNull(context, "context");
@@ -55,6 +56,10 @@ public final class MlKitHandwritingRecognizer implements HandwritingRecognizer {
     }
 
     @Override public Availability availability() { return availability; }
+
+    @Override public void setPreContext(String value) {
+        preContext = HandwritingRecognizer.clipPreContext(value);
+    }
 
     @Override public void download(DownloadListener listener) {
         Objects.requireNonNull(listener, "listener");
@@ -111,12 +116,12 @@ public final class MlKitHandwritingRecognizer implements HandwritingRecognizer {
             ink.addStroke(stroke.build());
         }
         RecognitionContext context = RecognitionContext.builder()
-            .setPreContext("")
+            .setPreContext(preContext)
             .setWritingArea(new WritingArea(request.width(), request.height()))
             .build();
         recognizer.recognize(ink.build(), context)
             .addOnSuccessListener(result -> {
-                List<String> candidates = new ArrayList<>();
+                List<String> candidates = new ArrayList<>(result.getCandidates().size());
                 result.getCandidates().forEach(candidate -> candidates.add(candidate.getText()));
                 synchronized (lock) {
                     if (closed || generation != token) return;

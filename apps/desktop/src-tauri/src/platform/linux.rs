@@ -10,6 +10,7 @@ pub(crate) mod linux_clipboard;
 pub(crate) mod linux_data_directory;
 pub(crate) mod linux_dictionary_quiesce;
 pub(crate) mod linux_process;
+pub(crate) mod linux_program_handover;
 pub(crate) mod linux_provider_credentials;
 pub(crate) mod linux_setup;
 

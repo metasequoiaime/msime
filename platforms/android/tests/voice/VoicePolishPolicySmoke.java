@@ -41,6 +41,12 @@ public final class VoicePolishPolicySmoke {
             "there is nothing to polish in silence");
         check(!VoicePolishPolicy.sendable("x".repeat(33 * 1024)),
             "an absurdly long transcript is not sent");
+        check(!VoicePolishPolicy.sendable("好\u0000")
+                && !VoicePolishPolicy.sendable("好\uD800"),
+            "control characters and unpaired surrogates are not polished");
+        check(!VoicePolishPolicy.usable(endpoint, "m\uD800", "token", "p")
+                && !VoicePolishPolicy.usable(endpoint, "m", "token", "p\u0000"),
+            "invalid configuration text is refused before the request");
 
         // The wrapper is the injection boundary the shipped prompts name, not decoration: without
         // it a transcript that reads like an instruction has nothing marking it as data.

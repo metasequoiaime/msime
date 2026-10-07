@@ -301,7 +301,11 @@ fn capabilities_describe_each_host() {
         let other = HostCapabilities::for_platform(platform);
         assert_eq!(other.fixed_candidate_page_size, None);
         assert_eq!(other.fixed_candidate_layout, None);
-        assert!(!other.touch_toolbar_components);
+        // 只有 iOS 和 Android 的键盘工具栏按 `touch_toolbar` 选按钮。
+        assert_eq!(
+            other.touch_toolbar_components,
+            platform == HostPlatform::Android
+        );
     }
     assert!(ios.touch_toolbar_components);
     // Windows handles Ctrl+Shift+Win+K on its maintenance hook, so the
@@ -598,15 +602,20 @@ fn plugin_surfaces_are_claimed_only_by_the_hosts_that_wire_them() {
             "{platform:?}"
         );
     }
-    // HarmonyOS claims its 2in1 sound and trigger surfaces in its own form-factor projection; Android and iOS wire none.
+    // HarmonyOS claims its 2in1 sound and trigger surfaces in its own form-factor projection; iOS wires none. Android 的 IME 进程播放按键音，其余仍未接入。
     for platform in [
         HostPlatform::Android,
         HostPlatform::Ios,
         HostPlatform::Harmony,
     ] {
         let capabilities = HostCapabilities::for_platform(platform);
+        assert_eq!(
+            capabilities.key_sound,
+            platform == HostPlatform::Android,
+            "{platform:?}"
+        );
         assert!(
-            !capabilities.key_sound && !capabilities.plugin_triggers && !capabilities.music,
+            !capabilities.plugin_triggers && !capabilities.music,
             "{platform:?}"
         );
         // The HarmonyOS KeyboardView draws the flash and the combo badge itself.
@@ -616,6 +625,19 @@ fn plugin_surfaces_are_claimed_only_by_the_hosts_that_wire_them() {
             "{platform:?}"
         );
     }
+    // 只有 Android 列出可选的内置辅助码方案，没有带授权码表的郑码不在其中；其他宿主不写这一项。
+    let android = HostCapabilities::for_platform(HostPlatform::Android);
+    assert!(android
+        .helpcode_schemas
+        .iter()
+        .any(|schema| schema == "ziranma"));
+    assert!(!android
+        .helpcode_schemas
+        .iter()
+        .any(|schema| schema == "zhengma"));
+    let windows =
+        serde_json::to_value(HostCapabilities::for_platform(HostPlatform::Windows)).unwrap();
+    assert!(windows.get("helpcode_schemas").is_none());
     let mut claimed = HostCapabilities::for_platform(HostPlatform::Windows);
     claimed.key_sound = true;
     let text = serde_json::to_string(&claimed).unwrap();

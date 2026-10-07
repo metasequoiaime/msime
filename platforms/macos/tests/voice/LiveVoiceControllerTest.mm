@@ -3,6 +3,10 @@
 #import "VoiceClientFixture.h"
 #import "VoiceMeterFixture.h"
 #include <cassert>
+#include <cstring>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <unistd.h>
 
 @interface LiveCaptureFixture : MSIMEVoiceInputService
 @property(copy) MSIMEVoiceAudioBuffer bufferHandler;
@@ -109,11 +113,27 @@
     self.polishOptions = options; self.polishFixture = [LivePolishFixture new]; return (id)self.polishFixture;
 }
 @end
-// The socket route only engages when the configured path exists on disk, so the test has to create the file rather than hope one is lying around - without it the controller quietly falls back to native Speech and every provider assertion below fails for a reason that has nothing to do with the code.
+// The socket route only engages when the configured path is a real Unix socket (MSIMEVoiceProviderSocketFromConfiguration rejects regular and stale files), so the test has to bind one rather than hope one is lying around - without it the controller quietly falls back to native Speech and every provider assertion below fails for a reason that has nothing to do with the code.
 static NSString *MSIMESyntheticVoiceSocket(void)
 {
     NSString *path = NSProcessInfo.processInfo.environment[@"MSIME_VOICE_PROVIDER_SOCKET"];
     return path.isAbsolutePath ? path : @"/tmp/synthetic-live.sock";
+}
+
+static int MSIMEBindSyntheticVoiceSocket(NSString *path)
+{
+    const char *bytes = path.fileSystemRepresentation;
+    sockaddr_un address{};
+    address.sun_family = AF_UNIX;
+    assert(std::strlen(bytes) < sizeof(address.sun_path));
+    std::strcpy(address.sun_path, bytes);
+    unlink(bytes);
+    int descriptor = socket(AF_UNIX, SOCK_STREAM, 0);
+    assert(descriptor >= 0);
+    int bound = bind(descriptor, reinterpret_cast<const sockaddr *>(&address), sizeof(address));
+    int listening = bound == 0 ? listen(descriptor, 1) : -1;
+    assert(bound == 0 && listening == 0);
+    return descriptor;
 }
 
 @interface LiveHostFixture : MSIMEClientSession
@@ -173,8 +193,7 @@ int main(int argc, char **) {
         [defaults setVolatileDomain:voiceArguments forName:NSArgumentDomain];
         if (argc == 2) {
             NSString *socketPath = MSIMESyntheticVoiceSocket();
-            if (![NSFileManager.defaultManager fileExistsAtPath:socketPath])
-                assert([NSFileManager.defaultManager createFileAtPath:socketPath contents:NSData.data attributes:nil]);
+            int socketDescriptor = MSIMEBindSyntheticVoiceSocket(socketPath);
             controller.usePolishFixture = YES;
             session.providerDone = dispatch_semaphore_create(0);
             [controller toggleVoiceInput:nil];
@@ -220,6 +239,7 @@ int main(int argc, char **) {
             assert(!capture.active && presentation.failure == MSIMEVoiceFailureProvider);
             assert(!presentation.preview.length);
             [defaults setVolatileDomain:old forName:NSArgumentDomain];
+            close(socketDescriptor);
             [NSFileManager.defaultManager removeItemAtPath:socketPath error:nil];
             assert([session closeWithError:nil]); assert([NSFileManager.defaultManager removeItemAtPath:root error:nil]);
             return 0;

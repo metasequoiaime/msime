@@ -95,6 +95,26 @@ final class CustomServiceTests: XCTestCase {
     }
   }
 
+  func testDoubaoRejectsAnOversizedResponseFrame() async throws {
+    let transport = DoubaoOversizedFrameFixtureTransport()
+    let codec = DoubaoVoiceCoordinator.FrameCodec(
+      startFrame: { Data([0x01]) },
+      audioFrame: { _, _, _ in Data([0x02]) },
+      decodeFrame: { frame in frame == Data([0xFF]) ? (true, "fixture transcript") : nil }
+    )
+    // 握手要求资源 ID 非空，不填时在握手就抛 `missingResourceID`，根本到不了这里要测的响应帧大小检查。
+    var configuration = CustomServiceConfiguration.loadVoicePreset(.doubao)
+    configuration.voiceAppKey = "fixture-app"
+    configuration.voiceResourceID = "fixture-resource"
+    do {
+      _ = try await CustomServiceClient.request(
+        kind: .voice, configuration: configuration, pcm: Data([0x01]), token: "fixture-access",
+        generation: 1, doubaoClient: DoubaoVoiceClient(transport: transport, codec: codec))
+      XCTFail("oversized response frame was accepted")
+    } catch DoubaoVoiceCoordinator.Failure.responseTooLarge {
+    }
+  }
+
   func testPresetsAreUsableAndKeepSeparateSavedConfigurations() throws {
     let suite = "msime-provider-tests-\(UUID().uuidString)"
     let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
@@ -118,6 +138,17 @@ final class CustomServiceTests: XCTestCase {
     }
     XCTAssertEqual(CustomServiceConfiguration.loadPreset(.custom, defaults: defaults).endpoint, custom.endpoint)
     XCTAssertEqual(CustomServiceConfiguration.loadPreset(.custom, defaults: defaults).model, custom.model)
+  }
+
+  func testSavingAnOversizedPolishPromptIsRejectedBeforeItReachesSharedDefaults() throws {
+    let suite = "msime-provider-limit-tests-\(UUID().uuidString)"
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    var configuration = CustomServiceConfiguration()
+    configuration.endpoint = "https://custom.invalid/v1/chat/completions"
+    configuration.model = "custom-model"
+    configuration.prompt = String(repeating: "提示", count: 16_385)
+    XCTAssertThrowsError(try configuration.save(.ai, token: "", defaults: defaults))
   }
 
   func testVoicePresetsPreserveCustomAndDoNotChangeAI() throws {
@@ -198,6 +229,13 @@ final class CustomServiceTests: XCTestCase {
     XCTAssertEqual(DoubaoHostFrameCodec.transcript(in: ["text": "网关"]), "网关")
     XCTAssertNil(DoubaoHostFrameCodec.transcript(in: [:]))
     XCTAssertNil(DoubaoHostFrameCodec.transcript(in: ["text": String(repeating: "字", count: 10_001)]))
+
+    XCTAssertEqual(DoubaoHostFrameCodec.strictFinal(in: ["last": true]), true)
+    XCTAssertEqual(DoubaoHostFrameCodec.strictFinal(in: ["last": false]), false)
+    for invalid: Any in [1, 0, "true", NSNull()] {
+      XCTAssertNil(DoubaoHostFrameCodec.strictFinal(in: ["last": invalid]), "last: \(invalid)")
+    }
+    XCTAssertNil(DoubaoHostFrameCodec.strictFinal(in: [:]))
   }
 
   func testConfigurationRejectsUnsafeOrIncompleteEndpoints() {
@@ -212,6 +250,37 @@ final class CustomServiceTests: XCTestCase {
     XCTAssertThrowsError(try configuration.validatedURL())
     configuration.model = "fixture"
     XCTAssertEqual(try configuration.validatedURL().path, "/v1/chat/completions")
+  }
+
+  func testConfigurationRejectsOverlongModelAndEndpoint() {
+    var configuration = CustomServiceConfiguration()
+    configuration.endpoint = "https://example.invalid/v1/chat/completions"
+    configuration.model = String(repeating: "m", count: 257)
+    XCTAssertThrowsError(try configuration.validatedURL())
+
+    configuration.model = "fixture"
+    configuration.endpoint = "https://example.invalid/" + String(repeating: "a", count: 2_048)
+    XCTAssertThrowsError(try configuration.validatedURL())
+
+    configuration.endpoint = "https://example.invalid/" + String(repeating: "界", count: 700)
+    XCTAssertThrowsError(try configuration.validatedURL())
+  }
+
+  func testDoubaoConfigurationRejectsOversizedCredentialFields() throws {
+    var configuration = CustomServiceConfiguration.loadVoicePreset(.doubao)
+    configuration.voiceAppKey = String(repeating: "a", count: 8_193)
+    configuration.voiceResourceID = "fixture-resource"
+    configuration.doubaoBoostingTableID = "fixture-table"
+    XCTAssertThrowsError(try configuration.save(.voice, token: "fixture-access"))
+
+    configuration.voiceAppKey = "fixture-app"
+    configuration.voiceResourceID = "fixture-resource"
+    configuration.doubaoBoostingTableID = String(repeating: "表", count: 2_731)
+    XCTAssertThrowsError(try configuration.save(.voice, token: "fixture-access"))
+
+    configuration.doubaoBoostingTableID = "fixture-table"
+    configuration.voiceResourceID = String(repeating: "r", count: 8_193)
+    XCTAssertThrowsError(try configuration.doubaoHandshake(accessKey: "fixture-access"))
   }
 
   func testEngineCodecsPreserveTextAndAudioAndRejectMalformedResponses() throws {
@@ -242,6 +311,21 @@ final class CustomServiceTests: XCTestCase {
     XCTAssertThrowsError(try AppServicesBridge.parseResponse(voice, voice: true))
     XCTAssertThrowsError(try AppServicesBridge.parseResponse(voiceWithChatFallback, voice: true))
     XCTAssertThrowsError(try AppServicesBridge.parseResponse(polish, voice: false))
+  }
+
+  func testPolishBodyRejectsAnOversizedPromptBeforeBuildingTheRequest() {
+    XCTAssertThrowsError(try AppServicesBridge.polishBody(
+      "fixture", prompt: String(repeating: "提示", count: 16_385), text: "合成文本"))
+  }
+
+  func testPolishBodyRejectsAnOversizedUnicodeTextBeforeBuildingTheRequest() {
+    XCTAssertThrowsError(try AppServicesBridge.polishBody(
+      "fixture", prompt: "润色", text: String(repeating: "😀", count: 8_193)))
+  }
+
+  func testTranscriptionBodyRejectsOversizedAudioBeforeBuildingTheRequest() {
+    XCTAssertThrowsError(try AppServicesBridge.transcriptionBody(
+      Data(repeating: 0x2A, count: 2_100_001), model: "asr-fixture"))
   }
 
   func testTransportUsesConfiguredEndpointAndReportsHTTPFailure() async throws {
@@ -316,6 +400,22 @@ private final class DoubaoRequestFixtureTransport: DoubaoVoiceTransport {
   func start(endpoint: URL, handshake: DoubaoHandshake) async throws { self.handshake = handshake }
   func send(binary frame: Data) async throws { sent.append(frame) }
   func receive() async throws -> Data { Data([0xFF]) }
+  func finish() {}
+}
+
+private final class DoubaoOversizedFrameFixtureTransport: DoubaoVoiceTransport {
+  private var first = true
+
+  func start(endpoint: URL) async throws {}
+  func start(endpoint: URL, handshake: DoubaoHandshake) async throws {}
+  func send(binary frame: Data) async throws {}
+  func receive() async throws -> Data {
+    if first {
+      first = false
+      return Data(repeating: 0x2A, count: 1_048_577)
+    }
+    return Data([0xFF])
+  }
   func finish() {}
 }
 

@@ -23,10 +23,17 @@ jobs:
     outputs:
       sha: ${{ steps.commit.outputs.sha }}
       packaging: ${{ steps.commit.outputs.packaging }}
+  # Each architecture builds natively on its own runner (package-container.sh builds its images for the host, and the voice runtime is picked by uname -m); there is no cross-compilation.
   deb:
     needs: source
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - {arch: x86_64, runner: ubuntu-24.04}
+          - {arch: aarch64, runner: ubuntu-24.04-arm}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {ref: "${{ needs.source.outputs.sha }}", fetch-depth: 0, persist-credentials: false}
@@ -36,6 +43,9 @@ jobs:
         run: |
           version="${REQUESTED:-$(tr -d '[:space:]' < platforms/linux/version.txt)}"; [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; echo "value=$version" >> "$GITHUB_OUTPUT"
           case "$GITHUB_REF_NAME" in main) suffix= ;; develop) suffix=-beta ;; *) suffix=-alpha ;; esac; echo "release=${version}${suffix}" >> "$GITHUB_OUTPUT"
+      # The arm64 runner image carries fewer preinstalled tools than the x64 one, so Node is set up explicitly on both.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with: {node-version: 24}
       # The desktop binary embeds the web frontend at compile time; package-container.sh has no Node toolchain and requires this output.
       - name: Build desktop frontend
         run: |
@@ -52,11 +62,13 @@ jobs:
       - name: Build Linux packages
         env: {VERSION: "${{ steps.version.outputs.value }}"}
         run: bash platforms/linux/package-container.sh "$VERSION"
-      # Asset names come from CPack (<package>_VERSION_ARCH.deb, <package>-VERSION-linux-ARCH.tar.gz, <package> 取自版本表：full 是 msime-linux，其他版本是 msime-linux-<id>). The in-app update check selects releases by the linux-v tag prefix and opens the release page; it shows the digest GitHub computes for the edition's own .deb (else .tar.gz), picked by that package name (packages/ui/src/settings/update-manifest.ts), so it does not depend on the version or arch parts of the names.
+      # Asset names come from CPack (<package>_VERSION_ARCH.deb with dpkg's amd64/arm64, <package>-VERSION-linux-ARCH.tar.gz with x86_64/aarch64, <package> 取自版本表：full 是 msime-linux，其他版本是 msime-linux-<id>). The in-app update check selects releases by the linux-v tag prefix and opens the release page; it shows the digest GitHub computes for the edition's own .deb (else .tar.gz) for the host's architecture, picked by the package name and that architecture part (packages/ui/src/settings/update-manifest.ts).
       - name: Verify Linux packages
         env: {VERSION: "${{ steps.version.outputs.value }}"}
         run: |
           shopt -s nullglob
+          # check-deb-maintainer-scripts.sh lints the maintainer scripts with shellcheck, which the arm64 runner image does not ship.
+          command -v shellcheck >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck; }
           dist=target/linux-package/dist
           debs=("$dist"/*.deb); tarballs=("$dist"/*.tar.gz)
           IFS=, read -r -a editions <<<"$(python3 platforms/linux/scripts/edition_linux.py editions)"
@@ -88,7 +100,7 @@ jobs:
           bash platforms/linux/tests/tools/check-deb-coexistence.sh "${edition_debs[@]}"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: msime-linux-deb-${{ steps.version.outputs.value }}
+          name: msime-linux-deb-${{ matrix.arch }}-${{ steps.version.outputs.value }}
           path: target/linux-package/dist/
           if-no-files-found: error
     outputs:
@@ -97,8 +109,14 @@ jobs:
   # The RPM is built separately in a Fedora container rather than converted from the .deb: rpmbuild records the libraries the binaries link as Requires, and Debian's carry sonames and symbol versions no Fedora package provides (#2095).
   rpm:
     needs: source
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - {arch: x86_64, runner: ubuntu-24.04}
+          - {arch: aarch64, runner: ubuntu-24.04-arm}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {ref: "${{ needs.source.outputs.sha }}", persist-credentials: false}
@@ -106,6 +124,8 @@ jobs:
         env: {REQUESTED: "${{ inputs.version }}"}
         run: |
           version="${REQUESTED:-$(tr -d '[:space:]' < platforms/linux/version.txt)}"; [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; echo "value=$version" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with: {node-version: 24}
       - name: Build desktop frontend
         run: |
           corepack enable
@@ -139,7 +159,7 @@ jobs:
           bash platforms/linux/tests/tools/check-rpm-install.sh "${edition_rpms[@]}"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: msime-linux-rpm-${{ steps.version.outputs.value }}
+          name: msime-linux-rpm-${{ matrix.arch }}-${{ steps.version.outputs.value }}
           path: target/linux-package-rpm/dist/
           if-no-files-found: error
   # 发行版源码构建要的 tarball（COPR、OBS 与 PPA 用源码与 vendor 包，Gentoo 只用前端包；AUR 的 msime 从 GitHub 的标签归档构建，不用这些）：当前提交的源码、离线构建用的 vendor 包（crate、构建好的前端、按锁文件取回的数据）和单独的前端包，见 platforms/linux/packaging/make-source-tarballs.sh。随发布一起上传，各包定义按发布页地址引用它们。只打 full。
@@ -174,7 +194,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {ref: "${{ needs.source.outputs.sha }}", fetch-depth: 0, persist-credentials: false}
-      # 只取要发布的三个产物（msime-linux-deb/rpm/sources-VERSION）。
+      # 只取要发布的产物：两个架构各自的 msime-linux-deb/rpm-ARCH-VERSION 与 msime-linux-sources-VERSION。
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: msime-linux-*-${{ needs.deb.outputs.version }}
@@ -188,7 +208,7 @@ jobs:
           dist=dist
           # 没有 distro-sources 时 dist 里没有 .tar.xz，nullglob 让这个模式展开为空而不是原样传给 sha256sum 和 gh。
           shopt -s nullglob
-          # Each build wrote a SHA256SUMS of its own; the release carries one covering every package.
+          # Each build wrote a SHA256SUMS of its own, and merging the artifacts kept only one of them; the release carries one covering every package of both architectures.
           (cd "$dist" && rm -f SHA256SUMS && sha256sum -- *.deb *.rpm *.tar.gz *.tar.xz > SHA256SUMS)
           tag="linux-v${RELEASE}"
           [[ "$RELEASE" == "$VERSION" ]] || export PRERELEASE=true

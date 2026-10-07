@@ -20,15 +20,17 @@ pub mod mcp_clients;
 pub mod system_fonts;
 use msime_client_core::preferences::{
     InputScheme, Preferences, PreferencesSnapshot, PreferencesStore, ShuangpinProfile,
-    TouchKeyboardLayout, VietnameseInputMethod, VietnamesePreferences, VietnameseToneStyle,
-    WubiProfile,
+    TouchKeyboardLayout, TouchKeyboardScheme, VietnameseInputMethod, VietnamesePreferences,
+    VietnameseToneStyle, WubiProfile,
 };
 use msime_client_core::punctuation::{
     route as punctuation_route, PunctuationContext, PunctuationRoute,
 };
 use msime_client_core::resource_packs::{self, ResourcePack};
 use msime_client_core::resources::{ResourceSet, ResourceStore, VerifiedMarker};
-use msime_client_core::typing_statistics::{TypingSource, TypingStatisticsStore, RANKS};
+use msime_client_core::typing_statistics::{
+    CommitEfficiency, TypingSource, TypingStatisticsStore, RANKS,
+};
 use msime_client_core::voice::doubao_frame::{
     audio_frame, decode_error_code, decode_json_frame, start_frame,
 };
@@ -208,6 +210,8 @@ struct HostSession {
     english_mode: bool,
     page_size_override: Option<u8>,
     nine_key_override: Option<bool>,
+    /// 宿主经 `msime_client_set_private_session` 标出的隐私会话（Android 的隐私模式和不允许学习的输入框）：不记选词位置和上屏效率。与用户自己关掉的「学习」无关。
+    statistics_private: bool,
     /// An AI provider credential the host keeps outside the preferences (the iOS Keychain), handed over for this session only and never written back.
     ai_credential: Option<String>,
     /// Cached copy used by every online query until preferences change.
@@ -215,6 +219,10 @@ struct HostSession {
     voice: VoiceSessionState,
     /// Committing candidate selections counted but not yet written to typing statistics, indexed by one-based position minus one, with every position past a page in the last slot. See `SELECTION_BATCH`.
     pending_selections: [u64; RANKS + 1],
+    /// 还没写进打字统计的上屏，和 `pending_selections` 一起写。只在 [`COUNTS_COMMIT_EFFICIENCY`] 时计；读音在写入时于后台线程查，不在输入线程上查。
+    pending_efficiency: Vec<EfficiencyCandidate>,
+    /// 打字统计的开关，第一次要计效率时从统计文件读一次，每次写入后作废重读；`None` 是还没读。统计关闭时效率一项都不查。
+    statistics_enabled: Option<bool>,
     /// Where this session's plugin packs, command tables and name list are read from.
     plugin_roots: key_sound::PluginRoots,
     /// The key sound, melody, commit, achievement and music settings of the newest preferences, which take effect at once rather than waiting for the composition to end: none of them is Engine state.
@@ -227,6 +235,8 @@ struct HostSession {
     recorded_language_dictionaries: Option<PathBuf>,
     /// 会话打开后有资源包新装好（或被移除），`options` 里的词典路径已经更新，Engine 还要在输入空闲时重建。
     resources_pending: bool,
+    /// HostOptions 记录的键盘模型路径（`sentence_model`），为 `None` 时用资源目录里的那份；`neural_keyboard` 在会话中途打开时按它加载逐键重排，见 [`ffi::keyboard_reranker`]。
+    recorded_sentence_model: Option<String>,
     /// HostOptions 记录的落定重排模型路径（`settled_model`）：随包的模型优先于下载的资源包，见 [`settled_model_file`]。
     recorded_settled_model: Option<String>,
     /// 当前挂在 runtime 上的落定重排模型文件，没有模型时为 `None`。
@@ -322,8 +332,17 @@ impl HostSession {
                 snapshot.preferences.cloud_candidates
             })
     }
+    /// Android 会话是否不记统计：只看宿主经 `msime_client_set_private_session` 标出的隐私会话。用户在设置里关掉学习不算，统计开着就照常计数。只在 [`PRIVATE_SESSIONS_SKIP_STATISTICS`] 时成立，其他宿主照旧计数。
+    fn private_session(&self) -> bool {
+        PRIVATE_SESSIONS_SKIP_STATISTICS && self.statistics_private
+    }
+
     /// Count a committing selection in memory, and hand the batch to the store once it is `SELECTION_BATCH` long.
     fn count_selection(&mut self, position: usize) {
+        // Android 的隐私模式与不学习输入框不统计选词位置。
+        if self.private_session() {
+            return;
+        }
         // Positions are one-based; zero is not a position, and the store has always refused it.
         let Some(slot) = position.checked_sub(1) else {
             return;
@@ -332,6 +351,57 @@ impl HostSession {
         *slot = slot.saturating_add(1);
         if self.pending_selections.iter().sum::<u64>() >= SELECTION_BATCH {
             self.flush_selections();
+        }
+    }
+
+    /// 选中的候选在派发前的样子，供上屏后计效率：不记统计的会话、统计关闭、非 Android 宿主或找不到这个候选时为 `None`。
+    fn efficiency_candidate(&mut self, action: &Action) -> Option<EfficiencyCandidate> {
+        if !COUNTS_COMMIT_EFFICIENCY || self.private_session() {
+            return None;
+        }
+        let id = match action {
+            Action::Select(id) | Action::SelectAnyCandidate(id) => *id,
+            _ => return None,
+        };
+        if !self.statistics_enabled()? {
+            return None;
+        }
+        let view = self.runtime.view();
+        let candidate = view
+            .candidates
+            .into_iter()
+            .find(|candidate| candidate.id == id)?;
+        Some(EfficiencyCandidate {
+            prediction: candidate.code.is_empty() && view.preedit.is_empty(),
+            sentence: msime_engine::CandidateSource::from_u8(candidate.source)
+                .is_some_and(msime_engine::CandidateSource::is_sentence_learning),
+            typed_keys: candidate
+                .code
+                .chars()
+                .filter(char::is_ascii_alphanumeric)
+                .count() as u64,
+            text: candidate.text,
+        })
+    }
+
+    /// 统计开关；读不到统计目录或文件时当作关闭。
+    fn statistics_enabled(&mut self) -> Option<bool> {
+        if let Some(enabled) = self.statistics_enabled {
+            return Some(enabled);
+        }
+        let directory = std::path::Path::new(&self.options.user_data);
+        let enabled = directory.is_absolute()
+            && TypingStatisticsStore::new(directory)
+                .load()
+                .is_ok_and(|statistics| statistics.enabled);
+        self.statistics_enabled = Some(enabled);
+        Some(enabled)
+    }
+
+    /// 记下一次上屏，等下一次写统计时一起算。上限 [`EFFICIENCY_BATCH_LIMIT`]，超出的不计。
+    fn count_efficiency(&mut self, candidate: EfficiencyCandidate) {
+        if self.pending_efficiency.len() < EFFICIENCY_BATCH_LIMIT {
+            self.pending_efficiency.push(candidate);
         }
     }
 
@@ -352,7 +422,19 @@ impl HostSession {
                 .filter(|(_, count)| **count > 0)
                 .map(|(slot, count)| (slot + 1, *count)),
         );
-        let _ = TypingStatisticsStore::new(directory).record_selections(&batch);
+        let store = TypingStatisticsStore::new(directory);
+        let enabled = store.record_selections(&batch).ok().flatten();
+        let commits = std::mem::take(&mut self.pending_efficiency);
+        if !commits.is_empty() {
+            // 查读音要打开词库，放到后台线程，不占输入线程；测试里同步写，好断言结果。
+            if cfg!(test) {
+                record_efficiency(&self.options, &commits);
+            } else {
+                record_efficiency_in_background(self.options.clone(), commits);
+            }
+        }
+        // 用户可能在设置里关掉或打开了统计：写这一批时刚读过文件，就用读到的开关；没读（空批次或出错）时下一批再读。不在输入线程上为一个开关再读一遍整个文件。
+        self.statistics_enabled = enabled;
     }
 
     /// Rebuild the Engine for the requested preferences once the composition is idle. The `Ok` value is why the preferred scheme was not the one applied, when it was not.
@@ -464,17 +546,17 @@ impl HostSession {
         }
         let layout_changed =
             preferences.touch_keyboard_layout != self.applied.touch_keyboard_layout;
-        let nine_key_scheme = SchemeType::from_u8(options.scheme).is_some_and(SchemeType::nine_key);
-        let next_nine_key_override = if nine_key_scheme && !layout_changed {
+        let scheme = SchemeType::from_u8(options.scheme);
+        let nine_key_scheme = scheme.is_some_and(SchemeType::nine_key);
+        // 宿主的九键覆盖只对它设下时的那个方案有效：全拼九宫格的开关带进注音，会让没选「注音 9 键」的注音也离开大千键位。
+        let scheme_changed = options.scheme != self.options.scheme;
+        let next_nine_key_override = if nine_key_scheme && !layout_changed && !scheme_changed {
             self.nine_key_override
         } else {
             None
         };
         let nine_key_mode = nine_key_scheme
-            && next_nine_key_override.unwrap_or(matches!(
-                preferences.touch_keyboard_layout,
-                TouchKeyboardLayout::NineKey
-            ));
+            && next_nine_key_override.unwrap_or(layout_starts_nine_key(scheme, &preferences));
         if nine_key_mode {
             engine
                 .set_nine_key_enabled(true)
@@ -497,6 +579,13 @@ impl HostSession {
             .map_err(|e| e.to_string())?;
         self.runtime
             .set_settled_rerank_enabled(preferences.sentence_association.neural_desktop);
+        // The keyboard model follows its switch the same way, but is dropped rather than idled while off: it is the one that runs inside every keystroke.
+        if options.sentence_association.neural_keyboard != self.runtime.has_reranker() {
+            self.runtime.set_reranker(ffi::keyboard_reranker(
+                &options,
+                self.recorded_sentence_model.as_deref(),
+            ));
+        }
         self.options = options;
         self.plugin_tables = plugin_tables;
         self.applied = preferences;
@@ -963,7 +1052,7 @@ impl HostOptions {
     }
 
     fn into_engine_options(self) -> EngineOptions {
-        // 每个平台都这样查找；日文和语言词库只有 macOS 会下载，别处的状态目录里从来没有它们。
+        // 每个平台都这样查找；日文词典只有 macOS 会下载，语言词库由 macOS 和没有随包带齐它们的 Linux 安装下载，别处的状态目录里从来没有它们。
         let state_root = absolute_state_root(self.preferences_directory.as_deref());
         let dictionaries = LanguageDictionaries::resolve(
             state_root.as_deref(),
@@ -1112,6 +1201,18 @@ pub fn packaged_settled_model(host_options: &Value) -> Option<PathBuf> {
         host_options.get("resources")?.as_str()?,
         host_options.get("settled_model").and_then(Value::as_str),
     )
+}
+
+/// HostOptions 文档（`host_options`）所描述的安装布局是否随包带齐了粤拼、注音和笔画词库，也就是 `language_dictionaries` 记录的目录里三个文件都在。设置应用据此决定 Linux 上要不要提供 `language-dictionaries` 资源包的下载：没带齐的安装（打包时没有词库、或不带它们的 Nix 包）只能靠它补上，会话里每个词库都优先用资源包里的那份。
+pub fn packaged_language_dictionaries(host_options: &Value) -> bool {
+    let recorded = host_options
+        .get("language_dictionaries")
+        .and_then(Value::as_str)
+        .map(Path::new);
+    let dictionaries = LanguageDictionaries::resolve(None, recorded);
+    dictionaries.cantonese.is_some()
+        && dictionaries.zhuyin.is_some()
+        && dictionaries.stroke.is_some()
 }
 
 /// The offline gloss dictionary for one non-English target language installed beside a resource bundle, when one is there: `offline-glosses/zh-<language>.db`, built by `scripts/build_offline_glosses.py` and pinned by `resources/offline-glosses.lock.json`. A sibling of `resources` for the same reason as `settled_model_beside`: the resource directory must match the shared dictionary lock exactly, and a host ships only the languages it wants. Absence is the normal case.
@@ -1866,6 +1967,7 @@ fn dispatch(handle: u64, action: Action) -> *mut c_char {
             // through here, so counting it here covers all of them without a line of platform
             // code; doing it per host would have meant six chances to forget.
             let position = selected_position(&action);
+            let efficiency = position.and_then(|_| session.efficiency_candidate(&action));
             let result = session
                 .runtime
                 .dispatch(action)
@@ -1876,6 +1978,10 @@ fn dispatch(handle: u64, action: Action) -> *mut c_char {
                 .as_ref()
                 .is_none_or(|context| context.typing_statistics);
             if result.commit.is_some() && counts_as_typing {
+                // 先记效率再记位置：位置攒满一批会立刻写盘并带走待写的效率，这一次的效率要赶上同一批，否则进程在下一批之前被杀就丢了。
+                if let Some(candidate) = efficiency {
+                    session.count_efficiency(candidate);
+                }
                 if let Some(position) = position {
                     session.count_selection(position);
                 }
@@ -1902,6 +2008,122 @@ fn selected_position(action: &Action) -> Option<usize> {
     }
 }
 
+/// 上屏效率（少按键、联想、整句）只在 Android 上计：只有 Android 的统计页显示它，其他宿主不为它多查读音。测试里也打开，好覆盖计法。
+const COUNTS_COMMIT_EFFICIENCY: bool = cfg!(any(target_os = "android", test));
+
+/// Android 宿主在隐私模式和不学习的输入框里经 `msime_client_set_private_session` 标出隐私会话；这时选词位置和上屏效率都不计。其他宿主不变。
+const PRIVATE_SESSIONS_SKIP_STATISTICS: bool = cfg!(any(target_os = "android", test));
+
+/// 一个会话在两次写统计之间最多记下多少次上屏。正常情况下 `SELECTION_BATCH` 次选词就会写一次，这只是兜底。
+const EFFICIENCY_BATCH_LIMIT: usize = 256;
+
+/// 等后台写进统计的上屏批次，和是否已有一个线程在写。
+struct EfficiencyQueue {
+    pending: Vec<(EngineOptions, Vec<EfficiencyCandidate>)>,
+    running: bool,
+}
+
+static EFFICIENCY_QUEUE: Mutex<EfficiencyQueue> = Mutex::new(EfficiencyQueue {
+    pending: Vec::new(),
+    running: false,
+});
+
+fn efficiency_queue() -> std::sync::MutexGuard<'static, EfficiencyQueue> {
+    EFFICIENCY_QUEUE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// 同一时间只有一个线程写效率：已有线程在写时，这一批排进队列由它接着写，不再每次写统计都另开一个线程、另开一次词库。线程在队列空了时才在同一把锁下退出，所以排进去的批次不会没人写。
+fn record_efficiency_in_background(options: EngineOptions, commits: Vec<EfficiencyCandidate>) {
+    {
+        let mut queue = efficiency_queue();
+        queue.pending.push((options, commits));
+        if queue.running {
+            return;
+        }
+        queue.running = true;
+    }
+    /// 写的时候 panic 也要放下 `running`，否则之后的效率再也没人写。正常退出在看到队列为空的同一把锁下放下，不经过这里。
+    struct Running;
+    impl Drop for Running {
+        fn drop(&mut self) {
+            if std::thread::panicking() {
+                efficiency_queue().running = false;
+            }
+        }
+    }
+    let worker = move || {
+        let _running = Running;
+        loop {
+            let batches = {
+                let mut queue = efficiency_queue();
+                if queue.pending.is_empty() {
+                    queue.running = false;
+                    return;
+                }
+                std::mem::take(&mut queue.pending)
+            };
+            for (options, commits) in batches {
+                record_efficiency(&options, &commits);
+            }
+        }
+    };
+    if std::thread::Builder::new()
+        .name("msime-typing-efficiency".into())
+        .spawn(worker)
+        .is_err()
+    {
+        // 开不了线程时批次留在队列里，下一次写统计再试。
+        efficiency_queue().running = false;
+    }
+}
+
+/// 把一批上屏算成效率计数写进统计：`typed_keys` 是候选输入码里的字母和数字，`spelled_keys` 是用拼音逐字打出这段文字要按的键数（按全拼数读音字母，双拼也以全拼为基准）；查不到读音（英文、表情、非拼音方案）时按打了多少算多少，不算少按也不算多按。尽力而为：写不进就丢掉。
+fn record_efficiency(options: &EngineOptions, commits: &[EfficiencyCandidate]) {
+    let directory = std::path::Path::new(&options.user_data);
+    if !directory.is_absolute() {
+        return;
+    }
+    let mut efficiency = CommitEfficiency::default();
+    for commit in commits {
+        let spelled_keys = spelling_keys(options, &commit.text).unwrap_or(commit.typed_keys);
+        efficiency.count_commit(
+            commit.typed_keys,
+            spelled_keys,
+            commit.sentence,
+            commit.prediction,
+        );
+    }
+    let _ = TypingStatisticsStore::new(directory).record_efficiency(&efficiency);
+}
+
+/// 用全拼打出 `text` 要按的键数，作为「少按键」的基准：只有拼音系方案（全拼含九键、双拼）有答案，双拼也按全拼计，这样统计页的「比全拼少按」对双拼用户才有意义。读音来自 Engine 的 `hanzi_to_pinyin`，它先查整词、再逐字回退。
+fn spelling_keys(options: &EngineOptions, text: &str) -> Option<u64> {
+    match SchemeType::from_u8(options.scheme)? {
+        SchemeType::Quanpin | SchemeType::Shuangpin => {}
+        _ => return None,
+    }
+    let reading = msime_engine::host::hanzi_to_pinyin(options, text);
+    if reading.is_empty() {
+        return None;
+    }
+    Some(
+        reading
+            .split('\'')
+            .map(|syllable| syllable.bytes().filter(u8::is_ascii_alphabetic).count() as u64)
+            .sum(),
+    )
+}
+
+/// 派发选择前从视图里读出的那个候选。
+struct EfficiencyCandidate {
+    text: String,
+    typed_keys: u64,
+    sentence: bool,
+    prediction: bool,
+}
+
 /// How many committing selections a session holds in memory before writing them to typing statistics.
 ///
 /// Writing one means locking, reading and parsing the whole document, then an fsync (F_FULLFSYNC on Apple platforms) and a rename, all on the host's input thread, which cost a few milliseconds per tapped or clicked candidate. A session also writes what it holds on focus-out and on destroy, so this only bounds what a process killed mid-field loses - the iOS keyboard extension and the Android IME process can be killed without either. 32 selections is some tens of seconds of typing, a small loss for a statistic that only ever reports a rate, and it turns 32 writes into one.
@@ -1909,3 +2131,29 @@ const SELECTION_BATCH: u64 = 32;
 
 #[cfg(test)]
 mod tests;
+
+/// 只看偏好时，运行 `scheme` 的会话是否以引擎的九键模式开始（宿主的 `msime_client_set_nine_key_mode` 仍可覆盖，但覆盖只对设下它时的方案有效）。全拼看 `touch_keyboard_layout`。注音还要选了「注音 9 键」触屏方案，这个方案只有 Android 键盘会写：`touch_keyboard_layout` 是所有方案共用的一个字段，桌面宿主为全拼九宫格设它（Linux 的九键开关），那里的注音会话必须留在大千键位，不能继承九宫格。
+pub(crate) fn layout_starts_nine_key(
+    scheme: Option<SchemeType>,
+    preferences: &Preferences,
+) -> bool {
+    if !matches!(
+        preferences.touch_keyboard_layout,
+        TouchKeyboardLayout::NineKey
+    ) {
+        return false;
+    }
+    match scheme {
+        Some(SchemeType::Quanpin) => true,
+        Some(SchemeType::Zhuyin) => {
+            let schemes = &preferences.touch_keyboard_schemes;
+            // 用户改了启用列表时 Android 可能清掉 `selected`，所以启用了「注音 9 键」而没有选中项时也算。
+            schemes.selected == Some(TouchKeyboardScheme::ZhuyinNineKey)
+                || (schemes.selected.is_none()
+                    && schemes
+                        .enabled
+                        .contains(&TouchKeyboardScheme::ZhuyinNineKey))
+        }
+        _ => false,
+    }
+}

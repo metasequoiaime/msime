@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- One skin in the design's two-column grid: a 96dp preview drawn from the skin itself, then its category, the name and its meta. Saving happens in the detail sheet the card opens, where the skin can be looked at first. -->
+<!-- One skin in the design's two-column grid: an 80dp keyboard preview drawn from the skin itself, then the name, @author and 使用次数 beside a tonal 获取 / 使用 pill. The card opens the detail sheet (larger preview, category, 举报); the pill gets or applies the skin in place. -->
 <com.google.android.material.card.MaterialCardView
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
@@ -8,8 +8,8 @@
     android:layout_margin="6dp"
     android:clickable="true"
     android:focusable="true"
-    app:cardBackgroundColor="@color/surface"
-    app:cardCornerRadius="20dp"
+    app:cardBackgroundColor="?attr/colorSurfaceContainer"
+    app:cardCornerRadius="@dimen/ms_radius_extra_card"
     app:cardElevation="0dp"
     app:strokeWidth="0dp">
 
@@ -21,8 +21,10 @@
 
         <FrameLayout
             android:layout_width="match_parent"
-            android:layout_height="96dp"
-            android:background="@drawable/bg_community_preview">
+            android:layout_height="wrap_content"
+            android:minHeight="80dp"
+            android:background="@drawable/bg_community_preview"
+            android:padding="1dp">
 
             <!-- Shown only when the entry carries no readable design, so the card keeps its shape. -->
             <TextView
@@ -31,67 +33,91 @@
                 android:layout_height="match_parent"
                 android:gravity="center"
                 android:importantForAccessibility="no"
-                android:textColor="@color/forest"
+                android:textColor="?attr/colorPrimary"
                 android:textFontWeight="600"
                 android:textSize="28sp" />
 
-            <app.msime.android.home.SkinSwatchView
-                android:id="@+id/community_item_swatch"
+            <app.msime.android.home.KeyboardPreview
+                android:id="@+id/community_item_preview"
                 android:layout_width="match_parent"
-                android:layout_height="match_parent"
+                android:layout_height="wrap_content"
+                android:importantForAccessibility="no"
                 android:visibility="gone" />
         </FrameLayout>
 
-        <!-- 皮肤的分类，词库和回复的行里没有这个视图。 -->
+        <!-- 皮肤的分类，词库和短语的行里没有这个视图。 -->
         <TextView
             android:id="@+id/community_item_category"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginStart="4dp"
+            android:layout_marginStart="2dp"
             android:layout_marginTop="8dp"
             android:background="@drawable/bg_community_category"
             android:maxLines="1"
             android:paddingStart="8dp"
-            android:paddingTop="2dp"
+            android:paddingTop="1dp"
             android:paddingEnd="8dp"
-            android:paddingBottom="2dp"
-            android:textColor="@color/forest"
-            android:textSize="11sp" />
+            android:paddingBottom="1dp"
+            android:textColor="?attr/colorPrimary"
+            android:textSize="10sp" />
 
-        <TextView
-            android:id="@+id/community_item_name"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginStart="4dp"
-            android:layout_marginTop="4dp"
-            android:layout_marginEnd="4dp"
-            android:ellipsize="end"
-            android:maxLines="1"
-            android:textColor="@color/ink"
-            android:textFontWeight="600"
-            android:textSize="14sp" />
+            android:layout_marginTop="6dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
 
-        <TextView
-            android:id="@+id/community_item_author"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="4dp"
-            android:layout_marginTop="2dp"
-            android:layout_marginEnd="4dp"
-            android:ellipsize="end"
-            android:maxLines="1"
-            android:textColor="@color/text_secondary"
-            android:textSize="11sp" />
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="2dp"
+                android:layout_weight="1"
+                android:orientation="vertical">
 
-        <TextView
-            android:id="@+id/community_item_rating"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="4dp"
-            android:layout_marginEnd="4dp"
-            android:layout_marginBottom="4dp"
-            android:maxLines="1"
-            android:textColor="@color/text_secondary"
-            android:textSize="11sp" />
+                <TextView
+                    android:id="@+id/community_item_name"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:textColor="?attr/colorOnSurface"
+                    android:textFontWeight="600"
+                    android:textSize="14sp" />
+
+                <TextView
+                    android:id="@+id/community_item_author"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="1dp"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:textColor="?attr/colorOnSurfaceVariant"
+                    android:textSize="11sp" />
+
+                <TextView
+                    android:id="@+id/community_item_rating"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:textColor="?attr/colorOnSurfaceVariant"
+                    android:textSize="11sp" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/community_item_action"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:gravity="center"
+                android:minHeight="28dp"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:singleLine="true"
+                android:textColor="?attr/colorPrimary"
+                android:textFontWeight="600"
+                android:textSize="12sp" />
+        </LinearLayout>
     </LinearLayout>
 </com.google.android.material.card.MaterialCardView>

@@ -1,17 +1,9 @@
 #!/usr/bin/env python3
 """Every host waits the same amount of time for a cloud candidate.
 
-The budget belongs to the product, not to a host: the reference sets a 2000 ms connect and a 2500 ms
-total on its own request, and a reply that arrives inside that is a candidate the user is meant to
-see. Each host here reaches the network with its own library - NSURLSession on Apple, libcurl on
-Windows - so nothing in the compiler stops one of them from quietly choosing a shorter deadline.
-Two of them had: both asked for 2000 ms in total, which throws away exactly the replies that a slow
-link produces, and does it invisibly, because a dropped cloud candidate looks the same as a query
-that had no cloud answer.
+云候选等多久是产品的预算，不归某个宿主：参考实现给请求的每个阶段都是 2000 ms（WinHTTP 的 `WinHttpSetTimeouts(2000, 2000, 2000, 2000)`），时限内返回的结果就是用户该看到的候选。这里每个宿主用自己的网络库发请求——Apple 上是 NSURLSession，Windows 上是 libcurl，Android 是 HttpURLConnection，HarmonyOS 是系统 http 模块——编译器拦不住哪一个悄悄换成别的时限，而丢掉的云候选和本来就没有云结果看起来一模一样。
 
-So: the numbers are declared once in `client-core`, repeated in the C header the C++ and
-Objective-C hosts read, and this checks that the declarations agree and that no host writes a
-literal deadline of its own beside the call that uses them.
+所以数字在 `client-core` 里声明一次，C 头文件为 C++ 与 Objective-C 宿主重复同一对常量；Android 和 HarmonyOS 读不到这两处，各有一个常量，这里核对它们的值与 client-core 相同。同时检查每个宿主发云候选请求的那一段代码只读常量，不另写字面量时限。
 """
 
 from __future__ import annotations
@@ -30,12 +22,39 @@ HOSTS = [
         # Only the cloud-candidate initialiser. The translation and AI initialisers in the same
         # file set their own deadlines from the descriptors they validate a few lines earlier, so
         # a literal there is the host holding a contract rather than inventing one.
-        (r"- \(instancetype\)initWithURL:", r"_timeout = ([0-9.]+)\s*;"),
+        (r"- \(instancetype\)initWithURL:", r"\n- \(", r"_timeout = ([0-9.]+)\s*;"),
     ),
     (
         ROOT / "platforms/windows/src/candidate/CloudCandidateWorker.cpp",
         ["MSIME_CLOUD_CONNECT_TIMEOUT_MS", "MSIME_CLOUD_REQUEST_TIMEOUT_MS"],
-        (None, r"CURLOPT_\w*TIMEOUT\w*_MS,\s*([0-9]+)L"),
+        (None, None, r"CURLOPT_\w*TIMEOUT\w*_MS,\s*([0-9]+)L"),
+    ),
+    (
+        ROOT / "platforms/android/java/app/msime/android/candidate/OnlineCandidateTransport.java",
+        [
+            "setConnectTimeout(OnlineCandidatePolicy.CLOUD_TIMEOUT_MILLIS)",
+            "setReadTimeout(OnlineCandidatePolicy.CLOUD_TIMEOUT_MILLIS)",
+        ],
+        (r"public static String cloud\(String url\)", r"\n    (?:public|private|protected) ", r"set(?:Connect|Read)Timeout\((\d+)"),
+    ),
+    (
+        ROOT / "platforms/harmony/entry/src/main/ets/keyboard/KeyboardSession.ets",
+        [
+            "connectTimeout: OnlineCandidatePolicy.CLOUD_TIMEOUT_MS",
+            "readTimeout: OnlineCandidatePolicy.CLOUD_TIMEOUT_MS",
+        ],
+        (r"private async fetchCloud\(", r"\n  (?:private|public|protected) ", r"(?:connectTimeout|readTimeout):\s*(\d+)"),
+    ),
+]
+# Android 和 HarmonyOS 的云候选时限常量。它们连接和整体共用一个数，所以要同时等于 client-core 的 CONNECT 与 REQUEST。
+MOBILE_CONSTANTS = [
+    (
+        ROOT / "platforms/android/java/app/msime/android/candidate/OnlineCandidatePolicy.java",
+        r"CLOUD_TIMEOUT_MILLIS = ([0-9_]+);",
+    ),
+    (
+        ROOT / "platforms/harmony/entry/src/main/ets/keyboard/candidate/OnlineCandidatePolicy.ts",
+        r"CLOUD_TIMEOUT_MS: number = ([0-9_]+);",
     ),
 ]
 # What the reference asks for, so a change here is a change against it rather than a typo. Its cloud
@@ -133,7 +152,18 @@ def main() -> int:
                 f"the C header's MSIME_CLOUD_{name}_TIMEOUT_MS is {header.get(name)}, and the reference asks for {expected}"
             )
 
-    for path, required, (scope, literal) in HOSTS:
+    for path, pattern in MOBILE_CONSTANTS:
+        if not path.is_file():
+            continue
+        found = re.search(pattern, path.read_text(encoding="utf-8"))
+        value = int(found.group(1).replace("_", "")) if found else None
+        for name in ("CONNECT", "REQUEST"):
+            if value != shared.get(name):
+                failures.append(
+                    f"{path.relative_to(ROOT)} sets the cloud timeout to {value}, and client-core's {name}_TIMEOUT_MS is {shared.get(name)}"
+                )
+
+    for path, required, (scope, scope_end, literal) in HOSTS:
         if not path.is_file():
             continue
         text = path.read_text(encoding="utf-8")
@@ -145,9 +175,9 @@ def main() -> int:
             if not match:
                 failures.append(f"{path.relative_to(ROOT)} no longer has the request this checks")
                 continue
-            # The initialiser runs to the next one at column zero.
+            # 范围到下一个方法为止，各语言的方法开头不同，所以结束标记按宿主给。
             rest = text[match.end() :]
-            end = re.search(r"\n- \(", rest)
+            end = re.search(scope_end, rest)
             text = rest[: end.start()] if end else rest
         for value in re.findall(literal, text):
             failures.append(
@@ -165,7 +195,7 @@ def main() -> int:
         return 1
     print(
         f"cloud request budget: connect {REFERENCE['CONNECT']} ms, total {REFERENCE['REQUEST']} ms, "
-        f"read from the shared declaration by {len(HOSTS)} hosts"
+        f"macOS and Windows read the shared declaration, Android and HarmonyOS constants match it"
     )
     if linux_ai:
         print(

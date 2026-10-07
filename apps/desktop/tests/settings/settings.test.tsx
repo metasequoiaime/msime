@@ -379,9 +379,24 @@ test("touch hosts offering Cantonese, Zhuyin, Vietnamese, Tibetan and Stroke lis
     within(group)
       .getAllByRole("button")
       .map((button) => button.textContent?.replace("✓", "")),
-  ).toEqual([...touchSchemeLabels, "粤拼 26 键", "大千注音", "越南语 26 键", "藏文 26 键", "笔画"]);
-  expect(within(group).getAllByRole("switch")).toHaveLength(16);
-  for (const label of ["粤拼 26 键", "大千注音", "越南语 26 键", "藏文 26 键", "笔画"]) {
+  ).toEqual([
+    ...touchSchemeLabels,
+    "粤拼 26 键",
+    "大千注音",
+    "越南语 26 键",
+    "藏文 26 键",
+    "笔画",
+    "注音 9 键",
+  ]);
+  expect(within(group).getAllByRole("switch")).toHaveLength(17);
+  for (const label of [
+    "粤拼 26 键",
+    "大千注音",
+    "越南语 26 键",
+    "藏文 26 键",
+    "笔画",
+    "注音 9 键",
+  ]) {
     expect(
       (screen.getByRole("switch", { name: `显示输入方案 ${label}` }) as HTMLInputElement).checked,
     ).toBe(false);
@@ -3462,6 +3477,7 @@ test("the iPad digit row and Tab key switch appears only where the plugin report
   await screen.findByLabelText("键盘高度", undefined, { timeout: 3000 });
   await waitFor(() => expect(screen.queryByLabelText("按键音")).not.toBeNull());
   expect(screen.queryByLabelText("数字行与 Tab 键")).toBeNull();
+  expect(screen.queryByLabelText("横屏分离式键盘")).toBeNull();
   phone.unmount();
 
   const save = vi.fn().mockImplementation(async (settings) => settings);
@@ -3475,9 +3491,12 @@ test("the iPad digit row and Tab key switch appears only where the plugin report
         host: testHost({ platform: "ios" }),
         home: { openKeyboard: vi.fn() },
         mobileKeyboardFeedback: {
-          load: vi
-            .fn()
-            .mockResolvedValue({ ...feedback, hapticsAvailable: false, tabletFullKeys: true }),
+          load: vi.fn().mockResolvedValue({
+            ...feedback,
+            hapticsAvailable: false,
+            tabletFullKeys: true,
+            tabletSplitKeyboard: false,
+          }),
           save,
         },
       }}
@@ -3490,6 +3509,16 @@ test("the iPad digit row and Tab key switch appears only where the plugin report
   fireEvent.click(fullKeys);
   await waitFor(() =>
     expect(save).toHaveBeenCalledWith(expect.objectContaining({ tabletFullKeys: false })),
+  );
+  // 横屏分离式键盘同样存进原生 App Group，不写共享文档。
+  await waitFor(() =>
+    expect((screen.getByLabelText("横屏分离式键盘") as HTMLInputElement).disabled).toBe(false),
+  );
+  const split = screen.getByLabelText("横屏分离式键盘") as HTMLInputElement;
+  expect(split.checked).toBe(false);
+  fireEvent.click(split);
+  await waitFor(() =>
+    expect(save).toHaveBeenCalledWith(expect.objectContaining({ tabletSplitKeyboard: true })),
   );
   expect(saveDocument).not.toHaveBeenCalled();
 });
@@ -5501,14 +5530,14 @@ test("Linux help network section says what goes online and where credentials liv
   fireEvent.click(screen.getByRole("button", { name: "帮助" }));
   const network = await screen.findByText(/日常拼音输入无需联网/);
   const text = network.textContent ?? "";
-  // Cloud candidates are on after first-run setup unless declined, and they send the spelling being typed.
-  expect(text).toContain("云候选默认开启");
+  // 云候选新装默认关闭，首次配置时勾选才打开；开启时发送的是正在输入的拼写。
+  expect(text).toContain("云候选默认关闭");
   expect(text).toContain("Google input-tools");
   expect(text).toContain("msime-linux-online-provider");
   expect(text).toContain("msime-linux-voice-provider");
-  // Fresh Linux installs translate candidates through the MSIME account, so the copy says what it sends and how to switch away; voice and AI still wait for a configured service.
-  expect(text).toContain("候选词翻译默认用水杉账号，会把当前页的中文候选词发送到 api.msime.app");
-  expect(text).toContain("可在翻译服务里改选自己的服务或不使用在线翻译");
+  // 候选翻译新装不联网，水杉账号要用户显式选择，文案说明选了它会发送什么；语音和 AI 仍要等配置好服务。
+  expect(text).toContain("候选词翻译默认不联网");
+  expect(text).toContain("选择水杉账号把当前页的中文候选词发送到 api.msime.app 之后才会发请求");
   expect(text).toContain("语音识别和 AI 功能只在启用并配置好对应服务后联网");
   expect(text).not.toContain("填好凭据后联网");
   // The provider credentials are private files; NiuTrans and custom translation keys are the exception and the copy says so.
@@ -5556,10 +5585,10 @@ test("Android help and about pages use mobile instructions and project links", a
   );
 });
 
-// The Linux section of msime.app/privacy/ does not match this host (it has an update check and keeps provider credentials in 0600 files), so Linux opens the PRIVACY.md that ships with this code, as the Windows reference opens its own. Every other host keeps msime.app/privacy/, which a looser Linux check would break.
-test("the privacy link opens PRIVACY.md on Linux and msime.app/privacy/ elsewhere", async () => {
+// 网站的 Linux 段落已与这个宿主一致（检查更新、凭据存在 0600 文件里），所以 Linux 与其他平台一样打开 msime.app/privacy/。
+test("the privacy link opens msime.app/privacy/ on every platform", async () => {
   const expected: Record<string, string> = {
-    linux: "https://github.com/metasequoiaime/msime/blob/develop/PRIVACY.md",
+    linux: "https://msime.app/privacy/",
     windows: "https://msime.app/privacy/",
     macos: "https://msime.app/privacy/",
     android: "https://msime.app/privacy/",
@@ -7117,13 +7146,46 @@ test("Linux release assets yield a digest only when it is well-formed and unambi
       signed: false,
     });
   }
-  // Two architectures would make any single digest wrong for someone.
-  expect(
-    pick([
-      { name: "msime-linux_1.2.0_amd64.deb", digest: `sha256:${digest}` },
-      { name: "msime-linux_1.2.0_arm64.deb", digest: `sha256:${"b".repeat(64)}` },
-    ]),
-  ).toEqual({ name: null, sha256: null, signed: false });
+  // Without the host's architecture, two architectures would make any single digest wrong for someone.
+  const bothArchitectures = [
+    { name: "msime-linux_1.2.0_amd64.deb", digest: `sha256:${digest}` },
+    { name: "msime-linux_1.2.0_arm64.deb", digest: `sha256:${"b".repeat(64)}` },
+    { name: "msime-linux-1.2.0-1.x86_64.rpm", digest: `sha256:${"c".repeat(64)}` },
+    { name: "msime-linux-1.2.0-1.aarch64.rpm", digest: `sha256:${"d".repeat(64)}` },
+    { name: "msime-linux-1.2.0-linux-x86_64.tar.gz", digest: `sha256:${"e".repeat(64)}` },
+    { name: "msime-linux-1.2.0-linux-aarch64.tar.gz", digest: `sha256:${"f".repeat(64)}` },
+  ];
+  expect(pick(bothArchitectures)).toEqual({ name: null, sha256: null, signed: false });
+  // The host reports its architecture (`HostCapabilities.arch`, Rust's name), and only that architecture's package is offered: dpkg names it in the .deb and CMake in the tarball.
+  const pickFor = (assets: unknown, arch: string) => {
+    const update = selectPlatformRelease(release(assets), "linux", page, undefined, arch);
+    return update && { name: update.installerName, sha256: update.installerSha256 };
+  };
+  expect(pickFor(bothArchitectures, "x86_64")).toEqual({
+    name: "msime-linux_1.2.0_amd64.deb",
+    sha256: digest,
+  });
+  expect(pickFor(bothArchitectures, "aarch64")).toEqual({
+    name: "msime-linux_1.2.0_arm64.deb",
+    sha256: "b".repeat(64),
+  });
+  // Each architecture falls back to its own tarball, never another architecture's .deb.
+  const tarballsOnly = bothArchitectures.filter((asset) => asset.name.endsWith(".tar.gz"));
+  expect(pickFor([...tarballsOnly, bothArchitectures[0]], "aarch64")).toEqual({
+    name: "msime-linux-1.2.0-linux-aarch64.tar.gz",
+    sha256: "f".repeat(64),
+  });
+  // A release from before aarch64 packages offers an aarch64 host nothing rather than the x86_64 package.
+  expect(pickFor([bothArchitectures[0], bothArchitectures[4]], "aarch64")).toEqual({
+    name: null,
+    sha256: null,
+  });
+  // An architecture no package is built for keeps every asset, and two of them still offer nothing.
+  expect(pickFor(bothArchitectures, "riscv64")).toEqual({ name: null, sha256: null });
+  expect(pickFor([bothArchitectures[0]], "riscv64")).toEqual({
+    name: "msime-linux_1.2.0_amd64.deb",
+    sha256: digest,
+  });
   // A name that would need shell quoting is never put into the copyable command.
   expect(pick([{ name: "--x;rm -rf ~.deb", digest: `sha256:${digest}` }])).toEqual({
     name: null,
@@ -7183,21 +7245,21 @@ test("Windows release assets yield the installer digest and mark the build unsig
   // What release-windows.yml uploads: the installer and its .sha256 file.
   expect(
     pick([
-      { name: "MetasequoiaIME_Setup_v1.2.0.exe", digest: `sha256:${digest}` },
-      { name: "MetasequoiaIME_Setup_v1.2.0.exe.sha256", digest: `sha256:${"e".repeat(64)}` },
+      { name: "MetasequoiaIME-Full_Setup_v1.2.0.exe", digest: `sha256:${digest}` },
+      { name: "MetasequoiaIME-Full_Setup_v1.2.0.exe.sha256", digest: `sha256:${"e".repeat(64)}` },
     ]),
-  ).toEqual({ name: "MetasequoiaIME_Setup_v1.2.0.exe", sha256: digest, signed: false });
+  ).toEqual({ name: "MetasequoiaIME-Full_Setup_v1.2.0.exe", sha256: digest, signed: false });
   // An older API response without digests keeps the name, so the notice can point at the .sha256 file.
-  expect(pick([{ name: "MetasequoiaIME_Setup_v1.2.0.exe", digest: null }])).toEqual({
-    name: "MetasequoiaIME_Setup_v1.2.0.exe",
+  expect(pick([{ name: "MetasequoiaIME-Full_Setup_v1.2.0.exe", digest: null }])).toEqual({
+    name: "MetasequoiaIME-Full_Setup_v1.2.0.exe",
     sha256: null,
     signed: false,
   });
   // Two installers are ambiguous; a name needing quoting never reaches the command.
   expect(
     pick([
-      { name: "MetasequoiaIME_Setup_v1.2.0.exe", digest: `sha256:${digest}` },
-      { name: "MetasequoiaIME_Setup_v1.2.0-x86.exe", digest: `sha256:${digest}` },
+      { name: "MetasequoiaIME-Full_Setup_v1.2.0.exe", digest: `sha256:${digest}` },
+      { name: "MetasequoiaIME-Full_Setup_v1.2.0-x86.exe", digest: `sha256:${digest}` },
     ]),
   ).toEqual({ name: null, sha256: null, signed: false });
   expect(pick([{ name: "Setup v1.2.0;calc.exe", digest: `sha256:${digest}` }])).toEqual({
@@ -7236,7 +7298,7 @@ test("installer trust uses sha256sum on Linux and keeps Get-FileHash on Windows"
   const windows = {
     version,
     releaseUrl: "https://github.com/metasequoiaime/msime/releases",
-    installerName: "MetasequoiaIME_Setup_v1.2.0.exe",
+    installerName: "MetasequoiaIME-Full_Setup_v1.2.0.exe",
     installerSha256: digest,
     signed: false,
   };
@@ -7244,7 +7306,7 @@ test("installer trust uses sha256sum on Linux and keeps Get-FileHash on Windows"
     warning:
       "该版本未经代码签名，SmartScreen 会拦截，且 uiAccess 失效（候选窗口无法浮在以管理员身份运行的程序之上）。请务必核对下面的校验值。",
     verify: {
-      command: "Get-FileHash .\\MetasequoiaIME_Setup_v1.2.0.exe -Algorithm SHA256",
+      command: "Get-FileHash .\\MetasequoiaIME-Full_Setup_v1.2.0.exe -Algorithm SHA256",
       sha256: digest,
     },
   };
@@ -7253,7 +7315,7 @@ test("installer trust uses sha256sum on Linux and keeps Get-FileHash on Windows"
   // Without a digest the unsigned warning points at the .sha256 file the release carries.
   expect(describeInstallerTrust({ ...windows, installerSha256: null }, "windows")).toEqual({
     warning:
-      "该版本未经代码签名，SmartScreen 会拦截，且 uiAccess 失效（候选窗口无法浮在以管理员身份运行的程序之上）。请从发行页一并下载 MetasequoiaIME_Setup_v1.2.0.exe.sha256，用 Get-FileHash .\\MetasequoiaIME_Setup_v1.2.0.exe -Algorithm SHA256 核对。",
+      "该版本未经代码签名，SmartScreen 会拦截，且 uiAccess 失效（候选窗口无法浮在以管理员身份运行的程序之上）。请从发行页一并下载 MetasequoiaIME-Full_Setup_v1.2.0.exe.sha256，用 Get-FileHash .\\MetasequoiaIME-Full_Setup_v1.2.0.exe -Algorithm SHA256 核对。",
     verify: null,
   });
 });
@@ -7271,8 +7333,11 @@ test("Windows checks this repository's Windows releases rather than the referenc
         tag_name: "windows-v1.2.0",
         html_url: "https://github.com/metasequoiaime/msime/releases/tag/windows-v1.2.0",
         assets: [
-          { name: "MetasequoiaIME_Setup_v1.2.0.exe", digest: `sha256:${"b".repeat(64)}` },
-          { name: "MetasequoiaIME_Setup_v1.2.0.exe.sha256", digest: `sha256:${"c".repeat(64)}` },
+          { name: "MetasequoiaIME-Full_Setup_v1.2.0.exe", digest: `sha256:${"b".repeat(64)}` },
+          {
+            name: "MetasequoiaIME-Full_Setup_v1.2.0.exe.sha256",
+            digest: `sha256:${"c".repeat(64)}`,
+          },
         ],
       },
     ],
@@ -7296,7 +7361,7 @@ test("Windows checks this repository's Windows releases rather than the referenc
   expect(screen.getByText(/SmartScreen 会拦截，且 uiAccess 失效/)).toBeDefined();
   expect(screen.getByText("b".repeat(64))).toBeDefined();
   expect(
-    screen.getByText("Get-FileHash .\\MetasequoiaIME_Setup_v1.2.0.exe -Algorithm SHA256"),
+    screen.getByText("Get-FileHash .\\MetasequoiaIME-Full_Setup_v1.2.0.exe -Algorithm SHA256"),
   ).toBeDefined();
   expect(fetch).toHaveBeenCalledWith(
     expect.stringMatching(/^https:\/\/api\.github\.com\/repos\/metasequoiaime\/msime\/releases\?/),

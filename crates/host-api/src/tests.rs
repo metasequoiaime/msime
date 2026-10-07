@@ -302,6 +302,22 @@ fn doubao_frame_codec_is_available_through_c_abi() {
         )
     });
     assert_eq!(audio_required, audio_written);
+
+    // i32::MIN cannot be represented by abs(); the ABI must reject it instead
+    // of allowing a malformed native caller to panic the host process.
+    let mut invalid_sequence_length = 0usize;
+    assert!(!unsafe {
+        msime_client_doubao_audio_frame(
+            i32::MIN,
+            [0u8, 1, 2, 3].as_ptr(),
+            4,
+            true,
+            std::ptr::null_mut(),
+            0,
+            &mut invalid_sequence_length,
+        )
+    });
+    assert_eq!(invalid_sequence_length, 0);
 }
 
 #[test]
@@ -1411,7 +1427,7 @@ fn a_fallen_back_scheme_starts_in_the_nine_key_mode_a_rebuild_gives_it() {
 
 #[test]
 fn nine_key_mode_follows_only_the_scheme_the_grid_spells() {
-    // The nine-key grid spells quanpin syllables only (`SchemeType::nine_key`): a nine-key layout starts nine-key in quanpin and stays off in every other scheme, at creation and on a rebuild alike.
+    // 九键能拼的方案是全拼和注音（`SchemeType::nine_key`）：九键布局在全拼里开启九键模式，在下面这些方案里都保持关闭，创建时和重建后都一样。注音不在这里测，因为这个宿主没有安装注音词库，运行时不会跑它。
     for scheme in [
         InputScheme::Quanpin,
         InputScheme::Shuangpin,
@@ -1446,6 +1462,135 @@ fn nine_key_mode_follows_only_the_scheme_the_grid_spells() {
         );
         read(msime_client_destroy(handle));
     }
+}
+
+// 注音配九键布局：宿主接口按布局自动开启九键模式，数字和声调字母拼音节，候选读音和全拼九键一样经 `nine_key_spellings` 和 `msime_client_choose_nine_key_spelling` 往返。
+#[test]
+fn zhuyin_with_the_nine_key_layout_starts_in_nine_key_mode() {
+    use msime_engine::language_dictionary::{FORMAT_VERSION, METADATA_FORMAT_VERSION, SCHEMA};
+    let dir = tempfile::tempdir().unwrap();
+    let path = |name| {
+        let path = dir.path().join(name);
+        std::fs::create_dir_all(&path).unwrap();
+        path
+    };
+    let language_dictionaries = path("language-dictionaries");
+    let connection =
+        rusqlite::Connection::open(language_dictionaries.join("msime-zhuyin.db")).unwrap();
+    connection.execute_batch(SCHEMA).unwrap();
+    connection
+        .execute(
+            "INSERT INTO metadata VALUES (?1, ?2)",
+            (METADATA_FORMAT_VERSION, FORMAT_VERSION.to_string()),
+        )
+        .unwrap();
+    connection
+        .execute_batch(
+            "INSERT INTO syllables VALUES ('ㄋㄧˇ'),('ㄌㄧˇ');\
+             INSERT INTO entries VALUES ('ㄋㄧˇ','你',1000),('ㄌㄧˇ','李',1200);",
+        )
+        .unwrap();
+    drop(connection);
+    // The layout field alone is what a desktop host's Quanpin 九键 toggle leaves behind; Zhuyin there keeps the Dachen keys.
+    let layout_only = Preferences {
+        scheme: InputScheme::Zhuyin,
+        touch_keyboard_layout: TouchKeyboardLayout::NineKey,
+        ..chinese_preferences()
+    };
+    let options = json!({ "api_version": 1, "resources": path("resources"), "user_data": path("user"), "cache": path("cache"), "dictionaries": path("dictionaries"), "preferences": layout_only, "language_dictionaries": language_dictionaries }).to_string();
+    let created = read(unsafe { msime_client_create(options.as_ptr(), options.len()) });
+    assert_eq!(created["ok"], true, "{created}");
+    let dachen = created["value"]["session"].as_u64().unwrap();
+    read(msime_client_focus(dachen, true));
+    assert_eq!(read(msime_client_view(dachen))["value"]["nine_key"], false);
+    read(msime_client_destroy(dachen));
+
+    let mut preferences = Preferences {
+        scheme: InputScheme::Zhuyin,
+        touch_keyboard_layout: TouchKeyboardLayout::NineKey,
+        ..chinese_preferences()
+    };
+    preferences
+        .touch_keyboard_schemes
+        .enabled
+        .insert(TouchKeyboardScheme::ZhuyinNineKey);
+    preferences.touch_keyboard_schemes.selected = Some(TouchKeyboardScheme::ZhuyinNineKey);
+    let options = json!({ "api_version": 1, "resources": path("resources"), "user_data": path("user"), "cache": path("cache"), "dictionaries": path("dictionaries"), "preferences": preferences, "language_dictionaries": language_dictionaries }).to_string();
+    let created = read(unsafe { msime_client_create(options.as_ptr(), options.len()) });
+    assert_eq!(created["ok"], true, "{created}");
+    let handle = created["value"]["session"].as_u64().unwrap();
+    read(msime_client_focus(handle, true));
+    let view = read(msime_client_view(handle));
+    assert_eq!(view["value"]["scheme"], 6);
+    assert_eq!(view["value"]["nine_key"], true);
+    assert_eq!(view["value"]["spelling_symbols"], "1234567890");
+
+    let mut typed = Value::Null;
+    for key in *b"28c" {
+        typed = read(msime_client_character(handle, key, false));
+        assert_eq!(typed["value"]["handled"], true, "{}", char::from(key));
+    }
+    let view = &typed["value"]["view"];
+    assert_eq!(view["editing_text"], "28c");
+    assert_eq!(view["nine_key_spellings"], json!(["ㄌㄧˇ", "ㄋㄧˇ"]));
+    let generation = view["generation"].as_u64().unwrap();
+    let chosen = read(msime_client_choose_nine_key_spelling(handle, generation, 1));
+    assert_eq!(chosen["value"]["handled"], true);
+    assert_eq!(chosen["value"]["view"]["nine_key_spellings"], json!([]));
+    let committed = read(msime_client_command(handle, 9));
+    assert_eq!(committed["value"]["commit"], "你");
+    read(msime_client_destroy(handle));
+}
+
+// 宿主为全拼九键打开的覆盖不能带进注音：从全拼切到注音时按注音自己的布局判断，没选「注音 9 键」就是大千键位。
+#[test]
+fn a_quanpin_nine_key_override_does_not_carry_into_zhuyin() {
+    use msime_engine::language_dictionary::{FORMAT_VERSION, METADATA_FORMAT_VERSION, SCHEMA};
+    let dir = tempfile::tempdir().unwrap();
+    let path = |name| {
+        let path = dir.path().join(name);
+        std::fs::create_dir_all(&path).unwrap();
+        path
+    };
+    let language_dictionaries = path("language-dictionaries");
+    let connection =
+        rusqlite::Connection::open(language_dictionaries.join("msime-zhuyin.db")).unwrap();
+    connection.execute_batch(SCHEMA).unwrap();
+    connection
+        .execute(
+            "INSERT INTO metadata VALUES (?1, ?2)",
+            (METADATA_FORMAT_VERSION, FORMAT_VERSION.to_string()),
+        )
+        .unwrap();
+    connection
+        .execute_batch("INSERT INTO syllables VALUES ('ㄋㄧˇ'); INSERT INTO entries VALUES ('ㄋㄧˇ','你',1000);")
+        .unwrap();
+    drop(connection);
+    let quanpin = Preferences {
+        scheme: InputScheme::Quanpin,
+        touch_keyboard_layout: TouchKeyboardLayout::NineKey,
+        ..chinese_preferences()
+    };
+    let options = json!({ "api_version": 1, "resources": path("resources"), "user_data": path("user"), "cache": path("cache"), "dictionaries": path("dictionaries"), "preferences": quanpin, "language_dictionaries": language_dictionaries }).to_string();
+    let created = read(unsafe { msime_client_create(options.as_ptr(), options.len()) });
+    assert_eq!(created["ok"], true, "{created}");
+    let handle = created["value"]["session"].as_u64().unwrap();
+    read(msime_client_focus(handle, true));
+    assert_eq!(
+        read(msime_client_set_nine_key_mode(handle, true))["value"]["nine_key"],
+        true
+    );
+    let zhuyin = update(
+        handle,
+        1,
+        &Preferences {
+            scheme: InputScheme::Zhuyin,
+            ..quanpin
+        },
+    );
+    assert_eq!(zhuyin["value"]["view"]["scheme"], 6, "{zhuyin}");
+    assert_eq!(zhuyin["value"]["view"]["nine_key"], false, "{zhuyin}");
+    read(msime_client_destroy(handle));
 }
 
 #[test]
@@ -1957,6 +2102,121 @@ fn theme_catalog_lists_every_theme_in_picker_order() {
     assert_eq!(night["candidate"]["accent"], "#4FD1C5");
     assert_eq!(catalog["value"]["themes"][0]["candidate"], Value::Null);
     assert_eq!(catalog["value"]["themes"][6]["keyboard"], Value::Null);
+}
+
+#[test]
+fn app_theme_catalog_and_resolution_have_the_documented_shape() {
+    let catalog = read(msime_client_app_theme_catalog());
+    assert_eq!(catalog["ok"], true);
+    assert_eq!(catalog["value"]["default"], "siji");
+    let themes = catalog["value"]["app_themes"].as_array().unwrap();
+    let ids: Vec<_> = themes
+        .iter()
+        .map(|theme| theme["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(ids, ["siji", "chunya", "xiayin", "qiushan", "dongxue"]);
+    assert_eq!(themes[0]["season"], Value::Null);
+    assert_eq!(themes[0]["seasonal"], true);
+    assert_eq!(themes[1]["season"], "spring");
+    for theme in themes {
+        for mode in ["light", "dark"] {
+            for key in [
+                "accent",
+                "accent_soft",
+                "on_accent",
+                "background",
+                "card",
+                "hair",
+            ] {
+                assert!(theme[mode][key].is_string(), "{} {mode} {key}", theme["id"]);
+            }
+        }
+    }
+
+    let call = |request: Value| {
+        let request = request.to_string();
+        read(unsafe { msime_client_resolve_app_theme(request.as_ptr(), request.len()) })
+    };
+    let autumn = call(json!({"app_theme": "siji", "month": 10, "dark": true}));
+    assert_eq!(autumn["ok"], true, "{autumn}");
+    assert_eq!(
+        autumn["value"],
+        json!({
+            "id": "siji", "season": "autumn", "accent": "#F0975F", "accent_soft": "#F0975F40",
+            "on_accent": "#3C2618", "background": "#21150F", "card": "#2E1E15", "hair": "#2A2F2A"
+        })
+    );
+    let fixed = call(json!({"app_theme": "chunya", "month": 10, "dark": false}));
+    assert_eq!(fixed["value"]["season"], "spring");
+    assert_eq!(fixed["value"]["accent"], "#4E9A3A");
+    assert_eq!(fixed["value"]["on_accent"], "#FFFFFF");
+    let without_month = call(json!({"app_theme": "siji", "dark": false}));
+    assert_eq!(without_month["ok"], true);
+    for (request, why) in [
+        (
+            json!({"app_theme": "siji", "month": 13, "dark": false}),
+            "month",
+        ),
+        (json!({"app_theme": "seasons", "dark": false}), "id"),
+        (json!({"app_theme": "siji"}), "no mode"),
+        (
+            json!({"app_theme": "siji", "dark": false, "colour": 1}),
+            "unknown key",
+        ),
+    ] {
+        let refused = call(request);
+        assert_eq!(refused["ok"], false, "{why}");
+        assert_eq!(refused["error"], "invalid app theme request", "{why}");
+    }
+    assert_eq!(
+        read(unsafe { msime_client_resolve_app_theme(std::ptr::null(), 0) })["ok"],
+        false
+    );
+}
+
+#[test]
+fn restoring_default_preferences_is_a_locked_compare_and_swap() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let mut edited = Preferences {
+        candidate_page_size: 8,
+        clipboard_history: true,
+        ..Preferences::default()
+    };
+    edited.voice_input.asr_token = "fixture-asr-token".into();
+    let saved = store.save(0, edited).unwrap();
+    let path = dir.path().to_str().unwrap();
+    let call = |revision: u64| {
+        read(unsafe {
+            msime_client_restore_default_preferences(path.as_ptr(), path.len(), revision)
+        })
+    };
+    let stale = call(saved.revision + 5);
+    assert_eq!(stale["ok"], false);
+    assert_eq!(stale["error"], "preferences changed; reload before saving");
+    assert_eq!(store.load().unwrap(), saved);
+    let restored = call(saved.revision);
+    assert_eq!(restored["ok"], true, "{restored}");
+    assert_eq!(restored["value"]["revision"], saved.revision + 1);
+    assert_eq!(restored["value"]["preferences"]["candidate_page_size"], 6);
+    assert_eq!(
+        restored["value"]["preferences"]["voice_input"]["asr_token"],
+        "fixture-asr-token"
+    );
+    let loaded = store.load().unwrap();
+    assert_eq!(loaded.preferences.candidate_page_size, 6);
+    assert!(!loaded.preferences.clipboard_history);
+    let relative = "relative/preferences";
+    assert_eq!(
+        read(unsafe {
+            msime_client_restore_default_preferences(relative.as_ptr(), relative.len(), 0)
+        })["error"],
+        "preferences directory must be absolute"
+    );
+    assert_eq!(
+        read(unsafe { msime_client_restore_default_preferences(std::ptr::null(), 0, 0) })["ok"],
+        false
+    );
 }
 
 #[test]
@@ -2980,6 +3240,153 @@ fn selection_statistics_reach_the_store_at_focus_out() {
     read(msime_client_destroy(handle));
     assert_eq!(store.load().unwrap().selections.total(), 3);
 }
+/// 用户自己关掉学习不影响统计；宿主标出的隐私会话（Android 的隐私模式和不允许学习的输入框）不计选词位置，取消标记后照常计数。
+#[test]
+fn only_a_private_session_counts_no_selection_statistics() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = TypingStatisticsStore::new(dir.path().join("user"));
+    store.set_enabled(true).unwrap();
+    let preferences = Preferences {
+        learning: false,
+        ..chinese_preferences()
+    };
+    let handle = test_host_with_pinyin_fixture(dir.path(), preferences);
+    SESSIONS.with(|sessions| assert!(!sessions.borrow()[&handle].options.learning));
+    assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+    for index in [0, 1] {
+        commit_candidate_by_position(handle, index);
+    }
+    assert_eq!(read(msime_client_focus(handle, false))["ok"], true);
+    assert_eq!(store.load().unwrap().selections.total(), 2);
+
+    assert_eq!(
+        read(msime_client_set_private_session(handle, true))["value"],
+        true
+    );
+    assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+    commit_candidate_by_position(handle, 0);
+    assert_eq!(read(msime_client_focus(handle, false))["ok"], true);
+    assert_eq!(store.load().unwrap().selections.total(), 2);
+
+    assert_eq!(
+        read(msime_client_set_private_session(handle, false))["value"],
+        false
+    );
+    assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+    commit_candidate_by_position(handle, 0);
+    assert_eq!(read(msime_client_focus(handle, false))["ok"], true);
+    assert_eq!(store.load().unwrap().selections.total(), 3);
+    read(msime_client_destroy(handle));
+}
+
+/// 上屏效率：一次带输入码的选择计一次上屏和按下的字母数，宿主标出的隐私会话什么都不计。
+#[test]
+fn a_committed_selection_counts_its_efficiency_and_a_private_session_counts_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let (handle, store) = selection_statistics_host(dir.path(), true);
+    commit_candidate_by_position(handle, 0);
+    assert_eq!(read(msime_client_focus(handle, false))["ok"], true);
+    let efficiency = store.load().unwrap().efficiency;
+    assert_eq!(efficiency.commits, 1);
+    assert_eq!(efficiency.typed_keys, 5);
+    // 你好按全拼也是 nihao 五个键：不少按，也不多按。
+    assert_eq!(efficiency.spelled_keys, 5);
+    assert_eq!(efficiency.prediction_commits, 0);
+    read(msime_client_destroy(handle));
+
+    let dir = tempfile::tempdir().unwrap();
+    let store = TypingStatisticsStore::new(dir.path().join("user"));
+    store.set_enabled(true).unwrap();
+    let handle = test_host_with_pinyin_fixture(dir.path(), chinese_preferences());
+    assert_eq!(
+        read(msime_client_set_private_session(handle, true))["ok"],
+        true
+    );
+    assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+    commit_candidate_by_position(handle, 0);
+    assert_eq!(read(msime_client_focus(handle, false))["ok"], true);
+    assert_eq!(store.load().unwrap().efficiency.commits, 0);
+    read(msime_client_destroy(handle));
+}
+
+/// 双拼的「少按键」也以全拼为基准：小鹤双拼 nihc 四个键打出的词，按全拼要 nihao 五个键。
+#[test]
+fn a_shuangpin_commit_counts_its_keys_against_quanpin() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = TypingStatisticsStore::new(dir.path().join("user"));
+    store.set_enabled(true).unwrap();
+    let preferences = Preferences {
+        scheme: InputScheme::Shuangpin,
+        shuangpin_profile: ShuangpinProfile::Xiaohe,
+        ..chinese_preferences()
+    };
+    let handle = test_host_with_pinyin_fixture(dir.path(), preferences);
+    assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+    let mut view = Value::Null;
+    for byte in b"nihc" {
+        view = read(msime_client_character(handle, *byte, false))["value"]["view"].clone();
+    }
+    let generation = view["generation"].as_u64().unwrap();
+    let selected = read(msime_client_select(handle, generation, 0));
+    assert!(selected["value"]["commit"].is_string(), "{selected}");
+    assert_eq!(read(msime_client_focus(handle, false))["ok"], true);
+    let efficiency = store.load().unwrap().efficiency;
+    assert_eq!(efficiency.commits, 1);
+    assert_eq!(efficiency.typed_keys, 4);
+    assert_eq!(efficiency.spelled_keys, 5);
+    read(msime_client_destroy(handle));
+}
+
+/// 后台写效率只有一个线程：写的时候排进来的批次由同一个线程接着写，一批也不丢。
+#[test]
+fn background_efficiency_batches_share_one_writer_and_all_land() {
+    let dir = tempfile::tempdir().unwrap();
+    let (handle, store) = selection_statistics_host(dir.path(), true);
+    let options = SESSIONS.with(|sessions| sessions.borrow()[&handle].options.clone());
+    read(msime_client_destroy(handle));
+    let commit = || EfficiencyCandidate {
+        text: "ok".into(),
+        typed_keys: 2,
+        sentence: false,
+        prediction: false,
+    };
+    for _ in 0..5 {
+        record_efficiency_in_background(options.clone(), vec![commit(), commit()]);
+    }
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        {
+            let queue = efficiency_queue();
+            if !queue.running && queue.pending.is_empty() {
+                break;
+            }
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "efficiency writer never finished"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    let efficiency = store.load().unwrap().efficiency;
+    assert_eq!(efficiency.commits, 10);
+    assert_eq!(efficiency.typed_keys, 20);
+}
+
+/// 统计关闭时效率一项都不计。
+#[test]
+fn efficiency_is_not_counted_while_statistics_are_off() {
+    let dir = tempfile::tempdir().unwrap();
+    let (handle, store) = selection_statistics_host(dir.path(), false);
+    commit_candidate_by_position(handle, 0);
+    assert_eq!(read(msime_client_focus(handle, false))["ok"], true);
+    // 写这一批时读到了关着的开关，直接留作下一批的缓存，不在输入线程上再读一遍文件。
+    SESSIONS.with(|sessions| {
+        assert_eq!(sessions.borrow()[&handle].statistics_enabled, Some(false));
+    });
+    assert_eq!(store.load().unwrap().efficiency.commits, 0);
+    read(msime_client_destroy(handle));
+}
+
 /// A result of the expression mode is picked, not typed: the preference opens the mode through the host, and the pick is kept out of the selection statistics as it is kept out of learning.
 #[test]
 fn generated_mode_selections_stay_out_of_selection_statistics() {
@@ -3069,6 +3476,8 @@ fn selection_statistics_are_written_once_a_batch_fills() {
     // The selection that fills the batch writes it, with no focus-out, which bounds what a killed process loses.
     commit_candidate_by_position(handle, 0);
     assert_eq!(store.load().unwrap().selections.total(), SELECTION_BATCH);
+    // 填满这一批的那次上屏，效率也在同一批里写下。
+    assert_eq!(store.load().unwrap().efficiency.commits, SELECTION_BATCH);
     commit_candidate_by_position(handle, 1);
     assert_eq!(store.load().unwrap().selections.total(), SELECTION_BATCH);
     read(msime_client_focus(handle, false));
@@ -3450,6 +3859,60 @@ fn sentence_model_switches_follow_the_preferences() {
     preferences.sentence_association.neural_desktop = true;
     assert_eq!(update(handle, 2, &preferences)["ok"], true);
     assert_eq!(switches(), (true, false));
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+}
+
+/// The keyboard model runs inside every keystroke, so it is attached only while `neural_keyboard` (整句联想「增强」) is on: not on the default 标准, attached when the switch turns on, dropped when it turns off again. It needs a real model, from `MSIME_EVAL_RESOURCES` or `MSIME_NEURAL_MODEL_DIR` as the Engine's model tests take it, and skips without one.
+#[test]
+fn keyboard_reranker_follows_the_keyboard_model_switch() {
+    let Some(model) = ["MSIME_EVAL_RESOURCES", "MSIME_NEURAL_MODEL_DIR"]
+        .into_iter()
+        .filter_map(std::env::var_os)
+        .map(|directory| std::path::PathBuf::from(directory).join(ffi::SENTENCE_MODEL_FILE))
+        .find(|path| path.is_file())
+    else {
+        eprintln!("skipping: no sentence model in MSIME_EVAL_RESOURCES or MSIME_NEURAL_MODEL_DIR");
+        return;
+    };
+    let create = |root: &std::path::Path, preferences: &Preferences| {
+        let path = |name| {
+            let path = root.join(name);
+            std::fs::create_dir_all(&path).unwrap();
+            path
+        };
+        let options = json!({ "api_version": 1, "resources": path("resources"), "user_data": path("user"), "cache": path("cache"), "dictionaries": path("dictionaries"), "sentence_model": model, "preferences": preferences }).to_string();
+        let created = read(unsafe { msime_client_create(options.as_ptr(), options.len()) });
+        assert_eq!(created["ok"], true, "{created}");
+        created["value"]["session"].as_u64().unwrap()
+    };
+    let attached =
+        |handle: u64| SESSIONS.with(|sessions| sessions.borrow()[&handle].runtime.has_reranker());
+
+    let directory = tempfile::tempdir().unwrap();
+    let mut preferences = chinese_preferences();
+    assert!(!preferences.sentence_association.neural_keyboard);
+    let handle = create(directory.path(), &preferences);
+    assert!(
+        !attached(handle),
+        "the default 标准 must not run the keyboard model"
+    );
+
+    preferences.sentence_association.neural_keyboard = true;
+    assert_eq!(update(handle, 1, &preferences)["value"]["deferred"], false);
+    assert!(attached(handle));
+
+    preferences.sentence_association.neural_keyboard = false;
+    assert_eq!(update(handle, 2, &preferences)["value"]["deferred"], false);
+    assert!(!attached(handle));
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+
+    let directory = tempfile::tempdir().unwrap();
+    preferences.sentence_association.neural_keyboard = true;
+    let handle = create(directory.path(), &preferences);
+    assert!(
+        attached(handle),
+        "增强 attaches the keyboard model when the session opens"
+    );
     assert_eq!(read(msime_client_destroy(handle))["ok"], true);
 }
 
@@ -9984,6 +10447,22 @@ fn publish_resource_pack(state_root: &Path, pack: ResourcePack, files: &[&str]) 
     directory
 }
 
+/// 设置应用据此决定 Linux 上要不要列出语言词库资源包：只有记录的目录里三个词库都在才算随包带齐。
+#[test]
+fn packaged_language_dictionaries_need_all_three_in_the_recorded_directory() {
+    let root = tempfile::tempdir().unwrap();
+    let recorded = root.path().join("language-dictionaries");
+    let document = json!({ "language_dictionaries": recorded });
+    assert!(!super::packaged_language_dictionaries(&json!({})));
+    assert!(!super::packaged_language_dictionaries(&document));
+    std::fs::create_dir_all(&recorded).unwrap();
+    std::fs::write(recorded.join("msime-cantonese.db"), b"bundled").unwrap();
+    std::fs::write(recorded.join("msime-zhuyin.db"), b"bundled").unwrap();
+    assert!(!super::packaged_language_dictionaries(&document));
+    std::fs::write(recorded.join("msime-stroke.db"), b"bundled").unwrap();
+    assert!(super::packaged_language_dictionaries(&document));
+}
+
 #[test]
 fn downloaded_language_dictionaries_win_over_the_recorded_directory() {
     let root = tempfile::tempdir().unwrap();
@@ -10477,4 +10956,321 @@ fn a_resource_pack_installed_after_the_session_opened_is_picked_up_on_focus() {
         assert!(!session.resources_pending);
     });
     assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+}
+
+fn call_android_data(
+    function: unsafe extern "C" fn(*const u8, usize) -> *mut c_char,
+    request: Value,
+) -> Value {
+    let bytes = serde_json::to_vec(&request).unwrap();
+    read(unsafe { function(bytes.as_ptr(), bytes.len()) })
+}
+
+#[test]
+fn typing_statistics_summary_and_new_records_cross_the_boundary() {
+    let directory = tempfile::tempdir().unwrap();
+    let call = |action: Value| {
+        call_android_data(
+            msime_client_typing_statistics,
+            json!({"directory": directory.path(), "action": action}),
+        )
+    };
+    assert_eq!(
+        call(json!({"operation": "set_enabled", "enabled": true}))["ok"],
+        true
+    );
+    let voice =
+        call(json!({"operation": "record_voice", "day": "2026-10-05", "milliseconds": 1500}));
+    assert_eq!(voice["ok"], true, "{voice}");
+    let skin = call(json!({"operation": "record_skin", "id": "chunya"}));
+    assert_eq!(skin["ok"], true, "{skin}");
+    let summary = call(json!({"operation": "summary", "day": "2026-10-05", "user_words": 3}));
+    assert_eq!(summary["ok"], true, "{summary}");
+    for section in ["overview", "habits", "keys", "achievements"] {
+        assert!(!summary["value"][section].is_null(), "{section}: {summary}");
+    }
+    assert_eq!(
+        call(json!({"operation": "summary", "day": "05/10/2026"}))["ok"],
+        false
+    );
+}
+
+fn empty_host_options(root: &Path) -> Value {
+    json!({
+        "api_version": 1,
+        "resources": root.join("resources"),
+        "user_data": root.join("user"),
+        "cache": root.join("cache"),
+        "dictionaries": root.join("dictionaries"),
+        "preferences": Preferences::default(),
+        "preferences_directory": root,
+    })
+}
+
+#[test]
+fn dictionary_count_and_snapshot_export_answer_for_an_empty_store() {
+    let directory = tempfile::tempdir().unwrap();
+    for name in ["resources", "user", "cache", "dictionaries"] {
+        std::fs::create_dir_all(directory.path().join(name)).unwrap();
+    }
+    let options = empty_host_options(directory.path());
+    let count = call_android_data(
+        msime_client_dictionary,
+        json!({"options": options, "action": {"operation": "count", "user_only": true}}),
+    );
+    assert_eq!(count["ok"], true, "{count}");
+    assert_eq!(count["value"]["count"], 0);
+    assert_eq!(count["value"]["complete"], true);
+    let destination = directory.path().join("snapshot.ndjson");
+    let exported = call_android_data(
+        msime_client_dictionary,
+        json!({"options": options, "action": {"operation": "export_snapshot", "destination": destination}}),
+    );
+    assert_eq!(exported["ok"], true, "{exported}");
+    assert_eq!(exported["value"]["entries"], 0);
+    let text = std::fs::read_to_string(&destination).unwrap();
+    assert!(
+        text.starts_with("{\"format\":\"msime-dictionary-snapshot\""),
+        "{text}"
+    );
+    let relative = call_android_data(
+        msime_client_dictionary,
+        json!({"options": options, "action": {"operation": "export_snapshot", "destination": "snapshot.ndjson"}}),
+    );
+    assert_eq!(relative["ok"], false);
+}
+
+/// `empty_host_options` with an empty main dictionary, which the Engine needs before it stores a pinyin word (`ni'…` lands in `tbl_2_n`) or a quick phrase.
+fn host_options_with_main_dictionary(root: &Path) -> Value {
+    for name in ["resources", "user", "cache", "dictionaries"] {
+        std::fs::create_dir_all(root.join(name)).unwrap();
+    }
+    for name in ["resources", "dictionaries"] {
+        rusqlite::Connection::open(root.join(name).join("msime-pinyin.db"))
+            .unwrap()
+            .execute_batch(
+                "CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+                 CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);
+                 CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);
+                 CREATE INDEX idx_quick_parases_key_weight ON quick_parases(key,weight DESC);",
+            )
+            .unwrap();
+    }
+    empty_host_options(root)
+}
+
+#[test]
+fn snapshot_export_leaves_out_a_multi_line_quick_phrase_and_counts_it() {
+    let directory = tempfile::tempdir().unwrap();
+    let options = host_options_with_main_dictionary(directory.path());
+    for (index, entry) in [
+        json!({"kind": "pinyin", "key": "ni'hao", "value": "你好", "weight": 100}),
+        json!({"kind": "quick_phrase", "key": "zj", "value": "此致\n敬礼", "weight": 100}),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let edited = call_android_data(
+            msime_client_dictionary,
+            json!({"options": options, "action": {"operation": "edit", "previous": null, "replacement": entry, "request_id": format!("seed-{index}")}}),
+        );
+        assert_eq!(edited["ok"], true, "{edited}");
+    }
+    let destination = directory.path().join("snapshot.ndjson");
+    let exported = call_android_data(
+        msime_client_dictionary,
+        json!({"options": options, "action": {"operation": "export_snapshot", "destination": destination}}),
+    );
+    assert_eq!(exported["ok"], true, "{exported}");
+    assert_eq!(exported["value"]["entries"], 1, "{exported}");
+    assert_eq!(exported["value"]["overlays"], 1, "{exported}");
+    assert_eq!(exported["value"]["skipped"], 1, "{exported}");
+    assert!(destination.is_file());
+    assert!(crate::dictionary_snapshot::inspect_snapshot(&destination).is_ok());
+}
+
+/// A dictionary collection adding a word the user already has must leave the user's row alone and say so, so that turning the collection off later does not delete it.
+#[test]
+fn a_collection_addition_of_an_existing_user_word_is_left_alone_and_reported() {
+    use msime_client_core::dictionary::personal::{
+        PersonalDictionaryStore, PersonalWord, PersonalWordKind,
+    };
+    let directory = tempfile::tempdir().unwrap();
+    let options = host_options_with_main_dictionary(directory.path());
+    let own = json!({"kind": "pinyin", "key": "ni'hao", "value": "你好", "weight": 4321});
+    let edited = call_android_data(
+        msime_client_dictionary,
+        json!({"options": options, "action": {"operation": "edit", "previous": null, "replacement": own, "request_id": "seed-own"}}),
+    );
+    assert_eq!(edited["ok"], true, "{edited}");
+    let store = PersonalDictionaryStore::new(directory.path().join("PersonalDictionary"));
+    let word = |key: &str, value: &str| PersonalWord {
+        kind: PersonalWordKind::Pinyin,
+        key: key.into(),
+        value: value.into(),
+        weight: 10_000,
+    };
+    store
+        .enqueue_import(
+            vec![word("ni'hao", "你好"), word("ni'men", "你们")],
+            "collections-test".into(),
+        )
+        .unwrap();
+    let synced = call_android_data(msime_client_personal_dictionary_sync, options.clone());
+    assert_eq!(synced["ok"], true, "{synced}");
+    assert_eq!(synced["value"]["pending_count"], 0);
+    let state = store.read().unwrap();
+    assert_eq!(
+        state.already_present,
+        vec![word("ni'hao", "你好").identity()]
+    );
+    let listed = call_android_data(
+        msime_client_dictionary,
+        json!({"options": options, "action": {"operation": "list", "offset": 0, "limit": 10}}),
+    );
+    let entries = listed["value"]["entries"].as_array().unwrap();
+    let weight_of = |value: &str| {
+        entries
+            .iter()
+            .find(|entry| entry["value"] == value)
+            .map(|entry| entry["weight"].clone())
+    };
+    assert_eq!(weight_of("你好"), Some(json!(4321)), "{listed}");
+    assert_eq!(weight_of("你们"), Some(json!(10_000)), "{listed}");
+}
+
+#[test]
+fn common_phrases_and_collections_forward_to_client_core() {
+    let directory = tempfile::tempdir().unwrap();
+    let added = call_android_data(
+        msime_client_common_phrases,
+        json!({"directory": directory.path(), "action": {"operation": "add", "text": "稍后回复你\n谢谢"}}),
+    );
+    assert_eq!(added["ok"], true, "{added}");
+    assert_eq!(added["value"]["phrases"][0]["text"], "稍后回复你\n谢谢");
+    let duplicate = call_android_data(
+        msime_client_common_phrases,
+        json!({"directory": directory.path(), "action": {"operation": "add", "text": "稍后回复你\n谢谢"}}),
+    );
+    assert_eq!(duplicate["error"], "common_phrases_duplicate");
+    assert_eq!(
+        call_android_data(
+            msime_client_common_phrases,
+            json!({"directory": "relative", "action": {"operation": "load"}}),
+        )["ok"],
+        false
+    );
+
+    let loaded = call_android_data(
+        msime_client_dictionary_collections,
+        json!({"options": empty_host_options(directory.path()), "action": {"operation": "load"}}),
+    );
+    assert_eq!(loaded["ok"], true, "{loaded}");
+    let locked = call_android_data(
+        msime_client_dictionary_collections,
+        json!({"options": empty_host_options(directory.path()), "action": {"operation": "delete", "id": "builtin:pinyin"}}),
+    );
+    assert_eq!(locked["error"], "builtin_locked");
+}
+
+#[test]
+fn diagnostic_bundle_drops_text_lines_and_redacts_credentials() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut preferences = Preferences::default();
+    preferences.ai_assistant.token = "SENTINEL-ai".into();
+    PreferencesStore::new(directory.path())
+        .save(0, preferences)
+        .unwrap();
+    let events = directory.path().join("events.ndjson");
+    std::fs::write(
+        &events,
+        "{\"t_ms\":1,\"kind\":\"commit\"}\n{\"t_ms\":2,\"kind\":\"commit\",\"text\":\"SENTINEL-text\"}\n",
+    )
+    .unwrap();
+    let bundle = call_android_data(
+        msime_client_diagnostic_bundle,
+        json!({
+            "state_root": directory.path(),
+            "include": {"input_events": true, "config_snapshot": true},
+            "sources": {"input_events": events},
+        }),
+    );
+    assert_eq!(bundle["ok"], true, "{bundle}");
+    assert_eq!(bundle["value"]["counts"]["input_events"]["kept"], 1);
+    assert_eq!(bundle["value"]["counts"]["input_events"]["dropped"], 1);
+    assert!(!bundle.to_string().contains("SENTINEL"), "{bundle}");
+    assert_eq!(
+        bundle["value"]["sections"]["config_snapshot"]["ai_assistant"]["token"],
+        "<redacted>"
+    );
+}
+
+#[test]
+fn account_settings_export_and_apply_round_trip_without_credentials() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut preferences = Preferences::default();
+    preferences.voice_input.asr_token = "SENTINEL-asr".into();
+    preferences.touch_toolbar.ai = !Preferences::default().touch_toolbar.ai;
+    PreferencesStore::new(directory.path())
+        .save(0, preferences.clone())
+        .unwrap();
+    let exported = call_android_data(
+        msime_client_account_settings_export,
+        json!({
+            "preferences_directory": directory.path(),
+            "custom_keyboard_skins": "[]",
+            "android_local": {
+                "platform.android.key_popup": false,
+                "platform.android.incognito": true,
+            },
+        }),
+    );
+    assert_eq!(exported["ok"], true, "{exported}");
+    let text = exported.to_string();
+    assert!(!text.contains("SENTINEL"));
+    assert!(!text.contains("incognito"));
+    let settings = exported["value"]["settings"].clone();
+    assert_eq!(settings["platform.android.custom_keyboard_skins"], "[]");
+    assert_eq!(settings["platform.android.key_popup"], false);
+    let fields: serde_json::Map<String, Value> = settings
+        .as_object()
+        .unwrap()
+        .iter()
+        .map(|(key, value)| {
+            let kind = match value {
+                Value::Bool(_) => "boolean",
+                Value::Number(_) => "integer",
+                _ => "string",
+            };
+            (key.clone(), json!({"type": kind}))
+        })
+        .collect();
+    let schema = json!({
+        "fields": fields,
+        "maximum_bytes": 1_048_576,
+        "update_mode": "replace",
+        "revision_required": true,
+    });
+
+    let other = tempfile::tempdir().unwrap();
+    let applied = call_android_data(
+        msime_client_account_settings_apply,
+        json!({
+            "preferences_directory": other.path(),
+            "cloud": {"revision": 4, "settings": settings},
+            "schema": schema,
+        }),
+    );
+    assert_eq!(applied["ok"], true, "{applied}");
+    assert_eq!(applied["value"]["custom_keyboard_skins"], "[]");
+    assert_eq!(
+        applied["value"]["android_local"],
+        json!({"platform.android.key_popup": false})
+    );
+    let saved = PreferencesStore::new(other.path()).load().unwrap();
+    assert_eq!(
+        saved.preferences.touch_toolbar.ai,
+        preferences.touch_toolbar.ai
+    );
+    assert!(saved.preferences.voice_input.asr_token.is_empty());
 }

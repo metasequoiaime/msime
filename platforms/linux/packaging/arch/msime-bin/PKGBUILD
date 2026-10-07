@@ -2,7 +2,7 @@
 #
 # 把 linux-v$pkgver 发布的 .rpm 重新打包，内容与 msime（源码包）相同，不在本机编译。选 .rpm 而不是 .deb：.deb 用 Debian 的多架构目录 usr/lib/<三元组>/，插件按相对 RUNPATH 找 Host API，挪到 Arch 的 /usr/lib/fcitx5 就断了；.rpm 用 /usr/lib64，Arch 上它本来就是指向 /usr/lib 的符号链接，整体挪进 /usr/lib、把相对路径里的 lib64 改成 lib 即可，其余写死 /usr/lib64 的地方照样经那个链接解析。
 #
-# 本文件在仓库 platforms/linux/packaging/arch/msime-bin/ 下维护，版本号与校验值由 platforms/linux/packaging/arch/render.py 按每次发布的 SHA256SUMS 改写，AUR 上的副本只是它的拷贝。发布只有 x86_64 的 .rpm。
+# 本文件在仓库 platforms/linux/packaging/arch/msime-bin/ 下维护，版本号与校验值由 platforms/linux/packaging/arch/render.py 按每次发布的 SHA256SUMS 改写，AUR 上的副本只是它的拷贝。发布里有 x86_64 与 aarch64 两个 .rpm，makepkg 只取本机架构的那个。
 
 pkgname=msime-bin
 _pkgname=msime
@@ -11,7 +11,7 @@ pkgrel=1
 # CPack 生成的 .rpm 的 Release 字段。
 _rpmrel=1
 pkgdesc='Metasequoia IME (水杉输入法): Chinese input method for Fcitx5 and IBus'
-arch=('x86_64')
+arch=('x86_64' 'aarch64')
 url='https://github.com/metasequoiaime/msime'
 # 本项目代码为 GPL-3.0-only；其余是随包的第三方代码与数据，与 rpm/msime.spec 的 License 和 Gentoo ebuild 的 LICENSE 是同一份清单：静态链接的 Rust crate 与打进设置窗口的 npm 包（rust-crates-NOTICES.txt、frontend-npm-NOTICES.txt 逐个列出）、sherpa-onnx 与 ONNX Runtime、nlohmann/json、Wayland 协议代码、手写模型、方言词库、离线释义和 resources/licenses 下的各项数据。许可证文本由 CMake 装在 /usr/share/doc/msime-client，package() 再链进 /usr/share/licenses/$pkgname。
 license=(
@@ -73,6 +73,9 @@ install=msime.install
 options=('!strip' '!debug')
 source_x86_64=("msime-linux-$pkgver-$_rpmrel.x86_64.rpm::$url/releases/download/linux-v$pkgver/msime-linux-$pkgver-$_rpmrel.x86_64.rpm")
 sha256sums_x86_64=('f2d001a2e2fcb7e754d1cfb58fd07e873a313d1b3cbe0636b9cfb38db96c9c63')
+# 0.9.1 没有 aarch64 的 .rpm，这一行在第一次渲染之前是全零占位，makepkg 校验必然失败，不会被当成真包。
+source_aarch64=("msime-linux-$pkgver-$_rpmrel.aarch64.rpm::$url/releases/download/linux-v$pkgver/msime-linux-$pkgver-$_rpmrel.aarch64.rpm")
+sha256sums_aarch64=('0000000000000000000000000000000000000000000000000000000000000000')
 
 package() {
   # makepkg 已用 bsdtar 解开 .rpm 的载荷。Fedora 的 brp-hardlink 把内容相同的许可证文件做成了跨目录硬链接（/usr/share/doc 与 /usr/share/msime-client 之间），pacman 配了 NoExtract 跳过文档时另一端就丢了，所以复制时拆开硬链接。

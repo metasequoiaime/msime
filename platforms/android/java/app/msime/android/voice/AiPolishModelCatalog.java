@@ -1,6 +1,5 @@
 package app.msime.android;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
@@ -23,6 +22,14 @@ public final class AiPolishModelCatalog {
     private static final int MAX_MODEL_ID_LENGTH = 256;
 
     private AiPolishModelCatalog() {}
+
+    static String strictString(Object value) {
+        return value instanceof String ? (String) value : null;
+    }
+
+    static Boolean strictBoolean(Object value) {
+        return value instanceof Boolean ? (Boolean) value : null;
+    }
 
     public static List<String> fetch(String endpoint, String token) throws AiPolishClient.Failure {
         final AiPolishConfiguration configuration;
@@ -50,14 +57,21 @@ public final class AiPolishModelCatalog {
             if (data == null) throw new AiPolishClient.Failure(AiPolishClient.Reason.INVALID);
             for (int index = 0; index < data.length(); index++) {
                 JSONObject model = data.optJSONObject(index);
-                if (model == null || (model.has("active") && !model.optBoolean("active", true))) continue;
-                String id = model.optString("id", "").trim();
+                if (model == null) continue;
+                if (model.has("active")) {
+                    Boolean active = strictBoolean(model.opt("active"));
+                    if (active == null || !active) continue;
+                }
+                String rawId = strictString(model.opt("id"));
+                if (rawId == null) continue;
+                String id = TextPolicy.trimmed(rawId);
                 if (id.isEmpty() || id.length() > MAX_MODEL_ID_LENGTH) continue;
                 JSONArray endpointTypes = model.optJSONArray("supported_endpoint_types");
                 if (endpointTypes != null && endpointTypes.length() > 0) {
-                    boolean supported = model.optBoolean("chat_completions_bridge", false);
+                    boolean supported = Boolean.TRUE.equals(
+                        strictBoolean(model.opt("chat_completions_bridge")));
                     for (int item = 0; item < endpointTypes.length(); item++) {
-                        String type = endpointTypes.optString(item, "");
+                        String type = strictString(endpointTypes.opt(item));
                         if ("openai".equals(type)) supported = true;
                     }
                     if (!supported) continue;
@@ -66,12 +80,18 @@ public final class AiPolishModelCatalog {
                 if (models.size() > MAX_MODELS)
                     throw new AiPolishClient.Failure(AiPolishClient.Reason.INVALID);
             }
-            if (!document.optBoolean("has_more", false)) {
+            Object rawHasMore = document.opt("has_more");
+            Boolean hasMore = rawHasMore == null || rawHasMore == JSONObject.NULL
+                ? Boolean.FALSE : strictBoolean(rawHasMore);
+            if (hasMore == null) throw new AiPolishClient.Failure(AiPolishClient.Reason.INVALID);
+            if (!hasMore) {
                 if (models.isEmpty()) throw new AiPolishClient.Failure(AiPolishClient.Reason.INVALID);
                 return new ArrayList<>(models);
             }
             if (!anthropic) throw new AiPolishClient.Failure(AiPolishClient.Reason.INVALID);
-            String next = document.optString("last_id", "").trim();
+            String rawNext = strictString(document.opt("last_id"));
+            if (rawNext == null) throw new AiPolishClient.Failure(AiPolishClient.Reason.INVALID);
+            String next = TextPolicy.trimmed(rawNext);
             if (next.isEmpty() || !cursors.add(next))
                 throw new AiPolishClient.Failure(AiPolishClient.Reason.INVALID);
             cursor = next;
@@ -98,9 +118,11 @@ public final class AiPolishModelCatalog {
                 throw new AiPolishClient.Failure(AiPolishClient.Reason.UNAVAILABLE);
             byte[] response;
             try (InputStream input = connection.getInputStream()) {
-                response = readBounded(input);
+                response = HttpBodyPolicy.readBounded(
+                    input, AiPolishConfiguration.MAXIMUM_RESPONSE_BYTES);
+                if (response == null) throw new AiPolishClient.Failure(AiPolishClient.Reason.INVALID);
             }
-            return new JSONObject(new String(response, StandardCharsets.UTF_8));
+            return new JSONObject(TextPolicy.utf8(response));
         } catch (AiPolishClient.Failure error) {
             throw error;
         } catch (IOException error) {
@@ -110,18 +132,6 @@ public final class AiPolishModelCatalog {
         } finally {
             if (connection != null) connection.disconnect();
         }
-    }
-
-    private static byte[] readBounded(InputStream input) throws IOException, AiPolishClient.Failure {
-        ByteArrayOutputStream output = new ByteArrayOutputStream();
-        byte[] buffer = new byte[8192];
-        int count;
-        while ((count = input.read(buffer)) != -1) {
-            if (output.size() + count > AiPolishConfiguration.MAXIMUM_RESPONSE_BYTES)
-                throw new AiPolishClient.Failure(AiPolishClient.Reason.INVALID);
-            output.write(buffer, 0, count);
-        }
-        return output.toByteArray();
     }
 
     static URI modelsUri(URI endpoint) throws AiPolishClient.Failure {
@@ -143,10 +153,13 @@ public final class AiPolishModelCatalog {
 
     static URI withAnthropicQuery(URI base, String cursor)
             throws AiPolishClient.Failure {
-        StringBuilder query = new StringBuilder();
-        appendPreservedQuery(base.getRawQuery(), query);
+        String preserved = base.getRawQuery();
+        String encodedCursor = cursor == null ? null : encode(cursor);
+        StringBuilder query = new StringBuilder((preserved == null ? 0 : preserved.length())
+            + 16 + (encodedCursor == null ? 0 : encodedCursor.length()));
+        appendPreservedQuery(preserved, query);
         appendQueryPart(query, "limit=1000");
-        if (cursor != null) appendQueryPart(query, "after_id=" + encode(cursor));
+        if (encodedCursor != null) appendQueryPart(query, "after_id=" + encodedCursor);
         return withQuery(base, query.toString());
     }
 

@@ -172,13 +172,11 @@ Root: HKLM; Subkey: "{#MyEditionRegistryKey}"; \
 
 [Code]
 const
-  { 所有权标记的文件名按版本取（editions.iss，full 是 .metasequoiaime-data，其他版本接上自己的名字后缀），都以 DataDirMarkerPrefix 开头。几个版本可以同时安装：OwnsDataDir 只认本版本的标记，目录里只要有别的版本的标记就不归本安装器管，所以一个版本不会接管、清理或删除另一个版本的数据目录。 }
+  { 所有权标记的文件名按版本取（editions.iss，DataDirMarkerPrefix 接上版本的名字后缀，例如 full 是 .metasequoiaime-data.full），都以 DataDirMarkerPrefix 开头；不带后缀的 .metasequoiaime-data 是 msime-windows 的标记。几个版本可以和 msime-windows 同时安装：OwnsDataDir 只认本版本的标记，目录里只要有别的版本或 msime-windows 的标记就不归本安装器管，所以本安装器不会接管、清理或删除别人的数据目录。 }
   DataDirMarkerName = '{#MyEditionDataDirMarker}';
   DataDirMarkerPrefix = '{#MyDataDirMarkerPrefix}';
-#if !MyEditionIsFull
   { 本版本写进所有权标记的内容。标记里带着版本 id，OwnsDataDir 只认它，不认别的版本的标记。 }
   DataDirMarkerText = 'This directory is managed by Metasequoia IME (edition {#Edition}).';
-#endif
 
   { WebView2 Evergreen Runtime 在 EdgeUpdate 里的固定客户端 ID。}
   WebView2ClientKey =
@@ -456,19 +454,10 @@ begin
 end;
 
 function OwnsDataDir(const Directory: String): Boolean;
-#if MyEditionIsFull
-begin
-  { 带着另一个版本标记的目录不归本安装器管，即使它就是本版本的默认数据目录：升级不能清理它，卸载也不能删它。.metasequoiaime-data 这个文件名只有 full 会写，所以只看文件在不在、不核对内容，以前的 full 写下的标记照样认。 }
-  Result :=
-    (not HasOtherEditionDataDirMarker(Directory)) and
-    ((CompareText(Directory, ExpandConstant('{localappdata}\{#MyEditionInstallDir}')) = 0) or
-     FileExists(DataDirMarkerPath(Directory)));
-end;
-#else
 var
   Lines: TArrayOfString;
 begin
-  { 几个版本可以同时安装。只认写着本版本 id 的所有权标记：带着另一个版本标记的目录不归本安装器管，即使它就是本版本的默认数据目录，升级不能清理它，卸载也不能删它。 }
+  { 几个版本可以和 msime-windows 同时安装。只认写着本版本 id 的所有权标记：带着另一个版本或 msime-windows 标记的目录不归本安装器管，即使它就是本版本的默认数据目录，升级不能清理它，卸载也不能删它。 }
   Result :=
     (not HasOtherEditionDataDirMarker(Directory)) and
     ((CompareText(Directory, ExpandConstant('{localappdata}\{#MyEditionInstallDir}')) = 0) or
@@ -476,7 +465,6 @@ begin
       (GetArrayLength(Lines) > 0) and
       (Lines[0] = DataDirMarkerText)));
 end;
-#endif
 
 procedure WriteDataDirMarker(const Directory: String);
 var
@@ -487,11 +475,7 @@ begin
   if FileExists(DataDirMarkerPath(Directory)) then
     Exit;
   SetArrayLength(Lines, 1);
-#if MyEditionIsFull
-  Lines[0] := 'This directory is managed by Metasequoia IME.';
-#else
   Lines[0] := DataDirMarkerText;
-#endif
   SaveStringsToFile(DataDirMarkerPath(Directory), Lines, False);
 end;
 
@@ -513,7 +497,7 @@ begin
   end;
 end;
 
-{ 别的版本的数据目录：每个版本的默认数据目录（%LOCALAPPDATA% 下与它的安装目录同名的目录，还没装的版本以后会落到这里），以及它在自己的 HKLM 键下登记的 DataDir。名单由 editions.iss 从版本表生成。几个版本可以同时安装，本版本的数据目录不能和这些目录重叠或互相包含：外层的版本卸载或更换数据目录时递归删除自己的目录，会把里层版本还在用的目录一起删掉；HasOtherEditionDataDirMarker 只看目录顶层，看不到嵌在子目录里的别的版本。 }
+{ 别的版本和 msime-windows 的数据目录：每个版本的默认数据目录（%LOCALAPPDATA% 下与它的安装目录同名的目录，还没装的版本以后会落到这里），以及它在自己的 HKLM 键下登记的 DataDir。名单由 editions.iss 从版本表生成，最后一项是 msime-windows（edition_windows.py 的 MSIME_WINDOWS）。几个版本可以和 msime-windows 同时安装，本版本的数据目录不能和这些目录重叠或互相包含：外层的产品卸载或更换数据目录时递归删除自己的目录，会把里层产品还在用的目录一起删掉；HasOtherEditionDataDirMarker 只看目录顶层，看不到嵌在子目录里的别人。 }
 function OtherEditionDataDirs: TArrayOfString;
 var
   RegistryKeys: String;
@@ -716,9 +700,7 @@ begin
     DataDirPage.Values[0] := Chosen;
 end;
 
-{ 云候选是唯一一个装完就会联网的功能：输入过程中把当前拼写发给 Google 的 input-tools 服务。
-  出厂默认开启，而安装器此前没有任何一屏提到过它，用户要读文档才会知道。这一页把它摆到安装
-  过程里，选择写进首次生成的 config.toml。
+{ 云候选输入过程中把当前拼写发给 Google 的 input-tools 服务，出厂默认关闭。这一页把它摆到安装过程里，勾选默认不选，用户勾上才写进首次生成的 config.toml。
 
   升级时跳过：那时 config.toml 已经属于用户，安装器不该替他重新决定。}
 procedure InitializeWizard;
@@ -743,7 +725,7 @@ begin
     '联网功能',
     '选择安装后哪些功能可以联网',
     '拼音切分、候选排序和词频学习全部在本机完成，不联网。' + #13#10 +
-    '下面这一项是唯一一个装完就会发送输入内容的联网功能。AI 联想、候选翻译、语音输入都需要你自己填入 API token 之后才会发出任何请求。' + #13#10 +
+    '下面这一项会把输入内容发出设备，默认不启用，勾选后才开启。AI 联想和语音输入要你自己填入 API token，候选翻译要你在设置里选择翻译服务，之后才会发出请求。' + #13#10 +
     'Server 首次启动时会向 api.msime.app 注册一个本机匿名水杉账号，只发送本机随机生成的标识和口令，不含输入内容，失败时下次启动重试。' + #13#10 +
     '匿名使用统计默认开启，可在「设置 → 关于」里关闭：每天一条活跃记录、每次正常退出一条会话记录，崩溃后下次启动补发一条含异常摘要和调用栈（只有模块文件名和偏移）的崩溃记录；只带随机事件 id、本机随机生成的安装 id、平台名和版本号，不含输入内容、账号或设备信息。' + #13#10#13#10 +
     '安装后随时可以在「设置 → 输入」里改变云候选的选择。',
@@ -753,7 +735,7 @@ begin
   CloudCandidatesIndex := NetworkPage.Add(
     '启用云候选：输入过程中把当前正在输入的拼写通过 HTTPS 发送给 Google 的 input-tools 服务' +
     '（inputtools.google.com），换回一条额外候选。已上屏的文本、词库内容和学习到的词频都不会发送。');
-  NetworkPage.Values[CloudCandidatesIndex] := True;
+  NetworkPage.Values[CloudCandidatesIndex] := False;
 #endif
 end;
 
@@ -764,18 +746,22 @@ begin
     Result := UserConfigExistedBeforeInstall;
 end;
 
-{ 只在本次安装刚生成 config.toml 时写入，且只改 [general] 段里的这一个键。找不到就什么都不做——
-  这一步失败不应该让安装失败。}
+{ 只在全新安装（本次安装刚生成 config.toml）时记录。运行中的宿主只读共享偏好，不读 config.toml，所以选择写进数据目录的 installer-choices.json，由 Server 首次准备状态后写进共享偏好并删掉它（platforms/windows/src/system/FirstRun.h 的 take_installer_cloud_choice）。config.toml 里 [general] 的同一个键也跟着改，免得模板与实际选择对不上。写不进去就算了——这一步失败不应该让安装失败，偏好保持默认关闭。}
 procedure ApplyNetworkChoiceToUserConfig;
 var
   Lines: TArrayOfString;
   Index: Integer;
   Trimmed: String;
   InGeneral: Boolean;
+  Choice: String;
 begin
   if UserConfigExistedBeforeInstall or (NetworkPage = nil) then
     Exit;
+  Choice := 'false';
   if NetworkPage.Values[CloudCandidatesIndex] then
+    Choice := 'true';
+  SaveStringToFile(AddBackslash(GetDataDir('')) + 'installer-choices.json', '{"cloud_candidates": ' + Choice + '}', False);
+  if Choice = 'false' then
     Exit;
   if not LoadStringsFromFile(UserConfigPath, Lines) then
     Exit;
@@ -788,7 +774,7 @@ begin
       InGeneral := (Trimmed = '[general]')
     else if InGeneral and (Pos('cloud_candidates', Trimmed) = 1) then
     begin
-      Lines[Index] := 'cloud_candidates = false';
+      Lines[Index] := 'cloud_candidates = true';
       SaveStringsToFile(UserConfigPath, Lines, False);
       Exit;
     end;

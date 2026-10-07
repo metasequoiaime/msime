@@ -7,7 +7,6 @@ import android.media.AudioFormat;
 import android.media.AudioRecord;
 import android.media.MediaRecorder;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -62,6 +61,23 @@ public final class LocalAsrRecognizer {
     private final AtomicBoolean cancelled = new AtomicBoolean();
     private final Object handleLock = new Object();
     private long handle;
+
+    /** 只在用户打开「上传语音以改进识别」且隐私判断允许时由键盘打开：把录到的 PCM 也留一份在内存里（录音本身最多 60 秒），识别结束后经 {@link #retainedAudio()} 取走。 */
+    private volatile java.io.ByteArrayOutputStream retained;
+
+    public void retainAudio(boolean value) {
+        retained = value ? new java.io.ByteArrayOutputStream(WavAudio.SAMPLE_RATE * 2 * 4) : null;
+    }
+
+    /** 留下的 16 kHz 单声道 16 位小端 PCM；没有打开留存时为 null。取走后清空。 */
+    public byte[] retainedAudio() {
+        java.io.ByteArrayOutputStream value = retained;
+        retained = null;
+        if (value == null) return null;
+        synchronized (value) {
+            return value.toByteArray();
+        }
+    }
 
     /** Stop recording and finish the transcript from what was captured. */
     public void stop() {
@@ -136,7 +152,7 @@ public final class LocalAsrRecognizer {
             if (LocalAsrPolicy.correctsByPinyin(hotwordMode) && hotwords.length() > 0) {
                 text = corrected(text, hotwords);
             }
-            text = text.trim();
+            text = TextPolicy.trimmed(text);
             if (text.isEmpty()) throw new Refused(Failure.EMPTY);
             return text;
         } catch (IllegalStateException error) {
@@ -170,13 +186,14 @@ public final class LocalAsrRecognizer {
                 if (!capture.isAlive() && audio.isEmpty()) break;
                 continue;
             }
-            String partial = NativeClient.localSpeechAccept(session, chunk, chunk.length);
+            String partial = LocalAsrPolicy.transcript(
+                NativeClient.localSpeechAccept(session, chunk, chunk.length));
             if (partial != null && !partial.equals(last)) {
                 last = partial;
                 if (listener != null) listener.onPartial(partial);
             }
         }
-        return NativeClient.localSpeechFinish(session);
+        return LocalAsrPolicy.transcript(NativeClient.localSpeechFinish(session));
     }
 
     private static AudioRecord openRecorder() throws Refused {
@@ -187,7 +204,8 @@ public final class LocalAsrRecognizer {
         try {
             recorder = new AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION,
                 WavAudio.SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO,
-                AudioFormat.ENCODING_PCM_16BIT, Math.max(minimum, WavAudio.SAMPLE_RATE * 2));
+                AudioFormat.ENCODING_PCM_16BIT,
+                BoundsPolicy.atLeast(WavAudio.SAMPLE_RATE * 2, minimum));
         } catch (IllegalArgumentException | SecurityException error) {
             throw new Refused(Failure.PERMISSION);
         }
@@ -212,13 +230,24 @@ public final class LocalAsrRecognizer {
             long captured = 0;
             while (!stopped.get() && captured < limit) {
                 short[] chunk = new short[CHUNK_SAMPLES];
-                int read = recorder.read(chunk, 0, chunk.length);
+                int requested = VoiceCapturePolicy.readLength(limit, captured, chunk.length);
+                if (requested == 0) break;
+                int read = recorder.read(chunk, 0, requested);
                 if (read < 0) {
                     failed.set(true);
                     return;
                 }
                 if (read == 0) continue;
                 captured += read;
+                java.io.ByteArrayOutputStream keep = retained;
+                if (keep != null) {
+                    byte[] bytes = new byte[read * 2];
+                    for (int index = 0; index < read; index++) {
+                        bytes[index * 2] = (byte) chunk[index];
+                        bytes[index * 2 + 1] = (byte) (chunk[index] >> 8);
+                    }
+                    synchronized (keep) { keep.write(bytes, 0, bytes.length); }
+                }
                 audio.add(read == chunk.length ? chunk : java.util.Arrays.copyOf(chunk, read));
             }
         } catch (IllegalStateException error) {
@@ -248,7 +277,7 @@ public final class LocalAsrRecognizer {
     private static String hotwordMode(String modelDirectory, Path trustedRoot) {
         try {
             byte[] bytes = LocalAsrPolicy.readManifest(modelDirectory, trustedRoot);
-            JSONObject manifest = new JSONObject(new String(bytes, StandardCharsets.UTF_8));
+            JSONObject manifest = new JSONObject(TextPolicy.utf8(bytes));
             if (manifest.isNull("hotwords")) return "";
             return manifest.optString("hotwords", "");
         } catch (IOException | JSONException error) {
@@ -266,7 +295,9 @@ public final class LocalAsrRecognizer {
                 .put("options", new JSONObject(hostOptions))
                 .put("limit", LocalAsrPolicy.HOTWORD_LIMIT);
             JSONObject response = new JSONObject(NativeClient.voiceHotwords(request.toString()));
-            if (!response.optBoolean("ok", false)) return new JSONArray();
+            if (!Boolean.TRUE.equals(LocalAsrPolicy.strictBoolean(response.opt("ok")))) {
+                return new JSONArray();
+            }
             JSONObject value = response.optJSONObject("value");
             JSONArray words = value == null ? null : value.optJSONArray("hotwords");
             return words == null ? new JSONArray() : words;
@@ -282,7 +313,8 @@ public final class LocalAsrRecognizer {
         try {
             for (int index = 0; index < texts.length && out.length() < LocalAsrPolicy.HOTWORD_LIMIT; index++) {
                 if (!LocalAsrPolicy.suppliedHotword(texts[index], pinyin[index])) continue;
-                out.put(new JSONObject().put("text", texts[index].trim()).put("pinyin", pinyin[index]));
+                out.put(new JSONObject().put("text", TextPolicy.trimmed(texts[index]))
+                    .put("pinyin", pinyin[index]));
             }
         } catch (JSONException error) {
             return new JSONArray();
@@ -291,10 +323,12 @@ public final class LocalAsrRecognizer {
     }
 
     private static List<String> texts(JSONArray hotwords) {
-        List<String> out = new ArrayList<>();
+        List<String> out = new ArrayList<>(hotwords.length());
         for (int index = 0; index < hotwords.length(); index++) {
             JSONObject word = hotwords.optJSONObject(index);
-            if (word != null && !word.isNull("text")) out.add(word.optString("text", ""));
+            if (word == null || word.isNull("text")) continue;
+            String text = LocalAsrPolicy.strictText(word.opt("text"));
+            if (text != null) out.add(text);
         }
         return out;
     }
@@ -304,10 +338,11 @@ public final class LocalAsrRecognizer {
         try {
             JSONObject request = new JSONObject().put("text", text).put("hotwords", hotwords);
             JSONObject response = new JSONObject(NativeClient.voiceHotwordCorrect(request.toString()));
-            JSONObject value = response.optBoolean("ok", false) ? response.optJSONObject("value") : null;
+            JSONObject value = Boolean.TRUE.equals(LocalAsrPolicy.strictBoolean(response.opt("ok")))
+                ? response.optJSONObject("value") : null;
             if (value == null || value.isNull("text")) return text;
-            String corrected = LocalAsrPolicy.strictText(value.opt("text"));
-            return corrected == null ? text : corrected;
+            String corrected = LocalAsrPolicy.transcript(value.opt("text"));
+            return corrected.isEmpty() ? text : corrected;
         } catch (JSONException | RuntimeException error) {
             return text;
         }

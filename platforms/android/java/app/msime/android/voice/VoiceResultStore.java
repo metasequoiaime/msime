@@ -8,14 +8,10 @@ import java.io.EOFException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.ByteBuffer;
-import java.nio.CharBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
 import java.nio.charset.CharacterCodingException;
-import java.nio.charset.CodingErrorAction;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
@@ -177,7 +173,9 @@ public final class VoiceResultStore {
             throw new Failure(Reason.INVALID);
         byte[] bytes;
         try {
-            bytes = readBounded(result);
+            try (InputStream input = Files.newInputStream(result, LinkOption.NOFOLLOW_LINKS)) {
+                bytes = HttpBodyPolicy.readRequired(input, MAXIMUM_FILE_BYTES);
+            }
         } catch (IOException error) {
             throw new Failure(Reason.INVALID, error);
         }
@@ -196,30 +194,10 @@ public final class VoiceResultStore {
         return entry;
     }
 
-    /** Read only the accepted envelope size, even if an opened file grows after inspection. */
-    private static byte[] readBounded(Path file) throws IOException {
-        try (InputStream input = Files.newInputStream(file)) {
-            ByteArrayOutputStream bytes = new ByteArrayOutputStream(MAXIMUM_FILE_BYTES);
-            byte[] buffer = new byte[8192];
-            int count;
-            while ((count = input.read(buffer)) != -1) {
-                if (bytes.size() + count > MAXIMUM_FILE_BYTES)
-                    throw new IOException("voice result too large");
-                bytes.write(buffer, 0, count);
-            }
-            return bytes.toByteArray();
-        }
-    }
-
     private static byte[] encode(Entry entry) throws Failure {
         final byte[] text;
         try {
-            ByteBuffer encoded = StandardCharsets.UTF_8.newEncoder()
-                .onMalformedInput(CodingErrorAction.REPORT)
-                .onUnmappableCharacter(CodingErrorAction.REPORT)
-                .encode(CharBuffer.wrap(entry.text()));
-            text = new byte[encoded.remaining()];
-            encoded.get(text);
+            text = TextPolicy.utf8StrictBytes(entry.text());
         } catch (CharacterCodingException error) {
             throw new Failure(Reason.INVALID, error);
         }
@@ -259,10 +237,7 @@ public final class VoiceResultStore {
                 throw new Failure(Reason.INVALID);
             }
             if (input.read() != -1) throw new Failure(Reason.INVALID);
-            String decoded = StandardCharsets.UTF_8.newDecoder()
-                .onMalformedInput(CodingErrorAction.REPORT)
-                .onUnmappableCharacter(CodingErrorAction.REPORT)
-                .decode(ByteBuffer.wrap(text)).toString();
+            String decoded = TextPolicy.utf8Strict(text);
             return new Entry(id, decoded, created, expires);
         } catch (Failure error) {
             throw error;
@@ -274,7 +249,9 @@ public final class VoiceResultStore {
     }
 
     private static boolean validText(String text) {
-        return text != null && !text.strip().isEmpty()
-            && text.codePointCount(0, text.length()) <= MAXIMUM_CHARACTERS;
+        return text != null && !TextPolicy.stripped(text).isEmpty()
+            && TextPolicy.withinCodePoints(text, MAXIMUM_CHARACTERS)
+            && !TextPolicy.hasControlExceptWhitespace(text)
+            && TextPolicy.validUnicode(text);
     }
 }

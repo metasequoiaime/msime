@@ -1,5 +1,5 @@
 {
-  "source_commit": "e12279943acca455583326030a214af02c323625",
+  "source_commit": "1f8a2c83cfc09769bac74e0f891ff0b1b82419a0",
   "artifacts": [
     {
       "name": "sentence-model.safetensors",

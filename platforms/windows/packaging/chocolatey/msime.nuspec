@@ -25,7 +25,7 @@ This package runs the released Inno Setup installer silently; the input method i
 
 ## Package parameters
 
-- `/DataDir:` - an empty directory for the input method's data (dictionaries, settings, skins). Without it the installer keeps the directory of an earlier install, or uses `%LOCALAPPDATA%\metasequoiaime`.
+- `/DataDir:` - an empty directory for the input method's data (dictionaries, settings, skins). Without it the installer keeps the directory of an earlier install, or uses `%LOCALAPPDATA%\metasequoiaime-full`.
 
 Example: `choco install msime --params "'/DataDir:D:\msime-data'"`
 

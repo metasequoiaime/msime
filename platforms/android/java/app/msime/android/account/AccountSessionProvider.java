@@ -12,7 +12,7 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 /**
- * 向本应用的其他进程提供登录账号或匿名账号的 access token。
+ * 向本应用的其他进程提供登录账号或匿名账号的 access token，以及云同步的开关与改动标记（`sync_state` / `sync_dirty`）。
  *
  * <p>Declared in the main process and not exported, so only this uid can reach it. The `:ime` keyboard therefore never holds a refresh token and never refreshes, which is what keeps the rotating refresh token from being spent twice. Which session answers is {@link AccountSessionRoutingPolicy#source}: the native sign-in's own session, refreshed by {@link BackendAccount#owningSession} under the existing in-process lock, or else the combined package's Rust-owned session, read but never refreshed here. The token is returned in the reply and nowhere else: nothing here logs it.
  */
@@ -24,6 +24,7 @@ public final class AccountSessionProvider extends ContentProvider {
             throw new SecurityException("account session");
         }
         Context context = getContext();
+        if (AccountSessionRoutingPolicy.syncMethod(method)) return sync(context, method, arg);
         Bundle reply = new Bundle();
         String token = "";
         String state;
@@ -38,6 +39,21 @@ public final class AccountSessionProvider extends ContentProvider {
         }
         reply.putString(AccountSessionRoutingPolicy.KEY_STATE, state);
         reply.putString(AccountSessionRoutingPolicy.KEY_ACCESS_TOKEN, token);
+        return reply;
+    }
+
+    /** 同步开关与改动标记由主进程代 `:ime` 读写；回复里只有开关、登录方式和「已记下」，没有任何令牌。 */
+    private static Bundle sync(Context context, String method, String section) {
+        Bundle reply = new Bundle();
+        if (context == null) return reply;
+        if (AccountSessionRoutingPolicy.METHOD_SYNC_STATE.equals(method)) {
+            reply.putBoolean(AccountSessionRoutingPolicy.KEY_SYNC_ENABLED, SyncSwitch.enabled(context));
+            reply.putString(AccountSessionRoutingPolicy.KEY_LOGIN_KIND, SyncSwitch.loginKind(context));
+            return reply;
+        }
+        if (!SyncSwitch.validSection(section)) throw new IllegalArgumentException("unknown sync section");
+        SyncSwitch.markDirty(context, section);
+        reply.putBoolean(AccountSessionRoutingPolicy.KEY_SYNC_MARKED, true);
         return reply;
     }
 

@@ -19,6 +19,8 @@ const MAX_PAGE_ENTRIES: usize = 100;
 /// The code prefix a page may be filtered by, as the Engine list accepts it.
 const MAX_QUERY_BYTES: usize = 256;
 const MAX_HISTORY: usize = 32;
+/// How many "already in the dictionary" receipts the state holds until the host that asked for them reads them back. A full list drops its oldest receipt. Only additions from the dictionary collections produce one, at most `MAX_ACTIVE_REQUESTS` of them are in flight, and each collections flush acknowledges what it read, so the list stays far below this and the state file well inside `MAX_STATE_BYTES`.
+const MAX_ALREADY_PRESENT: usize = 1024;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub enum PersonalWordKind {
@@ -111,6 +113,15 @@ impl PersonalWord {
     }
 }
 
+/// What applying one request did, as the keyboard reports it to [`PersonalDictionaryStore::synchronize_reporting_present`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PersonalWordApplied {
+    /// The Engine dictionary was changed.
+    Written,
+    /// The addition named a word the user's dictionary already held, and it was left as it was. The replacement's identity is kept in [`PersonalDictionaryState::already_present`] until the host acknowledges it.
+    AlreadyPresent,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum PersonalWordRequestStatus {
@@ -167,6 +178,9 @@ pub struct PersonalDictionaryState {
     pub refresh_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub completed_refresh_id: Option<String>,
+    /// Identities of additions the keyboard found already in the user's dictionary and did not write, oldest first. The dictionary collections store reads them so that turning a collection off never removes a word the user had before the collection added it. Applied requests themselves are pruned to a short history, so the receipt lives here until it is acknowledged.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub already_present: Vec<String>,
 }
 
 impl Default for PersonalDictionaryState {
@@ -186,6 +200,7 @@ impl Default for PersonalDictionaryState {
             page_query: String::new(),
             refresh_id: Uuid::new_v4().to_string(),
             completed_refresh_id: None,
+            already_present: Vec::new(),
         }
     }
 }
@@ -413,10 +428,26 @@ impl PersonalDictionaryStore {
     pub fn synchronize<Apply, Page>(
         &self,
         mut apply: Apply,
-        mut page: Page,
+        page: Page,
     ) -> Result<(), PersonalDictionaryError>
     where
         Apply: FnMut(&PersonalWordRequest) -> Result<(), String>,
+        Page: FnMut(&PersonalPageRequest) -> Result<PersonalWordPage, String>,
+    {
+        self.synchronize_reporting_present(
+            |request| apply(request).map(|()| PersonalWordApplied::Written),
+            page,
+        )
+    }
+
+    /// [`Self::synchronize`] for a keyboard that can tell an addition of a word the dictionary already holds from one that wrote it. Such an addition is still marked applied, and its identity is recorded in [`PersonalDictionaryState::already_present`].
+    pub fn synchronize_reporting_present<Apply, Page>(
+        &self,
+        mut apply: Apply,
+        mut page: Page,
+    ) -> Result<(), PersonalDictionaryError>
+    where
+        Apply: FnMut(&PersonalWordRequest) -> Result<PersonalWordApplied, String>,
         Page: FnMut(&PersonalPageRequest) -> Result<PersonalWordPage, String>,
     {
         self.update(|state| {
@@ -433,9 +464,20 @@ impl PersonalDictionaryStore {
             );
             for index in pending {
                 match apply(&state.requests[index]) {
-                    Ok(()) => {
+                    Ok(applied) => {
                         state.requests[index].status = PersonalWordRequestStatus::Applied;
                         state.requests[index].error = None;
+                        if applied == PersonalWordApplied::AlreadyPresent {
+                            if let Some(word) = &state.requests[index].replacement {
+                                let identity = word.identity();
+                                if !state.already_present.contains(&identity) {
+                                    if state.already_present.len() >= MAX_ALREADY_PRESENT {
+                                        state.already_present.remove(0);
+                                    }
+                                    state.already_present.push(identity);
+                                }
+                            }
+                        }
                     }
                     Err(error) => {
                         state.requests[index].status = PersonalWordRequestStatus::Failed;
@@ -466,6 +508,22 @@ impl PersonalDictionaryStore {
                 }
                 Err(error) => state.snapshot_error = Some(error.chars().take(500).collect()),
             }
+            Ok(())
+        })
+    }
+
+    /// Drop the receipts in `identities` from [`PersonalDictionaryState::already_present`], once the host has recorded them elsewhere.
+    pub fn acknowledge_already_present(
+        &self,
+        identities: &HashSet<String>,
+    ) -> Result<(), PersonalDictionaryError> {
+        if identities.is_empty() {
+            return Ok(());
+        }
+        self.update(|state| {
+            state
+                .already_present
+                .retain(|identity| !identities.contains(identity));
             Ok(())
         })
     }
@@ -594,6 +652,8 @@ fn validate_state(state: &PersonalDictionaryState) -> Result<(), PersonalDiction
         || state.requested_query.len() > MAX_QUERY_BYTES
         || state.page_query.len() > MAX_QUERY_BYTES
         || state.refresh_id.is_empty()
+        || state.already_present.len() > MAX_ALREADY_PRESENT
+        || state.already_present.iter().any(String::is_empty)
     {
         return Err(PersonalDictionaryError::InvalidState);
     }

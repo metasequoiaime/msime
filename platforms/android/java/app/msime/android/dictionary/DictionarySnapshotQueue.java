@@ -328,7 +328,7 @@ public final class DictionarySnapshotQueue {
         try { digest = MessageDigest.getInstance("SHA-256"); }
         catch (NoSuchAlgorithmException error) { throw new Failure(Reason.UNAVAILABLE, error); }
         long total = 0;
-        try (InputStream input = Files.newInputStream(source);
+        try (InputStream input = Files.newInputStream(source, LinkOption.NOFOLLOW_LINKS);
                 OutputStream output = Files.newOutputStream(destination, StandardOpenOption.WRITE)) {
             byte[] buffer = new byte[65_536];
             int count;
@@ -339,20 +339,8 @@ public final class DictionarySnapshotQueue {
                 output.write(buffer, 0, count);
             }
         }
-        if (total == 0 || !hex(digest.digest()).equals(expected))
+        if (total == 0 || !DigestPolicy.hex(digest.digest()).equals(expected))
             throw new Failure(Reason.INVALID);
-    }
-
-    /** Lowercase hex. `HexFormat` is API 34 and this host runs from API 28. */
-    private static String hex(byte[] bytes) {
-        char[] digits = "0123456789abcdef".toCharArray();
-        char[] out = new char[bytes.length * 2];
-        for (int index = 0; index < bytes.length; index++) {
-            int value = bytes[index] & 0xFF;
-            out[index * 2] = digits[value >>> 4];
-            out[index * 2 + 1] = digits[value & 0x0F];
-        }
-        return new String(out);
     }
 
     private Path root() throws Failure {
@@ -411,7 +399,10 @@ public final class DictionarySnapshotQueue {
             if (!Files.exists(stateFile, LinkOption.NOFOLLOW_LINKS)) return new State(null, null);
             if (!Files.isRegularFile(stateFile, LinkOption.NOFOLLOW_LINKS))
                 throw new Failure(Reason.INVALID);
-            byte[] bytes = readBounded(stateFile);
+            byte[] bytes;
+            try (InputStream input = Files.newInputStream(stateFile, LinkOption.NOFOLLOW_LINKS)) {
+                bytes = HttpBodyPolicy.readRequired(input, MAXIMUM_STATE_BYTES);
+            }
             if (bytes.length == 0) throw new Failure(Reason.INVALID);
             DataInputStream input = new DataInputStream(new ByteArrayInputStream(bytes));
             if (input.readInt() != 0x4d535131 || input.readInt() != 1) throw new Failure(Reason.INVALID);
@@ -422,21 +413,6 @@ public final class DictionarySnapshotQueue {
             return new State(local, request);
         } catch (Failure error) { throw error; }
         catch (IOException | SecurityException error) { throw new Failure(Reason.INVALID, error); }
-    }
-
-    /** Read only the metadata envelope, even if a replaced state file grows after inspection. */
-    private static byte[] readBounded(Path file) throws IOException {
-        try (InputStream input = Files.newInputStream(file)) {
-            ByteArrayOutputStream bytes = new ByteArrayOutputStream(MAXIMUM_STATE_BYTES);
-            byte[] buffer = new byte[4096];
-            int count;
-            while ((count = input.read(buffer)) != -1) {
-                if (bytes.size() + count > MAXIMUM_STATE_BYTES)
-                    throw new IOException("snapshot state too large");
-                bytes.write(buffer, 0, count);
-            }
-            return bytes.toByteArray();
-        }
     }
 
     private Request decodeRequest(DataInputStream input) throws IOException, Failure {

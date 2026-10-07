@@ -12,6 +12,16 @@ public final class AccountSessionRoutingPolicy {
     public static final String METHOD_ACCESS_TOKEN = "access_token";
     /** 主进程独占的匿名账号令牌方法；键盘进程不能直接碰匿名会话存储。 */
     public static final String METHOD_ANONYMOUS_ACCESS_TOKEN = "anonymous_access_token";
+    /** `:ime` 进程标记某个同步分类本机有改动；参数是分类名。 */
+    public static final String METHOD_SYNC_DIRTY = "sync_dirty";
+    /** `:ime` 进程读同步开关与登录方式；回复里只有这两项，没有任何令牌。 */
+    public static final String METHOD_SYNC_STATE = "sync_state";
+    /** `sync_state` 回复中的开关字段。 */
+    public static final String KEY_SYNC_ENABLED = "sync_enabled";
+    /** `sync_state` 回复中的登录方式字段（google / apple / email，未登录为空）。 */
+    public static final String KEY_LOGIN_KIND = "login_kind";
+    /** `sync_dirty` 回复中「标记已记下」的字段。 */
+    public static final String KEY_SYNC_MARKED = "sync_marked";
     /** 回复中携带令牌的字段名。 */
     public static final String KEY_ACCESS_TOKEN = "access_token";
     /** Optional access token that the caller just saw rejected; the owner must not reuse it. */
@@ -90,9 +100,15 @@ public final class AccountSessionRoutingPolicy {
             && rejectedToken.equals(savedToken);
     }
 
-    /** Provider 只回答本 UID 的两种令牌方法；manifest 的 `exported="false"` 是第一道边界，这里是第二道。 */
+    /** Provider 只回答本 UID 的两种令牌方法与两种同步方法；manifest 的 `exported="false"` 是第一道边界，这里是第二道。 */
     public static boolean accepts(String method, int callingUid, int ownUid) {
-        return (METHOD_ACCESS_TOKEN.equals(method) || METHOD_ANONYMOUS_ACCESS_TOKEN.equals(method))
+        return (METHOD_ACCESS_TOKEN.equals(method) || METHOD_ANONYMOUS_ACCESS_TOKEN.equals(method)
+                || METHOD_SYNC_DIRTY.equals(method) || METHOD_SYNC_STATE.equals(method))
             && callingUid == ownUid;
+    }
+
+    /** 是不是只读写同步标记、不涉及令牌的方法；provider 据此走另一条分支，回复里不放令牌字段。 */
+    public static boolean syncMethod(String method) {
+        return METHOD_SYNC_DIRTY.equals(method) || METHOD_SYNC_STATE.equals(method);
     }
 }

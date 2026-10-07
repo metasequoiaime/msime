@@ -18,7 +18,7 @@ export interface LinuxSetupLine {
 
 export interface LinuxSetupChoices {
   download: boolean;
-  /** Cloud candidates are the one network feature active without any token, so the first setup asks, as the Windows installer does. */
+  /** 云候选会把正在输入的拼写发出设备，新装默认关闭；与 Windows 安装器一样在首次配置时询问，勾选才打开。 */
   cloudCandidates: boolean;
 }
 
@@ -40,7 +40,7 @@ export function LinuxSetupPage({
   onComplete: () => void;
 }) {
   const [download, setDownload] = useState(false);
-  const [cloudCandidates, setCloudCandidates] = useState(true);
+  const [cloudCandidates, setCloudCandidates] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState("");
   const [lines, setLines] = useState<LinuxSetupLine[]>([]);
@@ -113,7 +113,7 @@ export function LinuxSetupPage({
                 onChange={(event) => setCloudCandidates(event.target.checked)}
               />{" "}
               启用云候选：输入过程中把正在输入的拼写通过 HTTPS 发送给 Google 的 input-tools
-              服务（inputtools.google.com），换回一条额外候选。已上屏的文本、词库内容和学习到的词频都不会发送。这是唯一一项配置完就会联网的功能，之后可在设置里更改。
+              服务（inputtools.google.com），换回一条额外候选。已上屏的文本、词库内容和学习到的词频都不会发送。默认不启用，之后可在设置里更改。
             </label>
           )}
           {lines.length > 0 && (

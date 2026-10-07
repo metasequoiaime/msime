@@ -19,7 +19,7 @@ public interface HandwritingRecognizer extends AutoCloseable {
                     || width <= 0 || height <= 0 || width > 4096 || height > 4096) {
                 throw new IllegalArgumentException("Handwriting request is invalid");
             }
-            List<List<HandwritingInk.Point>> copied = new ArrayList<>();
+            List<List<HandwritingInk.Point>> copied = new ArrayList<>(strokes.size());
             for (List<HandwritingInk.Point> stroke : strokes) {
                 if (stroke.isEmpty() || stroke.size() > HandwritingInk.MAX_POINTS_PER_STROKE) {
                     throw new IllegalArgumentException("Handwriting stroke is invalid");
@@ -44,6 +44,18 @@ public interface HandwritingRecognizer extends AutoCloseable {
         void onFailure(long revision);
     }
 
+    /** 行写时送给模型的上文（光标前最多 {@link #MAX_PRE_CONTEXT} 个字符），帮助它按整行的语境识别；单字与叠写传空串。不支持上文的实现忽略它。 */
+    int MAX_PRE_CONTEXT = 20;
+
+    default void setPreContext(String preContext) { }
+
+    /** 上文截成最后 {@link #MAX_PRE_CONTEXT} 个码点，并去掉控制字符；null 视为空串。 */
+    static String clipPreContext(String value) {
+        if (value == null || value.isEmpty()) return "";
+        String text = TextPolicy.removeControls(value);
+        return TextPolicy.tailCodePoints(text, MAX_PRE_CONTEXT);
+    }
+
     Availability availability();
     void download(DownloadListener listener);
     void recognize(Request request, RecognitionListener listener);
@@ -52,13 +64,13 @@ public interface HandwritingRecognizer extends AutoCloseable {
 
     static List<String> sanitizeCandidates(List<String> values) {
         if (values == null) return List.of();
-        LinkedHashSet<String> accepted = new LinkedHashSet<>();
+        LinkedHashSet<String> accepted = new LinkedHashSet<>(MAX_CANDIDATES);
         for (String value : values) {
             if (value == null) continue;
-            String candidate = value.strip();
+            String candidate = TextPolicy.stripped(value);
             if (candidate.isEmpty()
                     || TextPolicy.utf8Length(candidate) > MAX_CANDIDATE_BYTES
-                    || TextPolicy.hasControl(candidate)) continue;
+                    || TextPolicy.hasControl(candidate) || !TextPolicy.validUnicode(candidate)) continue;
             accepted.add(candidate);
             if (accepted.size() == MAX_CANDIDATES) break;
         }

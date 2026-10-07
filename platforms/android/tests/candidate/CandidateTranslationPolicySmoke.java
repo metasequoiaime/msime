@@ -22,6 +22,8 @@ public final class CandidateTranslationPolicySmoke {
             "long press keeps distinct bounded gloss rows");
         check(CandidateTranslationPolicy.insertionGlosses("safe\n" + "x".repeat(4097))
                 .equals(List.of("safe")), "oversized gloss rows are not insertable");
+        check(CandidateTranslationPolicy.insertionGlosses("坏\uD800\n好")
+                .equals(List.of("好")), "invalid Unicode gloss rows are not insertable");
         check(CandidateTranslationPolicy.glossLines(List.of("en"), true, false, Set.of()) == 1,
             "offline English keeps its row when online translation is off");
         check(CandidateTranslationPolicy.glossLines(List.of("ja"), true, false, Set.of()) == 0,
@@ -87,8 +89,9 @@ public final class CandidateTranslationPolicySmoke {
             "every gloss row under the candidate reserves a row of strip height");
         check(CandidateTranslationPolicy.reservedGlossRows(0, true) == 1,
             "Korean reserves the 훈음 row with glosses off");
-        check(CandidateTranslationPolicy.reservedGlossRows(2, true) == 3,
-            "Korean reserves every gloss row under the 훈음");
+        check(CandidateTranslationPolicy.reservedGlossRows(1, true) == 1
+                && CandidateTranslationPolicy.reservedGlossRows(2, true) == 2,
+            "the 훈음 shares the first gloss row, so Korean reserves no more rows than any other scheme");
         // The account endpoint receives candidate words, so only an explicit choice may reach it.
         check(!CandidateTranslationPolicy.accountSelected(true, false, false, false),
             "candidate translations alone never select the account");

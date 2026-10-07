@@ -12,6 +12,7 @@
 #include <iostream>
 #include <memory>
 #include <nlohmann/json.hpp>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <sys/stat.h>
@@ -108,13 +109,13 @@ int refresh(const std::filesystem::path &options) {
   }
 }
 
-// The Windows installer asks on a first install whether cloud candidates may run, since they are the one network feature active without any token; declining writes the preference before the input method first starts.
-void disable_cloud_candidates(const std::filesystem::path &state, nlohmann::json &options) {
+// 云候选新装默认关闭；首次配置时用户的选择（与 Windows 安装器的「联网功能」页相同）在输入法第一次启动前写进偏好。
+void record_cloud_candidates(const std::filesystem::path &state, nlohmann::json &options, bool enabled) {
   const auto directory = state.string();
   auto snapshot = value_of(Owned(
       msime_client_load_preferences(reinterpret_cast<const uint8_t *>(directory.data()), directory.size()),
       msime_client_string_free));
-  snapshot.at("preferences")["cloud_candidates"] = false;
+  snapshot.at("preferences")["cloud_candidates"] = enabled;
   const auto revision = snapshot.at("revision").get<uint64_t>();
   const auto document = snapshot.dump();
   const auto saved = value_of(Owned(
@@ -127,26 +128,28 @@ void disable_cloud_candidates(const std::filesystem::path &state, nlohmann::json
 
 int main(int argc, char **argv) {
   if (argc == 2 && std::string(argv[1]) == "--help") {
-    std::cout << "Usage: msime-linux-prepare [--no-cloud-candidates] <absolute-resource-directory> <absolute-new-state-directory>\n"
-                 "       msime-linux-prepare [--no-cloud-candidates] --installed <absolute-new-state-directory>\n"
+    std::cout << "Usage: msime-linux-prepare [--cloud-candidates|--no-cloud-candidates] <absolute-resource-directory> <absolute-new-state-directory>\n"
+                 "       msime-linux-prepare [--cloud-candidates|--no-cloud-candidates] --installed <absolute-new-state-directory>\n"
                  "       msime-linux-prepare --refresh <absolute-runtime-options.json>\n"
                  "The state directory must not exist (except for installer-created anonymous account files); its parent must exist.\n"
                  "--installed uses the resource bundle installed beside this executable.\n"
-                 "--no-cloud-candidates turns cloud candidates off in the new preferences.\n"
+                 "Cloud candidates start off; --cloud-candidates turns them on in the new preferences, --no-cloud-candidates records them off.\n"
                  "Prints the new runtime-options.json path on success.\n"
                  "--refresh moves existing runtime options to the installed dictionary generation, replaying the\n"
                  "user dictionary; prints \"refreshed\" or \"current\", exits 3 when the recorded dictionaries are outdated.\n";
     return 0;
   }
   if (argc == 3 && std::string(argv[1]) == "--refresh") return refresh(argv[2]);
-  const bool no_cloud = argc > 1 && std::string(argv[1]) == "--no-cloud-candidates";
-  if (no_cloud) {
+  std::optional<bool> cloud;
+  if (argc > 1 && std::string(argv[1]) == "--cloud-candidates") cloud = true;
+  if (argc > 1 && std::string(argv[1]) == "--no-cloud-candidates") cloud = false;
+  if (cloud) {
     --argc;
     ++argv;
   }
   if (argc != 3) {
-    std::cerr << "Usage: msime-linux-prepare [--no-cloud-candidates] <absolute-resource-directory> <absolute-new-state-directory>\n"
-                 "       msime-linux-prepare [--no-cloud-candidates] --installed <absolute-new-state-directory>\n"
+    std::cerr << "Usage: msime-linux-prepare [--cloud-candidates|--no-cloud-candidates] <absolute-resource-directory> <absolute-new-state-directory>\n"
+                 "       msime-linux-prepare [--cloud-candidates|--no-cloud-candidates] --installed <absolute-new-state-directory>\n"
                  "       msime-linux-prepare --refresh <absolute-runtime-options.json>\n";
     return 2;
   }
@@ -214,9 +217,9 @@ int main(int argc, char **argv) {
       return 1;
     }
     auto options = result.at("value");
-    if (no_cloud) {
+    if (cloud) {
       try {
-        disable_cloud_candidates(state, options);
+        record_cloud_candidates(state, options, *cloud);
       } catch (...) {
         std::cerr << "Cannot record the cloud candidate choice; nothing was published, use a fresh directory to retry\n";
         return 1;

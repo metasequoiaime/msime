@@ -59,13 +59,8 @@ final class KeyboardChatModel: ObservableObject {
     generation += 1
     let version = generation, model = selectedModel
     // Bound context to the service contract while retaining the newest complete messages.
-    var context: [BackendAccountClient.ChatMessage] = []
-    var bytes = 0
-    for item in messages.reversed() {
-      guard context.count < 14, bytes + item.text.utf8.count < 48000 else { break }
-      context.insert(.init(role: item.role, content: item.text), at: 0)
-      bytes += item.text.utf8.count
-    }
+    let context = KeyboardChatHistoryPolicy.bounded(messages.map { (role: $0.role, text: $0.text) })
+      .map { BackendAccountClient.ChatMessage(role: $0.role, content: $0.text) }
     let history = context
     request = Task { [weak self] in
       guard let self else { return }

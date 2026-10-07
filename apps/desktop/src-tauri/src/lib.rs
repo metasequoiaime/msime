@@ -51,7 +51,7 @@ use platform::ios::ios_account;
 #[cfg(target_os = "linux")]
 use platform::linux::{
     linux_account, linux_audio_devices, linux_data_directory, linux_process,
-    linux_provider_credentials, linux_setup,
+    linux_program_handover, linux_provider_credentials, linux_setup,
 };
 #[cfg(target_os = "macos")]
 use platform::macos::{
@@ -220,12 +220,18 @@ fn host_capabilities(app: tauri::AppHandle) -> HostCapabilities {
     // Font enumeration is a build-time capability, not a platform assumption.
     capabilities.system_fonts = font_catalog_supported();
     capabilities.os_version = macos_product_version();
+    capabilities.arch = Some(std::env::consts::ARCH.to_owned());
     capabilities.candidate_panel_limit = linux_candidate_panel_limit();
     let host_options = app
         .try_state::<DictionaryHostOptions>()
         .and_then(|options| options.snapshot().ok());
-    // macOS 上选用粤拼/注音/笔画会下载对应的语言词库，所以即便还没下载，这些方案也保持可选；但锁文件没固定其词库的方案下载了也用不上，照样去掉。
-    if cfg!(target_os = "macos") {
+    // macOS 上选用粤拼/注音/笔画会下载对应的语言词库，所以即便还没下载，这些方案也保持可选；但锁文件没固定其词库的方案下载了也用不上，照样去掉。Linux 安装没有随包带齐这几份词库时，设置应用同样提供语言词库资源包（见 `desktop_resource_packs::offered_by`），按同样的规则处理；带齐时照旧按随包的词库判断。
+    let downloads_language_dictionaries = cfg!(target_os = "macos")
+        || (cfg!(target_os = "linux")
+            && host_options
+                .as_ref()
+                .is_some_and(|document| !msime_host_api::packaged_language_dictionaries(document)));
+    if downloads_language_dictionaries {
         drop_unpinned_language_schemes(&mut capabilities);
     } else {
         drop_uninstalled_language_schemes(
@@ -536,8 +542,6 @@ impl DictionaryHostOptions {
 }
 
 struct SkinDirectoryState(PathBuf);
-/// The Engine's user directory: where the documents a user writes by hand live, `custom_translations.txt` among them.
-struct UserDirectoryState(PathBuf);
 struct TypingStatisticsState(TypingStatisticsStore);
 /// The shared preferences directory, where the input method writes `diagnostic.log` when its diagnostic switch is on.
 struct DiagnosticLogState(PathBuf);
@@ -832,84 +836,6 @@ async fn read_skin_stylesheet(
 ) -> Result<String, CommandError> {
     let root = directory.0.clone();
     tauri::async_runtime::spawn_blocking(move || read_skin_stylesheet_at(root, &id, &relative))
-        .await
-        .map_err(|_| CommandError { code: "storage" })?
-}
-
-/// The user's own candidate glosses, as a document the settings page edits.
-///
-/// The reference has the user drop `custom_translations.txt` into the profile directory and says so in
-/// its documentation. That instruction does not survive the move to macOS, where the same directory
-/// lives under `~/Library` and the Finder hides it by default, so the overlay was reachable on paper
-/// and not in practice. The page already knows how to edit the document - it was only ever handed to
-/// HarmonyOS - so the host supplies the two ends, and the Engine keeps reading the same file.
-const CUSTOM_TRANSLATIONS_MAX_BYTES: usize = 1024 * 1024;
-
-fn custom_translations_path(user: &std::path::Path) -> PathBuf {
-    user.join("custom_translations.txt")
-}
-
-fn read_custom_translations_at(user: PathBuf) -> Result<String, CommandError> {
-    crate::shared::atomic_file::check_directory_ancestors(&user)
-        .map_err(|_| CommandError { code: "storage" })?;
-    let path = custom_translations_path(&user);
-    let metadata = match std::fs::symlink_metadata(&path) {
-        Ok(metadata) => metadata,
-        // No overlay yet is the ordinary state, not a failure: the page opens on an empty document.
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(String::new()),
-        Err(_) => return Err(CommandError { code: "storage" }),
-    };
-    if !metadata.file_type().is_file() {
-        return Err(CommandError { code: "storage" });
-    }
-    let file = std::fs::File::open(path).map_err(|_| CommandError { code: "storage" })?;
-    let bytes = crate::shared::bounded_body::read_bounded(file, CUSTOM_TRANSLATIONS_MAX_BYTES)
-        .map_err(|_| CommandError { code: "storage" })?;
-    // A UTF-8 BOM is an encoding marker the reference accepts, not part of the first source word.
-    let text = String::from_utf8(bytes).map_err(|_| CommandError { code: "storage" })?;
-    Ok(text.strip_prefix('\u{feff}').unwrap_or(&text).to_owned())
-}
-
-fn write_custom_translations_at(user: PathBuf, text: &str) -> Result<(), CommandError> {
-    if text.len() > CUSTOM_TRANSLATIONS_MAX_BYTES || text.contains('\0') {
-        return Err(CommandError {
-            code: "invalid_document",
-        });
-    }
-    let path = custom_translations_path(&user);
-    // An emptied document means "no overlay". Removing the file says that; leaving an empty one
-    // behind would have the Engine open and read an empty set every session instead.
-    if text.trim().is_empty() {
-        return match std::fs::remove_file(&path) {
-            Ok(()) => Ok(()),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(_) => Err(CommandError { code: "storage" }),
-        };
-    }
-    // Use a fresh private sibling and publish it atomically. This avoids
-    // following a pre-existing staging symlink and leaves the previous overlay
-    // intact if writing or syncing fails.
-    crate::shared::atomic_file::write(&path, text.as_bytes())
-        .map_err(|_| CommandError { code: "storage" })
-}
-
-#[tauri::command]
-async fn read_custom_translations(
-    directory: tauri::State<'_, UserDirectoryState>,
-) -> Result<String, CommandError> {
-    let user = directory.0.clone();
-    tauri::async_runtime::spawn_blocking(move || read_custom_translations_at(user))
-        .await
-        .map_err(|_| CommandError { code: "storage" })?
-}
-
-#[tauri::command]
-async fn write_custom_translations(
-    directory: tauri::State<'_, UserDirectoryState>,
-    text: String,
-) -> Result<(), CommandError> {
-    let user = directory.0.clone();
-    tauri::async_runtime::spawn_blocking(move || write_custom_translations_at(user, &text))
         .await
         .map_err(|_| CommandError { code: "storage" })?
 }
@@ -3609,6 +3535,64 @@ fn macos_settings_launch(route: Option<SurfaceRoute>) -> bool {
     route.is_none_or(|route| route.panel().is_none())
 }
 
+/// 升级后的第一次启动：本进程执行的程序已被新文件替换时，把这次启动交给新程序，自己退出，否则用户看到的一直是旧界面（见 `linux_program_handover`）。先隐藏所有窗口，让页面把待保存的编辑写完，过 [`linux_program_handover::FLUSH_GRACE`] 再放开单实例的 D-Bus 名、以转来的参数启动新程序并退出；新程序因此拿得到这个名字，不会又把参数转回来。正在下载或删除模型、资源包时不交接，免得把它打断，等下一次启动再说。返回是否接手了这次启动；没有接手时由调用方照旧激活界面。
+#[cfg(target_os = "linux")]
+fn hand_over_to_replaced_program(app: &tauri::AppHandle, args: &[String], cwd: &str) -> bool {
+    static HANDING_OVER: AtomicBool = AtomicBool::new(false);
+    if HANDING_OVER.load(Ordering::Acquire) {
+        // 交接已经开始：新程序启动后就能拿到单实例名，这次启动的参数也会由它处理。
+        return true;
+    }
+    let Some(program) = linux_program_handover::running_program_replaced() else {
+        return false;
+    };
+    if app
+        .try_state::<voice::local_models::LocalModelInstalls>()
+        .is_some_and(|installs| installs.any_running())
+    {
+        return false;
+    }
+    if HANDING_OVER.swap(true, Ordering::AcqRel) {
+        return true;
+    }
+    if let Some(linger) = app.try_state::<DesktopSettingsLinger>() {
+        linger.quitting.store(true, Ordering::Release);
+    }
+    let hide_app = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        for window in hide_app.webview_windows().values() {
+            let _ = window.hide();
+        }
+    });
+    let app = app.clone();
+    let args = args.to_vec();
+    let cwd = cwd.to_owned();
+    std::thread::spawn(move || {
+        std::thread::sleep(linux_program_handover::FLUSH_GRACE);
+        tauri_plugin_single_instance::destroy(&app);
+        let mut command = std::process::Command::new(&program);
+        command.args(args.iter().skip(1));
+        if Path::new(&cwd).is_absolute() {
+            command.current_dir(&cwd);
+        }
+        match command.spawn() {
+            Ok(_) => app.exit(0),
+            Err(_) => {
+                // 新程序起不来：留在旧程序上，至少把用户要的界面打开。
+                eprintln!("msime: could not start the upgraded settings program");
+                if let Some(linger) = app.try_state::<DesktopSettingsLinger>() {
+                    linger.quitting.store(false, Ordering::Release);
+                }
+                let route = second_launch_route(&args);
+                let callback_app = app.clone();
+                let _ =
+                    app.run_on_main_thread(move || activate_desktop_surface(&callback_app, route));
+            }
+        }
+    });
+    true
+}
+
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 fn cancel_settings_linger(app: &tauri::AppHandle) {
     if let Some(state) = app.try_state::<DesktopSettingsLinger>() {
@@ -4836,6 +4820,10 @@ pub fn run() {
     let builder = builder.plugin(tauri_nspanel::init());
     #[cfg(any(target_os = "linux", target_os = "windows"))]
     let builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+        #[cfg(target_os = "linux")]
+        if hand_over_to_replaced_program(app, &args, &_cwd) {
+            return;
+        }
         let route = second_launch_route(&args);
         let callback_app = app.clone();
         let _ = app.run_on_main_thread(move || activate_desktop_surface(&callback_app, route));
@@ -5019,7 +5007,6 @@ pub fn run() {
             app.manage(SkinDirectoryState(directory.join("skins")));
             #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
             app.manage(desktop_plugins::PluginsState::new(&directory));
-            app.manage(UserDirectoryState(directory.join("user")));
             app.manage(preferences.clone());
             let clipboard_state = ClipboardHistoryState(Arc::new(Mutex::new(clipboard)));
             app.manage(ClipboardHistoryState(Arc::clone(&clipboard_state.0)));
@@ -5370,8 +5357,6 @@ pub fn run() {
             read_skin_font,
             read_skin_stylesheet,
             read_skin_toolbar_stylesheet,
-            read_custom_translations,
-            write_custom_translations,
             open_skin_directory,
             test_api_credential,
             #[cfg(target_os = "linux")]

@@ -16,6 +16,8 @@ export interface UseUpdateCheckOptions {
   releasePlatform: string | null;
   /** 运行中的版本 id（`HostCapabilities.edition.id`），缺省是 full：只选本版本的安装包。 */
   edition?: string;
+  /** The host's architecture (`HostCapabilities.arch`): a Linux release carries one package per architecture. */
+  arch?: string;
   releasePageUrl: string;
   currentAppVersion: string;
 }
@@ -25,6 +27,7 @@ export function useUpdateCheck({
   clientHostedPlatform,
   releasePlatform,
   edition,
+  arch,
   releasePageUrl,
   currentAppVersion,
 }: UseUpdateCheckOptions) {
@@ -36,6 +39,7 @@ export function useUpdateCheck({
     clientHostedPlatform,
     currentAppVersion,
     edition,
+    arch,
     releasePageUrl,
     releasePlatform,
   );
@@ -43,7 +47,7 @@ export function useUpdateCheck({
   useEffect(() => {
     setStatus("");
     setAvailable(null);
-  }, [clientHostedPlatform, currentAppVersion, edition, releasePageUrl, releasePlatform]);
+  }, [arch, clientHostedPlatform, currentAppVersion, edition, releasePageUrl, releasePlatform]);
 
   async function checkForUpdate() {
     if (busy) return;
@@ -66,7 +70,13 @@ export function useUpdateCheck({
           let update: ValidatedUpdate | null;
           if (clientHostedPlatform && releasePlatform) {
             if (!Array.isArray(manifest)) throw new Error("invalid release list");
-            update = selectPlatformRelease(manifest, releasePlatform, releasePageUrl, edition);
+            update = selectPlatformRelease(
+              manifest,
+              releasePlatform,
+              releasePageUrl,
+              edition,
+              arch,
+            );
             if (!update) {
               if (isCurrent()) setStatus("暂无可用发行版");
               return;

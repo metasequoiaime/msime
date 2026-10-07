@@ -79,7 +79,7 @@ React 只依赖一个 `SettingsClient` 接口；所有平台动作（读写偏�
 
 ### 数据与网络边界
 
-默认配置下只有云联想一个功能会把输入内容发出设备（当前正在组的拼音串，发给 Google 输入工具，设置页可关，关闭后宿主既不发起请求也拒绝任何云来源候选）。其余联网功能——语音识别、语音润色、候选翻译、AI 联想、账号同步——默认凭据为空，不填密钥就不会发出请求。另有一条自有的匿名使用统计路径（`crates/client-core/src/telemetry.rs`，各宿主经 Host API 的 `msime_client_telemetry_*` 调用，端点是本项目的 `api.msime.app`），默认开启、可由 `usage_reporting` 关闭；事件里只有随机事件 id、事件类型、平台名、版本号和本机随机生成的安装 id，崩溃事件另带截断过的异常摘要与去掉目录的调用栈，不含任何输入内容、候选、剪贴板或账号标识；仓库不接入任何第三方统计或崩溃上报 SDK。完整的逐条说明在 [PRIVACY.md](../PRIVACY.md)，这份文档不重复它。
+新装的默认配置下没有功能会把输入内容发出设备。云联想会发送当前正在组的拼音串给 Google 输入工具，新装默认关闭，由桌面平台的首次询问或设置页打开，关闭后宿主既不发起请求也拒绝任何云来源候选。其余联网功能——语音识别、语音润色、候选翻译、AI 联想、账号同步——默认凭据为空或要显式选择服务，不填密钥、不选服务就不会发出请求。另有一条自有的匿名使用统计路径（`crates/client-core/src/telemetry.rs`，各宿主经 Host API 的 `msime_client_telemetry_*` 调用，端点是本项目的 `api.msime.app`），默认开启、可由 `usage_reporting` 关闭；事件里只有随机事件 id、事件类型、平台名、版本号和本机随机生成的安装 id，崩溃事件另带截断过的异常摘要与去掉目录的调用栈，不含任何输入内容、候选、剪贴板或账号标识；仓库不接入任何第三方统计或崩溃上报 SDK。完整的逐条说明在 [PRIVACY.md](../PRIVACY.md)，这份文档不重复它。
 
 实现上与之配套的约束有两条。一是凭据不进 WebView：探测、请求构造和 token 持久化都在 Rust 或原生侧完成，交给 React 的是脱敏 DTO 和「这个服务配没配好」的布尔结果。二是诊断日志不记内容：Linux 的 `diagnostic.log` 写在偏好目录下、1 MiB 轮转一份、只用户可读，各平台的错误路径一律记类别与错误码，不记响应正文、提示词、输入串或路径。
 
@@ -144,7 +144,7 @@ IPC 是三角色命名管道（Main / Aux / Diagnostic）。`PipePeer::bind` 校
 
 候选与模式的展示走单槽邮箱：`CandidateMailbox`/`ModeMailbox` 在回复发送并确认之后才发布快照，窗口线程只读不做 I/O。候选窗口与模式面板是原生 GDI 的不激活窗口，按实际 DPI 缩放（PMv2 只在窗口创建/布局/绘制期间临时采用并恢复线程上下文），点击由单任务后台线程执行、忙碌即拒绝且不排队，控制器在真正执行前再核对一次当前候选身份。展示侧的连接校验用专用的 `try_current`：注册握手会在不持焦点锁时持有连接锁做 I/O，只尝试焦点锁不足以避免等待，忙碌时宁可隐藏候选也不让 UI 线程阻塞。
 
-安装器是完整的 Inno Setup 工程（`installer/msime_setup.iss`）：32/64 位 TSF DLL 分别装到 `{commonpf32|64}\metasequoiaime\msime_v<ver>\` 并带 `regserver` 注册 TIP，Server 装到 64 位目录，`config.toml` 只 `onlyifdoesntexist`、升级绝不覆盖，随包装 `THIRD_PARTY_NOTICES.txt` 与 `LICENSE.txt`（GPLv3 第 4/6 条），HKLM 下写 `VersionDir`/`ServerPath`/`DataDir`。发布链是 `Package-SimplySign.ps1`：双架构构建 → `Prepare-PackageFiles.ps1` 暂存 → 签 payload → `Compile-Installer.ps1` → 签安装包 → `Collect-Symbols.ps1` 在安装包旁写出同一次构建的符号包（安装包本身不带 PDB）；本地测试链用自签证书走 `test.ps1` / `Invoke-LocalInstall.ps1`。
+安装器是完整的 Inno Setup 工程（`installer/msime_setup.iss`）：32/64 位 TSF DLL 分别装到 `{commonpf32|64}\<安装目录>\msime_v<ver>\` 并带 `regserver` 注册 TIP（安装目录按版本取，full 是 `metasequoiaime-full`），Server 装到 64 位目录，`config.toml` 只 `onlyifdoesntexist`、升级绝不覆盖，随包装 `THIRD_PARTY_NOTICES.txt` 与 `LICENSE.txt`（GPLv3 第 4/6 条），HKLM 下写 `VersionDir`/`ServerPath`/`DataDir`。发布链是 `Package-SimplySign.ps1`：双架构构建 → `Prepare-PackageFiles.ps1` 暂存 → 签 payload → `Compile-Installer.ps1` → 签安装包 → `Collect-Symbols.ps1` 在安装包旁写出同一次构建的符号包（安装包本身不带 PDB）；本地测试链用自签证书走 `test.ps1` / `Invoke-LocalInstall.ps1`。
 
 ### HarmonyOS
 

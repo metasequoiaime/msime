@@ -77,9 +77,8 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
         .ok_or_else(|| "dictionary maintenance busy".to_owned())?;
         let mut engine = Session::new(&options).map_err(|e| e.to_string())?;
         // Gate on the scheme actually run, as `apply_pending` does, so a preferred scheme that fell back to Quanpin starts in the same mode a rebuild would give it.
-        let default_nine_key = SchemeType::from_u8(options.scheme)
-            .is_some_and(SchemeType::nine_key)
-            && matches!(applied.touch_keyboard_layout, TouchKeyboardLayout::NineKey);
+        let default_nine_key =
+            layout_starts_nine_key(SchemeType::from_u8(options.scheme), &applied);
         if default_nine_key {
             engine
                 .set_nine_key_enabled(true)
@@ -103,9 +102,7 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
             Runtime::new_with_touch_layout(engine, page_size, applied.touch_keyboard_layout)
                 .map_err(|e| e.to_string())?;
         runtime.set_phrase_preedit(phrase_preedit);
-        runtime.set_reranker(
-            sentence_model(&options.resources, sentence_model_path.as_deref()).map(Reranker::new),
-        );
+        runtime.set_reranker(keyboard_reranker(&options, sentence_model_path.as_deref()));
 
         // The settled model is optional and independent: a resource set that ships only the small
         // one behaves exactly as before, and one that ships both gets the fast model per keystroke
@@ -144,16 +141,20 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
                     english_mode: false,
                     page_size_override: None,
                     nine_key_override: None,
+                    statistics_private: false,
                     ai_credential: None,
                     ai_provider_cache,
                     voice: VoiceSessionState::default(),
                     pending_selections: Default::default(),
+                    pending_efficiency: Default::default(),
+                    statistics_enabled: None,
                     plugin_roots,
                     sound,
                     plugin_tables,
                     state_root,
                     recorded_language_dictionaries,
                     resources_pending: false,
+                    recorded_sentence_model: sentence_model_path,
                     recorded_settled_model,
                     settled_model,
                     settled_model_loading: None,

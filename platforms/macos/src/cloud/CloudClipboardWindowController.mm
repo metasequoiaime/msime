@@ -1,5 +1,6 @@
 #import "CloudClipboardWindowController.h"
 #import "CloudClipboardClient.h"
+static const NSUInteger kMaximumCloudClipboardItems = 50;
 @implementation MSIMECloudClipboardWindowController { NSString *_token; NSTextView *_editor; NSTextField *_search; NSTextView *_items; NSTextField *_status; NSArray *_entries; NSArray<NSValue *> *_entryRanges; NSUInteger _refreshGeneration; }
 + (instancetype)sharedController { static id c; static dispatch_once_t once; dispatch_once(&once, ^{ c=[self new]; }); return c; }
 - (void)showWithToken:(NSString *)token { _token=[token copy]; if(!self.window){ self.window=[[NSWindow alloc] initWithContentRect:NSMakeRect(0,0,480,420) styleMask:(NSWindowStyleMaskTitled|NSWindowStyleMaskClosable) backing:NSBackingStoreBuffered defer:NO]; self.window.title=@"云剪贴板"; } _items=[[NSTextView alloc] initWithFrame:NSMakeRect(20,180,440,210)]; _items.editable=NO; _editor=[[NSTextView alloc] initWithFrame:NSMakeRect(20,100,440,70)]; _search=[[NSTextField alloc] initWithFrame:NSMakeRect(20,65,300,24)]; _search.placeholderString=@"搜索云端历史"; NSButton *r=[NSButton buttonWithTitle:@"刷新" target:self action:@selector(refresh:)]; r.frame=NSMakeRect(330,62,70,30); NSButton *d=[NSButton buttonWithTitle:@"删除选中条目" target:self action:@selector(deleteItem:)]; d.frame=NSMakeRect(330,25,120,32); NSButton *u=[NSButton buttonWithTitle:@"上传明确选择的文本" target:self action:@selector(upload:)]; u.frame=NSMakeRect(20,25,180,32); _status=[[NSTextField alloc] initWithFrame:NSMakeRect(20,0,440,24)]; _status.editable=NO; _status.bezeled=NO; _status.drawsBackground=NO; NSView *v=[NSView new]; for(NSView *x in @[_items,_editor,_search,r,d,u,_status]) [v addSubview:x]; self.window.contentView=v; [self.window center]; [self showWindow:nil]; [self refresh:nil]; }
@@ -56,6 +57,7 @@
         NSMutableArray *ranges = [NSMutableArray array];
         NSMutableString *text = [NSMutableString string];
         for (id entry in response[@"items"]) {
+            if (entries.count >= kMaximumCloudClipboardItems) break;
             if (![entry isKindOfClass:NSDictionary.class] ||
                 ![entry[@"id"] isKindOfClass:NSString.class] || ![entry[@"id"] length] ||
                 ![entry[@"text"] isKindOfClass:NSString.class] || ![entry[@"text"] length]) continue;

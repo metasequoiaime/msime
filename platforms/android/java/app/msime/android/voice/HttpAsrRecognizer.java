@@ -31,6 +31,7 @@ public final class HttpAsrRecognizer {
     private static final int MAX_MILLIS = 60_000;
     private static final int CONNECT_TIMEOUT_MILLIS = 15_000;
     private static final int READ_TIMEOUT_MILLIS = 60_000;
+    private static final int MAX_RESPONSE_BYTES = 1024 * 1024;
 
     /** Why a recognition did not produce text. The caller maps these onto its own outcomes. */
     public enum Failure { PERMISSION, UNAVAILABLE, CANCELLED, NETWORK, EMPTY }
@@ -90,7 +91,7 @@ public final class HttpAsrRecognizer {
         int minimum = AudioRecord.getMinBufferSize(WavAudio.SAMPLE_RATE,
             AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
         if (minimum <= 0) throw new Refused(Failure.UNAVAILABLE);
-        int buffer = Math.max(minimum, WavAudio.SAMPLE_RATE);
+        int buffer = BoundsPolicy.atLeast(WavAudio.SAMPLE_RATE, minimum);
         AudioRecord recorder;
         try {
             recorder = new AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION,
@@ -118,7 +119,9 @@ public final class HttpAsrRecognizer {
             // Two bytes per sample: the byte budget is the time budget.
             int limit = WavAudio.SAMPLE_RATE * 2 / 1000 * MAX_MILLIS;
             while (!stopped.get() && captured.size() < limit) {
-                int read = recorder.read(chunk, 0, chunk.length);
+                int requested = VoiceCapturePolicy.readLength(limit, captured.size(), chunk.length);
+                if (requested == 0) break;
+                int read = recorder.read(chunk, 0, requested);
                 if (read < 0) throw new Refused(Failure.UNAVAILABLE);
                 captured.write(chunk, 0, read);
             }
@@ -162,8 +165,8 @@ public final class HttpAsrRecognizer {
             if (status < 200 || status >= 300) throw new Refused(Failure.NETWORK);
             String text;
             try (InputStream input = opened.getInputStream()) {
-                String response = read(input);
-                if (response == null) throw new Refused(Failure.NETWORK);
+                String response = TextPolicy.utf8(
+                    HttpBodyPolicy.readRequired(input, MAX_RESPONSE_BYTES));
                 text = text(response);
             }
             if (text.isEmpty()) throw new Refused(Failure.EMPTY);
@@ -176,30 +179,10 @@ public final class HttpAsrRecognizer {
         }
     }
 
-    /** Returns null when the response exceeds the bound, without retaining the overflow. */
-    private static String read(InputStream stream) throws IOException {
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        byte[] chunk = new byte[8192];
-        int read;
-        // Bounded: a transcription response is text, and an unbounded read is how a wrong endpoint
-        // becomes an out-of-memory failure in the input method's own process. Read one extra byte
-        // when the limit is reached so a response that is exactly a valid prefix plus more data is
-        // rejected instead of being parsed as if it were complete.
-        while (out.size() <= 1024 * 1024) {
-            int remaining = 1024 * 1024 - out.size();
-            int requested = Math.min(chunk.length, remaining + 1);
-            read = stream.read(chunk, 0, requested);
-            if (read <= 0) break;
-            if (read > remaining) return null;
-            out.write(chunk, 0, read);
-        }
-        return out.toString(StandardCharsets.UTF_8.name());
-    }
-
     /** The one field these APIs agree on. Anything else in the response is ignored. */
     private static String text(String response) {
         try {
-            return HttpAsrPolicy.strictText(new JSONObject(response).opt("text")).trim();
+            return TextPolicy.trimmed(HttpAsrPolicy.strictText(new JSONObject(response).opt("text")));
         } catch (JSONException error) {
             return "";
         }

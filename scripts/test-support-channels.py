@@ -27,7 +27,7 @@ SURFACES = {
     "macOS": "platforms/macos/src/core/SupportWindowController.mm",
     "iOS": "platforms/ios/App/Sources/settings/HelpAndFeedbackViews.swift",
     "Android strings": "platforms/android/res/values/strings.xml",
-    "Android feedback screen": "platforms/android/java/app/msime/android/home/FeedbackActivity.java",
+    "Android feedback page": "platforms/android/java/app/msime/android/home/FeedbackPage.java",
 }
 
 shared_page = ROOT / "packages/ui/src/settings/pages/feedback-page.tsx"

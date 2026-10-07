@@ -20,16 +20,22 @@ private final class NoRedirects: NSObject, URLSessionTaskDelegate, Sendable {
 }
 
 struct CustomServiceConfiguration: Codable, Sendable, Equatable {
+  private static let maximumEndpointBytes = 2_048
+  private static let maximumModelBytes = 256
   var provider: AIProviderPreset = .custom
   var endpoint = ""
   var model = ""
   var prompt = "请润色以下文字，保持原意，只返回修改后的文字。"
 
   func validatedURL() throws -> URL {
-    guard let url = URL(string: endpoint.trimmingCharacters(in: .whitespacesAndNewlines)),
+    let trimmedEndpoint = endpoint.trimmingCharacters(in: .whitespacesAndNewlines)
+    let trimmedModel = model.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard trimmedEndpoint.utf8.count <= Self.maximumEndpointBytes,
+          !trimmedEndpoint.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }),
+          let url = URL(string: trimmedEndpoint),
           url.scheme?.lowercased() == "https", let host = url.host, !host.isEmpty,
           url.user == nil, url.password == nil, url.fragment == nil,
-          !model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+          !trimmedModel.isEmpty, trimmedModel.utf8.count <= Self.maximumModelBytes else {
       throw ServiceFailure(message: "请填写完整的 HTTPS 接口地址和模型名称。")
     }
     return url

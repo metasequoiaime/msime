@@ -46,7 +46,11 @@ pub struct NineKeySession {
     english_options: EnglishInputOptions,
     digits: String,
     locked: Vec<String>,
+    /// 用户用 `'` 切开音节的数字位置，升序，都在已锁定的部分之后。和锁定的拼写不同，切分只定下一个音节在哪里结束，两边数字的各种读法都还保留：`94'26` 可以是 xi'an，也可以是 yi'an，但不会是 xian。
+    splits: Vec<usize>,
     spellings: Vec<String>,
+    /// `SessionSnapshot::nine_key_reading`，随候选一起重建。
+    reading: String,
     candidates: Vec<WordItem>,
     english_only: bool,
     /// 会话允许全拼时为真。为假时九宫格只拼英文，拼音词库永远不打开。
@@ -74,7 +78,9 @@ impl NineKeySession {
             english_options: english,
             digits: String::new(),
             locked: Vec::new(),
+            splits: Vec::new(),
             spellings: Vec::new(),
+            reading: String::new(),
             candidates: Vec::new(),
             english_only: false,
             pinyin,
@@ -97,8 +103,20 @@ impl NineKeySession {
         self.refresh();
     }
 
-    /// `2`..=`9`; at 32 digits handled with `NINE_KEY_DIGIT_LIMIT`.
+    /// `2`..=`9`；到 32 个数字时按 `NINE_KEY_DIGIT_LIMIT` 处理。组字中按 `'` 在已输入部分的末尾切开音节；在同一处再切一次，或者紧跟在锁定的拼写之后切，都没有作用。
     pub fn character(&mut self, digit: u8) -> KeyResult {
+        if digit == b'\'' {
+            // 英文九键的数字拼的是字母不是音节，没有可切的地方，记下的切分上屏时也只会被丢掉。
+            if !self.active() || self.english_only || !self.pinyin {
+                return KeyResult::unhandled();
+            }
+            let end = self.digits.len();
+            if end > self.locked_length() && self.splits.last() != Some(&end) {
+                self.splits.push(end);
+                self.refresh();
+            }
+            return KeyResult::handled();
+        }
         if !(b'2'..=b'9').contains(&digit) {
             return KeyResult::unhandled();
         }
@@ -120,6 +138,8 @@ impl NineKeySession {
         let end = offset + spelling.len().min(self.digits.len() - offset);
         self.digits.replace_range(offset..end, &encode(&spelling));
         self.locked.push(spelling);
+        let locked_length = self.locked_length();
+        self.splits.retain(|&split| split > locked_length);
         self.refresh();
         KeyResult::handled()
     }
@@ -186,11 +206,19 @@ impl NineKeySession {
             Command::Cancel => {
                 self.digits.clear();
                 self.locked.clear();
+                self.splits.clear();
             }
+            // 末尾的切分先删，这样退格撤销的是最后按下的那个键。
             Command::Backspace => {
-                self.digits.pop();
-                while self.locked_length() > self.digits.len() {
-                    self.locked.pop();
+                if self.splits.last() == Some(&self.digits.len()) {
+                    self.splits.pop();
+                } else {
+                    self.digits.pop();
+                    while self.locked_length() > self.digits.len() {
+                        self.locked.pop();
+                    }
+                    let length = self.digits.len();
+                    self.splits.retain(|&split| split <= length);
                 }
             }
             _ => return KeyResult::unhandled(),
@@ -269,7 +297,13 @@ impl NineKeySession {
             if !preedit.is_empty() {
                 preedit.push('\'');
             }
-            preedit.push_str(&self.digits[locked_length..]);
+            let mut start = locked_length;
+            for &split in &self.splits {
+                preedit.push_str(&self.digits[start..split]);
+                preedit.push('\'');
+                start = split;
+            }
+            preedit.push_str(&self.digits[start..]);
         }
         SessionSnapshot {
             scheme: SchemeType::Quanpin,
@@ -281,6 +315,7 @@ impl NineKeySession {
             editing_text: self.digits.clone(),
             caret_position: self.digits.len(),
             nine_key_spellings: self.spellings.clone(),
+            nine_key_reading: self.reading.clone(),
             candidate_sources: self.candidates.iter().map(|item| item.source).collect(),
             candidate_annotations: self
                 .candidates
@@ -300,6 +335,7 @@ impl NineKeySession {
     fn refresh(&mut self) {
         self.candidates.clear();
         self.spellings.clear();
+        self.reading.clear();
         if !self.active() {
             return;
         }
@@ -311,11 +347,16 @@ impl NineKeySession {
         let table = spelling_table();
         let locked_length = self.locked_length();
         let remaining = remaining_digits(&self.digits, locked_length);
-        self.spellings = table.spellings_for(remaining, locked_length);
+        let splits: Vec<usize> = self
+            .splits
+            .iter()
+            .map(|split| split - locked_length)
+            .collect();
+        self.spellings = table.spellings_for(remaining, locked_length, splits.first().copied());
         let alternatives = if remaining.is_empty() {
             vec![Vec::new()]
         } else {
-            let mut alternatives = table.paths(remaining);
+            let mut alternatives = table.split_paths(remaining, &splits);
             // Even an unfinished or invalid tail must still offer the leading syllable for partial selection.
             alternatives.extend(
                 self.spellings
@@ -335,6 +376,8 @@ impl NineKeySession {
         let mut candidates = Vec::with_capacity(CANDIDATE_LIMIT);
         // 各条切分的前缀组彼此大量重复，一次刷新会推入上万行，见 `push_ranked`。
         let mut leading: HashMap<String, RankKey> = HashMap::with_capacity(CANDIDATE_LIMIT);
+        // Only a split the user typed says where a syllable ends; without one, `3` must keep 的 (a completion of d) ahead of the rarer 额 (e).
+        let prefer_exact = !self.splits.is_empty();
         for path in alternatives {
             let mut full = self.locked.clone();
             full.extend(path);
@@ -368,12 +411,12 @@ impl NineKeySession {
                 }
                 candidate.pinyin = self.digits[..code.len().min(self.digits.len())].to_string();
                 candidate.canonical_pinyin = canonical;
-                push_ranked(&mut candidates, &mut leading, candidate);
+                push_ranked(&mut candidates, &mut leading, candidate, prefer_exact);
             }
             queried.insert(key);
         }
         drop(dictionary);
-        rank_candidates(&mut candidates);
+        rank_candidates(&mut candidates, prefer_exact);
 
         let mut english = self.english_candidates();
         if !english.is_empty() {
@@ -409,7 +452,52 @@ impl NineKeySession {
                 }
             }
         }
+        self.reading = self.reading_for(candidates.first());
         self.candidates = candidates;
+    }
+
+    /// The leading row's pinyin cut to the digits it covers, then the uncovered digits with their splits: `xi'an` for 西安 over `94'26`, `yi'c` for 遗产 over `942`. Empty when an English word or nothing leads.
+    fn reading_for(&self, front: Option<&WordItem>) -> String {
+        let Some(front) = front else {
+            return String::new();
+        };
+        // A fuzzy row was matched through another spelling (知 under `94` as zi), so its canonical letters do not line up one per typed digit.
+        if front.fuzzy {
+            return String::new();
+        }
+        if front.pinyin.is_empty() || !front.pinyin.bytes().all(|byte| byte.is_ascii_digit()) {
+            return String::new();
+        }
+        let covered = front.pinyin.len();
+        let mut reading = String::new();
+        let mut letters = 0;
+        for character in front.canonical_pinyin.chars() {
+            if letters == covered {
+                break;
+            }
+            if character.is_ascii_lowercase() {
+                letters += 1;
+            }
+            reading.push(character);
+        }
+        let reading = reading.trim_end_matches('\'').to_string();
+        if reading.is_empty() {
+            return String::new();
+        }
+        let mut reading = reading;
+        let mut start = covered.min(self.digits.len());
+        if start < self.digits.len() {
+            reading.push('\'');
+            for &split in &self.splits {
+                if split > start && split < self.digits.len() {
+                    reading.push_str(&self.digits[start..split]);
+                    reading.push('\'');
+                    start = split;
+                }
+            }
+            reading.push_str(&self.digits[start..]);
+        }
+        reading
     }
 
     fn english_candidates(&mut self) -> Vec<WordItem> {
@@ -437,14 +525,23 @@ impl NineKeySession {
                 // The database lookup key is the lowercase spelling in `pinyin`; `word` is the
                 // display form and may intentionally contain punctuation or spaces (for example
                 // the custom entry `dont` displayed as `don't`).
-                if !digits_for_word(&word.pinyin).starts_with(&digits)
-                    || has_candidate_word(&words, &word.word)
-                {
+                if !digits_for_word(&word.pinyin).starts_with(&digits) {
                     continue;
                 }
                 words.push(word);
             }
         }
+        let mut seen_words = HashSet::with_capacity(words.len());
+        let unique = words
+            .iter()
+            .map(|word| seen_words.insert(word.word.as_str()))
+            .collect::<Vec<_>>();
+        drop(seen_words);
+        words = words
+            .into_iter()
+            .zip(unique)
+            .filter_map(|(word, unique)| unique.then_some(word))
+            .collect();
         rank_english(&mut words, digits.len());
         words
     }
@@ -469,6 +566,12 @@ impl NineKeySession {
     fn consume(&mut self, count: usize) {
         let count = count.min(self.digits.len());
         self.digits.drain(..count);
+        self.splits = self
+            .splits
+            .iter()
+            .filter(|&&split| split > count)
+            .map(|split| split - count)
+            .collect();
         let mut consumed = count;
         while let Some(front) = self.locked.first() {
             if consumed < front.len() {
@@ -545,6 +648,7 @@ fn agrees_with_locked(matched: &str, locked_key: &str) -> bool {
     under || over
 }
 
+#[cfg(test)]
 fn has_candidate_word(candidates: &[WordItem], word: &str) -> bool {
     candidates.iter().any(|candidate| candidate.word == word)
 }
@@ -554,25 +658,35 @@ fn is_unseen_query_key(queried: &HashSet<String>, key: &str) -> bool {
 }
 
 /// `rank_candidates` 的排序键，小的在前。
-type RankKey = (Reverse<usize>, bool, bool, Reverse<i64>);
+type RankKey = (Reverse<usize>, bool, bool, bool, Reverse<i64>);
 
 /// More digits covered first. Synthesised rows (whole-sentence Generated, Fallback) score on a different scale from dictionary weights, so within one coverage bucket dictionary rows lead; then exact before fuzzy, then weight.
-fn rank_key(item: &WordItem) -> RankKey {
+/// With `prefer_exact` (the user typed a split), a row the typed digits spell to its end then leads one that has to be completed past them: over `94'26` 西安 (xi'an) comes before 自从 (zi'cong), however common the longer word. Without a split the digits do not say where a syllable ends, so `3` keeps 的 (de) ahead of the rarer 额 (e) by weight.
+fn rank_key(item: &WordItem, prefer_exact: bool) -> RankKey {
+    let completion = prefer_exact
+        && item
+            .canonical_pinyin
+            .bytes()
+            .filter(u8::is_ascii_lowercase)
+            .count()
+            > item.pinyin.len();
     (
         Reverse(item.pinyin.len()),
         item.source.is_generated_or_fallback(),
+        completion,
         item.fuzzy,
         Reverse(item.weight),
     )
 }
 
-/// 推入一行，除非同一个词已有一行排得不比它靠后。`leading` 记着每个词目前排得最靠前的那一行的排序键。被跳过的行在稳定排序后必然落在那一行之后（键更大，或键相同而推入更晚），会被 `retain_unique_words` 删掉；它也不会让别的行多删或少删，因为它能挡住的行那一行同样挡得住。所以跳过与全部推入再 `rank_candidates`，结果完全相同。
+/// 推入一行，除非同一个词已有一行排得不比它靠后。`leading` 记着每个词目前排得最靠前的那一行的排序键。被跳过的行在稳定排序后必然落在那一行之后（键更大，或键相同而推入更晚），会被 `retain_unique_words` 删掉；它也不会让别的行多删或少删，因为它能挡住的行那一行同样挡得住。所以跳过与全部推入再 `rank_candidates`，结果完全相同。前提是两边用同一个 `prefer_exact`。
 fn push_ranked(
     candidates: &mut Vec<WordItem>,
     leading: &mut HashMap<String, RankKey>,
     candidate: WordItem,
+    prefer_exact: bool,
 ) {
-    let key = rank_key(&candidate);
+    let key = rank_key(&candidate, prefer_exact);
     match leading.get_mut(candidate.word.as_str()) {
         Some(best) if *best <= key => return,
         Some(best) => *best = key,
@@ -584,8 +698,8 @@ fn push_ranked(
 }
 
 /// Stable sort by `rank_key`, dedup by word, capped (NK:283-307).
-fn rank_candidates(candidates: &mut Vec<WordItem>) {
-    candidates.sort_by_key(rank_key);
+fn rank_candidates(candidates: &mut Vec<WordItem>, prefer_exact: bool) {
+    candidates.sort_by_key(|item| rank_key(item, prefer_exact));
     retain_unique_words(candidates);
     candidates.truncate(CANDIDATE_LIMIT);
 }
@@ -715,16 +829,25 @@ impl SpellingTable {
     }
 
     /// Complete syllables the unlocked digits can start with, or that complete them, longest covered first (NK:238-250). Coverage is counted in digits: comparing letter counts would put a syllable that needs two digits ahead under the same digit prefix.
-    fn spellings_for(&self, remaining: &str, locked_length: usize) -> Vec<String> {
+    /// 有切分时，只有在切分处或之前结束的音节才算。
+    fn spellings_for(
+        &self,
+        remaining: &str,
+        locked_length: usize,
+        split: Option<usize>,
+    ) -> Vec<String> {
         if remaining.is_empty() {
             return Vec::new();
         }
         let mut matches: Vec<&(String, String)> = self
             .syllables
             .iter()
-            .filter(|(_, code)| {
-                locked_length + remaining.len().max(code.len()) <= DIGIT_LIMIT
-                    && (remaining.starts_with(code.as_str()) || code.starts_with(remaining))
+            .filter(|(_, code)| match split {
+                Some(split) => code.len() <= split && remaining.starts_with(code.as_str()),
+                None => {
+                    locked_length + remaining.len().max(code.len()) <= DIGIT_LIMIT
+                        && (remaining.starts_with(code.as_str()) || code.starts_with(remaining))
+                }
             })
             .collect();
         let covered = |code: &str| code.len().min(remaining.len());
@@ -735,18 +858,28 @@ impl SpellingTable {
     }
 
     /// Syllable paths spelling `digits`, built from the end. A piece may end a path early only if it is a complete syllable; each offset keeps the 48 best by fewer syllables, complete last syllable, then lexicographic (NK:122-156).
+    #[cfg(test)]
     fn paths(&self, digits: &str) -> Vec<Path> {
+        self.split_paths(digits, &[])
+    }
+
+    /// 和 `paths` 一样，但每个 `splits` 位置（`digits` 里的下标）都必须有一个音节在那里结束，而且这个音节必须完整。
+    fn split_paths(&self, digits: &str, splits: &[usize]) -> Vec<Path> {
         let length = digits.len();
         let mut suffix: Vec<Vec<Path>> = vec![Vec::new(); length + 1];
         suffix[length].push(Vec::new());
         for offset in (0..length).rev() {
             let mut result = Vec::with_capacity(PATH_LIMIT);
             for end in offset + 1..=length.min(offset + self.longest_code) {
+                if splits.iter().any(|&split| offset < split && split < end) {
+                    break;
+                }
                 let Some(pieces) = self.by_code.get(&digits[offset..end]) else {
                     continue;
                 };
+                let must_complete = end != length || splits.contains(&end);
                 for piece in pieces {
-                    if end != length && !self.intact.contains(piece) {
+                    if must_complete && !self.intact.contains(piece) {
                         continue;
                     }
                     for tail in &suffix[end] {
@@ -842,12 +975,14 @@ mod tests {
             "ga", "gan", "gang", "gao", "ha", "han", "hang", "hao", "ni", "a", "ai",
         ]);
         assert_eq!(
-            table.spellings_for("426", 2),
+            table.spellings_for("426", 2, None),
             ["gan", "gang", "gao", "han", "hang", "hao", "ga", "ha"]
         );
         // With 31 digits already locked, only a one-digit completion still fits in 32.
-        assert_eq!(table.spellings_for("2", 31), ["a"]);
-        assert!(table.spellings_for("", 0).is_empty());
+        assert_eq!(table.spellings_for("2", 31, None), ["a"]);
+        assert!(table.spellings_for("", 0, None).is_empty());
+        // 在两个数字之后切开，就排除了所有跨过这个位置的音节。
+        assert_eq!(table.spellings_for("426", 0, Some(2)), ["ga", "ha"]);
     }
 
     fn item(word: &str, digits: &str, weight: i64, source: CandidateSource) -> WordItem {
@@ -903,10 +1038,63 @@ mod tests {
             item("你好", "64426", 1000, CandidateSource::Database),
             item("你", "64", 10, CandidateSource::Database),
         ];
-        rank_candidates(&mut candidates);
+        rank_candidates(&mut candidates, false);
         let words: Vec<_> = candidates.iter().map(|item| item.word.as_str()).collect();
         assert_eq!(words, ["你好", "米好", "你", "米", "泥"]);
         assert_eq!(candidates[2].weight, 100);
+    }
+
+    fn spelled(
+        word: &str,
+        digits: &str,
+        canonical: &str,
+        weight: i64,
+        source: CandidateSource,
+    ) -> WordItem {
+        let mut row = item(word, digits, weight, source);
+        row.canonical_pinyin = canonical.to_owned();
+        row
+    }
+
+    fn ranked(mut candidates: Vec<WordItem>, prefer_exact: bool) -> Vec<String> {
+        rank_candidates(&mut candidates, prefer_exact);
+        candidates.into_iter().map(|item| item.word).collect()
+    }
+
+    #[test]
+    fn without_a_split_a_completion_keeps_its_weight_over_an_exact_syllable() {
+        // `3` alone: 的 completes d to de, 额 spells e exactly; the more common word still leads.
+        let rows = vec![
+            spelled("额", "3", "e", 10, CandidateSource::Database),
+            spelled("的", "3", "de", 1000, CandidateSource::Database),
+        ];
+        assert_eq!(ranked(rows, false), ["的", "额"]);
+    }
+
+    #[test]
+    fn a_synthesised_exact_row_never_leads_a_dictionary_completion() {
+        for prefer_exact in [false, true] {
+            let rows = vec![
+                spelled("额", "3", "e", 99_999, CandidateSource::Generated),
+                spelled("的", "3", "de", 1000, CandidateSource::Database),
+            ];
+            assert_eq!(
+                ranked(rows, prefer_exact),
+                ["的", "额"],
+                "prefer_exact {prefer_exact}"
+            );
+        }
+    }
+
+    #[test]
+    fn after_a_split_an_exact_reading_leads_a_completion() {
+        // `94'26`: 西安 spells xi'an to its end, 自从 has to be completed to zi'cong.
+        let rows = vec![
+            spelled("自从", "9426", "zi'cong", 5000, CandidateSource::Database),
+            spelled("西安", "9426", "xi'an", 100, CandidateSource::Database),
+        ];
+        assert_eq!(ranked(rows.clone(), true), ["西安", "自从"]);
+        assert_eq!(ranked(rows, false), ["自从", "西安"]);
     }
 
     #[test]
@@ -935,17 +1123,19 @@ mod tests {
                     sources[next(4) as usize],
                 );
                 row.fuzzy = next(3) == 0;
-                row.canonical_pinyin = format!("c{}", next(3));
+                row.canonical_pinyin =
+                    ["e", "de", "xi'an", "zi'cong", "ni'hao'ma"][next(5) as usize].to_owned();
                 rows.push(row);
             }
+            let prefer_exact = round % 2 == 0;
             let mut everything = rows.clone();
-            rank_candidates(&mut everything);
+            rank_candidates(&mut everything, prefer_exact);
             let mut skipped = Vec::new();
             let mut leading = HashMap::new();
             for row in rows {
-                push_ranked(&mut skipped, &mut leading, row);
+                push_ranked(&mut skipped, &mut leading, row, prefer_exact);
             }
-            rank_candidates(&mut skipped);
+            rank_candidates(&mut skipped, prefer_exact);
             assert_eq!(skipped, everything, "round {round}");
         }
     }
@@ -1173,6 +1363,97 @@ mod tests {
         assert!(
             words(&session).contains(&"don't".to_owned()),
             "T9 should match the lookup key even when the displayed word contains punctuation"
+        );
+    }
+
+    #[test]
+    fn english_digits_take_no_split() {
+        let fixture = fixture();
+        let mut english_only = open(&fixture.paths, false, mixed());
+        english_only.set_english_only(true);
+        let mut without_pinyin = NineKeySession::new(
+            &fixture.paths,
+            false,
+            FrequencyAdjustmentOptions::default(),
+            FuzzyPinyinOptions::default(),
+            mixed(),
+            false,
+        );
+        for session in [&mut english_only, &mut without_pinyin] {
+            type_digits(session, "65");
+            assert!(!session.character(b'\'').handled);
+            assert!(session.splits.is_empty());
+            assert_eq!(session.snapshot().preedit, "65");
+        }
+    }
+
+    #[test]
+    fn a_fuzzy_leading_row_has_no_reading() {
+        let mut session = detached();
+        session.digits = "94".into();
+        let xi = spelled("西", "94", "xi", 100, CandidateSource::Database);
+        assert_eq!(session.reading_for(Some(&xi)), "xi");
+        // 知 reached through zi under `94`: cutting zhi to two letters would show zh.
+        let mut zhi = spelled("知", "94", "zhi", 100, CandidateSource::Database);
+        zhi.fuzzy = true;
+        assert_eq!(session.reading_for(Some(&zhi)), "");
+    }
+
+    #[test]
+    fn split_keeps_both_sides_open_and_backspace_removes_it_first() {
+        let table = SpellingTable::new(&["xi", "yi", "an", "xian", "yan"]);
+        assert_eq!(
+            table.split_paths("9426", &[]).first(),
+            Some(&vec!["xian".to_string()])
+        );
+        let split = table.split_paths("9426", &[2]);
+        assert!(!split.is_empty());
+        assert!(
+            split.iter().all(|path| path.len() == 2 && path[1] == "an"),
+            "{split:?}"
+        );
+
+        let fixture = fixture();
+        let mut session = open(&fixture.paths, false, mixed());
+        assert!(!session.character(b'\'').handled, "nothing to split");
+        type_digits(&mut session, "64");
+        assert!(session.character(b'\'').handled);
+        assert!(
+            session.character(b'\'').handled,
+            "a repeated split is absorbed"
+        );
+        assert_eq!(session.snapshot().preedit, "64'");
+        assert!(
+            session
+                .snapshot()
+                .nine_key_spellings
+                .iter()
+                .all(|s| s.len() <= 2),
+            "no syllable runs past the split"
+        );
+        type_digits(&mut session, "426");
+        assert_eq!(session.snapshot().preedit, "64'426");
+        assert_eq!(words(&session).first().map(String::as_str), Some("你好"));
+        assert_eq!(session.snapshot().nine_key_reading, "ni'hao");
+        assert!(session.command(Command::Backspace).handled);
+        assert_eq!(session.snapshot().preedit, "64'42");
+        type_digits(&mut session, "6");
+        let result = session.select(index_of(&session, "你"));
+        assert_eq!(result.commit.as_deref(), Some("你"));
+        assert_eq!(
+            session.snapshot().preedit,
+            "426",
+            "the split went with the consumed digits"
+        );
+
+        session.command(Command::Cancel);
+        type_digits(&mut session, "64");
+        session.character(b'\'');
+        assert!(session.command(Command::Backspace).handled);
+        assert_eq!(
+            session.snapshot().preedit,
+            "64",
+            "Backspace takes the split before a digit"
         );
     }
 

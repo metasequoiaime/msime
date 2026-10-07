@@ -16,6 +16,7 @@ import {
   KeySoundPolicy, KeySoundSampleRequest, KeySoundSelection, KeySoundSettings
 } from './KeySoundPolicy';
 import { TypingEffectPolicy } from './TypingEffectPolicy';
+import { NativeReplyPolicy } from './NativeReplyPolicy';
 
 interface KeySoundPackRequest {
   state_root: string;
@@ -312,11 +313,12 @@ export class KeySoundPlayer {
     };
     const response: KeySoundPackResponse =
       JSON.parse(client.keySoundPack(JSON.stringify(request))) as KeySoundPackResponse;
-    if (!response.ok) {
+    const value: KeySoundPackFiles | null = NativeReplyPolicy.successfulValue<KeySoundPackFiles>(response);
+    if (value === null) {
       KeyboardLog.error(`sound pack unavailable: ${response.error}`);
       return null;
     }
-    return response.value;
+    return value;
   }
 
   /** Render one sample and hand its notes to SoundPool. A sample that will not prepare leaves that one sound silent and says why. */

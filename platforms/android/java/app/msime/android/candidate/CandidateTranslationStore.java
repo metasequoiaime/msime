@@ -28,7 +28,7 @@ public final class CandidateTranslationStore {
     private final ExecutorService worker;
     private final Scheduler scheduler;
     private final Listener listener;
-    private final Map<String, String> cache = new LinkedHashMap<>(16, 0.75f, true);
+    private final Map<String, String> cache = new LinkedHashMap<>(MAX_CACHE_ENTRIES, 0.75f, true);
     private Runnable pending;
     private String signature;
     private long requestEpoch;
@@ -71,13 +71,13 @@ public final class CandidateTranslationStore {
     public void refresh(List<String> words, List<String> targets, long generation) {
         cancel();
         if (words == null || targets == null || targets.isEmpty()) return;
-        ArrayList<String> requestedTargets = new ArrayList<>();
+        ArrayList<String> requestedTargets = new ArrayList<>(targets.size());
         for (String target : targets) {
             if (target != null && !target.isEmpty() && !requestedTargets.contains(target))
                 requestedTargets.add(target);
         }
         if (requestedTargets.isEmpty()) return;
-        ArrayList<String> wanted = new ArrayList<>();
+        ArrayList<String> wanted = new ArrayList<>(words.size());
         for (String word : words) {
             if (translatable(word) && !wanted.contains(word)) wanted.add(word);
         }
@@ -109,9 +109,9 @@ public final class CandidateTranslationStore {
         String stamp = "targets=" + signature(targets) + "|generation=" + generation
             + "|words=" + signature(words);
         if (stamp.equals(signature)) return;
-        Map<String, ArrayList<String>> requests = new LinkedHashMap<>();
+        Map<String, ArrayList<String>> requests = new LinkedHashMap<>(targets.size());
         for (String target : targets) {
-            ArrayList<String> missing = new ArrayList<>();
+            ArrayList<String> missing = new ArrayList<>(words.size());
             for (String word : words) {
                 if (!cache.containsKey(key(target, word))) missing.add(word);
             }
@@ -138,7 +138,11 @@ public final class CandidateTranslationStore {
     }
 
     private static String signature(List<String> values) {
-        StringBuilder result = new StringBuilder().append(values.size()).append(':');
+        int capacity = String.valueOf(values.size()).length() + 1;
+        for (String value : values) {
+            capacity += String.valueOf(value.length()).length() + 1 + value.length();
+        }
+        StringBuilder result = new StringBuilder(capacity).append(values.size()).append(':');
         for (String value : values) {
             result.append(value.length()).append(':').append(value);
         }

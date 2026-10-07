@@ -1,13 +1,10 @@
 package app.msime.android;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.nio.charset.StandardCharsets;
-import java.util.LinkedHashMap;
 import java.util.Map;
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -43,8 +40,7 @@ public final class VoicePolisher {
                 || !VoicePolishPolicy.sendable(text)) {
             return null;
         }
-        byte[] body = VoicePolishPolicy.requestBody(model, prompt, text)
-            .getBytes(StandardCharsets.UTF_8);
+        byte[] body = TextPolicy.utf8Bytes(VoicePolishPolicy.requestBody(model, prompt, text));
         HttpURLConnection connection = null;
         try {
             connection = (HttpURLConnection) new URL(endpoint).openConnection();
@@ -72,34 +68,19 @@ public final class VoicePolisher {
             if (status < 200 || status >= 300) return null;
             String response;
             try (InputStream input = connection.getInputStream()) {
-                response = read(input);
+                byte[] responseBytes = HttpBodyPolicy.readBounded(input, MAX_RESPONSE_BYTES);
+                response = responseBytes == null
+                    ? null : TextPolicy.utf8(responseBytes);
             }
             String content = content(response);
-            return cancelled ? null : (VoicePolishPolicy.sendable(content) ? content.trim() : null);
+            return cancelled ? null
+                : (VoicePolishPolicy.sendable(content) ? TextPolicy.trimmed(content) : null);
         } catch (IOException error) {
             return null;
         } finally {
             if (this.connection == connection) this.connection = null;
             if (connection != null) connection.disconnect();
         }
-    }
-
-    /** Returns null when the response exceeds the bound, without retaining the overflow. */
-    private static String read(InputStream stream) throws IOException {
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        byte[] chunk = new byte[8192];
-        int read;
-        // Read one extra byte when the limit is reached so a valid JSON prefix followed by
-        // arbitrary data cannot be accepted merely because the overflow was ignored.
-        while (out.size() <= MAX_RESPONSE_BYTES) {
-            int remaining = MAX_RESPONSE_BYTES - out.size();
-            int requested = Math.min(chunk.length, remaining + 1);
-            read = stream.read(chunk, 0, requested);
-            if (read <= 0) break;
-            if (read > remaining) return null;
-            out.write(chunk, 0, read);
-        }
-        return out.toString(StandardCharsets.UTF_8.name());
     }
 
     private static String content(String response) {
@@ -116,25 +97,17 @@ public final class VoicePolisher {
 
     /** Chat completions carry text; do not let org.json turn malformed values into visible prose. */
     static String strictContent(Object value) {
-        return value instanceof String ? (String) value : "";
+        return AiProviderResponse.strictContent(value);
     }
 
     /** Authentication headers for the provider endpoint, matching the shared AI transport. */
     public static Map<String, String> authenticationHeaders(String endpoint, String token) {
-        Map<String, String> headers = new LinkedHashMap<>();
-        if (token == null || token.isEmpty()) return headers;
         String host;
         try {
             host = new URL(endpoint).getHost();
         } catch (IOException | SecurityException error) {
             host = "";
         }
-        if ("api.anthropic.com".equalsIgnoreCase(host)) {
-            headers.put("x-api-key", token);
-            headers.put("anthropic-version", "2023-06-01");
-        } else {
-            headers.put("Authorization", "Bearer " + token);
-        }
-        return headers;
+        return AiProviderHeaders.forHost(host, token);
     }
 }

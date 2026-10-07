@@ -10,6 +10,7 @@
 //! A template is literal text and three placeholders: `{date}` or `{date:FORMAT}`, `{time}` or `{time:FORMAT}`, and `{weekday}`, with FORMAT a strftime description. Nothing else - no clipboard, no environment, no nesting - so a table can only ever produce text. The Engine expands templates (`crates/engine/src/local/command.rs`) and silently drops a row it cannot use; the rules are repeated here, where client-core cannot reach the Engine, so a pack is refused with the reason instead of losing rows nobody is told about.
 
 use serde::Serialize;
+use std::collections::HashSet;
 use time::format_description::parse_strftime_borrowed;
 use time::{Date, Month, PrimitiveDateTime, Time};
 use toml::Value;
@@ -49,6 +50,7 @@ pub(crate) fn parse(table: &toml::map::Map<String, Value>) -> Result<CommandTabl
         return Err("指令表的指令条数不在允许范围内".into());
     }
     let mut commands: Vec<CommandRow> = Vec::with_capacity(items.len());
+    let mut triggers = HashSet::with_capacity(items.len());
     for item in items {
         let row = item.as_table().ok_or("每条指令都必须是一个表")?;
         only_keys(row, &["trigger", "title", "template"], "a command")?;
@@ -64,9 +66,10 @@ pub(crate) fn parse(table: &toml::map::Map<String, Value>) -> Result<CommandTabl
             template: field("template")?,
         };
         validate(&command)?;
-        if commands.iter().any(|kept| kept.trigger == command.trigger) {
+        if triggers.contains(&command.trigger) {
             return Err(format!("指令 {} 重复了", command.trigger));
         }
+        triggers.insert(command.trigger.clone());
         commands.push(command);
     }
     Ok(CommandTable { commands })
@@ -165,6 +168,7 @@ fn expand_at(template: &str, instant: PrimitiveDateTime) -> Option<String> {
 /// The rows of the enabled command-table packs under `root`, in the order the ids are listed, keeping the first command of each trigger and at most `MAX_COMMANDS`: the table a host hands to the Engine. A pack that is missing or does not load contributes nothing; the settings page reports it.
 pub fn enabled_commands(root: &std::path::Path, enabled: &[String]) -> Vec<CommandRow> {
     let mut rows: Vec<CommandRow> = Vec::with_capacity(MAX_COMMANDS);
+    let mut triggers = HashSet::with_capacity(MAX_COMMANDS);
     for id in enabled {
         let Ok(package) = super::load_package(root, None, PluginKind::CommandTable, id) else {
             continue;
@@ -176,7 +180,7 @@ pub fn enabled_commands(root: &std::path::Path, enabled: &[String]) -> Vec<Comma
             if rows.len() == MAX_COMMANDS {
                 return rows;
             }
-            if !rows.iter().any(|kept| kept.trigger == row.trigger) {
+            if triggers.insert(row.trigger.clone()) {
                 rows.push(row);
             }
         }

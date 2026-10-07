@@ -261,10 +261,13 @@ public final class KeyPressIds {
      * @param nineGrid whether the nine-key grid is drawn, so its cells are not listed twice
      */
     public static List<String> others(Map<String, Long> counts, boolean nineGrid) {
-        Set<String> drawn = new LinkedHashSet<>();
+        int drawnCapacity = 0;
+        for (List<String> row : SOFT_ROWS) drawnCapacity += row.size();
+        if (nineGrid) for (List<String> row : NINE_ROWS) drawnCapacity += row.size();
+        Set<String> drawn = new LinkedHashSet<>(drawnCapacity);
         for (List<String> row : SOFT_ROWS) drawn.addAll(row);
         if (nineGrid) for (List<String> row : NINE_ROWS) drawn.addAll(row);
-        List<String> result = new ArrayList<>();
+        List<String> result = new ArrayList<>(counts.size());
         for (Map.Entry<String, Long> entry : counts.entrySet()) {
             if (entry.getValue() > 0 && !drawn.contains(entry.getKey())) result.add(entry.getKey());
         }

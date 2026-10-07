@@ -13,7 +13,7 @@ use super::candidate_community::{
 use super::catalog;
 use crate::account::{AccountApi, AccountError, AccountSessionStorage};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::Path;
@@ -521,7 +521,7 @@ pub fn sync_candidate_skins(
         state.packages.clear();
     }
     let rows = remote.sync_list()?;
-    let owned: BTreeSet<Uuid> = rows.iter().map(|row| row.id).collect();
+    let owned: HashSet<Uuid> = rows.iter().map(|row| row.id).collect();
     // Two rows of one package (a publication made before sync knew about it) resolve to the newest. The server lists newest first; `updated_at` is not compared as text, since RFC 3339 with a variable fraction does not sort that way.
     let mut newest: BTreeMap<String, CandidateSkinSyncEntry> = BTreeMap::new();
     for row in rows {
@@ -568,7 +568,7 @@ struct Run<'a, R: CandidateSkinSyncRemote> {
     generation: Option<u64>,
     state: SyncState,
     /// Every row the user owns, so a gallery install can be told apart from someone else's.
-    owned: BTreeSet<Uuid>,
+    owned: HashSet<Uuid>,
     report: CandidateSkinSyncReport,
 }
 

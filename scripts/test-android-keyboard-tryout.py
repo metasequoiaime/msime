@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""确保 Android 试用页加载模型后恢复控件，编辑草稿时仍能取消请求。"""
+"""确保 Android 试用页默认就能和 AI 对话：有字就能发，编辑草稿时仍能取消请求，模型目录到了会刷新发送键并发出等着的那句。"""
 from pathlib import Path
 import ast
 import re
@@ -44,7 +44,8 @@ class KeyboardTryoutSourceContract(unittest.TestCase):
                         if sending:
                             self.assertTrue(actual, "draft edits must keep Stop enabled")
                         else:
-                            self.assertEqual(actual, not models_empty and text_length > 0)
+                            # 默认就能和 AI 对话：发送键只看有没有字，模型目录还没到时发出的那句等目录到了再发。
+                            self.assertEqual(actual, text_length > 0)
 
     def test_model_loader_restores_controls_after_success(self):
         source = SOURCE.read_text()
@@ -55,8 +56,8 @@ class KeyboardTryoutSourceContract(unittest.TestCase):
         )
         self.assertIsNotNone(success, "could not locate the model-load success callback")
         body = success.group("body")
-        self.assertRegex(body, r"load\.setEnabled\(true\)")
         self.assertRegex(body, r"send\.setEnabled\([^;]*field\.length\(\)\s*>\s*0")
+        self.assertRegex(body, r"flushPendingSend\(send\)")
 
 
 if __name__ == "__main__":

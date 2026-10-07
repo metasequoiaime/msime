@@ -1,13 +1,10 @@
 package app.msime.android;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URI;
-import java.nio.charset.StandardCharsets;
-import java.util.LinkedHashMap;
 import java.util.Map;
 import javax.net.ssl.HttpsURLConnection;
 import org.json.JSONArray;
@@ -25,7 +22,7 @@ public final class AiPolishHttpTransport implements AiPolishClient.Transport {
                 .put("messages", new JSONArray()
                     .put(new JSONObject().put("role", "system").put("content", configuration.prompt()))
                     .put(new JSONObject().put("role", "user").put("content", text)));
-            byte[] bytes = body.toString().getBytes(StandardCharsets.UTF_8);
+            byte[] bytes = TextPolicy.utf8Bytes(body.toString());
             connection = (HttpsURLConnection) configuration.endpoint().toURL().openConnection();
             HttpsURLConnection target = connection;
             cancellation.attach(target::disconnect);
@@ -48,9 +45,13 @@ public final class AiPolishHttpTransport implements AiPolishClient.Transport {
                 throw new AiPolishClient.Failure(AiPolishClient.Reason.UNAVAILABLE);
             byte[] response;
             try (InputStream input = connection.getInputStream()) {
-                response = readBounded(input, cancellation);
+                response = HttpBodyPolicy.readBounded(input,
+                    AiPolishConfiguration.MAXIMUM_RESPONSE_BYTES, cancellation::cancelled);
+                if (cancellation.cancelled())
+                    throw new AiPolishClient.Failure(AiPolishClient.Reason.CANCELLED);
+                if (response == null) throw new AiPolishClient.Failure(AiPolishClient.Reason.INVALID);
             }
-            JSONObject document = new JSONObject(new String(response, StandardCharsets.UTF_8));
+            JSONObject document = new JSONObject(TextPolicy.utf8(response));
             Object content = document.getJSONArray("choices").getJSONObject(0)
                 .getJSONObject("message").opt("content");
             return strictContent(content);
@@ -67,34 +68,12 @@ public final class AiPolishHttpTransport implements AiPolishClient.Transport {
     }
 
     static Map<String, String> authenticationHeaders(URI endpoint, String token) {
-        Map<String, String> headers = new LinkedHashMap<>();
-        if (token == null || token.isEmpty()) return headers;
-        if ("api.anthropic.com".equalsIgnoreCase(endpoint.getHost())) {
-            headers.put("x-api-key", token);
-            headers.put("anthropic-version", "2023-06-01");
-        } else {
-            headers.put("Authorization", "Bearer " + token);
-        }
-        return headers;
+        return AiProviderHeaders.forHost(endpoint.getHost(), token);
     }
 
     /** Chat completions carry text; do not let org.json coerce malformed values into prose. */
     static String strictContent(Object value) {
-        return value instanceof String ? (String) value : "";
+        return AiProviderResponse.strictContent(value);
     }
 
-    private static byte[] readBounded(InputStream input, AiPolishClient.Cancellation cancellation)
-            throws IOException, AiPolishClient.Failure {
-        ByteArrayOutputStream output = new ByteArrayOutputStream();
-        byte[] buffer = new byte[8192];
-        int count;
-        while ((count = input.read(buffer)) != -1) {
-            if (cancellation.cancelled())
-                throw new AiPolishClient.Failure(AiPolishClient.Reason.CANCELLED);
-            if (output.size() + count > AiPolishConfiguration.MAXIMUM_RESPONSE_BYTES)
-                throw new AiPolishClient.Failure(AiPolishClient.Reason.INVALID);
-            output.write(buffer, 0, count);
-        }
-        return output.toByteArray();
-    }
 }

@@ -2,9 +2,12 @@ package app.msime.android.home;
 
 import android.content.Context;
 import androidx.annotation.Nullable;
+import app.msime.android.AppThemePalette;
 import app.msime.android.KeyboardSkin;
 import app.msime.android.NativeClient;
 import app.msime.android.PreferencesRevisionPolicy;
+import app.msime.android.SyncSignals;
+import app.msime.android.SyncSwitch;
 import app.msime.android.TypingStatisticsDocument;
 import app.msime.android.TypingStatisticsModel;
 import app.msime.android.policy.HostOptionsPolicy;
@@ -50,14 +53,7 @@ public final class HostStore {
     private static String runtimeOption(Context context, String key) {
         File files = context.getFilesDir();
         if (files == null) return "";
-        File options = new File(files, "runtime-options.json");
-        if (!options.isFile()) return "";
-        try {
-            JSONObject root = new JSONObject(HostOptionsPolicy.read(options));
-            return root.optString(key, "");
-        } catch (JSONException | java.io.IOException | SecurityException error) {
-            return "";
-        }
+        return HostOptionsPolicy.readOption(files, key);
     }
 
     /**
@@ -82,7 +78,7 @@ public final class HostStore {
      * Write one edited snapshot back, refusing if the keyboard changed it first.
      *
      * @param snapshot the object {@link #loadPreferences} returned, with `preferences` edited
-     * @return the saved snapshot, or null when the write was refused or failed
+     * @return the saved snapshot, or null when the write was refused or failed; a saved write also marks the settings sync section dirty
      */
     @Nullable public static JSONObject savePreferences(Context context, JSONObject snapshot) {
         String directory = directory(context);
@@ -98,7 +94,10 @@ public final class HostStore {
         } catch (JSONException error) {
             return null;
         }
-        return value(call(() -> NativeClient.savePreferences(directory, revision, document)));
+        JSONObject saved = value(call(() -> NativeClient.savePreferences(directory, revision, document)));
+        // Every user write marks settings dirty here, so no caller can forget it and lose the edit to the next cloud download. Cloud downloads go through NativeClient.accountSettingsApply, not this method, so they never mark themselves dirty.
+        if (saved != null) SyncSignals.markDirty(context, SyncSwitch.SETTINGS);
+        return saved;
     }
 
     /** One preference edited and saved in a single read-modify-write. */
@@ -138,6 +137,42 @@ public final class HostStore {
             dark, customTheme == null ? null : customTheme.optJSONObject("keyboard"));
     }
 
+    /**
+     * {@link #keyboardSkin(JSONObject, boolean)} with the app theme's seed for the 跟随系统 skin.
+     *
+     * <p>跟随系统（`global_theme` 为 `system`）时键盘颜色由应用主题当前季节的种子推导（设计令牌 §1.4），与 `:ime` 画出来的一致，所以这里直接用 {@link KeyboardSkin#system(boolean, AppThemePalette.Seed)}，不再问解析器；其他皮肤与两参数形式相同。与两参数形式一样不拿锁。
+     *
+     * @param seed the app theme's seed, normally {@link #seed(Context)}; null draws the unseeded palette
+     */
+    public static KeyboardSkin keyboardSkin(JSONObject preferences, boolean systemDark,
+            AppThemePalette.Seed seed) {
+        if (!"system".equals(preferences.optString("global_theme", "system")))
+            return keyboardSkin(preferences, systemDark);
+        boolean dark = KeyboardSkin.resolveDark(
+            preferences.optString("screen_keyboard_theme", "follow"),
+            preferences.optString("theme", "system"), systemDark);
+        return KeyboardSkin.system(dark, seed);
+    }
+
+    /**
+     * The app theme's seed colours the host last resolved for today's season, or 秋杉 (the base theme) before the first resolution. Reads only this app's own SharedPreferences, so it may run on the main thread.
+     */
+    public static AppThemePalette.Seed seed(Context context) {
+        return AppThemeController.cachedSeed(context);
+    }
+
+    /**
+     * Run one typing-statistics action against the same directory the keyboard records into and return the raw `value` of the answer.
+     *
+     * <p>For the operations whose answers are not the statistics document itself (the derived summary, badges and the like). The directory is chosen by {@link #statisticsDirectory} so that the page and the input service never read two different stores. Takes the statistics lock; call it on a worker.
+     *
+     * @param action the action object, e.g. {@code {"operation": "summary", ...}}
+     * @return the envelope's `value`, or null when the store is unavailable or refused the action
+     */
+    @Nullable public static JSONObject statisticsAction(Context context, JSONObject action) {
+        return statisticsValue(context, action);
+    }
+
     @Nullable public static TypingStatisticsModel loadStatistics(Context context) {
         return statistics(context, action("load"));
     }
@@ -172,6 +207,11 @@ public final class HostStore {
     }
 
     @Nullable private static TypingStatisticsModel statistics(Context context, JSONObject action) {
+        return TypingStatisticsDocument.from(statisticsValue(context, action));
+    }
+
+    /** One statistics request in the shared directory; the envelope's `value`, or null for any failure. */
+    @Nullable private static JSONObject statisticsValue(Context context, @Nullable JSONObject action) {
         String directory = statisticsDirectory(context);
         if (directory.isEmpty() || action == null) return null;
         final String request;
@@ -180,7 +220,7 @@ public final class HostStore {
         } catch (JSONException error) {
             return null;
         }
-        return TypingStatisticsDocument.from(value(call(() -> NativeClient.typingStatistics(request))));
+        return value(call(() -> NativeClient.typingStatistics(request)));
     }
 
     /**
@@ -194,7 +234,7 @@ public final class HostStore {
         String preferences = directory(context);
         if (!preferences.isEmpty()) return preferences;
         File files = context.getFilesDir();
-        return files == null ? "" : new File(files, "bootstrap/state").getAbsolutePath();
+        return HostOptionsPolicy.bootstrapStateDirectory(files);
     }
 
     @Nullable private static JSONObject action(String operation) {
@@ -210,10 +250,15 @@ public final class HostStore {
         if (response == null) return null;
         try {
             JSONObject root = new JSONObject(response);
-            return root.optBoolean("ok", false) ? root.optJSONObject("value") : null;
+            return Boolean.TRUE.equals(root.opt("ok")) ? root.optJSONObject("value") : null;
         } catch (JSONException error) {
             return null;
         }
+    }
+
+    /** Native envelopes use a typed JSON status; reject org.json's string coercion. */
+    static boolean strictOk(Object value) {
+        return value instanceof Boolean && (Boolean) value;
     }
 
     @Nullable private static String call(Call call) {

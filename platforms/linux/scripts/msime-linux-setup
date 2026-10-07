@@ -197,8 +197,8 @@ def download_artifacts(lock: dict, directory: Path) -> None:
 
 
 def prepare_command(command: Path, resources: Path, state: Path, cloud_candidates: bool) -> list[str]:
-    """云候选是装完就会联网的唯一一项，与 Windows 安装程序的「联网功能」页一样，在首次准备时决定。"""
-    flags = [] if cloud_candidates else ["--no-cloud-candidates"]
+    """云候选新装默认关闭，与 Windows 安装程序的「联网功能」页一样，在首次准备时由用户决定是否打开。"""
+    flags = ["--cloud-candidates"] if cloud_candidates else []
     return [str(command), *flags, str(resources), str(state)]
 
 
@@ -1175,10 +1175,16 @@ def main() -> int:
         action="store_true",
         help="升级之后把已有状态记录的词库补到当前版本并切换过去，用户词库随之回放；缺的词库要配合 --download 取回",
     )
-    parser.add_argument(
+    cloud = parser.add_mutually_exclusive_group()
+    cloud.add_argument(
+        "--cloud-candidates",
+        action="store_true",
+        help="启用云候选（默认关闭）：输入过程中把正在输入的拼写经 HTTPS 发给 Google input-tools（inputtools.google.com）换回一条额外候选；已上屏文本、词库和词频不会发送。之后可在设置里改",
+    )
+    cloud.add_argument(
         "--no-cloud-candidates",
         action="store_true",
-        help="关闭云候选：默认开启时，输入过程中会把正在输入的拼写经 HTTPS 发给 Google input-tools（inputtools.google.com）换回一条额外候选；已上屏文本、词库和词频不会发送。之后可在设置里改",
+        help="保持云候选关闭；现在默认就是关闭，保留给旧的调用方",
     )
     parser.add_argument(
         "--no-register",
@@ -1262,7 +1268,7 @@ def main() -> int:
             return 1
 
     print(f"词库已校验：{resources}")
-    prepare_state(prefix, resources, state, not arguments.no_cloud_candidates)
+    prepare_state(prefix, resources, state, arguments.cloud_candidates)
     ensure_anonymous_account(prefix)
     enable_services(service_units(state, config_home() / "msime-client"))
     link_omarchy_theme_hook(prefix, options_file)

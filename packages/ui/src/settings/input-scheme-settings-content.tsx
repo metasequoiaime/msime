@@ -104,8 +104,9 @@ export function InputSchemeSettingsContent({
           scheme !== "zhuyin" &&
           scheme !== "vietnamese" &&
           scheme !== "tibetan" &&
-          scheme !== "stroke") ||
-        inputSchemes.includes(scheme),
+          scheme !== "stroke" &&
+          scheme !== "zhuyin_nine_key") ||
+        inputSchemes.includes(scheme === "zhuyin_nine_key" ? "zhuyin" : scheme),
     )
     .filter(([scheme]) => {
       if (!edition) return true;

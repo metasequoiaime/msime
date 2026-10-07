@@ -255,6 +255,10 @@ fn local_model_mirror_is_empty_or_an_https_prefix() {
     for rejected in [
         "http://ghproxy.example.test",
         "https://",
+        "https:///path",
+        "https://user:pass@mirror.example.test",
+        "https://mirror.example.test?query=unexpected",
+        "https://mirror.example.test/#fragment",
         "ghproxy.example.test",
         "https://mirror.example.test/\n",
         "https://mirror example.test",
@@ -392,14 +396,37 @@ fn usage_reporting_defaults_on_and_survives_a_save() {
 }
 
 #[test]
-fn translation_account_defaults_on_for_new_desktop_installs() {
+fn cloud_candidates_start_off_but_an_upgraded_document_keeps_them() {
     let defaults = Preferences::default();
-    let desktop_default = cfg!(any(target_os = "macos", target_os = "linux"));
-    assert_eq!(defaults.translation_account, desktop_default);
-    assert_eq!(
-        defaults.restored_to_defaults().translation_account,
-        desktop_default
+    assert!(!defaults.cloud_candidates);
+    assert!(!defaults.restored_to_defaults().cloud_candidates);
+    // 旧文档里没有这个字段时按原来的行为读成开启，升级不替用户改。
+    let mut serialized = serde_json::to_value(&defaults).unwrap();
+    serialized
+        .as_object_mut()
+        .unwrap()
+        .remove("cloud_candidates");
+    assert!(
+        serde_json::from_value::<Preferences>(serialized)
+            .unwrap()
+            .cloud_candidates
     );
+
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let chosen = Preferences {
+        cloud_candidates: true,
+        ..defaults
+    };
+    store.save(0, chosen).unwrap();
+    assert!(store.load().unwrap().preferences.cloud_candidates);
+}
+
+#[test]
+fn translation_account_is_an_explicit_choice_on_every_platform() {
+    let defaults = Preferences::default();
+    assert!(!defaults.translation_account);
+    assert!(!defaults.restored_to_defaults().translation_account);
     // A stored document that never chose the account keeps it off.
     let unchosen = Preferences {
         translation_account: false,
@@ -1941,16 +1968,23 @@ fn cantonese_zhuyin_and_vietnamese_touch_schemes_are_appended_and_opt_in() {
             TouchKeyboardScheme::Vietnamese,
             TouchKeyboardScheme::Tibetan,
             TouchKeyboardScheme::Stroke,
+            TouchKeyboardScheme::ZhuyinNineKey,
         ]
     );
+    assert_eq!(TouchKeyboardScheme::ALL.len(), 17);
     for (scheme, id) in [
         (TouchKeyboardScheme::Cantonese, "cantonese"),
         (TouchKeyboardScheme::Zhuyin, "zhuyin"),
         (TouchKeyboardScheme::Vietnamese, "vietnamese"),
         (TouchKeyboardScheme::Tibetan, "tibetan"),
         (TouchKeyboardScheme::Stroke, "stroke"),
+        (TouchKeyboardScheme::ZhuyinNineKey, "zhuyin_nine_key"),
     ] {
         assert_eq!(serde_json::to_value(scheme).unwrap(), id);
+        assert_eq!(
+            serde_json::from_value::<TouchKeyboardScheme>(serde_json::json!(id)).unwrap(),
+            scheme
+        );
         assert!(!TouchKeyboardSchemePreferences::default()
             .enabled
             .contains(&scheme));
@@ -3855,5 +3889,206 @@ fn language_editions_first_run_defaults_to_their_own_scheme() {
         let saved = store.save(0, defaults.clone()).unwrap();
         assert_eq!(saved.preferences, defaults, "{id}");
         assert_eq!(store.load().unwrap().preferences, defaults, "{id}");
+    }
+}
+
+#[test]
+fn restoring_defaults_in_the_store_is_one_compare_and_swap() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let mut edited = Preferences {
+        candidate_page_size: 7,
+        ..Preferences::default()
+    };
+    edited.voice_input.asr_token = "fixture-asr-token".into();
+    edited.fuzzy_pinyin.seeded = true;
+    let saved = store.save(0, edited).unwrap();
+    assert!(matches!(
+        store.restore_defaults(saved.revision + 1),
+        Err(PreferencesError::Conflict)
+    ));
+    assert_eq!(store.load().unwrap(), saved);
+    let restored = store.restore_defaults(saved.revision).unwrap();
+    assert_eq!(restored.revision, saved.revision + 1);
+    assert_eq!(restored.preferences.candidate_page_size, 6);
+    assert_eq!(
+        restored.preferences.voice_input.asr_token,
+        "fixture-asr-token"
+    );
+    assert!(restored.preferences.fuzzy_pinyin.seeded);
+    assert_eq!(store.load().unwrap(), restored);
+}
+
+/// 偏好里键名像凭据、但确实不是凭据的字段。新字段名含 token|key|secret|password 时，要么进 `Preferences::credential_slots`，要么在这里说明它不是凭据。
+const NOT_CREDENTIALS: &[&str] = &[
+    "floating_toolbar.screen_keyboard",
+    "keybindings",
+    "screen_keyboard_theme",
+    "sentence_association.neural_keyboard",
+    "touch_key_spacing_tenths",
+    "touch_keyboard_height_adjustment",
+    "touch_keyboard_layout",
+    "voice_input.hotkey_ctrl_f9",
+    "voice_input.hotkey_ctrl_win",
+    "voice_input.hotkey_hold_space_lock",
+    "voice_input.hotkey_ralt",
+    "voice_input.hotkey_rctrl_ralt",
+    "word_character.keys",
+];
+
+fn credential_like(name: &str) -> bool {
+    let name = name.to_ascii_lowercase();
+    ["token", "key", "secret", "password"]
+        .iter()
+        .any(|pattern| name.contains(pattern))
+}
+
+fn credential_like_paths(value: &serde_json::Value, prefix: &str, into: &mut Vec<String>) {
+    if let serde_json::Value::Object(object) = value {
+        for (key, child) in object {
+            let path = if prefix.is_empty() {
+                key.clone()
+            } else {
+                format!("{prefix}.{key}")
+            };
+            if credential_like(key) {
+                into.push(path.clone());
+            }
+            credential_like_paths(child, &path, into);
+        }
+    }
+}
+
+fn with_every_credential(mut preferences: Preferences) -> Preferences {
+    for (_, slot) in preferences.credential_slots() {
+        match slot {
+            CredentialSlot::Text(text) => *text = "secret-value".into(),
+            CredentialSlot::Map(map) => {
+                map.insert("provider".into(), "secret-value".into());
+            }
+        }
+    }
+    preferences
+}
+
+#[test]
+fn every_credential_like_preference_field_is_listed() {
+    let mut preferences = Preferences::default();
+    let credentials: Vec<&str> = preferences
+        .credential_slots()
+        .iter()
+        .map(|(path, _)| *path)
+        .collect();
+    let document = serde_json::to_value(with_every_credential(Preferences::default())).unwrap();
+    let mut paths = Vec::new();
+    credential_like_paths(&document, "", &mut paths);
+    let unlisted: Vec<_> = paths
+        .iter()
+        .filter(|path| {
+            !credentials.contains(&path.as_str())
+                && !NOT_CREDENTIALS.contains(&path.as_str())
+                && !credentials
+                    .iter()
+                    .any(|credential| path.starts_with(&format!("{credential}.")))
+        })
+        .collect();
+    assert!(
+        unlisted.is_empty(),
+        "credential-like preference fields neither in credential_slots nor NOT_CREDENTIALS: {unlisted:?}"
+    );
+    for path in &credentials {
+        let mut cursor = &document;
+        for segment in path.split('.') {
+            cursor = &cursor[segment];
+        }
+        assert!(!cursor.is_null(), "{path} is not a preference field");
+    }
+}
+
+#[test]
+fn diagnostic_snapshot_redacts_every_credential() {
+    let preferences = with_every_credential(Preferences::default());
+    let redacted = preferences.redacted_for_diagnostics();
+    let text = redacted.to_string();
+    assert!(!text.contains("secret-value"), "{text}");
+    let mut copy = preferences.clone();
+    for (path, _) in copy.credential_slots() {
+        let mut cursor = &redacted;
+        for segment in path.split('.') {
+            cursor = &cursor[segment];
+        }
+        assert_eq!(cursor, REDACTED, "{path}");
+    }
+    fn check(value: &serde_json::Value) {
+        if let serde_json::Value::Object(object) = value {
+            for (key, child) in object {
+                if is_sensitive_key(key) {
+                    assert_eq!(child, REDACTED, "{key}");
+                } else {
+                    check(child);
+                }
+            }
+        }
+    }
+    check(&redacted);
+    // 非凭据的设置照常保留，快照才有用。
+    assert_eq!(
+        redacted["candidate_page_size"],
+        serde_json::json!(preferences.candidate_page_size)
+    );
+}
+
+#[test]
+fn diagnostic_snapshot_strips_secrets_from_endpoints() {
+    let mut preferences = Preferences::default();
+    preferences.voice_input.asr_endpoint =
+        "wss://user:pass@asr.example.com:8443/v1/stream?token=secret-value#frag".into();
+    preferences.voice_input.polish_endpoint =
+        "https://polish.example.com/chat?key=secret-value".into();
+    preferences.ai_assistant.endpoint = "https://secret-value@ai.example.com/v1".into();
+    preferences.custom_translation.endpoint = "not a url secret-value".into();
+    let redacted = preferences.redacted_for_diagnostics();
+    assert!(!redacted.to_string().contains("secret-value"), "{redacted}");
+    assert_eq!(
+        redacted["voice_input"]["asr_endpoint"],
+        "wss://asr.example.com:8443/v1/stream"
+    );
+    assert_eq!(
+        redacted["voice_input"]["polish_endpoint"],
+        "https://polish.example.com/chat"
+    );
+    assert_eq!(
+        redacted["ai_assistant"]["endpoint"],
+        "https://ai.example.com/v1"
+    );
+    assert_eq!(redacted["custom_translation"]["endpoint"], REDACTED);
+
+    // 没填的地址照样是空的。
+    preferences.custom_translation.endpoint.clear();
+    assert_eq!(
+        preferences.redacted_for_diagnostics()["custom_translation"]["endpoint"],
+        ""
+    );
+}
+
+#[test]
+fn restoring_defaults_keeps_exactly_the_listed_credentials() {
+    let preferences = with_every_credential(Preferences::default());
+    let mut restored = preferences.restored_to_defaults();
+    let mut original = preferences.clone();
+    for ((path, before), (_, after)) in original
+        .credential_slots()
+        .into_iter()
+        .zip(restored.credential_slots())
+    {
+        match (before, after) {
+            (CredentialSlot::Text(before), CredentialSlot::Text(after)) => {
+                assert_eq!(before, after, "{path}")
+            }
+            (CredentialSlot::Map(before), CredentialSlot::Map(after)) => {
+                assert_eq!(before, after, "{path}")
+            }
+            _ => panic!("{path} changed type"),
+        }
     }
 }

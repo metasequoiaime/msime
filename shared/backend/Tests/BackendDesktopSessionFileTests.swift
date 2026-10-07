@@ -83,6 +83,28 @@ final class BackendDesktopSessionFileTests: XCTestCase {
     try? FileManager.default.removeItem(at: outside)
   }
 
+  func testBoundedReaderRejectsAnOversizedSessionDocument() throws {
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("desktop-session-limit-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let file = directory.appendingPathComponent("session.json")
+    try Data(repeating: 0x41, count: BackendDesktopSessionFile.maximumBytes + 1).write(to: file)
+    XCTAssertThrowsError(try BackendDesktopSessionFile.readBounded(file, maximumBytes: BackendDesktopSessionFile.maximumBytes))
+  }
+
+  func testBoundedReaderRejectsASymlink() throws {
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("desktop-session-link-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let target = directory.appendingPathComponent("target.json")
+    let link = directory.appendingPathComponent("session.json")
+    try Data("synthetic".utf8).write(to: target)
+    try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+    XCTAssertThrowsError(try BackendDesktopSessionFile.readBounded(link, maximumBytes: 64))
+  }
+
   /// Without a storage the macOS account session is the shared file, refreshed under the lock beside it; a session given its own storage keeps a lock of its own.
   func testTheDefaultSessionSharesTheFileAndItsLock() async throws {
     let lock = BackendDesktopSessionFile.refreshLock

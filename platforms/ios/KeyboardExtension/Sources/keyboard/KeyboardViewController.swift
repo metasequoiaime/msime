@@ -137,6 +137,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// The iPad digit row above the letters and the Tab key before Q; see `KeyboardLayoutPreference.tabletFullKeys`.
   private var numberRowView: UIStackView?
   private var tabKey: UIButton?
+  /// 横屏分离式键盘每一排中间的中缝（见 `KeyboardSplitLayout`）。不分离时隐藏，stack view 不给它宽度也不给它两侧的键距；分离时它是一块普通视图，落在上面的触摸由它接住后丢掉，不会被 `KeyAreaStackView` 当成键距交给旁边的键。
+  private var splitGaps: [UIView] = []
+  private var splitGapWidths: [NSLayoutConstraint] = []
+  /// 分离时右半最里面的第二个空格键，和 `spaceButton` 做同样的事。
+  private weak var splitSpaceButton: UIButton?
+  /// 上一次 `updateKeyboardLayout` 画的是不是分离式键盘；旋转或改设置后与 `wantsSplitKeyboard` 不同就重新布局。
+  private var splitKeyboardShown = false
   private var symbolRowViews: [UIView] = []
   /// The four Dachen rows, shown instead of the letter rows while the Zhuyin scheme is active.
   private var zhuyinRowViews: [UIView] = []
@@ -424,6 +431,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   override func viewDidLoad() {
     super.viewDidLoad()
     translations.onArrival = { [weak self] in self?.renderCandidateStrip() }
+    // 方案以共享文档为准。会话在本控制器创建时已经同步读过一次文档，先把其中记的方案抄进 App Group 镜像再按镜像行事，不额外读盘；否则在 `viewWillAppear` 的后台重载回来之前，键盘会先按镜像里的旧方案（比如双拼）画出来并开始接收按键。
+    InputSchemePreference.mirror(session.sharedPreferences)
     inputScheme = InputSchemePreference.scheme
     isChineseMode = ImeModeMemoryPreference.startsInChinese(fallback: Self.startsInChinese(session.sharedPreferences))
     appliedCharacterWidth = CharacterWidthPreference.value(in: session.sharedPreferences)
@@ -436,6 +445,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     DiagnosticLog.shared.write("keyboard_loaded full_access=\(hasFullAccess ? 1 : 0) idiom=\(UIDevice.current.userInterfaceIdiom == .pad ? "pad" : "phone")")
     if session.initializationFailed { DiagnosticLog.shared.write("runtime_initialization_failed") }
     glossLineCount = currentGlossLines()
+    // 简繁与方案同理以共享文档为准：先把会话创建时读到的文档里记的字形抄进镜像，否则在后台重载回来之前（文档没有更新时它根本不会抄），键盘按镜像里的旧字形转换上屏文字。
+    ChineseOutputPreference.mirror(session.sharedPreferences)
     usesTraditionalOutput = ChineseOutputPreference.usesTraditional
     _ = applyInputScheme()
     applyLearningPreferences()
@@ -627,7 +638,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     personalDictionaryTimer = nil
     closeKeyboardPicker()
     cursorMovement.cancel()
-    spaceButton?.configuration?.title = "空格"
+    for space in spaceKeys { space.configuration?.title = "空格" }
     // Putting the keyboard away used to drop whatever was composed. macOS commits in
     // prepareForDeactivation: for the same reason: the user typed those letters and never asked to
     // throw them away.
@@ -755,6 +766,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     actionRow = makeActionRow()
     root.addArrangedSubview(actionRow)
+    installSplitGaps(in: root)
     standardRowHeights = ([numberRow] + letterRowViews + zhuyinRowViews + symbolRowViews).map {
       ($0, $0.heightAnchor.constraint(equalTo: actionRow.heightAnchor))
     }
@@ -767,6 +779,45 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // Extra handwriting space belongs to the canvas, not enlarged Space/Return keys.
     handwritingActionHeight = actionRow.heightAnchor.constraint(equalToConstant: 44)
     updateKeyboardLayout()
+  }
+
+  /// 给数字行、三排字母、三排符号和底部功能键那一排各插入一段中缝，默认隐藏，分离时由 `updateKeyboardLayout` 显示。
+  ///
+  /// 中缝要有自己的宽度，所以原来 `.fillEqually` 的排改成 `.fill` 再给字符键加上等宽约束，不分离时排出来和原来一样。字符键的中缝位置按 `KeyboardSplitLayout.leftKeyCount` 定，是固定的，不随 `;` 等键的显隐移动；底部那一排的中缝在两个空格键之间。
+  private func installSplitGaps(in root: UIStackView) {
+    let rows = ([numberRowView as UIView?].compactMap { $0 } + letterRowViews + symbolRowViews).compactMap { $0 as? UIStackView }
+    for row in rows {
+      let characterKeys = row.arrangedSubviews.filter { ($0 as? KeyboardKeyButton)?.isFunctionKey != true }
+      guard !characterKeys.isEmpty else { continue }
+      if row.distribution == .fillEqually {
+        row.distribution = .fill
+        for key in characterKeys.dropFirst() {
+          let width = key.widthAnchor.constraint(equalTo: characterKeys[0].widthAnchor)
+          // 微软双拼的 `;` 只在该方案下显示：等宽约束低于 required，让 stack view 隐藏它时的零宽约束胜出。
+          if key === microsoftFinalKey { width.priority = .init(999) }
+          width.isActive = true
+        }
+      }
+      insertSplitGap(into: row, after: characterKeys[KeyboardSplitLayout.leftKeyCount(characterKeys.count) - 1], root: root)
+    }
+    if let space = spaceButton { insertSplitGap(into: actionRow, after: space, root: root) }
+  }
+
+  private func insertSplitGap(into row: UIStackView, after key: UIView, root: UIStackView) {
+    guard let index = row.arrangedSubviews.firstIndex(of: key) else { return }
+    let gap = UIView()
+    gap.accessibilityIdentifier = "splitKeyboardGap"
+    gap.isAccessibilityElement = false
+    gap.isHidden = true
+    row.insertArrangedSubview(gap, at: index + 1)
+    // 中缝两侧各还有一个键距，宽度减去它们，两半最里面的键之间正好空出 `gapRatio`（见 `KeyboardSplitLayout.gapViewWidth`）。低于 required，隐藏时让 stack view 的零宽约束胜出。
+    let width = gap.widthAnchor.constraint(
+      equalTo: root.widthAnchor, multiplier: KeyboardSplitLayout.gapRatio,
+      constant: -2 * CGFloat(KeyboardLayoutPreference.keySpacing))
+    width.priority = .init(999)
+    width.isActive = true
+    splitGaps.append(gap)
+    splitGapWidths.append(width)
   }
 
   /// A key in the nine-key sidebar: text only, on the sidebar's translucent fill. The fill, outline and shadow decorateKey gives a grid key are all removed - a shadow left under a clear key draws as a grey block offset from its title.
@@ -1679,24 +1730,19 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     quickPunctuationWidth = punctuation.widthAnchor.constraint(equalToConstant: 44)
     row.addArrangedSubview(punctuation)
 
-    let space = makeKey(title: "空格", accessibilityLabel: "空格") { [weak self] in
-      self?.countKeyPress(TypingKeyID.space)
-      self?.handleSpace()
-    }
+    let space = makeSpaceKey()
     space.accessibilityIdentifier = "spaceKey"
-    space.accessibilityHint = "轻点输入空格或选词，左右滑动移动光标"
-    space.accessibilityCustomActions = [
-      UIAccessibilityCustomAction(name: "光标左移") { [weak self] _ in self?.moveCursor(by: -1); return self != nil },
-      UIAccessibilityCustomAction(name: "光标右移") { [weak self] _ in self?.moveCursor(by: 1); return self != nil },
-    ]
-    let pan = UIPanGestureRecognizer(target: self, action: #selector(handleSpacePan(_:)))
-    pan.name = "spaceCursorPan"
-    pan.maximumNumberOfTouches = 1
-    pan.cancelsTouchesInView = true
-    pan.delegate = self
-    space.addGestureRecognizer(pan)
     spaceButton = space
     row.addArrangedSubview(space)
+    // 分离式键盘右半的空格：轻点、滑动移动光标和无障碍操作都与左边那个相同，宽度也相同；不分离时隐藏（中缝由 installSplitGaps 插在两者之间）。
+    let splitSpace = makeSpaceKey()
+    splitSpace.accessibilityIdentifier = "splitSpaceKey"
+    splitSpace.isHidden = true
+    splitSpaceButton = splitSpace
+    row.addArrangedSubview(splitSpace)
+    let splitSpaceWidth = splitSpace.widthAnchor.constraint(equalTo: space.widthAnchor)
+    splitSpaceWidth.priority = .init(999)
+    splitSpaceWidth.isActive = true
     let language = makeKey(title: "中/英", accessibilityLabel: "切换中英文", function: true) { [weak self] in
       self?.countKeyPress(TypingKeyID.language)
       self?.toggleInputMode()
@@ -1737,6 +1783,31 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     ]
     actionGlobeButton = globe
     return row
+  }
+
+  /// 底部那一排的空格键：轻点输入空格或选词，左右滑动移动光标（`handleSpacePan`）。分离式键盘的两个空格都由这里做出来。
+  private func makeSpaceKey() -> UIButton {
+    let space = makeKey(title: "空格", accessibilityLabel: "空格") { [weak self] in
+      self?.countKeyPress(TypingKeyID.space)
+      self?.handleSpace()
+    }
+    space.accessibilityHint = "轻点输入空格或选词，左右滑动移动光标"
+    space.accessibilityCustomActions = [
+      UIAccessibilityCustomAction(name: "光标左移") { [weak self] _ in self?.moveCursor(by: -1); return self != nil },
+      UIAccessibilityCustomAction(name: "光标右移") { [weak self] _ in self?.moveCursor(by: 1); return self != nil },
+    ]
+    let pan = UIPanGestureRecognizer(target: self, action: #selector(handleSpacePan(_:)))
+    pan.name = "spaceCursorPan"
+    pan.maximumNumberOfTouches = 1
+    pan.cancelsTouchesInView = true
+    pan.delegate = self
+    space.addGestureRecognizer(pan)
+    return space
+  }
+
+  /// 底部那一排的两个空格键；第二个只在分离式键盘里显示，标题随第一个一起更新。
+  private var spaceKeys: [UIButton] {
+    [spaceButton, splitSpaceButton].compactMap { $0 }
   }
 
   private func makeDeleteKey() -> UIButton {
@@ -2303,11 +2374,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       japaneseSpaceButton?.configuration = configuration
       japaneseSpaceButton?.accessibilityLabel = title
     }
-    if var configuration = spaceButton?.configuration,
-       configuration.title != title {
+    for space in spaceKeys {
+      guard var configuration = space.configuration, configuration.title != title else { continue }
       configuration.title = title
-      spaceButton?.configuration = configuration
-      spaceButton?.accessibilityLabel = title
+      space.configuration = configuration
+      space.accessibilityLabel = title
     }
     japaneseKeys?.setComposing(hasComposition)
   }
@@ -3100,6 +3171,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       (row as? UIStackView)?.spacing = layout.keySpacing
     }
     actionRow.spacing = layout.keySpacing
+    for width in splitGapWidths { width.constant = -2 * layout.keySpacing }
     nineKeyContainer.spacing = layout.keySpacing
     if let old = nineSidebarWidth, let sidebar = old.firstItem as? UIView {
       old.isActive = false
@@ -3130,6 +3202,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let geometry: KeyboardGeometry
     let formFactor: KeyboardFormFactor
     let fullKeys: Bool
+    let split: Bool
   }
 
   private var layoutInputs: KeyboardLayoutInputs {
@@ -3138,7 +3211,26 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       symbols: showsSymbols, globe: needsInputModeSwitchKey,
       hasSpellings: !currentNineKeySpellings.isEmpty,
       geometry: KeyboardLayoutPreference.geometry,
-      formFactor: formFactor, fullKeys: KeyboardLayoutPreference.tabletFullKeys)
+      formFactor: formFactor, fullKeys: KeyboardLayoutPreference.tabletFullKeys,
+      split: wantsSplitKeyboard)
+  }
+
+  /// 键盘此刻是否横屏。有窗口场景时按它的界面方向；没有时（例如测试里还没进窗口的控制器）退回到竖直 size class：手机横屏是 compact，iPad 两个方向都是 regular，于是按竖屏处理，不会误画分离式键盘。测试用 `traitOverrides` 把它设成 compact 来模拟 iPad 横屏。
+  private var isLandscape: Bool {
+    view.window?.windowScene?.interfaceOrientation.isLandscape ?? (traitCollection.verticalSizeClass == .compact)
+  }
+
+  /// 此刻该不该画横屏分离式键盘：平板形态、横屏、开关打开，而且当前显示的是会分开的字母布局。开关放在最后读，手机和竖屏不读 App Group。
+  private var wantsSplitKeyboard: Bool {
+    KeyboardSplitLayout.splitsLayout(scheme: inputScheme, chinese: isChineseMode, localMode: isInLocalMode)
+      && KeyboardSplitLayout.isActive(
+        formFactor: formFactor, landscape: isLandscape, enabled: KeyboardLayoutPreference.tabletSplit)
+  }
+
+  /// 旋转、台前调度改窗口大小、停靠与浮动切换，或者键盘再次出现时读到新的开关值，都可能让分离与否变化；只有真的变了才重新布局。
+  private func updateSplitKeyboardIfNeeded() {
+    guard actionRow != nil, wantsSplitKeyboard != splitKeyboardShown else { return }
+    updateKeyboardLayout()
   }
 
   /// Rebuild the keyboard only when something it depends on moved.
@@ -3204,6 +3296,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     tabKey?.isHidden = !fullKeys
     let rowPunctuation = formFactor.showsLetterRowPunctuation
     for key in letterRowPunctuationKeys where key.isHidden == rowPunctuation { key.isHidden = !rowPunctuation }
+    // 横屏分离式键盘：每排的中缝和右半的第二个空格一起显示或隐藏。九键、笔画、假名、大千和手写不分（wantsSplitKeyboard），它们的符号页也跟着不分。
+    let split = wantsSplitKeyboard
+    splitKeyboardShown = split
+    for gap in splitGaps where gap.isHidden == split { gap.isHidden = !split }
+    if splitSpaceButton?.isHidden == split { splitSpaceButton?.isHidden = !split }
     // The nine-key digit layer keeps the three-column grid and only changes its legends. This
     // avoids replacing it with the ten-across symbol rows and preserves the user's chosen layout.
     let nineKeyDigits = nineKeyFrame && showsSymbols
@@ -3438,7 +3535,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       // A Korean syllable, a Zhuyin conversion and a Vietnamese word have no caret inside them either, so the drag finishes them and moves the document caret.
       spaceDragEditsComposition = hasComposition && inputScheme.hasSpellingCaret
       if hasComposition && !spaceDragEditsComposition { render(session.finishComposition()) }
-      spaceButton?.configuration?.title = spaceDragEditsComposition ? "移动拼音光标" : "移动光标"
+      // 分离式键盘有两个空格，只给正在拖的那个换标题；结束时 updateSpaceKeyTitle 把两个都还原。
+      (pan.view as? UIButton)?.configuration?.title = spaceDragEditsComposition ? "移动拼音光标" : "移动光标"
       if KeyboardFeedbackPreference.hapticsEnabled {
         keyFeedback.impactOccurred(intensity: KeyboardFeedbackPreference.hapticStrength.intensity)
       }
@@ -3470,7 +3568,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       character: " ", preceding: precedingCharacter,
       timestampMilliseconds: smartPunctuationNow, editorGeneration: smartPunctuationEditor,
       repeatSnapshot: nil, spaceSnapshot: armedSpaceConversion)
-    if let ascii = (conversion["space_ascii"] as? NSNumber)?.uint8Value,
+    if let ascii = conversion["space_ascii"]
+        .flatMap({ MetasequoiaInputSessionBridge.strictUInt64($0) })
+        .flatMap(UInt8.init(exactly:)),
        let scalar = UnicodeScalar(UInt32(ascii)) {
       clearSmartPunctuationArming()
       replacePrecedingCharacter(with: String(Character(scalar)))
@@ -4581,6 +4681,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if let globe = actionGlobeButton, globe.isHidden != !needsInputModeSwitchKey {
       updateKeyboardLayout()
     }
+    updateSplitKeyboardIfNeeded()
     updatePreferredKeyboardHeight()
     func updateShadows(_ node: UIView) {
       if let button = node as? UIButton, button.layer.shadowOpacity > 0 {
@@ -4593,8 +4694,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func updatePreferredKeyboardHeight() {
-    let landscape = view.window?.windowScene?.interfaceOrientation.isLandscape
-      ?? (traitCollection.verticalSizeClass == .compact)
+    let landscape = isLandscape
     // The composition line added a row to the candidate strip; the keyboard grew by it rather than
     // taking the space out of the keys.
     let extra = currentStripExtraHeight
@@ -5001,6 +5101,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       // The form factor also sets how large a synced candidate size may be drawn.
       applyCandidateGlossLayout()
     }
+  }
+
+  /// iPad 旋转时 size class 不变，traitCollectionDidChange 不会被叫到；转完再核对一次分离式键盘（viewDidLayoutSubviews 通常已经处理过）。
+  override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
+    super.viewWillTransition(to: size, with: coordinator)
+    coordinator.animate(alongsideTransition: nil) { [weak self] _ in self?.updateSplitKeyboardIfNeeded() }
   }
 
   @objc private func prepareKeyFeedback() {

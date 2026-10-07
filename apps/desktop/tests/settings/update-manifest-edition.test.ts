@@ -28,8 +28,10 @@ const windowsRelease = [
     tag_name: "windows-v1.2.0",
     html_url: `${page}/tag/windows-v1.2.0`,
     assets: [
-      { name: "MetasequoiaIME_Setup_v1.2.0.exe", digest: digest("a") },
-      { name: "MetasequoiaIME_Setup_v1.2.0.exe.sha256", digest: digest("b") },
+      { name: "MetasequoiaIME-Full_Setup_v1.2.0.exe", digest: digest("a") },
+      { name: "MetasequoiaIME-Full_Setup_v1.2.0.exe.sha256", digest: digest("b") },
+      // msime-windows 的安装包名。本仓库的发布里不会有它，放在这里确认 full 不会把它当成自己的。
+      { name: "MetasequoiaIME_Setup_v1.2.0.exe", digest: digest("e") },
       { name: "MetasequoiaIME-Wubi_Setup_v1.2.0.exe", digest: digest("c") },
       { name: "MetasequoiaIME-Pinyin_Setup_v1.2.0.exe", digest: digest("d") },
     ],
@@ -75,10 +77,12 @@ test("an edition picks only its own package and installer", () => {
     name: "msime-linux-pinyin_1.2.0_amd64.deb",
     sha256: "e".repeat(64),
   });
-  expect(pick(windowsRelease, "windows")).toEqual({
-    name: "MetasequoiaIME_Setup_v1.2.0.exe",
-    sha256: "a".repeat(64),
-  });
+  for (const edition of [undefined, "full"]) {
+    expect(pick(windowsRelease, "windows", edition)).toEqual({
+      name: "MetasequoiaIME-Full_Setup_v1.2.0.exe",
+      sha256: "a".repeat(64),
+    });
+  }
   expect(pick(windowsRelease, "windows", "wubi")).toEqual({
     name: "MetasequoiaIME-Wubi_Setup_v1.2.0.exe",
     sha256: "c".repeat(64),
@@ -98,9 +102,41 @@ test("the installer placeholder names the edition's installer", () => {
     signed: false,
   };
   expect(describeInstallerTrust(update, "windows").warning).toContain(
-    "MetasequoiaIME_Setup_v<版本>.exe.sha256",
+    "MetasequoiaIME-Full_Setup_v<版本>.exe.sha256",
   );
   expect(describeInstallerTrust(update, "windows", "wubi").warning).toContain(
     "MetasequoiaIME-Wubi_Setup_v<版本>.exe.sha256",
   );
+});
+
+test("an edition picks its own package for the host's architecture", () => {
+  const bothArchitectures = [
+    {
+      ...linuxRelease[0]!,
+      assets: [
+        ...linuxRelease[0]!.assets,
+        { name: "msime-linux_1.2.0_arm64.deb", digest: digest("1") },
+        { name: "msime-linux-wubi_1.2.0_arm64.deb", digest: digest("2") },
+        { name: "msime-linux-wubi-1.2.0-linux-aarch64.tar.gz", digest: digest("3") },
+      ],
+    },
+  ];
+  const pickFor = (edition: string | undefined, arch: string) => {
+    const update = selectPlatformRelease(bothArchitectures, "linux", page, edition, arch);
+    return update && { name: update.installerName, sha256: update.installerSha256 };
+  };
+  expect(pickFor(undefined, "aarch64")).toEqual({
+    name: "msime-linux_1.2.0_arm64.deb",
+    sha256: "1".repeat(64),
+  });
+  expect(pickFor("wubi", "aarch64")).toEqual({
+    name: "msime-linux-wubi_1.2.0_arm64.deb",
+    sha256: "2".repeat(64),
+  });
+  expect(pickFor("wubi", "x86_64")).toEqual({
+    name: "msime-linux-wubi_1.2.0_amd64.deb",
+    sha256: "c".repeat(64),
+  });
+  // pinyin has no aarch64 package in this release, so an aarch64 host is offered none of the x86_64 ones.
+  expect(pickFor("pinyin", "aarch64")).toEqual({ name: null, sha256: null });
 });

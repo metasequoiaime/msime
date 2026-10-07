@@ -2,7 +2,6 @@ import { useSettingsForm } from "../settings-form-context";
 import { createSettingsDraftActions } from "../settings-draft-actions";
 import { GroupList } from "../../core/platform-controls";
 import { InputLanguageOptionsSection } from "../input-language-options-section";
-import { CustomTranslationsSection } from "../custom-translations-section";
 import { PunctuationSection } from "../punctuation-section";
 import { TranslationSettingsContent } from "../translation-settings-content";
 import { createTranslationSettingsBindings } from "../translation-settings-bindings";
@@ -27,18 +26,10 @@ export function ExpressionSettingsPage() {
     setDraft,
     busy,
     page,
-    customTranslationsText,
-    setCustomTranslationsText,
-    customTranslationsNotice,
-    customTranslationsPlaceholder,
-    customTranslationsSaveState,
-    customTranslationsSaveError,
-    customTranslationsSummary,
     providerCredentials,
     tencentCredentialInput,
     updateTencentCredentialInput,
     providerCredentialBusy,
-    flushCustomTranslations,
     candidateTranslations,
     candidateEnglishGloss,
     englishSuggestions,
@@ -63,7 +54,6 @@ export function ExpressionSettingsPage() {
     grouped: true,
     client,
     candidateTranslations,
-    mobile: mobilePlatform,
     linux: linuxPlatform,
     windows: windowsPlatform,
     macos: macosPlatform,
@@ -78,14 +68,6 @@ export function ExpressionSettingsPage() {
     providerCredentialMessages,
     runProviderCredential,
     credentialTestControl,
-    customTranslationsText,
-    customTranslationsPlaceholder,
-    customTranslationsNotice,
-    customTranslationsSummary,
-    customTranslationsSaveState,
-    customTranslationsSaveError,
-    onCustomTranslationsChange: setCustomTranslationsText,
-    onFlushCustomTranslations: () => void flushCustomTranslations(),
     onPreferencesChange,
     setTranslationProvider,
     android: androidPlatform,
@@ -117,9 +99,6 @@ export function ExpressionSettingsPage() {
         candidateEnglishGloss={candidateEnglishGloss}
         onCandidateEnglishGlossChange={(candidate_english_gloss) =>
           onPreferencesChange({ candidate_english_gloss })
-        }
-        afterCandidateEnglishGloss={
-          translation.customGlosses && <CustomTranslationsSection {...translation.customGlosses} />
         }
         showEnglishSuggestions={showEnglishSuggestions}
         englishSuggestions={englishSuggestions}

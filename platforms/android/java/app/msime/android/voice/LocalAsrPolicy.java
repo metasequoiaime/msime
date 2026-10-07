@@ -1,6 +1,5 @@
 package app.msime.android;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
@@ -28,9 +27,11 @@ public final class LocalAsrPolicy {
     public static final int MAX_MILLIS = 60_000;
     /** The manifest is the catalog entry, a few kilobytes; anything far larger is not one. */
     public static final long MAX_MANIFEST_BYTES = 256 * 1024;
-    /** Per-word ceilings of a hotword handed in by the shared layer, in UTF-16 units; the shared request validation allows no more than this in bytes. */
+    /** Per-word ceilings of a hotword handed in by the shared layer, in UTF-8 bytes. */
     public static final int MAX_HOTWORD_TEXT_LENGTH = 256;
     public static final int MAX_HOTWORD_PINYIN_LENGTH = 1024;
+    /** 本机模型输出与网络识别结果使用同一长度上限。 */
+    public static final int MAX_TRANSCRIPT = 2000;
 
     private LocalAsrPolicy() {}
 
@@ -41,8 +42,8 @@ public final class LocalAsrPolicy {
      */
     public static boolean usable(String provider, String modelPath) {
         if (!PROVIDER.equals(provider) || modelPath == null) return false;
-        if (modelPath.isEmpty() || modelPath.length() > MAX_PATH_LENGTH) return false;
-        if (TextPolicy.hasControl(modelPath)) return false;
+        if (modelPath.isEmpty() || TextPolicy.utf8Length(modelPath) > MAX_PATH_LENGTH) return false;
+        if (TextPolicy.hasControl(modelPath) || !TextPolicy.validUnicode(modelPath)) return false;
         return modelPath.startsWith("/");
     }
 
@@ -76,17 +77,9 @@ public final class LocalAsrPolicy {
         if (!Files.isRegularFile(manifest, LinkOption.NOFOLLOW_LINKS))
             throw new IOException("manifest unavailable");
         try (InputStream input = Files.newInputStream(manifest, LinkOption.NOFOLLOW_LINKS)) {
-            ByteArrayOutputStream bytes = new ByteArrayOutputStream((int) MAX_MANIFEST_BYTES);
-            byte[] buffer = new byte[8192];
-            int count;
-            while ((count = input.read(buffer)) != -1) {
-                if (bytes.size() + count > MAX_MANIFEST_BYTES) {
-                    throw new IOException("manifest too large");
-                }
-                bytes.write(buffer, 0, count);
-            }
-            if (bytes.size() == 0) throw new IOException("manifest empty");
-            return bytes.toByteArray();
+            byte[] bytes = HttpBodyPolicy.readRequired(input, (int) MAX_MANIFEST_BYTES);
+            if (bytes.length == 0) throw new IOException("manifest empty");
+            return bytes;
         }
     }
 
@@ -123,6 +116,20 @@ public final class LocalAsrPolicy {
         return value instanceof String ? (String) value : null;
     }
 
+    /** Native ASR text must be plain, well-formed Unicode before it reaches the editor. */
+    static String transcript(Object value) {
+        String text = strictText(value);
+        if (text == null || TextPolicy.codePointLength(text) > MAX_TRANSCRIPT
+                || TextPolicy.hasControlExceptWhitespace(text)
+                || !TextPolicy.validUnicode(text)) return "";
+        return text;
+    }
+
+    /** Native bridge response flags must remain JSON booleans; reject coercible strings. */
+    static Boolean strictBoolean(Object value) {
+        return value instanceof Boolean ? (Boolean) value : null;
+    }
+
     /**
      * Whether one `{text, pinyin}` hotword the shared layer resolved (the Tauri request's `hotwords`) may be carried to the recognizer.
      *
@@ -130,10 +137,11 @@ public final class LocalAsrPolicy {
      */
     public static boolean suppliedHotword(String text, String pinyin) {
         if (text == null || pinyin == null) return false;
-        String trimmed = text.trim();
-        if (trimmed.isEmpty() || text.length() > MAX_HOTWORD_TEXT_LENGTH) return false;
-        if (pinyin.length() > MAX_HOTWORD_PINYIN_LENGTH) return false;
-        return !TextPolicy.hasControl(text) && !TextPolicy.hasControl(pinyin);
+        String trimmed = TextPolicy.trimmed(text);
+        if (trimmed.isEmpty() || TextPolicy.utf8Length(text) > MAX_HOTWORD_TEXT_LENGTH) return false;
+        if (TextPolicy.utf8Length(pinyin) > MAX_HOTWORD_PINYIN_LENGTH) return false;
+        return !TextPolicy.hasControl(text) && !TextPolicy.hasControl(pinyin)
+            && TextPolicy.validUnicode(text) && TextPolicy.validUnicode(pinyin);
     }
 
     /**
@@ -143,13 +151,16 @@ public final class LocalAsrPolicy {
      */
     public static String hotwordLines(List<String> words) {
         if (words == null) return "";
-        StringBuilder out = new StringBuilder();
+        int capacity = BoundsPolicy.bounded(words.size(), 0, HOTWORD_LIMIT)
+            * (MAX_HOTWORD_TEXT_LENGTH + 1);
+        StringBuilder out = new StringBuilder(capacity);
         int kept = 0;
         for (String word : words) {
             if (kept == HOTWORD_LIMIT) break;
             if (word == null) continue;
-            String trimmed = word.trim();
-            if (trimmed.isEmpty() || TextPolicy.hasControl(trimmed)) continue;
+            String trimmed = TextPolicy.trimmed(word);
+            if (trimmed.isEmpty() || TextPolicy.hasControl(trimmed)
+                    || !TextPolicy.validUnicode(trimmed)) continue;
             if (kept > 0) out.append('\n');
             out.append(trimmed);
             kept++;

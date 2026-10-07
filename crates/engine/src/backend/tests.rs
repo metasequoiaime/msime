@@ -308,6 +308,14 @@ fn date_time_validates_the_supplied_date() {
             "rq",
             json!({"year": 2026, "month": 9, "day": 9, "weekday": 7, "hour": 8, "minute": 5, "second": 0}),
         ),
+        (
+            "rq",
+            json!({"year": 2026, "month": 2, "day": 29, "weekday": 0, "hour": 8, "minute": 5, "second": 0}),
+        ),
+        (
+            "rq",
+            json!({"year": 2026, "month": 4, "day": 31, "weekday": 5, "hour": 8, "minute": 5, "second": 0}),
+        ),
         ("rq", json!({"year": 2026, "month": 9})),
     ] {
         assert_eq!(
@@ -409,6 +417,33 @@ fn english_completes_prefixes_and_glosses_both_ways() {
             path
         ),
         json!({"error": "invalid_request"})
+    );
+}
+
+#[test]
+fn english_completion_keeps_a_prefix_ending_at_the_maximum_scalar() {
+    let resources = resources();
+    let connection = Connection::open(resources.path().join(assets::ENGLISH_DICTIONARY)).unwrap();
+    let maximum = "\u{10ffff}";
+    let suffix = format!("{maximum}suffix");
+    connection
+        .execute("INSERT INTO english_words VALUES(?1, ?1, 1)", [maximum])
+        .unwrap();
+    connection
+        .execute("INSERT INTO english_words VALUES(?1, ?1, 2)", [&suffix])
+        .unwrap();
+
+    assert_eq!(
+        run(
+            json!({"operation": "dictionary", "kind": "english", "text": maximum}),
+            resources.path()
+        )["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|entry| entry["code"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        vec![maximum, suffix.as_str()]
     );
 }
 

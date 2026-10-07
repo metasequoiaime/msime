@@ -1,6 +1,6 @@
 # @msime/web-engine
 
-水杉输入法的网页引擎。全拼、小鹤双拼、自然码双拼和五笔 86 都运行在浏览器的 Web Worker 里（Rust 编译成 WebAssembly），不需要服务器，可以部署到 GitHub Pages、Vercel、Cloudflare Pages / Workers 这类任意静态托管上。
+水杉输入法的网页引擎。全拼、小鹤双拼、自然码双拼、五笔 86、日语罗马字和韩文两套式都运行在浏览器的 Web Worker 里（Rust 编译成 WebAssembly），不需要服务器，可以部署到 GitHub Pages、Vercel、Cloudflare Pages / Workers 这类任意静态托管上。
 
 ```js
 import { createMsimeEngine, attachInput } from "@msime/web-engine";
@@ -16,10 +16,11 @@ attachInput(document.querySelector("textarea"), engine);
 | `assets/msime_engine_bg.wasm` | 约 4 MB | 引擎 |
 | `assets/msime-pinyin.db.gz` | 约 7.5 MB | 拼音词库，全拼和双拼共用 |
 | `assets/msime-wubi86.db.gz` | 约 3.6 MB | 五笔 86 词库 |
+| `assets/msime-japanese.dat.gz` | 约 5.3 MB | 日语模型（Mozc 词典裁剪版），只用于日语 |
 | `assets/sentence-model.safetensors.gz` | 约 4 MB | 整句模型，只用于拼音，可以不下载 |
 | `assets/NOTICE.md` | | 第三方许可声明，部署时请一并发布 |
 
-每个页面只下载用到的方案：全拼约 16 MB，不要整句模型约 12 MB，五笔约 8 MB。浏览器会按 HTTP 缓存规则缓存这些文件。
+每个页面只下载用到的方案：全拼约 16 MB，不要整句模型约 12 MB，五笔约 8 MB，日语约 9 MB，韩文只要引擎约 4 MB。浏览器会按 HTTP 缓存规则缓存这些文件。
 
 ## 接入方式
 
@@ -98,7 +99,7 @@ const engine = await createMsimeEngine({ scheme: "quanpin", assetBase: "/msime/a
 
 下载并初始化引擎，完成后返回 `MsimeEngine`。选项：
 
-- `scheme`：`"quanpin"`（默认）、`"xiaohe"`、`"ziranma"`、`"wubi86"`。
+- `scheme`：`"quanpin"`（默认）、`"xiaohe"`、`"ziranma"`、`"wubi86"`、`"japanese"`、`"korean"`。`japanese` 是日语罗马字：组字区显示假名，候选是整句转换、词和平假名、片假名；空格选高亮的候选，回车上屏假名，`-` 是长音 ー，`,` `.` `[` `]` 打出 、。「」。`korean` 是韩文两套式（두벌식）：Shift 打双辅音和 ㅒ ㅖ，音节在组字区拼好、下一个键开始新音节时自动上屏；空格、数字和半角标点先上屏音节再打出自己；没有候选，也不下载词库和模型。
 - `assetBase`：资源目录的 URL，相对地址按页面解析。
 - `model`：拼音方案是否下载整句模型，默认 `true`。
 - `pageSize`：每页候选数，默认 9。
@@ -112,7 +113,7 @@ const engine = await createMsimeEngine({ scheme: "quanpin", assetBase: "/msime/a
 - `keys(key | key[])`：发送打包按键，返回处理后的帧 `MsimeFrame`。
 - `pick(slot)`：点选当前页第 `slot` 个候选。
 - `reset()`：取消组字、清空上下文。
-- `setScheme(scheme)`：在全拼和两种双拼之间切换，不重新下载。和五笔互换需要 `dispose()` 后新建一个引擎。
+- `setScheme(scheme)`：在全拼和两种双拼之间切换，不重新下载。和五笔、日语、韩文互换需要 `dispose()` 后新建一个引擎。
 - `setModelEnabled(enabled)`、`setBackspaceDeletes(deletes)`。
 - `onError(fn)`：运行期错误（引擎 panic）。之后所有请求都会 reject，需要新建引擎。
 - `dispose()`：结束 Worker，释放内存。wasm 内存不会自动缩小，不用的时候请调用它。

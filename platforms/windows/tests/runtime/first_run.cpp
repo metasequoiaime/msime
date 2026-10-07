@@ -1,6 +1,8 @@
 #include "FirstRun.h"
 #include <chrono>
+#include <fstream>
 #include <iostream>
+#include <sstream>
 
 int main() {
   namespace fs = std::filesystem;
@@ -61,6 +63,27 @@ int main() {
         [](const std::string &) { return "{\"ok\":false}"; }); });
     if (msime::windows::prepare_first_run(executable, failed, host) || calls != 3)
       throw std::runtime_error("Failed preparation was retried destructively");
+    // 安装器「联网功能」页的选择：读一次就删掉，缺失或格式不对时没有选择。
+    const auto choices = state / msime::windows::kInstallerChoicesFile;
+    if (msime::windows::take_installer_cloud_choice(state))
+      throw std::runtime_error("A missing installer choice was read");
+    for (const bool chosen : {true, false}) {
+      std::ofstream(choices) << (chosen ? R"({"cloud_candidates": true})" : R"({"cloud_candidates": false})");
+      if (msime::windows::take_installer_cloud_choice(state) != chosen || fs::exists(choices))
+        throw std::runtime_error("The installer choice was not taken once");
+    }
+    for (const char *malformed : {"{", R"({"cloud_candidates": "yes"})", "[true]"}) {
+      std::ofstream(choices) << malformed;
+      if (msime::windows::take_installer_cloud_choice(state) || fs::exists(choices))
+        throw std::runtime_error("A malformed installer choice was accepted or kept");
+    }
+    std::ofstream(choices) << std::string(8192, ' ') << R"({"cloud_candidates": true})";
+    if (msime::windows::take_installer_cloud_choice(state) || fs::exists(choices))
+      throw std::runtime_error("An oversized installer choice was accepted or kept");
+    std::istringstream oversized_stream(
+        std::string(4097, ' ') + R"({"cloud_candidates": true})");
+    if (msime::windows::parse_installer_cloud_choice(oversized_stream))
+      throw std::runtime_error("An oversized installer stream was accepted");
     fs::remove_all(root);
     std::cout << "Production first-run policy passed\n";
     return 0;

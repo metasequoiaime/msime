@@ -49,6 +49,7 @@ extension BackendAccountClient {
   struct DictionaryRevision: Decodable, Sendable { let revision: Int64 }
 
   func personalCandidates(_ query: CandidateQuery, token: String) async throws -> PersonalCandidates {
+    guard Self.validCandidateQuery(query) else { throw Failure(status: 400) }
     let page: PersonalCandidates = try await json("POST", "/v1/users/me/dictionary/candidates", token: token, body: JSONEncoder().encode(query))
     guard page.candidates.count <= query.limit,
           page.revision >= 0,
@@ -57,7 +58,9 @@ extension BackendAccountClient {
     return page
   }
   func rankCandidate(_ candidate: PersonalCandidate, query: CandidateQuery, revision: Int64, mode: RankingMode, step: Int = 1, trigger: Int = 1, forceTop: Bool = false, token: String) async throws -> RankingResult {
-    guard revision >= 0, (1...100).contains(step), (1...10).contains(trigger), query.kind != "quick" else { throw Failure(status: 400) }
+    guard revision >= 0, (1...100).contains(step), (1...10).contains(trigger), query.kind != "quick",
+          Self.validCandidateQuery(query), Self.validCandidateText(candidate.mutationCode, maximum: 256),
+          Self.validCandidateText(candidate.word, maximum: 1024) else { throw Failure(status: 400) }
     struct Action: Encodable { let code: String; let word: String; let mode: String; let linear_step: Int; let trigger_count: Int; let force_top: Bool }
     struct Body: Encodable { let revision: Int64; let query: CandidateQuery; let action: Action }
     let result: RankingResult = try await json("POST", "/v1/users/me/dictionary/ranking", token: token,
@@ -66,7 +69,9 @@ extension BackendAccountClient {
     return result
   }
   func removeCandidate(_ candidate: PersonalCandidate, query: CandidateQuery, revision: Int64, token: String) async throws -> DictionaryChange {
-    guard revision >= 0, query.kind != "quick" else { throw Failure(status: 400) }
+    guard revision >= 0, query.kind != "quick", Self.validCandidateQuery(query),
+          Self.validCandidateText(candidate.mutationCode, maximum: 256),
+          Self.validCandidateText(candidate.word, maximum: 1024) else { throw Failure(status: 400) }
     struct Body: Encodable { let revision: Int64; let query: CandidateQuery; let code: String; let word: String }
     let change: DictionaryChange = try await json("DELETE", "/v1/users/me/dictionary/candidates", token: token,
       body: JSONEncoder().encode(Body(revision: revision, query: query, code: candidate.mutationCode, word: candidate.word)))
@@ -74,7 +79,7 @@ extension BackendAccountClient {
     return change
   }
   func fixedPositions(context: String = "", offset: Int = 0, token: String) async throws -> FixedPositions {
-    guard (0...1_000_000).contains(offset) else { throw Failure(status: 400) }
+    guard (0...1_000_000).contains(offset), Self.validCandidateText(context, maximum: 1024, empty: true) else { throw Failure(status: 400) }
     var components = URLComponents()
     components.path = "/v1/users/me/dictionary/positions"
     components.queryItems = [.init(name: "context", value: context), .init(name: "offset", value: String(offset)), .init(name: "limit", value: "100")]
@@ -91,12 +96,22 @@ extension BackendAccountClient {
     return page
   }
   func setFixedPosition(context: String, code: String, word: String, position: Int?, revision: Int64, token: String) async throws -> DictionaryRevision {
-    guard revision >= 0, position == nil || (1...5).contains(position!) else { throw Failure(status: 400) }
+    guard revision >= 0, position == nil || (1...5).contains(position!),
+          Self.validCandidateText(context, maximum: 1024, empty: true),
+          Self.validCandidateText(code, maximum: 256), Self.validCandidateText(word, maximum: 1024) else { throw Failure(status: 400) }
     struct Body: Encodable { let context: String; let code: String; let word: String; let position: Int?; let revision: Int64 }
     let result: DictionaryRevision = try await json(position == nil ? "DELETE" : "PUT", "/v1/users/me/dictionary/positions", token: token,
       body: JSONEncoder().encode(Body(context: context, code: code, word: word, position: position, revision: revision)))
     guard result.revision >= 0 else { throw Failure(status: 0) }
     return result
+  }
+
+  private static func validCandidateQuery(_ query: CandidateQuery) -> Bool {
+    validCandidateText(query.text, maximum: 256)
+      && ["pinyin", "jianpin", "wubi", "wubi98", "quick", "english"].contains(query.kind)
+      && ["pinyin", "shuangpin"].contains(query.scheme)
+      && ["xiaohe", "ziranma", "microsoft", "shoudao"].contains(query.profile)
+      && (1...100).contains(query.limit)
   }
 
   private static func validPersonalCandidate(_ candidate: PersonalCandidate) -> Bool {

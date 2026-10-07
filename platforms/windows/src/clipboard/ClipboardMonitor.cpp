@@ -53,7 +53,7 @@ LRESULT CALLBACK ClipboardMonitor::window_proc(HWND window, UINT message, WPARAM
         auto data = GetClipboardData(CF_UNICODETEXT);
         const auto *text = data ? static_cast<const wchar_t *>(GlobalLock(data)) : nullptr;
         if (text) {
-          value = text;
+          value = bounded_clipboard_text(text, GlobalSize(data));
           GlobalUnlock(data);
         }
       }

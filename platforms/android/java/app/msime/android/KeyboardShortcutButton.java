@@ -6,23 +6,30 @@ import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.RectF;
-import android.view.Gravity;
 
-/** Draws an Apple-style shortcut glyph while retaining the button's text for accessibility. */
+/**
+ * Draws a shortcut glyph while retaining the button's text for accessibility.
+ *
+ * <p>表情、常用语、剪贴板、皮肤、输入方式按设计画 24 dp 的 Material 实心图标，收起画 21 dp 的描边 chevron（{@link KeyboardIconPaths}）；其余几个沿用原来的描边画法。图标颜色就是按钮的文字颜色，由调用方按皮肤设置（平时 kbSub，打开面板时 accent）。
+ */
 public final class KeyboardShortcutButton extends KeyboardPressButton {
     private final KeyboardShortcutIconPolicy.Icon icon;
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Path path = new Path();
     private final RectF bounds = new RectF();
     private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint glyph = new Paint(Paint.ANTI_ALIAS_FLAG);
     private int activeFill = Color.TRANSPARENT;
+    private boolean iconColorsSet;
+    private int idleIconColor;
+    private int activeIconColor;
 
     public KeyboardShortcutButton(Context context, KeyboardShortcutIconPolicy.Icon icon) {
         super(context);
         this.icon = icon;
         setKeyboardRole(KeyboardKeyRole.GLYPH);
-        setGravity(Gravity.CENTER);
-        setPadding(0, 0, 0, 0);
+        ViewPolicy.setCentered(this);
+        ViewPolicy.clearPadding(this);
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeCap(Paint.Cap.ROUND);
         paint.setStrokeJoin(Paint.Join.ROUND);
@@ -40,6 +47,13 @@ public final class KeyboardShortcutButton extends KeyboardPressButton {
     /** 选中时垫在图标后面的底块占触控区短边的比例。 */
     private static final float ACTIVE_SCALE = 0.86f;
 
+    /** 设计的工具栏按钮：40 dp 见方、圆角 12 dp 的底块，Material 图标 24 dp，收起 chevron 21 dp。 */
+    private static final float ACTIVE_SIDE_DP = 40f;
+    private static final float ACTIVE_RADIUS_DP = 12f;
+    private static final float MATERIAL_ICON_DP = 24f;
+    private static final float DISMISS_ICON_DP = 21f;
+    private static final float[] SETTINGS_LINES = {25f, 50f, 75f};
+
     /** 选中状态的底色：工具栏按钮打开了它的面板时，图标后面垫这块柔和的强调色，而不是把整个按钮铺成实心色块。 */
     public void setActiveFill(int color) {
         if (activeFill == color) return;
@@ -47,23 +61,41 @@ public final class KeyboardShortcutButton extends KeyboardPressButton {
         invalidate();
     }
 
+    /** 新设计的图标色：平时 kbSub，选中（面板打开）时 accent。设置后不再跟随文字色，皮肤重新套样式时也不会被改回键面文字色。 */
+    public void setIconColors(int idle, int active) {
+        if (iconColorsSet && idleIconColor == idle && activeIconColor == active) return;
+        iconColorsSet = true;
+        idleIconColor = idle;
+        activeIconColor = active;
+        invalidate();
+    }
+
+    private int iconColor() {
+        if (!iconColorsSet) return getCurrentTextColor();
+        return isSelected() ? activeIconColor : idleIconColor;
+    }
+
     @Override protected void onDraw(Canvas canvas) {
-        int width = Math.max(0, getWidth() - getPaddingLeft() - getPaddingRight());
-        int height = Math.max(0, getHeight() - getPaddingTop() - getPaddingBottom());
-        float size = Math.min(width, height) * GLYPH_SCALE;
+        int width = KeyboardGeometry.contentWidth(this);
+        int height = KeyboardGeometry.contentHeight(this);
+        if (KeyboardShortcutIconPolicy.materialGlyph(icon)) {
+            drawMaterial(canvas, width, height);
+            return;
+        }
+        float size = KeyboardGeometry.shorterSide(width, height) * GLYPH_SCALE;
         if (size <= 0) return;
         if (isSelected() && Color.alpha(activeFill) > 0) {
-            float side = Math.min(width, height) * ACTIVE_SCALE;
+        float side = KeyboardGeometry.shorterSide(width, height) * ACTIVE_SCALE;
             float left = getPaddingLeft() + (width - side) / 2f;
             float top = getPaddingTop() + (height - side) / 2f;
             bounds.set(left, top, left + side, top + side);
             fill.setColor(activeFill);
             canvas.drawRoundRect(bounds, side * 0.25f, side * 0.25f, fill);
         }
-        int color = getCurrentTextColor();
+        int color = iconColor();
         if (color == Color.TRANSPARENT) color = Color.WHITE;
         paint.setColor(color);
-        paint.setAlpha(isEnabled() ? 255 : 96);
+        paint.setAlpha(ColorPolicy.enabledAlpha(isEnabled(), 255, 96));
         paint.setStrokeWidth(7f);
         canvas.save();
         canvas.translate(getPaddingLeft() + (width - size) / 2f,
@@ -78,12 +110,49 @@ public final class KeyboardShortcutButton extends KeyboardPressButton {
             case DISMISS -> drawDismiss(canvas);
             case GLOBE -> drawGlobe(canvas);
             case BOOKMARK -> drawBookmark(canvas);
+            case PHRASE, CLIPBOARD, SCHEME -> { }
         }
         canvas.restore();
     }
 
+    private void drawMaterial(Canvas canvas, int width, int height) {
+        float density = getResources().getDisplayMetrics().density;
+        float shorter = KeyboardGeometry.shorterSide(width, height);
+        if (shorter <= 0) return;
+        float centerX = getPaddingLeft() + width / 2f;
+        float centerY = getPaddingTop() + height / 2f;
+        if (isSelected() && Color.alpha(activeFill) > 0) {
+            float side = BoundsPolicy.atMost(shorter,
+                KeyboardGeometry.floatPixels(getContext(), ACTIVE_SIDE_DP));
+            bounds.set(centerX - side / 2f, centerY - side / 2f, centerX + side / 2f,
+                centerY + side / 2f);
+            fill.setColor(activeFill);
+            float radius = BoundsPolicy.atMost(side / 2f,
+                KeyboardGeometry.floatPixels(getContext(), ACTIVE_RADIUS_DP));
+            canvas.drawRoundRect(bounds, radius, radius, fill);
+        }
+        int color = iconColor();
+        if (color == Color.TRANSPARENT) color = Color.WHITE;
+        if (!isEnabled()) color = ColorPolicy.withAlpha(color, 96f / 255f);
+        KeyboardIconPaths.Icon path = switch (icon) {
+            case EMOJI -> KeyboardIconPaths.Icon.TOOLBAR_EMOJI;
+            case PHRASE -> KeyboardIconPaths.Icon.TOOLBAR_PHRASE;
+            case CLIPBOARD -> KeyboardIconPaths.Icon.TOOLBAR_CLIPBOARD;
+            case SKIN -> KeyboardIconPaths.Icon.TOOLBAR_SKIN;
+            case SCHEME -> KeyboardIconPaths.Icon.TOOLBAR_SCHEME;
+            case DISMISS, SETTINGS, REPLY, VOICE, GLOBE, BOOKMARK ->
+                KeyboardIconPaths.Icon.TOOLBAR_DISMISS;
+        };
+        float iconDp = icon == KeyboardShortcutIconPolicy.Icon.DISMISS
+            ? DISMISS_ICON_DP : MATERIAL_ICON_DP;
+        float size = BoundsPolicy.atMost(shorter,
+            KeyboardGeometry.floatPixels(getContext(), iconDp));
+        KeyboardIconPaths.draw(canvas, glyph, path, centerX - size / 2f, centerY - size / 2f,
+            size, color);
+    }
+
     private void drawSettings(Canvas canvas) {
-        for (float y : new float[] {25f, 50f, 75f}) canvas.drawLine(15f, y, 85f, y, paint);
+        for (float y : SETTINGS_LINES) canvas.drawLine(15f, y, 85f, y, paint);
         canvas.drawCircle(38f, 25f, 7f, paint);
         canvas.drawCircle(68f, 50f, 7f, paint);
         canvas.drawCircle(30f, 75f, 7f, paint);
@@ -112,13 +181,15 @@ public final class KeyboardShortcutButton extends KeyboardPressButton {
         canvas.drawCircle(38f, 43f, 4f, paint);
         canvas.drawCircle(62f, 43f, 4f, paint);
         paint.setStyle(Paint.Style.STROKE);
-        canvas.drawArc(new RectF(32f, 37f, 68f, 68f), 25f, 130f, false, paint);
+        bounds.set(32f, 37f, 68f, 68f);
+        canvas.drawArc(bounds, 25f, 130f, false, paint);
     }
 
     private void drawVoice(Canvas canvas) {
         bounds.set(35f, 14f, 65f, 62f);
         canvas.drawRoundRect(bounds, 15f, 15f, paint);
-        canvas.drawArc(new RectF(22f, 34f, 78f, 82f), 0f, 180f, false, paint);
+        bounds.set(22f, 34f, 78f, 82f);
+        canvas.drawArc(bounds, 0f, 180f, false, paint);
         canvas.drawLine(50f, 82f, 50f, 91f, paint);
         canvas.drawLine(36f, 91f, 64f, 91f, paint);
     }

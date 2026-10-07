@@ -24,7 +24,9 @@ public enum KeyboardScheme {
     VIETNAMESE("vietnamese", "vietnamese", null, "twenty_six_key", "越南语 26 键", "越", "26"),
     TIBETAN("tibetan", "tibetan", null, "twenty_six_key", "藏文 26 键", "藏", "26"),
     // 笔画方案自己画五笔画键盘，偏好里的 26 键/9 键都显示它；与注音一样存 `twenty_six_key`，由宿主按方案号换面。
-    STROKE("stroke", "stroke", null, "twenty_six_key", "笔画", "笔", "5");
+    STROKE("stroke", "stroke", null, "twenty_six_key", "笔画", "笔", "5"),
+    // 注音 9 键与大千注音是同一个 Engine 方案，只是触屏布局存 `nine_key`；追加在末尾，与共享 `TouchKeyboardScheme::ALL` 的顺序一致。
+    ZHUYIN_NINE_KEY("zhuyin_nine_key", "zhuyin", null, "nine_key", "注音 9 键", "注", "9");
 
     /** Complete preference values needed for one compare-and-swap update. */
     public record PreferenceMapping(
@@ -111,15 +113,16 @@ public enum KeyboardScheme {
         return badge;
     }
 
-    /** 粤拼、注音、越南语、藏文和笔画默认隐藏，用户打开后才出现；共享的 `TouchKeyboardScheme::DEFAULT_ENABLED` 同样不把它们放进从未存过列表的文档。 */
+    /** 粤拼、注音（大千和 9 键）、越南语、藏文和笔画默认隐藏，用户打开后才出现；共享的 `TouchKeyboardScheme::DEFAULT_ENABLED` 同样不把它们放进从未存过列表的文档。 */
     public boolean optIn() {
-        return this == CANTONESE || this == ZHUYIN || this == VIETNAMESE || this == TIBETAN || this == STROKE;
+        return this == CANTONESE || this == ZHUYIN || this == ZHUYIN_NINE_KEY || this == VIETNAMESE
+            || this == TIBETAN || this == STROKE;
     }
 
     /** The file this scheme reads from the HostOptions `language_dictionaries` directory, or null for a scheme that needs only the shared resources. */
     public String languageDictionary() {
         if (this == CANTONESE) return "msime-cantonese.db";
-        if (this == ZHUYIN) return "msime-zhuyin.db";
+        if (this == ZHUYIN || this == ZHUYIN_NINE_KEY) return "msime-zhuyin.db";
         if (this == STROKE) return "msime-stroke.db";
         return null;
     }
@@ -136,11 +139,11 @@ public enum KeyboardScheme {
     /** `enabled` 里本版本提供、词典也已装好的入口；一个都不剩时与没存过列表一样退回 {@link #fallback}。 */
     public static List<KeyboardScheme> installedOf(
             List<KeyboardScheme> enabled, String directory, AppEdition edition) {
-        List<KeyboardScheme> installed = new ArrayList<>();
+        List<KeyboardScheme> installed = new ArrayList<>(enabled.size());
         for (KeyboardScheme candidate : enabled) {
             if (candidate.offeredBy(edition) && candidate.installed(directory)) installed.add(candidate);
         }
-        return installed.isEmpty() ? List.of(fallback(edition)) : List.copyOf(installed);
+        return withFallback(installed, edition);
     }
 
     public static KeyboardScheme fromPreferenceId(String value) {
@@ -154,28 +157,37 @@ public enum KeyboardScheme {
     /** 按固定顺序解析偏好里的入口 id，忽略不认识的和重复的，也忽略本版本没有的入口。没存过列表时，需要用户自己打开的那几个不启用；只有一个方案的版本例外，越南文版、藏文版的入口就是这个版本本身，与 client-core 的 `TouchKeyboardSchemePreferences::for_edition` 一致。 */
     public static List<KeyboardScheme> enabledFromPreferenceIds(List<String> ids, AppEdition edition) {
         if (ids == null) {
-            List<KeyboardScheme> defaults = new ArrayList<>();
+            List<KeyboardScheme> defaults = new ArrayList<>(values().length);
             for (KeyboardScheme candidate : values()) {
                 if ((!candidate.optIn() || !edition.offersSchemeChoice()) && candidate.offeredBy(edition))
                     defaults.add(candidate);
             }
-            return defaults.isEmpty() ? List.of(fallback(edition)) : List.copyOf(defaults);
+            return withFallback(defaults, edition);
         }
         Set<String> requested = new LinkedHashSet<>(ids);
         // A plain loop, not `Stream#toList`: that arrived in API 34 and this host declares
         // minSdk 28, so it compiles against the platform jar and throws on the device.
-        List<KeyboardScheme> enabled = new ArrayList<>();
+        List<KeyboardScheme> enabled = new ArrayList<>(values().length);
         for (KeyboardScheme candidate : values()) {
             if (requested.contains(candidate.preferenceId) && candidate.offeredBy(edition)) enabled.add(candidate);
         }
-        return enabled.isEmpty() ? List.of(fallback(edition)) : List.copyOf(enabled);
+        return withFallback(enabled, edition);
+    }
+
+    private static List<KeyboardScheme> withFallback(List<KeyboardScheme> schemes,
+            AppEdition edition) {
+        return List.copyOf(availableOrFallback(schemes, edition));
+    }
+
+    private static List<KeyboardScheme> availableOrFallback(List<KeyboardScheme> schemes,
+            AppEdition edition) {
+        return schemes == null || schemes.isEmpty() ? List.of(fallback(edition)) : schemes;
     }
 
     /** Shared selected is authoritative; otherwise preserve the applied scheme or use first enabled. */
     public static KeyboardScheme resolveEnabledSelection(KeyboardScheme applied,
             String selectedPreferenceId, List<KeyboardScheme> enabled, AppEdition edition) {
-        List<KeyboardScheme> available = enabled == null || enabled.isEmpty()
-            ? List.of(fallback(edition)) : enabled;
+        List<KeyboardScheme> available = availableOrFallback(enabled, edition);
         KeyboardScheme selected = fromPreferenceId(selectedPreferenceId);
         if (selected != null && available.contains(selected)) return selected;
         if (selectedPreferenceId == null && applied != null && available.contains(applied)) return applied;
@@ -202,6 +214,7 @@ public enum KeyboardScheme {
         if (handwritingScheme.equals(scheme) && "handwriting".equals(touchLayout)) return HANDWRITING;
         if ("quanpin".equals(scheme) && "nine_key".equals(touchLayout)) return QUANPIN_NINE_KEY;
         if ("japanese".equals(scheme) && "nine_key".equals(touchLayout)) return JAPANESE_NINE_KEY;
+        if ("zhuyin".equals(scheme) && "nine_key".equals(touchLayout)) return ZHUYIN_NINE_KEY;
         if ("shuangpin".equals(scheme)) {
             for (KeyboardScheme candidate : values()) {
                 if (profile != null && profile.equals(candidate.shuangpinProfile)) return candidate;

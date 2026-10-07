@@ -4,7 +4,6 @@ import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
-import android.util.TypedValue;
 
 /**
  * 九键键帽：字母下面是它送进引擎的数字，所以数字印在上沿。
@@ -21,17 +20,18 @@ public final class NineKeyDigitButton extends KeyboardPressButton {
 
     public NineKeyDigitButton(Context context) {
         super(context);
+        KeyboardGeometry.normalizeKeyCap(this);
         basePaddingTop = getPaddingTop();
         digitPaint.setTextAlign(Paint.Align.CENTER);
-        setAllCaps(false);
+        ViewPolicy.setAllCapsFalse(this);
     }
 
     /** The digit printed above the letters; empty on the digit layer, where the face is the digit. */
     public void setDigitText(String value) {
-        String next = value == null ? "" : value;
+        String next = TextPolicy.emptyIfNull(value);
         if (digitText.equals(next)) return;
         digitText = next;
-        setPadding(getPaddingLeft(), basePaddingTop + (digitText.isEmpty() ? 0 : dp(10)),
+        setPadding(getPaddingLeft(), basePaddingTop + (digitText.isEmpty() ? 0 : KeyboardGeometry.pixels(getContext(), 10)),
             getPaddingRight(), getPaddingBottom());
         invalidate();
     }
@@ -42,22 +42,14 @@ public final class NineKeyDigitButton extends KeyboardPressButton {
         invalidate();
     }
 
-    private int dp(int value) {
-        return Math.round(value * getResources().getDisplayMetrics().density);
-    }
-
-    private float sp(float value) {
-        return TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, value,
-            getResources().getDisplayMetrics());
-    }
-
     @Override protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
         if (digitText.isEmpty() || getWidth() <= 0 || getHeight() <= 0) return;
-        digitPaint.setTextSize(sp(10));
+        digitPaint.setTextSize(KeyboardGeometry.keySp(getContext(), 10));
         digitPaint.setColor(digitColor);
-        digitPaint.setAlpha(isEnabled() ? 204 : 96);
+        digitPaint.setAlpha(ColorPolicy.enabledAlpha(isEnabled(), 204, 96));
         Paint.FontMetrics metrics = digitPaint.getFontMetrics();
-        canvas.drawText(digitText, getWidth() / 2f, dp(3) - metrics.top, digitPaint);
+        canvas.drawText(digitText, getWidth() / 2f,
+            KeyboardGeometry.pixels(getContext(), 3) - metrics.top, digitPaint);
     }
 }

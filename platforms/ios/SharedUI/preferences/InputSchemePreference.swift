@@ -259,6 +259,85 @@ enum InputSchemePreference {
     }
   }
 
+  /// 一次方案选择：选中的入口和启用的入口。
+  struct Selection: Equatable {
+    var scheme: ChineseInputScheme
+    var enabled: [ChineseInputScheme]
+  }
+
+  /// 文档里记的选中入口（`touch_keyboard_schemes.selected`）；没有记过或值不认识时为 nil。
+  static func selectedScheme(in document: [String: Any]?) -> ChineseInputScheme? {
+    ((document?["touch_keyboard_schemes"] as? [String: Any])?["selected"] as? String)
+      .flatMap(ChineseInputScheme.scheme(sharedIdentifier:))
+  }
+
+  /// 文档里记的启用列表（`touch_keyboard_schemes.enabled`）；没有记过或一个都认不出时为 nil。
+  static func enabledSchemes(in document: [String: Any]?) -> [ChineseInputScheme]? {
+    let enabled = ((document?["touch_keyboard_schemes"] as? [String: Any])?["enabled"] as? [String] ?? [])
+      .compactMap(ChineseInputScheme.scheme(sharedIdentifier:))
+    return enabled.isEmpty ? nil : enabled
+  }
+
+  /// 键盘按这份文档会用的方案选择：文档记了的以文档为准，没记的那一项用 App Group 镜像补上，因为键盘这时也按镜像行事。
+  ///
+  /// 方案的权威来源是共享文档：设置页、云端同步和键盘都写它，App Group 里的 `scheme` 与 `enabledSchemes` 只是镜像。镜像可能落后于文档（比如键盘的写入在文档那边没成功，或者文档被别的写入方改过），所以任何要把方案写回文档的地方都从这里取起点，而不是直接拿镜像——否则一次与方案无关的改动（开关手写、上传设置）会把镜像里的旧方案写回文档，用户选的方案就此丢失（#4288）。
+  static func current(in document: [String: Any]?) -> Selection {
+    Selection(scheme: selectedScheme(in: document) ?? scheme, enabled: enabledSchemes(in: document) ?? enabledSchemes)
+  }
+
+  /// 把文档里记的方案选择抄进 App Group 镜像；文档没记的那一项保持镜像原值。
+  static func mirror(_ document: [String: Any]?) {
+    if let enabled = enabledSchemes(in: document) { enabledSchemes = enabled }
+    if let selected = selectedScheme(in: document) { scheme = selected }
+  }
+
+  static func mirror(_ selection: Selection) {
+    enabledSchemes = selection.enabled
+    scheme = selection.scheme
+  }
+
+  /// 在文档上改一次方案选择：`change` 拿到的是文档当前的选择（见 `current(in:)`），改完按 `schemeMapping` 写回文档。返回实际写进去的选择（本版本不提供的入口已去掉，选中的入口不在启用列表里时换成第一个）；一个入口都没启用时什么也不写，返回 nil。
+  ///
+  /// 要在 `updateSharedPreferences` 的闭包里调用：那里拿到的是这次比较并交换读出的文档，起点不会是过时的。
+  static func write(_ change: (inout Selection) -> Void, into document: inout [String: Any]) -> Selection? {
+    var selection = current(in: document)
+    change(&selection)
+    let enabled = ChineseInputScheme.allCases.filter { selection.enabled.contains($0) && $0.isOfferedByEdition }
+    guard let mapping = MetasequoiaInputSessionBridge.schemeMapping(selection.scheme, enabledSchemes: enabled) else { return nil }
+    mapping(&document)
+    return Selection(scheme: enabled.contains(selection.scheme) ? selection.scheme : enabled[0], enabled: enabled)
+  }
+
+  /// 按文档当前的选择改一次方案并写回文档，写成功后再更新镜像。文档没写进去或一个入口都没启用时返回 nil，镜像保持原值。
+  @discardableResult
+  static func update(stateRoot: URL? = nil, _ change: (inout Selection) -> Void) -> Selection? {
+    var written: Selection?
+    guard MetasequoiaInputSessionBridge.updateSharedPreferences(stateRoot: stateRoot, { written = write(change, into: &$0) }),
+          let written else { return nil }
+    mirror(written)
+    return written
+  }
+
+  /// 选中一个入口，它还没启用时一并启用；文档里的其他启用项保持原样。
+  @discardableResult
+  static func select(_ scheme: ChineseInputScheme, stateRoot: URL? = nil) -> Bool {
+    let written = update(stateRoot: stateRoot) { selection in
+      if !selection.enabled.contains(scheme) { selection.enabled.append(scheme) }
+      selection.scheme = scheme
+    }
+    return written != nil
+  }
+
+  /// 启用或停用一个入口，选中的入口保持文档里的那个（它被停用时换成第一个启用的入口）。
+  @discardableResult
+  static func setEnabled(_ scheme: ChineseInputScheme, _ isEnabled: Bool, stateRoot: URL? = nil) -> Bool {
+    let written = update(stateRoot: stateRoot) { selection in
+      selection.enabled.removeAll { $0 == scheme }
+      if isEnabled { selection.enabled.append(scheme) }
+    }
+    return written != nil
+  }
+
   /// Save a selection and the enabled list where the keyboard reads them.
   ///
   /// Once the keyboard has recorded a scheme in the shared document it copies that selection over the App Group every time it appears, so a choice written only to the App Group was undone the next time the keyboard opened. The App Group is written after the document, and only when the document took the change.

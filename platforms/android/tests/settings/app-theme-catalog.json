@@ -1,0 +1,115 @@
+{
+  "app_themes": [
+    {
+      "dark": {
+        "accent": "#F0975F",
+        "accent_soft": "#F0975F40",
+        "background": "#21150F",
+        "card": "#2E1E15",
+        "hair": "#2A2F2A",
+        "on_accent": "#3C2618"
+      },
+      "id": "siji",
+      "light": {
+        "accent": "#B5562B",
+        "accent_soft": "#B5562B22",
+        "background": "#F6E9DC",
+        "card": "#FFFBF6",
+        "hair": "#B5562B33",
+        "on_accent": "#FFFFFF"
+      },
+      "season": null,
+      "seasonal": true,
+      "title": "水杉四季"
+    },
+    {
+      "dark": {
+        "accent": "#9AD983",
+        "accent_soft": "#9AD98340",
+        "background": "#16200F",
+        "card": "#202C18",
+        "hair": "#2A2F2A",
+        "on_accent": "#263621"
+      },
+      "id": "chunya",
+      "light": {
+        "accent": "#4E9A3A",
+        "accent_soft": "#4E9A3A22",
+        "background": "#EAF4E0",
+        "card": "#FAFDF6",
+        "hair": "#4E9A3A2E",
+        "on_accent": "#FFFFFF"
+      },
+      "season": "spring",
+      "seasonal": false,
+      "title": "春芽"
+    },
+    {
+      "dark": {
+        "accent": "#5FD39A",
+        "accent_soft": "#5FD39A40",
+        "background": "#0C1C14",
+        "card": "#14281D",
+        "hair": "#2A2F2A",
+        "on_accent": "#183526"
+      },
+      "id": "xiayin",
+      "light": {
+        "accent": "#17704A",
+        "accent_soft": "#17704A22",
+        "background": "#DDEFE4",
+        "card": "#F6FBF8",
+        "hair": "#17704A2E",
+        "on_accent": "#FFFFFF"
+      },
+      "season": "summer",
+      "seasonal": false,
+      "title": "夏荫"
+    },
+    {
+      "dark": {
+        "accent": "#F0975F",
+        "accent_soft": "#F0975F40",
+        "background": "#21150F",
+        "card": "#2E1E15",
+        "hair": "#2A2F2A",
+        "on_accent": "#3C2618"
+      },
+      "id": "qiushan",
+      "light": {
+        "accent": "#B5562B",
+        "accent_soft": "#B5562B22",
+        "background": "#F6E9DC",
+        "card": "#FFFBF6",
+        "hair": "#B5562B33",
+        "on_accent": "#FFFFFF"
+      },
+      "season": "autumn",
+      "seasonal": false,
+      "title": "秋杉"
+    },
+    {
+      "dark": {
+        "accent": "#93C7E6",
+        "accent_soft": "#93C7E640",
+        "background": "#0F1820",
+        "card": "#18232D",
+        "hair": "#2A2F2A",
+        "on_accent": "#25323A"
+      },
+      "id": "dongxue",
+      "light": {
+        "accent": "#3A6A8A",
+        "accent_soft": "#3A6A8A22",
+        "background": "#E6EEF4",
+        "card": "#FAFCFE",
+        "hair": "#3A6A8A2E",
+        "on_accent": "#FFFFFF"
+      },
+      "season": "winter",
+      "seasonal": false,
+      "title": "冬雪"
+    }
+  ],
+  "default": "siji"
+}

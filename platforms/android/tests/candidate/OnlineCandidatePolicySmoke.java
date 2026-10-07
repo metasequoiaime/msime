@@ -1,6 +1,7 @@
 import app.msime.android.OnlineCandidatePolicy;
 import java.util.Arrays;
 import java.util.List;
+import java.net.URL;
 
 public final class OnlineCandidatePolicySmoke {
     static void check(boolean condition) { if (!condition) throw new AssertionError(); }
@@ -9,7 +10,7 @@ public final class OnlineCandidatePolicySmoke {
         return OnlineCandidatePolicy.signature(7, "ni'hao", "fixture", cloud, assistant);
     }
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws Exception {
         check(OnlineCandidatePolicy.sessionId(7L, -1) == 7);
         check(OnlineCandidatePolicy.sessionId(7.5, -1) == -1);
         check(OnlineCandidatePolicy.sessionId(true, -1) == -1);
@@ -22,6 +23,13 @@ public final class OnlineCandidatePolicySmoke {
         check(OnlineCandidatePolicy.requestsAi(true, true));
         check(!OnlineCandidatePolicy.requestsAi(false, true));
         check(!OnlineCandidatePolicy.requestsAi(true, false));
+        check(OnlineCandidatePolicy.CLOUD_TIMEOUT_MILLIS == 2_000);
+
+        check(!OnlineCandidatePolicy.validURL(new URL("https://user:password@example.invalid/translate")));
+        check(!OnlineCandidatePolicy.validURL(new URL("https://example.invalid/translate#fragment")));
+        check(!OnlineCandidatePolicy.validURL(new URL("https:///translate")));
+        check(OnlineCandidatePolicy.validURL(new URL("https://example.invalid/translate")));
+        check(OnlineCandidatePolicy.CLOUD_TIMEOUT_MILLIS == 2_000);
 
         check(OnlineCandidatePolicy.aiCandidateLimit(3) == 3);
         check(OnlineCandidatePolicy.aiCandidateLimit(1) == 1);
@@ -29,6 +37,10 @@ public final class OnlineCandidatePolicySmoke {
         check(OnlineCandidatePolicy.aiCandidateLimit(0) == 0);
         check(OnlineCandidatePolicy.aiCandidateLimit(-1) == 0);
         check(OnlineCandidatePolicy.aiCandidateLimit(11) == 0);
+
+        check("text".equals(OnlineCandidatePolicy.strictText("text")));
+        check(OnlineCandidatePolicy.strictText(42) == null);
+        check(OnlineCandidatePolicy.strictText(true) == null);
 
         // The same composition is asked about once; a changed AI configuration asks again.
         check(signature(true, "{\"model\":\"a\"}").equals(signature(true, "{\"model\":\"a\"}")));
@@ -61,6 +73,8 @@ public final class OnlineCandidatePolicySmoke {
             Arrays.asList("  ", "坏\u0007的", null, "好的"), 3).equals(List.of("好的")));
         check(OnlineCandidatePolicy.aiCandidates(
             Arrays.asList("x".repeat(4097), "短"), 3).equals(List.of("短")));
+        check(OnlineCandidatePolicy.aiCandidates(
+            Arrays.asList("坏\uD800", "好"), 3).equals(List.of("好")));
         check(OnlineCandidatePolicy.aiCandidates(List.of(), 3).isEmpty());
         check(OnlineCandidatePolicy.aiCandidates(null, 3).isEmpty());
         // A limit the shared host would reject contributes nothing at all.

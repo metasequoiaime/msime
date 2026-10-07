@@ -1,0 +1,50 @@
+name: Cargo audit
+# 依赖公告的两个检查回答不同的问题，所以触发也不同。
+#
+# dependency review（在 quality.yml 里）回答“这个 PR 有没有新引入危险依赖”。它只在 PR 上有意义，
+# 也适合当合并门禁。
+#
+# cargo audit 回答“当前 Cargo.lock 里有没有今天新公布的漏洞”。这是外部异步事件，与某个 PR 做了
+# 什么都没关系：一条早上刚公布的 RustSec 公告会让每个 PR 同时变红，冻结全仓库的合并。所以它不挂在
+# 每个 PR 上，也不做必需检查。它在三种情况下跑：
+#   - 改到 Cargo.lock 或 .cargo/audit.toml 的 PR：给作者关于这次锁变更或忽略策略变更的反馈；
+  #   - 推送到 main：发布信号；
+  #   - 每日定时：对新公告做全量监测。
+on:
+  pull_request:
+    # Cargo.lock 与 .cargo/audit.toml 一起决定审计结果：改忽略列表就是改审计 policy，同样要触发。
+    paths:
+      - Cargo.lock
+      - .cargo/audit.toml
+      - .github/workflows/cargo-audit.yml
+  push:
+    branches:
+      - main
+    paths:
+      - Cargo.lock
+      - .cargo/audit.toml
+      - .github/workflows/cargo-audit.yml
+  schedule:
+    # 每天 00:00（Asia/Tokyo，UTC+09:00）。
+    - cron: '0 15 * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  advisories:
+    name: Cargo audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # taiki-e/install-action 下载 cargo-audit 的预编译二进制，CI 不编译检查工具本身。action 与工具
+      # 版本都固定：升级走单独的 PR，免得新版提高 MSRV 或改变默认行为让无关的 PR 变红。
+      - uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2.87.25
+        with:
+          tool: cargo-audit@0.22.2
+      # 只读本仓库的 Cargo.lock，不编译本仓库；公告库要联网拉取，所以这一项不属于离线可跑的 --quick 门禁。
+      # 被接受的 `unmaintained` / `unsound` 公告逐条记在 .cargo/audit.toml，与 verify-local.sh 完整版同一份。
+      - name: Check the advisory database
+        run: cargo audit

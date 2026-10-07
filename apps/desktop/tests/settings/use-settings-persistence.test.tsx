@@ -305,3 +305,63 @@ test("does not let a pending save from the previous client block the replacement
   });
   await oldFlush;
 });
+
+test("retries an autosave that races with another window during unmount", async () => {
+  const latest: Snapshot = {
+    ...snapshot,
+    revision: 2,
+    preferences: { ...snapshot.preferences, learning: false },
+  };
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValueOnce(snapshot).mockResolvedValueOnce(latest),
+    save: vi
+      .fn()
+      .mockRejectedValueOnce({ code: "conflict" })
+      .mockImplementation(async (revision, preferences) => ({
+        ...latest,
+        revision: revision + 1,
+        preferences,
+      })),
+  };
+  let edit!: (value: Preferences) => void;
+
+  const { unmount } = renderHook(() => {
+    const mounted = useRef(true);
+    const [currentSnapshot, setSnapshot] = useState<Snapshot>();
+    const [draft, setDraft] = useState<Preferences>();
+    edit = (value) => setDraft(value);
+    return useSettingsPersistence({
+      client,
+      mobile: false,
+      macos: false,
+      mounted,
+      snapshot: currentSnapshot,
+      draft,
+      setSnapshot,
+      setDraft,
+      setBusy: vi.fn(),
+      setError: vi.fn(),
+      setNotice: vi.fn(),
+      setRecoveredBackup: vi.fn(),
+      macosShuangpinKeymap: undefined,
+      savedMacosShuangpinKeymap: undefined,
+      setSavedMacosShuangpinKeymap: vi.fn(),
+      macosWubiAutoCommitUnique: undefined,
+      savedMacosWubiAutoCommitUnique: undefined,
+      setSavedMacosWubiAutoCommitUnique: vi.fn(),
+    });
+  });
+
+  await act(async () => {
+    await Promise.resolve();
+  });
+  act(() => edit({ ...snapshot.preferences, scheme: "wubi" }));
+  unmount();
+
+  await waitFor(() => expect(client.save).toHaveBeenCalledTimes(2));
+  expect(client.load).toHaveBeenCalledTimes(2);
+  expect(client.save).toHaveBeenLastCalledWith(2, {
+    ...latest.preferences,
+    scheme: "wubi",
+  });
+});

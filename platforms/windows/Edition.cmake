@@ -1,4 +1,4 @@
-# 本次构建的产品版本（shared/contracts/editions.json 的 id）。shared/contracts/msime_edition.h 按这里定义的 MSIME_EDITION_<ID> 选出该版本的 CLSID、管道名、注册表键和目录名；TSF DLL、Server、看门狗和 prepare 工具在编译期就绑定到一个版本，所以每个版本各编一次。缺省是 full，与引入版本之前的构建完全相同。
+# 本次构建的产品版本（shared/contracts/editions.json 的 id）。shared/contracts/msime_edition.h 按这里定义的 MSIME_EDITION_<ID> 选出该版本的 CLSID、管道名、注册表键和目录名；TSF DLL、Server、看门狗和 prepare 工具在编译期就绑定到一个版本，所以每个版本各编一次。缺省是 full；full 的这些名字也是它自己的，不是 msime-windows 的那一组（见 platforms/windows/README.md）。
 include_guard(GLOBAL)
 set(MSIME_EDITION "full" CACHE STRING "Product edition to build (an id in shared/contracts/editions.json with a Windows section)")
 file(READ "${CMAKE_CURRENT_LIST_DIR}/../../shared/contracts/editions.json" msime_editions_json)

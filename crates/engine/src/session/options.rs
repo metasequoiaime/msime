@@ -122,6 +122,8 @@ pub struct SessionSnapshot {
     pub editing_text: String,
     pub caret_position: usize,
     pub nine_key_spellings: Vec<String>,
+    /// 九键组字时的读音行：首选候选覆盖的数字显示成它的拼音，其余数字按 `preedit` 原样显示（`xi'an`、`yi'c`、`ni'hao'9`）；首选不是拼音候选时为空。只用于显示，`preedit` 仍是数字。
+    pub nine_key_reading: String,
     /// The candidates came from the wubi mixed-pinyin fallback, not the wubi table.
     pub answered_by_pinyin_fallback: bool,
     pub wubi_unique_four_code: bool,

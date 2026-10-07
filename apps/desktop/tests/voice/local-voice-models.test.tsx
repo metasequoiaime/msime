@@ -156,11 +156,17 @@ test("a cancel the user asked for is not reported as a failure", () => {
   expect(localModelErrorMessage(new Error("boom"))).toBe("操作失败，请重试。");
 });
 
-test("a mirror is empty or an https prefix", () => {
+test("a mirror is empty or a complete https URL without credentials or query", () => {
   expect(validModelMirror("")).toBe(true);
   expect(validModelMirror("https://ghproxy.example.com")).toBe(true);
+  expect(validModelMirror("https://ghproxy.example.com/prefix/")).toBe(true);
+  expect(validModelMirror(`https://ghproxy.example.com/${"中".repeat(700)}`)).toBe(false);
   expect(validModelMirror("http://ghproxy.example.com")).toBe(false);
   expect(validModelMirror("https://")).toBe(false);
+  expect(validModelMirror("https:///missing-host")).toBe(false);
+  expect(validModelMirror("https://user:pass@ghproxy.example.com")).toBe(false);
+  expect(validModelMirror("https://ghproxy.example.com/?token=synthetic")).toBe(false);
+  expect(validModelMirror("https://ghproxy.example.com/#fragment")).toBe(false);
   expect(validModelMirror("https://a b")).toBe(false);
 });
 

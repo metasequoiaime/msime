@@ -3,6 +3,7 @@
 //! A shared package is an installed skin folder reduced to what the backend accepts: `skin.toml`, sent verbatim, plus the PNG or JPEG images its manifest references (the preview, the decoration image and the background image), base64-encoded. [`pack`] builds that payload from a folder under the host's skin root and [`install`] writes a downloaded one back as a folder the catalog lists. Both mirror every rule of the server (`internal/account/community_candidate.go`) the client can check, because the transport only reports an HTTP status and the page can then name the exact problem.
 
 use super::catalog::{self, SkinLicense, SkinSummary};
+pub(crate) use super::catalog::{IMAGE_DIMENSIONS_TOO_LARGE, MAX_IMAGE_SIDE, MAX_PACKAGE_PIXELS};
 use super::category::INCLUDE_CATEGORY;
 use crate::account::{
     request_with_account_session, AccountApi, AccountError, AccountSessionStorage,
@@ -17,7 +18,7 @@ use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs;
 use std::io::Write;
 use std::path::Path;
@@ -53,10 +54,6 @@ const MAX_SYNC_ENTRIES: usize = 1000;
 const SYNC_FIELDS: &str = "fields=sync";
 const TRANSFER_TIMEOUT: Duration = Duration::from_secs(90);
 const MAX_RESOURCE_PATH_BYTES: usize = 256;
-/// 单张图片每边最多的像素数，与服务端 `maxCandidateSide` 一致：更大的图服务端会拒收，装进来也同步不上去。
-const MAX_IMAGE_SIDE: u32 = 2048;
-/// 一个包里所有图片解码后的像素合计上限，与服务端 `maxCandidatePixels` 一致。
-const MAX_PACKAGE_PIXELS: u64 = 8_000_000;
 /// 解码一张图时允许分配的内存上限。每边 2048 的图按 16 位 RGBA 展开是 32 MiB，这里留出一倍给解码器自己的缓冲。尺寸在完整解码前就从文件头读出并按 [`MAX_IMAGE_SIDE`] 拒绝，这道上限是 PNG 解码的第二道防线：1 MiB 以内的文件声明巨大尺寸（解压炸弹）时，解码器也无法因此分配超出它的内存。JPEG 由 `zune-jpeg` 解码，它没有分配上限，由同样的每边上限兜底，最多展开成 2048×2048 的 RGB，即 12 MiB。
 const MAX_IMAGE_DECODE_ALLOC: u64 = 64 << 20;
 /// 一张渐进式 JPEG 最多的扫描段（SOS）数，与服务端 `maxCandidateJPEGScans` 一致。
@@ -776,7 +773,7 @@ fn is_sha256_hex(value: &str) -> bool {
 }
 
 fn validate_sync_list(entries: &[CandidateSkinSyncEntry]) -> Result<(), AccountError> {
-    let mut ids = BTreeSet::new();
+    let mut ids = HashSet::with_capacity(entries.len());
     if entries.len() > MAX_SYNC_ENTRIES
         || entries.iter().any(|entry| {
             entry.id.is_nil()
@@ -798,7 +795,7 @@ fn validate_page(page: &CandidateSkinPage) -> Result<(), AccountError> {
     {
         return Err(AccountError::Unavailable);
     }
-    let mut ids = BTreeSet::new();
+    let mut ids = HashSet::with_capacity(page.skins.len());
     if page.skins.iter().any(|item| !ids.insert(item.id)) {
         return Err(AccountError::Unavailable);
     }
@@ -992,7 +989,7 @@ fn referenced_images(summary: &SkinSummary) -> Result<BTreeSet<String>, &'static
         }
         paths.insert(path.to_owned());
     }
-    let lowercase: BTreeSet<String> = paths.iter().map(|path| path.to_ascii_lowercase()).collect();
+    let lowercase: HashSet<String> = paths.iter().map(|path| path.to_ascii_lowercase()).collect();
     if lowercase.len() != paths.len() {
         return Err(FILE_PATH);
     }
@@ -1022,7 +1019,11 @@ pub fn pack_as(
     id: &str,
     visibility: CandidateSkinVisibility,
 ) -> Result<PackedSkin, &'static str> {
-    let summary = catalog::load_package(root, id).map_err(|_| PACKAGE)?;
+    let summary = match catalog::load_package(root, id) {
+        Ok(summary) => summary,
+        Err(error) if error == IMAGE_DIMENSIONS_TOO_LARGE => return Err(TOO_LARGE),
+        Err(_) => return Err(PACKAGE),
+    };
     if SERVER_BUILTIN_IDS.contains(&id) {
         return Err(PACKAGE);
     }
@@ -1352,7 +1353,7 @@ fn decode_files(files: &BTreeMap<String, String>) -> Result<Vec<(&str, Vec<u8>)>
     if files.is_empty() || files.len() > MAX_PACKAGE_FILES {
         return Err(FILE_PATH);
     }
-    let mut lowercase = BTreeSet::new();
+    let mut lowercase = HashSet::with_capacity(files.len());
     for path in files.keys() {
         if !catalog::safe_resource(path, MAX_RESOURCE_PATH_BYTES) || path == MANIFEST_FILE {
             return Err(FILE_PATH);

@@ -196,6 +196,146 @@ impl LanguageDictionary {
         }
         Ok(result)
     }
+
+    /// 键按位置逐段取自 `positions[i]`（以单个空格连接）的词条，各带自己的键；按权重从重到轻，再按文字、键排序，至多 `limit` 条。每个位置都只有一个读音时就是 `lookup` 对连接后的键查询，结果与它逐条相同。
+    pub fn lookup_readings(
+        &self,
+        positions: &[&[String]],
+        limit: usize,
+    ) -> Result<Vec<(String, LanguageEntry)>> {
+        let Some((first, rest)) = positions.split_first() else {
+            return Ok(Vec::new());
+        };
+        if positions.iter().all(|readings| readings.len() == 1) {
+            let key = positions
+                .iter()
+                .map(|readings| readings[0].as_str())
+                .collect::<Vec<_>>()
+                .join(" ");
+            return Ok(self
+                .lookup(&key, limit)?
+                .into_iter()
+                .map(|entry| (key.clone(), entry))
+                .collect());
+        }
+        let mut result = Vec::new();
+        if rest.is_empty() {
+            for reading in first.iter() {
+                result.extend(
+                    self.lookup(reading, limit)?
+                        .into_iter()
+                        .map(|entry| (reading.clone(), entry)),
+                );
+            }
+        } else {
+            // 后面各位置拼成一个 GLOB，配合首个读音的键范围只扫以它开头的多音节词；不加 SQL `LIMIT`，因为 GLOB 只是粗筛，精确的校验在 Rust 里做，提前截断可能丢掉正确的行。
+            let tail = readings_glob(rest);
+            let mut statement = self.connection.prepare_cached(
+                "SELECT key, text, weight FROM entries WHERE key >= ?1 AND key < ?2 AND key GLOB ?3",
+            )?;
+            for reading in first.iter() {
+                let lower = format!("{reading} ");
+                let upper = format!("{reading}!");
+                let mut glob = String::with_capacity(reading.len() * 2 + 1 + tail.len());
+                push_glob_literal(&mut glob, reading);
+                glob.push(' ');
+                glob.push_str(&tail);
+                let rows = statement.query_map((lower, upper, glob), |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        LanguageEntry {
+                            text: row.get(1)?,
+                            weight: row.get(2)?,
+                        },
+                    ))
+                })?;
+                for row in rows {
+                    let (key, entry) = row?;
+                    if key_matches(&key, positions) {
+                        result.push((key, entry));
+                    }
+                }
+            }
+        }
+        result.sort_by(|(left_key, left), (right_key, right)| {
+            right
+                .weight
+                .cmp(&left.weight)
+                .then_with(|| left.text.cmp(&right.text))
+                .then_with(|| left_key.cmp(right_key))
+        });
+        result.truncate(limit);
+        Ok(result)
+    }
+}
+
+/// `positions` 各位置的 GLOB，位置之间用空格。只有一个读音的位置按字面匹配；多个读音且字数相同时，逐个字符下标写出该下标上出现过的字符组成的字符类；字数不同、或字符类里会混进 GLOB 自己的 `]` `^` `-` 时退成任意字符，交给 `key_matches` 精确校验。
+fn readings_glob(positions: &[&[String]]) -> String {
+    let mut glob = String::new();
+    for (index, readings) in positions.iter().enumerate() {
+        if index > 0 {
+            glob.push(' ');
+        }
+        if let [reading] = readings {
+            push_glob_literal(&mut glob, reading);
+            continue;
+        }
+        let lengths: Vec<usize> = readings
+            .iter()
+            .map(|reading| reading.chars().count())
+            .collect();
+        if lengths.windows(2).any(|pair| pair[0] != pair[1]) {
+            glob.push('*');
+            continue;
+        }
+        for position in 0..lengths.first().copied().unwrap_or_default() {
+            let mut class: Vec<char> = readings
+                .iter()
+                .filter_map(|reading| reading.chars().nth(position))
+                .collect();
+            class.sort_unstable();
+            class.dedup();
+            match class.as_slice() {
+                [only] => push_glob_literal(&mut glob, &only.to_string()),
+                _ if class
+                    .iter()
+                    .any(|character| matches!(character, ']' | '^' | '-')) =>
+                {
+                    glob.push('?');
+                }
+                _ => {
+                    glob.push('[');
+                    glob.extend(class);
+                    glob.push(']');
+                }
+            }
+        }
+    }
+    glob
+}
+
+/// 按字面匹配 `text`：GLOB 的元字符写成只含它自己的字符类。
+fn push_glob_literal(glob: &mut String, text: &str) {
+    for character in text.chars() {
+        match character {
+            '*' | '?' | '[' => {
+                glob.push('[');
+                glob.push(character);
+                glob.push(']');
+            }
+            _ => glob.push(character),
+        }
+    }
+}
+
+/// `key` 的每个音节是否都是对应位置允许的读音，且音节数与位置数相同。
+fn key_matches(key: &str, positions: &[&[String]]) -> bool {
+    let mut syllables = key.split(' ');
+    positions.iter().all(|readings| {
+        syllables
+            .next()
+            .is_some_and(|syllable| readings.iter().any(|reading| reading == syllable))
+    }) && syllables.next().is_none()
 }
 
 /// `pattern` as a GLOB: the wildcard becomes `[^ ]`, so it never matches a syllable boundary, GLOB's own metacharacters are matched literally, and a pattern for completions ends in `*`.
@@ -430,6 +570,109 @@ mod tests {
         assert!(texts("", true, 10).1.is_empty());
         assert!(texts("xxxxxx", true, 10).1.is_empty());
         assert!(texts("hx", true, 0).1.is_empty());
+    }
+
+    fn readings(values: &[&str]) -> Vec<String> {
+        values.iter().map(|value| (*value).to_owned()).collect()
+    }
+
+    // 合成的注音数据：九键下一个位置有多个读音，查询只返回逐段都属于对应位置、且音节数一致的键。
+    #[test]
+    fn looks_up_keys_whose_syllables_fall_in_each_position() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("msime-zhuyin.db");
+        build(&path, &FORMAT_VERSION.to_string());
+        let connection = Connection::open(&path).unwrap();
+        for (key, text, weight) in [
+            ("ㄋㄧˇ", "你", 1000),
+            ("ㄋㄧˇ", "妳", 300),
+            ("ㄌㄧˇ", "李", 1200),
+            ("ㄌㄧˇ", "你", 5),
+            ("ㄋㄧˇ ㄏㄠˇ", "你好", 500),
+            ("ㄌㄧˇ ㄏㄠˇ", "李好", 500),
+            ("ㄋㄧˇ ㄏㄠˋ", "你號", 900),
+            ("ㄋㄧ ㄏㄠˇ", "妮好", 900),
+            ("ㄋㄧˇ ㄏㄠˇ ㄇㄚ˙", "你好嗎", 900),
+            ("ㄋㄧˇ ㄏㄨㄚˇ", "你畫", 900),
+            ("ㄌㄧˇ ㄎㄠˇ", "李考", 400),
+            ("ㄋㄧˇ ㄍㄠˇ", "你搞", 700),
+        ] {
+            connection
+                .execute(
+                    "INSERT INTO entries VALUES (?1, ?2, ?3)",
+                    (key, text, weight),
+                )
+                .unwrap();
+        }
+        drop(connection);
+        let dictionary = open_read_only(&path).unwrap();
+        let ni_li = readings(&["ㄋㄧˇ", "ㄌㄧˇ"]);
+        let hao = readings(&["ㄏㄠˇ"]);
+        let gao_kao_hao = readings(&["ㄍㄠˇ", "ㄎㄠˇ", "ㄏㄠˇ"]);
+        let rows = |positions: &[&[String]], limit| {
+            dictionary
+                .lookup_readings(positions, limit)
+                .unwrap()
+                .into_iter()
+                .map(|(key, entry)| format!("{key}:{}:{}", entry.text, entry.weight))
+                .collect::<Vec<_>>()
+        };
+
+        // 声调不符（ㄏㄠˋ）、首音节一声（ㄋㄧ）、多一个音节、韵母字数不同（ㄏㄨㄚˇ）的键都被排除；同权重按文字再按键排序。
+        assert_eq!(
+            rows(&[&ni_li, &hao], usize::MAX),
+            ["ㄋㄧˇ ㄏㄠˇ:你好:500", "ㄌㄧˇ ㄏㄠˇ:李好:500"]
+        );
+        // 后面的位置也可以有多个读音。
+        assert_eq!(
+            rows(&[&ni_li, &gao_kao_hao], usize::MAX),
+            [
+                "ㄋㄧˇ ㄍㄠˇ:你搞:700",
+                "ㄋㄧˇ ㄏㄠˇ:你好:500",
+                "ㄌㄧˇ ㄏㄠˇ:李好:500",
+                "ㄌㄧˇ ㄎㄠˇ:李考:400",
+            ]
+        );
+        assert_eq!(rows(&[&ni_li, &gao_kao_hao], 1), ["ㄋㄧˇ ㄍㄠˇ:你搞:700"]);
+        // 单个位置多个读音：按权重合并，同一个字可以在两个读音下各出现一次。
+        assert_eq!(
+            rows(&[&ni_li], usize::MAX),
+            [
+                "ㄌㄧˇ:李:1200",
+                "ㄋㄧˇ:你:1000",
+                "ㄋㄧˇ:妳:300",
+                "ㄌㄧˇ:你:5"
+            ]
+        );
+        assert_eq!(rows(&[&ni_li], 2), ["ㄌㄧˇ:李:1200", "ㄋㄧˇ:你:1000"]);
+        // 每个位置只有一个读音时与 `lookup` 逐条相同。
+        let ni = readings(&["ㄋㄧˇ"]);
+        let expected: Vec<String> = dictionary
+            .lookup("ㄋㄧˇ ㄏㄠˇ", usize::MAX)
+            .unwrap()
+            .into_iter()
+            .map(|entry| format!("ㄋㄧˇ ㄏㄠˇ:{}:{}", entry.text, entry.weight))
+            .collect();
+        assert_eq!(rows(&[&ni, &hao], usize::MAX), expected);
+        assert_eq!(rows(&[&ni], 1), ["ㄋㄧˇ:你:1000"]);
+        assert!(rows(&[], 10).is_empty());
+        assert!(rows(&[&hao, &ni_li], 10).is_empty());
+    }
+
+    #[test]
+    fn readings_glob_writes_literals_classes_and_wildcards() {
+        let ni_li = readings(&["ㄋㄧˇ", "ㄌㄧˇ"]);
+        let hao = readings(&["ㄏㄠˇ"]);
+        let uneven = readings(&["ㄏㄠˇ", "ㄏㄨㄚˇ"]);
+        let meta = readings(&["a*", "b-"]);
+        assert_eq!(readings_glob(&[&hao]), "ㄏㄠˇ");
+        assert_eq!(readings_glob(&[&hao, &ni_li]), "ㄏㄠˇ [ㄋㄌ]ㄧˇ");
+        assert_eq!(readings_glob(&[&uneven, &hao]), "* ㄏㄠˇ");
+        assert_eq!(readings_glob(&[&meta]), "[ab]?");
+        assert_eq!(readings_glob(&[&readings(&["a?"])]), "a[?]");
+        assert!(key_matches("ㄋㄧˇ ㄏㄠˇ", &[&ni_li, &hao]));
+        assert!(!key_matches("ㄋㄧˇ", &[&ni_li, &hao]));
+        assert!(!key_matches("ㄋㄧˇ ㄏㄠˇ ㄏㄠˇ", &[&ni_li, &hao]));
     }
 
     #[cfg(unix)]

@@ -8,7 +8,7 @@ import java.util.function.Predicate;
 /** Device-only acceptance for the full-surface Apple-style tools panel. */
 public final class MoreToolsDeviceSmoke extends DeviceSmoke {
     @Override protected String successDescription() {
-        return "four-column tool and setting tiles, local-input subpanel and keyboard return";
+        return "toolbar row, three-page four-column function panel, local-input subpanel and keyboard return";
     }
 
     @Override protected void runChecks() throws Exception {
@@ -19,43 +19,45 @@ public final class MoreToolsDeviceSmoke extends DeviceSmoke {
         tap(field("msime-test-plain"));
         stage = "keyboard shortcut bar";
         await(shortcutBar());
-        // The scheme entry shows the scheme in use in both its face and its description, so only
-        // the prefix identifies it; the rest keep fixed faces.
+        // The scheme entry shows the scheme in use in its description, so only the prefix identifies it; the skin and hide entries keep fixed faces, and the brand key is 更多.
         await(describedPrefix("输入方案"));
-        for (String label : new String[] {"皮肤", "设置", "收起"})
+        for (String label : new String[] {"更多", "皮肤", "收起"})
             await(key(label));
+        await(described("表情"));
+        await(described("常用语"));
         stage = "more tools open";
         tap(key("更多"));
         AccessibilityNodeInfo panel = await(toolPanel());
-        stage = "more tools primary cards";
+        await(described("返回键盘"));
+        stage = "function panel first page";
         Rect panelBounds = new Rect();
         panel.getBoundsInScreen(panelBounds);
-        AccessibilityNodeInfo[] primaryCards = new AccessibilityNodeInfo[5];
-        String[] primaryTitles = {"表情", "剪贴板历史", "AI 润色", "本地输入", "语音结果"};
-        for (int index = 0; index < primaryTitles.length; index++) {
-            String title = primaryTitles[index];
-            AccessibilityNodeInfo card = await(tool(title));
-            primaryCards[index] = card;
-            Rect cardBounds = new Rect();
-            card.getBoundsInScreen(cardBounds);
-            if (cardBounds.width() <= panelBounds.width() / 6
-                    || cardBounds.width() >= panelBounds.width() / 3)
-                throw new AssertionError("Primary tool is not a four-column tile");
-            int expectedHeight = Math.round(52 * getTargetContext()
-                .getResources().getDisplayMetrics().density);
-            if (Math.abs(cardBounds.height() - expectedHeight) > 2)
-                throw new AssertionError("Primary card height mismatch");
+        String[] firstPage = {"全角", "中文标点", "模糊音", "繁体输出", "手写", "词库", "键盘高度", "设置"};
+        AccessibilityNodeInfo[] tiles = new AccessibilityNodeInfo[firstPage.length];
+        int expectedHeight = Math.round(52 * getTargetContext()
+            .getResources().getDisplayMetrics().density);
+        for (int index = 0; index < firstPage.length; index++) {
+            AccessibilityNodeInfo tile = await(tool(firstPage[index]));
+            tiles[index] = tile;
+            Rect bounds = new Rect();
+            tile.getBoundsInScreen(bounds);
+            if (bounds.width() <= panelBounds.width() / 6 || bounds.width() >= panelBounds.width() / 3)
+                throw new AssertionError("Function panel tile is not one of four columns: " + firstPage[index]);
+            if (Math.abs(bounds.height() - expectedHeight) > 2)
+                throw new AssertionError("Function panel tile height mismatch: " + firstPage[index]);
         }
-        assertSameRow(primaryCards[0], primaryCards[1], "first primary row");
-        assertSameRow(primaryCards[0], primaryCards[3], "first primary row end");
-        stage = "more tools settings cards";
-        AccessibilityNodeInfo traditional = await(tool("繁体输出"));
-        AccessibilityNodeInfo sound = await(tool("按键音"));
+        assertSameRow(tiles[0], tiles[3], "first row");
+        assertSameRow(tiles[4], tiles[7], "second row");
+        for (String toggle : new String[] {"全角", "中文标点", "模糊音", "繁体输出"})
+            if (!validSettingState(await(tool(toggle))))
+                throw new AssertionError("Toggle state was not exposed: " + toggle);
+        stage = "function panel second page";
+        AccessibilityNodeInfo sound = showTool("按键音");
         AccessibilityNodeInfo haptics = await(tool("按键振动"));
-        AccessibilityNodeInfo strength = await(tool("振动强度"));
-        if (!validSettingState(traditional) || !validFeedbackState(sound)
-                || !validFeedbackState(haptics) || !validStrengthCard(strength))
-            throw new AssertionError("Settings state was not exposed");
+        if (!validFeedbackState(sound) || !validFeedbackState(haptics))
+            throw new AssertionError("Feedback state was not exposed");
+        for (String title : new String[] {"单手模式", "隐私模式", "反馈", "关于", "AI 回复与润色", "本地输入"})
+            await(tool(title));
         String originalSound = sound.getStateDescription().toString();
         String changedSound = "已开启".equals(originalSound) ? "已关闭" : "已开启";
         stage = "more tools sound update";
@@ -63,12 +65,17 @@ public final class MoreToolsDeviceSmoke extends DeviceSmoke {
         await(toolWithState("按键音", changedSound));
         tap(tool("按键音"));
         await(toolWithState("按键音", originalSound));
+        stage = "function panel third page";
+        AccessibilityNodeInfo strength = showTool("振动强度");
+        if (!validStrengthCard(strength)) throw new AssertionError("Strength tile lost its level");
+        for (String title : new String[] {"语音结果", "表情", "剪贴板历史"})
+            awaitAny(tool(title));
         stage = "more tools local input subpanel";
         tap(tool("本地输入"));
         await(tool("返回工具"));
         await(tool("Unicode 码点"));
         tap(tool("返回工具"));
-        await(tool("表情"));
+        showTool("全角");
         stage = "more tools return";
         tap(tool("返回键盘"));
         await(key("n").and(AccessibilityNodeInfo::isClickable));

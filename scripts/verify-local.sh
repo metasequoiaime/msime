@@ -52,6 +52,8 @@ done
 # the Apple client are the ones a broken merge silently takes out of both the iOS keyboard
 # and the macOS host at once.
 : "${MSIME_APPLE_BRIDGE_BUILD:=target/apple-bridge}"
+# 不带数字的 `cmake --build --parallel` 在 Makefile 生成器下就是不限并发的 `make -j`，macOS 一次构建就能同时起几百个编译进程。2026-10-06 几个同时跑的门禁在编译机上起了八百多个 clang，负载冲到九百多，把 Docker 和模拟器服务一起拖死。所以下面每次 cmake 构建都带上这个数：先取 `CMAKE_BUILD_PARALLEL_LEVEL`，没有就跟 `CARGO_BUILD_JOBS`（rbuild 在编译机上设为 6，给 CI runner 留核），再没有才用本机核数。
+: "${MSIME_BUILD_JOBS:=${CMAKE_BUILD_PARALLEL_LEVEL:-${CARGO_BUILD_JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)}}}"
 export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'
 
 windows_host=0
@@ -805,8 +807,8 @@ if ! scoped macos; then
   :
 elif macos_configured; then
   if build_macos_host_library; then
-    cmake --build "$MSIME_MACOS_BUILD" --parallel 2>&1 | grep -E "error:|symbol\(s\) not found" | head -5
-    cmake --build "$MSIME_MACOS_BUILD" --parallel >/dev/null 2>&1 || fail "macos build"
+    cmake --build "$MSIME_MACOS_BUILD" --parallel "$MSIME_BUILD_JOBS" 2>&1 | grep -E "error:|symbol\(s\) not found" | head -5
+    cmake --build "$MSIME_MACOS_BUILD" --parallel "$MSIME_BUILD_JOBS" >/dev/null 2>&1 || fail "macos build"
   else
     # Linking against the stale copy would only report its missing symbols as a macOS break.
     fail "cargo build -p msime-host-api (macos host library)"
@@ -819,11 +821,11 @@ note "compile: shared apple bridge"
 if [ "$apple_host" -eq 0 ]; then
   echo "apple bridge: skipped (needs an Apple host)"
 elif cmake -S shared/apple-bridge -B "$MSIME_APPLE_BRIDGE_BUILD" >/dev/null 2>&1 &&
-  cmake --build "$MSIME_APPLE_BRIDGE_BUILD" --parallel >/dev/null 2>&1; then
+  cmake --build "$MSIME_APPLE_BRIDGE_BUILD" --parallel "$MSIME_BUILD_JOBS" >/dev/null 2>&1; then
   echo "apple bridge: builds"
 else
   fail "apple bridge build"
-  cmake --build "$MSIME_APPLE_BRIDGE_BUILD" --parallel 2>&1 |
+  cmake --build "$MSIME_APPLE_BRIDGE_BUILD" --parallel "$MSIME_BUILD_JOBS" 2>&1 |
     grep -E "error:|symbol\(s\) not found" | head -5
 fi
 
@@ -859,10 +861,10 @@ elif [ "$windows_host" -eq 0 ] && command -v x86_64-w64-mingw32-g++ >/dev/null 2
     if cmake -S platforms/windows -B "$cross_dir" -DMSIME_WINDOWS_PIPE_ONLY=ON \
       -DCMAKE_SYSTEM_NAME=Windows -DCMAKE_CXX_COMPILER="$cross_arch-w64-mingw32-g++" \
       -DCMAKE_BUILD_TYPE=Debug >/dev/null 2>&1 &&
-      cmake --build "$cross_dir" --parallel >/dev/null 2>&1; then
+      cmake --build "$cross_dir" --parallel "$MSIME_BUILD_JOBS" >/dev/null 2>&1; then
       echo "pipe-only: cross-builds ($cross_arch)"
     else
-      cmake --build "$cross_dir" --parallel 2>&1 |
+      cmake --build "$cross_dir" --parallel "$MSIME_BUILD_JOBS" 2>&1 |
         grep -Ei "error:|Error [0-9]" | head -5
       fail "pipe-only cross build ($cross_arch)"
     fi

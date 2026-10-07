@@ -96,6 +96,7 @@ public class KeyboardPressButton extends Button {
     @Override protected void onDetachedFromWindow() {
         // 离开窗口时框架会在这之后用 `setPressed(false)` 撤掉还没执行的松开，那一次必须生效。
         staleRelease = false;
+        KeyPressAnimator.cancel(this);
         animate().cancel();
         KeyboardPressFeedback.reset(this);
         super.onDetachedFromWindow();

@@ -21,22 +21,24 @@
         app:labelVisibilityMode="labeled"
         app:menu="@menu/bottom_tabs" />
 
-    <!-- 开场动画盖在内容之上，自己画而不靠系统的启动画面：values-v31 的启动画面属性试过，这台设备上不生效，把背景色换成纯红之后 100 帧录像里一帧红都没有。The design's splash: a near-black field, a breathing green halo, the mark writing itself, the name and 轻点跳过 rising in after it. It is full-bleed under the system bars; HomeActivity pads only its bottom so 轻点跳过 clears the gesture area. Last child and raised so it covers the tab bar, which carries an elevation of its own. Hidden until HomeActivity decides this launch plays it. -->
+    <!-- 开场动画盖在内容之上，自己画而不靠系统的启动画面：values-v31 的启动画面属性试过，这台设备上不生效。设计的 Android 开屏：本季的深色底（?attr/msSplashBg）、光晕、180dp 浅色圆盘里写出那枚标、名字与 METASEQUOIA IME，底部 3dp 进度条 2.4 秒走满，2.8 秒交接。整屏铺到系统栏下面，HomeActivity 只给它垫底部，让进度条避开手势区。轻点任意处跳过，但不再写「轻点跳过」。放在最后一个子视图并抬高，盖住自带 elevation 的底部导航；HomeActivity 决定本次启动要放时才显示。 -->
     <FrameLayout
         android:id="@+id/home_intro"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:background="@color/splash_field"
+        android:background="?attr/msSplashBg"
         android:clickable="true"
+        android:contentDescription="@string/app_name"
         android:elevation="24dp"
         android:focusable="true"
         android:visibility="gone">
 
         <View
             android:id="@+id/home_intro_glow"
-            android:layout_width="320dp"
-            android:layout_height="320dp"
+            android:layout_width="360dp"
+            android:layout_height="360dp"
             android:layout_gravity="center"
+            android:layout_marginBottom="40dp"
             android:alpha="0"
             android:background="@drawable/splash_glow"
             android:importantForAccessibility="no" />
@@ -48,49 +50,79 @@
             android:gravity="center_horizontal"
             android:orientation="vertical">
 
-            <ImageView
-                android:id="@+id/home_intro_mark"
-                android:layout_width="124dp"
-                android:layout_height="124dp"
-                android:alpha="0"
-                android:contentDescription="@string/app_name"
-                android:src="@drawable/splash_mark_animated" />
+            <FrameLayout
+                android:layout_width="216dp"
+                android:layout_height="216dp"
+                android:clipChildren="false">
+
+                <View
+                    android:id="@+id/home_intro_ring"
+                    android:layout_width="180dp"
+                    android:layout_height="180dp"
+                    android:layout_gravity="center"
+                    android:alpha="0"
+                    android:background="@drawable/splash_ring"
+                    android:importantForAccessibility="no" />
+
+                <FrameLayout
+                    android:id="@+id/home_intro_disc"
+                    android:layout_width="180dp"
+                    android:layout_height="180dp"
+                    android:layout_gravity="center"
+                    android:alpha="0"
+                    android:background="@drawable/splash_disc"
+                    android:elevation="12dp">
+
+                    <ImageView
+                        android:id="@+id/home_intro_mark"
+                        android:layout_width="100dp"
+                        android:layout_height="100dp"
+                        android:layout_gravity="center"
+                        android:alpha="0"
+                        android:importantForAccessibility="no"
+                        android:src="@drawable/splash_mark_animated" />
+                </FrameLayout>
+            </FrameLayout>
 
             <TextView
                 android:id="@+id/home_intro_name"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="18dp"
+                android:layout_marginTop="2dp"
                 android:alpha="0"
                 android:letterSpacing="0.06"
                 android:text="@string/app_name"
                 android:textColor="#FFFFFF"
                 android:textFontWeight="700"
-                android:textSize="24sp"
+                android:textSize="22sp"
                 android:textStyle="bold" />
 
             <TextView
                 android:id="@+id/home_intro_latin"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="18dp"
+                android:layout_marginTop="14dp"
                 android:alpha="0"
                 android:importantForAccessibility="no"
                 android:letterSpacing="0.18"
                 android:text="@string/splash_latin"
-                android:textColor="#9EFFFFFF"
-                android:textSize="13sp" />
+                android:textColor="#80FFFFFF"
+                android:textSize="12sp" />
         </LinearLayout>
 
-        <TextView
-            android:id="@+id/home_intro_skip"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="bottom|center_horizontal"
-            android:layout_marginBottom="36dp"
-            android:alpha="0"
-            android:text="@string/splash_skip"
-            android:textColor="#66FFFFFF"
-            android:textSize="12sp" />
+        <ProgressBar
+            android:id="@+id/home_intro_progress"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="3dp"
+            android:layout_gravity="bottom"
+            android:layout_marginStart="48dp"
+            android:layout_marginEnd="48dp"
+            android:layout_marginBottom="48dp"
+            android:importantForAccessibility="no"
+            android:indeterminate="false"
+            android:max="1000"
+            android:progress="0"
+            android:progressDrawable="@drawable/splash_progress" />
     </FrameLayout>
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

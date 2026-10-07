@@ -1589,7 +1589,8 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
 - (void)fuzzyPinyinRuleChanged:(NSButton *)sender {
     [self setFuzzyPinyinRule:sender.identifier enabled:sender.state == NSControlStateValueOn];
 }
-- (BOOL)cloudCandidates { if (_sharedCloudCandidates) return _sharedCloudCandidates.boolValue; return [_defaults objectForKey:CloudCandidatesKey] == nil ? YES : [_defaults boolForKey:CloudCandidatesKey]; }
+// 没有任何已存选择时与共享默认值一致（关闭），否则设置开关会显示开启而输入法实际不发请求。
+- (BOOL)cloudCandidates { if (_sharedCloudCandidates) return _sharedCloudCandidates.boolValue; return [_defaults boolForKey:CloudCandidatesKey]; }
 - (void)setCloudCandidates:(BOOL)value { _sharedCloudCandidates = nil; [_defaults setBool:value forKey:CloudCandidatesKey]; [self preferencesChanged]; }
 - (void)resolveCloudCandidatesConsentWithPreferencesDirectory:(NSString *)directory userDataDirectory:(NSString *)userDataDirectory {
     if ([_defaults objectForKey:CloudCandidatesConsentKey] != nil) return;
@@ -1723,6 +1724,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
 }
 - (void)applySharedInputPreferences:(NSDictionary *)preferences {
     if (![preferences isKindOfClass:NSDictionary.class]) return;
+    _sharedInputPreferencesApplied = YES;
     const BOOL punctuationBefore = self.chinesePunctuation, widthBefore = self.fullWidthInput;
     id defaultMode = preferences[@"default_ime_mode"], scope = preferences[@"ime_mode_scope"];
     if ([@[@"chinese", @"english"] containsObject:defaultMode]) _sharedDefaultImeMode = defaultMode;

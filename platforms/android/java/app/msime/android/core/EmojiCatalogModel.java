@@ -19,10 +19,10 @@ public final class EmojiCatalogModel {
     public record Item(String text, String annotation, String group) {
         public Item {
             if (text == null || text.isEmpty()
-                    || text.codePointCount(0, text.length()) > MAX_TEXT_CODE_POINTS)
+                    || !TextPolicy.withinCodePoints(text, MAX_TEXT_CODE_POINTS))
                 throw new IllegalArgumentException("Invalid emoji catalog text");
-            if (annotation == null || annotation.codePointCount(0, annotation.length())
-                    > MAX_ANNOTATION_CODE_POINTS)
+            if (annotation == null || !TextPolicy.withinCodePoints(annotation,
+                    MAX_ANNOTATION_CODE_POINTS))
                 throw new IllegalArgumentException("Invalid emoji annotation");
             if (group == null || group.isEmpty() || group.length() > 128)
                 throw new IllegalArgumentException("Invalid emoji group");
@@ -63,18 +63,18 @@ public final class EmojiCatalogModel {
 
     /** 丢弃设备字体画不成单个字形的条目（系统 emoji 字体比目录的 Unicode 版本旧时会出现方框或被拆开的 ZWJ 序列），游标仍按扫描行前进。 */
     public static Page renderable(Page page, Predicate<String> drawable) {
-        ArrayList<Item> kept = new ArrayList<>();
+        ArrayList<Item> kept = new ArrayList<>(page.items().size());
         for (Item item : page.items()) if (drawable.test(item.text())) kept.add(item);
         return new Page(kept, page.nextOffset(), page.complete());
     }
 
     /** Most-recent first, deduplicated, and bounded without retaining invalid persisted values. */
     public static List<String> normalizeRecents(List<String> stored) {
-        LinkedHashSet<String> unique = new LinkedHashSet<>();
+        LinkedHashSet<String> unique = new LinkedHashSet<>(RECENTS_LIMIT);
         if (stored != null) {
             for (String text : stored) {
                 if (text == null || text.isEmpty()
-                        || text.codePointCount(0, text.length()) > MAX_TEXT_CODE_POINTS) continue;
+                        || !TextPolicy.withinCodePoints(text, MAX_TEXT_CODE_POINTS)) continue;
                 unique.add(text);
                 if (unique.size() == RECENTS_LIMIT) break;
             }
@@ -84,9 +84,9 @@ public final class EmojiCatalogModel {
 
     public static List<String> recordRecent(List<String> stored, String selected) {
         if (selected == null || selected.isEmpty()
-                || selected.codePointCount(0, selected.length()) > MAX_TEXT_CODE_POINTS)
+                || !TextPolicy.withinCodePoints(selected, MAX_TEXT_CODE_POINTS))
             throw new IllegalArgumentException("Invalid recent emoji");
-        ArrayList<String> reordered = new ArrayList<>();
+        ArrayList<String> reordered = new ArrayList<>(RECENTS_LIMIT);
         reordered.add(selected);
         for (String text : normalizeRecents(stored)) {
             if (!selected.equals(text)) reordered.add(text);

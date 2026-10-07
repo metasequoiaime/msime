@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 设计稿 Android 手机版的字号、圆角与间距（design tokens §2–§4），单位按原型 1px = 1dp 换算。宿主布局和 home/Ui.java 的常量都取这一份。 -->
+<resources>
+    <!-- ==== 字号 ==== -->
+    <!-- 大标题（设置 / 社区 / 统计 / 我的、详情页标题）。 -->
+    <dimen name="ms_text_page_title">28sp</dimen>
+    <!-- 滚动后收起的顶栏标题。 -->
+    <dimen name="ms_text_app_bar_title">22sp</dimen>
+    <dimen name="ms_text_onboarding_title">32sp</dimen>
+    <!-- 状态卡标题「水杉输入法」、试用页里的应用标题。 -->
+    <dimen name="ms_text_card_title">17sp</dimen>
+    <!-- 列表行标题、搜索占位、引导正文。 -->
+    <dimen name="ms_text_body">16sp</dimen>
+    <!-- 行副标题、组标题、状态卡清单行。 -->
+    <dimen name="ms_text_supporting">14sp</dimen>
+    <!-- 试用键盘这类实心按钮、语言字块。 -->
+    <dimen name="ms_text_button">15sp</dimen>
+    <!-- 分段控件、状态行、滑块数值。 -->
+    <dimen name="ms_text_label">13sp</dimen>
+    <!-- 底部导航标签、获取 / 使用这类小按钮。 -->
+    <dimen name="ms_text_caption">12sp</dimen>
+    <dimen name="ms_text_stat_hero">40sp</dimen>
+    <dimen name="ms_text_stat_tile">24sp</dimen>
+    <dimen name="ms_text_profile_name">18sp</dimen>
+
+    <!-- ==== 圆角 ==== -->
+    <!-- 设置首页分组卡、状态卡。 -->
+    <dimen name="ms_radius_home_card">24dp</dimen>
+    <!-- 详情页分组卡、语言卡。 -->
+    <dimen name="ms_radius_card">16dp</dimen>
+    <!-- 社区、统计、我的页的卡片与引导页选项卡。 -->
+    <dimen name="ms_radius_extra_card">20dp</dimen>
+    <dimen name="ms_radius_dialog">28dp</dimen>
+    <!-- M3 modal bottom sheet 的两个顶角。 -->
+    <dimen name="ms_radius_sheet">28dp</dimen>
+    <dimen name="ms_radius_nav_indicator">16dp</dimen>
+    <dimen name="ms_radius_glyph_tile">8dp</dimen>
+    <dimen name="ms_radius_slider_thumb">2dp</dimen>
+    <dimen name="ms_radius_checkbox">2dp</dimen>
+    <dimen name="ms_radius_toolbar_button">12dp</dimen>
+    <dimen name="ms_radius_stat_bar">6dp</dimen>
+    <dimen name="ms_radius_preview">8dp</dimen>
+
+    <!-- ==== 底部导航 ==== -->
+    <dimen name="ms_bottom_nav_height">80dp</dimen>
+    <dimen name="ms_bottom_nav_padding_top">12dp</dimen>
+    <dimen name="ms_bottom_nav_icon">22dp</dimen>
+    <dimen name="ms_bottom_nav_label_gap">4dp</dimen>
+    <dimen name="ms_nav_indicator_width">64dp</dimen>
+    <dimen name="ms_nav_indicator_height">32dp</dimen>
+
+    <!-- ==== 设置首页 ==== -->
+    <dimen name="ms_home_padding_horizontal">8dp</dimen>
+    <dimen name="ms_home_padding_bottom">20dp</dimen>
+    <dimen name="ms_home_block_gap">12dp</dimen>
+    <dimen name="ms_large_title_padding_top">6dp</dimen>
+    <dimen name="ms_large_title_padding_horizontal">16dp</dimen>
+    <dimen name="ms_large_title_padding_bottom">10dp</dimen>
+    <dimen name="ms_app_bar_height">64dp</dimen>
+    <dimen name="ms_app_bar_padding_horizontal">16dp</dimen>
+    <!-- 详情页顶栏给返回键留出的左边距。 -->
+    <dimen name="ms_app_bar_padding_detail">64dp</dimen>
+    <!-- 滚过这么多后顶栏铺上底色、大标题收成栏标题。 -->
+    <dimen name="ms_app_bar_collapse_offset">28dp</dimen>
+    <dimen name="ms_search_height">52dp</dimen>
+    <dimen name="ms_search_padding_horizontal">18dp</dimen>
+    <dimen name="ms_search_gap">14dp</dimen>
+    <dimen name="ms_search_icon">16dp</dimen>
+    <dimen name="ms_status_card_padding">16dp</dimen>
+    <dimen name="ms_status_card_gap">14dp</dimen>
+    <dimen name="ms_status_logo_disc">52dp</dimen>
+    <dimen name="ms_status_logo">30dp</dimen>
+    <dimen name="ms_status_check_dot">20dp</dimen>
+    <dimen name="ms_status_check_gap">8dp</dimen>
+    <dimen name="ms_status_row_gap">10dp</dimen>
+    <dimen name="ms_button_height">40dp</dimen>
+    <dimen name="ms_button_icon">16dp</dimen>
+    <dimen name="ms_button_icon_gap">6dp</dimen>
+    <dimen name="ms_home_row_min_height">60dp</dimen>
+    <dimen name="ms_home_row_padding_horizontal">20dp</dimen>
+    <dimen name="ms_home_row_gap">12dp</dimen>
+    <!-- 列表行图标与 Material Symbols 默认尺寸。 -->
+    <dimen name="ms_icon">24dp</dimen>
+
+    <!-- ==== 详情页 ==== -->
+    <dimen name="ms_detail_padding_top">4dp</dimen>
+    <dimen name="ms_detail_padding_horizontal">16dp</dimen>
+    <dimen name="ms_detail_padding_bottom">24dp</dimen>
+    <dimen name="ms_detail_group_gap">20dp</dimen>
+    <dimen name="ms_back_button">40dp</dimen>
+    <dimen name="ms_back_icon">22dp</dimen>
+    <dimen name="ms_group_title_padding_horizontal">8dp</dimen>
+    <dimen name="ms_group_title_gap">2dp</dimen>
+    <dimen name="ms_row_min_height">64dp</dimen>
+    <dimen name="ms_row_padding">8dp</dimen>
+    <dimen name="ms_row_gap">14dp</dimen>
+    <dimen name="ms_value_gap">6dp</dimen>
+    <dimen name="ms_chevron">13dp</dimen>
+    <dimen name="ms_language_row_height">52dp</dimen>
+    <dimen name="ms_language_row_padding_horizontal">16dp</dimen>
+    <dimen name="ms_glyph_tile">30dp</dimen>
+    <!-- 语言卡分隔线从字块右侧开始。 -->
+    <dimen name="ms_language_divider_inset">58dp</dimen>
+    <dimen name="ms_add_icon">20dp</dimen>
+    <dimen name="ms_hairline">0.5dp</dimen>
+    <dimen name="ms_switch_track_width">52dp</dimen>
+    <dimen name="ms_switch_track_height">32dp</dimen>
+    <dimen name="ms_switch_thumb_on">24dp</dimen>
+    <dimen name="ms_switch_thumb_off">16dp</dimen>
+    <dimen name="ms_slider_width">110dp</dimen>
+    <dimen name="ms_slider_touch">30dp</dimen>
+    <dimen name="ms_slider_track">6dp</dimen>
+    <dimen name="ms_slider_thumb_width">4dp</dimen>
+    <dimen name="ms_slider_thumb_height">28dp</dimen>
+    <dimen name="ms_slider_value_width">46dp</dimen>
+    <dimen name="ms_segment_padding">2dp</dimen>
+    <dimen name="ms_segment_gap">2dp</dimen>
+    <dimen name="ms_segment_item_padding_vertical">4dp</dimen>
+    <dimen name="ms_segment_item_padding_horizontal">12dp</dimen>
+    <dimen name="ms_tonal_button_padding_vertical">5dp</dimen>
+    <dimen name="ms_tonal_button_padding_horizontal">14dp</dimen>
+    <dimen name="ms_checks_padding_horizontal">16dp</dimen>
+    <dimen name="ms_checks_padding_bottom">12dp</dimen>
+
+    <!-- ==== 社区 / 统计 / 我的 ==== -->
+    <dimen name="ms_extra_padding_top">4dp</dimen>
+    <dimen name="ms_extra_padding_horizontal">16dp</dimen>
+    <dimen name="ms_extra_padding_bottom">24dp</dimen>
+    <dimen name="ms_community_segment_height">37dp</dimen>
+    <dimen name="ms_skin_card_height">162dp</dimen>
+    <dimen name="ms_skin_card_gap">12dp</dimen>
+    <dimen name="ms_skin_card_padding">8dp</dimen>
+    <dimen name="ms_skin_preview_height">80dp</dimen>
+    <dimen name="ms_chip_height">25dp</dimen>
+    <dimen name="ms_chip_padding_horizontal">12dp</dimen>
+    <dimen name="ms_stat_segment_height">36dp</dimen>
+    <dimen name="ms_stat_bar_width">30dp</dimen>
+    <dimen name="ms_stat_bar_max_height">118dp</dimen>
+    <dimen name="ms_stat_tile_height">104dp</dimen>
+    <dimen name="ms_stat_tile_padding">14dp</dimen>
+    <dimen name="ms_profile_card_height">88dp</dimen>
+    <dimen name="ms_avatar">56dp</dimen>
+    <dimen name="ms_me_row_height">48dp</dimen>
+    <dimen name="ms_me_icon_box">28dp</dimen>
+    <dimen name="ms_me_icon">18dp</dimen>
+
+    <!-- ==== 引导页 ==== -->
+    <dimen name="ms_onboarding_padding_top">8dp</dimen>
+    <dimen name="ms_onboarding_padding_horizontal">24dp</dimen>
+    <dimen name="ms_onboarding_padding_bottom">30dp</dimen>
+    <dimen name="ms_onboarding_progress">4dp</dimen>
+    <dimen name="ms_onboarding_icon_box">48dp</dimen>
+    <dimen name="ms_onboarding_icon">36dp</dimen>
+    <dimen name="ms_onboarding_card_padding_vertical">14dp</dimen>
+    <dimen name="ms_onboarding_card_padding_horizontal">16dp</dimen>
+    <dimen name="ms_radio">22dp</dimen>
+    <!-- 左右滑过这么远才换一步。 -->
+    <dimen name="ms_swipe_threshold">50dp</dimen>
+
+    <!-- ==== 对话框与 sheet ==== -->
+    <dimen name="ms_dialog_max_width">400dp</dimen>
+    <dimen name="ms_sheet_option_height">56dp</dimen>
+</resources>

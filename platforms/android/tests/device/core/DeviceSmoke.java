@@ -247,13 +247,35 @@ public class DeviceSmoke extends Instrumentation {
         } finally { down.recycle(); up.recycle(); }
         SystemClock.sleep(150);
     }
+    /**
+     * Page the function panel until the tile described `description` is on screen.
+     *
+     * <p>The panel is three pages of 4 × 2 tiles; the grid (the panel's only scrollable child) exposes the forward and backward scroll actions, so this walks forward to the last page and back again rather than assuming which page holds a tile.
+     */
+    protected AccessibilityNodeInfo showTool(String description) throws java.util.concurrent.TimeoutException {
+        for (int attempt = 0; attempt < 6; attempt++) {
+            for (AccessibilityWindowInfo window : automation.getWindows()) {
+                AccessibilityNodeInfo found = find(window.getRoot(), tool(description));
+                if (found != null) return found;
+            }
+            AccessibilityNodeInfo grid = awaitAny(node -> equalsText("app.msime.android", node.getPackageName())
+                && node.isScrollable() && node.getParent() != null
+                && equalsText("更多工具", node.getParent().getContentDescription()));
+            int action = attempt < 3 ? AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
+                : AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD;
+            grid.performAction(action);
+            SystemClock.sleep(400);
+        }
+        return await(tool(description));
+    }
     protected void tapSymbol(String symbol) throws java.util.concurrent.TimeoutException {
-        tap(key("符号"));
+        // The punctuation sits on the 123 layer (the third row holds the five Chinese or English marks), and that layer's bottom-left key goes back to the letters: it reads 拼音 or ABC, so it is found by its description.
+        tap(key("123"));
         // A symbol key in Chinese mode wears its Chinese face whatever the engine is configured to
         // insert -- the face follows the mode, the inserted mark follows the punctuation setting,
         // exactly as on Apple. Accept either face and let the caller assert what was inserted.
         String chinese = app.msime.android.ChineseSymbolFaces.face(symbol, true);
         tap(key(symbol).or(key(chinese)));
-        tap(key("字母"));
+        tap(described("切换到字母键盘"));
     }
 }

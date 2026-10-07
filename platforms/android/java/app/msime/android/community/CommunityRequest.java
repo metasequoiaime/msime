@@ -1,6 +1,7 @@
 package app.msime.android;
 
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -11,11 +12,13 @@ import java.util.List;
  * socket to check.
  */
 public final class CommunityRequest {
-    /** 目录里的三类内容。皮肤自成一个端点，词库和回复模板共用资源端点。 */
+    /** 目录里的四类内容。皮肤自成一个端点，词库、回复模板和短语共用资源端点。只增不改：首页按名字引用这几个值。 */
     public enum Kind {
         SKIN("skin", "皮肤", "搜索皮肤设计"),
         DICTIONARY("dictionary", "词库", "搜索词包"),
-        REPLY("reply", "回复模板", "搜索回复模板");
+        REPLY("reply", "回复模板", "搜索回复模板"),
+        /** 不带编码的常用语包，装进本机常用语；服务端的 `/apply` 不接受它，合并在本机完成。 */
+        PHRASE("phrase", "短语", "搜索短语");
 
         private final String id;
         private final String title;
@@ -90,6 +93,39 @@ public final class CommunityRequest {
 
     public static List<Kind> kinds() { return List.of(Kind.values()); }
 
+    /** 社区页顶部的三个分段，顺序即展示顺序；回复模板放在「短语」分段里作为第二个小节「AI 回复模板」。 */
+    public static List<Kind> segments() { return List.of(Kind.SKIN, Kind.DICTIONARY, Kind.PHRASE); }
+
+    /** Copy at most {@code limit} catalogue entries for a bounded discovery section. */
+    public static <T> List<T> limitedCopy(List<T> values, int limit) {
+        if (values == null || values.isEmpty() || limit <= 0) return List.of();
+        return new ArrayList<>(values.subList(0, BoundsPolicy.atMost(limit, values.size())));
+    }
+
+    /** 一个短语包最多 200 条。 */
+    public static final int MAX_PHRASES = 200;
+    /** 每条短语最多 2000 个 UTF-16 单元，与服务端的限制一致。 */
+    public static final int MAX_PHRASE_UNITS = 2000;
+    /** 分组名最多 32 个 UTF-16 单元。 */
+    public static final int MAX_PHRASE_GROUP_UNITS = 32;
+
+    /** 短语包的条数是否在 1–200 之间。 */
+    public static boolean validPhraseCount(int count) {
+        return count >= 1 && count <= MAX_PHRASES;
+    }
+
+    /** 一条短语：1–2000 个 UTF-16 单元，除换行和制表符外不含控制字符（签名之类需要换行）。 */
+    public static boolean validPhraseText(String text) {
+        if (text == null || text.isEmpty() || text.length() > MAX_PHRASE_UNITS) return false;
+        return !CommunityTextPolicy.hasDisallowedControl(text, true);
+    }
+
+    /** 分组名：可以为空，最多 32 个 UTF-16 单元，不含任何控制字符。 */
+    public static boolean validPhraseGroup(String group) {
+        return group != null && group.length() <= MAX_PHRASE_GROUP_UNITS
+            && !CommunityTextPolicy.hasDisallowedControl(group, false);
+    }
+
     /**
      * 返回皮肤条目的请求都要带上它，服务端才会在每个条目里给出 `category`；不带的请求拿到的条目没有这个字段，以免读条目时拒绝未知字段的旧客户端出错。
      */
@@ -105,12 +141,12 @@ public final class CommunityRequest {
     /**
      * The catalogue path for one kind, scope, search term and category.
      *
-     * <p>分类只对皮肤有意义；`category` 为 null 时列出全部分类。词库和回复走资源端点，那里没有分类，传了也不带上。
+     * <p>分类只对皮肤有意义；`category` 为 null 时列出全部分类。词库、回复和短语走资源端点，那里没有分类，传了也不带上。
      */
     public static String path(Kind kind, String scope, String search, int offset,
             Category category) {
-        String bounded = search == null ? "" : search.trim();
-        int page = Math.max(0, offset);
+        String bounded = TextPolicy.trimmed(search);
+        int page = BoundsPolicy.nonNegative(offset);
         if (kind == Kind.SKIN) {
             return "/v1/community/skins?offset=" + page + "&q=" + encode(bounded)
                 + (category == null ? "" : "&category=" + category.id())
@@ -127,6 +163,7 @@ public final class CommunityRequest {
             case SKIN -> "skins";
             case DICTIONARY -> "dictionaries";
             case REPLY -> "replies";
+            case PHRASE -> "phrases";
         };
     }
 
@@ -134,19 +171,71 @@ public final class CommunityRequest {
     public static boolean validReport(String reason, String detail) {
         if (reason == null || !REPORT_REASONS.contains(reason)) return false;
         String text = detail == null ? "" : detail;
-        if (text.codePointCount(0, text.length()) > MAX_REPORT_DETAIL) return false;
-        for (int index = 0; index < text.length();) {
-            int codePoint = text.codePointAt(index);
-            if (Character.isISOControl(codePoint)
-                    && codePoint != '\n' && codePoint != '\t') return false;
-            index += Character.charCount(codePoint);
-        }
-        return true;
+        if (!TextPolicy.withinCodePoints(text, MAX_REPORT_DETAIL)) return false;
+        return !CommunityTextPolicy.hasDisallowedControl(text, true);
     }
 
     /** 作者修改自己皮肤的分类：`PATCH` 这条路径，回来的是改过之后的条目，所以同样带上 `include=category`。 */
     public static String skinPath(String id) {
         return "/v1/community/skins/" + encode(id) + "?" + INCLUDE_CATEGORY;
+    }
+
+    /** 记一次皮肤下载（服务端的「使用次数」）：`POST` 这条路径，同一账号重复记只算一次。 */
+    public static String skinDownloadPath(String id) {
+        return "/v1/community/skins/" + encode(id) + "/download";
+    }
+
+    /** 皮肤卡上的使用次数：一万以下照写，一万起按「万」取一位小数（去掉 `.0`），如「15.8 万 次使用」。 */
+    public static String usesLabel(long downloads) {
+        long count = BoundsPolicy.nonNegative(downloads);
+        if (count < 10_000) return count + " 次使用";
+        long tenths = Math.round(count / 1_000.0);
+        String value = tenths % 10 == 0 ? Long.toString(tenths / 10) : (tenths / 10) + "." + (tenths % 10);
+        return value + " 万 次使用";
+    }
+
+    /** 条数按千位分隔，如「4,812 条」。 */
+    public static String entriesLabel(int count) {
+        return NumberPolicy.grouped(BoundsPolicy.nonNegative(count)) + " 条";
+    }
+
+    /**
+     * 一个词库或短语包里的条数：词库数 `content.entries`，短语包数 `content.phrases`；回复模板和读不出的内容为 -1，界面上不写条数。
+     */
+    public static int entryCount(Kind kind, org.json.JSONObject content) {
+        if (content == null) return -1;
+        String key = switch (kind) {
+            case DICTIONARY -> "entries";
+            case PHRASE -> "phrases";
+            default -> "";
+        };
+        if (key.isEmpty()) return -1;
+        org.json.JSONArray values = content.optJSONArray(key);
+        return values == null ? -1 : values.length();
+    }
+
+    /**
+     * `updatedAt`（RFC 3339，来自条目原始 JSON 的 `updated_at`）是否在 `nowMillis` 之前七天以内；为空或读不出时为 false，界面上就不写「本周更新」。
+     */
+    public static boolean updatedThisWeek(String updatedAt, long nowMillis) {
+        if (updatedAt == null || updatedAt.isEmpty()) return false;
+        try {
+            long updated = java.time.OffsetDateTime.parse(updatedAt).toInstant().toEpochMilli();
+            return updated <= nowMillis && nowMillis - updated <= 7L * 24 * 60 * 60 * 1000;
+        } catch (java.time.format.DateTimeParseException error) {
+            return false;
+        }
+    }
+
+    /**
+     * 词库和短语行的副标题：「@作者 · 4,812 条 · 本周更新」；作者为空时不写作者，条数未知（负数）时不写条数。
+     */
+    public static String resourceSubtitle(String author, int entries, boolean updatedThisWeek) {
+        List<String> parts = new java.util.ArrayList<>(3);
+        if (author != null && !author.isEmpty()) parts.add("@" + author);
+        if (entries >= 0) parts.add(entriesLabel(entries));
+        if (updatedThisWeek) parts.add("本周更新");
+        return String.join(" · ", parts);
     }
 
     /** 修改分类的请求体，只有 `category` 一个字段。分类 id 是固定的 ASCII 小写字母，不需要转义。 */
@@ -163,7 +252,7 @@ public final class CommunityRequest {
      */
     public static String encode(String value) {
         if (value == null || value.isEmpty()) return "";
-        StringBuilder result = new StringBuilder();
+        StringBuilder result = new StringBuilder(value.length());
         for (byte raw : value.getBytes(StandardCharsets.UTF_8)) {
             int octet = raw & 0xFF;
             if (octet >= 'a' && octet <= 'z' || octet >= 'A' && octet <= 'Z'
@@ -198,6 +287,7 @@ public final class CommunityRequest {
             case "screening_unavailable" -> "审核服务暂时不可用，请稍后重试";
             case "account_banned" -> "该账号已被封禁，暂时无法使用账号相关功能";
             case "item_not_found" -> "作品不存在或已下架。";
+            case "unsupported_kind" -> "这类作品需要在本机添加，请更新到最新版本后重试。";
             case "invalid_report_reason", "invalid_report_detail", "invalid_report_kind" ->
                 "举报内容不符合要求，请重新选择原因。";
             default -> "";

@@ -28,21 +28,21 @@ public final class KeyboardSchemeSmoke {
         check(value.shuangpinProfile().equals(expectedProfile));
         String expectedLayout = scheme == KeyboardScheme.HANDWRITING ? "handwriting"
             : scheme == KeyboardScheme.QUANPIN_NINE_KEY || scheme == KeyboardScheme.JAPANESE_NINE_KEY
-                ? "nine_key" : "twenty_six_key";
+                || scheme == KeyboardScheme.ZHUYIN_NINE_KEY ? "nine_key" : "twenty_six_key";
         check(value.touchKeyboardLayout().equals(expectedLayout));
     }
 
     public static void main(String[] args) throws Exception {
         check(Arrays.stream(KeyboardScheme.values()).map(KeyboardScheme::title).toList().equals(List.of(
             "全拼 26 键", "全拼 9 键", "小鹤双拼", "自然码双拼", "微软双拼", "首道双拼", "86 五笔", "日语 9 键", "日语 26 键", "手写", "韩语 26 键",
-            "粤拼 26 键", "大千注音", "越南语 26 键", "藏文 26 键", "笔画")));
+            "粤拼 26 键", "大千注音", "越南语 26 键", "藏文 26 键", "笔画", "注音 9 键")));
         check(Arrays.stream(KeyboardScheme.values()).map(KeyboardScheme::preferenceId).toList().equals(List.of(
             "quanpin", "nine_key", "xiaohe", "ziranma", "microsoft", "shoudao", "wubi",
             "japanese_nine_key", "japanese", "handwriting", "korean",
-            "cantonese", "zhuyin", "vietnamese", "tibetan", "stroke")));
+            "cantonese", "zhuyin", "vietnamese", "tibetan", "stroke", "zhuyin_nine_key")));
         check(Arrays.stream(KeyboardScheme.values()).map(value -> value.glyph() + value.badge()).toList().equals(
             List.of("拼26", "拼9", "鹤双", "自双", "微双", "S双", "五86", "あ9", "あ26", "写手", "한26",
-                "粤26", "注大千", "越26", "藏26", "笔5")));
+                "粤26", "注大千", "越26", "藏26", "笔5", "注9")));
         // 五笔只有一个方案入口，标题与角标跟随 `wubi_profile`；缺省和未知值按 86 版，其它方案不受影响。
         check(KeyboardScheme.normalizedWubiProfile("wubi98").equals("wubi98"));
         check(KeyboardScheme.normalizedWubiProfile("wubi86").equals("wubi86"));
@@ -110,6 +110,8 @@ public final class KeyboardSchemeSmoke {
         // Cantonese and Zhuyin are Chinese schemes and become the one to return to; Vietnamese keeps it, as Korean does.
         mapping(KeyboardScheme.CANTONESE, "wubi", "shoudao", "cantonese", "cantonese", "shoudao");
         mapping(KeyboardScheme.ZHUYIN, "wubi", "shoudao", "zhuyin", "zhuyin", "shoudao");
+        // 注音 9 键是同一个 Engine 方案，只是触屏布局存 `nine_key`。
+        mapping(KeyboardScheme.ZHUYIN_NINE_KEY, "wubi", "shoudao", "zhuyin", "zhuyin", "shoudao");
         mapping(KeyboardScheme.VIETNAMESE, "wubi", "shoudao", "vietnamese", "wubi", "shoudao");
         mapping(KeyboardScheme.VIETNAMESE, "zhuyin", "xiaohe", "vietnamese", "zhuyin", "xiaohe");
         // 藏文和越南语一样不是中文方案，保留要切回的中文方案；记着的不是中文方案时回到全拼。
@@ -125,7 +127,11 @@ public final class KeyboardSchemeSmoke {
         check(KeyboardScheme.fromPreferences("stroke", "xiaohe", "nine_key", FULL) == KeyboardScheme.STROKE);
         check(KeyboardScheme.fromPreferenceId("stroke") == KeyboardScheme.STROKE);
         check(KeyboardScheme.fromPreferences("cantonese", "xiaohe", "twenty_six_key", FULL) == KeyboardScheme.CANTONESE);
-        check(KeyboardScheme.fromPreferences("zhuyin", "xiaohe", "nine_key", FULL) == KeyboardScheme.ZHUYIN);
+        check(KeyboardScheme.fromPreferences("zhuyin", "xiaohe", "nine_key", FULL) == KeyboardScheme.ZHUYIN_NINE_KEY);
+        check(KeyboardScheme.fromPreferences("zhuyin", "xiaohe", "twenty_six_key", FULL) == KeyboardScheme.ZHUYIN);
+        // 注音没有手写面板，残留的手写取值仍是大千。
+        check(KeyboardScheme.fromPreferences("zhuyin", "xiaohe", "handwriting", FULL) == KeyboardScheme.ZHUYIN);
+        check(KeyboardScheme.fromPreferenceId("zhuyin_nine_key") == KeyboardScheme.ZHUYIN_NINE_KEY);
         check(KeyboardScheme.fromPreferences("vietnamese", "xiaohe", "twenty_six_key", FULL) == KeyboardScheme.VIETNAMESE);
         check(KeyboardScheme.fromPreferences("tibetan", "xiaohe", "twenty_six_key", FULL) == KeyboardScheme.TIBETAN);
         // 藏文只有 26 键，残留的九键或手写取值不会落到别的方案。
@@ -137,10 +143,13 @@ public final class KeyboardSchemeSmoke {
         check(defaults.size() == 11 && !defaults.contains(KeyboardScheme.CANTONESE)
             && !defaults.contains(KeyboardScheme.ZHUYIN) && !defaults.contains(KeyboardScheme.VIETNAMESE)
             && !defaults.contains(KeyboardScheme.TIBETAN) && !defaults.contains(KeyboardScheme.STROKE)
+            && !defaults.contains(KeyboardScheme.ZHUYIN_NINE_KEY)
             && defaults.contains(KeyboardScheme.KOREAN));
         check(Arrays.stream(KeyboardScheme.values()).filter(KeyboardScheme::optIn).toList().equals(List.of(
             KeyboardScheme.CANTONESE, KeyboardScheme.ZHUYIN, KeyboardScheme.VIETNAMESE, KeyboardScheme.TIBETAN,
-            KeyboardScheme.STROKE)));
+            KeyboardScheme.STROKE, KeyboardScheme.ZHUYIN_NINE_KEY)));
+        check(KeyboardScheme.enabledFromPreferenceIds(List.of("zhuyin_nine_key", "zhuyin", "quanpin"), FULL)
+            .equals(List.of(KeyboardScheme.QUANPIN, KeyboardScheme.ZHUYIN, KeyboardScheme.ZHUYIN_NINE_KEY)));
         check(KeyboardScheme.enabledFromPreferenceIds(List.of("stroke", "quanpin"), FULL).equals(List.of(
             KeyboardScheme.QUANPIN, KeyboardScheme.STROKE)));
         List<KeyboardScheme> languages = KeyboardScheme.enabledFromPreferenceIds(List.of(
@@ -150,6 +159,8 @@ public final class KeyboardSchemeSmoke {
         // A scheme is offered only when its dictionary is in the recorded directory; Vietnamese needs none.
         check(KeyboardScheme.CANTONESE.languageDictionary().equals("msime-cantonese.db"));
         check(KeyboardScheme.ZHUYIN.languageDictionary().equals("msime-zhuyin.db"));
+        check(KeyboardScheme.ZHUYIN_NINE_KEY.languageDictionary().equals("msime-zhuyin.db"));
+        check(!KeyboardScheme.ZHUYIN_NINE_KEY.installed("") && !KeyboardScheme.ZHUYIN_NINE_KEY.installed(null));
         check(KeyboardScheme.STROKE.languageDictionary().equals("msime-stroke.db"));
         check(!KeyboardScheme.STROKE.installed("") && !KeyboardScheme.STROKE.installed(null));
         check(KeyboardScheme.installedOf(List.of(KeyboardScheme.STROKE), "", FULL).equals(List.of(KeyboardScheme.QUANPIN)));
@@ -165,7 +176,8 @@ public final class KeyboardSchemeSmoke {
         try {
             Files.write(directory.resolve("msime-zhuyin.db"), new byte[] {1});
             String recorded = directory.toAbsolutePath().toString();
-            check(KeyboardScheme.ZHUYIN.installed(recorded) && !KeyboardScheme.CANTONESE.installed(recorded)
+            check(KeyboardScheme.ZHUYIN.installed(recorded) && KeyboardScheme.ZHUYIN_NINE_KEY.installed(recorded)
+                && !KeyboardScheme.CANTONESE.installed(recorded)
                 && !KeyboardScheme.STROKE.installed(recorded));
             check(!KeyboardScheme.ZHUYIN.installed("relative/" + directory.getFileName()));
             check(KeyboardScheme.installedOf(languages, recorded, FULL).equals(List.of(
@@ -187,7 +199,7 @@ public final class KeyboardSchemeSmoke {
             Files.deleteIfExists(directory);
         }
         editions();
-        System.out.println("Android keyboard schemes: fifteen labels, glyphs, wubi profile titles, opt-in defaults, installed dictionaries, host fallback and shared preference mappings and the per-edition narrowing passed");
+        System.out.println("Android keyboard schemes: seventeen labels, glyphs, wubi profile titles, opt-in defaults, installed dictionaries, host fallback and shared preference mappings and the per-edition narrowing passed");
     }
 
     /** 五笔版和拼音版只列本版本的入口，回退也落在本版本里；手写在有中文方案的版本里都有，写进偏好的是本版本的默认方案。 */

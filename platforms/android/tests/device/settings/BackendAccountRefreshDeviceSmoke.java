@@ -116,7 +116,8 @@ public final class BackendAccountRefreshDeviceSmoke extends Instrumentation {
             if (call == 1) throw new BackendAccount.RequestException(401);
             check(NEXT_ACCESS.equals(token), "account retry uses the refreshed access token");
             return new JSONObject().put("data", new org.json.JSONArray()
-                .put(new JSONObject().put("id", "synthetic-model")));
+                .put(new JSONObject().put("id", "synthetic-model")))
+                .put("default_model", "synthetic-model");
         });
 
         check(account.chatModels().size() == 1, "an account 401 retries after refresh");

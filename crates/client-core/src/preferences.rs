@@ -362,11 +362,13 @@ pub enum TouchKeyboardScheme {
     Tibetan,
     /// 笔画键盘：横竖撇点折加一个通配键，每个键发送对应的笔画字母 h s p n z 或 x（`InputScheme::Stroke`）。不论选的是 26 键还是九键布局，宿主都画这个笔画键盘。
     Stroke,
+    /// 注音 9 键：数字键 1-0 各承载几个注音符号（US 6,009,444 FIG.1 的分组），声调键 ˉ ˊ ˇ ˋ ˙ 结束一个音节，与大千注音一样输出繁体（`InputScheme::Zhuyin` 配 `TouchKeyboardLayout::NineKey`）。
+    ZhuyinNineKey,
 }
 
 impl TouchKeyboardScheme {
     /// Every touch scheme in picker order. Schemes are appended, never reordered.
-    pub const ALL: [Self; 16] = [
+    pub const ALL: [Self; 17] = [
         Self::Quanpin,
         Self::NineKey,
         Self::Xiaohe,
@@ -383,9 +385,10 @@ impl TouchKeyboardScheme {
         Self::Vietnamese,
         Self::Tibetan,
         Self::Stroke,
+        Self::ZhuyinNineKey,
     ];
 
-    /// 用户还没挑选时键盘显示的方案：除粤拼、注音、越南文、藏文和笔画以外的全部，这五个由用户自己打开，和 macOS 上它们的输入模式默认停用一样。因此没有 `touch_keyboard_schemes` 的文档仍然保持原来的键盘。
+    /// 用户还没挑选时键盘显示的方案：除粤拼、注音（大千和 9 键）、越南文、藏文和笔画以外的全部，这些由用户自己打开，和 macOS 上它们的输入模式默认停用一样。因此没有 `touch_keyboard_schemes` 的文档仍然保持原来的键盘。
     pub const DEFAULT_ENABLED: [Self; 11] = [
         Self::Quanpin,
         Self::NineKey,
@@ -870,7 +873,7 @@ pub struct Preferences {
     pub plugins: PluginPreferences,
     #[serde(default)]
     pub clipboard_history: bool,
-    /// Fetch one additional candidate from the configured cloud provider.
+    /// 向云候选服务多要一条候选。它会把正在组的拼写发给 `https://inputtools.google.com`，所以新装默认关闭（见 `Default`）；已存文档缺这个字段时读成开启，升级沿用原来的行为。
     #[serde(default = "enabled_by_default")]
     pub cloud_candidates: bool,
     #[serde(default = "enabled_by_default")]
@@ -887,7 +890,7 @@ pub struct Preferences {
     /// Optional second language for mobile candidate glosses. `None` shows a single language and is omitted from serialized snapshots.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub translation_secondary_language: Option<TranslationTargetLanguage>,
-    /// True when the MSIME account (水杉账号) is the candidate translation service; candidates are then sent to `https://api.msime.app/v1/translate`. Fresh macOS and Linux installs start with it chosen (see `Default`); a document without the field reads false.
+    /// 候选翻译服务选的是水杉账号时为真，候选词会发到 `https://api.msime.app/v1/translate`。新装和缺字段时都是关闭，必须由用户显式选择。
     #[serde(default)]
     pub translation_account: bool,
     /// Send anonymous usage reports (daily activity, session ends, crash summaries; see [`crate::telemetry`] and PRIVACY.md) to `https://api.msime.app/v1/telemetry/events`. On by default; turning it off stops all reporting and clears the local queue. A reader treats an absent key as on.
@@ -1850,14 +1853,14 @@ impl Default for Preferences {
             local_modes: LocalModePreferences::default(),
             plugins: PluginPreferences::default(),
             clipboard_history: false,
-            cloud_candidates: true,
+            // 会把输入内容发出设备的两条路径新装都关闭，由 Windows、macOS、Linux 的首次询问或各平台的设置开关打开。
+            cloud_candidates: false,
             candidate_translations: true,
             candidate_english_gloss: false,
             english_suggestions: true,
             translation_target_language: TranslationTargetLanguage::default(),
             translation_secondary_language: None,
-            // Only the desktop hosts that offer 水杉账号 in the translation service picker default to it; Android, iOS, Windows and HarmonyOS keep it as an explicit choice.
-            translation_account: cfg!(any(target_os = "macos", target_os = "linux")),
+            translation_account: false,
             usage_reporting: true,
         }
     }
@@ -2073,15 +2076,30 @@ pub fn is_absolute_model_path(path: &str) -> bool {
     bytes.len() > 2 && bytes[0] == b'\\' && bytes[1] == b'\\' && bytes[2] != b'\\'
 }
 
-/// Whether `mirror` is an acceptable `asr_model_mirror`: empty, or an `https://` URL of at most 2048 bytes with no control characters or whitespace.
+/// 判断本地模型镜像：空字符串，或不带凭据、查询和片段的 HTTPS 前缀。
 pub fn valid_model_mirror(mirror: &str) -> bool {
-    mirror.is_empty()
-        || (mirror.len() <= 2048
-            && mirror.len() > "https://".len()
-            && mirror.starts_with("https://")
-            && !mirror
-                .chars()
-                .any(|ch| ch.is_control() || ch.is_whitespace()))
+    if mirror.is_empty() {
+        return true;
+    }
+    if mirror.len() > 2048
+        || mirror
+            .chars()
+            .any(|ch| ch.is_control() || ch.is_whitespace())
+        || !mirror
+            .strip_prefix("https://")
+            .is_some_and(|rest| rest.as_bytes().first().is_some_and(|byte| *byte != b'/'))
+    {
+        return false;
+    }
+    let Ok(url) = reqwest::Url::parse(mirror) else {
+        return false;
+    };
+    url.scheme() == "https"
+        && url.host_str().is_some_and(|host| !host.is_empty())
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.query().is_none()
+        && url.fragment().is_none()
 }
 
 fn default_shuangpin_helpcode() -> HelpcodePreferences {
@@ -2206,6 +2224,94 @@ impl Preferences {
         next.fuzzy_pinyin.seeded = self.fuzzy_pinyin.seeded;
 
         next
+    }
+
+    /// 偏好里的全部服务凭据（token、密钥、应用 id），按文档里的路径列出。恢复默认设置时原样保留的、导出诊断包时换成 [`REDACTED`] 的，都是这一份清单；`preferences/tests.rs` 用字段名兜底，新加的凭据字段不进清单测试就失败。
+    pub fn credential_slots(&mut self) -> [(&'static str, CredentialSlot<'_>); 12] {
+        [
+            (
+                "voice_input.asr_app_key",
+                CredentialSlot::Text(&mut self.voice_input.asr_app_key),
+            ),
+            (
+                "voice_input.asr_token",
+                CredentialSlot::Text(&mut self.voice_input.asr_token),
+            ),
+            (
+                "voice_input.asr_tokens",
+                CredentialSlot::Map(&mut self.voice_input.asr_tokens),
+            ),
+            (
+                "voice_input.polish_token",
+                CredentialSlot::Text(&mut self.voice_input.polish_token),
+            ),
+            (
+                "voice_input.polish_tokens",
+                CredentialSlot::Map(&mut self.voice_input.polish_tokens),
+            ),
+            (
+                "ai_assistant.token",
+                CredentialSlot::Text(&mut self.ai_assistant.token),
+            ),
+            (
+                "ai_assistant.tokens",
+                CredentialSlot::Map(&mut self.ai_assistant.tokens),
+            ),
+            (
+                "custom_translation.api_key",
+                CredentialSlot::Text(&mut self.custom_translation.api_key),
+            ),
+            (
+                "tencent_tmt.secret_id",
+                CredentialSlot::Text(&mut self.tencent_tmt.secret_id),
+            ),
+            (
+                "tencent_tmt.secret_key",
+                CredentialSlot::Text(&mut self.tencent_tmt.secret_key),
+            ),
+            (
+                "niutrans.app_id",
+                CredentialSlot::Text(&mut self.niutrans.app_id),
+            ),
+            (
+                "niutrans.apikey",
+                CredentialSlot::Text(&mut self.niutrans.apikey),
+            ),
+        ]
+    }
+
+    /// 诊断包里的配置快照：整份偏好文档，凭据清单里的每个字段都换成 [`REDACTED`]；此外任何键名符合服务端脱敏规则（含 `token`、`secret`、`password`、`api_key` 或以 `key` 结尾，不分大小写）的值也一律换掉，这样快照上传时一定通过服务端的校验。
+    pub fn redacted_for_diagnostics(&self) -> serde_json::Value {
+        let mut value = serde_json::to_value(self).unwrap_or(serde_json::Value::Null);
+        let mut copy = self.clone();
+        for (path, _) in copy.credential_slots() {
+            let mut cursor = &mut value;
+            let mut segments = path.split('.').peekable();
+            while let Some(segment) = segments.next() {
+                let Some(object) = cursor.as_object_mut() else {
+                    break;
+                };
+                if segments.peek().is_none() {
+                    if object.contains_key(segment) {
+                        object.insert(segment.to_owned(), REDACTED.into());
+                    }
+                    break;
+                }
+                let Some(next) = object.get_mut(segment) else {
+                    break;
+                };
+                cursor = next;
+            }
+        }
+        redact_sensitive_keys(&mut value);
+        for pointer in DIAGNOSTIC_ENDPOINTS {
+            if let Some(slot) = value.pointer_mut(pointer) {
+                if let Some(endpoint) = slot.as_str() {
+                    *slot = diagnostic_endpoint(endpoint).into();
+                }
+            }
+        }
+        value
     }
 
     pub fn validate(&self) -> Result<(), PreferencesError> {
@@ -2597,10 +2703,31 @@ impl PreferencesStore {
     pub fn save(
         &self,
         expected_revision: u64,
-        mut preferences: Preferences,
+        preferences: Preferences,
     ) -> Result<PreferencesSnapshot, PreferencesError> {
         let _lock = self.lock()?;
         let current = self.read_locked()?;
+        self.save_locked(current, expected_revision, preferences)
+    }
+
+    /// 「恢复默认设置」：在同一把锁里读出当前文档，换成本存储所属版本的默认偏好（[`Preferences::restored_to_defaults_for`]，服务凭据和 `fuzzy_pinyin.seeded` 保留），再按 `expected_revision` 做比较并交换写回。修订号不符时返回 `Conflict`，什么也不写。
+    pub fn restore_defaults(
+        &self,
+        expected_revision: u64,
+    ) -> Result<PreferencesSnapshot, PreferencesError> {
+        let _lock = self.lock()?;
+        let current = self.read_locked()?;
+        let restored = current.preferences.restored_to_defaults_for(self.edition());
+        self.save_locked(current, expected_revision, restored)
+    }
+
+    /// `save` 的主体，调用方已持有锁并读出了 `current`。
+    fn save_locked(
+        &self,
+        current: PreferencesSnapshot,
+        expected_revision: u64,
+        mut preferences: Preferences,
+    ) -> Result<PreferencesSnapshot, PreferencesError> {
         if current.revision != expected_revision {
             return Err(PreferencesError::Conflict);
         }
@@ -2870,6 +2997,65 @@ fn sweep_stale_temporaries(directory: &Path) {
         if abandoned {
             let _ = std::fs::remove_file(entry.path());
         }
+    }
+}
+
+/// 诊断快照里替换凭据的值，与服务端校验要求的写法相同。
+pub const REDACTED: &str = "<redacted>";
+
+/// [`Preferences::credential_slots`] 里的一个凭据字段。
+pub enum CredentialSlot<'a> {
+    Text(&'a mut String),
+    Map(&'a mut BTreeMap<String, String>),
+}
+
+/// 服务端（`POST /v1/users/me/diagnostics`）要求必须是 [`REDACTED`] 的键名：`(?i)token|secret|password|api_key|key$`。
+pub fn is_sensitive_key(name: &str) -> bool {
+    let name = name.to_ascii_lowercase();
+    name.contains("token")
+        || name.contains("secret")
+        || name.contains("password")
+        || name.contains("api_key")
+        || name.ends_with("key")
+}
+
+/// 用户可以自填的服务地址。地址本身不是凭据，但有的服务把密钥放在查询串或 `user:password@` 里，诊断快照只留协议、主机、端口和路径。
+const DIAGNOSTIC_ENDPOINTS: [&str; 4] = [
+    "/voice_input/asr_endpoint",
+    "/voice_input/polish_endpoint",
+    "/ai_assistant/endpoint",
+    "/custom_translation/endpoint",
+];
+
+/// 去掉地址里的用户信息、查询串和片段；解析不了的地址整个换成 [`REDACTED`]，因为看不出密钥藏在哪。
+fn diagnostic_endpoint(endpoint: &str) -> String {
+    if endpoint.is_empty() {
+        return String::new();
+    }
+    let Ok(mut url) = reqwest::Url::parse(endpoint) else {
+        return REDACTED.to_owned();
+    };
+    // Both setters only fail for URLs that cannot carry userinfo (no host), which then has none to strip.
+    let _ = url.set_username("");
+    let _ = url.set_password(None);
+    url.set_query(None);
+    url.set_fragment(None);
+    url.to_string()
+}
+
+fn redact_sensitive_keys(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Object(object) => {
+            for (key, child) in object.iter_mut() {
+                if is_sensitive_key(key) {
+                    *child = REDACTED.into();
+                } else {
+                    redact_sensitive_keys(child);
+                }
+            }
+        }
+        serde_json::Value::Array(items) => items.iter_mut().for_each(redact_sensitive_keys),
+        _ => {}
     }
 }
 
