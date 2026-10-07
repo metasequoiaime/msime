@@ -988,7 +988,8 @@ class SettingsBridge {
     }
     if (action.operation === 'remove') {
       const request: LocalVoiceModelRequest = { root: root, id: id };
-      return LocalVoiceModelPolicy.rewrite(client.voiceLocalModelRemove(JSON.stringify(request)));
+      return LocalVoiceModelPolicy.rewrite(
+        await client.voiceLocalModelRemove(JSON.stringify(request)));
     }
     if (!fs.accessSync(root)) {
       fs.mkdirSync(root, true);

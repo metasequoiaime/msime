@@ -225,7 +225,7 @@ public final class SkinJobsApi {
         JSONObject catalog = api.json("GET", "/v1/models", null, CloudApi.Auth.ACCOUNT_OR_ANONYMOUS);
         Object raw = catalog.opt("default_model");
         JSONArray data = catalog.optJSONArray("data");
-        if (!(raw instanceof String model) || model.isEmpty() || model.length() > 200 || data == null)
+        if (!(raw instanceof String model) || model.isEmpty() || TextPolicy.utf8Length(model) > 200 || data == null)
             throw invalid("invalid_response");
         for (int index = 0; index < data.length(); index++) {
             JSONObject entry = data.optJSONObject(index);
@@ -245,7 +245,7 @@ public final class SkinJobsApi {
         JSONObject message = first == null ? null : first.optJSONObject("message");
         Object content = message == null ? null : message.opt("content");
         if (message == null || !"assistant".equals(message.opt("role")) || !(content instanceof String text)
-                || TextPolicy.trimmed(text).isEmpty() || text.length() > 16 * 1024)
+                || TextPolicy.trimmed(text).isEmpty() || TextPolicy.utf8Length(text) > 16 * 1024)
             throw invalid("ai_skin_response");
         return text;
     }

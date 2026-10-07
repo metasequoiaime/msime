@@ -336,7 +336,7 @@ final class ImeVoiceEntry {
             View child = keyArea.getChildAt(index);
             if (child.getVisibility() == View.VISIBLE) {
                 hidden.add(child);
-                child.setVisibility(View.INVISIBLE);
+                ViewPolicy.setInvisible(child);
             }
         }
         VoiceListeningView view = new VoiceListeningView(s);

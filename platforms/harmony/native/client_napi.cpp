@@ -299,7 +299,6 @@ static napi_value SnapshotRestore(napi_env env, napi_callback_info info) {
 TEXT_ENTRY(VoiceHotwordCorrect, msime_client_voice_hotword_correct)
 TEXT_ENTRY(VoiceLocalModels, msime_client_voice_local_models)
 TEXT_ENTRY(VoiceLocalModelCancel, msime_client_voice_local_model_cancel)
-TEXT_ENTRY(VoiceLocalModelRemove, msime_client_voice_local_model_remove)
 
 static void rejectWith(napi_env env, napi_deferred deferred, const char *text) {
     napi_value message = nullptr;
@@ -608,6 +607,55 @@ static napi_value VoiceLocalModelInstall(napi_env env, napi_callback_info info) 
         if (work->progress != nullptr) napi_release_threadsafe_function(work->progress, napi_tsfn_release);
         delete work;
         return invalid(env, "Unable to queue voice model install worker");
+    }
+    return promise;
+}
+
+// Removing a model recursively deletes a user-downloaded directory that can be larger than a
+// gigabyte. Keep the filesystem walk off the ArkTS thread just like installation; the short
+// cancel call remains synchronous so it can set the native cancellation flag immediately.
+struct VoiceLocalModelRemoveWork {
+    napi_async_work work = nullptr;
+    napi_deferred deferred = nullptr;
+    std::string request;
+    char *result = nullptr;
+};
+
+static void executeVoiceLocalModelRemove(napi_env, void *data) {
+    auto *work = static_cast<VoiceLocalModelRemoveWork *>(data);
+    work->result = msime_client_voice_local_model_remove(
+        reinterpret_cast<const uint8_t *>(work->request.data()), work->request.size());
+}
+
+static void completeVoiceLocalModelRemove(napi_env env, napi_status status, void *data) {
+    auto *work = static_cast<VoiceLocalModelRemoveWork *>(data);
+    settleVoicePromise(env, status, work->deferred, work->result,
+        "Voice model removal worker failed");
+    napi_delete_async_work(env, work->work);
+    delete work;
+}
+
+static napi_value VoiceLocalModelRemove(napi_env env, napi_callback_info info) {
+    std::vector<napi_value> argv;
+    auto *work = new VoiceLocalModelRemoveWork();
+    if (!arguments(env, info, 1, argv) || !argumentText(env, argv[0], work->request)) {
+        delete work;
+        return invalid(env, "Expected a local voice model removal request");
+    }
+    napi_value promise = nullptr;
+    napi_value resource = nullptr;
+    if (napi_create_promise(env, &work->deferred, &promise) != napi_ok
+            || napi_create_string_utf8(env, "MSIME voice model removal", NAPI_AUTO_LENGTH,
+                &resource) != napi_ok
+            || napi_create_async_work(env, nullptr, resource, executeVoiceLocalModelRemove,
+                completeVoiceLocalModelRemove, work, &work->work) != napi_ok) {
+        delete work;
+        return invalid(env, "Unable to create voice model removal worker");
+    }
+    if (napi_queue_async_work(env, work->work) != napi_ok) {
+        napi_delete_async_work(env, work->work);
+        delete work;
+        return invalid(env, "Unable to queue voice model removal worker");
     }
     return promise;
 }

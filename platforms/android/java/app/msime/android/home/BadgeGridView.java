@@ -22,6 +22,7 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import app.msime.android.ColorPolicy;
 import app.msime.android.ListPolicy;
+import app.msime.android.ViewPolicy;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.accessibility.AccessibilityNodeInfoCompat;
 import androidx.customview.widget.ExploreByTouchHelper;
@@ -94,8 +95,7 @@ public final class BadgeGridView extends View {
         ring.setStyle(Paint.Style.STROKE);
         ring.setStrokeCap(Paint.Cap.ROUND);
         ring.setStrokeWidth(Ui.dp(context, RING_STROKE));
-        setClickable(true);
-        setFocusable(true);
+        ViewPolicy.setInteractive(this, true);
         nodes = new Nodes(this);
         ViewCompat.setAccessibilityDelegate(this, nodes);
     }

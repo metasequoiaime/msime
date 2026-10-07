@@ -123,8 +123,9 @@ public final class KeyboardOptionsPage extends DetailPage {
         gestures.toggle("滑动输入符号", "在字母键上滑动，输入角标符号；长按字母键始终可以输入", swipeSymbols,
             checked -> saveLocal(AndroidLocalSettings.SWIPE_DOWN_SYMBOLS, checked));
         String swipeDirection = settings.choice(AndroidLocalSettings.SWIPE_SYMBOLS_DIRECTION);
-        gestures.nav("滑动方向", null, swipeDirectionLabel(swipeDirection), () -> pickSwipeDirection(swipeDirection))
-            .setEnabled(swipeSymbols);
+        GroupCard.Row directionRow = gestures.nav("滑动方向", null,
+            swipeDirectionLabel(swipeDirection), () -> pickSwipeDirection(swipeDirection));
+        directionRow.setEnabled(swipeSymbols);
         gestures.toggle("空格键滑动移动光标", null, settings.bool(AndroidLocalSettings.SPACE_CURSOR),
             checked -> saveLocal(AndroidLocalSettings.SPACE_CURSOR, checked));
         gestures.toggle("长按空格语音输入", null, settings.bool(AndroidLocalSettings.SPACE_VOICE),
@@ -182,7 +183,7 @@ public final class KeyboardOptionsPage extends DetailPage {
 
     private static void addChip(Context context, LinearLayout plate, String label, int colour) {
         TextView chip = Ui.styledLabel(context, label, 12, 500, colour);
-        chip.setSingleLine(true);
+        ViewPolicy.setSingleLine(chip);
         LinearLayout.LayoutParams params = Ui.wrap();
         params.setMarginEnd(Ui.dp(context, 12));
         plate.addView(chip, params);

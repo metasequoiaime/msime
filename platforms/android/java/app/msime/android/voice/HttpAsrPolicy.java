@@ -51,9 +51,10 @@ public final class HttpAsrPolicy {
     public static boolean usable(String provider, String endpoint, String model, String token) {
         return supported(provider)
             && TextPolicy.validAuthority(endpoint, "https://", AiPolishConfiguration.MAX_ENDPOINT_LENGTH)
-            && model != null && !TextPolicy.trimmed(model).isEmpty() && model.length() <= 512
+            && model != null && !TextPolicy.trimmed(model).isEmpty() && TextPolicy.utf8Length(model) <= 512
             && !TextPolicy.hasControl(model) && TextPolicy.validUnicode(model)
-            && token != null && !TextPolicy.trimmed(token).isEmpty() && token.length() <= 16 * 1024
+            && token != null && !TextPolicy.trimmed(token).isEmpty()
+            && TextPolicy.utf8Length(token) <= 16 * 1024
             && !TextPolicy.hasControl(token) && TextPolicy.validUnicode(token);
     }
 

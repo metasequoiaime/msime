@@ -1,5 +1,6 @@
 import client from 'libmsimeclient.so';
 import { AccountCloudBridge, accountReplyValue } from './AccountCloudBridge';
+import { utf8Length } from '../keyboard/Utf8';
 import {
   AiSkinCancelled,
   AiSkinFailure,
@@ -114,8 +115,8 @@ export class HarmonyAiSkins {
 
   /** The page's own handle, bounded so it cannot become a key of arbitrary size. */
   private static validRequestId(value: string): boolean {
-    return typeof value === 'string' && value.length > 0 && value.length <= 128
-      && /^[0-9a-zA-Z._-]+$/.test(value);
+    return typeof value === 'string' && value.length > 0 && utf8Length(value) <= 96
+      && /^[0-9a-zA-Z_-]+$/.test(value);
   }
 
   private static failure(code: string): string {
@@ -141,7 +142,7 @@ export class HarmonyAiSkins {
           throw new AiSkinFailure(reply.error ?? 'ai_skin_unavailable');
         }
         const model: Object | undefined = (reply.value as Record<string, Object>)['default_model'];
-        if (typeof model !== 'string' || model.length === 0 || model.length > 200) {
+        if (typeof model !== 'string' || model.length === 0 || utf8Length(model) > 200) {
           throw new AiSkinFailure('ai_skin_response');
         }
         return model;

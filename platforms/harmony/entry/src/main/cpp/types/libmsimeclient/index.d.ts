@@ -228,7 +228,7 @@ export const voiceLocalModelInstall: (
   progress?: (document: string) => void,
 ) => Promise<string>;
 export const voiceLocalModelCancel: (request: string) => string;
-export const voiceLocalModelRemove: (request: string) => string;
+export const voiceLocalModelRemove: (request: string) => Promise<string>;
 
 export interface DoubaoFrameResult {
   last: boolean;

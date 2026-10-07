@@ -190,8 +190,13 @@ final class ImeLetterRows {
         if (secondRowLeadingIndent == null) return;
         int visibility = microsoftTenKeys() ? View.GONE : View.VISIBLE;
         if (secondRowLeadingIndent.getVisibility() != visibility) {
-            secondRowLeadingIndent.setVisibility(visibility);
-            secondRowTrailingIndent.setVisibility(visibility);
+            if (visibility == View.VISIBLE) {
+                ViewPolicy.show(secondRowLeadingIndent);
+                ViewPolicy.show(secondRowTrailingIndent);
+            } else {
+                ViewPolicy.hide(secondRowLeadingIndent);
+                ViewPolicy.hide(secondRowTrailingIndent);
+            }
         }
     }
 

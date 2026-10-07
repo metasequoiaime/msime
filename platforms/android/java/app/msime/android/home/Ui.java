@@ -779,8 +779,7 @@ public final class Ui {
     }
 
     private static void bindClick(View view, Runnable action) {
-        view.setClickable(true);
-        view.setFocusable(true);
+        ViewPolicy.setInteractive(view, true);
         if (action != null) view.setOnClickListener(ignored -> action.run());
     }
 

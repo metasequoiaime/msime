@@ -84,7 +84,7 @@ public final class FeedbackPage extends DetailPage {
         input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE
             | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
         ViewPolicy.setTopStart(input);
-        input.setMinLines(4);
+        ViewPolicy.setMinLines(input, 4);
         ViewPolicy.clearBackground(input);
         input.setHintTextColor(Ui.subText(context));
         Ui.setSymmetricPaddingDp(input, requireContext(), 16, 14);
@@ -186,7 +186,7 @@ public final class FeedbackPage extends DetailPage {
             length > FeedbackApi.MAX_TEXT ? Ui.danger(context) : Ui.subText(context));
         boolean ready = !sending && !sent && FeedbackApi.validText(draft);
         submit.setText(sent ? "已提交" : sending ? "正在提交…" : "提交");
-        submit.setEnabled(ready);
+        ViewPolicy.setEnabled(submit, ready);
         ViewPolicy.setTextColor(submit, ready ? Ui.onAccent(context) : Ui.subText(context));
         int fill = ready ? Ui.accent(context)
             : Ui.color(context, com.google.android.material.R.attr.colorSurfaceContainerHighest);
