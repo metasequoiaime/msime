@@ -273,7 +273,7 @@ public final class KeyboardFragment extends HomeTabFragment {
         String query = TextPolicy.lowercase(
             ((SearchPill) view.findViewById(R.id.keyboard_search)).query());
         boolean active = !query.isEmpty();
-        view.findViewById(R.id.keyboard_notices).setVisibility(active ? View.GONE : View.VISIBLE);
+        ViewPolicy.setVisible(view.findViewById(R.id.keyboard_notices), !active);
         ViewPolicy.setVisible(view.findViewById(R.id.keyboard_status_card), !active);
         view.findViewById(R.id.keyboard_rows).setVisibility(active ? View.GONE : View.VISIBLE);
         LinearLayout results = view.findViewById(R.id.keyboard_search_results);
