@@ -12,7 +12,7 @@ public final class BitmapPolicy {
 
     /** Return the longer of two bitmap dimensions. */
     public static int longestEdge(int width, int height) {
-        return Math.max(width, height);
+        return BoundsPolicy.atLeast(width, height);
     }
 
     /** Return a bitmap's longer edge, or zero for a null bitmap. */

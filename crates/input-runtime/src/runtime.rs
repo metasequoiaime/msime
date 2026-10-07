@@ -551,6 +551,11 @@ impl<E: InputEngine> Runtime<E> {
         self.reranker = reranker;
     }
 
+    /// Whether a per-keystroke reranker is attached, so a host can attach or drop it when the preference that governs it changes.
+    pub fn has_reranker(&self) -> bool {
+        self.reranker.is_some()
+    }
+
     /// Attach the model that runs after typing settles. Absent leaves the behaviour unchanged.
     pub fn set_settled_reranker(&mut self, reranker: Option<Reranker>) {
         self.settled_reranker = reranker;

@@ -192,6 +192,19 @@ pub(crate) fn sentence_model_path(resources: &str, configured: Option<&str>) -> 
         .unwrap_or_else(|| Path::new(resources).join(SENTENCE_MODEL_FILE))
 }
 
+/// The per-keystroke reranker, only while the keyboard model switch (`neural_keyboard`, 整句联想「增强」) is on after the edition gate.
+///
+/// The switch is opt-in because this model runs inside every `character` call, on the thread the host types on: one decision costs a few milliseconds, and the first one after a commit, which has to read the new context from scratch, about 20 ms on a desktop CPU and five to ten times that on a phone. Attaching it whenever the file was present ran it for every touch user on 标准 and 关闭 too, which is what made fast typing on Android fall behind and drop keys. The model is not loaded at all while the switch is off.
+pub(crate) fn keyboard_reranker(
+    options: &EngineOptions,
+    configured: Option<&str>,
+) -> Option<Reranker> {
+    if !options.sentence_association.neural_keyboard {
+        return None;
+    }
+    sentence_model(&options.resources, configured).map(Reranker::new)
+}
+
 pub mod android_data;
 pub mod candidates;
 pub mod host;

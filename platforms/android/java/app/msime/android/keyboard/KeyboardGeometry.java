@@ -8,7 +8,6 @@ import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.view.ViewGroup;
-import java.util.Locale;
 import java.math.BigDecimal;
 import org.json.JSONObject;
 
@@ -60,7 +59,7 @@ public final class KeyboardGeometry {
 
     /** Return the shorter of two dimensions for proportional control sizing. */
     public static float shorterSide(float width, float height) {
-        return Math.min(width, height);
+        return BoundsPolicy.atMost(width, height);
     }
 
     /** Return the current display width in physical pixels. */
@@ -187,7 +186,7 @@ public final class KeyboardGeometry {
     }
 
     public static String display(int tenths) {
-        return String.format(Locale.ROOT, "%.1f", tenths / 10.0);
+        return NumberPolicy.decimal1(tenths / 10.0);
     }
 
     public static String displayHeight(int adjustment) {

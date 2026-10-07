@@ -166,7 +166,7 @@ enum Command {
     HkcancorCounts(HkcancorCounts),
     /// 写出随资源集一起发布的词库（msime-cantonese.db、msime-zhuyin.db、msime-stroke.db）及其许可证文本和校验和，数据来自 --dictionary checkout 的 sources/cantonese/、sources/zhuyin/、sources/stroke/stroke.dict.yaml 和 sources/pinyin/single-chars.txt。
     Languages(Languages),
-    /// 从词库 release 的 msime-pinyin.db 和 msime-wubi.db 裁出网页内置输入法用的 msime-pinyin.db（全部单字加按权重排名前 N 的多字词，不含五笔）和 msime-wubi86.db（只含 86 五笔），两者逐字节可复现。
+    /// 从词库 release 的 msime-pinyin.db 和 msime-wubi.db 裁出网页内置输入法用的 msime-pinyin.db（全部单字加按权重排名前 N 的多字词，不含五笔）和 msime-wubi86.db（只含 86 五笔），给了 --japanese 时再从 msime-japanese.dat 裁出成本最低的 N 条词，都逐字节可复现。
     Web(WebArgs),
 }
 
@@ -184,6 +184,12 @@ struct WebArgs {
     /// msime-pinyin.db 在全部多字表里保留的行数（单字表总是全部保留）。
     #[arg(long, default_value_t = web::DEFAULT_KEEP_MULTI)]
     keep_multi: usize,
+    /// 词库 release 的 msime-japanese.dat；给了就在 --out-dir 里再写出裁剪后的 msime-japanese.dat。
+    #[arg(long)]
+    japanese: Option<PathBuf>,
+    /// 网页日语模型保留的词条数，按词条成本从低到高。
+    #[arg(long, default_value_t = web::DEFAULT_KEEP_JAPANESE)]
+    keep_japanese: usize,
 }
 
 fn build_web(arguments: &WebArgs) -> Result<()> {
@@ -192,6 +198,10 @@ fn build_web(arguments: &WebArgs) -> Result<()> {
         wubi: &arguments.wubi,
     };
     for summary in web::build(inputs, &arguments.out_dir, arguments.keep_multi)? {
+        eprintln!("[done] {summary}");
+    }
+    if let Some(japanese) = &arguments.japanese {
+        let summary = web::build_japanese(japanese, &arguments.out_dir, arguments.keep_japanese)?;
         eprintln!("[done] {summary}");
     }
     Ok(())

@@ -8,6 +8,7 @@ enum KeyboardLayoutPreference {
   static let voiceShortcutKey = "keyboard.shortcut.voice"
   static let heightAdjustmentKey = "keyboard.height.adjustment"
   static let tabletFullKeysKey = "keyboard.tablet.fullKeys"
+  static let tabletSplitKey = "keyboard.tablet.split"
   static var keySpacing: Double {
     get { spacing(key: keySpacingKey, fallback: 6, range: 3...6) }
     set { defaults.set(min(6, max(3, newValue)), forKey: keySpacingKey) }
@@ -68,6 +69,8 @@ enum KeyboardLayoutPreference {
     }
     guard written else { return false }
     resetToDefaults()
+    // 「横屏分离式键盘」和间距、高度在 App 的同一页，一起恢复成默认（关）。键盘里的间距面板也调 `resetToDefaults`，那里不显示这个开关，所以不放进上面的列表，免得在键盘里点「恢复默认」把分离式键盘悄悄关掉。
+    defaults.removeObject(forKey: tabletSplitKey)
     return true
   }
   static var voiceShortcutEnabled: Bool {
@@ -78,6 +81,11 @@ enum KeyboardLayoutPreference {
   static var tabletFullKeys: Bool {
     get { defaults.object(forKey: tabletFullKeysKey) as? Bool ?? true }
     set { defaults.set(newValue, forKey: tabletFullKeysKey) }
+  }
+  /// 「横屏分离式键盘」：iPad 全宽键盘横屏时把键区从中间分成左右两半，方便双手握持时用拇指打字。默认关；手机、iPad 的浮动键盘和窄窗口、以及竖屏都不分离，见 `KeyboardSplitLayout`。
+  static var tabletSplit: Bool {
+    get { defaults.object(forKey: tabletSplitKey) as? Bool ?? false }
+    set { defaults.set(newValue, forKey: tabletSplitKey) }
   }
   static var geometry: KeyboardGeometry { KeyboardGeometry(keySpacing: keySpacing, rowSpacing: rowSpacing) }
 

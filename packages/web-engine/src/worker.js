@@ -1,7 +1,7 @@
 // 引擎所在的 Worker：编译 wasm，同时下载并解压词库和整句模型，把词库导入引擎的内存文件系统，然后按到达顺序回答主线程的按键、点选和重置请求，每个请求回一帧。放在 Worker 里，一次慢的重排也卡不住页面。
 //
 // 与 TapTapGo 的 apps/web/src/features/msime/msime.worker.ts 同源；这里不依赖任何框架，消息协议见 index.d.ts 的 ToWorker / FromWorker。
-import init, { WebEngine, build_info, import_database, last_panic } from "./msime_engine.js";
+import init, { WebEngine, build_info, import_database, import_japanese_dictionary, last_panic } from "./msime_engine.js";
 
 // 引擎读主词库的位置。wasm32 上读不到文件元数据，引擎不会退回旧名 msime.db，所以必须是这个名字；拼音方案和五笔都放这里，见 crates/engine-wasm/src/host.rs 的 WebHost::new。
 const DB_PATH = "/res/msime-pinyin.db";
@@ -147,7 +147,7 @@ export function createWorkerHandler(post, close) {
       return;
     }
     const timings = { fetch: 0, compile: 0, import: 0, session: 0 };
-    const total = assets.wasm.size + assets.db.size + (assets.model?.size ?? 0);
+    const total = assets.wasm.size + (assets.db?.size ?? 0) + (assets.model?.size ?? 0) + (assets.japanese?.size ?? 0);
     let loaded = 0;
     let lastPost = 0;
     const count = (n) => {
@@ -173,12 +173,13 @@ export function createWorkerHandler(post, close) {
     const data = inPhase(
       "fetch",
       (async () => {
-        const [db, m] = await Promise.all([
-          gunzip(assets.db, abort.signal, count),
+        const [db, m, japanese] = await Promise.all([
+          assets.db ? gunzip(assets.db, abort.signal, count) : Promise.resolve(null),
           assets.model ? gunzip(assets.model, abort.signal, count) : Promise.resolve(null),
+          assets.japanese ? gunzip(assets.japanese, abort.signal, count) : Promise.resolve(null),
         ]);
         timings.fetch = performance.now() - t0;
-        return { db, model: m };
+        return { db, model: m, japanese };
       })(),
     );
     let files;
@@ -193,7 +194,9 @@ export function createWorkerHandler(post, close) {
     let phase = "import";
     try {
       const t1 = performance.now();
-      import_database(DB_PATH, files.db);
+      // 日语和韩文没有 SQLite 词库要导入；日语模型直接交给引擎，要在创建日语引擎之前。
+      if (files.db) import_database(DB_PATH, files.db);
+      if (files.japanese) import_japanese_dictionary(files.japanese);
       timings.import = performance.now() - t1;
       phase = "session";
       const t2 = performance.now();

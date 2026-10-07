@@ -54,6 +54,6 @@ public final class EditorBridge {
     /** Where a selection offset lands once [start, end) has been removed. */
     static int shifted(int offset, int start, int end) {
         if (offset >= end) return offset - (end - start);
-        return Math.min(offset, start);
+        return BoundsPolicy.atMost(offset, start);
     }
 }

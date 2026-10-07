@@ -67,7 +67,7 @@ public interface HandwritingRecognizer extends AutoCloseable {
         LinkedHashSet<String> accepted = new LinkedHashSet<>(MAX_CANDIDATES);
         for (String value : values) {
             if (value == null) continue;
-            String candidate = value.strip();
+            String candidate = TextPolicy.stripped(value);
             if (candidate.isEmpty()
                     || TextPolicy.utf8Length(candidate) > MAX_CANDIDATE_BYTES
                     || TextPolicy.hasControl(candidate) || !TextPolicy.validUnicode(candidate)) continue;

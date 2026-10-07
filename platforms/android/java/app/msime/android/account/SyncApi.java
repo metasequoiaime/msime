@@ -317,7 +317,7 @@ public final class SyncApi {
                 if (data == null || !(data.opt("id") instanceof String)) continue;
                 String id = (String) data.opt("id");
                 if ("overlay".equals(type)) {
-                    if (Boolean.TRUE.equals(record.opt("deleted"))) deleted.add(id);
+                    if (JsonPolicy.strictTrue(record.opt("deleted"))) deleted.add(id);
                     continue;
                 }
                 if (!"entry".equals(type)) continue;

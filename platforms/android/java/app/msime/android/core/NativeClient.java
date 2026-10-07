@@ -231,7 +231,7 @@ public final class NativeClient {
     }
 
     private static byte[] utf8(String value) {
-        return (value == null ? "" : value).getBytes(StandardCharsets.UTF_8);
+        return TextPolicy.utf8Bytes(value);
     }
 
     /**

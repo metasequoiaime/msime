@@ -23,11 +23,11 @@ import app.msime.android.KeyboardGeometry;
 import app.msime.android.KeyboardScheme;
 import app.msime.android.KeyboardSkin;
 import app.msime.android.R;
+import app.msime.android.TextPolicy;
 import app.msime.android.ViewPolicy;
 import com.google.android.material.button.MaterialButton;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import org.json.JSONObject;
 
 /**
@@ -270,8 +270,8 @@ public final class KeyboardFragment extends HomeTabFragment {
     private void applySearch() {
         View view = getView();
         if (view == null) return;
-        String query = ((SearchPill) view.findViewById(R.id.keyboard_search)).query()
-            .toLowerCase(Locale.ROOT);
+        String query = TextPolicy.lowercase(
+            ((SearchPill) view.findViewById(R.id.keyboard_search)).query());
         boolean active = !query.isEmpty();
         view.findViewById(R.id.keyboard_notices).setVisibility(active ? View.GONE : View.VISIBLE);
         view.findViewById(R.id.keyboard_status_card).setVisibility(active ? View.GONE : View.VISIBLE);
@@ -285,7 +285,7 @@ public final class KeyboardFragment extends HomeTabFragment {
             List<PageId> listed = new ArrayList<>(homeRows.size());
             for (HomeRow entry : homeRows) {
                 CharSequence value = ((TextView) entry.row().view().findViewById(R.id.row_value)).getText();
-                String text = (entry.title() + " " + value).toLowerCase(Locale.ROOT);
+                String text = TextPolicy.lowercase(entry.title() + " " + value);
                 if (!text.contains(query) && !entry.page().matches(query)) continue;
                 if (group == null) group = HomeNavGroup.add(results);
                 PageId page = entry.page();
@@ -309,7 +309,7 @@ public final class KeyboardFragment extends HomeTabFragment {
     @Nullable private static CharSequence matchedKeyword(PageId page, String query,
             @Nullable CharSequence fallback) {
         for (String keyword : page.keywords()) {
-            if (keyword.toLowerCase(Locale.ROOT).contains(query)) return keyword;
+            if (TextPolicy.lowercase(keyword).contains(query)) return keyword;
         }
         return fallback;
     }
@@ -371,7 +371,7 @@ public final class KeyboardFragment extends HomeTabFragment {
 
     private static String voiceLanguage(JSONObject preferences) {
         JSONObject voice = preferences.optJSONObject("voice_input");
-        String language = voice == null ? "" : voice.optString("language", "").toLowerCase(Locale.ROOT);
+        String language = TextPolicy.lowercase(voice == null ? "" : voice.optString("language", ""));
         if (language.isEmpty() || language.startsWith("zh") || language.startsWith("cmn")) return "普通话";
         if (language.startsWith("yue")) return "粤语";
         if (language.startsWith("en")) return "英语";

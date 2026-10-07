@@ -235,6 +235,8 @@ struct HostSession {
     recorded_language_dictionaries: Option<PathBuf>,
     /// 会话打开后有资源包新装好（或被移除），`options` 里的词典路径已经更新，Engine 还要在输入空闲时重建。
     resources_pending: bool,
+    /// HostOptions 记录的键盘模型路径（`sentence_model`），为 `None` 时用资源目录里的那份；`neural_keyboard` 在会话中途打开时按它加载逐键重排，见 [`ffi::keyboard_reranker`]。
+    recorded_sentence_model: Option<String>,
     /// HostOptions 记录的落定重排模型路径（`settled_model`）：随包的模型优先于下载的资源包，见 [`settled_model_file`]。
     recorded_settled_model: Option<String>,
     /// 当前挂在 runtime 上的落定重排模型文件，没有模型时为 `None`。
@@ -577,6 +579,13 @@ impl HostSession {
             .map_err(|e| e.to_string())?;
         self.runtime
             .set_settled_rerank_enabled(preferences.sentence_association.neural_desktop);
+        // The keyboard model follows its switch the same way, but is dropped rather than idled while off: it is the one that runs inside every keystroke.
+        if options.sentence_association.neural_keyboard != self.runtime.has_reranker() {
+            self.runtime.set_reranker(ffi::keyboard_reranker(
+                &options,
+                self.recorded_sentence_model.as_deref(),
+            ));
+        }
         self.options = options;
         self.plugin_tables = plugin_tables;
         self.applied = preferences;

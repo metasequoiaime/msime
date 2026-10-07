@@ -121,6 +121,12 @@ android {
     packaging {
         jniLibs.useLegacyPackaging = false
     }
+
+    // lint 在这里只做 API 级别的门禁：CI 编译完各版本后跑 lintFullRelease，宿主调用了高于 minSdk 的 API 时 NewApi 让它失败。javac 按 compileSdk 编译看不出来，D8 也只补齐其中一部分调用；0.2.0 就这样带上了 Path.of（API 34），Android 9 到 12 的设备准备词库时全部 NoSuchMethodError。其余 lint 检查不在这里把关。各版本只有资源不同，Java 全在 main，lint full 一个版本即可。
+    lint {
+        checkOnly += "NewApi"
+        abortOnError = true
+    }
 }
 
 dependencies {

@@ -54,7 +54,7 @@ public final class AiPolishConfiguration {
     }
 
     public static boolean acceptableText(String text) {
-        if (text == null || text.trim().isEmpty() || !TextPolicy.validUnicode(text)) return false;
+        if (text == null || TextPolicy.trimmed(text).isEmpty() || !TextPolicy.validUnicode(text)) return false;
         return TextPolicy.withinCodePoints(text, MAXIMUM_TEXT_CODE_POINTS);
     }
 
@@ -64,7 +64,7 @@ public final class AiPolishConfiguration {
             throw new IllegalArgumentException("AI 接口地址无效");
         }
         try {
-            URI uri = new URI(value.trim());
+            URI uri = new URI(TextPolicy.trimmed(value));
             if (!"https".equalsIgnoreCase(uri.getScheme()) || uri.getHost() == null
                     || uri.getHost().isEmpty() || uri.getUserInfo() != null
                     || uri.getFragment() != null || uri.getPort() < -1 || uri.getPort() > 65535) {
@@ -82,14 +82,14 @@ public final class AiPolishConfiguration {
     }
 
     private static String bounded(String value, int maximum, String message) {
-        String result = value == null ? "" : value.trim();
+        String result = TextPolicy.trimmed(value);
         if (result.isEmpty() || result.length() > maximum || TextPolicy.hasControlExceptWhitespace(result)
                 || !TextPolicy.validUnicode(result)) throw new IllegalArgumentException(message);
         return result;
     }
 
     private static String boundedOptional(String value, int maximum, String message) {
-        String result = value == null ? "" : value.trim();
+        String result = TextPolicy.trimmed(value);
         if (result.length() > maximum || TextPolicy.hasControl(result) || !TextPolicy.validUnicode(result))
             throw new IllegalArgumentException(message);
         return result;

@@ -1,5 +1,7 @@
 package app.msime.android.home;
 
+import app.msime.android.TextPolicy;
+
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -206,7 +208,7 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
     }
 
     private void sendChat(EditText field, MaterialButton send) {
-        String text = field.getText() == null ? "" : field.getText().toString().trim();
+        String text = TextPolicy.trimmed(field.getText() == null ? null : field.getText().toString());
         if (text.isEmpty()) return;
         field.setText("");
         appendBubble(text, true);

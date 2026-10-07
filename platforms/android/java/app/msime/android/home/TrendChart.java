@@ -7,6 +7,7 @@ import android.graphics.RectF;
 import android.util.AttributeSet;
 import android.view.View;
 import androidx.annotation.Nullable;
+import app.msime.android.BoundsPolicy;
 import app.msime.android.R;
 import app.msime.android.ListPolicy;
 import app.msime.android.TypingStatisticsSummary.DayCount;
@@ -70,7 +71,7 @@ public final class TrendChart extends View {
         float min = Ui.dp(context, BAR_MIN);
         float radius = Ui.dp(context, 6);
         long peak = 1;
-        for (DayCount day : days) peak = Math.max(peak, day.count());
+        for (DayCount day : days) peak = BoundsPolicy.atLeast(peak, day.count());
         int accent = Ui.accent(context);
         int rest = Ui.color(context, R.attr.msStatBar);
         int text = Ui.text(context);
@@ -78,7 +79,7 @@ public final class TrendChart extends View {
         float labelBaseline = max + Ui.dp(context, LABEL_GAP) + label.getTextSize();
         for (int index = 0; index < days.size(); index++) {
             boolean today = index == days.size() - 1;
-            float height = Math.max(min, max * days.get(index).count() / (float) peak);
+            float height = BoundsPolicy.atLeast(min, max * days.get(index).count() / (float) peak);
             float left = index * (width + gap);
             box.set(left, max - height, left + width, max);
             bar.setColor(today ? accent : rest);

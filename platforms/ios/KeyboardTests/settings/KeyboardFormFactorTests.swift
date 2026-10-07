@@ -118,6 +118,272 @@ final class KeyboardFormFactorTests: XCTestCase {
     }
   }
 
+  // MARK: - 横屏分离式键盘
+
+  /// 只有平板形态（regular 宽度的 iPad）横屏且开关打开时才分；手机、iPad 的浮动键盘和窄窗口（compact 宽度）以及竖屏都不分。
+  func testSplitKeyboardAppliesOnlyToALandscapeTabletWithTheSwitchOn() {
+    for idiom in [UIUserInterfaceIdiom.pad, .phone] {
+      for sizeClass in [UIUserInterfaceSizeClass.regular, .compact, .unspecified] {
+        for landscape in [true, false] {
+          for enabled in [true, false] {
+            let formFactor = KeyboardFormFactor.resolve(idiom: idiom, horizontalSizeClass: sizeClass)
+            let expected = idiom == .pad && sizeClass != .compact && landscape && enabled
+            XCTAssertEqual(
+              KeyboardSplitLayout.isActive(formFactor: formFactor, landscape: landscape, enabled: enabled), expected,
+              "idiom \(idiom.rawValue) size \(sizeClass.rawValue) landscape \(landscape) enabled \(enabled)")
+          }
+        }
+      }
+    }
+    // 手机和竖屏不去读开关。
+    XCTAssertFalse(KeyboardSplitLayout.isActive(formFactor: .phone, landscape: true, enabled: { XCTFail("read"); return true }()))
+    XCTAssertFalse(KeyboardSplitLayout.isActive(formFactor: .tablet, landscape: false, enabled: { XCTFail("read"); return true }()))
+  }
+
+  /// 26 键字母方案分，九键、笔画、假名九键、注音大千和手写不分；英文和本地输入模式画的是字母，照样分。
+  func testOnlyTheLetterLayoutsSplit() {
+    let unsplit: Set<ChineseInputScheme> = [.nineKey, .stroke, .japaneseNineKey, .zhuyin, .handwriting]
+    for scheme in ChineseInputScheme.allCases {
+      XCTAssertEqual(KeyboardSplitLayout.splitsLayout(scheme: scheme, chinese: true, localMode: false),
+                     !unsplit.contains(scheme), scheme.rawValue)
+      XCTAssertTrue(KeyboardSplitLayout.splitsLayout(scheme: scheme, chinese: false, localMode: false), scheme.rawValue)
+      XCTAssertTrue(KeyboardSplitLayout.splitsLayout(scheme: scheme, chinese: true, localMode: true), scheme.rawValue)
+    }
+  }
+
+  /// 每排从中间分，奇数时左半多一个：qwert | yuiop、asdfg | hjkl(;)、zxcvb | nm，。、12345 | 67890。中缝视图减去两侧的键距，两半之间正好空出四分之一。
+  func testSplitPointAndGapWidth() {
+    XCTAssertEqual(KeyboardSplitLayout.leftKeyCount(10), 5)
+    XCTAssertEqual(KeyboardSplitLayout.leftKeyCount(9), 5)
+    XCTAssertEqual(KeyboardSplitLayout.leftKeyCount(7), 4)
+    XCTAssertEqual(KeyboardSplitLayout.leftKeyCount(1), 1)
+    XCTAssertEqual(KeyboardSplitLayout.leftKeyCount(0), 0)
+    XCTAssertEqual(KeyboardSplitLayout.gapRatio, 0.25)
+    XCTAssertEqual(KeyboardSplitLayout.gapViewWidth(rowWidth: 1184, keySpacing: 6), 284)
+    XCTAssertEqual(KeyboardSplitLayout.gapViewWidth(rowWidth: 10, keySpacing: 6), 0)
+  }
+
+  /// 开关默认关；App 那一页的「恢复默认」把它和间距、高度一起还原，键盘里间距面板的 `resetToDefaults` 不碰它。
+  func testSplitSwitchDefaultsOffAndResetsWithTheAppPage() throws {
+    let defaults = KeyboardLayoutPreference.defaults
+    let stored = defaults.object(forKey: KeyboardLayoutPreference.tabletSplitKey)
+    defer { defaults.set(stored, forKey: KeyboardLayoutPreference.tabletSplitKey) }
+    defaults.removeObject(forKey: KeyboardLayoutPreference.tabletSplitKey)
+    XCTAssertEqual(KeyboardLayoutPreference.tabletSplitKey, "keyboard.tablet.split")
+    XCTAssertFalse(KeyboardLayoutPreference.tabletSplit, "off by default")
+
+    KeyboardLayoutPreference.tabletSplit = true
+    XCTAssertTrue(KeyboardLayoutPreference.tabletSplit)
+    XCTAssertEqual(defaults.object(forKey: KeyboardLayoutPreference.tabletSplitKey) as? Bool, true)
+    KeyboardLayoutPreference.resetToDefaults()
+    XCTAssertTrue(KeyboardLayoutPreference.tabletSplit, "the keyboard's spacing panel does not show this switch")
+
+    let state = FileManager.default.temporaryDirectory
+      .appendingPathComponent("msime-split-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: state) }
+    _ = MetasequoiaInputSessionBridge(stateRoot: state)
+    let geometry = [KeyboardLayoutPreference.keySpacingKey, KeyboardLayoutPreference.rowSpacingKey,
+                    KeyboardLayoutPreference.heightAdjustmentKey, KeyboardLayoutPreference.voiceShortcutKey]
+    let storedGeometry = geometry.map { defaults.object(forKey: $0) }
+    defer { for (key, value) in zip(geometry, storedGeometry) { defaults.set(value, forKey: key) } }
+    XCTAssertTrue(KeyboardLayoutPreference.resetGeometry(stateRoot: state))
+    XCTAssertNil(defaults.object(forKey: KeyboardLayoutPreference.tabletSplitKey))
+    XCTAssertFalse(KeyboardLayoutPreference.tabletSplit)
+  }
+
+  /// iPad 横屏打开开关后，数字行、三排字母和底部那一排都从中间分开，两半之间空出键区宽度的四分之一；右半多一个同样宽的空格，键盘高度不变。
+  @MainActor
+  func testLandscapeTabletSplitsEveryRowAroundAQuarterWideGap() throws {
+    try withSplitPreferences(scheme: .quanpin) {
+      KeyboardLayoutPreference.tabletSplit = false
+      let whole = splitTestController()
+      let wholeHeight = try XCTUnwrap(whole.view.constraints.first { $0.identifier == "keyboardHeight" }).constant
+      XCTAssertTrue(visibleGaps(in: whole).isEmpty)
+      XCTAssertTrue(try key("splitSpaceKey", in: whole).isHidden)
+
+      KeyboardLayoutPreference.tabletSplit = true
+      let split = splitTestController()
+      let rowWidth = split.view.bounds.width - 10
+      let gap = rowWidth * KeyboardSplitLayout.gapRatio
+      XCTAssertEqual(visibleGaps(in: split).count, 5, "number row, three letter rows and the bottom row")
+      for (left, right) in [("t", "y"), ("g", "h"), ("b", "n")] {
+        let leftFrame = try frame(letter(left, in: split), in: split)
+        let rightFrame = try frame(letter(right, in: split), in: split)
+        XCTAssertEqual(rightFrame.minX - leftFrame.maxX, gap, accuracy: 1, "\(left) | \(right)")
+      }
+      let five = try frame(key("numberRowKey5", in: split), in: split)
+      let six = try frame(key("numberRowKey6", in: split), in: split)
+      XCTAssertEqual(six.minX - five.maxX, gap, accuracy: 1)
+      // 逗号句号、删除留在右半外沿，Shift 和 Tab 留在左半外沿。
+      XCTAssertGreaterThan(try frame(key("letterRowCommaKey", in: split), in: split).minX, five.maxX + gap)
+      XCTAssertLessThan(try frame(key("shiftButton", in: split), in: split).maxX, five.maxX)
+      XCTAssertLessThan(try frame(key("tabKey", in: split), in: split).maxX, five.maxX)
+
+      let space = try frame(key("spaceKey", in: split), in: split)
+      let splitSpace = try key("splitSpaceKey", in: split)
+      XCTAssertFalse(splitSpace.isHidden)
+      let splitSpaceFrame = frame(splitSpace, in: split)
+      XCTAssertEqual(splitSpaceFrame.minX - space.maxX, gap, accuracy: 1)
+      XCTAssertEqual(splitSpaceFrame.width, space.width, accuracy: 0.5)
+      XCTAssertGreaterThanOrEqual(space.width, 44)
+      XCTAssertEqual(splitSpace.accessibilityLabel, "空格")
+
+      let splitHeight = try XCTUnwrap(split.view.constraints.first { $0.identifier == "keyboardHeight" }).constant
+      XCTAssertEqual(splitHeight, wholeHeight, "the keyboard keeps its height")
+    }
+  }
+
+  /// 竖屏、手机、iPad 的浮动键盘（compact 宽度）都不分，开关开着也一样。
+  @MainActor
+  func testPortraitPhonesAndFloatingKeyboardsStayWhole() throws {
+    try withSplitPreferences(scheme: .quanpin) {
+      KeyboardLayoutPreference.tabletSplit = true
+      for (idiom, sizeClass, landscape) in [
+        (UIUserInterfaceIdiom.pad, UIUserInterfaceSizeClass.regular, false),
+        (.pad, .compact, true),
+        (.phone, .compact, true),
+      ] {
+        let controller = splitTestController(idiom: idiom, horizontalSizeClass: sizeClass, landscape: landscape)
+        XCTAssertTrue(visibleGaps(in: controller).isEmpty, "\(idiom.rawValue) \(sizeClass.rawValue) \(landscape)")
+        XCTAssertTrue(try key("splitSpaceKey", in: controller).isHidden)
+      }
+    }
+  }
+
+  /// 九键、笔画、手写、注音大千和假名九键横屏也不分。注音和笔画要有各自的语言词库才会出现，没有暂存词库的运行跳过这两个。
+  @MainActor
+  func testNonLetterLayoutsStayWhole() throws {
+    for scheme in [ChineseInputScheme.nineKey, .stroke, .handwriting, .zhuyin, .japaneseNineKey] {
+      try withSplitPreferences(scheme: scheme) {
+        guard InputSchemePreference.scheme == scheme else { return }
+        KeyboardLayoutPreference.tabletSplit = true
+        let controller = splitTestController()
+        XCTAssertTrue(visibleGaps(in: controller).isEmpty, scheme.rawValue)
+        XCTAssertTrue(try key("splitSpaceKey", in: controller).isHidden, scheme.rawValue)
+      }
+    }
+  }
+
+  /// 旋转、开关在键盘显示时改变、切到 123 符号页、关掉数字行、微软双拼多出 `;`：分离状态都跟着当前情况走。
+  @MainActor
+  func testSplitFollowsRotationTheSwitchAndTheLayer() throws {
+    try withSplitPreferences(scheme: .microsoft) {
+      KeyboardLayoutPreference.tabletSplit = true
+      let controller = splitTestController()
+      let gap = (controller.view.bounds.width - 10) * KeyboardSplitLayout.gapRatio
+      XCTAssertFalse(try key("splitSpaceKey", in: controller).isHidden)
+      // 微软双拼的 `;` 归右半，g | h 的位置不变。
+      let semicolon = try key("microsoftFinalKey", in: controller)
+      XCTAssertFalse(semicolon.isHidden)
+      let g = try frame(letter("g", in: controller), in: controller)
+      XCTAssertEqual(try frame(letter("h", in: controller), in: controller).minX - g.maxX, gap, accuracy: 1)
+      XCTAssertEqual(frame(semicolon, in: controller).width, try frame(letter("h", in: controller), in: controller).width, accuracy: 0.5)
+
+      // 转到竖屏：iPad 旋转时 size class 不变，靠布局时重新核对。
+      controller.traitOverrides.verticalSizeClass = .regular
+      relayout(controller)
+      XCTAssertTrue(visibleGaps(in: controller).isEmpty)
+      XCTAssertTrue(try key("splitSpaceKey", in: controller).isHidden)
+      controller.traitOverrides.verticalSizeClass = .compact
+      relayout(controller)
+      XCTAssertEqual(visibleGaps(in: controller).count, 5)
+
+      // 开关在键盘显示时被关掉，下一次布局就收起中缝。
+      KeyboardLayoutPreference.tabletSplit = false
+      relayout(controller)
+      XCTAssertTrue(visibleGaps(in: controller).isEmpty)
+      KeyboardLayoutPreference.tabletSplit = true
+      relayout(controller)
+      XCTAssertEqual(visibleGaps(in: controller).count, 5)
+
+      // 123 符号页同样分开：数字 12345 | 67890。
+      try key("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
+      controller.view.layoutIfNeeded()
+      XCTAssertEqual(visibleGaps(in: controller).count, 4, "three symbol rows and the bottom row")
+      let five = try frame(titled("5", in: controller), in: controller)
+      let six = try frame(titled("6", in: controller), in: controller)
+      XCTAssertEqual(six.minX - five.maxX, gap, accuracy: 1)
+      try key("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
+      controller.view.layoutIfNeeded()
+
+      // 关掉数字行与 Tab 键后字母照样分开。
+      KeyboardLayoutPreference.tabletFullKeys = false
+      let plain = splitTestController()
+      XCTAssertTrue(try view("numberRow", in: plain).isHidden)
+      XCTAssertEqual(visibleGaps(in: plain).count, 4, "three letter rows and the bottom row")
+      let t = try frame(letter("t", in: plain), in: plain)
+      XCTAssertEqual(try frame(letter("y", in: plain), in: plain).minX - t.maxX, gap, accuracy: 1)
+    }
+  }
+
+  @MainActor
+  private func withSplitPreferences(scheme: ChineseInputScheme, _ body: () throws -> Void) throws {
+    enableAllInputSchemes()
+    let defaults = KeyboardLayoutPreference.defaults
+    let keys = [KeyboardLayoutPreference.tabletSplitKey, KeyboardLayoutPreference.tabletFullKeysKey,
+                KeyboardLayoutPreference.keySpacingKey, KeyboardLayoutPreference.rowSpacingKey]
+    let stored = keys.map { defaults.object(forKey: $0) }
+    let previousScheme = InputSchemePreference.scheme
+    defer {
+      for (key, value) in zip(keys, stored) { defaults.set(value, forKey: key) }
+      InputSchemePreference.scheme = previousScheme
+    }
+    keys.forEach { defaults.removeObject(forKey: $0) }
+    InputSchemePreference.scheme = scheme
+    try body()
+  }
+
+  /// 测试里的控制器没有窗口场景，横屏用 compact 的竖直 size class 模拟（见 `KeyboardViewController.isLandscape`）。
+  @MainActor
+  private func splitTestController(
+    idiom: UIUserInterfaceIdiom = .pad, horizontalSizeClass: UIUserInterfaceSizeClass = .regular, landscape: Bool = true
+  ) -> KeyboardViewController {
+    let controller = KeyboardViewController()
+    controller.traitOverrides.userInterfaceIdiom = idiom
+    controller.traitOverrides.horizontalSizeClass = horizontalSizeClass
+    controller.traitOverrides.verticalSizeClass = landscape ? .compact : .regular
+    controller.loadViewIfNeeded()
+    let width: CGFloat = idiom == .phone ? 852 : (landscape ? 1194 : 834)
+    let height = KeyboardFormFactor.tablet.baseHeight(landscape: true, handwriting: false, numberRow: true)
+    controller.view.frame = CGRect(x: 0, y: 0, width: width, height: height + KeyboardViewController.stripExtraHeight)
+    controller.view.layoutIfNeeded()
+    return controller
+  }
+
+  private func relayout(_ controller: KeyboardViewController) {
+    controller.view.setNeedsLayout()
+    controller.view.layoutIfNeeded()
+    controller.view.layoutIfNeeded()
+  }
+
+  /// 正在显示的中缝：自己和所在的那一排都没有隐藏。
+  private func visibleGaps(in controller: KeyboardViewController) -> [UIView] {
+    descendants(controller.view).filter {
+      $0.accessibilityIdentifier == "splitKeyboardGap" && !$0.isHidden && $0.superview?.isHidden == false
+    }
+  }
+
+  private func letter(_ lowercase: String, in controller: KeyboardViewController) throws -> UIButton {
+    try titled(lowercase, in: controller)
+  }
+
+  /// 键面是 `title`（不分大小写）而且整条父链都没隐藏的那个键。
+  private func titled(_ title: String, in controller: KeyboardViewController) throws -> UIButton {
+    try XCTUnwrap(descendants(controller.view).first { view in
+      guard let button = view as? UIButton, button.configuration?.title?.lowercased() == title else { return false }
+      var node: UIView? = button
+      while let current = node, current !== controller.view {
+        if current.isHidden { return false }
+        node = current.superview
+      }
+      return true
+    } as? UIButton, "no visible key \(title)")
+  }
+
+  private func frame(_ view: UIView, in controller: KeyboardViewController) -> CGRect {
+    view.convert(view.bounds, to: controller.view)
+  }
+
   private func tabletController() -> KeyboardViewController {
     let tablet = KeyboardViewController()
     tablet.traitOverrides.userInterfaceIdiom = .pad

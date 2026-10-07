@@ -666,14 +666,15 @@ while IFS= read -r source; do
   class=$(basename "$source" .java)
   smoke_classes+=("${package:+$package.}$class")
 done < <(find "$repo_root/platforms/android/tests" -name "*.java" -print | LC_ALL=C sort)
-# 下限就是当前发现的冒烟数（145）；少于这个数说明上面的筛选或 package 解析坏了，而不是冒烟真的变少了。新增冒烟时把这个数一起调高，有意删掉冒烟时同时调低。
-if [[ ${#smoke_classes[@]} -lt 145 ]]; then
-  echo "Only ${#smoke_classes[@]} Android JVM smokes discovered; expected at least 145" >&2
+# 下限就是当前发现的冒烟数（155）；少于这个数说明上面的筛选或 package 解析坏了，而不是冒烟真的变少了。新增冒烟时把这个数一起调高，有意删掉冒烟时同时调低。
+if [[ ${#smoke_classes[@]} -lt 155 ]]; then
+  echo "Only ${#smoke_classes[@]} Android JVM smokes discovered; expected at least 155" >&2
   exit 1
 fi
 javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "${client_sources[@]}" \
   "$repo_root/platforms/android/java/app/msime/android/home/SignInAttemptPolicy.java" \
+  "$repo_root/platforms/android/java/app/msime/android/home/OnboardingChoicePolicy.java" \
   "${test_sources[@]}"
 # 统一用 `$output_dir:$android_jar` 运行：改成自动发现前逐个核对过，原先按类分别给的 classpath（有的不带 android.jar）与统一 classpath 下 108 个冒烟的输出和退出码完全相同。
 for smoke in "${smoke_classes[@]}"; do

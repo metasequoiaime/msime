@@ -11,7 +11,6 @@ import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Locale;
 import javax.net.ssl.HttpsURLConnection;
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -102,7 +101,7 @@ public final class DeviceDataApi {
 
     /** 改昵称；去掉首尾空白后为空表示恢复服务端的默认昵称。 */
     public void rename(String displayName) throws CloudApi.Failure {
-        String name = displayName == null ? "" : displayName.trim();
+        String name = TextPolicy.trimmed(displayName);
         if (!validDisplayName(name)) throw new IllegalArgumentException("invalid display name");
         JSONObject body;
         try {
@@ -157,7 +156,7 @@ public final class DeviceDataApi {
             if (!validSessionId(id)) continue;
             sessions.add(new Session(id, string(row, "platform"), string(row, "name"), string(row, "app_version"),
                 instant(string(row, "created_at")), instant(string(row, "last_active")),
-                Boolean.TRUE.equals(row.opt("current"))));
+                JsonPolicy.strictTrue(row.opt("current"))));
         }
         return Collections.unmodifiableList(sessions);
     }
@@ -296,7 +295,7 @@ public final class DeviceDataApi {
             scaled /= 1024;
             unit++;
         }
-        return String.format(Locale.ROOT, "%.1f %s", scaled, units[unit]);
+        return NumberPolicy.decimal1(scaled) + " " + units[unit];
     }
 
     /** 给人看的相对时间：一分钟内「刚刚」，然后「N 分钟前」「N 小时前」「N 天前」；时间未知（0）时为空字符串。 */

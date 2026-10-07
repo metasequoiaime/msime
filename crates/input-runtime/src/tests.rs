@@ -256,6 +256,66 @@ fn online_provider_deduplicates_before_enforcing_source_quota() {
 
 #[cfg(unix)]
 #[test]
+fn online_provider_rejects_control_characters_in_query_fields() {
+    let directory = private_tempdir();
+    let socket = directory.path().join("missing.sock");
+    for field in ["ai_context", "query_text", "identity", "cache_key"] {
+        let mut document = json!({
+            "scheme": 0,
+            "generation": 1,
+            "identity": "identity",
+            "query_text": "nihao",
+            "cache_key": "cache",
+            "pinyin_segments": ["ni", "hao"],
+            "cloud_eligible": true,
+            "ai_eligible": true,
+            "session_id": 5,
+            "ai_assistant": {"enabled": true, "candidate_limit": 1}
+        });
+        document[field] = json!("safe\u{0}text");
+        let query: OnlineQuery = serde_json::from_value(document).unwrap();
+        assert!(
+            UnixSocketProvider::new(&socket)
+                .query_candidates(query)
+                .is_none(),
+            "field {field} must reject control characters"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn panel_provider_rejects_unsafe_text_and_handwriting_language() {
+    let directory = private_tempdir();
+    let socket = directory.path().join("missing.sock");
+    assert!(UnixSocketProvider::new(&socket)
+        .ai_test(
+            "synthetic",
+            "https://ai.invalid/v1",
+            "model",
+            "prompt\u{0}",
+            "sample"
+        )
+        .is_none());
+    assert!(UnixSocketProvider::new(&socket)
+        .handwriting(HandwritingQuery {
+            language: "zh\u{0}CN".into(),
+            strokes: vec![vec![HandwritingPoint { x: 0.0, y: 0.0 }]],
+        })
+        .is_none());
+    assert!(UnixSocketProvider::new(&socket)
+        .handwriting(HandwritingQuery {
+            language: "zh-CN".into(),
+            strokes: vec![vec![HandwritingPoint {
+                x: f32::NAN,
+                y: 0.0,
+            }]],
+        })
+        .is_none());
+}
+
+#[cfg(unix)]
+#[test]
 fn translation_provider_rejects_controls_at_the_socket_boundary() {
     let directory = private_tempdir();
     let request_socket = directory.path().join("translation-request.sock");
@@ -561,7 +621,10 @@ fn voice_provider_rejects_control_characters_in_transcripts() {
             None,
         )
         .is_none());
-    assert!(updates.is_empty(), "control-bearing transcript reached callbacks");
+    assert!(
+        updates.is_empty(),
+        "control-bearing transcript reached callbacks"
+    );
     server.join().unwrap();
 }
 
@@ -581,8 +644,7 @@ fn emoji_provider_rejects_control_characters_in_items() {
         .unwrap();
         std::io::Write::write_all(
             &mut stream,
-            r#"{"items":[{"text":"😀","annotation":"bad\u0000annotation"}]}"#
-                .as_bytes(),
+            r#"{"items":[{"text":"😀","annotation":"bad\u0000annotation"}]}"#.as_bytes(),
         )
         .unwrap();
         std::io::Write::write_all(&mut stream, b"\n").unwrap();
@@ -632,7 +694,10 @@ fn voice_provider_rejects_final_events_without_success_envelope() {
             None,
         )
         .is_none());
-    assert!(updates.is_empty(), "missing ok reached transcript callbacks");
+    assert!(
+        updates.is_empty(),
+        "missing ok reached transcript callbacks"
+    );
     server.join().unwrap();
 }
 

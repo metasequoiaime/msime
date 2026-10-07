@@ -17,8 +17,8 @@ public final class PhrasePreeditPolicy {
 
     /** 交给编辑框的组字：已选的那一段 + 还在打的读音。 */
     public static String composing(String phrasePrefix, String editingText) {
-        String prefix = phrasePrefix == null ? "" : phrasePrefix;
-        String editing = editingText == null ? "" : editingText;
+        String prefix = TextPolicy.emptyIfNull(phrasePrefix);
+        String editing = TextPolicy.emptyIfNull(editingText);
         return prefix + editing;
     }
 
@@ -29,8 +29,8 @@ public final class PhrasePreeditPolicy {
      * 拼的词」，把一段汉字接在模式名前面只会让人以为模式名变了。
      */
     public static String title(String phrasePrefix, String title, boolean localMode) {
-        String prefix = phrasePrefix == null ? "" : phrasePrefix;
-        String shown = title == null ? "" : title;
+        String prefix = TextPolicy.emptyIfNull(phrasePrefix);
+        String shown = TextPolicy.emptyIfNull(title);
         return prefix.isEmpty() || localMode ? shown : prefix + shown;
     }
 }

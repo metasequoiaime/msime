@@ -238,14 +238,19 @@ impl UnixSocketProvider {
 
     /// Accept one cloud and up to the configured number of AI suggestions.
     pub fn query_candidates(&self, mut query: OnlineQuery) -> Option<Vec<(String, u8)>> {
-        if query.ai_context.len() > 1024 {
+        if !msime_client_core::is_bounded_text_with_options(&query.ai_context, 1024, true)
+            || !msime_client_core::is_bounded_text(&query.query_text, 4096)
+            || !msime_client_core::is_bounded_text(&query.identity, 4096)
+            || !msime_client_core::is_bounded_text(&query.cache_key, 4096)
+            || query.pinyin_segments.len() > 128
+            || query.pinyin_segments.iter().any(|segment| {
+                segment.is_empty() || !msime_client_core::is_bounded_text(segment, 32)
+            })
+        {
             return None;
         }
         if !query.ai_eligible || !query.ai_assistant.as_ref().is_some_and(|ai| ai.enabled) {
             query.ai_context.clear();
-        }
-        if query.query_text.len() > 4096 || query.identity.len() > 4096 {
-            return None;
         }
         let timeout = if query.ai_eligible
             && !query.ai_cache_only
@@ -468,8 +473,8 @@ impl UnixSocketProvider {
             || model.is_empty()
             || !msime_client_core::is_bounded_text(model, 256)
             || text.trim().is_empty()
-            || text.len() > 8192
-            || prompt.len() > 8192
+            || !msime_client_core::is_bounded_text_with_options(text, 8192, true)
+            || !msime_client_core::is_bounded_text_with_options(prompt, 8192, true)
         {
             return None;
         }
@@ -511,13 +516,16 @@ impl UnixSocketProvider {
     /// The Linux panel owns ink capture and presentation; this service owns
     /// model selection and any platform-specific recognizer integration.
     pub fn handwriting(&self, query: HandwritingQuery) -> Option<Vec<String>> {
-        if query.language.len() > 64
+        if !msime_client_core::is_bounded_text(&query.language, 64)
             || query.strokes.is_empty()
             || query.strokes.len() > 32
-            || query
-                .strokes
-                .iter()
-                .any(|stroke| stroke.is_empty() || stroke.len() > 512)
+            || query.strokes.iter().any(|stroke| {
+                stroke.is_empty()
+                    || stroke.len() > 512
+                    || stroke
+                        .iter()
+                        .any(|point| !point.x.is_finite() || !point.y.is_finite())
+            })
         {
             return None;
         }

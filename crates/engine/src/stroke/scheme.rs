@@ -136,17 +136,26 @@ impl StrokeScheme {
                 dictionary.lookup_completions(input, COMPLETION_LIMIT)?,
             )
         };
-        let mut seen = HashSet::with_capacity(exact.len() + completions.len());
-        let mut candidates = Vec::with_capacity(exact.len() + completions.len());
-        for (key, entry) in exact.into_iter().chain(completions) {
-            if seen.insert(entry.text.clone()) {
-                candidates.push(StrokeCandidate {
-                    text: entry.text,
-                    weight: entry.weight,
-                    key,
-                });
-            }
-        }
+        let entries = exact.into_iter().chain(completions).collect::<Vec<_>>();
+        let mut seen = HashSet::with_capacity(entries.len());
+        let unique = entries
+            .iter()
+            .map(|(_, entry)| seen.insert(entry.text.as_str()))
+            .collect::<Vec<_>>();
+        drop(seen);
+        let mut candidates = Vec::with_capacity(entries.len());
+        candidates.extend(
+            entries
+                .into_iter()
+                .zip(unique)
+                .filter_map(|((key, entry), unique)| {
+                    unique.then_some(StrokeCandidate {
+                        text: entry.text,
+                        weight: entry.weight,
+                        key,
+                    })
+                }),
+        );
         // 稳定排序：只把没有字频的字移到后面，其余顺序不变。
         candidates.sort_by_key(|candidate| candidate.weight <= 0);
         Ok(candidates)

@@ -80,20 +80,51 @@ static jbyteArray response(JNIEnv *env, char *value) {
     return output;
 }
 
+namespace {
+template <typename Call> jbyteArray bounded_request(JNIEnv *env, jbyteArray request, jsize limit, Call call);
+constexpr jsize kThemeRequestLimit = 1 * 1024 * 1024;
+constexpr jsize kTypingStatisticsRequestLimit = 65536;
+constexpr jsize kTypingStatisticsDirectoryLimit = 16384;
+constexpr jsize kPersonalDictionaryRequestLimit = 2248576;
+constexpr jsize kCreateOptionsLimit = 1 * 1024 * 1024;
+constexpr jsize kMobileClipboardHistoryRequestLimit = 524288;
+constexpr jsize kVocabularyReviewRequestLimit = 8 * 1024 * 1024;
+constexpr jsize kPrepareHostRequestLimit = 16384;
+constexpr jsize kSavePreferencesDirectoryLimit = 16384;
+constexpr jsize kSavePreferencesSnapshotLimit = 1 * 1024 * 1024;
+constexpr jsize kMobileVoiceDirectoryLimit = 16384;
+constexpr jsize kLoadPreferencesDirectoryLimit = 16384;
+constexpr jsize kRefreshHostPathLimit = 4096;
+constexpr jsize kSnapshotVersionRequestLimit = 1 * 1024 * 1024;
+constexpr jsize kSnapshotPrepareRequestLimit = 1 * 1024 * 1024;
+constexpr jsize kSnapshotPreparePathLimit = 16384;
+constexpr jsize kUpdatePreferencesSnapshotLimit = 1 * 1024 * 1024;
+constexpr jsize kSmallJsonRequestLimit = 16 * 1024;
+constexpr jsize kEmojiQueryLimit = 16384;
+constexpr jsize kEmojiResourcesLimit = 4096;
+constexpr jsize kCandidateGlossRequestLimit = 262144;
+constexpr jsize kCandidateGlossResourcesLimit = 4096;
+constexpr jsize kEnglishCompletionRequestLimit = 16384;
+constexpr jsize kEnglishCompletionResourcesLimit = 4096;
+constexpr jsize kApplyTranslationsLimit = 1 * 1024 * 1024;
+constexpr jsize kShuangpinProfileLimit = 64;
+constexpr jsize kSmartPunctuationRequestLimit = 4096;
+constexpr jsize kTraditionalConversionLimit = 1 * 1024 * 1024;
+constexpr jsize kOnlineQueryLimit = 16384;
+constexpr jsize kOnlineBodyLimit = 262144;
+constexpr jsize kOnlineCandidatesLimit = 16384;
+constexpr jsize kDoubaoAudioPcmLimit = 1 * 1024 * 1024;
+}
+
 extern "C" {
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_loadPreferencesRaw(JNIEnv *env, jclass, jbyteArray directory) {
-    if (!directory) return response(env, msime_client_load_preferences(nullptr, 0));
-    jsize length = env->GetArrayLength(directory);
-    jbyte *bytes = env->GetByteArrayElements(directory, nullptr);
-    if (!bytes) return nullptr;
-    char *result = msime_client_load_preferences(reinterpret_cast<const uint8_t *>(bytes), static_cast<size_t>(length));
-    env->ReleaseByteArrayElements(directory, bytes, JNI_ABORT);
-    return response(env, result);
+    return bounded_request(env, directory, kLoadPreferencesDirectoryLimit, msime_client_load_preferences);
 }
 // Usage reporting and notices: one UTF-8 JSON request in, the shared envelope out (msime_client.h documents each request).
 static jbyteArray json_call(JNIEnv *env, jbyteArray request, char *(*call)(const uint8_t *, size_t)) {
     if (!request) return response(env, call(nullptr, 0));
     jsize length = env->GetArrayLength(request);
+    if (length > kSmallJsonRequestLimit) return response(env, call(nullptr, 0));
     jbyte *bytes = env->GetByteArrayElements(request, nullptr);
     if (!bytes) return nullptr;
     char *result = call(reinterpret_cast<const uint8_t *>(bytes), static_cast<size_t>(length));
@@ -122,28 +153,16 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_themeCatalogRaw
     return response(env, msime_client_theme_catalog());
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_resolveThemeRaw(JNIEnv *env, jclass, jbyteArray request) {
-    if (!request) return response(env, msime_client_resolve_theme(nullptr, 0));
-    jsize length = env->GetArrayLength(request);
-    jbyte *bytes = env->GetByteArrayElements(request, nullptr);
-    if (!bytes) return nullptr;
-    char *result = msime_client_resolve_theme(reinterpret_cast<const uint8_t *>(bytes), static_cast<size_t>(length));
-    env->ReleaseByteArrayElements(request, bytes, JNI_ABORT);
-    return response(env, result);
+    return bounded_request(env, request, kThemeRequestLimit, msime_client_resolve_theme);
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_typingStatisticsRaw(JNIEnv *env, jclass, jbyteArray request) {
-    if (!request) return response(env, msime_client_typing_statistics(nullptr, 0));
-    jsize length = env->GetArrayLength(request);
-    jbyte *bytes = env->GetByteArrayElements(request, nullptr);
-    if (!bytes) return nullptr;
-    char *result = msime_client_typing_statistics(
-        reinterpret_cast<const uint8_t *>(bytes), static_cast<size_t>(length));
-    env->ReleaseByteArrayElements(request, bytes, JNI_ABORT);
-    return response(env, result);
+    return bounded_request(env, request, kTypingStatisticsRequestLimit, msime_client_typing_statistics);
 }
 // 1 enabled, 0 disabled or missing, -1 invalid directory or unreadable document; the Java side treats anything but 1 as off.
 JNIEXPORT jint JNICALL Java_app_msime_android_NativeClient_typingStatisticsEnabledRaw(JNIEnv *env, jclass, jbyteArray directory) {
     if (!directory) return -1;
     jsize length = env->GetArrayLength(directory);
+    if (length > kTypingStatisticsDirectoryLimit) return -1;
     jbyte *bytes = env->GetByteArrayElements(directory, nullptr);
     if (!bytes) return -1;
     int32_t result = msime_client_typing_statistics_enabled(
@@ -152,23 +171,20 @@ JNIEXPORT jint JNICALL Java_app_msime_android_NativeClient_typingStatisticsEnabl
     return static_cast<jint>(result);
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_vocabularyReviewRaw(JNIEnv *env, jclass, jbyteArray request) {
-    if (!request) return response(env, msime_client_vocabulary_review(nullptr, 0));
-    jsize length = env->GetArrayLength(request);
-    jbyte *bytes = env->GetByteArrayElements(request, nullptr);
-    if (!bytes) return nullptr;
-    char *result = msime_client_vocabulary_review(
-        reinterpret_cast<const uint8_t *>(bytes), static_cast<size_t>(length));
-    env->ReleaseByteArrayElements(request, bytes, JNI_ABORT);
-    return response(env, result);
+    return bounded_request(env, request, kVocabularyReviewRequestLimit,
+        msime_client_vocabulary_review);
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_emojiCatalogRaw(JNIEnv *env, jclass, jbyteArray query, jbyteArray resources) {
     if (!query || !resources) {
         return response(env, msime_client_emoji_catalog_request(nullptr, 0, nullptr, 0));
     }
     jsize query_length = env->GetArrayLength(query);
+    jsize resources_length = env->GetArrayLength(resources);
+    if (query_length > kEmojiQueryLimit || resources_length > kEmojiResourcesLimit) {
+        return response(env, msime_client_emoji_catalog_request(nullptr, 0, nullptr, 0));
+    }
     jbyte *query_bytes = env->GetByteArrayElements(query, nullptr);
     if (!query_bytes) return nullptr;
-    jsize resources_length = env->GetArrayLength(resources);
     jbyte *resources_bytes = env->GetByteArrayElements(resources, nullptr);
     if (!resources_bytes) {
         env->ReleaseByteArrayElements(query, query_bytes, JNI_ABORT);
@@ -186,9 +202,13 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_candidateGlosse
         return response(env, msime_client_candidate_gloss_request(nullptr, 0, nullptr, 0));
     }
     jsize request_length = env->GetArrayLength(request);
+    jsize resources_length = env->GetArrayLength(resources);
+    if (request_length > kCandidateGlossRequestLimit
+            || resources_length > kCandidateGlossResourcesLimit) {
+        return response(env, msime_client_candidate_gloss_request(nullptr, 0, nullptr, 0));
+    }
     jbyte *request_bytes = env->GetByteArrayElements(request, nullptr);
     if (!request_bytes) return nullptr;
-    jsize resources_length = env->GetArrayLength(resources);
     jbyte *resources_bytes = env->GetByteArrayElements(resources, nullptr);
     if (!resources_bytes) {
         env->ReleaseByteArrayElements(request, request_bytes, JNI_ABORT);
@@ -206,9 +226,13 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_englishCompleti
         return response(env, msime_client_english_completions_request(nullptr, 0, nullptr, 0));
     }
     jsize request_length = env->GetArrayLength(request);
+    jsize resources_length = env->GetArrayLength(resources);
+    if (request_length > kEnglishCompletionRequestLimit
+            || resources_length > kEnglishCompletionResourcesLimit) {
+        return response(env, msime_client_english_completions_request(nullptr, 0, nullptr, 0));
+    }
     jbyte *request_bytes = env->GetByteArrayElements(request, nullptr);
     if (!request_bytes) return nullptr;
-    jsize resources_length = env->GetArrayLength(resources);
     jbyte *resources_bytes = env->GetByteArrayElements(resources, nullptr);
     if (!resources_bytes) {
         env->ReleaseByteArrayElements(request, request_bytes, JNI_ABORT);
@@ -248,14 +272,8 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_polishPromptRaw
     return out;
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_mobileClipboardHistoryRaw(JNIEnv *env, jclass, jbyteArray request) {
-    if (!request) return response(env, msime_client_mobile_clipboard_history(nullptr, 0));
-    jsize length = env->GetArrayLength(request);
-    jbyte *bytes = env->GetByteArrayElements(request, nullptr);
-    if (!bytes) return nullptr;
-    char *result = msime_client_mobile_clipboard_history(
-        reinterpret_cast<const uint8_t *>(bytes), static_cast<size_t>(length));
-    env->ReleaseByteArrayElements(request, bytes, JNI_ABORT);
-    return response(env, result);
+    return bounded_request(env, request, kMobileClipboardHistoryRequestLimit,
+        msime_client_mobile_clipboard_history);
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_doubaoDecodeFrameRaw(JNIEnv *env, jclass, jbyteArray frame) {
     if (!frame) return response(env, msime_client_doubao_decode_frame(nullptr, 0));
@@ -304,7 +322,7 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_doubaoStartFram
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_doubaoAudioFrameRaw(JNIEnv *env, jclass, jint sequence, jbyteArray pcm, jint pcmLength, jboolean finalChunk) {
     jsize available = pcm ? env->GetArrayLength(pcm) : 0;
-    if (pcmLength < 0 || pcmLength > available) return nullptr;
+    if (pcmLength < 0 || pcmLength > available || pcmLength > kDoubaoAudioPcmLimit) return nullptr;
     jbyte *bytes = pcm && pcmLength > 0 ? env->GetByteArrayElements(pcm, nullptr) : nullptr;
     if (pcmLength > 0 && !bytes) return nullptr;
     jbyteArray out = build_frame(env, [&](uint8_t *buffer, size_t capacity, size_t *length) {
@@ -316,23 +334,21 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_doubaoAudioFram
     return out;
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_shuangpinKeyHintsRaw(JNIEnv *env, jclass, jbyteArray profile) {
-    if (!profile) return response(env, msime_client_shuangpin_key_hints(nullptr, 0));
-    jsize length = env->GetArrayLength(profile);
-    jbyte *bytes = env->GetByteArrayElements(profile, nullptr);
-    if (!bytes) return nullptr;
-    char *result = msime_client_shuangpin_key_hints(
-        reinterpret_cast<const uint8_t *>(bytes), static_cast<size_t>(length));
-    env->ReleaseByteArrayElements(profile, bytes, JNI_ABORT);
-    return response(env, result);
+    return bounded_request(env, profile, kShuangpinProfileLimit,
+        msime_client_shuangpin_key_hints);
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_savePreferencesRaw(JNIEnv *env, jclass, jbyteArray directory, jlong expected_revision, jbyteArray snapshot) {
     if (!directory || !snapshot || expected_revision < 0) {
         return response(env, msime_client_save_preferences(nullptr, 0, 0, nullptr, 0));
     }
     jsize directory_length = env->GetArrayLength(directory);
+    jsize snapshot_length = env->GetArrayLength(snapshot);
+    if (directory_length > kSavePreferencesDirectoryLimit
+            || snapshot_length > kSavePreferencesSnapshotLimit) {
+        return response(env, msime_client_save_preferences(nullptr, 0, 0, nullptr, 0));
+    }
     jbyte *directory_bytes = env->GetByteArrayElements(directory, nullptr);
     if (!directory_bytes) return nullptr;
-    jsize snapshot_length = env->GetArrayLength(snapshot);
     jbyte *snapshot_bytes = env->GetByteArrayElements(snapshot, nullptr);
     if (!snapshot_bytes) {
         env->ReleaseByteArrayElements(directory, directory_bytes, JNI_ABORT);
@@ -347,49 +363,27 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_savePreferences
     return response(env, result);
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_personalDictionarySyncRaw(JNIEnv *env, jclass, jbyteArray options) {
-    if (!options) return response(env, msime_client_personal_dictionary_sync(nullptr, 0));
-    jsize length = env->GetArrayLength(options);
-    jbyte *bytes = env->GetByteArrayElements(options, nullptr);
-    if (!bytes) return nullptr;
-    char *result = msime_client_personal_dictionary_sync(
-        reinterpret_cast<const uint8_t *>(bytes), static_cast<size_t>(length));
-    env->ReleaseByteArrayElements(options, bytes, JNI_ABORT);
-    return response(env, result);
+    return bounded_request(env, options, kPersonalDictionaryRequestLimit,
+        msime_client_personal_dictionary_sync);
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_prepareHostRaw(JNIEnv *env, jclass, jbyteArray options) {
-    if (!options) return response(env, msime_client_prepare_host(nullptr, 0));
-    jsize length = env->GetArrayLength(options);
-    jbyte *bytes = env->GetByteArrayElements(options, nullptr);
-    if (!bytes) return nullptr;
-    char *result = msime_client_prepare_host(reinterpret_cast<const uint8_t *>(bytes), static_cast<size_t>(length));
-    env->ReleaseByteArrayElements(options, bytes, JNI_ABORT);
-    return response(env, result);
+    return bounded_request(env, options, kPrepareHostRequestLimit, msime_client_prepare_host);
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_refreshHostRaw(JNIEnv *env, jclass, jbyteArray path) {
-    if (!path) return response(env, msime_client_refresh_host(nullptr, 0));
-    jsize length = env->GetArrayLength(path);
-    jbyte *bytes = env->GetByteArrayElements(path, nullptr);
-    if (!bytes) return nullptr;
-    char *result = msime_client_refresh_host(reinterpret_cast<const uint8_t *>(bytes), static_cast<size_t>(length));
-    env->ReleaseByteArrayElements(path, bytes, JNI_ABORT);
-    return response(env, result);
+    return bounded_request(env, path, kRefreshHostPathLimit, msime_client_refresh_host);
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_snapshotVersionRaw(JNIEnv *env, jclass, jbyteArray options) {
-    if (!options) return response(env, msime_client_snapshot_version(nullptr, 0));
-    jsize length = env->GetArrayLength(options);
-    jbyte *bytes = env->GetByteArrayElements(options, nullptr);
-    if (!bytes) return nullptr;
-    char *result = msime_client_snapshot_version(
-        reinterpret_cast<const uint8_t *>(bytes), static_cast<size_t>(length));
-    env->ReleaseByteArrayElements(options, bytes, JNI_ABORT);
-    return response(env, result);
+    return bounded_request(env, options, kSnapshotVersionRequestLimit, msime_client_snapshot_version);
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_snapshotPrepareRaw(JNIEnv *env, jclass, jbyteArray request, jbyteArray file) {
     if (!request || !file) return response(env, msime_client_snapshot_prepare(nullptr, 0, nullptr, nullptr));
     jsize request_length = env->GetArrayLength(request);
+    jsize file_length = env->GetArrayLength(file);
+    if (request_length > kSnapshotPrepareRequestLimit || file_length > kSnapshotPreparePathLimit) {
+        return response(env, msime_client_snapshot_prepare(nullptr, 0, nullptr, nullptr));
+    }
     jbyte *request_bytes = env->GetByteArrayElements(request, nullptr);
     if (!request_bytes) return nullptr;
-    jsize file_length = env->GetArrayLength(file);
     jbyte *file_bytes = env->GetByteArrayElements(file, nullptr);
     if (!file_bytes) {
         env->ReleaseByteArrayElements(request, request_bytes, JNI_ABORT);
@@ -411,6 +405,7 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_snapshotDiscard
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_snapshotActivateRaw(JNIEnv *env, jclass, jlong handle, jbyteArray expected) {
     if (!expected || handle <= 0) return response(env, msime_client_snapshot_activate(0, nullptr, 0));
     jsize length = env->GetArrayLength(expected);
+    if (length != 64) return response(env, msime_client_snapshot_activate(0, nullptr, 0));
     jbyte *bytes = env->GetByteArrayElements(expected, nullptr);
     if (!bytes) return nullptr;
     char *result = msime_client_snapshot_activate(
@@ -422,6 +417,9 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_snapshotActivat
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_updatePreferencesRaw(JNIEnv *env, jclass, jlong handle, jbyteArray snapshot) {
     if (!snapshot) return response(env, msime_client_update_preferences(static_cast<uint64_t>(handle), nullptr, 0));
     jsize length = env->GetArrayLength(snapshot);
+    if (length > kUpdatePreferencesSnapshotLimit) {
+        return response(env, msime_client_update_preferences(static_cast<uint64_t>(handle), nullptr, 0));
+    }
     jbyte *bytes = env->GetByteArrayElements(snapshot, nullptr);
     if (!bytes) return nullptr;
     char *result = msime_client_update_preferences(static_cast<uint64_t>(handle), reinterpret_cast<const uint8_t *>(bytes), static_cast<size_t>(length));
@@ -429,13 +427,7 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_updatePreferenc
     return response(env, result);
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_createRaw(JNIEnv *env, jclass, jbyteArray options) {
-    if (!options) return response(env, msime_client_create(nullptr, 0));
-    jsize length = env->GetArrayLength(options);
-    jbyte *bytes = env->GetByteArrayElements(options, nullptr);
-    if (!bytes) return nullptr;
-    char *result = msime_client_create(reinterpret_cast<const uint8_t *>(bytes), static_cast<size_t>(length));
-    env->ReleaseByteArrayElements(options, bytes, JNI_ABORT);
-    return response(env, result);
+    return bounded_request(env, options, kCreateOptionsLimit, msime_client_create);
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_focusRaw(JNIEnv *env, jclass, jlong handle, jboolean focused) {
     return response(env, msime_client_focus(static_cast<uint64_t>(handle), focused == JNI_TRUE));
@@ -454,19 +446,13 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_setEnglishModeR
 // same response helper: both are NUL-terminated strings this side must free. A null answer means
 // the text was not convertible and the caller keeps the original.
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_mobileVoiceConfigurationRaw(JNIEnv *env, jclass, jbyteArray directory) {
-    if (!directory) return response(env, msime_client_mobile_voice_configuration(nullptr, 0));
-    jsize length = env->GetArrayLength(directory);
-    jbyte *bytes = env->GetByteArrayElements(directory, nullptr);
-    if (!bytes) return nullptr;
-    char *result = msime_client_mobile_voice_configuration(
-        reinterpret_cast<const uint8_t *>(bytes), static_cast<size_t>(length));
-    env->ReleaseByteArrayElements(directory, bytes, JNI_ABORT);
-    return response(env, result);
+    return bounded_request(env, directory, kMobileVoiceDirectoryLimit,
+        msime_client_mobile_voice_configuration);
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_simplifiedToTraditionalRaw(JNIEnv *env, jclass, jbyteArray text) {
     if (!text) return nullptr;
     jsize length = env->GetArrayLength(text);
-    if (length <= 0) return nullptr;
+    if (length <= 0 || length > kTraditionalConversionLimit) return nullptr;
     jbyte *bytes = env->GetByteArrayElements(text, nullptr);
     if (!bytes) return nullptr;
     char *result = msime_client_simplified_to_traditional(
@@ -500,6 +486,9 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_punctuationWith
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_smartPunctuationArmRaw(JNIEnv *env, jclass, jlong handle, jbyteArray request) {
     if (!request) return response(env, msime_client_smart_punctuation_arm(static_cast<uint64_t>(handle), nullptr, 0));
     jsize length = env->GetArrayLength(request);
+    if (length > kSmartPunctuationRequestLimit) {
+        return response(env, msime_client_smart_punctuation_arm(static_cast<uint64_t>(handle), nullptr, 0));
+    }
     jbyte *bytes = env->GetByteArrayElements(request, nullptr);
     if (!bytes) return nullptr;
     char *result = msime_client_smart_punctuation_arm(static_cast<uint64_t>(handle),
@@ -510,6 +499,9 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_smartPunctuatio
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_smartPunctuationDecideRaw(JNIEnv *env, jclass, jlong handle, jbyteArray request) {
     if (!request) return response(env, msime_client_smart_punctuation_decide(static_cast<uint64_t>(handle), nullptr, 0));
     jsize length = env->GetArrayLength(request);
+    if (length > kSmartPunctuationRequestLimit) {
+        return response(env, msime_client_smart_punctuation_decide(static_cast<uint64_t>(handle), nullptr, 0));
+    }
     jbyte *bytes = env->GetByteArrayElements(request, nullptr);
     if (!bytes) return nullptr;
     char *result = msime_client_smart_punctuation_decide(static_cast<uint64_t>(handle),
@@ -596,6 +588,10 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_applyTranslatio
             static_cast<uint64_t>(generation), nullptr, 0));
     }
     jsize length = env->GetArrayLength(translations);
+    if (length > kApplyTranslationsLimit) {
+        return response(env, msime_client_apply_translations(static_cast<uint64_t>(handle),
+            static_cast<uint64_t>(generation), nullptr, 0));
+    }
     jbyte *bytes = env->GetByteArrayElements(translations, nullptr);
     if (!bytes) return nullptr;
     char *result = msime_client_apply_translations(static_cast<uint64_t>(handle),
@@ -608,14 +604,7 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_onlineQueryRaw(
     return response(env, msime_client_online_query(static_cast<uint64_t>(handle)));
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_cloudRequestUrlRaw(JNIEnv *env, jclass, jbyteArray query) {
-    if (!query) return response(env, msime_client_cloud_request_url(nullptr, 0));
-    jsize length = env->GetArrayLength(query);
-    jbyte *bytes = env->GetByteArrayElements(query, nullptr);
-    if (!bytes) return nullptr;
-    char *result = msime_client_cloud_request_url(
-        reinterpret_cast<const uint8_t *>(bytes), static_cast<size_t>(length));
-    env->ReleaseByteArrayElements(query, bytes, JNI_ABORT);
-    return response(env, result);
+    return bounded_request(env, query, kOnlineQueryLimit, msime_client_cloud_request_url);
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_aiRequestForQueryRaw(JNIEnv *env, jclass, jlong handle, jbyteArray query) {
     if (!query) {
@@ -623,6 +612,10 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_aiRequestForQue
             static_cast<uint64_t>(handle), nullptr, 0));
     }
     jsize length = env->GetArrayLength(query);
+    if (length > kOnlineQueryLimit) {
+        return response(env, msime_client_ai_request_for_query(
+            static_cast<uint64_t>(handle), nullptr, 0));
+    }
     jbyte *bytes = env->GetByteArrayElements(query, nullptr);
     if (!bytes) return nullptr;
     char *result = msime_client_ai_request_for_query(static_cast<uint64_t>(handle),
@@ -637,6 +630,10 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_applyCloudRespo
     }
     jsize queryLength = env->GetArrayLength(query);
     jsize bodyLength = env->GetArrayLength(body);
+    if (queryLength > kOnlineQueryLimit || bodyLength > kOnlineBodyLimit) {
+        return response(env, msime_client_apply_cloud_response(
+            static_cast<uint64_t>(handle), nullptr, 0, nullptr, 0));
+    }
     jbyte *queryBytes = env->GetByteArrayElements(query, nullptr);
     if (!queryBytes) return nullptr;
     jbyte *bodyBytes = env->GetByteArrayElements(body, nullptr);
@@ -658,6 +655,10 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_applyOnlineCand
     }
     jsize queryLength = env->GetArrayLength(query);
     jsize candidatesLength = env->GetArrayLength(candidates);
+    if (queryLength > kOnlineQueryLimit || candidatesLength > kOnlineCandidatesLimit) {
+        return response(env, msime_client_apply_online_candidates(
+            static_cast<uint64_t>(handle), nullptr, 0, nullptr, 0, 0));
+    }
     jbyte *queryBytes = env->GetByteArrayElements(query, nullptr);
     if (!queryBytes) return nullptr;
     jbyte *candidateBytes = env->GetByteArrayElements(candidates, nullptr);
@@ -689,6 +690,7 @@ struct LocalSpeech {
     std::string partial;
     bool partial_changed = false;
 };
+constexpr jint kLocalSpeechChunkLimit = 1600;
 
 jbyteArray bytes_of(JNIEnv *env, const std::string &text) {
     if (text.size() > static_cast<size_t>(std::numeric_limits<jsize>::max())) return nullptr;
@@ -707,18 +709,7 @@ LocalSpeech *speech(jlong handle) {
     return reinterpret_cast<LocalSpeech *>(static_cast<intptr_t>(handle));
 }
 
-// Bytes of one request/response host call; null input goes to the host so its own validation answers.
-template <typename Call> jbyteArray host_request(JNIEnv *env, jbyteArray request, Call call) {
-    if (!request) return response(env, call(nullptr, 0));
-    jsize length = env->GetArrayLength(request);
-    jbyte *bytes = env->GetByteArrayElements(request, nullptr);
-    if (!bytes) return nullptr;
-    char *result = call(reinterpret_cast<const uint8_t *>(bytes), static_cast<size_t>(length));
-    env->ReleaseByteArrayElements(request, bytes, JNI_ABORT);
-    return response(env, result);
-}
-
-// 与 host_request 相同，但先按头文件写明的上限检查长度：超限的请求在取得本地视图之前就交给宿主以空请求拒绝，避免 GetByteArrayElements 复制一份超大数组。
+// 先按头文件写明的上限检查长度：超限的请求在取得本地视图之前就交给宿主以空请求拒绝，避免 GetByteArrayElements 复制一份超大数组。
 template <typename Call> jbyteArray bounded_request(JNIEnv *env, jbyteArray request, jsize limit, Call call) {
     if (!request) return response(env, call(nullptr, 0));
     jsize length = env->GetArrayLength(request);
@@ -770,6 +761,7 @@ constexpr jsize kDiagnosticBundleLimit = 65536;
 constexpr jsize kAccountSettingsLimit = 4 * 1024 * 1024;
 constexpr jsize kAppThemeRequestLimit = 4096;
 constexpr jsize kPlatformLimit = 64;
+constexpr jsize kVoiceRequestLimit = 1 * 1024 * 1024;
 constexpr jsize kResourcePackRequestLimit = 16384;
 constexpr jsize kResourcePackIdLimit = 256;
 
@@ -797,10 +789,10 @@ void resource_pack_progress(void *context, const char *phase, uint64_t done, uin
 
 extern "C" {
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_voiceHotwordsRaw(JNIEnv *env, jclass, jbyteArray request) {
-    return host_request(env, request, msime_client_voice_hotwords);
+    return bounded_request(env, request, kVoiceRequestLimit, msime_client_voice_hotwords);
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_voiceHotwordCorrectRaw(JNIEnv *env, jclass, jbyteArray request) {
-    return host_request(env, request, msime_client_voice_hotword_correct);
+    return bounded_request(env, request, kVoiceRequestLimit, msime_client_voice_hotword_correct);
 }
 // 应用主题目录与当季颜色：纯计算。
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_appThemeCatalogRaw(JNIEnv *env, jclass) {
@@ -967,7 +959,8 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_localSpeechStar
 // Feeds 16 kHz mono PCM16. Returns the whole transcript so far when it changed, else null. Throws IllegalStateException when the session was cancelled or the recognizer failed.
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_localSpeechAcceptRaw(JNIEnv *env, jclass, jlong handle, jshortArray pcm, jint count) {
     LocalSpeech *state = speech(handle);
-    if (!state || !state->session || !pcm || count < 0 || count > env->GetArrayLength(pcm)) {
+    if (!state || !state->session || !pcm || count < 0 || count > kLocalSpeechChunkLimit
+            || count > env->GetArrayLength(pcm)) {
         throw_state(env, "invalid local speech input");
         return nullptr;
     }

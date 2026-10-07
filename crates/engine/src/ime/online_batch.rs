@@ -62,23 +62,21 @@ pub fn replace_online_candidate_batch(
     }
 
     list.retain(|item| item.source != source);
-    let mut existing: HashSet<String> = list.iter().map(|item| item.word.clone()).collect();
-    let additional = unique
+    let existing: HashSet<&str> = list.iter().map(|item| item.word.as_str()).collect();
+    let new_words: Vec<&str> = unique
         .iter()
         .filter(|word| !existing.contains(**word))
-        .count();
-    list.reserve(additional);
-    let mut index = list.len().min(if source == CandidateSource::AiSuggestion {
+        .copied()
+        .collect();
+    drop(existing);
+    list.reserve(new_words.len());
+    let index = list.len().min(if source == CandidateSource::AiSuggestion {
         2
     } else {
         1
     });
-    for word in unique {
-        if !existing.insert(word.to_owned()) {
-            continue;
-        }
-        list.insert(index, WordItem::new(key, word, 1, source, ""));
-        index += 1;
+    for (offset, word) in new_words.into_iter().enumerate() {
+        list.insert(index + offset, WordItem::new(key, word, 1, source, ""));
     }
     if source == CandidateSource::CloudSuggestion {
         let (ai, rest): (Vec<WordItem>, Vec<WordItem>) = std::mem::take(list)

@@ -60,7 +60,7 @@ public final class FeedbackApi {
 
     /** 描述去掉首尾空白后非空、不超过 500 个字符、不含换行和制表以外的控制字符时可以提交。 */
     public static boolean validText(String text) {
-        if (text == null || text.trim().isEmpty()) return false;
+        if (text == null || TextPolicy.trimmed(text).isEmpty()) return false;
         if (length(text) > MAX_TEXT) return false;
         return !TextPolicy.hasControlExceptWhitespace(text) && TextPolicy.validUnicode(text);
     }
@@ -72,7 +72,7 @@ public final class FeedbackApi {
         for (String key : DIAGNOSTIC_KEYS) {
             String value = raw.get(key);
             if (value == null) continue;
-            String trimmed = clip(TextPolicy.replaceControls(value, ' ').trim(), MAX_DIAGNOSTIC_VALUE_BYTES);
+            String trimmed = clip(TextPolicy.trimmed(TextPolicy.replaceControls(value, ' ')), MAX_DIAGNOSTIC_VALUE_BYTES);
             if (!trimmed.isEmpty()) clean.put(key, trimmed);
         }
         return clean;
@@ -114,7 +114,7 @@ public final class FeedbackApi {
         try {
             JSONObject json = new JSONObject()
                 .put("type", type.id())
-                .put("text", text.trim())
+                .put("text", TextPolicy.trimmed(text))
                 .put("platform", "android")
                 .put("app_version", clip(appVersion == null ? "" : appVersion, 64))
                 .put("edition", edition == null ? "" : edition);

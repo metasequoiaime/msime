@@ -265,6 +265,8 @@ public final class MSIMEInputService extends InputMethodService {
     /** 功能面板上直接切换的三项：模糊音（共享偏好）、单手模式（off / left / right）与隐私模式（本地设置）。 */
     boolean fuzzyPinyinEnabled;
     String oneHandedMode = "off";
+    /** 本地设置「横屏分离式键盘」；实际画不画还要看设备形态、方向和布局，见 {@link #splitKeyboardDrawn}。 */
+    boolean splitKeyboardEnabled;
     boolean incognitoEnabled;
     boolean panelPreferenceSaving;
     Button microsoftFinalKey;
@@ -993,7 +995,8 @@ public final class MSIMEInputService extends InputMethodService {
         cancelInputViewRefresh();
         long startGeneration = ++engineStartGeneration;
         cloudClipboardGeneration++;
-        cancelPersonalDictionarySynchronization();
+        // 只有接下来要建引擎会话的输入框才停掉空闲同步：建会话前 scheduleEngineStartup 会先在同一个工作线程上同步一轮。焦点落到不打字的窗口（桌面、设置页）时系统同样会调这里，原先一律停掉，离开输入框 500 ms 后的空闲同步几乎总被取消，导入词库的词条就一直等不到写入。
+        if (info != null && EditorPolicy.useEngine(info.inputType)) cancelPersonalDictionarySynchronization();
         boolean newDocument = !restarting || currentDocumentIdentifier == 0;
         if (newDocument) {
             currentDocumentIdentifier = nextDocumentIdentifier++;
@@ -1317,6 +1320,8 @@ public final class MSIMEInputService extends InputMethodService {
                     if (sync.optString("snapshot_error", "").length() > 0) {
                         notice = " · 个人词库同步稍后重试";
                     }
+                    // 刚处理完的这批腾出了队列，把导入词库的下一批送进去，键盘收起后的空闲同步会接着写完。
+                    DictionaryCollectionsStore.flushSent(this);
                 } catch (Exception | LinkageError ignored) {
                     // Personal dictionary maintenance is optional; session startup continues.
                 }
@@ -1404,11 +1409,17 @@ public final class MSIMEInputService extends InputMethodService {
             personalDictionarySyncTask = null;
             try {
                 preferencesWorker.execute(() -> {
+                    int queued;
                     try {
-                        NativeClient.personalDictionarySync(options);
+                        queued = value(NativeClient.personalDictionarySync(options)).optInt("pending_count", 0);
                     } catch (Exception | LinkageError ignored) {
                         // The next idle boundary retries a busy or unavailable journal.
+                        return;
                     }
+                    // 个人词库每同步一次只写 4 条，导入的词库又按队列空位分批送进来。这里把下一批送进去，只要还有没写完的（队列里还有，或者刚送进了新的）就马上再来一轮，直到全部写完。每一轮都回到主线程重新确认此刻没有输入会话：键盘一弹出就停，下次空闲时接着写。
+                    DictionaryCollectionsStore.Result<Integer> sent = DictionaryCollectionsStore.flushSent(this);
+                    if (queued > 0 || (sent.value() != null && sent.value() > 0))
+                        main.post(() -> schedulePersonalDictionarySynchronization(true));
                 });
             } catch (RuntimeException ignored) {
                 // Service shutdown owns the final worker state.
@@ -1491,6 +1502,7 @@ public final class MSIMEInputService extends InputMethodService {
         toolbarScheme = localSettings.bool(AndroidLocalSettings.TOOLBAR_SCHEME);
         toolbarHidden = localSettings.bool(AndroidLocalSettings.TOOLBAR_HIDDEN);
         oneHandedMode = localSettings.choice(AndroidLocalSettings.ONE_HANDED);
+        splitKeyboardEnabled = localSettings.bool(AndroidLocalSettings.SPLIT_KEYBOARD);
         incognitoEnabled = localSettings.bool(AndroidLocalSettings.INCOGNITO);
     }
 
@@ -2884,6 +2896,13 @@ public final class MSIMEInputService extends InputMethodService {
             ? spaceKeyTitle() + "；左右滑动移动光标" : SPACE_CURSOR_DESCRIPTION;
     }
 
+    /** 现在是否画成分离式键盘：开关打开、大屏、横屏，并且正在画的是 26 键一族或韩文键盘（{@link SplitKeyboardPolicy#drawn}）。每次都按当前配置重算，旋转后不需要另外通知。 */
+    boolean splitKeyboardDrawn() {
+        Configuration configuration = getResources().getConfiguration();
+        return SplitKeyboardPolicy.drawn(splitKeyboardEnabled, configuration.smallestScreenWidthDp,
+            configuration.orientation == Configuration.ORIENTATION_LANDSCAPE, displayedTouchLayout(view));
+    }
+
     int displayedTouchLayout(JSONObject value) {
         if (dedicatedEnglish) return STANDARD_TOUCH_LAYOUT;
         if (value == null) return touchLayoutHint();
@@ -3146,6 +3165,7 @@ public final class MSIMEInputService extends InputMethodService {
             spaceButton.setText(spaceKeyTitle());
             spaceButton.setContentDescription(spaceKeyDescription());
         }
+        imeBottomRow.syncSplitSpace();
     }
 
     @Override public boolean onKeyDown(int keyCode, KeyEvent event) {
@@ -6424,6 +6444,8 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     void render() {
+        // 旋转、设置变化或布局切换让分离式键盘该画与否变了，而键行还是按旧状态建的：先按新状态重建，下面的底行排布也会跟着换。
+        if (imeLetterRows.splitStale()) imeLetterRows.rebuildKeyRows();
         updateSymbolKeyFaces();
         updateShuangpinKeyHints();
         updateQuickPunctuation();

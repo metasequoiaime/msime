@@ -161,7 +161,7 @@ public final class SkinJobsApi {
      * @param cancelled 置为 true 即取消，调用方在页面离开时置位
      */
     public List<Proposal> generate(String prompt, AtomicBoolean cancelled) throws CloudApi.Failure {
-        String trimmed = prompt == null ? "" : prompt.trim();
+        String trimmed = TextPolicy.trimmed(prompt);
         if (trimmed.isEmpty() || !TextPolicy.withinCodePoints(trimmed, MAX_PROMPT_CHARACTERS))
             throw invalid("ai_skin_invalid");
         check(cancelled);
@@ -245,7 +245,7 @@ public final class SkinJobsApi {
         JSONObject message = first == null ? null : first.optJSONObject("message");
         Object content = message == null ? null : message.opt("content");
         if (message == null || !"assistant".equals(message.opt("role")) || !(content instanceof String text)
-                || text.trim().isEmpty() || text.length() > 16 * 1024)
+                || TextPolicy.trimmed(text).isEmpty() || text.length() > 16 * 1024)
             throw invalid("ai_skin_response");
         return text;
     }

@@ -437,24 +437,27 @@ impl ZhuyinScheme {
         let count = self.syllables.len();
         self.list.clear();
         let positions: Vec<&[String]> = self.syllables.iter().map(Syllable::allowed).collect();
-        let mut seen = HashSet::new();
         for start in 0..count {
             let entries = self
                 .dictionary
                 .lookup_readings(&positions[start..], usize::MAX)?;
             self.list.reserve(entries.len());
             // 九键下同一个字可能在同一位置的两个读音下各有一条，只留较重的那条。
-            seen.clear();
-            for (key, entry) in entries {
-                if !seen.insert(entry.text.clone()) {
-                    continue;
-                }
-                self.list.push(ListCandidate {
-                    text: entry.text,
-                    start,
-                    key,
-                });
-            }
+            let mut seen = HashSet::with_capacity(entries.len());
+            let unique = entries
+                .iter()
+                .map(|(_, entry)| seen.insert(entry.text.as_str()))
+                .collect::<Vec<_>>();
+            drop(seen);
+            self.list.extend(entries.into_iter().zip(unique).filter_map(
+                |((key, entry), unique)| {
+                    unique.then_some(ListCandidate {
+                        text: entry.text,
+                        start,
+                        key,
+                    })
+                },
+            ));
         }
         self.list_open = !self.list.is_empty();
         Ok(())

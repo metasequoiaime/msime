@@ -6,7 +6,6 @@ import android.view.View;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.StandardCopyOption;
@@ -102,7 +101,7 @@ final class ImeDebugOverlay {
 
         private void submit(String name, String line) {
             try {
-                worker.execute(() -> append(name, line.getBytes(StandardCharsets.UTF_8)));
+                worker.execute(() -> append(name, TextPolicy.utf8Bytes(line)));
             } catch (RejectedExecutionException ignored) {
                 // 进程正在退出，这一行不再需要。
             }

@@ -244,19 +244,31 @@ impl CommonPhrasesStore {
         if resource.kind != CommunityResourceKind::Phrase || validate_resource(resource).is_err() {
             return Err(CommonPhrasesError::Invalid);
         }
-        let mut seen = HashSet::with_capacity(resource.content.phrases.len());
-        let mut texts = Vec::with_capacity(resource.content.phrases.len());
         let mut skipped = 0;
+        let mut normalized = Vec::with_capacity(resource.content.phrases.len());
         for phrase in &resource.content.phrases {
             let text = normalize_line_breaks(&phrase.text);
-            if !valid_phrase_text(&text)
-                || texts.len() >= MAX_PACK_PHRASES
-                || !seen.insert(text.clone())
-            {
+            if !valid_phrase_text(&text) {
                 skipped += 1;
                 continue;
             }
-            texts.push(text);
+            normalized.push(text);
+        }
+        // Borrow normalized text while finding first occurrences, then move only the accepted
+        // strings into the pack after releasing the set.
+        let mut seen = HashSet::with_capacity(normalized.len());
+        let unique = normalized
+            .iter()
+            .map(|text| seen.insert(text.as_str()))
+            .collect::<Vec<_>>();
+        drop(seen);
+        let mut texts = Vec::with_capacity(normalized.len().min(MAX_PACK_PHRASES));
+        for (text, unique) in normalized.into_iter().zip(unique) {
+            if !unique || texts.len() >= MAX_PACK_PHRASES {
+                skipped += 1;
+            } else {
+                texts.push(text);
+            }
         }
         if texts.is_empty() {
             return Err(CommonPhrasesError::Invalid);

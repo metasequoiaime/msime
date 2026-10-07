@@ -158,7 +158,7 @@ public final class KeyHeatmapView extends View {
         long peak = 0;
         for (List<Key> row : layout()) {
             for (Key key : row) {
-                if (key.id() != null) peak = Math.max(peak, counts.getOrDefault(key.id(), 0L));
+                if (key.id() != null) peak = BoundsPolicy.atLeast(peak, counts.getOrDefault(key.id(), 0L));
             }
         }
         int text = Ui.text(context);

@@ -1,6 +1,11 @@
 package app.msime.android;
 
+import java.nio.ByteBuffer;
+import java.nio.CharBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
+import java.util.Locale;
 
 /** Shared character-level checks for text accepted by Android host policies. */
 public final class TextPolicy {
@@ -72,6 +77,55 @@ public final class TextPolicy {
     /** Decode UTF-8 response bytes with the shared text policy. */
     public static String utf8(byte[] value) {
         return value == null ? "" : new String(value, StandardCharsets.UTF_8);
+    }
+
+    /** Decode UTF-8 bytes strictly, reporting malformed or unmappable input to the caller. */
+    public static String utf8Strict(byte[] value) throws CharacterCodingException {
+        return StandardCharsets.UTF_8.newDecoder()
+            .onMalformedInput(CodingErrorAction.REPORT)
+            .onUnmappableCharacter(CodingErrorAction.REPORT)
+            .decode(ByteBuffer.wrap(value)).toString();
+    }
+
+    /** Encode text as UTF-8 strictly, reporting malformed or unmappable input to the caller. */
+    public static byte[] utf8StrictBytes(String value) throws CharacterCodingException {
+        ByteBuffer encoded = StandardCharsets.UTF_8.newEncoder()
+            .onMalformedInput(CodingErrorAction.REPORT)
+            .onUnmappableCharacter(CodingErrorAction.REPORT)
+            .encode(CharBuffer.wrap(value));
+        byte[] result = new byte[encoded.remaining()];
+        encoded.get(result);
+        return result;
+    }
+
+    /** Encode UTF-8 request text, treating a missing value as empty text. */
+    public static byte[] utf8Bytes(String value) {
+        return (value == null ? "" : value).getBytes(StandardCharsets.UTF_8);
+    }
+
+    /** Return lowercase text using the stable root locale, treating null as empty. */
+    public static String lowercase(String value) {
+        return (value == null ? "" : value).toLowerCase(Locale.ROOT);
+    }
+
+    /** Return uppercase text using the stable root locale, treating null as empty. */
+    public static String uppercase(String value) {
+        return (value == null ? "" : value).toUpperCase(Locale.ROOT);
+    }
+
+    /** Return text with ASCII whitespace trimmed, treating null as empty. */
+    public static String trimmed(String value) {
+        return value == null ? "" : value.trim();
+    }
+
+    /** Return text with Unicode whitespace stripped, treating null as empty. */
+    public static String stripped(String value) {
+        return value == null ? "" : value.strip();
+    }
+
+    /** Return text unchanged, treating a missing value as empty text. */
+    public static String emptyIfNull(String value) {
+        return value == null ? "" : value;
     }
 
     /** Return the number of Unicode code points in text, or zero for null. */

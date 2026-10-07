@@ -8,7 +8,6 @@ import android.media.AudioRecord;
 import android.media.MediaRecorder;
 import java.io.File;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
@@ -171,7 +170,7 @@ public final class LocalAsrRecognizer {
             if (LocalAsrPolicy.correctsByPinyin(hotwordMode) && hotwords.length() > 0) {
                 text = corrected(text, hotwords);
             }
-            text = text.trim();
+            text = TextPolicy.trimmed(text);
             if (text.isEmpty()) throw new Refused(Failure.EMPTY);
             return text;
         } catch (IllegalStateException error) {
@@ -328,7 +327,7 @@ public final class LocalAsrRecognizer {
     private static String hotwordMode(String modelDirectory, Path trustedRoot) {
         try {
             byte[] bytes = LocalAsrPolicy.readManifest(modelDirectory, trustedRoot);
-            JSONObject manifest = new JSONObject(new String(bytes, StandardCharsets.UTF_8));
+            JSONObject manifest = new JSONObject(TextPolicy.utf8(bytes));
             if (manifest.isNull("hotwords")) return "";
             return manifest.optString("hotwords", "");
         } catch (IOException | JSONException error) {
@@ -364,7 +363,8 @@ public final class LocalAsrRecognizer {
         try {
             for (int index = 0; index < texts.length && out.length() < LocalAsrPolicy.HOTWORD_LIMIT; index++) {
                 if (!LocalAsrPolicy.suppliedHotword(texts[index], pinyin[index])) continue;
-                out.put(new JSONObject().put("text", texts[index].trim()).put("pinyin", pinyin[index]));
+                out.put(new JSONObject().put("text", TextPolicy.trimmed(texts[index]))
+                    .put("pinyin", pinyin[index]));
             }
         } catch (JSONException error) {
             return new JSONArray();

@@ -11,7 +11,6 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.FutureTask;
 import javax.net.ssl.HttpsURLConnection;
@@ -214,7 +213,7 @@ public final class BackendAccount {
      * @param purpose `login` 或 `link`
      */
     public EmailChallenge requestEmailCode(String email, String purpose) throws Exception {
-        String target = email == null ? "" : email.trim();
+        String target = TextPolicy.trimmed(email);
         if (!validEmail(target)) throw new IllegalArgumentException("invalid email");
         String token = linkToken(purpose);
         JSONObject response = request("POST", "/v1/auth/challenges", new JSONObject()
@@ -228,7 +227,7 @@ public final class BackendAccount {
     /** 提交邮件里的验证码完成登录（或绑定），保存得到的会话。 */
     public void verifyEmailCode(EmailChallenge challenge, String code, String userAgent) throws Exception {
         if (ownerProcess != null) throw new IllegalStateException("account session owner");
-        String credential = code == null ? "" : code.trim();
+        String credential = TextPolicy.trimmed(code);
         if (challenge == null || !validEmailCode(credential)) throw new IllegalArgumentException("invalid code");
         String token = linkToken(challenge.purpose());
         keepSession(request("POST", "/v1/auth/login",
@@ -306,13 +305,13 @@ public final class BackendAccount {
 
     private static String agentPart(String value, String fallback) {
         StringBuilder result = new StringBuilder(64);
-        String raw = value == null ? "" : value.trim();
+        String raw = TextPolicy.trimmed(value);
         for (int index = 0; index < raw.length() && result.length() < 64; index++) {
             char c = raw.charAt(index);
             if (c < 0x20 || c > 0x7E || c == '(' || c == ')' || c == ';') continue;
             result.append(c);
         }
-        String cleaned = result.toString().trim();
+        String cleaned = TextPolicy.trimmed(result.toString());
         return cleaned.isEmpty() ? fallback : cleaned;
     }
 
@@ -431,7 +430,7 @@ public final class BackendAccount {
         List<ChatModel> models = new ArrayList<>(data.length());
         for (int index = 0; index < data.length(); index++) {
             JSONObject item = data.optJSONObject(index);
-            String id = item == null ? "" : optionalStringField(item.opt("id"), "").trim();
+            String id = item == null ? "" : TextPolicy.trimmed(optionalStringField(item.opt("id"), ""));
             if (id.isEmpty() || id.length() > 256) throw new IllegalStateException("invalid model catalogue");
             models.add(new ChatModel(id));
         }
@@ -466,7 +465,7 @@ public final class BackendAccount {
         for (ChatMessage message : messages) {
             if (message == null || !("user".equals(message.role()) || "assistant".equals(message.role())
                     || "system".equals(message.role())) || message.content() == null
-                    || message.content().trim().isEmpty()
+                    || TextPolicy.trimmed(message.content()).isEmpty()
                     || TextPolicy.utf8Length(message.content()) > 16 * 1024
                     || TextPolicy.hasControlExceptWhitespace(message.content())
                     || !TextPolicy.validUnicode(message.content())) return false;
@@ -476,14 +475,14 @@ public final class BackendAccount {
     }
 
     static boolean validChatResponse(String role, String content) {
-        return "assistant".equals(role) && content != null && !content.trim().isEmpty()
+        return "assistant".equals(role) && content != null && !TextPolicy.trimmed(content).isEmpty()
             && TextPolicy.utf8Length(content) <= 16 * 1024
             && !TextPolicy.hasControlExceptWhitespace(content)
             && TextPolicy.validUnicode(content);
     }
 
     static boolean validChatReplyText(String content) {
-        return content != null && !content.trim().isEmpty()
+        return content != null && !TextPolicy.trimmed(content).isEmpty()
             && TextPolicy.utf8Length(content) <= MAX_CHAT_REPLY_BYTES
             && TextPolicy.validUnicode(content);
     }
@@ -610,7 +609,7 @@ public final class BackendAccount {
 
     /** 把一行 data 解成 JSON 对象；空的、不是对象或解析不了时返回 null，调用方跳过这一行。 */
     static JSONObject eventObject(String data) {
-        String trimmed = data.trim();
+        String trimmed = TextPolicy.trimmed(data);
         if (!trimmed.startsWith("{")) return null;
         try {
             return new JSONObject(trimmed);
@@ -666,7 +665,7 @@ public final class BackendAccount {
     /** 发一次流式请求并读完 SSE；连接前或响应头之前的非 2xx 抛 {@link RequestException}，流开始后的失败抛 {@link IllegalStateException}。 */
     private static String streamChat(JSONObject body, String token, ChatCall call, ChatStreamListener listener)
             throws Exception {
-        byte[] payload = body.toString().getBytes(StandardCharsets.UTF_8);
+        byte[] payload = TextPolicy.utf8Bytes(body.toString());
         HttpsURLConnection connection = (HttpsURLConnection) new URL(ORIGIN + "/v1/chat/completions").openConnection();
         try {
             if (!call.attach(connection)) throw new CancellationException("chat cancelled");
@@ -692,7 +691,7 @@ public final class BackendAccount {
             if (status / 100 != 2) throw new RequestException(status);
             String type = connection.getContentType();
             try (InputStream input = connection.getInputStream()) {
-                if (type == null || !type.toLowerCase(Locale.ROOT).startsWith("text/event-stream")) {
+                if (type == null || !TextPolicy.lowercase(type).startsWith("text/event-stream")) {
                     // 没按流式回答（例如中间层吞掉了 stream）：按普通 JSON 回复读，整段一次交出去。
                     byte[] response = readBounded(input);
                     String reply = chatContent(new JSONObject(TextPolicy.utf8(response)));

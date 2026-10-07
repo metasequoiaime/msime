@@ -12,11 +12,11 @@ function usage(code) {
   const text = `msime-web-engine ${pkg.version}
 
 usage:
-  msime-web-engine copy <dir> [--no-wubi] [--no-pinyin] [--no-model] [--clean]
+  msime-web-engine copy <dir> [--no-wubi] [--no-pinyin] [--no-japanese] [--no-model] [--clean]
   msime-web-engine info
 
 copy   复制运行时和资源到 <dir>。页面里 import "<dir 对应的 URL>/index.js" 即可，无需设置 assetBase。
-       --no-wubi / --no-pinyin 不复制对应词库，--no-model 不复制整句模型（约 4 MB），--clean 先清空 <dir>。
+       --no-wubi / --no-pinyin / --no-japanese 不复制对应词库或日语模型，--no-model 不复制整句模型（约 4 MB），--clean 先清空 <dir>。
 info   列出这个版本包含的文件和大小。`;
   (code === 0 ? console.log : console.error)(text);
   process.exit(code);
@@ -40,6 +40,7 @@ function copy(dest, flags) {
   const skip = new Set();
   if (flags.has("--no-wubi")) skip.add("wubi86");
   if (flags.has("--no-pinyin")) skip.add("pinyin");
+  if (flags.has("--no-japanese")) skip.add("japanese");
   if (flags.has("--no-model") || flags.has("--no-pinyin")) skip.add("model");
   if (flags.has("--clean")) rmSync(dest, { recursive: true, force: true });
   mkdirSync(join(dest, "assets"), { recursive: true });
@@ -70,7 +71,7 @@ try {
   else if (command === "copy") {
     const positional = rest.filter((a) => !a.startsWith("--"));
     const flags = new Set(rest.filter((a) => a.startsWith("--")));
-    const known = new Set(["--no-wubi", "--no-pinyin", "--no-model", "--clean"]);
+    const known = new Set(["--no-wubi", "--no-pinyin", "--no-japanese", "--no-model", "--clean"]);
     for (const f of flags) if (!known.has(f)) usage(2);
     if (positional.length !== 1) usage(2);
     copy(resolve(positional[0]), flags);
