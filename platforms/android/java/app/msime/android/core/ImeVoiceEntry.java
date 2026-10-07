@@ -162,11 +162,13 @@ final class ImeVoiceEntry {
                 } catch (RuntimeException | LinkageError error) {
                     failure = "语音识别服务无法启动";
                 }
-                String result = text == null ? null : text.trim();
+                String result = text == null ? null : TextPolicy.trimmed(text);
                 if (result != null && !result.isEmpty() && polish != null) {
                     String polished = new VoicePolisher().polish(polish.endpoint(), polish.model(), polish.token(),
                         polish.prompt(), result);
-                    if (polished != null && !polished.trim().isEmpty()) result = polished.trim();
+                    if (polished != null && !TextPolicy.trimmed(polished).isEmpty()) {
+                        result = TextPolicy.trimmed(polished);
+                    }
                 }
                 String finalText = result;
                 String finalFailure = failure;
