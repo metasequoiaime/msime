@@ -19,11 +19,11 @@ import app.msime.android.SafePaths;
 import app.msime.android.SyncApi;
 import app.msime.android.SyncMergePolicy;
 import app.msime.android.SyncSwitch;
+import app.msime.android.TextPolicy;
 import app.msime.android.policy.HostOptionsPolicy;
 import java.io.File;
 import java.io.IOException;
 import java.lang.ref.WeakReference;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -312,8 +312,8 @@ public final class CloudSync {
             JSONObject withoutSkins = settingsOf(nativeValue(NativeClient.accountSettingsExport(request.toString()))
                 .getJSONObject("merged"));
             withoutSkins.remove(SyncMergePolicy.SKINS_KEY);
-            long otherBytes = new JSONObject().put("revision", cloud.revision()).put("settings", withoutSkins)
-                .toString().getBytes(StandardCharsets.UTF_8).length;
+            long otherBytes = TextPolicy.utf8Length(new JSONObject()
+                .put("revision", cloud.revision()).put("settings", withoutSkins).toString());
             List<CustomSkinLibrary.Item> items = SyncMergePolicy.newestFirst(
                 CustomSkinLibrary.read(Paths.get(directory)), CustomSkinLibrary.Item::updatedAt);
             String library = CustomSkinLibrary.exportDesigns(items, SyncMergePolicy.skinBudget(otherBytes));

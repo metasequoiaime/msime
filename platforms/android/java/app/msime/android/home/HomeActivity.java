@@ -151,6 +151,8 @@ public final class HomeActivity extends AppCompatActivity {
         // The shipped dictionary is prepared on first run without the user having to find a button
         // for it: a keyboard that cannot reach the Engine is not a state worth making someone opt
         // out of. Existing configurations are reported, never overwritten.
+        // 先挂上引导页记下的待保存选择：上次在准备完成前选了方案就离开、或进程被杀，这次准备完成时把它写进去。
+        OnboardingChoices.watch(this);
         FirstRunPreparation.startIfNeeded(this);
 
         // 只有首次创建才执行 Intent 里的深链：旋转、换深浅模式和进程恢复时 getIntent() 还是那一个，再执行一遍会把用户已经离开的页面又压回来。

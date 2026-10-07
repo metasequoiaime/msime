@@ -98,10 +98,11 @@ final class ImeFrame {
         applyOneHanded();
     }
 
-    /** 按当前 `touch_one_handed` 摆放侧栏与键区；与上次相同时只刷新颜色。渲染与换肤时调用。 */
+    /** 按当前 `touch_one_handed` 摆放侧栏与键区；与上次相同时只刷新颜色。渲染与换肤时调用。分离式键盘画着的时候单手模式不生效（存着的值不变，回到不分离时自动恢复），见 {@link SplitKeyboardPolicy#effectiveOneHanded}。 */
     void applyOneHanded() {
         if (row == null || gutter == null || column == null) return;
-        String mode = oneHanded(s.oneHandedMode) ? s.oneHandedMode : "off";
+        String stored = SplitKeyboardPolicy.effectiveOneHanded(s.oneHandedMode, s.splitKeyboardDrawn());
+        String mode = oneHanded(stored) ? stored : "off";
         if (s.skin != null) {
             gutter.setColors(Color.parseColor(s.skin.keyBackground()), Color.parseColor(s.skin.toolbarIcon()));
         }

@@ -143,7 +143,7 @@ public final class UpdateApi {
             if (uri.getRawUserInfo() != null) return false;
             if (uri.getPort() != -1 && uri.getPort() != 443) return false;
             String host = uri.getHost();
-            return host != null && HOSTS.contains(host.toLowerCase(Locale.ROOT));
+            return host != null && HOSTS.contains(TextPolicy.lowercase(host));
         } catch (URISyntaxException malformed) {
             return false;
         }
@@ -244,10 +244,10 @@ public final class UpdateApi {
     /** 读 `sha256sum` 的输出：第一个字段是 64 位十六进制；读不出时返回 null。 */
     public static String parseChecksum(String sidecar) {
         if (sidecar == null) return null;
-        String trimmed = sidecar.trim();
+        String trimmed = TextPolicy.trimmed(sidecar);
         int end = 0;
         while (end < trimmed.length() && !Character.isWhitespace(trimmed.charAt(end))) end++;
-        String digest = trimmed.substring(0, end).toLowerCase(Locale.ROOT);
+        String digest = TextPolicy.lowercase(trimmed.substring(0, end));
         return SHA256.matcher(digest).matches() ? digest : null;
     }
 

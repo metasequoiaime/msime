@@ -28,7 +28,6 @@ import app.msime.android.ViewPolicy;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.materialswitch.MaterialSwitch;
 import com.google.android.material.progressindicator.LinearProgressIndicator;
-import org.json.JSONException;
 import org.json.JSONObject;
 
 /**
@@ -36,18 +35,17 @@ import org.json.JSONObject;
  *
  * <p>The design's Android flow: a progress bar rather than a counter, an accent glyph, a kicker, a large regular-weight title and a body line, then the step's own content. The left button reads 跳过 on the first step and 上一步 after it; a horizontal swipe moves between steps too.
  *
- * <p>Every control on these pages changes something real. The scheme cards write through {@link SchemePreferences#withScheme}, the same mapping the settings tab's scheme picker uses; the 显示译文 switch is the offline English gloss preference the keyboard reads. The last step's 登录 opens {@link LoginSheet} (Apple / Google / 邮箱，按后端接受的方式), shown only when sign-in is offered; after a successful sign-in, after the sheet was closed without signing in, or when sign-in is not offered at all, it reads 开始使用. 设计没有「稍后再说」（与「跳过」重复，P12），所以这里也没有。
+ * <p>这几页上的每个控件都改真实的设置。方案卡片经 {@link SchemePreferences#withScheme} 写入，与设置页的方案选择是同一套映射；「显示译文」开关就是键盘读的离线英文释义偏好。首次安装时偏好要等词库准备完成才读得到，点下的选择先由 {@link OnboardingChoices} 记下并立即显示，偏好可读后自动写入，用户不必等准备完成，离开引导也不会丢。The last step's 登录 opens {@link LoginSheet} (Apple / Google / 邮箱，按后端接受的方式), shown only when sign-in is offered; after a successful sign-in, after the sheet was closed without signing in, or when sign-in is not offered at all, it reads 开始使用. 设计没有「稍后再说」（与「跳过」重复，P12），所以这里也没有。
  */
 public final class OnboardingActivity extends AppCompatActivity {
-    private static final String STORE = "msime_onboarding_v1";
+    /** 引导自己的 SharedPreferences：「已看过」和 {@link OnboardingChoices} 记下的待保存选择都在这里。 */
+    static final String STORE = "msime_onboarding_v1";
     private static final String SEEN = "seen";
     private static final int STEP_ENABLE = 0;
     private static final int STEP_SCHEMES = 1;
     private static final int STEP_TRANSLATION = 2;
     private static final int STEP_SYNC = 3;
     private static final String STATE_PAGE = "onboarding-page";
-    /** The keyboard reads this key for the per-candidate English line; the core's default is off. */
-    private static final String GLOSS = "candidate_english_gloss";
 
     /** Whether the flow has run on this device. */
     public static boolean seen(Context context) {
@@ -70,7 +68,11 @@ public final class OnboardingActivity extends AppCompatActivity {
     private int page;
     @Nullable private JSONObject snapshot;
     private boolean loaded;
-    private boolean saving;
+    /** 意外异常后自动重试保存的次数与间隔，见 {@link #syncChoices}。 */
+    private static final int SYNC_RETRY_LIMIT = 3;
+    private static final long SYNC_RETRY_DELAY_MS = 1500;
+    private final android.os.Handler retryHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private int syncRetries;
     /** What the last write on this page did, shown under the page's controls until the page changes. */
     @Nullable private String note;
     /** Whether the last step can offer sign-in; null until the off-thread check answers, which reads as not offered. */
@@ -80,9 +82,11 @@ public final class OnboardingActivity extends AppCompatActivity {
     private boolean declined;
     private OnBackPressedCallback back;
     private GestureDetector swipe;
-    /** 首次安装时，引导页打开时词库还在准备，准备完成前读不到偏好设置；如果不在完成后重新读取，方案页和释义页会一直显示「词库还在准备」。 */
+    /** 首次安装时，引导页打开时词库还在准备，准备完成前读不到偏好设置。准备完成时重新读取并写入待保存的选择；进入失败或重新开始准备时，方案页和译文页的脚注跟着换。 */
     private final FirstRunPreparation.Listener preparation = status -> {
-        if (status == FirstRunPreparation.State.READY && preferences() == null && !isFinishing() && !isDestroyed()) reload();
+        if (isFinishing() || isDestroyed()) return;
+        if (status == FirstRunPreparation.State.READY) syncChoices();
+        else if (steps[page] == STEP_SCHEMES || steps[page] == STEP_TRANSLATION) render(false);
     };
 
     @Override protected void onCreate(@Nullable Bundle state) {
@@ -121,13 +125,17 @@ public final class OnboardingActivity extends AppCompatActivity {
             }
         });
         render(false);
-        reload();
+        // 进程在准备途中被杀（引导第一步正把用户送去系统设置，小米等系统会杀掉退到后台的应用）后，系统只重建栈顶的引导页，不重建下面负责启动准备的 HomeActivity；不在这里启动，准备就一直停在 IDLE，方案页永远读不到偏好。startIfNeeded 本身幂等。
+        OnboardingChoices.watch(this);
+        FirstRunPreparation.startIfNeeded(this);
+        syncChoices();
         FirstRunPreparation.observe(preparation);
         probeAccount();
     }
 
     @Override protected void onDestroy() {
         FirstRunPreparation.stopObserving(preparation);
+        retryHandler.removeCallbacksAndMessages(null);
         super.onDestroy();
     }
 
@@ -207,13 +215,12 @@ public final class OnboardingActivity extends AppCompatActivity {
     private void schemes(LinearLayout column) {
         AppEdition edition = AppEdition.current();
         JSONObject preferences = preferences();
-        KeyboardScheme current = preferences == null ? null : KeyboardScheme.fromPreferences(
-            preferences.optString("scheme", edition.defaultScheme()),
-            preferences.optString("shuangpin_profile", "xiaohe"),
-            preferences.optString("touch_keyboard_layout", "twenty_six_key"), edition);
-        // 双拼 keeps whichever double-pinyin profile is already chosen; only a first pick lands on 小鹤, as the design's 默认小鹤 says.
-        KeyboardScheme shuangpin = current != null && current.shuangpinProfile() != null
-            ? current : KeyboardScheme.XIAOHE;
+        KeyboardScheme stored = preferences == null ? null : OnboardingChoices.storedScheme(preferences, edition);
+        // 点下的方案先记下、立即显示为已选，偏好可读后才写进去（OnboardingChoices），所以词库还在准备时也能选。
+        KeyboardScheme pending = OnboardingChoices.pendingScheme(this);
+        KeyboardScheme current = OnboardingChoicePolicy.displayedScheme(pending, stored);
+        // 双拼沿用已经选的双拼方案，只有第一次选才落在小鹤，与设计的「默认小鹤」一致。
+        KeyboardScheme shuangpin = OnboardingChoicePolicy.shuangpinCard(pending, stored);
         // 五笔同理沿用已选的版本（选五笔不改 `wubi_profile`），说明文字照实写出当前是 86 还是 98。
         boolean wubi98 = preferences != null && KeyboardScheme.WUBI_98.equals(
             KeyboardScheme.normalizedWubiProfile(preferences.optString("wubi_profile", KeyboardScheme.WUBI_86)));
@@ -239,11 +246,17 @@ public final class OnboardingActivity extends AppCompatActivity {
         for (int index = 0; index < cards.size(); index++) {
             schemeCard(column, cards.get(index), cards.get(index).scheme() == current, index == 0 ? 6 : 10);
         }
-        if (preferences == null) {
-            footnote(column, loaded ? "词库还在准备，暂时不能保存方案。稍后可以在「设置 → 输入」里选。"
-                : "正在读取当前方案…");
-        } else if (note != null) {
+        if (note != null) {
             footnote(column, note);
+            return;
+        }
+        switch (footnoteState(pending != null)) {
+            case SAVING -> footnote(column, "正在保存…");
+            case READING -> footnote(column, "正在读取当前方案…");
+            case FAILED -> preparationFailed(column, "选好的方案");
+            case CHOSEN_WAITING -> footnote(column, "已记下，词库准备好后自动保存。");
+            case WAITING -> footnote(column, "词库还在准备，可以先选好，准备好后自动保存。");
+            case NONE -> { }
         }
     }
 
@@ -251,7 +264,10 @@ public final class OnboardingActivity extends AppCompatActivity {
         header(column, R.drawable.ic_onboarding_translate, ordinal() + " · 水杉的特点", "候选下方就是译文",
             "打开后，每个候选词下面会多一行小字的英文释义，来自随应用打包的离线词典，不联网。");
         JSONObject preferences = preferences();
-        boolean on = preferences != null && preferences.optBoolean(GLOSS, false);
+        // 与方案页一样：拨动后先记下、立即按它显示，偏好可读后再写进去。
+        Boolean pending = OnboardingChoices.pendingGloss(this);
+        boolean on = pending != null ? pending
+            : preferences != null && preferences.optBoolean(OnboardingChoices.GLOSS, false);
 
         // A still of the candidate strip, drawn from the design's sample: what the switch below changes, before anyone has to open a text field to see it.
         LinearLayout strip = Ui.row(this);
@@ -279,22 +295,44 @@ public final class OnboardingActivity extends AppCompatActivity {
         row.addView(label, Ui.weightWrap(1f));
         MaterialSwitch toggle = new MaterialSwitch(this);
         toggle.setChecked(on);
-        toggle.setEnabled(preferences != null && !saving);
         toggle.setContentDescription("显示译文");
         toggle.setOnCheckedChangeListener((button, checked) -> {
-            if (checked != on) save(GLOSS, checked);
+            if (checked != on) chooseGloss(checked);
         });
         row.addView(toggle);
-        row.setOnClickListener(ignored -> { if (toggle.isEnabled()) toggle.toggle(); });
+        row.setOnClickListener(ignored -> toggle.toggle());
         column.addView(row, Ui.matchWidth(this, 12));
 
-        if (preferences == null) {
-            footnote(column, loaded ? "词库还在准备，暂时不能保存这个开关。稍后可以在「设置 → 词库」里打开。"
-                : "正在读取当前设置…");
-        } else {
-            footnote(column, note != null ? note
-                : "联网翻译默认关闭，要在「设置 → 词库」里单独开启，并会说明发送什么。");
+        if (note != null) {
+            footnote(column, note);
+            return;
         }
+        switch (footnoteState(pending != null)) {
+            case SAVING -> footnote(column, "正在保存…");
+            case READING -> footnote(column, "正在读取当前设置…");
+            case FAILED -> preparationFailed(column, "设好的开关");
+            case CHOSEN_WAITING -> footnote(column, "已记下，词库准备好后自动保存。");
+            case WAITING -> footnote(column, "词库还在准备，可以先设好，准备好后自动保存。");
+            case NONE -> footnote(column, "联网翻译默认关闭，要在「设置 → 词库」里单独开启，并会说明发送什么。");
+        }
+    }
+
+    /** 方案页和译文页脚注的情况，见 {@link OnboardingChoicePolicy#footnote}。 */
+    private OnboardingChoicePolicy.Footnote footnoteState(boolean pending) {
+        return OnboardingChoicePolicy.footnote(preferences() != null, loaded,
+            FirstRunPreparation.state() == FirstRunPreparation.State.FAILED, pending);
+    }
+
+    /** 词库准备失败时的脚注：写出原因（出问题的多是别人手里的手机，没法看 logcat），点它重试；选择照样记着，重试成功后自动保存。 */
+    private void preparationFailed(LinearLayout column, String subject) {
+        String reason = FirstRunPreparation.failure();
+        TextView view = footnote(column, "词库准备失败" + (reason.isEmpty() ? "" : "：" + reason)
+            + "。点这里重试，" + subject + "会在准备好后自动保存。");
+        view.setTextColor(Ui.accent(this));
+        ViewPolicy.bindClick(view, () -> {
+            FirstRunPreparation.retry(this);
+            render(false);
+        });
     }
 
     private void sync(LinearLayout column) {
@@ -350,72 +388,47 @@ public final class OnboardingActivity extends AppCompatActivity {
 
     // ---- writes ----
 
-    private void selectScheme(KeyboardScheme scheme) {
-        JSONObject current = snapshot;
-        if (current == null || saving) return;
-        JSONObject pending = SchemePreferences.withScheme(current, scheme, null);
-        if (pending == null) {
-            note = "切换失败，保留当前方案";
-            render(false);
-            return;
-        }
-        write(pending, "保存失败，键盘保留当前方案");
-    }
-
-    private void save(String key, Object value) {
-        JSONObject current = snapshot;
-        if (current == null || saving) return;
-        JSONObject pending;
-        try {
-            pending = new JSONObject(current.toString());
-            pending.getJSONObject("preferences").put(key, value);
-        } catch (JSONException error) {
-            note = "保存失败，保留原来的设置";
-            render(false);
-            return;
-        }
-        write(pending, "保存失败，保留原来的设置");
-    }
-
-    /** Save a snapshot and read it back, so the next change starts from what was actually stored rather than from what was sent. */
-    private void write(JSONObject pending, String failure) {
-        saving = true;
-        note = "正在保存…";
+    private void chooseScheme(KeyboardScheme scheme) {
+        OnboardingChoices.rememberScheme(this, scheme);
+        note = null;
         render(false);
-        Context context = getApplicationContext();
-        offMainThread(() -> {
-            JSONObject saved = HostStore.savePreferences(context, pending);
-            JSONObject fresh = HostStore.loadPreferences(context);
-            runOnUiThread(() -> {
-                if (isFinishing() || isDestroyed()) return;
-                saving = false;
-                if (fresh != null) snapshot = fresh;
-                note = saved == null ? failure : null;
-                render(false);
-            });
-        }, () -> runOnUiThread(() -> {
-            if (isFinishing() || isDestroyed()) return;
-            saving = false;
-            note = failure;
-            render(false);
-        }));
+        syncChoices();
     }
 
-    private void reload() {
-        Context context = getApplicationContext();
-        offMainThread(() -> {
-            JSONObject value = HostStore.loadPreferences(context);
-            runOnUiThread(() -> {
-                if (isFinishing() || isDestroyed()) return;
-                snapshot = value;
-                loaded = true;
-                if (steps[page] == STEP_SCHEMES || steps[page] == STEP_TRANSLATION) render(false);
-            });
-        }, () -> runOnUiThread(() -> {
+    private void chooseGloss(boolean on) {
+        OnboardingChoices.rememberGloss(this, on);
+        note = null;
+        render(false);
+        syncChoices();
+    }
+
+    /**
+     * 读一次偏好，有待保存的选择就写进去，再按结果重画方案页和译文页。
+     *
+     * <p>读写都在 {@link OnboardingChoices} 的同一条工作线程上排队，结果按提交顺序回到主线程，后发的读取不会被先发的覆盖。页面已经关掉时结果丢弃，但写入照样完成：选择不跟页面走。读不到时保留上一次读到的快照。
+     */
+    private void syncChoices() {
+        OnboardingChoices.sync(this, result -> {
             if (isFinishing() || isDestroyed()) return;
+            if (result.snapshot() != null) snapshot = result.snapshot();
             loaded = true;
-            if (steps[page] == STEP_SCHEMES || steps[page] == STEP_TRANSLATION) render(false);
-        }));
+            boolean choices = steps[page] == STEP_SCHEMES || steps[page] == STEP_TRANSLATION;
+            if (result.outcome() == OnboardingChoices.Outcome.ERROR) {
+                // 意外的异常不代表偏好读不到：页面手上的旧快照仍可读，不处理就会一直停在「正在保存…」。隔一会儿再试几次，仍不行就说明情况，选择留着下次启动再写。
+                if (syncRetries < SYNC_RETRY_LIMIT) {
+                    syncRetries++;
+                    retryHandler.postDelayed(this::syncChoices, SYNC_RETRY_DELAY_MS);
+                } else if (choices) {
+                    note = "暂时保存不了，已记下选择，下次打开水杉时再保存";
+                }
+            } else {
+                syncRetries = 0;
+            }
+            if (choices && result.outcome() == OnboardingChoices.Outcome.FAILED) {
+                note = steps[page] == STEP_SCHEMES ? "保存失败，键盘保留当前方案" : "保存失败，保留原来的设置";
+            }
+            if (choices) render(false);
+        });
     }
 
     @Nullable private JSONObject preferences() {
@@ -496,7 +509,6 @@ public final class OnboardingActivity extends AppCompatActivity {
 
     /** A scheme card: label and supporting line, a radio disc on the right, a 2dp accent ring when chosen. */
     private void schemeCard(LinearLayout column, SchemeCard option, boolean selected, int top) {
-        boolean usable = snapshot != null && !saving;
         LinearLayout card = Ui.row(this);
         ViewPolicy.setCenteredVertically(card);
         Ui.setSymmetricPaddingDp(card, this, 16, 14);
@@ -526,10 +538,9 @@ public final class OnboardingActivity extends AppCompatActivity {
 
         card.setContentDescription(option.label() + "，" + option.detail()
             + (selected ? "，已选择" : "，未选择"));
-        card.setEnabled(usable);
-        card.setAlpha(usable || selected ? 1f : 0.6f);
-        card.setOnClickListener(usable && !selected ? ignored -> selectScheme(option.scheme()) : null);
-        card.setClickable(usable);
+        // 偏好还读不到时也能点：选择先记下，偏好可读后再写（OnboardingChoices）。
+        card.setOnClickListener(selected ? null : ignored -> chooseScheme(option.scheme()));
+        card.setClickable(true);
         column.addView(card, Ui.matchWidth(this, top));
     }
 
@@ -550,10 +561,11 @@ public final class OnboardingActivity extends AppCompatActivity {
         column.addView(row, Ui.matchWidth(this, 14 + top - 10));
     }
 
-    private void footnote(LinearLayout column, String message) {
+    private TextView footnote(LinearLayout column, String message) {
         TextView view = Ui.label(this, message, 13, Ui.subText(this));
         view.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
         column.addView(view, Ui.matchWidth(this, 14));
+        return view;
     }
 
     /**

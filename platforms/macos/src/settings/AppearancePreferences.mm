@@ -1724,6 +1724,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
 }
 - (void)applySharedInputPreferences:(NSDictionary *)preferences {
     if (![preferences isKindOfClass:NSDictionary.class]) return;
+    _sharedInputPreferencesApplied = YES;
     const BOOL punctuationBefore = self.chinesePunctuation, widthBefore = self.fullWidthInput;
     id defaultMode = preferences[@"default_ime_mode"], scope = preferences[@"ime_mode_scope"];
     if ([@[@"chinese", @"english"] containsObject:defaultMode]) _sharedDefaultImeMode = defaultMode;

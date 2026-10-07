@@ -286,7 +286,7 @@ public final class DiagnosticsApi {
     static List<Event> eventLines(String text, boolean durationRequired) {
         List<Event> events = new ArrayList<>(MAX_EVENTS);
         for (String line : text.split("\n")) {
-            String trimmed = line.trim();
+            String trimmed = TextPolicy.trimmed(line);
             if (trimmed.isEmpty()) continue;
             try {
                 JSONObject row = new JSONObject(trimmed);
@@ -399,7 +399,7 @@ public final class DiagnosticsApi {
 
     private static String baseName(String path) {
         int slash = path.lastIndexOf('/');
-        return (slash < 0 ? path : path.substring(slash + 1)).toLowerCase(Locale.ROOT);
+        return TextPolicy.lowercase(slash < 0 ? path : path.substring(slash + 1));
     }
 
     /** 按 UTF-8 字节截断，不切开多字节字符和代理对。 */

@@ -1,5 +1,7 @@
 package app.msime.android.home;
 
+import app.msime.android.TextPolicy;
+
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
 import android.content.Context;
@@ -213,7 +215,7 @@ final class LoginSheet {
                     say(result.failure());
                     return;
                 }
-                emailAddress = address.trim();
+                emailAddress = TextPolicy.trimmed(address);
                 challenge = result.challenge();
                 showCodeEntry();
             });

@@ -18,6 +18,7 @@ import app.msime.android.CommunityRequest;
 import app.msime.android.DictionaryCollectionsStore;
 import app.msime.android.InputFeatureToggle;
 import app.msime.android.HttpBodyPolicy;
+import app.msime.android.TextPolicy;
 import app.msime.android.ViewPolicy;
 import java.io.IOException;
 import java.io.InputStream;

@@ -52,9 +52,9 @@ public final class HttpAsrPolicy {
     public static boolean usable(String provider, String endpoint, String model, String token) {
         return supported(provider)
             && TextPolicy.validAuthority(endpoint, "https://", AiPolishConfiguration.MAX_ENDPOINT_LENGTH)
-            && model != null && !model.trim().isEmpty() && model.length() <= 512
+            && model != null && !TextPolicy.trimmed(model).isEmpty() && model.length() <= 512
             && !TextPolicy.hasControl(model) && TextPolicy.validUnicode(model)
-            && token != null && !token.trim().isEmpty() && token.length() <= 16 * 1024
+            && token != null && !TextPolicy.trimmed(token).isEmpty() && token.length() <= 16 * 1024
             && !TextPolicy.hasControl(token) && TextPolicy.validUnicode(token);
     }
 
@@ -79,7 +79,7 @@ public final class HttpAsrPolicy {
      * absent language as "detect", and sending an empty value is not the same thing.
      */
     public static byte[] multipartBody(String boundary, String model, String language, byte[] wav) {
-        String trimmed = language == null ? "" : language.trim();
+        String trimmed = TextPolicy.trimmed(language);
         StringBuilder head = new StringBuilder(128 + boundary.length()
             + VoiceTextPolicy.length(model) + trimmed.length());
         appendField(head, boundary, "model", model);
@@ -104,7 +104,7 @@ public final class HttpAsrPolicy {
      */
     public static String isoLanguage(String language) {
         if (language == null) return "";
-        String trimmed = language.trim();
+        String trimmed = TextPolicy.trimmed(language);
         int separator = trimmed.indexOf('-');
         int underscore = trimmed.indexOf('_');
         if (separator < 0 || (underscore >= 0 && underscore < separator)) {

@@ -137,7 +137,7 @@ public final class LocalAsrPolicy {
      */
     public static boolean suppliedHotword(String text, String pinyin) {
         if (text == null || pinyin == null) return false;
-        String trimmed = text.trim();
+        String trimmed = TextPolicy.trimmed(text);
         if (trimmed.isEmpty() || text.length() > MAX_HOTWORD_TEXT_LENGTH) return false;
         if (pinyin.length() > MAX_HOTWORD_PINYIN_LENGTH) return false;
         return !TextPolicy.hasControl(text) && !TextPolicy.hasControl(pinyin)
@@ -158,7 +158,7 @@ public final class LocalAsrPolicy {
         for (String word : words) {
             if (kept == HOTWORD_LIMIT) break;
             if (word == null) continue;
-            String trimmed = word.trim();
+            String trimmed = TextPolicy.trimmed(word);
             if (trimmed.isEmpty() || TextPolicy.hasControl(trimmed)
                     || !TextPolicy.validUnicode(trimmed)) continue;
             if (kept > 0) out.append('\n');

@@ -1,5 +1,7 @@
 package app.msime.android.home;
 
+import app.msime.android.TextPolicy;
+
 import android.content.Context;
 import android.os.Bundle;
 import android.view.LayoutInflater;
@@ -472,7 +474,7 @@ public final class CommunityFragment extends Fragment {
             submit.setOnClickListener(clicked -> {
                 View checked = reasons.findViewById(reasons.getCheckedRadioButtonId());
                 String reason = checked == null ? "" : String.valueOf(checked.getTag());
-                String text = detail.getText() == null ? "" : detail.getText().toString().trim();
+                String text = TextPolicy.trimmed(detail.getText() == null ? null : detail.getText().toString());
                 if (!CommunityRequest.validReport(reason, text)) {
                     detailField.setError("最多 " + CommunityRequest.MAX_REPORT_DETAIL + " 字");
                     return;

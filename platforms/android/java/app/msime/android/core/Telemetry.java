@@ -9,7 +9,6 @@ import app.msime.android.policy.HostOptionsPolicy;
 import java.io.File;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
@@ -152,7 +151,7 @@ public final class Telemetry {
             if (!prepareCrashDirectory(directory)) return;
             target = new File(directory, UUID.randomUUID() + CRASH_EXTENSION);
         }
-        byte[] record = crashRecord(error).getBytes(StandardCharsets.UTF_8);
+        byte[] record = TextPolicy.utf8Bytes(crashRecord(error));
         // CREATE_NEW: the first record of a session is kept, as the shared store's own writer does.
         try (FileChannel channel = FileChannel.open(target.toPath(),
                 StandardOpenOption.WRITE, StandardOpenOption.CREATE_NEW,
@@ -223,7 +222,7 @@ public final class Telemetry {
     /** The stack within both the code-point limit and the byte cap, cut at the end of a line. */
     static String clipStack(String stack) {
         String clipped = clipCodePoints(stack, MAX_STACK_CODE_POINTS);
-        if (clipped.getBytes(StandardCharsets.UTF_8).length <= MAX_STACK_BYTES
+        if (TextPolicy.utf8Length(clipped) <= MAX_STACK_BYTES
                 && clipped.length() == stack.length()) return stack;
         int bytes = 0;
         int end = 0;

@@ -152,7 +152,7 @@ public final class LocalAsrRecognizer {
             if (LocalAsrPolicy.correctsByPinyin(hotwordMode) && hotwords.length() > 0) {
                 text = corrected(text, hotwords);
             }
-            text = text.trim();
+            text = TextPolicy.trimmed(text);
             if (text.isEmpty()) throw new Refused(Failure.EMPTY);
             return text;
         } catch (IllegalStateException error) {
@@ -313,7 +313,8 @@ public final class LocalAsrRecognizer {
         try {
             for (int index = 0; index < texts.length && out.length() < LocalAsrPolicy.HOTWORD_LIMIT; index++) {
                 if (!LocalAsrPolicy.suppliedHotword(texts[index], pinyin[index])) continue;
-                out.put(new JSONObject().put("text", texts[index].trim()).put("pinyin", pinyin[index]));
+                out.put(new JSONObject().put("text", TextPolicy.trimmed(texts[index]))
+                    .put("pinyin", pinyin[index]));
             }
         } catch (JSONException error) {
             return new JSONArray();

@@ -104,6 +104,15 @@ constexpr jsize kEmojiQueryLimit = 16384;
 constexpr jsize kEmojiResourcesLimit = 4096;
 constexpr jsize kCandidateGlossRequestLimit = 262144;
 constexpr jsize kCandidateGlossResourcesLimit = 4096;
+constexpr jsize kEnglishCompletionRequestLimit = 16384;
+constexpr jsize kEnglishCompletionResourcesLimit = 4096;
+constexpr jsize kApplyTranslationsLimit = 1 * 1024 * 1024;
+constexpr jsize kShuangpinProfileLimit = 64;
+constexpr jsize kSmartPunctuationRequestLimit = 4096;
+constexpr jsize kTraditionalConversionLimit = 1 * 1024 * 1024;
+constexpr jsize kOnlineQueryLimit = 16384;
+constexpr jsize kOnlineBodyLimit = 262144;
+constexpr jsize kOnlineCandidatesLimit = 16384;
 }
 
 extern "C" {
@@ -216,9 +225,13 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_englishCompleti
         return response(env, msime_client_english_completions_request(nullptr, 0, nullptr, 0));
     }
     jsize request_length = env->GetArrayLength(request);
+    jsize resources_length = env->GetArrayLength(resources);
+    if (request_length > kEnglishCompletionRequestLimit
+            || resources_length > kEnglishCompletionResourcesLimit) {
+        return response(env, msime_client_english_completions_request(nullptr, 0, nullptr, 0));
+    }
     jbyte *request_bytes = env->GetByteArrayElements(request, nullptr);
     if (!request_bytes) return nullptr;
-    jsize resources_length = env->GetArrayLength(resources);
     jbyte *resources_bytes = env->GetByteArrayElements(resources, nullptr);
     if (!resources_bytes) {
         env->ReleaseByteArrayElements(request, request_bytes, JNI_ABORT);
@@ -320,14 +333,8 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_doubaoAudioFram
     return out;
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_shuangpinKeyHintsRaw(JNIEnv *env, jclass, jbyteArray profile) {
-    if (!profile) return response(env, msime_client_shuangpin_key_hints(nullptr, 0));
-    jsize length = env->GetArrayLength(profile);
-    jbyte *bytes = env->GetByteArrayElements(profile, nullptr);
-    if (!bytes) return nullptr;
-    char *result = msime_client_shuangpin_key_hints(
-        reinterpret_cast<const uint8_t *>(bytes), static_cast<size_t>(length));
-    env->ReleaseByteArrayElements(profile, bytes, JNI_ABORT);
-    return response(env, result);
+    return bounded_request(env, profile, kShuangpinProfileLimit,
+        msime_client_shuangpin_key_hints);
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_savePreferencesRaw(JNIEnv *env, jclass, jbyteArray directory, jlong expected_revision, jbyteArray snapshot) {
     if (!directory || !snapshot || expected_revision < 0) {
@@ -444,7 +451,7 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_mobileVoiceConf
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_simplifiedToTraditionalRaw(JNIEnv *env, jclass, jbyteArray text) {
     if (!text) return nullptr;
     jsize length = env->GetArrayLength(text);
-    if (length <= 0) return nullptr;
+    if (length <= 0 || length > kTraditionalConversionLimit) return nullptr;
     jbyte *bytes = env->GetByteArrayElements(text, nullptr);
     if (!bytes) return nullptr;
     char *result = msime_client_simplified_to_traditional(
@@ -478,6 +485,9 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_punctuationWith
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_smartPunctuationArmRaw(JNIEnv *env, jclass, jlong handle, jbyteArray request) {
     if (!request) return response(env, msime_client_smart_punctuation_arm(static_cast<uint64_t>(handle), nullptr, 0));
     jsize length = env->GetArrayLength(request);
+    if (length > kSmartPunctuationRequestLimit) {
+        return response(env, msime_client_smart_punctuation_arm(static_cast<uint64_t>(handle), nullptr, 0));
+    }
     jbyte *bytes = env->GetByteArrayElements(request, nullptr);
     if (!bytes) return nullptr;
     char *result = msime_client_smart_punctuation_arm(static_cast<uint64_t>(handle),
@@ -488,6 +498,9 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_smartPunctuatio
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_smartPunctuationDecideRaw(JNIEnv *env, jclass, jlong handle, jbyteArray request) {
     if (!request) return response(env, msime_client_smart_punctuation_decide(static_cast<uint64_t>(handle), nullptr, 0));
     jsize length = env->GetArrayLength(request);
+    if (length > kSmartPunctuationRequestLimit) {
+        return response(env, msime_client_smart_punctuation_decide(static_cast<uint64_t>(handle), nullptr, 0));
+    }
     jbyte *bytes = env->GetByteArrayElements(request, nullptr);
     if (!bytes) return nullptr;
     char *result = msime_client_smart_punctuation_decide(static_cast<uint64_t>(handle),
@@ -574,6 +587,10 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_applyTranslatio
             static_cast<uint64_t>(generation), nullptr, 0));
     }
     jsize length = env->GetArrayLength(translations);
+    if (length > kApplyTranslationsLimit) {
+        return response(env, msime_client_apply_translations(static_cast<uint64_t>(handle),
+            static_cast<uint64_t>(generation), nullptr, 0));
+    }
     jbyte *bytes = env->GetByteArrayElements(translations, nullptr);
     if (!bytes) return nullptr;
     char *result = msime_client_apply_translations(static_cast<uint64_t>(handle),
@@ -586,14 +603,7 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_onlineQueryRaw(
     return response(env, msime_client_online_query(static_cast<uint64_t>(handle)));
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_cloudRequestUrlRaw(JNIEnv *env, jclass, jbyteArray query) {
-    if (!query) return response(env, msime_client_cloud_request_url(nullptr, 0));
-    jsize length = env->GetArrayLength(query);
-    jbyte *bytes = env->GetByteArrayElements(query, nullptr);
-    if (!bytes) return nullptr;
-    char *result = msime_client_cloud_request_url(
-        reinterpret_cast<const uint8_t *>(bytes), static_cast<size_t>(length));
-    env->ReleaseByteArrayElements(query, bytes, JNI_ABORT);
-    return response(env, result);
+    return bounded_request(env, query, kOnlineQueryLimit, msime_client_cloud_request_url);
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_aiRequestForQueryRaw(JNIEnv *env, jclass, jlong handle, jbyteArray query) {
     if (!query) {
@@ -601,6 +611,10 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_aiRequestForQue
             static_cast<uint64_t>(handle), nullptr, 0));
     }
     jsize length = env->GetArrayLength(query);
+    if (length > kOnlineQueryLimit) {
+        return response(env, msime_client_ai_request_for_query(
+            static_cast<uint64_t>(handle), nullptr, 0));
+    }
     jbyte *bytes = env->GetByteArrayElements(query, nullptr);
     if (!bytes) return nullptr;
     char *result = msime_client_ai_request_for_query(static_cast<uint64_t>(handle),
@@ -615,6 +629,10 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_applyCloudRespo
     }
     jsize queryLength = env->GetArrayLength(query);
     jsize bodyLength = env->GetArrayLength(body);
+    if (queryLength > kOnlineQueryLimit || bodyLength > kOnlineBodyLimit) {
+        return response(env, msime_client_apply_cloud_response(
+            static_cast<uint64_t>(handle), nullptr, 0, nullptr, 0));
+    }
     jbyte *queryBytes = env->GetByteArrayElements(query, nullptr);
     if (!queryBytes) return nullptr;
     jbyte *bodyBytes = env->GetByteArrayElements(body, nullptr);
@@ -636,6 +654,10 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_applyOnlineCand
     }
     jsize queryLength = env->GetArrayLength(query);
     jsize candidatesLength = env->GetArrayLength(candidates);
+    if (queryLength > kOnlineQueryLimit || candidatesLength > kOnlineCandidatesLimit) {
+        return response(env, msime_client_apply_online_candidates(
+            static_cast<uint64_t>(handle), nullptr, 0, nullptr, 0, 0));
+    }
     jbyte *queryBytes = env->GetByteArrayElements(query, nullptr);
     if (!queryBytes) return nullptr;
     jbyte *candidateBytes = env->GetByteArrayElements(candidates, nullptr);
