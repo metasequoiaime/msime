@@ -3,7 +3,7 @@
 #
 # Changes made:
 # - Changed runs-on from "ubuntu-24.04" to "depot-ubuntu-24.04" in job "analyze"
-# - Changed runs-on from "macos-15" to "depot-ubuntu-latest" in job "swift"
+# - Removed job "swift": Depot CI has no macOS sandboxes, so it runs from .github/workflows only
 
 name: CodeQL
 # CodeQL 的语言与触发分层。发往 main 的 PR、推送到 main、每日定时和手动触发都跑 Linux 上的四种语言（Actions、C/C++、Python、Rust）；Rust 覆盖引擎、client-core 和 host-api 里 clippy 与 cargo audit 都看不到的部分（含 500 多处 FFI `unsafe`）。Swift 分析要占用一台 macos-15 约一小时，而仓库只有五台，所以它只在每日定时和手动触发时跑，理由与 ci-macos.yml 在 push 时不构建相同。
@@ -67,75 +67,3 @@ jobs:
       - uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
         with:
           category: '/language:${{ matrix.language }}'
-
-  swift:
-    name: CodeQL / Swift
-    # 只在每日定时和手动触发时跑，理由见文件顶部：一次占用一台 macos-15 约一小时。
-    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
-    runs-on: depot-ubuntu-latest # was: macos-15. Nonstandard GitHub runner label detected, changed to default Depot runner.
-    timeout-minutes: 60
-    env:
-      # The same Xcode the simulator CI and the release build use: the keyboard calls iOS 26 API, which the runner's default Xcode 16.4 (iOS 18.5 SDK) cannot compile.
-      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
-    permissions:
-      contents: read
-      security-events: write
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      # Ahead of the brew install, which is the expensive part of this job. Every input this job needs but cannot create is checked here, so a tree that cannot produce a Swift database says so in seconds instead of after a dependency install and an Xcode build.
-      - name: Check the analysis inputs are present
-        run: |
-          set -euo pipefail
-          missing=()
-          for path in platforms/ios/scripts/prepare_dictionary.py platforms/ios/project.yml platforms/ios/Podfile; do
-            [[ -f "$path" ]] || missing+=("$path")
-          done
-          if (( ${#missing[@]} )); then
-            printf '::error::CodeQL cannot build the Swift sources; missing from this branch: %s\n' "${missing[*]}"
-            exit 1
-          fi
-      - name: Install dependencies and Xcode generator
-        run: brew install xcodegen cocoapods
-      - name: Prepare the same dictionary as simulator CI
-        run: python3 platforms/ios/scripts/prepare_dictionary.py
-      # Generated in platforms/ios rather than build/ios: the Podfile there names `project 'MSIMEClient.xcodeproj'` and `workspace 'MSIMEClient.xcworkspace'` relative to its own directory, so pod install only finds the project when xcodegen has written it beside the Podfile. This is the sequence build-app.sh uses.
-      - name: Generate Xcode project
-        run: |
-          set -euo pipefail
-          python3 scripts/fetch_voice_runtime.py --platform ios
-          (cd platforms/ios && xcodegen generate -s project.yml -p .)
-          (cd platforms/ios && pod install --deployment)
-      - uses: github/codeql-action/init@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
-        with:
-          languages: swift
-          build-mode: manual
-      - name: Build the app and keyboard for analysis
-        # Xcode 26 builds modules explicitly: every SDK module is a separate -emit-pcm job whose output the compile jobs then read back. The CodeQL extractor replays each job with its own clang, which rejects the PCMs Xcode's clang wrote ("built from a different branch"), so nothing gets extracted. Implicit modules give each compiler its own cache, which is how the job worked under Xcode 16.4.
-        # MSIMEClient.xcworkspace and the MSIMEApp scheme are what project.yml and the Podfile actually produce; the MetasequoiaImeIOS names this used to pass exist nowhere in the tree, so xcodebuild could only ever have reported "workspace not found". build-app.sh and ProjectConfigurationTests.py both name MSIMEApp.
-        run: >-
-          xcodebuild -workspace platforms/ios/MSIMEClient.xcworkspace
-          -scheme MSIMEApp -configuration Debug -sdk iphonesimulator
-          -destination 'generic/platform=iOS Simulator'
-          -derivedDataPath build/codeql-ios CODE_SIGNING_ALLOWED=NO
-          SWIFT_ENABLE_EXPLICIT_MODULES=NO CLANG_ENABLE_EXPLICIT_MODULES=NO build
-      - uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
-        with:
-          category: '/language:swift'
-      - name: Show what the Swift extractor reported
-        # The analyze step only says that no Swift was extracted; the reason sits in the extractor's diagnostics and the tracer log, which the failed-run SARIF does not expose.
-        if: ${{ failure() }}
-        run: |
-          db="$RUNNER_TEMP/codeql_databases"
-          echo '== extractor diagnostics =='
-          find "$db" -path '*diagnostic*' -name '*.jsonl' -exec cat {} + | sort | uniq -c | sort -rn | head -50
-          echo '== extractor logs =='
-          find "$db/swift/log" -type f | head -20
-          find "$db/swift/log" -type f -name '*.log' -exec tail -n 40 {} + | head -200
-          echo '== tracer: extractor invocations by mode and how they ended =='
-          grep -oE 'invocation: [^,]*extractor, args: \[-[a-z-]+' "$db/log/build-tracer.log" | sort | uniq -c
-          grep -oE 'terminated with exit code [0-9]+' "$db/log/build-tracer.log" | sort | uniq -c
-          grep -E '^\S+ \S+ ERRO' "$db/log/build-tracer.log" | cut -c1-400 | sort | uniq -c | sort -rn | head -30
-          echo '== trap dir =='
-          find "$db/swift/trap" -type f | head -5

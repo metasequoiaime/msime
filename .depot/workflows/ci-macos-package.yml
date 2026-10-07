@@ -4,7 +4,7 @@
 # Changes made:
 # - Rewrote .github/ path references to .depot/
 # - Changed runs-on from "ubuntu-24.04" to "depot-ubuntu-24.04" throughout
-# - Changed runs-on from "macos-15" to "depot-ubuntu-latest" in job "package"
+# - Removed job "package": Depot CI has no macOS sandboxes, so it runs from .github/workflows only
 
 name: macOS package
 
@@ -122,67 +122,3 @@ jobs:
       # 与 App 运行时同一个安装器、同一组 URL 和 SHA-256：三个资源包都要能装上，发布出去的 App 才能补齐它们。
       - name: Install every on-demand resource pack
         run: cargo run --quiet --locked -p msime-client-core --example install_resource_pack -- "$RUNNER_TEMP/resource-pack-check"
-
-  package:
-    name: Unsigned universal package
-    needs: [changes, layout]
-    if: ${{ needs.changes.outputs.package == 'true' && github.event.pull_request.draft != true }}
-    runs-on: depot-ubuntu-latest # was: macos-15. Nonstandard GitHub runner label detected, changed to default Depot runner.
-    timeout-minutes: 120
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with: {persist-credentials: false}
-      - name: Install dependencies
-        run: brew install nlohmann-json
-      # 与 release-macos.yml 相同的 Sparkle 版本、摘要和缓存键。
-      - name: Cache the pinned Sparkle archive
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ${{ runner.temp }}/sparkle-archive
-          key: sparkle-2.9.6-${{ runner.os }}-${{ hashFiles('platforms/macos/CMakeLists.txt') }}
-      - name: Prepare pinned Sparkle
-        run: |
-          set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/sparkle-archive"
-          archive="$RUNNER_TEMP/sparkle-archive/Sparkle-2.9.6.tar.xz"
-          if [[ ! -f "$archive" ]]; then
-            curl --fail --location --retry 3 \
-              https://github.com/sparkle-project/Sparkle/releases/download/2.9.6/Sparkle-2.9.6.tar.xz \
-              --output "$archive"
-          fi
-          printf '%s  %s\n' \
-            '52bf9e88cdd972fc0c81501377a880e90d47031bd8ca5462488f843e2609e192' \
-            "$archive" | shasum -a 256 --check
-          rm -rf "$RUNNER_TEMP/sparkle"
-          mkdir -p "$RUNNER_TEMP/sparkle"
-          tar -xJf "$archive" -C "$RUNNER_TEMP/sparkle"
-          test -d "$RUNNER_TEMP/sparkle/Sparkle.framework"
-          echo "MSIME_SPARKLE_ROOT=$RUNNER_TEMP/sparkle" >> "$GITHUB_ENV"
-      - name: Enable pnpm
-        run: corepack enable
-      - name: Add the Rust targets for the universal package
-        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
-      - name: Fetch the locked offline candidate glosses
-        run: python3 scripts/fetch_offline_glosses.py
-      # 不签名、不公证：没有 MACOS_SIGNING_IDENTITY 时 package-release.sh 用 ad-hoc 签名，其余步骤和发布完全相同，包括编译前的资源包可下载检查和 check_app 的缺席与体积检查。
-      - name: Build the macOS package
-        run: bash platforms/macos/package-release.sh "$(tr -d '[:space:]' < platforms/macos/version.txt)" "$RUNNER_TEMP/dist"
-      - name: Report the package
-        run: |
-          set -euo pipefail
-          ls -l "$RUNNER_TEMP/dist"
-          {
-            echo '### macOS package (unsigned)'
-            echo
-            echo '```'
-            ls -l "$RUNNER_TEMP/dist"
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-      - name: Upload the package
-        if: ${{ github.event_name == 'workflow_dispatch' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: msime-macos-package-${{ github.run_id }}
-          path: ${{ runner.temp }}/dist/
-          retention-days: 7
-          if-no-files-found: error

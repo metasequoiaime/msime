@@ -4,7 +4,7 @@
 # Changes made:
 # - Rewrote .github/ path references to .depot/
 # - Changed runs-on from "ubuntu-24.04" to "depot-ubuntu-24.04" throughout
-# - Changed runs-on from "windows-2025" to "depot-ubuntu-latest" in job "windows-scripts"
+# - Removed job "windows-scripts": Depot CI has no Windows sandboxes, so it runs from .github/workflows only
 
 name: Native Platform CI
 
@@ -255,39 +255,6 @@ jobs:
           # Installs the toolchain rust-toolchain.toml pins.
           rustup toolchain install
           bash platforms/windows/build-cross.sh x64
-      - name: Windows platform unchanged
-        if: ${{ needs.changes.outputs.windows != 'true' }}
-        run: echo 'No Windows or shared-platform changes; platform gate skipped.'
-
-  windows-scripts:
-    needs: changes
-    name: Windows release script tests
-    # The release scripts are PowerShell run on Windows, and the cross-build container above has no pwsh, so their probe tests run on a Windows runner. None of them compiles anything.
-    runs-on: depot-ubuntu-latest # was: windows-2025. Nonstandard GitHub runner label detected, changed to default Depot runner.
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Run release script tests
-        if: ${{ needs.changes.outputs.windows == 'true' }}
-        shell: pwsh
-        run: |
-          foreach ($test in 'portable_executable', 'runtime_dependencies', 'collect_notices', 'build_client') {
-            Write-Host "== $test"
-            & pwsh -NoProfile -File "platforms/windows/tests/tools/$test.ps1"
-            if ($LASTEXITCODE -ne 0) { throw "$test failed with exit code $LASTEXITCODE" }
-          }
-      # The installer script itself cannot be compiled here, so these read msime_setup.iss for its lifecycle contracts. watchdog-task also registers the logon task's exact /TR text with Task Scheduler under a throwaway name and reads back what schtasks stored; the hosted runner is elevated, which that round trip needs.
-      - name: Run installer script tests
-        if: ${{ needs.changes.outputs.windows == 'true' }}
-        shell: pwsh
-        run: |
-          foreach ($test in 'lifecycle', 'watchdog-task', 'tauri-layout', 'tsf-registration') {
-            Write-Host "== $test"
-            & pwsh -NoProfile -File "platforms/windows/installer/tests/$test.ps1"
-            if ($LASTEXITCODE -ne 0) { throw "$test failed with exit code $LASTEXITCODE" }
-          }
       - name: Windows platform unchanged
         if: ${{ needs.changes.outputs.windows != 'true' }}
         run: echo 'No Windows or shared-platform changes; platform gate skipped.'
