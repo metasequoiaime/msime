@@ -637,7 +637,7 @@ struct Settings {
             this.controller.registerJavaScriptProxy(this.bridge, BRIDGE_NAME,
               ['loadPreferences', 'savePreferences', 'hostCapabilities', 'appVersion',
                 'scanSkinCatalog', 'readSkinImage', 'readSkinFont', 'readSkinToolbarCss',
-                'customSkinLibrary', 'dictionaryManifest', 'dictionary', 'cloudDictionaryDownload',
+                'dictionaryManifest', 'dictionary', 'cloudDictionaryDownload',
                 'typingStatistics', 'vocabularyReview', 'openExternalUrl', 'copyText',
                 'openSystemKeyboardSettings', 'listVoiceCaptureDevices', 'listFontFamilies',
                 'keyboardFeedback', 'onboardingStatus',
@@ -871,6 +871,8 @@ class SettingsBridge {
         KeyboardLog.error(`community skin request failed: ${describeError(error)}`);
         deliver(JSON.stringify({ ok: false, error: 'community_unavailable' }));
       });
+    } else if (kind === 'custom_skin_library') {
+      this.customSkinLibrary(payload).then(deliver).catch(failed);
     } else if (kind === 'cloud_dictionary_snapshot') {
       this.cloudDictionarySnapshot(payload).then(deliver).catch(failed);
     } else if (kind === 'ai_models') {
@@ -988,7 +990,8 @@ class SettingsBridge {
     }
     if (action.operation === 'remove') {
       const request: LocalVoiceModelRequest = { root: root, id: id };
-      return LocalVoiceModelPolicy.rewrite(client.voiceLocalModelRemove(JSON.stringify(request)));
+      return LocalVoiceModelPolicy.rewrite(
+        await client.voiceLocalModelRemove(JSON.stringify(request)));
     }
     if (!fs.accessSync(root)) {
       fs.mkdirSync(root, true);
@@ -1311,7 +1314,7 @@ class SettingsBridge {
     } catch {
       return JSON.stringify({ ok: false, error: 'community_unavailable' });
     }
-    const installed: string = client.communitySkinInstall(JSON.stringify({
+    const installed: string = await client.communitySkinInstall(JSON.stringify({
       directory: this.stateDirectory, id: action.id, name: action.name, design: design
     }));
     // The install wrote the preference document, so the page's copy is now the old one. Same
@@ -1342,11 +1345,11 @@ class SettingsBridge {
    * The state directory comes from the host, not from the page: where the library lives is not
    * something a WebView should be able to name.
    */
-  customSkinLibrary(action: string): string {
+  private async customSkinLibrary(action: string): Promise<string> {
     const request: string = action.length === 0
       ? JSON.stringify({ directory: this.stateDirectory })
       : `{"directory":${JSON.stringify(this.stateDirectory)},"action":${action}}`;
-    return client.customSkinLibrary(request);
+    return await client.customSkinLibrary(request);
   }
 
   /**

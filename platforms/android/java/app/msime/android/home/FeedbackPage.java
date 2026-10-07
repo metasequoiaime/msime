@@ -199,7 +199,7 @@ public final class FeedbackPage extends DetailPage {
         if (strip == null) return;
         Context context = strip.getContext();
         strip.removeAllViews();
-        ((View) strip.getParent()).setVisibility(screenshots.isEmpty() ? View.GONE : View.VISIBLE);
+        ViewPolicy.setVisible((View) strip.getParent(), !screenshots.isEmpty());
         for (int index = 0; index < screenshots.size(); index++) {
             byte[] bytes = screenshots.get(index);
             int position = index;

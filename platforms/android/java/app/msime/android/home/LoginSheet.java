@@ -336,7 +336,7 @@ final class LoginSheet {
         EditText field = Ui.styledInput(activity, 16, 400, Ui.text(activity));
         field.setHint(hint);
         field.setInputType(inputType);
-        field.setSingleLine(true);
+        ViewPolicy.setSingleLine(field);
         field.setFilters(new InputFilter[] {new InputFilter.LengthFilter(maxLength)});
         field.setHintTextColor(Ui.subText(activity));
         GradientDrawable face = Ui.outlined(Ui.rowBackground(activity), Ui.dp(activity, 12),

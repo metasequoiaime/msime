@@ -617,7 +617,7 @@ function validString(value: unknown, maximum: number, allowEmpty = false): value
   return (
     typeof value === "string" &&
     (allowEmpty || value.length > 0) &&
-    value.length <= maximum &&
+    utf8Length(value) <= maximum &&
     !TextPolicy.hasControl(value) &&
     TextPolicy.validUnicode(value)
   );

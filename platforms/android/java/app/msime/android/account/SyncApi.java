@@ -338,7 +338,7 @@ public final class SyncApi {
 
     /** 逐字符读一行并在超过快照契约前失败，不能先调用无界的 {@link BufferedReader#readLine}。 */
     static String readSnapshotLine(BufferedReader reader) throws IOException {
-        StringBuilder line = new StringBuilder();
+        StringBuilder line = new StringBuilder(256);
         int value;
         while ((value = reader.read()) != -1) {
             if (value == '\n') {
