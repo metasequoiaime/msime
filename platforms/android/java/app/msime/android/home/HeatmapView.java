@@ -48,7 +48,7 @@ public final class HeatmapView extends View {
         long highest = 0;
         int active = 0;
         for (DayCount day : days) {
-            highest = Math.max(highest, day.count());
+            highest = BoundsPolicy.atLeast(highest, day.count());
             if (day.count() > 0) active++;
         }
         peak = highest;

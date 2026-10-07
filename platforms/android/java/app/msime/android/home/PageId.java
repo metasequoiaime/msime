@@ -5,7 +5,6 @@ import app.msime.android.HostDeepLink;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
-import java.util.Locale;
 
 /**
  * 宿主全部详情页的注册表：每一项是页面 Fragment 的全限定类名、标题、所属 tab 和设置首页搜索用的关键词。
@@ -97,11 +96,11 @@ public enum PageId {
 
     /** 标题或任一关键词包含查询（忽略大小写）时为真；空查询不匹配任何页面。 */
     public boolean matches(String query) {
-        String needle = query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
+        String needle = TextPolicy.lowercase(query == null ? "" : query.trim());
         if (needle.isEmpty()) return false;
-        if (title.toLowerCase(Locale.ROOT).contains(needle)) return true;
+        if (TextPolicy.lowercase(title).contains(needle)) return true;
         for (String keyword : keywords) {
-            if (keyword.toLowerCase(Locale.ROOT).contains(needle)) return true;
+            if (TextPolicy.lowercase(keyword).contains(needle)) return true;
         }
         return false;
     }

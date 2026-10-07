@@ -59,7 +59,7 @@ public final class CommunityAdapter extends RecyclerView.Adapter<CommunityAdapte
 
     /** Ids compare case-insensitively, as the catalogue does (UUIDs may arrive in either case). */
     static String key(String id) {
-        return id == null ? "" : id.toLowerCase(Locale.ROOT);
+        return TextPolicy.lowercase(id);
     }
 
     /** Replace the listing, for a new kind or a new search. */

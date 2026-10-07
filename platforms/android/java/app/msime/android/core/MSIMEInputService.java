@@ -989,7 +989,8 @@ public final class MSIMEInputService extends InputMethodService {
         cancelInputViewRefresh();
         long startGeneration = ++engineStartGeneration;
         cloudClipboardGeneration++;
-        cancelPersonalDictionarySynchronization();
+        // 只有接下来要建引擎会话的输入框才停掉空闲同步：建会话前 scheduleEngineStartup 会先在同一个工作线程上同步一轮。焦点落到不打字的窗口（桌面、设置页）时系统同样会调这里，原先一律停掉，离开输入框 500 ms 后的空闲同步几乎总被取消，导入词库的词条就一直等不到写入。
+        if (info != null && EditorPolicy.useEngine(info.inputType)) cancelPersonalDictionarySynchronization();
         boolean newDocument = !restarting || currentDocumentIdentifier == 0;
         if (newDocument) {
             currentDocumentIdentifier = nextDocumentIdentifier++;
@@ -1309,6 +1310,8 @@ public final class MSIMEInputService extends InputMethodService {
                     if (sync.optString("snapshot_error", "").length() > 0) {
                         notice = " · 个人词库同步稍后重试";
                     }
+                    // 刚处理完的这批腾出了队列，把导入词库的下一批送进去，键盘收起后的空闲同步会接着写完。
+                    DictionaryCollectionsStore.flushSent(this);
                 } catch (Exception | LinkageError ignored) {
                     // Personal dictionary maintenance is optional; session startup continues.
                 }
@@ -1394,11 +1397,17 @@ public final class MSIMEInputService extends InputMethodService {
             personalDictionarySyncTask = null;
             try {
                 preferencesWorker.execute(() -> {
+                    int queued;
                     try {
-                        NativeClient.personalDictionarySync(options);
+                        queued = value(NativeClient.personalDictionarySync(options)).optInt("pending_count", 0);
                     } catch (Exception | LinkageError ignored) {
                         // The next idle boundary retries a busy or unavailable journal.
+                        return;
                     }
+                    // 个人词库每同步一次只写 4 条，导入的词库又按队列空位分批送进来。这里把下一批送进去，只要还有没写完的（队列里还有，或者刚送进了新的）就马上再来一轮，直到全部写完。每一轮都回到主线程重新确认此刻没有输入会话：键盘一弹出就停，下次空闲时接着写。
+                    DictionaryCollectionsStore.Result<Integer> sent = DictionaryCollectionsStore.flushSent(this);
+                    if (queued > 0 || (sent.value() != null && sent.value() > 0))
+                        main.post(() -> schedulePersonalDictionarySynchronization(true));
                 });
             } catch (RuntimeException ignored) {
                 // Service shutdown owns the final worker state.

@@ -1,6 +1,7 @@
 package app.msime.android;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Locale;
 
 /** Shared character-level checks for text accepted by Android host policies. */
 public final class TextPolicy {
@@ -77,6 +78,16 @@ public final class TextPolicy {
     /** Encode UTF-8 request text, treating a missing value as empty text. */
     public static byte[] utf8Bytes(String value) {
         return (value == null ? "" : value).getBytes(StandardCharsets.UTF_8);
+    }
+
+    /** Return lowercase text using the stable root locale, treating null as empty. */
+    public static String lowercase(String value) {
+        return (value == null ? "" : value).toLowerCase(Locale.ROOT);
+    }
+
+    /** Return uppercase text using the stable root locale, treating null as empty. */
+    public static String uppercase(String value) {
+        return (value == null ? "" : value).toUpperCase(Locale.ROOT);
     }
 
     /** Return the number of Unicode code points in text, or zero for null. */

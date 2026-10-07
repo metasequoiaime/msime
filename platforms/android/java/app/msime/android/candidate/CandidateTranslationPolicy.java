@@ -7,7 +7,6 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -129,6 +128,6 @@ public final class CandidateTranslationPolicy {
     }
 
     private static String normalize(String value) {
-        return value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
+        return TextPolicy.lowercase(value == null ? "" : value.trim());
     }
 }
