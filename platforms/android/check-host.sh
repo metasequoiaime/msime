@@ -550,6 +550,14 @@ if ! rg -q 'VoiceConfiguration\.read' \
   echo "Android keyboard voice must read the shared provider resolution" >&2
   exit 1
 fi
+# 键盘每换一个输入框都会重建引擎会话（#5680）。会话建好时要直接用上建会话前读到的那份实时偏好作为第一份快照，没有会话的那一段工具栏按钮开关要用上次真正读到的；否则冷启动的应用里皮肤、输入方式两个按钮先灰约一秒，剪贴板按钮先缺一格、其余按钮跟着挪位。
+if ! sed -n '/private void startEngineSession(String optionsText, String livePreferences)/,/^    }$/p' "$account_service" \
+    | rg -q 'applyPreferencesSnapshot\(value\(livePreferences\)\)' \
+  || ! rg -q '"handwriting_theme", "touch_toolbar"\}' "$account_service" \
+  || ! rg -q 'appearance \|\| rememberedToolbar == null' "$account_service"; then
+  echo "Android toolbar must not start each editor from the factory-default preference copy" >&2
+  exit 1
+fi
 # The JNI translation unit is the one place a Java declaration and a shared FFI signature have to agree, and nothing else in this script reads it: a method declared native in Java compiles whether or not the C++ side exists. Compiling it for the real target catches that without the full native build, which needs vcpkg, the Rust Android targets and the pinned speech runtime. A machine without the pinned NDK skips it and says so.
 ndk=${MSIME_ANDROID_NDK:-${android_sdk}/ndk/28.2.13676358}
 case $(uname -s) in

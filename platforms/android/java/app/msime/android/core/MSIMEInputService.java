@@ -631,7 +631,11 @@ public final class MSIMEInputService extends InputMethodService {
         if (localModes == null) localModes = new JSONObject();
         applyCandidateAppearance(preferences);
         applyTouchGeometry(preferences);
-        applyToolbarPreferences(preferences);
+        // 工具栏按钮开关与皮肤同理：runtime-options.json 那份出厂默认里剪贴板按钮是关的，拿它画，新打开的应用里工具栏先少一格、其余按钮跟着挪位，一两秒后实时偏好到了才补回来（#5680）。那条路径改用上次真正读到的开关，没有时才退回这份副本。
+        JSONObject toolbar = appearance || rememberedToolbar == null
+            ? (preferences == null ? null : preferences.optJSONObject("touch_toolbar"))
+            : rememberedToolbar;
+        applyToolbarPreferences(preferences, toolbar);
         applyVoicePreferences(preferences);
         applyAiPreferences(preferences);
         applyClipboardPreference(preferences);
@@ -1319,12 +1323,12 @@ public final class MSIMEInputService extends InputMethodService {
     private void scheduleEngineStartup(String options, long generation) {
         Runnable complete = () -> {
             if (generation != engineStartGeneration || connection == null || session != 0) return;
-            startEngineSession(options);
+            startEngineSession(options, null);
         };
         boolean suppressLearning = learningSuppressed();
         try {
             preferencesWorker.execute(() -> {
-                String startOptions = withLivePreferences(options, suppressLearning);
+                EngineStartOptions startOptions = withLivePreferences(options, suppressLearning);
                 String notice = "";
                 try {
                     JSONObject sync = value(NativeClient.personalDictionarySync(options));
@@ -1340,7 +1344,7 @@ public final class MSIMEInputService extends InputMethodService {
                 main.post(() -> {
                     if (generation != engineStartGeneration || connection == null || session != 0) return;
                     if (!finalNotice.isEmpty()) preferencesNotice = finalNotice;
-                    startEngineSession(startOptions);
+                    startEngineSession(startOptions.options(), startOptions.livePreferences());
                 });
             });
         } catch (RuntimeException ignored) {
@@ -1352,24 +1356,32 @@ public final class MSIMEInputService extends InputMethodService {
     /**
      * runtime-options.json 里的偏好是首次安装时写下的出厂默认（见 Bootstrap.prepare），拿它建会话，引擎先按默认方案（全拼 26 键）起来，过一两秒实时偏好重载后才换成用户的方案，九键用户每次都看到键盘从 26 键跳成九键。建会话前在工作线程上读一次实时偏好换进去；读不到时照旧用原来那份。不允许学习的输入框照样把 learning 关掉。
      */
-    private static String withLivePreferences(String optionsText, boolean suppressLearning) {
+    private static EngineStartOptions withLivePreferences(String optionsText, boolean suppressLearning) {
         try {
             JSONObject options = new JSONObject(optionsText);
             String directory = options.optString("preferences_directory", "");
-            if (directory.isEmpty() || !new File(directory).isAbsolute()) return optionsText;
-            JSONObject envelope = new JSONObject(NativeClient.loadPreferences(directory));
+            if (directory.isEmpty() || !new File(directory).isAbsolute())
+                return new EngineStartOptions(optionsText, null);
+            String response = NativeClient.loadPreferences(directory);
+            JSONObject envelope = new JSONObject(response);
             JSONObject live = JsonPolicy.strictTrue(envelope.opt("ok"))
                 ? envelope.getJSONObject("value").optJSONObject("preferences") : null;
-            if (live == null) return optionsText;
+            if (live == null) return new EngineStartOptions(optionsText, null);
             if (suppressLearning) live.put("learning", false);
             options.put("preferences", live);
-            return options.toString();
+            return new EngineStartOptions(options.toString(), response);
         } catch (JSONException | RuntimeException | LinkageError error) {
-            return optionsText;
+            return new EngineStartOptions(optionsText, null);
         }
     }
 
-    private void startEngineSession(String optionsText) {
+    /** 建会话用的运行时选项，以及换进去的那份实时偏好的原始 loadPreferences 响应（没读到时为 null）。 */
+    private record EngineStartOptions(String options, String livePreferences) {}
+
+    /**
+     * @param livePreferences 建会话前刚在工作线程上读到的实时偏好（原始响应），会话建好后直接作为第一份偏好快照应用；null 时等 preferencesReloader 读。
+     */
+    private void startEngineSession(String optionsText, String livePreferences) {
         try {
             JSONObject options = new JSONObject(optionsText);
             // 选中只吃掉部分输入的候选时，让运行时把已选的那一段留在组字里而不是立刻上屏。这个宿主
@@ -1397,14 +1409,21 @@ public final class MSIMEInputService extends InputMethodService {
                 imeLetterRows.rebuildKeyRows();
             }
             refreshEnglishSuggestions();
+            String directory = options.optString("preferences_directory", "");
+            boolean hasPreferencesDirectory = !directory.isEmpty() && new File(directory).isAbsolute();
+            if (hasPreferencesDirectory) preferencesDirectory = directory;
+            // 建会话前刚读过的实时偏好直接作为第一份快照：原先要等 preferencesReloader 在工作线程上再读一遍、回到主线程后才有 preferencesSnapshot，冷启动的应用里这段要一秒左右，其间皮肤和输入方式两个工具栏按钮按「设置加载中」画成灰色（#5680）。应用失败不影响会话，下面的 reloader 马上再读一次并报告。
+            if (hasPreferencesDirectory && livePreferences != null) {
+                try {
+                    applyPreferencesSnapshot(value(livePreferences));
+                } catch (JSONException | LinkageError ignored) {
+                    // Never log preferences or native responses; the reloader retries.
+                }
+            }
             // 先清掉「准备中」再画，否则这次 render 还会把过期的模式标签留在读音行上。
             message = "";
             render();
-            String directory = options.optString("preferences_directory", "");
-            if (!directory.isEmpty() && new File(directory).isAbsolute()) {
-                preferencesDirectory = directory;
-                preferencesReloader.start(directory, this::reloadPreferences);
-            }
+            if (hasPreferencesDirectory) preferencesReloader.start(directory, this::reloadPreferences);
         } catch (Exception | LinkageError error) {
             stop(false);
             message = "共享运行时未就绪：仅直接输入";
@@ -1492,7 +1511,12 @@ public final class MSIMEInputService extends InputMethodService {
 
     /** `touch_toolbar` 的按钮开关，以及功能面板直接切换的模糊音、单手、隐私三项；缺键时按 Android 的默认值读。 */
     private void applyToolbarPreferences(JSONObject preferences) {
-        JSONObject toolbar = preferences == null ? null : preferences.optJSONObject("touch_toolbar");
+        applyToolbarPreferences(preferences,
+            preferences == null ? null : preferences.optJSONObject("touch_toolbar"));
+    }
+
+    /** 同上，按钮开关取自 `toolbar` 而不是 `preferences` 自己的 `touch_toolbar`。 */
+    private void applyToolbarPreferences(JSONObject preferences, JSONObject toolbar) {
         toolbarEmoji = toolbar == null || toolbar.optBoolean("emoji", true);
         toolbarClipboard = toolbar == null || toolbar.optBoolean("clipboard", true);
         toolbarSkin = toolbar == null || toolbar.optBoolean("skin", true);
@@ -3660,12 +3684,14 @@ public final class MSIMEInputService extends InputMethodService {
         return surfaceSkin(preferences, "screen_keyboard_theme");
     }
 
-    /** 决定键盘、表情与手写面板皮肤的偏好字段；{@link #rememberSkinHint} 只记这几项。 */
+    /** 决定键盘、表情与手写面板皮肤的偏好字段，加上工具栏按钮开关 `touch_toolbar`；{@link #rememberSkinHint} 只记这几项。 */
     private static final String[] SKIN_HINT_KEYS = {"global_theme", "custom_theme", "theme",
-        "screen_keyboard_theme", "emoji_theme", "handwriting_theme"};
+        "screen_keyboard_theme", "emoji_theme", "handwriting_theme", "touch_toolbar"};
     /** 上次换上的皮肤所用的偏好片段，存在键盘进程自己的 filesDir 里。 */
     private static final String SKIN_HINT_FILE = "keyboard-skin-hint.json";
     private String writtenSkinHint;
+    /** 最近一次真正读到的偏好里的 `touch_toolbar`（启动时来自皮肤片段文件）；没有时为 null。 */
+    private JSONObject rememberedToolbar;
 
     /**
      * 记下这次换上的皮肤所依据的偏好片段，下次键盘进程启动时在偏好读到之前就用它画第一帧。
@@ -3682,6 +3708,8 @@ public final class MSIMEInputService extends InputMethodService {
         } catch (JSONException error) {
             return;
         }
+        JSONObject toolbar = hint.optJSONObject("touch_toolbar");
+        if (toolbar != null) rememberedToolbar = toolbar;
         String text = hint.toString();
         if (text.equals(writtenSkinHint)) return;
         writtenSkinHint = text;
@@ -3707,7 +3735,9 @@ public final class MSIMEInputService extends InputMethodService {
             if (bytes == null) return null;
             String text = TextPolicy.utf8(bytes);
             writtenSkinHint = text;
-            return new JSONObject(text);
+            JSONObject hint = new JSONObject(text);
+            rememberedToolbar = hint.optJSONObject("touch_toolbar");
+            return hint;
         } catch (Exception ignored) {
             return null;
         }
