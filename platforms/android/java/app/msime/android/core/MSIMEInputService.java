@@ -6599,7 +6599,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (scriptShortcutButton != null) {
             ViewPolicy.hide(scriptShortcutButton);
             scriptShortcutButton.setText(traditionalChineseOutput ? "繁" : "简");
-            scriptShortcutButton.setSelected(traditionalChineseOutput);
+            ViewPolicy.setSelected(scriptShortcutButton, traditionalChineseOutput);
             imeStyler.styleButton(scriptShortcutButton, true);
             int scheme = view == null
                 ? ((selectedScheme == KeyboardScheme.JAPANESE
