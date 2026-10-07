@@ -41,7 +41,7 @@ public final class CandidateTranslationPolicy {
         if (translation == null || translation.isEmpty()) return List.of();
         ArrayList<String> result = new ArrayList<>(MAX_TARGETS);
         for (String value : translation.split("\\R", -1)) {
-            String gloss = value.trim();
+            String gloss = TextPolicy.trimmed(value);
             if (gloss.isEmpty() || result.contains(gloss)
                     || TextPolicy.utf8Length(gloss) > 4096
                     || TextPolicy.hasControl(gloss) || !TextPolicy.validUnicode(gloss)) continue;
@@ -128,6 +128,6 @@ public final class CandidateTranslationPolicy {
     }
 
     private static String normalize(String value) {
-        return TextPolicy.lowercase(value == null ? "" : value.trim());
+        return TextPolicy.lowercase(TextPolicy.trimmed(value));
     }
 }
