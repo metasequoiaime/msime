@@ -446,6 +446,65 @@ pub fn pack(tokens: &[Token], size: usize, costs: &[i16]) -> Result<Vec<u8>> {
     Ok(output)
 }
 
+/// The inverse of [`pack`]: the tokens in file order, the connection matrix size and its costs. Fails on a file `pack` could not have written (bad magic or version, offsets past the end, strings that are not UTF-8 at a token's bounds).
+pub fn unpack(bytes: &[u8]) -> Result<(Vec<Token>, usize, Vec<i16>)> {
+    fn read<const N: usize>(bytes: &[u8], at: u64) -> Result<[u8; N]> {
+        let at = usize::try_from(at)?;
+        bytes
+            .get(at..at + N)
+            .and_then(|slice| slice.try_into().ok())
+            .context("MSJPDT1 file is truncated")
+    }
+    if bytes.len() < HEADER_SIZE as usize || &bytes[..8] != MAGIC {
+        bail!("not an MSJPDT1 file");
+    }
+    let version = u32::from_le_bytes(read(bytes, 8)?);
+    if version != 1 {
+        bail!("MSJPDT1 version {version} is not supported");
+    }
+    let token_count = u64::from(u32::from_le_bytes(read(bytes, 12)?));
+    let size = u64::from(u32::from_le_bytes(read(bytes, 16)?));
+    let token_offset = u64::from_le_bytes(read(bytes, 24)?);
+    let connection_offset = u64::from_le_bytes(read(bytes, 32)?);
+    let string_offset = u64::from_le_bytes(read(bytes, 40)?);
+    let string_size = u64::from_le_bytes(read(bytes, 48)?);
+    let strings = bytes
+        .get(usize::try_from(string_offset)?..usize::try_from(string_offset + string_size)?)
+        .context("MSJPDT1 string table is out of bounds")?;
+    let text = |offset: u32, length: u16| -> Result<String> {
+        let start = usize::try_from(offset)?;
+        let slice = strings
+            .get(start..start + usize::from(length))
+            .context("MSJPDT1 token string is out of bounds")?;
+        Ok(std::str::from_utf8(slice)
+            .context("MSJPDT1 token string is not UTF-8")?
+            .to_owned())
+    };
+    let mut tokens = Vec::with_capacity(usize::try_from(token_count)?);
+    for index in 0..token_count {
+        let at = token_offset + index * 20;
+        let reading_offset = u32::from_le_bytes(read(bytes, at)?);
+        let reading_length = u16::from_le_bytes(read(bytes, at + 4)?);
+        let surface_offset = u32::from_le_bytes(read(bytes, at + 6)?);
+        let surface_length = u16::from_le_bytes(read(bytes, at + 10)?);
+        tokens.push(Token {
+            reading: text(reading_offset, reading_length)?,
+            surface: text(surface_offset, surface_length)?,
+            left: u16::from_le_bytes(read(bytes, at + 12)?),
+            right: u16::from_le_bytes(read(bytes, at + 14)?),
+            cost: i32::from_le_bytes(read(bytes, at + 16)?),
+        });
+    }
+    let mut costs = Vec::with_capacity(usize::try_from(size * size)?);
+    for index in 0..size * size {
+        costs.push(i16::from_le_bytes(read(
+            bytes,
+            connection_offset + index * 2,
+        )?));
+    }
+    Ok((tokens, usize::try_from(size)?, costs))
+}
+
 pub fn write_model(output: &Path, bytes: &[u8]) -> Result<()> {
     let temporary = output.with_extension("dat.tmp");
     let mut file = std::fs::File::create(&temporary)?;
@@ -458,6 +517,34 @@ pub fn write_model(output: &Path, bytes: &[u8]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unpack_reads_back_what_pack_wrote() {
+        let tokens = vec![
+            Token {
+                reading: "かな".to_owned(),
+                surface: "仮名".to_owned(),
+                left: 1,
+                right: 0,
+                cost: 500,
+            },
+            Token {
+                reading: "かな".to_owned(),
+                surface: "かな".to_owned(),
+                left: 0,
+                right: 1,
+                cost: 400,
+            },
+        ];
+        let costs = [0, -3, 7, 12];
+        let bytes = pack(&tokens, 2, &costs).unwrap();
+        let (read, size, read_costs) = unpack(&bytes).unwrap();
+        assert_eq!(read, tokens);
+        assert_eq!(size, 2);
+        assert_eq!(read_costs, costs);
+        assert!(unpack(&bytes[..40]).is_err());
+        assert!(unpack(b"not a model at all, but long enough for a header.......").is_err());
+    }
 
     #[test]
     fn tokens_are_deduplicated_sorted_and_packed() {
