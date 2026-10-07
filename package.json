@@ -8,7 +8,15 @@
     "tauri": "pnpm --filter @msime/desktop tauri",
     "lint": "vp lint packages/ui/src apps/desktop/src apps/desktop/tests apps/harmony/src",
     "format": "vp fmt vite.config.ts packages/ui/src apps/desktop/src apps/desktop/tests apps/harmony/src",
-    "format:check": "vp fmt --check vite.config.ts packages/ui/src apps/desktop/src apps/desktop/tests apps/harmony/src"
+    "format:check": "vp fmt --check vite.config.ts packages/ui/src apps/desktop/src apps/desktop/tests apps/harmony/src",
+    "verify-agent-note-tree": "node .agents/skills/write-notes-like-deepseek/scripts/verify-agent-note-tree.ts",
+    "verify-agent-note-format": "node .agents/skills/write-notes-like-deepseek/scripts/verify-agent-note-format.ts",
+    "verify-archived": "node .agents/skills/write-notes-like-deepseek/scripts/verify-archived-agent-notes.ts",
+    "verify-notes": "node .agents/skills/write-notes-like-deepseek/scripts/verify-agent-note-tree.ts && node .agents/skills/write-notes-like-deepseek/scripts/verify-agent-note-format.ts && node .agents/skills/write-notes-like-deepseek/scripts/verify-archived-agent-notes.ts",
+    "archive-agent-note": "node .agents/skills/write-notes-like-deepseek/scripts/archive-agent-note.ts",
+    "check-anchors": "node .agents/skills/write-notes-like-deepseek/scripts/check-note-anchors.ts",
+    "init-board": "node .agents/skills/write-notes-like-deepseek/scripts/build-board.ts --init board.html \"工程决策看板\"",
+    "bundle-board": "node .agents/skills/write-notes-like-deepseek/scripts/build-board.ts --bundle .agents/notes demo.html \"工程决策看板\""
   },
   "devDependencies": {
     "vite-plus": "1.0.0"
