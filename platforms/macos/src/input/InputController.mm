@@ -3472,6 +3472,20 @@ static __weak MSIMEInputController *MSIMEFocusedController;
 - (NSDictionary *)inputSchemeHostOptions {
     return [_session respondsToSelector:@selector(hostOptions)] ? _session.hostOptions : MSIMELoadRuntimeOptions();
 }
+// 共享偏好文档是方案的权威来源：设置页、`msime config set`、云端同步和本输入法自己都写它，NSUserDefaults 里的 `MSIMEClientInputScheme` 只有本输入法自己写。外观设置在载入文档之前退回那份本地值，而文档平时在激活之后才于后台载入，所以输入法进程重新启动后（重新登录、重启、更新），控制器会先按本输入法上次写下的旧方案把菜单栏选到它的模式、把它记为已同步，期间的任何一次保存还会把它写回文档。用户在设置页选了全拼，下次再用又回到双拼，就是这样来的（#4288）。因此在本进程第一次按外观设置行事之前——客户端获得焦点、或者系统先报告了模式——同步载入一次文档；之后的改动照旧由每秒一次的轮询带来。读不到文档时什么也不做，交给那次后台载入。
+- (void)applySharedInputPreferencesBeforeFirstUse {
+    if (!_appearance || _appearance.sharedInputPreferencesApplied) return;
+    NSString *directory = _preferencesDirectory;
+    if (!directory) {
+        id configured = [self runtimeOptions][@"preferences_directory"];
+        if ([configured isKindOfClass:NSString.class] && [configured isAbsolutePath]) directory = configured;
+    }
+    if (!directory) return;
+    // 与 applyPreferencesToSessionNow 一样在主线程直接读：只在本进程第一次用到时读这一次，不经过后台轮询的读取入口。
+    NSDictionary *snapshot = [MSIMEClientSession loadPreferencesInDirectory:directory error:nil];
+    NSDictionary *preferences = [snapshot isKindOfClass:NSDictionary.class] ? snapshot[@"preferences"] : nil;
+    if ([preferences isKindOfClass:NSDictionary.class]) [_appearance applySharedInputPreferences:preferences];
+}
 // 在系统输入菜单里打开一个按需模式。只有 Engine 会话会碰到 TIS；测试的替身会话只走测试设的 enabler，没有就什么也不做，所以测试不会改开发者的输入菜单。返回 NO 表示模式没有打开——没有发出请求，或者系统拒绝了——这次切换不记为已同步，下一次同步再试；以前不论 TIS 返回什么都算成功，启用失败一次，这个模式就再也不会被打开。
 - (BOOL)enableOptInInputMode:(NSString *)identifier {
     if (_optInInputModeEnabler) return _optInInputModeEnabler(identifier) == noErr;
@@ -3502,6 +3516,7 @@ static __weak MSIMEInputController *MSIMEFocusedController;
     if (focused && focused != self) { [focused systemDidReportInputMode:value client:sender]; return; }
     if (!MSIMEAdoptReportedInputMode(MSIMESharedSystemInputModeState(), value)) return;
     [self ensureAppearance];
+    [self applySharedInputPreferencesBeforeFirstUse];
     // The report can arrive before activateServer: or handleEvent: has named the client, and the mode is remembered per application.
     [_appearance activateInputModeForApplication:[sender respondsToSelector:@selector(bundleIdentifier)] ? [sender bundleIdentifier] : nil];
     // Moving from 英 to 日 changes two things, and each change syncs the menu bar on its own: between them it would select 中 or 英 again and the system would report that back as a new choice. Holding `selecting` keeps both quiet, and the sync below selects the one mode they add up to. 英 leaves the scheme alone, so returning to any other mode afterwards finds it where it was.
@@ -4288,6 +4303,7 @@ static __weak MSIMEInputController *MSIMEFocusedController;
     [self ensureAppearance];
     msime_macos_diagnostic_write("focus_in");
     if (_activeClient && _activeClient != sender) [self apply:[_session setFocused:NO error:nil]];
+    [self applySharedInputPreferencesBeforeFirstUse];
     [_appearance activateInputModeForApplication:[sender respondsToSelector:@selector(bundleIdentifier)] ? [sender bundleIdentifier] : nil];
     // The Chinese/English state is remembered per application and survives a restart, while the menu bar shows whichever mode was selected last; align the two as this client takes focus. That also covers a toggle made while no client could be asked to switch.
     [self syncSystemInputModeForClient:sender];
@@ -5239,6 +5255,7 @@ static __weak MSIMEInputController *MSIMEMusicOwner;
         MSIMEFocusedController = self;
         // Whatever the previous client was last given says nothing about this one.
         [self invalidateSmartPunctuationShadow];
+        [self applySharedInputPreferencesBeforeFirstUse];
         [_appearance activateInputModeForApplication:[sender respondsToSelector:@selector(bundleIdentifier)] ? [sender bundleIdentifier] : nil];
         [self syncSystemInputModeForClient:sender];
         // Punctuation and width are per app, so the new client's values reach the Engine before it types.
