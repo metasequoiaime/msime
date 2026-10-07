@@ -343,7 +343,7 @@ public final class KeyboardFragment extends HomeTabFragment {
         Ui.applyStatusMark(mark, requireContext(), done);
         TextView button = view.findViewById(actionId);
         ViewPolicy.setVisible(button, !done);
-        button.setOnClickListener(done ? null : ignored -> action.run());
+        ViewPolicy.bindOptionalClick(button, done ? null : action);
         button.setTextColor(ColorStateList.valueOf(Ui.accent(requireContext())));
         view.findViewById(rowId).setContentDescription(
             getString(label) + (done ? "，已完成" : "，未完成"));
