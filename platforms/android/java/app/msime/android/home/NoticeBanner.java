@@ -1,5 +1,7 @@
 package app.msime.android.home;
 
+import app.msime.android.TextPolicy;
+
 import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
@@ -60,7 +62,7 @@ final class NoticeBanner {
                 String title = NoticeFieldPolicy.strictString(item.opt("title"));
                 String body = NoticeFieldPolicy.strictString(item.opt("body"));
                 if (id == null || title == null || body == null) continue;
-                title = title.trim();
+                title = TextPolicy.trimmed(title);
                 if (id.isEmpty() || title.isEmpty()) continue;
                 notices.add(new Notice(id, title, body));
             }
