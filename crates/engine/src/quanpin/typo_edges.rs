@@ -4,7 +4,6 @@ use crate::cache::FifoCache;
 use crate::dictionary::pinyin::PinyinDatabase;
 use crate::dictionary::DictRow;
 use crate::lattice::{SentencePath, TypoEdge};
-use crate::pinyin::segment::join_segments;
 use crate::pinyin::typos::{autocorrect_bit, base_cost, discounted, syllable_typos};
 use crate::text::count_utf8_chars;
 use crate::user_dictionary::typo_profile::PersonalTypoProfile;
@@ -118,9 +117,13 @@ fn plan_keys(
                     if start + length > n {
                         break;
                     }
-                    let mut span = segments[start..start + length].to_vec();
-                    span[position - start] = typo.syllable.clone();
-                    let key = join_segments(&span);
+                    let key = typo_span_key(
+                        segments,
+                        start,
+                        start + length,
+                        position - start,
+                        &typo.syllable,
+                    );
                     if planned_key_seen(&planned, &key) {
                         continue;
                     }
@@ -142,6 +145,33 @@ fn plan_keys(
 
 fn planned_key_seen(planned: &[PlannedKey], key: &str) -> bool {
     planned.iter().any(|entry| entry.key == key)
+}
+
+/// 直接拼接替换后的短音节范围，避免先复制整个范围再改写一个位置。
+fn typo_span_key(
+    segments: &[String],
+    start: usize,
+    end: usize,
+    replaced: usize,
+    replacement: &str,
+) -> String {
+    debug_assert!(start < end);
+    debug_assert!(replaced < end - start);
+    let original_bytes = segments[start..end].iter().map(String::len).sum::<usize>();
+    let capacity =
+        original_bytes - segments[start + replaced].len() + replacement.len() + end - start - 1;
+    let mut key = String::with_capacity(capacity);
+    for (offset, segment) in segments[start..end].iter().enumerate() {
+        if offset > 0 {
+            key.push('\'');
+        }
+        if offset == replaced {
+            key.push_str(replacement);
+        } else {
+            key.push_str(segment);
+        }
+    }
+    key
 }
 
 #[cfg(test)]
@@ -174,5 +204,41 @@ mod tests {
 
         assert!(found);
         assert_eq!(allocations, 0);
+    }
+
+    #[test]
+    fn typo_span_key_replaces_one_segment_without_a_temporary_vector() {
+        let segments = ["ni".to_owned(), "hao".to_owned(), "ma".to_owned()];
+
+        let (key, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            typo_span_key(&segments, 0, 3, 1, "he")
+        });
+
+        assert_eq!(key, "ni'he'ma");
+        assert_eq!(key.capacity(), key.len());
+        assert_eq!(allocations, 1);
+    }
+
+    #[test]
+    fn typo_span_keys_match_cloned_ranges_at_every_replacement_position() {
+        let segments = [
+            "ni".to_owned(),
+            "hao".to_owned(),
+            "ma".to_owned(),
+            "ba".to_owned(),
+        ];
+        for start in 0..segments.len() {
+            for end in start + 1..=segments.len() {
+                for replaced in 0..end - start {
+                    for replacement in ["", "he", "shang"] {
+                        let mut expected = segments[start..end].to_vec();
+                        expected[replaced] = replacement.to_owned();
+                        let key = typo_span_key(&segments, start, end, replaced, replacement);
+                        assert_eq!(key, expected.join("'"));
+                        assert_eq!(key.capacity(), key.len());
+                    }
+                }
+            }
+        }
     }
 }
