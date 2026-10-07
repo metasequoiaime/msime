@@ -793,7 +793,7 @@ public final class Ui {
     /** 设置字号（sp）与字重。 */
     public static void style(TextView view, int sizeSp, int weight, @ColorInt int color) {
         ViewPolicy.setTextSizeSp(view, sizeSp);
-        view.setTypeface(Typeface.create(Typeface.DEFAULT, weight, false));
+        ViewPolicy.setTypefaceWeight(view, weight);
         ViewPolicy.setTextColor(view, color);
     }
 

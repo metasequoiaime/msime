@@ -1,6 +1,7 @@
 package app.msime.android;
 
 import android.content.Context;
+import android.graphics.Typeface;
 import android.view.Gravity;
 import android.view.View;
 import android.util.TypedValue;
@@ -211,6 +212,11 @@ public final class ViewPolicy {
     /** Apply a typeface style while preserving the text view's current family. */
     public static void setTypefaceStyle(TextView view, int style) {
         view.setTypeface(view.getTypeface(), style);
+    }
+
+    /** Apply a default-family typeface with the supplied numeric weight. */
+    public static void setTypefaceWeight(TextView view, int weight) {
+        view.setTypeface(Typeface.create(Typeface.DEFAULT, weight, false));
     }
 
     /** Set a text view's size in scalable pixels. */
