@@ -6652,7 +6652,7 @@ public final class MSIMEInputService extends InputMethodService {
         }
         if (clipboardShortcutButton != null) {
             ViewPolicy.setVisible(clipboardShortcutButton, toolbarClipboard);
-            clipboardShortcutButton.setEnabled(CloudClipboardPanelPolicy.panelAvailable(
+            ViewPolicy.setEnabled(clipboardShortcutButton, CloudClipboardPanelPolicy.panelAvailable(
                 clipboardHistoryEnabled, imePanels.cloudClipboardAllowed()));
             ViewPolicy.setSelected(clipboardShortcutButton, imePanels.clipboardPanelOpen());
         }
