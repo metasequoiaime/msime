@@ -51,4 +51,9 @@ public final class BoundsPolicy {
     public static float atLeast(float value, float minimum) {
         return Math.max(value, minimum);
     }
+
+    /** 统计图里的计数是 long；没有这个重载时 long 实参会落到 float 版本上，既编译不过赋值，大数也会丢精度。 */
+    public static long atLeast(long value, long minimum) {
+        return Math.max(value, minimum);
+    }
 }

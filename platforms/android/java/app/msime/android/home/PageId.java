@@ -1,5 +1,6 @@
 package app.msime.android.home;
 
+import app.msime.android.TextPolicy;
 import androidx.annotation.Nullable;
 import app.msime.android.HostDeepLink;
 import java.util.Arrays;
