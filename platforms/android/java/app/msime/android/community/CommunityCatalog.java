@@ -342,7 +342,7 @@ public final class CommunityCatalog {
         String id = strictString(value.opt("id"));
         String name = strictString(value.opt("name"));
         if (id == null || name == null) return null;
-        name = name.trim();
+        name = TextPolicy.trimmed(name);
         JSONObject payload = skin ? value.optJSONObject("design") : value.optJSONObject("content");
         Long saves = count(value, "saves", skin ? "downloads" : null);
         Long ratings = count(value, "rating_count", null);
@@ -360,7 +360,7 @@ public final class CommunityCatalog {
         String author = value.has("author") ? strictString(value.opt("author")) : "";
         Boolean owned = value.has("owned") ? strictBoolean(value.opt("owned")) : Boolean.FALSE;
         if (description == null || author == null || owned == null) return null;
-        Item item = new Item(id, kind, name, description.trim(), author.trim(), saves, ratings,
+        Item item = new Item(id, kind, name, TextPolicy.trimmed(description), TextPolicy.trimmed(author), saves, ratings,
             average, payload, category, owned, downloads, value);
         return validItem(item, kind) ? item : null;
     }
@@ -455,7 +455,7 @@ public final class CommunityCatalog {
     }
 
     private static boolean validName(String value, int maximum) {
-        return value != null && !value.isEmpty() && value.trim().equals(value)
+        return value != null && !value.isEmpty() && TextPolicy.trimmed(value).equals(value)
             && TextPolicy.withinCodePoints(value, maximum)
             && !CommunityTextPolicy.hasDisallowedControl(value, false);
     }
