@@ -6665,7 +6665,7 @@ public final class MSIMEInputService extends InputMethodService {
         }
         if (aiPolishShortcutButton != null) {
             ViewPolicy.hide(aiPolishShortcutButton);
-            aiPolishShortcutButton.setEnabled(aiPolishReady());
+            ViewPolicy.setEnabled(aiPolishShortcutButton, aiPolishReady());
         }
         if (replyShortcutButton != null) {
             // 回复面板不属于任何输入方案，每个方案都显示这个入口；未配置 AI 时面板里会提示去设置。开着时始终可点，用来收起面板。
