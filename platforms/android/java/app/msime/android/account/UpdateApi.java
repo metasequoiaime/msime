@@ -251,11 +251,6 @@ public final class UpdateApi {
         return SHA256.matcher(digest).matches() ? digest : null;
     }
 
-    /** org.json's optString coerces numbers; release metadata must keep its JSON string types. */
-    static String strictString(Object value) {
-        return value instanceof String ? (String) value : null;
-    }
-
     /** 读 msime.app 的发行版列表：`{items:[{tag,version,prerelease,…}]}`，只保留平台是 android 的条目。 */
     public static List<Release> parseReleases(String json) throws Failure {
         try {
@@ -268,11 +263,11 @@ public final class UpdateApi {
                 if (item == null) continue;
                 Object rawPlatform = item.opt("platform");
                 String platform = rawPlatform == null || rawPlatform == JSONObject.NULL
-                    ? "android" : strictString(rawPlatform);
+                    ? "android" : JsonPolicy.strictString(rawPlatform);
                 if (!"android".equals(platform)) continue;
                 Object prerelease = item.opt("prerelease");
-                String tag = strictString(item.opt("tag"));
-                String version = strictString(item.opt("version"));
+                String tag = JsonPolicy.strictString(item.opt("tag"));
+                String version = JsonPolicy.strictString(item.opt("version"));
                 if (tag == null || version == null || tag.isEmpty() || version.isEmpty()
                         || !(prerelease instanceof Boolean)) continue;
                 releases.add(new Release(tag, version, (Boolean) prerelease));
@@ -502,5 +497,10 @@ public final class UpdateApi {
         int status = connection.getResponseCode();
         InputStream body = status >= HttpURLConnection.HTTP_BAD_REQUEST ? connection.getErrorStream() : connection.getInputStream();
         return new Exchange(status, connection.getHeaderField("Location"), connection.getContentLengthLong(), body);
+    }
+
+    /** Compatibility entry point retained for the host smoke contract. */
+    static String strictString(Object value) {
+        return JsonPolicy.strictString(value);
     }
 }

@@ -9,6 +9,11 @@ public final class JsonPolicy {
         return Boolean.TRUE.equals(value);
     }
 
+    /** Accept only a JSON string; numbers and booleans are not coerced to text. */
+    public static String strictString(Object value) {
+        return value instanceof String ? (String) value : null;
+    }
+
     /** Quote a JSON string, escaping controls and the two JSON-hostile line separators. */
     public static String quote(String value) {
         String source = TextPolicy.emptyIfNull(value);

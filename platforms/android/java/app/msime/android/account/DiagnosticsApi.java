@@ -152,13 +152,13 @@ public final class DiagnosticsApi {
             CloudApi.Auth.ACCOUNT_OR_ANONYMOUS);
         try {
             JSONObject root = response.json();
-            String id = strictString(root.opt("id"));
-            String token = strictString(root.opt("token"));
+            String id = JsonPolicy.strictString(root.opt("id"));
+            String token = JsonPolicy.strictString(root.opt("token"));
             if (id == null || token == null || id.isEmpty() || token.isEmpty()) {
                 throw new CloudApi.Failure(response.status(), "invalid_response", "snapshot id or token missing", 0);
             }
-            String url = strictString(root.opt("mcp_url"));
-            String expiresAt = strictString(root.opt("expires_at"));
+            String url = JsonPolicy.strictString(root.opt("mcp_url"));
+            String expiresAt = JsonPolicy.strictString(root.opt("expires_at"));
             return new Created(id, url == null || url.isEmpty() ? mcpUrl(id) : url, token,
                 expiresAt == null ? "" : expiresAt);
         } catch (JSONException malformed) {
@@ -175,7 +175,7 @@ public final class DiagnosticsApi {
     /** 换一枚访问令牌，旧令牌立即作废；返回新令牌（只出现这一次）。 */
     public String regenerateToken() throws CloudApi.Failure {
         JSONObject root = api.json("POST", PATH + "/token", new JSONObject(), CloudApi.Auth.ACCOUNT_OR_ANONYMOUS);
-        String token = strictString(root.opt("token"));
+        String token = JsonPolicy.strictString(root.opt("token"));
         if (token == null || token.isEmpty()) throw new CloudApi.Failure(200, "invalid_response", "token missing", 0);
         return token;
     }
@@ -343,7 +343,7 @@ public final class DiagnosticsApi {
             List<String> sections = new ArrayList<>(names == null ? 0 : names.length());
             if (names != null) {
                 for (int i = 0; i < names.length(); i++) {
-                    String section = strictString(names.opt(i));
+                    String section = JsonPolicy.strictString(names.opt(i));
                     if (section != null) sections.add(section);
                 }
             }
@@ -362,7 +362,7 @@ public final class DiagnosticsApi {
                 String at = optionalString(item, "at");
                 String tool = optionalString(item, "tool");
                 String rawArguments = arguments == null || arguments == JSONObject.NULL
-                    ? "" : strictString(arguments);
+                    ? "" : JsonPolicy.strictString(arguments);
                 Long resultCount = optionalInteger(item, "result_count");
                 Long bytes = optionalInteger(item, "bytes");
                 if (at == null || tool == null || rawArguments == null || resultCount == null || bytes == null
@@ -383,7 +383,7 @@ public final class DiagnosticsApi {
     /** Optional response strings: absent/null means empty, every other JSON type is malformed. */
     static String optionalString(JSONObject object, String key) {
         if (object == null || !object.has(key) || object.isNull(key)) return "";
-        return strictString(object.opt(key));
+        return JsonPolicy.strictString(object.opt(key));
     }
 
     /** Optional response integers: absent/null means zero, every other non-integer is malformed. */
@@ -411,8 +411,9 @@ public final class DiagnosticsApi {
         out.append(JsonPolicy.quote(value));
     }
 
-    /** org.json's optString coerces numbers; credentials and identifiers must stay JSON strings. */
+    /** Compatibility entry point retained for the host smoke contract. */
     static String strictString(Object value) {
-        return value instanceof String ? (String) value : null;
+        return JsonPolicy.strictString(value);
     }
+
 }
