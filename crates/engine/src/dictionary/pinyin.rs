@@ -618,6 +618,24 @@ fn deduplicate_by_value(rows: &mut Vec<DictRow>) {
     if rows.len() < 2 {
         return;
     }
+    // 长词续接每次最多收集 3 * 12 行；这个规模用已保留行线性扫描比建立哈希表更省分配。
+    if rows.len() <= 36 {
+        let mut write = 0;
+        for read in 0..rows.len() {
+            if rows[..write]
+                .iter()
+                .any(|row| row.value.as_str() == rows[read].value.as_str())
+            {
+                continue;
+            }
+            if write != read {
+                rows.swap(write, read);
+            }
+            write += 1;
+        }
+        rows.truncate(write);
+        return;
+    }
     // Check duplicate values through borrowed slices, then retain in place after releasing the set.
     let mut seen = HashSet::with_capacity(rows.len());
     let duplicates = rows
@@ -975,6 +993,24 @@ mod tests {
 
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].value, "你");
+    }
+
+    #[test]
+    fn value_dedup_for_longer_phrases_does_not_allocate() {
+        let mut rows = (0..36)
+            .map(|index| DictRow {
+                key: format!("key-{index}"),
+                value: format!("value-{}", index % 18),
+                weight: index,
+            })
+            .collect::<Vec<_>>();
+
+        let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            deduplicate_by_value(&mut rows);
+        });
+
+        assert_eq!(allocations, 0);
+        assert_eq!(rows.len(), 18);
     }
 
     #[test]
