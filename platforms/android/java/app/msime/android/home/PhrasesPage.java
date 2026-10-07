@@ -82,7 +82,7 @@ public final class PhrasesPage extends DetailPage {
         EditText field = dialog.addField("输入常用语", null,
             InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
         // 常用语可以多行：换成多行输入框，高度随内容长到 6 行。
-        field.setSingleLine(false);
+        ViewPolicy.setSingleLine(field, false);
         ViewPolicy.setMinLines(field, 3);
         ViewPolicy.setMaxLines(field, 6);
         ViewPolicy.setTopStart(field);
