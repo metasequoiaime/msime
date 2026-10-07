@@ -6701,7 +6701,7 @@ public final class MSIMEInputService extends InputMethodService {
             ViewPolicy.setVisible(shiftButton, KeyboardLayout.carriesLetterCase(shiftLayout)
                 || (!keepsOwnGrid && keyboardLayer != KeyboardLayout.Layer.LETTERS));
             shiftButton.setText(letterCase.keyText());
-            shiftButton.setSelected(letterCase.usesUppercase());
+            ViewPolicy.setSelected(shiftButton, letterCase.usesUppercase());
             shiftButton.setActivated(letterCase.mode() == EnglishLetterCaseState.Mode.CAPS_LOCK);
             // The final applySkin() traversal styles this attached button once.
             String caseLabel = shiftLayout == KeyboardLayout.KOREAN_LAYOUT
