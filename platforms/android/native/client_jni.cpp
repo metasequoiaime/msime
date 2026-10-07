@@ -109,6 +109,8 @@ constexpr jsize kEnglishCompletionResourcesLimit = 4096;
 constexpr jsize kApplyTranslationsLimit = 1 * 1024 * 1024;
 constexpr jsize kShuangpinProfileLimit = 64;
 constexpr jsize kSmartPunctuationRequestLimit = 4096;
+// 更长的请求 msime_client_glide 自己也会拒绝；这里先查，免得复制一个超大的数组。
+constexpr jsize kGlideRequestLimit = 65536;
 constexpr jsize kTraditionalConversionLimit = 1 * 1024 * 1024;
 constexpr jsize kOnlineQueryLimit = 16384;
 constexpr jsize kOnlineBodyLimit = 262144;
@@ -493,6 +495,19 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_punctuationWith
         return nullptr;
     }
     return response(env, msime_client_punctuation_with_context(static_cast<uint64_t>(handle), static_cast<uint8_t>(ascii), static_cast<uint32_t>(preceding)));
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_glideRaw(JNIEnv *env, jclass, jlong handle, jbyteArray request) {
+    if (!request) return response(env, msime_client_glide(static_cast<uint64_t>(handle), nullptr, 0));
+    jsize length = env->GetArrayLength(request);
+    if (length > kGlideRequestLimit) {
+        return response(env, msime_client_glide(static_cast<uint64_t>(handle), nullptr, 0));
+    }
+    jbyte *bytes = env->GetByteArrayElements(request, nullptr);
+    if (!bytes) return nullptr;
+    char *result = msime_client_glide(static_cast<uint64_t>(handle),
+        reinterpret_cast<const uint8_t *>(bytes), static_cast<size_t>(length));
+    env->ReleaseByteArrayElements(request, bytes, JNI_ABORT);
+    return response(env, result);
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_smartPunctuationArmRaw(JNIEnv *env, jclass, jlong handle, jbyteArray request) {
     if (!request) return response(env, msime_client_smart_punctuation_arm(static_cast<uint64_t>(handle), nullptr, 0));
