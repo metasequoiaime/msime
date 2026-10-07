@@ -6740,7 +6740,7 @@ public final class MSIMEInputService extends InputMethodService {
             }
         }
         if (skinButton != null) {
-            skinButton.setVisibility(toolbarSkin ? View.VISIBLE : View.GONE);
+            ViewPolicy.setVisible(skinButton, toolbarSkin);
             skinButton.setSelected(skinScroll != null && skinScroll.getVisibility() == View.VISIBLE);
             // 同上：保存进行中的点按由 ImePanels.showSkinPicker 按 canSaveKeyboardSkin 忽略，图标不跟着变灰。
             skinButton.setEnabled(session != 0 && preferencesSnapshot != null && !preferencesDirectory.isEmpty());
