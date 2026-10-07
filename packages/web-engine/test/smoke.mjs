@@ -1,4 +1,4 @@
-// 对组装好的 npm 包（scripts/build-web-engine.sh 写出的 target/web-engine/npm/package）做端到端冒烟：用 Node 的 HTTP 服务器提供 wasm 和 gzip 过的词库，经 createMsimeEngine、worker.js 的消息处理、加载代码和 wasm 打 nihao + 空格，断言上屏；再验证 CLI 的 copy、方案切换、点选、404 和缺词库时的错误。
+// 对组装好的 npm 包（scripts/build-web-engine.sh 写出的 target/web-engine/npm/package）做端到端冒烟：用 Node 的 HTTP 服务器提供 wasm 和 gzip 过的词库，经 createMsimeEngine、worker.js 的消息处理、加载代码和 wasm 打 nihao + 空格，断言上屏；再验证不带词库的韩文、CLI 的 copy、方案切换、点选、404 和缺词库时的错误。
 //
 // Node 没有浏览器的 Worker，这里用一个同进程的替身：把消息结构化克隆后交给 worker.js 导出的 createWorkerHandler，回复同样克隆后作为 message 事件派发。真正的 Worker 加载路径由浏览器测试覆盖。
 //
@@ -107,6 +107,7 @@ try {
   await engine.setScheme("xiaohe");
   assert.equal(engine.scheme, "xiaohe");
   await assert.rejects(engine.setScheme("wubi86"), (e) => e.code === "unsupported");
+  await assert.rejects(engine.setScheme("korean"), (e) => e.code === "unsupported");
   const reset = await engine.reset();
   assert.equal(reset.composing, false);
 
@@ -116,6 +117,23 @@ try {
   engine.dispose();
   await assert.rejects(engine.keys(letters("a")), (e) => e.code === "disposed");
   assert.equal(errors, 0);
+
+  // 3b. 韩文只下载 wasm：不导入词库也能拼音节，Shift 打双辅音，空格先上屏音节再打出自己。
+  const korean = await sdk.createMsimeEngine({
+    worker: () => new InProcessWorker(),
+    scheme: "korean",
+    assets: { wasm: assets().wasm, db: null, model: null },
+  });
+  assert.equal(korean.scheme, "korean");
+  const hangul = await korean.keys([...letters("dkssu"), packKey(KeyKind.ShiftLetter, "T".charCodeAt(0))]);
+  assert.deepEqual(hangul.out, [{ t: "commit", text: "안", seat: -1 }]);
+  assert.equal(hangul.preedit, "녔");
+  const spaced = await korean.keys(packKey(KeyKind.Space));
+  assert.deepEqual(spaced.out, [{ t: "commit", text: "녔", seat: -1 }, { t: "type", text: " " }]);
+  assert.equal(spaced.composing, false);
+  await assert.rejects(korean.setScheme("quanpin"), (e) => e.code === "unsupported");
+  korean.dispose();
+  console.log("smoke: korean dkssuT + Space -> 안녔");
 
   // 4. 词库 404：network，消息里提示部署位置。
   await assert.rejects(

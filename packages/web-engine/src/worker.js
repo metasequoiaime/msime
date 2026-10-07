@@ -147,7 +147,7 @@ export function createWorkerHandler(post, close) {
       return;
     }
     const timings = { fetch: 0, compile: 0, import: 0, session: 0 };
-    const total = assets.wasm.size + assets.db.size + (assets.model?.size ?? 0);
+    const total = assets.wasm.size + (assets.db?.size ?? 0) + (assets.model?.size ?? 0);
     let loaded = 0;
     let lastPost = 0;
     const count = (n) => {
@@ -174,7 +174,7 @@ export function createWorkerHandler(post, close) {
       "fetch",
       (async () => {
         const [db, m] = await Promise.all([
-          gunzip(assets.db, abort.signal, count),
+          assets.db ? gunzip(assets.db, abort.signal, count) : Promise.resolve(null),
           assets.model ? gunzip(assets.model, abort.signal, count) : Promise.resolve(null),
         ]);
         timings.fetch = performance.now() - t0;
@@ -193,7 +193,8 @@ export function createWorkerHandler(post, close) {
     let phase = "import";
     try {
       const t1 = performance.now();
-      import_database(DB_PATH, files.db);
+      // 韩文没有词库要导入。
+      if (files.db) import_database(DB_PATH, files.db);
       timings.import = performance.now() - t1;
       phase = "session";
       const t2 = performance.now();

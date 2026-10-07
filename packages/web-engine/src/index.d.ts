@@ -1,6 +1,7 @@
 // @msime/web-engine 的类型。帧的字段与 crates/engine-wasm/src/bindings.rs 的 frame_to_js 一一对应。
 
-export type MsimeScheme = "quanpin" | "xiaohe" | "ziranma" | "wubi86";
+/** korean 是韩文两套式（두벌식）：只下载 wasm，音节在组字区拼好后自动上屏，没有候选。 */
+export type MsimeScheme = "quanpin" | "xiaohe" | "ziranma" | "wubi86" | "korean";
 
 export declare const SCHEMES: readonly MsimeScheme[];
 /** 这个包的版本，也是其中 wasm 和词库的 web-engine 版本。 */
@@ -58,9 +59,9 @@ export interface MsimeAssetRef {
 
 export interface MsimeAssets {
   wasm: MsimeAssetRef;
-  /** 拼音方案用拼音库，五笔用五笔 86 库。 */
-  db: MsimeAssetRef;
-  /** 整句模型；五笔或不需要时为 null。 */
+  /** 拼音方案用拼音库，五笔用五笔 86 库；韩文不用词库，为 null。 */
+  db: MsimeAssetRef | null;
+  /** 整句模型；五笔、韩文或不需要时为 null。 */
   model: MsimeAssetRef | null;
 }
 
@@ -103,7 +104,7 @@ export interface MsimeEngine {
   pick(slot: number): Promise<MsimeFrame>;
   /** 取消组字、清空上下文。 */
   reset(): Promise<MsimeFrame>;
-  /** 在 quanpin、xiaohe、ziranma 之间切换；和 wubi86 互换需要新建引擎。 */
+  /** 在 quanpin、xiaohe、ziranma 之间切换；和 wubi86、korean 互换需要新建引擎。 */
   setScheme(scheme: MsimeScheme): Promise<void>;
   setModelEnabled(enabled: boolean): void;
   /** 页面空闲时的退格是否真的删字；页面拒绝删除时传 false，引擎的上下文就不会跟着弹出。 */
