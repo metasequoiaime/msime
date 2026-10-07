@@ -6643,7 +6643,7 @@ public final class MSIMEInputService extends InputMethodService {
                 && emojiPanel.getVisibility() == View.VISIBLE);
         }
         if (phraseShortcutButton != null) {
-            phraseShortcutButton.setVisibility(toolbarPhrase ? View.VISIBLE : View.GONE);
+            ViewPolicy.setVisible(phraseShortcutButton, toolbarPhrase);
             phraseShortcutButton.setEnabled(session != 0 && !preferencesDirectory.isEmpty());
             phraseShortcutButton.setSelected(phraseScroll != null
                 && phraseScroll.getVisibility() == View.VISIBLE);
