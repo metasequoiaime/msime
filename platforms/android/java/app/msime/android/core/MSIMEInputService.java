@@ -6590,8 +6590,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (shortcutScroll != null)
             ViewPolicy.setVisible(shortcutScroll, !heightMode && idle && !hasDiagnostic && !toolbarHidden);
         if (candidateLine != null)
-            candidateLine.setVisibility(!heightMode && !idle && !hasDiagnostic
-                ? View.VISIBLE : View.GONE);
+            ViewPolicy.setVisible(candidateLine, !heightMode && !idle && !hasDiagnostic);
         if (replyKeyboard == null || replyKeyboard.getVisibility() != View.VISIBLE)
             imeBottomRow.updateActionRow();
         if (candidateViewport != null)
