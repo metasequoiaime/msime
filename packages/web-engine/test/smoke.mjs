@@ -1,4 +1,4 @@
-// 对组装好的 npm 包（scripts/build-web-engine.sh 写出的 target/web-engine/npm/package）做端到端冒烟：用 Node 的 HTTP 服务器提供 wasm 和 gzip 过的词库，经 createMsimeEngine、worker.js 的消息处理、加载代码和 wasm 打 nihao + 空格，断言上屏；再验证不带词库的韩文、CLI 的 copy、方案切换、点选、404 和缺词库时的错误。
+// 对组装好的 npm 包（scripts/build-web-engine.sh 写出的 target/web-engine/npm/package）做端到端冒烟：用 Node 的 HTTP 服务器提供 wasm 和 gzip 过的词库，经 createMsimeEngine、worker.js 的消息处理、加载代码和 wasm 打 nihao + 空格，断言上屏；再验证不带词库的韩文、带最小日语模型的日语、CLI 的 copy、方案切换、点选、404 和缺词库时的错误。
 //
 // Node 没有浏览器的 Worker，这里用一个同进程的替身：把消息结构化克隆后交给 worker.js 导出的 createWorkerHandler，回复同样克隆后作为 message 事件派发。真正的 Worker 加载路径由浏览器测试覆盖。
 //
@@ -32,8 +32,45 @@ const { KeyKind, packKey } = sdk;
 const wasmBytes = readFileSync(join(pkgDir, "assets/msime_engine_bg.wasm"));
 const rawDb = readFileSync(db);
 const gzDb = gzipSync(rawDb);
+// 最小的日语模型（MSJPDT1，布局见 crates/dict-builder/src/japanese.rs 的 pack）：にほん→日本、にほんご→日本語，1×1 连接矩阵。
+function japaneseModel(entries) {
+  const enc = new TextEncoder();
+  const strings = [];
+  let stringBytes = 0;
+  const tokens = Buffer.alloc(entries.length * 20);
+  entries.forEach(([reading, surface, cost], i) => {
+    const at = i * 20;
+    for (const [k, text] of [reading, surface].entries()) {
+      const bytes = enc.encode(text);
+      tokens.writeUInt32LE(stringBytes, at + k * 6);
+      tokens.writeUInt16LE(bytes.length, at + 4 + k * 6);
+      strings.push(bytes);
+      stringBytes += bytes.length;
+    }
+    tokens.writeInt32LE(cost, at + 16);
+  });
+  const header = Buffer.alloc(56);
+  header.write("MSJPDT1\0", 0, "latin1");
+  header.writeUInt32LE(1, 8);
+  header.writeUInt32LE(entries.length, 12);
+  header.writeUInt32LE(1, 16);
+  header.writeBigUInt64LE(56n, 24);
+  header.writeBigUInt64LE(BigInt(56 + tokens.length), 32);
+  header.writeBigUInt64LE(BigInt(56 + tokens.length + 2), 40);
+  header.writeBigUInt64LE(BigInt(stringBytes), 48);
+  return Buffer.concat([header, tokens, Buffer.alloc(2), ...strings]);
+}
+const rawJapanese = japaneseModel([
+  ["にほん", "日本", 1000],
+  ["にほんご", "日本語", 500],
+]);
+const gzJapanese = gzipSync(rawJapanese);
+
 const server = createServer((req, res) => {
-  if (req.url === "/msime_engine_bg.wasm") {
+  if (req.url === "/msime-japanese.dat.gz") {
+    res.writeHead(200, { "Content-Type": "application/gzip" });
+    res.end(gzJapanese);
+  } else if (req.url === "/msime_engine_bg.wasm") {
     res.writeHead(200, { "Content-Type": "application/wasm" });
     res.end(wasmBytes);
   } else if (req.url === "/msime.db.gz") {
@@ -134,6 +171,27 @@ try {
   await assert.rejects(korean.setScheme("quanpin"), (e) => e.code === "unsupported");
   korean.dispose();
   console.log("smoke: korean dkssuT + Space -> 안녔");
+
+  // 3c. 日语下载并解压模型、交给引擎：组字区是假名，空格上屏整句转换，`,` 打出 、。
+  const japanese = await sdk.createMsimeEngine({
+    worker: () => new InProcessWorker(),
+    scheme: "japanese",
+    assets: {
+      wasm: assets().wasm,
+      db: null,
+      model: null,
+      japanese: { url: `${origin}/msime-japanese.dat.gz`, size: gzJapanese.length, rawSize: rawJapanese.length },
+    },
+  });
+  assert.equal(japanese.scheme, "japanese");
+  const kana = await japanese.keys(letters("nihongo"));
+  assert.equal(kana.preedit, "にほんご");
+  assert.equal(kana.page[0]?.text, "日本語", JSON.stringify(kana.page));
+  const converted = await japanese.keys([packKey(KeyKind.Space), packKey(KeyKind.Punct, ",".charCodeAt(0))]);
+  assert.deepEqual(converted.out, [{ t: "commit", text: "日本語", seat: 0 }, { t: "commit", text: "、", seat: -1 }]);
+  await assert.rejects(japanese.setScheme("quanpin"), (e) => e.code === "unsupported");
+  japanese.dispose();
+  console.log("smoke: japanese nihongo + Space -> 日本語");
 
   // 4. 词库 404：network，消息里提示部署位置。
   await assert.rejects(
