@@ -363,8 +363,7 @@ public final class AiSkinPage extends DetailPage {
             TextView chip = Ui.styledLabel(context, suggestion, 13, 400, Ui.text(context));
             chip.setSingleLine(true);
             Ui.setSymmetricPaddingDp(chip, context, 12, 6);
-            chip.setClickable(true);
-            chip.setFocusable(true);
+            ViewPolicy.setInteractive(chip, true);
             chip.setOnClickListener(ignored -> {
                 if (s.busy) return;
                 input.setText(suggestion);

@@ -328,8 +328,7 @@ final class LoginSheet {
         TextView text = Ui.styledLabel(activity, label, 16, 600, ink);
         button.addView(text);
         button.setContentDescription(label);
-        button.setClickable(true);
-        button.setFocusable(true);
+        ViewPolicy.setInteractive(button, true);
         ViewPolicy.bindClick(button, action);
         return button;
     }

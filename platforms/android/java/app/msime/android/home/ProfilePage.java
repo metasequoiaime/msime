@@ -235,8 +235,7 @@ public final class ProfilePage extends DetailPage {
         FrameLayout.LayoutParams cameraParams = Ui.squareFrameParams(context, 28);
         cameraParams.gravity = Gravity.BOTTOM | Gravity.END;
         avatar.addView(camera, cameraParams);
-        avatar.setClickable(true);
-        avatar.setFocusable(true);
+        ViewPolicy.setInteractive(avatar, true);
         avatar.setContentDescription("更换头像");
         ViewPolicy.bindClick(avatar, this::chooseAvatar);
         header.addView(avatar, Ui.squareParams(context, 92));

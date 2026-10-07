@@ -263,8 +263,7 @@ public final class CommunityAdapter extends RecyclerView.Adapter<CommunityAdapte
         pill.setBackground(filled ? Ui.pillRipple(context, Ui.accentSoft(context)) : null);
         pill.setTextColor(filled ? Ui.accent(context) : Ui.text(context));
         pill.setEnabled(enabled);
-        pill.setClickable(enabled);
-        pill.setFocusable(enabled);
+        ViewPolicy.setInteractive(pill, enabled);
         pill.setAlpha(action == Action.BUSY ? 0.6f : 1f);
         if (enabled) ViewPolicy.bindClick(pill, () -> onAction.accept(item));
         else pill.setOnClickListener(null);
