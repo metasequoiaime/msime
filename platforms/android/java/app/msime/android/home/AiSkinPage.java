@@ -1,5 +1,7 @@
 package app.msime.android.home;
 
+import app.msime.android.TextPolicy;
+
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.res.ColorStateList;
@@ -435,7 +437,7 @@ public final class AiSkinPage extends DetailPage {
     private void bindEnabled(EditText input, TextView button) {
         State s = state();
         Runnable update = () -> {
-            boolean enabled = !s.busy && !input.getText().toString().trim().isEmpty();
+            boolean enabled = !s.busy && !TextPolicy.trimmed(input.getText().toString()).isEmpty();
             button.setEnabled(enabled);
             Ui.setEnabledLook(button, enabled);
         };
@@ -452,7 +454,7 @@ public final class AiSkinPage extends DetailPage {
     /** 和描述相同的 chip 填强调色，其余是 accentSoft 底。 */
     private void styleChips(Context context, List<TextView> chips) {
         State s = state();
-        String current = s.prompt.trim();
+        String current = TextPolicy.trimmed(s.prompt);
         for (TextView chip : chips) {
             boolean on = chip.getText().toString().equals(current);
             Ui.style(chip, 13, on ? 600 : 400, on ? Ui.onAccent(context) : Ui.text(context));
@@ -499,7 +501,7 @@ public final class AiSkinPage extends DetailPage {
 
     private void generate(EditText input) {
         State s = state();
-        String text = input.getText().toString().trim();
+        String text = TextPolicy.trimmed(input.getText().toString());
         if (s.busy || text.isEmpty()) return;
         s.start(requireContext().getApplicationContext(), text);
         render();
