@@ -1,20 +1,15 @@
 #!/usr/bin/env python3
 """Every switch the Android sheets render must write a key something still reads.
 
-`InputFeatureToggle` is a table of "preference key, default, label". Nothing checked that the key on
-the left was still live: a switch whose key the shared crate renamed or stopped reading goes on
-rendering its default, so the user sees a feature on that this host offers no way to change, and
-writing the switch does nothing at all.
+`InputFeatureToggle` is a table of "preference key, default, label". Nothing checked that the key on the left was still live: a switch whose key the shared crate renamed or stopped reading goes on rendering its default, so the user sees a feature on that this host offers no way to change, and writing the switch does nothing at all.
 
-Two questions per key:
+Three questions per key:
 
-1. Does the shared schema still declare it? A typo or a renamed field fails here.
-2. Does anything outside the schema file and outside tests read it? A key that only the schema
-   mentions is a key that parses and is then dropped on the floor.
+1. Does the table's default match `impl Default for Preferences`? The sheets render that default whenever a snapshot lacks the key, so a stale one draws the switch in the opposite state from what the keyboard does. #3834 turned 云候选 off for new installs in the shared crate and left this table saying on, and the hand-written list in InputFeatureToggleSmoke carried the same stale value, so nothing noticed.
+2. Does the shared schema still declare it? A typo or a renamed field fails here.
+3. Does anything outside the schema file and outside tests read it? A key that only the schema mentions is a key that parses and is then dropped on the floor.
 
-The second is the one that matters and the one no other gate asks. It is deliberately crude - any
-reference counts - because the failure it is built for is a field with *zero* readers, and a
-stricter rule would start arguing about what counts as a read.
+The first runs everywhere. The third needs ripgrep and is deliberately crude - any reference counts - because the failure it is built for is a field with *zero* readers, and a stricter rule would start arguing about what counts as a read.
 """
 import pathlib
 import re
@@ -27,18 +22,46 @@ TOGGLES = ROOT / "platforms/android/java/app/msime/android/settings/InputFeature
 SCHEMA = ROOT / "crates/client-core/src/preferences.rs"
 
 # `NAME(Group.X, "key", default, "title", "description")`
-ENTRY = re.compile(r"^\s*[A-Z_]+\(Group\.[A-Z_]+,\s*\"([a-z0-9_]+)\"", re.MULTILINE)
+ENTRY = re.compile(r"^\s*[A-Z_]+\(Group\.[A-Z_]+,\s*\"([a-z0-9_]+)\",\s*(true|false)\b", re.MULTILINE)
+
+# Defaults in `impl Default for Preferences` that are a function call rather than a literal, as that function evaluates on Android. smart_punctuation_default() is `!cfg!(any(windows, target_os = "macos"))`, so true here.
+ANDROID_CALL_DEFAULTS = {"smart_punctuation_default()": True}
+
+entries = ENTRY.findall(TOGGLES.read_text())
+if len(entries) < 5:
+    sys.exit(f"expected the Android toggle table to have entries, parsed {len(entries)}")
+
+schema = SCHEMA.read_text()
+block = re.search(r"^impl Default for Preferences \{\n(.*?)^\}\n", schema, re.MULTILINE | re.DOTALL)
+if block is None:
+    sys.exit(f"no `impl Default for Preferences` block in {SCHEMA.relative_to(ROOT)}")
+default_mismatches = []
+for key, android_default in entries:
+    found = re.search(rf"^\s*{re.escape(key)}: (.+?),\s*$", block.group(1), re.MULTILINE)
+    if found is None:
+        default_mismatches.append(f"{key}: not set in `impl Default for Preferences`")
+        continue
+    value = found.group(1)
+    if value in ("true", "false"):
+        shared = value == "true"
+    elif value in ANDROID_CALL_DEFAULTS:
+        shared = ANDROID_CALL_DEFAULTS[value]
+    else:
+        default_mismatches.append(f"{key}: shared default `{value}` is not a literal; add how it evaluates on Android to ANDROID_CALL_DEFAULTS")
+        continue
+    if shared != (android_default == "true"):
+        default_mismatches.append(f"{key}: table says {android_default}, shared Preferences default is {str(shared).lower()}")
+if default_mismatches:
+    for line in default_mismatches:
+        print(f"{TOGGLES.relative_to(ROOT)}: {line}")
+    sys.exit("an Android switch renders a default the shared Preferences does not have; the sheet shows the opposite of what the keyboard does when the key is absent")
 
 # The reader search below is ripgrep. The ubuntu runner behind the contracts workflow does not ship it and that job deliberately avoids apt-get, so a missing rg skips like any other absent toolchain instead of crashing on the first key; verify-local.sh still runs this wherever rg is installed.
 if shutil.which("rg") is None:
-    print("skipped: ripgrep (rg) is not installed")
+    print(f"android preference keys: {len(entries)} toggles, defaults match; reader search skipped: ripgrep (rg) is not installed")
     sys.exit(0)
 
-keys = ENTRY.findall(TOGGLES.read_text())
-if len(keys) < 5:
-    sys.exit(f"expected the Android toggle table to have entries, parsed {len(keys)}")
-
-schema = SCHEMA.read_text()
+keys = [key for key, _ in entries]
 failures = []
 for key in keys:
     if not re.search(rf"^\s*pub {re.escape(key)}:", schema, re.MULTILINE):
@@ -84,4 +107,4 @@ if failures:
         "point it at the live key or drop the row"
     )
 
-print(f"android preference keys: {len(keys)} toggles, every key declared and read")
+print(f"android preference keys: {len(keys)} toggles, defaults match, every key declared and read")

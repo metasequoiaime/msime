@@ -18,7 +18,7 @@ import java.util.List;
 public enum InputFeatureToggle {
     LEARNING(Group.DICTIONARY, "learning", true, "记忆新词",
         "把你选过的词排到前面；只在本机学习"),
-    CLOUD_CANDIDATES(Group.DICTIONARY, "cloud_candidates", true, "云候选",
+    CLOUD_CANDIDATES(Group.DICTIONARY, "cloud_candidates", false, "云候选",
         "向服务端请求长句与新词，需要联网"),
     ENGLISH_SUGGESTIONS(Group.DICTIONARY, "english_suggestions", true, "英文联想",
         "英文模式下补全单词"),
