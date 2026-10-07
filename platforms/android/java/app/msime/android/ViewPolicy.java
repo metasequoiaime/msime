@@ -130,6 +130,11 @@ public final class ViewPolicy {
         view.setOnClickListener(ignored -> action.run());
     }
 
+    /** Bind an optional action, clearing the listener when no action is available. */
+    public static void bindOptionalClick(View view, Runnable action) {
+        view.setOnClickListener(action == null ? null : ignored -> action.run());
+    }
+
     /** Set whether a view accepts input without changing its visibility or focus policy. */
     public static void setEnabled(View view, boolean enabled) {
         view.setEnabled(enabled);
