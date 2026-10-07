@@ -4,6 +4,7 @@ import android.graphics.Color;
 import android.util.TypedValue;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewConfiguration;
 import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
@@ -124,31 +125,44 @@ final class ImeLetterRows {
     }
 
     /**
-     * 字母键的按压：开着「按键弹出」（`touch_key_popup`）时浮出气泡；开着「下滑输入符号」（`touch_swipe_down_symbols`）时，下滑超过 14 dp 松手输入右上角的提示字符，气泡同时改显示它。没有下滑时照常交给按钮自己的点击。
+     * 字母键的按压：开着「按键弹出」（`touch_key_popup`）时浮出气泡。开着「滑动输入符号」（`platform.android.swipe_down_symbols`）时，沿设置的方向（`platform.android.swipe_symbols_direction`）滑过 14 dp 松手输入右上角的提示字符；长按到系统长按时长也输入它，长按不受这两项设置影响。两种手势触发后气泡改显示提示字符，没有触发时照常交给按钮自己的点击。
      */
     private void bindLetterGestures(Button key, String face, String hint) {
         final float[] downY = new float[1];
-        final boolean[] swiped = new boolean[1];
+        final boolean[] triggered = new boolean[1];
+        Runnable hold = () -> {
+            if (triggered[0] || !key.isPressed()) return;
+            triggered[0] = true;
+            // 长按不看「按键弹出」：这是手势已触发的唯一提示。
+            showKeyPreview(key, hint);
+        };
         key.setOnTouchListener((view, event) -> {
             switch (event.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN -> {
                     downY[0] = KeyboardGeometry.fromPixels(s, event.getY());
-                    swiped[0] = false;
+                    triggered[0] = false;
                     if (touchPreference(AndroidLocalSettings.KEY_POPUP)) showKeyPreview(key, face);
+                    if (hint != null) {
+                        key.removeCallbacks(hold);
+                        key.postDelayed(hold, ViewConfiguration.getLongPressTimeout());
+                    }
                     return false;
                 }
                 case MotionEvent.ACTION_MOVE -> {
-                    if (hint != null && !swiped[0] && touchPreference(AndroidLocalSettings.SWIPE_DOWN_SYMBOLS)
-                            && SwipeDownHintPolicy.swiped(downY[0],
+                    if (hint != null && !triggered[0] && touchPreference(AndroidLocalSettings.SWIPE_DOWN_SYMBOLS)
+                            && SwipeHintPolicy.swiped(
+                                s.localSettings.choice(AndroidLocalSettings.SWIPE_SYMBOLS_DIRECTION), downY[0],
                                 KeyboardGeometry.fromPixels(s, event.getY()))) {
-                        swiped[0] = true;
+                        triggered[0] = true;
+                        key.removeCallbacks(hold);
                         if (keyPreview != null && keyPreviewOwner == key) keyPreview.setLabel(hint);
                     }
-                    return swiped[0];
+                    return triggered[0];
                 }
                 case MotionEvent.ACTION_UP -> {
+                    key.removeCallbacks(hold);
                     hideKeyPreview(key);
-                    if (!swiped[0]) return false;
+                    if (!triggered[0]) return false;
                     MotionEvent cancel = MotionEvent.obtain(event);
                     cancel.setAction(MotionEvent.ACTION_CANCEL);
                     key.onTouchEvent(cancel);
@@ -160,6 +174,7 @@ final class ImeLetterRows {
                     return true;
                 }
                 case MotionEvent.ACTION_CANCEL -> {
+                    key.removeCallbacks(hold);
                     hideKeyPreview(key);
                     return false;
                 }
@@ -324,10 +339,9 @@ final class ImeLetterRows {
             && s.displayedTouchLayout(s.view) == KeyboardLayout.KOREAN_LAYOUT;
         boolean zhuyinLayout = s.displayedTouchLayout(s.view) == KeyboardLayout.ZHUYIN_LAYOUT;
         boolean zhuyinKeycaps = zhuyinLayout && s.keyboardLayer == KeyboardLayout.Layer.LETTERS;
-        // 新设计的字母键：22 sp 键面，26 键（不含韩文与注音键面）右上角画下滑提示符。
+        // 新设计的字母键：22 sp 键面，26 键（不含韩文与注音键面）右上角画提示符。长按总能输入它，所以关掉「滑动输入符号」也照画。
         boolean standardLetters = s.keyboardLayer == KeyboardLayout.Layer.LETTERS
             && !koreanKeycaps && !zhuyinKeycaps;
-        boolean cornerHints = standardLetters && touchPreference(AndroidLocalSettings.SWIPE_DOWN_SYMBOLS);
         // The face is the policy's job; the key itself always sends its canonical lowercase form.
         java.util.List<java.util.List<String>> rows = KeyboardLayout.rows(s.keyboardLayer,
             s.displayedTouchLayout(s.view));
@@ -389,7 +403,7 @@ final class ImeLetterRows {
                     keyButton = hintButton;
                     s.shuangpinKeyButtons.add(hintButton);
                     s.shuangpinKeyInputs.add(input);
-                    String hint = cornerHints ? LetterHintTable.hint(input) : null;
+                    String hint = standardLetters ? LetterHintTable.hint(input) : null;
                     hintButton.setCornerHint(hint);
                     KeyboardGeometry.setKeyTextSize(hintButton, 22);
                     bindLetterGestures(hintButton, face, hint);
