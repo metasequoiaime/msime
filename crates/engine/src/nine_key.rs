@@ -519,21 +519,29 @@ impl NineKeySession {
         let prefixes = letter_prefixes(&digits, ENGLISH_PREFIX_BUDGET);
         let capacity = prefixes.len().saturating_mul(ENGLISH_LIMIT);
         let mut words = Vec::with_capacity(capacity);
-        let mut seen_words = HashSet::with_capacity(capacity);
         for prefix in prefixes {
             for word in english.query_prefix(&prefix, ENGLISH_LIMIT) {
                 // Only a whole code that starts with the digits counts; otherwise letters beyond the expanded prefix leak in.
                 // The database lookup key is the lowercase spelling in `pinyin`; `word` is the
                 // display form and may intentionally contain punctuation or spaces (for example
                 // the custom entry `dont` displayed as `don't`).
-                if !digits_for_word(&word.pinyin).starts_with(&digits)
-                    || !seen_words.insert(word.word.clone())
-                {
+                if !digits_for_word(&word.pinyin).starts_with(&digits) {
                     continue;
                 }
                 words.push(word);
             }
         }
+        let mut seen_words = HashSet::with_capacity(words.len());
+        let unique = words
+            .iter()
+            .map(|word| seen_words.insert(word.word.as_str()))
+            .collect::<Vec<_>>();
+        drop(seen_words);
+        words = words
+            .into_iter()
+            .zip(unique)
+            .filter_map(|(word, unique)| unique.then_some(word))
+            .collect();
         rank_english(&mut words, digits.len());
         words
     }
