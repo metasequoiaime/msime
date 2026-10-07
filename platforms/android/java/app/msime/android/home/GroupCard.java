@@ -251,7 +251,7 @@ public final class GroupCard {
         private void setAction(@Nullable Runnable action) {
             view.setBackground(action == null ? null : Ui.ripple(view.getContext()));
             ViewPolicy.setInteractive(view, action != null);
-            view.setOnClickListener(action == null ? null : ignored -> action.run());
+            ViewPolicy.bindOptionalClick(view, action);
             ViewPolicy.setEnabledWithAlpha(view, action != null, 0.38f);
         }
 
