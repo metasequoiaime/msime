@@ -436,11 +436,11 @@ impl ZhuyinScheme {
     fn open_list(&mut self) -> Result<()> {
         let count = self.syllables.len();
         self.list.clear();
-        let positions: Vec<&[String]> = self.syllables.iter().map(Syllable::allowed).collect();
+        let positions = list_positions(&self.syllables);
         for start in 0..count {
             let entries = self
                 .dictionary
-                .lookup_readings(&positions[start..], usize::MAX)?;
+                .lookup_readings(&positions[start..count], usize::MAX)?;
             self.list.reserve(entries.len());
             // 九键下同一个字可能在同一位置的两个读音下各有一条，只留较重的那条。
             let mut seen = HashSet::with_capacity(entries.len());
@@ -566,6 +566,14 @@ impl ZhuyinScheme {
         self.spelling_target = Some(target);
         Ok(())
     }
+}
+
+fn list_positions<'a>(syllables: &'a [Syllable]) -> [&'a [String]; MAX_SYLLABLES] {
+    let mut positions: [&'a [String]; MAX_SYLLABLES] = [&[]; MAX_SYLLABLES];
+    for (index, syllable) in syllables.iter().enumerate() {
+        positions[index] = syllable.allowed();
+    }
+    positions
 }
 
 fn reconversion_buffers<'a>(
@@ -701,6 +709,19 @@ mod tests {
         };
 
         assert_eq!(build_editing_keys(&syllables, &pending), "su3lc3a8");
+    }
+
+    #[test]
+    fn list_positions_keep_allowed_readings_on_the_stack() {
+        let syllables = [
+            syllable("su3", &["ㄋㄧˇ"]),
+            syllable("28c", &["ㄋㄧˇ", "ㄌㄧˇ"]),
+        ];
+
+        let positions = list_positions(&syllables);
+
+        assert_eq!(positions[0], &["ㄋㄧˇ".to_owned()]);
+        assert_eq!(positions[1], &["ㄋㄧˇ".to_owned(), "ㄌㄧˇ".to_owned()]);
     }
 
     #[test]
