@@ -6,7 +6,7 @@ use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use super::conversion::{self, MAX_SYLLABLES, Span};
+use super::conversion::{self, Span, MAX_SYLLABLES};
 use super::layout::{self, DACHEN_SYMBOLS, IDLE_SYMBOLS, SHIFT_PUNCTUATION};
 use super::nine_key::{self, NineKeyIndex};
 use super::syllable::PendingSyllable;
@@ -667,7 +667,7 @@ mod tests {
 
     use super::*;
     use crate::language_dictionary::{
-        FORMAT_VERSION, METADATA_FORMAT_VERSION, SCHEMA, open_read_only,
+        open_read_only, FORMAT_VERSION, METADATA_FORMAT_VERSION, SCHEMA,
     };
 
     const ENTRIES: [(&str, &str, i64); 15] = [

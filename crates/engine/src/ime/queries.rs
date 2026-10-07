@@ -4,12 +4,11 @@ use std::collections::HashSet;
 
 use crate::assets;
 use crate::dictionary::english::EnglishDictionary;
-use crate::local::LocalQueryResult;
 use crate::local::command::{
     command_title, query_command, translation_source, usable_command_table,
 };
-use crate::local::date_time::{LocalDateTime, query_date_time};
-use crate::local::emoji::{MIXED_RESULT_LIMIT, MODE_RESULT_LIMIT, query_emoji, query_kaomoji};
+use crate::local::date_time::{query_date_time, LocalDateTime};
+use crate::local::emoji::{query_emoji, query_kaomoji, MIXED_RESULT_LIMIT, MODE_RESULT_LIMIT};
 use crate::local::expression::query_expression;
 use crate::local::jianpin::{query_jianpin, result_limit};
 use crate::local::mention::{mention_annotation, query_mentions, usable_mentions};
@@ -17,6 +16,7 @@ use crate::local::quick_phrase::{
     merge_quick_phrases, query_quick_phrases, usable_quick_phrase_table,
 };
 use crate::local::unicode::query_unicode;
+use crate::local::LocalQueryResult;
 use crate::paths::RuntimePaths;
 use crate::shuangpin::profile::profile;
 use crate::types::{
