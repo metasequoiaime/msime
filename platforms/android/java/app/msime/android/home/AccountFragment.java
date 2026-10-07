@@ -243,7 +243,7 @@ public final class AccountFragment extends HomeTabFragment {
         if (real) {
             sync.setBackground(Ui.ripple(context));
             ViewPolicy.setInteractive(sync, true);
-            sync.setOnClickListener(ignored -> setSync(!toggle.isChecked()));
+            ViewPolicy.bindClick(sync, () -> setSync(!toggle.isChecked()));
         } else {
             ViewPolicy.setEnabledWithAlpha(sync, false, 0.38f);
         }
