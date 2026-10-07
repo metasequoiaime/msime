@@ -356,7 +356,7 @@ impl Edition {
         struct Marker {
             edition: String,
         }
-        let file = match std::fs::File::open(marker) {
+        let file = match crate::storage::open_private_file(marker) {
             Ok(file) => file,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Self::full()),
             Err(error) => return Err(error),
@@ -447,7 +447,7 @@ impl Edition {
         let path = state_root.join(Self::STATE_RECORD_FILE);
         crate::storage::reject_symlink(&path).ok()?;
         let mut text = String::new();
-        std::fs::File::open(path)
+        crate::storage::open_private_file(&path)
             .ok()?
             .take(STATE_RECORD_LIMIT)
             .read_to_string(&mut text)

@@ -936,8 +936,9 @@ fn download_and_extract(
         downloaded: total,
         total,
     });
-    let mut zip = zip::ZipArchive::new(BufReader::new(fs::File::open(&partial)?))
-        .map_err(|error| LocalModelError::UnsafeArchive(error.to_string()))?;
+    let mut zip =
+        zip::ZipArchive::new(BufReader::new(crate::storage::open_private_file(&partial)?))
+            .map_err(|error| LocalModelError::UnsafeArchive(error.to_string()))?;
     for file in files {
         check_cancel(cancel)?;
         let name = single_component(&file.name)
@@ -1169,12 +1170,7 @@ fn download_resumable(
         Err(error) if error.kind() == io::ErrorKind::NotFound => 0,
         Err(error) => return Err(error.into()),
     };
-    let mut output = fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .open(partial)?;
+    let mut output = crate::storage::open_private_file_rw(partial)?;
     let mut hasher = Sha256::new();
     let mut buffer = vec![0u8; CHUNK];
     let mut downloaded = 0u64;
@@ -1415,7 +1411,7 @@ fn extract(
     let total = model.archive.size;
     let consumed = Rc::new(Cell::new(0u64));
     let reader = Counting {
-        inner: fs::File::open(archive)?,
+        inner: crate::storage::open_private_file(archive)?,
         count: consumed.clone(),
     };
     let decoder = bzip2::read::MultiBzDecoder::new(BufReader::with_capacity(CHUNK, reader));

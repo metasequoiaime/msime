@@ -13,6 +13,20 @@ pub(crate) fn reject_symlink(path: &Path) -> io::Result<()> {
 pub(crate) fn open_private_file(path: &Path) -> io::Result<File> {
     let mut options = OpenOptions::new();
     options.read(true);
+    add_no_follow_flag(&mut options);
+    options.open(path)
+}
+
+/// Open a private document for bounded read/write access without following a leaf symlink.
+/// `create(true)` is intentional for resumable downloads; an existing link is still rejected.
+pub(crate) fn open_private_file_rw(path: &Path) -> io::Result<File> {
+    let mut options = OpenOptions::new();
+    options.read(true).write(true).create(true).truncate(false);
+    add_no_follow_flag(&mut options);
+    options.open(path)
+}
+
+fn add_no_follow_flag(options: &mut OpenOptions) {
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
@@ -24,7 +38,6 @@ pub(crate) fn open_private_file(path: &Path) -> io::Result<File> {
         const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
         options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
     }
-    options.open(path)
 }
 
 /// Create a directory and report whether the path itself is a real directory.
@@ -83,6 +96,22 @@ mod tests {
         symlink(&target, &linked).unwrap();
 
         assert!(open_private_file(&linked).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_file_rw_open_rejects_a_symlinked_leaf() {
+        use std::os::unix::fs::symlink;
+
+        let outside = tempfile::tempdir().unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let target = outside.path().join("outside.partial");
+        std::fs::write(&target, b"synthetic-target").unwrap();
+        let linked = root.path().join("download.partial");
+        symlink(&target, &linked).unwrap();
+
+        assert!(open_private_file_rw(&linked).is_err());
+        assert_eq!(std::fs::read(&target).unwrap(), b"synthetic-target");
     }
 
     #[cfg(unix)]
