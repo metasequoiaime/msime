@@ -262,6 +262,19 @@ export function localPreferenceRevision(document: Document): number | null {
     : null;
 }
 
+/** 本地偏好文档必须带有真正的对象，否则不能交给偏好映射器读取。 */
+export function validLocalPreferenceDocument(value: unknown): value is Document {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+  const document = value as Document;
+  const preferences = document["preferences"];
+  return (
+    preferences !== null &&
+    typeof preferences === "object" &&
+    !Array.isArray(preferences) &&
+    localPreferenceRevision(document) !== null
+  );
+}
+
 /**
  * Writes this host's values over a snapshot of the cloud document.
  *

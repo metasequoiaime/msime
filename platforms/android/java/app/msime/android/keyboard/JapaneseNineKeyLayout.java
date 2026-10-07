@@ -64,7 +64,7 @@ public final class JapaneseNineKeyLayout {
      */
     public static List<Integer> toggleCycle(Key key) {
         boolean literal = key.strokes().get(0).isEmpty();
-        java.util.ArrayList<Integer> cycle = new java.util.ArrayList<>();
+        java.util.ArrayList<Integer> cycle = new java.util.ArrayList<>(key.kana().size());
         for (int index = 0; index < key.kana().size(); index++) {
             if (key.kana().get(index).isEmpty()) continue;
             if (key.strokes().get(index).isEmpty() == literal) cycle.add(index);
@@ -92,7 +92,7 @@ public final class JapaneseNineKeyLayout {
     /** Center, left, up, right and down use the same direction indices as the Apple host. */
     public static int direction(float offsetX, float offsetY, float threshold) {
         if (threshold < 0) throw new IllegalArgumentException("Flick threshold cannot be negative");
-        if (Math.max(Math.abs(offsetX), Math.abs(offsetY)) < threshold) return 0;
+        if (BoundsPolicy.atLeast(Math.abs(offsetX), Math.abs(offsetY)) < threshold) return 0;
         if (Math.abs(offsetX) > Math.abs(offsetY)) return offsetX < 0 ? 1 : 3;
         return offsetY < 0 ? 2 : 4;
     }

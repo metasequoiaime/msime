@@ -1,7 +1,6 @@
 package app.msime.android.home;
 
 import android.content.Context;
-import android.content.res.Configuration;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
@@ -10,7 +9,9 @@ import android.graphics.Typeface;
 import android.util.AttributeSet;
 import android.view.View;
 import androidx.annotation.Nullable;
-import androidx.core.graphics.ColorUtils;
+import app.msime.android.BoundsPolicy;
+import app.msime.android.ColorPolicy;
+import app.msime.android.ListPolicy;
 import app.msime.android.TypingStatisticsSummary;
 import app.msime.android.TypingStatisticsSummary.Share;
 import java.util.List;
@@ -52,10 +53,15 @@ public final class DistributionView extends View {
 
     /** 换一组占比和画法。 */
     public void setShares(List<Share> values, Style chart) {
-        shares = values == null ? List.of() : List.copyOf(values);
+        shares = ListPolicy.copyOrEmpty(values);
         total = TypingStatisticsSummary.total(shares);
         style = chart;
-        StringBuilder spoken = new StringBuilder();
+        int spokenCapacity = 0;
+        for (Share share : shares) {
+            spokenCapacity += share.title().length()
+                + String.valueOf(TypingStatisticsSummary.share(share.count(), total)).length() + 2;
+        }
+        StringBuilder spoken = new StringBuilder(spokenCapacity);
         for (Share share : shares) {
             if (spoken.length() > 0) spoken.append('，');
             spoken.append(share.title()).append(' ')
@@ -70,23 +76,22 @@ public final class DistributionView extends View {
     private int colour(int index) {
         Context context = getContext();
         int accent = Ui.accent(context);
-        int mix = MIX[Math.min(index, MIX.length - 1)];
-        return ColorUtils.blendARGB(Ui.card(context), accent, mix / 100f);
+        int mix = MIX[BoundsPolicy.atMost(index, MIX.length - 1)];
+        return ColorPolicy.blend(Ui.card(context), accent, mix / 100f);
     }
 
     private int track() {
-        boolean dark = (getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK)
-            == Configuration.UI_MODE_NIGHT_YES;
+        boolean dark = Ui.isNight(getContext());
         return dark ? Ui.withAlpha(Color.WHITE, .1f) : Ui.withAlpha(Color.BLACK, .07f);
     }
 
     @Override protected void onMeasure(int widthSpec, int heightSpec) {
         Context context = getContext();
-        int rows = Math.max(1, shares.size());
+        int rows = BoundsPolicy.bounded(shares.size(), 1, Integer.MAX_VALUE);
         float height = switch (style) {
             case STACK -> STACK_HEIGHT + 12 + LEGEND_ROW * ((rows + 1) / 2);
             case BARS -> BAR_ROW * rows;
-            case DONUT -> Math.max(DONUT, LEGEND_ROW * rows);
+            case DONUT -> BoundsPolicy.atLeast(LEGEND_ROW * rows, DONUT);
         };
         setMeasuredDimension(MeasureSpec.getSize(widthSpec),
             resolveSize(Ui.dp(context, height), heightSpec));
@@ -117,7 +122,8 @@ public final class DistributionView extends View {
         for (int index = 0; index < shares.size(); index++) {
             float part = total <= 0 ? 0 : width * shares.get(index).count() / (float) total;
             fill.setColor(colour(index));
-            box.set(x, 0, Math.max(x, x + part - (index < shares.size() - 1 ? gap : 0)), height);
+            box.set(x, 0, BoundsPolicy.atLeast(
+                x + part - (index < shares.size() - 1 ? gap : 0), x), height);
             canvas.drawRect(box, fill);
             x += part;
         }
@@ -151,7 +157,8 @@ public final class DistributionView extends View {
             float part = total <= 0 ? 0 : (right - left) * share.count() / (float) total;
             if (part > 0) {
                 fill.setColor(colour(index));
-                box.set(left, middle - barHeight / 2, left + Math.max(barHeight, part), middle + barHeight / 2);
+            box.set(left, middle - barHeight / 2,
+                left + BoundsPolicy.atLeast(part, barHeight), middle + barHeight / 2);
                 canvas.drawRoundRect(box, barHeight / 2, barHeight / 2, fill);
             }
             styleText(14, Typeface.NORMAL, Ui.subText(context));
@@ -209,7 +216,7 @@ public final class DistributionView extends View {
     }
 
     private void styleText(int sizeSp, int weight, int colour) {
-        text.setTextSize(Ui.dp(getContext(), sizeSp));
+        text.setTextSize(Ui.sp(getContext(), sizeSp));
         text.setTypeface(Typeface.create(Typeface.DEFAULT, weight));
         text.setColor(colour);
     }

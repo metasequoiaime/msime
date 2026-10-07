@@ -55,7 +55,7 @@ public final class FeedbackApi {
 
     /** 描述的字符数（按 Unicode 码点计，和服务端一致）。 */
     public static int length(String text) {
-        return text == null ? 0 : text.codePointCount(0, text.length());
+        return TextPolicy.codePointLength(text);
     }
 
     /** 描述去掉首尾空白后非空、不超过 500 个字符、不含换行和制表以外的控制字符时可以提交。 */
@@ -72,19 +72,10 @@ public final class FeedbackApi {
         for (String key : DIAGNOSTIC_KEYS) {
             String value = raw.get(key);
             if (value == null) continue;
-            String trimmed = clip(stripControls(value).trim(), MAX_DIAGNOSTIC_VALUE_BYTES);
+            String trimmed = clip(TextPolicy.replaceControls(value, ' ').trim(), MAX_DIAGNOSTIC_VALUE_BYTES);
             if (!trimmed.isEmpty()) clean.put(key, trimmed);
         }
         return clean;
-    }
-
-    private static String stripControls(String value) {
-        StringBuilder out = new StringBuilder(value.length());
-        for (int index = 0; index < value.length(); index++) {
-            char c = value.charAt(index);
-            out.append(Character.isISOControl(c) ? ' ' : c);
-        }
-        return out.toString();
     }
 
     /** 按 UTF-8 字节截断，不切开代理对。 */
@@ -144,6 +135,12 @@ public final class FeedbackApi {
                 shot.contentType(), shot.bytes()));
         }
         JSONObject response = api.multipart(PATH, parts, CloudApi.Auth.ACCOUNT_OR_ANONYMOUS);
-        return response.optString("id", "");
+        String id = strictString(response.opt("id"));
+        return id == null ? "" : id;
+    }
+
+    /** org.json's optString coerces numbers; response identifiers must keep their JSON type. */
+    static String strictString(Object value) {
+        return value instanceof String ? (String) value : null;
     }
 }

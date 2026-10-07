@@ -1,5 +1,6 @@
 package app.msime.android.home;
 
+import app.msime.android.KeyboardGeometry;
 import android.content.Context;
 import android.graphics.drawable.ClipDrawable;
 import android.graphics.drawable.Drawable;
@@ -9,6 +10,7 @@ import android.util.AttributeSet;
 import android.view.Gravity;
 import android.widget.SeekBar;
 import androidx.annotation.Nullable;
+import app.msime.android.ViewPolicy;
 import java.util.function.IntConsumer;
 
 /**
@@ -50,11 +52,11 @@ public final class MsSlider extends SeekBar {
         setThumb(thumb);
         setThumbOffset(Ui.dp(context, Ui.SLIDER_THUMB_WIDTH) / 2);
         setSplitTrack(false);
-        setBackground(null);
+        ViewPolicy.clearBackground(this);
         // 左右留出半个滑块，滑块在两端时不会被裁掉。
         int inset = Ui.dp(context, Ui.SLIDER_THUMB_WIDTH);
-        setPadding(inset, 0, inset, 0);
-        setMinimumHeight(Ui.dp(context, Ui.SLIDER_TOUCH_HEIGHT));
+        Ui.setHorizontalPaddingPx(this, inset);
+        Ui.setMinimumHeightDp(this, context, Ui.SLIDER_TOUCH_HEIGHT);
 
         setOnSeekBarChangeListener(new OnSeekBarChangeListener() {
             @Override public void onProgressChanged(SeekBar bar, int progress, boolean fromUser) {
@@ -90,7 +92,7 @@ public final class MsSlider extends SeekBar {
     /** 设置当前值，不在区间里时夹到端点，不在步长上时取最近的一格。 */
     public void setValue(int value) {
         int slot = Math.round((value - min) / (float) step);
-        setProgress(Math.max(0, Math.min(getMax(), slot)));
+        setProgress(KeyboardGeometry.bounded(slot, 0, getMax()));
     }
 
     /** 拖动过程中每一格都回调，用来实时刷新数值标签。 */

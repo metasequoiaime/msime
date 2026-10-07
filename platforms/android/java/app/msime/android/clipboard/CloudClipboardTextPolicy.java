@@ -13,6 +13,6 @@ public final class CloudClipboardTextPolicy {
         if (text == null || TextPolicy.blank(text) || text.length() > MAX_UTF16_UNITS) {
             return false;
         }
-        return !TextPolicy.hasControlExceptWhitespace(text);
+        return !TextPolicy.hasControlExceptWhitespace(text) && TextPolicy.validUnicode(text);
     }
 }

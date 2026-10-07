@@ -8,14 +8,20 @@ import android.graphics.RectF;
 import android.graphics.Path;
 import android.graphics.Typeface;
 import android.view.View;
-
 /**
  * Small deterministic keyboard miniature used by the in-keyboard skin picker.
  *
  * <p>{@link #drawTile} 是新皮肤面板瓷砖用的版本：按设计 MiniKb 画一整副缩小的 26 键键盘（工具栏、四行带提示字的键、指示条）。{@link #drawPreview} 保留给仍需要大号带字缩略图的地方。
  */
 public final class KeyboardSkinPreview extends View {
-    static final class TileDrawState {
+    private interface MiniDrawState {
+        Paint paint();
+        Paint text();
+        RectF rect();
+        Path chevron();
+    }
+
+    static final class TileDrawState implements MiniDrawState {
         final KeyboardSkinBackgroundDrawable background;
         final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
         final Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -26,6 +32,36 @@ public final class KeyboardSkinPreview extends View {
         TileDrawState(KeyboardSkin skin, float density) {
             background = new KeyboardSkinBackgroundDrawable(skin, density);
         }
+
+        @Override public Paint paint() { return paint; }
+        @Override public Paint text() { return text; }
+        @Override public RectF rect() { return rect; }
+        @Override public Path chevron() { return chevron; }
+    }
+
+    static final class SplitDrawState implements MiniDrawState {
+        final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        final Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
+        final RectF rect = new RectF();
+        final Path clip = new Path();
+        final Path half = new Path();
+        final int returnBackground;
+        final int returnForeground;
+        final int keyForeground;
+        final int accent;
+
+        SplitDrawState() {
+            KeyboardSkin system = KeyboardSkin.system(false);
+            returnBackground = Color.parseColor(system.returnBackground());
+            returnForeground = Color.parseColor(system.returnForeground());
+            keyForeground = Color.parseColor(system.keyForeground());
+            accent = Color.parseColor(system.accent());
+        }
+
+        @Override public Paint paint() { return paint; }
+        @Override public Paint text() { return text; }
+        @Override public RectF rect() { return rect; }
+        @Override public Path chevron() { return half; }
     }
 
     private static final String[][] PREVIEW_ROWS = {
@@ -38,23 +74,48 @@ public final class KeyboardSkinPreview extends View {
     private final RectF previewBounds = new RectF();
     private final Paint previewText = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final RectF previewKey = new RectF();
+    private PreviewDrawState previewDrawState;
+
+    private static final class PreviewDrawState {
+        final KeyboardSkinBackgroundDrawable background;
+        final KeyboardSkinKeyDrawable[][] keys;
+
+        PreviewDrawState(KeyboardSkin skin, float density) {
+            background = new KeyboardSkinBackgroundDrawable(skin, density);
+            keys = new KeyboardSkinKeyDrawable[PREVIEW_ROWS.length][];
+            int keyFill = Color.parseColor(skin.keyBackground());
+            int actionFill = Color.parseColor(skin.actionBackground());
+            for (int rowIndex = 0; rowIndex < PREVIEW_ROWS.length; rowIndex++) {
+                String[] row = PREVIEW_ROWS[rowIndex];
+                keys[rowIndex] = new KeyboardSkinKeyDrawable[row.length];
+                for (int index = 0; index < row.length; index++) {
+                    boolean action = rowIndex == PREVIEW_ROWS.length - 1
+                        || index == 0 && rowIndex == 2;
+                    keys[rowIndex][index] = new KeyboardSkinKeyDrawable(skin,
+                        action ? actionFill : keyFill, action, density);
+                }
+            }
+        }
+    }
 
     public KeyboardSkinPreview(Context context, KeyboardSkin skin) {
         super(context);
         this.skin = skin;
+        previewDrawState = new PreviewDrawState(skin, KeyboardGeometry.density(context));
         setWillNotDraw(false);
     }
 
     public void setSkin(KeyboardSkin value) {
         skin = value;
+        previewDrawState = new PreviewDrawState(value, KeyboardGeometry.density(getContext()));
         invalidate();
     }
 
     @Override protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
         previewBounds.set(0, 0, getWidth(), getHeight());
-        drawPreview(canvas, previewBounds, skin, getResources().getDisplayMetrics().density,
-            previewText, previewKey);
+        drawPreview(canvas, previewBounds, skin, KeyboardGeometry.density(getContext()),
+            previewText, previewKey, previewDrawState);
     }
 
     public static void drawPreview(Canvas canvas, RectF bounds, KeyboardSkin skin,
@@ -64,14 +125,22 @@ public final class KeyboardSkinPreview extends View {
 
     private static void drawPreview(Canvas canvas, RectF bounds, KeyboardSkin skin,
                                     float density, Paint reusableText, RectF reusableKey) {
+        drawPreview(canvas, bounds, skin, density, reusableText, reusableKey, null);
+    }
+
+    private static void drawPreview(Canvas canvas, RectF bounds, KeyboardSkin skin,
+                                    float density, Paint reusableText, RectF reusableKey,
+                                    PreviewDrawState state) {
         if (bounds.width() <= 0 || bounds.height() <= 0) return;
-        KeyboardSkinBackgroundDrawable background =
-            new KeyboardSkinBackgroundDrawable(skin, density);
+        KeyboardSkinBackgroundDrawable background = state == null
+            ? new KeyboardSkinBackgroundDrawable(skin, density) : state.background;
         background.setBounds(Math.round(bounds.left), Math.round(bounds.top),
             Math.round(bounds.right), Math.round(bounds.bottom));
         background.draw(canvas);
         String[][] rows = PREVIEW_ROWS;
-        float gap = Math.max(1, Math.min(bounds.width(), bounds.height()) * .035f);
+        float gap = BoundsPolicy.bounded(
+            KeyboardGeometry.shorterSide(bounds.width(), bounds.height()) * .035f,
+            1f, Float.MAX_VALUE);
         float rowHeight = (bounds.height() - gap * 3) / rows.length;
         Paint text = reusableText == null ? new Paint(Paint.ANTI_ALIAS_FLAG) : reusableText;
         text.setTextAlign(Paint.Align.CENTER);
@@ -92,9 +161,9 @@ public final class KeyboardSkinPreview extends View {
                 float top = bounds.top + rowIndex * (rowHeight + gap);
                 key.set(left, top, left + keyWidth, top + rowHeight);
                 boolean action = rowIndex == rows.length - 1 || index == 0 && rowIndex == 2;
-                int fill = action ? actionFill : keyFill;
-                KeyboardSkinKeyDrawable drawable = new KeyboardSkinKeyDrawable(
-                    skin, fill, action, density);
+                KeyboardSkinKeyDrawable drawable = state == null ? new KeyboardSkinKeyDrawable(
+                    skin, action ? actionFill : keyFill, action, density)
+                    : state.keys[rowIndex][index];
                 drawable.setBounds(Math.round(key.left), Math.round(key.top),
                     Math.round(key.right), Math.round(key.bottom));
                 drawable.draw(canvas);
@@ -141,24 +210,29 @@ public final class KeyboardSkinPreview extends View {
 
     /** 「跟随系统」瓷砖：135° 对角线把浅色与深色对半分，上面是设计给它的白色半透明键帽（rgba(255,255,255,.85)）。 */
     public static void drawSplit(Canvas canvas, RectF bounds, float radius, int light, int dark) {
+        drawSplit(canvas, bounds, radius, light, dark, new SplitDrawState());
+    }
+
+    static void drawSplit(Canvas canvas, RectF bounds, float radius, int light, int dark,
+                          SplitDrawState state) {
         if (bounds.width() <= 0 || bounds.height() <= 0) return;
         int saved = canvas.save();
-        clipRound(canvas, bounds, radius);
-        Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        clipRound(canvas, bounds, radius, state.clip);
+        Paint paint = state.paint;
         paint.setColor(light);
         canvas.drawRect(bounds, paint);
-        android.graphics.Path half = new android.graphics.Path();
+        Path half = state.half;
+        half.reset();
         half.moveTo(bounds.right, bounds.top);
         half.lineTo(bounds.right, bounds.bottom);
         half.lineTo(bounds.left, bounds.bottom);
         half.close();
         paint.setColor(dark);
         canvas.drawPath(half, paint);
-        KeyboardSkin system = KeyboardSkin.system(false);
-        int keys = Color.argb(217, 255, 255, 255);
-        drawMiniKeyboard(canvas, bounds, keys, keys, Color.parseColor(system.returnBackground()),
-            Color.parseColor(system.returnForeground()), Color.parseColor(system.keyForeground()),
-            Color.argb(115, 0, 0, 0), Color.parseColor(system.accent()));
+        int keys = ColorPolicy.withAlpha(Color.WHITE, 217);
+        drawMiniKeyboard(canvas, bounds, keys, keys, state.returnBackground,
+            state.returnForeground, state.keyForeground, ColorPolicy.withAlpha(Color.BLACK, 115), state.accent,
+            state);
         canvas.restoreToCount(saved);
     }
 
@@ -173,8 +247,8 @@ public final class KeyboardSkinPreview extends View {
     }
 
     private static int withOpacity(int colour, double opacity) {
-        int alpha = (int) Math.round(Color.alpha(colour) * Math.max(0d, Math.min(1d, opacity)));
-        return Color.argb(alpha, Color.red(colour), Color.green(colour), Color.blue(colour));
+        float factor = (float) KeyboardGeometry.bounded(opacity, 0, 1);
+        return ColorPolicy.withAlpha(colour, factor);
     }
 
     /** MiniKb 字母键右上角的提示字，与设计的 HINT 表一一对应。 */
@@ -202,13 +276,13 @@ public final class KeyboardSkinPreview extends View {
 
     private static void drawMiniKeyboard(Canvas canvas, RectF bounds, int key, int function,
                                          int returnFill, int returnInk, int ink, int sub, int accent,
-                                         TileDrawState state) {
+                                         MiniDrawState state) {
         float sc = bounds.width() / MINI_WIDTH;
         int saved = canvas.save();
         canvas.translate(bounds.left, bounds.top);
         canvas.scale(sc, sc);
-        Paint paint = state == null ? new Paint(Paint.ANTI_ALIAS_FLAG) : state.paint;
-        RectF rect = state == null ? new RectF() : state.rect;
+        Paint paint = state == null ? new Paint(Paint.ANTI_ALIAS_FLAG) : state.paint();
+        RectF rect = state == null ? new RectF() : state.rect();
         // 工具栏：品牌块、五个图标、收起箭头，七列等分。
         float column = (MINI_WIDTH - 6f) / 7f;
         for (int index = 0; index < 7; index++) {
@@ -222,7 +296,7 @@ public final class KeyboardSkinPreview extends View {
                 paint.setStyle(Paint.Style.STROKE);
                 paint.setStrokeWidth(1.8f);
                 paint.setColor(ink);
-                Path chevron = state == null ? new Path() : state.chevron;
+                Path chevron = state == null ? new Path() : state.chevron();
                 chevron.reset();
                 chevron.moveTo(cx - 6f, 22f);
                 chevron.lineTo(cx, 28f);
@@ -237,7 +311,7 @@ public final class KeyboardSkinPreview extends View {
             }
         }
         paint.setStyle(Paint.Style.FILL);
-        Paint text = state == null ? new Paint(Paint.ANTI_ALIAS_FLAG) : state.text;
+        Paint text = state == null ? new Paint(Paint.ANTI_ALIAS_FLAG) : state.text();
         float top = 50f + 8f;
         for (int row = 0; row < MINI_ROWS.length; row++) {
             String[] line = MINI_ROWS[row];

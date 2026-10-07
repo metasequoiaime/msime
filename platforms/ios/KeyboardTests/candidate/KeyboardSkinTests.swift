@@ -86,6 +86,23 @@ final class KeyboardSkinTests: XCTestCase {
       XCTAssertGreaterThanOrEqual(CustomKeyboardSkin.contrast(CustomKeyboardSkin.readableText(on: background), background), 4.5)
     }
   }
+
+  func testCustomSkinStoreRejectsOversizedPayload() throws {
+    let defaults = KeyboardFeedbackPreference.defaults
+    let previous = defaults.object(forKey: CustomKeyboardSkinStore.key)
+    defer {
+      if let previous { defaults.set(previous, forKey: CustomKeyboardSkinStore.key) }
+      else { defaults.removeObject(forKey: CustomKeyboardSkinStore.key) }
+    }
+    var design = CustomKeyboardSkin()
+    design.background = 0x123456
+    design.photo = Data(repeating: 0, count: 800_000)
+    let data = try JSONEncoder().encode(design)
+    XCTAssertGreaterThan(data.count, 1_000_000)
+    defaults.set(data, forKey: CustomKeyboardSkinStore.key)
+    XCTAssertEqual(CustomKeyboardSkinStore.current, CustomKeyboardSkin())
+  }
+
   func testLegacyDesignsAndLibraryRoundTrip() throws {
     let legacy = Data(#"{"background":15266027,"keyBackground":16777215,"keyForeground":1516829,"accent":1596487,"actionBackground":1596487,"cornerRadius":8,"borderWidth":0,"shadow":0,"pattern":0,"monospaced":false}"#.utf8)
     let old = try JSONDecoder().decode(CustomKeyboardSkin.self, from: legacy)
@@ -110,6 +127,16 @@ final class KeyboardSkinTests: XCTestCase {
     XCTAssertEqual(restored.design.patternOpacity, 0.5)
     CustomSkinLibrary.save([])
     XCTAssertTrue(CustomSkinLibrary.designs.isEmpty)
+  }
+
+  func testCustomSkinLibraryRejectsMoreThanMaximumItems() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let directory = root.appendingPathComponent("CustomSkins", isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let items = (0..<13).map { _ in SavedKeyboardSkin(name: "合成", design: CustomKeyboardSkin()) }
+    try JSONEncoder().encode(items).write(to: directory.appendingPathComponent("library.json"))
+    XCTAssertTrue(CustomSkinLibrary.designs(in: root).isEmpty)
   }
 
   func testCustomSkinLibraryRejectsASymlinkedDirectory() throws {
@@ -185,6 +212,15 @@ final class KeyboardSkinTests: XCTestCase {
     button.sendActions(for: .primaryActionTriggered)
     XCTAssertEqual(chosen, design.normalized)
     XCTAssertEqual(KeyboardTheme.designed(design).keyBackground.cgColor.alpha, 0.45, accuracy: 0.001)
+  }
+
+  func testPhotoImportRejectsAnOversizedSourceBeforeImageIO() throws {
+    let file = FileManager.default.temporaryDirectory
+      .appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: file) }
+    try Data(repeating: 0x5A, count: SkinPhotoData.maximumSourceBytes + 1).write(to: file)
+
+    XCTAssertNil(SkinPhotoData.sourceData(at: file))
   }
 
   private func luminance(_ color: UIColor, style: UIUserInterfaceStyle) -> Double {

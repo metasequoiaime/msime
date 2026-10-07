@@ -238,14 +238,19 @@ impl UnixSocketProvider {
 
     /// Accept one cloud and up to the configured number of AI suggestions.
     pub fn query_candidates(&self, mut query: OnlineQuery) -> Option<Vec<(String, u8)>> {
-        if query.ai_context.len() > 1024 {
+        if !msime_client_core::is_bounded_text_with_options(&query.ai_context, 1024, true)
+            || !msime_client_core::is_bounded_text(&query.query_text, 4096)
+            || !msime_client_core::is_bounded_text(&query.identity, 4096)
+            || !msime_client_core::is_bounded_text(&query.cache_key, 4096)
+            || query.pinyin_segments.len() > 128
+            || query.pinyin_segments.iter().any(|segment| {
+                segment.is_empty() || !msime_client_core::is_bounded_text(segment, 32)
+            })
+        {
             return None;
         }
         if !query.ai_eligible || !query.ai_assistant.as_ref().is_some_and(|ai| ai.enabled) {
             query.ai_context.clear();
-        }
-        if query.query_text.len() > 4096 || query.identity.len() > 4096 {
-            return None;
         }
         let timeout = if query.ai_eligible
             && !query.ai_cache_only
@@ -468,8 +473,8 @@ impl UnixSocketProvider {
             || model.is_empty()
             || !msime_client_core::is_bounded_text(model, 256)
             || text.trim().is_empty()
-            || text.len() > 8192
-            || prompt.len() > 8192
+            || !msime_client_core::is_bounded_text_with_options(text, 8192, true)
+            || !msime_client_core::is_bounded_text_with_options(prompt, 8192, true)
         {
             return None;
         }
@@ -511,13 +516,19 @@ impl UnixSocketProvider {
     /// The Linux panel owns ink capture and presentation; this service owns
     /// model selection and any platform-specific recognizer integration.
     pub fn handwriting(&self, query: HandwritingQuery) -> Option<Vec<String>> {
-        if query.language.len() > 64
+        if !msime_client_core::is_bounded_text(&query.language, 64)
             || query.strokes.is_empty()
             || query.strokes.len() > 32
             || query
                 .strokes
                 .iter()
-                .any(|stroke| stroke.is_empty() || stroke.len() > 512)
+                .any(|stroke| {
+                    stroke.is_empty()
+                        || stroke.len() > 512
+                        || stroke
+                            .iter()
+                            .any(|point| !point.x.is_finite() || !point.y.is_finite())
+                })
         {
             return None;
         }
@@ -550,8 +561,8 @@ impl UnixSocketProvider {
     /// Search the user-owned emoji catalog. Results stay outside the IBus
     /// session and can be rendered by any desktop panel toolkit.
     pub fn emoji(&self, query: EmojiPanelQuery) -> Option<Vec<EmojiPanelItem>> {
-        if query.search.len() > 256
-            || query.category.len() > 128
+        if !msime_client_core::is_bounded_text(&query.search, 256)
+            || !msime_client_core::is_bounded_text(&query.category, 128)
             || !(1..=96).contains(&query.limit)
         {
             return None;
@@ -574,7 +585,9 @@ impl UnixSocketProvider {
         let reply: Reply = serde_json::from_str(&line).ok()?;
         if reply.items.len() > 96
             || reply.items.iter().any(|item| {
-                item.text.is_empty() || item.text.len() > 64 || item.annotation.len() > 256
+                item.text.is_empty()
+                    || !msime_client_core::is_bounded_text(&item.text, 64)
+                    || !msime_client_core::is_bounded_text(&item.annotation, 256)
             })
         {
             return None;
@@ -713,7 +726,7 @@ impl UnixSocketProvider {
         missing_dependency: &mut Option<&'static str>,
     ) -> Option<String> {
         if generation == 0
-            || language.len() > 64
+            || !msime_client_core::is_bounded_text(language, 64)
             || cancelled.is_some_and(|value| value.load(Ordering::Relaxed))
         {
             return None;
@@ -761,19 +774,25 @@ impl UnixSocketProvider {
             if value.get("generation").and_then(Value::as_u64) != Some(generation) {
                 return None;
             }
-            if value.get("ok").and_then(Value::as_bool) == Some(false) {
-                if value.get("error").and_then(Value::as_str) == Some("voice_dependency_missing") {
-                    *missing_dependency = match value.get("detail").and_then(Value::as_str) {
-                        Some("websockets") => Some("websockets"),
-                        Some("recorder") => Some("recorder"),
-                        Some("local_asr") => Some("local_asr"),
-                        _ => None,
-                    };
+            match value.get("ok").and_then(Value::as_bool) {
+                Some(true) => {}
+                Some(false) => {
+                    if value.get("error").and_then(Value::as_str)
+                        == Some("voice_dependency_missing")
+                    {
+                        *missing_dependency = match value.get("detail").and_then(Value::as_str) {
+                            Some("websockets") => Some("websockets"),
+                            Some("recorder") => Some("recorder"),
+                            Some("local_asr") => Some("local_asr"),
+                            _ => None,
+                        };
+                    }
+                    return None;
                 }
-                return None;
+                None => return None,
             }
             let text = value.get("text").and_then(Value::as_str).unwrap_or("");
-            if text.len() > 4096 {
+            if !msime_client_core::is_bounded_text_with_options(text, 4096, true) {
                 return None;
             }
             let kind = value
@@ -804,7 +823,7 @@ impl UnixSocketProvider {
             let is_final = match kind {
                 "partial" | "interim" | "update" => false,
                 "final" | "done" | "commit" => true,
-                _ => value.get("final").and_then(Value::as_bool).unwrap_or(true),
+                _ => value.get("final").and_then(Value::as_bool)?,
             };
             if text.is_empty() && !is_final {
                 continue;

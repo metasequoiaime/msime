@@ -9,7 +9,7 @@ export { DEFAULT_SKIN, SKINS, resolveSkin } from "./skin.js";
 export { CANDIDATE_BAR_TAG, PARTS, createCandidateBar } from "./candidates.js";
 export { version };
 
-export const SCHEMES = Object.freeze(["quanpin", "xiaohe", "ziranma", "wubi86"]);
+export const SCHEMES = Object.freeze(["quanpin", "xiaohe", "ziranma", "wubi86", "japanese", "korean"]);
 const PINYIN = new Set(["quanpin", "xiaohe", "ziranma"]);
 
 export class MsimeError extends Error {
@@ -33,12 +33,20 @@ function resolveAssets(scheme, options) {
   if (options.assets) return options.assets;
   const ref = (file) => ({ url: new URL(file.name, base).href, size: file.size, rawSize: file.rawSize });
   const base = baseUrl(options.assetBase);
+  if (!files.wasm) throw new MsimeError("unsupported", "this build of @msime/web-engine ships no wasm; pass options.assets", "fetch");
+  // 韩文只用 wasm：音节由引擎自己拼，不查词库，也没有候选要重排。
+  if (scheme === "korean") return { wasm: ref(files.wasm), db: null, model: null, japanese: null };
+  // 日语用 wasm 和日语模型，不用拼音库和整句模型。
+  if (scheme === "japanese") {
+    if (!files.japanese) throw new MsimeError("unsupported", "this build of @msime/web-engine ships no japanese model; pass options.assets", "fetch");
+    return { wasm: ref(files.wasm), db: null, model: null, japanese: ref(files.japanese) };
+  }
   const db = scheme === "wubi86" ? files.wubi86 : files.pinyin;
-  if (!files.wasm || !db) {
+  if (!db) {
     throw new MsimeError("unsupported", `this build of @msime/web-engine ships no ${scheme === "wubi86" ? "wubi86" : "pinyin"} dictionary; pass options.assets`, "fetch");
   }
   const wantModel = scheme !== "wubi86" && options.model !== false && files.model;
-  return { wasm: ref(files.wasm), db: ref(db), model: wantModel ? ref(files.model) : null };
+  return { wasm: ref(files.wasm), db: ref(db), model: wantModel ? ref(files.model) : null, japanese: null };
 }
 
 // 默认的 Worker。同源时写成打包器认得的 new Worker(new URL(..., import.meta.url))，Vite、webpack 5 会把 worker.js 一起打包；SDK 从 CDN 等其他源加载时，浏览器不允许直接用跨源脚本起 Worker，就用同源的 blob 脚本去 import 它。
@@ -158,7 +166,8 @@ export function createMsimeEngine(options = {}) {
       if (!SCHEMES.includes(next)) throw new MsimeError("engine", `unknown scheme: ${next}`);
       if (next === scheme) return;
       // 五笔和拼音用不同的词库，换词库要重新下载，建一个新引擎更简单也更省内存（wasm 内存不会缩小）。
-      if (PINYIN.has(next) !== PINYIN.has(scheme)) {
+      // 只有全拼和两种双拼共用一个词库；五笔、日语和韩文各要自己的资源，换过去得新建引擎。
+      if (!PINYIN.has(next) || !PINYIN.has(scheme)) {
         throw new MsimeError("unsupported", `switching between ${scheme} and ${next} needs a new engine: dispose() this one and call createMsimeEngine({ scheme: "${next}" })`);
       }
       const ready = waitReady();

@@ -3,7 +3,9 @@
 #import "../../src/dictionary/DictionaryInstaller.h"
 
 #include <cassert>
+#include <fcntl.h>
 #include <sqlite3.h>
+#include <unistd.h>
 
 // Installing a dictionary over the one the user already has.
 //
@@ -112,6 +114,19 @@ int main() {
         NSURL *missing = [root URLByAppendingPathComponent:@"missing.db"];
         assert(!MSIMEInstallDictionary(missing, installed, replacementDigest, &error) && error);
         assert(![files fileExistsAtPath:[installed URLByAppendingPathComponent:@".msime-pinyin.db.installing"].path]);
+        assert([MarkerValue(target) isEqual:@"newer"]);
+
+        // A sparse file over the installer budget is rejected from its metadata without being
+        // allocated or read into memory.
+        NSURL *oversized = [root URLByAppendingPathComponent:@"oversized.db"];
+        int oversizedFD = open(oversized.fileSystemRepresentation, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+        assert(oversizedFD >= 0);
+        assert(ftruncate(oversizedFD, 128 * 1024 * 1024 + 1) == 0);
+        assert(close(oversizedFD) == 0);
+        error = nil;
+        assert(!MSIMEInstallDictionary(oversized, installed,
+                                       @"0000000000000000000000000000000000000000000000000000000000000000",
+                                       &error) && error);
         assert([MarkerValue(target) isEqual:@"newer"]);
 
         // A destination directory supplied through preferences must not redirect an install through a symlink.

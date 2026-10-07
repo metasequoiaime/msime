@@ -72,3 +72,10 @@ TEST_CASE(text_selection_arrows_stay_at_text_boundaries)
     REQUIRE(fixture.editor.GetSelectionStart() == 5);
     REQUIRE(fixture.editor.GetSelectionEnd() == 5);
 }
+
+TEST_CASE(text_editor_rejects_null_insert_text)
+{
+    CTextEditor editor;
+    REQUIRE(!editor.InsertAtSelection(nullptr));
+    REQUIRE(editor.GetTextLength() == 0);
+}

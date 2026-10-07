@@ -29,6 +29,10 @@ def main() -> int:
                     and "NOFOLLOW_LINKS" not in line):
                 print(f"{path}:{line_number}: 文件读取没有使用 LinkOption.NOFOLLOW_LINKS", file=sys.stderr)
                 ok = False
+    cloud_sync = (ROOT / "platforms/android/java/app/msime/android/home/CloudSync.java").read_text(encoding="utf-8")
+    if "SafePaths.ensureDirectory(work);" not in cloud_sync:
+        print("CloudSync 工作目录没有使用 SafePaths.ensureDirectory", file=sys.stderr)
+        ok = False
     if ok:
         print("Android cross-process file readers open files without following symlinks")
     return 0 if ok else 1

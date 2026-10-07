@@ -1,11 +1,32 @@
 #import "../../src/voice/VoiceProviderSocket.h"
 
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <unistd.h>
+#include <cstring>
 #include <stdexcept>
 
 namespace {
+int bind_socket(NSString *path) {
+    int descriptor = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (descriptor < 0) throw std::runtime_error("socket failed");
+    sockaddr_un address{};
+    address.sun_family = AF_UNIX;
+    const auto *bytes = path.fileSystemRepresentation;
+    if (std::strlen(bytes) >= sizeof(address.sun_path)) throw std::runtime_error("socket path too long");
+    std::strcpy(address.sun_path, bytes);
+    unlink(bytes);
+    if (bind(descriptor, reinterpret_cast<const sockaddr *>(&address), sizeof(address)) != 0 ||
+        listen(descriptor, 1) != 0) {
+        close(descriptor);
+        throw std::runtime_error("bind failed");
+    }
+    return descriptor;
+}
+}
+
 void require(bool condition, const char *message) {
     if (!condition) throw std::runtime_error(message);
-}
 }
 
 @interface SupportRootFileManager : NSFileManager
@@ -25,9 +46,11 @@ int main() {
         [files createDirectoryAtPath:root withIntermediateDirectories:YES attributes:nil error:nil];
         NSString *configured = [root stringByAppendingPathComponent:@"configured.sock"];
         NSString *fallback = [root stringByAppendingPathComponent:@"fallback.sock"];
+        NSString *regular = [root stringByAppendingPathComponent:@"regular-file"];
         NSString *optionsPath = [root stringByAppendingPathComponent:@"runtime-options.json"];
-        [files createFileAtPath:configured contents:[NSData data] attributes:nil];
-        [files createFileAtPath:fallback contents:[NSData data] attributes:nil];
+        int configuredSocket = bind_socket(configured);
+        int fallbackSocket = bind_socket(fallback);
+        [files createFileAtPath:regular contents:[NSData data] attributes:nil];
         NSData *options = [NSJSONSerialization dataWithJSONObject:@{ @"voice_provider_socket": configured } options:0 error:nil];
         [options writeToFile:optionsPath atomically:YES];
 
@@ -38,6 +61,9 @@ int main() {
         require([MSIMEVoiceProviderSocketFromConfiguration(
                     @{}, @{ @"MSIME_VOICE_PROVIDER_SOCKET": fallback }, files) isEqual:fallback],
                 "environment fallback was not selected");
+        require(MSIMEVoiceProviderSocketFromConfiguration(
+                    @{ @"voice_provider_socket": regular }, @{}, files) == nil,
+                "a regular file was advertised as a provider socket");
         require(MSIMEVoiceProviderSocketFromConfiguration(
                     @{ @"voice_provider_socket": @"relative.sock" },
                     @{ @"MSIME_VOICE_PROVIDER_SOCKET": @"relative.sock" }, files) == nil,
@@ -70,6 +96,8 @@ int main() {
         [options writeToFile:current atomically:YES];
         require([MSIMEVoiceProviderSocketFromOptionsPath(nil, @{}, support) isEqual:configured],
                 "the provider socket was not read from the default options");
+        close(configuredSocket);
+        close(fallbackSocket);
         [files removeItemAtPath:root error:nil];
     }
     return 0;

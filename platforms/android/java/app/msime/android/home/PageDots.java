@@ -8,6 +8,9 @@ import android.graphics.RectF;
 import android.util.AttributeSet;
 import android.view.View;
 import androidx.annotation.Nullable;
+import app.msime.android.ColorPolicy;
+import app.msime.android.BoundsPolicy;
+import app.msime.android.KeyboardGeometry;
 
 /**
  * 分页指示点：6dp 高、圆角 3，未选中 6dp 宽、选中拉长到 16dp 并换成 accent，切换时宽度和颜色在 0.2 秒里过渡。
@@ -40,8 +43,8 @@ public final class PageDots extends View {
     }
 
     public void setCount(int count) {
-        this.count = Math.max(0, count);
-        selected = Math.min(selected, Math.max(0, this.count - 1));
+        this.count = BoundsPolicy.nonNegative(count);
+        selected = KeyboardGeometry.bounded(selected, 0, BoundsPolicy.nonNegative(this.count - 1));
         previous = selected;
         progress = 1f;
         updateDescription();
@@ -94,18 +97,10 @@ public final class PageDots extends View {
             float weight = i == selected ? progress : i == previous ? 1f - progress : 0f;
             float width = dot + (active - dot) * weight;
             rect.set(x, top, x + width, top + dot);
-            paint.setColor(blend(rest, accent, weight));
+            paint.setColor(ColorPolicy.blend(rest, accent, weight));
             canvas.drawRoundRect(rect, dot / 2f, dot / 2f, paint);
             x += width + gap;
         }
-    }
-
-    private static int blend(int from, int to, float t) {
-        int a = Math.round(((from >>> 24) & 0xFF) + (((to >>> 24) & 0xFF) - ((from >>> 24) & 0xFF)) * t);
-        int r = Math.round(((from >> 16) & 0xFF) + (((to >> 16) & 0xFF) - ((from >> 16) & 0xFF)) * t);
-        int g = Math.round(((from >> 8) & 0xFF) + (((to >> 8) & 0xFF) - ((from >> 8) & 0xFF)) * t);
-        int b = Math.round((from & 0xFF) + ((to & 0xFF) - (from & 0xFF)) * t);
-        return (a << 24) | (r << 16) | (g << 8) | b;
     }
 
     @Override protected void onDetachedFromWindow() {

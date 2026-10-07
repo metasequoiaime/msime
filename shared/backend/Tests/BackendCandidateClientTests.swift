@@ -94,6 +94,31 @@ private final class MalformedRankingProtocol: URLProtocol {
   }
   override func stopLoading() {}
 }
+private final class AcceptingFixedPositionProtocol: URLProtocol {
+  override class func canInit(with request: URLRequest) -> Bool { request.url?.path.hasSuffix("/dictionary/positions") == true }
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+  override func startLoading() {
+    let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil,
+      headerFields: ["Content-Type":"application/json"])!
+    client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+    client?.urlProtocol(self, didLoad: Data(#"{"revision":43}"#.utf8))
+    client?.urlProtocolDidFinishLoading(self)
+  }
+  override func stopLoading() {}
+}
+private final class AcceptingCandidateProtocol: URLProtocol {
+  override class func canInit(with request: URLRequest) -> Bool { request.url?.path.hasSuffix("/dictionary/candidates") == true }
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+  override func startLoading() {
+    let data = Data(#"{"candidates":[],"context":"pinyin","revision":1}"#.utf8)
+    let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil,
+      headerFields: ["Content-Type":"application/json"])!
+    client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+    client?.urlProtocol(self, didLoad: data)
+    client?.urlProtocolDidFinishLoading(self)
+  }
+  override func stopLoading() {}
+}
 final class BackendCandidateClientTests: XCTestCase {
   private func client() -> BackendAccountClient {
     let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [CandidateProtocol.self]
@@ -147,5 +172,47 @@ final class BackendCandidateClientTests: XCTestCase {
       _ = try await client.rankCandidate(candidate, query: query, revision: 1, mode: .pin, token: "session")
       XCTFail("malformed ranking response accepted")
     } catch let error as BackendAccountClient.Failure { XCTAssertEqual(error.status, 0) }
+  }
+
+  func testFixedPositionMutationsRejectOversizedFieldsLocally() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [AcceptingFixedPositionProtocol.self]
+    let client = BackendAccountClient(configuration: configuration)
+    let invalid: [(String, String, String)] = [
+      (String(repeating: "c", count: 1025), "ni", "你"),
+      ("pinyin", String(repeating: "c", count: 257), "你"),
+      ("pinyin", "ni", String(repeating: "词", count: 1025)),
+    ]
+    for (context, code, word) in invalid {
+      do {
+        _ = try await client.setFixedPosition(context: context, code: code, word: word,
+                                              position: 1, revision: 1, token: "session")
+        XCTFail("oversized fixed-position field accepted")
+      } catch let error as BackendAccountClient.Failure {
+        XCTAssertEqual(error.status, 400)
+      }
+    }
+  }
+
+  func testCandidateQueriesRejectInvalidFieldsLocally() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [AcceptingCandidateProtocol.self]
+    let client = BackendAccountClient(configuration: configuration)
+    let invalid = [
+      BackendAccountClient.CandidateQuery(text: "", kind: "pinyin", scheme: "pinyin", profile: "xiaohe", limit: 1),
+      BackendAccountClient.CandidateQuery(text: "ni", kind: "unknown", scheme: "pinyin", profile: "xiaohe", limit: 1),
+      BackendAccountClient.CandidateQuery(text: "ni", kind: "pinyin", scheme: "unknown", profile: "xiaohe", limit: 1),
+      BackendAccountClient.CandidateQuery(text: "ni", kind: "pinyin", scheme: "pinyin", profile: "unknown", limit: 1),
+      BackendAccountClient.CandidateQuery(text: "ni", kind: "pinyin", scheme: "pinyin", profile: "xiaohe", limit: 0),
+      BackendAccountClient.CandidateQuery(text: "ni", kind: "pinyin", scheme: "pinyin", profile: "xiaohe", limit: 101),
+    ]
+    for query in invalid {
+      do {
+        _ = try await client.personalCandidates(query, token: "session")
+        XCTFail("invalid candidate query accepted")
+      } catch let error as BackendAccountClient.Failure {
+        XCTAssertEqual(error.status, 400)
+      }
+    }
   }
 }

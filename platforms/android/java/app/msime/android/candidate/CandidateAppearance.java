@@ -8,6 +8,9 @@ import java.util.List;
 
 /** Validated candidate presentation values consumed by the Android host. */
 public final class CandidateAppearance {
+    /** Maximum number of fallback fonts accepted for candidate rendering. */
+    public static final int MAX_FALLBACK_FONTS = 32;
+
     private CandidateAppearance() {}
 
     public static boolean isHorizontal(String layout) {
@@ -42,8 +45,8 @@ public final class CandidateAppearance {
                                    List<String> fallbackFonts) {
         int text = parseColor(strip.keyForeground(), 0xff000000);
         return new Palette(strip.id(), text,
-            parseColor(strip.secondary(), withAlpha(text, 0x9d)),
-            parseColor(strip.accent(), text), 0, withAlpha(text, 0x0f),
+            parseColor(strip.secondary(), ColorPolicy.withAlpha(text, 0x9d)),
+            parseColor(strip.accent(), text), 0, ColorPolicy.withAlpha(text, 0x0f),
             parseColor(strip.background(), 0xffffffff), 0,
             safeFont(fontFamily, "Noto Sans SC"), safeFont(englishFont, ""),
             safeFallbackFonts(fallbackFonts),
@@ -56,19 +59,14 @@ public final class CandidateAppearance {
 
     /** `#RRGGBB` or Android's alpha-first `#AARRGGBB`, the two forms a keyboard skin carries. */
     private static int parseColor(String value, int fallback) {
-        if (value == null || !value.matches("#[0-9a-fA-F]{6}|#[0-9a-fA-F]{8}")) return fallback;
-        long parsed = Long.parseLong(value.substring(1), 16);
-        return value.length() == 7 ? 0xff000000 | (int) parsed : (int) parsed;
-    }
-
-    private static int withAlpha(int color, int alpha) {
-        return (alpha << 24) | (color & 0x00ffffff);
+        return ColorPolicy.parseHex(value, fallback);
     }
 
     private static List<String> fallbackFonts(JSONArray values) {
         if (values == null) return List.of("Noto Sans SC", "Microsoft YaHei");
-        ArrayList<String> result = new ArrayList<>(Math.min(values.length(), 32));
-        for (int index = 0; index < Math.min(values.length(), 32); index++) {
+        int limit = BoundsPolicy.bounded(values.length(), 0, MAX_FALLBACK_FONTS);
+        ArrayList<String> result = new ArrayList<>(limit);
+        for (int index = 0; index < limit; index++) {
             String value = values.optString(index, "");
             if (validFont(value)) result.add(value);
         }
@@ -76,10 +74,11 @@ public final class CandidateAppearance {
     }
 
     private static List<String> safeFallbackFonts(List<String> values) {
-        ArrayList<String> result = new ArrayList<>(values == null ? 0 : Math.min(values.size(), 32));
+        ArrayList<String> result = new ArrayList<>(values == null ? 0
+            : BoundsPolicy.bounded(values.size(), 0, MAX_FALLBACK_FONTS));
         if (values != null) {
             for (String value : values) {
-                if (result.size() >= 32) break;
+                if (result.size() >= MAX_FALLBACK_FONTS) break;
                 if (validFont(value)) result.add(value);
             }
         }
@@ -94,7 +93,7 @@ public final class CandidateAppearance {
     private static boolean validFont(String value) {
         if (value == null || value.isEmpty()
                 || TextPolicy.utf8Length(value) > 128) return false;
-        return !TextPolicy.hasControl(value);
+        return !TextPolicy.hasControl(value) && TextPolicy.validUnicode(value);
     }
 
     public static final class Palette {

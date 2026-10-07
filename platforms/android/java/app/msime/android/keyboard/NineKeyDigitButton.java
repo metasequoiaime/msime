@@ -20,18 +20,18 @@ public final class NineKeyDigitButton extends KeyboardPressButton {
 
     public NineKeyDigitButton(Context context) {
         super(context);
+        KeyboardGeometry.normalizeKeyCap(this);
         basePaddingTop = getPaddingTop();
         digitPaint.setTextAlign(Paint.Align.CENTER);
-        setAllCaps(false);
+        ViewPolicy.setAllCapsFalse(this);
     }
 
     /** The digit printed above the letters; empty on the digit layer, where the face is the digit. */
     public void setDigitText(String value) {
-        String next = value == null ? "" : value;
+        String next = TextPolicy.emptyIfNull(value);
         if (digitText.equals(next)) return;
         digitText = next;
-        float density = getResources().getDisplayMetrics().density;
-        setPadding(getPaddingLeft(), basePaddingTop + (digitText.isEmpty() ? 0 : KeyboardGeometry.pixels(10, density)),
+        setPadding(getPaddingLeft(), basePaddingTop + (digitText.isEmpty() ? 0 : KeyboardGeometry.pixels(getContext(), 10)),
             getPaddingRight(), getPaddingBottom());
         invalidate();
     }
@@ -45,11 +45,11 @@ public final class NineKeyDigitButton extends KeyboardPressButton {
     @Override protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
         if (digitText.isEmpty() || getWidth() <= 0 || getHeight() <= 0) return;
-        digitPaint.setTextSize(KeyboardGeometry.sp(getContext(), 10));
+        digitPaint.setTextSize(KeyboardGeometry.keySp(getContext(), 10));
         digitPaint.setColor(digitColor);
-        digitPaint.setAlpha(isEnabled() ? 204 : 96);
+        digitPaint.setAlpha(ColorPolicy.enabledAlpha(isEnabled(), 204, 96));
         Paint.FontMetrics metrics = digitPaint.getFontMetrics();
-        float density = getResources().getDisplayMetrics().density;
-        canvas.drawText(digitText, getWidth() / 2f, KeyboardGeometry.pixels(3, density) - metrics.top, digitPaint);
+        canvas.drawText(digitText, getWidth() / 2f,
+            KeyboardGeometry.pixels(getContext(), 3) - metrics.top, digitPaint);
     }
 }

@@ -219,7 +219,7 @@ public final class NativeClient {
     }
 
     private static byte[] utf8(String value) {
-        return (value == null ? "" : value).getBytes(StandardCharsets.UTF_8);
+        return TextPolicy.utf8Bytes(value);
     }
 
     /**
@@ -333,7 +333,7 @@ public final class NativeClient {
      */
     public static String localSpeechStart(long handle, String modelDirectory, String language,
                                           String hotwords, int threads) {
-        if (handle == 0) throw new IllegalArgumentException("Invalid local speech handle");
+        NativeHandlePolicy.requirePositive(handle);
         byte[] error = localSpeechStartRaw(handle, utf8(modelDirectory), utf8(language),
             utf8(hotwords), threads);
         return error == null ? null : text(error);
@@ -341,29 +341,33 @@ public final class NativeClient {
 
     /** Feed 16 kHz mono PCM16. Returns the transcript so far when it changed, else null. Throws IllegalStateException once cancelled or on a recognizer failure. */
     public static String localSpeechAccept(long handle, short[] pcm, int count) {
-        if (handle == 0) throw new IllegalArgumentException("Invalid local speech handle");
+        NativeHandlePolicy.requirePositive(handle);
         byte[] partial = localSpeechAcceptRaw(handle, pcm, count);
         return partial == null ? null : text(partial);
     }
 
     /** Flush and return the whole transcript. Throws IllegalStateException once cancelled or on failure. */
     public static String localSpeechFinish(long handle) {
-        if (handle == 0) throw new IllegalArgumentException("Invalid local speech handle");
+        NativeHandlePolicy.requirePositive(handle);
         return text(localSpeechFinishRaw(handle));
     }
 
     /** Any thread, while the handle is alive: stops a decode in progress. */
     public static void localSpeechCancel(long handle) {
-        if (handle != 0) localSpeechCancelRaw(handle);
+        if (!NativeHandlePolicy.isOptional(handle))
+            throw new IllegalArgumentException("Invalid local speech handle");
+        if (handle > 0) localSpeechCancelRaw(handle);
     }
 
     public static void localSpeechDestroy(long handle) {
-        if (handle != 0) localSpeechDestroyRaw(handle);
+        if (!NativeHandlePolicy.isOptional(handle))
+            throw new IllegalArgumentException("Invalid local speech handle");
+        if (handle > 0) localSpeechDestroyRaw(handle);
     }
 
     /** Drop loaded models idle for `idleMillis`, or every model not in use for 0. */
     public static int localSpeechRelease(long idleMillis) {
-        return localSpeechReleaseRaw(Math.max(0, idleMillis));
+        return localSpeechReleaseRaw(BoundsPolicy.nonNegative(idleMillis));
     }
 
     /**
@@ -677,20 +681,10 @@ public final class NativeClient {
             if (line.size() != 0) throw new IOException("unterminated snapshot line");
         }
         if (!header || footerHash == null || footerRecords != dataRecords
-                || !footerHash.equals(hex(digest.digest())) || engineRecords > 500_000) {
+                || !footerHash.equals(DigestPolicy.hex(digest.digest())) || engineRecords > 500_000) {
             throw new IOException("invalid snapshot envelope");
         }
         return engineRecords;
     }
 
-    private static String hex(byte[] bytes) {
-        char[] digits = "0123456789abcdef".toCharArray();
-        char[] output = new char[bytes.length * 2];
-        for (int index = 0; index < bytes.length; index++) {
-            int value = bytes[index] & 0xff;
-            output[index * 2] = digits[value >>> 4];
-            output[index * 2 + 1] = digits[value & 0x0f];
-        }
-        return new String(output);
-    }
 }

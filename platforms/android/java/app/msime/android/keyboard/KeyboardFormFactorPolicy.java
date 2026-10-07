@@ -22,6 +22,6 @@ public final class KeyboardFormFactorPolicy {
     public static int surfaceWidthDp(int smallestWidthDp, int screenWidthDp) {
         if (!expanded(smallestWidthDp)) return 0;
         if (screenWidthDp <= 0) return EXPANDED_SURFACE_MAX_WIDTH_DP;
-        return Math.min(screenWidthDp, EXPANDED_SURFACE_MAX_WIDTH_DP);
+        return BoundsPolicy.atMost(screenWidthDp, EXPANDED_SURFACE_MAX_WIDTH_DP);
     }
 }

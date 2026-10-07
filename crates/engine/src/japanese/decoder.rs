@@ -1,9 +1,10 @@
 //! The MSJPDT1 lemma dictionary (schemes-lang.md §5.7-§5.8, data-formats.md §8): tokens sorted by reading, a connection matrix and a string blob, all little-endian. Loaded once per path for the process.
 //!
-//! The file is mapped read-only, as japanese_sentence_decoder.cpp:101-125 did, so its 66 MB are clean, file-backed pages the system can evict under memory pressure (the iOS keyboard extension's limit) rather than dirty heap read on the first Japanese query. The mapping rests on the resource contract: `msime-japanese.dat` ships read-only in the resource bundle and a replacement arrives by rename, never by an in-place write, so a mapped inode keeps its bytes for as long as the dictionary lives (`replacing_a_model_file_never_alters_a_loaded_dictionary`). Access is by offset with unaligned little-endian loads, as the C++ `memcpy` did.
+//! The file is mapped read-only, as japanese_sentence_decoder.cpp:101-125 did, so its 66 MB are clean, file-backed pages the system can evict under memory pressure (the iOS keyboard extension's limit) rather than dirty heap read on the first Japanese query. The mapping rests on the resource contract: `msime-japanese.dat` ships read-only in the resource bundle and a replacement arrives by rename, never by an in-place write, so a mapped inode keeps its bytes for as long as the dictionary lives (`replacing_a_model_file_never_alters_a_loaded_dictionary`). Access is by offset with unaligned little-endian loads, as the C++ `memcpy` did. A host without a file system (the browser) hands the bytes over instead (`JapaneseDictionary::preload`), and they live on the heap for as long as the dictionary does.
 
-use std::collections::HashMap;
+use std::collections::{BinaryHeap, HashMap};
 use std::fs::File;
+use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock, Mutex, Weak};
 
@@ -42,8 +43,29 @@ struct Token {
     word_cost: i32,
 }
 
+/// The model's bytes: the read-only file mapping on platforms with a file system, or bytes the host handed over (the browser, which has none; see [`JapaneseDictionary::preload`]).
+enum ModelBytes {
+    Mapped(Mmap),
+    Owned(Box<[u8]>),
+}
+
+impl Deref for ModelBytes {
+    type Target = [u8];
+
+    fn deref(&self) -> &[u8] {
+        match self {
+            ModelBytes::Mapped(map) => map,
+            ModelBytes::Owned(bytes) => bytes,
+        }
+    }
+}
+
+/// Dictionaries the host handed over as bytes, by the path a provider will ask for. They stay until [`JapaneseDictionary::unload`]: a host without a file system has no other copy to load again.
+static PRELOADED: LazyLock<Mutex<HashMap<PathBuf, Arc<JapaneseDictionary>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
 pub struct JapaneseDictionary {
-    bytes: Mmap,
+    bytes: ModelBytes,
     token_offset: usize,
     token_count: usize,
     connection_offset: usize,
@@ -89,6 +111,30 @@ fn best_ids(mut ids: Vec<u32>, limit: usize, cost: impl Fn(u32) -> i32) -> Vec<u
     ids
 }
 
+/// Keep only the cheapest IDs while scanning a potentially large reading range. The heap holds
+/// the current worst selected item at its root, so memory is bounded by the requested result page.
+fn best_ids_from_iter<I>(ids: I, limit: usize, cost: impl Fn(u32) -> i32) -> Vec<u32>
+where
+    I: IntoIterator<Item = u32>,
+{
+    if limit == 0 {
+        return Vec::new();
+    }
+    let mut best: BinaryHeap<((i32, u32), u32)> = BinaryHeap::with_capacity(limit);
+    for id in ids {
+        let key = (cost(id), id);
+        if best.len() < limit {
+            best.push((key, id));
+        } else if key < best.peek().expect("non-empty bounded heap").0 {
+            best.pop();
+            best.push((key, id));
+        }
+    }
+    let mut ids: Vec<u32> = best.into_iter().map(|(_, id)| id).collect();
+    ids.sort_unstable_by_key(|id| (cost(*id), *id));
+    ids
+}
+
 impl JapaneseDictionary {
     /// `None` when the file is missing or fails any header, bounds or ordering check.
     #[allow(unsafe_code)]
@@ -104,10 +150,35 @@ impl JapaneseDictionary {
         }
         // SAFETY: a mapping is only sound while nothing changes the file underneath it. The model ships read-only with the resources and is replaced by rename, never written in place (module doc), so the mapped inode keeps its bytes for as long as the map lives.
         let bytes = unsafe { Mmap::map(&file) }.ok()?;
-        Self::parse(bytes)
+        Self::parse(ModelBytes::Mapped(bytes))
     }
 
-    fn parse(bytes: Mmap) -> Option<JapaneseDictionary> {
+    /// The model from bytes already in memory, with the same checks as [`JapaneseDictionary::load`].
+    pub fn from_bytes(bytes: Box<[u8]>) -> Option<JapaneseDictionary> {
+        Self::parse(ModelBytes::Owned(bytes))
+    }
+
+    /// Makes `bytes` the dictionary [`JapaneseDictionary::shared`] answers for `path`, replacing any earlier one there; false, with nothing changed, when the bytes are not a valid model. For hosts without a file system (the browser), which download the model and hand it over before a Japanese session starts.
+    pub fn preload(path: &Path, bytes: Box<[u8]>) -> bool {
+        let Some(dictionary) = Self::from_bytes(bytes) else {
+            return false;
+        };
+        PRELOADED
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .insert(path.to_path_buf(), Arc::new(dictionary));
+        true
+    }
+
+    /// Forgets the dictionary preloaded for `path`; sessions that already hold it keep it until they end.
+    pub fn unload(path: &Path) {
+        PRELOADED
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .remove(path);
+    }
+
+    fn parse(bytes: ModelBytes) -> Option<JapaneseDictionary> {
         if bytes.len() < HEADER_SIZE || &bytes[..8] != MAGIC {
             return None;
         }
@@ -207,8 +278,15 @@ impl JapaneseDictionary {
         Some(index)
     }
 
-    /// One dictionary per path for the process; only a loaded one is kept.
+    /// One dictionary per path for the process; only a loaded one is kept. A dictionary preloaded for the path wins over the file.
     pub fn shared(path: &Path) -> Option<Arc<JapaneseDictionary>> {
+        if let Some(preloaded) = PRELOADED
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .get(path)
+        {
+            return Some(Arc::clone(preloaded));
+        }
         static MODELS: LazyLock<Mutex<HashMap<PathBuf, Weak<JapaneseDictionary>>>> =
             LazyLock::new(|| Mutex::new(HashMap::new()));
         let mut models = MODELS
@@ -229,13 +307,13 @@ impl JapaneseDictionary {
             return Vec::new();
         }
         let start = self.lower_bound(reading);
-        let matches = collect_query_ids(
-            (start..self.token_count)
-                .take_while(|&index| self.reading(&self.token_at(index)) == reading)
-                .map(|index| index as u32),
-            limit.min(self.token_count.saturating_sub(start)),
-        );
-        self.best_lemmas(matches, limit)
+        let ids = (start..self.token_count)
+            .take_while(|&index| self.reading(&self.token_at(index)) == reading)
+            .map(|index| index as u32);
+        best_ids_from_iter(ids, limit, |id| self.cost_of(id))
+            .into_iter()
+            .map(|id| self.lemma(id))
+            .collect()
     }
 
     /// Tokens whose reading starts with `prefix`, the `limit` cheapest; single-code-point prefixes come from a precomputed index.
@@ -253,13 +331,49 @@ impl JapaneseDictionary {
             }
         }
         let start = self.lower_bound(prefix);
-        let matches = collect_query_ids(
-            (start..self.token_count)
-                .take_while(|&index| self.reading(&self.token_at(index)).starts_with(prefix))
-                .map(|index| index as u32),
-            limit.min(self.token_count.saturating_sub(start)),
-        );
-        self.best_lemmas(matches, limit)
+        let ids = (start..self.token_count)
+            .take_while(|&index| self.reading(&self.token_at(index)).starts_with(prefix))
+            .map(|index| index as u32);
+        best_ids_from_iter(ids, limit, |id| self.cost_of(id))
+            .into_iter()
+            .map(|id| self.lemma(id))
+            .collect()
+    }
+
+    /// Token ids whose reading starts with `prefix` followed by one of `next_kana`.
+    /// Each suffix is a contiguous sorted range, so querying those ranges avoids
+    /// scanning unrelated readings in the whole `prefix` group. Overlapping
+    /// suffixes are deduplicated before ranking.
+    #[cfg(test)]
+    fn continuing_candidate_ids(&self, prefix: &str, next_kana: &[&str]) -> Vec<u32> {
+        let mut matches = Vec::new();
+        for kana in next_kana {
+            if kana.is_empty() {
+                for index in self.lower_bound(prefix)..self.token_count {
+                    let reading = self.reading(&self.token_at(index));
+                    let Some(remaining) = reading.strip_prefix(prefix) else {
+                        break;
+                    };
+                    if !remaining.is_empty() {
+                        matches.push(index as u32);
+                    }
+                }
+                continue;
+            }
+            let mut query = String::with_capacity(prefix.len() + kana.len());
+            query.push_str(prefix);
+            query.push_str(kana);
+            let start = self.lower_bound(&query);
+            for index in start..self.token_count {
+                if !self.reading(&self.token_at(index)).starts_with(&query) {
+                    break;
+                }
+                matches.push(index as u32);
+            }
+        }
+        matches.sort_unstable();
+        matches.dedup();
+        matches
     }
 
     /// Tokens strictly longer than `prefix` whose remainder starts with one of `next_kana`.
@@ -274,17 +388,43 @@ impl JapaneseDictionary {
         if prefix.is_empty() || next_kana.is_empty() || limit == 0 {
             return Vec::new();
         }
-        let mut matches = Vec::with_capacity(limit);
-        for index in self.lower_bound(prefix)..self.token_count {
-            let reading = self.reading(&self.token_at(index));
-            let Some(remaining) = reading.strip_prefix(prefix) else {
-                break;
-            };
-            if !remaining.is_empty() && next_kana.iter().any(|kana| remaining.starts_with(kana)) {
-                matches.push(index as u32);
+        let mut best: BinaryHeap<((i32, u32), u32)> = BinaryHeap::with_capacity(limit);
+        let mut consider = |id: u32| {
+            let key = (self.cost_of(id), id);
+            if best.len() < limit {
+                best.push((key, id));
+            } else if key < best.peek().expect("non-empty bounded heap").0 {
+                best.pop();
+                best.push((key, id));
+            }
+        };
+        for kana in next_kana {
+            if kana.is_empty() {
+                for index in self.lower_bound(prefix)..self.token_count {
+                    let reading = self.reading(&self.token_at(index));
+                    let Some(remaining) = reading.strip_prefix(prefix) else {
+                        break;
+                    };
+                    if !remaining.is_empty() {
+                        consider(index as u32);
+                    }
+                }
+                continue;
+            }
+            let mut query = String::with_capacity(prefix.len() + kana.len());
+            query.push_str(prefix);
+            query.push_str(kana);
+            let start = self.lower_bound(&query);
+            for index in start..self.token_count {
+                if !self.reading(&self.token_at(index)).starts_with(&query) {
+                    break;
+                }
+                consider(index as u32);
             }
         }
-        self.best_lemmas(matches, limit)
+        let mut ids: Vec<u32> = best.into_iter().map(|(_, id)| id).collect();
+        ids.sort_unstable_by_key(|id| (self.cost_of(*id), *id));
+        ids.into_iter().map(|id| self.lemma(id)).collect()
     }
 
     /// 10000 for an out-of-range id.
@@ -338,13 +478,6 @@ impl JapaneseDictionary {
             }
         }
         first
-    }
-
-    fn best_lemmas(&self, ids: Vec<u32>, limit: usize) -> Vec<JapaneseLemma> {
-        best_ids(ids, limit, |id| self.cost_of(id))
-            .into_iter()
-            .map(|id| self.lemma(id))
-            .collect()
     }
 
     fn lemma(&self, id: u32) -> JapaneseLemma {
@@ -443,7 +576,7 @@ mod tests {
     }
 
     fn parse(bytes: impl AsRef<[u8]>) -> Option<JapaneseDictionary> {
-        JapaneseDictionary::parse(mapped(bytes.as_ref()))
+        JapaneseDictionary::parse(ModelBytes::Mapped(mapped(bytes.as_ref())))
     }
 
     fn parsed(bytes: Vec<u8>) -> JapaneseDictionary {
@@ -531,7 +664,7 @@ mod tests {
         );
         std::fs::write(&path, &file).expect("write model");
         let dictionary = JapaneseDictionary::load(&path).expect("model loads");
-        let _: &Mmap = &dictionary.bytes;
+        assert!(matches!(dictionary.bytes, ModelBytes::Mapped(_)));
         assert_eq!(dictionary.bytes.len(), file.len());
         assert_eq!(&dictionary.bytes[..], &file[..]);
         std::fs::remove_file(&path).expect("remove");
@@ -635,6 +768,23 @@ mod tests {
     }
 
     #[test]
+    fn continuing_candidate_ranges_deduplicate_overlapping_kana() {
+        let dictionary = parsed(test_model::bytes(
+            &[
+                ("かな", "仮名", 0, 0, 10),
+                ("かない", "家内", 0, 0, 20),
+                ("かに", "蟹", 0, 0, 40),
+                ("かん", "漢", 0, 0, 30),
+            ],
+            1,
+            &[0],
+        ));
+
+        let ids = dictionary.continuing_candidate_ids("か", &["な", "ない", "ん"]);
+        assert_eq!(ids, vec![0, 1, 3]);
+    }
+
+    #[test]
     fn short_prefix_index_keeps_the_best_sixty_four() {
         let surfaces_owned: Vec<String> = (0..70).map(|index| format!("語{index:02}")).collect();
         let entries: Vec<test_model::Entry<'_>> = surfaces_owned
@@ -660,6 +810,44 @@ mod tests {
         let second = JapaneseDictionary::shared(&path).expect("shared");
         assert!(Arc::ptr_eq(&first, &second));
         assert!(JapaneseDictionary::shared(&root.path().join("absent.dat")).is_none());
+    }
+
+    #[test]
+    fn a_preloaded_dictionary_answers_for_its_path_until_unloaded() {
+        // No file exists at this path: a host without a file system hands the bytes over instead.
+        let path = Path::new("/preloaded-test/msime-japanese.dat");
+        assert!(JapaneseDictionary::shared(path).is_none());
+        assert!(!JapaneseDictionary::preload(
+            path,
+            b"not a model".to_vec().into_boxed_slice()
+        ));
+        assert!(JapaneseDictionary::shared(path).is_none());
+        assert!(JapaneseDictionary::preload(
+            path,
+            test_model::single("甲").into_boxed_slice()
+        ));
+        let first = JapaneseDictionary::shared(path).expect("preloaded");
+        assert_eq!(surfaces(&first.exact_lemmas("かな", 1)), ["甲"]);
+        assert!(Arc::ptr_eq(
+            &first,
+            &JapaneseDictionary::shared(path).expect("again")
+        ));
+        // A later preload replaces it; a session still holding the first keeps it.
+        assert!(JapaneseDictionary::preload(
+            path,
+            test_model::single("乙").into_boxed_slice()
+        ));
+        assert_eq!(
+            surfaces(
+                &JapaneseDictionary::shared(path)
+                    .unwrap()
+                    .exact_lemmas("かな", 1)
+            ),
+            ["乙"]
+        );
+        assert_eq!(surfaces(&first.exact_lemmas("かな", 1)), ["甲"]);
+        JapaneseDictionary::unload(path);
+        assert!(JapaneseDictionary::shared(path).is_none());
     }
 
     /// The shipped `dict-v2.0.1` model (data-formats.md §8): header values and a few lookups.

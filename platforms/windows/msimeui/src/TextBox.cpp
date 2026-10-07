@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <cmath>
 #include <commdlg.h>
+#include <limits>
 #include <sstream>
 #include <wrl/client.h>
 
@@ -27,6 +28,8 @@ constexpr float kTextBoxCornerRadius = 10.0f;
 constexpr float kTextBoxContentPaddingPixels = 6.0f;
 constexpr LONG kSingleLineTextHorizontalInsetPixels = 6;
 constexpr LONG kMultiLineTextHorizontalInsetPixels = 4;
+constexpr size_t kMaxClipboardUnits = 1'000'000;
+constexpr size_t kMaxClipboardTextUnits = kMaxClipboardUnits - 1;
 
 RectF InsetRectF(const RectF &rect, float inset)
 {
@@ -79,6 +82,17 @@ bool IsCtrlPressed()
 
 bool CopyTextToClipboard(HWND hwnd, const std::wstring &text)
 {
+    if (text.size() > kMaxClipboardTextUnits || text.find(L'\0') != std::wstring::npos)
+    {
+        return false;
+    }
+
+    const size_t units = text.size() + 1;
+    if (units > std::numeric_limits<size_t>::max() / sizeof(wchar_t))
+    {
+        return false;
+    }
+
     if (!hwnd || !OpenClipboard(hwnd))
     {
         return false;
@@ -88,7 +102,7 @@ bool CopyTextToClipboard(HWND hwnd, const std::wstring &text)
 
     EmptyClipboard();
 
-    const size_t bytes = (text.size() + 1) * sizeof(wchar_t);
+    const size_t bytes = units * sizeof(wchar_t);
     HGLOBAL global = GlobalAlloc(GMEM_MOVEABLE, bytes);
     if (!global)
     {
@@ -132,6 +146,14 @@ std::wstring ReadClipboardText(HWND hwnd)
         return {};
     }
 
+    const SIZE_T bytes = GlobalSize(data);
+    if (bytes < sizeof(wchar_t))
+    {
+        CloseClipboard();
+        return {};
+    }
+
+    const size_t units = (std::min)(static_cast<size_t>(bytes / sizeof(wchar_t)), kMaxClipboardUnits);
     const wchar_t *buffer = static_cast<const wchar_t *>(GlobalLock(data));
     if (!buffer)
     {
@@ -139,7 +161,23 @@ std::wstring ReadClipboardText(HWND hwnd)
         return {};
     }
 
-    std::wstring text(buffer);
+    const wchar_t *terminator = std::find(buffer, buffer + units, L'\0');
+    if (terminator == buffer + units)
+    {
+        GlobalUnlock(data);
+        CloseClipboard();
+        return {};
+    }
+
+    const size_t textUnits = static_cast<size_t>(terminator - buffer);
+    if (textUnits > kMaxClipboardTextUnits)
+    {
+        GlobalUnlock(data);
+        CloseClipboard();
+        return {};
+    }
+
+    std::wstring text(buffer, textUnits);
     GlobalUnlock(data);
     CloseClipboard();
     return text;

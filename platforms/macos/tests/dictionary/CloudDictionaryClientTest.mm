@@ -25,6 +25,15 @@ int main() {
         assertRejected(^(MSIMECloudDictionaryCompletion completion) {
             MSIMEMutateCloudFixedPosition(@"PUT", [NSData data], nil, completion);
         });
+        assertRejected(^(MSIMECloudDictionaryCompletion completion) {
+            MSIMEMutateCloudDictionary(@"POST", @"../other", nil, [NSData data], @"synthetic-token", completion);
+        });
+        assertRejected(^(MSIMECloudDictionaryCompletion completion) {
+            MSIMEMutateCloudDictionary(@"DELETE", @"pinyin", @"../logout", [NSData data], @"synthetic-token", completion);
+        });
+        assertRejected(^(MSIMECloudDictionaryCompletion completion) {
+            MSIMEFetchCloudDictionaryCatalog(@"pinyin", @"ni", 0, @"\n", @"xiaohe", @"synthetic-token", completion);
+        });
     }
     return 0;
 }

@@ -1,5 +1,6 @@
 package app.msime.android;
 
+import app.msime.android.policy.HostOptionsPolicy;
 import android.content.Context;
 import android.util.AtomicFile;
 import java.io.File;
@@ -28,7 +29,7 @@ public final class Bootstrap {
             installHelpcodes(context, new File(root, "bootstrap/resources/helpcodes"));
             // Before the configuration exists, so that prepare_host below finds them beside the resources and records them.
             installLanguageDictionaries(context, new File(root, "bootstrap/language-dictionaries"));
-            installSoundPacks(context, new File(root, "sound-packs"));
+            installSoundPacks(context, HostOptionsPolicy.soundPacksDirectory(root));
             File configuration = new File(root, "runtime-options.json");
             File resources = new File(root, "bootstrap/resources");
             if (existingConfiguration(configuration)) {
@@ -36,13 +37,17 @@ public final class Bootstrap {
                 return false;
             }
             extractDictionary(context, resources);
+            clearInterruptedStaging(new File(root, "bootstrap/state/user/dictionaries"));
             JSONObject request = new JSONObject().put("resources", resources.getAbsolutePath())
                 .put("state_root", new File(root, "bootstrap/state").getAbsolutePath());
             // 不是 full 的版本把版本 id 交给 host-api：它按本版本的资源锁校验 APK 里的词库，在状态目录记下版本，从此没有偏好文件时读到的就是本版本的默认偏好（五笔版默认五笔、混拼打开）。full 不带这个键，请求与引入版本之前相同。
             AppEdition edition = AppEdition.current();
             if (!edition.isFull()) request.put("edition", edition.id());
             JSONObject result = new JSONObject(NativeClient.prepareHost(request.toString()));
-            if (!result.getBoolean("ok")) throw new IllegalStateException("Shared resource verification/preparation failed: " + result.optString("error"));
+            if (!Boolean.TRUE.equals(result.opt("ok"))) {
+                throw new IllegalStateException("Shared resource verification/preparation failed: "
+                    + result.optString("error"));
+            }
             AtomicFile destination = new AtomicFile(configuration);
             FileOutputStream output = null;
             try {
@@ -54,6 +59,18 @@ public final class Bootstrap {
                 throw error;
             }
             return true;
+        }
+    }
+
+    /**
+     * 删掉上一次首次准备被打断时留下的 `<content id>.incoming` 暂存目录。
+     *
+     * <p>引擎准备代次时独占地建这个目录，失败会自己删掉，但进程在复制约 190 MB 词库的途中被杀时它就留下了，此后每次准备（包括「点此重试」）都报 `RUNTIME_STAGING_EXISTS`，键盘永远只能直接输入。首启引导恰好在这几秒里把用户送去系统设置启用键盘，小米等系统会把退到后台的应用杀掉。这里只在还没有配置时调用，并且持有 `bootstrap.lock`：没有配置就没有会话，不会有别的进程正在暂存。
+     */
+    static void clearInterruptedStaging(File dictionaries) throws java.io.IOException {
+        File[] entries = dictionaries.listFiles();
+        for (File entry : entries == null ? new File[0] : entries) {
+            if (entry.getName().endsWith(".incoming")) deleteTree(entry);
         }
     }
 
@@ -223,7 +240,7 @@ public final class Bootstrap {
             manifest = new JSONObject(new String(bytes, StandardCharsets.UTF_8));
         }
         JSONArray artifacts = manifest.getJSONArray("artifacts");
-        java.util.Set<String> names = new java.util.HashSet<>();
+        java.util.Set<String> names = new java.util.HashSet<>(artifacts.length());
         for (int index = 0; index < artifacts.length(); index++) {
             String name = artifacts.getJSONObject(index).getString("name");
             if (!name.matches("[A-Za-z0-9_.-]+") || name.contains("..")) throw new IllegalArgumentException("Invalid asset name");
@@ -263,7 +280,7 @@ public final class Bootstrap {
     /** 刷新一次配置；成功时返回 `null`，失败时记日志并返回共享层的错误文本。 */
     private static String refreshHost(File configuration) throws Exception {
         JSONObject result = new JSONObject(NativeClient.refreshHost(configuration.getAbsolutePath()));
-        if (result.optBoolean("ok")) return null;
+        if (Boolean.TRUE.equals(result.opt("ok"))) return null;
         String error = result.optString("error");
         android.util.Log.w("MSIMEBootstrap", "Runtime options refresh failed: "
             + (error.startsWith("dictionary_outdated") ? "dictionary_outdated" : "error"));

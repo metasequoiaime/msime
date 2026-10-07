@@ -2,6 +2,7 @@
 #include <chrono>
 #include <fstream>
 #include <iostream>
+#include <sstream>
 
 int main() {
   namespace fs = std::filesystem;
@@ -79,6 +80,10 @@ int main() {
     std::ofstream(choices) << std::string(8192, ' ') << R"({"cloud_candidates": true})";
     if (msime::windows::take_installer_cloud_choice(state) || fs::exists(choices))
       throw std::runtime_error("An oversized installer choice was accepted or kept");
+    std::istringstream oversized_stream(
+        std::string(4097, ' ') + R"({"cloud_candidates": true})");
+    if (msime::windows::parse_installer_cloud_choice(oversized_stream))
+      throw std::runtime_error("An oversized installer stream was accepted");
     fs::remove_all(root);
     std::cout << "Production first-run policy passed\n";
     return 0;

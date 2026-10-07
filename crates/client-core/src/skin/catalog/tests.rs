@@ -3,6 +3,7 @@
 //! Same `mod tests` as before, so `use super::*` still names the parent.
 
 use super::*;
+use std::io::Cursor;
 use tempfile::tempdir;
 fn manifest(id: &str) -> String {
     format!("schema_version = 1\nid = '{id}'\nname = 'Sample'\nversion = '1.0'\nbase = 'night'\n[supports]\nlayouts = ['vertical']\nthemes = ['light']\n[candidate_window]\nmin_width_dip = 10\n[candidate_window.decoration]\ntop_inset_dip = 0\nwidth_dip = 0\n")
@@ -13,6 +14,15 @@ fn resource_package(root: &Path) -> std::path::PathBuf {
     fs::create_dir_all(skin.join("images")).unwrap();
     fs::write(skin.join("skin.toml"), manifest("sample")).unwrap();
     skin
+}
+
+fn encoded_png(width: u32, height: u32) -> Vec<u8> {
+    let image = image::RgbImage::from_pixel(width, height, image::Rgb([0, 0, 0]));
+    let mut output = Cursor::new(Vec::new());
+    image::DynamicImage::ImageRgb8(image)
+        .write_to(&mut output, image::ImageFormat::Png)
+        .unwrap();
+    output.into_inner()
 }
 
 #[test]
@@ -31,6 +41,23 @@ fn scan_external_skin_under_non_ascii_directory() {
     assert_eq!(catalog.packages.len(), 1);
     assert_eq!(catalog.packages[0].id, "sample");
     assert!(skin.join("skin.toml").exists());
+}
+
+#[test]
+fn load_package_rejects_images_with_oversized_dimensions() {
+    let root = tempdir().unwrap();
+    let skin = resource_package(root.path());
+    fs::write(skin.join("images/too-wide.png"), encoded_png(2049, 1)).unwrap();
+    fs::write(
+        skin.join("skin.toml"),
+        format!(
+            "{}[candidate_window.background]\nimage = 'images/too-wide.png'\n",
+            manifest("sample")
+        ),
+    )
+    .unwrap();
+
+    assert!(load_package(root.path(), "sample").is_err());
 }
 
 #[test]

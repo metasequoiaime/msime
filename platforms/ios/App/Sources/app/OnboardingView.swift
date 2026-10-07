@@ -63,6 +63,8 @@ struct InputSettingsView: View {
   @State private var wubiProfile = WubiProfilePreference.profile
   @State private var wubiProfileSaveFailed = false
   @State private var remembersImeMode = false
+  @State private var sentenceLevel = SentenceAssociationPreference.Level.standard
+  @State private var sentenceSaveFailed = false
   /// The shared document as last read, for the candidate preview at the top (dc.html: 输入 leads with the same card as 主题 and 候选栏).
   @State private var document: [String: Any]?
   @Environment(\.colorScheme) private var colorScheme
@@ -217,6 +219,27 @@ struct InputSettingsView: View {
         }
 
         Section {
+          Picker("整句联想", selection: Binding(get: { sentenceLevel }, set: { level in
+            guard level != sentenceLevel else { return }
+            sentenceLevel = level
+            sentenceSaveFailed = !SentenceAssociationPreference.save(level)
+            if sentenceSaveFailed { reloadPreferences() }
+          })) {
+            ForEach(SentenceAssociationPreference.Level.allCases) { level in
+              Text(level.title).tag(level)
+            }
+          }
+          .pickerStyle(.segmented)
+          .accessibilityIdentifier("sentenceAssociationPicker")
+        } header: {
+          Text("整句联想")
+        } footer: {
+          Text(sentenceSaveFailed
+            ? "设置没有保存，键盘可能正在写入同一份设置，请再试一次。"
+            : "「增强」再用整句模型给候选排序，更准确，但更耗电，打字很快时可能跟不上。")
+        }
+
+        Section {
           Toggle("按键音", isOn: $soundEnabled)
             .accessibilityIdentifier("keyboardSoundToggle")
           if KeyboardFeedbackPreference.hapticsAvailable {
@@ -271,6 +294,7 @@ struct InputSettingsView: View {
     wubiProfile = WubiProfilePreference.profile
     startsInEnglish = document?["default_ime_mode"] as? String == "english"
     remembersImeMode = ImeModeMemoryPreference.isEnabled()
+    sentenceLevel = SentenceAssociationPreference.level(in: document)
   }
 }
 

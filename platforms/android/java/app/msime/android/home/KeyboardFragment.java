@@ -2,7 +2,6 @@ package app.msime.android.home;
 
 import android.content.Intent;
 import android.content.res.ColorStateList;
-import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -24,6 +23,7 @@ import app.msime.android.KeyboardGeometry;
 import app.msime.android.KeyboardScheme;
 import app.msime.android.KeyboardSkin;
 import app.msime.android.R;
+import app.msime.android.ViewPolicy;
 import com.google.android.material.button.MaterialButton;
 import java.util.ArrayList;
 import java.util.List;
@@ -64,12 +64,12 @@ public final class KeyboardFragment extends HomeTabFragment {
         MaterialButton trial = view.findViewById(R.id.keyboard_try);
         // The Apple app opens an editor here rather than the system picker: trying the keyboard
         // means typing with it, and the picker only offers to switch away from it.
-        trial.setOnClickListener(ignored ->
-            startActivity(new Intent(requireContext(), KeyboardTryoutActivity.class)));
+        ViewPolicy.bindClick(trial,
+            () -> startActivity(new Intent(requireContext(), KeyboardTryoutActivity.class)));
 
         TextView system = view.findViewById(R.id.keyboard_system_settings);
         system.setText("系统输入法设置 ›");
-        system.setOnClickListener(ignored -> openInputMethodSettings());
+        ViewPolicy.bindClick(system, this::openInputMethodSettings);
 
         // The system's input method picker is a dialog over this window, so there is no resume when it closes; the returning focus is the only sign the default may have changed.
         view.getViewTreeObserver().addOnWindowFocusChangeListener(focusWatch);
@@ -100,8 +100,8 @@ public final class KeyboardFragment extends HomeTabFragment {
         ViewCompat.setOnApplyWindowInsetsListener(scroll, (target, insets) -> {
             Insets bars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
             Insets ime = insets.getInsets(WindowInsetsCompat.Type.ime());
-            int bottom = Math.max(bars.bottom + tabs, ime.bottom) + base;
-            target.setPadding(target.getPaddingLeft(), target.getPaddingTop(), target.getPaddingRight(), bottom);
+            int bottom = Ui.bottomContentInset(bars.bottom, tabs, ime.bottom, base);
+            Ui.setBottomPadding(target, bottom);
             return insets;
         });
         ViewCompat.requestApplyInsets(scroll);
@@ -113,7 +113,7 @@ public final class KeyboardFragment extends HomeTabFragment {
         // when the keyboard cannot reach the Engine, which is the one case the user has to know.
         TextView preparation = view.findViewById(R.id.keyboard_preparation);
         preparation.setBackground(Ui.rounded(Ui.page(requireContext()), Ui.dp(requireContext(), 12)));
-        preparation.setOnClickListener(ignored -> FirstRunPreparation.retry(requireContext()));
+        ViewPolicy.bindClick(preparation, () -> FirstRunPreparation.retry(requireContext()));
         preparationListener = status -> {
             if (!isAdded()) return;
             switch (status) {
@@ -123,7 +123,10 @@ public final class KeyboardFragment extends HomeTabFragment {
                     preparation.setVisibility(View.VISIBLE);
                 }
                 case FAILED -> {
-                    preparation.setText(R.string.preparation_failed);
+                    String reason = FirstRunPreparation.failure();
+                    // 原因直接写在提示里：出问题的多是别人手里的手机，没法让用户连电脑看 logcat。
+                    if (reason.isEmpty()) preparation.setText(R.string.preparation_failed);
+                    else preparation.setText(getString(R.string.preparation_failed_reason, reason));
                     preparation.setClickable(true);
                     preparation.setVisibility(View.VISIBLE);
                 }
@@ -338,12 +341,7 @@ public final class KeyboardFragment extends HomeTabFragment {
     private void check(View view, int rowId, int markId, int actionId, @StringRes int label,
             boolean done, Runnable action) {
         TextView mark = view.findViewById(markId);
-        GradientDrawable disc = new GradientDrawable();
-        disc.setShape(GradientDrawable.OVAL);
-        disc.setColor(done ? Ui.accent(requireContext()) : Ui.color(requireContext(), R.attr.msWarn));
-        mark.setBackground(disc);
-        mark.setText(done ? "✓" : "!");
-        mark.setTextColor(done ? Ui.onAccent(requireContext()) : 0xFFFFFFFF);
+        Ui.applyStatusMark(mark, requireContext(), done);
         TextView button = view.findViewById(actionId);
         button.setVisibility(done ? View.GONE : View.VISIBLE);
         button.setOnClickListener(done ? null : ignored -> action.run());

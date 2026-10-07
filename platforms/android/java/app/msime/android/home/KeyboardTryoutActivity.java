@@ -1,6 +1,5 @@
 package app.msime.android.home;
 
-import android.content.res.ColorStateList;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -17,6 +16,9 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import app.msime.android.ColorPolicy;
+import app.msime.android.BoundsPolicy;
+import app.msime.android.TextPolicy;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
@@ -51,7 +53,7 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
     private static final String FAILURE = "请求失败，请检查登录状态或稍后重试。";
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
-    private final List<BackendAccount.ChatModel> models = new ArrayList<>();
+    private final ArrayList<BackendAccount.ChatModel> models = new ArrayList<>(BackendAccount.MAX_CHAT_MODELS);
     private final List<BackendAccount.ChatMessage> messages = new ArrayList<>(13);
     private Future<?> operation;
     private int generation;
@@ -75,7 +77,8 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
         ViewCompat.setOnApplyWindowInsetsListener(root, (view, windowInsets) -> {
             Insets bars = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars());
             Insets ime = windowInsets.getInsets(WindowInsetsCompat.Type.ime());
-            view.setPadding(bars.left, bars.top, bars.right, Math.max(bars.bottom, ime.bottom));
+            view.setPadding(bars.left, bars.top, bars.right,
+                Ui.bottomContentInset(bars.bottom, 0, ime.bottom, 0));
             return windowInsets;
         });
 
@@ -89,8 +92,8 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
         View inputBar = findViewById(R.id.tryout_input_bar);
         inputBar.setBackgroundColor(Ui.card(this));
         // 固定 20 dp 圆角而不是全圆：单行 40 dp 高时看起来仍是胶囊，长到几行时是圆角矩形，不会撑成一个椭圆。
-        android.graphics.drawable.GradientDrawable pill = Ui.rounded(Ui.page(this), Ui.dp(this, 20));
-        pill.setStroke(Ui.dp(this, 1), Ui.hairline(this));
+        android.graphics.drawable.GradientDrawable pill = Ui.outlined(Ui.page(this),
+            Ui.dp(this, 20), Ui.dp(this, 1), Ui.hairline(this));
         field.setBackground(pill);
         // 聊天页的回车是发送：键盘回车显示「发送」，按下等同右边的发送键，不再插入换行把输入框越撑越高。长句仍会折行显示，最多 4 行。
         field.setHorizontallyScrolling(false);
@@ -102,7 +105,7 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
             return true;
         });
         int accent = Ui.accent(this);
-        sendAi.setBackgroundTintList(new ColorStateList(
+        sendAi.setBackgroundTintList(ColorPolicy.stateList(
             new int[][] {{-android.R.attr.state_enabled}, {}},
             new int[] {Ui.withAlpha(accent, 0.38f), accent}));
 
@@ -171,6 +174,7 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
                 runOnUiThread(() -> {
                     if (isFinishing() || isDestroyed()) return;
                     models.clear();
+                    models.ensureCapacity(loaded.size());
                     models.addAll(loaded);
                     loadingModels = false;
                     // The draft may have been typed while the catalogue was loading. Refresh
@@ -286,7 +290,7 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
     private final class StreamingReply {
         final int token;
         final BackendAccount.ChatCall call = new BackendAccount.ChatCall();
-        private final StringBuilder received = new StringBuilder();
+        private final StringBuilder received = new StringBuilder(BackendAccount.MAX_CHAT_REPLY_BYTES);
         private final AtomicBoolean scheduled = new AtomicBoolean();
         /** 上一次重画的时刻；worker 线程读它算延迟，界面线程写。 */
         private volatile long shownAt;
@@ -303,7 +307,8 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
                 received.append(delta);
             }
             if (scheduled.compareAndSet(false, true)) {
-                long wait = Math.max(0, shownAt + STREAM_FRAME_MS - SystemClock.uptimeMillis());
+                long wait = BoundsPolicy.nonNegative(
+                    shownAt + STREAM_FRAME_MS - SystemClock.uptimeMillis());
                 mainHandler.postDelayed(this::render, wait);
             }
         }
@@ -352,18 +357,17 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
     private TextView appendBubble(String text, boolean mine) {
         LinearLayout chat = findViewById(R.id.tryout_chat);
         while (chat.getChildCount() >= BUBBLE_LIMIT) chat.removeViewAt(0);
-        TextView bubble = new TextView(this);
+        TextView bubble = Ui.styledLabel(this, text, 15, 400,
+            mine ? Ui.onAccent(this) : Ui.text(this));
         // 先设可选再放文字：setTextIsSelectable 会换成 ArrowKeyMovementMethod，放在后面就把 Markwon 装好的 LinkMovementMethod 冲掉，回复里的链接点不动。AI 的气泡再显式装上链接的点按处理，之后流式更新的 setMarkdown 会沿用它。
         bubble.setTextIsSelectable(true);
         setBubbleText(bubble, text, !mine);
         if (!mine) bubble.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
-        Ui.style(bubble, 15, 400, mine ? Ui.onAccent(this) : Ui.text(this));
         bubble.setLineSpacing(Ui.dp(this, 3), 1f);
         bubble.setBackground(Ui.rounded(mine ? Ui.accent(this) : Ui.card(this), Ui.dp(this, 18)));
-        bubble.setPadding(Ui.dp(this, 14), Ui.dp(this, 10), Ui.dp(this, 14), Ui.dp(this, 10));
-        bubble.setMaxWidth(Math.round(getResources().getDisplayMetrics().widthPixels * 0.8f));
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        Ui.setSymmetricPaddingDp(bubble, this, 14, 10);
+        bubble.setMaxWidth(Math.round(Ui.screenWidthPixels(this) * 0.8f));
+        LinearLayout.LayoutParams params = Ui.wrap();
         params.gravity = mine ? Gravity.END : Gravity.START;
         if (chat.getChildCount() > 0) params.topMargin = Ui.dp(this, 10);
         chat.addView(bubble, params);
@@ -373,7 +377,7 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
 
     /** AI 与水杉的气泡按 Markdown 渲染（加粗、列表、标题、引用、代码、链接）；自己发的那句原样显示。 */
     private void setBubbleText(TextView bubble, String text, boolean markdown) {
-        String shown = text.length() > 8_000 ? text.substring(0, 8_000) : text;
+        String shown = TextPolicy.clip(text, 8_000);
         if (markdown) markwon().setMarkdown(bubble, shown);
         else bubble.setText(shown);
     }

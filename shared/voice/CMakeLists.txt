@@ -69,6 +69,9 @@ if(BUILD_TESTING)
   add_test(NAME shared-voice-local-helper-protocol-limits
     COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/local_helper_protocol_limits.py"
       $<TARGET_FILE:msime-voice-local>)
+  add_test(NAME shared-voice-local-helper-malformed
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/local_helper_malformed.py"
+      $<TARGET_FILE:msime-voice-local>)
   if(NOT WIN32)
     add_test(NAME shared-voice-local-helper-null-stdin
       COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/local_helper_null_stdin.py"

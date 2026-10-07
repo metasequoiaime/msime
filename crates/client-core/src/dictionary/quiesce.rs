@@ -193,7 +193,7 @@ pub mod server {
     /// Server 的辅助管道名，不带 `\\.\pipe\` 前缀和版本后缀；与 `shared/contracts/windows_ipc.h` 的 `FANY_IME_AUX_NAMED_PIPE` 一致。
     pub const PIPE_BASE_NAME: &str = "FanyImeAuxNamedPipe";
 
-    /// `edition` 的 Server 的辅助管道：full 是 `\\.\pipe\FanyImeAuxNamedPipe`，其他版本带 `.<id>` 后缀。几个版本同时安装时，词库维护只让本版本的 Server 放开会话。
+    /// `edition` 的 Server 的辅助管道：每个版本都带 `.<id>` 后缀，例如 full 是 `\\.\pipe\FanyImeAuxNamedPipe.full`。几个版本同时安装时，词库维护只让本版本的 Server 放开会话。
     pub fn pipe_name(edition: &crate::edition::Edition) -> Option<String> {
         edition
             .windows()
@@ -571,7 +571,7 @@ mod tests {
     fn the_windows_server_is_spoken_to_in_utf16() {
         assert_eq!(
             server::pipe_name(crate::edition::Edition::full()).unwrap(),
-            r"\\.\pipe\FanyImeAuxNamedPipe"
+            r"\\.\pipe\FanyImeAuxNamedPipe.full"
         );
         assert_eq!(
             server::pipe_name(crate::edition::Edition::by_id("wubi").unwrap()).unwrap(),

@@ -18,7 +18,7 @@ public final class CandidateWrapLayout extends ViewGroup {
         int widthMode = MeasureSpec.getMode(widthMeasureSpec);
         int widthLimit = MeasureSpec.getSize(widthMeasureSpec);
         int available = widthMode == MeasureSpec.UNSPECIFIED
-            ? Integer.MAX_VALUE : Math.max(0, widthLimit - getPaddingLeft() - getPaddingRight());
+            ? Integer.MAX_VALUE : BoundsPolicy.nonNegative(widthLimit - getPaddingLeft() - getPaddingRight());
         int occupied = 0;
         int rowHeight = 0;
         int contentHeight = 0;
@@ -30,16 +30,16 @@ public final class CandidateWrapLayout extends ViewGroup {
             int childWidth = child.getMeasuredWidth();
             int childHeight = child.getMeasuredHeight();
             if (CandidateWrapPolicy.shouldWrap(occupied, childWidth, available, spacing)) {
-                contentWidth = Math.max(contentWidth, occupied);
+                contentWidth = BoundsPolicy.atLeast(contentWidth, occupied);
                 contentHeight += rowHeight + spacing;
                 occupied = childWidth;
                 rowHeight = childHeight;
             } else {
                 occupied = occupied == 0 ? childWidth : occupied + spacing + childWidth;
-                rowHeight = Math.max(rowHeight, childHeight);
+                rowHeight = BoundsPolicy.atLeast(rowHeight, childHeight);
             }
         }
-        contentWidth = Math.max(contentWidth, occupied);
+        contentWidth = BoundsPolicy.atLeast(contentWidth, occupied);
         contentHeight += rowHeight;
         int desiredWidth = getPaddingLeft() + contentWidth + getPaddingRight();
         int desiredHeight = getPaddingTop() + contentHeight + getPaddingBottom();
@@ -49,7 +49,7 @@ public final class CandidateWrapLayout extends ViewGroup {
 
     @Override protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
         int contentLeft = getPaddingLeft();
-        int contentRight = Math.max(contentLeft, right - left - getPaddingRight());
+        int contentRight = BoundsPolicy.atLeast(contentLeft, right - left - getPaddingRight());
         int available = contentRight - contentLeft;
         int x = contentLeft;
         int y = getPaddingTop();
@@ -69,7 +69,7 @@ public final class CandidateWrapLayout extends ViewGroup {
             child.layout(x, y, x + childWidth, y + childHeight);
             x += childWidth + spacing;
             occupied = occupied == 0 ? childWidth : occupied + spacing + childWidth;
-            rowHeight = Math.max(rowHeight, childHeight);
+            rowHeight = BoundsPolicy.atLeast(rowHeight, childHeight);
         }
     }
 

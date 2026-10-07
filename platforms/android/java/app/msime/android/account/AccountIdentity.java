@@ -58,6 +58,6 @@ public final class AccountIdentity {
     /** A shortened form for a settings row; the full subject is not a secret but is not readable. */
     public static String shortSubject(String subject) {
         if (subject == null || subject.isEmpty()) return "";
-        return subject.length() <= 14 ? subject : subject.substring(0, 14) + "…";
+        return subject.length() <= 14 ? subject : TextPolicy.clipSurrogateSafe(subject, 14) + "…";
     }
 }

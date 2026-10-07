@@ -172,13 +172,11 @@ Root: HKLM; Subkey: "{#MyEditionRegistryKey}"; \
 
 [Code]
 const
-  { 所有权标记的文件名按版本取（editions.iss，full 是 .metasequoiaime-data，其他版本接上自己的名字后缀），都以 DataDirMarkerPrefix 开头。几个版本可以同时安装：OwnsDataDir 只认本版本的标记，目录里只要有别的版本的标记就不归本安装器管，所以一个版本不会接管、清理或删除另一个版本的数据目录。 }
+  { 所有权标记的文件名按版本取（editions.iss，DataDirMarkerPrefix 接上版本的名字后缀，例如 full 是 .metasequoiaime-data.full），都以 DataDirMarkerPrefix 开头；不带后缀的 .metasequoiaime-data 是 msime-windows 的标记。几个版本可以和 msime-windows 同时安装：OwnsDataDir 只认本版本的标记，目录里只要有别的版本或 msime-windows 的标记就不归本安装器管，所以本安装器不会接管、清理或删除别人的数据目录。 }
   DataDirMarkerName = '{#MyEditionDataDirMarker}';
   DataDirMarkerPrefix = '{#MyDataDirMarkerPrefix}';
-#if !MyEditionIsFull
   { 本版本写进所有权标记的内容。标记里带着版本 id，OwnsDataDir 只认它，不认别的版本的标记。 }
   DataDirMarkerText = 'This directory is managed by Metasequoia IME (edition {#Edition}).';
-#endif
 
   { WebView2 Evergreen Runtime 在 EdgeUpdate 里的固定客户端 ID。}
   WebView2ClientKey =
@@ -456,19 +454,10 @@ begin
 end;
 
 function OwnsDataDir(const Directory: String): Boolean;
-#if MyEditionIsFull
-begin
-  { 带着另一个版本标记的目录不归本安装器管，即使它就是本版本的默认数据目录：升级不能清理它，卸载也不能删它。.metasequoiaime-data 这个文件名只有 full 会写，所以只看文件在不在、不核对内容，以前的 full 写下的标记照样认。 }
-  Result :=
-    (not HasOtherEditionDataDirMarker(Directory)) and
-    ((CompareText(Directory, ExpandConstant('{localappdata}\{#MyEditionInstallDir}')) = 0) or
-     FileExists(DataDirMarkerPath(Directory)));
-end;
-#else
 var
   Lines: TArrayOfString;
 begin
-  { 几个版本可以同时安装。只认写着本版本 id 的所有权标记：带着另一个版本标记的目录不归本安装器管，即使它就是本版本的默认数据目录，升级不能清理它，卸载也不能删它。 }
+  { 几个版本可以和 msime-windows 同时安装。只认写着本版本 id 的所有权标记：带着另一个版本或 msime-windows 标记的目录不归本安装器管，即使它就是本版本的默认数据目录，升级不能清理它，卸载也不能删它。 }
   Result :=
     (not HasOtherEditionDataDirMarker(Directory)) and
     ((CompareText(Directory, ExpandConstant('{localappdata}\{#MyEditionInstallDir}')) = 0) or
@@ -476,7 +465,6 @@ begin
       (GetArrayLength(Lines) > 0) and
       (Lines[0] = DataDirMarkerText)));
 end;
-#endif
 
 procedure WriteDataDirMarker(const Directory: String);
 var
@@ -487,11 +475,7 @@ begin
   if FileExists(DataDirMarkerPath(Directory)) then
     Exit;
   SetArrayLength(Lines, 1);
-#if MyEditionIsFull
-  Lines[0] := 'This directory is managed by Metasequoia IME.';
-#else
   Lines[0] := DataDirMarkerText;
-#endif
   SaveStringsToFile(DataDirMarkerPath(Directory), Lines, False);
 end;
 
@@ -513,7 +497,7 @@ begin
   end;
 end;
 
-{ 别的版本的数据目录：每个版本的默认数据目录（%LOCALAPPDATA% 下与它的安装目录同名的目录，还没装的版本以后会落到这里），以及它在自己的 HKLM 键下登记的 DataDir。名单由 editions.iss 从版本表生成。几个版本可以同时安装，本版本的数据目录不能和这些目录重叠或互相包含：外层的版本卸载或更换数据目录时递归删除自己的目录，会把里层版本还在用的目录一起删掉；HasOtherEditionDataDirMarker 只看目录顶层，看不到嵌在子目录里的别的版本。 }
+{ 别的版本和 msime-windows 的数据目录：每个版本的默认数据目录（%LOCALAPPDATA% 下与它的安装目录同名的目录，还没装的版本以后会落到这里），以及它在自己的 HKLM 键下登记的 DataDir。名单由 editions.iss 从版本表生成，最后一项是 msime-windows（edition_windows.py 的 MSIME_WINDOWS）。几个版本可以和 msime-windows 同时安装，本版本的数据目录不能和这些目录重叠或互相包含：外层的产品卸载或更换数据目录时递归删除自己的目录，会把里层产品还在用的目录一起删掉；HasOtherEditionDataDirMarker 只看目录顶层，看不到嵌在子目录里的别人。 }
 function OtherEditionDataDirs: TArrayOfString;
 var
   RegistryKeys: String;

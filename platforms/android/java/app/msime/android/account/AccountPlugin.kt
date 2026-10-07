@@ -298,7 +298,7 @@ class AccountPlugin(activity: Activity) : Plugin(activity) {
         try {
             val text = invoke.parseArgs(CopyTextArgs::class.java).text
             if (text.isEmpty() || text.length > 4000 || text.contains('\u0000') ||
-                TextPolicy.hasControlExceptWhitespace(text)) {
+                TextPolicy.hasControlExceptWhitespace(text) || !TextPolicy.validUnicode(text)) {
                 invoke.reject("invalid_text", "invalid_text")
                 return
             }
@@ -318,7 +318,8 @@ class AccountPlugin(activity: Activity) : Plugin(activity) {
         try {
             val url = invoke.parseArgs(OpenExternalUrlArgs::class.java).url
             if (url.length > 4096 || !url.startsWith("https://") ||
-                url.any { it.isWhitespace() } || TextPolicy.hasControl(url)) {
+                url.any { it.isWhitespace() } || TextPolicy.hasControl(url)
+                || !TextPolicy.validUnicode(url)) {
                 invoke.reject("invalid_url", "invalid_url")
                 return
             }

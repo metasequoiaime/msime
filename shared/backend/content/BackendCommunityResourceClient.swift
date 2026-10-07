@@ -64,6 +64,7 @@ extension BackendAccountClient {
     return page
   }
   func communityResource(_ id: UUID, token: String? = nil) async throws -> CommunityResource {
+    guard Self.validResourceID(id) else { throw Failure(status: 400) }
     let value: CommunityResource = try await json("GET", Self.resourcePath(id) + "?fields=moderation", token: token,
                                                  maximumResponseBytes: 3 * 1024 * 1024)
     guard value.id == id, Self.validResponse(value, expectedKind: value.kind) else { throw Failure(status: 502) }
@@ -73,7 +74,8 @@ extension BackendAccountClient {
                        content: ResourceContent, revision: Int, token: String) async throws -> ResourcePublication {
     let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
     let description = description.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard revision >= 0, Self.resourceText(name, minimum: 1, maximum: 32, multiline: false),
+    guard Self.validResourceID(id), (0...50_000).contains(revision),
+          Self.resourceText(name, minimum: 1, maximum: 32, multiline: false),
           Self.resourceText(description, minimum: 0, maximum: 280, multiline: true) else { throw Failure(status: 400) }
     switch kind {
     case .dictionary:
@@ -99,7 +101,7 @@ extension BackendAccountClient {
   }
   func applyResource(_ id: UUID, resourceRevision: Int, dictionaryRevision: Int64,
                      token: String) async throws -> ResourceApplication {
-    guard resourceRevision > 0, dictionaryRevision >= 0 else { throw Failure(status: 400) }
+    guard Self.validResourceID(id), (1...Int(UInt32.max)).contains(resourceRevision), dictionaryRevision >= 0 else { throw Failure(status: 400) }
     struct Body: Encodable { let resource_revision: Int; let dictionary_revision: Int64 }
     let result: ResourceApplication = try await json("POST", Self.resourcePath(id) + "/apply", token: token,
       body: JSONEncoder().encode(Body(resource_revision: resourceRevision, dictionary_revision: dictionaryRevision)))
@@ -109,19 +111,21 @@ extension BackendAccountClient {
     return result
   }
   func saveResource(_ id: UUID, saved: Bool, token: String) async throws {
+    guard Self.validResourceID(id) else { throw Failure(status: 400) }
     struct Body: Codable { let saved: Bool }
     let response: Body = try await json("PUT", Self.resourcePath(id) + "/save", token: token,
                                         body: JSONEncoder().encode(Body(saved: saved)))
     guard response.saved == saved else { throw Failure(status: 502) }
   }
   func rateResource(_ id: UUID, stars: Int, token: String) async throws {
-    guard (1...5).contains(stars) else { throw Failure(status: 400) }
+    guard Self.validResourceID(id), (1...5).contains(stars) else { throw Failure(status: 400) }
     struct Body: Codable { let stars: Int }
     let response: Body = try await json("PUT", Self.resourcePath(id) + "/rating", token: token,
                                         body: JSONEncoder().encode(Body(stars: stars)))
     guard response.stars == stars else { throw Failure(status: 502) }
   }
   func deleteResource(_ id: UUID, token: String) async throws {
+    guard Self.validResourceID(id) else { throw Failure(status: 400) }
     struct Result: Decodable { let deleted: Bool }
     let response: Result = try await json("DELETE", Self.resourcePath(id), token: token)
     guard response.deleted else { throw Failure(status: 502) }
@@ -131,15 +135,21 @@ extension BackendAccountClient {
   /// Report another user's item to the moderators. kind is skins, candidate-skins, plugins, dictionaries or replies; any signed-in session counts, the device's anonymous account included.
   func reportContent(kind: String, itemID: UUID, reason: String, detail: String, token: String) async throws {
     let detail = detail.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard ["skins", "candidate-skins", "plugins", "dictionaries", "replies"].contains(kind),
+    guard itemID != UUID(uuidString: "00000000-0000-0000-0000-000000000000")!,
+          ["skins", "candidate-skins", "plugins", "dictionaries", "replies"].contains(kind),
           Self.reportReasons.contains(reason),
           Self.resourceText(detail, minimum: 0, maximum: 1000, multiline: true) else { throw Failure(status: 400) }
     struct Body: Encodable { let kind: String; let item_id: String; let reason: String; let detail: String? }
+    struct Result: Decodable { let reported: Bool }
     let body = try JSONEncoder().encode(Body(kind: kind, item_id: itemID.uuidString.lowercased(), reason: reason,
                                              detail: detail.isEmpty ? nil : detail))
-    _ = try await request("POST", "/v1/community/reports", token: token, body: body)
+    let response: Result = try await json("POST", "/v1/community/reports", token: token, body: body)
+    guard response.reported else { throw Failure(status: 502) }
   }
   private static func resourcePath(_ id: UUID) -> String { "/v1/community/resources/" + id.uuidString.lowercased() }
+  private static func validResourceID(_ id: UUID) -> Bool {
+    id != UUID(uuidString: "00000000-0000-0000-0000-000000000000")!
+  }
   private static func validSharedWord(_ entry: SharedWord) -> Bool {
     entry.weight >= 0 && resourceText(entry.code, minimum: 1, maximum: 256, multiline: false) &&
       resourceText(entry.word, minimum: 1, maximum: 1_024, multiline: false)

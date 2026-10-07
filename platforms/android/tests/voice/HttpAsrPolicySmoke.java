@@ -44,6 +44,11 @@ public final class HttpAsrPolicySmoke {
         check(!HttpAsrPolicy.usable("openai", endpoint, "whisper\n1", "token")
                 && !HttpAsrPolicy.usable("openai", endpoint + "\r", "whisper-1", "token"),
             "a control character is refused rather than smuggled into a header");
+        check(!HttpAsrPolicy.usable("openai", endpoint + "\uD800", "whisper-1", "token"),
+            "malformed Unicode in an endpoint is refused");
+        check(!HttpAsrPolicy.usable("openai", endpoint, "whisper-1\uD800", "token")
+                && !HttpAsrPolicy.usable("openai", endpoint, "whisper-1", "token\uD800"),
+            "malformed Unicode in model and token is refused");
         check(!HttpAsrPolicy.usable("doubao", endpoint, "whisper-1", "token"),
             "an unsupported provider is not usable however complete it looks");
         check(!HttpAsrPolicy.usable("openai", null, "whisper-1", "token"),
@@ -110,6 +115,12 @@ public final class HttpAsrPolicySmoke {
                 "HTTP ASR accepts string transcripts");
             check("".equals(strictText.invoke(null, 42)),
                 "HTTP ASR rejects numeric transcripts instead of coercing them");
+            check("".equals(strictText.invoke(null, "字".repeat(2001))),
+                "HTTP ASR rejects an oversized transcript before display");
+            check("".equals(strictText.invoke(null, "好\u0000")),
+                "HTTP ASR rejects control characters before display");
+            check("".equals(strictText.invoke(null, "好\uD800")),
+                "HTTP ASR rejects unpaired surrogates before display");
         } catch (ReflectiveOperationException error) {
             throw new AssertionError("HTTP ASR response parser unavailable", error);
         }

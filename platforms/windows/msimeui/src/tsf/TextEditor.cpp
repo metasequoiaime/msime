@@ -405,14 +405,21 @@ BOOL CTextEditor::MoveSelectionToLineFirstEnd(BOOL bFirst)
 
 BOOL CTextEditor::InsertAtSelection(LPCWSTR psz)
 {
+    if (!psz)
+        return FALSE;
+
+    const int textLength = lstrlenW(psz);
+    if (textLength < 0 || static_cast<UINT>(textLength) > kMaxTextUnits)
+        return FALSE;
+
     LONG lOldSelEnd = _nSelEnd;
     if (!RemoveText(_nSelStart, _nSelEnd - _nSelStart))
         return FALSE;
 
-    if (!InsertText(_nSelStart, psz, lstrlen(psz)))
+    if (!InsertText(_nSelStart, psz, static_cast<UINT>(textLength)))
         return FALSE;
 
-    _nSelStart += lstrlen(psz);
+    _nSelStart += static_cast<UINT>(textLength);
     _nSelEnd = _nSelStart;
     _layout.ResetCaretBlink();
     UpdateLayout();

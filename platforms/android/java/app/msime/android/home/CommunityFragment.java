@@ -14,6 +14,7 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
 import androidx.fragment.app.Fragment;
+import app.msime.android.BoundsPolicy;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
@@ -101,7 +102,7 @@ public final class CommunityFragment extends Fragment {
             kinds.addView(segment);
             segments[index] = segment.getId();
         }
-        kinds.check(segments[Math.max(0, values.indexOf(kind))]);
+        kinds.check(segments[BoundsPolicy.nonNegative(values.indexOf(kind))]);
         kinds.addOnButtonCheckedListener((group, id, checked) -> {
             if (!checked) return;
             for (int index = 0; index < segments.length; index++) {
@@ -193,7 +194,8 @@ public final class CommunityFragment extends Fragment {
             String directory = HostStore.directory(context);
             if (directory.isEmpty()) return null;
             CommunityCatalog catalog = new CommunityCatalog(context);
-            java.util.List<CommunitySkinCache.Entry> entries = new java.util.ArrayList<>();
+            java.util.List<CommunitySkinCache.Entry> entries = new java.util.ArrayList<>(
+                10 * CommunityRequest.PAGE_SIZE);
             for (int page = 0; page < 10; page++) {
                 CommunityCatalog.Page result = catalog.list(CommunityRequest.Kind.SKIN, "", entries.size(), null);
                 if (result == null || result.failed()) return null;
@@ -297,7 +299,7 @@ public final class CommunityFragment extends Fragment {
         if (view == null) return;
         TextView state = view.findViewById(R.id.community_state);
         state.setText(message);
-        state.setVisibility(message.isEmpty() ? View.GONE : View.VISIBLE);
+        Ui.setVisibilityForText(state, message);
         view.findViewById(R.id.community_retry)
             .setVisibility(retryable ? View.VISIBLE : View.GONE);
     }
@@ -312,32 +314,35 @@ public final class CommunityFragment extends Fragment {
     }
 
     private static Map<String, CommunityAdapter.Action> taken(Context context) {
-        Map<String, CommunityAdapter.Action> values = new HashMap<>();
+        List<CustomSkinLibrary.Item> skins = List.of();
         String directory = HostStore.directory(context);
         if (!directory.isEmpty()) {
             try {
-                for (CustomSkinLibrary.Item skin : CustomSkinLibrary.read(Paths.get(directory))) {
-                    values.put(CommunityAdapter.key(skin.id()), CommunityAdapter.Action.DONE);
-                }
+                skins = CustomSkinLibrary.read(Paths.get(directory));
             } catch (java.io.IOException | RuntimeException error) {
                 android.util.Log.i("MSIMECommunity", "Custom skin library unreadable", error);
             }
         }
         DictionaryCollectionsStore.Result<DictionaryCollectionsStore.View> collections =
             DictionaryCollectionsStore.load(context);
-        if (collections.ok()) {
-            for (DictionaryCollectionsStore.Collection collection : collections.value().collections()) {
-                if ("community".equals(collection.sourceType()) && collection.resourceId() != null
-                        && !collection.resourceId().isEmpty()) {
-                    values.put(CommunityAdapter.key(collection.resourceId()), CommunityAdapter.Action.DONE);
-                }
+        List<DictionaryCollectionsStore.Collection> collectionItems = collections.ok()
+            ? collections.value().collections() : List.of();
+        CommonPhrasesStore.Result phrases = CommonPhrasesStore.load(context);
+        List<CommonPhrasesStore.Pack> packs = phrases.ok()
+            ? phrases.document().packs() : List.of();
+        Map<String, CommunityAdapter.Action> values = new HashMap<>(
+            skins.size() + collectionItems.size() + packs.size());
+        for (CustomSkinLibrary.Item skin : skins) {
+            values.put(CommunityAdapter.key(skin.id()), CommunityAdapter.Action.DONE);
+        }
+        for (DictionaryCollectionsStore.Collection collection : collectionItems) {
+            if ("community".equals(collection.sourceType()) && collection.resourceId() != null
+                    && !collection.resourceId().isEmpty()) {
+                values.put(CommunityAdapter.key(collection.resourceId()), CommunityAdapter.Action.DONE);
             }
         }
-        CommonPhrasesStore.Result phrases = CommonPhrasesStore.load(context);
-        if (phrases.ok()) {
-            for (CommonPhrasesStore.Pack pack : phrases.document().packs()) {
-                values.put(CommunityAdapter.key(pack.id()), CommunityAdapter.Action.DONE);
-            }
+        for (CommonPhrasesStore.Pack pack : packs) {
+            values.put(CommunityAdapter.key(pack.id()), CommunityAdapter.Action.DONE);
         }
         return values;
     }
@@ -434,8 +439,7 @@ public final class CommunityFragment extends Fragment {
     private void report(CommunityCatalog.Item item) {
         Context context = requireContext();
         int padding = Ui.dp(context, 20);
-        LinearLayout form = new LinearLayout(context);
-        form.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout form = Ui.column(context);
         form.setPadding(padding, Ui.dp(context, 8), padding, 0);
         RadioGroup reasons = new RadioGroup(context);
         for (String reason : CommunityRequest.REPORT_REASONS) {

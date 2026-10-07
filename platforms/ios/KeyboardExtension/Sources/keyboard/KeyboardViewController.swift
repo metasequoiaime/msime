@@ -3470,7 +3470,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       character: " ", preceding: precedingCharacter,
       timestampMilliseconds: smartPunctuationNow, editorGeneration: smartPunctuationEditor,
       repeatSnapshot: nil, spaceSnapshot: armedSpaceConversion)
-    if let ascii = (conversion["space_ascii"] as? NSNumber)?.uint8Value,
+    if let ascii = conversion["space_ascii"]
+        .flatMap({ MetasequoiaInputSessionBridge.strictUInt64($0) })
+        .flatMap(UInt8.init(exactly:)),
        let scalar = UnicodeScalar(UInt32(ascii)) {
       clearSmartPunctuationArming()
       replacePrecedingCharacter(with: String(Character(scalar)))

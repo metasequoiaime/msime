@@ -1,7 +1,5 @@
 package app.msime.android;
 
-import java.util.Locale;
-
 /** Keeps the visible letter face separate from the case sent to the input engine. */
 public final class LetterKeyFacePolicy {
     private LetterKeyFacePolicy() { }
@@ -16,14 +14,14 @@ public final class LetterKeyFacePolicy {
             boolean shifted) {
         if (lowercase == null || lowercase.isEmpty()) return "";
         return displaysUppercase(chineseMode, localMode, shifted)
-            ? lowercase.toUpperCase(Locale.ROOT) : lowercase.toLowerCase(Locale.ROOT);
+            ? TextPolicy.uppercase(lowercase) : TextPolicy.lowercase(lowercase);
     }
 
     /** 无障碍描述跟键面一致：键面画大写时读「大写 N」，其他情况读「字母 N」。 */
     public static String accessibilityLabel(String lowercase, boolean chineseMode,
             boolean localMode, boolean shifted) {
         if (lowercase == null || lowercase.isEmpty()) return "字母";
-        String uppercase = lowercase.toUpperCase(Locale.ROOT);
+        String uppercase = TextPolicy.uppercase(lowercase);
         return (displaysUppercase(chineseMode, localMode, shifted) ? "大写 " : "字母 ") + uppercase;
     }
 }

@@ -200,7 +200,7 @@ private enum SnapshotRecordFields {
     let year = number(0, 4), month = number(5, 7), day = number(8, 10)
     let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)
     let days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-    guard (1...12).contains(month), (1...days[month - 1]).contains(day),
+    guard year > 0, (1...12).contains(month), (1...days[month - 1]).contains(day),
           number(11, 13) < 24, number(14, 16) < 60, number(17, 19) < 60 else { return false }
     if bytes.last != 90 {
       guard number(bytes.count - 5, bytes.count - 3) < 24, number(bytes.count - 2, bytes.count) < 60 else { return false }
@@ -456,4 +456,3 @@ final class BackendSnapshotRecordStream {
     }
   }
 }
-

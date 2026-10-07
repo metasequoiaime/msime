@@ -1,6 +1,5 @@
 //! The Jyutping composition: typed letters and `'` boundaries, read as syllables against the inventory, and the candidates `msime-cantonese.db` has for them. A candidate may cover only the leading syllables; selecting it takes those letters out of the composition and leaves the rest composing, with nothing held back as phrase progress.
 
-use std::collections::HashSet;
 use std::sync::Arc;
 
 use super::syllable::{self, Inventory, Segmentation};
@@ -153,15 +152,16 @@ impl CantoneseScheme {
         let count = reading.syllables.len();
         let full = !reading.syllables.is_empty()
             && input[reading.end()..].bytes().all(|byte| byte == b'\'');
-        let mut seen = HashSet::new();
         let mut candidates = Vec::new();
-        let push = |seen: &mut HashSet<(String, usize)>,
-                    candidates: &mut Vec<CantoneseCandidate>,
+        let push = |candidates: &mut Vec<CantoneseCandidate>,
                     key: String,
                     text: String,
                     weight: i64,
                     syllables: usize| {
-            if seen.insert((text.clone(), syllables)) {
+            if !candidates
+                .iter()
+                .any(|candidate| candidate.syllables == syllables && candidate.text == text)
+            {
                 candidates.push(CantoneseCandidate {
                     text,
                     weight,
@@ -176,25 +176,15 @@ impl CantoneseScheme {
             let whole = reading.key(input, count);
             if reading.ends_in_prefix() {
                 let completions = dictionary.lookup_completions(&whole, COMPLETION_LIMIT)?;
-                seen.reserve(completions.len());
                 candidates.reserve_exact(completions.len());
                 for (key, entry) in completions {
-                    push(
-                        &mut seen,
-                        &mut candidates,
-                        key,
-                        entry.text,
-                        entry.weight,
-                        count,
-                    );
+                    push(&mut candidates, key, entry.text, entry.weight, count);
                 }
             } else {
                 let entries = dictionary.lookup(&whole, SPAN_LIMIT)?;
-                seen.reserve(entries.len());
                 candidates.reserve_exact(entries.len());
                 for entry in entries {
                     push(
-                        &mut seen,
                         &mut candidates,
                         whole.clone(),
                         entry.text,
@@ -205,17 +195,9 @@ impl CantoneseScheme {
                 let last = reading.texts(input).last().unwrap_or_default();
                 if self.inventory.is_prefix(last) {
                     let completions = dictionary.lookup_completions(&whole, COMPLETION_LIMIT)?;
-                    seen.reserve(completions.len());
                     candidates.reserve_exact(completions.len());
                     for (key, entry) in completions {
-                        push(
-                            &mut seen,
-                            &mut candidates,
-                            key,
-                            entry.text,
-                            entry.weight,
-                            count,
-                        );
+                        push(&mut candidates, key, entry.text, entry.weight, count);
                     }
                 }
             }
@@ -224,11 +206,9 @@ impl CantoneseScheme {
         for length in (1..=spans).rev() {
             let key = reading.key(input, length);
             let entries = dictionary.lookup(&key, SPAN_LIMIT)?;
-            seen.reserve(entries.len());
             candidates.reserve_exact(entries.len());
             for entry in entries {
                 push(
-                    &mut seen,
                     &mut candidates,
                     key.clone(),
                     entry.text,

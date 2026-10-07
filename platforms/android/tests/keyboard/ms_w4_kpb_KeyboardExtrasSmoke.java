@@ -39,6 +39,10 @@ public final class ms_w4_kpb_KeyboardExtrasSmoke {
 
         check(ImeKeyFeedback.volumeFor(50) == .5f && ImeKeyFeedback.volumeFor(-3) == 0f
             && ImeKeyFeedback.volumeFor(400) == 1f, "volume is 0-100 mapped to 0-1");
+        check(ImeKeyFeedback.volumePreference(Integer.valueOf(30)) == 30,
+            "integer volume preferences are accepted");
+        check(ImeKeyFeedback.volumePreference(Double.valueOf(30.5)) == 100,
+            "fractional volume preferences use the default");
         check(KeyPressAnimator.Style.fromPreference("ripple") == KeyPressAnimator.Style.RIPPLE
             && KeyPressAnimator.Style.fromPreference("unknown") == KeyPressAnimator.Style.NONE, "key animation styles");
 

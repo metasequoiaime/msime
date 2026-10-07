@@ -19,6 +19,7 @@ use super::schedule::ReviewGrade;
 use super::wordbook::{Wordbook, WordbookEntry};
 use crate::plugins::wordbook_pack;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::Path;
 
 /// The largest imported word list this layer will parse, in bytes.
@@ -281,13 +282,29 @@ fn status_with(
                 settings.session_limit as usize,
             )
             .ok_or(ReviewSessionError::InvalidDay)?;
-            let mut cards = Vec::with_capacity(built.words.len());
-            cards.extend(
+            let cards = if built.words.len() <= 1 {
                 built
                     .words
                     .iter()
-                    .filter_map(|word| book.entry(word).cloned()),
-            );
+                    .filter_map(|word| book.entry(word).cloned())
+                    .collect()
+            } else {
+                // The queue is ordered by review priority, while the book keeps its original
+                // order. Index only the queued words, then scan the book once.
+                let positions: HashMap<&str, usize> = built
+                    .words
+                    .iter()
+                    .enumerate()
+                    .map(|(index, word)| (word.as_str(), index))
+                    .collect();
+                let mut ordered = vec![None; built.words.len()];
+                for entry in &book.entries {
+                    if let Some(&index) = positions.get(entry.word.as_str()) {
+                        ordered[index] = Some(entry.clone());
+                    }
+                }
+                ordered.into_iter().flatten().collect()
+            };
             (cards, built.due, built.introducing, built.remaining)
         }
     };
@@ -666,7 +683,14 @@ mod tests {
         )
         .unwrap();
         assert_eq!(chosen.introducing, 3);
-        assert_eq!(chosen.queue[0].word, "alpha");
+        assert_eq!(
+            chosen
+                .queue
+                .iter()
+                .map(|entry| entry.word.as_str())
+                .collect::<Vec<_>>(),
+            ["alpha", "beta", "gamma"]
+        );
 
         let answered = apply(
             root.path(),

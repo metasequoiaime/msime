@@ -13,7 +13,12 @@ extension BackendAccountClient {
     let artwork: SkinArtwork?
   }
 
+  static func validSkinArtworkPrompt(_ prompt: String) -> Bool {
+    !prompt.isEmpty && prompt.unicodeScalars.count <= 500
+  }
+
   func skinArtwork(prompt: String, account: BackendAccountSession, userID: String) async throws -> SkinArtwork {
+    guard Self.validSkinArtworkPrompt(prompt) else { throw Failure(status: 400) }
     struct Body: Encodable { let prompt: String }
     let credential = try await account.credentials(matchingUserID: userID)
     try Task.checkCancellation()

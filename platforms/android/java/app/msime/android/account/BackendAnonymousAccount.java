@@ -27,7 +27,7 @@ final class BackendAnonymousAccount {
 
         RateLimited(long retryAfterMillis) {
             super("anonymous login rate limited");
-            this.retryAfterMillis = Math.max(0, retryAfterMillis);
+            this.retryAfterMillis = BoundsPolicy.nonNegative(retryAfterMillis);
         }
 
         long retryAfterMillis() { return retryAfterMillis; }
@@ -86,7 +86,8 @@ final class BackendAnonymousAccount {
                     .put("target", identity.getString("subject"))
                     .put("purpose", "login"), null);
             String challengeID = BackendAccount.optionalStringField(challenge.opt("challenge_id"), "");
-            if (challengeID.isEmpty() || TextPolicy.hasControl(challengeID)) {
+            if (challengeID.isEmpty() || TextPolicy.hasControl(challengeID)
+                    || !TextPolicy.validUnicode(challengeID)) {
                 throw new IllegalStateException("anonymous account unavailable");
             }
             JSONObject tokens = request("POST", "/v1/auth/login",

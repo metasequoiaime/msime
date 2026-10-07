@@ -8,6 +8,7 @@ import android.graphics.Paint;
 import android.graphics.drawable.Drawable;
 import android.view.animation.DecelerateInterpolator;
 import android.widget.Button;
+import app.msime.android.KeyboardGeometry;
 
 /**
  * 候选条右端的展开键：左边一条 1×22 dp 的 kbHair 分隔线，右边 40 dp 见方的点按区，中间画 20 dp 的 chevron；展开时 chevron 用 200 ms 转 180°。
@@ -33,13 +34,8 @@ public final class CandidateChevronButton extends Button {
     public CandidateChevronButton(Context context) {
         super(context);
         setText("展开");
-        setAllCaps(false);
-        setBackground(null);
-        setPadding(0, 0, 0, 0);
-        setMinWidth(0);
-        setMinimumWidth(0);
-        setMinHeight(0);
-        setMinimumHeight(0);
+        ViewPolicy.setAllCapsFalse(this);
+        ViewPolicy.clearChrome(this);
     }
 
     /** 展开键只画分隔线和 chevron；键盘的整树样式通道会给每个 Button 套键帽，这里挡掉。 */
@@ -90,31 +86,32 @@ public final class CandidateChevronButton extends Button {
     }
 
     @Override protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
-        float density = getResources().getDisplayMetrics().density;
-        int width = Math.round(WIDTH_DP * density);
-        int height = Math.round(BUTTON_DP * density);
+        int width = KeyboardGeometry.pixels(getContext(), WIDTH_DP);
+        int height = KeyboardGeometry.pixels(getContext(), BUTTON_DP);
         setMeasuredDimension(resolveSize(width, widthMeasureSpec),
             resolveSize(height, heightMeasureSpec));
     }
 
     @Override protected void onDraw(Canvas canvas) {
-        float density = getResources().getDisplayMetrics().density;
         float height = getHeight();
-        float dividerHeight = Math.min(height, DIVIDER_HEIGHT_DP * density);
+        float dividerHeight = BoundsPolicy.atMost(height,
+            KeyboardGeometry.floatPixels(getContext(), DIVIDER_HEIGHT_DP));
         divider.setColor(hairlineColor);
-        float lineWidth = Math.max(1f, density);
+        float lineWidth = BoundsPolicy.bounded(
+            KeyboardGeometry.floatPixels(getContext(), 1), 1f, Float.MAX_VALUE);
         canvas.drawRect(0, (height - dividerHeight) / 2f, lineWidth,
             (height + dividerHeight) / 2f, divider);
         float areaLeft = lineWidth;
         float areaWidth = getWidth() - areaLeft;
-        float size = Math.min(Math.min(areaWidth, height), CHEVRON_DP * density);
+        float size = BoundsPolicy.atMost(KeyboardGeometry.shorterSide(areaWidth, height),
+            KeyboardGeometry.floatPixels(getContext(), CHEVRON_DP));
         if (size <= 0) return;
         float centerX = areaLeft + areaWidth / 2f;
         float centerY = height / 2f;
         int saved = canvas.save();
         canvas.rotate(rotation, centerX, centerY);
         int color = isEnabled() ? iconColor
-            : Color.argb(96, Color.red(iconColor), Color.green(iconColor), Color.blue(iconColor));
+            : ColorPolicy.withAlpha(iconColor, 96f / 255f);
         KeyboardIconPaths.draw(canvas, icon, KeyboardIconPaths.Icon.CHEVRON,
             centerX - size / 2f, centerY - size / 2f, size, color);
         canvas.restoreToCount(saved);
