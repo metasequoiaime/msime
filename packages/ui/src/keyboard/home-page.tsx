@@ -417,7 +417,13 @@ function MoreSettingsGroupList({
             className={listRow}
             onClick={() => onOpenPage(item.id)}
           >
-            <img src={item.icon} alt="" aria-hidden="true" className="size-[20px] shrink-0" />
+            {/* 页面图标画的是浅色，亮色主题下和桌面侧栏一样反转成深色。 */}
+            <img
+              src={item.icon}
+              alt=""
+              aria-hidden="true"
+              className="size-[20px] shrink-0 light-theme:[filter:invert(1)_brightness(0.25)]"
+            />
             <span className={rowBody}>
               <strong className="block font-medium">{item.title}</strong>
             </span>
