@@ -74,7 +74,7 @@ public final class CommunitySkinSheet {
                 chip.setCheckable(true);
                 categories.addView(chip);
                 if (category == item.category()) categories.check(chip.getId());
-                chip.setOnClickListener(ignored -> {
+                ViewPolicy.bindClick(chip, () -> {
                     if (category == item.category()) return;
                     sheet.dismiss();
                     onChangeCategory.accept(category);
