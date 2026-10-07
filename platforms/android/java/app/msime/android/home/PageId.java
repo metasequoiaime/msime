@@ -2,6 +2,7 @@ package app.msime.android.home;
 
 import androidx.annotation.Nullable;
 import app.msime.android.HostDeepLink;
+import app.msime.android.TextPolicy;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
