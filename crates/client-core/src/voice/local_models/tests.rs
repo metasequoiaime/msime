@@ -1578,6 +1578,73 @@ fn a_failed_adoption_puts_every_file_back() {
     assert!(matches!(result, Err(LocalModelError::InvalidRoot)));
 }
 
+/// 伪造一次在改名之后、发布之前被杀掉的收编：`moved` 里的文件已经从 `source` 挪进暂存目录。
+fn interrupt_adoption(root: &Path, source: &Path, moved: &[&str]) -> PathBuf {
+    let staging = root.join(".staging-pack-interrupted");
+    fs::create_dir_all(staging.join("model")).unwrap();
+    fs::write(
+        staging.join(ADOPTION_SOURCE),
+        source.to_str().unwrap().as_bytes(),
+    )
+    .unwrap();
+    for name in moved {
+        fs::rename(source.join(name), staging.join("model").join(name)).unwrap();
+    }
+    staging
+}
+
+#[test]
+fn an_interrupted_adoption_is_put_back_and_adopted_on_the_next_try() {
+    for moved in [&["a.dat", "b.txt"][..], &["a.dat"][..]] {
+        let state = tempfile::tempdir().unwrap();
+        let root = state.path().join("resource-packs");
+        let source = state.path().join("resources");
+        fs::create_dir(&source).unwrap();
+        adopt_source(&source);
+        let staging = interrupt_adoption(&root, &source, moved);
+
+        let installed = adopt_files(
+            &root,
+            "pack",
+            &pack_files(),
+            &serde_json::json!({"pack": "pack"}),
+            &source,
+        )
+        .unwrap();
+        assert_eq!(fs::read(installed.join("a.dat")).unwrap(), PACK_A);
+        assert_eq!(fs::read(installed.join("b.txt")).unwrap(), PACK_B);
+        assert_eq!(root_entries(&source), vec!["unrelated.db"]);
+        assert!(!staging.exists());
+        assert_eq!(root_entries(&root), vec!["pack"]);
+    }
+}
+
+#[test]
+fn installing_puts_back_the_files_of_an_interrupted_adoption() {
+    let state = tempfile::tempdir().unwrap();
+    let root = state.path().join("resource-packs");
+    let source = state.path().join("resources");
+    fs::create_dir(&source).unwrap();
+    adopt_source(&source);
+    // 来源里已有同名文件时不覆盖。
+    let staging = interrupt_adoption(&root, &source, &["a.dat", "b.txt"]);
+    fs::write(source.join("b.txt"), b"newer").unwrap();
+
+    let fetcher = pack_fetcher("", PACK_B);
+    let (result, _) = run_pack(
+        &root,
+        "pack",
+        &pack_files(),
+        "",
+        &fetcher,
+        &AtomicBool::new(false),
+    );
+    result.unwrap();
+    assert_eq!(fs::read(source.join("a.dat")).unwrap(), PACK_A);
+    assert_eq!(fs::read(source.join("b.txt")).unwrap(), b"newer");
+    assert!(!staging.exists());
+}
+
 #[cfg(unix)]
 #[test]
 fn adoption_refuses_a_symlinked_source_file() {

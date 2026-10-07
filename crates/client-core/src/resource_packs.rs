@@ -480,7 +480,7 @@ pub fn install(
 
 /// 把本机已有的一组文件收编为已安装的资源包，不重新下载：升级前的发布包解压在 `source_dir`（比如 Android 的 `files/bootstrap/resources`）里的日文词典或语言词库，新版本不再随包带它们时用这一步保住。
 ///
-/// 只取 `source_dir` 里属于该资源包的文件，同文件系统内改名移进暂存目录（不复制），在暂存目录里按编译进来的锁文件核对长度和 SHA-256，写入 `msime-model.json` 后整体发布到 `<state_root>/resource-packs/<id>`。任何一步失败都把已移走的文件改名放回 `source_dir`，什么也不发布，调用方照常改走下载。`source_dir` 和 `state_root` 不在同一个文件系统时改名失败，同样放回并报错。
+/// 只取 `source_dir` 里属于该资源包的文件，同文件系统内改名移进暂存目录（不复制），在暂存目录里按编译进来的锁文件核对长度和 SHA-256，写入 `msime-model.json` 后整体发布到 `<state_root>/resource-packs/<id>`。任何一步失败都把已移走的文件改名放回 `source_dir`，什么也不发布，调用方照常改走下载。`source_dir` 和 `state_root` 不在同一个文件系统时改名失败，同样放回并报错。进程在改名之后、发布之前被杀时，文件留在暂存目录里；下一次收编或安装这个包时先按暂存目录里的来源记录把它们放回 `source_dir`，再照常进行。
 ///
 /// 同一组字节已经安装好时（判断标准同 [`ResourcePack::manifest_matches`]）不碰 `source_dir`，直接返回已安装的目录。阻塞调用，要哈希整组文件（日文词典约 66 MB），不要放在 UI 线程。
 pub fn adopt(

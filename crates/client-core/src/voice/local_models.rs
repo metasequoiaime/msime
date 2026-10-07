@@ -345,7 +345,7 @@ fn unique_suffix() -> String {
     uuid::Uuid::new_v4().simple().to_string()
 }
 
-/// Staging and set-aside directories a crashed or killed install left behind for this id.
+/// Staging and set-aside directories a crashed or killed install left behind for this id. 被打断的收编留下的暂存目录先把文件放回来源（见 [`restore_interrupted_adoption`]），再删。
 fn remove_leftovers(root: &Path, id: &str) {
     let Ok(entries) = fs::read_dir(root) else {
         return;
@@ -357,8 +357,58 @@ fn remove_leftovers(root: &Path, id: &str) {
         let Some(name) = name.to_str() else {
             continue;
         };
+        if name.starts_with(&staging) {
+            restore_interrupted_adoption(&entry.path());
+        }
         if name.starts_with(&staging) || name.starts_with(&old) {
             remove_leftover(&entry.path());
+        }
+    }
+}
+
+/// [`adopt_files`] 在改名之前写进暂存目录的来源记录，内容是来源目录的绝对路径（UTF-8）。
+const ADOPTION_SOURCE: &str = ".source";
+/// 来源记录只是一个路径，限制大小免得被替换的文件占用无界内存。
+const MAX_ADOPTION_SOURCE_BYTES: u64 = 4096;
+
+/// 收编在改名之后、发布之前被打断（进程被杀）时，文件留在 `<staging>/model/` 里，来源目录里少了它们。按来源记录把这些普通文件改名放回来源目录；来源里已有同名文件时不覆盖。没有来源记录（下载留下的暂存目录）、记录读不出来、或来源不再是真实目录时什么也不做。失败不报错，调用方随后照常删掉暂存目录。
+fn restore_interrupted_adoption(staging: &Path) {
+    let record = staging.join(ADOPTION_SOURCE);
+    let Ok(metadata) = fs::symlink_metadata(&record) else {
+        return;
+    };
+    if !metadata.file_type().is_file() || metadata.len() > MAX_ADOPTION_SOURCE_BYTES {
+        return;
+    }
+    let Ok(file) = fs::File::open(&record) else {
+        return;
+    };
+    let Ok(bytes) =
+        crate::bounded_io::read_bounded_file_with(file, MAX_ADOPTION_SOURCE_BYTES, || (), |_| ())
+    else {
+        return;
+    };
+    let Ok(source) = String::from_utf8(bytes) else {
+        return;
+    };
+    let source = PathBuf::from(source);
+    if !source.is_absolute()
+        || !fs::symlink_metadata(&source).is_ok_and(|metadata| metadata.file_type().is_dir())
+    {
+        return;
+    }
+    let Ok(entries) = fs::read_dir(staging.join("model")) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        if name == MANIFEST_FILE || !entry.file_type().is_ok_and(|kind| kind.is_file()) {
+            continue;
+        }
+        let target = source.join(&name);
+        if matches!(fs::symlink_metadata(&target), Err(error) if error.kind() == io::ErrorKind::NotFound)
+        {
+            let _ = fs::rename(entry.path(), target);
         }
     }
 }
@@ -939,7 +989,7 @@ fn download_and_extract(
     Ok(target)
 }
 
-/// 把 `source` 里已有的 `files` 收编为 `<root>/<id>` 的安装：同文件系统内改名移进暂存目录，在那里按 `files` 的长度和 SHA-256 校验，写入 `manifest` 后整体发布。在暂存目录里校验，校验过的字节就是发布出去的字节，来源目录之后再怎么变也影响不到。任何一步失败，已移走的文件都改名放回 `source`，不发布任何东西。
+/// 把 `source` 里已有的 `files` 收编为 `<root>/<id>` 的安装：同文件系统内改名移进暂存目录，在那里按 `files` 的长度和 SHA-256 校验，写入 `manifest` 后整体发布。在暂存目录里校验，校验过的字节就是发布出去的字节，来源目录之后再怎么变也影响不到。任何一步失败，已移走的文件都改名放回 `source`，不发布任何东西；进程在中途被杀时，暂存目录里的来源记录让下一次收编或安装这个包时先把文件放回 `source`。`source` 必须是 UTF-8 的绝对路径。
 pub(crate) fn adopt_files(
     root: &Path,
     id: &str,
@@ -951,6 +1001,10 @@ pub(crate) fn adopt_files(
     if !source.is_absolute() {
         return Err(LocalModelError::InvalidRoot);
     }
+    let record = source.to_str().ok_or(LocalModelError::InvalidRoot)?;
+    fs::create_dir_all(root)?;
+    // 先放回上一次被打断的收编移走的文件，再检查来源里有没有这组文件。
+    remove_leftovers(root, id);
     let mut names = Vec::with_capacity(files.len());
     for file in files {
         let name = single_component(&file.name)
@@ -967,12 +1021,15 @@ pub(crate) fn adopt_files(
         }
         names.push(name);
     }
-    fs::create_dir_all(root)?;
-    remove_leftovers(root, id);
     let staging = Staging(root.join(format!(".staging-{}-{}", id, unique_suffix())));
     fs::create_dir(&staging.0)?;
     let pack_dir = staging.0.join("model");
     fs::create_dir(&pack_dir)?;
+    // 改名之前先落盘来源记录：进程在发布前被杀时，下次收编或安装这个包时按它把文件放回来源（[`restore_interrupted_adoption`]）。
+    let mut source_record = fs::File::create(staging.0.join(ADOPTION_SOURCE))?;
+    source_record.write_all(record.as_bytes())?;
+    source_record.sync_all()?;
+    drop(source_record);
 
     let mut moved: Vec<(PathBuf, PathBuf)> = Vec::with_capacity(files.len());
     let result = (|| {
