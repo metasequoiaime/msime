@@ -197,19 +197,23 @@ impl ShuangpinEngine {
         }
         // Keep deduplication keys borrowed until fuzzy rows are ready to move into the exact list.
         let mut seen: HashSet<&str> = exact.iter().map(|item| item.word.as_str()).collect();
-        let unique = fuzzy
+        let duplicates = fuzzy
             .iter()
-            .map(|item| seen.insert(item.word.as_str()))
+            .enumerate()
+            .filter_map(|(index, item)| (!seen.insert(item.word.as_str())).then_some(index))
             .collect::<Vec<_>>();
         drop(seen);
-        let unique_count = unique.iter().filter(|&&is_unique| is_unique).count();
+        let unique_count = fuzzy.len() - duplicates.len();
         exact.reserve(unique_count);
-        exact.extend(
-            fuzzy
-                .into_iter()
-                .zip(unique)
-                .filter_map(|(item, unique)| unique.then_some(item)),
-        );
+        let mut duplicates = duplicates.into_iter().peekable();
+        exact.extend(fuzzy.into_iter().enumerate().filter_map(|(index, item)| {
+            if duplicates.peek() == Some(&index) {
+                duplicates.next();
+                None
+            } else {
+                Some(item)
+            }
+        }));
         exact.sort_by_key(|item| std::cmp::Reverse(item.pinyin.len()));
         exact
     }
