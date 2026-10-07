@@ -472,7 +472,7 @@ public final class CommunityFragment extends Fragment {
             View submit = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
             ViewPolicy.setEnabled(submit, false);
             reasons.setOnCheckedChangeListener((group, checked) -> ViewPolicy.setEnabled(submit, checked != -1));
-            submit.setOnClickListener(clicked -> {
+            ViewPolicy.bindClick(submit, () -> {
                 View checked = reasons.findViewById(reasons.getCheckedRadioButtonId());
                 String reason = checked == null ? "" : String.valueOf(checked.getTag());
                 String text = TextPolicy.trimmed(detail.getText() == null ? null : detail.getText().toString());
