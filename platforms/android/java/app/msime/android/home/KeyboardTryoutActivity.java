@@ -93,7 +93,7 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
 
         // 设计的输入栏：andCard 底、上面一条分隔线；输入框是页面底色的胶囊，描一圈 hair。
         View inputBar = findViewById(R.id.tryout_input_bar);
-        inputBar.setBackgroundColor(Ui.card(this));
+        ViewPolicy.setBackgroundColor(inputBar, Ui.card(this));
         // 固定 20 dp 圆角而不是全圆：单行 40 dp 高时看起来仍是胶囊，长到几行时是圆角矩形，不会撑成一个椭圆。
         android.graphics.drawable.GradientDrawable pill = Ui.outlined(Ui.page(this),
             Ui.dp(this, 20), Ui.dp(this, 1), Ui.hairline(this));

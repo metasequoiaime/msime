@@ -6003,7 +6003,7 @@ public final class MSIMEInputService extends InputMethodService {
         imeBottomRow.updateActionRow();
         expandedCandidates = KeyboardGeometry.column(this);
         ViewPolicy.setSymmetricPadding(expandedCandidates, 24, 16);
-        expandedCandidates.setBackgroundColor(0xfff5f5f5);
+        ViewPolicy.setBackgroundColor(expandedCandidates, 0xfff5f5f5);
         expandedCandidates.setContentDescription("候选面板");
         ViewPolicy.hide(expandedCandidates);
         expandedCandidateScroll = new ScrollView(this);
@@ -6014,7 +6014,7 @@ public final class MSIMEInputService extends InputMethodService {
         keyboardSurface.addView(expandedCandidateScroll, KeyboardGeometry.frameMatchParentParams());
         clipboardPanel = KeyboardGeometry.column(this);
         ViewPolicy.setSymmetricPadding(clipboardPanel, 24, 16);
-        clipboardPanel.setBackgroundColor(Color.parseColor(skin.background()));
+        ViewPolicy.setBackgroundColor(clipboardPanel, Color.parseColor(skin.background()));
         clipboardPanel.setContentDescription("剪贴板历史");
         clipboardScroll = new ScrollView(this);
         // 和候选、方案面板一样撑满整个键区：原先内容少时滚动视图本身是透明的，下面的键从空白处露出来。
@@ -6024,7 +6024,7 @@ public final class MSIMEInputService extends InputMethodService {
         keyboardSurface.addView(clipboardScroll, KeyboardGeometry.frameMatchParentParams());
         schemePanel = KeyboardGeometry.column(this);
         ViewPolicy.setSymmetricPadding(schemePanel, 24, 16);
-        schemePanel.setBackgroundColor(Color.parseColor(skin.background()));
+        ViewPolicy.setBackgroundColor(schemePanel, Color.parseColor(skin.background()));
         schemePanel.setContentDescription("输入方案选择器");
         schemeScroll = new ScrollView(this);
         schemeScroll.addView(schemePanel, KeyboardGeometry.scrollMatchParentParams());
@@ -6033,7 +6033,7 @@ public final class MSIMEInputService extends InputMethodService {
         keyboardSurface.addView(schemeScroll, KeyboardGeometry.frameMatchParentParams());
         skinPanel = KeyboardGeometry.column(this);
         ViewPolicy.setSymmetricPadding(skinPanel, 24, 16);
-        skinPanel.setBackgroundColor(Color.parseColor(skin.background()));
+        ViewPolicy.setBackgroundColor(skinPanel, Color.parseColor(skin.background()));
         skinPanel.setContentDescription("键盘皮肤选择器");
         skinScroll = new ScrollView(this);
         skinScroll.addView(skinPanel, KeyboardGeometry.scrollMatchParentParams());
@@ -6042,7 +6042,7 @@ public final class MSIMEInputService extends InputMethodService {
         keyboardSurface.addView(skinScroll, KeyboardGeometry.frameMatchParentParams());
         layoutSettingsPanel = KeyboardGeometry.column(this);
         ViewPolicy.setSymmetricPadding(layoutSettingsPanel, 24, 16);
-        layoutSettingsPanel.setBackgroundColor(Color.parseColor(skin.background()));
+        ViewPolicy.setBackgroundColor(layoutSettingsPanel, Color.parseColor(skin.background()));
         layoutSettingsPanel.setContentDescription("键盘设置");
         LinearLayout layoutHeader = KeyboardGeometry.row(this);
         TextView layoutTitle = ViewPolicy.textLabel(this, "键盘设置", 18);
@@ -6134,17 +6134,17 @@ public final class MSIMEInputService extends InputMethodService {
         keyboardSurface.addView(layoutAdjustView, KeyboardGeometry.frameMatchParentParams());
         voiceResultPanel = KeyboardGeometry.column(this);
         ViewPolicy.setSymmetricPadding(voiceResultPanel, 24, 16);
-        voiceResultPanel.setBackgroundColor(Color.parseColor(skin.background()));
+        ViewPolicy.setBackgroundColor(voiceResultPanel, Color.parseColor(skin.background()));
         voiceResultPanel.setContentDescription("语音结果面板");
         voiceResultScroll = new ScrollView(this);
         voiceResultScroll.addView(voiceResultPanel);
         ViewPolicy.hide(voiceResultScroll);
         keyboardSurface.addView(voiceResultScroll, KeyboardGeometry.frameMatchParentParams());
         aiPolishContainer = KeyboardGeometry.column(this);
-        aiPolishContainer.setBackgroundColor(Color.parseColor(skin.background()));
+        ViewPolicy.setBackgroundColor(aiPolishContainer, Color.parseColor(skin.background()));
         aiPolishPanel = KeyboardGeometry.column(this);
         ViewPolicy.setSymmetricPadding(aiPolishPanel, 24, 16);
-        aiPolishPanel.setBackgroundColor(Color.parseColor(skin.background()));
+        ViewPolicy.setBackgroundColor(aiPolishPanel, Color.parseColor(skin.background()));
         aiPolishPanel.setContentDescription("AI 润色面板");
         aiPolishScroll = new ScrollView(this);
         aiPolishScroll.setFillViewport(true);
@@ -6157,7 +6157,7 @@ public final class MSIMEInputService extends InputMethodService {
         keyboardSurface.addView(aiPolishContainer, KeyboardGeometry.frameMatchParentParams());
         moreToolsPanel = KeyboardGeometry.column(this);
         ViewPolicy.setPadding(moreToolsPanel, pixels(12), 0, pixels(12), pixels(10));
-        moreToolsPanel.setBackgroundColor(Color.parseColor(skin.background()));
+        ViewPolicy.setBackgroundColor(moreToolsPanel, Color.parseColor(skin.background()));
         moreToolsScroll = new ScrollView(this);
         moreToolsScroll.setFillViewport(true);
         moreToolsScroll.setVerticalScrollBarEnabled(false);

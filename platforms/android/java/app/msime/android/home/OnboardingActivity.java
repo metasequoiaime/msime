@@ -471,7 +471,7 @@ public final class OnboardingActivity extends AppCompatActivity {
             Runnable fix, boolean divider) {
         if (divider) {
             View line = new View(this);
-            line.setBackgroundColor(Ui.hairline(this));
+            ViewPolicy.setBackgroundColor(line, Ui.hairline(this));
             card.addView(line, Ui.matchWidthHeightPx(
                 BoundsPolicy.bounded(Ui.dp(this, 1) / 2, 1, Integer.MAX_VALUE)));
         }

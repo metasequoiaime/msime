@@ -409,13 +409,13 @@ final class ImeStyler {
         s.skin = themed(s.skin);
         s.emojiSkin = themed(s.emojiSkin);
         s.handwritingSkin = themed(s.handwritingSkin);
-        s.keyboardRoot.setBackgroundColor(color(s.skin.background()));
+        ViewPolicy.setBackgroundColor(s.keyboardRoot, color(s.skin.background()));
         s.imeFrame.applyNavigationBar(color(s.skin.background()), s.skin.dark());
         if (s.keyboardSurface != null) applySkinBackground(s.keyboardSurface);
         if (s.candidateViewport != null)
-            s.candidateViewport.setBackgroundColor(s.candidateAppearance.surface());
+            ViewPolicy.setBackgroundColor(s.candidateViewport, s.candidateAppearance.surface());
         if (s.expandedCandidates != null)
-            s.expandedCandidates.setBackgroundColor(s.candidateAppearance.surface());
+            ViewPolicy.setBackgroundColor(s.expandedCandidates, s.candidateAppearance.surface());
         if (s.clipboardPanel != null)
             applySkinBackground(s.clipboardPanel);
         if (s.schemePanel != null)

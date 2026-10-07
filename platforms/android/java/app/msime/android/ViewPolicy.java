@@ -295,6 +295,11 @@ public final class ViewPolicy {
         view.setBackground(background);
     }
 
+    /** Apply a solid background color while preserving the view's other visual state. */
+    public static void setBackgroundColor(View view, int color) {
+        view.setBackgroundColor(color);
+    }
+
     /** Remove a view's default background drawable. */
     public static void clearBackground(View view) {
         setBackground(view, null);

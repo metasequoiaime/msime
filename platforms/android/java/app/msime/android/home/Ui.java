@@ -331,7 +331,7 @@ public final class Ui {
     /** Create a view filled with the standard hairline colour for separators. */
     public static View hairlineView(Context context) {
         View view = new View(context);
-        view.setBackgroundColor(hairline(context));
+        ViewPolicy.setBackgroundColor(view, hairline(context));
         return view;
     }
 
@@ -348,7 +348,7 @@ public final class Ui {
     /** Create the page-coloured separation band used between sheet options and the cancel row. */
     public static View sheetSeparator(Context context) {
         View view = new View(context);
-        view.setBackgroundColor(page(context));
+        ViewPolicy.setBackgroundColor(view, page(context));
         view.setLayoutParams(matchWidthHeight(context, 8));
         return view;
     }
