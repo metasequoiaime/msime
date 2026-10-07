@@ -444,18 +444,27 @@ impl ZhuyinScheme {
             self.list.reserve(entries.len());
             // 九键下同一个字可能在同一位置的两个读音下各有一条，只留较重的那条。
             let mut seen = HashSet::with_capacity(entries.len());
-            let unique = entries
+            let duplicates = entries
                 .iter()
-                .map(|(_, entry)| seen.insert(entry.text.as_str()))
+                .enumerate()
+                .filter_map(|(index, (_, entry))| {
+                    (!seen.insert(entry.text.as_str())).then_some(index)
+                })
                 .collect::<Vec<_>>();
             drop(seen);
-            self.list.extend(entries.into_iter().zip(unique).filter_map(
-                |((key, entry), unique)| {
-                    unique.then_some(ListCandidate {
-                        text: entry.text,
-                        start,
-                        key,
-                    })
+            let mut duplicates = duplicates.into_iter().peekable();
+            self.list.extend(entries.into_iter().enumerate().filter_map(
+                |(index, (key, entry))| {
+                    if duplicates.peek() == Some(&index) {
+                        duplicates.next();
+                        None
+                    } else {
+                        Some(ListCandidate {
+                            text: entry.text,
+                            start,
+                            key,
+                        })
+                    }
                 },
             ));
         }
