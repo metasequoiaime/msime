@@ -194,7 +194,7 @@ final class ImeCandidates {
         if (Build.VERSION.SDK_INT >= 30)
             button.setStateDescription(highlighted ? "已选中" : "未选中");
         if (id == null || index < 0) {
-            button.setEnabled(false);
+            ViewPolicy.setEnabled(button, false);
         } else {
             button.setOnClickListener(ignored -> {
                 s.imeKeyFeedback.playFeedback(button);

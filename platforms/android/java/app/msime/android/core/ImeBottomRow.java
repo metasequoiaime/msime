@@ -368,7 +368,7 @@ final class ImeBottomRow {
                 KeyboardGeometry.setKeyTextSize(key, 22);
             else if (role == KeyboardKeyRole.ACCENT)
                 KeyboardGeometry.setKeyTextSize(key, 15);
-            key.setVisibility(View.VISIBLE);
+            ViewPolicy.show(key);
             s.actionRow.addView(key, KeyboardGeometry.weightedMatchParentParams(entry.weight()));
         }
         // The quick punctuation key hides itself when the scheme has no punctuation to offer, and

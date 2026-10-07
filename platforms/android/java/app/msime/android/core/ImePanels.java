@@ -479,7 +479,8 @@ final class ImePanels {
         dots.setTag(PAGER_DOTS_TAG);
         dots.setCount(grid.pageCount());
         dots.setActive(initialPage, false);
-        dots.setVisibility(grid.pageCount() > 1 ? View.VISIBLE : View.INVISIBLE);
+        if (grid.pageCount() > 1) ViewPolicy.show(dots);
+        else ViewPolicy.setInvisible(dots);
         LinearLayout.LayoutParams dotParams = KeyboardGeometry.linearParamsPx(
             s.pixels(Math.round(KeyboardPagerDots.totalWidthDp(
                 BoundsPolicy.bounded(grid.pageCount(), 1, Integer.MAX_VALUE)))), s.pixels(10));
@@ -632,7 +633,7 @@ final class ImePanels {
         boolean hasReplies = !s.replyModel.replies().isEmpty();
         selectReplySegment(s.replyReplyModeButton, s.replyModel.mode() == ReplyKeyboardModel.Mode.REPLY);
         selectReplySegment(s.replyPolishModeButton, s.replyModel.mode() == ReplyKeyboardModel.Mode.POLISH);
-        s.replyTemplateButton.setEnabled(!busy);
+        ViewPolicy.setEnabled(s.replyTemplateButton, !busy);
         s.replySourceButton.setText(s.replyModel.source().isEmpty()
             ? MSIMEInputService.REPLY_SOURCE_PLACEHOLDER : s.replyModel.source());
         if (!hasReplies) {
@@ -643,7 +644,7 @@ final class ImePanels {
                     Button choice = MSIMEInputService.role(s.button(row, style.emoji() + " " + style.label(),
                         () -> generateReply(style.label())), KeyboardKeyRole.KEY);
                     choice.setContentDescription("回复风格 " + style.label());
-                    choice.setEnabled(!busy);
+                    ViewPolicy.setEnabled(choice, !busy);
                     ViewPolicy.setActiveAlpha(choice, !busy, .45f);
                     ViewPolicy.clearMinimumSize(choice);
                     KeyboardGeometry.setHorizontalPaddingDp(choice, s, 4);
@@ -689,8 +690,8 @@ final class ImePanels {
                 () -> generateReply(s.replyModel.style()));
         }
         s.replyStatus.setText(s.replyModel.status());
-        s.replyProgress.setVisibility(busy ? View.VISIBLE : View.GONE);
-        s.replyStyleResetButton.setVisibility(hasReplies ? View.VISIBLE : View.GONE);
+        ViewPolicy.setVisible(s.replyProgress, busy);
+        ViewPolicy.setVisible(s.replyStyleResetButton, hasReplies);
         applyReplyGeometry();
         s.imeStyler.applySkinToView(s.replyKeyboard);
         styleReplyKeyboard();
@@ -911,11 +912,11 @@ final class ImePanels {
             });
         } else if (s.aiOutputText.isEmpty()) {
             primary = s.button(s.aiPolishActions, "发送选中文字", this::sendAiPolish);
-            primary.setEnabled(s.aiTargetMatches() && s.aiRequestConfiguration != null
+            ViewPolicy.setEnabled(primary, s.aiTargetMatches() && s.aiRequestConfiguration != null
                 && s.aiRequestConfiguration.equals(s.aiPolishConfiguration));
         } else {
             primary = s.button(s.aiPolishActions, "替换选中文字", this::replaceAiSelection);
-            primary.setEnabled(s.aiTargetMatches() && s.aiRequestConfiguration != null
+            ViewPolicy.setEnabled(primary, s.aiTargetMatches() && s.aiRequestConfiguration != null
                 && s.aiRequestConfiguration.equals(s.aiPolishConfiguration));
         }
         compactReplyControl(primary, 0);
@@ -995,14 +996,14 @@ final class ImePanels {
                 selected = s.dedicatedEnglish;
                 card = new KeyboardSchemeCard(s, "EN", "26", title);
                 bindFeedbackAction(card, s::selectEnglishScheme);
-                card.setEnabled(!s.schemeSaving);
+                ViewPolicy.setEnabled(card, !s.schemeSaving);
             } else {
                 KeyboardScheme scheme = schemes.get(index > englishIndex ? index - 1 : index);
                 title = scheme.title(s.wubiProfile);
                 selected = !s.dedicatedEnglish && scheme == s.selectedScheme;
                 card = new KeyboardSchemeCard(s, scheme.glyph(), scheme.badge(s.wubiProfile), title);
                 bindFeedbackAction(card, () -> s.selectKeyboardScheme(scheme));
-                card.setEnabled(!s.schemeSaving);
+                ViewPolicy.setEnabled(card, !s.schemeSaving);
             }
             card.setContentDescription("输入方案卡片 " + title);
             if (Build.VERSION.SDK_INT >= 30)
@@ -1178,7 +1179,8 @@ final class ImePanels {
         header.addView(new View(s), KeyboardGeometry.weightedZeroParams(1));
         if (cloud) {
             Button refresh = clipboardAction(header, "刷新", this::refreshCloudClipboard);
-            refresh.setEnabled(s.cloudClipboardStatus != CloudClipboardPanelPolicy.Status.LOADING);
+            ViewPolicy.setEnabled(refresh,
+                s.cloudClipboardStatus != CloudClipboardPanelPolicy.Status.LOADING);
             refresh.setContentDescription("刷新云剪贴板");
         } else if (s.clipboardHistoryEnabled) {
             // 复制会自动记录，不再需要「保存当前」。

@@ -237,6 +237,9 @@ fn insert_mixed_rows(
     emoji: Vec<WordItem>,
     kaomoji: Vec<WordItem>,
 ) -> Vec<WordItem> {
+    if english.is_empty() && emoji.is_empty() && kaomoji.is_empty() {
+        return candidates;
+    }
     // Borrow the existing words while filtering; release those borrows before moving rows into the result groups.
     let mut seen: HashSet<&str> = candidates.iter().map(|item| item.word.as_str()).collect();
     let english_unique = unique_mask(&english, &mut seen);
