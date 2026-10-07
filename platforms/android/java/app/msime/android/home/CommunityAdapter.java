@@ -250,7 +250,7 @@ public final class CommunityAdapter extends RecyclerView.Adapter<CommunityAdapte
         String label = label(item, action);
         if (label.isEmpty()) {
             ViewPolicy.hide(pill);
-            pill.setOnClickListener(null);
+            ViewPolicy.bindOptionalClick(pill, null);
             return;
         }
         ViewPolicy.show(pill);
@@ -265,7 +265,7 @@ public final class CommunityAdapter extends RecyclerView.Adapter<CommunityAdapte
         ViewPolicy.setInteractive(pill, enabled);
         ViewPolicy.setActiveAlpha(pill, action != Action.BUSY, 0.6f);
         if (enabled) ViewPolicy.bindClick(pill, () -> onAction.accept(item));
-        else pill.setOnClickListener(null);
+        else ViewPolicy.bindOptionalClick(pill, null);
         pill.setAccessibilityDelegate(KeyboardSheets.buttonDelegate(label + "，" + item.name()));
     }
 
