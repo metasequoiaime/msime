@@ -70,6 +70,15 @@ pub struct McpClientStatus {
     pub configured: bool,
     /// 已写入条目带的权限参数，按固定顺序；未连接时为空。
     pub flags: Vec<McpFlag>,
+    /// 已连接，但条目的命令是 Nix store 里的另一个路径（以前写进去的某一版），升级或垃圾回收后会失效；再写一次就换成 `command`，权限照旧。
+    pub stale: bool,
+}
+
+/// 文件里已有的 `msime` 条目是这里写的：它带的权限参数，以及命令要不要换成这次的。
+#[derive(Debug, Default, PartialEq, Eq)]
+struct ExistingEntry {
+    flags: Vec<McpFlag>,
+    stale: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -105,7 +114,7 @@ pub fn server_command(executable: &Path) -> Option<PathBuf> {
         .map(|directory| directory.join(format!("msime-mcp{}", std::env::consts::EXE_SUFFIX)))
 }
 
-/// Nix 的 store。这里的路径带着版本哈希，升级后不再是当前版本，垃圾回收后文件也没了，所以不写进助手配置。
+/// Nix 的 store。这里的路径带着版本哈希，升级后不再是当前版本，垃圾回收后文件也没了，所以不写进助手配置。`/nix` 是指向别处的符号链接（Fedora Silverblue 这类根目录只读的系统）或用了自定义 `storeDir` 时，设置窗口的真实路径不以它开头，仍写 store 路径，与没做这层处理时相同。
 const NIX_STORE: &str = "/nix/store";
 
 /// 写进助手配置的 `msime-mcp`：`server_command` 在 Nix store 里时换成 PATH 上 Nix profile 的链接（比如 `/run/current-system/sw/bin/msime-mcp`），它随每次切换指向当前版本。
@@ -116,7 +125,7 @@ fn assistant_command(
     server_command(executable).map(|command| stable_command_in(command, Path::new(NIX_STORE), env))
 }
 
-/// `command` 在 `store` 下时，返回 PATH 上第一个同名、自己不在 `store` 下、解析后落在 `store` 里的程序；没有时（比如只用 `nix run` 起了设置窗口）原样返回。解析后不在 `store` 里的同名程序是另一份安装（deb 包之类），不选。
+/// `command` 在 `store` 下时，返回 PATH 上第一个自己不在 `store` 下、解析后就是 `command` 这个文件的同名链接；没有时（比如只用 `nix run` 起了设置窗口）原样返回。只认同一个文件：用户级 profile（`~/.nix-profile/bin`、`/etc/profiles/per-user/<用户>/bin`）在 PATH 上排在系统的前面，里面可能是另装的旧版本，选了它助手就跑旧版本。
 fn stable_command_in(
     command: PathBuf,
     store: &Path,
@@ -129,12 +138,9 @@ fn stable_command_in(
         return command;
     };
     std::env::split_paths(&path)
-        .filter(|directory| directory.is_absolute() && !directory.starts_with(store))
+        .filter(|directory| !directory.starts_with(store))
         .map(|directory| directory.join(name))
-        .find(|candidate| {
-            std::fs::canonicalize(candidate)
-                .is_ok_and(|target| target.starts_with(store) && target.is_file())
-        })
+        .find(|candidate| same_program(candidate, &command))
         .unwrap_or(command)
 }
 
@@ -169,30 +175,40 @@ fn split_entry_args(args: &[Value]) -> (Vec<McpFlag>, Vec<Value>) {
 }
 
 /// `existing` 是 `base` 加上若干权限参数时，返回这些参数（去重、按固定顺序）；命令、运行时选项或其它参数不同的条目不是这里写的，返回 `None`。命令指向的是同一个程序时（比如 Homebrew 放上 PATH 的 `msime-mcp`、手动链接的 `~/.local/bin/msime`，都是指向安装包里 `msime-mcp` 的符号链接），算作同一个命令。
-pub fn entry_flags(existing: &Value, base: &Value) -> Option<Vec<McpFlag>> {
+///
+/// 命令是 `store`（Nix store）里同名程序的条目也算作这里写的，不论是哪一版、文件还在不在，并标为 `stale`：它只能是以前的设置窗口写进去的，升级或垃圾回收后会失效，再写一次时换成 `base` 的命令，权限照旧。
+fn existing_entry(existing: &Value, base: &Value, store: &Path) -> Option<ExistingEntry> {
     let args = existing.get("args")?.as_array()?;
     let (flags, rest) = split_entry_args(args);
     let mut stripped = existing.as_object()?.clone();
     stripped.insert("args".to_owned(), Value::Array(rest));
-    if let (Some(Value::String(command)), Some(expected)) = (
-        stripped.get("command"),
+    let (stale, same) = match (
+        stripped
+            .get("command")
+            .and_then(Value::as_str)
+            .map(Path::new),
         base.get("command").and_then(Value::as_str),
     ) {
-        // Nix store 里的命令只有原样相同才算：当前版本的 store 路径也会在升级后失效，让设置页把它当作别的条目替换成 profile 链接。
-        if command != expected
-            && !Path::new(command).starts_with(NIX_STORE)
-            && same_program(command, expected)
-        {
-            stripped.insert("command".to_owned(), Value::String(expected.to_owned()));
+        (Some(command), Some(expected)) if command != Path::new(expected) => {
+            let stale = command.starts_with(store)
+                && command.file_name() == Path::new(expected).file_name();
+            (stale, stale || same_program(command, Path::new(expected)))
         }
+        _ => (false, false),
+    };
+    if same {
+        stripped.insert("command".to_owned(), base["command"].clone());
     }
-    (Value::Object(stripped) == *base).then(|| canonical(&flags))
+    (Value::Object(stripped) == *base).then(|| ExistingEntry {
+        flags: canonical(&flags),
+        stale,
+    })
 }
 
 /// 两个绝对路径解析掉符号链接后是不是同一个文件。相对路径（比如只写了 `msime-mcp`、靠 PATH 找）不去猜：按当前目录解析可能碰巧对上一个不相干的文件。
-fn same_program(command: &str, expected: &str) -> bool {
-    let resolve = |path: &str| {
-        Some(Path::new(path))
+fn same_program(command: &Path, expected: &Path) -> bool {
+    let resolve = |path: &Path| {
+        Some(path)
             .filter(|path| path.is_absolute())
             .and_then(|path| std::fs::canonicalize(path).ok())
     };
@@ -267,13 +283,16 @@ pub fn status(
     let clients = client_paths(&env)
         .into_iter()
         .map(|(id, path)| {
-            let flags = entry
+            let existing = entry
                 .as_ref()
-                .and_then(|(name, entry)| configured_flags(&path, name, entry));
+                .and_then(|(name, entry)| configured_entry(&path, name, entry));
+            let configured = existing.is_some();
+            let ExistingEntry { flags, stale } = existing.unwrap_or_default();
             McpClientStatus {
                 id,
-                configured: flags.is_some(),
-                flags: flags.unwrap_or_default(),
+                configured,
+                flags,
+                stale,
                 path: path.to_string_lossy().into_owned(),
             }
         })
@@ -339,21 +358,36 @@ fn read_config(path: &Path) -> Result<Map<String, Value>, &'static str> {
     }
 }
 
-/// 文件里 `name`（full 是 `msime`）条目是 `base` 加上若干权限参数时，返回这些参数；没有条目、条目不是这里写的、或文件读不了时返回 `None`。
-pub fn configured_flags(path: &Path, name: &str, base: &Value) -> Option<Vec<McpFlag>> {
+/// 文件里 `name`（full 是 `msime`）条目是 `base` 加上若干权限参数时，返回这些参数和它要不要换命令（见 `existing_entry`）；没有条目、条目不是这里写的、或文件读不了时返回 `None`。
+fn configured_entry(path: &Path, name: &str, base: &Value) -> Option<ExistingEntry> {
     let document = read_config(path).ok()?;
-    entry_flags(document.get("mcpServers")?.get(name)?, base)
+    existing_entry(
+        document.get("mcpServers")?.get(name)?,
+        base,
+        Path::new(NIX_STORE),
+    )
 }
 
 /// 把 `base`（`args` 末尾加上 `flags`）写到 `path` 文件的 `mcpServers.<name>` 下（full 是 `mcpServers.msime`），保留其它所有内容；多个版本各写各的键，互不覆盖。
 ///
-/// 所在目录必须已经存在：它由助手自己创建，不存在说明没装这个助手，替用户建出来只会留下一个不存在的应用的目录。已有条目就是 `base` 只差权限参数时直接改成这次的参数（`Updated`）；其它不同的 `msime` 条目只在 `replace` 时替换，否则以 `mcp_entry_exists` 失败，让设置页先问。符号链接（比如放在 dotfiles 仓库里的配置）会写穿到目标文件，而不是被替换掉。
+/// 所在目录必须已经存在：它由助手自己创建，不存在说明没装这个助手，替用户建出来只会留下一个不存在的应用的目录。已有条目就是 `base` 只差权限参数时直接改成这次的参数（`Updated`），命令是 Nix store 里以前那一版的（`stale`）时同时换成 `base` 的命令；其它不同的 `msime` 条目只在 `replace` 时替换，否则以 `mcp_entry_exists` 失败，让设置页先问。符号链接（比如放在 dotfiles 仓库里的配置）会写穿到目标文件，而不是被替换掉。
 pub fn install(
     path: &Path,
     name: &str,
     base: &Value,
     flags: &[McpFlag],
     replace: bool,
+) -> Result<InstallOutcome, &'static str> {
+    install_in(path, name, base, flags, replace, Path::new(NIX_STORE))
+}
+
+fn install_in(
+    path: &Path,
+    name: &str,
+    base: &Value,
+    flags: &[McpFlag],
+    replace: bool,
+    store: &Path,
 ) -> Result<InstallOutcome, &'static str> {
     let flags = canonical(flags);
     let mut entry = entry_with_flags(base, &flags);
@@ -374,11 +408,13 @@ pub fn install(
         .ok_or("mcp_config_invalid")?;
     let outcome = match servers.get(name) {
         None => InstallOutcome::Added,
-        Some(existing) => match entry_flags(existing, base) {
-            Some(current) if current == flags => return Ok(InstallOutcome::Unchanged),
-            Some(_) => {
-                // 只改权限参数，命令保留用户写的那个：它可能是指向同一个程序的符号链接，是用户自己选的入口。
-                if let Some(command) = existing.get("command") {
+        Some(existing) => match existing_entry(existing, base, store) {
+            Some(current) if !current.stale && current.flags == flags => {
+                return Ok(InstallOutcome::Unchanged);
+            }
+            Some(current) => {
+                // 只改权限参数，命令保留用户写的那个：它可能是指向同一个程序的符号链接，是用户自己选的入口。store 里以前那一版的路径换成这次的命令。
+                if let Some(command) = existing.get("command").filter(|_| !current.stale) {
                     entry["command"] = command.clone();
                 }
                 InstallOutcome::Updated
@@ -415,6 +451,10 @@ mod tests {
             canonical_capacity(McpFlag::ALL.len() + 10),
             McpFlag::ALL.len()
         );
+    }
+
+    fn configured_flags(path: &Path, name: &str, base: &Value) -> Option<Vec<McpFlag>> {
+        configured_entry(path, name, base).map(|existing| existing.flags)
     }
 
     fn entry() -> Value {
@@ -830,26 +870,30 @@ mod tests {
         let store = directory(&["store"]);
         let server = directory(&["store", "hash-msime-fcitx5", "bin"]).join("msime-mcp");
         std::fs::write(&server, b"").unwrap();
-        // PATH 上依次是：store 里另一个包的 bin、不是 Nix 装的副本、空目录、profile 链接。
+        // PATH 上依次是：store 里另一个包的 bin、用户 profile 里另装的旧版本、不是 Nix 装的副本、空目录、系统 profile 的链接。
         let other_package = directory(&["store", "hash-other", "bin"]);
         std::os::unix::fs::symlink(&server, other_package.join("msime-mcp")).unwrap();
+        let old = directory(&["store", "hash-msime-mcp-old", "bin"]).join("msime-mcp");
+        std::fs::write(&old, b"").unwrap();
+        let user_profile = directory(&["user-profile-bin"]);
+        std::os::unix::fs::symlink(&old, user_profile.join("msime-mcp")).unwrap();
         let system = directory(&["usr-bin"]);
         let packaged = system.join("msime-mcp");
         std::fs::write(&packaged, b"").unwrap();
         let empty = directory(&["empty"]);
-        let link = directory(&["profile-bin"]).join("msime-mcp");
+        let profile = directory(&["profile-bin"]);
+        let link = profile.join("msime-mcp");
         std::os::unix::fs::symlink(&server, &link).unwrap();
-        let env = path_env(&[
-            &other_package,
-            &system,
-            &empty,
-            &link.parent().unwrap().to_owned(),
-        ]);
+        let env = path_env(&[&other_package, &user_profile, &system, &empty, &profile]);
         assert_eq!(stable_command_in(server.clone(), &store, &env), link);
 
-        // 没有 profile 链接时仍用 store 里的路径。
+        // 没有指向这个文件的链接时仍用 store 里的路径，即使有别的版本的链接。
         assert_eq!(
-            stable_command_in(server.clone(), &store, path_env(&[&system, &empty])),
+            stable_command_in(
+                server.clone(),
+                &store,
+                path_env(&[&user_profile, &system, &empty])
+            ),
             server
         );
         assert_eq!(
@@ -860,43 +904,66 @@ mod tests {
         assert_eq!(stable_command_in(packaged.clone(), &store, &env), packaged);
     }
 
-    /// 已写进配置的 store 路径即使就是当前版本，也不算已连接：升级后它就失效了。设置页按别的条目处理，替换一次换成 profile 链接。只在 NixOS 这类 PATH 上有链接进 store 的程序的机器上能跑。
-    #[cfg(unix)]
+    /// 以前写进配置的 store 路径，不论哪一版、文件还在不在，都算这里写的但已过期：设置页显示已连接并提示更新，更新时换成这次的命令，权限照旧，不用确认替换。
     #[test]
-    fn a_store_path_entry_is_replaced_by_the_profile_link() {
-        let path = std::env::var_os("PATH").unwrap_or_default();
-        let Some((link, target)) = std::env::split_paths(&path)
-            .filter(|directory| !directory.starts_with(NIX_STORE))
-            .map(|directory| directory.join("sh"))
-            .find_map(|link| {
-                let target = std::fs::canonicalize(&link).ok()?;
-                target.starts_with(NIX_STORE).then_some((link, target))
-            })
-        else {
-            return;
-        };
+    fn a_store_path_entry_is_stale_and_updated_to_the_profile_link() {
         let directory = tempfile::tempdir().unwrap();
         let config = directory.path().join("mcp.json");
+        let store = Path::new("/store");
         let options = Path::new("/state/runtime-options.json");
-        let base = server_entry(&link, options);
+        let base = server_entry(Path::new("/profile/bin/msime-mcp"), options);
+        let existing = |command: &str, flags: &[McpFlag]| {
+            entry_with_flags(&server_entry(Path::new(command), options), flags)
+        };
+        let found = |entry: &Value, base: &Value| {
+            existing_entry(entry, base, store).map(|found| (found.flags, found.stale))
+        };
+        let write = || {
+            install_in(
+                &config,
+                SERVER_NAME,
+                &base,
+                &[McpFlag::AllowWrite],
+                false,
+                store,
+            )
+        };
+        let old = existing("/store/hash-old/bin/msime-mcp", &[McpFlag::AllowWrite]);
+        assert_eq!(found(&old, &base), Some((vec![McpFlag::AllowWrite], true)));
         std::fs::write(
             &config,
-            serde_json::to_vec(
-                &json!({ "mcpServers": { "msime": server_entry(&target, options) } }),
-            )
-            .unwrap(),
+            serde_json::to_vec(&json!({ "mcpServers": { "msime": old } })).unwrap(),
         )
         .unwrap();
-        assert_eq!(configured_flags(&config, SERVER_NAME, &base), None);
+        // 权限没变也要写：命令得换掉。
+        assert_eq!(write(), Ok(InstallOutcome::Updated));
+        let written: Value = serde_json::from_slice(&std::fs::read(&config).unwrap()).unwrap();
+        let written = &written["mcpServers"]["msime"];
+        assert_eq!(*written, entry_with_flags(&base, &[McpFlag::AllowWrite]));
         assert_eq!(
-            install(&config, SERVER_NAME, &base, &[], false),
-            Err("mcp_entry_exists")
+            found(written, &base),
+            Some((vec![McpFlag::AllowWrite], false))
         );
+        assert_eq!(write(), Ok(InstallOutcome::Unchanged));
+
+        // 找不到 profile 链接、这次也写 store 路径时，原样相同的不算过期，别的版本仍算。
+        let current = server_entry(Path::new("/store/hash-new/bin/msime-mcp"), options);
+        assert_eq!(found(&current, &current), Some((vec![], false)));
         assert_eq!(
-            install(&config, SERVER_NAME, &base, &[], true),
-            Ok(InstallOutcome::Replaced)
+            found(&old, &current),
+            Some((vec![McpFlag::AllowWrite], true))
         );
-        assert_eq!(configured_flags(&config, SERVER_NAME, &base), Some(vec![]));
+        // store 里别的程序、运行时选项不同、或不在 store 里又不是同一个程序的，都不是这里写的。
+        for other in [
+            existing("/store/hash-old/bin/other-mcp", &[]),
+            server_entry(
+                Path::new("/store/hash-old/bin/msime-mcp"),
+                Path::new("/elsewhere/runtime-options.json"),
+            ),
+            existing("/usr/bin/msime-mcp", &[]),
+        ] {
+            assert_eq!(found(&other, &base), None);
+        }
     }
 
     #[test]
