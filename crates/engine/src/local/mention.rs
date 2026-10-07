@@ -14,6 +14,8 @@ const PLACE_MATCH_CAPACITY: usize = RESULT_LIMIT * 2;
 /// Entries kept from a host list, as many as one dictionary import takes; the rest are ignored.
 pub const LIST_LIMIT: usize = 1000;
 pub const KEY_LIMIT: usize = 64;
+// 常见的主机列表很短时直接扫描此前有效文本，避免创建临时哈希表。
+const SMALL_MENTION_TABLE: usize = 64;
 
 fn collect_place_matches(
     table: &Places,
@@ -64,24 +66,45 @@ fn collect_place_matches(
 /// The entries that are usable of a host list: non-empty text within the candidate text bound, a key of lowercase letters and single apostrophes between them, the first entry of a text, at most `LIST_LIMIT`.
 pub fn usable_mentions(entries: &[MentionEntry]) -> Vec<MentionEntry> {
     let mut usable: Vec<MentionEntry> = Vec::with_capacity(LIST_LIMIT.min(entries.len()));
+    if entries.len() <= SMALL_MENTION_TABLE {
+        for (index, entry) in entries.iter().enumerate() {
+            if usable.len() == LIST_LIMIT {
+                break;
+            }
+            if valid_mention(entry) && mention_text_is_new(entries, index, &entry.text) {
+                usable.push(entry.clone());
+            }
+        }
+        return usable;
+    }
     let mut texts = HashSet::with_capacity(LIST_LIMIT.min(entries.len()));
     for entry in entries {
         if usable.len() == LIST_LIMIT {
             break;
         }
-        let text_valid =
-            !entry.text.trim().is_empty() && entry.text.encode_utf16().count() <= TEXT_UTF16_LIMIT;
-        let key_valid = entry.key.len() <= KEY_LIMIT
-            && entry
-                .key
-                .bytes()
-                .all(|byte| byte.is_ascii_lowercase() || byte == b'\'')
-            && (entry.key.is_empty() || entry.key.split('\'').all(|syllable| !syllable.is_empty()));
-        if text_valid && key_valid && texts.insert(entry.text.as_str()) {
+        if valid_mention(entry) && texts.insert(entry.text.as_str()) {
             usable.push(entry.clone());
         }
     }
     usable
+}
+
+fn valid_mention(entry: &MentionEntry) -> bool {
+    let text_valid =
+        !entry.text.trim().is_empty() && entry.text.encode_utf16().count() <= TEXT_UTF16_LIMIT;
+    let key_valid = entry.key.len() <= KEY_LIMIT
+        && entry
+            .key
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte == b'\'')
+        && (entry.key.is_empty() || entry.key.split('\'').all(|syllable| !syllable.is_empty()));
+    text_valid && key_valid
+}
+
+fn mention_text_is_new(entries: &[MentionEntry], index: usize, text: &str) -> bool {
+    entries[..index]
+        .iter()
+        .all(|entry| !valid_mention(entry) || entry.text != text)
 }
 
 /// Whether a spelling answers the input, returning exactness while checking all alternatives once.
@@ -249,6 +272,34 @@ mod tests {
             mention("丙", "bing"),
         ];
         assert_eq!(usable_mentions(&entries).capacity(), entries.len());
+    }
+
+    #[test]
+    fn short_mention_text_scan_uses_no_temporary_heap_state() {
+        let entries = vec![mention("甲", "jia"), mention("乙", "yi")];
+        let (is_new, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            mention_text_is_new(&entries, 1, "甲")
+        });
+        assert!(!is_new);
+        assert_eq!(allocations, 0);
+    }
+
+    #[test]
+    fn short_mention_text_scan_ignores_invalid_rows() {
+        let entries = [mention("重复", "bad key"), mention("重复", "chong'fu")];
+        assert!(mention_text_is_new(&entries, 1, "重复"));
+        assert_eq!(usable_mentions(&entries), vec![entries[1].clone()]);
+    }
+
+    #[test]
+    fn larger_mention_tables_keep_the_hash_fallback() {
+        let mut entries: Vec<MentionEntry> = (0..=SMALL_MENTION_TABLE)
+            .map(|index| mention(&format!("name{index}"), ""))
+            .collect();
+        entries.push(mention("name0", ""));
+        let usable = usable_mentions(&entries);
+        assert_eq!(usable.len(), SMALL_MENTION_TABLE + 1);
+        assert_eq!(usable[0].text, "name0");
     }
 
     fn words(code: &str) -> Vec<String> {
