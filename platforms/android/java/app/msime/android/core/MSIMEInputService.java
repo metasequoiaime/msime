@@ -1358,7 +1358,7 @@ public final class MSIMEInputService extends InputMethodService {
             String directory = options.optString("preferences_directory", "");
             if (directory.isEmpty() || !new File(directory).isAbsolute()) return optionsText;
             JSONObject envelope = new JSONObject(NativeClient.loadPreferences(directory));
-            JSONObject live = Boolean.TRUE.equals(envelope.opt("ok"))
+            JSONObject live = JsonPolicy.strictTrue(envelope.opt("ok"))
                 ? envelope.getJSONObject("value").optJSONObject("preferences") : null;
             if (live == null) return optionsText;
             if (suppressLearning) live.put("learning", false);
