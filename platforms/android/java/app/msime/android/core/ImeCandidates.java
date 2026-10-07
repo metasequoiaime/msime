@@ -157,7 +157,7 @@ final class ImeCandidates {
         // HorizontalScrollView cancels the child on a drag, so the button keeps immediate tap
         // feedback without changing the existing scroll-versus-select boundary.
         Button button = candidateButton();
-        button.setOnClickListener(ignored -> s.selectVisibleCandidate(button, slot));
+        ViewPolicy.bindClick(button, () -> s.selectVisibleCandidate(button, slot));
         button.setOnLongClickListener(ignored -> {
             JSONObject current = s.visibleCandidate(slot);
             JSONObject id = current == null ? null : current.optJSONObject("id");
@@ -196,7 +196,7 @@ final class ImeCandidates {
         if (id == null || index < 0) {
             ViewPolicy.setEnabled(button, false);
         } else {
-            button.setOnClickListener(ignored -> {
+            ViewPolicy.bindClick(button, () -> {
                 s.imeKeyFeedback.playFeedback(button);
                 if (s.session == 0
                         || CandidateGlossPolicy.strictOr(id.opt("session"), Long.MIN_VALUE)
@@ -224,7 +224,7 @@ final class ImeCandidates {
         ViewPolicy.setTextSizeLabel(button, label, sizeSp);
         KeyboardGeometry.setKeyTextSize(button, sizeSp);
         button.setContentDescription(description);
-        button.setOnClickListener(ignored -> {
+        ViewPolicy.bindClick(button, () -> {
             s.imeKeyFeedback.playFeedback(button);
             action.run();
         });
