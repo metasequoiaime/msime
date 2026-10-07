@@ -11,6 +11,7 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import androidx.annotation.Nullable;
 import app.msime.android.R;
+import app.msime.android.TextPolicy;
 import app.msime.android.ViewPolicy;
 import java.util.function.Consumer;
 
@@ -59,7 +60,7 @@ public final class SearchPill extends LinearLayout {
     }
 
     public String query() {
-        return field.getText().toString().trim();
+        return TextPolicy.trimmed(field.getText().toString());
     }
 
     /** 每次输入变化回调去掉首尾空白后的查询。 */
