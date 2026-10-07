@@ -6,7 +6,7 @@ use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use super::conversion::{self, Span, MAX_SYLLABLES};
+use super::conversion::{self, MAX_SYLLABLES, Span};
 use super::layout::{self, DACHEN_SYMBOLS, IDLE_SYMBOLS, SHIFT_PUNCTUATION};
 use super::nine_key::{self, NineKeyIndex};
 use super::syllable::PendingSyllable;
@@ -481,32 +481,29 @@ impl ZhuyinScheme {
     }
 
     fn reconvert(&mut self) -> Result<()> {
-        let positions: Vec<&[String]> = self.syllables.iter().map(Syllable::allowed).collect();
+        let count = self.syllables.len();
+        let (positions, ambiguous) = reconversion_buffers(&self.syllables);
+        let positions = &positions[..count];
+        let ambiguous = &ambiguous[..count];
         // 歧义按打字时的读音算，不按钉住后剩下的：钉住当前用的读音不该放出被下限挡住的冷僻词（是之 → 適之）。
-        let ambiguous: Vec<bool> = self
-            .syllables
-            .iter()
-            .map(|syllable| syllable.readings.len() > 1)
-            .collect();
         let dictionary = &self.dictionary;
         let best = &mut self.best;
         // 每个位置单字最重词条的权重，只在九键下有位置打出来不止一个读音时才用得到。
-        let mut singles = Vec::new();
+        let mut singles = [0; MAX_SYLLABLES];
         if ambiguous.iter().any(|&ambiguous| ambiguous) {
-            singles.reserve_exact(positions.len());
             for index in 0..positions.len() {
-                let weight = cached_best(dictionary, best, &positions[index..=index])?
+                singles[index] = cached_best(dictionary, best, &positions[index..=index])?
                     .map_or(0, |(_, entry)| entry.weight);
-                singles.push(weight);
             }
         }
+        let singles = &singles[..count];
         self.conversion = conversion::convert(
             positions.len(),
             &self.pins,
             |start, end| {
                 let entry = cached_best(dictionary, best, &positions[start..end])?;
                 Ok(entry.filter(|(_, entry)| {
-                    clears_ambiguous_word_floor(&ambiguous[start..end], &singles, start, entry)
+                    clears_ambiguous_word_floor(&ambiguous[start..end], singles, start, entry)
                 }))
             },
             |index| positions[index][0].clone(),
@@ -560,6 +557,18 @@ impl ZhuyinScheme {
         self.spelling_target = Some(target);
         Ok(())
     }
+}
+
+fn reconversion_buffers<'a>(
+    syllables: &'a [Syllable],
+) -> ([&'a [String]; MAX_SYLLABLES], [bool; MAX_SYLLABLES]) {
+    let mut positions: [&'a [String]; MAX_SYLLABLES] = [&[]; MAX_SYLLABLES];
+    let mut ambiguous = [false; MAX_SYLLABLES];
+    for (index, syllable) in syllables.iter().enumerate() {
+        positions[index] = syllable.allowed();
+        ambiguous[index] = syllable.readings.len() > 1;
+    }
+    (positions, ambiguous)
 }
 
 /// 多音节词经过一个有多种允许读法的位置时，词频最多可以比它覆盖的最弱单字轻多少倍。
@@ -641,7 +650,7 @@ mod tests {
 
     use super::*;
     use crate::language_dictionary::{
-        open_read_only, FORMAT_VERSION, METADATA_FORMAT_VERSION, SCHEMA,
+        FORMAT_VERSION, METADATA_FORMAT_VERSION, SCHEMA, open_read_only,
     };
 
     const ENTRIES: [(&str, &str, i64); 15] = [
@@ -683,6 +692,20 @@ mod tests {
         };
 
         assert_eq!(build_editing_keys(&syllables, &pending), "su3lc3a8");
+    }
+
+    #[test]
+    fn reconversion_buffers_keep_allowed_readings_and_ambiguity_on_the_stack() {
+        let syllables = [
+            syllable("su3", &["ㄋㄧˇ"]),
+            syllable("28c", &["ㄋㄧˇ", "ㄌㄧˇ"]),
+        ];
+
+        let (positions, ambiguous) = reconversion_buffers(&syllables);
+
+        assert_eq!(positions[0], &["ㄋㄧˇ".to_owned()]);
+        assert_eq!(positions[1], &["ㄋㄧˇ".to_owned(), "ㄌㄧˇ".to_owned()]);
+        assert_eq!(&ambiguous[..2], &[false, true]);
     }
 
     // 大千下每个位置只有一个读音，缓存键就是词库键；九键的多读音位置以 `|` 连接，钉住后只剩钉住的那个。
