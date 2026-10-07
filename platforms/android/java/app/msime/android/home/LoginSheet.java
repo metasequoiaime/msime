@@ -299,8 +299,7 @@ final class LoginSheet {
             if (child instanceof ViewGroup nested && !child.isClickable()) {
                 setEnabled(nested, enabled);
             } else {
-                child.setEnabled(enabled);
-                ViewPolicy.setActiveAlpha(child, enabled, 0.6f);
+                ViewPolicy.setEnabledWithAlpha(child, enabled, 0.6f);
             }
         }
     }
