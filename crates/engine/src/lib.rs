@@ -46,6 +46,7 @@ pub use error::{EngineError, Result};
 pub use handwriting::handwriting_recognize;
 pub use handwriting::order_handwriting_candidates;
 pub use paths::RuntimePaths;
+pub use pinyin::glide::{GlideKeyboard, GlidePoint};
 pub use session::{Clock, Session, SessionOptions, SessionSnapshot};
 pub use types::{
     autocorrect_type, fuzzy_rule, request_autocorrect_mask, CandidateEdge, CandidateSource,

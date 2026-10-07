@@ -2,6 +2,7 @@
 //!
 //! The registry answers queries and lookups only. The reference also routed `create_word` / `update_weight_by_pinyin_and_word` / `delete_by_pinyin_and_word` through it; here the session writes pins, removals and frequency learning into user_dictionary itself, choosing the dictionary kind from the selected row's scheme (overlays.md §3.3), and phrases through its own canonical-pinyin `QuanpinEngine`, so a second writer path would only diverge from it.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -218,6 +219,13 @@ impl ProviderRegistry {
             | SchemeType::Tibetan
             | SchemeType::Stroke => None,
         }
+    }
+
+    /// 全拼词典里每个键最好那一行的权重，供滑行输入使用；会话没有全拼 provider 时为空。
+    pub fn quanpin_best_weights(&self, keys: &[String]) -> HashMap<String, i64> {
+        self.quanpin
+            .as_ref()
+            .map_or_else(HashMap::new, |quanpin| quanpin.best_weights(keys))
     }
 
     /// 为候选展示查询完整五笔编码；反查结果与候选一一对应，查不到时保留空字符串。没有构造五笔 provider 的会话（方案集合里没有五笔）一律是空字符串。

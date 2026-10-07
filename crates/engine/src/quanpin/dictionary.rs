@@ -3,7 +3,7 @@
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::hash_map::DefaultHasher;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
@@ -408,6 +408,15 @@ impl QuanpinDictionary {
 
     pub fn knows_han_char(&self, han: &str) -> bool {
         self.database.han_char_exists(han)
+    }
+
+    /// `keys`（以 `'` 连接的完整音节）各自最好那一行的权重；没有行的键不出现。滑行输入用它给一笔可能拼出的串排序。
+    pub fn best_weights(&self, keys: &[String]) -> HashMap<String, i64> {
+        self.database
+            .query_exact_keys_per_key(keys, 1)
+            .into_iter()
+            .filter_map(|(key, rows)| rows.first().map(|row| (key, row.weight)))
+            .collect()
     }
 
     /// Umlaut-normalised canonical key, one complete syllable per Han character, no re-cut; an existing row is OK without a journal write (QD:1215-1268).

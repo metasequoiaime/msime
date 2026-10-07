@@ -8,6 +8,7 @@ mod clock;
 mod commit;
 mod composition;
 mod editing;
+mod glide;
 mod input;
 mod learning;
 mod online;
@@ -18,6 +19,7 @@ mod tests;
 use crate::diagnostics;
 use crate::error::{EngineError, Result};
 use crate::nine_key::NineKeySession;
+use crate::pinyin::glide::{GlideKeyboard, GlidePoint};
 use crate::types::{
     CandidateEdge, CandidateSource, Command, CommandTableEntry, CommandTranslationQuery, KeyResult,
     LocalInputMode, MentionEntry, OnlineQuery, QuickPhraseEntry, SchemeType,
@@ -81,6 +83,14 @@ impl Session {
             return KeyResult::unhandled();
         }
         self.input.handle_character(value, shift_only)
+    }
+
+    /// 滑过字母键的一笔：它最可能拼出的全拼字母写到光标处，与已有组字之间用 `'` 隔开。不是全拼、在本地模式或专用英文里、九键数字正在组字，以及没有串跟得上这一笔时，不处理。
+    pub fn glide(&mut self, keyboard: &GlideKeyboard, points: &[GlidePoint]) -> KeyResult {
+        if self.nine_key.active() {
+            return KeyResult::unhandled();
+        }
+        self.input.glide(keyboard, points)
     }
 
     /// Cancels any nine-key digits first. Call with nothing composing when the keyboard layout changes. 同时切换注音编辑器的九键模式（注音组字会被丢掉）。

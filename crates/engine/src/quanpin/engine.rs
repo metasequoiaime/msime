@@ -1,5 +1,7 @@
 //! `QuanpinEngine` (`R/quanpin/engine.cpp`): helpcode filtering and reordering on top of the dictionary (quanpin.md §8), and the initial-candidate expansion gate (§11.5).
 
+use std::collections::HashMap;
+
 use crate::error::Result;
 use crate::helpcode::{
     filter_candidates_with_double_helpcodes, reorder_candidates_with_single_helpcode,
@@ -133,6 +135,10 @@ impl QuanpinEngine {
 
     pub fn knows_han_char(&self, han: &str) -> bool {
         self.dictionary.knows_han_char(han)
+    }
+
+    pub fn best_weights(&self, keys: &[String]) -> HashMap<String, i64> {
+        self.dictionary.best_weights(keys)
     }
 
     pub fn create_word_from_canonical_pinyin(&mut self, pinyin: &str, word: &str) -> Result<()> {

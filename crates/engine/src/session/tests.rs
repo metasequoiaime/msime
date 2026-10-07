@@ -4461,3 +4461,55 @@ fn url_caret_editing_reaches_the_first_character_and_an_empty_url_leaves_the_mod
     // 退出后数字不再被吞掉。
     assert!(!session.character(b'1', false).handled);
 }
+
+/// 中 outweighs 总 the way it does in the shipped dictionary, and 西安 is a word while 先 is a character.
+const GLIDE_FIXTURE: &str = "CREATE TABLE tbl_1_z(key TEXT, jp TEXT, value TEXT, weight INTEGER);\
+INSERT INTO tbl_1_z VALUES('zhong','z','中',7680869),('zong','z','总',1273655);\
+CREATE TABLE tbl_1_x(key TEXT, jp TEXT, value TEXT, weight INTEGER);\
+INSERT INTO tbl_1_x VALUES('xi','x','西',1000000),('xian','x','先',2000000);\
+CREATE TABLE tbl_1_a(key TEXT, jp TEXT, value TEXT, weight INTEGER);\
+INSERT INTO tbl_1_a VALUES('an','a','安',900000);\
+CREATE TABLE tbl_2_x(key TEXT, jp TEXT, value TEXT, weight INTEGER);\
+INSERT INTO tbl_2_x VALUES('xi''an','xa','西安',300000);";
+
+fn glide(session: &mut Session, word: &str) -> crate::types::KeyResult {
+    use crate::pinyin::glide::tests::{keyboard, stroke};
+    session.glide(&keyboard(), &stroke(word, 0.1, &[]))
+}
+
+#[test]
+fn a_glide_types_the_letters_the_dictionary_prefers() {
+    let fixture = Fixture::new(GLIDE_FIXTURE);
+    let mut session = fixture.session();
+    // `h` 在 `z` 到 `o` 的连线上，单看笔画，`zong` 和 `zhong` 一样像。
+    assert!(glide(&mut session, "zhong").handled);
+    let snapshot = session.snapshot();
+    assert_eq!(snapshot.editing_text, "zhong");
+    assert_eq!(words(&session).first().map(String::as_str), Some("中"));
+}
+
+#[test]
+fn a_glide_into_a_composition_starts_a_new_syllable() {
+    let fixture = Fixture::new(GLIDE_FIXTURE);
+    let mut session = fixture.session();
+    type_text(&mut session, "xi");
+    assert!(glide(&mut session, "an").handled);
+    assert_eq!(session.snapshot().editing_text, "xi'an");
+    assert_eq!(words(&session).first().map(String::as_str), Some("西安"));
+}
+
+#[test]
+fn a_glide_is_left_to_the_host_outside_quanpin_composition() {
+    let fixture = Fixture::new(GLIDE_FIXTURE);
+    let mut session = fixture.session();
+    session.set_dedicated_english(true);
+    assert!(!glide(&mut session, "zhong").handled);
+    assert!(session.snapshot().editing_text.is_empty());
+
+    let mut session = fixture.session();
+    let mut broken = crate::pinyin::glide::tests::keyboard();
+    broken.key_width = 0.0;
+    let points = crate::pinyin::glide::tests::stroke("zhong", 0.0, &[]);
+    assert!(!session.glide(&broken, &points).handled);
+    assert!(session.snapshot().editing_text.is_empty());
+}

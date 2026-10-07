@@ -6,7 +6,7 @@ pub mod queries;
 pub mod registry;
 pub mod scheme;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -439,6 +439,11 @@ impl ImeSession {
         self.scheme
             .as_wubi()
             .is_some_and(|wubi| wubi.has_complete_code())
+    }
+
+    /// 全拼词典里每个键（以 `'` 连接的完整音节）最好那一行的权重，供滑行输入使用。
+    pub fn quanpin_best_weights(&self, keys: &[String]) -> HashMap<String, i64> {
+        self.registry.quanpin_best_weights(keys)
     }
 
     /// Candidates for a raw prefix through a scratch scheme of the current type, leaving the live composition alone (caret-prefix decoding, overlays.md §7.6).

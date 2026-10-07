@@ -11,6 +11,7 @@ use crate::diagnostics;
 use crate::error::{EngineError, Result};
 use crate::helpcode::{compute_helpcodes, load_helpcode_keymap, HelpcodeKeymap, SharedKeymap};
 use crate::local::database::LocalDatabaseLease;
+use crate::pinyin::glide::{GlideKeyboard, GlidePoint};
 use crate::pinyin::segment::is_complete_pinyin_input;
 use crate::types::{
     CandidateEdge, CandidateSource, CommandTableEntry, CommandTranslationQuery, KeyResult,
@@ -425,6 +426,15 @@ impl Session {
         self.inner.set_nine_key_enabled(enabled);
         self.nine_key = enabled;
         Ok(())
+    }
+
+    /// 滑行的一笔，见 [`crate::Session::glide`]。
+    pub fn glide(
+        &mut self,
+        keyboard: &GlideKeyboard,
+        points: &[GlidePoint],
+    ) -> Result<EngineResult> {
+        Ok(result_for(self.inner.glide(keyboard, points)))
     }
 
     /// Out of range is unhandled.
