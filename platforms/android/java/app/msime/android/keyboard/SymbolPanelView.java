@@ -22,8 +22,8 @@ public final class SymbolPanelView extends LinearLayout {
         void insert(String text);
         void delete();
         void close();
-        /** 按钮的选中状态变了，按当前皮肤重画它：键帽颜色只在上色时读一次 `isSelected()`，只改选中状态的话高亮会一直停在上一次上色时的那个按钮上。 */
-        void restyle(Button button);
+        /** 按当前皮肤重画一个控件：按钮的选中状态变了时必须调，键帽颜色只在上色时读一次 `isSelected()`，只改选中状态的话高亮会一直停在上一次上色时的那个按钮上；换分类后新建的提示文字也要靠它拿到皮肤的字色。 */
+        void restyle(View view);
     }
 
     private final ButtonFactory buttons;
@@ -32,19 +32,26 @@ public final class SymbolPanelView extends LinearLayout {
     private final GridLayout grid = new GridLayout(getContext());
     private final ScrollView gridScroll = new ScrollView(getContext());
     private final List<Button> categoryButtons =
-        new java.util.ArrayList<>(SymbolPanelModel.categories().size());
+        new java.util.ArrayList<>(SymbolPanelModel.categories(List.of()).size());
     private final Button lockButton;
+    private List<String> recents = List.of();
     private int selected;
     private boolean locked;
 
-    /** Reopens with Apple's default category and one-shot insertion behavior. */
-    public void resetForPresentation() {
+    /** 每次打开都回到单次输入；有使用记录时先显示「常用」，否则显示「中文」。 */
+    public void resetForPresentation(List<String> recents) {
+        this.recents = SymbolPanelModel.normalizeRecents(recents);
         locked = false;
         lockButton.setText("锁定");
         ViewPolicy.setSelected(lockButton, false);
         listener.restyle(lockButton);
         lockButton.setContentDescription("锁定，连续输入符号");
-        select(0);
+        select(SymbolPanelModel.initialCategory(this.recents));
+    }
+
+    /** 记录变了（刚上屏了一个符号）：只换数据，不重排正在看的网格，免得锁定连续输入时格子在手指底下挪动；下次点「常用」或重新打开时才按新顺序显示。 */
+    public void setRecents(List<String> recents) {
+        this.recents = SymbolPanelModel.normalizeRecents(recents);
     }
 
     public SymbolPanelView(Context context, ButtonFactory buttons, Listener listener) {
@@ -97,7 +104,7 @@ public final class SymbolPanelView extends LinearLayout {
         bottom.addView(bottomDelete, KeyboardGeometry.weightedHeightParams(getContext(), 48, 1));
         addView(bottom, KeyboardGeometry.matchWidthHeightPx(KeyboardGeometry.pixels(getContext(), 48)));
 
-        List<SymbolPanelModel.Category> values = SymbolPanelModel.categories();
+        List<SymbolPanelModel.Category> values = SymbolPanelModel.categories(recents);
         for (int index = 0; index < values.size(); index++) {
             final int category = index;
             Button button = buttons.create(values.get(index).title(),
@@ -110,11 +117,11 @@ public final class SymbolPanelView extends LinearLayout {
             categories.addView(button, KeyboardGeometry.matchWidthHeightPx(
                 KeyboardGeometry.pixels(getContext(), 40)));
         }
-        select(0);
+        select(SymbolPanelModel.initialCategory(recents));
     }
 
     private void select(int category) {
-        List<SymbolPanelModel.Category> values = SymbolPanelModel.categories();
+        List<SymbolPanelModel.Category> values = SymbolPanelModel.categories(recents);
         if (category < 0 || category >= values.size()) return;
         selected = category;
         for (int index = 0; index < categoryButtons.size(); index++) {
@@ -126,6 +133,16 @@ public final class SymbolPanelView extends LinearLayout {
         }
         grid.removeAllViews();
         List<String> symbols = values.get(category).symbols();
+        if (symbols.isEmpty()) {
+            TextView hint = ViewPolicy.centeredText(getContext(), SymbolPanelModel.RECENTS_EMPTY_HINT, 14);
+            KeyboardGeometry.setKeyTextSize(hint, 14);
+            GridLayout.LayoutParams params = new GridLayout.LayoutParams(GridLayout.spec(0),
+                GridLayout.spec(0, SymbolPanelModel.COLUMNS, 1f));
+            params.width = 0;
+            params.height = KeyboardGeometry.pixels(getContext(), 92);
+            grid.addView(hint, params);
+            listener.restyle(hint);
+        }
         for (int start = 0; start < symbols.size(); start += SymbolPanelModel.COLUMNS) {
             int end = BoundsPolicy.atMost(start + SymbolPanelModel.COLUMNS, symbols.size());
             for (int index = start; index < end; index++) {

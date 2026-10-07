@@ -1528,7 +1528,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     /** 会话是否不学习：输入框不许个性化学习，或者隐私模式开着。 */
-    private boolean learningSuppressed() {
+    boolean learningSuppressed() {
         return !allowLearning || incognitoEnabled;
     }
 

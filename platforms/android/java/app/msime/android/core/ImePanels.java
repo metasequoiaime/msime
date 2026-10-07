@@ -3,6 +3,7 @@ package app.msime.android;
 import android.content.ClipDescription;
 import android.content.ClipboardManager;
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.graphics.Typeface;
@@ -19,12 +20,18 @@ import android.widget.PopupMenu;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
+import java.util.ArrayList;
+import java.util.List;
 import org.json.JSONArray;
+import org.json.JSONException;
 import org.json.JSONObject;
 
 /** 盖在键盘上的各个面板：表情、符号、皮肤、输入方案、剪贴板、回复键盘、AI 润色、本地输入菜单与更多工具的入口；从 MSIMEInputService 原样搬出，状态仍在服务里。 */
 final class ImePanels {
+    private static final String SYMBOL_RECENTS_PREFERENCES = "android-symbol-recents";
+    private static final String SYMBOL_RECENTS_KEY = "items";
     private final MSIMEInputService s;
+    private SharedPreferences symbolPreferences;
     private int replyReadGeneration;
     private int replyMenuReadGeneration;
 
@@ -197,7 +204,7 @@ final class ImePanels {
         s.closeVoiceResult();
         s.closeAiPolish();
         s.closeReplyKeyboard();
-        s.symbolPanel.resetForPresentation();
+        s.symbolPanel.resetForPresentation(loadSymbolRecents());
         // 面板原先没有底色，网格空着时直接透出底下的字母键；铺上键盘底图。
         s.imeStyler.applySkinBackground(s.symbolPanel);
         ViewPolicy.show(s.symbolPanel);
@@ -1494,7 +1501,7 @@ final class ImePanels {
             },
             new SymbolPanelView.Listener() {
                 @Override public void insert(String text) {
-                    if (s.connection != null) s.commitText(text, TypingSource.LOCAL);
+                    if (s.connection != null && s.commitText(text, TypingSource.LOCAL)) recordSymbolRecent(text);
                 }
 
                 @Override public void delete() {
@@ -1504,10 +1511,38 @@ final class ImePanels {
 
                 @Override public void close() { s.closeSymbolPanel(); }
 
-                @Override public void restyle(Button button) { s.imeStyler.styleButton(button, true); }
+                @Override public void restyle(View view) { s.imeStyler.applySkinToView(view); }
             });
+        symbolPreferences = s.getSharedPreferences(SYMBOL_RECENTS_PREFERENCES, Context.MODE_PRIVATE);
         ViewPolicy.hide(s.symbolPanel);
         s.keyboardSurface.addView(s.symbolPanel, KeyboardGeometry.frameMatchParentParams());
+    }
+
+    /** 「常用」的使用记录：只存在本机，格式和表情的最近使用一样是一个 JSON 字符串数组。 */
+    private List<String> loadSymbolRecents() {
+        if (symbolPreferences == null) return List.of();
+        String document = symbolPreferences.getString(SYMBOL_RECENTS_KEY, "[]");
+        if (document == null || document.length() > 16_384) return List.of();
+        try {
+            JSONArray values = new JSONArray(document);
+            int count = Math.min(values.length(), SymbolPanelModel.RECENTS_LIMIT * 2);
+            ArrayList<String> stored = new ArrayList<>(count);
+            for (int index = 0; index < count; index++) {
+                Object value = values.opt(index);
+                if (value instanceof String) stored.add((String) value);
+            }
+            return SymbolPanelModel.normalizeRecents(stored);
+        } catch (JSONException error) {
+            return List.of();
+        }
+    }
+
+    /** 隐私模式和不许个性化学习的输入框不记：「常用」会把在那里输入过什么带到别的输入框里。 */
+    private void recordSymbolRecent(String symbol) {
+        if (symbolPreferences == null || s.learningSuppressed()) return;
+        List<String> recents = SymbolPanelModel.recordRecent(loadSymbolRecents(), symbol);
+        symbolPreferences.edit().putString(SYMBOL_RECENTS_KEY, new JSONArray(recents).toString()).apply();
+        if (s.symbolPanel != null) s.symbolPanel.setRecents(recents);
     }
 
     void buildEmojiPanel() {

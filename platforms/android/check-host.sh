@@ -711,7 +711,8 @@ if rg -q 'button\.setTextColor\(accent\)' \
 fi
 # 符号面板的分类键和锁定键用 setSelected 表示当前项，但键帽颜色只在上色时读一次 isSelected()（ImeStyler.styleButton）。#5597 就是只改了选中状态、没有重新上色：点「网络」后右侧换了，左侧高亮仍停在「常用」。每一处改选中状态的地方都要紧跟一次 restyle。
 symbol_panel_view="$repo_root/platforms/android/java/app/msime/android/keyboard/SymbolPanelView.java"
-if [ "$(rg -c 'ViewPolicy\.setSelected\(' "$symbol_panel_view")" != "$(rg -c 'listener\.restyle\(' "$symbol_panel_view")" ]; then
+if ! rg -q 'ViewPolicy\.setSelected\(' "$symbol_panel_view" \
+  || ! awk '/ViewPolicy\.setSelected\(/ { pending = 1; next } pending { if ($0 !~ /listener\.restyle\(/) bad = 1; pending = 0 } END { exit (bad || pending) }' "$symbol_panel_view"; then
   echo "Android symbol panel must restyle every button whose selected state it changes" >&2
   exit 1
 fi
