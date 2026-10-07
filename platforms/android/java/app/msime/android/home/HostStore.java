@@ -3,6 +3,7 @@ package app.msime.android.home;
 import android.content.Context;
 import androidx.annotation.Nullable;
 import app.msime.android.AppThemePalette;
+import app.msime.android.JsonPolicy;
 import app.msime.android.KeyboardSkin;
 import app.msime.android.NativeClient;
 import app.msime.android.PreferencesRevisionPolicy;
@@ -258,7 +259,7 @@ public final class HostStore {
 
     /** Native envelopes use a typed JSON status; reject org.json's string coercion. */
     static boolean strictOk(Object value) {
-        return value instanceof Boolean && (Boolean) value;
+        return JsonPolicy.strictTrue(value);
     }
 
     @Nullable private static String call(Call call) {
