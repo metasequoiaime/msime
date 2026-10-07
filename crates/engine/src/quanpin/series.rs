@@ -285,6 +285,17 @@ pub fn append_unique_words(result: &mut Vec<WordItem>, rows: Vec<WordItem>) {
     if rows.is_empty() {
         return;
     }
+    if result.len().saturating_add(rows.len()) <= SMALL_UNIQUE_ROWS {
+        // 候选总量很小时边追加边扫描结果，避免建立临时哈希表和保留标记数组。
+        result.reserve(rows.len());
+        for item in rows {
+            if result.iter().any(|existing| existing.word == item.word) {
+                continue;
+            }
+            result.push(item);
+        }
+        return;
+    }
     // Borrow words while checking duplicates, then release the borrows before moving rows into the result.
     let mut seen = HashSet::with_capacity(result.len().saturating_add(rows.len()));
     seen.extend(result.iter().map(|item| item.word.as_str()));
@@ -556,6 +567,22 @@ mod tests {
 
         assert_eq!(result.len(), 11);
         assert_eq!(result.capacity(), 11);
+    }
+
+    #[test]
+    fn append_unique_words_uses_no_temporary_heap_state_for_small_merges() {
+        let mut result = Vec::with_capacity(37);
+        result.push(row("a", "已有", 1));
+        let rows: Vec<WordItem> = (0..36)
+            .map(|index| row("a", &format!("词{}", index % 18), index))
+            .collect();
+
+        let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            append_unique_words(&mut result, rows);
+        });
+
+        assert_eq!(allocations, 0);
+        assert_eq!(result.len(), 19);
     }
 
     #[test]
