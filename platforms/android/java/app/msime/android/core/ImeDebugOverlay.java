@@ -2,7 +2,6 @@ package app.msime.android;
 
 import android.graphics.Color;
 import android.os.SystemClock;
-import android.view.View;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
@@ -276,7 +275,8 @@ final class ImeDebugOverlay {
         String text = debug ? debugText() : s.diagnosticMessage;
         s.diagnosticView.setText(text);
         s.diagnosticView.setContentDescription("提示：" + text);
-        s.diagnosticView.setTextColor(Color.parseColor(s.skin.accent()));
-        s.diagnosticView.setVisibility(hasDiagnostic || debug ? View.VISIBLE : View.GONE);
+        ViewPolicy.setTextColor(s.diagnosticView, Color.parseColor(s.skin.accent()));
+        if (hasDiagnostic || debug) ViewPolicy.show(s.diagnosticView);
+        else ViewPolicy.hide(s.diagnosticView);
     }
 }

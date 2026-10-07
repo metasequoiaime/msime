@@ -84,7 +84,7 @@ public final class PhrasesPage extends DetailPage {
         // 常用语可以多行：换成多行输入框，高度随内容长到 6 行。
         field.setSingleLine(false);
         field.setMinLines(3);
-        field.setMaxLines(6);
+        ViewPolicy.setMaxLines(field, 6);
         ViewPolicy.setTopStart(field);
         int padding = Ui.dp(requireContext(), 10);
         field.setPadding(Ui.dp(requireContext(), 12), padding, Ui.dp(requireContext(), 12), padding);

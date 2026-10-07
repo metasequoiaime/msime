@@ -39,7 +39,7 @@ public final class MsToast {
             Ui.color(activity, com.google.android.material.R.attr.colorOnSurfaceInverse));
         toast.setTag(TAG);
         ViewPolicy.setCentered(toast);
-        toast.setMaxLines(3);
+        ViewPolicy.setMaxLines(toast, 3);
         toast.setBackground(Ui.pill(Ui.color(activity, com.google.android.material.R.attr.colorSurfaceInverse)));
         Ui.setSymmetricPaddingDp(toast, activity, 20, 10);
         toast.setElevation(Ui.dp(activity, 6));

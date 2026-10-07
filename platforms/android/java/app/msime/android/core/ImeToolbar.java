@@ -137,8 +137,7 @@ final class ImeToolbar {
         bindToolbarAction(s.hanjaButton,
             () -> s.command(KoreanInputPolicy.CONVERT_HANJA_COMMAND));
         KeyboardGeometry.setHorizontalPaddingDp(s.hanjaButton, s, 8);
-        s.hanjaButton.setMinHeight(0);
-        s.hanjaButton.setMinimumHeight(0);
+        ViewPolicy.clearMinimumHeight(s.hanjaButton);
         candidateHeader.addView(s.hanjaButton, new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.MATCH_PARENT));
         s.exitLocalModeButton = new KeyboardBorderlessButton(s);
@@ -149,8 +148,7 @@ final class ImeToolbar {
         ViewPolicy.clearPadding(s.exitLocalModeButton);
         s.imeStyler.styleButton(s.exitLocalModeButton, true);
         bindToolbarAction(s.exitLocalModeButton, () -> s.command(3));
-        s.exitLocalModeButton.setMinHeight(0);
-        s.exitLocalModeButton.setMinimumHeight(0);
+        ViewPolicy.clearMinimumHeight(s.exitLocalModeButton);
         candidateHeader.addView(s.exitLocalModeButton, new LinearLayout.LayoutParams(
             s.pixels(32), LinearLayout.LayoutParams.MATCH_PARENT));
         candidateRegion.addView(candidateHeader, KeyboardGeometry.matchWidthHeightPx(

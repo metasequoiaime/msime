@@ -3,7 +3,7 @@
 //! With the places switch on, the Chinese administrative divisions of the embedded table in [`super::places`] (a static WTFPL dataset, modood/Administrative-divisions-of-China, divisions as of 2025-12-27) follow the user's rows once at least one letter is typed. They share `RESULT_LIMIT` with the user's rows and never displace them, and a place the user already listed appears once, as the user's row.
 
 use super::command::TEXT_UTF16_LIMIT;
-use super::places::{Places, places};
+use super::places::{places, Places};
 use crate::types::{CandidateSource, MentionEntry, WordItem};
 use std::collections::HashSet;
 

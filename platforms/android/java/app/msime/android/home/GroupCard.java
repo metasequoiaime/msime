@@ -137,7 +137,7 @@ public final class GroupCard {
 
         TextView text = Ui.styledLabel(context, label.apply(control.value()), 13, 400, Ui.subText(context));
         ViewPolicy.setEndCenteredVertically(text);
-        text.setSingleLine(true);
+        ViewPolicy.setSingleLine(text);
             Ui.hideFromAccessibility(text);
         row.view.addView(text, new LinearLayout.LayoutParams(Ui.dp(context, Ui.SLIDER_LABEL_WIDTH),
             ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -204,7 +204,7 @@ public final class GroupCard {
 
     private TextView trailingValue(Row row, @Nullable CharSequence value) {
         TextView text = Ui.styledLabel(context, "", Ui.TEXT_ROW_TITLE, 400, Ui.subText(context));
-        text.setSingleLine(true);
+        ViewPolicy.setSingleLine(text);
         LinearLayout.LayoutParams params = Ui.rowGapParams(context);
         row.view.addView(text, params);
         setText(text, value);

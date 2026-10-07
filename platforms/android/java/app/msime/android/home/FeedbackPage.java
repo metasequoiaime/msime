@@ -186,7 +186,7 @@ public final class FeedbackPage extends DetailPage {
             length > FeedbackApi.MAX_TEXT ? Ui.danger(context) : Ui.subText(context));
         boolean ready = !sending && !sent && FeedbackApi.validText(draft);
         submit.setText(sent ? "已提交" : sending ? "正在提交…" : "提交");
-        submit.setEnabled(ready);
+        ViewPolicy.setEnabled(submit, ready);
         ViewPolicy.setTextColor(submit, ready ? Ui.onAccent(context) : Ui.subText(context));
         int fill = ready ? Ui.accent(context)
             : Ui.color(context, com.google.android.material.R.attr.colorSurfaceContainerHighest);

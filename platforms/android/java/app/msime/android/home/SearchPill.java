@@ -40,7 +40,7 @@ public final class SearchPill extends LinearLayout {
         field = Ui.styledInput(context, Ui.TEXT_ROW_TITLE, 400, Ui.text(context));
         ViewPolicy.clearBackground(field);
         ViewPolicy.clearPadding(field);
-        field.setSingleLine(true);
+        ViewPolicy.setSingleLine(field);
         field.setInputType(InputType.TYPE_CLASS_TEXT);
         field.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
         field.setHintTextColor(Ui.subText(context));

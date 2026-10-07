@@ -197,7 +197,11 @@ class ModelAndHotwords(LocalFixture):
         nested = external / "nested"
         nested.mkdir()
         (nested / local.MANIFEST).write_text("{}")
-        linked_parent = self.root / "linked-parent"
+        # 放在其他人可写的目录里：CI 容器以 root 运行，root 建的链接在只有属主可写的目录里会被当成系统安装的可信链接。
+        shared = self.root / "shared"
+        shared.mkdir()
+        shared.chmod(0o777)
+        linked_parent = shared / "linked-parent"
         linked_parent.symlink_to(external, target_is_directory=True)
         with self.assertRaises(ValueError):
             local.model_manifest(str(linked_parent / "nested"))
