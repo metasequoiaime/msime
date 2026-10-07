@@ -573,8 +573,8 @@ public final class Ui {
     public static TextView label(Context context, CharSequence text, float sizeSp, @ColorInt int color) {
         TextView view = new TextView(context);
         view.setText(text);
-        view.setTextSize(sizeSp);
-        view.setTextColor(color);
+        ViewPolicy.setTextSizeSp(view, sizeSp);
+        ViewPolicy.setTextColor(view, color);
         return view;
     }
 
