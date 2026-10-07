@@ -399,7 +399,7 @@ public final class DiagnosticsApi {
 
     private static String baseName(String path) {
         int slash = path.lastIndexOf('/');
-        return (slash < 0 ? path : path.substring(slash + 1)).toLowerCase(Locale.ROOT);
+        return TextPolicy.lowercase(slash < 0 ? path : path.substring(slash + 1));
     }
 
     /** 按 UTF-8 字节截断，不切开多字节字符和代理对。 */

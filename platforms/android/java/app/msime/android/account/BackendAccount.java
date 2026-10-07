@@ -11,7 +11,6 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.FutureTask;
 import javax.net.ssl.HttpsURLConnection;
@@ -692,7 +691,7 @@ public final class BackendAccount {
             if (status / 100 != 2) throw new RequestException(status);
             String type = connection.getContentType();
             try (InputStream input = connection.getInputStream()) {
-                if (type == null || !type.toLowerCase(Locale.ROOT).startsWith("text/event-stream")) {
+                if (type == null || !TextPolicy.lowercase(type).startsWith("text/event-stream")) {
                     // 没按流式回答（例如中间层吞掉了 stream）：按普通 JSON 回复读，整段一次交出去。
                     byte[] response = readBounded(input);
                     String reply = chatContent(new JSONObject(TextPolicy.utf8(response)));
