@@ -89,7 +89,7 @@ final class NoticeBanner {
         } else {
             markwon(context).setMarkdown(body, notice.body());
         }
-        card.findViewById(R.id.notice_dismiss).setOnClickListener(ignored -> {
+        ViewPolicy.bindClick(card.findViewById(R.id.notice_dismiss), () -> {
             List<Notice> rest = new ArrayList<>(notices.subList(1, notices.size()));
             show(fragment, container, rest);
             HostTask.run(fragment, worker -> dismiss(worker, notice.id()), ignoredResult -> {});
