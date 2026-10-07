@@ -190,7 +190,7 @@ public final class FeedbackPage extends DetailPage {
         ViewPolicy.setTextColor(submit, ready ? Ui.onAccent(context) : Ui.subText(context));
         int fill = ready ? Ui.accent(context)
             : Ui.color(context, com.google.android.material.R.attr.colorSurfaceContainerHighest);
-        submit.setBackground(Ui.rippleOn(context, fill, Ui.dp(requireContext(), Ui.GROUP_RADIUS)));
+        ViewPolicy.setBackground(submit, Ui.rippleOn(context, fill, Ui.dp(requireContext(), Ui.GROUP_RADIUS)));
         if (addShot != null) ViewPolicy.setEnabledWithAlpha(addShot,
             screenshots.size() < FeedbackApi.MAX_SCREENSHOTS && !sending, 0.38f);
     }
@@ -210,7 +210,7 @@ public final class FeedbackPage extends DetailPage {
             BitmapFactory.Options options = new BitmapFactory.Options();
             options.inSampleSize = 4;
             image.setImageBitmap(BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options));
-            image.setBackground(Ui.rounded(Ui.rowBackground(context), Ui.dp(requireContext(), 10)));
+            ViewPolicy.setBackground(image, Ui.rounded(Ui.rowBackground(context), Ui.dp(requireContext(), 10)));
             image.setClipToOutline(true);
             image.setContentDescription("截图 " + (index + 1));
             frame.addView(image, Ui.squareFrameParams(requireContext(), Ui.THUMBNAIL_SIZE));
@@ -218,7 +218,7 @@ public final class FeedbackPage extends DetailPage {
             remove.setImageResource(R.drawable.ms_w4_me2_close);
             Ui.setImageTint(remove,
                 Ui.color(context, com.google.android.material.R.attr.colorOnSurfaceInverse));
-            remove.setBackground(Ui.pill(Ui.color(context, com.google.android.material.R.attr.colorSurfaceInverse)));
+            ViewPolicy.setBackground(remove, Ui.pill(Ui.color(context, com.google.android.material.R.attr.colorSurfaceInverse)));
             Ui.setSymmetricPaddingDp(remove, requireContext(), 3, 3);
             remove.setContentDescription("移除截图 " + (index + 1));
             ViewPolicy.bindClick(remove, () -> {
