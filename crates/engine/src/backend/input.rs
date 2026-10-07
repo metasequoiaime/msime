@@ -4,14 +4,16 @@ use std::path::PathBuf;
 
 use serde_json::Value;
 
-use super::common::{candidates, scheme, shuangpin_profile, Roots};
+use super::common::{candidates, scheme, shuangpin_profile, wubi_profile, Roots};
 use super::request::Request;
 use super::{BackendError, Outcome};
 use crate::ime::registry::ProviderRegistry;
 use crate::quanpin::scheme::QuanpinScheme;
 use crate::shuangpin::scheme::ShuangpinScheme;
 use crate::shuangpin::ShuangpinProfile;
-use crate::types::{CandidateSource, QueryRequest, SchemeSet, SchemeType, WordItem};
+use crate::types::{
+    CandidateSource, QueryRequest, SchemeSet, SchemeType, WordItem, WubiProfileKind,
+};
 use crate::wubi::scheme::WubiScheme;
 use crate::{assets, RuntimePaths};
 
@@ -57,10 +59,11 @@ pub(super) fn segmentation(request: &Request) -> Outcome {
     }))
 }
 
-/// The providers for the three schemes the server accepts, reading the dictionaries under `roots`. `scratch` stands in for the user and cache roots: nothing a provider writes outlives the request.
+/// 服务端接受的三种方案的 provider，读 `roots` 下的词库；五笔读 `wubi` 这一版码表。`scratch` 充当用户目录和缓存目录：provider 写下的东西不会活过这次请求。
 pub(super) fn registry(
     roots: Roots,
     profile: &'static ShuangpinProfile,
+    wubi: WubiProfileKind,
 ) -> Result<ProviderRegistry, BackendError> {
     roots.require_resources()?;
     if roots.scratch.as_os_str().is_empty() || !roots.scratch.is_absolute() {
@@ -76,7 +79,7 @@ pub(super) fn registry(
         dictionaries: roots.dictionaries.to_path_buf(),
     };
     let enabled = SchemeSet::of(&[SchemeType::Quanpin, SchemeType::Shuangpin, SchemeType::Wubi]);
-    Ok(ProviderRegistry::new(
+    let mut providers = ProviderRegistry::new(
         enabled,
         profile.kind,
         &paths,
@@ -84,7 +87,9 @@ pub(super) fn registry(
         PathBuf::new(),
         PathBuf::new(),
         PathBuf::new(),
-    ))
+    );
+    providers.set_wubi_profile(wubi);
+    Ok(providers)
 }
 
 /// Candidates for the whole input, best first, with the segmentation they were read for. `cloud_candidates` keeps only dictionary rows whose key is the entire normalised input: the cloud contract has no replacement span, so prefixes and generated phrases are never safe there.
@@ -116,7 +121,7 @@ pub(super) fn query_candidates(
     let scheme = scheme(request)?;
     let profile = shuangpin_profile(request)?;
     let query = build_query(scheme, profile, request.text())?;
-    let mut providers = registry(roots, profile)?;
+    let mut providers = registry(roots, profile, wubi_profile(request)?)?;
     let items = providers.query(&query);
     Ok((items, query))
 }
