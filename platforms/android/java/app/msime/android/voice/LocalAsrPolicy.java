@@ -119,7 +119,7 @@ public final class LocalAsrPolicy {
     /** Native ASR text must be plain, well-formed Unicode before it reaches the editor. */
     static String transcript(Object value) {
         String text = strictText(value);
-        if (text == null || text.codePointCount(0, text.length()) > MAX_TRANSCRIPT
+        if (text == null || TextPolicy.codePointLength(text) > MAX_TRANSCRIPT
                 || TextPolicy.hasControlExceptWhitespace(text)
                 || !TextPolicy.validUnicode(text)) return "";
         return text;
