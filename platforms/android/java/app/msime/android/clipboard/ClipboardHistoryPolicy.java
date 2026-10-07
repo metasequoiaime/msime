@@ -40,7 +40,7 @@ public final class ClipboardHistoryPolicy {
      * them twice is what let the two answers diverge.
      */
     public static boolean hasText(String text) {
-        return text != null && !text.trim().isEmpty();
+        return text != null && !TextPolicy.trimmed(text).isEmpty();
     }
 
     public static long timestampValue(Object raw) {

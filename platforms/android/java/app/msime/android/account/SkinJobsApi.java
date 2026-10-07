@@ -245,7 +245,7 @@ public final class SkinJobsApi {
         JSONObject message = first == null ? null : first.optJSONObject("message");
         Object content = message == null ? null : message.opt("content");
         if (message == null || !"assistant".equals(message.opt("role")) || !(content instanceof String text)
-                || text.trim().isEmpty() || text.length() > 16 * 1024)
+                || TextPolicy.trimmed(text).isEmpty() || text.length() > 16 * 1024)
             throw invalid("ai_skin_response");
         return text;
     }

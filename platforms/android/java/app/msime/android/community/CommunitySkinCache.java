@@ -2,7 +2,6 @@ package app.msime.android;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
@@ -71,7 +70,7 @@ public final class CommunitySkinCache {
                 bytes = HttpBodyPolicy.readBounded(input, (int) MAX_BYTES);
                 if (bytes == null) return List.of();
             }
-            JSONArray array = new JSONArray(new String(bytes, StandardCharsets.UTF_8));
+            JSONArray array = new JSONArray(TextPolicy.utf8(bytes));
             List<Entry> entries = new ArrayList<>(MAX_ENTRIES);
             for (int index = 0; index < array.length() && entries.size() < MAX_ENTRIES; index++) {
                 JSONObject value = array.optJSONObject(index);

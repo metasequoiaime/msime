@@ -228,8 +228,7 @@ public final class AccountFragment extends HomeTabFragment {
             real ? "词库、自造词和设置在设备间同步" : "登录后可用", null, null);
         MsSwitch toggle = new MsSwitch(context);
         toggle.setChecked(real && state.syncEnabled());
-        toggle.setClickable(false);
-        toggle.setFocusable(false);
+        ViewPolicy.setInteractive(toggle, false);
         Ui.hideFromAccessibility(toggle);
             LinearLayout.LayoutParams switchParams = Ui.rowGapParams(context);
         sync.addView(toggle, switchParams);
@@ -243,8 +242,7 @@ public final class AccountFragment extends HomeTabFragment {
         });
         if (real) {
             sync.setBackground(Ui.ripple(context));
-            sync.setClickable(true);
-            sync.setFocusable(true);
+            ViewPolicy.setInteractive(sync, true);
             sync.setOnClickListener(ignored -> setSync(!toggle.isChecked()));
         } else {
             Ui.setEnabledLook(sync, false);

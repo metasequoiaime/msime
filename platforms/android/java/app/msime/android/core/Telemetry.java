@@ -269,7 +269,7 @@ public final class Telemetry {
     static String version(Context app) {
         try {
             PackageInfo info = app.getPackageManager().getPackageInfo(app.getPackageName(), 0);
-            String name = info.versionName == null ? "" : info.versionName.trim();
+            String name = TextPolicy.trimmed(info.versionName);
             if (!name.isEmpty() && name.length() <= 64) return name;
         } catch (Exception error) {
             Log.i(TAG, "Package version unavailable", error);

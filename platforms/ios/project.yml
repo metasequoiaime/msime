@@ -269,6 +269,7 @@ targets:
       - path: App/Sources/dictionary/TauriPersonalDictionaryBridge.swift
       - path: App/Sources/settings/CandidateOptionsSettingsView.swift
       - path: App/Sources/settings/CandidatePreviewCard.swift
+      - path: App/Sources/settings/IOSCloudSettings.swift
       - path: App/Sources/keyboard/KeyboardChatHistoryPolicy.swift
       - path: ../../shared/backend
         excludes:

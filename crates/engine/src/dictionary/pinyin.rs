@@ -188,7 +188,7 @@ impl PinyinDatabase {
             return Vec::new();
         }
         let mut keys_by_table: BTreeMap<String, Vec<String>> = BTreeMap::new();
-        let mut seen_keys = HashSet::with_capacity(segmentations.len());
+        let mut table_keys = Vec::with_capacity(segmentations.len());
         for segments in segmentations {
             if !has_only_complete_pinyin_segments(segments) {
                 continue;
@@ -200,9 +200,17 @@ impl PinyinDatabase {
             if key.is_empty() {
                 continue;
             }
-            if seen_keys.insert(key.clone()) {
-                let table_keys = keys_by_table.entry(table).or_default();
-                table_keys.push(key);
+            table_keys.push((table, key));
+        }
+        let mut seen_keys = HashSet::with_capacity(table_keys.len());
+        let unique = table_keys
+            .iter()
+            .map(|(_, key)| seen_keys.insert(key.as_str()))
+            .collect::<Vec<_>>();
+        drop(seen_keys);
+        for ((table, key), unique) in table_keys.into_iter().zip(unique) {
+            if unique {
+                keys_by_table.entry(table).or_default().push(key);
             }
         }
         let mut rows = Vec::with_capacity(segmentations.len().saturating_mul(limit));

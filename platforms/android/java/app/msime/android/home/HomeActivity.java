@@ -252,7 +252,7 @@ public final class HomeActivity extends AppCompatActivity {
         intro.animate().cancel();
         intro.setAlpha(1f);
         intro.setClickable(true);
-        intro.setVisibility(View.VISIBLE);
+        ViewPolicy.show(intro);
         barsOnDark(true);
 
         View glow = findViewById(R.id.home_intro_glow);
@@ -334,7 +334,7 @@ public final class HomeActivity extends AppCompatActivity {
         boolean onboarding = onboardingAfterIntro;
         onboardingAfterIntro = false;
         intro.animate().alpha(0f).setDuration(INTRO_FADE_MILLIS).withEndAction(() -> {
-            intro.setVisibility(View.GONE);
+            ViewPolicy.hide(intro);
             intro.setClickable(true);
             stopBreath();
         }).start();

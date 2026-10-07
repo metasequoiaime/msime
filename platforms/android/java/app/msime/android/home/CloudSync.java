@@ -1,5 +1,6 @@
 package app.msime.android.home;
 
+import app.msime.android.TextPolicy;
 import android.app.Activity;
 import android.content.Context;
 import android.content.SharedPreferences;
@@ -159,11 +160,30 @@ public final class CloudSync {
         });
     }
 
-    private static String message(CloudApi.Failure failure) {
+    /**
+     * 展示给用户的同步失败原因。
+     *
+     * <p>原先除了网络、登录和停用三种，其余一律说「同步失败，稍后自动重试」，但很多失败重试也不会好（云端不收某条词、词库超过上限），用户只能一直看着它失败，反馈过来也查不到原因：服务端日志不记用户和错误码。所以按 msime-cloud 返回的错误码说清楚是哪一种；不认识的带上状态码和错误码，方便用户截图反馈。
+     */
+    static String message(CloudApi.Failure failure) {
         if (failure.network()) return "网络不可用，稍后自动重试";
         if (failure.signedOut()) return "登录已失效，请重新登录后再同步";
         if (failure.unavailable()) return "云同步暂时不可用";
-        return "同步失败，稍后自动重试";
+        switch (failure.code) {
+            case "invalid_dictionary_snapshot", "invalid_dictionary_entry":
+                return "词库里有云端暂不支持的词条，词库没有同步（" + failure.code + "）";
+            case "dictionary_limit": return "云端词库最多保存 10 万条，词库没有同步";
+            case "snapshot_too_large": return "词库太大，无法同步到云端";
+            case "invalid_preference_field", "invalid_preferences": return "有设置项云端不认识，设置没有同步（" + failure.code + "）";
+            case "invalid_phrases": return "常用语超出云端限制（最多 500 条，每条最多 2000 字），常用语没有同步";
+            case "account_banned": return "账号已被停用，无法同步";
+            case "rate_limit_exceeded": return "同步太频繁，稍后自动重试";
+            case "snapshot_restore_busy", "engine_unavailable", "auth_unavailable", "dictionary_timeout":
+                return "云端暂时繁忙，稍后自动重试";
+            default: break;
+        }
+        if (failure.status == 429 || failure.status >= 500) return "云端暂时繁忙，稍后自动重试（HTTP " + failure.status + "）";
+        return "同步失败（HTTP " + failure.status + (failure.code.isEmpty() ? "" : " " + failure.code) + "）";
     }
 
     /** 应用一次云端常用语的结果：成功写入本机的次数（每次都会把代数加一），以及本机收不下的正文。 */

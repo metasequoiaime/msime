@@ -73,7 +73,8 @@ public final class VoicePolisher {
                     ? null : TextPolicy.utf8(responseBytes);
             }
             String content = content(response);
-            return cancelled ? null : (VoicePolishPolicy.sendable(content) ? content.trim() : null);
+            return cancelled ? null
+                : (VoicePolishPolicy.sendable(content) ? TextPolicy.trimmed(content) : null);
         } catch (IOException error) {
             return null;
         } finally {

@@ -72,9 +72,17 @@ static napi_value response(napi_env env, char *value) {
 // Arguments arrive as ArkTS strings holding UTF-8 JSON. napi_create/get_string_utf8 is plain UTF-8,
 // unlike JNI's modified form, so supplementary characters in candidates and resource paths cross
 // unchanged without a byte-array detour.
+// Keep the bridge from copying an attacker-controlled ArkTS string before the
+// shared C ABI can apply the per-operation request limit.  The largest JSON
+// request accepted by that ABI is dictionary collections (17 MiB); larger
+// inputs are malformed for every N-API entry point and are forwarded as the
+// same empty buffer used for other argument failures.
+constexpr size_t kMaxTextArgumentBytes = 17 * 1024 * 1024;
+
 static bool argumentText(napi_env env, napi_value value, std::string &out) {
     size_t length = 0;
     if (napi_get_value_string_utf8(env, value, nullptr, 0, &length) != napi_ok) return false;
+    if (length > kMaxTextArgumentBytes) return false;
     out.assign(length, '\0');
     size_t written = 0;
     if (napi_get_value_string_utf8(env, value, out.data(), length + 1, &written) != napi_ok) {

@@ -95,8 +95,7 @@ public final class GroupCard {
         Row row = new Row(this, title, subtitle, true);
         MsSwitch control = new MsSwitch(context);
         control.setChecked(checked);
-        control.setClickable(false);
-        control.setFocusable(false);
+        ViewPolicy.setInteractive(control, false);
         Ui.hideFromAccessibility(control);
         LinearLayout.LayoutParams params = Ui.rowGapParams(context);
         row.view.addView(control, params);
@@ -105,8 +104,7 @@ public final class GroupCard {
             control.toggle();
             onChange.accept(control.isChecked());
         });
-        row.view.setClickable(true);
-        row.view.setFocusable(true);
+        ViewPolicy.setInteractive(row.view, true);
         row.view.setBackground(Ui.ripple(context));
         row.view.setAccessibilityDelegate(new View.AccessibilityDelegate() {
             @Override public void onInitializeAccessibilityNodeInfo(View host, AccessibilityNodeInfo info) {
@@ -252,8 +250,7 @@ public final class GroupCard {
 
         private void setAction(@Nullable Runnable action) {
             view.setBackground(action == null ? null : Ui.ripple(view.getContext()));
-            view.setClickable(action != null);
-            view.setFocusable(action != null);
+            ViewPolicy.setInteractive(view, action != null);
             view.setOnClickListener(action == null ? null : ignored -> action.run());
             Ui.setEnabledLook(view, action != null);
         }

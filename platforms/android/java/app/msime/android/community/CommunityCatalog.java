@@ -3,7 +3,6 @@ package app.msime.android;
 import android.content.Context;
 import java.io.InputStream;
 import java.net.URL;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -131,7 +130,7 @@ public final class CommunityCatalog {
             try (InputStream input = connection.getInputStream()) {
                 byte[] body = HttpBodyPolicy.readRequired(input, maximumResponseBytes(kind));
                 return new PageResponse(parse(kind, new JSONObject(
-                    new String(body, StandardCharsets.UTF_8))), 200);
+                    TextPolicy.utf8(body))), 200);
             }
         } catch (Exception | LinkageError error) {
             // 说出是哪一步断的。界面上仍然只有那一句，但把原因扔掉，下一次就还得从头猜。
@@ -282,8 +281,8 @@ public final class CommunityCatalog {
                 }
                 Item updated;
                 try (InputStream input = connection.getInputStream()) {
-                    updated = item(CommunityRequest.Kind.SKIN, new JSONObject(new String(
-                        HttpBodyPolicy.readRequired(input, MAX_RESPONSE_BYTES), StandardCharsets.UTF_8)));
+                    updated = item(CommunityRequest.Kind.SKIN, new JSONObject(TextPolicy.utf8(
+                        HttpBodyPolicy.readRequired(input, MAX_RESPONSE_BYTES))));
                 }
                 if (updated == null || !updated.id().equalsIgnoreCase(item.id())
                         || updated.category() != category) {
@@ -342,7 +341,7 @@ public final class CommunityCatalog {
         String id = strictString(value.opt("id"));
         String name = strictString(value.opt("name"));
         if (id == null || name == null) return null;
-        name = name.trim();
+        name = TextPolicy.trimmed(name);
         JSONObject payload = skin ? value.optJSONObject("design") : value.optJSONObject("content");
         Long saves = count(value, "saves", skin ? "downloads" : null);
         Long ratings = count(value, "rating_count", null);
@@ -360,7 +359,7 @@ public final class CommunityCatalog {
         String author = value.has("author") ? strictString(value.opt("author")) : "";
         Boolean owned = value.has("owned") ? strictBoolean(value.opt("owned")) : Boolean.FALSE;
         if (description == null || author == null || owned == null) return null;
-        Item item = new Item(id, kind, name, description.trim(), author.trim(), saves, ratings,
+        Item item = new Item(id, kind, name, TextPolicy.trimmed(description), TextPolicy.trimmed(author), saves, ratings,
             average, payload, category, owned, downloads, value);
         return validItem(item, kind) ? item : null;
     }
@@ -412,7 +411,7 @@ public final class CommunityCatalog {
     private static boolean confirmedReport(HttpsURLConnection connection) throws Exception {
         try (InputStream input = connection.getInputStream()) {
             byte[] body = HttpBodyPolicy.readRequired(input, 16 * 1024);
-            JSONObject response = new JSONObject(new String(body, StandardCharsets.UTF_8));
+            JSONObject response = new JSONObject(TextPolicy.utf8(body));
             return confirmedReport(response.opt("reported"));
         }
     }
@@ -455,7 +454,7 @@ public final class CommunityCatalog {
     }
 
     private static boolean validName(String value, int maximum) {
-        return value != null && !value.isEmpty() && value.trim().equals(value)
+        return value != null && !value.isEmpty() && TextPolicy.trimmed(value).equals(value)
             && TextPolicy.withinCodePoints(value, maximum)
             && !CommunityTextPolicy.hasDisallowedControl(value, false);
     }
@@ -493,7 +492,7 @@ public final class CommunityCatalog {
         try (InputStream input = errors) {
             byte[] body = HttpBodyPolicy.readRequired(input, MAX_RESPONSE_BYTES);
             JSONObject root = new JSONObject(
-                new String(body, StandardCharsets.UTF_8));
+                TextPolicy.utf8(body));
             JSONObject error = root.optJSONObject("error");
             return error == null ? "" : error.optString("code", "");
         } catch (Exception error) {

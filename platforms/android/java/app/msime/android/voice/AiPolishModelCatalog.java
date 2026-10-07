@@ -64,7 +64,7 @@ public final class AiPolishModelCatalog {
                 }
                 String rawId = strictString(model.opt("id"));
                 if (rawId == null) continue;
-                String id = rawId.trim();
+                String id = TextPolicy.trimmed(rawId);
                 if (id.isEmpty() || id.length() > MAX_MODEL_ID_LENGTH) continue;
                 JSONArray endpointTypes = model.optJSONArray("supported_endpoint_types");
                 if (endpointTypes != null && endpointTypes.length() > 0) {
@@ -91,7 +91,7 @@ public final class AiPolishModelCatalog {
             if (!anthropic) throw new AiPolishClient.Failure(AiPolishClient.Reason.INVALID);
             String rawNext = strictString(document.opt("last_id"));
             if (rawNext == null) throw new AiPolishClient.Failure(AiPolishClient.Reason.INVALID);
-            String next = rawNext.trim();
+            String next = TextPolicy.trimmed(rawNext);
             if (next.isEmpty() || !cursors.add(next))
                 throw new AiPolishClient.Failure(AiPolishClient.Reason.INVALID);
             cursor = next;

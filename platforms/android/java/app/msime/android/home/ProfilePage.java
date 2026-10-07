@@ -1,7 +1,5 @@
 package app.msime.android.home;
 
-import android.content.ClipData;
-import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
@@ -235,8 +233,7 @@ public final class ProfilePage extends DetailPage {
         FrameLayout.LayoutParams cameraParams = Ui.squareFrameParams(context, 28);
         cameraParams.gravity = Gravity.BOTTOM | Gravity.END;
         avatar.addView(camera, cameraParams);
-        avatar.setClickable(true);
-        avatar.setFocusable(true);
+        ViewPolicy.setInteractive(avatar, true);
         avatar.setContentDescription("更换头像");
         ViewPolicy.bindClick(avatar, this::chooseAvatar);
         header.addView(avatar, Ui.squareParams(context, 92));
@@ -305,10 +302,7 @@ public final class ProfilePage extends DetailPage {
     }
 
     private void copy(String label, String value) {
-        ClipboardManager clipboard = requireContext().getSystemService(ClipboardManager.class);
-        if (clipboard == null) return;
-        clipboard.setPrimaryClip(ClipData.newPlainText(label, value));
-        MsToast.show(requireContext(), "已复制" + label);
+        ClipboardActions.copyText(requireContext(), label, value, "已复制" + label);
     }
 
     private void link() {

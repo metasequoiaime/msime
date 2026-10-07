@@ -97,7 +97,7 @@ public enum PageId {
 
     /** 标题或任一关键词包含查询（忽略大小写）时为真；空查询不匹配任何页面。 */
     public boolean matches(String query) {
-        String needle = TextPolicy.lowercase(query == null ? "" : query.trim());
+        String needle = TextPolicy.lowercase(TextPolicy.trimmed(query));
         if (needle.isEmpty()) return false;
         if (TextPolicy.lowercase(title).contains(needle)) return true;
         for (String keyword : keywords) {

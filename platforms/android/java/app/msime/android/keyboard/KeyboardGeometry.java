@@ -8,7 +8,6 @@ import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.view.ViewGroup;
-import java.util.Locale;
 import java.math.BigDecimal;
 import org.json.JSONObject;
 
@@ -187,7 +186,7 @@ public final class KeyboardGeometry {
     }
 
     public static String display(int tenths) {
-        return String.format(Locale.ROOT, "%.1f", tenths / 10.0);
+        return NumberPolicy.decimal1(tenths / 10.0);
     }
 
     public static String displayHeight(int adjustment) {
@@ -467,7 +466,7 @@ public final class KeyboardGeometry {
     public static void normalizeKeyCap(android.widget.TextView key) {
         int horizontal = pixels(key.getContext(), KEY_CAP_HORIZONTAL_PADDING_DP);
         key.setPadding(horizontal, 0, horizontal, 0);
-        key.setIncludeFontPadding(false);
+        ViewPolicy.clearFontPadding(key);
         key.setMinWidth(0);
         key.setMinimumWidth(0);
         key.setMinHeight(0);

@@ -211,11 +211,13 @@ impl CommonPhrasesStore {
         self.update(|document| {
             let index = position(document, id)?;
             let pack = document.phrases[index].pack;
-            if document
+            let existing: HashSet<(Option<Uuid>, &str)> = document
                 .phrases
                 .iter()
-                .any(|phrase| phrase.id != id && phrase.pack == pack && phrase.text == text)
-            {
+                .filter(|phrase| phrase.id != id)
+                .map(|phrase| (phrase.pack, phrase.text.as_str()))
+                .collect();
+            if existing.contains(&(pack, text)) {
                 return Err(CommonPhrasesError::Duplicate);
             }
             document.phrases[index].text = text.to_owned();

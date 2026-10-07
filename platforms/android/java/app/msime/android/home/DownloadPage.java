@@ -1,7 +1,5 @@
 package app.msime.android.home;
 
-import android.content.ClipData;
-import android.content.ClipboardManager;
 import android.content.Context;
 import android.os.Bundle;
 import android.view.Gravity;
@@ -90,10 +88,7 @@ public final class DownloadPage extends DetailPage {
     }
 
     private static void copyLink(Context context) {
-        ClipboardManager clipboard = context.getSystemService(ClipboardManager.class);
-        if (clipboard == null) return;
-        clipboard.setPrimaryClip(ClipData.newPlainText("水杉下载页", DOWNLOAD));
-        MsToast.show(context, "链接已复制");
+        ClipboardActions.copyText(context, "水杉下载页", DOWNLOAD, "链接已复制");
     }
 
     /** 带图标的值行，行尾留给调用方放按钮或文字。 */

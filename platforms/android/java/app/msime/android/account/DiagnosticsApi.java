@@ -10,7 +10,6 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Locale;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import org.json.JSONArray;
@@ -286,7 +285,7 @@ public final class DiagnosticsApi {
     static List<Event> eventLines(String text, boolean durationRequired) {
         List<Event> events = new ArrayList<>(MAX_EVENTS);
         for (String line : text.split("\n")) {
-            String trimmed = line.trim();
+            String trimmed = TextPolicy.trimmed(line);
             if (trimmed.isEmpty()) continue;
             try {
                 JSONObject row = new JSONObject(trimmed);
@@ -399,7 +398,7 @@ public final class DiagnosticsApi {
 
     private static String baseName(String path) {
         int slash = path.lastIndexOf('/');
-        return (slash < 0 ? path : path.substring(slash + 1)).toLowerCase(Locale.ROOT);
+        return TextPolicy.lowercase(slash < 0 ? path : path.substring(slash + 1));
     }
 
     /** 按 UTF-8 字节截断，不切开多字节字符和代理对。 */
@@ -409,27 +408,7 @@ public final class DiagnosticsApi {
 
     /** JSON 字符串转义（RFC 8259）。 */
     static void quote(StringBuilder out, String value) {
-        out.append('"');
-        String text = value == null ? "" : value;
-        for (int i = 0; i < text.length(); i++) {
-            char c = text.charAt(i);
-            switch (c) {
-                case '"': out.append("\\\""); break;
-                case '\\': out.append("\\\\"); break;
-                case '\n': out.append("\\n"); break;
-                case '\r': out.append("\\r"); break;
-                case '\t': out.append("\\t"); break;
-                case '\b': out.append("\\b"); break;
-                case '\f': out.append("\\f"); break;
-                default:
-                    if (c < 0x20 || c == ' ' || c == ' ') {
-                        out.append(String.format(Locale.ROOT, "\\u%04x", (int) c));
-                    } else {
-                        out.append(c);
-                    }
-            }
-        }
-        out.append('"');
+        out.append(JsonPolicy.quote(value));
     }
 
     /** org.json's optString coerces numbers; credentials and identifiers must stay JSON strings. */

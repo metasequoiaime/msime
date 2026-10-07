@@ -11,7 +11,6 @@ import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Locale;
 import javax.net.ssl.HttpsURLConnection;
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -296,7 +295,7 @@ public final class DeviceDataApi {
             scaled /= 1024;
             unit++;
         }
-        return String.format(Locale.ROOT, "%.1f %s", scaled, units[unit]);
+        return NumberPolicy.decimal1(scaled) + " " + units[unit];
     }
 
     /** 给人看的相对时间：一分钟内「刚刚」，然后「N 分钟前」「N 小时前」「N 天前」；时间未知（0）时为空字符串。 */

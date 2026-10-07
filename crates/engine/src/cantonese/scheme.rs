@@ -1,5 +1,6 @@
 //! The Jyutping composition: typed letters and `'` boundaries, read as syllables against the inventory, and the candidates `msime-cantonese.db` has for them. A candidate may cover only the leading syllables; selecting it takes those letters out of the composition and leaves the rest composing, with nothing held back as phrase progress.
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use super::syllable::{self, Inventory, Segmentation};
@@ -158,18 +159,13 @@ impl CantoneseScheme {
                     text: String,
                     weight: i64,
                     syllables: usize| {
-            if !candidates
-                .iter()
-                .any(|candidate| candidate.syllables == syllables && candidate.text == text)
-            {
-                candidates.push(CantoneseCandidate {
-                    text,
-                    weight,
-                    key,
-                    syllables,
-                    end: reading.syllables[syllables - 1].end,
-                });
-            }
+            candidates.push(CantoneseCandidate {
+                text,
+                weight,
+                key,
+                syllables,
+                end: reading.syllables[syllables - 1].end,
+            });
         };
         let mut spans = count;
         if full {
@@ -217,6 +213,18 @@ impl CantoneseScheme {
                 );
             }
         }
+        let mut seen = HashSet::with_capacity(candidates.len());
+        let unique = candidates
+            .iter()
+            .map(|candidate| seen.insert((candidate.text.as_str(), candidate.syllables)))
+            .collect::<Vec<_>>();
+        drop(seen);
+        let mut index = 0;
+        candidates.retain(|_| {
+            let keep = unique[index];
+            index += 1;
+            keep
+        });
         Ok(candidates)
     }
 
