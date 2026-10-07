@@ -52,7 +52,7 @@ public final class SegmentedControl extends LinearLayout {
             TextView segment = Ui.styledLabel(context, labels.get(i), Ui.TEXT_SEGMENT, 400,
                 Ui.subText(context));
             ViewPolicy.setCentered(segment);
-            segment.setSingleLine(true);
+            ViewPolicy.setSingleLine(segment);
             Ui.setTextMinHeightDp(segment, context, 28);
             Ui.setSymmetricPaddingDp(segment, context, 12, 4);
             ViewPolicy.setInteractive(segment, true);

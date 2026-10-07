@@ -183,7 +183,7 @@ public final class KeyboardOptionsPage extends DetailPage {
 
     private static void addChip(Context context, LinearLayout plate, String label, int colour) {
         TextView chip = Ui.styledLabel(context, label, 12, 500, colour);
-        chip.setSingleLine(true);
+        ViewPolicy.setSingleLine(chip);
         LinearLayout.LayoutParams params = Ui.wrap();
         params.setMarginEnd(Ui.dp(context, 12));
         plate.addView(chip, params);
