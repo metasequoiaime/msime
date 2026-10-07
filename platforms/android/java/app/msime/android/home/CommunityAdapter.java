@@ -228,8 +228,7 @@ public final class CommunityAdapter extends RecyclerView.Adapter<CommunityAdapte
         boolean reply = item.kind() == CommunityRequest.Kind.REPLY;
         if (holder.description != null) {
             holder.description.setText(item.description());
-            holder.description.setVisibility(reply && !item.description().isEmpty()
-                ? View.VISIBLE : View.GONE);
+            ViewPolicy.setVisible(holder.description, reply && !item.description().isEmpty());
         }
         holder.itemView.setContentDescription(item.name() + "，"
             + (subtitle.isEmpty() ? "" : subtitle + "，") + "点按查看详情");

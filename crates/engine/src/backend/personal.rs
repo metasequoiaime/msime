@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
 use serde_json::{json, Value};
 
-use super::common::{candidates, scheme, shuangpin_profile, Roots};
+use super::common::{candidates, scheme, shuangpin_profile, wubi_profile, Roots};
 use super::input::registry;
 use super::request::{member, Request};
 use super::{route, validation, BackendError, Outcome};
@@ -38,8 +38,8 @@ const UPSERT_ENTRY: &str = "INSERT INTO user_dictionary_operations(dictionary,ke
 const INSERT_POSITION: &str = "INSERT INTO fixed_candidate_positions(context_key,entry_key,value,position) VALUES(?1,?2,?3,?4)";
 const INSERT_SELECTION: &str = "INSERT INTO candidate_selection_state(context_key,entry_key,value,selection_count) VALUES(?1,?2,?3,?4)";
 
-/// The kinds a stored entry can have; the server's database admits only these.
-const STORED_KINDS: [&str; 4] = ["pinyin", "wubi", "english", "quick"];
+/// 服务端存储的词条可能的种类，与服务端数据库 `user_dictionary_entries.kind` 的约束一致。
+const STORED_KINDS: [&str; 5] = ["pinyin", "wubi", "wubi98", "english", "quick"];
 
 fn require_roots(roots: Roots) -> Result<(), BackendError> {
     let absolute = |path: &Path| !path.as_os_str().is_empty() && path.is_absolute();
@@ -228,6 +228,7 @@ pub(super) fn personal(request: &Request, roots: Roots) -> Outcome {
     let text = nested.text();
     let scheme = scheme(&nested)?;
     let profile = shuangpin_profile(&nested)?;
+    let wubi = wubi_profile(&nested)?;
     let mut ranking_context = String::new();
     let context = match operation.as_str() {
         "english" => format!("english:{text}"),
@@ -282,7 +283,7 @@ pub(super) fn personal(request: &Request, roots: Roots) -> Outcome {
         let kind = if operation == "english" {
             PersonalDictionaryKind::English
         } else if scheme == SchemeType::Wubi {
-            PersonalDictionaryKind::Wubi
+            wubi.dictionary_kind()
         } else {
             PersonalDictionaryKind::Pinyin
         };
@@ -312,7 +313,7 @@ pub(super) fn personal(request: &Request, roots: Roots) -> Outcome {
     let include_missing =
         operation == "candidates" && scheme != SchemeType::Wubi && text.len() == 1;
     if include_missing {
-        let providers = registry(projected, profile)?;
+        let providers = registry(projected, profile, wubi)?;
         let mut find = |key: &str, word: &str| providers.find_candidate(scheme, key, word);
         apply_fixed_positions(&journal, &context, &mut items, true, Some(&mut find), false);
     } else {

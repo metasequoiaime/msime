@@ -87,7 +87,8 @@ const MAX_COMMUNITY_RESOURCE_DETAIL_BYTES = 3 * 1024 * 1024;
 const MAX_SESSION_SECONDS = 86_400 * 30;
 const MAX_SESSION_MILLISECONDS = MAX_SESSION_SECONDS * 1000;
 const MAX_SESSION_BYTES = 64 * 1024;
-const MAX_SEARCH = 256;
+/** Clipboard searches use the shared account client's 1,024-byte query bound. */
+const MAX_SEARCH = 1024;
 
 /**
  * The chat bounds, which are the shared ones rather than a HarmonyOS reading of them.
@@ -636,6 +637,33 @@ function boundedUtf8(value: unknown, maximumBytes: number): value is string {
   return typeof value === "string" && utf8Length(value) <= maximumBytes;
 }
 
+/** Chat paragraphs allow tabs and line breaks, but not other Unicode controls. */
+function validChatText(value: unknown, maximumBytes: number): value is string {
+  if (typeof value !== "string" || value.trim().length === 0 ||
+      !boundedUtf8(value, maximumBytes) || !TextPolicy.validUnicode(value)) return false;
+  return ![...value].some((character) =>
+    character !== "\t" && character !== "\n" && character !== "\r" &&
+    TextPolicy.hasControl(character));
+}
+
+function validCandidateKind(value: unknown): value is string {
+  return typeof value === "string" &&
+    ["pinyin", "jianpin", "wubi", "wubi98", "quick", "english"].includes(value);
+}
+
+function validCandidateScheme(value: unknown): value is string {
+  return value === "pinyin" || value === "shuangpin";
+}
+
+function validCandidateProfile(value: unknown): value is string {
+  return value === "xiaohe" || value === "ziranma" || value === "microsoft" || value === "shoudao";
+}
+
+function validCandidateRankingMode(value: unknown): value is string {
+  return value === "disabled" || value === "pin" || value === "halve" ||
+    value === "linear" || value === "promote";
+}
+
 function parseBody(body: string): Action | null {
   if (body.length === 0 || utf8Length(body) > MAX_ACTION_BYTES) return null;
   try {
@@ -699,6 +727,7 @@ function validateUser(value: unknown): value is Session["user"] {
   return (
     validString(user.id, 256) &&
     validString(user.display_name, 256, true) &&
+    [...user.display_name].length <= 64 &&
     validString(user.created_at, 128, true)
   );
 }
@@ -1204,14 +1233,10 @@ export class AccountCloudBridge {
       }
       const role = (message as Action).role;
       const content = (message as Action).content;
-      // Newlines are content here, not a control character to refuse: a conversation is written in
-      // paragraphs, and the shared clients bound the text by bytes rather than by character class.
       if (
         typeof role !== "string" ||
         !CHAT_ROLES.includes(role) ||
-        typeof content !== "string" ||
-        content.length === 0 ||
-        !boundedUtf8(content, MAX_CHAT_MESSAGE_BYTES)
+        !validChatText(content, MAX_CHAT_MESSAGE_BYTES)
       ) {
         return error("account_invalid");
       }
@@ -1246,9 +1271,7 @@ export class AccountCloudBridge {
     const content = (reply as Action).content;
     if (
       role !== "assistant" ||
-      typeof content !== "string" ||
-      content.trim().length === 0 ||
-      !boundedUtf8(content, MAX_CHAT_RESPONSE_BYTES)
+      !validChatText(content, MAX_CHAT_RESPONSE_BYTES)
     ) {
       return error("account_unavailable");
     }
@@ -1716,10 +1739,10 @@ export class AccountCloudBridge {
     }
     if (operation === "candidates") {
       if (
-        !validString(action.text, 1024) ||
-        !validString(action.kind, 32) ||
-        !validString(action.scheme, 64) ||
-        !validString(action.profile, 64) ||
+        !validString(action.text, 256) ||
+        !validCandidateKind(action.kind) ||
+        !validCandidateScheme(action.scheme) ||
+        !validCandidateProfile(action.profile) ||
         !this.boundedNumber(action.limit, 1, 100)
       )
         return error("account_invalid");
@@ -1733,17 +1756,17 @@ export class AccountCloudBridge {
     }
     if (operation === "rank") {
       if (
-        !validString(action.text, 1024) ||
-        !validString(action.kind, 32) ||
-        !validString(action.scheme, 64) ||
-        !validString(action.profile, 64) ||
+        !validString(action.text, 256) ||
+        !validCandidateKind(action.kind) ||
+        !validCandidateScheme(action.scheme) ||
+        !validCandidateProfile(action.profile) ||
         !this.boundedNumber(action.limit, 1, 100) ||
         !validString(action.code, 256) ||
         !validString(action.word, 1024) ||
         !this.boundedNumber(action.revision, 0, 2147483647) ||
-        !validString(action.mode, 16) ||
-        !this.boundedNumber(action.linear_step, 0, 100) ||
-        !this.boundedNumber(action.trigger_count, 0, 100) ||
+        !validCandidateRankingMode(action.mode) ||
+        !this.boundedNumber(action.linear_step, 1, 100) ||
+        !this.boundedNumber(action.trigger_count, 1, 10) ||
         typeof action.force_top !== "boolean"
       )
         return error("account_invalid");
@@ -1768,10 +1791,10 @@ export class AccountCloudBridge {
     }
     if (operation === "remove_candidate") {
       if (
-        !validString(action.text, 1024) ||
-        !validString(action.kind, 32) ||
-        !validString(action.scheme, 64) ||
-        !validString(action.profile, 64) ||
+        !validString(action.text, 256) ||
+        !validCandidateKind(action.kind) ||
+        !validCandidateScheme(action.scheme) ||
+        !validCandidateProfile(action.profile) ||
         !this.boundedNumber(action.limit, 1, 100) ||
         !validString(action.code, 256) ||
         !validString(action.word, 1024) ||

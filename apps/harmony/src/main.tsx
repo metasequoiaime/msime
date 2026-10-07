@@ -90,15 +90,12 @@ interface NativeBridge {
   readSkinImage(id: string, relative: string): string;
   readSkinFont(id: string, relative: string): string;
   readSkinToolbarCss(id: string): string;
-  /** `""` reads the named designs; a serialized action applies one change first. */
-  customSkinLibrary(action: string): string;
   /** `{profile,sourceCommit}` from the packaged dictionary manifest, or a refusal. */
   dictionaryManifest(): string;
   appVersion(): string;
   dictionary(action: string): string;
   cloudDictionaryDownload(entry: string): string;
   typingStatistics(action: string): string;
-  vocabularyReview(action: string): string;
   /**
    * Starts one of the asynchronous requests and returns at once.
    *
@@ -807,21 +804,22 @@ function makeClient(
         native.typingStatistics(JSON.stringify({ operation: "reset" })),
       ),
   };
-  // Synchronous, because a bridge method that returns a Promise never settles on this WebView.
-  // Every call answers with the whole status, so the page keeps one request in flight; the local
+  // Every call answers with the whole status; the native operation runs on a worker and the local
   // day is resolved on the ArkTS side, which is the process that knows the device's timezone.
   const vocabularyReview: VocabularyReviewClient = {
     load: async () =>
       unwrap<VocabularyReviewStatus>(
-        native.vocabularyReview(JSON.stringify({ operation: "load" })),
+        await bridgeRequest(native, "vocabulary_review", JSON.stringify({ operation: "load" })),
       ),
     answer: async (word: string, known: boolean) =>
       unwrap<VocabularyReviewStatus>(
-        native.vocabularyReview(JSON.stringify({ operation: "answer", word, known })),
+        await bridgeRequest(native, "vocabulary_review", JSON.stringify({ operation: "answer", word, known })),
       ),
     setSettings: async (settings) =>
       unwrap<VocabularyReviewStatus>(
-        native.vocabularyReview(
+        await bridgeRequest(
+          native,
+          "vocabulary_review",
           JSON.stringify({
             operation: "set_settings",
             wordbook: settings.wordbook,
@@ -832,15 +830,15 @@ function makeClient(
       ),
     importWordbook: async (name: string, text: string) =>
       unwrap<VocabularyReviewStatus>(
-        native.vocabularyReview(JSON.stringify({ operation: "import", name, text })),
+        await bridgeRequest(native, "vocabulary_review", JSON.stringify({ operation: "import", name, text })),
       ),
     removeWordbook: async (wordbook: string) =>
       unwrap<VocabularyReviewStatus>(
-        native.vocabularyReview(JSON.stringify({ operation: "remove", wordbook })),
+        await bridgeRequest(native, "vocabulary_review", JSON.stringify({ operation: "remove", wordbook })),
       ),
     reset: async () =>
       unwrap<VocabularyReviewStatus>(
-        native.vocabularyReview(JSON.stringify({ operation: "reset" })),
+        await bridgeRequest(native, "vocabulary_review", JSON.stringify({ operation: "reset" })),
       ),
   };
   const aiAssistant: AiAssistantClient = {
@@ -955,14 +953,12 @@ function makeClient(
     // The manifest is packaged and never changes while the application runs, so this is read on
     // demand rather than kept: the dictionary page is not a screen anyone leaves open.
     dictionaryManifest: async () => unwrap<DictionaryManifest>(native.dictionaryManifest()),
-    // A named design can carry a bounded photo, so this is the one settings call whose payload is
-    // measured in megabytes. It still goes through the synchronous bridge: the alternative is the
-    // request-by-number channel, and a library read that has to survive a page reload is worse
-    // than a brief pause on a screen the user just opened.
+    // A named design can carry a bounded photo. Both reads and writes use the numbered request
+    // channel while the native worker parses and writes the library under its file lock.
     customSkinLibrary: {
-      load: async () => unwrap<SavedTouchKeyboardSkin[]>(native.customSkinLibrary("")),
+      load: async () => unwrap<SavedTouchKeyboardSkin[]>(await bridgeRequest(native, "custom_skin_library", "")),
       mutate: async (action) =>
-        unwrap<SavedTouchKeyboardSkin[]>(native.customSkinLibrary(JSON.stringify(action))),
+        unwrap<SavedTouchKeyboardSkin[]>(await bridgeRequest(native, "custom_skin_library", JSON.stringify(action))),
     },
     candidateEnglishGloss: true,
     account: accountClient(native),

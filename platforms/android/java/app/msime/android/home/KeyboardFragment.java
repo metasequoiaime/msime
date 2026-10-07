@@ -90,7 +90,7 @@ public final class KeyboardFragment extends HomeTabFragment {
                     ViewPolicy.show(bar);
                     bar.animate().alpha(1f).setDuration(Ui.APP_BAR_FADE_MILLIS).start();
                 } else {
-                    bar.setVisibility(View.INVISIBLE);
+                    ViewPolicy.setInvisible(bar);
                     bar.setAlpha(0f);
                 }
             });
@@ -273,12 +273,12 @@ public final class KeyboardFragment extends HomeTabFragment {
         String query = TextPolicy.lowercase(
             ((SearchPill) view.findViewById(R.id.keyboard_search)).query());
         boolean active = !query.isEmpty();
-        view.findViewById(R.id.keyboard_notices).setVisibility(active ? View.GONE : View.VISIBLE);
-        view.findViewById(R.id.keyboard_status_card).setVisibility(active ? View.GONE : View.VISIBLE);
-        view.findViewById(R.id.keyboard_rows).setVisibility(active ? View.GONE : View.VISIBLE);
+        ViewPolicy.setVisible(view.findViewById(R.id.keyboard_notices), !active);
+        ViewPolicy.setVisible(view.findViewById(R.id.keyboard_status_card), !active);
+        ViewPolicy.setVisible(view.findViewById(R.id.keyboard_rows), !active);
         LinearLayout results = view.findViewById(R.id.keyboard_search_results);
         results.removeAllViews();
-        results.setVisibility(active ? View.VISIBLE : View.GONE);
+        ViewPolicy.setVisible(results, active);
         int shown = 0;
         if (active) {
             HomeNavGroup group = null;
@@ -301,8 +301,7 @@ public final class KeyboardFragment extends HomeTabFragment {
                 shown++;
             }
         }
-        view.findViewById(R.id.keyboard_search_empty)
-            .setVisibility(active && shown == 0 ? View.VISIBLE : View.GONE);
+        ViewPolicy.setVisible(view.findViewById(R.id.keyboard_search_empty), active && shown == 0);
     }
 
     /** 搜索结果的副标题：命中的关键词；只命中标题时用这一行原来的值。 */
@@ -343,7 +342,7 @@ public final class KeyboardFragment extends HomeTabFragment {
         TextView mark = view.findViewById(markId);
         Ui.applyStatusMark(mark, requireContext(), done);
         TextView button = view.findViewById(actionId);
-        button.setVisibility(done ? View.GONE : View.VISIBLE);
+        ViewPolicy.setVisible(button, !done);
         button.setOnClickListener(done ? null : ignored -> action.run());
         button.setTextColor(ColorStateList.valueOf(Ui.accent(requireContext())));
         view.findViewById(rowId).setContentDescription(

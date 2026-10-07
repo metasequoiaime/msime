@@ -418,7 +418,7 @@ impl InputSession {
         let scheme = self.scheme();
         let mut mixed = self.queries.mixed(
             decoded,
-            &association_input,
+            association_input,
             scheme,
             self.english_options,
             self.expressive_options,

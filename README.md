@@ -1,10 +1,6 @@
 # 水杉输入法
 
-[![Core CI](https://github.com/metasequoiaime/msime/actions/workflows/ci.yml/badge.svg?branch=develop)](https://github.com/metasequoiaime/msime/actions/workflows/ci.yml)
-[![Native Platform CI](https://github.com/metasequoiaime/msime/actions/workflows/ci-platforms.yml/badge.svg?branch=develop)](https://github.com/metasequoiaime/msime/actions/workflows/ci-platforms.yml)
-[![iOS CI](https://github.com/metasequoiaime/msime/actions/workflows/ci-ios.yml/badge.svg?branch=develop)](https://github.com/metasequoiaime/msime/actions/workflows/ci-ios.yml)
-[![macOS CI](https://github.com/metasequoiaime/msime/actions/workflows/ci-macos.yml/badge.svg?branch=develop)](https://github.com/metasequoiaime/msime/actions/workflows/ci-macos.yml)
-[![License: GPL-3.0-only](https://img.shields.io/badge/GPL--3.0--only-blue.svg)](LICENSE)
+[![License: GPL-3.0-only](https://img.shields.io/badge/license-GPL--3.0--only-blue.svg)](LICENSE)
 <a href="https://depot.dev/?utm_source=metasequoiaime"><img src="https://depot.dev/badges/built-with-depot.svg" alt="Built with Depot" height="20"></a>
 
 水杉输入法（MSIME）是面向 Android、iOS、macOS、Linux、Windows 与 HarmonyOS 的多平台中文输入法。六个平台各有自己的原生输入法宿主，都接入同一套共享输入运行时和同一份 React 设置界面；React 管理界面通过 Tauri 调用普通 Rust 业务库；输入算法由 msime-engine 提供。
@@ -44,7 +40,7 @@
 
 ## CI 与发布
 
-`develop` 上的基础检查由 `Core CI` 负责，实际执行的是 actionlint 的 workflow 校验和依赖审查；仓库的文本契约是 `scripts/` 下的那批 `test-*.py`，由 `scripts/run-checks.sh` 按文件名自动发现并执行，`Core CI` 的 contracts job 在 Linux 上跑它，`scripts/verify-local.sh` 在本地跑同一份脚本；缺少所需工具或参考仓库的检查在 CI 上打印 skipped 并通过。iOS 与 macOS 的编译与测试由各自的原生宿主 workflow 负责。Android、Linux、HarmonyOS 与 Windows 由 Native Platform CI 在对应平台或共享层有改动时运行，未改动时明确跳过；这一层覆盖宿主契约、JVM 冒烟、容器构建和交叉编译。设备级的输入验收由各平台 README 记录的设备套件和手动步骤承担，不由 CI 代替。
+`develop` 上的基础检查由 `Core CI` 负责，实际执行的是 actionlint 的 workflow 校验和依赖审查；仓库的文本契约是 `scripts/` 下的那批 `test-*.py`，由 `scripts/run-checks.sh` 按文件名自动发现并执行，`Core CI` 的 contracts job 在 Linux 上跑它，`scripts/verify-local.sh` 在本地跑同一份脚本；缺少所需工具或参考仓库的检查在 CI 上打印 skipped 并通过。iOS 与 macOS 的编译与测试由各自的原生宿主 workflow 负责。Android、Linux、HarmonyOS 与 Windows 由 Native Platform CI 在对应平台或共享层有改动时运行，未改动时明确跳过；这一层覆盖宿主契约、JVM 冒烟、容器构建和交叉编译。设备级的输入验收由各平台 README 记录的设备套件和手动步骤承担，不由 CI 代替。各 workflow 的运行状态见 [GitHub Actions](https://github.com/metasequoiaime/msime/actions)；develop 合并频繁，排队中的运行常被后来的推送取消，看结果时以最近一次跑完且未取消的运行为准。
 
 六个平台的发布完全独立：每个平台有自己的手动 release workflow、版本文件、并发组、构建产物和 GitHub Release tag。发布 workflow 只创建 GitHub Release，不自动上传应用商店或使用签名凭据。
 

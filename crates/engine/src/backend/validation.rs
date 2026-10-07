@@ -6,11 +6,12 @@ use super::request::Request;
 use super::{BackendError, Outcome};
 use crate::{validate_personal_dictionary_entry, PersonalDictionaryEntry, PersonalDictionaryKind};
 
-/// The kinds the server stores. `wubi98` is left out: the server's database admits only these four (`user_dictionary_entries.kind`).
+/// 服务端存储的词条种类，与服务端数据库 `user_dictionary_entries.kind` 的约束一致；`wubi` 是 86 版五笔，`wubi98` 是 98 版。
 fn kind(name: &str) -> Result<PersonalDictionaryKind, BackendError> {
     match name {
         "pinyin" => Ok(PersonalDictionaryKind::Pinyin),
         "wubi" => Ok(PersonalDictionaryKind::Wubi),
+        "wubi98" => Ok(PersonalDictionaryKind::Wubi98),
         "quick" => Ok(PersonalDictionaryKind::QuickPhrase),
         "english" => Ok(PersonalDictionaryKind::English),
         _ => Err(BackendError::InvalidRequest),
