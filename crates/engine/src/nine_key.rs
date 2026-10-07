@@ -532,16 +532,25 @@ impl NineKeySession {
             }
         }
         let mut seen_words = HashSet::with_capacity(words.len());
-        let unique = words
+        let duplicates = words
             .iter()
-            .map(|word| seen_words.insert(word.word.as_str()))
+            .enumerate()
+            .filter_map(|(index, word)| (!seen_words.insert(word.word.as_str())).then_some(index))
             .collect::<Vec<_>>();
         drop(seen_words);
-        words = words
-            .into_iter()
-            .zip(unique)
-            .filter_map(|(word, unique)| unique.then_some(word))
-            .collect();
+        let mut duplicates = duplicates.into_iter().peekable();
+        let mut write = 0;
+        for read in 0..words.len() {
+            if duplicates.peek() == Some(&read) {
+                duplicates.next();
+                continue;
+            }
+            if write != read {
+                words.swap(write, read);
+            }
+            write += 1;
+        }
+        words.truncate(write);
         rank_english(&mut words, digits.len());
         words
     }
