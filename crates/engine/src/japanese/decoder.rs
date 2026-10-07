@@ -664,7 +664,7 @@ mod tests {
         );
         std::fs::write(&path, &file).expect("write model");
         let dictionary = JapaneseDictionary::load(&path).expect("model loads");
-        let _: &Mmap = &dictionary.bytes;
+        assert!(matches!(dictionary.bytes, ModelBytes::Mapped(_)));
         assert_eq!(dictionary.bytes.len(), file.len());
         assert_eq!(&dictionary.bytes[..], &file[..]);
         std::fs::remove_file(&path).expect("remove");
@@ -817,7 +817,10 @@ mod tests {
         // No file exists at this path: a host without a file system hands the bytes over instead.
         let path = Path::new("/preloaded-test/msime-japanese.dat");
         assert!(JapaneseDictionary::shared(path).is_none());
-        assert!(!JapaneseDictionary::preload(path, b"not a model".to_vec().into_boxed_slice()));
+        assert!(!JapaneseDictionary::preload(
+            path,
+            b"not a model".to_vec().into_boxed_slice()
+        ));
         assert!(JapaneseDictionary::shared(path).is_none());
         assert!(JapaneseDictionary::preload(
             path,
@@ -825,14 +828,21 @@ mod tests {
         ));
         let first = JapaneseDictionary::shared(path).expect("preloaded");
         assert_eq!(surfaces(&first.exact_lemmas("かな", 1)), ["甲"]);
-        assert!(Arc::ptr_eq(&first, &JapaneseDictionary::shared(path).expect("again")));
+        assert!(Arc::ptr_eq(
+            &first,
+            &JapaneseDictionary::shared(path).expect("again")
+        ));
         // A later preload replaces it; a session still holding the first keeps it.
         assert!(JapaneseDictionary::preload(
             path,
             test_model::single("乙").into_boxed_slice()
         ));
         assert_eq!(
-            surfaces(&JapaneseDictionary::shared(path).unwrap().exact_lemmas("かな", 1)),
+            surfaces(
+                &JapaneseDictionary::shared(path)
+                    .unwrap()
+                    .exact_lemmas("かな", 1)
+            ),
             ["乙"]
         );
         assert_eq!(surfaces(&first.exact_lemmas("かな", 1)), ["甲"]);
