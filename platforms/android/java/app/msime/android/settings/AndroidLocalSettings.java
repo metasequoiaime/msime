@@ -37,6 +37,8 @@ public final class AndroidLocalSettings {
     // ---- 随账号同步的键 ----
     public static final String APP_THEME = "general.app_theme";
     public static final String ONE_HANDED = "platform.android.one_handed";
+    /** 平板横屏时把 26 键一族和韩文键盘分成左右两半（{@link SplitKeyboardPolicy}），默认关。 */
+    public static final String SPLIT_KEYBOARD = "platform.android.split_keyboard";
     public static final String KEY_POPUP = "platform.android.key_popup";
     public static final String SWIPE_DOWN_SYMBOLS = "platform.android.swipe_down_symbols";
     /** 「滑动输入符号」的方向，取值见 {@link SwipeHintPolicy}。开关仍是 {@link #SWIPE_DOWN_SYMBOLS}，键名保留旧名以免已同步的值失效。 */
@@ -119,11 +121,12 @@ public final class AndroidLocalSettings {
         }
     }
 
-    private static final Map<String, Spec> SPECS = new LinkedHashMap<>(27);
+    private static final Map<String, Spec> SPECS = new LinkedHashMap<>(28);
 
     static {
         choice(APP_THEME, "siji", true, "siji", "chunya", "xiayin", "qiushan", "dongxue");
         choice(ONE_HANDED, "off", true, "off", "left", "right");
+        bool(SPLIT_KEYBOARD, false, true);
         bool(KEY_POPUP, true, true);
         bool(SWIPE_DOWN_SYMBOLS, true, true);
         choice(SWIPE_SYMBOLS_DIRECTION, SwipeHintPolicy.DOWN, true, SwipeHintPolicy.DOWN, SwipeHintPolicy.UP);

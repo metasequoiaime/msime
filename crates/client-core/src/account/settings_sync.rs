@@ -4,7 +4,7 @@
 //!
 //! 只映射设备之间应当一致的设置。凭据（各类 token、密钥）和诊断日志是设备本地的，永远不出现在导出结果里，测试锁住了这一点。
 //!
-//! 设计改版新增的 Android 设置（应用主题、单手、按键细节、工具栏的常用语/输入方式/隐藏、手写、离线语音）不在共享偏好里，而在 Android 宿主自己的本地设置文件里。宿主把其中参与同步的值按同步键传进来（[`insert_android_local_settings`]），应用时拿回云端校验过的值写回本地文件（[`android_local_settings`]）。隐私模式、开发者选项和语音数据贡献也在那个文件里，但不在 [`ANDROID_LOCAL_SETTINGS`] 里，所以永远不同步。
+//! 设计改版新增的 Android 设置（应用主题、单手、平板横屏分离式键盘、按键细节、工具栏的常用语/输入方式/隐藏、手写、离线语音）不在共享偏好里，而在 Android 宿主自己的本地设置文件里。宿主把其中参与同步的值按同步键传进来（[`insert_android_local_settings`]），应用时拿回云端校验过的值写回本地文件（[`android_local_settings`]）。隐私模式、开发者选项和语音数据贡献也在那个文件里，但不在 [`ANDROID_LOCAL_SETTINGS`] 里，所以永远不同步。
 //!
 //! 按键音、振动开关和振动强度不在共享偏好里，而在宿主自己的本地存储（Android 的 `KeyboardFeedbackStore`），由调用方读出来作为 [`HostKeyboardFeedback`] 传入，应用后再由调用方写回。
 
@@ -113,12 +113,13 @@ impl LocalSetting {
 const APP_THEME_IDS: [&str; 5] = ["siji", "chunya", "xiayin", "qiushan", "dongxue"];
 
 /// Android 本地设置文件里参与同步的键（与服务端字段表的键相同）和允许的取值。这些设置只有 Android 宿主用，不在共享偏好里；隐私模式、开发者选项和语音数据贡献不在这张表里，永远不同步。
-const ANDROID_LOCAL_SETTINGS: [(&str, LocalSetting); 17] = [
+const ANDROID_LOCAL_SETTINGS: [(&str, LocalSetting); 18] = [
     ("general.app_theme", LocalSetting::Choice(&APP_THEME_IDS)),
     (
         "platform.android.one_handed",
         LocalSetting::Choice(&["off", "left", "right"]),
     ),
+    ("platform.android.split_keyboard", LocalSetting::Boolean),
     ("platform.android.key_popup", LocalSetting::Boolean),
     ("platform.android.swipe_down_symbols", LocalSetting::Boolean),
     (

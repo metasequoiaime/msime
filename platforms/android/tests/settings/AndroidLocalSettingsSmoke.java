@@ -40,6 +40,7 @@ public final class AndroidLocalSettingsSmoke {
         rejectedWritesTouchNothing();
         unreadableFilesReadAsDefaults();
         atomicWrite();
+        splitKeyboardRoundTrip();
         syncedKeysMatchClientCore();
         System.out.println("AndroidLocalSettingsSmoke ok");
     }
@@ -48,6 +49,7 @@ public final class AndroidLocalSettingsSmoke {
         AndroidLocalSettings.Snapshot settings = AndroidLocalSettings.defaults();
         check("siji".equals(settings.choice(AndroidLocalSettings.APP_THEME)), "app theme default");
         check("off".equals(settings.choice(AndroidLocalSettings.ONE_HANDED)), "one-handed default");
+        check(!settings.bool(AndroidLocalSettings.SPLIT_KEYBOARD), "split keyboard is off by default");
         check(settings.bool(AndroidLocalSettings.KEY_POPUP), "key popup default");
         check(settings.bool(AndroidLocalSettings.SWIPE_DOWN_SYMBOLS), "swipe default");
         check("down".equals(settings.choice(AndroidLocalSettings.SWIPE_SYMBOLS_DIRECTION)), "swipe direction default");
@@ -130,7 +132,8 @@ public final class AndroidLocalSettingsSmoke {
         check("off".equals(snapshot.choice(AndroidLocalSettings.ONE_HANDED)), "dropped value reads its default");
         check(snapshot.has(AndroidLocalSettings.APP_THEME) && !snapshot.has(AndroidLocalSettings.ONE_HANDED), "has()");
         Map<String, Object> synced = snapshot.synced();
-        check(synced.size() == 17, "seventeen synced keys, got " + synced.size());
+        check(synced.size() == 18, "eighteen synced keys, got " + synced.size());
+        check(Boolean.FALSE.equals(synced.get(AndroidLocalSettings.SPLIT_KEYBOARD)), "split keyboard syncs its default");
         check("dongxue".equals(synced.get(AndroidLocalSettings.APP_THEME)), "synced carries explicit values");
         check(Boolean.TRUE.equals(synced.get(AndroidLocalSettings.KEY_POPUP)), "synced carries defaults");
         for (String local : new String[] {AndroidLocalSettings.INCOGNITO, AndroidLocalSettings.VOICE_CONTRIBUTE_AUDIO,
@@ -206,6 +209,36 @@ public final class AndroidLocalSettingsSmoke {
             }
             check(threw, "an oversized document is never written");
             check("new".equals(new String(Files.readAllBytes(file), StandardCharsets.UTF_8)), "refused write keeps the old file");
+        } finally {
+            deleteTree(directory);
+        }
+    }
+
+    /** 分离式键盘开关：只收布尔值，写进去的值读得回来，删掉后回到默认的关；云端同步来的值照常写回。 */
+    private static void splitKeyboardRoundTrip() throws IOException {
+        AndroidLocalSettings.Spec spec = AndroidLocalSettings.spec(AndroidLocalSettings.SPLIT_KEYBOARD);
+        check(spec.kind == AndroidLocalSettings.Spec.Kind.BOOLEAN && spec.synced, "split keyboard is a synced boolean");
+        check(spec.accept("true") == null && spec.accept(1) == null, "split keyboard only accepts booleans");
+        Path directory = Files.createTempDirectory("android-local-settings");
+        try {
+            Path file = directory.resolve("state").resolve(AndroidLocalSettings.FILE_NAME);
+            Map<String, Object> edits = new LinkedHashMap<>();
+            edits.put(AndroidLocalSettings.SPLIT_KEYBOARD, "on");
+            boolean threw = false;
+            try { AndroidLocalSettings.update(file, edits); } catch (IllegalArgumentException expected) { threw = true; }
+            check(threw, "a non-boolean split keyboard value is refused");
+            Map<String, Object> cloud = new LinkedHashMap<>();
+            cloud.put(AndroidLocalSettings.SPLIT_KEYBOARD, "yes");
+            check(AndroidLocalSettings.applySynced(file, cloud).explicit().isEmpty(), "an invalid synced value is ignored");
+            check(!Files.exists(file), "ignoring it leaves the file alone");
+            // 写入走 org.json 编码，check-host 的 android.jar 里只有桩，所以这里只核对写入前的校验和快照；真正落盘的往返由设备上的设置页覆盖。
+            AndroidLocalSettings.Snapshot on = new AndroidLocalSettings.Snapshot(
+                AndroidLocalSettings.accepted(Map.of(AndroidLocalSettings.SPLIT_KEYBOARD, true)));
+            check(on.bool(AndroidLocalSettings.SPLIT_KEYBOARD) && on.has(AndroidLocalSettings.SPLIT_KEYBOARD), "an explicit on reads back");
+            check(Boolean.TRUE.equals(on.synced().get(AndroidLocalSettings.SPLIT_KEYBOARD)), "an explicit on syncs");
+            AndroidLocalSettings.Snapshot cleared = new AndroidLocalSettings.Snapshot(
+                AndroidLocalSettings.accepted(Map.of(AndroidLocalSettings.SPLIT_KEYBOARD, "true")));
+            check(!cleared.bool(AndroidLocalSettings.SPLIT_KEYBOARD) && !cleared.has(AndroidLocalSettings.SPLIT_KEYBOARD), "a stored non-boolean reads as off");
         } finally {
             deleteTree(directory);
         }
