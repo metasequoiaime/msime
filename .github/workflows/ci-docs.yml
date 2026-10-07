@@ -2,7 +2,7 @@ name: CI (documentation)
 
 # The other half of the paths-ignore that ci.yml, ci-macos.yml and ci-ios.yml share. GitHub leaves a required status check that never reports in "Expected" and refuses the merge exactly as if it had failed -- the same trap quality.yml documents for a required job that skips -- so a workflow skipped by path filtering cannot satisfy main and develop's protection on its own. This workflow reports the same check names for those paths: the quality and contract checks run for real because they are cheap and run on Linux, and the three macOS and iOS checks answer without taking a runner.
 #
-# Four path lists have to stay identical -- the paths here, and the paths-ignore of ci.yml, ci-macos.yml and ci-ios.yml. GitHub Actions does not support YAML anchors, so keeping them so is manual, and nothing enforces it at the moment: the comment inherited from MSIME-Apple named ReleaseConfigurationTests, which lives on that repository and was never brought over here. A path ignored by one of those three but not listed here is the failure to watch for: both the platform workflow and this one sit out, and the check it owns stays in "Expected" forever.
+# Five path lists have to stay identical -- the paths here, and the paths-ignore of ci.yml, ci-macos.yml, ci-ios.yml and ci-platforms.yml. GitHub Actions does not support YAML anchors, so keeping them so is manual, and nothing enforces it at the moment: the comment inherited from MSIME-Apple named ReleaseConfigurationTests, which lives on that repository and was never brought over here. A path ignored by one of those three but not listed here is the failure to watch for: both the platform workflow and this one sit out, and the check it owns stays in "Expected" forever.
 
 on:
   pull_request:
@@ -56,3 +56,12 @@ jobs:
     steps:
       - name: Report the iOS check for a documentation-only change
         run: echo "No iOS source, build input or asserted document changed; ci-ios.yml owns this check for every other path."
+
+  android:
+    # 与 ci-platforms.yml 的 Android 任务同名：Android host 是 main 和 develop 的必需检查，ci-platforms.yml 按同一份路径跳过时由这里答复。
+    name: Android host
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Report the Android check for a documentation-only change
+        run: echo "No Android source, build input or asserted document changed; ci-platforms.yml owns this check for every other path."

@@ -8,16 +8,12 @@ on:
     paths-ignore:
       - CHANGELOG.md
       - PRIVACY.md
-      - README.en.md
       - README.md
-      - docs/**
   pull_request:
     paths-ignore:
       - CHANGELOG.md
       - PRIVACY.md
-      - README.en.md
       - README.md
-      - docs/**
   workflow_dispatch:
   merge_group:
 
