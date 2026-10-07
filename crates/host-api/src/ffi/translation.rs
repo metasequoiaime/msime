@@ -542,6 +542,9 @@ pub unsafe extern "C" fn msime_client_candidate_gloss_request(
         user_data: Option<String>,
         #[serde(default)]
         target_language: Option<String>,
+        /// The `state_root` of the translation query, when an offline dictionary came from the downloaded pack.
+        #[serde(default)]
+        state_root: Option<String>,
         candidates: Vec<GlossCandidate>,
     }
     #[derive(Deserialize)]
@@ -565,8 +568,14 @@ pub unsafe extern "C" fn msime_client_candidate_gloss_request(
             generation,
             user_data,
             target_language,
+            state_root,
             candidates: raw_candidates,
         } = request;
+        if state_root.as_deref().is_some_and(|state_root| {
+            state_root.len() > 4096 || !std::path::Path::new(state_root).is_absolute()
+        }) {
+            return Err("state root must be absolute".into());
+        }
         if raw_candidates.len() > 4096
             || raw_candidates.iter().any(|candidate| {
                 candidate.text.is_empty() || !is_bounded_text(&candidate.text, 4096)
@@ -599,9 +608,11 @@ pub unsafe extern "C" fn msime_client_candidate_gloss_request(
                 .map_err(|_| "candidate gloss dictionary unavailable")?,
                 // Another language reads only its offline dictionary: the learned store and custom_translations.txt hold English. A dictionary that is not installed answers nothing, so the host keeps whatever the online path brings.
                 Some(language) if crate::OFFLINE_GLOSS_LANGUAGES.contains(&language) => {
-                    let Some(database) =
-                        crate::offline_glosses_beside(std::path::Path::new(resources), language)
-                    else {
+                    let Some(database) = crate::offline_glosses_file(
+                        std::path::Path::new(resources),
+                        state_root.as_deref().map(std::path::Path::new),
+                        language,
+                    ) else {
                         return Ok(vec![String::new(); candidates.len()]);
                     };
                     let database = database

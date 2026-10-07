@@ -1221,6 +1221,24 @@ pub(crate) fn offline_glosses_beside(
     path.is_file().then_some(path)
 }
 
+/// 一种非英文目标语言的离线释义词典：资源目录旁随包的那份优先，没有时用 `state_root` 下已下载的 `offline-glosses` 资源包里的那份（Android 的发布包不再内置它们，用户打开离线释义时下载），都没有时为 `None`。
+pub(crate) fn offline_glosses_file(
+    resources: &Path,
+    state_root: Option<&Path>,
+    language: &str,
+) -> Option<PathBuf> {
+    offline_glosses_beside(resources, language).or_else(|| {
+        if !OFFLINE_GLOSS_LANGUAGES.contains(&language) {
+            return None;
+        }
+        resource_packs::installed_file(
+            state_root?,
+            ResourcePack::OfflineGlosses,
+            &format!("zh-{language}.db"),
+        )
+    })
+}
+
 /// The Cantonese, Zhuyin and Stroke dictionaries installed beside a resource bundle: `language-dictionaries/msime-cantonese.db`, `language-dictionaries/msime-zhuyin.db` and `language-dictionaries/msime-stroke.db`, built by `msime-dict-builder`. A sibling of `resources` for the same reason as `settled_model_beside`: the resource directory must match the shared dictionary lock exactly, and only the hosts that offer these schemes ship them. Absence is the normal case.
 pub(crate) fn language_dictionaries_beside(resources: &std::path::Path) -> LanguageDictionaries {
     language_dictionaries_directory(resources)

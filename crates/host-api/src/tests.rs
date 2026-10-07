@@ -4191,6 +4191,98 @@ fn candidate_gloss_request_reads_the_offline_dictionary_for_its_target_language(
     }
 }
 
+/// Android 不再随包带离线释义：资源目录旁没有时，用状态目录下已下载的 `offline-glosses` 资源包。翻译查询列出这些语言并带上 `state_root`，宿主把它交回释义请求；随包的那份仍然优先，那时查询和以前一样不带 `state_root`。
+#[test]
+fn offline_glosses_are_found_in_the_downloaded_pack() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = dir.path().join("state");
+    let pack = publish_resource_pack(&state, ResourcePack::OfflineGlosses, &[]);
+    offline_gloss_fixture(&pack.join("zh-fr.db"), "fr");
+    let resources = dir.path().join("resources");
+    std::fs::create_dir_all(&resources).unwrap();
+    assert_eq!(
+        crate::offline_glosses_file(&resources, Some(&state), "fr"),
+        Some(pack.join("zh-fr.db"))
+    );
+    assert_eq!(crate::offline_glosses_file(&resources, None, "fr"), None);
+    assert_eq!(
+        crate::offline_glosses_file(&resources, Some(&state), "ja"),
+        None
+    );
+    assert_eq!(
+        crate::offline_glosses_file(&resources, Some(&state), "../fr"),
+        None
+    );
+
+    let mut preferences = Preferences {
+        candidate_translations: false,
+        candidate_english_gloss: true,
+        translation_target_language: msime_client_core::preferences::TranslationTargetLanguage::Fr,
+        ..Preferences::default()
+    };
+    preferences.tencent_tmt.enabled = false;
+    let path = |name: &str| {
+        let path = dir.path().join(name);
+        std::fs::create_dir_all(&path).unwrap();
+        path
+    };
+    let options = json!({ "api_version": 1, "resources": path("resources"), "user_data": path("user"), "cache": path("cache"), "dictionaries": path("dictionaries"), "preferences_directory": state, "preferences": preferences }).to_string();
+    let created = read(unsafe { msime_client_create(options.as_ptr(), options.len()) });
+    assert_eq!(created["ok"], true, "{created}");
+    let handle = created["value"]["session"].as_u64().unwrap();
+    read(msime_client_focus(handle, true));
+    for byte in b"U4e2d" {
+        read(msime_client_character(
+            handle,
+            *byte,
+            byte.is_ascii_uppercase(),
+        ));
+    }
+    let query = read(msime_client_translation_query(handle));
+    assert_eq!(query["value"]["offline_gloss_languages"], json!(["fr"]));
+    assert_eq!(query["value"]["state_root"], json!(state.to_str().unwrap()));
+
+    let resources_bytes = resources.to_str().unwrap().as_bytes().to_vec();
+    let call = |request: Value| {
+        let request = serde_json::to_vec(&request).unwrap();
+        read(unsafe {
+            msime_client_candidate_gloss_request(
+                request.as_ptr(),
+                request.len(),
+                resources_bytes.as_ptr(),
+                resources_bytes.len(),
+            )
+        })
+    };
+    let candidates = json!([{"text":"你好","source":0}]);
+    assert_eq!(
+        call(
+            json!({"generation":1,"target_language":"fr","state_root":query["value"]["state_root"],"candidates":candidates})
+        )["value"],
+        json!({"generation":1,"translations":[{"text":"你好","translation":"bonjour, salut"}]})
+    );
+    // 不带 state_root 的宿主照旧只看资源目录旁边。
+    assert_eq!(
+        call(json!({"generation":2,"target_language":"fr","candidates":candidates}))["value"],
+        json!({"generation":2,"translations":[]})
+    );
+    assert_eq!(
+        call(
+            json!({"generation":3,"target_language":"fr","state_root":"state","candidates":candidates})
+        )["error"],
+        "state root must be absolute"
+    );
+
+    // 随包的那份优先，查询不再带 state_root。
+    offline_gloss_fixture(&dir.path().join("offline-glosses/zh-fr.db"), "fr");
+    preferences.candidate_page_size = 6;
+    update(handle, 1, &preferences);
+    let bundled = read(msime_client_translation_query(handle));
+    assert_eq!(bundled["value"]["offline_gloss_languages"], json!(["fr"]));
+    assert!(bundled["value"].get("state_root").is_none());
+    read(msime_client_destroy(handle));
+}
+
 /// Linux keeps the Tencent secret in the provider's own file, so the query's credential fields cannot say which service the user picked. The explicit choice has to survive to the socket even when that service is unusable, or the provider falls back to Tencent.
 #[cfg(unix)]
 #[test]
