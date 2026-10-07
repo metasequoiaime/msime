@@ -398,7 +398,7 @@ public final class VoiceRecognitionActivity extends Activity {
         Button done = ViewPolicy.newPressButton(this);
         done.setText("完成");
         done.setContentDescription("结束录音并开始转写");
-        done.setOnClickListener(ignored -> {
+        ViewPolicy.bindClick(done, () -> {
             ViewPolicy.setEnabled(done, false);
             title.setText("正在转写");
             // Local recognition has already shown the text as it was spoken; keep it on screen while the last words are decoded rather than replacing it with a status line.
