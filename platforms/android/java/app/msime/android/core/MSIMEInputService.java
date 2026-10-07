@@ -3604,7 +3604,7 @@ public final class MSIMEInputService extends InputMethodService {
         preferencesWorker.execute(() -> {
             File pending = new File(getFilesDir(), SKIN_HINT_FILE + ".pending");
             try {
-                java.nio.file.Files.write(pending.toPath(), text.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                java.nio.file.Files.write(pending.toPath(), TextPolicy.utf8Bytes(text));
                 java.nio.file.Files.move(pending.toPath(), target.toPath(),
                     java.nio.file.StandardCopyOption.REPLACE_EXISTING, java.nio.file.StandardCopyOption.ATOMIC_MOVE);
             } catch (java.io.IOException | RuntimeException error) {
@@ -3620,7 +3620,7 @@ public final class MSIMEInputService extends InputMethodService {
         try (java.io.InputStream input = java.nio.file.Files.newInputStream(file.toPath(), java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
             byte[] bytes = HttpBodyPolicy.readBounded(input, 1_000_000);
             if (bytes == null) return null;
-            String text = new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
+            String text = TextPolicy.utf8(bytes);
             writtenSkinHint = text;
             return new JSONObject(text);
         } catch (Exception ignored) {
