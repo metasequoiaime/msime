@@ -63,11 +63,40 @@ public final class CommunityCatalogSmoke {
             CommunityRequest.Category.OTHER, false, 0, null);
         check(!(boolean) validItem.invoke(null, malformed, CommunityRequest.Kind.SKIN),
             "malformed community items must be rejected");
+        CommunityCatalog.Item nilId = new CommunityCatalog.Item(
+            "00000000-0000-0000-0000-000000000000", CommunityRequest.Kind.SKIN, "名称", "说明", "作者",
+            0, 0, 0, null, CommunityRequest.Category.OTHER, false, 0, null);
+        check(!(boolean) validItem.invoke(null, nilId, CommunityRequest.Kind.SKIN),
+            "nil community item IDs must be rejected");
+        Method validUuid = CommunityCatalog.class.getDeclaredMethod("validUuid", String.class);
+        validUuid.setAccessible(true);
+        check(!(boolean) validUuid.invoke(null, "00000000-0000-0000-0000-000000000000"),
+            "nil UUIDs must not be accepted as community item IDs");
+        Method validReportItem = CommunityCatalog.class.getDeclaredMethod(
+            "validReportItem", CommunityCatalog.Item.class);
+        validReportItem.setAccessible(true);
+        check(!(boolean) validReportItem.invoke(null, nilId),
+            "reporting must reject an item with a nil ID even when bypassing catalogue parsing");
+        Method validDownloadItem = CommunityCatalog.class.getDeclaredMethod(
+            "validDownloadItem", CommunityCatalog.Item.class);
+        validDownloadItem.setAccessible(true);
+        check(!(boolean) validDownloadItem.invoke(null, malformed),
+            "download counting must reject an item with an unsafe ID");
+        check(!(boolean) validDownloadItem.invoke(null, nilId),
+            "download counting must reject an item with a nil ID");
         CommunityCatalog.Item invalidRating = new CommunityCatalog.Item(
             UUID.randomUUID().toString(), CommunityRequest.Kind.SKIN, "名称", "说明", "作者",
             0, 0, 1, null, CommunityRequest.Category.OTHER, false, 0, null);
         check(!(boolean) validItem.invoke(null, invalidRating, CommunityRequest.Kind.SKIN),
             "a rating average without ratings must be rejected");
+        Method validName = CommunityCatalog.class.getDeclaredMethod("validName", String.class, int.class);
+        validName.setAccessible(true);
+        check(!(boolean) validName.invoke(null, "坏\uD800名", 128),
+            "community names reject malformed Unicode");
+        Method validDescription = CommunityCatalog.class.getDeclaredMethod("validDescription", String.class);
+        validDescription.setAccessible(true);
+        check(!(boolean) validDescription.invoke(null, "说明\uD800"),
+            "community descriptions reject malformed Unicode");
         // 分类只属于皮肤：皮肤条目必须有分类（缺失时已解析成 other），词库和回复条目不能有。
         Method validCategory = CommunityCatalog.class.getDeclaredMethod(
             "validCategory", CommunityRequest.Kind.class, CommunityRequest.Category.class);
@@ -96,6 +125,20 @@ public final class CommunityCatalogSmoke {
             "community boolean fields accept booleans");
         check(strictBoolean.invoke(null, "true") == null,
             "community boolean fields reject strings instead of coercing them");
+        Method pageFlag = CommunityCatalog.class.getDeclaredMethod("pageHasMore", Object.class);
+        pageFlag.setAccessible(true);
+        check(Boolean.TRUE.equals(pageFlag.invoke(null, Boolean.TRUE)),
+            "community pagination accepts JSON booleans");
+        check(Boolean.FALSE.equals(pageFlag.invoke(null, "true")),
+            "community pagination rejects strings instead of coercing them");
+        Method confirmedReport = CommunityCatalog.class.getDeclaredMethod("confirmedReport", Object.class);
+        confirmedReport.setAccessible(true);
+        check((boolean) confirmedReport.invoke(null, Boolean.TRUE),
+            "a report is successful only when the backend confirms it");
+        check(!(boolean) confirmedReport.invoke(null, Boolean.FALSE),
+            "a backend refusal must not be reported as a successful report");
+        check(!(boolean) confirmedReport.invoke(null, "true"),
+            "a string reported value must not be coerced into success");
         Method countNumber = CommunityCatalog.class.getDeclaredMethod("countNumber", Object.class);
         countNumber.setAccessible(true);
         check(Long.valueOf(9_007_199_254_740_991L).equals(
@@ -122,6 +165,15 @@ public final class CommunityCatalogSmoke {
                 "a missing item must return a category update failure");
         } catch (InvocationTargetException error) {
             throw new AssertionError("a missing item must not throw", error.getCause());
+        }
+        Method install = CommunityCatalog.class.getDeclaredMethod(
+            "install", java.nio.file.Path.class, CommunityCatalog.Item.class);
+        try {
+            String failure = (String) install.invoke(uninitialized, null, null);
+            check(failure != null && !failure.isEmpty(),
+                "a missing item must return an install failure");
+        } catch (InvocationTargetException error) {
+            throw new AssertionError("a missing item must not throw during install", error.getCause());
         }
         System.out.println("Android community catalogue bounds passed");
     }

@@ -2,6 +2,7 @@ package app.msime.android;
 
 import android.content.Context;
 import android.graphics.Color;
+import android.graphics.Path;
 import android.graphics.drawable.GradientDrawable;
 import android.util.TypedValue;
 import android.view.Gravity;
@@ -41,92 +42,89 @@ public final class KeyboardSchemeCard extends FrameLayout {
     private final View check;
     private final FrameLayout.LayoutParams checkCornerParams;
     private final FrameLayout.LayoutParams checkBadgeParams;
-    private final float density;
     private boolean selected;
 
     public KeyboardSchemeCard(Context context, String glyphText, String badgeText,
             String titleText) {
         super(context);
-        density = getResources().getDisplayMetrics().density;
-        setClickable(true);
-        setFocusable(true);
+        ViewPolicy.setInteractive(this, true);
 
-        glyph = new TextView(context);
-        glyph.setText(glyphText);
-        glyph.setGravity(Gravity.CENTER);
+        glyph = centeredLabel(context, glyphText, glyphText.length() > 1 ? 15 : 20, true);
         // "EN" is two characters wide in a box sized for one, so it takes the smaller face.
-        glyph.setTextSize(TypedValue.COMPLEX_UNIT_SP, glyphText.length() > 1 ? 15 : 20);
-        glyph.setTypeface(glyph.getTypeface(), android.graphics.Typeface.BOLD);
+        // 字形和角标都画在固定 dp 的方框里，字号也按 dp，不随系统字体变化，否则放大后会溢出方框。
+        glyph.setTextSize(TypedValue.COMPLEX_UNIT_DIP, glyphText.length() > 1 ? 15 : 20);
+        ViewPolicy.setTypefaceStyle(glyph, android.graphics.Typeface.BOLD);
 
-        badge = new TextView(context);
-        badge.setText(badgeText);
-        badge.setGravity(Gravity.CENTER);
-        badge.setTextSize(TypedValue.COMPLEX_UNIT_SP, 9);
-        badge.setTypeface(badge.getTypeface(), android.graphics.Typeface.BOLD);
+        badge = centeredLabel(context, badgeText, 9, true);
+        badge.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 9);
+        ViewPolicy.setTypefaceStyle(badge, android.graphics.Typeface.BOLD);
 
         check = new View(context);
-        check.setVisibility(View.GONE);
+        ViewPolicy.hide(check);
 
-        title = new TextView(context);
-        title.setText(titleText);
-        title.setGravity(Gravity.CENTER);
-        title.setMaxLines(1);
-        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-        title.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        title = centeredLabel(context, titleText, 12, false);
+        KeyboardGeometry.setKeyTextSize(title, 12);
+        // 卡片格子只有 56 dp，字形区占去 44 dp；去掉字体留白，标题在 1.15 倍字体下仍放得下。
+        ViewPolicy.clearFontPadding(title);
+        ViewPolicy.setMaxLinesEllipsized(title, 1);
 
         // 字形、角标和对勾挤在一小块里，彼此的位置只跟字形框有关，跟卡片宽度无关；先把它们装进一个
         // 固定大小的簇，再把这个簇居中，就不必在布局时知道卡片有多宽。
         FrameLayout cluster = new FrameLayout(context);
-        int glyphSize = KeyboardGeometry.pixels(GLYPH_SIZE_DP, density);
-        int badgeWidth = KeyboardGeometry.pixels(BADGE_WIDTH_DP, density);
-        int badgeHeight = KeyboardGeometry.pixels(BADGE_HEIGHT_DP, density);
-        int checkSize = KeyboardGeometry.pixels(CHECK_SIZE_DP, density);
-        int top = KeyboardGeometry.pixels(OVERHANG_TOP_DP, density);
+        int glyphSize = KeyboardGeometry.pixels(getContext(), GLYPH_SIZE_DP);
+        int badgeWidth = KeyboardGeometry.pixels(getContext(), BADGE_WIDTH_DP);
+        int badgeHeight = KeyboardGeometry.pixels(getContext(), BADGE_HEIGHT_DP);
+        int checkSize = KeyboardGeometry.pixels(getContext(), CHECK_SIZE_DP);
+        int top = KeyboardGeometry.pixels(getContext(), OVERHANG_TOP_DP);
 
-        FrameLayout.LayoutParams glyphParams = new FrameLayout.LayoutParams(glyphSize, glyphSize);
+        FrameLayout.LayoutParams glyphParams = KeyboardGeometry.squareFrameParamsPx(glyphSize);
         glyphParams.topMargin = top;
         cluster.addView(glyph, glyphParams);
 
-        FrameLayout.LayoutParams badgeParams =
-            new FrameLayout.LayoutParams(badgeWidth, badgeHeight);
-        badgeParams.leftMargin = glyphSize + KeyboardGeometry.pixels(4, density) - badgeWidth;
-        badgeParams.topMargin = top + glyphSize + KeyboardGeometry.pixels(OVERHANG_BOTTOM_DP, density) - badgeHeight;
+        FrameLayout.LayoutParams badgeParams = KeyboardGeometry.frameParamsPx(badgeWidth, badgeHeight);
+        badgeParams.leftMargin = glyphSize + KeyboardGeometry.pixels(getContext(), 4) - badgeWidth;
+        badgeParams.topMargin = top + glyphSize + KeyboardGeometry.pixels(getContext(), OVERHANG_BOTTOM_DP) - badgeHeight;
         cluster.addView(badge, badgeParams);
 
-        FrameLayout.LayoutParams checkParams = new FrameLayout.LayoutParams(checkSize, checkSize);
-        checkParams.leftMargin = glyphSize + KeyboardGeometry.pixels(1, density);
+        FrameLayout.LayoutParams checkParams = KeyboardGeometry.squareFrameParamsPx(checkSize);
+        checkParams.leftMargin = glyphSize + KeyboardGeometry.pixels(getContext(), 1);
         checkCornerParams = checkParams;
-        checkBadgeParams = new FrameLayout.LayoutParams(checkSize, checkSize);
-        checkBadgeParams.leftMargin = glyphSize + KeyboardGeometry.pixels(4, density) - checkSize;
-        checkBadgeParams.topMargin = top + glyphSize + KeyboardGeometry.pixels(OVERHANG_BOTTOM_DP, density) - checkSize;
+        checkBadgeParams = KeyboardGeometry.squareFrameParamsPx(checkSize);
+        checkBadgeParams.leftMargin = glyphSize + KeyboardGeometry.pixels(getContext(), 4) - checkSize;
+        checkBadgeParams.topMargin = top + glyphSize + KeyboardGeometry.pixels(getContext(), OVERHANG_BOTTOM_DP) - checkSize;
         cluster.addView(check, checkParams);
 
-        LinearLayout column = new LinearLayout(context);
-        column.setOrientation(LinearLayout.VERTICAL);
-        column.setGravity(Gravity.CENTER_HORIZONTAL);
+        LinearLayout column = KeyboardGeometry.column(context);
+        ViewPolicy.setCenteredHorizontally(column);
 
-        LinearLayout.LayoutParams clusterParams = new LinearLayout.LayoutParams(
-            glyphSize + KeyboardGeometry.pixels(1, density) + checkSize, top + glyphSize + KeyboardGeometry.pixels(OVERHANG_BOTTOM_DP, density));
+        LinearLayout.LayoutParams clusterParams = KeyboardGeometry.linearParamsPx(
+            glyphSize + KeyboardGeometry.pixels(getContext(), 1) + checkSize,
+            top + glyphSize + KeyboardGeometry.pixels(getContext(), OVERHANG_BOTTOM_DP));
         clusterParams.gravity = Gravity.CENTER_HORIZONTAL;
         // 8dp is measured to the glyph, and the cluster already carries the check's overhang.
-        clusterParams.topMargin = KeyboardGeometry.pixels(8, density) - top;
+        clusterParams.topMargin = KeyboardGeometry.pixels(getContext(), 8) - top;
         column.addView(cluster, clusterParams);
 
-        LinearLayout.LayoutParams titleParams = new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        titleParams.topMargin = KeyboardGeometry.pixels(6, density) - KeyboardGeometry.pixels(OVERHANG_BOTTOM_DP, density);
-        titleParams.leftMargin = KeyboardGeometry.pixels(2, density);
-        titleParams.rightMargin = KeyboardGeometry.pixels(2, density);
+        LinearLayout.LayoutParams titleParams = KeyboardGeometry.matchWidthWrapParams();
+        titleParams.topMargin = KeyboardGeometry.pixels(getContext(), 6) - KeyboardGeometry.pixels(getContext(), OVERHANG_BOTTOM_DP);
+        titleParams.leftMargin = KeyboardGeometry.pixels(getContext(), 2);
+        titleParams.rightMargin = KeyboardGeometry.pixels(getContext(), 2);
         column.addView(title, titleParams);
 
-        FrameLayout.LayoutParams columnParams = new FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT);
+        FrameLayout.LayoutParams columnParams = KeyboardGeometry.frameMatchWidthWrapParams();
         columnParams.gravity = Gravity.CENTER_VERTICAL;
         addView(column, columnParams);
 
         for (View child : new View[] {glyph, badge, title, check, cluster, column}) {
-            child.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            ViewPolicy.hideFromAccessibility(child);
         }
+    }
+
+    private static TextView centeredLabel(Context context, CharSequence text, float sizeSp,
+            boolean bold) {
+        TextView view = ViewPolicy.centeredText(context, text, sizeSp);
+        if (bold) ViewPolicy.setTypefaceStyle(view, android.graphics.Typeface.BOLD);
+        return view;
     }
 
     /**
@@ -138,18 +136,16 @@ public final class KeyboardSchemeCard extends FrameLayout {
     public void paint(int accent, int keyBackground, boolean isSelected) {
         selected = isSelected;
         if (check.getLayoutParams() != checkCornerParams) check.setLayoutParams(checkCornerParams);
-        badge.setVisibility(View.VISIBLE);
-        title.setTypeface(android.graphics.Typeface.DEFAULT);
+        ViewPolicy.show(badge);
+        setTitleTypeface(false);
         // 选中与未选中的差别落在底色和这一档透明度上，不落在色相上。
-        int face = isSelected ? accent : fade(accent, .78f);
-        setBackground(rounded(isSelected ? fade(accent, .12f) : Color.TRANSPARENT,
-            KeyboardGeometry.pixels(CARD_RADIUS_DP, density)));
-        glyph.setTextColor(face);
-        glyph.setBackground(outlined(face, KeyboardGeometry.pixels(GLYPH_RADIUS_DP, density), KeyboardGeometry.pixels(GLYPH_BORDER_DP, density)));
-        badge.setTextColor(face);
+        int face = isSelected ? accent : ColorPolicy.withAlpha(accent, .78f);
+        setBackground(rounded(isSelected ? ColorPolicy.withAlpha(accent, .12f) : Color.TRANSPARENT,
+            KeyboardGeometry.pixels(getContext(), CARD_RADIUS_DP)));
+        setFaceTextColor(face);
+        glyph.setBackground(outlined(face, KeyboardGeometry.pixels(getContext(), GLYPH_RADIUS_DP), KeyboardGeometry.pixels(getContext(), GLYPH_BORDER_DP)));
         // 角标和对勾都压在字形框的边线上，各自带一小块与面板同色的底，把边线断开。
         badge.setBackgroundColor(keyBackground);
-        title.setTextColor(face);
         check.setBackground(checkMark(accent, keyBackground));
         check.setVisibility(isSelected ? View.VISIBLE : View.GONE);
     }
@@ -162,18 +158,26 @@ public final class KeyboardSchemeCard extends FrameLayout {
     public void paintTile(int accent, int foreground, int panelBackground, boolean isSelected) {
         selected = isSelected;
         int face = isSelected ? accent : foreground;
-        setBackground(null);
-        glyph.setTextColor(face);
-        glyph.setBackground(outlined(face, KeyboardGeometry.pixels(GLYPH_RADIUS_DP, density), KeyboardGeometry.pixels(GLYPH_BORDER_DP, density)));
-        badge.setTextColor(face);
+        ViewPolicy.clearBackground(this);
+        setFaceTextColor(face);
+        glyph.setBackground(outlined(face, KeyboardGeometry.pixels(getContext(), GLYPH_RADIUS_DP), KeyboardGeometry.pixels(getContext(), GLYPH_BORDER_DP)));
         badge.setBackgroundColor(panelBackground);
         badge.setVisibility(isSelected || badge.getText().length() == 0 ? View.INVISIBLE : View.VISIBLE);
-        title.setTextColor(face);
-        title.setTypeface(isSelected ? android.graphics.Typeface.DEFAULT_BOLD
-            : android.graphics.Typeface.DEFAULT);
+        setTitleTypeface(isSelected);
         if (check.getLayoutParams() != checkBadgeParams) check.setLayoutParams(checkBadgeParams);
         check.setBackground(checkMark(accent, panelBackground));
         check.setVisibility(isSelected ? View.VISIBLE : View.GONE);
+    }
+
+    private void setTitleTypeface(boolean bold) {
+        title.setTypeface(bold ? android.graphics.Typeface.DEFAULT_BOLD
+            : android.graphics.Typeface.DEFAULT);
+    }
+
+    private void setFaceTextColor(int face) {
+        ViewPolicy.setTextColor(glyph, face);
+        ViewPolicy.setTextColor(badge, face);
+        ViewPolicy.setTextColor(title, face);
     }
 
     public boolean isCardSelected() { return selected; }
@@ -191,29 +195,18 @@ public final class KeyboardSchemeCard extends FrameLayout {
     }
 
     private static android.graphics.drawable.Drawable rounded(int color, int radius) {
-        GradientDrawable shape = new GradientDrawable();
-        shape.setShape(GradientDrawable.RECTANGLE);
-        shape.setCornerRadius(radius);
-        shape.setColor(color);
-        return shape;
+        return DrawablePolicy.rounded(color, radius);
     }
 
     private static android.graphics.drawable.Drawable outlined(int color, int radius, int width) {
-        GradientDrawable shape = new GradientDrawable();
-        shape.setShape(GradientDrawable.RECTANGLE);
-        shape.setCornerRadius(radius);
-        shape.setColor(Color.TRANSPARENT);
-        shape.setStroke(Math.max(1, width), color);
-        return shape;
+        return DrawablePolicy.outlined(radius, width, color);
     }
 
     /** A filled disc carrying a tick, sized for the 12dp corner the master puts it in. */
     private android.graphics.drawable.Drawable checkMark(int accent, int keyBackground) {
-        GradientDrawable disc = new GradientDrawable();
-        disc.setShape(GradientDrawable.OVAL);
-        disc.setColor(accent);
         // The disc sits on the glyph's border, so it carries the panel colour as its own ring.
-        disc.setStroke(Math.max(1, KeyboardGeometry.pixels(1f, density)), keyBackground);
+        GradientDrawable disc = DrawablePolicy.circleOutlined(accent,
+            KeyboardGeometry.atLeastOnePixel(getContext(), 1f), keyBackground);
         return new android.graphics.drawable.LayerDrawable(
             new android.graphics.drawable.Drawable[] {disc, tick(keyBackground)});
     }
@@ -221,8 +214,8 @@ public final class KeyboardSchemeCard extends FrameLayout {
     private android.graphics.drawable.Drawable tick(int color) {
         android.graphics.drawable.ShapeDrawable mark =
             new android.graphics.drawable.ShapeDrawable(new CheckShape(color));
-        mark.setIntrinsicWidth(KeyboardGeometry.pixels(CHECK_SIZE_DP, density));
-        mark.setIntrinsicHeight(KeyboardGeometry.pixels(CHECK_SIZE_DP, density));
+        mark.setIntrinsicWidth(KeyboardGeometry.pixels(getContext(), CHECK_SIZE_DP));
+        mark.setIntrinsicHeight(KeyboardGeometry.pixels(getContext(), CHECK_SIZE_DP));
         return mark;
     }
 
@@ -230,6 +223,7 @@ public final class KeyboardSchemeCard extends FrameLayout {
     private static final class CheckShape extends android.graphics.drawable.shapes.Shape {
         private final android.graphics.Paint paint = new android.graphics.Paint(
             android.graphics.Paint.ANTI_ALIAS_FLAG);
+        private final Path path = new Path();
 
         CheckShape(int color) {
             paint.setColor(color);
@@ -241,8 +235,8 @@ public final class KeyboardSchemeCard extends FrameLayout {
         @Override public void draw(android.graphics.Canvas canvas, android.graphics.Paint ignored) {
             float width = getWidth();
             float height = getHeight();
-            paint.setStrokeWidth(Math.max(1f, width * .16f));
-            android.graphics.Path path = new android.graphics.Path();
+            paint.setStrokeWidth(BoundsPolicy.bounded(width * .16f, 1f, Float.MAX_VALUE));
+            path.reset();
             path.moveTo(width * .28f, height * .52f);
             path.lineTo(width * .44f, height * .68f);
             path.lineTo(width * .73f, height * .34f);
@@ -250,8 +244,4 @@ public final class KeyboardSchemeCard extends FrameLayout {
         }
     }
 
-    private static int fade(int color, float alpha) {
-        return Color.argb(Math.round(Color.alpha(color) * alpha),
-            Color.red(color), Color.green(color), Color.blue(color));
-    }
 }

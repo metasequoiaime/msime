@@ -58,7 +58,7 @@ pub(super) fn catalog(request: &Request, roots: Roots) -> Outcome {
     let mut statement = connection
         .prepare(&sql)
         .map_err(|_| BackendError::ResourcesUnavailable)?;
-    let mut items = statement
+    let rows = statement
         .query_map(
             rusqlite::params![filter, search, limit + 1, offset],
             |row| {
@@ -70,8 +70,11 @@ pub(super) fn catalog(request: &Request, roots: Roots) -> Outcome {
                 }))
             },
         )
-        .and_then(Iterator::collect::<rusqlite::Result<Vec<Value>>>)
         .map_err(|_| BackendError::ResourcesUnavailable)?;
+    let mut items = Vec::with_capacity((limit + 1) as usize);
+    for row in rows {
+        items.push(row.map_err(|_| BackendError::ResourcesUnavailable)?);
+    }
     let more = items.len() > limit as usize;
     items.truncate(limit as usize);
     let sql = format!(
@@ -100,12 +103,11 @@ pub(super) fn catalog(request: &Request, roots: Roots) -> Outcome {
 }
 
 /// The exclusive upper bound of a prefix range: the last character moved one code point up.
-fn prefix_upper_bound(prefix: &str) -> String {
+fn prefix_upper_bound(prefix: &str) -> Option<String> {
     let mut upper = prefix.to_owned();
-    if let Some(last) = upper.pop() {
-        upper.push(char::from_u32(u32::from(last) + 1).unwrap_or(char::MAX));
-    }
-    upper
+    let last = upper.pop()?;
+    upper.push(char::from_u32(u32::from(last).checked_add(1)?)?);
+    Some(upper)
 }
 
 /// One page of a dictionary's entries for `text`, best first. `kind`: `pinyin` (the entries whose key is the input's normalised segmentation; `scheme: shuangpin` reads shuangpin input), `wubi` and `quick` (entries whose code starts with `text`), or `english` (words starting with `text`, an exact match first). With `exact`, only the entry whose code is `text` and whose word is `word`. `normalized` echoes the code that was looked up.
@@ -191,6 +193,12 @@ pub(super) fn dictionary(request: &Request, roots: Roots) -> Outcome {
         return Err(BackendError::InvalidRequest);
     }
     let upper = prefix_upper_bound(&text);
+    if kind == "english" && !exact && upper.is_none() {
+        // U+10FFFF has no successor. Match the prefix directly instead of
+        // inventing an upper bound equal to the prefix itself or admitting
+        // unrelated words that merely sort after it.
+        condition = "(word=?1 OR (length(word)>length(?1) AND substr(word,1,length(?1))=?1))";
+    }
     // The table comes from the format contract or a literal above, never from the request.
     let sql = format!(
         "SELECT {key},{word},weight FROM \"{table}\" WHERE {condition} ORDER BY {order} LIMIT ?2 OFFSET ?3"
@@ -199,7 +207,9 @@ pub(super) fn dictionary(request: &Request, roots: Roots) -> Outcome {
     let page_size = limit + 1;
     let mut parameters: Vec<(usize, &dyn ToSql)> = vec![(1, &text), (2, &page_size), (3, &offset)];
     if kind == "english" && !exact {
-        parameters.push((4, &upper));
+        if let Some(upper) = upper.as_ref() {
+            parameters.push((4, upper));
+        }
     }
     if exact {
         parameters.push((5, &exact_word));
@@ -208,7 +218,7 @@ pub(super) fn dictionary(request: &Request, roots: Roots) -> Outcome {
         statement.raw_bind_parameter(index, value)?;
     }
     let mut rows = statement.raw_query();
-    let mut entries = Vec::new();
+    let mut entries = Vec::with_capacity(page_size as usize);
     while let Some(row) = rows.next()? {
         entries.push(json!({
             "kind": kind,

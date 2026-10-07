@@ -24,6 +24,6 @@ public final class KeyboardGapPolicy {
      * 把一个坐标移进键帽内部，离边缘留 1px，保证框架的命中测试（`0 <= v < size`）一定落在键上；移动的距离就是空隙的宽度，所以按下位置几乎不变，空格的拖动光标、日文假名的滑动方向这类按位移计算的手势不受影响。
      */
     public static float inside(float value, int size) {
-        return Math.max(1f, Math.min(value, size - 1f));
+        return BoundsPolicy.bounded(value, 1f, size - 1f);
     }
 }

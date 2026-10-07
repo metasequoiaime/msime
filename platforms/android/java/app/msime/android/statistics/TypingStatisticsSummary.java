@@ -5,7 +5,6 @@ import java.util.Collections;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -16,6 +15,11 @@ import org.json.JSONObject;
  * <p>指标的口径全部在 Rust（`crates/client-core/src/typing_statistics/metrics.rs`），这里只解析和排版。Rust 给 null 的字段在这里仍是 null（样本不足、没有活跃时间），页面把它们显示成「—」，不当成 0。纯 Java：不引用 androidx、R 或 `home/`，排版规则可以在主机 JVM 上冒烟。
  */
 public final class TypingStatisticsSummary {
+    /** 一天按小时统计的固定桶数。 */
+    public static final int HOURS_PER_DAY = 24;
+    /** 选词位置分布的固定桶数：前三个候选与翻页后的候选。 */
+    public static final int POSITION_BUCKETS = 4;
+
     /** 一天和这天的字数。 */
     public record DayCount(String day, long count) {}
 
@@ -69,7 +73,7 @@ public final class TypingStatisticsSummary {
         public double progress() {
             if (unlocked()) return 1d;
             if (target <= 0) return 0d;
-            return Math.max(0d, Math.min(1d, (double) current / target));
+            return BoundsPolicy.bounded((double) current / target, 0d, 1d);
         }
     }
 
@@ -127,8 +131,8 @@ public final class TypingStatisticsSummary {
         return new TypingStatisticsSummary(
             new Overview(count(overview.opt("week_total")), count(overview.opt("previous_week_total")),
                 days(overview.optJSONArray("last7")), number(overview, "average_speed"),
-                number(overview, "previous_average_speed"), number(overview, "first_candidate_rate"),
-                number(overview, "keystrokes_saved_rate"), count(overview.opt("current_streak")),
+                number(overview, "previous_average_speed"), rate(overview, "first_candidate_rate"),
+                rate(overview, "keystrokes_saved_rate"), count(overview.opt("current_streak")),
                 count(overview.opt("longest_streak"))),
             new Habits(days(habits.optJSONArray("weeks12")), hours(habits.optJSONArray("hours24")),
                 peak == null ? null : new PeakWindow((int) count(peak.opt("start")),
@@ -137,7 +141,7 @@ public final class TypingStatisticsSummary {
                 breakdown == null ? Map.of() : counts(breakdown.optJSONObject("characters")),
                 breakdown == null ? Map.of() : counts(breakdown.optJSONObject("sources"))),
             new Keys(number(keys, "per_character_keys"), number(keys, "previous_per_character_keys"),
-                number(keys, "backspace_rate"), number(keys, "prediction_rate"),
+                rate(keys, "backspace_rate"), rate(keys, "prediction_rate"),
                 run == null ? null : new Run(count(run.opt("characters")), run.optString("day", "")),
                 positions(keys.optJSONArray("positions"))),
             badges);
@@ -147,7 +151,7 @@ public final class TypingStatisticsSummary {
 
     /** 千分位：`12,846`。 */
     public static String grouped(long value) {
-        return String.format(Locale.ROOT, "%,d", value);
+        return NumberPolicy.grouped(value);
     }
 
     /** 英雄卡下的周环比；上周没有记录时不写（没有可比的基数），返回 null。 */
@@ -198,8 +202,8 @@ public final class TypingStatisticsSummary {
     /** 高峰时段：`晚上 9–11 点`；没有时返回 null。 */
     public static String peakLabel(PeakWindow window) {
         if (window == null) return null;
-        int start = Math.floorMod(window.start(), 24);
-        int end = Math.floorMod(window.end(), 24);
+        int start = Math.floorMod(window.start(), HOURS_PER_DAY);
+        int end = Math.floorMod(window.end(), HOURS_PER_DAY);
         return period(start) + " " + clock(start) + "–" + clock(end) + " 点";
     }
 
@@ -218,7 +222,7 @@ public final class TypingStatisticsSummary {
     /** 徽章下的一行：已解锁写说明，未解锁时能算出差多少就写「还差 …」，否则仍写说明。 */
     public static String caption(Achievement badge) {
         if (badge.unlocked()) return badge.description();
-        long missing = Math.max(0, badge.target() - badge.current());
+        long missing = BoundsPolicy.nonNegative(badge.target() - badge.current());
         String unit = unit(badge.id());
         if (unit == null || missing == 0) return badge.description();
         if ("字".equals(unit)) return "还差 " + characters(missing);
@@ -258,7 +262,7 @@ public final class TypingStatisticsSummary {
         for (Map.Entry<String, Long> entry : sources.entrySet()) {
             switch (entry.getKey()) {
                 case "nineKey", "voice", "handwriting", "unknown", "ai", "reply" -> { }
-                default -> full += Math.max(0, entry.getValue());
+                default -> full += BoundsPolicy.nonNegative(entry.getValue());
             }
         }
         Map<String, Long> groups = new LinkedHashMap<>(4);
@@ -293,7 +297,7 @@ public final class TypingStatisticsSummary {
 
     private static long value(Map<String, Long> values, String key) {
         Long value = values.get(key);
-        return value == null ? 0 : Math.max(0, value);
+        return value == null ? 0 : BoundsPolicy.nonNegative(value);
     }
 
     /** 各徽章进度的单位；速度、命中率、早起鸟这类阈值不是「差几个」能说清的，返回 null。 */
@@ -319,7 +323,7 @@ public final class TypingStatisticsSummary {
     private static String tenths(double value) {
         long rounded = Math.round(value * 10);
         if (rounded % 10 == 0) return String.valueOf(rounded / 10);
-        return String.format(Locale.ROOT, "%.1f", rounded / 10d);
+        return NumberPolicy.decimal1(rounded / 10d);
     }
 
     private static String period(int hour) {
@@ -351,9 +355,27 @@ public final class TypingStatisticsSummary {
         return Double.isFinite(result) ? result : null;
     }
 
+    /** 统计比例字段必须是 0–1 的有限 JSON 数字；越界值按缺省的无数据处理。 */
+    public static Double strictRate(Object value) {
+        if (!(value instanceof Number number) || value instanceof Boolean) return null;
+        double rate = number.doubleValue();
+        return Double.isFinite(rate) && rate >= 0d && rate <= 1d ? rate : null;
+    }
+
+    private static Double rate(JSONObject object, String key) {
+        if (object.isNull(key)) return null;
+        return strictRate(object.opt(key));
+    }
+
+    /** Statistics counters are JSON unsigned integers; reject fractional and negative values. */
+    public static long strictCount(Object value) {
+        if (value instanceof Integer integer) return integer < 0 ? 0L : integer.longValue();
+        if (value instanceof Long longValue) return longValue < 0L ? 0L : longValue;
+        return 0L;
+    }
+
     private static long count(Object value) {
-        if (!(value instanceof Number number)) return 0;
-        return Math.max(0, number.longValue());
+        return strictCount(value);
     }
 
     private static List<DayCount> days(JSONArray array) {
@@ -368,19 +390,25 @@ public final class TypingStatisticsSummary {
     }
 
     private static List<Long> hours(JSONArray array) {
-        List<Long> result = new ArrayList<>(24);
-        for (int hour = 0; hour < 24; hour++) {
+        List<Long> result = new ArrayList<>(HOURS_PER_DAY);
+        for (int hour = 0; hour < HOURS_PER_DAY; hour++) {
             result.add(array == null || hour >= array.length() ? 0L : count(array.opt(hour)));
         }
         return List.copyOf(result);
     }
 
+    /** Candidate position buckets are JSON proportions in the closed 0–1 range. */
+    public static double strictPositionRate(Object value) {
+        if (!(value instanceof Number number) || value instanceof Boolean) return 0d;
+        double rate = number.doubleValue();
+        return Double.isFinite(rate) && rate >= 0d && rate <= 1d ? rate : 0d;
+    }
+
     private static List<Double> positions(JSONArray array) {
-        if (array == null || array.length() != 4) return null;
-        List<Double> result = new ArrayList<>(4);
-        for (int index = 0; index < 4; index++) {
-            Object value = array.opt(index);
-            result.add(value instanceof Number number ? number.doubleValue() : 0d);
+        if (array == null || array.length() != POSITION_BUCKETS) return null;
+        List<Double> result = new ArrayList<>(POSITION_BUCKETS);
+        for (int index = 0; index < POSITION_BUCKETS; index++) {
+            result.add(strictPositionRate(array.opt(index)));
         }
         return List.copyOf(result);
     }

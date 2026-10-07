@@ -11,6 +11,7 @@ import android.view.ViewGroup;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.animation.DecelerateInterpolator;
 import android.widget.OverScroller;
+import app.msime.android.KeyboardGeometry;
 
 /**
  * 横向分页的网格：默认 4 列 × 2 行一页，子视图按顺序逐页排布，左右滑动按页吸附。功能面板、皮肤面板、输入方式面板共用它。
@@ -53,18 +54,22 @@ public final class PagedTileGrid extends ViewGroup {
 
     /** 每页条目数。 */
     public static int perPage(int columns, int rows) {
-        return Math.max(1, columns) * Math.max(1, rows);
+        long product = (long) BoundsPolicy.bounded(columns, 1, Integer.MAX_VALUE)
+            * BoundsPolicy.bounded(rows, 1, Integer.MAX_VALUE);
+        return product > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) product;
     }
 
     /** 页数：至少一页。 */
     public static int pageCount(int items, int perPage) {
         if (items <= 0) return 1;
-        return (items + perPage - 1) / perPage;
+        int capacity = Math.max(1, perPage);
+        return items / capacity + (items % capacity == 0 ? 0 : 1);
     }
 
     /** 第 {@code index} 个条目所在的页。 */
     public static int pageOf(int index, int perPage) {
-        return Math.max(0, index) / Math.max(1, perPage);
+        return BoundsPolicy.nonNegative(index)
+            / BoundsPolicy.bounded(perPage, 1, Integer.MAX_VALUE);
     }
 
     /**
@@ -82,12 +87,12 @@ public final class PagedTileGrid extends ViewGroup {
         } else {
             target = Math.round(scrollX / pageWidth);
         }
-        return Math.max(0, Math.min(pageCount - 1, target));
+        return KeyboardGeometry.bounded(target, 0, pageCount - 1);
     }
 
     public void setGrid(int columnCount, int rowCount) {
-        columns = Math.max(1, columnCount);
-        rows = Math.max(1, rowCount);
+        columns = BoundsPolicy.bounded(columnCount, 1, Integer.MAX_VALUE);
+        rows = BoundsPolicy.bounded(rowCount, 1, Integer.MAX_VALUE);
         requestLayout();
     }
 
@@ -107,7 +112,7 @@ public final class PagedTileGrid extends ViewGroup {
     public int pageCount() { return pageCount(getChildCount(), perPage(columns, rows)); }
 
     public void setPage(int value, boolean animate) {
-        int target = Math.max(0, Math.min(pageCount() - 1, value));
+        int target = KeyboardGeometry.bounded(value, 0, pageCount() - 1);
         int width = getWidth();
         if (!animate || width <= 0) {
             scroller.forceFinished(true);
@@ -123,7 +128,7 @@ public final class PagedTileGrid extends ViewGroup {
         }
     }
 
-    private float px(float dp) { return dp * getResources().getDisplayMetrics().density; }
+    private float px(float dp) { return KeyboardGeometry.floatPixels(getContext(), dp); }
 
     @Override protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
         int width = MeasureSpec.getSize(widthMeasureSpec);
@@ -132,7 +137,7 @@ public final class PagedTileGrid extends ViewGroup {
             + getPaddingTop() + getPaddingBottom();
         int height = resolveSize(desiredHeight, heightMeasureSpec);
         float inner = width - px(sidePaddingDp) * 2 - px(columnGapDp) * (columns - 1);
-        int cellWidth = Math.max(0, Math.round(inner / columns));
+        int cellWidth = BoundsPolicy.nonNegative(Math.round(inner / columns));
         int childWidth = MeasureSpec.makeMeasureSpec(cellWidth, MeasureSpec.EXACTLY);
         int childHeight = MeasureSpec.makeMeasureSpec(rowHeight, MeasureSpec.EXACTLY);
         for (int index = 0; index < getChildCount(); index++) {
@@ -161,7 +166,7 @@ public final class PagedTileGrid extends ViewGroup {
             child.layout(left, top, left + child.getMeasuredWidth(), top + child.getMeasuredHeight());
         }
         if (changed) {
-            page = Math.min(page, pageCount() - 1);
+            page = BoundsPolicy.atMost(page, pageCount() - 1);
             scrollTo(page * width, 0);
         }
     }
@@ -217,7 +222,7 @@ public final class PagedTileGrid extends ViewGroup {
                 if (dragging) {
                     float delta = lastX - event.getX();
                     int max = (pageCount() - 1) * getWidth();
-                    int next = Math.round(Math.max(0, Math.min(max, getScrollX() + delta)));
+                    int next = Math.round(BoundsPolicy.bounded(getScrollX() + delta, 0f, max));
                     scrollTo(next, 0);
                 }
                 lastX = event.getX();

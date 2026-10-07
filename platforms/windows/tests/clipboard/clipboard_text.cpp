@@ -91,6 +91,15 @@ int main() {
     require(normalize_clipboard_text(short_text) == short_text);
     require(normalize_clipboard_text("").empty());
 
+#ifdef _WIN32
+    // ClipboardMonitor 在应用共享 UTF-16 上限前不能复制无界的 GlobalLock 缓冲区。
+    const std::wstring oversized(cap + 100, L'合');
+    const auto bounded = bounded_clipboard_text(
+        oversized.data(), oversized.size() * sizeof(wchar_t));
+    require(bounded.size() == cap + 1);
+    require(bounded.front() == L'合' && bounded.back() == L'合');
+#endif
+
     std::cout << "Clipboard text: capped in UTF-16 units on character boundaries\n";
   } catch (const std::exception &failure) {
     std::cerr << failure.what() << '\n';

@@ -14,6 +14,7 @@ add_executable(${TEST_EXECUTABLE_NAME}
     src/test_lru_cache.cpp
     src/test_menu_flyout_item.cpp
     src/test_text_selection.cpp
+    src/test_text_container.cpp
     includes/test_framework.h
 )
 

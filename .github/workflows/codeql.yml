@@ -1,26 +1,20 @@
 name: CodeQL
-# CodeQL 的语言与触发分层。发往 develop/main 的 PR、推送到 main、每日定时和手动触发都跑 Linux 上的
-# 四种语言（Actions、C/C++、Python、Rust）；Rust 覆盖引擎、client-core 和 host-api 里 clippy 与
-# cargo audit 都看不到的部分（含 500 多处 FFI `unsafe`）。Swift 分析要占用一台 macos-15 约一小时，
-# 而仓库只有五台，所以它只在每日定时和手动触发时跑，理由与 ci-macos.yml 在 push 时不构建相同。
+# CodeQL 的语言与触发分层。发往 main 的 PR、推送到 main、每日定时和手动触发都跑 Linux 上的四种语言（Actions、C/C++、Python、Rust）；Rust 覆盖引擎、client-core 和 host-api 里 clippy 与 cargo audit 都看不到的部分（含 500 多处 FFI `unsafe`）。Swift 分析要占用一台 macos-15 约一小时，而仓库只有五台，所以它只在每日定时和手动触发时跑，理由与 ci-macos.yml 在 push 时不构建相同。
 #
-# 这个 workflow 只负责在 PR 与关键分支上产出分析结果；是否作为合并门禁由仓库 ruleset 单独配置，
-# 目前 main 与 develop 的 ruleset 里没有 CodeQL 或 code scanning 规则。workflow 定义 signal，
-# repository policy 决定它是否成为 gate，两层不要混为一谈。
+# 发往 develop 的 PR 和推送到 develop 都不扫：develop 上同时开着几十个 PR，每个 PR 每次推送都起四条 CodeQL 腿（Rust 一次约 11 分钟），排队占满 runner 却不挡合并。develop 的覆盖由每日定时扫描负责，发版时 develop 合进 main 的那个 PR 再完整扫一遍。
+#
+# 这个 workflow 只负责在 PR 与关键分支上产出分析结果；是否作为合并门禁由仓库 ruleset 单独配置，目前 main 与 develop 的 ruleset 里没有 CodeQL 或 code scanning 规则。workflow 定义 signal，repository policy 决定它是否成为 gate，两层不要混为一谈。
 on:
-  # 推送到 main 才重扫：PR 已经把同一份内容扫过，合并到 develop 再扫一遍是纯重复，而 Rust 一次约
-  # 11 分钟；main 上的推送是发布信号，保留。develop 的覆盖由 PR 与每日定时负责。
+  # 只有推送到 main 才重扫：main 上的推送是发布信号。develop 不在这里，理由见文件顶部。
   push:
     branches:
       - main
-    # 纯文档改动不扫：CodeQL 对 Markdown 没有价值，而 Rust 一次约 11 分钟。CodeQL 不是必需检查，按
-    # 路径跳过不会让 PR 卡在等一个永远不来的报告上（必需检查被路径过滤掉才需要 ci-docs.yml 那样的补位）。
+    # 纯文档改动不扫：CodeQL 对 Markdown 没有价值，而 Rust 一次约 11 分钟。CodeQL 不是必需检查，按路径跳过不会让 PR 卡在等一个永远不来的报告上（必需检查被路径过滤掉才需要 ci-docs.yml 那样的补位）。
     paths-ignore:
       - '**/*.md'
       - docs/**
   pull_request:
     branches:
-      - develop
       - main
     paths-ignore:
       - '**/*.md'

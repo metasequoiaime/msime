@@ -43,7 +43,8 @@ private final class RetryReportProtocol: URLProtocol, @unchecked Sendable {
         body = #"{"error":{"code":"invalid_credentials"}}"#
         status = 401
       } else {
-        body = "{}"
+        // 与服务端 `community_reports.go` 一致：新记录 201、重复举报 200，响应体都是 `{"reported":true}`；`reportContent` 会校验这个字段。
+        body = #"{"reported":true}"#
         status = 201
       }
     } else {

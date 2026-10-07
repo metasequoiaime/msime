@@ -8,6 +8,7 @@ import android.graphics.Typeface;
 import android.util.AttributeSet;
 import android.view.View;
 import androidx.annotation.Nullable;
+import app.msime.android.BoundsPolicy;
 import app.msime.android.KeyPressIds;
 import app.msime.android.R;
 import app.msime.android.TypingStatisticsSummary;
@@ -67,10 +68,10 @@ public final class KeyHeatmapView extends View {
         super(context, attributes);
         face.setTextAlign(Paint.Align.CENTER);
         face.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
-        face.setTextSize(Ui.dp(context, 14));
+        face.setTextSize(Ui.sp(context, 14));
         share.setTextAlign(Paint.Align.CENTER);
-        share.setTextSize(Ui.dp(context, 9));
-        caption.setTextSize(Ui.dp(context, 12));
+        share.setTextSize(Ui.sp(context, 9));
+        caption.setTextSize(Ui.sp(context, 12));
     }
 
     private static Key k(String id) {
@@ -87,7 +88,7 @@ public final class KeyHeatmapView extends View {
     public void setKeys(Map<String, Long> values) {
         counts = values == null ? Map.of() : Map.copyOf(values);
         long sum = 0;
-        for (long value : counts.values()) sum += Math.max(0, value);
+        for (long value : counts.values()) sum += BoundsPolicy.nonNegative(value);
         total = sum;
         describe();
         invalidate();
@@ -157,7 +158,7 @@ public final class KeyHeatmapView extends View {
         long peak = 0;
         for (List<Key> row : layout()) {
             for (Key key : row) {
-                if (key.id() != null) peak = Math.max(peak, counts.getOrDefault(key.id(), 0L));
+                if (key.id() != null) peak = BoundsPolicy.atLeast(peak, counts.getOrDefault(key.id(), 0L));
             }
         }
         int text = Ui.text(context);

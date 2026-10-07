@@ -72,8 +72,10 @@ public final class SyncMergePolicy {
      * @param other 另一方（云端），只补上 `preferred` 里没有的
      */
     public static List<Phrase> mergePhrases(List<Phrase> preferred, List<Phrase> other) {
-        int capacity = Math.min(MAX_PHRASES,
-            Math.min(MAX_PHRASES, preferred.size()) + Math.min(MAX_PHRASES, other.size()));
+        int capacity = BoundsPolicy.bounded(
+            BoundsPolicy.bounded(preferred.size(), 0, MAX_PHRASES)
+                + BoundsPolicy.bounded(other.size(), 0, MAX_PHRASES),
+            0, MAX_PHRASES);
         LinkedHashMap<String, Phrase> byId = new LinkedHashMap<>(capacity);
         for (Phrase phrase : preferred) if (usable(phrase)) byId.putIfAbsent(phrase.id(), phrase);
         for (Phrase phrase : other) if (usable(phrase)) byId.putIfAbsent(phrase.id(), phrase);
@@ -82,8 +84,9 @@ public final class SyncMergePolicy {
 
     /** 按正文去重、重排 position 并截断；上传前对任何一份列表都要过这一步。 */
     public static List<Phrase> normalized(List<Phrase> phrases) {
-        Set<String> texts = new HashSet<>(phrases.size());
-        List<Phrase> result = new ArrayList<>(Math.min(MAX_PHRASES, phrases.size()));
+        int capacity = BoundsPolicy.bounded(phrases.size(), 0, MAX_PHRASES);
+        Set<String> texts = new HashSet<>(capacity);
+        List<Phrase> result = new ArrayList<>(capacity);
         for (Phrase phrase : phrases) {
             if (!usable(phrase) || !texts.add(phrase.text())) continue;
             if (result.size() == MAX_PHRASES) break;
@@ -124,7 +127,7 @@ public final class SyncMergePolicy {
     public record LocalPlan(List<String> add, List<String> remove) {}
 
     public static LocalPlan localPlan(Map<String, String> local, List<Phrase> target) {
-        Set<String> wanted = new HashSet<>();
+        Set<String> wanted = new HashSet<>(target.size());
         for (Phrase phrase : target) wanted.add(phrase.text());
         Set<String> present = new HashSet<>(local.values());
         List<String> add = new ArrayList<>(target.size());
@@ -165,8 +168,8 @@ public final class SyncMergePolicy {
      */
     public static long skinBudget(long otherDocumentBytes) {
         long overhead = SKINS_KEY.length() + 8L;
-        long room = DOCUMENT_LIMIT_BYTES - Math.max(0L, otherDocumentBytes) - overhead;
-        return Math.max(0L, Math.min(SKIN_FIELD_LIMIT, room));
+        long room = DOCUMENT_LIMIT_BYTES - BoundsPolicy.nonNegative(otherDocumentBytes) - overhead;
+        return BoundsPolicy.bounded(room, 0L, SKIN_FIELD_LIMIT);
     }
 
     /** 放不下全部设计时只留最近的：按更新时间从新到旧排，导出时按这个顺序装到预算为止。 */
@@ -220,7 +223,7 @@ public final class SyncMergePolicy {
         if (size <= 0) throw new IllegalArgumentException("batch size");
         Set<String> seen = new HashSet<>(words.size());
         List<List<Word>> result = new ArrayList<>((words.size() + size - 1) / size);
-        List<Word> current = new ArrayList<>(Math.min(words.size(), size));
+        List<Word> current = new ArrayList<>(BoundsPolicy.bounded(words.size(), 0, size));
         for (Word word : words) {
             if (word == null || personalKind(word.kind()) == null || word.key() == null || word.key().isEmpty()
                 || word.value() == null || word.value().isEmpty()) continue;
@@ -228,7 +231,8 @@ public final class SyncMergePolicy {
             current.add(new Word(personalKind(word.kind()), word.key(), word.value(), word.weight()));
             if (current.size() == size) {
                 result.add(Collections.unmodifiableList(current));
-                current = new ArrayList<>(Math.min(words.size() - result.size() * size, size));
+                current = new ArrayList<>(BoundsPolicy.atMost(
+                    words.size() - result.size() * size, size));
             }
         }
         if (!current.isEmpty()) result.add(Collections.unmodifiableList(current));

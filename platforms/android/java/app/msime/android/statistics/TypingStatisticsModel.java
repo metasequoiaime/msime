@@ -117,7 +117,7 @@ public final class TypingStatisticsModel {
         LocalDate end = day(today);
         if (start == null || end == null || start.isAfter(end)) return 0;
         long span = end.toEpochDay() - start.toEpochDay() + 1;
-        return KeyboardGeometry.bounded((int) Math.min(MAX_TREND_DAYS, span), 1, MAX_TREND_DAYS);
+        return (int) BoundsPolicy.bounded(span, 1L, MAX_TREND_DAYS);
     }
 
     /**
@@ -134,7 +134,7 @@ public final class TypingStatisticsModel {
         if (end == null) return series;
         for (int index = 0; index < bounded; index++) {
             LocalDate date = end.minusDays(bounded - 1L - index);
-            series[index] = (int) Math.min(Integer.MAX_VALUE, count(date.toString()));
+            series[index] = (int) BoundsPolicy.bounded(count(date.toString()), 0L, Integer.MAX_VALUE);
         }
         return series;
     }
@@ -182,7 +182,8 @@ public final class TypingStatisticsModel {
         if (day != null) return dailyKeys.getOrDefault(day, Map.of());
         int capacity = 0;
         for (Map<String, Long> counts : dailyKeys.values()) {
-            capacity = Math.min(Integer.MAX_VALUE - counts.size(), capacity) + counts.size();
+            capacity = BoundsPolicy.bounded(capacity, 0, Integer.MAX_VALUE - counts.size())
+                + counts.size();
         }
         Map<String, Long> result = new LinkedHashMap<>(capacity);
         for (Map<String, Long> counts : dailyKeys.values()) {
@@ -280,7 +281,7 @@ public final class TypingStatisticsModel {
     }
 
     private static Map<String, String> kinds() {
-        Map<String, String> titles = new LinkedHashMap<>();
+        Map<String, String> titles = new LinkedHashMap<>(8);
         titles.put("han", "汉字");
         titles.put("latin", "拉丁字母");
         titles.put("otherLetter", "其他文字");
@@ -294,7 +295,7 @@ public final class TypingStatisticsModel {
     }
 
     private static Map<String, String> sources() {
-        Map<String, String> titles = new LinkedHashMap<>();
+        Map<String, String> titles = new LinkedHashMap<>(21);
         titles.put("quanpin", "全拼 26 键");
         titles.put("nineKey", "全拼 9 键");
         titles.put("shuangpin", "小鹤双拼");

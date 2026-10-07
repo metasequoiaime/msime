@@ -77,9 +77,9 @@ public final class CustomSkinLibrary {
             String name = strictString(item.opt("name"));
             JSONObject design = item.optJSONObject("design");
             if (id == null || name == null) continue;
-            name = name.trim();
+            name = TextPolicy.trimmed(name);
             if (id.isEmpty() || !boundedName(name) || design == null) continue;
-            long updatedAt = Math.max(0, KeyboardGeometry.strictLong(item.opt("updated_at"), 0));
+            long updatedAt = BoundsPolicy.nonNegative(KeyboardGeometry.strictLong(item.opt("updated_at"), 0));
             result.add(new Item(id, name, design, updatedAt));
         }
         return List.copyOf(result);
@@ -103,7 +103,7 @@ public final class CustomSkinLibrary {
     public static boolean add(Path preferencesDirectory, String id, String name, JSONObject design,
             long updatedAt) throws IOException {
         if (id == null || id.isEmpty() || name == null || design == null) return false;
-        String bounded = name.trim();
+        String bounded = TextPolicy.trimmed(name);
         if (!boundedName(bounded)) return false;
         Path root = checkedRoot(preferencesDirectory);
         ensureSafeDirectory(root);
@@ -151,7 +151,7 @@ public final class CustomSkinLibrary {
 
     /** 原子写入整个库；超过字节上限时不写并返回 false。 */
     private static boolean write(Path root, JSONArray values) throws IOException {
-        byte[] document = values.toString().getBytes(StandardCharsets.UTF_8);
+        byte[] document = TextPolicy.utf8Bytes(values.toString());
         if (document.length > MAX_LIBRARY_BYTES) return false;
         Path directory = root.resolve("CustomSkins");
         ensureSafeDirectory(directory);
@@ -209,7 +209,7 @@ public final class CustomSkinLibrary {
         for (Item item : items) {
             JSONObject exported = entry(item.id(), item.name(),
                 CustomKeyboardSkin.from(item.design()).toJson(false), item.updatedAt());
-            long size = exported.toString().getBytes(StandardCharsets.UTF_8).length
+            long size = TextPolicy.utf8Bytes(exported.toString()).length
                 + (values.length() == 0 ? 0 : 1);
             if (used + size > maxBytes) break;
             values.put(exported);
@@ -259,9 +259,9 @@ public final class CustomSkinLibrary {
             String name = strictString(value.opt("name"));
             JSONObject design = value.optJSONObject("design");
             if (id == null || id.isEmpty() || name == null || design == null) continue;
-            name = name.trim();
+            name = TextPolicy.trimmed(name);
             if (!boundedName(name)) continue;
-            long updatedAt = Math.max(0, KeyboardGeometry.strictLong(value.opt("updated_at"), 0));
+            long updatedAt = BoundsPolicy.nonNegative(KeyboardGeometry.strictLong(value.opt("updated_at"), 0));
             int position = indexOf(result, id);
             if (position >= 0) {
                 Item current = result.get(position);

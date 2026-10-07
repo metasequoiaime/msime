@@ -525,14 +525,23 @@ impl NineKeySession {
                 // The database lookup key is the lowercase spelling in `pinyin`; `word` is the
                 // display form and may intentionally contain punctuation or spaces (for example
                 // the custom entry `dont` displayed as `don't`).
-                if !digits_for_word(&word.pinyin).starts_with(&digits)
-                    || has_candidate_word(&words, &word.word)
-                {
+                if !digits_for_word(&word.pinyin).starts_with(&digits) {
                     continue;
                 }
                 words.push(word);
             }
         }
+        let mut seen_words = HashSet::with_capacity(words.len());
+        let unique = words
+            .iter()
+            .map(|word| seen_words.insert(word.word.as_str()))
+            .collect::<Vec<_>>();
+        drop(seen_words);
+        words = words
+            .into_iter()
+            .zip(unique)
+            .filter_map(|(word, unique)| unique.then_some(word))
+            .collect();
         rank_english(&mut words, digits.len());
         words
     }
@@ -639,6 +648,7 @@ fn agrees_with_locked(matched: &str, locked_key: &str) -> bool {
     under || over
 }
 
+#[cfg(test)]
 fn has_candidate_word(candidates: &[WordItem], word: &str) -> bool {
     candidates.iter().any(|candidate| candidate.word == word)
 }

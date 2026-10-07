@@ -350,6 +350,8 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     "shuangpin_preedit_uses_raw",
     // Whole objects: the app merges single fields into them, and the document's copy is the one it wrote.
     "quanpin", "mixed_input", "quanpin_helpcode", "shuangpin_helpcode", "local_modes",
+    // 整句联想 on the 输入 page: the session attaches or drops the keyboard sentence model once idle, so turning 增强 off stops it in the keyboard that is already open.
+    "sentence_association",
     // Laid over the document by `hostOverrides` from the iOS switch, so a change to that switch reaches the live session too.
     "cloud_candidates",
     // Laid over the document from the iOS page size, like cloud candidates; the session applies it once idle, so an open composition keeps its page.
@@ -1037,7 +1039,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     // The view names a profile whatever the scheme, because the Engine is built with one
     // either way; only the scheme says whether the keys are running it.
     guard let snapshot = try? view(),
-          (snapshot["scheme"] as? NSNumber)?.uint8Value == Self.shuangpinSchemeCode,
+          Self.strictUInt64(snapshot["scheme"]) == UInt64(Self.shuangpinSchemeCode),
           let profile = snapshot["shuangpin_profile"] as? String, !profile.isEmpty,
           let data = profile.data(using: .utf8) else { return [:] }
     let response = try? data.withUnsafeBytes { bytes -> Any in
@@ -1271,7 +1273,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     let snapshot: [String: Any] = ["format_version": 1, "revision": revision, "preferences": prefs]
     do {
       let response = try Self.callUpdate(msimeClientUpdatePreferences, handle, snapshot)
-      return response["deferred"] as? Bool != true
+      return try Self.preferencesUpdateSucceeded(response)
     } catch {
       options["preferences"] = previous
       revision &-= 1
@@ -1325,6 +1327,24 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     return CandidateGlossModel.integerValue(number, maximum: UInt64.max)
   }
 
+  /// The runtime always reports whether a preference update was deferred. A missing or
+  /// non-boolean field is a malformed protocol response, not an applied update.
+  static func preferencesUpdateSucceeded(_ response: [String: Any]) throws -> Bool {
+    guard let deferred = response["deferred"] as? Bool else {
+      throw InputBridgeFailure.invalidResponse
+    }
+    return !deferred
+  }
+
+  /// Runtime state flags are protocol booleans. Keep absent optional fields on
+  /// their documented defaults, but never let NSNumber or strings coerce into
+  /// a state transition.
+  private static func strictBool(_ value: Any?, fallback: Bool) throws -> Bool {
+    guard let value else { return fallback }
+    guard let boolean = value as? Bool else { throw InputBridgeFailure.invalidResponse }
+    return boolean
+  }
+
   private static func snapshot(_ value: [String: Any]) throws -> MetasequoiaInputSnapshot {
     let view = value["view"] as? [String: Any] ?? [:]
     let rows = view["candidates"] as? [[String: Any]] ?? []
@@ -1336,7 +1356,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     let pageCount = try strictInt(view["page_count"], fallback: 0, range: 0...Int.max)
     let editingText = view["editing_text"] as? String ?? ""
     let caretPosition = try strictInt(view["caret_position"], fallback: 0, range: 0...editingText.utf8.count)
-    return MetasequoiaInputSnapshot(isHandled: value["handled"] as? Bool ?? false,
+    return MetasequoiaInputSnapshot(isHandled: try strictBool(value["handled"], fallback: false),
       commitText: value["commit"] as? String, preedit: view["preedit"] as? String ?? "",
       reading: view["reading"] as? String ?? "",
       phrasePrefix: view["phrase_prefix"] as? String ?? "",
@@ -1347,7 +1367,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
       candidateSources: candidateSources,
       candidateFixedPositions: candidateFixedPositions,
       candidatePageCount: pageCount,
-      answeredByPinyinFallback: view["answered_by_pinyin_fallback"] as? Bool ?? false,
+      answeredByPinyinFallback: try strictBool(view["answered_by_pinyin_fallback"], fallback: false),
       diagnosticText: value["diagnostic"] as? String,
       localMode: view["local_mode"] as? String ?? "none",
       nineKeySpellings: view["nine_key_spellings"] as? [String] ?? [],
@@ -1365,8 +1385,12 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     return integer
   }
 
-  private static func decode(_ pointer: UnsafeMutablePointer<CChar>?) throws -> Any {
+  static func decodeResponse(
+    _ pointer: UnsafeMutablePointer<CChar>?,
+    release: (UnsafeMutablePointer<CChar>) -> Void
+  ) throws -> Any {
     guard let pointer else { throw InputBridgeFailure.unavailable }
+    defer { release(pointer) }
     // Parse the response where it already is. Going through `String(cString:)` and then
     // `.data(using:)` copies the whole document twice - and validates its UTF-8 on the way - before
     // the parser has seen a byte of it. Every keystroke carries a view with nine candidates, their
@@ -1379,19 +1403,21 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
           with: Data(bytesNoCopy: UnsafeMutableRawPointer(mutating: bytes), count: length,
                      deallocator: .none))
       }
-      msimeClientStringFree(pointer)
       guard let object = parsed as? [String: Any] else { throw InputBridgeFailure.invalidResponse }
       envelope = object
     } catch let failure as InputBridgeFailure {
       throw failure
     } catch {
-      msimeClientStringFree(pointer)
       throw InputBridgeFailure.invalidResponse
     }
     guard envelope["ok"] as? Bool == true else {
       throw InputBridgeFailure.response(envelope["error"] as? String ?? "输入运行时调用失败")
     }
     return envelope["value"] ?? NSNull()
+  }
+
+  private static func decode(_ pointer: UnsafeMutablePointer<CChar>?) throws -> Any {
+    try decodeResponse(pointer, release: msimeClientStringFree)
   }
 
   private static func callCreate(_ options: [String: Any]) throws -> [String: Any] {

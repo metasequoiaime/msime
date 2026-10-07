@@ -256,6 +256,66 @@ fn online_provider_deduplicates_before_enforcing_source_quota() {
 
 #[cfg(unix)]
 #[test]
+fn online_provider_rejects_control_characters_in_query_fields() {
+    let directory = private_tempdir();
+    let socket = directory.path().join("missing.sock");
+    for field in ["ai_context", "query_text", "identity", "cache_key"] {
+        let mut document = json!({
+            "scheme": 0,
+            "generation": 1,
+            "identity": "identity",
+            "query_text": "nihao",
+            "cache_key": "cache",
+            "pinyin_segments": ["ni", "hao"],
+            "cloud_eligible": true,
+            "ai_eligible": true,
+            "session_id": 5,
+            "ai_assistant": {"enabled": true, "candidate_limit": 1}
+        });
+        document[field] = json!("safe\u{0}text");
+        let query: OnlineQuery = serde_json::from_value(document).unwrap();
+        assert!(
+            UnixSocketProvider::new(&socket)
+                .query_candidates(query)
+                .is_none(),
+            "field {field} must reject control characters"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn panel_provider_rejects_unsafe_text_and_handwriting_language() {
+    let directory = private_tempdir();
+    let socket = directory.path().join("missing.sock");
+    assert!(UnixSocketProvider::new(&socket)
+        .ai_test(
+            "synthetic",
+            "https://ai.invalid/v1",
+            "model",
+            "prompt\u{0}",
+            "sample"
+        )
+        .is_none());
+    assert!(UnixSocketProvider::new(&socket)
+        .handwriting(HandwritingQuery {
+            language: "zh\u{0}CN".into(),
+            strokes: vec![vec![HandwritingPoint { x: 0.0, y: 0.0 }]],
+        })
+        .is_none());
+    assert!(UnixSocketProvider::new(&socket)
+        .handwriting(HandwritingQuery {
+            language: "zh-CN".into(),
+            strokes: vec![vec![HandwritingPoint {
+                x: f32::NAN,
+                y: 0.0,
+            }]],
+        })
+        .is_none());
+}
+
+#[cfg(unix)]
+#[test]
 fn translation_provider_rejects_controls_at_the_socket_boundary() {
     let directory = private_tempdir();
     let request_socket = directory.path().join("translation-request.sock");
@@ -483,6 +543,156 @@ fn voice_provider_rejects_events_without_generation_binding() {
             None,
         )
         .is_none());
+    server.join().unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn voice_provider_rejects_unknown_event_types() {
+    let directory = private_tempdir();
+    let socket = directory.path().join("voice.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut request = String::new();
+        std::io::BufRead::read_line(
+            &mut std::io::BufReader::new(stream.try_clone().unwrap()),
+            &mut request,
+        )
+        .unwrap();
+        std::io::Write::write_all(
+            &mut stream,
+            br#"{"generation":7,"type":"unexpected","text":"synthetic"}"#,
+        )
+        .unwrap();
+        std::io::Write::write_all(&mut stream, b"\n").unwrap();
+    });
+    let provider = UnixSocketProvider::new(socket);
+    let mut updates = Vec::new();
+    assert!(provider
+        .voice_stream_with_options_feedback(
+            "zh-cn",
+            7,
+            &Value::Null,
+            None,
+            &mut |text, final_result| updates.push((text.to_owned(), final_result)),
+            None,
+            None,
+        )
+        .is_none());
+    assert!(
+        updates.is_empty(),
+        "unknown event reached transcript callbacks"
+    );
+    server.join().unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn voice_provider_rejects_control_characters_in_transcripts() {
+    let directory = private_tempdir();
+    let socket = directory.path().join("voice.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut request = String::new();
+        std::io::BufRead::read_line(
+            &mut std::io::BufReader::new(stream.try_clone().unwrap()),
+            &mut request,
+        )
+        .unwrap();
+        std::io::Write::write_all(
+            &mut stream,
+            br#"{"generation":7,"type":"final","text":"bad\u0000text","ok":true}"#,
+        )
+        .unwrap();
+        std::io::Write::write_all(&mut stream, b"\n").unwrap();
+    });
+    let provider = UnixSocketProvider::new(socket);
+    let mut updates = Vec::new();
+    assert!(provider
+        .voice_stream_with_options_feedback(
+            "zh-cn",
+            7,
+            &Value::Null,
+            None,
+            &mut |text, final_result| updates.push((text.to_owned(), final_result)),
+            None,
+            None,
+        )
+        .is_none());
+    assert!(updates.is_empty(), "control-bearing transcript reached callbacks");
+    server.join().unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn emoji_provider_rejects_control_characters_in_items() {
+    let directory = private_tempdir();
+    let socket = directory.path().join("emoji.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut request = String::new();
+        std::io::BufRead::read_line(
+            &mut std::io::BufReader::new(stream.try_clone().unwrap()),
+            &mut request,
+        )
+        .unwrap();
+        std::io::Write::write_all(
+            &mut stream,
+            r#"{"items":[{"text":"😀","annotation":"bad\u0000annotation"}]}"#
+                .as_bytes(),
+        )
+        .unwrap();
+        std::io::Write::write_all(&mut stream, b"\n").unwrap();
+    });
+    let provider = UnixSocketProvider::new(socket);
+    assert!(provider
+        .emoji(EmojiPanelQuery {
+            search: String::new(),
+            category: String::new(),
+            limit: 1,
+        })
+        .is_none());
+    server.join().unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn voice_provider_rejects_final_events_without_success_envelope() {
+    let directory = private_tempdir();
+    let socket = directory.path().join("voice.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut request = String::new();
+        std::io::BufRead::read_line(
+            &mut std::io::BufReader::new(stream.try_clone().unwrap()),
+            &mut request,
+        )
+        .unwrap();
+        std::io::Write::write_all(
+            &mut stream,
+            br#"{"generation":7,"type":"final","text":"synthetic"}"#,
+        )
+        .unwrap();
+        std::io::Write::write_all(&mut stream, b"\n").unwrap();
+    });
+    let provider = UnixSocketProvider::new(socket);
+    let mut updates = Vec::new();
+    assert!(provider
+        .voice_stream_with_options_feedback(
+            "zh-cn",
+            7,
+            &Value::Null,
+            None,
+            &mut |text, final_result| updates.push((text.to_owned(), final_result)),
+            None,
+            None,
+        )
+        .is_none());
+    assert!(updates.is_empty(), "missing ok reached transcript callbacks");
     server.join().unwrap();
 }
 

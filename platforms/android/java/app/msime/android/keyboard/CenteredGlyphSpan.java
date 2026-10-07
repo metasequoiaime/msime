@@ -24,8 +24,7 @@ public final class CenteredGlyphSpan extends ReplacementSpan {
      * 把 {@code text} 用本 span 设成键面文字，并去掉上下内边距和字体留白。矮键（底栏、九键侧栏）上字号的行高加上按钮默认的上下内边距会超出可见区域，TextView 这时不再垂直居中而是顶对齐往下溢出，居中画的字形就被底边裁掉。
      */
     public static void apply(android.widget.TextView view, String text, float scale) {
-        view.setIncludeFontPadding(false);
-        view.setPadding(view.getPaddingLeft(), 0, view.getPaddingRight(), 0);
+        ViewPolicy.clearFontAndVerticalPadding(view);
         view.setText(of(text, scale));
     }
 

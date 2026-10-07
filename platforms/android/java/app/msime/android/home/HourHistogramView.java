@@ -7,7 +7,10 @@ import android.graphics.RectF;
 import android.util.AttributeSet;
 import android.view.View;
 import androidx.annotation.Nullable;
+import app.msime.android.BoundsPolicy;
 import app.msime.android.R;
+import app.msime.android.ListPolicy;
+import app.msime.android.TypingStatisticsSummary;
 import app.msime.android.TypingStatisticsSummary.PeakWindow;
 import java.util.List;
 
@@ -20,7 +23,7 @@ public final class HourHistogramView extends View {
     private static final float BAR_GAP = 3f;
     private static final float LABEL_GAP = 6f;
     private static final float LABEL_SIZE = 11f;
-    private static final int[] TICKS = {0, 6, 12, 18, 24};
+    private static final int[] TICKS = {0, 6, 12, 18, TypingStatisticsSummary.HOURS_PER_DAY};
 
     private final Paint bar = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint label = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -34,7 +37,7 @@ public final class HourHistogramView extends View {
 
     public HourHistogramView(Context context, @Nullable AttributeSet attributes) {
         super(context, attributes);
-        label.setTextSize(Ui.dp(context, LABEL_SIZE));
+        label.setTextSize(Ui.sp(context, LABEL_SIZE));
     }
 
     /**
@@ -43,17 +46,18 @@ public final class HourHistogramView extends View {
      * @param window 高峰时段，可空；为空时没有柱子高亮
      */
     public void setHours(List<Long> values, @Nullable PeakWindow window, @Nullable String spokenPeak) {
-        hours = values == null ? List.of() : List.copyOf(values);
+        hours = ListPolicy.copyOrEmpty(values);
         peak = window;
-        setContentDescription(spokenPeak == null ? "24 小时输入分布，近 7 天还没有记录"
-            : "24 小时输入分布，最常在" + spokenPeak);
+        String hoursLabel = TypingStatisticsSummary.HOURS_PER_DAY + " 小时输入分布";
+        setContentDescription(spokenPeak == null ? hoursLabel + "，近 7 天还没有记录"
+            : hoursLabel + "，最常在" + spokenPeak);
         invalidate();
     }
 
     private boolean highlighted(int hour) {
         if (peak == null) return false;
-        int start = Math.floorMod(peak.start(), 24);
-        int end = Math.floorMod(peak.end(), 24);
+        int start = Math.floorMod(peak.start(), TypingStatisticsSummary.HOURS_PER_DAY);
+        int end = Math.floorMod(peak.end(), TypingStatisticsSummary.HOURS_PER_DAY);
         if (start == end) return hour == start;
         return start < end ? hour >= start && hour < end : hour >= start || hour < end;
     }
@@ -65,19 +69,19 @@ public final class HourHistogramView extends View {
 
     @Override protected void onDraw(Canvas canvas) {
         Context context = getContext();
-        int count = 24;
+        int count = TypingStatisticsSummary.HOURS_PER_DAY;
         float gap = Ui.dp(context, BAR_GAP);
         float width = (getWidth() - gap * (count - 1)) / count;
         float max = Ui.dp(context, BAR_MAX);
         float min = Ui.dp(context, BAR_MIN);
         float radius = Ui.dp(context, 2);
         long highest = 1;
-        for (long value : hours) highest = Math.max(highest, value);
+        for (long value : hours) highest = BoundsPolicy.atLeast(highest, value);
         int accent = Ui.accent(context);
         int rest = Ui.color(context, R.attr.msStatBar);
         for (int hour = 0; hour < count; hour++) {
             long value = hour < hours.size() ? hours.get(hour) : 0;
-            float height = Math.max(min, max * value / (float) highest);
+            float height = BoundsPolicy.atLeast(min, max * value / (float) highest);
             float left = hour * (width + gap);
             box.set(left, max - height, left + width, max);
             bar.setColor(highlighted(hour) ? accent : rest);
@@ -89,7 +93,8 @@ public final class HourHistogramView extends View {
             String text = tick == 0 ? "0 时" : String.valueOf(tick);
             float x = tick * (width + gap);
             float measured = label.measureText(text);
-            float left = tick == 0 ? 0 : tick == 24 ? getWidth() - measured : x - measured / 2;
+            float left = tick == 0 ? 0 : tick == TypingStatisticsSummary.HOURS_PER_DAY
+                ? getWidth() - measured : x - measured / 2;
             canvas.drawText(text, left, baseline, label);
         }
     }

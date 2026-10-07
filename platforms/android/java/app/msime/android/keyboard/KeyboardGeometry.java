@@ -1,8 +1,13 @@
 package app.msime.android;
 
 import android.content.Context;
+import android.content.res.Configuration;
 import android.util.TypedValue;
-import java.util.Locale;
+import android.view.View;
+import android.widget.FrameLayout;
+import android.widget.LinearLayout;
+import android.widget.ScrollView;
+import android.view.ViewGroup;
 import java.math.BigDecimal;
 import org.json.JSONObject;
 
@@ -51,6 +56,37 @@ public final class KeyboardGeometry {
     public static final int MAX_DESIGN_HEIGHT_ADJUSTMENT_DP = 55;
 
     private KeyboardGeometry() { }
+
+    /** Return the shorter of two dimensions for proportional control sizing. */
+    public static float shorterSide(float width, float height) {
+        return BoundsPolicy.atMost(width, height);
+    }
+
+    /** Return the current display width in physical pixels. */
+    public static int screenWidthPixels(Context context) {
+        return context.getResources().getDisplayMetrics().widthPixels;
+    }
+
+    /** Return whether the supplied context currently uses the system night configuration. */
+    public static boolean isNight(Context context) {
+        return (context.getResources().getConfiguration().uiMode
+            & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
+    }
+
+    /** Read the display density used by keyboard geometry calculations. */
+    public static float density(Context context) {
+        return context.getResources().getDisplayMetrics().density;
+    }
+
+    /** Return a view's non-negative width after horizontal padding. */
+    public static int contentWidth(View view) {
+        return BoundsPolicy.nonNegative(view.getWidth() - view.getPaddingLeft() - view.getPaddingRight());
+    }
+
+    /** Return a view's non-negative height after vertical padding. */
+    public static int contentHeight(View view) {
+        return BoundsPolicy.nonNegative(view.getHeight() - view.getPaddingTop() - view.getPaddingBottom());
+    }
 
     /** 键盘高度百分比对应的高度调整 dp：`round(184 × (p − 100) / 100)`，范围外先钳到 75–130，与 Rust `height_percent_to_adjustment` 同式（向远离零的方向取整）。 */
     public static int heightPercentToAdjustment(int percent) {
@@ -150,7 +186,7 @@ public final class KeyboardGeometry {
     }
 
     public static String display(int tenths) {
-        return String.format(Locale.ROOT, "%.1f", tenths / 10.0);
+        return NumberPolicy.decimal1(tenths / 10.0);
     }
 
     public static String displayHeight(int adjustment) {
@@ -160,7 +196,12 @@ public final class KeyboardGeometry {
 
     public static int halfGapPixels(int tenths, float density) {
         if (!Float.isFinite(density) || density <= 0) return 0;
-        return Math.max(0, Math.round(tenths * density / 20f));
+        return BoundsPolicy.nonNegative(Math.round(tenths * density / 20f));
+    }
+
+    /** Convert a size to pixels while guaranteeing at least one physical pixel. */
+    public static int atLeastOnePixel(Context context, float dp) {
+        return BoundsPolicy.atLeast(pixels(context, dp), 1);
     }
 
     /** Convert an integer density-independent size to pixels using Android's rounding rule. */
@@ -175,7 +216,193 @@ public final class KeyboardGeometry {
 
     /** Convert a density-independent size to rounded pixels using the context's density. */
     public static int pixels(Context context, float dp) {
-        return pixels(dp, context.getResources().getDisplayMetrics().density);
+        return pixels(dp, density(context));
+    }
+
+    /** Create a vertical container for stacked keyboard content. */
+    public static LinearLayout column(Context context) {
+        LinearLayout view = new LinearLayout(context);
+        view.setOrientation(LinearLayout.VERTICAL);
+        return view;
+    }
+
+    /** Create a horizontal container for inline keyboard content. */
+    public static LinearLayout row(Context context) {
+        LinearLayout view = new LinearLayout(context);
+        view.setOrientation(LinearLayout.HORIZONTAL);
+        return view;
+    }
+
+    /** Create linear layout parameters from density-independent dimensions. */
+    public static LinearLayout.LayoutParams linearParams(Context context, float widthDp, float heightDp) {
+        return new LinearLayout.LayoutParams(pixels(context, widthDp), pixels(context, heightDp));
+    }
+
+    /** Create linear layout parameters from already pixel-sized dimensions. */
+    public static LinearLayout.LayoutParams linearParamsPx(int widthPixels, int heightPixels) {
+        return new LinearLayout.LayoutParams(widthPixels, heightPixels);
+    }
+
+    /** Create full-width linear layout parameters with content-sized height. */
+    public static LinearLayout.LayoutParams matchWidthWrapParams() {
+        return new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT);
+    }
+
+    /** Create linear layout parameters that fill both dimensions. */
+    public static LinearLayout.LayoutParams matchParentParams() {
+        return new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.MATCH_PARENT);
+    }
+
+    /** Create linear layout parameters that wrap both dimensions. */
+    public static LinearLayout.LayoutParams wrapParams() {
+        return new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT);
+    }
+
+    /** Create content-height parameters whose width either wraps or fills the parent. */
+    public static LinearLayout.LayoutParams wrapOrMatchWidthParams(boolean wrapWidth) {
+        return new LinearLayout.LayoutParams(wrapWidth
+            ? LinearLayout.LayoutParams.WRAP_CONTENT : LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT);
+    }
+
+    /** Create weighted linear layout parameters that fill the parent's height. */
+    public static LinearLayout.LayoutParams weightedMatchParentParams(float weight) {
+        return new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, weight);
+    }
+
+    /** Create weighted linear layout parameters with content-sized height. */
+    public static LinearLayout.LayoutParams weightedWrapParams(float weight) {
+        return new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, weight);
+    }
+
+    /** Create weighted linear layout parameters with an already pixel-sized height. */
+    public static LinearLayout.LayoutParams weightedHeightPxParams(int heightPixels, float weight) {
+        return new LinearLayout.LayoutParams(0, heightPixels, weight);
+    }
+
+    /** Create weighted linear layout parameters that fill width with a zero-height basis. */
+    public static LinearLayout.LayoutParams weightedWidthParams(float weight) {
+        return new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, weight);
+    }
+
+    /** Create weighted linear layout parameters with zero width and height bases. */
+    public static LinearLayout.LayoutParams weightedZeroParams(float weight) {
+        return new LinearLayout.LayoutParams(0, 0, weight);
+    }
+
+    /** Fill the cross axis while distributing the main axis by weight. */
+    public static LinearLayout.LayoutParams weightedCrossAxisFillParams(boolean horizontal,
+            float weight) {
+        return horizontal ? weightedMatchParentParams(weight) : weightedWidthParams(weight);
+    }
+
+    /** Create full-width linear layout parameters with an already pixel-sized height. */
+    public static LinearLayout.LayoutParams matchWidthHeightPx(int heightPixels) {
+        return new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, heightPixels);
+    }
+
+    /** 创建像素尺寸的线性布局正方形参数。 */
+    public static LinearLayout.LayoutParams squareParamsPx(int size) {
+        return new LinearLayout.LayoutParams(size, size);
+    }
+
+    /** Create linear layout parameters with content-sized width and parent-sized height. */
+    public static LinearLayout.LayoutParams wrapMatchParentParams() {
+        return new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT,
+            LinearLayout.LayoutParams.MATCH_PARENT);
+    }
+
+    /** Create frame layout parameters that fill both parent dimensions. */
+    public static FrameLayout.LayoutParams frameMatchParentParams() {
+        return new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.MATCH_PARENT);
+    }
+
+    /** Create frame layout parameters that wrap both dimensions. */
+    public static FrameLayout.LayoutParams frameWrapParams() {
+        return new FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT);
+    }
+
+    /** Create frame layout parameters that fill width with an already pixel-sized height. */
+    public static FrameLayout.LayoutParams frameMatchWidthHeightPx(int heightPixels) {
+        return new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, heightPixels);
+    }
+
+    /** Create frame layout parameters for a pixel-sized square. */
+    public static FrameLayout.LayoutParams squareFrameParamsPx(int size) {
+        return new FrameLayout.LayoutParams(size, size);
+    }
+
+    /** Create frame layout parameters from already pixel-sized dimensions. */
+    public static FrameLayout.LayoutParams frameParamsPx(int widthPixels, int heightPixels) {
+        return new FrameLayout.LayoutParams(widthPixels, heightPixels);
+    }
+
+    /** Create frame layout parameters from pixel dimensions and explicit gravity. */
+    public static FrameLayout.LayoutParams frameParamsPx(int widthPixels, int heightPixels,
+            int gravity) {
+        return new FrameLayout.LayoutParams(widthPixels, heightPixels, gravity);
+    }
+
+    /** Create frame layout parameters that fill width with content-sized height. */
+    public static FrameLayout.LayoutParams frameMatchWidthWrapParams() {
+        return new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT);
+    }
+
+    /** Create frame layout parameters that fill width with content-sized height and gravity. */
+    public static FrameLayout.LayoutParams frameMatchWidthWrapParams(int gravity) {
+        return new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT, gravity);
+    }
+
+    /** Create scroll-view child parameters that fill both dimensions. */
+    public static ScrollView.LayoutParams scrollMatchParentParams() {
+        return new ScrollView.LayoutParams(ScrollView.LayoutParams.MATCH_PARENT,
+            ScrollView.LayoutParams.MATCH_PARENT);
+    }
+
+    /** Create scroll-view child parameters that fill width and wrap content height. */
+    public static ScrollView.LayoutParams scrollMatchWidthWrapParams() {
+        return new ScrollView.LayoutParams(ScrollView.LayoutParams.MATCH_PARENT,
+            ScrollView.LayoutParams.WRAP_CONTENT);
+    }
+
+    /** Apply the same start and end margin to a layout parameter. */
+    public static void setHorizontalMargins(ViewGroup.MarginLayoutParams params, int margin) {
+        params.setMarginStart(margin);
+        params.setMarginEnd(margin);
+    }
+
+    /** Create weighted linear layout parameters with a fixed height in dp. */
+    public static LinearLayout.LayoutParams weightedHeightParams(Context context, float heightDp,
+            float weight) {
+        return new LinearLayout.LayoutParams(0, pixels(context, heightDp), weight);
+    }
+
+    /** Apply symmetric horizontal and vertical padding expressed in dp. */
+    public static void setSymmetricPaddingDp(View view, Context context, float horizontalDp,
+            float verticalDp) {
+        int horizontal = pixels(context, horizontalDp);
+        int vertical = pixels(context, verticalDp);
+        view.setPadding(horizontal, vertical, horizontal, vertical);
+    }
+
+    /** Apply equal horizontal dp padding with no vertical padding. */
+    public static void setHorizontalPaddingDp(View view, Context context, float horizontalDp) {
+        int horizontal = pixels(context, horizontalDp);
+        view.setPadding(horizontal, 0, horizontal, 0);
+    }
+
+    /** Apply four-sided padding expressed in density-independent pixels. */
+    public static void setPaddingDp(View view, Context context, float leftDp, float topDp,
+            float rightDp, float bottomDp) {
+        view.setPadding(pixels(context, leftDp), pixels(context, topDp),
+            pixels(context, rightDp), pixels(context, bottomDp));
     }
 
     /** Convert a fractional density-independent size to pixels without rounding. */
@@ -185,7 +412,13 @@ public final class KeyboardGeometry {
 
     /** Convert a fractional density-independent size to pixels using the context's density. */
     public static float floatPixels(Context context, double dp) {
-        return floatPixels(dp, context.getResources().getDisplayMetrics().density);
+        return floatPixels(dp, density(context));
+    }
+
+    /** Convert pixels back to density-independent units using the context's density. */
+    public static float fromPixels(Context context, float pixels) {
+        float density = density(context);
+        return density <= 0 ? pixels : pixels / density;
     }
 
     /** Convert scalable text units using the view context's display metrics. */
@@ -194,12 +427,62 @@ public final class KeyboardGeometry {
             context.getResources().getDisplayMetrics());
     }
 
+    /** 键盘里的文字最多跟随系统字体放大到这个倍数。 */
+    public static final float MAX_KEYBOARD_FONT_SCALE = 1.15f;
+
+    /**
+     * 键盘里文字实际用的字体缩放：系统设置调小时照样跟随，调大时封顶在 {@link #MAX_KEYBOARD_FONT_SCALE}。
+     *
+     * <p>键高、候选行高和工具栏都是固定 dp，而国产机出厂常把字体设成「大」甚至「超大」（1.3–2.0 倍）。不封顶时 22 sp 的字母在 56 dp 的键里放不下：文字超出内边距框时 TextView 不再居中，而是从上内边距处往下排，字母被挤到键底被裁掉，`123` 折成两行，「中」只剩顶上一截。系统键盘（Gboard、iOS）的键面同样不随系统字号无限放大。
+     */
+    public static float keyboardFontScale(float systemFontScale) {
+        if (!(systemFontScale > 0) || Float.isInfinite(systemFontScale)) return 1f;
+        return Math.min(systemFontScale, MAX_KEYBOARD_FONT_SCALE);
+    }
+
+    /** 键盘文字的 sp 换算成像素，字体缩放按 {@link #keyboardFontScale} 封顶。 */
+    public static float keySp(Context context, float value) {
+        android.content.res.Resources resources = context.getResources();
+        return value * resources.getDisplayMetrics().density
+            * keyboardFontScale(resources.getConfiguration().fontScale);
+    }
+
+    /** 键盘里没有另定字号的按键和文字用的字号（sp），与 Material 按钮的默认字号相同。不设时取的是系统主题里的按钮字号：各厂商不同，而且不受 {@link #keyboardFontScale} 封顶，九键的 ABC 在大字体下会折行。 */
+    public static final float DEFAULT_KEY_TEXT_SP = 14f;
+
+    /** 以 {@link #keySp} 设置键盘里控件的字号。 */
+    public static void setKeyTextSize(android.widget.TextView view, float sp) {
+        view.setTextSize(TypedValue.COMPLEX_UNIT_PX, keySp(view.getContext(), sp));
+    }
+
+    /** 键帽左右各留的内边距（dp）：只防字形贴住圆角，键宽几乎全部留给文字。 */
+    public static final int KEY_CAP_HORIZONTAL_PADDING_DP = 2;
+
+    /**
+     * 给键帽定下与系统主题无关的内边距和最小尺寸。
+     *
+     * <p>键帽一直沿用按钮样式自带的内边距，那份内边距来自系统主题的按钮背景：原生 Material 是左右 12 dp、上下 10 dp，各厂商的 `DeviceDefault` 主题又各不相同。TextView 把文字裁在内边距框里，36 dp 宽的字母键扣掉两侧内边距后经常放不下一个字母，于是同一个键盘在不同手机上有的正常、有的字母整排消失。键帽的文字本来就由 gravity 居中，提示、数字和图标由各自的子类在需要时另加内边距，所以这里统一归零上下、左右只留 {@link #KEY_CAP_HORIZONTAL_PADDING_DP}，并去掉字体留白和最小宽高。
+     */
+    public static void normalizeKeyCap(android.widget.TextView key) {
+        int horizontal = pixels(key.getContext(), KEY_CAP_HORIZONTAL_PADDING_DP);
+        key.setPadding(horizontal, 0, horizontal, 0);
+        ViewPolicy.clearFontPadding(key);
+        key.setMinWidth(0);
+        key.setMinimumWidth(0);
+        key.setMinHeight(0);
+        key.setMinimumHeight(0);
+    }
+
     public static int bounded(int value, int minimum, int maximum) {
-        return Math.max(minimum, Math.min(value, maximum));
+        return BoundsPolicy.bounded(value, minimum, maximum);
+    }
+
+    public static long bounded(long value, long minimum, long maximum) {
+        return BoundsPolicy.bounded(value, minimum, maximum);
     }
 
     public static double bounded(double value, double minimum, double maximum) {
-        return Math.max(minimum, Math.min(value, maximum));
+        return BoundsPolicy.bounded(value, minimum, maximum);
     }
 
     public static double bounded(double value, double minimum, double maximum, double fallback) {
@@ -207,7 +490,7 @@ public final class KeyboardGeometry {
     }
 
     public static float bounded(float value, float minimum, float maximum) {
-        return Math.max(minimum, Math.min(value, maximum));
+        return BoundsPolicy.bounded(value, minimum, maximum);
     }
 
     private static int clamp(int value, int minimum, int maximum, int fallback) {

@@ -19,7 +19,12 @@ static inline NSString *MSIMEVoiceProviderSocketFromConfiguration(NSDictionary *
         NSString *path = [(NSString *)value stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
         if (!path.length || !path.isAbsolutePath || path.length >= 104 ||
             [path rangeOfCharacterFromSet:NSCharacterSet.controlCharacterSet].location != NSNotFound) continue;
-        if ([fileManager fileExistsAtPath:path]) return path;
+        // Existence alone also matches stale regular files and lock files. The
+        // host-api Unix transport rejects those paths, so advertising one here
+        // would route voice into the shared panel only for every request to
+        // fail instead of falling back to the native provider.
+        NSDictionary *attributes = [fileManager attributesOfItemAtPath:path error:nil];
+        if ([attributes[NSFileType] isEqualToString:NSFileTypeSocket]) return path;
     }
     return nil;
 }

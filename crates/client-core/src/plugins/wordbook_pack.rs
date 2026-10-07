@@ -94,7 +94,7 @@ fn read_entries(directory: &Path, file: &str) -> Result<Vec<WordbookEntry>, Stri
 /// 词表文本的严格解析，规则见模块文档。
 pub(crate) fn parse_words(bytes: &[u8], name: &str) -> Result<Vec<WordbookEntry>, String> {
     let mut entries = Vec::with_capacity(wordbook::MAX_ENTRIES);
-    let mut seen = HashSet::new();
+    let mut seen = HashSet::with_capacity(wordbook::MAX_ENTRIES);
     for (number, line) in data_lines(bytes, name)? {
         if line.is_empty() || line.starts_with('#') {
             continue;

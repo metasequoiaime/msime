@@ -5,7 +5,6 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URI;
-import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import javax.net.ssl.HttpsURLConnection;
 import org.json.JSONArray;
@@ -23,7 +22,7 @@ public final class AiPolishHttpTransport implements AiPolishClient.Transport {
                 .put("messages", new JSONArray()
                     .put(new JSONObject().put("role", "system").put("content", configuration.prompt()))
                     .put(new JSONObject().put("role", "user").put("content", text)));
-            byte[] bytes = body.toString().getBytes(StandardCharsets.UTF_8);
+            byte[] bytes = TextPolicy.utf8Bytes(body.toString());
             connection = (HttpsURLConnection) configuration.endpoint().toURL().openConnection();
             HttpsURLConnection target = connection;
             cancellation.attach(target::disconnect);
@@ -52,7 +51,7 @@ public final class AiPolishHttpTransport implements AiPolishClient.Transport {
                     throw new AiPolishClient.Failure(AiPolishClient.Reason.CANCELLED);
                 if (response == null) throw new AiPolishClient.Failure(AiPolishClient.Reason.INVALID);
             }
-            JSONObject document = new JSONObject(new String(response, StandardCharsets.UTF_8));
+            JSONObject document = new JSONObject(TextPolicy.utf8(response));
             Object content = document.getJSONArray("choices").getJSONObject(0)
                 .getJSONObject("message").opt("content");
             return strictContent(content);

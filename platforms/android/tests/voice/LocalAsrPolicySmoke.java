@@ -23,6 +23,7 @@ public final class LocalAsrPolicySmoke {
         check(!LocalAsrPolicy.usable("local", "models/x"), "a relative path is refused");
         check(!LocalAsrPolicy.usable("local", "/models/x\n/other"), "a control character is refused");
         check(!LocalAsrPolicy.usable("local", "/" + "a".repeat(LocalAsrPolicy.MAX_PATH_LENGTH)), "an overlong path is refused");
+        check(!LocalAsrPolicy.usable("local", "/" + "😀".repeat(1024)), "a path over the shared UTF-8 byte limit is refused");
 
         Path root = Files.createTempDirectory("msime-local-asr");
         try {
@@ -117,7 +118,11 @@ public final class LocalAsrPolicySmoke {
         check(!LocalAsrPolicy.suppliedHotword("  ", "kong"), "a blank word is dropped");
         check(!LocalAsrPolicy.suppliedHotword("水\n杉", "shui shan") && !LocalAsrPolicy.suppliedHotword("水杉", "shui\nshan"), "a control character is dropped");
         check(!LocalAsrPolicy.suppliedHotword("字".repeat(LocalAsrPolicy.MAX_HOTWORD_TEXT_LENGTH + 1), "zi"), "an overlong word is dropped");
+        check(!LocalAsrPolicy.suppliedHotword("😀".repeat(65), "emoji"), "a hotword over the shared UTF-8 byte limit is dropped");
         check(!LocalAsrPolicy.suppliedHotword("水杉", "a".repeat(LocalAsrPolicy.MAX_HOTWORD_PINYIN_LENGTH + 1)), "an overlong pinyin is dropped");
+        check(!LocalAsrPolicy.suppliedHotword("坏\uD800", "huai"), "a malformed word is dropped");
+        check(LocalAsrPolicy.hotwordLines(Arrays.asList("坏\uD800", "好")).equals("好"),
+            "malformed hotwords are dropped before native framing");
         try {
             Method strictText = LocalAsrPolicy.class.getDeclaredMethod("strictText", Object.class);
             strictText.setAccessible(true);
@@ -125,6 +130,23 @@ public final class LocalAsrPolicySmoke {
                 "local ASR accepts string correction text");
             check(strictText.invoke(null, 42) == null,
                 "local ASR rejects numeric correction text instead of coercing it");
+            Method transcript = LocalAsrPolicy.class.getDeclaredMethod("transcript", Object.class);
+            transcript.setAccessible(true);
+            check("synthetic transcript".equals(transcript.invoke(null, "synthetic transcript")),
+                "local ASR accepts bounded transcript text");
+            check("".equals(transcript.invoke(null, "bad\u0000text")),
+                "local ASR rejects transcript controls before editor insertion");
+            check("".equals(transcript.invoke(null, "\ud800")),
+                "local ASR rejects malformed transcript Unicode");
+            check("".equals(transcript.invoke(null,
+                "a".repeat(LocalAsrPolicy.MAX_TRANSCRIPT + 1))),
+                "local ASR rejects overlong transcript text");
+            Method strictBoolean = LocalAsrPolicy.class.getDeclaredMethod("strictBoolean", Object.class);
+            strictBoolean.setAccessible(true);
+            check(Boolean.TRUE.equals(strictBoolean.invoke(null, Boolean.TRUE)),
+                "local ASR accepts JSON booleans");
+            check(strictBoolean.invoke(null, "true") == null,
+                "local ASR rejects boolean strings instead of coercing them");
         } catch (ReflectiveOperationException error) {
             throw new AssertionError("local ASR response parser unavailable", error);
         }

@@ -30,6 +30,7 @@ import app.msime.android.FirstRunPreparation;
 import app.msime.android.HostDeepLink;
 import app.msime.android.core.Telemetry;
 import app.msime.android.R;
+import app.msime.android.ViewPolicy;
 import com.google.android.material.bottomnavigation.BottomNavigationView;
 
 /**
@@ -106,7 +107,7 @@ public final class HomeActivity extends AppCompatActivity {
             intro.setPadding(0, 0, 0, bars.bottom);
             return windowInsets;
         });
-        intro.setOnClickListener(ignored -> dismissIntro());
+        ViewPolicy.bindClick(intro, this::dismissIntro);
 
         // 返回先一层层弹出详情页，栈空了回到第一个 tab，最后才离开应用，这是底部导航让用户预期的顺序。
         // 只用这一个回调：它在 FragmentManager 自己的回调之后注册、优先级更高，两个都处理返回会在有栈时把 tab 也切走。
@@ -150,6 +151,8 @@ public final class HomeActivity extends AppCompatActivity {
         // The shipped dictionary is prepared on first run without the user having to find a button
         // for it: a keyboard that cannot reach the Engine is not a state worth making someone opt
         // out of. Existing configurations are reported, never overwritten.
+        // 先挂上引导页记下的待保存选择：上次在准备完成前选了方案就离开、或进程被杀，这次准备完成时把它写进去。
+        OnboardingChoices.watch(this);
         FirstRunPreparation.startIfNeeded(this);
 
         // 只有首次创建才执行 Intent 里的深链：旋转、换深浅模式和进程恢复时 getIntent() 还是那一个，再执行一遍会把用户已经离开的页面又压回来。
@@ -249,7 +252,7 @@ public final class HomeActivity extends AppCompatActivity {
         intro.animate().cancel();
         intro.setAlpha(1f);
         intro.setClickable(true);
-        intro.setVisibility(View.VISIBLE);
+        ViewPolicy.show(intro);
         barsOnDark(true);
 
         View glow = findViewById(R.id.home_intro_glow);
@@ -331,7 +334,7 @@ public final class HomeActivity extends AppCompatActivity {
         boolean onboarding = onboardingAfterIntro;
         onboardingAfterIntro = false;
         intro.animate().alpha(0f).setDuration(INTRO_FADE_MILLIS).withEndAction(() -> {
-            intro.setVisibility(View.GONE);
+            ViewPolicy.hide(intro);
             intro.setClickable(true);
             stopBreath();
         }).start();

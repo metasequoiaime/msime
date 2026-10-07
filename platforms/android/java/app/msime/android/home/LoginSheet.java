@@ -1,10 +1,11 @@
 package app.msime.android.home;
 
+import app.msime.android.TextPolicy;
+
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.content.Intent;
-import android.content.res.Configuration;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.ColorFilter;
@@ -23,7 +24,6 @@ import android.text.SpannableString;
 import android.text.Spanned;
 import android.text.method.LinkMovementMethod;
 import android.text.style.ClickableSpan;
-import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.inputmethod.EditorInfo;
@@ -34,9 +34,11 @@ import android.widget.TextView;
 import androidx.core.graphics.PathParser;
 import androidx.core.widget.NestedScrollView;
 import app.msime.android.BackendAccount;
+import app.msime.android.BoundsPolicy;
 import app.msime.android.CloudApi;
+import app.msime.android.KeyboardGeometry;
+import app.msime.android.ViewPolicy;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
-import com.google.android.material.bottomsheet.BottomSheetDragHandleView;
 import java.util.function.Consumer;
 
 /**
@@ -102,37 +104,28 @@ final class LoginSheet {
         dialog = new BottomSheetDialog(activity);
         appleResult = this::finishWith;
 
-        LinearLayout root = new LinearLayout(activity);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(Ui.dp(activity, 24), 0, Ui.dp(activity, 24), Ui.dp(activity, 20));
-        root.addView(new BottomSheetDragHandleView(activity), Ui.matchWidth());
+        LinearLayout root = Ui.column(activity);
+        Ui.setPaddingDp(root, activity, 24, 0, 24, 20);
+        root.addView(Ui.sheetDragHandle(activity));
 
-        LinearLayout header = new LinearLayout(activity);
-        header.setOrientation(LinearLayout.HORIZONTAL);
-        header.setGravity(Gravity.CENTER_VERTICAL);
-        TextView title = new TextView(activity);
-        title.setText("link".equals(purpose) ? "添加登录方式" : "登录水杉");
-        Ui.style(title, 22, 700, Ui.text(activity));
+        LinearLayout header = Ui.row(activity);
+        ViewPolicy.setCenteredVertically(header);
+        TextView title = Ui.styledLabel(activity, "link".equals(purpose) ? "添加登录方式" : "登录水杉",
+            22, 700, Ui.text(activity));
         title.setAccessibilityHeading(true);
-        header.addView(title, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-        ImageView close = new ImageView(activity);
-        close.setImageDrawable(new PathIcon(24, new String[] {CLOSE_PATH}, new int[] {Ui.text(activity)}));
-        close.setPadding(Ui.dp(activity, 8), Ui.dp(activity, 8), Ui.dp(activity, 8), Ui.dp(activity, 8));
-        close.setBackground(Ui.ripple(activity));
-        close.setContentDescription("关闭");
-        close.setOnClickListener(ignored -> dialog.cancel());
-        header.addView(close, new LinearLayout.LayoutParams(Ui.dp(activity, 40), Ui.dp(activity, 40)));
+        header.addView(title, Ui.weightWrap(1f));
+        ImageView close = Ui.iconButton(activity,
+            new PathIcon(24, new String[] {CLOSE_PATH}, new int[] {Ui.text(activity)}),
+            Ui.text(activity), "关闭", Ui.BACK_BUTTON_SIZE, dialog::cancel);
+        header.addView(close, Ui.squareParams(activity, 40));
         root.addView(header);
 
-        TextView subtitle = new TextView(activity);
-        subtitle.setText("在手机、平板和电脑之间同步词库、皮肤和云剪贴板");
-        Ui.style(subtitle, 14, 400, Ui.subText(activity));
+        TextView subtitle = Ui.styledLabel(activity, "在手机、平板和电脑之间同步词库、皮肤和云剪贴板",
+            14, 400, Ui.subText(activity));
         root.addView(subtitle, Ui.matchWidth(activity, 2));
 
-        options = new LinearLayout(activity);
-        options.setOrientation(LinearLayout.VERTICAL);
-        boolean night = (activity.getResources().getConfiguration().uiMode
-            & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
+        options = Ui.column(activity);
+        boolean night = Ui.isNight(activity);
         if (providers.appleWeb()) {
             // Apple 的规范按钮：浅色下黑底白字，深色下白底黑字；这是 Apple 的品牌色，不随季节主题变。
             int fill = night ? Color.WHITE : Color.BLACK;
@@ -144,8 +137,7 @@ final class LoginSheet {
             options.addView(button(new PathIcon(48, GOOGLE_PATHS, GOOGLE_COLORS), "通过 Google 登录",
                 Color.TRANSPARENT, Ui.text(activity), Ui.outline(activity), this::google), Ui.matchWidth(activity, 12));
         }
-        email = new LinearLayout(activity);
-        email.setOrientation(LinearLayout.VERTICAL);
+        email = Ui.column(activity);
         if (providers.email()) {
             int accent = Ui.accent(activity);
             options.addView(button(new PathIcon(24, new String[] {MAIL_PATH}, new int[] {accent}), "使用邮箱登录",
@@ -155,11 +147,10 @@ final class LoginSheet {
         }
             root.addView(options, Ui.matchWidth(activity, 0));
 
-        status = new TextView(activity);
-        Ui.style(status, 13, 400, Ui.subText(activity));
-        status.setGravity(Gravity.CENTER_HORIZONTAL);
-        status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
-        status.setVisibility(View.GONE);
+        status = Ui.styledLabel(activity, "", 13, 400, Ui.subText(activity));
+        ViewPolicy.setCenteredHorizontally(status);
+        ViewPolicy.setPoliteLiveRegion(status);
+        ViewPolicy.hide(status);
         root.addView(status, Ui.matchWidth(activity, 12));
 
         root.addView(agreement(), Ui.matchWidth(activity, 16));
@@ -223,7 +214,7 @@ final class LoginSheet {
                     say(result.failure());
                     return;
                 }
-                emailAddress = address.trim();
+                emailAddress = TextPolicy.trimmed(address);
                 challenge = result.challenge();
                 showCodeEntry();
             });
@@ -232,9 +223,9 @@ final class LoginSheet {
 
     private void showCodeEntry() {
         email.removeAllViews();
-        TextView sent = new TextView(activity);
-        sent.setText("验证码已发到 " + emailAddress + "，" + Math.max(1, challenge.expiresIn() / 60) + " 分钟内有效");
-        Ui.style(sent, 13, 400, Ui.subText(activity));
+        TextView sent = Ui.styledLabel(activity, "验证码已发到 " + emailAddress + "，"
+            + BoundsPolicy.bounded(challenge.expiresIn() / 60, 1, Integer.MAX_VALUE)
+            + " 分钟内有效", 13, 400, Ui.subText(activity));
         email.addView(sent, Ui.matchWidth(activity, 12));
         EditText code = field("6 位验证码", InputType.TYPE_CLASS_NUMBER, 6);
         code.setImeOptions(EditorInfo.IME_ACTION_DONE);
@@ -247,20 +238,15 @@ final class LoginSheet {
             verify(code.getText().toString());
             return true;
         });
-        TextView again = new TextView(activity);
-        again.setText("换个邮箱或重新发送");
-        Ui.style(again, 14, 500, Ui.accent(activity));
-        again.setGravity(Gravity.CENTER);
-        again.setMinHeight(Ui.dp(activity, 40));
-        again.setBackground(Ui.ripple(activity));
-        again.setOnClickListener(ignored -> {
-            if (busy) return;
-            email.removeAllViews();
-            status.setVisibility(View.GONE);
-            expandEmail();
-        });
+        TextView again = Ui.textButton(activity, "换个邮箱或重新发送", 14, 500,
+            Ui.accent(activity), Ui.ripple(activity), 40, () -> {
+                if (busy) return;
+                email.removeAllViews();
+                ViewPolicy.hide(status);
+                expandEmail();
+            });
         email.addView(again, Ui.matchWidth(activity, 4));
-        status.setVisibility(View.GONE);
+        ViewPolicy.hide(status);
         code.requestFocus();
     }
 
@@ -300,7 +286,7 @@ final class LoginSheet {
 
     private void say(String message) {
         status.setText(message);
-        status.setVisibility(message.isEmpty() ? View.GONE : View.VISIBLE);
+        Ui.setVisibilityForText(status, message);
     }
 
     private void setEnabled(boolean enabled) {
@@ -314,7 +300,7 @@ final class LoginSheet {
                 setEnabled(nested, enabled);
             } else {
                 child.setEnabled(enabled);
-                child.setAlpha(enabled ? 1f : 0.6f);
+                ViewPolicy.setActiveAlpha(child, enabled, 0.6f);
             }
         }
     }
@@ -323,54 +309,47 @@ final class LoginSheet {
 
     /** 50dp 高、12dp 圆角的整行按钮：可选的 20dp 图标加 16sp 半粗文字，居中。 */
     private View button(Drawable icon, String label, int fill, int ink, int stroke, Runnable action) {
-        LinearLayout button = new LinearLayout(activity);
-        button.setOrientation(LinearLayout.HORIZONTAL);
-        button.setGravity(Gravity.CENTER);
-        button.setMinimumHeight(Ui.dp(activity, 50));
-        GradientDrawable face = Ui.rounded(fill, Ui.dp(activity, 12));
-        if (stroke != 0) face.setStroke(Math.max(1, Ui.dp(activity, 1)), stroke);
+        LinearLayout button = Ui.row(activity);
+        ViewPolicy.setCentered(button);
+        Ui.setMinimumHeightDp(button, activity, 50);
+        GradientDrawable face = stroke == 0
+            ? Ui.rounded(fill, Ui.dp(activity, 12))
+            : Ui.outlined(fill, Ui.dp(activity, 12), Ui.atLeastOnePx(activity, 1), stroke);
         GradientDrawable mask = Ui.rounded(Color.WHITE, Ui.dp(activity, 12));
         int pressed = Ui.withAlpha(fill == Color.BLACK ? Color.WHITE : Ui.text(activity), 0.12f);
         button.setBackground(new RippleDrawable(android.content.res.ColorStateList.valueOf(pressed), face, mask));
         if (icon != null) {
-            ImageView glyph = new ImageView(activity);
-            glyph.setImageDrawable(icon);
-            glyph.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(Ui.dp(activity, 20), Ui.dp(activity, 20));
+            ImageView glyph = Ui.decorativeIcon(activity, icon);
+            LinearLayout.LayoutParams params = Ui.squareParams(activity, 20);
             params.setMarginEnd(Ui.dp(activity, 8));
             button.addView(glyph, params);
         }
-        TextView text = new TextView(activity);
-        text.setText(label);
-        Ui.style(text, 16, 600, ink);
+        TextView text = Ui.styledLabel(activity, label, 16, 600, ink);
         button.addView(text);
         button.setContentDescription(label);
-        button.setClickable(true);
-        button.setFocusable(true);
-        button.setOnClickListener(ignored -> action.run());
+        ViewPolicy.setInteractive(button, true);
+        ViewPolicy.bindClick(button, action);
         return button;
     }
 
     private EditText field(String hint, int inputType, int maxLength) {
-        EditText field = new EditText(activity);
+        EditText field = Ui.styledInput(activity, 16, 400, Ui.text(activity));
         field.setHint(hint);
         field.setInputType(inputType);
         field.setSingleLine(true);
         field.setFilters(new InputFilter[] {new InputFilter.LengthFilter(maxLength)});
-        Ui.style(field, 16, 400, Ui.text(activity));
         field.setHintTextColor(Ui.subText(activity));
-        GradientDrawable face = Ui.rounded(Ui.rowBackground(activity), Ui.dp(activity, 12));
-        face.setStroke(Math.max(1, Ui.dp(activity, 1)), Ui.hairline(activity));
+        GradientDrawable face = Ui.outlined(Ui.rowBackground(activity), Ui.dp(activity, 12),
+            Ui.atLeastOnePx(activity, 1), Ui.hairline(activity));
         field.setBackground(face);
-        field.setPadding(Ui.dp(activity, 14), 0, Ui.dp(activity, 14), 0);
-        field.setMinHeight(Ui.dp(activity, 50));
-        field.setGravity(Gravity.CENTER_VERTICAL);
+        Ui.setHorizontalPaddingDp(field, activity, 14);
+        Ui.setTextMinHeightDp(field, activity, 50);
+        ViewPolicy.setCenteredVertically(field);
         field.setContentDescription(hint);
         return field;
     }
 
     private TextView agreement() {
-        TextView view = new TextView(activity);
         String text = "登录即表示同意《用户协议》和《隐私政策》";
         SpannableString spanned = new SpannableString(text);
         int start = text.indexOf("《隐私政策》");
@@ -388,10 +367,9 @@ final class LoginSheet {
                 paint.setUnderlineText(false);
             }
         }, start, start + "《隐私政策》".length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-        view.setText(spanned);
+        TextView view = Ui.styledLabel(activity, spanned, 12, 400, Ui.subText(activity));
         view.setMovementMethod(LinkMovementMethod.getInstance());
-        Ui.style(view, 12, 400, Ui.subText(activity));
-        view.setGravity(Gravity.CENTER_HORIZONTAL);
+        ViewPolicy.setCenteredHorizontally(view);
         return view;
     }
 
@@ -414,14 +392,14 @@ final class LoginSheet {
 
         @Override public void draw(Canvas canvas) {
             RectF bounds = new RectF(getBounds());
-            float scale = Math.min(bounds.width(), bounds.height()) / viewport;
+            float scale = KeyboardGeometry.shorterSide(bounds.width(), bounds.height()) / viewport;
             matrix.setScale(scale, scale);
             matrix.postTranslate(bounds.left + (bounds.width() - viewport * scale) / 2f,
                 bounds.top + (bounds.height() - viewport * scale) / 2f);
             for (int index = 0; index < paths.length; index++) {
                 scaled.reset();
                 paths[index].transform(matrix, scaled);
-                paint.setColor(colors[Math.min(index, colors.length - 1)]);
+            paint.setColor(colors[BoundsPolicy.atMost(index, colors.length - 1)]);
                 canvas.drawPath(scaled, paint);
             }
         }

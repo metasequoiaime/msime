@@ -18,6 +18,8 @@ export type MobileKeyboardFeedback = {
   hapticsAvailable?: boolean;
   /** iPad only: the digit row and Tab key of the full-width keyboard, kept in the App Group. Absent on a phone, where the keyboard has no room for either. */
   tabletFullKeys?: boolean;
+  /** 仅 iPad：横屏分离式键盘，存在 App Group 的 `keyboard.tablet.split`，默认关。手机上没有这个字段。 */
+  tabletSplitKeyboard?: boolean;
 };
 
 export type MobileKeyboardFeedbackClient = {

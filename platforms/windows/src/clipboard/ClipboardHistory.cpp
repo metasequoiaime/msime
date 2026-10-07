@@ -249,6 +249,17 @@ std::string normalize_clipboard_text(std::string text) {
   }
   return normalized;
 }
+
+#ifdef _WIN32
+std::wstring bounded_clipboard_text(const wchar_t *text, size_t bytes) {
+  if (!text || bytes < sizeof(wchar_t)) return {};
+  const size_t units = (std::min)(bytes / sizeof(wchar_t), ClipboardHistory::max_chars + 1);
+  std::wstring value(text, units);
+  if (const auto terminator = value.find(L'\0'); terminator != std::wstring::npos)
+    value.resize(terminator);
+  return value;
+}
+#endif
 ClipboardHistory::ClipboardHistory(std::filesystem::path store) : store_(std::move(store)) {}
 std::vector<std::string> ClipboardHistory::load() const {
   if (!enabled_) return {};

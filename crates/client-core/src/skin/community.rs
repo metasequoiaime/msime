@@ -15,6 +15,7 @@ use crate::community::{
 use crate::preferences::TouchKeyboardSkinDesign;
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -404,7 +405,7 @@ fn validate_page(page: &CommunitySkinPage) -> Result<(), AccountError> {
     {
         return Err(AccountError::Unavailable);
     }
-    let mut ids = std::collections::BTreeSet::new();
+    let mut ids = HashSet::with_capacity(page.skins.len());
     if page.skins.iter().any(|skin| !ids.insert(skin.id)) {
         return Err(AccountError::Unavailable);
     }

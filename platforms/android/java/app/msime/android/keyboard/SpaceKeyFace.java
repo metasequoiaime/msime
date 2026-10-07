@@ -3,7 +3,6 @@ package app.msime.android;
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Paint;
-import android.util.TypedValue;
 
 /**
  * 空格键：键面画 22 dp 的麦克风描边图标加方案短名（13 sp，kbSub），例如「全拼」「双拼 · 小鹤」「五笔 86」，英文模式是「space」。
@@ -25,13 +24,14 @@ public final class SpaceKeyFace extends KeyboardPressButton {
 
     public SpaceKeyFace(Context context) {
         super(context);
+        KeyboardGeometry.normalizeKeyCap(this);
         setAllCaps(false);
         label.setTextAlign(Paint.Align.LEFT);
     }
 
     /** 方案短名；空串时只画麦克风。 */
     public void setSchemeLabel(String value) {
-        String next = value == null ? "" : value;
+        String next = TextPolicy.emptyIfNull(value);
         if (schemeLabel.equals(next)) return;
         schemeLabel = next;
         invalidate();
@@ -48,7 +48,7 @@ public final class SpaceKeyFace extends KeyboardPressButton {
 
     /** 手势进行中的临时键面文字（如「移动光标」）；非空时只画这段文字，不画麦克风与方案短名。空串恢复常态。 */
     public void setTransientLabel(String value) {
-        String next = value == null ? "" : value;
+        String next = TextPolicy.emptyIfNull(value);
         if (transientLabel.equals(next)) return;
         transientLabel = next;
         invalidate();
@@ -99,25 +99,25 @@ public final class SpaceKeyFace extends KeyboardPressButton {
 
     @Override protected void onDraw(Canvas canvas) {
         if (getWidth() <= 0 || getHeight() <= 0) return;
-        float density = getResources().getDisplayMetrics().density;
-        label.setTextSize(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, LABEL_SP,
-            getResources().getDisplayMetrics()));
+        label.setTextSize(KeyboardGeometry.keySp(getContext(), LABEL_SP));
         label.setColor(faceColor);
         boolean overlay = !transientLabel.isEmpty();
-        float mic = (showsMic && !overlay) ? Math.min(MIC_DP * density, getHeight()) : 0f;
-        float available = getWidth() - mic - GAP_DP * density - 8 * density;
+        float mic = (showsMic && !overlay)
+            ? BoundsPolicy.atMost(KeyboardGeometry.floatPixels(getContext(), MIC_DP), getHeight()) : 0f;
+        float gap = KeyboardGeometry.floatPixels(getContext(), GAP_DP);
+        float available = getWidth() - mic - gap - KeyboardGeometry.floatPixels(getContext(), 8);
         String text = overlay ? transientLabel : schemeLabel;
         while (!text.isEmpty() && label.measureText(text) > available && text.length() > 1) {
             text = text.substring(0, text.length() - 1);
         }
         float textWidth = text.isEmpty() ? 0f : label.measureText(text);
-        float total = contentWidth(mic, GAP_DP * density, textWidth);
+        float total = contentWidth(mic, gap, textWidth);
         float left = (getWidth() - total) / 2f;
         float centerY = getHeight() / 2f;
         if (mic > 0) {
             KeyboardIconPaths.draw(canvas, icon, KeyboardIconPaths.Icon.MIC, left,
                 centerY - mic / 2f, mic, faceColor);
-            left += mic + GAP_DP * density;
+            left += mic + gap;
         }
         if (!text.isEmpty()) {
             Paint.FontMetrics metrics = label.getFontMetrics();

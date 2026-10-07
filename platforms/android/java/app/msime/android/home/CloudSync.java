@@ -1,32 +1,33 @@
 package app.msime.android.home;
 
+import app.msime.android.TextPolicy;
 import android.app.Activity;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.util.Log;
 import app.msime.android.AndroidLocalSettings;
+import app.msime.android.BoundsPolicy;
 import app.msime.android.CloudApi;
 import app.msime.android.CommonPhrasesStore;
 import app.msime.android.CustomSkinLibrary;
+import app.msime.android.DictionaryCollectionsStore;
 import app.msime.android.DictionarySnapshotQueue;
+import app.msime.android.DigestPolicy;
 import app.msime.android.KeyboardFeedbackPreferences;
 import app.msime.android.KeyboardFeedbackStore;
 import app.msime.android.NativeClient;
+import app.msime.android.SafePaths;
 import app.msime.android.SyncApi;
 import app.msime.android.SyncMergePolicy;
 import app.msime.android.SyncSwitch;
+import app.msime.android.TextPolicy;
 import app.msime.android.policy.HostOptionsPolicy;
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStream;
 import java.lang.ref.WeakReference;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -159,11 +160,30 @@ public final class CloudSync {
         });
     }
 
-    private static String message(CloudApi.Failure failure) {
+    /**
+     * 展示给用户的同步失败原因。
+     *
+     * <p>原先除了网络、登录和停用三种，其余一律说「同步失败，稍后自动重试」，但很多失败重试也不会好（云端不收某条词、词库超过上限），用户只能一直看着它失败，反馈过来也查不到原因：服务端日志不记用户和错误码。所以按 msime-cloud 返回的错误码说清楚是哪一种；不认识的带上状态码和错误码，方便用户截图反馈。
+     */
+    static String message(CloudApi.Failure failure) {
         if (failure.network()) return "网络不可用，稍后自动重试";
         if (failure.signedOut()) return "登录已失效，请重新登录后再同步";
         if (failure.unavailable()) return "云同步暂时不可用";
-        return "同步失败，稍后自动重试";
+        switch (failure.code) {
+            case "invalid_dictionary_snapshot", "invalid_dictionary_entry":
+                return "词库里有云端暂不支持的词条，词库没有同步（" + failure.code + "）";
+            case "dictionary_limit": return "云端词库最多保存 10 万条，词库没有同步";
+            case "snapshot_too_large": return "词库太大，无法同步到云端";
+            case "invalid_preference_field", "invalid_preferences": return "有设置项云端不认识，设置没有同步（" + failure.code + "）";
+            case "invalid_phrases": return "常用语超出云端限制（最多 500 条，每条最多 2000 字），常用语没有同步";
+            case "account_banned": return "账号已被停用，无法同步";
+            case "rate_limit_exceeded": return "同步太频繁，稍后自动重试";
+            case "snapshot_restore_busy", "engine_unavailable", "auth_unavailable", "dictionary_timeout":
+                return "云端暂时繁忙，稍后自动重试";
+            default: break;
+        }
+        if (failure.status == 429 || failure.status >= 500) return "云端暂时繁忙，稍后自动重试（HTTP " + failure.status + "）";
+        return "同步失败（HTTP " + failure.status + (failure.code.isEmpty() ? "" : " " + failure.code) + "）";
     }
 
     /** 应用一次云端常用语的结果：成功写入本机的次数（每次都会把代数加一），以及本机收不下的正文。 */
@@ -244,7 +264,7 @@ public final class CloudSync {
 
         private long cursorRevision(String section) {
             try {
-                return Math.max(0L, Long.parseLong(SyncSwitch.cursor(context, section)));
+                return BoundsPolicy.nonNegative(Long.parseLong(SyncSwitch.cursor(context, section)));
             } catch (NumberFormatException never) {
                 return 0L;
             }
@@ -312,8 +332,8 @@ public final class CloudSync {
             JSONObject withoutSkins = settingsOf(nativeValue(NativeClient.accountSettingsExport(request.toString()))
                 .getJSONObject("merged"));
             withoutSkins.remove(SyncMergePolicy.SKINS_KEY);
-            long otherBytes = new JSONObject().put("revision", cloud.revision()).put("settings", withoutSkins)
-                .toString().getBytes(StandardCharsets.UTF_8).length;
+            long otherBytes = TextPolicy.utf8Length(new JSONObject()
+                .put("revision", cloud.revision()).put("settings", withoutSkins).toString());
             List<CustomSkinLibrary.Item> items = SyncMergePolicy.newestFirst(
                 CustomSkinLibrary.read(Paths.get(directory)), CustomSkinLibrary.Item::updatedAt);
             String library = CustomSkinLibrary.exportDesigns(items, SyncMergePolicy.skinBudget(otherBytes));
@@ -336,9 +356,9 @@ public final class CloudSync {
             JSONObject value = nativeValue(NativeClient.accountSettingsApply(request.toString()));
             JSONObject applied = value.optJSONObject("feedback");
             if (applied != null) {
-                KeyboardFeedbackStore.save(context, new KeyboardFeedbackStore.Settings(
-                    applied.optBoolean("soundEnabled", true), applied.optBoolean("hapticsEnabled", false),
-                    KeyboardFeedbackPreferences.strength(applied.optString("hapticStrength", "medium"))));
+                KeyboardFeedbackStore.save(context, KeyboardFeedbackStore.fromValues(
+                    applied.opt("soundEnabled"), applied.opt("hapticsEnabled"),
+                    applied.opt("hapticStrength")));
             }
             if (value.opt("custom_keyboard_skins") instanceof String library) {
                 CustomSkinLibrary.importDesigns(Paths.get(directory), library);
@@ -416,7 +436,7 @@ public final class CloudSync {
             } catch (IOException error) {
                 throw new IllegalStateException("starter phrase record unavailable", error);
             }
-            LinkedHashMap<String, String> own = new LinkedHashMap<>();
+            LinkedHashMap<String, String> own = new LinkedHashMap<>(result.document().phrases().size());
             for (CommonPhrasesStore.Phrase phrase : result.document().phrases()) {
                 if (phrase.own() && !starters.contains(phrase.text())) own.put(phrase.id(), phrase.text());
             }
@@ -536,7 +556,7 @@ public final class CloudSync {
             File files = context.getFilesDir();
             if (files == null) throw new IOException("private files unavailable");
             Path work = files.toPath().resolve(WORK_PATH);
-            Files.createDirectories(work);
+            SafePaths.ensureDirectory(work);
             return work;
         }
 
@@ -550,7 +570,8 @@ public final class CloudSync {
             JSONObject value = nativeValue(NativeClient.dictionary(new JSONObject()
                 .put("options", new JSONObject(hostOptions()))
                 .put("action", new JSONObject().put("operation", "count").put("user_only", true)).toString()));
-            return value.optInt("count", 0);
+            Integer count = DictionaryCollectionsStore.nonNegativeInteger(value.opt("count"));
+            return count == null ? 0 : count;
         }
 
         private int pendingQueueCount() throws IOException, JSONException {
@@ -558,7 +579,8 @@ public final class CloudSync {
                 .put("options", new JSONObject(hostOptions()))
                 .put("action", new JSONObject().put("operation", "list").put("offset", 0).put("limit", 1)
                     .put("user_only", true)).toString()));
-            return value.optInt("pending_count", 0);
+            Integer pending = DictionaryCollectionsStore.nonNegativeInteger(value.opt("pending_count"));
+            return pending == null ? 0 : pending;
         }
 
         private void exportSnapshot(Path destination) throws IOException, JSONException {
@@ -577,7 +599,7 @@ public final class CloudSync {
             DictionarySnapshotQueue queue = new DictionarySnapshotQueue(root, root.resolve(QUEUE_PATH));
             String localVersion = queue.read().localVersion();
             if (localVersion == null) throw new IOException("keyboard has not published a dictionary version yet");
-            queue.enqueue(file.toAbsolutePath(), SyncSwitch.accountId(context), revision, localVersion, sha256(file));
+            queue.enqueue(file.toAbsolutePath(), SyncSwitch.accountId(context), revision, localVersion, DigestPolicy.sha256Hex(file));
         }
 
         /** 「合并」：把云端的词经个人词库队列导入本机，键盘下次开会话时应用。整批被拒时逐条再试，坏的那条跳过。 */
@@ -603,7 +625,7 @@ public final class CloudSync {
                 .put("options", new JSONObject(options))
                 .put("action", new JSONObject().put("operation", "import_personal").put("text", file)
                     .put("request_id", "cloud-merge-" + UUID.randomUUID())).toString()));
-            return response.optBoolean("ok", false);
+            return Boolean.TRUE.equals(response.opt("ok"));
         }
     }
 
@@ -612,7 +634,8 @@ public final class CloudSync {
     /** client-core 的标准响应 `{ok, value, error}`：失败时抛出，信息只进日志。 */
     private static JSONObject nativeValue(String response) throws JSONException {
         JSONObject root = new JSONObject(response == null ? "" : response);
-        if (!root.optBoolean("ok", false)) throw new IllegalStateException(root.optString("error", "native call failed"));
+        if (!Boolean.TRUE.equals(root.opt("ok")))
+            throw new IllegalStateException(root.optString("error", "native call failed"));
         JSONObject value = root.optJSONObject("value");
         return value == null ? new JSONObject() : value;
     }
@@ -638,21 +661,5 @@ public final class CloudSync {
         return result;
     }
 
-    private static String sha256(Path file) throws IOException {
-        MessageDigest digest;
-        try {
-            digest = MessageDigest.getInstance("SHA-256");
-        } catch (NoSuchAlgorithmException impossible) {
-            throw new IllegalStateException(impossible);
-        }
-        byte[] buffer = new byte[16 * 1024];
-        try (InputStream input = Files.newInputStream(file, LinkOption.NOFOLLOW_LINKS)) {
-            int read;
-            while ((read = input.read(buffer)) != -1) digest.update(buffer, 0, read);
-        }
-        StringBuilder hex = new StringBuilder(64);
-        for (byte value : digest.digest()) hex.append(Character.forDigit((value >> 4) & 0xf, 16))
-            .append(Character.forDigit(value & 0xf, 16));
-        return hex.toString();
-    }
+
 }

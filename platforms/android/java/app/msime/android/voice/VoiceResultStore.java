@@ -8,14 +8,10 @@ import java.io.EOFException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.ByteBuffer;
-import java.nio.CharBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
 import java.nio.charset.CharacterCodingException;
-import java.nio.charset.CodingErrorAction;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
@@ -201,12 +197,7 @@ public final class VoiceResultStore {
     private static byte[] encode(Entry entry) throws Failure {
         final byte[] text;
         try {
-            ByteBuffer encoded = StandardCharsets.UTF_8.newEncoder()
-                .onMalformedInput(CodingErrorAction.REPORT)
-                .onUnmappableCharacter(CodingErrorAction.REPORT)
-                .encode(CharBuffer.wrap(entry.text()));
-            text = new byte[encoded.remaining()];
-            encoded.get(text);
+            text = TextPolicy.utf8StrictBytes(entry.text());
         } catch (CharacterCodingException error) {
             throw new Failure(Reason.INVALID, error);
         }
@@ -246,10 +237,7 @@ public final class VoiceResultStore {
                 throw new Failure(Reason.INVALID);
             }
             if (input.read() != -1) throw new Failure(Reason.INVALID);
-            String decoded = StandardCharsets.UTF_8.newDecoder()
-                .onMalformedInput(CodingErrorAction.REPORT)
-                .onUnmappableCharacter(CodingErrorAction.REPORT)
-                .decode(ByteBuffer.wrap(text)).toString();
+            String decoded = TextPolicy.utf8Strict(text);
             return new Entry(id, decoded, created, expires);
         } catch (Failure error) {
             throw error;
@@ -261,7 +249,9 @@ public final class VoiceResultStore {
     }
 
     private static boolean validText(String text) {
-        return text != null && !text.strip().isEmpty()
-            && text.codePointCount(0, text.length()) <= MAXIMUM_CHARACTERS;
+        return text != null && !TextPolicy.stripped(text).isEmpty()
+            && TextPolicy.withinCodePoints(text, MAXIMUM_CHARACTERS)
+            && !TextPolicy.hasControlExceptWhitespace(text)
+            && TextPolicy.validUnicode(text);
     }
 }

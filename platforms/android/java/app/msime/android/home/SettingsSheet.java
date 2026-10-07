@@ -1,15 +1,14 @@
 package app.msime.android.home;
 
 import android.content.Context;
-import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import app.msime.android.ViewPolicy;
 import androidx.annotation.Nullable;
 import androidx.core.widget.NestedScrollView;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
-import com.google.android.material.bottomsheet.BottomSheetDragHandleView;
 
 /**
  * 设置项的 M3 modal bottom sheet：拖动条、一个标题、可选的说明，下面一列内容。
@@ -24,31 +23,24 @@ public final class SettingsSheet {
     public SettingsSheet(Context context, String title, @Nullable String subtitle) {
         this.context = context;
         dialog = new BottomSheetDialog(context);
-        LinearLayout root = new LinearLayout(context);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(Ui.dp(context, 24), 0, Ui.dp(context, 24), Ui.dp(context, 24));
+        LinearLayout root = Ui.column(context);
+        Ui.setPaddingDp(root, context, 24, 0, 24, 24);
 
         // 拖动条既是可见的把手，也给读屏提供「收起面板」的操作。
-        BottomSheetDragHandleView handle = new BottomSheetDragHandleView(context);
-        root.addView(handle, Ui.matchWidth());
+        root.addView(Ui.sheetDragHandle(context));
 
-        TextView heading = new TextView(context);
-        heading.setText(title);
         // M3 headline small：面板标题是标题，不是加粗的标签。
-        Ui.style(heading, Ui.TEXT_BAR_TITLE, 400, Ui.text(context));
+        TextView heading = Ui.styledLabel(context, title, Ui.TEXT_BAR_TITLE, 400, Ui.text(context));
         heading.setAccessibilityHeading(true);
         root.addView(heading);
 
         if (subtitle != null && !subtitle.isEmpty()) {
-            TextView note = new TextView(context);
-            note.setText(subtitle);
-            Ui.style(note, Ui.TEXT_ROW_SUBTITLE, 400, Ui.subText(context));
+            TextView note = Ui.styledLabel(context, subtitle, Ui.TEXT_ROW_SUBTITLE, 400, Ui.subText(context));
             LinearLayout.LayoutParams params = Ui.matchWidth(context, 4);
             root.addView(note, params);
         }
 
-        content = new LinearLayout(context);
-        content.setOrientation(LinearLayout.VERTICAL);
+        content = Ui.column(context);
         NestedScrollView scroll = new NestedScrollView(context);
         scroll.addView(content, new ViewGroup.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -62,10 +54,7 @@ public final class SettingsSheet {
 
     /** 行与行之间的 M3 组标题：强调色、14sp、500 字重。 */
     public void addHeading(String text) {
-        TextView heading = new TextView(context);
-        heading.setText(text);
-        Ui.style(heading, Ui.TEXT_GROUP_TITLE, 500, Ui.accent(context));
-        heading.setAccessibilityHeading(true);
+        TextView heading = Ui.groupHeading(context, text);
         LinearLayout.LayoutParams params = Ui.matchWidth();
         params.topMargin = Ui.dp(context, 16);
         params.bottomMargin = Ui.dp(context, 2);
@@ -74,9 +63,7 @@ public final class SettingsSheet {
 
     /** 这一列末尾的脚注。 */
     public void addNote(String text) {
-        TextView note = new TextView(context);
-        note.setText(text);
-        Ui.style(note, 12, 400, Ui.subText(context));
+        TextView note = Ui.styledLabel(context, text, 12, 400, Ui.subText(context));
         LinearLayout.LayoutParams params = Ui.matchWidth();
         params.topMargin = Ui.dp(context, 14);
         content.addView(note, params);
@@ -84,10 +71,9 @@ public final class SettingsSheet {
 
     /** 一行状态文字，保存成功或失败后由面板改写。 */
     public TextView addStatus() {
-        TextView status = new TextView(context);
-        Ui.style(status, 12, 400, Ui.subText(context));
-        status.setGravity(Gravity.CENTER_VERTICAL);
-        status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+        TextView status = Ui.styledLabel(context, "", 12, 400, Ui.subText(context));
+        ViewPolicy.setCenteredVertically(status);
+        ViewPolicy.setPoliteLiveRegion(status);
         LinearLayout.LayoutParams params = Ui.matchWidthHeight(context, 20);
         params.topMargin = Ui.dp(context, 10);
         content.addView(status, params);

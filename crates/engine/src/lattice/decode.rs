@@ -7,7 +7,7 @@
 //! A trigram cannot be searched the same way without carrying two words of history in every beam entry, so it is applied after the search: the n best paths are rescored with what the third word adds over the second, then reordered. That is the reason to decode more paths than are shown.
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::hash::{BuildHasherDefault, Hasher};
 use std::sync::Arc;
 
@@ -403,7 +403,9 @@ pub(super) fn decode_graph(
     });
 
     // 同一列里很多假设经由同一个词到达，只是更早的历史不同；它们对每条出边查到的二元分完全一样。按前一个词把这一列所有出边的二元分记下来，同一个词只查一遍表。
-    let mut bigram_rows: Vec<(&str, Vec<f32>)> = Vec::new();
+    let row_capacity = options.beam.max(options.nbest);
+    let mut bigram_rows: Vec<(&str, Vec<f32>)> = Vec::with_capacity(row_capacity);
+    let mut bigram_row_indices: HashMap<&str, usize> = HashMap::with_capacity(row_capacity);
     // 这一列的出边，按原来的顺序（先图里的，再 `extra` 的）收集一次，每个假设都按这个顺序展开。
     let mut outgoing: Vec<&Edge> = Vec::new();
     for pos in 0..n {
@@ -411,6 +413,7 @@ pub(super) fn decode_graph(
         let (done, ahead) = columns.split_at_mut(pos + 1);
         let current = &done[pos];
         bigram_rows.clear();
+        bigram_row_indices.clear();
         outgoing.clear();
         outgoing.extend(
             graph[pos]
@@ -421,22 +424,23 @@ pub(super) fn decode_graph(
             // Column 0 has no predecessor, so the start token carries what the corpus knows about how sentences open; every later column uses the word the hypothesis arrived on.
             let previous = hyp.edge.map_or(SENTENCE_START, |edge| edge.word.as_str());
             let bonuses = bigram_table.map(|table| {
-                let row = match bigram_rows.iter().position(|(word, _)| *word == previous) {
-                    Some(row) => row,
-                    None => {
-                        let scores = match memo.as_deref_mut() {
-                            Some(memo) => outgoing
-                                .iter()
-                                .map(|edge| memo.score(table, previous, &edge.word))
-                                .collect(),
-                            None => outgoing
-                                .iter()
-                                .map(|edge| table.bigram(previous, &edge.word))
-                                .collect(),
-                        };
-                        bigram_rows.push((previous, scores));
-                        bigram_rows.len() - 1
-                    }
+                let row = if let Some(&row) = bigram_row_indices.get(previous) {
+                    row
+                } else {
+                    let scores = match memo.as_deref_mut() {
+                        Some(memo) => outgoing
+                            .iter()
+                            .map(|edge| memo.score(table, previous, &edge.word))
+                            .collect(),
+                        None => outgoing
+                            .iter()
+                            .map(|edge| table.bigram(previous, &edge.word))
+                            .collect(),
+                    };
+                    bigram_rows.push((previous, scores));
+                    let row = bigram_rows.len() - 1;
+                    bigram_row_indices.insert(previous, row);
+                    row
                 };
                 &bigram_rows[row].1
             });
@@ -486,11 +490,8 @@ pub(super) fn decode_graph(
     cxx_sort::sort(&mut last, &mut scores_higher);
     let take = options.nbest.min(last.len());
 
-    let mut paths = Vec::with_capacity(take);
+    let mut paths = Vec::with_capacity(last.len());
     for hyp in &last {
-        if paths.len() >= take {
-            break;
-        }
         let mut words = Vec::with_capacity(n);
         let mut keys = Vec::with_capacity(n);
         let mut cursor = Some(hyp);
@@ -503,7 +504,7 @@ pub(super) fn decode_graph(
         words.reverse();
         keys.reverse();
         let sentence = words.concat();
-        if sentence.is_empty() || contains_sentence(&paths, &sentence) {
+        if sentence.is_empty() {
             continue;
         }
         paths.push(SentencePath {
@@ -514,10 +515,23 @@ pub(super) fn decode_graph(
             typo_edges: hyp.typo_edges,
         });
     }
+    let mut sentences = HashSet::with_capacity(paths.len());
+    let unique = paths
+        .iter()
+        .map(|path| sentences.insert(path.sentence.as_str()))
+        .collect::<Vec<_>>();
+    drop(sentences);
+    paths = paths
+        .into_iter()
+        .zip(unique)
+        .filter_map(|(path, unique)| unique.then_some(path))
+        .take(take)
+        .collect();
     rescore_with_trigram(&mut paths, options);
     paths
 }
 
+#[cfg(test)]
 fn contains_sentence(paths: &[SentencePath], sentence: &str) -> bool {
     paths.iter().any(|path| path.sentence == sentence)
 }

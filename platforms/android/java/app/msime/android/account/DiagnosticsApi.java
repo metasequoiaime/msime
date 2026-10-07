@@ -10,7 +10,6 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Locale;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import org.json.JSONArray;
@@ -145,7 +144,7 @@ public final class DiagnosticsApi {
     /** 上传一份快照，替换云端已有的那份。 */
     public Created upload(String platform, String appVersion, Sections sections, Retention ttl)
             throws CloudApi.Failure {
-        byte[] body = requestBody(platform, appVersion, sections, ttl).getBytes(StandardCharsets.UTF_8);
+        byte[] body = TextPolicy.utf8Bytes(requestBody(platform, appVersion, sections, ttl));
         if (body.length > MAX_BODY_BYTES) {
             throw new CloudApi.Failure(413, "payload_too_large", "diagnostics snapshot exceeds 2 MiB", 0);
         }
@@ -153,12 +152,15 @@ public final class DiagnosticsApi {
             CloudApi.Auth.ACCOUNT_OR_ANONYMOUS);
         try {
             JSONObject root = response.json();
-            String id = root.optString("id", "");
-            String token = root.optString("token", "");
-            if (id.isEmpty() || token.isEmpty()) {
+            String id = strictString(root.opt("id"));
+            String token = strictString(root.opt("token"));
+            if (id == null || token == null || id.isEmpty() || token.isEmpty()) {
                 throw new CloudApi.Failure(response.status(), "invalid_response", "snapshot id or token missing", 0);
             }
-            return new Created(id, root.optString("mcp_url", mcpUrl(id)), token, root.optString("expires_at", ""));
+            String url = strictString(root.opt("mcp_url"));
+            String expiresAt = strictString(root.opt("expires_at"));
+            return new Created(id, url == null || url.isEmpty() ? mcpUrl(id) : url, token,
+                expiresAt == null ? "" : expiresAt);
         } catch (JSONException malformed) {
             throw new CloudApi.Failure(response.status(), "invalid_response", "malformed JSON response", 0);
         }
@@ -173,8 +175,8 @@ public final class DiagnosticsApi {
     /** 换一枚访问令牌，旧令牌立即作废；返回新令牌（只出现这一次）。 */
     public String regenerateToken() throws CloudApi.Failure {
         JSONObject root = api.json("POST", PATH + "/token", new JSONObject(), CloudApi.Auth.ACCOUNT_OR_ANONYMOUS);
-        String token = root.optString("token", "");
-        if (token.isEmpty()) throw new CloudApi.Failure(200, "invalid_response", "token missing", 0);
+        String token = strictString(root.opt("token"));
+        if (token == null || token.isEmpty()) throw new CloudApi.Failure(200, "invalid_response", "token missing", 0);
         return token;
     }
 
@@ -243,7 +245,7 @@ public final class DiagnosticsApi {
             if (i > 0) out.append(',');
             out.append("{\"t_ms\":").append(event.tMs()).append(",\"kind\":\"").append(event.kind().wire()).append('"');
             if (event.durationMs() >= 0 || durationRequired) {
-                out.append(",\"duration_ms\":").append(Math.max(0L, event.durationMs()));
+                out.append(",\"duration_ms\":").append(BoundsPolicy.nonNegative(event.durationMs()));
             }
             out.append('}');
         }
@@ -283,14 +285,19 @@ public final class DiagnosticsApi {
     static List<Event> eventLines(String text, boolean durationRequired) {
         List<Event> events = new ArrayList<>(MAX_EVENTS);
         for (String line : text.split("\n")) {
-            String trimmed = line.trim();
+            String trimmed = TextPolicy.trimmed(line);
             if (trimmed.isEmpty()) continue;
             try {
                 JSONObject row = new JSONObject(trimmed);
                 Object kind = row.opt("kind");
                 if (!(kind instanceof String) || !row.has("t_ms")) continue;
                 if (durationRequired && !row.has("duration_ms")) continue;
-                Event event = Event.of(row.getLong("t_ms"), (String) kind, row.optLong("duration_ms", -1));
+                Long time = strictInteger(row.opt("t_ms"));
+                Object rawDuration = row.opt("duration_ms");
+                Long duration = rawDuration == null || rawDuration == JSONObject.NULL
+                    ? -1L : strictInteger(rawDuration);
+                if (time == null || duration == null) continue;
+                Event event = Event.of(time, (String) kind, duration);
                 if (event != null) events.add(event);
             } catch (JSONException malformed) {
                 // 不合规的行丢弃，与 Rust 诊断包和后端的口径一致。
@@ -324,39 +331,74 @@ public final class DiagnosticsApi {
     static State parseState(JSONObject root) {
         Snapshot snapshot = null;
         JSONObject raw = root.optJSONObject("snapshot");
-        if (raw != null && !raw.optString("id", "").isEmpty()) {
+        String snapshotId = raw == null ? null : optionalString(raw, "id");
+        Long snapshotBytes = raw == null ? null : optionalInteger(raw, "bytes");
+        String snapshotCreated = raw == null ? null : optionalString(raw, "created_at");
+        String snapshotExpires = raw == null ? null : optionalString(raw, "expires_at");
+        String snapshotHint = raw == null ? null : optionalString(raw, "token_hint");
+        if (raw != null && snapshotId != null && !snapshotId.isEmpty()
+                && snapshotBytes != null && snapshotBytes >= 0
+                && snapshotCreated != null && snapshotExpires != null && snapshotHint != null) {
             JSONArray names = raw.optJSONArray("sections");
             List<String> sections = new ArrayList<>(names == null ? 0 : names.length());
             if (names != null) {
-                for (int i = 0; i < names.length(); i++) sections.add(names.optString(i, ""));
+                for (int i = 0; i < names.length(); i++) {
+                    String section = strictString(names.opt(i));
+                    if (section != null) sections.add(section);
+                }
             }
-            snapshot = new Snapshot(raw.optString("id", ""), raw.optString("created_at", ""),
-                raw.optString("expires_at", ""), raw.optLong("bytes", 0), Collections.unmodifiableList(sections),
-                raw.optString("token_hint", ""));
+            snapshot = new Snapshot(snapshotId, snapshotCreated, snapshotExpires, snapshotBytes,
+                Collections.unmodifiableList(sections), snapshotHint);
         }
         JSONArray list = root.optJSONArray("accesses");
-        List<Access> accesses = new ArrayList<>(list == null ? 0 : list.length());
+        int accessCount = list == null ? 0 : list.length();
+        int firstAccess = Math.max(0, accessCount - MAX_EVENTS);
+        List<Access> accesses = new ArrayList<>(Math.min(accessCount, MAX_EVENTS));
         if (list != null) {
-            for (int i = 0; i < list.length(); i++) {
+            for (int i = firstAccess; i < list.length(); i++) {
                 JSONObject item = list.optJSONObject(i);
                 if (item == null) continue;
                 Object arguments = item.opt("arguments");
-                accesses.add(new Access(item.optString("at", ""), item.optString("tool", ""),
-                    arguments == null || arguments == JSONObject.NULL ? "" : String.valueOf(arguments),
-                    item.optLong("result_count", 0), item.optLong("bytes", 0)));
+                String at = optionalString(item, "at");
+                String tool = optionalString(item, "tool");
+                String rawArguments = arguments == null || arguments == JSONObject.NULL
+                    ? "" : strictString(arguments);
+                Long resultCount = optionalInteger(item, "result_count");
+                Long bytes = optionalInteger(item, "bytes");
+                if (at == null || tool == null || rawArguments == null || resultCount == null || bytes == null
+                        || resultCount < 0 || bytes < 0) continue;
+                accesses.add(new Access(at, tool, rawArguments, resultCount, bytes));
             }
         }
         return new State(snapshot, Collections.unmodifiableList(accesses));
     }
 
+    /** Diagnostics wire numbers are JSON integers; do not let org.json truncate decimals. */
+    public static Long strictInteger(Object value) {
+        if (value instanceof Integer integer) return integer.longValue();
+        if (value instanceof Long longValue) return longValue;
+        return null;
+    }
+
+    /** Optional response strings: absent/null means empty, every other JSON type is malformed. */
+    static String optionalString(JSONObject object, String key) {
+        if (object == null || !object.has(key) || object.isNull(key)) return "";
+        return strictString(object.opt(key));
+    }
+
+    /** Optional response integers: absent/null means zero, every other non-integer is malformed. */
+    static Long optionalInteger(JSONObject object, String key) {
+        if (object == null || !object.has(key) || object.isNull(key)) return 0L;
+        return strictInteger(object.opt(key));
+    }
+
     private static String entryText(InputStream stream) throws IOException {
-        return new String(HttpBodyPolicy.readRequired(stream, MAX_BODY_BYTES * 4),
-            StandardCharsets.UTF_8);
+        return TextPolicy.utf8(HttpBodyPolicy.readRequired(stream, MAX_BODY_BYTES * 4));
     }
 
     private static String baseName(String path) {
         int slash = path.lastIndexOf('/');
-        return (slash < 0 ? path : path.substring(slash + 1)).toLowerCase(Locale.ROOT);
+        return TextPolicy.lowercase(slash < 0 ? path : path.substring(slash + 1));
     }
 
     /** 按 UTF-8 字节截断，不切开多字节字符和代理对。 */
@@ -366,26 +408,11 @@ public final class DiagnosticsApi {
 
     /** JSON 字符串转义（RFC 8259）。 */
     static void quote(StringBuilder out, String value) {
-        out.append('"');
-        String text = value == null ? "" : value;
-        for (int i = 0; i < text.length(); i++) {
-            char c = text.charAt(i);
-            switch (c) {
-                case '"': out.append("\\\""); break;
-                case '\\': out.append("\\\\"); break;
-                case '\n': out.append("\\n"); break;
-                case '\r': out.append("\\r"); break;
-                case '\t': out.append("\\t"); break;
-                case '\b': out.append("\\b"); break;
-                case '\f': out.append("\\f"); break;
-                default:
-                    if (c < 0x20 || c == ' ' || c == ' ') {
-                        out.append(String.format(Locale.ROOT, "\\u%04x", (int) c));
-                    } else {
-                        out.append(c);
-                    }
-            }
-        }
-        out.append('"');
+        out.append(JsonPolicy.quote(value));
+    }
+
+    /** org.json's optString coerces numbers; credentials and identifiers must stay JSON strings. */
+    static String strictString(Object value) {
+        return value instanceof String ? (String) value : null;
     }
 }

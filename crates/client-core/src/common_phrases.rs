@@ -7,7 +7,7 @@
 use crate::community::resource::{validate_resource, CommunityResource, CommunityResourceKind};
 use crate::file_lock;
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeSet, HashSet};
+use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -211,11 +211,13 @@ impl CommonPhrasesStore {
         self.update(|document| {
             let index = position(document, id)?;
             let pack = document.phrases[index].pack;
-            if document
+            let existing: HashSet<(Option<Uuid>, &str)> = document
                 .phrases
                 .iter()
-                .any(|phrase| phrase.id != id && phrase.pack == pack && phrase.text == text)
-            {
+                .filter(|phrase| phrase.id != id)
+                .map(|phrase| (phrase.pack, phrase.text.as_str()))
+                .collect();
+            if existing.contains(&(pack, text)) {
                 return Err(CommonPhrasesError::Duplicate);
             }
             document.phrases[index].text = text.to_owned();
@@ -244,19 +246,31 @@ impl CommonPhrasesStore {
         if resource.kind != CommunityResourceKind::Phrase || validate_resource(resource).is_err() {
             return Err(CommonPhrasesError::Invalid);
         }
-        let mut seen = HashSet::with_capacity(resource.content.phrases.len());
-        let mut texts = Vec::with_capacity(resource.content.phrases.len());
         let mut skipped = 0;
+        let mut normalized = Vec::with_capacity(resource.content.phrases.len());
         for phrase in &resource.content.phrases {
             let text = normalize_line_breaks(&phrase.text);
-            if !valid_phrase_text(&text)
-                || texts.len() >= MAX_PACK_PHRASES
-                || !seen.insert(text.clone())
-            {
+            if !valid_phrase_text(&text) {
                 skipped += 1;
                 continue;
             }
-            texts.push(text);
+            normalized.push(text);
+        }
+        // Borrow normalized text while finding first occurrences, then move only the accepted
+        // strings into the pack after releasing the set.
+        let mut seen = HashSet::with_capacity(normalized.len());
+        let unique = normalized
+            .iter()
+            .map(|text| seen.insert(text.as_str()))
+            .collect::<Vec<_>>();
+        drop(seen);
+        let mut texts = Vec::with_capacity(normalized.len().min(MAX_PACK_PHRASES));
+        for (text, unique) in normalized.into_iter().zip(unique) {
+            if !unique || texts.len() >= MAX_PACK_PHRASES {
+                skipped += 1;
+            } else {
+                texts.push(text);
+            }
         }
         if texts.is_empty() {
             return Err(CommonPhrasesError::Invalid);
@@ -388,7 +402,7 @@ fn validate(document: &CommonPhrases) -> Result<(), ()> {
     if document.packs.len() > MAX_PACKS {
         return Err(());
     }
-    let mut pack_ids = BTreeSet::new();
+    let mut pack_ids = HashSet::with_capacity(document.packs.len());
     for pack in &document.packs {
         if pack.id.is_nil()
             || pack.revision == 0

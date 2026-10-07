@@ -91,7 +91,7 @@ public final class HttpAsrRecognizer {
         int minimum = AudioRecord.getMinBufferSize(WavAudio.SAMPLE_RATE,
             AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
         if (minimum <= 0) throw new Refused(Failure.UNAVAILABLE);
-        int buffer = Math.max(minimum, WavAudio.SAMPLE_RATE);
+        int buffer = BoundsPolicy.atLeast(WavAudio.SAMPLE_RATE, minimum);
         AudioRecord recorder;
         try {
             recorder = new AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION,
@@ -119,7 +119,9 @@ public final class HttpAsrRecognizer {
             // Two bytes per sample: the byte budget is the time budget.
             int limit = WavAudio.SAMPLE_RATE * 2 / 1000 * MAX_MILLIS;
             while (!stopped.get() && captured.size() < limit) {
-                int read = recorder.read(chunk, 0, chunk.length);
+                int requested = VoiceCapturePolicy.readLength(limit, captured.size(), chunk.length);
+                if (requested == 0) break;
+                int read = recorder.read(chunk, 0, requested);
                 if (read < 0) throw new Refused(Failure.UNAVAILABLE);
                 captured.write(chunk, 0, read);
             }
@@ -163,8 +165,8 @@ public final class HttpAsrRecognizer {
             if (status < 200 || status >= 300) throw new Refused(Failure.NETWORK);
             String text;
             try (InputStream input = opened.getInputStream()) {
-                String response = new String(
-                    HttpBodyPolicy.readRequired(input, MAX_RESPONSE_BYTES), StandardCharsets.UTF_8);
+                String response = TextPolicy.utf8(
+                    HttpBodyPolicy.readRequired(input, MAX_RESPONSE_BYTES));
                 text = text(response);
             }
             if (text.isEmpty()) throw new Refused(Failure.EMPTY);
@@ -180,7 +182,7 @@ public final class HttpAsrRecognizer {
     /** The one field these APIs agree on. Anything else in the response is ignored. */
     private static String text(String response) {
         try {
-            return HttpAsrPolicy.strictText(new JSONObject(response).opt("text")).trim();
+            return TextPolicy.trimmed(HttpAsrPolicy.strictText(new JSONObject(response).opt("text")));
         } catch (JSONException error) {
             return "";
         }

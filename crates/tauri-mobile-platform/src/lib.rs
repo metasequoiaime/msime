@@ -200,6 +200,9 @@ pub struct IosKeyboardPreferences {
     /// 数字行与 Tab 键 on the iPad full-width keyboard, kept in the App Group. The plugin reports it only on an iPad and writes it only when present, so a phone neither shows nor stores it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tablet_full_keys: Option<bool>,
+    /// 横屏分离式键盘：iPad 全宽键盘横屏时把键区分成左右两半，存在 App Group 的 `keyboard.tablet.split`，默认关。和 `tablet_full_keys` 一样只在 iPad 上报告、只在请求里带着时才写入。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tablet_split_keyboard: Option<bool>,
     pub dictionary_learning: bool,
     /// The global theme id (`Preferences::global_theme`), kept in the App Group under `globalTheme` so the keyboard extension reads it without the preferences document. Only the seven theme ids are valid.
     pub global_theme: String,
@@ -1193,6 +1196,7 @@ mod tests {
             inline_preedit: true,
             haptics_available: true,
             tablet_full_keys: None,
+            tablet_split_keyboard: None,
             dictionary_learning: false,
             global_theme: "custom".into(),
             custom_keyboard_skin: Some(r#"{"background":15269867}"#.into()),
@@ -1297,6 +1301,22 @@ mod tests {
         assert_eq!(encoded["tabletFullKeys"], false);
         let decoded: IosKeyboardPreferences = serde_json::from_value(encoded).unwrap();
         assert_eq!(decoded.tablet_full_keys, Some(false));
+    }
+
+    // 横屏分离式键盘同样只在 iPad 上报告：手机的快照里没有这个键，存回去也不会写出它。
+    #[test]
+    fn ios_keyboard_preferences_carry_the_ipad_split_keyboard_only_when_reported() {
+        let phone = serde_json::to_value(keyboard_preferences()).unwrap();
+        assert!(phone.get("tabletSplitKeyboard").is_none());
+        let decoded: IosKeyboardPreferences = serde_json::from_value(phone).unwrap();
+        assert_eq!(decoded.tablet_split_keyboard, None);
+
+        let mut ipad = keyboard_preferences();
+        ipad.tablet_split_keyboard = Some(true);
+        let encoded = serde_json::to_value(&ipad).unwrap();
+        assert_eq!(encoded["tabletSplitKeyboard"], true);
+        let decoded: IosKeyboardPreferences = serde_json::from_value(encoded).unwrap();
+        assert_eq!(decoded.tablet_split_keyboard, Some(true));
     }
 
     #[test]

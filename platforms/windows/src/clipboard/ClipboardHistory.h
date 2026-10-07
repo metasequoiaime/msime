@@ -30,6 +30,9 @@ private:
 std::string normalize_clipboard_text(std::string text);
 
 #ifdef _WIN32
+// 从系统剪贴板指针读取有限的 UTF-16 单元，避免在 normalize 之前复制无界数据。
+std::wstring bounded_clipboard_text(const wchar_t *text, size_t bytes);
+
 // 带版本后缀：设置应用（crates/host-windows 的 `wait_for_clipboard_history_change`）按同一规则拼名字，只等自己版本的 Server。
 inline constexpr wchar_t clipboard_history_change_event_name[] =
     L"Local\\MSIME.Client.ClipboardHistoryChanged" MSIME_EDITION_NAME_SUFFIX;

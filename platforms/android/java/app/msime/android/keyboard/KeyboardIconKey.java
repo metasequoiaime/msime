@@ -4,6 +4,7 @@ import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
+import app.msime.android.KeyboardGeometry;
 
 /**
  * 画描边图标的功能键：⇧（含大写锁定的下划线形）、⌫、↵、123 层的表情键，图标 22 dp，线宽 1.7（viewBox 单位）。
@@ -23,8 +24,9 @@ public final class KeyboardIconKey extends KeyboardPressButton {
 
     public KeyboardIconKey(Context context, Kind kind) {
         super(context);
+        KeyboardGeometry.normalizeKeyCap(this);
         this.kind = kind;
-        setAllCaps(false);
+        ViewPolicy.setAllCapsFalse(this);
     }
 
     public Kind kind() { return kind; }
@@ -75,14 +77,13 @@ public final class KeyboardIconKey extends KeyboardPressButton {
             super.onDraw(canvas);
             return;
         }
-        int width = Math.max(0, getWidth() - getPaddingLeft() - getPaddingRight());
-        int height = Math.max(0, getHeight() - getPaddingTop() - getPaddingBottom());
-        float size = Math.min(Math.min(width, height),
-            ICON_DP * getResources().getDisplayMetrics().density);
+        int width = KeyboardGeometry.contentWidth(this);
+        int height = KeyboardGeometry.contentHeight(this);
+        float size = BoundsPolicy.atMost(KeyboardGeometry.shorterSide(width, height),
+            KeyboardGeometry.floatPixels(getContext(), ICON_DP));
         if (size <= 0) return;
         int color = getCurrentTextColor();
-        if (!isEnabled()) color = Color.argb(96, Color.red(color), Color.green(color),
-            Color.blue(color));
+        if (!isEnabled()) color = ColorPolicy.withAlpha(color, 96f / 255f);
         KeyboardIconPaths.draw(canvas, paint, iconFor(kind),
             getPaddingLeft() + (width - size) / 2f, getPaddingTop() + (height - size) / 2f,
             size, color);

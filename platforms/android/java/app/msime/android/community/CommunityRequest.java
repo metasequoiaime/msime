@@ -1,6 +1,7 @@
 package app.msime.android;
 
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -95,6 +96,12 @@ public final class CommunityRequest {
     /** 社区页顶部的三个分段，顺序即展示顺序；回复模板放在「短语」分段里作为第二个小节「AI 回复模板」。 */
     public static List<Kind> segments() { return List.of(Kind.SKIN, Kind.DICTIONARY, Kind.PHRASE); }
 
+    /** Copy at most {@code limit} catalogue entries for a bounded discovery section. */
+    public static <T> List<T> limitedCopy(List<T> values, int limit) {
+        if (values == null || values.isEmpty() || limit <= 0) return List.of();
+        return new ArrayList<>(values.subList(0, BoundsPolicy.atMost(limit, values.size())));
+    }
+
     /** 一个短语包最多 200 条。 */
     public static final int MAX_PHRASES = 200;
     /** 每条短语最多 2000 个 UTF-16 单元，与服务端的限制一致。 */
@@ -110,22 +117,13 @@ public final class CommunityRequest {
     /** 一条短语：1–2000 个 UTF-16 单元，除换行和制表符外不含控制字符（签名之类需要换行）。 */
     public static boolean validPhraseText(String text) {
         if (text == null || text.isEmpty() || text.length() > MAX_PHRASE_UNITS) return false;
-        return !hasControl(text, true);
+        return !CommunityTextPolicy.hasDisallowedControl(text, true);
     }
 
     /** 分组名：可以为空，最多 32 个 UTF-16 单元，不含任何控制字符。 */
     public static boolean validPhraseGroup(String group) {
-        return group != null && group.length() <= MAX_PHRASE_GROUP_UNITS && !hasControl(group, false);
-    }
-
-    private static boolean hasControl(String text, boolean multiline) {
-        for (int index = 0; index < text.length();) {
-            int codePoint = text.codePointAt(index);
-            if (Character.isISOControl(codePoint)
-                    && !(multiline && (codePoint == '\n' || codePoint == '\t'))) return true;
-            index += Character.charCount(codePoint);
-        }
-        return false;
+        return group != null && group.length() <= MAX_PHRASE_GROUP_UNITS
+            && !CommunityTextPolicy.hasDisallowedControl(group, false);
     }
 
     /**
@@ -147,8 +145,8 @@ public final class CommunityRequest {
      */
     public static String path(Kind kind, String scope, String search, int offset,
             Category category) {
-        String bounded = search == null ? "" : search.trim();
-        int page = Math.max(0, offset);
+        String bounded = TextPolicy.trimmed(search);
+        int page = BoundsPolicy.nonNegative(offset);
         if (kind == Kind.SKIN) {
             return "/v1/community/skins?offset=" + page + "&q=" + encode(bounded)
                 + (category == null ? "" : "&category=" + category.id())
@@ -173,14 +171,8 @@ public final class CommunityRequest {
     public static boolean validReport(String reason, String detail) {
         if (reason == null || !REPORT_REASONS.contains(reason)) return false;
         String text = detail == null ? "" : detail;
-        if (text.codePointCount(0, text.length()) > MAX_REPORT_DETAIL) return false;
-        for (int index = 0; index < text.length();) {
-            int codePoint = text.codePointAt(index);
-            if (Character.isISOControl(codePoint)
-                    && codePoint != '\n' && codePoint != '\t') return false;
-            index += Character.charCount(codePoint);
-        }
-        return true;
+        if (!TextPolicy.withinCodePoints(text, MAX_REPORT_DETAIL)) return false;
+        return !CommunityTextPolicy.hasDisallowedControl(text, true);
     }
 
     /** 作者修改自己皮肤的分类：`PATCH` 这条路径，回来的是改过之后的条目，所以同样带上 `include=category`。 */
@@ -195,7 +187,7 @@ public final class CommunityRequest {
 
     /** 皮肤卡上的使用次数：一万以下照写，一万起按「万」取一位小数（去掉 `.0`），如「15.8 万 次使用」。 */
     public static String usesLabel(long downloads) {
-        long count = Math.max(0, downloads);
+        long count = BoundsPolicy.nonNegative(downloads);
         if (count < 10_000) return count + " 次使用";
         long tenths = Math.round(count / 1_000.0);
         String value = tenths % 10 == 0 ? Long.toString(tenths / 10) : (tenths / 10) + "." + (tenths % 10);
@@ -204,7 +196,7 @@ public final class CommunityRequest {
 
     /** 条数按千位分隔，如「4,812 条」。 */
     public static String entriesLabel(int count) {
-        return String.format(java.util.Locale.ROOT, "%,d 条", Math.max(0, count));
+        return NumberPolicy.grouped(BoundsPolicy.nonNegative(count)) + " 条";
     }
 
     /**
@@ -260,7 +252,7 @@ public final class CommunityRequest {
      */
     public static String encode(String value) {
         if (value == null || value.isEmpty()) return "";
-        StringBuilder result = new StringBuilder();
+        StringBuilder result = new StringBuilder(value.length());
         for (byte raw : value.getBytes(StandardCharsets.UTF_8)) {
             int octet = raw & 0xFF;
             if (octet >= 'a' && octet <= 'z' || octet >= 'A' && octet <= 'Z'

@@ -6,6 +6,7 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewConfiguration;
 import android.widget.Button;
+import app.msime.android.KeyboardGeometry;
 import android.widget.LinearLayout;
 
 /**
@@ -17,8 +18,8 @@ final class ImeBottomRow {
     private final MSIMEInputService s;
     /** 底行的句号键（新设计里逗号右侧那个）；第一次排布时建。 */
     private Button periodButton;
-    private final SpaceGesturePolicy spaceGesture = new SpaceGesturePolicy();
-    private Runnable spaceLongPress;
+    /** 分离式键盘右半边内侧的第二个空格键；第一次分离时建，换了一套控件（onCreateInputView）时作废重建。 */
+    private SpaceKeyFace splitSpace;
 
     ImeBottomRow(MSIMEInputService s) {
         this.s = s;
@@ -38,32 +39,33 @@ final class ImeBottomRow {
     void ensureFaces() {
         if (s.spaceButton != null && !(s.spaceButton instanceof SpaceKeyFace)) {
             Button original = s.spaceButton;
-            SpaceKeyFace face = new SpaceKeyFace(s);
-            face.setText(original.getText());
-            face.setContentDescription(original.getContentDescription());
-            face.setOnClickListener(ignored -> original.performClick());
-            s.keyId(face, "Space");
-            s.imeKeyFeedback.stageFace(original, face);
+            SpaceKeyFace face = forwardFace(original, new SpaceKeyFace(s), "Space");
             s.imeStyler.styleButton(face, false);
             bindSpaceCursor(face);
             s.spaceButton = face;
+            splitSpace = null;
         }
         if (s.enterButton != null && !(s.enterButton instanceof KeyboardIconKey)) {
             Button original = s.enterButton;
-            KeyboardIconKey key = new KeyboardIconKey(s, KeyboardIconKey.Kind.RETURN);
-            key.setText(original.getText());
-            key.setContentDescription(original.getContentDescription());
+            KeyboardIconKey key = forwardFace(original,
+                new KeyboardIconKey(s, KeyboardIconKey.Kind.RETURN), "Enter");
             // 组词时 SVC 把 text 设成「确认」（日语「確定」），这时按文字画；其他动作文字一律画 ↵。
             key.setTextFaces(java.util.Set.of("确认", "確定"));
-            key.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 15);
+            KeyboardGeometry.setKeyTextSize(key, 15);
             key.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
             key.setKeyboardRole(KeyboardKeyRole.RETURN);
-            key.setOnClickListener(ignored -> original.performClick());
-            s.keyId(key, "Enter");
-            s.imeKeyFeedback.stageFace(original, key);
             s.imeStyler.styleButton(key, KeyboardKeyRole.RETURN, s.skin);
             s.enterButton = key;
         }
+    }
+
+    private <T extends Button> T forwardFace(Button original, T face, String keyId) {
+        face.setText(original.getText());
+        face.setContentDescription(original.getContentDescription());
+        face.setOnClickListener(ignored -> original.performClick());
+        s.keyId(face, keyId);
+        s.imeKeyFeedback.stageFace(original, face);
+        return face;
     }
 
     /** 空格键面上的方案短名。 */
@@ -79,11 +81,44 @@ final class ImeBottomRow {
             s.spaceButton.setContentDescription(s.spaceKeyDescription());
             if (s.spaceButton instanceof SpaceKeyFace face) face.setTransientLabel("");
         }
+        if (splitSpace != null) {
+            splitSpace.setPressed(false);
+            splitSpace.setTransientLabel("");
+        }
+        syncSplitSpace();
         if (s.japaneseSpaceKey != null && s.japaneseSpaceKey != s.spaceButton) {
             s.japaneseSpaceKey.setPressed(false);
             s.japaneseSpaceKey.setText(s.spaceKeyTitle());
             s.japaneseSpaceKey.setContentDescription(s.spaceKeyDescription());
         }
+    }
+
+    /**
+     * 分离式键盘右半边的空格键。它不经过原来的空格按钮转发，而是自己绑定同一个 {@link MSIMEInputService#space} 动作：按键反馈、动画和按键计数落在用户真正按下的那个键上；键位 id 同样是 `Space`，按键音按空格键分类，热力图也计入空格。长按语音和拖动移光标用同一套 {@link #bindSpaceCursor}。
+     */
+    Button splitSpaceButton() {
+        if (splitSpace == null) {
+            SpaceKeyFace face = new SpaceKeyFace(s);
+            s.keyId(face, "Space");
+            s.bindCountedAction(face, s::space);
+            bindSpaceCursor(face);
+            splitSpace = face;
+        }
+        splitSpace.setKeyboardRole(KeyboardKeyRole.KEY);
+        s.imeStyler.styleButton(splitSpace, KeyboardKeyRole.KEY, s.skin);
+        syncSplitSpace();
+        return splitSpace;
+    }
+
+    /** 让右半边的空格键与主空格键显示同样的文字、描述、方案短名和可用状态；它自己正在拖动光标时不改文字。 */
+    void syncSplitSpace() {
+        if (splitSpace == null || s.spaceButton == null) return;
+        if (!s.cursorMovement.isActive()) {
+            splitSpace.setText(s.spaceKeyTitle());
+            splitSpace.setContentDescription(s.spaceKeyDescription());
+        }
+        splitSpace.setSchemeLabel(spaceLabel());
+        ViewPolicy.setEnabled(splitSpace, s.spaceButton.isEnabled());
     }
 
     void moveEditorCursor(int offset) {
@@ -93,10 +128,16 @@ final class ImeBottomRow {
         for (int index = 0; index < Math.abs(offset); index++) s.sendDownUpKeyEvents(keyCode);
     }
 
-    /** 空格键的长按（450 ms）打开语音输入；拖动先越过阈值时这次长按作废。 */
-    private void cancelSpaceLongPress() {
-        if (spaceLongPress != null) s.main.removeCallbacks(spaceLongPress);
-        spaceLongPress = null;
+    /** 一个空格键自己的手势状态。分离式键盘有两个空格键，两根拇指可能先后按住它们，状态不能共用，否则后按下的会把先按下的那次长按计时和手势仲裁一起冲掉。 */
+    private final class SpacePress {
+        final SpaceGesturePolicy gesture = new SpaceGesturePolicy();
+        /** 长按（450 ms）打开语音输入的计时；拖动先越过阈值时这次长按作废。 */
+        Runnable longPress;
+
+        void cancelLongPress() {
+            if (longPress != null) s.main.removeCallbacks(longPress);
+            longPress = null;
+        }
     }
 
     /**
@@ -108,7 +149,7 @@ final class ImeBottomRow {
         final boolean[] cancelled = new boolean[1];
         final boolean[] voiced = new boolean[1];
         final int touchSlop = ViewConfiguration.get(s).getScaledTouchSlop();
-        final float density = s.getResources().getDisplayMetrics().density;
+        final SpacePress press = new SpacePress();
         final Runnable startVoice = () -> {
             if (voiced[0]) return;
             voiced[0] = true;
@@ -129,16 +170,17 @@ final class ImeBottomRow {
                     button.getParent().requestDisallowInterceptTouchEvent(true);
                     // 组字中或关了长按语音时不武装长按：这次按压保持普通空格与拖动移光标，与 develop 一致；否则慢一点的空格会被吞掉、停顿后的拖动也移不了光标。
                     boolean voice = touchPreference(AndroidLocalSettings.SPACE_VOICE) && s.voiceInsertionReady();
-                    spaceGesture.down(SystemClock.uptimeMillis(), event.getX() / density, voice);
-                    cancelSpaceLongPress();
+                    press.gesture.down(SystemClock.uptimeMillis(),
+                        KeyboardGeometry.fromPixels(s, event.getX()), voice);
+                    press.cancelLongPress();
                     if (voice) {
-                        spaceLongPress = () -> {
-                            spaceLongPress = null;
-                            spaceGesture.tick(SystemClock.uptimeMillis());
-                            if (spaceGesture.state() == SpaceGesturePolicy.State.VOICE
+                        press.longPress = () -> {
+                            press.longPress = null;
+                            press.gesture.tick(SystemClock.uptimeMillis());
+                            if (press.gesture.state() == SpaceGesturePolicy.State.VOICE
                                     && s.voiceInsertionReady()) startVoice.run();
                         };
-                        s.main.postDelayed(spaceLongPress, SpaceGesturePolicy.LONG_PRESS_MS);
+                        s.main.postDelayed(press.longPress, SpaceGesturePolicy.LONG_PRESS_MS);
                     }
                     return true;
                 }
@@ -147,25 +189,26 @@ final class ImeBottomRow {
                     if (!dragging[0] && !cancelled[0]) {
                         float horizontal = event.getX() - origin[0];
                         float vertical = event.getY() - origin[1];
-                        spaceGesture.move(SystemClock.uptimeMillis(), event.getX() / density);
-                        SpaceGesturePolicy.State state = spaceGesture.state();
+                        press.gesture.move(SystemClock.uptimeMillis(),
+                            KeyboardGeometry.fromPixels(s, event.getX()));
+                        SpaceGesturePolicy.State state = press.gesture.state();
                         if (state == SpaceGesturePolicy.State.VOICE) {
                             // VOICE is only reachable when long-press voice was on at ACTION_DOWN.
-                            cancelSpaceLongPress();
+                            press.cancelLongPress();
                             if (s.voiceInsertionReady()) startVoice.run();
                             return true;
                         }
                         if (state == SpaceGesturePolicy.State.PRESSED) {
                             if (Math.abs(vertical) > touchSlop && Math.abs(vertical) >= Math.abs(horizontal)) {
-                                cancelSpaceLongPress();
-                                spaceGesture.cancel();
+                                press.cancelLongPress();
+                                press.gesture.cancel();
                                 cancelled[0] = true;
                                 button.setPressed(false);
                             }
                             return true;
                         }
                         // 拖动先越过阈值：这次按压不再算长按。
-                        cancelSpaceLongPress();
+                        press.cancelLongPress();
                         if (s.connection == null || !touchPreference(AndroidLocalSettings.SPACE_CURSOR)) {
                             cancelled[0] = true;
                             button.setPressed(false);
@@ -197,8 +240,8 @@ final class ImeBottomRow {
                     return true;
                 }
                 case MotionEvent.ACTION_UP -> {
-                    cancelSpaceLongPress();
-                    SpaceGesturePolicy.Outcome outcome = spaceGesture.up(SystemClock.uptimeMillis());
+                    press.cancelLongPress();
+                    SpaceGesturePolicy.Outcome outcome = press.gesture.up(SystemClock.uptimeMillis());
                     button.getParent().requestDisallowInterceptTouchEvent(false);
                     button.setPressed(false);
                     if (!voiced[0] && !dragging[0] && !cancelled[0]
@@ -220,8 +263,8 @@ final class ImeBottomRow {
                     return true;
                 }
                 case MotionEvent.ACTION_CANCEL -> {
-                    cancelSpaceLongPress();
-                    spaceGesture.cancel();
+                    press.cancelLongPress();
+                    press.gesture.cancel();
                     button.getParent().requestDisallowInterceptTouchEvent(false);
                     dragging[0] = false;
                     cancelled[0] = true;
@@ -249,7 +292,7 @@ final class ImeBottomRow {
     private Button periodButton() {
         if (periodButton == null) {
             periodButton = s.keyId(s.keyboardKey(".", "句号", () -> s.type('.')), "Period");
-            periodButton.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 22);
+            KeyboardGeometry.setKeyTextSize(periodButton, 22);
         }
         return periodButton;
     }
@@ -283,13 +326,17 @@ final class ImeBottomRow {
             CenteredGlyphSpan.apply(periodButton, periodFace, 1.3f);
             periodButton.setContentDescription("按键 " + periodFace);
             // type('.') 没有会话时也会直接上屏字面句点（密码框等），与旁边的逗号键一致。
-            periodButton.setEnabled(s.connection != null);
+            ViewPolicy.setEnabled(periodButton, s.connection != null);
         }
         if (s.spaceButton instanceof SpaceKeyFace face) face.setSchemeLabel(spaceLabel());
+        syncSplitSpace();
         if (s.globeButton != null) s.globeButton.setContentDescription("切换输入法");
         // Every keystroke reaches render(), and re-parenting eight keys under the pressed one is a
         // relayout the user can see. The row only changes when the surface does.
-        String signature = layout + ":" + globe + ":" + ownBottom;
+        // 分离时空格拆成两半、空隙按可见键居中，所以常用标点键显示与否也会改变排布。
+        boolean split = !ownBottom && s.splitKeyboardDrawn();
+        String signature = layout + ":" + globe + ":" + ownBottom + ":" + split
+            + (split && s.quickPunctuationButton != null ? ":" + s.quickPunctuationButton.getVisibility() : "");
         java.util.List<KeyboardActionRow.DesignEntry> entries = ownBottom ? java.util.List.of()
             : KeyboardActionRow.designEntries(layout, globe);
         // Visibility is re-asserted every time: the reply surface hides this row and restores it
@@ -314,18 +361,20 @@ final class ImeBottomRow {
                 default -> KeyboardKeyRole.ACCENT;
             };
             if (key instanceof KeyboardPressButton press) press.setKeyboardRole(role);
+            // 123、中/英、逗号由通用的 button() 建出来，没有经过键帽工厂；放进底行时才知道它们是键帽。
+            KeyboardGeometry.normalizeKeyCap(key);
             s.imeStyler.styleButton(key, role, s.skin);
             if (entry.slot() == KeyboardActionRow.DesignSlot.COMMA)
-                key.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 22);
+                KeyboardGeometry.setKeyTextSize(key, 22);
             else if (role == KeyboardKeyRole.ACCENT)
-                key.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 15);
+                KeyboardGeometry.setKeyTextSize(key, 15);
             key.setVisibility(View.VISIBLE);
-            s.actionRow.addView(key, new LinearLayout.LayoutParams(0,
-                LinearLayout.LayoutParams.MATCH_PARENT, entry.weight()));
+            s.actionRow.addView(key, KeyboardGeometry.weightedMatchParentParams(entry.weight()));
         }
         // The quick punctuation key hides itself when the scheme has no punctuation to offer, and
         // the loop above just told every slot it was visible.
         if (!ownBottom) s.updateQuickPunctuation();
+        if (split) s.imeLetterRows.splitSpaceRow(s.actionRow);
         s.imeStyler.applyKeyboardGeometry();
     }
 }

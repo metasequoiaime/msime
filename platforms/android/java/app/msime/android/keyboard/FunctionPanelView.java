@@ -14,6 +14,7 @@ import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
 import android.widget.LinearLayout;
+import app.msime.android.KeyboardGeometry;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -64,7 +65,7 @@ public final class FunctionPanelView extends LinearLayout {
 
     private final PagedTileGrid grid;
     private final KeyboardPagerDots dots;
-    private final ArrayList<Tile> tiles = new ArrayList<>();
+    private final ArrayList<Tile> tiles = new ArrayList<>(FunctionPanelModel.items().size());
     private int foreground = Color.BLACK;
     private int accent = Color.BLUE;
     private int panelBackground = Color.WHITE;
@@ -73,20 +74,17 @@ public final class FunctionPanelView extends LinearLayout {
         super(context);
         setOrientation(VERTICAL);
         setContentDescription("更多工具");
-        float density = getResources().getDisplayMetrics().density;
-        setPadding(0, Math.round(10 * density), 0, Math.round(4 * density));
+        KeyboardGeometry.setPaddingDp(this, context, 0, 10, 0, 4);
         grid = new PagedTileGrid(context);
         grid.setGrid(4, 2);
         grid.setSpacing(ITEM_HEIGHT_DP, 16f, 4f, 4f);
         dots = new KeyboardPagerDots(context);
         grid.setOnPageChangeListener((page, count) -> dots.setActive(page, true));
-        LinearLayout.LayoutParams gridParams = new LinearLayout.LayoutParams(
-            LayoutParams.MATCH_PARENT, 0, 1f);
+        LinearLayout.LayoutParams gridParams = KeyboardGeometry.weightedWidthParams(1f);
         addView(grid, gridParams);
-        LinearLayout.LayoutParams dotParams = new LinearLayout.LayoutParams(
-            LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
+        LinearLayout.LayoutParams dotParams = KeyboardGeometry.wrapParams();
         dotParams.gravity = Gravity.CENTER_HORIZONTAL;
-        dotParams.topMargin = Math.round(8 * density);
+        dotParams.topMargin = KeyboardGeometry.pixels(context, 8);
         addView(dots, dotParams);
     }
 
@@ -156,6 +154,11 @@ public final class FunctionPanelView extends LinearLayout {
         private final TextPaint textPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
         private final Paint badgePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final RectF rect = new RectF();
+        private String fittedLabel;
+        private String fittedLabelSource;
+        private float fittedLabelWidth = Float.NaN;
+        private float fittedLabelSize = Float.NaN;
+        private boolean fittedLabelBold;
         private State state = State.NONE;
 
         Tile(Context context, FunctionPanelView panel, Entry entry) {
@@ -163,18 +166,13 @@ public final class FunctionPanelView extends LinearLayout {
             this.panel = panel;
             this.entry = entry;
             setText(entry.label);
-            setAllCaps(false);
-            setBackground(null);
-            setPadding(0, 0, 0, 0);
-            setMinWidth(0);
-            setMinimumWidth(0);
-            setMinHeight(0);
-            setMinimumHeight(0);
+            ViewPolicy.setAllCapsFalse(this);
+            ViewPolicy.clearChrome(this);
             setContentDescription(entry.description == null || entry.description.isEmpty()
                 ? entry.label : entry.description);
             textPaint.setTextAlign(Paint.Align.CENTER);
             boxPaint.setStyle(Paint.Style.STROKE);
-            if (entry.action != null) setOnClickListener(view -> entry.action.run());
+            if (entry.action != null) ViewPolicy.bindClick(this, entry.action);
             if (entry.longPress != null) {
                 setOnLongClickListener(view -> {
                     entry.longPress.run();
@@ -185,7 +183,7 @@ public final class FunctionPanelView extends LinearLayout {
 
         void setState(State value) {
             state = value;
-            setSelected(value == State.ON);
+            ViewPolicy.setSelected(this, value == State.ON);
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) setStateDescription(stateText(value));
             invalidate();
         }
@@ -201,19 +199,23 @@ public final class FunctionPanelView extends LinearLayout {
             if (changed) invalidate();
         }
 
+        private void configureLabelPaint(boolean on) {
+            textPaint.setTextSize(KeyboardGeometry.keySp(getContext(), LABEL_SP));
+            textPaint.setTypeface(on ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
+        }
+
         @Override protected void onDraw(Canvas canvas) {
-            float density = getResources().getDisplayMetrics().density;
+            float density = KeyboardGeometry.density(getContext());
             boolean on = state == State.ON;
             int color = on ? panel.accent : panel.foreground;
-            if (isPressed()) color = Color.argb(Color.alpha(color) * PRESSED_ALPHA / 255,
-                Color.red(color), Color.green(color), Color.blue(color));
-            textPaint.setTextSize(KeyboardGeometry.sp(getContext(), LABEL_SP));
-            textPaint.setTypeface(on ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
+            if (isPressed()) color = ColorPolicy.withAlpha(color,
+                Color.alpha(color) * PRESSED_ALPHA / 255);
+            configureLabelPaint(on);
             Paint.FontMetrics label = textPaint.getFontMetrics();
             float labelHeight = label.descent - label.ascent;
             float area = ICON_AREA_DP * density;
             float total = area + LABEL_GAP_DP * density + labelHeight;
-            float top = Math.max(0f, (getHeight() - total) / 2f);
+            float top = BoundsPolicy.nonNegative((getHeight() - total) / 2f);
             float centerX = getWidth() / 2f;
             float iconCenterY = top + area / 2f;
             float iconRight;
@@ -229,7 +231,7 @@ public final class FunctionPanelView extends LinearLayout {
                 float radius = GLYPH_RADIUS_DP * density;
                 canvas.drawRoundRect(rect, radius, radius, boxPaint);
                 Paint glyph = textPaint;
-                glyph.setTextSize(KeyboardGeometry.sp(getContext(), GLYPH_SP));
+                glyph.setTextSize(KeyboardGeometry.keySp(getContext(), GLYPH_SP));
                 glyph.setTypeface(Typeface.DEFAULT_BOLD);
                 glyph.setColor(color);
                 Paint.FontMetrics metrics = glyph.getFontMetrics();
@@ -237,8 +239,7 @@ public final class FunctionPanelView extends LinearLayout {
                     iconCenterY - (metrics.ascent + metrics.descent) / 2f, glyph);
                 iconRight = centerX + box / 2f;
                 iconBottom = iconCenterY + box / 2f;
-                textPaint.setTextSize(KeyboardGeometry.sp(getContext(), LABEL_SP));
-                textPaint.setTypeface(on ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
+                configureLabelPaint(on);
             } else {
                 float size = ICON_DP * density;
                 if (entry.icon != null) {
@@ -270,8 +271,21 @@ public final class FunctionPanelView extends LinearLayout {
 
         /** 放不下时以「…」结尾截断，不悄悄丢掉末尾的字。 */
         private String fit(String value, float width) {
-            return TextUtils.ellipsize(value == null ? "" : value, textPaint, Math.max(0f, width),
-                TextUtils.TruncateAt.END).toString();
+            String source = TextPolicy.emptyIfNull(value);
+            float boundedWidth = BoundsPolicy.nonNegative(width);
+            boolean bold = textPaint.getTypeface() == Typeface.DEFAULT_BOLD;
+            float size = textPaint.getTextSize();
+            if (fittedLabel == null || !source.equals(fittedLabelSource)
+                || fittedLabelWidth != boundedWidth || fittedLabelSize != size
+                || fittedLabelBold != bold) {
+                fittedLabel = TextUtils.ellipsize(source, textPaint, boundedWidth,
+                    TextUtils.TruncateAt.END).toString();
+                fittedLabelSource = source;
+                fittedLabelWidth = boundedWidth;
+                fittedLabelSize = size;
+                fittedLabelBold = bold;
+            }
+            return fittedLabel;
         }
 
     }

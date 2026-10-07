@@ -22,6 +22,8 @@ public final class CandidateTranslationPolicySmoke {
             "long press keeps distinct bounded gloss rows");
         check(CandidateTranslationPolicy.insertionGlosses("safe\n" + "x".repeat(4097))
                 .equals(List.of("safe")), "oversized gloss rows are not insertable");
+        check(CandidateTranslationPolicy.insertionGlosses("坏\uD800\n好")
+                .equals(List.of("好")), "invalid Unicode gloss rows are not insertable");
         check(CandidateTranslationPolicy.glossLines(List.of("en"), true, false, Set.of()) == 1,
             "offline English keeps its row when online translation is off");
         check(CandidateTranslationPolicy.glossLines(List.of("ja"), true, false, Set.of()) == 0,

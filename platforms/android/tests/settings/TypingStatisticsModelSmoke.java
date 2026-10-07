@@ -25,6 +25,10 @@ public final class TypingStatisticsModelSmoke {
 
     public static void main(String[] args) {
         TypingStatisticsModel model = model();
+        check(!app.msime.android.TypingStatisticsDocument.booleanValue("true", false),
+            "malformed enabled flag keeps the fallback");
+        check(app.msime.android.TypingStatisticsDocument.booleanValue(Boolean.TRUE, false),
+            "typed enabled flag is accepted");
         check(model.enabled() && model.total() == 120 && "90d".equals(model.retention()),
             "headline fields");
         check(model.count("2026-09-20") == 100 && model.count("2026-09-19") == 0,

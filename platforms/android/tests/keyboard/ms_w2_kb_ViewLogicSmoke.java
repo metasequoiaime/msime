@@ -25,6 +25,11 @@ public final class ms_w2_kb_ViewLogicSmoke {
         check(PagedTileGrid.pageCount(20, perPage) == 3, "twenty tiles span three pages");
         check(PagedTileGrid.pageCount(16, perPage) == 2, "sixteen tiles fill two pages");
         check(PagedTileGrid.pageCount(0, perPage) == 1, "empty grid still has one page");
+        check(PagedTileGrid.pageCount(1, 0) == 1, "zero page capacity is clamped");
+        check(PagedTileGrid.pageCount(Integer.MAX_VALUE, 2) == 1_073_741_824,
+            "page count does not overflow its numerator");
+        check(PagedTileGrid.perPage(Integer.MAX_VALUE, 2) == Integer.MAX_VALUE,
+            "page capacity does not wrap on multiplication");
         check(PagedTileGrid.pageOf(7, perPage) == 0 && PagedTileGrid.pageOf(8, perPage) == 1, "page of index");
         check(PagedTileGrid.settlePage(0, 0f, 300f, -5000f, 1000f, 3) == 1, "fling left goes to next page");
         check(PagedTileGrid.settlePage(1, 300f, 300f, 5000f, 1000f, 3) == 0, "fling right goes to previous page");

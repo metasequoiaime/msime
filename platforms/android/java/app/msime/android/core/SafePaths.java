@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 
 /**
  * 宿主对存储路径唯一的一处符号链接检查，是 {@code crates/path-trust} 的 Java 版本：被人放进去的链接不能把键盘的写入重定向到别处，但系统自己放在每个应用存储路径上的链接必须放行。
@@ -21,10 +22,11 @@ public final class SafePaths {
 
     /** 判断 {@code path} 是否是系统链接之一，并且从它读出的 {@code target} 解析后正好是该链接唯一受信任的指向。 */
     static boolean trustedSystemAliasTarget(Path path, Path target) {
+        // Paths.get rather than Path.of: Path.of only exists from API 34, minSdk is 28, and D8 does not backport it, so on Android 9-12 the first storage check threw NoSuchMethodError and dictionary preparation never finished.
         for (String[] alias : SYSTEM_ALIASES) {
-            if (!path.equals(Path.of(alias[0]))) continue;
+            if (!path.equals(Paths.get(alias[0]))) continue;
             Path parent = path.getParent() == null ? path.getRoot() : path.getParent();
-            return parent.resolve(target).normalize().equals(Path.of(alias[1]));
+            return parent.resolve(target).normalize().equals(Paths.get(alias[1]));
         }
         return false;
     }

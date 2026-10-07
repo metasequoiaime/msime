@@ -1,7 +1,5 @@
 package app.msime.android.home;
 
-import android.content.ClipData;
-import android.content.ClipboardManager;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.pm.PackageInfo;
@@ -28,9 +26,11 @@ import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.Nullable;
 import app.msime.android.AppEdition;
 import app.msime.android.CloudApi;
+import app.msime.android.BitmapPolicy;
 import app.msime.android.FeedbackApi;
+import app.msime.android.FeedbackImagePolicy;
 import app.msime.android.R;
-import java.io.ByteArrayOutputStream;
+import app.msime.android.ViewPolicy;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
@@ -79,74 +79,56 @@ public final class FeedbackPage extends DetailPage {
 
         GroupCard description = GroupCard.add(column, "描述");
         LinearLayout card = description.card();
-        EditText input = new EditText(context);
+        EditText input = Ui.styledInput(context, Ui.TEXT_ROW_TITLE, 400, Ui.text(context));
         input.setHint("遇到了什么问题？可以写复现步骤、出错的词或期望的结果");
         input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE
             | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
-        input.setGravity(Gravity.TOP | Gravity.START);
+        ViewPolicy.setTopStart(input);
         input.setMinLines(4);
-        input.setBackground(null);
-        Ui.style(input, Ui.TEXT_ROW_TITLE, 400, Ui.text(context));
+        ViewPolicy.clearBackground(input);
         input.setHintTextColor(Ui.subText(context));
-        input.setPadding(Ui.dp(requireContext(), 16), Ui.dp(requireContext(), 14), Ui.dp(requireContext(), 16), Ui.dp(requireContext(), 14));
+        Ui.setSymmetricPaddingDp(input, requireContext(), 16, 14);
         input.setText(draft);
         input.setContentDescription("描述");
         card.addView(input, Ui.matchWidth());
         detail = input;
 
-        View rule = new View(context);
-        rule.setBackgroundColor(Ui.hairline(context));
-        LinearLayout.LayoutParams ruleParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
-            Math.max(1, Ui.dp(requireContext(), 0.5f)));
+        View rule = Ui.hairlineView(context);
+        LinearLayout.LayoutParams ruleParams = Ui.matchWidthHeightPx(Ui.hairlinePx(context));
         ruleParams.setMarginStart(Ui.dp(requireContext(), 16));
         card.addView(rule, ruleParams);
 
         HorizontalScrollView strip = new HorizontalScrollView(context);
         strip.setHorizontalScrollBarEnabled(false);
-        LinearLayout shots = new LinearLayout(context);
-        shots.setOrientation(LinearLayout.HORIZONTAL);
-        shots.setPadding(Ui.dp(requireContext(), 16), Ui.dp(requireContext(), 10), Ui.dp(requireContext(), 16), 0);
+        LinearLayout shots = Ui.row(context);
+        Ui.setPaddingDp(shots, requireContext(), 16, 10, 16, 0);
         strip.addView(shots);
         card.addView(strip, Ui.matchWidth());
         thumbnails = shots;
 
-        LinearLayout add = new LinearLayout(context);
-        add.setOrientation(LinearLayout.HORIZONTAL);
-        add.setGravity(Gravity.CENTER_VERTICAL);
-        add.setPadding(Ui.dp(requireContext(), 16), Ui.dp(requireContext(), 12), Ui.dp(requireContext(), 16), Ui.dp(requireContext(), 14));
-        add.setBackground(Ui.ripple(context));
-        add.setClickable(true);
-        add.setFocusable(true);
+        LinearLayout add = Ui.row(context);
+        ViewPolicy.setCenteredVertically(add);
+        Ui.setPaddingDp(add, requireContext(), 16, 12, 16, 14);
         add.setContentDescription("添加截图，最多 " + FeedbackApi.MAX_SCREENSHOTS + " 张");
-        ImageView icon = new ImageView(context);
-        icon.setImageResource(R.drawable.ms_w4_me2_image);
-        icon.setImageTintList(android.content.res.ColorStateList.valueOf(Ui.accent(context)));
-        add.addView(icon, new LinearLayout.LayoutParams(Ui.dp(requireContext(), 20), Ui.dp(requireContext(), 20)));
-        TextView label = new TextView(context);
-        label.setText("添加截图");
-        Ui.style(label, Ui.TEXT_ROW_TITLE, 400, Ui.accent(context));
-        LinearLayout.LayoutParams labelParams = new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        ImageView icon = Ui.decorativeIcon(context, R.drawable.ms_w4_me2_image, Ui.accent(context));
+        add.addView(icon, Ui.squareParams(requireContext(), 20));
+        TextView label = Ui.styledLabel(context, "添加截图", Ui.TEXT_ROW_TITLE, 400, Ui.accent(context));
+        LinearLayout.LayoutParams labelParams = Ui.wrap();
         labelParams.setMarginStart(Ui.dp(requireContext(), 10));
         add.addView(label, labelParams);
-        add.setOnClickListener(ignored -> picker.launch("image/*"));
+        Ui.makeClickable(add, context, () -> picker.launch("image/*"));
         card.addView(add, Ui.matchWidth());
         addShot = add;
 
-        TextView count = new TextView(context);
-        Ui.style(count, 13, 400, Ui.subText(context));
-        count.setPadding(Ui.dp(requireContext(), Ui.GROUP_TITLE_INSET), Ui.dp(requireContext(), 6), Ui.dp(requireContext(), Ui.GROUP_TITLE_INSET), 0);
+        TextView count = Ui.styledLabel(context, "", 13, 400, Ui.subText(context));
+        Ui.setPaddingDp(count, requireContext(), Ui.GROUP_TITLE_INSET, 6,
+            Ui.GROUP_TITLE_INSET, 0);
         description.view().addView(count, Ui.matchWidth());
         counter = count;
 
-        TextView button = new TextView(context);
-        button.setGravity(Gravity.CENTER);
-        Ui.style(button, 16, 600, Ui.onAccent(context));
-        button.setMinHeight(Ui.dp(requireContext(), 52));
-        button.setClickable(true);
-        button.setFocusable(true);
-        button.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
-        button.setOnClickListener(ignored -> submit());
+        TextView button = Ui.textButton(context, "", 16, 600, Ui.onAccent(context), null,
+            Ui.ACTION_BUTTON_MIN_HEIGHT, this::submit);
+        ViewPolicy.setPoliteLiveRegion(button);
         LinearLayout.LayoutParams buttonParams = Ui.matchWidth();
         buttonParams.topMargin = Ui.dp(requireContext(), Ui.GROUP_GAP);
         column.addView(button, buttonParams);
@@ -200,11 +182,12 @@ public final class FeedbackPage extends DetailPage {
         if (context == null || counter == null || submit == null) return;
         int length = FeedbackApi.length(draft);
         counter.setText(length + " / " + FeedbackApi.MAX_TEXT);
-        counter.setTextColor(length > FeedbackApi.MAX_TEXT ? Ui.danger(context) : Ui.subText(context));
+        ViewPolicy.setTextColor(counter,
+            length > FeedbackApi.MAX_TEXT ? Ui.danger(context) : Ui.subText(context));
         boolean ready = !sending && !sent && FeedbackApi.validText(draft);
         submit.setText(sent ? "已提交" : sending ? "正在提交…" : "提交");
-        submit.setEnabled(ready);
-        submit.setTextColor(ready ? Ui.onAccent(context) : Ui.subText(context));
+        ViewPolicy.setEnabled(submit, ready);
+        ViewPolicy.setTextColor(submit, ready ? Ui.onAccent(context) : Ui.subText(context));
         int fill = ready ? Ui.accent(context)
             : Ui.color(context, com.google.android.material.R.attr.colorSurfaceContainerHighest);
         submit.setBackground(Ui.rippleOn(context, fill, Ui.dp(requireContext(), Ui.GROUP_RADIUS)));
@@ -229,13 +212,13 @@ public final class FeedbackPage extends DetailPage {
             image.setBackground(Ui.rounded(Ui.rowBackground(context), Ui.dp(requireContext(), 10)));
             image.setClipToOutline(true);
             image.setContentDescription("截图 " + (index + 1));
-            frame.addView(image, new FrameLayout.LayoutParams(Ui.dp(requireContext(), 64), Ui.dp(requireContext(), 64)));
+            frame.addView(image, Ui.squareFrameParams(requireContext(), Ui.THUMBNAIL_SIZE));
             ImageView remove = new ImageView(context);
             remove.setImageResource(R.drawable.ms_w4_me2_close);
-            remove.setImageTintList(android.content.res.ColorStateList.valueOf(
-                Ui.color(context, com.google.android.material.R.attr.colorOnSurfaceInverse)));
+            Ui.setImageTint(remove,
+                Ui.color(context, com.google.android.material.R.attr.colorOnSurfaceInverse));
             remove.setBackground(Ui.pill(Ui.color(context, com.google.android.material.R.attr.colorSurfaceInverse)));
-            remove.setPadding(Ui.dp(requireContext(), 3), Ui.dp(requireContext(), 3), Ui.dp(requireContext(), 3), Ui.dp(requireContext(), 3));
+            Ui.setSymmetricPaddingDp(remove, requireContext(), 3, 3);
             remove.setContentDescription("移除截图 " + (index + 1));
             remove.setOnClickListener(ignored -> {
                 if (sending) return;
@@ -243,9 +226,10 @@ public final class FeedbackPage extends DetailPage {
                 renderThumbnails();
                 refresh();
             });
-            FrameLayout.LayoutParams removeParams = new FrameLayout.LayoutParams(Ui.dp(requireContext(), 20), Ui.dp(requireContext(), 20), Gravity.TOP | Gravity.END);
+            FrameLayout.LayoutParams removeParams = Ui.squareFrameParams(requireContext(), 20);
+            removeParams.gravity = Gravity.TOP | Gravity.END;
             frame.addView(remove, removeParams);
-            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(Ui.dp(requireContext(), 64), Ui.dp(requireContext(), 64));
+            LinearLayout.LayoutParams params = Ui.squareParams(requireContext(), Ui.THUMBNAIL_SIZE);
             params.setMarginEnd(Ui.dp(requireContext(), 8));
             strip.addView(frame, params);
         }
@@ -281,38 +265,21 @@ public final class FeedbackPage extends DetailPage {
 
     /** 读一张图，长边缩到 1600 像素以内，重新编码成 1 MiB 以内的 JPEG；读不出或压不到时返回 null。 */
     @Nullable private static byte[] reencode(ContentResolver resolver, Uri uri) throws IOException {
-        BitmapFactory.Options bounds = new BitmapFactory.Options();
-        bounds.inJustDecodeBounds = true;
+        byte[] source;
         try (InputStream in = resolver.openInputStream(uri)) {
-            if (in == null) return null;
-            BitmapFactory.decodeStream(in, null, bounds);
+            source = FeedbackImagePolicy.readSource(in);
         }
-        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null;
-        int sample = 1;
-        while (Math.max(bounds.outWidth, bounds.outHeight) / (sample * 2) >= MAX_EDGE) sample *= 2;
+        if (source == null) return null;
+        BitmapFactory.Options bounds = BitmapPolicy.decodeBounds(source);
+        if (bounds == null) return null;
+        int sample = BitmapPolicy.sampleSizeForEdge(bounds.outWidth, bounds.outHeight, MAX_EDGE);
         BitmapFactory.Options options = new BitmapFactory.Options();
         options.inSampleSize = sample;
-        Bitmap bitmap;
-        try (InputStream in = resolver.openInputStream(uri)) {
-            if (in == null) return null;
-            bitmap = BitmapFactory.decodeStream(in, null, options);
-        }
+        Bitmap bitmap = BitmapFactory.decodeByteArray(source, 0, source.length, options);
         if (bitmap == null) return null;
         try {
-            int edge = Math.max(bitmap.getWidth(), bitmap.getHeight());
-            if (edge > MAX_EDGE) {
-                float scale = MAX_EDGE / (float) edge;
-                Bitmap scaled = Bitmap.createScaledBitmap(bitmap, Math.round(bitmap.getWidth() * scale),
-                    Math.round(bitmap.getHeight() * scale), true);
-                if (scaled != bitmap) bitmap.recycle();
-                bitmap = scaled;
-            }
-            for (int quality = 85; quality >= 40; quality -= 15) {
-                ByteArrayOutputStream out = new ByteArrayOutputStream();
-                bitmap.compress(Bitmap.CompressFormat.JPEG, quality, out);
-                if (out.size() <= FeedbackApi.MAX_SCREENSHOT_BYTES) return out.toByteArray();
-            }
-            return null;
+            bitmap = BitmapPolicy.scaleToEdge(bitmap, MAX_EDGE);
+            return BitmapPolicy.compressJpegUnderBytes(bitmap, FeedbackApi.MAX_SCREENSHOT_BYTES);
         } finally {
             bitmap.recycle();
         }
@@ -383,10 +350,7 @@ public final class FeedbackPage extends DetailPage {
     }
 
     private void copy(String label, String value, String done) {
-        ClipboardManager clipboard = requireContext().getSystemService(ClipboardManager.class);
-        if (clipboard == null) return;
-        clipboard.setPrimaryClip(ClipData.newPlainText(label, value));
-        MsToast.show(requireContext(), done);
+        ClipboardActions.copyText(requireContext(), label, value, done);
     }
 
     /** 没装 Telegram 又没有浏览器时，退而复制链接。 */

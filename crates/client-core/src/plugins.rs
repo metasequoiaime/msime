@@ -763,7 +763,7 @@ fn check_files(
         return Err("音频文件加起来太大".into());
     }
     for file in data {
-        if distinct.contains(&file.name.as_str()) || file.name == MANIFEST_FILE {
+        if distinct.binary_search(&file.name.as_str()).is_ok() || file.name == MANIFEST_FILE {
             return Err(format!("{} 不能同时用作别的文件", file.name));
         }
         if extension(&file.name) != file.extension {
@@ -778,7 +778,7 @@ fn check_files(
     }
     for (name, size) in files {
         if name == MANIFEST_FILE
-            || distinct.contains(&name.as_str())
+            || distinct.binary_search(&name.as_str()).is_ok()
             || data.iter().any(|file| file.name == *name)
         {
             continue;

@@ -24,7 +24,7 @@ public final class LetterHintTable {
      */
     public static String hint(String letter) {
         if (letter == null || letter.length() != 1) return null;
-        char c = Character.toLowerCase(letter.charAt(0));
+        char c = TextPolicy.lowercase(letter).charAt(0);
         return HINTS.get(String.valueOf(c));
     }
 

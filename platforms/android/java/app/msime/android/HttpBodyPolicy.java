@@ -3,11 +3,22 @@ package app.msime.android;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.util.function.BooleanSupplier;
 
 /** Shared bounded reader for HTTP response bodies. */
 public final class HttpBodyPolicy {
+    private static final int COPY_BUFFER_BYTES = 16 * 1024;
+
     private HttpBodyPolicy() {}
+
+    /** Copy a stream without allocating a buffer for every response. */
+    public static void copy(InputStream input, OutputStream output) throws IOException {
+        if (input == null || output == null) throw new NullPointerException();
+        byte[] buffer = new byte[COPY_BUFFER_BYTES];
+        int count;
+        while ((count = input.read(buffer)) != -1) output.write(buffer, 0, count);
+    }
 
     /** Reads at most {@code limit} bytes, returning {@code null} when the body is larger. */
     public static byte[] readBounded(InputStream input, int limit) throws IOException {
@@ -26,7 +37,7 @@ public final class HttpBodyPolicy {
             BooleanSupplier cancelled) throws IOException {
         if (input == null || limit < 0) return null;
         if (cancelled == null || cancelled.getAsBoolean()) return null;
-        ByteArrayOutputStream output = new ByteArrayOutputStream(Math.min(limit, 8192));
+        ByteArrayOutputStream output = new ByteArrayOutputStream(BoundsPolicy.atMost(limit, 8192));
         byte[] buffer = new byte[8192];
         int count;
         while ((count = input.read(buffer)) != -1) {
@@ -41,7 +52,7 @@ public final class HttpBodyPolicy {
     public static byte[] readWithin(InputStream input, int limit, long deadlineNanos)
             throws IOException {
         if (input == null || limit < 0) return null;
-        ByteArrayOutputStream output = new ByteArrayOutputStream(Math.min(limit, 8192));
+        ByteArrayOutputStream output = new ByteArrayOutputStream(BoundsPolicy.atMost(limit, 8192));
         byte[] buffer = new byte[8192];
         int count;
         while (System.nanoTime() < deadlineNanos && (count = input.read(buffer)) != -1) {

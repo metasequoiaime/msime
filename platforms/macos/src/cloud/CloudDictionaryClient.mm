@@ -3,9 +3,24 @@
 #import "../core/BoundedFileReader.h"
 
 static const NSUInteger MSIMECloudDictionaryMaximumRequestBodyBytes = 65536;
+static BOOL MSIMEValidDictionaryKind(NSString *kind) {
+    return [@[ @"pinyin", @"wubi", @"wubi98", @"quick", @"english" ] containsObject:kind];
+}
+static BOOL MSIMEValidDictionaryEntryID(NSString *entryID) {
+    if (entryID.length != 64) return NO;
+    for (NSUInteger index = 0; index < entryID.length; ++index) {
+        unichar value = [entryID characterAtIndex:index];
+        if (!((value >= '0' && value <= '9') || (value >= 'a' && value <= 'f'))) return NO;
+    }
+    return YES;
+}
+static BOOL MSIMEValidBoundedQueryText(NSString *value, NSUInteger maximumBytes) {
+    return value.length > 0 && [value lengthOfBytesUsingEncoding:NSUTF8StringEncoding] <= maximumBytes &&
+           [value rangeOfCharacterFromSet:NSCharacterSet.controlCharacterSet].location == NSNotFound;
+}
 
 void MSIMEFetchCloudDictionary(NSString *kind, NSString *search, NSUInteger offset, NSString *bearerToken, MSIMECloudDictionaryCompletion completion) {
-    if (kind.length == 0 || search.length > 1024 || offset > 1000000 || bearerToken.length == 0) { if (completion) completion(nil, 400, [NSError errorWithDomain:@"MSIMECloud" code:400 userInfo:nil]); return; }
+    if (!MSIMEValidDictionaryKind(kind) || [search lengthOfBytesUsingEncoding:NSUTF8StringEncoding] > 1024 || [search rangeOfString:@"\0"].location != NSNotFound || offset > 1000000 || bearerToken.length == 0) { if (completion) completion(nil, 400, [NSError errorWithDomain:@"MSIMECloud" code:400 userInfo:nil]); return; }
     NSURLComponents *components = [NSURLComponents componentsWithString:@"https://api.msime.app/v1/users/me/dictionaries"];
     components.path = [components.path stringByAppendingPathComponent:kind];
     components.queryItems = @[[NSURLQueryItem queryItemWithName:@"q" value:search], [NSURLQueryItem queryItemWithName:@"offset" value:[NSString stringWithFormat:@"%lu", (unsigned long)offset]], [NSURLQueryItem queryItemWithName:@"limit" value:@"100"]];
@@ -15,7 +30,8 @@ void MSIMEFetchCloudDictionary(NSString *kind, NSString *search, NSUInteger offs
 }
 
 void MSIMEMutateCloudDictionary(NSString *method, NSString *kind, NSString *entryID, NSData *body, NSString *bearerToken, MSIMECloudDictionaryCompletion completion) {
-    if (![@[@"POST", @"PUT", @"DELETE"] containsObject:method] || kind.length == 0 || body.length > MSIMECloudDictionaryMaximumRequestBodyBytes || bearerToken.length == 0 || (entryID.length == 0 && ![method isEqualToString:@"POST"])) { if (completion) completion(nil, 400, [NSError errorWithDomain:@"MSIMECloud" code:400 userInfo:nil]); return; }
+    BOOL creating = [method isEqualToString:@"POST"];
+    if (![@[@"POST", @"PUT", @"DELETE"] containsObject:method] || !MSIMEValidDictionaryKind(kind) || body.length > MSIMECloudDictionaryMaximumRequestBodyBytes || bearerToken.length == 0 || (creating ? entryID.length != 0 : !MSIMEValidDictionaryEntryID(entryID))) { if (completion) completion(nil, 400, [NSError errorWithDomain:@"MSIMECloud" code:400 userInfo:nil]); return; }
     NSString *path = [NSString stringWithFormat:@"https://api.msime.app/v1/users/me/dictionaries/%@%@", kind, entryID.length ? [@"/" stringByAppendingString:entryID] : @""];
     NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:path]]; request.HTTPMethod = method; request.HTTPBody = body;
     [request setValue:[@"Bearer " stringByAppendingString:bearerToken] forHTTPHeaderField:@"Authorization"]; [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
@@ -23,7 +39,7 @@ void MSIMEMutateCloudDictionary(NSString *method, NSString *kind, NSString *entr
 }
 
 void MSIMEImportCloudDictionary(NSString *kind, NSString *format, NSData *body, NSString *bearerToken, MSIMECloudDictionaryCompletion completion) {
-    if (kind.length == 0 || ![@[@"standard", @"windows", @"hans"] containsObject:format] || body.length == 0 || body.length > 65536 || bearerToken.length == 0) { if (completion) completion(nil, 400, [NSError errorWithDomain:@"MSIMECloud" code:400 userInfo:nil]); return; }
+    if (!MSIMEValidDictionaryKind(kind) || ![@[@"standard", @"windows", @"hans"] containsObject:format] || body.length == 0 || body.length > 65536 || bearerToken.length == 0) { if (completion) completion(nil, 400, [NSError errorWithDomain:@"MSIMECloud" code:400 userInfo:nil]); return; }
     NSString *path = [NSString stringWithFormat:@"https://api.msime.app/v1/users/me/dictionaries/%@/import%@", kind, [format isEqualToString:@"hans"] ? @"-hans" : @""];
     NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:path]]; request.HTTPMethod = @"POST";
     NSString *text = [[NSString alloc] initWithData:body encoding:NSUTF8StringEncoding] ?: @"";
@@ -34,7 +50,7 @@ void MSIMEImportCloudDictionary(NSString *kind, NSString *format, NSData *body, 
 }
 
 void MSIMEExportCloudDictionary(NSString *kind, NSString *format, NSString *bearerToken, MSIMECloudDictionaryCompletion completion) {
-    if (kind.length == 0 || ![@[@"standard", @"windows"] containsObject:format] || bearerToken.length == 0) { if (completion) completion(nil, 400, [NSError errorWithDomain:@"MSIMECloud" code:400 userInfo:nil]); return; }
+    if (!MSIMEValidDictionaryKind(kind) || ![@[@"standard", @"windows"] containsObject:format] || bearerToken.length == 0) { if (completion) completion(nil, 400, [NSError errorWithDomain:@"MSIMECloud" code:400 userInfo:nil]); return; }
     NSString *path = [NSString stringWithFormat:@"https://api.msime.app/v1/users/me/dictionaries/%@/export?format=%@", kind, format];
     NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:path]]; request.HTTPMethod = @"GET";
     [request setValue:[@"Bearer " stringByAppendingString:bearerToken] forHTTPHeaderField:@"Authorization"]; [request setValue:@"text/plain" forHTTPHeaderField:@"Content-Type"];
@@ -42,7 +58,7 @@ void MSIMEExportCloudDictionary(NSString *kind, NSString *format, NSString *bear
 }
 
 void MSIMEFetchCloudDictionaryCatalog(NSString *kind, NSString *code, NSUInteger offset, NSString *scheme, NSString *profile, NSString *bearerToken, MSIMECloudDictionaryCompletion completion) {
-    if (kind.length == 0 || code.length > 256 || [code rangeOfString:@"\0"].location != NSNotFound || offset > 1000000 || scheme.length == 0 || profile.length == 0 || bearerToken.length == 0) { if (completion) completion(nil, 400, [NSError errorWithDomain:@"MSIMECloud" code:400 userInfo:nil]); return; }
+    if (!MSIMEValidDictionaryKind(kind) || [code lengthOfBytesUsingEncoding:NSUTF8StringEncoding] > 256 || [code rangeOfString:@"\0"].location != NSNotFound || offset > 1000000 || !MSIMEValidBoundedQueryText(scheme, 64) || !MSIMEValidBoundedQueryText(profile, 64) || bearerToken.length == 0) { if (completion) completion(nil, 400, [NSError errorWithDomain:@"MSIMECloud" code:400 userInfo:nil]); return; }
     NSURLComponents *c = [NSURLComponents componentsWithString:[NSString stringWithFormat:@"https://api.msime.app/v1/users/me/dictionaries/%@/catalog", kind]];
     c.queryItems = @[[NSURLQueryItem queryItemWithName:@"q" value:code], [NSURLQueryItem queryItemWithName:@"offset" value:[NSString stringWithFormat:@"%lu", (unsigned long)offset]], [NSURLQueryItem queryItemWithName:@"limit" value:@"100"], [NSURLQueryItem queryItemWithName:@"scheme" value:scheme], [NSURLQueryItem queryItemWithName:@"profile" value:profile]];
     NSMutableURLRequest *r = [NSMutableURLRequest requestWithURL:c.URL]; [r setValue:[@"Bearer " stringByAppendingString:bearerToken] forHTTPHeaderField:@"Authorization"];
@@ -50,7 +66,7 @@ void MSIMEFetchCloudDictionaryCatalog(NSString *kind, NSString *code, NSUInteger
 }
 
 void MSIMEEditCloudDictionaryCatalog(NSString *kind, NSData *body, NSString *bearerToken, MSIMECloudDictionaryCompletion completion) {
-    if (kind.length == 0 || body.length == 0 || body.length > 65536 || bearerToken.length == 0) { if (completion) completion(nil, 400, [NSError errorWithDomain:@"MSIMECloud" code:400 userInfo:nil]); return; }
+    if (!MSIMEValidDictionaryKind(kind) || body.length == 0 || body.length > 65536 || bearerToken.length == 0) { if (completion) completion(nil, 400, [NSError errorWithDomain:@"MSIMECloud" code:400 userInfo:nil]); return; }
     NSString *path = [NSString stringWithFormat:@"https://api.msime.app/v1/users/me/dictionaries/%@/edit", kind]; NSMutableURLRequest *r = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:path]]; r.HTTPMethod = @"POST"; r.HTTPBody = body;
     [r setValue:[@"Bearer " stringByAppendingString:bearerToken] forHTTPHeaderField:@"Authorization"]; [r setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
     MSIMEStartCloudDataTask(r, 1024 * 1024, ^(NSData *d, NSURLResponse *response, NSError *e) { dispatch_async(dispatch_get_main_queue(), ^{ if (completion) completion(d, [(NSHTTPURLResponse *)response statusCode], e); }); });

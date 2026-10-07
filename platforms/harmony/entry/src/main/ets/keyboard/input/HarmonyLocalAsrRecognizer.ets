@@ -2,7 +2,7 @@ import { MessageEvents, worker } from '@kit.ArkTS';
 import client from 'libmsimeclient.so';
 import { KeyboardLog, describeError } from '../KeyboardLog';
 import { HarmonyPcmCapture } from './HarmonyPcmCapture';
-import { LocalAsrPolicy, LocalAsrReply, LocalAsrRequest } from './LocalAsrPolicy';
+import { LocalAsrPolicy, LocalAsrReply, LocalAsrRequest, LocalHotword } from './LocalAsrPolicy';
 import { VoiceInputConfiguration } from './VoiceInputConfiguration';
 
 export type LocalAsrResultHandler = (text: string, final: boolean) => void;
@@ -13,12 +13,6 @@ const MAX_DURATION_MS: number = 120000;
 /** How long a loaded model stays resident after a session; the worker is terminated after that, which is what returns the memory. */
 const IDLE_RELEASE_MS: number = 120000;
 const HOTWORD_LIMIT: number = 200;
-
-/** A user dictionary word as `msime_client_voice_hotwords` returns it. */
-export interface LocalHotword {
-  text: string;
-  pinyin: string;
-}
 
 interface HotwordsRequest {
   options: Object;
@@ -232,11 +226,12 @@ export class HarmonyLocalAsrRecognizer {
       const request: HotwordsRequest = { options: options, limit: HOTWORD_LIMIT };
       const response: HotwordsResponse =
         JSON.parse(await client.voiceHotwords(JSON.stringify(request))) as HotwordsResponse;
-      if (!response.ok || response.value === undefined) {
+      if (response.ok !== true || response.value === undefined || response.value === null) {
         KeyboardLog.warn(`voice hotwords unavailable: ${response.error ?? 'unknown'}`);
         return [];
       }
-      return response.value.hotwords;
+      const hotwords: LocalHotword[] | null = LocalAsrPolicy.hotwords(response.value.hotwords);
+      return hotwords ?? [];
     } catch (error) {
       KeyboardLog.warn(`voice hotwords unavailable: ${describeError(error)}`);
       return [];
@@ -249,7 +244,7 @@ export class HarmonyLocalAsrRecognizer {
       const request: CorrectRequest = { text: text, hotwords: this.hotwords };
       const response: CorrectResponse =
         JSON.parse(client.voiceHotwordCorrect(JSON.stringify(request))) as CorrectResponse;
-      return response.ok && response.value !== undefined ? response.value.text : text;
+      return response.ok === true ? LocalAsrPolicy.correctedText(response.value, text) : text;
     } catch (error) {
       KeyboardLog.warn(`voice hotword correction unavailable: ${describeError(error)}`);
       return text;

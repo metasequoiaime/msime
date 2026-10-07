@@ -8,6 +8,7 @@ import android.graphics.RectF;
 import android.util.AttributeSet;
 import android.view.View;
 import androidx.annotation.Nullable;
+import app.msime.android.BoundsPolicy;
 import app.msime.android.KeyboardSkin;
 
 /**
@@ -55,7 +56,8 @@ public final class SkinSwatchView extends View {
         float cellWidth = (getWidth() - pad * 2 - gap * (COLUMNS - 1)) / COLUMNS;
         float cellHeight = (getHeight() - pad * 2 - gap * (ROWS - 1)) / ROWS;
         if (cellWidth <= 0 || cellHeight <= 0) return;
-        float capRadius = Math.min(Ui.dpFloat(getContext(), (float) value.cornerRadius()) / 2f,
+        float capRadius = BoundsPolicy.atMost(
+            Ui.dpFloat(getContext(), (float) value.cornerRadius()) / 2f,
             cellHeight / 2.5f);
         int cap = Ui.parseColor(value.keyBackground(), Color.WHITE);
         int function = Ui.parseColor(value.functionBackground(), cap);

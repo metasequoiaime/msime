@@ -88,3 +88,13 @@ pub fn flush_personal_learning() {
 pub fn close_cached_databases() {
     user_dictionary::journal::close_cached_journals()
 }
+
+/// Hands the engine the bytes of `msime-japanese.dat` for `path`, the location a Japanese session reads its model from (`RuntimePaths::resource(assets::JAPANESE_MODEL)` or `SessionOptions::japanese_dictionary`), so a host without a file system (the browser) can type Japanese. False, with nothing changed, when the bytes are not a valid model; a later call for the same path replaces the earlier one.
+pub fn preload_japanese_dictionary(path: &std::path::Path, bytes: Box<[u8]>) -> bool {
+    japanese::decoder::JapaneseDictionary::preload(path, bytes)
+}
+
+/// Forgets the model [`preload_japanese_dictionary`] put at `path`; sessions already using it keep it until they end.
+pub fn unload_japanese_dictionary(path: &std::path::Path) {
+    japanese::decoder::JapaneseDictionary::unload(path);
+}

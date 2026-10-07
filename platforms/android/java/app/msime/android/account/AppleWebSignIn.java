@@ -19,6 +19,8 @@ import org.json.JSONObject;
  * <p>等待中的流程存在 `SharedPreferences("msime_auth_pending")`，只此一条、10 分钟有效，新流程覆盖旧流程。回调先检查形状（{@link #acceptableCallback}），形状不对的直接丢弃、不碰这条记录；形状对的只读出记录（{@link #peekPending}）去兑换，兑换成功或确定失败后才按 verifier 删掉它（{@link #clearPending(Context, String)}）。服务端以「grant 不认识、已用过或属于别的 challenge」拒绝时（{@link #keepPendingAfter}）记录保留，所以伪造的或旧标签页里的回调抢不走正在进行的登录；兑换由调用方串行进行，同一条记录不会被并发兑换两次。登录成功不触发任何同步。
  */
 public final class AppleWebSignIn {
+    /** Maximum length of the one-time web login grant accepted by the account endpoint. */
+    public static final int MAX_GRANT_LENGTH = 128;
     static final String STORE = "msime_auth_pending";
     static final String KEY_VERIFIER = "verifier";
     static final String KEY_PURPOSE = "purpose";
@@ -74,7 +76,7 @@ public final class AppleWebSignIn {
 
     /** 回调里的 grant：服务端生成的 32 字节 base64url（43 个字符），只接受这个形状。 */
     public static boolean validGrant(String grant) {
-        if (grant == null || grant.length() < 32 || grant.length() > 128) return false;
+        if (grant == null || grant.length() < 32 || grant.length() > MAX_GRANT_LENGTH) return false;
         for (int index = 0; index < grant.length(); index++) {
             char c = grant.charAt(index);
             boolean allowed = c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '_';

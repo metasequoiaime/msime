@@ -101,19 +101,19 @@ public final class VoiceConfiguration {
     public static VoiceConfiguration decode(String response, String requestId) {
         try {
             JSONObject document = new JSONObject(response);
-            if (!document.optBoolean("ok", false)) return none();
+            if (!Boolean.TRUE.equals(strictBoolean(document.opt("ok")))) return none();
             JSONObject value = document.optJSONObject("value");
             if (value == null) return none();
             JSONObject provider = value.optJSONObject("provider");
             JSONObject polishValue = value.optJSONObject("polish");
             VoiceRecognitionActivity.Polish polish = polish(polishValue, requestId);
             if (provider == null) return new VoiceConfiguration(null, null, null, null, null, polish);
-            String name = provider.optString("provider", "");
-            String endpoint = provider.optString("endpoint", "");
-            String model = provider.optString("model", "");
-            String token = provider.optString("token", "");
+            String name = text(provider.opt("provider"));
+            String endpoint = text(provider.opt("endpoint"));
+            String model = text(provider.opt("model"));
+            String token = text(provider.opt("token"));
             String[] headers = headers(provider.optJSONArray("headers"));
-            String modelPath = provider.isNull("modelPath") ? "" : provider.optString("modelPath", "");
+            String modelPath = text(provider.opt("modelPath"));
             if ("local".equals(name)) {
                 return fromProvider(name, modelPath, polish);
             }
@@ -123,10 +123,10 @@ public final class VoiceConfiguration {
             if (DoubaoAsrPolicy.usable(name, endpoint, java.util.Arrays.asList(names(headers)))) {
                 return new VoiceConfiguration(name, null, null, null,
                     new VoiceRecognitionActivity.Streaming(endpoint, headers,
-                        provider.optBoolean("enableItn", false),
-                        provider.optBoolean("enablePunctuation", false),
-                        provider.optBoolean("enableDdc", false),
-                        provider.optString("boostingTableId", "")),
+                        Boolean.TRUE.equals(strictBoolean(provider.opt("enableItn"))),
+                        Boolean.TRUE.equals(strictBoolean(provider.opt("enablePunctuation"))),
+                        Boolean.TRUE.equals(strictBoolean(provider.opt("enableDdc"))),
+                        text(provider.opt("boostingTableId"))),
                     polish);
             }
             if (HttpAsrPolicy.usable(name, endpoint, model, token)) {
@@ -145,14 +145,29 @@ public final class VoiceConfiguration {
         return new VoiceConfiguration(name, null, null, null, null, polish, modelPath);
     }
 
+    /** Shared voice configuration flags must remain JSON booleans; reject coercible strings. */
+    static Boolean strictBoolean(Object value) {
+        return value instanceof Boolean ? (Boolean) value : null;
+    }
+
+    /** Shared voice response text fields must remain JSON strings; malformed values become empty. */
+    static String strictString(Object value) {
+        return value instanceof String ? (String) value : null;
+    }
+
+    private static String text(Object value) {
+        String parsed = strictString(value);
+        return parsed == null ? "" : parsed;
+    }
+
     private static VoiceRecognitionActivity.Polish polish(JSONObject value, String requestId) {
         if (value == null) return null;
-        String prompt = NativeClient.polishPrompt(value.optString("promptId", ""),
-            value.optString("promptCustom1", ""), value.optString("promptCustom2", ""),
-            value.optString("promptCustom3", ""));
-        String endpoint = value.optString("endpoint", "");
-        String model = value.optString("model", "");
-        String token = value.optString("token", "");
+        String prompt = NativeClient.polishPrompt(text(value.opt("promptId")),
+            text(value.opt("promptCustom1")), text(value.opt("promptCustom2")),
+            text(value.opt("promptCustom3")));
+        String endpoint = text(value.opt("endpoint"));
+        String model = text(value.opt("model"));
+        String token = text(value.opt("token"));
         if (!VoicePolishPolicy.usable(endpoint, model, token, prompt)) return null;
         return new VoiceRecognitionActivity.Polish(endpoint, model, token, prompt);
     }
@@ -164,8 +179,8 @@ public final class VoiceConfiguration {
         for (int index = 0; index < value.length(); index++) {
             JSONObject header = value.optJSONObject(index);
             if (header == null) return new String[0];
-            flat[index * 2] = header.optString("name", "");
-            flat[index * 2 + 1] = header.optString("value", "");
+            flat[index * 2] = text(header.opt("name"));
+            flat[index * 2 + 1] = text(header.opt("value"));
         }
         return flat;
     }

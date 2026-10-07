@@ -2,11 +2,9 @@ package app.msime.android;
 
 import android.graphics.Color;
 import android.os.SystemClock;
-import android.view.View;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.StandardCopyOption;
@@ -67,14 +65,14 @@ final class ImeDebugOverlay {
         /** 一行输入事件：只有时间戳与种类。 */
         static String line(Event kind, long timeMillis) {
             if (kind == null) throw new IllegalArgumentException("event kind");
-            return "{\"t_ms\":" + Math.max(0, timeMillis) + ",\"kind\":\"" + kind.wire() + "\"}\n";
+            return "{\"t_ms\":" + BoundsPolicy.nonNegative(timeMillis) + ",\"kind\":\"" + kind.wire() + "\"}\n";
         }
 
         /** 一行耗时记录：时间戳、种类与耗时（毫秒）。 */
         static String line(Event kind, long timeMillis, long durationMillis) {
             if (kind == null) throw new IllegalArgumentException("event kind");
-            return "{\"t_ms\":" + Math.max(0, timeMillis) + ",\"kind\":\"" + kind.wire()
-                + "\",\"duration_ms\":" + Math.max(0, durationMillis) + "}\n";
+            return "{\"t_ms\":" + BoundsPolicy.nonNegative(timeMillis) + ",\"kind\":\"" + kind.wire()
+                + "\",\"duration_ms\":" + BoundsPolicy.nonNegative(durationMillis) + "}\n";
         }
 
         /**
@@ -84,8 +82,8 @@ final class ImeDebugOverlay {
          */
         static byte[] trimmed(byte[] existing, int incoming, long cap) {
             if (existing.length + (long) incoming <= cap) return existing;
-            long keep = Math.max(0, Math.min(cap * 3 / 4, cap - incoming));
-            int start = (int) Math.max(0, existing.length - keep);
+            long keep = KeyboardGeometry.bounded(cap * 3 / 4, 0L, cap - incoming);
+            int start = (int) BoundsPolicy.nonNegative(existing.length - keep);
             while (start < existing.length && start > 0 && existing[start - 1] != '\n') start++;
             byte[] kept = new byte[existing.length - start];
             System.arraycopy(existing, start, kept, 0, kept.length);
@@ -102,7 +100,7 @@ final class ImeDebugOverlay {
 
         private void submit(String name, String line) {
             try {
-                worker.execute(() -> append(name, line.getBytes(StandardCharsets.UTF_8)));
+                worker.execute(() -> append(name, TextPolicy.utf8Bytes(line)));
             } catch (RejectedExecutionException ignored) {
                 // 进程正在退出，这一行不再需要。
             }
@@ -248,7 +246,7 @@ final class ImeDebugOverlay {
     static String debugLine(long engineMillis, int candidateCount, String firstWeight) {
         StringBuilder line = new StringBuilder("调试 · 引擎 ");
         line.append(engineMillis < 0 ? "—" : engineMillis + " ms");
-        line.append(" · 候选 ").append(Math.max(0, candidateCount));
+        line.append(" · 候选 ").append(BoundsPolicy.nonNegative(candidateCount));
         if (firstWeight != null && !firstWeight.isEmpty()) line.append(" · 首选词频 ").append(firstWeight);
         return line.toString();
     }
@@ -277,7 +275,8 @@ final class ImeDebugOverlay {
         String text = debug ? debugText() : s.diagnosticMessage;
         s.diagnosticView.setText(text);
         s.diagnosticView.setContentDescription("提示：" + text);
-        s.diagnosticView.setTextColor(Color.parseColor(s.skin.accent()));
-        s.diagnosticView.setVisibility(hasDiagnostic || debug ? View.VISIBLE : View.GONE);
+        ViewPolicy.setTextColor(s.diagnosticView, Color.parseColor(s.skin.accent()));
+        if (hasDiagnostic || debug) ViewPolicy.show(s.diagnosticView);
+        else ViewPolicy.hide(s.diagnosticView);
     }
 }

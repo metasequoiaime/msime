@@ -4,10 +4,10 @@
 # TapTapGo 按 web-engine-manifest.json 里每个文件的 sha256 和大小钉住 release（data/msime/web-engine.lock.json），所以同一提交、同一输入构建出来的文件必须逐字节相同：gzip 用 -n 去掉文件名和时间戳，词库由 `msime-dict-build web` 确定性地生成。
 #
 # 用法：
-#   scripts/build-web-engine.sh --pinyin <msime-pinyin.db> --wubi <msime-wubi.db> --model <sentence-model.safetensors> [--keep-multi N] [--version X.Y.Z]
+#   scripts/build-web-engine.sh --pinyin <msime-pinyin.db> --wubi <msime-wubi.db> --japanese <msime-japanese.dat> --model <sentence-model.safetensors> [--keep-multi N] [--keep-japanese N] [--version X.Y.Z]
 #   scripts/build-web-engine.sh --no-data [--version X.Y.Z]     只构建 wasm、加载代码和 NOTICE（CI 用）
 #
-# --pinyin 和 --wubi 是词库 release 的 msime-pinyin.db 和 msime-wubi.db，与 --keep-multi 一起透传给 `msime-dict-build web`；--keep-multi 是拼音库保留的多字词条数，默认 200000。--version 写进清单，默认取 msime-engine-wasm 的 crate 版本；release-web-engine.yml 传入要发布的版本号。
+# --pinyin、--wubi 和 --japanese 是词库 release 的 msime-pinyin.db、msime-wubi.db 和 msime-japanese.dat，与 --keep-multi、--keep-japanese 一起透传给 `msime-dict-build web`；--keep-multi 是拼音库保留的多字词条数，默认 200000，--keep-japanese 是日语模型保留的词条数，默认 250000。--version 写进清单，默认取 msime-engine-wasm 的 crate 版本；release-web-engine.yml 传入要发布的版本号。
 #
 # 需要：Rust 的 wasm32-unknown-unknown 目标、能编译 wasm 的 LLVM clang 和 llvm-ar（Apple 的 ar 会产出空的 libwsqlite3.a）、wasm-bindgen 0.2.128（必须与 crates/engine-wasm 钉住的 wasm-bindgen crate 同版本）、binaryen 133 的 wasm-opt、jq、gzip，以及打 npm 包用的 Node.js 和 npm（生成内置皮肤表也用 Node.js）。并行度由 cargo 自己的 CARGO_BUILD_JOBS 控制。
 set -euo pipefail
@@ -20,6 +20,8 @@ WASM_OPT_VERSION="133"
 # 体积门槛：wasm 原始大小（spike 实测 4,577,187 B）和拼音库 gzip 后的大小。超出说明有东西意外进了包，先查清楚再放宽。
 MAX_WASM_BYTES=5500000
 MAX_PINYIN_GZ_BYTES=9000000
+# 日语模型 gzip 后的大小：默认保留 250000 条时约 5.3 MB。
+MAX_JAPANESE_GZ_BYTES=8000000
 
 usage() {
   sed -n '6,8p' "$0" | sed 's/^# \{0,1\}//' >&2
@@ -29,16 +31,20 @@ usage() {
 no_data=0
 pinyin=""
 wubi=""
+japanese=""
 model=""
 keep_multi=200000
+keep_japanese=250000
 version=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --no-data) no_data=1; shift ;;
     --pinyin) [ "$#" -ge 2 ] || usage; pinyin="$2"; shift 2 ;;
     --wubi) [ "$#" -ge 2 ] || usage; wubi="$2"; shift 2 ;;
+    --japanese) [ "$#" -ge 2 ] || usage; japanese="$2"; shift 2 ;;
     --model) [ "$#" -ge 2 ] || usage; model="$2"; shift 2 ;;
     --keep-multi) [ "$#" -ge 2 ] || usage; keep_multi="$2"; shift 2 ;;
+    --keep-japanese) [ "$#" -ge 2 ] || usage; keep_japanese="$2"; shift 2 ;;
     --version) [ "$#" -ge 2 ] || usage; version="$2"; shift 2 ;;
     -h|--help) usage ;;
     *) echo "build-web-engine: unknown option: $1" >&2; usage ;;
@@ -49,13 +55,15 @@ die() { echo "build-web-engine: $*" >&2; exit 1; }
 step() { printf '\n=== %s ===\n' "$1"; }
 
 if [ "$no_data" -eq 1 ]; then
-  [ -z "$pinyin" ] && [ -z "$wubi" ] && [ -z "$model" ] || die "--no-data cannot be combined with --pinyin, --wubi or --model"
+  [ -z "$pinyin" ] && [ -z "$wubi" ] && [ -z "$japanese" ] && [ -z "$model" ] || die "--no-data cannot be combined with --pinyin, --wubi, --japanese or --model"
 else
-  [ -n "$pinyin" ] && [ -n "$wubi" ] && [ -n "$model" ] || die "--pinyin, --wubi and --model are required unless --no-data is given"
+  [ -n "$pinyin" ] && [ -n "$wubi" ] && [ -n "$japanese" ] && [ -n "$model" ] || die "--pinyin, --wubi, --japanese and --model are required unless --no-data is given"
   [ -f "$pinyin" ] || die "pinyin dictionary not found: $pinyin"
   [ -f "$wubi" ] || die "wubi dictionary not found: $wubi"
+  [ -f "$japanese" ] || die "japanese model not found: $japanese"
   [ -f "$model" ] || die "model not found: $model"
   [[ "$keep_multi" =~ ^[0-9]+$ ]] || die "--keep-multi must be a number, got '$keep_multi'"
+  [[ "$keep_japanese" =~ ^[0-9]+$ ]] || die "--keep-japanese must be a number, got '$keep_japanese'"
 fi
 
 for tool in cargo jq gzip git node npm; do
@@ -139,13 +147,15 @@ cp "$pkg/msime_engine.js" "$dist/msime_engine.js"
 
 if [ "$no_data" -eq 0 ]; then
   step "web dictionaries"
-  # 5. 裁出拼音库和五笔 86 库，再把两个库和模型 gzip -9n（不记文件名和时间戳，结果可复现）。
+  # 5. 裁出拼音库、五笔 86 库和日语模型，再把它们和整句模型 gzip -9n（不记文件名和时间戳，结果可复现）。
   dict_dir="$out/dict"
   mkdir -p "$dict_dir"
   cargo run --locked --release -p msime-dict-builder --bin msime-dict-build -- \
-    web --pinyin "$pinyin" --wubi "$wubi" --out-dir "$dict_dir" --keep-multi "$keep_multi"
+    web --pinyin "$pinyin" --wubi "$wubi" --out-dir "$dict_dir" --keep-multi "$keep_multi" \
+    --japanese "$japanese" --keep-japanese "$keep_japanese"
   gzip -9n -c "$dict_dir/msime-pinyin.db" > "$dist/msime-pinyin.db.gz"
   gzip -9n -c "$dict_dir/msime-wubi86.db" > "$dist/msime-wubi86.db.gz"
+  gzip -9n -c "$dict_dir/msime-japanese.dat" > "$dist/msime-japanese.dat.gz"
   gzip -9n -c "$model" > "$dist/sentence-model.safetensors.gz"
 fi
 
@@ -176,14 +186,17 @@ add_artifact msime_engine.js glue
 if [ "$no_data" -eq 0 ]; then
   add_artifact msime-pinyin.db.gz pinyin
   add_artifact msime-wubi86.db.gz wubi86
+  add_artifact msime-japanese.dat.gz japanese
   add_artifact sentence-model.safetensors.gz model
   keep_multi_json="$keep_multi"
+  keep_japanese_json="$keep_japanese"
 else
   keep_multi_json=null
+  keep_japanese_json=null
 fi
 add_artifact NOTICE.md notice
-jq -s --arg version "$version" --arg commit "$source_commit" --argjson keep "$keep_multi_json" \
-  '{version: $version, source_commit: $commit, keep_multi: $keep, artifacts: .}' "$artifacts" > "$dist/web-engine-manifest.json"
+jq -s --arg version "$version" --arg commit "$source_commit" --argjson keep "$keep_multi_json" --argjson keep_japanese "$keep_japanese_json" \
+  '{version: $version, source_commit: $commit, keep_multi: $keep, keep_japanese: $keep_japanese, artifacts: .}' "$artifacts" > "$dist/web-engine-manifest.json"
 rm -f "$artifacts"
 (
   cd "$dist"
@@ -203,6 +216,9 @@ if [ "$no_data" -eq 0 ]; then
   pinyin_bytes="$(size_of "$dist/msime-pinyin.db.gz")"
   [ "$pinyin_bytes" -le "$MAX_PINYIN_GZ_BYTES" ] || die "msime-pinyin.db.gz is $pinyin_bytes bytes, over the $MAX_PINYIN_GZ_BYTES byte gate"
   echo "msime-pinyin.db.gz: $pinyin_bytes bytes (gate $MAX_PINYIN_GZ_BYTES)"
+  japanese_bytes="$(size_of "$dist/msime-japanese.dat.gz")"
+  [ "$japanese_bytes" -le "$MAX_JAPANESE_GZ_BYTES" ] || die "msime-japanese.dat.gz is $japanese_bytes bytes, over the $MAX_JAPANESE_GZ_BYTES byte gate"
+  echo "msime-japanese.dat.gz: $japanese_bytes bytes (gate $MAX_JAPANESE_GZ_BYTES)"
 fi
 
 step "npm package"

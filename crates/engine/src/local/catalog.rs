@@ -1,5 +1,6 @@
 //! The emoji, symbol and kaomoji catalog the host's picker pages through (api-contract §1c, bridge.cpp:1018-1137, 1237-1260). Errors deliberately carry no SQLite detail.
 
+use std::collections::HashSet;
 use std::path::Path;
 
 use rusqlite::{Connection, Statement};
@@ -129,21 +130,31 @@ pub fn read_emoji_catalog_slice(
             continue;
         }
         if let Some(text) = text {
-            if !deduplicate || !contains_catalog_text(&result.items, &text) {
-                result.items.push(EmojiCatalogItem {
-                    text,
-                    annotation: annotation.unwrap_or_default(),
-                    group: group.unwrap_or_default(),
-                });
-            }
+            result.items.push(EmojiCatalogItem {
+                text,
+                annotation: annotation.unwrap_or_default(),
+                group: group.unwrap_or_default(),
+            });
         }
+    }
+    if deduplicate {
+        // Check duplicate values through borrowed slices, then retain in place after releasing the set.
+        let mut seen = HashSet::with_capacity(result.items.len());
+        let unique = result
+            .items
+            .iter()
+            .map(|item| seen.insert(item.text.as_str()))
+            .collect::<Vec<_>>();
+        drop(seen);
+        let mut index = 0;
+        result.items.retain(|_| {
+            let keep = unique[index];
+            index += 1;
+            keep
+        });
     }
     result.complete = result.next_offset - offset < limit;
     Ok(result)
-}
-
-fn contains_catalog_text(items: &[EmojiCatalogItem], text: &str) -> bool {
-    items.iter().any(|item| item.text == text)
 }
 
 fn search_pattern(search: &str) -> String {
@@ -259,17 +270,6 @@ mod tests {
     }
 
     #[test]
-    fn catalog_text_lookup_uses_owned_items() {
-        let items = vec![EmojiCatalogItem {
-            text: "😀".into(),
-            annotation: String::new(),
-            group: String::new(),
-        }];
-        assert!(contains_catalog_text(&items, "😀"));
-        assert!(!contains_catalog_text(&items, "😄"));
-    }
-
-    #[test]
     fn search_pattern_allocates_only_result_bytes() {
         let pattern = search_pattern("arrow");
         assert_eq!(pattern, "%arrow%");
@@ -325,6 +325,8 @@ mod tests {
         let dedup =
             read_emoji_catalog_slice(&resources, "", "symbols", "", 0, 10, "", true).unwrap();
         assert_eq!(texts(&dedup), ["+", "→", "←", ""]);
+        assert_eq!(dedup.items[1].group, "Arrows");
+        assert_eq!(dedup.next_offset, 5);
         let arrows =
             read_emoji_catalog_slice(&resources, "", "symbols", "Arrows", 0, 10, "", false)
                 .unwrap();

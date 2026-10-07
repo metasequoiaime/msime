@@ -50,7 +50,8 @@ public final class ClipboardHistoryStore {
             throw new IllegalArgumentException("Clipboard has no usable text");
         }
         JSONObject response = request("capture", text, false);
-        if (response != null && response.optBoolean("captured", false)) return null;
+        if (response != null && Boolean.TRUE.equals(
+                ClipboardHistoryPolicy.strictBoolean(response.opt("captured")))) return null;
         String reason = response == null || response.isNull("reason")
             ? "" : response.optString("reason", "");
         return reason;
@@ -100,7 +101,7 @@ public final class ClipboardHistoryStore {
                 .put("action", action);
             JSONObject response = new JSONObject(
                 NativeClient.mobileClipboardHistory(payload.toString()));
-            if (!response.optBoolean("ok", false)) {
+            if (!Boolean.TRUE.equals(ClipboardHistoryPolicy.strictBoolean(response.opt("ok")))) {
                 // Name the operation and carry the shared entry's own reason. Without them a
                 // refusal reaches the log as one indistinguishable sentence, which is how an
                 // Android-only file-locking failure read as "the clipboard is broken somehow"
@@ -122,12 +123,21 @@ public final class ClipboardHistoryStore {
         for (int index = 0; index < entries.length(); index++) {
             JSONObject entry = entries.optJSONObject(index);
             if (entry == null) continue;
-            String text = entry.optString("text", "");
-            if (text.isEmpty()) continue;
+            String text = ClipboardHistoryPolicy.strictString(entry.opt("text"));
+            if (text == null || text.isEmpty()) continue;
+            Object rawPinned = entry.opt("pinned");
+            Boolean pinned = rawPinned == null || rawPinned == JSONObject.NULL
+                ? Boolean.FALSE : ClipboardHistoryPolicy.strictBoolean(rawPinned);
+            if (pinned == null) continue;
             items.add(new ClipboardHistory.Item(text,
-                ClipboardHistoryPolicy.timestampValue(entry.opt("timestampMs")),
-                entry.optBoolean("pinned", false)));
+                ClipboardHistoryPolicy.timestampValue(entry.opt("timestampMs")), pinned));
         }
         return items;
     }
+
+    /** Shared-store response flags must remain JSON booleans; org.json otherwise coerces strings. */
+    static Boolean strictBoolean(Object value) {
+        return ClipboardHistoryPolicy.strictBoolean(value);
+    }
+
 }

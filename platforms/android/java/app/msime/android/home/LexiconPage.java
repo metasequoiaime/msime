@@ -1,18 +1,14 @@
 package app.msime.android.home;
 
+import app.msime.android.TextPolicy;
 import android.content.Context;
 import android.content.Intent;
-import android.content.res.ColorStateList;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Bundle;
 import android.provider.OpenableColumns;
-import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.accessibility.AccessibilityNodeInfo;
-import android.widget.Button;
-import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import androidx.activity.result.ActivityResultLauncher;
@@ -23,11 +19,11 @@ import app.msime.android.CommunityRequest;
 import app.msime.android.DictionaryCollectionsStore;
 import app.msime.android.InputFeatureToggle;
 import app.msime.android.HttpBodyPolicy;
-import app.msime.android.R;
+import app.msime.android.TextPolicy;
+import app.msime.android.ViewPolicy;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -87,21 +83,12 @@ public final class LexiconPage extends DetailPage {
 
     private TextView headerPill(String glyph, String label, boolean filled, Runnable action) {
         Context context = requireContext();
-        TextView pill = new TextView(context);
-        pill.setText(glyph + " " + label);
-        pill.setGravity(Gravity.CENTER);
-        pill.setSingleLine(true);
         int fill = filled ? Ui.accent(context) : Ui.accentSoft(context);
-        Ui.style(pill, Ui.TEXT_BUTTON_SMALL, 500, filled ? Ui.onAccent(context) : Ui.accent(context));
-        pill.setBackground(Ui.rippleOn(context, fill, 9999f));
-        pill.setPadding(Ui.dp(context, 12), Ui.dp(context, 6), Ui.dp(context, 12), Ui.dp(context, 6));
-        pill.setMinHeight(Ui.dp(context, 32));
-        pill.setClickable(true);
-        pill.setFocusable(true);
+        TextView pill = Ui.pillButton(context, glyph + " " + label, Ui.TEXT_BUTTON_SMALL, 500,
+            fill, filled ? Ui.onAccent(context) : Ui.accent(context), 12, 6,
+            Ui.COMPACT_BUTTON_MIN_HEIGHT, 0, action);
         pill.setContentDescription(label);
-        pill.setOnClickListener(ignored -> action.run());
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        LinearLayout.LayoutParams params = Ui.wrap();
         params.setMarginStart(Ui.dp(context, 8));
         pill.setLayoutParams(params);
         return pill;
@@ -110,7 +97,7 @@ public final class LexiconPage extends DetailPage {
     // ---- 数据 ----
 
     private void reload(boolean flush) {
-        HostTask.run(this, context -> read(context, flush), result -> {
+        HostTask.run(this, LexiconPage::read, result -> {
             if (result == null) {
                 MsToast.show(requireContext(), DictionaryCollectionsStore.failureMessage(""));
                 return;
@@ -121,9 +108,9 @@ public final class LexiconPage extends DetailPage {
         });
     }
 
-    private static Model read(Context context, boolean flush) {
-        DictionaryCollectionsStore.Result<DictionaryCollectionsStore.View> view = flush
-            ? DictionaryCollectionsStore.flush(context) : DictionaryCollectionsStore.load(context);
+    private static Model read(Context context) {
+        // 打开页面也顺手送一批导入词库的待写入词条：返回的视图和 load 一样，只是多送了一批，不必等用户点刷新。
+        DictionaryCollectionsStore.Result<DictionaryCollectionsStore.View> view = DictionaryCollectionsStore.flush(context);
         DictionaryCollectionsStore.Result<Long> count = DictionaryCollectionsStore.builtinCount(context, BUILTIN_KIND);
         JSONObject snapshot = HostStore.loadPreferences(context);
         JSONObject preferences = snapshot == null ? null : snapshot.optJSONObject("preferences");
@@ -143,7 +130,7 @@ public final class LexiconPage extends DetailPage {
                     discoverFailure = page == null ? "暂时连不上社区，稍后再试。" : page.failure();
                 } else {
                     List<CommunityCatalog.Item> items = page.items();
-                    discover = new ArrayList<>(items.subList(0, Math.min(DISCOVER_LIMIT, items.size())));
+                    discover = CommunityRequest.limitedCopy(items, DISCOVER_LIMIT);
                     discoverFailure = null;
                 }
                 render();
@@ -156,26 +143,30 @@ public final class LexiconPage extends DetailPage {
         LinearLayout target = column;
         Model current = model;
         if (target == null || current == null) return;
+        Context context = requireContext();
         target.removeAllViews();
 
         GroupCard installed = GroupCard.add(target, "已安装").withDividers(58);
         String builtinCount = current.builtinCount() < 0 ? null
             : DictionaryCollectionsStore.countLabel(current.builtinCount());
-        installed.addView(badgeRow("汉", "拼音词库", builtinCount, "已启用", true,
-            () -> openDetail(DictionaryCollectionsStore.BUILTIN_PINYIN, "拼音词库")));
+        installed.addView(KeyboardSheets.badgeNavRow(context, "汉", "拼音词库", builtinCount, "已启用",
+            Ui.accent(context), () -> openDetail(DictionaryCollectionsStore.BUILTIN_PINYIN, "拼音词库")));
         for (DictionaryCollectionsStore.Collection collection : current.view().collections()) {
             String subtitle = DictionaryCollectionsStore.countLabel(collection.entryCount())
                 + ("community".equals(collection.sourceType()) ? " · 社区" : "");
-            installed.addView(badgeRow(initial(collection.name()), collection.name(), subtitle,
-                collection.enabled() ? "已启用" : "已停用", collection.enabled(),
+            installed.addView(KeyboardSheets.badgeNavRow(context, Ui.initial(collection.name(), "词"), collection.name(),
+                subtitle, collection.enabled() ? "已启用" : "已停用",
+                collection.enabled() ? Ui.accent(context) : Ui.subText(context),
                 () -> openDetail(collection.id(), collection.name())));
         }
         installed.footer("点进词库可以启用、停用和编辑词条。已启用的词库会一起参与候选。");
         if (!current.failure().isEmpty()) installed.note(current.failure());
 
         GroupCard manage = GroupCard.add(target, null).withDividers(58);
-        manage.addView(actionRow("+", "新建词库", this::showCreateDialog));
-        manage.addView(actionRow("⇪", "导入词库", this::showImportSources));
+        manage.addView(KeyboardSheets.actionRow(context, "+", "新建词库", this::showCreateDialog,
+            28, 0, Ui.ROW_GAP));
+        manage.addView(KeyboardSheets.actionRow(context, "⇪", "导入词库", this::showImportSources,
+            28, 0, Ui.ROW_GAP));
 
         GroupCard community = GroupCard.add(target, "发现词库").withDividers(58);
         List<CommunityCatalog.Item> items = discover;
@@ -191,154 +182,48 @@ public final class LexiconPage extends DetailPage {
         InputFeatureToggle toggle = InputFeatureToggle.LEARNING;
         learning.toggle(toggle.title(), toggle.description(), current.learning(), this::saveLearning);
 
-        if (tauriAvailable()) {
+        if (Ui.tauriAvailable()) {
             GroupCard more = GroupCard.add(target, "更多");
             more.nav("背单词", "在管理界面里复习收藏的单词", null, this::openVocabularyReview);
             more.nav("云词库", "在管理界面里管理云端词库", null, this::openCloudDictionary);
         }
     }
 
-    private View badgeRow(String badge, String title, @Nullable String subtitle, String value, boolean active,
-            Runnable action) {
-        Context context = requireContext();
-        LinearLayout row = baseRow(context);
-        row.addView(badge(context, badge));
-        LinearLayout texts = texts(context, title, subtitle);
-        row.addView(texts, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        TextView state = new TextView(context);
-        state.setText(value);
-        Ui.style(state, Ui.TEXT_ROW_SUBTITLE, 500, active ? Ui.accent(context) : Ui.subText(context));
-        LinearLayout.LayoutParams stateParams = Ui.wrap();
-        stateParams.setMarginStart(Ui.dp(context, Ui.ROW_GAP));
-        row.addView(state, stateParams);
-        ImageView chevron = new ImageView(context);
-        chevron.setImageResource(R.drawable.ms_w1_a2_chevron);
-        chevron.setImageTintList(ColorStateList.valueOf(Ui.subText(context)));
-        chevron.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        LinearLayout.LayoutParams chevronParams = new LinearLayout.LayoutParams(
-            Ui.dp(context, Ui.CHEVRON_SIZE), Ui.dp(context, Ui.CHEVRON_SIZE));
-        chevronParams.setMarginStart(Ui.dp(context, 6));
-        row.addView(chevron, chevronParams);
-        row.setBackground(Ui.ripple(context));
-        row.setClickable(true);
-        row.setFocusable(true);
-        row.setOnClickListener(ignored -> action.run());
-        row.setContentDescription(title + (subtitle == null ? "" : "，" + subtitle) + "，" + value);
-        return row;
-    }
-
-    private View actionRow(String glyph, String title, Runnable action) {
-        Context context = requireContext();
-        LinearLayout row = baseRow(context);
-        row.setMinimumHeight(Ui.dp(context, 52));
-        TextView icon = new TextView(context);
-        icon.setText(glyph);
-        icon.setGravity(Gravity.CENTER);
-        Ui.style(icon, 22, 400, Ui.accent(context));
-        icon.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        row.addView(icon, new LinearLayout.LayoutParams(Ui.dp(context, 28), Ui.dp(context, 28)));
-        TextView label = new TextView(context);
-        label.setText(title);
-        Ui.style(label, Ui.TEXT_ROW_TITLE, 400, Ui.accent(context));
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-        params.setMarginStart(Ui.dp(context, Ui.ROW_GAP));
-        row.addView(label, params);
-        row.setBackground(Ui.ripple(context));
-        row.setClickable(true);
-        row.setFocusable(true);
-        row.setOnClickListener(ignored -> action.run());
-        row.setAccessibilityDelegate(buttonDelegate(title));
-        return row;
-    }
-
     private View discoverRow(CommunityCatalog.Item item, DictionaryCollectionsStore.View view) {
         Context context = requireContext();
-        LinearLayout row = baseRow(context);
-        row.addView(badge(context, initial(item.name())));
+        LinearLayout row = KeyboardSheets.baseRow(context);
+        row.addView(KeyboardSheets.badge(context, Ui.initial(item.name(), "词")));
         List<String> parts = new ArrayList<>(2);
         if (!item.author().isEmpty()) parts.add("@" + item.author());
         JSONArray words = item.payload() == null ? null : item.payload().optJSONArray("words");
         if (words != null) parts.add(DictionaryCollectionsStore.countLabel(words.length()));
         if (parts.isEmpty() && !item.description().isEmpty()) parts.add(item.description());
-        row.addView(texts(context, item.name(), parts.isEmpty() ? null : String.join(" · ", parts)),
-            new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        row.addView(KeyboardSheets.texts(context, item.name(), parts.isEmpty() ? null : String.join(" · ", parts),
+                Ui.text(context)),
+            Ui.weightWrap(1f));
         boolean added = view.installed(item.id());
         boolean busy = installing.contains(item.id());
-        TextView button = new TextView(context);
-        button.setText(added ? "已添加" : busy ? "添加中" : "添加");
-        button.setGravity(Gravity.CENTER);
-        button.setSingleLine(true);
-        Ui.style(button, Ui.TEXT_BUTTON_SMALL, 500, added ? Ui.subText(context) : Ui.accent(context));
-        button.setBackground(Ui.rippleOn(context, added ? Ui.rowBackground(context) : Ui.accentSoft(context), 9999f));
-        button.setPadding(Ui.dp(context, 14), Ui.dp(context, 5), Ui.dp(context, 14), Ui.dp(context, 5));
-        button.setMinHeight(Ui.dp(context, 32));
         boolean enabled = !added && !busy;
-        button.setEnabled(enabled);
-        button.setClickable(enabled);
-        button.setFocusable(enabled);
-        if (enabled) button.setOnClickListener(ignored -> install(item));
-        button.setAccessibilityDelegate(buttonDelegate(button.getText() + "，" + item.name()));
-        LinearLayout.LayoutParams params = Ui.wrap();
-        params.setMarginStart(Ui.dp(context, Ui.ROW_GAP));
+        TextView button;
+        if (enabled) {
+            button = Ui.pillButton(context, "添加", Ui.TEXT_BUTTON_SMALL, 500,
+                Ui.accentSoft(context), Ui.accent(context), Ui.BUTTON_PADDING_H, Ui.BUTTON_PADDING_V,
+                Ui.COMPACT_BUTTON_MIN_HEIGHT, 0, () -> install(item));
+        } else {
+            button = Ui.styledLabel(context, added ? "已添加" : "添加中",
+                Ui.TEXT_BUTTON_SMALL, 500, Ui.subText(context));
+            ViewPolicy.setCentered(button);
+            button.setSingleLine(true);
+            button.setBackground(Ui.pillRipple(context,
+                added ? Ui.rowBackground(context) : Ui.accentSoft(context)));
+            Ui.setButtonPadding(button, context);
+            Ui.setTextMinHeightDp(button, context, Ui.COMPACT_BUTTON_MIN_HEIGHT);
+            ViewPolicy.setEnabled(button, false);
+        }
+        button.setAccessibilityDelegate(KeyboardSheets.buttonDelegate(button.getText() + "，" + item.name()));
+        LinearLayout.LayoutParams params = Ui.rowGapParams(context);
         row.addView(button, params);
         return row;
-    }
-
-    private static LinearLayout baseRow(Context context) {
-        LinearLayout row = new LinearLayout(context);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setMinimumHeight(Ui.dp(context, Ui.ROW_MIN_HEIGHT));
-        row.setPadding(Ui.dp(context, Ui.ROW_PADDING_H), Ui.dp(context, Ui.ROW_PADDING_V),
-            Ui.dp(context, Ui.ROW_PADDING_H), Ui.dp(context, Ui.ROW_PADDING_V));
-        return row;
-    }
-
-    /** 32dp 的圆角方块，accentSoft 底、强调色的一个字，和设计里词库前面的「汉」「网」一样。 */
-    static TextView badge(Context context, String text) {
-        TextView badge = new TextView(context);
-        badge.setText(text);
-        badge.setGravity(Gravity.CENTER);
-        Ui.style(badge, 15, 600, Ui.accent(context));
-        badge.setBackground(Ui.rounded(Ui.accentSoft(context), Ui.dp(context, 8)));
-        badge.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(Ui.dp(context, 32), Ui.dp(context, 32));
-        params.setMarginEnd(Ui.dp(context, Ui.ROW_GAP));
-        badge.setLayoutParams(params);
-        return badge;
-    }
-
-    private static LinearLayout texts(Context context, String title, @Nullable String subtitle) {
-        LinearLayout texts = new LinearLayout(context);
-        texts.setOrientation(LinearLayout.VERTICAL);
-        TextView heading = new TextView(context);
-        heading.setText(title);
-        heading.setSingleLine(true);
-        Ui.style(heading, Ui.TEXT_ROW_TITLE, 400, Ui.text(context));
-        texts.addView(heading);
-        if (subtitle != null && !subtitle.isEmpty()) {
-            TextView detail = new TextView(context);
-            detail.setText(subtitle);
-            detail.setSingleLine(true);
-            Ui.style(detail, Ui.TEXT_ROW_SUBTITLE, 400, Ui.subText(context));
-            texts.addView(detail);
-        }
-        return texts;
-    }
-
-    private static View.AccessibilityDelegate buttonDelegate(CharSequence description) {
-        return new View.AccessibilityDelegate() {
-            @Override public void onInitializeAccessibilityNodeInfo(View host, AccessibilityNodeInfo info) {
-                super.onInitializeAccessibilityNodeInfo(host, info);
-                info.setClassName(Button.class.getName());
-                info.setContentDescription(description);
-            }
-        };
-    }
-
-    private static String initial(String name) {
-        if (name == null || name.isEmpty()) return "词";
-        return new String(Character.toChars(name.codePointAt(0)));
     }
 
     // ---- 操作 ----
@@ -359,8 +244,8 @@ public final class LexiconPage extends DetailPage {
     }
 
     private void create(String name) {
-        Set<String> before = new HashSet<>();
         Model current = model;
+        Set<String> before = new HashSet<>(current == null ? 0 : current.view().collections().size());
         if (current != null) for (DictionaryCollectionsStore.Collection item : current.view().collections()) before.add(item.id());
         HostTask.run(this, context -> DictionaryCollectionsStore.create(context, name), result -> {
             if (result == null || !result.ok()) {
@@ -466,7 +351,7 @@ public final class LexiconPage extends DetailPage {
         if (!text.ok()) return text.failure();
         try (OutputStream output = context.getContentResolver().openOutputStream(uri, "wt")) {
             if (output == null) return "写入文件失败，请重新选择位置。";
-            output.write(text.value().getBytes(StandardCharsets.UTF_8));
+            output.write(TextPolicy.utf8Bytes(text.value()));
         } catch (IOException | SecurityException error) {
             return "写入文件失败，请重新选择位置。";
         }
@@ -501,7 +386,7 @@ public final class LexiconPage extends DetailPage {
     // ---- 只在 Tauri 合包里有用的入口（P21），跳转写法与原 KeyboardFragment / AccountFragment 一致 ----
 
     private void openVocabularyReview() {
-        if (!tauriAvailable()) {
+        if (!Ui.tauriAvailable()) {
             MsToast.show(requireContext(), "背单词需要管理界面合包，请使用 Tauri 合包打开。");
             return;
         }
@@ -512,7 +397,7 @@ public final class LexiconPage extends DetailPage {
     }
 
     private void openCloudDictionary() {
-        if (!tauriAvailable()) {
+        if (!Ui.tauriAvailable()) {
             MsToast.show(requireContext(), "云词库需要管理界面合包，请使用 Tauri 合包打开。您仍可在本机使用词库设置。");
             return;
         }
@@ -522,13 +407,4 @@ public final class LexiconPage extends DetailPage {
         startActivity(intent);
     }
 
-    /** 独立的原生 APK 没有 WebView 管理界面，Tauri 合包才有。 */
-    private static boolean tauriAvailable() {
-        try {
-            Class.forName("app.msime.android.MainActivity");
-            return true;
-        } catch (ClassNotFoundException missing) {
-            return false;
-        }
-    }
 }

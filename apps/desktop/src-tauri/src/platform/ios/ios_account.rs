@@ -734,6 +734,9 @@ pub struct MobileKeyboardFeedback {
     /// iPad only; absent on a phone, so the page leaves the switch out.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tablet_full_keys: Option<bool>,
+    /// 横屏分离式键盘，同样只在 iPad 上有；手机上没有这个字段，页面也就不画这个开关。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tablet_split_keyboard: Option<bool>,
 }
 
 #[cfg(target_os = "ios")]
@@ -769,6 +772,7 @@ fn keyboard_feedback(native: &IosKeyboardPreferences) -> MobileKeyboardFeedback 
         inline_preedit: native.inline_preedit,
         haptics_available: native.haptics_available,
         tablet_full_keys: native.tablet_full_keys,
+        tablet_split_keyboard: native.tablet_split_keyboard,
     }
 }
 
@@ -819,6 +823,9 @@ pub async fn mobile_keyboard_feedback_save(
         native.inline_preedit = request.settings.inline_preedit;
         if request.settings.tablet_full_keys.is_some() {
             native.tablet_full_keys = request.settings.tablet_full_keys;
+        }
+        if request.settings.tablet_split_keyboard.is_some() {
+            native.tablet_split_keyboard = request.settings.tablet_split_keyboard;
         }
         let saved =
             platform

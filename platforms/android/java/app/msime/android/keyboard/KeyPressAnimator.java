@@ -1,5 +1,7 @@
 package app.msime.android;
 
+import app.msime.android.KeyboardGeometry;
+
 import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
 import android.animation.ObjectAnimator;
@@ -61,6 +63,10 @@ public final class KeyPressAnimator {
     private static final int[] PARENT_LOCATION = new int[2];
     private static final int[] HOST_LOCATION = new int[2];
 
+    private static final class Interpolators {
+        static final DecelerateInterpolator DECELERATE = new DecelerateInterpolator();
+    }
+
     private KeyPressAnimator() {}
 
     /** {@code key} 上是否有 bounce / lift 正在运行。 */
@@ -117,7 +123,7 @@ public final class KeyPressAnimator {
     }
 
     private static void lift(View key, ViewGroup host) {
-        float density = key.getResources().getDisplayMetrics().density;
+        float density = KeyboardGeometry.density(key.getContext());
         unclipUpTo(key, host);
         start(key, ObjectAnimator.ofPropertyValuesHolder(key,
             PropertyValuesHolder.ofFloat(View.TRANSLATION_Y, key.getTranslationY(), -LIFT_DP * density, 0f),
@@ -130,7 +136,7 @@ public final class KeyPressAnimator {
         cancel(key);
         key.animate().cancel();
         animator.setDuration(DURATION_MS);
-        animator.setInterpolator(new DecelerateInterpolator());
+        animator.setInterpolator(Interpolators.DECELERATE);
         animator.addListener(new AnimatorListenerAdapter() {
             @Override public void onAnimationEnd(Animator animation) {
                 if (RUNNING.get(key) == animation) RUNNING.remove(key);
@@ -156,7 +162,7 @@ public final class KeyPressAnimator {
     private static void halo(View key, ViewGroup host, int accent, float spreadDp, boolean glow) {
         if (host == null || !(key.getParent() instanceof ViewGroup parent)) return;
         if (key.getWidth() <= 0 || key.getHeight() <= 0) return;
-        float density = key.getResources().getDisplayMetrics().density;
+        float density = KeyboardGeometry.density(key.getContext());
         float spread = spreadDp * density;
         HaloDrawable halo = new HaloDrawable(accent, glow, density);
         // Untransformed key origin in host coordinates: the key itself may be mid press-scale.
@@ -172,7 +178,7 @@ public final class KeyPressAnimator {
         overlay.add(halo);
         ValueAnimator animator = ValueAnimator.ofFloat(0f, 1f);
         animator.setDuration(DURATION_MS);
-        animator.setInterpolator(new DecelerateInterpolator());
+        animator.setInterpolator(Interpolators.DECELERATE);
         animator.addUpdateListener(update -> halo.setProgress((Float) update.getAnimatedValue()));
         animator.addListener(new AnimatorListenerAdapter() {
             @Override public void onAnimationEnd(Animator animation) { overlay.remove(halo); }
@@ -209,13 +215,11 @@ public final class KeyPressAnimator {
             int alpha = Math.round(Color.alpha(accent) * (1f - progress));
             if (glow) {
                 paint.setStyle(Paint.Style.FILL);
-                paint.setColor(Color.argb(Math.round(alpha * .35f), Color.red(accent),
-                    Color.green(accent), Color.blue(accent)));
+                paint.setColor(ColorPolicy.withAlpha(accent, Math.round(alpha * .35f)));
             } else {
                 paint.setStyle(Paint.Style.STROKE);
                 paint.setStrokeWidth(2 * density);
-                paint.setColor(Color.argb(alpha, Color.red(accent), Color.green(accent),
-                    Color.blue(accent)));
+                paint.setColor(ColorPolicy.withAlpha(accent, alpha));
             }
             canvas.drawRoundRect(rect, radius, radius, paint);
         }

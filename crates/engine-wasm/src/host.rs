@@ -34,6 +34,12 @@ pub const MAX_PAGE_SIZE: usize = 9;
 /// 五笔码表答出的完整码长。
 const WUBI_CODE_LENGTH: usize = 4;
 
+/// 网页上资源和词库的根目录（`WebHost::new` 的 `RuntimePaths`）。
+pub const RESOURCES: &str = "/res";
+
+/// 日语方案读模型的位置：`RESOURCES` 下的 `assets::JAPANESE_MODEL`。网页没有文件系统，宿主下载后经 `msime_engine::preload_japanese_dictionary` 交给引擎。
+pub const JAPANESE_DICTIONARY_PATH: &str = "/res/msime-japanese.dat";
+
 /// 网页支持的输入方案。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Scheme {
@@ -41,16 +47,22 @@ pub enum Scheme {
     Xiaohe,
     Ziranma,
     Wubi86,
+    /// 日语罗马字：字母拼成假名，候选是整句转换、词和平假名、片假名，`-` 是长音 ー。模型是 `JAPANESE_DICTIONARY_PATH` 的 `msime-japanese.dat`，没有时只有假名候选。
+    Japanese,
+    /// 韩文两套式（두벌식）：字母键是字母，Shift 打双辅音和 ㅒ ㅖ，音节在组字区里拼好、下一个键开始新音节时自动上屏。不用词库，也不出候选。
+    Korean,
 }
 
 impl Scheme {
-    /// `"quanpin"`、`"xiaohe"`、`"ziranma"`、`"wubi86"`；其他名字返回 None。
+    /// `"quanpin"`、`"xiaohe"`、`"ziranma"`、`"wubi86"`、`"japanese"`、`"korean"`；其他名字返回 None。
     pub fn parse(name: &str) -> Option<Scheme> {
         match name {
             "quanpin" => Some(Scheme::Quanpin),
             "xiaohe" => Some(Scheme::Xiaohe),
             "ziranma" => Some(Scheme::Ziranma),
             "wubi86" => Some(Scheme::Wubi86),
+            "japanese" => Some(Scheme::Japanese),
+            "korean" => Some(Scheme::Korean),
             _ => None,
         }
     }
@@ -60,18 +72,37 @@ impl Scheme {
             Scheme::Quanpin => SchemeType::Quanpin,
             Scheme::Xiaohe | Scheme::Ziranma => SchemeType::Shuangpin,
             Scheme::Wubi86 => SchemeType::Wubi,
+            Scheme::Japanese => SchemeType::JapaneseRomaji,
+            Scheme::Korean => SchemeType::Korean,
         }
     }
 
     fn shuangpin_profile(self) -> ShuangpinProfileKind {
         match self {
             Scheme::Ziranma => ShuangpinProfileKind::Ziranma,
-            Scheme::Quanpin | Scheme::Xiaohe | Scheme::Wubi86 => ShuangpinProfileKind::Xiaohe,
+            Scheme::Quanpin
+            | Scheme::Xiaohe
+            | Scheme::Wubi86
+            | Scheme::Japanese
+            | Scheme::Korean => ShuangpinProfileKind::Xiaohe,
         }
     }
 
     fn is_wubi(self) -> bool {
         self == Scheme::Wubi86
+    }
+
+    fn is_japanese(self) -> bool {
+        self == Scheme::Japanese
+    }
+
+    fn is_korean(self) -> bool {
+        self == Scheme::Korean
+    }
+
+    /// 句子模型只给拼音方案重排：五笔不重排（D16），日语的整句转换有自己的模型，韩文没有候选可排。
+    fn uses_model(self) -> bool {
+        !self.is_wubi() && !self.is_japanese() && !self.is_korean()
     }
 }
 
@@ -258,7 +289,7 @@ pub struct WebHost {
 impl WebHost {
     /// 主库必须已在 /res/msime-pinyin.db（wasm 上由 import_database 放入；原生测试用真实路径构造，见 new_with_paths）。路径必须是 `assets::MAIN_DICTIONARY` 的现名：wasm32-unknown-unknown 上读不到文件元数据，`RuntimePaths` 退回旧名 msime.db 的逻辑不会生效
     pub fn new(scheme: Scheme, page_size: usize, model: Option<&[u8]>) -> Result<WebHost, String> {
-        let resources = PathBuf::from("/res");
+        let resources = PathBuf::from(RESOURCES);
         let scratch = PathBuf::from("/scratch");
         let paths = RuntimePaths {
             resources: resources.clone(),
@@ -300,9 +331,9 @@ impl WebHost {
         }
         let options = session_options(scheme, paths);
         let session = open_session(&options)?;
-        // 五笔不重排（D16），所以不加载模型；模型读不出来也不致命，只是没有重排。
+        // 五笔、日语和韩文不重排，所以不加载模型；模型读不出来也不致命，只是没有重排。
         let reranker = model
-            .filter(|_| !scheme.is_wubi())
+            .filter(|_| scheme.uses_model())
             .and_then(|bytes| SentenceModel::load(bytes).ok())
             .map(|model| Reranker::new(Arc::new(model)));
         Ok(WebHost {
@@ -419,21 +450,29 @@ impl WebHost {
     fn key(&mut self, key: Key) {
         match key {
             Key::Letter(byte) => self.letter(byte),
+            // 韩文的 Shift 字母是双辅音和 ㅒ ㅖ，和小写字母一样交给引擎。
+            Key::ShiftLetter(byte) if self.scheme.is_korean() && !self.english => {
+                self.letter(byte);
+            }
             Key::ShiftLetter(byte) => {
                 if self.composing() {
-                    self.commit_raw();
+                    self.commit_plain();
                 }
                 self.type_text(char::from(byte).to_string());
             }
             Key::ShiftTap => {
                 if self.composing() {
-                    self.commit_raw();
+                    self.commit_plain();
                 }
                 self.english = !self.english;
             }
             Key::Digit(byte) => self.digit(byte),
             Key::Space => {
-                if self.composing() {
+                if self.scheme.is_korean() {
+                    // 空格结束音节，再打出空格本身。
+                    self.end_korean_syllable();
+                    self.type_text(" ".to_owned());
+                } else if self.composing() {
                     self.ensure_ordered();
                     if self.ordered.rows.is_empty() {
                         let result = self.session.command(Command::CommitCandidate);
@@ -448,7 +487,7 @@ impl WebHost {
             // 空闲的回车什么也不输出：跟打页面从不需要引擎打出换行。
             Key::Enter => {
                 if self.composing() {
-                    self.commit_raw();
+                    self.commit_plain();
                 }
             }
             Key::Backspace { word } => {
@@ -469,6 +508,16 @@ impl WebHost {
                 } else {
                     self.out.push(Out::Exit);
                 }
+            }
+            // 日语的 `-` 是长音 ー，空闲时也开始组字。
+            Key::PagePrev { punct: Some(b'-') } if self.scheme.is_japanese() && !self.english => {
+                self.letter(b'-');
+            }
+            // 韩文没有候选可翻，`-` 和 `=` 只是标点。
+            Key::PageNext { punct: Some(byte) } | Key::PagePrev { punct: Some(byte) }
+                if self.scheme.is_korean() =>
+            {
+                self.punct(byte);
             }
             Key::PageNext { punct } => {
                 if self.composing() {
@@ -553,6 +602,12 @@ impl WebHost {
     }
 
     fn digit(&mut self, byte: u8) {
+        if self.scheme.is_korean() {
+            // 数字结束音节，再打出数字本身（韩文没有候选可选）。
+            self.end_korean_syllable();
+            self.type_text(char::from(byte).to_string());
+            return;
+        }
         if self.english || !self.composing() {
             self.type_text(char::from(byte).to_string());
             return;
@@ -579,10 +634,19 @@ impl WebHost {
             self.type_text(char::from(byte).to_string());
             return;
         }
+        if self.scheme.is_korean() {
+            // 韩文用半角标点，引号也不配对：组字时引擎把音节和标点一起上屏，空闲时引擎不收，原样打出。
+            let result = self.session.punctuation(byte);
+            match result.commit {
+                Some(_) => self.apply(result, -1),
+                None => self.type_text(char::from(byte).to_string()),
+            }
+            return;
+        }
         let composing = self.composing();
-        // 全拼里光标不在开头时，撇号是音节分隔符；引擎不收时按标点处理（`Runtime::dispatch` 里未处理的字符落到 `punctuation`）。
+        // 全拼里光标不在开头时，撇号是音节分隔符，日语组字中的撇号是拼写的一部分（`n'a` 是 んあ）；引擎不收时按标点处理（`Runtime::dispatch` 里未处理的字符落到 `punctuation`）。
         if byte == b'\''
-            && self.scheme == Scheme::Quanpin
+            && (self.scheme == Scheme::Quanpin || self.scheme.is_japanese())
             && composing
             && self.ensure_snapshot().caret_position > 0
         {
@@ -609,6 +673,15 @@ impl WebHost {
                 seat_number(seat)
             };
             self.apply(result, number);
+        }
+        // 日语不走中文标点表，打日文标点（`japanese_mark`），没有日文形式的原样打出。
+        if self.scheme.is_japanese() {
+            match japanese_mark(byte) {
+                Some(mark) => self.commit(mark.to_owned(), -1),
+                None if finished => self.commit(char::from(byte).to_string(), -1),
+                None => self.type_text(char::from(byte).to_string()),
+            }
+            return;
         }
         if let Some(mark) = quote_mark(&self.context, byte) {
             self.commit(mark.to_owned(), -1);
@@ -678,6 +751,25 @@ impl WebHost {
         self.order_valid = false;
         self.order(true);
         true
+    }
+
+    /// 结束组字但不选候选：日语上屏假名读法（`Command::CommitReading`，和日文输入法转换前按回车一样），其他方案上屏原码；韩文的原码就是拼好的音节。
+    fn commit_plain(&mut self) {
+        if self.scheme.is_japanese() {
+            let result = self.session.command(Command::CommitReading);
+            if result.handled || result.commit.is_some() {
+                self.apply(result, -1);
+                return;
+            }
+        }
+        self.commit_raw();
+    }
+
+    /// 韩文：把正在拼的音节原样上屏；空闲时什么也不做。
+    fn end_korean_syllable(&mut self) {
+        if self.composing() {
+            self.commit_raw();
+        }
     }
 
     fn commit_raw(&mut self) {
@@ -813,13 +905,19 @@ impl WebHost {
         if let Some(demoted) = runner_up_order(scheme, &rotated) {
             order = demoted.iter().map(|&seat| order[seat]).collect();
         }
+        // 日语每行的 code 都是同一串键入的罗马字，在候选旁显示没有意义，给空串。
+        let japanese = snapshot.scheme == SchemeType::JapaneseRomaji;
         let ordered_rows: Vec<Row> = order
             .iter()
             .map(|&index| {
                 let item = &snapshot.candidates[index];
                 Row {
                     text: item.word.clone(),
-                    code: item.pinyin.clone(),
+                    code: if japanese {
+                        String::new()
+                    } else {
+                        item.pinyin.clone()
+                    },
                 }
             })
             .collect();
@@ -867,10 +965,18 @@ impl WebHost {
     fn frame(&mut self) -> Frame {
         self.ensure_ordered();
         let wubi = self.scheme.is_wubi();
+        let japanese = self.scheme.is_japanese();
         let snapshot = self.ensure_snapshot();
         let composing = is_composing(snapshot);
-        let preedit = snapshot.preedit.clone();
-        let caret = u32::try_from(snapshot.caret_position).unwrap_or(u32::MAX);
+        // 日语的组字区显示假名读法（平假名加还没拼完的字母），不是键入的罗马字；光标总在读法末尾。
+        let (preedit, caret) = if japanese && composing {
+            let reading = snapshot.normalized_segmentation.clone();
+            let caret = reading.chars().count();
+            (reading, caret)
+        } else {
+            (snapshot.preedit.clone(), snapshot.caret_position)
+        };
+        let caret = u32::try_from(caret).unwrap_or(u32::MAX);
         let empty_code = wubi
             && snapshot.editing_text.len() == WUBI_CODE_LENGTH
             && snapshot
@@ -968,6 +1074,27 @@ fn quote_mark(context: &str, key: u8) -> Option<&'static str> {
         }
         _ => None,
     }
+}
+
+/// 日文标点，和日文输入法的默认设置一样：`,` `.` 是 、 。，`[` `]` 是 「 」，`{` `}` 是 『 』，`/` 是 ・，其余几个是全角形式。其他键返回 None，原样打出。
+fn japanese_mark(key: u8) -> Option<&'static str> {
+    Some(match key {
+        b',' => "、",
+        b'.' => "。",
+        b'[' => "「",
+        b']' => "」",
+        b'{' => "『",
+        b'}' => "』",
+        b'/' => "・",
+        b'~' => "〜",
+        b'?' => "？",
+        b'!' => "！",
+        b'(' => "（",
+        b')' => "）",
+        b':' => "：",
+        b';' => "；",
+        _ => return None,
+    })
 }
 
 fn is_han(ch: char) -> bool {
@@ -1095,6 +1222,8 @@ mod tests {
         assert_eq!(Scheme::parse("xiaohe"), Some(Scheme::Xiaohe));
         assert_eq!(Scheme::parse("ziranma"), Some(Scheme::Ziranma));
         assert_eq!(Scheme::parse("wubi86"), Some(Scheme::Wubi86));
+        assert_eq!(Scheme::parse("japanese"), Some(Scheme::Japanese));
+        assert_eq!(Scheme::parse("korean"), Some(Scheme::Korean));
         assert_eq!(Scheme::parse("wubi98"), None);
         assert_eq!(Scheme::parse(""), None);
     }

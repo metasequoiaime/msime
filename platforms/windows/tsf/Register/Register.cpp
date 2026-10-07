@@ -14,7 +14,7 @@ static const WCHAR RegInfo_Prefix_CLSID[] = L"CLSID\\";
 static const WCHAR RegInfo_Key_InProSvr32[] = L"InProcServer32";
 static const WCHAR RegInfo_Key_ThreadModel[] = L"ThreadingModel";
 
-// 系统输入法列表里显示的文本服务名，按版本取（版本表 platforms.windows.text_service_description）；full 是「Metasequoia 水杉输入法」。
+// 系统输入法列表里显示的文本服务名，按版本取（版本表 platforms.windows.text_service_description）；full 是「水杉输入法」，msime-windows 是「Metasequoia 水杉输入法」。
 static const WCHAR TEXTSERVICE_DESC[] = MSIME_EDITION_TEXT_SERVICE_DESCRIPTION;
 
 static const GUID SupportCategories[] = {

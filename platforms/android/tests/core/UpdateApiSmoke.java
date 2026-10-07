@@ -32,6 +32,8 @@ public final class UpdateApiSmoke {
         check(UpdateApi.compareVersions("0.50.0-build.14", "0.50.0-build.9") > 0, "numeric prerelease ids");
         check(UpdateApi.compareVersions("v1.0", "1.0.0") == 0, "missing segments are zero");
         check(UpdateApi.compareVersions("0.1.0-dev", "0.1.0") < 0, "dev build is older than its release");
+        check(UpdateApi.compareVersions("1.9000000000000000000", "1.10000000000000000000") < 0,
+            "large numeric segments keep numeric ordering");
 
         List<UpdateApi.Release> releases = List.of(
             new UpdateApi.Release("android-v1.1.0", "1.1.0", false),
@@ -50,6 +52,12 @@ public final class UpdateApiSmoke {
         String digest = "ab".repeat(32);
         check(digest.equals(UpdateApi.parseChecksum(digest.toUpperCase(Locale.ROOT) + "  msime-client.apk\n")), "sha256sum format");
         check(UpdateApi.parseChecksum("not-a-digest") == null, "malformed checksum");
+        java.lang.reflect.Method strictString = UpdateApi.class.getDeclaredMethod("strictString", Object.class);
+        strictString.setAccessible(true);
+        check("v9.0.0".equals(strictString.invoke(null, "v9.0.0")),
+            "release metadata accepts JSON strings");
+        check(strictString.invoke(null, 7) == null,
+            "numeric release metadata must not be coerced into update paths");
 
         // 下载：每一跳都过白名单，校验通过才留下文件。
         byte[] apk = "apk-bytes".getBytes(StandardCharsets.US_ASCII);
@@ -69,6 +77,44 @@ public final class UpdateApiSmoke {
         File downloaded = api.download(update, cache, null);
         check(downloaded.isFile() && downloaded.getName().equals("msime-client.apk"), "verified file kept");
         check(downloaded.getParentFile().getName().equals("updates"), "stored under cache/updates");
+
+        // A partial-file symlink created after stale cleanup must not receive the APK.
+        File symlinkCache = Files.createTempDirectory("update-smoke-symlink").toFile();
+        File symlinkDirectory = new File(symlinkCache, "updates");
+        check(symlinkDirectory.mkdirs(), "symlink test directory created");
+        File external = new File(symlinkCache, "outside.apk");
+        Files.writeString(external.toPath(), "sentinel");
+        UpdateApi symlinkApi = new UpdateApi(url -> {
+            if (url.equals(update.checksumUrl())) return body(good + "  msime-client.apk\n");
+            if (url.equals(update.apkUrl())) {
+                Files.createSymbolicLink(new File(symlinkDirectory, "msime-client.apk.part").toPath(),
+                    symlinkDirectory.toPath().relativize(external.toPath()));
+                return new UpdateApi.Exchange(200, null, apk.length, new ByteArrayInputStream(apk));
+            }
+            return new UpdateApi.Exchange(404, null, 0, new ByteArrayInputStream(new byte[0]));
+        });
+        try {
+            symlinkApi.download(update, symlinkCache, null);
+        } catch (UpdateApi.Failure expected) {
+            // Refusing the symlink is the expected result.
+        }
+        check("sentinel".equals(Files.readString(external.toPath())),
+            "update download must not follow a partial-file symlink");
+        File symlinkTarget = new File(symlinkDirectory, "msime-client.apk");
+        check(!Files.isSymbolicLink(symlinkTarget.toPath()), "update target must not be a symlink");
+
+        // The updates directory itself must not redirect writes outside the cache.
+        File directorySymlinkCache = Files.createTempDirectory("update-smoke-directory-link").toFile();
+        File directoryOutside = Files.createTempDirectory("update-smoke-directory-outside").toFile();
+        File linkedUpdates = new File(directorySymlinkCache, "updates");
+        check(Files.createSymbolicLink(linkedUpdates.toPath(), directoryOutside.toPath()) != null,
+            "updates directory symlink created");
+        try {
+            symlinkApi.download(update, directorySymlinkCache, null);
+            throw new AssertionError("a symlinked updates directory must fail");
+        } catch (UpdateApi.Failure expected) { }
+        check(!new File(directoryOutside, update.fileName()).exists(),
+            "a symlinked updates directory must not receive the APK");
 
         // 关于页和每日任务同时下载：排队进行，后一次直接用前一次已经核对过的文件，不互删 .part、也不再下一遍。
         java.util.concurrent.atomic.AtomicInteger apkFetches = new java.util.concurrent.atomic.AtomicInteger();

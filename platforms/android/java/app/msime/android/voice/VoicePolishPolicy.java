@@ -35,19 +35,24 @@ public final class VoicePolishPolicy {
 
     /** Whether this host can run the request as configured. Same scheme rule as transcription. */
     public static boolean usable(String endpoint, String model, String token, String prompt) {
-        return TextPolicy.validAuthority(endpoint, "https://", 2048)
-            && model != null && !model.trim().isEmpty() && model.length() <= 512
-            && !TextPolicy.hasControl(model)
-            && token != null && !token.trim().isEmpty() && token.length() <= 16 * 1024
-            && !TextPolicy.hasControl(token)
-            && prompt != null && !prompt.trim().isEmpty()
-            && TextPolicy.utf8Length(prompt) <= MAX_PROMPT_BYTES;
+        return TextPolicy.validAuthority(endpoint, "https://", AiPolishConfiguration.MAX_ENDPOINT_LENGTH)
+            && model != null && !TextPolicy.trimmed(model).isEmpty() && TextPolicy.utf8Length(model) <= 512
+            && !TextPolicy.hasControl(model) && TextPolicy.validUnicode(model)
+            && token != null && !TextPolicy.trimmed(token).isEmpty()
+            && TextPolicy.utf8Length(token) <= 16 * 1024
+            && !TextPolicy.hasControl(token) && TextPolicy.validUnicode(token)
+            && prompt != null && !TextPolicy.trimmed(prompt).isEmpty()
+            && TextPolicy.utf8Length(prompt) <= MAX_PROMPT_BYTES
+            && !TextPolicy.hasControlExceptWhitespace(prompt)
+            && TextPolicy.validUnicode(prompt);
     }
 
     /** Whether a transcript is worth sending: empty or absurdly long is not. */
     public static boolean sendable(String text) {
-        return text != null && !text.trim().isEmpty()
-            && TextPolicy.utf8Length(text) <= MAX_TEXT_BYTES;
+        return text != null && !TextPolicy.trimmed(text).isEmpty()
+            && TextPolicy.utf8Length(text) <= MAX_TEXT_BYTES
+            && !TextPolicy.hasControlExceptWhitespace(text)
+            && TextPolicy.validUnicode(text);
     }
 
     /**
@@ -58,7 +63,7 @@ public final class VoicePolishPolicy {
      * transcript that happens to read like an instruction has nothing marking it as not one.
      */
     public static String userMessage(String text) {
-        return OPEN + (text == null ? "" : text) + CLOSE;
+        return OPEN + TextPolicy.emptyIfNull(text) + CLOSE;
     }
 
     /**
@@ -77,23 +82,7 @@ public final class VoicePolishPolicy {
 
     /** Minimal JSON string escaping, so a prompt cannot break out of the document it travels in. */
     public static String json(String value) {
-        String source = value == null ? "" : value;
-        StringBuilder out = new StringBuilder(source.length() + 2).append('"');
-        for (int index = 0; index < source.length(); index++) {
-            char character = source.charAt(index);
-            switch (character) {
-                case '"' -> out.append("\\\"");
-                case '\\' -> out.append("\\\\");
-                case '\n' -> out.append("\\n");
-                case '\r' -> out.append("\\r");
-                case '\t' -> out.append("\\t");
-                default -> {
-                    if (character < 0x20) out.append(String.format("\\u%04x", (int) character));
-                    else out.append(character);
-                }
-            }
-        }
-        return out.append('"').toString();
+        return JsonPolicy.quote(value);
     }
 
 }

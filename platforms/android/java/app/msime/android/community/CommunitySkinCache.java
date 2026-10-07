@@ -2,7 +2,6 @@ package app.msime.android;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
@@ -44,9 +43,9 @@ public final class CommunitySkinCache {
         } catch (JSONException error) {
             throw new IOException(error);
         }
-        byte[] bytes = array.toString().getBytes(StandardCharsets.UTF_8);
+        byte[] bytes = TextPolicy.utf8Bytes(array.toString());
         if (bytes.length > MAX_BYTES) return;
-        Files.createDirectories(preferencesDirectory);
+        SafePaths.ensureDirectory(preferencesDirectory);
         // 每次写各用一个临时文件：社区页可能同时跑两次缓存（重建页面时），共用一个固定的 .pending 会互相截断，:ime 读到半截 JSON 就当作没有缓存。
         Path pending = Files.createTempFile(preferencesDirectory, FILE + ".", ".pending");
         try {
@@ -60,8 +59,9 @@ public final class CommunitySkinCache {
 
     /** 读缓存；文件缺失、过大或损坏时当作没有缓存。这是跨进程的文件边界，不能让一份坏文件把皮肤面板拖垮。 */
     public static List<Entry> read(Path preferencesDirectory) {
-        Path file = preferencesDirectory.resolve(FILE);
         try {
+            SafePaths.rejectSymlinkComponents(preferencesDirectory);
+            Path file = preferencesDirectory.resolve(FILE);
             if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS) || Files.size(file) > MAX_BYTES) {
                 return List.of();
             }
@@ -70,7 +70,7 @@ public final class CommunitySkinCache {
                 bytes = HttpBodyPolicy.readBounded(input, (int) MAX_BYTES);
                 if (bytes == null) return List.of();
             }
-            JSONArray array = new JSONArray(new String(bytes, StandardCharsets.UTF_8));
+            JSONArray array = new JSONArray(TextPolicy.utf8(bytes));
             List<Entry> entries = new ArrayList<>(MAX_ENTRIES);
             for (int index = 0; index < array.length() && entries.size() < MAX_ENTRIES; index++) {
                 JSONObject value = array.optJSONObject(index);
@@ -88,6 +88,12 @@ public final class CommunitySkinCache {
     }
 
     private static String text(JSONObject value, String key) {
-        return value.isNull(key) ? "" : value.optString(key, "");
+        String text = strictString(value.opt(key));
+        return text == null ? "" : text;
+    }
+
+    /** org.json's optString coerces numbers and booleans; cache text must remain JSON strings. */
+    static String strictString(Object value) {
+        return value instanceof String ? (String) value : null;
     }
 }

@@ -12,6 +12,9 @@ public final class DiagnosticsApiSmoke {
         check(DiagnosticsApi.Event.of(1, "KEY_DOWN", 3) == null, "kinds are matched exactly");
         check(DiagnosticsApi.Event.of(-1, "commit", 0) == null, "a negative time is dropped");
         check(DiagnosticsApi.Event.of(5, "commit", -7).durationMs() == -1, "a negative duration means none");
+        check(DiagnosticsApi.strictInteger(7L) == 7L, "diagnostic integer");
+        check(DiagnosticsApi.strictInteger(1.5d) == null, "fractional diagnostic integer is rejected");
+        check(DiagnosticsApi.strictInteger("7") == null, "numeric strings are rejected");
 
         check(DiagnosticsApi.Retention.fromWire("one_hour") == DiagnosticsApi.Retention.ONE_HOUR, "one_hour");
         check(DiagnosticsApi.Retention.fromWire("seven_days") == DiagnosticsApi.Retention.SEVEN_DAYS, "seven_days");
@@ -47,6 +50,16 @@ public final class DiagnosticsApiSmoke {
         String clipped = DiagnosticsApi.CrashLog.of("", longMessage, "").message();
         check(clipped.length() == 682, "2 KiB of three-byte characters is 682 of them, got " + clipped.length());
         check(DiagnosticsApi.CrashLog.of(null, null, null).stack().isEmpty(), "missing fields become empty");
+        try {
+            java.lang.reflect.Method strictString = DiagnosticsApi.class.getDeclaredMethod("strictString", Object.class);
+            strictString.setAccessible(true);
+            check("synthetic".equals(strictString.invoke(null, "synthetic")),
+                "diagnostics identifiers accept strings");
+            check(strictString.invoke(null, 7) == null,
+                "diagnostics identifiers reject numbers instead of coercing them");
+        } catch (ReflectiveOperationException error) {
+            throw new AssertionError("diagnostics response string policy missing", error);
+        }
 
         check("https://api.msime.app/mcp/s/abc".equals(DiagnosticsApi.mcpUrl("abc")), "remote address");
 

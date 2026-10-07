@@ -77,7 +77,7 @@ fn read_entries(directory: &Path, name: &str) -> Result<Vec<HelpcodeEntry>, Stri
 /// 码表文本的严格解析，规则见模块文档。
 pub(crate) fn parse_table(bytes: &[u8], name: &str) -> Result<Vec<HelpcodeEntry>, String> {
     let mut entries = Vec::with_capacity(MAX_ENTRIES);
-    let mut seen = HashSet::new();
+    let mut seen = HashSet::with_capacity(MAX_ENTRIES);
     for (number, line) in data_lines(bytes, name)? {
         if line.is_empty() || line.starts_with('#') {
             continue;
