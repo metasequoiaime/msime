@@ -16,6 +16,7 @@ import androidx.fragment.app.Fragment;
 import app.msime.android.NativeClient;
 import app.msime.android.R;
 import app.msime.android.TextPolicy;
+import app.msime.android.ViewPolicy;
 import io.noties.markwon.AbstractMarkwonPlugin;
 import io.noties.markwon.Markwon;
 import io.noties.markwon.MarkwonConfiguration;
@@ -84,7 +85,7 @@ final class NoticeBanner {
         ((TextView) card.findViewById(R.id.notice_title)).setText(notice.title());
         TextView body = card.findViewById(R.id.notice_body);
         if (notice.body().isBlank()) {
-            body.setVisibility(View.GONE);
+            ViewPolicy.hide(body);
         } else {
             markwon(context).setMarkdown(body, notice.body());
         }
