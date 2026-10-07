@@ -19,6 +19,9 @@ use crate::pinyin::segment::{join_segments, split_segments};
 use crate::quanpin::QuanpinDictionary;
 use crate::types::{CandidateSource, FuzzyPinyinOptions, QueryRequest, SchemeType, WordItem};
 
+// 双拼模糊候选的短合并直接扫描已有词，避免临时哈希表和重复索引分配。
+const SMALL_FUZZY_DEDUP: usize = 64;
+
 /// The base the dictionary queries and the codes that filter or reorder it.
 struct HelpcodeQuery {
     base_pure: String,
@@ -195,25 +198,7 @@ impl ShuangpinEngine {
             exact.sort_by_key(|item| std::cmp::Reverse(item.pinyin.len()));
             return exact;
         }
-        // Keep deduplication keys borrowed until fuzzy rows are ready to move into the exact list.
-        let mut seen: HashSet<&str> = exact.iter().map(|item| item.word.as_str()).collect();
-        let duplicates = fuzzy
-            .iter()
-            .enumerate()
-            .filter_map(|(index, item)| (!seen.insert(item.word.as_str())).then_some(index))
-            .collect::<Vec<_>>();
-        drop(seen);
-        let unique_count = fuzzy.len() - duplicates.len();
-        exact.reserve(unique_count);
-        let mut duplicates = duplicates.into_iter().peekable();
-        exact.extend(fuzzy.into_iter().enumerate().filter_map(|(index, item)| {
-            if duplicates.peek() == Some(&index) {
-                duplicates.next();
-                None
-            } else {
-                Some(item)
-            }
-        }));
+        append_fuzzy_rows(&mut exact, fuzzy);
         exact.sort_by_key(|item| std::cmp::Reverse(item.pinyin.len()));
         exact
     }
@@ -278,5 +263,85 @@ impl ShuangpinEngine {
         if let Some(fuzzy_dictionary) = &mut self.fuzzy_dictionary {
             fuzzy_dictionary.reset_cache();
         }
+    }
+}
+
+fn append_fuzzy_rows(exact: &mut Vec<WordItem>, fuzzy: Vec<WordItem>) {
+    if exact.len().saturating_add(fuzzy.len()) <= SMALL_FUZZY_DEDUP {
+        exact.reserve(fuzzy.len());
+        for item in fuzzy {
+            if exact.iter().any(|existing| existing.word == item.word) {
+                continue;
+            }
+            exact.push(item);
+        }
+        return;
+    }
+    // 借用词面计算重复项，释放集合后再移动整行，避免移动时仍持有借用。
+    let mut seen: HashSet<&str> = exact.iter().map(|item| item.word.as_str()).collect();
+    let duplicates = fuzzy
+        .iter()
+        .enumerate()
+        .filter_map(|(index, item)| (!seen.insert(item.word.as_str())).then_some(index))
+        .collect::<Vec<_>>();
+    drop(seen);
+    let unique_count = fuzzy.len() - duplicates.len();
+    exact.reserve(unique_count);
+    let mut duplicates = duplicates.into_iter().peekable();
+    exact.extend(fuzzy.into_iter().enumerate().filter_map(|(index, item)| {
+        if duplicates.peek() == Some(&index) {
+            duplicates.next();
+            None
+        } else {
+            Some(item)
+        }
+    }));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::append_fuzzy_rows;
+    use crate::types::{CandidateSource, WordItem};
+
+    fn row(word: &str) -> WordItem {
+        WordItem::new("ni", word, 1, CandidateSource::Database, "ni")
+    }
+
+    #[test]
+    fn short_fuzzy_rows_are_appended_without_temporary_heap_state() {
+        let mut exact = Vec::with_capacity(8);
+        exact.push(row("你"));
+        let fuzzy = vec![row("你"), row("好"), row("好"), row("吗")];
+        let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            append_fuzzy_rows(&mut exact, fuzzy);
+        });
+
+        assert_eq!(allocations, 0);
+        assert_eq!(
+            exact
+                .iter()
+                .map(|item| item.word.as_str())
+                .collect::<Vec<_>>(),
+            ["你", "好", "吗"]
+        );
+    }
+
+    #[test]
+    fn large_fuzzy_rows_keep_first_occurrence_order() {
+        let mut exact = Vec::with_capacity(70);
+        exact.push(row("已有"));
+        let fuzzy = (0..65)
+            .map(|index| row(if index == 0 { "已有" } else { "模糊" }))
+            .collect();
+
+        append_fuzzy_rows(&mut exact, fuzzy);
+
+        assert_eq!(
+            exact
+                .iter()
+                .map(|item| item.word.as_str())
+                .collect::<Vec<_>>(),
+            ["已有", "模糊"]
+        );
     }
 }
