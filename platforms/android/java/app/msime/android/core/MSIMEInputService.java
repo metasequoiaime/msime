@@ -6652,7 +6652,7 @@ public final class MSIMEInputService extends InputMethodService {
             ViewPolicy.setVisible(clipboardShortcutButton, toolbarClipboard);
             clipboardShortcutButton.setEnabled(CloudClipboardPanelPolicy.panelAvailable(
                 clipboardHistoryEnabled, imePanels.cloudClipboardAllowed()));
-            clipboardShortcutButton.setSelected(imePanels.clipboardPanelOpen());
+            ViewPolicy.setSelected(clipboardShortcutButton, imePanels.clipboardPanelOpen());
         }
         if (dismissShortcutButton != null) {
             dismissShortcutButton.setContentDescription(anyToolbarPanelOpen() ? "返回键盘" : "收起键盘");
