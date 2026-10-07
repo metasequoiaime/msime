@@ -312,7 +312,7 @@ public final class BackendAccount {
             if (c < 0x20 || c > 0x7E || c == '(' || c == ')' || c == ';') continue;
             result.append(c);
         }
-        String cleaned = result.toString().trim();
+        String cleaned = TextPolicy.trimmed(result.toString());
         return cleaned.isEmpty() ? fallback : cleaned;
     }
 
@@ -466,7 +466,7 @@ public final class BackendAccount {
         for (ChatMessage message : messages) {
             if (message == null || !("user".equals(message.role()) || "assistant".equals(message.role())
                     || "system".equals(message.role())) || message.content() == null
-                    || message.content().trim().isEmpty()
+                    || TextPolicy.trimmed(message.content()).isEmpty()
                     || TextPolicy.utf8Length(message.content()) > 16 * 1024
                     || TextPolicy.hasControlExceptWhitespace(message.content())
                     || !TextPolicy.validUnicode(message.content())) return false;
@@ -476,14 +476,14 @@ public final class BackendAccount {
     }
 
     static boolean validChatResponse(String role, String content) {
-        return "assistant".equals(role) && content != null && !content.trim().isEmpty()
+        return "assistant".equals(role) && content != null && !TextPolicy.trimmed(content).isEmpty()
             && TextPolicy.utf8Length(content) <= 16 * 1024
             && !TextPolicy.hasControlExceptWhitespace(content)
             && TextPolicy.validUnicode(content);
     }
 
     static boolean validChatReplyText(String content) {
-        return content != null && !content.trim().isEmpty()
+        return content != null && !TextPolicy.trimmed(content).isEmpty()
             && TextPolicy.utf8Length(content) <= MAX_CHAT_REPLY_BYTES
             && TextPolicy.validUnicode(content);
     }
@@ -610,7 +610,7 @@ public final class BackendAccount {
 
     /** 把一行 data 解成 JSON 对象；空的、不是对象或解析不了时返回 null，调用方跳过这一行。 */
     static JSONObject eventObject(String data) {
-        String trimmed = data.trim();
+        String trimmed = TextPolicy.trimmed(data);
         if (!trimmed.startsWith("{")) return null;
         try {
             return new JSONObject(trimmed);

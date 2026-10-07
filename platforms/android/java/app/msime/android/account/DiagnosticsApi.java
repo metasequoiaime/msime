@@ -286,7 +286,7 @@ public final class DiagnosticsApi {
     static List<Event> eventLines(String text, boolean durationRequired) {
         List<Event> events = new ArrayList<>(MAX_EVENTS);
         for (String line : text.split("\n")) {
-            String trimmed = line.trim();
+            String trimmed = TextPolicy.trimmed(line);
             if (trimmed.isEmpty()) continue;
             try {
                 JSONObject row = new JSONObject(trimmed);
