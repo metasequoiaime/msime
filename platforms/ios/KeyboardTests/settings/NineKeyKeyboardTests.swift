@@ -845,7 +845,8 @@ final class NineKeyKeyboardTests: XCTestCase {
     let withheld = ChineseInputScheme.allCases.filter { !offered.contains($0) }
     XCTAssertTrue(withheld.allSatisfy(\.needsLanguageDictionary), "only a scheme whose dictionary is missing may be left off: \(withheld)")
     for width in [320.0, 414.0] {
-      InputSchemePreference.scheme = .nineKey
+      // 上一轮点全拼卡片时键盘把选择记进了共享文档，新建的键盘按文档行事，所以从 9 键开始要像设置页那样写进文档，只改镜像不够。
+      XCTAssertTrue(InputSchemePreference.select(.nineKey))
       let controller = KeyboardViewController()
       controller.loadViewIfNeeded()
       controller.view.frame = CGRect(x: 0, y: 0, width: width, height: CGFloat(260) + KeyboardViewController.stripExtraHeight)

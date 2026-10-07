@@ -27,6 +27,8 @@ struct MetasequoiaImeApp: App {
     if arguments.contains("--reset-onboarding-for-ui-tests") || arguments.contains("--reset-input-schemes-for-ui-tests") {
       UserDefaults(suiteName: InputSchemePreference.appGroupIdentifier)?
         .removeObject(forKey: InputSchemePreference.enabledSchemesKey)
+      // 设置页会把共享文档里记的启用列表抄回 App Group，所以文档里的那份也要清掉，否则隐藏的方案在下一次打开设置页时又回来。
+      _ = MetasequoiaInputSessionBridge.updateSharedPreferences { $0.removeValue(forKey: "touch_keyboard_schemes") }
     }
     // The saved-skin library holds twelve. A UI test that saves one and fails before deleting it
     // leaves it behind, and twelve such runs make every later save fail with no way back short of

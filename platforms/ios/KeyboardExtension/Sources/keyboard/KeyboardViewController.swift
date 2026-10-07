@@ -431,6 +431,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   override func viewDidLoad() {
     super.viewDidLoad()
     translations.onArrival = { [weak self] in self?.renderCandidateStrip() }
+    // 方案以共享文档为准。会话在本控制器创建时已经同步读过一次文档，先把其中记的方案抄进 App Group 镜像再按镜像行事，不额外读盘；否则在 `viewWillAppear` 的后台重载回来之前，键盘会先按镜像里的旧方案（比如双拼）画出来并开始接收按键。
+    InputSchemePreference.mirror(session.sharedPreferences)
     inputScheme = InputSchemePreference.scheme
     isChineseMode = ImeModeMemoryPreference.startsInChinese(fallback: Self.startsInChinese(session.sharedPreferences))
     appliedCharacterWidth = CharacterWidthPreference.value(in: session.sharedPreferences)

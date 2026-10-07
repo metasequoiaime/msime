@@ -76,8 +76,9 @@ struct SettingsView: View {
   }
 
   private func refresh() {
-    scheme = InputSchemePreference.scheme
     let preferences = MetasequoiaInputSessionBridge.loadSharedPreferences()
+    InputSchemePreference.mirror(preferences)
+    scheme = InputSchemePreference.scheme
     skin = KeyboardTheme.reload(preferences)
     candidateSize = CandidateFontPreference.candidateSize(in: preferences, tablet: UIDevice.current.userInterfaceIdiom == .pad)
   }

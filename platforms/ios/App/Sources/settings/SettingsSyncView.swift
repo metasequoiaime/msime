@@ -2,8 +2,9 @@ import SwiftUI
 
 private enum IOSCloudSettings {
   static func snapshot() throws -> [String: BackendPreferenceValue] {
-    let scheme = InputSchemePreference.scheme
     let document = MetasequoiaInputSessionBridge.loadSharedPreferences()
+    // 上传的是文档里的方案，不是 App Group 镜像：镜像可能落后于文档，上传旧方案会让其他设备、以及之后在这台设备上「下载并应用」，都换回用户已经不用的方案。
+    let scheme = InputSchemePreference.current(in: document).scheme
     var settings: [String: BackendPreferenceValue] = [
       "input.character_set": .string(ChineseOutputPreference.usesTraditional ? "traditional" : "simplified"),
       "platform.ios.sound_enabled": .boolean(KeyboardFeedbackPreference.soundEnabled),
@@ -47,8 +48,8 @@ private enum IOSCloudSettings {
       throw CocoaError(.fileWriteUnknown)
     }
     let scheme = plan.scheme.flatMap(ChineseInputScheme.init(rawValue:))
-    let enabled = InputSchemePreference.enabledSchemes
-    let schemeFields = scheme.flatMap { MetasequoiaInputSessionBridge.schemeMapping($0, enabledSchemes: enabled) }
+    // 方案在写文档的闭包里按文档当时的启用列表落下，不拿 App Group 镜像里可能过时的列表覆盖文档。
+    var writtenScheme: InputSchemePreference.Selection?
     let written = MetasequoiaInputSessionBridge.updateSharedPreferences { document in
       if let theme = plan.globalTheme { document["global_theme"] = theme }
       if plan.customThemeBase != nil || design != nil {
@@ -59,12 +60,12 @@ private enum IOSCloudSettings {
         if let design { customTheme["keyboard"] = design }
         document["custom_theme"] = customTheme
       }
-      schemeFields?(&document)
+      if let scheme { writtenScheme = InputSchemePreference.write({ $0.scheme = scheme }, into: &document) }
       if let profile = plan.wubiProfile { document[WubiProfilePreference.documentKey] = profile }
       if let traditional = plan.traditional { document[ChineseOutputPreference.documentKey] = traditional }
     }
     guard written else { throw CocoaError(.fileWriteUnknown) }
-    if let scheme { InputSchemePreference.scheme = scheme }
+    if let writtenScheme { InputSchemePreference.mirror(writtenScheme) }
     if let profile = plan.wubiProfile { WubiProfilePreference.profile = profile }
     if let traditional = plan.traditional { ChineseOutputPreference.usesTraditional = traditional }
     let defaults = KeyboardFeedbackPreference.defaults
