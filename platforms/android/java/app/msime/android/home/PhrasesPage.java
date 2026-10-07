@@ -87,7 +87,8 @@ public final class PhrasesPage extends DetailPage {
         ViewPolicy.setMaxLines(field, 6);
         ViewPolicy.setTopStart(field);
         int padding = Ui.dp(requireContext(), 10);
-        field.setPadding(Ui.dp(requireContext(), 12), padding, Ui.dp(requireContext(), 12), padding);
+        int horizontal = Ui.dp(requireContext(), 12);
+        ViewPolicy.setPadding(field, horizontal, padding, horizontal, padding);
         ViewGroup.LayoutParams params = field.getLayoutParams();
         if (params != null) {
             params.height = ViewGroup.LayoutParams.WRAP_CONTENT;
