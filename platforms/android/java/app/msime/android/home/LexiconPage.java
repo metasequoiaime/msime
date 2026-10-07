@@ -1,5 +1,6 @@
 package app.msime.android.home;
 
+import app.msime.android.TextPolicy;
 import android.content.Context;
 import android.content.Intent;
 import android.database.Cursor;
