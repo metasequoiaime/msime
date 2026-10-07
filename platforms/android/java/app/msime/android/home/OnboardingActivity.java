@@ -300,7 +300,7 @@ public final class OnboardingActivity extends AppCompatActivity {
             if (checked != on) chooseGloss(checked);
         });
         row.addView(toggle);
-        row.setOnClickListener(ignored -> toggle.toggle());
+        ViewPolicy.bindClick(row, toggle::toggle);
         column.addView(row, Ui.matchWidth(this, 12));
 
         if (note != null) {
