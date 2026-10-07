@@ -389,7 +389,7 @@ public final class VoiceRecognitionActivity extends Activity {
         ViewPolicy.setPadding(hint, 0, pad / 2, 0, pad);
         root.addView(hint);
         LinearLayout actions = KeyboardGeometry.row(this);
-        actions.setGravity(Gravity.END);
+        ViewPolicy.setGravity(actions, Gravity.END);
         Button cancel = ViewPolicy.newPressButton(this);
         cancel.setText("取消");
         cancel.setContentDescription("取消录音并丢弃结果");
