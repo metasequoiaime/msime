@@ -16,6 +16,8 @@ pub const TABLE_LIMIT: usize = 256;
 pub const TRIGGER_LIMIT: usize = 32;
 /// The Windows candidate pipe's text field (`CandidateTextMaxLength` in `shared/contracts/ipc_protocol_limits.h`, the same bound as a quick phrase): a template, and the text it expands to, longer than this could not be delivered.
 pub const TEXT_UTF16_LIMIT: usize = 199;
+// 短命令表直接扫描此前的触发词，避免为常见小表创建哈希状态。
+const SMALL_COMMAND_TABLE: usize = 64;
 
 const DEFAULT_DATE_FORMAT: &str = "%Y-%m-%d";
 const DEFAULT_TIME_FORMAT: &str = "%H:%M";
@@ -81,13 +83,27 @@ pub fn takes_word_separator(code: &str) -> bool {
 /// The rows that are usable of a host table: valid triggers and templates, the first command of a trigger, at most `TABLE_LIMIT`.
 pub fn usable_command_table(table: &[CommandTableEntry]) -> Vec<CommandTableEntry> {
     let mut usable: Vec<CommandTableEntry> = Vec::with_capacity(TABLE_LIMIT.min(table.len()));
+    if table.len() <= SMALL_COMMAND_TABLE {
+        for (index, entry) in table.iter().enumerate() {
+            if usable.len() == TABLE_LIMIT {
+                break;
+            }
+            if valid_trigger(&entry.trigger)
+                && trigger_is_new(table, index, &entry.trigger)
+                && fits(&entry.template)
+                && template_valid(&entry.template)
+            {
+                usable.push(entry.clone());
+            }
+        }
+        return usable;
+    }
     let mut triggers = HashSet::with_capacity(TABLE_LIMIT.min(table.len()));
     for entry in table {
         if usable.len() == TABLE_LIMIT {
             break;
         }
-        let trigger_valid = (1..=TRIGGER_LIMIT).contains(&entry.trigger.len())
-            && entry.trigger.bytes().all(|byte| byte.is_ascii_lowercase());
+        let trigger_valid = valid_trigger(&entry.trigger);
         if trigger_valid
             && triggers.insert(entry.trigger.as_str())
             && fits(&entry.template)
@@ -97,6 +113,17 @@ pub fn usable_command_table(table: &[CommandTableEntry]) -> Vec<CommandTableEntr
         }
     }
     usable
+}
+
+fn valid_trigger(trigger: &str) -> bool {
+    (1..=TRIGGER_LIMIT).contains(&trigger.len())
+        && trigger.bytes().all(|byte| byte.is_ascii_lowercase())
+}
+
+fn trigger_is_new(table: &[CommandTableEntry], index: usize, trigger: &str) -> bool {
+    table[..index]
+        .iter()
+        .all(|entry| !valid_trigger(&entry.trigger) || entry.trigger != trigger)
 }
 
 /// Generated rows for the letters after `/`, weight `count - index`, at most `RESULT_LIMIT`: commands whose trigger is the input, then commands it begins; table commands before built-in ones. `pinyin` holds the trigger. `table` must have gone through `usable_command_table`.
@@ -368,6 +395,32 @@ mod tests {
             entry("c", "丙", "三"),
         ];
         assert_eq!(usable_command_table(&table).capacity(), table.len());
+    }
+
+    #[test]
+    fn short_command_table_trigger_scan_uses_no_temporary_heap_state() {
+        let table = vec![
+            entry("a", "无效模板", "{clipboard}"),
+            entry("b", "乙", "二"),
+            entry("c", "丙", "三"),
+        ];
+        let (is_new, allocations) =
+            crate::ime::personal_rerank::allocations::count(|| trigger_is_new(&table, 2, "c"));
+        assert!(is_new);
+        assert_eq!(allocations, 0);
+    }
+
+    #[test]
+    fn short_command_table_trigger_scan_keeps_invalid_templates_seen() {
+        let table = [
+            entry("dup", "无效模板", "{clipboard}"),
+            entry("dup", "有效", "二"),
+        ];
+        assert!(!trigger_is_new(&table, 1, "dup"));
+        assert_eq!(
+            usable_command_table(&table),
+            Vec::<CommandTableEntry>::new()
+        );
     }
 
     #[test]
