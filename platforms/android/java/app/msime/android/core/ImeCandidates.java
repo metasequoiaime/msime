@@ -244,8 +244,8 @@ final class ImeCandidates {
             // normally already hidden by closeCandidatePanel(); avoid traversing and clearing an
             // empty subtree until the next open actually needs to rebuild it.
             if (s.expandedCandidates.getVisibility() != View.GONE) {
-                s.expandedCandidates.setVisibility(View.GONE);
-                s.expandedCandidateScroll.setVisibility(View.GONE);
+                ViewPolicy.hide(s.expandedCandidates);
+                ViewPolicy.hide(s.expandedCandidateScroll);
             }
             return;
         }

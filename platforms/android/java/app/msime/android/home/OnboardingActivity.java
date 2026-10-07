@@ -176,8 +176,8 @@ public final class OnboardingActivity extends AppCompatActivity {
         MaterialButton next = findViewById(R.id.onboarding_next);
         next.setText(page < pages - 1 ? R.string.onboarding_next
             : offer ? R.string.onboarding_sign_in : R.string.onboarding_done);
-        next.setEnabled(!signingIn);
-        back.setEnabled(page > 0);
+        ViewPolicy.setEnabled(next, !signingIn);
+        ViewPolicy.setEnabled(back, page > 0);
 
         LinearLayout column = findViewById(R.id.onboarding_page);
         column.removeAllViews();
@@ -328,7 +328,7 @@ public final class OnboardingActivity extends AppCompatActivity {
         String reason = FirstRunPreparation.failure();
         TextView view = footnote(column, "词库准备失败" + (reason.isEmpty() ? "" : "：" + reason)
             + "。点这里重试，" + subject + "会在准备好后自动保存。");
-        view.setTextColor(Ui.accent(this));
+        ViewPolicy.setTextColor(view, Ui.accent(this));
         ViewPolicy.bindClick(view, () -> {
             FirstRunPreparation.retry(this);
             render(false);

@@ -352,7 +352,7 @@ public final class AiSkinPage extends DetailPage {
         input.setFilters(new InputFilter[] {new InputFilter.LengthFilter(SkinJobsApi.MAX_PROMPT_CHARACTERS)});
         ViewPolicy.clearBackground(input);
         Ui.setPaddingDp(input, context, 16, 12, 16, 4);
-        input.setEnabled(!s.busy);
+        ViewPolicy.setEnabled(input, !s.busy);
         describe.card().addView(input, Ui.matchWidth());
         HorizontalScrollView chipScroll = new HorizontalScrollView(context);
         chipScroll.setHorizontalScrollBarEnabled(false);
@@ -437,7 +437,7 @@ public final class AiSkinPage extends DetailPage {
         State s = state();
         Runnable update = () -> {
             boolean enabled = !s.busy && !TextPolicy.trimmed(input.getText().toString()).isEmpty();
-            button.setEnabled(enabled);
+            ViewPolicy.setEnabled(button, enabled);
             Ui.setEnabledLook(button, enabled);
         };
         update.run();
