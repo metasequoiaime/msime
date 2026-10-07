@@ -6661,7 +6661,7 @@ public final class MSIMEInputService extends InputMethodService {
         }
         if (voiceShortcutButton != null) {
             ViewPolicy.hide(voiceShortcutButton);
-            voiceShortcutButton.setEnabled(voiceInsertionReady());
+            ViewPolicy.setEnabled(voiceShortcutButton, voiceInsertionReady());
         }
         if (aiPolishShortcutButton != null) {
             ViewPolicy.hide(aiPolishShortcutButton);
