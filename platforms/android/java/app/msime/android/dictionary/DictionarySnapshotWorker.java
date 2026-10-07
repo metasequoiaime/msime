@@ -86,6 +86,6 @@ public final class DictionarySnapshotWorker {
 
     /** Snapshot identity fields must remain JSON strings; org.json otherwise coerces scalars. */
     static String strictString(Object value) {
-        return value instanceof String ? (String) value : null;
+        return JsonPolicy.strictString(value);
     }
 }

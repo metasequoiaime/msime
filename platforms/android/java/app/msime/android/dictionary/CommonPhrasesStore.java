@@ -379,7 +379,7 @@ public final class CommonPhrasesStore {
 
     /** Persisted response fields must retain their JSON string type. */
     public static String strictString(Object value) {
-        return value instanceof String ? (String) value : null;
+        return JsonPolicy.strictString(value);
     }
 
     /** Read a JSON integer without org.json's string or fractional coercion. */

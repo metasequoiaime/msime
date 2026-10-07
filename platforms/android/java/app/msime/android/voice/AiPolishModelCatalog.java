@@ -24,7 +24,7 @@ public final class AiPolishModelCatalog {
     private AiPolishModelCatalog() {}
 
     static String strictString(Object value) {
-        return value instanceof String ? (String) value : null;
+        return JsonPolicy.strictString(value);
     }
 
     static Boolean strictBoolean(Object value) {

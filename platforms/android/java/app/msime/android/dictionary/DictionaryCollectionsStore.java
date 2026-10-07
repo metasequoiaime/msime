@@ -536,7 +536,7 @@ public final class DictionaryCollectionsStore {
     }
 
     public static String strictString(Object value) {
-        return value instanceof String ? (String) value : null;
+        return JsonPolicy.strictString(value);
     }
 
     /** Export pages are text from the native response; do not let org.json coerce malformed values. */

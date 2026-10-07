@@ -94,6 +94,6 @@ public final class CommunitySkinCache {
 
     /** org.json's optString coerces numbers and booleans; cache text must remain JSON strings. */
     static String strictString(Object value) {
-        return value instanceof String ? (String) value : null;
+        return JsonPolicy.strictString(value);
     }
 }

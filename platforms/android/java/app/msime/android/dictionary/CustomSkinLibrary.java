@@ -182,7 +182,7 @@ public final class CustomSkinLibrary {
 
     /** org.json's optString coerces numbers and booleans; persisted library fields are strings. */
     static String strictString(Object value) {
-        return value instanceof String ? (String) value : null;
+        return JsonPolicy.strictString(value);
     }
 
     // ---- 设计参数的导出与导入（云同步与分享用；不含照片） ----

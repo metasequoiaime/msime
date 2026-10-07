@@ -152,7 +152,7 @@ public final class VoiceConfiguration {
 
     /** Shared voice response text fields must remain JSON strings; malformed values become empty. */
     static String strictString(Object value) {
-        return value instanceof String ? (String) value : null;
+        return JsonPolicy.strictString(value);
     }
 
     private static String text(Object value) {

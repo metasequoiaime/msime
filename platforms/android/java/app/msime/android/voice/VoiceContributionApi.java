@@ -80,6 +80,6 @@ public final class VoiceContributionApi {
 
     /** org.json's optString coerces numbers; contribution identifiers must stay JSON strings. */
     static String strictString(Object value) {
-        return value instanceof String ? (String) value : null;
+        return JsonPolicy.strictString(value);
     }
 }
