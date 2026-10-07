@@ -5390,7 +5390,7 @@ public final class MSIMEInputService extends InputMethodService {
         ViewPolicy.setFixedLines(button, labelLines);
         configureCandidateTextLayout(button, labelLines);
         KeyboardGeometry.setKeyTextSize(button, candidateFontSize);
-        button.setSelected(highlighted);
+        ViewPolicy.setSelected(button, highlighted);
         // render() attaches the button and applies the complete skin tree once below.
         // Avoid creating its candidate drawables before that pass.
         String description = "候选 " + (slot + 1) + "：" + text
