@@ -605,17 +605,25 @@ fn deduplicate_by_value(rows: &mut Vec<DictRow>) {
     }
     // Check duplicate values through borrowed slices, then retain in place after releasing the set.
     let mut seen = HashSet::with_capacity(rows.len());
-    let unique = rows
+    let duplicates = rows
         .iter()
-        .map(|row| seen.insert(row.value.as_str()))
+        .enumerate()
+        .filter_map(|(index, row)| (!seen.insert(row.value.as_str())).then_some(index))
         .collect::<Vec<_>>();
     drop(seen);
-    let mut index = 0;
-    rows.retain(|_| {
-        let keep = unique[index];
-        index += 1;
-        keep
-    });
+    let mut duplicates = duplicates.into_iter().peekable();
+    let mut write = 0;
+    for read in 0..rows.len() {
+        if duplicates.peek() == Some(&read) {
+            duplicates.next();
+            continue;
+        }
+        if write != read {
+            rows.swap(write, read);
+        }
+        write += 1;
+    }
+    rows.truncate(write);
 }
 
 #[cfg(test)]
