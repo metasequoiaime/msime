@@ -240,7 +240,7 @@ mod tests {
 
 #[cfg(test)]
 #[allow(unsafe_code)]
-mod allocations {
+pub(crate) mod allocations {
     use std::alloc::{GlobalAlloc, Layout, System};
     use std::cell::Cell;
 
@@ -289,7 +289,7 @@ mod allocations {
         }
     }
 
-    pub(super) fn count<T>(operation: impl FnOnce() -> T) -> (T, usize) {
+    pub(crate) fn count<T>(operation: impl FnOnce() -> T) -> (T, usize) {
         COUNT.with(|count| {
             assert!(count.get().is_none());
             count.set(Some(0));
