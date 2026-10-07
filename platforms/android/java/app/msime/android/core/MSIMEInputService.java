@@ -535,7 +535,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     private SchemeConfiguration schemeConfiguration(
             JSONObject preferences, KeyboardScheme engineScheme) {
-        // client-core leaves `touch_keyboard_schemes` out of the document while it holds its defaults, so a missing object or `enabled` list means the default schemes with no selection.
+        // client-core 总是把 `touch_keyboard_schemes` 写进它给出的文档；缺少这个对象或 `enabled` 列表的只有默认值改成只有中文之前的版本写的文档，按那时的默认方案、没有选中项读（见 `KeyboardScheme.optIn`）。
         JSONObject shared = preferences == null ? null
             : preferences.optJSONObject("touch_keyboard_schemes");
         JSONArray values = shared == null ? null : shared.optJSONArray("enabled");

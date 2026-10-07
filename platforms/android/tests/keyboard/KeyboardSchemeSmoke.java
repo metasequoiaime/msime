@@ -139,13 +139,18 @@ public final class KeyboardSchemeSmoke {
         check(KeyboardScheme.fromPreferences("tibetan", "xiaohe", "nine_key", FULL) == KeyboardScheme.TIBETAN);
         check(KeyboardScheme.fromPreferenceId("tibetan") == KeyboardScheme.TIBETAN);
         check(KeyboardScheme.fromPreferenceId("zhuyin") == KeyboardScheme.ZHUYIN);
-        // 没有存储列表时只启用中文方案（与共享的 TouchKeyboardScheme::DEFAULT_ENABLED 一致）：日语、韩语和后来加的语言都要用户自己添加；存储了列表时按固定顺序打开它们。
+        // 没有存储列表的文档出自默认值改成只有中文之前的版本，按那时的默认列表读（与共享的 TouchKeyboardScheme::LEGACY_DEFAULT_ENABLED 一致）：日语和韩语仍在，升级的用户键盘不变；新装只启用中文由 client-core 显式写进文档。存储了列表时按固定顺序打开它们。
         List<KeyboardScheme> defaults = KeyboardScheme.enabledFromPreferenceIds(null, FULL);
         check(defaults.equals(List.of(KeyboardScheme.QUANPIN, KeyboardScheme.QUANPIN_NINE_KEY, KeyboardScheme.XIAOHE,
             KeyboardScheme.ZIRANMA, KeyboardScheme.MICROSOFT, KeyboardScheme.SHOUDAO, KeyboardScheme.WUBI,
-            KeyboardScheme.HANDWRITING)));
+            KeyboardScheme.JAPANESE_NINE_KEY, KeyboardScheme.JAPANESE, KeyboardScheme.HANDWRITING,
+            KeyboardScheme.KOREAN)));
+        // 新装的文档由 client-core 写出只有中文方案的列表，读回来就是这些，不会补上日语和韩语。
+        check(KeyboardScheme.enabledFromPreferenceIds(List.of("quanpin", "nine_key", "xiaohe", "ziranma", "microsoft",
+            "shoudao", "wubi", "handwriting"), FULL).equals(List.of(KeyboardScheme.QUANPIN,
+            KeyboardScheme.QUANPIN_NINE_KEY, KeyboardScheme.XIAOHE, KeyboardScheme.ZIRANMA, KeyboardScheme.MICROSOFT,
+            KeyboardScheme.SHOUDAO, KeyboardScheme.WUBI, KeyboardScheme.HANDWRITING)));
         check(Arrays.stream(KeyboardScheme.values()).filter(KeyboardScheme::optIn).toList().equals(List.of(
-            KeyboardScheme.JAPANESE_NINE_KEY, KeyboardScheme.JAPANESE, KeyboardScheme.KOREAN,
             KeyboardScheme.CANTONESE, KeyboardScheme.ZHUYIN, KeyboardScheme.VIETNAMESE, KeyboardScheme.TIBETAN,
             KeyboardScheme.STROKE, KeyboardScheme.ZHUYIN_NINE_KEY)));
         check(KeyboardScheme.enabledFromPreferenceIds(List.of("zhuyin_nine_key", "zhuyin", "quanpin"), FULL)

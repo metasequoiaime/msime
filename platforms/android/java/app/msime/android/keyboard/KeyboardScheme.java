@@ -113,10 +113,13 @@ public enum KeyboardScheme {
         return badge;
     }
 
-    /** 默认只启用中文方案：日语（9 键和 26 键）、韩语、粤拼、注音（大千和 9 键）、越南语、藏文和笔画都由用户在「添加语言」里打开。日文词典和语言词库按需下载，默认不启用它们，新装用户就不会看到一个还没有词典的键盘。与共享的 `TouchKeyboardScheme::DEFAULT_ENABLED` 有意保持一致；存过列表的用户照旧按自己的列表。 */
+    /**
+     * 偏好里没有 `touch_keyboard_schemes.enabled` 时不启用的方案：粤拼、注音（大千和 9 键）、越南语、藏文和笔画。与共享的 `TouchKeyboardScheme::LEGACY_DEFAULT_ENABLED` 有意保持一致。
+     *
+     * <p>没有列表的文档只可能出自默认值改成只有中文之前的版本，那时日语和韩语默认启用，所以这里不含它们，升级的用户键盘不变。新装的默认值（只有中文方案，日语、韩语由用户在「添加语言」里打开）由 client-core 决定并显式写进文档（`TouchKeyboardScheme::DEFAULT_ENABLED`），这里读到的总是那份列表。
+     */
     public boolean optIn() {
-        return this == JAPANESE_NINE_KEY || this == JAPANESE || this == KOREAN
-            || this == CANTONESE || this == ZHUYIN || this == ZHUYIN_NINE_KEY || this == VIETNAMESE
+        return this == CANTONESE || this == ZHUYIN || this == ZHUYIN_NINE_KEY || this == VIETNAMESE
             || this == TIBETAN || this == STROKE;
     }
 
