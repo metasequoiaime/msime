@@ -393,7 +393,7 @@ public final class VoiceRecognitionActivity extends Activity {
         Button cancel = ViewPolicy.newPressButton(this);
         cancel.setText("取消");
         cancel.setContentDescription("取消录音并丢弃结果");
-        cancel.setOnClickListener(ignored -> cancelRecognition());
+        ViewPolicy.bindClick(cancel, this::cancelRecognition);
         actions.addView(cancel);
         Button done = ViewPolicy.newPressButton(this);
         done.setText("完成");
