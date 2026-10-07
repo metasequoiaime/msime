@@ -93,6 +93,7 @@ constexpr jsize kRefreshHostPathLimit = 4096;
 constexpr jsize kSnapshotVersionRequestLimit = 1 * 1024 * 1024;
 constexpr jsize kSnapshotPrepareRequestLimit = 1 * 1024 * 1024;
 constexpr jsize kSnapshotPreparePathLimit = 16384;
+constexpr jsize kTypingStatisticsDirectoryLimit = 16384;
 }
 
 extern "C" {
@@ -140,6 +141,7 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_typingStatistic
 JNIEXPORT jint JNICALL Java_app_msime_android_NativeClient_typingStatisticsEnabledRaw(JNIEnv *env, jclass, jbyteArray directory) {
     if (!directory) return -1;
     jsize length = env->GetArrayLength(directory);
+    if (length > kTypingStatisticsDirectoryLimit) return -1;
     jbyte *bytes = env->GetByteArrayElements(directory, nullptr);
     if (!bytes) return -1;
     int32_t result = msime_client_typing_statistics_enabled(
