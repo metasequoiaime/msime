@@ -1,6 +1,5 @@
 //! The Japanese candidate provider (schemes-lang.md §5.5), without the dropped `japanese_lexicon` step. Display order is insertion order; nothing is re-sorted by weight.
 
-use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -42,22 +41,22 @@ pub struct JapaneseProvider {
 struct Rows {
     items: Vec<WordItem>,
     code: String,
-    seen: HashSet<String>,
 }
 
 impl Rows {
     fn reserve(&mut self, additional: usize) {
         self.items.reserve(additional);
-        self.seen.reserve(additional);
     }
 
     #[cfg(test)]
     fn contains_word(&self, word: &str) -> bool {
-        self.seen.contains(word)
+        self.items.iter().any(|item| item.word == word)
     }
 
     fn push(&mut self, word: &str, weight: i64, source: CandidateSource) {
-        if word.is_empty() || !self.seen.insert(word.to_owned()) {
+        // A query publishes only a small candidate page. Scan the owned rows so each unique
+        // word is stored once, without cloning it into a second deduplication set.
+        if word.is_empty() || self.items.iter().any(|item| item.word == word) {
             return;
         }
         self.items.push(WordItem::new(
@@ -96,7 +95,6 @@ impl JapaneseProvider {
         let mut rows = Rows {
             items: Vec::with_capacity(2),
             code: request.raw_input_with_cases.clone(),
-            seen: HashSet::with_capacity(SENTENCE_LIMIT + 1),
         };
         // A bare minus opens a composition whose first choice is the long-vowel mark, with the plain hyphen kept as the alternative.
         if request.raw_input == "-" {
@@ -161,7 +159,7 @@ impl JapaneseProvider {
             let mut insertion = rows.items.len().min(if kana_first { 2 } else { 1 });
             for item in dynamic {
                 // Dynamic rows are bounded by the cache quota; keep the word index in sync while inserting them.
-                if !rows.seen.insert(item.word.clone()) {
+                if rows.items.iter().any(|row| row.word == item.word) {
                     continue;
                 }
                 rows.items.insert(insertion, item.clone());
@@ -241,7 +239,6 @@ mod tests {
         let mut rows = Rows {
             items: Vec::new(),
             code: "ka".to_owned(),
-            seen: HashSet::new(),
         };
         assert!(!rows.contains_word("かな"));
         rows.push("かな", KANA_WEIGHT, CandidateSource::Generated);
