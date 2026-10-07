@@ -6645,7 +6645,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (phraseShortcutButton != null) {
             ViewPolicy.setVisible(phraseShortcutButton, toolbarPhrase);
             phraseShortcutButton.setEnabled(session != 0 && !preferencesDirectory.isEmpty());
-            phraseShortcutButton.setSelected(phraseScroll != null
+            ViewPolicy.setSelected(phraseShortcutButton, phraseScroll != null
                 && phraseScroll.getVisibility() == View.VISIBLE);
         }
         if (clipboardShortcutButton != null) {
