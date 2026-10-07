@@ -7,6 +7,7 @@
  * directory came to hold a set that matched neither, which the shared verification then refused.
  */
 import fs from '@ohos.file.fs';
+import util from '@ohos.util';
 import { KeyboardLog, describeError } from './KeyboardLog';
 import { StagedArtifact, StagedResourcePolicy } from './StagedResourcePolicy';
 
@@ -44,12 +45,26 @@ export class StagedResources {
         }
         fs.copyFileSync(`${packaged}/${artifact.name}`, `${destination}/${artifact.name}`);
       }
-      const handle = fs.openSync(marker,
-        fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
+      const staging: string = `${marker}.${util.generateRandomUUID(false)}.tmp`;
+      let renamed: boolean = false;
       try {
-        fs.writeSync(handle.fd, token);
+        const handle = fs.openSync(staging,
+          fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
+        try {
+          fs.writeSync(handle.fd, token);
+        } finally {
+          fs.closeSync(handle);
+        }
+        fs.renameSync(staging, marker);
+        renamed = true;
       } finally {
-        fs.closeSync(handle);
+        if (!renamed) {
+          try {
+            if (fs.accessSync(staging)) fs.unlinkSync(staging);
+          } catch {
+            // A failed marker write leaves at most its uniquely named staging file.
+          }
+        }
       }
       KeyboardLog.info(`staged ${destination}`);
       return true;
@@ -105,10 +120,21 @@ export class StagedResources {
   }
 
   private static readMarker(marker: string): string | null {
+    let handle: fs.File | null = null;
     try {
-      return fs.accessSync(marker) ? fs.readTextSync(marker) : null;
+      const expected: fs.Stat = fs.lstatSync(marker);
+      if (expected.isSymbolicLink() || !expected.isFile() || expected.size > 256) return null;
+      handle = fs.openSync(marker, fs.OpenMode.READ_ONLY);
+      const stat: fs.Stat = fs.statSync(handle.fd);
+      if (!stat.isFile() || stat.size > 256 || stat.ino !== expected.ino) return null;
+      const buffer: ArrayBuffer = new ArrayBuffer(stat.size + 1);
+      const count: number = fs.readSync(handle.fd, buffer);
+      if (count !== stat.size) return null;
+      return util.TextDecoder.create('utf-8').decode(new Uint8Array(buffer, 0, count));
     } catch (error) {
       return null;
+    } finally {
+      if (handle !== null) fs.closeSync(handle);
     }
   }
 

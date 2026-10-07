@@ -76,8 +76,13 @@ final class DictionarySnapshotQueue: @unchecked Sendable {
     let file = root.appendingPathComponent("state.json")
     try rejectSymlinkFile(file)
     guard FileManager.default.fileExists(atPath: file.path) else { return .init() }
-    let descriptor = open(file.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+    let descriptor = open(file.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK)
     guard descriptor >= 0 else { throw Failure.unavailable }
+    var metadata = stat()
+    guard fstat(descriptor, &metadata) == 0, (metadata.st_mode & S_IFMT) == S_IFREG else {
+      close(descriptor)
+      throw Failure.unavailable
+    }
     let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
     defer { try? handle.close() }
     let data = try handle.read(upToCount: 65537) ?? Data()
@@ -180,7 +185,7 @@ final class DictionarySnapshotQueue: @unchecked Sendable {
   }
 
   private func openSnapshotSource(_ file: URL) throws -> FileHandle {
-    let descriptor = open(file.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+    let descriptor = open(file.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK)
     guard descriptor >= 0 else { throw Failure.unavailable }
     var metadata = stat()
     guard fstat(descriptor, &metadata) == 0, metadata.st_mode & S_IFMT == S_IFREG else {

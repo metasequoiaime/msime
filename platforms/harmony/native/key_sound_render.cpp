@@ -19,7 +19,7 @@ KeySoundRender refused(const char *reason) {
 }
 
 bool readBounded(const std::string &path, std::vector<uint8_t> &out) {
-    const int descriptor = ::open(path.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+    const int descriptor = ::open(path.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK);
     if (descriptor < 0) return false;
     struct Descriptor {
         int value;

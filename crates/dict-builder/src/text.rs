@@ -1,5 +1,7 @@
 //! Python string semantics the source formats were written against. The artifacts must stay row-identical to the ones the Python pipeline shipped, so line splitting, whitespace and letter tests follow `str.splitlines`, `str.strip`, `str.split()` and `str.isalpha` rather than their nearest Rust equivalents, which differ on a handful of control and combining characters.
 
+use std::fs::{File, OpenOptions};
+use std::io::Read;
 use std::path::Path;
 
 use anyhow::{Context, Result};
@@ -108,8 +110,35 @@ pub fn universal_lines(text: &str) -> Vec<&str> {
 
 /// Reads a UTF-8 file strictly, as `open(encoding="utf-8")` does. A byte-order mark is kept: only the readers the Python pipeline opened with `utf-8-sig` drop it, through [`without_bom`].
 pub fn read(path: &Path) -> Result<String> {
-    let bytes = std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
+    let mut file = open_source(path).with_context(|| format!("opening {}", path.display()))?;
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes)
+        .with_context(|| format!("reading {}", path.display()))?;
     String::from_utf8(bytes).with_context(|| format!("{} is not UTF-8", path.display()))
+}
+
+fn open_source(path: &Path) -> std::io::Result<File> {
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+        options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
+    }
+    let file = options.open(path)?;
+    if !file.metadata()?.is_file() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "dictionary source is not a regular file",
+        ));
+    }
+    Ok(file)
 }
 
 pub fn without_bom(text: &str) -> &str {
@@ -119,6 +148,21 @@ pub fn without_bom(text: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn read_rejects_a_symlinked_source() {
+        use std::os::unix::fs::symlink;
+
+        let outside = tempfile::tempdir().unwrap();
+        let checkout = tempfile::tempdir().unwrap();
+        let target = outside.path().join("outside.txt");
+        std::fs::write(&target, "synthetic outside source\n").unwrap();
+        let linked = checkout.path().join("source.txt");
+        symlink(&target, &linked).unwrap();
+
+        assert!(read(&linked).is_err());
+    }
 
     #[test]
     fn whitespace_includes_the_information_separators() {

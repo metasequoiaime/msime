@@ -7,6 +7,7 @@ use std::path::Path;
 
 /// The package folder and manifest id.
 pub(crate) const SKIN_ID: &str = "omarchy";
+const MAX_MANIFEST_BYTES: usize = 64 * 1024;
 
 /// The palette `omarchy-theme-color --all` prints: one `key<TAB>value` line per resolved key.
 pub(crate) fn parse_resolved_colors(text: &str) -> HashMap<String, String> {
@@ -68,11 +69,12 @@ pub(crate) fn skin_manifest(colors: &HashMap<String, String>) -> Option<String> 
 /// Write the package into `root`, leaving an identical manifest untouched. Returns whether the file changed.
 pub(crate) fn install(root: &Path, manifest: &str) -> io::Result<bool> {
     let path = root.join(SKIN_ID).join("skin.toml");
-    match std::fs::read(&path) {
-        Ok(current) if current == manifest.as_bytes() => return Ok(false),
-        Ok(_) => {}
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error),
+    if let Ok(file) = super::atomic_file::open_private(&path) {
+        let current = super::bounded_body::read_bounded(file, MAX_MANIFEST_BYTES)
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "skin manifest too large"))?;
+        if current == manifest.as_bytes() {
+            return Ok(false);
+        }
     }
     super::atomic_file::write(&path, manifest.as_bytes())?;
     Ok(true)
@@ -133,5 +135,22 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         assert!(install(root.path(), &manifest).unwrap());
         assert!(!install(root.path(), &manifest).unwrap());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn install_does_not_follow_a_linked_existing_manifest() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let manifest = skin_manifest(&parse_resolved_colors(TOKYO_NIGHT)).unwrap();
+        let external = outside.path().join("skin.toml");
+        std::fs::write(&external, manifest.as_bytes()).unwrap();
+        std::fs::create_dir(root.path().join(SKIN_ID)).unwrap();
+        symlink(&external, root.path().join(SKIN_ID).join("skin.toml")).unwrap();
+
+        assert!(install(root.path(), &manifest).unwrap());
+        assert_eq!(std::fs::read(&external).unwrap(), manifest.as_bytes());
     }
 }

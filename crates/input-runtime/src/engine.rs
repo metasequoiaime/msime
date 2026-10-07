@@ -57,6 +57,12 @@ pub trait InputEngine {
             "Engine cache reset is unsupported".into(),
         ))
     }
+    /// Remove cached rows for one online provider (host source 0 = cloud, 1 = AI).
+    fn clear_online_candidates(&mut self, _source: u8) -> Result<(), RuntimeError> {
+        Err(RuntimeError::Engine(
+            "Online candidate clearing is unsupported".into(),
+        ))
+    }
     fn set_paired_punctuation_enabled(&mut self, _enabled: bool) -> Result<(), RuntimeError> {
         Ok(())
     }
@@ -236,6 +242,10 @@ impl InputEngine for Session {
     fn reset_cache(&mut self) -> Result<(), RuntimeError> {
         Session::reset_cache(self);
         Ok(())
+    }
+    fn clear_online_candidates(&mut self, source: u8) -> Result<(), RuntimeError> {
+        Session::clear_online_candidates(self, source)
+            .map_err(|error| RuntimeError::Engine(error.to_string()))
     }
     fn set_paired_punctuation_enabled(&mut self, enabled: bool) -> Result<(), RuntimeError> {
         Session::set_paired_punctuation_enabled(self, enabled)

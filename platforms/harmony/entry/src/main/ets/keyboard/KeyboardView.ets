@@ -391,6 +391,8 @@ struct KeyboardView {
   private clipListScroller: Scroller = new Scroller();
   /** Bumped by every cloud fetch and every drop, so only the newest answer is applied. */
   private cloudRequest: number = 0;
+  /** Bumped when a cloud send is cancelled or its target/context changes, so late answers are dropped. */
+  private cloudSendRequest: number = 0;
   /** The editor the cloud listing on screen was fetched for. */
   private cloudEditor: number = -1;
   // Every item of a panel with its keywords, read once per panel the first time it is searched.
@@ -3534,6 +3536,7 @@ struct KeyboardView {
    * This and the refresh button are the only times the keyboard asks: there is no polling, nothing is uploaded on copy, and a signed-out keyboard answers from the session file without a request.
    */
   private openCloudClipboard(): void {
+    this.invalidateCloudSend();
     this.clipSendTarget = '';
     this.cloudVisible = KeyboardSession.shared.cloudClipboardVisible();
     this.cloudEditor = KeyboardSession.shared.cloudClipboardEditor();
@@ -3572,6 +3575,7 @@ struct KeyboardView {
   /** Forgets the listing on screen and any answer still on its way. */
   private dropCloudClipboard(): void {
     this.cloudRequest++;
+    this.invalidateCloudSend();
     this.cloudClips = [];
     this.cloudStateKnown = false;
     this.cloudLoading = false;
@@ -3605,6 +3609,7 @@ struct KeyboardView {
     if (tab === this.clipboardTab) {
       return;
     }
+    this.invalidateCloudSend();
     this.clipboardTab = tab;
     this.clipSendTarget = '';
     this.confirmingClear = false;
@@ -3647,7 +3652,14 @@ struct KeyboardView {
     if (!this.cloudVisible) {
       return;
     }
+    this.invalidateCloudSend();
     this.clipSendTarget = text;
+  }
+
+  /** Cancels the visible send state without trying to cancel the request already on the wire. */
+  private invalidateCloudSend(): void {
+    this.cloudSendRequest++;
+    this.cloudSending = false;
   }
 
   /** Why the offered entry cannot be sent right now, or null when it can. */
@@ -3668,8 +3680,12 @@ struct KeyboardView {
     if (this.cloudSending || text.length === 0 || this.cloudSendBlock() !== null) {
       return;
     }
+    const request: number = ++this.cloudSendRequest;
     this.cloudSending = true;
     KeyboardSession.shared.sendToCloudClipboard(text).then((outcome: CloudClipboardSendOutcome): void => {
+      if (!CloudClipboardPolicy.sendCurrent(request, this.cloudSendRequest)) {
+        return;
+      }
       this.cloudSending = false;
       if (this.clipSendTarget === text) {
         this.clipSendTarget = '';
@@ -5836,6 +5852,7 @@ struct KeyboardView {
               .opacity(0.55)
               .padding({ left: 12 })
               .onClick(() => {
+                this.invalidateCloudSend();
                 this.clipSendTarget = '';
               })
           }

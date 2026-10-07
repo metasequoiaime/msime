@@ -56,6 +56,25 @@ impl<K: Hash + Eq, V: Clone> FifoCache<K, V> {
     pub fn clear(&mut self) {
         self.entries.clear();
     }
+
+    /// Keep entries whose values still contain useful rows. The cache is used for
+    /// bounded candidate lists, so pruning a value can also remove its key without
+    /// changing the insertion order of entries that remain.
+    pub fn retain_mut<F>(&mut self, mut keep: F)
+    where
+        K: Clone,
+        F: FnMut(&K, &mut V) -> bool,
+    {
+        let mut removed = Vec::new();
+        for (key, value) in self.entries.iter_mut() {
+            if !keep(key, value) {
+                removed.push(key.clone());
+            }
+        }
+        for key in removed {
+            self.entries.pop(&key);
+        }
+    }
 }
 
 #[cfg(test)]

@@ -25,7 +25,7 @@ struct LocalSpeechModelManifest: Equatable {
   init(directory: URL) throws {
     let url = directory.appendingPathComponent(Self.fileName)
     let invalidManifest = ServiceFailure(message: "本地语音模型的描述文件已损坏，请删除后重新下载。")
-    let descriptor = open(url.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+    let descriptor = open(url.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK)
     guard descriptor >= 0 else {
       throw ServiceFailure(message: "所选目录不是已安装的本地语音模型。")
     }

@@ -1228,6 +1228,7 @@ public final class MSIMEInputService extends InputMethodService {
         imeLetterRows.cancelBackspaceRepeat();
         cancelInputViewRefresh();
         engineStartGeneration++;
+        localSettingSaveGeneration++;
         cancelPersonalDictionarySynchronization();
         stop(false);
         schedulePersonalDictionarySynchronization(true);
@@ -1278,6 +1279,7 @@ public final class MSIMEInputService extends InputMethodService {
         preferencesSnapshot = null;
         schemeSaving = false;
         touchGeometrySaving = false;
+        panelPreferenceSaving = false;
         skinSaving = false;
         traditionalOutputSaving = false;
         if (session != 0) {
@@ -1708,8 +1710,8 @@ public final class MSIMEInputService extends InputMethodService {
         boolean previousCandidateGloss = candidateEnglishGloss;
         boolean previousCandidateTranslations = candidateTranslationsEnabled;
         boolean previousCandidateTranslationAccount = candidateTranslationAccount;
-        boolean previousEnglishSuggestions = englishSuggestionsEnabled;
         java.util.List<String> previousTranslationTargets = candidateTranslationTargets;
+        boolean previousEnglishSuggestions = englishSuggestionsEnabled;
         boolean previousWubiCodeHint = wubiCodeHint;
         boolean previousWubiMixedPinyin = wubiMixedPinyin;
         String previousWubiProfile = wubiProfile;
@@ -1744,6 +1746,14 @@ public final class MSIMEInputService extends InputMethodService {
 
     private void applyPreferencesSnapshot(JSONObject snapshot) throws JSONException {
         refreshLocalSettings();
+        JSONObject previousPreferences = preferencesSnapshot == null
+            ? null : preferencesSnapshot.optJSONObject("preferences");
+        boolean previousCloudCandidates = previousPreferences == null
+            || previousPreferences.optBoolean("cloud_candidates", true);
+        JSONObject previousAiAssistant = previousPreferences == null
+            ? null : previousPreferences.optJSONObject("ai_assistant");
+        boolean previousAiCandidates = previousAiAssistant != null
+            && previousAiAssistant.optBoolean("enabled", false);
         JSONObject accepted = new JSONObject(snapshot.toString());
         long revision = PreferencesRevisionPolicy.read(accepted.opt("revision"), -1);
         if (revision < 0) throw new JSONException("Invalid preferences revision");
@@ -1769,6 +1779,14 @@ public final class MSIMEInputService extends InputMethodService {
         String nextVoiceLanguage = nextVoice == null ? "zh-CN"
             : nextVoice.optString("language", "zh-CN");
         boolean nextClipboard = preferences.optBoolean("clipboard_history", false);
+        boolean nextCloudCandidates = preferences.optBoolean("cloud_candidates", true);
+        JSONObject nextAiAssistant = preferences.optJSONObject("ai_assistant");
+        boolean nextAiCandidates = nextAiAssistant != null
+            && nextAiAssistant.optBoolean("enabled", false);
+        boolean aiConfigurationChanged = previousAiAssistant == null
+            ? nextAiAssistant != null
+            : nextAiAssistant == null
+                || !previousAiAssistant.toString().equals(nextAiAssistant.toString());
         boolean nextTraditional = preferences.optBoolean("traditional_chinese_output", false);
         boolean nextCandidateGloss = preferences.optBoolean("candidate_english_gloss", true);
         boolean nextCandidateTranslations = preferences.optBoolean("candidate_translations", true);
@@ -1873,6 +1891,11 @@ public final class MSIMEInputService extends InputMethodService {
         defaultImeMode = nextDefaultImeMode;
         imeModeScope = nextImeModeScope;
         JSONObject nextView = result.getJSONObject("view");
+        boolean translationDisplayChanged = CandidateTranslationPolicy.displayInvalidated(
+            candidateEnglishGloss, nextCandidateGloss, candidateTranslationsEnabled,
+            nextCandidateTranslations, candidateTranslationAccount,
+            nextCandidateTranslationAccount, candidateTranslationTargets,
+            nextTranslationTargets);
         boolean rebuildLayout = displayedTouchLayout(view) != displayedTouchLayout(nextView)
             || japaneseEmojiKeyChanged;
         enabledSchemes = nextSchemeConfiguration.enabled();
@@ -1886,6 +1909,27 @@ public final class MSIMEInputService extends InputMethodService {
             else closeClipboardHistory();
         }
         view = nextView;
+        if (previousCloudCandidates && !nextCloudCandidates) clearOnlineProvider(0);
+        if (previousAiCandidates && (!nextAiCandidates || aiConfigurationChanged)) {
+            clearOnlineProvider(1);
+        }
+        if (previousCloudCandidates != nextCloudCandidates
+                || previousAiCandidates != nextAiCandidates || aiConfigurationChanged) {
+            invalidateOnlineProviders();
+        }
+        if (translationDisplayChanged) {
+            long generation = CandidateGlossPolicy.strictOr(view.opt("generation"), -1);
+            if (generation >= 0) {
+                try {
+                    JSONObject cleared = value(NativeClient.applyTranslations(
+                        session, generation, "[]"));
+                    if (CandidateGlossPolicy.isApplied(cleared.opt("applied")))
+                        view = cleared.getJSONObject("view");
+                } catch (JSONException | RuntimeException | LinkageError ignored) {
+                    // 翻译是可选的显示状态，清除失败不能影响正在输入的会话。
+                }
+            }
+        }
         // After the view is in place, because this replaces it with the runtime's answer.
         if (characterWidthChanged) applyCharacterWidth(nextFullWidthPreference);
         if (punctuationChanged) applyChinesePunctuation(nextChinesePunctuation);
@@ -2321,6 +2365,20 @@ public final class MSIMEInputService extends InputMethodService {
             onlineTask = null;
         }
         onlineEpoch = onlineEpoch == Long.MAX_VALUE ? 0 : onlineEpoch + 1;
+    }
+
+    /** Remove rows already accepted by a provider before its setting is disabled. */
+    private void clearOnlineProvider(int source) {
+        if (session == 0) return;
+        try {
+            JSONObject envelope = new JSONObject(NativeClient.clearOnlineCandidates(session, source));
+            if (Boolean.TRUE.equals(envelope.opt("ok"))) {
+                JSONObject next = envelope.optJSONObject("value");
+                if (next != null) view = next;
+            }
+        } catch (JSONException | RuntimeException | LinkageError ignored) {
+            // Optional provider rows are display state; a failed cleanup must not end the IME.
+        }
     }
 
     /**
@@ -6315,11 +6373,8 @@ public final class MSIMEInputService extends InputMethodService {
 
     private void finishPanelPreferenceSave(long operation, long targetSession,
                                            String targetDirectory, String label, String response) {
-        if (operation != preferenceSaveGeneration || session != targetSession
-                || !targetDirectory.equals(preferencesDirectory)) {
-            panelPreferenceSaving = false;
-            return;
-        }
+        if (!PreferencesSavePolicy.isCurrentOperation(operation, preferenceSaveGeneration,
+                targetSession, session, targetDirectory, preferencesDirectory)) return;
         panelPreferenceSaving = false;
         try {
             if (response == null) throw new JSONException("Preferences save unavailable");
@@ -6394,8 +6449,8 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void finishLocalPanelSetting(long operation, String label, AndroidLocalSettings.Snapshot saved) {
+        if (!PreferencesSavePolicy.isCurrentOperation(operation, localSettingSaveGeneration)) return;
         panelPreferenceSaving = false;
-        if (operation != localSettingSaveGeneration) return;
         if (saved == null) {
             preferencesNotice = " · " + label + "保存失败，保留原设置";
             Toast.makeText(this, label + "未能保存", Toast.LENGTH_SHORT).show();

@@ -403,6 +403,14 @@ impl QuanpinDictionary {
         true
     }
 
+    /// Remove one provider's rows from every cached answer while retaining the other provider and dictionary rows.
+    pub fn clear_online_candidates(&mut self, source: CandidateSource) {
+        self.series_cache.retain_mut(|_, rows| {
+            rows.retain(|item| item.source != source);
+            !rows.is_empty()
+        });
+    }
+
     pub fn find_candidate(&self, key: &str, value: &str) -> Option<WordItem> {
         self.database
             .find_weight(key, value)

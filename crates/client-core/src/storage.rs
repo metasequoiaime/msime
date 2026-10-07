@@ -20,7 +20,7 @@ pub(crate) fn open_private_read_write_file(path: &Path) -> io::Result<File> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
-        options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK);
     }
     #[cfg(windows)]
     {
@@ -28,7 +28,14 @@ pub(crate) fn open_private_read_write_file(path: &Path) -> io::Result<File> {
         const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
         options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
     }
-    options.open(path)
+    let file = options.open(path)?;
+    if !file.metadata()?.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "private input is not a regular file",
+        ));
+    }
+    Ok(file)
 }
 
 /// Create a directory and report whether the path itself is a real directory.
@@ -103,6 +110,20 @@ mod tests {
 
         assert!(open_private_read_write_file(&linked).is_err());
         assert_eq!(std::fs::read(&target).unwrap(), b"synthetic-private-data");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_read_write_open_rejects_a_fifo() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("partial-download");
+        assert!(std::process::Command::new("mkfifo")
+            .arg(&path)
+            .status()
+            .unwrap()
+            .success());
+
+        assert!(open_private_read_write_file(&path).is_err());
     }
 
     #[cfg(unix)]

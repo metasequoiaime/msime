@@ -548,13 +548,17 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       // A candidate skin, theme or colour synced from the desktop arrives with the document.
       self.refreshCandidatePalette()
       self.applyKeyboardAppearance()
-      self.synchronizeSharedTouchPreferences()
+      let translationSettingsChanged = self.synchronizeSharedTouchPreferences()
       self.synchronizeCharacterWidth()
       self.synchronizeChinesePunctuation()
       self.synchronizeAICredential()
       self.synchronizeChineseOutputPreference()
       self.applyLearningPreferences()
-      self.synchronizeTranslationRoute()
+      let translationRouteChanged = self.synchronizeTranslationRoute()
+      if translationSettingsChanged || translationRouteChanged {
+        self.translations.cancel()
+        self.requestCandidateTranslations()
+      }
       // The local-mode menu follows the modes the settings app leaves on.
       self.updatePreeditButton()
     }
@@ -2890,8 +2894,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// Apply settings written by the Tauri iOS host to the native keyboard's
   /// legacy App Group preferences. Scheme changes are intentionally deferred
   /// while composing so a settings reload cannot interrupt Engine state.
-  private func synchronizeSharedTouchPreferences() {
-    guard let preferences = session.sharedPreferences else { return }
+  private func synchronizeSharedTouchPreferences() -> Bool {
+    guard let preferences = session.sharedPreferences else { return false }
+    let previousTranslationSettings = InputHabitPreference.mirrored
     // The Tauri host stores learning and frequency settings in the canonical
     // PreferencesStore. Keep the legacy App Group values in sync because the
     // keyboard's native settings and compatibility paths still read them.
@@ -2952,6 +2957,17 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     } else if preferences.keys.contains("translation_secondary_language") {
       CandidateTranslationPreference.secondaryIndex = -1
     }
+    let nextTranslationSettings = InputHabitPreference.settings(in: preferences,
+                                                                 fallback: previousTranslationSettings)
+    let translationSettingsChanged = InputHabitPreference.translationDisplaySettingsChanged(
+      previousTranslationSettings, nextTranslationSettings)
+    let languageChanged = previousTranslationSettings.primaryLanguage != nextTranslationSettings.primaryLanguage
+      || previousTranslationSettings.secondaryLanguage != nextTranslationSettings.secondaryLanguage
+    if languageChanged {
+      candidateGlossEpoch &+= 1
+      candidateGlossRequestedGeneration = nil
+      candidateTargetGlosses = [:]
+    }
     GlobalThemePreference.mirror(preferences)
     let previousTheme = KeyboardTheme.current
     let skinChanged = KeyboardTheme.reload(preferences) != previousTheme
@@ -2983,6 +2999,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     updatePreferredKeyboardHeight()
     scheduleCandidateGlosses()
     renderCandidateStrip()
+    return translationSettingsChanged
   }
 
   static func sharedPreferenceInt(_ value: Any?, range: ClosedRange<Int> = 1...6) -> Int? {
@@ -4159,15 +4176,16 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     return KeyboardCandidateAnnotation(text: text, accessibilityDescription: description)
   }
 
-  private func synchronizeTranslationRoute() {
+  private func synchronizeTranslationRoute() -> Bool {
     let route = TranslationProviderPreference.route(in: session.sharedPreferences)
-    guard route != translationRoute || route.cacheScope != translations.scope else { return }
+    guard route != translationRoute || route.cacheScope != translations.scope else { return false }
     translationRoute = route
     translations.use(route == .account ? BackendCandidateTranslationService() : ProviderCandidateTranslationService(route: route),
                      scope: route.cacheScope)
     DiagnosticLog.shared.write("translation_route provider=\(route.provider?.rawValue ?? "none")")
     // Rows reserved for network-only languages follow whether any service is chosen.
     applyCandidateGlossLayout()
+    return true
   }
 
   private func requestCandidateTranslations() {

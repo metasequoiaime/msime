@@ -298,6 +298,19 @@ impl ProviderRegistry {
         }
     }
 
+    /// Remove one online provider's rows from every provider cache.
+    pub fn clear_online_candidates(&mut self, source: CandidateSource) {
+        if let Some(quanpin) = &mut self.quanpin {
+            quanpin.clear_online_candidates(source);
+        }
+        if let Some(shuangpin) = &mut self.shuangpin {
+            shuangpin.clear_online_candidates(source);
+        }
+        if let Some(japanese) = &mut self.japanese {
+            japanese.clear_online_candidates(source);
+        }
+    }
+
     /// Always the pinyin provider, which answers only quanpin and shuangpin requests (pinyin_candidate_provider.cpp:31-42).
     pub fn expand_initial_candidates(
         &mut self,

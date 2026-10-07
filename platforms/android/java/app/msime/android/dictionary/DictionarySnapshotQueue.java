@@ -10,6 +10,7 @@ import java.io.OutputStream;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
+import java.nio.channels.WritableByteChannel;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
@@ -459,12 +460,18 @@ public final class DictionarySnapshotQueue {
         try {
             temporary = Files.createTempFile(directory, "state-", ".incoming");
             try (FileChannel channel = FileChannel.open(temporary, StandardOpenOption.WRITE)) {
-                channel.write(java.nio.ByteBuffer.wrap(bytes));
+                writeFully(channel, java.nio.ByteBuffer.wrap(bytes));
                 channel.force(true);
             }
             Files.move(temporary, directory.resolve(STATE_NAME), StandardCopyOption.ATOMIC_MOVE,
                 StandardCopyOption.REPLACE_EXISTING);
         } catch (IOException | SecurityException error) { throw new Failure(Reason.UNAVAILABLE, error); }
         finally { if (temporary != null) try { Files.deleteIfExists(temporary); } catch (IOException ignored) { } }
+    }
+
+    static void writeFully(WritableByteChannel channel, java.nio.ByteBuffer bytes) throws IOException {
+        while (bytes.hasRemaining()) {
+            if (channel.write(bytes) <= 0) throw new IOException("state write made no progress");
+        }
     }
 }

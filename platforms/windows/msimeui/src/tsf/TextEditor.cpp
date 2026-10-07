@@ -1,9 +1,11 @@
+#include <array>
+#include <algorithm>
 #include <string>
 #include <sstream>
 #include <cwctype>
 #include <filesystem>
-#include <fstream>
 #include <mutex>
+#include <optional>
 #include <string_view>
 #include <unordered_set>
 #include <vector>
@@ -70,6 +72,65 @@ struct WordDictionary
     size_t maxWordLength = 1;
 };
 
+constexpr size_t kMaxWordDictionaryBytes = 4 * 1024 * 1024;
+
+std::optional<std::string> ReadWordDictionaryBytes(const std::filesystem::path &path)
+{
+    const HANDLE handle = CreateFileW(
+        path.c_str(), GENERIC_READ,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+        OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT,
+        nullptr);
+    if (handle == INVALID_HANDLE_VALUE)
+    {
+        return std::nullopt;
+    }
+
+    struct CloseHandleOnExit
+    {
+        HANDLE handle;
+        ~CloseHandleOnExit() { CloseHandle(handle); }
+    } close{handle};
+
+    if (GetFileType(handle) != FILE_TYPE_DISK)
+    {
+        return std::nullopt;
+    }
+
+    FILE_ATTRIBUTE_TAG_INFO attributes{};
+    if (!GetFileInformationByHandleEx(handle, FileAttributeTagInfo, &attributes,
+                                      sizeof(attributes)) ||
+        (attributes.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0 ||
+        ((attributes.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0 &&
+         IsReparseTagNameSurrogate(attributes.ReparseTag) != 0))
+    {
+        return std::nullopt;
+    }
+
+    LARGE_INTEGER size{};
+    if (!GetFileSizeEx(handle, &size) || size.QuadPart < 0 ||
+        static_cast<unsigned long long>(size.QuadPart) > kMaxWordDictionaryBytes)
+    {
+        return std::nullopt;
+    }
+
+    std::string contents(static_cast<size_t>(size.QuadPart), '\0');
+    size_t offset = 0;
+    while (offset < contents.size())
+    {
+        const DWORD request = static_cast<DWORD>(
+            std::min(contents.size() - offset, static_cast<size_t>(MAXDWORD)));
+        DWORD read = 0;
+        if (!ReadFile(handle, contents.data() + offset, request, &read, nullptr) ||
+            read != request)
+        {
+            return std::nullopt;
+        }
+        offset += read;
+    }
+    return contents;
+}
+
 const WordDictionary &GetWordDictionary()
 {
     static WordDictionary dictionary;
@@ -83,14 +144,15 @@ const WordDictionary &GetWordDictionary()
             return;
         }
 
-        std::ifstream stream(path, std::ios::binary);
-        if (!stream)
+        const auto contents = ReadWordDictionaryBytes(path);
+        if (!contents)
         {
             msimeui::DebugLog("Failed to open word dictionary");
             return;
         }
 
         std::string line;
+        std::istringstream stream(*contents);
         while (std::getline(stream, line))
         {
             if (!line.empty() && line.back() == '\r')

@@ -187,6 +187,14 @@ impl JapaneseProvider {
         true
     }
 
+    /// Remove one provider's rows from cached Japanese readings.
+    pub fn clear_online_candidates(&mut self, source: CandidateSource) {
+        self.dynamic.retain_mut(|_, rows| {
+            rows.retain(|item| item.source != source);
+            !rows.is_empty()
+        });
+    }
+
     /// Clears the dynamic rows and keeps the model: it is immutable and shared process-wide.
     pub fn reset_cache(&mut self) {
         self.dynamic.clear();

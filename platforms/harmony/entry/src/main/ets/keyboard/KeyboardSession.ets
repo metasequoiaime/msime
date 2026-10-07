@@ -1,7 +1,8 @@
 import inputMethodEngine from '@ohos.inputMethodEngine';
 import fs from '@ohos.file.fs';
+import util from '@ohos.util';
 import client from 'libmsimeclient.so';
-import { utf8Length } from './Utf8';
+import { utf8Length, utf8WriteComplete } from './Utf8';
 import { TextPolicy } from './TextPolicy';
 import { KeyboardLog, describeError } from './KeyboardLog';
 import { DictionaryMaintenancePolicy } from './DictionaryMaintenancePolicy';
@@ -2238,7 +2239,12 @@ export class KeyboardSession implements HardwareKeyTarget {
    */
   private refreshKeyStatistics(): void {
     if (this.stateDirectory.length === 0) return;
+    const generation: number = this.attributeGeneration;
+    const inputClient: inputMethodEngine.InputClient | undefined = this.inputClient;
+    if (inputClient === undefined) return;
     taskpool.execute(readTypingStatisticsEnabled, this.stateDirectory).then((value: Object): void => {
+      if (!TypingStatisticsPolicy.isCurrentGeneration(generation, this.attributeGeneration)
+        || inputClient !== this.inputClient) return;
       this.keyStatisticsEnabled = (value as number) === 1;
       if (!this.keyStatisticsEnabled) {
         this.cancelKeyFlushTimer();
@@ -2812,22 +2818,34 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   /** Invalidate host-side network work before the focused editor changes or the session dies. */
   private cancelOnlineProviders(): void {
+    this.invalidateOnlineProviders();
+    this.invalidateTranslationProviders();
+  }
+
+  private invalidateOnlineProviders(): void {
+    if (!OnlineCandidatePolicy.hasActiveWork(
+      this.onlineSignature, this.onlineTimer >= 0, this.onlineRequests.size)) return;
     this.onlineEpoch++;
     this.onlineSignature = '';
-    for (const request of this.onlineRequests) request.destroy();
-    this.onlineRequests.clear();
     if (this.onlineTimer >= 0) {
       clearTimeout(this.onlineTimer);
       this.onlineTimer = -1;
     }
+    for (const request of this.onlineRequests) request.destroy();
+    this.onlineRequests.clear();
+  }
+
+  private invalidateTranslationProviders(): void {
+    if (!TranslationPolicy.hasActiveWork(
+      this.translationSignature, this.translationTimer >= 0, this.translationRequests.size)) return;
     this.translationEpoch++;
     this.translationSignature = '';
-    for (const request of this.translationRequests) request.destroy();
-    this.translationRequests.clear();
     if (this.translationTimer >= 0) {
       clearTimeout(this.translationTimer);
       this.translationTimer = -1;
     }
+    for (const request of this.translationRequests) request.destroy();
+    this.translationRequests.clear();
   }
 
   /** Invalidate asynchronous reply work without logging or retaining editor text. */
@@ -3875,17 +3893,18 @@ export class KeyboardSession implements HardwareKeyTarget {
       reply = JSON.parse(client.onlineQuery(this.handle)) as NativeReply<OnlineQuery | null>;
     } catch (error) {
       KeyboardLog.error(`online query unavailable: ${describeError(error)}`);
+      this.invalidateOnlineProviders();
       return;
     }
     const query: OnlineQuery | null = NativeReplyPolicy.successfulValue<OnlineQuery>(reply);
     if (query === null) {
-      this.onlineSignature = '';
+      this.invalidateOnlineProviders();
       return;
     }
     const signature: string = OnlineCandidatePolicy.signature(query);
     if (signature === this.onlineSignature) return;
+    this.invalidateOnlineProviders();
     this.onlineSignature = signature;
-    if (this.onlineTimer >= 0) clearTimeout(this.onlineTimer);
     const epoch: number = ++this.onlineEpoch;
     const handle: number = this.handle;
     const requestSignature: string = signature;
@@ -4028,17 +4047,18 @@ export class KeyboardSession implements HardwareKeyTarget {
       reply = JSON.parse(client.translationQuery(this.handle)) as NativeReply<TranslationQuery | null>;
     } catch (error) {
       KeyboardLog.error(`translation query unavailable: ${describeError(error)}`);
+      this.invalidateTranslationProviders();
       return;
     }
     const query: TranslationQuery | null = NativeReplyPolicy.successfulValue<TranslationQuery>(reply);
     if (query === null) {
-      this.translationSignature = '';
+      this.invalidateTranslationProviders();
       return;
     }
     const signature: string = TranslationPolicy.signature(query);
     if (signature === this.translationSignature) return;
+    this.invalidateTranslationProviders();
     this.translationSignature = signature;
-    if (this.translationTimer >= 0) clearTimeout(this.translationTimer);
     const epoch: number = ++this.translationEpoch;
     const handle: number = this.handle;
     const requestSignature: string = signature;
@@ -4385,24 +4405,35 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   private recordTranslation(query: TranslationQuery, target: string, item: TranslationPlanItem,
     value: string | null, entries: TranslationEntry[]): void {
+    const key: string = TranslationPolicy.cacheKey(query, target, item);
     // A `/fy` answer is the command's row, not a candidate gloss: it is neither cached nor remembered as a failure.
     if (query.sentence === true) {
       if (value !== null) TranslationPolicy.append(entries, item.text, value);
       return;
     }
     if (value === null) {
-      this.translationNegativeCache.set(TranslationPolicy.cacheKey(query, target, item),
-        Date.now() + TranslationPolicy.NEGATIVE_CACHE_MS);
+      if (!this.translationNegativeCache.has(key)
+        && TranslationPolicy.shouldResetCache(this.translationNegativeCache.size)) {
+        this.translationNegativeCache.clear();
+      }
+      this.translationNegativeCache.set(key, Date.now() + TranslationPolicy.NEGATIVE_CACHE_MS);
       return;
     }
     const normalised: string = TranslationPolicy.normalise(value);
     if (normalised.length === 0) {
-      this.translationNegativeCache.set(TranslationPolicy.cacheKey(query, target, item),
-        Date.now() + TranslationPolicy.NEGATIVE_CACHE_MS);
+      if (!this.translationNegativeCache.has(key)
+        && TranslationPolicy.shouldResetCache(this.translationNegativeCache.size)) {
+        this.translationNegativeCache.clear();
+      }
+      this.translationNegativeCache.set(key, Date.now() + TranslationPolicy.NEGATIVE_CACHE_MS);
       return;
     }
-    this.translationCache.set(TranslationPolicy.cacheKey(query, target, item), normalised);
-    this.translationNegativeCache.delete(TranslationPolicy.cacheKey(query, target, item));
+    if (!this.translationCache.has(key)
+      && TranslationPolicy.shouldResetCache(this.translationCache.size)) {
+      this.translationCache.clear();
+    }
+    this.translationCache.set(key, normalised);
+    this.translationNegativeCache.delete(key);
     TranslationPolicy.append(entries, item.text, normalised);
   }
 
@@ -4473,7 +4504,8 @@ export class KeyboardSession implements HardwareKeyTarget {
         || KeyboardSession.safePrivateFile(path, KeyboardFeedback.MAX_BYTES) === null) {
         return KeyboardFeedback.DEFAULTS;
       }
-      return KeyboardFeedback.parse(fs.readTextSync(path));
+      const text: string | null = KeyboardSession.readPrivateText(path, KeyboardFeedback.MAX_BYTES);
+      return text === null ? KeyboardFeedback.DEFAULTS : KeyboardFeedback.parse(text);
     } catch (error) {
       KeyboardLog.error(`key feedback unreadable: ${describeError(error)}`);
       return KeyboardFeedback.DEFAULTS;
@@ -4493,17 +4525,10 @@ export class KeyboardSession implements HardwareKeyTarget {
   static saveFeedbackIn(stateRoot: string, settings: FeedbackSettings): boolean {
     try {
       const path: string = KeyboardSession.feedbackFileIn(stateRoot);
-      if (!KeyboardSession.safeStateDirectory(stateRoot) || KeyboardSession.isSymbolicLink(path)) {
+      if (!KeyboardSession.safeStateDirectory(stateRoot)) {
         return false;
       }
-      const handle = fs.openSync(path,
-        fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
-      try {
-        fs.writeSync(handle.fd, KeyboardFeedback.serialize(settings));
-      } finally {
-        fs.closeSync(handle);
-      }
-      return true;
+      return KeyboardSession.writePrivateText(path, KeyboardFeedback.serialize(settings));
     } catch (error) {
       KeyboardLog.error(`key feedback not saved: ${describeError(error)}`);
       return false;
@@ -4516,7 +4541,9 @@ export class KeyboardSession implements HardwareKeyTarget {
       if (KeyboardSession.safePrivateFile(this.feedbackFile(), KeyboardFeedback.MAX_BYTES) === null) {
         return KeyboardFeedback.DEFAULTS;
       }
-      return KeyboardFeedback.parse(fs.readTextSync(this.feedbackFile()));
+      const text: string | null = KeyboardSession.readPrivateText(
+        this.feedbackFile(), KeyboardFeedback.MAX_BYTES);
+      return text === null ? KeyboardFeedback.DEFAULTS : KeyboardFeedback.parse(text);
     } catch (error) {
       KeyboardLog.error(`key feedback unreadable: ${describeError(error)}`);
       return KeyboardFeedback.DEFAULTS;
@@ -4526,15 +4553,11 @@ export class KeyboardSession implements HardwareKeyTarget {
   saveFeedback(settings: FeedbackSettings): boolean {
     try {
       const path: string = this.feedbackFile();
-      if (!KeyboardSession.safeStateDirectory(this.stateDirectory) || KeyboardSession.isSymbolicLink(path)) {
+      if (!KeyboardSession.safeStateDirectory(this.stateDirectory)) {
         return false;
       }
-      const handle = fs.openSync(path,
-        fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
-      try {
-        fs.writeSync(handle.fd, KeyboardFeedback.serialize(settings));
-      } finally {
-        fs.closeSync(handle);
+      if (!KeyboardSession.writePrivateText(path, KeyboardFeedback.serialize(settings))) {
+        return false;
       }
       this.feedbackSettings = settings;
       return true;
@@ -4748,7 +4771,8 @@ export class KeyboardSession implements HardwareKeyTarget {
       if (KeyboardSession.safePrivateFile(file, EMOJI_RECENTS_MAX_BYTES) === null) {
         return [];
       }
-      return EmojiCatalogModel.parseRecents(fs.readTextSync(file));
+      const text: string | null = KeyboardSession.readPrivateText(file, EMOJI_RECENTS_MAX_BYTES);
+      return text === null ? [] : EmojiCatalogModel.parseRecents(text);
     } catch (error) {
       KeyboardLog.error(`emoji recents unavailable: ${describeError(error)}`);
       return [];
@@ -4768,16 +4792,10 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
     try {
       const path: string = this.emojiRecentsFile();
-      if (!KeyboardSession.safeStateDirectory(this.stateDirectory) || KeyboardSession.isSymbolicLink(path)) {
+      if (!KeyboardSession.safeStateDirectory(this.stateDirectory)) {
         return recents;
       }
-      const handle = fs.openSync(path,
-        fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
-      try {
-        fs.writeSync(handle.fd, EmojiCatalogModel.serializeRecents(recents));
-      } finally {
-        fs.closeSync(handle);
-      }
+      KeyboardSession.writePrivateText(path, EmojiCatalogModel.serializeRecents(recents));
     } catch (error) {
       KeyboardLog.error(`emoji recents not persisted: ${describeError(error)}`);
     }
@@ -4790,17 +4808,10 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
     try {
       const path: string = this.emojiRecentsFile();
-      if (!KeyboardSession.safeStateDirectory(this.stateDirectory) || KeyboardSession.isSymbolicLink(path)) {
+      if (!KeyboardSession.safeStateDirectory(this.stateDirectory)) {
         return false;
       }
-      const handle = fs.openSync(path,
-        fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
-      try {
-        fs.writeSync(handle.fd, '[]');
-      } finally {
-        fs.closeSync(handle);
-      }
-      return true;
+      return KeyboardSession.writePrivateText(path, '[]');
     } catch (error) {
       KeyboardLog.error(`emoji recents not cleared: ${describeError(error)}`);
       return false;
@@ -4864,7 +4875,9 @@ export class KeyboardSession implements HardwareKeyTarget {
         || KeyboardSession.safePrivateFile(file, CommunityReplyLibraryPolicy.MAX_BYTES) === null) {
         return [];
       }
-      return CommunityReplyLibraryPolicy.parse(fs.readTextSync(file));
+      const text: string | null = KeyboardSession.readPrivateText(
+        file, CommunityReplyLibraryPolicy.MAX_BYTES);
+      return text === null ? [] : CommunityReplyLibraryPolicy.parse(text);
     } catch (error) {
       KeyboardLog.error(`community reply library unavailable: ${describeError(error)}`);
       return [];
@@ -4886,6 +4899,51 @@ export class KeyboardSession implements HardwareKeyTarget {
       return !stat.isSymbolicLink() && stat.isFile() && stat.size <= maximumBytes ? stat : null;
     } catch {
       return null;
+    }
+  }
+
+  private static writePrivateText(path: string, text: string): boolean {
+    const staging: string = `${path}.${util.generateRandomUUID(false)}.tmp`;
+    let renamed: boolean = false;
+    try {
+      const handle: fs.File = fs.openSync(staging,
+        fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
+      try {
+        const written: number = fs.writeSync(handle.fd, text);
+        if (!utf8WriteComplete(text, written)) throw new Error('private_write');
+      } finally {
+        fs.closeSync(handle);
+      }
+      fs.renameSync(staging, path);
+      renamed = true;
+      return true;
+    } finally {
+      if (!renamed) {
+        try {
+          if (fs.accessSync(staging)) fs.unlinkSync(staging);
+        } catch {
+          // A failed private write may leave only its uniquely named staging file.
+        }
+      }
+    }
+  }
+
+  private static readPrivateText(path: string, maximumBytes: number): string | null {
+    let handle: fs.File | null = null;
+    try {
+      const expected: fs.Stat | null = KeyboardSession.safePrivateFile(path, maximumBytes);
+      if (expected === null) return null;
+      handle = fs.openSync(path, fs.OpenMode.READ_ONLY);
+      const stat: fs.Stat = fs.statSync(handle.fd);
+      if (!stat.isFile() || stat.size > maximumBytes || stat.ino !== expected.ino) return null;
+      const buffer: ArrayBuffer = new ArrayBuffer(stat.size + 1);
+      const count: number = fs.readSync(handle.fd, buffer);
+      if (count !== stat.size) return null;
+      return util.TextDecoder.create('utf-8').decode(new Uint8Array(buffer, 0, count));
+    } catch {
+      return null;
+    } finally {
+      if (handle !== null) fs.closeSync(handle);
     }
   }
 

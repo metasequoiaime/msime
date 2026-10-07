@@ -479,12 +479,12 @@ public:
     waitForPreferenceSave();
     online_socket_.clear();
     online_query_.clear();
+    for (auto &query : online_display_queries_) query.clear();
     online_job_session_ = 0;
-    ++online_epoch_;
+    invalidateOnlineRequests();
     online_due_ = {};
     ai_due_ = {};
-    translation_query_.clear();
-    translation_pending_.clear();
+    invalidateTranslationRequests();
     translation_socket_.clear();
     clipboard_path_.clear();
     ++clipboard_generation_;
@@ -860,15 +860,8 @@ public:
     if (!snapshot.is_object() || !snapshot.contains("revision") ||
         !snapshot.contains("preferences")) return false;
     snapshot["preferences"]["candidate_english_gloss"] = enabled;
-    const auto encoded = effectiveContextSnapshot(snapshot).dump();
-    view_ = response(msime_client_update_preferences(
-        session_, reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())).at("view");
-    preferences_ = snapshot.at("preferences");
-    applyContextOverrides(preferences_);
-    preferences_snapshot_ = std::move(snapshot);
+    if (!applyPreferenceSnapshot(std::move(snapshot))) return false;
     saveBooleanPreference("candidate_english_gloss", enabled);
-    translation_query_.clear();
-    translation_pending_.clear();
     render();
     return true;
   }
@@ -1172,14 +1165,6 @@ public:
     if (!snapshot.is_object() || !snapshot.contains("preferences")) return false;
     snapshot["preferences"]["candidate_translations"] = enabled;
     if (!applyPreferenceSnapshot(std::move(snapshot))) return false;
-    if (!enabled && view_.contains("generation")) {
-      const auto empty = std::string("[]");
-      view_ = response(msime_client_apply_translations(
-          session_, msime::linux_host::strict_json_required_integer<uint64_t>(view_.at("generation")),
-          reinterpret_cast<const uint8_t *>(empty.data()), empty.size())).at("view");
-      translation_query_.clear();
-      translation_pending_.clear();
-    }
     saveBooleanPreference("candidate_translations", enabled);
     render();
     return true;
@@ -1209,12 +1194,6 @@ public:
     if (!snapshot.is_object() || !snapshot.contains("preferences")) return false;
     snapshot["preferences"]["translation_target_language"] = next;
     if (!applyPreferenceSnapshot(std::move(snapshot))) return false;
-    const auto empty = std::string("[]");
-    view_ = response(msime_client_apply_translations(
-        session_, msime::linux_host::strict_json_required_integer<uint64_t>(view_.at("generation")),
-        reinterpret_cast<const uint8_t *>(empty.data()), empty.size())).at("view");
-    translation_query_.clear();
-    translation_pending_.clear();
     saveStringPreference("translation_target_language", next);
     render();
     return true;
@@ -1317,16 +1296,6 @@ public:
     if (!snapshot.is_object() || !snapshot.contains("preferences")) return false;
     snapshot["preferences"]["cloud_candidates"] = enabled;
     if (!applyPreferenceSnapshot(std::move(snapshot))) return false;
-    if (!enabled && !online_query_.empty()) {
-      const auto empty = std::string("[]");
-      view_ = response(msime_client_apply_online_candidates(
-          session_, reinterpret_cast<const uint8_t *>(online_query_.data()), online_query_.size(),
-          reinterpret_cast<const uint8_t *>(empty.data()), empty.size(), 0)).at("view");
-      ++online_epoch_;
-      online_query_.clear();
-      online_slots_[0].query.clear();
-      online_slots_[1].query.clear();
-    }
     saveBooleanPreference("cloud_candidates", enabled);
     render();
     return true;
@@ -1339,16 +1308,6 @@ public:
     const bool enabled = !assistant.value("enabled", false);
     assistant["enabled"] = enabled;
     if (!applyPreferenceSnapshot(std::move(snapshot))) return false;
-    if (!enabled && !online_query_.empty()) {
-      const auto empty = std::string("[]");
-      view_ = response(msime_client_apply_online_candidates(
-          session_, reinterpret_cast<const uint8_t *>(online_query_.data()), online_query_.size(),
-          reinterpret_cast<const uint8_t *>(empty.data()), empty.size(), 1)).at("view");
-      ++online_epoch_;
-      online_query_.clear();
-      online_slots_[0].query.clear();
-      online_slots_[1].query.clear();
-    }
     saveNestedBooleanPreference("ai_assistant", "enabled", enabled);
     render();
     return true;
@@ -1475,9 +1434,57 @@ public:
     session_fullwidth_ = fullwidth;
     paired_tracker_.clear();
   }
+  void invalidateOnlineRequests() {
+    ++online_epoch_;
+    online_query_.clear();
+    for (auto &slot : online_slots_) slot.query.clear();
+  }
+  void clearOnlineCandidates(uint8_t source) {
+    if (!session_ || source >= 2) return;
+    view_ = response(msime_client_clear_online_candidates(session_, source)).at("view");
+    online_display_queries_[source].clear();
+  }
+  static bool translationPreferencesChanged(const Json &before, const Json &after) {
+    for (const auto *key : {"candidate_translations", "candidate_english_gloss",
+                            "translation_target_language", "translation_secondary_language",
+                            "translation_account", "custom_translation", "niutrans",
+                            "tencent_tmt"}) {
+      if (before.value(key, Json(nullptr)) != after.value(key, Json(nullptr))) return true;
+    }
+    return false;
+  }
+  void invalidateTranslationRequests() {
+    ++translation_epoch_;
+    translation_query_.clear();
+    translation_pending_.clear();
+    translation_manual_sentence_ = false;
+    translation_session_ = 0;
+  }
+  void clearCandidateTranslations() {
+    if (session_ && view_.contains("generation")) {
+      const auto empty = std::string("[]");
+      view_ = response(msime_client_apply_translations(
+          session_, msime::linux_host::strict_json_required_integer<uint64_t>(view_.at("generation")),
+          reinterpret_cast<const uint8_t *>(empty.data()), empty.size())).at("view");
+    }
+    invalidateTranslationRequests();
+  }
   bool applyPreferenceSnapshot(Json snapshot) {
     if (!snapshot.is_object() || !snapshot.contains("revision") ||
         !snapshot.contains("preferences")) return false;
+    const auto previousAi = preferences_.value("ai_assistant", Json::object());
+    const auto nextAi = snapshot.at("preferences").value("ai_assistant", Json::object());
+    const bool aiChanged = previousAi != nextAi;
+    const bool previousCloud = preferences_.value("cloud_candidates", true);
+    const bool nextCloud = snapshot.at("preferences").value("cloud_candidates", true);
+    const bool cloudChanged = previousCloud != nextCloud;
+    const bool aiChangedWhileEnabled = aiChanged &&
+                                       previousAi.value("enabled", false);
+    const bool translationChanged = translationPreferencesChanged(
+        preferences_, snapshot.at("preferences"));
+    // 先用旧偏好清掉已显示的在线候选；更新偏好后 Host API 会拒绝旧查询，旧行会因此残留。
+    if (cloudChanged && previousCloud && !nextCloud) clearOnlineCandidates(0);
+    if (aiChangedWhileEnabled) clearOnlineCandidates(1);
     const auto encoded = effectiveContextSnapshot(snapshot).dump();
     view_ = response(msime_client_update_preferences(
         session_, reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())).at("view");
@@ -1487,6 +1494,10 @@ public:
     chinese_punctuation_ = preferences_.value("chinese_punctuation", chinese_punctuation_);
     syncSessionChinesePunctuation();
     preferences_snapshot_ = std::move(snapshot);
+    if (translationChanged)
+      clearCandidateTranslations();
+    if (aiChanged || cloudChanged)
+      invalidateOnlineRequests();
     msime_linux_diagnostic_write("preferences_applied");
     return true;
   }
@@ -1680,6 +1691,19 @@ public:
             // the next toggle look stale.
             auto effective = effectiveContextSnapshot(snapshot);
             auto effectivePreferences = effective.at("preferences");
+            const auto previousAi = preferences_.value("ai_assistant", Json::object());
+            const auto nextAi = effectivePreferences.value("ai_assistant", Json::object());
+            const bool aiChanged = previousAi != nextAi;
+            const bool previousCloud = preferences_.value("cloud_candidates", true);
+            const bool nextCloud = effectivePreferences.value("cloud_candidates", true);
+            const bool cloudChanged = previousCloud != nextCloud;
+            const bool aiChangedWhileEnabled = aiChanged &&
+                                               previousAi.value("enabled", false);
+            const bool translationChanged = translationPreferencesChanged(
+                preferences_, effectivePreferences);
+            // 先用旧偏好清掉已显示的在线候选；更新偏好后 Host API 会拒绝旧查询，旧行会因此残留。
+            if (cloudChanged && previousCloud && !nextCloud) clearOnlineCandidates(0);
+            if (aiChangedWhileEnabled) clearOnlineCandidates(1);
             const auto encoded = effective.dump();
             view_ = response(msime_client_update_preferences(session_,
                 reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())).at("view");
@@ -1728,6 +1752,10 @@ public:
             syncVoiceOverlayTheme();
             syncVoiceAction();
             preferences_snapshot_ = std::move(snapshot);
+            if (translationChanged)
+              clearCandidateTranslations();
+            if (aiChanged || cloudChanged)
+              invalidateOnlineRequests();
             render();
           }
         }
@@ -1796,15 +1824,14 @@ public:
       const auto nextOnline = onlineSocket(options);
       if (nextOnline != online_socket_) {
         online_socket_ = nextOnline;
-        ++online_epoch_;
-        online_query_.clear();
-        for (auto &slot : online_slots_) slot.query.clear();
+        clearOnlineCandidates(0);
+        clearOnlineCandidates(1);
+        invalidateOnlineRequests();
       }
       auto nextTranslation = translationSocket(options);
       if (nextTranslation != translation_socket_) {
         translation_socket_ = std::move(nextTranslation);
-        translation_query_.clear();
-        translation_pending_.clear();
+        clearCandidateTranslations();
       }
     } catch (...) {
       // Keep the active provider endpoints when options are being atomically replaced.
@@ -1832,6 +1859,7 @@ public:
             view_ = response(msime_client_apply_online_candidates(
                 session_, reinterpret_cast<const uint8_t *>(slot.query.data()), slot.query.size(),
                 reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size(), source)).at("view");
+            online_display_queries_[source] = slot.query;
             render();
           }
         }
@@ -1919,6 +1947,7 @@ public:
     translation_query_ = encoded;
     translation_manual_sentence_ = manual_sentence;
     translation_session_ = session_;
+    translation_job_epoch_ = translation_epoch_;
     auto candidates = Json::array();
     for (const auto &candidate : view_.at("candidates"))
       candidates.push_back({{"text", candidate.at("text")}, {"source", candidate.at("source")}});
@@ -2013,6 +2042,7 @@ public:
         if (translation_job_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
         auto result = translation_job_.get();
         translation_job_ = {};
+        const bool request_is_current = translation_job_epoch_ == translation_epoch_;
         bool manual_query_matches = false;
         if (translation_manual_sentence_ && result.is_object()) {
           try {
@@ -2022,7 +2052,7 @@ public:
                                    msime::linux_host::strict_json_value(query, "generation", uint64_t{0});
           } catch (...) {}
         }
-        if (allowed && session_ == translation_session_ && query.is_object() &&
+        if (request_is_current && allowed && session_ == translation_session_ && query.is_object() &&
             result.is_object() &&
             (result.value("query", "") == encodedQuery || manual_query_matches) &&
             result.value("_socket", std::string{}) == translation_socket_) {
@@ -3405,6 +3435,7 @@ public:
   std::string space_convert_preceding_;
   uint8_t punctuation_lock_ = 0;
   std::string online_socket_, online_query_;
+  std::array<std::string, 2> online_display_queries_;
   uint64_t online_job_session_ = 0;
   struct OnlineSlot {
     std::shared_future<Json> job;
@@ -3418,6 +3449,8 @@ public:
   bool translation_manual_sentence_ = false;
   std::chrono::steady_clock::time_point translation_due_{};
   uint64_t translation_session_ = 0;
+  uint64_t translation_epoch_ = 0;
+  uint64_t translation_job_epoch_ = 0;
   std::shared_future<Json> translation_job_;
   std::string clipboard_path_;
   Json clipboard_items_ = Json::array();

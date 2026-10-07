@@ -54,6 +54,10 @@ export const MUSIC_OFF: MusicSettings = {
 };
 
 export class MusicPolicy {
+  static metadataResultApplies(requestGeneration: number, currentGeneration: number): boolean {
+    return requestGeneration === currentGeneration;
+  }
+
   /** The settings `preferences.plugins.music` asks for; a missing record is the default, which is off. */
   static settings(plugins: PluginPreferenceDocument | undefined): MusicSettings {
     const music: MusicPreferenceDocument | undefined = plugins?.music;

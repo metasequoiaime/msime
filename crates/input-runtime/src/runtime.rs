@@ -379,6 +379,20 @@ impl Runtime<Session> {
         self.apply_online_candidates_snapshot(query, candidates, source, cloud_candidates, limit)
     }
 
+    /// Remove cached and visible rows for one online provider.
+    pub fn clear_online_candidates(&mut self, source: u8) -> Result<(), RuntimeError> {
+        if source > 1 {
+            return Err(RuntimeError::Engine(
+                "invalid online candidate source".into(),
+            ));
+        }
+        self.engine
+            .clear_online_candidates(source)
+            .map_err(|error| RuntimeError::Engine(error.to_string()))?;
+        self.advance()?;
+        self.refresh()
+    }
+
     fn apply_online_candidates_snapshot(
         &mut self,
         query: OnlineQuerySnapshot,

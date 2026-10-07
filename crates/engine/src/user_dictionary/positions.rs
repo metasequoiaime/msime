@@ -1,6 +1,6 @@
 //! Fixed candidate positions and pinned leaders (user-dictionary.md §8).
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::Path;
 
 use rusqlite::params;
@@ -90,6 +90,10 @@ fn fixed_rows(user_db: &Path, context: &str) -> Result<Vec<(String, String, i32)
     Ok(result)
 }
 
+fn fixed_row_contains(rows: &[(WordItem, i32)], word: &str) -> bool {
+    rows.iter().any(|(item, _)| item.word == word)
+}
+
 /// Move the context's fixed rows into their slots, matching by word; with `include_missing`, rows not in the list are fetched through `find_candidate(entry_key, value)`. Online rows are lifted out and put back at 1 (cloud) and 2 (AI) unless `keep_dynamic_candidate_positions` (J:1272-1346). No journal file means nothing to apply.
 pub fn apply_fixed_positions(
     user_db: &Path,
@@ -128,7 +132,6 @@ pub fn apply_fixed_positions(
         .map(|item| (item.word.as_str(), item))
         .collect();
     let mut rows: Vec<(WordItem, i32)> = Vec::with_capacity(fixed.len());
-    let mut fixed_words = HashSet::with_capacity(fixed.len());
     for (entry_key, value, position) in fixed {
         let found = match candidate_by_word.get(value.as_str()) {
             Some(existing) => Some((*existing).clone()),
@@ -139,11 +142,10 @@ pub fn apply_fixed_positions(
         };
         if let Some(mut item) = found {
             item.fixed_position = position;
-            fixed_words.insert(item.word.clone());
             rows.push((item, position));
         }
     }
-    candidates.retain(|item| !fixed_words.contains(&item.word));
+    candidates.retain(|item| !fixed_row_contains(&rows, &item.word));
     for (item, position) in rows {
         let index = usize::try_from(position - 1)
             .unwrap_or(0)
@@ -198,6 +200,16 @@ mod tests {
 
     fn online(word: &str, source: CandidateSource) -> WordItem {
         WordItem::new("", word, 1, source, "")
+    }
+
+    #[test]
+    fn fixed_word_scan_avoids_temporary_hash_allocation() {
+        let rows = vec![(item("ni", "甲", 1), 1), (item("ni", "乙", 1), 2)];
+        let (found, allocations) =
+            crate::ime::personal_rerank::allocations::count(|| fixed_row_contains(&rows, "乙"));
+
+        assert!(found);
+        assert_eq!(allocations, 0);
     }
 
     #[test]

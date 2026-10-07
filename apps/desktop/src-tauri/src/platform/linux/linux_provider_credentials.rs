@@ -230,7 +230,7 @@ fn write_private(path: &Path, document: Option<&Value>) -> Result<(), Credential
     let parent = path.parent().ok_or(CredentialError::Storage)?;
     super::reject_symlink_ancestors(parent).map_err(|_| CredentialError::Storage)?;
     let Some(document) = document else {
-        return match std::fs::remove_file(path) {
+        return match crate::shared::atomic_file::remove_private(path) {
             Ok(()) => Ok(()),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
             Err(_) => Err(CredentialError::Storage),

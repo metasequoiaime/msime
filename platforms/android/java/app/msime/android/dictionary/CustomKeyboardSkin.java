@@ -217,7 +217,7 @@ public final class CustomKeyboardSkin {
 
     /** Design documents use typed JSON booleans; reject org.json's string coercion. */
     static boolean booleanValue(Object raw, boolean fallback) {
-        return raw instanceof Boolean ? (Boolean) raw : fallback;
+        return JsonPolicy.strictBoolean(raw, fallback);
     }
 
     private static String oneOf(String value, String first, String second, String third, String fourth) {

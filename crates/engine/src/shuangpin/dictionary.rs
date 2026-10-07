@@ -19,6 +19,7 @@ use crate::lattice::neural::{
     shared_sentence_model, NeuralReranker, CONTEXT_CHARACTERS, MAX_RERANK_PATHS,
 };
 use crate::lattice::ngram::NgramTable;
+use crate::ordering::apply_order;
 use crate::paths::RuntimePaths;
 use crate::pinyin::jianpin::QuerySource;
 use crate::pinyin::segment::split_segments;
@@ -26,6 +27,9 @@ use crate::quanpin::dictionary::{CACHE_CAPACITY, INITIAL_CANDIDATE_LIMIT};
 use crate::text::last_characters;
 use crate::types::{CandidateSource, SentenceAssociationOptions, WordItem};
 use crate::user_dictionary::ngram_store::PersonalNgramStore;
+
+// 双拼前缀候选的短合并直接扫描已有词，避免临时哈希表和重复索引分配。
+const SMALL_PREFIX_DEDUP: usize = 64;
 
 /// The reference passed `INT_MAX` as "no limit" to the row queries (SD:899, SD:543).
 const UNLIMITED_ROWS: usize = i32::MAX as usize;
@@ -234,32 +238,7 @@ impl ShuangpinDictionary {
             let prefix_pure = remove_manual_delimiters(prefix);
             prefix_rows.push(self.generate(&prefix_pure, prefix, ""));
         }
-        // Borrow words while calculating each group's first occurrence, then release the set before moving rows into candidates.
-        let mut listed: HashSet<&str> = candidates.iter().map(|item| item.word.as_str()).collect();
-        let duplicates = prefix_rows
-            .iter()
-            .map(|rows| {
-                rows.iter()
-                    .enumerate()
-                    .filter_map(|(index, item)| {
-                        (!listed.insert(item.word.as_str())).then_some(index)
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .collect::<Vec<_>>();
-        drop(listed);
-        for (rows, duplicates) in prefix_rows.into_iter().zip(duplicates) {
-            candidates.reserve(rows.len());
-            let mut duplicates = duplicates.into_iter().peekable();
-            candidates.extend(rows.into_iter().enumerate().filter_map(|(index, item)| {
-                if duplicates.peek() == Some(&index) {
-                    duplicates.next();
-                    None
-                } else {
-                    Some(item)
-                }
-            }));
-        }
+        append_prefix_rows(&mut candidates, prefix_rows);
 
         let segments = split_segments(&convert_seg_shuangpin_to_seg_complete_pinyin(
             segmentation,
@@ -320,7 +299,7 @@ impl ShuangpinDictionary {
     /// Matched groups, then the full input read as pinyin, then the unmatched rows (SD:324-375).
     fn filter_with_single_helpcode(
         &mut self,
-        candidates: &[WordItem],
+        candidates: Vec<WordItem>,
         help_code: &str,
         raw: &str,
         keymap: &HelpcodeKeymap,
@@ -330,48 +309,17 @@ impl ShuangpinDictionary {
         }
         let prefer_last = help_code.as_bytes()[0].is_ascii_uppercase();
         let normalized = help_code.to_ascii_lowercase();
-        let mut first = Vec::with_capacity(candidates.len());
-        let mut last = Vec::with_capacity(candidates.len());
-        let mut unmatched = Vec::with_capacity(candidates.len());
-        for candidate in candidates {
-            match match_single_helpcode(&candidate.word, &normalized, keymap) {
-                SingleHelpcodeMatch::First => first.push(candidate.clone()),
-                SingleHelpcodeMatch::Last => last.push(candidate.clone()),
-                SingleHelpcodeMatch::Both if prefer_last => last.push(candidate.clone()),
-                SingleHelpcodeMatch::Both => first.push(candidate.clone()),
-                SingleHelpcodeMatch::None => unmatched.push(candidate.clone()),
-            }
-        }
-        let mut result = if prefer_last {
-            last.extend(first);
-            last
-        } else {
-            first.extend(last);
-            first
-        };
+        let matches: Vec<_> = candidates
+            .iter()
+            .map(|candidate| match_single_helpcode(&candidate.word, &normalized, keymap))
+            .collect();
+        let (mut result, unmatched) =
+            reorder_single_helpcode_rows(candidates, &matches, prefer_last);
         // The whole raw input, the last letter read as pinyin instead of a helpcode. The reference segments the raw input as one chunk, `'` included; the conversion drops the empty pieces that leaves (SD:370-372).
         let original_segmentation = pinyin_segmentation(raw, self.profile);
         let whole = self.generate_series(raw, &original_segmentation, "");
         // The reference appended the whole-input answer and then the unmatched rows whole, so a word already among the matched rows, or in both lists, was listed again; a word already listed keeps its first seat.
-        // Keep duplicate keys borrowed while checking both owned append lists, then move rows after releasing the set.
-        let mut listed: HashSet<&str> = result.iter().map(|item| item.word.as_str()).collect();
-        let rows = whole.into_iter().chain(unmatched).collect::<Vec<_>>();
-        let duplicates = rows
-            .iter()
-            .enumerate()
-            .filter_map(|(index, item)| (!listed.insert(item.word.as_str())).then_some(index))
-            .collect::<Vec<_>>();
-        drop(listed);
-        result.reserve(rows.len());
-        let mut duplicates = duplicates.into_iter().peekable();
-        result.extend(rows.into_iter().enumerate().filter_map(|(index, item)| {
-            if duplicates.peek() == Some(&index) {
-                duplicates.next();
-                None
-            } else {
-                Some(item)
-            }
-        }));
+        append_helpcode_rows(&mut result, whole, unmatched);
         result
     }
 
@@ -407,7 +355,7 @@ impl ShuangpinDictionary {
         // The base is cached under its own letters, without the raw input's `'` (SD:458).
         let candidates = self.generate_series(pure, segmentation, "");
         let result = match help_codes.len() {
-            1 => self.filter_with_single_helpcode(&candidates, help_codes, raw, keymap),
+            1 => self.filter_with_single_helpcode(candidates, help_codes, raw, keymap),
             2 => candidates
                 .into_iter()
                 .filter(|candidate| matches_double_helpcodes(&candidate.word, help_codes, keymap))
@@ -527,6 +475,21 @@ impl ShuangpinDictionary {
         single || reversed
     }
 
+    /// Remove one provider's rows from every cached answer while retaining the other provider and dictionary rows.
+    pub fn clear_online_candidates(&mut self, source: CandidateSource) {
+        for cache in [
+            &mut self.series_cache,
+            &mut self.single_helpcode_cache,
+            &mut self.reversed_single_helpcode_cache,
+            &mut self.double_helpcode_cache,
+        ] {
+            cache.retain_mut(|_, rows| {
+                rows.retain(|item| item.source != source);
+                !rows.is_empty()
+            });
+        }
+    }
+
     pub fn find_candidate(&self, key: &str, value: &str) -> Option<WordItem> {
         self.database
             .find_weight(key, value)
@@ -582,10 +545,153 @@ fn prefix_group_count(segmentation: &str) -> usize {
     segmentation.matches('\'').count()
 }
 
+fn append_prefix_rows(candidates: &mut Vec<WordItem>, prefix_rows: Vec<Vec<WordItem>>) {
+    let total = candidates.len().saturating_add(
+        prefix_rows
+            .iter()
+            .fold(0usize, |total, rows| total.saturating_add(rows.len())),
+    );
+    if total <= SMALL_PREFIX_DEDUP {
+        candidates.reserve(total.saturating_sub(candidates.len()));
+        for rows in prefix_rows {
+            for item in rows {
+                if candidates.iter().any(|existing| existing.word == item.word) {
+                    continue;
+                }
+                candidates.push(item);
+            }
+        }
+        return;
+    }
+    // 先把各组移入同一缓冲，只建立一个重复索引列表；释放借用后再原地压缩。
+    let added = total.saturating_sub(candidates.len());
+    candidates.reserve(added);
+    let original_len = candidates.len();
+    for rows in prefix_rows {
+        candidates.extend(rows);
+    }
+    let mut listed = HashSet::with_capacity(candidates.len());
+    listed.extend(
+        candidates[..original_len]
+            .iter()
+            .map(|item| item.word.as_str()),
+    );
+    let mut unique = Vec::with_capacity(added);
+    for (index, item) in candidates.iter().enumerate().skip(original_len) {
+        if listed.insert(item.word.as_str()) {
+            unique.push(index);
+        }
+    }
+    drop(listed);
+    let mut write = original_len;
+    for read in unique {
+        if write != read {
+            candidates.swap(write, read);
+        }
+        write += 1;
+    }
+    candidates.truncate(write);
+}
+
+fn append_helpcode_rows(
+    result: &mut Vec<WordItem>,
+    whole: Vec<WordItem>,
+    unmatched: Vec<WordItem>,
+) {
+    let total = result
+        .len()
+        .saturating_add(whole.len())
+        .saturating_add(unmatched.len());
+    if total <= SMALL_PREFIX_DEDUP {
+        result.reserve(total.saturating_sub(result.len()));
+        for item in whole.into_iter().chain(unmatched) {
+            if result.iter().any(|existing| existing.word == item.word) {
+                continue;
+            }
+            result.push(item);
+        }
+        return;
+    }
+    // 先把两组行移入同一缓冲，只建立一个重复索引列表；释放借用后再原地压缩。
+    let added = total.saturating_sub(result.len());
+    result.reserve(added);
+    let original_len = result.len();
+    result.extend(whole);
+    result.extend(unmatched);
+    let mut listed = HashSet::with_capacity(result.len());
+    listed.extend(result[..original_len].iter().map(|item| item.word.as_str()));
+    let mut unique = Vec::with_capacity(added);
+    for (index, item) in result.iter().enumerate().skip(original_len) {
+        if listed.insert(item.word.as_str()) {
+            unique.push(index);
+        }
+    }
+    drop(listed);
+    let mut write = original_len;
+    for read in unique {
+        if write != read {
+            result.swap(write, read);
+        }
+        write += 1;
+    }
+    result.truncate(write);
+}
+
+/// 按首匹配、次匹配、未匹配的顺序原地排列单字辅助码候选，并把未匹配行移动到单独的尾部缓冲。
+fn reorder_single_helpcode_rows(
+    mut candidates: Vec<WordItem>,
+    matches: &[SingleHelpcodeMatch],
+    prefer_last: bool,
+) -> (Vec<WordItem>, Vec<WordItem>) {
+    debug_assert_eq!(candidates.len(), matches.len());
+    let mut order = Vec::with_capacity(candidates.len());
+    for primary in [true, false] {
+        for (index, matched) in matches.iter().enumerate() {
+            let selected = match matched {
+                SingleHelpcodeMatch::First => {
+                    (!prefer_last && primary) || (prefer_last && !primary)
+                }
+                SingleHelpcodeMatch::Last => (prefer_last && primary) || (!prefer_last && !primary),
+                SingleHelpcodeMatch::Both => primary,
+                SingleHelpcodeMatch::None => false,
+            };
+            if selected {
+                order.push(index);
+            }
+        }
+    }
+    let unmatched_count = matches
+        .iter()
+        .filter(|matched| **matched == SingleHelpcodeMatch::None)
+        .count();
+    debug_assert_eq!(order.len(), candidates.len() - unmatched_count);
+    order.extend(
+        matches.iter().enumerate().filter_map(|(index, matched)| {
+            (*matched == SingleHelpcodeMatch::None).then_some(index)
+        }),
+    );
+    apply_order(&mut candidates, &order);
+    let unmatched = candidates.split_off(candidates.len() - unmatched_count);
+    (candidates, unmatched)
+}
+
 #[cfg(test)]
 mod tests {
+    use super::append_helpcode_rows;
+    use super::append_prefix_rows;
     use super::double_helpcode_cache_key;
     use super::prefix_group_count;
+    use super::reorder_single_helpcode_rows;
+    use super::ShuangpinDictionary;
+    use super::SingleHelpcodeMatch;
+    use crate::helpcode::HelpcodeKeymap;
+    use crate::paths::RuntimePaths;
+    use crate::shuangpin::profile::profile;
+    use crate::types::{CandidateSource, WordItem};
+
+    fn row(word: &str) -> WordItem {
+        WordItem::new("ni", word, 1, CandidateSource::Database, "ni")
+    }
 
     #[test]
     fn double_helpcode_cache_keys_use_exact_string_capacity() {
@@ -598,5 +704,197 @@ mod tests {
     fn prefix_group_count_matches_manual_boundaries() {
         assert_eq!(prefix_group_count("ni'hao'ba"), 2);
         assert_eq!(prefix_group_count("nihao"), 0);
+    }
+
+    #[test]
+    fn single_helpcode_reordering_keeps_primary_secondary_and_unmatched_order() {
+        let rows = vec![row("甲"), row("乙"), row("丙")];
+        let matches = [
+            SingleHelpcodeMatch::Last,
+            SingleHelpcodeMatch::None,
+            SingleHelpcodeMatch::First,
+        ];
+
+        let (result, unmatched) = reorder_single_helpcode_rows(rows, &matches, true);
+
+        assert_eq!(words(&result), ["甲", "丙"]);
+        assert_eq!(words(&unmatched), ["乙"]);
+    }
+
+    #[test]
+    fn short_prefix_rows_are_appended_without_temporary_heap_state() {
+        let mut candidates = Vec::with_capacity(8);
+        candidates.push(row("你"));
+        let prefix_rows = vec![vec![row("你"), row("好")], vec![row("好"), row("吗")]];
+        let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            append_prefix_rows(&mut candidates, prefix_rows);
+        });
+
+        assert_eq!(allocations, 0);
+        assert_eq!(
+            candidates
+                .iter()
+                .map(|item| item.word.as_str())
+                .collect::<Vec<_>>(),
+            ["你", "好", "吗"]
+        );
+    }
+
+    #[test]
+    fn short_helpcode_rows_are_appended_without_temporary_heap_state() {
+        let mut result = Vec::with_capacity(8);
+        result.push(row("你"));
+        let whole = vec![row("你"), row("好")];
+        let unmatched = vec![row("好"), row("吗")];
+        let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            append_helpcode_rows(&mut result, whole, unmatched);
+        });
+
+        assert_eq!(allocations, 0);
+        assert_eq!(
+            result
+                .iter()
+                .map(|item| item.word.as_str())
+                .collect::<Vec<_>>(),
+            ["你", "好", "吗"]
+        );
+    }
+
+    #[test]
+    fn single_helpcode_filter_uses_only_result_and_unmatched_buffers() {
+        let mut dictionary = ShuangpinDictionary::new(
+            profile(crate::types::ShuangpinProfileKind::Xiaohe),
+            &RuntimePaths::default(),
+        );
+        let keymap = HelpcodeKeymap::from_codes(
+            [
+                ("你".to_owned(), "ab".to_owned()),
+                ("嗯".to_owned(), "aa".to_owned()),
+                ("好".to_owned(), "cd".to_owned()),
+            ]
+            .into_iter()
+            .collect(),
+        );
+        let candidates = vec![row("你"), row("嗯"), row("好")];
+        let (filtered, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            dictionary.filter_with_single_helpcode(candidates, "a", "", &keymap)
+        });
+
+        assert_eq!(words(&filtered), ["你", "嗯", "好"]);
+        assert!(
+            allocations < 12,
+            "unexpected temporary allocations: {allocations}"
+        );
+    }
+
+    fn words(items: &[WordItem]) -> Vec<&str> {
+        items.iter().map(|item| item.word.as_str()).collect()
+    }
+
+    #[test]
+    fn large_helpcode_rows_keep_first_occurrence_order() {
+        let mut result = Vec::with_capacity(70);
+        result.push(row("已有"));
+        let whole = (0..32)
+            .map(|index| row(if index == 0 { "已有" } else { "整" }))
+            .collect();
+        let unmatched = (0..33)
+            .map(|index| row(if index == 0 { "未" } else { "整" }))
+            .collect();
+
+        append_helpcode_rows(&mut result, whole, unmatched);
+
+        assert_eq!(
+            result
+                .iter()
+                .map(|item| item.word.as_str())
+                .collect::<Vec<_>>(),
+            ["已有", "整", "未"]
+        );
+    }
+
+    #[test]
+    fn large_helpcode_rows_do_not_allocate_duplicate_index_lists() {
+        let mut result = Vec::with_capacity(100);
+        result.push(row("已有"));
+        let whole = (0..40)
+            .map(|index| {
+                row(if index == 0 {
+                    "已有"
+                } else if index % 2 == 0 {
+                    "整"
+                } else {
+                    "甲"
+                })
+            })
+            .collect();
+        let unmatched = (0..40)
+            .map(|index| {
+                row(if index == 0 {
+                    "未"
+                } else if index % 2 == 0 {
+                    "整"
+                } else {
+                    "乙"
+                })
+            })
+            .collect();
+
+        let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            append_helpcode_rows(&mut result, whole, unmatched);
+        });
+
+        assert_eq!(
+            result
+                .iter()
+                .map(|item| item.word.as_str())
+                .collect::<Vec<_>>(),
+            ["已有", "甲", "整", "未", "乙"]
+        );
+        assert!(
+            allocations <= 2,
+            "large helpcode merge allocated {allocations} temporary buffers"
+        );
+    }
+
+    #[test]
+    fn large_prefix_rows_do_not_allocate_duplicate_index_lists() {
+        let mut candidates = Vec::with_capacity(100);
+        candidates.push(row("已有"));
+        let prefix_rows = (0..2)
+            .map(|group| {
+                (0..40)
+                    .map(|index| {
+                        row(if index == 0 {
+                            "已有"
+                        } else if index % 2 == 0 {
+                            if group == 0 {
+                                "甲"
+                            } else {
+                                "乙"
+                            }
+                        } else {
+                            "候选"
+                        })
+                    })
+                    .collect()
+            })
+            .collect();
+
+        let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            append_prefix_rows(&mut candidates, prefix_rows);
+        });
+
+        assert_eq!(
+            candidates
+                .iter()
+                .map(|item| item.word.as_str())
+                .collect::<Vec<_>>(),
+            ["已有", "候选", "甲", "乙"]
+        );
+        assert!(
+            allocations <= 2,
+            "large prefix merge allocated {allocations} temporary buffers"
+        );
     }
 }

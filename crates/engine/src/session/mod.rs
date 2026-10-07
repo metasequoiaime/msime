@@ -448,6 +448,11 @@ impl Session {
         self.input.apply_online_candidates(query, words, source)
     }
 
+    /// Remove one online provider's rows from cached and visible candidates.
+    pub fn clear_online_candidates(&mut self, source: CandidateSource) {
+        self.input.clear_online_candidates(source);
+    }
+
     pub fn apply_online_candidate(
         &mut self,
         query: &OnlineQuery,

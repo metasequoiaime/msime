@@ -39,6 +39,7 @@ export type {
   LocalDictionaryKind,
 } from "./dictionary/dictionary-file";
 export {
+  MAX_DICTIONARY_EXPORT_BYTES,
   dictionaryExportName,
   dictionaryExportPayload,
   loadAllPersonalDictionaryEntries,

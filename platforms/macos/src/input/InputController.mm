@@ -222,6 +222,11 @@ static NSString *MSIMEAICacheKey(NSDictionary *online) {
     NSDictionary *identity = @{ @"provider": [config[@"provider"] isKindOfClass:NSString.class] ? config[@"provider"] : @"",
         @"endpoint": [config[@"endpoint"] isKindOfClass:NSString.class] ? config[@"endpoint"] : @"",
         @"model": [config[@"model"] isKindOfClass:NSString.class] ? config[@"model"] : @"",
+        @"candidate_limit": [config[@"candidate_limit"] isKindOfClass:NSNumber.class] ? config[@"candidate_limit"] : @3,
+        @"prompt_id": [config[@"prompt_id"] isKindOfClass:NSString.class] ? config[@"prompt_id"] : @"",
+        @"prompt_custom_1": [config[@"prompt_custom_1"] isKindOfClass:NSString.class] ? config[@"prompt_custom_1"] : @"",
+        @"prompt_custom_2": [config[@"prompt_custom_2"] isKindOfClass:NSString.class] ? config[@"prompt_custom_2"] : @"",
+        @"prompt_custom_3": [config[@"prompt_custom_3"] isKindOfClass:NSString.class] ? config[@"prompt_custom_3"] : @"",
         @"pinyin_segments": segments };
     NSData *data = [NSJSONSerialization dataWithJSONObject:identity options:0 error:nil];
     return data ? [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] : nil;

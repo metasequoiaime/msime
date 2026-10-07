@@ -11,7 +11,7 @@ static constexpr NSUInteger MSIMERuntimeOptionsReadLimit = 2 * 1024 * 1024;
 
 static inline NSData *MSIMEReadRuntimeOptionsData(NSString *path) {
     if (!path.length) return nil;
-    const int descriptor = open(path.fileSystemRepresentation, O_RDONLY | O_NOFOLLOW);
+    const int descriptor = open(path.fileSystemRepresentation, O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
     if (descriptor < 0) return nil;
     struct stat fileStat = {};
     if (fstat(descriptor, &fileStat) != 0 || !S_ISREG(fileStat.st_mode) ||

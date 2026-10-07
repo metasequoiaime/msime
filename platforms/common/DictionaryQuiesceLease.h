@@ -6,10 +6,10 @@
 #include <cerrno>
 #include <filesystem>
 #include <fcntl.h>
-#include <fstream>
 #include <iterator>
 #include <string>
 #include <string_view>
+#include <sys/stat.h>
 #include <system_error>
 #include <sys/file.h>
 #include <unistd.h>
@@ -76,11 +76,23 @@ inline bool dictionary_quiesced(const std::string &user_data,
   if (user_data.empty() || user_data.front() != '/') return false;
   const auto lease_path = std::filesystem::path(user_data) / std::string(kDictionaryQuiesceLeaseName);
   if (!dictionary_lease_path_is_safe(lease_path)) return false;
-  std::ifstream lease(lease_path);
-  if (!lease) return false;
+  const int descriptor = ::open(lease_path.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK);
+  if (descriptor < 0) return false;
+  struct CloseOnExit {
+    int descriptor;
+    ~CloseOnExit() { ::close(descriptor); }
+  } close_on_exit{descriptor};
+  struct stat metadata {};
+  if (::fstat(descriptor, &metadata) != 0 || !S_ISREG(metadata.st_mode)) return false;
   char buffer[32] = {};
-  lease.read(buffer, sizeof buffer - 1);
-  return dictionary_quiesce_lease_live(std::string_view(buffer, static_cast<std::size_t>(lease.gcount())), now_ms);
+  for (;;) {
+    const ssize_t count = ::read(descriptor, buffer, sizeof buffer - 1);
+    if (count > 0)
+      return dictionary_quiesce_lease_live(std::string_view(buffer, static_cast<std::size_t>(count)), now_ms);
+    if (count == 0) return false;
+    if (errno == EINTR) continue;
+    return false;
+  }
 }
 
 inline bool write_staged_dictionary_lease(const std::filesystem::path &staged,
@@ -157,24 +169,33 @@ inline void lower_dictionary_quiesce_lease(const std::string &user_data, const s
   if (!dictionary_lease_path_is_safe(lease)) return;
   const int lock = lock_dictionary_quiesce_lease(std::filesystem::path(user_data));
   if (lock < 0) return;
-  std::ifstream file(lease, std::ios::binary);
-  if (!file) {
+  const int descriptor = ::open(lease.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK);
+  if (descriptor < 0) {
     ::close(lock);
     return;
   }
-  std::error_code error;
-  const auto size = std::filesystem::file_size(lease, error);
-  if (error || size > kDictionaryQuiesceLeaseMaxBytes) {
+  struct CloseOnExit {
+    int descriptor;
+    ~CloseOnExit() { ::close(descriptor); }
+  } close_on_exit{descriptor};
+  struct stat metadata {};
+  if (::fstat(descriptor, &metadata) != 0 || !S_ISREG(metadata.st_mode) || metadata.st_size < 0 ||
+      static_cast<std::uintmax_t>(metadata.st_size) > kDictionaryQuiesceLeaseMaxBytes) {
     ::close(lock);
     return;
   }
-  std::string current(static_cast<std::size_t>(size), '\0');
-  if (!current.empty() &&
-      !file.read(current.data(), static_cast<std::streamsize>(current.size()))) {
+  std::string current(static_cast<std::size_t>(metadata.st_size), '\0');
+  std::size_t offset = 0;
+  while (offset < current.size()) {
+    const ssize_t count = ::read(descriptor, current.data() + offset, current.size() - offset);
+    if (count > 0) {
+      offset += static_cast<std::size_t>(count);
+      continue;
+    }
+    if (count < 0 && errno == EINTR) continue;
     ::close(lock);
     return;
   }
-  file.close();
   if (current != written) {
     ::close(lock);
     return;

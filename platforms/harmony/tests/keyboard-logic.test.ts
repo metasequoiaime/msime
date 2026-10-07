@@ -294,7 +294,12 @@ import {
   KeyPressFlush,
 } from "../entry/src/main/ets/keyboard/KeyIdPolicy";
 import { OnlineCandidatePolicy } from "../entry/src/main/ets/keyboard/candidate/OnlineCandidatePolicy";
-import { MAX_SESSION_BYTES, sessionFitsStorage } from "../entry/src/main/ets/account/AccountSessionPolicy";
+import { utf8WriteComplete } from "../entry/src/main/ets/keyboard/Utf8";
+import {
+  MAX_SESSION_BYTES,
+  sessionFitsStorage,
+  sessionWriteComplete,
+} from "../entry/src/main/ets/account/AccountSessionPolicy";
 import {
   TranslationPolicy,
   TranslationQuery,
@@ -512,6 +517,11 @@ group("maps Harmony commits to shared typing-statistics sources", () => {
       TypingStatisticsPolicy.hour(new Date(2026, 8, 19, 23, 59)) === 23,
     "hour buckets use the same local calendar as the day beside them",
   );
+  check(
+    TypingStatisticsPolicy.isCurrentGeneration(7, 7) &&
+      !TypingStatisticsPolicy.isCurrentGeneration(6, 7),
+    "a statistics read only applies to the editor that requested it",
+  );
 });
 
 group("names keys with the shared key heatmap ids and nothing else", () => {
@@ -728,6 +738,13 @@ group("bounds and deduplicates asynchronous online AI candidates", () => {
       !OnlineCandidatePolicy.shouldReleaseAfterFailure(signature, signature, 4, 4, 8, 7),
     "a stale online failure cannot clear a newer request",
   );
+  check(
+    OnlineCandidatePolicy.hasActiveWork(signature, false, 0) &&
+      OnlineCandidatePolicy.hasActiveWork("", true, 0) &&
+      OnlineCandidatePolicy.hasActiveWork("", false, 1) &&
+      !OnlineCandidatePolicy.hasActiveWork("", false, 0),
+    "a vanished online query invalidates queued or in-flight work",
+  );
   const response = JSON.stringify({
     choices: [
       {
@@ -789,6 +806,21 @@ group("bounds persisted account sessions by UTF-8 bytes", () => {
   check(sessionFitsStorage("a".repeat(MAX_SESSION_BYTES)), "ASCII session at the byte limit fits");
   check(!sessionFitsStorage("你".repeat(Math.floor(MAX_SESSION_BYTES / 3) + 1)),
     "multibyte session above the byte limit is refused");
+  check(sessionWriteComplete("synthetic", 9),
+    "a complete ASCII session write is accepted");
+  check(!sessionWriteComplete("synthetic", 8),
+    "a short ASCII session write is refused");
+  check(sessionWriteComplete("你", 3),
+    "a complete multibyte session write uses UTF-8 bytes");
+  check(!sessionWriteComplete("你", 2),
+    "a short multibyte session write is refused");
+});
+
+group("private text writes require every UTF-8 byte", () => {
+  check(utf8WriteComplete("synthetic", 9), "a complete private text write is accepted");
+  check(!utf8WriteComplete("synthetic", 8), "a short private text write is refused");
+  check(utf8WriteComplete("你", 3), "a multibyte private text write uses UTF-8 bytes");
+  check(!utf8WriteComplete("你", 2), "a short multibyte private text write is refused");
 });
 
 group("AI 候选逐条跳过无效结构，保留相邻的有效候选", () => {
@@ -843,6 +875,28 @@ group("keeps translation provider policy bounded and credential-free in signatur
     !TranslationPolicy.signature(query).includes("secret"),
     "provider signatures never contain credentials",
   );
+  const rotated = {
+    ...query,
+    niutrans: { enabled: true, app_id: "account", apikey: "rotated" },
+  };
+  check(
+    TranslationPolicy.signature(query) !== TranslationPolicy.signature(rotated),
+    "rotating a provider credential invalidates the in-flight translation",
+  );
+  check(
+    TranslationPolicy.cacheKey(query, "en", {
+      text: "你好",
+      key: "你好",
+      source_language: "zh",
+      target_language: "en",
+    }) !== TranslationPolicy.cacheKey(rotated, "en", {
+      text: "你好",
+      key: "你好",
+      source_language: "zh",
+      target_language: "en",
+    }),
+    "rotating a provider credential does not reuse its translation cache",
+  );
   check(
     TranslationPolicy.cacheKey(query, "en", {
       text: "你好",
@@ -862,6 +916,19 @@ group("keeps translation provider policy bounded and credential-free in signatur
       !TranslationPolicy.shouldReleaseAfterFailure(signature, signature, 3, 4, 7, 7) &&
       !TranslationPolicy.shouldReleaseAfterFailure(signature, signature, 4, 4, 8, 7),
     "a stale translation failure cannot clear a newer request",
+  );
+  check(
+    TranslationPolicy.hasActiveWork(signature, false, 0) &&
+      TranslationPolicy.hasActiveWork("", true, 0) &&
+      TranslationPolicy.hasActiveWork("", false, 1) &&
+      !TranslationPolicy.hasActiveWork("", false, 0),
+    "a vanished translation query invalidates queued or in-flight work",
+  );
+  check(
+    !TranslationPolicy.shouldResetCache(4095) &&
+      TranslationPolicy.shouldResetCache(4096) &&
+      TranslationPolicy.shouldResetCache(5000),
+    "translation caches reset at their bounded capacity",
   );
   check(
     TranslationPolicy.shouldReleaseAfterProviderFailure("tencent", false, true),
@@ -8916,6 +8983,9 @@ group("cloud clipboard items stay out of password fields and stale editors", () 
     !CloudClipboardPolicy.current(Number.NaN, Number.NaN),
     "a non-integer generation is refused",
   );
+  check(CloudClipboardPolicy.sendCurrent(4, 4), "the active send result is current");
+  check(!CloudClipboardPolicy.sendCurrent(4, 5), "a cancelled send result is dropped");
+  check(!CloudClipboardPolicy.sendCurrent(-1, -1), "an invalid send generation is dropped");
 });
 
 group("sending to the cloud clipboard needs a signed-in account with the clipboard on", () => {
@@ -14673,6 +14743,10 @@ group("background music follows the desktop player's rules", () => {
     "a track plays only within the pack bound",
   );
   check(
+    MusicPolicy.metadataResultApplies(5, 5) && !MusicPolicy.metadataResultApplies(4, 5),
+    "stale music metadata cannot repopulate a newer pack cache",
+  );
+  check(
     !MusicPolicy.trackAllowed(null, 900) && !MusicPolicy.trackAllowed(0, 900),
     "a track whose length is unknown is not played",
   );
@@ -15962,6 +16036,8 @@ group("notices are shown from client-core's answer and their links leave the app
     }),
   );
   check(items.length === 2 && items[0].id === "n2", "valid notices keep their order, newest first");
+  check(NoticePolicy.requestCurrent(3, 3), "the latest notice request is current");
+  check(!NoticePolicy.requestCurrent(3, 4), "a late notice response is dropped");
   check(NoticePolicy.items('{"ok":false,"error":"x"}').length === 0, "a refusal shows nothing");
   check(NoticePolicy.items("garbage").length === 0, "and so does an unreadable answer");
   check(
