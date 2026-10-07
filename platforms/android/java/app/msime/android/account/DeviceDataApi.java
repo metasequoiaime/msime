@@ -347,7 +347,7 @@ public final class DeviceDataApi {
 
     private static String string(JSONObject object, String key) {
         Object value = object.opt(key);
-        return value instanceof String text ? text : "";
+        return JsonPolicy.strictStringOrEmpty(value);
     }
 
     /** Data summary counters are JSON integers; reject coercion and negative values. */

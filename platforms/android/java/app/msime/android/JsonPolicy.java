@@ -19,6 +19,12 @@ public final class JsonPolicy {
         return value instanceof String ? (String) value : null;
     }
 
+    /** Accept only a JSON string, using an empty string for every other value. */
+    public static String strictStringOrEmpty(Object value) {
+        String text = strictString(value);
+        return text == null ? "" : text;
+    }
+
     /** Accept only a JSON integer that fits in a Java int. */
     public static Integer strictInteger(Object value) {
         if (value instanceof Integer integer) return integer;
