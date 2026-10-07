@@ -1047,6 +1047,8 @@ final class ImePanels {
         s.closeAiPolish();
         s.clipboardTab = CloudClipboardPanelPolicy.initialTab(
             s.clipboardTab, s.clipboardHistoryEnabled, cloudAllowed);
+        // 补读一次：键盘进程没在运行时复制的内容，监听收不到。
+        s.captureClipboard(false);
         renderClipboardHistory();
         ViewPolicy.show(s.clipboardScroll);
         // Fetched on every opening, whichever half is showing: the local half's 发到云剪贴板 needs to know the account is signed in with the cloud clipboard on.
@@ -1179,8 +1181,7 @@ final class ImePanels {
             refresh.setEnabled(s.cloudClipboardStatus != CloudClipboardPanelPolicy.Status.LOADING);
             refresh.setContentDescription("刷新云剪贴板");
         } else if (s.clipboardHistoryEnabled) {
-            Button capture = clipboardAction(header, "保存当前", s::captureClipboardText);
-            capture.setContentDescription("保存当前剪贴板文本");
+            // 复制会自动记录，不再需要「保存当前」。
             clipboardAction(header, "清空", s::confirmClearClipboardHistory);
         }
         s.clipboardPanel.addView(header, KeyboardGeometry.matchWidthHeightPx(s.pixels(32)));
@@ -1191,7 +1192,7 @@ final class ImePanels {
         } else {
             try {
                 java.util.List<ClipboardHistory.Item> items = s.clipboardHistory.load();
-                if (items.isEmpty()) notes.add(clipboardNote("暂无历史 · 保存后点按插入 · 记录仅保存在本机"));
+                if (items.isEmpty()) notes.add(clipboardNote("复制的文字会自动出现在这里，点按即可插入\n只保存在本机"));
                 long now = System.currentTimeMillis();
                 for (ClipboardHistory.Item item : items) {
                     String meta = (item.pinned() ? "已置顶 · " : "") + "本机 · " + relativeTime(item.timestamp(), now);

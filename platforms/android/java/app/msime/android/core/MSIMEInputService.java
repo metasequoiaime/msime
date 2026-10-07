@@ -3,6 +3,7 @@ package app.msime.android;
 import android.inputmethodservice.InputMethodService;
 import app.msime.android.core.Telemetry;
 import android.app.AlertDialog;
+import android.content.ClipData;
 import android.content.ClipDescription;
 import android.content.Context;
 import android.content.Intent;
@@ -492,6 +493,8 @@ public final class MSIMEInputService extends InputMethodService {
     boolean backspaceClearedComposition;
     private long personalDictionarySyncGeneration;
     private Runnable personalDictionarySyncTask;
+    /** 用户每复制一次就记进本机剪贴板历史；只在本服务（当前默认输入法）存活期间监听，关掉剪贴板历史或命中隐私规则时什么也不记。 */
+    private final ClipboardManager.OnPrimaryClipChangedListener clipboardWatcher = () -> captureClipboard(false);
     private long engineStartGeneration;
     private Runnable inputViewRefreshTask;
     final ExecutorService preferencesWorker = Executors.newSingleThreadExecutor();
@@ -1102,6 +1105,8 @@ public final class MSIMEInputService extends InputMethodService {
             handwritingSkin = surfaceSkin(hint, "handwriting_theme");
         }
         Telemetry.beginInputSession(this);
+        ClipboardManager clipboard = getSystemService(ClipboardManager.class);
+        if (clipboard != null) clipboard.addPrimaryClipChangedListener(clipboardWatcher);
     }
 
     @Override public void onStartInputView(EditorInfo info, boolean restarting) {
@@ -1207,6 +1212,8 @@ public final class MSIMEInputService extends InputMethodService {
         render();
     }
     @Override public void onDestroy() {
+        ClipboardManager clipboard = getSystemService(ClipboardManager.class);
+        if (clipboard != null) clipboard.removePrimaryClipChangedListener(clipboardWatcher);
         imeLetterRows.cancelBackspaceRepeat();
         cancelInputViewRefresh();
         engineStartGeneration++;
@@ -4872,27 +4879,33 @@ public final class MSIMEInputService extends InputMethodService {
         closeClipboardHistory();
     }
 
-    void captureClipboardText() {
-        // 「保存当前」是用户点出来的：被隐私规则挡下时要说一声，不能点了没反应。
+    /**
+     * 把当前剪贴板文本记进本机历史。
+     *
+     * <p>Android 的默认输入法本来就能读剪贴板，所以和 Gboard 一样，复制之后自动记下（{@link #clipboardWatcher}），打开面板时再补读一次（键盘进程没在运行时复制的那一条）。`announce` 为假时一律不弹提示：自动记录被隐私规则挡下、内容为空或重复都是正常情况。系统标记为敏感的内容（密码管理器复制的密码，Android 13 起的 `EXTRA_IS_SENSITIVE`）从不记录。
+     */
+    void captureClipboard(boolean announce) {
         if (!imePrivacyGate.allows(ImePrivacyGate.Record.CLIPBOARD_HISTORY)) {
-            Toast.makeText(this, "隐私模式或当前输入框下不保存剪贴板", Toast.LENGTH_SHORT).show();
+            if (announce) Toast.makeText(this, "隐私模式或当前输入框下不保存剪贴板", Toast.LENGTH_SHORT).show();
             return;
         }
         if (!imePrivacyGate.capturesClipboard()) return;
         try {
             ClipboardManager manager = getSystemService(ClipboardManager.class);
-            if (manager == null || !manager.hasPrimaryClip() || manager.getPrimaryClip() == null
-                    || manager.getPrimaryClip().getItemCount() == 0
-                    || manager.getPrimaryClipDescription() == null
-                    || !(manager.getPrimaryClipDescription().hasMimeType(ClipDescription.MIMETYPE_TEXT_PLAIN)
-                        || manager.getPrimaryClipDescription().hasMimeType(ClipDescription.MIMETYPE_TEXT_HTML))) {
-                Toast.makeText(this, ClipboardHistoryPolicy.message(
+            ClipData clip = manager == null || !manager.hasPrimaryClip() ? null : manager.getPrimaryClip();
+            ClipDescription description = clip == null ? null : clip.getDescription();
+            if (clip == null || clip.getItemCount() == 0 || description == null
+                    || !(description.hasMimeType(ClipDescription.MIMETYPE_TEXT_PLAIN)
+                        || description.hasMimeType(ClipDescription.MIMETYPE_TEXT_HTML))) {
+                if (announce) Toast.makeText(this, ClipboardHistoryPolicy.message(
                     ClipboardHistoryPolicy.Rejection.EMPTY), Toast.LENGTH_SHORT).show();
                 return;
             }
-            CharSequence value = manager.getPrimaryClip().getItemAt(0).getText();
+            if (description.getExtras() != null
+                    && description.getExtras().getBoolean(ClipDescription.EXTRA_IS_SENSITIVE, false)) return;
+            CharSequence value = clip.getItemAt(0).getText();
             if (!ClipboardHistoryPolicy.hasText(value == null ? null : value.toString())) {
-                Toast.makeText(this, ClipboardHistoryPolicy.message(
+                if (announce) Toast.makeText(this, ClipboardHistoryPolicy.message(
                     ClipboardHistoryPolicy.Rejection.EMPTY), Toast.LENGTH_SHORT).show();
                 return;
             }
@@ -4900,13 +4913,13 @@ public final class MSIMEInputService extends InputMethodService {
             // that here as well is what made this host disagree with the store it writes into.
             String reason = clipboardHistory.add(value.toString());
             if (reason != null) {
-                Toast.makeText(this, ClipboardHistoryPolicy.message(
+                if (announce) Toast.makeText(this, ClipboardHistoryPolicy.message(
                     ClipboardHistoryPolicy.rejectionFor(reason)), Toast.LENGTH_SHORT).show();
                 return;
             }
-            imePanels.renderClipboardHistory();
+            if (imePanels.clipboardPanelOpen()) imePanels.renderClipboardHistory();
         } catch (IllegalArgumentException | IllegalStateException | SecurityException error) {
-            Toast.makeText(this, "无法保存当前剪贴板", Toast.LENGTH_SHORT).show();
+            if (announce) Toast.makeText(this, "无法保存当前剪贴板", Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -5967,7 +5980,9 @@ public final class MSIMEInputService extends InputMethodService {
         clipboardPanel.setBackgroundColor(Color.parseColor(skin.background()));
         clipboardPanel.setContentDescription("剪贴板历史");
         clipboardScroll = new ScrollView(this);
-        clipboardScroll.addView(clipboardPanel);
+        // 和候选、方案面板一样撑满整个键区：原先内容少时滚动视图本身是透明的，下面的键从空白处露出来。
+        clipboardScroll.setFillViewport(true);
+        clipboardScroll.addView(clipboardPanel, KeyboardGeometry.scrollMatchParentParams());
         ViewPolicy.hide(clipboardScroll);
         keyboardSurface.addView(clipboardScroll, KeyboardGeometry.frameMatchParentParams());
         schemePanel = KeyboardGeometry.column(this);
