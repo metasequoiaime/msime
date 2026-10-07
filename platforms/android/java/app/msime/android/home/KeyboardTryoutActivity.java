@@ -97,7 +97,7 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
         // 固定 20 dp 圆角而不是全圆：单行 40 dp 高时看起来仍是胶囊，长到几行时是圆角矩形，不会撑成一个椭圆。
         android.graphics.drawable.GradientDrawable pill = Ui.outlined(Ui.page(this),
             Ui.dp(this, 20), Ui.dp(this, 1), Ui.hairline(this));
-        field.setBackground(pill);
+        ViewPolicy.setBackground(field, pill);
         // 聊天页的回车是发送：键盘回车显示「发送」，按下等同右边的发送键，不再插入换行把输入框越撑越高。长句仍会折行显示，最多 4 行。
         field.setHorizontallyScrolling(false);
         ViewPolicy.setMaxLines(field, 4);
@@ -369,7 +369,7 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
         setBubbleText(bubble, text, !mine);
         if (!mine) bubble.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
         ViewPolicy.setLineSpacing(bubble, Ui.dp(this, 3), 1f);
-        bubble.setBackground(Ui.rounded(mine ? Ui.accent(this) : Ui.card(this), Ui.dp(this, 18)));
+        ViewPolicy.setBackground(bubble, Ui.rounded(mine ? Ui.accent(this) : Ui.card(this), Ui.dp(this, 18)));
         Ui.setSymmetricPaddingDp(bubble, this, 14, 10);
         bubble.setMaxWidth(Math.round(Ui.screenWidthPixels(this) * 0.8f));
         LinearLayout.LayoutParams params = Ui.wrap();
