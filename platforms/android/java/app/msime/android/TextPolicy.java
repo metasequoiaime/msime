@@ -1,6 +1,11 @@
 package app.msime.android;
 
+import java.nio.ByteBuffer;
+import java.nio.CharBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
+import java.util.Locale;
 
 /** Shared character-level checks for text accepted by Android host policies. */
 public final class TextPolicy {
@@ -22,10 +27,30 @@ public final class TextPolicy {
             && codePoint != '\n' && codePoint != '\r' && codePoint != '\t');
     }
 
+    /** Replace ISO control characters while preserving all other UTF-16 units. */
+    public static String replaceControls(String value, char replacement) {
+        if (value == null || value.isEmpty()) return value == null ? "" : value;
+        StringBuilder result = new StringBuilder(value.length());
+        for (int index = 0; index < value.length(); index++) {
+            char unit = value.charAt(index);
+            result.append(Character.isISOControl(unit) ? replacement : unit);
+        }
+        return result.toString();
+    }
+
+    /** Remove ISO control code points while preserving all other Unicode text. */
+    public static String removeControls(String value) {
+        if (value == null || value.isEmpty()) return value == null ? "" : value;
+        StringBuilder result = new StringBuilder(value.length());
+        value.codePoints().filter(codePoint -> !Character.isISOControl(codePoint))
+            .forEach(result::appendCodePoint);
+        return result.toString();
+    }
+
     /** Accepts a bounded URL with the requested scheme and a non-empty authority. */
     public static boolean validAuthority(String value, String scheme, int maxBytes) {
         if (value == null || value.isEmpty() || !value.startsWith(scheme)
-                || utf8Length(value) > maxBytes || hasControl(value)) return false;
+                || utf8Length(value) > maxBytes || hasControl(value) || !validUnicode(value)) return false;
         String rest = value.substring(scheme.length());
         int end = rest.length();
         for (char separator : new char[] {'/', '?', '#'}) {
@@ -49,6 +74,65 @@ public final class TextPolicy {
         return value.getBytes(StandardCharsets.UTF_8).length;
     }
 
+    /** Decode UTF-8 response bytes with the shared text policy. */
+    public static String utf8(byte[] value) {
+        return value == null ? "" : new String(value, StandardCharsets.UTF_8);
+    }
+
+    /** Decode UTF-8 bytes strictly, reporting malformed or unmappable input to the caller. */
+    public static String utf8Strict(byte[] value) throws CharacterCodingException {
+        return StandardCharsets.UTF_8.newDecoder()
+            .onMalformedInput(CodingErrorAction.REPORT)
+            .onUnmappableCharacter(CodingErrorAction.REPORT)
+            .decode(ByteBuffer.wrap(value)).toString();
+    }
+
+    /** Encode text as UTF-8 strictly, reporting malformed or unmappable input to the caller. */
+    public static byte[] utf8StrictBytes(String value) throws CharacterCodingException {
+        ByteBuffer encoded = StandardCharsets.UTF_8.newEncoder()
+            .onMalformedInput(CodingErrorAction.REPORT)
+            .onUnmappableCharacter(CodingErrorAction.REPORT)
+            .encode(CharBuffer.wrap(value));
+        byte[] result = new byte[encoded.remaining()];
+        encoded.get(result);
+        return result;
+    }
+
+    /** Encode UTF-8 request text, treating a missing value as empty text. */
+    public static byte[] utf8Bytes(String value) {
+        return (value == null ? "" : value).getBytes(StandardCharsets.UTF_8);
+    }
+
+    /** Return lowercase text using the stable root locale, treating null as empty. */
+    public static String lowercase(String value) {
+        return (value == null ? "" : value).toLowerCase(Locale.ROOT);
+    }
+
+    /** Return uppercase text using the stable root locale, treating null as empty. */
+    public static String uppercase(String value) {
+        return (value == null ? "" : value).toUpperCase(Locale.ROOT);
+    }
+
+    /** Return text with ASCII whitespace trimmed, treating null as empty. */
+    public static String trimmed(String value) {
+        return value == null ? "" : value.trim();
+    }
+
+    /** Return text with Unicode whitespace stripped, treating null as empty. */
+    public static String stripped(String value) {
+        return value == null ? "" : value.strip();
+    }
+
+    /** Return text unchanged, treating a missing value as empty text. */
+    public static String emptyIfNull(String value) {
+        return value == null ? "" : value;
+    }
+
+    /** Return the number of Unicode code points in text, or zero for null. */
+    public static int codePointLength(String value) {
+        return value == null ? 0 : value.codePointCount(0, value.length());
+    }
+
     /** Truncates UTF-8 text by bytes without splitting a code point. */
     public static String clipUtf8(String value, int maxBytes) {
         if (value == null) return "";
@@ -63,5 +147,47 @@ public final class TextPolicy {
             index += Character.charCount(codePoint);
         }
         return value.substring(0, index);
+    }
+
+    /** Truncate text to at most {@code maxChars} UTF-16 code units. */
+    public static String clip(String value, int maxChars) {
+        if (value == null || maxChars <= 0) return "";
+        return value.length() <= maxChars ? value : value.substring(0, maxChars);
+    }
+
+    /** Truncate UTF-16 text without leaving a high surrogate at the end. */
+    public static String clipSurrogateSafe(String value, int maxChars) {
+        if (value == null || maxChars <= 0) return value;
+        if (value.length() <= maxChars) return value;
+        int end = maxChars;
+        if (Character.isHighSurrogate(value.charAt(end - 1))) end--;
+        return value.substring(0, end);
+    }
+
+    /** Truncate text to at most {@code maxCodePoints} without splitting a surrogate pair. */
+    public static String clipCodePoints(String value, int maxCodePoints) {
+        if (value == null || maxCodePoints <= 0) return "";
+        if (codePointLength(value) <= maxCodePoints) return value;
+        return value.substring(0, value.offsetByCodePoints(0, maxCodePoints));
+    }
+
+    /** Return whether non-null text fits within a Unicode code-point limit. */
+    public static boolean withinCodePoints(String value, int maxCodePoints) {
+        return value != null && maxCodePoints >= 0
+            && codePointLength(value) <= maxCodePoints;
+    }
+
+    /** Keep at most the final Unicode code points without splitting a surrogate pair. */
+    public static String tailCodePoints(String value, int maxCodePoints) {
+        if (value == null || maxCodePoints <= 0) return "";
+        int count = codePointLength(value);
+        return count <= maxCodePoints ? value
+            : value.substring(value.offsetByCodePoints(0, count - maxCodePoints));
+    }
+
+    /** Truncate text and append an ellipsis only when the character limit is exceeded. */
+    public static String clipWithEllipsis(String value, int maxChars) {
+        if (value == null || maxChars <= 0) return "";
+        return value.length() <= maxChars ? value : value.substring(0, maxChars) + "\n…";
     }
 }

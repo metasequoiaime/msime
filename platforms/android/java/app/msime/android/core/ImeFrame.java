@@ -72,26 +72,23 @@ final class ImeFrame {
     private LinearLayout column() {
         if (column != null && row != null && row.getParent() == keyboard) return column;
         row = new OneHandRow(s);
-        column = new LinearLayout(s);
-        column.setOrientation(LinearLayout.VERTICAL);
+        column = KeyboardGeometry.column(s);
         row.keys = column;
         gutter = new OneHandGutterView(s);
         gutter.setOnSwap(() -> s.toggleOneHanded(true));
         gutter.setOnExit(() -> {
             if (oneHanded(s.oneHandedMode)) s.toggleOneHanded(false);
         });
-        gutter.setVisibility(View.GONE);
-        row.addView(column, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
-        keyboard.addView(row, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        ViewPolicy.hide(gutter);
+        row.addView(column, KeyboardGeometry.weightedWrapParams(1));
+        keyboard.addView(row, KeyboardGeometry.matchWidthWrapParams());
         appliedMode = "";
         return column;
     }
 
     /** 按默认布局参数放入键区。 */
     void wrap(ViewGroup keyArea) {
-        column().addView(keyArea, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        column().addView(keyArea, KeyboardGeometry.matchWidthWrapParams());
         applyOneHanded();
     }
 
@@ -101,10 +98,11 @@ final class ImeFrame {
         applyOneHanded();
     }
 
-    /** 按当前 `touch_one_handed` 摆放侧栏与键区；与上次相同时只刷新颜色。渲染与换肤时调用。 */
+    /** 按当前 `touch_one_handed` 摆放侧栏与键区；与上次相同时只刷新颜色。渲染与换肤时调用。分离式键盘画着的时候单手模式不生效（存着的值不变，回到不分离时自动恢复），见 {@link SplitKeyboardPolicy#effectiveOneHanded}。 */
     void applyOneHanded() {
         if (row == null || gutter == null || column == null) return;
-        String mode = oneHanded(s.oneHandedMode) ? s.oneHandedMode : "off";
+        String stored = SplitKeyboardPolicy.effectiveOneHanded(s.oneHandedMode, s.splitKeyboardDrawn());
+        String mode = oneHanded(stored) ? stored : "off";
         if (s.skin != null) {
             gutter.setColors(Color.parseColor(s.skin.keyBackground()), Color.parseColor(s.skin.toolbarIcon()));
         }
@@ -112,20 +110,18 @@ final class ImeFrame {
         appliedMode = mode;
         if (gutter.getParent() != null) row.removeView(gutter);
         if (!oneHanded(mode)) {
-            gutter.setVisibility(View.GONE);
-            column.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+            ViewPolicy.hide(gutter);
+            column.setLayoutParams(KeyboardGeometry.weightedWrapParams(1));
             row.requestLayout();
             return;
         }
         float gutterWeight = OneHandGutterView.GUTTER_FRACTION;
-        LinearLayout.LayoutParams gutterParams = new LinearLayout.LayoutParams(0,
-            LinearLayout.LayoutParams.MATCH_PARENT, gutterWeight);
+        LinearLayout.LayoutParams gutterParams = KeyboardGeometry.weightedMatchParentParams(gutterWeight);
         boolean left = gutterOnLeft(mode);
         gutter.setKeyboardOnRight(left);
-        gutter.setVisibility(View.VISIBLE);
+        ViewPolicy.show(gutter);
         row.addView(gutter, left ? 0 : 1, gutterParams);
-        column.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT,
-            1f - gutterWeight));
+        column.setLayoutParams(KeyboardGeometry.weightedWrapParams(1f - gutterWeight));
         row.requestLayout();
     }
 

@@ -144,6 +144,41 @@ final class BackendCommunityResourceTests: XCTestCase {
     } catch let failure as BackendAccountClient.Failure { XCTAssertEqual(failure.status, 400) }
     XCTAssertEqual(ResourceProtocol.requests, 0)
   }
+  func testCommunityMutationsRejectNilIDsAndUnrepresentableRevisionBeforeSending() async throws {
+    let api = client(), nilID = UUID(uuidString: "00000000-0000-0000-0000-000000000000")!
+    ResourceProtocol.requests = 0
+    do {
+      _ = try await api.communityResource(nilID)
+      XCTFail("nil resource ID was sent")
+    } catch let failure as BackendAccountClient.Failure { XCTAssertEqual(failure.status, 400) }
+    do {
+      _ = try await api.publishResource(id: ResourceProtocol.id, kind: .reply, name: "模板", description: "",
+                                        content: .init(prompt: "回复"), revision: 50_001, token: "session")
+      XCTFail("unrepresentable publication revision was sent")
+    } catch let failure as BackendAccountClient.Failure { XCTAssertEqual(failure.status, 400) }
+    do {
+      _ = try await api.publishResource(id: nilID, kind: .reply, name: "模板", description: "",
+                                        content: .init(prompt: "回复"), revision: 0, token: "session")
+      XCTFail("nil publication ID was sent")
+    } catch let failure as BackendAccountClient.Failure { XCTAssertEqual(failure.status, 400) }
+    do {
+      _ = try await api.applyResource(nilID, resourceRevision: 1, dictionaryRevision: 0, token: "session")
+      XCTFail("nil apply ID was sent")
+    } catch let failure as BackendAccountClient.Failure { XCTAssertEqual(failure.status, 400) }
+    do {
+      try await api.saveResource(nilID, saved: true, token: "session")
+      XCTFail("nil save ID was sent")
+    } catch let failure as BackendAccountClient.Failure { XCTAssertEqual(failure.status, 400) }
+    do {
+      try await api.rateResource(nilID, stars: 1, token: "session")
+      XCTFail("nil rating ID was sent")
+    } catch let failure as BackendAccountClient.Failure { XCTAssertEqual(failure.status, 400) }
+    do {
+      try await api.deleteResource(nilID, token: "session")
+      XCTFail("nil delete ID was sent")
+    } catch let failure as BackendAccountClient.Failure { XCTAssertEqual(failure.status, 400) }
+    XCTAssertEqual(ResourceProtocol.requests, 0)
+  }
 
   func testMalformedResourceResponsesAreRejected() async throws {
     let configuration = URLSessionConfiguration.ephemeral

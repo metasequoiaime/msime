@@ -10,7 +10,7 @@
 # 签名照做，只是 signtool verify 的链校验过不了）。之后每次运行都会复用它。
 #
 # 安装包文件名从 msime_setup.iss 的 MyAppVersion 读出，免得两处版本号打架。
-# 传 -Light 时签名 Output\MetasequoiaIME_Setup_v*_light.exe。
+# 传 -Light 时签名 Output\MetasequoiaIME-Full_Setup_v*_light.exe。
 
 param(
     [switch]$Light
@@ -162,7 +162,7 @@ if ($issContent -notmatch '(?m)^#define\s+MyAppVersion\s+"(?<version>[^"]+)"') {
 $version = $Matches.version
 
 $suffix = if ($Light) { '_light' } else { '' }
-$installerPath = Join-Path $PSScriptRoot "Output\MetasequoiaIME_Setup_v$version$suffix.exe"
+$installerPath = Join-Path $PSScriptRoot "Output\MetasequoiaIME-Full_Setup_v$version$suffix.exe"
 if (-not (Test-Path -LiteralPath $installerPath -PathType Leaf)) {
     throw "安装文件不存在，请先用 Inno Setup 编译 msime_setup.iss：$installerPath"
 }

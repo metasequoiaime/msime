@@ -14,6 +14,8 @@ public final class VoiceContributionApi {
     public static final int MAX_AUDIO_BYTES = 2 * 1024 * 1024;
     public static final long MAX_DURATION_MILLIS = 60_000;
     public static final int MAX_TRANSCRIPT = 2000;
+    /** Maximum UTF-8 byte length of metadata fields carried in a contribution. */
+    public static final int MAX_METADATA_FIELD_LENGTH = 64;
 
     /** 一次贡献：识别语言、识别器、时长、识别文本、应用版本与 WAV 音频。 */
     public record Contribution(String language, String provider, long durationMillis, String transcript,
@@ -34,19 +36,23 @@ public final class VoiceContributionApi {
                 || wav[8] != 'W' || wav[9] != 'A' || wav[10] != 'V' || wav[11] != 'E') return false;
         if (contribution.durationMillis() <= 0 || contribution.durationMillis() > MAX_DURATION_MILLIS) return false;
         String transcript = contribution.transcript();
-        if (transcript == null || transcript.trim().isEmpty()) return false;
-        if (transcript.codePointCount(0, transcript.length()) > MAX_TRANSCRIPT) return false;
+        if (transcript == null || TextPolicy.trimmed(transcript).isEmpty()) return false;
+        if (!TextPolicy.withinCodePoints(transcript, MAX_TRANSCRIPT)
+                || TextPolicy.hasControlExceptWhitespace(transcript)
+                || !TextPolicy.validUnicode(transcript)) return false;
         return nonEmpty(contribution.language()) && nonEmpty(contribution.provider())
             && nonEmpty(contribution.appVersion());
     }
 
     /** PCM 的时长（毫秒）：16 kHz 单声道 16 位。 */
     public static long durationMillis(int pcmBytes) {
-        return Math.max(0, pcmBytes) / 2L * 1000L / WavAudio.SAMPLE_RATE;
+        return BoundsPolicy.nonNegative(pcmBytes) / 2L * 1000L / WavAudio.SAMPLE_RATE;
     }
 
     private static boolean nonEmpty(String value) {
-        return value != null && !value.isEmpty() && value.length() <= 64 && !TextPolicy.hasControl(value);
+        return value != null && !value.isEmpty()
+            && TextPolicy.utf8Length(value) <= MAX_METADATA_FIELD_LENGTH
+            && !TextPolicy.hasControl(value) && TextPolicy.validUnicode(value);
     }
 
     /** 上传一次贡献，返回服务端给的 id。不合规的贡献直接拒绝，不发请求。 */
@@ -68,6 +74,12 @@ public final class VoiceContributionApi {
             CloudApi.Part.json("payload", payload),
             CloudApi.Part.file("audio", "voice.wav", "audio/wav", contribution.wav())),
             CloudApi.Auth.ANONYMOUS);
-        return response.optString("id", "");
+        String id = strictString(response.opt("id"));
+        return id == null ? "" : id;
+    }
+
+    /** org.json's optString coerces numbers; contribution identifiers must stay JSON strings. */
+    static String strictString(Object value) {
+        return value instanceof String ? (String) value : null;
     }
 }

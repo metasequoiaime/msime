@@ -147,7 +147,10 @@ struct WelcomeFlowView: View {
         Text("查看全部输入方案").font(.system(size: 15))
       }.padding(.top, 4).accessibilityIdentifier("welcomeAllSchemesLink")
     }
-    .onAppear { scheme = InputSchemePreference.scheme }
+    .onAppear {
+      InputSchemePreference.mirror(MetasequoiaInputSessionBridge.loadSharedPreferences())
+      scheme = InputSchemePreference.scheme
+    }
   }
 
   private var translationStep: some View {
@@ -289,10 +292,10 @@ struct WelcomeFlowView: View {
   private static let glossSample = [("候选", "candidate"), ("后选", "choice"), ("侯选", "option"), ("候", "wait")]
 
   private func select(_ choice: ChineseInputScheme) {
-    var enabled = InputSchemePreference.enabledSchemes
-    if !enabled.contains(choice) { enabled.append(choice) }
     // The first run has no page to report a failed document write on; the App Group still holds the choice until the keyboard first records a scheme of its own.
-    if !InputSchemePreference.save(scheme: choice, enabled: enabled) {
+    if !InputSchemePreference.select(choice) {
+      var enabled = InputSchemePreference.enabledSchemes
+      if !enabled.contains(choice) { enabled.append(choice) }
       InputSchemePreference.enabledSchemes = enabled
       InputSchemePreference.scheme = choice
     }

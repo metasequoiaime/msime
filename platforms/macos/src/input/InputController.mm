@@ -87,6 +87,8 @@ extern "C" void MSIMEEnsureAnonymousAccount(void) __attribute__((weak_import));
 // Apple's on-device translation, also in the Swift backend. Null when the backend was built by a toolchain older than the macOS 26 SDK.
 extern "C" void MSIMEFetchOnDeviceCandidateGlosses(const char *wordsJSON, const char *targetsJSON) __attribute__((weak_import));
 
+static BOOL MSIMEStrictBoolean(id value);
+
 static dispatch_queue_t MSIMETypingStatisticsQueue(void) {
     static dispatch_queue_t queue;
     static dispatch_once_t once;
@@ -161,7 +163,7 @@ static void MSIMERecordTypingStatistics(NSString *directory, NSString *text, msi
             NSDictionary *envelope = [NSJSONSerialization JSONObjectWithData:body options:0 error:nil];
             if (![envelope isKindOfClass:NSDictionary.class])
                 msime_macos_diagnostic_write("stats: record_failed reason=malformed_response");
-            else if (![envelope[@"ok"] isEqual:@YES])
+            else if (!MSIMEStrictBoolean(envelope[@"ok"]))
                 msime_macos_diagnostic_write("stats: record_failed reason=store");
         }
         msime_client_string_free(response);
@@ -204,7 +206,7 @@ static void MSIMERecordKeyPresses(NSString *directory, msime::mac::KeyPressFlush
             NSDictionary *envelope = [NSJSONSerialization JSONObjectWithData:body options:0 error:nil];
             if (![envelope isKindOfClass:NSDictionary.class])
                 msime_macos_diagnostic_write("stats: record_keys_failed reason=malformed_response");
-            else if (![envelope[@"ok"] isEqual:@YES])
+            else if (!MSIMEStrictBoolean(envelope[@"ok"]))
                 msime_macos_diagnostic_write("stats: record_keys_failed reason=store");
         }
         msime_client_string_free(response);
@@ -214,7 +216,7 @@ static void MSIMERecordKeyPresses(NSString *directory, msime::mac::KeyPressFlush
 static NSString *MSIMEAICacheKey(NSDictionary *online) {
     NSDictionary *config = online[@"ai_assistant"];
     NSArray *segments = online[@"pinyin_segments"];
-    if (![config isKindOfClass:NSDictionary.class] || ![config[@"enabled"] boolValue] ||
+    if (![config isKindOfClass:NSDictionary.class] || !MSIMEStrictBoolean(config[@"enabled"]) ||
         ![segments isKindOfClass:NSArray.class] || !segments.count ||
         ![NSJSONSerialization isValidJSONObject:segments]) return nil;
     NSDictionary *identity = @{ @"provider": [config[@"provider"] isKindOfClass:NSString.class] ? config[@"provider"] : @"",
@@ -246,6 +248,15 @@ static BOOL MSIMEStrictUnsignedInteger(id value, uint64_t *result) {
     return YES;
 }
 
+// JSON booleans arrive as CFBoolean-backed NSNumbers. NSNumber's boolValue also
+// treats every nonzero number as true, which would let malformed protocol values
+// such as 1 or "true" take the success path.
+static BOOL MSIMEStrictBoolean(id value) {
+    if (![value isKindOfClass:NSNumber.class] ||
+        CFGetTypeID((__bridge CFTypeRef)value) != CFBooleanGetTypeID()) return NO;
+    return CFBooleanGetValue((CFBooleanRef)(__bridge CFTypeRef)value);
+}
+
 static BOOL MSIMEStrictUnsignedIntegerValue(id value, NSUInteger *result) {
     uint64_t integer = 0;
     if (!MSIMEStrictUnsignedInteger(value, &integer) || integer > NSUIntegerMax) return NO;
@@ -268,13 +279,13 @@ static msime::mac::TypingSource MSIMEResolveTypingSource(NSDictionary *context, 
     if (strictScheme == NSIntegerMin) return msime::mac::TypingSource::Unknown;
     NSString *localMode = effectiveContext[@"local_mode"];
     if (![localMode isKindOfClass:NSString.class]) localMode = @"none";
-    NSNumber *nineKey = view[@"nine_key"];
-    BOOL dedicatedEnglish = [view[@"dedicated_english"] boolValue] || englishMode;
+    const BOOL nineKey = MSIMEStrictBoolean(view[@"nine_key"]);
+    BOOL dedicatedEnglish = MSIMEStrictBoolean(view[@"dedicated_english"]) || englishMode;
     NSDictionary *preferences = [hostOptions[@"preferences"] isKindOfClass:NSDictionary.class] ? hostOptions[@"preferences"] : @{};
     NSString *profile = view[@"shuangpin_profile"];
     if (![profile isKindOfClass:NSString.class]) profile = preferences[@"shuangpin_profile"];
     if (![profile isKindOfClass:NSString.class]) profile = @"xiaohe";
-    return msime::mac::ResolveTypingSource((int)strictScheme, [nineKey boolValue], dedicatedEnglish,
+    return msime::mac::ResolveTypingSource((int)strictScheme, nineKey, dedicatedEnglish,
         localMode.UTF8String ?: "none", profile.UTF8String ?: "xiaohe");
 }
 
@@ -284,14 +295,14 @@ static NSDictionary *MSIMEStatisticsHostOptions(MSIMEClientSession *session) {
 
 // A view or commit context says itself whether Simplified-to-Traditional conversion applies to its text (`script_conversion`): the runtime decides it from the scheme and the local mode the text was made in. The runtime always writes the field and this host builds no view or commit context of its own, so a dictionary without it did not come from the runtime and its text is left as it is.
 static BOOL MSIMEScriptConversionApplies(id value) {
-    return [value isKindOfClass:NSDictionary.class] && [value[@"script_conversion"] isEqual:@YES];
+    return [value isKindOfClass:NSDictionary.class] && MSIMEStrictBoolean(value[@"script_conversion"]);
 }
 
 // commit_context.typing_statistics is false for text the expression, command and mention modes produced: a result the Engine worked out, not something the user typed. A context without the field predates it and counts.
 static BOOL MSIMECommitCountsAsTyping(id context) {
     if (![context isKindOfClass:NSDictionary.class]) return YES;
     id counts = context[@"typing_statistics"];
-    return ![counts isKindOfClass:NSNumber.class] || [counts boolValue];
+    return ![counts isKindOfClass:NSNumber.class] || MSIMEStrictBoolean(counts);
 }
 
 // Whether the Engine takes this character as input in the view's state: View.spelling_symbols lists the non-letter keys the active mode spells with (digits and operators in expression mode, digits in Unicode mode, Zhuyin's bopomofo and tone keys including Space, Cantonese's syllable apostrophe) and, with nothing composed, the keys that open a mode (/ and @). Such a key belongs to the Engine even where this host would otherwise read it as a candidate digit, a paging key or a punctuation shortcut.
@@ -308,8 +319,7 @@ static NSString *CandidateDisplay(NSDictionary *candidate, BOOL traditional) {
     NSString *annotation = candidate[@"annotation"];
     NSString *text = candidate[@"text"];
     id corrected = candidate[@"corrected"];
-    if ([corrected isKindOfClass:NSNumber.class] && CFGetTypeID((__bridge CFTypeRef)corrected) == CFBooleanGetTypeID() &&
-        [corrected boolValue]) text = [text stringByAppendingString:@"*"];
+    if (MSIMEStrictBoolean(corrected)) text = [text stringByAppendingString:@"*"];
     if ([annotation isKindOfClass:NSString.class]) text = [text stringByAppendingString:annotation];
     text = MSIMEChineseOutputString(text, traditional);
     id source = candidate[@"source"];
@@ -335,7 +345,7 @@ static NSString *MSIMEWubiCodeHint(NSDictionary *candidate, NSDictionary *view, 
     const std::string hint = msime::mac::WubiCodeHint(codeUTF8, typedUTF8, enabled,
                                                        (int)MSIMEStrictInteger(view[@"scheme"], -1),
                                                        localMode.UTF8String ?: "none",
-                                                       [view[@"answered_by_pinyin_fallback"] boolValue]);
+                                                       MSIMEStrictBoolean(view[@"answered_by_pinyin_fallback"]));
     return hint.empty() ? @"" : [[NSString alloc] initWithBytes:hint.data() length:hint.size() encoding:NSUTF8StringEncoding];
 }
 
@@ -519,7 +529,7 @@ static NSArray<NSDictionary *> *MSIMEOnlineGlossCandidates(NSDictionary *query) 
     for (NSDictionary *candidate in raw) {
         if (![candidate isKindOfClass:NSDictionary.class] ||
             ![candidate[@"text"] isKindOfClass:NSString.class] ||
-            ![candidate[@"online_gloss"] isEqual:@YES]) continue;
+            !MSIMEStrictBoolean(candidate[@"online_gloss"])) continue;
         [candidates addObject:candidate];
     }
     return [candidates copy];
@@ -617,7 +627,7 @@ static BOOL MSIMEPairedPunctuationExcludedHost(void) {
     return MSIMEPairedPunctuationExcludedBundleIdentifier(app.bundleIdentifier);
 }
 static BOOL MSIMECurrentCandidateIdentity(id identifier, NSDictionary *view) {
-    if (![identifier isKindOfClass:NSDictionary.class] || ![view[@"focused"] isEqual:@YES]) return NO;
+    if (![identifier isKindOfClass:NSDictionary.class] || !MSIMEStrictBoolean(view[@"focused"])) return NO;
     for (NSString *key in @[@"session", @"generation", @"index"])
         if (!MSIMEUnsignedCandidateIdentityValue(identifier[key])) return NO;
     for (NSString *key in @[@"session", @"generation"])
@@ -699,7 +709,7 @@ static BOOL MSIMEASCIIAlphanumeric(unichar character) {
 }
 // The scheme's own rules hold: dedicated English and the local modes keep their own rules inside any scheme, so a scheme trait only applies outside them.
 static BOOL MSIMESchemeRulesApply(NSDictionary *view) {
-    if (![view isKindOfClass:NSDictionary.class] || [view[@"dedicated_english"] isEqual:@YES]) return NO;
+    if (![view isKindOfClass:NSDictionary.class] || MSIMEStrictBoolean(view[@"dedicated_english"])) return NO;
     id mode = view[@"local_mode"];
     return ![mode isKindOfClass:NSString.class] || [mode isEqualToString:@"none"];
 }
@@ -715,7 +725,7 @@ static BOOL MSIMESchemeTrait(NSDictionary *view, bool (*trait)(int)) {
 }
 // The scheme's openable candidate list (the Korean Hanja list) is showing, as the view reports it (msime_client.h, MSIME_OPEN_CANDIDATE_LIST).
 static BOOL MSIMECandidateListOpen(NSDictionary *view) {
-    return [view isKindOfClass:NSDictionary.class] && [view[@"candidate_list_open"] isEqual:@YES];
+    return [view isKindOfClass:NSDictionary.class] && MSIMEStrictBoolean(view[@"candidate_list_open"]);
 }
 // The opened list is the Korean Hanja list, whose rows carry each Hanja's 훈음 as their annotation; a Zhuyin list carries none.
 static BOOL MSIMEKoreanHanjaListOpen(NSDictionary *view) {
@@ -1414,7 +1424,7 @@ static NSImage *MSIMECandidateLogoImage() {
     uint32_t preceding = 0;
     if (hasComposition) {
         for (NSDictionary *candidate in _view[@"candidates"]) {
-            if (![candidate isKindOfClass:NSDictionary.class] || ![candidate[@"highlighted"] isEqual:@YES]) continue;
+            if (![candidate isKindOfClass:NSDictionary.class] || !MSIMEStrictBoolean(candidate[@"highlighted"])) continue;
             NSString *text = candidate[@"text"];
             if ([text isKindOfClass:NSString.class] && text.length && MSIMEASCIIAlphanumeric([text characterAtIndex:text.length - 1]))
                 preceding = [text characterAtIndex:text.length - 1];
@@ -1437,7 +1447,7 @@ static NSImage *MSIMECandidateLogoImage() {
                 transition = converted;
             }
             [self apply:transition];
-        } else if ([transition[@"handled"] boolValue]) {
+        } else if (MSIMEStrictBoolean(transition[@"handled"])) {
             NSString *commit = transition[@"commit"];
             if (_appearance.runtimeFullWidthInput && [commit isKindOfClass:NSString.class] && commit.length &&
                 [commit characterAtIndex:commit.length - 1] == character) {
@@ -1524,7 +1534,7 @@ static NSImage *MSIMECandidateLogoImage() {
     NSArray *candidates = MSIMEReorderedPinnedCandidates(_view[@"candidates"], MSIMECandidatePinCode(_view));
     if (![candidates isKindOfClass:NSArray.class]) return nil;
     for (NSDictionary *candidate in candidates)
-        if ([candidate isKindOfClass:NSDictionary.class] && [candidate[@"highlighted"] boolValue]) return candidate;
+        if ([candidate isKindOfClass:NSDictionary.class] && MSIMEStrictBoolean(candidate[@"highlighted"])) return candidate;
     return nil;
 }
 
@@ -1604,7 +1614,7 @@ static NSImage *MSIMECandidateLogoImage() {
     NSDictionary *transition = [_session command:MSIME_COMMIT_READING error:nil];
     // The Engine answers nothing for a composition it cannot read back as kana; that key then
     // means what it always meant.
-    if (!transition || ![transition[@"handled"] boolValue]) return NO;
+    if (!transition || !MSIMEStrictBoolean(transition[@"handled"])) return NO;
     [self apply:transition];
     return YES;
 }
@@ -1784,7 +1794,7 @@ static NSImage *MSIMECandidateLogoImage() {
     // OnlineQuery serializes Engine's segmentation as pinyin_segments. Keep the
     // provider request field name (segmented_pinyin) at the HTTP boundary only.
     NSArray *segments = online[@"pinyin_segments"];
-    if (![config isKindOfClass:NSDictionary.class] || ![config[@"enabled"] boolValue] ||
+    if (![config isKindOfClass:NSDictionary.class] || !MSIMEStrictBoolean(config[@"enabled"]) ||
         ![segments isKindOfClass:NSArray.class] || !segments.count) { [self cancelAITranslations]; return; }
     if (!_aiCandidateCache) _aiCandidateCache = [NSMutableDictionary dictionary];
     NSDictionary *query = @{ @"online": online, @"config": config };
@@ -1795,7 +1805,7 @@ static NSImage *MSIMECandidateLogoImage() {
         ? _aiCandidateCache[cacheKey] : nil;
     if (cachedCandidates.count) {
         NSDictionary *transition = [_session applyOnlineCandidates:cachedCandidates source:1 query:online error:nil];
-        if ([transition[@"applied"] boolValue]) {
+        if (MSIMEStrictBoolean(transition[@"applied"])) {
             // The same shape the provider path records, not the bare online query: this value is compared
             // against a freshly built @{online, config} on the next render, and a bare one never matches,
             // so the render that follows this apply asked the session for another descriptor.
@@ -1830,7 +1840,7 @@ static NSImage *MSIMECandidateLogoImage() {
             NSMutableArray *texts = [NSMutableArray array];
             for (NSDictionary *result in results) if ([result[@"translation"] isKindOfClass:NSString.class]) [texts addObject:result[@"translation"]];
             NSDictionary *transition = [session applyOnlineCandidates:texts source:1 query:query[@"online"] error:nil];
-            if ([transition[@"applied"] boolValue]) {
+            if (MSIMEStrictBoolean(transition[@"applied"])) {
                 // Cache what the session took, not what the provider said. Caching before the attempt
                 // meant a refused suggestion was kept and served straight back on the next render, so the
                 // retry re-applied the text the session had just declined instead of asking again.
@@ -1891,19 +1901,19 @@ static NSImage *MSIMECandidateLogoImage() {
     // A `/fy` request (command mode) is the user's explicit ask, so the shared query carries it whatever the candidate translation switches say: one English sentence for the selected service of the user's own, into the query's own target language, with no offline dictionary in front of it. None of the gloss gates below apply to it, so the query is read before them, which costs one call per pass while translations are off.
     const BOOL candidateTranslations = !(_appearance && !_appearance.candidateTranslations) && !(_glossEnabled && !_glossEnabled.boolValue);
     NSDictionary *query = [self serviceSnapshotQuery];
-    const BOOL command = [query[@"sentence"] isEqual:@YES];
+    const BOOL command = MSIMEStrictBoolean(query[@"sentence"]);
     if (!candidateTranslations && !command) return nil;
     NSDictionary *config = query[@"niutrans"];
-    BOOL niuTrans = [config isKindOfClass:NSDictionary.class] && [config[@"enabled"] isEqual:@YES];
+    BOOL niuTrans = [config isKindOfClass:NSDictionary.class] && MSIMEStrictBoolean(config[@"enabled"]);
     if (!niuTrans) config = query[@"custom_translation"];
-    BOOL custom = !niuTrans && [config isKindOfClass:NSDictionary.class] && [config[@"enabled"] isEqual:@YES];
+    BOOL custom = !niuTrans && [config isKindOfClass:NSDictionary.class] && MSIMEStrictBoolean(config[@"enabled"]);
     if (!niuTrans && !custom) config = query[@"tencent_tmt"];
-    if (![config isKindOfClass:NSDictionary.class] || ![config[@"enabled"] isEqual:@YES]) return nil;
+    if (![config isKindOfClass:NSDictionary.class] || !MSIMEStrictBoolean(config[@"enabled"])) return nil;
     // A preference snapshot can be pending in Engine while the composition is active.
     if ((niuTrans && _niuTransConfig && ![_niuTransConfig isEqual:config]) ||
-        (!niuTrans && [_niuTransConfig[@"enabled"] isEqual:@YES]) ||
+        (!niuTrans && MSIMEStrictBoolean(_niuTransConfig[@"enabled"])) ||
         (custom && _customTranslationConfig && ![_customTranslationConfig isEqual:config]) ||
-        (!niuTrans && !custom && ([_customTranslationConfig[@"enabled"] isEqual:@YES] ||
+        (!niuTrans && !custom && (MSIMEStrictBoolean(_customTranslationConfig[@"enabled"]) ||
             (_tencentTranslationConfig && ![_tencentTranslationConfig isEqual:config]))) ||
         (!command && _glossTargetLanguages && ![_glossTargetLanguages isEqual:MSIMETranslationTargets(query)])) return nil;
     NSDictionary *view = [self serviceSnapshotView];
@@ -2017,7 +2027,7 @@ static NSImage *MSIMECandidateLogoImage() {
     uint64_t generation = 0;
     if (!MSIMEStrictUnsignedInteger(view[@"generation"], &generation)) return NO;
     NSDictionary *applied = [_session applyTranslations:results generation:generation error:nil];
-    if (![applied[@"applied"] boolValue]) return NO;
+    if (!MSIMEStrictBoolean(applied[@"applied"])) return NO;
     // A gloss changes what the card shows, never the composition, so only the card is redrawn. Going through apply: re-sent the marked text on every arrival, and IMK services the next key inside that synchronous setMarkedText: call - the whole keystroke, reranking included, ran nested in it, after which the outer apply: wrote the older view back over the newer one.
     NSDictionary *next = applied[@"view"];
     if (![next isKindOfClass:NSDictionary.class]) return NO;
@@ -2061,7 +2071,7 @@ static NSImage *MSIMECandidateLogoImage() {
     if (![query isKindOfClass:NSDictionary.class] || !query[@"generation"] ||
         ![query[@"target_languages"] isKindOfClass:NSArray.class]) return nil;
     // The account endpoint (api.msime.app) is used only when the user explicitly chose it in settings. The shared core already folds in candidate_translations and the precedence of the user's own services, so this flag is the whole decision.
-    if (![query[@"translation_account"] isEqual:@YES]) return nil;
+    if (!MSIMEStrictBoolean(query[@"translation_account"])) return nil;
     NSArray *candidates = MSIMEOnlineGlossCandidates(query);
     return candidates.count
         ? @{ @"target_languages": query[@"target_languages"], @"candidates": candidates } : nil;
@@ -2229,10 +2239,10 @@ static NSImage *MSIMECandidateLogoImage() {
     if (!_activeClient || !_session || _focusPending || _appearance.englishMode || !_appearance.candidateTranslations ||
         (_glossEnabled && !_glossEnabled.boolValue)) return nil;
     NSDictionary *query = [self serviceSnapshotQuery];
-    if (![query isKindOfClass:NSDictionary.class] || !query[@"generation"] || [query[@"translation_account"] isEqual:@YES]) return nil;
+    if (![query isKindOfClass:NSDictionary.class] || !query[@"generation"] || MSIMEStrictBoolean(query[@"translation_account"])) return nil;
     for (NSString *service in @[@"niutrans", @"custom_translation", @"tencent_tmt"]) {
         NSDictionary *config = query[service];
-        if ([config isKindOfClass:NSDictionary.class] && [config[@"enabled"] isEqual:@YES]) return nil;
+        if ([config isKindOfClass:NSDictionary.class] && MSIMEStrictBoolean(config[@"enabled"])) return nil;
     }
     NSArray *targets = MSIMETranslationTargets(query);
     if (!targets.count || (_glossTargetLanguages && ![_glossTargetLanguages isEqual:targets])) return nil;
@@ -2365,7 +2375,7 @@ static NSImage *MSIMECandidateLogoImage() {
     [self detachCustomTranslations];
     _customQuery = query;
     // `/fy` translates one English sentence into the query's own target, Chinese, which the candidate target list does not name and the candidate plan refuses; it is its own plan item and is neither read from nor written to the gloss cache.
-    const BOOL command = [query[@"command"] isEqual:@YES];
+    const BOOL command = MSIMEStrictBoolean(query[@"command"]);
     NSArray<NSString *> *targets = command ? query[@"target_languages"] : MSIMETranslationTargets(query);
     NSMutableArray<NSDictionary *> *chunks = [NSMutableArray array];
     NSMutableDictionary<NSString *, NSMutableDictionary<NSString *, NSString *> *> *values = [NSMutableDictionary dictionary];
@@ -2766,7 +2776,7 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
         NSDictionary *applied = [session rerankSettledWithError:nil];
         // Same shape the cloud path applies — a transition carrying the refreshed view — so it
         // goes through the same method rather than a second way of updating the window.
-        if ([applied[@"moved"] boolValue]) [controller apply:applied];
+        if (MSIMEStrictBoolean(applied[@"moved"])) [controller apply:applied];
     }];
     [NSRunLoop.mainRunLoop addTimer:_settledTimer forMode:NSRunLoopCommonModes];
 }
@@ -2803,7 +2813,7 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
                 return;
             }
             NSDictionary *result = [session applyCloudResponse:body query:query error:nil];
-            const BOOL applied = [result[@"applied"] boolValue];
+            const BOOL applied = MSIMEStrictBoolean(result[@"applied"]);
             if (applied) {
                 // Remember the post-apply identity so rendering does not re-request this result.
                 current->_cloudQuery = [[session onlineQueryWithError:nil] copy];
@@ -2888,7 +2898,7 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
 }
 - (void)refreshFloatingToolbarState {
     if (!_toolbar || !_appearance) return;
-    const BOOL englishCandidateMode = [_view[@"dedicated_english"] boolValue] && !_appearance.englishMode;
+    const BOOL englishCandidateMode = MSIMEStrictBoolean(_view[@"dedicated_english"]) && !_appearance.englishMode;
     // 视图里的方案编号，按引擎顺序：quanpin、shuangpin、wubi、japanese、korean、cantonese、zhuyin、vietnamese、tibetan、stroke。
     NSArray<NSString *> *schemes = MSIMEInputSchemeNames();
     const NSInteger index = MSIMEViewScheme(_view);
@@ -3094,13 +3104,13 @@ static __weak MSIMEInputController *MSIMEFocusedController;
     for (NSUInteger mode = 0; mode < 2; ++mode) {
         NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:mode ? @"英文输入" : @"中文输入" action:mode ? @selector(selectEnglishMode:) : @selector(selectChineseMode:) keyEquivalent:@""];
         item.target = self;
-        item.state = (_appearance.englishMode == (mode == 1) && (mode == 1 || ![_view[@"dedicated_english"] isEqual:@YES])) ? NSControlStateValueOn : NSControlStateValueOff;
+        item.state = (_appearance.englishMode == (mode == 1) && (mode == 1 || !MSIMEStrictBoolean(_view[@"dedicated_english"]))) ? NSControlStateValueOn : NSControlStateValueOff;
         [menu addItem:item];
     }
     NSMenuItem *englishCandidates = [[NSMenuItem alloc] initWithTitle:@"英文候选模式" action:@selector(toggleDedicatedEnglishMode:) keyEquivalent:@"e"];
     englishCandidates.target = self;
     englishCandidates.keyEquivalentModifierMask = NSEventModifierFlagControl | NSEventModifierFlagShift;
-    englishCandidates.state = !_appearance.englishMode && [_view[@"dedicated_english"] isEqual:@YES] ? NSControlStateValueOn : NSControlStateValueOff;
+    englishCandidates.state = !_appearance.englishMode && MSIMEStrictBoolean(_view[@"dedicated_english"]) ? NSControlStateValueOn : NSControlStateValueOff;
     [menu addItem:englishCandidates];
     [menu addItem:NSMenuItem.separatorItem];
     // Simplified output is the off state of this one toggle rather than a second row: a radio pair spent a row on the default.
@@ -3416,7 +3426,7 @@ static __weak MSIMEInputController *MSIMEFocusedController;
     [self ensureAppearance];
     const BOOL changed = _appearance.englishMode != enabled;
     // Read before the cancel below, whose reply need not repeat the flag.
-    const BOOL leaveEnglishCandidates = enabled && [_view[@"dedicated_english"] isEqual:@YES];
+    const BOOL leaveEnglishCandidates = enabled && MSIMEStrictBoolean(_view[@"dedicated_english"]);
     if (enabled && !_appearance.englishMode && _session && _activeClient) {
         // Switching into English drops what was being composed rather than committing it. The
         // reference has two different rules here and this host had copied the wrong one onto both
@@ -3470,6 +3480,20 @@ static __weak MSIMEInputController *MSIMEFocusedController;
 - (NSDictionary *)inputSchemeHostOptions {
     return [_session respondsToSelector:@selector(hostOptions)] ? _session.hostOptions : MSIMELoadRuntimeOptions();
 }
+// 共享偏好文档是方案的权威来源：设置页、`msime config set`、云端同步和本输入法自己都写它，NSUserDefaults 里的 `MSIMEClientInputScheme` 只有本输入法自己写。外观设置在载入文档之前退回那份本地值，而文档平时在激活之后才于后台载入，所以输入法进程重新启动后（重新登录、重启、更新），控制器会先按本输入法上次写下的旧方案把菜单栏选到它的模式、把它记为已同步，期间的任何一次保存还会把它写回文档。用户在设置页选了全拼，下次再用又回到双拼，就是这样来的（#4288）。因此在本进程第一次按外观设置行事之前——客户端获得焦点、或者系统先报告了模式——同步载入一次文档；之后的改动照旧由每秒一次的轮询带来。读不到文档时什么也不做，交给那次后台载入。
+- (void)applySharedInputPreferencesBeforeFirstUse {
+    if (!_appearance || _appearance.sharedInputPreferencesApplied) return;
+    NSString *directory = _preferencesDirectory;
+    if (!directory) {
+        id configured = [self runtimeOptions][@"preferences_directory"];
+        if ([configured isKindOfClass:NSString.class] && [configured isAbsolutePath]) directory = configured;
+    }
+    if (!directory) return;
+    // 与 applyPreferencesToSessionNow 一样在主线程直接读：只在本进程第一次用到时读这一次，不经过后台轮询的读取入口。
+    NSDictionary *snapshot = [MSIMEClientSession loadPreferencesInDirectory:directory error:nil];
+    NSDictionary *preferences = [snapshot isKindOfClass:NSDictionary.class] ? snapshot[@"preferences"] : nil;
+    if ([preferences isKindOfClass:NSDictionary.class]) [_appearance applySharedInputPreferences:preferences];
+}
 // 在系统输入菜单里打开一个按需模式。只有 Engine 会话会碰到 TIS；测试的替身会话只走测试设的 enabler，没有就什么也不做，所以测试不会改开发者的输入菜单。返回 NO 表示模式没有打开——没有发出请求，或者系统拒绝了——这次切换不记为已同步，下一次同步再试；以前不论 TIS 返回什么都算成功，启用失败一次，这个模式就再也不会被打开。
 - (BOOL)enableOptInInputMode:(NSString *)identifier {
     if (_optInInputModeEnabler) return _optInInputModeEnabler(identifier) == noErr;
@@ -3500,6 +3524,7 @@ static __weak MSIMEInputController *MSIMEFocusedController;
     if (focused && focused != self) { [focused systemDidReportInputMode:value client:sender]; return; }
     if (!MSIMEAdoptReportedInputMode(MSIMESharedSystemInputModeState(), value)) return;
     [self ensureAppearance];
+    [self applySharedInputPreferencesBeforeFirstUse];
     // The report can arrive before activateServer: or handleEvent: has named the client, and the mode is remembered per application.
     [_appearance activateInputModeForApplication:[sender respondsToSelector:@selector(bundleIdentifier)] ? [sender bundleIdentifier] : nil];
     // Moving from 英 to 日 changes two things, and each change syncs the menu bar on its own: between them it would select 中 or 英 again and the system would report that back as a new choice. Holding `selecting` keeps both quiet, and the sync below selects the one mode they add up to. 英 leaves the scheme alone, so returning to any other mode afterwards finds it where it was.
@@ -3525,7 +3550,7 @@ static __weak MSIMEInputController *MSIMEFocusedController;
 }
 - (void)selectChineseMode:(id)sender {
     (void)sender;
-    if ([_view[@"dedicated_english"] isEqual:@YES]) [self setDedicatedEnglishInputMode:NO];
+    if (MSIMEStrictBoolean(_view[@"dedicated_english"])) [self setDedicatedEnglishInputMode:NO];
     else [self setEnglishInputMode:NO];
 }
 - (void)setDedicatedEnglishInputMode:(BOOL)enabled {
@@ -3548,7 +3573,7 @@ static __weak MSIMEInputController *MSIMEFocusedController;
 }
 - (void)toggleDedicatedEnglishMode:(id)sender {
     (void)sender;
-    [self setDedicatedEnglishInputMode:_appearance.englishMode || ![_view[@"dedicated_english"] isEqual:@YES]];
+    [self setDedicatedEnglishInputMode:_appearance.englishMode || !MSIMEStrictBoolean(_view[@"dedicated_english"])];
 }
 - (void)selectSimplifiedOutput:(id)sender { (void)sender; [self ensureAppearance]; _appearance.traditionalOutput = NO; }
 - (void)selectTraditionalOutput:(id)sender { (void)sender; [self ensureAppearance]; _appearance.traditionalOutput = YES; }
@@ -4253,7 +4278,7 @@ static __weak MSIMEInputController *MSIMEFocusedController;
         else MSIMEApplyTransition(@{@"view": @{@"editing_text": @"", @"preedit": @"", @"caret_position": @0}}, (id<MSIMETextClient>)_activeClient);
     }
     [self discardGlossSensePage];
-    _resumeDedicatedEnglish = [_view[@"dedicated_english"] isEqual:@YES];
+    _resumeDedicatedEnglish = MSIMEStrictBoolean(_view[@"dedicated_english"]);
     [_session setFocused:NO error:nil];
     [_session closeWithError:nil];
     _session = nil;
@@ -4286,6 +4311,7 @@ static __weak MSIMEInputController *MSIMEFocusedController;
     [self ensureAppearance];
     msime_macos_diagnostic_write("focus_in");
     if (_activeClient && _activeClient != sender) [self apply:[_session setFocused:NO error:nil]];
+    [self applySharedInputPreferencesBeforeFirstUse];
     [_appearance activateInputModeForApplication:[sender respondsToSelector:@selector(bundleIdentifier)] ? [sender bundleIdentifier] : nil];
     // The Chinese/English state is remembered per application and survives a restart, while the menu bar shows whichever mode was selected last; align the two as this client takes focus. That also covers a toggle made while no client could be asked to switch.
     [self syncSystemInputModeForClient:sender];
@@ -4841,7 +4867,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
 
 - (void)floatingToolbarDidRequestToggleInputMode:(MSIMEFloatingToolbarPanel *)toolbar {
     (void)toolbar;
-    if (!_appearance.englishMode && [_view[@"dedicated_english"] isEqual:@YES]) [self setDedicatedEnglishInputMode:NO];
+    if (!_appearance.englishMode && MSIMEStrictBoolean(_view[@"dedicated_english"])) [self setDedicatedEnglishInputMode:NO];
     else [self setEnglishInputMode:!_appearance.englishMode];
 }
 - (void)floatingToolbarDidRequestTogglePunctuation:(MSIMEFloatingToolbarPanel *)toolbar {
@@ -5237,6 +5263,7 @@ static __weak MSIMEInputController *MSIMEMusicOwner;
         MSIMEFocusedController = self;
         // Whatever the previous client was last given says nothing about this one.
         [self invalidateSmartPunctuationShadow];
+        [self applySharedInputPreferencesBeforeFirstUse];
         [_appearance activateInputModeForApplication:[sender respondsToSelector:@selector(bundleIdentifier)] ? [sender bundleIdentifier] : nil];
         [self syncSystemInputModeForClient:sender];
         // Punctuation and width are per app, so the new client's values reach the Engine before it types.
@@ -5462,7 +5489,7 @@ static __weak MSIMEInputController *MSIMEMusicOwner;
     }
     const BOOL digitIsSpelling = MSIMESpellingSymbol(_view, (unichar)msime::mac::PhysicalCandidateDigitCharacter(physicalDigit));
     if (msime::mac::ShouldRoutePhysicalCandidateDigit(
-            _panel.isVisible, [_view[@"nine_key"] boolValue], digitIsSpelling,
+            _panel.isVisible, MSIMEStrictBoolean(_view[@"nine_key"]), digitIsSpelling,
             (event.modifierFlags & candidateDigitModifiers) != 0) ||
         msime::mac::ShouldRouteSpellingShiftCandidateDigit(
             _panel.isVisible, digitIsSpelling,
@@ -5503,7 +5530,7 @@ static __weak MSIMEInputController *MSIMEMusicOwner;
             [self apply:transition];
             // Only the idle route commits the Engine's Chinese form; the ASCII route leaves the tail ASCII.
             if (!hasComposition && keypadPunctuation != '.') [self noteCommittedChinesePunctuation:transition client:sender];
-            if ([transition[@"handled"] boolValue]) return YES;
+            if (MSIMEStrictBoolean(transition[@"handled"])) return YES;
         }
         if (keypadPunctuation == '.') {
             NSString *text = @".";
@@ -5515,7 +5542,7 @@ static __weak MSIMEInputController *MSIMEMusicOwner;
         // A normal punctuation transition can be unhandled in an English or
         // local mode. Leave that key to the host rather than reinterpreting it
         // as the main-row '-'/'=' candidate navigation shortcut.
-        return [transition[@"handled"] boolValue];
+        return MSIMEStrictBoolean(transition[@"handled"]);
     }
     if ([self revertSmartPunctuationSpace:event client:(id<MSIMETextClient>)sender]) return YES;
     if ([self convertSmartPunctuationSpace:event client:(id<MSIMETextClient>)sender]) return YES;
@@ -5649,10 +5676,10 @@ static __weak MSIMEInputController *MSIMEMusicOwner;
             // The same claim the paging exclusion above asks about, so the two cannot disagree about who
             // owns the key and leave it doing nothing.
             if ([self wordCharacterClaimsEvent:event]) {
-                if (![_view[@"focused"] isEqual:@YES] || ![_view[@"candidates"] isKindOfClass:NSArray.class]) return YES;
+                if (!MSIMEStrictBoolean(_view[@"focused"]) || ![_view[@"candidates"] isKindOfClass:NSArray.class]) return YES;
                 for (NSDictionary *candidate in _view[@"candidates"]) {
                     if (![candidate isKindOfClass:NSDictionary.class]) continue;
-                    if (![candidate[@"highlighted"] isEqual:@YES]) continue;
+                    if (!MSIMEStrictBoolean(candidate[@"highlighted"])) continue;
                     NSDictionary *identifier = candidate[@"id"];
                     if (!MSIMECurrentCandidateIdentity(identifier, _view)) return YES;
                     uint64_t generation = 0; NSUInteger index = 0;
@@ -5743,7 +5770,7 @@ static __weak MSIMEInputController *MSIMEMusicOwner;
         NSString *closing = _appearance.runtimeFullWidthInput ? @"｝" : @"}";
         NSDictionary *engine = [_session punctuationASCII:'{' error:nil];
         NSMutableDictionary *transition = nil;
-        if ([engine[@"handled"] boolValue]) {
+        if (MSIMEStrictBoolean(engine[@"handled"])) {
             transition = [engine mutableCopy];
             NSString *commit = engine[@"commit"];
             if ([commit isKindOfClass:NSString.class] && [commit hasSuffix:@"{"])
@@ -5797,14 +5824,14 @@ static __weak MSIMEInputController *MSIMEMusicOwner;
     // A punctuation key is the only route that arms the space conversion, as in the reference, whose punctuation handler is the one caller: a candidate picked with Space or a digit never arms, even when its text ends in a mark.
     if (command == UINT32_MAX && event.characters.length == 1 && MSIMEASCIIPunctuation([event.characters characterAtIndex:0]))
         [self noteCommittedChinesePunctuation:transition client:sender];
-    if (command == UINT32_MAX && [transition[@"handled"] boolValue] &&
+    if (command == UINT32_MAX && MSIMEStrictBoolean(transition[@"handled"]) &&
         ![transition[@"commit"] isKindOfClass:NSString.class] && event.characters.length == 1 &&
         [event.characters characterAtIndex:0] >= 'a' && [event.characters characterAtIndex:0] <= 'z' &&
         MSIMEShouldAutoCommitWubi(_appearance.wubiAutoCommitUnique, transition[@"view"])) {
         NSDictionary *committed = [_session command:MSIME_COMMIT_CANDIDATE error:nil];
         if (committed) [self apply:committed];
     }
-    if ([transition[@"handled"] boolValue]) return YES;
+    if (MSIMEStrictBoolean(transition[@"handled"])) return YES;
     // Match Apple: Engine gets first refusal, then finish any composition before fallback.
     if ([_view[@"editing_text"] length]) {
         NSDictionary *finished = [_session command:MSIME_FINISH_COMPOSITION error:nil];
@@ -5904,7 +5931,7 @@ static __weak MSIMEInputController *MSIMEMusicOwner;
         NSString *prefix = wordCharacter[@"word_character_prefix"];
         NSString *candidate = wordCharacter[@"word_character_candidate"];
         NSString *convertedWord = MSIMEChineseOutputString([prefix stringByAppendingString:candidate], YES);
-        NSString *edge = MSIMEEdgeHanCharacter(convertedWord, [wordCharacter[@"word_character_first"] boolValue]);
+        NSString *edge = MSIMEEdgeHanCharacter(convertedWord, MSIMEStrictBoolean(wordCharacter[@"word_character_first"]));
         if (edge.length) {
             NSMutableDictionary *converted = [transition mutableCopy];
             converted[@"commit"] = [MSIMEChineseOutputString(prefix, YES) stringByAppendingString:edge];
@@ -5970,7 +5997,7 @@ static __weak MSIMEInputController *MSIMEMusicOwner;
             if ([commitForTracking hasPrefix:pair[0]] && [commitForTracking hasSuffix:pair[1]]) { _pairedPunctuation.push(pair[1].UTF8String); break; }
     }
     NSDictionary *displayTransition = transition;
-    if (_appearance.traditionalOutput && ![transition[@"word_character_converted"] boolValue] &&
+    if (_appearance.traditionalOutput && !MSIMEStrictBoolean(transition[@"word_character_converted"]) &&
         MSIMEScriptConversionApplies(transition[@"commit_context"]) && [transition[@"commit"] isKindOfClass:NSString.class]) {
         NSMutableDictionary *converted = [transition mutableCopy];
         converted[@"commit"] = MSIMEChineseOutputString(transition[@"commit"], YES);
@@ -6232,7 +6259,7 @@ static __weak MSIMEInputController *MSIMEMusicOwner;
     if (!_session || !_activeClient || _appearance.englishMode ||
         MSIMEViewScheme(_view) != 1 ||
         ![mode isKindOfClass:NSString.class] || ![mode isEqualToString:@"none"] ||
-        ![dedicatedEnglish isKindOfClass:NSNumber.class] || dedicatedEnglish.boolValue ||
+        ![dedicatedEnglish isKindOfClass:NSNumber.class] || MSIMEStrictBoolean(dedicatedEnglish) ||
         ![profile isKindOfClass:NSString.class] || profile.length == 0 ||
         !MSIMEShouldShowShuangpinKeymap(YES, _appearance.shuangpinKeymap, editing.length > 0)) {
         [_keymapPanel orderOut:nil];
@@ -6416,7 +6443,7 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
             NSString *title = [NSString stringWithFormat:@"%lu  %@", (unsigned long)(index + 1), pageGeometry.texts[index]];
             if (![button.candidateID isEqual:candidate[@"id"]] || ![button.title isEqual:title] ||
                 ![button.annotation isEqual:pageGeometry.annotations[index]] ||
-                button.candidateHighlighted != [candidate[@"highlighted"] boolValue] ||
+                button.candidateHighlighted != MSIMEStrictBoolean(candidate[@"highlighted"]) ||
                 !NSEqualRects(button.frame, NSMakeRect(inset + row.x, headerBottom - row.y - row.height,
                                                        row.width, row.height))) {
                 reusable = NO;
@@ -6486,7 +6513,7 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
         button.translationBelow = MSIMECandidateGlossRun(button.glossReading, button.translation).length ? row.item.translation.below : !vertical;
         button.toolTip = pageGeometry.tooltips[slot - 1];
         button.bordered = NO;
-        button.candidateHighlighted = [candidate[@"highlighted"] boolValue];
+        button.candidateHighlighted = MSIMEStrictBoolean(candidate[@"highlighted"]);
         id fixed = candidate[@"fixed_position"];
         button.candidateFixed = MSIMEUnsignedCandidateIdentityValue(fixed) &&
             [fixed compare:@0] == NSOrderedDescending && [fixed compare:@255] != NSOrderedDescending;
@@ -6534,7 +6561,7 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
             label.stringValue = [phrase stringByAppendingString:label.stringValue];
             label.caretIndex += phrase.length;
         }
-        label.showsCaret = [_view[@"focused"] isEqual:@YES];
+        label.showsCaret = MSIMEStrictBoolean(_view[@"focused"]);
         label.frame = NSMakeRect(inset + logoWidth, headerBottom + floor((headerHeight - preeditHeight) / 2),
                                  width - 2 * inset - logoWidth - (paging ? pageControlsWidth + indicatorGap : 0), preeditHeight);
         [content addSubview:label];
@@ -6726,7 +6753,7 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
 
 - (void)changeCandidatePage:(MSIMECandidateButton *)button {
     if (!_activeClient || !_session || !_panel.isVisible || !button.enabled || button.superview != _panel.contentView) return;
-    if (![_view isKindOfClass:NSDictionary.class] || ![_view[@"focused"] isEqual:@YES] ||
+    if (![_view isKindOfClass:NSDictionary.class] || !MSIMEStrictBoolean(_view[@"focused"]) ||
         ![button.candidateID isKindOfClass:NSDictionary.class]) return;
     if (![_view[@"focused"] isKindOfClass:NSNumber.class] ||
         CFGetTypeID((__bridge CFTypeRef)_view[@"focused"]) != CFBooleanGetTypeID()) return;

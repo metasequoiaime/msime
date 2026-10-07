@@ -4,7 +4,6 @@ import android.content.Context;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
-import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
@@ -15,6 +14,7 @@ import androidx.core.view.ViewCompat;
 import app.msime.android.CustomKeyboardSkin;
 import app.msime.android.CustomSkinLibrary;
 import app.msime.android.KeyboardSkin;
+import app.msime.android.ViewPolicy;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
@@ -78,7 +78,7 @@ public final class SkinsPage extends DetailPage {
             return null;
         }
 
-        List<Card> designs = new ArrayList<>();
+        List<Card> designs = List.of();
         JSONObject customTheme = preferences.optJSONObject("custom_theme");
         JSONObject stored = customTheme == null ? null : customTheme.optJSONObject("keyboard");
         String storedKey = "custom".equals(current) && stored != null ? CustomKeyboardSkin.from(stored).key() : "";
@@ -110,12 +110,12 @@ public final class SkinsPage extends DetailPage {
             return;
         }
         Context context = requireContext();
-        List<View> themeCards = new ArrayList<>();
+        List<View> themeCards = new ArrayList<>(model.themes().size() + 1);
         for (Card card : model.themes()) themeCards.add(card(context, card));
         if (!AiSkinPage.hidden(context)) themeCards.add(aiCard(context));
         grid(target, "皮肤", themeCards);
         if (!model.designs().isEmpty()) {
-            List<View> designCards = new ArrayList<>();
+            List<View> designCards = new ArrayList<>(model.designs().size());
             for (Card card : model.designs()) designCards.add(card(context, card));
             grid(target, "我的设计", designCards);
         }
@@ -125,18 +125,16 @@ public final class SkinsPage extends DetailPage {
     private static void grid(LinearLayout target, String title, List<View> cards) {
         GroupCard group = GroupCard.add(target, title);
         LinearLayout holder = group.card();
-        holder.setBackground(null);
+        ViewPolicy.clearBackground(holder);
         holder.setClipToOutline(false);
         Context context = target.getContext();
         for (int start = 0; start < cards.size(); start += 2) {
-            LinearLayout row = new LinearLayout(context);
-            row.setOrientation(LinearLayout.HORIZONTAL);
+            LinearLayout row = Ui.row(context);
             row.setBaselineAligned(false);
             for (int slot = 0; slot < 2; slot++) {
                 int index = start + slot;
                 View cell = index < cards.size() ? cards.get(index) : new View(context);
-                LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0,
-                    ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+                LinearLayout.LayoutParams params = Ui.weightWrap(1f);
                 if (slot == 1) params.setMarginStart(Ui.dp(context, 12));
                 row.addView(cell, params);
             }
@@ -147,41 +145,35 @@ public final class SkinsPage extends DetailPage {
     }
 
     private View card(Context context, Card card) {
-        LinearLayout cell = new LinearLayout(context);
-        cell.setOrientation(LinearLayout.VERTICAL);
-        cell.setGravity(Gravity.CENTER_HORIZONTAL);
+        LinearLayout cell = Ui.column(context);
+        ViewPolicy.setCenteredHorizontally(cell);
 
         FrameLayout tile = new FrameLayout(context);
         int ring = Ui.dp(context, 2);
-        GradientDrawable frame = Ui.rounded(Color.TRANSPARENT, Ui.dp(context, 14));
-        frame.setStroke(card.selected() ? ring : Math.max(1, Ui.dp(context, 1)),
+        GradientDrawable frame = Ui.outlined(Color.TRANSPARENT, Ui.dp(context, 14),
+            card.selected() ? ring : Ui.atLeastOnePx(context, 1),
             card.selected() ? Ui.accent(context) : Ui.outline(context));
         tile.setBackground(frame);
         tile.setPadding(ring + Ui.dp(context, 1), ring + Ui.dp(context, 1), ring + Ui.dp(context, 1),
             ring + Ui.dp(context, 1));
         SkinSwatchView swatch = new SkinSwatchView(context);
         swatch.setSkin(card.skin());
-        swatch.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        tile.addView(swatch, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(context, 76)));
+        Ui.hideFromAccessibility(swatch);
+        tile.addView(swatch, Ui.frameMatchWidthHeight(context, 76));
         cell.addView(tile, Ui.matchWidth());
 
-        TextView name = new TextView(context);
-        name.setText(card.selected() ? "✓ " + card.title() : card.title());
-        name.setGravity(Gravity.CENTER);
-        name.setSingleLine(true);
-        name.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        Ui.style(name, Ui.TEXT_ROW_SUBTITLE + 1, card.selected() ? 600 : 400,
+        TextView name = Ui.styledLabel(context, card.selected() ? "✓ " + card.title() : card.title(),
+            Ui.TEXT_ROW_SUBTITLE + 1, card.selected() ? 600 : 400,
             card.selected() ? Ui.accent(context) : Ui.text(context));
+        ViewPolicy.setCentered(name);
+        ViewPolicy.setSingleLineEllipsized(name);
         LinearLayout.LayoutParams nameParams = Ui.matchWidth();
         nameParams.topMargin = Ui.dp(context, 8);
         cell.addView(name, nameParams);
 
-        cell.setClickable(true);
-        cell.setFocusable(true);
-        cell.setBackground(Ui.ripple(context));
         cell.setContentDescription("皮肤 " + card.title());
         ViewCompat.setStateDescription(cell, card.selected() ? "已选中" : "未选中");
-        cell.setOnClickListener(ignored -> {
+        Ui.makeClickable(cell, context, () -> {
             if (!card.selected()) select(card);
         });
         return cell;
@@ -189,39 +181,30 @@ public final class SkinsPage extends DetailPage {
 
     /** 虚线卡：「✦ 描述一句话生成」，名字是「AI 设计皮肤」，点了进 AI 设计页。 */
     private View aiCard(Context context) {
-        LinearLayout cell = new LinearLayout(context);
-        cell.setOrientation(LinearLayout.VERTICAL);
-        cell.setGravity(Gravity.CENTER_HORIZONTAL);
-        LinearLayout tile = new LinearLayout(context);
-        tile.setOrientation(LinearLayout.VERTICAL);
-        tile.setGravity(Gravity.CENTER);
-        GradientDrawable dashed = Ui.rounded(Ui.accentSoft(context), Ui.dp(context, 14));
-        dashed.setStroke(Math.max(1, Ui.dp(context, 1.5f)), Ui.accent(context), Ui.dp(context, 6), Ui.dp(context, 4));
+        LinearLayout cell = Ui.column(context);
+        ViewPolicy.setCenteredHorizontally(cell);
+        LinearLayout tile = Ui.column(context);
+        ViewPolicy.setCentered(tile);
+        GradientDrawable dashed = Ui.outlinedDashed(Ui.accentSoft(context), Ui.dp(context, 14),
+            Ui.atLeastOnePx(context, 1.5f), Ui.accent(context), Ui.dp(context, 6),
+            Ui.dp(context, 4));
         tile.setBackground(dashed);
-        TextView spark = new TextView(context);
-        spark.setText("✦");
-        spark.setGravity(Gravity.CENTER);
-        Ui.style(spark, 22, 400, Ui.accent(context));
+        TextView spark = Ui.styledLabel(context, "✦", 22, 400, Ui.accent(context));
+        ViewPolicy.setCentered(spark);
         tile.addView(spark);
-        TextView hint = new TextView(context);
-        hint.setText("描述一句话生成");
-        hint.setGravity(Gravity.CENTER);
-        Ui.style(hint, 12, 400, Ui.accent(context));
+        TextView hint = Ui.styledLabel(context, "描述一句话生成", 12, 400, Ui.accent(context));
+        ViewPolicy.setCentered(hint);
         tile.addView(hint);
-        cell.addView(tile, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
-            Ui.dp(context, 76) + Ui.dp(context, 6)));
-        TextView name = new TextView(context);
-        name.setText("AI 设计皮肤");
-        name.setGravity(Gravity.CENTER);
-        Ui.style(name, Ui.TEXT_ROW_SUBTITLE + 1, 500, Ui.accent(context));
+        cell.addView(tile, Ui.matchWidthHeightPx(Ui.dp(context, 76) + Ui.dp(context, 6)));
+        TextView name = Ui.styledLabel(context, "AI 设计皮肤", Ui.TEXT_ROW_SUBTITLE + 1, 500,
+            Ui.accent(context));
+        ViewPolicy.setCentered(name);
         LinearLayout.LayoutParams nameParams = Ui.matchWidth();
         nameParams.topMargin = Ui.dp(context, 8);
         cell.addView(name, nameParams);
-        cell.setClickable(true);
-        cell.setFocusable(true);
-        cell.setBackground(Ui.ripple(context));
         cell.setAccessibilityDelegate(KeyboardSheets.buttonDelegate("AI 设计皮肤，描述一句话生成"));
-        cell.setOnClickListener(ignored -> SettingsNavigator.open(requireContext(), PageId.AI_SKIN, null));
+        Ui.makeClickable(cell, context,
+            () -> SettingsNavigator.open(requireContext(), PageId.AI_SKIN, null));
         return cell;
     }
 

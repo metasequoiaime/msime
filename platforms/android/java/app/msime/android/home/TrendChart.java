@@ -7,7 +7,9 @@ import android.graphics.RectF;
 import android.util.AttributeSet;
 import android.view.View;
 import androidx.annotation.Nullable;
+import app.msime.android.BoundsPolicy;
 import app.msime.android.R;
+import app.msime.android.ListPolicy;
 import app.msime.android.TypingStatisticsSummary.DayCount;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
@@ -38,12 +40,12 @@ public final class TrendChart extends View {
     public TrendChart(Context context, @Nullable AttributeSet attributes) {
         super(context, attributes);
         label.setTextAlign(Paint.Align.CENTER);
-        label.setTextSize(Ui.dp(context, LABEL_SIZE));
+        label.setTextSize(Ui.sp(context, LABEL_SIZE));
     }
 
     /** 换一组 7 天；最后一项是今天。 */
     public void setDays(List<DayCount> values) {
-        days = values == null ? List.of() : List.copyOf(values);
+        days = ListPolicy.copyOrEmpty(values);
         StringBuilder spoken = new StringBuilder("近 7 天每日字数");
         for (DayCount day : days) {
             spoken.append("，星期").append(weekday(day.day())).append(' ').append(day.count());
@@ -54,7 +56,9 @@ public final class TrendChart extends View {
 
     @Override protected void onMeasure(int widthSpec, int heightSpec) {
         Context context = getContext();
-        int height = Ui.dp(context, BAR_MAX + LABEL_GAP + LABEL_SIZE + 6);
+        // 星期标签按 sp 画，高度也按它实际的字号和下沉量算；按 dp 估算时系统字体一调大，标签下半截就落到控件外被裁掉。
+        int height = Math.round(Ui.dp(context, BAR_MAX + LABEL_GAP + 2) + label.getTextSize()
+            + label.getFontMetrics().descent);
         setMeasuredDimension(MeasureSpec.getSize(widthSpec), resolveSize(height, heightSpec));
     }
 
@@ -67,7 +71,7 @@ public final class TrendChart extends View {
         float min = Ui.dp(context, BAR_MIN);
         float radius = Ui.dp(context, 6);
         long peak = 1;
-        for (DayCount day : days) peak = Math.max(peak, day.count());
+        for (DayCount day : days) peak = BoundsPolicy.atLeast(peak, day.count());
         int accent = Ui.accent(context);
         int rest = Ui.color(context, R.attr.msStatBar);
         int text = Ui.text(context);
@@ -75,7 +79,7 @@ public final class TrendChart extends View {
         float labelBaseline = max + Ui.dp(context, LABEL_GAP) + label.getTextSize();
         for (int index = 0; index < days.size(); index++) {
             boolean today = index == days.size() - 1;
-            float height = Math.max(min, max * days.get(index).count() / (float) peak);
+            float height = BoundsPolicy.atLeast(min, max * days.get(index).count() / (float) peak);
             float left = index * (width + gap);
             box.set(left, max - height, left + width, max);
             bar.setColor(today ? accent : rest);

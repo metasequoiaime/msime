@@ -58,7 +58,8 @@ public final class CandidateGlossModel {
                 || TextPolicy.utf8Length(response) > MAX_RESPONSE_BYTES)
             throw new IllegalArgumentException("Candidate gloss response is too large");
         JSONObject envelope = new JSONObject(response);
-        if (!envelope.optBoolean("ok", false)) throw new JSONException("Candidate gloss failed");
+        if (!Boolean.TRUE.equals(CandidateGlossPolicy.strictBoolean(envelope.opt("ok"))))
+            throw new JSONException("Candidate gloss failed");
         JSONObject value = envelope.getJSONObject("value");
         long generation = CandidateGlossPolicy.strictInteger(value.get("generation"));
         JSONArray entries = value.getJSONArray("translations");

@@ -88,5 +88,17 @@ int main() {
         assert(pending.count == 6);
         CompleteAdd(0, 200);
         assert(pending.count == 6);
+
+        NSMutableArray *tooMany = [NSMutableArray arrayWithCapacity:51];
+        for (NSUInteger index = 0; index < 51; ++index) {
+            [tooMany addObject:@{ @"id": [NSString stringWithFormat:@"item-%lu", (unsigned long)index],
+                                  @"text": @"synthetic" }];
+        }
+        [controller refresh:nil];
+        items = [controller valueForKey:@"items"];
+        Complete(6, tooMany);
+        NSArray *rows = [items.string componentsSeparatedByString:@"\n\n"];
+        NSUInteger rendered = rows.count == 0 ? 0 : rows.count - 1;
+        assert(rendered == 50);
     }
 }

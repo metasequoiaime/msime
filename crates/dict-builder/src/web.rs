@@ -4,6 +4,8 @@
 //! - `msime-wubi86.db`：只保留 `wubi86`，清空全部全拼表、`wubi98` 和 `quick_parases`。
 //!
 //! 两个库都保留全部表结构和索引，被清空的表查询时返回空结果而不是报错。输出逐字节可复现：同一个输入跑两次得到相同的 sha256。
+//!
+//! - `msime-japanese.dat`（给了 `--japanese` 时）：词库 release 的日语模型只保留词条成本最低的 N 条（成本相同按文件里的先后），顺序和连接矩阵不变，字符串表按保留的词条重新写。完整的模型有约 128 万条、66 MB，网页上下载和常驻内存都太大；整句转换缺词时仍有假名兜底。
 
 use std::collections::HashSet;
 use std::fs;
@@ -14,11 +16,16 @@ use msime_engine::format::{quanpin_table, SHIPPED_INITIALS};
 use rusqlite::types::Value;
 use rusqlite::{Connection, OpenFlags};
 
+use crate::japanese;
 use crate::msime::quanpin_tables;
 use crate::sqlite;
 
 pub const PINYIN: &str = "msime-pinyin.db";
 pub const WUBI86: &str = "msime-wubi86.db";
+pub const JAPANESE: &str = msime_engine::assets::JAPANESE_MODEL;
+
+/// 日语模型默认保留的词条数：gzip 后约 5.7 MB，和拼音库同一量级。
+pub const DEFAULT_KEEP_JAPANESE: usize = 250_000;
 
 /// 默认保留的多字词行数，对应评测里的 d200000。
 pub const DEFAULT_KEEP_MULTI: usize = 200_000;
@@ -78,6 +85,57 @@ pub fn build(inputs: Inputs<'_>, out_dir: &Path, keep_multi: usize) -> Result<Ve
         write(inputs, &out_dir.join(PINYIN), Flavour::Pinyin, keep_multi)?,
         write(inputs, &out_dir.join(WUBI86), Flavour::Wubi86, keep_multi)?,
     ])
+}
+
+/// 裁出的日语模型的统计，供命令行打印。
+pub struct JapaneseSummary {
+    pub path: PathBuf,
+    pub kept: usize,
+    pub tokens: usize,
+    pub bytes: u64,
+}
+
+impl std::fmt::Display for JapaneseSummary {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "{}: {} of {} tokens, {} bytes",
+            self.path.display(),
+            self.kept,
+            self.tokens,
+            self.bytes
+        )
+    }
+}
+
+/// 从词库 release 的 `msime-japanese.dat` 裁出网页用的那份，写到 `out_dir`。
+pub fn build_japanese(input: &Path, out_dir: &Path, keep: usize) -> Result<JapaneseSummary> {
+    fs::create_dir_all(out_dir).with_context(|| format!("creating {}", out_dir.display()))?;
+    let bytes = fs::read(input).with_context(|| format!("reading {}", input.display()))?;
+    let (tokens, size, costs) =
+        japanese::unpack(&bytes).with_context(|| format!("reading {}", input.display()))?;
+    let kept = keep_cheapest(&tokens, keep);
+    let out = out_dir.join(JAPANESE);
+    let packed = japanese::pack(&kept, size, &costs)?;
+    japanese::write_model(&out, &packed)?;
+    Ok(JapaneseSummary {
+        path: out,
+        kept: kept.len(),
+        tokens: tokens.len(),
+        bytes: packed.len() as u64,
+    })
+}
+
+/// 成本最低的 `keep` 条词，成本相同时先到先留，按原来的顺序（读法有序，解码器靠它二分）返回。
+fn keep_cheapest(tokens: &[japanese::Token], keep: usize) -> Vec<japanese::Token> {
+    let mut order: Vec<usize> = (0..tokens.len()).collect();
+    order.sort_by_key(|&index| (tokens[index].cost, index));
+    order.truncate(keep);
+    order.sort_unstable();
+    order
+        .into_iter()
+        .map(|index| tokens[index].clone())
+        .collect()
 }
 
 fn write(inputs: Inputs<'_>, out: &Path, flavour: Flavour, keep_multi: usize) -> Result<Summary> {

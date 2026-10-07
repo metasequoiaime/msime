@@ -531,10 +531,15 @@ fn local_values() -> BTreeMap<String, AccountPreferenceValue> {
             "platform.android.one_handed".to_owned(),
             String("left".into()),
         ),
+        ("platform.android.split_keyboard".to_owned(), Boolean(true)),
         ("platform.android.key_popup".to_owned(), Boolean(false)),
         (
             "platform.android.swipe_down_symbols".to_owned(),
             Boolean(false),
+        ),
+        (
+            "platform.android.swipe_symbols_direction".to_owned(),
+            String("up".into()),
         ),
         ("platform.android.space_cursor".to_owned(), Boolean(false)),
         ("platform.android.space_voice".to_owned(), Boolean(false)),

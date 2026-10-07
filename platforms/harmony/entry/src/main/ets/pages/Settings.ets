@@ -708,7 +708,7 @@ class SettingsBridge {
   private rememberRevision(reply: string): void {
     try {
       const parsed: RevisionReply = JSON.parse(reply) as RevisionReply;
-      if (parsed.ok && parsed.value !== undefined) {
+      if (parsed.ok === true && parsed.value !== undefined && parsed.value !== null) {
         this.observedRevision =
           PreferenceRevisionPolicy.observe(this.observedRevision, parsed.value.revision);
       }
@@ -729,7 +729,7 @@ class SettingsBridge {
     let current: number = this.observedRevision;
     try {
       const parsed: RevisionReply = JSON.parse(reply) as RevisionReply;
-      if (!parsed.ok || parsed.value === undefined) {
+      if (parsed.ok !== true || parsed.value === undefined || parsed.value === null) {
         return;
       }
       current = parsed.value.revision;
@@ -1302,7 +1302,8 @@ class SettingsBridge {
     let design: Object;
     try {
       const reply: CommunityDownloadReply = JSON.parse(downloaded) as CommunityDownloadReply;
-      if (!reply.ok || reply.value === undefined || reply.value.design === undefined) {
+      if (reply.ok !== true || reply.value === undefined || reply.value === null
+        || reply.value.design === undefined) {
         return downloaded.length > 0 ? downloaded
           : JSON.stringify({ ok: false, error: 'community_unavailable' });
       }
@@ -1619,7 +1620,10 @@ class SettingsBridge {
         directory: this.stateDirectory, action: action
       }));
       const reply: TypingStatisticsReply = JSON.parse(raw) as TypingStatisticsReply;
-      if (!reply.ok) return raw;
+      if (reply.ok !== true) return raw;
+      if (reply.value === undefined || reply.value === null) {
+        return JSON.stringify({ ok: false, error: 'invalid typing statistics response' });
+      }
       let lastWrittenMs: number | null = null;
       let available: boolean = false;
       const file: string = `${this.stateDirectory}/typing-statistics.json`;
@@ -1785,7 +1789,7 @@ class SettingsBridge {
       const provider: string = request.config.provider ?? 'custom';
       const modelReply: string = await this.aiModels(JSON.stringify({ endpoint, token, provider }));
       const result: AiReply<string[]> = JSON.parse(modelReply) as AiReply<string[]>;
-      if (!result.ok) {
+      if (result.ok !== true) {
         return this.credentialReply(false, '无法连接 AI 服务，请检查接口地址和 Token。');
       }
       return this.credentialReply(true, `连接成功，可用模型 ${result.value.length} 个。`);

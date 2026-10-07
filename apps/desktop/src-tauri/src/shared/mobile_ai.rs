@@ -10,7 +10,7 @@ use msime_client_core::{
 };
 use serde::Deserialize;
 use serde_json::Value;
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 use std::time::Duration;
 
 const MAX_ENDPOINT_LENGTH: usize = 2_048;
@@ -140,7 +140,7 @@ pub fn fetch_models(endpoint: &str, token: &str) -> Result<Vec<String>, Error> {
         .map_err(|_| Error::Unavailable)?;
     let mut models = BTreeSet::new();
     let mut cursor: Option<String> = None;
-    let mut cursors = BTreeSet::new();
+    let mut cursors = HashSet::with_capacity(MAX_PAGES);
 
     for _ in 0..MAX_PAGES {
         let mut url = base_url.clone();

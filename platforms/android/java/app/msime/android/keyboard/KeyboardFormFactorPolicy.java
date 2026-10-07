@@ -20,8 +20,15 @@ public final class KeyboardFormFactorPolicy {
      * must not turn it into the convertible layout just because its landscape width crosses 600dp.
      */
     public static int surfaceWidthDp(int smallestWidthDp, int screenWidthDp) {
-        if (!expanded(smallestWidthDp)) return 0;
+        return surfaceWidthDp(smallestWidthDp, screenWidthDp, false);
+    }
+
+    /**
+     * 同上，另外考虑分离式键盘：分离式键盘画着的时候（{@link SplitKeyboardPolicy#drawn}）不受 720 dp 上限约束，整套键盘表面铺满可用宽度，左右两半才能贴到两侧，留给双手拇指。结果为 0 表示铺满。
+     */
+    public static int surfaceWidthDp(int smallestWidthDp, int screenWidthDp, boolean splitKeyboard) {
+        if (!expanded(smallestWidthDp) || splitKeyboard) return 0;
         if (screenWidthDp <= 0) return EXPANDED_SURFACE_MAX_WIDTH_DP;
-        return Math.min(screenWidthDp, EXPANDED_SURFACE_MAX_WIDTH_DP);
+        return BoundsPolicy.atMost(screenWidthDp, EXPANDED_SURFACE_MAX_WIDTH_DP);
     }
 }

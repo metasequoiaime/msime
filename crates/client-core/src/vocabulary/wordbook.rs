@@ -4,6 +4,8 @@
 //! imported ones through [`super::import`]; both end up as the same in-memory shape, so nothing
 //! downstream has to care which it was.
 
+use std::collections::HashSet;
+
 use serde::{Deserialize, Serialize};
 
 /// The longest a single headword may be.
@@ -100,7 +102,7 @@ impl Wordbook {
         {
             return false;
         }
-        let mut seen = std::collections::BTreeSet::new();
+        let mut seen = HashSet::with_capacity(self.entries.len());
         self.entries.iter().all(|entry| seen.insert(&entry.word))
     }
 

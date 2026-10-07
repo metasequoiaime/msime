@@ -32,7 +32,7 @@ public final class ExpressionPage extends DetailPage {
     private boolean loaded;
     @Nullable private List<CommunityCatalog.Item> discover;
     @Nullable private String discoverFailure;
-    private final Set<String> installed = new HashSet<>();
+    private HashSet<String> installed = new HashSet<>();
     private final Set<String> installing = new HashSet<>();
 
     @Override protected void buildContent(LinearLayout column, Bundle args) {
@@ -61,7 +61,7 @@ public final class ExpressionPage extends DetailPage {
         }, result -> {
             loaded = true;
             preferences = result == null ? null : result.preferences();
-            installed.clear();
+            installed = new HashSet<>(result == null ? 0 : result.packs().size());
             if (result != null) installed.addAll(result.packs());
             render();
         });
@@ -75,7 +75,7 @@ public final class ExpressionPage extends DetailPage {
                     discoverFailure = page == null ? "暂时连不上社区，稍后再试。" : page.failure();
                 } else {
                     List<CommunityCatalog.Item> items = page.items();
-                    discover = new ArrayList<>(items.subList(0, Math.min(DISCOVER_LIMIT, items.size())));
+                    discover = CommunityRequest.limitedCopy(items, DISCOVER_LIMIT);
                     discoverFailure = null;
                 }
                 if (loaded) render();
@@ -133,7 +133,7 @@ public final class ExpressionPage extends DetailPage {
         boolean added = installed.contains(item.id());
         boolean busy = installing.contains(item.id());
         String label = added ? "已添加" : busy ? "添加中" : "添加";
-        return KeyboardSheets.pillRow(context, initial(item.name()), item.name(),
+        return KeyboardSheets.pillRow(context, Ui.initial(item.name(), "短"), item.name(),
             parts.isEmpty() ? null : String.join(" · ", parts), label, added || busy ? null : () -> install(item));
     }
 
@@ -171,11 +171,6 @@ public final class ExpressionPage extends DetailPage {
         boolean neural = association != null && association.optBoolean("neural_keyboard", false);
         if (!lattice) return 0;
         return neural ? 2 : 1;
-    }
-
-    private static String initial(String name) {
-        if (name == null || name.isEmpty()) return "短";
-        return new String(Character.toChars(name.codePointAt(0)));
     }
 
     private void save(KeyboardSheets.Edit edit) {

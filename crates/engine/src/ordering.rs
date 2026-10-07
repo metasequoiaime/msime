@@ -189,9 +189,13 @@ pub fn runner_up_order(scheme: u8, rows: &[OrderRow<'_>]) -> Option<Vec<usize>> 
         })
         .collect();
     let (kept, demoted) = readings.split_at(keep.min(readings.len()));
+    let mut is_reading = vec![false; count];
+    for &index in &readings {
+        is_reading[index] = true;
+    }
     let mut order = Vec::with_capacity(count);
-    for index in 0..count {
-        if index != kept[0] && readings.contains(&index) {
+    for (index, _) in rows.iter().enumerate() {
+        if index != kept[0] && is_reading[index] {
             continue;
         }
         order.push(index);

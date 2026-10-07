@@ -5,11 +5,9 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.LinearLayout;
-import android.widget.TextView;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.Nullable;
@@ -43,7 +41,7 @@ public final class LexiconDetailPage extends DetailPage {
     @Nullable private LinearLayout column;
     @Nullable private GroupCard entries;
     @Nullable private Model model;
-    private List<DictionaryCollectionsStore.Word> shown = new ArrayList<>();
+    private List<DictionaryCollectionsStore.Word> shown = new ArrayList<>(PAGE_SIZE);
     private String query = "";
     private int searchGeneration;
 
@@ -103,7 +101,8 @@ public final class LexiconDetailPage extends DetailPage {
             return new Model(null, count.ok() ? count.value() : -1,
                 page.ok() ? page.value().words() : List.of(), page.ok() ? "" : page.failure());
         }
-        DictionaryCollectionsStore.Result<DictionaryCollectionsStore.View> view = DictionaryCollectionsStore.load(context);
+        // 和词库列表页一样，打开时顺手送一批待写入的词条，显示的剩余条数也就是最新的。
+        DictionaryCollectionsStore.Result<DictionaryCollectionsStore.View> view = DictionaryCollectionsStore.flush(context);
         if (!view.ok()) return new Model(null, -1, List.of(), view.failure());
         DictionaryCollectionsStore.Collection collection = view.value().find(id);
         if (collection == null) return new Model(null, -1, List.of(), DictionaryCollectionsStore.failureMessage("collections_not_found"));
@@ -171,9 +170,11 @@ public final class LexiconDetailPage extends DetailPage {
         } else {
             DictionaryCollectionsStore.Collection collection = current.collection();
             if (collection != null) {
-                String pending = collection.pending() > 0 ? "，还有 " + collection.pending() + " 条等待键盘应用" : "";
-                card.note("这个词库有 " + DictionaryCollectionsStore.countLabel(collection.entryCount()) + pending
-                    + "。新加的词在键盘下次启动时生效。");
+                String total = "这个词库有 " + DictionaryCollectionsStore.countLabel(collection.entryCount());
+                // 待写入的词由键盘在每次收起后自动分批写完（MSIMEInputService 的空闲同步），这里只告诉用户正在进行、不用做什么。
+                card.note(collection.pending() > 0
+                    ? total + "，其中 " + collection.pending() + " 条正在写入键盘。每次用完键盘、收起后会自动接着写，不需要手动操作。"
+                    : total + "。新加的词在下次打开键盘时生效。");
             }
         }
         card.addView(accentRow("+", "添加词条", this::showAddDialog));
@@ -181,31 +182,7 @@ public final class LexiconDetailPage extends DetailPage {
 
     private View accentRow(@Nullable String glyph, String title, Runnable action) {
         Context context = requireContext();
-        LinearLayout row = new LinearLayout(context);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setMinimumHeight(Ui.dp(context, 52));
-        row.setPadding(Ui.dp(context, Ui.ROW_PADDING_H), 0, Ui.dp(context, Ui.ROW_PADDING_H), 0);
-        if (glyph != null) {
-            TextView icon = new TextView(context);
-            icon.setText(glyph);
-            icon.setGravity(Gravity.CENTER);
-            Ui.style(icon, 22, 400, Ui.accent(context));
-            icon.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-            LinearLayout.LayoutParams iconParams = new LinearLayout.LayoutParams(Ui.dp(context, 24), Ui.dp(context, 24));
-            iconParams.setMarginEnd(Ui.dp(context, 10));
-            row.addView(icon, iconParams);
-        }
-        TextView label = new TextView(context);
-        label.setText(title);
-        Ui.style(label, Ui.TEXT_ROW_TITLE, 400, Ui.accent(context));
-        row.addView(label);
-        row.setBackground(Ui.ripple(context));
-        row.setClickable(true);
-        row.setFocusable(true);
-        row.setContentDescription(title);
-        row.setOnClickListener(ignored -> action.run());
-        return row;
+        return KeyboardSheets.accentActionRow(context, glyph, title, action, 24, 10, 0);
     }
 
     // ---- 搜索 ----

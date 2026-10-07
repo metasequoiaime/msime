@@ -27,7 +27,7 @@ param(
     [string]$NoticesDirectory = '.',
     # The on-device speech runtime from scripts/fetch_voice_runtime.py --platform windows-x64; relative paths are resolved against RepoRoot. Used when the Server output does not already carry it.
     [string]$VoiceRuntimeDirectory = 'target/voice-runtime/windows-x64',
-    # 产品版本（shared/contracts/editions.json 里有 Windows 段的 id）。决定从哪个构建目录取文件（full 是 target/windows-full，其他版本是 target/windows-<id>）、host DLL 的名字、按哪份资源锁校验词库、带哪些语言词库，以及是否在 Server 目录里放版本声明。缺省是 full，与引入版本之前相同。
+    # 产品版本（shared/contracts/editions.json 里有 Windows 段的 id）。决定从哪个构建目录取文件（full 是 target/windows-full，其他版本是 target/windows-<id>）、host DLL 的名字、按哪份资源锁校验词库、带哪些语言词库，以及 Server 目录里版本声明写哪个版本。缺省是 full。
     [ValidatePattern('^[a-z][a-z0-9]*$')][string]$Edition = 'full',
     [switch]$Light
 )
@@ -447,12 +447,9 @@ foreach ($name in @('MetasequoiaImeTsf.dll', 'MetasequoiaImeTsf.pdb', $hostDllNa
     if (Test-Path -LiteralPath $staged -PathType Leaf) { Remove-Item -LiteralPath $staged -Force }
 }
 
-# 版本声明（Edition::PACKAGE_MARKER_FILE）：MSIME.exe 和 msime-mcp.exe 从自己所在的 Server 目录读它，决定连哪个版本的 Server、用哪个状态目录。只有管理员能写 Program Files，普通进程改不了它。full 不带这个文件，包与引入版本之前相同。
+# 版本声明（Edition::PACKAGE_MARKER_FILE）：MSIME.exe 和 msime-mcp.exe 从自己所在的 Server 目录读它，决定连哪个版本的 Server、用哪个状态目录。只有管理员能写 Program Files，普通进程改不了它。每个版本（包括 full）都写：full 在 Windows 上也有自己的一组名字（版本表 platforms.windows），不再是引入版本之前的那组。
 $editionMarker = Join-Path $targetServer 'edition.json'
-if (Test-Path -LiteralPath $editionMarker) { Remove-Item -LiteralPath $editionMarker -Force }
-if ($Edition -ne 'full') {
-    [IO.File]::WriteAllText($editionMarker, "{`"edition`": `"$Edition`"}`n", [Text.UTF8Encoding]::new($false))
-}
+[IO.File]::WriteAllText($editionMarker, "{`"edition`": `"$Edition`"}`n", [Text.UTF8Encoding]::new($false))
 
 Reset-Directory -LiteralPath $targetTsf
 $targetTsf32 = Join-Path $targetTsf '32'

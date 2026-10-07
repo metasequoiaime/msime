@@ -245,6 +245,171 @@ if ! rg -q 'toggle == InputFeatureToggle\.USAGE_REPORTING\) Telemetry\.setEnable
   echo "Android privacy page must apply the usage-reporting toggle to Telemetry when it is saved" >&2
   exit 1
 fi
+# org.json's optBoolean accepts string values such as "true". Notice feeds and dismissal
+# acknowledgements are native envelopes, so malformed JSON must not be treated as success.
+if rg -n 'optBoolean\("ok"' \
+    "$repo_root/platforms/android/java/app/msime/android/home/NoticeBanner.java"; then
+  echo "Android notice responses must require a typed boolean ok field" >&2
+  exit 1
+fi
+# App theme resolution is another native envelope; only a JSON boolean can authorize caching
+# the returned palette and season.
+if rg -n 'optBoolean\("ok"' \
+    "$repo_root/platforms/android/java/app/msime/android/home/AppThemeController.java"; then
+  echo "Android app theme responses must require a typed boolean ok field" >&2
+  exit 1
+fi
+# The keyboard-side resolver has the same native envelope contract as the settings app. Keep its
+# fallback path from accepting string booleans and caching an untrusted palette.
+if rg -n 'optBoolean\("ok"' \
+    "$repo_root/platforms/android/java/app/msime/android/core/ImeStyler.java"; then
+  echo "Android keyboard theme responses must require a typed boolean ok field" >&2
+  exit 1
+fi
+# Dictionary pinyin lookup is a native envelope too; a string status must fall back to no
+# pronunciation rather than being parsed as a successful value.
+if rg -n 'optBoolean\("ok"' \
+    "$repo_root/platforms/android/java/app/msime/android/core/ImeLayoutRows.java"; then
+  echo "Android handwriting dictionary responses must require a typed boolean ok field" >&2
+  exit 1
+fi
+# Sound-pack metadata is consumed by the keyboard process; malformed native status must leave
+# the pack disabled instead of constructing sounds from an untrusted value object.
+if rg -n 'optBoolean\("ok"' \
+    "$repo_root/platforms/android/java/app/msime/android/core/ImeKeyFeedback.java"; then
+  echo "Android key-sound responses must require a typed boolean ok field" >&2
+  exit 1
+fi
+# Bootstrap controls first install and package refresh. A coerced status could accept a malformed
+# preparation response and persist incomplete runtime options.
+if rg -n 'getBoolean\("ok"\)|optBoolean\("ok"' \
+    "$repo_root/platforms/android/java/app/msime/android/core/Bootstrap.java"; then
+  echo "Android bootstrap responses must require a typed boolean ok field" >&2
+  exit 1
+fi
+# MSIMEInputService.value is the shared envelope reader for several keyboard operations. Keep its
+# central status check strict so one malformed response cannot reach all those callers.
+if sed -n '/private JSONObject value(String response)/,/^    }$/p' \
+    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
+    | rg -n 'getBoolean\("ok"\)|optBoolean\("ok"'; then
+  echo "Android input service envelope reader must require a typed boolean ok field" >&2
+  exit 1
+fi
+# The live preference reload feeds the next Engine session. It must use the same strict native
+# envelope rule instead of accepting a string status from a malformed store response.
+if sed -n '/private static String withLivePreferences/,/^    }$/p' \
+    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
+    | rg -n 'getBoolean\("ok"\)|optBoolean\("ok"'; then
+  echo "Android live preferences must require a typed boolean ok field" >&2
+  exit 1
+fi
+# Online candidate queries gate network provider work. Require a typed success status before
+# exposing the query object to the cloud and AI policy checks.
+if sed -n '/private JSONObject onlineQuery(long targetSession)/,/^    }$/p' \
+    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
+    | rg -n 'getBoolean\("ok"\)|optBoolean\("ok"'; then
+  echo "Android online candidate queries must require a typed boolean ok field" >&2
+  exit 1
+fi
+# Cloud request URL generation is a native envelope. Reject a malformed status before handing the
+# returned URL to the network transport.
+if sed -n '/private String cloudRequestUrl(String document)/,/^    }$/p' \
+    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
+    | rg -n 'getBoolean\("ok"\)|optBoolean\("ok"'; then
+  echo "Android cloud request URLs must require a typed boolean ok field" >&2
+  exit 1
+fi
+# AI request descriptors also come from a native envelope; malformed success flags must not expose
+# a provider endpoint to the client.
+if sed -n '/private static JSONObject aiRequestDescriptor(String raw)/,/^    }$/p' \
+    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
+    | rg -n 'getBoolean\("ok"\)|optBoolean\("ok"'; then
+  echo "Android AI request descriptors must require a typed boolean ok field" >&2
+  exit 1
+fi
+# Host capability discovery feeds the typing settings page; only a typed status may replace the
+# built-in helpcode schema list.
+if rg -n 'optBoolean\("ok"' \
+    "$repo_root/platforms/android/java/app/msime/android/home/TypingPage.java"; then
+  echo "Android typing host capabilities must require a typed boolean ok field" >&2
+  exit 1
+fi
+# The typing statistics badge reads a native dictionary count; malformed status must leave the
+# optional badge unavailable instead of accepting a coerced success.
+if rg -n 'optBoolean\("ok"' \
+    "$repo_root/platforms/android/java/app/msime/android/home/StatisticsFragment.java"; then
+  echo "Android statistics dictionary responses must require a typed boolean ok field" >&2
+  exit 1
+fi
+# Developer diagnostics consume a native value envelope; malformed success must stay on the
+# unavailable path rather than populating diagnostic controls.
+if rg -n 'optBoolean\("ok"' \
+    "$repo_root/platforms/android/java/app/msime/android/home/DeveloperPage.java"; then
+  echo "Android developer responses must require a typed boolean ok field" >&2
+  exit 1
+fi
+# Cloud sync routes several native operations through nativeValue; keep that shared failure gate
+# strict so malformed envelopes cannot be merged into account state.
+if sed -n '/private static JSONObject nativeValue(String response)/,/^    }$/p' \
+    "$repo_root/platforms/android/java/app/msime/android/home/CloudSync.java" \
+    | rg -n 'getBoolean\("ok"\)|optBoolean\("ok"'; then
+  echo "Android cloud sync native envelopes must require a typed boolean ok field" >&2
+  exit 1
+fi
+# Personal dictionary imports are acknowledged separately from the value envelope. A malformed
+# acknowledgement must not be reported as a successful merge item.
+if sed -n '/private boolean queueImport(String options, List<SyncMergePolicy.Word> words)/,/^    }$/p' \
+    "$repo_root/platforms/android/java/app/msime/android/home/CloudSync.java" \
+    | rg -n 'getBoolean\("ok"\)|optBoolean\("ok"'; then
+  echo "Android cloud sync imports must require a typed boolean ok field" >&2
+  exit 1
+fi
+# Typing statistics writes are optional, but their acknowledgement still controls failure
+# reporting. Do not let org.json coerce a malformed status into success.
+if sed -n '/private void submitTypingStatistics(String request, Runnable nothingRecorded/,/^    }$/p' \
+    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
+    | rg -n 'getBoolean\("ok"\)|optBoolean\("ok"'; then
+  echo "Android typing statistics responses must require a typed boolean ok field" >&2
+  exit 1
+fi
+# Emoji catalog pages are native envelopes; reject malformed status before decoding entries.
+if sed -n '/private EmojiCatalogModel.Page decodeEmojiPage/,/^    }$/p' \
+    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
+    | rg -n 'getBoolean\("ok"\)|optBoolean\("ok"'; then
+  echo "Android emoji catalog responses must require a typed boolean ok field" >&2
+  exit 1
+fi
+# Transition acknowledgements are native protocol values too. Do not let org.json accept strings
+# for deferred/handled flags or for the emoji page cursor's completion marker.
+if sed -n '/private void reloadPreferences/,/^    }$/p;/boolean apply(String response)/,/^    }$/p;/private EmojiCatalogModel.Page decodeEmojiPage/,/^    }$/p' \
+    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
+    | rg -n 'getBoolean\("(deferred|handled|complete)"\)|optBoolean\("(deferred|handled|complete)"'; then
+  echo "Android transition and emoji cursor flags must require typed booleans" >&2
+  exit 1
+fi
+# Candidate and online provider writes acknowledge whether the native operation took effect. A
+# coerced string must never make the host publish a view it did not receive as applied.
+if rg -n 'optBoolean\("applied"' \
+    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java"; then
+  echo "Android candidate writes must require a typed boolean applied field" >&2
+  exit 1
+fi
+# The keyboard skin save writes the local animation only after a successful native CAS response;
+# keep that acknowledgement strict to avoid persisting a change after malformed JSON.
+if sed -n '/void saveKeyboardSkin(String identifier, JSONObject design)/,/^    }$/p' \
+    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
+    | rg -n 'getBoolean\("ok"\)|optBoolean\("ok"'; then
+  echo "Android keyboard skin saves must require a typed boolean ok field" >&2
+  exit 1
+fi
+# Layout preference saves likewise update a local setting only after a native CAS success; keep the
+# acknowledgement type strict.
+if sed -n '/private void saveTouchGeometry(boolean reset)/,/^    }$/p' \
+    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
+    | rg -n 'getBoolean\("ok"\)|optBoolean\("ok"'; then
+  echo "Android keyboard layout saves must require a typed boolean ok field" >&2
+  exit 1
+fi
 # Sync rounds download over any section that is not dirty, so a preference write that forgets to mark settings dirty is reverted by the next cloud change. HostStore.savePreferences owns that mark for every caller.
 if ! rg -qU 'NativeClient\.savePreferences\(directory, revision, document\)\)\);\s*(//[^\n]*\s*)?if \(saved != null\) SyncSignals\.markDirty\(context, SyncSwitch\.SETTINGS\);' \
     "$repo_root/platforms/android/java/app/msime/android/home/HostStore.java"; then
@@ -300,6 +465,17 @@ fi
 if ! rg -q 'if \(length > 1024 \* 1024\)' \
     "$repo_root/platforms/android/native/client_jni.cpp"; then
   echo "Android Doubao decoding must bound the Java frame before copying" >&2
+  exit 1
+fi
+# Opaque local speech handles are native pointers. Java rejects non-positive values, and JNI keeps
+# the same boundary so a direct native call cannot turn a negative sentinel into an invalid dereference.
+if ! rg -q 'if \(handle <= 0\) return nullptr;' \
+    "$repo_root/platforms/android/native/client_jni.cpp" \
+  || ! rg -q 'if \(handle > 0\) delete speech\(handle\);' \
+    "$repo_root/platforms/android/native/client_jni.cpp" \
+  || ! rg -q 'NativeHandlePolicy\.requirePositive\(handle\)' \
+    "$repo_root/platforms/android/java/app/msime/android/core/NativeClient.java"; then
+  echo "Android local speech handles must reject non-positive values before JNI pointer use" >&2
   exit 1
 fi
 # The Engine decides what a punctuation key produces, so the Chinese/English state has to reach it.
@@ -490,14 +666,15 @@ while IFS= read -r source; do
   class=$(basename "$source" .java)
   smoke_classes+=("${package:+$package.}$class")
 done < <(find "$repo_root/platforms/android/tests" -name "*.java" -print | LC_ALL=C sort)
-# 下限就是当前发现的冒烟数（145）；少于这个数说明上面的筛选或 package 解析坏了，而不是冒烟真的变少了。新增冒烟时把这个数一起调高，有意删掉冒烟时同时调低。
-if [[ ${#smoke_classes[@]} -lt 145 ]]; then
-  echo "Only ${#smoke_classes[@]} Android JVM smokes discovered; expected at least 145" >&2
+# 下限就是当前发现的冒烟数（156）；少于这个数说明上面的筛选或 package 解析坏了，而不是冒烟真的变少了。新增冒烟时把这个数一起调高，有意删掉冒烟时同时调低。
+if [[ ${#smoke_classes[@]} -lt 156 ]]; then
+  echo "Only ${#smoke_classes[@]} Android JVM smokes discovered; expected at least 156" >&2
   exit 1
 fi
 javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "${client_sources[@]}" \
   "$repo_root/platforms/android/java/app/msime/android/home/SignInAttemptPolicy.java" \
+  "$repo_root/platforms/android/java/app/msime/android/home/OnboardingChoicePolicy.java" \
   "${test_sources[@]}"
 # 统一用 `$output_dir:$android_jar` 运行：改成自动发现前逐个核对过，原先按类分别给的 classpath（有的不带 android.jar）与统一 classpath 下 108 个冒烟的输出和退出码完全相同。
 for smoke in "${smoke_classes[@]}"; do
@@ -519,7 +696,7 @@ for alias in MainActivityForest MainActivitySky MainActivityDusk MainActivityVer
 done
 # A disabled tool card swallows the press and the 工具 section draws no state text, so the only
 # thing left to say it is unavailable is how it looks.
-if ! rg -q 'card\.setAlpha\(enabled \?' \
+if ! rg -q 'card\.setAlpha\(enabled \?|ViewPolicy\.setActiveAlpha\(card, enabled, \.45f\)' \
     "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java"; then
   echo "Android tool cards must look disabled when they are" >&2
   exit 1

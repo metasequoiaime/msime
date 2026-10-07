@@ -49,7 +49,7 @@ public final class CloudApi {
             super(message == null || message.isEmpty() ? "HTTP " + status : message);
             this.status = status;
             this.code = code == null ? "" : code;
-            this.retryAfterSeconds = Math.max(0L, retryAfterSeconds);
+            this.retryAfterSeconds = BoundsPolicy.nonNegative(retryAfterSeconds);
         }
 
         /** 这个部署没有开这项功能。 */
@@ -79,12 +79,12 @@ public final class CloudApi {
     public record Part(String name, String filename, String contentType, byte[] content) {
         /** 一个 JSON 字段，例如反馈和语音贡献的 `payload`。 */
         public static Part json(String name, String json) {
-            return new Part(name, null, "application/json", json.getBytes(StandardCharsets.UTF_8));
+            return new Part(name, null, "application/json", TextPolicy.utf8Bytes(json));
         }
 
         /** 一个纯文本字段。 */
         public static Part text(String name, String value) {
-            return new Part(name, null, "text/plain; charset=utf-8", value.getBytes(StandardCharsets.UTF_8));
+            return new Part(name, null, "text/plain; charset=utf-8", TextPolicy.utf8Bytes(value));
         }
 
         /** 一个文件，例如截图或录音。 */
@@ -175,7 +175,9 @@ public final class CloudApi {
      * <p>带令牌的请求被 401 拒绝时，向令牌来源要一枚新的（同一个被拒的令牌不会再给回来）并只重试一次。
      */
     public Response send(String method, String path, Body body, Auth auth) throws Failure {
-        if (path == null || !path.startsWith("/")) throw new IllegalArgumentException("path must be absolute");
+        if (path == null || !path.startsWith("/") || path.indexOf('\\') >= 0 || containsDotSegment(path)) {
+            throw new IllegalArgumentException("path must be a safe absolute API path");
+        }
         Credential credential = credential(auth, null);
         for (int attempt = 0; ; attempt++) {
             Map<String, String> headers = new LinkedHashMap<>(4);
@@ -204,6 +206,21 @@ public final class CloudApi {
     }
 
     private record Credential(Auth auth, String token) {}
+
+    private static boolean containsDotSegment(String path) {
+        final String decoded;
+        try {
+            decoded = java.net.URLDecoder.decode(path, StandardCharsets.UTF_8.name());
+        } catch (java.io.UnsupportedEncodingException impossible) {
+            return true;
+        } catch (IllegalArgumentException malformed) {
+            return true;
+        }
+        for (String segment : decoded.split("/", -1)) {
+            if (".".equals(segment) || "..".equals(segment)) return true;
+        }
+        return false;
+    }
 
     /** 按身份取令牌；`ACCOUNT_OR_ANONYMOUS` 在没有真实账号时落到匿名账号，重试时沿用第一次选中的那一种。 */
     private Credential credential(Auth auth, String rejected) throws Failure {
@@ -263,7 +280,7 @@ public final class CloudApi {
     /** `Retry-After` 的秒数形式；日期形式和读不出的值都当作没有。 */
     public static long retryAfterSeconds(String header) {
         if (header == null) return 0L;
-        String value = header.trim();
+        String value = TextPolicy.trimmed(header);
         if (value.isEmpty() || value.length() > 9) return 0L;
         for (int index = 0; index < value.length(); index++) {
             if (value.charAt(index) < '0' || value.charAt(index) > '9') return 0L;
@@ -273,7 +290,7 @@ public final class CloudApi {
 
     /** JSON 布尔值只有严格的 `true` 才算；字符串和数字都不算。 */
     static boolean strictTrue(Object value) {
-        return Boolean.TRUE.equals(value);
+        return JsonPolicy.strictTrue(value);
     }
 
     // ---- multipart ----
@@ -306,12 +323,13 @@ public final class CloudApi {
         for (Part part : parts) {
             if (part == null || part.content() == null) throw new IllegalArgumentException("empty multipart part");
             if (contains(part.content(), delimiter)) throw new IllegalArgumentException("part contains the boundary");
-            StringBuilder head = new StringBuilder();
+            String type = part.contentType() == null ? "application/octet-stream" : part.contentType();
+            StringBuilder head = new StringBuilder(96 + boundary.length()
+                + headerLength(part.name()) + headerLength(part.filename()) + headerLength(type));
             head.append("--").append(boundary).append("\r\n");
             head.append("Content-Disposition: form-data; name=\"").append(headerToken(part.name())).append('"');
             if (part.filename() != null) head.append("; filename=\"").append(headerToken(part.filename())).append('"');
             head.append("\r\n");
-            String type = part.contentType() == null ? "application/octet-stream" : part.contentType();
             head.append("Content-Type: ").append(headerToken(type)).append("\r\n\r\n");
             write(output, head.toString().getBytes(StandardCharsets.UTF_8));
             write(output, part.content());
@@ -336,6 +354,10 @@ public final class CloudApi {
             if (!allowed) throw new IllegalArgumentException("invalid multipart boundary");
         }
         return boundary;
+    }
+
+    private static int headerLength(String value) {
+        return value == null ? 0 : value.length();
     }
 
     private static String headerToken(String value) {

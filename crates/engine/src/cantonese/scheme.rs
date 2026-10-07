@@ -153,48 +153,34 @@ impl CantoneseScheme {
         let count = reading.syllables.len();
         let full = !reading.syllables.is_empty()
             && input[reading.end()..].bytes().all(|byte| byte == b'\'');
-        let mut seen = HashSet::new();
         let mut candidates = Vec::new();
-        let push = |seen: &mut HashSet<(String, usize)>,
-                    candidates: &mut Vec<CantoneseCandidate>,
+        let push = |candidates: &mut Vec<CantoneseCandidate>,
                     key: String,
                     text: String,
                     weight: i64,
                     syllables: usize| {
-            if seen.insert((text.clone(), syllables)) {
-                candidates.push(CantoneseCandidate {
-                    text,
-                    weight,
-                    key,
-                    syllables,
-                    end: reading.syllables[syllables - 1].end,
-                });
-            }
+            candidates.push(CantoneseCandidate {
+                text,
+                weight,
+                key,
+                syllables,
+                end: reading.syllables[syllables - 1].end,
+            });
         };
         let mut spans = count;
         if full {
             let whole = reading.key(input, count);
             if reading.ends_in_prefix() {
                 let completions = dictionary.lookup_completions(&whole, COMPLETION_LIMIT)?;
-                seen.reserve(completions.len());
                 candidates.reserve_exact(completions.len());
                 for (key, entry) in completions {
-                    push(
-                        &mut seen,
-                        &mut candidates,
-                        key,
-                        entry.text,
-                        entry.weight,
-                        count,
-                    );
+                    push(&mut candidates, key, entry.text, entry.weight, count);
                 }
             } else {
                 let entries = dictionary.lookup(&whole, SPAN_LIMIT)?;
-                seen.reserve(entries.len());
                 candidates.reserve_exact(entries.len());
                 for entry in entries {
                     push(
-                        &mut seen,
                         &mut candidates,
                         whole.clone(),
                         entry.text,
@@ -205,17 +191,9 @@ impl CantoneseScheme {
                 let last = reading.texts(input).last().unwrap_or_default();
                 if self.inventory.is_prefix(last) {
                     let completions = dictionary.lookup_completions(&whole, COMPLETION_LIMIT)?;
-                    seen.reserve(completions.len());
                     candidates.reserve_exact(completions.len());
                     for (key, entry) in completions {
-                        push(
-                            &mut seen,
-                            &mut candidates,
-                            key,
-                            entry.text,
-                            entry.weight,
-                            count,
-                        );
+                        push(&mut candidates, key, entry.text, entry.weight, count);
                     }
                 }
             }
@@ -224,11 +202,9 @@ impl CantoneseScheme {
         for length in (1..=spans).rev() {
             let key = reading.key(input, length);
             let entries = dictionary.lookup(&key, SPAN_LIMIT)?;
-            seen.reserve(entries.len());
             candidates.reserve_exact(entries.len());
             for entry in entries {
                 push(
-                    &mut seen,
                     &mut candidates,
                     key.clone(),
                     entry.text,
@@ -237,6 +213,18 @@ impl CantoneseScheme {
                 );
             }
         }
+        let mut seen = HashSet::with_capacity(candidates.len());
+        let unique = candidates
+            .iter()
+            .map(|candidate| seen.insert((candidate.text.as_str(), candidate.syllables)))
+            .collect::<Vec<_>>();
+        drop(seen);
+        let mut index = 0;
+        candidates.retain(|_| {
+            let keep = unique[index];
+            index += 1;
+            keep
+        });
         Ok(candidates)
     }
 

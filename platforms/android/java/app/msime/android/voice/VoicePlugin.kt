@@ -275,8 +275,8 @@ class VoicePlugin(activity: Activity) : Plugin(activity) {
     fun saveVoiceText(invoke: Invoke) {
         try {
             val text = invoke.parseArgs(SaveVoiceTextArgs::class.java).text
-            if (text.codePointCount(0, text.length) > VoiceResultStore.MAXIMUM_CHARACTERS
-                || text.contains('\u0000') || text.trim().isEmpty()) {
+            if (TextPolicy.codePointLength(text) > VoiceResultStore.MAXIMUM_CHARACTERS
+                || text.contains('\u0000') || TextPolicy.trimmed(text).isEmpty()) {
                 invoke.reject("invalid_text", "invalid_text")
                 return
             }
@@ -290,9 +290,6 @@ class VoicePlugin(activity: Activity) : Plugin(activity) {
     }
 
     private fun validRequest(args: VoiceRecognitionArgs): Boolean {
-        return args.requestId.length in 1..64
-            && args.requestId.all { it.isLetterOrDigit() || it == '-' }
-            && args.language.length in 1..64
-            && !TextPolicy.hasControl(args.language)
+        return VoiceRequestPolicy.valid(args.requestId, args.language)
     }
 }

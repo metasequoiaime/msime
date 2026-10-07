@@ -11,8 +11,12 @@ import androidx.annotation.Nullable;
 import androidx.recyclerview.widget.RecyclerView;
 import app.msime.android.CommunityCatalog;
 import app.msime.android.CommunityRequest;
+import app.msime.android.BoundsPolicy;
+import app.msime.android.DrawablePolicy;
 import app.msime.android.KeyboardSkin;
 import app.msime.android.R;
+import app.msime.android.TextPolicy;
+import app.msime.android.ViewPolicy;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -38,7 +42,7 @@ public final class CommunityAdapter extends RecyclerView.Adapter<CommunityAdapte
     /** One line of the listing: an entry, or a section title when `item` is null. */
     private record Entry(@Nullable CommunityCatalog.Item item, String header) {}
 
-    private final ArrayList<Entry> entries = new ArrayList<>();
+    private final ArrayList<Entry> entries = new ArrayList<>(CommunityRequest.PAGE_SIZE);
     private final Map<String, Action> actions = new HashMap<>();
     private final Consumer<CommunityCatalog.Item> onOpen;
     private final Consumer<CommunityCatalog.Item> onAction;
@@ -56,7 +60,7 @@ public final class CommunityAdapter extends RecyclerView.Adapter<CommunityAdapte
 
     /** Ids compare case-insensitively, as the catalogue does (UUIDs may arrive in either case). */
     static String key(String id) {
-        return id == null ? "" : id.toLowerCase(Locale.ROOT);
+        return TextPolicy.lowercase(id);
     }
 
     /** Replace the listing, for a new kind or a new search. */
@@ -80,6 +84,7 @@ public final class CommunityAdapter extends RecyclerView.Adapter<CommunityAdapte
 
     /** Start a new section, such as 「AI 回复模板」 under the phrase packs. */
     public void appendHeader(String title) {
+        entries.ensureCapacity(entries.size() + 1);
         entries.add(new Entry(null, title));
         notifyItemInserted(entries.size() - 1);
         if (entries.size() > 1) notifyItemChanged(entries.size() - 2);
@@ -145,8 +150,8 @@ public final class CommunityAdapter extends RecyclerView.Adapter<CommunityAdapte
                 entries.remove(index);
                 notifyItemRemoved(index);
                 // 分组卡片的首尾圆角跟着位置走，移走一行要让相邻的行重画。
-                int start = Math.max(0, index - 1);
-                int end = Math.min(index + 1, entries.size());
+                int start = BoundsPolicy.nonNegative(index - 1);
+                int end = BoundsPolicy.bounded(index + 1, 0, entries.size());
                 if (end > start) notifyItemRangeChanged(start, end - start);
             }
             return;
@@ -185,7 +190,7 @@ public final class CommunityAdapter extends RecyclerView.Adapter<CommunityAdapte
         Action action = action(item);
         if (item.kind() == CommunityRequest.Kind.SKIN) bindSkin(holder, item);
         else bindRow(holder, item, position);
-        holder.itemView.setOnClickListener(ignored -> onOpen.accept(item));
+        ViewPolicy.bindClick(holder.itemView, () -> onOpen.accept(item));
         bindPill(holder.itemView.getContext(), holder.action, item, action);
     }
 
@@ -218,7 +223,7 @@ public final class CommunityAdapter extends RecyclerView.Adapter<CommunityAdapte
         String subtitle = subtitle(item);
         if (holder.author != null) {
             holder.author.setText(subtitle);
-            holder.author.setVisibility(subtitle.isEmpty() ? View.GONE : View.VISIBLE);
+            Ui.setVisibilityForText(holder.author, subtitle);
         }
         boolean reply = item.kind() == CommunityRequest.Kind.REPLY;
         if (holder.description != null) {
@@ -245,23 +250,22 @@ public final class CommunityAdapter extends RecyclerView.Adapter<CommunityAdapte
         if (pill == null) return;
         String label = label(item, action);
         if (label.isEmpty()) {
-            pill.setVisibility(View.GONE);
+            ViewPolicy.hide(pill);
             pill.setOnClickListener(null);
             return;
         }
-        pill.setVisibility(View.VISIBLE);
+        ViewPolicy.show(pill);
         pill.setText(label);
         boolean skin = item.kind() == CommunityRequest.Kind.SKIN;
         // 「已添加」是终态：没有底色、正文色、不响应；皮肤拿到之后的「使用」仍是可点的 tonal 按钮。
         boolean enabled = action == Action.AVAILABLE || (skin && action == Action.DONE);
         boolean filled = action != Action.DONE || skin;
-        pill.setBackground(filled ? Ui.rippleOn(context, Ui.accentSoft(context), 9999f) : null);
-        pill.setTextColor(filled ? Ui.accent(context) : Ui.text(context));
-        pill.setEnabled(enabled);
-        pill.setClickable(enabled);
-        pill.setFocusable(enabled);
-        pill.setAlpha(action == Action.BUSY ? 0.6f : 1f);
-        if (enabled) pill.setOnClickListener(ignored -> onAction.accept(item));
+        pill.setBackground(filled ? Ui.pillRipple(context, Ui.accentSoft(context)) : null);
+        ViewPolicy.setTextColor(pill, filled ? Ui.accent(context) : Ui.text(context));
+        ViewPolicy.setEnabled(pill, enabled);
+        ViewPolicy.setInteractive(pill, enabled);
+        ViewPolicy.setActiveAlpha(pill, action != Action.BUSY, 0.6f);
+        if (enabled) ViewPolicy.bindClick(pill, () -> onAction.accept(item));
         else pill.setOnClickListener(null);
         pill.setAccessibilityDelegate(KeyboardSheets.buttonDelegate(label + "，" + item.name()));
     }
@@ -293,20 +297,16 @@ public final class CommunityAdapter extends RecyclerView.Adapter<CommunityAdapte
 
     /** The glyph in the badge: the first character of the name, as the design's 网/码/医 boxes. */
     static String glyph(CommunityCatalog.Item item) {
-        String name = item.name().trim();
-        if (name.isEmpty()) return "?";
-        return name.substring(0, name.offsetByCodePoints(0, 1));
+        return Ui.trimmedInitial(item.name(), "?");
     }
 
     /** The slice of the grouped card behind one row: rounded where the group starts and ends. */
     private static GradientDrawable group(View row, boolean first, boolean last) {
-        float radius = GROUP_RADIUS_DP * row.getResources().getDisplayMetrics().density;
+        float radius = Ui.dpFloat(row.getContext(), GROUP_RADIUS_DP);
         float top = first ? radius : 0f;
         float bottom = last ? radius : 0f;
-        GradientDrawable card = new GradientDrawable();
-        card.setColor(Ui.card(row.getContext()));
-        card.setCornerRadii(new float[] {top, top, top, top, bottom, bottom, bottom, bottom});
-        return card;
+        return DrawablePolicy.rounded(Ui.card(row.getContext()),
+            new float[] {top, top, top, top, bottom, bottom, bottom, bottom});
     }
 
     /** 皮肤卡上的作者行：设计写「@作者」，没写作者时是「匿名作者」。 */

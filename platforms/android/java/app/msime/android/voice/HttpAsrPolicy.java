@@ -1,7 +1,5 @@
 package app.msime.android;
 
-import java.nio.charset.StandardCharsets;
-import java.util.Locale;
 
 /**
  * Whether a configured transcription provider can be used here, and what to send it.
@@ -22,6 +20,8 @@ public final class HttpAsrPolicy {
     };
     /** Anything beyond this is a runaway recording rather than a sentence. */
     public static final int MAX_AUDIO_BYTES = 24 * 1024 * 1024;
+    /** A provider response must fit the same transcript bound used by contribution uploads. */
+    public static final int MAX_TRANSCRIPT = 2000;
 
     private HttpAsrPolicy() {}
 
@@ -35,7 +35,10 @@ public final class HttpAsrPolicy {
 
     /** A transcription response carries text; reject non-string JSON values before display. */
     static String strictText(Object value) {
-        return AiProviderResponse.strictText(value);
+        String text = AiProviderResponse.strictText(value);
+        return TextPolicy.codePointLength(text) <= MAX_TRANSCRIPT
+                && !TextPolicy.hasControlExceptWhitespace(text)
+                && TextPolicy.validUnicode(text) ? text : "";
     }
 
     /**
@@ -47,11 +50,12 @@ public final class HttpAsrPolicy {
      */
     public static boolean usable(String provider, String endpoint, String model, String token) {
         return supported(provider)
-            && TextPolicy.validAuthority(endpoint, "https://", 2048)
-            && model != null && !model.trim().isEmpty() && model.length() <= 512
-            && !TextPolicy.hasControl(model)
-            && token != null && !token.trim().isEmpty() && token.length() <= 16 * 1024
-            && !TextPolicy.hasControl(token);
+            && TextPolicy.validAuthority(endpoint, "https://", AiPolishConfiguration.MAX_ENDPOINT_LENGTH)
+            && model != null && !TextPolicy.trimmed(model).isEmpty() && TextPolicy.utf8Length(model) <= 512
+            && !TextPolicy.hasControl(model) && TextPolicy.validUnicode(model)
+            && token != null && !TextPolicy.trimmed(token).isEmpty()
+            && TextPolicy.utf8Length(token) <= 16 * 1024
+            && !TextPolicy.hasControl(token) && TextPolicy.validUnicode(token);
     }
 
     /** A boundary that cannot occur in the parts, derived from the request rather than random. */
@@ -75,15 +79,16 @@ public final class HttpAsrPolicy {
      * absent language as "detect", and sending an empty value is not the same thing.
      */
     public static byte[] multipartBody(String boundary, String model, String language, byte[] wav) {
-        StringBuilder head = new StringBuilder();
+        String trimmed = TextPolicy.trimmed(language);
+        StringBuilder head = new StringBuilder(128 + boundary.length()
+            + VoiceTextPolicy.length(model) + trimmed.length());
         appendField(head, boundary, "model", model);
-        String trimmed = language == null ? "" : language.trim();
         if (!trimmed.isEmpty()) appendField(head, boundary, "language", isoLanguage(trimmed));
         head.append("--").append(boundary).append("\r\n")
             .append("Content-Disposition: form-data; name=\"file\"; filename=\"audio.wav\"\r\n")
             .append("Content-Type: audio/wav\r\n\r\n");
-        byte[] prefix = head.toString().getBytes(StandardCharsets.UTF_8);
-        byte[] suffix = ("\r\n--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8);
+        byte[] prefix = TextPolicy.utf8Bytes(head.toString());
+        byte[] suffix = TextPolicy.utf8Bytes("\r\n--" + boundary + "--\r\n");
         byte[] body = new byte[prefix.length + wav.length + suffix.length];
         System.arraycopy(prefix, 0, body, 0, prefix.length);
         System.arraycopy(wav, 0, body, prefix.length, wav.length);
@@ -99,14 +104,14 @@ public final class HttpAsrPolicy {
      */
     public static String isoLanguage(String language) {
         if (language == null) return "";
-        String trimmed = language.trim();
+        String trimmed = TextPolicy.trimmed(language);
         int separator = trimmed.indexOf('-');
         int underscore = trimmed.indexOf('_');
         if (separator < 0 || (underscore >= 0 && underscore < separator)) {
             separator = underscore;
         }
         String primary = separator < 0 ? trimmed : trimmed.substring(0, separator);
-        return primary.toLowerCase(Locale.ROOT);
+        return TextPolicy.lowercase(primary);
     }
 
     private static void appendField(StringBuilder body, String boundary, String name, String value) {

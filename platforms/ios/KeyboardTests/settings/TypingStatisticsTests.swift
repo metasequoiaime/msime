@@ -1,6 +1,17 @@
 import XCTest
 
 final class TypingStatisticsTests: XCTestCase {
+  func testEnabledResponseRequiresABooleanField() throws {
+    XCTAssertTrue(try TypingStatisticsStore.strictEnabled(["enabled": true]))
+    XCTAssertFalse(try TypingStatisticsStore.strictEnabled(["enabled": false]))
+    for invalid: Any in [1, 0, "true", NSNull()] {
+      XCTAssertThrowsError(try TypingStatisticsStore.strictEnabled(["enabled": invalid]),
+                           "enabled: \(invalid)")
+    }
+    XCTAssertThrowsError(try TypingStatisticsStore.strictEnabled([:]))
+    XCTAssertThrowsError(try TypingStatisticsStore.strictEnabled(NSNull()))
+  }
+
   func testCountsCommittedCharactersAcrossDaysAndPreservesPauseOnReset() throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

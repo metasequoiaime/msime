@@ -3,8 +3,9 @@
 //! With the places switch on, the Chinese administrative divisions of the embedded table in [`super::places`] (a static WTFPL dataset, modood/Administrative-divisions-of-China, divisions as of 2025-12-27) follow the user's rows once at least one letter is typed. They share `RESULT_LIMIT` with the user's rows and never displace them, and a place the user already listed appears once, as the user's row.
 
 use super::command::TEXT_UTF16_LIMIT;
-use super::places::places;
+use super::places::{places, Places};
 use crate::types::{CandidateSource, MentionEntry, WordItem};
+use std::collections::HashSet;
 
 /// Two pages of the nine-row Windows candidate window; typing more of a key narrows the list.
 pub const RESULT_LIMIT: usize = 18;
@@ -12,9 +13,38 @@ pub const RESULT_LIMIT: usize = 18;
 pub const LIST_LIMIT: usize = 1000;
 pub const KEY_LIMIT: usize = 64;
 
+fn collect_place_matches(
+    table: &Places,
+    code: &str,
+    existing_names: &[&str],
+    limit: usize,
+) -> Vec<(&'static str, &'static str)> {
+    let mut exact = Vec::with_capacity(limit);
+    let mut prefix = Vec::with_capacity(limit);
+    let mut matched_names = HashSet::with_capacity(limit);
+    for (place, spellings) in table.places.iter().zip(&table.spellings) {
+        let Some(is_exact) = spelling_match(spellings, code) else {
+            continue;
+        };
+        if existing_names.contains(&place.name) || !matched_names.insert(place.name) {
+            continue;
+        }
+        if is_exact {
+            if exact.len() < limit {
+                exact.push((place.key, place.name));
+            }
+        } else if prefix.len() < limit {
+            prefix.push((place.key, place.name));
+        }
+    }
+    exact.extend(prefix.into_iter().take(limit.saturating_sub(exact.len())));
+    exact
+}
+
 /// The entries that are usable of a host list: non-empty text within the candidate text bound, a key of lowercase letters and single apostrophes between them, the first entry of a text, at most `LIST_LIMIT`.
 pub fn usable_mentions(entries: &[MentionEntry]) -> Vec<MentionEntry> {
     let mut usable: Vec<MentionEntry> = Vec::with_capacity(LIST_LIMIT.min(entries.len()));
+    let mut texts = HashSet::with_capacity(LIST_LIMIT.min(entries.len()));
     for entry in entries {
         if usable.len() == LIST_LIMIT {
             break;
@@ -27,48 +57,86 @@ pub fn usable_mentions(entries: &[MentionEntry]) -> Vec<MentionEntry> {
                 .bytes()
                 .all(|byte| byte.is_ascii_lowercase() || byte == b'\'')
             && (entry.key.is_empty() || entry.key.split('\'').all(|syllable| !syllable.is_empty()));
-        if text_valid && key_valid && !usable.iter().any(|kept| kept.text == entry.text) {
+        if text_valid && key_valid && texts.insert(entry.text.as_str()) {
             usable.push(entry.clone());
         }
     }
     usable
 }
 
-/// Whether a spelling (key letters, key initials or lowercase text) answers the input exactly or as a prefix, for the pass that wants `exact`.
-fn spelled(spellings: &[String; 2], code: &str, exact: bool) -> bool {
-    spellings.iter().any(|spelling| {
-        !spelling.is_empty() && spelling.starts_with(code) && (spelling == code) == exact
-    })
+/// Whether a spelling answers the input, returning exactness while checking all alternatives once.
+/// Exact matches win when one spelling is exact and another only has the input as a prefix.
+fn spelling_match(spellings: &[String; 2], code: &str) -> Option<bool> {
+    let mut prefix = false;
+    for spelling in spellings {
+        if spelling.is_empty() || !spelling.starts_with(code) {
+            continue;
+        }
+        if spelling == code {
+            return Some(true);
+        }
+        prefix = true;
+    }
+    prefix.then_some(false)
+}
+
+fn matches_bytes<I>(bytes: I, code: &[u8], exact: bool) -> bool
+where
+    I: IntoIterator<Item = u8>,
+{
+    if code.is_empty() {
+        return !exact && bytes.into_iter().next().is_some();
+    }
+    let mut matched = 0;
+    for byte in bytes {
+        if matched == code.len() {
+            return !exact;
+        }
+        if byte.to_ascii_lowercase() != code[matched] {
+            return false;
+        }
+        matched += 1;
+    }
+    matched == code.len() && exact
+}
+
+/// Matches a host entry without allocating the two normalized spellings that a query only needs
+/// temporarily. Keys are validated as lowercase ASCII by `usable_mentions`; lowercasing the text
+/// bytes preserves the old ASCII-insensitive behavior while leaving non-ASCII UTF-8 untouched.
+fn spelled_entry(entry: &MentionEntry, code: &str, exact: bool) -> bool {
+    let code = code.as_bytes();
+    if entry.key.is_empty() {
+        return matches_bytes(
+            entry.text.bytes().map(|byte| byte.to_ascii_lowercase()),
+            code,
+            exact,
+        );
+    }
+    matches_bytes(entry.key.bytes().filter(|&byte| byte != b'\''), code, exact)
+        || matches_bytes(
+            entry
+                .key
+                .split('\'')
+                .filter_map(|syllable| syllable.as_bytes().first().copied()),
+            code,
+            exact,
+        )
 }
 
 /// Generated rows for the letters after `@`, weight `count - index`, at most `RESULT_LIMIT`: entries the input spells out completely, then entries it begins, each group in list order. A key matches by its letters (`zhangsan`) or its initials (`zs`); an entry without a key matches by its own text in lowercase. `pinyin` holds the key. `entries` must have gone through `usable_mentions`.
 ///
 /// With `with_places` and a non-empty `code`, the embedded places fill the rows the list leaves, matched the same way and in table order, skipping a place whose name the list already offers.
 pub fn query_mentions(code: &str, entries: &[MentionEntry], with_places: bool) -> Vec<WordItem> {
-    let spellings = |entry: &MentionEntry| -> [String; 2] {
-        if entry.key.is_empty() {
-            return [entry.text.to_ascii_lowercase(), String::new()];
-        }
-        [
-            entry.key.replace('\'', ""),
-            entry
-                .key
-                .split('\'')
-                .filter_map(|syllable| syllable.chars().next())
-                .collect(),
-        ]
-    };
     let row_limit = RESULT_LIMIT.min(entries.len());
     let mut rows: Vec<&MentionEntry> = Vec::with_capacity(row_limit);
     let mut prefix_rows: Vec<&MentionEntry> = Vec::with_capacity(row_limit);
     for entry in entries {
-        let entry_spellings = spellings(entry);
-        if spelled(&entry_spellings, code, true) {
+        if spelled_entry(entry, code, true) {
             rows.push(entry);
             if rows.len() == RESULT_LIMIT {
                 break;
             }
-        } else if prefix_rows.len() < RESULT_LIMIT && spelled(&entry_spellings, code, false) {
+        } else if prefix_rows.len() < RESULT_LIMIT && spelled_entry(entry, code, false) {
             prefix_rows.push(entry);
         }
     }
@@ -79,18 +147,13 @@ pub fn query_mentions(code: &str, entries: &[MentionEntry], with_places: bool) -
         .collect();
     if with_places && !code.is_empty() {
         let table = places();
-        'passes: for exact in [true, false] {
-            for (place, spellings) in table.places.iter().zip(&table.spellings) {
-                if matches.len() == RESULT_LIMIT {
-                    break 'passes;
-                }
-                if spelled(spellings, code, exact)
-                    && !matches.iter().any(|(_, text)| *text == place.name)
-                {
-                    matches.push((place.key, place.name));
-                }
-            }
-        }
+        let existing_names: Vec<&str> = matches.iter().map(|(_, text)| *text).collect();
+        matches.extend(collect_place_matches(
+            table,
+            code,
+            &existing_names,
+            RESULT_LIMIT.saturating_sub(matches.len()),
+        ));
     }
     let count = matches.len();
     matches
@@ -106,6 +169,19 @@ pub fn query_mentions(code: &str, entries: &[MentionEntry], with_places: bool) -
             )
         })
         .collect()
+}
+
+#[cfg(test)]
+mod place_match_tests {
+    use super::*;
+
+    #[test]
+    fn place_matches_keep_exact_rows_before_prefix_rows() {
+        let table = places();
+        let matches = collect_place_matches(table, "bei", &[], RESULT_LIMIT);
+        assert!(!matches.is_empty());
+        assert!(matches.iter().all(|(_, name)| !name.is_empty()));
+    }
 }
 
 /// The annotation of an `@` row: a place's parent division, empty for the user's own entries (which may name a place too) and for a province.

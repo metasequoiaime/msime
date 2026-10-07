@@ -2,11 +2,12 @@ package app.msime.android;
 
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.util.Locale;
 import java.util.Objects;
 
 /** Immutable, display-safe AI text-polish configuration. Secrets are never exposed by toString(). */
 public final class AiPolishConfiguration {
+    /** Maximum UTF-8 byte length accepted for a custom HTTPS endpoint. */
+    public static final int MAX_ENDPOINT_LENGTH = 2048;
     public static final int MAXIMUM_TEXT_CODE_POINTS = 10_000;
     public static final int MAXIMUM_RESPONSE_BYTES = 1024 * 1024;
     public static final String DEFAULT_PROMPT = "请润色以下文字，保持原意，只返回修改后的文字。";
@@ -33,7 +34,7 @@ public final class AiPolishConfiguration {
 
     public String destination() {
         int port = endpoint.getPort();
-        return "https://" + endpoint.getHost().toLowerCase(Locale.ROOT)
+        return "https://" + TextPolicy.lowercase(endpoint.getHost())
             + (port == -1 || port == 443 ? "" : ":" + port);
     }
 
@@ -52,16 +53,17 @@ public final class AiPolishConfiguration {
     }
 
     public static boolean acceptableText(String text) {
-        if (text == null || text.trim().isEmpty() || !TextPolicy.validUnicode(text)) return false;
-        return text.codePointCount(0, text.length()) <= MAXIMUM_TEXT_CODE_POINTS;
+        if (text == null || TextPolicy.trimmed(text).isEmpty() || !TextPolicy.validUnicode(text)) return false;
+        return TextPolicy.withinCodePoints(text, MAXIMUM_TEXT_CODE_POINTS);
     }
 
     private static URI validatedEndpoint(String value) {
-        if (value == null || value.isEmpty() || value.length() > 2048 || TextPolicy.hasControl(value)) {
+        if (value == null || value.isEmpty() || TextPolicy.utf8Length(value) > MAX_ENDPOINT_LENGTH
+                || TextPolicy.hasControl(value)) {
             throw new IllegalArgumentException("AI 接口地址无效");
         }
         try {
-            URI uri = new URI(value.trim());
+            URI uri = new URI(TextPolicy.trimmed(value));
             if (!"https".equalsIgnoreCase(uri.getScheme()) || uri.getHost() == null
                     || uri.getHost().isEmpty() || uri.getUserInfo() != null
                     || uri.getFragment() != null || uri.getPort() < -1 || uri.getPort() > 65535) {
@@ -74,20 +76,22 @@ public final class AiPolishConfiguration {
     }
 
     private static String credentialOrigin(URI uri) {
-        return "https://" + uri.getHost().toLowerCase(Locale.ROOT) + ":"
+        return "https://" + TextPolicy.lowercase(uri.getHost()) + ":"
             + (uri.getPort() == -1 ? 443 : uri.getPort());
     }
 
     private static String bounded(String value, int maximum, String message) {
-        String result = value == null ? "" : value.trim();
-        if (result.isEmpty() || result.length() > maximum || TextPolicy.hasControlExceptWhitespace(result)
+        String result = TextPolicy.trimmed(value);
+        if (result.isEmpty() || TextPolicy.utf8Length(result) > maximum
+                || TextPolicy.hasControlExceptWhitespace(result)
                 || !TextPolicy.validUnicode(result)) throw new IllegalArgumentException(message);
         return result;
     }
 
     private static String boundedOptional(String value, int maximum, String message) {
-        String result = value == null ? "" : value.trim();
-        if (result.length() > maximum || TextPolicy.hasControl(result) || !TextPolicy.validUnicode(result))
+        String result = TextPolicy.trimmed(value);
+        if (TextPolicy.utf8Length(result) > maximum || TextPolicy.hasControl(result)
+                || !TextPolicy.validUnicode(result))
             throw new IllegalArgumentException(message);
         return result;
     }

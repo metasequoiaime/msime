@@ -195,6 +195,8 @@ extern BOOL (*MSIMEInputModeEnabledProbe)(NSString *identifier);
 - (void)applySharedLocalModes:(NSDictionary *)modes;
 /// Cache input choices from shared storage without saving them back.
 - (void)applySharedInputPreferences:(NSDictionary *)preferences;
+/// 是否已经从共享偏好文档载入过一次输入选项。在此之前方案等字段读的是 NSUserDefaults 里本输入法自己上次写下的值，而设置页、`msime config set` 和云端同步只写文档，那个值可能早已过时（#4288）。
+@property(nonatomic, readonly) BOOL sharedInputPreferencesApplied;
 - (void)applySharedCandidatePreferences:(NSDictionary *)preferences;
 /// The native candidate panel appearance override. A nil value means AppKit follows the system.
 @property(nonatomic, readonly) NSAppearance *candidateAppearanceOverride;

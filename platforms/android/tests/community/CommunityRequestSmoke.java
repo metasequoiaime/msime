@@ -8,6 +8,10 @@ public final class CommunityRequestSmoke {
         check(CommunityRequest.kinds().size() == 4, "skins, dictionaries, replies and phrases");
         check(List.of(Kind.SKIN, Kind.DICTIONARY, Kind.PHRASE).equals(CommunityRequest.segments()),
             "the tab shows skins, dictionaries and phrases; replies live inside phrases");
+        check(List.of("a", "b").equals(CommunityRequest.limitedCopy(List.of("a", "b", "c"), 2)),
+            "a bounded catalogue copy keeps order and truncates at the limit");
+        check(CommunityRequest.limitedCopy(List.of("a"), 0).isEmpty(),
+            "a non-positive catalogue limit returns an empty copy");
         check("phrase".equals(Kind.PHRASE.id()) && "短语".equals(Kind.PHRASE.title()), "phrase kind");
         check(CommunityRequest.path(Kind.PHRASE, "", "签名", 0).startsWith("/v1/community/resources?kind=phrase&"),
             "phrase packs share the resource endpoint");
@@ -17,6 +21,9 @@ public final class CommunityRequestSmoke {
             "a phrase may span lines up to 2000 units");
         check(!CommunityRequest.validPhraseText("") && !CommunityRequest.validPhraseText("x".repeat(2001))
             && !CommunityRequest.validPhraseText("a\u0000b"), "empty, long and control text is refused");
+        check(!CommunityRequest.validPhraseText("bad\uD800text")
+            && !CommunityRequest.validPhraseGroup("bad\uD800group"),
+            "phrase text and groups reject malformed Unicode");
         check(CommunityRequest.validPhraseGroup("") && !CommunityRequest.validPhraseGroup("a\nb")
             && !CommunityRequest.validPhraseGroup("x".repeat(33)), "phrase groups are short single lines");
         check("皮肤".equals(Kind.SKIN.title()) && !Kind.SKIN.searchHint().isEmpty(),
@@ -96,6 +103,8 @@ public final class CommunityRequestSmoke {
         check(!CommunityRequest.validReport("其他", "bad\u0000detail")
             && !CommunityRequest.validReport("其他", "bad\u007fdetail"),
             "report details reject control characters the service cannot store");
+        check(!CommunityRequest.validReport("其他", "bad\uD800detail"),
+            "report details reject malformed Unicode");
         check(!CommunityRequest.validReport("其他", "a".repeat(1001)), "a longer detail is refused");
         check(!CommunityRequest.validReport("不喜欢", ""), "only the fixed reasons are sent");
         check("内容包含不允许发布的词语，请修改后再提交".equals(CommunityRequest.message("blocked_content", 422)),

@@ -45,6 +45,21 @@ export class TextPolicy {
     });
   }
 
+  /** 拒绝未配对的 UTF-16 代理项，避免原生或网络文本带着非法 Unicode 进入编辑器。 */
+  static validUnicode(value: string): boolean {
+    for (let index: number = 0; index < value.length; index++) {
+      const unit: number = value.charCodeAt(index);
+      if (unit >= 0xd800 && unit <= 0xdbff) {
+        if (index + 1 >= value.length) return false;
+        const next: number = value.charCodeAt(++index);
+        if (next < 0xdc00 || next > 0xdfff) return false;
+      } else if (unit >= 0xdc00 && unit <= 0xdfff) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   /** Bounds text while allowing the line breaks and tabs used in prompts and transcripts. */
   static validMultiline(value: string, maxBytes: number, requireNonEmpty: boolean): boolean {
     return (!requireNonEmpty || value.trim().length > 0) && utf8Length(value) <= maxBytes

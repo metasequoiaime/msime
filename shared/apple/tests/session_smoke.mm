@@ -1,4 +1,5 @@
 #import "MSIMEClientSession.h"
+#import "TextClient.h"
 #include "msime_client.h"
 #include <cassert>
 #include <initializer_list>
@@ -46,6 +47,7 @@ static NSDictionary *reload(MSIMEClientSession *session, NSString *directory, BO
 
 int main() {
     @autoreleasepool {
+        MSIMEApplyTransition((NSDictionary *)@[], nil);
         for (id invalid in @[@YES, @1.5, @1e30, @(-1), @0, @"1", NSNull.null]) {
             gSnapshotIntegerProbeCalled = NO;
             NSDictionary *discarded = [SnapshotIntegerProbe discardSnapshot:@{ @"handle": invalid }];
@@ -57,6 +59,12 @@ int main() {
             assert(applied[@"error"] && ![applied[@"activated"] boolValue]);
             assert(!gSnapshotIntegerProbeCalled);
         }
+        NSDictionary *invalidDiscardObject = [SnapshotIntegerProbe discardSnapshot:(NSDictionary *)@YES];
+        assert(invalidDiscardObject[@"error"]);
+        NSDictionary *invalidApplyObject = [SnapshotIntegerProbe applySnapshot:(NSDictionary *)@YES];
+        assert(invalidApplyObject[@"error"]);
+        NSDictionary *invalidPrepareObject = [SnapshotIntegerProbe prepareSnapshot:(NSDictionary *)@YES];
+        assert(invalidPrepareObject[@"error"]);
         gSnapshotIntegerProbeCalled = NO;
         NSDictionary *missingDiscardHandle = [SnapshotIntegerProbe discardSnapshot:@{}];
         assert(missingDiscardHandle[@"error"] && !gSnapshotIntegerProbeCalled);
@@ -79,6 +87,9 @@ int main() {
             options[name] = path;
         }
         NSError *error = nil;
+        assert(![MSIMEClientSession handwritingProviderRequest:(NSDictionary *)@[] error:&error] && error);
+        error = nil;
+        assert([MSIMEClientSession emojiCatalogRequest:(NSDictionary *)@[]][@"error"]);
         MSIMEClientSession *session = [[MSIMEClientSession alloc] initWithOptions:options error:&error];
         assert(session && !error);
         NSDictionary *activeOptions = [MSIMEClientSession activeHostOptions];
@@ -108,9 +119,19 @@ int main() {
         NSDictionary *invalidHandwriting = [MSIMEClientSession handwritingProviderRequest:@{@"language": @"zh-CN", @"socket_path": @"relative/provider", @"strokes": @[]} error:&error];
         assert(!invalidHandwriting && error);
         error = nil;
+        assert(![session voiceProviderCancelSocket:(NSString *)@YES generation:1 error:&error] && error);
+        error = nil;
+        assert(![session voiceProviderStopSocket:(NSString *)@YES generation:1 error:&error] && error);
+        error = nil;
+        assert(![session applyVoiceText:(NSString *)@YES generation:1 error:&error] && error);
+        error = nil;
         NSString *oversizedPath = [@"/tmp/" stringByPaddingToLength:4100 withString:@"x" startingAtIndex:0];
         NSDictionary *oversizedHandwriting = [MSIMEClientSession handwritingProviderRequest:@{@"language": @"zh-CN", @"socket_path": oversizedPath, @"strokes": @[]} error:&error];
         assert((!oversizedHandwriting && error));
+        error = nil;
+        assert(![MSIMEClientSession prepareHostWithResourcesDirectory:(NSString *)@YES stateRoot:root error:&error] && error);
+        error = nil;
+        assert(![MSIMEClientSession loadPreferencesInDirectory:(NSString *)@YES error:&error] && error);
         error = nil;
         NSMutableDictionary *oversized = [@{} mutableCopy];
         oversized[@"padding"] = [@"x" stringByPaddingToLength:70000 withString:@"x" startingAtIndex:0];

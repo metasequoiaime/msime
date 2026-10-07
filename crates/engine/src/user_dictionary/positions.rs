@@ -1,5 +1,6 @@
 //! Fixed candidate positions and pinned leaders (user-dictionary.md §8).
 
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use rusqlite::params;
@@ -112,26 +113,25 @@ pub fn apply_fixed_positions(
         Vec::new()
     };
 
-    let mut dynamic_candidates = if keep_dynamic_candidate_positions {
-        Vec::new()
-    } else {
-        Vec::with_capacity(candidates.len())
-    };
+    let mut dynamic_candidates = Vec::new();
     if !keep_dynamic_candidate_positions {
-        candidates.retain(|item| {
-            if item.source.is_online() {
-                dynamic_candidates.push(item.clone());
-                false
-            } else {
-                true
-            }
-        });
+        let original = std::mem::take(candidates);
+        let (retained, dynamic): (Vec<_>, Vec<_>) = original
+            .into_iter()
+            .partition(|item| !item.source.is_online());
+        *candidates = retained;
+        dynamic_candidates = dynamic;
     }
 
+    let candidate_by_word: HashMap<&str, &WordItem> = candidates
+        .iter()
+        .map(|item| (item.word.as_str(), item))
+        .collect();
     let mut rows: Vec<(WordItem, i32)> = Vec::with_capacity(fixed.len());
+    let mut fixed_words = HashSet::with_capacity(fixed.len());
     for (entry_key, value, position) in fixed {
-        let found = match candidates.iter().find(|item| item.word == value) {
-            Some(existing) => Some(existing.clone()),
+        let found = match candidate_by_word.get(value.as_str()) {
+            Some(existing) => Some((*existing).clone()),
             None if include_missing => find_candidate
                 .as_deref_mut()
                 .and_then(|find| find(&entry_key, &value)),
@@ -139,10 +139,11 @@ pub fn apply_fixed_positions(
         };
         if let Some(mut item) = found {
             item.fixed_position = position;
+            fixed_words.insert(item.word.clone());
             rows.push((item, position));
         }
     }
-    candidates.retain(|item| !rows.iter().any(|(fixed, _)| fixed.word == item.word));
+    candidates.retain(|item| !fixed_words.contains(&item.word));
     for (item, position) in rows {
         let index = usize::try_from(position - 1)
             .unwrap_or(0)

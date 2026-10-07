@@ -56,6 +56,23 @@ class LocalFixture(unittest.TestCase):
 
 
 class LocalStreamTest(LocalFixture):
+    def test_helper_discards_the_rest_of_an_oversized_output_line(self):
+        fixture = self.root / "oversized-helper.py"
+        fixture.write_text(
+            "import json, sys\n"
+            "sys.stdout.write(json.dumps({'type': 'hello', 'available': True}) + '\\n')\n"
+            "sys.stdout.write('x' * (" + str(local.MAX_LINE + 1) + ") + "
+            "json.dumps({'type': 'final', 'id': 1, 'text': 'forged'}) + '\\n')\n"
+            "sys.stdout.write(json.dumps({'type': 'partial', 'id': 1, 'text': 'valid'}) + '\\n')\n"
+            "sys.stdout.flush()\n"
+        )
+        helper = local.Helper([sys.executable, str(fixture)])
+        try:
+            helper.hello()
+            self.assertEqual(helper.events.get(timeout=2), {"type": "partial", "id": 1, "text": "valid"})
+        finally:
+            helper.kill()
+
     def test_partials_final_and_the_start_request(self):
         stream = self.stream(hotwords=[{"text": "水杉", "pinyin": "shui shan"}])
         try:
@@ -177,6 +194,17 @@ class ModelAndHotwords(LocalFixture):
         linked_model.symlink_to(external, target_is_directory=True)
         with self.assertRaises(ValueError):
             local.model_manifest(str(linked_model))
+        nested = external / "nested"
+        nested.mkdir()
+        (nested / local.MANIFEST).write_text("{}")
+        # 放在其他人可写的目录里：CI 容器以 root 运行，root 建的链接在只有属主可写的目录里会被当成系统安装的可信链接。
+        shared = self.root / "shared"
+        shared.mkdir()
+        shared.chmod(0o777)
+        linked_parent = shared / "linked-parent"
+        linked_parent.symlink_to(external, target_is_directory=True)
+        with self.assertRaises(ValueError):
+            local.model_manifest(str(linked_parent / "nested"))
         listed = self.root / "listed"
         listed.mkdir()
         (listed / local.MANIFEST).write_text("[]")

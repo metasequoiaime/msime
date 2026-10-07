@@ -9,7 +9,7 @@ import android.graphics.RectF;
 import android.util.AttributeSet;
 import android.view.MotionEvent;
 import android.view.View;
-import app.msime.android.keyboard.KeyboardGeometry;
+import app.msime.android.KeyboardGeometry;
 
 /** Touch canvas only; the service injects recognition and candidate presentation. */
 public final class HandwritingCanvas extends View {
@@ -68,7 +68,7 @@ public final class HandwritingCanvas extends View {
         background.setColor(keyBackground);
         skinInkColor = foreground;
         stroke.setColor(inkColor == null ? foreground : inkColor);
-        guide.setColor(Color.argb(31, Color.red(accent), Color.green(accent), Color.blue(accent)));
+        guide.setColor(ColorPolicy.withAlpha(accent, 31));
         invalidate();
     }
 
@@ -101,10 +101,9 @@ public final class HandwritingCanvas extends View {
 
     @Override protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
-<<<<<<< HEAD
         RectF card = cardRect.isEmpty() ? drawCard : cardRect;
         if (card == drawCard) drawCard.set(0, 0, getWidth(), getHeight());
-        float radius = KeyboardGeometry.floatPixels(this, 10);
+        float radius = KeyboardGeometry.floatPixels(getContext(), 10);
         canvas.drawRoundRect(card, radius, radius, background);
         guideLines[0] = card.centerX();
         guideLines[1] = card.top;
@@ -115,7 +114,7 @@ public final class HandwritingCanvas extends View {
         guideLines[6] = card.right;
         guideLines[7] = card.centerY();
         canvas.drawLines(guideLines, guide);
-        for (java.util.List<HandwritingInk.Point> points : ink.snapshot()) {
+        for (java.util.List<HandwritingInk.Point> points : ink.strokesForDrawing()) {
             if (points.isEmpty()) continue;
             if (points.size() == 1) {
                 HandwritingInk.Point point = points.get(0);

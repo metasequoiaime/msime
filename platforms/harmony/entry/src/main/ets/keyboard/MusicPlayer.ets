@@ -12,6 +12,7 @@ import common from '@ohos.app.ability.common';
 import client from 'libmsimeclient.so';
 import { KeyboardLog, describeError } from './KeyboardLog';
 import { KeySoundPolicy } from './KeySoundPolicy';
+import { NativeReplyPolicy } from './NativeReplyPolicy';
 import { KeySoundPlayer } from './KeySoundPlayer';
 import {
   MUSIC_OFF, MusicChange, MusicPackTracks, MusicPolicy, MusicSettings, MusicStep, MusicTransport
@@ -198,12 +199,13 @@ export class MusicPlayer {
     };
     const response: MusicPackResponse =
       JSON.parse(client.musicPack(JSON.stringify(request))) as MusicPackResponse;
-    if (!response.ok) {
+    const value: MusicPackTracks | null = NativeReplyPolicy.successfulValue<MusicPackTracks>(response);
+    if (value === null) {
       this.stop(`music off until the settings change: ${response.error}`);
       return null;
     }
     this.checked.clear();
-    return response.value;
+    return value;
   }
 
   /** Whether a track's declared length is within the pack bound. Read once per track and pack; a track that cannot be read is not played. */

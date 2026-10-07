@@ -22,6 +22,7 @@ import {
 } from "../entry/src/main/ets/keyboard/input/LocalAsrTextReader";
 import { CaptureGeneration } from "../entry/src/main/ets/keyboard/input/CaptureGeneration";
 import { KeyboardMetrics } from "../entry/src/main/ets/keyboard/KeyboardMetrics";
+import { NativeReplyPolicy } from "../entry/src/main/ets/keyboard/NativeReplyPolicy";
 import {
   KeyboardLayoutDragAxis,
   KeyboardLayoutDragPolicy,
@@ -232,6 +233,8 @@ import {
   COMMUNITY_REPORT_REASONS,
   dictionaryChangePageChanged,
   parseResponseContentLength,
+  accountReplyValue,
+  strictAccountOk,
 } from "../entry/src/main/ets/account/AccountCloudBridge";
 import {
   CrashDestination,
@@ -269,6 +272,7 @@ import {
   AccountPreferenceSchema,
   AccountPreferences,
   accountPreferencesFromDocument,
+  validLocalPreferenceDocument,
   localPreferenceRevision,
   preferenceSchemaFromDocument,
   applyAccountPreferences,
@@ -757,6 +761,24 @@ group("bounds and deduplicates asynchronous online AI candidates", () => {
   );
 });
 
+group("native success replies require a value", () => {
+  check(NativeReplyPolicy.hasValue({}), "an object value is present");
+  check(!NativeReplyPolicy.hasValue(undefined) && !NativeReplyPolicy.hasValue(null),
+    "missing native values are refused");
+  check(NativeReplyPolicy.successfulValue({ ok: true, value: "ready" }) === "ready",
+    "successful replies expose their value");
+  check(NativeReplyPolicy.successfulValue({ ok: true }) === null,
+    "successful replies without a value are refused");
+  check(NativeReplyPolicy.successfulValue({ ok: true, value: null }) === null,
+    "successful replies with a null value are refused");
+  check(NativeReplyPolicy.successfulValue({ ok: false, value: "stale" }) === null,
+    "failed replies never expose a value");
+  check(NativeReplyPolicy.successfulValue(null) === null,
+    "a JSON null reply is refused without throwing");
+  check(NativeReplyPolicy.successfulValue([]) === null,
+    "a JSON array reply is refused without throwing");
+});
+
 group("bounds persisted account sessions by UTF-8 bytes", () => {
   check(sessionFitsStorage("a".repeat(MAX_SESSION_BYTES)), "ASCII session at the byte limit fits");
   check(!sessionFitsStorage("你".repeat(Math.floor(MAX_SESSION_BYTES / 3) + 1)),
@@ -945,8 +967,18 @@ group("bounds native speech language, session and result text", () => {
     "voice result removes control bytes and trims",
   );
   check(
+    VoiceRecognitionPolicy.result("坏\ud800文本") === "",
+    "voice result rejects unpaired surrogate text",
+  );
+  check(
     VoiceRecognitionPolicy.result("x".repeat(VOICE_MAX_TEXT + 20)).length === VOICE_MAX_TEXT,
     "voice result is bounded",
+  );
+  check(
+    VoiceRecognitionPolicy.accepted(" 水 ") === "水" &&
+      VoiceRecognitionPolicy.accepted(42) === null &&
+      VoiceRecognitionPolicy.accepted(null) === null,
+    "voice apply accepts only string results",
   );
   const splitEmoji = "x".repeat(VOICE_MAX_TEXT - 1) + "😀";
   const boundedEmoji = VoiceRecognitionPolicy.result(splitEmoji);
@@ -5354,6 +5386,11 @@ group("a completion reply is bounded before it reaches the strip", () => {
     "a refusal offers nothing",
   );
   check(
+    EnglishSuggestionPolicy.decode('{"ok":"false","value":{"prefix":"hel","items":["hello"]}}') ===
+      null,
+    "a non-boolean success flag offers nothing",
+  );
+  check(
     EnglishSuggestionPolicy.decode("not json") === null,
     "nor does something that is not a reply",
   );
@@ -7431,6 +7468,28 @@ group("account response lengths accept only decimal octets", () => {
   check(parseResponseContentLength("9007199254740993") === -1, "unsafe lengths are rejected");
 });
 
+group("account success envelopes require a real boolean", () => {
+  check(strictAccountOk(true), "true is the only successful account envelope value");
+  for (const malformed of [false, 0, 1, "true", "false", {}, []]) {
+    check(!strictAccountOk(malformed), `malformed account ok value is rejected: ${String(malformed)}`);
+  }
+});
+
+group("account native success envelopes require a value", () => {
+  check(accountReplyValue<{ id: string }>({ ok: true, value: { id: "synthetic" } })?.id === "synthetic",
+    "account success exposes its object value");
+  check(accountReplyValue({ ok: true }) === null,
+    "account success without a value is refused");
+  check(accountReplyValue({ ok: true, value: null }) === null,
+    "account success with a null value is refused");
+  check(accountReplyValue<{ id: string }>({ ok: false, value: { id: "stale" } }) === null,
+    "account failure never exposes a value");
+  check(accountReplyValue(null) === null,
+    "a JSON null account reply is refused without throwing");
+  check(accountReplyValue([]) === null,
+    "a JSON array account reply is refused without throwing");
+});
+
 group("account and cloud clipboard bridge keeps secrets native", () => {
   let oversizedCleared = false;
   const oversizedStore: AccountSessionStore = {
@@ -8490,6 +8549,7 @@ group("cloud clipboard text follows the shared clipboard bounds", () => {
     !CloudClipboardPolicy.validText("a\u0085b"),
     "C1 controls are refused as Rust's is_control does",
   );
+  check(!CloudClipboardPolicy.validText("a\ud800b"), "unpaired surrogates are refused");
   check(CloudClipboardPolicy.validText("x".repeat(4000)), "4,000 UTF-16 units fit");
   check(!CloudClipboardPolicy.validText("x".repeat(4001)), "4,001 do not");
   check(
@@ -8786,6 +8846,21 @@ group("profile updates preserve the session and cannot outlive logout", () => {
         "native rename enforces the 64-character limit",
       );
       check(calls.length === beforeInvalid, "an oversized nickname never reaches transport");
+      const malformed = await bridge.handle(
+        JSON.stringify({ operation: "rename", display_name: "bad\u0085name" }),
+      );
+      check(
+        JSON.parse(malformed).error === "account_invalid",
+        "a C1 control in a nickname is refused locally",
+      );
+      const surrogate = await bridge.handle(
+        JSON.stringify({ operation: "rename", display_name: "bad\ud800name" }),
+      );
+      check(
+        JSON.parse(surrogate).error === "account_invalid",
+        "an unpaired surrogate in a nickname is refused locally",
+      );
+      check(calls.length === beforeInvalid, "malformed nicknames never reach transport");
     });
 
   let lateStored: string | null = original;
@@ -9108,6 +9183,21 @@ group("account preference envelopes reject malformed numeric metadata", () => {
     "a fractional local revision is unavailable",
   );
   check(localPreferenceRevision({ revision: 3 }) === 3, "a safe local revision is preserved");
+});
+
+group("local preference documents require an object", () => {
+  const valid = { revision: 3, preferences: { scheme: "quanpin" } };
+  check(validLocalPreferenceDocument(valid), "a local preference object is accepted");
+  for (const preferences of [null, [], "invalid", 1]) {
+    check(
+      !validLocalPreferenceDocument({ revision: 3, preferences }),
+      `a malformed local preference value is rejected: ${String(preferences)}`,
+    );
+  }
+  check(
+    !validLocalPreferenceDocument({ revision: 3.5, preferences: {} }),
+    "a fractional local revision is rejected with its document",
+  );
 });
 
 group("applying writes only what the schema declares", () => {
@@ -11295,6 +11385,13 @@ group("a malformed candidate size cannot produce an unusable number", () => {
 });
 
 group("malformed Engine view integers are refused", () => {
+  check(
+    !EngineViewValuePolicy.isObject(null) &&
+      !EngineViewValuePolicy.isObject([]) &&
+      !EngineViewValuePolicy.isObject("reply") &&
+      EngineViewValuePolicy.isObject({ ok: true, value: {} }),
+    "malformed engine reply envelopes are safe to inspect",
+  );
   const valid: EngineViewNumericFields = {
     editing_text: "nihao",
     caret_position: 2,
@@ -12963,6 +13060,38 @@ group("LocalAsrPolicy", () => {
     LocalAsrPolicy.funAsrHotwords(Array.from({ length: 40 }, (_, index) => `词${index}`)).split(",")
       .length === 30,
     "at most 30 FunASR hotwords",
+  );
+  const validHotwords = LocalAsrPolicy.hotwords([
+    { text: "水杉", pinyin: "shui shan" },
+    { text: "输入法", pinyin: "shu ru fa" },
+  ]);
+  check(
+    validHotwords !== null && validHotwords.length === 2 && validHotwords[0].text === "水杉",
+    "well-formed hotwords are accepted",
+  );
+  check(
+    LocalAsrPolicy.hotwords({ hotwords: [] }) === null,
+    "a hotword response value must itself be an array",
+  );
+  check(
+    LocalAsrPolicy.hotwords([{ text: "水杉", pinyin: 42 }]) === null,
+    "a hotword entry with a non-string pinyin is refused",
+  );
+  check(
+    LocalAsrPolicy.hotwords([{ text: "x".repeat(257), pinyin: "x" }]) === null &&
+      LocalAsrPolicy.hotwords([{ text: "x", pinyin: "x".repeat(1025) }]) === null,
+    "oversized hotword fields are refused",
+  );
+  check(
+    LocalAsrPolicy.hotwords(Array.from({ length: 201 }, () => ({ text: "水杉", pinyin: "shui shan" }))) === null,
+    "more than 200 hotwords are refused",
+  );
+  check(
+    LocalAsrPolicy.correctedText({ text: "水杉" }, "原文") === "水杉" &&
+      LocalAsrPolicy.correctedText({ text: 42 }, "原文") === "原文" &&
+      LocalAsrPolicy.correctedText({ text: "" }, "原文") === "原文" &&
+      LocalAsrPolicy.correctedText(null, "原文") === "原文",
+    "malformed or empty hotword correction values keep the original text",
   );
   check(LocalAsrPolicy.senseVoiceLanguage("zh-HK") === "yue", "Hong Kong Chinese pins Cantonese");
   check(LocalAsrPolicy.senseVoiceLanguage("ja-JP") === "ja", "Japanese is pinned");

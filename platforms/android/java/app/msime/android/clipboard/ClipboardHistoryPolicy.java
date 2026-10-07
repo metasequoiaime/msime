@@ -40,12 +40,21 @@ public final class ClipboardHistoryPolicy {
      * them twice is what let the two answers diverge.
      */
     public static boolean hasText(String text) {
-        return text != null && !text.trim().isEmpty();
+        return text != null && !TextPolicy.trimmed(text).isEmpty();
     }
 
     public static long timestampValue(Object raw) {
         long timestamp = KeyboardGeometry.strictLong(raw, 0);
         return timestamp < 0 ? 0 : timestamp;
+    }
+
+    /** Shared-store text fields must keep their JSON type; org.json otherwise coerces values. */
+    public static String strictString(Object raw) {
+        return raw instanceof String ? (String) raw : null;
+    }
+
+    public static Boolean strictBoolean(Object raw) {
+        return raw instanceof Boolean ? (Boolean) raw : null;
     }
 
     /** The shared store's `reason` turned into the refusal this host words. */

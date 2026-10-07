@@ -26,7 +26,7 @@ public final class SchemePreferences {
     public static Map<String, String> schemeValues(KeyboardScheme scheme, String lastChineseScheme,
             String shuangpinProfile, String wubiProfile, AppEdition edition) {
         KeyboardScheme.PreferenceMapping mapping = scheme.mapping(lastChineseScheme, shuangpinProfile, edition);
-        Map<String, String> values = new LinkedHashMap<>();
+        Map<String, String> values = new LinkedHashMap<>(5);
         values.put("scheme", mapping.scheme());
         values.put("last_chinese_scheme", mapping.lastChineseScheme());
         values.put("shuangpin_profile", mapping.shuangpinProfile());
@@ -41,7 +41,9 @@ public final class SchemePreferences {
      * @param enabled 现在的列表，项可以为 null；列表本身为 null 时当作空列表
      */
     public static List<String> enabledAfterSwitch(List<String> enabled, String preferenceId) {
-        List<String> result = enabled == null ? new ArrayList<>() : new ArrayList<>(enabled);
+        List<String> result = enabled == null
+            ? new ArrayList<>(1) : new ArrayList<>(enabled.size() + 1);
+        if (enabled != null) result.addAll(enabled);
         if (!result.contains(preferenceId)) result.add(preferenceId);
         return result;
     }

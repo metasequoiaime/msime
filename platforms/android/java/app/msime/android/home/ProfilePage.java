@@ -1,7 +1,5 @@
 package app.msime.android.home;
 
-import android.content.ClipData;
-import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
@@ -21,10 +19,12 @@ import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.Nullable;
 import androidx.core.content.FileProvider;
+import app.msime.android.BitmapPolicy;
 import app.msime.android.CloudApi;
 import app.msime.android.DeviceDataApi;
 import app.msime.android.HttpBodyPolicy;
 import app.msime.android.SyncSwitch;
+import app.msime.android.ViewPolicy;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -128,20 +128,12 @@ public final class ProfilePage extends DetailPage {
         }
     }
 
-    /** 读图片的像素尺寸，不解码像素；不是图片时为 null。 */
-    @Nullable private static BitmapFactory.Options bounds(byte[] bytes) {
-        BitmapFactory.Options bounds = new BitmapFactory.Options();
-        bounds.inJustDecodeBounds = true;
-        BitmapFactory.decodeByteArray(bytes, 0, bytes.length, bounds);
-        return bounds.outWidth <= 0 || bounds.outHeight <= 0 ? null : bounds;
-    }
-
     /** 按头像实际显示的大小降采样解码：只限字节数挡不住高度可压缩的大尺寸图片，全尺寸解码会 OutOfMemoryError。 */
     @Nullable private static Bitmap decodeAvatar(byte[] bytes) {
-        BitmapFactory.Options bounds = bounds(bytes);
+        BitmapFactory.Options bounds = BitmapPolicy.decodeBounds(bytes);
         if (bounds == null) return null;
-        int sample = 1;
-        while (Math.max(bounds.outWidth, bounds.outHeight) / (sample * 2) >= AVATAR_DECODE_EDGE) sample *= 2;
+        int sample = BitmapPolicy.sampleSizeForEdge(
+            bounds.outWidth, bounds.outHeight, AVATAR_DECODE_EDGE);
         BitmapFactory.Options options = new BitmapFactory.Options();
         options.inSampleSize = sample;
         return BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options);
@@ -150,34 +142,24 @@ public final class ProfilePage extends DetailPage {
     /** 圆形头像：有图片时画图片，否则是强调色底上的昵称首字。 */
     static FrameLayout avatarView(Context context, int sizeDp, String name, @Nullable Bitmap image) {
         FrameLayout frame = new FrameLayout(context);
-        GradientDrawable circle = new GradientDrawable();
-        circle.setShape(GradientDrawable.OVAL);
-        circle.setColor(Ui.accent(context));
+        GradientDrawable circle = Ui.circle(Ui.accent(context));
         if (image != null) {
             ImageView picture = new ImageView(context);
             picture.setImageBitmap(image);
             picture.setScaleType(ImageView.ScaleType.CENTER_CROP);
             picture.setBackground(circle);
             picture.setClipToOutline(true);
-            picture.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-            frame.addView(picture, new FrameLayout.LayoutParams(Ui.dp(context, sizeDp), Ui.dp(context, sizeDp)));
+            Ui.hideFromAccessibility(picture);
+            frame.addView(picture, Ui.squareFrameParams(context, sizeDp));
         } else {
-            TextView letter = new TextView(context);
-            letter.setText(initial(name));
-            letter.setGravity(Gravity.CENTER);
-            Ui.style(letter, Math.round(sizeDp * 0.4f), 600, Ui.onAccent(context));
+            TextView letter = Ui.styledLabel(context, Ui.trimmedInitial(name, "?"), Math.round(sizeDp * 0.4f), 600,
+                Ui.onAccent(context));
+            ViewPolicy.setCentered(letter);
             letter.setBackground(circle);
-            letter.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-            frame.addView(letter, new FrameLayout.LayoutParams(Ui.dp(context, sizeDp), Ui.dp(context, sizeDp)));
+            Ui.hideFromAccessibility(letter);
+            frame.addView(letter, Ui.squareFrameParams(context, sizeDp));
         }
         return frame;
-    }
-
-    /** 昵称的第一个字（按码点取，不会把表情劈成两半）；没有昵称时是「?」。 */
-    static String initial(String name) {
-        String trimmed = name == null ? "" : name.trim();
-        if (trimmed.isEmpty()) return "?";
-        return new String(Character.toChars(trimmed.codePointAt(0)));
     }
 
     private void render() {
@@ -235,42 +217,35 @@ public final class ProfilePage extends DetailPage {
     }
 
     private View header(Context context, DeviceDataApi.Profile profile, @Nullable Bitmap image) {
-        LinearLayout header = new LinearLayout(context);
-        header.setOrientation(LinearLayout.VERTICAL);
-        header.setGravity(Gravity.CENTER_HORIZONTAL);
-        header.setPadding(0, Ui.dp(context, 8), 0, Ui.dp(context, 4));
+        LinearLayout header = Ui.column(context);
+        ViewPolicy.setCenteredHorizontally(header);
+        Ui.setPaddingDp(header, context, 0, 8, 0, 4);
 
         FrameLayout avatar = new FrameLayout(context);
         avatar.addView(avatarView(context, 88, profile.displayName(), image));
-        ImageView camera = new ImageView(context);
-        camera.setImageResource(app.msime.android.R.drawable.ms_w5_me_camera);
-        GradientDrawable badge = new GradientDrawable();
-        badge.setShape(GradientDrawable.OVAL);
-        badge.setColor(Ui.card(context));
+        ImageView camera = Ui.decorativeIcon(context, app.msime.android.R.drawable.ms_w5_me_camera,
+            Ui.text(context));
+        GradientDrawable badge = Ui.circle(Ui.card(context));
         camera.setBackground(badge);
         int pad = Ui.dp(context, 6);
-        camera.setPadding(pad, pad, pad, pad);
-        camera.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        FrameLayout.LayoutParams cameraParams = new FrameLayout.LayoutParams(Ui.dp(context, 28), Ui.dp(context, 28),
-            Gravity.BOTTOM | Gravity.END);
+        Ui.setSymmetricPaddingPx(camera, pad);
+        Ui.hideFromAccessibility(camera);
+        FrameLayout.LayoutParams cameraParams = Ui.squareFrameParams(context, 28);
+        cameraParams.gravity = Gravity.BOTTOM | Gravity.END;
         avatar.addView(camera, cameraParams);
-        avatar.setClickable(true);
-        avatar.setFocusable(true);
+        ViewPolicy.setInteractive(avatar, true);
         avatar.setContentDescription("更换头像");
-        avatar.setOnClickListener(ignored -> chooseAvatar());
-        header.addView(avatar, new LinearLayout.LayoutParams(Ui.dp(context, 92), Ui.dp(context, 92)));
+        ViewPolicy.bindClick(avatar, this::chooseAvatar);
+        header.addView(avatar, Ui.squareParams(context, 92));
 
-        TextView name = new TextView(context);
-        name.setText(profile.displayName());
-        Ui.style(name, 22, 700, Ui.text(context));
+        TextView name = Ui.styledLabel(context, profile.displayName(), 22, 700, Ui.text(context));
         LinearLayout.LayoutParams nameParams = Ui.wrap();
         nameParams.topMargin = Ui.dp(context, 10);
         header.addView(name, nameParams);
 
         if (!profile.email().isEmpty()) {
-            TextView email = new TextView(context);
-            email.setText(profile.email());
-            Ui.style(email, Ui.TEXT_ROW_SUBTITLE, 400, Ui.subText(context));
+            TextView email = Ui.styledLabel(context, profile.email(), Ui.TEXT_ROW_SUBTITLE, 400,
+                Ui.subText(context));
             LinearLayout.LayoutParams emailParams = Ui.wrap();
             emailParams.topMargin = Ui.dp(context, 2);
             header.addView(email, emailParams);
@@ -279,11 +254,10 @@ public final class ProfilePage extends DetailPage {
         String kind = SyncSwitch.validLoginKind(SyncSwitch.loginKind(context)) ? SyncSwitch.loginKind(context)
             : profile.loginKind();
         if (!kind.isEmpty()) {
-            TextView chip = new TextView(context);
-            chip.setText("通过 " + providerName(kind) + " 登录");
-            Ui.style(chip, 12, 500, Ui.accent(context));
+            TextView chip = Ui.styledLabel(context, "通过 " + providerName(kind) + " 登录", 12, 500,
+                Ui.accent(context));
             chip.setBackground(Ui.pill(Ui.accentSoft(context)));
-            chip.setPadding(Ui.dp(context, 10), Ui.dp(context, 3), Ui.dp(context, 10), Ui.dp(context, 3));
+            Ui.setSymmetricPaddingDp(chip, context, 10, 3);
             LinearLayout.LayoutParams chipParams = Ui.wrap();
             chipParams.topMargin = Ui.dp(context, 8);
             header.addView(chip, chipParams);
@@ -292,15 +266,8 @@ public final class ProfilePage extends DetailPage {
     }
 
     private static View dangerButton(Context context, CharSequence label, Runnable action) {
-        TextView button = new TextView(context);
-        button.setText(label);
-        button.setGravity(Gravity.CENTER);
-        Ui.style(button, Ui.TEXT_ROW_TITLE, 500, Ui.danger(context));
-        button.setMinHeight(Ui.dp(context, 52));
-        button.setBackground(Ui.ripple(context));
-        button.setClickable(true);
-        button.setFocusable(true);
-        button.setOnClickListener(ignored -> action.run());
+        TextView button = Ui.textButton(context, label, Ui.TEXT_ROW_TITLE, 500, Ui.danger(context),
+            Ui.ripple(context), Ui.ACTION_BUTTON_MIN_HEIGHT, action);
         return button;
     }
 
@@ -335,10 +302,7 @@ public final class ProfilePage extends DetailPage {
     }
 
     private void copy(String label, String value) {
-        ClipboardManager clipboard = requireContext().getSystemService(ClipboardManager.class);
-        if (clipboard == null) return;
-        clipboard.setPrimaryClip(ClipData.newPlainText(label, value));
-        MsToast.show(requireContext(), "已复制" + label);
+        ClipboardActions.copyText(requireContext(), label, value, "已复制" + label);
     }
 
     private void link() {
@@ -387,9 +351,9 @@ public final class ProfilePage extends DetailPage {
             }
             if (image == null) return "图片超过 1 MB，请换一张小一些的";
             if (DeviceDataApi.avatarType(image) == null) return "头像只支持 PNG 或 JPEG 图片";
-            BitmapFactory.Options size = bounds(image);
+            BitmapFactory.Options size = BitmapPolicy.decodeBounds(image);
             if (size == null) return "读不到这张图片";
-            if (Math.max(size.outWidth, size.outHeight) > MAX_AVATAR_UPLOAD_EDGE) return "图片尺寸太大，请换一张小一些的";
+            if (BitmapPolicy.longestEdge(size.outWidth, size.outHeight) > MAX_AVATAR_UPLOAD_EDGE) return "图片尺寸太大，请换一张小一些的";
             new DeviceDataApi(context).uploadAvatar(image);
             return "";
         }, "头像已更新");

@@ -162,6 +162,54 @@ final class KeyGapRoutingTests: XCTestCase {
     XCTAssertFalse(justBelowStrip === q)
   }
 
+  /// 横屏分离式键盘的中缝是死区：点在中缝里什么键也不按，只有紧贴两侧键的半个键距照旧归那个键；行距里正对中缝的地方也一样。
+  func testTheSplitKeyboardGapSwallowsTouches() throws {
+    let previous = InputSchemePreference.scheme
+    let stored = KeyboardLayoutPreference.defaults.object(forKey: KeyboardLayoutPreference.tabletSplitKey)
+    defer {
+      InputSchemePreference.scheme = previous
+      KeyboardLayoutPreference.defaults.set(stored, forKey: KeyboardLayoutPreference.tabletSplitKey)
+    }
+    InputSchemePreference.scheme = .quanpin
+    KeyboardLayoutPreference.tabletSplit = true
+    let controller = KeyboardViewController()
+    controller.traitOverrides.userInterfaceIdiom = .pad
+    controller.traitOverrides.horizontalSizeClass = .regular
+    // 没有窗口场景时横屏按 compact 的竖直 size class 判断。
+    controller.traitOverrides.verticalSizeClass = .compact
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(
+      x: 0, y: 0, width: 1194,
+      height: KeyboardFormFactor.tablet.baseHeight(landscape: true, handwriting: false, numberRow: true)
+        + KeyboardViewController.stripExtraHeight)
+    controller.viewWillAppear(false)
+    controller.view.layoutIfNeeded()
+
+    let t = try key("字母 T", in: controller), y = try key("字母 Y", in: controller), h = try key("字母 H", in: controller)
+    let tFrame = frame(t, in: controller), yFrame = frame(y, in: controller), hFrame = frame(h, in: controller)
+    XCTAssertGreaterThan(yFrame.minX - tFrame.maxX, 200, "the gap is a quarter of the keyboard")
+    let middle = (tFrame.maxX + yFrame.minX) / 2
+    let gapHit = try XCTUnwrap(hit(CGPoint(x: middle, y: tFrame.midY), in: controller))
+    XCTAssertFalse(gapHit is UIControl, "a tap in the gap presses nothing")
+    XCTAssertEqual(gapHit.accessibilityIdentifier, "splitKeyboardGap")
+    // 中缝两侧的键距：离键半个键距以内仍归那个键，再往里就是死区。
+    let spacing = CGFloat(KeyboardLayoutPreference.keySpacing)
+    XCTAssertTrue(hit(CGPoint(x: tFrame.maxX + 1, y: tFrame.midY), in: controller) === t)
+    XCTAssertTrue(hit(CGPoint(x: yFrame.minX - 1, y: yFrame.midY), in: controller) === y)
+    XCTAssertFalse(hit(CGPoint(x: tFrame.maxX + spacing - 0.5, y: tFrame.midY), in: controller) is UIControl)
+    XCTAssertFalse(hit(CGPoint(x: tFrame.maxX + spacing + 2, y: tFrame.midY), in: controller) is UIControl)
+    // 两排之间正对中缝的行距不交给任何键。
+    let rowGap = (tFrame.maxY + hFrame.minY) / 2
+    XCTAssertFalse(hit(CGPoint(x: middle, y: rowGap), in: controller) is UIControl)
+
+    // 底部那一排两个空格之间也是死区，两个空格各自照常按下。
+    let space = try key("spaceKey", in: controller), splitSpace = try key("splitSpaceKey", in: controller)
+    let spaceFrame = frame(space, in: controller), splitSpaceFrame = frame(splitSpace, in: controller)
+    XCTAssertFalse(hit(CGPoint(x: (spaceFrame.maxX + splitSpaceFrame.minX) / 2, y: spaceFrame.midY), in: controller) is UIControl)
+    XCTAssertTrue(hit(CGPoint(x: spaceFrame.midX, y: spaceFrame.midY), in: controller) === space)
+    XCTAssertTrue(hit(CGPoint(x: splitSpaceFrame.midX, y: splitSpaceFrame.midY), in: controller) === splitSpace)
+  }
+
   func testNineKeyHoldWaitsHalfASecond() throws {
     let previous = InputSchemePreference.scheme
     defer { InputSchemePreference.scheme = previous }

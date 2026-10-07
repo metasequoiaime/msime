@@ -71,6 +71,11 @@ struct DoubaoResponse {
     int32_t code = 0;
     NSString *text = @"";
 };
+static BOOL MSIMEStrictBoolean(id value) {
+    if (![value isKindOfClass:NSNumber.class] ||
+        CFGetTypeID((__bridge CFTypeRef)value) != CFBooleanGetTypeID()) return NO;
+    return CFBooleanGetValue((CFBooleanRef)(__bridge CFTypeRef)value);
+}
 // One complete WebSocket binary message. NO when it is not a valid Doubao response; an error frame's code is reported and its body never becomes text.
 BOOL ParseResponse(NSData *message, DoubaoResponse *response) {
     if (!message.length || message.length > kDoubaoResponseLimit) return NO;
@@ -80,7 +85,7 @@ BOOL ParseResponse(NSData *message, DoubaoResponse *response) {
     if (!raw) return NO;
     id envelope = [NSJSONSerialization JSONObjectWithData:[NSData dataWithBytes:raw.get() length:std::strlen(raw.get())]
                                                   options:0 error:nil];
-    if (![envelope isKindOfClass:NSDictionary.class] || ![envelope[@"ok"] isEqual:@YES] ||
+    if (![envelope isKindOfClass:NSDictionary.class] || !MSIMEStrictBoolean(envelope[@"ok"]) ||
         ![envelope[@"value"] isKindOfClass:NSDictionary.class])
         return NO;
     NSDictionary *value = envelope[@"value"];
@@ -90,8 +95,11 @@ BOOL ParseResponse(NSData *message, DoubaoResponse *response) {
         response->code = [value[@"error_code"] intValue];
         return YES;
     }
-    if (![value[@"last"] isKindOfClass:NSNumber.class] || ![value[@"payload"] isKindOfClass:NSString.class]) return NO;
-    response->last = [value[@"last"] boolValue];
+    id last = value[@"last"];
+    if (![last isKindOfClass:NSNumber.class] ||
+        CFGetTypeID((__bridge CFTypeRef)last) != CFBooleanGetTypeID() ||
+        ![value[@"payload"] isKindOfClass:NSString.class]) return NO;
+    response->last = MSIMEStrictBoolean(last);
     NSData *payload = [value[@"payload"] dataUsingEncoding:NSUTF8StringEncoding];
     id body = payload ? [NSJSONSerialization JSONObjectWithData:payload options:0 error:nil] : nil;
     if (![body isKindOfClass:NSDictionary.class]) return NO;

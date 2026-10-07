@@ -26,6 +26,8 @@ public final class SkinJobsApi {
     static final long POLL_INTERVAL_MILLIS = 5_000;
     /** 描述的字符上限，与 client-core 一致。 */
     public static final int MAX_PROMPT_CHARACTERS = 500;
+    /** 一次生成的设计套数；页面预览和背景图任务并行度共用这个上限。 */
+    public static final int MAX_DESIGNS = 3;
     private static final Pattern JOB_ID = Pattern.compile("[0-9a-f]{1,48}");
 
     /** 模型给出的一套设计和它的背景图。`design` 是 `custom_theme.keyboard` 的形式（不含照片），`artwork` 是校验过的图片。 */
@@ -70,7 +72,8 @@ public final class SkinJobsApi {
             }
             try {
                 JSONObject root = new JSONObject(response == null ? "" : response);
-                JSONArray plans = root.optBoolean("ok", false) ? root.optJSONArray("value") : null;
+                JSONArray plans = Boolean.TRUE.equals(strictBoolean(root.opt("ok")))
+                    ? root.optJSONArray("value") : null;
                 if (plans == null) throw invalid("ai_skin_response");
                 return plans;
             } catch (JSONException error) {
@@ -82,7 +85,7 @@ public final class SkinJobsApi {
             try {
                 JSONObject root = new JSONObject(NativeClient.aiSkinPlan(new JSONObject()
                     .put("operation", "artwork").put("artwork", artwork).toString()));
-                return root.optBoolean("ok", false);
+                return Boolean.TRUE.equals(strictBoolean(root.opt("ok")));
             } catch (JSONException | RuntimeException error) {
                 return false;
             }
@@ -126,6 +129,11 @@ public final class SkinJobsApi {
         return failure.status == 503;
     }
 
+    /** A planner response must stay within the number of designs this flow can own and display. */
+    public static boolean validPlanCount(int count) {
+        return count >= 1 && count <= MAX_DESIGNS;
+    }
+
     /** 失败给用户看的一句话。 */
     public static String message(CloudApi.Failure failure) {
         if (quotaExhausted(failure)) {
@@ -153,28 +161,33 @@ public final class SkinJobsApi {
      * @param cancelled 置为 true 即取消，调用方在页面离开时置位
      */
     public List<Proposal> generate(String prompt, AtomicBoolean cancelled) throws CloudApi.Failure {
-        String trimmed = prompt == null ? "" : prompt.trim();
-        if (trimmed.isEmpty() || trimmed.codePointCount(0, trimmed.length()) > MAX_PROMPT_CHARACTERS)
+        String trimmed = TextPolicy.trimmed(prompt);
+        if (trimmed.isEmpty() || !TextPolicy.withinCodePoints(trimmed, MAX_PROMPT_CHARACTERS))
             throw invalid("ai_skin_invalid");
         check(cancelled);
         String model = defaultModel();
         check(cancelled);
         String answer = chat(planner.compose(trimmed, model));
         JSONArray plans = planner.parse(answer);
-        if (plans.length() == 0) throw invalid("ai_skin_response");
+        if (plans == null || !validPlanCount(plans.length())) throw invalid("ai_skin_response");
         check(cancelled);
 
-        ExecutorService pool = Executors.newFixedThreadPool(Math.min(3, plans.length()), runnable -> {
+        ExecutorService pool = Executors.newFixedThreadPool(BoundsPolicy.atMost(plans.length(), MAX_DESIGNS), runnable -> {
             Thread thread = new Thread(runnable, "msime-ai-skin");
             thread.setDaemon(true);
             return thread;
         });
         try {
             List<Future<Proposal>> futures = new ArrayList<>(plans.length());
-            for (int index = 0; index < plans.length(); index++) {
-                JSONObject plan = plans.optJSONObject(index);
-                if (plan == null) throw invalid("ai_skin_response");
-                futures.add(pool.submit(() -> illustrate(plan, cancelled)));
+            try {
+                for (int index = 0; index < plans.length(); index++) {
+                    JSONObject plan = plans.optJSONObject(index);
+                    if (plan == null) throw invalid("ai_skin_response");
+                    futures.add(pool.submit(() -> illustrate(plan, cancelled)));
+                }
+            } catch (CloudApi.Failure | RuntimeException error) {
+                cancelSubmitted(cancelled, futures);
+                throw error;
             }
             List<Proposal> proposals = new ArrayList<>(futures.size());
             CloudApi.Failure first = null;
@@ -200,12 +213,19 @@ public final class SkinJobsApi {
         }
     }
 
+    /** Stop every illustration already submitted when plan validation fails mid-batch. */
+    static void cancelSubmitted(AtomicBoolean cancelled, List<? extends Future<?>> futures) {
+        if (cancelled != null) cancelled.set(true);
+        if (futures == null) return;
+        for (Future<?> future : futures) if (future != null) future.cancel(true);
+    }
+
     /** `GET /v1/models` 的 `default_model`；它必须出现在 `data` 里。 */
     public String defaultModel() throws CloudApi.Failure {
         JSONObject catalog = api.json("GET", "/v1/models", null, CloudApi.Auth.ACCOUNT_OR_ANONYMOUS);
         Object raw = catalog.opt("default_model");
         JSONArray data = catalog.optJSONArray("data");
-        if (!(raw instanceof String model) || model.isEmpty() || model.length() > 200 || data == null)
+        if (!(raw instanceof String model) || model.isEmpty() || TextPolicy.utf8Length(model) > 200 || data == null)
             throw invalid("invalid_response");
         for (int index = 0; index < data.length(); index++) {
             JSONObject entry = data.optJSONObject(index);
@@ -225,7 +245,7 @@ public final class SkinJobsApi {
         JSONObject message = first == null ? null : first.optJSONObject("message");
         Object content = message == null ? null : message.opt("content");
         if (message == null || !"assistant".equals(message.opt("role")) || !(content instanceof String text)
-                || text.trim().isEmpty() || text.length() > 16 * 1024)
+                || TextPolicy.trimmed(text).isEmpty() || TextPolicy.utf8Length(text) > 16 * 1024)
             throw invalid("ai_skin_response");
         return text;
     }
@@ -317,11 +337,11 @@ public final class SkinJobsApi {
         if (raw != null) {
             Object data = raw.opt("b64_json");
             Object mime = raw.opt("mime_type");
-            int width = raw.optInt("width", 0);
-            int height = raw.optInt("height", 0);
+            Integer width = strictArtworkDimension(raw.opt("width"));
+            Integer height = strictArtworkDimension(raw.opt("height"));
             if (!(data instanceof String base64) || !(mime instanceof String type)
                     || !("image/png".equals(type) || "image/jpeg".equals(type))
-                    || width < 1 || width > 2048 || height < 1 || height > 2048
+                    || width == null || height == null
                     || base64.length() > 11 * 1024 * 1024 || !planner.artworkValid(raw))
                 throw invalid("ai_skin_response");
             artwork = new Artwork(base64, type, width, height);
@@ -341,10 +361,25 @@ public final class SkinJobsApi {
         return new CloudApi.Failure(0, code, code, 0);
     }
 
+    /** Artwork dimensions must be JSON integers in the decoded image bounds. */
+    public static Integer strictArtworkDimension(Object value) {
+        if (value instanceof Integer integer && integer >= 1 && integer <= 2048) return integer;
+        if (value instanceof Long longValue && longValue >= 1L && longValue <= 2048L) {
+            return longValue.intValue();
+        }
+        return null;
+    }
+
+    /** Native planner responses must keep status flags as JSON booleans. */
+    static Boolean strictBoolean(Object value) {
+        return value instanceof Boolean ? (Boolean) value : null;
+    }
+
     private static JSONObject value(String response) throws CloudApi.Failure {
         try {
             JSONObject root = new JSONObject(response == null ? "" : response);
-            JSONObject value = root.optBoolean("ok", false) ? root.optJSONObject("value") : null;
+            JSONObject value = Boolean.TRUE.equals(strictBoolean(root.opt("ok")))
+                ? root.optJSONObject("value") : null;
             if (value == null) throw invalid("ai_skin_invalid");
             return value;
         } catch (JSONException error) {

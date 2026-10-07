@@ -22,9 +22,7 @@ public final class HomeNavGroup {
 
     private HomeNavGroup(ViewGroup parent) {
         Context context = parent.getContext();
-        card = new LinearLayout(context);
-        card.setOrientation(LinearLayout.VERTICAL);
-        card.setBackground(Ui.rounded(Ui.card(context), Ui.dp(context, Ui.NAV_GROUP_RADIUS)));
+        card = Ui.verticalCard(context, Ui.NAV_GROUP_RADIUS);
         // 按压波纹裁在 24dp 的圆角里。
         card.setClipToOutline(true);
         LinearLayout.LayoutParams params = Ui.matchWidth();
@@ -60,7 +58,7 @@ public final class HomeNavGroup {
 
         public void setValue(@Nullable CharSequence text) {
             value.setText(text);
-            value.setVisibility(text == null || text.length() == 0 ? View.GONE : View.VISIBLE);
+            Ui.setVisibilityForText(value, text);
         }
 
         public void setVisible(boolean visible) {

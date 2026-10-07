@@ -22,7 +22,10 @@ import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
 import app.msime.android.AppEdition;
+import app.msime.android.BoundsPolicy;
+import app.msime.android.ViewPolicy;
 import app.msime.android.HttpBodyPolicy;
+import app.msime.android.TextPolicy;
 import app.msime.android.R;
 import app.msime.android.UpdateApi;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
@@ -128,14 +131,13 @@ public final class AboutPage extends DetailPage {
             links.nav("给我们评分", null, null, () -> openLink(context,
                 "market://details?id=" + context.getPackageName()));
         }
-        if (tauriAvailable()) {
+        if (Ui.tauriAvailable()) {
             links.nav("在管理界面中查看", "更新日志、致谢与更多信息", null, this::openTauriAbout);
         }
 
-        TextView footer = new TextView(context);
-        footer.setText("© 2026 Metasequoia · 输入内容默认只在本机处理");
-        footer.setGravity(Gravity.CENTER);
-        Ui.style(footer, 13, 400, Ui.subText(context));
+        TextView footer = Ui.styledLabel(context, "© 2026 Metasequoia · 输入内容默认只在本机处理",
+            13, 400, Ui.subText(context));
+        ViewPolicy.setCentered(footer);
         LinearLayout.LayoutParams footerParams = Ui.matchWidth();
         footerParams.topMargin = Ui.dp(context, 24);
         column.addView(footer, footerParams);
@@ -168,51 +170,36 @@ public final class AboutPage extends DetailPage {
 
     /** 居中的标、应用名、版本，以及检查更新药丸（Play 安装时没有）。 */
     private View header(Context context, boolean play) {
-        LinearLayout header = new LinearLayout(context);
-        header.setOrientation(LinearLayout.VERTICAL);
-        header.setGravity(Gravity.CENTER_HORIZONTAL);
-        header.setPadding(0, Ui.dp(context, 8), 0, Ui.dp(context, 20));
+        LinearLayout header = Ui.column(context);
+        ViewPolicy.setCenteredHorizontally(header);
+        Ui.setPaddingDp(header, context, 0, 8, 0, 20);
 
         FrameLayout disc = new FrameLayout(context);
         disc.setBackground(Ui.pill(Ui.color(context, com.google.android.material.R.attr.colorTertiaryContainer)));
-        ImageView mark = new ImageView(context);
-        mark.setImageResource(R.drawable.splash_mark);
-        mark.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        ImageView mark = Ui.decorativeIcon(context, R.drawable.splash_mark);
         int markSize = Ui.dp(context, 60);
-        disc.addView(mark, new FrameLayout.LayoutParams(markSize, markSize, Gravity.CENTER));
+        disc.addView(mark, Ui.squareFrameParamsPx(markSize, Gravity.CENTER));
         int discSize = Ui.dp(context, 116);
-        header.addView(disc, new LinearLayout.LayoutParams(discSize, discSize));
+        header.addView(disc, Ui.squareParamsPx(discSize));
 
-        TextView name = new TextView(context);
-        name.setText(R.string.app_name);
-        name.setGravity(Gravity.CENTER);
-        Ui.style(name, 22, 700, Ui.text(context));
+        TextView name = Ui.styledLabel(context, getString(R.string.app_name), 22, 700, Ui.text(context));
+        ViewPolicy.setCentered(name);
         name.setAccessibilityHeading(true);
         LinearLayout.LayoutParams nameParams = Ui.wrap();
         nameParams.topMargin = Ui.dp(context, 18);
         header.addView(name, nameParams);
 
-        TextView version = new TextView(context);
-        version.setText("版本 " + UpdateJobService.currentVersion(context) + " · Android");
-        version.setGravity(Gravity.CENTER);
-        Ui.style(version, 13, 400, Ui.subText(context));
+        TextView version = Ui.styledLabel(context,
+            "版本 " + UpdateJobService.currentVersion(context) + " · Android", 13, 400, Ui.subText(context));
+        ViewPolicy.setCentered(version);
         LinearLayout.LayoutParams versionParams = Ui.wrap();
         versionParams.topMargin = Ui.dp(context, 6);
         header.addView(version, versionParams);
 
         if (!play) {
-            TextView button = new TextView(context);
-            button.setGravity(Gravity.CENTER);
-            button.setSingleLine(true);
-            Ui.style(button, 15, 600, Ui.onAccent(context));
-            button.setBackground(Ui.rippleOn(context, Ui.accent(context), 9999f));
-            button.setPadding(Ui.dp(context, 20), 0, Ui.dp(context, 20), 0);
-            button.setMinHeight(Ui.dp(context, 36));
-            button.setMinWidth(Ui.dp(context, 96));
-            button.setClickable(true);
-            button.setFocusable(true);
-            button.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
-            button.setOnClickListener(ignored -> onPill());
+            TextView button = Ui.pillButton(context, "检查更新", 15, 600, Ui.onAccent(context),
+                20, 0, 36, 96, this::onPill);
+            ViewPolicy.setPoliteLiveRegion(button);
             LinearLayout.LayoutParams pillParams = Ui.wrap();
             pillParams.topMargin = Ui.dp(context, 14);
             header.addView(button, pillParams);
@@ -235,11 +222,11 @@ public final class AboutPage extends DetailPage {
             default -> button.setText("检查更新");
         }
         boolean busy = state == State.CHECKING || state == State.DOWNLOADING;
-        button.setEnabled(!busy);
+        ViewPolicy.setEnabled(button, !busy);
         // 「已是最新版本」是结果而不是按钮，换成 accentSoft 底、强调色字，再点一次重新检查。
         boolean quiet = state == State.UP_TO_DATE || busy;
-        button.setTextColor(quiet ? Ui.accent(context) : Ui.onAccent(context));
-        button.setBackground(Ui.rippleOn(context, quiet ? Ui.accentSoft(context) : Ui.accent(context), 9999f));
+        ViewPolicy.setTextColor(button, quiet ? Ui.accent(context) : Ui.onAccent(context));
+        button.setBackground(Ui.pillRipple(context, quiet ? Ui.accentSoft(context) : Ui.accent(context)));
     }
 
     private void onPill() {
@@ -283,7 +270,7 @@ public final class AboutPage extends DetailPage {
                 if (Thread.currentThread().isInterrupted())
                     throw new java.util.concurrent.CancellationException("update download cancelled");
                 if (total <= 0) return;
-                int value = (int) Math.min(100, done * 100 / total);
+                int value = (int) BoundsPolicy.atMost(done * 100 / total, 100L);
                 MAIN.post(() -> {
                     if (value == percent || state != State.DOWNLOADING) return;
                     percent = value;
@@ -369,7 +356,7 @@ public final class AboutPage extends DetailPage {
     /** APK 里随包带的许可通知文件（相对 assets 的路径），按名字排序。 */
     private static List<String> listNotices(AssetManager assets) throws IOException {
         String[] abis = assets.list("native-notices");
-        List<String> found = new ArrayList<>();
+        List<String> found = new ArrayList<>(4);
         if (abis != null && abis.length > 0) {
             // 每个 ABI 一份同样的清单，列一份就够。
             java.util.Arrays.sort(abis);
@@ -431,7 +418,7 @@ public final class AboutPage extends DetailPage {
                 byte[] bytes = HttpBodyPolicy.readBounded(in, MAX_NOTICE_CHARS * 4);
                 if (bytes == null) return null;
                 String text = new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
-                return text.length() > MAX_NOTICE_CHARS ? text.substring(0, MAX_NOTICE_CHARS) + "\n…" : text;
+                return TextPolicy.clipWithEllipsis(text, MAX_NOTICE_CHARS);
             }
         }, outcome -> {
             if (outcome.value() == null) {
@@ -456,16 +443,6 @@ public final class AboutPage extends DetailPage {
             startActivity(intent);
         } catch (RuntimeException unavailable) {
             MsToast.show(requireContext(), "管理界面没有打开");
-        }
-    }
-
-    /** 原生 APK 不带 WebView 管理界面，Tauri 合包带。 */
-    private static boolean tauriAvailable() {
-        try {
-            Class.forName("app.msime.android.MainActivity");
-            return true;
-        } catch (ClassNotFoundException absent) {
-            return false;
         }
     }
 

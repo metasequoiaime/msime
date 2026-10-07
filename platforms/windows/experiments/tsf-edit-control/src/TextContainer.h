@@ -2,6 +2,9 @@
 
 #include <Windows.h>
 
+#include <cstddef>
+#include <limits>
+
 //----------------------------------------------------------------
 //
 //
@@ -11,6 +14,8 @@
 class CTextContainer
 {
   public:
+    static constexpr UINT kMaxTextUnits = 999'999;
+
     CTextContainer()
     {
         _psz = NULL;

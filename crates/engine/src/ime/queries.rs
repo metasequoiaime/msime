@@ -263,10 +263,15 @@ fn insert_mixed_rows(
     let extra = groups.iter().map(Vec::len).sum();
     candidates.reserve(extra);
 
-    let has_source = |source| candidates.iter().any(|item| item.source == source);
-    let mut slot = if has_source(CandidateSource::AiSuggestion) {
+    let (has_ai, has_cloud) = candidates.iter().fold((false, false), |(ai, cloud), item| {
+        (
+            ai || item.source == CandidateSource::AiSuggestion,
+            cloud || item.source == CandidateSource::CloudSuggestion,
+        )
+    });
+    let mut slot = if has_ai {
         3
-    } else if has_source(CandidateSource::CloudSuggestion) {
+    } else if has_cloud {
         2
     } else {
         1

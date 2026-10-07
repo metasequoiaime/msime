@@ -3,7 +3,6 @@ package app.msime.android.home;
 import android.content.Context;
 import android.graphics.Color;
 import android.os.Bundle;
-import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.LinearLayout;
@@ -17,14 +16,16 @@ import app.msime.android.KeyboardGeometry;
 import app.msime.android.KeyboardScheme;
 import app.msime.android.KeyboardSkin;
 import app.msime.android.SchemePreferences;
+import app.msime.android.SwipeHintPolicy;
 import app.msime.android.SyncSignals;
 import app.msime.android.SyncSwitch;
+import app.msime.android.ViewPolicy;
 import org.json.JSONObject;
 
 /**
- * 键盘页：布局（中文键盘 26 / 9 键、键盘高度、按键间距、行间距）、按键反馈（按键音、按键振动、按键弹出预览、按键动画）、手势（下滑输入符号、空格滑动移动光标、长按空格语音）、键盘工具栏（预览、显示方式、各按钮）和子页「AI 润色与回复」。
+ * 键盘页：布局（中文键盘 26 / 9 键、键盘高度、按键间距、行间距、横屏分离式键盘）、按键反馈（按键音、按键振动、按键弹出预览、按键动画）、手势（滑动输入符号及其方向、空格滑动移动光标、长按空格语音）、键盘工具栏（预览、显示方式、各按钮）和子页「AI 润色与回复」。
  *
- * <p>键盘与本页读同一批存储：按键间距、行间距和表情/剪贴板/皮肤三个工具栏按钮在共享偏好里（`touch_key_spacing_tenths`、`touch_row_spacing_tenths`、`touch_toolbar.*`）；键盘高度、按键弹出预览、按键动画、三个手势、常用语/输入方式两个工具栏按钮和「显示方式：隐藏」（整行不显示，候选条照常显示）只有 Android 用，在 {@link AndroidLocalSettings} 里。键盘高度按设计以 75–130 % 显示，存的是 dp（{@link KeyboardGeometry#heightPercentToAdjustment}），本地没写过时沿用共享偏好里旧的 `touch_keyboard_height_adjustment`。按键音和按键振动是 Android 一直以来的本地开关（`KeyboardFeedbackStore`），键盘的功能面板改的也是它们。
+ * <p>键盘与本页读同一批存储：按键间距、行间距和表情/剪贴板/皮肤三个工具栏按钮在共享偏好里（`touch_key_spacing_tenths`、`touch_row_spacing_tenths`、`touch_toolbar.*`）；键盘高度、横屏分离式键盘、按键弹出预览、按键动画、三个手势、常用语/输入方式两个工具栏按钮和「显示方式：隐藏」（整行不显示，候选条照常显示）只有 Android 用，在 {@link AndroidLocalSettings} 里。键盘高度按设计以 75–130 % 显示，存的是 dp（{@link KeyboardGeometry#heightPercentToAdjustment}），本地没写过时沿用共享偏好里旧的 `touch_keyboard_height_adjustment`。按键音和按键振动是 Android 一直以来的本地开关（`KeyboardFeedbackStore`），键盘的功能面板改的也是它们。
  */
 public final class KeyboardOptionsPage extends DetailPage {
     private static final String[] ANIMATIONS = {"bounce", "ripple", "glow", "lift", "none"};
@@ -102,6 +103,9 @@ public final class KeyboardOptionsPage extends DetailPage {
         layout.slider("行间距", KeyboardGeometry.MIN_ROW_SPACING_TENTHS, KeyboardGeometry.MAX_ROW_SPACING_TENTHS, 1,
             KeyboardGeometry.rowSpacing(KeyboardGeometry.strictInt(preferences, "touch_row_spacing_tenths", -1)),
             KeyboardGeometry::display, value -> savePreference("touch_row_spacing_tenths", value));
+        layout.toggle("横屏分离式键盘", "仅在平板横屏时生效：26 键和韩文键盘分成左右两半，方便双手握持时用拇指输入",
+            settings.bool(AndroidLocalSettings.SPLIT_KEYBOARD),
+            checked -> saveLocal(AndroidLocalSettings.SPLIT_KEYBOARD, checked));
 
         GroupCard feedback = GroupCard.add(target, "按键反馈");
         KeyboardFeedbackStore.Settings local = state.feedback();
@@ -115,9 +119,13 @@ public final class KeyboardOptionsPage extends DetailPage {
             () -> pickAnimation(animation, animationRow[0]));
 
         GroupCard gestures = GroupCard.add(target, "手势");
-        gestures.toggle("下滑输入符号", "在字母键上向下滑动，输入角标符号",
-            settings.bool(AndroidLocalSettings.SWIPE_DOWN_SYMBOLS),
+        boolean swipeSymbols = settings.bool(AndroidLocalSettings.SWIPE_DOWN_SYMBOLS);
+        gestures.toggle("滑动输入符号", "在字母键上滑动，输入角标符号；长按字母键始终可以输入", swipeSymbols,
             checked -> saveLocal(AndroidLocalSettings.SWIPE_DOWN_SYMBOLS, checked));
+        String swipeDirection = settings.choice(AndroidLocalSettings.SWIPE_SYMBOLS_DIRECTION);
+        GroupCard.Row directionRow = gestures.nav("滑动方向", null,
+            swipeDirectionLabel(swipeDirection), () -> pickSwipeDirection(swipeDirection));
+        directionRow.setEnabled(swipeSymbols);
         gestures.toggle("空格键滑动移动光标", null, settings.bool(AndroidLocalSettings.SPACE_CURSOR),
             checked -> saveLocal(AndroidLocalSettings.SPACE_CURSOR, checked));
         gestures.toggle("长按空格语音输入", null, settings.bool(AndroidLocalSettings.SPACE_VOICE),
@@ -149,22 +157,18 @@ public final class KeyboardOptionsPage extends DetailPage {
     /** 工具栏预览：用当前皮肤的底色和图标色，按开关列出会出现的按钮；隐藏时说明只剩候选条。 */
     private static View toolbarPreview(Context context, JSONObject toolbar, AndroidLocalSettings.Snapshot settings,
                                        KeyboardSkin skin) {
-        LinearLayout strip = new LinearLayout(context);
-        strip.setOrientation(LinearLayout.HORIZONTAL);
-        strip.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout strip = Ui.row(context);
+        ViewPolicy.setCenteredVertically(strip);
         int pad = Ui.dp(context, 12);
-        strip.setPadding(pad, pad, pad, pad);
-        LinearLayout plate = new LinearLayout(context);
-        plate.setOrientation(LinearLayout.HORIZONTAL);
-        plate.setGravity(Gravity.CENTER_VERTICAL);
-        plate.setPadding(Ui.dp(context, 10), 0, Ui.dp(context, 10), 0);
+        Ui.setSymmetricPaddingPx(strip, pad);
+        LinearLayout plate = Ui.row(context);
+        ViewPolicy.setCenteredVertically(plate);
+        Ui.setHorizontalPaddingDp(plate, context, 10);
         plate.setBackground(Ui.rounded(Ui.parseColor(skin.background(), Ui.page(context)), Ui.dp(context, 12)));
         plate.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
         int icon = Ui.parseColor(skin.toolbarIcon(), Ui.subText(context));
         if (settings.bool(AndroidLocalSettings.TOOLBAR_HIDDEN)) {
-            TextView note = new TextView(context);
-            note.setText("工具栏已隐藏，只显示候选条");
-            Ui.style(note, 13, 400, icon);
+            TextView note = Ui.styledLabel(context, "工具栏已隐藏，只显示候选条", 13, 400, icon);
             plate.addView(note);
         } else {
             addChip(context, plate, "水杉", Ui.parseColor(skin.accentText(), Ui.accent(context)));
@@ -178,10 +182,8 @@ public final class KeyboardOptionsPage extends DetailPage {
     }
 
     private static void addChip(Context context, LinearLayout plate, String label, int colour) {
-        TextView chip = new TextView(context);
-        chip.setText(label);
-        chip.setSingleLine(true);
-        Ui.style(chip, 12, 500, colour);
+        TextView chip = Ui.styledLabel(context, label, 12, 500, colour);
+        ViewPolicy.setSingleLine(chip);
         LinearLayout.LayoutParams params = Ui.wrap();
         params.setMarginEnd(Ui.dp(context, 12));
         plate.addView(chip, params);
@@ -231,6 +233,19 @@ public final class KeyboardOptionsPage extends DetailPage {
             });
         }
         sheet.show();
+    }
+
+    private void pickSwipeDirection(String selected) {
+        OptionSheet sheet = new OptionSheet(requireContext(), "滑动方向", null);
+        for (String value : new String[] {SwipeHintPolicy.DOWN, SwipeHintPolicy.UP}) {
+            sheet.option(swipeDirectionLabel(value), value.equals(selected),
+                () -> saveLocal(AndroidLocalSettings.SWIPE_SYMBOLS_DIRECTION, value));
+        }
+        sheet.show();
+    }
+
+    private static String swipeDirectionLabel(String value) {
+        return SwipeHintPolicy.UP.equals(value) ? "上滑" : "下滑";
     }
 
     private void pickToolbarMode(boolean hidden) {

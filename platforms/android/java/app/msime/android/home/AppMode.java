@@ -2,7 +2,6 @@ package app.msime.android.home;
 
 import android.content.Context;
 import android.content.SharedPreferences;
-import android.content.res.Configuration;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatDelegate;
 import app.msime.android.R;
@@ -62,8 +61,7 @@ final class AppMode {
 
     /** Whether this context is drawing dark right now: the system's night mode, or the one `theme` forces. */
     static boolean dark(Context context) {
-        return (context.getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK)
-            == Configuration.UI_MODE_NIGHT_YES;
+        return Ui.isNight(context);
     }
 
     private static void apply(String mode) {

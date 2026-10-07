@@ -1,9 +1,6 @@
 package app.msime.android.home;
 
-import android.content.ClipData;
-import android.content.ClipboardManager;
 import android.content.Context;
-import android.content.res.ColorStateList;
 import android.os.Bundle;
 import android.view.Gravity;
 import android.view.View;
@@ -17,6 +14,7 @@ import androidx.annotation.Nullable;
 import app.msime.android.CloudApi;
 import app.msime.android.DownloadLinkApi;
 import app.msime.android.R;
+import app.msime.android.ViewPolicy;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -32,8 +30,8 @@ public final class DownloadPage extends DetailPage {
     private static final String DOWNLOAD_LABEL = "msime.app/download";
 
     /** 本次打开页面后已经发送过的平台；按钮显示「已发送」。 */
-    private final Set<String> sentPlatforms = new HashSet<>();
-    private final Set<String> sending = new HashSet<>();
+    private final Set<String> sentPlatforms = new HashSet<>(6);
+    private final Set<String> sending = new HashSet<>(6);
 
     @Override protected void buildContent(LinearLayout column, Bundle args) {
         Context context = requireContext();
@@ -49,86 +47,57 @@ public final class DownloadPage extends DetailPage {
         getRow(mobile, R.drawable.ic_ms_smartphone, "iOS", "TestFlight 测试版", "ios");
         getRow(mobile, R.drawable.ic_ms_tablet, "iPadOS", "与 iPhone 共用同一个 TestFlight", "ios");
         GroupCard.Row android = row(mobile, R.drawable.ic_ms_smartphone, "Android", "各版本的 APK 在 GitHub 发布页");
-        TextView current = new TextView(context);
-        current.setText("当前设备");
-        Ui.style(current, Ui.TEXT_BUTTON_SMALL, 500, Ui.text(context));
-        LinearLayout.LayoutParams currentParams = new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        currentParams.setMarginStart(Ui.dp(context, Ui.ROW_GAP));
+        TextView current = Ui.styledLabel(context, "当前设备", Ui.TEXT_BUTTON_SMALL, 500, Ui.text(context));
+        LinearLayout.LayoutParams currentParams = Ui.rowGapParams(context);
         ((LinearLayout) android.view()).addView(current, currentParams);
         getRow(mobile, R.drawable.ic_ms_smartphone, "HarmonyOS", "从源码构建", "harmony");
     }
 
     /** 「在电脑上打开」卡：accentSoft 底的 r20 卡片，左边强调色圆角方块里一枚链接图标。 */
     private View hero(Context context) {
-        LinearLayout card = new LinearLayout(context);
-        card.setOrientation(LinearLayout.HORIZONTAL);
-        card.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout card = Ui.row(context);
+        ViewPolicy.setCenteredVertically(card);
         card.setBackground(Ui.rounded(Ui.accentSoft(context), Ui.dp(context, 20)));
         int pad = Ui.dp(context, 16);
-        card.setPadding(pad, pad, pad, pad);
+        Ui.setSymmetricPaddingPx(card, pad);
 
         FrameLayout tile = new FrameLayout(context);
         tile.setBackground(Ui.rounded(Ui.accent(context), Ui.dp(context, 12)));
-        ImageView icon = new ImageView(context);
-        icon.setImageResource(R.drawable.ic_ms_link);
-        icon.setImageTintList(ColorStateList.valueOf(Ui.onAccent(context)));
-        icon.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        ImageView icon = Ui.decorativeIcon(context, R.drawable.ic_ms_link, Ui.onAccent(context));
         int iconSize = Ui.dp(context, 24);
-        tile.addView(icon, new FrameLayout.LayoutParams(iconSize, iconSize, Gravity.CENTER));
+        tile.addView(icon, Ui.squareFrameParamsPx(iconSize, Gravity.CENTER));
         int tileSize = Ui.dp(context, 44);
-        card.addView(tile, new LinearLayout.LayoutParams(tileSize, tileSize));
+        card.addView(tile, Ui.squareParamsPx(tileSize));
 
-        LinearLayout texts = new LinearLayout(context);
-        texts.setOrientation(LinearLayout.VERTICAL);
-        TextView title = new TextView(context);
-        title.setText("在电脑上打开");
-        Ui.style(title, Ui.TEXT_ROW_TITLE, 600, Ui.text(context));
+        LinearLayout texts = Ui.column(context);
+        TextView title = Ui.styledLabel(context, "在电脑上打开", Ui.TEXT_ROW_TITLE, 600, Ui.text(context));
         texts.addView(title);
-        TextView link = new TextView(context);
-        link.setText(DOWNLOAD_LABEL);
-        Ui.style(link, Ui.TEXT_ROW_SUBTITLE, 400, Ui.subText(context));
+        TextView link = Ui.styledLabel(context, DOWNLOAD_LABEL, Ui.TEXT_ROW_SUBTITLE, 400, Ui.subText(context));
         texts.addView(link);
-        LinearLayout.LayoutParams textParams = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        LinearLayout.LayoutParams textParams = Ui.weightWrap(1f);
         textParams.setMarginStart(Ui.dp(context, 14));
         card.addView(texts, textParams);
 
-        TextView copy = new TextView(context);
-        copy.setText("复制链接");
-        copy.setGravity(Gravity.CENTER);
-        copy.setSingleLine(true);
-        Ui.style(copy, Ui.TEXT_BUTTON_SMALL, 600, Ui.onAccent(context));
-        copy.setBackground(Ui.rippleOn(context, Ui.accent(context), 9999f));
-        copy.setPadding(Ui.dp(context, 14), Ui.dp(context, 6), Ui.dp(context, 14), Ui.dp(context, 6));
-        copy.setMinHeight(Ui.dp(context, 32));
-        copy.setClickable(true);
-        copy.setFocusable(true);
+        TextView copy = Ui.pillButton(context, "复制链接", Ui.TEXT_BUTTON_SMALL, 600, Ui.onAccent(context),
+            14, 6, Ui.COMPACT_BUTTON_MIN_HEIGHT, 0, () -> copyLink(context));
         copy.setContentDescription("复制下载页链接");
-        copy.setOnClickListener(ignored -> copyLink(context));
-        LinearLayout.LayoutParams copyParams = new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        LinearLayout.LayoutParams copyParams = Ui.wrap();
         copyParams.setMarginStart(Ui.dp(context, 12));
         card.addView(copy, copyParams);
         return card;
     }
 
     private static void copyLink(Context context) {
-        ClipboardManager clipboard = context.getSystemService(ClipboardManager.class);
-        if (clipboard == null) return;
-        clipboard.setPrimaryClip(ClipData.newPlainText("水杉下载页", DOWNLOAD));
-        MsToast.show(context, "链接已复制");
+        ClipboardActions.copyText(context, "水杉下载页", DOWNLOAD, "链接已复制");
     }
 
     /** 带图标的值行，行尾留给调用方放按钮或文字。 */
     private static GroupCard.Row row(GroupCard group, @DrawableRes int icon, String title, String subtitle) {
         GroupCard.Row row = group.value(title, subtitle, null);
         Context context = row.view().getContext();
-        ImageView image = new ImageView(context);
-        image.setImageResource(icon);
-        image.setImageTintList(ColorStateList.valueOf(Ui.text(context)));
-        image.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        ImageView image = Ui.decorativeIcon(context, icon, Ui.text(context));
         int size = Ui.dp(context, 24);
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(size, size);
+        LinearLayout.LayoutParams params = Ui.squareParamsPx(size);
         params.setMarginEnd(Ui.dp(context, 18));
         ((LinearLayout) row.view()).addView(image, 0, params);
         return row;
@@ -137,42 +106,24 @@ public final class DownloadPage extends DetailPage {
     private void getRow(GroupCard group, @DrawableRes int icon, String title, String subtitle, String platform) {
         GroupCard.Row row = row(group, icon, title, subtitle);
         Context context = row.view().getContext();
-        TextView button = tonal(context, "获取", title);
-        button.setOnClickListener(ignored -> AboutPage.openLink(context, DOWNLOAD + "?release=" + platform));
+        TextView button = KeyboardSheets.tonalButton(context, "获取", "获取，" + title, 600,
+            () -> AboutPage.openLink(context, DOWNLOAD + "?release=" + platform));
         attach(row, button);
     }
 
     private void sendRow(GroupCard group, @DrawableRes int icon, String title, String subtitle, String platform) {
         GroupCard.Row row = row(group, icon, title, subtitle);
         Context context = row.view().getContext();
-        TextView button = tonal(context, sentPlatforms.contains(platform) ? "已发送" : "发送链接", title);
-        button.setEnabled(!sentPlatforms.contains(platform));
+        String label = sentPlatforms.contains(platform) ? "已发送" : "发送链接";
+        TextView button = KeyboardSheets.tonalButton(context, label, label + "，" + title, 600);
+        ViewPolicy.setEnabled(button, !sentPlatforms.contains(platform));
         button.setOnClickListener(ignored -> send(platform, button));
         attach(row, button);
     }
 
     private static void attach(GroupCard.Row row, TextView button) {
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        params.setMarginStart(Ui.dp(button.getContext(), Ui.ROW_GAP));
+        LinearLayout.LayoutParams params = Ui.rowGapParams(button.getContext());
         ((LinearLayout) row.view()).addView(button, params);
-    }
-
-    /** 行尾的 tonal 胶囊：accentSoft 底、强调色字。 */
-    private static TextView tonal(Context context, String label, String title) {
-        TextView button = new TextView(context);
-        button.setText(label);
-        button.setGravity(Gravity.CENTER);
-        button.setSingleLine(true);
-        Ui.style(button, Ui.TEXT_BUTTON_SMALL, 600, Ui.accent(context));
-        button.setBackground(Ui.rippleOn(context, Ui.accentSoft(context), 9999f));
-        button.setPadding(Ui.dp(context, 14), Ui.dp(context, 5), Ui.dp(context, 14), Ui.dp(context, 5));
-        button.setMinHeight(Ui.dp(context, 32));
-        button.setClickable(true);
-        button.setFocusable(true);
-        button.setContentDescription(label + "，" + title);
-        button.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
-        return button;
     }
 
     private void send(String platform, TextView button) {
@@ -180,12 +131,12 @@ public final class DownloadPage extends DetailPage {
         Context application = requireContext().getApplicationContext();
         sending.add(platform);
         button.setText("正在发送…");
-        button.setEnabled(false);
+        ViewPolicy.setEnabled(button, false);
         AboutPage.network(this, () -> new DownloadLinkApi(new CloudApi(application)).send(platform), outcome -> {
             sending.remove(platform);
             if (outcome.error() != null) {
                 button.setText("发送链接");
-                button.setEnabled(true);
+                ViewPolicy.setEnabled(button, true);
                 MsToast.show(requireContext(), failureMessage(outcome.error()));
                 return;
             }

@@ -293,6 +293,13 @@
         <item name="cornerSize">12dp</item>
     </style>
 
+    <!-- 输入法窗口的主题（MSIMEInputService.onCreate 里设置）。不设时系统给的是 Theme.DeviceDefault.InputMethod，它的按钮样式各厂商都改过：内边距、最小宽高、字号、按下动画各不相同，同一个键盘在不同手机上长得千奇百怪。窗口本身仍沿用 DeviceDefault.InputMethod，只把按钮样式钉在 Material 上：CTS 要求厂商不得改动 Material 主题，所以它在所有手机上一致，也就是原生 Android 上 DeviceDefault 本来的样子。 -->
+    <style name="Theme.MSIME.InputMethod" parent="@android:style/Theme.DeviceDefault.InputMethod">
+        <item name="android:buttonStyle">@android:style/Widget.Material.Button</item>
+        <item name="android:borderlessButtonStyle">@android:style/Widget.Material.Button.Borderless</item>
+        <item name="android:textAppearanceButton">@android:style/TextAppearance.Material.Widget.Button</item>
+    </style>
+
     <style name="Shape.Avatar" parent="">
         <item name="cornerFamily">rounded</item>
         <item name="cornerSize">50%</item>

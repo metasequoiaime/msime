@@ -1,5 +1,7 @@
 package app.msime.android.home;
 
+import app.msime.android.TextPolicy;
+
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.res.ColorStateList;
@@ -13,7 +15,6 @@ import android.text.Editable;
 import android.text.InputFilter;
 import android.text.InputType;
 import android.text.TextWatcher;
-import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.EditText;
@@ -27,11 +28,14 @@ import androidx.annotation.Nullable;
 import androidx.lifecycle.ViewModel;
 import androidx.lifecycle.ViewModelProvider;
 import app.msime.android.CloudApi;
+import app.msime.android.BitmapPolicy;
+import app.msime.android.BoundsPolicy;
 import app.msime.android.CustomKeyboardSkin;
 import app.msime.android.CustomSkinLibrary;
 import app.msime.android.KeyboardSkin;
+import app.msime.android.PhotoDecodePolicy;
 import app.msime.android.SkinJobsApi;
-import java.io.ByteArrayOutputStream;
+import app.msime.android.ViewPolicy;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -78,7 +82,7 @@ public final class AiSkinPage extends DetailPage {
      */
     public static final class State extends ViewModel {
         private final Handler main = new Handler(Looper.getMainLooper());
-        final List<Result> results = new ArrayList<>();
+        final List<Result> results = new ArrayList<>(SkinJobsApi.MAX_DESIGNS);
         int chosen;
         boolean nineKey;
         int sound = 1;
@@ -101,7 +105,7 @@ public final class AiSkinPage extends DetailPage {
             cancelled = flag;
             // 一次生成可能要几分钟，不能占用设置页共用的那条 HostTask 线程。
             Thread worker = new Thread(() -> {
-                List<Result> generated = new ArrayList<>();
+                List<Result> generated = new ArrayList<>(SkinJobsApi.MAX_DESIGNS);
                 CloudApi.Failure failure = null;
                 try {
                     for (SkinJobsApi.Proposal proposal : new SkinJobsApi(new CloudApi(application)).generate(text, flag)) {
@@ -273,20 +277,16 @@ public final class AiSkinPage extends DetailPage {
 
         GroupCard previewGroup = GroupCard.add(target, null);
         LinearLayout card = previewGroup.card();
-        card.setPadding(Ui.dp(context, 14), Ui.dp(context, 14), Ui.dp(context, 14), Ui.dp(context, 12));
-        LinearLayout header = new LinearLayout(context);
-        header.setOrientation(LinearLayout.HORIZONTAL);
-        header.setGravity(Gravity.CENTER_VERTICAL);
-        LinearLayout heading = new LinearLayout(context);
-        heading.setOrientation(LinearLayout.VERTICAL);
-        title = new TextView(context);
-        title.setSingleLine(true);
-        Ui.style(title, 17, 600, Ui.text(context));
+        Ui.setPaddingDp(card, context, 14, 14, 14, 12);
+        LinearLayout header = Ui.row(context);
+        ViewPolicy.setCenteredVertically(header);
+        LinearLayout heading = Ui.column(context);
+        title = Ui.styledLabel(context, "", 17, 600, Ui.text(context));
+        ViewPolicy.setSingleLine(title);
         heading.addView(title);
-        subtitle = new TextView(context);
-        Ui.style(subtitle, 13, 400, Ui.subText(context));
+        subtitle = Ui.styledLabel(context, "", 13, 400, Ui.subText(context));
         heading.addView(subtitle);
-        header.addView(heading, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        header.addView(heading, Ui.weightWrap(1f));
         SegmentedControl layout = new SegmentedControl(context);
         layout.setOptions(List.of("26 键", "9 键"), s.nineKey ? 1 : 0);
         layout.setOnSelect(index -> {
@@ -299,16 +299,13 @@ public final class AiSkinPage extends DetailPage {
         FrameLayout stage = new FrameLayout(context);
         preview = new KeyboardPreview(context);
         preview.setContentDescription("皮肤预览");
-        stage.addView(preview, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(context, 200)));
-        LinearLayout overlay = new LinearLayout(context);
-        overlay.setOrientation(LinearLayout.VERTICAL);
-        overlay.setGravity(Gravity.CENTER);
+        stage.addView(preview, Ui.frameMatchWidthHeight(context, 200));
+        LinearLayout overlay = Ui.column(context);
+        ViewPolicy.setCentered(overlay);
         ProgressBar spinner = new ProgressBar(context);
         spinner.setIndeterminateTintList(ColorStateList.valueOf(Ui.accent(context)));
-        overlay.addView(spinner, new LinearLayout.LayoutParams(Ui.dp(context, 32), Ui.dp(context, 32)));
-        TextView designing = new TextView(context);
-        designing.setText("正在设计…");
-        Ui.style(designing, 14, 500, Ui.text(context));
+        overlay.addView(spinner, Ui.squareParams(context, 32));
+        TextView designing = Ui.styledLabel(context, "正在设计…", 14, 500, Ui.text(context));
         overlay.addView(designing);
         busyOverlay = overlay;
         stage.addView(overlay, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
@@ -317,15 +314,11 @@ public final class AiSkinPage extends DetailPage {
         stageParams.topMargin = Ui.dp(context, 12);
         card.addView(stage, stageParams);
 
-        LinearLayout colours = new LinearLayout(context);
-        colours.setOrientation(LinearLayout.HORIZONTAL);
-        colours.setGravity(Gravity.CENTER_VERTICAL);
-        TextView label = new TextView(context);
-        label.setText("配色");
-        Ui.style(label, 13, 400, Ui.subText(context));
+        LinearLayout colours = Ui.row(context);
+        ViewPolicy.setCenteredVertically(colours);
+        TextView label = Ui.styledLabel(context, "配色", 13, 400, Ui.subText(context));
         colours.addView(label);
-        palette = new LinearLayout(context);
-        palette.setOrientation(LinearLayout.HORIZONTAL);
+        palette = Ui.row(context);
         LinearLayout.LayoutParams paletteParams = Ui.wrap();
         paletteParams.setMarginStart(Ui.dp(context, 10));
         colours.addView(palette, paletteParams);
@@ -335,7 +328,7 @@ public final class AiSkinPage extends DetailPage {
 
         if (s.results.size() > 1) {
             GroupCard choices = GroupCard.add(target, "方案");
-            choices.card().setBackground(null);
+            ViewPolicy.clearBackground(choices.card());
             SegmentedControl picker = new SegmentedControl(context);
             picker.setFillWidth(true);
             List<String> names = new ArrayList<>(s.results.size());
@@ -349,32 +342,28 @@ public final class AiSkinPage extends DetailPage {
         }
 
         GroupCard describe = GroupCard.add(target, "描述");
-        EditText input = new EditText(context);
+        EditText input = Ui.styledInput(context, Ui.TEXT_ROW_TITLE, 400, Ui.text(context));
         input.setText(s.prompt);
         input.setHint("写下你想要的样子，例如「雨后竹林」");
         input.setHintTextColor(Ui.subText(context));
         input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
         input.setMinLines(2);
-        input.setGravity(Gravity.TOP | Gravity.START);
+        ViewPolicy.setTopStart(input);
         input.setFilters(new InputFilter[] {new InputFilter.LengthFilter(SkinJobsApi.MAX_PROMPT_CHARACTERS)});
-        input.setBackground(null);
-        Ui.style(input, Ui.TEXT_ROW_TITLE, 400, Ui.text(context));
-        input.setPadding(Ui.dp(context, 16), Ui.dp(context, 12), Ui.dp(context, 16), Ui.dp(context, 4));
-        input.setEnabled(!s.busy);
+        ViewPolicy.clearBackground(input);
+        Ui.setPaddingDp(input, context, 16, 12, 16, 4);
+        ViewPolicy.setEnabled(input, !s.busy);
         describe.card().addView(input, Ui.matchWidth());
         HorizontalScrollView chipScroll = new HorizontalScrollView(context);
         chipScroll.setHorizontalScrollBarEnabled(false);
-        LinearLayout chips = new LinearLayout(context);
-        chips.setOrientation(LinearLayout.HORIZONTAL);
-        chips.setPadding(Ui.dp(context, 12), Ui.dp(context, 4), Ui.dp(context, 12), Ui.dp(context, 12));
+        LinearLayout chips = Ui.row(context);
+        Ui.setPaddingDp(chips, context, 12, 4, 12, 12);
         List<TextView> chipViews = new ArrayList<>(SUGGESTIONS.length);
         for (String suggestion : SUGGESTIONS) {
-            TextView chip = new TextView(context);
-            chip.setText(suggestion);
-            chip.setSingleLine(true);
-            chip.setPadding(Ui.dp(context, 12), Ui.dp(context, 6), Ui.dp(context, 12), Ui.dp(context, 6));
-            chip.setClickable(true);
-            chip.setFocusable(true);
+            TextView chip = Ui.styledLabel(context, suggestion, 13, 400, Ui.text(context));
+            ViewPolicy.setSingleLine(chip);
+            Ui.setSymmetricPaddingDp(chip, context, 12, 6);
+            ViewPolicy.setInteractive(chip, true);
             chip.setOnClickListener(ignored -> {
                 if (s.busy) return;
                 input.setText(suggestion);
@@ -391,7 +380,7 @@ public final class AiSkinPage extends DetailPage {
         styleChips(context, chipViews);
 
         GroupCard soundGroup = GroupCard.add(target, "按键音效");
-        soundGroup.card().setBackground(null);
+        ViewPolicy.clearBackground(soundGroup.card());
         SegmentedControl sounds = new SegmentedControl(context);
         sounds.setFillWidth(true);
         sounds.setOptions(List.of(SOUND_LABELS), s.sound);
@@ -402,35 +391,33 @@ public final class AiSkinPage extends DetailPage {
         soundGroup.card().addView(sounds, Ui.matchWidth());
 
         GroupCard animationGroup = GroupCard.add(target, "按键动画");
-        animationGroup.card().setBackground(null);
+        ViewPolicy.clearBackground(animationGroup.card());
         SegmentedControl animations = new SegmentedControl(context);
         animations.setFillWidth(true);
         animations.setOptions(List.of(ANIMATION_LABELS), s.animation);
         animations.setOnSelect(index -> s.animation = index);
         animationGroup.card().addView(animations, Ui.matchWidth());
 
-        LinearLayout actions = new LinearLayout(context);
-        actions.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout actions = Ui.row(context);
         LinearLayout.LayoutParams actionsParams = Ui.matchWidth();
         actionsParams.topMargin = Ui.dp(context, Ui.GROUP_GAP);
         if (unavailable) {
             GroupCard.add(target, null).note("AI 设计皮肤暂不可用，请稍后再来。");
         } else if (s.results.isEmpty()) {
             TextView generate = KeyboardSheets.bigButton(context, "✦ 生成皮肤", true, () -> generate(input));
-            actions.addView(generate, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+            actions.addView(generate, Ui.weightWrap(1f));
             target.addView(actions, actionsParams);
             bindEnabled(input, generate);
         } else {
             TextView again = KeyboardSheets.bigButton(context, "✦ 重新生成", false, () -> generate(input));
-            actions.addView(again, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+            actions.addView(again, Ui.weightWrap(1f));
             TextView use = KeyboardSheets.bigButton(context, "使用此皮肤", true, this::useResult);
-            LinearLayout.LayoutParams useParams = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+            LinearLayout.LayoutParams useParams = Ui.weightWrap(1f);
             useParams.setMarginStart(Ui.dp(context, 12));
             actions.addView(use, useParams);
             target.addView(actions, actionsParams);
             bindEnabled(input, again);
             Ui.setEnabledLook(use, !s.busy && !saving);
-            use.setEnabled(!s.busy && !saving);
         }
         input.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence text, int start, int count, int after) {}
@@ -449,8 +436,8 @@ public final class AiSkinPage extends DetailPage {
     private void bindEnabled(EditText input, TextView button) {
         State s = state();
         Runnable update = () -> {
-            boolean enabled = !s.busy && !input.getText().toString().trim().isEmpty();
-            button.setEnabled(enabled);
+            boolean enabled = !s.busy && !TextPolicy.trimmed(input.getText().toString()).isEmpty();
+            ViewPolicy.setEnabled(button, enabled);
             Ui.setEnabledLook(button, enabled);
         };
         update.run();
@@ -466,11 +453,11 @@ public final class AiSkinPage extends DetailPage {
     /** 和描述相同的 chip 填强调色，其余是 accentSoft 底。 */
     private void styleChips(Context context, List<TextView> chips) {
         State s = state();
-        String current = s.prompt.trim();
+        String current = TextPolicy.trimmed(s.prompt);
         for (TextView chip : chips) {
             boolean on = chip.getText().toString().equals(current);
             Ui.style(chip, 13, on ? 600 : 400, on ? Ui.onAccent(context) : Ui.text(context));
-            chip.setBackground(Ui.rippleOn(context, on ? Ui.accent(context) : Ui.rowBackground(context), 9999f));
+            chip.setBackground(Ui.pillRipple(context, on ? Ui.accent(context) : Ui.rowBackground(context)));
         }
     }
 
@@ -479,11 +466,12 @@ public final class AiSkinPage extends DetailPage {
         if (view == null) return;
         Context context = requireContext();
         State s = state();
-        Result result = s.results.isEmpty() ? null : s.results.get(Math.min(s.chosen, s.results.size() - 1));
+        Result result = s.results.isEmpty() ? null
+            : s.results.get(BoundsPolicy.atMost(s.chosen, s.results.size() - 1));
         KeyboardSkin skin = result == null ? currentSkin
             : KeyboardSkin.custom(result.design(), AppMode.dark(context));
         view.setKeyboard(skin, s.nineKey);
-        view.setAlpha(s.busy ? 0.45f : 1f);
+        ViewPolicy.setActiveAlpha(view, !s.busy, 0.45f);
         if (busyOverlay != null) busyOverlay.setVisibility(s.busy ? View.VISIBLE : View.GONE);
         if (title != null) title.setText(result == null ? "未命名皮肤" : result.name());
         if (subtitle != null) {
@@ -498,10 +486,11 @@ public final class AiSkinPage extends DetailPage {
                     skin.keyForeground(), skin.returnBackground()};
                 for (String colour : colours) {
                     View dot = new View(context);
-                    android.graphics.drawable.GradientDrawable shape = Ui.pill(Ui.parseColor(colour, Color.GRAY));
-                    shape.setStroke(Math.max(1, Ui.dp(context, 1)), Ui.hairline(context));
+                    android.graphics.drawable.GradientDrawable shape = Ui.outlined(
+                        Ui.parseColor(colour, Color.GRAY), 9999f,
+                        Ui.atLeastOnePx(context, 1), Ui.hairline(context));
                     dot.setBackground(shape);
-                    LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(Ui.dp(context, 16), Ui.dp(context, 16));
+                    LinearLayout.LayoutParams params = Ui.squareParams(context, 16);
                     params.setMarginEnd(Ui.dp(context, 6));
                     dots.addView(dot, params);
                 }
@@ -511,7 +500,7 @@ public final class AiSkinPage extends DetailPage {
 
     private void generate(EditText input) {
         State s = state();
-        String text = input.getText().toString().trim();
+        String text = TextPolicy.trimmed(input.getText().toString());
         if (s.busy || text.isEmpty()) return;
         s.start(requireContext().getApplicationContext(), text);
         render();
@@ -543,23 +532,8 @@ public final class AiSkinPage extends DetailPage {
             if (bitmap != null) bitmap.recycle();
             return CustomKeyboardSkin.from(design).toJson(true);
         }
-        int edge = Math.max(bitmap.getWidth(), bitmap.getHeight());
-        if (edge > MAX_PHOTO_EDGE) {
-            float scale = MAX_PHOTO_EDGE / (float) edge;
-            Bitmap scaled = Bitmap.createScaledBitmap(bitmap, Math.max(1, Math.round(bitmap.getWidth() * scale)),
-                Math.max(1, Math.round(bitmap.getHeight() * scale)), true);
-            if (scaled != bitmap) bitmap.recycle();
-            bitmap = scaled;
-        }
-        byte[] jpeg = null;
-        for (int quality = 85; quality >= 40; quality -= 15) {
-            ByteArrayOutputStream out = new ByteArrayOutputStream();
-            bitmap.compress(Bitmap.CompressFormat.JPEG, quality, out);
-            if (out.size() <= MAX_PHOTO_BYTES) {
-                jpeg = out.toByteArray();
-                break;
-            }
-        }
+        bitmap = BitmapPolicy.scaleToEdge(bitmap, MAX_PHOTO_EDGE);
+        byte[] jpeg = BitmapPolicy.compressJpegUnderBytes(bitmap, MAX_PHOTO_BYTES);
         bitmap.recycle();
         try {
             if (jpeg != null) design.put("photo", Base64.getEncoder().encodeToString(jpeg));
@@ -573,7 +547,7 @@ public final class AiSkinPage extends DetailPage {
     private void useResult() {
         State s = state();
         if (s.busy || saving || s.results.isEmpty()) return;
-        Result result = s.results.get(Math.min(s.chosen, s.results.size() - 1));
+        Result result = s.results.get(BoundsPolicy.atMost(s.chosen, s.results.size() - 1));
         JSONObject design = CustomKeyboardSkin.from(result.design())
             .withFeedback(SOUND_PACKS[s.sound], ANIMATIONS[s.animation]).toJson(true);
         String name = result.name();

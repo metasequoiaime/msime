@@ -3,7 +3,7 @@
 use crate::file_lock;
 use crate::preferences::TouchKeyboardSkinDesign;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
+use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -193,8 +193,8 @@ impl CustomSkinLibraryStore {
         if items.len() > MAXIMUM_ITEMS {
             return Err(CustomSkinLibraryError::Invalid);
         }
-        let mut ids = BTreeSet::new();
-        let mut names = BTreeSet::new();
+        let mut ids = HashSet::with_capacity(items.len());
+        let mut names = HashSet::with_capacity(items.len());
         for item in &mut items {
             if item.id.is_nil() {
                 return Err(CustomSkinLibraryError::Invalid);
@@ -474,8 +474,8 @@ mod tests {
             items
                 .iter()
                 .map(|item| item.name.as_str())
-                .collect::<BTreeSet<_>>(),
-            BTreeSet::from(["夜航", "晨雾"])
+                .collect::<std::collections::BTreeSet<_>>(),
+            std::collections::BTreeSet::from(["夜航", "晨雾"])
         );
 
         let long_name = format!("  {}尾部  ", "👩‍👩‍👧‍👦".repeat(40));

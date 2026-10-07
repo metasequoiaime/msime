@@ -29,6 +29,15 @@ int main() {
                 R"({"payload_msg":{"result":{"text":"旧"}}})")) == "旧");
     REQUIRE(doubao_transcript(json::parse(
                 R"({"payload_msg":{"result":[{"text":"旧"},{"text":"版"}]}})")) == "旧版");
+    REQUIRE(doubao_transcript(json::parse(
+                R"({"result":{"text":"坏\u0000文本"}})"))
+                .empty());
+    REQUIRE(doubao_transcript(json::parse(
+                R"({"result":[{"text":"安全"},{"text":"坏\u0007文本"}]})"))
+                .empty());
+    REQUIRE(doubao_transcript(json::parse(
+                R"({"result":{"text":"坏\u0085文本"}})"))
+                .empty());
     // Anything else is no transcript, never an exception.
     REQUIRE(doubao_transcript(json::parse(R"({"result":"text"})")).empty());
     REQUIRE(doubao_transcript(json::parse(R"({"result":{"text":3}})")).empty());

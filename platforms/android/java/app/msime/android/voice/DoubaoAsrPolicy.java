@@ -28,11 +28,23 @@ public final class DoubaoAsrPolicy {
 
     /** A streaming response carries text; reject non-string JSON values before display. */
     static String strictText(Object value) {
-        return AiProviderResponse.strictText(value);
+        String text = AiProviderResponse.strictText(value);
+        return text.length() <= HttpAsrPolicy.MAX_TRANSCRIPT
+                && !TextPolicy.hasControlExceptWhitespace(text)
+                && TextPolicy.validUnicode(text) ? text : "";
+    }
+
+    /** The provider envelope carries its nested result as a JSON string; reject coercion. */
+    static String strictPayload(Object value) {
+        return value instanceof String ? (String) value : null;
+    }
+
+    static Boolean strictBoolean(Object value) {
+        return value instanceof Boolean ? (Boolean) value : null;
     }
 
     static boolean validEndpoint(String endpoint) {
-        return TextPolicy.validAuthority(endpoint, "wss://", 2048);
+        return TextPolicy.validAuthority(endpoint, "wss://", AiPolishConfiguration.MAX_ENDPOINT_LENGTH);
     }
 
     /**
@@ -53,7 +65,8 @@ public final class DoubaoAsrPolicy {
         int appKey = 0;
         int accessKey = 0;
         for (String name : headerNames) {
-            if (name == null || name.isEmpty() || TextPolicy.hasControl(name)) return false;
+            if (name == null || name.isEmpty() || TextPolicy.hasControl(name)
+                    || !TextPolicy.validUnicode(name)) return false;
             switch (name) {
                 case RESOURCE_HEADER -> resource++;
                 case REQUEST_HEADER -> request++;

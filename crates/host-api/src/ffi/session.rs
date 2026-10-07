@@ -102,9 +102,7 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
             Runtime::new_with_touch_layout(engine, page_size, applied.touch_keyboard_layout)
                 .map_err(|e| e.to_string())?;
         runtime.set_phrase_preedit(phrase_preedit);
-        runtime.set_reranker(
-            sentence_model(&options.resources, sentence_model_path.as_deref()).map(Reranker::new),
-        );
+        runtime.set_reranker(keyboard_reranker(&options, sentence_model_path.as_deref()));
 
         // The settled model is optional and independent: a resource set that ships only the small
         // one behaves exactly as before, and one that ships both gets the fast model per keystroke
@@ -156,6 +154,7 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
                     state_root,
                     recorded_language_dictionaries,
                     resources_pending: false,
+                    recorded_sentence_model: sentence_model_path,
                     recorded_settled_model,
                     settled_model,
                     settled_model_loading: None,

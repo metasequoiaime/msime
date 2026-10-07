@@ -1,7 +1,5 @@
 package app.msime.android.home;
 
-import android.content.ClipData;
-import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageInfo;
@@ -14,6 +12,7 @@ import app.msime.android.AndroidLocalSettings;
 import app.msime.android.CloudApi;
 import app.msime.android.DiagnosticsApi;
 import app.msime.android.NativeClient;
+import app.msime.android.NumberPolicy;
 import app.msime.android.PreferencesRevisionPolicy;
 import app.msime.android.SyncSignals;
 import app.msime.android.SyncSwitch;
@@ -358,10 +357,7 @@ public final class DeveloperPage extends DetailPage {
     }
 
     private void copy(String label, String text, String done) {
-        ClipboardManager clipboard = requireContext().getSystemService(ClipboardManager.class);
-        if (clipboard == null) return;
-        clipboard.setPrimaryClip(ClipData.newPlainText(label, text));
-        MsToast.show(requireContext(), done);
+        ClipboardActions.copyText(requireContext(), label, text, done);
     }
 
     private void exportBundle() {
@@ -535,7 +531,8 @@ public final class DeveloperPage extends DetailPage {
         if (response == null) return null;
         try {
             JSONObject root = new JSONObject(response);
-            return root.optBoolean("ok", false) ? root.optJSONObject("value") : null;
+            return Boolean.TRUE.equals(root.opt("ok"))
+                ? root.optJSONObject("value") : null;
         } catch (JSONException malformed) {
             return null;
         }
@@ -588,7 +585,7 @@ public final class DeveloperPage extends DetailPage {
         if (raw == null || raw.isEmpty() || "{}".equals(raw)) return "";
         try {
             JSONObject object = new JSONObject(raw);
-            List<String> parts = new ArrayList<>();
+            List<String> parts = new ArrayList<>(object.length());
             for (Iterator<String> keys = object.keys(); keys.hasNext(); ) {
                 String key = keys.next();
                 parts.add(key + "=" + object.opt(key));
@@ -602,7 +599,7 @@ public final class DeveloperPage extends DetailPage {
     private static String size(long bytes) {
         if (bytes < 1024) return bytes + " B";
         if (bytes < 1024 * 1024) return Math.round(bytes / 1024.0) + " KB";
-        return String.format(Locale.ROOT, "%.1f MB", bytes / (1024.0 * 1024.0));
+        return NumberPolicy.decimal1(bytes / (1024.0 * 1024.0)) + " MB";
     }
 
     /** ISO 时间显示成「今天 14:28」或「10月4日 14:28」。 */

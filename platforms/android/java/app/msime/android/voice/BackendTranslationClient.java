@@ -5,15 +5,15 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.math.BigDecimal;
 import java.net.URL;
-import java.nio.charset.StandardCharsets;
 import java.util.List;
-import java.util.Locale;
 import javax.net.ssl.HttpsURLConnection;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
 /** Small account-backed client for the shared candidate translation endpoint. */
 public final class BackendTranslationClient implements CandidateTranslationStore.Service {
+    /** Maximum number of source texts accepted by one translation request. */
+    public static final int MAX_TEXTS = 32;
     private static final String ORIGIN = "https://api.msime.app";
     private static final int MAX_RESPONSE_BYTES = 256 * 1024;
     private final BackendAccount account;
@@ -25,7 +25,7 @@ public final class BackendTranslationClient implements CandidateTranslationStore
     }
 
     @Override public List<String> translate(List<String> texts, String target) throws Exception {
-        if (texts == null || texts.isEmpty() || texts.size() > 32
+        if (texts == null || texts.isEmpty() || texts.size() > MAX_TEXTS
                 || target == null || target.isEmpty() || TextPolicy.utf8Length(target) > 16)
             throw new IllegalArgumentException("Invalid translation request");
         for (String text : texts) {
@@ -36,8 +36,8 @@ public final class BackendTranslationClient implements CandidateTranslationStore
         boolean anonymousToken = accountToken.isEmpty();
         String token = anonymousToken ? anonymous.accessToken() : accountToken;
         JSONObject body = new JSONObject().put("texts", new JSONArray(texts))
-            .put("source_lang", "ZH").put("target_lang", target.toUpperCase(Locale.ROOT));
-        byte[] request = body.toString().getBytes(StandardCharsets.UTF_8);
+            .put("source_lang", "ZH").put("target_lang", TextPolicy.uppercase(target));
+        byte[] request = TextPolicy.utf8Bytes(body.toString());
         if (request.length > 64 * 1024) throw new IllegalArgumentException("Translation request is too large");
         for (int attempt = 0; ; attempt++) {
             try {
@@ -81,7 +81,7 @@ public final class BackendTranslationClient implements CandidateTranslationStore
 
     /** Decode the response without allowing org.json to coerce nulls or non-strings to text. */
     static List<String> parseResponse(byte[] bytes, int expectedCount) throws Exception {
-        JSONObject response = new JSONObject(new String(bytes, StandardCharsets.UTF_8));
+        JSONObject response = new JSONObject(TextPolicy.utf8(bytes));
         if (!successStatusCode(response.opt("code"))) return null;
         Object data = response.opt("data");
         if (!(data instanceof JSONArray)) return null;
@@ -110,7 +110,7 @@ public final class BackendTranslationClient implements CandidateTranslationStore
         java.util.ArrayList<String> result = new java.util.ArrayList<>(values.size());
         for (Object raw : values) {
             if (!(raw instanceof String)) return null;
-            String value = ((String) raw).trim();
+            String value = TextPolicy.trimmed((String) raw);
             if (value.isEmpty() || TextPolicy.utf8Length(value) > 4096
                     || value.chars().anyMatch(ch -> ch == '\n' || ch == '\r' || (ch < 0x20 && ch != '\t')))
                 return null;

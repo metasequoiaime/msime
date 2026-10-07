@@ -111,6 +111,21 @@ jobs:
         env:
           ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
         run: bash platforms/android/check-host.sh
+      # check-host.sh 的 javac 不编译 home/（那里用到 Gradle 生成的 R），于是一个只动了 home/ import 的重构能通过这里的全部检查，却在发版时让 Gradle 编译失败：2026-10-06 的 Release Android 就是这样整轮失败的。这里用发版同一个 Gradle 工程只编译各版本的 Java，不需要原生库和词库。
+      - name: Compile Android host Java for every edition
+        if: ${{ needs.changes.outputs.android == 'true' }}
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+        run: >-
+          apps/desktop/src-tauri/gen/android/gradlew --project-dir platforms/android/gradle-app --console=plain
+          compileFullReleaseJavaWithJavac compilePinyinReleaseJavaWithJavac compileWubiReleaseJavaWithJavac
+          compileJapaneseReleaseJavaWithJavac compileVietnameseReleaseJavaWithJavac compileTibetanReleaseJavaWithJavac
+      # 编译通过不代表能在 minSdk 的设备上运行：javac 按 compileSdk 解析，0.2.0 调用的 Path.of 要 API 34，Android 9 到 12 上准备词库直接 NoSuchMethodError。lint 在 gradle-app 里只开了 NewApi，这一步专门拦高于 minSdk 的调用。
+      - name: Check Android API levels against minSdk
+        if: ${{ needs.changes.outputs.android == 'true' }}
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+        run: apps/desktop/src-tauri/gen/android/gradlew --project-dir platforms/android/gradle-app --console=plain lintFullRelease
       - name: Android platform unchanged
         if: ${{ needs.changes.outputs.android != 'true' }}
         run: echo 'No Android or shared-platform changes; platform gate skipped.'

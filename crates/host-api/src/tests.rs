@@ -302,6 +302,22 @@ fn doubao_frame_codec_is_available_through_c_abi() {
         )
     });
     assert_eq!(audio_required, audio_written);
+
+    // i32::MIN cannot be represented by abs(); the ABI must reject it instead
+    // of allowing a malformed native caller to panic the host process.
+    let mut invalid_sequence_length = 0usize;
+    assert!(!unsafe {
+        msime_client_doubao_audio_frame(
+            i32::MIN,
+            [0u8, 1, 2, 3].as_ptr(),
+            4,
+            true,
+            std::ptr::null_mut(),
+            0,
+            &mut invalid_sequence_length,
+        )
+    });
+    assert_eq!(invalid_sequence_length, 0);
 }
 
 #[test]
@@ -3843,6 +3859,60 @@ fn sentence_model_switches_follow_the_preferences() {
     preferences.sentence_association.neural_desktop = true;
     assert_eq!(update(handle, 2, &preferences)["ok"], true);
     assert_eq!(switches(), (true, false));
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+}
+
+/// The keyboard model runs inside every keystroke, so it is attached only while `neural_keyboard` (整句联想「增强」) is on: not on the default 标准, attached when the switch turns on, dropped when it turns off again. It needs a real model, from `MSIME_EVAL_RESOURCES` or `MSIME_NEURAL_MODEL_DIR` as the Engine's model tests take it, and skips without one.
+#[test]
+fn keyboard_reranker_follows_the_keyboard_model_switch() {
+    let Some(model) = ["MSIME_EVAL_RESOURCES", "MSIME_NEURAL_MODEL_DIR"]
+        .into_iter()
+        .filter_map(std::env::var_os)
+        .map(|directory| std::path::PathBuf::from(directory).join(ffi::SENTENCE_MODEL_FILE))
+        .find(|path| path.is_file())
+    else {
+        eprintln!("skipping: no sentence model in MSIME_EVAL_RESOURCES or MSIME_NEURAL_MODEL_DIR");
+        return;
+    };
+    let create = |root: &std::path::Path, preferences: &Preferences| {
+        let path = |name| {
+            let path = root.join(name);
+            std::fs::create_dir_all(&path).unwrap();
+            path
+        };
+        let options = json!({ "api_version": 1, "resources": path("resources"), "user_data": path("user"), "cache": path("cache"), "dictionaries": path("dictionaries"), "sentence_model": model, "preferences": preferences }).to_string();
+        let created = read(unsafe { msime_client_create(options.as_ptr(), options.len()) });
+        assert_eq!(created["ok"], true, "{created}");
+        created["value"]["session"].as_u64().unwrap()
+    };
+    let attached =
+        |handle: u64| SESSIONS.with(|sessions| sessions.borrow()[&handle].runtime.has_reranker());
+
+    let directory = tempfile::tempdir().unwrap();
+    let mut preferences = chinese_preferences();
+    assert!(!preferences.sentence_association.neural_keyboard);
+    let handle = create(directory.path(), &preferences);
+    assert!(
+        !attached(handle),
+        "the default 标准 must not run the keyboard model"
+    );
+
+    preferences.sentence_association.neural_keyboard = true;
+    assert_eq!(update(handle, 1, &preferences)["value"]["deferred"], false);
+    assert!(attached(handle));
+
+    preferences.sentence_association.neural_keyboard = false;
+    assert_eq!(update(handle, 2, &preferences)["value"]["deferred"], false);
+    assert!(!attached(handle));
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+
+    let directory = tempfile::tempdir().unwrap();
+    preferences.sentence_association.neural_keyboard = true;
+    let handle = create(directory.path(), &preferences);
+    assert!(
+        attached(handle),
+        "增强 attaches the keyboard model when the session opens"
+    );
     assert_eq!(read(msime_client_destroy(handle))["ok"], true);
 }
 

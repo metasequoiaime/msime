@@ -3,11 +3,9 @@ package app.msime.android;
 import android.content.Context;
 import java.io.InputStream;
 import java.net.URL;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
 import javax.net.ssl.HttpsURLConnection;
@@ -36,6 +34,7 @@ public final class CommunityCatalog {
     private static final int MAX_NAME_CHARACTERS = 32;
     private static final int MAX_DESCRIPTION_CHARACTERS = 280;
     private static final int MAX_AUTHOR_CHARACTERS = 128;
+    private static final UUID NIL_UUID = new UUID(0L, 0L);
 
     /**
      * One catalogue entry, flattened to what a list row shows.
@@ -63,6 +62,23 @@ public final class CommunityCatalog {
 
     public CommunityCatalog(Context context) {
         this.context = context.getApplicationContext();
+    }
+
+    /** Open a catalogue request with the shared transport defaults. */
+    private static HttpsURLConnection open(URL url, String method, boolean output)
+            throws java.io.IOException {
+        HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
+        connection.setInstanceFollowRedirects(false);
+        connection.setRequestMethod(method);
+        connection.setConnectTimeout(TIMEOUT_MILLIS);
+        connection.setReadTimeout(TIMEOUT_MILLIS);
+        connection.setRequestProperty("Accept", "application/json");
+        connection.setRequestProperty("User-Agent", "MSIME/Android");
+        if (output) {
+            connection.setDoOutput(true);
+            connection.setRequestProperty("Content-Type", "application/json");
+        }
+        return connection;
     }
 
     /**
@@ -102,14 +118,8 @@ public final class CommunityCatalog {
             CommunityRequest.Category category, String token) {
         HttpsURLConnection connection = null;
         try {
-            connection = (HttpsURLConnection) new URL(ORIGIN
-                + CommunityRequest.path(kind, "", search, offset, category)).openConnection();
-            connection.setInstanceFollowRedirects(false);
-            connection.setRequestMethod("GET");
-            connection.setConnectTimeout(TIMEOUT_MILLIS);
-            connection.setReadTimeout(TIMEOUT_MILLIS);
-            connection.setRequestProperty("Accept", "application/json");
-            connection.setRequestProperty("User-Agent", "MSIME/Android");
+            connection = open(new URL(ORIGIN
+                + CommunityRequest.path(kind, "", search, offset, category)), "GET", false);
             if (token != null) connection.setRequestProperty("Authorization", "Bearer " + token);
             int status = connection.getResponseCode();
             if (status != 200) {
@@ -120,7 +130,7 @@ public final class CommunityCatalog {
             try (InputStream input = connection.getInputStream()) {
                 byte[] body = HttpBodyPolicy.readRequired(input, maximumResponseBytes(kind));
                 return new PageResponse(parse(kind, new JSONObject(
-                    new String(body, StandardCharsets.UTF_8))), 200);
+                    TextPolicy.utf8(body))), 200);
             }
         } catch (Exception | LinkageError error) {
             // 说出是哪一步断的。界面上仍然只有那一句，但把原因扔掉，下一次就还得从头猜。
@@ -139,8 +149,8 @@ public final class CommunityCatalog {
      * @return the failure to show, or an empty string once the report was taken
      */
     public String report(Item item, String reason, String detail) {
-        String text = detail == null ? "" : detail.trim();
-        if (item == null || !CommunityRequest.validReport(reason, text)) {
+        String text = TextPolicy.trimmed(detail);
+        if (!validReportItem(item) || !CommunityRequest.validReport(reason, text)) {
             return CommunityRequest.message("invalid_report_reason", 400);
         }
         BackendAccount account = new BackendAccount(context);
@@ -162,21 +172,16 @@ public final class CommunityCatalog {
                 .put("item_id", item.id())
                 .put("reason", reason);
             if (!text.isEmpty()) body.put("detail", text);
-            connection = (HttpsURLConnection) new URL(ORIGIN + CommunityRequest.REPORT_PATH).openConnection();
-            connection.setInstanceFollowRedirects(false);
-            connection.setRequestMethod("POST");
-            connection.setConnectTimeout(TIMEOUT_MILLIS);
-            connection.setReadTimeout(TIMEOUT_MILLIS);
-            connection.setDoOutput(true);
-            connection.setRequestProperty("Accept", "application/json");
-            connection.setRequestProperty("Content-Type", "application/json");
-            connection.setRequestProperty("User-Agent", "MSIME/Android");
+            connection = open(new URL(ORIGIN + CommunityRequest.REPORT_PATH), "POST", true);
             connection.setRequestProperty("Authorization", "Bearer " + token);
             try (java.io.OutputStream output = connection.getOutputStream()) {
-                output.write(body.toString().getBytes(StandardCharsets.UTF_8));
+                output.write(TextPolicy.utf8Bytes(body.toString()));
             }
             int status = connection.getResponseCode();
-            if (status == 200 || status == 201) return "";
+            if (status == 200 || status == 201) {
+                return confirmedReport(connection)
+                    ? "" : CommunityRequest.message(null, 502);
+            }
             if (status == 401) {
                 String fresh = anonymous
                     ? new BackendAnonymousAccount(context).accessToken(token)
@@ -200,21 +205,16 @@ public final class CommunityCatalog {
                 .put("item_id", item.id())
                 .put("reason", reason);
             if (!text.isEmpty()) body.put("detail", text);
-            connection = (HttpsURLConnection) new URL(ORIGIN + CommunityRequest.REPORT_PATH).openConnection();
-            connection.setInstanceFollowRedirects(false);
-            connection.setRequestMethod("POST");
-            connection.setConnectTimeout(TIMEOUT_MILLIS);
-            connection.setReadTimeout(TIMEOUT_MILLIS);
-            connection.setDoOutput(true);
-            connection.setRequestProperty("Accept", "application/json");
-            connection.setRequestProperty("Content-Type", "application/json");
-            connection.setRequestProperty("User-Agent", "MSIME/Android");
+            connection = open(new URL(ORIGIN + CommunityRequest.REPORT_PATH), "POST", true);
             connection.setRequestProperty("Authorization", "Bearer " + token);
             try (java.io.OutputStream output = connection.getOutputStream()) {
-                output.write(body.toString().getBytes(StandardCharsets.UTF_8));
+                output.write(TextPolicy.utf8Bytes(body.toString()));
             }
             int status = connection.getResponseCode();
-            if (status == 200 || status == 201) return "";
+            if (status == 200 || status == 201) {
+                return confirmedReport(connection)
+                    ? "" : CommunityRequest.message(null, 502);
+            }
             return CommunityRequest.message(errorCode(connection.getErrorStream()), status);
         } catch (Exception | LinkageError error) {
             android.util.Log.w("MSIMECommunity", "Report retry failed", error);
@@ -259,18 +259,10 @@ public final class CommunityCatalog {
         for (int attempt = 0; ; attempt++) {
             HttpsURLConnection connection = null;
             try {
-                connection = (HttpsURLConnection) new URL(
-                    ORIGIN + CommunityRequest.skinPath(item.id())).openConnection();
-                connection.setInstanceFollowRedirects(false);
-                connection.setRequestMethod("PATCH");
-                connection.setConnectTimeout(TIMEOUT_MILLIS);
-                connection.setReadTimeout(TIMEOUT_MILLIS);
-                connection.setDoOutput(true);
-                connection.setRequestProperty("Accept", "application/json");
-                connection.setRequestProperty("Content-Type", "application/json");
-                connection.setRequestProperty("User-Agent", "MSIME/Android");
+                connection = open(new URL(
+                    ORIGIN + CommunityRequest.skinPath(item.id())), "PATCH", true);
                 connection.setRequestProperty("Authorization", "Bearer " + token);
-                byte[] body = CommunityRequest.categoryBody(category).getBytes(StandardCharsets.UTF_8);
+                byte[] body = TextPolicy.utf8Bytes(CommunityRequest.categoryBody(category));
                 connection.setFixedLengthStreamingMode(body.length);
                 try (java.io.OutputStream output = connection.getOutputStream()) {
                     output.write(body);
@@ -289,8 +281,8 @@ public final class CommunityCatalog {
                 }
                 Item updated;
                 try (InputStream input = connection.getInputStream()) {
-                    updated = item(CommunityRequest.Kind.SKIN, new JSONObject(new String(
-                        HttpBodyPolicy.readRequired(input, MAX_RESPONSE_BYTES), StandardCharsets.UTF_8)));
+                    updated = item(CommunityRequest.Kind.SKIN, new JSONObject(TextPolicy.utf8(
+                        HttpBodyPolicy.readRequired(input, MAX_RESPONSE_BYTES))));
                 }
                 if (updated == null || !updated.id().equalsIgnoreCase(item.id())
                         || updated.category() != category) {
@@ -315,10 +307,14 @@ public final class CommunityCatalog {
         JSONArray values = root.optJSONArray(
             kind == CommunityRequest.Kind.SKIN ? "skins" : "items");
         if (values == null) return new Page(List.of(), false, CommunityRequest.message(null, 500));
-        boolean hasMore = root.optBoolean("has_more", false);
-        List<Item> items = new ArrayList<>(values.length());
-        Set<String> ids = new HashSet<>(values.length());
-        for (int index = 0; index < values.length(); index++) {
+        int rawLength = values.length();
+        if (rawLength > CommunityRequest.PAGE_SIZE) {
+            return new Page(List.of(), false, CommunityRequest.message(null, 500));
+        }
+        boolean hasMore = pageHasMore(root.opt("has_more"));
+        List<Item> items = new ArrayList<>(rawLength);
+        Set<String> ids = new HashSet<>(rawLength);
+        for (int index = 0; index < rawLength; index++) {
             JSONObject value = values.optJSONObject(index);
             Item item = value == null ? null : item(kind, value);
             if (item == null) {
@@ -329,14 +325,14 @@ public final class CommunityCatalog {
             }
             items.add(item);
         }
-        if (invalidPage(values.length(), items.size(), hasMore)) {
+        if (invalidPage(rawLength, items.size(), hasMore)) {
             return new Page(List.of(), false, CommunityRequest.message(null, 500));
         }
         return new Page(List.copyOf(items), hasMore, "");
     }
 
     static String idKey(String value) {
-        return value.toLowerCase(Locale.ROOT);
+        return TextPolicy.lowercase(value);
     }
 
     /** 一个条目，读不出或不合规时为 null。 */
@@ -345,7 +341,7 @@ public final class CommunityCatalog {
         String id = strictString(value.opt("id"));
         String name = strictString(value.opt("name"));
         if (id == null || name == null) return null;
-        name = name.trim();
+        name = TextPolicy.trimmed(name);
         JSONObject payload = skin ? value.optJSONObject("design") : value.optJSONObject("content");
         Long saves = count(value, "saves", skin ? "downloads" : null);
         Long ratings = count(value, "rating_count", null);
@@ -363,7 +359,7 @@ public final class CommunityCatalog {
         String author = value.has("author") ? strictString(value.opt("author")) : "";
         Boolean owned = value.has("owned") ? strictBoolean(value.opt("owned")) : Boolean.FALSE;
         if (description == null || author == null || owned == null) return null;
-        Item item = new Item(id, kind, name, description.trim(), author.trim(), saves, ratings,
+        Item item = new Item(id, kind, name, TextPolicy.trimmed(description), TextPolicy.trimmed(author), saves, ratings,
             average, payload, category, owned, downloads, value);
         return validItem(item, kind) ? item : null;
     }
@@ -390,6 +386,34 @@ public final class CommunityCatalog {
 
     static Boolean strictBoolean(Object value) {
         return value instanceof Boolean ? (Boolean) value : null;
+    }
+
+    /** Pagination controls must be JSON booleans; malformed values mean there is no next page. */
+    static boolean pageHasMore(Object value) {
+        return Boolean.TRUE.equals(strictBoolean(value));
+    }
+
+    /** A successful HTTP status is not enough: the backend must confirm that it recorded the report. */
+    static boolean confirmedReport(Object value) {
+        return Boolean.TRUE.equals(value);
+    }
+
+    /** Keep the report endpoint safe even when a caller bypasses catalogue parsing. */
+    static boolean validReportItem(Item item) {
+        return item != null && validUuid(item.id());
+    }
+
+    /** Keep the download counter path safe even when a caller bypasses catalogue parsing. */
+    static boolean validDownloadItem(Item item) {
+        return item != null && item.kind() == CommunityRequest.Kind.SKIN && validUuid(item.id());
+    }
+
+    private static boolean confirmedReport(HttpsURLConnection connection) throws Exception {
+        try (InputStream input = connection.getInputStream()) {
+            byte[] body = HttpBodyPolicy.readRequired(input, 16 * 1024);
+            JSONObject response = new JSONObject(TextPolicy.utf8(body));
+            return confirmedReport(response.opt("reported"));
+        }
     }
 
     /** A malformed page is a backend fault, not more results to show. Kept apart from parse so the JVM smoke can check it: the smokes run against android.jar, whose org.json classes are stubs that throw. */
@@ -422,30 +446,22 @@ public final class CommunityCatalog {
     private static boolean validUuid(String value) {
         if (value == null) return false;
         try {
-            return UUID.fromString(value).toString().equalsIgnoreCase(value);
+            UUID parsed = UUID.fromString(value);
+            return !NIL_UUID.equals(parsed) && parsed.toString().equalsIgnoreCase(value);
         } catch (IllegalArgumentException error) {
             return false;
         }
     }
 
     private static boolean validName(String value, int maximum) {
-        return value != null && !value.isEmpty() && value.trim().equals(value)
-            && value.codePointCount(0, value.length()) <= maximum && !hasDisallowedControl(value, false);
+        return value != null && !value.isEmpty() && TextPolicy.trimmed(value).equals(value)
+            && TextPolicy.withinCodePoints(value, maximum)
+            && !CommunityTextPolicy.hasDisallowedControl(value, false);
     }
 
     private static boolean validDescription(String value) {
-        return value != null && value.codePointCount(0, value.length()) <= MAX_DESCRIPTION_CHARACTERS
-            && !hasDisallowedControl(value, true);
-    }
-
-    private static boolean hasDisallowedControl(String value, boolean multiline) {
-        for (int index = 0; index < value.length();) {
-            int codePoint = value.codePointAt(index);
-            if (Character.isISOControl(codePoint)
-                    && !(multiline && (codePoint == '\n' || codePoint == '\t'))) return true;
-            index += Character.charCount(codePoint);
-        }
-        return false;
+        return TextPolicy.withinCodePoints(value, MAX_DESCRIPTION_CHARACTERS)
+            && !CommunityTextPolicy.hasDisallowedControl(value, true);
     }
 
     private static Long count(JSONObject value, String primary, String fallback) {
@@ -476,7 +492,7 @@ public final class CommunityCatalog {
         try (InputStream input = errors) {
             byte[] body = HttpBodyPolicy.readRequired(input, MAX_RESPONSE_BYTES);
             JSONObject root = new JSONObject(
-                new String(body, StandardCharsets.UTF_8));
+                TextPolicy.utf8(body));
             JSONObject error = root.optJSONObject("error");
             return error == null ? "" : error.optString("code", "");
         } catch (Exception error) {
@@ -494,7 +510,7 @@ public final class CommunityCatalog {
      * @return the failure to show, or an empty string on success
      */
     public String install(java.nio.file.Path preferencesDirectory, Item item) {
-        if (item.kind() != CommunityRequest.Kind.SKIN || item.payload() == null) {
+        if (item == null || item.kind() != CommunityRequest.Kind.SKIN || item.payload() == null) {
             return "这类作品还不能从这里保存。";
         }
         try {
@@ -513,7 +529,7 @@ public final class CommunityCatalog {
      * @return 服务端是否记下了这次下载
      */
     public boolean recordDownload(Item item) {
-        if (item == null || item.kind() != CommunityRequest.Kind.SKIN) return false;
+        if (!validDownloadItem(item)) return false;
         BackendAccount account = new BackendAccount(context);
         String token = account.accessToken();
         boolean anonymous = false;
@@ -542,19 +558,11 @@ public final class CommunityCatalog {
     private static int postDownload(String id, String token) throws java.io.IOException {
         HttpsURLConnection connection = null;
         try {
-            connection = (HttpsURLConnection) new URL(
-                ORIGIN + CommunityRequest.skinDownloadPath(id)).openConnection();
-            connection.setInstanceFollowRedirects(false);
-            connection.setRequestMethod("POST");
-            connection.setConnectTimeout(TIMEOUT_MILLIS);
-            connection.setReadTimeout(TIMEOUT_MILLIS);
-            connection.setDoOutput(true);
-            connection.setRequestProperty("Accept", "application/json");
-            connection.setRequestProperty("Content-Type", "application/json");
-            connection.setRequestProperty("User-Agent", "MSIME/Android");
+            connection = open(new URL(
+                ORIGIN + CommunityRequest.skinDownloadPath(id)), "POST", true);
             connection.setRequestProperty("Authorization", "Bearer " + token);
             try (java.io.OutputStream output = connection.getOutputStream()) {
-                output.write("{}".getBytes(StandardCharsets.UTF_8));
+                output.write(TextPolicy.utf8Bytes("{}"));
             }
             int status = connection.getResponseCode();
             // 回来的是整份设计，本机已经有了，只读掉不用；读取有上限，免得一个异常大的回复占满内存。

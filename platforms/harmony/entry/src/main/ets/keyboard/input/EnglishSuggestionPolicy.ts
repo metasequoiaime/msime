@@ -121,7 +121,7 @@ export class EnglishSuggestionPolicy {
     } catch (error) {
       return null;
     }
-    if (!reply.ok || reply.value === undefined || reply.value === null) {
+    if (reply.ok !== true || reply.value === undefined || reply.value === null) {
       return null;
     }
     const prefix: string = reply.value.prefix;

@@ -31,15 +31,18 @@ struct BackendAiClient: Sendable {
           endpoint.fragment == nil, !model.isEmpty, model.utf8.count <= 256,
           !token.isEmpty, !token.contains(where: { $0.isWhitespace }),
           !segmentedPinyin.isEmpty, segmentedPinyin.count <= 128,
+          segmentedPinyin.allSatisfy({ !$0.isEmpty && $0.utf8.count <= 32 }),
           context.utf8.count <= 16 * 1024, (1...10).contains(candidateLimit)
     else { throw URLError(.badURL) }
     let prompt = "Return only JSON: {\"candidates\":[{\"text\":\"...\"}]}. Input pinyin: " + segmentedPinyin.joined(separator: " ") + " Context: " + context
     let body: [String: Any] = ["model": model, "temperature": 0, "max_tokens": 256,
                                 "messages": [["role": "user", "content": prompt]]]
+    let encodedBody = try JSONSerialization.data(withJSONObject: body)
+    guard encodedBody.count <= 65_536 else { throw URLError(.dataLengthExceedsMaximum) }
     var request = URLRequest(url: endpoint)
     request.httpMethod = "POST"
     request.timeoutInterval = 30
-    request.httpBody = try JSONSerialization.data(withJSONObject: body)
+    request.httpBody = encodedBody
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
     request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
     let (bytes, response) = try await session.bytes(for: request)
@@ -56,7 +59,11 @@ struct BackendAiClient: Sendable {
     guard let content = envelope.choices.first?.message.content.data(using: .utf8) else { throw URLError(.cannotParseResponse) }
     let result = try JSONDecoder().decode(ResultPayload.self, from: content)
     guard result.candidates.count <= candidateLimit,
-          result.candidates.allSatisfy({ !$0.text.isEmpty && $0.text.utf8.count <= 4096 }) else { throw URLError(.cannotParseResponse) }
+          result.candidates.allSatisfy({ candidate in
+            !candidate.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+              && candidate.text.utf8.count <= 4096
+              && !candidate.text.unicodeScalars.contains { $0.properties.generalCategory == .control }
+          }) else { throw URLError(.cannotParseResponse) }
     return Result(candidates: result.candidates)
   }
 

@@ -2,13 +2,14 @@
 //!
 //! 输出用 `js_sys::Object`/`Reflect` 拼成普通对象，键名是驼峰，和 TapTapGo 的 `MsimeFrame`（schema `msime-frame-v1`）逐字段对应；按键是打包的 u32 数组（`Key::unpack`）。这里不依赖 serde，也不依赖 web-sys。上下文只能由 Rust 自己写入，这里没有任何设置上下文的出口（D18）。
 
+use std::path::Path;
 use std::sync::{Mutex, PoisonError};
 
 use js_sys::{Array, Object, Reflect};
 use msime_engine::time::{set_host_clock, HostClock};
 use wasm_bindgen::prelude::*;
 
-use crate::host::{Frame, Key, Out, Scheme, WebHost};
+use crate::host::{Frame, Key, Out, Scheme, WebHost, JAPANESE_DICTIONARY_PATH};
 
 #[wasm_bindgen]
 extern "C" {
@@ -46,6 +47,18 @@ pub fn import_database(path: &str, bytes: &[u8]) -> Result<(), JsError> {
     msime_engine::web::import_database(path, bytes).map_err(|error| JsError::new(&error))
 }
 
+/// 把解压后的 `msime-japanese.dat` 交给引擎，日语方案从此用它做整句和词的转换；再次调用替换掉之前那份。字节不是有效的模型时报错，之前那份保持不变。日语引擎要在这之后创建：创建时没有模型的会话只给假名候选。
+#[wasm_bindgen]
+pub fn import_japanese_dictionary(bytes: Box<[u8]>) -> Result<(), JsError> {
+    if msime_engine::preload_japanese_dictionary(Path::new(JAPANESE_DICTIONARY_PATH), bytes) {
+        Ok(())
+    } else {
+        Err(JsError::new(
+            "msime-japanese.dat is not a valid MSJPDT1 model",
+        ))
+    }
+}
+
 /// 删除内存 VFS 里的词库；调用前须先释放所有用到它的 `WebEngine`。
 #[wasm_bindgen]
 pub fn delete_database(path: &str) -> Result<(), JsError> {
@@ -78,7 +91,7 @@ pub struct WebEngine {
 
 #[wasm_bindgen]
 impl WebEngine {
-    /// `scheme` 是 `quanpin`、`xiaohe`、`ziranma` 或 `wubi86`；主库须已导入 `/res/msime-pinyin.db`（拼音方案导入网页包的 `msime-pinyin.db`，五笔导入 `msime-wubi86.db`，路径相同）。`model` 是解压后的 `sentence-model.safetensors`，五笔忽略它。
+    /// `scheme` 是 `quanpin`、`xiaohe`、`ziranma`、`wubi86`、`japanese` 或 `korean`。拼音方案和五笔的主库须已导入 `/res/msime-pinyin.db`（拼音方案导入网页包的 `msime-pinyin.db`，五笔导入 `msime-wubi86.db`，路径相同）；日语的模型须已经 `import_japanese_dictionary` 交给引擎；韩文不读词库。`model` 是解压后的 `sentence-model.safetensors`，只有拼音方案用它。
     #[wasm_bindgen(constructor)]
     pub fn new(
         scheme: &str,

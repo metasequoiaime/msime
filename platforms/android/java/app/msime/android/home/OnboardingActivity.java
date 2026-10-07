@@ -1,8 +1,7 @@
 package app.msime.android.home;
 
+import app.msime.android.KeyboardGeometry;
 import android.content.Context;
-import android.content.res.ColorStateList;
-import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.view.GestureDetector;
@@ -20,14 +19,15 @@ import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.widget.NestedScrollView;
 import app.msime.android.AppEdition;
+import app.msime.android.BoundsPolicy;
 import app.msime.android.FirstRunPreparation;
 import app.msime.android.KeyboardScheme;
 import app.msime.android.R;
 import app.msime.android.SchemePreferences;
+import app.msime.android.ViewPolicy;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.materialswitch.MaterialSwitch;
 import com.google.android.material.progressindicator.LinearProgressIndicator;
-import org.json.JSONException;
 import org.json.JSONObject;
 
 /**
@@ -35,18 +35,17 @@ import org.json.JSONObject;
  *
  * <p>The design's Android flow: a progress bar rather than a counter, an accent glyph, a kicker, a large regular-weight title and a body line, then the step's own content. The left button reads 跳过 on the first step and 上一步 after it; a horizontal swipe moves between steps too.
  *
- * <p>Every control on these pages changes something real. The scheme cards write through {@link SchemePreferences#withScheme}, the same mapping the settings tab's scheme picker uses; the 显示译文 switch is the offline English gloss preference the keyboard reads. The last step's 登录 opens {@link LoginSheet} (Apple / Google / 邮箱，按后端接受的方式), shown only when sign-in is offered; after a successful sign-in, after the sheet was closed without signing in, or when sign-in is not offered at all, it reads 开始使用. 设计没有「稍后再说」（与「跳过」重复，P12），所以这里也没有。
+ * <p>这几页上的每个控件都改真实的设置。方案卡片经 {@link SchemePreferences#withScheme} 写入，与设置页的方案选择是同一套映射；「显示译文」开关就是键盘读的离线英文释义偏好。首次安装时偏好要等词库准备完成才读得到，点下的选择先由 {@link OnboardingChoices} 记下并立即显示，偏好可读后自动写入，用户不必等准备完成，离开引导也不会丢。The last step's 登录 opens {@link LoginSheet} (Apple / Google / 邮箱，按后端接受的方式), shown only when sign-in is offered; after a successful sign-in, after the sheet was closed without signing in, or when sign-in is not offered at all, it reads 开始使用. 设计没有「稍后再说」（与「跳过」重复，P12），所以这里也没有。
  */
 public final class OnboardingActivity extends AppCompatActivity {
-    private static final String STORE = "msime_onboarding_v1";
+    /** 引导自己的 SharedPreferences：「已看过」和 {@link OnboardingChoices} 记下的待保存选择都在这里。 */
+    static final String STORE = "msime_onboarding_v1";
     private static final String SEEN = "seen";
     private static final int STEP_ENABLE = 0;
     private static final int STEP_SCHEMES = 1;
     private static final int STEP_TRANSLATION = 2;
     private static final int STEP_SYNC = 3;
     private static final String STATE_PAGE = "onboarding-page";
-    /** The keyboard reads this key for the per-candidate English line; the core's default is off. */
-    private static final String GLOSS = "candidate_english_gloss";
 
     /** Whether the flow has run on this device. */
     public static boolean seen(Context context) {
@@ -69,7 +68,11 @@ public final class OnboardingActivity extends AppCompatActivity {
     private int page;
     @Nullable private JSONObject snapshot;
     private boolean loaded;
-    private boolean saving;
+    /** 意外异常后自动重试保存的次数与间隔，见 {@link #syncChoices}。 */
+    private static final int SYNC_RETRY_LIMIT = 3;
+    private static final long SYNC_RETRY_DELAY_MS = 1500;
+    private final android.os.Handler retryHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private int syncRetries;
     /** What the last write on this page did, shown under the page's controls until the page changes. */
     @Nullable private String note;
     /** Whether the last step can offer sign-in; null until the off-thread check answers, which reads as not offered. */
@@ -79,9 +82,11 @@ public final class OnboardingActivity extends AppCompatActivity {
     private boolean declined;
     private OnBackPressedCallback back;
     private GestureDetector swipe;
-    /** 首次安装时，引导页打开时词库还在准备，准备完成前读不到偏好设置；如果不在完成后重新读取，方案页和释义页会一直显示「词库还在准备」。 */
+    /** 首次安装时，引导页打开时词库还在准备，准备完成前读不到偏好设置。准备完成时重新读取并写入待保存的选择；进入失败或重新开始准备时，方案页和译文页的脚注跟着换。 */
     private final FirstRunPreparation.Listener preparation = status -> {
-        if (status == FirstRunPreparation.State.READY && preferences() == null && !isFinishing() && !isDestroyed()) reload();
+        if (isFinishing() || isDestroyed()) return;
+        if (status == FirstRunPreparation.State.READY) syncChoices();
+        else if (steps[page] == STEP_SCHEMES || steps[page] == STEP_TRANSLATION) render(false);
     };
 
     @Override protected void onCreate(@Nullable Bundle state) {
@@ -93,7 +98,7 @@ public final class OnboardingActivity extends AppCompatActivity {
         progress.setMax(pages);
         progress.setIndicatorColor(Ui.accent(this));
         progress.setTrackColor(Ui.accentSoft(this));
-        if (state != null) page = Math.max(0, Math.min(pages - 1, state.getInt(STATE_PAGE, 0)));
+        if (state != null) page = KeyboardGeometry.bounded(state.getInt(STATE_PAGE, 0), 0, pages - 1);
         findViewById(R.id.onboarding_skip).setOnClickListener(ignored -> finishFlow());
         findViewById(R.id.onboarding_previous).setOnClickListener(ignored -> go(page - 1));
         findViewById(R.id.onboarding_next).setOnClickListener(ignored -> {
@@ -120,13 +125,17 @@ public final class OnboardingActivity extends AppCompatActivity {
             }
         });
         render(false);
-        reload();
+        // 进程在准备途中被杀（引导第一步正把用户送去系统设置，小米等系统会杀掉退到后台的应用）后，系统只重建栈顶的引导页，不重建下面负责启动准备的 HomeActivity；不在这里启动，准备就一直停在 IDLE，方案页永远读不到偏好。startIfNeeded 本身幂等。
+        OnboardingChoices.watch(this);
+        FirstRunPreparation.startIfNeeded(this);
+        syncChoices();
         FirstRunPreparation.observe(preparation);
         probeAccount();
     }
 
     @Override protected void onDestroy() {
         FirstRunPreparation.stopObserving(preparation);
+        retryHandler.removeCallbacksAndMessages(null);
         super.onDestroy();
     }
 
@@ -167,7 +176,7 @@ public final class OnboardingActivity extends AppCompatActivity {
         MaterialButton next = findViewById(R.id.onboarding_next);
         next.setText(page < pages - 1 ? R.string.onboarding_next
             : offer ? R.string.onboarding_sign_in : R.string.onboarding_done);
-        next.setEnabled(!signingIn);
+        ViewPolicy.setEnabled(next, !signingIn);
         back.setEnabled(page > 0);
 
         LinearLayout column = findViewById(R.id.onboarding_page);
@@ -206,13 +215,12 @@ public final class OnboardingActivity extends AppCompatActivity {
     private void schemes(LinearLayout column) {
         AppEdition edition = AppEdition.current();
         JSONObject preferences = preferences();
-        KeyboardScheme current = preferences == null ? null : KeyboardScheme.fromPreferences(
-            preferences.optString("scheme", edition.defaultScheme()),
-            preferences.optString("shuangpin_profile", "xiaohe"),
-            preferences.optString("touch_keyboard_layout", "twenty_six_key"), edition);
-        // 双拼 keeps whichever double-pinyin profile is already chosen; only a first pick lands on 小鹤, as the design's 默认小鹤 says.
-        KeyboardScheme shuangpin = current != null && current.shuangpinProfile() != null
-            ? current : KeyboardScheme.XIAOHE;
+        KeyboardScheme stored = preferences == null ? null : OnboardingChoices.storedScheme(preferences, edition);
+        // 点下的方案先记下、立即显示为已选，偏好可读后才写进去（OnboardingChoices），所以词库还在准备时也能选。
+        KeyboardScheme pending = OnboardingChoices.pendingScheme(this);
+        KeyboardScheme current = OnboardingChoicePolicy.displayedScheme(pending, stored);
+        // 双拼沿用已经选的双拼方案，只有第一次选才落在小鹤，与设计的「默认小鹤」一致。
+        KeyboardScheme shuangpin = OnboardingChoicePolicy.shuangpinCard(pending, stored);
         // 五笔同理沿用已选的版本（选五笔不改 `wubi_profile`），说明文字照实写出当前是 86 还是 98。
         boolean wubi98 = preferences != null && KeyboardScheme.WUBI_98.equals(
             KeyboardScheme.normalizedWubiProfile(preferences.optString("wubi_profile", KeyboardScheme.WUBI_86)));
@@ -224,8 +232,8 @@ public final class OnboardingActivity extends AppCompatActivity {
         };
         // 说明里的简称与上面的卡片一一对应，只列本版本有的那几张。
         String[] names = {"全拼", "9 键", "双拼", "五笔"};
-        java.util.List<SchemeCard> cards = new java.util.ArrayList<>();
-        java.util.List<String> offered = new java.util.ArrayList<>();
+        java.util.List<SchemeCard> cards = new java.util.ArrayList<>(all.length);
+        java.util.List<String> offered = new java.util.ArrayList<>(all.length);
         for (int index = 0; index < all.length; index++) {
             if (!all[index].scheme().offeredBy(edition)) continue;
             cards.add(all[index]);
@@ -238,11 +246,17 @@ public final class OnboardingActivity extends AppCompatActivity {
         for (int index = 0; index < cards.size(); index++) {
             schemeCard(column, cards.get(index), cards.get(index).scheme() == current, index == 0 ? 6 : 10);
         }
-        if (preferences == null) {
-            footnote(column, loaded ? "词库还在准备，暂时不能保存方案。稍后可以在「设置 → 输入」里选。"
-                : "正在读取当前方案…");
-        } else if (note != null) {
+        if (note != null) {
             footnote(column, note);
+            return;
+        }
+        switch (footnoteState(pending != null)) {
+            case SAVING -> footnote(column, "正在保存…");
+            case READING -> footnote(column, "正在读取当前方案…");
+            case FAILED -> preparationFailed(column, "选好的方案");
+            case CHOSEN_WAITING -> footnote(column, "已记下，词库准备好后自动保存。");
+            case WAITING -> footnote(column, "词库还在准备，可以先选好，准备好后自动保存。");
+            case NONE -> { }
         }
     }
 
@@ -250,53 +264,75 @@ public final class OnboardingActivity extends AppCompatActivity {
         header(column, R.drawable.ic_onboarding_translate, ordinal() + " · 水杉的特点", "候选下方就是译文",
             "打开后，每个候选词下面会多一行小字的英文释义，来自随应用打包的离线词典，不联网。");
         JSONObject preferences = preferences();
-        boolean on = preferences != null && preferences.optBoolean(GLOSS, false);
+        // 与方案页一样：拨动后先记下、立即按它显示，偏好可读后再写进去。
+        Boolean pending = OnboardingChoices.pendingGloss(this);
+        boolean on = pending != null ? pending
+            : preferences != null && preferences.optBoolean(OnboardingChoices.GLOSS, false);
 
         // A still of the candidate strip, drawn from the design's sample: what the switch below changes, before anyone has to open a text field to see it.
-        LinearLayout strip = new LinearLayout(this);
-        strip.setOrientation(LinearLayout.HORIZONTAL);
-        strip.setPadding(Ui.dp(this, 10), Ui.dp(this, 12), Ui.dp(this, 10), Ui.dp(this, 12));
-        strip.setBackground(rounded(Ui.accentSoft(this), Ui.dp(this, 20)));
+        LinearLayout strip = Ui.row(this);
+        Ui.setSymmetricPaddingDp(strip, this, 10, 12);
+        strip.setBackground(Ui.rounded(Ui.accentSoft(this), Ui.dp(this, 20)));
         strip.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
         String[][] samples = {{"候选", "candidate"}, {"后选", "choice"}, {"侯选", "option"}, {"候", "wait"}};
         for (int index = 0; index < samples.length; index++) {
-            LinearLayout cell = new LinearLayout(this);
-            cell.setOrientation(LinearLayout.VERTICAL);
-            cell.setGravity(Gravity.CENTER_HORIZONTAL);
-            cell.setPadding(Ui.dp(this, 10), 0, Ui.dp(this, 10), 0);
-            TextView word = text(samples[index][0], 19, index == 0 ? Ui.accent(this) : Ui.text(this));
-            if (index == 0) word.setTypeface(Typeface.create(Typeface.DEFAULT, 600, false));
+            LinearLayout cell = Ui.column(this);
+            ViewPolicy.setCenteredHorizontally(cell);
+            Ui.setHorizontalPaddingDp(cell, this, 10);
+            TextView word = Ui.label(this, samples[index][0], 19, index == 0 ? Ui.accent(this) : Ui.text(this));
+            if (index == 0) ViewPolicy.setTypefaceStyle(word, 600);
             cell.addView(word);
-            if (on) cell.addView(text(samples[index][1], 11, Ui.subText(this)));
+            if (on) cell.addView(Ui.label(this, samples[index][1], 11, Ui.subText(this)));
             strip.addView(cell);
         }
         column.addView(strip, Ui.matchWidth(this, 6));
 
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(Ui.dp(this, 14), Ui.dp(this, 12), Ui.dp(this, 14), Ui.dp(this, 12));
-        row.setBackground(rounded(Ui.card(this), Ui.dp(this, 20)));
-        TextView label = text("显示译文", 16, Ui.text(this));
-        row.addView(label, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        LinearLayout row = Ui.row(this);
+        ViewPolicy.setCenteredVertically(row);
+        Ui.setSymmetricPaddingDp(row, this, 14, 12);
+        row.setBackground(Ui.rounded(Ui.card(this), Ui.dp(this, 20)));
+        TextView label = Ui.label(this, "显示译文", 16, Ui.text(this));
+        row.addView(label, Ui.weightWrap(1f));
         MaterialSwitch toggle = new MaterialSwitch(this);
         toggle.setChecked(on);
-        toggle.setEnabled(preferences != null && !saving);
         toggle.setContentDescription("显示译文");
         toggle.setOnCheckedChangeListener((button, checked) -> {
-            if (checked != on) save(GLOSS, checked);
+            if (checked != on) chooseGloss(checked);
         });
         row.addView(toggle);
-        row.setOnClickListener(ignored -> { if (toggle.isEnabled()) toggle.toggle(); });
+        row.setOnClickListener(ignored -> toggle.toggle());
         column.addView(row, Ui.matchWidth(this, 12));
 
-        if (preferences == null) {
-            footnote(column, loaded ? "词库还在准备，暂时不能保存这个开关。稍后可以在「设置 → 词库」里打开。"
-                : "正在读取当前设置…");
-        } else {
-            footnote(column, note != null ? note
-                : "联网翻译默认关闭，要在「设置 → 词库」里单独开启，并会说明发送什么。");
+        if (note != null) {
+            footnote(column, note);
+            return;
         }
+        switch (footnoteState(pending != null)) {
+            case SAVING -> footnote(column, "正在保存…");
+            case READING -> footnote(column, "正在读取当前设置…");
+            case FAILED -> preparationFailed(column, "设好的开关");
+            case CHOSEN_WAITING -> footnote(column, "已记下，词库准备好后自动保存。");
+            case WAITING -> footnote(column, "词库还在准备，可以先设好，准备好后自动保存。");
+            case NONE -> footnote(column, "联网翻译默认关闭，要在「设置 → 词库」里单独开启，并会说明发送什么。");
+        }
+    }
+
+    /** 方案页和译文页脚注的情况，见 {@link OnboardingChoicePolicy#footnote}。 */
+    private OnboardingChoicePolicy.Footnote footnoteState(boolean pending) {
+        return OnboardingChoicePolicy.footnote(preferences() != null, loaded,
+            FirstRunPreparation.state() == FirstRunPreparation.State.FAILED, pending);
+    }
+
+    /** 词库准备失败时的脚注：写出原因（出问题的多是别人手里的手机，没法看 logcat），点它重试；选择照样记着，重试成功后自动保存。 */
+    private void preparationFailed(LinearLayout column, String subject) {
+        String reason = FirstRunPreparation.failure();
+        TextView view = footnote(column, "词库准备失败" + (reason.isEmpty() ? "" : "：" + reason)
+            + "。点这里重试，" + subject + "会在准备好后自动保存。");
+        ViewPolicy.setTextColor(view, Ui.accent(this));
+        ViewPolicy.bindClick(view, () -> {
+            FirstRunPreparation.retry(this);
+            render(false);
+        });
     }
 
     private void sync(LinearLayout column) {
@@ -352,72 +388,47 @@ public final class OnboardingActivity extends AppCompatActivity {
 
     // ---- writes ----
 
-    private void selectScheme(KeyboardScheme scheme) {
-        JSONObject current = snapshot;
-        if (current == null || saving) return;
-        JSONObject pending = SchemePreferences.withScheme(current, scheme, null);
-        if (pending == null) {
-            note = "切换失败，保留当前方案";
-            render(false);
-            return;
-        }
-        write(pending, "保存失败，键盘保留当前方案");
-    }
-
-    private void save(String key, Object value) {
-        JSONObject current = snapshot;
-        if (current == null || saving) return;
-        JSONObject pending;
-        try {
-            pending = new JSONObject(current.toString());
-            pending.getJSONObject("preferences").put(key, value);
-        } catch (JSONException error) {
-            note = "保存失败，保留原来的设置";
-            render(false);
-            return;
-        }
-        write(pending, "保存失败，保留原来的设置");
-    }
-
-    /** Save a snapshot and read it back, so the next change starts from what was actually stored rather than from what was sent. */
-    private void write(JSONObject pending, String failure) {
-        saving = true;
-        note = "正在保存…";
+    private void chooseScheme(KeyboardScheme scheme) {
+        OnboardingChoices.rememberScheme(this, scheme);
+        note = null;
         render(false);
-        Context context = getApplicationContext();
-        offMainThread(() -> {
-            JSONObject saved = HostStore.savePreferences(context, pending);
-            JSONObject fresh = HostStore.loadPreferences(context);
-            runOnUiThread(() -> {
-                if (isFinishing() || isDestroyed()) return;
-                saving = false;
-                if (fresh != null) snapshot = fresh;
-                note = saved == null ? failure : null;
-                render(false);
-            });
-        }, () -> runOnUiThread(() -> {
-            if (isFinishing() || isDestroyed()) return;
-            saving = false;
-            note = failure;
-            render(false);
-        }));
+        syncChoices();
     }
 
-    private void reload() {
-        Context context = getApplicationContext();
-        offMainThread(() -> {
-            JSONObject value = HostStore.loadPreferences(context);
-            runOnUiThread(() -> {
-                if (isFinishing() || isDestroyed()) return;
-                snapshot = value;
-                loaded = true;
-                if (steps[page] == STEP_SCHEMES || steps[page] == STEP_TRANSLATION) render(false);
-            });
-        }, () -> runOnUiThread(() -> {
+    private void chooseGloss(boolean on) {
+        OnboardingChoices.rememberGloss(this, on);
+        note = null;
+        render(false);
+        syncChoices();
+    }
+
+    /**
+     * 读一次偏好，有待保存的选择就写进去，再按结果重画方案页和译文页。
+     *
+     * <p>读写都在 {@link OnboardingChoices} 的同一条工作线程上排队，结果按提交顺序回到主线程，后发的读取不会被先发的覆盖。页面已经关掉时结果丢弃，但写入照样完成：选择不跟页面走。读不到时保留上一次读到的快照。
+     */
+    private void syncChoices() {
+        OnboardingChoices.sync(this, result -> {
             if (isFinishing() || isDestroyed()) return;
+            if (result.snapshot() != null) snapshot = result.snapshot();
             loaded = true;
-            if (steps[page] == STEP_SCHEMES || steps[page] == STEP_TRANSLATION) render(false);
-        }));
+            boolean choices = steps[page] == STEP_SCHEMES || steps[page] == STEP_TRANSLATION;
+            if (result.outcome() == OnboardingChoices.Outcome.ERROR) {
+                // 意外的异常不代表偏好读不到：页面手上的旧快照仍可读，不处理就会一直停在「正在保存…」。隔一会儿再试几次，仍不行就说明情况，选择留着下次启动再写。
+                if (syncRetries < SYNC_RETRY_LIMIT) {
+                    syncRetries++;
+                    retryHandler.postDelayed(this::syncChoices, SYNC_RETRY_DELAY_MS);
+                } else if (choices) {
+                    note = "暂时保存不了，已记下选择，下次打开水杉时再保存";
+                }
+            } else {
+                syncRetries = 0;
+            }
+            if (choices && result.outcome() == OnboardingChoices.Outcome.FAILED) {
+                note = steps[page] == STEP_SCHEMES ? "保存失败，键盘保留当前方案" : "保存失败，保留原来的设置";
+            }
+            if (choices) render(false);
+        });
     }
 
     @Nullable private JSONObject preferences() {
@@ -429,32 +440,28 @@ public final class OnboardingActivity extends AppCompatActivity {
     /** Glyph, kicker, title and body: the design's 48dp glyph box, 13sp accent kicker, 32sp regular title and 16sp body, 14dp apart. */
     private void header(LinearLayout column, @DrawableRes int icon, String kicker, String title,
             String body) {
-        ImageView glyph = new ImageView(this);
-        glyph.setImageResource(icon);
-        glyph.setImageTintList(ColorStateList.valueOf(Ui.accent(this)));
+        ImageView glyph = Ui.decorativeIcon(this, icon, Ui.accent(this));
         glyph.setScaleType(ImageView.ScaleType.FIT_START);
-        glyph.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        column.addView(glyph, new LinearLayout.LayoutParams(Ui.dp(this, 36), Ui.dp(this, 36)));
+        Ui.hideFromAccessibility(glyph);
+        column.addView(glyph, Ui.squareParams(this, 36));
 
-        TextView kick = text(kicker, 13, Ui.accent(this));
-        kick.setTypeface(Typeface.create(Typeface.DEFAULT, 600, false));
+        TextView kick = Ui.label(this, kicker, 13, Ui.accent(this));
+        ViewPolicy.setTypefaceStyle(kick, 600);
         kick.setLetterSpacing(0.04f);
         column.addView(kick, Ui.matchWidth(this, 14 + 6));
 
-        TextView heading = text(title, 32, Ui.text(this));
+        TextView heading = Ui.label(this, title, 32, Ui.text(this));
         heading.setLineSpacing(0, 1.1f);
         heading.setAccessibilityHeading(true);
         column.addView(heading, Ui.matchWidth(this, 14));
 
-        TextView line = text(body, 16, Ui.subText(this));
+        TextView line = Ui.label(this, body, 16, Ui.subText(this));
         line.setLineSpacing(0, 1.35f);
         column.addView(line, Ui.matchWidth(this, 14));
     }
 
     private LinearLayout card(LinearLayout column, int top) {
-        LinearLayout card = new LinearLayout(this);
-        card.setOrientation(LinearLayout.VERTICAL);
-        card.setBackground(rounded(Ui.card(this), Ui.dp(this, 20)));
+        LinearLayout card = Ui.verticalCard(this, 20);
         column.addView(card, Ui.matchWidth(this, 14 + top));
         return card;
     }
@@ -465,136 +472,100 @@ public final class OnboardingActivity extends AppCompatActivity {
         if (divider) {
             View line = new View(this);
             line.setBackgroundColor(Ui.hairline(this));
-            card.addView(line, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, Math.max(1, Ui.dp(this, 1) / 2)));
+            card.addView(line, Ui.matchWidthHeightPx(
+                BoundsPolicy.bounded(Ui.dp(this, 1) / 2, 1, Integer.MAX_VALUE)));
         }
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setMinimumHeight(Ui.dp(this, 52));
-        row.setPadding(Ui.dp(this, 14), Ui.dp(this, 6), Ui.dp(this, 8), Ui.dp(this, 6));
+        LinearLayout row = Ui.row(this);
+        ViewPolicy.setCenteredVertically(row);
+        Ui.setMinimumHeightDp(row, this, Ui.COMPACT_ROW_MIN_HEIGHT);
+        Ui.setPaddingDp(row, this, 14, 6, 8, 6);
 
-        TextView mark = new TextView(this);
-        mark.setGravity(Gravity.CENTER);
-        mark.setTextSize(13);
-        mark.setText(done ? "✓" : "!");
-        mark.setTextColor(done ? Ui.onAccent(this) : 0xFFFFFFFF);
-        GradientDrawable disc = new GradientDrawable();
-        disc.setShape(GradientDrawable.OVAL);
-        disc.setColor(done ? Ui.accent(this) : Ui.color(this, R.attr.msWarn));
-        mark.setBackground(disc);
-        mark.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        row.addView(mark, new LinearLayout.LayoutParams(Ui.dp(this, 24), Ui.dp(this, 24)));
+        TextView mark = Ui.label(this, done ? "✓" : "!", 13,
+            done ? Ui.onAccent(this) : 0xFFFFFFFF);
+        ViewPolicy.setCentered(mark);
+        // 字形画在固定 dp 的圆里，跟圆一起按 dp 定大小；按 sp 时系统字体一调大，对勾就被圆的边界切掉。
+        mark.setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP, 13);
+        Ui.applyStatusMark(mark, this, done);
+        row.addView(mark, Ui.squareParams(this, 24));
 
-        TextView text = text(label, 16, Ui.text(this));
-        LinearLayout.LayoutParams textParams =
-            new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1);
+        TextView text = Ui.label(this, label, 16, Ui.text(this));
+        LinearLayout.LayoutParams textParams = Ui.weightWrap(1f);
         textParams.setMarginStart(Ui.dp(this, 12));
         row.addView(text, textParams);
         text.setContentDescription(label + (done ? "，已完成" : "，未完成"));
 
         if (!done) {
-            TextView button = text(action, 15, Ui.accent(this));
-            button.setGravity(Gravity.CENTER);
-            button.setPadding(Ui.dp(this, 8), 0, Ui.dp(this, 8), 0);
+            TextView button = Ui.label(this, action, 15, Ui.accent(this));
+            ViewPolicy.setCentered(button);
+            Ui.setHorizontalPaddingDp(button, this, 8);
             android.util.TypedValue ripple = new android.util.TypedValue();
             getTheme().resolveAttribute(android.R.attr.selectableItemBackground, ripple, true);
             button.setBackgroundResource(ripple.resourceId);
             button.setOnClickListener(ignored -> fix.run());
-            row.addView(button, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT, Ui.dp(this, 40)));
+            row.addView(button, Ui.wrapHeight(this, 40));
         }
         card.addView(row);
     }
 
     /** A scheme card: label and supporting line, a radio disc on the right, a 2dp accent ring when chosen. */
     private void schemeCard(LinearLayout column, SchemeCard option, boolean selected, int top) {
-        boolean usable = snapshot != null && !saving;
-        LinearLayout card = new LinearLayout(this);
-        card.setOrientation(LinearLayout.HORIZONTAL);
-        card.setGravity(Gravity.CENTER_VERTICAL);
-        card.setPadding(Ui.dp(this, 16), Ui.dp(this, 14), Ui.dp(this, 16), Ui.dp(this, 14));
-        GradientDrawable face = rounded(Ui.card(this), Ui.dp(this, 20));
-        if (selected) face.setStroke(Ui.dp(this, 2), Ui.accent(this));
+        LinearLayout card = Ui.row(this);
+        ViewPolicy.setCenteredVertically(card);
+        Ui.setSymmetricPaddingDp(card, this, 16, 14);
+        GradientDrawable face = selected
+            ? Ui.outlined(Ui.card(this), Ui.dp(this, 20), Ui.dp(this, 2), Ui.accent(this))
+            : Ui.rounded(Ui.card(this), Ui.dp(this, 20));
         card.setBackground(face);
 
-        LinearLayout text = new LinearLayout(this);
-        text.setOrientation(LinearLayout.VERTICAL);
-        TextView heading = text(option.label(), 16, Ui.text(this));
-        heading.setTypeface(Typeface.create(Typeface.DEFAULT, 600, false));
+        LinearLayout text = Ui.column(this);
+        TextView heading = Ui.label(this, option.label(), 16, Ui.text(this));
+        ViewPolicy.setTypefaceStyle(heading, 600);
         text.addView(heading);
-        TextView detail = text(option.detail(), 13, Ui.subText(this));
-        LinearLayout.LayoutParams detailParams = new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        TextView detail = Ui.label(this, option.detail(), 13, Ui.subText(this));
+        LinearLayout.LayoutParams detailParams = Ui.wrap();
         detailParams.topMargin = Ui.dp(this, 2);
         text.addView(detail, detailParams);
-        card.addView(text, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        card.addView(text, Ui.weightWrap(1f));
 
         View radio = new View(this);
-        GradientDrawable dot = new GradientDrawable();
-        dot.setShape(GradientDrawable.OVAL);
-        if (selected) {
-            dot.setColor(Ui.page(this));
-            dot.setStroke(Ui.dp(this, 6), Ui.accent(this));
-        } else {
-            dot.setColor(0);
-            dot.setStroke(Math.max(1, Ui.dp(this, 1.5f)),
-                Ui.subText(this));
-        }
+        GradientDrawable dot = Ui.circleOutlined(selected ? Ui.page(this) : 0,
+            selected ? Ui.dp(this, 6) : Ui.atLeastOnePx(this, 1.5f),
+            selected ? Ui.accent(this) : Ui.subText(this));
         radio.setBackground(dot);
-        LinearLayout.LayoutParams radioParams = new LinearLayout.LayoutParams(Ui.dp(this, 22), Ui.dp(this, 22));
+        LinearLayout.LayoutParams radioParams = Ui.squareParams(this, 22);
         radioParams.setMarginStart(Ui.dp(this, 12));
         card.addView(radio, radioParams);
 
         card.setContentDescription(option.label() + "，" + option.detail()
             + (selected ? "，已选择" : "，未选择"));
-        card.setEnabled(usable);
-        card.setAlpha(usable || selected ? 1f : 0.6f);
-        card.setOnClickListener(usable && !selected ? ignored -> selectScheme(option.scheme()) : null);
-        card.setClickable(usable);
+        // 偏好还读不到时也能点：选择先记下，偏好可读后再写（OnboardingChoices）。
+        card.setOnClickListener(selected ? null : ignored -> chooseScheme(option.scheme()));
+        card.setClickable(true);
         column.addView(card, Ui.matchWidth(this, top));
     }
 
     private void perk(LinearLayout column, @DrawableRes int icon, String label, int top) {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(Ui.dp(this, 14), Ui.dp(this, 12), Ui.dp(this, 14), Ui.dp(this, 12));
-        row.setBackground(rounded(Ui.card(this), Ui.dp(this, 20)));
-        ImageView badge = new ImageView(this);
-        badge.setImageResource(icon);
-        badge.setImageTintList(ColorStateList.valueOf(Ui.accent(this)));
-        badge.setPadding(Ui.dp(this, 7), Ui.dp(this, 7), Ui.dp(this, 7), Ui.dp(this, 7));
-        badge.setBackground(rounded(Ui.accentSoft(this), Ui.dp(this, 9)));
-        badge.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        row.addView(badge, new LinearLayout.LayoutParams(Ui.dp(this, 32), Ui.dp(this, 32)));
-        TextView text = text(label, 15, Ui.text(this));
-        LinearLayout.LayoutParams textParams =
-            new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1);
+        LinearLayout row = Ui.row(this);
+        ViewPolicy.setCenteredVertically(row);
+        Ui.setSymmetricPaddingDp(row, this, 14, 12);
+        row.setBackground(Ui.rounded(Ui.card(this), Ui.dp(this, 20)));
+        ImageView badge = Ui.decorativeIcon(this, icon, Ui.accent(this));
+        Ui.setSymmetricPaddingDp(badge, this, 7, 7);
+        badge.setBackground(Ui.rounded(Ui.accentSoft(this), Ui.dp(this, 9)));
+        Ui.hideFromAccessibility(badge);
+        row.addView(badge, Ui.squareParams(this, 32));
+        TextView text = Ui.label(this, label, 15, Ui.text(this));
+        LinearLayout.LayoutParams textParams = Ui.weightWrap(1f);
         textParams.setMarginStart(Ui.dp(this, 12));
         row.addView(text, textParams);
         column.addView(row, Ui.matchWidth(this, 14 + top - 10));
     }
 
-    private void footnote(LinearLayout column, String message) {
-        TextView view = text(message, 13, Ui.subText(this));
-        view.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+    private TextView footnote(LinearLayout column, String message) {
+        TextView view = Ui.label(this, message, 13, Ui.subText(this));
+        ViewPolicy.setPoliteLiveRegion(view);
         column.addView(view, Ui.matchWidth(this, 14));
-    }
-
-    private TextView text(String value, int size, int colour) {
-        TextView view = new TextView(this);
-        view.setText(value);
-        view.setTextSize(size);
-        view.setTextColor(colour);
         return view;
-    }
-
-    private static GradientDrawable rounded(int colour, int radius) {
-        GradientDrawable shape = new GradientDrawable();
-        shape.setCornerRadius(radius);
-        shape.setColor(colour);
-        return shape;
     }
 
     /**

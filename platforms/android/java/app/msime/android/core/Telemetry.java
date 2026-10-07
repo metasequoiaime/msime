@@ -1,5 +1,6 @@
 package app.msime.android.core;
 
+import app.msime.android.TextPolicy;
 import android.content.Context;
 import android.content.pm.PackageInfo;
 import android.util.Log;
@@ -8,7 +9,6 @@ import app.msime.android.policy.HostOptionsPolicy;
 import java.io.File;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
@@ -76,9 +76,11 @@ public final class Telemetry {
         WORKER.execute(() -> {
             JSONObject value = call(() -> NativeClient.telemetryBegin(request(app)));
             if (value != null) {
-                enabled = value.optBoolean("enabled", false);
+                enabled = booleanValue(value.opt("enabled"), false);
                 String path = value.optString("crash_record_path", "");
-                sessionCrashRecord = enabled && !path.isEmpty() ? new File(path) : null;
+                File candidate = path.isEmpty() ? null : new File(path);
+                sessionCrashRecord = enabled && isSafeSessionCrashRecord(candidate)
+                    ? candidate : null;
             }
             sessionBegun = true;
             flush(app);
@@ -142,13 +144,14 @@ public final class Telemetry {
     /** Synchronous: the process is about to be killed, so the record is on disk (and forced) before the previous handler runs. */
     private static void writeCrashRecord(Throwable error) throws Exception {
         File target = sessionCrashRecord;
+        if (target != null && !isSafeSessionCrashRecord(target)) return;
         if (target == null) {
             File directory = crashDirectory;
             if (directory == null) return;
             if (!prepareCrashDirectory(directory)) return;
             target = new File(directory, UUID.randomUUID() + CRASH_EXTENSION);
         }
-        byte[] record = crashRecord(error).getBytes(StandardCharsets.UTF_8);
+        byte[] record = TextPolicy.utf8Bytes(crashRecord(error));
         // CREATE_NEW: the first record of a session is kept, as the shared store's own writer does.
         try (FileChannel channel = FileChannel.open(target.toPath(),
                 StandardOpenOption.WRITE, StandardOpenOption.CREATE_NEW,
@@ -156,6 +159,25 @@ public final class Telemetry {
             ByteBuffer buffer = ByteBuffer.wrap(record);
             while (buffer.hasRemaining()) channel.write(buffer);
             channel.force(true);
+        }
+    }
+
+    /** The native begin response names the reserved record below our crash directory. Recheck it
+     * before a crash write so a malformed response or a replaced parent cannot redirect the file. */
+    private static boolean isSafeSessionCrashRecord(File target) {
+        File directory = crashDirectory;
+        if (target == null || directory == null) return false;
+        try {
+            Path root = directory.toPath().toAbsolutePath().normalize();
+            Path raw = target.toPath();
+            if (!raw.isAbsolute()) return false;
+            Path path = raw.normalize();
+            if (path.equals(root) || !path.startsWith(root)
+                    || !Files.isDirectory(root, LinkOption.NOFOLLOW_LINKS)) return false;
+            app.msime.android.SafePaths.rejectSymlinkComponents(path);
+            return true;
+        } catch (java.io.IOException | RuntimeException error) {
+            return false;
         }
     }
 
@@ -174,7 +196,7 @@ public final class Telemetry {
     /** The record format the shared store reads: the summary line, '\n', then the frames. Java frames name classes and source files, never a path. */
     static String crashRecord(Throwable error) {
         String summary = clipCodePoints(firstLine(String.valueOf(error)), MAX_MESSAGE_CODE_POINTS);
-        StringBuilder stack = new StringBuilder();
+        StringBuilder stack = new StringBuilder(MAX_STACK_CODE_POINTS);
         Throwable current = error;
         for (int depth = 0; current != null && depth <= MAX_CAUSES; depth++) {
             if (depth > 0) stack.append("Caused by: ").append(firstLine(String.valueOf(current))).append('\n');
@@ -194,15 +216,13 @@ public final class Telemetry {
 
     /** At most `limit` code points, never splitting a surrogate pair. */
     static String clipCodePoints(String value, int limit) {
-        if (value == null) return "";
-        if (value.codePointCount(0, value.length()) <= limit) return value;
-        return value.substring(0, value.offsetByCodePoints(0, limit));
+        return TextPolicy.clipCodePoints(value, limit);
     }
 
     /** The stack within both the code-point limit and the byte cap, cut at the end of a line. */
     static String clipStack(String stack) {
         String clipped = clipCodePoints(stack, MAX_STACK_CODE_POINTS);
-        if (clipped.getBytes(StandardCharsets.UTF_8).length <= MAX_STACK_BYTES
+        if (TextPolicy.utf8Length(clipped) <= MAX_STACK_BYTES
                 && clipped.length() == stack.length()) return stack;
         int bytes = 0;
         int end = 0;
@@ -221,7 +241,7 @@ public final class Telemetry {
 
     private static void flush(Context app) {
         JSONObject value = call(() -> NativeClient.telemetryFlush(request(app)));
-        if (value != null) enabled = value.optBoolean("enabled", enabled);
+        if (value != null) enabled = booleanValue(value.opt("enabled"), enabled);
     }
 
     private static File directory(Context app) {
@@ -249,7 +269,7 @@ public final class Telemetry {
     static String version(Context app) {
         try {
             PackageInfo info = app.getPackageManager().getPackageInfo(app.getPackageName(), 0);
-            String name = info.versionName == null ? "" : info.versionName.trim();
+            String name = TextPolicy.trimmed(info.versionName);
             if (!name.isEmpty() && name.length() <= 64) return name;
         } catch (Exception error) {
             Log.i(TAG, "Package version unavailable", error);
@@ -259,13 +279,7 @@ public final class Telemetry {
 
     /** Where the shared preferences live, as Bootstrap wrote it into runtime-options.json; empty before first-run preparation. */
     private static String preferencesDirectory(Context app) {
-        File options = new File(app.getFilesDir(), "runtime-options.json");
-        if (!options.isFile()) return "";
-        try {
-            return new JSONObject(HostOptionsPolicy.read(options)).optString("preferences_directory", "");
-        } catch (Exception error) {
-            return "";
-        }
+        return HostOptionsPolicy.readOption(app.getFilesDir(), "preferences_directory");
     }
 
     private interface Call {
@@ -276,7 +290,7 @@ public final class Telemetry {
     private static JSONObject call(Call call) {
         try {
             JSONObject root = new JSONObject(call.run());
-            if (root.optBoolean("ok", false)) {
+            if (Boolean.TRUE.equals(root.opt("ok"))) {
                 JSONObject value = root.optJSONObject("value");
                 return value == null ? new JSONObject() : value;
             }
@@ -285,5 +299,10 @@ public final class Telemetry {
             Log.i(TAG, "Reporter unavailable", error);
         }
         return null;
+    }
+
+    /** Reporter status and consent are typed JSON booleans; reject org.json string coercion. */
+    static boolean booleanValue(Object value, boolean fallback) {
+        return value instanceof Boolean ? (Boolean) value : fallback;
     }
 }

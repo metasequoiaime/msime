@@ -16,6 +16,7 @@ import androidx.core.view.WindowInsetsCompat;
 import androidx.core.widget.NestedScrollView;
 import app.msime.android.HostDeepLink;
 import app.msime.android.R;
+import app.msime.android.ViewPolicy;
 
 /**
  * 详情页基类：顶栏的返回按钮、28sp 的大标题（滚过 28dp 后收成顶栏里 22sp 的栏标题）、`NestedScrollView` 里一列内容，以及底部导航栏与键盘的避让。
@@ -68,7 +69,8 @@ public abstract class DetailPage extends HomeTabFragment {
 
         View back = view.findViewById(R.id.ms_detail_back);
         back.setContentDescription("返回");
-        back.setOnClickListener(ignored -> requireActivity().getOnBackPressedDispatcher().onBackPressed());
+        ViewPolicy.bindClick(back,
+            () -> requireActivity().getOnBackPressedDispatcher().onBackPressed());
 
         NestedScrollView scroll = view.findViewById(R.id.ms_detail_scroll);
         int threshold = Ui.dp(requireContext(), Ui.COLLAPSE_THRESHOLD);
@@ -81,8 +83,8 @@ public abstract class DetailPage extends HomeTabFragment {
         ViewCompat.setOnApplyWindowInsetsListener(scroll, (target, insets) -> {
             Insets bars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
             Insets ime = insets.getInsets(WindowInsetsCompat.Type.ime());
-            int bottom = Math.max(bars.bottom + tabs, ime.bottom) + base;
-            target.setPadding(target.getPaddingLeft(), target.getPaddingTop(), target.getPaddingRight(), bottom);
+            int bottom = Ui.bottomContentInset(bars.bottom, tabs, ime.bottom, base);
+            Ui.setBottomPadding(target, bottom);
             return insets;
         });
         ViewCompat.requestApplyInsets(scroll);

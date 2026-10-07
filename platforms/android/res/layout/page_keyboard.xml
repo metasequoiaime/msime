@@ -109,7 +109,7 @@
                         android:layout_height="20dp"
                         android:gravity="center"
                         android:importantForAccessibility="no"
-                        android:textSize="12sp"
+                        android:textSize="12dp"
                         android:textStyle="bold" />
 
                     <TextView
@@ -125,7 +125,8 @@
                     <TextView
                         android:id="@+id/keyboard_check_enabled_action"
                         android:layout_width="wrap_content"
-                        android:layout_height="36dp"
+                        android:layout_height="wrap_content"
+                        android:minHeight="36dp"
                         android:background="?attr/selectableItemBackgroundBorderless"
                         android:gravity="center"
                         android:paddingStart="8dp"
@@ -151,7 +152,7 @@
                         android:layout_height="20dp"
                         android:gravity="center"
                         android:importantForAccessibility="no"
-                        android:textSize="12sp"
+                        android:textSize="12dp"
                         android:textStyle="bold" />
 
                     <TextView
@@ -167,7 +168,8 @@
                     <TextView
                         android:id="@+id/keyboard_check_default_action"
                         android:layout_width="wrap_content"
-                        android:layout_height="36dp"
+                        android:layout_height="wrap_content"
+                        android:minHeight="36dp"
                         android:background="?attr/selectableItemBackgroundBorderless"
                         android:gravity="center"
                         android:paddingStart="8dp"
@@ -182,7 +184,8 @@
                 <TextView
                     android:id="@+id/keyboard_system_settings"
                     android:layout_width="wrap_content"
-                    android:layout_height="36dp"
+                    android:layout_height="wrap_content"
+                    android:minHeight="36dp"
                     android:layout_marginTop="2dp"
                     android:background="?attr/selectableItemBackgroundBorderless"
                     android:gravity="center_vertical"

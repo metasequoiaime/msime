@@ -31,14 +31,20 @@ public final class VoiceListeningView extends TextView {
     private float pulse;
     private ValueAnimator animator;
     private String hintText = "点任意处取消";
+    private String fittedTitle;
+    private String fittedTitleSource;
+    private String fittedHint;
+    private String fittedHintSource;
+    private float fittedWidth = Float.NaN;
+    private float fittedTitleSize = Float.NaN;
+    private float fittedHintSize = Float.NaN;
 
     public VoiceListeningView(Context context) {
         super(context);
         setText("正在聆听…");
         setContentDescription("正在聆听，点任意处取消");
-        setClickable(true);
-        setFocusable(true);
-        setBackground(null);
+        ViewPolicy.setInteractive(this, true);
+        ViewPolicy.clearBackground(this);
         title.setTextAlign(Paint.Align.CENTER);
         hint.setTextAlign(Paint.Align.CENTER);
     }
@@ -54,19 +60,23 @@ public final class VoiceListeningView extends TextView {
 
     /** 替换第二行提示（例如识别完成时短暂显示「已识别：…」）。 */
     public void setHint(String value) {
-        hintText = value == null ? "" : value;
+        hintText = TextPolicy.emptyIfNull(value);
         invalidate();
     }
 
     /** 脉冲环在动画进度 {@code t}（0–1）时的外扩半径（像素）与透明度（0–255）。 */
     public static float pulseSpread(float t, float maxSpread) {
-        float clamped = Math.max(0f, Math.min(1f, t));
+        float clamped = clampProgress(t);
         return maxSpread * clamped;
     }
 
     public static int pulseAlpha(float t) {
-        float clamped = Math.max(0f, Math.min(1f, t));
+        float clamped = clampProgress(t);
         return Math.round(90 * (1f - clamped));
+    }
+
+    private static float clampProgress(float value) {
+        return KeyboardGeometry.bounded(value, 0f, 1f);
     }
 
     @Override protected void onAttachedToWindow() {
@@ -91,35 +101,53 @@ public final class VoiceListeningView extends TextView {
 
     @Override protected void onDraw(Canvas canvas) {
         float density = getResources().getDisplayMetrics().density;
-        float radius = ORB_DP * density / 2f;
-        title.setTextSize(KeyboardGeometry.sp(getContext(), 16));
-        hint.setTextSize(KeyboardGeometry.sp(getContext(), 13));
+        float radius = KeyboardGeometry.floatPixels(getContext(), ORB_DP) / 2f;
+        title.setTextSize(KeyboardGeometry.keySp(getContext(), 16));
+        hint.setTextSize(KeyboardGeometry.keySp(getContext(), 13));
         Paint.FontMetrics titleMetrics = title.getFontMetrics();
         Paint.FontMetrics hintMetrics = hint.getFontMetrics();
         float titleHeight = titleMetrics.descent - titleMetrics.ascent;
         float hintHeight = hintMetrics.descent - hintMetrics.ascent;
-        float gap = 16 * density;
-        float total = radius * 2 + gap + titleHeight + 6 * density + hintHeight;
+        float gap = KeyboardGeometry.floatPixels(getContext(), 16);
+        float total = radius * 2 + gap + titleHeight
+            + KeyboardGeometry.floatPixels(getContext(), 6) + hintHeight;
         float top = (getHeight() - total) / 2f;
         float cx = getWidth() / 2f;
         float cy = top + radius;
         ring.setColor(accent);
         ring.setAlpha(pulseAlpha(pulse));
-        canvas.drawCircle(cx, cy, radius + pulseSpread(pulse, PULSE_DP * density), ring);
+        canvas.drawCircle(cx, cy, radius + pulseSpread(pulse,
+            KeyboardGeometry.floatPixels(getContext(), PULSE_DP)), ring);
         orb.setColor(accent);
         canvas.drawCircle(cx, cy, radius, orb);
-        float mic = MIC_DP * density;
+        float mic = KeyboardGeometry.floatPixels(getContext(), MIC_DP);
         KeyboardIconPaths.draw(canvas, icon, KeyboardIconPaths.Icon.MIC, cx - mic / 2f,
             cy - mic / 2f, mic, onAccent);
         float titleBaseline = cy + radius + gap - titleMetrics.ascent;
         // 两行居中绘制，左右各留 16 dp；放不下时省略：标题省略结尾，提示里是滚动中的识别文字，省略开头留住最新说的那段。
-        float available = Math.max(0f, getWidth() - getPaddingLeft() - getPaddingRight() - 32 * density);
-        canvas.drawText(TextUtils.ellipsize(String.valueOf(getText()), title, available,
-            TextUtils.TruncateAt.END).toString(), cx, titleBaseline, title);
+        float available = BoundsPolicy.nonNegative(getWidth() - getPaddingLeft() - getPaddingRight()
+            - KeyboardGeometry.floatPixels(getContext(), 32));
+        String titleText = String.valueOf(getText());
+        if (!titleText.equals(fittedTitleSource) || available != fittedWidth
+                || title.getTextSize() != fittedTitleSize) {
+            fittedTitleSource = titleText;
+            fittedTitle = TextUtils.ellipsize(titleText, title, available,
+                TextUtils.TruncateAt.END).toString();
+            fittedWidth = available;
+            fittedTitleSize = title.getTextSize();
+            fittedHintSource = null;
+        }
+        canvas.drawText(fittedTitle, cx, titleBaseline, title);
         if (!hintText.isEmpty()) {
-            canvas.drawText(TextUtils.ellipsize(hintText, hint, available,
-                TextUtils.TruncateAt.START).toString(), cx, titleBaseline + titleMetrics.descent
-                + 6 * density - hintMetrics.ascent, hint);
+            if (!hintText.equals(fittedHintSource) || available != fittedWidth
+                    || hint.getTextSize() != fittedHintSize) {
+                fittedHintSource = hintText;
+                fittedHint = TextUtils.ellipsize(hintText, hint, available,
+                    TextUtils.TruncateAt.START).toString();
+                fittedHintSize = hint.getTextSize();
+            }
+            canvas.drawText(fittedHint, cx, titleBaseline + titleMetrics.descent
+                + KeyboardGeometry.floatPixels(getContext(), 6) - hintMetrics.ascent, hint);
         }
     }
 

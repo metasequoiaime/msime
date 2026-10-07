@@ -18,6 +18,24 @@ public final class TypingStatisticsSummarySmoke {
         check("和上周持平".equals(TypingStatisticsSummary.weekDelta(100, 100)), "week flat");
         check(TypingStatisticsSummary.weekDelta(100, 0) == null, "no previous week, no delta");
 
+        check(TypingStatisticsSummary.strictCount(42L) == 42L,
+            "statistics counts accept JSON integers");
+        check(TypingStatisticsSummary.strictCount(1.5d) == 0L,
+            "statistics counts reject fractional JSON numbers");
+        check(TypingStatisticsSummary.strictCount(-1L) == 0L,
+            "statistics counts reject negative JSON integers");
+        check(TypingStatisticsSummary.strictPositionRate(0.25d) == 0.25d,
+            "statistics position rates accept values in range");
+        check(TypingStatisticsSummary.strictPositionRate(1.5d) == 0d,
+            "statistics position rates reject values above one");
+        check(TypingStatisticsSummary.strictPositionRate(-0.1d) == 0d,
+            "statistics position rates reject negative values");
+        check(TypingStatisticsSummary.strictRate(0.25d) == 0.25d,
+            "summary rates accept values in range");
+        check(TypingStatisticsSummary.strictRate(1.5d) == null,
+            "summary rates reject values above one");
+        check(TypingStatisticsSummary.strictRate(-0.1d) == null,
+            "summary rates reject negative values");
         check("—".equals(TypingStatisticsSummary.whole(null)), "null speed is a dash");
         check("52".equals(TypingStatisticsSummary.whole(51.6)), "speed rounds");
         check("91".equals(TypingStatisticsSummary.percent(0.912)), "percent rounds");

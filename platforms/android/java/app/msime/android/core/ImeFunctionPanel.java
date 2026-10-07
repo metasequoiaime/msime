@@ -3,7 +3,6 @@ package app.msime.android;
 import android.graphics.Color;
 import android.os.Build;
 import android.util.TypedValue;
-import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
 import android.widget.LinearLayout;
@@ -36,51 +35,44 @@ final class ImeFunctionPanel {
 
     Button moreToolsCard(String title, MoreToolsLayout.Section section, boolean active,
                                  boolean enabled, boolean playBeforeAction, Runnable action) {
-        Button card = new KeyboardPressButton(s);
-        card.setAllCaps(false);
+        Button card = toolButton();
         String state = enabled ? MoreToolsLayout.state(section, active) : "不可用";
         boolean navigates = section == MoreToolsLayout.Section.LOCAL_INPUT_BACK;
         String label = MoreToolsLayout.icon(title) + "  " + title;
-        card.setText(navigates ? label + "  ›" : label);
-        card.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
-        card.setGravity(navigates ? Gravity.CENTER_VERTICAL | Gravity.START : Gravity.CENTER);
-        card.setPadding(s.pixels(12), s.pixels(5), s.pixels(12), s.pixels(5));
+        ViewPolicy.setTextSizeLabel(card, navigates ? label + "  ›" : label, 14);
+        KeyboardGeometry.setKeyTextSize(card, 14);
+        if (navigates) ViewPolicy.setStartCenteredVertically(card);
+        else ViewPolicy.setCentered(card);
+        KeyboardGeometry.setPaddingDp(card, s, 12, 5, 12, 5);
         card.setContentDescription(title);
-        card.setSelected(active);
+        ViewPolicy.setSelected(card, active);
         card.setEnabled(enabled);
         s.applyToolCardState(card, enabled);
         if (Build.VERSION.SDK_INT >= 30) card.setStateDescription(state);
         s.imeStyler.styleButton(card, KeyboardKeyRole.ACCENT, s.skin);
-        card.setOnClickListener(ignored -> {
-            if (playBeforeAction) s.imeKeyFeedback.playFeedback(card);
-            action.run();
-        });
+        bindToolAction(card, action, playBeforeAction);
         return card;
     }
 
     void appendMoreToolsSection(MoreToolsLayout.Section section, Button... cards) {
         if (!section.title().isEmpty()) {
-            TextView label = new TextView(s);
-            label.setText(section.title());
-            label.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
-            label.setGravity(Gravity.CENTER_VERTICAL);
-            s.moreToolsPanel.addView(label, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, s.pixels(20)));
+            TextView label = ViewPolicy.centeredText(s, section.title(), 11);
+            s.moreToolsPanel.addView(label, KeyboardGeometry.matchWidthHeightPx(s.pixels(20)));
         }
         int columns = section.columns();
         for (int start = 0; start < cards.length; start += columns) {
-            LinearLayout row = new LinearLayout(s);
+            LinearLayout row = KeyboardGeometry.row(s);
             row.setWeightSum(columns);
             for (int column = 0; column < columns; column++) {
                 int index = start + column;
                 View child = index < cards.length ? cards[index] : new View(s);
-                LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                    0, s.pixels(section.height()), 1);
+                LinearLayout.LayoutParams params = KeyboardGeometry.weightedHeightPxParams(
+                    s.pixels(section.height()), 1);
                 if (column > 0) params.setMarginStart(s.pixels(MoreToolsLayout.CARD_SPACING_DP));
                 row.addView(child, params);
             }
-            LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, s.pixels(section.height()));
+        LinearLayout.LayoutParams rowParams = KeyboardGeometry.matchWidthHeightPx(
+            s.pixels(section.height()));
             rowParams.bottomMargin = s.pixels(MoreToolsLayout.ROW_SPACING_DP);
             s.moreToolsPanel.addView(row, rowParams);
         }
@@ -119,13 +111,12 @@ final class ImeFunctionPanel {
             tile.setEnabled(on);
             s.applyToolCardState(tile, on);
             panel.setState(index, on ? states.get(index) : FunctionPanelView.State.UNAVAILABLE);
-            if (!on) tile.setSelected(false);
+            if (!on) ViewPolicy.setSelected(tile, false);
         }
         KeyboardSkin skin = s.skin;
         panel.setColors(Color.parseColor(skin.keyForeground()), Color.parseColor(skin.accent()),
             Color.parseColor(skin.background()), Color.parseColor(skin.hairline()));
-        s.moreToolsPanel.addView(panel, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.MATCH_PARENT));
+        s.moreToolsPanel.addView(panel, KeyboardGeometry.matchParentParams());
         s.imeStyler.applySkin();
     }
 
@@ -166,7 +157,9 @@ final class ImeFunctionPanel {
             case ONE_HAND -> add(entries, states, enabled,
                 icon(item, KeyboardIconPaths.Icon.ONE_HAND, () -> s.toggleOneHanded(false),
                     () -> s.toggleOneHanded(true)),
-                toggle(!"off".equals(s.oneHandedMode)), ready && !s.panelPreferenceSaving);
+                toggle(!"off".equals(s.oneHandedMode)),
+                // 分离式键盘画着的时候单手模式不生效，磁贴显示为不可用，免得点了没有反应。
+                ready && !s.panelPreferenceSaving && !s.splitKeyboardDrawn());
             case PRIVACY -> add(entries, states, enabled,
                 icon(item, KeyboardIconPaths.Icon.INCOGNITO, s::toggleIncognito, null),
                 toggle(s.incognitoEnabled), ready && !s.panelPreferenceSaving);
@@ -280,7 +273,7 @@ final class ImeFunctionPanel {
                     s.aiAssistChooserOpen = false;
                     renderMoreTools();
                 }));
-        LinearLayout segments = new LinearLayout(s);
+        LinearLayout segments = KeyboardGeometry.row(s);
         segments.setContentDescription("AI 回复与润色");
         Button reply = segment("回复", "生成高情商回复", true, () -> {
             s.closeMoreTools();
@@ -292,36 +285,42 @@ final class ImeFunctionPanel {
                 s.imePanels.showAiPolish();
                 s.render();
             });
-        LinearLayout.LayoutParams first = new LinearLayout.LayoutParams(0,
+        LinearLayout.LayoutParams first = KeyboardGeometry.weightedHeightPxParams(
             s.pixels(MoreToolsLayout.CARD_HEIGHT_DP), 1);
-        LinearLayout.LayoutParams second = new LinearLayout.LayoutParams(0,
+        LinearLayout.LayoutParams second = KeyboardGeometry.weightedHeightPxParams(
             s.pixels(MoreToolsLayout.CARD_HEIGHT_DP), 1);
         second.setMarginStart(s.pixels(MoreToolsLayout.CARD_SPACING_DP));
         segments.addView(reply, first);
         segments.addView(polish, second);
-        s.moreToolsPanel.addView(segments, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-        TextView hint = new TextView(s);
-        hint.setText("回复：粘贴对方的话，生成几种语气的回复。润色：先选中要改的文字。");
-        hint.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-        hint.setPadding(s.pixels(4), s.pixels(10), s.pixels(4), 0);
+        s.moreToolsPanel.addView(segments, KeyboardGeometry.matchWidthWrapParams());
+        TextView hint = ViewPolicy.textLabel(s,
+            "回复：粘贴对方的话，生成几种语气的回复。润色：先选中要改的文字。", 12);
+        KeyboardGeometry.setKeyTextSize(hint, 12);
+        KeyboardGeometry.setPaddingDp(hint, s, 4, 10, 4, 0);
         s.moreToolsPanel.addView(hint);
     }
 
     private Button segment(String label, String description, boolean enabled, Runnable action) {
-        KeyboardPressButton button = new KeyboardPressButton(s);
-        button.setAllCaps(false);
+        KeyboardPressButton button = toolButton();
         button.setText(label);
-        button.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        KeyboardGeometry.setKeyTextSize(button, 15);
         button.setContentDescription(description);
         button.setKeyboardRole(KeyboardKeyRole.ACCENT);
         button.setEnabled(enabled);
         s.applyToolCardState(button, enabled);
         if (Build.VERSION.SDK_INT >= 30) button.setStateDescription(enabled ? null : "不可用");
+        bindToolAction(button, action, true);
+        return button;
+    }
+
+    private KeyboardPressButton toolButton() {
+        return ViewPolicy.newPressButton(s);
+    }
+
+    private void bindToolAction(Button button, Runnable action, boolean playFeedback) {
         button.setOnClickListener(ignored -> {
-            s.imeKeyFeedback.playFeedback(button);
+            if (playFeedback) s.imeKeyFeedback.playFeedback(button);
             action.run();
         });
-        return button;
     }
 }

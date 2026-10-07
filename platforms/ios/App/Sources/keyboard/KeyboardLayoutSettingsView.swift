@@ -8,6 +8,7 @@ struct KeyboardLayoutSettingsView: View {
   @State private var nineKey = InputSchemePreference.scheme == .nineKey
   @State private var voice = KeyboardLayoutPreference.voiceShortcutEnabled
   @State private var tabletFullKeys = KeyboardLayoutPreference.tabletFullKeys
+  @State private var tabletSplit = KeyboardLayoutPreference.tabletSplit
   @State private var tabOpensCandidates = true
   @State private var dragBase: (height: Double, keySpacing: Double, rowSpacing: Double)?
   @State private var dragAxis: Axis?
@@ -143,10 +144,13 @@ struct KeyboardLayoutSettingsView: View {
               set: { saveTab($0) }))
             .accessibilityIdentifier("appTabletTabCandidatesSwitch")
           }
+          Toggle("横屏分离式键盘", isOn: $tabletSplit)
+            .accessibilityIdentifier("appTabletSplitSwitch")
+            .onChange(of: tabletSplit) { KeyboardLayoutPreference.tabletSplit = $0 }
         } header: {
           Text("iPad")
         } footer: {
-          Text("全尺寸键盘在字母上方多一排数字、Q 左边多一个 Tab 键。组字时数字键选候选，Tab 打开全部候选（桌面端的 Tab 翻页）；没有组字时照常输入。浮动键盘和分屏的窄窗口用 iPhone 布局，不显示这两样。\n\n外接实体键盘（妙控键盘、蓝牙键盘）时，iOS 不会把实体按键交给任何第三方键盘，实体键盘打出的是系统输入法的结果。要用水杉的拼音、候选和皮肤，请在屏幕键盘上输入。")
+          Text("全尺寸键盘在字母上方多一排数字、Q 左边多一个 Tab 键。组字时数字键选候选，Tab 打开全部候选（桌面端的 Tab 翻页）；没有组字时照常输入。浮动键盘和分屏的窄窗口用 iPhone 布局，不显示这两样。\n\n横屏分离式键盘只在横屏时生效：字母、数字行和 123 符号页从中间分成左右两半，中间留空，方便双手握持时用拇指打字；九键、笔画、手写和注音不分。竖屏、浮动键盘和窄窗口照常显示整块键盘。\n\n外接实体键盘（妙控键盘、蓝牙键盘）时，iOS 不会把实体按键交给任何第三方键盘，实体键盘打出的是系统输入法的结果。要用水杉的拼音、候选和皮肤，请在屏幕键盘上输入。")
         }
       }
       Section {
@@ -156,7 +160,8 @@ struct KeyboardLayoutSettingsView: View {
         }
         .accessibilityIdentifier("appResetKeyboardSettings")
       } footer: {
-        Text("把这一页的间距和高度恢复成默认值。")
+        Text(UIDevice.current.userInterfaceIdiom == .pad
+          ? "把这一页的间距、高度和横屏分离式键盘恢复成默认值。" : "把这一页的间距和高度恢复成默认值。")
       }
     }
   }
@@ -182,6 +187,7 @@ struct KeyboardLayoutSettingsView: View {
     nineKey = InputSchemePreference.scheme == .nineKey
     voice = KeyboardLayoutPreference.voiceShortcutEnabled
     tabletFullKeys = KeyboardLayoutPreference.tabletFullKeys
+    tabletSplit = KeyboardLayoutPreference.tabletSplit
     // The document is what the keyboard will use, including a value synced from another device that no keyboard has mirrored into the App Group yet.
     guard let preferences = MetasequoiaInputSessionBridge.loadSharedPreferences() else { return }
     tabOpensCandidates = KeyboardLayoutPreference.tabShowsMoreCandidates(preferences)
