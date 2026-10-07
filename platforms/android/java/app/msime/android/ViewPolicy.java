@@ -197,6 +197,11 @@ public final class ViewPolicy {
         view.setTextSize(TypedValue.COMPLEX_UNIT_SP, sizeSp);
     }
 
+    /** Set a text view's solid foreground color. */
+    public static void setTextColor(TextView view, int color) {
+        view.setTextColor(color);
+    }
+
     /** Set a text label and its scalable size. */
     public static void setTextSizeLabel(TextView view, CharSequence text, float sizeSp) {
         view.setText(text);

@@ -177,9 +177,9 @@ public final class KeyboardSchemeCard extends FrameLayout {
     }
 
     private void setFaceTextColor(int face) {
-        glyph.setTextColor(face);
-        badge.setTextColor(face);
-        title.setTextColor(face);
+        ViewPolicy.setTextColor(glyph, face);
+        ViewPolicy.setTextColor(badge, face);
+        ViewPolicy.setTextColor(title, face);
     }
 
     public boolean isCardSelected() { return selected; }
