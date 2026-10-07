@@ -9,6 +9,8 @@ use std::collections::HashSet;
 
 /// Two pages of the nine-row Windows candidate window; typing more of a key narrows the list.
 pub const RESULT_LIMIT: usize = 18;
+/// 地点匹配去重表最多记录 exact 和 prefix 两组候选。
+const PLACE_MATCH_CAPACITY: usize = RESULT_LIMIT * 2;
 /// Entries kept from a host list, as many as one dictionary import takes; the rest are ignored.
 pub const LIST_LIMIT: usize = 1000;
 pub const KEY_LIMIT: usize = 64;
@@ -19,22 +21,40 @@ fn collect_place_matches(
     existing_names: &[&str],
     limit: usize,
 ) -> Vec<(&'static str, &'static str)> {
+    let limit = limit.min(RESULT_LIMIT);
+    if limit == 0 {
+        return Vec::new();
+    }
     let mut exact = Vec::with_capacity(limit);
     let mut prefix = Vec::with_capacity(limit);
-    let mut matched_names = HashSet::with_capacity(limit);
+    let mut matched_names = [None; PLACE_MATCH_CAPACITY];
+    let mut matched_names_len = 0;
     for (place, spellings) in table.places.iter().zip(&table.spellings) {
         let Some(is_exact) = spelling_match(spellings, code) else {
             continue;
         };
-        if existing_names.contains(&place.name) || !matched_names.insert(place.name) {
+        if existing_names.contains(&place.name)
+            || matched_names[..matched_names_len]
+                .iter()
+                .flatten()
+                .any(|name| *name == place.name)
+        {
             continue;
         }
         if is_exact {
-            if exact.len() < limit {
-                exact.push((place.key, place.name));
+            if exact.len() == limit {
+                continue;
             }
+            exact.push((place.key, place.name));
         } else if prefix.len() < limit {
             prefix.push((place.key, place.name));
+        } else {
+            continue;
+        }
+        matched_names[matched_names_len] = Some(place.name);
+        matched_names_len += 1;
+        if exact.len() == limit {
+            break;
         }
     }
     exact.extend(prefix.into_iter().take(limit.saturating_sub(exact.len())));
@@ -181,6 +201,15 @@ mod place_match_tests {
         let matches = collect_place_matches(table, "bei", &[], RESULT_LIMIT);
         assert!(!matches.is_empty());
         assert!(matches.iter().all(|(_, name)| !name.is_empty()));
+    }
+
+    #[test]
+    fn place_matches_skip_a_name_already_offered_by_the_list() {
+        let table = places();
+        let matches = collect_place_matches(table, "bei", &["北京市"], 2);
+
+        assert_eq!(matches.len(), 2);
+        assert!(matches.iter().all(|(_, name)| *name != "北京市"));
     }
 }
 
