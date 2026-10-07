@@ -6588,8 +6588,7 @@ public final class MSIMEInputService extends InputMethodService {
             if (idle && !modeLabel) announceIdleNotice(preferencesNotice);
         }
         if (shortcutScroll != null)
-            shortcutScroll.setVisibility(!heightMode && idle && !hasDiagnostic && !toolbarHidden
-                ? View.VISIBLE : View.GONE);
+            ViewPolicy.setVisible(shortcutScroll, !heightMode && idle && !hasDiagnostic && !toolbarHidden);
         if (candidateLine != null)
             candidateLine.setVisibility(!heightMode && !idle && !hasDiagnostic
                 ? View.VISIBLE : View.GONE);
