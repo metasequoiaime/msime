@@ -6754,7 +6754,7 @@ public final class MSIMEInputService extends InputMethodService {
         synchronizeReplyKeyboard();
         if (layoutSettingsButton != null) ViewPolicy.hide(layoutSettingsButton);
         if (layoutSettingsButton != null)
-            layoutSettingsButton.setEnabled(session != 0 && preferencesSnapshot != null
+            ViewPolicy.setEnabled(layoutSettingsButton, session != 0 && preferencesSnapshot != null
                 && !schemeSaving && !touchGeometrySaving && !traditionalOutputSaving);
         imeLayoutRows.renderNineKeySpellings();
         if (hasDiagnostic && nineKeySpellingScroll != null)
