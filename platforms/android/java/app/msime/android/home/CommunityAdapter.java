@@ -219,7 +219,7 @@ public final class CommunityAdapter extends RecyclerView.Adapter<CommunityAdapte
         boolean first = position == 0 || entries.get(position - 1).item() == null;
         boolean last = position == entries.size() - 1 || entries.get(position + 1).item() == null;
         if (holder.divider != null) ViewPolicy.setVisible(holder.divider, !first);
-        holder.itemView.setBackground(group(holder.itemView, first, last));
+        ViewPolicy.setBackground(holder.itemView, group(holder.itemView, first, last));
         String subtitle = subtitle(item);
         if (holder.author != null) {
             holder.author.setText(subtitle);
