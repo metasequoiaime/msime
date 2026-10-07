@@ -1830,6 +1830,22 @@ fn temporary_japanese_returns_to_the_original_scheme() {
 }
 
 #[test]
+fn temporary_japanese_refresh_reuses_candidate_buffer() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session_with(|options| options.scheme = SchemeType::Shuangpin);
+    assert!(session.character(b'R', true).handled);
+    type_text(&mut session, "ka");
+
+    let capacity = session.input.engine.candidates().len().saturating_add(1);
+    session.input.local_candidates = Vec::with_capacity(capacity);
+    let pointer = session.input.local_candidates.as_ptr();
+    session.input.refresh_temporary_japanese();
+
+    assert_eq!(session.input.local_candidates.as_ptr(), pointer);
+    assert!(session.input.local_candidates.capacity() >= capacity);
+}
+
+#[test]
 fn an_unmatched_date_keyword_commits_as_typed() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);
     let mut session = fixture.session();

@@ -13,17 +13,17 @@ use crate::assets;
 use crate::cantonese;
 use crate::diagnostics;
 use crate::error::{EngineError, Result};
-use crate::helpcode::{is_supported_helpcode_schema, load_helpcode_keymap, SharedKeymap};
-use crate::ime::queries::CandidateQueries;
+use crate::helpcode::{SharedKeymap, is_supported_helpcode_schema, load_helpcode_keymap};
 use crate::ime::ImeSession;
+use crate::ime::queries::CandidateQueries;
+use crate::local::GENERATED_MODE_INPUT_LIMIT;
 use crate::local::date_time::LocalDateTime;
 use crate::local::url;
-use crate::local::GENERATED_MODE_INPUT_LIMIT;
 use crate::paths::RuntimePaths;
 use crate::punctuation::PunctuationPolicy;
 use crate::quanpin::QuanpinEngine;
-use crate::shuangpin::profile::profile;
 use crate::shuangpin::ShuangpinProfile;
+use crate::shuangpin::profile::profile;
 use crate::stroke;
 use crate::tibetan::{SHAD, TSHEG};
 use crate::time::Instant;
@@ -1570,7 +1570,9 @@ impl InputSession {
     /// The `R` preedit and rows follow the Japanese engine after every edit.
     pub(super) fn refresh_temporary_japanese(&mut self) {
         self.local_preedit = temporary_japanese_preedit(self.engine.preedit());
-        self.local_candidates = self.engine.candidates().to_vec();
+        self.local_candidates.clear();
+        self.local_candidates
+            .extend(self.engine.candidates().iter().cloned());
         self.add_local_fallback_candidate();
     }
 
