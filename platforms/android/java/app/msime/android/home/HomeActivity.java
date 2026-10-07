@@ -425,7 +425,7 @@ public final class HomeActivity extends AppCompatActivity {
     /** 返回键由我们处理的条件：有详情页可弹，或者不在第一个 tab。 */
     private void updateBack() {
         if (back == null) return;
-        back.setEnabled(getSupportFragmentManager().getBackStackEntryCount() > 0 || selected != FIRST_TAB);
+        ViewPolicy.setEnabled(back, getSupportFragmentManager().getBackStackEntryCount() > 0 || selected != FIRST_TAB);
     }
 
     /**
