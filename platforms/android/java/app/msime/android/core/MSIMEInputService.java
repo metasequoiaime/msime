@@ -5400,7 +5400,7 @@ public final class MSIMEInputService extends InputMethodService {
             ? description + "；长按管理" : description);
         if (Build.VERSION.SDK_INT >= 30)
             button.setStateDescription(highlighted ? "已选中" : "未选中");
-        button.setEnabled(id != null);
+        ViewPolicy.setEnabled(button, id != null);
     }
 
     void closeCandidatePanel() {
