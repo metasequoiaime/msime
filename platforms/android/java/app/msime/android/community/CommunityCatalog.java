@@ -7,7 +7,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
 import javax.net.ssl.HttpsURLConnection;
@@ -334,7 +333,7 @@ public final class CommunityCatalog {
     }
 
     static String idKey(String value) {
-        return value.toLowerCase(Locale.ROOT);
+        return TextPolicy.lowercase(value);
     }
 
     /** 一个条目，读不出或不合规时为 null。 */

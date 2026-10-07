@@ -19,7 +19,6 @@ import io.noties.markwon.MarkwonConfiguration;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -122,7 +121,7 @@ final class NoticeBanner {
 
     private static void open(Context context, String link) {
         Uri uri = Uri.parse(link);
-        String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(Locale.ROOT);
+        String scheme = TextPolicy.lowercase(uri.getScheme());
         if (!scheme.equals("https") && !scheme.equals("http") && !scheme.equals("mailto")) return;
         try {
             context.startActivity(new Intent(Intent.ACTION_VIEW, uri)
