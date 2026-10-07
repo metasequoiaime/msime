@@ -723,6 +723,17 @@ fn merge_pinyin_fallback(
     if pinyin_rows.is_empty() {
         return candidates;
     }
+    if candidates.is_empty() {
+        let mut seen = HashSet::with_capacity(pinyin_rows.len());
+        let all_unique = pinyin_rows
+            .iter()
+            .all(|item| seen.insert(item.word.as_str()));
+        drop(seen);
+        if all_unique {
+            // 五笔没有候选且拼音批次无重复时直接复用批次缓冲。
+            return pinyin_rows;
+        }
+    }
     // Keep deduplication keys borrowed until the pinyin rows are ready to move into the result.
     let mut seen: HashSet<&str> = candidates.iter().map(|item| item.word.as_str()).collect();
     let unique = pinyin_rows
@@ -839,9 +850,11 @@ mod tests {
         let pinyin: Vec<_> = (0..23)
             .map(|index| quanpin("ni'hao", &format!("字{index:02}")))
             .collect();
+        let pointer = pinyin.as_ptr();
         let list = merge_pinyin_fallback(Vec::new(), pinyin);
         assert_eq!(list.len(), 23);
         assert_eq!(list.capacity(), list.len());
+        assert_eq!(list.as_ptr(), pointer);
     }
 
     #[test]
