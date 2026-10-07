@@ -102,6 +102,8 @@ constexpr jsize kUpdatePreferencesSnapshotLimit = 1 * 1024 * 1024;
 constexpr jsize kSmallJsonRequestLimit = 16 * 1024;
 constexpr jsize kEmojiQueryLimit = 16384;
 constexpr jsize kEmojiResourcesLimit = 4096;
+constexpr jsize kCandidateGlossRequestLimit = 262144;
+constexpr jsize kCandidateGlossResourcesLimit = 4096;
 }
 
 extern "C" {
@@ -190,9 +192,13 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_candidateGlosse
         return response(env, msime_client_candidate_gloss_request(nullptr, 0, nullptr, 0));
     }
     jsize request_length = env->GetArrayLength(request);
+    jsize resources_length = env->GetArrayLength(resources);
+    if (request_length > kCandidateGlossRequestLimit
+            || resources_length > kCandidateGlossResourcesLimit) {
+        return response(env, msime_client_candidate_gloss_request(nullptr, 0, nullptr, 0));
+    }
     jbyte *request_bytes = env->GetByteArrayElements(request, nullptr);
     if (!request_bytes) return nullptr;
-    jsize resources_length = env->GetArrayLength(resources);
     jbyte *resources_bytes = env->GetByteArrayElements(resources, nullptr);
     if (!resources_bytes) {
         env->ReleaseByteArrayElements(request, request_bytes, JNI_ABORT);
