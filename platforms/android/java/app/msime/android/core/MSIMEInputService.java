@@ -6715,7 +6715,7 @@ public final class MSIMEInputService extends InputMethodService {
         }
         if (languageButton != null) {
             languageButton.setText(dedicatedEnglish ? "英" : "中");
-            languageButton.setEnabled(session != 0);
+            ViewPolicy.setEnabled(languageButton, session != 0);
             languageButton.setContentDescription(
                 dedicatedEnglish ? "切换到所选输入方案" : "切换到英文输入");
             if (Build.VERSION.SDK_INT >= 30) {
