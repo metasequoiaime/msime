@@ -370,6 +370,11 @@ public final class ViewPolicy {
         view.setVisibility(visible ? View.VISIBLE : View.GONE);
     }
 
+    /** Show a view only when the supplied text is non-null and non-empty. */
+    public static void setVisibilityForText(View view, CharSequence text) {
+        setVisible(view, text != null && text.length() != 0);
+    }
+
     /** Hide a view while preserving its layout space. */
     public static void setInvisible(View view) {
         view.setVisibility(View.INVISIBLE);
