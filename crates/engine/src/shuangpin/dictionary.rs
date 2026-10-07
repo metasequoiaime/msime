@@ -612,31 +612,29 @@ fn append_helpcode_rows(
         }
         return;
     }
-    // 借用词面计算重复项，释放集合后再移动整行，避免移动时仍持有借用。
-    let mut listed: HashSet<&str> = result.iter().map(|item| item.word.as_str()).collect();
-    let duplicates = whole
-        .iter()
-        .chain(unmatched.iter())
-        .enumerate()
-        .filter_map(|(index, item)| (!listed.insert(item.word.as_str())).then_some(index))
-        .collect::<Vec<_>>();
+    // 先把两组行移入同一缓冲，只建立一个重复索引列表；释放借用后再原地压缩。
+    let added = total.saturating_sub(result.len());
+    result.reserve(added);
+    let original_len = result.len();
+    result.extend(whole);
+    result.extend(unmatched);
+    let mut listed = HashSet::with_capacity(result.len());
+    listed.extend(result[..original_len].iter().map(|item| item.word.as_str()));
+    let mut unique = Vec::with_capacity(added);
+    for (index, item) in result.iter().enumerate().skip(original_len) {
+        if listed.insert(item.word.as_str()) {
+            unique.push(index);
+        }
+    }
     drop(listed);
-    result.reserve(whole.len().saturating_add(unmatched.len()));
-    let mut duplicates = duplicates.into_iter().peekable();
-    result.extend(
-        whole
-            .into_iter()
-            .chain(unmatched)
-            .enumerate()
-            .filter_map(|(index, item)| {
-                if duplicates.peek() == Some(&index) {
-                    duplicates.next();
-                    None
-                } else {
-                    Some(item)
-                }
-            }),
-    );
+    let mut write = original_len;
+    for read in unique {
+        if write != read {
+            result.swap(write, read);
+        }
+        write += 1;
+    }
+    result.truncate(write);
 }
 
 /// 按首匹配、次匹配、未匹配的顺序原地排列单字辅助码候选，并把未匹配行移动到单独的尾部缓冲。
@@ -812,6 +810,50 @@ mod tests {
                 .map(|item| item.word.as_str())
                 .collect::<Vec<_>>(),
             ["已有", "整", "未"]
+        );
+    }
+
+    #[test]
+    fn large_helpcode_rows_do_not_allocate_duplicate_index_lists() {
+        let mut result = Vec::with_capacity(100);
+        result.push(row("已有"));
+        let whole = (0..40)
+            .map(|index| {
+                row(if index == 0 {
+                    "已有"
+                } else if index % 2 == 0 {
+                    "整"
+                } else {
+                    "甲"
+                })
+            })
+            .collect();
+        let unmatched = (0..40)
+            .map(|index| {
+                row(if index == 0 {
+                    "未"
+                } else if index % 2 == 0 {
+                    "整"
+                } else {
+                    "乙"
+                })
+            })
+            .collect();
+
+        let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            append_helpcode_rows(&mut result, whole, unmatched);
+        });
+
+        assert_eq!(
+            result
+                .iter()
+                .map(|item| item.word.as_str())
+                .collect::<Vec<_>>(),
+            ["已有", "甲", "整", "未", "乙"]
+        );
+        assert!(
+            allocations <= 2,
+            "large helpcode merge allocated {allocations} temporary buffers"
         );
     }
 
