@@ -272,7 +272,7 @@ public final class OnboardingActivity extends AppCompatActivity {
         // A still of the candidate strip, drawn from the design's sample: what the switch below changes, before anyone has to open a text field to see it.
         LinearLayout strip = Ui.row(this);
         Ui.setSymmetricPaddingDp(strip, this, 10, 12);
-        strip.setBackground(Ui.rounded(Ui.accentSoft(this), Ui.dp(this, 20)));
+        ViewPolicy.setBackground(strip, Ui.rounded(Ui.accentSoft(this), Ui.dp(this, 20)));
         strip.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
         String[][] samples = {{"候选", "candidate"}, {"后选", "choice"}, {"侯选", "option"}, {"候", "wait"}};
         for (int index = 0; index < samples.length; index++) {
@@ -290,7 +290,7 @@ public final class OnboardingActivity extends AppCompatActivity {
         LinearLayout row = Ui.row(this);
         ViewPolicy.setCenteredVertically(row);
         Ui.setSymmetricPaddingDp(row, this, 14, 12);
-        row.setBackground(Ui.rounded(Ui.card(this), Ui.dp(this, 20)));
+        ViewPolicy.setBackground(row, Ui.rounded(Ui.card(this), Ui.dp(this, 20)));
         TextView label = Ui.label(this, "显示译文", 16, Ui.text(this));
         row.addView(label, Ui.weightWrap(1f));
         MaterialSwitch toggle = new MaterialSwitch(this);
@@ -515,7 +515,7 @@ public final class OnboardingActivity extends AppCompatActivity {
         GradientDrawable face = selected
             ? Ui.outlined(Ui.card(this), Ui.dp(this, 20), Ui.dp(this, 2), Ui.accent(this))
             : Ui.rounded(Ui.card(this), Ui.dp(this, 20));
-        card.setBackground(face);
+        ViewPolicy.setBackground(card, face);
 
         LinearLayout text = Ui.column(this);
         TextView heading = Ui.label(this, option.label(), 16, Ui.text(this));
@@ -531,7 +531,7 @@ public final class OnboardingActivity extends AppCompatActivity {
         GradientDrawable dot = Ui.circleOutlined(selected ? Ui.page(this) : 0,
             selected ? Ui.dp(this, 6) : Ui.atLeastOnePx(this, 1.5f),
             selected ? Ui.accent(this) : Ui.subText(this));
-        radio.setBackground(dot);
+        ViewPolicy.setBackground(radio, dot);
         LinearLayout.LayoutParams radioParams = Ui.squareParams(this, 22);
         radioParams.setMarginStart(Ui.dp(this, 12));
         card.addView(radio, radioParams);
@@ -548,10 +548,10 @@ public final class OnboardingActivity extends AppCompatActivity {
         LinearLayout row = Ui.row(this);
         ViewPolicy.setCenteredVertically(row);
         Ui.setSymmetricPaddingDp(row, this, 14, 12);
-        row.setBackground(Ui.rounded(Ui.card(this), Ui.dp(this, 20)));
+        ViewPolicy.setBackground(row, Ui.rounded(Ui.card(this), Ui.dp(this, 20)));
         ImageView badge = Ui.decorativeIcon(this, icon, Ui.accent(this));
         Ui.setSymmetricPaddingDp(badge, this, 7, 7);
-        badge.setBackground(Ui.rounded(Ui.accentSoft(this), Ui.dp(this, 9)));
+        ViewPolicy.setBackground(badge, Ui.rounded(Ui.accentSoft(this), Ui.dp(this, 9)));
         Ui.hideFromAccessibility(badge);
         row.addView(badge, Ui.squareParams(this, 32));
         TextView text = Ui.label(this, label, 15, Ui.text(this));
