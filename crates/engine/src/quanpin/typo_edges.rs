@@ -1,6 +1,6 @@
 //! Typo edges for the lattice's typo sentence (quanpin.md §10.5, QD:1056-1182): legal-to-legal syllable swaps, weak positions first, priced by kind and discounted by how often the user accepted that typo.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use crate::cache::FifoCache;
 use crate::dictionary::pinyin::PinyinDatabase;
@@ -36,28 +36,23 @@ pub fn collect_typo_edges(
 ) -> Vec<TypoEdge> {
     let planned = plan_keys(profile, segments, literal_best, autocorrect_types);
 
-    let mut rows: HashMap<String, Vec<DictRow>> = HashMap::with_capacity(planned.len());
     let mut misses = Vec::with_capacity(planned.len());
     for entry in &planned {
-        match span_cache.get(&entry.key) {
-            Some(cached) => {
-                rows.insert(entry.key.clone(), cached);
-            }
-            None => misses.push(entry.key.clone()),
+        if span_cache.get_ref(&entry.key).is_none() {
+            misses.push(entry.key.clone());
         }
     }
     if !misses.is_empty() {
         let mut fetched = database.query_exact_keys_per_key(&misses, TYPO_ROWS_PER_KEY);
         for key in misses {
             let key_rows = fetched.remove(&key).unwrap_or_default();
-            span_cache.insert(key.clone(), key_rows.clone());
-            rows.insert(key, key_rows);
+            span_cache.insert(key, key_rows);
         }
     }
 
     let mut edges = Vec::with_capacity(planned.len() * TYPO_ROWS_PER_KEY);
     for entry in &planned {
-        let Some(found) = rows.get(&entry.key) else {
+        let Some(found) = span_cache.get_ref(&entry.key) else {
             continue;
         };
         edges.extend(found.iter().map(|row| TypoEdge {
