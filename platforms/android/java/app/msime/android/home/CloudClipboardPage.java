@@ -4,7 +4,6 @@ import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.os.Bundle;
-import android.text.TextUtils;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.LinearLayout;
@@ -180,8 +179,7 @@ public final class CloudClipboardPage extends DetailPage {
 
         LinearLayout texts = Ui.column(context);
         TextView text = Ui.styledLabel(context, item.text(), 15, 400, Ui.text(context));
-        text.setMaxLines(3);
-        text.setEllipsize(TextUtils.TruncateAt.END);
+        ViewPolicy.setMaxLinesEllipsized(text, 3);
         texts.addView(text);
         TextView meta = Ui.styledLabel(context, meta(item), 12, 400, Ui.subText(context));
         LinearLayout.LayoutParams metaParams = Ui.wrap();
