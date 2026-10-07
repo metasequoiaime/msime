@@ -102,9 +102,9 @@ public final class HomeActivity extends AppCompatActivity {
         View intro = findViewById(R.id.home_intro);
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.home_root), (view, windowInsets) -> {
             Insets bars = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars());
-            content.setPadding(bars.left, bars.top, bars.right, 0);
-            tabs.setPadding(bars.left, 0, bars.right, bars.bottom);
-            intro.setPadding(0, 0, 0, bars.bottom);
+            ViewPolicy.setPadding(content, bars.left, bars.top, bars.right, 0);
+            ViewPolicy.setPadding(tabs, bars.left, 0, bars.right, bars.bottom);
+            ViewPolicy.setPadding(intro, 0, 0, 0, bars.bottom);
             return windowInsets;
         });
         ViewPolicy.bindClick(intro, this::dismissIntro);
