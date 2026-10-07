@@ -451,12 +451,12 @@ public final class OnboardingActivity extends AppCompatActivity {
         column.addView(kick, Ui.matchWidth(this, 14 + 6));
 
         TextView heading = Ui.label(this, title, 32, Ui.text(this));
-        heading.setLineSpacing(0, 1.1f);
+        ViewPolicy.setLineSpacing(heading, 0, 1.1f);
         heading.setAccessibilityHeading(true);
         column.addView(heading, Ui.matchWidth(this, 14));
 
         TextView line = Ui.label(this, body, 16, Ui.subText(this));
-        line.setLineSpacing(0, 1.35f);
+        ViewPolicy.setLineSpacing(line, 0, 1.35f);
         column.addView(line, Ui.matchWidth(this, 14));
     }
 
