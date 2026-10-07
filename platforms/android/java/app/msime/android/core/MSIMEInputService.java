@@ -5448,7 +5448,7 @@ public final class MSIMEInputService extends InputMethodService {
     void showHandwritingStatus(String text) {
         if (handwritingStatus == null) return;
         handwritingStatus.setText(text);
-        handwritingStatus.setVisibility(text == null || text.isEmpty() ? View.GONE : View.VISIBLE);
+        ViewPolicy.setVisible(handwritingStatus, text != null && !text.isEmpty());
         if (handwritingStatus.getLayoutParams() instanceof FrameLayout.LayoutParams params) {
             boolean downloadVisible = handwritingDownload != null
                 && handwritingDownload.getVisibility() == View.VISIBLE;
