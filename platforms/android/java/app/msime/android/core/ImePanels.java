@@ -1179,7 +1179,8 @@ final class ImePanels {
         header.addView(new View(s), KeyboardGeometry.weightedZeroParams(1));
         if (cloud) {
             Button refresh = clipboardAction(header, "刷新", this::refreshCloudClipboard);
-            refresh.setEnabled(s.cloudClipboardStatus != CloudClipboardPanelPolicy.Status.LOADING);
+            ViewPolicy.setEnabled(refresh,
+                s.cloudClipboardStatus != CloudClipboardPanelPolicy.Status.LOADING);
             refresh.setContentDescription("刷新云剪贴板");
         } else if (s.clipboardHistoryEnabled) {
             // 复制会自动记录，不再需要「保存当前」。
