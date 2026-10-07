@@ -245,7 +245,7 @@ public final class AccountFragment extends HomeTabFragment {
             ViewPolicy.setInteractive(sync, true);
             sync.setOnClickListener(ignored -> setSync(!toggle.isChecked()));
         } else {
-            Ui.setEnabledLook(sync, false);
+            ViewPolicy.setEnabledWithAlpha(sync, false, 0.38f);
         }
 
         String devices = !signedIn ? "—" : online == null || online.devices() < 0 ? null : online.devices() + " 台";
