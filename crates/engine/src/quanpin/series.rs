@@ -23,6 +23,7 @@ pub const MAX_SYLLABLES_FOR_MULTIPLE_SEGMENTATIONS: usize = 4;
 /// Continuations are only taken up to three syllables longer: past that the rows' weights have dropped to a few dozen and the seats are better left to prefix characters (QD:23-25).
 pub const LONGER_PHRASE_EXTRA_SYLLABLES: usize = 3;
 pub const LONGER_PHRASE_LIMIT: usize = 12;
+const SMALL_UNIQUE_ROWS: usize = 64;
 
 /// How one raw input is read (QD:110-215).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -238,6 +239,24 @@ pub fn merge_alternative_segmentations(
 
 /// Deduplicate rows that are already sorted by weight while keeping the merged vector's allocation.
 fn retain_unique_sorted_rows(rows: &mut Vec<WordItem>) {
+    // 候选页规模内直接扫描已保留的词，避免为一次合并建立临时哈希表和布尔数组。
+    if rows.len() <= SMALL_UNIQUE_ROWS {
+        let mut write = 0;
+        for read in 0..rows.len() {
+            if rows[..write]
+                .iter()
+                .any(|item| item.word == rows[read].word)
+            {
+                continue;
+            }
+            if write != read {
+                rows.swap(write, read);
+            }
+            write += 1;
+        }
+        rows.truncate(write);
+        return;
+    }
     // Borrow words while calculating each first occurrence, then retain in place after releasing the set.
     let mut seen = HashSet::with_capacity(rows.len());
     let duplicates = rows
@@ -452,6 +471,20 @@ mod tests {
 
         assert_eq!(rows.as_ptr(), pointer);
         assert_eq!(words(&rows), ["甲", "乙"]);
+    }
+
+    #[test]
+    fn alternative_dedup_uses_no_heap_state_for_small_merges() {
+        let mut rows = (0..36)
+            .map(|index| row("xian", &format!("词{}", index % 18), 100 - index))
+            .collect::<Vec<_>>();
+
+        let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            retain_unique_sorted_rows(&mut rows);
+        });
+
+        assert_eq!(allocations, 0);
+        assert_eq!(rows.len(), 18);
     }
 
     #[test]
