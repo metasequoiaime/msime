@@ -644,7 +644,7 @@ final class ImePanels {
                     Button choice = MSIMEInputService.role(s.button(row, style.emoji() + " " + style.label(),
                         () -> generateReply(style.label())), KeyboardKeyRole.KEY);
                     choice.setContentDescription("回复风格 " + style.label());
-                    choice.setEnabled(!busy);
+                    ViewPolicy.setEnabled(choice, !busy);
                     ViewPolicy.setActiveAlpha(choice, !busy, .45f);
                     ViewPolicy.clearMinimumSize(choice);
                     KeyboardGeometry.setHorizontalPaddingDp(choice, s, 4);
