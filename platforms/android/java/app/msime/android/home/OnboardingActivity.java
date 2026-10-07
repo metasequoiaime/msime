@@ -539,7 +539,7 @@ public final class OnboardingActivity extends AppCompatActivity {
         card.setContentDescription(option.label() + "，" + option.detail()
             + (selected ? "，已选择" : "，未选择"));
         // 偏好还读不到时也能点：选择先记下，偏好可读后再写（OnboardingChoices）。
-        card.setOnClickListener(selected ? null : ignored -> chooseScheme(option.scheme()));
+        ViewPolicy.bindOptionalClick(card, selected ? null : () -> chooseScheme(option.scheme()));
         ViewPolicy.setClickable(card, true);
         column.addView(card, Ui.matchWidth(this, top));
     }
