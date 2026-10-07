@@ -5,7 +5,7 @@ repo_root=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$repo_root"
 resource_dir=${1:?usage: [MSIME_EDITION=<id>] build-apk.sh <verified-resource-directory>}
 resource_dir=$(cd "$resource_dir" && pwd)
-# MSIME_EDITION=<id> 选产品版本（版本表 shared/contracts/editions.json 里有 Android 段的 id，也是 gradle-app 的 flavor 名），缺省是 full。每个版本是一个独立的包：本版本的 applicationId、资源锁里列的词库、本版本要的语言词库，APK 也按版本命名。full 的 applicationId、资源和 APK 名（target/android/msime-client.apk）与引入版本之前相同。
+# MSIME_EDITION=<id> 选产品版本（版本表 shared/contracts/editions.json 里有 Android 段的 id，也是 gradle-app 的 flavor 名），缺省是 full。每个版本是一个独立的包：本版本的 applicationId、资源锁里列的词库、本版本要的语言词库，APK 也按版本命名。full 的 applicationId 和资源与引入版本之前相同，APK 名是 target/android/msime-android.apk。
 edition=${MSIME_EDITION:-full}
 edition_tool="$repo_root/platforms/android/scripts/edition_android.py"
 apk_name=$(python3 "$edition_tool" field --edition "$edition" apk_name)

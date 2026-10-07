@@ -600,6 +600,9 @@ fn query_capacity(limit: usize) -> Option<usize> {
 
 /// First occurrence wins (QQ:774-780).
 fn deduplicate_by_value(rows: &mut Vec<DictRow>) {
+    if rows.len() < 2 {
+        return;
+    }
     // Check duplicate values through borrowed slices, then retain in place after releasing the set.
     let mut seen = HashSet::with_capacity(rows.len());
     let unique = rows
@@ -935,6 +938,20 @@ mod tests {
             .is_empty());
         assert!(database.query_longer_phrases(&segments, 0, 12).is_empty());
         assert!(database.query_longer_phrases(&segments, 3, 0).is_empty());
+    }
+
+    #[test]
+    fn value_dedup_skips_trivial_row_lists() {
+        let mut rows = vec![DictRow {
+            key: "ni".to_owned(),
+            value: "你".to_owned(),
+            weight: 1,
+        }];
+
+        deduplicate_by_value(&mut rows);
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].value, "你");
     }
 
     #[test]

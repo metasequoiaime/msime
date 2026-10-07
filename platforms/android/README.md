@@ -12,8 +12,8 @@ Java/Kotlin 宿主按 `java/app/msime/android/<feature>/` 分为 `account`、`ca
 
 版本表 `shared/contracts/editions.json` 里每个有 Android 段的版本（full、pinyin、wubi、japanese、vietnamese、tibetan）在 `gradle-app` 里是一个同名的 productFlavor，可以同时装在一台设备上，彼此完全隔离：
 
-- full 就是现有产品：applicationId `app.msime.android`，清单、资源和发布的 `msime-client.apk` 与引入版本之前相同；
-- 其他版本的 applicationId 是 `app.msime.android.<id>`（Gradle 的 `applicationIdSuffix`），APK 叫 `msime-client-<id>.apk`。清单里的 ContentProvider authority 一律写成 `${applicationId}.<名字>`，随之各不相同；
+- full 就是现有产品：applicationId `app.msime.android`，清单、资源和发布的 `msime-android.apk` 与引入版本之前相同；
+- 其他版本的 applicationId 是 `app.msime.android.<id>`（Gradle 的 `applicationIdSuffix`），APK 叫 `msime-android-<id>.apk`。清单里的 ContentProvider authority 一律写成 `${applicationId}.<名字>`，随之各不相同；
 - 应用名和系统键盘切换器里的子类型名取自 `editions/<id>/res`（水杉五笔、水杉拼音、水杉日语、水杉越南语、水杉藏文），图标所有版本相同。子类型登记的语言是版本输入的语言：中文的版本是 `zh_CN`，日文、越南文、藏文版是 `ja_JP`、`vi_VN`、`bo`，系统的语言列表把它们列在日语、越南语、藏语下；
 - 每个 flavor 把版本 id、方案列表和默认方案写进 BuildConfig，Java 侧由 `AppEdition` 读取：键盘、设置页和首启引导只列本版本的方案入口，偏好里的方案本版本没有时回退到本版本的默认方案。五笔版只有五笔和手写（没有全拼 9 键），混拼默认打开；手写写进偏好的是本版本的默认方案，所以在五笔版里同样可用；高情商回复是工具栏入口，与方案无关，各版本都有。手写用 ML Kit 的中文模型，只认汉字，所以日文、越南文、藏文版没有手写，键盘只有本版本方案的入口（日文版是日语 9 键和 26 键，越南文、藏文版各一个 26 键）；这三个版本不带 msime-pinyin.db、n-gram 和整句模型，资源只有英文词库及其 SCOWL 许可声明、符号表和清单，日文版另带日文词典和两份 Mozc 许可文本；它们也不带非英文离线释义（版本表 `features.offline_glosses` 为 false，`build-apk.sh` 和 `build-client-apk.sh` 不暂存并检查 APK 里没有 `assets/offline-glosses/`），ML Kit 的中文手写模型本来就只在打开手写面板时下载，这三个版本没有手写面板，也就从不下载。只有一个方案的版本跳过首启引导里选方案那一步；
 - `Bootstrap` 把非 full 的版本 id 交给 `msime_client_prepare_host`，host-api 按本版本的资源锁（`resources/editions/<id>.lock.json`）校验 APK 里的词库，并在状态目录记下版本。
@@ -190,7 +190,7 @@ JVM 冒烟只覆盖无 Android 依赖的策略层；焦点、选区、编辑器�
 
 ## 两个 APK 入口，不要选错
 
-`platforms/android` 有两个构建脚本，同一个版本的产物**同名同路径**（full 是 `target/android/msime-client.apk`，其他版本是 `target/android/msime-client-<id>.apk`，见上节），装到设备上也是同一个包名，但内容完全不同：
+`platforms/android` 有两个构建脚本，同一个版本的产物**同名同路径**（full 是 `target/android/msime-android.apk`，其他版本是 `target/android/msime-android-<id>.apk`，见上节），装到设备上也是同一个包名，但内容完全不同：
 
 - `build-apk.sh <已锁定词库目录>` —— 本目录自己的原生 IME 包。Java 宿主来自 `platforms/android/java`，manifest 是 `platforms/android/AndroidManifest.xml`，图标是 `platforms/android/res/drawable/app_icon_*`，不含任何 Tauri/WebView/React。装真机验证本目录的改动用这个。
 - `build-client-apk.sh <已锁定词库目录> [abi]` —— Tauri 合包。走 Gradle，从 `apps/desktop/src-tauri/gen/android/` 构建，把原生 IME 和 React 设置界面装进同一个包。
@@ -201,7 +201,7 @@ JVM 冒烟只覆盖无 Android 依赖的策略层；焦点、选区、编辑器�
 
 ## Tauri + React 共享设置合包
 
-需要管理 UI 时的本地构建入口（不是本目录的默认入口，见上节）：`ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/build-client-apk.sh <已锁定词库目录> [arm64-v8a|x86_64]`。默认 arm64-v8a，产物仍为 target/android/msime-client.apk；`MSIME_EDITION=<id>` 选版本，规则同 `build-apk.sh`，Tauri 工程经 `ORG_GRADLE_PROJECT_msimeEdition` 换 applicationId、BuildConfig 和应用名（这个工程的 abi 维度归 Tauri 插件，所以版本不做成 flavor）；需要先完成根目录 pnpm install --frozen-lockfile，准备 JDK 21、Android API 36、build-tools 35、固定 NDK/vcpkg 与 Rust Android target。Gradle 8.14.3 使用官方分发摘要固定，AGP/Kotlin 版本由项目固定。参数 --ci 仅用于 Tauri CLI 的非交互模式，不运行 GitHub CI。
+需要管理 UI 时的本地构建入口（不是本目录的默认入口，见上节）：`ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/build-client-apk.sh <已锁定词库目录> [arm64-v8a|x86_64]`。默认 arm64-v8a，产物仍为 target/android/msime-android.apk；`MSIME_EDITION=<id>` 选版本，规则同 `build-apk.sh`，Tauri 工程经 `ORG_GRADLE_PROJECT_msimeEdition` 换 applicationId、BuildConfig 和应用名（这个工程的 abi 维度归 Tauri 插件，所以版本不做成 flavor）；需要先完成根目录 pnpm install --frozen-lockfile，准备 JDK 21、Android API 36、build-tools 35、固定 NDK/vcpkg 与 Rust Android target。Gradle 8.14.3 使用官方分发摘要固定，AGP/Kotlin 版本由项目固定。参数 --ci 仅用于 Tauri CLI 的非交互模式，不运行 GitHub CI。
 
 apps/desktop/src-tauri/src/lib.rs 是桌面与移动共用的 Tauri commands/入口，Android 调用同一个 client-core PreferencesStore，指向应用私有 files/bootstrap/state，与 bootstrap 和 IME 监控目录一致。packages/ui 的 React 页没有 Android 副本。生成的 Android 工程已纳入源码，Gradle 直接引用 platforms/android/java、共享图标与暂存的锁定资源；不把原生宿主代码复制到 gen。不要重复执行 tauri android init 覆盖本仓定制。受版本控制的 Gradle 设置会从 `TAURI_ANDROID_DIR` 或 Cargo registry 定位锁定 Tauri Android 工程，合包脚本通过 `cargo metadata --locked` 注入精确路径；生成 Kotlin 绑定、native symlink、构建输出和本机配置仍忽略。
 
@@ -259,7 +259,7 @@ ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/build-native.sh x86_64
 
 ## 开发 APK 与首次准备
 
-本地构建：`ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/build-apk.sh <已锁定词库目录>`。需要前述 NDK/vcpkg/JDK/Rust 工具及 zip；脚本先通过共享 ResourceStore 校验资源，再构建原生库（默认只有 arm64-v8a，`MSIME_ANDROID_ABIS` 加 x86_64，见上节），由 `platforms/android/gradle-app` 的 `assemble<版本>Release`（例如 `assembleFullRelease`）产出未签名 APK（AndroidX 与 Material 是 AAR，资源合并和 R 类生成必须交给 Gradle/AGP），最后用 SDK 的 zipalign/apksigner 对齐、签名并验证 `target/android/<apk 名>.apk`（full 是 `msime-client.apk`）。APK 随包带锁定词库、原生依赖声明和 `LICENSE`；签名前进行 16 KB zip 对齐，签名后再验证。
+本地构建：`ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/build-apk.sh <已锁定词库目录>`。需要前述 NDK/vcpkg/JDK/Rust 工具及 zip；脚本先通过共享 ResourceStore 校验资源，再构建原生库（默认只有 arm64-v8a，`MSIME_ANDROID_ABIS` 加 x86_64，见上节），由 `platforms/android/gradle-app` 的 `assemble<版本>Release`（例如 `assembleFullRelease`）产出未签名 APK（AndroidX 与 Material 是 AAR，资源合并和 R 类生成必须交给 Gradle/AGP），最后用 SDK 的 zipalign/apksigner 对齐、签名并验证 `target/android/<apk 名>.apk`（full 是 `msime-android.apk`）。APK 随包带锁定词库、原生依赖声明和 `LICENSE`；签名前进行 16 KB zip 对齐，签名后再验证。
 
 开发密钥是 Android SDK 的调试密钥 `~/.android/debug.keystore`，不在仓库或 `target/` 里，不得用于正式发行。正式包由 `release-android.yml` 用仓库 secrets `ANDROID_RELEASE_KEYSTORE_BASE64`（PKCS12，别名 `msime-release`）与 `ANDROID_RELEASE_KEYSTORE_PASSWORD` 签名，`build-apk.sh` 在设置了 `MSIME_ANDROID_RELEASE_KEYSTORE` 与 `MSIME_ANDROID_RELEASE_KEYSTORE_PASSWORD` 时改用它；发布密钥不能更换，更换后已安装的用户无法覆盖升级。所有 worktree 与 Tauri、Android Studio 的调试构建共用它，所以换一个 worktree 构建也能直接覆盖安装。删除该文件会改变后续开发签名，之后不能直接覆盖安装由旧密钥签名的包。构建临时文件留在 target/android 便于排查，不触碰任何设备。
 

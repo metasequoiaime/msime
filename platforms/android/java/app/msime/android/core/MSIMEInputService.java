@@ -6590,12 +6590,11 @@ public final class MSIMEInputService extends InputMethodService {
         if (shortcutScroll != null)
             ViewPolicy.setVisible(shortcutScroll, !heightMode && idle && !hasDiagnostic && !toolbarHidden);
         if (candidateLine != null)
-            candidateLine.setVisibility(!heightMode && !idle && !hasDiagnostic
-                ? View.VISIBLE : View.GONE);
+            ViewPolicy.setVisible(candidateLine, !heightMode && !idle && !hasDiagnostic);
         if (replyKeyboard == null || replyKeyboard.getVisibility() != View.VISIBLE)
             imeBottomRow.updateActionRow();
         if (candidateViewport != null)
-            candidateViewport.setVisibility(!idle && !hasDiagnostic ? View.VISIBLE : View.GONE);
+            ViewPolicy.setVisible(candidateViewport, !idle && !hasDiagnostic);
         updateCandidateViewportHeight();
         if (scriptShortcutButton != null) {
             ViewPolicy.hide(scriptShortcutButton);
@@ -6638,7 +6637,7 @@ public final class MSIMEInputService extends InputMethodService {
                 scriptShortcutButton.setStateDescription(outputState);
         }
         if (emojiShortcutButton != null) {
-            emojiShortcutButton.setVisibility(toolbarEmoji ? View.VISIBLE : View.GONE);
+            ViewPolicy.setVisible(emojiShortcutButton, toolbarEmoji);
             emojiShortcutButton.setEnabled(session != 0 && !emojiResources.isEmpty());
             emojiShortcutButton.setSelected(emojiPanel != null
                 && emojiPanel.getVisibility() == View.VISIBLE);
@@ -6678,7 +6677,7 @@ public final class MSIMEInputService extends InputMethodService {
             String currentLocalMode = view == null ? "none" : view.optString("local_mode", "none");
             boolean visible = MicrosoftShuangpinKeyPolicy.visible(
                 dedicatedEnglish, selectedScheme, currentLocalMode);
-            microsoftFinalKey.setVisibility(visible ? View.VISIBLE : View.GONE);
+            ViewPolicy.setVisible(microsoftFinalKey, visible);
             microsoftFinalKey.setEnabled(visible && session != 0);
             microsoftFinalKey.setContentDescription("微软双拼 ing");
         }
