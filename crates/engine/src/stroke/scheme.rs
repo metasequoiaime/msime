@@ -138,22 +138,29 @@ impl StrokeScheme {
         };
         let entries = exact.into_iter().chain(completions).collect::<Vec<_>>();
         let mut seen = HashSet::with_capacity(entries.len());
-        let unique = entries
+        let duplicates = entries
             .iter()
-            .map(|(_, entry)| seen.insert(entry.text.as_str()))
+            .enumerate()
+            .filter_map(|(index, (_, entry))| (!seen.insert(entry.text.as_str())).then_some(index))
             .collect::<Vec<_>>();
         drop(seen);
         let mut candidates = Vec::with_capacity(entries.len());
+        let mut duplicates = duplicates.into_iter().peekable();
         candidates.extend(
             entries
                 .into_iter()
-                .zip(unique)
-                .filter_map(|((key, entry), unique)| {
-                    unique.then_some(StrokeCandidate {
-                        text: entry.text,
-                        weight: entry.weight,
-                        key,
-                    })
+                .enumerate()
+                .filter_map(|(index, (key, entry))| {
+                    if duplicates.peek() == Some(&index) {
+                        duplicates.next();
+                        None
+                    } else {
+                        Some(StrokeCandidate {
+                            text: entry.text,
+                            weight: entry.weight,
+                            key,
+                        })
+                    }
                 }),
         );
         // 稳定排序：只把没有字频的字移到后面，其余顺序不变。
