@@ -306,7 +306,7 @@ final class ImeFunctionPanel {
         KeyboardGeometry.setKeyTextSize(button, 15);
         button.setContentDescription(description);
         button.setKeyboardRole(KeyboardKeyRole.ACCENT);
-        button.setEnabled(enabled);
+        ViewPolicy.setEnabled(button, enabled);
         s.applyToolCardState(button, enabled);
         if (Build.VERSION.SDK_INT >= 30) button.setStateDescription(enabled ? null : "不可用");
         bindToolAction(button, action, true);
