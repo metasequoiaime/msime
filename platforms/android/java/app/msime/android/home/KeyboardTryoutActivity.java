@@ -139,7 +139,7 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
             }
         });
 
-        sendAi.setOnClickListener(ignored -> {
+        ViewPolicy.bindClick(sendAi, () -> {
             if (sending) cancelChat(sendAi);
             else sendChat(field, sendAi);
         });
