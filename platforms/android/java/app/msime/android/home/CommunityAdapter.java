@@ -15,6 +15,7 @@ import app.msime.android.BoundsPolicy;
 import app.msime.android.DrawablePolicy;
 import app.msime.android.KeyboardSkin;
 import app.msime.android.R;
+import app.msime.android.TextPolicy;
 import app.msime.android.ViewPolicy;
 import java.util.ArrayList;
 import java.util.HashMap;
