@@ -364,7 +364,7 @@ public final class AiSkinPage extends DetailPage {
             ViewPolicy.setSingleLine(chip);
             Ui.setSymmetricPaddingDp(chip, context, 12, 6);
             ViewPolicy.setInteractive(chip, true);
-            chip.setOnClickListener(ignored -> {
+            ViewPolicy.bindClick(chip, () -> {
                 if (s.busy) return;
                 input.setText(suggestion);
                 input.setSelection(input.length());
