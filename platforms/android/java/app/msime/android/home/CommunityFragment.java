@@ -30,6 +30,7 @@ import app.msime.android.DictionaryCollectionsStore;
 import app.msime.android.R;
 import app.msime.android.SyncSignals;
 import app.msime.android.SyncSwitch;
+import app.msime.android.ViewPolicy;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.button.MaterialButtonToggleGroup;
 import com.google.android.material.chip.Chip;
@@ -469,8 +470,8 @@ public final class CommunityFragment extends Fragment {
             .create();
         dialog.setOnShowListener(ignored -> {
             View submit = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
-            submit.setEnabled(false);
-            reasons.setOnCheckedChangeListener((group, checked) -> submit.setEnabled(checked != -1));
+            ViewPolicy.setEnabled(submit, false);
+            reasons.setOnCheckedChangeListener((group, checked) -> ViewPolicy.setEnabled(submit, checked != -1));
             submit.setOnClickListener(clicked -> {
                 View checked = reasons.findViewById(reasons.getCheckedRadioButtonId());
                 String reason = checked == null ? "" : String.valueOf(checked.getTag());
