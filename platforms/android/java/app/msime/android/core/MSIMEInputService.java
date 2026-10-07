@@ -2982,7 +2982,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (quickPunctuationButton == null) return;
         java.util.List<QuickPunctuationPolicy.Entry> entries = quickPunctuationEntries();
         boolean visible = quickPunctuationVisible() && !entries.isEmpty();
-        quickPunctuationButton.setVisibility(visible ? View.VISIBLE : View.GONE);
+        ViewPolicy.setVisible(quickPunctuationButton, visible);
         if (!visible) return;
         String face = entries.get(0).face();
         // 与句号键一样按墨迹居中放大画：全角「，」原样居中时只剩键底一个小点。
