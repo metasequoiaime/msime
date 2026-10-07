@@ -996,7 +996,7 @@ final class ImePanels {
                 selected = s.dedicatedEnglish;
                 card = new KeyboardSchemeCard(s, "EN", "26", title);
                 bindFeedbackAction(card, s::selectEnglishScheme);
-                card.setEnabled(!s.schemeSaving);
+                ViewPolicy.setEnabled(card, !s.schemeSaving);
             } else {
                 KeyboardScheme scheme = schemes.get(index > englishIndex ? index - 1 : index);
                 title = scheme.title(s.wubiProfile);
