@@ -181,7 +181,7 @@ public final class AboutPage extends DetailPage {
         Ui.setPaddingDp(header, context, 0, 8, 0, 20);
 
         FrameLayout disc = new FrameLayout(context);
-        disc.setBackground(Ui.pill(Ui.color(context, com.google.android.material.R.attr.colorTertiaryContainer)));
+        ViewPolicy.setBackground(disc, Ui.pill(Ui.color(context, com.google.android.material.R.attr.colorTertiaryContainer)));
         ImageView mark = Ui.decorativeIcon(context, R.drawable.splash_mark);
         int markSize = Ui.dp(context, 60);
         disc.addView(mark, Ui.squareFrameParamsPx(markSize, Gravity.CENTER));
@@ -232,7 +232,7 @@ public final class AboutPage extends DetailPage {
         // 「已是最新版本」是结果而不是按钮，换成 accentSoft 底、强调色字，再点一次重新检查。
         boolean quiet = state == State.UP_TO_DATE || busy;
         ViewPolicy.setTextColor(button, quiet ? Ui.accent(context) : Ui.onAccent(context));
-        button.setBackground(Ui.pillRipple(context, quiet ? Ui.accentSoft(context) : Ui.accent(context)));
+        ViewPolicy.setBackground(button, Ui.pillRipple(context, quiet ? Ui.accentSoft(context) : Ui.accent(context)));
     }
 
     private void onPill() {
