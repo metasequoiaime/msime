@@ -1,7 +1,6 @@
 package app.msime.android;
 
 import java.util.LinkedHashMap;
-import java.util.Locale;
 import java.util.Map;
 
 /** Visibility and bounded decoding for Engine-owned double-pinyin key hints. */
@@ -76,7 +75,7 @@ public final class ShuangpinKeyHintPolicy {
             boolean dedicatedEnglish, int scheme, String localMode) {
         if (!visible(dedicatedEnglish, scheme, localMode) || key == null || hints == null)
             return "";
-        return hints.getOrDefault(key.toUpperCase(Locale.ROOT), "");
+        return hints.getOrDefault(TextPolicy.uppercase(key), "");
     }
 
     private static boolean validKey(String key) {

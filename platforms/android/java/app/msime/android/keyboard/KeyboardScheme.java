@@ -143,7 +143,7 @@ public enum KeyboardScheme {
         for (KeyboardScheme candidate : enabled) {
             if (candidate.offeredBy(edition) && candidate.installed(directory)) installed.add(candidate);
         }
-        return installed.isEmpty() ? List.of(fallback(edition)) : List.copyOf(installed);
+        return withFallback(installed, edition);
     }
 
     public static KeyboardScheme fromPreferenceId(String value) {
@@ -162,7 +162,7 @@ public enum KeyboardScheme {
                 if ((!candidate.optIn() || !edition.offersSchemeChoice()) && candidate.offeredBy(edition))
                     defaults.add(candidate);
             }
-            return defaults.isEmpty() ? List.of(fallback(edition)) : List.copyOf(defaults);
+            return withFallback(defaults, edition);
         }
         Set<String> requested = new LinkedHashSet<>(ids);
         // A plain loop, not `Stream#toList`: that arrived in API 34 and this host declares
@@ -171,14 +171,23 @@ public enum KeyboardScheme {
         for (KeyboardScheme candidate : values()) {
             if (requested.contains(candidate.preferenceId) && candidate.offeredBy(edition)) enabled.add(candidate);
         }
-        return enabled.isEmpty() ? List.of(fallback(edition)) : List.copyOf(enabled);
+        return withFallback(enabled, edition);
+    }
+
+    private static List<KeyboardScheme> withFallback(List<KeyboardScheme> schemes,
+            AppEdition edition) {
+        return List.copyOf(availableOrFallback(schemes, edition));
+    }
+
+    private static List<KeyboardScheme> availableOrFallback(List<KeyboardScheme> schemes,
+            AppEdition edition) {
+        return schemes == null || schemes.isEmpty() ? List.of(fallback(edition)) : schemes;
     }
 
     /** Shared selected is authoritative; otherwise preserve the applied scheme or use first enabled. */
     public static KeyboardScheme resolveEnabledSelection(KeyboardScheme applied,
             String selectedPreferenceId, List<KeyboardScheme> enabled, AppEdition edition) {
-        List<KeyboardScheme> available = enabled == null || enabled.isEmpty()
-            ? List.of(fallback(edition)) : enabled;
+        List<KeyboardScheme> available = availableOrFallback(enabled, edition);
         KeyboardScheme selected = fromPreferenceId(selectedPreferenceId);
         if (selected != null && available.contains(selected)) return selected;
         if (selectedPreferenceId == null && applied != null && available.contains(applied)) return applied;

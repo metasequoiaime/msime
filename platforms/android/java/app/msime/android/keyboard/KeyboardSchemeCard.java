@@ -67,7 +67,7 @@ public final class KeyboardSchemeCard extends FrameLayout {
         title.setMaxLines(1);
         KeyboardGeometry.setKeyTextSize(title, 12);
         // 卡片格子只有 56 dp，字形区占去 44 dp；去掉字体留白，标题在 1.15 倍字体下仍放得下。
-        title.setIncludeFontPadding(false);
+        ViewPolicy.clearFontPadding(title);
         ViewPolicy.setMaxLinesEllipsized(title, 1);
 
         // 字形、角标和对勾挤在一小块里，彼此的位置只跟字形框有关，跟卡片宽度无关；先把它们装进一个
@@ -177,9 +177,9 @@ public final class KeyboardSchemeCard extends FrameLayout {
     }
 
     private void setFaceTextColor(int face) {
-        glyph.setTextColor(face);
-        badge.setTextColor(face);
-        title.setTextColor(face);
+        ViewPolicy.setTextColor(glyph, face);
+        ViewPolicy.setTextColor(badge, face);
+        ViewPolicy.setTextColor(title, face);
     }
 
     public boolean isCardSelected() { return selected; }

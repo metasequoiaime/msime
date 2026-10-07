@@ -250,22 +250,21 @@ public final class CommunityAdapter extends RecyclerView.Adapter<CommunityAdapte
         if (pill == null) return;
         String label = label(item, action);
         if (label.isEmpty()) {
-            pill.setVisibility(View.GONE);
+            ViewPolicy.hide(pill);
             pill.setOnClickListener(null);
             return;
         }
-        pill.setVisibility(View.VISIBLE);
+        ViewPolicy.show(pill);
         pill.setText(label);
         boolean skin = item.kind() == CommunityRequest.Kind.SKIN;
         // 「已添加」是终态：没有底色、正文色、不响应；皮肤拿到之后的「使用」仍是可点的 tonal 按钮。
         boolean enabled = action == Action.AVAILABLE || (skin && action == Action.DONE);
         boolean filled = action != Action.DONE || skin;
         pill.setBackground(filled ? Ui.pillRipple(context, Ui.accentSoft(context)) : null);
-        pill.setTextColor(filled ? Ui.accent(context) : Ui.text(context));
-        pill.setEnabled(enabled);
-        pill.setClickable(enabled);
-        pill.setFocusable(enabled);
-        pill.setAlpha(action == Action.BUSY ? 0.6f : 1f);
+        ViewPolicy.setTextColor(pill, filled ? Ui.accent(context) : Ui.text(context));
+        ViewPolicy.setEnabled(pill, enabled);
+        ViewPolicy.setInteractive(pill, enabled);
+        ViewPolicy.setActiveAlpha(pill, action != Action.BUSY, 0.6f);
         if (enabled) ViewPolicy.bindClick(pill, () -> onAction.accept(item));
         else pill.setOnClickListener(null);
         pill.setAccessibilityDelegate(KeyboardSheets.buttonDelegate(label + "，" + item.name()));

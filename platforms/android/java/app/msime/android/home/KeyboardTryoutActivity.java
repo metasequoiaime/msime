@@ -21,6 +21,7 @@ import androidx.annotation.Nullable;
 import app.msime.android.ColorPolicy;
 import app.msime.android.BoundsPolicy;
 import app.msime.android.TextPolicy;
+import app.msime.android.ViewPolicy;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
@@ -118,13 +119,15 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
             getSystemService(InputMethodManager.class).showInputMethodPicker());
 
         // 收起键盘 only means something while the keyboard is up, as on Apple.
-        dismiss.setVisibility(View.GONE);
+        ViewPolicy.hide(dismiss);
         dismiss.setOnClickListener(ignored -> {
             field.clearFocus();
             getSystemService(InputMethodManager.class).hideSoftInputFromWindow(field.getWindowToken(), 0);
         });
-        field.setOnFocusChangeListener((view, focused) ->
-            dismiss.setVisibility(focused ? View.VISIBLE : View.GONE));
+        field.setOnFocusChangeListener((view, focused) -> {
+            if (focused) ViewPolicy.show(dismiss);
+            else ViewPolicy.hide(dismiss);
+        });
 
         field.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) { }

@@ -23,6 +23,7 @@ public final class LocalAsrPolicySmoke {
         check(!LocalAsrPolicy.usable("local", "models/x"), "a relative path is refused");
         check(!LocalAsrPolicy.usable("local", "/models/x\n/other"), "a control character is refused");
         check(!LocalAsrPolicy.usable("local", "/" + "a".repeat(LocalAsrPolicy.MAX_PATH_LENGTH)), "an overlong path is refused");
+        check(!LocalAsrPolicy.usable("local", "/" + "😀".repeat(1024)), "a path over the shared UTF-8 byte limit is refused");
 
         Path root = Files.createTempDirectory("msime-local-asr");
         try {
@@ -117,6 +118,7 @@ public final class LocalAsrPolicySmoke {
         check(!LocalAsrPolicy.suppliedHotword("  ", "kong"), "a blank word is dropped");
         check(!LocalAsrPolicy.suppliedHotword("水\n杉", "shui shan") && !LocalAsrPolicy.suppliedHotword("水杉", "shui\nshan"), "a control character is dropped");
         check(!LocalAsrPolicy.suppliedHotword("字".repeat(LocalAsrPolicy.MAX_HOTWORD_TEXT_LENGTH + 1), "zi"), "an overlong word is dropped");
+        check(!LocalAsrPolicy.suppliedHotword("😀".repeat(65), "emoji"), "a hotword over the shared UTF-8 byte limit is dropped");
         check(!LocalAsrPolicy.suppliedHotword("水杉", "a".repeat(LocalAsrPolicy.MAX_HOTWORD_PINYIN_LENGTH + 1)), "an overlong pinyin is dropped");
         check(!LocalAsrPolicy.suppliedHotword("坏\uD800", "huai"), "a malformed word is dropped");
         check(LocalAsrPolicy.hotwordLines(Arrays.asList("坏\uD800", "好")).equals("好"),

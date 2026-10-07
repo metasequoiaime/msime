@@ -37,10 +37,10 @@ export function useExternalUrl({
 }: UseExternalUrlOptions) {
   async function openExternalUrl(url: string) {
     try {
+      if (!isSafeExternalUrl(url)) throw new Error("invalid URL");
       if (hostOpenExternalUrl) {
         await hostOpenExternalUrl(url);
       } else {
-        if (!isSafeExternalUrl(url)) throw new Error("invalid URL");
         const opened = window.open(url, "_blank", "noopener,noreferrer");
         if (!opened) throw new Error("popup blocked");
       }

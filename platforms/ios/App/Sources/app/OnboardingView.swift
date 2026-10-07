@@ -82,7 +82,7 @@ struct InputSettingsView: View {
           ForEach(ChineseInputScheme.allCases.filter(\.isOfferedByEdition), id: \.self) { scheme in
             HStack {
               Button {
-                schemeSaveFailed = !InputSchemePreference.save(scheme: scheme, enabled: enabledSchemes)
+                schemeSaveFailed = !InputSchemePreference.select(scheme)
                 reloadPreferences()
               } label: {
                 HStack {
@@ -101,9 +101,7 @@ struct InputSettingsView: View {
               .accessibilityAddTraits(inputScheme == scheme ? [.isSelected] : [])
               .disabled(!enabledSchemes.contains(scheme))
               Toggle(scheme.title, isOn: Binding(get: { enabledSchemes.contains(scheme) }, set: { enabled in
-                var selection = enabledSchemes
-                if enabled { selection.append(scheme) } else { selection.removeAll { $0 == scheme } }
-                schemeSaveFailed = !InputSchemePreference.save(scheme: inputScheme, enabled: selection)
+                schemeSaveFailed = !InputSchemePreference.setEnabled(scheme, enabled)
                 reloadPreferences()
               }))
               .labelsHidden()
@@ -286,10 +284,12 @@ struct InputSettingsView: View {
   }
 
   private func reloadPreferences() {
+    document = MetasequoiaInputSessionBridge.loadSharedPreferences()
+    InputSchemePreference.mirror(document)
+    ChineseOutputPreference.mirror(document)
     inputScheme = InputSchemePreference.scheme
     enabledSchemes = InputSchemePreference.enabledSchemes
     usesTraditionalOutput = ChineseOutputPreference.usesTraditional
-    document = MetasequoiaInputSessionBridge.loadSharedPreferences()
     if let document { WubiProfilePreference.mirror(document) }
     wubiProfile = WubiProfilePreference.profile
     startsInEnglish = document?["default_ime_mode"] as? String == "english"

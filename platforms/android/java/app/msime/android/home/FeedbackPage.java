@@ -1,7 +1,5 @@
 package app.msime.android.home;
 
-import android.content.ClipData;
-import android.content.ClipboardManager;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.pm.PackageInfo;
@@ -130,7 +128,7 @@ public final class FeedbackPage extends DetailPage {
 
         TextView button = Ui.textButton(context, "", 16, 600, Ui.onAccent(context), null,
             Ui.ACTION_BUTTON_MIN_HEIGHT, this::submit);
-        button.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+        ViewPolicy.setPoliteLiveRegion(button);
         LinearLayout.LayoutParams buttonParams = Ui.matchWidth();
         buttonParams.topMargin = Ui.dp(requireContext(), Ui.GROUP_GAP);
         column.addView(button, buttonParams);
@@ -184,11 +182,12 @@ public final class FeedbackPage extends DetailPage {
         if (context == null || counter == null || submit == null) return;
         int length = FeedbackApi.length(draft);
         counter.setText(length + " / " + FeedbackApi.MAX_TEXT);
-        counter.setTextColor(length > FeedbackApi.MAX_TEXT ? Ui.danger(context) : Ui.subText(context));
+        ViewPolicy.setTextColor(counter,
+            length > FeedbackApi.MAX_TEXT ? Ui.danger(context) : Ui.subText(context));
         boolean ready = !sending && !sent && FeedbackApi.validText(draft);
         submit.setText(sent ? "已提交" : sending ? "正在提交…" : "提交");
         submit.setEnabled(ready);
-        submit.setTextColor(ready ? Ui.onAccent(context) : Ui.subText(context));
+        ViewPolicy.setTextColor(submit, ready ? Ui.onAccent(context) : Ui.subText(context));
         int fill = ready ? Ui.accent(context)
             : Ui.color(context, com.google.android.material.R.attr.colorSurfaceContainerHighest);
         submit.setBackground(Ui.rippleOn(context, fill, Ui.dp(requireContext(), Ui.GROUP_RADIUS)));
@@ -351,10 +350,7 @@ public final class FeedbackPage extends DetailPage {
     }
 
     private void copy(String label, String value, String done) {
-        ClipboardManager clipboard = requireContext().getSystemService(ClipboardManager.class);
-        if (clipboard == null) return;
-        clipboard.setPrimaryClip(ClipData.newPlainText(label, value));
-        MsToast.show(requireContext(), done);
+        ClipboardActions.copyText(requireContext(), label, value, done);
     }
 
     /** 没装 Telegram 又没有浏览器时，退而复制链接。 */
