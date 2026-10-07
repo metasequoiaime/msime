@@ -176,7 +176,7 @@ public final class UpdateApi {
     }
 
     private static String[] splitVersion(String version) {
-        String value = version == null ? "" : version.trim();
+        String value = TextPolicy.trimmed(version);
         if (value.startsWith("v") || value.startsWith("V")) value = value.substring(1);
         int plus = value.indexOf('+');
         if (plus >= 0) value = value.substring(0, plus);
@@ -251,6 +251,11 @@ public final class UpdateApi {
         return SHA256.matcher(digest).matches() ? digest : null;
     }
 
+    /** org.json's optString coerces numbers; release metadata must keep its JSON string types. */
+    static String strictString(Object value) {
+        return value instanceof String ? (String) value : null;
+    }
+
     /** 读 msime.app 的发行版列表：`{items:[{tag,version,prerelease,…}]}`，只保留平台是 android 的条目。 */
     public static List<Release> parseReleases(String json) throws Failure {
         try {
@@ -261,12 +266,15 @@ public final class UpdateApi {
             for (int index = 0; index < items.length(); index++) {
                 JSONObject item = items.optJSONObject(index);
                 if (item == null) continue;
-                String platform = item.optString("platform", "android");
+                Object rawPlatform = item.opt("platform");
+                String platform = rawPlatform == null || rawPlatform == JSONObject.NULL
+                    ? "android" : strictString(rawPlatform);
                 if (!"android".equals(platform)) continue;
                 Object prerelease = item.opt("prerelease");
-                String tag = item.optString("tag", "");
-                String version = item.optString("version", "");
-                if (tag.isEmpty() || version.isEmpty() || !(prerelease instanceof Boolean)) continue;
+                String tag = strictString(item.opt("tag"));
+                String version = strictString(item.opt("version"));
+                if (tag == null || version == null || tag.isEmpty() || version.isEmpty()
+                        || !(prerelease instanceof Boolean)) continue;
                 releases.add(new Release(tag, version, (Boolean) prerelease));
             }
             return releases;
@@ -301,8 +309,16 @@ public final class UpdateApi {
     }
 
     private File downloadLocked(Update update, File cacheDir, Progress progress, String expected) throws Failure {
+        if (cacheDir == null) throw new Failure("没有空间存放安装包");
+        java.nio.file.Path cachePath = cacheDir.toPath();
+        if (Files.isSymbolicLink(cachePath)) throw new Failure("更新目录不安全");
         File directory = new File(cacheDir, CACHE_DIRECTORY);
-        if (!directory.isDirectory() && !directory.mkdirs()) throw new Failure("没有空间存放安装包");
+        java.nio.file.Path directoryPath = directory.toPath();
+        if (Files.isSymbolicLink(directoryPath)) throw new Failure("更新目录不安全");
+        if (!Files.isDirectory(directoryPath, LinkOption.NOFOLLOW_LINKS)
+                && !directory.mkdirs()) throw new Failure("没有空间存放安装包");
+        if (!Files.isDirectory(directoryPath, LinkOption.NOFOLLOW_LINKS))
+            throw new Failure("更新目录不安全");
         File[] stale = directory.listFiles();
         if (stale != null) {
             for (File file : stale) {
@@ -406,18 +422,11 @@ public final class UpdateApi {
 
     /** 文件的 SHA-256 十六进制。 */
     public static String sha256Hex(File file) throws IOException {
-        MessageDigest digest = sha256();
-        try (InputStream in = Files.newInputStream(file.toPath(), LinkOption.NOFOLLOW_LINKS)) {
-            byte[] buffer = new byte[64 * 1024];
-            for (int read; (read = in.read(buffer)) != -1; ) digest.update(buffer, 0, read);
-        }
-        return hex(digest.digest());
+        return DigestPolicy.sha256Hex(file);
     }
 
     static String hex(byte[] bytes) {
-        StringBuilder out = new StringBuilder(bytes.length * 2);
-        for (byte value : bytes) out.append(String.format(Locale.ROOT, "%02x", value & 0xff));
-        return out.toString();
+        return DigestPolicy.hex(bytes);
     }
 
     private static MessageDigest sha256() {

@@ -12,6 +12,7 @@ import androidx.core.view.AccessibilityDelegateCompat;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.accessibility.AccessibilityNodeInfoCompat;
 import app.msime.android.R;
+import app.msime.android.ViewPolicy;
 
 /** Shared option-row renderer used by the settings bottom sheets. */
 final class SheetOptionView {
@@ -21,15 +22,11 @@ final class SheetOptionView {
             int color, boolean bold, Runnable action) {
         FrameLayout row = new FrameLayout(context);
         Ui.setMinimumHeightDp(row, context, Ui.SHEET_OPTION_HEIGHT);
-        row.setBackground(Ui.ripple(context));
-        row.setClickable(true);
-        row.setFocusable(true);
-        row.setOnClickListener(ignored -> action.run());
+        Ui.makeClickable(row, context, action);
 
-        TextView text = new TextView(context);
-        text.setText(nested ? label + " ›" : label);
-        text.setGravity(Gravity.CENTER);
-        Ui.style(text, Ui.TEXT_SHEET_OPTION, bold ? 600 : 400, color);
+        TextView text = Ui.styledLabel(context, nested ? label + " ›" : label,
+            Ui.TEXT_SHEET_OPTION, bold ? 600 : 400, color);
+        ViewPolicy.setCentered(text);
         FrameLayout.LayoutParams textParams = Ui.frameWrap(Gravity.CENTER);
         textParams.leftMargin = Ui.dp(context, Ui.SHEET_OPTION_TEXT_INSET);
         textParams.rightMargin = Ui.dp(context, Ui.SHEET_OPTION_TEXT_INSET);
@@ -38,10 +35,8 @@ final class SheetOptionView {
         row.addView(text, textParams);
 
         if (selected) {
-            ImageView check = new ImageView(context);
-            check.setImageResource(R.drawable.ms_w1_a2_check);
-            Ui.setImageTint(check, Ui.accent(context));
-            check.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            ImageView check = Ui.decorativeIcon(context, R.drawable.ms_w1_a2_check,
+                Ui.accent(context));
             FrameLayout.LayoutParams checkParams = Ui.squareFrameParams(context, Ui.SHEET_CHECK_SIZE);
             checkParams.gravity = Gravity.CENTER_VERTICAL | Gravity.END;
             checkParams.setMarginEnd(Ui.dp(context, Ui.SHEET_CHECK_END_MARGIN));

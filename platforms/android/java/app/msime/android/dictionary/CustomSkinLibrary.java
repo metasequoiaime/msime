@@ -151,7 +151,7 @@ public final class CustomSkinLibrary {
 
     /** 原子写入整个库；超过字节上限时不写并返回 false。 */
     private static boolean write(Path root, JSONArray values) throws IOException {
-        byte[] document = values.toString().getBytes(StandardCharsets.UTF_8);
+        byte[] document = TextPolicy.utf8Bytes(values.toString());
         if (document.length > MAX_LIBRARY_BYTES) return false;
         Path directory = root.resolve("CustomSkins");
         ensureSafeDirectory(directory);
@@ -209,7 +209,7 @@ public final class CustomSkinLibrary {
         for (Item item : items) {
             JSONObject exported = entry(item.id(), item.name(),
                 CustomKeyboardSkin.from(item.design()).toJson(false), item.updatedAt());
-            long size = exported.toString().getBytes(StandardCharsets.UTF_8).length
+            long size = TextPolicy.utf8Bytes(exported.toString()).length
                 + (values.length() == 0 ? 0 : 1);
             if (used + size > maxBytes) break;
             values.put(exported);

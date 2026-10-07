@@ -20,7 +20,7 @@ use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::BTreeSet;
+use std::collections::HashSet;
 use std::fs;
 use std::io::{Cursor, Write};
 use std::path::Path;
@@ -495,7 +495,7 @@ fn validate_page(mut page: CommunityPluginPage) -> Result<CommunityPluginPage, A
     if page.plugins.iter().any(|item| validate_item(item).is_err()) {
         return Err(AccountError::Unavailable);
     }
-    let mut ids = BTreeSet::new();
+    let mut ids = HashSet::with_capacity(page.plugins.len());
     if page.plugins.iter().any(|item| !ids.insert(item.id)) {
         return Err(AccountError::Unavailable);
     }
@@ -573,7 +573,7 @@ pub fn pack(root: &Path, kind: PluginKind, id: &str) -> Result<PackedPlugin, Plu
     let summary = load_package(root, None, kind, id).map_err(PluginError::Invalid)?;
     let files = list_files(&summary.directory).map_err(PluginError::Invalid)?;
     // The pack rules allow ASCII letters of either case, and the server stores archive members case-insensitively, so two names that differ only by case cannot both be shared.
-    let mut lowercase = BTreeSet::new();
+    let mut lowercase = HashSet::with_capacity(files.len());
     if files
         .keys()
         .any(|name| !lowercase.insert(name.to_ascii_lowercase()))

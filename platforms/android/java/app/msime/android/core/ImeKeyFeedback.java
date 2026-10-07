@@ -10,6 +10,7 @@ import android.os.VibrationEffect;
 import android.view.HapticFeedbackConstants;
 import android.view.View;
 import android.view.ViewParent;
+import app.msime.android.policy.HostOptionsPolicy;
 import java.io.File;
 import java.lang.ref.WeakReference;
 import java.util.Map;
@@ -129,6 +130,11 @@ final class ImeKeyFeedback {
         return KeyboardGeometry.bounded(percent, 0, 100) / 100f;
     }
 
+    /** 共享偏好里的音量必须是 JSON 整数；异常值按 100% 处理。 */
+    static int volumePreference(Object raw) {
+        return KeyboardGeometry.strictInt(raw, 100);
+    }
+
     private void refreshPreferences() {
         JSONObject preferences = s.preferencesSnapshot == null ? null
             : s.preferencesSnapshot.optJSONObject("preferences");
@@ -138,7 +144,7 @@ final class ImeKeyFeedback {
         packId = packFor(preferences);
         JSONObject plugins = preferences == null ? null : preferences.optJSONObject("plugins");
         JSONObject keySound = plugins == null ? null : plugins.optJSONObject("key_sound");
-        volume = volumeFor(keySound == null ? 100 : keySound.optInt("volume", 100));
+        volume = volumeFor(volumePreference(keySound == null ? null : keySound.opt("volume")));
         animation = KeyPressAnimator.Style.fromPreference(
             s.localSettings.choice(AndroidLocalSettings.KEY_ANIMATION));
         PackSounds loaded = sounds;
@@ -202,11 +208,11 @@ final class ImeKeyFeedback {
         File files = s.getFilesDir();
         String state = s.preferencesDirectory != null && new File(s.preferencesDirectory).isAbsolute()
             ? s.preferencesDirectory
-            : files == null ? null : new File(files, "bootstrap/state").getAbsolutePath();
+            : files == null ? null : HostOptionsPolicy.bootstrapStateDirectory(files);
         JSONObject request = new JSONObject();
         request.put("state_root", state == null ? JSONObject.NULL : state);
-        request.put("sound_packs", files == null ? JSONObject.NULL
-            : new File(files, "sound-packs").getAbsolutePath());
+        File soundPacks = HostOptionsPolicy.soundPacksDirectory(files);
+        request.put("sound_packs", soundPacks == null ? JSONObject.NULL : soundPacks.getAbsolutePath());
         request.put("pack", pack);
         return request.toString();
     }
@@ -225,7 +231,8 @@ final class ImeKeyFeedback {
                 PackSounds next = null;
                 try {
                     JSONObject root = new JSONObject(NativeClient.keySoundPack(body));
-                    JSONObject value = root.optBoolean("ok", false) ? root.optJSONObject("value") : null;
+                    JSONObject value = Boolean.TRUE.equals(root.opt("ok"))
+                        ? root.optJSONObject("value") : null;
                     JSONObject files = value == null ? null : value.optJSONObject("sounds");
                     if (value != null && "keys".equals(value.optString("mode")) && files != null) {
                         SoundPool pool = new SoundPool.Builder().setMaxStreams(4)

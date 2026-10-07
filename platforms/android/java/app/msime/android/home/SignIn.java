@@ -193,7 +193,7 @@ final class SignIn {
 
     /** 请服务端发一封 6 位验证码。阻塞，不要在主线程调用。 */
     static EmailCode requestEmailCode(Context context, String email, String purpose) {
-        String target = email == null ? "" : email.trim();
+        String target = TextPolicy.trimmed(email);
         if (!BackendAccount.validEmail(target)) return new EmailCode(null, "邮箱地址看起来不完整");
         try {
             return new EmailCode(new BackendAccount(context).requestEmailCode(target, purpose), "");
@@ -211,7 +211,7 @@ final class SignIn {
 
     /** 提交验证码完成登录。阻塞。成功返回空字符串，否则返回给人看的一句话。 */
     static String verifyEmailCode(Context context, BackendAccount.EmailChallenge challenge, String code) {
-        String credential = code == null ? "" : code.trim();
+        String credential = TextPolicy.trimmed(code);
         if (!BackendAccount.validEmailCode(credential)) return "验证码是 6 位数字";
         try {
             new BackendAccount(context).verifyEmailCode(challenge, credential, userAgent(context));

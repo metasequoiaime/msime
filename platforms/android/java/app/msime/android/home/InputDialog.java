@@ -7,8 +7,6 @@ import android.graphics.drawable.GradientDrawable;
 import android.text.Editable;
 import android.text.InputType;
 import android.text.TextWatcher;
-import android.view.Gravity;
-import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowManager;
@@ -19,6 +17,7 @@ import android.widget.TextView;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatDialog;
 import app.msime.android.BoundsPolicy;
+import app.msime.android.ViewPolicy;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -47,15 +46,12 @@ public final class InputDialog {
         dialog = new AppCompatDialog(context);
         dialog.supportRequestWindowFeature(Window.FEATURE_NO_TITLE);
 
-        LinearLayout root = new LinearLayout(context);
-        root.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout root = Ui.column(context);
         root.setBackground(Ui.rounded(Ui.sheetBackground(context), Ui.dp(context, Ui.DIALOG_RADIUS)));
         root.setClipToOutline(true);
 
-        TextView heading = new TextView(context);
-        heading.setText(title);
-        heading.setGravity(Gravity.CENTER);
-        Ui.style(heading, Ui.TEXT_DIALOG_TITLE, 600, Ui.text(context));
+        TextView heading = Ui.styledLabel(context, title, Ui.TEXT_DIALOG_TITLE, 600, Ui.text(context));
+        ViewPolicy.setCentered(heading);
         heading.setAccessibilityHeading(true);
         LinearLayout.LayoutParams headingParams = Ui.matchWidth();
         headingParams.topMargin = Ui.dp(context, 20);
@@ -64,10 +60,8 @@ public final class InputDialog {
         root.addView(heading, headingParams);
 
         if (message != null && message.length() > 0) {
-            TextView note = new TextView(context);
-            note.setText(message);
-            note.setGravity(Gravity.CENTER);
-            Ui.style(note, Ui.TEXT_SHEET_HEADER, 400, Ui.subText(context));
+            TextView note = Ui.styledLabel(context, message, Ui.TEXT_SHEET_HEADER, 400, Ui.subText(context));
+            ViewPolicy.setCentered(note);
             LinearLayout.LayoutParams params = Ui.matchWidth();
             params.topMargin = Ui.dp(context, 4);
             params.leftMargin = Ui.dp(context, 20);
@@ -75,20 +69,18 @@ public final class InputDialog {
             root.addView(note, params);
         }
 
-        fields = new LinearLayout(context);
-        fields.setOrientation(LinearLayout.VERTICAL);
+        fields = Ui.column(context);
         Ui.setPaddingDp(fields, context, 16, 6, 16, 16);
         root.addView(fields, Ui.matchWidth());
 
-        root.addView(rule(true));
-        LinearLayout buttons = new LinearLayout(context);
-        buttons.setOrientation(LinearLayout.HORIZONTAL);
+        root.addView(Ui.divider(context, true));
+        LinearLayout buttons = Ui.row(context);
         TextView cancel = button("取消", 400, Ui.accent(context));
-        cancel.setOnClickListener(ignored -> dialog.cancel());
+        ViewPolicy.bindClick(cancel, dialog::cancel);
         buttons.addView(cancel, Ui.weightedHeight(context, 48, 1f));
-        buttons.addView(rule(false));
+        buttons.addView(Ui.divider(context, false));
         primary = button("确定", 600, Ui.text(context));
-        primary.setOnClickListener(ignored -> submit());
+        ViewPolicy.bindClick(primary, this::submit);
         buttons.addView(primary, Ui.weightedHeight(context, 48, 1f));
         root.addView(buttons, Ui.matchWidth());
 
@@ -112,12 +104,11 @@ public final class InputDialog {
      * @param inputType `InputType` 的组合；0 表示普通单行文字
      */
     public EditText addField(CharSequence hint, @Nullable CharSequence initial, int inputType) {
-        EditText input = new EditText(context);
+        EditText input = Ui.styledInput(context, 15, 400, Ui.text(context));
         input.setHint(hint);
         input.setText(initial);
         input.setSingleLine(true);
         input.setInputType(inputType == 0 ? InputType.TYPE_CLASS_TEXT : inputType);
-        Ui.style(input, 15, 400, Ui.text(context));
         input.setHintTextColor(Ui.subText(context));
         GradientDrawable field = Ui.outlined(Ui.rowBackground(context), Ui.dp(context, 10),
             Ui.atLeastOnePx(context, 1), Ui.hairline(context));
@@ -180,8 +171,7 @@ public final class InputDialog {
 
     private void refresh() {
         boolean ok = valid.test(values());
-        primary.setEnabled(ok);
-        primary.setAlpha(ok ? 1f : 0.38f);
+        Ui.setEnabledLook(primary, ok);
     }
 
     private void submit() {
@@ -192,24 +182,8 @@ public final class InputDialog {
     }
 
     private TextView button(CharSequence label, int weight, int color) {
-        TextView button = new TextView(context);
-        button.setText(label);
-        button.setGravity(Gravity.CENTER);
-        Ui.style(button, Ui.TEXT_DIALOG_TITLE, weight, color);
-        button.setBackground(Ui.ripple(context));
-        button.setClickable(true);
-        button.setFocusable(true);
-        return button;
+        return Ui.textButton(context, label, Ui.TEXT_DIALOG_TITLE, weight, color, Ui.ripple(context), 0);
     }
 
     /** 分隔线：横的在按钮上方，竖的在两个按钮之间。 */
-    private View rule(boolean horizontal) {
-        View rule = Ui.hairlineView(context);
-        int thin = Ui.hairlinePx(context);
-        rule.setLayoutParams(horizontal
-            ? Ui.matchWidthHeightPx(thin)
-            : new LinearLayout.LayoutParams(thin, ViewGroup.LayoutParams.MATCH_PARENT));
-        return rule;
-    }
-
 }

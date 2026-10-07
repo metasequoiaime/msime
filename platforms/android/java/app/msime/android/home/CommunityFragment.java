@@ -439,8 +439,7 @@ public final class CommunityFragment extends Fragment {
     private void report(CommunityCatalog.Item item) {
         Context context = requireContext();
         int padding = Ui.dp(context, 20);
-        LinearLayout form = new LinearLayout(context);
-        form.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout form = Ui.column(context);
         form.setPadding(padding, Ui.dp(context, 8), padding, 0);
         RadioGroup reasons = new RadioGroup(context);
         for (String reason : CommunityRequest.REPORT_REASONS) {

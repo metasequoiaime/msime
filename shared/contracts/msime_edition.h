@@ -4,7 +4,7 @@
 //
 // 每个 Windows 构建必须定义且只定义一个版本选择宏（MSIME_EDITION_FULL, MSIME_EDITION_PINYIN, MSIME_EDITION_WUBI, MSIME_EDITION_JAPANESE, MSIME_EDITION_VIETNAMESE, MSIME_EDITION_TIBETAN）：CMake 按缓存变量 MSIME_EDITION 定义，WinUI 设置窗口工程按 MsimeEdition 属性定义。少了它就停在这里，而不是悄悄编成 full、去用 full 的管道和 CLSID。
 //
-// full 的名字后缀是空串，管道、事件、互斥量和窗口类名与引入版本之前相同；其他版本的这些名字都带 `.<id>`，GUID 和路径各不相同，所以几个版本可以同时安装，两个版本的 TIP 也可以被同一个应用同时加载。
+// 每个版本（包括 full）的管道、事件、互斥量和窗口类名都带 `.<id>` 后缀，GUID 和路径各不相同，所以几个版本可以同时安装，两个版本的 TIP 也可以被同一个应用同时加载。不带后缀的名字和引入版本之前的那组 GUID 属于 msime-windows（edition_windows.py 的 MSIME_WINDOWS），本仓库的版本都不用，所以也能和 msime-windows 同时安装。
 
 #if (defined(MSIME_EDITION_FULL) + defined(MSIME_EDITION_PINYIN) + defined(MSIME_EDITION_WUBI) + defined(MSIME_EDITION_JAPANESE) + defined(MSIME_EDITION_VIETNAMESE) + defined(MSIME_EDITION_TIBETAN)) != 1
 #error "Define exactly one of MSIME_EDITION_FULL, MSIME_EDITION_PINYIN, MSIME_EDITION_WUBI, MSIME_EDITION_JAPANESE, MSIME_EDITION_VIETNAMESE, MSIME_EDITION_TIBETAN; platforms/windows/CMakeLists.txt does this from MSIME_EDITION"
@@ -12,37 +12,37 @@
 #if defined(MSIME_EDITION_FULL)
 #define MSIME_EDITION_ID "full"
 #define MSIME_EDITION_IS_FULL 1
-#define MSIME_EDITION_NAME_SUFFIX L""
+#define MSIME_EDITION_NAME_SUFFIX L".full"
 #define MSIME_EDITION_DISPLAY_NAME L"\u6c34\u6749\u8f93\u5165\u6cd5"
 #define MSIME_EDITION_DISPLAY_NAME_UTF8 "\346\260\264\346\235\211\350\276\223\345\205\245\346\263\225"
-#define MSIME_EDITION_TEXT_SERVICE_DESCRIPTION L"Metasequoia \u6c34\u6749\u8f93\u5165\u6cd5"
+#define MSIME_EDITION_TEXT_SERVICE_DESCRIPTION L"\u6c34\u6749\u8f93\u5165\u6cd5"
 #define MSIME_EDITION_LANGID 0x0804
 #define MSIME_EDITION_LANGID_STRING L"0x0804"
-#define MSIME_EDITION_CLSID {0xe3062e9a, 0xd834, 0x4637, {0x89, 0x58, 0xed, 0x8c, 0xfa, 0x42, 0x7d, 0x01}}
-#define MSIME_EDITION_CLSID_STRING L"{E3062E9A-D834-4637-8958-ED8CFA427D01}"
-#define MSIME_EDITION_PROFILE_GUID {0x4d59b1b4, 0xd503, 0x44ae, {0x92, 0x59, 0xba, 0xd9, 0xbb, 0x27, 0x78, 0xab}}
-#define MSIME_EDITION_PROFILE_GUID_STRING L"{4D59B1B4-D503-44AE-9259-BAD9BB2778AB}"
-#define MSIME_EDITION_GUID_PRESERVE_KEY_IME_MODE {0x34764e82, 0xae6d, 0x4f71, {0xbb, 0x3a, 0x96, 0x79, 0x9a, 0xec, 0xe4, 0x66}}
-#define MSIME_EDITION_GUID_PRESERVE_KEY_IME_MODE_02 {0x748c1d81, 0x246b, 0x4849, {0x92, 0x1f, 0x14, 0x3b, 0xa2, 0xbe, 0xd3, 0xf5}}
-#define MSIME_EDITION_GUID_PRESERVE_KEY_IME_MODE_03 {0xb7e4f2a1, 0x9c3d, 0x4e8f, {0xa1, 0xb2, 0xc3, 0xd4, 0xe5, 0xf6, 0x07, 0x18}}
-#define MSIME_EDITION_GUID_PRESERVE_KEY_ENGLISH_INPUT_MODE {0xd625c0b1, 0x5a8f, 0x4cc4, {0x9c, 0x65, 0x6c, 0x53, 0x6b, 0xff, 0x2d, 0x91}}
-#define MSIME_EDITION_GUID_PRESERVE_KEY_DOUBLE_SINGLE_BYTE {0x4393748a, 0x89dc, 0x485c, {0xa7, 0xf7, 0x5f, 0xa2, 0x32, 0xce, 0xc7, 0x0b}}
-#define MSIME_EDITION_GUID_PRESERVE_KEY_PUNCTUATION {0x628dda3b, 0x38d8, 0x4521, {0xbd, 0xd4, 0x85, 0xca, 0x38, 0xf4, 0x75, 0xb8}}
-#define MSIME_EDITION_GUID_COMPARTMENT_DOUBLE_SINGLE_BYTE {0x851bc7cb, 0x8395, 0x4fa6, {0x9c, 0x95, 0xdb, 0x6e, 0xfc, 0x2e, 0x64, 0x8e}}
-#define MSIME_EDITION_GUID_COMPARTMENT_PUNCTUATION {0x58da9e0f, 0x88b2, 0x426f, {0x91, 0xc8, 0x80, 0x2c, 0x9b, 0x4d, 0x91, 0x15}}
-#define MSIME_EDITION_GUID_LANGBAR_IME_MODE {0x94b8fd94, 0xe918, 0x4667, {0x93, 0xbe, 0x57, 0xa4, 0x9d, 0x35, 0xb0, 0x2d}}
-#define MSIME_EDITION_GUID_LANGBAR_DOUBLE_SINGLE_BYTE {0x3e044725, 0x9617, 0x402e, {0xb1, 0x13, 0x98, 0x65, 0xad, 0x9b, 0x4f, 0x8e}}
-#define MSIME_EDITION_GUID_LANGBAR_PUNCTUATION {0x596e7ee3, 0xb629, 0x4895, {0xa5, 0xb0, 0xc6, 0x0a, 0x82, 0xb4, 0x7a, 0x04}}
-#define MSIME_EDITION_GUID_DISPLAY_ATTRIBUTE_INPUT {0x688746ff, 0xbaf2, 0x4153, {0x93, 0xed, 0x96, 0x94, 0x34, 0x36, 0x42, 0x2f}}
-#define MSIME_EDITION_GUID_DISPLAY_ATTRIBUTE_CONVERTED {0x1e2209ea, 0x13cd, 0x4550, {0x8a, 0x8f, 0xb3, 0x52, 0xe9, 0x74, 0x4d, 0xf2}}
-#define MSIME_EDITION_GUID_CANDIDATE_UI_ELEMENT {0x9fff12aa, 0xb5ee, 0x4477, {0xa1, 0xaa, 0xa4, 0xbf, 0x5f, 0x7b, 0x24, 0x47}}
-#define MSIME_EDITION_REGISTRY_KEY L"Software\\Metasequoia\\MetasequoiaIME"
+#define MSIME_EDITION_CLSID {0xa1160fe1, 0xde82, 0x4216, {0x9f, 0x2a, 0xbc, 0x8a, 0x8a, 0x76, 0xf8, 0xb9}}
+#define MSIME_EDITION_CLSID_STRING L"{A1160FE1-DE82-4216-9F2A-BC8A8A76F8B9}"
+#define MSIME_EDITION_PROFILE_GUID {0x8bd64f64, 0xec0c, 0x4857, {0xb9, 0x00, 0xf0, 0xf1, 0x64, 0xf8, 0x0b, 0x59}}
+#define MSIME_EDITION_PROFILE_GUID_STRING L"{8BD64F64-EC0C-4857-B900-F0F164F80B59}"
+#define MSIME_EDITION_GUID_PRESERVE_KEY_IME_MODE {0xbcb0ed4b, 0x53ee, 0x4512, {0x8d, 0x1c, 0xbd, 0xa9, 0x29, 0x29, 0x17, 0xee}}
+#define MSIME_EDITION_GUID_PRESERVE_KEY_IME_MODE_02 {0xbcde3b58, 0xf95c, 0x4a51, {0xa3, 0xcb, 0xc1, 0xdb, 0xf9, 0x1a, 0x2d, 0xbf}}
+#define MSIME_EDITION_GUID_PRESERVE_KEY_IME_MODE_03 {0xf7212a2a, 0xa4f7, 0x4331, {0x98, 0x6f, 0x92, 0x56, 0x58, 0x8d, 0x3a, 0x9c}}
+#define MSIME_EDITION_GUID_PRESERVE_KEY_ENGLISH_INPUT_MODE {0xf197c860, 0xfc61, 0x464a, {0xbf, 0xba, 0x94, 0x59, 0xf4, 0x64, 0x78, 0x45}}
+#define MSIME_EDITION_GUID_PRESERVE_KEY_DOUBLE_SINGLE_BYTE {0xfdbc57d3, 0x2aff, 0x443d, {0x8d, 0x29, 0x03, 0x6b, 0x3f, 0x22, 0x97, 0xe4}}
+#define MSIME_EDITION_GUID_PRESERVE_KEY_PUNCTUATION {0x898164da, 0x0282, 0x4f4a, {0x9c, 0xa9, 0x77, 0xbc, 0x17, 0x4f, 0x9e, 0x67}}
+#define MSIME_EDITION_GUID_COMPARTMENT_DOUBLE_SINGLE_BYTE {0x8af07364, 0xbc9f, 0x4974, {0xa2, 0x73, 0x8d, 0x26, 0x47, 0xf7, 0x3c, 0x82}}
+#define MSIME_EDITION_GUID_COMPARTMENT_PUNCTUATION {0xf99c228a, 0x9c4b, 0x4469, {0x92, 0xf8, 0x6e, 0xde, 0xc0, 0x1e, 0x86, 0xc9}}
+#define MSIME_EDITION_GUID_LANGBAR_IME_MODE {0x64613893, 0x4b02, 0x467e, {0x98, 0xce, 0xe1, 0x82, 0x7e, 0x81, 0x0b, 0x99}}
+#define MSIME_EDITION_GUID_LANGBAR_DOUBLE_SINGLE_BYTE {0xdc48ed42, 0xcc4c, 0x4c31, {0xbb, 0x27, 0x98, 0x92, 0xa1, 0x86, 0xa7, 0x30}}
+#define MSIME_EDITION_GUID_LANGBAR_PUNCTUATION {0x4784db03, 0x0e1a, 0x4f83, {0xb3, 0xa5, 0x17, 0x22, 0x51, 0x65, 0xc1, 0x6e}}
+#define MSIME_EDITION_GUID_DISPLAY_ATTRIBUTE_INPUT {0x7fbcba47, 0x8263, 0x4be4, {0xab, 0xd1, 0xc0, 0xad, 0x5b, 0xbe, 0x2e, 0xf8}}
+#define MSIME_EDITION_GUID_DISPLAY_ATTRIBUTE_CONVERTED {0x8243031c, 0xd37e, 0x4971, {0xa8, 0x04, 0xa7, 0x5c, 0xd9, 0x8e, 0xdd, 0x5d}}
+#define MSIME_EDITION_GUID_CANDIDATE_UI_ELEMENT {0x2c0ca452, 0x76e1, 0x4a66, {0xa0, 0xf6, 0xe9, 0x8e, 0x8e, 0x0c, 0x59, 0x54}}
+#define MSIME_EDITION_REGISTRY_KEY L"Software\\Metasequoia\\MetasequoiaIME-Full"
 #define MSIME_EDITION_STATE_DIRECTORY L"MSIME-Client"
 #define MSIME_EDITION_USER_DATA_DIRECTORY L"MSIME"
-#define MSIME_EDITION_DATA_DIR_ENVIRONMENT_VARIABLE L"METASEQUOIA_IME_DATA_DIR"
-#define MSIME_EDITION_WATCHDOG_TASK L"Metasequoia IME Watchdog"
+#define MSIME_EDITION_DATA_DIR_ENVIRONMENT_VARIABLE L"METASEQUOIA_IME_FULL_DATA_DIR"
+#define MSIME_EDITION_WATCHDOG_TASK L"Metasequoia IME Watchdog (Full)"
 #define MSIME_EDITION_HOST_DLL L"msime_host_api.dll"
-#define MSIME_EDITION_DATA_DIR_MARKER L".metasequoiaime-data"
+#define MSIME_EDITION_DATA_DIR_MARKER L".metasequoiaime-data.full"
 #define MSIME_EDITION_DEFAULT_SCHEME "quanpin"
 #define MSIME_EDITION_DEFAULT_SCHEME_W L"quanpin"
 #define MSIME_EDITION_WUBI_MIXED_PINYIN_DEFAULT 0
@@ -252,4 +252,4 @@
 #endif
 
 // 全部有 Windows 段的版本的名字后缀，与本次构建选的是哪个版本无关：一个版本要知道别的版本的 Server 是否在运行（看它们的单实例互斥量）时用。
-#define MSIME_EDITIONS_NAME_SUFFIXES L"", L".pinyin", L".wubi", L".japanese", L".vietnamese", L".tibetan"
+#define MSIME_EDITIONS_NAME_SUFFIXES L".full", L".pinyin", L".wubi", L".japanese", L".vietnamese", L".tibetan"

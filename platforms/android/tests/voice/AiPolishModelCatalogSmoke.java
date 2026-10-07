@@ -27,6 +27,20 @@ public final class AiPolishModelCatalogSmoke {
         check(anthropicPage.toASCIIString().equals(
             "https://api.anthropic.com/v1/models?tenant=acme%26west&limit=1000&after_id=cursor%2Fa%2Bb+c"),
             "Anthropic pagination must retain unrelated provider query parameters");
+        java.lang.reflect.Method strictString = AiPolishModelCatalog.class.getDeclaredMethod(
+            "strictString", Object.class);
+        strictString.setAccessible(true);
+        check("synthetic".equals(strictString.invoke(null, "synthetic")),
+            "AI model metadata accepts JSON strings");
+        check(strictString.invoke(null, 7) == null,
+            "AI model metadata rejects numbers instead of coercing them");
+        java.lang.reflect.Method strictBoolean = AiPolishModelCatalog.class.getDeclaredMethod(
+            "strictBoolean", Object.class);
+        strictBoolean.setAccessible(true);
+        check(Boolean.TRUE.equals(strictBoolean.invoke(null, Boolean.TRUE)),
+            "AI model metadata accepts JSON booleans");
+        check(strictBoolean.invoke(null, "true") == null,
+            "AI model metadata rejects boolean strings instead of coercing them");
         System.out.println("Android AI model catalog URL handling passed");
     }
 }

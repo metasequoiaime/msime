@@ -229,6 +229,13 @@ final class CustomServiceTests: XCTestCase {
     XCTAssertEqual(DoubaoHostFrameCodec.transcript(in: ["text": "网关"]), "网关")
     XCTAssertNil(DoubaoHostFrameCodec.transcript(in: [:]))
     XCTAssertNil(DoubaoHostFrameCodec.transcript(in: ["text": String(repeating: "字", count: 10_001)]))
+
+    XCTAssertEqual(DoubaoHostFrameCodec.strictFinal(in: ["last": true]), true)
+    XCTAssertEqual(DoubaoHostFrameCodec.strictFinal(in: ["last": false]), false)
+    for invalid: Any in [1, 0, "true", NSNull()] {
+      XCTAssertNil(DoubaoHostFrameCodec.strictFinal(in: ["last": invalid]), "last: \(invalid)")
+    }
+    XCTAssertNil(DoubaoHostFrameCodec.strictFinal(in: [:]))
   }
 
   func testConfigurationRejectsUnsafeOrIncompleteEndpoints() {

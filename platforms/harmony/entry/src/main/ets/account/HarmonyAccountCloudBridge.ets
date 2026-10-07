@@ -6,7 +6,8 @@ import util from '@ohos.util';
 import client from 'libmsimeclient.so';
 import {
   AccountCloudBridge, AccountDownloadResponse, AccountTransportResponse,
-  MAX_DICTIONARY_EXPORT_BYTES, MAX_SNAPSHOT_DOWNLOAD_BYTES, dictionaryChangePageChanged
+  MAX_DICTIONARY_EXPORT_BYTES, MAX_SNAPSHOT_DOWNLOAD_BYTES, dictionaryChangePageChanged,
+  accountReplyValue, strictAccountOk
 } from './AccountCloudBridge';
 import { KeyboardSession } from '../keyboard/KeyboardSession';
 import { KeyboardFeedbackBridge } from '../keyboard/KeyboardFeedbackBridge';
@@ -20,9 +21,9 @@ import {
   applyAccountPreferences,
   accountPreferencesFromDocument,
   localAccountPreferences,
-  localPreferenceRevision,
   mergeAccountPreferences,
   preferenceSchemaFromDocument,
+  validLocalPreferenceDocument,
 } from './AccountPreferencePlan';
 import {
   ACCOUNT_ORIGIN, FileSessionStore, HarmonyAccountTransport, responseContentLength, responseContentType
@@ -224,7 +225,8 @@ class HarmonyTransport extends HarmonyAccountTransport {
         revision: revision, expected_sha256: expectedSha256, access_token: token
       }), source);
       const reply: SnapshotReply = JSON.parse(raw) as SnapshotReply;
-      if (reply.ok) return { status: 200, body: JSON.stringify(reply.value) };
+      const value: SnapshotValue | null = accountReplyValue(reply);
+      if (value !== null) return { status: 200, body: JSON.stringify(value) };
       switch (reply.error) {
         case 'account_invalid': return { status: 400, body: '' };
         case 'account_unauthorized': return { status: 401, body: '' };
@@ -394,7 +396,7 @@ export class HarmonyAccountCloudBridge {
       };
       const reply: SnapshotQueueReply =
         JSON.parse(client.snapshotQueue(JSON.stringify(action))) as SnapshotQueueReply;
-      return reply.ok;
+      return strictAccountOk(reply.ok);
     } catch {
       return false;
     }
@@ -455,7 +457,7 @@ export class HarmonyAccountCloudBridge {
    */
   private async preferenceSchema(): Promise<string> {
     const reply = await this.bridge.preferenceSchema();
-    if (reply.error !== undefined || reply.value === undefined) {
+    if (reply.error !== undefined || reply.value === undefined || reply.value === null) {
       return this.failure(reply.error ?? 'account_unavailable');
     }
     const schema = this.schemaOf(reply.value);
@@ -469,7 +471,7 @@ export class HarmonyAccountCloudBridge {
 
   private async preferenceDocument(): Promise<string> {
     const reply = await this.bridge.loadPreferenceDocument();
-    if (reply.error !== undefined || reply.value === undefined) {
+    if (reply.error !== undefined || reply.value === undefined || reply.value === null) {
       return this.failure(reply.error ?? 'account_unavailable');
     }
     const cloud = this.cloudOf(reply.value);
@@ -488,13 +490,7 @@ export class HarmonyAccountCloudBridge {
         JSON.parse(client.loadPreferences(stateRoot)) as Record<string, Object>;
       if (reply['ok'] !== true) return null;
       const value: Record<string, Object> = reply['value'] as Record<string, Object>;
-      const preferences: Object | undefined = value['preferences'];
-      const revision: number | null = localPreferenceRevision(value);
-      if (preferences === undefined || typeof preferences !== 'object'
-        || revision === null) {
-        return null;
-      }
-      return value;
+      return validLocalPreferenceDocument(value) ? value : null;
     } catch {
       return null;
     }
@@ -521,13 +517,13 @@ export class HarmonyAccountCloudBridge {
   private async uploadPreferences(stateRoot: string): Promise<string> {
     const expectedGeneration: number = this.bridge.sessionGeneration();
     const schemaReply = await this.bridge.preferenceSchema();
-    if (schemaReply.error !== undefined || schemaReply.value === undefined) {
+    if (schemaReply.error !== undefined || schemaReply.value === undefined || schemaReply.value === null) {
       return this.failure(schemaReply.error ?? 'account_unavailable');
     }
     const schema = this.schemaOf(schemaReply.value);
     if (schema === null) return this.failure('account_unavailable');
     const cloudReply = await this.bridge.loadPreferenceDocument();
-    if (cloudReply.error !== undefined || cloudReply.value === undefined) {
+    if (cloudReply.error !== undefined || cloudReply.value === undefined || cloudReply.value === null) {
       return this.failure(cloudReply.error ?? 'account_unavailable');
     }
     const cloud = this.cloudOf(cloudReply.value);
@@ -551,7 +547,7 @@ export class HarmonyAccountCloudBridge {
     }
     const putReply = await this.bridge.putPreferenceDocument(
       merged as Object as Record<string, Object>);
-    if (putReply.error !== undefined || putReply.value === undefined) {
+    if (putReply.error !== undefined || putReply.value === undefined || putReply.value === null) {
       return this.failure(putReply.error ?? 'account_unavailable');
     }
     const updated = this.cloudOf(putReply.value);
@@ -573,13 +569,13 @@ export class HarmonyAccountCloudBridge {
       return this.failure('account_unauthorized');
     }
     const schemaReply = await this.bridge.preferenceSchema();
-    if (schemaReply.error !== undefined || schemaReply.value === undefined) {
+    if (schemaReply.error !== undefined || schemaReply.value === undefined || schemaReply.value === null) {
       return this.failure(schemaReply.error ?? 'account_unavailable');
     }
     const schema = this.schemaOf(schemaReply.value);
     if (schema === null) return this.failure('account_unavailable');
     const cloudReply = await this.bridge.loadPreferenceDocument();
-    if (cloudReply.error !== undefined || cloudReply.value === undefined) {
+    if (cloudReply.error !== undefined || cloudReply.value === undefined || cloudReply.value === null) {
       return this.failure(cloudReply.error ?? 'account_unavailable');
     }
     const cloud = this.cloudOf(cloudReply.value);
@@ -659,7 +655,7 @@ export class HarmonyAccountCloudBridge {
     try {
       const reply: SnapshotReply = JSON.parse(client.prepareHost(JSON.stringify(
         KeyboardSession.prepareRequest(resources, stateRoot)))) as SnapshotReply;
-      return reply.ok ? reply.value : null;
+      return accountReplyValue(reply);
     } catch {
       return null;
     }
@@ -680,7 +676,7 @@ export class HarmonyAccountCloudBridge {
       };
       const reply: SnapshotQueueReply =
         JSON.parse(client.snapshotQueue(JSON.stringify(action))) as SnapshotQueueReply;
-      return reply.ok && reply.value !== undefined ? reply.value : null;
+      return accountReplyValue(reply);
     } catch {
       return null;
     }
@@ -755,7 +751,7 @@ export class HarmonyAccountCloudBridge {
   private inspectSnapshot(file: string): SnapshotMetadata | null {
     try {
       const reply: SnapshotInspectReply = JSON.parse(client.snapshotInspect(file)) as SnapshotInspectReply;
-      return reply.ok && reply.value !== undefined ? reply.value : null;
+      return accountReplyValue(reply);
     } catch {
       return null;
     }
@@ -862,7 +858,7 @@ export class HarmonyAccountCloudBridge {
     const sha256: string = this.restoreMetadata.fileSha256;
     try {
       const restored = await this.bridge.restoreSnapshotAuthenticated(file, revision, sha256);
-      if (restored.value === undefined) {
+      if (restored.value === undefined || restored.value === null) {
         return this.failure(restored.error ?? 'account_unavailable');
       }
       return this.success(restored.value as SnapshotValue);
@@ -937,10 +933,11 @@ export class HarmonyAccountCloudBridge {
       };
       const reply: SnapshotQueueReply =
         JSON.parse(client.snapshotQueue(JSON.stringify(action))) as SnapshotQueueReply;
-      if (!reply.ok || reply.value === undefined) {
+      const queueValue: SnapshotQueueState | null = accountReplyValue(reply);
+      if (queueValue === null) {
         return this.failure(reply.error ?? 'snapshot_unavailable');
       }
-      const request: SnapshotRequest | null = this.publicRequest(reply.value.request);
+      const request: SnapshotRequest | null = this.publicRequest(queueValue.request);
       this.clearSnapshotPreview();
       return this.success({ request: request });
     } catch {
@@ -957,11 +954,12 @@ export class HarmonyAccountCloudBridge {
       };
       const reply: SnapshotQueueReply =
         JSON.parse(client.snapshotQueue(JSON.stringify(action))) as SnapshotQueueReply;
-      if (!reply.ok || reply.value === undefined) {
+      const queueValue: SnapshotQueueState | null = accountReplyValue(reply);
+      if (queueValue === null) {
         return this.failure(reply.error ?? 'snapshot_unavailable');
       }
       this.clearSnapshotPreview();
-      return this.success({ request: this.publicRequest(reply.value.request) });
+      return this.success({ request: this.publicRequest(queueValue.request) });
     } catch {
       return this.failure('snapshot_unavailable');
     }

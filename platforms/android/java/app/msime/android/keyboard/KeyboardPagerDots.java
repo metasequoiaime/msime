@@ -30,7 +30,7 @@ public final class KeyboardPagerDots extends View {
 
     public KeyboardPagerDots(Context context) {
         super(context);
-        setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
+        ViewPolicy.hideFromAccessibility(this);
     }
 
     /** 页点总宽（dp）：一个活动点加 count-1 个普通点和间距。 */

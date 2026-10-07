@@ -52,6 +52,12 @@ public final class UpdateApiSmoke {
         String digest = "ab".repeat(32);
         check(digest.equals(UpdateApi.parseChecksum(digest.toUpperCase(Locale.ROOT) + "  msime-client.apk\n")), "sha256sum format");
         check(UpdateApi.parseChecksum("not-a-digest") == null, "malformed checksum");
+        java.lang.reflect.Method strictString = UpdateApi.class.getDeclaredMethod("strictString", Object.class);
+        strictString.setAccessible(true);
+        check("v9.0.0".equals(strictString.invoke(null, "v9.0.0")),
+            "release metadata accepts JSON strings");
+        check(strictString.invoke(null, 7) == null,
+            "numeric release metadata must not be coerced into update paths");
 
         // 下载：每一跳都过白名单，校验通过才留下文件。
         byte[] apk = "apk-bytes".getBytes(StandardCharsets.US_ASCII);
@@ -96,6 +102,19 @@ public final class UpdateApiSmoke {
             "update download must not follow a partial-file symlink");
         File symlinkTarget = new File(symlinkDirectory, "msime-client.apk");
         check(!Files.isSymbolicLink(symlinkTarget.toPath()), "update target must not be a symlink");
+
+        // The updates directory itself must not redirect writes outside the cache.
+        File directorySymlinkCache = Files.createTempDirectory("update-smoke-directory-link").toFile();
+        File directoryOutside = Files.createTempDirectory("update-smoke-directory-outside").toFile();
+        File linkedUpdates = new File(directorySymlinkCache, "updates");
+        check(Files.createSymbolicLink(linkedUpdates.toPath(), directoryOutside.toPath()) != null,
+            "updates directory symlink created");
+        try {
+            symlinkApi.download(update, directorySymlinkCache, null);
+            throw new AssertionError("a symlinked updates directory must fail");
+        } catch (UpdateApi.Failure expected) { }
+        check(!new File(directoryOutside, update.fileName()).exists(),
+            "a symlinked updates directory must not receive the APK");
 
         // 关于页和每日任务同时下载：排队进行，后一次直接用前一次已经核对过的文件，不互删 .part、也不再下一遍。
         java.util.concurrent.atomic.AtomicInteger apkFetches = new java.util.concurrent.atomic.AtomicInteger();

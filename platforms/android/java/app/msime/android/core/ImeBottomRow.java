@@ -39,32 +39,32 @@ final class ImeBottomRow {
     void ensureFaces() {
         if (s.spaceButton != null && !(s.spaceButton instanceof SpaceKeyFace)) {
             Button original = s.spaceButton;
-            SpaceKeyFace face = new SpaceKeyFace(s);
-            face.setText(original.getText());
-            face.setContentDescription(original.getContentDescription());
-            face.setOnClickListener(ignored -> original.performClick());
-            s.keyId(face, "Space");
-            s.imeKeyFeedback.stageFace(original, face);
+            SpaceKeyFace face = forwardFace(original, new SpaceKeyFace(s), "Space");
             s.imeStyler.styleButton(face, false);
             bindSpaceCursor(face);
             s.spaceButton = face;
         }
         if (s.enterButton != null && !(s.enterButton instanceof KeyboardIconKey)) {
             Button original = s.enterButton;
-            KeyboardIconKey key = new KeyboardIconKey(s, KeyboardIconKey.Kind.RETURN);
-            key.setText(original.getText());
-            key.setContentDescription(original.getContentDescription());
+            KeyboardIconKey key = forwardFace(original,
+                new KeyboardIconKey(s, KeyboardIconKey.Kind.RETURN), "Enter");
             // 组词时 SVC 把 text 设成「确认」（日语「確定」），这时按文字画；其他动作文字一律画 ↵。
             key.setTextFaces(java.util.Set.of("确认", "確定"));
             KeyboardGeometry.setKeyTextSize(key, 15);
             key.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
             key.setKeyboardRole(KeyboardKeyRole.RETURN);
-            key.setOnClickListener(ignored -> original.performClick());
-            s.keyId(key, "Enter");
-            s.imeKeyFeedback.stageFace(original, key);
             s.imeStyler.styleButton(key, KeyboardKeyRole.RETURN, s.skin);
             s.enterButton = key;
         }
+    }
+
+    private <T extends Button> T forwardFace(Button original, T face, String keyId) {
+        face.setText(original.getText());
+        face.setContentDescription(original.getContentDescription());
+        face.setOnClickListener(ignored -> original.performClick());
+        s.keyId(face, keyId);
+        s.imeKeyFeedback.stageFace(original, face);
+        return face;
     }
 
     /** 空格键面上的方案短名。 */
@@ -324,8 +324,7 @@ final class ImeBottomRow {
             else if (role == KeyboardKeyRole.ACCENT)
                 KeyboardGeometry.setKeyTextSize(key, 15);
             key.setVisibility(View.VISIBLE);
-            s.actionRow.addView(key, new LinearLayout.LayoutParams(0,
-                LinearLayout.LayoutParams.MATCH_PARENT, entry.weight()));
+            s.actionRow.addView(key, KeyboardGeometry.weightedMatchParentParams(entry.weight()));
         }
         // The quick punctuation key hides itself when the scheme has no punctuation to offer, and
         // the loop above just told every slot it was visible.

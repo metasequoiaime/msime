@@ -98,7 +98,8 @@ public final class TypingPage extends DetailPage {
         List<String[]> schemas = new ArrayList<>(HELPCODE_DEFAULTS.length);
         try {
             JSONObject root = new JSONObject(NativeClient.hostCapabilities("android"));
-            JSONObject value = root.optBoolean("ok", false) ? root.optJSONObject("value") : null;
+            JSONObject value = Boolean.TRUE.equals(root.opt("ok"))
+                ? root.optJSONObject("value") : null;
             JSONArray listed = value == null ? null : value.optJSONArray("helpcode_schemas");
             if (listed != null) schemas = new ArrayList<>(listed.length());
             if (listed != null) {

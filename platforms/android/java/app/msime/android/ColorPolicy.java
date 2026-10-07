@@ -18,6 +18,11 @@ public final class ColorPolicy {
         return (color & 0x00FFFFFF) | ((alpha & 0xFF) << 24);
     }
 
+    /** Choose the paint alpha used for an enabled or disabled control. */
+    public static int enabledAlpha(boolean enabled, int activeAlpha, int inactiveAlpha) {
+        return enabled ? activeAlpha : inactiveAlpha;
+    }
+
     /** Linearly interpolate each ARGB channel; callers provide an expected 0–1 amount. */
     public static int blend(int from, int to, float amount) {
         int a = Math.round(((from >>> 24) & 0xFF) + (((to >>> 24) & 0xFF) - ((from >>> 24) & 0xFF)) * amount);
@@ -43,5 +48,12 @@ public final class ColorPolicy {
         } catch (IllegalArgumentException error) {
             return fallback;
         }
+    }
+
+    /** Parse only the hexadecimal colour forms emitted by keyboard skin data. */
+    public static int parseHex(String value, int fallback) {
+        if (value == null || !value.matches("#[0-9a-fA-F]{6}|#[0-9a-fA-F]{8}")) return fallback;
+        long parsed = Long.parseLong(value.substring(1), 16);
+        return value.length() == 7 ? 0xff000000 | (int) parsed : (int) parsed;
     }
 }

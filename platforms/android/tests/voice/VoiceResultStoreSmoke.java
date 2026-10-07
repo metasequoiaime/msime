@@ -43,6 +43,7 @@ public final class VoiceResultStoreSmoke {
             Files.delete(outsideLock);
             fails(VoiceResultStore.Reason.INVALID, () -> store.read(-1));
             fails(VoiceResultStore.Reason.INVALID, () -> store.save("   ", now));
+            fails(VoiceResultStore.Reason.INVALID, () -> store.save("好\u0000", now));
             fails(VoiceResultStore.Reason.INVALID, () -> store.save("\ud800", now));
             fails(VoiceResultStore.Reason.INVALID,
                 () -> store.save("a".repeat(VoiceResultStore.MAXIMUM_CHARACTERS + 1), now));

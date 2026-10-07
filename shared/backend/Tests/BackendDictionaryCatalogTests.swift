@@ -40,6 +40,7 @@ private final class MalformedDictionaryCatalogProtocol: URLProtocol {
     let entry: [String: Any]
     switch query {
     case "bad-code": entry = ["kind": "pinyin", "code": "", "word": "你", "weight": 1]
+    case "bad-code-alphabet": entry = ["kind": "pinyin", "code": "ni2", "word": "你", "weight": 1]
     case "bad-weight": entry = ["kind": "pinyin", "code": "ni", "word": "你", "weight": -1]
     default: entry = ["kind": "pinyin", "code": "ni", "word": "你", "weight": 1]
     }
@@ -100,7 +101,7 @@ final class BackendDictionaryCatalogTests: XCTestCase {
     let configuration = URLSessionConfiguration.ephemeral
     configuration.protocolClasses = [MalformedDictionaryCatalogProtocol.self]
     let client = BackendAccountClient(configuration: configuration)
-    for code in ["bad-code", "bad-weight", "bad-offset", "bad-revision", "bad-normalized"] {
+    for code in ["bad-code", "bad-code-alphabet", "bad-weight", "bad-offset", "bad-revision", "bad-normalized"] {
       do {
         _ = try await client.dictionaryCatalog(.pinyin, code: code, token: "session")
         XCTFail("malformed dictionary catalog accepted: \(code)")

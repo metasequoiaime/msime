@@ -6,7 +6,6 @@ import android.database.Cursor;
 import android.net.Uri;
 import android.os.Bundle;
 import android.provider.OpenableColumns;
-import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.LinearLayout;
@@ -19,10 +18,10 @@ import app.msime.android.CommunityRequest;
 import app.msime.android.DictionaryCollectionsStore;
 import app.msime.android.InputFeatureToggle;
 import app.msime.android.HttpBodyPolicy;
+import app.msime.android.ViewPolicy;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -82,19 +81,11 @@ public final class LexiconPage extends DetailPage {
 
     private TextView headerPill(String glyph, String label, boolean filled, Runnable action) {
         Context context = requireContext();
-        TextView pill = new TextView(context);
-        pill.setText(glyph + " " + label);
-        pill.setGravity(Gravity.CENTER);
-        pill.setSingleLine(true);
         int fill = filled ? Ui.accent(context) : Ui.accentSoft(context);
-        Ui.style(pill, Ui.TEXT_BUTTON_SMALL, 500, filled ? Ui.onAccent(context) : Ui.accent(context));
-        pill.setBackground(Ui.pillRipple(context, fill));
-        Ui.setSymmetricPaddingDp(pill, context, 12, 6);
-        Ui.setTextMinHeightDp(pill, context, Ui.COMPACT_BUTTON_MIN_HEIGHT);
-        pill.setClickable(true);
-        pill.setFocusable(true);
+        TextView pill = Ui.pillButton(context, glyph + " " + label, Ui.TEXT_BUTTON_SMALL, 500,
+            fill, filled ? Ui.onAccent(context) : Ui.accent(context), 12, 6,
+            Ui.COMPACT_BUTTON_MIN_HEIGHT, 0, action);
         pill.setContentDescription(label);
-        pill.setOnClickListener(ignored -> action.run());
         LinearLayout.LayoutParams params = Ui.wrap();
         params.setMarginStart(Ui.dp(context, 8));
         pill.setLayoutParams(params);
@@ -104,7 +95,7 @@ public final class LexiconPage extends DetailPage {
     // ---- 数据 ----
 
     private void reload(boolean flush) {
-        HostTask.run(this, context -> read(context, flush), result -> {
+        HostTask.run(this, LexiconPage::read, result -> {
             if (result == null) {
                 MsToast.show(requireContext(), DictionaryCollectionsStore.failureMessage(""));
                 return;
@@ -115,9 +106,9 @@ public final class LexiconPage extends DetailPage {
         });
     }
 
-    private static Model read(Context context, boolean flush) {
-        DictionaryCollectionsStore.Result<DictionaryCollectionsStore.View> view = flush
-            ? DictionaryCollectionsStore.flush(context) : DictionaryCollectionsStore.load(context);
+    private static Model read(Context context) {
+        // 打开页面也顺手送一批导入词库的待写入词条：返回的视图和 load 一样，只是多送了一批，不必等用户点刷新。
+        DictionaryCollectionsStore.Result<DictionaryCollectionsStore.View> view = DictionaryCollectionsStore.flush(context);
         DictionaryCollectionsStore.Result<Long> count = DictionaryCollectionsStore.builtinCount(context, BUILTIN_KIND);
         JSONObject snapshot = HostStore.loadPreferences(context);
         JSONObject preferences = snapshot == null ? null : snapshot.optJSONObject("preferences");
@@ -161,7 +152,7 @@ public final class LexiconPage extends DetailPage {
         for (DictionaryCollectionsStore.Collection collection : current.view().collections()) {
             String subtitle = DictionaryCollectionsStore.countLabel(collection.entryCount())
                 + ("community".equals(collection.sourceType()) ? " · 社区" : "");
-            installed.addView(KeyboardSheets.badgeNavRow(context, initial(collection.name()), collection.name(),
+            installed.addView(KeyboardSheets.badgeNavRow(context, Ui.initial(collection.name(), "词"), collection.name(),
                 subtitle, collection.enabled() ? "已启用" : "已停用",
                 collection.enabled() ? Ui.accent(context) : Ui.subText(context),
                 () -> openDetail(collection.id(), collection.name())));
@@ -189,7 +180,7 @@ public final class LexiconPage extends DetailPage {
         InputFeatureToggle toggle = InputFeatureToggle.LEARNING;
         learning.toggle(toggle.title(), toggle.description(), current.learning(), this::saveLearning);
 
-        if (tauriAvailable()) {
+        if (Ui.tauriAvailable()) {
             GroupCard more = GroupCard.add(target, "更多");
             more.nav("背单词", "在管理界面里复习收藏的单词", null, this::openVocabularyReview);
             more.nav("云词库", "在管理界面里管理云端词库", null, this::openCloudDictionary);
@@ -199,7 +190,7 @@ public final class LexiconPage extends DetailPage {
     private View discoverRow(CommunityCatalog.Item item, DictionaryCollectionsStore.View view) {
         Context context = requireContext();
         LinearLayout row = KeyboardSheets.baseRow(context);
-        row.addView(KeyboardSheets.badge(context, initial(item.name())));
+        row.addView(KeyboardSheets.badge(context, Ui.initial(item.name(), "词")));
         List<String> parts = new ArrayList<>(2);
         if (!item.author().isEmpty()) parts.add("@" + item.author());
         JSONArray words = item.payload() == null ? null : item.payload().optJSONArray("words");
@@ -210,29 +201,27 @@ public final class LexiconPage extends DetailPage {
             Ui.weightWrap(1f));
         boolean added = view.installed(item.id());
         boolean busy = installing.contains(item.id());
-        TextView button = new TextView(context);
-        button.setText(added ? "已添加" : busy ? "添加中" : "添加");
-        button.setGravity(Gravity.CENTER);
-        button.setSingleLine(true);
-        Ui.style(button, Ui.TEXT_BUTTON_SMALL, 500, added ? Ui.subText(context) : Ui.accent(context));
-        button.setBackground(Ui.pillRipple(context, added ? Ui.rowBackground(context) : Ui.accentSoft(context)));
-        Ui.setButtonPadding(button, context);
-        Ui.setTextMinHeightDp(button, context, Ui.COMPACT_BUTTON_MIN_HEIGHT);
         boolean enabled = !added && !busy;
-        button.setEnabled(enabled);
-        button.setClickable(enabled);
-        button.setFocusable(enabled);
-        if (enabled) button.setOnClickListener(ignored -> install(item));
+        TextView button;
+        if (enabled) {
+            button = Ui.pillButton(context, "添加", Ui.TEXT_BUTTON_SMALL, 500,
+                Ui.accentSoft(context), Ui.accent(context), Ui.BUTTON_PADDING_H, Ui.BUTTON_PADDING_V,
+                Ui.COMPACT_BUTTON_MIN_HEIGHT, 0, () -> install(item));
+        } else {
+            button = Ui.styledLabel(context, added ? "已添加" : "添加中",
+                Ui.TEXT_BUTTON_SMALL, 500, Ui.subText(context));
+            ViewPolicy.setCentered(button);
+            button.setSingleLine(true);
+            button.setBackground(Ui.pillRipple(context,
+                added ? Ui.rowBackground(context) : Ui.accentSoft(context)));
+            Ui.setButtonPadding(button, context);
+            Ui.setTextMinHeightDp(button, context, Ui.COMPACT_BUTTON_MIN_HEIGHT);
+            button.setEnabled(false);
+        }
         button.setAccessibilityDelegate(KeyboardSheets.buttonDelegate(button.getText() + "，" + item.name()));
-        LinearLayout.LayoutParams params = Ui.wrap();
-        params.setMarginStart(Ui.dp(context, Ui.ROW_GAP));
+        LinearLayout.LayoutParams params = Ui.rowGapParams(context);
         row.addView(button, params);
         return row;
-    }
-
-    private static String initial(String name) {
-        if (name == null || name.isEmpty()) return "词";
-        return new String(Character.toChars(name.codePointAt(0)));
     }
 
     // ---- 操作 ----
@@ -360,7 +349,7 @@ public final class LexiconPage extends DetailPage {
         if (!text.ok()) return text.failure();
         try (OutputStream output = context.getContentResolver().openOutputStream(uri, "wt")) {
             if (output == null) return "写入文件失败，请重新选择位置。";
-            output.write(text.value().getBytes(StandardCharsets.UTF_8));
+            output.write(TextPolicy.utf8Bytes(text.value()));
         } catch (IOException | SecurityException error) {
             return "写入文件失败，请重新选择位置。";
         }
@@ -395,7 +384,7 @@ public final class LexiconPage extends DetailPage {
     // ---- 只在 Tauri 合包里有用的入口（P21），跳转写法与原 KeyboardFragment / AccountFragment 一致 ----
 
     private void openVocabularyReview() {
-        if (!tauriAvailable()) {
+        if (!Ui.tauriAvailable()) {
             MsToast.show(requireContext(), "背单词需要管理界面合包，请使用 Tauri 合包打开。");
             return;
         }
@@ -406,7 +395,7 @@ public final class LexiconPage extends DetailPage {
     }
 
     private void openCloudDictionary() {
-        if (!tauriAvailable()) {
+        if (!Ui.tauriAvailable()) {
             MsToast.show(requireContext(), "云词库需要管理界面合包，请使用 Tauri 合包打开。您仍可在本机使用词库设置。");
             return;
         }
@@ -416,13 +405,4 @@ public final class LexiconPage extends DetailPage {
         startActivity(intent);
     }
 
-    /** 独立的原生 APK 没有 WebView 管理界面，Tauri 合包才有。 */
-    private static boolean tauriAvailable() {
-        try {
-            Class.forName("app.msime.android.MainActivity");
-            return true;
-        } catch (ClassNotFoundException missing) {
-            return false;
-        }
-    }
 }

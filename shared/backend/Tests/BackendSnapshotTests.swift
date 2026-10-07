@@ -65,6 +65,7 @@ final class BackendSnapshotTests: XCTestCase {
       entry.replacingOccurrences(of: "\"weight\":10", with: "\"weight\":10,\"unexpected\":1"),
       entry.replacingOccurrences(of: "2026-09-08T00:00:00Z", with: "invalid"),
       entry.replacingOccurrences(of: "2026-09-08T00:00:00Z", with: "2026-02-30T00:00:00Z"),
+      entry.replacingOccurrences(of: "2026-09-08T00:00:00Z", with: "0000-01-01T00:00:00Z"),
       entry.replacingOccurrences(of: "2026-09-08T00:00:00Z", with: "2026-09-08T00:00:00Zjunk"),
       entry.replacingOccurrences(of: "\"weight\":10", with: #""weight":10,"we\u0069ght":10"#),
       #"{"type":"position","data":{"context":"pinyin:sample","code":"sample","word":"样例","position":6}}"#,
@@ -84,8 +85,10 @@ final class BackendSnapshotTests: XCTestCase {
     let live = overlay(entry)
     let position = #"{"type":"position","data":{"context":"pinyin:sample","code":"sample","word":"样例","position":2}}"#
     let selection = #"{"type":"selection","data":{"context":"pinyin:sample","code":"sample","word":"样例","count":2}}"#
+    let zeroYear = entry.replacingOccurrences(of: "2026-09-08T00:00:00Z", with: "0000-01-01T00:00:00Z")
     let invalid: [[String]] = [
       [entry], [live], [entry, entry, live], [entry, live, live],
+      [zeroYear, overlay(zeroYear)],
       [entry, entry.replacingOccurrences(of: "sample", with: "another"), live],
       [entry, live.replacingOccurrences(of: "\"weight\":10", with: "\"weight\":11")],
       [entry, live.replacingOccurrences(of: "\"deleted\":false", with: "\"deleted\":true")],

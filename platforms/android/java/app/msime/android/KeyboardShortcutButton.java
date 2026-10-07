@@ -6,7 +6,6 @@ import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.RectF;
-import android.view.Gravity;
 
 /**
  * Draws a shortcut glyph while retaining the button's text for accessibility.
@@ -29,8 +28,8 @@ public final class KeyboardShortcutButton extends KeyboardPressButton {
         super(context);
         this.icon = icon;
         setKeyboardRole(KeyboardKeyRole.GLYPH);
-        setGravity(Gravity.CENTER);
-        setPadding(0, 0, 0, 0);
+        ViewPolicy.setCentered(this);
+        ViewPolicy.clearPadding(this);
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeCap(Paint.Cap.ROUND);
         paint.setStrokeJoin(Paint.Join.ROUND);
@@ -96,7 +95,7 @@ public final class KeyboardShortcutButton extends KeyboardPressButton {
         int color = iconColor();
         if (color == Color.TRANSPARENT) color = Color.WHITE;
         paint.setColor(color);
-        paint.setAlpha(isEnabled() ? 255 : 96);
+        paint.setAlpha(ColorPolicy.enabledAlpha(isEnabled(), 255, 96));
         paint.setStrokeWidth(7f);
         canvas.save();
         canvas.translate(getPaddingLeft() + (width - size) / 2f,

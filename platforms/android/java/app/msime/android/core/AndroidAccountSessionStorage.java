@@ -5,7 +5,6 @@ import android.content.SharedPreferences;
 import android.security.keystore.KeyGenParameterSpec;
 import android.security.keystore.KeyProperties;
 import android.util.Base64;
-import java.nio.charset.StandardCharsets;
 import java.security.KeyStore;
 import javax.crypto.Cipher;
 import javax.crypto.KeyGenerator;
@@ -53,12 +52,12 @@ public final class AndroidAccountSessionStorage implements BackendAccount.Sessio
         byte[] plaintext = cipher.doFinal(ciphertext);
         if (plaintext.length == 0 || plaintext.length > MAX_PAYLOAD_BYTES)
             throw new IllegalStateException("secure_storage");
-        return new String(plaintext, StandardCharsets.UTF_8);
+        return TextPolicy.utf8(plaintext);
     }
 
     public synchronized void save(String value) throws Exception {
         if (value == null) throw new IllegalArgumentException("secure_storage");
-        byte[] plaintext = value.getBytes(StandardCharsets.UTF_8);
+        byte[] plaintext = TextPolicy.utf8Bytes(value);
         if (plaintext.length == 0 || plaintext.length > MAX_PAYLOAD_BYTES)
             throw new IllegalArgumentException("secure_storage");
         Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");

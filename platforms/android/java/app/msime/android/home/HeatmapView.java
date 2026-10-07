@@ -8,6 +8,7 @@ import android.util.AttributeSet;
 import android.view.View;
 import androidx.annotation.Nullable;
 import app.msime.android.BoundsPolicy;
+import app.msime.android.ListPolicy;
 import app.msime.android.R;
 import app.msime.android.TypingStatisticsSummary.DayCount;
 import java.util.List;
@@ -43,11 +44,11 @@ public final class HeatmapView extends View {
 
     /** 换一组 84 天，最早的在前。 */
     public void setDays(List<DayCount> values) {
-        days = values == null ? List.of() : List.copyOf(values);
+        days = ListPolicy.copyOrEmpty(values);
         long highest = 0;
         int active = 0;
         for (DayCount day : days) {
-            highest = Math.max(highest, day.count());
+            highest = BoundsPolicy.atLeast(highest, day.count());
             if (day.count() > 0) active++;
         }
         peak = highest;

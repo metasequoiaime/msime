@@ -76,6 +76,9 @@ public final class DoubaoAsrPolicySmoke {
         check(!DoubaoAsrPolicy.usable("doubao", endpoint,
             headers("x-api-resource-id", "x-api-request-id", "x-api-key\r")),
             "a header name carrying a control character is refused");
+        check(!DoubaoAsrPolicy.usable("doubao", endpoint,
+            headers("x-api-resource-id", "x-api-request-id", "x-api-key\uD800")),
+            "a header name carrying malformed Unicode is refused");
         try {
             Method strictText = DoubaoAsrPolicy.class.getDeclaredMethod("strictText", Object.class);
             strictText.setAccessible(true);
@@ -83,6 +86,24 @@ public final class DoubaoAsrPolicySmoke {
                 "Doubao accepts string transcripts");
             check("".equals(strictText.invoke(null, 42)),
                 "Doubao rejects numeric transcripts instead of coercing them");
+            check("".equals(strictText.invoke(null, "好\u0000")),
+                "Doubao rejects control characters before display");
+            check("".equals(strictText.invoke(null, "好\uD800")),
+                "Doubao rejects unpaired surrogates before display");
+            Method strictPayload = DoubaoAsrPolicy.class.getDeclaredMethod("strictPayload", Object.class);
+            strictPayload.setAccessible(true);
+            check("{\"result\":{}}".equals(strictPayload.invoke(null, "{\"result\":{}}")),
+                "Doubao accepts string payloads");
+            check(strictPayload.invoke(null, 42) == null,
+                "Doubao rejects numeric payloads instead of coercing them");
+            check(strictPayload.invoke(null, new Object()) == null,
+                "Doubao rejects object payloads instead of coercing them");
+            Method strictBoolean = DoubaoAsrPolicy.class.getDeclaredMethod("strictBoolean", Object.class);
+            strictBoolean.setAccessible(true);
+            check(Boolean.TRUE.equals(strictBoolean.invoke(null, Boolean.TRUE)),
+                "Doubao accepts JSON booleans");
+            check(strictBoolean.invoke(null, "true") == null,
+                "Doubao rejects boolean strings instead of coercing them");
         } catch (ReflectiveOperationException error) {
             throw new AssertionError("Doubao response parser unavailable", error);
         }

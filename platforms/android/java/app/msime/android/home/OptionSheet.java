@@ -7,8 +7,8 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import androidx.annotation.Nullable;
 import androidx.core.widget.NestedScrollView;
+import app.msime.android.ViewPolicy;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
-import com.google.android.material.bottomsheet.BottomSheetDragHandleView;
 import java.util.function.Supplier;
 
 /**
@@ -27,64 +27,54 @@ public final class OptionSheet {
     public OptionSheet(Context context, CharSequence title, @Nullable CharSequence subtitle) {
         this.context = context;
         dialog = new BottomSheetDialog(context);
-        LinearLayout root = new LinearLayout(context);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.addView(new BottomSheetDragHandleView(context), Ui.matchWidth());
+        LinearLayout root = Ui.column(context);
+        root.addView(Ui.sheetDragHandle(context));
 
-        LinearLayout header = new LinearLayout(context);
-        header.setOrientation(LinearLayout.VERTICAL);
-        header.setGravity(Gravity.CENTER_HORIZONTAL);
+        LinearLayout header = Ui.column(context);
+        ViewPolicy.setCenteredHorizontally(header);
         Ui.setSheetHeaderPadding(header, context);
-        TextView heading = new TextView(context);
-        heading.setText(title);
-        heading.setGravity(Gravity.CENTER);
-        Ui.style(heading, Ui.TEXT_SHEET_HEADER, 600, Ui.subText(context));
-        heading.setAccessibilityHeading(true);
+        TextView heading = Ui.sheetHeading(context, title);
         header.addView(heading);
         if (subtitle != null && subtitle.length() > 0) {
-            TextView note = new TextView(context);
-            note.setText(subtitle);
-            note.setGravity(Gravity.CENTER);
-            Ui.style(note, Ui.TEXT_SHEET_HEADER, 400, Ui.subText(context));
+            TextView note = Ui.sheetSubtitle(context, subtitle);
             LinearLayout.LayoutParams params = Ui.wrap();
             params.topMargin = Ui.dp(context, 2);
             header.addView(note, params);
         }
         root.addView(header);
 
-        options = new LinearLayout(context);
-        options.setOrientation(LinearLayout.VERTICAL);
+        options = Ui.column(context);
         NestedScrollView scroll = new NestedScrollView(context);
         scroll.addView(options, new ViewGroup.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         // 选项多到一屏放不下时，这一段滚动，标题和「取消」留在原处。
-        root.addView(scroll, new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        root.addView(scroll, Ui.weightedWidth(1f));
 
         // 「取消」与选项之间一条页面底色的带子，代替设计里分开的两块卡片。
-        View band = new View(context);
-        band.setBackgroundColor(Ui.page(context));
-        root.addView(band, Ui.matchWidthHeight(context, 8));
-        root.addView(optionView("取消", false, false, Ui.accent(context), true, dialog::cancel));
+        root.addView(Ui.sheetSeparator(context));
+        root.addView(SheetOptionView.create(context, "取消", false, false, Ui.accent(context), true,
+            dialog::cancel));
         dialog.setContentView(root);
     }
 
     /** 一个普通选项；`selected` 为真时加粗并打 ✓。 */
     public OptionSheet option(CharSequence label, boolean selected, Runnable action) {
-        addOption(optionView(label, selected, false, Ui.accent(context), selected, then(action)));
+        addOption(SheetOptionView.create(context, label, selected, false, Ui.accent(context), selected,
+            then(action)));
         return this;
     }
 
     /** 一个带下一级的选项：文字后面跟 ›，点了关掉本面板并打开 `next` 给出的面板。 */
     public OptionSheet submenu(CharSequence label, boolean selected, Supplier<OptionSheet> next) {
-        addOption(optionView(label, selected, true, Ui.accent(context), selected,
+        addOption(SheetOptionView.create(context, label, selected, true, Ui.accent(context), selected,
             then(() -> next.get().show())));
         return this;
     }
 
     /** 一个破坏性选项，红色。 */
     public OptionSheet destructive(CharSequence label, Runnable action) {
-        addOption(optionView(label, false, false, Ui.danger(context), false, then(action)));
+        addOption(SheetOptionView.create(context, label, false, false, Ui.danger(context), false,
+            then(action)));
         return this;
     }
 
@@ -101,16 +91,10 @@ public final class OptionSheet {
 
     private void addOption(View view) {
         if (count > 0) {
-            View rule = Ui.hairlineView(context);
-            options.addView(rule, Ui.matchWidthHeightPx(Ui.hairlinePx(context)));
+            options.addView(Ui.divider(context, true));
         }
         options.addView(view);
         count++;
-    }
-
-    private View optionView(CharSequence label, boolean selected, boolean nested,
-            int color, boolean bold, Runnable action) {
-        return SheetOptionView.create(context, label, selected, nested, color, bold, action);
     }
 
 }

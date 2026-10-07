@@ -132,7 +132,7 @@ final class ImeVoiceEntry {
         }
         LocalAsrRecognizer runningLocal = local;
         DoubaoRecognizer runningStream = streaming;
-        String options = runtimeOptions(files);
+        String options = HostOptionsPolicy.readRuntimeOptions(files);
         try {
             worker.execute(() -> {
                 String text = null;
@@ -270,7 +270,7 @@ final class ImeVoiceEntry {
     private String statisticsDirectory() {
         if (s.preferencesDirectory != null && !s.preferencesDirectory.isEmpty()) return s.preferencesDirectory;
         File files = s.getFilesDir();
-        return files == null ? "" : new File(files, "bootstrap/state").getAbsolutePath();
+        return HostOptionsPolicy.bootstrapStateDirectory(files);
     }
 
     private void recordVoice(long milliseconds) {
@@ -322,15 +322,6 @@ final class ImeVoiceEntry {
         }
     }
 
-    private static String runtimeOptions(File files) {
-        if (files == null) return "";
-        try {
-            return HostOptionsPolicy.read(new File(files, "runtime-options.json"));
-        } catch (java.io.IOException error) {
-            return "";
-        }
-    }
-
     /** 把键区的内容换成聆听面板；键区被重建（换布局、收起键盘）时自动取消。 */
     private void show(ViewGroup keyArea) {
         dismiss();
@@ -347,7 +338,7 @@ final class ImeVoiceEntry {
         VoiceListeningView view = new VoiceListeningView(s);
         view.setColors(Color.parseColor(s.skin.accent()), Color.parseColor(s.skin.onAccent()),
             Color.parseColor(s.skin.keyForeground()), Color.parseColor(s.skin.toolbarIcon()));
-        view.setOnClickListener(ignored -> cancel());
+        ViewPolicy.bindClick(view, this::cancel);
         view.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
             @Override public void onViewAttachedToWindow(View attached) { }
 
@@ -369,7 +360,7 @@ final class ImeVoiceEntry {
         int height = BoundsPolicy.atLeast(keyArea.getHeight(),
             s.pixels(KeyboardGeometry.NINE_KEY_HEIGHT_DP));
         ViewGroup.LayoutParams params = keyArea instanceof LinearLayout
-            ? new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, height)
+            ? KeyboardGeometry.matchWidthHeightPx(height)
             : new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, height);
         // 盖在原来的键行上：键行仍占着位置（INVISIBLE），面板用负的上外边距叠上去，键盘高度不跳。
         if (params instanceof LinearLayout.LayoutParams linear && keyArea.getHeight() > 0) {
@@ -385,7 +376,7 @@ final class ImeVoiceEntry {
         ViewGroup parent = host;
         listening = null;
         host = null;
-        for (View child : hidden) child.setVisibility(View.VISIBLE);
+        for (View child : hidden) ViewPolicy.show(child);
         hidden.clear();
         if (view != null && parent != null && view.getParent() == parent) parent.removeView(view);
     }

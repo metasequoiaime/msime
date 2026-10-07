@@ -4,12 +4,10 @@ import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.os.Bundle;
-import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.accessibility.AccessibilityNodeInfo;
-import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.Switch;
 import android.widget.TextView;
@@ -23,6 +21,7 @@ import app.msime.android.DeviceDataApi;
 import app.msime.android.R;
 import app.msime.android.SyncSignals;
 import app.msime.android.SyncSwitch;
+import app.msime.android.ViewPolicy;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -53,7 +52,7 @@ public final class AccountFragment extends HomeTabFragment {
     @Override public void onViewCreated(@NonNull View view, @Nullable Bundle state) {
         View card = view.findViewById(R.id.account_card);
         card.setBackground(Ui.rippleOn(requireContext(), Ui.card(requireContext()), Ui.dp(requireContext(), 20)));
-        card.setOnClickListener(ignored -> openProfile());
+        ViewPolicy.bindClick(card, this::openProfile);
         render();
     }
 
@@ -192,7 +191,7 @@ public final class AccountFragment extends HomeTabFragment {
             online == null || online.clipboard() < 0 ? null : online.clipboard() + " 条",
             () -> SettingsNavigator.open(context, PageId.CLOUD_CLIPBOARD, null));
         // 社区作品的管理界面只在 Tauri 合包里有（P21），保留原来的跳转。
-        if (tauriAvailable()) {
+        if (Ui.tauriAvailable()) {
             row(group, R.drawable.ic_ms_groups, "社区作品", "发布、收藏皮肤、词库和回复", null, this::openCommunityAccount);
         }
     }
@@ -216,16 +215,6 @@ public final class AccountFragment extends HomeTabFragment {
         startActivity(intent);
     }
 
-    /** 独立的原生 APK 没有 WebView；Tauri 合包有。 */
-    private boolean tauriAvailable() {
-        try {
-            Class.forName("app.msime.android.MainActivity");
-            return true;
-        } catch (ClassNotFoundException error) {
-            return false;
-        }
-    }
-
     // ---- 同步 ----
 
     private void bindSync(LinearLayout groups) {
@@ -241,9 +230,8 @@ public final class AccountFragment extends HomeTabFragment {
         toggle.setChecked(real && state.syncEnabled());
         toggle.setClickable(false);
         toggle.setFocusable(false);
-        toggle.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        LinearLayout.LayoutParams switchParams = Ui.wrap();
-        switchParams.setMarginStart(Ui.dp(context, Ui.ROW_GAP));
+        Ui.hideFromAccessibility(toggle);
+            LinearLayout.LayoutParams switchParams = Ui.rowGapParams(context);
         sync.addView(toggle, switchParams);
         sync.setAccessibilityDelegate(new View.AccessibilityDelegate() {
             @Override public void onInitializeAccessibilityNodeInfo(View host, AccessibilityNodeInfo info) {
@@ -357,57 +345,7 @@ public final class AccountFragment extends HomeTabFragment {
     private LinearLayout row(GroupCard group, @DrawableRes int icon, CharSequence title,
             @Nullable CharSequence subtitle, @Nullable CharSequence value, @Nullable Runnable action) {
         Context context = requireContext();
-        LinearLayout row = new LinearLayout(context);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        Ui.setMinimumHeightDp(row, context,
-            subtitle == null ? Ui.COMPACT_ROW_MIN_HEIGHT : Ui.ROW_MIN_HEIGHT);
-        Ui.setRowPadding(row, context);
-
-        ImageView glyph = new ImageView(context);
-        glyph.setImageResource(icon);
-        Ui.setImageTint(glyph, Ui.subText(context));
-        glyph.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        LinearLayout.LayoutParams glyphParams = Ui.squareParams(context, 22);
-        glyphParams.setMarginEnd(Ui.dp(context, 18));
-        row.addView(glyph, glyphParams);
-
-        LinearLayout texts = new LinearLayout(context);
-        texts.setOrientation(LinearLayout.VERTICAL);
-        TextView heading = new TextView(context);
-        heading.setText(title);
-        Ui.style(heading, Ui.TEXT_ROW_TITLE, 400, Ui.text(context));
-        texts.addView(heading);
-        if (subtitle != null) {
-            TextView detail = new TextView(context);
-            detail.setText(subtitle);
-            Ui.style(detail, 12, 400, Ui.subText(context));
-            texts.addView(detail);
-        }
-        row.addView(texts, Ui.weightWrap(1f));
-
-        if (value != null && value.length() > 0) {
-            TextView trailing = new TextView(context);
-            trailing.setText(value);
-            trailing.setSingleLine(true);
-            Ui.style(trailing, Ui.TEXT_ROW_SUBTITLE, 400, Ui.subText(context));
-            LinearLayout.LayoutParams valueParams = Ui.wrap();
-            valueParams.setMarginStart(Ui.dp(context, Ui.ROW_GAP));
-            row.addView(trailing, valueParams);
-        }
-        if (action != null) {
-            ImageView chevron = new ImageView(context);
-            chevron.setImageResource(R.drawable.ms_w1_a2_chevron);
-            Ui.setImageTint(chevron, Ui.subText(context));
-            chevron.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-            LinearLayout.LayoutParams chevronParams = Ui.squareParams(context, Ui.CHEVRON_SIZE);
-            chevronParams.setMarginStart(Ui.dp(context, 6));
-            row.addView(chevron, chevronParams);
-            row.setBackground(Ui.ripple(context));
-            row.setClickable(true);
-            row.setFocusable(true);
-            row.setOnClickListener(ignored -> action.run());
-        }
+        LinearLayout row = KeyboardSheets.iconNavRow(context, icon, title, subtitle, value, action);
         group.addView(row);
         return row;
     }

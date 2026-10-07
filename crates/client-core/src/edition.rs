@@ -94,7 +94,7 @@ impl LinuxIdentity {
 pub struct WindowsIdentity {
     /// 输入法注册的语言（十六进制 LANGID，例如 `0x0804`）。
     pub langid: String,
-    /// TSF 文本服务的 CLSID，形如 `{E3062E9A-...}`。
+    /// TSF 文本服务的 CLSID，形如 `{A1160FE1-...}`。
     pub clsid: String,
     /// TSF 语言 profile 的 GUID。
     pub profile_guid: String,
@@ -116,7 +116,7 @@ pub struct WindowsIdentity {
     pub user_data_directory: String,
     /// 覆盖状态目录的环境变量名。
     pub data_dir_environment_variable: String,
-    /// 拼在命名管道、命名事件、互斥量和窗口类名后面的后缀；full 是空串。
+    /// 拼在命名管道、命名事件、互斥量和窗口类名后面的后缀：每个版本（包括 full）都是 `.<id>`。不带后缀的名字属于 msime-windows，本仓库的版本都不用。
     pub name_suffix: String,
     /// 看门狗的登录计划任务名。
     pub watchdog_task: String,
@@ -129,12 +129,12 @@ pub struct WindowsIdentity {
 }
 
 impl WindowsIdentity {
-    /// 本版本的命名对象名：`base` 加上 [`WindowsIdentity::name_suffix`]。full 的后缀是空串，所以 full 的名字与引入版本之前相同。
+    /// 本版本的命名对象名：`base` 加上 [`WindowsIdentity::name_suffix`]，例如 full 的是 `<base>.full`。
     pub fn named(&self, base: &str) -> String {
         format!("{base}{}", self.name_suffix)
     }
 
-    /// 本版本的命名管道路径，例如 `\\.\pipe\FanyImeAuxNamedPipe.wubi`。`base` 是 full 用的管道名（不带 `\\.\pipe\` 前缀），与 `shared/contracts/windows_ipc.h` 一致。
+    /// 本版本的命名管道路径，例如 `\\.\pipe\FanyImeAuxNamedPipe.wubi`。`base` 是不带版本后缀和 `\\.\pipe\` 前缀的管道名，与 `shared/contracts/windows_ipc.h` 一致。
     pub fn pipe_name(&self, base: &str) -> String {
         format!(r"\\.\pipe\{}", self.named(base))
     }
@@ -346,7 +346,7 @@ impl Edition {
         self.platforms.linux.as_ref()
     }
 
-    /// 安装包里声明版本的文件名。macOS 的设置应用把它放在 `Contents/Resources/` 下，Windows 的安装包把它放在 Server 目录（`MSIME.exe`、`msime-mcp.exe` 所在的目录）下，Linux 的安装包把它放在前缀的 `bin` 目录（`msime-linux-desktop`、`msime-mcp` 所在的目录）下，内容是 `{"edition": "<id>"}`。full 的包不带这个文件，所以 full 的包与引入版本之前相同。
+    /// 安装包里声明版本的文件名。macOS 的设置应用把它放在 `Contents/Resources/` 下，Windows 的安装包把它放在 Server 目录（`MSIME.exe`、`msime-mcp.exe` 所在的目录）下，Linux 的安装包把它放在前缀的 `bin` 目录（`msime-linux-desktop`、`msime-mcp` 所在的目录）下，内容是 `{"edition": "<id>"}`。macOS 和 Linux 上 full 的包不带这个文件，所以那里 full 的包与引入版本之前相同；Windows 上每个版本（包括 full）的包都带它，因为 full 在 Windows 上也换成了自己的一组名字。
     pub const PACKAGE_MARKER_FILE: &'static str = "edition.json";
 
     /// 读取安装包里的版本声明（见 [`Edition::PACKAGE_MARKER_FILE`]）。文件不存在时是 full；文件存在但读不了、不是合法的声明、或声明了版本表里没有的 id 时是错误：一个声明了版本的包不能被当成 full 运行，否则它会去读写 full 的状态目录和输入法。
@@ -387,7 +387,7 @@ impl Edition {
         })
     }
 
-    /// 本进程所在 Windows 安装包声明的版本。`MSIME.exe` 和 `msime-mcp.exe` 安装在 Server 目录里，声明是同目录下的 [`Edition::PACKAGE_MARKER_FILE`]；只有管理员能写 Program Files，普通进程改不了它。没有这个文件就是 full：full 的包、开发运行和测试进程都是这样。只在第一次调用时读，之后返回同一个结果。
+    /// 本进程所在 Windows 安装包声明的版本。`MSIME.exe` 和 `msime-mcp.exe` 安装在 Server 目录里，声明是同目录下的 [`Edition::PACKAGE_MARKER_FILE`]；只有管理员能写 Program Files，普通进程改不了它。每个版本（包括 full）的包都带这个文件；没有它就是 full，开发运行和测试进程都是这样。只在第一次调用时读，之后返回同一个结果。
     ///
     /// 声明坏了时是错误而不是 full，理由同 [`Edition::of_macos_bundle`]：一个声明了版本的包不能去连 full 的 Server、改 full 的状态目录。
     pub fn of_windows_package() -> Result<&'static Edition, &'static str> {
@@ -1076,24 +1076,27 @@ mod tests {
     }
 
     #[test]
-    fn full_keeps_its_windows_identifiers_and_the_others_add_a_suffix() {
+    fn every_windows_edition_including_full_adds_a_suffix_and_none_is_msime_windows() {
         let full = Edition::full().windows().unwrap();
-        assert_eq!(full.clsid, "{E3062E9A-D834-4637-8958-ED8CFA427D01}");
-        assert_eq!(full.registry_key, r"Software\Metasequoia\MetasequoiaIME");
+        assert_eq!(full.clsid, "{A1160FE1-DE82-4216-9F2A-BC8A8A76F8B9}");
+        assert_eq!(
+            full.registry_key,
+            r"Software\Metasequoia\MetasequoiaIME-Full"
+        );
         assert_eq!(full.state_directory, "MSIME-Client");
         assert_eq!(
             full.data_dir_environment_variable,
-            "METASEQUOIA_IME_DATA_DIR"
+            "METASEQUOIA_IME_FULL_DATA_DIR"
         );
         assert_eq!(full.host_dll, "msime_host_api.dll");
         assert_eq!(full.tsf_guids.len(), 14);
         assert_eq!(
             full.pipe_name("FanyImeAuxNamedPipe"),
-            r"\\.\pipe\FanyImeAuxNamedPipe"
+            r"\\.\pipe\FanyImeAuxNamedPipe.full"
         );
         assert_eq!(
             full.named(r"Local\MSIME.Client.ClipboardHistoryChanged"),
-            r"Local\MSIME.Client.ClipboardHistoryChanged"
+            r"Local\MSIME.Client.ClipboardHistoryChanged.full"
         );
         let wubi = Edition::by_id("wubi").unwrap().windows().unwrap();
         assert_eq!(
@@ -1114,6 +1117,12 @@ mod tests {
             .map(|section| section.clsid.to_uppercase())
             .collect();
         assert_eq!(clsids.len(), sections.len());
+        // 不带后缀的管道名、引入版本之前的 CLSID 和注册表键属于 msime-windows（platforms/windows/scripts/edition_windows.py 的 MSIME_WINDOWS），哪个版本用了，装上或卸掉它就会碰到 msime-windows。
+        assert!(!pipes.contains(r"\\.\pipe\FanyImeNamedPipe"));
+        assert!(!clsids.contains("{E3062E9A-D834-4637-8958-ED8CFA427D01}"));
+        assert!(sections
+            .iter()
+            .all(|section| section.registry_key != r"Software\Metasequoia\MetasequoiaIME"));
     }
 
     #[test]

@@ -1,3 +1,5 @@
+import { utf8Length } from "../Utf8";
+
 /**
  * The decisions behind on-device speech recognition, kept free of ArkUI, NAPI and the sherpa-onnx HAR so they run under node.
  *
@@ -18,6 +20,9 @@ const MAX_MODEL_PATH: number = 4096;
 export const LOCAL_MODEL_MANIFEST_MAX_BYTES: number = 256 * 1024;
 /** Only the first token column is needed to encode native hotwords. */
 export const LOCAL_MODEL_TOKENS_MAX_BYTES: number = 8 * 1024 * 1024;
+const MAX_HOTWORDS: number = 200;
+const MAX_HOTWORD_TEXT_BYTES: number = 256;
+const MAX_HOTWORD_PINYIN_BYTES: number = 1024;
 
 export const LOCAL_MODEL_ONLINE_TRANSDUCER: string = "online_transducer";
 export const LOCAL_MODEL_OFFLINE_SENSE_VOICE: string = "offline_sense_voice";
@@ -55,6 +60,12 @@ export interface LocalAsrRequest {
   pcm: ArrayBuffer | null;
 }
 
+/** One user dictionary word returned by `msime_client_voice_hotwords`. */
+export interface LocalHotword {
+  text: string;
+  pinyin: string;
+}
+
 /** Worker to main thread: `started`, `partial`, `final` or `error`. `correct` is set on `final` when the model wants pinyin post-correction. */
 export interface LocalAsrReply {
   type: string;
@@ -71,6 +82,35 @@ interface ManifestDocument {
 }
 
 export class LocalAsrPolicy {
+  /** 纠错响应必须携带字符串，否则保留识别器原文。 */
+  static correctedText(value: unknown, fallback: string): string {
+    if (value === null || typeof value !== "object" || Array.isArray(value)) return fallback;
+    const text: Object | undefined = (value as Record<string, Object>).text;
+    return typeof text === "string" && text.length > 0 ? text as string : fallback;
+  }
+
+  /** Accept a bounded native hotword list, or null when the response crosses its contract. */
+  static hotwords(value: unknown): LocalHotword[] | null {
+    if (!Array.isArray(value) || value.length > MAX_HOTWORDS) return null;
+    const hotwords: LocalHotword[] = [];
+    for (const item of value) {
+      if (item === null || typeof item !== "object" || Array.isArray(item)) return null;
+      const record: Record<string, Object> = item as Record<string, Object>;
+      const text: Object | undefined = record.text;
+      const pinyin: Object | undefined = record.pinyin;
+      if (typeof text !== "string" || typeof pinyin !== "string") return null;
+      const textValue: string = text as string;
+      const pinyinValue: string = pinyin as string;
+      if (
+        textValue.trim().length === 0 ||
+        LocalAsrPolicy.invalidHotwordText(textValue, MAX_HOTWORD_TEXT_BYTES) ||
+        LocalAsrPolicy.invalidHotwordText(pinyinValue, MAX_HOTWORD_PINYIN_BYTES)
+      ) return null;
+      hotwords.push({ text: textValue, pinyin: pinyinValue });
+    }
+    return hotwords;
+  }
+
   /** Maximum bytes read from the text files the worker parses itself. */
   static textFileLimit(file: "manifest" | "tokens"): number {
     return file === "manifest" ? LOCAL_MODEL_MANIFEST_MAX_BYTES : LOCAL_MODEL_TOKENS_MAX_BYTES;
@@ -302,6 +342,14 @@ export class LocalAsrPolicy {
       out += character;
     }
     return out.replace(/ +$/, "");
+  }
+
+  private static invalidHotwordText(value: string, maximumBytes: number): boolean {
+    if (utf8Length(value) > maximumBytes) return true;
+    return Array.from(value).some((character: string): boolean => {
+      const code: number = character.codePointAt(0) ?? 0;
+      return code <= 0x1f || (code >= 0x7f && code <= 0x9f);
+    });
   }
 
   private static resolve(directory: string, relative: string | undefined): string {

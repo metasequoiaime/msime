@@ -53,10 +53,9 @@ public final class CommunitySkinSheet {
             sheet.content().addView(preview, params);
         }
 
-        TextView description = new TextView(context);
-        description.setText(item.description().isEmpty() ? "作者没有写说明。" : item.description());
-        description.setTextSize(14);
-        description.setTextColor(Ui.subText(context));
+        TextView description = Ui.styledLabel(context,
+            item.description().isEmpty() ? "作者没有写说明。" : item.description(),
+            14, 400, Ui.subText(context));
         LinearLayout.LayoutParams text = Ui.matchWidth();
         text.topMargin = Ui.dp(context, 14);
         sheet.content().addView(description, text);

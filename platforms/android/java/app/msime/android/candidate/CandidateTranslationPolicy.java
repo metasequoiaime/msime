@@ -7,7 +7,6 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -45,7 +44,7 @@ public final class CandidateTranslationPolicy {
             String gloss = value.trim();
             if (gloss.isEmpty() || result.contains(gloss)
                     || TextPolicy.utf8Length(gloss) > 4096
-                    || TextPolicy.hasControl(gloss)) continue;
+                    || TextPolicy.hasControl(gloss) || !TextPolicy.validUnicode(gloss)) continue;
             result.add(gloss);
             if (result.size() == MAX_TARGETS) break;
         }
@@ -129,6 +128,6 @@ public final class CandidateTranslationPolicy {
     }
 
     private static String normalize(String value) {
-        return value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
+        return TextPolicy.lowercase(value == null ? "" : value.trim());
     }
 }

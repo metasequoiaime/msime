@@ -18,7 +18,7 @@ use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs;
 use std::io::Write;
 use std::path::Path;
@@ -773,7 +773,7 @@ fn is_sha256_hex(value: &str) -> bool {
 }
 
 fn validate_sync_list(entries: &[CandidateSkinSyncEntry]) -> Result<(), AccountError> {
-    let mut ids = BTreeSet::new();
+    let mut ids = HashSet::with_capacity(entries.len());
     if entries.len() > MAX_SYNC_ENTRIES
         || entries.iter().any(|entry| {
             entry.id.is_nil()
@@ -795,7 +795,7 @@ fn validate_page(page: &CandidateSkinPage) -> Result<(), AccountError> {
     {
         return Err(AccountError::Unavailable);
     }
-    let mut ids = BTreeSet::new();
+    let mut ids = HashSet::with_capacity(page.skins.len());
     if page.skins.iter().any(|item| !ids.insert(item.id)) {
         return Err(AccountError::Unavailable);
     }
@@ -989,7 +989,7 @@ fn referenced_images(summary: &SkinSummary) -> Result<BTreeSet<String>, &'static
         }
         paths.insert(path.to_owned());
     }
-    let lowercase: BTreeSet<String> = paths.iter().map(|path| path.to_ascii_lowercase()).collect();
+    let lowercase: HashSet<String> = paths.iter().map(|path| path.to_ascii_lowercase()).collect();
     if lowercase.len() != paths.len() {
         return Err(FILE_PATH);
     }
@@ -1353,7 +1353,7 @@ fn decode_files(files: &BTreeMap<String, String>) -> Result<Vec<(&str, Vec<u8>)>
     if files.is_empty() || files.len() > MAX_PACKAGE_FILES {
         return Err(FILE_PATH);
     }
-    let mut lowercase = BTreeSet::new();
+    let mut lowercase = HashSet::with_capacity(files.len());
     for path in files.keys() {
         if !catalog::safe_resource(path, MAX_RESOURCE_PATH_BYTES) || path == MANIFEST_FILE {
             return Err(FILE_PATH);

@@ -7,7 +7,9 @@ import android.graphics.RectF;
 import android.util.AttributeSet;
 import android.view.View;
 import androidx.annotation.Nullable;
+import app.msime.android.BoundsPolicy;
 import app.msime.android.R;
+import app.msime.android.ListPolicy;
 import app.msime.android.TypingStatisticsSummary;
 import app.msime.android.TypingStatisticsSummary.PeakWindow;
 import java.util.List;
@@ -44,7 +46,7 @@ public final class HourHistogramView extends View {
      * @param window 高峰时段，可空；为空时没有柱子高亮
      */
     public void setHours(List<Long> values, @Nullable PeakWindow window, @Nullable String spokenPeak) {
-        hours = values == null ? List.of() : List.copyOf(values);
+        hours = ListPolicy.copyOrEmpty(values);
         peak = window;
         String hoursLabel = TypingStatisticsSummary.HOURS_PER_DAY + " 小时输入分布";
         setContentDescription(spokenPeak == null ? hoursLabel + "，近 7 天还没有记录"
@@ -74,12 +76,12 @@ public final class HourHistogramView extends View {
         float min = Ui.dp(context, BAR_MIN);
         float radius = Ui.dp(context, 2);
         long highest = 1;
-        for (long value : hours) highest = Math.max(highest, value);
+        for (long value : hours) highest = BoundsPolicy.atLeast(highest, value);
         int accent = Ui.accent(context);
         int rest = Ui.color(context, R.attr.msStatBar);
         for (int hour = 0; hour < count; hour++) {
             long value = hour < hours.size() ? hours.get(hour) : 0;
-            float height = Math.max(min, max * value / (float) highest);
+            float height = BoundsPolicy.atLeast(min, max * value / (float) highest);
             float left = hour * (width + gap);
             box.set(left, max - height, left + width, max);
             bar.setColor(highlighted(hour) ? accent : rest);

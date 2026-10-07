@@ -33,10 +33,9 @@ public final class KeyboardKeyPreview extends View {
 
     public KeyboardKeyPreview(Context context) {
         super(context);
-        setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
+        ViewPolicy.hideFromAccessibility(this);
         setWillNotDraw(false);
-        setClickable(false);
-        setFocusable(false);
+        ViewPolicy.setNonInteractive(this);
         text.setTextAlign(Paint.Align.CENTER);
         outline.setStyle(Paint.Style.STROKE);
         setVisibility(GONE);
@@ -75,7 +74,7 @@ public final class KeyboardKeyPreview extends View {
      */
     public void show(String value, float keyLeft, float keyTop, float keyWidth, float weight,
             float parentWidth) {
-        label = value == null ? "" : value;
+        label = TextPolicy.emptyIfNull(value);
         float width = bubbleWidth(keyWidth, weight);
         float height = KeyboardGeometry.floatPixels(getContext(), HEIGHT_DP);
         float margin = KeyboardGeometry.floatPixels(getContext(), SHADOW_MARGIN_DP);
@@ -95,7 +94,7 @@ public final class KeyboardKeyPreview extends View {
 
     /** 下滑输入提示时换成提示字符，位置不变。 */
     public void setLabel(String value) {
-        String next = value == null ? "" : value;
+        String next = TextPolicy.emptyIfNull(value);
         if (label.equals(next)) return;
         label = next;
         invalidate();

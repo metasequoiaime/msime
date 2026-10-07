@@ -36,7 +36,13 @@ struct Output {
 
 impl Output {
     fn push(&mut self, text: &str, cost: i64) {
-        if text.is_empty() || self.full() || self.items.iter().any(|item| item.text == text) {
+        // Sentence output is capped at a small page (12 in the provider). Scanning the
+        // already-owned rows avoids allocating a second String for every unique result just
+        // to deduplicate it.
+        if text.is_empty()
+            || self.full()
+            || self.items.iter().any(|item| item.text == text)
+        {
             return;
         }
         self.items.push(JapaneseConversion {

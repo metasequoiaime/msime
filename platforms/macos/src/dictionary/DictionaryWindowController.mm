@@ -10,6 +10,12 @@
 static const NSTimeInterval MSIMEDictionaryQuiesceBudget = 2.5;
 static const useconds_t MSIMEDictionaryQuiesceRetryMicroseconds = 50000;
 
+static BOOL MSIMEStrictBoolean(id value) {
+    if (![value isKindOfClass:NSNumber.class] ||
+        CFGetTypeID((__bridge CFTypeRef)value) != CFBooleanGetTypeID()) return NO;
+    return CFBooleanGetValue((CFBooleanRef)(__bridge CFTypeRef)value);
+}
+
 // A mutation from this window runs inside the input method, whose own controllers hold the dictionary lock through their sessions. Only the lock failure is retried, so a completed write is never replayed: the lease goes up beside the lock, the controllers are told on the main thread and release before this continues, and the request is retried until it gets through or the budget runs out. Removing the lease is the resume; the next key reopens a session. Called off the main thread.
 static NSDictionary *MSIMEQuiescedDictionaryRequest(NSDictionary *request, NSError **error) {
     NSError *failure = nil;
@@ -169,7 +175,7 @@ static NSDictionary *MSIMEQuiescedDictionaryRequest(NSDictionary *request, NSErr
         NSDictionary *result = [MSIMEClientSession dictionaryRequest:request error:&error];
         NSArray *entries = [result[@"entries"] isKindOfClass:NSArray.class] ? result[@"entries"] : @[];
         NSString *message = nil;
-        BOOL hasMore = [result[@"has_more"] boolValue];
+        BOOL hasMore = MSIMEStrictBoolean(result[@"has_more"]);
         if (!result) message = error.localizedDescription ?: @"词典读取失败";
         else message = entries.count ? [NSString stringWithFormat:@"第 %lu 页，共显示 %lu 条%@", (unsigned long)(offset / 100 + 1), (unsigned long)entries.count, hasMore ? @"，还有更多" : @""] : @"暂无个人词条";
         dispatch_async(dispatch_get_main_queue(), ^{
@@ -294,7 +300,7 @@ static NSDictionary *MSIMEQuiescedDictionaryRequest(NSDictionary *request, NSErr
             else {
                 NSUInteger applied = [result[@"applied"] unsignedIntegerValue];
                 NSUInteger failed = [result[@"failed"] unsignedIntegerValue];
-                BOOL truncated = [result[@"truncated"] boolValue];
+                BOOL truncated = MSIMEStrictBoolean(result[@"truncated"]);
                 message = failed || truncated
                     ? [NSString stringWithFormat:@"已导入 %lu 个词条，跳过 %lu 个无效条目%@。", (unsigned long)applied, (unsigned long)failed, truncated ? @"（达到上限）" : @""]
                     : [NSString stringWithFormat:@"已导入 %lu 个词条。", (unsigned long)applied];
@@ -343,7 +349,7 @@ static NSDictionary *MSIMEQuiescedDictionaryRequest(NSDictionary *request, NSErr
                 [text appendString:chunk];
                 NSUInteger count = 0;
                 for (NSString *line in [chunk componentsSeparatedByString:@"\n"]) if (line.length) ++count;
-                hasMore = [result[@"has_more"] boolValue];
+                hasMore = MSIMEStrictBoolean(result[@"has_more"]);
                 if (hasMore && count == 0) { message = @"词典导出返回了无效分页。"; break; }
                 offset += count;
             }

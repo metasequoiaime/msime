@@ -108,7 +108,7 @@ public final class KeyboardSkinBackgroundDrawable extends Drawable {
             if (!photoBoundsValid) {
                 float width = getBounds().width();
                 float height = getBounds().height();
-                float scale = Math.max(width / photo.getWidth(), height / photo.getHeight());
+                float scale = BoundsPolicy.atLeast(width / photo.getWidth(), height / photo.getHeight());
                 float drawWidth = photo.getWidth() * scale;
                 float drawHeight = photo.getHeight() * scale;
                 float left = getBounds().left + (width - drawWidth) * (float) photoPosition;

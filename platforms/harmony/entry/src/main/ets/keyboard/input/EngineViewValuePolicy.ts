@@ -13,12 +13,17 @@ export interface EngineViewNumericFields {
 
 /** Rejects malformed JSON values before they can enter keyboard state or candidate layout. */
 export class EngineViewValuePolicy {
+  /** Native replies are untrusted JSON; arrays and null must not be treated as records. */
+  static isObject(value: unknown): value is Record<string, Object> {
+    return value !== null && typeof value === 'object' && !Array.isArray(value);
+  }
+
   static isGeneration(value: unknown): boolean {
     return EngineViewValuePolicy.nonNegativeInteger(value as number);
   }
 
   static isValid(view: EngineViewNumericFields | null | undefined): boolean {
-    if (typeof view !== 'object' || view === null) return false;
+    if (!EngineViewValuePolicy.isObject(view)) return false;
     if (typeof view.editing_text !== 'string') return false;
     if (!EngineViewValuePolicy.nonNegativeInteger(view.caret_position)
       || !EngineViewValuePolicy.nonNegativeInteger(view.page)

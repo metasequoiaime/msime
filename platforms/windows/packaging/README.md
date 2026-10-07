@@ -1,6 +1,6 @@
 # Windows 包管理器定义
 
-这里是 winget、Scoop 和 Chocolatey 的包定义模板，以及把一个 `windows-v*` 发布填进模板的 `render.py`。三个包都只做一件事：静默运行发布页上的那个 Inno Setup 安装包（`release-windows.yml` 产出的 `MetasequoiaIME_Setup_v<版本>.exe`），不另编一份二进制，也不改安装包的行为。只有完整版，不提供轻量包（`_light`）。
+这里是 winget、Scoop 和 Chocolatey 的包定义模板，以及把一个 `windows-v*` 发布填进模板的 `render.py`。三个包都只做一件事：静默运行发布页上的那个 Inno Setup 安装包（`release-windows.yml` 产出的 `MetasequoiaIME-Full_Setup_v<版本>.exe`），不另编一份二进制，也不改安装包的行为。只有完整版，不提供轻量包（`_light`）。
 
 本仓库不向任何外部仓库发布；下面「发布步骤」写的是维护者手动发布时要做的事。
 
@@ -17,17 +17,17 @@
 
 ## 三个包共同依据的安装包事实
 
-这些都取自 `../installer/msime_setup.iss`、它包含的 `../installer/editions.iss`（由版本表 `shared/contracts/editions.json` 生成）与 `release-windows.yml`，`scripts/test-windows-package-managers.py` 核对两边一致。安装包按版本（edition）各打一个，包管理器只发 full：AppId、显示名和安装包名都取 full 那一份。
+这些都取自 `../installer/msime_setup.iss`、它包含的 `../installer/editions.iss`（由版本表 `shared/contracts/editions.json` 生成）与 `release-windows.yml`，`scripts/test-windows-package-managers.py` 核对两边一致。安装包按版本（edition）各打一个，包管理器只发 full：AppId、显示名和安装包名都取 full 那一份。full 在 Windows 上有自己的 AppId、安装目录和安装包名，不再是 msime-windows（另一个产品，见 `../README.md`）的那一组；包 id（winget 的 `Metasequoia.MetasequoiaIME`、Scoop 和 Chocolatey 的 `msime`）没有改。
 
 - **一个安装包，x64 与 Windows on Arm 通用**：`ArchitecturesAllowed=x64compatible`。在 ARM64 的 Windows 11 上，Server 等程序以 x64 模拟运行，64 位 TIP 换成随包的 Arm64X 版，原生 ARM64 应用和模拟的 x64 应用都能加载它（`../Build-Client.md`）。包定义里只声明 x64，winget 在 ARM64 上会选用它。
-- **按机器安装**：`PrivilegesRequired=admin`，程序装到 `%ProgramFiles%\metasequoiaime`，安装包自己请求提权（winget 的 `ElevationRequirement: elevatesSelf`）。输入法要注册 TSF DLL、COM 类和登录任务，没有按用户安装的形态。
-- **卸载项**：full 的 `AppId={A7C3E91F-4B2D-4E8A-9F1C-6D5E8B0A2C4D}`（版本表的 `inno_app_id`），Inno 写入的卸载键是 `{A7C3E91F-4B2D-4E8A-9F1C-6D5E8B0A2C4D}_is1`（winget 的 `ProductCode`），显示名 `Metasequoia IME 水杉输入法`，发布者 `Metasequoia`。
+- **按机器安装**：`PrivilegesRequired=admin`，程序装到 `%ProgramFiles%\metasequoiaime-full`，安装包自己请求提权（winget 的 `ElevationRequirement: elevatesSelf`）。输入法要注册 TSF DLL、COM 类和登录任务，没有按用户安装的形态。
+- **卸载项**：full 的 `AppId={4391158B-18CF-4B7A-A924-7FBBC23FB3F8}`（版本表的 `inno_app_id`），Inno 写入的卸载键是 `{4391158B-18CF-4B7A-A924-7FBBC23FB3F8}_is1`（winget 的 `ProductCode`），显示名 `水杉输入法`，发布者 `Metasequoia`。
 - **静默参数**：安装 `/SP- /VERYSILENT /SUPPRESSMSGBOXES /NORESTART`，卸载 `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART`，与 `../installer/tests/install-smoke.ps1` 在发布机上跑的相同。卸载程序会把自己复制到临时目录再启动并立即返回，所以 Scoop 和 Chocolatey 的卸载脚本等它删掉自己的文件再结束；3 分钟后文件还在（例如拒绝了 UAC），Scoop 报错让 `scoop uninstall` 失败、保留记录，Chocolatey 给出警告。
 - **升级就地覆盖，卸载删数据**：新版安装包直接覆盖旧版，保留数据目录；卸载程序会删除它拥有的数据目录（用户词、配置、皮肤）。因此 winget 用 `UpgradeBehavior: install` 而不是 `uninstallPrevious`，Scoop 的卸载脚本在 `scoop update` 时什么都不做，只在 `scoop uninstall` 时运行卸载程序；Chocolatey 升级本来就不运行卸载脚本。
 - **前置组件**：安装包不带 Visual C++ 2015-2022 x64 运行库和 WebView2 Runtime，静默安装时缺了也只写日志继续装（`InitializeSetup`）。winget 声明 `Microsoft.VCRedist.2015+.x64` 与 `Microsoft.EdgeWebView2Runtime` 依赖，Chocolatey 声明 `vcredist140`（≥ 14.20，与安装包要求的版本下限一致）与 `webview2-runtime`。Scoop 没有系统级依赖的机制，写在 `notes` 里。
 - **版本号**：发布标签是 `windows-v<MAJOR.MINOR.PATCH>`，安装包旁边有 `<安装包名>.sha256`。
-- **数据目录**：安装包接受 `/DATADIR=<空目录>`。Chocolatey 用包参数 `/DataDir:` 传过去；winget 和 Scoop 不暴露它，沿用旧安装的目录或默认的 `%LOCALAPPDATA%\metasequoiaime`。
-- **不支持以 SYSTEM 身份静默安装**：默认数据目录 `%LOCALAPPDATA%\metasequoiaime` 按运行安装包的账户解析，SYSTEM 的落在 `C:\Windows\System32\config\systemprofile` 下，安装包拒绝 Windows 目录里的数据目录（`DataDirRejectionReason`），所以 Intune、winget-autoupdate、SYSTEM 计划任务这类托管部署会失败；拒绝时静默安装只写日志并以非零退出码结束（`NextButtonClick` 用 `SuppressibleMsgBox`），不会卡在看不见的对话框上。Chocolatey 可以用 `/DataDir:` 绕开，winget 没有办法，两边的说明（winget 的 `InstallationNotes`、nuspec 的描述）都写了这一点。
+- **数据目录**：安装包接受 `/DATADIR=<空目录>`。Chocolatey 用包参数 `/DataDir:` 传过去；winget 和 Scoop 不暴露它，沿用旧安装的目录或默认的 `%LOCALAPPDATA%\metasequoiaime-full`。
+- **不支持以 SYSTEM 身份静默安装**：默认数据目录 `%LOCALAPPDATA%\metasequoiaime-full` 按运行安装包的账户解析，SYSTEM 的落在 `C:\Windows\System32\config\systemprofile` 下，安装包拒绝 Windows 目录里的数据目录（`DataDirRejectionReason`），所以 Intune、winget-autoupdate、SYSTEM 计划任务这类托管部署会失败；拒绝时静默安装只写日志并以非零退出码结束（`NextButtonClick` 用 `SuppressibleMsgBox`），不会卡在看不见的对话框上。Chocolatey 可以用 `/DataDir:` 绕开，winget 没有办法，两边的说明（winget 的 `InstallationNotes`、nuspec 的描述）都写了这一点。
 
 ### Scoop 为什么用安装包
 
@@ -35,7 +35,7 @@ Scoop 的惯例是便携应用：解压到 `scoop\apps\<名字>`，不写系统�
 
 ## 签名
 
-包管理器只能指向签过名的安装包。`release-windows.yml` 在 CI 上打出并先行发布的 `MetasequoiaIME_Setup_v<版本>.exe` 没有签名（签名证书是只在发布机上的 Certum SimplySign 卡）；它里面的 x64 Server 以 `MSIME_SERVER_UIACCESS=ON` 构建，未签名的 uiAccess 程序系统拒绝启动，装上之后只能打英文（见 `../installer/Sign-InstalledServer-Local.ps1`）。能用的是维护者用 `../installer/Package-SimplySign.ps1` 签名后、连同新的 `.sha256` 和同一次构建的 `msime-windows-<edition>-<version>-symbols.zip` 替换到同一个发布上的那一份。替换会改变摘要，所以包定义必须在替换之后渲染。
+包管理器只能指向签过名的安装包。`release-windows.yml` 在 CI 上打出并先行发布的 `MetasequoiaIME-Full_Setup_v<版本>.exe` 没有签名（签名证书是只在发布机上的 Certum SimplySign 卡）；它里面的 x64 Server 以 `MSIME_SERVER_UIACCESS=ON` 构建，未签名的 uiAccess 程序系统拒绝启动，装上之后只能打英文（见 `../installer/Sign-InstalledServer-Local.ps1`）。能用的是维护者用 `../installer/Package-SimplySign.ps1` 签名后、连同新的 `.sha256` 和同一次构建的 `msime-windows-<edition>-<version>-symbols.zip` 替换到同一个发布上的那一份。替换会改变摘要，所以包定义必须在替换之后渲染。
 
 因此：
 
@@ -53,7 +53,7 @@ python3 platforms/windows/packaging/render.py --latest --output out/package-mana
 # 指定标签
 python3 platforms/windows/packaging/render.py --tag windows-v0.1.0 --output out/package-managers
 # 本地签好名、还没上传的安装包（地址按发布页的规则推出）
-python3 platforms/windows/packaging/render.py --version 0.1.0 --installer dist/MetasequoiaIME_Setup_v0.1.0.exe --output out/package-managers
+python3 platforms/windows/packaging/render.py --version 0.1.0 --installer dist/MetasequoiaIME-Full_Setup_v0.1.0.exe --output out/package-managers
 ```
 
 走 GitHub 时，GitHub 为每个发布附件记录的 `sha256:` 摘要与发布页上的 `.sha256` 小文件互相核对，再下载安装包，核对它就是摘要说的那一份并检查签名。草稿和预发布默认拒绝（`--tag` 加 `--allow-prerelease` 可以强制渲染）。设置 `GH_TOKEN` 或 `GITHUB_TOKEN` 可以提高 API 限额。
@@ -90,7 +90,7 @@ Chocolatey 用的 nuspec 架构是它自己维护的 NuGet 分支里的那份（
 
 ## 发布步骤
 
-先把签名的安装包和它的 `.sha256` 替换到发布上（`gh release upload windows-v<版本> MetasequoiaIME_Setup_v<版本>.exe MetasequoiaIME_Setup_v<版本>.exe.sha256 --clobber`），再在 Windows 上渲染；不在 Windows 上时手动触发 `package-definitions-windows.yml` 取它的产物（见下文「工作流」）：
+先把签名的安装包和它的 `.sha256` 替换到发布上（`gh release upload windows-v<版本> MetasequoiaIME-Full_Setup_v<版本>.exe MetasequoiaIME-Full_Setup_v<版本>.exe.sha256 --clobber`），再在 Windows 上渲染；不在 Windows 上时手动触发 `package-definitions-windows.yml` 取它的产物（见下文「工作流」）：
 
 ```sh
 python platforms/windows/packaging/render.py --tag windows-v<版本> --output out/package-managers

@@ -117,22 +117,13 @@ public final class CommunityRequest {
     /** 一条短语：1–2000 个 UTF-16 单元，除换行和制表符外不含控制字符（签名之类需要换行）。 */
     public static boolean validPhraseText(String text) {
         if (text == null || text.isEmpty() || text.length() > MAX_PHRASE_UNITS) return false;
-        return !hasControl(text, true);
+        return !CommunityTextPolicy.hasDisallowedControl(text, true);
     }
 
     /** 分组名：可以为空，最多 32 个 UTF-16 单元，不含任何控制字符。 */
     public static boolean validPhraseGroup(String group) {
-        return group != null && group.length() <= MAX_PHRASE_GROUP_UNITS && !hasControl(group, false);
-    }
-
-    private static boolean hasControl(String text, boolean multiline) {
-        for (int index = 0; index < text.length();) {
-            int codePoint = text.codePointAt(index);
-            if (Character.isISOControl(codePoint)
-                    && !(multiline && (codePoint == '\n' || codePoint == '\t'))) return true;
-            index += Character.charCount(codePoint);
-        }
-        return false;
+        return group != null && group.length() <= MAX_PHRASE_GROUP_UNITS
+            && !CommunityTextPolicy.hasDisallowedControl(group, false);
     }
 
     /**
@@ -154,7 +145,7 @@ public final class CommunityRequest {
      */
     public static String path(Kind kind, String scope, String search, int offset,
             Category category) {
-        String bounded = search == null ? "" : search.trim();
+        String bounded = TextPolicy.trimmed(search);
         int page = BoundsPolicy.nonNegative(offset);
         if (kind == Kind.SKIN) {
             return "/v1/community/skins?offset=" + page + "&q=" + encode(bounded)
@@ -180,14 +171,8 @@ public final class CommunityRequest {
     public static boolean validReport(String reason, String detail) {
         if (reason == null || !REPORT_REASONS.contains(reason)) return false;
         String text = detail == null ? "" : detail;
-        if (text.codePointCount(0, text.length()) > MAX_REPORT_DETAIL) return false;
-        for (int index = 0; index < text.length();) {
-            int codePoint = text.codePointAt(index);
-            if (Character.isISOControl(codePoint)
-                    && codePoint != '\n' && codePoint != '\t') return false;
-            index += Character.charCount(codePoint);
-        }
-        return true;
+        if (!TextPolicy.withinCodePoints(text, MAX_REPORT_DETAIL)) return false;
+        return !CommunityTextPolicy.hasDisallowedControl(text, true);
     }
 
     /** 作者修改自己皮肤的分类：`PATCH` 这条路径，回来的是改过之后的条目，所以同样带上 `include=category`。 */
@@ -211,7 +196,7 @@ public final class CommunityRequest {
 
     /** 条数按千位分隔，如「4,812 条」。 */
     public static String entriesLabel(int count) {
-        return String.format(java.util.Locale.ROOT, "%,d 条", BoundsPolicy.nonNegative(count));
+        return NumberPolicy.grouped(BoundsPolicy.nonNegative(count)) + " 条";
     }
 
     /**

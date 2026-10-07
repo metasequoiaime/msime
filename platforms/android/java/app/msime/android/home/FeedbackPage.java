@@ -32,7 +32,7 @@ import app.msime.android.BitmapPolicy;
 import app.msime.android.FeedbackApi;
 import app.msime.android.FeedbackImagePolicy;
 import app.msime.android.R;
-import java.io.ByteArrayOutputStream;
+import app.msime.android.ViewPolicy;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
@@ -81,14 +81,13 @@ public final class FeedbackPage extends DetailPage {
 
         GroupCard description = GroupCard.add(column, "描述");
         LinearLayout card = description.card();
-        EditText input = new EditText(context);
+        EditText input = Ui.styledInput(context, Ui.TEXT_ROW_TITLE, 400, Ui.text(context));
         input.setHint("遇到了什么问题？可以写复现步骤、出错的词或期望的结果");
         input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE
             | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
-        input.setGravity(Gravity.TOP | Gravity.START);
+        ViewPolicy.setTopStart(input);
         input.setMinLines(4);
-        input.setBackground(null);
-        Ui.style(input, Ui.TEXT_ROW_TITLE, 400, Ui.text(context));
+        ViewPolicy.clearBackground(input);
         input.setHintTextColor(Ui.subText(context));
         Ui.setSymmetricPaddingDp(input, requireContext(), 16, 14);
         input.setText(draft);
@@ -103,50 +102,35 @@ public final class FeedbackPage extends DetailPage {
 
         HorizontalScrollView strip = new HorizontalScrollView(context);
         strip.setHorizontalScrollBarEnabled(false);
-        LinearLayout shots = new LinearLayout(context);
-        shots.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout shots = Ui.row(context);
         Ui.setPaddingDp(shots, requireContext(), 16, 10, 16, 0);
         strip.addView(shots);
         card.addView(strip, Ui.matchWidth());
         thumbnails = shots;
 
-        LinearLayout add = new LinearLayout(context);
-        add.setOrientation(LinearLayout.HORIZONTAL);
-        add.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout add = Ui.row(context);
+        ViewPolicy.setCenteredVertically(add);
         Ui.setPaddingDp(add, requireContext(), 16, 12, 16, 14);
-        add.setBackground(Ui.ripple(context));
-        add.setClickable(true);
-        add.setFocusable(true);
         add.setContentDescription("添加截图，最多 " + FeedbackApi.MAX_SCREENSHOTS + " 张");
-        ImageView icon = new ImageView(context);
-        icon.setImageResource(R.drawable.ms_w4_me2_image);
-        Ui.setImageTint(icon, Ui.accent(context));
+        ImageView icon = Ui.decorativeIcon(context, R.drawable.ms_w4_me2_image, Ui.accent(context));
         add.addView(icon, Ui.squareParams(requireContext(), 20));
-        TextView label = new TextView(context);
-        label.setText("添加截图");
-        Ui.style(label, Ui.TEXT_ROW_TITLE, 400, Ui.accent(context));
+        TextView label = Ui.styledLabel(context, "添加截图", Ui.TEXT_ROW_TITLE, 400, Ui.accent(context));
         LinearLayout.LayoutParams labelParams = Ui.wrap();
         labelParams.setMarginStart(Ui.dp(requireContext(), 10));
         add.addView(label, labelParams);
-        add.setOnClickListener(ignored -> picker.launch("image/*"));
+        Ui.makeClickable(add, context, () -> picker.launch("image/*"));
         card.addView(add, Ui.matchWidth());
         addShot = add;
 
-        TextView count = new TextView(context);
-        Ui.style(count, 13, 400, Ui.subText(context));
+        TextView count = Ui.styledLabel(context, "", 13, 400, Ui.subText(context));
         Ui.setPaddingDp(count, requireContext(), Ui.GROUP_TITLE_INSET, 6,
             Ui.GROUP_TITLE_INSET, 0);
         description.view().addView(count, Ui.matchWidth());
         counter = count;
 
-        TextView button = new TextView(context);
-        button.setGravity(Gravity.CENTER);
-        Ui.style(button, 16, 600, Ui.onAccent(context));
-        Ui.setTextMinHeightDp(button, requireContext(), Ui.ACTION_BUTTON_MIN_HEIGHT);
-        button.setClickable(true);
-        button.setFocusable(true);
+        TextView button = Ui.textButton(context, "", 16, 600, Ui.onAccent(context), null,
+            Ui.ACTION_BUTTON_MIN_HEIGHT, this::submit);
         button.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
-        button.setOnClickListener(ignored -> submit());
         LinearLayout.LayoutParams buttonParams = Ui.matchWidth();
         buttonParams.topMargin = Ui.dp(requireContext(), Ui.GROUP_GAP);
         column.addView(button, buttonParams);
@@ -287,10 +271,8 @@ public final class FeedbackPage extends DetailPage {
             source = FeedbackImagePolicy.readSource(in);
         }
         if (source == null) return null;
-        BitmapFactory.Options bounds = new BitmapFactory.Options();
-        bounds.inJustDecodeBounds = true;
-        BitmapFactory.decodeByteArray(source, 0, source.length, bounds);
-        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null;
+        BitmapFactory.Options bounds = BitmapPolicy.decodeBounds(source);
+        if (bounds == null) return null;
         int sample = BitmapPolicy.sampleSizeForEdge(bounds.outWidth, bounds.outHeight, MAX_EDGE);
         BitmapFactory.Options options = new BitmapFactory.Options();
         options.inSampleSize = sample;
@@ -298,12 +280,7 @@ public final class FeedbackPage extends DetailPage {
         if (bitmap == null) return null;
         try {
             bitmap = BitmapPolicy.scaleToEdge(bitmap, MAX_EDGE);
-            for (int quality = 85; quality >= 40; quality -= 15) {
-                ByteArrayOutputStream out = new ByteArrayOutputStream();
-                bitmap.compress(Bitmap.CompressFormat.JPEG, quality, out);
-                if (out.size() <= FeedbackApi.MAX_SCREENSHOT_BYTES) return out.toByteArray();
-            }
-            return null;
+            return BitmapPolicy.compressJpegUnderBytes(bitmap, FeedbackApi.MAX_SCREENSHOT_BYTES);
         } finally {
             bitmap.recycle();
         }

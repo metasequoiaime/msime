@@ -9,7 +9,9 @@ import app.msime.android.BoundsPolicy;
 import app.msime.android.CloudApi;
 import app.msime.android.CommonPhrasesStore;
 import app.msime.android.CustomSkinLibrary;
+import app.msime.android.DictionaryCollectionsStore;
 import app.msime.android.DictionarySnapshotQueue;
+import app.msime.android.DigestPolicy;
 import app.msime.android.KeyboardFeedbackPreferences;
 import app.msime.android.KeyboardFeedbackStore;
 import app.msime.android.NativeClient;
@@ -20,15 +22,11 @@ import app.msime.android.SyncSwitch;
 import app.msime.android.policy.HostOptionsPolicy;
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStream;
 import java.lang.ref.WeakReference;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -338,9 +336,9 @@ public final class CloudSync {
             JSONObject value = nativeValue(NativeClient.accountSettingsApply(request.toString()));
             JSONObject applied = value.optJSONObject("feedback");
             if (applied != null) {
-                KeyboardFeedbackStore.save(context, new KeyboardFeedbackStore.Settings(
-                    applied.optBoolean("soundEnabled", true), applied.optBoolean("hapticsEnabled", false),
-                    KeyboardFeedbackPreferences.strength(applied.optString("hapticStrength", "medium"))));
+                KeyboardFeedbackStore.save(context, KeyboardFeedbackStore.fromValues(
+                    applied.opt("soundEnabled"), applied.opt("hapticsEnabled"),
+                    applied.opt("hapticStrength")));
             }
             if (value.opt("custom_keyboard_skins") instanceof String library) {
                 CustomSkinLibrary.importDesigns(Paths.get(directory), library);
@@ -552,7 +550,8 @@ public final class CloudSync {
             JSONObject value = nativeValue(NativeClient.dictionary(new JSONObject()
                 .put("options", new JSONObject(hostOptions()))
                 .put("action", new JSONObject().put("operation", "count").put("user_only", true)).toString()));
-            return value.optInt("count", 0);
+            Integer count = DictionaryCollectionsStore.nonNegativeInteger(value.opt("count"));
+            return count == null ? 0 : count;
         }
 
         private int pendingQueueCount() throws IOException, JSONException {
@@ -560,7 +559,8 @@ public final class CloudSync {
                 .put("options", new JSONObject(hostOptions()))
                 .put("action", new JSONObject().put("operation", "list").put("offset", 0).put("limit", 1)
                     .put("user_only", true)).toString()));
-            return value.optInt("pending_count", 0);
+            Integer pending = DictionaryCollectionsStore.nonNegativeInteger(value.opt("pending_count"));
+            return pending == null ? 0 : pending;
         }
 
         private void exportSnapshot(Path destination) throws IOException, JSONException {
@@ -579,7 +579,7 @@ public final class CloudSync {
             DictionarySnapshotQueue queue = new DictionarySnapshotQueue(root, root.resolve(QUEUE_PATH));
             String localVersion = queue.read().localVersion();
             if (localVersion == null) throw new IOException("keyboard has not published a dictionary version yet");
-            queue.enqueue(file.toAbsolutePath(), SyncSwitch.accountId(context), revision, localVersion, sha256(file));
+            queue.enqueue(file.toAbsolutePath(), SyncSwitch.accountId(context), revision, localVersion, DigestPolicy.sha256Hex(file));
         }
 
         /** 「合并」：把云端的词经个人词库队列导入本机，键盘下次开会话时应用。整批被拒时逐条再试，坏的那条跳过。 */
@@ -605,7 +605,7 @@ public final class CloudSync {
                 .put("options", new JSONObject(options))
                 .put("action", new JSONObject().put("operation", "import_personal").put("text", file)
                     .put("request_id", "cloud-merge-" + UUID.randomUUID())).toString()));
-            return response.optBoolean("ok", false);
+            return Boolean.TRUE.equals(response.opt("ok"));
         }
     }
 
@@ -614,7 +614,8 @@ public final class CloudSync {
     /** client-core 的标准响应 `{ok, value, error}`：失败时抛出，信息只进日志。 */
     private static JSONObject nativeValue(String response) throws JSONException {
         JSONObject root = new JSONObject(response == null ? "" : response);
-        if (!root.optBoolean("ok", false)) throw new IllegalStateException(root.optString("error", "native call failed"));
+        if (!Boolean.TRUE.equals(root.opt("ok")))
+            throw new IllegalStateException(root.optString("error", "native call failed"));
         JSONObject value = root.optJSONObject("value");
         return value == null ? new JSONObject() : value;
     }
@@ -640,21 +641,5 @@ public final class CloudSync {
         return result;
     }
 
-    private static String sha256(Path file) throws IOException {
-        MessageDigest digest;
-        try {
-            digest = MessageDigest.getInstance("SHA-256");
-        } catch (NoSuchAlgorithmException impossible) {
-            throw new IllegalStateException(impossible);
-        }
-        byte[] buffer = new byte[16 * 1024];
-        try (InputStream input = Files.newInputStream(file, LinkOption.NOFOLLOW_LINKS)) {
-            int read;
-            while ((read = input.read(buffer)) != -1) digest.update(buffer, 0, read);
-        }
-        StringBuilder hex = new StringBuilder(64);
-        for (byte value : digest.digest()) hex.append(Character.forDigit((value >> 4) & 0xf, 16))
-            .append(Character.forDigit(value & 0xf, 16));
-        return hex.toString();
-    }
+
 }

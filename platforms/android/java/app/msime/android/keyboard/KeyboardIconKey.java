@@ -26,7 +26,7 @@ public final class KeyboardIconKey extends KeyboardPressButton {
         super(context);
         KeyboardGeometry.normalizeKeyCap(this);
         this.kind = kind;
-        setAllCaps(false);
+        ViewPolicy.setAllCapsFalse(this);
     }
 
     public Kind kind() { return kind; }

@@ -132,7 +132,10 @@ fn read(
         )?;
         for row in rows {
             if let (Some(text), sort_order) = row? {
-                if !contains_text(&entries, &text) {
+                // The result page is deliberately small (normally ten rows, at most one
+                // page per spelling). Scanning the collected rows avoids allocating a
+                // second owned copy of every emoji/kaomoji just to deduplicate it.
+                if !entries.iter().any(|(entry, _)| entry == &text) {
                     entries.push((text, sort_order.unwrap_or(0)));
                 }
             }
@@ -149,6 +152,7 @@ fn prefix_upper_bound(prefix: &str) -> String {
     upper_bound
 }
 
+#[cfg(test)]
 fn contains_text(entries: &[(String, i64)], text: &str) -> bool {
     entries.iter().any(|(entry, _)| entry == text)
 }

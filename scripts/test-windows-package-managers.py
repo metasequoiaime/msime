@@ -176,7 +176,7 @@ def check_render(render, output: pathlib.Path) -> list[pathlib.Path]:
         + ["scoop/msime.json", "chocolatey/msime/msime.nuspec", "chocolatey/msime/tools/chocolateyinstall.ps1", "chocolatey/msime/tools/chocolateyuninstall.ps1"]
     )
     check(names == expected, f"render.py wrote {names}, expected {expected}")
-    url = "https://github.com/metasequoiaime/msime/releases/download/windows-v1.2.3/MetasequoiaIME_Setup_v1.2.3.exe"
+    url = "https://github.com/metasequoiaime/msime/releases/download/windows-v1.2.3/MetasequoiaIME-Full_Setup_v1.2.3.exe"
     for path in written:
         text = path.read_text(encoding="utf-8")
         check(not render.PLACEHOLDER_PATTERN.search(text), f"{path.name} still has a @...@ field after rendering")
@@ -195,7 +195,7 @@ def check_render(render, output: pathlib.Path) -> list[pathlib.Path]:
     check(f"url64bit       = '{url}'" in choco_install and f"checksum64     = '{digest}'" in choco_install, "Chocolatey URL or checksum not rendered")
 
     # --installer：对本地的安装包求摘要，文件名必须是发布时用的那个，签名必须有效。
-    fake = output / "MetasequoiaIME_Setup_v1.2.3.exe"
+    fake = output / "MetasequoiaIME-Full_Setup_v1.2.3.exe"
     fake.write_bytes(b"msime")
     original = (render.verify_signature, render.check_can_verify)
     checked: list[str] = []
@@ -233,7 +233,7 @@ def check_render(render, output: pathlib.Path) -> list[pathlib.Path]:
 
 def check_github_path(render) -> None:
     """用一份录制的发布跑 values_from_release，摘要小文件的下载在本地应答。"""
-    name = "MetasequoiaIME_Setup_v0.1.0.exe"
+    name = "MetasequoiaIME-Full_Setup_v0.1.0.exe"
     payload = b"signed installer"
     digest = hashlib.sha256(payload).hexdigest()
     sidecars = {"https://example.invalid/sidecar": f"{digest}  {name}\n".encode()}

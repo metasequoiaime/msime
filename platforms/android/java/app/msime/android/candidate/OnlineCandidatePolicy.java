@@ -78,6 +78,11 @@ public final class OnlineCandidatePolicy {
         return limit >= 1 && limit <= MAX_CANDIDATE_LIMIT ? limit : 0;
     }
 
+    /** Provider JSON fields that are text must not be accepted through org.json coercion. */
+    public static String strictText(Object value) {
+        return value instanceof String ? (String) value : null;
+    }
+
 
     /** Whether a cloud body is small enough to hand to the shared parser. */
     public static boolean acceptsCloudBody(String body) {
@@ -107,7 +112,8 @@ public final class OnlineCandidatePolicy {
         for (String text : texts) {
             if (result.size() == boundedLimit) break;
             if (text == null || text.trim().isEmpty() || TextPolicy.utf8Length(text) > MAX_CANDIDATE_BYTES
-                    || TextPolicy.hasControl(text) || result.contains(text)) {
+                    || TextPolicy.hasControl(text) || !TextPolicy.validUnicode(text)
+                    || result.contains(text)) {
                 continue;
             }
             result.add(text);

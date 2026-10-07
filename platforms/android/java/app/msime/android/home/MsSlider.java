@@ -10,6 +10,7 @@ import android.util.AttributeSet;
 import android.view.Gravity;
 import android.widget.SeekBar;
 import androidx.annotation.Nullable;
+import app.msime.android.ViewPolicy;
 import java.util.function.IntConsumer;
 
 /**
@@ -51,7 +52,7 @@ public final class MsSlider extends SeekBar {
         setThumb(thumb);
         setThumbOffset(Ui.dp(context, Ui.SLIDER_THUMB_WIDTH) / 2);
         setSplitTrack(false);
-        setBackground(null);
+        ViewPolicy.clearBackground(this);
         // 左右留出半个滑块，滑块在两端时不会被裁掉。
         int inset = Ui.dp(context, Ui.SLIDER_THUMB_WIDTH);
         Ui.setHorizontalPaddingPx(this, inset);

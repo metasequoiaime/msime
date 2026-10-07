@@ -7,6 +7,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
 import android.widget.TextView;
+import app.msime.android.ViewPolicy;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 
@@ -34,13 +35,11 @@ public final class MsToast {
             frame.removeView(previous);
         }
 
-        TextView toast = new TextView(activity);
-        toast.setTag(TAG);
-        toast.setText(text);
-        toast.setGravity(Gravity.CENTER);
-        toast.setMaxLines(3);
-        Ui.style(toast, Ui.TEXT_TOAST, 400,
+        TextView toast = Ui.styledLabel(activity, text, Ui.TEXT_TOAST, 400,
             Ui.color(activity, com.google.android.material.R.attr.colorOnSurfaceInverse));
+        toast.setTag(TAG);
+        ViewPolicy.setCentered(toast);
+        toast.setMaxLines(3);
         toast.setBackground(Ui.pill(Ui.color(activity, com.google.android.material.R.attr.colorSurfaceInverse)));
         Ui.setSymmetricPaddingDp(toast, activity, 20, 10);
         toast.setElevation(Ui.dp(activity, 6));

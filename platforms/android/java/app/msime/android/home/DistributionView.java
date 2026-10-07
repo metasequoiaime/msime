@@ -11,6 +11,7 @@ import android.view.View;
 import androidx.annotation.Nullable;
 import app.msime.android.BoundsPolicy;
 import app.msime.android.ColorPolicy;
+import app.msime.android.ListPolicy;
 import app.msime.android.TypingStatisticsSummary;
 import app.msime.android.TypingStatisticsSummary.Share;
 import java.util.List;
@@ -52,7 +53,7 @@ public final class DistributionView extends View {
 
     /** 换一组占比和画法。 */
     public void setShares(List<Share> values, Style chart) {
-        shares = values == null ? List.of() : List.copyOf(values);
+        shares = ListPolicy.copyOrEmpty(values);
         total = TypingStatisticsSummary.total(shares);
         style = chart;
         int spokenCapacity = 0;

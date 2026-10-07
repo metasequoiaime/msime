@@ -78,14 +78,14 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .nvmrc
-      # 1. 输入：词库 release 里的 msime-pinyin.db、msime-wubi.db 和 chinese-ime-lm 的整句模型，按锁文件的 URL 下载，长度和 SHA-256 都对上才用。
+      # 1. 输入：词库 release 里的 msime-pinyin.db、msime-wubi.db、msime-japanese.dat 和 chinese-ime-lm 的整句模型，按锁文件的 URL 下载，长度和 SHA-256 都对上才用。
       - name: Download the pinned dictionary and model
         run: |
           set -euo pipefail
           lock=resources/desktop-dictionary.lock.json
           inputs=target/web-engine/inputs
           mkdir -p "$inputs"
-          for name in msime-pinyin.db msime-wubi.db sentence-model.safetensors; do
+          for name in msime-pinyin.db msime-wubi.db msime-japanese.dat sentence-model.safetensors; do
             url="$(jq -er --arg n "$name" '.artifacts[] | select(.name == $n) | .url' "$lock")"
             sha="$(jq -er --arg n "$name" '.artifacts[] | select(.name == $n) | .sha256' "$lock")"
             size="$(jq -er --arg n "$name" '.artifacts[] | select(.name == $n) | .size' "$lock")"
@@ -100,6 +100,7 @@ jobs:
         run: |
           scripts/build-web-engine.sh --version "$VERSION" \
             --pinyin target/web-engine/inputs/msime-pinyin.db --wubi target/web-engine/inputs/msime-wubi.db \
+            --japanese target/web-engine/inputs/msime-japanese.dat \
             --model target/web-engine/inputs/sentence-model.safetensors
       # 3. 冒烟测试、按键延迟门槛和校验和。
       - name: Smoke test the built glue and wasm in Node
@@ -120,7 +121,7 @@ jobs:
           set -euo pipefail
           dist=target/web-engine/dist
           (cd "$dist" && sha256sum -c SHA256SUMS.txt)
-          jq -e --arg v "$VERSION" --arg c "$SOURCE_SHA" '.version == $v and .source_commit == $c and ([.artifacts[].role] | sort) == (["glue", "model", "notice", "pinyin", "wasm", "wubi86"])' "$dist/web-engine-manifest.json" > /dev/null || { echo "web-engine-manifest.json does not match this build" >&2; cat "$dist/web-engine-manifest.json" >&2; exit 1; }
+          jq -e --arg v "$VERSION" --arg c "$SOURCE_SHA" '.version == $v and .source_commit == $c and ([.artifacts[].role] | sort) == (["glue", "japanese", "model", "notice", "pinyin", "wasm", "wubi86"])' "$dist/web-engine-manifest.json" > /dev/null || { echo "web-engine-manifest.json does not match this build" >&2; cat "$dist/web-engine-manifest.json" >&2; exit 1; }
           if grep -q '{{source_commit}}' "$dist/NOTICE.md"; then echo "NOTICE.md still has the source commit placeholder" >&2; exit 1; fi
       # 4. 不论是否发布，都上传为 workflow artifact。
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

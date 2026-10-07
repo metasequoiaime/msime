@@ -133,7 +133,7 @@ public final class ExpressionPage extends DetailPage {
         boolean added = installed.contains(item.id());
         boolean busy = installing.contains(item.id());
         String label = added ? "已添加" : busy ? "添加中" : "添加";
-        return KeyboardSheets.pillRow(context, initial(item.name()), item.name(),
+        return KeyboardSheets.pillRow(context, Ui.initial(item.name(), "短"), item.name(),
             parts.isEmpty() ? null : String.join(" · ", parts), label, added || busy ? null : () -> install(item));
     }
 
@@ -171,11 +171,6 @@ public final class ExpressionPage extends DetailPage {
         boolean neural = association != null && association.optBoolean("neural_keyboard", false);
         if (!lattice) return 0;
         return neural ? 2 : 1;
-    }
-
-    private static String initial(String name) {
-        if (name == null || name.isEmpty()) return "短";
-        return new String(Character.toChars(name.codePointAt(0)));
     }
 
     private void save(KeyboardSheets.Edit edit) {

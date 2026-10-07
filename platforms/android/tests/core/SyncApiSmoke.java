@@ -17,6 +17,65 @@ public final class SyncApiSmoke {
         check(!SyncApi.conflict(new CloudApi.Failure(409, "other", "", 0)), "other 409");
         check(!SyncApi.conflict(new CloudApi.Failure(412, "revision_conflict", "", 0)), "other status");
         check(!SyncApi.conflict(null), "null failure");
+        check(SyncApi.preferenceRevision(42L) == 42L, "integer preference revision");
+        check(SyncApi.phraseRevision(42L) == 42L, "integer phrase revision");
+        check(SyncApi.snapshotRevisionValue(42L) == 42L, "integer snapshot revision");
+        check(SyncApi.changesRevision(42L, 7L) == 42L, "integer dictionary revision");
+        check(SyncApi.strictSnapshotWeight(100L) == 100L, "integer snapshot weight");
+        check(SyncApi.strictSnapshotWeight(1.5d) == null,
+            "fractional snapshot weight is rejected");
+        check(SyncApi.strictPhrasePosition(7L, 2) == 7,
+            "integer phrase position is retained");
+        check(SyncApi.strictPhrasePosition(1.5d, 2) == 2,
+            "fractional phrase position falls back to index");
+        check(SyncApi.strictPhrasePosition(-1L, 2) == 2,
+            "negative phrase position falls back to index");
+
+        // Cloud preference revisions are non-negative integers. Fractional JSON numbers
+        // must not be truncated by Number.longValue(), and negative revisions are invalid.
+        for (Number invalid : new Number[] {1.5d, -1L}) {
+            try {
+                SyncApi.preferenceRevision(invalid);
+                throw new AssertionError("invalid preference revision must be refused: " + invalid);
+            } catch (CloudApi.Failure expected) {
+                check(expected.status == 500 && "invalid_response".equals(expected.code),
+                    "invalid preference revision failure");
+            }
+        }
+        for (Number invalid : new Number[] {1.5d, -1L}) {
+            try {
+                SyncApi.snapshotRevisionValue(invalid);
+                throw new AssertionError("invalid snapshot revision must be refused: " + invalid);
+            } catch (CloudApi.Failure expected) {
+                check(expected.status == 500 && "invalid_response".equals(expected.code),
+                    "invalid snapshot revision failure");
+            }
+        }
+        for (Number invalid : new Number[] {2.5d, -2L}) {
+            try {
+                SyncApi.phraseRevision(invalid);
+                throw new AssertionError("invalid phrase revision must be refused: " + invalid);
+            } catch (CloudApi.Failure expected) {
+                check(expected.status == 500 && "invalid_response".equals(expected.code),
+                    "invalid phrase revision failure");
+            }
+        }
+        for (Number invalid : new Number[] {1.5d, -1L}) {
+            try {
+                SyncApi.changesRevision(invalid, 0L);
+                throw new AssertionError("invalid dictionary revision must be refused: " + invalid);
+            } catch (CloudApi.Failure expected) {
+                check(expected.status == 500 && "invalid_response".equals(expected.code),
+                    "invalid dictionary revision failure");
+            }
+        }
+        try {
+            SyncApi.changesRevision(6L, 7L);
+            throw new AssertionError("dictionary cursor must not move backwards");
+        } catch (CloudApi.Failure expected) {
+            check(expected.status == 500 && "invalid_response".equals(expected.code),
+                "backwards dictionary revision failure");
+        }
 
         check("/v1/users/me/dictionary/changes?after=7&limit=1".equals(SyncApi.changesPath(7)), "changes path");
         check(SyncApi.changesPath(-3).endsWith("after=0&limit=1"), "negative cursor clamps");

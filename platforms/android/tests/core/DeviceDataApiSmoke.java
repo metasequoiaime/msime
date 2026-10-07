@@ -61,6 +61,16 @@ public final class DeviceDataApiSmoke {
             "an oversized identities response is refused");
         check(!DeviceDataApi.validResponseArrayLength(17, DeviceDataApi.MAX_DATA_SECTIONS),
             "an oversized data summary is refused");
+        check(DeviceDataApi.strictCount(42L) == 42L, "integer data count");
+        for (Number invalid : new Number[] {1.5d, -1L}) {
+            try {
+                DeviceDataApi.strictCount(invalid);
+                throw new AssertionError("invalid data count must be refused: " + invalid);
+            } catch (CloudApi.Failure expected) {
+                check(expected.status == 500 && "invalid_response".equals(expected.code),
+                    "invalid data count failure");
+            }
+        }
 
         // 撤销会话走 DELETE /v1/users/me/sessions/{id}，带真实账号的令牌；不合法的 id 不发请求。
         List<String> requests = new ArrayList<>();

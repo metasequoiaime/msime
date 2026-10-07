@@ -34,12 +34,8 @@ public final class CandidateChevronButton extends Button {
     public CandidateChevronButton(Context context) {
         super(context);
         setText("展开");
-        setAllCaps(false);
-        setBackground(null);
-        setPadding(0, 0, 0, 0);
-        ViewPolicy.clearMinimumWidth(this);
-        setMinHeight(0);
-        setMinimumHeight(0);
+        ViewPolicy.setAllCapsFalse(this);
+        ViewPolicy.clearChrome(this);
     }
 
     /** 展开键只画分隔线和 chevron；键盘的整树样式通道会给每个 Button 套键帽，这里挡掉。 */

@@ -52,7 +52,8 @@ public final class WebSocketFrames {
      * off as a successful handshake.
      */
     public static String handshakeRequest(String host, String path, String key, String[] headers) {
-        StringBuilder request = new StringBuilder(128 + textLength(host) + textLength(path) + textLength(key))
+        StringBuilder request = new StringBuilder(128 + VoiceTextPolicy.length(host)
+            + VoiceTextPolicy.length(path) + VoiceTextPolicy.length(key))
             .append("GET ").append(path).append(" HTTP/1.1\r\n")
             .append("Host: ").append(host).append("\r\n")
             .append("Upgrade: websocket\r\n")
@@ -69,10 +70,6 @@ public final class WebSocketFrames {
             }
         }
         return request.append("\r\n").toString();
-    }
-
-    private static int textLength(String value) {
-        return value == null ? 4 : value.length();
     }
 
     private static boolean validHeaderName(String value) {
@@ -100,7 +97,8 @@ public final class WebSocketFrames {
 
     /** Whether the response line and headers are a successful upgrade for this key. */
     public static boolean handshakeAccepted(String response, String key) {
-        if (response == null || !response.startsWith("HTTP/1.1 101")) return false;
+        if (response == null || !response.startsWith("HTTP/1.1 101 ")
+                || !response.contains("\r\n\r\n")) return false;
         String expected = acceptFor(key);
         boolean upgrade = false;
         boolean connection = false;
@@ -157,10 +155,11 @@ public final class WebSocketFrames {
      * something to unmask, and is refused.
      */
     public static Frame decode(byte[] buffer, int available) {
-        if (buffer == null || available < 2) return null;
+        if (buffer == null || available < 2 || available > buffer.length) return null;
         boolean fin = (buffer[0] & 0x80) != 0;
         int opcode = buffer[0] & 0x0f;
         if ((buffer[0] & 0x70) != 0) return null;
+        if ((opcode >= 0x3 && opcode <= 0x7) || opcode >= 0xb) return null;
         if ((buffer[1] & 0x80) != 0) return null;
         long length = buffer[1] & 0x7f;
         int offset = 2;

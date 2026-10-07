@@ -48,12 +48,15 @@ impl Rows {
         self.items.reserve(additional);
     }
 
+    #[cfg(test)]
     fn contains_word(&self, word: &str) -> bool {
         self.items.iter().any(|item| item.word == word)
     }
 
     fn push(&mut self, word: &str, weight: i64, source: CandidateSource) {
-        if word.is_empty() || self.contains_word(word) {
+        // A query publishes only a small candidate page. Scan the owned rows so each unique
+        // word is stored once, without cloning it into a second deduplication set.
+        if word.is_empty() || self.items.iter().any(|item| item.word == word) {
             return;
         }
         self.items.push(WordItem::new(
@@ -155,8 +158,8 @@ impl JapaneseProvider {
         if let Some(dynamic) = self.dynamic.get_ref(&request.raw_input) {
             let mut insertion = rows.items.len().min(if kana_first { 2 } else { 1 });
             for item in dynamic {
-                // Dynamic rows are bounded by the cache quota; scan the already-owned words to avoid cloning a second key into `seen`.
-                if rows.contains_word(&item.word) {
+                // Dynamic rows are bounded by the cache quota; keep the word index in sync while inserting them.
+                if rows.items.iter().any(|row| row.word == item.word) {
                     continue;
                 }
                 rows.items.insert(insertion, item.clone());

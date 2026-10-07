@@ -4,7 +4,10 @@ import android.content.Context;
 import android.content.res.Configuration;
 import android.util.TypedValue;
 import android.view.View;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
+import android.view.ViewGroup;
 import java.util.Locale;
 import java.math.BigDecimal;
 import org.json.JSONObject;
@@ -57,7 +60,7 @@ public final class KeyboardGeometry {
 
     /** Return the shorter of two dimensions for proportional control sizing. */
     public static float shorterSide(float width, float height) {
-        return Math.min(width, height);
+        return BoundsPolicy.atMost(width, height);
     }
 
     /** Return the current display width in physical pixels. */
@@ -78,12 +81,12 @@ public final class KeyboardGeometry {
 
     /** Return a view's non-negative width after horizontal padding. */
     public static int contentWidth(View view) {
-        return Math.max(0, view.getWidth() - view.getPaddingLeft() - view.getPaddingRight());
+        return BoundsPolicy.nonNegative(view.getWidth() - view.getPaddingLeft() - view.getPaddingRight());
     }
 
     /** Return a view's non-negative height after vertical padding. */
     public static int contentHeight(View view) {
-        return Math.max(0, view.getHeight() - view.getPaddingTop() - view.getPaddingBottom());
+        return BoundsPolicy.nonNegative(view.getHeight() - view.getPaddingTop() - view.getPaddingBottom());
     }
 
     /** 键盘高度百分比对应的高度调整 dp：`round(184 × (p − 100) / 100)`，范围外先钳到 75–130，与 Rust `height_percent_to_adjustment` 同式（向远离零的方向取整）。 */
@@ -194,12 +197,12 @@ public final class KeyboardGeometry {
 
     public static int halfGapPixels(int tenths, float density) {
         if (!Float.isFinite(density) || density <= 0) return 0;
-        return Math.max(0, Math.round(tenths * density / 20f));
+        return BoundsPolicy.nonNegative(Math.round(tenths * density / 20f));
     }
 
     /** Convert a size to pixels while guaranteeing at least one physical pixel. */
     public static int atLeastOnePixel(Context context, float dp) {
-        return Math.max(1, pixels(context, dp));
+        return BoundsPolicy.atLeast(pixels(context, dp), 1);
     }
 
     /** Convert an integer density-independent size to pixels using Android's rounding rule. */
@@ -217,14 +220,52 @@ public final class KeyboardGeometry {
         return pixels(dp, density(context));
     }
 
+    /** Create a vertical container for stacked keyboard content. */
+    public static LinearLayout column(Context context) {
+        LinearLayout view = new LinearLayout(context);
+        view.setOrientation(LinearLayout.VERTICAL);
+        return view;
+    }
+
+    /** Create a horizontal container for inline keyboard content. */
+    public static LinearLayout row(Context context) {
+        LinearLayout view = new LinearLayout(context);
+        view.setOrientation(LinearLayout.HORIZONTAL);
+        return view;
+    }
+
     /** Create linear layout parameters from density-independent dimensions. */
     public static LinearLayout.LayoutParams linearParams(Context context, float widthDp, float heightDp) {
         return new LinearLayout.LayoutParams(pixels(context, widthDp), pixels(context, heightDp));
     }
 
+    /** Create linear layout parameters from already pixel-sized dimensions. */
+    public static LinearLayout.LayoutParams linearParamsPx(int widthPixels, int heightPixels) {
+        return new LinearLayout.LayoutParams(widthPixels, heightPixels);
+    }
+
     /** Create full-width linear layout parameters with content-sized height. */
     public static LinearLayout.LayoutParams matchWidthWrapParams() {
         return new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT);
+    }
+
+    /** Create linear layout parameters that fill both dimensions. */
+    public static LinearLayout.LayoutParams matchParentParams() {
+        return new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.MATCH_PARENT);
+    }
+
+    /** Create linear layout parameters that wrap both dimensions. */
+    public static LinearLayout.LayoutParams wrapParams() {
+        return new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT);
+    }
+
+    /** Create content-height parameters whose width either wraps or fills the parent. */
+    public static LinearLayout.LayoutParams wrapOrMatchWidthParams(boolean wrapWidth) {
+        return new LinearLayout.LayoutParams(wrapWidth
+            ? LinearLayout.LayoutParams.WRAP_CONTENT : LinearLayout.LayoutParams.MATCH_PARENT,
             LinearLayout.LayoutParams.WRAP_CONTENT);
     }
 
@@ -236,6 +277,106 @@ public final class KeyboardGeometry {
     /** Create weighted linear layout parameters with content-sized height. */
     public static LinearLayout.LayoutParams weightedWrapParams(float weight) {
         return new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, weight);
+    }
+
+    /** Create weighted linear layout parameters with an already pixel-sized height. */
+    public static LinearLayout.LayoutParams weightedHeightPxParams(int heightPixels, float weight) {
+        return new LinearLayout.LayoutParams(0, heightPixels, weight);
+    }
+
+    /** Create weighted linear layout parameters that fill width with a zero-height basis. */
+    public static LinearLayout.LayoutParams weightedWidthParams(float weight) {
+        return new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, weight);
+    }
+
+    /** Create weighted linear layout parameters with zero width and height bases. */
+    public static LinearLayout.LayoutParams weightedZeroParams(float weight) {
+        return new LinearLayout.LayoutParams(0, 0, weight);
+    }
+
+    /** Fill the cross axis while distributing the main axis by weight. */
+    public static LinearLayout.LayoutParams weightedCrossAxisFillParams(boolean horizontal,
+            float weight) {
+        return horizontal ? weightedMatchParentParams(weight) : weightedWidthParams(weight);
+    }
+
+    /** Create full-width linear layout parameters with an already pixel-sized height. */
+    public static LinearLayout.LayoutParams matchWidthHeightPx(int heightPixels) {
+        return new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, heightPixels);
+    }
+
+    /** 创建像素尺寸的线性布局正方形参数。 */
+    public static LinearLayout.LayoutParams squareParamsPx(int size) {
+        return new LinearLayout.LayoutParams(size, size);
+    }
+
+    /** Create linear layout parameters with content-sized width and parent-sized height. */
+    public static LinearLayout.LayoutParams wrapMatchParentParams() {
+        return new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT,
+            LinearLayout.LayoutParams.MATCH_PARENT);
+    }
+
+    /** Create frame layout parameters that fill both parent dimensions. */
+    public static FrameLayout.LayoutParams frameMatchParentParams() {
+        return new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.MATCH_PARENT);
+    }
+
+    /** Create frame layout parameters that wrap both dimensions. */
+    public static FrameLayout.LayoutParams frameWrapParams() {
+        return new FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT);
+    }
+
+    /** Create frame layout parameters that fill width with an already pixel-sized height. */
+    public static FrameLayout.LayoutParams frameMatchWidthHeightPx(int heightPixels) {
+        return new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, heightPixels);
+    }
+
+    /** Create frame layout parameters for a pixel-sized square. */
+    public static FrameLayout.LayoutParams squareFrameParamsPx(int size) {
+        return new FrameLayout.LayoutParams(size, size);
+    }
+
+    /** Create frame layout parameters from already pixel-sized dimensions. */
+    public static FrameLayout.LayoutParams frameParamsPx(int widthPixels, int heightPixels) {
+        return new FrameLayout.LayoutParams(widthPixels, heightPixels);
+    }
+
+    /** Create frame layout parameters from pixel dimensions and explicit gravity. */
+    public static FrameLayout.LayoutParams frameParamsPx(int widthPixels, int heightPixels,
+            int gravity) {
+        return new FrameLayout.LayoutParams(widthPixels, heightPixels, gravity);
+    }
+
+    /** Create frame layout parameters that fill width with content-sized height. */
+    public static FrameLayout.LayoutParams frameMatchWidthWrapParams() {
+        return new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT);
+    }
+
+    /** Create frame layout parameters that fill width with content-sized height and gravity. */
+    public static FrameLayout.LayoutParams frameMatchWidthWrapParams(int gravity) {
+        return new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT, gravity);
+    }
+
+    /** Create scroll-view child parameters that fill both dimensions. */
+    public static ScrollView.LayoutParams scrollMatchParentParams() {
+        return new ScrollView.LayoutParams(ScrollView.LayoutParams.MATCH_PARENT,
+            ScrollView.LayoutParams.MATCH_PARENT);
+    }
+
+    /** Create scroll-view child parameters that fill width and wrap content height. */
+    public static ScrollView.LayoutParams scrollMatchWidthWrapParams() {
+        return new ScrollView.LayoutParams(ScrollView.LayoutParams.MATCH_PARENT,
+            ScrollView.LayoutParams.WRAP_CONTENT);
+    }
+
+    /** Apply the same start and end margin to a layout parameter. */
+    public static void setHorizontalMargins(ViewGroup.MarginLayoutParams params, int margin) {
+        params.setMarginStart(margin);
+        params.setMarginEnd(margin);
     }
 
     /** Create weighted linear layout parameters with a fixed height in dp. */

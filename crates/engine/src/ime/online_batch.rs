@@ -62,9 +62,10 @@ pub fn replace_online_candidate_batch(
     }
 
     list.retain(|item| item.source != source);
+    let mut existing: HashSet<String> = list.iter().map(|item| item.word.clone()).collect();
     let additional = unique
         .iter()
-        .filter(|word| list.iter().all(|item| item.word.as_str() != **word))
+        .filter(|word| !existing.contains(**word))
         .count();
     list.reserve(additional);
     let mut index = list.len().min(if source == CandidateSource::AiSuggestion {
@@ -73,7 +74,7 @@ pub fn replace_online_candidate_batch(
         1
     });
     for word in unique {
-        if list.iter().any(|item| item.word == word) {
+        if !existing.insert(word.to_owned()) {
             continue;
         }
         list.insert(index, WordItem::new(key, word, 1, source, ""));

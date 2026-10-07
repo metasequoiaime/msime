@@ -10,8 +10,8 @@ import androidx.fragment.app.Fragment;
 import app.msime.android.AndroidLocalSettings;
 import app.msime.android.SyncSignals;
 import app.msime.android.SyncSwitch;
+import app.msime.android.ViewPolicy;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
-import com.google.android.material.bottomsheet.BottomSheetDragHandleView;
 import java.util.List;
 import org.json.JSONObject;
 
@@ -48,24 +48,15 @@ final class AppThemeSheet {
     static void show(Fragment host, @Nullable JSONObject preferences, Runnable refresh) {
         Context context = host.requireContext();
         BottomSheetDialog dialog = new BottomSheetDialog(context);
-        LinearLayout root = new LinearLayout(context);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.addView(new BottomSheetDragHandleView(context), Ui.matchWidth());
+        LinearLayout root = Ui.column(context);
+        root.addView(Ui.sheetDragHandle(context));
 
-        LinearLayout header = new LinearLayout(context);
-        header.setOrientation(LinearLayout.VERTICAL);
-        header.setGravity(Gravity.CENTER_HORIZONTAL);
+        LinearLayout header = Ui.column(context);
+        ViewPolicy.setCenteredHorizontally(header);
         Ui.setSheetHeaderPadding(header, context);
-        TextView heading = new TextView(context);
-        heading.setText("应用主题");
-        heading.setGravity(Gravity.CENTER);
-        Ui.style(heading, Ui.TEXT_SHEET_HEADER, 600, Ui.subText(context));
-        heading.setAccessibilityHeading(true);
+        TextView heading = Ui.sheetHeading(context, "应用主题");
         header.addView(heading);
-        TextView note = new TextView(context);
-        note.setText("四季会随季节自动更换配色");
-        note.setGravity(Gravity.CENTER);
-        Ui.style(note, Ui.TEXT_SHEET_HEADER, 400, Ui.subText(context));
+        TextView note = Ui.sheetSubtitle(context, "四季会随季节自动更换配色");
         LinearLayout.LayoutParams noteParams = Ui.wrap();
         noteParams.topMargin = Ui.dp(context, 2);
         header.addView(note, noteParams);
@@ -88,18 +79,18 @@ final class AppThemeSheet {
 
         String current = theme(context);
         for (int index = 0; index < THEMES.length; index++) {
-            if (index > 0) root.addView(rule(context));
+            if (index > 0) root.addView(Ui.divider(context, true));
             String id = THEMES[index][0];
-            root.addView(option(context, THEMES[index][1], id.equals(current), Ui.accent(context), () -> {
+            root.addView(SheetOptionView.create(context, THEMES[index][1], id.equals(current), false,
+                Ui.accent(context), id.equals(current), () -> {
                 dialog.dismiss();
                 if (!id.equals(current)) saveAppTheme(host, id, refresh);
             }));
         }
 
-        View band = new View(context);
-        band.setBackgroundColor(Ui.page(context));
-        root.addView(band, Ui.matchWidthHeight(context, 8));
-        root.addView(option(context, "取消", false, Ui.accent(context), dialog::cancel));
+        root.addView(Ui.sheetSeparator(context));
+        root.addView(SheetOptionView.create(context, "取消", false, false, Ui.accent(context), false,
+            dialog::cancel));
         dialog.setContentView(root);
         dialog.show();
     }
@@ -164,16 +155,6 @@ final class AppThemeSheet {
             case "winter": return "冬雪";
             default: return "秋杉";
         }
-    }
-
-    private static View option(Context context, CharSequence label, boolean selected, int color, Runnable action) {
-        return SheetOptionView.create(context, label, selected, false, color, selected, action);
-    }
-
-    private static View rule(Context context) {
-        View rule = Ui.hairlineView(context);
-        rule.setLayoutParams(Ui.matchWidthHeightPx(Ui.hairlinePx(context)));
-        return rule;
     }
 
 }

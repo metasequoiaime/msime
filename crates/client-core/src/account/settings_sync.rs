@@ -113,7 +113,7 @@ impl LocalSetting {
 const APP_THEME_IDS: [&str; 5] = ["siji", "chunya", "xiayin", "qiushan", "dongxue"];
 
 /// Android 本地设置文件里参与同步的键（与服务端字段表的键相同）和允许的取值。这些设置只有 Android 宿主用，不在共享偏好里；隐私模式、开发者选项和语音数据贡献不在这张表里，永远不同步。
-const ANDROID_LOCAL_SETTINGS: [(&str, LocalSetting); 16] = [
+const ANDROID_LOCAL_SETTINGS: [(&str, LocalSetting); 17] = [
     ("general.app_theme", LocalSetting::Choice(&APP_THEME_IDS)),
     (
         "platform.android.one_handed",
@@ -121,6 +121,10 @@ const ANDROID_LOCAL_SETTINGS: [(&str, LocalSetting); 16] = [
     ),
     ("platform.android.key_popup", LocalSetting::Boolean),
     ("platform.android.swipe_down_symbols", LocalSetting::Boolean),
+    (
+        "platform.android.swipe_symbols_direction",
+        LocalSetting::Choice(&["down", "up"]),
+    ),
     ("platform.android.space_cursor", LocalSetting::Boolean),
     ("platform.android.space_voice", LocalSetting::Boolean),
     (

@@ -59,9 +59,7 @@ public final class CandidateAppearance {
 
     /** `#RRGGBB` or Android's alpha-first `#AARRGGBB`, the two forms a keyboard skin carries. */
     private static int parseColor(String value, int fallback) {
-        if (value == null || !value.matches("#[0-9a-fA-F]{6}|#[0-9a-fA-F]{8}")) return fallback;
-        long parsed = Long.parseLong(value.substring(1), 16);
-        return value.length() == 7 ? 0xff000000 | (int) parsed : (int) parsed;
+        return ColorPolicy.parseHex(value, fallback);
     }
 
     private static List<String> fallbackFonts(JSONArray values) {
@@ -95,7 +93,7 @@ public final class CandidateAppearance {
     private static boolean validFont(String value) {
         if (value == null || value.isEmpty()
                 || TextPolicy.utf8Length(value) > 128) return false;
-        return !TextPolicy.hasControl(value);
+        return !TextPolicy.hasControl(value) && TextPolicy.validUnicode(value);
     }
 
     public static final class Palette {

@@ -55,7 +55,7 @@ public final class CandidateAppearanceSmoke {
         check("Noto Sans Mono".equals(fonts.preferredFont()));
         check(fonts.fallbackFonts().equals(List.of("Microsoft YaHei", "Noto Sans SC")));
         CandidateAppearance.Palette invalidFonts = CandidateAppearance.fromSkin(
-            KeyboardSkin.system(false), "", "bad\nfont", List.of("", "x".repeat(129)));
+            KeyboardSkin.system(false), "", "bad\nfont", List.of("", "x".repeat(129), "坏\uD800"));
         check("Noto Sans SC".equals(invalidFonts.fontFamily()));
         check(invalidFonts.englishFont().isEmpty());
         check(invalidFonts.fallbackFonts().equals(List.of("Noto Sans SC", "Microsoft YaHei")));

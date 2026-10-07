@@ -59,9 +59,8 @@ public final class KeyboardLayoutAdjustView extends FrameLayout {
         setContentDescription("键盘布局调整；键盘上左右拖动调整按键间距，上下拖动调整行间距");
         setBackgroundColor(Color.TRANSPARENT);
 
-        bar = new LinearLayout(context);
-        bar.setOrientation(LinearLayout.HORIZONTAL);
-        bar.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        bar = KeyboardGeometry.row(context);
+        ViewPolicy.setCenteredVertically(bar);
         KeyboardGeometry.setSymmetricPaddingDp(bar, getContext(), 8, 4);
         bar.setContentDescription("键盘高度调整工具栏");
         bar.setFocusable(true);
@@ -69,27 +68,22 @@ public final class KeyboardLayoutAdjustView extends FrameLayout {
         addView(bar, barParams());
 
         resetButton = button("恢复默认", "恢复键盘布局默认值", listener::reset);
-        bar.addView(resetButton, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.MATCH_PARENT));
+        bar.addView(resetButton, KeyboardGeometry.wrapMatchParentParams());
 
-        hint = new TextView(context);
-        hint.setGravity(android.view.Gravity.CENTER);
+        hint = ViewPolicy.centeredText(context, null, 13);
         KeyboardGeometry.setKeyTextSize(hint, 13);
         hint.setMaxLines(2);
         hint.setContentDescription("布局调整说明");
-        bar.addView(hint, new LinearLayout.LayoutParams(0,
-            LinearLayout.LayoutParams.MATCH_PARENT, 1));
+        bar.addView(hint, KeyboardGeometry.weightedMatchParentParams(1));
 
         voiceShortcut = new Switch(context);
         voiceShortcut.setText("语音");
         voiceShortcut.setContentDescription("顶部语音入口");
         voiceShortcut.setOnCheckedChangeListener((ignored, checked) -> listener.voiceShortcut(checked));
-        bar.addView(voiceShortcut, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.MATCH_PARENT));
+        bar.addView(voiceShortcut, KeyboardGeometry.wrapMatchParentParams());
 
         Button close = button("完成", "返回键盘", listener::close);
-        bar.addView(close, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.MATCH_PARENT));
+        bar.addView(close, KeyboardGeometry.wrapMatchParentParams());
         update(KeyboardGeometry.DEFAULT_KEY_SPACING_TENTHS,
             KeyboardGeometry.DEFAULT_ROW_SPACING_TENTHS,
             KeyboardGeometry.DEFAULT_HEIGHT_ADJUSTMENT_DP, false);
@@ -124,7 +118,7 @@ public final class KeyboardLayoutAdjustView extends FrameLayout {
                 // that same fill in the shipped skins: 恢复默认 and 完成 were dark green text on a
                 // dark green button, and the bar read as three blank tiles.
                 button.setTextColor(color(skin.functionForeground()));
-                button.setAllCaps(false);
+                ViewPolicy.setAllCapsFalse(button);
             }
         }
     }
@@ -209,17 +203,16 @@ public final class KeyboardLayoutAdjustView extends FrameLayout {
     }
 
     private Button button(String title, String description, Runnable action) {
-        Button button = new KeyboardPressButton(getContext());
-        button.setAllCaps(false);
+        Button button = ViewPolicy.newPressButton(getContext());
         button.setText(title);
         button.setContentDescription(description);
-        button.setOnClickListener(ignored -> action.run());
+        ViewPolicy.bindClick(button, action);
         return button;
     }
 
     private FrameLayout.LayoutParams barParams() {
-        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
-            LayoutParams.MATCH_PARENT, KeyboardGeometry.pixels(getContext(), BAR_HEIGHT_DP));
+        FrameLayout.LayoutParams params = KeyboardGeometry.frameMatchWidthHeightPx(
+            KeyboardGeometry.pixels(getContext(), BAR_HEIGHT_DP));
         params.setMargins(KeyboardGeometry.pixels(getContext(), SPACING_MARGIN_DP),
             KeyboardGeometry.pixels(getContext(), 4), KeyboardGeometry.pixels(getContext(), SPACING_MARGIN_DP), 0);
         return params;

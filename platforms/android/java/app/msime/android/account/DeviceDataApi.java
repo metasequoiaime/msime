@@ -102,7 +102,7 @@ public final class DeviceDataApi {
 
     /** 改昵称；去掉首尾空白后为空表示恢复服务端的默认昵称。 */
     public void rename(String displayName) throws CloudApi.Failure {
-        String name = displayName == null ? "" : displayName.trim();
+        String name = TextPolicy.trimmed(displayName);
         if (!validDisplayName(name)) throw new IllegalArgumentException("invalid display name");
         JSONObject body;
         try {
@@ -157,7 +157,7 @@ public final class DeviceDataApi {
             if (!validSessionId(id)) continue;
             sessions.add(new Session(id, string(row, "platform"), string(row, "name"), string(row, "app_version"),
                 instant(string(row, "created_at")), instant(string(row, "last_active")),
-                Boolean.TRUE.equals(row.opt("current"))));
+                JsonPolicy.strictTrue(row.opt("current"))));
         }
         return Collections.unmodifiableList(sessions);
     }
@@ -181,10 +181,11 @@ public final class DeviceDataApi {
             for (int index = 0; index < rows.length(); index++) {
                 JSONObject row = rows.optJSONObject(index);
                 if (row == null || string(row, "id").isEmpty()) continue;
-                sections.add(new DataSection(string(row, "id"), count(row.opt("bytes")), count(row.opt("items"))));
+                sections.add(new DataSection(string(row, "id"), strictCount(row.opt("bytes")),
+                    strictCount(row.opt("items"))));
             }
         }
-        return new DataSummary(count(root.opt("bytes")), Collections.unmodifiableList(sections));
+        return new DataSummary(strictCount(root.opt("bytes")), Collections.unmodifiableList(sections));
     }
 
     /**
@@ -252,7 +253,7 @@ public final class DeviceDataApi {
     /** 昵称：去掉首尾空白后不超过 64 个码点，不含控制字符。空字符串合法（恢复默认昵称）。 */
     public static boolean validDisplayName(String name) {
         if (name == null) return false;
-        if (name.codePointCount(0, name.length()) > MAX_DISPLAY_NAME) return false;
+        if (!TextPolicy.withinCodePoints(name, MAX_DISPLAY_NAME)) return false;
         for (int index = 0; index < name.length(); index++) {
             char c = name.charAt(index);
             if (c < 0x20 || c == 0x7F) return false;
@@ -350,8 +351,13 @@ public final class DeviceDataApi {
         return value instanceof String text ? text : "";
     }
 
-    private static long count(Object value) {
-        return value instanceof Number number ? BoundsPolicy.nonNegative(number.longValue()) : 0L;
+    /** Data summary counters are JSON integers; reject coercion and negative values. */
+    public static long strictCount(Object value) throws CloudApi.Failure {
+        if (!(value instanceof Integer) && !(value instanceof Long))
+            throw new CloudApi.Failure(500, "invalid_response", "invalid data count", 0);
+        long count = ((Number) value).longValue();
+        if (count < 0) throw new CloudApi.Failure(500, "invalid_response", "invalid data count", 0);
+        return count;
     }
 
     /** 数一数写了多少字节，原样转给下游。 */
@@ -388,9 +394,7 @@ public final class DeviceDataApi {
             int status = connection.getResponseCode();
             if (status / 100 == 2) {
                 try (InputStream input = connection.getInputStream()) {
-                    byte[] buffer = new byte[16 * 1024];
-                    int read;
-                    while ((read = input.read(buffer)) != -1) out.write(buffer, 0, read);
+                    HttpBodyPolicy.copy(input, out);
                 }
                 out.flush();
                 return new Download(status, null, new byte[0]);
