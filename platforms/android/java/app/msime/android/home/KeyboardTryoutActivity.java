@@ -135,7 +135,7 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
             @Override public void afterTextChanged(@NonNull Editable text) {
                 if (text.length() > DRAFT_LIMIT) text.delete(DRAFT_LIMIT, text.length());
                 // 请求进行中按钮是「停止」，继续编辑或清空草稿都不能禁用取消操作。默认就能和 AI 对话：有字就能发，目录还没加载完时发出的那句等目录到了再发。
-                sendAi.setEnabled(sending || text.length() > 0);
+                ViewPolicy.setEnabled(sendAi, sending || text.length() > 0);
             }
         });
 
@@ -184,7 +184,7 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
                     loadingModels = false;
                     // The draft may have been typed while the catalogue was loading. Refresh
                     // the action state here instead of waiting for another edit notification.
-                    send.setEnabled(sending || field.length() > 0);
+                    ViewPolicy.setEnabled(send, sending || field.length() > 0);
                     flushPendingSend(send);
                 });
             } catch (Exception error) {
@@ -227,7 +227,7 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
 
     private void showStop(MaterialButton send) {
         sending = true;
-        send.setEnabled(true);
+        ViewPolicy.setEnabled(send, true);
         send.setIconResource(R.drawable.ms_w2_home_stop);
         send.setContentDescription("停止");
     }
@@ -349,7 +349,7 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
         send.setIconResource(R.drawable.ms_w2_home_send);
         send.setContentDescription("发送");
         EditText field = findViewById(R.id.tryout_field);
-        send.setEnabled(field.getText() != null && field.length() > 0);
+        ViewPolicy.setEnabled(send, field.getText() != null && field.length() > 0);
     }
 
     /**
