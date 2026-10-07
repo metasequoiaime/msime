@@ -51,7 +51,9 @@ final class OnboardingChoices {
         /** 偏好还读不到，选择留着，之后再写。 */
         WAITING,
         /** 偏好读得到但写不进去，选择已放弃，键盘保留原来的设置。 */
-        FAILED
+        FAILED,
+        /** 读写时出了意外的异常：选择留着，调用方可以稍后再试，也会在下次准备完成或下次启动时再写。 */
+        ERROR
     }
 
     /**
@@ -111,7 +113,7 @@ final class OnboardingChoices {
                 result = syncNow(application, done != null);
             } catch (RuntimeException | LinkageError error) {
                 // 共享宿主的调用在 HostStore 里已经兜住；这里是线程边界，未预料的异常不能让应用崩掉，选择留着下次再写。
-                result = new Result(Outcome.WAITING, null);
+                result = new Result(Outcome.ERROR, null);
             }
             if (done == null) return;
             Result answer = result;

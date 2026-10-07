@@ -68,6 +68,11 @@ public final class OnboardingActivity extends AppCompatActivity {
     private int page;
     @Nullable private JSONObject snapshot;
     private boolean loaded;
+    /** 意外异常后自动重试保存的次数与间隔，见 {@link #syncChoices}。 */
+    private static final int SYNC_RETRY_LIMIT = 3;
+    private static final long SYNC_RETRY_DELAY_MS = 1500;
+    private final android.os.Handler retryHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private int syncRetries;
     /** What the last write on this page did, shown under the page's controls until the page changes. */
     @Nullable private String note;
     /** Whether the last step can offer sign-in; null until the off-thread check answers, which reads as not offered. */
@@ -130,6 +135,7 @@ public final class OnboardingActivity extends AppCompatActivity {
 
     @Override protected void onDestroy() {
         FirstRunPreparation.stopObserving(preparation);
+        retryHandler.removeCallbacksAndMessages(null);
         super.onDestroy();
     }
 
@@ -407,6 +413,17 @@ public final class OnboardingActivity extends AppCompatActivity {
             if (result.snapshot() != null) snapshot = result.snapshot();
             loaded = true;
             boolean choices = steps[page] == STEP_SCHEMES || steps[page] == STEP_TRANSLATION;
+            if (result.outcome() == OnboardingChoices.Outcome.ERROR) {
+                // 意外的异常不代表偏好读不到：页面手上的旧快照仍可读，不处理就会一直停在「正在保存…」。隔一会儿再试几次，仍不行就说明情况，选择留着下次启动再写。
+                if (syncRetries < SYNC_RETRY_LIMIT) {
+                    syncRetries++;
+                    retryHandler.postDelayed(this::syncChoices, SYNC_RETRY_DELAY_MS);
+                } else if (choices) {
+                    note = "暂时保存不了，已记下选择，下次打开水杉时再保存";
+                }
+            } else {
+                syncRetries = 0;
+            }
             if (choices && result.outcome() == OnboardingChoices.Outcome.FAILED) {
                 note = steps[page] == STEP_SCHEMES ? "保存失败，键盘保留当前方案" : "保存失败，保留原来的设置";
             }
