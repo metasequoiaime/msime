@@ -347,7 +347,7 @@ public final class AiSkinPage extends DetailPage {
         input.setHint("写下你想要的样子，例如「雨后竹林」");
         input.setHintTextColor(Ui.subText(context));
         input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
-        input.setMinLines(2);
+        ViewPolicy.setMinLines(input, 2);
         ViewPolicy.setTopStart(input);
         input.setFilters(new InputFilter[] {new InputFilter.LengthFilter(SkinJobsApi.MAX_PROMPT_CHARACTERS)});
         ViewPolicy.clearBackground(input);

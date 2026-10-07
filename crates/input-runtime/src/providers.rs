@@ -519,16 +519,13 @@ impl UnixSocketProvider {
         if !msime_client_core::is_bounded_text(&query.language, 64)
             || query.strokes.is_empty()
             || query.strokes.len() > 32
-            || query
-                .strokes
-                .iter()
-                .any(|stroke| {
-                    stroke.is_empty()
-                        || stroke.len() > 512
-                        || stroke
-                            .iter()
-                            .any(|point| !point.x.is_finite() || !point.y.is_finite())
-                })
+            || query.strokes.iter().any(|stroke| {
+                stroke.is_empty()
+                    || stroke.len() > 512
+                    || stroke
+                        .iter()
+                        .any(|point| !point.x.is_finite() || !point.y.is_finite())
+            })
         {
             return None;
         }

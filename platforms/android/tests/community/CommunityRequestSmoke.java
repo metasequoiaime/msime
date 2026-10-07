@@ -26,6 +26,8 @@ public final class CommunityRequestSmoke {
             "phrase text and groups reject malformed Unicode");
         check(CommunityRequest.validPhraseGroup("") && !CommunityRequest.validPhraseGroup("a\nb")
             && !CommunityRequest.validPhraseGroup("x".repeat(33)), "phrase groups are short single lines");
+        check(CommunityRequest.validPhraseGroup("😀".repeat(32)),
+            "phrase groups use the shared Unicode character bound");
         check("皮肤".equals(Kind.SKIN.title()) && !Kind.SKIN.searchHint().isEmpty(),
             "every kind is titled and says what its search covers");
 

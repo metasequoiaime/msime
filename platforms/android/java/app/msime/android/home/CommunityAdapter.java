@@ -43,7 +43,7 @@ public final class CommunityAdapter extends RecyclerView.Adapter<CommunityAdapte
     private record Entry(@Nullable CommunityCatalog.Item item, String header) {}
 
     private final ArrayList<Entry> entries = new ArrayList<>(CommunityRequest.PAGE_SIZE);
-    private final Map<String, Action> actions = new HashMap<>();
+    private final Map<String, Action> actions = new HashMap<>(CommunityRequest.PAGE_SIZE);
     private final Consumer<CommunityCatalog.Item> onOpen;
     private final Consumer<CommunityCatalog.Item> onAction;
     private boolean nineKey;
