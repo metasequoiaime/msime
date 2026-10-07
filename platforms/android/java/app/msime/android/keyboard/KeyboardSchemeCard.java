@@ -142,7 +142,7 @@ public final class KeyboardSchemeCard extends FrameLayout {
         setBackground(rounded(isSelected ? ColorPolicy.withAlpha(accent, .12f) : Color.TRANSPARENT,
             KeyboardGeometry.pixels(getContext(), CARD_RADIUS_DP)));
         setFaceTextColor(face);
-        glyph.setBackground(outlined(face, KeyboardGeometry.pixels(getContext(), GLYPH_RADIUS_DP), KeyboardGeometry.pixels(getContext(), GLYPH_BORDER_DP)));
+        ViewPolicy.setBackground(glyph, outlined(face, KeyboardGeometry.pixels(getContext(), GLYPH_RADIUS_DP), KeyboardGeometry.pixels(getContext(), GLYPH_BORDER_DP)));
         // 角标和对勾都压在字形框的边线上，各自带一小块与面板同色的底，把边线断开。
         badge.setBackgroundColor(keyBackground);
         ViewPolicy.setBackground(check, checkMark(accent, keyBackground));
@@ -159,7 +159,7 @@ public final class KeyboardSchemeCard extends FrameLayout {
         int face = isSelected ? accent : foreground;
         ViewPolicy.clearBackground(this);
         setFaceTextColor(face);
-        glyph.setBackground(outlined(face, KeyboardGeometry.pixels(getContext(), GLYPH_RADIUS_DP), KeyboardGeometry.pixels(getContext(), GLYPH_BORDER_DP)));
+        ViewPolicy.setBackground(glyph, outlined(face, KeyboardGeometry.pixels(getContext(), GLYPH_RADIUS_DP), KeyboardGeometry.pixels(getContext(), GLYPH_BORDER_DP)));
         badge.setBackgroundColor(panelBackground);
         if (isSelected || badge.getText().length() == 0) ViewPolicy.setInvisible(badge);
         else ViewPolicy.show(badge);
