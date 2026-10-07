@@ -22,6 +22,42 @@ struct PlannedKey {
     penalty: f64,
 }
 
+enum WeakPositions {
+    Bits(u64),
+    Heap(Vec<bool>),
+}
+
+impl WeakPositions {
+    fn new(length: usize) -> Self {
+        if length <= u64::BITS as usize {
+            Self::Bits(0)
+        } else {
+            Self::Heap(vec![false; length])
+        }
+    }
+
+    fn set(&mut self, position: usize) {
+        match self {
+            Self::Bits(bits) => *bits |= 1u64 << position,
+            Self::Heap(weak) => weak[position] = true,
+        }
+    }
+
+    fn clear(&mut self) {
+        match self {
+            Self::Bits(bits) => *bits = 0,
+            Self::Heap(weak) => weak.fill(false),
+        }
+    }
+
+    fn get(&self, position: usize) -> bool {
+        match self {
+            Self::Bits(bits) => bits & (1u64 << position) != 0,
+            Self::Heap(weak) => weak[position],
+        }
+    }
+}
+
 /// Plan up to 96 span keys, look them up through `span_cache` (empty answers cached too), and emit one edge per row.
 pub fn collect_typo_edges(
     database: &PinyinDatabase,
@@ -73,7 +109,7 @@ fn plan_keys(
 ) -> Vec<PlannedKey> {
     let n = segments.len();
     // A syllable the best literal path spells as a lone character is where a typo most likely broke a phrase, so those positions are tried first. Word widths follow the character counts of the path's words; a path that does not tile the input marks nothing weak.
-    let mut weak = vec![false; n];
+    let mut weak = WeakPositions::new(n);
     let mut covered = 0;
     for word in &literal_best.words {
         let width = count_utf8_chars(word);
@@ -82,16 +118,16 @@ fn plan_keys(
             break;
         }
         if width == 1 {
-            weak[covered] = true;
+            weak.set(covered);
         }
         covered += width;
     }
     if covered != n {
-        weak.fill(false);
+        weak.clear();
     }
     let positions = (0..n)
-        .filter(|&i| weak[i])
-        .chain((0..n).filter(|&i| !weak[i]));
+        .filter(|&i| weak.get(i))
+        .chain((0..n).filter(|&i| !weak.get(i)));
 
     let mut planned = Vec::with_capacity(TYPO_KEY_BUDGET);
     let mut variants = Vec::new();
@@ -205,7 +241,29 @@ mod tests {
         });
 
         assert_eq!(planned.len(), 20);
-        assert!(allocations <= 92, "{allocations}");
+        assert!(allocations <= 91, "{allocations}");
+    }
+
+    #[test]
+    fn weak_position_bits_cover_the_boundary_without_heap_state() {
+        let (mut weak, allocations) =
+            crate::ime::personal_rerank::allocations::count(|| WeakPositions::new(64));
+        weak.set(0);
+        weak.set(63);
+
+        assert_eq!(allocations, 0);
+        assert!(weak.get(0));
+        assert!(weak.get(63));
+        assert!(!weak.get(1));
+    }
+
+    #[test]
+    fn weak_position_storage_falls_back_for_long_internal_inputs() {
+        let mut weak = WeakPositions::new(65);
+        weak.set(64);
+        assert!(weak.get(64));
+        weak.clear();
+        assert!(!weak.get(64));
     }
 
     #[test]
