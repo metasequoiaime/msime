@@ -12,6 +12,7 @@ import app.msime.android.BoundsPolicy;
 import app.msime.android.KeyPressIds;
 import app.msime.android.R;
 import app.msime.android.TypingStatisticsSummary;
+import app.msime.android.ViewPolicy;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -68,10 +69,10 @@ public final class KeyHeatmapView extends View {
         super(context, attributes);
         face.setTextAlign(Paint.Align.CENTER);
         face.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
-        face.setTextSize(Ui.sp(context, 14));
+        ViewPolicy.setTextSizeSp(face, context, 14);
         share.setTextAlign(Paint.Align.CENTER);
-        share.setTextSize(Ui.sp(context, 9));
-        caption.setTextSize(Ui.sp(context, 12));
+        ViewPolicy.setTextSizeSp(share, context, 9);
+        ViewPolicy.setTextSizeSp(caption, context, 12);
     }
 
     private static Key k(String id) {
