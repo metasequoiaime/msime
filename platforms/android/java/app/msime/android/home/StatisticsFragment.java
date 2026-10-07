@@ -453,7 +453,7 @@ public final class StatisticsFragment extends HomeTabFragment {
         LinearLayout tile = Ui.column(context);
         int pad = Ui.dp(context, 14);
         Ui.setSymmetricPaddingPx(tile, pad);
-        tile.setBackground(Ui.rounded(Ui.card(context), Ui.dp(context, 20)));
+        ViewPolicy.setBackground(tile, Ui.rounded(Ui.card(context), Ui.dp(context, 20)));
         tile.addView(Ui.label(context, title, 13, Ui.text(context)));
         TextView number = Ui.label(context, figure(context, value, 24,
             "—".equals(value) ? "" : unit), 24, Ui.text(context));
