@@ -100,7 +100,7 @@ public final class CommunitySkinSheet {
         MaterialButton report = new MaterialButton(context, null,
             androidx.appcompat.R.attr.borderlessButtonStyle);
         report.setText("举报");
-        report.setOnClickListener(ignored -> {
+        ViewPolicy.bindClick(report, () -> {
             sheet.dismiss();
             onReport.run();
         });
