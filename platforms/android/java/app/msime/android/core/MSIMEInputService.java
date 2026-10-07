@@ -4562,12 +4562,13 @@ public final class MSIMEInputService extends InputMethodService {
             keySpacingSlider.setProgress(touchKeySpacingTenths);
             rowSpacingSlider.setProgress(touchRowSpacingTenths);
             keyboardHeightSlider.setProgress(touchKeyboardHeightAdjustment);
-            keySpacingSlider.setEnabled(!touchGeometrySaving && !traditionalOutputSaving);
-            rowSpacingSlider.setEnabled(!touchGeometrySaving && !traditionalOutputSaving);
-            keyboardHeightSlider.setEnabled(!touchGeometrySaving && !traditionalOutputSaving);
+            boolean settingsEditable = !touchGeometrySaving && !traditionalOutputSaving;
+            ViewPolicy.setEnabled(keySpacingSlider, settingsEditable);
+            ViewPolicy.setEnabled(rowSpacingSlider, settingsEditable);
+            ViewPolicy.setEnabled(keyboardHeightSlider, settingsEditable);
             voiceShortcutSwitch.setChecked(touchVoiceShortcutEnabled);
-            voiceShortcutSwitch.setEnabled(!touchGeometrySaving && !traditionalOutputSaving);
-            resetLayoutSettingsButton.setEnabled(!touchGeometrySaving && !traditionalOutputSaving);
+            ViewPolicy.setEnabled(voiceShortcutSwitch, settingsEditable);
+            ViewPolicy.setEnabled(resetLayoutSettingsButton, settingsEditable);
             keySpacingValue.setText(KeyboardGeometry.display(touchKeySpacingTenths) + " dp");
             rowSpacingValue.setText(KeyboardGeometry.display(touchRowSpacingTenths) + " dp");
             keyboardHeightValue.setText(KeyboardGeometry.displayHeight(
