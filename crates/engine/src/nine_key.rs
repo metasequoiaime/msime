@@ -27,6 +27,8 @@ pub const DIGIT_LIMIT: usize = 32;
 pub const CANDIDATE_LIMIT: usize = 128;
 // 少量查询键直接扫描已有切分路径，避免刷新时为临时哈希表分配堆内存。
 const SMALL_QUERY_KEY_BATCH: usize = 64;
+// 少量九宫格候选直接扫描已保留词，避免排序后为一次去重分配哈希表。
+const SMALL_CANDIDATE_DEDUP: usize = 64;
 
 /// The digit printed beside each of `a..=z` (NK:37).
 const KEYPAD: &[u8; 26] = b"22233344455566677778889999";
@@ -749,6 +751,23 @@ fn rank_candidates(candidates: &mut Vec<WordItem>, prefer_exact: bool) {
 }
 
 fn retain_unique_words(candidates: &mut Vec<WordItem>) {
+    if candidates.len() <= SMALL_CANDIDATE_DEDUP {
+        let mut write = 0;
+        for read in 0..candidates.len() {
+            if candidates[..write]
+                .iter()
+                .any(|existing| existing.word == candidates[read].word)
+            {
+                continue;
+            }
+            if write != read {
+                candidates.swap(write, read);
+            }
+            write += 1;
+        }
+        candidates.truncate(write);
+        return;
+    }
     let mut seen = HashSet::with_capacity(candidates.len());
     let duplicates = candidates
         .iter()
@@ -1095,6 +1114,27 @@ mod tests {
             item("泥", "64", 2, CandidateSource::Database),
         ];
         retain_unique_words(&mut candidates);
+        assert_eq!(
+            candidates
+                .iter()
+                .map(|candidate| candidate.word.as_str())
+                .collect::<Vec<_>>(),
+            ["你", "泥"]
+        );
+    }
+
+    #[test]
+    fn short_unique_word_retain_avoids_temporary_heap_state() {
+        let mut candidates = vec![
+            item("你", "644", 10, CandidateSource::Database),
+            item("你", "64", 1, CandidateSource::Generated),
+            item("泥", "64", 2, CandidateSource::Database),
+        ];
+        let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            retain_unique_words(&mut candidates);
+        });
+
+        assert_eq!(allocations, 0);
         assert_eq!(
             candidates
                 .iter()
