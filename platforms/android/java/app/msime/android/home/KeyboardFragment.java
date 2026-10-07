@@ -342,7 +342,7 @@ public final class KeyboardFragment extends HomeTabFragment {
         TextView mark = view.findViewById(markId);
         Ui.applyStatusMark(mark, requireContext(), done);
         TextView button = view.findViewById(actionId);
-        button.setVisibility(done ? View.GONE : View.VISIBLE);
+        ViewPolicy.setVisible(button, !done);
         button.setOnClickListener(done ? null : ignored -> action.run());
         button.setTextColor(ColorStateList.valueOf(Ui.accent(requireContext())));
         view.findViewById(rowId).setContentDescription(
