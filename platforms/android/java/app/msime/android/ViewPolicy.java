@@ -365,6 +365,11 @@ public final class ViewPolicy {
         view.setVisibility(View.GONE);
     }
 
+    /** Show a view when {@code visible}, otherwise hide it from layout and rendering. */
+    public static void setVisible(View view, boolean visible) {
+        view.setVisibility(visible ? View.VISIBLE : View.GONE);
+    }
+
     /** Hide a view while preserving its layout space. */
     public static void setInvisible(View view) {
         view.setVisibility(View.INVISIBLE);
