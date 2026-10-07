@@ -7,6 +7,7 @@ use crate::types::{CandidateSource, WordItem};
 pub const AI_QUOTA: usize = 10;
 pub const CLOUD_QUOTA: usize = 1;
 pub const MAX_ONLINE_WORD_BYTES: usize = 4_096;
+const EXISTING_WORD_LINEAR_SCAN_LIMIT: usize = 64;
 
 /// Validate a provider batch without constructing rows that a caller may immediately discard.
 pub(crate) fn validate_online_candidate_batch(words: &[String], source: CandidateSource) -> bool {
@@ -49,16 +50,7 @@ pub fn replace_online_candidate_batch(
     // Providers repeat candidates, so the quota counts distinct words: a repeat must neither reject a valid batch nor use up a seat (online_candidate_batch.h:32-33).
 
     list.retain(|item| item.source != source);
-    let existing: HashSet<&str> = list.iter().map(|item| item.word.as_str()).collect();
-    let mut new_count = 0;
-    for word in unique.iter_mut().take(unique_count) {
-        if existing.contains(word.as_ref().expect("unique online word is present")) {
-            *word = None;
-        } else {
-            new_count += 1;
-        }
-    }
-    drop(existing);
+    let new_count = mark_existing_online_words(list, &mut unique, unique_count);
     list.reserve(new_count);
     let index = list.len().min(if source == CandidateSource::AiSuggestion {
         2
@@ -102,6 +94,36 @@ fn unique_online_words(
     Some((unique, count))
 }
 
+fn mark_existing_online_words(
+    list: &[WordItem],
+    unique: &mut [Option<&str>; AI_QUOTA],
+    unique_count: usize,
+) -> usize {
+    let mut new_count = 0;
+    if list.len() <= EXISTING_WORD_LINEAR_SCAN_LIMIT {
+        for word in unique.iter_mut().take(unique_count) {
+            if list
+                .iter()
+                .any(|item| item.word == *word.as_ref().expect("unique online word is present"))
+            {
+                *word = None;
+            } else {
+                new_count += 1;
+            }
+        }
+        return new_count;
+    }
+    let existing: HashSet<&str> = list.iter().map(|item| item.word.as_str()).collect();
+    for word in unique.iter_mut().take(unique_count) {
+        if existing.contains(word.as_ref().expect("unique online word is present")) {
+            *word = None;
+        } else {
+            new_count += 1;
+        }
+    }
+    new_count
+}
+
 /// Non-empty, at most 4096 bytes, no C0 control byte and no DEL.
 fn is_acceptable_online_word(word: &str) -> bool {
     !word.is_empty()
@@ -142,6 +164,48 @@ mod tests {
         assert_eq!(count, 3);
         assert_eq!(unique[..count], [Some("甲"), Some("乙"), Some("丙")]);
         assert!(unique_online_words(&words(&["甲", "乙", "丙", "丁"]), 3).is_none());
+    }
+
+    #[test]
+    fn existing_words_use_a_zero_allocation_scan_for_short_lists() {
+        let list = dictionary_list();
+        let mut unique = [
+            Some("你"),
+            Some("智"),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        ];
+        let ((new_count, unique), allocations) =
+            crate::ime::personal_rerank::allocations::count(|| {
+                (mark_existing_online_words(&list, &mut unique, 2), unique)
+            });
+        assert_eq!(new_count, 1);
+        assert_eq!(allocations, 0);
+        assert_eq!(unique[..2], [None, Some("智")]);
+
+        let large_list: Vec<WordItem> = (0..=EXISTING_WORD_LINEAR_SCAN_LIMIT)
+            .map(|index| row(&format!("已有{index}"), CandidateSource::Database))
+            .collect();
+        let mut unique = [
+            Some("已有0"),
+            Some("新"),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        ];
+        assert_eq!(mark_existing_online_words(&large_list, &mut unique, 2), 1);
+        assert_eq!(unique[..2], [None, Some("新")]);
     }
 
     #[test]
