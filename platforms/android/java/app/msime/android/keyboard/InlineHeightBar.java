@@ -67,9 +67,9 @@ public final class InlineHeightBar extends LinearLayout {
         resetParams.rightMargin = KeyboardGeometry.pixels(context, 4);
         addView(reset, resetParams);
         addView(done, KeyboardGeometry.linearParamsPx(LayoutParams.WRAP_CONTENT, pill));
-        cancel.setOnClickListener(view -> { if (listener != null) listener.onCancel(); });
-        done.setOnClickListener(view -> { if (listener != null) listener.onDone(); });
-        reset.setOnClickListener(view -> {
+        ViewPolicy.bindClick(cancel, () -> { if (listener != null) listener.onCancel(); });
+        ViewPolicy.bindClick(done, () -> { if (listener != null) listener.onDone(); });
+        ViewPolicy.bindClick(reset, () -> {
             updatePercent(DEFAULT_PERCENT, true);
             if (listener != null) listener.onReset();
         });
