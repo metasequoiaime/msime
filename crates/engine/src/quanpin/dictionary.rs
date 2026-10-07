@@ -638,6 +638,10 @@ impl QuanpinDictionary {
     }
 
     fn append_query_rows(result: &mut Vec<WordItem>, rows: Vec<WordItem>) {
+        if result.is_empty() && result.capacity() == 0 {
+            *result = rows;
+            return;
+        }
         result.reserve(rows.len());
         result.extend(rows);
     }

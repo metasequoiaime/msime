@@ -987,6 +987,29 @@ fn query_rows_reserve_the_incoming_batch() {
     assert_eq!(result.capacity(), 11);
 }
 
+#[test]
+fn query_rows_move_into_an_empty_result_buffer() {
+    let rows: Vec<WordItem> = (0..10)
+        .map(|index| {
+            WordItem::new(
+                "a",
+                format!("词{index}"),
+                index,
+                CandidateSource::Database,
+                "a",
+            )
+        })
+        .collect();
+    let pointer = rows.as_ptr();
+    let capacity = rows.capacity();
+    let mut result = Vec::new();
+
+    QuanpinDictionary::append_query_rows(&mut result, rows);
+
+    assert_eq!(result.as_ptr(), pointer);
+    assert_eq!(result.capacity(), capacity);
+}
+
 /// test_fuzzy_pinyin.cpp:265-270: two hundred warm fuzzy queries stay well inside the reference's five-second budget.
 #[test]
 fn two_hundred_warm_fuzzy_queries_stay_under_budget() {
