@@ -6529,7 +6529,8 @@ public final class MSIMEInputService extends InputMethodService {
 
     void render() {
         // 旋转、设置变化或布局切换让分离式键盘该画与否变了，而键行还是按旧状态建的：先按新状态重建，下面的底行排布也会跟着换。
-        if (imeLetterRows.splitStale()) imeLetterRows.rebuildKeyRows();
+        // 设置页改了九键左侧符号栏的符号：同样按新的符号表重建。
+        if (imeLetterRows.splitStale() || imeLayoutRows.sidebarStale()) imeLetterRows.rebuildKeyRows();
         updateSymbolKeyFaces();
         updateShuangpinKeyHints();
         updateQuickPunctuation();

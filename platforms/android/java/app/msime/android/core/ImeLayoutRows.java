@@ -280,6 +280,46 @@ final class ImeLayoutRows {
         s.nineKeySidebar.setBackground(rail);
     }
 
+    /** 当前键行建出来时用的左侧符号；设置改了以后 {@link #sidebarStale} 据此判断要不要重建。 */
+    private java.util.List<String> builtSidebarSymbols;
+
+    /** 本地设置里的左侧符号（不合规时是默认的那张表）。 */
+    java.util.List<String> sidebarSymbols() {
+        return NineKeySidebarPolicy.letterSymbols(s.localSettings.text(AndroidLocalSettings.NINE_KEY_SYMBOLS));
+    }
+
+    /** 屏幕上有九键或笔画的符号栏，而它的符号和设置里的已经不同：设置页改了符号表之后，下一次渲染重建键行。 */
+    boolean sidebarStale() {
+        return s.nineKeySidebar != null && builtSidebarSymbols != null
+            && !builtSidebarSymbols.equals(sidebarSymbols());
+    }
+
+    /**
+     * 九键与笔画键盘左侧的符号栏：一屏 {@link NineKeySidebarPolicy#VISIBLE_ROWS} 个符号，更多的上下滚动（#5574）。符号键共用一条底轨，不各自画键帽；点按原样上屏（全角模式下转全角）。
+     */
+    private FrameLayout symbolSidebar(java.util.List<String> symbols) {
+        NineKeySymbolRail rail = new NineKeySymbolRail(s);
+        rail.setContentDescription("符号栏，可上下滑动");
+        for (String symbol : symbols) {
+            Button key = s.keyId(s.keyboardKey(symbol, "符号 " + symbol,
+                () -> commitNineKeyLiteral(symbol)), "SoftPunctuation");
+            // 「……」这类两个字宽的符号在窄栏里不折行。
+            ViewPolicy.setSingleLine(key);
+            // 全角「，」「。」的墨迹只占字身左下角，直接当键面文字会缩成贴底的小点。
+            if ("，".equals(symbol) || "。".equals(symbol)) CenteredGlyphSpan.apply(key, symbol, 1.3f);
+            // 符号键共用一条底轨，不各自画键帽。
+            if (key instanceof KeyboardPressButton press)
+                press.setKeyboardRole(KeyboardKeyRole.PLAIN);
+            rail.addSymbol(key);
+        }
+        FrameLayout sidebar = new FrameLayout(s);
+        s.nineKeySidebar = sidebar;
+        builtSidebarSymbols = symbols;
+        applySidebarRail();
+        sidebar.addView(rail, KeyboardGeometry.frameMatchParentParams());
+        return sidebar;
+    }
+
     void rebuildNineKeyRows() {
         dismissNineKeyHoldOptions();
         LinearLayout container = KeyboardGeometry.row(s);
@@ -287,23 +327,9 @@ final class ImeLayoutRows {
         s.keyRows.addView(container, KeyboardGeometry.matchWidthHeightPx(
             s.pixels(KeyboardGeometry.KEY_ROW_HEIGHT_DP * 3)));
 
-        LinearLayout punctuation = KeyboardGeometry.column(s);
-        // 设计里左列是 ，。？ 三个，！ 放在右列最下面，和 3×3 网格逐行对齐。
+        // 左列是可以上下滚动的符号栏（默认 ，。？、：；……～@，可在设置里自定义），！ 仍放在右列最下面，和 3×3 网格逐行对齐。
         java.util.List<String> symbols = NineKeyLayout.punctuation();
-        for (String symbol : symbols.subList(0, symbols.size() - 1)) {
-            Button key = s.keyId(s.keyboardKey(symbol, "符号 " + symbol,
-                () -> commitNineKeyLiteral(symbol)), "SoftPunctuation");
-            // 全角「，」「。」的墨迹只占字身左下角，直接当键面文字会缩成贴底的小点。
-            if ("，".equals(symbol) || "。".equals(symbol)) CenteredGlyphSpan.apply(key, symbol, 1.3f);
-            // The punctuation keys share one rail rather than wearing caps of their own.
-            if (key instanceof KeyboardPressButton press)
-                press.setKeyboardRole(KeyboardKeyRole.PLAIN);
-            punctuation.addView(key, KeyboardGeometry.weightedWidthParams(1));
-        }
-        FrameLayout sidebar = new FrameLayout(s);
-        s.nineKeySidebar = sidebar;
-        applySidebarRail();
-        sidebar.addView(punctuation, KeyboardGeometry.frameMatchParentParams());
+        FrameLayout sidebar = symbolSidebar(sidebarSymbols());
         if (s.nineKeySpellingScroll != null) {
             // 拼音选择条只在创建键盘视图时建一次，每次重建九键都会换一个新的侧栏；偏好变化触发第二次重建时它还挂在上一个侧栏上，不先摘下来，addView 会抛 IllegalStateException 让键盘进程崩溃。
             if (s.nineKeySpellingScroll.getParent() instanceof android.view.ViewGroup previous)
@@ -391,22 +417,9 @@ final class ImeLayoutRows {
         s.keyRows.addView(container, KeyboardGeometry.matchWidthHeightPx(
             s.pixels(KeyboardGeometry.KEY_ROW_HEIGHT_DP * 3)));
 
-        LinearLayout punctuation = KeyboardGeometry.column(s);
-        // 外框和拼音九键一样三行对齐：左列 ，。？，！ 在右列最下；中间两行笔画下面再一行 @#、0、句点。原来左列四个、中间两行、右列三个，三列互不对齐，看起来像少了一行。
+        // 外框和拼音九键一样三行对齐：左列是和拼音九键同一张可滚动的符号表，！ 在右列最下；中间两行笔画下面再一行 @#、0、句点。原来左列四个、中间两行、右列三个，三列互不对齐，看起来像少了一行。
         java.util.List<String> symbols = NineKeyLayout.punctuation();
-        for (String symbol : symbols.subList(0, symbols.size() - 1)) {
-            Button key = s.keyId(s.keyboardKey(symbol, "符号 " + symbol,
-                () -> commitNineKeyLiteral(symbol)), "SoftPunctuation");
-            // 全角「，」「。」的墨迹只占字身左下角，直接当键面文字会缩成贴底的小点。
-            if ("，".equals(symbol) || "。".equals(symbol)) CenteredGlyphSpan.apply(key, symbol, 1.3f);
-            if (key instanceof KeyboardPressButton press)
-                press.setKeyboardRole(KeyboardKeyRole.PLAIN);
-            punctuation.addView(key, KeyboardGeometry.weightedWidthParams(1));
-        }
-        FrameLayout sidebar = new FrameLayout(s);
-        s.nineKeySidebar = sidebar;
-        applySidebarRail();
-        sidebar.addView(punctuation, KeyboardGeometry.frameMatchParentParams());
+        FrameLayout sidebar = symbolSidebar(sidebarSymbols());
         container.addView(sidebar, KeyboardGeometry.weightedMatchParentParams(0.7f));
 
         LinearLayout grid = KeyboardGeometry.column(s);
