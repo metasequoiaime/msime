@@ -14,6 +14,7 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
 import app.msime.android.NativeClient;
+import app.msime.android.JsonPolicy;
 import app.msime.android.R;
 import app.msime.android.TextPolicy;
 import app.msime.android.ViewPolicy;
@@ -52,7 +53,7 @@ final class NoticeBanner {
                 .put("platform", "android")
                 .put("channel", "app");
             JSONObject root = new JSONObject(NativeClient.notices(request.toString()));
-            JSONObject value = Boolean.TRUE.equals(root.opt("ok"))
+            JSONObject value = JsonPolicy.strictTrue(root.opt("ok"))
                 ? root.optJSONObject("value") : null;
             JSONArray items = value == null ? null : value.optJSONArray("items");
             List<Notice> notices = new ArrayList<>(items == null ? 0 : items.length());
@@ -101,7 +102,7 @@ final class NoticeBanner {
         try {
             JSONObject request = new JSONObject().put("directory", directory(context)).put("id", id);
             JSONObject response = new JSONObject(NativeClient.noticeDismiss(request.toString()));
-            return Boolean.TRUE.equals(response.opt("ok"));
+            return JsonPolicy.strictTrue(response.opt("ok"));
         } catch (Exception | LinkageError error) {
             android.util.Log.i("MSIMENotices", "Dismissal not saved", error);
             return false;
