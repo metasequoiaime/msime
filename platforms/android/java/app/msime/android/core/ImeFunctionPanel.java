@@ -318,7 +318,7 @@ final class ImeFunctionPanel {
     }
 
     private void bindToolAction(Button button, Runnable action, boolean playFeedback) {
-        button.setOnClickListener(ignored -> {
+        ViewPolicy.bindClick(button, () -> {
             if (playFeedback) s.imeKeyFeedback.playFeedback(button);
             action.run();
         });

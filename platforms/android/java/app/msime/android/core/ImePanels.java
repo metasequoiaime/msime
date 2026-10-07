@@ -1077,7 +1077,7 @@ final class ImePanels {
     }
 
     private void bindFeedbackAction(View view, Runnable action) {
-        view.setOnClickListener(ignored -> {
+        ViewPolicy.bindClick(view, () -> {
             s.imeKeyFeedback.playFeedback(view);
             action.run();
         });

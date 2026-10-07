@@ -920,7 +920,7 @@ final class ImeLayoutRows {
     }
 
     private void bindFeedbackAction(Button button, Runnable action) {
-        button.setOnClickListener(ignored -> {
+        ViewPolicy.bindClick(button, () -> {
             s.imeKeyFeedback.playFeedback(button);
             action.run();
         });
