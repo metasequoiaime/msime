@@ -1,7 +1,5 @@
 //! 笔画组合：键入的笔画与通配符，以及 `msime-stroke.db` 对它们给出的单字候选。选中任一候选都结束整个组合，没有分段，也不保留词组进度。
 
-use std::collections::HashSet;
-
 use super::{glyph, is_key, is_stroke, key_of_glyph, MAX_STROKES, WILDCARD};
 use crate::error::Result;
 use crate::language_dictionary::{LanguageDictionary, LanguageEntry};
@@ -11,6 +9,7 @@ use crate::types::{QueryRequest, SchemeKey, SchemeType};
 pub const EXACT_LIMIT: usize = 200;
 /// 以键入笔画开头、笔画更多的字最多读这么多。
 pub const COMPLETION_LIMIT: usize = 100;
+const CANDIDATE_CAPACITY: usize = EXACT_LIMIT + COMPLETION_LIMIT;
 
 /// 一个候选字和它在 `msime-stroke.db` 里的笔画码。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -136,37 +135,54 @@ impl StrokeScheme {
                 dictionary.lookup_completions(input, COMPLETION_LIMIT)?,
             )
         };
-        let entries = exact.into_iter().chain(completions).collect::<Vec<_>>();
-        let mut seen = HashSet::with_capacity(entries.len());
-        let duplicates = entries
-            .iter()
-            .enumerate()
-            .filter_map(|(index, (_, entry))| (!seen.insert(entry.text.as_str())).then_some(index))
-            .collect::<Vec<_>>();
-        drop(seen);
+        let mut entries = exact.into_iter().chain(completions).collect::<Vec<_>>();
+        deduplicate_stroke_entries(&mut entries);
         let mut candidates = Vec::with_capacity(entries.len());
-        let mut duplicates = duplicates.into_iter().peekable();
-        candidates.extend(
-            entries
-                .into_iter()
-                .enumerate()
-                .filter_map(|(index, (key, entry))| {
-                    if duplicates.peek() == Some(&index) {
-                        duplicates.next();
-                        None
-                    } else {
-                        Some(StrokeCandidate {
-                            text: entry.text,
-                            weight: entry.weight,
-                            key,
-                        })
-                    }
-                }),
-        );
+        candidates.extend(entries.into_iter().map(|(key, entry)| StrokeCandidate {
+            text: entry.text,
+            weight: entry.weight,
+            key,
+        }));
         // 稳定排序：只把没有字频的字移到后面，其余顺序不变。
         candidates.sort_by_key(|candidate| candidate.weight <= 0);
         Ok(candidates)
     }
+}
+
+fn deduplicate_stroke_entries(entries: &mut Vec<(String, LanguageEntry)>) {
+    assert!(entries.len() <= CANDIDATE_CAPACITY);
+    let mut duplicates = [0usize; CANDIDATE_CAPACITY];
+    let mut duplicate_len = 0;
+    {
+        let mut seen: [Option<&str>; CANDIDATE_CAPACITY] = [None; CANDIDATE_CAPACITY];
+        let mut seen_len = 0;
+        for (index, (_, entry)) in entries.iter().enumerate() {
+            if seen[..seen_len]
+                .iter()
+                .flatten()
+                .any(|existing| *existing == entry.text)
+            {
+                duplicates[duplicate_len] = index;
+                duplicate_len += 1;
+            } else {
+                seen[seen_len] = Some(entry.text.as_str());
+                seen_len += 1;
+            }
+        }
+    }
+    let mut next_duplicate = 0;
+    let mut write = 0;
+    for read in 0..entries.len() {
+        if next_duplicate < duplicate_len && duplicates[next_duplicate] == read {
+            next_duplicate += 1;
+            continue;
+        }
+        if write != read {
+            entries.swap(write, read);
+        }
+        write += 1;
+    }
+    entries.truncate(write);
 }
 
 #[cfg(test)]
@@ -308,6 +324,29 @@ mod tests {
         assert_eq!(candidates[1].key, "hsh");
         assert!(texts(&typed("zzzz"), dictionary).is_empty());
         assert!(texts(&StrokeScheme::new(), dictionary).is_empty());
+    }
+
+    #[test]
+    fn stroke_dedup_keeps_the_first_entry_for_each_text() {
+        let entry = |text: &str| LanguageEntry {
+            text: text.to_owned(),
+            weight: 1,
+        };
+        let mut entries = vec![
+            ("hs".to_owned(), entry("十")),
+            ("hsh".to_owned(), entry("土")),
+            ("hs".to_owned(), entry("十")),
+        ];
+
+        deduplicate_stroke_entries(&mut entries);
+
+        assert_eq!(
+            entries
+                .iter()
+                .map(|(_, entry)| entry.text.as_str())
+                .collect::<Vec<_>>(),
+            ["十", "土"]
+        );
     }
 
     #[test]
