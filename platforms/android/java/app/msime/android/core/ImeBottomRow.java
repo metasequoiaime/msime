@@ -341,7 +341,7 @@ final class ImeBottomRow {
             : KeyboardActionRow.designEntries(layout, globe);
         // Visibility is re-asserted every time: the reply surface hides this row and restores it
         // without the surface itself having changed.
-        s.actionRow.setVisibility(entries.isEmpty() ? View.GONE : View.VISIBLE);
+        ViewPolicy.setVisible(s.actionRow, !entries.isEmpty());
         if (signature.equals(s.actionRowSignature)) {
             if (!ownBottom) s.updateQuickPunctuation();
             return;
