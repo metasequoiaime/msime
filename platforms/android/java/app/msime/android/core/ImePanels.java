@@ -690,7 +690,7 @@ final class ImePanels {
         }
         s.replyStatus.setText(s.replyModel.status());
         ViewPolicy.setVisible(s.replyProgress, busy);
-        s.replyStyleResetButton.setVisibility(hasReplies ? View.VISIBLE : View.GONE);
+        ViewPolicy.setVisible(s.replyStyleResetButton, hasReplies);
         applyReplyGeometry();
         s.imeStyler.applySkinToView(s.replyKeyboard);
         styleReplyKeyboard();
