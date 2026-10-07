@@ -22,6 +22,8 @@ public final class SymbolPanelView extends LinearLayout {
         void insert(String text);
         void delete();
         void close();
+        /** 按钮的选中状态变了，按当前皮肤重画它：键帽颜色只在上色时读一次 `isSelected()`，只改选中状态的话高亮会一直停在上一次上色时的那个按钮上。 */
+        void restyle(Button button);
     }
 
     private final ButtonFactory buttons;
@@ -40,6 +42,7 @@ public final class SymbolPanelView extends LinearLayout {
         locked = false;
         lockButton.setText("锁定");
         ViewPolicy.setSelected(lockButton, false);
+        listener.restyle(lockButton);
         lockButton.setContentDescription("锁定，连续输入符号");
         select(0);
     }
@@ -117,6 +120,7 @@ public final class SymbolPanelView extends LinearLayout {
         for (int index = 0; index < categoryButtons.size(); index++) {
             Button button = categoryButtons.get(index);
             ViewPolicy.setSelected(button, index == selected);
+            listener.restyle(button);
             button.setContentDescription("符号分类 " + values.get(index).title()
                 + (index == selected ? "，已选中" : ""));
         }
@@ -159,6 +163,7 @@ public final class SymbolPanelView extends LinearLayout {
         locked = !locked;
         lockButton.setText(locked ? "已锁定" : "锁定");
         ViewPolicy.setSelected(lockButton, locked);
+        listener.restyle(lockButton);
         lockButton.setContentDescription(locked ? "已锁定，连续输入符号" : "锁定，连续输入符号");
     }
 }

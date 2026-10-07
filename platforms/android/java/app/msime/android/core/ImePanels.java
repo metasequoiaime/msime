@@ -1503,6 +1503,8 @@ final class ImePanels {
                 }
 
                 @Override public void close() { s.closeSymbolPanel(); }
+
+                @Override public void restyle(Button button) { s.imeStyler.styleButton(button, true); }
             });
         ViewPolicy.hide(s.symbolPanel);
         s.keyboardSurface.addView(s.symbolPanel, KeyboardGeometry.frameMatchParentParams());
