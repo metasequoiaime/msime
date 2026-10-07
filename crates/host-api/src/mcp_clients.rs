@@ -105,6 +105,39 @@ pub fn server_command(executable: &Path) -> Option<PathBuf> {
         .map(|directory| directory.join(format!("msime-mcp{}", std::env::consts::EXE_SUFFIX)))
 }
 
+/// Nix 的 store。装在这里的程序路径带着版本哈希，升级后就不再是当前版本，垃圾回收后连文件都没了。
+const NIX_STORE: &str = "/nix/store";
+
+/// 写进助手配置的 `msime-mcp`：通常就是 `server_command` 的结果；它在 Nix store 里时换成 PATH 上由 Nix profile 链接进来的那一个（见 [`stable_command_in`]）。
+fn assistant_command(
+    executable: &Path,
+    env: impl Fn(&str) -> Option<std::ffi::OsString>,
+) -> Option<PathBuf> {
+    server_command(executable).map(|command| stable_command_in(command, Path::new(NIX_STORE), env))
+}
+
+/// `command` 在 `store` 下时，返回 PATH 上第一个同名、自己不在 `store` 下、解析掉符号链接后落在 `store` 里的程序，比如 `/run/current-system/sw/bin/msime-mcp`、`/etc/profiles/per-user/<用户>/bin/msime-mcp` 或 `~/.nix-profile/bin/msime-mcp`。这些链接随每次切换指向当前版本，写进助手配置后升级和垃圾回收都不会让它失效。找不到这样的链接（比如只用 `nix run` 起了设置窗口）时仍返回 `command`。PATH 上不在 store 里的同名程序（另装的 deb 包之类）是另一份安装，不选。
+fn stable_command_in(
+    command: PathBuf,
+    store: &Path,
+    env: impl Fn(&str) -> Option<std::ffi::OsString>,
+) -> PathBuf {
+    if !command.starts_with(store) {
+        return command;
+    }
+    let (Some(name), Some(path)) = (command.file_name(), env("PATH")) else {
+        return command;
+    };
+    std::env::split_paths(&path)
+        .filter(|directory| directory.is_absolute() && !directory.starts_with(store))
+        .map(|directory| directory.join(name))
+        .find(|candidate| {
+            std::fs::canonicalize(candidate)
+                .is_ok_and(|target| target.starts_with(store) && target.is_file())
+        })
+        .unwrap_or(command)
+}
+
 /// The entry an assistant runs: the server and the runtime options, and no flags.
 pub fn server_entry(command: &Path, options: &Path) -> Value {
     json!({
@@ -219,15 +252,15 @@ pub fn client_paths(env: impl Fn(&str) -> Option<std::ffi::OsString>) -> Vec<(Mc
     clients
 }
 
-/// `msime-mcp` beside `executable`, the entry pointing it at `options`, and whether each assistant offered here already has it. Without `options` the input method is not set up yet, so there is no entry to show or compare.
+/// `msime-mcp` beside `executable`（在 Nix store 里时换成 PATH 上的 profile 链接，见 [`stable_command_in`]）, the entry pointing it at `options`, and whether each assistant offered here already has it. Without `options` the input method is not set up yet, so there is no entry to show or compare.
 pub fn status(
     executable: &Path,
     options: Option<&Path>,
     env: impl Fn(&str) -> Option<std::ffi::OsString>,
 ) -> Result<McpServerStatus, &'static str> {
-    let command = server_command(executable).ok_or("storage")?;
+    let command = assistant_command(executable, &env).ok_or("storage")?;
     let entry = options.map(|options| (server_name(options), server_entry(&command, options)));
-    let clients = client_paths(env)
+    let clients = client_paths(&env)
         .into_iter()
         .map(|(id, path)| {
             let flags = entry
@@ -252,7 +285,7 @@ pub fn status(
     })
 }
 
-/// 把 `executable` 旁边 `msime-mcp` 的条目（`args` 末尾加上 `flags`）写进 `client` 的配置文件；保留什么、什么时候替换见 `install`。
+/// 把 `executable` 旁边 `msime-mcp`（Nix store 里的换成 profile 链接）的条目（`args` 末尾加上 `flags`）写进 `client` 的配置文件；保留什么、什么时候替换见 `install`。
 pub fn install_client(
     executable: &Path,
     options: Option<&Path>,
@@ -262,10 +295,10 @@ pub fn install_client(
     env: impl Fn(&str) -> Option<std::ffi::OsString>,
 ) -> Result<InstallOutcome, &'static str> {
     let options = options.ok_or("mcp_options_missing")?;
-    let command = server_command(executable)
+    let command = assistant_command(executable, &env)
         .filter(|command| command.is_file())
         .ok_or("mcp_server_missing")?;
-    let (_, path) = client_paths(env)
+    let (_, path) = client_paths(&env)
         .into_iter()
         .find(|(id, _)| *id == client)
         .ok_or("mcp_client_missing")?;
@@ -772,6 +805,49 @@ mod tests {
             std::fs::metadata(&real).unwrap().permissions().mode() & 0o777,
             0o644
         );
+    }
+
+    /// Nix 装的设置窗口旁边的 `msime-mcp` 在 store 里；条目改用 PATH 上的 profile 链接，升级后仍指向当前版本。
+    #[cfg(unix)]
+    #[test]
+    fn a_server_in_the_nix_store_is_registered_through_the_profile_link() {
+        let root = tempfile::tempdir().unwrap();
+        let store = root.path().join("store");
+        let package = store.join("hash-msime-fcitx5").join("bin");
+        std::fs::create_dir_all(&package).unwrap();
+        let server = package.join("msime-mcp");
+        std::fs::write(&server, b"").unwrap();
+        // PATH 上依次是：store 里另一个包的 bin、不是 Nix 装的副本、空目录、profile 链接。
+        let other_package = store.join("hash-other").join("bin");
+        std::fs::create_dir_all(&other_package).unwrap();
+        std::os::unix::fs::symlink(&server, other_package.join("msime-mcp")).unwrap();
+        let system = root.path().join("usr-bin");
+        std::fs::create_dir(&system).unwrap();
+        std::fs::write(system.join("msime-mcp"), b"").unwrap();
+        let empty = root.path().join("empty");
+        std::fs::create_dir(&empty).unwrap();
+        let profile = root.path().join("profile-bin");
+        std::fs::create_dir(&profile).unwrap();
+        let link = profile.join("msime-mcp");
+        std::os::unix::fs::symlink(&server, &link).unwrap();
+        let path = std::env::join_paths([&other_package, &system, &empty, &profile]).unwrap();
+        let env = |name: &str| (name == "PATH").then(|| path.clone());
+        assert_eq!(stable_command_in(server.clone(), &store, env), link);
+
+        // 没有 profile 链接时仍用 store 里的路径。
+        let without_profile = std::env::join_paths([&system, &empty]).unwrap();
+        assert_eq!(
+            stable_command_in(server.clone(), &store, |name: &str| (name == "PATH")
+                .then(|| without_profile.clone())),
+            server
+        );
+        assert_eq!(
+            stable_command_in(server.clone(), &store, |_: &str| None),
+            server
+        );
+        // 不在 store 里的安装（deb、rpm、Homebrew）原样使用，即使 PATH 上有 profile 链接。
+        let packaged = system.join("msime-mcp");
+        assert_eq!(stable_command_in(packaged.clone(), &store, env), packaged);
     }
 
     #[test]

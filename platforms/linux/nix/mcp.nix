@@ -1,5 +1,6 @@
-# msime-mcp-server 的 Release 二进制 msime-mcp：设置窗口的 MCP 页在自己旁边找它，助手的 MCP 配置经
-# PATH 调用它。与 deb、rpm 一样由 fcitx5.nix 交给 CMake 的 MSIME_MCP_BINARY 装进同一前缀。
+# msime-mcp-server 的 Release 二进制 msime-mcp：设置窗口的 MCP 页在自己旁边找它，写进助手配置的是
+# PATH 上 Nix profile 里的链接，不是 store 路径。与 deb、rpm 一样由 fcitx5.nix 交给 CMake 的
+# MSIME_MCP_BINARY 装进同一前缀。
 {
   lib,
   root,
