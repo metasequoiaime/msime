@@ -6558,7 +6558,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (exitLocalModeButton != null) {
             boolean localModeActive = view != null
                 && !"none".equals(view.optString("local_mode", "none"));
-            exitLocalModeButton.setVisibility(localModeActive ? View.VISIBLE : View.GONE);
+            ViewPolicy.setVisible(exitLocalModeButton, localModeActive);
             exitLocalModeButton.setEnabled(localModeActive && session != 0);
             exitLocalModeButton.setContentDescription("退出本地模式");
             // The final applySkin() traversal styles this attached button once.
