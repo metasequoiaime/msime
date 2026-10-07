@@ -916,7 +916,7 @@ final class ImePanels {
                 && s.aiRequestConfiguration.equals(s.aiPolishConfiguration));
         } else {
             primary = s.button(s.aiPolishActions, "替换选中文字", this::replaceAiSelection);
-            primary.setEnabled(s.aiTargetMatches() && s.aiRequestConfiguration != null
+            ViewPolicy.setEnabled(primary, s.aiTargetMatches() && s.aiRequestConfiguration != null
                 && s.aiRequestConfiguration.equals(s.aiPolishConfiguration));
         }
         compactReplyControl(primary, 0);
