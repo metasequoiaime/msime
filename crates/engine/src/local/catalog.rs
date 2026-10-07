@@ -140,18 +140,26 @@ pub fn read_emoji_catalog_slice(
     if deduplicate {
         // Check duplicate values through borrowed slices, then retain in place after releasing the set.
         let mut seen = HashSet::with_capacity(result.items.len());
-        let unique = result
+        let duplicates = result
             .items
             .iter()
-            .map(|item| seen.insert(item.text.as_str()))
+            .enumerate()
+            .filter_map(|(index, item)| (!seen.insert(item.text.as_str())).then_some(index))
             .collect::<Vec<_>>();
         drop(seen);
-        let mut index = 0;
-        result.items.retain(|_| {
-            let keep = unique[index];
-            index += 1;
-            keep
-        });
+        let mut duplicates = duplicates.into_iter().peekable();
+        let mut write = 0;
+        for read in 0..result.items.len() {
+            if duplicates.peek() == Some(&read) {
+                duplicates.next();
+                continue;
+            }
+            if write != read {
+                result.items.swap(write, read);
+            }
+            write += 1;
+        }
+        result.items.truncate(write);
     }
     result.complete = result.next_offset - offset < limit;
     Ok(result)
