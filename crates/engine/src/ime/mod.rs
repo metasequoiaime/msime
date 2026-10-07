@@ -732,19 +732,8 @@ fn merge_pinyin_fallback(
         return candidates;
     }
     if candidates.is_empty() {
-        if pinyin_rows.len() <= SMALL_PINYIN_FALLBACK {
-            retain_unique_pinyin_rows(&mut pinyin_rows);
-            return pinyin_rows;
-        }
-        let mut seen = HashSet::with_capacity(pinyin_rows.len());
-        let all_unique = pinyin_rows
-            .iter()
-            .all(|item| seen.insert(item.word.as_str()));
-        drop(seen);
-        if all_unique {
-            // 五笔没有候选且拼音批次无重复时直接复用批次缓冲。
-            return pinyin_rows;
-        }
+        retain_unique_pinyin_rows(&mut pinyin_rows);
+        return pinyin_rows;
     }
     if candidates.len().saturating_add(pinyin_rows.len()) <= SMALL_PINYIN_FALLBACK {
         candidates.reserve(pinyin_rows.len());
@@ -784,6 +773,30 @@ fn merge_pinyin_fallback(
 }
 
 fn retain_unique_pinyin_rows(rows: &mut Vec<WordItem>) {
+    if rows.len() > SMALL_PINYIN_FALLBACK {
+        // 借用词面计算重复项，释放集合后再原地保留唯一行。
+        let mut seen = HashSet::with_capacity(rows.len());
+        let duplicates = rows
+            .iter()
+            .enumerate()
+            .filter_map(|(index, item)| (!seen.insert(item.word.as_str())).then_some(index))
+            .collect::<Vec<_>>();
+        drop(seen);
+        let mut duplicates = duplicates.into_iter().peekable();
+        let mut write = 0;
+        for read in 0..rows.len() {
+            if duplicates.peek() == Some(&read) {
+                duplicates.next();
+                continue;
+            }
+            if write != read {
+                rows.swap(write, read);
+            }
+            write += 1;
+        }
+        rows.truncate(write);
+        return;
+    }
     let mut write = 0;
     for read in 0..rows.len() {
         if rows[..write]
@@ -918,6 +931,24 @@ mod tests {
         assert_eq!(
             words(&list),
             (0..8).map(|index| format!("字{index}")).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn large_duplicate_pinyin_fallback_dedups_without_a_second_hash_scan() {
+        let mut pinyin: Vec<_> = (0..64)
+            .map(|index| quanpin("ni'hao", &format!("字{index:02}")))
+            .collect();
+        pinyin.push(quanpin("ni'hao", "字00"));
+
+        let (list, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            merge_pinyin_fallback(Vec::new(), pinyin)
+        });
+
+        assert_eq!(words(&list).len(), 64);
+        assert!(
+            allocations <= 2,
+            "large fallback should use one hash pass and the duplicate index: {allocations}"
         );
     }
 
