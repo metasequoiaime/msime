@@ -399,7 +399,7 @@ public final class VoiceRecognitionActivity extends Activity {
         done.setText("完成");
         done.setContentDescription("结束录音并开始转写");
         done.setOnClickListener(ignored -> {
-            done.setEnabled(false);
+            ViewPolicy.setEnabled(done, false);
             title.setText("正在转写");
             // Local recognition has already shown the text as it was spoken; keep it on screen while the last words are decoded rather than replacing it with a status line.
             if (local == null) hint.setText("正在把录音交给识别服务，请稍候。");
