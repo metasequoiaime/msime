@@ -1,6 +1,7 @@
 package app.msime.android;
 
 import android.content.Context;
+import android.content.res.ColorStateList;
 import android.graphics.Typeface;
 import android.view.Gravity;
 import android.view.View;
@@ -227,6 +228,11 @@ public final class ViewPolicy {
     /** Set a text view's solid foreground color. */
     public static void setTextColor(TextView view, int color) {
         view.setTextColor(color);
+    }
+
+    /** Set a text view's state-aware foreground colors. */
+    public static void setTextColor(TextView view, ColorStateList colors) {
+        view.setTextColor(colors);
     }
 
     /** Set a text label and its scalable size. */
