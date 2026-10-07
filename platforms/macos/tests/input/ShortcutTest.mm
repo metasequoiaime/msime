@@ -3405,6 +3405,67 @@ static void TestModeSwitchReachesTheSessionBeforeTheNextKey() {
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 
+// #4288：用户在设置页选了全拼，下次再用又回到双拼。方案在宿主里有两份：共享偏好文档里的 `scheme` 是所有界面（设置页、`msime config set`、云端同步和本输入法自己）都写的那份，NSUserDefaults 的 `MSIMEClientInputScheme` 只有本输入法自己写。外观设置读文档里的值，没读到时退回 NSUserDefaults，而文档要等激活之后在后台载入。所以输入法进程重新启动后（重新登录、重启、更新），控制器在载入文档之前就按 NSUserDefaults 里本输入法上次写下的旧方案行事：把菜单栏选到「双」、把旧方案记为已同步，这期间的任何一次保存都会把旧方案写回文档，用户选的全拼就此丢失。这里用一个新的外观对象模拟新启动的进程：NSUserDefaults 里留着旧的双拼，文档里是用户后来选的全拼。
+static void TestFreshProcessActsOnTheSharedSchemeNotTheStaleLocalOne() {
+    NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+    NSError *error = nil;
+    NSDictionary *snapshot = [MSIMEClientSession loadPreferencesInDirectory:root error:&error];
+    assert(snapshot && !error);
+    NSMutableDictionary *document = [snapshot[@"preferences"] mutableCopy];
+    document[@"scheme"] = @"quanpin";
+    document[@"last_chinese_scheme"] = @"quanpin";
+    NSDictionary *saved = [MSIMEClientSession savePreferencesInDirectory:root expectedRevision:[snapshot[@"revision"] unsignedLongLongValue]
+        snapshot:@{@"format_version": @1, @"revision": snapshot[@"revision"], @"preferences": document} error:&error];
+    assert(saved && !error);
+    auto freshProcess = ^(NSUserDefaults *defaults) {
+        [defaults setObject:@"shuangpin" forKey:@"MSIMEClientInputScheme"];
+        [defaults setObject:@"shuangpin" forKey:@"MSIMEClientLastSyncedInputScheme"];
+        MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+        prefs.englishMode = NO;
+        ModeController *controller = [ModeController alloc];
+        [controller setValue:prefs forKey:@"appearance"];
+        [controller setValue:root forKey:@"preferencesDirectory"];
+        return controller;
+    };
+
+    // 客户端获得焦点：菜单栏按文档里的全拼对齐，而不是 NSUserDefaults 里的双拼。
+    NSString *suite = [@"msime.fresh-process-scheme." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    ModeController *controller = freshProcess(defaults);
+    MSIMEAppearancePreferences *prefs = [controller valueForKey:@"appearance"];
+    MSIMEResetSystemInputModeState(MSIMESharedSystemInputModeState());
+    ModeSelectingClient *client = [ModeSelectingClient new];
+    assert(![controller handleEvent:TapEvent(NSEventTypeFlagsChanged, 56, 0, 1) client:client]);
+    assert([prefs.inputScheme isEqual:@"quanpin"] && [prefs.lastSyncedInputScheme isEqual:@"quanpin"]);
+    assert(![client.selectedModes containsObject:MSIMEShuangpinInputModeID]);
+    // 之后的任何一次保存都不能把旧方案写回文档。
+    [controller persistAppearancePreferences];
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:2];
+    while (MSIMESharedPreferenceSaveState.saving && deadline.timeIntervalSinceNow > 0)
+        [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.005]];
+    SettleWindowLayout();
+    NSDictionary *stored = [MSIMEClientSession loadPreferencesInDirectory:root error:&error];
+    assert(!error && [stored[@"preferences"][@"scheme"] isEqual:@"quanpin"]);
+    MSIMEFocusedController = nil;
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+
+    // 系统的模式报告可能先于激活到达：切到「日」时记下的回程方案同样是文档里的全拼。
+    suite = [@"msime.fresh-process-report." stringByAppendingString:NSUUID.UUID.UUIDString];
+    defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    controller = freshProcess(defaults);
+    prefs = [controller valueForKey:@"appearance"];
+    MSIMEResetSystemInputModeState(MSIMESharedSystemInputModeState());
+    client = [ModeSelectingClient new];
+    [controller setValue:client forKey:@"activeClient"];
+    [controller systemDidReportInputMode:MSIMEJapaneseInputModeID client:client];
+    assert([prefs.inputScheme isEqual:@"japanese"] && [prefs.lastChineseScheme isEqual:@"quanpin"]);
+
+    MSIMEFocusedController = nil;
+    MSIMEResetSystemInputModeState(MSIMESharedSystemInputModeState());
+    [NSFileManager.defaultManager removeItemAtPath:root error:nil];
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+
 // The poll reads the preferences document once a second, and most of those reads find exactly what
 // was applied a second ago. Applying it again walks every preference, goes back into the Engine and
 // writes a diagnostic line - once a second, for nothing. It also buried the diagnostic log under
@@ -9175,6 +9236,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestPreferenceClientGeneration(); }
         @autoreleasepool { TestSavedPreferencesReachTheFocusedController(); }
         @autoreleasepool { TestModeSwitchReachesTheSessionBeforeTheNextKey(); }
+        @autoreleasepool { TestFreshProcessActsOnTheSharedSchemeNotTheStaleLocalOne(); }
         @autoreleasepool { TestPreferenceRevisionSkipsUnchangedDocuments(); }
         @autoreleasepool { TestUnreadablePreferencesAreRecoveredOnce(); }
         @autoreleasepool { TestProviderSettingsPersistTheSharedSnapshot(); }

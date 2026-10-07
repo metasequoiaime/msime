@@ -32,7 +32,7 @@ fn wide(text: &str) -> Vec<u16> {
     text.encode_utf16().chain(Some(0)).collect()
 }
 
-/// 本安装包所属版本的命名对象名：`base` 加上版本后缀（full 没有后缀）。安装包的版本声明坏了时为 `None`，调用方当作 Server 不在，不去碰 full 的对象。
+/// 本安装包所属版本的命名对象名：`base` 加上版本后缀（例如 full 是 `.full`）。安装包的版本声明坏了时为 `None`，调用方当作 Server 不在，不去碰 full 的对象。
 fn edition_named(base: &str) -> Option<Vec<u16>> {
     msime_client_core::edition::Edition::windows_package_identity()
         .ok()
@@ -624,7 +624,7 @@ fn shell_open(target: &[u16]) -> bool {
 
 use std::os::windows::ffi::OsStrExt;
 
-/// The state directory the managed Server uses, resolved the same way `production_state_directory` in `server_main.cpp` does (`platforms/windows/common/StateDirectory.h`): an absolute value of this edition's data-directory variable (`METASEQUOIA_IME_DATA_DIR` in full), then the `DataDir` the installer records under this edition's key in the 64-bit machine view, then `%LOCALAPPDATA%\<this edition's state directory>` (`MSIME-Client` in full). The Server hands this directory to the shell it launches; a shell started any other way, such as from the Start Menu, needs it to find the same runtime options and preferences.
+/// 受管 Server 使用的状态目录，解析顺序与 `server_main.cpp` 的 `production_state_directory`（`platforms/windows/common/StateDirectory.h`）相同：先是本版本数据目录环境变量的绝对路径值（full 是 `METASEQUOIA_IME_FULL_DATA_DIR`），再是安装器在 64 位视图下本版本注册表键里记录的 `DataDir`，最后是 `%LOCALAPPDATA%\<本版本的状态目录>`（full 是 `MSIME-Client`）。Server 把这个目录交给它拉起的外壳；用别的方式（例如开始菜单）启动的外壳要靠它找到同一份运行时选项和偏好。
 ///
 /// 名字都按本安装包所属的版本取（版本表 `platforms.windows`），与 C++ 侧的 `msime_edition.h` 同源；几个版本同时安装时各找各的状态根。安装包的版本声明坏了时返回 `None`，而不是落到 full 的目录上。
 pub fn server_state_directory() -> Option<std::path::PathBuf> {

@@ -744,3 +744,177 @@ fn korean_needs_no_dictionary() {
         ]
     );
 }
+
+// ---- 日语 ----
+
+/// 最小的 `msime-japanese.dat`（MSJPDT1，布局见 `msime-dict-builder` 的 `japanese::pack`）：读法按字节序排好的几个词，1×1 的连接矩阵。
+fn japanese_model() -> Vec<u8> {
+    let entries: [(&str, &str, i32); 4] = [
+        ("ご", "語", 2_000),
+        ("にほん", "日本", 1_000),
+        ("にほんご", "日本語", 500),
+        ("らーめん", "ラーメン", 800),
+    ];
+    let mut strings = Vec::new();
+    let mut tokens = Vec::new();
+    for (reading, surface, cost) in entries {
+        for text in [reading, surface] {
+            tokens.extend_from_slice(&(strings.len() as u32).to_le_bytes());
+            tokens.extend_from_slice(&(text.len() as u16).to_le_bytes());
+            strings.extend_from_slice(text.as_bytes());
+        }
+        tokens.extend_from_slice(&0u16.to_le_bytes());
+        tokens.extend_from_slice(&0u16.to_le_bytes());
+        tokens.extend_from_slice(&cost.to_le_bytes());
+    }
+    let token_offset = 56u64;
+    let connection_offset = token_offset + tokens.len() as u64;
+    let string_offset = connection_offset + 2;
+    let mut file = b"MSJPDT1\0".to_vec();
+    for value in [1u32, entries.len() as u32, 1, 0] {
+        file.extend_from_slice(&value.to_le_bytes());
+    }
+    for value in [
+        token_offset,
+        connection_offset,
+        string_offset,
+        strings.len() as u64,
+    ] {
+        file.extend_from_slice(&value.to_le_bytes());
+    }
+    file.extend_from_slice(&tokens);
+    file.extend_from_slice(&0i16.to_le_bytes());
+    file.extend_from_slice(&strings);
+    file
+}
+
+/// 日语会话：模型放在资源目录里，和桌面一样从文件读。
+fn japanese() -> Fixture {
+    let fixture = open(Scheme::Japanese, false);
+    std::fs::write(
+        fixture.resources.path().join("msime-japanese.dat"),
+        japanese_model(),
+    )
+    .expect("japanese model");
+    fixture
+}
+
+#[test]
+fn japanese_shows_kana_and_space_commits_the_conversion() {
+    let mut fixture = japanese();
+    let frame = type_text(&mut fixture.host, "nihongo");
+    assert!(frame.composing);
+    assert_eq!(frame.preedit, "にほんご");
+    assert_eq!(frame.caret, 4);
+    assert_eq!(frame.page[0].text, "日本語");
+    assert!(texts(&frame.page).contains(&"にほんご"));
+    // 每行的编码都是同一串罗马字，不给出来。
+    assert!(frame.page.iter().all(|row| row.code.is_empty()));
+    assert!(!frame.model_on);
+    let frame = fixture.host.keys(&[Key::Space]);
+    assert_eq!(frame.out, vec![commit("日本語", 0)]);
+    assert!(!frame.composing);
+}
+
+#[test]
+fn japanese_pending_letters_stay_in_the_preedit() {
+    let mut fixture = japanese();
+    let frame = type_text(&mut fixture.host, "nihonk");
+    assert_eq!(frame.preedit, "にほんk");
+}
+
+#[test]
+fn japanese_enter_commits_the_kana_reading() {
+    let mut fixture = japanese();
+    type_text(&mut fixture.host, "nihongo");
+    let frame = fixture.host.keys(&[Key::Enter]);
+    assert_eq!(frame.out, vec![commit("にほんご", -1)]);
+    assert!(!frame.composing);
+}
+
+#[test]
+fn japanese_minus_is_the_long_vowel_mark() {
+    let mut fixture = japanese();
+    let mut keys = typed("ra");
+    keys.push(Key::PagePrev { punct: Some(b'-') });
+    keys.extend(typed("menn"));
+    let frame = fixture.host.keys(&keys);
+    assert_eq!(frame.preedit, "らーめん");
+    assert_eq!(frame.page[0].text, "ラーメン");
+    // 空闲时的 `-` 也开始组字，回车上屏 ー。
+    let mut fixture = japanese();
+    fixture.host.keys(&[Key::PagePrev { punct: Some(b'-') }]);
+    let frame = fixture.host.keys(&[Key::Enter]);
+    assert_eq!(frame.out, vec![commit("ー", -1)]);
+}
+
+#[test]
+fn japanese_punctuation_finishes_the_conversion_with_japanese_marks() {
+    let mut fixture = japanese();
+    let frame = type_text(&mut fixture.host, "nihongo,");
+    assert_eq!(frame.out, vec![commit("日本語", 0), commit("、", -1)]);
+    let frame = type_text(&mut fixture.host, ".[]/\"");
+    assert_eq!(
+        frame.out,
+        vec![
+            commit("。", -1),
+            commit("「", -1),
+            commit("」", -1),
+            commit("・", -1),
+            Out::Type("\"".to_owned()),
+        ]
+    );
+}
+
+#[test]
+fn japanese_apostrophe_separates_n_while_composing() {
+    let mut fixture = japanese();
+    let frame = type_text(&mut fixture.host, "n'a");
+    assert_eq!(frame.preedit, "んあ");
+    // 空闲时撇号原样打出。
+    let mut fixture = japanese();
+    let frame = type_text(&mut fixture.host, "'");
+    assert_eq!(frame.out, vec![Out::Type("'".to_owned())]);
+}
+
+#[test]
+fn japanese_without_a_model_offers_kana_only() {
+    let mut fixture = open(Scheme::Japanese, false);
+    let frame = type_text(&mut fixture.host, "nihon");
+    assert_eq!(frame.preedit, "にほん");
+    let page = texts(&frame.page);
+    assert!(
+        page.contains(&"にほん") && page.contains(&"ニホン"),
+        "{page:?}"
+    );
+    assert!(!page.contains(&"日本"));
+}
+
+#[test]
+fn japanese_reads_a_preloaded_model_without_a_file() {
+    // 网页没有文件系统：宿主把模型字节交给引擎，资源目录里没有这个文件。
+    let resources = tempfile::tempdir().unwrap();
+    let user = tempfile::tempdir().unwrap();
+    let cache = tempfile::tempdir().unwrap();
+    let path = resources.path().join("msime-japanese.dat");
+    assert!(!msime_engine::preload_japanese_dictionary(
+        &path,
+        b"garbage".to_vec().into_boxed_slice()
+    ));
+    assert!(msime_engine::preload_japanese_dictionary(
+        &path,
+        japanese_model().into_boxed_slice()
+    ));
+    let mut host = WebHost::new_with_paths(
+        Scheme::Japanese,
+        9,
+        None,
+        resources.path(),
+        user.path(),
+        cache.path(),
+    )
+    .expect("a Japanese session without msime-pinyin.db");
+    let frame = type_text(&mut host, "nihongo ");
+    assert_eq!(frame.out, vec![commit("日本語", 0)]);
+    msime_engine::unload_japanese_dictionary(&path);
+}

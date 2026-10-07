@@ -182,7 +182,7 @@ public final class HttpAsrRecognizer {
     /** The one field these APIs agree on. Anything else in the response is ignored. */
     private static String text(String response) {
         try {
-            return HttpAsrPolicy.strictText(new JSONObject(response).opt("text")).trim();
+            return TextPolicy.trimmed(HttpAsrPolicy.strictText(new JSONObject(response).opt("text")));
         } catch (JSONException error) {
             return "";
         }

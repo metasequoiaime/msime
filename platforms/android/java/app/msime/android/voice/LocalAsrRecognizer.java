@@ -7,7 +7,6 @@ import android.media.AudioFormat;
 import android.media.AudioRecord;
 import android.media.MediaRecorder;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -278,7 +277,7 @@ public final class LocalAsrRecognizer {
     private static String hotwordMode(String modelDirectory, Path trustedRoot) {
         try {
             byte[] bytes = LocalAsrPolicy.readManifest(modelDirectory, trustedRoot);
-            JSONObject manifest = new JSONObject(new String(bytes, StandardCharsets.UTF_8));
+            JSONObject manifest = new JSONObject(TextPolicy.utf8(bytes));
             if (manifest.isNull("hotwords")) return "";
             return manifest.optString("hotwords", "");
         } catch (IOException | JSONException error) {

@@ -263,6 +263,8 @@ public final class MSIMEInputService extends InputMethodService {
     /** 功能面板上直接切换的三项：模糊音（共享偏好）、单手模式（off / left / right）与隐私模式（本地设置）。 */
     boolean fuzzyPinyinEnabled;
     String oneHandedMode = "off";
+    /** 本地设置「横屏分离式键盘」；实际画不画还要看设备形态、方向和布局，见 {@link #splitKeyboardDrawn}。 */
+    boolean splitKeyboardEnabled;
     boolean incognitoEnabled;
     boolean panelPreferenceSaving;
     Button microsoftFinalKey;
@@ -1490,6 +1492,7 @@ public final class MSIMEInputService extends InputMethodService {
         toolbarScheme = localSettings.bool(AndroidLocalSettings.TOOLBAR_SCHEME);
         toolbarHidden = localSettings.bool(AndroidLocalSettings.TOOLBAR_HIDDEN);
         oneHandedMode = localSettings.choice(AndroidLocalSettings.ONE_HANDED);
+        splitKeyboardEnabled = localSettings.bool(AndroidLocalSettings.SPLIT_KEYBOARD);
         incognitoEnabled = localSettings.bool(AndroidLocalSettings.INCOGNITO);
     }
 
@@ -2882,6 +2885,13 @@ public final class MSIMEInputService extends InputMethodService {
             ? spaceKeyTitle() + "；左右滑动移动光标" : SPACE_CURSOR_DESCRIPTION;
     }
 
+    /** 现在是否画成分离式键盘：开关打开、大屏、横屏，并且正在画的是 26 键一族或韩文键盘（{@link SplitKeyboardPolicy#drawn}）。每次都按当前配置重算，旋转后不需要另外通知。 */
+    boolean splitKeyboardDrawn() {
+        Configuration configuration = getResources().getConfiguration();
+        return SplitKeyboardPolicy.drawn(splitKeyboardEnabled, configuration.smallestScreenWidthDp,
+            configuration.orientation == Configuration.ORIENTATION_LANDSCAPE, displayedTouchLayout(view));
+    }
+
     int displayedTouchLayout(JSONObject value) {
         if (dedicatedEnglish) return STANDARD_TOUCH_LAYOUT;
         if (value == null) return touchLayoutHint();
@@ -3144,6 +3154,7 @@ public final class MSIMEInputService extends InputMethodService {
             spaceButton.setText(spaceKeyTitle());
             spaceButton.setContentDescription(spaceKeyDescription());
         }
+        imeBottomRow.syncSplitSpace();
     }
 
     @Override public boolean onKeyDown(int keyCode, KeyEvent event) {
@@ -6420,6 +6431,8 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     void render() {
+        // 旋转、设置变化或布局切换让分离式键盘该画与否变了，而键行还是按旧状态建的：先按新状态重建，下面的底行排布也会跟着换。
+        if (imeLetterRows.splitStale()) imeLetterRows.rebuildKeyRows();
         updateSymbolKeyFaces();
         updateShuangpinKeyHints();
         updateQuickPunctuation();

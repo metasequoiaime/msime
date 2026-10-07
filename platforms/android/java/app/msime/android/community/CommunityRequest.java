@@ -145,7 +145,7 @@ public final class CommunityRequest {
      */
     public static String path(Kind kind, String scope, String search, int offset,
             Category category) {
-        String bounded = search == null ? "" : search.trim();
+        String bounded = TextPolicy.trimmed(search);
         int page = BoundsPolicy.nonNegative(offset);
         if (kind == Kind.SKIN) {
             return "/v1/community/skins?offset=" + page + "&q=" + encode(bounded)

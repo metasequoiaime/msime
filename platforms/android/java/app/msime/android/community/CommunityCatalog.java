@@ -150,7 +150,7 @@ public final class CommunityCatalog {
      * @return the failure to show, or an empty string once the report was taken
      */
     public String report(Item item, String reason, String detail) {
-        String text = detail == null ? "" : detail.trim();
+        String text = TextPolicy.trimmed(detail);
         if (!validReportItem(item) || !CommunityRequest.validReport(reason, text)) {
             return CommunityRequest.message("invalid_report_reason", 400);
         }

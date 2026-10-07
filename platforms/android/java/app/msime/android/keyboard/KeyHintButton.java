@@ -38,7 +38,7 @@ public class KeyHintButton extends KeyboardPressButton {
 
     /** 底部的双拼提示；空串表示不画，并收回为它预留的底边距。 */
     public final void setHintText(String value) {
-        String next = value == null ? "" : value;
+        String next = TextPolicy.emptyIfNull(value);
         if (hintText.equals(next)) return;
         hintText = next;
         // 键帽的上下内边距和字体留白在构造时已归零（KeyboardGeometry.normalizeKeyCap）；有提示时下边只留提示那一行，字母在剩下的高度里居中。
@@ -56,7 +56,7 @@ public class KeyHintButton extends KeyboardPressButton {
 
     /** 右上角的符号提示（下滑输入的那个字符）；空串或 {@code null} 表示不画。 */
     public final void setCornerHint(String value) {
-        String next = value == null ? "" : value;
+        String next = TextPolicy.emptyIfNull(value);
         if (cornerHint.equals(next)) return;
         cornerHint = next;
         invalidate();

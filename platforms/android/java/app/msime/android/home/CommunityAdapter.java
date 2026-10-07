@@ -1,6 +1,5 @@
 package app.msime.android.home;
 
-import app.msime.android.TextPolicy;
 import android.content.Context;
 import android.graphics.drawable.GradientDrawable;
 import android.view.LayoutInflater;
@@ -16,6 +15,7 @@ import app.msime.android.BoundsPolicy;
 import app.msime.android.DrawablePolicy;
 import app.msime.android.KeyboardSkin;
 import app.msime.android.R;
+import app.msime.android.TextPolicy;
 import app.msime.android.ViewPolicy;
 import java.util.ArrayList;
 import java.util.HashMap;

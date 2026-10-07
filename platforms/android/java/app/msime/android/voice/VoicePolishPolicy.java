@@ -62,7 +62,7 @@ public final class VoicePolishPolicy {
      * transcript that happens to read like an instruction has nothing marking it as not one.
      */
     public static String userMessage(String text) {
-        return OPEN + (text == null ? "" : text) + CLOSE;
+        return OPEN + TextPolicy.emptyIfNull(text) + CLOSE;
     }
 
     /**
@@ -81,7 +81,7 @@ public final class VoicePolishPolicy {
 
     /** Minimal JSON string escaping, so a prompt cannot break out of the document it travels in. */
     public static String json(String value) {
-        String source = value == null ? "" : value;
+        String source = TextPolicy.emptyIfNull(value);
         StringBuilder out = new StringBuilder(source.length() + 2).append('"');
         for (int index = 0; index < source.length(); index++) {
             char character = source.charAt(index);

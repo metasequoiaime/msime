@@ -61,7 +61,7 @@ public final class VoiceListeningView extends TextView {
 
     /** 替换第二行提示（例如识别完成时短暂显示「已识别：…」）。 */
     public void setHint(String value) {
-        hintText = value == null ? "" : value;
+        hintText = TextPolicy.emptyIfNull(value);
         invalidate();
     }
 

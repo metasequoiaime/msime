@@ -27,7 +27,7 @@ import org.json.JSONObject;
  *
  * <p>设置应用和 :ime 进程是同一个 UID，读写同一个文件。写入在同目录的锁文件上加进程间文件锁，读出、修改、写到临时文件再原子改名；读取按文件的 inode、修改时间和大小缓存，文件被另一进程换掉后下一次 {@link #load} 就读到新值。文件缺失、过大、损坏或某一项取值不合规时，那一项（或整份）回到默认值；读取从不改写文件。
  *
- * <p>键名与账号设置文档的同步键相同（`general.app_theme`、`platform.android.*`）。{@link Spec#synced} 为真的十六项随云同步交给 client-core 的 `android_local`（crates/client-core/src/account/settings_sync.rs 的 `ANDROID_LOCAL_SETTINGS`，两边的键与取值范围由 AndroidLocalSettingsSmoke 锁住）；隐私模式、语音数据贡献、开发者选项和键盘高度只留在本机。
+ * <p>键名与账号设置文档的同步键相同（`general.app_theme`、`platform.android.*`）。{@link Spec#synced} 为真的十七项随云同步交给 client-core 的 `android_local`（crates/client-core/src/account/settings_sync.rs 的 `ANDROID_LOCAL_SETTINGS`，两边的键与取值范围由 AndroidLocalSettingsSmoke 锁住）；隐私模式、语音数据贡献、开发者选项和键盘高度只留在本机。
  */
 public final class AndroidLocalSettings {
     public static final String FILE_NAME = "android-settings.json";
@@ -37,8 +37,12 @@ public final class AndroidLocalSettings {
     // ---- 随账号同步的键 ----
     public static final String APP_THEME = "general.app_theme";
     public static final String ONE_HANDED = "platform.android.one_handed";
+    /** 平板横屏时把 26 键一族和韩文键盘分成左右两半（{@link SplitKeyboardPolicy}），默认关。 */
+    public static final String SPLIT_KEYBOARD = "platform.android.split_keyboard";
     public static final String KEY_POPUP = "platform.android.key_popup";
     public static final String SWIPE_DOWN_SYMBOLS = "platform.android.swipe_down_symbols";
+    /** 「滑动输入符号」的方向，取值见 {@link SwipeHintPolicy}。开关仍是 {@link #SWIPE_DOWN_SYMBOLS}，键名保留旧名以免已同步的值失效。 */
+    public static final String SWIPE_SYMBOLS_DIRECTION = "platform.android.swipe_symbols_direction";
     public static final String SPACE_CURSOR = "platform.android.space_cursor";
     public static final String SPACE_VOICE = "platform.android.space_voice";
     public static final String KEY_ANIMATION = "platform.android.key_animation";
@@ -117,13 +121,15 @@ public final class AndroidLocalSettings {
         }
     }
 
-    private static final Map<String, Spec> SPECS = new LinkedHashMap<>(27);
+    private static final Map<String, Spec> SPECS = new LinkedHashMap<>(28);
 
     static {
         choice(APP_THEME, "siji", true, "siji", "chunya", "xiayin", "qiushan", "dongxue");
         choice(ONE_HANDED, "off", true, "off", "left", "right");
+        bool(SPLIT_KEYBOARD, false, true);
         bool(KEY_POPUP, true, true);
         bool(SWIPE_DOWN_SYMBOLS, true, true);
+        choice(SWIPE_SYMBOLS_DIRECTION, SwipeHintPolicy.DOWN, true, SwipeHintPolicy.DOWN, SwipeHintPolicy.UP);
         bool(SPACE_CURSOR, true, true);
         bool(SPACE_VOICE, true, true);
         choice(KEY_ANIMATION, "none", true, "none", "bounce", "ripple", "glow", "lift");

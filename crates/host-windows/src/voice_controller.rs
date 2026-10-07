@@ -14,7 +14,7 @@ use windows_sys::Win32::System::IO::*;
 /// Dedicated control endpoint used by the Windows Server，不带 `\\.\pipe\` 前缀和版本后缀；与 `platforms/windows/src/voice/VoiceControllerListener.h` 一致。
 const PIPE_BASE_NAME: &str = "FanyImeVoiceControlNamedPipe";
 
-/// 本安装包所属版本的 Server 的语音控制管道（full 是 `\\.\pipe\FanyImeVoiceControlNamedPipe`，其他版本带 `.<id>` 后缀）。安装包的版本声明坏了时为 `None`：不能去连 full 的 Server。
+/// 本安装包所属版本的 Server 的语音控制管道（`\\.\pipe\FanyImeVoiceControlNamedPipe` 加上版本的 `.<id>` 后缀，full 也不例外）。安装包的版本声明坏了时为 `None`：不能去连 full 的 Server。
 pub fn pipe_name() -> Option<String> {
     msime_client_core::edition::Edition::windows_package_identity()
         .ok()

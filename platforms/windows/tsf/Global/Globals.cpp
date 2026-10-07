@@ -20,7 +20,7 @@ LONG dllRefCount = -1;
 CRITICAL_SECTION CS;
 
 //---------------------------------------------------------------------
-// 本版本的 CLSID、profile 和 TSF 内部 GUID，取自 shared/contracts/msime_edition.h（版本表 platforms.windows）。full 是引入版本之前的那组值；其他版本各有一组，两个版本的 TIP 被同一个应用同时加载时，保留键、compartment、语言栏按钮和显示属性不会互相覆盖。
+// 本版本的 CLSID、profile 和 TSF 内部 GUID，取自 shared/contracts/msime_edition.h（版本表 platforms.windows）。每个版本（包括 full）各有一组，引入版本之前的那组值属于 msime-windows，本仓库的版本都不用；两个版本的 TIP 被同一个应用同时加载时，保留键、compartment、语言栏按钮和显示属性不会互相覆盖。
 //---------------------------------------------------------------------
 extern const CLSID MetasequoiaIMECLSID = MSIME_EDITION_CLSID;
 extern const GUID MetasequoiaIMEGuidProfile = MSIME_EDITION_PROFILE_GUID;
