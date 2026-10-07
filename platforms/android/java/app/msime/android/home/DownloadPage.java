@@ -117,7 +117,7 @@ public final class DownloadPage extends DetailPage {
         String label = sentPlatforms.contains(platform) ? "已发送" : "发送链接";
         TextView button = KeyboardSheets.tonalButton(context, label, label + "，" + title, 600);
         ViewPolicy.setEnabled(button, !sentPlatforms.contains(platform));
-        button.setOnClickListener(ignored -> send(platform, button));
+        ViewPolicy.bindClick(button, () -> send(platform, button));
         attach(row, button);
     }
 
