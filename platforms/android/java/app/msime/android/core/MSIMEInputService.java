@@ -789,7 +789,7 @@ public final class MSIMEInputService extends InputMethodService {
             typingStatisticsWorker.execute(() -> {
                 try {
                     JSONObject result = new JSONObject(NativeClient.typingStatistics(request));
-                    if (!Boolean.TRUE.equals(result.opt("ok"))) {
+                    if (!JsonPolicy.strictTrue(result.opt("ok"))) {
                         reportTypingStatisticsFailure(lifecycleGeneration);
                     } else if (nothingRecorded != null) {
                         JSONObject value = result.getJSONObject("value");
