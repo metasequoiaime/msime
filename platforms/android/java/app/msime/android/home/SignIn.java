@@ -15,6 +15,7 @@ import app.msime.android.CloudApi;
 import app.msime.android.GoogleSignInFlow;
 import app.msime.android.R;
 import app.msime.android.SyncSwitch;
+import app.msime.android.TextPolicy;
 import java.util.function.Consumer;
 import org.json.JSONObject;
 

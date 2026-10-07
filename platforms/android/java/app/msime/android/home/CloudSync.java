@@ -19,6 +19,7 @@ import app.msime.android.SafePaths;
 import app.msime.android.SyncApi;
 import app.msime.android.SyncMergePolicy;
 import app.msime.android.SyncSwitch;
+import app.msime.android.TextPolicy;
 import app.msime.android.policy.HostOptionsPolicy;
 import java.io.File;
 import java.io.IOException;
