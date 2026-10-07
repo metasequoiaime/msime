@@ -121,7 +121,8 @@ jobs:
           set -euo pipefail
           ndk="$ANDROID_SDK_ROOT/ndk/28.2.13676358"
           if ! grep -qs '28.2.13676358' "$ndk/source.properties"; then
-            yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --install 'ndk;28.2.13676358' >/dev/null
+            # sdkmanager 退出后 yes 再写会收到 SIGPIPE（退出码 141），在 pipefail 下让整步失败；它的退出码不算数，装没装上由下一行的版本核对判断。
+            { yes || true; } | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --install 'ndk;28.2.13676358' >/dev/null
           fi
           grep -q '28.2.13676358' "$ndk/source.properties"
       - name: Check Android host contracts and JVM smoke tests
