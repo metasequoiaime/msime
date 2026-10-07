@@ -804,7 +804,6 @@ public final class Ui {
 
     /** Apply enabled state and a caller-selected inactive opacity to a home control. */
     public static void setEnabledLook(View view, boolean enabled, float inactiveAlpha) {
-        view.setEnabled(enabled);
-        ViewPolicy.setActiveAlpha(view, enabled, inactiveAlpha);
+        ViewPolicy.setEnabledWithAlpha(view, enabled, inactiveAlpha);
     }
 }

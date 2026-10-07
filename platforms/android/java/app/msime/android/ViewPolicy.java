@@ -135,6 +135,12 @@ public final class ViewPolicy {
         view.setEnabled(enabled);
     }
 
+    /** Apply enabled state and a caller-selected inactive opacity. */
+    public static void setEnabledWithAlpha(View view, boolean enabled, float inactiveAlpha) {
+        setEnabled(view, enabled);
+        setActiveAlpha(view, enabled, inactiveAlpha);
+    }
+
     /** Announce changing view content to accessibility services without interrupting the user. */
     public static void setPoliteLiveRegion(View view) {
         view.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
