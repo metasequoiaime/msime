@@ -32,6 +32,9 @@ use crate::vietnamese::{
 };
 use crate::zhuyin::scheme::{ZhuyinKey, ZhuyinScheme};
 
+// 混输拼音回退的短批次直接扫描已有词，避免为一次合并创建临时哈希表。
+const SMALL_PINYIN_FALLBACK: usize = 64;
+
 use registry::ProviderRegistry;
 use scheme::Scheme;
 
@@ -723,12 +726,16 @@ fn wubi_table_answered(candidates: &[WordItem], code: &str) -> bool {
 /// Wubi rows first, so wubi ranking and fixed positions keep precedence, then the quanpin rows whose word is not shown yet, in quanpin order. Every row keeps its producer's scheme: the session reads "answered by the pinyin fallback" and routes pins, removals and learning from those tags (overlays.md §3.3), so no list-level flag is kept here.
 fn merge_pinyin_fallback(
     mut candidates: Vec<WordItem>,
-    pinyin_rows: Vec<WordItem>,
+    mut pinyin_rows: Vec<WordItem>,
 ) -> Vec<WordItem> {
     if pinyin_rows.is_empty() {
         return candidates;
     }
     if candidates.is_empty() {
+        if pinyin_rows.len() <= SMALL_PINYIN_FALLBACK {
+            retain_unique_pinyin_rows(&mut pinyin_rows);
+            return pinyin_rows;
+        }
         let mut seen = HashSet::with_capacity(pinyin_rows.len());
         let all_unique = pinyin_rows
             .iter()
@@ -738,6 +745,16 @@ fn merge_pinyin_fallback(
             // 五笔没有候选且拼音批次无重复时直接复用批次缓冲。
             return pinyin_rows;
         }
+    }
+    if candidates.len().saturating_add(pinyin_rows.len()) <= SMALL_PINYIN_FALLBACK {
+        candidates.reserve(pinyin_rows.len());
+        for item in pinyin_rows {
+            if candidates.iter().any(|existing| existing.word == item.word) {
+                continue;
+            }
+            candidates.push(item);
+        }
+        return candidates;
     }
     // Keep deduplication keys borrowed until the pinyin rows are ready to move into the result.
     let mut seen: HashSet<&str> = candidates.iter().map(|item| item.word.as_str()).collect();
@@ -764,6 +781,23 @@ fn merge_pinyin_fallback(
             }),
     );
     candidates
+}
+
+fn retain_unique_pinyin_rows(rows: &mut Vec<WordItem>) {
+    let mut write = 0;
+    for read in 0..rows.len() {
+        if rows[..write]
+            .iter()
+            .any(|existing| existing.word == rows[read].word)
+        {
+            continue;
+        }
+        if write != read {
+            rows.swap(write, read);
+        }
+        write += 1;
+    }
+    rows.truncate(write);
 }
 
 /// With a double helpcode after a complete shuangpin base, the segmentations become the base's plus `'` and the two help letters (ime_session.cpp:15-39). The detector counts in delimiter-free space, so the split is made there too; slicing raw bytes would push a pinyin letter into the base and a manual `'` into the help codes.
@@ -869,6 +903,22 @@ mod tests {
         assert_eq!(list.len(), 23);
         assert_eq!(list.capacity(), list.len());
         assert_eq!(list.as_ptr(), pointer);
+    }
+
+    #[test]
+    fn short_pinyin_fallback_dedup_reuses_the_input_buffer() {
+        let pinyin: Vec<_> = (0..16)
+            .map(|index| quanpin("ni'hao", &format!("字{}", index % 8)))
+            .collect();
+        let (list, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            merge_pinyin_fallback(Vec::new(), pinyin)
+        });
+
+        assert_eq!(allocations, 0);
+        assert_eq!(
+            words(&list),
+            (0..8).map(|index| format!("字{index}")).collect::<Vec<_>>()
+        );
     }
 
     #[test]
