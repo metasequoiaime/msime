@@ -249,18 +249,18 @@ fn insert_mixed_rows(
     let groups: [Vec<WordItem>; 3] = [
         english
             .into_iter()
-            .zip(english_unique)
-            .filter_map(|(item, unique)| unique.then_some(item))
+            .enumerate()
+            .filter_map(|(index, item)| (english_unique & (1_u64 << index) != 0).then_some(item))
             .collect(),
         emoji
             .into_iter()
-            .zip(emoji_unique)
-            .filter_map(|(item, unique)| unique.then_some(item))
+            .enumerate()
+            .filter_map(|(index, item)| (emoji_unique & (1_u64 << index) != 0).then_some(item))
             .collect(),
         kaomoji
             .into_iter()
-            .zip(kaomoji_unique)
-            .filter_map(|(item, unique)| unique.then_some(item))
+            .enumerate()
+            .filter_map(|(index, item)| (kaomoji_unique & (1_u64 << index) != 0).then_some(item))
             .collect(),
     ];
     let extra = groups.iter().map(Vec::len).sum();
@@ -296,10 +296,16 @@ fn insert_mixed_rows(
     candidates
 }
 
-fn unique_mask<'a>(rows: &'a [WordItem], seen: &mut HashSet<&'a str>) -> Vec<bool> {
-    rows.iter()
-        .map(|item| seen.insert(item.word.as_str()))
-        .collect()
+/// 用位掩码记录每组候选的首次出现，避免为受协议限制的短列表分配布尔数组。
+fn unique_mask<'a>(rows: &'a [WordItem], seen: &mut HashSet<&'a str>) -> u64 {
+    debug_assert!(rows.len() <= u64::BITS as usize);
+    rows.iter().enumerate().fold(0, |mask, (index, item)| {
+        if seen.insert(item.word.as_str()) {
+            mask | (1_u64 << index)
+        } else {
+            mask
+        }
+    })
 }
 
 #[cfg(test)]
