@@ -4,11 +4,12 @@ use std::collections::HashSet;
 
 use crate::assets;
 use crate::dictionary::english::EnglishDictionary;
+use crate::local::LocalQueryResult;
 use crate::local::command::{
     command_title, query_command, translation_source, usable_command_table,
 };
-use crate::local::date_time::{query_date_time, LocalDateTime};
-use crate::local::emoji::{query_emoji, query_kaomoji, MIXED_RESULT_LIMIT, MODE_RESULT_LIMIT};
+use crate::local::date_time::{LocalDateTime, query_date_time};
+use crate::local::emoji::{MIXED_RESULT_LIMIT, MODE_RESULT_LIMIT, query_emoji, query_kaomoji};
 use crate::local::expression::query_expression;
 use crate::local::jianpin::{query_jianpin, result_limit};
 use crate::local::mention::{mention_annotation, query_mentions, usable_mentions};
@@ -16,7 +17,6 @@ use crate::local::quick_phrase::{
     merge_quick_phrases, query_quick_phrases, usable_quick_phrase_table,
 };
 use crate::local::unicode::query_unicode;
-use crate::local::LocalQueryResult;
 use crate::paths::RuntimePaths;
 use crate::shuangpin::profile::profile;
 use crate::types::{
@@ -233,36 +233,23 @@ impl CandidateQueries {
 /// Each extra list is deduplicated by word against the list and the lists before it; the first row of each goes to the priority slot (after the leading row, and after the cloud and AI rows when present), the rest to the end.
 fn insert_mixed_rows(
     mut candidates: Vec<WordItem>,
-    english: Vec<WordItem>,
-    emoji: Vec<WordItem>,
-    kaomoji: Vec<WordItem>,
+    mut english: Vec<WordItem>,
+    mut emoji: Vec<WordItem>,
+    mut kaomoji: Vec<WordItem>,
 ) -> Vec<WordItem> {
     if english.is_empty() && emoji.is_empty() && kaomoji.is_empty() {
         return candidates;
     }
-    // Borrow the existing words while filtering; release those borrows before moving rows into the result groups.
+    // 借用现有候选词并原地筛掉重复项；释放这些借用后再把候选行移入结果。
     let mut seen: HashSet<&str> = candidates.iter().map(|item| item.word.as_str()).collect();
     let english_unique = unique_mask(&english, &mut seen);
     let emoji_unique = unique_mask(&emoji, &mut seen);
     let kaomoji_unique = unique_mask(&kaomoji, &mut seen);
     drop(seen);
-    let groups: [Vec<WordItem>; 3] = [
-        english
-            .into_iter()
-            .enumerate()
-            .filter_map(|(index, item)| (english_unique & (1_u64 << index) != 0).then_some(item))
-            .collect(),
-        emoji
-            .into_iter()
-            .enumerate()
-            .filter_map(|(index, item)| (emoji_unique & (1_u64 << index) != 0).then_some(item))
-            .collect(),
-        kaomoji
-            .into_iter()
-            .enumerate()
-            .filter_map(|(index, item)| (kaomoji_unique & (1_u64 << index) != 0).then_some(item))
-            .collect(),
-    ];
+    retain_masked_rows(&mut english, english_unique);
+    retain_masked_rows(&mut emoji, emoji_unique);
+    retain_masked_rows(&mut kaomoji, kaomoji_unique);
+    let groups = [english, emoji, kaomoji];
     let extra = groups.iter().map(Vec::len).sum();
     candidates.reserve(extra);
 
@@ -294,6 +281,18 @@ fn insert_mixed_rows(
         candidates.extend(rows);
     }
     candidates
+}
+
+/// 用位掩码原地移除重复行，保留首次出现的顺序和原列表容量。
+fn retain_masked_rows(rows: &mut Vec<WordItem>, mut mask: u64) {
+    let mut index = 0;
+    rows.retain(|_| {
+        let keep = mask & 1 != 0;
+        mask >>= 1;
+        index += 1;
+        debug_assert!(index <= u64::BITS as usize);
+        keep
+    });
 }
 
 /// 用位掩码记录每组候选的首次出现，避免为受协议限制的短列表分配布尔数组。
@@ -341,6 +340,22 @@ mod tests {
         let list = insert_mixed_rows(chinese(), english, Vec::new(), Vec::new());
         assert_eq!(words(&list), vec!["你", "Ni", "倪", "Ninja", "Nimbus"]);
         assert_eq!(list[2].source, CandidateSource::Database);
+    }
+
+    #[test]
+    fn extra_rows_are_deduplicated_in_place_in_first_seen_order() {
+        let mut rows = vec![
+            row("Ni", CandidateSource::EnglishDictionary),
+            row("倪", CandidateSource::EnglishDictionary),
+            row("Ni", CandidateSource::EnglishDictionary),
+        ];
+        let mut seen = HashSet::new();
+
+        let mask = unique_mask(&rows, &mut seen);
+        retain_masked_rows(&mut rows, mask);
+
+        assert_eq!(words(&rows), vec!["Ni", "倪"]);
+        assert_eq!(rows.capacity(), 3);
     }
 
     #[test]
