@@ -62,7 +62,7 @@ final class ImeBottomRow {
     private <T extends Button> T forwardFace(Button original, T face, String keyId) {
         face.setText(original.getText());
         face.setContentDescription(original.getContentDescription());
-        face.setOnClickListener(ignored -> original.performClick());
+        ViewPolicy.bindClick(face, original::performClick);
         s.keyId(face, keyId);
         s.imeKeyFeedback.stageFace(original, face);
         return face;
