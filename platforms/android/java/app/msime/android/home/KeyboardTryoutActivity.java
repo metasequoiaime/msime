@@ -120,7 +120,7 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
 
         // 收起键盘 only means something while the keyboard is up, as on Apple.
         ViewPolicy.hide(dismiss);
-        dismiss.setOnClickListener(ignored -> {
+        ViewPolicy.bindClick(dismiss, () -> {
             field.clearFocus();
             getSystemService(InputMethodManager.class).hideSoftInputFromWindow(field.getWindowToken(), 0);
         });
