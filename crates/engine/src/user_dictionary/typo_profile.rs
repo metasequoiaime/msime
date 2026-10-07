@@ -21,7 +21,7 @@ const MAX_SYLLABLE_LENGTH: usize = 6;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PinyinTypoState {
-    pub accepted: HashMap<(String, String), i32>,
+    pub accepted: HashMap<String, HashMap<String, i32>>,
     pub suppressed: HashSet<String>,
 }
 
@@ -162,7 +162,11 @@ pub fn load_pinyin_typo_state(user_db: &Path) -> Result<PinyinTypoState> {
                 && is_lowercase_letters(&intended, MAX_SYLLABLE_LENGTH)
                 && typed != intended
             {
-                state.accepted.insert((typed, intended), accepted);
+                state
+                    .accepted
+                    .entry(typed)
+                    .or_default()
+                    .insert(intended, accepted);
             }
         }
     }
@@ -294,7 +298,8 @@ impl PersonalTypoProfile {
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         state
             .accepted
-            .get(&(typed.to_owned(), intended.to_owned()))
+            .get(typed)
+            .and_then(|by_intended| by_intended.get(intended))
             .copied()
             .unwrap_or(0)
     }
@@ -346,7 +351,12 @@ impl PersonalTypoProfile {
         record_pinyin_typos(&self.path, pairs)?;
         self.reload_after_write(&mut loaded, |state| {
             for pair in pairs {
-                let count = state.accepted.entry(pair.clone()).or_insert(0);
+                let count = state
+                    .accepted
+                    .entry(pair.0.clone())
+                    .or_default()
+                    .entry(pair.1.clone())
+                    .or_insert(0);
                 *count = (*count + 1).min(MAX_TYPO_STATE_COUNT);
             }
         });
@@ -380,6 +390,23 @@ mod tests {
             journal,
             &format!("SELECT accepted FROM pinyin_typo_counts WHERE typed='{typed}' AND intended='{intended}'"),
         )
+    }
+
+    #[test]
+    fn accepted_lookup_borrows_both_syllables_without_allocating() {
+        let dir = Dir::new();
+        let profile = PersonalTypoProfile::shared(&dir.journal());
+        profile.record_accepted(&[pair("gan", "guan")]).unwrap();
+
+        let (values, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            (
+                profile.accepted("gan", "guan"),
+                profile.accepted("sahng", "shang"),
+            )
+        });
+
+        assert_eq!(values, (1, 0));
+        assert_eq!(allocations, 0);
     }
 
     /// test_typo_correction_input_session.cpp:345-378.
