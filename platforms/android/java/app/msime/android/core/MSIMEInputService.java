@@ -5702,7 +5702,7 @@ public final class MSIMEInputService extends InputMethodService {
 
         JapaneseFlickPreview(android.content.Context context) {
             super(context);
-            setVisibility(View.GONE);
+            ViewPolicy.hide(this);
             ViewPolicy.setNonInteractive(this);
             ViewPolicy.hideFromAccessibility(this);
         }
@@ -5722,11 +5722,11 @@ public final class MSIMEInputService extends InputMethodService {
             // 五格紧挨着拼成一个十字浮层；原先各隔 6 dp、和底下的键同色同大，看起来像键盘被挤乱了，而不是一个弹框。
             gap = 0;
             root.bringChildToFront(this);
-            setVisibility(View.VISIBLE);
+            ViewPolicy.show(this);
             invalidate();
         }
 
-        void hide() { setVisibility(View.GONE); }
+        void hide() { ViewPolicy.hide(this); }
 
         @Override protected void onDraw(Canvas canvas) {
             super.onDraw(canvas);
