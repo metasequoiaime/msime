@@ -108,7 +108,7 @@ public final class InputDialog {
         EditText input = Ui.styledInput(context, 15, 400, Ui.text(context));
         input.setHint(hint);
         input.setText(initial);
-        input.setSingleLine(true);
+        ViewPolicy.setSingleLine(input);
         input.setInputType(inputType == 0 ? InputType.TYPE_CLASS_TEXT : inputType);
         input.setHintTextColor(Ui.subText(context));
         GradientDrawable field = Ui.outlined(Ui.rowBackground(context), Ui.dp(context, 10),
