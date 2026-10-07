@@ -68,8 +68,8 @@ final class ImeCandidates {
             },
             chip(selectedBackground, 9), pressed, focused, hovered,
             chip(android.graphics.Color.TRANSPARENT, 9));
-        button.setBackground(states);
-        button.setTextColor(ColorPolicy.stateList(
+        ViewPolicy.setBackground(button, states);
+        ViewPolicy.setTextColor(button, ColorPolicy.stateList(
             new int[][] {{android.R.attr.state_selected}, {}},
             new int[] {selectedText, keyForeground}));
         applyCandidateTypeface(button);
@@ -97,8 +97,8 @@ final class ImeCandidates {
                 {android.R.attr.state_selected}, {android.R.attr.state_pressed}, new int[0]
             },
             chip(accentSoft, 8), chip(s.candidateAppearance.hover(), 8), chip(keyBackground, 8));
-        button.setBackground(states);
-        button.setTextColor(ColorPolicy.stateList(
+        ViewPolicy.setBackground(button, states);
+        ViewPolicy.setTextColor(button, ColorPolicy.stateList(
             new int[][] {{android.R.attr.state_selected}, {}},
             new int[] {accentText, keyForeground}));
         applyCandidateTypeface(button);
