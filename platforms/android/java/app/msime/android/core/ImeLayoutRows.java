@@ -459,7 +459,7 @@ final class ImeLayoutRows {
         if (key instanceof KeyboardPressButton press) press.setKeyboardRole(role);
         s.imeStyler.styleButton(key, role, s.skin);
         if (role == KeyboardKeyRole.ACCENT) KeyboardGeometry.setKeyTextSize(key, 15);
-        key.setVisibility(View.VISIBLE);
+        ViewPolicy.show(key);
         addNineKey(parent, key);
     }
 
@@ -1022,7 +1022,8 @@ final class ImeLayoutRows {
         boolean zhuyin = layout == KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT;
         boolean visible = (layout == MSIMEInputService.QUANPIN_NINE_KEY_LAYOUT || zhuyin)
             && spellings != null && spellings.length() > 0;
-        s.nineKeySpellingScroll.setVisibility(visible ? View.VISIBLE : View.GONE);
+        if (visible) ViewPolicy.show(s.nineKeySpellingScroll);
+        else ViewPolicy.hide(s.nineKeySpellingScroll);
         s.nineKeySpellingScroll.setContentDescription(zhuyin ? "注音读音选择" : "九键拼音选择");
         if (!visible) {
             s.nineKeySpellingIndices = java.util.List.of();
@@ -1059,7 +1060,8 @@ final class ImeLayoutRows {
         for (int slot = 0; slot < s.nineKeySpellingButtons.size(); slot++) {
             Button key = s.nineKeySpellingButtons.get(slot);
             boolean slotVisible = slot < values.size();
-            key.setVisibility(slotVisible ? View.VISIBLE : View.GONE);
+            if (slotVisible) ViewPolicy.show(key);
+            else ViewPolicy.hide(key);
             if (slotVisible) {
                 String spelling = values.get(slot);
                 key.setText(spelling);
