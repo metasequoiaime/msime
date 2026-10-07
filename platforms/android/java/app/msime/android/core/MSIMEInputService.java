@@ -6680,7 +6680,7 @@ public final class MSIMEInputService extends InputMethodService {
             boolean visible = MicrosoftShuangpinKeyPolicy.visible(
                 dedicatedEnglish, selectedScheme, currentLocalMode);
             ViewPolicy.setVisible(microsoftFinalKey, visible);
-            microsoftFinalKey.setEnabled(visible && session != 0);
+            ViewPolicy.setEnabled(microsoftFinalKey, visible && session != 0);
             microsoftFinalKey.setContentDescription("微软双拼 ing");
         }
         if (layerButton != null) {
