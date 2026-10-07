@@ -515,6 +515,31 @@ pub(super) fn decode_graph(
             typo_edges: hyp.typo_edges,
         });
     }
+    retain_unique_sentences(&mut paths, take);
+    rescore_with_trigram(&mut paths, options);
+    paths
+}
+
+const SMALL_SENTENCE_PATHS: usize = 64;
+
+fn retain_unique_sentences(paths: &mut Vec<SentencePath>, take: usize) {
+    if paths.len() <= SMALL_SENTENCE_PATHS {
+        let mut write = 0;
+        for read in 0..paths.len() {
+            if paths[..write]
+                .iter()
+                .any(|path| path.sentence == paths[read].sentence)
+            {
+                continue;
+            }
+            if write != read {
+                paths.swap(write, read);
+            }
+            write += 1;
+        }
+        paths.truncate(write.min(take));
+        return;
+    }
     let mut sentences = HashSet::with_capacity(paths.len());
     let duplicates = paths
         .iter()
@@ -535,8 +560,6 @@ pub(super) fn decode_graph(
         write += 1;
     }
     paths.truncate(write.min(take));
-    rescore_with_trigram(&mut paths, options);
-    paths
 }
 
 #[cfg(test)]
@@ -809,6 +832,26 @@ pub(super) mod tests {
             ["马马"],
             "the higher-scoring spelling survives"
         );
+    }
+
+    #[test]
+    fn sentence_path_dedup_uses_no_temporary_heap_state_for_small_beams() {
+        let mut paths = (0..32)
+            .map(|index| SentencePath {
+                sentence: format!("句{}", index % 16),
+                key: "a".to_owned(),
+                log_prob: index as f64,
+                words: vec!["句".to_owned()],
+                typo_edges: 0,
+            })
+            .collect::<Vec<_>>();
+
+        let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            retain_unique_sentences(&mut paths, 12);
+        });
+
+        assert_eq!(allocations, 0);
+        assert_eq!(paths.len(), 12);
     }
 
     #[test]
