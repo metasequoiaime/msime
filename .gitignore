@@ -56,6 +56,10 @@ tasks/
 .tmp-*
 *.report.html
 
+# 决策看板由 pnpm run init-board / bundle-board 随时从 .agents/notes 重新生成，不进版本库。
+/board.html
+/demo.html
+
 # Nothing reads vendor/ any more: the input engine is crates/engine. Checkouts made before that still hold the fetched C++ Engine tree (or a link to one) there, so it stays ignored rather than showing up as thousands of untracked files a broad `git add` would commit. Delete the directory by hand.
 /vendor/
 

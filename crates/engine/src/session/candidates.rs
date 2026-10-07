@@ -411,14 +411,14 @@ impl InputSession {
     /// Mixed rows and fixed positions over one decoded list.
     fn mixed_from(&mut self, decoded: Vec<WordItem>) -> Vec<WordItem> {
         let association_input = if self.prefix_active {
-            self.prefix_query_input.clone()
+            self.prefix_query_input.as_str()
         } else {
-            self.engine.request().raw_input.clone()
+            self.engine.request().raw_input.as_str()
         };
         let scheme = self.scheme();
         let mut mixed = self.queries.mixed(
             decoded,
-            &association_input,
+            association_input,
             scheme,
             self.english_options,
             self.expressive_options,

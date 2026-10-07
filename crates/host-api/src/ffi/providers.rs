@@ -237,23 +237,24 @@ pub extern "C" fn msime_client_translation_query(handle: u64) -> *mut c_char {
                     preferences.translation_target_language,
                     msime_client_core::preferences::TranslationTargetLanguage::En
                 );
-            // Non-English targets with an offline dictionary installed beside the resources, in preference order. The same switches as macOS's English fallback reach them: the offline gloss switch, or candidate translation, whose online answer replaces the offline one when it arrives. Never read from the user directory, so no user path is needed for them.
-            let offline_gloss_languages =
-                if preferences.candidate_translations || preferences.candidate_english_gloss {
-                    let mut languages = Vec::with_capacity(target_languages.len());
-                    languages.extend(target_languages.iter().filter_map(|language| {
-                        let language = serde_json::to_value(language).ok()?;
-                        let code = language.as_str()?;
-                        crate::offline_glosses_beside(
-                            std::path::Path::new(&session.options.resources),
-                            code,
-                        )
-                        .map(|_| code.to_owned())
-                    }));
-                    languages
-                } else {
-                    Vec::new()
-                };
+            // Non-English targets with an offline dictionary installed beside the resources or in the downloaded offline-glosses pack, in preference order. The same switches as macOS's English fallback reach them: the offline gloss switch, or candidate translation, whose online answer replaces the offline one when it arrives. Never read from the user directory, so no user path is needed for them.
+            let resources = std::path::Path::new(&session.options.resources);
+            let mut from_pack = false;
+            let offline_gloss_languages = if preferences.candidate_translations
+                || preferences.candidate_english_gloss
+            {
+                let mut languages = Vec::with_capacity(target_languages.len());
+                languages.extend(target_languages.iter().filter_map(|language| {
+                    let language = serde_json::to_value(language).ok()?;
+                    let code = language.as_str()?;
+                    crate::offline_glosses_file(resources, session.state_root.as_deref(), code)?;
+                    from_pack |= crate::offline_glosses_beside(resources, code).is_none();
+                    Some(code.to_owned())
+                }));
+                languages
+            } else {
+                Vec::new()
+            };
             // `/fy` asks the selected service whatever the gloss switches say: it is the user's explicit request, a single English text translated into Chinese that comes back as a row which commits it. Nothing else rides it, so no offline dictionary is consulted and nothing is persisted.
             if let Some(command) = session.runtime.command_translation() {
                 // The hosted account only glosses Chinese candidates, so `/fy` needs a service of the user's own.
@@ -352,6 +353,14 @@ pub extern "C" fn msime_client_translation_query(handle: u64) -> *mut c_char {
             // Omitted rather than empty, so a host with no offline dictionary installed sees the query it always did.
             if !offline_gloss_languages.is_empty() {
                 query["offline_gloss_languages"] = json!(offline_gloss_languages);
+            }
+            // Only when a dictionary comes from the downloaded pack: the host passes it back to msime_client_candidate_gloss_request, which looks there after the resources.
+            if from_pack {
+                if let Some(state_root) =
+                    session.state_root.as_deref().and_then(|path| path.to_str())
+                {
+                    query["state_root"] = json!(state_root);
+                }
             }
             Ok(query)
         })

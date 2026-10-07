@@ -37,6 +37,15 @@
 - 每个可独立验证的切片单独提交。
 - 不添加自动生成标记、AI 署名或 `Co-Authored-By` 水印。
 
+## 决策笔记
+
+非平凡改动（改了行为、架构、跨文件契约、流程与工具链、测试策略、落盘/网络/配置格式，或其他维护者日后可能重访的决定）必须带一篇笔记，写入 `.agents/notes/`；方法、格式与判定标准见 `.agents/skills/write-notes-like-deepseek/SKILL.md`。
+
+- 动手前先检索旧笔记：有归属就地更新，不另起新篇；决定翻转才新建并互链。
+- 新想法先写 `proposed/`，落地随同代码改动转 `implemented/`；被否且值得记的进 `rejected/`。
+- 被放弃的方案先写它最强的理由，再解释为什么不用。
+- 提交前跑 `pnpm run verify-notes`，红了先修再交。机械性小改（样式、格式化、打标、不改行为的补丁）不写笔记，直接提交。
+
 ## 发版
 
 - 打版本一律从 `develop` 新建 `release/<版本号>` 分支（例如 `release/0.51.0`），由这个分支向 `main` 开 PR。禁止直接从 `develop` 向 `main` 开 PR 或合并，`branch-guard.yml` 的 Base branch 检查会拒绝这种 PR。

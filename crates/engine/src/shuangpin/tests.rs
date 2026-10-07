@@ -341,6 +341,25 @@ fn fuzzy_rows_reserve_unique_results_before_appending() {
     assert_eq!(fuzzy.capacity(), fuzzy.len());
 }
 
+#[test]
+fn empty_fuzzy_rows_keep_exact_order() {
+    let fixture = Fixture::new(
+        "BEGIN;CREATE TABLE tbl_1_n(key TEXT, jp TEXT, value TEXT, weight INTEGER);INSERT INTO tbl_1_n VALUES('ni', 'n', '你', 100);CREATE TABLE tbl_2_n(key TEXT, jp TEXT, value TEXT, weight INTEGER);INSERT INTO tbl_2_n VALUES('ni''hao', 'nh', '你好', 200);COMMIT;",
+    );
+    let mut engine = fixture.engine(ShuangpinProfileKind::Xiaohe);
+    let mut typed = request("nihc", false);
+    let exact = engine.query(&typed, None);
+    typed.fuzzy_pinyin = FuzzyPinyinOptions {
+        rules: fuzzy_rule::Z_ZH,
+    };
+
+    let with_empty_fuzzy = engine.query(&typed, None);
+
+    assert_eq!(words(&exact), ["你好", "你"]);
+    assert_eq!(words(&with_empty_fuzzy), words(&exact));
+    assert!(with_empty_fuzzy.iter().all(|item| !item.fuzzy));
+}
+
 /// A fixed row missing from the list is looked up by its canonical quanpin key (user_dictionary positions).
 #[test]
 fn find_candidate_reads_the_canonical_key() {

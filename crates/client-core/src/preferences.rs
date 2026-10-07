@@ -388,8 +388,24 @@ impl TouchKeyboardScheme {
         Self::ZhuyinNineKey,
     ];
 
-    /// 用户还没挑选时键盘显示的方案：除粤拼、注音（大千和 9 键）、越南文、藏文和笔画以外的全部，这些由用户自己打开，和 macOS 上它们的输入模式默认停用一样。因此没有 `touch_keyboard_schemes` 的文档仍然保持原来的键盘。
-    pub const DEFAULT_ENABLED: [Self; 11] = [
+    /// 新装时键盘显示的方案：只有中文方案（拼音、双拼、五笔和手写）。日文（9 键和 26 键）、韩文、粤拼、注音（大千和 9 键）、越南文、藏文和笔画都由用户自己在「添加语言」里打开：日文词典和语言词库在 Android 上按需下载，默认不启用它们，新装用户就不会看到一个还没有词典的键盘。
+    ///
+    /// 只用于新装：还没有偏好文件、状态目录也没有被以前的版本准备过的时候（见 `PreferencesStore` 读不到文件时的处理）。已有的文档没存列表时按 [`Self::LEGACY_DEFAULT_ENABLED`]，存过列表的照旧按它保存的列表。
+    pub const DEFAULT_ENABLED: [Self; 8] = [
+        Self::Quanpin,
+        Self::NineKey,
+        Self::Xiaohe,
+        Self::Ziranma,
+        Self::Microsoft,
+        Self::Shoudao,
+        Self::Wubi,
+        Self::Handwriting,
+    ];
+
+    /// 默认值改成只有中文之前的默认启用列表：除粤拼、注音（大千和 9 键）、越南文、藏文和笔画以外的全部，日文（9 键和 26 键）和韩文也在里面。
+    ///
+    /// 以前的版本在启用列表等于这份默认值时不把 `touch_keyboard_schemes` 写进文档，所以已有文档里没有 `enabled` 就表示用户看到的是这份列表。读入这样的文档、以及以前的版本准备过却从没存过偏好的状态目录，都按这份列表，升级不会让日文和韩文键盘消失。现在的版本总是把列表写出来，不会再产生没有列表的文档。与 Android `KeyboardScheme.optIn` 之外的那些方案一致。
+    pub const LEGACY_DEFAULT_ENABLED: [Self; 11] = [
         Self::Quanpin,
         Self::NineKey,
         Self::Xiaohe,
@@ -442,7 +458,10 @@ struct StoredTouchKeyboardSchemePreferences {
 impl From<StoredTouchKeyboardSchemePreferences> for TouchKeyboardSchemePreferences {
     fn from(stored: StoredTouchKeyboardSchemePreferences) -> Self {
         let enabled = match stored.enabled {
-            None => default_touch_keyboard_schemes(),
+            // 没存列表的文档只可能出自默认值改成只有中文之前的版本，用户当时看到的是那时的默认列表。
+            None => TouchKeyboardScheme::LEGACY_DEFAULT_ENABLED
+                .into_iter()
+                .collect(),
             Some(stored_enabled) => {
                 let stored_count = stored_enabled.len();
                 let mut enabled: BTreeSet<_> = stored_enabled
@@ -469,22 +488,24 @@ impl From<StoredTouchKeyboardSchemePreferences> for TouchKeyboardSchemePreferenc
     }
 }
 
-fn default_touch_keyboard_schemes() -> BTreeSet<TouchKeyboardScheme> {
-    TouchKeyboardScheme::DEFAULT_ENABLED.into_iter().collect()
-}
-
 impl Default for TouchKeyboardSchemePreferences {
     fn default() -> Self {
         Self {
-            enabled: default_touch_keyboard_schemes(),
+            enabled: TouchKeyboardScheme::DEFAULT_ENABLED.into_iter().collect(),
             selected: None,
         }
     }
 }
 
 impl TouchKeyboardSchemePreferences {
-    fn is_default(&self) -> bool {
-        self == &Self::default()
+    /// 文档里整个没有 `touch_keyboard_schemes` 时读到的值：与只缺 `enabled` 一样按 [`TouchKeyboardScheme::LEGACY_DEFAULT_ENABLED`]。
+    fn without_stored_list() -> Self {
+        Self {
+            enabled: TouchKeyboardScheme::LEGACY_DEFAULT_ENABLED
+                .into_iter()
+                .collect(),
+            selected: None,
+        }
     }
 
     /// `edition` 的触屏键盘还没被用户改过时启用的方案：[`TouchKeyboardScheme::DEFAULT_ENABLED`] 里本版本提供的那些（见 `Edition::offers_touch_scheme`）。full 得到的就是 `Default`。
@@ -493,13 +514,25 @@ impl TouchKeyboardSchemePreferences {
     ///
     /// 只有一个方案的版本启用这个方案的全部触屏入口：越南文和藏文在 full 里默认停用，单独成为一个版本时它们就是这个版本本身。启用的入口按 `ALL` 顺序第一个是手写时，第一个不是手写的入口同时设为选中，否则第一次打开键盘看到的是手写；现有版本里手写要么没有、要么排在本版本的方案后面，选中留空，与只取缺省集合相同。
     pub fn for_edition(edition: &crate::edition::Edition) -> Self {
+        Self::for_edition_from(edition, &TouchKeyboardScheme::DEFAULT_ENABLED)
+    }
+
+    /// [`Self::for_edition`]，只是缺省集合换成以前的版本用的 [`TouchKeyboardScheme::LEGACY_DEFAULT_ENABLED`]：以前的版本准备过、却从没存过偏好的状态目录读到的就是它，与这些用户升级前看到的键盘相同。
+    fn legacy_for_edition(edition: &crate::edition::Edition) -> Self {
+        Self::for_edition_from(edition, &TouchKeyboardScheme::LEGACY_DEFAULT_ENABLED)
+    }
+
+    fn for_edition_from(
+        edition: &crate::edition::Edition,
+        defaults: &[TouchKeyboardScheme],
+    ) -> Self {
         let single_scheme = edition.input_schemes.len() == 1;
         let mut preferences = Self {
             enabled: TouchKeyboardScheme::ALL
                 .into_iter()
                 .filter(|scheme| {
                     edition.offers_touch_scheme(*scheme)
-                        && (single_scheme || TouchKeyboardScheme::DEFAULT_ENABLED.contains(scheme))
+                        && (single_scheme || defaults.contains(scheme))
                 })
                 .collect(),
             selected: None,
@@ -759,11 +792,10 @@ pub struct Preferences {
     pub wubi_profile: WubiProfile,
     #[serde(default)]
     pub touch_keyboard_layout: TouchKeyboardLayout,
-    /// Touch-only picker visibility and optional host selection. Desktop hosts preserve but ignore it.
-    #[serde(
-        default,
-        skip_serializing_if = "TouchKeyboardSchemePreferences::is_default"
-    )]
+    /// 触屏键盘列出哪些方案、选中哪一个；桌面宿主原样保留、不使用。
+    ///
+    /// 总是写进文档，哪怕等于默认值：以前的版本在等于默认值时省略它，于是文档里没有它只能说明是以前的版本写的，按以前的默认列表读（[`TouchKeyboardScheme::LEGACY_DEFAULT_ENABLED`]）。新装的默认值已经不同，再省略就分不出这两种文档。
+    #[serde(default = "TouchKeyboardSchemePreferences::without_stored_list")]
     pub touch_keyboard_schemes: TouchKeyboardSchemePreferences,
     /// Horizontal key gap in tenths of a density-independent pixel.
     #[serde(default = "default_touch_key_spacing_tenths")]
@@ -2589,11 +2621,39 @@ impl PreferencesStore {
     }
 
     /// 还没有偏好文件时读到的快照。
+    ///
+    /// 状态目录已经被准备过（[`Self::prepared_before`]）却没有偏好文件，说明是以前的版本装的、用户从没存过偏好：触屏键盘的方案按以前的默认列表（[`TouchKeyboardSchemePreferences::legacy_for_edition`]），升级后键盘不变。只有新装才得到现在的默认列表。准备宿主时会把读到的结果写成第一份偏好文件（[`Self::write_first_document`]），之后不再靠这个判断。
     fn missing_document(&self) -> PreferencesSnapshot {
-        match self.edition() {
-            edition if edition.is_full() => PreferencesSnapshot::default(),
-            edition => PreferencesSnapshot::for_edition(edition),
+        let edition = self.edition();
+        let mut snapshot = if edition.is_full() {
+            PreferencesSnapshot::default()
+        } else {
+            PreferencesSnapshot::for_edition(edition)
+        };
+        if self.prepared_before() {
+            snapshot.preferences.touch_keyboard_schemes =
+                TouchKeyboardSchemePreferences::legacy_for_edition(edition);
         }
+        snapshot
+    }
+
+    /// 准备宿主时在状态目录里建的用户词库代次目录 `user/dictionaries` 已经存在：这个目录被某个版本准备过。新装在写下第一份偏好文件之前还没有它。
+    fn prepared_before(&self) -> bool {
+        std::fs::symlink_metadata(self.directory.join("user").join("dictionaries"))
+            .is_ok_and(|metadata| metadata.is_dir())
+    }
+
+    /// 还没有偏好文件时，把此刻读到的偏好（[`Self::missing_document`]）写成第一份文件；已经有文件时什么也不写，返回读到的快照。
+    ///
+    /// 准备宿主时、在建 `user/dictionaries` 之前调用：新装和从以前的版本升级只在第一次准备之前分得清（见 [`Self::missing_document`]），写下文件后这个结论就固定在文件里，之后的准备和读取不会把一次新装误当成升级。设置应用恰好在这期间写下了第一份偏好时，以它为准。
+    pub fn write_first_document(&self) -> Result<PreferencesSnapshot, PreferencesError> {
+        let _lock = self.lock()?;
+        let current = self.read_locked()?;
+        if current.revision > 0 {
+            return Ok(current);
+        }
+        let preferences = current.preferences.clone();
+        self.save_locked(current, 0, preferences)
     }
 
     /// 修复损坏文件时垫底的默认偏好。
@@ -2909,6 +2969,10 @@ fn salvage_preferences(
             _ => return Ok((default, false)),
         },
     };
+    // 损坏的文档里没有触屏方案列表时，它出自以前的版本（现在的版本总是写出列表），垫底值里也去掉这个键，读回来按以前的默认列表，与这份文档还能正常读取时相同。
+    if !source.contains_key("touch_keyboard_schemes") {
+        salvaged.remove("touch_keyboard_schemes");
+    }
     let mut kept = false;
     for (key, value) in &source {
         let mut candidate = salvaged.clone();

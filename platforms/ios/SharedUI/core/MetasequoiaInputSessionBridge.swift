@@ -1385,8 +1385,12 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     return integer
   }
 
-  private static func decode(_ pointer: UnsafeMutablePointer<CChar>?) throws -> Any {
+  static func decodeResponse(
+    _ pointer: UnsafeMutablePointer<CChar>?,
+    release: (UnsafeMutablePointer<CChar>) -> Void
+  ) throws -> Any {
     guard let pointer else { throw InputBridgeFailure.unavailable }
+    defer { release(pointer) }
     // Parse the response where it already is. Going through `String(cString:)` and then
     // `.data(using:)` copies the whole document twice - and validates its UTF-8 on the way - before
     // the parser has seen a byte of it. Every keystroke carries a view with nine candidates, their
@@ -1399,19 +1403,21 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
           with: Data(bytesNoCopy: UnsafeMutableRawPointer(mutating: bytes), count: length,
                      deallocator: .none))
       }
-      msimeClientStringFree(pointer)
       guard let object = parsed as? [String: Any] else { throw InputBridgeFailure.invalidResponse }
       envelope = object
     } catch let failure as InputBridgeFailure {
       throw failure
     } catch {
-      msimeClientStringFree(pointer)
       throw InputBridgeFailure.invalidResponse
     }
     guard envelope["ok"] as? Bool == true else {
       throw InputBridgeFailure.response(envelope["error"] as? String ?? "输入运行时调用失败")
     }
     return envelope["value"] ?? NSNull()
+  }
+
+  private static func decode(_ pointer: UnsafeMutablePointer<CChar>?) throws -> Any {
+    try decodeResponse(pointer, release: msimeClientStringFree)
   }
 
   private static func callCreate(_ options: [String: Any]) throws -> [String: Any] {

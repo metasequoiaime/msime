@@ -8,6 +8,7 @@ import android.widget.TextView;
 import androidx.annotation.DrawableRes;
 import androidx.annotation.Nullable;
 import app.msime.android.R;
+import app.msime.android.ViewPolicy;
 
 /**
  * 设置首页的一组导航行：r24 的 andCard 卡片，行紧挨着排、没有分隔线；每行 60dp，24dp 线框图标、标题，当前值作为下面一行副标题，没有 ›（那是 iOS 的写法）。
@@ -62,7 +63,7 @@ public final class HomeNavGroup {
         }
 
         public void setVisible(boolean visible) {
-            view.setVisibility(visible ? View.VISIBLE : View.GONE);
+            ViewPolicy.setVisible(view, visible);
         }
     }
 }

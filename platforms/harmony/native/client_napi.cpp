@@ -204,14 +204,10 @@ TEXT_ENTRY(ResolveTheme, msime_client_resolve_theme)
 TEXT_ENTRY(DictionaryManifest, msime_client_dictionary_manifest)
 TEXT_ENTRY(SkinResource, msime_client_skin_resource)
 TEXT_ENTRY(SkinToolbarStylesheet, msime_client_skin_toolbar_stylesheet)
-TEXT_ENTRY(CustomSkinLibrary, msime_client_custom_skin_library)
-TEXT_ENTRY(CommunitySkinInstall, msime_client_community_skin_install)
 TEXT_ENTRY(KeyboardSkinTrial, msime_client_keyboard_skin_trial)
-TEXT_ENTRY(CommunityResourceLibrary, msime_client_community_resource_library)
 TEXT_ENTRY(AiSkinPlan, msime_client_ai_skin_plan)
 TEXT_ENTRY(Dictionary, msime_client_dictionary)
 TEXT_ENTRY(TypingStatistics, msime_client_typing_statistics)
-TEXT_ENTRY(VocabularyReview, msime_client_vocabulary_review)
 TEXT_ENTRY(MobileClipboardHistory, msime_client_mobile_clipboard_history)
 TEXT_ENTRY(PersonalDictionarySync, msime_client_personal_dictionary_sync)
 TEXT_ENTRY(PersonalDictionaryRequest, msime_client_personal_dictionary_request)
@@ -299,7 +295,6 @@ static napi_value SnapshotRestore(napi_env env, napi_callback_info info) {
 TEXT_ENTRY(VoiceHotwordCorrect, msime_client_voice_hotword_correct)
 TEXT_ENTRY(VoiceLocalModels, msime_client_voice_local_models)
 TEXT_ENTRY(VoiceLocalModelCancel, msime_client_voice_local_model_cancel)
-TEXT_ENTRY(VoiceLocalModelRemove, msime_client_voice_local_model_remove)
 
 static void rejectWith(napi_env env, napi_deferred deferred, const char *text) {
     napi_value message = nullptr;
@@ -417,10 +412,11 @@ static napi_value EnsureAnonymousAccount(napi_env env, napi_callback_info info) 
     return promise;
 }
 
-// The usage-report flush and the notice fetch wait on the network, so they run as async work and answer through a promise; a refusal or a failed request arrives as {"ok":false}. Both take one JSON request and differ only in the entry point they call.
+// Slow one-document requests share a worker: telemetry and notices wait on the network, while
+// the custom skin library reads or writes a bounded multi-megabyte file under a lock.
 using RequestCall = char *(*)(const uint8_t *, size_t);
 
-struct NetworkRequestWork {
+struct RequestWork {
     napi_async_work work = nullptr;
     napi_deferred deferred = nullptr;
     RequestCall call = nullptr;
@@ -428,23 +424,23 @@ struct NetworkRequestWork {
     char *result = nullptr;
 };
 
-static void executeNetworkRequest(napi_env, void *data) {
-    auto *work = static_cast<NetworkRequestWork *>(data);
+static void executeRequest(napi_env, void *data) {
+    auto *work = static_cast<RequestWork *>(data);
     work->result = work->call(
         reinterpret_cast<const uint8_t *>(work->request.data()), work->request.size());
 }
 
-static void completeNetworkRequest(napi_env env, napi_status status, void *data) {
-    auto *work = static_cast<NetworkRequestWork *>(data);
-    settleVoicePromise(env, status, work->deferred, work->result, "Network request worker failed");
+static void completeRequest(napi_env env, napi_status status, void *data) {
+    auto *work = static_cast<RequestWork *>(data);
+    settleVoicePromise(env, status, work->deferred, work->result, "Request worker failed");
     napi_delete_async_work(env, work->work);
     delete work;
 }
 
-static napi_value queueNetworkRequest(napi_env env, napi_callback_info info, RequestCall call,
-                                      const char *name) {
+static napi_value queueRequest(napi_env env, napi_callback_info info, RequestCall call,
+                               const char *name) {
     std::vector<napi_value> argv;
-    auto *work = new NetworkRequestWork();
+    auto *work = new RequestWork();
     work->call = call;
     if (!arguments(env, info, 1, argv) || !argumentText(env, argv[0], work->request)) {
         delete work;
@@ -454,25 +450,50 @@ static napi_value queueNetworkRequest(napi_env env, napi_callback_info info, Req
     napi_value resource = nullptr;
     if (napi_create_promise(env, &work->deferred, &promise) != napi_ok
             || napi_create_string_utf8(env, name, NAPI_AUTO_LENGTH, &resource) != napi_ok
-            || napi_create_async_work(env, nullptr, resource, executeNetworkRequest,
-                completeNetworkRequest, work, &work->work) != napi_ok) {
+            || napi_create_async_work(env, nullptr, resource, executeRequest,
+                completeRequest, work, &work->work) != napi_ok) {
         delete work;
-        return invalid(env, "Unable to create network request worker");
+        return invalid(env, "Unable to create request worker");
     }
     if (napi_queue_async_work(env, work->work) != napi_ok) {
         napi_delete_async_work(env, work->work);
         delete work;
-        return invalid(env, "Unable to queue network request worker");
+        return invalid(env, "Unable to queue request worker");
     }
     return promise;
 }
 
 static napi_value TelemetryFlush(napi_env env, napi_callback_info info) {
-    return queueNetworkRequest(env, info, msime_client_telemetry_flush, "MSIME telemetry flush");
+    return queueRequest(env, info, msime_client_telemetry_flush, "MSIME telemetry flush");
 }
 
 static napi_value Notices(napi_env env, napi_callback_info info) {
-    return queueNetworkRequest(env, info, msime_client_notices, "MSIME notices");
+    return queueRequest(env, info, msime_client_notices, "MSIME notices");
+}
+
+// A named design can carry a photo, so both reading and mutating the library can parse and
+// serialize megabytes while holding its file lock. The settings page awaits this worker.
+static napi_value CustomSkinLibrary(napi_env env, napi_callback_info info) {
+    return queueRequest(env, info, msime_client_custom_skin_library, "MSIME custom skin library");
+}
+
+// Reply templates are bounded but can still occupy several megabytes across the saved library;
+// keep validation, locking and atomic replacement off the ArkTS thread as well.
+static napi_value CommunityResourceLibrary(napi_env env, napi_callback_info info) {
+    return queueRequest(env, info, msime_client_community_resource_library,
+        "MSIME community resource library");
+}
+
+// Wordbook imports are bounded at several megabytes and rewrite the selected book and review
+// progress. Keep parsing, file locks and atomic replacement off the ArkTS thread.
+static napi_value VocabularyReview(napi_env env, napi_callback_info info) {
+    return queueRequest(env, info, msime_client_vocabulary_review, "MSIME vocabulary review");
+}
+
+// Picked skins are checked against the manifest and copied with a bounded tree budget. Run that
+// validation and replacement off the ArkTS thread so a large folder cannot freeze settings.
+static napi_value SkinImport(napi_env env, napi_callback_info info) {
+    return queueRequest(env, info, msime_client_skin_import, "MSIME skin import");
 }
 
 // A pack import extracts or copies up to a music pack's size and validates it before swapping it into place, which the header says belongs on a worker thread, so it runs as async work and answers through a promise. The small catalog, remove and name-list calls stay on the synchronous `plugins` entry.
@@ -516,6 +537,54 @@ static napi_value PluginsAsync(napi_env env, napi_callback_info info) {
         napi_delete_async_work(env, work->work);
         delete work;
         return invalid(env, "Unable to queue plugin worker");
+    }
+    return promise;
+}
+
+// Community skin designs can carry several megabytes of validated image data and are written to
+// both the trial and library stores. Keep the import and its file locks off the ArkTS thread.
+struct CommunitySkinInstallWork {
+    napi_async_work work = nullptr;
+    napi_deferred deferred = nullptr;
+    std::string request;
+    char *result = nullptr;
+};
+
+static void executeCommunitySkinInstall(napi_env, void *data) {
+    auto *work = static_cast<CommunitySkinInstallWork *>(data);
+    work->result = msime_client_community_skin_install(
+        reinterpret_cast<const uint8_t *>(work->request.data()), work->request.size());
+}
+
+static void completeCommunitySkinInstall(napi_env env, napi_status status, void *data) {
+    auto *work = static_cast<CommunitySkinInstallWork *>(data);
+    settleVoicePromise(env, status, work->deferred, work->result,
+        "Community skin install worker failed");
+    napi_delete_async_work(env, work->work);
+    delete work;
+}
+
+static napi_value CommunitySkinInstall(napi_env env, napi_callback_info info) {
+    std::vector<napi_value> argv;
+    auto *work = new CommunitySkinInstallWork();
+    if (!arguments(env, info, 1, argv) || !argumentText(env, argv[0], work->request)) {
+        delete work;
+        return invalid(env, "Expected a community skin install request");
+    }
+    napi_value promise = nullptr;
+    napi_value resource = nullptr;
+    if (napi_create_promise(env, &work->deferred, &promise) != napi_ok
+            || napi_create_string_utf8(env, "MSIME community skin install", NAPI_AUTO_LENGTH,
+                &resource) != napi_ok
+            || napi_create_async_work(env, nullptr, resource, executeCommunitySkinInstall,
+                completeCommunitySkinInstall, work, &work->work) != napi_ok) {
+        delete work;
+        return invalid(env, "Unable to create community skin install worker");
+    }
+    if (napi_queue_async_work(env, work->work) != napi_ok) {
+        napi_delete_async_work(env, work->work);
+        delete work;
+        return invalid(env, "Unable to queue community skin install worker");
     }
     return promise;
 }
@@ -608,6 +677,55 @@ static napi_value VoiceLocalModelInstall(napi_env env, napi_callback_info info) 
         if (work->progress != nullptr) napi_release_threadsafe_function(work->progress, napi_tsfn_release);
         delete work;
         return invalid(env, "Unable to queue voice model install worker");
+    }
+    return promise;
+}
+
+// Removing a model recursively deletes a user-downloaded directory that can be larger than a
+// gigabyte. Keep the filesystem walk off the ArkTS thread just like installation; the short
+// cancel call remains synchronous so it can set the native cancellation flag immediately.
+struct VoiceLocalModelRemoveWork {
+    napi_async_work work = nullptr;
+    napi_deferred deferred = nullptr;
+    std::string request;
+    char *result = nullptr;
+};
+
+static void executeVoiceLocalModelRemove(napi_env, void *data) {
+    auto *work = static_cast<VoiceLocalModelRemoveWork *>(data);
+    work->result = msime_client_voice_local_model_remove(
+        reinterpret_cast<const uint8_t *>(work->request.data()), work->request.size());
+}
+
+static void completeVoiceLocalModelRemove(napi_env env, napi_status status, void *data) {
+    auto *work = static_cast<VoiceLocalModelRemoveWork *>(data);
+    settleVoicePromise(env, status, work->deferred, work->result,
+        "Voice model removal worker failed");
+    napi_delete_async_work(env, work->work);
+    delete work;
+}
+
+static napi_value VoiceLocalModelRemove(napi_env env, napi_callback_info info) {
+    std::vector<napi_value> argv;
+    auto *work = new VoiceLocalModelRemoveWork();
+    if (!arguments(env, info, 1, argv) || !argumentText(env, argv[0], work->request)) {
+        delete work;
+        return invalid(env, "Expected a local voice model removal request");
+    }
+    napi_value promise = nullptr;
+    napi_value resource = nullptr;
+    if (napi_create_promise(env, &work->deferred, &promise) != napi_ok
+            || napi_create_string_utf8(env, "MSIME voice model removal", NAPI_AUTO_LENGTH,
+                &resource) != napi_ok
+            || napi_create_async_work(env, nullptr, resource, executeVoiceLocalModelRemove,
+                completeVoiceLocalModelRemove, work, &work->work) != napi_ok) {
+        delete work;
+        return invalid(env, "Unable to create voice model removal worker");
+    }
+    if (napi_queue_async_work(env, work->work) != napi_ok) {
+        napi_delete_async_work(env, work->work);
+        delete work;
+        return invalid(env, "Unable to queue voice model removal worker");
     }
     return promise;
 }
@@ -1204,6 +1322,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("dictionaryManifest", DictionaryManifest),
         ENTRY("skinResource", SkinResource),
         ENTRY("skinToolbarStylesheet", SkinToolbarStylesheet),
+        ENTRY("skinImport", SkinImport),
         ENTRY("customSkinLibrary", CustomSkinLibrary),
         ENTRY("communitySkinInstall", CommunitySkinInstall),
         ENTRY("keyboardSkinTrial", KeyboardSkinTrial),

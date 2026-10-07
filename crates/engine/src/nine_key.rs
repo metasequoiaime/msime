@@ -525,7 +525,7 @@ impl NineKeySession {
                 // The database lookup key is the lowercase spelling in `pinyin`; `word` is the
                 // display form and may intentionally contain punctuation or spaces (for example
                 // the custom entry `dont` displayed as `don't`).
-                if !digits_for_word(&word.pinyin).starts_with(&digits) {
+                if !word_matches_digits(&word.pinyin, &digits) {
                     continue;
                 }
                 words.push(word);
@@ -741,12 +741,30 @@ fn encode(pinyin: &str) -> String {
 }
 
 /// The digit code of an English word, ignoring case; a word with any non-letter has none.
+#[cfg(test)]
 fn digits_for_word(word: &str) -> String {
     let lowered = word.to_ascii_lowercase();
     if !lowered.bytes().all(|byte| byte.is_ascii_lowercase()) {
         return String::new();
     }
     encode(&lowered)
+}
+
+fn word_matches_digits(word: &str, digits: &str) -> bool {
+    let mut matched = 0;
+    for byte in word.bytes() {
+        let letter = byte.to_ascii_lowercase();
+        if !letter.is_ascii_lowercase() {
+            return false;
+        }
+        if let Some(&digit) = digits.as_bytes().get(matched) {
+            if KEYPAD[usize::from(letter - b'a')] != digit {
+                return false;
+            }
+            matched += 1;
+        }
+    }
+    matched == digits.len()
 }
 
 fn letters_for_digit(digit: u8) -> &'static str {
@@ -921,6 +939,11 @@ mod tests {
         assert_eq!(digits_for_word("ogham"), "64426");
         assert_eq!(digits_for_word("don't"), "");
         assert_eq!(digits_for_word("café"), "");
+        assert!(word_matches_digits("OK", "65"));
+        assert!(word_matches_digits("ogham", "64426"));
+        assert!(!word_matches_digits("ogham", "64427"));
+        assert!(!word_matches_digits("don't", "3668"));
+        assert!(!word_matches_digits("ogham", "644260"));
     }
 
     #[test]

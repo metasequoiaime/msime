@@ -47,8 +47,7 @@ public final class KeyboardSchemeCard extends FrameLayout {
     public KeyboardSchemeCard(Context context, String glyphText, String badgeText,
             String titleText) {
         super(context);
-        setClickable(true);
-        setFocusable(true);
+        ViewPolicy.setInteractive(this, true);
 
         glyph = centeredLabel(context, glyphText, glyphText.length() > 1 ? 15 : 20, true);
         // "EN" is two characters wide in a box sized for one, so it takes the smaller face.
@@ -64,7 +63,6 @@ public final class KeyboardSchemeCard extends FrameLayout {
         ViewPolicy.hide(check);
 
         title = centeredLabel(context, titleText, 12, false);
-        title.setMaxLines(1);
         KeyboardGeometry.setKeyTextSize(title, 12);
         // 卡片格子只有 56 dp，字形区占去 44 dp；去掉字体留白，标题在 1.15 倍字体下仍放得下。
         ViewPolicy.clearFontPadding(title);
@@ -149,7 +147,7 @@ public final class KeyboardSchemeCard extends FrameLayout {
         // 角标和对勾都压在字形框的边线上，各自带一小块与面板同色的底，把边线断开。
         badge.setBackgroundColor(keyBackground);
         check.setBackground(checkMark(accent, keyBackground));
-        check.setVisibility(isSelected ? View.VISIBLE : View.GONE);
+        ViewPolicy.setVisible(check, isSelected);
     }
 
     /**

@@ -229,6 +229,12 @@ if(BUILD_TESTING)
   target_link_libraries(linux-candidate-fcitx-logo-test PRIVATE PkgConfig::CAIRO nlohmann_json::nlohmann_json)
   add_test(NAME linux-candidate-fcitx-logo
     COMMAND linux-candidate-fcitx-logo-test "${CMAKE_CURRENT_SOURCE_DIR}/../data/icons/hicolor")
+  # A skin's decoration resampled to its declared width with cairo, so the classic UI draws it whole in the band above the card.
+  add_executable(linux-candidate-fcitx-overlay-scale-test ../tests/candidate/candidate_fcitx_overlay_scale.cpp)
+  target_compile_features(linux-candidate-fcitx-overlay-scale-test PRIVATE cxx_std_20)
+  target_compile_options(linux-candidate-fcitx-overlay-scale-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+  target_link_libraries(linux-candidate-fcitx-overlay-scale-test PRIVATE PkgConfig::CAIRO nlohmann_json::nlohmann_json)
+  add_test(NAME linux-candidate-fcitx-overlay-scale COMMAND linux-candidate-fcitx-overlay-scale-test)
   set(MSIME_FCITX5_TEST_RESOURCES "" CACHE PATH "Verified resources directory for the native Fcitx5 test")
   if(MSIME_FCITX5_TEST_RESOURCES)
     add_test(NAME fcitx5-native-context

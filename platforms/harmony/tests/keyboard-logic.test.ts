@@ -7502,6 +7502,23 @@ group("account and cloud clipboard bridge keeps secrets native", () => {
   new AccountCloudBridge({ request: async () => ({ status: 200, body: "{}" }) }, oversizedStore);
   check(oversizedCleared, "an oversized saved session is cleared before JSON parsing");
 
+  let oversizedNameCleared = false;
+  const oversizedNameStore: AccountSessionStore = {
+    load: () => JSON.stringify({
+      access_token: "a".repeat(64),
+      refresh_token: "b".repeat(64),
+      token_type: "Bearer",
+      expires_at: Date.now() + 600_000,
+      user: { id: "synthetic-user", display_name: "你".repeat(65), created_at: "2026-01-01" },
+    }),
+    save: () => {},
+    clear: () => {
+      oversizedNameCleared = true;
+    },
+  };
+  new AccountCloudBridge({ request: async () => ({ status: 200, body: "{}" }) }, oversizedNameStore);
+  check(oversizedNameCleared, "a saved nickname over 64 Unicode scalars is cleared");
+
   let stored: string | null = null;
   const store: AccountSessionStore = {
     load: () => stored,
@@ -8769,6 +8786,199 @@ group("the account bridge sends multi-line clipboard text the shared client acce
     .then((reply) => {
       check(JSON.parse(reply).error === "account_invalid", "a C1 control is refused locally");
     });
+});
+
+group("the account bridge accepts the shared clipboard search bound", () => {
+  let stored: string | null = JSON.stringify({
+    access_token: "a".repeat(64),
+    refresh_token: "b".repeat(64),
+    token_type: "Bearer",
+    expires_at: Date.now() + 600_000,
+    user: { id: "synthetic-user", display_name: "Test", created_at: "2026-01-01" },
+  });
+  const paths: string[] = [];
+  const bridge = new AccountCloudBridge(
+    {
+      request: async (_method, path) => {
+        paths.push(path);
+        return { status: 200, body: '{"enabled":true,"items":[]}' };
+      },
+    },
+    {
+      load: () => stored,
+      save: (value) => {
+        stored = value;
+      },
+      clear: () => {
+        stored = null;
+      },
+    },
+  );
+  const accepted = "你".repeat(341) + "a";
+  void bridge
+    .handle(JSON.stringify({ operation: "clipboard", clipboard_operation: "list", search: accepted }))
+    .then((reply) => {
+      check(JSON.parse(reply).ok === true, "a 1,024-byte UTF-8 clipboard search is accepted");
+      check(paths.length === 1, "the accepted search reaches the account service");
+      return bridge.handle(
+        JSON.stringify({
+          operation: "clipboard",
+          clipboard_operation: "list",
+          search: "你".repeat(342),
+        }),
+      );
+    })
+    .then((reply) => {
+      check(JSON.parse(reply).error === "account_invalid", "a search over 1,024 UTF-8 bytes is refused");
+      check(paths.length === 1, "the oversized search never reaches the account service");
+    });
+});
+
+group("dictionary candidate requests use the shared query contract", () => {
+  let stored: string | null = JSON.stringify({
+    access_token: "a".repeat(64),
+    refresh_token: "b".repeat(64),
+    token_type: "Bearer",
+    expires_at: Date.now() + 600_000,
+    user: { id: "synthetic-user", display_name: "Test", created_at: "2026-01-01" },
+  });
+  const paths: string[] = [];
+  const bridge = new AccountCloudBridge(
+    {
+      request: async (_method, path) => {
+        paths.push(path);
+        return { status: 200, body: '{"revision":0,"candidates":[]}' };
+      },
+    },
+    {
+      load: () => stored,
+      save: (value) => {
+        stored = value;
+      },
+      clear: () => {
+        stored = null;
+      },
+    },
+  );
+  const valid = {
+    operation: "dictionary",
+    dictionary_operation: "candidates",
+    text: "ni",
+    kind: "pinyin",
+    scheme: "pinyin",
+    profile: "xiaohe",
+    limit: 10,
+  };
+  void bridge.handle(JSON.stringify(valid)).then((reply) => {
+    check(JSON.parse(reply).ok === true, "a valid candidate query reaches the account service");
+    check(paths.length === 1, "the valid candidate query uses one request");
+    return bridge.handle(JSON.stringify({ ...valid, text: "你".repeat(86) }));
+  }).then((reply) => {
+    check(JSON.parse(reply).error === "account_invalid", "a candidate query over 256 UTF-8 bytes is refused");
+    check(paths.length === 1, "an oversized candidate query never reaches transport");
+    return bridge.handle(JSON.stringify({ ...valid, kind: "unknown" }));
+  }).then((reply) => {
+    check(JSON.parse(reply).error === "account_invalid", "an unknown candidate kind is refused");
+    check(paths.length === 1, "an invalid candidate kind never reaches transport");
+    return bridge.handle(JSON.stringify({
+      ...valid,
+      dictionary_operation: "rank",
+      code: "ni",
+      word: "你",
+      revision: 0,
+      mode: "unknown",
+      linear_step: 1,
+      trigger_count: 1,
+      force_top: false,
+    }));
+  }).then((reply) => {
+    check(JSON.parse(reply).error === "account_invalid", "an unknown ranking mode is refused");
+    check(paths.length === 1, "an invalid ranking request never reaches transport");
+    return bridge.handle(JSON.stringify({
+      ...valid,
+      kind: "quick",
+      dictionary_operation: "rank",
+      code: "ab",
+      word: "字",
+      revision: 0,
+      mode: "pin",
+      linear_step: 1,
+      trigger_count: 1,
+      force_top: false,
+    }));
+  }).then((reply) => {
+    check(JSON.parse(reply).error === "account_invalid", "quick phrases cannot be ranked");
+    check(paths.length === 1, "a quick ranking request never reaches transport");
+    return bridge.handle(JSON.stringify({
+      ...valid,
+      kind: "quick",
+      dictionary_operation: "remove_candidate",
+      code: "ab",
+      word: "字",
+      revision: 0,
+    }));
+  }).then((reply) => {
+    check(JSON.parse(reply).error === "account_invalid", "quick phrases cannot be removed as candidates");
+    check(paths.length === 1, "a quick candidate removal never reaches transport");
+  });
+});
+
+group("dictionary writes follow per-kind code and quick phrase bounds", () => {
+  const paths: string[] = [];
+  const bridge = new AccountCloudBridge(
+    {
+      request: async (_method, path) => {
+        paths.push(path);
+        return { status: 200, body: "{}" };
+      },
+    },
+    {
+      load: () => JSON.stringify({
+        access_token: "a".repeat(64),
+        refresh_token: "b".repeat(64),
+        token_type: "Bearer",
+        expires_at: Date.now() + 600000,
+        user: { id: "synthetic-user", display_name: "Test", created_at: "2026-01-01" },
+      }),
+      save: () => {},
+      clear: () => {},
+    },
+  );
+  const write = (fields: Record<string, unknown>): Promise<string> => bridge.handle(JSON.stringify({
+    operation: "dictionary", dictionary_operation: "add", kind: "quick",
+    code: "ab", word: "字", weight: 0, ...fields,
+  }));
+  void (async () => {
+    const invalid = [
+      { kind: "pinyin", code: "Ni" },
+      { kind: "wubi", code: "abcde" },
+      { kind: "wubi98", code: "a1" },
+      { kind: "quick", code: "a1" },
+      { kind: "quick", code: "a".repeat(33) },
+      { kind: "quick", word: "字".repeat(200) },
+      { kind: "english", code: "hello1" },
+      { kind: "english", code: "a".repeat(65) },
+    ];
+    for (const fields of invalid) {
+      check(JSON.parse(await write(fields)).error === "account_invalid", "invalid dictionary code or word is rejected");
+    }
+    check(paths.length === 0, "invalid dictionary writes never reach transport");
+    check(JSON.parse(await write({ kind: "quick", word: "字".repeat(199) })).ok === true,
+      "the maximum quick phrase is accepted");
+    check(paths.length === 1, "a valid dictionary write reaches transport");
+
+    const edit = (fields: Record<string, unknown>): Promise<string> => bridge.handle(JSON.stringify({
+      operation: "dictionary", dictionary_operation: "edit_catalog", kind: "quick",
+      code: "a1", word: "字", revision: 0, replacement: null, ...fields,
+    }));
+    check(JSON.parse(await edit({ code: "A1" })).error === "account_invalid",
+      "catalog identities reject invalid codes");
+    check(JSON.parse(await edit({ replacement: { code: "a1", word: "字", weight: 0 } })).error === "account_invalid",
+      "new quick phrase replacements reject digits");
+    check(paths.length === 1, "invalid catalog edits never reach transport");
+    check(JSON.parse(await edit({})).ok === true, "stored quick phrase identities may contain digits");
+    check(paths.length === 2, "valid catalog edits reach transport");
+  })();
 });
 
 group("profile updates preserve the session and cannot outlive logout", () => {
@@ -10575,6 +10785,42 @@ group("the account assistant answers with a model list and one reply", () => {
     });
 });
 
+group("account chat refuses blank and control-bearing content", () => {
+  const session = JSON.stringify({
+    access_token: "a".repeat(64),
+    refresh_token: "b".repeat(64),
+    token_type: "Bearer",
+    expires_at: Date.now() + 600_000,
+    user: { id: "synthetic-user", display_name: "Test", created_at: "2026-01-01" },
+  });
+  let calls = 0;
+  let content = "第一行\n第二行";
+  const bridge = new AccountCloudBridge({
+    request: async () => {
+      calls++;
+      return { status: 200, body: JSON.stringify({ choices: [{ message: { role: "assistant", content } }] }) };
+    },
+  }, { load: () => session, save: () => {}, clear: () => {} });
+  const ask = (message: string) => bridge.handle(JSON.stringify({
+    operation: "chat", chat_operation: "complete", model: "synthetic-model",
+    messages: [{ role: "user", content: message }],
+  }));
+  void ask("\n\t ").then((reply) => {
+    check(JSON.parse(reply).error === "account_invalid", "blank chat messages are refused");
+    return ask("safe\u0000hidden");
+  }).then((reply) => {
+    check(JSON.parse(reply).error === "account_invalid", "messages with NUL are refused");
+    check(calls === 0, "invalid messages do not reach transport");
+    return ask("第一行\n第二行");
+  }).then((reply) => {
+    check(JSON.parse(reply).ok === true, "ordinary paragraphs remain accepted");
+    content = "unsafe\u007fcontent";
+    return ask("valid request");
+  }).then((reply) => {
+    check(JSON.parse(reply).error === "account_unavailable", "control-bearing replies are refused");
+  });
+});
+
 group("a device's own buttons are not a keyboard", () => {
   // Every phone enumerates a keyboard source for volume and power. Only the type separates them,
   // which is the whole reason this decision is not `sources.includes("keyboard")`.
@@ -11751,6 +11997,9 @@ group("AI model catalogs keep each provider's protocol and path", () => {
   );
   check(TextPolicy.validMultiline("line\nfeed", 32, true), "allows prompt line breaks");
   check(!TextPolicy.validMultiline("bad\u0001", 32, true), "rejects other control characters");
+  check(!TextPolicy.validMultiline("bad\u007f", 32, true), "rejects C1 control characters");
+  check(!TextPolicy.validMultiline("bad\ud800", 32, true), "rejects unpaired UTF-16 surrogates");
+  check(TextPolicy.hasControl("bad\ud800"), "all control checks reject unpaired surrogates");
   check(
     TextPolicy.validSecureAuthority("https://remote.example/api", true),
     "accepts remote HTTPS endpoints",

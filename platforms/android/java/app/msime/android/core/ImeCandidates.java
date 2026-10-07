@@ -74,8 +74,7 @@ final class ImeCandidates {
             new int[] {selectedText, keyForeground}));
         applyCandidateTypeface(button);
         ViewPolicy.setMinimumWidth(button, s.pixels(30));
-        button.setMinHeight(0);
-        button.setMinimumHeight(0);
+        ViewPolicy.clearMinimumHeight(button);
         KeyboardGeometry.setHorizontalPaddingDp(button, s, 11);
         button.setLineSpacing(0, 1.0f);
         ViewPolicy.clearFontPadding(button);
@@ -195,7 +194,7 @@ final class ImeCandidates {
         if (Build.VERSION.SDK_INT >= 30)
             button.setStateDescription(highlighted ? "已选中" : "未选中");
         if (id == null || index < 0) {
-            button.setEnabled(false);
+            ViewPolicy.setEnabled(button, false);
         } else {
             button.setOnClickListener(ignored -> {
                 s.imeKeyFeedback.playFeedback(button);
@@ -244,8 +243,8 @@ final class ImeCandidates {
             // normally already hidden by closeCandidatePanel(); avoid traversing and clearing an
             // empty subtree until the next open actually needs to rebuild it.
             if (s.expandedCandidates.getVisibility() != View.GONE) {
-                s.expandedCandidates.setVisibility(View.GONE);
-                s.expandedCandidateScroll.setVisibility(View.GONE);
+                ViewPolicy.hide(s.expandedCandidates);
+                ViewPolicy.hide(s.expandedCandidateScroll);
             }
             return;
         }

@@ -27,12 +27,39 @@ pub struct ResourceSet {
     pub artifacts: Vec<Artifact>,
 }
 
-/// macOS 发布包不内置、改为按需下载的桌面词库文件。三者作为一个整体出现或缺席：日文词典与它的两份许可文本（Mozc 词典说明里的 IPAdic/ICOT 条款、Mozc 的 BSD 许可）必须同时在场，只缺一部分时按原规则校验失败。
-pub const MACOS_ON_DEMAND_ARTIFACTS: [&str; 3] = [
+/// 发布包可以不内置、改为按需下载的桌面词库文件（macOS 和 Android 的发布包都这样做，见 [`on_demand_artifacts`]）。三者作为一个整体出现或缺席：日文词典与它的两份许可文本（Mozc 词典说明里的 IPAdic/ICOT 条款、Mozc 的 BSD 许可）必须同时在场，只缺一部分时按原规则校验失败。
+pub const ON_DEMAND_JAPANESE_ARTIFACTS: [&str; 3] = [
     "msime-japanese.dat",
     "msime-mozc_dictionary_oss_README.txt",
     "msime-mozc_LICENSE.txt",
 ];
+
+/// 目标系统 `target_os`（取值同 `std::env::consts::OS`）的发布包可以不内置的资源文件：macOS 和 Android 是日文词典那一组，其余平台照旧全部内置，返回空列表。
+///
+/// 按参数判断而不是只写 `cfg!`，测试在任何一台主机上都能检查每个目标的规则；宿主按 `std::env::consts::OS` 取本平台的那一份。
+pub const fn on_demand_artifacts(target_os: &str) -> &'static [&'static str] {
+    if same_text(target_os, "macos") || same_text(target_os, "android") {
+        &ON_DEMAND_JAPANESE_ARTIFACTS
+    } else {
+        &[]
+    }
+}
+
+/// 常量求值里比较两段文本；`str` 的 `==` 不能在 const fn 里用。
+const fn same_text(left: &str, right: &str) -> bool {
+    let (left, right) = (left.as_bytes(), right.as_bytes());
+    if left.len() != right.len() {
+        return false;
+    }
+    let mut index = 0;
+    while index < left.len() {
+        if left[index] != right[index] {
+            return false;
+        }
+        index += 1;
+    }
+    true
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum ResourceError {
@@ -491,12 +518,16 @@ mod tests {
     /// 在现有夹具上追加三个按需下载的文件，夹在核心文件中间，用来检查顺序保持不变。
     fn desktop_specification() -> ResourceSet {
         let mut set = specification();
+        set.artifacts.push(fixture_artifact(
+            ON_DEMAND_JAPANESE_ARTIFACTS[0],
+            b"japanese",
+        ));
         set.artifacts
-            .push(fixture_artifact(MACOS_ON_DEMAND_ARTIFACTS[0], b"japanese"));
-        set.artifacts
-            .push(fixture_artifact(MACOS_ON_DEMAND_ARTIFACTS[1], b"readme"));
-        set.artifacts
-            .push(fixture_artifact(MACOS_ON_DEMAND_ARTIFACTS[2], b"license"));
+            .push(fixture_artifact(ON_DEMAND_JAPANESE_ARTIFACTS[1], b"readme"));
+        set.artifacts.push(fixture_artifact(
+            ON_DEMAND_JAPANESE_ARTIFACTS[2],
+            b"license",
+        ));
         set.artifacts
             .push(fixture_artifact("msime-english.db", b"english"));
         set
@@ -514,8 +545,8 @@ mod tests {
     #[test]
     fn only_and_without_partition_the_set_in_lock_order() {
         let spec = desktop_specification();
-        let on_demand = spec.only(&MACOS_ON_DEMAND_ARTIFACTS);
-        let core = spec.without(&MACOS_ON_DEMAND_ARTIFACTS);
+        let on_demand = spec.only(&ON_DEMAND_JAPANESE_ARTIFACTS);
+        let core = spec.without(&ON_DEMAND_JAPANESE_ARTIFACTS);
         assert_eq!(
             names(&on_demand),
             [
@@ -535,7 +566,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         write_core(directory.path());
         let spec = desktop_specification();
-        let shipped = spec.as_shipped_in(directory.path(), &MACOS_ON_DEMAND_ARTIFACTS);
+        let shipped = spec.as_shipped_in(directory.path(), &ON_DEMAND_JAPANESE_ARTIFACTS);
         assert_eq!(names(&shipped), ["msime-pinyin.db", "msime-english.db"]);
         let store = ResourceStore::new(directory.path());
         assert!(store.verify(directory.path(), &shipped).is_ok());
@@ -548,7 +579,7 @@ mod tests {
         write_core(directory.path());
         fs::write(directory.path().join("msime-japanese.dat"), b"japanese").unwrap();
         let spec = desktop_specification();
-        let shipped = spec.as_shipped_in(directory.path(), &MACOS_ON_DEMAND_ARTIFACTS);
+        let shipped = spec.as_shipped_in(directory.path(), &ON_DEMAND_JAPANESE_ARTIFACTS);
         assert_eq!(names(&shipped), names(&spec));
         let error = ResourceStore::new(directory.path())
             .verify(directory.path(), &shipped)
@@ -573,7 +604,7 @@ mod tests {
         .unwrap();
         fs::write(directory.path().join("msime-mozc_LICENSE.txt"), b"license").unwrap();
         let spec = desktop_specification();
-        let shipped = spec.as_shipped_in(directory.path(), &MACOS_ON_DEMAND_ARTIFACTS);
+        let shipped = spec.as_shipped_in(directory.path(), &ON_DEMAND_JAPANESE_ARTIFACTS);
         assert_eq!(names(&shipped), names(&spec));
         assert!(ResourceStore::new(directory.path())
             .verify(directory.path(), &shipped)
@@ -589,9 +620,9 @@ mod tests {
         .unwrap();
         let before = lock.generation().unwrap();
         let empty = tempfile::tempdir().unwrap();
-        let _ = lock.only(&MACOS_ON_DEMAND_ARTIFACTS);
-        let _ = lock.without(&MACOS_ON_DEMAND_ARTIFACTS);
-        let shipped = lock.as_shipped_in(empty.path(), &MACOS_ON_DEMAND_ARTIFACTS);
+        let _ = lock.only(&ON_DEMAND_JAPANESE_ARTIFACTS);
+        let _ = lock.without(&ON_DEMAND_JAPANESE_ARTIFACTS);
+        let shipped = lock.as_shipped_in(empty.path(), &ON_DEMAND_JAPANESE_ARTIFACTS);
         assert_eq!(lock.generation().unwrap(), before);
         assert_eq!(lock.artifacts.len(), 12);
         assert_eq!(shipped.artifacts.len(), 9);
@@ -607,10 +638,32 @@ mod tests {
         fs::write(&target, b"japanese").unwrap();
         std::os::unix::fs::symlink(&target, directory.path().join("msime-japanese.dat")).unwrap();
         let spec = desktop_specification();
-        let shipped = spec.as_shipped_in(directory.path(), &MACOS_ON_DEMAND_ARTIFACTS);
+        let shipped = spec.as_shipped_in(directory.path(), &ON_DEMAND_JAPANESE_ARTIFACTS);
         assert_eq!(names(&shipped), names(&spec));
         assert!(ResourceStore::new(directory.path())
             .verify(directory.path(), &shipped)
+            .is_err());
+    }
+
+    /// macOS 和 Android 的发布包可以不带日文词典组，Linux、Windows 以及其他目标照旧要求带齐。
+    #[test]
+    fn only_macos_and_android_ship_without_the_japanese_group() {
+        assert_eq!(on_demand_artifacts("macos"), ON_DEMAND_JAPANESE_ARTIFACTS);
+        assert_eq!(on_demand_artifacts("android"), ON_DEMAND_JAPANESE_ARTIFACTS);
+        for target in ["linux", "windows", "ios", "", "androi", "android "] {
+            assert!(on_demand_artifacts(target).is_empty(), "{target:?}");
+        }
+        // Android 上不带日文词典组的资源目录按子集校验通过。
+        let directory = tempfile::tempdir().unwrap();
+        write_core(directory.path());
+        let spec = desktop_specification();
+        let shipped = spec.as_shipped_in(directory.path(), on_demand_artifacts("android"));
+        assert!(ResourceStore::new(directory.path())
+            .verify(directory.path(), &shipped)
+            .is_ok());
+        let linux = spec.as_shipped_in(directory.path(), on_demand_artifacts("linux"));
+        assert!(ResourceStore::new(directory.path())
+            .verify(directory.path(), &linux)
             .is_err());
     }
 

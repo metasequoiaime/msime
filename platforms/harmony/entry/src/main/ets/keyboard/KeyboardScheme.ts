@@ -311,7 +311,7 @@ export class KeyboardScheme {
     return offered.length > 0 ? offered[0] : HANDWRITING;
   }
 
-  /** 用户还没挑选时键盘显示的方案，与共享的 `TouchKeyboardScheme::DEFAULT_ENABLED` 一致：粤语、注音、越南语、藏文和笔画由用户自己打开，所以没有存过列表的设备仍是原来那套键盘。本版本不提供的入口不在里面。只有一个方案的版本例外：越南文版、藏文版的入口就是这个版本本身，与 client-core 的 `TouchKeyboardSchemePreferences::for_edition` 和 Android 的 `KeyboardScheme.enabledFromPreferenceIds` 一致。 */
+  /** 文档里没有启用列表时键盘显示的方案，与共享的 `TouchKeyboardScheme::LEGACY_DEFAULT_ENABLED` 一致：粤语、注音、越南语、藏文和笔画由用户自己打开，所以没有存过列表的设备仍是原来那套键盘。新装只启用中文方案（`TouchKeyboardScheme::DEFAULT_ENABLED`），由 client-core 显式写进文档，不经过这里。本版本不提供的入口不在里面。只有一个方案的版本例外：越南文版、藏文版的入口就是这个版本本身，与 client-core 的 `TouchKeyboardSchemePreferences::for_edition` 和 Android 的 `KeyboardScheme.enabledFromPreferenceIds` 一致。 */
   static defaultEnabled(edition: AppEdition): SchemeDefinition[] {
     const optInEnabled: boolean = !edition.offersSchemeChoice();
     return KeyboardScheme.SCHEMES.filter(

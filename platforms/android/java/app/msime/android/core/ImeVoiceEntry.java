@@ -155,7 +155,9 @@ final class ImeVoiceEntry {
                         case PERMISSION -> "语音识别需要麦克风权限";
                         case UNAVAILABLE -> "麦克风被其他应用占用";
                         case MODEL -> "本地语音模型未安装或已损坏，请在设置中重新下载";
-                        case RUNTIME -> "本地语音识别组件无法加载";
+                        case RUNTIME -> refused.runtimeMissing()
+                            ? "本地语音识别组件尚未下载，请在设置中下载后再试"
+                            : "本地语音识别组件无法加载";
                         case EMPTY -> "没有听到内容";
                         case CANCELLED -> null;
                     };
@@ -334,7 +336,7 @@ final class ImeVoiceEntry {
             View child = keyArea.getChildAt(index);
             if (child.getVisibility() == View.VISIBLE) {
                 hidden.add(child);
-                child.setVisibility(View.INVISIBLE);
+                ViewPolicy.setInvisible(child);
             }
         }
         VoiceListeningView view = new VoiceListeningView(s);

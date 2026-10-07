@@ -55,7 +55,7 @@ enum AISkinService {
         throw ServiceFailure(message: "AI 皮肤参数超出范围，请重新生成。")
       }
       if let artworkPrompt = source.artworkPrompt {
-        guard (1...800).contains(artworkPrompt.trimmingCharacters(in: .whitespacesAndNewlines).count) else {
+        guard (40...100).contains(artworkPrompt.trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars.count) else {
           throw ServiceFailure(message: "AI 背景场景无效，请重新抽取。")
         }
       }

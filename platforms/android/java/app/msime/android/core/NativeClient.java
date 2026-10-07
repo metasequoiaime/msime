@@ -189,6 +189,18 @@ public final class NativeClient {
             throw new IllegalStateException("Candidate gloss response is too large");
         return text(result);
     }
+    /**
+     * 同 {@link #candidateGlosses(String, String)}，另把 {@code stateRoot}（{@code filesDir/bootstrap/state}）写进请求的 {@code state_root}：资源目录旁没有离线释义时，非英语的释义改从下载的 offline-glosses 资源包里读。{@code stateRoot} 为 null 时与原方法相同。Call on a worker.
+     */
+    public static String candidateGlosses(String request, String resources, String stateRoot) {
+        if (stateRoot == null) return candidateGlosses(request, resources);
+        try {
+            return candidateGlosses(new JSONObject(request).put("state_root", stateRoot).toString(),
+                resources);
+        } catch (org.json.JSONException error) {
+            throw new IllegalArgumentException("Invalid candidate gloss request", error);
+        }
+    }
     /** Reads bounded English completions from the packaged dictionary. Call on a worker. */
     public static String englishCompletions(String prefix, String resources) {
         if (prefix == null || prefix.isEmpty() || prefix.length() > 128
@@ -318,9 +330,47 @@ public final class NativeClient {
         return text(voiceHotwordCorrectRaw(utf8(request)));
     }
 
-    /** Whether the packaged sherpa-onnx runtime loads. Loads it on the first call, so call on a worker. */
+    /** Whether the sherpa-onnx runtime loads: the one packaged in the APK, or the one named by {@link #localSpeechRuntime}. Loads it on the first call, so call on a worker. */
     public static boolean localSpeechAvailable() {
         return localSpeechAvailableRaw();
+    }
+
+    /**
+     * 指定 libsherpa-onnx-c-api.so 的绝对路径（下载的 voice-runtime 资源包里那份）。它依赖的 libonnxruntime.so 要先用 {@link System#load} 按绝对路径载入。
+     *
+     * <p>之前没加载成功的结果作废，下一次 {@link #localSpeechAvailable} 按这个路径重试；运行库已经加载后调用不起作用。
+     */
+    public static void localSpeechRuntime(String sherpaLibrary) {
+        localSpeechRuntimeRaw(utf8(sherpaLibrary));
+    }
+
+    /** 资源包安装的进度。在调用 {@link #resourcePackInstall} 的工作线程上调用；phase 是 "download"、"verify" 或 "done"。不要在这里抛异常或做耗时的事。 */
+    public interface ResourcePackProgress {
+        void onProgress(String phase, long done, long total);
+    }
+
+    /** 每个按需资源包的安装状态：请求 {@code {"state_root"}}，返回 {@code {ok, value:[{id, state, size, schemes}]}}。只读几个文件属性。 */
+    public static String resourcePacks(String requestJson) {
+        return text(resourcePacksRaw(utf8(requestJson)));
+    }
+
+    /**
+     * 下载、校验并发布一个资源包：请求 {@code {"state_root","pack","sources"?:[...]}}，返回 {@code {ok, value:{path}}} 或 {@code {ok:false, error}}。
+     *
+     * <p>阻塞到结束，只在主进程的工作线程上调用，不在 UI 线程，也不在 :ime 进程。listener 可以为 null。
+     */
+    public static String resourcePackInstall(String requestJson, ResourcePackProgress listener) {
+        return text(resourcePackInstallRaw(utf8(requestJson), listener));
+    }
+
+    /** 让正在安装的资源包尽快停下，安装调用随后以 local_model_cancelled 失败；pack 为 null 时停下本进程里所有资源包的安装。任何线程，立即返回。 */
+    public static void resourcePackCancel(String pack) {
+        resourcePackCancelRaw(pack == null ? null : pack.getBytes(StandardCharsets.UTF_8));
+    }
+
+    /** 把升级前已解压在本机的文件收编为资源包：请求 {@code {"state_root","pack","source"}}。要哈希整组文件，只在主进程的工作线程上调用。 */
+    public static String resourcePackAdopt(String requestJson) {
+        return text(resourcePackAdoptRaw(utf8(requestJson)));
     }
 
     /** A new on-device dictation handle; pair every one with {@link #localSpeechDestroy}. */
@@ -605,6 +655,11 @@ public final class NativeClient {
     private static native byte[] voiceHotwordsRaw(byte[] request);
     private static native byte[] voiceHotwordCorrectRaw(byte[] request);
     private static native boolean localSpeechAvailableRaw();
+    private static native void localSpeechRuntimeRaw(byte[] path);
+    private static native byte[] resourcePacksRaw(byte[] request);
+    private static native byte[] resourcePackInstallRaw(byte[] request, ResourcePackProgress listener);
+    private static native void resourcePackCancelRaw(byte[] pack);
+    private static native byte[] resourcePackAdoptRaw(byte[] request);
     private static native long localSpeechCreateRaw();
     private static native byte[] localSpeechStartRaw(long handle, byte[] model, byte[] language,
                                                      byte[] hotwords, int threads);

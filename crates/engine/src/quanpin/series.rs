@@ -255,6 +255,9 @@ fn retain_unique_sorted_rows(rows: &mut Vec<WordItem>) {
 
 /// Append the rows whose word is not already present (QD:993-1004). A row repeated inside `rows` is kept once, as the reference's scan over the growing list does.
 pub fn append_unique_words(result: &mut Vec<WordItem>, rows: Vec<WordItem>) {
+    if rows.is_empty() {
+        return;
+    }
     // Borrow words while checking duplicates, then release the borrows before moving rows into the result.
     let mut seen = HashSet::with_capacity(result.len().saturating_add(rows.len()));
     seen.extend(result.iter().map(|item| item.word.as_str()));
@@ -507,5 +510,17 @@ mod tests {
 
         assert_eq!(result.len(), 11);
         assert_eq!(result.capacity(), 11);
+    }
+
+    #[test]
+    fn append_unique_words_leaves_the_result_unchanged_for_empty_rows() {
+        let mut result = Vec::with_capacity(4);
+        result.push(row("a", "啊", 1));
+        let capacity = result.capacity();
+
+        append_unique_words(&mut result, Vec::new());
+
+        assert_eq!(words(&result), ["啊"]);
+        assert_eq!(result.capacity(), capacity);
     }
 }

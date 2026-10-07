@@ -720,6 +720,9 @@ fn merge_pinyin_fallback(
     mut candidates: Vec<WordItem>,
     pinyin_rows: Vec<WordItem>,
 ) -> Vec<WordItem> {
+    if pinyin_rows.is_empty() {
+        return candidates;
+    }
     // Keep deduplication keys borrowed until the pinyin rows are ready to move into the result.
     let mut seen: HashSet<&str> = candidates.iter().map(|item| item.word.as_str()).collect();
     let unique = pinyin_rows

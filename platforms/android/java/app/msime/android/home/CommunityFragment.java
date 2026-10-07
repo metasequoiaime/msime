@@ -1,6 +1,7 @@
 package app.msime.android.home;
 
 import app.msime.android.TextPolicy;
+import app.msime.android.ViewPolicy;
 
 import android.content.Context;
 import android.os.Bundle;
@@ -227,8 +228,8 @@ public final class CommunityFragment extends Fragment {
     private void updateCategories() {
         View view = getView();
         if (view == null) return;
-        view.findViewById(R.id.community_categories_scroll).setVisibility(
-            kind == CommunityRequest.Kind.SKIN ? View.VISIBLE : View.GONE);
+        ViewPolicy.setVisible(view.findViewById(R.id.community_categories_scroll),
+            kind == CommunityRequest.Kind.SKIN);
     }
 
     /** 本次请求实际用的分类：只有皮肤按分类筛选。 */
@@ -302,8 +303,7 @@ public final class CommunityFragment extends Fragment {
         TextView state = view.findViewById(R.id.community_state);
         state.setText(message);
         Ui.setVisibilityForText(state, message);
-        view.findViewById(R.id.community_retry)
-            .setVisibility(retryable ? View.VISIBLE : View.GONE);
+        ViewPolicy.setVisible(view.findViewById(R.id.community_retry), retryable);
     }
 
     /**
@@ -457,7 +457,7 @@ public final class CommunityFragment extends Fragment {
         detailField.setCounterEnabled(true);
         detailField.setCounterMaxLength(CommunityRequest.MAX_REPORT_DETAIL);
         TextInputEditText detail = new TextInputEditText(detailField.getContext());
-        detail.setMaxLines(4);
+        ViewPolicy.setMaxLines(detail, 4);
         detailField.addView(detail);
         form.addView(detailField);
 
