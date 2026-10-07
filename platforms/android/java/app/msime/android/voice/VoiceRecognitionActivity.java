@@ -379,14 +379,14 @@ public final class VoiceRecognitionActivity extends Activity {
     private void showRecordingControls() {
         LinearLayout root = KeyboardGeometry.column(this);
         int pad = KeyboardGeometry.pixels(this, 20);
-        root.setPadding(pad, pad, pad, pad);
+        ViewPolicy.setPadding(root, pad, pad, pad, pad);
         TextView title = ViewPolicy.textLabel(this, "正在录音", 18);
         recordingTitle = title;
         root.addView(title);
         TextView hint = ViewPolicy.textLabel(this,
             "说完后点「完成」开始转写；「取消」会丢弃这次录音。", 14);
         recordingHint = hint;
-        hint.setPadding(0, pad / 2, 0, pad);
+        ViewPolicy.setPadding(hint, 0, pad / 2, 0, pad);
         root.addView(hint);
         LinearLayout actions = KeyboardGeometry.row(this);
         actions.setGravity(Gravity.END);
