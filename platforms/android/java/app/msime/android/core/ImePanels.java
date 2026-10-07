@@ -1003,7 +1003,7 @@ final class ImePanels {
                 selected = !s.dedicatedEnglish && scheme == s.selectedScheme;
                 card = new KeyboardSchemeCard(s, scheme.glyph(), scheme.badge(s.wubiProfile), title);
                 bindFeedbackAction(card, () -> s.selectKeyboardScheme(scheme));
-                card.setEnabled(!s.schemeSaving);
+                ViewPolicy.setEnabled(card, !s.schemeSaving);
             }
             card.setContentDescription("输入方案卡片 " + title);
             if (Build.VERSION.SDK_INT >= 30)
