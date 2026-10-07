@@ -11,6 +11,7 @@ import fs from '@ohos.file.fs';
 import common from '@ohos.app.ability.common';
 import client from 'libmsimeclient.so';
 import { KeyboardLog, describeError } from './KeyboardLog';
+import { StagedResources } from './StagedResources';
 import {
   KEY_SOUNDS_OFF, KeySoundCue, KeySoundEvent, KeySoundManifestStat, KeySoundMelody, KeySoundPackFiles,
   KeySoundPolicy, KeySoundSampleRequest, KeySoundSelection, KeySoundSettings
@@ -219,6 +220,7 @@ export class KeySoundPlayer {
 
   private async load(generation: number): Promise<void> {
     if (generation !== this.generation) {
+      this.clearGeneration(generation);
       return;
     }
     // Stamped before the packs are read, so a change while they are read is seen by the next recheck rather than missed.
@@ -270,6 +272,7 @@ export class KeySoundPlayer {
       fs.mkdirSync(directory, true);
       await this.prepare(generation, pool, requests[index], directory, maxMillis);
       if (generation !== this.generation) {
+        this.clearGeneration(generation);
         return;
       }
     }
@@ -340,9 +343,29 @@ export class KeySoundPlayer {
     }
   }
 
+  /** Open a rendered note and bind the descriptor to the path produced by the renderer. */
+  private static openVerified(path: string): fs.File {
+    const pathStat: fs.Stat = fs.lstatSync(path);
+    if (pathStat.isSymbolicLink() || !pathStat.isFile()) {
+      throw new Error('rendered sound is not a regular file');
+    }
+    let file: fs.File | undefined = undefined;
+    try {
+      file = fs.openSync(path, fs.OpenMode.READ_ONLY);
+      const opened: fs.Stat = fs.statSync(file.fd);
+      if (!opened.isFile() || opened.ino !== pathStat.ino) {
+        throw new Error('rendered sound changed while opening');
+      }
+      return file;
+    } catch (error) {
+      if (file !== undefined) fs.closeSync(file);
+      throw error;
+    }
+  }
+
   private async loadFile(generation: number, pool: media.SoundPool, path: string,
     cues: string[]): Promise<void> {
-    const file: fs.File = fs.openSync(path, fs.OpenMode.READ_ONLY);
+    const file: fs.File = KeySoundPlayer.openVerified(path);
     let sound: number = 0;
     let loaded: boolean = false;
     try {
@@ -384,11 +407,19 @@ export class KeySoundPlayer {
       return;
     }
     try {
-      if (fs.accessSync(this.cacheRoot)) {
-        fs.rmdirSync(this.cacheRoot);
-      }
+      StagedResources.removeDirectory(this.cacheRoot);
     } catch (error) {
       KeyboardLog.error(`rendered key sounds not removed: ${describeError(error)}`);
+    }
+  }
+
+  /** A renderer that was already in flight when release() ran can recreate its generation after the root was removed. */
+  private clearGeneration(generation: number): void {
+    if (this.cacheRoot.length === 0) return;
+    try {
+      StagedResources.removeDirectory(`${this.cacheRoot}/${generation}`);
+    } catch (error) {
+      KeyboardLog.error(`stale rendered key sounds not removed: ${describeError(error)}`);
     }
   }
 }

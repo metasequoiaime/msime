@@ -283,6 +283,17 @@ impl Session {
         self.inner.reset_cache();
     }
 
+    /// Remove cached rows for one online provider (host source 0 = cloud, 1 = AI).
+    pub fn clear_online_candidates(&mut self, source: u8) -> Result<()> {
+        let source = match source {
+            0 => CandidateSource::CloudSuggestion,
+            1 => CandidateSource::AiSuggestion,
+            _ => return Err(EngineError::invalid("invalid online candidate source")),
+        };
+        self.inner.clear_online_candidates(source);
+        Ok(())
+    }
+
     pub fn set_caret(&mut self, caret: Option<usize>) {
         self.inner.set_caret(caret);
     }

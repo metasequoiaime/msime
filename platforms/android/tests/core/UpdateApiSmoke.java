@@ -78,6 +78,23 @@ public final class UpdateApiSmoke {
         check(downloaded.isFile() && downloaded.getName().equals("msime-android.apk"), "verified file kept");
         check(downloaded.getParentFile().getName().equals("updates"), "stored under cache/updates");
 
+        // Cancelling from the progress callback must remove the partial APK.
+        File cancelledCache = Files.createTempDirectory("update-smoke-cancelled").toFile();
+        UpdateApi cancelApi = new UpdateApi(url -> {
+            if (url.equals(update.checksumUrl())) return body(good + "  msime-android.apk\n");
+            if (url.equals(update.apkUrl())) return new UpdateApi.Exchange(200, null, apk.length,
+                new ByteArrayInputStream(apk));
+            return new UpdateApi.Exchange(404, null, 0, new ByteArrayInputStream(new byte[0]));
+        });
+        try {
+            cancelApi.download(update, cancelledCache, (done, total) -> {
+                throw new java.util.concurrent.CancellationException("synthetic cancellation");
+            });
+            throw new AssertionError("a cancelled update must stop");
+        } catch (java.util.concurrent.CancellationException expected) { }
+        check(!new File(cancelledCache, "updates/msime-android.apk.part").exists(),
+            "a cancelled download leaves no partial APK");
+
         // A partial-file symlink created after stale cleanup must not receive the APK.
         File symlinkCache = Files.createTempDirectory("update-smoke-symlink").toFile();
         File symlinkDirectory = new File(symlinkCache, "updates");

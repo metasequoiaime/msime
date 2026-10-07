@@ -93,6 +93,14 @@ enum InputHabitPreference {
     CandidateTranslationPreference.secondaryIndex = settings.secondaryLanguage
   }
 
+  /// Whether a live reload changes the candidate translation requests or their language keys.
+  static func translationDisplaySettingsChanged(_ before: InputHabitSettings,
+                                                 _ after: InputHabitSettings) -> Bool {
+    before.onlineTranslations != after.onlineTranslations
+      || before.primaryLanguage != after.primaryLanguage
+      || before.secondaryLanguage != after.secondaryLanguage
+  }
+
   /// Apply `change` to the stored settings inside one document update, so a concurrent keyboard write to another field is not lost. Returns the saved settings, or nil when the document could not be written; the App Group is only touched after a successful write.
   @discardableResult
   static func update(stateRoot: URL? = nil, _ change: (inout InputHabitSettings) -> Void) -> InputHabitSettings? {

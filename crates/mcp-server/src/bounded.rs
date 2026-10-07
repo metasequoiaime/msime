@@ -16,7 +16,8 @@ pub(crate) fn open_private(path: &Path) -> io::Result<File> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
-        options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
+        // A user-controlled FIFO must not block the MCP process while it is opened.
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK);
     }
     #[cfg(windows)]
     {
@@ -24,7 +25,14 @@ pub(crate) fn open_private(path: &Path) -> io::Result<File> {
         const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
         options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
     }
-    options.open(path)
+    let file = options.open(path)?;
+    if !file.metadata()?.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "private input is not a regular file",
+        ));
+    }
+    Ok(file)
 }
 
 pub(crate) fn read(reader: impl Read, maximum: u64) -> Result<Vec<u8>, ReadError> {
@@ -57,5 +65,13 @@ mod tests {
 
         assert!(open_private(&linked).is_err());
         assert_eq!(std::fs::read(&target).unwrap(), b"synthetic-mcp-data");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn open_private_rejects_a_directory() {
+        let root = tempfile::tempdir().unwrap();
+
+        assert!(open_private(root.path()).is_err());
     }
 }

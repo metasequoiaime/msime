@@ -390,12 +390,12 @@ public final class CommunityCatalog {
 
     /** Pagination controls must be JSON booleans; malformed values mean there is no next page. */
     static boolean pageHasMore(Object value) {
-        return Boolean.TRUE.equals(strictBoolean(value));
+        return JsonPolicy.strictTrue(value);
     }
 
     /** A successful HTTP status is not enough: the backend must confirm that it recorded the report. */
     static boolean confirmedReport(Object value) {
-        return Boolean.TRUE.equals(value);
+        return JsonPolicy.strictTrue(value);
     }
 
     /** Keep the report endpoint safe even when a caller bypasses catalogue parsing. */

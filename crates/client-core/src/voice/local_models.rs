@@ -447,7 +447,11 @@ fn restore_interrupted_adoption(staging: &Path) {
     {
         return;
     }
-    let Ok(entries) = fs::read_dir(staging.join("model")) else {
+    let model = staging.join("model");
+    if !fs::symlink_metadata(&model).is_ok_and(|metadata| metadata.file_type().is_dir()) {
+        return;
+    }
+    let Ok(entries) = fs::read_dir(model) else {
         return;
     };
     for entry in entries.flatten() {

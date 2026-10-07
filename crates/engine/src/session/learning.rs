@@ -64,6 +64,18 @@ fn english_context_key(context: &str) -> String {
     key
 }
 
+/// 只复制实际参与排名的行，避免先复制完整排序列表再筛选一遍。
+fn clone_matching_rows(
+    ordered: &[WordItem],
+    mut matches: impl FnMut(&WordItem) -> bool,
+) -> Vec<WordItem> {
+    ordered
+        .iter()
+        .filter(|item| matches(item))
+        .cloned()
+        .collect()
+}
+
 impl InputSession {
     /// input_session.cpp:1274-1319; `index` is in ranking order.
     pub(super) fn learn_candidate(&mut self, index: usize) -> Option<String> {
@@ -105,7 +117,7 @@ impl InputSession {
         force_top: bool,
     ) -> Option<String> {
         // Ranks are read from the order before personal context reordering.
-        let ordered = self.ranking_list().to_vec();
+        let ordered = self.ranking_list();
         let selected = ordered.get(index)?.clone();
         let user_db = self.journal_path();
         if selected.source == CandidateSource::EnglishDictionary {
@@ -117,10 +129,9 @@ impl InputSession {
                 self.engine.request().raw_input.clone()
             };
             let context_key = english_context_key(&context);
-            let english_rows: Vec<WordItem> = ordered
-                .into_iter()
-                .filter(|item| item.source == CandidateSource::EnglishDictionary)
-                .collect();
+            let english_rows = clone_matching_rows(ordered, |item| {
+                item.source == CandidateSource::EnglishDictionary
+            });
             let english_db = self.paths.dictionary(assets::ENGLISH_DICTIONARY);
             let adjusted = adjust_english_candidate_ranking(&RankingRequest {
                 main_db: &english_db,
@@ -170,10 +181,9 @@ impl InputSession {
             selected.canonical_pinyin.clone()
         };
         let mixed_wubi = self.is_wubi();
-        let ranked: Vec<WordItem> = ordered
-            .into_iter()
-            .filter(|item| !mixed_wubi || item.scheme == selected.scheme)
-            .collect();
+        let ranked = clone_matching_rows(ordered, |item| {
+            !mixed_wubi || item.scheme == selected.scheme
+        });
         let main_db = self.paths.dictionary(assets::MAIN_DICTIONARY);
         let adjusted = adjust_candidate_ranking(&RankingRequest {
             main_db: &main_db,
@@ -609,6 +619,25 @@ mod tests {
         let key = english_context_key("HeLLo");
         assert_eq!(key, "english:hello");
         assert_eq!(key.capacity(), key.len());
+    }
+
+    #[test]
+    fn copying_rows_for_ranking_clones_only_matching_rows() {
+        let rows = [
+            WordItem::new("ni", "甲", 3, CandidateSource::Database, "ni"),
+            WordItem::new("ni", "乙", 2, CandidateSource::EnglishDictionary, "ni"),
+            WordItem::new("ni", "丙", 1, CandidateSource::Database, "ni"),
+        ];
+
+        let copied = clone_matching_rows(&rows, |item| item.source == CandidateSource::Database);
+
+        assert_eq!(
+            copied
+                .iter()
+                .map(|item| item.word.as_str())
+                .collect::<Vec<_>>(),
+            ["甲", "丙"]
+        );
     }
 
     /// F1 (test_input_session.cpp:1091-1119): the pick's place in a new session, per mode.

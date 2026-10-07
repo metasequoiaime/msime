@@ -21,7 +21,7 @@ fn secure_lock_file_options(path: &Path) -> io::Result<OpenOptions> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
-        options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK);
     }
     #[cfg(windows)]
     {
@@ -34,7 +34,7 @@ fn secure_lock_file_options(path: &Path) -> io::Result<OpenOptions> {
 
 pub(crate) fn open_lock_file(path: impl AsRef<Path>) -> io::Result<File> {
     let path = path.as_ref();
-    secure_lock_file_options(path)?.open(path)
+    ensure_regular(secure_lock_file_options(path)?.open(path)?)
 }
 
 /// Open a lock file with owner-only permissions on Unix hosts.
@@ -46,7 +46,17 @@ pub fn open_private_lock_file(path: impl AsRef<Path>) -> io::Result<File> {
         use std::os::unix::fs::OpenOptionsExt;
         options.mode(0o600);
     }
-    options.open(path)
+    ensure_regular(options.open(path)?)
+}
+
+fn ensure_regular(file: File) -> io::Result<File> {
+    if !file.metadata()?.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "lock file is not a regular file",
+        ));
+    }
+    Ok(file)
 }
 
 /// 以只读方式打开文件，并拒绝跟随最后一级符号链接。
@@ -197,6 +207,21 @@ mod tests {
             std::fs::read(&target).unwrap(),
             b"synthetic-private-lock-target"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn refuses_a_fifo_lock_leaf() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("state.lock");
+        assert!(std::process::Command::new("mkfifo")
+            .arg(&path)
+            .status()
+            .unwrap()
+            .success());
+
+        assert!(open_lock_file(&path).is_err());
+        assert!(open_private_lock_file(&path).is_err());
     }
 
     #[cfg(unix)]

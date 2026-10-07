@@ -4,7 +4,7 @@
 #include <fstream>
 #include <string>
 
-#if defined(__linux__)
+#if !defined(_WIN32)
 #include <sys/stat.h>
 #endif
 
@@ -103,6 +103,14 @@ int main() {
     fs::remove(root / "model" / std::string(local_model_manifest));
     fs::create_symlink(external_manifest, root / "model" / std::string(local_model_manifest));
     assert(!is_local_model_dir((root / "model").u8string()));
+    fs::remove(root / "model" / std::string(local_model_manifest));
+
+    // A replaced manifest must not block the recognizer on a FIFO.
+    const auto manifest_fifo = root / "model" / std::string(local_model_manifest);
+    assert(::mkfifo(manifest_fifo.c_str(), 0600) == 0);
+    assert(!is_local_model_dir((root / "model").u8string()));
+    assert(!local_model_uses_pinyin_hotwords((root / "model").u8string()));
+    fs::remove(manifest_fifo);
 #endif
 
     // No runtime: the session reports it rather than crashing, and names why.

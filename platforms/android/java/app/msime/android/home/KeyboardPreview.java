@@ -11,6 +11,7 @@ import android.view.View;
 import androidx.annotation.Nullable;
 import app.msime.android.BoundsPolicy;
 import app.msime.android.KeyboardSkin;
+import app.msime.android.ViewPolicy;
 
 /**
  * A still picture of the keyboard the user actually has.
@@ -233,10 +234,10 @@ public final class KeyboardPreview extends View {
         // 候选条：一个拼音和两枚候选，首选用强调色。
         float baseline = pad + stripHeight * 0.68f;
         paint.setTextAlign(Paint.Align.LEFT);
-        paint.setTextSize(Ui.sp(getContext(), 12) * s);
+        ViewPolicy.setTextSizeSp(paint, getContext(), 12 * s);
         paint.setColor(secondary());
         canvas.drawText("ni hao", pad + Ui.dpFloat(getContext(), 6) * s, baseline, paint);
-        paint.setTextSize(Ui.sp(getContext(), 13) * s);
+        ViewPolicy.setTextSizeSp(paint, getContext(), 13 * s);
         paint.setColor(returnCap());
         canvas.drawText("你好", pad + Ui.dpFloat(getContext(), 52) * s, baseline, paint);
         paint.setColor(ink());

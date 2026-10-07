@@ -116,6 +116,15 @@ public final class CandidateTranslationPolicySmoke {
             "the user's own NiuTrans service wins over the account");
         check(!CandidateTranslationPolicy.accountSelected(true, true, false, true),
             "the user's own custom service wins over the account");
+        check(CandidateTranslationPolicy.displayInvalidated(true, false, true, true,
+                true, true, List.of("en"), List.of("en")),
+            "turning off offline glosses clears the displayed rows");
+        check(CandidateTranslationPolicy.displayInvalidated(true, true, true, true,
+                true, true, List.of("en"), List.of("ja")),
+            "changing translation targets clears the displayed rows");
+        check(!CandidateTranslationPolicy.displayInvalidated(true, true, true, true,
+                true, true, List.of("en"), List.of("en")),
+            "unrelated preference refresh keeps the displayed rows");
         System.out.println("Android candidate translation language policy passed");
     }
 

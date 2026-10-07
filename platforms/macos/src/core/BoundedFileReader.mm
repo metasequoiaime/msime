@@ -13,7 +13,7 @@ NSData *MSIMEReadFileUpTo(NSURL *url, NSUInteger maximumBytes, NSError **error) 
                                               userInfo:@{NSLocalizedDescriptionKey: @"文件参数无效"}];
         return nil;
     }
-    int descriptor = open(url.fileSystemRepresentation, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+    int descriptor = open(url.fileSystemRepresentation, O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK);
     if (descriptor < 0) {
         if (error) *error = [NSError errorWithDomain:NSPOSIXErrorDomain code:errno userInfo:nil];
         return nil;

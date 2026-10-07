@@ -28,7 +28,7 @@ final class DiagnosticLog: @unchecked Sendable {
   static func readTail(from url: URL, maximumBytes: Int) throws -> TailRead {
     guard maximumBytes > 0 else { throw TailReadFailure.invalidLimit }
     guard !rejectsSymlinkAncestors(url) else { throw TailReadFailure.tooLarge }
-    let descriptor = open(url.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+    let descriptor = open(url.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK)
     guard descriptor >= 0 else {
       throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
     }

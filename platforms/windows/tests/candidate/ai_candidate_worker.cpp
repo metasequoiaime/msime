@@ -29,12 +29,14 @@ FocusLease lease(uint64_t client, uint64_t epoch, uint64_t token) {
 constexpr auto beyond_debounce = std::chrono::milliseconds(850);
 
 // A query the worker can derive a cache key from: the key is built from the
-// provider identity and the pinyin segments, and nothing else in the envelope
-// matters to this side.
-std::string query_for(const std::string &segments, int candidate_limit = 3) {
+// provider identity, prompt settings and pinyin segments; nothing secret in
+// the envelope is needed on this side.
+std::string query_for(const std::string &segments, int candidate_limit = 3,
+                      const std::string &prompt = {}) {
   return R"({"ai_eligible":true,"ai_assistant":{"enabled":true,"provider":"openai",)"
          R"("endpoint":"https://example.invalid/v1","model":"gpt","candidate_limit":)" +
-         std::to_string(candidate_limit) + R"(},"pinyin_segments":[")" +
+         std::to_string(candidate_limit) + R"(,"prompt_custom_1":")" + prompt +
+         R"("},"pinyin_segments":[")" +
          segments + R"("]})";
 }
 
@@ -204,6 +206,24 @@ int main() {
       std::this_thread::sleep_for(beyond_debounce);
       require(harness.fetches() == 2,
               "a changed candidate limit bypasses the old cache entry");
+    }
+
+    // Prompt settings are part of the provider request. A cached answer from
+    // one custom prompt must not be shown after the user changes that prompt.
+    {
+      Harness harness;
+      require(harness.worker.submit(lease(42, 7, 9),
+                                    query_for("nihao", 3, "first")),
+              "the first prompt request is accepted");
+      require(harness.wait_for_results(1), "the first prompt completes");
+      std::this_thread::sleep_for(beyond_debounce);
+      require(harness.worker.submit(lease(42, 7, 10),
+                                    query_for("nihao", 3, "second")),
+              "the changed prompt request is accepted");
+      require(harness.wait_for_results(2), "the changed prompt completes");
+      std::this_thread::sleep_for(beyond_debounce);
+      require(harness.fetches() == 2,
+              "a changed prompt bypasses the old cache entry");
     }
 
     // A request superseded while it is in flight sees the cancellation, and its

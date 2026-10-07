@@ -6,7 +6,7 @@ import Darwin
 enum MacSecureFileReader {
   static func readData(from url: URL, maximumBytes: Int) throws -> Data {
     #if canImport(Darwin)
-    let descriptor = open(url.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+    let descriptor = open(url.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK)
     guard descriptor >= 0 else { throw CocoaError(.fileReadNoPermission) }
     var metadata = stat()
     guard fstat(descriptor, &metadata) == 0, metadata.st_mode & S_IFMT == S_IFREG else {

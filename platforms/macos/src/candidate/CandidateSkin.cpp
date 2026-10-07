@@ -426,7 +426,7 @@ void ApplyToolbarStylesheet(const std::filesystem::path &skinsRoot, const SkinPa
     std::error_code ec;
     if (!IsContained(skinsRoot / package.id, stylesheet) || !std::filesystem::is_regular_file(stylesheet, ec) || ec)
         return;
-    const int descriptor = ::open(stylesheet.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+    const int descriptor = ::open(stylesheet.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK);
     if (descriptor < 0) return;
     struct CloseOnExit {
         int descriptor;

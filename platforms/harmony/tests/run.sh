@@ -9,6 +9,11 @@ if [[ ! -x "$tsc" ]]; then
   echo "TypeScript compiler not found at $tsc; run pnpm install at the repository root" >&2
   exit 1
 fi
+if ! rg -q 'StagedResources\.removeDirectory\(this\.cacheRoot\)' \
+    "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/KeySoundPlayer.ets"; then
+  echo "key sound reloads must remove the rendered cache tree, not only the empty root" >&2
+  exit 1
+fi
 "$tsc" --project "$here/tsconfig.json"
 node "$repo_root/target/harmony-tests/tests/keyboard-logic.test.js"
 # The key-sound renderer is plain C++ over miniaudio with no NAPI in it, so the build machine's compiler checks what it writes and what it refuses.

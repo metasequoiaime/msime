@@ -46,6 +46,28 @@ fn interrupted_adoption_ignores_a_symlinked_staging_directory() {
 
 #[cfg(unix)]
 #[test]
+fn interrupted_adoption_ignores_a_symlinked_model_directory() {
+    use std::os::unix::fs::symlink;
+
+    let root = tempfile::tempdir().unwrap();
+    let source = root.path().join("source");
+    std::fs::create_dir(&source).unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let external_file = outside.path().join("fixture.bin");
+    std::fs::write(&external_file, b"outside file").unwrap();
+    let staging = root.path().join("staging");
+    std::fs::create_dir(&staging).unwrap();
+    std::fs::write(staging.join(ADOPTION_SOURCE), source.to_str().unwrap()).unwrap();
+    symlink(outside.path(), staging.join("model")).unwrap();
+
+    restore_interrupted_adoption(&staging);
+
+    assert!(external_file.exists());
+    assert!(!source.join("fixture.bin").exists());
+}
+
+#[cfg(unix)]
+#[test]
 fn staging_file_creation_rejects_a_symlink() {
     use std::os::unix::fs::symlink;
 

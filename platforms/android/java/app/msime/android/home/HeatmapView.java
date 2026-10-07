@@ -11,6 +11,7 @@ import app.msime.android.BoundsPolicy;
 import app.msime.android.ListPolicy;
 import app.msime.android.R;
 import app.msime.android.TypingStatisticsSummary.DayCount;
+import app.msime.android.ViewPolicy;
 import java.util.List;
 
 /**
@@ -39,7 +40,7 @@ public final class HeatmapView extends View {
 
     public HeatmapView(Context context, @Nullable AttributeSet attributes) {
         super(context, attributes);
-        label.setTextSize(Ui.sp(context, 11));
+        ViewPolicy.setTextSizeSp(label, context, 11);
     }
 
     /** 换一组 84 天，最早的在前。 */

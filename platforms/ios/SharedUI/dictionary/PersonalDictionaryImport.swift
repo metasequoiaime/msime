@@ -146,7 +146,7 @@ struct PersonalDictionaryImport: Codable, Sendable {
 
   private static func openReadableFile(_ url: URL) throws -> FileHandle {
     #if canImport(Darwin)
-    let descriptor = open(url.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+    let descriptor = open(url.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK)
     guard descriptor >= 0 else { throw ImportError(message: "无法读取所选文件，请重新选择。") }
     var metadata = stat()
     guard fstat(descriptor, &metadata) == 0, metadata.st_mode & S_IFMT == S_IFREG else {

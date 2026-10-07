@@ -53,7 +53,11 @@ public final class UpdateJobService extends JobService {
                 UpdateApi api = new UpdateApi();
                 UpdateApi.Update update = api.check(channel(context), AppEdition.current().id(), currentVersion(context));
                 if (update != null) {
-                    File apk = api.download(update, context.getCacheDir(), null);
+                    File apk = api.download(update, context.getCacheDir(), (done, total) -> {
+                        if (Thread.currentThread().isInterrupted()) {
+                            throw new java.util.concurrent.CancellationException("update download cancelled");
+                        }
+                    });
                     try {
                         UpdateApi.verifyArchive(context, apk);
                     } catch (UpdateApi.Failure rejected) {

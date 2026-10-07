@@ -43,6 +43,16 @@ function validId(value: unknown): value is string {
 }
 
 export class NoticePolicy {
+  /** Whether a notice response still belongs to the newest page request. */
+  static requestCurrent(expectedGeneration: number, actualGeneration: number): boolean {
+    return (
+      Number.isSafeInteger(expectedGeneration) &&
+      Number.isSafeInteger(actualGeneration) &&
+      expectedGeneration >= 0 &&
+      expectedGeneration === actualGeneration
+    );
+  }
+
   /** The notices in a `notices` reply, newest first, or an empty list when the reply is a refusal or malformed. */
   static items(reply: string): NoticeItem[] {
     let parsed: unknown;

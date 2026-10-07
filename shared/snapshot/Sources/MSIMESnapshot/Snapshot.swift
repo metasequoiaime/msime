@@ -431,7 +431,7 @@ struct SnapshotFailure: Error { let status: Int }
 
 private func openSnapshotSource(_ source: URL) throws -> FileHandle {
   #if canImport(Darwin)
-  let descriptor = open(source.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+  let descriptor = open(source.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK)
   guard descriptor >= 0 else { throw SnapshotFailure(status: 0) }
   var metadata = stat()
   guard fstat(descriptor, &metadata) == 0, metadata.st_mode & S_IFMT == S_IFREG else {

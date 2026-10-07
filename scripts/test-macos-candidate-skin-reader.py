@@ -13,7 +13,7 @@ def main() -> int:
     start = source.index("void ApplyToolbarStylesheet(")
     end = source.index("SkinTokens ToolbarSkinTokens(", start)
     region = source[start:end]
-    required = ("O_NOFOLLOW", "O_CLOEXEC", "::open(", "::read(", "::close(")
+    required = ("O_NOFOLLOW", "O_CLOEXEC", "O_NONBLOCK", "::open(", "::read(", "::close(")
     missing = [token for token in required if token not in region]
     if "std::ifstream" in region:
         missing.append("path ifstream")

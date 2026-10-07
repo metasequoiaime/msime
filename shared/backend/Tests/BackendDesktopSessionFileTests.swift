@@ -83,6 +83,20 @@ final class BackendDesktopSessionFileTests: XCTestCase {
     try? FileManager.default.removeItem(at: outside)
   }
 
+  func testClearRefusesASymlinkedSessionDirectory() throws {
+    let outside = FileManager.default.temporaryDirectory
+      .appendingPathComponent("desktop-session-clear-outside-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true,
+                                             attributes: [.posixPermissions: 0o700])
+    let outsideSession = outside.appendingPathComponent(BackendDesktopSessionFile.fileName)
+    try Data("synthetic-session".utf8).write(to: outsideSession)
+    try FileManager.default.createSymbolicLink(at: directory, withDestinationURL: outside)
+    defer { try? FileManager.default.removeItem(at: outside) }
+
+    XCTAssertThrowsError(try BackendDesktopSessionFile(directory: directory).clear())
+    XCTAssertTrue(FileManager.default.fileExists(atPath: outsideSession.path))
+  }
+
   func testBoundedReaderRejectsAnOversizedSessionDocument() throws {
     let directory = FileManager.default.temporaryDirectory
       .appendingPathComponent("desktop-session-limit-\(UUID().uuidString)", isDirectory: true)

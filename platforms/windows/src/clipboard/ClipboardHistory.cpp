@@ -179,9 +179,13 @@ bool write_store(const std::filesystem::path &path, const std::vector<std::strin
     return false;
   temporary = temporary_name;
   HANDLE handle = CreateFileW(temporary.c_str(), GENERIC_WRITE, 0, nullptr,
-                              OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-  if (handle == INVALID_HANDLE_VALUE) {
-    std::filesystem::remove(temporary, error);
+                              OPEN_EXISTING,
+                              FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT,
+                              nullptr);
+  if (handle == INVALID_HANDLE_VALUE || !handle_is_trusted_file(handle)) {
+    if (handle != INVALID_HANDLE_VALUE)
+      CloseHandle(handle);
+    (void)remove_private_file(temporary);
     return false;
   }
   DWORD written = 0;
@@ -195,7 +199,7 @@ bool write_store(const std::filesystem::path &path, const std::vector<std::strin
   if (!complete || !MoveFileExW(temporary.c_str(), path.c_str(),
                                 MOVEFILE_REPLACE_EXISTING |
                                     MOVEFILE_WRITE_THROUGH)) {
-    std::filesystem::remove(temporary, error);
+    (void)remove_private_file(temporary);
     return false;
   }
   return true;
@@ -314,6 +318,14 @@ bool ClipboardHistory::remove(const std::string &text) {
 }
 bool ClipboardHistory::clear() {
   StoreLock lock(store_); if (!lock) return false;
+#ifdef _WIN32
+  if (remove_private_file(store_)) return true;
+  const auto attributes = GetFileAttributesW(store_.c_str());
+  if (attributes != INVALID_FILE_ATTRIBUTES) return false;
+  const auto error = GetLastError();
+  return error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND;
+#else
   std::error_code error; return std::filesystem::remove(store_, error) || !std::filesystem::exists(store_);
+#endif
 }
 } // namespace msime::windows

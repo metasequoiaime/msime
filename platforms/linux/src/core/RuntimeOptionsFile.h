@@ -20,7 +20,7 @@ inline constexpr std::size_t kRuntimeOptionsMaxBytes = 16 * 1024;
 inline std::string read_runtime_options(const std::filesystem::path &path) {
   if (!storage_directory_path_is_safe(path.parent_path()))
     throw std::runtime_error("runtime options path is unsafe");
-  const int descriptor = ::open(path.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+  const int descriptor = ::open(path.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK);
   if (descriptor < 0)
     throw std::runtime_error("runtime options unavailable");
   struct CloseOnExit {

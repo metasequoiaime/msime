@@ -22,7 +22,7 @@ for source, needle in ((SETTINGS, "await fs.write(file.fd, request.contents)"),
                        (SETTINGS, "await fs.copyFile(staging, destination)"),
                        (CLOUD, "await fs.copyFile(staging, destination)"),
                        (CLOUD, "await fs.copyFile(this.snapshotFile, destination)"),
-                       (CLOUD, "await fs.copyFile(source, this.restoreFile)")):
+                       (CLOUD, "await fs.copyFile(sourceFile.fd, this.restoreFile)")):
     if needle not in source:
         raise SystemExit(f"missing asynchronous file operation: {needle}")
 

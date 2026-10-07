@@ -106,7 +106,7 @@ final class ImeStyler {
     private static JSONObject resolveAppTheme(String theme, int month, boolean dark) {
         try {
             JSONObject root = new JSONObject(NativeClient.resolveAppTheme(theme, month, dark));
-            return Boolean.TRUE.equals(root.opt("ok"))
+            return JsonPolicy.strictTrue(root.opt("ok"))
                 ? root.optJSONObject("value") : null;
         } catch (JSONException | RuntimeException | LinkageError error) {
             return null;

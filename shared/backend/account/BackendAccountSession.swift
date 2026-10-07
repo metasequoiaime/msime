@@ -1,5 +1,8 @@
 import Foundation
 import Security
+#if os(macOS)
+import Darwin
+#endif
 
 protocol BackendSessionAPI: Sendable {
   func login(challenge: String, credential: String, linkToken: String?) async throws -> BackendAccountClient.Tokens
@@ -152,7 +155,7 @@ struct BackendDesktopSessionFile: BackendSessionStorage {
     // `load()` checks the path with `lstat`, but another process could replace it before a
     // path-based FileHandle opens it. Keep the final component pinned and reject symlinks at
     // the open itself.
-    let descriptor = open(url.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+    let descriptor = open(url.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK)
     guard descriptor >= 0 else { throw BackendAccountClient.Failure(status: 0) }
     defer { close(descriptor) }
     var data = Data()
@@ -175,7 +178,7 @@ struct BackendDesktopSessionFile: BackendSessionStorage {
   }
 
   func save(_ session: BackendSavedSession) throws {
-    guard let directory, let url else { throw BackendAccountClient.Failure(status: 0) }
+    guard let directory else { throw BackendAccountClient.Failure(status: 0) }
     let data = try JSONEncoder().encode(BackendSavedSession.validated(session))
     guard backendDirectoryPathIsSafe(directory) else { throw BackendAccountClient.Failure(status: 0) }
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
@@ -185,24 +188,53 @@ struct BackendDesktopSessionFile: BackendSessionStorage {
     if let permissions = attributes[.posixPermissions] as? NSNumber, permissions.intValue & 0o077 != 0 {
       try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
     }
-    // Created 0600 before any byte is written and published by rename, so the tokens are never readable by anyone else and no reader sees half a document.
-    let temporary = directory.appendingPathComponent(".\(Self.fileName).\(UUID().uuidString)", isDirectory: false)
-    let descriptor = open(temporary.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, S_IRUSR | S_IWUSR)
+    // Pin the directory before creating, publishing, or cleaning the temporary file. A
+    // path-based rename could otherwise follow a parent directory that was swapped after
+    // the safety check. Created 0600 before any byte is written and published by renameat,
+    // so the tokens are never readable by anyone else and no reader sees half a document.
+    let directoryDescriptor = open(directory.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+    guard directoryDescriptor >= 0 else { throw BackendAccountClient.Failure(status: 0) }
+    defer { close(directoryDescriptor) }
+    let temporaryName = ".\(Self.fileName).\(UUID().uuidString)"
+    let descriptor = openat(directoryDescriptor, temporaryName,
+      O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, S_IRUSR | S_IWUSR)
     guard descriptor >= 0 else { throw BackendAccountClient.Failure(status: 0) }
-    let written = data.withUnsafeBytes { bytes in
-      bytes.count == 0 || write(descriptor, bytes.baseAddress, bytes.count) == bytes.count
+    var written = true
+    data.withUnsafeBytes { bytes in
+      var offset = 0
+      while offset < bytes.count {
+        let count = write(descriptor, bytes.baseAddress!.advanced(by: offset), bytes.count - offset)
+        if count < 0 {
+          if errno == EINTR { continue }
+          written = false
+          break
+        }
+        if count == 0 { written = false; break }
+        offset += count
+      }
     }
-    let synced = fsync(descriptor) == 0
-    close(descriptor)
-    guard written, synced, rename(temporary.path, url.path) == 0 else {
-      unlink(temporary.path)
+    let synced = written && fsync(descriptor) == 0
+    let closed = close(descriptor) == 0
+    guard written, synced, closed, renameat(directoryDescriptor, temporaryName, directoryDescriptor, Self.fileName) == 0 else {
+      unlinkat(directoryDescriptor, temporaryName, 0)
       throw BackendAccountClient.Failure(status: 0)
     }
   }
 
   func clear() throws {
-    guard let url else { return }
-    guard unlink(url.path) == 0 || errno == ENOENT else { throw BackendAccountClient.Failure(status: 0) }
+    guard directory != nil else { return }
+    guard let directory, backendDirectoryPathIsSafe(directory) else {
+      throw BackendAccountClient.Failure(status: 0)
+    }
+    let directoryDescriptor = open(directory.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+    if directoryDescriptor < 0 {
+      guard errno == ENOENT else { throw BackendAccountClient.Failure(status: 0) }
+      return
+    }
+    defer { close(directoryDescriptor) }
+    guard unlinkat(directoryDescriptor, Self.fileName, 0) == 0 || errno == ENOENT else {
+      throw BackendAccountClient.Failure(status: 0)
+    }
   }
 }
 #endif

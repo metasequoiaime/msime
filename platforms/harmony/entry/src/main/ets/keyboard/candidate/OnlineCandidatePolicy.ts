@@ -82,6 +82,15 @@ export class OnlineCandidatePolicy {
     );
   }
 
+  /** A replaced or vanished query must invalidate any timer or request for the old composition. */
+  static hasActiveWork(
+    signature: string,
+    timerActive: boolean,
+    requestCount: number,
+  ): boolean {
+    return signature.length > 0 || timerActive || requestCount > 0;
+  }
+
   static aiCandidates(body: string, limit: number): string[] | null {
     if (
       utf8Length(body) > OnlineCandidatePolicy.MAX_AI_RESPONSE_BYTES ||

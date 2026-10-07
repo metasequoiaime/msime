@@ -82,7 +82,7 @@ struct BackendLocalStore: BackendSessionStorage {
 
   private static func readBounded(_ url: URL, maximumBytes: Int) throws -> Data {
     #if canImport(Darwin)
-    let descriptor = open(url.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+    let descriptor = open(url.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK)
     guard descriptor >= 0 else { throw BackendAccountClient.Failure(status: 0) }
     let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
     #else

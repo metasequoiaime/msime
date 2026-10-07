@@ -225,6 +225,15 @@ void classicuiTakeoverRecord() {
   else unsetenv("XDG_STATE_HOME");
   std::filesystem::remove_all(root);
 }
+
+void translationPreferenceChangesIncludeAccount() {
+  const Json before = Json{{"translation_account", false}};
+  auto after = before;
+  after["translation_account"] = true;
+  require(FcitxState::translationPreferencesChanged(before, after),
+          "translation account changes invalidate translation requests");
+}
+
 int main(int argc, char **argv) {
   try {
     autocorrectMarker();
@@ -232,6 +241,7 @@ int main(int argc, char **argv) {
     candidateThemeDecoration();
     modeBadgeTheme();
     classicuiTakeoverRecord();
+    translationPreferenceChangesIncludeAccount();
     require(argc == 2 || (argc == 3 && (std::string(argv[2]) == "--ai" ||
                                        std::string(argv[2]) == "--ctrl-space" ||
                                        std::string(argv[2]) == "--local-modes")),
@@ -1599,6 +1609,37 @@ int main(int argc, char **argv) {
     }
     require(response(msime_client_all_candidates(state->session_)).dump().find(suggestion) != std::string::npos,
             "provider candidate applied to full candidate list");
+    if (ai) {
+      const auto epochBeforeSettings = state->online_epoch_;
+      auto changedPreferences = state->preferences_snapshot_;
+      changedPreferences["preferences"]["ai_assistant"]["prompt_custom_1"] =
+          "synthetic changed prompt";
+      require(state->applyPreferenceSnapshot(std::move(changedPreferences)),
+              "AI preference update succeeds");
+      require(state->online_epoch_ > epochBeforeSettings,
+              "AI preference changes invalidate online completions");
+      require(state->online_query_.empty() && state->online_slots_[1].query.empty(),
+              "AI preference changes discard the old online query");
+      auto cloudPreferences = state->preferences_snapshot_;
+      cloudPreferences["preferences"]["cloud_candidates"] = true;
+      state->online_query_ = "synthetic-cloud-query";
+      state->online_slots_[0].query = state->online_query_;
+      const auto onlineEpochBeforeCloud = state->online_epoch_;
+      require(state->applyPreferenceSnapshot(std::move(cloudPreferences)),
+              "cloud preference update succeeds");
+      require(state->online_epoch_ > onlineEpochBeforeCloud && state->online_query_.empty(),
+              "cloud preference changes invalidate online completions");
+      auto translationPreferences = state->preferences_snapshot_;
+      translationPreferences["preferences"]["translation_secondary_language"] = "ja";
+      state->translation_query_ = "synthetic-translation-query";
+      state->translation_pending_ = "synthetic-translation-pending";
+      const auto translationEpochBeforeSettings = state->translation_epoch_;
+      require(state->applyPreferenceSnapshot(std::move(translationPreferences)),
+              "translation preference update succeeds");
+      require(state->translation_epoch_ > translationEpochBeforeSettings &&
+                  state->translation_query_.empty() && state->translation_pending_.empty(),
+              "translation preference changes invalidate translation completions");
+    }
     provider.join();
     auto page = ic.inputPanel().candidateList();
     require(page && page->layoutHint() == fcitx::CandidateLayoutHint::Vertical,
@@ -1630,6 +1671,19 @@ int main(int argc, char **argv) {
       }
     }
     require(selected && ic.committed == oldCommit + suggestion, "exact provider candidate commit");
+    // 已显示答案后禁用服务必须立即移除该答案；不能先更新偏好再清除，否则 Host API 会把回调视为过期。
+    {
+      auto disabled = state->preferences_snapshot_;
+      if (ai)
+        disabled["preferences"]["ai_assistant"]["enabled"] = false;
+      else
+        disabled["preferences"]["cloud_candidates"] = false;
+      require(state->applyPreferenceSnapshot(std::move(disabled)),
+              "disabling the active provider succeeds");
+      require(response(msime_client_all_candidates(state->session_)).dump().find(suggestion) ==
+                  std::string::npos,
+              "disabling the active provider clears displayed candidates");
+    }
     require(key(FcitxKey_n) && key(FcitxKey_i), "second composition keys");
     const auto beforeWordCharacter = ic.committed;
     require(key(FcitxKey_bracketleft), "configured word-to-character binding");

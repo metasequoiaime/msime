@@ -111,7 +111,8 @@ impl std::fmt::Display for JapaneseSummary {
 /// 从词库 release 的 `msime-japanese.dat` 裁出网页用的那份，写到 `out_dir`。
 pub fn build_japanese(input: &Path, out_dir: &Path, keep: usize) -> Result<JapaneseSummary> {
     fs::create_dir_all(out_dir).with_context(|| format!("creating {}", out_dir.display()))?;
-    let bytes = fs::read(input).with_context(|| format!("reading {}", input.display()))?;
+    let bytes = crate::sources::read_private(input)
+        .with_context(|| format!("reading {}", input.display()))?;
     let (tokens, size, costs) =
         japanese::unpack(&bytes).with_context(|| format!("reading {}", input.display()))?;
     let kept = keep_cheapest(&tokens, keep);
@@ -208,8 +209,7 @@ fn remove_if_present(path: &Path) -> Result<()> {
 }
 
 fn open_read_only(path: &Path) -> Result<Connection> {
-    sqlite::open_read_only(path)
-        .with_context(|| format!("opening {}", path.display()))
+    sqlite::open_read_only(path).with_context(|| format!("opening {}", path.display()))
 }
 
 /// 把 `msime-wubi.db` 的表和索引原样复制进 `msime-pinyin.db` 的临时副本，得到拆分前单个主库的布局。行按 rowid 顺序复制：运行时反查五笔编码以 rowid 作最后的排序键。`msime-wubi.db` 里只能有 `wubi86`、`wubi98`（和 SQLite 自己的统计表），拼音库里也不能已有同名表，否则说明两个输入给反了或不是拆分后的 release。
@@ -371,4 +371,55 @@ fn count<S: AsRef<str>>(connection: &Connection, tables: &[S]) -> Result<u64> {
         total += u64::try_from(rows)?;
     }
     Ok(total)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_japanese;
+
+    #[cfg(unix)]
+    #[test]
+    fn japanese_input_rejects_a_fifo_without_blocking() {
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let directory = tempfile::tempdir().unwrap();
+        let input = directory.path().join("msime-japanese.dat");
+        let output = directory.path().join("web");
+        assert!(std::process::Command::new("mkfifo")
+            .arg(&input)
+            .status()
+            .unwrap()
+            .success());
+
+        let (done, result) = mpsc::channel();
+        let worker_input = input.clone();
+        let worker_output = output.clone();
+        let worker = std::thread::spawn(move || {
+            done.send(build_japanese(&worker_input, &worker_output, 1).is_err())
+                .unwrap();
+        });
+        let completed_without_release = match result.recv_timeout(Duration::from_millis(100)) {
+            Ok(_) => true,
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                let mut writer = std::fs::OpenOptions::new()
+                    .write(true)
+                    .custom_flags(libc::O_NONBLOCK)
+                    .open(&input)
+                    .unwrap();
+                writer.write_all(b"synthetic-invalid-model").unwrap();
+                drop(writer);
+                result.recv_timeout(Duration::from_secs(1)).unwrap();
+                false
+            }
+            Err(error) => panic!("Japanese model reader failed to report: {error}"),
+        };
+        worker.join().unwrap();
+        assert!(
+            completed_without_release,
+            "FIFO Japanese model must be rejected without blocking"
+        );
+    }
 }

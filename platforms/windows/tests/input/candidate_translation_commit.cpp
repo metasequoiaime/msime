@@ -68,12 +68,48 @@ int main() {
   const auto query = session.online_query(epoch);
   require(query.has_value(), "no online query for the composition");
   require(session.apply_ai_candidates(epoch, *query, R"(["你好"])").has_value(), "the fixture candidate was not applied");
-  const auto view = session.view();
+  auto view = session.view();
   require(!view.at("candidates").empty(), "the fixture produced no candidate");
+  auto disable_ai = nlohmann::json{{"format_version", 1},
+                                   {"revision", 1},
+                                   {"preferences", options["preferences"]}};
+  disable_ai["preferences"]["ai_assistant"]["enabled"] = false;
+  const auto after_ai_disable = session.update_preferences(epoch, disable_ai.dump());
+  require(after_ai_disable.at("view").at("candidates").empty(),
+          "disabling AI candidates left the displayed row");
+  disable_ai["revision"] = 2;
+  disable_ai["preferences"]["ai_assistant"]["enabled"] = true;
+  session.update_preferences(epoch, disable_ai.dump());
+  view = session.view();
+  const auto ai_query = session.online_query(epoch);
+  require(ai_query.has_value(), "AI query disappeared after re-enabling candidates");
+  require(session.apply_ai_candidates(epoch, *ai_query, R"(["你好"])").has_value(),
+          "the AI candidate could not be restored after the preference test");
+  view = session.view();
   require(session.apply_translations(epoch, view.at("generation").get<uint64_t>(),
                                      R"([{"text":"你好","translation":"hello"}])")
               .has_value(),
           "the translation was not applied");
+  auto disabled = nlohmann::json{{"format_version", 1},
+                                 {"revision", 1},
+                                 {"preferences", options["preferences"]}};
+  disabled["preferences"]["candidate_translations"] = false;
+  const auto after_disable = session.update_preferences(epoch, disabled.dump());
+  require(after_disable.at("view").at("candidates").at(0).value("translation", "") == "",
+          "disabling translations clears the displayed gloss");
+  disabled["revision"] = 2;
+  disabled["preferences"]["candidate_translations"] = true;
+  session.update_preferences(epoch, disabled.dump());
+  view = session.view();
+  const auto restored_query = session.online_query(epoch);
+  require(restored_query.has_value(), "AI query disappeared after restoring translations");
+  require(session.apply_ai_candidates(epoch, *restored_query, R"(["你好"])").has_value(),
+          "the AI candidate could not be restored after restoring translations");
+  view = session.view();
+  require(session.apply_translations(epoch, view.at("generation").get<uint64_t>(),
+                                     R"([{"text":"你好","translation":"hello"}])")
+              .has_value(),
+          "the translation could not be restored after the preference test");
 
   ReplyComposer composer(42, epoch);
   FanyImeNamedpipeData enter{};

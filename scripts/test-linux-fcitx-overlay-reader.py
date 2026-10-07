@@ -13,7 +13,7 @@ def main() -> int:
     start = source.index("inline std::optional<FcitxThemeOverlay> stage_fcitx_overlay(")
     end = source.index("inline void remove_stale_fcitx_files(", start)
     region = source[start:end]
-    required = ("O_NOFOLLOW", "O_CLOEXEC", "::open(", "::read(", "::close(")
+    required = ("O_NOFOLLOW", "O_CLOEXEC", "O_NONBLOCK", "::open(", "::read(", "::close(")
     missing = [token for token in required if token not in region]
     if "std::ifstream in(source" in region:
         missing.append("path ifstream")

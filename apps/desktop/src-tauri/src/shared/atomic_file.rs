@@ -56,9 +56,19 @@ pub(crate) fn open_private(path: &Path) -> io::Result<File> {
     {
         let descriptor = rustix::fs::open(
             path,
-            rustix::fs::OFlags::RDONLY | rustix::fs::OFlags::NOFOLLOW | rustix::fs::OFlags::CLOEXEC,
+            rustix::fs::OFlags::RDONLY
+                | rustix::fs::OFlags::NOFOLLOW
+                | rustix::fs::OFlags::CLOEXEC
+                | rustix::fs::OFlags::NONBLOCK,
             rustix::fs::Mode::empty(),
         )?;
+        let stat = rustix::fs::fstat(&descriptor)?;
+        if !rustix::fs::FileType::from_raw_mode(stat.st_mode).is_file() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "private input is not a regular file",
+            ));
+        }
         return Ok(descriptor.into());
     }
     #[cfg(windows)]
@@ -69,10 +79,52 @@ pub(crate) fn open_private(path: &Path) -> io::Result<File> {
         options
             .read(true)
             .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
-        return options.open(path);
+        let file = options.open(path)?;
+        if !file.metadata()?.is_file() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "private input is not a regular file",
+            ));
+        }
+        return Ok(file);
     }
     #[allow(unreachable_code)]
-    OpenOptions::new().read(true).open(path)
+    let file = OpenOptions::new().read(true).open(path)?;
+    if !file.metadata()?.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "private input is not a regular file",
+        ));
+    }
+    Ok(file)
+}
+
+/// Remove a private file relative to its opened parent directory. Opening the
+/// parent with `O_NOFOLLOW` keeps a concurrent replacement of the final
+/// directory component from redirecting cleanup through a symlink.
+pub(crate) fn remove_private(path: &Path) -> io::Result<()> {
+    #[cfg(unix)]
+    {
+        let parent = path.parent().unwrap_or_else(|| Path::new("."));
+        let name = path.file_name().ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidInput, "private file has no name")
+        })?;
+        let directory = rustix::fs::open(
+            parent,
+            rustix::fs::OFlags::RDONLY
+                | rustix::fs::OFlags::DIRECTORY
+                | rustix::fs::OFlags::NOFOLLOW
+                | rustix::fs::OFlags::CLOEXEC
+                | rustix::fs::OFlags::NONBLOCK,
+            rustix::fs::Mode::empty(),
+        )?;
+        return rustix::fs::unlinkat(&directory, name, rustix::fs::AtFlags::empty())
+            .map_err(Into::into);
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::remove_file(path)
+    }
 }
 
 /// Replace a file after fully writing and syncing a temporary sibling.
@@ -115,6 +167,23 @@ mod tests {
 mod private_open_tests {
     #[cfg(unix)]
     #[test]
+    fn private_remove_refuses_a_symlinked_parent() {
+        use super::remove_private;
+        use std::os::unix::fs::symlink;
+
+        let outside = tempfile::tempdir().unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let target = outside.path().join("private-input");
+        std::fs::write(&target, b"synthetic-outside").unwrap();
+        let linked = root.path().join("linked");
+        symlink(outside.path(), &linked).unwrap();
+
+        assert!(remove_private(&linked.join("private-input")).is_err());
+        assert_eq!(std::fs::read(&target).unwrap(), b"synthetic-outside");
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn private_open_rejects_a_symlinked_leaf() {
         use super::open_private;
         use std::os::unix::fs::symlink;
@@ -128,5 +197,43 @@ mod private_open_tests {
 
         assert!(open_private(&linked).is_err());
         assert_eq!(std::fs::read(&target).unwrap(), b"synthetic-private-data");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_open_rejects_a_fifo_without_blocking() {
+        use super::open_private;
+        use rustix::fs::{open, Mode, OFlags};
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("private-input");
+        assert!(std::process::Command::new("mkfifo")
+            .arg(&path)
+            .status()
+            .unwrap()
+            .success());
+
+        let (done, ready) = mpsc::channel();
+        let worker_path = path.clone();
+        let worker = std::thread::spawn(move || {
+            let file = open_private(&worker_path);
+            done.send(file.is_err()).unwrap();
+        });
+        let rejected = match ready.recv_timeout(Duration::from_millis(100)) {
+            Ok(rejected) => rejected,
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                let _writer =
+                    open(&path, OFlags::WRONLY | OFlags::NONBLOCK, Mode::empty()).unwrap();
+                ready.recv_timeout(Duration::from_secs(1)).unwrap()
+            }
+            Err(error) => panic!("private reader failed to report: {error}"),
+        };
+        worker.join().unwrap();
+        assert!(
+            rejected,
+            "FIFO private input must be rejected without blocking"
+        );
     }
 }

@@ -746,6 +746,14 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_applyOnlineCand
     env->ReleaseByteArrayElements(query, queryBytes, JNI_ABORT);
     return response(env, result);
 }
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_clearOnlineCandidatesRaw(JNIEnv *env, jclass, jlong handle, jint source) {
+    if (source < 0 || source > 1) {
+        return response(env, msime_client_clear_online_candidates(
+            static_cast<uint64_t>(handle), 2));
+    }
+    return response(env, msime_client_clear_online_candidates(
+        static_cast<uint64_t>(handle), static_cast<uint8_t>(source)));
+}
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_destroyRaw(JNIEnv *env, jclass, jlong handle) {
     return response(env, msime_client_destroy(static_cast<uint64_t>(handle)));
 }
