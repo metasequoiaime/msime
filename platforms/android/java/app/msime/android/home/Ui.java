@@ -780,7 +780,7 @@ public final class Ui {
 
     private static void bindClick(View view, Runnable action) {
         ViewPolicy.setInteractive(view, true);
-        if (action != null) view.setOnClickListener(ignored -> action.run());
+        ViewPolicy.bindOptionalClick(view, action);
     }
 
     /** Create a vertically arranged rounded surface for page cards. */
