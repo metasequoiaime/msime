@@ -106,6 +106,24 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes ripgrep
+      # check-host.sh 在装有固定 NDK 时才把 client_jni.cpp 编译到 Android 目标上，核对 Java 的 native 声明和共享 FFI 签名一致；缺 NDK 时这一步会跳过。ubuntu-24.04 镜像 20261002 起不再预装 28.2.13676358，这里缓存并按需安装，免得这项检查悄悄失效。
+      - name: Restore the pinned Android NDK
+        if: ${{ needs.changes.outputs.android == 'true' }}
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /usr/local/lib/android/sdk/ndk/28.2.13676358
+          key: android-ndk-28.2.13676358-${{ runner.os }}
+      - name: Install the pinned Android NDK
+        if: ${{ needs.changes.outputs.android == 'true' }}
+        env:
+          ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+        run: |
+          set -euo pipefail
+          ndk="$ANDROID_SDK_ROOT/ndk/28.2.13676358"
+          if ! grep -qs '28.2.13676358' "$ndk/source.properties"; then
+            yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --install 'ndk;28.2.13676358' >/dev/null
+          fi
+          grep -q '28.2.13676358' "$ndk/source.properties"
       - name: Check Android host contracts and JVM smoke tests
         if: ${{ needs.changes.outputs.android == 'true' }}
         env:

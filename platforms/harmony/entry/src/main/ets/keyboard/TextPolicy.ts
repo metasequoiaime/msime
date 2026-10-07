@@ -37,8 +37,9 @@ export class TextPolicy {
     return authority === "[::1]" || authority.startsWith("[::1]:");
   }
 
-  /** Rejects the C0 and C1 control ranges while leaving printable Unicode untouched. */
+  /** Rejects malformed UTF-16 and the C0/C1 control ranges. */
   static hasControl(value: string): boolean {
+    if (!TextPolicy.validUnicode(value)) return true;
     return Array.from(value).some((character: string): boolean => {
       const code: number = character.codePointAt(0) ?? 0;
       return code <= 0x1f || (code >= 0x7f && code <= 0x9f);
@@ -62,10 +63,11 @@ export class TextPolicy {
 
   /** Bounds text while allowing the line breaks and tabs used in prompts and transcripts. */
   static validMultiline(value: string, maxBytes: number, requireNonEmpty: boolean): boolean {
-    return (!requireNonEmpty || value.trim().length > 0) && utf8Length(value) <= maxBytes
+    return TextPolicy.validUnicode(value) &&
+      (!requireNonEmpty || value.trim().length > 0) && utf8Length(value) <= maxBytes
       && !Array.from(value).some((character: string): boolean => {
-        const code: number = character.codePointAt(0) ?? 0;
-        return code < 0x20 && code !== 0x09 && code !== 0x0a && code !== 0x0d;
+        if (character === "\t" || character === "\n" || character === "\r") return false;
+        return TextPolicy.hasControl(character);
       });
   }
 }

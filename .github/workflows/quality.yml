@@ -40,3 +40,27 @@ jobs:
           fail-on-severity: high
           base-ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.repository.default_branch }}
           head-ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+  agent-notes:
+    name: Agent notes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # 归档封印的 append-only 检查要读基准 ref 上的 manifest，浅检出没有那个对象。
+          fetch-depth: 0
+      # 直接执行 .ts 需要默认开类型剥离的 Node（22.18+ / 23.6+），runner 自带版本不保证够。
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+      - name: Verify agent note tree, format, and archive seals
+        env:
+          # append-only 与改动前的 manifest 比：PR 用 base，push 用上一 tip；新分支 push 的
+          # before 是全零，git 查不到对象，脚本自动降级为只做磁盘封印自校验。
+          AGENT_NOTE_ARCHIVE_BASE_REF: ${{ github.event.pull_request.base.sha || github.event.before }}
+          AGENT_NOTE_ROOT: ${{ github.workspace }}/.agents/notes
+        run: |
+          node .agents/skills/write-notes-like-deepseek/scripts/verify-agent-note-tree.ts
+          node .agents/skills/write-notes-like-deepseek/scripts/verify-agent-note-format.ts
+          node .agents/skills/write-notes-like-deepseek/scripts/verify-archived-agent-notes.ts

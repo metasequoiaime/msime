@@ -76,16 +76,26 @@ public final class CandidateTranslationPolicy {
 
     /** The non-English targets whose dictionary is installed in the {@code offline-glosses} directory beside {@code resources}, in target order. */
     public static List<String> offlineTargets(List<String> targets, String resources) {
+        return offlineTargets(targets, resources, null);
+    }
+
+    /**
+     * 有离线释义词典的非英文目标语言，按目标顺序：先看 {@code resources} 旁随包的 {@code offline-glosses} 目录，没有时再看 {@code stateRoot}（HostOptions 的 {@code preferences_directory}）下已下载的 {@code resource-packs/offline-glosses} 资源包，与 host-api 查找释义词典的顺序一致。{@code stateRoot} 为 null 或空时只看随包的那份。
+     */
+    public static List<String> offlineTargets(List<String> targets, String resources, String stateRoot) {
         if (targets == null || resources == null || resources.isEmpty()) return List.of();
         File parent = new File(resources).getParentFile();
         if (parent == null) return List.of();
+        File pack = stateRoot == null || stateRoot.isEmpty() || !new File(stateRoot).isAbsolute()
+            ? null : new File(stateRoot, "resource-packs/offline-glosses");
         ArrayList<String> result = new ArrayList<>(MAX_TARGETS);
         for (String target : targets) {
             String code = normalize(target);
-            if (OFFLINE_GLOSS_LANGUAGES.contains(code)
-                    && Files.isRegularFile(
-                        new File(parent, "offline-glosses/zh-" + code + ".db").toPath(),
-                        LinkOption.NOFOLLOW_LINKS)) result.add(code);
+            if (!OFFLINE_GLOSS_LANGUAGES.contains(code)) continue;
+            String name = "zh-" + code + ".db";
+            if (Files.isRegularFile(new File(parent, "offline-glosses/" + name).toPath(), LinkOption.NOFOLLOW_LINKS)
+                    || (pack != null && Files.isRegularFile(new File(pack, name).toPath(), LinkOption.NOFOLLOW_LINKS)))
+                result.add(code);
         }
         return List.copyOf(result);
     }

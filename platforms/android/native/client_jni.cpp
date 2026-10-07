@@ -3,7 +3,7 @@
 // The polish presets carry their own prompt-injection wording, and there are already four copies
 // of that text in this repository. This host reads the shared one rather than adding a fifth.
 #include "voice/PolishPrompt.h"
-// On-device recognition is the shared sherpa-onnx recognizer every desktop host uses, compiled into this library; the runtime itself (libsherpa-onnx-c-api.so and libonnxruntime.so from the pinned .aar) is packaged beside it and loaded by name on first use.
+// On-device recognition is the shared sherpa-onnx recognizer every desktop host uses, compiled into this library; the runtime itself (libsherpa-onnx-c-api.so and libonnxruntime.so from the pinned .aar) is loaded on first use, by name when the package carries it, otherwise from the downloaded voice-runtime resource pack at the path Java hands to localSpeechRuntimeRaw.
 #include "voice/LocalAsr.h"
 #include <atomic>
 #include <chrono>
@@ -788,6 +788,29 @@ constexpr jsize kAccountSettingsLimit = 4 * 1024 * 1024;
 constexpr jsize kAppThemeRequestLimit = 4096;
 constexpr jsize kPlatformLimit = 64;
 constexpr jsize kVoiceRequestLimit = 1 * 1024 * 1024;
+constexpr jsize kResourcePackRequestLimit = 16384;
+constexpr jsize kResourcePackIdLimit = 256;
+
+// 资源包安装的进度回调上下文：回调在调用 msime_client_resource_pack_install 的同一线程上触发，所以可以直接用这个线程的 JNIEnv。
+struct ResourcePackProgress {
+    JNIEnv *env;
+    jobject listener;
+    jmethodID method;
+};
+
+// 把一次进度转给 Java 的 listener。listener 抛出异常后不再调用它（异常挂起时不能再调 JNI），异常留到安装返回后交给 Java。每次的阶段字符串都及时释放，下载大文件时回调次数很多，不释放会撑满局部引用表。
+void resource_pack_progress(void *context, const char *phase, uint64_t done, uint64_t total) {
+    auto *progress = static_cast<ResourcePackProgress *>(context);
+    if (!progress || !phase || progress->env->ExceptionCheck()) return;
+    jstring name = progress->env->NewStringUTF(phase);
+    if (!name) return;
+    const auto bounded = [](uint64_t value) {
+        return static_cast<jlong>(value > static_cast<uint64_t>(std::numeric_limits<jlong>::max())
+            ? std::numeric_limits<jlong>::max() : value);
+    };
+    progress->env->CallVoidMethod(progress->listener, progress->method, name, bounded(done), bounded(total));
+    progress->env->DeleteLocalRef(name);
+}
 } // namespace
 
 extern "C" {
@@ -872,6 +895,57 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_accountSettings
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_accountSettingsApplyRaw(JNIEnv *env, jclass, jbyteArray request) {
     return bounded_request(env, request, kAccountSettingsLimit, msime_client_account_settings_apply);
+}
+// 按需下载的资源包（msime_client.h 里 msime_client_resource_pack_* 一节）。列出只读几个文件属性；安装和收编阻塞，只在主进程的工作线程上调用。
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_resourcePacksRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return bounded_request(env, request, kResourcePackRequestLimit, msime_client_resource_packs);
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_resourcePackAdoptRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return bounded_request(env, request, kResourcePackRequestLimit, msime_client_resource_pack_adopt);
+}
+// listener 可以为 null；不为 null 时在本线程上收到 onProgress(phase, done, total)。listener 抛出的异常在安装结束后原样抛给调用方，此时不返回结果。
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_resourcePackInstallRaw(JNIEnv *env, jclass, jbyteArray request, jobject listener) {
+    ResourcePackProgress progress{env, listener, nullptr};
+    if (listener) {
+        jclass type = env->GetObjectClass(listener);
+        if (!type) return nullptr;
+        progress.method = env->GetMethodID(type, "onProgress", "(Ljava/lang/String;JJ)V");
+        env->DeleteLocalRef(type);
+        if (!progress.method) return nullptr;
+    }
+    const auto install = [&](const uint8_t *bytes, size_t length) {
+        return msime_client_resource_pack_install(bytes, length,
+            listener ? resource_pack_progress : nullptr, listener ? &progress : nullptr);
+    };
+    if (!request) return response(env, install(nullptr, 0));
+    jsize length = env->GetArrayLength(request);
+    if (length > kResourcePackRequestLimit) return response(env, install(nullptr, 0));
+    jbyte *bytes = env->GetByteArrayElements(request, nullptr);
+    if (!bytes) return nullptr;
+    char *result = install(reinterpret_cast<const uint8_t *>(bytes), static_cast<size_t>(length));
+    env->ReleaseByteArrayElements(request, bytes, JNI_ABORT);
+    if (env->ExceptionCheck()) {
+        msime_client_string_free(result);
+        return nullptr;
+    }
+    return response(env, result);
+}
+// 任何线程都可以调用，立即返回；pack 为 null 时停下本进程里所有资源包的安装。
+JNIEXPORT void JNICALL Java_app_msime_android_NativeClient_resourcePackCancelRaw(JNIEnv *env, jclass, jbyteArray pack) {
+    if (!pack) {
+        msime_client_resource_pack_cancel(nullptr, 0);
+        return;
+    }
+    jsize length = env->GetArrayLength(pack);
+    if (length > kResourcePackIdLimit) return;
+    jbyte *bytes = env->GetByteArrayElements(pack, nullptr);
+    if (!bytes) return;
+    msime_client_resource_pack_cancel(reinterpret_cast<const uint8_t *>(bytes), static_cast<size_t>(length));
+    env->ReleaseByteArrayElements(pack, bytes, JNI_ABORT);
+}
+// 指定 libsherpa-onnx-c-api.so 的绝对路径（下载的 voice-runtime 资源包）。之前没加载成功的结果作废，下一次 localSpeechAvailableRaw 按新路径重试；已经加载成功后不再改变。
+JNIEXPORT void JNICALL Java_app_msime_android_NativeClient_localSpeechRuntimeRaw(JNIEnv *env, jclass, jbyteArray path) {
+    msime::voice::set_sherpa_library_path(utf8(env, path));
 }
 JNIEXPORT jboolean JNICALL Java_app_msime_android_NativeClient_localSpeechAvailableRaw(JNIEnv *, jclass) {
     return msime::voice::sherpa_runtime_available() ? JNI_TRUE : JNI_FALSE;

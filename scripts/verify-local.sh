@@ -215,9 +215,9 @@ scope_classify() {
     flake.nix | flake.lock) echo linux ;;
     platforms/macos/*) echo macos; echo named ;;
     platforms/ios/* | resources/* | scripts/* | tools/*) echo named ;;
-    # Built by no --quick phase: the contract checks and the Rust workspace check, which always run, cover these.
+    # 没有 --quick 阶段从这些路径构建：常驻的契约检查、Rust workspace 检查和 agent-notes 阶段覆盖它们。
     docs/* | crates/dict-builder/* | crates/pack-tool/* | crates/mcp-server/* | \
-      *.md | LICENSE | .editorconfig) ;;
+      .agents/* | *.md | LICENSE | .editorconfig) ;;
     *) echo all ;;
   esac
 }
@@ -390,6 +390,35 @@ elif command -v actionlint >/dev/null 2>&1; then
   fi
 else
   echo "skipped: actionlint not installed (the quality workflow runs it in CI)"
+fi
+
+note "agent notes"
+# 笔记本身是散文，但树结构、头块格式和归档封印都可机械校验，烂掉的笔记会让约定静默腐化。
+# 与 `pnpm run verify-notes` 同一组检查。这里有两道环境防御：直接执行 .ts 需要默认开类型
+# 剥离的 node（22.18+ / 23.6+），版本不够时跳过而不是拦下所有 push；AGENT_NOTE_ROOT 钉死
+# 到本仓库，错误的 CWD 或残留的环境变量不会让门禁查错对象、甚至查空对象静默通过。
+if ! command -v node >/dev/null 2>&1; then
+  echo "skipped: node not installed (pnpm run verify-notes runs the same checks)"
+elif ! node -e 'process.exit(process.features.typescript ? 0 : 1)' 2>/dev/null; then
+  echo "skipped: node too old to execute TypeScript directly (need 22.18+ / 23.6+)"
+elif [ ! -d "$root/.agents/notes" ]; then
+  fail "agent notes: .agents/notes is missing"
+else
+  # 归档封印的 append-only 基准必须是与 origin/develop 的分叉点：脚本默认拿 HEAD 的 manifest
+  # 当基准，那样「改已封存笔记、重新封存、同批提交」照样通过，等于没查。拿不到分叉点时
+  # （无远端、离线）不导出，脚本自动降级为只对磁盘内容做封印自校验。
+  agent_base="$(git merge-base origin/develop HEAD 2>/dev/null || true)"
+  export AGENT_NOTE_ROOT="$root/.agents/notes"
+  if [ -n "$agent_base" ]; then
+    export AGENT_NOTE_ARCHIVE_BASE_REF="$agent_base"
+  fi
+  if node .agents/skills/write-notes-like-deepseek/scripts/verify-agent-note-tree.ts \
+    && node .agents/skills/write-notes-like-deepseek/scripts/verify-agent-note-format.ts \
+    && node .agents/skills/write-notes-like-deepseek/scripts/verify-archived-agent-notes.ts; then
+    echo "agent notes: tree, format and seals verified"
+  else
+    fail "agent notes"
+  fi
 fi
 
 note "compile: rust workspace"

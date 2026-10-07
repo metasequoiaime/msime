@@ -8,6 +8,10 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- 自动更新的每日任务在重启后保留（JobInfo.setPersisted）。 -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- 按需资源包（日文词典、语言词库、离线释义、本地语音运行库）在用户点下载后由前台服务下载，带进度通知；按流量计费的网络先确认大小，所以要读网络状态。 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="35" />
     <queries><intent><action android:name="android.speech.action.RECOGNIZE_SPEECH" /></intent></queries>
     <application android:theme="@style/Theme.MSIME" android:label="@string/app_name" android:icon="@drawable/app_icon_classic" android:allowBackup="false" android:supportsRtl="true">
@@ -33,6 +37,8 @@
         <activity android:name="app.msime.android.VoiceRecognitionActivity" android:exported="false" android:excludeFromRecents="true" android:theme="@android:style/Theme.Material.Light.Dialog.NoActionBar" />
         <!-- 自动更新：每天一次检查、下载并核对更新，只在用户打开「自动更新」后排程。 -->
         <service android:name="app.msime.android.home.UpdateJobService" android:exported="false" android:permission="android.permission.BIND_JOB_SERVICE" />
+        <!-- 按需资源包下载：只由用户操作启动，跑在主进程（不设 android:process），:ime 进程从不安装资源包。 -->
+        <service android:name="app.msime.android.ResourcePackService" android:exported="false" android:foregroundServiceType="dataSync" />
         <service android:name="app.msime.android.MSIMEInputService" android:process=":ime" android:exported="true" android:permission="android.permission.BIND_INPUT_METHOD">
             <intent-filter><action android:name="android.view.InputMethod" /></intent-filter>
             <meta-data android:name="android.view.im" android:resource="@xml/method" />

@@ -594,7 +594,7 @@ final class ImeLayoutRows {
 
     void updateStrokeWildcardKey() {
         if (s.strokeWildcardKey == null) return;
-        s.strokeWildcardKey.setEnabled(
+        ViewPolicy.setEnabled(s.strokeWildcardKey,
             StrokeKeyboardLayout.sends(StrokeKeyboardLayout.WILDCARD, s.hasEngineComposition()));
     }
 

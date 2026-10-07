@@ -740,7 +740,7 @@ fn activation_reopens_the_personal_context_store_on_the_restored_journal() {
 #[test]
 fn snapshot_preparation_accepts_resources_shipped_without_the_on_demand_pair() {
     use super::*;
-    use msime_client_core::resources::MACOS_ON_DEMAND_ARTIFACTS;
+    use msime_client_core::resources::ON_DEMAND_JAPANESE_ARTIFACTS;
     use std::fs;
 
     let root = tempfile::tempdir().unwrap();
@@ -778,5 +778,5 @@ fn snapshot_preparation_accepts_resources_shipped_without_the_on_demand_pair() {
         )
     };
     assert!(rejected(&[]));
-    assert!(!rejected(&MACOS_ON_DEMAND_ARTIFACTS));
+    assert!(!rejected(&ON_DEMAND_JAPANESE_ARTIFACTS));
 }

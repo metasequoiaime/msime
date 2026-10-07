@@ -19,10 +19,12 @@ fn ancestor_capacity_matches_the_absolute_path_components() {
     assert_eq!(ancestor_capacity(root), root.components().count());
 }
 
-/// Serves fixed bytes per URL and records what was asked for.
+/// Serves fixed bytes per URL, honouring a resume offset unless `ranges` is off, and records what was asked for.
 struct MapFetcher {
     files: HashMap<String, Vec<u8>>,
     requested: Mutex<Vec<String>>,
+    offsets: Mutex<Vec<u64>>,
+    ranges: bool,
 }
 
 impl MapFetcher {
@@ -30,17 +32,59 @@ impl MapFetcher {
         Self {
             files: files.into_iter().collect(),
             requested: Mutex::new(Vec::new()),
+            offsets: Mutex::new(Vec::new()),
+            ranges: true,
         }
+    }
+
+    /// A source that ignores `Range` and always answers with the whole body.
+    fn without_ranges(mut self) -> Self {
+        self.ranges = false;
+        self
     }
 }
 
 impl Fetcher for MapFetcher {
-    fn fetch<'a>(&'a self, url: &str) -> Result<Box<dyn Read + 'a>, LocalModelError> {
+    fn fetch<'a>(&'a self, url: &str, offset: u64) -> Result<Fetched<'a>, LocalModelError> {
         self.requested.lock().unwrap().push(url.to_owned());
-        self.files
+        self.offsets.lock().unwrap().push(offset);
+        let bytes = self
+            .files
             .get(url)
-            .map(|bytes| Box::new(bytes.as_slice()) as Box<dyn Read + 'a>)
-            .ok_or(LocalModelError::HttpStatus(404))
+            .ok_or(LocalModelError::HttpStatus(404))?;
+        let start = if self.ranges { offset } else { 0 };
+        let tail = bytes
+            .get(start as usize..)
+            .ok_or(LocalModelError::HttpStatus(416))?;
+        Ok(Fetched {
+            reader: Box::new(tail),
+            offset: start,
+        })
+    }
+}
+
+/// Serves the first `cut` bytes of each body and then fails, like a connection that drops mid-download.
+struct DroppingFetcher {
+    inner: MapFetcher,
+    cut: usize,
+}
+
+impl Fetcher for DroppingFetcher {
+    fn fetch<'a>(&'a self, url: &str, offset: u64) -> Result<Fetched<'a>, LocalModelError> {
+        let fetched = self.inner.fetch(url, offset)?;
+        let cut = self.cut;
+        Ok(Fetched {
+            reader: Box::new(fetched.reader.take(cut as u64).chain(FailingReader)),
+            offset: fetched.offset,
+        })
+    }
+}
+
+struct FailingReader;
+
+impl Read for FailingReader {
+    fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
+        Err(io::Error::new(io::ErrorKind::ConnectionReset, "dropped"))
     }
 }
 
@@ -707,7 +751,18 @@ fn run_pack(
     id: &str,
     files: &[crate::resources::Artifact],
     mirror: &str,
-    fetcher: &MapFetcher,
+    fetcher: &dyn Fetcher,
+    cancel: &AtomicBool,
+) -> (Result<PathBuf, LocalModelError>, Vec<InstallProgress>) {
+    run_pack_from(root, id, files, &[mirror], fetcher, cancel)
+}
+
+fn run_pack_from(
+    root: &Path,
+    id: &str,
+    files: &[crate::resources::Artifact],
+    mirrors: &[&str],
+    fetcher: &dyn Fetcher,
     cancel: &AtomicBool,
 ) -> (Result<PathBuf, LocalModelError>, Vec<InstallProgress>) {
     let mut events = Vec::new();
@@ -717,7 +772,7 @@ fn run_pack(
         id,
         files,
         &manifest,
-        mirror,
+        mirrors,
         fetcher,
         &mut |event| events.push(event),
         cancel,
@@ -771,8 +826,9 @@ fn installing_files_publishes_them_with_the_manifest_and_reports_progress() {
         .all(|event| event.total == total && event.downloaded <= total));
 }
 
+/// 摘要不符的文件不留下，也不发布任何东西；同一包里已经校验过的文件留在续传目录，下次不用再下。
 #[test]
-fn a_file_checksum_mismatch_leaves_nothing_behind() {
+fn a_file_checksum_mismatch_publishes_nothing_and_keeps_only_verified_bytes() {
     let root = tempfile::tempdir().unwrap();
     let files = pack_files();
     let fetcher = pack_fetcher("", b"LICENCE");
@@ -785,6 +841,29 @@ fn a_file_checksum_mismatch_leaves_nothing_behind() {
         &AtomicBool::new(false),
     );
     assert!(matches!(result, Err(LocalModelError::ChecksumMismatch(name)) if name == "b.txt"));
+    assert_eq!(root_entries(root.path()), vec![".partial-pack"]);
+    let partials = root.path().join(".partial-pack");
+    assert_eq!(
+        root_entries(&partials),
+        vec![partial_path(&partials, &files[0])
+            .unwrap()
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned()]
+    );
+
+    // 只有一个文件、它又不符时，什么都不留。
+    let root = tempfile::tempdir().unwrap();
+    let (result, _) = run_pack(
+        root.path(),
+        "pack",
+        &files[1..],
+        "",
+        &fetcher,
+        &AtomicBool::new(false),
+    );
+    assert!(matches!(result, Err(LocalModelError::ChecksumMismatch(_))));
     assert!(root_entries(root.path()).is_empty());
 }
 
@@ -904,6 +983,729 @@ fn installed_manifest_rejects_a_symlinked_root() {
     std::os::unix::fs::symlink(outside.path(), &linked).unwrap();
 
     assert_eq!(installed_manifest(&linked, "pack"), None);
+}
+
+/// A partial file left in `<root>/.partial-<id>/` by an earlier install.
+fn write_partial(
+    root: &Path,
+    id: &str,
+    file: &crate::resources::Artifact,
+    bytes: &[u8],
+) -> PathBuf {
+    let directory = root.join(format!(".partial-{id}"));
+    fs::create_dir_all(&directory).unwrap();
+    let path = partial_path(&directory, file).unwrap();
+    fs::write(&path, bytes).unwrap();
+    path
+}
+
+#[test]
+fn a_partial_file_is_resumed_from_where_it_stopped() {
+    let root = tempfile::tempdir().unwrap();
+    let files = pack_files();
+    write_partial(root.path(), "pack", &files[0], &PACK_A[..5]);
+    let fetcher = pack_fetcher("", PACK_B);
+    let (result, events) = run_pack(
+        root.path(),
+        "pack",
+        &files,
+        "",
+        &fetcher,
+        &AtomicBool::new(false),
+    );
+    let installed = result.unwrap();
+    assert_eq!(fs::read(installed.join("a.dat")).unwrap(), PACK_A);
+    assert_eq!(fs::read(installed.join("b.txt")).unwrap(), PACK_B);
+    // 只请求了剩下的字节；装好后续传目录也清掉了。
+    assert_eq!(*fetcher.offsets.lock().unwrap(), vec![5, 0]);
+    assert_eq!(root_entries(root.path()), vec!["pack"]);
+    // 进度从已有的字节开始，而不是从零。
+    let first = events
+        .iter()
+        .find(|event| event.stage == "download")
+        .unwrap();
+    assert!(first.downloaded >= 5, "{first:?}");
+}
+
+#[test]
+fn a_source_that_ignores_the_range_restarts_the_file() {
+    let root = tempfile::tempdir().unwrap();
+    let files = pack_files();
+    write_partial(root.path(), "pack", &files[0], &PACK_A[..5]);
+    let fetcher = pack_fetcher("", PACK_B).without_ranges();
+    let (result, _) = run_pack(
+        root.path(),
+        "pack",
+        &files,
+        "",
+        &fetcher,
+        &AtomicBool::new(false),
+    );
+    let installed = result.unwrap();
+    assert_eq!(fs::read(installed.join("a.dat")).unwrap(), PACK_A);
+    assert_eq!(*fetcher.offsets.lock().unwrap(), vec![5, 0]);
+}
+
+#[test]
+fn a_dropped_download_keeps_its_bytes_for_the_next_install() {
+    let root = tempfile::tempdir().unwrap();
+    let files = pack_files();
+    let dropping = DroppingFetcher {
+        inner: pack_fetcher("", PACK_B),
+        cut: 10,
+    };
+    let (result, _) = run_pack(
+        root.path(),
+        "pack",
+        &files,
+        "",
+        &dropping,
+        &AtomicBool::new(false),
+    );
+    assert!(
+        matches!(result, Err(LocalModelError::Network(_))),
+        "{result:?}"
+    );
+    // 没有发布任何东西，只留下已收到的部分。
+    assert_eq!(root_entries(root.path()), vec![".partial-pack"]);
+    let partial = partial_path(&root.path().join(".partial-pack"), &files[0]).unwrap();
+    assert_eq!(fs::read(&partial).unwrap(), &PACK_A[..10]);
+
+    let fetcher = pack_fetcher("", PACK_B);
+    let (result, _) = run_pack(
+        root.path(),
+        "pack",
+        &files,
+        "",
+        &fetcher,
+        &AtomicBool::new(false),
+    );
+    assert_eq!(fs::read(result.unwrap().join("a.dat")).unwrap(), PACK_A);
+    assert_eq!(fetcher.offsets.lock().unwrap()[0], 10);
+    assert_eq!(root_entries(root.path()), vec!["pack"]);
+}
+
+/// 全部下完、进入校验阶段时取消，下完的文件仍留在 `.partial-<id>` 里，下次安装不必重新下载。
+#[test]
+fn cancelling_while_verifying_keeps_the_finished_downloads() {
+    let root = tempfile::tempdir().unwrap();
+    let files = pack_files();
+    let fetcher = pack_fetcher("", PACK_B);
+    let cancel = AtomicBool::new(false);
+    let manifest = serde_json::json!({"pack": "pack"});
+    let result = install_files_with(
+        root.path(),
+        "pack",
+        &files,
+        &manifest,
+        &[""],
+        &fetcher,
+        &mut |event| {
+            if event.stage == "verify" {
+                cancel.store(true, Ordering::SeqCst);
+            }
+        },
+        &cancel,
+    );
+    assert!(
+        matches!(result, Err(LocalModelError::Cancelled)),
+        "{result:?}"
+    );
+    assert_eq!(root_entries(root.path()), vec![".partial-pack"]);
+    let partials = root.path().join(".partial-pack");
+    assert_eq!(
+        fs::read(partial_path(&partials, &files[0]).unwrap()).unwrap(),
+        PACK_A
+    );
+    assert_eq!(
+        fs::read(partial_path(&partials, &files[1]).unwrap()).unwrap(),
+        PACK_B
+    );
+}
+
+/// 一份没下完、但摘要已经对不上的文件（比如锁文件换过字节而长度没变）在下完时被删掉，下一个源从头下载。
+#[test]
+fn a_corrupt_source_falls_back_to_the_next_one_from_scratch() {
+    let root = tempfile::tempdir().unwrap();
+    let files = pack_files();
+    let mirror = "https://mirror.example.test/";
+    let fetcher = MapFetcher::new([
+        (mirrored(mirror, PACK_A_URL), PACK_A.to_vec()),
+        (mirrored(mirror, PACK_B_URL), b"LICENCE".to_vec()),
+        (PACK_B_URL.to_owned(), PACK_B.to_vec()),
+    ]);
+    let (result, _) = run_pack(
+        root.path(),
+        "pack",
+        &files,
+        mirror,
+        &fetcher,
+        &AtomicBool::new(false),
+    );
+    let installed = result.unwrap();
+    assert_eq!(fs::read(installed.join("b.txt")).unwrap(), PACK_B);
+    assert_eq!(
+        *fetcher.requested.lock().unwrap(),
+        vec![
+            mirrored(mirror, PACK_A_URL),
+            mirrored(mirror, PACK_B_URL),
+            PACK_B_URL.to_owned(),
+        ]
+    );
+    assert_eq!(*fetcher.offsets.lock().unwrap(), vec![0, 0, 0]);
+}
+
+/// 镜像只回了一小段错误页（长度不足，保留下来等续传）：下一个源接着它续传后摘要不符，于是删掉从头再下，安装照样成功。
+#[test]
+fn a_short_wrong_prefix_from_one_source_does_not_poison_the_next() {
+    let root = tempfile::tempdir().unwrap();
+    let files = pack_files();
+    let mirror = "https://mirror.example.test/";
+    let fetcher = MapFetcher::new([
+        (mirrored(mirror, PACK_A_URL), b"<html>".to_vec()),
+        (PACK_A_URL.to_owned(), PACK_A.to_vec()),
+        (mirrored(mirror, PACK_B_URL), PACK_B.to_vec()),
+    ]);
+    let (result, _) = run_pack(
+        root.path(),
+        "pack",
+        &files,
+        mirror,
+        &fetcher,
+        &AtomicBool::new(false),
+    );
+    let installed = result.unwrap();
+    assert_eq!(fs::read(installed.join("a.dat")).unwrap(), PACK_A);
+    assert_eq!(
+        fetcher.requested.lock().unwrap()[..3],
+        [
+            mirrored(mirror, PACK_A_URL),
+            PACK_A_URL.to_owned(),
+            PACK_A_URL.to_owned(),
+        ]
+    );
+    assert_eq!(fetcher.offsets.lock().unwrap()[..3], [0, 6, 0]);
+    assert_eq!(root_entries(root.path()), vec!["pack"]);
+}
+
+/// 上次安装留下的前缀已经不对：同一个源续传后摘要不符，删掉从头再下一次，而不是直接报错。
+#[test]
+fn a_stale_wrong_prefix_is_redownloaded_from_scratch() {
+    let root = tempfile::tempdir().unwrap();
+    let files = pack_files();
+    write_partial(root.path(), "pack", &files[0], b"WRONG");
+    let fetcher = pack_fetcher("", PACK_B);
+    let (result, _) = run_pack(
+        root.path(),
+        "pack",
+        &files,
+        "",
+        &fetcher,
+        &AtomicBool::new(false),
+    );
+    assert_eq!(fs::read(result.unwrap().join("a.dat")).unwrap(), PACK_A);
+    assert_eq!(*fetcher.offsets.lock().unwrap(), vec![5, 0, 0]);
+}
+
+#[test]
+fn sources_are_tried_in_order_with_the_lock_url_last() {
+    let first = "https://first.example.test/";
+    let second = "https://second.example.test";
+    let files = pack_files();
+
+    // 第一个镜像没有这些文件，第二个有：不再碰原地址。
+    let root = tempfile::tempdir().unwrap();
+    let fetcher = MapFetcher::new([
+        (mirrored(second, PACK_A_URL), PACK_A.to_vec()),
+        (mirrored(second, PACK_B_URL), PACK_B.to_vec()),
+    ]);
+    let (result, _) = run_pack_from(
+        root.path(),
+        "pack",
+        &files,
+        &[first, "", second],
+        &fetcher,
+        &AtomicBool::new(false),
+    );
+    result.unwrap();
+    assert_eq!(
+        *fetcher.requested.lock().unwrap(),
+        vec![
+            mirrored(first, PACK_A_URL),
+            mirrored(second, PACK_A_URL),
+            mirrored(first, PACK_B_URL),
+            mirrored(second, PACK_B_URL),
+        ]
+    );
+
+    // 镜像都不行时才用锁文件里的原地址。
+    let root = tempfile::tempdir().unwrap();
+    let fetcher = pack_fetcher("", PACK_B);
+    let (result, _) = run_pack_from(
+        root.path(),
+        "pack",
+        &files,
+        &[first, second],
+        &fetcher,
+        &AtomicBool::new(false),
+    );
+    result.unwrap();
+    assert_eq!(
+        fetcher.requested.lock().unwrap()[..3],
+        [
+            mirrored(first, PACK_A_URL),
+            mirrored(second, PACK_A_URL),
+            PACK_A_URL.to_owned(),
+        ]
+    );
+
+    // 任何一个镜像不是合法的 https 前缀，整个安装在联网前就拒绝。
+    let root = tempfile::tempdir().unwrap();
+    let fetcher = pack_fetcher("", PACK_B);
+    let (result, _) = run_pack_from(
+        root.path(),
+        "pack",
+        &files,
+        &[first, "http://plain.example.test/"],
+        &fetcher,
+        &AtomicBool::new(false),
+    );
+    assert!(matches!(result, Err(LocalModelError::InvalidMirror)));
+    assert!(fetcher.requested.lock().unwrap().is_empty());
+}
+
+/// 回环上的最小 HTTP/1.1 服务器怎样回答 `Range` 请求。
+#[derive(Clone, Copy)]
+enum RangeMode {
+    Honour,
+    Ignore,
+    Unsatisfiable,
+}
+
+/// 依次接受 `connections` 个连接，每个连接回答一次 `body`；返回 URL 和一个结束时交出每次请求 `Range` 起点的线程。
+fn serve(
+    body: &'static [u8],
+    mode: RangeMode,
+    connections: usize,
+) -> (String, std::thread::JoinHandle<Vec<Option<u64>>>) {
+    use std::io::BufRead;
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}/file", listener.local_addr().unwrap());
+    let server = std::thread::spawn(move || {
+        let mut ranges = Vec::with_capacity(connections);
+        for _ in 0..connections {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut range = None;
+            loop {
+                let mut line = String::new();
+                reader.read_line(&mut line).unwrap();
+                let line = line.trim_end();
+                if line.is_empty() {
+                    break;
+                }
+                if let Some((name, value)) = line.split_once(':') {
+                    if name.eq_ignore_ascii_case("range") {
+                        range = value
+                            .trim()
+                            .strip_prefix("bytes=")
+                            .and_then(|value| value.strip_suffix('-'))
+                            .and_then(|value| value.parse::<u64>().ok());
+                    }
+                }
+            }
+            ranges.push(range);
+            let length = body.len();
+            let (head, payload): (String, &[u8]) = match (range, mode) {
+                (Some(start), RangeMode::Honour) => (
+                    format!(
+                        "HTTP/1.1 206 Partial Content\r\nContent-Range: bytes {start}-{}/{length}\r\nContent-Length: {}\r\n",
+                        length - 1,
+                        length - start as usize
+                    ),
+                    &body[start as usize..],
+                ),
+                (Some(_), RangeMode::Unsatisfiable) => (
+                    format!(
+                        "HTTP/1.1 416 Range Not Satisfiable\r\nContent-Range: bytes */{length}\r\nContent-Length: 0\r\n"
+                    ),
+                    &[],
+                ),
+                _ => (
+                    format!("HTTP/1.1 200 OK\r\nContent-Length: {length}\r\n"),
+                    body,
+                ),
+            };
+            stream
+                .write_all(format!("{head}Connection: close\r\n\r\n").as_bytes())
+                .unwrap();
+            stream.write_all(payload).unwrap();
+        }
+        ranges
+    });
+    (url, server)
+}
+
+#[test]
+fn the_http_fetcher_resumes_with_a_range_request() {
+    const BODY: &[u8] = b"0123456789abcdef";
+    let fetcher = HttpFetcher::build(false).unwrap();
+    let body = |fetched: Fetched<'_>| {
+        let mut bytes = Vec::new();
+        let mut reader = fetched.reader;
+        reader.read_to_end(&mut bytes).unwrap();
+        bytes
+    };
+
+    // 新下载不带 Range。
+    let (url, server) = serve(BODY, RangeMode::Honour, 1);
+    let fetched = fetcher.fetch(&url, 0).unwrap();
+    assert_eq!(fetched.offset, 0);
+    assert_eq!(body(fetched), BODY);
+    assert_eq!(server.join().unwrap(), vec![None]);
+
+    // 服务器支持 Range：只拿剩下的字节。
+    let (url, server) = serve(BODY, RangeMode::Honour, 1);
+    let fetched = fetcher.fetch(&url, 10).unwrap();
+    assert_eq!(fetched.offset, 10);
+    assert_eq!(body(fetched), &BODY[10..]);
+    assert_eq!(server.join().unwrap(), vec![Some(10)]);
+
+    // 服务器不理 Range：整份返回，起点报告为 0。
+    let (url, server) = serve(BODY, RangeMode::Ignore, 1);
+    let fetched = fetcher.fetch(&url, 4).unwrap();
+    assert_eq!(fetched.offset, 0);
+    assert_eq!(body(fetched), BODY);
+    assert_eq!(server.join().unwrap(), vec![Some(4)]);
+
+    // 416：再请求一次整份。
+    let (url, server) = serve(BODY, RangeMode::Unsatisfiable, 2);
+    let fetched = fetcher.fetch(&url, 16).unwrap();
+    assert_eq!(fetched.offset, 0);
+    assert_eq!(body(fetched), BODY);
+    assert_eq!(server.join().unwrap(), vec![Some(16), None]);
+}
+
+#[test]
+fn content_range_starts_are_parsed_strictly() {
+    assert_eq!(content_range_start("bytes 10-15/16"), Some(10));
+    assert_eq!(content_range_start(" bytes 0-0/1 "), Some(0));
+    assert_eq!(content_range_start("bytes */16"), None);
+    assert_eq!(content_range_start("items 10-15/16"), None);
+    assert_eq!(content_range_start("bytes x-15/16"), None);
+}
+
+const ARCHIVE_PACK_URL: &str = "https://example.test/runtime/runtime.aar";
+
+/// A zip holding `members`, as the upstream `.aar` does.
+fn zip_bytes(members: &[(&str, &[u8])]) -> Vec<u8> {
+    let mut writer = zip::ZipWriter::new(io::Cursor::new(Vec::new()));
+    let options = zip::write::SimpleFileOptions::default();
+    for (name, bytes) in members {
+        writer.start_file(*name, options).unwrap();
+        writer.write_all(bytes).unwrap();
+    }
+    writer.finish().unwrap().into_inner()
+}
+
+fn run_archive(
+    root: &Path,
+    archive_bytes: &[u8],
+    files: &[crate::resources::Artifact],
+    fetcher: &dyn Fetcher,
+) -> (Result<PathBuf, LocalModelError>, Vec<InstallProgress>) {
+    let archive = pack_artifact("runtime.aar", ARCHIVE_PACK_URL, archive_bytes);
+    let members = [
+        ("jni/arm64-v8a/liba.so".to_owned(), "liba.so".to_owned()),
+        ("jni/arm64-v8a/libb.so".to_owned(), "libb.so".to_owned()),
+    ];
+    let mut events = Vec::new();
+    let result = install_archive_members_with(
+        root,
+        "runtime",
+        &archive,
+        &members,
+        files,
+        &serde_json::json!({"pack": "runtime"}),
+        &[],
+        fetcher,
+        &mut |event| events.push(event),
+        &AtomicBool::new(false),
+    );
+    (result, events)
+}
+
+#[test]
+fn archive_members_are_extracted_verified_and_published() {
+    let archive = zip_bytes(&[
+        ("jni/arm64-v8a/liba.so", b"library a"),
+        ("jni/arm64-v8a/libb.so", b"library b"),
+        ("jni/x86_64/liba.so", b"another abi"),
+        ("classes.jar", b"java"),
+    ]);
+    let files = [
+        pack_artifact("liba.so", ARCHIVE_PACK_URL, b"library a"),
+        pack_artifact("libb.so", ARCHIVE_PACK_URL, b"library b"),
+    ];
+    let root = tempfile::tempdir().unwrap();
+    let fetcher = MapFetcher::new([(ARCHIVE_PACK_URL.to_owned(), archive.clone())]);
+    let (result, events) = run_archive(root.path(), &archive, &files, &fetcher);
+    let installed = result.unwrap();
+    assert_eq!(
+        root_entries(&installed),
+        vec!["liba.so", "libb.so", MANIFEST_FILE]
+    );
+    assert_eq!(fs::read(installed.join("liba.so")).unwrap(), b"library a");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = fs::metadata(installed.join("libb.so"))
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, 0o444);
+    }
+    // 只留下发布的目录，归档本身不留。
+    assert_eq!(root_entries(root.path()), vec!["runtime"]);
+    let total = archive.len() as u64;
+    assert!(events
+        .iter()
+        .all(|event| event.total == total && event.downloaded <= total));
+    assert_eq!(
+        events
+            .iter()
+            .map(|event| event.stage)
+            .filter(|stage| *stage != "download")
+            .collect::<Vec<_>>(),
+        ["verify", "done"]
+    );
+
+    // 成员的字节和锁文件不符：不发布；归档已经校验过，留着下次不用再下。
+    let root = tempfile::tempdir().unwrap();
+    let wrong = [
+        pack_artifact("liba.so", ARCHIVE_PACK_URL, b"library a"),
+        pack_artifact("libb.so", ARCHIVE_PACK_URL, b"library B"),
+    ];
+    let (result, _) = run_archive(root.path(), &archive, &wrong, &fetcher);
+    assert!(
+        matches!(&result, Err(LocalModelError::ChecksumMismatch(name)) if name == "libb.so"),
+        "{result:?}"
+    );
+    assert_eq!(root_entries(root.path()), vec![".partial-runtime"]);
+
+    // 归档里没有要的成员。
+    let root = tempfile::tempdir().unwrap();
+    let partial = zip_bytes(&[("jni/arm64-v8a/liba.so", b"library a")]);
+    let fetcher = MapFetcher::new([(ARCHIVE_PACK_URL.to_owned(), partial.clone())]);
+    let (result, _) = run_archive(root.path(), &partial, &files, &fetcher);
+    assert!(
+        matches!(result, Err(LocalModelError::MissingFile(_))),
+        "{result:?}"
+    );
+
+    // 成员比锁文件长：写到锁文件的长度就停。
+    let root = tempfile::tempdir().unwrap();
+    let long = zip_bytes(&[
+        ("jni/arm64-v8a/liba.so", b"library a, and then some"),
+        ("jni/arm64-v8a/libb.so", b"library b"),
+    ]);
+    let fetcher = MapFetcher::new([(ARCHIVE_PACK_URL.to_owned(), long.clone())]);
+    let (result, _) = run_archive(root.path(), &long, &files, &fetcher);
+    assert!(
+        matches!(result, Err(LocalModelError::SizeMismatch(_))),
+        "{result:?}"
+    );
+}
+
+fn adopt_source(directory: &Path) {
+    fs::write(directory.join("a.dat"), PACK_A).unwrap();
+    fs::write(directory.join("b.txt"), PACK_B).unwrap();
+    fs::write(directory.join("unrelated.db"), b"stays").unwrap();
+}
+
+#[test]
+fn adopting_moves_the_files_without_copying_and_publishes_them() {
+    let state = tempfile::tempdir().unwrap();
+    let root = state.path().join("resource-packs");
+    let source = state.path().join("resources");
+    fs::create_dir(&source).unwrap();
+    adopt_source(&source);
+    #[cfg(unix)]
+    let inode = {
+        use std::os::unix::fs::MetadataExt;
+        fs::metadata(source.join("a.dat")).unwrap().ino()
+    };
+
+    let installed = adopt_files(
+        &root,
+        "pack",
+        &pack_files(),
+        &serde_json::json!({"pack": "pack"}),
+        &source,
+    )
+    .unwrap();
+    assert_eq!(installed, root.join("pack"));
+    assert_eq!(
+        root_entries(&installed),
+        vec!["a.dat", "b.txt", MANIFEST_FILE]
+    );
+    assert_eq!(fs::read(installed.join("a.dat")).unwrap(), PACK_A);
+    assert_eq!(
+        installed_manifest(&root, "pack"),
+        Some(serde_json::json!({"pack": "pack"}))
+    );
+    // 只拿走了资源包的文件。
+    assert_eq!(root_entries(&source), vec!["unrelated.db"]);
+    assert_eq!(root_entries(&root), vec!["pack"]);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        assert_eq!(fs::metadata(installed.join("a.dat")).unwrap().ino(), inode);
+    }
+}
+
+#[test]
+fn a_failed_adoption_puts_every_file_back() {
+    let state = tempfile::tempdir().unwrap();
+    let root = state.path().join("resource-packs");
+    let source = state.path().join("resources");
+    fs::create_dir(&source).unwrap();
+    adopt_source(&source);
+    fs::write(source.join("b.txt"), b"LICENCE").unwrap();
+
+    let result = adopt_files(
+        &root,
+        "pack",
+        &pack_files(),
+        &serde_json::json!({"pack": "pack"}),
+        &source,
+    );
+    assert!(
+        matches!(&result, Err(LocalModelError::ChecksumMismatch(name)) if name == "b.txt"),
+        "{result:?}"
+    );
+    assert_eq!(
+        root_entries(&source),
+        vec!["a.dat", "b.txt", "unrelated.db"]
+    );
+    assert_eq!(fs::read(source.join("a.dat")).unwrap(), PACK_A);
+    assert_eq!(fs::read(source.join("b.txt")).unwrap(), b"LICENCE");
+    assert!(root_entries(&root).is_empty());
+    assert_eq!(installed_manifest(&root, "pack"), None);
+
+    // 少一个文件：什么都不移动。
+    fs::remove_file(source.join("b.txt")).unwrap();
+    let result = adopt_files(
+        &root,
+        "pack",
+        &pack_files(),
+        &serde_json::json!({"pack": "pack"}),
+        &source,
+    );
+    assert!(matches!(result, Err(LocalModelError::MissingFile(name)) if name == "b.txt"));
+    assert_eq!(root_entries(&source), vec!["a.dat", "unrelated.db"]);
+
+    // 相对路径的来源目录不接受。
+    let result = adopt_files(
+        &root,
+        "pack",
+        &pack_files(),
+        &serde_json::json!({"pack": "pack"}),
+        Path::new("resources"),
+    );
+    assert!(matches!(result, Err(LocalModelError::InvalidRoot)));
+}
+
+/// 伪造一次在改名之后、发布之前被杀掉的收编：`moved` 里的文件已经从 `source` 挪进暂存目录。
+fn interrupt_adoption(root: &Path, source: &Path, moved: &[&str]) -> PathBuf {
+    let staging = root.join(".staging-pack-interrupted");
+    fs::create_dir_all(staging.join("model")).unwrap();
+    fs::write(
+        staging.join(ADOPTION_SOURCE),
+        source.to_str().unwrap().as_bytes(),
+    )
+    .unwrap();
+    for name in moved {
+        fs::rename(source.join(name), staging.join("model").join(name)).unwrap();
+    }
+    staging
+}
+
+#[test]
+fn an_interrupted_adoption_is_put_back_and_adopted_on_the_next_try() {
+    for moved in [&["a.dat", "b.txt"][..], &["a.dat"][..]] {
+        let state = tempfile::tempdir().unwrap();
+        let root = state.path().join("resource-packs");
+        let source = state.path().join("resources");
+        fs::create_dir(&source).unwrap();
+        adopt_source(&source);
+        let staging = interrupt_adoption(&root, &source, moved);
+
+        let installed = adopt_files(
+            &root,
+            "pack",
+            &pack_files(),
+            &serde_json::json!({"pack": "pack"}),
+            &source,
+        )
+        .unwrap();
+        assert_eq!(fs::read(installed.join("a.dat")).unwrap(), PACK_A);
+        assert_eq!(fs::read(installed.join("b.txt")).unwrap(), PACK_B);
+        assert_eq!(root_entries(&source), vec!["unrelated.db"]);
+        assert!(!staging.exists());
+        assert_eq!(root_entries(&root), vec!["pack"]);
+    }
+}
+
+#[test]
+fn installing_puts_back_the_files_of_an_interrupted_adoption() {
+    let state = tempfile::tempdir().unwrap();
+    let root = state.path().join("resource-packs");
+    let source = state.path().join("resources");
+    fs::create_dir(&source).unwrap();
+    adopt_source(&source);
+    // 来源里已有同名文件时不覆盖。
+    let staging = interrupt_adoption(&root, &source, &["a.dat", "b.txt"]);
+    fs::write(source.join("b.txt"), b"newer").unwrap();
+
+    let fetcher = pack_fetcher("", PACK_B);
+    let (result, _) = run_pack(
+        &root,
+        "pack",
+        &pack_files(),
+        "",
+        &fetcher,
+        &AtomicBool::new(false),
+    );
+    result.unwrap();
+    assert_eq!(fs::read(source.join("a.dat")).unwrap(), PACK_A);
+    assert_eq!(fs::read(source.join("b.txt")).unwrap(), b"newer");
+    assert!(!staging.exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn adoption_refuses_a_symlinked_source_file() {
+    let state = tempfile::tempdir().unwrap();
+    let root = state.path().join("resource-packs");
+    let source = state.path().join("resources");
+    fs::create_dir(&source).unwrap();
+    adopt_source(&source);
+    let outside = tempfile::tempdir().unwrap();
+    fs::write(outside.path().join("b.txt"), PACK_B).unwrap();
+    fs::remove_file(source.join("b.txt")).unwrap();
+    std::os::unix::fs::symlink(outside.path().join("b.txt"), source.join("b.txt")).unwrap();
+
+    let result = adopt_files(
+        &root,
+        "pack",
+        &pack_files(),
+        &serde_json::json!({"pack": "pack"}),
+        &source,
+    );
+    assert!(matches!(result, Err(LocalModelError::UnsafeArchive(name)) if name == "b.txt"));
+    assert!(source.join("a.dat").is_file());
+    assert_eq!(installed_manifest(&root, "pack"), None);
 }
 
 /// Downloads the real default model once. Not run in CI; run by hand with

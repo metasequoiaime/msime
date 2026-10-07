@@ -181,19 +181,36 @@ struct VocabularyReviewSettingsView: View {
   }
 
   private func importWordbook(from url: URL) {
-    let scoped = url.startAccessingSecurityScopedResource()
-    defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-    guard let data = try? VocabularyReviewStore.readWordbookData(from: url) else {
-      message = VocabularyReviewStore.Failure.unreadableWordbook.errorDescription ?? ""
-      return
-    }
-    // Real word lists arrive from Windows tools as UTF-16 with a BOM and as GB18030, so a bare
-    // UTF-8 decode would reject files that are perfectly good.
-    let text = String(data: data, encoding: .utf8)
-      ?? String(data: data, encoding: .utf16)
-      ?? String(decoding: data, as: UTF8.self)
+    guard !busy else { return }
+    busy = true
+    message = ""
     let name = String(url.deletingPathExtension().lastPathComponent.prefix(64))
-    act { try store.importWordbook(name: name.isEmpty ? "导入的词表" : name, text: text) }
+    let store = store
+    Task { @MainActor in
+      let outcome = await Task.detached(priority: .userInitiated) {
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        return Result<VocabularyReviewStatus, Error> {
+          guard let data = try? VocabularyReviewStore.readWordbookData(from: url) else {
+            throw VocabularyReviewStore.Failure.unreadableWordbook
+          }
+          // Real word lists arrive from Windows tools as UTF-16 with a BOM and as GB18030, so a bare
+          // UTF-8 decode would reject files that are perfectly good.
+          let text = String(data: data, encoding: .utf8)
+            ?? String(data: data, encoding: .utf16)
+            ?? String(decoding: data, as: UTF8.self)
+          return try store.importWordbook(name: name.isEmpty ? "导入的词表" : name, text: text)
+        }
+      }.value
+      switch outcome {
+      case .success(let next):
+        status = next
+      case .failure(let error):
+        message = (error as? VocabularyReviewStore.Failure)?.errorDescription
+          ?? VocabularyReviewStore.Failure.unavailable.errorDescription ?? ""
+      }
+      busy = false
+    }
   }
 
   /// One in-flight operation, and the whole status replaces the old one.

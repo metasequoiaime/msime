@@ -147,7 +147,7 @@ public final class KeyboardSchemeCard extends FrameLayout {
         // 角标和对勾都压在字形框的边线上，各自带一小块与面板同色的底，把边线断开。
         badge.setBackgroundColor(keyBackground);
         check.setBackground(checkMark(accent, keyBackground));
-        check.setVisibility(isSelected ? View.VISIBLE : View.GONE);
+        ViewPolicy.setVisible(check, isSelected);
     }
 
     /**

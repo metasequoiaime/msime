@@ -52,18 +52,38 @@ enum CommunityLibrary {
   private static let maximumBytes = 4_000_000
   private static let maximumItems = 50
   private static let maximumJavaScriptInteger = 9_007_199_254_740_991
+  private static let processLock = NSLock()
 
   private static func rejectSymlinkAncestors(_ path: URL) throws {
     guard !SafePath.hasRefusedSymbolicLink(path) else { throw PersonalDictionaryStore.StoreError.unavailable }
   }
 
-  private static func file(in directory: URL? = nil) -> URL? {
-    (directory ?? FileManager.default.containerURL(
-      forSecurityApplicationGroupIdentifier: InputSchemePreference.appGroupIdentifier))?
-      .appendingPathComponent("CommunityLibrary.json")
+  private static func resolvedDirectory(_ directory: URL?) -> URL? {
+    directory ?? FileManager.default.containerURL(
+      forSecurityApplicationGroupIdentifier: InputSchemePreference.appGroupIdentifier)
   }
-  static func read(in directory: URL? = nil) throws -> [CommunityResource] {
-    guard let file = file(in: directory) else { throw PersonalDictionaryStore.StoreError.unavailable }
+
+  private static func file(in directory: URL) -> URL {
+    directory.appendingPathComponent("CommunityLibrary.json")
+  }
+
+  private static func withLock<T>(in directory: URL?, operation: (URL) throws -> T) throws -> T {
+    guard let directory = resolvedDirectory(directory) else { throw PersonalDictionaryStore.StoreError.unavailable }
+    processLock.lock()
+    defer { processLock.unlock() }
+    try rejectSymlinkAncestors(directory)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let descriptor = open(directory.appendingPathComponent("community.lock").path,
+                          O_CREAT | O_RDWR | O_NOFOLLOW | O_CLOEXEC, S_IRUSR | S_IWUSR)
+    guard descriptor >= 0 else { throw PersonalDictionaryStore.StoreError.unavailable }
+    defer { close(descriptor) }
+    guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else { throw PersonalDictionaryStore.StoreError.busy }
+    defer { flock(descriptor, LOCK_UN) }
+    return try operation(directory)
+  }
+
+  private static func readUnlocked(in directory: URL) throws -> [CommunityResource] {
+    let file = file(in: directory)
     try rejectSymlinkAncestors(file)
     guard FileManager.default.fileExists(atPath: file.path) else { return [] }
     guard let size = try file.resourceValues(forKeys: [.fileSizeKey]).fileSize, size <= maximumBytes else {
@@ -83,19 +103,30 @@ enum CommunityLibrary {
     }
     return items
   }
+
+  static func read(in directory: URL? = nil) throws -> [CommunityResource] {
+    try withLock(in: directory) { try readUnlocked(in: $0) }
+  }
+
   static func save(_ item: CommunityResource, in directory: URL? = nil) throws {
     guard valid(item) else { throw PersonalDictionaryStore.StoreError.invalidState }
-    var items = try read(in: directory)
-    items.removeAll { $0.id == item.id }
-    guard items.count < maximumItems else { throw PersonalDictionaryStore.StoreError.tooManyRequests }
-    items.append(item)
-    try write(items, in: directory)
+    try withLock(in: directory) { directory in
+      var items = try readUnlocked(in: directory)
+      items.removeAll { $0.id == item.id }
+      guard items.count < maximumItems else { throw PersonalDictionaryStore.StoreError.tooManyRequests }
+      items.append(item)
+      try write(items, in: directory)
+    }
   }
+
   static func remove(_ id: String, in directory: URL? = nil) throws {
-    try write(read(in: directory).filter { $0.id != id }, in: directory)
+    try withLock(in: directory) { directory in
+      try write(readUnlocked(in: directory).filter { $0.id != id }, in: directory)
+    }
   }
-  private static func write(_ items: [CommunityResource], in directory: URL?) throws {
-    guard let file = file(in: directory) else { throw PersonalDictionaryStore.StoreError.unavailable }
+
+  private static func write(_ items: [CommunityResource], in directory: URL) throws {
+    let file = file(in: directory)
     let data = try JSONEncoder().encode(items)
     guard data.count <= maximumBytes else { throw PersonalDictionaryStore.StoreError.tooManyRequests }
     try rejectSymlinkAncestors(file)

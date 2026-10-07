@@ -1,7 +1,31 @@
-import XCTest
+import Darwin
 import Security
+import XCTest
 
 final class KeyboardAITests: XCTestCase {
+  func testCommunityLibraryReportsBusyWhenAnotherWriterHoldsTheLock() throws {
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("msime-community-lock-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let lock = open(directory.appendingPathComponent("community.lock").path,
+                    O_CREAT | O_RDWR | O_NOFOLLOW | O_CLOEXEC, S_IRUSR | S_IWUSR)
+    guard lock >= 0 else { throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno)) }
+    defer { close(lock) }
+    guard flock(lock, LOCK_EX | LOCK_NB) == 0 else {
+      throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+    }
+
+    let item = CommunityResource(id: UUID().uuidString, kind: .reply, name: "测试风格", description: "测试", author: "测试作者",
+      content: .init(prompt: "使用三句简短的话"), revision: 1, saves: 0, saved: true, owned: false,
+      rating_count: 0, rating_average: 0, my_rating: 0)
+    XCTAssertThrowsError(try CommunityLibrary.save(item, in: directory)) { error in
+      guard case PersonalDictionaryStore.StoreError.busy = error else {
+        return XCTFail("expected busy, got \(error)")
+      }
+    }
+  }
+
   func testCommunityLibraryRejectsASymlinkedDirectoryBeforeWritingExternalResource() throws {
     #if canImport(Darwin)
     let root = FileManager.default.temporaryDirectory.appendingPathComponent("msime-community-link-\(UUID().uuidString)")

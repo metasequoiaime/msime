@@ -422,7 +422,7 @@
                   "pattern": "^app\\.msime\\.android(\\.[a-z][a-z0-9]*)?$"
                 },
                 "apk_name": {
-                  "description": "build-apk.sh 产出、发布到 android-v 版本页的 APK 文件名（不含 `.apk`）。full 是 `msime-client`；其他版本是 `msime-client-<id>`。",
+                  "description": "build-apk.sh 产出、发布到 android-v 版本页的 APK 文件名（不含 `.apk`）。full 是 `msime-android`；其他版本是 `msime-android-<id>`。",
                   "type": "string",
                   "pattern": "^[a-z][a-z0-9-]*$"
                 }

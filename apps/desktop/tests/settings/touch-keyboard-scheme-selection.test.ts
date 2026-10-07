@@ -195,6 +195,10 @@ test("Cantonese, Zhuyin, Vietnamese, Tibetan and Stroke are appended after Korea
     "zhuyin_nine_key",
   ]);
   expect(defaultTouchKeyboardSchemes).toEqual(allTouchKeyboardSchemes.slice(0, 11));
+  // 没有列表的文档出自默认值改成只有中文之前的版本，按那时的默认列表回退（client-core 的 `LEGACY_DEFAULT_ENABLED`），日语和韩语不会在升级后消失。
+  expect(defaultTouchKeyboardSchemes).toEqual(
+    expect.arrayContaining(["japanese_nine_key", "japanese", "korean"]),
+  );
 });
 
 test("Zhuyin nine-key writes the zhuyin scheme on the nine-key layout and is only inferred when enabled", () => {
