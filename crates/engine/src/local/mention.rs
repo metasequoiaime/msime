@@ -23,10 +23,9 @@ fn collect_place_matches(
     let mut prefix = Vec::with_capacity(limit);
     let mut matched_names = HashSet::with_capacity(limit);
     for (place, spellings) in table.places.iter().zip(&table.spellings) {
-        let is_exact = spelled(spellings, code, true);
-        if !is_exact && !spelled(spellings, code, false) {
+        let Some(is_exact) = spelling_match(spellings, code) else {
             continue;
-        }
+        };
         if existing_names.contains(&place.name) || !matched_names.insert(place.name) {
             continue;
         }
@@ -65,11 +64,20 @@ pub fn usable_mentions(entries: &[MentionEntry]) -> Vec<MentionEntry> {
     usable
 }
 
-/// Whether a spelling (key letters, key initials or lowercase text) answers the input exactly or as a prefix, for the pass that wants `exact`.
-fn spelled(spellings: &[String; 2], code: &str, exact: bool) -> bool {
-    spellings.iter().any(|spelling| {
-        !spelling.is_empty() && spelling.starts_with(code) && (spelling == code) == exact
-    })
+/// Whether a spelling answers the input, returning exactness while checking all alternatives once.
+/// Exact matches win when one spelling is exact and another only has the input as a prefix.
+fn spelling_match(spellings: &[String; 2], code: &str) -> Option<bool> {
+    let mut prefix = false;
+    for spelling in spellings {
+        if spelling.is_empty() || !spelling.starts_with(code) {
+            continue;
+        }
+        if spelling == code {
+            return Some(true);
+        }
+        prefix = true;
+    }
+    prefix.then_some(false)
 }
 
 fn matches_bytes<I>(bytes: I, code: &[u8], exact: bool) -> bool
