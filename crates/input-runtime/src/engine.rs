@@ -105,6 +105,19 @@ pub trait InputEngine {
             "Nine-key spelling selection is unsupported".into(),
         ))
     }
+    /// 滑行的一笔；没有滑行输入的引擎不处理。
+    fn glide(
+        &mut self,
+        _keyboard: &GlideKeyboard,
+        _points: &[GlidePoint],
+    ) -> Result<EngineResult, RuntimeError> {
+        Ok(EngineResult {
+            handled: false,
+            has_commit: false,
+            commit: String::new(),
+            diagnostic: String::new(),
+        })
+    }
     fn snapshot(&self) -> Result<EngineSnapshot, RuntimeError>;
     fn character(&mut self, value: u8, shift: bool) -> Result<EngineResult, RuntimeError>;
     fn command(&mut self, command: Command) -> Result<EngineResult, RuntimeError>;
@@ -268,6 +281,13 @@ impl InputEngine for Session {
     fn choose_nine_key_spelling(&mut self, index: usize) -> Result<EngineResult, RuntimeError> {
         Session::choose_nine_key_spelling(self, index)
             .map_err(|e| RuntimeError::Engine(e.to_string()))
+    }
+    fn glide(
+        &mut self,
+        keyboard: &GlideKeyboard,
+        points: &[GlidePoint],
+    ) -> Result<EngineResult, RuntimeError> {
+        Session::glide(self, keyboard, points).map_err(|e| RuntimeError::Engine(e.to_string()))
     }
     fn punctuation(&mut self, value: u8) -> Result<EngineResult, RuntimeError> {
         Session::punctuation(self, value).map_err(|error| RuntimeError::Engine(error.to_string()))

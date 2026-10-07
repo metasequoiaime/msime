@@ -41,8 +41,9 @@ use msime_input_runtime::HandwritingQuery;
 #[cfg(unix)]
 use msime_input_runtime::UnixSocketProvider;
 use msime_input_runtime::{
-    Action, AiAssistantProviderConfig, CandidateId, CharacterWidth, NineKeySpellingId,
-    OnlineCandidate, OnlineQuery, Reranker, Runtime, SentenceModel, Transition, TranslationService,
+    Action, AiAssistantProviderConfig, CandidateId, CharacterWidth, GlideKeyboard, GlidePoint,
+    NineKeySpellingId, OnlineCandidate, OnlineQuery, Reranker, Runtime, SentenceModel, Transition,
+    TranslationService,
 };
 #[cfg(unix)]
 use msime_input_runtime::{EmojiPanelQuery, TranslationQuery};

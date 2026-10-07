@@ -41,6 +41,7 @@ use msime_engine::host::{
     CommandTranslationQuery, EngineResult, EngineSnapshot, MentionEntry, OnlineQuerySnapshot,
     QuickPhraseEntry, Session, SharedKeymap,
 };
+pub use msime_engine::{GlideKeyboard, GlidePoint};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};

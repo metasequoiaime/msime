@@ -39,6 +39,11 @@ pub enum Action {
     FixCandidatePosition(CandidateId, u8),
     ClearCandidatePosition(CandidateId),
     ChooseNineKeySpelling(NineKeySpellingId),
+    /// 滑过字母键的一笔，用宿主自己的坐标。
+    Glide {
+        keyboard: Box<GlideKeyboard>,
+        points: Vec<GlidePoint>,
+    },
     SelectHighlighted,
     Finish,
     NextPage,
@@ -1900,6 +1905,10 @@ impl<E: InputEngine> Runtime<E> {
                 .engine
                 .clear_candidate_position(self.engine_index(id.index)),
             Action::ChooseNineKeySpelling(id) => self.engine.choose_nine_key_spelling(id.index),
+            Action::Glide {
+                ref keyboard,
+                ref points,
+            } => self.engine.glide(keyboard, points),
             // A scheme that spells with Space lists it among its spelling symbols (Zhuyin's first tone, or opening its list with no syllable pending), and then the Space command is that key rather than a pick of the highlighted row.
             Action::SelectHighlighted
                 if self.cached.spelling_symbols.as_bytes().contains(&b' ') =>
