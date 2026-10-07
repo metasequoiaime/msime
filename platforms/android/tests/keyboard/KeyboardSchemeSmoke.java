@@ -4,6 +4,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Set;
 
 public final class KeyboardSchemeSmoke {
     static final AppEdition FULL = AppEdition.FULL;
@@ -138,14 +139,13 @@ public final class KeyboardSchemeSmoke {
         check(KeyboardScheme.fromPreferences("tibetan", "xiaohe", "nine_key", FULL) == KeyboardScheme.TIBETAN);
         check(KeyboardScheme.fromPreferenceId("tibetan") == KeyboardScheme.TIBETAN);
         check(KeyboardScheme.fromPreferenceId("zhuyin") == KeyboardScheme.ZHUYIN);
-        // 没有存储列表时最新的五种方案保持关闭；存储了列表时按固定顺序打开它们。
+        // 没有存储列表时只启用中文方案（与共享的 TouchKeyboardScheme::DEFAULT_ENABLED 一致）：日语、韩语和后来加的语言都要用户自己添加；存储了列表时按固定顺序打开它们。
         List<KeyboardScheme> defaults = KeyboardScheme.enabledFromPreferenceIds(null, FULL);
-        check(defaults.size() == 11 && !defaults.contains(KeyboardScheme.CANTONESE)
-            && !defaults.contains(KeyboardScheme.ZHUYIN) && !defaults.contains(KeyboardScheme.VIETNAMESE)
-            && !defaults.contains(KeyboardScheme.TIBETAN) && !defaults.contains(KeyboardScheme.STROKE)
-            && !defaults.contains(KeyboardScheme.ZHUYIN_NINE_KEY)
-            && defaults.contains(KeyboardScheme.KOREAN));
+        check(defaults.equals(List.of(KeyboardScheme.QUANPIN, KeyboardScheme.QUANPIN_NINE_KEY, KeyboardScheme.XIAOHE,
+            KeyboardScheme.ZIRANMA, KeyboardScheme.MICROSOFT, KeyboardScheme.SHOUDAO, KeyboardScheme.WUBI,
+            KeyboardScheme.HANDWRITING)));
         check(Arrays.stream(KeyboardScheme.values()).filter(KeyboardScheme::optIn).toList().equals(List.of(
+            KeyboardScheme.JAPANESE_NINE_KEY, KeyboardScheme.JAPANESE, KeyboardScheme.KOREAN,
             KeyboardScheme.CANTONESE, KeyboardScheme.ZHUYIN, KeyboardScheme.VIETNAMESE, KeyboardScheme.TIBETAN,
             KeyboardScheme.STROKE, KeyboardScheme.ZHUYIN_NINE_KEY)));
         check(KeyboardScheme.enabledFromPreferenceIds(List.of("zhuyin_nine_key", "zhuyin", "quanpin"), FULL)
@@ -198,8 +198,46 @@ public final class KeyboardSchemeSmoke {
             Files.deleteIfExists(directory.resolve("msime-zhuyin.db"));
             Files.deleteIfExists(directory);
         }
+        resourcePacks();
         editions();
         System.out.println("Android keyboard schemes: seventeen labels, glyphs, wubi profile titles, opt-in defaults, installed dictionaries, host fallback and shared preference mappings and the per-edition narrowing passed");
+    }
+
+    /** 日语要日文词典资源包，粤拼、注音和笔画要语言词库资源包；资源目录里还带着日文词典（日文版、尚未收编的旧安装）时日文包算作已具备。 */
+    static void resourcePacks() throws Exception {
+        check(KeyboardScheme.JAPANESE.resourcePack().equals("japanese")
+            && KeyboardScheme.JAPANESE_NINE_KEY.resourcePack().equals("japanese"));
+        check(KeyboardScheme.CANTONESE.resourcePack().equals("language-dictionaries")
+            && KeyboardScheme.ZHUYIN_NINE_KEY.resourcePack().equals("language-dictionaries")
+            && KeyboardScheme.STROKE.resourcePack().equals("language-dictionaries"));
+        check(KeyboardScheme.QUANPIN.resourcePack() == null && KeyboardScheme.KOREAN.resourcePack() == null
+            && KeyboardScheme.VIETNAMESE.resourcePack() == null);
+        // 没有资源包时日语不可用，韩语、越南语照旧可用。
+        check(!KeyboardScheme.JAPANESE.installed(null, Set.of()) && !KeyboardScheme.JAPANESE.installed(""));
+        check(KeyboardScheme.KOREAN.installed(null, Set.of()));
+        check(KeyboardScheme.JAPANESE.installed(null, Set.of("japanese"))
+            && !KeyboardScheme.CANTONESE.installed(null, Set.of("japanese")));
+        check(KeyboardScheme.CANTONESE.installed("", Set.of("language-dictionaries"))
+            && KeyboardScheme.STROKE.installed(null, Set.of("language-dictionaries")));
+        check(KeyboardScheme.installedOf(List.of(KeyboardScheme.JAPANESE, KeyboardScheme.QUANPIN), "",
+            Set.of(), FULL).equals(List.of(KeyboardScheme.QUANPIN)));
+        check(KeyboardScheme.installedOf(List.of(KeyboardScheme.JAPANESE, KeyboardScheme.QUANPIN), "",
+            Set.of("japanese"), FULL).equals(List.of(KeyboardScheme.JAPANESE, KeyboardScheme.QUANPIN)));
+
+        check(KeyboardScheme.availablePacks(pack -> false, "").isEmpty());
+        check(KeyboardScheme.availablePacks(pack -> true, null)
+            .equals(Set.of("japanese", "language-dictionaries")));
+        Path resources = Files.createTempDirectory("msime-resources");
+        try {
+            String root = resources.toAbsolutePath().toString();
+            check(KeyboardScheme.availablePacks(pack -> false, root).isEmpty());
+            Files.write(resources.resolve("msime-japanese.dat"), new byte[] {1});
+            check(KeyboardScheme.availablePacks(pack -> false, root).equals(Set.of("japanese")));
+            check(KeyboardScheme.availablePacks(pack -> false, "relative/" + resources.getFileName()).isEmpty());
+        } finally {
+            Files.deleteIfExists(resources.resolve("msime-japanese.dat"));
+            Files.deleteIfExists(resources);
+        }
     }
 
     /** 五笔版和拼音版只列本版本的入口，回退也落在本版本里；手写在有中文方案的版本里都有，写进偏好的是本版本的默认方案。 */

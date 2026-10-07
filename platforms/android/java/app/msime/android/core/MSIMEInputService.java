@@ -284,6 +284,8 @@ public final class MSIMEInputService extends InputMethodService {
     java.util.List<KeyboardScheme> visibleSchemes = enabledSchemes;
     // The runtime options' `language_dictionaries` directory, read with them in onStartInput; empty when the configuration names none.
     private String languageDictionaries = "";
+    // 本机已具备的方案资源包（日文词典、语言词库），在 onStartInput 里和运行时选项一起重读：设置页下载完后，下一次进入输入框切换器就出现新语言，与 host-api 获得焦点时刷新资源包的时机一致。
+    private java.util.Set<String> resourcePacks = java.util.Set.of();
     boolean soundEnabled = true;
     boolean hapticsEnabled;
     KeyboardFeedbackPreferences.HapticStrength hapticStrength =
@@ -546,7 +548,7 @@ public final class MSIMEInputService extends InputMethodService {
         java.util.List<KeyboardScheme> enabled = KeyboardScheme.enabledFromPreferenceIds(ids, edition);
         // 切换器列出和设置 → 输入相同的方案：所有词典已安装的方案。Android 上没有启用开关，只按 `enabled` 过滤会让粤拼、注音、越南语这些默认不启用的方案在键盘上永远找不到。词典缺失的方案照旧不列，host-api 也会从它回退。
         java.util.List<KeyboardScheme> visible =
-            KeyboardScheme.installedOf(java.util.List.of(KeyboardScheme.values()), languageDictionaries, edition);
+            KeyboardScheme.installedOf(java.util.List.of(KeyboardScheme.values()), languageDictionaries, resourcePacks, edition);
         String selected = shared == null || shared.isNull("selected")
             ? null : shared.optString("selected", null);
         return new SchemeConfiguration(enabled, visible,
@@ -1012,6 +1014,7 @@ public final class MSIMEInputService extends InputMethodService {
         enabledSchemes = KeyboardScheme.enabledFromPreferenceIds(null, edition);
         visibleSchemes = enabledSchemes;
         languageDictionaries = "";
+        resourcePacks = java.util.Set.of();
         letterCase.reset();
         clearEnglishSuggestions();
         keyboardLayer = KeyboardLayout.Layer.LETTERS;
@@ -1034,6 +1037,8 @@ public final class MSIMEInputService extends InputMethodService {
                 HostOptionsPolicy.readRuntimeOptions(getFilesDir()));
             statisticsPreferences = options.optString("preferences_directory", "");
             languageDictionaries = options.optString("language_dictionaries", "");
+            resourcePacks = KeyboardScheme.availablePacks(
+                ResourcePacks.installedIds(this)::contains, options.optString("resources", ""));
             JSONObject preferences = options.optJSONObject("preferences");
             applyEditorPreferences(preferences, false);
             if (newDocument) {
@@ -3773,7 +3778,9 @@ public final class MSIMEInputService extends InputMethodService {
         return modes;
     }
 
+    /** 本地模式可用：偏好打开着，临时日语还要日文词典已在本机（随包或下载的资源包）。没有词典时 host-api 本来就把它关掉，菜单里置灰，免得点了没反应；去设置 → 输入下载。 */
     boolean localModeEnabled(LocalInputMode mode) {
+        if (mode == LocalInputMode.TEMPORARY_JAPANESE && !resourcePacks.contains(KeyboardScheme.JAPANESE_PACK)) return false;
         return localModes.optBoolean(mode.preferenceKey(), true);
     }
 

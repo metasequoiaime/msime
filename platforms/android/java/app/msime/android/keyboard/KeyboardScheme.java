@@ -113,10 +113,43 @@ public enum KeyboardScheme {
         return badge;
     }
 
-    /** 粤拼、注音（大千和 9 键）、越南语、藏文和笔画默认隐藏，用户打开后才出现；共享的 `TouchKeyboardScheme::DEFAULT_ENABLED` 同样不把它们放进从未存过列表的文档。 */
+    /** 默认只启用中文方案：日语（9 键和 26 键）、韩语、粤拼、注音（大千和 9 键）、越南语、藏文和笔画都由用户在「添加语言」里打开。日文词典和语言词库按需下载，默认不启用它们，新装用户就不会看到一个还没有词典的键盘。与共享的 `TouchKeyboardScheme::DEFAULT_ENABLED` 有意保持一致；存过列表的用户照旧按自己的列表。 */
     public boolean optIn() {
-        return this == CANTONESE || this == ZHUYIN || this == ZHUYIN_NINE_KEY || this == VIETNAMESE
+        return this == JAPANESE_NINE_KEY || this == JAPANESE || this == KOREAN
+            || this == CANTONESE || this == ZHUYIN || this == ZHUYIN_NINE_KEY || this == VIETNAMESE
             || this == TIBETAN || this == STROKE;
+    }
+
+    /** 日文词典资源包的 id，与 client-core `ResourcePack::Japanese` 一致。 */
+    public static final String JAPANESE_PACK = "japanese";
+    /** 粤拼、注音和笔画共用的语言词库资源包的 id，与 client-core `ResourcePack::LanguageDictionaries` 一致。 */
+    public static final String LANGUAGE_DICTIONARIES_PACK = "language-dictionaries";
+    /** 方案可用性要看的资源包。 */
+    private static final List<String> SCHEME_PACKS = List.of(JAPANESE_PACK, LANGUAGE_DICTIONARIES_PACK);
+    /** 随包的日文词典在资源目录里的文件名：日文版 APK 带着它，升级前的旧版也可能还留着它。 */
+    private static final String JAPANESE_DICTIONARY = "msime-japanese.dat";
+
+    /** 这个方案要的按需资源包 id：日语是日文词典，粤拼、注音和笔画是语言词库；只用共享资源的方案为 null。 */
+    public String resourcePack() {
+        if (this == JAPANESE || this == JAPANESE_NINE_KEY) return JAPANESE_PACK;
+        return languageDictionary() == null ? null : LANGUAGE_DICTIONARIES_PACK;
+    }
+
+    /**
+     * 本机已经具备的方案资源包：`installed` 说已装好的资源包，加上 `resources`（HostOptions 的资源目录）里还带着日文词典时的日文包。
+     *
+     * <p>日文版 APK 把日文词典随包放在资源目录里，从没有按需下载的旧版升级、尚未收编的安装也还留着它；这两种情况 host-api 都直接读资源目录里的那份，所以算作已具备。
+     */
+    public static Set<String> availablePacks(java.util.function.Predicate<String> installed, String resources) {
+        Set<String> packs = new LinkedHashSet<>(SCHEME_PACKS.size());
+        for (String pack : SCHEME_PACKS) {
+            if (installed.test(pack)) packs.add(pack);
+        }
+        if (resources != null && !resources.isEmpty()) {
+            java.io.File root = new java.io.File(resources);
+            if (root.isAbsolute() && new java.io.File(root, JAPANESE_DICTIONARY).isFile()) packs.add(JAPANESE_PACK);
+        }
+        return Set.copyOf(packs);
     }
 
     /** The file this scheme reads from the HostOptions `language_dictionaries` directory, or null for a scheme that needs only the shared resources. */
@@ -127,21 +160,39 @@ public enum KeyboardScheme {
         return null;
     }
 
-    /** Whether this scheme can run with the HostOptions `language_dictionaries` directory `directory`: without its dictionary host-api falls back from Cantonese, Zhuyin or Stroke, so offering the scheme would offer a keyboard that never takes effect. */
+    /** Whether this scheme can run with the HostOptions `language_dictionaries` directory `directory` and no resource pack installed; see {@link #installed(String, Set)}. */
     public boolean installed(String directory) {
+        return installed(directory, Set.of());
+    }
+
+    /**
+     * 这个方案能不能跑：不需要资源包的方案总能跑；需要的，`packs`（{@link #availablePacks} 的结果）里有它的资源包时能跑；粤拼、注音和笔画的词典在 HostOptions 的 `language_dictionaries` 目录 `directory` 里随包带着时也能跑。
+     *
+     * <p>词典不在时 host-api 会从粤拼、注音和笔画回退，日语只出假名，提供这个方案就等于提供一个不起作用的键盘。
+     */
+    public boolean installed(String directory, Set<String> packs) {
+        String pack = resourcePack();
+        if (pack == null) return true;
+        if (packs != null && packs.contains(pack)) return true;
         String dictionary = languageDictionary();
-        if (dictionary == null) return true;
+        if (dictionary == null) return false;
         if (directory == null || directory.isEmpty()) return false;
         java.io.File root = new java.io.File(directory);
         return root.isAbsolute() && new java.io.File(root, dictionary).isFile();
     }
 
-    /** `enabled` 里本版本提供、词典也已装好的入口；一个都不剩时与没存过列表一样退回 {@link #fallback}。 */
+    /** {@link #installedOf(List, String, Set, AppEdition)} with no resource pack installed. */
     public static List<KeyboardScheme> installedOf(
             List<KeyboardScheme> enabled, String directory, AppEdition edition) {
+        return installedOf(enabled, directory, Set.of(), edition);
+    }
+
+    /** `enabled` 里本版本提供、词典也已装好的入口；一个都不剩时与没存过列表一样退回 {@link #fallback}。 */
+    public static List<KeyboardScheme> installedOf(
+            List<KeyboardScheme> enabled, String directory, Set<String> packs, AppEdition edition) {
         List<KeyboardScheme> installed = new ArrayList<>(enabled.size());
         for (KeyboardScheme candidate : enabled) {
-            if (candidate.offeredBy(edition) && candidate.installed(directory)) installed.add(candidate);
+            if (candidate.offeredBy(edition) && candidate.installed(directory, packs)) installed.add(candidate);
         }
         return installed.isEmpty() ? List.of(fallback(edition)) : List.copyOf(installed);
     }

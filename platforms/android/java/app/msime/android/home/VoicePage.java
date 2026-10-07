@@ -6,6 +6,9 @@ import android.widget.LinearLayout;
 import androidx.annotation.Nullable;
 import app.msime.android.AndroidLocalSettings;
 import app.msime.android.DoubaoAsrPolicy;
+import app.msime.android.NativeClient;
+import app.msime.android.ResourcePackService;
+import app.msime.android.ResourcePacks;
 import app.msime.android.VoiceConfiguration;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import org.json.JSONObject;
@@ -14,6 +17,8 @@ import org.json.JSONObject;
  * 语音输入页：识别语言、自动添加标点、离线识别、启动方式，以及隐私组的「上传语音以改进识别」。
  *
  * <p>键盘读同一批存储：语言是共享偏好的 `voice_input.language`（普通话 `zh-cn`、粤语 `yue`、英语 `en`、普通话 + 英语 `auto`）；自动标点绑定已有的 `voice_input.doubao_enable_punc`，只有豆包识别支持，其他识别器下置灰并写明原因；离线识别只有 Android 有，在 {@link AndroidLocalSettings} 的 `platform.android.voice_offline_fallback`；启动方式没有自己的字段，由本地设置的长按空格（`platform.android.space_voice`）和共享偏好的 `touch_voice_shortcut` 联合派生，选择时两个一起写。
+ *
+ * <p>离线识别要用的语音运行库（libonnxruntime 与 libsherpa-onnx-c-api）在 full 版里不随安装包，是按需下载的资源包 `voice-runtime`：打开离线识别时还没有运行库就经 {@link ResourcePackService} 下载（按流量计费的网络先确认），开关下面显示下载状态；安装包自带运行库时不需要它。
  *
  * <p>「上传语音以改进识别」（本地设置的 `platform.android.voice_contribute_audio`，只在本机、不同步）默认关闭；每次从关切到开都先弹确认框说明上传什么、保存多久，用户确认后才写（P19）。
  */
@@ -25,14 +30,28 @@ public final class VoicePage extends DetailPage {
     private static final int TRIGGER_TOOLBAR = 1;
     private static final int TRIGGER_NONE = 2;
 
-    /** 页面渲染时读到的偏好与识别器。 */
-    private record State(JSONObject preferences, AndroidLocalSettings.Snapshot local, boolean punctuationSupported) {}
+    /**
+     * 页面渲染时读到的偏好与识别器。
+     *
+     * @param runtimeReady 本地语音运行库已可用：安装包自带，或 voice-runtime 资源包已装好
+     * @param runtimePack 共享层列出的 voice-runtime 资源包（状态和下载大小），读不出来时为 null
+     */
+    private record State(JSONObject preferences, AndroidLocalSettings.Snapshot local, boolean punctuationSupported,
+            boolean runtimeReady, @Nullable ResourcePacks.Pack runtimePack) {}
 
     @Nullable private LinearLayout column;
     @Nullable private GroupCard.Row contributeRow;
+    @Nullable private State lastState;
+    /** 运行库下载进度变了就重画；下载结束时重读一遍安装状态。 */
+    private final ResourcePackService.Listener packListener = (pack, finished) -> {
+        if (column == null || !ResourcePacks.VOICE_RUNTIME.equals(pack)) return;
+        if (finished) reload();
+        else if (lastState != null) render(lastState);
+    };
 
     @Override protected void buildContent(LinearLayout column, Bundle args) {
         this.column = column;
+        ResourcePackService.addListener(packListener);
         reload();
     }
 
@@ -41,8 +60,10 @@ public final class VoicePage extends DetailPage {
     }
 
     @Override public void onDestroyView() {
+        ResourcePackService.removeListener(packListener);
         column = null;
         contributeRow = null;
+        lastState = null;
         super.onDestroyView();
     }
 
@@ -55,13 +76,25 @@ public final class VoicePage extends DetailPage {
         JSONObject preferences = snapshot == null ? null : snapshot.optJSONObject("preferences");
         if (preferences == null) return null;
         VoiceConfiguration configuration = VoiceConfiguration.read(HostStore.directory(context), "settings");
+        ResourcePacks.Pack runtime = ResourcePacks.pack(context.getFilesDir(), ResourcePacks.VOICE_RUNTIME);
+        boolean runtimeReady = (runtime != null && runtime.installed()) || bundledRuntime();
         return new State(preferences, AndroidLocalSettings.load(context),
-            DoubaoAsrPolicy.PROVIDER.equals(configuration.provider()));
+            DoubaoAsrPolicy.PROVIDER.equals(configuration.provider()), runtimeReady, runtime);
+    }
+
+    /** 安装包自带语音运行库：按名字能载入。没带时载入失败，按需下载的资源包补上它。 */
+    private static boolean bundledRuntime() {
+        try {
+            return NativeClient.localSpeechAvailable();
+        } catch (LinkageError error) {
+            return false;
+        }
     }
 
     private void render(@Nullable State state) {
         LinearLayout target = column;
         if (target == null) return;
+        lastState = state;
         target.removeAllViews();
         if (state == null) {
             GroupCard.add(target, null).note("读取设置失败。请先完成首次设置，或稍后返回重试。");
@@ -84,9 +117,14 @@ public final class VoicePage extends DetailPage {
             punctuation, checked -> saveVoice("doubao_enable_punc", checked));
         punctuationRow.setEnabled(state.punctuationSupported());
 
-        recognition.toggle("离线识别", "无网络时使用本地模型，准确率略低。需要先安装本地语音模型",
-            local.bool(AndroidLocalSettings.VOICE_OFFLINE_FALLBACK),
-            checked -> saveLocal(AndroidLocalSettings.VOICE_OFFLINE_FALLBACK, checked));
+        boolean offline = local.bool(AndroidLocalSettings.VOICE_OFFLINE_FALLBACK);
+        recognition.toggle("离线识别", "无网络时使用本地模型，准确率略低。需要先安装本地语音模型", offline,
+            checked -> KeyboardSheets.saveLocal(this, AndroidLocalSettings.VOICE_OFFLINE_FALLBACK, checked, () -> {
+                // 打开离线识别时先备好语音运行库，本地模型才跑得起来。
+                if (checked && !state.runtimeReady()) requestRuntime(state);
+                reload();
+            }, this::reload));
+        if (offline && !state.runtimeReady()) runtimeRow(recognition, state);
 
         int trigger = trigger(local.bool(AndroidLocalSettings.SPACE_VOICE),
             preferences.optBoolean("touch_voice_shortcut", false));
@@ -155,6 +193,31 @@ public final class VoicePage extends DetailPage {
             }
             voice.put(member, value);
         });
+    }
+
+    /** 语音运行库的状态行：没下载时「下载」，下载中「取消」，校验中按钮置灰，失败「重试」。 */
+    private void runtimeRow(GroupCard group, State state) {
+        String pack = ResourcePacks.VOICE_RUNTIME;
+        ResourcePackService.Status status = ResourcePackService.status(pack);
+        String running = ResourcePackService.describe(status);
+        long size = state.runtimePack() == null ? 0 : state.runtimePack().size();
+        String subtitle = running != null ? running
+            : "离线识别要用的运行库" + (size > 0 ? " · 需下载 " + ResourcePackService.size(size) : " · 需下载");
+        if (status != null && status.phase() == ResourcePackService.Phase.VERIFYING) {
+            group.button("本地语音运行库", subtitle, "校验中", () -> {}).setEnabled(false);
+            return;
+        }
+        boolean downloading = status != null && status.running();
+        group.button("本地语音运行库", subtitle, downloading ? "取消" : status == null ? "下载" : "重试", () -> {
+            if (downloading) ResourcePackService.cancel(pack);
+            else requestRuntime(state);
+        });
+    }
+
+    private void requestRuntime(State state) {
+        if (!isAdded()) return;
+        long size = state.runtimePack() == null ? 0 : state.runtimePack().size();
+        ResourcePackService.request(requireContext(), ResourcePacks.VOICE_RUNTIME, size);
     }
 
     private void saveLocal(String key, Object value) {
