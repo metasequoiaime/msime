@@ -3163,7 +3163,7 @@ public final class MSIMEInputService extends InputMethodService {
             boolean symbols = keyboardLayer == KeyboardLayout.Layer.SYMBOLS;
             boolean enabled = symbols ? japaneseNineKeyActive() : JapaneseVariantPolicy.enabled(
                 japaneseNineKeyActive(), false, composing);
-            japaneseVariantsButton.setEnabled(enabled);
+            ViewPolicy.setEnabled(japaneseVariantsButton, enabled);
             japaneseVariantsButton.setContentDescription(
                 symbols ? "括号；长按选择其他括号"
                     : JapaneseVariantPolicy.accessibilityLabel(enabled));
