@@ -1,0 +1,48 @@
+# Depot CI Migration
+# Source: .github/workflows/quality.yml
+#
+# Changes made:
+# - Changed GitHub runs-on labels to their Depot equivalents
+
+name: Repository quality
+# Called by CI so release-please's workflow_dispatch receives these checks too.
+on:
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  workflows:
+    name: Workflow validation
+    runs-on: depot-ubuntu-24.04 # was: ubuntu-24.04. Mapped standard GitHub runner to Depot equivalent.
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26'
+          cache: false
+      - name: Install actionlint
+        run: go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+      - name: Validate workflows and embedded shell scripts
+        env:
+          # Ignore style suggestions, but fail on shell correctness warnings and errors.
+          SHELLCHECK_OPTS: --severity=warning
+        run: actionlint -color
+  dependencies:
+    name: Dependency review
+    runs-on: depot-ubuntu-24.04 # was: ubuntu-24.04. Mapped standard GitHub runner to Depot equivalent.
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # This job must not skip. It is one of the required status checks on main and develop, and a required check that reports "skipped" blocks a merge instead of passing it. Guarding it on the pull_request event leaves the release pull request unmergeable by its own automation: the release workflow dispatches ci.yml on the release branch, so this job sees workflow_dispatch and skips, and the merge is refused with "the base branch policy prohibits the merge" after everything else comes back green. MSIME-Windows hit exactly that and fixed it the same way.
+      #
+      # A pull_request event supplies both refs on its own. Every other trigger has to be told what to compare, and comparing the default branch against the checked-out commit is the same question the pull request asks.
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: high
+          base-ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.repository.default_branch }}
+          head-ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}

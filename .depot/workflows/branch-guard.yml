@@ -1,0 +1,50 @@
+# Depot CI Migration
+# Source: .github/workflows/branch-guard.yml
+#
+# Changes made:
+# - Changed GitHub runs-on labels to their Depot equivalents
+
+name: Branch guard
+
+# main 是发布分支，只在两种情况下前进：从 develop 切出的 release/<版本号> 分支发版，或 release-please 在发版之上提交它生成的版本提交。develop 本身不能直接合入 main（见 AGENTS.md 的「发版」），其余改动都合入 develop。head 还必须是本仓库的分支：fork 里的分支也可以叫 release/ 开头。
+#
+# This is a check rather than a ruleset rule because GitHub rulesets can protect a base branch but
+# cannot say which head branches may target it. Add it to main's required status checks so a pull
+# request opened against the wrong base cannot be merged.
+
+on:
+  pull_request:
+    # `edited` is not in the default set, and retargeting a pull request's base branch is an edit
+    # rather than a synchronize. Without it a pull request opened against develop and then pointed at
+    # main never re-runs this check, which is exactly the move the check exists to catch.
+    types: [opened, synchronize, reopened, edited]
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  base:
+    name: Base branch
+    runs-on: depot-ubuntu-24.04 # was: ubuntu-24.04. Mapped standard GitHub runner to Depot equivalent.
+    timeout-minutes: 5
+    steps:
+      - name: Check the head branch may target main
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+        run: |
+          if [ "$HEAD_REPO" != "$GITHUB_REPOSITORY" ]; then
+            echo "::error::Pull requests into main must come from a branch in $GITHUB_REPOSITORY, not '$HEAD_REPO'. Retarget this pull request at develop."
+            exit 1
+          fi
+          case "$HEAD_REF" in
+            release/* | release-please--*)
+              echo "$HEAD_REF may target main."
+              ;;
+            *)
+              echo "::error::'$HEAD_REF' 不能合入 main。日常改动合入 develop；发版从 develop 新建 release/<版本号> 分支，再由它向 main 开 PR。"
+              exit 1
+              ;;
+          esac

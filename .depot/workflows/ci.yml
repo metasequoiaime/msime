@@ -1,0 +1,47 @@
+# Depot CI Migration
+# Source: .github/workflows/ci.yml
+#
+# Changes made:
+# - Rewrote .github/ path references to .depot/
+
+name: Core CI
+
+# 平台无关的那两样:格式与 workflow 校验、以及只读文件做断言的契约套件。macOS 与 iOS 各自搬去了 ci-macos.yml 和 ci-ios.yml —— 一个 iOS 改动没有理由把 macOS 的编译器叫起来。
+
+on:
+  push:
+    branches:
+      - develop
+      - main
+    # Prose that no build step compiles. ci-docs.yml answers for the required checks on exactly this list -- the same list the two platform workflows ignore -- so a documentation-only pull request stays mergeable, and it calls quality.yml and contracts.yml as well, both of which run on Linux without a build.
+    #
+    # LICENSE and THIRD_PARTY_NOTICES.txt stay off the list on purpose: CMake installs them into the bundle, so they are build inputs rather than prose. A new documentation file is not ignored until someone adds it here, which fails toward running CI.
+    paths-ignore:
+      - CHANGELOG.md
+      - PRIVACY.md
+      - README.md
+  pull_request:
+    paths-ignore:
+      - CHANGELOG.md
+      - PRIVACY.md
+      - README.md
+  workflow_dispatch:
+
+  merge_group:
+
+concurrency:
+  # Keyed by event as well as branch, for the same reason ci-macos.yml is: a pull_request run on the same branch must not cancel a dispatched one. Feature branches only ever get the pull_request run (push is restricted to develop and main), so this still collapses superseded runs of the same kind.
+  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    uses: ./.depot/workflows/quality.yml
+
+  # Minutes into the run rather than after the platform builds: the text contracts need no toolchain, so a broken contract is reported before any compile finishes. verify-local.sh runs the same scripts/run-checks.sh locally, where the checks that skip here for want of a tool or the reference checkout can run.
+  contracts:
+    uses: ./.depot/workflows/contracts.yml
+

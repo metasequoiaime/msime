@@ -1,0 +1,34 @@
+# Depot CI Migration
+# Source: .github/workflows/contracts.yml
+#
+# Changes made:
+# - Changed GitHub runs-on labels to their Depot equivalents
+
+name: Repository contracts
+
+# The text contracts read files in the tree and assert on their content - a README claim against the features it promises, the Info.plist keys, the release workflow's steps and ordering, the packaging scripts. None of that needs Apple tooling, yet ctest only reaches it after the macOS build, so a stale claim was reported around forty minutes into a pull request and cost a macOS runner to say so. This job is where those checks belong.
+#
+# It runs scripts/run-checks.sh: every scripts/test-*.py the script discovers by file name, plus the registry phase that keeps its special_checks list honest - the same code verify-local.sh sources, so the job and a local run cannot drift apart. The special checks are left to their owners (verify-local.sh for the Windows cross-compile and native-run pair, ci-platforms.yml for the HarmonyOS settings bundle, check-host.sh for the Android one). This replaces a guard for platforms/macos/tests/ReleaseConfigurationTests.py, a file that came from MSIME-Apple and was removed in the platform split, so that step reported "skipped" on every run.
+#
+# Called by both ci.yml and ci-docs.yml so it runs on every pull request, and so a change to the documents it asserts on can skip the matrix without losing the assertions.
+
+on:
+  workflow_call:
+  # Lets the text contracts be re-run on their own, without dispatching the full matrix.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    name: Repository contracts
+    runs-on: depot-ubuntu-24.04 # was: ubuntu-24.04. Mapped standard GitHub runner to Depot equivalent.
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Nothing is installed with apt: apt-get update on a runner once spent 10m22s refreshing indexes for a step whose tests then ran in 0.042s, more than this whole job is meant to cost. A discovered check whose tool the image lacks (ripgrep for android-preference-keys) or whose input is absent (the MSIME-Windows reference checkout) prints "skipped" and passes, as CONTRIBUTING.md requires of every check; verify-local.sh still runs them where the tool or input exists.
+      - name: Check the repository contracts
+        run: bash scripts/run-checks.sh

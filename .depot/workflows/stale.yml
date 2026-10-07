@@ -1,0 +1,46 @@
+# Depot CI Migration
+# Source: .github/workflows/stale.yml
+#
+# Changes made:
+# - Changed GitHub runs-on labels to their Depot equivalents
+
+name: Stale
+
+# Nudges issues and pull requests that have gone quiet, and closes them only after a further two weeks without any reply. Anything a maintainer has claimed stays open: assigned items, drafts, security reports and anything labelled pinned are exempt, and a single comment resets the clock.
+
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: stale
+  cancel-in-progress: false
+
+jobs:
+  stale:
+    name: Mark and close stale items
+    runs-on: depot-ubuntu-24.04 # was: ubuntu-24.04. Mapped standard GitHub runner to Depot equivalent.
+    timeout-minutes: 10
+    steps:
+      - uses: actions/stale@4391f3da665fdf50b6810c1a66712fb9ba21aa93 # v11.0.0
+        with:
+          days-before-issue-stale: 60
+          days-before-pr-stale: 30
+          days-before-close: 14
+          stale-issue-label: stale
+          stale-pr-label: stale
+          exempt-issue-labels: pinned,security,accessibility,help wanted,good first issue
+          # dependencies 必须在列:.github/dependabot.yml 给每个 bump 都打这个标签,而 action 的 SHA pin 没人手工更新 —— 一个 30 天没人看的 bump 被自动关掉,等于把这份配置要交付的东西悄悄扔了。
+          exempt-pr-labels: pinned,security,needs-review,dependencies
+          exempt-all-assignees: true
+          exempt-draft-pr: true
+          close-issue-reason: not_planned
+          stale-issue-message: '这个 issue 已经 60 天没有动静了。如果问题仍然存在，请回复一下最新的版本和复现情况；14 天内没有回复会自动关闭，之后随时可以重新打开。'
+          close-issue-message: '由于长时间没有新信息，先关闭这个 issue。问题仍然存在的话，欢迎附上新的复现信息重新打开。'
+          stale-pr-message: '这个 PR 已经 30 天没有更新了。如果还在进行，请推送新提交或回复一下；14 天内没有动静会自动关闭，分支不会被删除。'
+          close-pr-message: '由于长时间没有更新，先关闭这个 PR，分支保留。需要继续时重新打开即可。'
