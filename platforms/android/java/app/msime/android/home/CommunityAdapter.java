@@ -259,7 +259,7 @@ public final class CommunityAdapter extends RecyclerView.Adapter<CommunityAdapte
         // 「已添加」是终态：没有底色、正文色、不响应；皮肤拿到之后的「使用」仍是可点的 tonal 按钮。
         boolean enabled = action == Action.AVAILABLE || (skin && action == Action.DONE);
         boolean filled = action != Action.DONE || skin;
-        pill.setBackground(filled ? Ui.pillRipple(context, Ui.accentSoft(context)) : null);
+        ViewPolicy.setBackground(pill, filled ? Ui.pillRipple(context, Ui.accentSoft(context)) : null);
         ViewPolicy.setTextColor(pill, filled ? Ui.accent(context) : Ui.text(context));
         ViewPolicy.setEnabled(pill, enabled);
         ViewPolicy.setInteractive(pill, enabled);
