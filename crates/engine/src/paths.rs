@@ -126,7 +126,8 @@ fn sqlite_path_no_follow_with_parent_policy(
 ) -> io::Result<PathBuf> {
     #[cfg(all(target_family = "wasm", target_os = "unknown"))]
     {
-        return Ok(path.to_owned());
+        let _ = reject_parent_symlinks;
+        Ok(path.to_owned())
     }
     #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     {
