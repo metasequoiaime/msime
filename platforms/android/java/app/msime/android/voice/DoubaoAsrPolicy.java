@@ -40,7 +40,7 @@ public final class DoubaoAsrPolicy {
     }
 
     static Boolean strictBoolean(Object value) {
-        return value instanceof Boolean ? (Boolean) value : null;
+        return JsonPolicy.strictBoolean(value);
     }
 
     static boolean validEndpoint(String endpoint) {

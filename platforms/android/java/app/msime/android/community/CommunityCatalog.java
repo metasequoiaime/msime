@@ -385,7 +385,7 @@ public final class CommunityCatalog {
     }
 
     static Boolean strictBoolean(Object value) {
-        return value instanceof Boolean ? (Boolean) value : null;
+        return JsonPolicy.strictBoolean(value);
     }
 
     /** Pagination controls must be JSON booleans; malformed values mean there is no next page. */

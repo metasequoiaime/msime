@@ -147,7 +147,7 @@ public final class VoiceConfiguration {
 
     /** Shared voice configuration flags must remain JSON booleans; reject coercible strings. */
     static Boolean strictBoolean(Object value) {
-        return value instanceof Boolean ? (Boolean) value : null;
+        return JsonPolicy.strictBoolean(value);
     }
 
     /** Shared voice response text fields must remain JSON strings; malformed values become empty. */

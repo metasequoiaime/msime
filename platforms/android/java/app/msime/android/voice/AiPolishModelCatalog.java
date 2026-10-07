@@ -28,7 +28,7 @@ public final class AiPolishModelCatalog {
     }
 
     static Boolean strictBoolean(Object value) {
-        return value instanceof Boolean ? (Boolean) value : null;
+        return JsonPolicy.strictBoolean(value);
     }
 
     public static List<String> fetch(String endpoint, String token) throws AiPolishClient.Failure {

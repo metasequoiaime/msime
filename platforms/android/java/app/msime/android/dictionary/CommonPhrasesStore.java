@@ -374,7 +374,7 @@ public final class CommonPhrasesStore {
 
     /** Native response status must remain a JSON boolean; reject org.json string coercion. */
     static Boolean strictBoolean(Object value) {
-        return value instanceof Boolean ? (Boolean) value : null;
+        return JsonPolicy.strictBoolean(value);
     }
 
     /** Persisted response fields must retain their JSON string type. */

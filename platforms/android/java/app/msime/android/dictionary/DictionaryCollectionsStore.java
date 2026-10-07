@@ -532,7 +532,7 @@ public final class DictionaryCollectionsStore {
 
     /** JSON response flags must remain booleans; org.json otherwise coerces strings. */
     static Boolean strictBoolean(Object value) {
-        return value instanceof Boolean ? (Boolean) value : null;
+        return JsonPolicy.strictBoolean(value);
     }
 
     public static String strictString(Object value) {

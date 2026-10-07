@@ -127,7 +127,7 @@ public final class LocalAsrPolicy {
 
     /** Native bridge response flags must remain JSON booleans; reject coercible strings. */
     static Boolean strictBoolean(Object value) {
-        return value instanceof Boolean ? (Boolean) value : null;
+        return JsonPolicy.strictBoolean(value);
     }
 
     /**
