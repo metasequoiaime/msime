@@ -286,9 +286,9 @@ public final class GroupCard {
         /** 禁用的行仍然显示，只是变淡且不响应。 */
         public void setEnabled(boolean enabled) {
             Ui.setEnabledLook(view, enabled);
-            if (toggle != null) toggle.setEnabled(enabled);
-            if (slider != null) slider.setEnabled(enabled);
-            if (button != null) button.setEnabled(enabled);
+            if (toggle != null) ViewPolicy.setEnabled(toggle, enabled);
+            if (slider != null) ViewPolicy.setEnabled(slider, enabled);
+            if (button != null) ViewPolicy.setEnabled(button, enabled);
         }
 
         public void setVisible(boolean visible) {
