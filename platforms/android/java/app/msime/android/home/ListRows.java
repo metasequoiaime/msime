@@ -30,7 +30,7 @@ final class ListRows {
         TextView detail = row.findViewById(R.id.row_value);
         detail.setText(value);
         Ui.setVisibilityForText(detail, value);
-        Ui.setEnabledLook(row, action != null, 0.5f);
+        ViewPolicy.setEnabledWithAlpha(row, action != null, 0.5f);
         row.setOnClickListener(action == null ? null : ignored -> action.run());
         parent.addView(row);
         return row;
