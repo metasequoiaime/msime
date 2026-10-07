@@ -264,29 +264,42 @@ pub fn runner_up_order<'a, R: OrderRowSource<'a> + ?Sized>(
     } else {
         1
     };
-    // Every lattice reading of the full key, in list order. The first stays where it is, the next `keep - 1` are seated right behind it, and the rest go to the back in their existing order.
-    let readings: Vec<usize> = (0..count)
-        .filter(|&index| {
-            let row = rows.get(index);
-            row.source == LATTICE_SOURCE && row.text.chars().count() == width
-        })
-        .collect();
-    let (kept, demoted) = readings.split_at(keep.min(readings.len()));
-    let mut is_reading = vec![false; count];
-    for &index in &readings {
-        is_reading[index] = true;
-    }
+    // Every lattice reading of the full key, in list order. The first stays where it is, the next `keep - 1` are seated right behind it, and the rest go to the back in their existing order. `keep` is at most three, so rescanning the rows costs less than allocating separate reading and membership arrays.
+    let is_reading = |index: usize| {
+        let row = rows.get(index);
+        row.source == LATTICE_SOURCE && row.text.chars().count() == width
+    };
     let mut order = Vec::with_capacity(count);
-    for (index, &reading) in is_reading.iter().enumerate() {
-        if index != kept[0] && reading {
+    let mut reading_seen = 0;
+    for index in 0..count {
+        if !is_reading(index) {
+            order.push(index);
             continue;
         }
-        order.push(index);
-        if index == kept[0] {
-            order.extend_from_slice(&kept[1..]);
+        if reading_seen == 0 {
+            order.push(index);
+            let mut kept = 1;
+            for next in index + 1..count {
+                if is_reading(next) {
+                    if kept == keep {
+                        break;
+                    }
+                    order.push(next);
+                    kept += 1;
+                }
+            }
+        }
+        reading_seen += 1;
+    }
+    reading_seen = 0;
+    for index in 0..count {
+        if is_reading(index) {
+            if reading_seen >= keep {
+                order.push(index);
+            }
+            reading_seen += 1;
         }
     }
-    order.extend_from_slice(demoted);
     debug_assert_eq!(order.len(), count);
     if order.iter().enumerate().all(|(seat, index)| seat == *index) {
         return None;
