@@ -21,6 +21,7 @@ import app.msime.android.DeviceDataApi;
 import app.msime.android.R;
 import app.msime.android.SyncSignals;
 import app.msime.android.SyncSwitch;
+import app.msime.android.ViewPolicy;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
