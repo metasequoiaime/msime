@@ -125,7 +125,7 @@ public final class KeyboardOptionsPage extends DetailPage {
         String swipeDirection = settings.choice(AndroidLocalSettings.SWIPE_SYMBOLS_DIRECTION);
         GroupCard.Row directionRow = gestures.nav("滑动方向", null,
             swipeDirectionLabel(swipeDirection), () -> pickSwipeDirection(swipeDirection));
-        ViewPolicy.setEnabled(directionRow, swipeSymbols);
+        directionRow.setEnabled(swipeSymbols);
         gestures.toggle("空格键滑动移动光标", null, settings.bool(AndroidLocalSettings.SPACE_CURSOR),
             checked -> saveLocal(AndroidLocalSettings.SPACE_CURSOR, checked));
         gestures.toggle("长按空格语音输入", null, settings.bool(AndroidLocalSettings.SPACE_VOICE),
@@ -141,7 +141,7 @@ public final class KeyboardOptionsPage extends DetailPage {
             String member = button[0];
             GroupCard.Row row = bar.toggle(button[1], null, toolbarButton(toolbar, settings, member),
                 checked -> saveToolbar(member, checked));
-            ViewPolicy.setEnabled(row, !hidden);
+            row.setEnabled(!hidden);
         }
 
         GroupCard more = GroupCard.add(target, "更多");
