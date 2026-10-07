@@ -6677,7 +6677,7 @@ public final class MSIMEInputService extends InputMethodService {
             String currentLocalMode = view == null ? "none" : view.optString("local_mode", "none");
             boolean visible = MicrosoftShuangpinKeyPolicy.visible(
                 dedicatedEnglish, selectedScheme, currentLocalMode);
-            microsoftFinalKey.setVisibility(visible ? View.VISIBLE : View.GONE);
+            ViewPolicy.setVisible(microsoftFinalKey, visible);
             microsoftFinalKey.setEnabled(visible && session != 0);
             microsoftFinalKey.setContentDescription("微软双拼 ing");
         }
