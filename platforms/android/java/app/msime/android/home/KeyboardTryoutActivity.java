@@ -85,7 +85,7 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
             return windowInsets;
         });
 
-        findViewById(R.id.tryout_back).setOnClickListener(ignored -> finish());
+        ViewPolicy.bindClick(findViewById(R.id.tryout_back), this::finish);
 
         EditText field = findViewById(R.id.tryout_field);
         MaterialButton dismiss = findViewById(R.id.tryout_dismiss);
