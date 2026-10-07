@@ -1,6 +1,7 @@
 package app.msime.android.home;
 
 import app.msime.android.TextPolicy;
+import app.msime.android.ViewPolicy;
 
 import android.content.Context;
 import android.os.Bundle;
@@ -457,7 +458,7 @@ public final class CommunityFragment extends Fragment {
         detailField.setCounterEnabled(true);
         detailField.setCounterMaxLength(CommunityRequest.MAX_REPORT_DETAIL);
         TextInputEditText detail = new TextInputEditText(detailField.getContext());
-        detail.setMaxLines(4);
+        ViewPolicy.setMaxLines(detail, 4);
         detailField.addView(detail);
         form.addView(detailField);
 

@@ -647,7 +647,7 @@ final class ImePanels {
                     ViewPolicy.setActiveAlpha(choice, !busy, .45f);
                     ViewPolicy.clearMinimumSize(choice);
                     KeyboardGeometry.setHorizontalPaddingDp(choice, s, 4);
-                    choice.setMaxLines(1);
+                    ViewPolicy.setMaxLines(choice, 1);
                     ViewPolicy.setAutoSizeSp(choice, 10, 14, 1);
                     choice.setLayoutParams(KeyboardGeometry.weightedMatchParentParams(1));
                 }
