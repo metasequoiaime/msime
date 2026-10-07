@@ -6571,7 +6571,7 @@ public final class MSIMEInputService extends InputMethodService {
             hanjaButton.setText(offersZhuyinList ? "選" : "漢");
             ViewPolicy.setVisible(hanjaButton, offersHanja || offersZhuyinList);
             hanjaButton.setEnabled(offersHanja || offersZhuyinList);
-            hanjaButton.setSelected(listOpen);
+            ViewPolicy.setSelected(hanjaButton, listOpen);
             hanjaButton.setContentDescription(offersZhuyinList
                 ? (listOpen ? "关闭候选列表" : "打开候选列表")
                 : (listOpen ? "关闭汉字列表" : "转换为汉字"));
