@@ -295,6 +295,11 @@ public final class ViewPolicy {
         view.setSingleLine(singleLine);
     }
 
+    /** Set additional line spacing and multiplier on a text view. */
+    public static void setLineSpacing(TextView view, float add, float multiplier) {
+        view.setLineSpacing(add, multiplier);
+    }
+
     /** Limit a text view to a maximum number of lines without changing truncation policy. */
     public static void setMaxLines(TextView view, int maxLines) {
         view.setMaxLines(maxLines);
