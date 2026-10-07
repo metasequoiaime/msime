@@ -18,17 +18,10 @@ pub(crate) fn validate_online_candidate_batch(words: &[String], source: Candidat
     if words.is_empty() {
         return false;
     }
-    let mut seen = HashSet::with_capacity(words.len().min(quota));
-    for word in words {
-        if !is_acceptable_online_word(word) {
-            return false;
-        }
-        if seen.len() == quota && !seen.contains(word.as_str()) {
-            return false;
-        }
-        seen.insert(word.as_str());
+    if words.iter().any(|word| !is_acceptable_online_word(word)) {
+        return false;
     }
-    true
+    unique_online_words(words, quota).is_some()
 }
 
 /// Validate, deduplicate, enforce the quota, drop the source's previous rows and insert at 1 (cloud) or 2 (AI), skipping words already listed; after a cloud insert the AI rows move as a block to index 2. False leaves `list` untouched.
@@ -46,22 +39,13 @@ pub fn replace_online_candidate_batch(
     if words.is_empty() {
         return false;
     }
-    let mut seen = HashSet::with_capacity(words.len().min(quota));
-    // 在线候选的协议配额最多为 10 个，固定数组可避免每批次的临时堆分配。
-    let mut unique: [Option<&str>; AI_QUOTA] = [None; AI_QUOTA];
-    let mut unique_count = 0;
-    for word in words {
-        if !is_acceptable_online_word(word) {
-            return false;
-        }
-        if seen.insert(word.as_str()) {
-            if unique_count == quota {
-                return false;
-            }
-            unique[unique_count] = Some(word.as_str());
-            unique_count += 1;
-        }
+    if words.iter().any(|word| !is_acceptable_online_word(word)) {
+        return false;
     }
+    // 在线候选的协议配额最多为 10 个，固定数组可避免每批次的临时堆分配。
+    let Some((mut unique, unique_count)) = unique_online_words(words, quota) else {
+        return false;
+    };
     // Providers repeat candidates, so the quota counts distinct words: a repeat must neither reject a valid batch nor use up a seat (online_candidate_batch.h:32-33).
 
     list.retain(|item| item.source != source);
@@ -95,6 +79,29 @@ pub fn replace_online_candidate_batch(
     true
 }
 
+fn unique_online_words(
+    words: &[String],
+    quota: usize,
+) -> Option<([Option<&str>; AI_QUOTA], usize)> {
+    let mut unique = [None; AI_QUOTA];
+    let mut count = 0;
+    for word in words {
+        if unique[..count]
+            .iter()
+            .flatten()
+            .any(|candidate| *candidate == word.as_str())
+        {
+            continue;
+        }
+        if count == quota {
+            return None;
+        }
+        unique[count] = Some(word.as_str());
+        count += 1;
+    }
+    Some((unique, count))
+}
+
 /// Non-empty, at most 4096 bytes, no C0 control byte and no DEL.
 fn is_acceptable_online_word(word: &str) -> bool {
     !word.is_empty()
@@ -126,6 +133,15 @@ mod tests {
             row("尼", CandidateSource::Database),
             row("泥", CandidateSource::Database),
         ]
+    }
+
+    #[test]
+    fn unique_online_words_keep_order_without_heap_tracking() {
+        let input = words(&["甲", "乙", "甲", "丙"]);
+        let (unique, count) = unique_online_words(&input, 3).unwrap();
+        assert_eq!(count, 3);
+        assert_eq!(unique[..count], [Some("甲"), Some("乙"), Some("丙")]);
+        assert!(unique_online_words(&words(&["甲", "乙", "丙", "丁"]), 3).is_none());
     }
 
     #[test]
