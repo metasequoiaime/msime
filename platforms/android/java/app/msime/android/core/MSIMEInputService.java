@@ -6767,9 +6767,11 @@ public final class MSIMEInputService extends InputMethodService {
             && nineKeySpellingScroll.getVisibility() == View.VISIBLE
             && displayedTouchLayout(view) == KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT;
         int candidateScrollShown = zhuyinSpellingsShown ? View.INVISIBLE : View.VISIBLE;
-        if (horizontalCandidateScroll != null)
-            horizontalCandidateScroll.setVisibility(
-                candidateHorizontal && !hasDiagnostic ? candidateScrollShown : View.GONE);
+        if (horizontalCandidateScroll != null) {
+            if (!candidateHorizontal || hasDiagnostic) ViewPolicy.hide(horizontalCandidateScroll);
+            else if (candidateScrollShown == View.VISIBLE) ViewPolicy.show(horizontalCandidateScroll);
+            else ViewPolicy.setInvisible(horizontalCandidateScroll);
+        }
         if (verticalCandidateScroll != null)
             verticalCandidateScroll.setVisibility(
                 !candidateHorizontal && !hasDiagnostic ? candidateScrollShown : View.GONE);
