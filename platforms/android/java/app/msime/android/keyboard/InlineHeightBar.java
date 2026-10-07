@@ -57,7 +57,7 @@ public final class InlineHeightBar extends LinearLayout {
         cancel = textButton(context, "取消");
         reset = textButton(context, "重置");
         done = textButton(context, "完成");
-        done.setTypeface(Typeface.DEFAULT_BOLD);
+        ViewPolicy.setTypefaceStyle(done, Typeface.BOLD);
         KeyboardGeometry.setKeyTextSize(done, 14);
         handle = new Handle(context, this);
         int pill = KeyboardGeometry.pixels(context, 32);

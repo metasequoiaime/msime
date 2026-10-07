@@ -170,8 +170,8 @@ public final class KeyboardSchemeCard extends FrameLayout {
     }
 
     private void setTitleTypeface(boolean bold) {
-        title.setTypeface(bold ? android.graphics.Typeface.DEFAULT_BOLD
-            : android.graphics.Typeface.DEFAULT);
+        ViewPolicy.setTypefaceStyle(title, bold ? android.graphics.Typeface.BOLD
+            : android.graphics.Typeface.NORMAL);
     }
 
     private void setFaceTextColor(int face) {
