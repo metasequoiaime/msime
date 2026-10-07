@@ -284,6 +284,11 @@ public final class ViewPolicy {
         view.setMaxLines(maxLines);
     }
 
+    /** Require a text view to occupy at least the requested number of lines. */
+    public static void setMinLines(TextView view, int minLines) {
+        view.setMinLines(minLines);
+    }
+
     /** Force a text view to occupy exactly the requested number of lines. */
     public static void setFixedLines(TextView view, int lines) {
         view.setMinLines(lines);
