@@ -301,8 +301,7 @@ public final class KeyboardFragment extends HomeTabFragment {
                 shown++;
             }
         }
-        view.findViewById(R.id.keyboard_search_empty)
-            .setVisibility(active && shown == 0 ? View.VISIBLE : View.GONE);
+        ViewPolicy.setVisible(view.findViewById(R.id.keyboard_search_empty), active && shown == 0);
     }
 
     /** 搜索结果的副标题：命中的关键词；只命中标题时用这一行原来的值。 */
