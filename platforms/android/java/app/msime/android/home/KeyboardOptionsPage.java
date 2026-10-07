@@ -16,13 +16,14 @@ import app.msime.android.KeyboardGeometry;
 import app.msime.android.KeyboardScheme;
 import app.msime.android.KeyboardSkin;
 import app.msime.android.SchemePreferences;
+import app.msime.android.SwipeHintPolicy;
 import app.msime.android.SyncSignals;
 import app.msime.android.SyncSwitch;
 import app.msime.android.ViewPolicy;
 import org.json.JSONObject;
 
 /**
- * 键盘页：布局（中文键盘 26 / 9 键、键盘高度、按键间距、行间距）、按键反馈（按键音、按键振动、按键弹出预览、按键动画）、手势（下滑输入符号、空格滑动移动光标、长按空格语音）、键盘工具栏（预览、显示方式、各按钮）和子页「AI 润色与回复」。
+ * 键盘页：布局（中文键盘 26 / 9 键、键盘高度、按键间距、行间距）、按键反馈（按键音、按键振动、按键弹出预览、按键动画）、手势（滑动输入符号及其方向、空格滑动移动光标、长按空格语音）、键盘工具栏（预览、显示方式、各按钮）和子页「AI 润色与回复」。
  *
  * <p>键盘与本页读同一批存储：按键间距、行间距和表情/剪贴板/皮肤三个工具栏按钮在共享偏好里（`touch_key_spacing_tenths`、`touch_row_spacing_tenths`、`touch_toolbar.*`）；键盘高度、按键弹出预览、按键动画、三个手势、常用语/输入方式两个工具栏按钮和「显示方式：隐藏」（整行不显示，候选条照常显示）只有 Android 用，在 {@link AndroidLocalSettings} 里。键盘高度按设计以 75–130 % 显示，存的是 dp（{@link KeyboardGeometry#heightPercentToAdjustment}），本地没写过时沿用共享偏好里旧的 `touch_keyboard_height_adjustment`。按键音和按键振动是 Android 一直以来的本地开关（`KeyboardFeedbackStore`），键盘的功能面板改的也是它们。
  */
@@ -115,9 +116,12 @@ public final class KeyboardOptionsPage extends DetailPage {
             () -> pickAnimation(animation, animationRow[0]));
 
         GroupCard gestures = GroupCard.add(target, "手势");
-        gestures.toggle("下滑输入符号", "在字母键上向下滑动，输入角标符号",
-            settings.bool(AndroidLocalSettings.SWIPE_DOWN_SYMBOLS),
+        boolean swipeSymbols = settings.bool(AndroidLocalSettings.SWIPE_DOWN_SYMBOLS);
+        gestures.toggle("滑动输入符号", "在字母键上滑动，输入角标符号；长按字母键始终可以输入", swipeSymbols,
             checked -> saveLocal(AndroidLocalSettings.SWIPE_DOWN_SYMBOLS, checked));
+        String swipeDirection = settings.choice(AndroidLocalSettings.SWIPE_SYMBOLS_DIRECTION);
+        gestures.nav("滑动方向", null, swipeDirectionLabel(swipeDirection), () -> pickSwipeDirection(swipeDirection))
+            .setEnabled(swipeSymbols);
         gestures.toggle("空格键滑动移动光标", null, settings.bool(AndroidLocalSettings.SPACE_CURSOR),
             checked -> saveLocal(AndroidLocalSettings.SPACE_CURSOR, checked));
         gestures.toggle("长按空格语音输入", null, settings.bool(AndroidLocalSettings.SPACE_VOICE),
@@ -225,6 +229,19 @@ public final class KeyboardOptionsPage extends DetailPage {
             });
         }
         sheet.show();
+    }
+
+    private void pickSwipeDirection(String selected) {
+        OptionSheet sheet = new OptionSheet(requireContext(), "滑动方向", null);
+        for (String value : new String[] {SwipeHintPolicy.DOWN, SwipeHintPolicy.UP}) {
+            sheet.option(swipeDirectionLabel(value), value.equals(selected),
+                () -> saveLocal(AndroidLocalSettings.SWIPE_SYMBOLS_DIRECTION, value));
+        }
+        sheet.show();
+    }
+
+    private static String swipeDirectionLabel(String value) {
+        return SwipeHintPolicy.UP.equals(value) ? "上滑" : "下滑";
     }
 
     private void pickToolbarMode(boolean hidden) {

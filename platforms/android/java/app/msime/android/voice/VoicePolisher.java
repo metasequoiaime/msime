@@ -5,7 +5,6 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -71,7 +70,7 @@ public final class VoicePolisher {
             try (InputStream input = connection.getInputStream()) {
                 byte[] responseBytes = HttpBodyPolicy.readBounded(input, MAX_RESPONSE_BYTES);
                 response = responseBytes == null
-                    ? null : new String(responseBytes, StandardCharsets.UTF_8);
+                    ? null : TextPolicy.utf8(responseBytes);
             }
             String content = content(response);
             return cancelled ? null : (VoicePolishPolicy.sendable(content) ? content.trim() : null);

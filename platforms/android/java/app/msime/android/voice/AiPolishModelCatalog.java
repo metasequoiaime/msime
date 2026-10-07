@@ -122,7 +122,7 @@ public final class AiPolishModelCatalog {
                     input, AiPolishConfiguration.MAXIMUM_RESPONSE_BYTES);
                 if (response == null) throw new AiPolishClient.Failure(AiPolishClient.Reason.INVALID);
             }
-            return new JSONObject(new String(response, StandardCharsets.UTF_8));
+            return new JSONObject(TextPolicy.utf8(response));
         } catch (AiPolishClient.Failure error) {
             throw error;
         } catch (IOException error) {
