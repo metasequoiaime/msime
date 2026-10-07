@@ -191,7 +191,8 @@ public final class FeedbackPage extends DetailPage {
         int fill = ready ? Ui.accent(context)
             : Ui.color(context, com.google.android.material.R.attr.colorSurfaceContainerHighest);
         submit.setBackground(Ui.rippleOn(context, fill, Ui.dp(requireContext(), Ui.GROUP_RADIUS)));
-        if (addShot != null) Ui.setEnabledLook(addShot, screenshots.size() < FeedbackApi.MAX_SCREENSHOTS && !sending);
+        if (addShot != null) ViewPolicy.setEnabledWithAlpha(addShot,
+            screenshots.size() < FeedbackApi.MAX_SCREENSHOTS && !sending, 0.38f);
     }
 
     private void renderThumbnails() {
