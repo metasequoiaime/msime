@@ -584,3 +584,163 @@ fn page_size_is_bounded() {
         .is_err());
     }
 }
+
+// ---- 韩文 ----
+
+fn korean() -> Fixture {
+    open(Scheme::Korean, false)
+}
+
+#[test]
+fn korean_syllables_commit_when_the_next_one_starts() {
+    let mut fixture = korean();
+    let frame = type_text(&mut fixture.host, "dkssud");
+    assert_eq!(frame.out, vec![commit("안", -1)]);
+    assert!(frame.composing);
+    assert_eq!(frame.preedit, "녕");
+    assert!(frame.page.is_empty());
+    assert!(!frame.has_next);
+    assert!(!frame.model_on);
+}
+
+#[test]
+fn korean_shift_letters_are_double_consonants() {
+    let mut fixture = korean();
+    let frame = type_text(&mut fixture.host, "RkT");
+    assert!(frame.out.is_empty());
+    assert_eq!(frame.preedit, "깠");
+    let frame = type_text(&mut fixture.host, "dO");
+    assert_eq!(frame.out, vec![commit("깠", -1)]);
+    assert_eq!(frame.preedit, "얘");
+}
+
+#[test]
+fn korean_space_and_digits_end_the_syllable_and_type_themselves() {
+    let mut fixture = korean();
+    let frame = type_text(&mut fixture.host, "gks rmf2");
+    assert_eq!(
+        frame.out,
+        vec![
+            commit("한", -1),
+            Out::Type(" ".to_owned()),
+            commit("글", -1),
+            Out::Type("2".to_owned()),
+        ]
+    );
+    assert!(!frame.composing);
+    // 空闲时空格和数字原样打出。
+    let frame = type_text(&mut fixture.host, " 9");
+    assert_eq!(
+        frame.out,
+        vec![Out::Type(" ".to_owned()), Out::Type("9".to_owned())]
+    );
+}
+
+#[test]
+fn korean_punctuation_is_half_width_and_follows_the_syllable() {
+    let mut fixture = korean();
+    let frame = type_text(&mut fixture.host, "dP.");
+    assert_eq!(frame.out, vec![commit("예.", -1)]);
+    assert!(!frame.composing);
+    // 引号不配成中文引号，空闲时原样打出。
+    let frame = type_text(&mut fixture.host, "\"'?");
+    assert_eq!(
+        frame.out,
+        vec![
+            Out::Type("\"".to_owned()),
+            Out::Type("'".to_owned()),
+            Out::Type("?".to_owned()),
+        ]
+    );
+}
+
+#[test]
+fn korean_minus_and_equals_are_marks_not_paging() {
+    let mut fixture = korean();
+    type_text(&mut fixture.host, "rk");
+    let frame = fixture.host.keys(&[Key::PagePrev { punct: Some(b'-') }]);
+    assert_eq!(frame.out, vec![commit("가-", -1)]);
+    let frame = fixture.host.keys(&[Key::PageNext { punct: Some(b'=') }]);
+    assert_eq!(frame.out, vec![Out::Type("=".to_owned())]);
+    // PageUp 这类不借标点的翻页键在组字时什么也不做。
+    type_text(&mut fixture.host, "rk");
+    let frame = fixture.host.keys(&[Key::PageNext { punct: None }]);
+    assert!(frame.out.is_empty());
+    assert_eq!(frame.preedit, "가");
+}
+
+#[test]
+fn korean_backspace_removes_a_jamo_then_deletes() {
+    let mut fixture = korean();
+    type_text(&mut fixture.host, "rhkr");
+    let frame = fixture.host.keys(&[Key::Backspace { word: false }]);
+    assert_eq!(frame.preedit, "과");
+    assert!(frame.out.is_empty());
+    let frame = fixture.host.keys(&[
+        Key::Backspace { word: false },
+        Key::Backspace { word: false },
+        Key::Backspace { word: false },
+    ]);
+    assert!(!frame.composing);
+    assert!(frame.out.is_empty());
+    let frame = fixture.host.keys(&[Key::Backspace { word: false }]);
+    assert_eq!(frame.out, vec![Out::Back { word: false }]);
+}
+
+#[test]
+fn korean_enter_commits_and_escape_cancels() {
+    let mut fixture = korean();
+    type_text(&mut fixture.host, "gks");
+    let frame = fixture.host.keys(&[Key::Enter]);
+    assert_eq!(frame.out, vec![commit("한", -1)]);
+    assert!(!frame.composing);
+    type_text(&mut fixture.host, "rmf");
+    let frame = fixture.host.keys(&[Key::Escape]);
+    assert!(frame.out.is_empty());
+    assert!(!frame.composing);
+}
+
+#[test]
+fn korean_shift_tap_switches_to_english_after_the_syllable() {
+    let mut fixture = korean();
+    type_text(&mut fixture.host, "gks");
+    let frame = fixture
+        .host
+        .keys(&[Key::ShiftTap, Key::Letter(b'r'), Key::ShiftLetter(b'R')]);
+    assert_eq!(
+        frame.out,
+        vec![
+            commit("한", -1),
+            Out::Type("r".to_owned()),
+            Out::Type("R".to_owned()),
+        ]
+    );
+    assert!(frame.english);
+}
+
+#[test]
+fn korean_needs_no_dictionary() {
+    let resources = tempfile::tempdir().unwrap();
+    let user = tempfile::tempdir().unwrap();
+    let cache = tempfile::tempdir().unwrap();
+    let mut host = WebHost::new_with_paths(
+        Scheme::Korean,
+        9,
+        None,
+        resources.path(),
+        user.path(),
+        cache.path(),
+    )
+    .expect("a Korean session without msime-pinyin.db");
+    let frame = type_text(&mut host, "dkssudgktpdy.");
+    assert_eq!(
+        frame.out,
+        vec![
+            commit("안", -1),
+            commit("녕", -1),
+            commit("하", -1),
+            commit("세", -1),
+            commit("요.", -1),
+        ]
+    );
+}

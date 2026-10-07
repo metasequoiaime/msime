@@ -41,16 +41,19 @@ pub enum Scheme {
     Xiaohe,
     Ziranma,
     Wubi86,
+    /// 韩文两套式（두벌식）：字母键是字母，Shift 打双辅音和 ㅒ ㅖ，音节在组字区里拼好、下一个键开始新音节时自动上屏。不用词库，也不出候选。
+    Korean,
 }
 
 impl Scheme {
-    /// `"quanpin"`、`"xiaohe"`、`"ziranma"`、`"wubi86"`；其他名字返回 None。
+    /// `"quanpin"`、`"xiaohe"`、`"ziranma"`、`"wubi86"`、`"korean"`；其他名字返回 None。
     pub fn parse(name: &str) -> Option<Scheme> {
         match name {
             "quanpin" => Some(Scheme::Quanpin),
             "xiaohe" => Some(Scheme::Xiaohe),
             "ziranma" => Some(Scheme::Ziranma),
             "wubi86" => Some(Scheme::Wubi86),
+            "korean" => Some(Scheme::Korean),
             _ => None,
         }
     }
@@ -60,18 +63,30 @@ impl Scheme {
             Scheme::Quanpin => SchemeType::Quanpin,
             Scheme::Xiaohe | Scheme::Ziranma => SchemeType::Shuangpin,
             Scheme::Wubi86 => SchemeType::Wubi,
+            Scheme::Korean => SchemeType::Korean,
         }
     }
 
     fn shuangpin_profile(self) -> ShuangpinProfileKind {
         match self {
             Scheme::Ziranma => ShuangpinProfileKind::Ziranma,
-            Scheme::Quanpin | Scheme::Xiaohe | Scheme::Wubi86 => ShuangpinProfileKind::Xiaohe,
+            Scheme::Quanpin | Scheme::Xiaohe | Scheme::Wubi86 | Scheme::Korean => {
+                ShuangpinProfileKind::Xiaohe
+            }
         }
     }
 
     fn is_wubi(self) -> bool {
         self == Scheme::Wubi86
+    }
+
+    fn is_korean(self) -> bool {
+        self == Scheme::Korean
+    }
+
+    /// 句子模型只给拼音方案重排：五笔不重排（D16），韩文没有候选可排。
+    fn uses_model(self) -> bool {
+        !self.is_wubi() && !self.is_korean()
     }
 }
 
@@ -300,9 +315,9 @@ impl WebHost {
         }
         let options = session_options(scheme, paths);
         let session = open_session(&options)?;
-        // 五笔不重排（D16），所以不加载模型；模型读不出来也不致命，只是没有重排。
+        // 五笔和韩文不重排，所以不加载模型；模型读不出来也不致命，只是没有重排。
         let reranker = model
-            .filter(|_| !scheme.is_wubi())
+            .filter(|_| scheme.uses_model())
             .and_then(|bytes| SentenceModel::load(bytes).ok())
             .map(|model| Reranker::new(Arc::new(model)));
         Ok(WebHost {
@@ -419,6 +434,10 @@ impl WebHost {
     fn key(&mut self, key: Key) {
         match key {
             Key::Letter(byte) => self.letter(byte),
+            // 韩文的 Shift 字母是双辅音和 ㅒ ㅖ，和小写字母一样交给引擎。
+            Key::ShiftLetter(byte) if self.scheme.is_korean() && !self.english => {
+                self.letter(byte);
+            }
             Key::ShiftLetter(byte) => {
                 if self.composing() {
                     self.commit_raw();
@@ -433,7 +452,11 @@ impl WebHost {
             }
             Key::Digit(byte) => self.digit(byte),
             Key::Space => {
-                if self.composing() {
+                if self.scheme.is_korean() {
+                    // 空格结束音节，再打出空格本身。
+                    self.end_korean_syllable();
+                    self.type_text(" ".to_owned());
+                } else if self.composing() {
                     self.ensure_ordered();
                     if self.ordered.rows.is_empty() {
                         let result = self.session.command(Command::CommitCandidate);
@@ -469,6 +492,12 @@ impl WebHost {
                 } else {
                     self.out.push(Out::Exit);
                 }
+            }
+            // 韩文没有候选可翻，`-` 和 `=` 只是标点。
+            Key::PageNext { punct: Some(byte) } | Key::PagePrev { punct: Some(byte) }
+                if self.scheme.is_korean() =>
+            {
+                self.punct(byte);
             }
             Key::PageNext { punct } => {
                 if self.composing() {
@@ -553,6 +582,12 @@ impl WebHost {
     }
 
     fn digit(&mut self, byte: u8) {
+        if self.scheme.is_korean() {
+            // 数字结束音节，再打出数字本身（韩文没有候选可选）。
+            self.end_korean_syllable();
+            self.type_text(char::from(byte).to_string());
+            return;
+        }
         if self.english || !self.composing() {
             self.type_text(char::from(byte).to_string());
             return;
@@ -577,6 +612,15 @@ impl WebHost {
     fn punct(&mut self, byte: u8) {
         if self.english {
             self.type_text(char::from(byte).to_string());
+            return;
+        }
+        if self.scheme.is_korean() {
+            // 韩文用半角标点，引号也不配对：组字时引擎把音节和标点一起上屏，空闲时引擎不收，原样打出。
+            let result = self.session.punctuation(byte);
+            match result.commit {
+                Some(_) => self.apply(result, -1),
+                None => self.type_text(char::from(byte).to_string()),
+            }
             return;
         }
         let composing = self.composing();
@@ -678,6 +722,13 @@ impl WebHost {
         self.order_valid = false;
         self.order(true);
         true
+    }
+
+    /// 韩文：把正在拼的音节原样上屏；空闲时什么也不做。
+    fn end_korean_syllable(&mut self) {
+        if self.composing() {
+            self.commit_raw();
+        }
     }
 
     fn commit_raw(&mut self) {
@@ -1095,6 +1146,7 @@ mod tests {
         assert_eq!(Scheme::parse("xiaohe"), Some(Scheme::Xiaohe));
         assert_eq!(Scheme::parse("ziranma"), Some(Scheme::Ziranma));
         assert_eq!(Scheme::parse("wubi86"), Some(Scheme::Wubi86));
+        assert_eq!(Scheme::parse("korean"), Some(Scheme::Korean));
         assert_eq!(Scheme::parse("wubi98"), None);
         assert_eq!(Scheme::parse(""), None);
     }

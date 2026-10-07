@@ -78,7 +78,7 @@ pub struct WebEngine {
 
 #[wasm_bindgen]
 impl WebEngine {
-    /// `scheme` 是 `quanpin`、`xiaohe`、`ziranma` 或 `wubi86`；主库须已导入 `/res/msime-pinyin.db`（拼音方案导入网页包的 `msime-pinyin.db`，五笔导入 `msime-wubi86.db`，路径相同）。`model` 是解压后的 `sentence-model.safetensors`，五笔忽略它。
+    /// `scheme` 是 `quanpin`、`xiaohe`、`ziranma`、`wubi86` 或 `korean`；除韩文外，主库须已导入 `/res/msime-pinyin.db`（拼音方案导入网页包的 `msime-pinyin.db`，五笔导入 `msime-wubi86.db`，路径相同），韩文不读词库。`model` 是解压后的 `sentence-model.safetensors`，五笔和韩文忽略它。
     #[wasm_bindgen(constructor)]
     pub fn new(
         scheme: &str,
