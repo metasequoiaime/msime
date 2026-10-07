@@ -204,7 +204,7 @@ public final class CommunityAdapter extends RecyclerView.Adapter<CommunityAdapte
         if (holder.badge != null) ViewPolicy.setVisible(holder.badge, skin == null);
         if (holder.category != null) {
             holder.category.setText(item.category() == null ? "" : item.category().label());
-            holder.category.setVisibility(item.category() == null ? View.GONE : View.VISIBLE);
+            ViewPolicy.setVisible(holder.category, item.category() != null);
         }
         String author = author(item);
         String uses = CommunityRequest.usesLabel(item.downloads());
