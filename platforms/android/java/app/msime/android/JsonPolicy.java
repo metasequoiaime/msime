@@ -19,6 +19,22 @@ public final class JsonPolicy {
         return value instanceof String ? (String) value : null;
     }
 
+    /** Accept only a JSON integer that fits in a Java int. */
+    public static Integer strictInteger(Object value) {
+        if (value instanceof Integer integer) return integer;
+        if (value instanceof Long longValue
+                && longValue >= Integer.MIN_VALUE && longValue <= Integer.MAX_VALUE)
+            return longValue.intValue();
+        return null;
+    }
+
+    /** Accept only an Integer or Long without coercing strings or decimals. */
+    public static Long strictLong(Object value) {
+        if (value instanceof Integer integer) return integer.longValue();
+        if (value instanceof Long longValue) return longValue;
+        return null;
+    }
+
     /** Quote a JSON string, escaping controls and the two JSON-hostile line separators. */
     public static String quote(String value) {
         String source = TextPolicy.emptyIfNull(value);

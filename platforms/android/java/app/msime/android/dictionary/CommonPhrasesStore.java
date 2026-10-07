@@ -384,12 +384,7 @@ public final class CommonPhrasesStore {
 
     /** Read a JSON integer without org.json's string or fractional coercion. */
     public static Integer strictInteger(Object value) {
-        if (value instanceof Integer integer) return integer;
-        if (value instanceof Long longValue
-                && longValue >= Integer.MIN_VALUE && longValue <= Integer.MAX_VALUE) {
-            return longValue.intValue();
-        }
-        return null;
+        return JsonPolicy.strictInteger(value);
     }
 
     /** 常用语包修订号和跳过条数必须是非负 JSON 整数。 */

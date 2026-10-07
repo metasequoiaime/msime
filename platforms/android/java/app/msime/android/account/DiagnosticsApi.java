@@ -375,9 +375,7 @@ public final class DiagnosticsApi {
 
     /** Diagnostics wire numbers are JSON integers; do not let org.json truncate decimals. */
     public static Long strictInteger(Object value) {
-        if (value instanceof Integer integer) return integer.longValue();
-        if (value instanceof Long longValue) return longValue;
-        return null;
+        return JsonPolicy.strictLong(value);
     }
 
     /** Optional response strings: absent/null means empty, every other JSON type is malformed. */

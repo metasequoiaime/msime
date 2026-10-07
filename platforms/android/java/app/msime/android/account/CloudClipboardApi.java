@@ -131,12 +131,7 @@ public final class CloudClipboardApi {
 
     /** Retention days must be a JSON integer; reject strings and fractional numbers. */
     static Integer strictInteger(Object value) {
-        if (value instanceof Integer integer) return integer;
-        if (value instanceof Long longValue
-                && longValue >= Integer.MIN_VALUE && longValue <= Integer.MAX_VALUE) {
-            return longValue.intValue();
-        }
-        return null;
+        return JsonPolicy.strictInteger(value);
     }
 
     /** Compatibility entry point retained for the host smoke contract. */
