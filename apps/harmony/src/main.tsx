@@ -90,8 +90,6 @@ interface NativeBridge {
   readSkinImage(id: string, relative: string): string;
   readSkinFont(id: string, relative: string): string;
   readSkinToolbarCss(id: string): string;
-  /** `""` reads the named designs; a serialized action applies one change first. */
-  customSkinLibrary(action: string): string;
   /** `{profile,sourceCommit}` from the packaged dictionary manifest, or a refusal. */
   dictionaryManifest(): string;
   appVersion(): string;
@@ -955,14 +953,12 @@ function makeClient(
     // The manifest is packaged and never changes while the application runs, so this is read on
     // demand rather than kept: the dictionary page is not a screen anyone leaves open.
     dictionaryManifest: async () => unwrap<DictionaryManifest>(native.dictionaryManifest()),
-    // A named design can carry a bounded photo, so this is the one settings call whose payload is
-    // measured in megabytes. It still goes through the synchronous bridge: the alternative is the
-    // request-by-number channel, and a library read that has to survive a page reload is worse
-    // than a brief pause on a screen the user just opened.
+    // A named design can carry a bounded photo. Both reads and writes use the numbered request
+    // channel while the native worker parses and writes the library under its file lock.
     customSkinLibrary: {
-      load: async () => unwrap<SavedTouchKeyboardSkin[]>(native.customSkinLibrary("")),
+      load: async () => unwrap<SavedTouchKeyboardSkin[]>(await bridgeRequest(native, "custom_skin_library", "")),
       mutate: async (action) =>
-        unwrap<SavedTouchKeyboardSkin[]>(native.customSkinLibrary(JSON.stringify(action))),
+        unwrap<SavedTouchKeyboardSkin[]>(await bridgeRequest(native, "custom_skin_library", JSON.stringify(action))),
     },
     candidateEnglishGloss: true,
     account: accountClient(native),
