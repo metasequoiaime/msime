@@ -815,6 +815,11 @@ mod tests {
             clipboard_history: true,
             ..Preferences::default()
         };
+        // 新装的默认启用列表只有中文方案，日文 9 键要用户自己打开；云端选中一个本机没启用的方案会回到第一个启用的方案（见 `a_touch_scheme_that_is_not_enabled_falls_back_to_the_first_enabled_one`）。这里测的是下载把共享输入状态写进来，所以这台设备上日文 9 键是开着的。
+        preferences
+            .touch_keyboard_schemes
+            .enabled
+            .insert(TouchKeyboardScheme::JapaneseNineKey);
         plan.apply_shared(&native, &mut preferences).unwrap();
         assert_eq!(preferences.scheme, InputScheme::Japanese);
         assert_eq!(
