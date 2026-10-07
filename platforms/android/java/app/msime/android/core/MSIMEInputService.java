@@ -6687,7 +6687,7 @@ public final class MSIMEInputService extends InputMethodService {
             layerButton.setContentDescription(KeyboardActionRow.layerDescription(symbols));
         }
         if (symbolPanelButton != null) {
-            symbolPanelButton.setEnabled(session != 0 && connection != null
+            ViewPolicy.setEnabled(symbolPanelButton, session != 0 && connection != null
                 && keyboardLayer == KeyboardLayout.Layer.LETTERS);
             symbolPanelButton.setContentDescription("打开符号面板");
         }
