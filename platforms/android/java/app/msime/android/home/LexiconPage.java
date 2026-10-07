@@ -213,7 +213,7 @@ public final class LexiconPage extends DetailPage {
             button = Ui.styledLabel(context, added ? "已添加" : "添加中",
                 Ui.TEXT_BUTTON_SMALL, 500, Ui.subText(context));
             ViewPolicy.setCentered(button);
-            button.setSingleLine(true);
+            ViewPolicy.setSingleLine(button);
             button.setBackground(Ui.pillRipple(context,
                 added ? Ui.rowBackground(context) : Ui.accentSoft(context)));
             Ui.setButtonPadding(button, context);
