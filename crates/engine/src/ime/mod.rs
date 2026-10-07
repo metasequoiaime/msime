@@ -736,18 +736,27 @@ fn merge_pinyin_fallback(
     }
     // Keep deduplication keys borrowed until the pinyin rows are ready to move into the result.
     let mut seen: HashSet<&str> = candidates.iter().map(|item| item.word.as_str()).collect();
-    let unique = pinyin_rows
+    let duplicates = pinyin_rows
         .iter()
-        .map(|item| seen.insert(item.word.as_str()))
+        .enumerate()
+        .filter_map(|(index, item)| (!seen.insert(item.word.as_str())).then_some(index))
         .collect::<Vec<_>>();
     drop(seen);
-    let unique_count = unique.iter().filter(|&&is_unique| is_unique).count();
+    let unique_count = pinyin_rows.len() - duplicates.len();
     candidates.reserve(unique_count);
+    let mut duplicates = duplicates.into_iter().peekable();
     candidates.extend(
         pinyin_rows
             .into_iter()
-            .zip(unique)
-            .filter_map(|(item, unique)| unique.then_some(item)),
+            .enumerate()
+            .filter_map(|(index, item)| {
+                if duplicates.peek() == Some(&index) {
+                    duplicates.next();
+                    None
+                } else {
+                    Some(item)
+                }
+            }),
     );
     candidates
 }
