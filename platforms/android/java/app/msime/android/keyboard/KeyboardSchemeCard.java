@@ -162,7 +162,8 @@ public final class KeyboardSchemeCard extends FrameLayout {
         setFaceTextColor(face);
         glyph.setBackground(outlined(face, KeyboardGeometry.pixels(getContext(), GLYPH_RADIUS_DP), KeyboardGeometry.pixels(getContext(), GLYPH_BORDER_DP)));
         badge.setBackgroundColor(panelBackground);
-        badge.setVisibility(isSelected || badge.getText().length() == 0 ? View.INVISIBLE : View.VISIBLE);
+        if (isSelected || badge.getText().length() == 0) ViewPolicy.setInvisible(badge);
+        else ViewPolicy.show(badge);
         setTitleTypeface(isSelected);
         if (check.getLayoutParams() != checkBadgeParams) check.setLayoutParams(checkBadgeParams);
         check.setBackground(checkMark(accent, panelBackground));
