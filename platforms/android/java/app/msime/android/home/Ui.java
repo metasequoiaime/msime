@@ -256,7 +256,7 @@ public final class Ui {
 
     /** Show a view only when the supplied text is non-null and non-empty. */
     public static void setVisibilityForText(View view, CharSequence text) {
-        view.setVisibility(text == null || text.length() == 0 ? View.GONE : View.VISIBLE);
+        ViewPolicy.setVisibilityForText(view, text);
     }
 
     /** Apply a single tint to an image view through the platform state-list wrapper. */
