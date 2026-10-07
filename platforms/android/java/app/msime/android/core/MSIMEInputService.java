@@ -5742,7 +5742,7 @@ public final class MSIMEInputService extends InputMethodService {
             super.onDraw(canvas);
             float density = KeyboardGeometry.density(getContext());
             float textSize = KeyboardGeometry.keySp(getContext(), 24);
-            float radius = 10 * density;
+            float radius = KeyboardGeometry.floatPixels(10, density);
             float stepX = cellWidth + gap;
             float stepY = cellHeight + gap;
             KeyboardSkin previewSkin = imeStyler.themed(skin);
@@ -5759,7 +5759,8 @@ public final class MSIMEInputService extends InputMethodService {
             // 先整体画一层投影，再盖上格子：浮层要看得出是压在键盘上面的，而不是键盘本身的一部分。
             paint.setStyle(Paint.Style.FILL);
             paint.setColor(keyColor);
-            paint.setShadowLayer(10 * density, 0, 3 * density, 0x40000000);
+            paint.setShadowLayer(KeyboardGeometry.floatPixels(10, density), 0,
+                KeyboardGeometry.floatPixels(3, density), 0x40000000);
             for (int index = 0; index < labelCount; index++) {
                 if (labels[index] == null || labels[index].isEmpty()) continue;
                 float x = centerX + X_OFFSETS[index] * stepX - cellWidth / 2;
