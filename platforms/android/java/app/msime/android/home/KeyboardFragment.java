@@ -90,7 +90,7 @@ public final class KeyboardFragment extends HomeTabFragment {
                     ViewPolicy.show(bar);
                     bar.animate().alpha(1f).setDuration(Ui.APP_BAR_FADE_MILLIS).start();
                 } else {
-                    bar.setVisibility(View.INVISIBLE);
+                    ViewPolicy.setInvisible(bar);
                     bar.setAlpha(0f);
                 }
             });
