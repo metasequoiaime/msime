@@ -47,8 +47,7 @@ public final class KeyboardSchemeCard extends FrameLayout {
     public KeyboardSchemeCard(Context context, String glyphText, String badgeText,
             String titleText) {
         super(context);
-        setClickable(true);
-        setFocusable(true);
+        ViewPolicy.setInteractive(this, true);
 
         glyph = centeredLabel(context, glyphText, glyphText.length() > 1 ? 15 : 20, true);
         // "EN" is two characters wide in a box sized for one, so it takes the smaller face.

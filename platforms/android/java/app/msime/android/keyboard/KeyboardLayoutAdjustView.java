@@ -54,8 +54,7 @@ public final class KeyboardLayoutAdjustView extends FrameLayout {
     public KeyboardLayoutAdjustView(android.content.Context context, Listener listener) {
         super(context);
         this.listener = listener;
-        setClickable(true);
-        setFocusable(true);
+        ViewPolicy.setInteractive(this, true);
         setContentDescription("键盘布局调整；键盘上左右拖动调整按键间距，上下拖动调整行间距");
         setBackgroundColor(Color.TRANSPARENT);
 
