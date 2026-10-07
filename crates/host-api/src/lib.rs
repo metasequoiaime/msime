@@ -1288,12 +1288,9 @@ fn reject_symlinked_state_root(path: &Path) -> Result<(), std::io::Error> {
     })
 }
 
-/// 当前平台发布包不内置、改为按需下载的资源文件：macOS 是日文词典与它的两份 Mozc 许可文本，其余平台照旧全部内置。
-pub(crate) const ON_DEMAND_ARTIFACTS: &[&str] = if cfg!(target_os = "macos") {
-    &msime_client_core::resources::MACOS_ON_DEMAND_ARTIFACTS
-} else {
-    &[]
-};
+/// 当前平台发布包可以不内置、改为按需下载的资源文件：macOS 和 Android 是日文词典与它的两份 Mozc 许可文本，其余平台照旧全部内置。规则本身见 [`msime_client_core::resources::on_demand_artifacts`]，测试在任何主机上都能检查每个目标的取值。
+pub(crate) const ON_DEMAND_ARTIFACTS: &[&str] =
+    msime_client_core::resources::on_demand_artifacts(std::env::consts::OS);
 
 /// `resources` 实际按哪一份清单发货：`on_demand` 里的文件全部缺席时去掉它们，否则是完整的锁文件。见 [`ResourceSet::as_shipped_in`]。
 pub(crate) fn shipped_specification(

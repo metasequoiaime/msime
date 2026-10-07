@@ -74,7 +74,7 @@
 
 构建时还按 Mozc OSS 构建组装系统词典的方式，用同一提交的 `src/data/dictionary_oss/dictionary_filter.tsv` 删去基础词库中的个别词条，并用 `src/data/dictionary_oss/aux_dictionary.tsv` 与 `src/data/dictionary_manual/places.tsv`、`words.tsv` 增补词条（按锁定的 Mozc 提交 `9fbd649` 计，增 226 条、删 15 条）。这几份是 Google 维护的词表，位于 `src/data/dictionary*` 之下，因此和基础词库一样同时适用根目录 `LICENSE` 的 Google 三条款 BSD 文本与附加的 IPAdic、ICOT、冲绳辞書条款。
 
-**实际后果：分发这份词库时必须一并携带 `msime-mozc_dictionary_oss_README.txt`**，IPAdic 和 ICOT 两条都把"许可证文本随附"写成了硬性条件。锁文件把这个 5.8 KB 的文本和词库本身一起固定并校验，正是为此——它是许可证义务，不是文档习惯，重新打包资源时不要因为"只是个 README"而丢掉它。**但只带这份 README 还不够**：Google 的三条款 BSD 要求以二进制形式再分发时附上 Google 的版权声明、条件列表和免责声明，而 README 里没有这段文字。为此 `msime-dictionary` 按锁定提交原样收录了该文件（`sources/japanese/LICENSE`），日文模型阶段把它复制成 `msime-mozc_LICENSE.txt` 与模型一起输出，`product.rs` 检查它存在、写进清单和 `msime-SHA256SUMS.txt`，缺了就不出产品。`dict-v2.0.7` 起它作为 `dict-v` 发布的附件、由本仓库的 `desktop-dictionary.lock.json` 登记，凡是装 `msime-japanese.dat` 的渠道都按锁文件同时装上它；macOS 的按需日文资源包（`resources.rs` 的 `MACOS_ON_DEMAND_ARTIFACTS`）也把它和 README 一起下载。
+**实际后果：分发这份词库时必须一并携带 `msime-mozc_dictionary_oss_README.txt`**，IPAdic 和 ICOT 两条都把"许可证文本随附"写成了硬性条件。锁文件把这个 5.8 KB 的文本和词库本身一起固定并校验，正是为此——它是许可证义务，不是文档习惯，重新打包资源时不要因为"只是个 README"而丢掉它。**但只带这份 README 还不够**：Google 的三条款 BSD 要求以二进制形式再分发时附上 Google 的版权声明、条件列表和免责声明，而 README 里没有这段文字。为此 `msime-dictionary` 按锁定提交原样收录了该文件（`sources/japanese/LICENSE`），日文模型阶段把它复制成 `msime-mozc_LICENSE.txt` 与模型一起输出，`product.rs` 检查它存在、写进清单和 `msime-SHA256SUMS.txt`，缺了就不出产品。`dict-v2.0.7` 起它作为 `dict-v` 发布的附件、由本仓库的 `desktop-dictionary.lock.json` 登记，凡是装 `msime-japanese.dat` 的渠道都按锁文件同时装上它；macOS 的按需日文资源包（`resources.rs` 的 `ON_DEMAND_JAPANESE_ARTIFACTS`）也把它和 README 一起下载。
 
 开源版不含日本邮政编码词典；README 给出了自行生成的步骤，本仓库没有执行。
 

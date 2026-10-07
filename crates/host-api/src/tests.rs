@@ -10552,7 +10552,7 @@ fn a_downloaded_japanese_pack_keeps_temporary_japanese_available() {
 
 #[test]
 fn verification_accepts_resources_shipped_without_the_on_demand_pair() {
-    use msime_client_core::resources::MACOS_ON_DEMAND_ARTIFACTS;
+    use msime_client_core::resources::ON_DEMAND_JAPANESE_ARTIFACTS;
     let root = tempfile::tempdir().unwrap();
     let resources = root.path().join("resources");
     let specification = synthetic_desktop_lock(&resources);
@@ -10564,7 +10564,7 @@ fn verification_accepts_resources_shipped_without_the_on_demand_pair() {
         &resources,
         &specification,
         &fresh_state("full-macos"),
-        &MACOS_ON_DEMAND_ARTIFACTS,
+        &ON_DEMAND_JAPANESE_ARTIFACTS,
     )
     .unwrap();
 
@@ -10574,7 +10574,7 @@ fn verification_accepts_resources_shipped_without_the_on_demand_pair() {
         &resources,
         &specification,
         &fresh_state("no-license"),
-        &MACOS_ON_DEMAND_ARTIFACTS,
+        &ON_DEMAND_JAPANESE_ARTIFACTS,
     )
     .is_err());
 
@@ -10584,7 +10584,7 @@ fn verification_accepts_resources_shipped_without_the_on_demand_pair() {
         &resources,
         &specification,
         &fresh_state("half"),
-        &MACOS_ON_DEMAND_ARTIFACTS,
+        &ON_DEMAND_JAPANESE_ARTIFACTS,
     )
     .is_err());
 
@@ -10595,7 +10595,7 @@ fn verification_accepts_resources_shipped_without_the_on_demand_pair() {
         &resources,
         &specification,
         &fresh_state("slim-macos"),
-        &MACOS_ON_DEMAND_ARTIFACTS,
+        &ON_DEMAND_JAPANESE_ARTIFACTS,
     )
     .unwrap();
 
@@ -10606,7 +10606,7 @@ fn verification_accepts_resources_shipped_without_the_on_demand_pair() {
             &resources,
             &state,
             &specification,
-            &MACOS_ON_DEMAND_ARTIFACTS,
+            &ON_DEMAND_JAPANESE_ARTIFACTS,
             Edition::full(),
         )
         .unwrap(),
@@ -10620,37 +10620,110 @@ fn verification_accepts_resources_shipped_without_the_on_demand_pair() {
     assert!(dictionaries.join("msime-pinyin.db").is_file());
 }
 
-/// 平台默认的按需清单：macOS 接受不含日文词典的发布包，其余平台仍要求完整的锁文件。
+/// 各目标的按需清单：macOS 和 Android 接受不含日文词典的发布包，Linux 和 Windows 仍要求完整的锁文件；本平台用的 `ON_DEMAND_ARTIFACTS` 就是本平台那一份。
 #[test]
 fn the_platform_shipping_rule_decides_whether_a_slim_bundle_prepares() {
+    use msime_client_core::resources::{on_demand_artifacts, ON_DEMAND_JAPANESE_ARTIFACTS};
+    assert_eq!(
+        ON_DEMAND_ARTIFACTS,
+        on_demand_artifacts(std::env::consts::OS)
+    );
+    for (target, slim_prepares) in [
+        ("macos", true),
+        ("android", true),
+        ("linux", false),
+        ("windows", false),
+    ] {
+        let on_demand = on_demand_artifacts(target);
+        if slim_prepares {
+            assert_eq!(on_demand, ON_DEMAND_JAPANESE_ARTIFACTS, "{target}");
+        } else {
+            assert!(on_demand.is_empty(), "{target}");
+        }
+        let root = tempfile::tempdir().unwrap();
+        let resources = root.path().join("resources");
+        let specification = synthetic_desktop_lock(&resources);
+        for name in ON_DEMAND_JAPANESE_ARTIFACTS {
+            std::fs::remove_file(resources.join(name)).unwrap();
+        }
+        let prepared = prepare_shipped_host_configuration(
+            &resources,
+            &root.path().join("state"),
+            &specification,
+            on_demand,
+            Edition::full(),
+        );
+        if slim_prepares {
+            prepared.unwrap();
+        } else {
+            let error = prepared.unwrap_err();
+            assert!(
+                matches!(
+                    error.downcast_ref::<msime_client_core::resources::ResourceError>(),
+                    Some(msime_client_core::resources::ResourceError::ExistingGeneration(_))
+                ),
+                "{target}: {error}"
+            );
+        }
+    }
+}
+
+/// 升级到不带日文词典的发布包后，校验标记描述的是完整清单，不能再当作这次（子集）已经校验过：要重新哈希一遍剩下的文件，而不是凭旧标记放行。这里把拼音词库换成同样长度、同样修改时间的另一份字节，只有真正重新哈希才发现得了。
+#[test]
+fn the_verified_marker_is_invalidated_when_the_shipped_set_shrinks() {
+    use msime_client_core::resources::{on_demand_artifacts, VerifiedMarker};
     let root = tempfile::tempdir().unwrap();
     let resources = root.path().join("resources");
     let specification = synthetic_desktop_lock(&resources);
-    std::fs::remove_file(resources.join("msime-japanese.dat")).unwrap();
-    std::fs::remove_file(resources.join("msime-mozc_dictionary_oss_README.txt")).unwrap();
-    std::fs::remove_file(resources.join("msime-mozc_LICENSE.txt")).unwrap();
-    let prepared = prepare_shipped_host_configuration(
-        &resources,
-        &root.path().join("state"),
-        &specification,
-        ON_DEMAND_ARTIFACTS,
-        Edition::full(),
+    let state = root.path().join("state");
+    std::fs::create_dir_all(&state).unwrap();
+    let on_demand = on_demand_artifacts("android");
+
+    verify_resources_once(&resources, &specification, &state, on_demand).unwrap();
+    let marker = state.join("verified-resources.json");
+    assert_eq!(
+        VerifiedMarker::read(&marker).unwrap().generation,
+        specification.generation().unwrap()
     );
-    #[cfg(target_os = "macos")]
-    {
-        prepared.unwrap();
+    // 完整目录再启动一次走标记，不重新哈希。
+    verify_resources_once(&resources, &specification, &state, on_demand).unwrap();
+
+    let pinyin = resources.join("msime-pinyin.db");
+    let modified = std::fs::metadata(&pinyin).unwrap().modified().unwrap();
+    let mut replaced = std::fs::read(&pinyin).unwrap();
+    let last = replaced.len() - 1;
+    replaced[last] ^= 0xff;
+    std::fs::write(&pinyin, &replaced).unwrap();
+    std::fs::File::options()
+        .write(true)
+        .open(&pinyin)
+        .unwrap()
+        .set_modified(modified)
+        .unwrap();
+    for name in on_demand {
+        std::fs::remove_file(resources.join(name)).unwrap();
     }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let error = prepared.unwrap_err();
-        assert!(
-            matches!(
-                error.downcast_ref::<msime_client_core::resources::ResourceError>(),
-                Some(msime_client_core::resources::ResourceError::ExistingGeneration(_))
-            ),
-            "{error}"
-        );
-    }
+
+    let error = verify_resources_once(&resources, &specification, &state, on_demand)
+        .expect_err("a shrunken set must be re-hashed, not accepted from the old marker");
+    assert!(
+        matches!(
+            error.downcast_ref::<msime_client_core::resources::ResourceError>(),
+            Some(msime_client_core::resources::ResourceError::Integrity)
+        ),
+        "{error}"
+    );
+
+    // 字节复原后按子集校验通过，标记改记子集的清单。
+    replaced[last] ^= 0xff;
+    std::fs::write(&pinyin, &replaced).unwrap();
+    verify_resources_once(&resources, &specification, &state, on_demand).unwrap();
+    let shipped = specification.as_shipped_in(&resources, on_demand);
+    assert_eq!(shipped.artifacts.len(), 2);
+    assert_eq!(
+        VerifiedMarker::read(&marker).unwrap().generation,
+        shipped.generation().unwrap()
+    );
 }
 
 /// 落定重排模型随包的优先；随包的不在（包括旧 HostOptions 记着、但升级时已删掉的路径）才用下载的资源包。

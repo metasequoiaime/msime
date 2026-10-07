@@ -64,9 +64,9 @@ def main() -> int:
         return 0
 
     # 不进包的日文文件名单，必须正好是锁文件里的那一组。
-    match = re.search(r"pub const MACOS_ON_DEMAND_ARTIFACTS: \[&str; \d+\] =\s*\[([^\]]*)\]", RESOURCES_RS.read_text(encoding="utf-8"))
+    match = re.search(r"pub const ON_DEMAND_JAPANESE_ARTIFACTS: \[&str; \d+\] =\s*\[([^\]]*)\]", RESOURCES_RS.read_text(encoding="utf-8"))
     on_demand = re.findall(r'"([^"]+)"', match.group(1)) if match else []
-    check(on_demand == EXPECTED_ON_DEMAND, f"MACOS_ON_DEMAND_ARTIFACTS in resources.rs is {on_demand}, expected {EXPECTED_ON_DEMAND}")
+    check(on_demand == EXPECTED_ON_DEMAND, f"ON_DEMAND_JAPANESE_ARTIFACTS in resources.rs is {on_demand}, expected {EXPECTED_ON_DEMAND}")
     desktop = json.loads(DESKTOP_LOCK.read_text(encoding="utf-8"))
     desktop_names = {artifact["name"] for artifact in desktop["artifacts"]}
     for name in EXPECTED_ON_DEMAND:

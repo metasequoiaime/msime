@@ -2,7 +2,7 @@
 //!
 //! 每个资源包安装在 `<state_root>/resource-packs/<id>/`，文件平铺，最后写入的 `msime-model.json` 标记安装完整。文件名、URL、长度和 SHA-256 全部来自仓库内审过的锁文件，下载、校验、暂存和整体发布复用 [`crate::voice::local_models::install_files`]。
 
-use crate::resources::{ResourceSet, MACOS_ON_DEMAND_ARTIFACTS};
+use crate::resources::{ResourceSet, ON_DEMAND_JAPANESE_ARTIFACTS};
 use crate::voice::local_models::{self, InstallProgress, LocalModelError, MANIFEST_FILE};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -94,7 +94,7 @@ impl ResourcePack {
             let settled: ResourceSet =
                 serde_json::from_str(SETTLED_MODEL_LOCK).expect("settled model lock is valid");
             [
-                desktop.only(&MACOS_ON_DEMAND_ARTIFACTS),
+                desktop.only(&ON_DEMAND_JAPANESE_ARTIFACTS),
                 language,
                 ResourceSet {
                     source_commit: handwriting.source_commit,
@@ -358,9 +358,9 @@ mod tests {
         let desktop: ResourceSet = serde_json::from_str(DESKTOP_LOCK).unwrap();
         let japanese = ResourcePack::Japanese.set();
         assert_eq!(japanese.source_commit, desktop.source_commit);
-        assert_eq!(japanese.artifacts.len(), MACOS_ON_DEMAND_ARTIFACTS.len());
+        assert_eq!(japanese.artifacts.len(), ON_DEMAND_JAPANESE_ARTIFACTS.len());
         for artifact in &japanese.artifacts {
-            assert!(MACOS_ON_DEMAND_ARTIFACTS.contains(&artifact.name.as_str()));
+            assert!(ON_DEMAND_JAPANESE_ARTIFACTS.contains(&artifact.name.as_str()));
             let locked = desktop
                 .artifacts
                 .iter()
