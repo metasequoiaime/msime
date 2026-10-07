@@ -153,7 +153,7 @@ public final class SkinsPage extends DetailPage {
         GradientDrawable frame = Ui.outlined(Color.TRANSPARENT, Ui.dp(context, 14),
             card.selected() ? ring : Ui.atLeastOnePx(context, 1),
             card.selected() ? Ui.accent(context) : Ui.outline(context));
-        tile.setBackground(frame);
+        ViewPolicy.setBackground(tile, frame);
         int inset = ring + Ui.dp(context, 1);
         ViewPolicy.setPadding(tile, inset, inset, inset, inset);
         SkinSwatchView swatch = new SkinSwatchView(context);
@@ -188,7 +188,7 @@ public final class SkinsPage extends DetailPage {
         GradientDrawable dashed = Ui.outlinedDashed(Ui.accentSoft(context), Ui.dp(context, 14),
             Ui.atLeastOnePx(context, 1.5f), Ui.accent(context), Ui.dp(context, 6),
             Ui.dp(context, 4));
-        tile.setBackground(dashed);
+        ViewPolicy.setBackground(tile, dashed);
         TextView spark = Ui.styledLabel(context, "✦", 22, 400, Ui.accent(context));
         ViewPolicy.setCentered(spark);
         tile.addView(spark);
