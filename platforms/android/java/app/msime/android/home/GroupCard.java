@@ -292,7 +292,7 @@ public final class GroupCard {
         }
 
         public void setVisible(boolean visible) {
-            view.setVisibility(visible ? View.VISIBLE : View.GONE);
+            ViewPolicy.setVisible(view, visible);
         }
     }
 }
