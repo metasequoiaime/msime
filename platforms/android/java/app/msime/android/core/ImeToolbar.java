@@ -59,7 +59,7 @@ final class ImeToolbar {
                 s.replyShortcutButton, s.voiceShortcutButton, s.layoutSettingsButton}) {
             if (retired == null) continue;
             if (retired.getParent() instanceof LinearLayout parent) parent.removeView(retired);
-            retired.setVisibility(View.GONE);
+            ViewPolicy.hide(retired);
         }
     }
 
@@ -133,7 +133,7 @@ final class ImeToolbar {
         s.hanjaButton.setText("漢");
         KeyboardGeometry.setKeyTextSize(s.hanjaButton, 12);
         s.hanjaButton.setContentDescription("转换为汉字");
-        s.hanjaButton.setVisibility(View.GONE);
+        ViewPolicy.hide(s.hanjaButton);
         bindToolbarAction(s.hanjaButton,
             () -> s.command(KoreanInputPolicy.CONVERT_HANJA_COMMAND));
         KeyboardGeometry.setHorizontalPaddingDp(s.hanjaButton, s, 8);
@@ -186,11 +186,11 @@ final class ImeToolbar {
             expand.setExpanded(s.candidatePanelOpen, true);
             s.render();
         });
-        expand.setVisibility(View.GONE);
+        ViewPolicy.hide(expand);
         line.addView(expand, KeyboardGeometry.linearParamsPx(
             s.pixels(CandidateChevronButton.WIDTH_DP), s.pixels(CandidateChevronButton.BUTTON_DP)));
         s.candidateLine = line;
-        line.setVisibility(View.GONE);
+        ViewPolicy.hide(line);
         candidateRegion.addView(line, new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, height));
     }
