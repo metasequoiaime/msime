@@ -43,6 +43,7 @@ import android.widget.PopupMenu;
 import android.widget.PopupWindow;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
+import android.view.inputmethod.InputMethodManager;
 import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
@@ -4367,6 +4368,28 @@ public final class MSIMEInputService extends InputMethodService {
         imePanels.finishSkinPick();
     }
 
+    /**
+     * 长按「中/英」（以及地球键、日语九键侧列的英和切换）弹出系统的输入法选择框，用来临时换到密码管理器之类的键盘（#5615）。组字不在这里结束：用户可能只是看一眼就关掉选择框；真的换了输入法时 onFinishInput 会照常收尾。
+     */
+    void bindInputMethodPicker(Button button) {
+        button.setOnLongClickListener(ignored -> {
+            InputMethodManager manager = getSystemService(InputMethodManager.class);
+            if (manager == null) return false;
+            imeKeyFeedback.playFeedback(button);
+            manager.showInputMethodPicker();
+            return true;
+        });
+        // 给读屏的长按动作一个名字，否则只会念「双击并按住即可长按」，听不出长按做什么。
+        button.setAccessibilityDelegate(new View.AccessibilityDelegate() {
+            @Override public void onInitializeAccessibilityNodeInfo(
+                    View host, android.view.accessibility.AccessibilityNodeInfo info) {
+                super.onInitializeAccessibilityNodeInfo(host, info);
+                info.addAction(new android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction(
+                    android.view.accessibility.AccessibilityNodeInfo.ACTION_LONG_CLICK, "切换输入法"));
+            }
+        });
+    }
+
     /** Finish the Engine composition before handing the input connection to another IME. */
     void switchToNextInputMethodAfterCommit() {
         if (session != 0) command(2);
@@ -6034,6 +6057,7 @@ public final class MSIMEInputService extends InputMethodService {
         keyId(shiftButton, "ShiftLeft");
         languageButton = keyId(button(controls, "中/英", this::toggleInputLanguage), "SoftLanguage");
         languageButton.setContentDescription("切换中英文");
+        bindInputMethodPicker(languageButton);
         layerButton = button(controls, "123", () -> {
             keyboardLayer = keyboardLayer == KeyboardLayout.Layer.LETTERS
                 ? KeyboardLayout.Layer.SYMBOLS : KeyboardLayout.Layer.LETTERS;
@@ -6063,6 +6087,7 @@ public final class MSIMEInputService extends InputMethodService {
             KeyboardShortcutIconPolicy.Icon.GLOBE, this::switchToNextInputMethodAfterCommit);
         globeButton.setContentDescription("切换到下一个输入法");
         keyId(globeButton, "SoftGlobe");
+        bindInputMethodPicker(globeButton);
         schemeButton = shortcutButton(controls, "输入方式",
             KeyboardShortcutIconPolicy.Icon.SCHEME,
             imeToolbar.panelToggle(() -> schemeScroll, imePanels::showSchemePicker));
@@ -6814,7 +6839,8 @@ public final class MSIMEInputService extends InputMethodService {
         }
         if (languageButton != null) {
             languageButton.setText(dedicatedEnglish ? "英" : "中");
-            ViewPolicy.setEnabled(languageButton, session != 0);
+            // 没有会话（密码框、会话还在建）时点按切不了中英，但长按仍要能打开输入法选择框：换到密码管理器的键盘正是在密码框里最常用。禁用的按钮收不到长按，所以这个键始终可用，点按由 toggleInputLanguage 在没有会话时忽略。
+            ViewPolicy.setEnabled(languageButton, true);
             languageButton.setContentDescription(
                 dedicatedEnglish ? "切换到所选输入方案" : "切换到英文输入");
             if (Build.VERSION.SDK_INT >= 30) {

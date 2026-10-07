@@ -959,10 +959,13 @@ final class ImeLayoutRows {
         }
         Button language = s.keyId(s.keyboardKey("英", "切换到英文输入", s::toggleInputLanguage),
             "SoftLanguage");
+        s.bindInputMethodPicker(language);
         addJapaneseSideKey(modeColumn, language, 1);
         if (s.offersGlobeKey()) {
-            addJapaneseSideKey(modeColumn, s.keyId(s.keyboardKey("切换", "切换到下一个输入法",
-                s::switchToNextInputMethodAfterCommit), "SoftGlobe"), 1);
+            Button globe = s.keyId(s.keyboardKey("切换", "切换到下一个输入法",
+                s::switchToNextInputMethodAfterCommit), "SoftGlobe");
+            s.bindInputMethodPicker(globe);
+            addJapaneseSideKey(modeColumn, globe, 1);
         }
         container.addView(modeColumn, KeyboardGeometry.weightedMatchParentParams(0.17f));
 
