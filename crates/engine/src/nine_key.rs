@@ -35,6 +35,7 @@ const DIGIT_LETTERS: [&str; 10] = [
 /// T9 expansion multiplies by three or four per digit, so only the leading digits become letter prefixes and the dictionary's own prefix search carries the rest (NK:189).
 const ENGLISH_PREFIX_BUDGET: usize = 64;
 const ENGLISH_LIMIT: usize = 5;
+const ENGLISH_CANDIDATE_CAPACITY: usize = ENGLISH_PREFIX_BUDGET * ENGLISH_LIMIT;
 
 type Path = Vec<String>;
 
@@ -531,26 +532,7 @@ impl NineKeySession {
                 words.push(word);
             }
         }
-        let mut seen_words = HashSet::with_capacity(words.len());
-        let duplicates = words
-            .iter()
-            .enumerate()
-            .filter_map(|(index, word)| (!seen_words.insert(word.word.as_str())).then_some(index))
-            .collect::<Vec<_>>();
-        drop(seen_words);
-        let mut duplicates = duplicates.into_iter().peekable();
-        let mut write = 0;
-        for read in 0..words.len() {
-            if duplicates.peek() == Some(&read) {
-                duplicates.next();
-                continue;
-            }
-            if write != read {
-                words.swap(write, read);
-            }
-            write += 1;
-        }
-        words.truncate(write);
+        deduplicate_english_words(&mut words);
         rank_english(&mut words, digits.len());
         words
     }
@@ -686,6 +668,44 @@ fn rank_key(item: &WordItem, prefer_exact: bool) -> RankKey {
         item.fuzzy,
         Reverse(item.weight),
     )
+}
+
+/// 英文九键前缀展开最多产生 320 行；用栈上借用表和索引表去重，释放借用后再原地压缩。
+fn deduplicate_english_words(words: &mut Vec<WordItem>) {
+    assert!(words.len() <= ENGLISH_CANDIDATE_CAPACITY);
+    let mut duplicates = [0usize; ENGLISH_CANDIDATE_CAPACITY];
+    let mut duplicate_len = 0;
+    {
+        let mut seen: [Option<&str>; ENGLISH_CANDIDATE_CAPACITY] =
+            [None; ENGLISH_CANDIDATE_CAPACITY];
+        let mut seen_len = 0;
+        for (index, word) in words.iter().enumerate() {
+            if seen[..seen_len]
+                .iter()
+                .flatten()
+                .any(|existing| *existing == word.word.as_str())
+            {
+                duplicates[duplicate_len] = index;
+                duplicate_len += 1;
+            } else {
+                seen[seen_len] = Some(word.word.as_str());
+                seen_len += 1;
+            }
+        }
+    }
+    let mut next_duplicate = 0;
+    let mut write = 0;
+    for read in 0..words.len() {
+        if next_duplicate < duplicate_len && duplicates[next_duplicate] == read {
+            next_duplicate += 1;
+            continue;
+        }
+        if write != read {
+            words.swap(write, read);
+        }
+        write += 1;
+    }
+    words.truncate(write);
 }
 
 /// 推入一行，除非同一个词已有一行排得不比它靠后。`leading` 记着每个词目前排得最靠前的那一行的排序键。被跳过的行在稳定排序后必然落在那一行之后（键更大，或键相同而推入更晚），会被 `retain_unique_words` 删掉；它也不会让别的行多删或少删，因为它能挡住的行那一行同样挡得住。所以跳过与全部推入再 `rank_candidates`，结果完全相同。前提是两边用同一个 `prefer_exact`。
@@ -1199,6 +1219,25 @@ mod tests {
         let mut many: Vec<_> = (0..8).map(|n| english(&format!("w{n}"), n)).collect();
         rank_english(&mut many, 2);
         assert_eq!(many.len(), ENGLISH_LIMIT);
+    }
+
+    #[test]
+    fn english_dedup_keeps_the_first_row_for_each_display_word() {
+        let mut words = vec![
+            item("one", "one", 100, CandidateSource::EnglishDictionary),
+            item("two", "two", 90, CandidateSource::EnglishDictionary),
+            item("one", "one", 80, CandidateSource::EnglishDictionary),
+        ];
+
+        deduplicate_english_words(&mut words);
+
+        assert_eq!(
+            words
+                .iter()
+                .map(|word| (word.word.as_str(), word.weight))
+                .collect::<Vec<_>>(),
+            [("one", 100), ("two", 90)]
+        );
     }
 
     #[test]
