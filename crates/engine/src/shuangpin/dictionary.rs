@@ -356,17 +356,22 @@ impl ShuangpinDictionary {
         // Keep duplicate keys borrowed while checking both owned append lists, then move rows after releasing the set.
         let mut listed: HashSet<&str> = result.iter().map(|item| item.word.as_str()).collect();
         let rows = whole.into_iter().chain(unmatched).collect::<Vec<_>>();
-        let unique = rows
+        let duplicates = rows
             .iter()
-            .map(|item| listed.insert(item.word.as_str()))
+            .enumerate()
+            .filter_map(|(index, item)| (!listed.insert(item.word.as_str())).then_some(index))
             .collect::<Vec<_>>();
         drop(listed);
         result.reserve(rows.len());
-        result.extend(
-            rows.into_iter()
-                .zip(unique)
-                .filter_map(|(item, unique)| unique.then_some(item)),
-        );
+        let mut duplicates = duplicates.into_iter().peekable();
+        result.extend(rows.into_iter().enumerate().filter_map(|(index, item)| {
+            if duplicates.peek() == Some(&index) {
+                duplicates.next();
+                None
+            } else {
+                Some(item)
+            }
+        }));
         result
     }
 
