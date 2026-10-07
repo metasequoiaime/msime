@@ -278,7 +278,7 @@ public final class KeyboardFragment extends HomeTabFragment {
         ViewPolicy.setVisible(view.findViewById(R.id.keyboard_rows), !active);
         LinearLayout results = view.findViewById(R.id.keyboard_search_results);
         results.removeAllViews();
-        results.setVisibility(active ? View.VISIBLE : View.GONE);
+        ViewPolicy.setVisible(results, active);
         int shown = 0;
         if (active) {
             HomeNavGroup group = null;
