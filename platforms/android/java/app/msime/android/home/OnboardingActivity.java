@@ -177,7 +177,7 @@ public final class OnboardingActivity extends AppCompatActivity {
         next.setText(page < pages - 1 ? R.string.onboarding_next
             : offer ? R.string.onboarding_sign_in : R.string.onboarding_done);
         ViewPolicy.setEnabled(next, !signingIn);
-        ViewPolicy.setEnabled(back, page > 0);
+        back.setEnabled(page > 0);
 
         LinearLayout column = findViewById(R.id.onboarding_page);
         column.removeAllViews();
