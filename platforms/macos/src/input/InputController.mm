@@ -3526,6 +3526,8 @@ static __weak MSIMEInputController *MSIMEFocusedController;
     NSString *scheme = _appearance.inputScheme;
     NSString *target =
         MSIMESchemeForReportedInputMode(mode, scheme, _appearance.lastChineseScheme, MSIMEInputSourceIsEnabled);
+    // A mode whose scheme cannot run here (粤, 注 or 笔 without its dictionary) leaves the scheme alone. Adopting it only made the Engine fall back to the Chinese scheme used before it, so the menu bar said 粤 while the keys typed that scheme - shuangpin, for one user who had never picked Cantonese. The mode can be selectable without the dictionary: on macOS 27.0.1 the system turned 粤 on by itself after --register-input-source enabled the bundle, and it came back each time the user removed it.
+    if (target && !MSIMEInputSchemeAvailable(target, [self inputSchemeHostOptions])) target = nil;
     if (target && ![target isEqualToString:scheme]) {
         // The composition was typed under the old scheme and a scheme switch discards it, so commit it first, as the scheme menu does. A Korean syllable is text the user already wrote.
         if (_session && _activeClient && [_view[@"editing_text"] length]) {

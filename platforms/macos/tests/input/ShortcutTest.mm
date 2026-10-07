@@ -2036,6 +2036,28 @@ static void TestOptInSchemeModes() {
     assert([[tibetanController.menu itemAtIndex:9].title isEqual:@"输入方案（藏文）"]);
     MSIMERemoveTestPreferenceSuite(tibetanDefaults, tibetanSuite);
 
+    // Picking 粤 where msime-cantonese.db is missing leaves the scheme alone. Cantonese cannot run here, so switching to it only made the Engine fall back to the Chinese scheme used before it: the menu bar said 粤 and the keys typed shuangpin. With the dictionary in place the same report switches to cantonese as before.
+    NSString *reportSuite = [@"msime.opt-in-report." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *reportDefaults = [[NSUserDefaults alloc] initWithSuiteName:reportSuite];
+    NSString *emptyDictionaries = [NSTemporaryDirectory() stringByAppendingPathComponent:[@"msime-no-language-dictionaries-" stringByAppendingString:NSUUID.UUID.UUIDString]];
+    assert([NSFileManager.defaultManager createDirectoryAtPath:emptyDictionaries withIntermediateDirectories:YES attributes:nil error:nil]);
+    auto reportCantonese = [&](NSString *dictionaryDirectory) {
+        MSIMEAppearancePreferences *reportAppearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:reportDefaults];
+        reportAppearance.inputScheme = @"quanpin";
+        MSIMEInputController *reporter = makeController(reportAppearance, YES);
+        ((SchemeHostSession *)[reporter valueForKey:@"session"]).hostOptions = @{@"language_dictionaries": dictionaryDirectory};
+        [reporter setValue:emptyDictionaries forKey:@"preferencesDirectory"];
+        [reporter setValue:@{@"editing_text":@"", @"candidates":@[]} forKey:@"view"];
+        MSIMEResetSystemInputModeState(MSIMESharedSystemInputModeState());
+        [reporter systemDidReportInputMode:MSIMECantoneseInputModeID client:[reporter valueForKey:@"activeClient"]];
+        return reportAppearance.inputScheme;
+    };
+    assert([reportCantonese(emptyDictionaries) isEqual:@"quanpin"]);
+    assert([reportCantonese(dictionaries) isEqual:@"cantonese"]);
+    MSIMEResetSystemInputModeState(MSIMESharedSystemInputModeState());
+    [NSFileManager.defaultManager removeItemAtPath:emptyDictionaries error:nil];
+    MSIMERemoveTestPreferenceSuite(reportDefaults, reportSuite);
+
     [NSFileManager.defaultManager removeItemAtPath:dictionaries error:nil];
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
