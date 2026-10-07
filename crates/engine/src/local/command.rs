@@ -133,12 +133,20 @@ pub fn query_command(
     table: &[CommandTableEntry],
 ) -> Vec<WordItem> {
     let clock = clock(now);
-    let mut rows: Vec<(String, String)> = Vec::with_capacity(RESULT_LIMIT);
+    let mut rows: [Option<(String, String)>; RESULT_LIMIT] = std::array::from_fn(|_| None);
+    let mut row_count = 0;
     let mut push = |trigger: &str, text: String| {
         // The command page is capped at 18 rows. Scanning it avoids cloning every text into a
         // second owned deduplication set on each keystroke.
-        if fits(&text) && !rows.iter().any(|(_, existing)| existing == &text) {
-            rows.push((trigger.to_owned(), text));
+        if row_count < RESULT_LIMIT
+            && fits(&text)
+            && !rows[..row_count]
+                .iter()
+                .flatten()
+                .any(|(_, existing)| existing == &text)
+        {
+            rows[row_count] = Some((trigger.to_owned(), text));
+            row_count += 1;
         }
     };
     if let Some((trigger, text)) = translation_source(code, table) {
@@ -168,15 +176,15 @@ pub fn query_command(
             }
         }
     }
-    let count = rows.len().min(RESULT_LIMIT);
     rows.into_iter()
-        .take(count)
+        .take(row_count)
+        .flatten()
         .enumerate()
         .map(|(index, (trigger, text))| {
             WordItem::new(
                 trigger,
                 text,
-                (count - index) as i64,
+                (row_count - index) as i64,
                 CandidateSource::Generated,
                 "",
             )
@@ -278,6 +286,14 @@ mod tests {
 
     fn words(rows: &[WordItem]) -> Vec<&str> {
         rows.iter().map(|row| row.word.as_str()).collect()
+    }
+
+    #[test]
+    fn an_unknown_command_does_not_allocate_a_row_buffer() {
+        let (rows, allocations) =
+            crate::ime::personal_rerank::allocations::count(|| query_command("zzzz", &now(), &[]));
+        assert!(rows.is_empty());
+        assert_eq!(allocations, 0);
     }
 
     #[test]
