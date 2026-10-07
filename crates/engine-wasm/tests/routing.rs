@@ -808,6 +808,8 @@ fn japanese_shows_kana_and_space_commits_the_conversion() {
     assert_eq!(frame.caret, 4);
     assert_eq!(frame.page[0].text, "日本語");
     assert!(texts(&frame.page).contains(&"にほんご"));
+    // 每行的编码都是同一串罗马字，不给出来。
+    assert!(frame.page.iter().all(|row| row.code.is_empty()));
     assert!(!frame.model_on);
     let frame = fixture.host.keys(&[Key::Space]);
     assert_eq!(frame.out, vec![commit("日本語", 0)]);

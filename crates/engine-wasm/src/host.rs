@@ -905,13 +905,19 @@ impl WebHost {
         if let Some(demoted) = runner_up_order(scheme, &rotated) {
             order = demoted.iter().map(|&seat| order[seat]).collect();
         }
+        // 日语每行的 code 都是同一串键入的罗马字，在候选旁显示没有意义，给空串。
+        let japanese = snapshot.scheme == SchemeType::JapaneseRomaji;
         let ordered_rows: Vec<Row> = order
             .iter()
             .map(|&index| {
                 let item = &snapshot.candidates[index];
                 Row {
                     text: item.word.clone(),
-                    code: item.pinyin.clone(),
+                    code: if japanese {
+                        String::new()
+                    } else {
+                        item.pinyin.clone()
+                    },
                 }
             })
             .collect();
