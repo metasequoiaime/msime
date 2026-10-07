@@ -548,30 +548,34 @@ fn append_prefix_rows(candidates: &mut Vec<WordItem>, prefix_rows: Vec<Vec<WordI
         }
         return;
     }
-    // Borrow words while calculating each group's first occurrence, then release the set before moving rows into candidates.
-    let mut listed: HashSet<&str> = candidates.iter().map(|item| item.word.as_str()).collect();
-    let duplicates = prefix_rows
-        .iter()
-        .map(|rows| {
-            rows.iter()
-                .enumerate()
-                .filter_map(|(index, item)| (!listed.insert(item.word.as_str())).then_some(index))
-                .collect::<Vec<_>>()
-        })
-        .collect::<Vec<_>>();
-    drop(listed);
-    for (rows, duplicates) in prefix_rows.into_iter().zip(duplicates) {
-        candidates.reserve(rows.len());
-        let mut duplicates = duplicates.into_iter().peekable();
-        candidates.extend(rows.into_iter().enumerate().filter_map(|(index, item)| {
-            if duplicates.peek() == Some(&index) {
-                duplicates.next();
-                None
-            } else {
-                Some(item)
-            }
-        }));
+    // 先把各组移入同一缓冲，只建立一个重复索引列表；释放借用后再原地压缩。
+    let added = total.saturating_sub(candidates.len());
+    candidates.reserve(added);
+    let original_len = candidates.len();
+    for rows in prefix_rows {
+        candidates.extend(rows);
     }
+    let mut listed = HashSet::with_capacity(candidates.len());
+    listed.extend(
+        candidates[..original_len]
+            .iter()
+            .map(|item| item.word.as_str()),
+    );
+    let mut unique = Vec::with_capacity(added);
+    for (index, item) in candidates.iter().enumerate().skip(original_len) {
+        if listed.insert(item.word.as_str()) {
+            unique.push(index);
+        }
+    }
+    drop(listed);
+    let mut write = original_len;
+    for read in unique {
+        if write != read {
+            candidates.swap(write, read);
+        }
+        write += 1;
+    }
+    candidates.truncate(write);
 }
 
 fn append_helpcode_rows(
@@ -793,6 +797,47 @@ mod tests {
                 .map(|item| item.word.as_str())
                 .collect::<Vec<_>>(),
             ["已有", "整", "未"]
+        );
+    }
+
+    #[test]
+    fn large_prefix_rows_do_not_allocate_duplicate_index_lists() {
+        let mut candidates = Vec::with_capacity(100);
+        candidates.push(row("已有"));
+        let prefix_rows = (0..2)
+            .map(|group| {
+                (0..40)
+                    .map(|index| {
+                        row(if index == 0 {
+                            "已有"
+                        } else if index % 2 == 0 {
+                            if group == 0 {
+                                "甲"
+                            } else {
+                                "乙"
+                            }
+                        } else {
+                            "候选"
+                        })
+                    })
+                    .collect()
+            })
+            .collect();
+
+        let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            append_prefix_rows(&mut candidates, prefix_rows);
+        });
+
+        assert_eq!(
+            candidates
+                .iter()
+                .map(|item| item.word.as_str())
+                .collect::<Vec<_>>(),
+            ["已有", "候选", "甲", "乙"]
+        );
+        assert!(
+            allocations <= 2,
+            "large prefix merge allocated {allocations} temporary buffers"
         );
     }
 }
