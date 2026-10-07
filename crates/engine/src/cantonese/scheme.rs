@@ -214,17 +214,27 @@ impl CantoneseScheme {
             }
         }
         let mut seen = HashSet::with_capacity(candidates.len());
-        let unique = candidates
+        let duplicates = candidates
             .iter()
-            .map(|candidate| seen.insert((candidate.text.as_str(), candidate.syllables)))
+            .enumerate()
+            .filter_map(|(index, candidate)| {
+                (!seen.insert((candidate.text.as_str(), candidate.syllables))).then_some(index)
+            })
             .collect::<Vec<_>>();
         drop(seen);
-        let mut index = 0;
-        candidates.retain(|_| {
-            let keep = unique[index];
-            index += 1;
-            keep
-        });
+        let mut duplicates = duplicates.into_iter().peekable();
+        let mut write = 0;
+        for read in 0..candidates.len() {
+            if duplicates.peek() == Some(&read) {
+                duplicates.next();
+                continue;
+            }
+            if write != read {
+                candidates.swap(write, read);
+            }
+            write += 1;
+        }
+        candidates.truncate(write);
         Ok(candidates)
     }
 
