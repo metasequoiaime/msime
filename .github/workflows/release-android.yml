@@ -46,6 +46,15 @@ jobs:
       - name: Fetch the locked language dictionaries
         run: python3 scripts/fetch_language_dictionaries.py
       # build-native.sh 需要固定提交的 vcpkg（只用来装 nlohmann-json）和 arm64 的 Android Rust target（build-apk.sh 默认只打 arm64-v8a）；runner 上都没有。bootstrap-vcpkg.sh 放在 platforms/windows 下但不限平台，装到 build-native.sh 默认读取的 target/tooling/vcpkg。
+      # build-native.sh 只认固定的 NDK 28.2.13676358。此前一直靠 ubuntu-24.04 镜像碰巧预装它，镜像 20261002 起不再带这个版本，Android 0.2.1 第一次发布就因此失败。缺了就用 runner 自带的 sdkmanager 装上，装完再核对一次版本。
+      - name: Install the pinned Android NDK
+        run: |
+          set -euo pipefail
+          ndk="$ANDROID_SDK_ROOT/ndk/28.2.13676358"
+          if ! grep -qs '28.2.13676358' "$ndk/source.properties"; then
+            yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --install 'ndk;28.2.13676358' >/dev/null
+          fi
+          grep -q '28.2.13676358' "$ndk/source.properties"
       - name: Prepare pinned vcpkg and Rust targets
         run: |
           set -euo pipefail
