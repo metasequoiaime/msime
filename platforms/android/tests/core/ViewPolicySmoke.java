@@ -2,6 +2,8 @@ import app.msime.android.ViewPolicy;
 
 public final class ViewPolicySmoke {
     public static void main(String[] arguments) {
+        java.util.function.BiConsumer<android.view.View, Runnable> optionalClick =
+            ViewPolicy::bindOptionalClick;
         checkRejectsUnsupported(ViewPolicy::setCentered, "centered");
         checkRejectsUnsupported(ViewPolicy::setCenteredVertically, "centered vertically");
         System.out.println("ViewPolicy smoke passed");

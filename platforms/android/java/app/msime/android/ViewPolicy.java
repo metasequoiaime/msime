@@ -130,6 +130,11 @@ public final class ViewPolicy {
         view.setOnClickListener(ignored -> action.run());
     }
 
+    /** 绑定可选点击动作；动作为空时清除旧监听器。 */
+    public static void bindOptionalClick(View view, Runnable action) {
+        view.setOnClickListener(action == null ? null : ignored -> action.run());
+    }
+
     /** Set whether a view accepts input without changing its visibility or focus policy. */
     public static void setEnabled(View view, boolean enabled) {
         view.setEnabled(enabled);
