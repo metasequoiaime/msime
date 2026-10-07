@@ -6724,7 +6724,7 @@ public final class MSIMEInputService extends InputMethodService {
             }
         }
         if (schemeButton != null) {
-            schemeButton.setVisibility(toolbarScheme ? View.VISIBLE : View.GONE);
+            ViewPolicy.setVisible(schemeButton, toolbarScheme);
             schemeButton.setSelected(schemeScroll != null && schemeScroll.getVisibility() == View.VISIBLE);
             schemeButton.setText(selectedScheme.glyph() + selectedScheme.badge(wubiProfile));
             schemeButton.setContentDescription("输入方案：" + selectedScheme.title(wubiProfile));
