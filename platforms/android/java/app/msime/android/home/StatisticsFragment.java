@@ -86,7 +86,7 @@ public final class StatisticsFragment extends HomeTabFragment {
             tab = Tab.values()[index];
             render();
         });
-        ViewPolicy.bindClick(view.findViewById(R.id.statistics_menu), this::showMenu);
+        view.findViewById(R.id.statistics_menu).setOnClickListener(this::showMenu);
         TextView footer = view.findViewById(R.id.statistics_footer);
         Drawable lock = ContextCompat.getDrawable(requireContext(), R.drawable.ic_ms_shield_lock);
         if (lock != null) {
