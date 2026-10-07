@@ -166,35 +166,56 @@ fn spelled_entry(entry: &MentionEntry, code: &str, exact: bool) -> bool {
         )
 }
 
+fn collect_mention_rows<'a>(
+    code: &str,
+    entries: &'a [MentionEntry],
+) -> (
+    [Option<&'a MentionEntry>; RESULT_LIMIT],
+    usize,
+    [Option<&'a MentionEntry>; RESULT_LIMIT],
+    usize,
+) {
+    let mut exact = [None; RESULT_LIMIT];
+    let mut exact_len = 0;
+    let mut prefix = [None; RESULT_LIMIT];
+    let mut prefix_len = 0;
+    for entry in entries {
+        if spelled_entry(entry, code, true) {
+            exact[exact_len] = Some(entry);
+            exact_len += 1;
+            if exact_len == RESULT_LIMIT {
+                break;
+            }
+        } else if prefix_len < RESULT_LIMIT && spelled_entry(entry, code, false) {
+            prefix[prefix_len] = Some(entry);
+            prefix_len += 1;
+        }
+    }
+    (exact, exact_len, prefix, prefix_len)
+}
+
 /// Generated rows for the letters after `@`, weight `count - index`, at most `RESULT_LIMIT`: entries the input spells out completely, then entries it begins, each group in list order. A key matches by its letters (`zhangsan`) or its initials (`zs`); an entry without a key matches by its own text in lowercase. `pinyin` holds the key. `entries` must have gone through `usable_mentions`.
 ///
 /// With `with_places` and a non-empty `code`, the embedded places fill the rows the list leaves, matched the same way and in table order, skipping a place whose name the list already offers.
 pub fn query_mentions(code: &str, entries: &[MentionEntry], with_places: bool) -> Vec<WordItem> {
-    let row_limit = RESULT_LIMIT.min(entries.len());
-    let mut rows: Vec<&MentionEntry> = Vec::with_capacity(row_limit);
-    let mut prefix_rows: Vec<&MentionEntry> = Vec::with_capacity(row_limit);
-    for entry in entries {
-        if spelled_entry(entry, code, true) {
-            rows.push(entry);
-            if rows.len() == RESULT_LIMIT {
-                break;
-            }
-        } else if prefix_rows.len() < RESULT_LIMIT && spelled_entry(entry, code, false) {
-            prefix_rows.push(entry);
-        }
+    let (exact, exact_len, prefix, prefix_len) = collect_mention_rows(code, entries);
+    let prefix_len = prefix_len.min(RESULT_LIMIT - exact_len);
+    let mut matches = Vec::with_capacity(exact_len + prefix_len);
+    for entry in exact[..exact_len].iter().chain(prefix[..prefix_len].iter()) {
+        let entry = entry.expect("mention row slot is filled");
+        matches.push((entry.key.as_str(), entry.text.as_str()));
     }
-    rows.extend(prefix_rows.into_iter().take(RESULT_LIMIT - rows.len()));
-    let mut matches: Vec<(&str, &str)> = rows
-        .iter()
-        .map(|entry| (entry.key.as_str(), entry.text.as_str()))
-        .collect();
     if with_places && !code.is_empty() {
         let table = places();
-        let existing_names: Vec<&str> = matches.iter().map(|(_, text)| *text).collect();
+        let existing_len = matches.len();
+        let mut existing_names = [""; RESULT_LIMIT];
+        for (index, (_, text)) in matches.iter().enumerate() {
+            existing_names[index] = text;
+        }
         matches.extend(collect_place_matches(
             table,
             code,
-            &existing_names,
+            &existing_names[..existing_len],
             RESULT_LIMIT.saturating_sub(matches.len()),
         ));
     }
@@ -300,6 +321,24 @@ mod tests {
         let usable = usable_mentions(&entries);
         assert_eq!(usable.len(), SMALL_MENTION_TABLE + 1);
         assert_eq!(usable[0].text, "name0");
+    }
+
+    #[test]
+    fn mention_query_row_scan_uses_no_temporary_heap_state() {
+        let entries = [
+            mention("张三", "zhang'san"),
+            mention("张珊珊", "zhang'shan'shan"),
+            mention("深圳市", "shen'zhen'shi"),
+        ];
+        let ((exact, exact_len, prefix, prefix_len), allocations) =
+            crate::ime::personal_rerank::allocations::count(|| {
+                collect_mention_rows("zs", &entries)
+            });
+        assert_eq!(allocations, 0);
+        assert_eq!(exact_len, 1);
+        assert_eq!(prefix_len, 1);
+        assert_eq!(exact[0].map(|entry| entry.text.as_str()), Some("张三"));
+        assert_eq!(prefix[0].map(|entry| entry.text.as_str()), Some("张珊珊"));
     }
 
     fn words(code: &str) -> Vec<String> {
