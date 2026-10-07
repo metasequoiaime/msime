@@ -32,6 +32,7 @@
 #include "../src/candidates/CandidateColors.h"
 #include "../src/candidates/CandidateFcitxTheme.h"
 #include "../src/candidates/FcitxThemeLogo.h"
+#include "../src/candidates/FcitxThemeOverlayScale.h"
 #include "../src/candidates/CandidateFontPolicy.h"
 #include "../src/candidates/CandidateWheelPaging.h"
 #include "../src/candidates/PanelRestoreRecord.h"
@@ -5273,7 +5274,8 @@ public:
     const auto *selected_dark = current.valueByPath("DarkTheme");
     if (!host::fcitx_theme_replaceable(selected ? *selected : std::string{})) return;
     const auto file = host::fcitx_theme_file(std::getenv("XDG_DATA_HOME"), std::getenv("HOME"));
-    if (!file || !host::write_fcitx_candidate_theme(*file, colors, resolved.dark, decoration, corner_radius, logo, user_radius)) return;
+    if (!file || !host::write_fcitx_candidate_theme(*file, colors, resolved.dark, decoration, corner_radius, logo, user_radius,
+                                                       host::scale_fcitx_overlay_png)) return;
     fcitx::RawConfig config;
     config.setValueByPath("Theme", std::string(host::kFcitxCandidateTheme));
     // Fcitx5 releases with a separate dark-mode theme would otherwise switch to their stock dark theme; MSIME already resolves "follow" against the system appearance itself.
