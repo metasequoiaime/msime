@@ -273,12 +273,12 @@ public final class KeyboardFragment extends HomeTabFragment {
         String query = TextPolicy.lowercase(
             ((SearchPill) view.findViewById(R.id.keyboard_search)).query());
         boolean active = !query.isEmpty();
-        view.findViewById(R.id.keyboard_notices).setVisibility(active ? View.GONE : View.VISIBLE);
-        view.findViewById(R.id.keyboard_status_card).setVisibility(active ? View.GONE : View.VISIBLE);
-        view.findViewById(R.id.keyboard_rows).setVisibility(active ? View.GONE : View.VISIBLE);
+        ViewPolicy.setVisible(view.findViewById(R.id.keyboard_notices), !active);
+        ViewPolicy.setVisible(view.findViewById(R.id.keyboard_status_card), !active);
+        ViewPolicy.setVisible(view.findViewById(R.id.keyboard_rows), !active);
         LinearLayout results = view.findViewById(R.id.keyboard_search_results);
         results.removeAllViews();
-        results.setVisibility(active ? View.VISIBLE : View.GONE);
+        ViewPolicy.setVisible(results, active);
         int shown = 0;
         if (active) {
             HomeNavGroup group = null;
@@ -302,7 +302,7 @@ public final class KeyboardFragment extends HomeTabFragment {
             }
         }
         view.findViewById(R.id.keyboard_search_empty)
-            .setVisibility(active && shown == 0 ? View.VISIBLE : View.GONE);
+            ViewPolicy.setVisible(active && shown == 0);
     }
 
     /** 搜索结果的副标题：命中的关键词；只命中标题时用这一行原来的值。 */
