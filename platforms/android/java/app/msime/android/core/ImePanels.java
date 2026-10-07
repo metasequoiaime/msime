@@ -633,7 +633,7 @@ final class ImePanels {
         boolean hasReplies = !s.replyModel.replies().isEmpty();
         selectReplySegment(s.replyReplyModeButton, s.replyModel.mode() == ReplyKeyboardModel.Mode.REPLY);
         selectReplySegment(s.replyPolishModeButton, s.replyModel.mode() == ReplyKeyboardModel.Mode.POLISH);
-        s.replyTemplateButton.setEnabled(!busy);
+        ViewPolicy.setEnabled(s.replyTemplateButton, !busy);
         s.replySourceButton.setText(s.replyModel.source().isEmpty()
             ? MSIMEInputService.REPLY_SOURCE_PLACEHOLDER : s.replyModel.source());
         if (!hasReplies) {
