@@ -9,6 +9,7 @@ import android.widget.TextView;
 import androidx.annotation.DrawableRes;
 import androidx.annotation.Nullable;
 import app.msime.android.R;
+import app.msime.android.ViewPolicy;
 import com.google.android.material.imageview.ShapeableImageView;
 
 /**
