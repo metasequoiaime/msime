@@ -3,7 +3,7 @@ set -euo pipefail
 repo_root=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$repo_root"
 abi=${1:-arm64-v8a}
-# 第二个参数 --omit-voice-runtime 由 build-apk.sh 在 MSIME_ANDROID_OMIT_ON_DEMAND=1 时传入：本地语音运行库（libsherpa-onnx-c-api.so 与 libonnxruntime.so）不进 jniLibs，由应用在用户安装本地语音模型时作为资源包 voice-runtime 下载（固定在 resources/voice-runtime-android.lock.json）。不带这个参数时照旧取出这两个库，build-client-apk.sh 的 Tauri 合包靠的就是这条默认路径。
+# 第二个参数 --omit-voice-runtime 由 build-apk.sh 在 MSIME_ANDROID_OMIT_ON_DEMAND=1 时传入：本地语音运行库（libsherpa-onnx-c-api.so 与 libonnxruntime.so）不进 jniLibs，由应用在用户打开离线识别时作为资源包 voice-runtime 下载（固定在 resources/voice-runtime-android.lock.json）。不带这个参数时照旧取出这两个库，build-client-apk.sh 的 Tauri 合包靠的就是这条默认路径。
 include_voice_runtime=1
 case "${2:-}" in
   '') ;;

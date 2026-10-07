@@ -46,6 +46,14 @@ jobs:
       - name: Fetch the locked offline candidate glosses
         if: env.MSIME_ANDROID_OMIT_ON_DEMAND != '1'
         run: python3 scripts/fetch_offline_glosses.py
+      # 瘦包不带的资源包只能靠锁文件里的地址补齐：发布之前用 App 运行时的同一个安装器、同一组 URL 和 SHA-256 把这个版本会下载的资源包装一遍，地址失效或内容漂移就停在这里。拼音版不提供粤拼、注音和笔画，不用语言词库。
+      - name: Install the on-demand resource packs the slim APK downloads
+        if: env.MSIME_ANDROID_OMIT_ON_DEMAND == '1'
+        run: |
+          set -euo pipefail
+          packs=(japanese offline-glosses voice-runtime)
+          if [ "${{ matrix.edition }}" = full ]; then packs+=(language-dictionaries); fi
+          cargo run --quiet -p msime-client-core --example install_resource_pack -- "$RUNNER_TEMP/resource-pack-check" "${packs[@]}" >/dev/null
       # build-native.sh 需要固定提交的 vcpkg（只用来装 nlohmann-json）和 arm64 的 Android Rust target（build-apk.sh 默认只打 arm64-v8a）；runner 上都没有。bootstrap-vcpkg.sh 放在 platforms/windows 下但不限平台，装到 build-native.sh 默认读取的 target/tooling/vcpkg。
       - name: Prepare pinned vcpkg and Rust targets
         run: |

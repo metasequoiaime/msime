@@ -13,7 +13,7 @@ edition_lock=$(python3 "$edition_tool" field --edition "$edition" resource_lock)
 edition_languages=$(python3 "$edition_tool" field --edition "$edition" language_dictionaries)
 edition_offline_glosses=$(python3 "$edition_tool" field --edition "$edition" features.offline_glosses)
 flavor="$(tr '[:lower:]' '[:upper:]' <<< "${edition:0:1}")${edition:1}"
-# MSIME_ANDROID_OMIT_ON_DEMAND=1 打发布用的瘦包，对照 macOS 的 MSIME_MACOS_OMIT_ON_DEMAND：日文词典那一组（词典与两份 Mozc 许可文本，resources.rs 的 ON_DEMAND_JAPANESE_ARTIFACTS）、粤拼注音笔画语言词库、非英文离线释义和本地语音运行库都不进包，由应用在用户添加日语或这些语言、打开离线释义、安装本地语音模型时作为资源包下载到 files/bootstrap/state/resource-packs/。只对 full 和 pinyin 生效：它们的日文只是附加功能；日文版的主词库就是 msime-japanese.dat，不能省。默认不省略，开发构建照旧全带。
+# MSIME_ANDROID_OMIT_ON_DEMAND=1 打发布用的瘦包，对照 macOS 的 MSIME_MACOS_OMIT_ON_DEMAND：日文词典那一组（词典与两份 Mozc 许可文本，resources.rs 的 ON_DEMAND_JAPANESE_ARTIFACTS）、粤拼注音笔画语言词库、非英文离线释义和本地语音运行库都不进包，由应用在用户添加日语或这些语言、打开离线释义、打开离线识别时作为资源包下载到 files/bootstrap/state/resource-packs/。只对 full 和 pinyin 生效：它们的日文只是附加功能；日文版的主词库就是 msime-japanese.dat，不能省。默认不省略，开发构建照旧全带。
 omit_on_demand=${MSIME_ANDROID_OMIT_ON_DEMAND:-0}
 verify_flags=()
 native_flags=()
@@ -49,6 +49,11 @@ for abi in "${abis[@]}"; do
     *) echo "MSIME_ANDROID_ABIS: unsupported ABI $abi (supported: arm64-v8a, x86_64)" >&2; exit 1 ;;
   esac
 done
+# 瘦包只能是 arm64-v8a 单 ABI：资源包 voice-runtime 只取 .aar 里 arm64-v8a 的两个库（resources/voice-runtime-android.lock.json），x86_64 上下载下来也加载不了，离线识别永远失败。
+if [ "$omit_on_demand" = 1 ] && [ "${abis[*]}" != arm64-v8a ]; then
+  echo "MSIME_ANDROID_OMIT_ON_DEMAND=1 builds arm64-v8a only (the voice-runtime pack carries arm64-v8a libraries), not MSIME_ANDROID_ABIS=${abis[*]}" >&2
+  exit 1
+fi
 for abi in "${abis[@]}"; do bash platforms/android/build-native.sh "$abi" ${native_flags[@]+"${native_flags[@]}"}; done
 abi_list=$(IFS=,; echo "${abis[*]}")
 
@@ -214,20 +219,15 @@ if [ "$omit_on_demand" = 1 ]; then
       exit 1
     fi
   done
-  # 体积上限挡的是整组资源或运行库悄悄回到包里（日文词典约 20 MB、语音运行库约 27 MB）。只对默认的 arm64-v8a 单 ABI 包设默认上限：多一个 ABI 原生库就翻倍，那时用 MSIME_ANDROID_MAX_APK_BYTES 自己给。
-  max_apk_bytes=${MSIME_ANDROID_MAX_APK_BYTES:-}
-  if [ -z "$max_apk_bytes" ] && [ "$abi_list" = arm64-v8a ]; then max_apk_bytes=130000000; fi
-  if [ -n "$max_apk_bytes" ]; then
-    [[ "$max_apk_bytes" =~ ^[0-9]+$ ]] || { echo "MSIME_ANDROID_MAX_APK_BYTES must be a byte count" >&2; exit 1; }
-    apk_bytes=$(wc -c < "$output" | tr -d '[:space:]')
-    if [ "$apk_bytes" -gt "$max_apk_bytes" ]; then
-      echo "$output is $apk_bytes bytes, above the $max_apk_bytes-byte ceiling for a package without on-demand resources" >&2
-      exit 1
-    fi
-    echo "APK size $apk_bytes bytes, within the $max_apk_bytes-byte ceiling"
-  else
-    echo "APK size ceiling skipped for ABIs $abi_list; set MSIME_ANDROID_MAX_APK_BYTES to check one"
+  # 体积上限挡的是整组资源或运行库悄悄回到包里（日文词典约 20 MB、语音运行库约 27 MB）。瘦包只有 arm64-v8a 单 ABI（见上面的 ABI 检查），默认上限按它定，MSIME_ANDROID_MAX_APK_BYTES 可改。
+  max_apk_bytes=${MSIME_ANDROID_MAX_APK_BYTES:-130000000}
+  [[ "$max_apk_bytes" =~ ^[0-9]+$ ]] || { echo "MSIME_ANDROID_MAX_APK_BYTES must be a byte count" >&2; exit 1; }
+  apk_bytes=$(wc -c < "$output" | tr -d '[:space:]')
+  if [ "$apk_bytes" -gt "$max_apk_bytes" ]; then
+    echo "$output is $apk_bytes bytes, above the $max_apk_bytes-byte ceiling for a package without on-demand resources" >&2
+    exit 1
   fi
+  echo "APK size $apk_bytes bytes, within the $max_apk_bytes-byte ceiling"
 fi
 rm -f "$aligned"
 echo "APK for edition $edition built and signed with the $signed_with: $output; not installed or device-verified"
