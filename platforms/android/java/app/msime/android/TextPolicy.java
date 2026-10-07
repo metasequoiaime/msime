@@ -90,6 +90,11 @@ public final class TextPolicy {
         return (value == null ? "" : value).toUpperCase(Locale.ROOT);
     }
 
+    /** Return text with ASCII whitespace trimmed, treating null as empty. */
+    public static String trimmed(String value) {
+        return value == null ? "" : value.trim();
+    }
+
     /** Return the number of Unicode code points in text, or zero for null. */
     public static int codePointLength(String value) {
         return value == null ? 0 : value.codePointCount(0, value.length());
