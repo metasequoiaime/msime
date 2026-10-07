@@ -273,9 +273,14 @@ public final class ViewPolicy {
         setStartCenteredVertically(view);
     }
 
+    /** Set a view background while preserving its other visual state. */
+    public static void setBackground(View view, android.graphics.drawable.Drawable background) {
+        view.setBackground(background);
+    }
+
     /** Remove a view's default background drawable. */
     public static void clearBackground(View view) {
-        view.setBackground(null);
+        setBackground(view, null);
     }
 
     /** Limit a text view to a fixed number of lines and truncate at the end. */
