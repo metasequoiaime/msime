@@ -1956,10 +1956,29 @@ fn retired_thoughtful_reply_touch_scheme_is_migrated_on_read() {
 
 #[test]
 fn cantonese_zhuyin_and_vietnamese_touch_schemes_are_appended_and_opt_in() {
+    // 默认只启用中文方案：日文（9 键和 26 键）和韩文与后面追加的几个方案一样由用户自己打开。
     assert_eq!(
-        TouchKeyboardScheme::ALL[..11],
-        TouchKeyboardScheme::DEFAULT_ENABLED
+        TouchKeyboardScheme::DEFAULT_ENABLED,
+        [
+            TouchKeyboardScheme::Quanpin,
+            TouchKeyboardScheme::NineKey,
+            TouchKeyboardScheme::Xiaohe,
+            TouchKeyboardScheme::Ziranma,
+            TouchKeyboardScheme::Microsoft,
+            TouchKeyboardScheme::Shoudao,
+            TouchKeyboardScheme::Wubi,
+            TouchKeyboardScheme::Handwriting,
+        ]
     );
+    for scheme in [
+        TouchKeyboardScheme::JapaneseNineKey,
+        TouchKeyboardScheme::Japanese,
+        TouchKeyboardScheme::Korean,
+    ] {
+        assert!(!TouchKeyboardSchemePreferences::default()
+            .enabled
+            .contains(&scheme));
+    }
     assert_eq!(
         TouchKeyboardScheme::ALL[11..],
         [

@@ -388,8 +388,8 @@ impl TouchKeyboardScheme {
         Self::ZhuyinNineKey,
     ];
 
-    /// 用户还没挑选时键盘显示的方案：除粤拼、注音（大千和 9 键）、越南文、藏文和笔画以外的全部，这些由用户自己打开，和 macOS 上它们的输入模式默认停用一样。因此没有 `touch_keyboard_schemes` 的文档仍然保持原来的键盘。
-    pub const DEFAULT_ENABLED: [Self; 11] = [
+    /// 用户还没挑选时键盘显示的方案：只有中文方案（拼音、双拼、五笔和手写）。日文（9 键和 26 键）、韩文、粤拼、注音（大千和 9 键）、越南文、藏文和笔画都由用户自己在「添加语言」里打开：日文词典和语言词库在 Android 上按需下载，默认不启用它们，新装用户就不会看到一个还没有词典的键盘。与 Android 的 `KeyboardScheme` 有意保持一致；存过列表的文档照旧按它保存的列表。
+    pub const DEFAULT_ENABLED: [Self; 8] = [
         Self::Quanpin,
         Self::NineKey,
         Self::Xiaohe,
@@ -397,10 +397,7 @@ impl TouchKeyboardScheme {
         Self::Microsoft,
         Self::Shoudao,
         Self::Wubi,
-        Self::JapaneseNineKey,
-        Self::Japanese,
         Self::Handwriting,
-        Self::Korean,
     ];
 }
 
