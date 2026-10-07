@@ -293,6 +293,12 @@ public final class ViewPolicy {
         view.setFocusable(false);
     }
 
+    /** Set whether a view participates in touch and focus navigation. */
+    public static void setInteractive(View view, boolean interactive) {
+        view.setClickable(interactive);
+        view.setFocusable(interactive);
+    }
+
     /** Exclude a decorative view from the accessibility tree. */
     public static void hideFromAccessibility(View view) {
         view.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
