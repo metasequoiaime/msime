@@ -171,7 +171,7 @@ public final class OnboardingActivity extends AppCompatActivity {
         ((LinearProgressIndicator) findViewById(R.id.onboarding_progress))
             .setProgressCompat(page + 1, animate);
         ViewPolicy.setVisible(findViewById(R.id.onboarding_skip), page == 0);
-        findViewById(R.id.onboarding_previous).setVisibility(page == 0 ? View.GONE : View.VISIBLE);
+        ViewPolicy.setVisible(findViewById(R.id.onboarding_previous), page != 0);
         boolean offer = page == pages - 1 && account == SignIn.State.OFFERED && !declined;
         MaterialButton next = findViewById(R.id.onboarding_next);
         next.setText(page < pages - 1 ? R.string.onboarding_next
