@@ -1,6 +1,5 @@
 //! `K` mode (quick_phrase_query.cpp:46-98). The table is really named `quick_parases`.
 
-use std::collections::HashSet;
 use std::path::Path;
 
 use rusqlite::Connection;
@@ -109,30 +108,14 @@ pub fn merge_quick_phrases(
         return database;
     }
     let mut result = database;
-    let start = table.partition_point(|entry| entry.key.as_str() < prefix);
-    let mut additions = Vec::with_capacity(RESULT_LIMIT.saturating_sub(result.candidates.len()));
-    // Keep the existing candidate text borrowed while scanning the bounded host table. The
-    // result vector is extended only after the scan, so its reallocation cannot invalidate these
-    // references and each host row is checked with one hash lookup instead of a full page scan.
-    let mut seen_words: HashSet<&str> = result
-        .candidates
-        .iter()
-        .map(|candidate| candidate.word.as_str())
-        .collect();
-    for entry in table[start..]
-        .iter()
-        .take_while(|entry| entry.key.starts_with(prefix))
-    {
-        if result.candidates.len() + additions.len() >= RESULT_LIMIT {
-            break;
-        }
-        if !seen_words.insert(entry.text.as_str()) {
-            continue;
-        }
-        additions.push(entry);
+    if result.candidates.len() >= RESULT_LIMIT {
+        return result;
     }
-    drop(seen_words);
-    for entry in additions {
+    let start = table.partition_point(|entry| entry.key.as_str() < prefix);
+    let (additions, additions_len) =
+        unique_quick_phrase_indices(&result.candidates, table, start, prefix);
+    for &index in &additions[..additions_len] {
+        let entry = &table[index];
         result.candidates.push(WordItem::new(
             entry.key.clone(),
             entry.text.clone(),
@@ -142,6 +125,44 @@ pub fn merge_quick_phrases(
         ));
     }
     result
+}
+
+fn unique_quick_phrase_indices(
+    existing: &[WordItem],
+    table: &[QuickPhraseEntry],
+    start: usize,
+    prefix: &str,
+) -> ([usize; RESULT_LIMIT], usize) {
+    assert!(existing.len() < RESULT_LIMIT);
+    let mut indices = [0usize; RESULT_LIMIT];
+    let mut index_len = 0;
+    let mut seen: [Option<&str>; RESULT_LIMIT] = [None; RESULT_LIMIT];
+    let mut seen_len = 0;
+    for candidate in existing {
+        seen[seen_len] = Some(candidate.word.as_str());
+        seen_len += 1;
+    }
+    for (offset, entry) in table[start..]
+        .iter()
+        .take_while(|entry| entry.key.starts_with(prefix))
+        .enumerate()
+    {
+        if seen[..seen_len]
+            .iter()
+            .flatten()
+            .any(|existing| *existing == entry.text)
+        {
+            continue;
+        }
+        seen[seen_len] = Some(entry.text.as_str());
+        seen_len += 1;
+        indices[index_len] = start + offset;
+        index_len += 1;
+        if existing.len() + index_len == RESULT_LIMIT {
+            break;
+        }
+    }
+    (indices, index_len)
 }
 
 fn prefix_upper_bound(prefix: &str) -> String {
@@ -320,6 +341,27 @@ mod tests {
         let many = usable_quick_phrase_table(&many);
         let merged = merge_quick_phrases("a", query_quick_phrases("a", &path), &many);
         assert_eq!(merged.candidates.len(), RESULT_LIMIT);
+    }
+
+    #[test]
+    fn quick_phrase_indices_keep_first_texts_and_the_result_limit() {
+        let existing = vec![WordItem::new(
+            "a",
+            "已有",
+            0,
+            CandidateSource::QuickPhrase,
+            "",
+        )];
+        let table = [
+            phrase("aa", "已有"),
+            phrase("ab", "新增一"),
+            phrase("ac", "新增一"),
+            phrase("ad", "新增二"),
+        ];
+
+        let (indices, length) = unique_quick_phrase_indices(&existing, &table, 0, "a");
+
+        assert_eq!(&indices[..length], &[1, 3]);
     }
 
     #[test]
