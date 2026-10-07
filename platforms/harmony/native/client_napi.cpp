@@ -988,6 +988,21 @@ static napi_value Character(napi_env env, napi_callback_info info) {
         msime_client_character(handle, static_cast<uint8_t>(ascii), shift));
 }
 
+// One glide stroke (滑行输入) as the JSON request msime_client_glide reads. A request that is not a string, or is too long to copy, reaches the Rust side as an empty buffer and is refused there with the same structured error as a malformed one.
+static napi_value Glide(napi_env env, napi_callback_info info) {
+    std::vector<napi_value> argv;
+    uint64_t handle = 0;
+    std::string request;
+    if (!arguments(env, info, 2, argv) || !argumentHandle(env, argv[0], handle)) {
+        return invalid(env, "Session handle must be a non-negative integer");
+    }
+    if (!argumentText(env, argv[1], request)) {
+        return response(env, msime_client_glide(handle, nullptr, 0));
+    }
+    return response(env, msime_client_glide(
+        handle, reinterpret_cast<const uint8_t *>(request.data()), request.size()));
+}
+
 static napi_value PunctuationWithContext(napi_env env, napi_callback_info info) {
     std::vector<napi_value> argv;
     uint64_t handle = 0;
@@ -1384,6 +1399,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("setEnglishMode", SetEnglishMode),
         ENTRY("setCharacterWidth", SetCharacterWidth),
         ENTRY("character", Character),
+        ENTRY("glide", Glide),
         ENTRY("punctuationWithContext", PunctuationWithContext),
         ENTRY("balancePairedPunctuationAfterAutoClose", BalancePairedPunctuationAfterAutoClose),
         ENTRY("command", Command),

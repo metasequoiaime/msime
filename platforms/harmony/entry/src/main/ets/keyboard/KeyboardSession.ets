@@ -3104,6 +3104,18 @@ export class KeyboardSession implements HardwareKeyTarget {
     return consumed;
   }
 
+  /**
+   * One glide stroke (滑行输入), as `GlideTypingPolicy.request` built it, applied exactly as a letter's reply is. Whether the Engine typed it: a stroke it declines is dropped, and its keys are not typed instead. The stroke gets the one key feedback a press would, however many keys it crossed.
+   */
+  glide(request: string): boolean {
+    if (!this.composes() || this.handle === 0) {
+      return false;
+    }
+    this.clearSmartPunctuationRepeat();
+    this.tapFeedback();
+    return this.apply(client.glide(this.handle, request));
+  }
+
   /** Route an ASCII punctuation key through the shared editor-context policy. */
   punctuation(ascii: number): void {
     if (this.handle === 0 || this.inputClient === undefined) return;

@@ -178,6 +178,10 @@ export const setEnglishMode: (handle: number, enabled: boolean) => string;
 export const setCharacterWidth: (handle: number, fullwidth: boolean) => string;
 
 export const character: (handle: number, ascii: number, shift: boolean) => string;
+/**
+ * `msime_client_glide`: one glide stroke (滑行输入) across the letter keys, `request` being `{"keys":[[x,y] x 26],"key_width":w,"key_height":h,"points":[[x,y,ms], 2..1024]}` (at most 65536 bytes, unknown keys refused). Answers like `character`; `handled` false means the stroke was not typed (not quanpin, a local mode, dedicated English, nine-key digits composing, or nothing decoded) and its keys must not be typed either.
+ */
+export const glide: (handle: number, request: string) => string;
 export const punctuationWithContext: (handle: number, ascii: number, preceding: number) => string;
 export const balancePairedPunctuationAfterAutoClose: (handle: number, opening: number) => string;
 export const command: (handle: number, command: number) => string;

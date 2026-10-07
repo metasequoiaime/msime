@@ -157,6 +157,12 @@ import {
 } from "../entry/src/main/ets/keyboard/KeyboardFeedbackBridge";
 import { HapticStrength, KeyboardFeedback } from "../entry/src/main/ets/keyboard/KeyboardFeedback";
 import {
+  GlideArming,
+  GlideKeyRect,
+  GlidePoint,
+  GlideTypingPolicy,
+} from "../entry/src/main/ets/keyboard/input/GlideTypingPolicy";
+import {
   EnglishCompletions,
   EnglishReplacement,
   EnglishSuggestionPolicy,
@@ -5425,6 +5431,7 @@ group("the settings page and the keyboard agree on what the loudest haptic is ca
     sound: true,
     haptics: true,
     strength: HapticStrength.HEAVY,
+    glideTyping: false,
   });
   check(heavy.hapticStrength === "strong", "the keyboard\u0027s heavy reaches the page as strong");
   check(
@@ -5452,6 +5459,7 @@ group("the settings page and the keyboard agree on what the loudest haptic is ca
       sound: false,
       haptics: false,
       strength: HapticStrength.LIGHT,
+      glideTyping: false,
     }).hapticStrength === "light",
     "the other two names are the same on both sides",
   );
@@ -5483,6 +5491,252 @@ group("an unfamiliar feedback value falls back by field rather than wholesale", 
       KeyboardFeedbackBridge.previewDuration("medium"),
     "and an unknown one previews the default rather than nothing",
   );
+});
+
+group("滑行输入 is a device switch in the feedback file, off unless turned on", () => {
+  check(KeyboardFeedback.DEFAULTS.glideTyping === false, "a keyboard that never saw the switch does not glide");
+  check(
+    KeyboardFeedback.parse(JSON.stringify({ sound: true, haptics: false, strength: "light" })).glideTyping === false,
+    "a file written before the switch existed reads as off",
+  );
+  const on = KeyboardFeedback.parse(
+    JSON.stringify({ sound: false, haptics: false, strength: "medium", glideTyping: true }),
+  );
+  check(on.glideTyping === true, "a stored on reads back as on");
+  check(
+    KeyboardFeedback.parse(KeyboardFeedback.serialize(on)).glideTyping === true,
+    "and survives being written again",
+  );
+  check(
+    KeyboardFeedback.parse(
+      JSON.stringify({ sound: true, haptics: true, strength: "light", glideTyping: "yes" }),
+    ).glideTyping === false && KeyboardFeedback.parse(
+      JSON.stringify({ sound: true, haptics: true, strength: "light", glideTyping: "yes" }),
+    ).sound === true,
+    "a value that is not a boolean falls back on its own, keeping the fields beside it",
+  );
+  check(KeyboardFeedbackBridge.toShared(on).glideTyping === true, "the page is shown the switch as stored");
+  check(
+    KeyboardFeedbackBridge.fromShared({
+      soundEnabled: false,
+      hapticsEnabled: false,
+      hapticStrength: "medium",
+      glideTyping: true,
+    }).glideTyping === true,
+    "and what the page saves reaches the keyboard",
+  );
+  check(
+    KeyboardFeedbackBridge.fromShared({
+      soundEnabled: true,
+      hapticsEnabled: false,
+      hapticStrength: "medium",
+    }).glideTyping === false,
+    "a record without the switch, as the account sync builds one, reads as off; the sync passes the stored value itself",
+  );
+});
+
+/** The 26 letter keys of a QWERTY face in window coordinates: 30 x 40 keys, 4 apart, the second row indented half a key, the third a key and a half, all of it 100 down and 10 in. */
+function glideKeyboard(): (GlideKeyRect | null)[] {
+  const keys: (GlideKeyRect | null)[] = GlideTypingPolicy.emptyKeys();
+  const rows: [string, number][] = [["qwertyuiop", 0], ["asdfghjkl", 0.5], ["zxcvbnm", 1.5]];
+  rows.forEach(([letters, indent], row) => {
+    for (let column = 0; column < letters.length; column++) {
+      keys[GlideTypingPolicy.letterIndex(letters[column])] = {
+        left: 10 + (column + indent) * 34,
+        top: 100 + row * 48,
+        width: 30,
+        height: 40,
+      };
+    }
+  });
+  return keys;
+}
+
+function glideCentre(keys: (GlideKeyRect | null)[], letter: string): GlidePoint {
+  const key = keys[GlideTypingPolicy.letterIndex(letter)] as GlideKeyRect;
+  return { x: key.left + key.width / 2, y: key.top + key.height / 2, t: 0 };
+}
+
+group("glide typing is armed only on the quanpin letters of the 26-key face", () => {
+  const armed: GlideArming = {
+    enabled: true,
+    lettersLayer: true,
+    engineScheme: GlideTypingPolicy.QUANPIN_SCHEME,
+    english: false,
+    localMode: "none",
+    composes: true,
+  };
+  check(GlideTypingPolicy.armed(armed), "the setting on, quanpin letters on screen");
+  check(!GlideTypingPolicy.armed({ ...armed, enabled: false }), "off by the setting");
+  check(
+    !GlideTypingPolicy.armed({ ...armed, lettersLayer: false }),
+    "not over nine-key, handwriting, stroke, Korean or Zhuyin keys, the symbol layer or a surface",
+  );
+  check(!GlideTypingPolicy.armed({ ...armed, engineScheme: 1 }), "not in any scheme but quanpin");
+  check(!GlideTypingPolicy.armed({ ...armed, english: true }), "not in dedicated English");
+  check(!GlideTypingPolicy.armed({ ...armed, localMode: "v" }), "not while a local mode has the keys");
+  check(!GlideTypingPolicy.armed({ ...armed, composes: false }), "not in an editor the Engine does not compose for");
+});
+
+group("a touch becomes a glide over another letter, far enough sideways", () => {
+  const keys = glideKeyboard();
+  const n = glideCentre(keys, "n");
+  const m = glideCentre(keys, "m");
+  check(GlideTypingPolicy.letterIndex("a") === 0 && GlideTypingPolicy.letterIndex("z") === 25, "letters index a..z");
+  check(GlideTypingPolicy.letterIndex(";") === -1, "the semicolon key is no glide key");
+  check(GlideTypingPolicy.keyAt(keys, n.x, n.y, 2, 4) === GlideTypingPolicy.letterIndex("n"), "a centre finds its key");
+  check(
+    GlideTypingPolicy.keyAt(keys, n.x + 16, n.y, 2, 4) === GlideTypingPolicy.letterIndex("n"),
+    "the half gap beside a key still belongs to it",
+  );
+  check(
+    GlideTypingPolicy.keyAt(keys, n.x + 18, n.y, 2, 4) === GlideTypingPolicy.letterIndex("m"),
+    "past the middle of the gap the neighbour has it",
+  );
+  check(GlideTypingPolicy.keyAt(keys, 0, 0, 2, 4) === -1, "nothing above the keys");
+  check(GlideTypingPolicy.keyAt(GlideTypingPolicy.emptyKeys(), n.x, n.y, 2, 4) === -1, "nor before any key was measured");
+  const width = GlideTypingPolicy.keyWidth(keys);
+  check(width === 30, "one letter key is 30 wide");
+  const nIndex = GlideTypingPolicy.letterIndex("n");
+  check(
+    !GlideTypingPolicy.starts(nIndex, nIndex, n.x, n.x + 12, width),
+    "still on the key it went down on is a tap",
+  );
+  check(
+    GlideTypingPolicy.starts(nIndex, GlideTypingPolicy.letterIndex("m"), n.x, m.x, width),
+    "over the next key, a key's travel away, it is a glide",
+  );
+  check(
+    !GlideTypingPolicy.starts(nIndex, GlideTypingPolicy.letterIndex("m"), n.x, n.x + 11, width),
+    "under 0.4 of a key sideways it is not, even over another key",
+  );
+  check(
+    GlideTypingPolicy.starts(nIndex, GlideTypingPolicy.letterIndex("m"), n.x, n.x + 12, width),
+    "at 0.4 of a key it is",
+  );
+  check(
+    !GlideTypingPolicy.starts(nIndex, GlideTypingPolicy.letterIndex("j"), n.x, n.x + 2, width),
+    "straight up into the row above is a vertical swipe, not a glide, whichever key the finger reaches",
+  );
+  check(!GlideTypingPolicy.starts(-1, nIndex, 0, n.x, width), "a touch that did not go down on a letter never glides");
+  check(!GlideTypingPolicy.starts(nIndex, -1, n.x, n.x + 60, width), "nor does one over no letter");
+});
+
+group("the bottom row's wider keys do not set the glide key size", () => {
+  const keys = glideKeyboard();
+  for (const letter of "zxcvbnm") {
+    const key = keys[GlideTypingPolicy.letterIndex(letter)] as GlideKeyRect;
+    keys[GlideTypingPolicy.letterIndex(letter)] = { ...key, width: 36 };
+  }
+  check(GlideTypingPolicy.keyWidth(keys) === 30, "the median letter is the one the upper rows share");
+  check(GlideTypingPolicy.keyHeight(keys) === 40, "and so is its height");
+  check(GlideTypingPolicy.keyWidth(GlideTypingPolicy.emptyKeys()) === 0, "no measured key is no size");
+});
+
+group("a long stroke is thinned evenly, keeping its ends", () => {
+  const points: GlidePoint[] = [];
+  for (let index = 0; index < 5000; index++) {
+    points.push({ x: index, y: index * 2, t: index });
+  }
+  const thinned = GlideTypingPolicy.downsample(points, GlideTypingPolicy.MAX_POINTS);
+  check(thinned.length === GlideTypingPolicy.MAX_POINTS, "to exactly the limit");
+  check(thinned[0].x === 0 && thinned[thinned.length - 1].x === 4999, "first and last kept");
+  let increasing = true;
+  let largestGap = 0;
+  for (let index = 1; index < thinned.length; index++) {
+    increasing = increasing && thinned[index].x > thinned[index - 1].x;
+    largestGap = Math.max(largestGap, thinned[index].x - thinned[index - 1].x);
+  }
+  check(increasing, "in order, with no sample twice");
+  check(largestGap <= 6, "evenly spaced rather than truncated");
+  const short = points.slice(0, 10);
+  const copy = GlideTypingPolicy.downsample(short, GlideTypingPolicy.MAX_POINTS);
+  check(copy.length === 10 && copy !== short, "a short stroke is kept whole, as a copy");
+});
+
+group("coalesced samples are timed between the previous sample and the event", () => {
+  check(GlideTypingPolicy.coalescedMillis(100, 130, 0, 2) === 110, "the first of two a third of the way");
+  check(GlideTypingPolicy.coalescedMillis(100, 130, 1, 2) === 120, "the second two thirds");
+  check(GlideTypingPolicy.coalescedMillis(100, 90, 0, 1) === 100, "never before the sample it follows");
+});
+
+group("a finished stroke becomes the request msime_client_glide reads", () => {
+  const keys = glideKeyboard();
+  const stroke: GlidePoint[] = [];
+  const word = "nihao";
+  let time = 0;
+  for (let index = 0; index + 1 < word.length; index++) {
+    const from = glideCentre(keys, word[index]);
+    const to = glideCentre(keys, word[index + 1]);
+    for (let step = 0; step < 10; step++) {
+      stroke.push({ x: from.x + ((to.x - from.x) * step) / 10, y: from.y + ((to.y - from.y) * step) / 10, t: time });
+      time += 8.4;
+    }
+  }
+  const last = glideCentre(keys, "o");
+  stroke.push({ x: last.x, y: last.y, t: time });
+  const body = GlideTypingPolicy.request(keys, stroke);
+  check(body !== null, "a measured keyboard and a stroke make a request");
+  const request = JSON.parse(body as string) as {
+    keys: number[][];
+    key_width: number;
+    key_height: number;
+    points: number[][];
+  };
+  check(
+    Object.keys(request).sort().join(",") === "key_height,key_width,keys,points",
+    "with exactly the keys the C ABI accepts, which refuses unknown ones",
+  );
+  check(request.keys.length === 26, "the centres of all 26 letters");
+  check(
+    request.keys[0][0] === 15 + 0.5 * 34 && request.keys[0][1] === 48 + 20,
+    "a..z in order, measured from the letter keys' own top-left",
+  );
+  check(request.keys[GlideTypingPolicy.letterIndex("q")][0] === 15, "q, the top-left key, is half a key in");
+  check(request.key_width === 30 && request.key_height === 40, "one letter key's size");
+  check(request.points.length === stroke.length, "every sample of a short stroke");
+  check(request.points.every((point) => point.length === 3), "each as x, y and milliseconds");
+  check(
+    request.points[0][0] === stroke[0].x - 10 && request.points[0][1] === stroke[0].y - 100,
+    "in the same space as the keys",
+  );
+  check(
+    request.points.every((point, index) => Number.isInteger(point[2]) && (index === 0 || point[2] >= request.points[index - 1][2])),
+    "times whole milliseconds that never go backwards",
+  );
+
+  check(GlideTypingPolicy.request(GlideTypingPolicy.emptyKeys(), stroke) === null, "no request before the keys are measured");
+  const missing = glideKeyboard();
+  missing[GlideTypingPolicy.letterIndex("q")] = null;
+  check(GlideTypingPolicy.request(missing, stroke) === null, "nor with one letter unmeasured");
+  check(GlideTypingPolicy.request(keys, stroke.slice(0, 1)) === null, "a single sample is not a stroke");
+  check(
+    GlideTypingPolicy.request(keys, [stroke[0], { x: Number.NaN, y: 0, t: 1 }]) === null,
+    "a sample that is not a number is not sent",
+  );
+  const flat = glideKeyboard();
+  flat[0] = { ...(flat[0] as GlideKeyRect), width: 0 };
+  check(GlideTypingPolicy.request(flat, stroke) === null, "nor a key with no size");
+
+  // The worst case the view can hand over: a stroke thinned only to the view's buffer, at coordinates far from the origin and times running backwards.
+  const long: GlidePoint[] = [];
+  for (let index = 0; index < GlideTypingPolicy.BUFFER_POINTS; index++) {
+    long.push({ x: 9999.987 - index, y: 8888.123 + index / 7, t: 600000 - index });
+  }
+  const capped = GlideTypingPolicy.request(keys, long) as string;
+  const parsed = JSON.parse(capped) as { points: number[][] };
+  check(parsed.points.length === GlideTypingPolicy.MAX_POINTS, "a long stroke is capped at 1024 points");
+  check(
+    parsed.points[0][0] === Math.round((9999.987 - 10) * 10) / 10
+      && parsed.points[parsed.points.length - 1][0]
+        === Math.round((9999.987 - (GlideTypingPolicy.BUFFER_POINTS - 1) - 10) * 10) / 10,
+    "keeping where it began and where it lifted",
+  );
+  check(
+    parsed.points.every((point, index) => index === 0 || point[2] >= parsed.points[index - 1][2]),
+    "with its times made non-decreasing",
+  );
+  check(capped.length <= GlideTypingPolicy.MAX_REQUEST_BYTES, `within the request's byte limit (${capped.length})`);
 });
 
 group("an oversized feedback document is refused before parsing", () => {

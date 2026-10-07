@@ -608,7 +608,9 @@ export class HarmonyAccountCloudBridge {
         KeyboardFeedbackBridge.fromShared({
           soundEnabled: applied.feedback.soundEnabled,
           hapticsEnabled: applied.feedback.hapticsEnabled,
-          hapticStrength: applied.feedback.hapticStrength
+          hapticStrength: applied.feedback.hapticStrength,
+          // 滑行输入 shares the file but not the account, so the switch on this device is kept.
+          glideTyping: KeyboardSession.feedbackIn(stateRoot).glideTyping
         }));
       if (!written) return this.failure('account_storage');
     }
