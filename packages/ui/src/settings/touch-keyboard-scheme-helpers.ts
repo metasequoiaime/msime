@@ -119,7 +119,7 @@ export const touchKeyboardSchemeOptions: [TouchKeyboardScheme, string][] = [
 ];
 /** Every touch scheme in picker order; schemes are appended, never reordered. Mirrors `TouchKeyboardScheme::ALL` in client-core. */
 export const allTouchKeyboardSchemes = touchKeyboardSchemeOptions.map(([scheme]) => scheme);
-/** 没有存过列表的文档显示的方案。粤拼、注音、越南语、藏文和笔画需要用户自己打开，这样新增它们不会改变已有的键盘。对应 client-core 的 `TouchKeyboardScheme::DEFAULT_ENABLED`。 */
+/** 没有存过列表的文档显示的方案：粤拼、注音、越南语、藏文和笔画以外的全部，日语和韩语也在里面。对应 client-core 的 `TouchKeyboardScheme::LEGACY_DEFAULT_ENABLED`：没有列表的文档只可能出自默认值改成只有中文之前的版本，按那时的默认列表读，升级的用户键盘不变。新装只启用中文方案（`TouchKeyboardScheme::DEFAULT_ENABLED`），这个列表由 client-core 显式写进文档，不经过这里的回退。 */
 export const defaultTouchKeyboardSchemes: TouchKeyboardScheme[] = allTouchKeyboardSchemes.filter(
   (scheme) =>
     scheme !== "cantonese" &&
