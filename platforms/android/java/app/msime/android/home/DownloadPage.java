@@ -116,7 +116,7 @@ public final class DownloadPage extends DetailPage {
         Context context = row.view().getContext();
         String label = sentPlatforms.contains(platform) ? "已发送" : "发送链接";
         TextView button = KeyboardSheets.tonalButton(context, label, label + "，" + title, 600);
-        button.setEnabled(!sentPlatforms.contains(platform));
+        ViewPolicy.setEnabled(button, !sentPlatforms.contains(platform));
         button.setOnClickListener(ignored -> send(platform, button));
         attach(row, button);
     }
@@ -131,12 +131,12 @@ public final class DownloadPage extends DetailPage {
         Context application = requireContext().getApplicationContext();
         sending.add(platform);
         button.setText("正在发送…");
-        button.setEnabled(false);
+        ViewPolicy.setEnabled(button, false);
         AboutPage.network(this, () -> new DownloadLinkApi(new CloudApi(application)).send(platform), outcome -> {
             sending.remove(platform);
             if (outcome.error() != null) {
                 button.setText("发送链接");
-                button.setEnabled(true);
+                ViewPolicy.setEnabled(button, true);
                 MsToast.show(requireContext(), failureMessage(outcome.error()));
                 return;
             }

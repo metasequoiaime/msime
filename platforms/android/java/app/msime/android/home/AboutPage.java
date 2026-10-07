@@ -222,7 +222,7 @@ public final class AboutPage extends DetailPage {
             default -> button.setText("检查更新");
         }
         boolean busy = state == State.CHECKING || state == State.DOWNLOADING;
-        button.setEnabled(!busy);
+        ViewPolicy.setEnabled(button, !busy);
         // 「已是最新版本」是结果而不是按钮，换成 accentSoft 底、强调色字，再点一次重新检查。
         boolean quiet = state == State.UP_TO_DATE || busy;
         button.setTextColor(quiet ? Ui.accent(context) : Ui.onAccent(context));

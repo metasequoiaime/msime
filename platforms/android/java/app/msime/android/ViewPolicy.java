@@ -130,6 +130,11 @@ public final class ViewPolicy {
         view.setOnClickListener(ignored -> action.run());
     }
 
+    /** Set whether a view accepts input without changing its visibility or focus policy. */
+    public static void setEnabled(View view, boolean enabled) {
+        view.setEnabled(enabled);
+    }
+
     /** Announce changing view content to accessibility services without interrupting the user. */
     public static void setPoliteLiveRegion(View view) {
         view.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);

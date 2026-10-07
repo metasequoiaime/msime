@@ -125,8 +125,8 @@ public final class KeyboardLayoutAdjustView extends FrameLayout {
 
     public void setAdjustmentsEnabled(boolean enabled) {
         adjustmentsEnabled = enabled;
-        resetButton.setEnabled(enabled);
-        voiceShortcut.setEnabled(enabled);
+        ViewPolicy.setEnabled(resetButton, enabled);
+        ViewPolicy.setEnabled(voiceShortcut, enabled);
     }
 
     @Override public boolean onTouchEvent(MotionEvent event) {
