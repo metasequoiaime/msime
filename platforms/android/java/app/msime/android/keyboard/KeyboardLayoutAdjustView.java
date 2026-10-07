@@ -107,8 +107,8 @@ public final class KeyboardLayoutAdjustView extends FrameLayout {
             KeyboardGeometry.pixels(getContext(), 10),
             KeyboardGeometry.atLeastOnePixel(getContext(), 1), accent);
         bar.setBackground(surface);
-        hint.setTextColor(foreground);
-        voiceShortcut.setTextColor(foreground);
+        ViewPolicy.setTextColor(hint, foreground);
+        ViewPolicy.setTextColor(voiceShortcut, foreground);
         for (int index = 0; index < bar.getChildCount(); index++) {
             View child = bar.getChildAt(index);
             if (child instanceof Button) {
@@ -117,7 +117,7 @@ public final class KeyboardLayoutAdjustView extends FrameLayout {
                 // pass puts them, so they take the colour that fill is paired with. `accent` is
                 // that same fill in the shipped skins: 恢复默认 and 完成 were dark green text on a
                 // dark green button, and the bar read as three blank tiles.
-                button.setTextColor(color(skin.functionForeground()));
+                ViewPolicy.setTextColor(button, color(skin.functionForeground()));
                 ViewPolicy.setAllCapsFalse(button);
             }
         }

@@ -113,20 +113,14 @@ pub fn apply_fixed_positions(
         Vec::new()
     };
 
-    let mut dynamic_candidates = if keep_dynamic_candidate_positions {
-        Vec::new()
-    } else {
-        Vec::with_capacity(candidates.len())
-    };
+    let mut dynamic_candidates = Vec::new();
     if !keep_dynamic_candidate_positions {
-        candidates.retain(|item| {
-            if item.source.is_online() {
-                dynamic_candidates.push(item.clone());
-                false
-            } else {
-                true
-            }
-        });
+        let original = std::mem::take(candidates);
+        let (retained, dynamic): (Vec<_>, Vec<_>) = original
+            .into_iter()
+            .partition(|item| !item.source.is_online());
+        *candidates = retained;
+        dynamic_candidates = dynamic;
     }
 
     let candidate_by_word: HashMap<&str, &WordItem> = candidates

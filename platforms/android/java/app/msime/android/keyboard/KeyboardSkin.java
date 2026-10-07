@@ -321,7 +321,7 @@ public final class KeyboardSkin {
      */
     public static String androidColor(String value) {
         if (value == null || !value.startsWith("#")) return null;
-        String digits = value.substring(1).toUpperCase(Locale.ROOT);
+        String digits = TextPolicy.uppercase(value.substring(1));
         if (!digits.matches("[0-9A-F]{6}|[0-9A-F]{8}")) return null;
         return digits.length() == 6 ? "#" + digits
             : "#" + digits.substring(6) + digits.substring(0, 6);
@@ -370,8 +370,7 @@ public final class KeyboardSkin {
 
     /** `color` at a fraction of full opacity; any alpha it already carried is replaced. */
     private static String alpha(String color, double value) {
-        return String.format(Locale.ROOT, "#%02X%s", channel(value),
-            color.substring(color.length() - 6));
+        return ColorPolicy.withAlpha(color, channel(value));
     }
 
     public String id() { return id; }

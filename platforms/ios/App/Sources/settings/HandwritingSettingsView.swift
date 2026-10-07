@@ -16,7 +16,7 @@ struct HandwritingSettingsView: View {
           .disabled(enabled && enabledSchemes.count == 1)
           .accessibilityIdentifier("handwritingEnabledToggle")
         Button {
-          saveFailed = !InputSchemePreference.save(scheme: .handwriting, enabled: enabledSchemes)
+          saveFailed = !InputSchemePreference.select(.handwriting)
           reload()
         } label: {
           HStack {
@@ -49,15 +49,14 @@ struct HandwritingSettingsView: View {
     .onChange(of: scenePhase) { if $0 == .active { reload() } }
   }
 
+  /// 只改启用列表，选中的方案以文档里的为准：页面上的 `current` 来自 App Group 镜像，可能落后于文档，写回去会把用户在别处选的方案改掉。
   private func setEnabled(_ on: Bool) {
-    var selection = enabledSchemes
-    if on { if !selection.contains(.handwriting) { selection.append(.handwriting) } }
-    else { selection.removeAll { $0 == .handwriting } }
-    saveFailed = !InputSchemePreference.save(scheme: current, enabled: selection)
+    saveFailed = !InputSchemePreference.setEnabled(.handwriting, on)
     reload()
   }
 
   private func reload() {
+    InputSchemePreference.mirror(MetasequoiaInputSessionBridge.loadSharedPreferences())
     enabledSchemes = InputSchemePreference.enabledSchemes
     current = InputSchemePreference.scheme
   }

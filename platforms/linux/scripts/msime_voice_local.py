@@ -36,11 +36,41 @@ class LocalUnavailable(RuntimeError):
     """The helper or the sherpa-onnx runtime it loads is missing: an installation problem, reported as voice_dependency_missing."""
 
 
+def _trusted_model_path_link(path):
+    """Match LocalAsr's Linux rule for a system-owned ancestor symlink."""
+    link = os.lstat(path)
+    if not stat.S_ISLNK(link.st_mode) or link.st_uid != 0:
+        return False
+    parent = os.stat(os.path.dirname(path), follow_symlinks=True)
+    return (stat.S_ISDIR(parent.st_mode) and parent.st_uid == 0 and
+            not (parent.st_mode & 0o22))
+
+
+def _model_directory_has_real_ancestors(path):
+    """Reject model directories reached through untrusted or repeated symlinks."""
+    current = path
+    saw_trusted_link = False
+    while True:
+        metadata = os.lstat(current)
+        if stat.S_ISLNK(metadata.st_mode):
+            if current == path or saw_trusted_link or not _trusted_model_path_link(current):
+                return False
+            saw_trusted_link = True
+        elif not stat.S_ISDIR(metadata.st_mode):
+            return False
+        parent = os.path.dirname(current)
+        if parent == current:
+            return True
+        current = parent
+
+
 def model_manifest(path):
     """Validate `asr_model_path` as an installed model directory and return its msime-model.json. Raise ValueError for anything else, including a Whisper model file, which the Linux service does not run."""
     if (not isinstance(path, str) or not path or len(path.encode("utf-8", "surrogatepass")) > MAX_MODEL_PATH
             or any(ord(c) < 32 or 127 <= ord(c) <= 159 for c in path) or not os.path.isabs(path)):
         raise ValueError("invalid local model path")
+    if not _model_directory_has_real_ancestors(path):
+        raise ValueError("local model path contains an untrusted symlink")
     if not stat.S_ISDIR(os.stat(path, follow_symlinks=False).st_mode):
         raise ValueError("local model path is not a model directory")
     descriptor = os.open(os.path.join(path, MANIFEST), os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC | os.O_NOFOLLOW)
@@ -133,12 +163,19 @@ class Helper:
         self.reader.start()
 
     def read(self):
+        discarding_line = False
         try:
             while True:
                 line = self.process.stdout.readline(MAX_LINE + 1)
                 if not line:
                     break
+                if discarding_line:
+                    if line.endswith(b"\n"):
+                        discarding_line = False
+                    continue
                 if len(line) > MAX_LINE:
+                    if not line.endswith(b"\n"):
+                        discarding_line = True
                     continue
                 try:
                     event = json.loads(line)

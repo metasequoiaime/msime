@@ -1,6 +1,5 @@
 package app.msime.android;
 
-import java.util.Locale;
 
 /**
  * Whether a configured transcription provider can be used here, and what to send it.
@@ -111,7 +110,7 @@ public final class HttpAsrPolicy {
             separator = underscore;
         }
         String primary = separator < 0 ? trimmed : trimmed.substring(0, separator);
-        return primary.toLowerCase(Locale.ROOT);
+        return TextPolicy.lowercase(primary);
     }
 
     private static void appendField(StringBuilder body, String boundary, String name, String value) {

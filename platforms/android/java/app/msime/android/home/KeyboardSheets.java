@@ -367,7 +367,7 @@ final class KeyboardSheets {
             Ui.accentSoft(context), Ui.accent(context), Ui.BUTTON_PADDING_H, Ui.BUTTON_PADDING_V,
             Ui.COMPACT_BUTTON_MIN_HEIGHT, 0);
         button.setAccessibilityDelegate(buttonDelegate(description));
-        button.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+        ViewPolicy.setPoliteLiveRegion(button);
         return button;
     }
 

@@ -38,7 +38,7 @@ public final class InputDiagnosticPolicy {
 
     public static String normalize(String value) {
         if (value == null) return "";
-        String normalized = value.trim();
+        String normalized = TextPolicy.trimmed(value);
         if (normalized.isEmpty() || SILENT.contains(normalized)) return "";
         String chinese = CHINESE.get(normalized);
         if (chinese != null) return chinese;

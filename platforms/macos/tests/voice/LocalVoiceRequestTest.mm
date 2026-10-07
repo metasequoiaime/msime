@@ -97,6 +97,15 @@ int main(int argc, char **argv) {
         assert(!MSIMELocalVoiceModelDirectory(linked));
         NSError *linkedError = nil;
         assert(![[MSIMELocalVoiceRequest alloc] initWithOptions:@{@"asr_model_path" : linked} hostOptions:nil error:&linkedError] && linkedError);
+        NSString *nested = [external stringByAppendingPathComponent:@"nested"];
+        assert([NSFileManager.defaultManager createDirectoryAtPath:nested withIntermediateDirectories:NO attributes:nil error:nil]);
+        assert([@"{}" writeToFile:[nested stringByAppendingPathComponent:@"msime-model.json"] atomically:YES encoding:NSUTF8StringEncoding error:nil]);
+        NSString *linkedAncestor = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+        assert([NSFileManager.defaultManager createSymbolicLinkAtPath:linkedAncestor withDestinationPath:external error:nil]);
+        NSString *viaLinkedAncestor = [linkedAncestor stringByAppendingPathComponent:@"nested"];
+        assert(!MSIMELocalVoiceModelDirectory(viaLinkedAncestor));
+        NSError *ancestorError = nil;
+        assert(![[MSIMELocalVoiceRequest alloc] initWithOptions:@{@"asr_model_path" : viaLinkedAncestor} hostOptions:nil error:&ancestorError] && ancestorError);
         NSString *linkedManifestModel = ModelDirectory(@"native");
         NSString *linkedManifestPath = [linkedManifestModel stringByAppendingPathComponent:@"msime-model.json"];
         assert([NSFileManager.defaultManager removeItemAtPath:linkedManifestPath error:nil]);
@@ -211,6 +220,7 @@ int main(int argc, char **argv) {
 
         [NSFileManager.defaultManager removeItemAtPath:native error:nil];
         [NSFileManager.defaultManager removeItemAtPath:linked error:nil];
+        [NSFileManager.defaultManager removeItemAtPath:linkedAncestor error:nil];
         [NSFileManager.defaultManager removeItemAtPath:external error:nil];
         [NSFileManager.defaultManager removeItemAtPath:linkedManifestModel error:nil];
         [NSFileManager.defaultManager removeItemAtPath:unfinished error:nil];

@@ -106,11 +106,11 @@ public final class WebSocketFrames {
         for (String line : response.split("\r\n")) {
             int separator = line.indexOf(':');
             if (separator <= 0) continue;
-            String name = line.substring(0, separator).trim().toLowerCase(java.util.Locale.ROOT);
-            String value = line.substring(separator + 1).trim();
+            String name = TextPolicy.lowercase(TextPolicy.trimmed(line.substring(0, separator)));
+            String value = TextPolicy.trimmed(line.substring(separator + 1));
             switch (name) {
                 case "upgrade" -> upgrade = value.equalsIgnoreCase("websocket");
-                case "connection" -> connection = value.toLowerCase(java.util.Locale.ROOT)
+                case "connection" -> connection = TextPolicy.lowercase(value)
                     .contains("upgrade");
                 case "sec-websocket-accept" -> accepted = value.equals(expected);
                 // An extension this host never offered must not be applied to its frames.

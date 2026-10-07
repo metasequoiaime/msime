@@ -166,8 +166,7 @@ public final class SkinsPage extends DetailPage {
             Ui.TEXT_ROW_SUBTITLE + 1, card.selected() ? 600 : 400,
             card.selected() ? Ui.accent(context) : Ui.text(context));
         ViewPolicy.setCentered(name);
-        name.setSingleLine(true);
-        name.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        ViewPolicy.setSingleLineEllipsized(name);
         LinearLayout.LayoutParams nameParams = Ui.matchWidth();
         nameParams.topMargin = Ui.dp(context, 8);
         cell.addView(name, nameParams);

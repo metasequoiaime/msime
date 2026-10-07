@@ -6,7 +6,6 @@ import java.io.OutputStream;
 import java.math.BigDecimal;
 import java.net.URL;
 import java.util.List;
-import java.util.Locale;
 import javax.net.ssl.HttpsURLConnection;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -37,7 +36,7 @@ public final class BackendTranslationClient implements CandidateTranslationStore
         boolean anonymousToken = accountToken.isEmpty();
         String token = anonymousToken ? anonymous.accessToken() : accountToken;
         JSONObject body = new JSONObject().put("texts", new JSONArray(texts))
-            .put("source_lang", "ZH").put("target_lang", target.toUpperCase(Locale.ROOT));
+            .put("source_lang", "ZH").put("target_lang", TextPolicy.uppercase(target));
         byte[] request = TextPolicy.utf8Bytes(body.toString());
         if (request.length > 64 * 1024) throw new IllegalArgumentException("Translation request is too large");
         for (int attempt = 0; ; attempt++) {
@@ -111,7 +110,7 @@ public final class BackendTranslationClient implements CandidateTranslationStore
         java.util.ArrayList<String> result = new java.util.ArrayList<>(values.size());
         for (Object raw : values) {
             if (!(raw instanceof String)) return null;
-            String value = ((String) raw).trim();
+            String value = TextPolicy.trimmed((String) raw);
             if (value.isEmpty() || TextPolicy.utf8Length(value) > 4096
                     || value.chars().anyMatch(ch -> ch == '\n' || ch == '\r' || (ch < 0x20 && ch != '\t')))
                 return null;

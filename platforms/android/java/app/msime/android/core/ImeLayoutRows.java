@@ -260,7 +260,8 @@ final class ImeLayoutRows {
                 ? root.optJSONObject("value") : null;
             JSONArray entries = value == null ? null : value.optJSONArray("entries");
             JSONObject entry = entries == null || entries.length() == 0 ? null : entries.optJSONObject(0);
-            return entry == null ? "" : entry.optString("key", "").replace('\'', ' ').trim();
+            return entry == null ? ""
+                : TextPolicy.trimmed(entry.optString("key", "").replace('\'', ' '));
         } catch (JSONException | RuntimeException | LinkageError error) {
             return "";
         }

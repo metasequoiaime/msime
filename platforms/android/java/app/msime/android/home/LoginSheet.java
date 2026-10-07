@@ -150,8 +150,8 @@ final class LoginSheet {
 
         status = Ui.styledLabel(activity, "", 13, 400, Ui.subText(activity));
         status.setGravity(Gravity.CENTER_HORIZONTAL);
-        status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
-        status.setVisibility(View.GONE);
+        ViewPolicy.setPoliteLiveRegion(status);
+        ViewPolicy.hide(status);
         root.addView(status, Ui.matchWidth(activity, 12));
 
         root.addView(agreement(), Ui.matchWidth(activity, 16));
@@ -243,11 +243,11 @@ final class LoginSheet {
             Ui.accent(activity), Ui.ripple(activity), 40, () -> {
                 if (busy) return;
                 email.removeAllViews();
-                status.setVisibility(View.GONE);
+                ViewPolicy.hide(status);
                 expandEmail();
             });
         email.addView(again, Ui.matchWidth(activity, 4));
-        status.setVisibility(View.GONE);
+        ViewPolicy.hide(status);
         code.requestFocus();
     }
 
@@ -328,8 +328,7 @@ final class LoginSheet {
         TextView text = Ui.styledLabel(activity, label, 16, 600, ink);
         button.addView(text);
         button.setContentDescription(label);
-        button.setClickable(true);
-        button.setFocusable(true);
+        ViewPolicy.setInteractive(button, true);
         ViewPolicy.bindClick(button, action);
         return button;
     }

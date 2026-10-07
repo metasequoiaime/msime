@@ -81,23 +81,7 @@ public final class VoicePolishPolicy {
 
     /** Minimal JSON string escaping, so a prompt cannot break out of the document it travels in. */
     public static String json(String value) {
-        String source = TextPolicy.emptyIfNull(value);
-        StringBuilder out = new StringBuilder(source.length() + 2).append('"');
-        for (int index = 0; index < source.length(); index++) {
-            char character = source.charAt(index);
-            switch (character) {
-                case '"' -> out.append("\\\"");
-                case '\\' -> out.append("\\\\");
-                case '\n' -> out.append("\\n");
-                case '\r' -> out.append("\\r");
-                case '\t' -> out.append("\\t");
-                default -> {
-                    if (character < 0x20) out.append(String.format("\\u%04x", (int) character));
-                    else out.append(character);
-                }
-            }
-        }
-        return out.append('"').toString();
+        return JsonPolicy.quote(value);
     }
 
 }

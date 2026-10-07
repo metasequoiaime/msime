@@ -5,7 +5,6 @@ import java.util.Collections;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -324,7 +323,7 @@ public final class TypingStatisticsSummary {
     private static String tenths(double value) {
         long rounded = Math.round(value * 10);
         if (rounded % 10 == 0) return String.valueOf(rounded / 10);
-        return String.format(Locale.ROOT, "%.1f", rounded / 10d);
+        return NumberPolicy.decimal1(rounded / 10d);
     }
 
     private static String period(int hour) {

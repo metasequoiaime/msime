@@ -2,7 +2,6 @@ package app.msime.android;
 
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.util.Locale;
 import java.util.Objects;
 
 /** Immutable, display-safe AI text-polish configuration. Secrets are never exposed by toString(). */
@@ -35,7 +34,7 @@ public final class AiPolishConfiguration {
 
     public String destination() {
         int port = endpoint.getPort();
-        return "https://" + endpoint.getHost().toLowerCase(Locale.ROOT)
+        return "https://" + TextPolicy.lowercase(endpoint.getHost())
             + (port == -1 || port == 443 ? "" : ":" + port);
     }
 
@@ -77,7 +76,7 @@ public final class AiPolishConfiguration {
     }
 
     private static String credentialOrigin(URI uri) {
-        return "https://" + uri.getHost().toLowerCase(Locale.ROOT) + ":"
+        return "https://" + TextPolicy.lowercase(uri.getHost()) + ":"
             + (uri.getPort() == -1 ? 443 : uri.getPort());
     }
 
