@@ -47,35 +47,41 @@ pub fn replace_online_candidate_batch(
         return false;
     }
     let mut seen = HashSet::with_capacity(words.len().min(quota));
-    let mut unique = Vec::with_capacity(words.len().min(quota));
+    // 在线候选的协议配额最多为 10 个，固定数组可避免每批次的临时堆分配。
+    let mut unique: [Option<&str>; AI_QUOTA] = [None; AI_QUOTA];
+    let mut unique_count = 0;
     for word in words {
         if !is_acceptable_online_word(word) {
             return false;
         }
         if seen.insert(word.as_str()) {
-            unique.push(word.as_str());
+            if unique_count == quota {
+                return false;
+            }
+            unique[unique_count] = Some(word.as_str());
+            unique_count += 1;
         }
     }
     // Providers repeat candidates, so the quota counts distinct words: a repeat must neither reject a valid batch nor use up a seat (online_candidate_batch.h:32-33).
-    if unique.len() > quota {
-        return false;
-    }
 
     list.retain(|item| item.source != source);
     let existing: HashSet<&str> = list.iter().map(|item| item.word.as_str()).collect();
-    let new_words: Vec<&str> = unique
-        .iter()
-        .filter(|word| !existing.contains(**word))
-        .copied()
-        .collect();
+    let mut new_count = 0;
+    for word in unique.iter_mut().take(unique_count) {
+        if existing.contains(word.as_ref().expect("unique online word is present")) {
+            *word = None;
+        } else {
+            new_count += 1;
+        }
+    }
     drop(existing);
-    list.reserve(new_words.len());
+    list.reserve(new_count);
     let index = list.len().min(if source == CandidateSource::AiSuggestion {
         2
     } else {
         1
     });
-    for (offset, word) in new_words.into_iter().enumerate() {
+    for (offset, word) in unique.into_iter().flatten().enumerate() {
         list.insert(index + offset, WordItem::new(key, word, 1, source, ""));
     }
     if source == CandidateSource::CloudSuggestion {

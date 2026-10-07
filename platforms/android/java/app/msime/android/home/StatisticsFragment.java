@@ -209,7 +209,7 @@ public final class StatisticsFragment extends HomeTabFragment {
             return;
         }
         boolean off = statistics != null && !statistics.enabled();
-        notice.setVisibility(off || summary == null ? View.VISIBLE : View.GONE);
+        ViewPolicy.setVisible(notice, off || summary == null);
         notice.setText(off ? "记录已关闭。已有的计数保留在本机，新的输入不再计入。可以在右上角菜单里打开。"
             : "统计暂时读不到，可以在右上角菜单里刷新。");
         if (summary == null) return;

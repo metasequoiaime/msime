@@ -46,7 +46,7 @@ final class ImeFunctionPanel {
         KeyboardGeometry.setPaddingDp(card, s, 12, 5, 12, 5);
         card.setContentDescription(title);
         ViewPolicy.setSelected(card, active);
-        card.setEnabled(enabled);
+        ViewPolicy.setEnabled(card, enabled);
         s.applyToolCardState(card, enabled);
         if (Build.VERSION.SDK_INT >= 30) card.setStateDescription(state);
         s.imeStyler.styleButton(card, KeyboardKeyRole.ACCENT, s.skin);
@@ -108,7 +108,7 @@ final class ImeFunctionPanel {
         for (int index = 0; index < entries.size(); index++) {
             Button tile = panel.entryView(index);
             boolean on = enabled.get(index);
-            tile.setEnabled(on);
+            ViewPolicy.setEnabled(tile, on);
             s.applyToolCardState(tile, on);
             panel.setState(index, on ? states.get(index) : FunctionPanelView.State.UNAVAILABLE);
             if (!on) ViewPolicy.setSelected(tile, false);
@@ -306,7 +306,7 @@ final class ImeFunctionPanel {
         KeyboardGeometry.setKeyTextSize(button, 15);
         button.setContentDescription(description);
         button.setKeyboardRole(KeyboardKeyRole.ACCENT);
-        button.setEnabled(enabled);
+        ViewPolicy.setEnabled(button, enabled);
         s.applyToolCardState(button, enabled);
         if (Build.VERSION.SDK_INT >= 30) button.setStateDescription(enabled ? null : "不可用");
         bindToolAction(button, action, true);

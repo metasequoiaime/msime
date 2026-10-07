@@ -191,6 +191,10 @@ impl ShuangpinEngine {
             1 => reorder_candidates_with_single_helpcode(fuzzy, help_codes, keymap),
             _ => fuzzy,
         };
+        if fuzzy.is_empty() {
+            exact.sort_by_key(|item| std::cmp::Reverse(item.pinyin.len()));
+            return exact;
+        }
         // Keep deduplication keys borrowed until fuzzy rows are ready to move into the exact list.
         let mut seen: HashSet<&str> = exact.iter().map(|item| item.word.as_str()).collect();
         let unique = fuzzy

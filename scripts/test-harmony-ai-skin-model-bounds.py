@@ -12,6 +12,8 @@ def main() -> int:
     checks = {
         "uses the UTF-8 model bound": "utf8Length(model) > 200" in source,
         "does not use a UTF-16 model bound": "model.length > 200" not in source,
+        "rejects model control characters": "TextPolicy.hasControl(model)" in source,
+        "rejects unpaired model surrogates": "TextPolicy.validUnicode(model)" in source,
     }
     missing = [name for name, present in checks.items() if not present]
     if missing:

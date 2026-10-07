@@ -228,8 +228,8 @@ public final class CommunityFragment extends Fragment {
     private void updateCategories() {
         View view = getView();
         if (view == null) return;
-        view.findViewById(R.id.community_categories_scroll).setVisibility(
-            kind == CommunityRequest.Kind.SKIN ? View.VISIBLE : View.GONE);
+        ViewPolicy.setVisible(view.findViewById(R.id.community_categories_scroll),
+            kind == CommunityRequest.Kind.SKIN);
     }
 
     /** 本次请求实际用的分类：只有皮肤按分类筛选。 */
@@ -303,8 +303,7 @@ public final class CommunityFragment extends Fragment {
         TextView state = view.findViewById(R.id.community_state);
         state.setText(message);
         Ui.setVisibilityForText(state, message);
-        view.findViewById(R.id.community_retry)
-            .setVisibility(retryable ? View.VISIBLE : View.GONE);
+        ViewPolicy.setVisible(view.findViewById(R.id.community_retry), retryable);
     }
 
     /**

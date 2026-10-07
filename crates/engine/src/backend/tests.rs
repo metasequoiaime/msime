@@ -172,8 +172,22 @@ fn validate_dictionary_normalises_and_reports_invalid_entries() {
         resources.path(),
     );
     assert_eq!(response, json!({"error": "invalid_dictionary_entry"}));
+    // 服务端也存 98 版五笔词条，按 `wubi98` 原名返回；不认识的种类仍是无效请求。
     let response = run(
         json!({"operation": "validate_dictionary", "kind": "wubi98", "code": "wq", "text": "你"}),
+        resources.path(),
+    );
+    assert_eq!(
+        response,
+        json!({"kind": "wubi98", "code": "wq", "word": "你", "weight": 100000})
+    );
+    let response = run(
+        json!({"operation": "validate_dictionary", "kind": "wubi98", "code": "abcde", "text": "你"}),
+        resources.path(),
+    );
+    assert_eq!(response, json!({"error": "invalid_dictionary_entry"}));
+    let response = run(
+        json!({"operation": "validate_dictionary", "kind": "wubi86", "code": "wq", "text": "你"}),
         resources.path(),
     );
     assert_eq!(response, json!({"error": "invalid_request"}));
@@ -633,5 +647,101 @@ fn validate_snapshot_checks_exported_entries() {
     assert_eq!(
         personal(request, unnormalised, resources.path()),
         json!({"error": "invalid_request"})
+    );
+}
+
+/// 在 `resources()` 的主词库里加上 86 和 98 两版五笔码表：同一个编码 `kg` 在两版里是不同的字，读错表就能看出来。
+fn wubi_resources() -> tempfile::TempDir {
+    let directory = resources();
+    Connection::open(directory.path().join(assets::MAIN_DICTIONARY))
+        .unwrap()
+        .execute_batch(
+            "CREATE TABLE wubi86(key TEXT, value TEXT, weight INTEGER, UNIQUE(key, value));
+             CREATE TABLE wubi98(key TEXT, value TEXT, weight INTEGER, UNIQUE(key, value));
+             INSERT INTO wubi86 VALUES('kg','甲',300),('kg','甲乙',100);
+             INSERT INTO wubi98 VALUES('kg','乙',300),('kg','丙丁',100);",
+        )
+        .unwrap();
+    directory
+}
+
+#[test]
+fn wubi98_personal_query_reads_the_wubi98_table_and_its_own_entries() {
+    let resources = wubi_resources();
+    let query = |scheme: &str, snapshot: &str| {
+        personal(
+            json!({"operation": "personal_query", "query": {"operation": "candidates", "scheme": scheme, "text": "kg", "limit": 5}}),
+            snapshot,
+            resources.path(),
+        )
+    };
+    let words = |response: &Value| -> Vec<String> {
+        ranked(response).into_iter().map(|row| row.0).collect()
+    };
+    let plain = "{\"snapshot_revision\":1}\n";
+    assert_eq!(words(&query("wubi98", plain)), ["乙", "丙丁"]);
+    assert_eq!(words(&query("wubi", plain)), ["甲", "甲乙"]);
+    // 98 版的个人词条回放进 `wubi98`，不出现在 86 版的候选里。
+    let snapshot = concat!(
+        "{\"snapshot_revision\":2}\n",
+        "{\"previous\":null,\"replacement\":{\"kind\":\"wubi98\",\"code\":\"kg\",\"word\":\"戊己\",\"weight\":999}}\n",
+    );
+    let response = query("wubi98", snapshot);
+    assert_eq!(words(&response)[0], "戊己", "{response}");
+    assert_eq!(response["revision"], json!(2));
+    assert!(!words(&query("wubi", snapshot)).contains(&"戊己".to_owned()));
+}
+
+#[test]
+fn wubi98_personal_delete_reports_the_wubi98_kind() {
+    let resources = wubi_resources();
+    let response = personal(
+        json!({"operation": "personal_delete",
+               "query": {"operation": "candidates", "scheme": "wubi98", "text": "kg"},
+               "action": {"code": "kg", "word": "丙丁"}}),
+        "{\"snapshot_revision\":4}\n",
+        resources.path(),
+    );
+    assert_eq!(
+        response,
+        json!({"deleted": {"kind": "wubi98", "code": "kg", "word": "丙丁", "weight": 100, "user_inserted": false},
+               "changed": true, "revision": 4})
+    );
+}
+
+#[test]
+fn wubi98_dictionary_catalog_reads_the_wubi98_table() {
+    let resources = wubi_resources();
+    let words = |kind: &str| -> Vec<String> {
+        let response = run(
+            json!({"operation": "dictionary", "kind": kind, "text": "kg"}),
+            resources.path(),
+        );
+        response["entries"]
+            .as_array()
+            .unwrap_or_else(|| panic!("no entries in {response}"))
+            .iter()
+            .map(|entry| entry["word"].as_str().unwrap().to_owned())
+            .collect()
+    };
+    assert_eq!(words("wubi98"), ["乙", "丙丁"]);
+    assert_eq!(words("wubi"), ["甲", "甲乙"]);
+}
+
+#[test]
+fn validate_snapshot_accepts_wubi98_entries() {
+    let resources = resources();
+    let snapshot = concat!(
+        "{\"type\":\"header\",\"data\":{}}\n",
+        "{\"type\":\"entry\",\"data\":{\"kind\":\"wubi98\",\"code\":\"wq\",\"word\":\"你\",\"weight\":5}}\n",
+        "{\"type\":\"overlay\",\"deleted\":false,\"data\":{\"kind\":\"wubi98\",\"code\":\"wq\",\"word\":\"你\",\"weight\":5}}\n",
+    );
+    assert_eq!(
+        personal(
+            json!({"operation": "validate_snapshot"}),
+            snapshot,
+            resources.path()
+        ),
+        json!({"valid": true})
     );
 }

@@ -8,7 +8,7 @@ use sha2::{Digest, Sha256};
 use std::cell::Cell;
 use std::collections::BTreeMap;
 use std::fs;
-use std::io::{self, BufReader, BufWriter, Read, Write};
+use std::io::{self, BufReader, BufWriter, Read, Seek, Write};
 use std::path::{Component, Path, PathBuf};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -345,7 +345,7 @@ fn unique_suffix() -> String {
     uuid::Uuid::new_v4().simple().to_string()
 }
 
-/// Staging and set-aside directories a crashed or killed install left behind for this id.
+/// Staging and set-aside directories a crashed or killed install left behind for this id. 被打断的收编留下的暂存目录先把文件放回来源（见 [`restore_interrupted_adoption`]），再删。
 fn remove_leftovers(root: &Path, id: &str) {
     let Ok(entries) = fs::read_dir(root) else {
         return;
@@ -357,8 +357,58 @@ fn remove_leftovers(root: &Path, id: &str) {
         let Some(name) = name.to_str() else {
             continue;
         };
+        if name.starts_with(&staging) {
+            restore_interrupted_adoption(&entry.path());
+        }
         if name.starts_with(&staging) || name.starts_with(&old) {
             remove_leftover(&entry.path());
+        }
+    }
+}
+
+/// [`adopt_files`] 在改名之前写进暂存目录的来源记录，内容是来源目录的绝对路径（UTF-8）。
+const ADOPTION_SOURCE: &str = ".source";
+/// 来源记录只是一个路径，限制大小免得被替换的文件占用无界内存。
+const MAX_ADOPTION_SOURCE_BYTES: u64 = 4096;
+
+/// 收编在改名之后、发布之前被打断（进程被杀）时，文件留在 `<staging>/model/` 里，来源目录里少了它们。按来源记录把这些普通文件改名放回来源目录；来源里已有同名文件时不覆盖。没有来源记录（下载留下的暂存目录）、记录读不出来、或来源不再是真实目录时什么也不做。失败不报错，调用方随后照常删掉暂存目录。
+fn restore_interrupted_adoption(staging: &Path) {
+    let record = staging.join(ADOPTION_SOURCE);
+    let Ok(metadata) = fs::symlink_metadata(&record) else {
+        return;
+    };
+    if !metadata.file_type().is_file() || metadata.len() > MAX_ADOPTION_SOURCE_BYTES {
+        return;
+    }
+    let Ok(file) = fs::File::open(&record) else {
+        return;
+    };
+    let Ok(bytes) =
+        crate::bounded_io::read_bounded_file_with(file, MAX_ADOPTION_SOURCE_BYTES, || (), |_| ())
+    else {
+        return;
+    };
+    let Ok(source) = String::from_utf8(bytes) else {
+        return;
+    };
+    let source = PathBuf::from(source);
+    if !source.is_absolute()
+        || !fs::symlink_metadata(&source).is_ok_and(|metadata| metadata.file_type().is_dir())
+    {
+        return;
+    }
+    let Ok(entries) = fs::read_dir(staging.join("model")) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        if name == MANIFEST_FILE || !entry.file_type().is_ok_and(|kind| kind.is_file()) {
+            continue;
+        }
+        let target = source.join(&name);
+        if matches!(fs::symlink_metadata(&target), Err(error) if error.kind() == io::ErrorKind::NotFound)
+        {
+            let _ = fs::rename(entry.path(), target);
         }
     }
 }
@@ -383,9 +433,17 @@ fn mirrored(mirror: &str, url: &str) -> String {
     }
 }
 
+/// One response body and the byte offset of the resource it starts at.
+pub(crate) struct Fetched<'a> {
+    pub(crate) reader: Box<dyn Read + 'a>,
+    /// 0 for a whole body; the requested offset when the server honoured the range.
+    pub(crate) offset: u64,
+}
+
 /// Where archive and extra bytes come from. Injected so tests never touch the network.
 pub(crate) trait Fetcher {
-    fn fetch<'a>(&'a self, url: &str) -> Result<Box<dyn Read + 'a>, LocalModelError>;
+    /// The bytes of `url` from `offset` on. A nonzero `offset` is a resume request (an HTTP `Range`); a source that cannot serve a range answers with the whole body, which `Fetched::offset` reports as 0.
+    fn fetch<'a>(&'a self, url: &str, offset: u64) -> Result<Fetched<'a>, LocalModelError>;
 }
 
 struct HttpFetcher {
@@ -394,8 +452,19 @@ struct HttpFetcher {
 
 impl HttpFetcher {
     fn new() -> Result<Self, LocalModelError> {
-        let client = reqwest::blocking::Client::builder()
-            .https_only(true)
+        Self::build(true)
+    }
+
+    /// `https_only` is false only for the loopback test server, which speaks plain HTTP and must not go through a proxy from the environment.
+    fn build(https_only: bool) -> Result<Self, LocalModelError> {
+        let builder = reqwest::blocking::Client::builder();
+        let builder = if https_only {
+            builder
+        } else {
+            builder.no_proxy()
+        };
+        let client = builder
+            .https_only(https_only)
             // GitHub release assets redirect to their CDN; a redirect that leaves HTTPS is refused.
             .redirect(reqwest::redirect::Policy::custom(|attempt| {
                 if attempt.previous().len() >= 10 {
@@ -417,17 +486,47 @@ impl HttpFetcher {
 }
 
 impl Fetcher for HttpFetcher {
-    fn fetch<'a>(&'a self, url: &str) -> Result<Box<dyn Read + 'a>, LocalModelError> {
-        let response = self
-            .client
-            .get(url)
+    fn fetch<'a>(&'a self, url: &str, offset: u64) -> Result<Fetched<'a>, LocalModelError> {
+        let mut request = self.client.get(url);
+        if offset > 0 {
+            request = request.header(reqwest::header::RANGE, format!("bytes={offset}-"));
+        }
+        let response = request
             .send()
             .map_err(|error| LocalModelError::Network(error.without_url().to_string()))?;
-        if !response.status().is_success() {
-            return Err(LocalModelError::HttpStatus(response.status().as_u16()));
+        let status = response.status();
+        if status == reqwest::StatusCode::RANGE_NOT_SATISFIABLE && offset > 0 {
+            // 已有的部分不比文件短，或者源换了一份更短的字节：整份重新下载，最后照样按锁文件校验。
+            return self.fetch(url, 0);
         }
-        Ok(Box::new(response))
+        if status == reqwest::StatusCode::PARTIAL_CONTENT {
+            let start = response
+                .headers()
+                .get(reqwest::header::CONTENT_RANGE)
+                .and_then(|value| value.to_str().ok())
+                .and_then(content_range_start);
+            if offset == 0 || start != Some(offset) {
+                return Err(LocalModelError::Network("unexpected content range".into()));
+            }
+            return Ok(Fetched {
+                reader: Box::new(response),
+                offset,
+            });
+        }
+        if !status.is_success() {
+            return Err(LocalModelError::HttpStatus(status.as_u16()));
+        }
+        Ok(Fetched {
+            reader: Box::new(response),
+            offset: 0,
+        })
     }
+}
+
+/// `bytes <start>-<end>/<total>` -> start.
+fn content_range_start(value: &str) -> Option<u64> {
+    let (start, _) = value.trim().strip_prefix("bytes ")?.split_once('-')?;
+    start.trim().parse().ok()
 }
 
 /// Removes the staging directory however the install ends.
@@ -597,12 +696,14 @@ fn publish(root: &Path, id: &str, staged: &Path) -> Result<PathBuf, LocalModelEr
 }
 
 /// 下载一组固定的文件（名称、URL、长度、SHA-256 都来自仓库里审过的锁文件）到 `<root>/<id>`，写入 `manifest` 作为 `msime-model.json` 并整体发布，替换之前的安装。阻塞调用，不要放在 UI 线程。
+///
+/// `mirrors` 是按顺序尝试的镜像前缀（`https://mirror/` 加原地址的形式，空串跳过），都失败后才用锁文件里的原地址。没下完的文件留在 `<root>/.partial-<id>/` 里，下次安装用 HTTP Range 接着下载；不论从哪个源下载，字节都按锁文件的长度和 SHA-256 校验。
 pub fn install_files(
     root: &Path,
     id: &str,
     files: &[crate::resources::Artifact],
     manifest: &Value,
-    mirror: &str,
+    mirrors: &[&str],
     progress: &mut dyn FnMut(InstallProgress),
     cancel: &AtomicBool,
 ) -> Result<PathBuf, LocalModelError> {
@@ -611,11 +712,26 @@ pub fn install_files(
         id,
         files,
         manifest,
-        mirror,
+        mirrors,
         &HttpFetcher::new()?,
         progress,
         cancel,
     )
+}
+
+/// 安装 `id` 前的共同检查：根目录可信、镜像都是合法前缀、id 是单个可见的路径成分。
+fn check_install(root: &Path, id: &str, mirrors: &[&str]) -> Result<(), LocalModelError> {
+    check_root(root)?;
+    if !mirrors
+        .iter()
+        .all(|mirror| crate::preferences::valid_model_mirror(mirror))
+    {
+        return Err(LocalModelError::InvalidMirror);
+    }
+    if single_component(id).is_none_or(|single| single != id) || id.starts_with('.') {
+        return Err(LocalModelError::UnknownModel);
+    }
+    Ok(())
 }
 
 /// 不变量：已经发布的文件永远不会被重新打开写入。输入法会内存映射 msime-japanese.dat，原地改写会让正在使用的映射读到半新半旧的内容甚至触发 SIGBUS；所以新文件一律写进暂存目录，再整体改名替换旧目录，旧文件只被改名和删除，已打开的句柄仍能读到原来的字节。
@@ -625,59 +741,66 @@ pub(crate) fn install_files_with(
     id: &str,
     files: &[crate::resources::Artifact],
     manifest: &Value,
-    mirror: &str,
+    mirrors: &[&str],
     fetcher: &dyn Fetcher,
     progress: &mut dyn FnMut(InstallProgress),
     cancel: &AtomicBool,
 ) -> Result<PathBuf, LocalModelError> {
-    check_root(root)?;
-    if !crate::preferences::valid_model_mirror(mirror) {
-        return Err(LocalModelError::InvalidMirror);
-    }
-    if single_component(id).is_none_or(|single| single != id) || id.starts_with('.') {
-        return Err(LocalModelError::UnknownModel);
-    }
+    check_install(root, id, mirrors)?;
     fs::create_dir_all(root)?;
     remove_leftovers(root, id);
     let staging = Staging(root.join(format!(".staging-{}-{}", id, unique_suffix())));
     fs::create_dir(&staging.0)?;
     let pack_dir = staging.0.join("model");
     fs::create_dir(&pack_dir)?;
+    let partials = partial_directory(root, id)?;
+    let result = download_and_publish(
+        root, id, files, manifest, mirrors, fetcher, progress, cancel, &pack_dir, &partials,
+    );
+    if result.is_err() {
+        // 只删空目录：还有没下完的文件时留着它给下次续传。
+        let _ = fs::remove_dir(&partials);
+    }
+    result
+}
 
+#[allow(clippy::too_many_arguments)]
+fn download_and_publish(
+    root: &Path,
+    id: &str,
+    files: &[crate::resources::Artifact],
+    manifest: &Value,
+    mirrors: &[&str],
+    fetcher: &dyn Fetcher,
+    progress: &mut dyn FnMut(InstallProgress),
+    cancel: &AtomicBool,
+    pack_dir: &Path,
+    partials: &Path,
+) -> Result<PathBuf, LocalModelError> {
     let total = files
         .iter()
         .fold(0u64, |sum, file| sum.saturating_add(file.size));
     let mut offset = 0u64;
     let mut last = 0u64;
+    let mut downloaded_files = Vec::with_capacity(files.len());
     for file in files {
         check_cancel(cancel)?;
         let name = single_component(&file.name)
             .filter(|single| *single == file.name)
             .ok_or_else(|| LocalModelError::UnsafeArchive(file.name.clone()))?;
-        let mut output = BufWriter::new(fs::File::create(pack_dir.join(&name))?);
-        let digest = download(
-            fetcher,
-            &mirrored(mirror, &file.url),
-            file.size,
-            &mut output,
-            cancel,
-            &mut |n| {
-                let downloaded = offset + n;
-                if downloaded == total || downloaded - last >= (total / 200).max(CHUNK as u64) {
-                    last = downloaded;
-                    progress(InstallProgress {
-                        stage: "download",
-                        downloaded,
-                        total,
-                    });
-                }
-            },
-        )?;
-        let output = output.into_inner().map_err(|error| error.into_error())?;
-        output.sync_all()?;
-        if !digest.eq_ignore_ascii_case(&file.sha256) {
-            return Err(LocalModelError::ChecksumMismatch(file.name.clone()));
-        }
+        let partial = partial_path(partials, file)?;
+        download_from_sources(fetcher, mirrors, file, &partial, cancel, &mut |n| {
+            let downloaded = offset + n;
+            if downloaded == total || downloaded.abs_diff(last) >= (total / 200).max(CHUNK as u64) {
+                last = downloaded;
+                progress(InstallProgress {
+                    stage: "download",
+                    downloaded,
+                    total,
+                });
+            }
+        })?;
+        downloaded_files.push((partial, name));
         offset += file.size;
     }
     progress(InstallProgress {
@@ -685,15 +808,444 @@ pub(crate) fn install_files_with(
         downloaded: total,
         total,
     });
-    write_manifest(&pack_dir, manifest)?;
+    write_manifest(pack_dir, manifest)?;
     check_cancel(cancel)?;
-    let target = publish(root, id, &pack_dir)?;
+    // 确认没有取消之后才把下完的文件移进暂存目录：暂存目录在失败时会被整个删掉，所以之后移动或发布失败时要把已经移过去的文件放回 `.partial-<id>`，留给下次用。同在 root 下，改名不复制。
+    let mut moved = 0;
+    let published = downloaded_files
+        .iter()
+        .try_for_each(|(partial, name)| {
+            fs::rename(partial, pack_dir.join(name))?;
+            moved += 1;
+            Ok::<(), LocalModelError>(())
+        })
+        .and_then(|()| publish(root, id, pack_dir));
+    let target = match published {
+        Ok(target) => target,
+        Err(error) => {
+            for (partial, name) in &downloaded_files[..moved] {
+                let _ = fs::rename(pack_dir.join(name), partial);
+            }
+            return Err(error);
+        }
+    };
+    remove_leftover(partials);
     progress(InstallProgress {
         stage: "done",
         downloaded: total,
         total,
     });
     Ok(target)
+}
+
+/// 下载一个固定的上游归档（ZIP，名称、URL、长度、SHA-256 来自锁文件），取出 `members` 列出的成员，作为 `files` 里同名的文件安装到 `<root>/<id>`。每个取出的文件按 `files` 里它自己的长度和 SHA-256 校验，归档本身也先按锁文件校验；归档的下载和 [`install_files`] 一样按 `mirrors` 换源、用 HTTP Range 续传。进度的 `download` 阶段按归档字节计，取出成员时报 `verify`。
+#[allow(clippy::too_many_arguments)]
+pub fn install_archive_members(
+    root: &Path,
+    id: &str,
+    archive: &crate::resources::Artifact,
+    members: &[(String, String)],
+    files: &[crate::resources::Artifact],
+    manifest: &Value,
+    mirrors: &[&str],
+    progress: &mut dyn FnMut(InstallProgress),
+    cancel: &AtomicBool,
+) -> Result<PathBuf, LocalModelError> {
+    install_archive_members_with(
+        root,
+        id,
+        archive,
+        members,
+        files,
+        manifest,
+        mirrors,
+        &HttpFetcher::new()?,
+        progress,
+        cancel,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn install_archive_members_with(
+    root: &Path,
+    id: &str,
+    archive: &crate::resources::Artifact,
+    members: &[(String, String)],
+    files: &[crate::resources::Artifact],
+    manifest: &Value,
+    mirrors: &[&str],
+    fetcher: &dyn Fetcher,
+    progress: &mut dyn FnMut(InstallProgress),
+    cancel: &AtomicBool,
+) -> Result<PathBuf, LocalModelError> {
+    check_install(root, id, mirrors)?;
+    fs::create_dir_all(root)?;
+    remove_leftovers(root, id);
+    let staging = Staging(root.join(format!(".staging-{}-{}", id, unique_suffix())));
+    fs::create_dir(&staging.0)?;
+    let pack_dir = staging.0.join("model");
+    fs::create_dir(&pack_dir)?;
+    let partials = partial_directory(root, id)?;
+    let result = download_and_extract(
+        root, id, archive, members, files, manifest, mirrors, fetcher, progress, cancel, &pack_dir,
+        &partials,
+    );
+    if result.is_err() {
+        let _ = fs::remove_dir(&partials);
+    }
+    result
+}
+
+#[allow(clippy::too_many_arguments)]
+fn download_and_extract(
+    root: &Path,
+    id: &str,
+    archive: &crate::resources::Artifact,
+    members: &[(String, String)],
+    files: &[crate::resources::Artifact],
+    manifest: &Value,
+    mirrors: &[&str],
+    fetcher: &dyn Fetcher,
+    progress: &mut dyn FnMut(InstallProgress),
+    cancel: &AtomicBool,
+    pack_dir: &Path,
+    partials: &Path,
+) -> Result<PathBuf, LocalModelError> {
+    let total = archive.size;
+    let partial = partial_path(partials, archive)?;
+    let mut last = 0u64;
+    download_from_sources(
+        fetcher,
+        mirrors,
+        archive,
+        &partial,
+        cancel,
+        &mut |downloaded| {
+            if downloaded == total || downloaded.abs_diff(last) >= (total / 200).max(CHUNK as u64) {
+                last = downloaded;
+                progress(InstallProgress {
+                    stage: "download",
+                    downloaded,
+                    total,
+                });
+            }
+        },
+    )?;
+    progress(InstallProgress {
+        stage: "verify",
+        downloaded: total,
+        total,
+    });
+    let mut zip = zip::ZipArchive::new(BufReader::new(fs::File::open(&partial)?))
+        .map_err(|error| LocalModelError::UnsafeArchive(error.to_string()))?;
+    for file in files {
+        check_cancel(cancel)?;
+        let name = single_component(&file.name)
+            .filter(|single| *single == file.name)
+            .ok_or_else(|| LocalModelError::UnsafeArchive(file.name.clone()))?;
+        let member = members
+            .iter()
+            .find(|(_, installed)| *installed == file.name)
+            .map(|(member, _)| member.as_str())
+            .ok_or_else(|| LocalModelError::MissingFile(file.name.clone()))?;
+        let mut entry = zip
+            .by_name(member)
+            .map_err(|_| LocalModelError::MissingFile(member.to_owned()))?;
+        if !entry.is_file() {
+            return Err(LocalModelError::UnsafeArchive(member.to_owned()));
+        }
+        let mut output = BufWriter::new(fs::File::create(pack_dir.join(&name))?);
+        let mut hasher = Sha256::new();
+        let mut buffer = vec![0u8; CHUNK];
+        let mut written = 0u64;
+        loop {
+            check_cancel(cancel)?;
+            let read = match entry.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(read) => read,
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                Err(error) => return Err(unsafe_archive(error)),
+            };
+            written += read as u64;
+            // 先按锁文件的长度截住，解压炸弹写不满磁盘。
+            if written > file.size {
+                return Err(LocalModelError::SizeMismatch(file.name.clone()));
+            }
+            hasher.update(&buffer[..read]);
+            output.write_all(&buffer[..read])?;
+        }
+        let output = output.into_inner().map_err(|error| error.into_error())?;
+        output.sync_all()?;
+        if written != file.size {
+            return Err(LocalModelError::SizeMismatch(file.name.clone()));
+        }
+        if !hex::encode(hasher.finalize()).eq_ignore_ascii_case(&file.sha256) {
+            return Err(LocalModelError::ChecksumMismatch(file.name.clone()));
+        }
+        // 取出的是原生库：Android 14 起动态加载的代码文件必须只读，发布前去掉写权限。替换和删除只改目录项，不受影响。
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(pack_dir.join(&name), fs::Permissions::from_mode(0o444))?;
+        }
+    }
+    drop(zip);
+    write_manifest(pack_dir, manifest)?;
+    check_cancel(cancel)?;
+    let target = publish(root, id, pack_dir)?;
+    // 归档只是来源，取完就删。
+    remove_leftover(partials);
+    progress(InstallProgress {
+        stage: "done",
+        downloaded: total,
+        total,
+    });
+    Ok(target)
+}
+
+/// 把 `source` 里已有的 `files` 收编为 `<root>/<id>` 的安装：同文件系统内改名移进暂存目录，在那里按 `files` 的长度和 SHA-256 校验，写入 `manifest` 后整体发布。在暂存目录里校验，校验过的字节就是发布出去的字节，来源目录之后再怎么变也影响不到。任何一步失败，已移走的文件都改名放回 `source`，不发布任何东西；进程在中途被杀时，暂存目录里的来源记录让下一次收编或安装这个包时先把文件放回 `source`。`source` 必须是 UTF-8 的绝对路径。
+pub(crate) fn adopt_files(
+    root: &Path,
+    id: &str,
+    files: &[crate::resources::Artifact],
+    manifest: &Value,
+    source: &Path,
+) -> Result<PathBuf, LocalModelError> {
+    check_install(root, id, &[])?;
+    if !source.is_absolute() {
+        return Err(LocalModelError::InvalidRoot);
+    }
+    let record = source.to_str().ok_or(LocalModelError::InvalidRoot)?;
+    fs::create_dir_all(root)?;
+    // 先放回上一次被打断的收编移走的文件，再检查来源里有没有这组文件。
+    remove_leftovers(root, id);
+    let mut names = Vec::with_capacity(files.len());
+    for file in files {
+        let name = single_component(&file.name)
+            .filter(|single| *single == file.name)
+            .ok_or_else(|| LocalModelError::UnsafeArchive(file.name.clone()))?;
+        // 只收编普通文件：符号链接可能把外面的文件带进资源包。
+        match fs::symlink_metadata(source.join(&name)) {
+            Ok(metadata) if metadata.file_type().is_file() => {}
+            Ok(_) => return Err(LocalModelError::UnsafeArchive(file.name.clone())),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                return Err(LocalModelError::MissingFile(file.name.clone()))
+            }
+            Err(error) => return Err(error.into()),
+        }
+        names.push(name);
+    }
+    let staging = Staging(root.join(format!(".staging-{}-{}", id, unique_suffix())));
+    fs::create_dir(&staging.0)?;
+    let pack_dir = staging.0.join("model");
+    fs::create_dir(&pack_dir)?;
+    // 改名之前先落盘来源记录：进程在发布前被杀时，下次收编或安装这个包时按它把文件放回来源（[`restore_interrupted_adoption`]）。
+    let mut source_record = fs::File::create(staging.0.join(ADOPTION_SOURCE))?;
+    source_record.write_all(record.as_bytes())?;
+    source_record.sync_all()?;
+    drop(source_record);
+
+    let mut moved: Vec<(PathBuf, PathBuf)> = Vec::with_capacity(files.len());
+    let result = (|| {
+        for name in &names {
+            let from = source.join(name);
+            let to = pack_dir.join(name);
+            fs::rename(&from, &to)?;
+            moved.push((from, to));
+        }
+        for file in files {
+            let path = pack_dir.join(&file.name);
+            let mut input = fs::File::open(&path)?;
+            if input.metadata()?.len() != file.size {
+                return Err(LocalModelError::SizeMismatch(file.name.clone()));
+            }
+            let mut hasher = Sha256::new();
+            let mut buffer = vec![0u8; CHUNK];
+            loop {
+                let read = match input.read(&mut buffer) {
+                    Ok(0) => break,
+                    Ok(read) => read,
+                    Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                    Err(error) => return Err(error.into()),
+                };
+                hasher.update(&buffer[..read]);
+            }
+            if !hex::encode(hasher.finalize()).eq_ignore_ascii_case(&file.sha256) {
+                return Err(LocalModelError::ChecksumMismatch(file.name.clone()));
+            }
+        }
+        write_manifest(&pack_dir, manifest)?;
+        publish(root, id, &pack_dir)
+    })();
+    if result.is_err() {
+        for (from, to) in moved.iter().rev() {
+            let _ = fs::rename(to, from);
+        }
+    }
+    result
+}
+
+/// `<root>/.partial-<id>`：没下完的文件跨安装保留在这里，供下次续传。不以 `.staging-` 或 `.old-` 开头，所以 [`remove_leftovers`] 不会清掉它；不是真实目录（比如被换成符号链接）时先删掉再建。
+fn partial_directory(root: &Path, id: &str) -> Result<PathBuf, LocalModelError> {
+    let directory = root.join(format!(".partial-{id}"));
+    match fs::symlink_metadata(&directory) {
+        Ok(metadata) if metadata.file_type().is_dir() => {}
+        Ok(_) => {
+            remove_leftover(&directory);
+            fs::create_dir(&directory)?;
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => fs::create_dir(&directory)?,
+        Err(error) => return Err(error.into()),
+    }
+    Ok(directory)
+}
+
+/// 没下完的文件按锁文件里的 SHA-256 加文件名命名：锁文件换了一份字节时，旧的部分不会被拿来续传。调用方已确认 `file.name` 是单个路径成分。
+fn partial_path(
+    partials: &Path,
+    file: &crate::resources::Artifact,
+) -> Result<PathBuf, LocalModelError> {
+    let digest = file.sha256.to_ascii_lowercase();
+    if !crate::is_lower_hex(&digest, 64) {
+        return Err(LocalModelError::ChecksumMismatch(file.name.clone()));
+    }
+    Ok(partials.join(format!("{digest}-{}", file.name)))
+}
+
+/// 按顺序从每个源下载 `file` 到 `partial`：先是 `mirrors` 里每个非空前缀加原地址，最后是原地址本身。一个源失败（网络、HTTP 状态、长度或摘要不符）就换下一个，取消和本地读写错误直接返回。
+fn download_from_sources(
+    fetcher: &dyn Fetcher,
+    mirrors: &[&str],
+    file: &crate::resources::Artifact,
+    partial: &Path,
+    cancel: &AtomicBool,
+    progress: &mut dyn FnMut(u64),
+) -> Result<(), LocalModelError> {
+    let mut sources = Vec::with_capacity(mirrors.len() + 1);
+    sources.extend(
+        mirrors
+            .iter()
+            .filter(|mirror| !mirror.is_empty())
+            .map(|mirror| mirrored(mirror, &file.url)),
+    );
+    sources.push(file.url.clone());
+    let mut failure = None;
+    for url in &sources {
+        match download_resumable(fetcher, url, file, partial, cancel, progress) {
+            Ok(()) => return Ok(()),
+            Err(error @ (LocalModelError::Cancelled | LocalModelError::Io(_))) => {
+                return Err(error)
+            }
+            Err(error) => failure = Some(error),
+        }
+    }
+    Err(failure.unwrap_or_else(|| LocalModelError::MissingFile(file.name.clone())))
+}
+
+/// 把 `url` 下载到 `partial`，已有的部分用 HTTP Range 接着下。已有部分的字节从盘上重新哈希，所以中断时内存里的状态不必保存；源不支持 Range 时从头下载。完整之后按锁文件的长度和 SHA-256 校验，摘要不符就删掉这份文件；长度不足（连接提前断开）时保留已收到的部分，下次接着下。已有部分不一定来自这个源（可能是别的源返回的错误页，或上次安装留下的），所以接着下的文件摘要不符时，删掉后从这个源从头再下一次，免得一个坏前缀让后面所有源都失败。`progress` 收到的是这个文件已有的字节数，包括续传前就在的部分。
+fn download_resumable(
+    fetcher: &dyn Fetcher,
+    url: &str,
+    file: &crate::resources::Artifact,
+    partial: &Path,
+    cancel: &AtomicBool,
+    progress: &mut dyn FnMut(u64),
+) -> Result<(), LocalModelError> {
+    if !url.starts_with("https://") {
+        return Err(LocalModelError::Network(
+            "only https downloads are allowed".into(),
+        ));
+    }
+    check_cancel(cancel)?;
+    let expected = file.size;
+    let existing = match fs::symlink_metadata(partial) {
+        Ok(metadata) if metadata.file_type().is_file() && metadata.len() <= expected => {
+            metadata.len()
+        }
+        Ok(_) => {
+            remove_leftover(partial);
+            0
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => 0,
+        Err(error) => return Err(error.into()),
+    };
+    let mut output = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(partial)?;
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0u8; CHUNK];
+    let mut downloaded = 0u64;
+    while downloaded < existing {
+        check_cancel(cancel)?;
+        let read = match output.read(&mut buffer) {
+            Ok(0) => break,
+            Ok(read) => read,
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(error.into()),
+        };
+        hasher.update(&buffer[..read]);
+        downloaded += read as u64;
+    }
+    if downloaded > 0 {
+        progress(downloaded);
+    }
+    let mut resumed = downloaded > 0;
+    if downloaded < expected {
+        let fetched = fetcher.fetch(url, downloaded)?;
+        if fetched.offset != downloaded {
+            if fetched.offset != 0 {
+                return Err(LocalModelError::Network("unexpected content range".into()));
+            }
+            // 源不支持续传，从头再来。
+            output.set_len(0)?;
+            output.seek(io::SeekFrom::Start(0))?;
+            hasher = Sha256::new();
+            downloaded = 0;
+            resumed = false;
+            progress(0);
+        }
+        let mut reader = fetched.reader;
+        let mut writer = BufWriter::new(&mut output);
+        loop {
+            check_cancel(cancel)?;
+            let read = match reader.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(read) => read,
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                Err(error) => return Err(LocalModelError::Network(error.to_string())),
+            };
+            downloaded += read as u64;
+            if downloaded > expected {
+                drop(writer);
+                drop(output);
+                remove_leftover(partial);
+                return Err(LocalModelError::SizeMismatch(url_file_name(url)));
+            }
+            hasher.update(&buffer[..read]);
+            writer.write_all(&buffer[..read])?;
+            progress(downloaded);
+        }
+        writer.flush()?;
+    }
+    output.sync_all()?;
+    if downloaded != expected {
+        return Err(LocalModelError::SizeMismatch(url_file_name(url)));
+    }
+    if !hex::encode(hasher.finalize()).eq_ignore_ascii_case(&file.sha256) {
+        drop(output);
+        remove_leftover(partial);
+        // 删不掉时不重试，否则会对着同一份坏前缀反复续传。
+        if resumed && fs::symlink_metadata(partial).is_err() {
+            // 文件已删掉，这次从零开始，不会再走到这里。
+            progress(0);
+            return download_resumable(fetcher, url, file, partial, cancel, progress);
+        }
+        return Err(LocalModelError::ChecksumMismatch(file.name.clone()));
+    }
+    Ok(())
 }
 
 /// 读取 `<root>/<id>/msime-model.json`。只接受不超过 64 KiB 的普通文件，符号链接、目录或无法解析的内容都视为没有。
@@ -749,7 +1301,7 @@ fn download(
         ));
     }
     check_cancel(cancel)?;
-    let mut reader = fetcher.fetch(url)?;
+    let mut reader = fetcher.fetch(url, 0)?.reader;
     let mut hasher = Sha256::new();
     let mut buffer = vec![0u8; CHUNK];
     let mut downloaded = 0u64;

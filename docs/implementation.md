@@ -120,7 +120,7 @@ Java 侧按 `java/app/msime/android/<feature>/` 分层（core、home、keyboard�
 
 能力覆盖软键盘 26 键与符号层、全拼九键（含数字层）、日语九键、四套双拼加微软双拼分词键、86 五笔、手写、AI 回复键盘；候选条与展开面板、候选长按管理、离线英文释义、在线候选翻译、云与 AI 联想、剪贴板历史与云剪贴板、表情浏览器、八种本地输入模式、AI 润色、语音、打字统计、内置与自定义皮肤、社区资源、账号、硬件键盘快捷键与数字行选词、大屏居中外框、无障碍键盘尺寸调整。
 
-有两个构建脚本产出同名同路径的 `target/android/msime-client.apk`：`build-apk.sh` 出的是本目录的原生 IME（Java 来自 `platforms/android/java`，无 WebView），`build-client-apk.sh` 出的是 Tauri + React 设置合包。两者包名相同、内容完全不同，README 为此专门写了一节。Gradle 工程 `gradle-app` 的 `srcDirs` 直接指向 `platforms/android/{AndroidManifest.xml,java,res}` 和 `target/android/{host-assets,jniLibs}`，不复制任何源码。
+有两个构建脚本产出同名同路径的 `target/android/msime-android.apk`：`build-apk.sh` 出的是本目录的原生 IME（Java 来自 `platforms/android/java`，无 WebView），`build-client-apk.sh` 出的是 Tauri + React 设置合包。两者包名相同、内容完全不同，README 为此专门写了一节。Gradle 工程 `gradle-app` 的 `srcDirs` 直接指向 `platforms/android/{AndroidManifest.xml,java,res}` 和 `target/android/{host-assets,jniLibs}`，不复制任何源码。
 
 ### Linux
 

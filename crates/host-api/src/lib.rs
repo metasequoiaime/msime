@@ -1230,6 +1230,24 @@ pub(crate) fn offline_glosses_beside(
     path.is_file().then_some(path)
 }
 
+/// 一种非英文目标语言的离线释义词典：资源目录旁随包的那份优先，没有时用 `state_root` 下已下载的 `offline-glosses` 资源包里的那份（Android 的发布包不再内置它们，用户打开离线释义时下载），都没有时为 `None`。
+pub(crate) fn offline_glosses_file(
+    resources: &Path,
+    state_root: Option<&Path>,
+    language: &str,
+) -> Option<PathBuf> {
+    offline_glosses_beside(resources, language).or_else(|| {
+        if !OFFLINE_GLOSS_LANGUAGES.contains(&language) {
+            return None;
+        }
+        resource_packs::installed_file(
+            state_root?,
+            ResourcePack::OfflineGlosses,
+            &format!("zh-{language}.db"),
+        )
+    })
+}
+
 /// The Cantonese, Zhuyin and Stroke dictionaries installed beside a resource bundle: `language-dictionaries/msime-cantonese.db`, `language-dictionaries/msime-zhuyin.db` and `language-dictionaries/msime-stroke.db`, built by `msime-dict-builder`. A sibling of `resources` for the same reason as `settled_model_beside`: the resource directory must match the shared dictionary lock exactly, and only the hosts that offer these schemes ship them. Absence is the normal case.
 pub(crate) fn language_dictionaries_beside(resources: &std::path::Path) -> LanguageDictionaries {
     language_dictionaries_directory(resources)
@@ -1297,12 +1315,9 @@ fn reject_symlinked_state_root(path: &Path) -> Result<(), std::io::Error> {
     })
 }
 
-/// 当前平台发布包不内置、改为按需下载的资源文件：macOS 是日文词典与它的两份 Mozc 许可文本，其余平台照旧全部内置。
-pub(crate) const ON_DEMAND_ARTIFACTS: &[&str] = if cfg!(target_os = "macos") {
-    &msime_client_core::resources::MACOS_ON_DEMAND_ARTIFACTS
-} else {
-    &[]
-};
+/// 当前平台发布包可以不内置、改为按需下载的资源文件：macOS 和 Android 是日文词典与它的两份 Mozc 许可文本，其余平台照旧全部内置。规则本身见 [`msime_client_core::resources::on_demand_artifacts`]，测试在任何主机上都能检查每个目标的取值。
+pub(crate) const ON_DEMAND_ARTIFACTS: &[&str] =
+    msime_client_core::resources::on_demand_artifacts(std::env::consts::OS);
 
 /// `resources` 实际按哪一份清单发货：`on_demand` 里的文件全部缺席时去掉它们，否则是完整的锁文件。见 [`ResourceSet::as_shipped_in`]。
 pub(crate) fn shipped_specification(
@@ -1364,7 +1379,7 @@ pub fn prepare_host_configuration(
 
 /// 为 `edition` 准备宿主：[`prepare_host_configuration`] 就是 full 的这一个。
 ///
-/// 不是 full 的版本在文档里记下 `edition`，之后的会话、[`refresh_host_options`] 和 `msime-mcp` 都从文档里读它；full 的文档不写这个键，与以前完全相同。状态目录也记下它属于哪个版本（[`Edition::record_in`]，full 不写）：各平台宿主经 C 接口、设置应用经自己的存储都只按目录读写偏好，并不知道版本，偏好文件不见了或被修复时靠这份记录回到本版本的默认偏好。状态目录里还没有偏好文件时，不是 full 的版本还会把本版本的默认偏好写成第一份偏好文件，不经偏好存储直接读文件的一方第一次读到的也是本版本的默认值。
+/// 不是 full 的版本在文档里记下 `edition`，之后的会话、[`refresh_host_options`] 和 `msime-mcp` 都从文档里读它；full 的文档不写这个键，与以前完全相同。状态目录也记下它属于哪个版本（[`Edition::record_in`]，full 不写）：各平台宿主经 C 接口、设置应用经自己的存储都只按目录读写偏好，并不知道版本，偏好文件不见了或被修复时靠这份记录回到本版本的默认偏好。状态目录里还没有偏好文件时，每个版本都会把此刻读到的偏好写成第一份偏好文件：不经偏好存储直接读文件的一方第一次读到的也是本版本的默认值；新装和从以前的版本升级也只在这一刻分得清（触屏键盘的默认方案不同，见 `PreferencesStore::write_first_document`），写下文件后结论就固定了。
 pub fn prepare_host_configuration_for_edition(
     resources: &std::path::Path,
     state_root: &std::path::Path,
@@ -1381,24 +1396,14 @@ pub fn prepare_host_configuration_for_edition(
     )
 }
 
-/// 状态目录里 `edition` 的偏好。不是 full 的版本在还没有偏好文件时，先把本版本的默认偏好写成第一份文件，理由见 [`prepare_host_configuration_for_edition`]。
+/// 状态目录里 `edition` 的偏好。还没有偏好文件时，先把此刻读到的偏好写成第一份文件（[`PreferencesStore::write_first_document`]），理由见 [`prepare_host_configuration_for_edition`]。必须在建用户词库代次之前调用：没有偏好文件时，状态目录有没有被准备过决定触屏键盘按新装还是按升级前的默认方案。
 fn edition_preferences(
     state_root: &Path,
     edition: &'static Edition,
 ) -> Result<Preferences, Box<dyn std::error::Error>> {
-    let store = PreferencesStore::for_edition(state_root, edition);
-    let snapshot = store.load()?;
-    if edition.is_full() || snapshot.revision > 0 {
-        return Ok(snapshot.preferences);
-    }
-    match store.save(0, snapshot.preferences) {
-        Ok(saved) => Ok(saved.preferences),
-        // 设置应用恰好在这期间写下了第一份偏好，以它为准。
-        Err(msime_client_core::preferences::PreferencesError::Conflict) => {
-            Ok(store.load()?.preferences)
-        }
-        Err(error) => Err(error.into()),
-    }
+    Ok(PreferencesStore::for_edition(state_root, edition)
+        .write_first_document()?
+        .preferences)
 }
 
 /// [`prepare_host_configuration_for_edition`] 按给定的锁文件和按需下载清单准备；测试借它在各平台上检查 macOS 的发货规则。
@@ -1412,6 +1417,8 @@ fn prepare_shipped_host_configuration(
     let resources = without_verbatim_prefix(std::fs::canonicalize(resources)?);
     let state_root = std::path::absolute(state_root)?;
     verify_resources_once(&resources, specification, &state_root, on_demand)?;
+    // 偏好要在建 `user/dictionaries` 之前读：没有偏好文件时，以前的版本准备过的状态目录按升级前的默认方案，新装按现在的默认方案，建了代次目录就分不清了。
+    let preferences = edition_preferences(&state_root, edition)?;
     // 代次按本版本的方案准备：不含全拼、双拼、五笔的版本（日文、越南文、藏文）随包不带 msime-pinyin.db，代次里也没有它；full 的方案是全部，与以前相同。
     let prepared = msime_engine::host::prepare_options_for(
         resources.to_str().ok_or("non-UTF-8 resource path")?,
@@ -1429,7 +1436,6 @@ fn prepare_shipped_host_configuration(
     )?;
     // 先记下状态目录属于哪个版本：之后只拿到这个目录的偏好存储（各平台的 C ABI、设置应用）靠它取本版本的默认偏好。full 什么也不写。
     edition.record_in(&state_root)?;
-    let preferences = edition_preferences(&state_root, edition)?;
     Ok(serde_json::to_string_pretty(&HostOptions {
         api_version: 1,
         resources: prepared.resources,

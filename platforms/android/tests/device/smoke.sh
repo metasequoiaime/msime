@@ -21,7 +21,7 @@ avd_name=$("$adb" -s "$serial" emu avd name | tr -d '\r' | head -1)
 [[ "$avd_name" == msime-client-test ]] || { echo "Refusing a non-test AVD" >&2; exit 1; }
 [[ $("$adb" -s "$serial" shell getprop sys.boot_completed | tr -d '\r') == 1 ]] || { echo "Test AVD has not booted" >&2; exit 1; }
 bash platforms/android/tests/device/build-editor.sh
-"$adb" -s "$serial" install --no-incremental -r target/android/msime-client.apk
+"$adb" -s "$serial" install --no-incremental -r target/android/msime-android.apk
 "$adb" -s "$serial" install --no-incremental -r target/android/editor-test.apk
 mkdir -p target/android/device-test
 xml="$repo_root/target/android/device-test/window.xml"

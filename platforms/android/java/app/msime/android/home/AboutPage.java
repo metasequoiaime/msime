@@ -27,6 +27,7 @@ import app.msime.android.ViewPolicy;
 import app.msime.android.HttpBodyPolicy;
 import app.msime.android.TextPolicy;
 import app.msime.android.R;
+import app.msime.android.ResourcePacks;
 import app.msime.android.UpdateApi;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import java.io.File;
@@ -45,7 +46,7 @@ import java.util.function.Consumer;
  *
  * <p>检查更新查 msime.app 的 Android 发行版，找到新版本后由用户点「下载」，下载完核对 SHA-256 与签名证书再交给系统安装器（{@link UpdateApi}）。从 Google Play 安装时这三项（检查更新、自动更新、更新通道）都不显示，Play 的政策不允许应用自己更新；同时「给我们评分」才有确定的去处，所以只在这种情况下显示。用户协议还没有确定的页面，不显示。
  *
- * <p>开源许可列出 APK 里随包带的许可通知（`assets/native-notices/`、词库与离线释义的许可等），没有时（例如开发构建）链接到仓库。
+ * <p>开源许可列出 APK 里随包带的许可通知（`assets/native-notices/`、词库与离线释义的许可等），以及已下载的资源包（日文词典、语言词库、离线释义）里随数据一起下载的许可文本，都没有时（例如开发构建）链接到仓库。
  */
 public final class AboutPage extends DetailPage {
     private static final String SITE = "https://msime.app/";
@@ -144,7 +145,12 @@ public final class AboutPage extends DetailPage {
 
         if (notices == null) {
             AssetManager assets = context.getAssets();
-            network(this, () -> listNotices(assets), outcome -> {
+            Context application = context.getApplicationContext();
+            network(this, () -> {
+                List<String> found = new ArrayList<>(listNotices(assets));
+                found.addAll(packNotices(application));
+                return found;
+            }, outcome -> {
                 notices = outcome.value() == null ? List.of() : outcome.value();
                 showNoticeCount(licences);
             });
@@ -383,6 +389,24 @@ public final class AboutPage extends DetailPage {
         return found;
     }
 
+    /**
+     * 已下载的资源包里的许可文本（绝对路径）。精简安装包不再随包带日文词典、语言词库和离线释义，它们的许可文本跟着资源包下载到 `files/bootstrap/state/resource-packs/<id>/`。在工作线程上调用：要经共享层列出一次安装状态。
+     */
+    private static List<String> packNotices(Context context) {
+        File packs = new File(ResourcePacks.stateRoot(context.getFilesDir()), "resource-packs");
+        List<String> found = new ArrayList<>(8);
+        for (String id : ResourcePacks.installedIds(context)) {
+            File[] files = new File(packs, id).listFiles();
+            for (File file : files == null ? new File[0] : files) {
+                String upper = file.getName().toUpperCase(java.util.Locale.ROOT);
+                if ((upper.contains("LICENSE") || upper.contains("LICENCE") || upper.contains("NOTICE")
+                        || upper.contains("README")) && file.isFile()) found.add(file.getAbsolutePath());
+            }
+        }
+        found.sort(String::compareTo);
+        return found;
+    }
+
     private static boolean exists(AssetManager assets, String path) {
         try (InputStream ignored = assets.open(path)) {
             return true;
@@ -406,7 +430,7 @@ public final class AboutPage extends DetailPage {
             openLink(context, REPOSITORY);
             return;
         }
-        OptionSheet sheet = new OptionSheet(context, "开源许可", "随安装包附带的许可通知");
+        OptionSheet sheet = new OptionSheet(context, "开源许可", "随安装包和已下载资源附带的许可通知");
         for (String path : list) sheet.option(noticeTitle(path), false, () -> showNotice(path));
         sheet.show();
     }
@@ -414,7 +438,9 @@ public final class AboutPage extends DetailPage {
     private void showNotice(String path) {
         AssetManager assets = requireContext().getAssets();
         network(this, () -> {
-            try (InputStream in = assets.open(path)) {
+            // 绝对路径是已下载资源包里的许可文本，其余是 APK assets 里的。
+            try (InputStream in = path.startsWith("/")
+                    ? java.nio.file.Files.newInputStream(new File(path).toPath()) : assets.open(path)) {
                 byte[] bytes = HttpBodyPolicy.readBounded(in, MAX_NOTICE_CHARS * 4);
                 if (bytes == null) return null;
                 String text = new String(bytes, java.nio.charset.StandardCharsets.UTF_8);

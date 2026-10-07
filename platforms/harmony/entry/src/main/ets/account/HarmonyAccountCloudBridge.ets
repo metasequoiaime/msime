@@ -358,6 +358,9 @@ export class HarmonyAccountCloudBridge {
         return this.failure('account_storage');
       }
       if (!fs.accessSync(directory)) fs.mkdirSync(directory, true);
+      if (!this.safeDirectory(directory)) {
+        return this.failure('account_storage');
+      }
       const downloaded = await this.bridge.downloadAuthenticated(
         `/v1/users/me/dictionaries/${kind}/export?format=${format}`,
         staging, MAX_DICTIONARY_EXPORT_BYTES, 'text/plain');
@@ -370,7 +373,7 @@ export class HarmonyAccountCloudBridge {
       const selected: string[] = await new picker.DocumentViewPicker(this.context).save(options);
       if (selected.length === 0) return this.success({ saved: false });
       destination = selected[0];
-      fs.copyFileSync(staging, destination);
+      await fs.copyFile(staging, destination);
       return this.success({ saved: true });
     } catch {
       try {
@@ -715,7 +718,7 @@ export class HarmonyAccountCloudBridge {
       const selected: string[] = await new picker.DocumentViewPicker(this.context).save(options);
       if (selected.length === 0) return this.success({ saved: false, snapshot: result });
       destination = selected[0];
-      fs.copyFileSync(this.snapshotFile, destination);
+      await fs.copyFile(this.snapshotFile, destination);
       return this.success({ saved: true, snapshot: result });
     } catch {
       try {
@@ -808,7 +811,7 @@ export class HarmonyAccountCloudBridge {
         return this.failure('account_storage');
       }
       this.restoreFile = `${directory}/${util.generateRandomUUID(false)}.ndjson`;
-      fs.copyFileSync(source, this.restoreFile);
+      await fs.copyFile(source, this.restoreFile);
       const copiedBytes: number = fs.statSync(this.restoreFile).size;
       if (copiedBytes !== sourceBytes || copiedBytes <= 0
         || copiedBytes > MAX_SNAPSHOT_DOWNLOAD_BYTES) {
