@@ -78,7 +78,7 @@ final class ImeToolbar {
             return true;
         });
         LinearLayout preeditFrame = KeyboardGeometry.row(s);
-        preeditFrame.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
+        ViewPolicy.setStartCenteredVertically(preeditFrame);
         preeditFrame.addView(s.preedit, new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         candidateHeader.addView(preeditFrame, KeyboardGeometry.weightedWrapParams(1));
