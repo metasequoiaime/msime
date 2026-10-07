@@ -99,9 +99,9 @@ public final class OnboardingActivity extends AppCompatActivity {
         progress.setIndicatorColor(Ui.accent(this));
         progress.setTrackColor(Ui.accentSoft(this));
         if (state != null) page = KeyboardGeometry.bounded(state.getInt(STATE_PAGE, 0), 0, pages - 1);
-        findViewById(R.id.onboarding_skip).setOnClickListener(ignored -> finishFlow());
-        findViewById(R.id.onboarding_previous).setOnClickListener(ignored -> go(page - 1));
-        findViewById(R.id.onboarding_next).setOnClickListener(ignored -> {
+        ViewPolicy.bindClick(findViewById(R.id.onboarding_skip), this::finishFlow);
+        ViewPolicy.bindClick(findViewById(R.id.onboarding_previous), () -> go(page - 1));
+        ViewPolicy.bindClick(findViewById(R.id.onboarding_next), () -> {
             if (page < pages - 1) go(page + 1);
             else if (account == SignIn.State.OFFERED && !declined) signIn();
             else finishFlow();
