@@ -214,7 +214,7 @@ public final class BackendAccount {
      * @param purpose `login` 或 `link`
      */
     public EmailChallenge requestEmailCode(String email, String purpose) throws Exception {
-        String target = email == null ? "" : email.trim();
+        String target = TextPolicy.trimmed(email);
         if (!validEmail(target)) throw new IllegalArgumentException("invalid email");
         String token = linkToken(purpose);
         JSONObject response = request("POST", "/v1/auth/challenges", new JSONObject()
@@ -228,7 +228,7 @@ public final class BackendAccount {
     /** 提交邮件里的验证码完成登录（或绑定），保存得到的会话。 */
     public void verifyEmailCode(EmailChallenge challenge, String code, String userAgent) throws Exception {
         if (ownerProcess != null) throw new IllegalStateException("account session owner");
-        String credential = code == null ? "" : code.trim();
+        String credential = TextPolicy.trimmed(code);
         if (challenge == null || !validEmailCode(credential)) throw new IllegalArgumentException("invalid code");
         String token = linkToken(challenge.purpose());
         keepSession(request("POST", "/v1/auth/login",
@@ -306,7 +306,7 @@ public final class BackendAccount {
 
     private static String agentPart(String value, String fallback) {
         StringBuilder result = new StringBuilder(64);
-        String raw = value == null ? "" : value.trim();
+        String raw = TextPolicy.trimmed(value);
         for (int index = 0; index < raw.length() && result.length() < 64; index++) {
             char c = raw.charAt(index);
             if (c < 0x20 || c > 0x7E || c == '(' || c == ')' || c == ';') continue;
@@ -431,7 +431,7 @@ public final class BackendAccount {
         List<ChatModel> models = new ArrayList<>(data.length());
         for (int index = 0; index < data.length(); index++) {
             JSONObject item = data.optJSONObject(index);
-            String id = item == null ? "" : optionalStringField(item.opt("id"), "").trim();
+            String id = item == null ? "" : TextPolicy.trimmed(optionalStringField(item.opt("id"), ""));
             if (id.isEmpty() || id.length() > 256) throw new IllegalStateException("invalid model catalogue");
             models.add(new ChatModel(id));
         }

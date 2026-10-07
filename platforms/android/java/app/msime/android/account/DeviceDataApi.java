@@ -102,7 +102,7 @@ public final class DeviceDataApi {
 
     /** 改昵称；去掉首尾空白后为空表示恢复服务端的默认昵称。 */
     public void rename(String displayName) throws CloudApi.Failure {
-        String name = displayName == null ? "" : displayName.trim();
+        String name = TextPolicy.trimmed(displayName);
         if (!validDisplayName(name)) throw new IllegalArgumentException("invalid display name");
         JSONObject body;
         try {
