@@ -150,7 +150,7 @@ final class LoginSheet {
 
         status = Ui.styledLabel(activity, "", 13, 400, Ui.subText(activity));
         status.setGravity(Gravity.CENTER_HORIZONTAL);
-        status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+        ViewPolicy.setPoliteLiveRegion(status);
         status.setVisibility(View.GONE);
         root.addView(status, Ui.matchWidth(activity, 12));
 

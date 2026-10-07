@@ -199,7 +199,7 @@ public final class AboutPage extends DetailPage {
         if (!play) {
             TextView button = Ui.pillButton(context, "检查更新", 15, 600, Ui.onAccent(context),
                 20, 0, 36, 96, this::onPill);
-            button.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+            ViewPolicy.setPoliteLiveRegion(button);
             LinearLayout.LayoutParams pillParams = Ui.wrap();
             pillParams.topMargin = Ui.dp(context, 14);
             header.addView(button, pillParams);

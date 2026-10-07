@@ -563,7 +563,7 @@ public final class OnboardingActivity extends AppCompatActivity {
 
     private TextView footnote(LinearLayout column, String message) {
         TextView view = Ui.label(this, message, 13, Ui.subText(this));
-        view.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+        ViewPolicy.setPoliteLiveRegion(view);
         column.addView(view, Ui.matchWidth(this, 14));
         return view;
     }

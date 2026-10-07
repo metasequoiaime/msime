@@ -130,6 +130,11 @@ public final class ViewPolicy {
         view.setOnClickListener(ignored -> action.run());
     }
 
+    /** Announce changing view content to accessibility services without interrupting the user. */
+    public static void setPoliteLiveRegion(View view) {
+        view.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+    }
+
     /** Center a view's content on both axes. */
     public static void setCentered(View view) {
         if (view instanceof TextView text) {

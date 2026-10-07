@@ -130,7 +130,7 @@ public final class FeedbackPage extends DetailPage {
 
         TextView button = Ui.textButton(context, "", 16, 600, Ui.onAccent(context), null,
             Ui.ACTION_BUTTON_MIN_HEIGHT, this::submit);
-        button.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+        ViewPolicy.setPoliteLiveRegion(button);
         LinearLayout.LayoutParams buttonParams = Ui.matchWidth();
         buttonParams.topMargin = Ui.dp(requireContext(), Ui.GROUP_GAP);
         column.addView(button, buttonParams);
