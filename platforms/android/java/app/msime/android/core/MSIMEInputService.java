@@ -6640,7 +6640,7 @@ public final class MSIMEInputService extends InputMethodService {
         }
         if (emojiShortcutButton != null) {
             ViewPolicy.setVisible(emojiShortcutButton, toolbarEmoji);
-            emojiShortcutButton.setEnabled(session != 0 && !emojiResources.isEmpty());
+            ViewPolicy.setEnabled(emojiShortcutButton, session != 0 && !emojiResources.isEmpty());
             ViewPolicy.setSelected(emojiShortcutButton, emojiPanel != null
                 && emojiPanel.getVisibility() == View.VISIBLE);
         }
