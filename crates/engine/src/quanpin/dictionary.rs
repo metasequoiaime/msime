@@ -49,8 +49,8 @@ use crate::user_dictionary::typo_profile::PersonalTypoProfile;
 use super::series::{
     append_unique_words, fold_reading, mark_autocorrect_candidates,
     merge_alternative_segmentations, resolve_series_query, series_cache_key, SeriesResolution,
-    ALTERNATIVE_SEGMENTATION_CANDIDATE_LIMIT, LONGER_PHRASE_EXTRA_SYLLABLES, LONGER_PHRASE_LIMIT,
-    MAX_SYLLABLES_FOR_MULTIPLE_SEGMENTATIONS,
+    ALTERNATIVE_SEGMENTATION_CANDIDATE_LIMIT, AUTOCORRECT_CUT_KBEST, LONGER_PHRASE_EXTRA_SYLLABLES,
+    LONGER_PHRASE_LIMIT, MAX_SYLLABLES_FOR_MULTIPLE_SEGMENTATIONS,
 };
 use super::typo_edges::collect_typo_edges;
 
@@ -72,6 +72,9 @@ const UNLIMITED_ROWS: usize = i32::MAX as usize;
 /// The budget of fuzzy paths one `fuzzy_candidates` call may query, shared by every prefix length (QD:1691).
 const FUZZY_PATH_BUDGET: usize = 128;
 const FUZZY_ROW_LIMIT: usize = 128;
+// k-best 纠错切分去掉主切分后最多 8 条，再加上完整音节图最多 32 条。
+const ALTERNATIVE_SEGMENTATION_SEEN_CAPACITY: usize =
+    AUTOCORRECT_CUT_KBEST - 1 + SYLLABLE_GRAPH_PATH_LIMIT;
 /// The masks whose lists depend on the typo profile and carry typo sentences.
 const TYPO_EDGE_TYPES: u32 = autocorrect_type::TRANSPOSITION
     | autocorrect_type::NEIGHBOR
@@ -1132,25 +1135,24 @@ fn alternative_segmentations(
 ) -> Vec<Vec<String>> {
     let mut alternatives: Vec<Vec<String>> = Vec::with_capacity(SYLLABLE_GRAPH_PATH_LIMIT);
     // Seeding the costlier cuts keeps them out of the frequency-competing tier; they are appended after it.
-    let mut seen = HashSet::with_capacity(
-        1usize
-            .saturating_add(resolution.costlier_corrected_cuts.len())
-            .saturating_add(SYLLABLE_GRAPH_PATH_LIMIT),
-    );
+    let mut seen: [Option<String>; ALTERNATIVE_SEGMENTATION_SEEN_CAPACITY] =
+        std::array::from_fn(|_| None);
+    let mut seen_length = 0;
     let primary_segmentation = resolution.segmentation.as_str();
-    seen.extend(
-        resolution
-            .costlier_corrected_cuts
-            .iter()
-            .map(|cut| join_segments(cut)),
-    );
+    for cut in &resolution.costlier_corrected_cuts {
+        remember_segmentation_key(
+            &mut seen,
+            &mut seen_length,
+            primary_segmentation,
+            join_segments(cut),
+        );
+    }
     let mut append = |candidate: &[String]| {
         let key = join_segments(candidate);
         if !key.is_empty()
-            && !is_duplicate_segmentation(primary_segmentation, &seen, &key)
             && alternatives.len() < SYLLABLE_GRAPH_PATH_LIMIT
+            && remember_segmentation_key(&mut seen, &mut seen_length, primary_segmentation, key)
         {
-            seen.insert(key);
             alternatives.push(candidate.to_vec());
         }
     };
@@ -1175,8 +1177,24 @@ fn alternative_segmentations(
     alternatives
 }
 
-fn is_duplicate_segmentation(primary: &str, seen: &HashSet<String>, key: &str) -> bool {
-    key == primary || seen.contains(key)
+fn remember_segmentation_key(
+    seen: &mut [Option<String>; ALTERNATIVE_SEGMENTATION_SEEN_CAPACITY],
+    seen_length: &mut usize,
+    primary: &str,
+    key: String,
+) -> bool {
+    if key == primary
+        || *seen_length == ALTERNATIVE_SEGMENTATION_SEEN_CAPACITY
+        || seen[..*seen_length]
+            .iter()
+            .flatten()
+            .any(|existing| existing == &key)
+    {
+        return false;
+    }
+    seen[*seen_length] = Some(key);
+    *seen_length += 1;
+    true
 }
 
 /// Letters of a row's matched code, what the fuzzy merge sorts by.
