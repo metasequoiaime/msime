@@ -3,20 +3,20 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
+use super::ShuangpinProfile;
 use super::query::remove_manual_delimiters;
 use super::utils::{convert_seg_shuangpin_to_seg_complete_pinyin, pinyin_segmentation};
-use super::ShuangpinProfile;
 use crate::assets;
 use crate::cache::FifoCache;
 use crate::dictionary::pinyin::PinyinDatabase;
 use crate::helpcode::{
-    match_single_helpcode, matches_double_helpcodes, HelpcodeKeymap, SingleHelpcodeMatch,
+    HelpcodeKeymap, SingleHelpcodeMatch, match_single_helpcode, matches_double_helpcodes,
 };
 use crate::ime::online_batch::replace_online_candidate_batch;
 use crate::lattice::decode::make_sentence_lattice_options;
 use crate::lattice::merge::merge_lattice_candidates;
 use crate::lattice::neural::{
-    shared_sentence_model, NeuralReranker, CONTEXT_CHARACTERS, MAX_RERANK_PATHS,
+    CONTEXT_CHARACTERS, MAX_RERANK_PATHS, NeuralReranker, shared_sentence_model,
 };
 use crate::lattice::ngram::NgramTable;
 use crate::paths::RuntimePaths;
@@ -308,25 +308,27 @@ impl ShuangpinDictionary {
         }
         let prefer_last = help_code.as_bytes()[0].is_ascii_uppercase();
         let normalized = help_code.to_ascii_lowercase();
-        let mut first = Vec::with_capacity(candidates.len());
-        let mut last = Vec::with_capacity(candidates.len());
+        let mut result = Vec::with_capacity(candidates.len());
         let mut unmatched = Vec::with_capacity(candidates.len());
         for candidate in candidates {
             match match_single_helpcode(&candidate.word, &normalized, keymap) {
-                SingleHelpcodeMatch::First => first.push(candidate.clone()),
-                SingleHelpcodeMatch::Last => last.push(candidate.clone()),
-                SingleHelpcodeMatch::Both if prefer_last => last.push(candidate.clone()),
-                SingleHelpcodeMatch::Both => first.push(candidate.clone()),
+                SingleHelpcodeMatch::First if !prefer_last => result.push(candidate.clone()),
+                SingleHelpcodeMatch::Last if prefer_last => result.push(candidate.clone()),
+                SingleHelpcodeMatch::Both => result.push(candidate.clone()),
                 SingleHelpcodeMatch::None => unmatched.push(candidate.clone()),
+                _ => {}
             }
         }
-        let mut result = if prefer_last {
-            last.extend(first);
-            last
-        } else {
-            first.extend(last);
-            first
-        };
+        for candidate in candidates {
+            let secondary = match match_single_helpcode(&candidate.word, &normalized, keymap) {
+                SingleHelpcodeMatch::First => prefer_last,
+                SingleHelpcodeMatch::Last => !prefer_last,
+                SingleHelpcodeMatch::Both | SingleHelpcodeMatch::None => false,
+            };
+            if secondary {
+                result.push(candidate.clone());
+            }
+        }
         // The whole raw input, the last letter read as pinyin instead of a helpcode. The reference segments the raw input as one chunk, `'` included; the conversion drops the empty pieces that leaves (SD:370-372).
         let original_segmentation = pinyin_segmentation(raw, self.profile);
         let whole = self.generate_series(raw, &original_segmentation, "");
@@ -634,10 +636,14 @@ fn append_helpcode_rows(
 
 #[cfg(test)]
 mod tests {
+    use super::ShuangpinDictionary;
     use super::append_helpcode_rows;
     use super::append_prefix_rows;
     use super::double_helpcode_cache_key;
     use super::prefix_group_count;
+    use crate::helpcode::HelpcodeKeymap;
+    use crate::paths::RuntimePaths;
+    use crate::shuangpin::profile::profile;
     use crate::types::{CandidateSource, WordItem};
 
     fn row(word: &str) -> WordItem {
@@ -694,6 +700,34 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["你", "好", "吗"]
         );
+    }
+
+    #[test]
+    fn single_helpcode_filter_uses_only_result_and_unmatched_buffers() {
+        let mut dictionary = ShuangpinDictionary::new(
+            profile(crate::types::ShuangpinProfileKind::Xiaohe),
+            &RuntimePaths::default(),
+        );
+        let keymap = HelpcodeKeymap::from_codes(
+            [
+                ("你".to_owned(), "ab".to_owned()),
+                ("嗯".to_owned(), "aa".to_owned()),
+                ("好".to_owned(), "cd".to_owned()),
+            ]
+            .into_iter()
+            .collect(),
+        );
+        let candidates = [row("你"), row("嗯"), row("好")];
+        let (filtered, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            dictionary.filter_with_single_helpcode(&candidates, "a", "", &keymap)
+        });
+
+        assert_eq!(words(&filtered), ["你", "嗯", "好"]);
+        assert_eq!(allocations, 12);
+    }
+
+    fn words(items: &[WordItem]) -> Vec<&str> {
+        items.iter().map(|item| item.word.as_str()).collect()
     }
 
     #[test]
