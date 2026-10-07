@@ -479,7 +479,8 @@ final class ImePanels {
         dots.setTag(PAGER_DOTS_TAG);
         dots.setCount(grid.pageCount());
         dots.setActive(initialPage, false);
-        dots.setVisibility(grid.pageCount() > 1 ? View.VISIBLE : View.INVISIBLE);
+        if (grid.pageCount() > 1) ViewPolicy.show(dots);
+        else ViewPolicy.setInvisible(dots);
         LinearLayout.LayoutParams dotParams = KeyboardGeometry.linearParamsPx(
             s.pixels(Math.round(KeyboardPagerDots.totalWidthDp(
                 BoundsPolicy.bounded(grid.pageCount(), 1, Integer.MAX_VALUE)))), s.pixels(10));
