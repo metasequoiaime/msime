@@ -240,17 +240,25 @@ pub fn merge_alternative_segmentations(
 fn retain_unique_sorted_rows(rows: &mut Vec<WordItem>) {
     // Borrow words while calculating each first occurrence, then retain in place after releasing the set.
     let mut seen = HashSet::with_capacity(rows.len());
-    let unique = rows
+    let duplicates = rows
         .iter()
-        .map(|item| seen.insert(item.word.as_str()))
+        .enumerate()
+        .filter_map(|(index, item)| (!seen.insert(item.word.as_str())).then_some(index))
         .collect::<Vec<_>>();
     drop(seen);
-    let mut index = 0;
-    rows.retain(|_| {
-        let keep = unique[index];
-        index += 1;
-        keep
-    });
+    let mut duplicates = duplicates.into_iter().peekable();
+    let mut write = 0;
+    for read in 0..rows.len() {
+        if duplicates.peek() == Some(&read) {
+            duplicates.next();
+            continue;
+        }
+        if write != read {
+            rows.swap(write, read);
+        }
+        write += 1;
+    }
+    rows.truncate(write);
 }
 
 /// Append the rows whose word is not already present (QD:993-1004). A row repeated inside `rows` is kept once, as the reference's scan over the growing list does.
