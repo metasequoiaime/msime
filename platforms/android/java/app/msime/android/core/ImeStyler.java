@@ -480,12 +480,12 @@ final class ImeStyler {
         node.setBackground(new KeyboardSkinBackgroundDrawable(target, density));
     }
 
-    /** Keep phone keys edge-to-edge while a tablet or two-in-one gets a bounded, centred surface. */
+    /** 手机的键盘铺满窗口，平板和二合一的键盘表面限宽居中；平板横屏画分离式键盘时铺满，让左右两半贴到两侧。 */
     void applyKeyboardSurfaceGeometry() {
         if (s.keyboardSurface == null) return;
         Configuration configuration = s.getResources().getConfiguration();
         int widthDp = KeyboardFormFactorPolicy.surfaceWidthDp(
-            configuration.smallestScreenWidthDp, configuration.screenWidthDp);
+            configuration.smallestScreenWidthDp, configuration.screenWidthDp, s.splitKeyboardDrawn());
         int width = widthDp == 0 ? FrameLayout.LayoutParams.MATCH_PARENT : s.pixels(widthDp);
         FrameLayout.LayoutParams params = KeyboardGeometry.frameParamsPx(
             width, FrameLayout.LayoutParams.MATCH_PARENT, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);

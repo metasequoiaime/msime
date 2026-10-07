@@ -37,6 +37,8 @@ final class ImeLetterRows {
     /** 第二行（a–l）两侧各 5% 的缩进占位；微软双拼的第十个键出现时收起。 */
     private View secondRowLeadingIndent;
     private View secondRowTrailingIndent;
+    /** 当前键行是不是按分离式键盘建的；与 {@link MSIMEInputService#splitKeyboardDrawn} 不一致时要重建（{@link #splitStale}）。 */
+    private boolean builtSplit;
 
     /** 新设计的 123 / #+= 层画在哪些界面上：26 键（含韩文键面）以及把符号页交给 26 键行的手写、笔画和注音 9 键。这一层的字符键原样上屏、不经 Engine，所以注音 9 键的数字页不会被读成音键；大千注音的数字和标点键另有用途，保留原符号行。 */
     static boolean drawsDesignLayer(int touchLayout) {
@@ -186,14 +188,79 @@ final class ImeLetterRows {
     /** 第二行的 5% 缩进只在 9 键行出现；微软双拼的第十个键可见时收起（每次渲染校正一次）。 */
     void updateSecondRowIndent() {
         if (secondRowLeadingIndent == null) return;
-        String localMode = s.view == null ? "none" : s.view.optString("local_mode", "none");
-        boolean tenKeys = s.microsoftFinalKey != null && MicrosoftShuangpinKeyPolicy.visible(
-            s.dedicatedEnglish, s.selectedScheme, localMode);
-        int visibility = tenKeys ? View.GONE : View.VISIBLE;
+        int visibility = microsoftTenKeys() ? View.GONE : View.VISIBLE;
         if (secondRowLeadingIndent.getVisibility() != visibility) {
             secondRowLeadingIndent.setVisibility(visibility);
             secondRowTrailingIndent.setVisibility(visibility);
         }
+    }
+
+    /** 第二行此刻是否带着微软双拼的第十个键（`;`）；与 SVC 每次渲染时设置那个键可见性的判断相同。 */
+    private boolean microsoftTenKeys() {
+        String localMode = s.view == null ? "none" : s.view.optString("local_mode", "none");
+        return s.microsoftFinalKey != null && MicrosoftShuangpinKeyPolicy.visible(
+            s.dedicatedEnglish, s.selectedScheme, localMode);
+    }
+
+    /** 键行是否需要按分离式键盘的新状态重建：旋转、开关变化或换到另一种布局之后。 */
+    boolean splitStale() {
+        return s.keyRows != null && builtSplit != s.splitKeyboardDrawn();
+    }
+
+    /** 分离式键盘中间的空隙：普通的 View，不是键、不可点击，也不带键距外边距，所以 {@link KeyboardKeyArea} 不会把落在这里的按下交给旁边的键，点它什么也不发生。 */
+    private View splitGap() {
+        View gap = new View(s);
+        ViewPolicy.hideFromAccessibility(gap);
+        return gap;
+    }
+
+    /** 一个子视图在分离计算里的份额：按渲染后的最终可见状态计，隐藏的记 0；微软双拼的 `;` 键在建行时还没被渲染校正，按 {@link #microsoftTenKeys} 计。 */
+    private float splitWeight(View child) {
+        if (child == s.microsoftFinalKey) return microsoftTenKeys() ? 1f : 0f;
+        if (child.getVisibility() == View.GONE) return 0f;
+        return child.getLayoutParams() instanceof LinearLayout.LayoutParams params ? params.weight : 0f;
+    }
+
+    private float[] splitWeights(LinearLayout row) {
+        float[] weights = new float[row.getChildCount()];
+        for (int index = 0; index < weights.length; index++) weights[index] = splitWeight(row.getChildAt(index));
+        return weights;
+    }
+
+    private static float sum(float[] weights) {
+        float total = 0f;
+        for (float weight : weights) total += weight;
+        return total;
+    }
+
+    /** 在键边界上把一行分成左右两半，中间插入占整行 25% 的空隙（断点规则见 {@link SplitKeyboardPolicy#cutIndex}）。 */
+    void splitRow(LinearLayout row) {
+        float[] weights = splitWeights(row);
+        row.addView(splitGap(), SplitKeyboardPolicy.cutIndex(weights),
+            KeyboardGeometry.weightedMatchParentParams(SplitKeyboardPolicy.gapWeight(sum(weights))));
+    }
+
+    /**
+     * 底行（字母层的功能行、123 / #+= 层自带的底行）不在键边界上断，而是把空格键拆成两个：原来的空格键留在左半边的内侧，{@link ImeBottomRow#splitSpaceButton} 放在右半边的内侧，两者都是空格，长按语音和拖动移光标也都在。左边那一半的宽度让空隙落在整行正中（{@link SplitKeyboardPolicy#leftSpaceWeight}）。行里没有空格键时按普通行处理。
+     */
+    void splitSpaceRow(LinearLayout row) {
+        Button space = s.spaceButton;
+        int spaceIndex = space == null ? -1 : row.indexOfChild(space);
+        if (spaceIndex < 0) {
+            splitRow(row);
+            return;
+        }
+        float[] weights = splitWeights(row);
+        float total = sum(weights);
+        float left = SplitKeyboardPolicy.leftSpaceWeight(weights, spaceIndex);
+        float right = weights[spaceIndex] - left;
+        space.setLayoutParams(KeyboardGeometry.weightedMatchParentParams(left));
+        row.addView(splitGap(), spaceIndex + 1,
+            KeyboardGeometry.weightedMatchParentParams(SplitKeyboardPolicy.gapWeight(total)));
+        Button second = s.imeBottomRow.splitSpaceButton();
+        if (second.getParent() instanceof android.view.ViewGroup parent) parent.removeView(second);
+        ViewPolicy.show(second);
+        row.addView(second, spaceIndex + 2, KeyboardGeometry.weightedMatchParentParams(right));
     }
 
     private View indent() {
@@ -271,6 +338,13 @@ final class ImeLetterRows {
 
     void rebuildKeyRows() {
         if (s.keyRows == null) return;
+        boolean split = s.splitKeyboardDrawn();
+        if (split != builtSplit) {
+            builtSplit = split;
+            // 分离式键盘铺满宽度，其余情况回到大屏的限宽外框；单手模式在分离时让位，换回来时恢复。
+            s.imeStyler.applyKeyboardSurfaceGeometry();
+            s.imeFrame.applyOneHanded();
+        }
         ensureIconKeys();
         s.imeBottomRow.ensureFaces();
         hideKeyPreview();
@@ -453,6 +527,7 @@ final class ImeLetterRows {
                 if (KeyboardActionRow.rowsCarryDelete(layout, symbols))
                     addLetterRowEdgeKey(row, s.deleteButton, row.getChildCount(), edge);
             }
+            if (builtSplit && block == null) splitRow(row);
         }
         s.imeStyler.applyKeyboardGeometry();
     }
@@ -492,6 +567,10 @@ final class ImeLetterRows {
                 if (key.getParent() instanceof android.view.ViewGroup parent) parent.removeView(key);
                 ViewPolicy.show(key);
                 row.addView(key, KeyboardGeometry.weightedMatchParentParams(layerKey.weight()));
+            }
+            if (builtSplit) {
+                if (rowIndex == rows.size() - 1) splitSpaceRow(row);
+                else splitRow(row);
             }
         }
     }
