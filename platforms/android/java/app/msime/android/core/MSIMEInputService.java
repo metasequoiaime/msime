@@ -6580,7 +6580,7 @@ public final class MSIMEInputService extends InputMethodService {
         imeDebugOverlay.updateDiagnosticView(hasDiagnostic);
         boolean heightMode = inlineHeightActive;
         if (inlineHeightBar != null)
-            inlineHeightBar.setVisibility(heightMode ? View.VISIBLE : View.GONE);
+            ViewPolicy.setVisible(inlineHeightBar, heightMode);
         if (candidateHeader != null) {
             // 空闲时这一行只给常驻的模式标签（直接输入、准备中）：简繁切换、设置保存、同步重试、Shift 这类一闪而过的提示若也占这一行，每次出现和消失都把整副键盘顶上去又落回来。临时提示只在失败时以 Toast 说出来。
             boolean modeLabel = !message.isEmpty();
