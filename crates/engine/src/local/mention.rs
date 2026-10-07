@@ -16,17 +16,18 @@ pub const KEY_LIMIT: usize = 64;
 fn collect_place_matches(
     table: &Places,
     code: &str,
-    matched_names: &mut HashSet<String>,
+    existing_names: &[&str],
     limit: usize,
 ) -> Vec<(&'static str, &'static str)> {
     let mut exact = Vec::with_capacity(limit);
     let mut prefix = Vec::with_capacity(limit);
+    let mut matched_names = HashSet::with_capacity(limit);
     for (place, spellings) in table.places.iter().zip(&table.spellings) {
         let is_exact = spelled(spellings, code, true);
         if !is_exact && !spelled(spellings, code, false) {
             continue;
         }
-        if !matched_names.insert(place.name.to_owned()) {
+        if existing_names.contains(&place.name) || !matched_names.insert(place.name) {
             continue;
         }
         if is_exact {
@@ -137,13 +138,12 @@ pub fn query_mentions(code: &str, entries: &[MentionEntry], with_places: bool) -
         .map(|entry| (entry.key.as_str(), entry.text.as_str()))
         .collect();
     if with_places && !code.is_empty() {
-        let mut matched_names: HashSet<String> =
-            matches.iter().map(|(_, text)| (*text).to_owned()).collect();
         let table = places();
+        let existing_names: Vec<&str> = matches.iter().map(|(_, text)| *text).collect();
         matches.extend(collect_place_matches(
             table,
             code,
-            &mut matched_names,
+            &existing_names,
             RESULT_LIMIT.saturating_sub(matches.len()),
         ));
     }
@@ -170,8 +170,7 @@ mod place_match_tests {
     #[test]
     fn place_matches_keep_exact_rows_before_prefix_rows() {
         let table = places();
-        let mut matched_names = HashSet::new();
-        let matches = collect_place_matches(table, "bei", &mut matched_names, RESULT_LIMIT);
+        let matches = collect_place_matches(table, "bei", &[], RESULT_LIMIT);
         assert!(!matches.is_empty());
         assert!(matches.iter().all(|(_, name)| !name.is_empty()));
     }
