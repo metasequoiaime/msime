@@ -236,22 +236,29 @@ impl ShuangpinDictionary {
         }
         // Borrow words while calculating each group's first occurrence, then release the set before moving rows into candidates.
         let mut listed: HashSet<&str> = candidates.iter().map(|item| item.word.as_str()).collect();
-        let unique = prefix_rows
+        let duplicates = prefix_rows
             .iter()
             .map(|rows| {
                 rows.iter()
-                    .map(|item| listed.insert(item.word.as_str()))
+                    .enumerate()
+                    .filter_map(|(index, item)| {
+                        (!listed.insert(item.word.as_str())).then_some(index)
+                    })
                     .collect::<Vec<_>>()
             })
             .collect::<Vec<_>>();
         drop(listed);
-        for (rows, unique) in prefix_rows.into_iter().zip(unique) {
+        for (rows, duplicates) in prefix_rows.into_iter().zip(duplicates) {
             candidates.reserve(rows.len());
-            candidates.extend(
-                rows.into_iter()
-                    .zip(unique)
-                    .filter_map(|(item, unique)| unique.then_some(item)),
-            );
+            let mut duplicates = duplicates.into_iter().peekable();
+            candidates.extend(rows.into_iter().enumerate().filter_map(|(index, item)| {
+                if duplicates.peek() == Some(&index) {
+                    duplicates.next();
+                    None
+                } else {
+                    Some(item)
+                }
+            }));
         }
 
         let segments = split_segments(&convert_seg_shuangpin_to_seg_complete_pinyin(
