@@ -194,9 +194,11 @@ impl ToSql for Text<'_> {
 
 /// `ATTACH DATABASE ?1 AS <schema>`; `schema` is one of this module's fixed aliases, never user input.
 pub(super) fn attach(connection: &Connection, path: &Path, schema: &str) -> rusqlite::Result<()> {
+    let path = crate::paths::sqlite_path_no_follow(path)
+        .map_err(|_| rusqlite::Error::InvalidPath(path.to_owned()))?;
     let name = path
         .to_str()
-        .ok_or_else(|| rusqlite::Error::InvalidPath(path.to_owned()))?;
+        .ok_or_else(|| rusqlite::Error::InvalidPath(path.clone()))?;
     connection.execute(&format!("ATTACH DATABASE ?1 AS {schema}"), [name])?;
     Ok(())
 }

@@ -5,7 +5,7 @@
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
-use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
+use rusqlite::{params, OpenFlags, OptionalExtension};
 use serde_json::{json, Value};
 
 use super::common::{candidates, scheme, shuangpin_profile, wubi_profile, Roots};
@@ -16,7 +16,7 @@ use crate::assets;
 use crate::local::jianpin::jianpin_ranking_context;
 use crate::pinyin::segment::{cut_pinyin_by_mode, join_segments, CutMode};
 use crate::types::{CandidateSource, FrequencyAdjustmentMode, SchemeType, WordItem};
-use crate::user_dictionary::journal::{ensure_user_database, is_user_inserted};
+use crate::user_dictionary::journal::{ensure_user_database, is_user_inserted, open_database};
 use crate::user_dictionary::positions::apply_fixed_positions;
 use crate::user_dictionary::ranking::{
     adjust_candidate_ranking, adjust_english_candidate_ranking, RankingRequest,
@@ -72,7 +72,7 @@ struct Snapshot {
 
 /// Write the snapshot into `journal` in one transaction. `{"previous": E}` is a tombstone for E, `{"replacement": E}` its final state; `fixed` and `selection` lines are the user's positions and counters.
 fn write_snapshot(journal: &Path, scratch: &Path) -> Result<Snapshot, BackendError> {
-    let mut connection = Connection::open_with_flags(journal, OpenFlags::SQLITE_OPEN_READ_WRITE)
+    let mut connection = open_database(journal, OpenFlags::SQLITE_OPEN_READ_WRITE)
         .map_err(|_| BackendError::EngineFailure)?;
     let transaction = connection
         .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
@@ -414,7 +414,7 @@ fn apply_action(
     }
     .map_err(|_| BackendError::InvalidRequest)?;
 
-    let connection = Connection::open_with_flags(journal, OpenFlags::SQLITE_OPEN_READ_ONLY)
+    let connection = open_database(journal, OpenFlags::SQLITE_OPEN_READ_ONLY)
         .map_err(|_| BackendError::EngineFailure)?;
     let count = connection
         .query_row(
@@ -495,4 +495,29 @@ pub(super) fn validate_snapshot(roots: Roots) -> Outcome {
         }
     }
     Ok(json!({ "valid": true }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn snapshot_writes_refuse_a_symlinked_journal() {
+        use std::os::unix::fs::symlink;
+
+        let scratch = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let external = outside.path().join("journal.db");
+        ensure_user_database(&external).unwrap();
+        let linked = scratch.path().join("journal.db");
+        symlink(&external, &linked).unwrap();
+        std::fs::write(
+            scratch.path().join(SNAPSHOT),
+            br#"{"snapshot_revision":1}"#,
+        )
+        .unwrap();
+
+        assert!(write_snapshot(&linked, scratch.path()).is_err());
+    }
 }

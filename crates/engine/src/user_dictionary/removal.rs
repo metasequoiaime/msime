@@ -19,7 +19,8 @@ const MAX_LEARNED_ENGLISH_WORD_LENGTH: usize = 64;
 /// The dictionary connection with the journal attached as `candidate_journal`, the journal's schema already applied by `ensure_user_database`.
 fn open_with_journal(dictionary: &Path, user_db: &Path) -> Result<Connection> {
     let connection = open_dictionary_for_writing(dictionary)?;
-    let journal = user_db
+    let journal_path = crate::paths::sqlite_path_no_follow(user_db)?;
+    let journal = journal_path
         .to_str()
         .ok_or_else(|| EngineError::invalid(UNSTORABLE_ENTRY))?;
     connection.execute(
