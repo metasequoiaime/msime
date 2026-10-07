@@ -5218,7 +5218,7 @@ public final class MSIMEInputService extends InputMethodService {
     void configureCandidateTextLayout(Button button, int lines) {
         // Reserve extra rows only when this candidate actually carries a gloss. A globally enabled translation target is not evidence that every candidate has one; keeping the empty case single-line prevents long candidate words from wrapping inside the chip. Likewise, a second requested language may be unavailable for this particular result; only an actual newline in the rendered label (a second gloss, or a Korean 훈음 row under its Hanja) warrants another row.
         // A multi-row label deliberately occupies those rows. Do not turn the whole label into a single-line TextView in that case, or the rows after the first are silently clipped. With no extra row the chip can scroll horizontally as one intact candidate word.
-        button.setSingleLine(lines == 1);
+        ViewPolicy.setSingleLine(button, lines == 1);
         button.setEllipsize(null);
         button.setHorizontallyScrolling(lines == 1);
     }
