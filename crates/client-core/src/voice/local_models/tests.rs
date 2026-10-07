@@ -1117,6 +1117,58 @@ fn a_corrupt_source_falls_back_to_the_next_one_from_scratch() {
     assert_eq!(*fetcher.offsets.lock().unwrap(), vec![0, 0, 0]);
 }
 
+/// 镜像只回了一小段错误页（长度不足，保留下来等续传）：下一个源接着它续传后摘要不符，于是删掉从头再下，安装照样成功。
+#[test]
+fn a_short_wrong_prefix_from_one_source_does_not_poison_the_next() {
+    let root = tempfile::tempdir().unwrap();
+    let files = pack_files();
+    let mirror = "https://mirror.example.test/";
+    let fetcher = MapFetcher::new([
+        (mirrored(mirror, PACK_A_URL), b"<html>".to_vec()),
+        (PACK_A_URL.to_owned(), PACK_A.to_vec()),
+        (mirrored(mirror, PACK_B_URL), PACK_B.to_vec()),
+    ]);
+    let (result, _) = run_pack(
+        root.path(),
+        "pack",
+        &files,
+        mirror,
+        &fetcher,
+        &AtomicBool::new(false),
+    );
+    let installed = result.unwrap();
+    assert_eq!(fs::read(installed.join("a.dat")).unwrap(), PACK_A);
+    assert_eq!(
+        fetcher.requested.lock().unwrap()[..3],
+        [
+            mirrored(mirror, PACK_A_URL),
+            PACK_A_URL.to_owned(),
+            PACK_A_URL.to_owned(),
+        ]
+    );
+    assert_eq!(fetcher.offsets.lock().unwrap()[..3], [0, 6, 0]);
+    assert_eq!(root_entries(root.path()), vec!["pack"]);
+}
+
+/// 上次安装留下的前缀已经不对：同一个源续传后摘要不符，删掉从头再下一次，而不是直接报错。
+#[test]
+fn a_stale_wrong_prefix_is_redownloaded_from_scratch() {
+    let root = tempfile::tempdir().unwrap();
+    let files = pack_files();
+    write_partial(root.path(), "pack", &files[0], b"WRONG");
+    let fetcher = pack_fetcher("", PACK_B);
+    let (result, _) = run_pack(
+        root.path(),
+        "pack",
+        &files,
+        "",
+        &fetcher,
+        &AtomicBool::new(false),
+    );
+    assert_eq!(fs::read(result.unwrap().join("a.dat")).unwrap(), PACK_A);
+    assert_eq!(*fetcher.offsets.lock().unwrap(), vec![5, 0, 0]);
+}
+
 #[test]
 fn sources_are_tried_in_order_with_the_lock_url_last() {
     let first = "https://first.example.test/";

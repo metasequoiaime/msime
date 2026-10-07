@@ -1071,7 +1071,7 @@ fn download_from_sources(
     Err(failure.unwrap_or_else(|| LocalModelError::MissingFile(file.name.clone())))
 }
 
-/// 把 `url` 下载到 `partial`，已有的部分用 HTTP Range 接着下。已有部分的字节从盘上重新哈希，所以中断时内存里的状态不必保存；源不支持 Range 时从头下载。完整之后按锁文件的长度和 SHA-256 校验，摘要不符就删掉这份文件；长度不足（连接提前断开）时保留已收到的部分，下次接着下。`progress` 收到的是这个文件已有的字节数，包括续传前就在的部分。
+/// 把 `url` 下载到 `partial`，已有的部分用 HTTP Range 接着下。已有部分的字节从盘上重新哈希，所以中断时内存里的状态不必保存；源不支持 Range 时从头下载。完整之后按锁文件的长度和 SHA-256 校验，摘要不符就删掉这份文件；长度不足（连接提前断开）时保留已收到的部分，下次接着下。已有部分不一定来自这个源（可能是别的源返回的错误页，或上次安装留下的），所以接着下的文件摘要不符时，删掉后从这个源从头再下一次，免得一个坏前缀让后面所有源都失败。`progress` 收到的是这个文件已有的字节数，包括续传前就在的部分。
 fn download_resumable(
     fetcher: &dyn Fetcher,
     url: &str,
@@ -1121,6 +1121,7 @@ fn download_resumable(
     if downloaded > 0 {
         progress(downloaded);
     }
+    let mut resumed = downloaded > 0;
     if downloaded < expected {
         let fetched = fetcher.fetch(url, downloaded)?;
         if fetched.offset != downloaded {
@@ -1132,6 +1133,7 @@ fn download_resumable(
             output.seek(io::SeekFrom::Start(0))?;
             hasher = Sha256::new();
             downloaded = 0;
+            resumed = false;
             progress(0);
         }
         let mut reader = fetched.reader;
@@ -1164,6 +1166,12 @@ fn download_resumable(
     if !hex::encode(hasher.finalize()).eq_ignore_ascii_case(&file.sha256) {
         drop(output);
         remove_leftover(partial);
+        // 删不掉时不重试，否则会对着同一份坏前缀反复续传。
+        if resumed && fs::symlink_metadata(partial).is_err() {
+            // 文件已删掉，这次从零开始，不会再走到这里。
+            progress(0);
+            return download_resumable(fetcher, url, file, partial, cancel, progress);
+        }
         return Err(LocalModelError::ChecksumMismatch(file.name.clone()));
     }
     Ok(())
