@@ -6159,7 +6159,7 @@ public final class MSIMEInputService extends InputMethodService {
         // 与皮肤、剪贴板面板一样铺满键盘区：只按内容高度时，没有常用语的那一行提示只盖住第一排键，空白处的触摸还会穿到下面的键上。
         phraseScroll.addView(phrasePanel, KeyboardGeometry.scrollMatchParentParams());
         phraseScroll.setFillViewport(true);
-        phraseScroll.setClickable(true);
+        ViewPolicy.setClickable(phraseScroll, true);
         ViewPolicy.hide(phraseScroll);
         keyboardSurface.addView(phraseScroll, KeyboardGeometry.frameMatchParentParams());
         imePanels.buildEmojiPanel();

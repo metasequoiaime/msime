@@ -335,6 +335,11 @@ public final class ViewPolicy {
         view.setFocusable(interactive);
     }
 
+    /** Set whether a view responds to taps without changing its focus policy. */
+    public static void setClickable(View view, boolean clickable) {
+        view.setClickable(clickable);
+    }
+
     /** Exclude a decorative view from the accessibility tree. */
     public static void hideFromAccessibility(View view) {
         view.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
