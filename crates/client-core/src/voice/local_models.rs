@@ -774,6 +774,246 @@ fn download_and_publish(
     Ok(target)
 }
 
+/// 下载一个固定的上游归档（ZIP，名称、URL、长度、SHA-256 来自锁文件），取出 `members` 列出的成员，作为 `files` 里同名的文件安装到 `<root>/<id>`。每个取出的文件按 `files` 里它自己的长度和 SHA-256 校验，归档本身也先按锁文件校验；归档的下载和 [`install_files`] 一样按 `mirrors` 换源、用 HTTP Range 续传。进度的 `download` 阶段按归档字节计，取出成员时报 `verify`。
+#[allow(clippy::too_many_arguments)]
+pub fn install_archive_members(
+    root: &Path,
+    id: &str,
+    archive: &crate::resources::Artifact,
+    members: &[(String, String)],
+    files: &[crate::resources::Artifact],
+    manifest: &Value,
+    mirrors: &[&str],
+    progress: &mut dyn FnMut(InstallProgress),
+    cancel: &AtomicBool,
+) -> Result<PathBuf, LocalModelError> {
+    install_archive_members_with(
+        root,
+        id,
+        archive,
+        members,
+        files,
+        manifest,
+        mirrors,
+        &HttpFetcher::new()?,
+        progress,
+        cancel,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn install_archive_members_with(
+    root: &Path,
+    id: &str,
+    archive: &crate::resources::Artifact,
+    members: &[(String, String)],
+    files: &[crate::resources::Artifact],
+    manifest: &Value,
+    mirrors: &[&str],
+    fetcher: &dyn Fetcher,
+    progress: &mut dyn FnMut(InstallProgress),
+    cancel: &AtomicBool,
+) -> Result<PathBuf, LocalModelError> {
+    check_install(root, id, mirrors)?;
+    fs::create_dir_all(root)?;
+    remove_leftovers(root, id);
+    let staging = Staging(root.join(format!(".staging-{}-{}", id, unique_suffix())));
+    fs::create_dir(&staging.0)?;
+    let pack_dir = staging.0.join("model");
+    fs::create_dir(&pack_dir)?;
+    let partials = partial_directory(root, id)?;
+    let result = download_and_extract(
+        root, id, archive, members, files, manifest, mirrors, fetcher, progress, cancel, &pack_dir,
+        &partials,
+    );
+    if result.is_err() {
+        let _ = fs::remove_dir(&partials);
+    }
+    result
+}
+
+#[allow(clippy::too_many_arguments)]
+fn download_and_extract(
+    root: &Path,
+    id: &str,
+    archive: &crate::resources::Artifact,
+    members: &[(String, String)],
+    files: &[crate::resources::Artifact],
+    manifest: &Value,
+    mirrors: &[&str],
+    fetcher: &dyn Fetcher,
+    progress: &mut dyn FnMut(InstallProgress),
+    cancel: &AtomicBool,
+    pack_dir: &Path,
+    partials: &Path,
+) -> Result<PathBuf, LocalModelError> {
+    let total = archive.size;
+    let partial = partial_path(partials, archive)?;
+    let mut last = 0u64;
+    download_from_sources(
+        fetcher,
+        mirrors,
+        archive,
+        &partial,
+        cancel,
+        &mut |downloaded| {
+            if downloaded == total || downloaded.abs_diff(last) >= (total / 200).max(CHUNK as u64) {
+                last = downloaded;
+                progress(InstallProgress {
+                    stage: "download",
+                    downloaded,
+                    total,
+                });
+            }
+        },
+    )?;
+    progress(InstallProgress {
+        stage: "verify",
+        downloaded: total,
+        total,
+    });
+    let mut zip = zip::ZipArchive::new(BufReader::new(fs::File::open(&partial)?))
+        .map_err(|error| LocalModelError::UnsafeArchive(error.to_string()))?;
+    for file in files {
+        check_cancel(cancel)?;
+        let name = single_component(&file.name)
+            .filter(|single| *single == file.name)
+            .ok_or_else(|| LocalModelError::UnsafeArchive(file.name.clone()))?;
+        let member = members
+            .iter()
+            .find(|(_, installed)| *installed == file.name)
+            .map(|(member, _)| member.as_str())
+            .ok_or_else(|| LocalModelError::MissingFile(file.name.clone()))?;
+        let mut entry = zip
+            .by_name(member)
+            .map_err(|_| LocalModelError::MissingFile(member.to_owned()))?;
+        if !entry.is_file() {
+            return Err(LocalModelError::UnsafeArchive(member.to_owned()));
+        }
+        let mut output = BufWriter::new(fs::File::create(pack_dir.join(&name))?);
+        let mut hasher = Sha256::new();
+        let mut buffer = vec![0u8; CHUNK];
+        let mut written = 0u64;
+        loop {
+            check_cancel(cancel)?;
+            let read = match entry.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(read) => read,
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                Err(error) => return Err(unsafe_archive(error)),
+            };
+            written += read as u64;
+            // 先按锁文件的长度截住，解压炸弹写不满磁盘。
+            if written > file.size {
+                return Err(LocalModelError::SizeMismatch(file.name.clone()));
+            }
+            hasher.update(&buffer[..read]);
+            output.write_all(&buffer[..read])?;
+        }
+        let output = output.into_inner().map_err(|error| error.into_error())?;
+        output.sync_all()?;
+        if written != file.size {
+            return Err(LocalModelError::SizeMismatch(file.name.clone()));
+        }
+        if !hex::encode(hasher.finalize()).eq_ignore_ascii_case(&file.sha256) {
+            return Err(LocalModelError::ChecksumMismatch(file.name.clone()));
+        }
+        // 取出的是原生库：Android 14 起动态加载的代码文件必须只读，发布前去掉写权限。替换和删除只改目录项，不受影响。
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(pack_dir.join(&name), fs::Permissions::from_mode(0o444))?;
+        }
+    }
+    drop(zip);
+    write_manifest(pack_dir, manifest)?;
+    check_cancel(cancel)?;
+    let target = publish(root, id, pack_dir)?;
+    // 归档只是来源，取完就删。
+    remove_leftover(partials);
+    progress(InstallProgress {
+        stage: "done",
+        downloaded: total,
+        total,
+    });
+    Ok(target)
+}
+
+/// 把 `source` 里已有的 `files` 收编为 `<root>/<id>` 的安装：同文件系统内改名移进暂存目录，在那里按 `files` 的长度和 SHA-256 校验，写入 `manifest` 后整体发布。在暂存目录里校验，校验过的字节就是发布出去的字节，来源目录之后再怎么变也影响不到。任何一步失败，已移走的文件都改名放回 `source`，不发布任何东西。
+pub(crate) fn adopt_files(
+    root: &Path,
+    id: &str,
+    files: &[crate::resources::Artifact],
+    manifest: &Value,
+    source: &Path,
+) -> Result<PathBuf, LocalModelError> {
+    check_install(root, id, &[])?;
+    if !source.is_absolute() {
+        return Err(LocalModelError::InvalidRoot);
+    }
+    let mut names = Vec::with_capacity(files.len());
+    for file in files {
+        let name = single_component(&file.name)
+            .filter(|single| *single == file.name)
+            .ok_or_else(|| LocalModelError::UnsafeArchive(file.name.clone()))?;
+        // 只收编普通文件：符号链接可能把外面的文件带进资源包。
+        match fs::symlink_metadata(source.join(&name)) {
+            Ok(metadata) if metadata.file_type().is_file() => {}
+            Ok(_) => return Err(LocalModelError::UnsafeArchive(file.name.clone())),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                return Err(LocalModelError::MissingFile(file.name.clone()))
+            }
+            Err(error) => return Err(error.into()),
+        }
+        names.push(name);
+    }
+    fs::create_dir_all(root)?;
+    remove_leftovers(root, id);
+    let staging = Staging(root.join(format!(".staging-{}-{}", id, unique_suffix())));
+    fs::create_dir(&staging.0)?;
+    let pack_dir = staging.0.join("model");
+    fs::create_dir(&pack_dir)?;
+
+    let mut moved: Vec<(PathBuf, PathBuf)> = Vec::with_capacity(files.len());
+    let result = (|| {
+        for name in &names {
+            let from = source.join(name);
+            let to = pack_dir.join(name);
+            fs::rename(&from, &to)?;
+            moved.push((from, to));
+        }
+        for file in files {
+            let path = pack_dir.join(&file.name);
+            let mut input = fs::File::open(&path)?;
+            if input.metadata()?.len() != file.size {
+                return Err(LocalModelError::SizeMismatch(file.name.clone()));
+            }
+            let mut hasher = Sha256::new();
+            let mut buffer = vec![0u8; CHUNK];
+            loop {
+                let read = match input.read(&mut buffer) {
+                    Ok(0) => break,
+                    Ok(read) => read,
+                    Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                    Err(error) => return Err(error.into()),
+                };
+                hasher.update(&buffer[..read]);
+            }
+            if !hex::encode(hasher.finalize()).eq_ignore_ascii_case(&file.sha256) {
+                return Err(LocalModelError::ChecksumMismatch(file.name.clone()));
+            }
+        }
+        write_manifest(&pack_dir, manifest)?;
+        publish(root, id, &pack_dir)
+    })();
+    if result.is_err() {
+        for (from, to) in moved.iter().rev() {
+            let _ = fs::rename(to, from);
+        }
+    }
+    result
+}
+
 /// `<root>/.partial-<id>`：没下完的文件跨安装保留在这里，供下次续传。不以 `.staging-` 或 `.old-` 开头，所以 [`remove_leftovers`] 不会清掉它；不是真实目录（比如被换成符号链接）时先删掉再建。
 fn partial_directory(root: &Path, id: &str) -> Result<PathBuf, LocalModelError> {
     let directory = root.join(format!(".partial-{id}"));

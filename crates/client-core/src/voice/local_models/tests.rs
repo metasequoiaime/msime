@@ -1305,6 +1305,252 @@ fn content_range_starts_are_parsed_strictly() {
     assert_eq!(content_range_start("bytes x-15/16"), None);
 }
 
+const ARCHIVE_PACK_URL: &str = "https://example.test/runtime/runtime.aar";
+
+/// A zip holding `members`, as the upstream `.aar` does.
+fn zip_bytes(members: &[(&str, &[u8])]) -> Vec<u8> {
+    let mut writer = zip::ZipWriter::new(io::Cursor::new(Vec::new()));
+    let options = zip::write::SimpleFileOptions::default();
+    for (name, bytes) in members {
+        writer.start_file(*name, options).unwrap();
+        writer.write_all(bytes).unwrap();
+    }
+    writer.finish().unwrap().into_inner()
+}
+
+fn run_archive(
+    root: &Path,
+    archive_bytes: &[u8],
+    files: &[crate::resources::Artifact],
+    fetcher: &dyn Fetcher,
+) -> (Result<PathBuf, LocalModelError>, Vec<InstallProgress>) {
+    let archive = pack_artifact("runtime.aar", ARCHIVE_PACK_URL, archive_bytes);
+    let members = [
+        ("jni/arm64-v8a/liba.so".to_owned(), "liba.so".to_owned()),
+        ("jni/arm64-v8a/libb.so".to_owned(), "libb.so".to_owned()),
+    ];
+    let mut events = Vec::new();
+    let result = install_archive_members_with(
+        root,
+        "runtime",
+        &archive,
+        &members,
+        files,
+        &serde_json::json!({"pack": "runtime"}),
+        &[],
+        fetcher,
+        &mut |event| events.push(event),
+        &AtomicBool::new(false),
+    );
+    (result, events)
+}
+
+#[test]
+fn archive_members_are_extracted_verified_and_published() {
+    let archive = zip_bytes(&[
+        ("jni/arm64-v8a/liba.so", b"library a"),
+        ("jni/arm64-v8a/libb.so", b"library b"),
+        ("jni/x86_64/liba.so", b"another abi"),
+        ("classes.jar", b"java"),
+    ]);
+    let files = [
+        pack_artifact("liba.so", ARCHIVE_PACK_URL, b"library a"),
+        pack_artifact("libb.so", ARCHIVE_PACK_URL, b"library b"),
+    ];
+    let root = tempfile::tempdir().unwrap();
+    let fetcher = MapFetcher::new([(ARCHIVE_PACK_URL.to_owned(), archive.clone())]);
+    let (result, events) = run_archive(root.path(), &archive, &files, &fetcher);
+    let installed = result.unwrap();
+    assert_eq!(
+        root_entries(&installed),
+        vec!["liba.so", "libb.so", MANIFEST_FILE]
+    );
+    assert_eq!(fs::read(installed.join("liba.so")).unwrap(), b"library a");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = fs::metadata(installed.join("libb.so"))
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, 0o444);
+    }
+    // 只留下发布的目录，归档本身不留。
+    assert_eq!(root_entries(root.path()), vec!["runtime"]);
+    let total = archive.len() as u64;
+    assert!(events
+        .iter()
+        .all(|event| event.total == total && event.downloaded <= total));
+    assert_eq!(
+        events
+            .iter()
+            .map(|event| event.stage)
+            .filter(|stage| *stage != "download")
+            .collect::<Vec<_>>(),
+        ["verify", "done"]
+    );
+
+    // 成员的字节和锁文件不符：不发布；归档已经校验过，留着下次不用再下。
+    let root = tempfile::tempdir().unwrap();
+    let wrong = [
+        pack_artifact("liba.so", ARCHIVE_PACK_URL, b"library a"),
+        pack_artifact("libb.so", ARCHIVE_PACK_URL, b"library B"),
+    ];
+    let (result, _) = run_archive(root.path(), &archive, &wrong, &fetcher);
+    assert!(
+        matches!(&result, Err(LocalModelError::ChecksumMismatch(name)) if name == "libb.so"),
+        "{result:?}"
+    );
+    assert_eq!(root_entries(root.path()), vec![".partial-runtime"]);
+
+    // 归档里没有要的成员。
+    let root = tempfile::tempdir().unwrap();
+    let partial = zip_bytes(&[("jni/arm64-v8a/liba.so", b"library a")]);
+    let fetcher = MapFetcher::new([(ARCHIVE_PACK_URL.to_owned(), partial.clone())]);
+    let (result, _) = run_archive(root.path(), &partial, &files, &fetcher);
+    assert!(
+        matches!(result, Err(LocalModelError::MissingFile(_))),
+        "{result:?}"
+    );
+
+    // 成员比锁文件长：写到锁文件的长度就停。
+    let root = tempfile::tempdir().unwrap();
+    let long = zip_bytes(&[
+        ("jni/arm64-v8a/liba.so", b"library a, and then some"),
+        ("jni/arm64-v8a/libb.so", b"library b"),
+    ]);
+    let fetcher = MapFetcher::new([(ARCHIVE_PACK_URL.to_owned(), long.clone())]);
+    let (result, _) = run_archive(root.path(), &long, &files, &fetcher);
+    assert!(
+        matches!(result, Err(LocalModelError::SizeMismatch(_))),
+        "{result:?}"
+    );
+}
+
+fn adopt_source(directory: &Path) {
+    fs::write(directory.join("a.dat"), PACK_A).unwrap();
+    fs::write(directory.join("b.txt"), PACK_B).unwrap();
+    fs::write(directory.join("unrelated.db"), b"stays").unwrap();
+}
+
+#[test]
+fn adopting_moves_the_files_without_copying_and_publishes_them() {
+    let state = tempfile::tempdir().unwrap();
+    let root = state.path().join("resource-packs");
+    let source = state.path().join("resources");
+    fs::create_dir(&source).unwrap();
+    adopt_source(&source);
+    #[cfg(unix)]
+    let inode = {
+        use std::os::unix::fs::MetadataExt;
+        fs::metadata(source.join("a.dat")).unwrap().ino()
+    };
+
+    let installed = adopt_files(
+        &root,
+        "pack",
+        &pack_files(),
+        &serde_json::json!({"pack": "pack"}),
+        &source,
+    )
+    .unwrap();
+    assert_eq!(installed, root.join("pack"));
+    assert_eq!(
+        root_entries(&installed),
+        vec!["a.dat", "b.txt", MANIFEST_FILE]
+    );
+    assert_eq!(fs::read(installed.join("a.dat")).unwrap(), PACK_A);
+    assert_eq!(
+        installed_manifest(&root, "pack"),
+        Some(serde_json::json!({"pack": "pack"}))
+    );
+    // 只拿走了资源包的文件。
+    assert_eq!(root_entries(&source), vec!["unrelated.db"]);
+    assert_eq!(root_entries(&root), vec!["pack"]);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        assert_eq!(fs::metadata(installed.join("a.dat")).unwrap().ino(), inode);
+    }
+}
+
+#[test]
+fn a_failed_adoption_puts_every_file_back() {
+    let state = tempfile::tempdir().unwrap();
+    let root = state.path().join("resource-packs");
+    let source = state.path().join("resources");
+    fs::create_dir(&source).unwrap();
+    adopt_source(&source);
+    fs::write(source.join("b.txt"), b"LICENCE").unwrap();
+
+    let result = adopt_files(
+        &root,
+        "pack",
+        &pack_files(),
+        &serde_json::json!({"pack": "pack"}),
+        &source,
+    );
+    assert!(
+        matches!(&result, Err(LocalModelError::ChecksumMismatch(name)) if name == "b.txt"),
+        "{result:?}"
+    );
+    assert_eq!(
+        root_entries(&source),
+        vec!["a.dat", "b.txt", "unrelated.db"]
+    );
+    assert_eq!(fs::read(source.join("a.dat")).unwrap(), PACK_A);
+    assert_eq!(fs::read(source.join("b.txt")).unwrap(), b"LICENCE");
+    assert!(root_entries(&root).is_empty());
+    assert_eq!(installed_manifest(&root, "pack"), None);
+
+    // 少一个文件：什么都不移动。
+    fs::remove_file(source.join("b.txt")).unwrap();
+    let result = adopt_files(
+        &root,
+        "pack",
+        &pack_files(),
+        &serde_json::json!({"pack": "pack"}),
+        &source,
+    );
+    assert!(matches!(result, Err(LocalModelError::MissingFile(name)) if name == "b.txt"));
+    assert_eq!(root_entries(&source), vec!["a.dat", "unrelated.db"]);
+
+    // 相对路径的来源目录不接受。
+    let result = adopt_files(
+        &root,
+        "pack",
+        &pack_files(),
+        &serde_json::json!({"pack": "pack"}),
+        Path::new("resources"),
+    );
+    assert!(matches!(result, Err(LocalModelError::InvalidRoot)));
+}
+
+#[cfg(unix)]
+#[test]
+fn adoption_refuses_a_symlinked_source_file() {
+    let state = tempfile::tempdir().unwrap();
+    let root = state.path().join("resource-packs");
+    let source = state.path().join("resources");
+    fs::create_dir(&source).unwrap();
+    adopt_source(&source);
+    let outside = tempfile::tempdir().unwrap();
+    fs::write(outside.path().join("b.txt"), PACK_B).unwrap();
+    fs::remove_file(source.join("b.txt")).unwrap();
+    std::os::unix::fs::symlink(outside.path().join("b.txt"), source.join("b.txt")).unwrap();
+
+    let result = adopt_files(
+        &root,
+        "pack",
+        &pack_files(),
+        &serde_json::json!({"pack": "pack"}),
+        &source,
+    );
+    assert!(matches!(result, Err(LocalModelError::UnsafeArchive(name)) if name == "b.txt"));
+    assert!(source.join("a.dat").is_file());
+    assert_eq!(installed_manifest(&root, "pack"), None);
+}
+
 /// Downloads the real default model once. Not run in CI; run by hand with
 /// `MSIME_LOCAL_MODEL_ROOT=/tmp/msime-models-rs cargo test -p msime-client-core --lib real_install -- --ignored --nocapture`.
 #[test]

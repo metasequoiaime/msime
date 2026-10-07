@@ -1,6 +1,6 @@
-//! 按需下载的资源包：macOS 发布包不再内置的日文词典、粤拼/注音词库，桌面发布包不再内置的手写模型和桌面落定重排模型。
+//! 按需下载的资源包：macOS 和 Android 发布包不再内置的日文词典、粤拼/注音/笔画词库，桌面发布包不再内置的手写模型和桌面落定重排模型，以及 Android 发布包不再内置的离线释义词典和本地语音运行库。
 //!
-//! 每个资源包安装在 `<state_root>/resource-packs/<id>/`，文件平铺，最后写入的 `msime-model.json` 标记安装完整。文件名、URL、长度和 SHA-256 全部来自仓库内审过的锁文件，下载、校验、暂存和整体发布复用 [`crate::voice::local_models::install_files`]。
+//! 每个资源包安装在 `<state_root>/resource-packs/<id>/`，文件平铺，最后写入的 `msime-model.json` 标记安装完整。文件名、URL、长度和 SHA-256 全部来自仓库内审过的锁文件，下载、校验、暂存和整体发布复用 [`crate::voice::local_models::install_files`]；语音运行库从固定的上游归档里取出两个文件，见 [`ResourcePack::archive`]。
 
 use crate::resources::{ResourceSet, ON_DEMAND_JAPANESE_ARTIFACTS};
 use crate::voice::local_models::{self, InstallProgress, LocalModelError, MANIFEST_FILE};
@@ -19,6 +19,12 @@ const DESKTOP_LOCK: &str = include_str!("../../../resources/desktop-dictionary.l
 const LANGUAGE_LOCK: &str = include_str!("../../../resources/language-dictionaries.lock.json");
 const HANDWRITING_LOCK: &str = include_str!("../../../resources/handwriting-model.lock.json");
 const SETTLED_MODEL_LOCK: &str = include_str!("../../../resources/settled-model.lock.json");
+const OFFLINE_GLOSSES_LOCK: &str = include_str!("../../../resources/offline-glosses.lock.json");
+/// 各平台的 sherpa-onnx 运行库归档，`fetch_voice_runtime.py` 和打包脚本用的同一份锁。
+const VOICE_RUNTIME_LOCK: &str = include_str!("../../../resources/voice-runtime.lock.json");
+/// 从 Android 归档里取出的两个库各自的长度和 SHA-256。
+const VOICE_RUNTIME_ANDROID_LOCK: &str =
+    include_str!("../../../resources/voice-runtime-android.lock.json");
 
 /// 读语言词库包里 `msime-<方案>.db` 的输入方案，即偏好里的方案名。
 const LANGUAGE_DICTIONARY_SCHEMES: [&str; 3] = ["cantonese", "zhuyin", "stroke"];
@@ -31,6 +37,10 @@ pub enum ResourcePack {
     Handwriting,
     /// 桌面神经联想在输入停顿后使用的落定重排模型（`sentence-model-desktop.safetensors`）。
     SettledModel,
+    /// 候选的非英文离线释义：`zh-<语言>.db` 六份加上随它们一起分发的 `offline-glosses-NOTICE.txt`（改编自 CC BY-SA 4.0 的维基词典）。
+    OfflineGlosses,
+    /// Android arm64 上本地语音识别加载的 `libonnxruntime.so` 和 `libsherpa-onnx-c-api.so`，取自 `resources/voice-runtime.lock.json` 固定的 sherpa-onnx `.aar`。
+    VoiceRuntime,
 }
 
 /// 手写模型锁文件多一个说明来源的 `source` 字段，所以这里不拒绝未知字段，只取安装需要的两项。
@@ -40,12 +50,67 @@ struct PackLock {
     artifacts: Vec<crate::resources::Artifact>,
 }
 
+/// 离线释义锁文件记录了构建它们的输入（`input`）和许可；资源包只取文件清单，来源版本用输入数据的 `source_revision`。
+#[derive(Deserialize)]
+struct OfflineGlossesLock {
+    input: OfflineGlossesInput,
+    artifacts: Vec<crate::resources::Artifact>,
+}
+
+#[derive(Deserialize)]
+struct OfflineGlossesInput {
+    source_revision: String,
+}
+
+#[derive(Deserialize)]
+struct VoiceRuntimeLock {
+    source_commit: String,
+    platforms: std::collections::BTreeMap<String, VoiceRuntimeArchive>,
+}
+
+/// `voice-runtime.lock.json` 里一个平台的归档；只取下载需要的几项。
+#[derive(Deserialize)]
+struct VoiceRuntimeArchive {
+    name: String,
+    url: String,
+    sha256: String,
+    size: u64,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct VoiceRuntimeAndroidLock {
+    source_commit: String,
+    archive_platform: String,
+    artifacts: Vec<ArchiveMemberLock>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ArchiveMemberLock {
+    name: String,
+    member: String,
+    sha256: String,
+    size: u64,
+}
+
+/// 从一个固定的上游归档里取出的文件：先按锁文件下载并校验整个归档，再取出 `members` 列出的成员，逐个按各自的长度和 SHA-256 校验。
+#[derive(Clone, Debug)]
+pub struct PackArchive {
+    /// 归档本身，名字、URL、长度和 SHA-256 取自锁文件。
+    pub archive: crate::resources::Artifact,
+    /// (归档里的成员路径, 安装后的文件名)，与资源包清单里的文件一一对应。
+    pub members: Vec<(String, String)>,
+}
+
 impl ResourcePack {
-    pub const ALL: [ResourcePack; 4] = [
+    pub const ALL: [ResourcePack; 6] = [
         ResourcePack::Japanese,
         ResourcePack::LanguageDictionaries,
         ResourcePack::Handwriting,
         ResourcePack::SettledModel,
+        ResourcePack::OfflineGlosses,
+        ResourcePack::VoiceRuntime,
     ];
 
     pub fn id(self) -> &'static str {
@@ -54,6 +119,8 @@ impl ResourcePack {
             ResourcePack::LanguageDictionaries => "language-dictionaries",
             ResourcePack::Handwriting => "handwriting",
             ResourcePack::SettledModel => "settled-model",
+            ResourcePack::OfflineGlosses => "offline-glosses",
+            ResourcePack::VoiceRuntime => "voice-runtime",
         }
     }
 
@@ -77,13 +144,34 @@ impl ResourcePack {
                     .filter(|scheme| pinned_names.contains(format!("msime-{scheme}.db").as_str()))
                     .collect()
             }),
-            ResourcePack::Handwriting | ResourcePack::SettledModel => &[],
+            ResourcePack::Handwriting
+            | ResourcePack::SettledModel
+            | ResourcePack::OfflineGlosses
+            | ResourcePack::VoiceRuntime => &[],
         }
     }
 
-    /// 该资源包固定的文件清单，取自仓库内的锁文件。
+    /// 文件不单独下载、而是从一个上游归档里取出的资源包：只有语音运行库，归档是 sherpa-onnx 的 Android `.aar`（各 ABI 的库都在里面，只取 arm64-v8a 的两个）。其余资源包为 `None`。
+    pub fn archive(self) -> Option<&'static PackArchive> {
+        static VOICE_RUNTIME: OnceLock<PackArchive> = OnceLock::new();
+        match self {
+            ResourcePack::VoiceRuntime => Some(VOICE_RUNTIME.get_or_init(|| {
+                let (_, archive, members) = voice_runtime_locks();
+                PackArchive {
+                    archive,
+                    members: members
+                        .into_iter()
+                        .map(|member| (member.member, member.name))
+                        .collect(),
+                }
+            })),
+            _ => None,
+        }
+    }
+
+    /// 该资源包固定的文件清单，取自仓库内的锁文件。从归档取出的文件（[`ResourcePack::archive`]），URL 记的是归档的地址，长度和 SHA-256 是取出后文件本身的。
     pub fn set(self) -> &'static ResourceSet {
-        static SETS: OnceLock<[ResourceSet; 4]> = OnceLock::new();
+        static SETS: OnceLock<[ResourceSet; 6]> = OnceLock::new();
         let sets = SETS.get_or_init(|| {
             let desktop: ResourceSet =
                 serde_json::from_str(DESKTOP_LOCK).expect("desktop dictionary lock is valid");
@@ -93,6 +181,9 @@ impl ResourcePack {
                 serde_json::from_str(HANDWRITING_LOCK).expect("handwriting model lock is valid");
             let settled: ResourceSet =
                 serde_json::from_str(SETTLED_MODEL_LOCK).expect("settled model lock is valid");
+            let glosses: OfflineGlossesLock =
+                serde_json::from_str(OFFLINE_GLOSSES_LOCK).expect("offline glosses lock is valid");
+            let (runtime_commit, archive, members) = voice_runtime_locks();
             [
                 desktop.only(&ON_DEMAND_JAPANESE_ARTIFACTS),
                 language,
@@ -101,6 +192,22 @@ impl ResourcePack {
                     artifacts: handwriting.artifacts,
                 },
                 settled,
+                ResourceSet {
+                    source_commit: glosses.input.source_revision,
+                    artifacts: glosses.artifacts,
+                },
+                ResourceSet {
+                    source_commit: runtime_commit,
+                    artifacts: members
+                        .into_iter()
+                        .map(|member| crate::resources::Artifact {
+                            name: member.name,
+                            url: archive.url.clone(),
+                            sha256: member.sha256,
+                            size: member.size,
+                        })
+                        .collect(),
+                },
             ]
         });
         match self {
@@ -108,6 +215,8 @@ impl ResourcePack {
             ResourcePack::LanguageDictionaries => &sets[1],
             ResourcePack::Handwriting => &sets[2],
             ResourcePack::SettledModel => &sets[3],
+            ResourcePack::OfflineGlosses => &sets[4],
+            ResourcePack::VoiceRuntime => &sets[5],
         }
     }
 
@@ -161,14 +270,43 @@ impl ResourcePack {
         installed == pinned
     }
 
-    /// 下载总字节数。
+    /// 下载总字节数。从归档取出的资源包下载的是整个归档。
     pub fn size(self) -> u64 {
+        if let Some(archive) = self.archive() {
+            return archive.archive.size;
+        }
         self.set()
             .artifacts
             .iter()
             .map(|artifact| artifact.size)
             .sum()
     }
+}
+
+/// Android 语音运行库：来源提交、`voice-runtime.lock.json` 里 `archive_platform` 那一项归档，和要从中取出的成员。两份锁的 `source_commit` 必须相同，否则成员的摘要对应的不是这份归档。
+fn voice_runtime_locks() -> (String, crate::resources::Artifact, Vec<ArchiveMemberLock>) {
+    let runtime: VoiceRuntimeLock =
+        serde_json::from_str(VOICE_RUNTIME_LOCK).expect("voice runtime lock is valid");
+    let android: VoiceRuntimeAndroidLock = serde_json::from_str(VOICE_RUNTIME_ANDROID_LOCK)
+        .expect("Android voice runtime lock is valid");
+    assert_eq!(
+        runtime.source_commit, android.source_commit,
+        "the Android voice runtime lock describes another sherpa-onnx release"
+    );
+    let archive = runtime
+        .platforms
+        .get(&android.archive_platform)
+        .expect("the voice runtime lock pins the Android archive");
+    (
+        android.source_commit,
+        crate::resources::Artifact {
+            name: archive.name.clone(),
+            url: archive.url.clone(),
+            sha256: archive.sha256.clone(),
+            size: archive.size,
+        },
+        android.artifacts,
+    )
 }
 
 /// `<state_root>/resource-packs`。
@@ -316,6 +454,19 @@ pub fn install(
     progress: &mut dyn FnMut(InstallProgress),
     cancel: &AtomicBool,
 ) -> Result<PathBuf, LocalModelError> {
+    if let Some(archive) = pack.archive() {
+        return local_models::install_archive_members(
+            &root(state_root),
+            pack.id(),
+            &archive.archive,
+            &archive.members,
+            &pack.set().artifacts,
+            &pack.manifest(),
+            &download_prefixes(mirrors),
+            progress,
+            cancel,
+        );
+    }
     local_models::install_files(
         &root(state_root),
         pack.id(),
@@ -324,6 +475,37 @@ pub fn install(
         &download_prefixes(mirrors),
         progress,
         cancel,
+    )
+}
+
+/// 把本机已有的一组文件收编为已安装的资源包，不重新下载：升级前的发布包解压在 `source_dir`（比如 Android 的 `files/bootstrap/resources`）里的日文词典或语言词库，新版本不再随包带它们时用这一步保住。
+///
+/// 只取 `source_dir` 里属于该资源包的文件，同文件系统内改名移进暂存目录（不复制），在暂存目录里按编译进来的锁文件核对长度和 SHA-256，写入 `msime-model.json` 后整体发布到 `<state_root>/resource-packs/<id>`。任何一步失败都把已移走的文件改名放回 `source_dir`，什么也不发布，调用方照常改走下载。`source_dir` 和 `state_root` 不在同一个文件系统时改名失败，同样放回并报错。
+///
+/// 同一组字节已经安装好时（判断标准同 [`ResourcePack::manifest_matches`]）不碰 `source_dir`，直接返回已安装的目录。阻塞调用，要哈希整组文件（日文词典约 66 MB），不要放在 UI 线程。
+pub fn adopt(
+    state_root: &Path,
+    pack: ResourcePack,
+    source_dir: &Path,
+) -> Result<PathBuf, LocalModelError> {
+    if !resource_root_is_safe(state_root) {
+        return Err(LocalModelError::InvalidRoot);
+    }
+    if let Some(directory) = published_directory(state_root, pack) {
+        let installed = local_models::installed_manifest(&root(state_root), pack.id())
+            .is_some_and(|manifest| pack.manifest_matches(&manifest));
+        if installed && artifacts_are_regular_files(&directory, pack) {
+            return Ok(directory);
+        }
+    }
+    let manifest = pack.manifest();
+    debug_assert!(pack.manifest_matches(&manifest));
+    local_models::adopt_files(
+        &root(state_root),
+        pack.id(),
+        &pack.set().artifacts,
+        &manifest,
+        source_dir,
     )
 }
 
@@ -392,6 +574,141 @@ mod tests {
             "sentence-model-desktop.safetensors"
         );
         assert!(ResourcePack::SettledModel.schemes().is_empty());
+    }
+
+    /// 离线释义包就是 `offline-glosses.lock.json` 固定的那七个文件：六种语言的词典加上必须随它们分发的 NOTICE。
+    #[test]
+    fn the_offline_glosses_pack_is_the_pinned_lock() {
+        let lock: Value = serde_json::from_str(OFFLINE_GLOSSES_LOCK).unwrap();
+        let pack = ResourcePack::OfflineGlosses;
+        let names: Vec<&str> = pack
+            .set()
+            .artifacts
+            .iter()
+            .map(|artifact| artifact.name.as_str())
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "zh-fr.db",
+                "zh-ja.db",
+                "zh-es.db",
+                "zh-ru.db",
+                "zh-de.db",
+                "zh-ko.db",
+                "offline-glosses-NOTICE.txt"
+            ]
+        );
+        for (artifact, locked) in pack
+            .set()
+            .artifacts
+            .iter()
+            .zip(lock["artifacts"].as_array().unwrap())
+        {
+            assert_eq!(artifact.url, locked["url"].as_str().unwrap());
+            assert_eq!(artifact.sha256, locked["sha256"].as_str().unwrap());
+            assert_eq!(artifact.size, locked["size"].as_u64().unwrap());
+        }
+        assert_eq!(
+            pack.set().source_commit,
+            lock["input"]["source_revision"].as_str().unwrap()
+        );
+        assert!(pack.archive().is_none());
+        assert!(pack.schemes().is_empty());
+    }
+
+    /// 语音运行库包从 `voice-runtime.lock.json` 固定的 Android `.aar` 里取 arm64-v8a 的两个库；下载大小是整个归档。
+    #[test]
+    fn the_voice_runtime_pack_comes_out_of_the_pinned_android_archive() {
+        let runtime: Value = serde_json::from_str(VOICE_RUNTIME_LOCK).unwrap();
+        let android = &runtime["platforms"]["android"];
+        let pack = ResourcePack::VoiceRuntime;
+        let archive = pack.archive().unwrap();
+        assert_eq!(archive.archive.name, android["name"].as_str().unwrap());
+        assert_eq!(archive.archive.url, android["url"].as_str().unwrap());
+        assert_eq!(archive.archive.sha256, android["sha256"].as_str().unwrap());
+        assert_eq!(archive.archive.size, android["size"].as_u64().unwrap());
+        assert_eq!(pack.size(), archive.archive.size);
+        assert_eq!(
+            pack.set().source_commit,
+            runtime["source_commit"].as_str().unwrap()
+        );
+        assert_eq!(
+            archive.members,
+            [
+                (
+                    "jni/arm64-v8a/libonnxruntime.so".to_owned(),
+                    "libonnxruntime.so".to_owned()
+                ),
+                (
+                    "jni/arm64-v8a/libsherpa-onnx-c-api.so".to_owned(),
+                    "libsherpa-onnx-c-api.so".to_owned()
+                ),
+            ]
+        );
+        let names: Vec<&str> = pack
+            .set()
+            .artifacts
+            .iter()
+            .map(|artifact| artifact.name.as_str())
+            .collect();
+        assert_eq!(names, ["libonnxruntime.so", "libsherpa-onnx-c-api.so"]);
+        assert!(pack
+            .set()
+            .artifacts
+            .iter()
+            .all(|artifact| artifact.url == archive.archive.url && artifact.size > 0));
+        assert!(pack.schemes().is_empty());
+        for other in ResourcePack::ALL {
+            assert_eq!(other.archive().is_some(), other == pack, "{}", other.id());
+        }
+    }
+
+    /// 已经装好同一组字节时，收编不碰来源目录，直接返回已安装的目录。
+    #[test]
+    fn adopting_an_installed_pack_leaves_the_source_alone() {
+        let state = tempfile::tempdir().unwrap();
+        let source = tempfile::tempdir().unwrap();
+        let pack = ResourcePack::Japanese;
+        let directory = publish_fake(state.path(), pack);
+        fs::write(source.path().join("msime-japanese.dat"), b"old copy").unwrap();
+        assert_eq!(adopt(state.path(), pack, source.path()).unwrap(), directory);
+        assert_eq!(
+            fs::read(source.path().join("msime-japanese.dat")).unwrap(),
+            b"old copy"
+        );
+    }
+
+    /// 来源目录里的字节和锁文件对不上：不发布，文件原样放回，调用方改走下载。
+    #[test]
+    fn adopting_bytes_that_do_not_match_the_lock_publishes_nothing() {
+        let state = tempfile::tempdir().unwrap();
+        let source = tempfile::tempdir().unwrap();
+        let pack = ResourcePack::LanguageDictionaries;
+        for artifact in &pack.set().artifacts {
+            fs::write(source.path().join(&artifact.name), b"not the pinned bytes").unwrap();
+        }
+        let error = adopt(state.path(), pack, source.path()).unwrap_err();
+        assert!(
+            matches!(error, LocalModelError::SizeMismatch(_)),
+            "{error:?}"
+        );
+        for artifact in &pack.set().artifacts {
+            assert!(
+                source.path().join(&artifact.name).is_file(),
+                "{}",
+                artifact.name
+            );
+        }
+        assert!(list(state.path())
+            .iter()
+            .all(|status| status.state == PackState::Missing));
+        // 缺一个文件同样失败。
+        fs::remove_file(source.path().join("msime-stroke.db")).unwrap();
+        assert!(matches!(
+            adopt(state.path(), pack, source.path()),
+            Err(LocalModelError::MissingFile(name)) if name == "msime-stroke.db"
+        ));
     }
 
     #[test]
@@ -687,7 +1004,7 @@ mod tests {
             .all(|mirror| !mirror.is_empty() && crate::preferences::valid_model_mirror(mirror)));
     }
 
-    /// 资源包只从本项目的固定发布地址下载：msime-dictionary 和 chinese-ime-lm 的 GitHub Release 资产，或钉在 40 位提交上的 msime-engine 原始文件。
+    /// 资源包只从固定的发布地址下载：本项目 msime-dictionary 和 chinese-ime-lm 的 GitHub Release 资产、钉在 40 位提交上的 msime-engine 原始文件，或上游 sherpa-onnx 带版本号的发布资产。
     #[test]
     fn every_url_is_immutable() {
         const RELEASE: &str =
@@ -695,6 +1012,8 @@ mod tests {
         const MODEL_RELEASE: &str =
             "https://github.com/metasequoiaime/chinese-ime-lm/releases/download/";
         const ENGINE: &str = "https://raw.githubusercontent.com/metasequoiaime/msime-engine/";
+        // 语音运行库来自上游 sherpa-onnx 带版本号的发布资产，字节由锁文件的 SHA-256 固定。
+        const SHERPA_RELEASE: &str = "https://github.com/k2-fsa/sherpa-onnx/releases/download/v";
         for pack in ResourcePack::ALL {
             for artifact in &pack.set().artifacts {
                 let url = artifact.url.as_str();
@@ -703,7 +1022,10 @@ mod tests {
                         .is_some_and(|(commit, _)| crate::is_lower_hex(commit, 40))
                 });
                 assert!(
-                    url.starts_with(RELEASE) || url.starts_with(MODEL_RELEASE) || pinned_engine,
+                    url.starts_with(RELEASE)
+                        || url.starts_with(MODEL_RELEASE)
+                        || url.starts_with(SHERPA_RELEASE)
+                        || pinned_engine,
                     "{url}"
                 );
             }
