@@ -31,6 +31,7 @@ const baseProps = {
   toolbarComponents: true,
   toolbar,
   tabletFullKeys: true,
+  tabletSplitKeyboard: false,
   tabletFullKeysBusy: false,
   onHeightAdjustmentChange: vi.fn(),
   onKeySpacingChange: vi.fn(),
@@ -38,6 +39,7 @@ const baseProps = {
   onTouchVoiceShortcutChange: vi.fn(),
   onToolbarChange: vi.fn(),
   onTabletFullKeysChange: vi.fn(),
+  onTabletSplitKeyboardChange: vi.fn(),
   onReset: vi.fn(),
 };
 
@@ -58,6 +60,7 @@ test("forwards geometry, toolbar, feedback, and reset actions", () => {
   fireEvent.click(screen.getByLabelText("顶部语音入口"));
   fireEvent.click(screen.getByLabelText("工具栏：表情"));
   fireEvent.click(screen.getByLabelText("数字行与 Tab 键"));
+  fireEvent.click(screen.getByLabelText("横屏分离式键盘"));
   fireEvent.click(screen.getByRole("button", { name: "恢复屏幕键盘默认设置" }));
 
   expect(baseProps.onHeightAdjustmentChange).toHaveBeenCalledWith(12);
@@ -66,6 +69,7 @@ test("forwards geometry, toolbar, feedback, and reset actions", () => {
   expect(baseProps.onTouchVoiceShortcutChange).toHaveBeenCalledWith(true);
   expect(baseProps.onToolbarChange).toHaveBeenCalledWith({ ...toolbar, emoji: false });
   expect(baseProps.onTabletFullKeysChange).toHaveBeenCalledWith(false);
+  expect(baseProps.onTabletSplitKeyboardChange).toHaveBeenCalledWith(true);
   expect(baseProps.onReset).toHaveBeenCalledOnce();
 });
 
@@ -75,11 +79,24 @@ test("hides host-specific options when unavailable", () => {
       {...baseProps}
       toolbarComponents={false}
       tabletFullKeys={undefined}
+      tabletSplitKeyboard={undefined}
     />,
   );
 
   expect(screen.queryByLabelText("工具栏：表情")).toBeNull();
   expect(screen.queryByLabelText("数字行与 Tab 键")).toBeNull();
+  expect(screen.queryByLabelText("横屏分离式键盘")).toBeNull();
+  expect(screen.queryByText("布局")).toBeNull();
+});
+
+// 两个 iPad 开关各自按宿主是否给出决定显示与否。
+test("shows the split keyboard switch on its own when only it is reported", () => {
+  render(
+    <TouchKeyboardGeometrySection {...baseProps} tabletFullKeys={undefined} tabletSplitKeyboard />,
+  );
+
+  expect(screen.queryByLabelText("数字行与 Tab 键")).toBeNull();
+  expect((screen.getByLabelText("横屏分离式键盘") as HTMLInputElement).checked).toBe(true);
 });
 
 test("describes the voice button by what the host's button does", () => {
@@ -109,4 +126,5 @@ test("disables the tablet switch while saving", () => {
   render(<TouchKeyboardGeometrySection {...baseProps} tabletFullKeysBusy />);
 
   expect((screen.getByLabelText("数字行与 Tab 键") as HTMLInputElement).disabled).toBe(true);
+  expect((screen.getByLabelText("横屏分离式键盘") as HTMLInputElement).disabled).toBe(true);
 });

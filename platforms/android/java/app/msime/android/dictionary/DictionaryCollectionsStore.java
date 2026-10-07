@@ -5,7 +5,6 @@ import app.msime.android.policy.HostOptionsPolicy;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Locale;
 import java.util.UUID;
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -318,7 +317,8 @@ public final class DictionaryCollectionsStore {
     /** 把用户输入的拼音收成编码：去掉空白、转小写，空格和中文撇号都当作音节分隔。 */
     public static String normalizePinyin(String input) {
         if (input == null) return "";
-        String lower = TextPolicy.stripped(input).toLowerCase(Locale.ROOT).replace('’', '\'').replace('‘', '\'');
+        String lower = TextPolicy.lowercase(TextPolicy.stripped(input))
+            .replace('’', '\'').replace('‘', '\'');
         return lower.replaceAll("\\s+", "'");
     }
 
@@ -335,7 +335,7 @@ public final class DictionaryCollectionsStore {
     /** 从文件名得到新词库的名字：去掉扩展名（`.dict.yaml` 算一个），截到 32 个字，收不出来时用「导入的词库」。 */
     public static String nameFromFile(String displayName) {
         String name = TextPolicy.stripped(displayName);
-        String lower = name.toLowerCase(Locale.ROOT);
+        String lower = TextPolicy.lowercase(name);
         if (lower.endsWith(".dict.yaml")) {
             name = name.substring(0, name.length() - ".dict.yaml".length());
         } else {
@@ -357,7 +357,7 @@ public final class DictionaryCollectionsStore {
 
     /** 按文件名推断格式；推不出来时用调用方在来源对话框里选的格式。 */
     public static String formatForFile(String displayName, String chosen) {
-        String lower = displayName == null ? "" : displayName.toLowerCase(Locale.ROOT);
+        String lower = TextPolicy.lowercase(displayName);
         if (lower.endsWith(".scel")) return "scel";
         if (lower.endsWith(".yaml") || lower.endsWith(".yml")) return "rime";
         return chosen;

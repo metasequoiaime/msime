@@ -2,10 +2,7 @@ package app.msime.android;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.ByteBuffer;
 import java.nio.charset.CharacterCodingException;
-import java.nio.charset.CodingErrorAction;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
@@ -46,8 +43,7 @@ public final class CommunityReplyLibrary {
         }
         final String json;
         try {
-            json = StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
-                .onUnmappableCharacter(CodingErrorAction.REPORT).decode(ByteBuffer.wrap(bytes)).toString();
+            json = TextPolicy.utf8Strict(bytes);
         } catch (CharacterCodingException error) {
             throw new IOException("Community library is not UTF-8", error);
         }
@@ -70,7 +66,7 @@ public final class CommunityReplyLibrary {
             String prompt = string(content.get("prompt"));
             if (name == null || id.isEmpty() || name.isEmpty() || prompt == null
                     || TextPolicy.blank(id) || TextPolicy.blank(name) || TextPolicy.blank(prompt)
-                    || !name.equals(name.trim()) || !ids.add(id))
+                    || !TextPolicy.trimmed(name).equals(name) || !ids.add(id))
                 throw new IOException("Invalid community library");
             if (!TextPolicy.validUnicode(id) || !TextPolicy.validUnicode(name)
                     || !TextPolicy.validUnicode(prompt) || TextPolicy.hasControl(id)

@@ -51,6 +51,9 @@ export interface TouchKeyboardGeometrySectionProps {
   toolbarComponents: boolean;
   toolbar?: Partial<TouchToolbarPreferences>;
   tabletFullKeys?: boolean;
+  /** 仅 iPad 宿主给出：横屏分离式键盘。没有时不画这个开关。 */
+  tabletSplitKeyboard?: boolean;
+  /** iPad 布局开关正在保存时为 true，「数字行与 Tab 键」和「横屏分离式键盘」都暂不可点。 */
   tabletFullKeysBusy: boolean;
   onHeightAdjustmentChange: (value: number) => void;
   onKeySpacingChange: (value: number) => void;
@@ -58,10 +61,11 @@ export interface TouchKeyboardGeometrySectionProps {
   onTouchVoiceShortcutChange: (enabled: boolean) => void;
   onToolbarChange: (value: TouchToolbarPreferences) => void;
   onTabletFullKeysChange: (enabled: boolean) => void;
+  onTabletSplitKeyboardChange: (enabled: boolean) => void;
   onReset: () => void;
 }
 
-/** 「屏幕键盘」页共用的触屏键盘控件，即预览之后的各组：「尺寸」（高度、间距和重置）、「工具栏」，以及宿主有 iPad 数字行和 Tab 键时的「布局」。 */
+/** 「屏幕键盘」页共用的触屏键盘控件，即预览之后的各组：「尺寸」（高度、间距和重置）、「工具栏」，以及宿主有 iPad 数字行和 Tab 键或横屏分离式键盘时的「布局」。 */
 export function TouchKeyboardGeometrySection({
   heightAdjustment,
   keySpacingTenths,
@@ -71,6 +75,7 @@ export function TouchKeyboardGeometrySection({
   toolbarComponents,
   toolbar,
   tabletFullKeys,
+  tabletSplitKeyboard,
   tabletFullKeysBusy,
   onHeightAdjustmentChange,
   onKeySpacingChange,
@@ -78,6 +83,7 @@ export function TouchKeyboardGeometrySection({
   onTouchVoiceShortcutChange,
   onToolbarChange,
   onTabletFullKeysChange,
+  onTabletSplitKeyboardChange,
   onReset,
 }: TouchKeyboardGeometrySectionProps) {
   const toolbarValues = { ...defaultTouchToolbar, ...toolbar };
@@ -163,15 +169,26 @@ export function TouchKeyboardGeometrySection({
           )}
         </GroupList>
       )}
-      {tabletFullKeys !== undefined && (
+      {(tabletFullKeys !== undefined || tabletSplitKeyboard !== undefined) && (
         <GroupList title="布局">
-          <SwitchRow
-            title="数字行与 Tab 键"
-            description="iPad 全宽键盘在字母上方显示数字行，并在 Q 左侧显示 Tab 键；浮动键盘和窄窗口没有空间，不显示。"
-            disabled={tabletFullKeysBusy}
-            checked={tabletFullKeys}
-            onChange={onTabletFullKeysChange}
-          />
+          {tabletFullKeys !== undefined && (
+            <SwitchRow
+              title="数字行与 Tab 键"
+              description="iPad 全宽键盘在字母上方显示数字行，并在 Q 左侧显示 Tab 键；浮动键盘和窄窗口没有空间，不显示。"
+              disabled={tabletFullKeysBusy}
+              checked={tabletFullKeys}
+              onChange={onTabletFullKeysChange}
+            />
+          )}
+          {tabletSplitKeyboard !== undefined && (
+            <SwitchRow
+              title="横屏分离式键盘"
+              description="只在 iPad 横屏时生效：字母、数字行和 123 符号页从中间分成左右两半，方便双手握持时用拇指打字；九键、笔画、手写和注音不分，竖屏、浮动键盘和窄窗口照常显示整块键盘。"
+              disabled={tabletFullKeysBusy}
+              checked={tabletSplitKeyboard}
+              onChange={onTabletSplitKeyboardChange}
+            />
+          )}
         </GroupList>
       )}
     </>

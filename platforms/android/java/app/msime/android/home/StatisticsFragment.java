@@ -204,7 +204,7 @@ public final class StatisticsFragment extends HomeTabFragment {
         LinearLayout content = view.findViewById(R.id.statistics_content);
         content.removeAllViews();
         if (statistics == null && summary == null) {
-            notice.setVisibility(View.VISIBLE);
+            ViewPolicy.show(notice);
             notice.setText("还没有记录。开始用键盘输入后，这里会出现字数、习惯和成就；统计只保存聚合计数，不保存输入内容。");
             return;
         }

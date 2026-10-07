@@ -280,7 +280,7 @@ public final class CloudApi {
     /** `Retry-After` 的秒数形式；日期形式和读不出的值都当作没有。 */
     public static long retryAfterSeconds(String header) {
         if (header == null) return 0L;
-        String value = header.trim();
+        String value = TextPolicy.trimmed(header);
         if (value.isEmpty() || value.length() > 9) return 0L;
         for (int index = 0; index < value.length(); index++) {
             if (value.charAt(index) < '0' || value.charAt(index) > '9') return 0L;

@@ -17,6 +17,7 @@ import android.widget.TextView;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatDialog;
 import app.msime.android.BoundsPolicy;
+import app.msime.android.TextPolicy;
 import app.msime.android.ViewPolicy;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -165,7 +166,7 @@ public final class InputDialog {
 
     private List<String> values() {
         List<String> values = new ArrayList<>(inputs.size());
-        for (EditText input : inputs) values.add(input.getText().toString().trim());
+        for (EditText input : inputs) values.add(TextPolicy.trimmed(input.getText().toString()));
         return Collections.unmodifiableList(values);
     }
 

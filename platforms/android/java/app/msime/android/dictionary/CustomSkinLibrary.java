@@ -77,7 +77,7 @@ public final class CustomSkinLibrary {
             String name = strictString(item.opt("name"));
             JSONObject design = item.optJSONObject("design");
             if (id == null || name == null) continue;
-            name = name.trim();
+            name = TextPolicy.trimmed(name);
             if (id.isEmpty() || !boundedName(name) || design == null) continue;
             long updatedAt = BoundsPolicy.nonNegative(KeyboardGeometry.strictLong(item.opt("updated_at"), 0));
             result.add(new Item(id, name, design, updatedAt));
@@ -103,7 +103,7 @@ public final class CustomSkinLibrary {
     public static boolean add(Path preferencesDirectory, String id, String name, JSONObject design,
             long updatedAt) throws IOException {
         if (id == null || id.isEmpty() || name == null || design == null) return false;
-        String bounded = name.trim();
+        String bounded = TextPolicy.trimmed(name);
         if (!boundedName(bounded)) return false;
         Path root = checkedRoot(preferencesDirectory);
         ensureSafeDirectory(root);
@@ -259,7 +259,7 @@ public final class CustomSkinLibrary {
             String name = strictString(value.opt("name"));
             JSONObject design = value.optJSONObject("design");
             if (id == null || id.isEmpty() || name == null || design == null) continue;
-            name = name.trim();
+            name = TextPolicy.trimmed(name);
             if (!boundedName(name)) continue;
             long updatedAt = BoundsPolicy.nonNegative(KeyboardGeometry.strictLong(value.opt("updated_at"), 0));
             int position = indexOf(result, id);

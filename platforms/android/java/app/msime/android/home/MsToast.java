@@ -43,7 +43,7 @@ public final class MsToast {
         toast.setBackground(Ui.pill(Ui.color(activity, com.google.android.material.R.attr.colorSurfaceInverse)));
         Ui.setSymmetricPaddingDp(toast, activity, 20, 10);
         toast.setElevation(Ui.dp(activity, 6));
-        toast.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+        ViewPolicy.setPoliteLiveRegion(toast);
 
         FrameLayout.LayoutParams params = Ui.frameWrap(Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
         int side = Ui.dp(activity, 32);

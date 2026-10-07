@@ -25,7 +25,7 @@ public final class PreparationFailure {
         } else {
             text = error.getClass().getSimpleName() + ": " + message;
         }
-        text = text.replaceAll("/[^\\s:'\",;)]+", "…").replaceAll("\\s+", " ").trim();
+        text = TextPolicy.trimmed(text.replaceAll("/[^\\s:'\",;)]+", "…").replaceAll("\\s+", " "));
         if (text.isEmpty()) text = error.getClass().getSimpleName();
         return text.length() > MAX_LENGTH ? text.substring(0, MAX_LENGTH - 1) + "…" : text;
     }

@@ -490,12 +490,8 @@ pub(super) fn decode_graph(
     cxx_sort::sort(&mut last, &mut scores_higher);
     let take = options.nbest.min(last.len());
 
-    let mut paths = Vec::with_capacity(take);
-    let mut sentences = HashSet::with_capacity(take);
+    let mut paths = Vec::with_capacity(last.len());
     for hyp in &last {
-        if paths.len() >= take {
-            break;
-        }
         let mut words = Vec::with_capacity(n);
         let mut keys = Vec::with_capacity(n);
         let mut cursor = Some(hyp);
@@ -508,7 +504,7 @@ pub(super) fn decode_graph(
         words.reverse();
         keys.reverse();
         let sentence = words.concat();
-        if sentence.is_empty() || !sentences.insert(sentence.clone()) {
+        if sentence.is_empty() {
             continue;
         }
         paths.push(SentencePath {
@@ -519,6 +515,18 @@ pub(super) fn decode_graph(
             typo_edges: hyp.typo_edges,
         });
     }
+    let mut sentences = HashSet::with_capacity(paths.len());
+    let unique = paths
+        .iter()
+        .map(|path| sentences.insert(path.sentence.as_str()))
+        .collect::<Vec<_>>();
+    drop(sentences);
+    paths = paths
+        .into_iter()
+        .zip(unique)
+        .filter_map(|(path, unique)| unique.then_some(path))
+        .take(take)
+        .collect();
     rescore_with_trigram(&mut paths, options);
     paths
 }
