@@ -69,11 +69,6 @@ public final class TextPolicy {
         return value.getBytes(StandardCharsets.UTF_8).length;
     }
 
-    /** Encode non-null request text as UTF-8 bytes. */
-    public static byte[] utf8Bytes(String value) {
-        return value.getBytes(StandardCharsets.UTF_8);
-    }
-
     /** Decode UTF-8 response bytes with the shared text policy. */
     public static String utf8(byte[] value) {
         return value == null ? "" : new String(value, StandardCharsets.UTF_8);
