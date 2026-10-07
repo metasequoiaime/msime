@@ -66,15 +66,15 @@ public final class VocabularyReviewModel {
         int introducing,
         int remaining,
         List<Card> queue) {
-        this.wordbooks = List.copyOf(wordbooks);
-        this.selected = selected == null ? "" : selected;
+        this.wordbooks = ListPolicy.copyOrEmpty(wordbooks);
+        this.selected = TextPolicy.emptyIfNull(selected);
         this.newPerDay = newPerDay;
         this.sessionLimit = sessionLimit;
         this.due = due;
         this.answeredToday = answeredToday;
         this.introducing = introducing;
         this.remaining = remaining;
-        this.queue = List.copyOf(queue);
+        this.queue = ListPolicy.copyOrEmpty(queue);
     }
 
     public List<Wordbook> wordbooks() { return wordbooks; }

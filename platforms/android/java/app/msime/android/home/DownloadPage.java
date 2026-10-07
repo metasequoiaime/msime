@@ -1,7 +1,5 @@
 package app.msime.android.home;
 
-import android.content.ClipData;
-import android.content.ClipboardManager;
 import android.content.Context;
 import android.os.Bundle;
 import android.view.Gravity;
@@ -90,10 +88,7 @@ public final class DownloadPage extends DetailPage {
     }
 
     private static void copyLink(Context context) {
-        ClipboardManager clipboard = context.getSystemService(ClipboardManager.class);
-        if (clipboard == null) return;
-        clipboard.setPrimaryClip(ClipData.newPlainText("水杉下载页", DOWNLOAD));
-        MsToast.show(context, "链接已复制");
+        ClipboardActions.copyText(context, "水杉下载页", DOWNLOAD, "链接已复制");
     }
 
     /** 带图标的值行，行尾留给调用方放按钮或文字。 */
@@ -121,7 +116,7 @@ public final class DownloadPage extends DetailPage {
         Context context = row.view().getContext();
         String label = sentPlatforms.contains(platform) ? "已发送" : "发送链接";
         TextView button = KeyboardSheets.tonalButton(context, label, label + "，" + title, 600);
-        button.setEnabled(!sentPlatforms.contains(platform));
+        ViewPolicy.setEnabled(button, !sentPlatforms.contains(platform));
         button.setOnClickListener(ignored -> send(platform, button));
         attach(row, button);
     }
@@ -136,12 +131,12 @@ public final class DownloadPage extends DetailPage {
         Context application = requireContext().getApplicationContext();
         sending.add(platform);
         button.setText("正在发送…");
-        button.setEnabled(false);
+        ViewPolicy.setEnabled(button, false);
         AboutPage.network(this, () -> new DownloadLinkApi(new CloudApi(application)).send(platform), outcome -> {
             sending.remove(platform);
             if (outcome.error() != null) {
                 button.setText("发送链接");
-                button.setEnabled(true);
+                ViewPolicy.setEnabled(button, true);
                 MsToast.show(requireContext(), failureMessage(outcome.error()));
                 return;
             }

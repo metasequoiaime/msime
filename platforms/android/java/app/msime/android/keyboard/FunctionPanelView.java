@@ -183,7 +183,7 @@ public final class FunctionPanelView extends LinearLayout {
 
         void setState(State value) {
             state = value;
-            setSelected(value == State.ON);
+            ViewPolicy.setSelected(this, value == State.ON);
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) setStateDescription(stateText(value));
             invalidate();
         }

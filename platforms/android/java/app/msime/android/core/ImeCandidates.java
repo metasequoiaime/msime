@@ -182,7 +182,7 @@ final class ImeCandidates {
         ViewPolicy.setFixedLines(button, labelLines);
         s.configureCandidateTextLayout(button, labelLines);
         KeyboardGeometry.setKeyTextSize(button, 17);
-        button.setSelected(highlighted);
+        ViewPolicy.setSelected(button, highlighted);
         expandedCells.add(button);
         ViewPolicy.setMinimumSize(button, s.pixels(64), s.pixels(44));
         KeyboardGeometry.setHorizontalPaddingDp(button, s, 10);

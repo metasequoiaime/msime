@@ -17,6 +17,7 @@ struct VoicePolishSettings: Equatable {
     ("zh-cn", "中文（简体）"), ("en-us", "English"), ("auto", "自动识别"),
   ]
   static let customSlots = ["custom_1", "custom_2", "custom_3"]
+  static let maximumPromptBytes = 8_192
 
   var polishEnabled = false
   var promptID = "cleanup"
@@ -73,6 +74,7 @@ struct VoicePolishSettings: Equatable {
   /// The system prompt the polish request carries, resolved by the shared header the desktop hosts use.
   var systemPrompt: String {
     let values = [promptID] + customPrompts
+    guard values.allSatisfy({ $0.utf8.count <= Self.maximumPromptBytes }) else { return "" }
     let pointers = values.map { strdup($0) }
     defer { pointers.forEach { free($0) } }
     guard let result = msimeIOSVoicePolishPrompt(pointers[0], pointers[1], pointers[2], pointers[3])

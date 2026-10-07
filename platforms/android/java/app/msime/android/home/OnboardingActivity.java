@@ -328,7 +328,7 @@ public final class OnboardingActivity extends AppCompatActivity {
         String reason = FirstRunPreparation.failure();
         TextView view = footnote(column, "词库准备失败" + (reason.isEmpty() ? "" : "：" + reason)
             + "。点这里重试，" + subject + "会在准备好后自动保存。");
-        view.setTextColor(Ui.accent(this));
+        ViewPolicy.setTextColor(view, Ui.accent(this));
         ViewPolicy.bindClick(view, () -> {
             FirstRunPreparation.retry(this);
             render(false);
@@ -563,7 +563,7 @@ public final class OnboardingActivity extends AppCompatActivity {
 
     private TextView footnote(LinearLayout column, String message) {
         TextView view = Ui.label(this, message, 13, Ui.subText(this));
-        view.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+        ViewPolicy.setPoliteLiveRegion(view);
         column.addView(view, Ui.matchWidth(this, 14));
         return view;
     }

@@ -74,7 +74,7 @@ final class ImePanels {
             () -> s.selectEmojiCategory(category));
         ViewPolicy.setTextSizeLabel(tab, entry.icon(), 17);
         ViewPolicy.clearFontPadding(tab);
-        tab.setSelected(s.emojiSelectedCategory == category);
+        ViewPolicy.setSelected(tab, s.emojiSelectedCategory == category);
         tab.setContentDescription("表情分类 " + entry.title());
         if (Build.VERSION.SDK_INT >= 30)
             tab.setStateDescription(tab.isSelected() ? "已选中" : "未选中");
@@ -411,7 +411,7 @@ final class ImePanels {
             boolean selected = pendingSkinKey != null ? pendingSkinKey.equals(key)
                 : choice.design() == null ? choice.id().equals(globalTheme)
                 : "custom".equals(globalTheme) && s.skin.key().equals(choice.skin().key());
-            card.setSelected(selected);
+            ViewPolicy.setSelected(card, selected);
             if (selected) selectedIndex = index;
             if ("system".equals(choice.id())) {
                 card.setSplitPreview(Color.parseColor(KeyboardSkin.system(false).background()),
@@ -423,7 +423,7 @@ final class ImePanels {
             bindFeedbackAction(card, () -> {
                 pendingSkinKey = key;
                 for (KeyboardSkinCard other : cards) {
-                    other.setSelected(other == card);
+                    ViewPolicy.setSelected(other, other == card);
                     if (Build.VERSION.SDK_INT >= 30) other.setStateDescription(other == card ? "已选中" : "未选中");
                 }
                 // 选中即换色并收起面板回到键盘，换上的皮肤直接在键盘上看。还没获取的社区皮肤先在同一个偏好线程上存进皮肤库，排在保存选择之前。
@@ -697,7 +697,7 @@ final class ImePanels {
     }
 
     static void selectReplySegment(Button segment, boolean selected) {
-        segment.setSelected(selected);
+        ViewPolicy.setSelected(segment, selected);
         if (Build.VERSION.SDK_INT >= 30)
             segment.setStateDescription(selected ? "已选中" : "未选中");
     }
@@ -749,27 +749,27 @@ final class ImePanels {
             boolean selected = segment.isSelected();
             segment.setBackground(selected ? replySurface(Color.parseColor(s.skin.keyBackground()),
                 BoundsPolicy.nonNegative(radius - s.pixels(2))) : null);
-            segment.setTextColor(foreground);
+            ViewPolicy.setTextColor(segment, foreground);
             segment.setTypeface(Typeface.create(base, selected ? Typeface.BOLD : Typeface.NORMAL));
             ViewPolicy.clearElevation(segment);
         }
         s.replySourceCard.setBackground(replySurface(Color.parseColor(s.skin.keyBackground()), radius));
-        s.replySourceButton.setTextColor(s.replyModel.source().isEmpty()
+        ViewPolicy.setTextColor(s.replySourceButton, s.replyModel.source().isEmpty()
             ? ImeStyler.fade(s.skin.keyForeground(), .55) : foreground);
         s.replyPasteButton.setBackground(new InsetDrawable(replySurface(accent, radius),
             0, s.pixels(6), 0, s.pixels(6)));
         // setBackground 会把 InsetDrawable 的内边距（左右为 0）套到按钮上，冲掉前面设的左右留白，文字就贴着色块边缘；换完背景再设回来。
         KeyboardGeometry.setHorizontalPaddingDp(s.replyPasteButton, s, 12);
-        s.replyPasteButton.setTextColor(onAccent);
+        ViewPolicy.setTextColor(s.replyPasteButton, onAccent);
         ViewPolicy.clearElevation(s.replyPasteButton);
         for (int index = 0; index < s.replyActions.getChildCount(); index++) {
             if (!(s.replyActions.getChildAt(index) instanceof Button action)) continue;
             boolean primary = action == s.replyPrimaryAction;
             action.setBackground(replySurface(primary ? accent : ImeStyler.fade(s.skin.keyBackground(), .7), radius));
-            action.setTextColor(primary ? onAccent : foreground);
+            ViewPolicy.setTextColor(action, primary ? onAccent : foreground);
             ViewPolicy.clearElevation(action);
         }
-        s.replyStatus.setTextColor(ImeStyler.fade(s.skin.keyForeground(), .7));
+        ViewPolicy.setTextColor(s.replyStatus, ImeStyler.fade(s.skin.keyForeground(), .7));
         s.replyProgress.setIndeterminateTintList(ColorStateList.valueOf(accent));
     }
 
@@ -925,12 +925,12 @@ final class ImePanels {
         // 换肤遍历之后补上卡片底色、次要字色和主操作的强调色。
         float radius = s.pixels(10);
         content.setBackground(replySurface(Color.parseColor(s.skin.keyBackground()), radius));
-        for (TextView text : secondary) text.setTextColor(ImeStyler.fade(s.skin.keyForeground(), .6));
-        if (error != null) error.setTextColor(Color.parseColor(s.skin.accent()));
+        for (TextView text : secondary) ViewPolicy.setTextColor(text, ImeStyler.fade(s.skin.keyForeground(), .6));
+        if (error != null) ViewPolicy.setTextColor(error, Color.parseColor(s.skin.accent()));
         boolean busy = s.aiBusy;
         primary.setBackground(replySurface(busy ? ImeStyler.fade(s.skin.keyBackground(), .7)
             : Color.parseColor(s.skin.accent()), radius));
-        primary.setTextColor(busy ? Color.parseColor(s.skin.keyForeground()) : Color.parseColor(s.skin.onAccent()));
+        ViewPolicy.setTextColor(primary, busy ? Color.parseColor(s.skin.keyForeground()) : Color.parseColor(s.skin.onAccent()));
         ViewPolicy.setActiveAlpha(primary, primary.isEnabled(), .45f);
         ViewPolicy.clearElevation(primary);
     }
@@ -1047,6 +1047,8 @@ final class ImePanels {
         s.closeAiPolish();
         s.clipboardTab = CloudClipboardPanelPolicy.initialTab(
             s.clipboardTab, s.clipboardHistoryEnabled, cloudAllowed);
+        // 补读一次：键盘进程没在运行时复制的内容，监听收不到。
+        s.captureClipboard(false);
         renderClipboardHistory();
         ViewPolicy.show(s.clipboardScroll);
         // Fetched on every opening, whichever half is showing: the local half's 发到云剪贴板 needs to know the account is signed in with the cloud clipboard on.
@@ -1179,8 +1181,7 @@ final class ImePanels {
             refresh.setEnabled(s.cloudClipboardStatus != CloudClipboardPanelPolicy.Status.LOADING);
             refresh.setContentDescription("刷新云剪贴板");
         } else if (s.clipboardHistoryEnabled) {
-            Button capture = clipboardAction(header, "保存当前", s::captureClipboardText);
-            capture.setContentDescription("保存当前剪贴板文本");
+            // 复制会自动记录，不再需要「保存当前」。
             clipboardAction(header, "清空", s::confirmClearClipboardHistory);
         }
         s.clipboardPanel.addView(header, KeyboardGeometry.matchWidthHeightPx(s.pixels(32)));
@@ -1191,7 +1192,7 @@ final class ImePanels {
         } else {
             try {
                 java.util.List<ClipboardHistory.Item> items = s.clipboardHistory.load();
-                if (items.isEmpty()) notes.add(clipboardNote("暂无历史 · 保存后点按插入 · 记录仅保存在本机"));
+                if (items.isEmpty()) notes.add(clipboardNote("复制的文字会自动出现在这里，点按即可插入\n只保存在本机"));
                 long now = System.currentTimeMillis();
                 for (ClipboardHistory.Item item : items) {
                     String meta = (item.pinned() ? "已置顶 · " : "") + "本机 · " + relativeTime(item.timestamp(), now);
@@ -1207,7 +1208,7 @@ final class ImePanels {
             }
         }
         s.imeStyler.applySkin();
-        for (TextView note : notes) note.setTextColor(ImeStyler.fade(s.skin.keyForeground(), .6));
+        for (TextView note : notes) ViewPolicy.setTextColor(note, ImeStyler.fade(s.skin.keyForeground(), .6));
     }
 
     private Button clipboardAction(LinearLayout header, String label, Runnable action) {
@@ -1282,7 +1283,7 @@ final class ImePanels {
 
     void addClipboardTab(LinearLayout tabs, String title, CloudClipboardPanelPolicy.Tab tab) {
         Button button = clipboardAction(tabs, title, () -> selectClipboardTab(tab));
-        button.setSelected(s.clipboardTab == tab);
+        ViewPolicy.setSelected(button, s.clipboardTab == tab);
         button.setContentDescription("剪贴板分类 " + title);
         if (Build.VERSION.SDK_INT >= 30)
             button.setStateDescription(button.isSelected() ? "已选中" : "未选中");
@@ -1394,7 +1395,7 @@ final class ImePanels {
         }
         s.imeStyler.applySkin();
         for (View hairline : lines) hairline.setBackgroundColor(Color.parseColor(s.skin.hairline()));
-        if (note != null) note.setTextColor(ImeStyler.fade(s.skin.keyForeground(), .6));
+        if (note != null) ViewPolicy.setTextColor(note, ImeStyler.fade(s.skin.keyForeground(), .6));
     }
 
     private KeyboardPressButton phraseButton(KeyboardKeyRole role, String text,

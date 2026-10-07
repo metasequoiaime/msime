@@ -10,7 +10,6 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Locale;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import org.json.JSONArray;
@@ -409,27 +408,7 @@ public final class DiagnosticsApi {
 
     /** JSON 字符串转义（RFC 8259）。 */
     static void quote(StringBuilder out, String value) {
-        out.append('"');
-        String text = value == null ? "" : value;
-        for (int i = 0; i < text.length(); i++) {
-            char c = text.charAt(i);
-            switch (c) {
-                case '"': out.append("\\\""); break;
-                case '\\': out.append("\\\\"); break;
-                case '\n': out.append("\\n"); break;
-                case '\r': out.append("\\r"); break;
-                case '\t': out.append("\\t"); break;
-                case '\b': out.append("\\b"); break;
-                case '\f': out.append("\\f"); break;
-                default:
-                    if (c < 0x20 || c == ' ' || c == ' ') {
-                        out.append(String.format(Locale.ROOT, "\\u%04x", (int) c));
-                    } else {
-                        out.append(c);
-                    }
-            }
-        }
-        out.append('"');
+        out.append(JsonPolicy.quote(value));
     }
 
     /** org.json's optString coerces numbers; credentials and identifiers must stay JSON strings. */

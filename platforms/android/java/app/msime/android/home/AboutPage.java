@@ -205,7 +205,7 @@ public final class AboutPage extends DetailPage {
         if (!play) {
             TextView button = Ui.pillButton(context, "检查更新", 15, 600, Ui.onAccent(context),
                 20, 0, 36, 96, this::onPill);
-            button.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+            ViewPolicy.setPoliteLiveRegion(button);
             LinearLayout.LayoutParams pillParams = Ui.wrap();
             pillParams.topMargin = Ui.dp(context, 14);
             header.addView(button, pillParams);
@@ -228,10 +228,10 @@ public final class AboutPage extends DetailPage {
             default -> button.setText("检查更新");
         }
         boolean busy = state == State.CHECKING || state == State.DOWNLOADING;
-        button.setEnabled(!busy);
+        ViewPolicy.setEnabled(button, !busy);
         // 「已是最新版本」是结果而不是按钮，换成 accentSoft 底、强调色字，再点一次重新检查。
         boolean quiet = state == State.UP_TO_DATE || busy;
-        button.setTextColor(quiet ? Ui.accent(context) : Ui.onAccent(context));
+        ViewPolicy.setTextColor(button, quiet ? Ui.accent(context) : Ui.onAccent(context));
         button.setBackground(Ui.pillRipple(context, quiet ? Ui.accentSoft(context) : Ui.accent(context)));
     }
 

@@ -363,8 +363,7 @@ public final class AiSkinPage extends DetailPage {
             TextView chip = Ui.styledLabel(context, suggestion, 13, 400, Ui.text(context));
             chip.setSingleLine(true);
             Ui.setSymmetricPaddingDp(chip, context, 12, 6);
-            chip.setClickable(true);
-            chip.setFocusable(true);
+            ViewPolicy.setInteractive(chip, true);
             chip.setOnClickListener(ignored -> {
                 if (s.busy) return;
                 input.setText(suggestion);
@@ -472,7 +471,7 @@ public final class AiSkinPage extends DetailPage {
         KeyboardSkin skin = result == null ? currentSkin
             : KeyboardSkin.custom(result.design(), AppMode.dark(context));
         view.setKeyboard(skin, s.nineKey);
-        view.setAlpha(s.busy ? 0.45f : 1f);
+        ViewPolicy.setActiveAlpha(view, !s.busy, 0.45f);
         if (busyOverlay != null) busyOverlay.setVisibility(s.busy ? View.VISIBLE : View.GONE);
         if (title != null) title.setText(result == null ? "未命名皮肤" : result.name());
         if (subtitle != null) {

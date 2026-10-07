@@ -55,8 +55,7 @@ public final class SegmentedControl extends LinearLayout {
             segment.setSingleLine(true);
             Ui.setTextMinHeightDp(segment, context, 28);
             Ui.setSymmetricPaddingDp(segment, context, 12, 4);
-            segment.setClickable(true);
-            segment.setFocusable(true);
+            ViewPolicy.setInteractive(segment, true);
             ViewPolicy.bindClick(segment, () -> select(index, true));
             segment.setAccessibilityDelegate(new AccessibilityDelegate() {
                 @Override public void onInitializeAccessibilityNodeInfo(View host, AccessibilityNodeInfo info) {
@@ -106,7 +105,7 @@ public final class SegmentedControl extends LinearLayout {
             boolean on = i == index;
             Ui.style(segment, Ui.TEXT_SEGMENT, on ? 500 : 400, on ? accent : sub);
             segment.setBackground(Ui.pillRipple(context, on ? Ui.accentSoft(context) : Color.TRANSPARENT));
-            segment.setSelected(on);
+            ViewPolicy.setSelected(segment, on);
         }
         if (fromUser && changed && listener != null) listener.accept(index);
     }
