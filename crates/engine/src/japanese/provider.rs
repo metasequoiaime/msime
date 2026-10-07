@@ -109,6 +109,8 @@ impl JapaneseProvider {
         }
 
         if let Some(dictionary) = self.dictionary() {
+            // With letters still pending, the lemmas the letters can go on to spell lead: the sentence search can convert only the finished kana. With the reading complete, the lemmas whose reading only starts with it (predictions) go after the conversions of the reading itself: listed first, the cheapest longer readings fill the page and push the word the reading spells off it (にじ listed 二重, 二条 and 二次創作 ahead of 虹).
+            let mut predictions = Vec::new();
             if !conversion.hiragana.is_empty() && !conversion.pending.is_empty() {
                 // `kana_for_romaji_prefix` already limits the kana to spellings that start with the pending letters. Re-deriving romaji from each lemma's reading to check the prefix again would drop correct lemmas: a reading has several valid spellings and `hiragana_to_romaji` picks one, so しし reads `shishi` and fails `sis`.
                 let pending_kana = kana_for_romaji_prefix(&conversion.pending);
@@ -131,21 +133,20 @@ impl JapaneseProvider {
             } else if conversion.pending.is_empty()
                 && conversion.hiragana.len() >= MIN_PREFIX_READING_BYTES
             {
-                rows.reserve(READING_PREFIX_LEMMAS + SENTENCE_LIMIT + 1);
-                for lemma in dictionary.prefix_lemmas(&conversion.hiragana, READING_PREFIX_LEMMAS) {
-                    rows.push(
-                        &lemma.surface,
-                        PREFIX_LEMMA_BASE - i64::from(lemma.word_cost),
-                        CandidateSource::Database,
-                    );
-                }
-            } else {
-                rows.reserve(SENTENCE_LIMIT + 1);
+                predictions = dictionary.prefix_lemmas(&conversion.hiragana, READING_PREFIX_LEMMAS);
             }
+            rows.reserve(predictions.len() + SENTENCE_LIMIT + 1);
             for sentence in search_converted(&dictionary, &conversion, SENTENCE_LIMIT) {
                 rows.push(
                     &sentence.text,
                     SENTENCE_BASE - sentence.cost,
+                    CandidateSource::Database,
+                );
+            }
+            for lemma in predictions {
+                rows.push(
+                    &lemma.surface,
+                    PREFIX_LEMMA_BASE - i64::from(lemma.word_cost),
                     CandidateSource::Database,
                 );
             }
@@ -294,10 +295,28 @@ mod tests {
             (999_999, CandidateSource::Generated)
         );
 
-        // A whole-reading sentence: 漢字 is both the prefix lemma and the best path, listed once.
+        // A whole-reading sentence: 漢字 is both the best path and a prefix lemma, listed once, as the conversion that comes first.
         let kanji = provider.query(&request("kanji"));
         assert_eq!(words(&kanji), vec!["漢字", "かんじ", "カンジ"]);
-        assert_eq!(kanji[0].weight, 980_000 - 1_000);
+        assert_eq!(kanji[0].weight, 900_000 - 1_000);
+    }
+
+    #[test]
+    fn a_complete_reading_lists_its_own_words_before_longer_ones() {
+        // 二重 is far more common, but its reading only starts with にじ: typing にじ asks for 虹.
+        let model = test_model::bytes(
+            &[("にじ", "虹", 0, 0, 5_000), ("にじゅう", "二重", 0, 0, 100)],
+            1,
+            &[0],
+        );
+        let (_root, mut provider) = provider_with(Some(model));
+        let niji = provider.query(&request("niji"));
+        let at = |word: &str| words(&niji).iter().position(|w| *w == word);
+        assert_eq!(niji[0].word, "虹", "{:?}", words(&niji));
+        assert!(at("二重").is_some_and(|predicted| predicted > 0));
+        // While a letter is still pending, the lemmas it can go on to spell lead.
+        let nijy = provider.query(&request("nijy"));
+        assert_eq!(nijy[0].word, "二重", "{:?}", words(&nijy));
     }
 
     #[test]
