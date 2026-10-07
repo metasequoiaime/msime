@@ -2,7 +2,7 @@
 //!
 //! The file is mapped read-only, as japanese_sentence_decoder.cpp:101-125 did, so its 66 MB are clean, file-backed pages the system can evict under memory pressure (the iOS keyboard extension's limit) rather than dirty heap read on the first Japanese query. The mapping rests on the resource contract: `msime-japanese.dat` ships read-only in the resource bundle and a replacement arrives by rename, never by an in-place write, so a mapped inode keeps its bytes for as long as the dictionary lives (`replacing_a_model_file_never_alters_a_loaded_dictionary`). Access is by offset with unaligned little-endian loads, as the C++ `memcpy` did.
 
-use std::collections::HashMap;
+use std::collections::{BinaryHeap, HashMap};
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock, Mutex, Weak};
@@ -86,6 +86,30 @@ fn best_ids(mut ids: Vec<u32>, limit: usize, cost: impl Fn(u32) -> i32) -> Vec<u
     }
     ids.truncate(limit);
     ids.sort_unstable_by_key(key);
+    ids
+}
+
+/// Keep only the cheapest IDs while scanning a potentially large reading range. The heap holds
+/// the current worst selected item at its root, so memory is bounded by the requested result page.
+fn best_ids_from_iter<I>(ids: I, limit: usize, cost: impl Fn(u32) -> i32) -> Vec<u32>
+where
+    I: IntoIterator<Item = u32>,
+{
+    if limit == 0 {
+        return Vec::new();
+    }
+    let mut best: BinaryHeap<((i32, u32), u32)> = BinaryHeap::with_capacity(limit);
+    for id in ids {
+        let key = (cost(id), id);
+        if best.len() < limit {
+            best.push((key, id));
+        } else if key < best.peek().expect("non-empty bounded heap").0 {
+            best.pop();
+            best.push((key, id));
+        }
+    }
+    let mut ids: Vec<u32> = best.into_iter().map(|(_, id)| id).collect();
+    ids.sort_unstable_by_key(|id| (cost(*id), *id));
     ids
 }
 
@@ -229,13 +253,13 @@ impl JapaneseDictionary {
             return Vec::new();
         }
         let start = self.lower_bound(reading);
-        let matches = collect_query_ids(
-            (start..self.token_count)
-                .take_while(|&index| self.reading(&self.token_at(index)) == reading)
-                .map(|index| index as u32),
-            limit.min(self.token_count.saturating_sub(start)),
-        );
-        self.best_lemmas(matches, limit)
+        let ids = (start..self.token_count)
+            .take_while(|&index| self.reading(&self.token_at(index)) == reading)
+            .map(|index| index as u32);
+        best_ids_from_iter(ids, limit, |id| self.cost_of(id))
+            .into_iter()
+            .map(|id| self.lemma(id))
+            .collect()
     }
 
     /// Tokens whose reading starts with `prefix`, the `limit` cheapest; single-code-point prefixes come from a precomputed index.
@@ -253,13 +277,13 @@ impl JapaneseDictionary {
             }
         }
         let start = self.lower_bound(prefix);
-        let matches = collect_query_ids(
-            (start..self.token_count)
-                .take_while(|&index| self.reading(&self.token_at(index)).starts_with(prefix))
-                .map(|index| index as u32),
-            limit.min(self.token_count.saturating_sub(start)),
-        );
-        self.best_lemmas(matches, limit)
+        let ids = (start..self.token_count)
+            .take_while(|&index| self.reading(&self.token_at(index)).starts_with(prefix))
+            .map(|index| index as u32);
+        best_ids_from_iter(ids, limit, |id| self.cost_of(id))
+            .into_iter()
+            .map(|id| self.lemma(id))
+            .collect()
     }
 
     /// Token ids whose reading starts with `prefix` followed by one of `next_kana`.
