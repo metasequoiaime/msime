@@ -285,6 +285,11 @@ public final class ViewPolicy {
         view.setSingleLine(true);
     }
 
+    /** Set whether a text view is constrained to one line without changing truncation policy. */
+    public static void setSingleLine(TextView view, boolean singleLine) {
+        view.setSingleLine(singleLine);
+    }
+
     /** Limit a text view to a maximum number of lines without changing truncation policy. */
     public static void setMaxLines(TextView view, int maxLines) {
         view.setMaxLines(maxLines);
