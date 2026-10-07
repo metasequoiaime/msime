@@ -94,6 +94,27 @@ public final class DictionaryCollectionsStore {
         }
     }
 
+    /**
+     * 送一批待发送的增删，返回这次实际送出的条数。
+     *
+     * <p>个人词库队列一次只收 128 条，导入的大词库要分很多批。键盘每处理完一批就调这里送下一批，送出 0 条（全部送完，或队列还没空出来）时停下，用户不用去词库页手动刷新。
+     */
+    public static Result<Integer> flushSent(Context context) {
+        String options = hostOptions(context);
+        if (options.isEmpty()) return Result.failed(failureMessage("unavailable"));
+        final String response;
+        try {
+            response = NativeClient.dictionaryCollections(new JSONObject()
+                .put("options", new JSONObject(options)).put("action", action("flush")).toString());
+        } catch (JSONException | RuntimeException | LinkageError error) {
+            return Result.failed(failureMessage(""));
+        }
+        JSONObject value = value(response);
+        if (value == null) return Result.failed(failureMessage(errorOf(response)));
+        Integer sent = nonNegativeInteger(value.opt("sent"));
+        return Result.of(sent == null ? 0 : sent);
+    }
+
     /** 新建一个空的拼音词库。 */
     public static Result<View> create(Context context, String name) {
         if (!validName(name)) return Result.failed(failureMessage("collections_name_invalid"));

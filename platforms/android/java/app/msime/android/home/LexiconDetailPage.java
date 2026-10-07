@@ -101,7 +101,8 @@ public final class LexiconDetailPage extends DetailPage {
             return new Model(null, count.ok() ? count.value() : -1,
                 page.ok() ? page.value().words() : List.of(), page.ok() ? "" : page.failure());
         }
-        DictionaryCollectionsStore.Result<DictionaryCollectionsStore.View> view = DictionaryCollectionsStore.load(context);
+        // 和词库列表页一样，打开时顺手送一批待写入的词条，显示的剩余条数也就是最新的。
+        DictionaryCollectionsStore.Result<DictionaryCollectionsStore.View> view = DictionaryCollectionsStore.flush(context);
         if (!view.ok()) return new Model(null, -1, List.of(), view.failure());
         DictionaryCollectionsStore.Collection collection = view.value().find(id);
         if (collection == null) return new Model(null, -1, List.of(), DictionaryCollectionsStore.failureMessage("collections_not_found"));
@@ -169,9 +170,11 @@ public final class LexiconDetailPage extends DetailPage {
         } else {
             DictionaryCollectionsStore.Collection collection = current.collection();
             if (collection != null) {
-                String pending = collection.pending() > 0 ? "，还有 " + collection.pending() + " 条等待键盘应用" : "";
-                card.note("这个词库有 " + DictionaryCollectionsStore.countLabel(collection.entryCount()) + pending
-                    + "。新加的词在键盘下次启动时生效。");
+                String total = "这个词库有 " + DictionaryCollectionsStore.countLabel(collection.entryCount());
+                // 待写入的词由键盘在每次收起后自动分批写完（MSIMEInputService 的空闲同步），这里只告诉用户正在进行、不用做什么。
+                card.note(collection.pending() > 0
+                    ? total + "，其中 " + collection.pending() + " 条正在写入键盘。每次用完键盘、收起后会自动接着写，不需要手动操作。"
+                    : total + "。新加的词在下次打开键盘时生效。");
             }
         }
         card.addView(accentRow("+", "添加词条", this::showAddDialog));

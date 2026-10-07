@@ -1309,6 +1309,8 @@ public final class MSIMEInputService extends InputMethodService {
                     if (sync.optString("snapshot_error", "").length() > 0) {
                         notice = " · 个人词库同步稍后重试";
                     }
+                    // 刚处理完的这批腾出了队列，把导入词库的下一批送进去，键盘收起后的空闲同步会接着写完。
+                    DictionaryCollectionsStore.flushSent(this);
                 } catch (Exception | LinkageError ignored) {
                     // Personal dictionary maintenance is optional; session startup continues.
                 }
@@ -1398,7 +1400,12 @@ public final class MSIMEInputService extends InputMethodService {
                         NativeClient.personalDictionarySync(options);
                     } catch (Exception | LinkageError ignored) {
                         // The next idle boundary retries a busy or unavailable journal.
+                        return;
                     }
+                    // 导入的词库按 128 条一批送进个人词库队列，上面刚把这一批写进了词库。接着送下一批，送出了就马上再处理一轮，直到送完；每一轮都回到主线程重新确认此刻没有输入会话，键盘一弹出就停，下次空闲时接着送。
+                    DictionaryCollectionsStore.Result<Integer> sent = DictionaryCollectionsStore.flushSent(this);
+                    if (sent.value() != null && sent.value() > 0)
+                        main.post(() -> schedulePersonalDictionarySynchronization(true));
                 });
             } catch (RuntimeException ignored) {
                 // Service shutdown owns the final worker state.

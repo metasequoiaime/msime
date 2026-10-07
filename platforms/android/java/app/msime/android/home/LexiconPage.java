@@ -96,7 +96,7 @@ public final class LexiconPage extends DetailPage {
     // ---- 数据 ----
 
     private void reload(boolean flush) {
-        HostTask.run(this, context -> read(context, flush), result -> {
+        HostTask.run(this, LexiconPage::read, result -> {
             if (result == null) {
                 MsToast.show(requireContext(), DictionaryCollectionsStore.failureMessage(""));
                 return;
@@ -107,9 +107,9 @@ public final class LexiconPage extends DetailPage {
         });
     }
 
-    private static Model read(Context context, boolean flush) {
-        DictionaryCollectionsStore.Result<DictionaryCollectionsStore.View> view = flush
-            ? DictionaryCollectionsStore.flush(context) : DictionaryCollectionsStore.load(context);
+    private static Model read(Context context) {
+        // 打开页面也顺手送一批导入词库的待写入词条：返回的视图和 load 一样，只是多送了一批，不必等用户点刷新。
+        DictionaryCollectionsStore.Result<DictionaryCollectionsStore.View> view = DictionaryCollectionsStore.flush(context);
         DictionaryCollectionsStore.Result<Long> count = DictionaryCollectionsStore.builtinCount(context, BUILTIN_KIND);
         JSONObject snapshot = HostStore.loadPreferences(context);
         JSONObject preferences = snapshot == null ? null : snapshot.optJSONObject("preferences");
