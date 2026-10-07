@@ -74,7 +74,7 @@ final class ImePanels {
             () -> s.selectEmojiCategory(category));
         ViewPolicy.setTextSizeLabel(tab, entry.icon(), 17);
         ViewPolicy.clearFontPadding(tab);
-        tab.setSelected(s.emojiSelectedCategory == category);
+        ViewPolicy.setSelected(tab, s.emojiSelectedCategory == category);
         tab.setContentDescription("表情分类 " + entry.title());
         if (Build.VERSION.SDK_INT >= 30)
             tab.setStateDescription(tab.isSelected() ? "已选中" : "未选中");
@@ -411,7 +411,7 @@ final class ImePanels {
             boolean selected = pendingSkinKey != null ? pendingSkinKey.equals(key)
                 : choice.design() == null ? choice.id().equals(globalTheme)
                 : "custom".equals(globalTheme) && s.skin.key().equals(choice.skin().key());
-            card.setSelected(selected);
+            ViewPolicy.setSelected(card, selected);
             if (selected) selectedIndex = index;
             if ("system".equals(choice.id())) {
                 card.setSplitPreview(Color.parseColor(KeyboardSkin.system(false).background()),
@@ -423,7 +423,7 @@ final class ImePanels {
             bindFeedbackAction(card, () -> {
                 pendingSkinKey = key;
                 for (KeyboardSkinCard other : cards) {
-                    other.setSelected(other == card);
+                    ViewPolicy.setSelected(other, other == card);
                     if (Build.VERSION.SDK_INT >= 30) other.setStateDescription(other == card ? "已选中" : "未选中");
                 }
                 // 选中即换色并收起面板回到键盘，换上的皮肤直接在键盘上看。还没获取的社区皮肤先在同一个偏好线程上存进皮肤库，排在保存选择之前。
@@ -697,7 +697,7 @@ final class ImePanels {
     }
 
     static void selectReplySegment(Button segment, boolean selected) {
-        segment.setSelected(selected);
+        ViewPolicy.setSelected(segment, selected);
         if (Build.VERSION.SDK_INT >= 30)
             segment.setStateDescription(selected ? "已选中" : "未选中");
     }
@@ -1283,7 +1283,7 @@ final class ImePanels {
 
     void addClipboardTab(LinearLayout tabs, String title, CloudClipboardPanelPolicy.Tab tab) {
         Button button = clipboardAction(tabs, title, () -> selectClipboardTab(tab));
-        button.setSelected(s.clipboardTab == tab);
+        ViewPolicy.setSelected(button, s.clipboardTab == tab);
         button.setContentDescription("剪贴板分类 " + title);
         if (Build.VERSION.SDK_INT >= 30)
             button.setStateDescription(button.isSelected() ? "已选中" : "未选中");
