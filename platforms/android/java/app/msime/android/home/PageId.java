@@ -2,6 +2,7 @@ package app.msime.android.home;
 
 import androidx.annotation.Nullable;
 import app.msime.android.HostDeepLink;
+import app.msime.android.TextPolicy;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -22,7 +23,7 @@ public enum PageId {
         "描述一句话生成", "配色", "按键音效", "按键动画", "生成皮肤"),
     KEYBOARD_OPTIONS("KeyboardOptionsPage", "键盘", HostDeepLink.TAB_SETTINGS,
         "布局", "中文键盘", "键盘高度", "按键反馈", "按键音", "按键振动", "按键弹出预览", "手势",
-        "下滑输入符号", "空格键滑动移动光标", "长按空格语音输入", "键盘工具栏", "显示方式", "表情", "常用语",
+        "滑动输入符号", "滑动方向", "下滑", "上滑", "空格键滑动移动光标", "长按空格语音输入", "键盘工具栏", "显示方式", "表情", "常用语",
         "剪贴板", "输入方式", "按键间距", "行间距"),
     AI_SETTINGS("AiSettingsPage", "AI 润色与回复", HostDeepLink.TAB_SETTINGS,
         "启用 AI 入口", "端点 URL", "模型", "凭据", "润色提示词"),

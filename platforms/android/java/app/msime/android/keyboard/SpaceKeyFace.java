@@ -31,7 +31,7 @@ public final class SpaceKeyFace extends KeyboardPressButton {
 
     /** 方案短名；空串时只画麦克风。 */
     public void setSchemeLabel(String value) {
-        String next = value == null ? "" : value;
+        String next = TextPolicy.emptyIfNull(value);
         if (schemeLabel.equals(next)) return;
         schemeLabel = next;
         invalidate();
@@ -48,7 +48,7 @@ public final class SpaceKeyFace extends KeyboardPressButton {
 
     /** 手势进行中的临时键面文字（如「移动光标」）；非空时只画这段文字，不画麦克风与方案短名。空串恢复常态。 */
     public void setTransientLabel(String value) {
-        String next = value == null ? "" : value;
+        String next = TextPolicy.emptyIfNull(value);
         if (transientLabel.equals(next)) return;
         transientLabel = next;
         invalidate();

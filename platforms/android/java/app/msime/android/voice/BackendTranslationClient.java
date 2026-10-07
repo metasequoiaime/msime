@@ -5,7 +5,6 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.math.BigDecimal;
 import java.net.URL;
-import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Locale;
 import javax.net.ssl.HttpsURLConnection;
@@ -83,7 +82,7 @@ public final class BackendTranslationClient implements CandidateTranslationStore
 
     /** Decode the response without allowing org.json to coerce nulls or non-strings to text. */
     static List<String> parseResponse(byte[] bytes, int expectedCount) throws Exception {
-        JSONObject response = new JSONObject(new String(bytes, StandardCharsets.UTF_8));
+        JSONObject response = new JSONObject(TextPolicy.utf8(bytes));
         if (!successStatusCode(response.opt("code"))) return null;
         Object data = response.opt("data");
         if (!(data instanceof JSONArray)) return null;

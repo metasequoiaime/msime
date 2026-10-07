@@ -49,7 +49,7 @@ public final class NumberRowSelectionPolicy {
         int slot = keyCode - KeyEvent.KEYCODE_1;
         // 逐键判断：U 模式裸数字是十六进制，只有 Shift+数字选词；V、网址模式里 Engine 列为拼写的字符（裸数字、网址里 Shift+1 的 `!` 等）是输入，这个键的数字被列为拼写时打出别的字符的数字键带不带 Shift 都选词；其余状态裸数字选词，Shift+数字打出数字上方的符号。
         if (UNICODE_MODE.equals(localMode)) return shift ? slot : NONE;
-        String symbols = spellingSymbols == null ? "" : spellingSymbols;
+        String symbols = TextPolicy.emptyIfNull(spellingSymbols);
         if (unicode > 0x20 && unicode < 0x7f && symbols.indexOf((char) unicode) >= 0) return NONE;
         // 只看这个键自己的数字是否被列为拼写，与 macOS 的 ShouldRouteSpellingShiftCandidateDigit 一致：注音选单打开时只列出 `0`，Shift+1..9 仍打出全角符号。
         if (symbols.indexOf((char) ('1' + slot)) >= 0) return slot;
