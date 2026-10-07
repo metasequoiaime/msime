@@ -417,7 +417,7 @@ public final class AiSkinPage extends DetailPage {
             actions.addView(use, useParams);
             target.addView(actions, actionsParams);
             bindEnabled(input, again);
-            Ui.setEnabledLook(use, !s.busy && !saving);
+            ViewPolicy.setEnabledWithAlpha(use, !s.busy && !saving, 0.38f);
         }
         input.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence text, int start, int count, int after) {}
@@ -437,8 +437,7 @@ public final class AiSkinPage extends DetailPage {
         State s = state();
         Runnable update = () -> {
             boolean enabled = !s.busy && !TextPolicy.trimmed(input.getText().toString()).isEmpty();
-            ViewPolicy.setEnabled(button, enabled);
-            Ui.setEnabledLook(button, enabled);
+            ViewPolicy.setEnabledWithAlpha(button, enabled, 0.38f);
         };
         update.run();
         input.addTextChangedListener(new TextWatcher() {
