@@ -269,17 +269,22 @@ pub fn append_unique_words(result: &mut Vec<WordItem>, rows: Vec<WordItem>) {
     // Borrow words while checking duplicates, then release the borrows before moving rows into the result.
     let mut seen = HashSet::with_capacity(result.len().saturating_add(rows.len()));
     seen.extend(result.iter().map(|item| item.word.as_str()));
-    let unique = rows
+    let duplicates = rows
         .iter()
-        .map(|item| seen.insert(item.word.as_str()))
+        .enumerate()
+        .filter_map(|(index, item)| (!seen.insert(item.word.as_str())).then_some(index))
         .collect::<Vec<_>>();
     drop(seen);
     result.reserve(rows.len());
-    result.extend(
-        rows.into_iter()
-            .zip(unique)
-            .filter_map(|(item, unique)| unique.then_some(item)),
-    );
+    let mut duplicates = duplicates.into_iter().peekable();
+    result.extend(rows.into_iter().enumerate().filter_map(|(index, item)| {
+        if duplicates.peek() == Some(&index) {
+            duplicates.next();
+            None
+        } else {
+            Some(item)
+        }
+    }));
 }
 
 #[cfg(test)]
