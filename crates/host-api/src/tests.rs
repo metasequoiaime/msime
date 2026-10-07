@@ -7375,7 +7375,7 @@ fn the_fallback_scheme_is_the_edition_default() {
     );
 }
 
-/// full 准备出的文档没有 `edition` 键，也不替用户写偏好文件，与引入版本之前相同；五笔版的文档记下版本，第一次准备时把五笔版的默认偏好（五笔、混拼打开）写成第一份偏好文件，之后不再覆盖用户的修改。
+/// full 准备出的文档没有 `edition` 键，与引入版本之前相同；每个版本第一次准备时都把此刻读到的偏好写成第一份偏好文件（full 是默认偏好，五笔版是五笔、混拼打开），之后不再覆盖用户的修改。
 #[test]
 fn prepared_options_record_only_a_non_full_edition_and_seed_its_first_preferences() {
     let root = tempfile::tempdir().unwrap();
@@ -7393,7 +7393,9 @@ fn prepared_options_record_only_a_non_full_edition_and_seed_its_first_preference
     let full = prepare(&full_state, Edition::full());
     assert!(full.get("edition").is_none(), "{full}");
     assert_eq!(full["preferences"], json!(Preferences::default()));
-    assert!(!full_state.join("preferences.json").exists());
+    let stored = PreferencesStore::new(&full_state).load().unwrap();
+    assert_eq!(stored.revision, 1);
+    assert_eq!(stored.preferences, Preferences::default());
     assert!(!full_state.join(Edition::STATE_RECORD_FILE).exists());
     assert!(HostOptions::from_document(full.clone()).is_some());
 
@@ -7423,6 +7425,67 @@ fn prepared_options_record_only_a_non_full_edition_and_seed_its_first_preference
     assert_eq!(
         PreferencesStore::new(&wubi_state).load().unwrap().revision,
         2
+    );
+}
+
+/// 新装第一次准备时触屏键盘只有中文方案，这个结论写进第一份偏好文件，再次准备也不变；以前的版本准备过、用户却从没存过偏好的状态目录（有用户词库代次、没有偏好文件），准备时按以前的默认列表写下第一份文件，日文和韩文键盘升级后仍在。
+#[test]
+fn preparing_tells_a_fresh_install_from_an_upgrade_without_preferences() {
+    let root = tempfile::tempdir().unwrap();
+    let resources = root.path().join("resources");
+    let specification = synthetic_desktop_lock(&resources);
+    let prepare = |state: &Path| -> Value {
+        serde_json::from_str(
+            &prepare_shipped_host_configuration(
+                &resources,
+                state,
+                &specification,
+                &[],
+                Edition::full(),
+            )
+            .unwrap(),
+        )
+        .unwrap()
+    };
+    let chinese = json!(TouchKeyboardScheme::DEFAULT_ENABLED);
+    let legacy = json!(TouchKeyboardScheme::LEGACY_DEFAULT_ENABLED);
+
+    let fresh = root.path().join("fresh");
+    let prepared = prepare(&fresh);
+    assert_eq!(
+        prepared["preferences"]["touch_keyboard_schemes"]["enabled"],
+        chinese
+    );
+    assert!(fresh.join("user").join("dictionaries").is_dir());
+    let again = prepare(&fresh);
+    assert_eq!(
+        again["preferences"]["touch_keyboard_schemes"]["enabled"],
+        chinese
+    );
+    assert_eq!(PreferencesStore::new(&fresh).load().unwrap().revision, 1);
+
+    // 以前的版本准备过、从没写过偏好文件的状态目录。
+    let upgraded = root.path().join("upgraded");
+    prepare(&upgraded);
+    std::fs::remove_file(upgraded.join("preferences.json")).unwrap();
+    let prepared = prepare(&upgraded);
+    assert_eq!(
+        prepared["preferences"]["touch_keyboard_schemes"]["enabled"],
+        legacy
+    );
+    let stored = PreferencesStore::new(&upgraded).load().unwrap();
+    assert_eq!(stored.revision, 1);
+    assert_eq!(
+        stored.preferences.touch_keyboard_schemes.enabled,
+        TouchKeyboardScheme::LEGACY_DEFAULT_ENABLED
+            .into_iter()
+            .collect()
+    );
+    let document: Value =
+        serde_json::from_slice(&std::fs::read(upgraded.join("preferences.json")).unwrap()).unwrap();
+    assert_eq!(
+        document["preferences"]["touch_keyboard_schemes"]["enabled"],
+        legacy
     );
 }
 
