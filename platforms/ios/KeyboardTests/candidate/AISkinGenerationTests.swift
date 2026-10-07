@@ -34,7 +34,9 @@ private final class ThemeProtocol: URLProtocol, @unchecked Sendable {
         // that keycap descriptions never enter the image request.
         var recorded = try JSONSerialization.jsonObject(with: Data(contentsOf: fixture)) as! [String: Any]
         var plans = recorded["skins"] as! [[String: Any]]
-        for index in plans.indices { plans[index]["artworkPrompt"] = "原创背景场景 \(index)：竹林里的动物茶会" }
+        for index in plans.indices {
+          plans[index]["artworkPrompt"] = "原创背景场景 \(index)：竹林里的动物茶会，柔和水彩描绘晨雾、溪流与花叶，角色位于画面边缘，中央保持安静留白，营造独特而温暖的故事氛围"
+        }
         recorded["skins"] = plans
         let content = String(data: try JSONSerialization.data(withJSONObject: recorded), encoding: .utf8)!
         body = try JSONSerialization.data(withJSONObject: ["choices": [["message": ["role": "assistant", "content": content]]]])

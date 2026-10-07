@@ -204,7 +204,6 @@ TEXT_ENTRY(ResolveTheme, msime_client_resolve_theme)
 TEXT_ENTRY(DictionaryManifest, msime_client_dictionary_manifest)
 TEXT_ENTRY(SkinResource, msime_client_skin_resource)
 TEXT_ENTRY(SkinToolbarStylesheet, msime_client_skin_toolbar_stylesheet)
-TEXT_ENTRY(CustomSkinLibrary, msime_client_custom_skin_library)
 TEXT_ENTRY(KeyboardSkinTrial, msime_client_keyboard_skin_trial)
 TEXT_ENTRY(CommunityResourceLibrary, msime_client_community_resource_library)
 TEXT_ENTRY(AiSkinPlan, msime_client_ai_skin_plan)
@@ -415,10 +414,11 @@ static napi_value EnsureAnonymousAccount(napi_env env, napi_callback_info info) 
     return promise;
 }
 
-// The usage-report flush and the notice fetch wait on the network, so they run as async work and answer through a promise; a refusal or a failed request arrives as {"ok":false}. Both take one JSON request and differ only in the entry point they call.
+// Slow one-document requests share a worker: telemetry and notices wait on the network, while
+// the custom skin library reads or writes a bounded multi-megabyte file under a lock.
 using RequestCall = char *(*)(const uint8_t *, size_t);
 
-struct NetworkRequestWork {
+struct RequestWork {
     napi_async_work work = nullptr;
     napi_deferred deferred = nullptr;
     RequestCall call = nullptr;
@@ -426,23 +426,23 @@ struct NetworkRequestWork {
     char *result = nullptr;
 };
 
-static void executeNetworkRequest(napi_env, void *data) {
-    auto *work = static_cast<NetworkRequestWork *>(data);
+static void executeRequest(napi_env, void *data) {
+    auto *work = static_cast<RequestWork *>(data);
     work->result = work->call(
         reinterpret_cast<const uint8_t *>(work->request.data()), work->request.size());
 }
 
-static void completeNetworkRequest(napi_env env, napi_status status, void *data) {
-    auto *work = static_cast<NetworkRequestWork *>(data);
-    settleVoicePromise(env, status, work->deferred, work->result, "Network request worker failed");
+static void completeRequest(napi_env env, napi_status status, void *data) {
+    auto *work = static_cast<RequestWork *>(data);
+    settleVoicePromise(env, status, work->deferred, work->result, "Request worker failed");
     napi_delete_async_work(env, work->work);
     delete work;
 }
 
-static napi_value queueNetworkRequest(napi_env env, napi_callback_info info, RequestCall call,
-                                      const char *name) {
+static napi_value queueRequest(napi_env env, napi_callback_info info, RequestCall call,
+                               const char *name) {
     std::vector<napi_value> argv;
-    auto *work = new NetworkRequestWork();
+    auto *work = new RequestWork();
     work->call = call;
     if (!arguments(env, info, 1, argv) || !argumentText(env, argv[0], work->request)) {
         delete work;
@@ -452,25 +452,31 @@ static napi_value queueNetworkRequest(napi_env env, napi_callback_info info, Req
     napi_value resource = nullptr;
     if (napi_create_promise(env, &work->deferred, &promise) != napi_ok
             || napi_create_string_utf8(env, name, NAPI_AUTO_LENGTH, &resource) != napi_ok
-            || napi_create_async_work(env, nullptr, resource, executeNetworkRequest,
-                completeNetworkRequest, work, &work->work) != napi_ok) {
+            || napi_create_async_work(env, nullptr, resource, executeRequest,
+                completeRequest, work, &work->work) != napi_ok) {
         delete work;
-        return invalid(env, "Unable to create network request worker");
+        return invalid(env, "Unable to create request worker");
     }
     if (napi_queue_async_work(env, work->work) != napi_ok) {
         napi_delete_async_work(env, work->work);
         delete work;
-        return invalid(env, "Unable to queue network request worker");
+        return invalid(env, "Unable to queue request worker");
     }
     return promise;
 }
 
 static napi_value TelemetryFlush(napi_env env, napi_callback_info info) {
-    return queueNetworkRequest(env, info, msime_client_telemetry_flush, "MSIME telemetry flush");
+    return queueRequest(env, info, msime_client_telemetry_flush, "MSIME telemetry flush");
 }
 
 static napi_value Notices(napi_env env, napi_callback_info info) {
-    return queueNetworkRequest(env, info, msime_client_notices, "MSIME notices");
+    return queueRequest(env, info, msime_client_notices, "MSIME notices");
+}
+
+// A named design can carry a photo, so both reading and mutating the library can parse and
+// serialize megabytes while holding its file lock. The settings page awaits this worker.
+static napi_value CustomSkinLibrary(napi_env env, napi_callback_info info) {
+    return queueRequest(env, info, msime_client_custom_skin_library, "MSIME custom skin library");
 }
 
 // A pack import extracts or copies up to a music pack's size and validates it before swapping it into place, which the header says belongs on a worker thread, so it runs as async work and answers through a promise. The small catalog, remove and name-list calls stay on the synchronous `plugins` entry.

@@ -36,7 +36,7 @@ export const skinToolbarStylesheet: (request: string) => string;
  * first. Both answer with the whole library. Takes the library's file lock, so call it off the UI
  * thread when the design carries a photo.
  */
-export const customSkinLibrary: (request: string) => string;
+export const customSkinLibrary: (request: string) => Promise<string>;
 /**
  * `{directory,id,name,design}` starts a skin trial and imports the design, answering `{skin,trial}`.
  * One call rather than two: the trial remembers the skin being replaced, so a failed import has to
