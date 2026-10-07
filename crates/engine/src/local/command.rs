@@ -49,12 +49,25 @@ pub fn translation_source(
     {
         return None;
     }
-    let text = rest
-        .split('\'')
-        .filter(|word| !word.is_empty())
-        .collect::<Vec<_>>()
-        .join(" ");
+    let text = join_translation_words(rest);
     (!text.is_empty()).then_some((trigger, text))
+}
+
+fn join_translation_words(rest: &str) -> String {
+    let mut text = String::with_capacity(rest.len());
+    let mut separator = false;
+    for byte in rest.bytes() {
+        if byte == b'\'' {
+            separator = !text.is_empty();
+        } else {
+            if separator {
+                text.push(' ');
+                separator = false;
+            }
+            text.push(char::from(byte));
+        }
+    }
+    text
 }
 
 /// Whether a translate command is being typed, so `'` separates its words rather than ending the mode.
@@ -418,5 +431,10 @@ mod tests {
         assert!(query_command("", &now(), &[])
             .iter()
             .all(|row| !TRANSLATE_TRIGGERS.contains(&row.pinyin.as_str())));
+    }
+
+    #[test]
+    fn translation_words_join_without_empty_segments() {
+        assert_eq!(join_translation_words("'hello''world'"), "hello world");
     }
 }
