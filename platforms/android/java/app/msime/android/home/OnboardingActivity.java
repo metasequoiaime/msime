@@ -484,7 +484,7 @@ public final class OnboardingActivity extends AppCompatActivity {
             done ? Ui.onAccent(this) : 0xFFFFFFFF);
         ViewPolicy.setCentered(mark);
         // 字形画在固定 dp 的圆里，跟圆一起按 dp 定大小；按 sp 时系统字体一调大，对勾就被圆的边界切掉。
-        mark.setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP, 13);
+        ViewPolicy.setTextSizeDp(mark, 13);
         Ui.applyStatusMark(mark, this, done);
         row.addView(mark, Ui.squareParams(this, 24));
 

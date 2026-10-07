@@ -225,6 +225,11 @@ public final class ViewPolicy {
         view.setTextSize(TypedValue.COMPLEX_UNIT_SP, sizeSp);
     }
 
+    /** Set a text view's size in density-independent pixels. */
+    public static void setTextSizeDp(TextView view, float sizeDp) {
+        view.setTextSize(TypedValue.COMPLEX_UNIT_DIP, sizeDp);
+    }
+
     /** Set a text view's solid foreground color. */
     public static void setTextColor(TextView view, int color) {
         view.setTextColor(color);
