@@ -7,7 +7,6 @@
 use crate::preferences::PreferencesStore;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::Path;
 use thiserror::Error;

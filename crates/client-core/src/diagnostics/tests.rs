@@ -1,5 +1,6 @@
 use super::*;
 use crate::preferences::{Preferences, PreferencesSnapshot};
+use std::fs::File;
 
 fn request(root: &Path, include: DiagnosticInclude) -> DiagnosticBundleRequest {
     DiagnosticBundleRequest {
