@@ -62,7 +62,7 @@ public final class KeyboardLayoutAdjustView extends FrameLayout {
         ViewPolicy.setCenteredVertically(bar);
         KeyboardGeometry.setSymmetricPaddingDp(bar, getContext(), 8, 4);
         bar.setContentDescription("键盘高度调整工具栏");
-        bar.setFocusable(true);
+        ViewPolicy.setFocusable(bar, true);
         bar.setOnTouchListener((ignored, event) -> handleHeightGesture(event));
         addView(bar, barParams());
 
