@@ -176,7 +176,7 @@ public final class UpdateApi {
     }
 
     private static String[] splitVersion(String version) {
-        String value = version == null ? "" : version.trim();
+        String value = TextPolicy.trimmed(version);
         if (value.startsWith("v") || value.startsWith("V")) value = value.substring(1);
         int plus = value.indexOf('+');
         if (plus >= 0) value = value.substring(0, plus);

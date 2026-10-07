@@ -161,7 +161,7 @@ public final class SkinJobsApi {
      * @param cancelled 置为 true 即取消，调用方在页面离开时置位
      */
     public List<Proposal> generate(String prompt, AtomicBoolean cancelled) throws CloudApi.Failure {
-        String trimmed = prompt == null ? "" : prompt.trim();
+        String trimmed = TextPolicy.trimmed(prompt);
         if (trimmed.isEmpty() || !TextPolicy.withinCodePoints(trimmed, MAX_PROMPT_CHARACTERS))
             throw invalid("ai_skin_invalid");
         check(cancelled);
