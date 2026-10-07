@@ -303,8 +303,7 @@ public final class CommunityFragment extends Fragment {
         TextView state = view.findViewById(R.id.community_state);
         state.setText(message);
         Ui.setVisibilityForText(state, message);
-        view.findViewById(R.id.community_retry)
-            .setVisibility(retryable ? View.VISIBLE : View.GONE);
+        ViewPolicy.setVisible(view.findViewById(R.id.community_retry), retryable);
     }
 
     /**
