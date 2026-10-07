@@ -185,7 +185,7 @@ public final class CommunityFragment extends Fragment {
         });
 
         MaterialButton retry = view.findViewById(R.id.community_retry);
-        retry.setOnClickListener(ignored -> load(true));
+        ViewPolicy.bindClick(retry, () -> load(true));
 
         load(true);
         updateSearchHint();
