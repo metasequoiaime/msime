@@ -100,6 +100,11 @@ public final class TextPolicy {
         return value == null ? "" : value.strip();
     }
 
+    /** Return text unchanged, treating a missing value as empty text. */
+    public static String emptyIfNull(String value) {
+        return value == null ? "" : value;
+    }
+
     /** Return the number of Unicode code points in text, or zero for null. */
     public static int codePointLength(String value) {
         return value == null ? 0 : value.codePointCount(0, value.length());

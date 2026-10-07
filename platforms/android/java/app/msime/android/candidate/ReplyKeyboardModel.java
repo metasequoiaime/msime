@@ -38,7 +38,7 @@ public final class ReplyKeyboardModel {
 
     public void setSource(String value) {
         resetResults();
-        String next = value == null ? "" : value;
+        String next = TextPolicy.emptyIfNull(value);
         if (!TextPolicy.withinCodePoints(next, AiPolishConfiguration.MAXIMUM_TEXT_CODE_POINTS)) {
             status = "每次最多粘贴一万字";
             return;
