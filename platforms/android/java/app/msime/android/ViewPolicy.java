@@ -340,6 +340,11 @@ public final class ViewPolicy {
         view.setClickable(clickable);
     }
 
+    /** Set whether a view accepts keyboard focus without changing its click policy. */
+    public static void setFocusable(View view, boolean focusable) {
+        view.setFocusable(focusable);
+    }
+
     /** Exclude a decorative view from the accessibility tree. */
     public static void hideFromAccessibility(View view) {
         view.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
