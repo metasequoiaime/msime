@@ -6698,9 +6698,8 @@ public final class MSIMEInputService extends InputMethodService {
             int shiftLayout = displayedTouchLayout(view);
             boolean keepsOwnGrid = shiftLayout == QUANPIN_NINE_KEY_LAYOUT
                 || shiftLayout == JAPANESE_NINE_KEY_LAYOUT;
-            shiftButton.setVisibility(!KeyboardLayout.carriesLetterCase(shiftLayout)
-                && (keepsOwnGrid || keyboardLayer == KeyboardLayout.Layer.LETTERS)
-                ? View.GONE : View.VISIBLE);
+            ViewPolicy.setVisible(shiftButton, KeyboardLayout.carriesLetterCase(shiftLayout)
+                || (!keepsOwnGrid && keyboardLayer != KeyboardLayout.Layer.LETTERS));
             shiftButton.setText(letterCase.keyText());
             shiftButton.setSelected(letterCase.usesUppercase());
             shiftButton.setActivated(letterCase.mode() == EnglishLetterCaseState.Mode.CAPS_LOCK);
