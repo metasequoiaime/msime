@@ -286,6 +286,7 @@ struct InputSettingsView: View {
   private func reloadPreferences() {
     document = MetasequoiaInputSessionBridge.loadSharedPreferences()
     InputSchemePreference.mirror(document)
+    ChineseOutputPreference.mirror(document)
     inputScheme = InputSchemePreference.scheme
     enabledSchemes = InputSchemePreference.enabledSchemes
     usesTraditionalOutput = ChineseOutputPreference.usesTraditional

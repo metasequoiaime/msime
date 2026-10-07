@@ -154,6 +154,46 @@ final class SchemeDocumentSettingsTests: XCTestCase {
     XCTAssertEqual(InputSchemePreference.scheme, .quanpin)
   }
 
+  // ---- 简繁的 App Group 镜像落后于文档：与上面的方案是同一类问题 ----
+
+  /// 上传和新建键盘读的是模拟器里各用例共用的那份文档，用完把 `traditional_chinese_output` 放回原样。
+  private func restoreSharedOutputFormAfterTest() {
+    let key = ChineseOutputPreference.documentKey
+    let previous = MetasequoiaInputSessionBridge.loadSharedPreferences()?[key]
+    addTeardownBlock {
+      _ = MetasequoiaInputSessionBridge.updateSharedPreferences { $0[key] = previous }
+    }
+  }
+
+  /// 「上传本机设置」带上的是文档里的简繁，不是 App Group 镜像里的旧值；两个方向都要对。
+  func testCloudUploadCarriesTheDocumentsOutputFormOverAStaleMirror() throws {
+    restoreSharedOutputFormAfterTest()
+    for traditional in [true, false] {
+      XCTAssertTrue(ChineseOutputPreference.save(traditional))
+      ChineseOutputPreference.usesTraditional = !traditional
+      let settings = try IOSCloudSettings.snapshot()
+      XCTAssertEqual(settings["input.character_set"], .string(traditional ? "traditional" : "simplified"))
+    }
+    // 文档没记过字形时，键盘按镜像行事，取的也是镜像。
+    ChineseOutputPreference.usesTraditional = true
+    XCTAssertTrue(ChineseOutputPreference.current(in: [:]))
+    XCTAssertFalse(ChineseOutputPreference.current(in: [ChineseOutputPreference.documentKey: false]))
+  }
+
+  /// 新建的键盘按文档里的简繁转换上屏文字，并把它抄进镜像，不等后台重载。
+  func testKeyboardStartsOnTheDocumentsOutputFormNotTheStaleMirror() throws {
+    restoreSharedOutputFormAfterTest()
+    XCTAssertTrue(ChineseOutputPreference.save(true))
+    ChineseOutputPreference.usesTraditional = false
+
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    func descendants(_ view: UIView) -> [UIView] { [view] + view.subviews.flatMap { descendants($0) } }
+    let shortcut = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "characterSetShortcut" })
+    XCTAssertEqual(shortcut.accessibilityValue, "繁体")
+    XCTAssertTrue(ChineseOutputPreference.usesTraditional)
+  }
+
   func testTraditionalOutputReachesTheDocument() throws {
     _ = MetasequoiaInputSessionBridge(stateRoot: state)
     XCTAssertTrue(ChineseOutputPreference.save(true, stateRoot: state))
