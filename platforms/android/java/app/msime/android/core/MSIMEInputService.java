@@ -4056,7 +4056,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (replyKeyboard != null)
             ViewPolicy.setVisible(replyKeyboard, visible);
         if (keyRows != null)
-            keyRows.setVisibility(visible ? View.GONE : View.VISIBLE);
+            ViewPolicy.setVisible(keyRows, !visible);
         // 收起回复面板时底栏不是一律恢复：日语九键没有底栏，强行设回 VISIBLE 会让一条空底栏占掉一行高度。由 updateActionRow 按当前布局决定。
         if (actionRow != null) {
             if (visible) actionRow.setVisibility(View.GONE);
