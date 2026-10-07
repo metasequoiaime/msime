@@ -298,6 +298,11 @@ public final class ViewPolicy {
         view.setFocusable(false);
     }
 
+    /** Expose a view's selected state to drawable and accessibility state lists. */
+    public static void setSelected(View view, boolean selected) {
+        view.setSelected(selected);
+    }
+
     /** Set whether a view participates in touch and focus navigation. */
     public static void setInteractive(View view, boolean interactive) {
         view.setClickable(interactive);
