@@ -5,7 +5,7 @@
 //! Support directory; both locators point at the one movable state root.
 
 use serde_json::Value;
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 use std::fs::{self, File};
 use std::io;
 use std::path::{Path, PathBuf};
