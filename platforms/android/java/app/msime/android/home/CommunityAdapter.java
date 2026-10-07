@@ -201,7 +201,7 @@ public final class CommunityAdapter extends RecyclerView.Adapter<CommunityAdapte
             holder.preview.setKeyboard(skin, nineKey);
             ViewPolicy.setVisible(holder.preview, skin != null);
         }
-        if (holder.badge != null) holder.badge.setVisibility(skin == null ? View.VISIBLE : View.GONE);
+        if (holder.badge != null) ViewPolicy.setVisible(holder.badge, skin == null);
         if (holder.category != null) {
             holder.category.setText(item.category() == null ? "" : item.category().label());
             holder.category.setVisibility(item.category() == null ? View.GONE : View.VISIBLE);
