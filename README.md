@@ -12,6 +12,7 @@
 [![License: GPL-3.0-only](https://img.shields.io/badge/license-GPL--3.0--only-blue.svg)](LICENSE)
 [![GitHub stars](https://img.shields.io/github/stars/metasequoiaime/msime?style=flat)](https://github.com/metasequoiaime/msime/stargazers)
 [![GitHub contributors](https://img.shields.io/github/contributors/metasequoiaime/msime?style=flat)](https://github.com/metasequoiaime/msime/graphs/contributors)
+[![Built with Depot](https://depot.dev/badges/built-with-depot.svg)](https://depot.dev/?utm_source=metasequoiaime)
 
 水杉输入法（MSIME）是面向 Android、iOS、macOS、Linux、Windows 与 HarmonyOS 的多平台中文输入法。六个平台各有自己的原生输入法宿主，都接入同一套共享输入运行时和同一份 React 设置界面；React 管理界面通过 Tauri 调用普通 Rust 业务库；输入算法由 msime-engine 提供。
 
