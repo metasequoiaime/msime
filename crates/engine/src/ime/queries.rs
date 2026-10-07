@@ -1,7 +1,5 @@
 //! `CandidateQueries` (core-session.md §7.2, §10; schemes-lang.md §4.5): local mode dispatch and the mixed English / emoji / kaomoji insertion into pinyin lists.
 
-use std::collections::HashSet;
-
 use crate::assets;
 use crate::dictionary::english::EnglishDictionary;
 use crate::local::command::{
@@ -26,6 +24,7 @@ use crate::types::{
 
 pub const MIXED_ENGLISH_LIMIT: usize = 5;
 pub const MODE_ENGLISH_LIMIT: usize = 1_000;
+const MIXED_DEDUP_CAPACITY: usize = MIXED_ENGLISH_LIMIT + MIXED_RESULT_LIMIT * 2;
 
 pub struct CandidateQueries {
     paths: RuntimePaths,
@@ -241,11 +240,14 @@ fn insert_mixed_rows(
         return candidates;
     }
     // 借用现有候选词并原地筛掉重复项；释放这些借用后再把候选行移入结果。
-    let mut seen: HashSet<&str> = candidates.iter().map(|item| item.word.as_str()).collect();
-    let english_unique = unique_mask(&english, &mut seen);
-    let emoji_unique = unique_mask(&emoji, &mut seen);
-    let kaomoji_unique = unique_mask(&kaomoji, &mut seen);
-    drop(seen);
+    let (english_unique, emoji_unique, kaomoji_unique) = {
+        let mut seen = [None; MIXED_DEDUP_CAPACITY];
+        let mut seen_length = 0;
+        let english_unique = unique_mask(&english, &candidates, &mut seen, &mut seen_length);
+        let emoji_unique = unique_mask(&emoji, &candidates, &mut seen, &mut seen_length);
+        let kaomoji_unique = unique_mask(&kaomoji, &candidates, &mut seen, &mut seen_length);
+        (english_unique, emoji_unique, kaomoji_unique)
+    };
     retain_masked_rows(&mut english, english_unique);
     retain_masked_rows(&mut emoji, emoji_unique);
     retain_masked_rows(&mut kaomoji, kaomoji_unique);
@@ -268,17 +270,16 @@ fn insert_mixed_rows(
     }
     .min(candidates.len());
 
-    let mut tails = Vec::with_capacity(groups.len());
-    for group in groups {
-        let mut rows = group.into_iter();
-        if let Some(first) = rows.next() {
+    let mut groups = groups;
+    for group in &mut groups {
+        if !group.is_empty() {
+            let first = group.remove(0);
             candidates.insert(slot, first);
             slot += 1;
         }
-        tails.push(rows);
     }
-    for rows in tails {
-        candidates.extend(rows);
+    for group in groups {
+        candidates.extend(group);
     }
     candidates
 }
@@ -296,14 +297,27 @@ fn retain_masked_rows(rows: &mut Vec<WordItem>, mut mask: u64) {
 }
 
 /// 用位掩码记录每组候选的首次出现，避免为受协议限制的短列表分配布尔数组。
-fn unique_mask<'a>(rows: &'a [WordItem], seen: &mut HashSet<&'a str>) -> u64 {
+fn unique_mask<'a>(
+    rows: &'a [WordItem],
+    existing: &[WordItem],
+    seen: &mut [Option<&'a str>; MIXED_DEDUP_CAPACITY],
+    seen_length: &mut usize,
+) -> u64 {
     debug_assert!(rows.len() <= u64::BITS as usize);
     rows.iter().enumerate().fold(0, |mask, (index, item)| {
-        if seen.insert(item.word.as_str()) {
-            mask | (1_u64 << index)
-        } else {
-            mask
+        let duplicate = existing
+            .iter()
+            .any(|candidate| candidate.word.as_str() == item.word.as_str())
+            || seen[..*seen_length]
+                .iter()
+                .flatten()
+                .any(|word| *word == item.word.as_str());
+        if duplicate {
+            return mask;
         }
+        seen[*seen_length] = Some(item.word.as_str());
+        *seen_length += 1;
+        mask | (1_u64 << index)
     })
 }
 
@@ -349,9 +363,10 @@ mod tests {
             row("倪", CandidateSource::EnglishDictionary),
             row("Ni", CandidateSource::EnglishDictionary),
         ];
-        let mut seen = HashSet::new();
+        let mut seen = [None; MIXED_DEDUP_CAPACITY];
+        let mut seen_length = 0;
 
-        let mask = unique_mask(&rows, &mut seen);
+        let mask = unique_mask(&rows, &[], &mut seen, &mut seen_length);
         retain_masked_rows(&mut rows, mask);
 
         assert_eq!(words(&rows), vec!["Ni", "倪"]);
@@ -433,6 +448,33 @@ mod tests {
 
         assert_eq!(list.len(), 12);
         assert_eq!(list.capacity(), 12);
+    }
+
+    #[test]
+    fn mixed_merge_keeps_bounded_dedup_state_off_the_heap() {
+        let mut candidates = Vec::with_capacity(128 + 11);
+        for index in 0..128 {
+            candidates.push(row(&format!("候选{index}"), CandidateSource::Database));
+        }
+        let english = (0..5)
+            .map(|index| row(&format!("英文{index}"), CandidateSource::EnglishDictionary))
+            .collect();
+        let emoji = (0..3)
+            .map(|index| row(&format!("表情{index}"), CandidateSource::Emoji))
+            .collect();
+        let kaomoji = (0..3)
+            .map(|index| row(&format!("颜文字{index}"), CandidateSource::Kaomoji))
+            .collect();
+
+        let (merged, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            insert_mixed_rows(candidates, english, emoji, kaomoji)
+        });
+
+        assert_eq!(merged.len(), 139);
+        assert!(
+            allocations <= 1,
+            "mixed merge allocated {allocations} times"
+        );
     }
 
     #[test]
