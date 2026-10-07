@@ -1,7 +1,5 @@
 package app.msime.android.home;
 
-import android.content.ClipData;
-import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
@@ -305,10 +303,7 @@ public final class ProfilePage extends DetailPage {
     }
 
     private void copy(String label, String value) {
-        ClipboardManager clipboard = requireContext().getSystemService(ClipboardManager.class);
-        if (clipboard == null) return;
-        clipboard.setPrimaryClip(ClipData.newPlainText(label, value));
-        MsToast.show(requireContext(), "已复制" + label);
+        ClipboardActions.copyText(requireContext(), label, value, "已复制" + label);
     }
 
     private void link() {

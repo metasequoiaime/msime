@@ -1,7 +1,5 @@
 package app.msime.android.home;
 
-import android.content.ClipData;
-import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageInfo;
@@ -359,10 +357,7 @@ public final class DeveloperPage extends DetailPage {
     }
 
     private void copy(String label, String text, String done) {
-        ClipboardManager clipboard = requireContext().getSystemService(ClipboardManager.class);
-        if (clipboard == null) return;
-        clipboard.setPrimaryClip(ClipData.newPlainText(label, text));
-        MsToast.show(requireContext(), done);
+        ClipboardActions.copyText(requireContext(), label, text, done);
     }
 
     private void exportBundle() {

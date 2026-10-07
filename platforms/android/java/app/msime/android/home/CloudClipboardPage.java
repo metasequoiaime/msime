@@ -1,7 +1,5 @@
 package app.msime.android.home;
 
-import android.content.ClipData;
-import android.content.ClipboardManager;
 import android.content.Context;
 import android.os.Bundle;
 import android.text.TextUtils;
@@ -202,10 +200,7 @@ public final class CloudClipboardPage extends DetailPage {
 
         row.setContentDescription(item.text() + "，" + meta(item) + "，点按复制");
         Ui.makeClickable(row, context, () -> {
-            ClipboardManager clipboard = context.getSystemService(ClipboardManager.class);
-            if (clipboard == null) return;
-            clipboard.setPrimaryClip(ClipData.newPlainText("水杉云剪贴板", item.text()));
-            MsToast.show(context, "已复制");
+            ClipboardActions.copyText(context, "水杉云剪贴板", item.text(), "已复制");
         });
         return row;
     }

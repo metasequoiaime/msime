@@ -1,7 +1,5 @@
 package app.msime.android.home;
 
-import android.content.ClipData;
-import android.content.ClipboardManager;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.pm.PackageInfo;
@@ -351,10 +349,7 @@ public final class FeedbackPage extends DetailPage {
     }
 
     private void copy(String label, String value, String done) {
-        ClipboardManager clipboard = requireContext().getSystemService(ClipboardManager.class);
-        if (clipboard == null) return;
-        clipboard.setPrimaryClip(ClipData.newPlainText(label, value));
-        MsToast.show(requireContext(), done);
+        ClipboardActions.copyText(requireContext(), label, value, done);
     }
 
     /** 没装 Telegram 又没有浏览器时，退而复制链接。 */
