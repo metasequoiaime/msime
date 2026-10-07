@@ -164,7 +164,11 @@ public final class ResourcePackService extends Service {
         }
     }
 
+    /** 最近一次 {@link #onStartCommand} 的 startId，只在主线程上读写。 */
+    private int lastStartId;
+
     @Override public int onStartCommand(@Nullable Intent intent, int flags, int startId) {
+        lastStartId = startId;
         String action = intent == null ? null : intent.getAction();
         String pack = intent == null ? null : intent.getStringExtra(EXTRA_PACK);
         if (ACTION_CANCEL.equals(action)) {
@@ -299,9 +303,10 @@ public final class ResourcePackService extends Service {
         }
     }
 
+    /** 没有下载在跑时退出前台并停下服务。按最近的 startId 停：一个下载结束时另一个资源包的启动请求可能已经排在主线程上，那时服务不停，那次请求照常进前台、开始下载。 */
     private void stop() {
         stopForeground(STOP_FOREGROUND_REMOVE);
-        stopSelf();
+        stopSelf(lastStartId);
     }
 
     private void updateProgressNotification() {
