@@ -4545,7 +4545,7 @@ public final class MSIMEInputService extends InputMethodService {
         recognize.setLayoutParams(KeyboardGeometry.matchWidthWrapParams());
         VoiceConfiguration configured = VoiceConfiguration.read(preferencesDirectory, "ime-preview");
         boolean platformRecognizerAvailable = VoiceRecognitionActivity.available(this);
-        recognize.setEnabled(voiceInputEnabled
+        ViewPolicy.setEnabled(recognize, voiceInputEnabled
             && (platformRecognizerAvailable || configured.provider() != null));
         imeStyler.applySkin();
     }
