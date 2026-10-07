@@ -516,17 +516,25 @@ pub(super) fn decode_graph(
         });
     }
     let mut sentences = HashSet::with_capacity(paths.len());
-    let unique = paths
+    let duplicates = paths
         .iter()
-        .map(|path| sentences.insert(path.sentence.as_str()))
+        .enumerate()
+        .filter_map(|(index, path)| (!sentences.insert(path.sentence.as_str())).then_some(index))
         .collect::<Vec<_>>();
     drop(sentences);
-    paths = paths
-        .into_iter()
-        .zip(unique)
-        .filter_map(|(path, unique)| unique.then_some(path))
-        .take(take)
-        .collect();
+    let mut duplicates = duplicates.into_iter().peekable();
+    let mut write = 0;
+    for read in 0..paths.len() {
+        if duplicates.peek() == Some(&read) {
+            duplicates.next();
+            continue;
+        }
+        if write != read {
+            paths.swap(write, read);
+        }
+        write += 1;
+    }
+    paths.truncate(write.min(take));
     rescore_with_trigram(&mut paths, options);
     paths
 }
