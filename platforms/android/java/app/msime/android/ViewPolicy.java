@@ -274,6 +274,21 @@ public final class ViewPolicy {
         view.setEllipsize(TextUtils.TruncateAt.END);
     }
 
+    /** Keep a text view on one line without changing its truncation policy. */
+    public static void setSingleLine(TextView view) {
+        view.setSingleLine(true);
+    }
+
+    /** Limit a text view to a maximum number of lines without changing truncation policy. */
+    public static void setMaxLines(TextView view, int maxLines) {
+        view.setMaxLines(maxLines);
+    }
+
+    /** Require a text view to occupy at least the requested number of lines. */
+    public static void setMinLines(TextView view, int minLines) {
+        view.setMinLines(minLines);
+    }
+
     /** Force a text view to occupy exactly the requested number of lines. */
     public static void setFixedLines(TextView view, int lines) {
         view.setMinLines(lines);

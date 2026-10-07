@@ -105,7 +105,7 @@ final class ImeLayoutRows {
         s.handwritingDownload = new Button(s);
         ViewPolicy.setAllCapsFalse(s.handwritingDownload);
         KeyboardGeometry.setKeyTextSize(s.handwritingDownload, KeyboardGeometry.DEFAULT_KEY_TEXT_SP);
-        s.handwritingDownload.setSingleLine(true);
+        ViewPolicy.setSingleLine(s.handwritingDownload);
         bindFeedbackAction(s.handwritingDownload, s::downloadHandwritingModel);
         FrameLayout.LayoutParams downloadParams = KeyboardGeometry.frameMatchWidthHeightPx(s.pixels(48));
         downloadParams.gravity = Gravity.CENTER;
@@ -578,7 +578,7 @@ final class ImeLayoutRows {
         twoLineFace(button, face);
         int horizontal = s.pixels(2);
         ViewPolicy.setHorizontalPadding(button, horizontal);
-        button.setMaxLines(2);
+        ViewPolicy.setMaxLines(button, 2);
         ViewPolicy.setAutoSizeSp(button, 7, 14, 1);
         button.setContentDescription(label);
         if (button instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.KEY);

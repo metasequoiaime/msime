@@ -185,7 +185,7 @@ final class KeyboardSheets {
             Ui.weightWrap(1f));
         if (value != null && !value.isEmpty()) {
             TextView state = Ui.styledLabel(context, value, Ui.TEXT_ROW_TITLE, 400, valueColor);
-            state.setSingleLine(true);
+            ViewPolicy.setSingleLine(state);
             LinearLayout.LayoutParams params = Ui.rowGapParams(context);
             row.addView(state, params);
         }
@@ -255,7 +255,7 @@ final class KeyboardSheets {
         } else {
             button = Ui.styledLabel(context, label, Ui.TEXT_BUTTON_SMALL, 500, Ui.subText(context));
             ViewPolicy.setCentered(button);
-            button.setSingleLine(true);
+            ViewPolicy.setSingleLine(button);
             Ui.setButtonPadding(button, context);
             Ui.setTextMinHeightDp(button, context, Ui.COMPACT_BUTTON_MIN_HEIGHT);
             button.setEnabled(false);
@@ -300,12 +300,12 @@ final class KeyboardSheets {
     static LinearLayout texts(Context context, String title, @Nullable String subtitle, int titleColor) {
         LinearLayout texts = Ui.column(context);
         TextView heading = Ui.styledLabel(context, title, Ui.TEXT_ROW_TITLE, 400, titleColor);
-        heading.setSingleLine(true);
+        ViewPolicy.setSingleLine(heading);
         texts.addView(heading);
         if (subtitle != null && !subtitle.isEmpty()) {
             TextView detail = Ui.styledLabel(context, subtitle, Ui.TEXT_ROW_SUBTITLE, 400,
                 Ui.subText(context));
-            detail.setSingleLine(true);
+            ViewPolicy.setSingleLine(detail);
             texts.addView(detail);
         }
         return texts;
@@ -347,7 +347,7 @@ final class KeyboardSheets {
         if (value != null && value.length() > 0) {
             TextView trailing = Ui.styledLabel(context, value, Ui.TEXT_ROW_SUBTITLE, 400,
                 Ui.subText(context));
-            trailing.setSingleLine(true);
+        ViewPolicy.setSingleLine(trailing);
             LinearLayout.LayoutParams valueParams = Ui.rowGapParams(context);
             row.addView(trailing, valueParams);
         }

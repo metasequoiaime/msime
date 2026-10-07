@@ -282,7 +282,7 @@ public final class AiSkinPage extends DetailPage {
         ViewPolicy.setCenteredVertically(header);
         LinearLayout heading = Ui.column(context);
         title = Ui.styledLabel(context, "", 17, 600, Ui.text(context));
-        title.setSingleLine(true);
+        ViewPolicy.setSingleLine(title);
         heading.addView(title);
         subtitle = Ui.styledLabel(context, "", 13, 400, Ui.subText(context));
         heading.addView(subtitle);
@@ -347,7 +347,7 @@ public final class AiSkinPage extends DetailPage {
         input.setHint("写下你想要的样子，例如「雨后竹林」");
         input.setHintTextColor(Ui.subText(context));
         input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
-        input.setMinLines(2);
+        ViewPolicy.setMinLines(input, 2);
         ViewPolicy.setTopStart(input);
         input.setFilters(new InputFilter[] {new InputFilter.LengthFilter(SkinJobsApi.MAX_PROMPT_CHARACTERS)});
         ViewPolicy.clearBackground(input);
@@ -361,7 +361,7 @@ public final class AiSkinPage extends DetailPage {
         List<TextView> chipViews = new ArrayList<>(SUGGESTIONS.length);
         for (String suggestion : SUGGESTIONS) {
             TextView chip = Ui.styledLabel(context, suggestion, 13, 400, Ui.text(context));
-            chip.setSingleLine(true);
+            ViewPolicy.setSingleLine(chip);
             Ui.setSymmetricPaddingDp(chip, context, 12, 6);
             ViewPolicy.setInteractive(chip, true);
             chip.setOnClickListener(ignored -> {

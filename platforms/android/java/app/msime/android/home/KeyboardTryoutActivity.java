@@ -100,7 +100,7 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
         field.setBackground(pill);
         // 聊天页的回车是发送：键盘回车显示「发送」，按下等同右边的发送键，不再插入换行把输入框越撑越高。长句仍会折行显示，最多 4 行。
         field.setHorizontallyScrolling(false);
-        field.setMaxLines(4);
+        ViewPolicy.setMaxLines(field, 4);
         field.setOnEditorActionListener((view, action, event) -> {
             if (action != android.view.inputmethod.EditorInfo.IME_ACTION_SEND) return false;
             // 请求进行中按钮是「停止」：回车不去点它，只有点按钮才停。
