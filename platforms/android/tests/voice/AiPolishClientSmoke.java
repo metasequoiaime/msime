@@ -28,6 +28,14 @@ public final class AiPolishClientSmoke {
         check(AiPolishConfiguration.acceptableText("𠮷".repeat(10_000)));
         check(!AiPolishConfiguration.acceptableText("a".repeat(10_001)));
         check(!AiPolishConfiguration.acceptableText("\ud800"));
+        expectInvalid("https://fixture.invalid/" + "界".repeat(700), "fixture-model",
+            "保留原意", "fixture-key", "endpoint uses a UTF-8 byte bound");
+        expectInvalid("https://fixture.invalid/v1/chat/completions", "😀".repeat(200),
+            "保留原意", "fixture-key", "model uses a UTF-8 byte bound");
+        expectInvalid("https://fixture.invalid/v1/chat/completions", "fixture-model",
+            "😀".repeat(5_000), "fixture-key", "prompt uses a UTF-8 byte bound");
+        expectInvalid("https://fixture.invalid/v1/chat/completions", "fixture-model",
+            "保留原意", "😀".repeat(5_000), "token uses a UTF-8 byte bound");
 
         CountDownLatch firstStarted = new CountDownLatch(1);
         CountDownLatch releaseFirst = new CountDownLatch(1);
@@ -68,6 +76,16 @@ public final class AiPolishClientSmoke {
             check(cancelStarted.await(2, TimeUnit.SECONDS));
             cancelled.cancel();
             check(!cancelledCallback.await(100, TimeUnit.MILLISECONDS));
+        }
+    }
+
+    private static void expectInvalid(String endpoint, String model, String prompt, String token,
+            String message) {
+        try {
+            new AiPolishConfiguration(endpoint, model, prompt, token);
+            throw new AssertionError(message);
+        } catch (IllegalArgumentException expected) {
+            // expected
         }
     }
 }

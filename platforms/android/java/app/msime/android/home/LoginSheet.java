@@ -24,7 +24,6 @@ import android.text.SpannableString;
 import android.text.Spanned;
 import android.text.method.LinkMovementMethod;
 import android.text.style.ClickableSpan;
-import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.inputmethod.EditorInfo;
@@ -149,7 +148,7 @@ final class LoginSheet {
             root.addView(options, Ui.matchWidth(activity, 0));
 
         status = Ui.styledLabel(activity, "", 13, 400, Ui.subText(activity));
-        status.setGravity(Gravity.CENTER_HORIZONTAL);
+        ViewPolicy.setCenteredHorizontally(status);
         ViewPolicy.setPoliteLiveRegion(status);
         ViewPolicy.hide(status);
         root.addView(status, Ui.matchWidth(activity, 12));
@@ -370,7 +369,7 @@ final class LoginSheet {
         }, start, start + "《隐私政策》".length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         TextView view = Ui.styledLabel(activity, spanned, 12, 400, Ui.subText(activity));
         view.setMovementMethod(LinkMovementMethod.getInstance());
-        view.setGravity(Gravity.CENTER_HORIZONTAL);
+        ViewPolicy.setCenteredHorizontally(view);
         return view;
     }
 

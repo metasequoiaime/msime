@@ -6,7 +6,7 @@ import java.util.Objects;
 
 /** Immutable, display-safe AI text-polish configuration. Secrets are never exposed by toString(). */
 public final class AiPolishConfiguration {
-    /** Maximum UTF-16 length accepted for a custom HTTPS endpoint. */
+    /** Maximum UTF-8 byte length accepted for a custom HTTPS endpoint. */
     public static final int MAX_ENDPOINT_LENGTH = 2048;
     public static final int MAXIMUM_TEXT_CODE_POINTS = 10_000;
     public static final int MAXIMUM_RESPONSE_BYTES = 1024 * 1024;
@@ -58,7 +58,7 @@ public final class AiPolishConfiguration {
     }
 
     private static URI validatedEndpoint(String value) {
-        if (value == null || value.isEmpty() || value.length() > MAX_ENDPOINT_LENGTH
+        if (value == null || value.isEmpty() || TextPolicy.utf8Length(value) > MAX_ENDPOINT_LENGTH
                 || TextPolicy.hasControl(value)) {
             throw new IllegalArgumentException("AI 接口地址无效");
         }
@@ -82,14 +82,16 @@ public final class AiPolishConfiguration {
 
     private static String bounded(String value, int maximum, String message) {
         String result = TextPolicy.trimmed(value);
-        if (result.isEmpty() || result.length() > maximum || TextPolicy.hasControlExceptWhitespace(result)
+        if (result.isEmpty() || TextPolicy.utf8Length(result) > maximum
+                || TextPolicy.hasControlExceptWhitespace(result)
                 || !TextPolicy.validUnicode(result)) throw new IllegalArgumentException(message);
         return result;
     }
 
     private static String boundedOptional(String value, int maximum, String message) {
         String result = TextPolicy.trimmed(value);
-        if (result.length() > maximum || TextPolicy.hasControl(result) || !TextPolicy.validUnicode(result))
+        if (TextPolicy.utf8Length(result) > maximum || TextPolicy.hasControl(result)
+                || !TextPolicy.validUnicode(result))
             throw new IllegalArgumentException(message);
         return result;
     }

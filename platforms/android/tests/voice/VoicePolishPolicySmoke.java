@@ -34,6 +34,9 @@ public final class VoicePolishPolicySmoke {
             "a control character is refused rather than smuggled into a header");
         check(!VoicePolishPolicy.usable(null, "m", "token", "p"),
             "a missing endpoint is refused rather than throwing");
+        check(!VoicePolishPolicy.usable(endpoint, "😀".repeat(200), "token", "p")
+                && !VoicePolishPolicy.usable(endpoint, "m", "😀".repeat(5_000), "p"),
+            "model and token use UTF-8 byte bounds");
 
         check(VoicePolishPolicy.sendable("你好"), "a transcript is worth sending");
         check(!VoicePolishPolicy.sendable("") && !VoicePolishPolicy.sendable("   ")

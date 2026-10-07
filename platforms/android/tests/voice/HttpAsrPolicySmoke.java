@@ -53,6 +53,9 @@ public final class HttpAsrPolicySmoke {
             "an unsupported provider is not usable however complete it looks");
         check(!HttpAsrPolicy.usable("openai", null, "whisper-1", "token"),
             "a missing endpoint is refused rather than throwing");
+        check(!HttpAsrPolicy.usable("openai", endpoint, "😀".repeat(200), "token")
+                && !HttpAsrPolicy.usable("openai", endpoint, "whisper-1", "😀".repeat(5_000)),
+            "model and token use UTF-8 byte bounds");
 
         // zh-CN and zh-TW are both zh to these APIs; which script comes back is this client's own
         // 简繁 setting, not the transcriber's to decide.

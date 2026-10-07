@@ -74,8 +74,7 @@ final class ImeCandidates {
             new int[] {selectedText, keyForeground}));
         applyCandidateTypeface(button);
         ViewPolicy.setMinimumWidth(button, s.pixels(30));
-        button.setMinHeight(0);
-        button.setMinimumHeight(0);
+        ViewPolicy.clearMinimumHeight(button);
         KeyboardGeometry.setHorizontalPaddingDp(button, s, 11);
         button.setLineSpacing(0, 1.0f);
         ViewPolicy.clearFontPadding(button);

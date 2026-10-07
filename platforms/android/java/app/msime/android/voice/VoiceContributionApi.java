@@ -14,7 +14,7 @@ public final class VoiceContributionApi {
     public static final int MAX_AUDIO_BYTES = 2 * 1024 * 1024;
     public static final long MAX_DURATION_MILLIS = 60_000;
     public static final int MAX_TRANSCRIPT = 2000;
-    /** Maximum length of language and provider identifiers carried in contribution metadata. */
+    /** Maximum UTF-8 byte length of metadata fields carried in a contribution. */
     public static final int MAX_METADATA_FIELD_LENGTH = 64;
 
     /** 一次贡献：识别语言、识别器、时长、识别文本、应用版本与 WAV 音频。 */
@@ -50,7 +50,8 @@ public final class VoiceContributionApi {
     }
 
     private static boolean nonEmpty(String value) {
-        return value != null && !value.isEmpty() && value.length() <= MAX_METADATA_FIELD_LENGTH
+        return value != null && !value.isEmpty()
+            && TextPolicy.utf8Length(value) <= MAX_METADATA_FIELD_LENGTH
             && !TextPolicy.hasControl(value) && TextPolicy.validUnicode(value);
     }
 
