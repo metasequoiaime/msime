@@ -638,7 +638,7 @@ struct Settings {
               ['loadPreferences', 'savePreferences', 'hostCapabilities', 'appVersion',
                 'scanSkinCatalog', 'readSkinImage', 'readSkinFont', 'readSkinToolbarCss',
                 'dictionaryManifest', 'dictionary', 'cloudDictionaryDownload',
-                'typingStatistics', 'vocabularyReview', 'openExternalUrl', 'copyText',
+                'typingStatistics', 'openExternalUrl', 'copyText',
                 'openSystemKeyboardSettings', 'listVoiceCaptureDevices', 'listFontFamilies',
                 'keyboardFeedback', 'onboardingStatus',
                 'showInputMethodPicker', 'importSkinFolder', 'startRequest', 'plugins'],
@@ -873,6 +873,8 @@ class SettingsBridge {
       });
     } else if (kind === 'custom_skin_library') {
       this.customSkinLibrary(payload).then(deliver).catch(failed);
+    } else if (kind === 'vocabulary_review') {
+      this.vocabularyReview(payload).then(deliver).catch(failed);
     } else if (kind === 'cloud_dictionary_snapshot') {
       this.cloudDictionarySnapshot(payload).then(deliver).catch(failed);
     } else if (kind === 'ai_models') {
@@ -1246,7 +1248,7 @@ class SettingsBridge {
     }
     const file: string = `${this.context.filesDir}/CommunityLibrary.json`;
     if (action.resource_operation === 'store_reply') {
-      return client.communityResourceLibrary(`{"file":${JSON.stringify(file)},`
+      return await client.communityResourceLibrary(`{"file":${JSON.stringify(file)},`
         + `"action":{"operation":"save_reply","item":${JSON.stringify(action.item ?? null)}}}`);
     }
     if (action.resource_operation === 'remove_reply') {
@@ -1254,7 +1256,7 @@ class SettingsBridge {
         file: file,
         action: { operation: 'remove', id: action.id ?? '' } as ResourceLibraryRemove
       };
-      return client.communityResourceLibrary(JSON.stringify(remove));
+      return await client.communityResourceLibrary(JSON.stringify(remove));
     }
     return this.accountBridge.request(actionDocument);
   }
@@ -1567,15 +1569,13 @@ class SettingsBridge {
   /**
    * 背单词: forward one action to the shared review session.
    *
-   * Synchronous, like `typingStatistics` beside it, because a bridge method must not return a
-   * Promise — the async channel never settles on this WebView, which is recorded twice in this
-   * file. An imported word list is a few hundred kilobytes, which the shared entry point reads in
-   * one call; the ceiling here is the envelope, not the file.
+   * The numbered bridge keeps the potentially multi-megabyte import and its file work off the
+   * ArkTS thread. The day is resolved here because this process knows the device's timezone.
    *
    * The day is resolved here rather than in the page. This process is the one that knows the
    * device's timezone, and the shared layer never derives a day from one.
    */
-  vocabularyReview(actionDocument: string): string {
+  private async vocabularyReview(actionDocument: string): Promise<string> {
     if (actionDocument.length === 0 || actionDocument.length > 8 * 1024 * 1024) {
       return JSON.stringify({ ok: false, error: 'invalid vocabulary review request' });
     }
@@ -1596,7 +1596,7 @@ class SettingsBridge {
       if (SettingsFormFactorCapabilities.resolve(deviceInfo.deviceType).wordbookPacks) {
         request.plugins = `${this.stateDirectory}/plugins`;
       }
-      return client.vocabularyReview(JSON.stringify(request));
+      return await client.vocabularyReview(JSON.stringify(request));
     } catch (error) {
       KeyboardLog.error(`vocabulary review failed: ${describeError(error)}`);
       return JSON.stringify({ ok: false, error: 'vocabulary review failed' });

@@ -49,7 +49,7 @@ export const keyboardSkinTrial: (request: string) => string;
  * `{file,action:{operation:"load"|"save_reply"|"remove",...}}` over the reply templates the user
  * kept. Every operation answers with the whole library; the keyboard process rereads the same file.
  */
-export const communityResourceLibrary: (request: string) => string;
+export const communityResourceLibrary: (request: string) => Promise<string>;
 /**
  * The decisions in AI skin generation, for a host that performs the requests itself.
  *
@@ -117,7 +117,7 @@ export const keySoundRenderNotes: (
 ) => Promise<string[]>;
 /** The statistics master switch under an absolute state directory: 1 on, 0 off or never written, -1 for an invalid directory or unreadable document. */
 export const typingStatisticsEnabled: (directory: string) => number;
-export const vocabularyReview: (request: string) => string;
+export const vocabularyReview: (request: string) => Promise<string>;
 /** Locked mobile history operations; every mutation answers with the latest complete entry list. */
 export const mobileClipboardHistory: (request: string) => string;
 export const emojiCatalog: (query: string, resources: string) => string;

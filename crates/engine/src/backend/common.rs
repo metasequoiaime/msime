@@ -8,7 +8,7 @@ use super::request::Request;
 use super::BackendError;
 use crate::shuangpin::profile::profile;
 use crate::shuangpin::ShuangpinProfile;
-use crate::types::{SchemeType, ShuangpinProfileKind, WordItem};
+use crate::types::{SchemeType, ShuangpinProfileKind, WordItem, WubiProfileKind};
 use crate::RuntimePaths;
 
 /// Where an operation reads. `dictionaries` is `resources` except inside a personal query, where it is the generation the user's overlay was replayed into.
@@ -48,14 +48,22 @@ impl Roots<'_> {
     }
 }
 
-/// `scheme`: `pinyin` (the default), `shuangpin` or `wubi`.
+/// `scheme`：`pinyin`（缺省）、`shuangpin`、`wubi` 或 `wubi98`。两种五笔都是 `SchemeType::Wubi`，读哪一版码表由 [`wubi_profile`] 决定。
 pub(super) fn scheme(request: &Request) -> Result<SchemeType, BackendError> {
     match request.string_or("scheme", "pinyin")? {
         "pinyin" => Ok(SchemeType::Quanpin),
         "shuangpin" => Ok(SchemeType::Shuangpin),
-        "wubi" => Ok(SchemeType::Wubi),
+        "wubi" | "wubi98" => Ok(SchemeType::Wubi),
         _ => Err(BackendError::InvalidRequest),
     }
+}
+
+/// 五笔码表版本：`scheme` 为 `wubi98` 时是 98 版，其余（含 `wubi`）是 86 版。服务端沿用 `wubi` 指 86 版，所以 98 版另起方案名，而不是复用表示双拼方案的 `profile`。
+pub(super) fn wubi_profile(request: &Request) -> Result<WubiProfileKind, BackendError> {
+    Ok(match request.string_or("scheme", "pinyin")? {
+        "wubi98" => WubiProfileKind::Wubi98,
+        _ => WubiProfileKind::Wubi86,
+    })
 }
 
 /// `profile`: a shuangpin layout name. An unknown name falls back to xiaohe, as the C++ `GetShuangpinProfile` did.

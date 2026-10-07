@@ -87,7 +87,8 @@ const MAX_COMMUNITY_RESOURCE_DETAIL_BYTES = 3 * 1024 * 1024;
 const MAX_SESSION_SECONDS = 86_400 * 30;
 const MAX_SESSION_MILLISECONDS = MAX_SESSION_SECONDS * 1000;
 const MAX_SESSION_BYTES = 64 * 1024;
-const MAX_SEARCH = 256;
+/** Clipboard searches use the shared account client's 1,024-byte query bound. */
+const MAX_SEARCH = 1024;
 
 /**
  * The chat bounds, which are the shared ones rather than a HarmonyOS reading of them.
@@ -699,6 +700,7 @@ function validateUser(value: unknown): value is Session["user"] {
   return (
     validString(user.id, 256) &&
     validString(user.display_name, 256, true) &&
+    [...user.display_name].length <= 64 &&
     validString(user.created_at, 128, true)
   );
 }
