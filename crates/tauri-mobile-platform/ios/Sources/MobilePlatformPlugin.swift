@@ -495,6 +495,8 @@ private struct SaveKeyboardPreferencesArgs: Decodable {
   let inlinePreedit: Bool
   /// Absent unless the page offered the iPad switch, so a phone never writes it.
   let tabletFullKeys: Bool?
+  /// 横屏分离式键盘，与 `tabletFullKeys` 一样只有页面给出了 iPad 开关时才带着。
+  let tabletSplitKeyboard: Bool?
   let dictionaryLearning: Bool
   let globalTheme: String
   let customKeyboardSkin: String?
@@ -662,6 +664,7 @@ private struct IOSKeyboardPreferenceStore {
       "candidatePaletteFollowsDesktop": defaults.bool(forKey: "candidate_palette_follows_desktop"),
       "inlinePreedit": defaults.bool(forKey: "keyboard.inline_preedit"),
       "tabletFullKeys": defaults.object(forKey: "keyboard.tablet.fullKeys") as? Bool ?? true,
+      "tabletSplitKeyboard": defaults.object(forKey: "keyboard.tablet.split") as? Bool ?? false,
       "dictionaryLearning": defaults.bool(forKey: "dictionaryLearningEnabled"),
       "globalTheme": Self.themeOrder.contains(theme) ? theme : "system",
       "customKeyboardSkin": customSkinJSON() as Any? ?? NSNull(),
@@ -694,6 +697,7 @@ private struct IOSKeyboardPreferenceStore {
     defaults.set(args.candidatePaletteFollowsDesktop, forKey: "candidate_palette_follows_desktop")
     defaults.set(args.inlinePreedit, forKey: "keyboard.inline_preedit")
     if let fullKeys = args.tabletFullKeys { defaults.set(fullKeys, forKey: "keyboard.tablet.fullKeys") }
+    if let split = args.tabletSplitKeyboard { defaults.set(split, forKey: "keyboard.tablet.split") }
     defaults.set(args.dictionaryLearning, forKey: "dictionaryLearningEnabled")
     defaults.set(args.globalTheme, forKey: "globalTheme")
     if let custom = args.customKeyboardSkin {
@@ -862,13 +866,16 @@ final class MobilePlatformPlugin: Plugin {
   private var skinFolderAccess: (url: URL, scoped: Bool)?
   private var previewFeedback: UIImpactFeedbackGenerator?
 
-  /// Only iPhones have the Taptic Engine keyboard feedback drives, so the settings page hides the vibration controls elsewhere, as the native settings app does; only iPads draw the full-width keyboard that carries the digit row and Tab key, so the switch is reported there alone. The idiom is read on the main thread, where UIKit answers it.
+  /// 只有 iPhone 有按键振动用的 Taptic Engine，所以别的设备上设置页像原生设置 App 一样不显示振动控件；只有 iPad 会画带数字行和 Tab 键、也能横屏分离的全宽键盘，所以这两个开关只在 iPad 上报告。设备类型在主线程上读，UIKit 在那里回答。
   private func resolveKeyboardPreferences(_ invoke: Invoke, _ snapshot: [String: Any]) {
     onMain {
       var snapshot = snapshot
       let idiom = UIDevice.current.userInterfaceIdiom
       snapshot["hapticsAvailable"] = idiom == .phone
-      if idiom != .pad { snapshot.removeValue(forKey: "tabletFullKeys") }
+      if idiom != .pad {
+        snapshot.removeValue(forKey: "tabletFullKeys")
+        snapshot.removeValue(forKey: "tabletSplitKeyboard")
+      }
       invoke.resolve(snapshot)
     }
   }

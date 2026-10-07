@@ -527,6 +527,7 @@ mod tests {
             inline_preedit: false,
             haptics_available: true,
             tablet_full_keys: None,
+            tablet_split_keyboard: None,
             dictionary_learning: false,
             global_theme: "custom".into(),
             custom_keyboard_skin: None,
