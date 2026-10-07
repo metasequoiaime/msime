@@ -291,7 +291,7 @@ public final class Telemetry {
     private static JSONObject call(Call call) {
         try {
             JSONObject root = new JSONObject(call.run());
-            if (Boolean.TRUE.equals(root.opt("ok"))) {
+            if (JsonPolicy.strictTrue(root.opt("ok"))) {
                 JSONObject value = root.optJSONObject("value");
                 return value == null ? new JSONObject() : value;
             }
