@@ -321,7 +321,7 @@ public final class KeyboardSkin {
      */
     public static String androidColor(String value) {
         if (value == null || !value.startsWith("#")) return null;
-        String digits = value.substring(1).toUpperCase(Locale.ROOT);
+        String digits = TextPolicy.uppercase(value.substring(1));
         if (!digits.matches("[0-9A-F]{6}|[0-9A-F]{8}")) return null;
         return digits.length() == 6 ? "#" + digits
             : "#" + digits.substring(6) + digits.substring(0, 6);
