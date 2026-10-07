@@ -349,4 +349,9 @@ public final class ViewPolicy {
     public static void hide(View view) {
         view.setVisibility(View.GONE);
     }
+
+    /** Hide a view while preserving its layout space. */
+    public static void setInvisible(View view) {
+        view.setVisibility(View.INVISIBLE);
+    }
 }
