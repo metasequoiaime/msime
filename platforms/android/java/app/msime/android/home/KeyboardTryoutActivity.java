@@ -115,7 +115,7 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
         // The system picker belongs here rather than on the home page: it is only useful once the
         // user is in front of an editor and finds another keyboard came up.
         MaterialButton switchIme = findViewById(R.id.tryout_switch);
-        switchIme.setOnClickListener(ignored ->
+        ViewPolicy.bindClick(switchIme, () ->
             getSystemService(InputMethodManager.class).showInputMethodPicker());
 
         // 收起键盘 only means something while the keyboard is up, as on Apple.
