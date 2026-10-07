@@ -6772,9 +6772,11 @@ public final class MSIMEInputService extends InputMethodService {
             else if (candidateScrollShown == View.VISIBLE) ViewPolicy.show(horizontalCandidateScroll);
             else ViewPolicy.setInvisible(horizontalCandidateScroll);
         }
-        if (verticalCandidateScroll != null)
-            verticalCandidateScroll.setVisibility(
-                !candidateHorizontal && !hasDiagnostic ? candidateScrollShown : View.GONE);
+        if (verticalCandidateScroll != null) {
+            if (candidateHorizontal || hasDiagnostic) ViewPolicy.hide(verticalCandidateScroll);
+            else if (candidateScrollShown == View.VISIBLE) ViewPolicy.show(verticalCandidateScroll);
+            else ViewPolicy.setInvisible(verticalCandidateScroll);
+        }
         LinearLayout activeCandidates = candidateHorizontal ? candidates : verticalCandidates;
         candidates.removeAllViews();
         if (verticalCandidates != null) verticalCandidates.removeAllViews();
