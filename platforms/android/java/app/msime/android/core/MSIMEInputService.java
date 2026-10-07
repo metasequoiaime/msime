@@ -6670,7 +6670,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (replyShortcutButton != null) {
             // 回复面板不属于任何输入方案，每个方案都显示这个入口；未配置 AI 时面板里会提示去设置。开着时始终可点，用来收起面板。
             ViewPolicy.hide(replyShortcutButton);
-            replyShortcutButton.setEnabled(replyOpen || aiPolishReady());
+            ViewPolicy.setEnabled(replyShortcutButton, replyOpen || aiPolishReady());
             ViewPolicy.setSelected(replyShortcutButton, replyOpen);
             imeStyler.styleButton(replyShortcutButton, KeyboardKeyRole.GLYPH, skin);
             replyShortcutButton.setContentDescription(replyOpen ? "收起高情商回复" : "生成高情商回复");
