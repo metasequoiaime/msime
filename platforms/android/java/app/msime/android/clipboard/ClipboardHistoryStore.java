@@ -71,11 +71,7 @@ public final class ClipboardHistoryStore {
     /**
      * Clear without being able to stop the caller.
      *
-     * <p>The keyboard drops the history as housekeeping - when the preference goes off, and again
-     * on every `onCreateInputView` while it is off. None of those is the user asking for anything,
-     * and a store that cannot be written is not a reason to refuse to draw a keyboard. It was:
-     * `onCreateInputView` threw `IllegalStateException` out of the framework's `showWindow`, so the
-     * input method died and Android fell back to another keyboard.
+     * <p>The keyboard drops the history as housekeeping - whenever a live reading of the preferences says it is off (see {@link ClipboardHistoryRetentionPolicy}). That is not the user asking for anything, and a store that cannot be written is not a reason to refuse to draw a keyboard. It was: the clear used to run in `onCreateInputView`, threw `IllegalStateException` out of the framework's `showWindow`, and the input method died so Android fell back to another keyboard.
      *
      * <p>The `清空` button keeps {@link #clear()}: there the user asked, and silence would be a lie.
      */

@@ -531,14 +531,22 @@ if rg -q 'putString\(ITEMS_KEY' \
   echo "Android must not write clipboard entries to its own private document" >&2
   exit 1
 fi
-# Dropping the history when the preference is off is housekeeping, and `onCreateInputView` does it
-# on every open. A store that cannot be written is not a reason to refuse to draw a keyboard: when
-# that clear threw, it threw out of the framework's showWindow and the input method died, so
-# Android fell back to another keyboard and the user never saw this one. The 清空 button keeps
-# `clear()` - there the user asked, and silence would be a lie.
+# Dropping the history when a live reading of the preference says it is off is housekeeping. A store that cannot be written is not a reason to refuse to draw a keyboard: when that clear threw from onCreateInputView, it threw out of the framework's showWindow and the input method died, so Android fell back to another keyboard and the user never saw this one. The 清空 button keeps `clear()` - there the user asked, and silence would be a lie.
 if ! rg -q 'clearQuietly' \
     "$repo_root/platforms/android/java/app/msime/android/clipboard/ClipboardHistoryStore.java"; then
   echo "Android clipboard housekeeping needs a clear that cannot stop the caller" >&2
+  exit 1
+fi
+# Only a live reading may clear it. onCreateInputView used to clear on the field's initial value and every editor start applied the runtime-options copy, whose clipboard_history is always the factory "off", so each new field and each switch back to this keyboard wiped the history (#5602).
+if rg -A 40 'onCreateInputView\(\) \{' \
+    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
+    | rg -q 'clipboardHistory\.clear'; then
+  echo "Android onCreateInputView must not clear the clipboard history before live preferences arrive" >&2
+  exit 1
+fi
+if ! rg -q 'ClipboardHistoryRetentionPolicy\.clearsHistory' \
+    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java"; then
+  echo "Android clipboard housekeeping must ask ClipboardHistoryRetentionPolicy before clearing" >&2
   exit 1
 fi
 for site in onCreateInputView applyClipboardPreference; do

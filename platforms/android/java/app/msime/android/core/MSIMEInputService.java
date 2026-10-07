@@ -640,7 +640,7 @@ public final class MSIMEInputService extends InputMethodService {
         applyToolbarPreferences(preferences);
         applyVoicePreferences(preferences);
         applyAiPreferences(preferences);
-        applyClipboardPreference(preferences);
+        applyClipboardPreference(preferences, appearance);
         applyChineseOutputPreference(preferences);
         applyCandidateGlossPreference(preferences);
         applyEnglishSuggestionsPreference(preferences);
@@ -1633,10 +1633,19 @@ public final class MSIMEInputService extends InputMethodService {
         if (previous != null && !previous.equals(next)) render();
     }
 
-    private void applyClipboardPreference(JSONObject preferences) {
-        clipboardHistoryEnabled = preferences != null
-            && preferences.optBoolean("clipboard_history", false);
-        if (!clipboardHistoryEnabled && clipboardHistory != null) clipboardHistory.clearQuietly();
+    /**
+     * @param live 这份偏好是不是实时读到的。`runtime-options.json` 的副本永远是出厂默认（剪贴板历史关），按它改开关并清空，就是每换一个输入框历史都被清掉的原因（#5602），见 {@link ClipboardHistoryRetentionPolicy}。
+     */
+    private void applyClipboardPreference(JSONObject preferences, boolean live) {
+        ClipboardHistoryRetentionPolicy.Source source = live
+            ? ClipboardHistoryRetentionPolicy.Source.LIVE
+            : ClipboardHistoryRetentionPolicy.Source.RUNTIME_OPTIONS_COPY;
+        Boolean preference = preferences == null ? null
+            : preferences.optBoolean("clipboard_history", false);
+        clipboardHistoryEnabled = ClipboardHistoryRetentionPolicy.enabledAfter(
+            clipboardHistoryEnabled, source, preference);
+        if (ClipboardHistoryRetentionPolicy.clearsHistory(source, preference) && clipboardHistory != null)
+            clipboardHistory.clearQuietly();
     }
 
     private void applyChineseOutputPreference(JSONObject preferences) {
@@ -6041,7 +6050,7 @@ public final class MSIMEInputService extends InputMethodService {
         voiceResultStore = files == null ? null
             : new VoiceResultStore(files.toPath().resolve("voice-handoff"));
         communityReplyLibrary = files == null ? null : new CommunityReplyLibrary(files.toPath());
-        if (!clipboardHistoryEnabled) clipboardHistory.clearQuietly();
+        // 这里不再按开关清空历史：进程刚起来时开关还是字段初始值（关），实时偏好还没读到，按它清空会在每次切回本输入法时抹掉整份历史（#5602）。开关关着时由下一次实时读偏好负责清空，见 ClipboardHistoryRetentionPolicy。
         keyboardRoot = new FrameLayout(this);
         PanelSurface surface = new PanelSurface(this);
         keyboardSurface = surface;
