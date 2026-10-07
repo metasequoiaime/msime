@@ -87,7 +87,7 @@ public final class CommunitySkinSheet {
         save.setText(actionLabel == null || actionLabel.isEmpty() ? "暂不支持导入" : actionLabel);
         ViewPolicy.setEnabled(save, onAction != null);
         if (onAction != null) {
-            save.setOnClickListener(ignored -> {
+            ViewPolicy.bindClick(save, () -> {
                 sheet.dismiss();
                 onAction.run();
             });
