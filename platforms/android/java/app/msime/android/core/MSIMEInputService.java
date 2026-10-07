@@ -5497,7 +5497,7 @@ public final class MSIMEInputService extends InputMethodService {
             case DOWNLOADING -> {
                 handwritingCanvas.setAcceptsInk(false);
                 handwritingDownload.setText(handwritingDownloading ? "正在下载…" : "正在检查模型…");
-                handwritingDownload.setEnabled(false);
+                ViewPolicy.setEnabled(handwritingDownload, false);
                 ViewPolicy.show(handwritingDownload);
                 showHandwritingStatus(handwritingDownloading
                     ? "正在下载中文手写模型…" : "正在检查中文手写模型…");
