@@ -316,7 +316,7 @@ final class LoginSheet {
             : Ui.outlined(fill, Ui.dp(activity, 12), Ui.atLeastOnePx(activity, 1), stroke);
         GradientDrawable mask = Ui.rounded(Color.WHITE, Ui.dp(activity, 12));
         int pressed = Ui.withAlpha(fill == Color.BLACK ? Color.WHITE : Ui.text(activity), 0.12f);
-        button.setBackground(new RippleDrawable(android.content.res.ColorStateList.valueOf(pressed), face, mask));
+        ViewPolicy.setBackground(button, new RippleDrawable(android.content.res.ColorStateList.valueOf(pressed), face, mask));
         if (icon != null) {
             ImageView glyph = Ui.decorativeIcon(activity, icon);
             LinearLayout.LayoutParams params = Ui.squareParams(activity, 20);
@@ -340,7 +340,7 @@ final class LoginSheet {
         field.setHintTextColor(Ui.subText(activity));
         GradientDrawable face = Ui.outlined(Ui.rowBackground(activity), Ui.dp(activity, 12),
             Ui.atLeastOnePx(activity, 1), Ui.hairline(activity));
-        field.setBackground(face);
+        ViewPolicy.setBackground(field, face);
         Ui.setHorizontalPaddingDp(field, activity, 14);
         Ui.setTextMinHeightDp(field, activity, 50);
         ViewPolicy.setCenteredVertically(field);
