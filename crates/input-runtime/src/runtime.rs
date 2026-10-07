@@ -4,7 +4,7 @@
 use super::*;
 pub(crate) use msime_engine::ordering::apply_order;
 use msime_engine::ordering::{
-    ensure_engine_order, rerank_pick, rotate_to_front, runner_up_order, OrderRow,
+    ensure_engine_order, rerank_pick, rotate_to_front, runner_up_order, ParallelOrderRows,
 };
 // 排序决策搬进了 `msime_engine::ordering`；`tests.rs` 仍按原来的 crate 内名字引用这几项，这里为它们重新导出。
 #[cfg(test)]
@@ -157,20 +157,13 @@ pub(crate) fn move_to_back<T>(items: &mut [T], moved: &[bool]) {
 }
 
 /// 排序决策读取的候选行，借用快照里的并行数组。调用方先确认各数组等长。
-fn order_rows(snapshot: &EngineSnapshot) -> Vec<OrderRow<'_>> {
-    snapshot
-        .candidates
-        .iter()
-        .zip(&snapshot.candidate_sources)
-        .zip(&snapshot.candidate_answers_key)
-        .zip(&snapshot.candidate_corrected)
-        .map(|(((text, &source), &answers_key), &corrected)| OrderRow {
-            text,
-            source,
-            answers_key,
-            corrected,
-        })
-        .collect()
+fn order_rows(snapshot: &EngineSnapshot) -> ParallelOrderRows<'_> {
+    ParallelOrderRows::new(
+        &snapshot.candidates,
+        &snapshot.candidate_sources,
+        &snapshot.candidate_answers_key,
+        &snapshot.candidate_corrected,
+    )
 }
 
 impl Runtime<Session> {
