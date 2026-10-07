@@ -16,6 +16,7 @@ use crate::types::{QueryRequest, SchemeType};
 
 /// The non-letter keys the editor still claims while the list is open: the phonetic keys that are not selection digits. Digits 1–9 and Space go to selection.
 pub const LIST_OPEN_SYMBOLS: &str = "0,./;-";
+const SMALL_READING_DEDUP: usize = 32;
 
 /// A key as the editor sees it. The session maps host keys and command 16 (`Command::ConvertHanja`, "open the candidate list") onto these.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -443,30 +444,14 @@ impl ZhuyinScheme {
                 .lookup_readings(&positions[start..count], usize::MAX)?;
             self.list.reserve(entries.len());
             // 九键下同一个字可能在同一位置的两个读音下各有一条，只留较重的那条。
-            let mut seen = HashSet::with_capacity(entries.len());
-            let duplicates = entries
-                .iter()
-                .enumerate()
-                .filter_map(|(index, (_, entry))| {
-                    (!seen.insert(entry.text.as_str())).then_some(index)
-                })
-                .collect::<Vec<_>>();
-            drop(seen);
-            let mut duplicates = duplicates.into_iter().peekable();
-            self.list.extend(entries.into_iter().enumerate().filter_map(
-                |(index, (key, entry))| {
-                    if duplicates.peek() == Some(&index) {
-                        duplicates.next();
-                        None
-                    } else {
-                        Some(ListCandidate {
-                            text: entry.text,
-                            start,
-                            key,
-                        })
-                    }
-                },
-            ));
+            let mut entries = entries;
+            deduplicate_reading_entries(&mut entries);
+            self.list
+                .extend(entries.into_iter().map(|(key, entry)| ListCandidate {
+                    text: entry.text,
+                    start,
+                    key,
+                }));
         }
         self.list_open = !self.list.is_empty();
         Ok(())
@@ -566,6 +551,46 @@ impl ZhuyinScheme {
         self.spelling_target = Some(target);
         Ok(())
     }
+}
+
+fn deduplicate_reading_entries(entries: &mut Vec<(String, LanguageEntry)>) {
+    if entries.len() <= SMALL_READING_DEDUP {
+        let mut write = 0;
+        for read in 0..entries.len() {
+            if entries[..write]
+                .iter()
+                .any(|(_, entry)| entry.text == entries[read].1.text)
+            {
+                continue;
+            }
+            if write != read {
+                entries.swap(write, read);
+            }
+            write += 1;
+        }
+        entries.truncate(write);
+        return;
+    }
+    let mut seen = HashSet::with_capacity(entries.len());
+    let duplicates = entries
+        .iter()
+        .enumerate()
+        .filter_map(|(index, (_, entry))| (!seen.insert(entry.text.as_str())).then_some(index))
+        .collect::<Vec<_>>();
+    drop(seen);
+    let mut duplicates = duplicates.into_iter().peekable();
+    let mut write = 0;
+    for read in 0..entries.len() {
+        if duplicates.peek() == Some(&read) {
+            duplicates.next();
+            continue;
+        }
+        if write != read {
+            entries.swap(write, read);
+        }
+        write += 1;
+    }
+    entries.truncate(write);
 }
 
 fn list_positions<'a>(syllables: &'a [Syllable]) -> [&'a [String]; MAX_SYLLABLES] {
@@ -722,6 +747,50 @@ mod tests {
 
         assert_eq!(positions[0], &["ㄋㄧˇ".to_owned()]);
         assert_eq!(positions[1], &["ㄋㄧˇ".to_owned(), "ㄌㄧˇ".to_owned()]);
+    }
+
+    #[test]
+    fn short_reading_dedup_keeps_first_rows_without_temporary_heap_state() {
+        let mut entries = (0..32)
+            .map(|index| {
+                (
+                    format!("key-{index}"),
+                    LanguageEntry {
+                        text: format!("字{}", index % 18),
+                        weight: index as i64,
+                    },
+                )
+            })
+            .collect::<Vec<_>>();
+        let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            deduplicate_reading_entries(&mut entries);
+        });
+        assert_eq!(allocations, 0);
+        assert_eq!(entries.len(), 18);
+        assert_eq!(entries[0].1.text, "字0");
+        assert_eq!(entries[17].1.text, "字17");
+
+        let mut large = (0..=SMALL_READING_DEDUP)
+            .map(|index| {
+                (
+                    format!("key-{index}"),
+                    LanguageEntry {
+                        text: format!("大字{index}"),
+                        weight: index as i64,
+                    },
+                )
+            })
+            .collect::<Vec<_>>();
+        large.push((
+            "duplicate".to_owned(),
+            LanguageEntry {
+                text: "大字0".to_owned(),
+                weight: 0,
+            },
+        ));
+        deduplicate_reading_entries(&mut large);
+        assert_eq!(large.len(), SMALL_READING_DEDUP + 1);
+        assert_eq!(large[0].1.text, "大字0");
     }
 
     #[test]
