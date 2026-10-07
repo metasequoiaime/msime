@@ -5490,7 +5490,7 @@ public final class MSIMEInputService extends InputMethodService {
                 handwritingCanvas.setAcceptsInk(false);
                 handwritingDownload.setText("下载中文手写模型");
                 handwritingDownload.setContentDescription("下载中文手写模型；完成后可离线识别");
-                handwritingDownload.setEnabled(true);
+                ViewPolicy.setEnabled(handwritingDownload, true);
                 ViewPolicy.show(handwritingDownload);
                 if (!handwritingDownloading) showHandwritingStatus("首次下载后可离线手写");
             }
