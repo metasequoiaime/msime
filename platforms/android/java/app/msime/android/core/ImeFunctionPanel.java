@@ -108,7 +108,7 @@ final class ImeFunctionPanel {
         for (int index = 0; index < entries.size(); index++) {
             Button tile = panel.entryView(index);
             boolean on = enabled.get(index);
-            tile.setEnabled(on);
+            ViewPolicy.setEnabled(tile, on);
             s.applyToolCardState(tile, on);
             panel.setState(index, on ? states.get(index) : FunctionPanelView.State.UNAVAILABLE);
             if (!on) ViewPolicy.setSelected(tile, false);
