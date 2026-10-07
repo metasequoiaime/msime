@@ -1,7 +1,5 @@
 //! Typo edges for the lattice's typo sentence (quanpin.md §10.5, QD:1056-1182): legal-to-legal syllable swaps, weak positions first, priced by kind and discounted by how often the user accepted that typo.
 
-use std::collections::HashSet;
-
 use crate::cache::FifoCache;
 use crate::dictionary::pinyin::PinyinDatabase;
 use crate::dictionary::DictRow;
@@ -97,7 +95,6 @@ fn plan_keys(
         .chain((0..n).filter(|&i| !weak[i]));
 
     let mut planned = Vec::with_capacity(TYPO_KEY_BUDGET);
-    let mut planned_keys = HashSet::with_capacity(TYPO_KEY_BUDGET);
     'positions: for position in positions {
         if planned.len() >= TYPO_KEY_BUDGET {
             break;
@@ -124,7 +121,7 @@ fn plan_keys(
                     let mut span = segments[start..start + length].to_vec();
                     span[position - start] = typo.syllable.clone();
                     let key = join_segments(&span);
-                    if !planned_keys.insert(key.clone()) {
+                    if planned_key_seen(&planned, &key) {
                         continue;
                     }
                     planned.push(PlannedKey {
@@ -143,8 +140,7 @@ fn plan_keys(
     planned
 }
 
-#[cfg(test)]
-fn contains_planned_key(planned: &[PlannedKey], key: &str) -> bool {
+fn planned_key_seen(planned: &[PlannedKey], key: &str) -> bool {
     planned.iter().any(|entry| entry.key == key)
 }
 
@@ -160,7 +156,23 @@ mod tests {
             key: "ni'hao".to_owned(),
             penalty: 1.0,
         }];
-        assert!(contains_planned_key(&planned, "ni'hao"));
-        assert!(!contains_planned_key(&planned, "ni'he"));
+        assert!(planned_key_seen(&planned, "ni'hao"));
+        assert!(!planned_key_seen(&planned, "ni'he"));
+    }
+
+    #[test]
+    fn planned_key_scan_uses_no_temporary_heap_state() {
+        let planned = vec![PlannedKey {
+            start: 0,
+            end: 2,
+            key: "ni'hao".to_owned(),
+            penalty: 1.0,
+        }];
+        let (found, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            planned_key_seen(&planned, "ni'hao")
+        });
+
+        assert!(found);
+        assert_eq!(allocations, 0);
     }
 }
