@@ -803,10 +803,6 @@ fn download_and_publish(
         downloaded_files.push((partial, name));
         offset += file.size;
     }
-    // 全部下完才移进暂存目录：中途失败时暂存目录会被删掉，已经下完的文件要留在 `.partial-<id>` 里给下次用。同在 root 下，改名不复制。
-    for (partial, name) in downloaded_files {
-        fs::rename(partial, pack_dir.join(name))?;
-    }
     progress(InstallProgress {
         stage: "verify",
         downloaded: total,
@@ -814,7 +810,25 @@ fn download_and_publish(
     });
     write_manifest(pack_dir, manifest)?;
     check_cancel(cancel)?;
-    let target = publish(root, id, pack_dir)?;
+    // 确认没有取消之后才把下完的文件移进暂存目录：暂存目录在失败时会被整个删掉，所以之后移动或发布失败时要把已经移过去的文件放回 `.partial-<id>`，留给下次用。同在 root 下，改名不复制。
+    let mut moved = 0;
+    let published = downloaded_files
+        .iter()
+        .try_for_each(|(partial, name)| {
+            fs::rename(partial, pack_dir.join(name))?;
+            moved += 1;
+            Ok::<(), LocalModelError>(())
+        })
+        .and_then(|()| publish(root, id, pack_dir));
+    let target = match published {
+        Ok(target) => target,
+        Err(error) => {
+            for (partial, name) in &downloaded_files[..moved] {
+                let _ = fs::rename(pack_dir.join(name), partial);
+            }
+            return Err(error);
+        }
+    };
     remove_leftover(partials);
     progress(InstallProgress {
         stage: "done",

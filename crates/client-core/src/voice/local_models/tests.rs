@@ -1085,6 +1085,44 @@ fn a_dropped_download_keeps_its_bytes_for_the_next_install() {
     assert_eq!(root_entries(root.path()), vec!["pack"]);
 }
 
+/// 全部下完、进入校验阶段时取消，下完的文件仍留在 `.partial-<id>` 里，下次安装不必重新下载。
+#[test]
+fn cancelling_while_verifying_keeps_the_finished_downloads() {
+    let root = tempfile::tempdir().unwrap();
+    let files = pack_files();
+    let fetcher = pack_fetcher("", PACK_B);
+    let cancel = AtomicBool::new(false);
+    let manifest = serde_json::json!({"pack": "pack"});
+    let result = install_files_with(
+        root.path(),
+        "pack",
+        &files,
+        &manifest,
+        &[""],
+        &fetcher,
+        &mut |event| {
+            if event.stage == "verify" {
+                cancel.store(true, Ordering::SeqCst);
+            }
+        },
+        &cancel,
+    );
+    assert!(
+        matches!(result, Err(LocalModelError::Cancelled)),
+        "{result:?}"
+    );
+    assert_eq!(root_entries(root.path()), vec![".partial-pack"]);
+    let partials = root.path().join(".partial-pack");
+    assert_eq!(
+        fs::read(partial_path(&partials, &files[0]).unwrap()).unwrap(),
+        PACK_A
+    );
+    assert_eq!(
+        fs::read(partial_path(&partials, &files[1]).unwrap()).unwrap(),
+        PACK_B
+    );
+}
+
 /// 一份没下完、但摘要已经对不上的文件（比如锁文件换过字节而长度没变）在下完时被删掉，下一个源从头下载。
 #[test]
 fn a_corrupt_source_falls_back_to_the_next_one_from_scratch() {
