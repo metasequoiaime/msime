@@ -372,7 +372,7 @@ public final class SkinJobsApi {
 
     /** Native planner responses must keep status flags as JSON booleans. */
     static Boolean strictBoolean(Object value) {
-        return value instanceof Boolean ? (Boolean) value : null;
+        return JsonPolicy.strictBoolean(value);
     }
 
     private static JSONObject value(String response) throws CloudApi.Failure {

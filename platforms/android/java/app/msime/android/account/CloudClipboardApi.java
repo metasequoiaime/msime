@@ -126,7 +126,7 @@ public final class CloudClipboardApi {
 
     /** org.json's optBoolean accepts string values; server response fields must keep their JSON type. */
     static Boolean strictBoolean(Object value) {
-        return value instanceof Boolean ? (Boolean) value : null;
+        return JsonPolicy.strictBoolean(value);
     }
 
     /** Retention days must be a JSON integer; reject strings and fractional numbers. */

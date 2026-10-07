@@ -9,6 +9,11 @@ public final class JsonPolicy {
         return Boolean.TRUE.equals(value);
     }
 
+    /** Accept only a JSON boolean, preserving {@code null} for every other value. */
+    public static Boolean strictBoolean(Object value) {
+        return value instanceof Boolean ? (Boolean) value : null;
+    }
+
     /** Accept only a JSON string; numbers and booleans are not coerced to text. */
     public static String strictString(Object value) {
         return value instanceof String ? (String) value : null;
