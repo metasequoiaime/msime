@@ -123,8 +123,9 @@ public final class KeyboardOptionsPage extends DetailPage {
         gestures.toggle("滑动输入符号", "在字母键上滑动，输入角标符号；长按字母键始终可以输入", swipeSymbols,
             checked -> saveLocal(AndroidLocalSettings.SWIPE_DOWN_SYMBOLS, checked));
         String swipeDirection = settings.choice(AndroidLocalSettings.SWIPE_SYMBOLS_DIRECTION);
-        gestures.nav("滑动方向", null, swipeDirectionLabel(swipeDirection), () -> pickSwipeDirection(swipeDirection))
-            .setEnabled(swipeSymbols);
+        GroupCard.Row directionRow = gestures.nav("滑动方向", null,
+            swipeDirectionLabel(swipeDirection), () -> pickSwipeDirection(swipeDirection));
+        ViewPolicy.setEnabled(directionRow, swipeSymbols);
         gestures.toggle("空格键滑动移动光标", null, settings.bool(AndroidLocalSettings.SPACE_CURSOR),
             checked -> saveLocal(AndroidLocalSettings.SPACE_CURSOR, checked));
         gestures.toggle("长按空格语音输入", null, settings.bool(AndroidLocalSettings.SPACE_VOICE),
@@ -140,7 +141,7 @@ public final class KeyboardOptionsPage extends DetailPage {
             String member = button[0];
             GroupCard.Row row = bar.toggle(button[1], null, toolbarButton(toolbar, settings, member),
                 checked -> saveToolbar(member, checked));
-            row.setEnabled(!hidden);
+            ViewPolicy.setEnabled(row, !hidden);
         }
 
         GroupCard more = GroupCard.add(target, "更多");
