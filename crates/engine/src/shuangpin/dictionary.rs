@@ -3,22 +3,23 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use super::ShuangpinProfile;
 use super::query::remove_manual_delimiters;
 use super::utils::{convert_seg_shuangpin_to_seg_complete_pinyin, pinyin_segmentation};
+use super::ShuangpinProfile;
 use crate::assets;
 use crate::cache::FifoCache;
 use crate::dictionary::pinyin::PinyinDatabase;
 use crate::helpcode::{
-    HelpcodeKeymap, SingleHelpcodeMatch, match_single_helpcode, matches_double_helpcodes,
+    match_single_helpcode, matches_double_helpcodes, HelpcodeKeymap, SingleHelpcodeMatch,
 };
 use crate::ime::online_batch::replace_online_candidate_batch;
 use crate::lattice::decode::make_sentence_lattice_options;
 use crate::lattice::merge::merge_lattice_candidates;
 use crate::lattice::neural::{
-    CONTEXT_CHARACTERS, MAX_RERANK_PATHS, NeuralReranker, shared_sentence_model,
+    shared_sentence_model, NeuralReranker, CONTEXT_CHARACTERS, MAX_RERANK_PATHS,
 };
 use crate::lattice::ngram::NgramTable;
+use crate::ordering::apply_order;
 use crate::paths::RuntimePaths;
 use crate::pinyin::jianpin::QuerySource;
 use crate::pinyin::segment::split_segments;
@@ -298,7 +299,7 @@ impl ShuangpinDictionary {
     /// Matched groups, then the full input read as pinyin, then the unmatched rows (SD:324-375).
     fn filter_with_single_helpcode(
         &mut self,
-        candidates: &[WordItem],
+        candidates: Vec<WordItem>,
         help_code: &str,
         raw: &str,
         keymap: &HelpcodeKeymap,
@@ -308,27 +309,12 @@ impl ShuangpinDictionary {
         }
         let prefer_last = help_code.as_bytes()[0].is_ascii_uppercase();
         let normalized = help_code.to_ascii_lowercase();
-        let mut result = Vec::with_capacity(candidates.len());
-        let mut unmatched = Vec::with_capacity(candidates.len());
-        for candidate in candidates {
-            match match_single_helpcode(&candidate.word, &normalized, keymap) {
-                SingleHelpcodeMatch::First if !prefer_last => result.push(candidate.clone()),
-                SingleHelpcodeMatch::Last if prefer_last => result.push(candidate.clone()),
-                SingleHelpcodeMatch::Both => result.push(candidate.clone()),
-                SingleHelpcodeMatch::None => unmatched.push(candidate.clone()),
-                _ => {}
-            }
-        }
-        for candidate in candidates {
-            let secondary = match match_single_helpcode(&candidate.word, &normalized, keymap) {
-                SingleHelpcodeMatch::First => prefer_last,
-                SingleHelpcodeMatch::Last => !prefer_last,
-                SingleHelpcodeMatch::Both | SingleHelpcodeMatch::None => false,
-            };
-            if secondary {
-                result.push(candidate.clone());
-            }
-        }
+        let matches: Vec<_> = candidates
+            .iter()
+            .map(|candidate| match_single_helpcode(&candidate.word, &normalized, keymap))
+            .collect();
+        let (mut result, unmatched) =
+            reorder_single_helpcode_rows(candidates, &matches, prefer_last);
         // The whole raw input, the last letter read as pinyin instead of a helpcode. The reference segments the raw input as one chunk, `'` included; the conversion drops the empty pieces that leaves (SD:370-372).
         let original_segmentation = pinyin_segmentation(raw, self.profile);
         let whole = self.generate_series(raw, &original_segmentation, "");
@@ -369,7 +355,7 @@ impl ShuangpinDictionary {
         // The base is cached under its own letters, without the raw input's `'` (SD:458).
         let candidates = self.generate_series(pure, segmentation, "");
         let result = match help_codes.len() {
-            1 => self.filter_with_single_helpcode(&candidates, help_codes, raw, keymap),
+            1 => self.filter_with_single_helpcode(candidates, help_codes, raw, keymap),
             2 => candidates
                 .into_iter()
                 .filter(|candidate| matches_double_helpcodes(&candidate.word, help_codes, keymap))
@@ -634,13 +620,53 @@ fn append_helpcode_rows(
     );
 }
 
+/// 按首匹配、次匹配、未匹配的顺序原地排列单字辅助码候选，并把未匹配行移动到单独的尾部缓冲。
+fn reorder_single_helpcode_rows(
+    mut candidates: Vec<WordItem>,
+    matches: &[SingleHelpcodeMatch],
+    prefer_last: bool,
+) -> (Vec<WordItem>, Vec<WordItem>) {
+    debug_assert_eq!(candidates.len(), matches.len());
+    let mut order = Vec::with_capacity(candidates.len());
+    for primary in [true, false] {
+        for (index, matched) in matches.iter().enumerate() {
+            let selected = match matched {
+                SingleHelpcodeMatch::First => {
+                    (!prefer_last && primary) || (prefer_last && !primary)
+                }
+                SingleHelpcodeMatch::Last => (prefer_last && primary) || (!prefer_last && !primary),
+                SingleHelpcodeMatch::Both => primary,
+                SingleHelpcodeMatch::None => false,
+            };
+            if selected {
+                order.push(index);
+            }
+        }
+    }
+    let unmatched_count = matches
+        .iter()
+        .filter(|matched| **matched == SingleHelpcodeMatch::None)
+        .count();
+    debug_assert_eq!(order.len(), candidates.len() - unmatched_count);
+    order.extend(
+        matches.iter().enumerate().filter_map(|(index, matched)| {
+            (*matched == SingleHelpcodeMatch::None).then_some(index)
+        }),
+    );
+    apply_order(&mut candidates, &order);
+    let unmatched = candidates.split_off(candidates.len() - unmatched_count);
+    (candidates, unmatched)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::ShuangpinDictionary;
     use super::append_helpcode_rows;
     use super::append_prefix_rows;
     use super::double_helpcode_cache_key;
     use super::prefix_group_count;
+    use super::reorder_single_helpcode_rows;
+    use super::ShuangpinDictionary;
+    use super::SingleHelpcodeMatch;
     use crate::helpcode::HelpcodeKeymap;
     use crate::paths::RuntimePaths;
     use crate::shuangpin::profile::profile;
@@ -661,6 +687,21 @@ mod tests {
     fn prefix_group_count_matches_manual_boundaries() {
         assert_eq!(prefix_group_count("ni'hao'ba"), 2);
         assert_eq!(prefix_group_count("nihao"), 0);
+    }
+
+    #[test]
+    fn single_helpcode_reordering_keeps_primary_secondary_and_unmatched_order() {
+        let rows = vec![row("甲"), row("乙"), row("丙")];
+        let matches = [
+            SingleHelpcodeMatch::Last,
+            SingleHelpcodeMatch::None,
+            SingleHelpcodeMatch::First,
+        ];
+
+        let (result, unmatched) = reorder_single_helpcode_rows(rows, &matches, true);
+
+        assert_eq!(words(&result), ["甲", "丙"]);
+        assert_eq!(words(&unmatched), ["乙"]);
     }
 
     #[test]
@@ -717,13 +758,16 @@ mod tests {
             .into_iter()
             .collect(),
         );
-        let candidates = [row("你"), row("嗯"), row("好")];
+        let candidates = vec![row("你"), row("嗯"), row("好")];
         let (filtered, allocations) = crate::ime::personal_rerank::allocations::count(|| {
-            dictionary.filter_with_single_helpcode(&candidates, "a", "", &keymap)
+            dictionary.filter_with_single_helpcode(candidates, "a", "", &keymap)
         });
 
         assert_eq!(words(&filtered), ["你", "嗯", "好"]);
-        assert_eq!(allocations, 12);
+        assert!(
+            allocations < 12,
+            "unexpected temporary allocations: {allocations}"
+        );
     }
 
     fn words(items: &[WordItem]) -> Vec<&str> {
