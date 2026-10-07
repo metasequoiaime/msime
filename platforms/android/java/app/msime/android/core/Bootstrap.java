@@ -32,6 +32,8 @@ public final class Bootstrap {
             installSoundPacks(context, HostOptionsPolicy.soundPacksDirectory(root));
             File configuration = new File(root, "runtime-options.json");
             File resources = new File(root, "bootstrap/resources");
+            // 必须在刷新和 extractDictionary 之前：extractDictionary 会删掉新安装包的锁里没有的文件，老用户已解压的日文词典就没了。
+            adoptJapaneseDictionary(context, root, resources);
             if (existingConfiguration(configuration)) {
                 refreshExistingConfiguration(context, configuration, resources);
                 return false;
@@ -100,7 +102,7 @@ public final class Bootstrap {
     /**
      * Non-English candidate glosses (scripts/build_offline_glosses.py), extracted beside the resources where the Engine looks for one zh-&lt;lang&gt;.db per target language.
      *
-     * <p>Unlike the dictionary they are not part of the verified configuration, so they follow the installed package: an update replaces them, and a package built without them removes any an earlier one left. A failure leaves the keyboard glossing in English only, never without an Engine.
+     * <p>Unlike the dictionary they are not part of the verified configuration, so they follow the installed package: an update replaces them, and a package built without them removes any an earlier one left. 不再随包带它们的安装包（full 版改为按需下载 offline-glosses 资源包）替换目录之前，先把上一个安装包留下的那组收编为资源包，收编不了才删。A failure leaves the keyboard glossing in English only, never without an Engine.
      */
     private static void installOfflineGlosses(Context context, File destination) {
         try {
@@ -121,6 +123,7 @@ public final class Bootstrap {
                 }
             }
             writeAtomically(new File(staging, ".package").toPath(), stamp.getBytes(StandardCharsets.UTF_8));
+            adoptPrevious(context.getFilesDir(), staging, destination, ResourcePacks.OFFLINE_GLOSSES);
             deleteTree(destination);
             Files.move(staging.toPath(), destination.toPath(), StandardCopyOption.ATOMIC_MOVE);
         } catch (Exception error) {
@@ -159,7 +162,7 @@ public final class Bootstrap {
     /**
      * The Cantonese, Zhuyin and Stroke dictionaries (scripts/fetch_language_dictionaries.py), extracted to language-dictionaries/ beside the resources, where host-api looks for `msime-cantonese.db`, `msime-zhuyin.db` and `msime-stroke.db` and names the directory in the runtime options.
      *
-     * <p>Like the offline glosses they are not part of the verified dictionary, so they follow the installed package: an update replaces them, and a package built without them removes any an earlier one left, which takes those schemes off the keyboard once the configuration is refreshed. The directory is swapped whole through a staging sibling and an atomic rename. A failure leaves Cantonese, Zhuyin and Stroke unavailable, never the keyboard without an Engine.
+     * <p>Like the offline glosses they are not part of the verified dictionary, so they follow the installed package: an update replaces them, and a package built without them removes any an earlier one left, which takes those schemes off the keyboard once the configuration is refreshed. 不再随包带它们的安装包（full 版改为按需下载 language-dictionaries 资源包）替换目录之前，先把上一个安装包留下的那组收编为资源包，host-api 从资源包里找到它们，收编不了才删。The directory is swapped whole through a staging sibling and an atomic rename. A failure leaves Cantonese, Zhuyin and Stroke unavailable, never the keyboard without an Engine.
      */
     private static void installLanguageDictionaries(Context context, File destination) {
         try {
@@ -180,6 +183,7 @@ public final class Bootstrap {
                 }
             }
             writeAtomically(new File(staging, ".package").toPath(), stamp.getBytes(StandardCharsets.UTF_8));
+            adoptPrevious(context.getFilesDir(), staging, destination, ResourcePacks.LANGUAGE_DICTIONARIES);
             deleteTree(destination);
             Files.move(staging.toPath(), destination.toPath(), StandardCopyOption.ATOMIC_MOVE);
         } catch (Exception error) {
@@ -232,20 +236,7 @@ public final class Bootstrap {
      */
     private static void extractDictionary(Context context, File resources) throws Exception {
         ensureSafeDirectory(resources.toPath());
-        JSONObject manifest;
-        // 各版本的 APK 都把本版本的资源锁放在这个文件名下（build-apk.sh 选的；full 的就是 resources/desktop-dictionary.lock.json 本身），下面只解出锁里列的文件。
-        try (InputStream input = context.getAssets().open("desktop-dictionary.lock.json")) {
-            // Small immutable APK manifest; large dictionary files are streamed below.
-            byte[] bytes = HttpBodyPolicy.readRequired(input, 16384);
-            manifest = new JSONObject(new String(bytes, StandardCharsets.UTF_8));
-        }
-        JSONArray artifacts = manifest.getJSONArray("artifacts");
-        java.util.Set<String> names = new java.util.HashSet<>(artifacts.length());
-        for (int index = 0; index < artifacts.length(); index++) {
-            String name = artifacts.getJSONObject(index).getString("name");
-            if (!name.matches("[A-Za-z0-9_.-]+") || name.contains("..")) throw new IllegalArgumentException("Invalid asset name");
-            names.add(name);
-        }
+        java.util.Set<String> names = packagedArtifacts(context);
         File[] existing = resources.listFiles();
         for (File entry : existing == null ? new File[0] : existing) {
             if (entry.getName().equals("helpcodes") || names.contains(entry.getName())) continue;
@@ -256,6 +247,82 @@ public final class Bootstrap {
                 copyAsset(input, new File(resources, name).toPath());
             }
         }
+    }
+
+    /** 本安装包随带的词库文件名：APK 里 `desktop-dictionary.lock.json` 列出的那些。 */
+    private static java.util.Set<String> packagedArtifacts(Context context) throws Exception {
+        JSONObject manifest;
+        // 各版本的 APK 都把本版本的资源锁放在这个文件名下（build-apk.sh 选的；full 的就是 resources/desktop-dictionary.lock.json 本身，不随包的按需资源已从中剔除），只解出锁里列的文件。
+        try (InputStream input = context.getAssets().open("desktop-dictionary.lock.json")) {
+            // Small immutable APK manifest; large dictionary files are streamed by the caller.
+            byte[] bytes = HttpBodyPolicy.readRequired(input, 16384);
+            manifest = new JSONObject(new String(bytes, StandardCharsets.UTF_8));
+        }
+        JSONArray artifacts = manifest.getJSONArray("artifacts");
+        java.util.Set<String> names = new java.util.HashSet<>(artifacts.length());
+        for (int index = 0; index < artifacts.length(); index++) {
+            String name = artifacts.getJSONObject(index).getString("name");
+            if (!name.matches("[A-Za-z0-9_.-]+") || name.contains("..")) throw new IllegalArgumentException("Invalid asset name");
+            names.add(name);
+        }
+        return names;
+    }
+
+    /** 日文词典那一组，与 crates/client-core/src/resources.rs 的 `ON_DEMAND_JAPANESE_ARTIFACTS` 一致：共享校验要求它们整组在或整组不在资源目录里。 */
+    private static final String[] JAPANESE_ARTIFACTS = {
+        "msime-japanese.dat", "msime-mozc_dictionary_oss_README.txt", "msime-mozc_LICENSE.txt",
+    };
+
+    /**
+     * 升级时把上一个安装包解压在 `bootstrap/resources` 里的日文词典收编为 `japanese` 资源包，不重新下载。
+     *
+     * <p>只在资源目录里有 `msime-japanese.dat`、而本安装包的锁里已经没有它时做：日文版和仍随包带日文的安装包照旧从资源目录读。收编是同一文件系统内的改名，不复制；输入法进程正内存映射着的词典 inode 不变，映射继续有效，下次获得焦点时 host-api 改从资源包读。收编成功（或同一组字节早已装好）后资源目录里不再留这组文件，共享校验按「整组缺席」通过。字节对不上或这组不完整时整组删掉，等用户添加日语时再按需下载；其他失败（例如另一个下载正占着这个资源包）原样保留，下次启动再试，那之前资源目录里仍是完整的一组。失败只记一条不含路径的日志，不影响准备。
+     */
+    private static void adoptJapaneseDictionary(Context context, File root, File resources) {
+        try {
+            if (!Files.isRegularFile(new File(resources, JAPANESE_ARTIFACTS[0]).toPath(), LinkOption.NOFOLLOW_LINKS)
+                    || packagedArtifacts(context).contains(JAPANESE_ARTIFACTS[0])) return;
+            try {
+                ResourcePacks.adopt(root, ResourcePacks.JAPANESE, resources);
+            } catch (ResourcePacks.Failure failure) {
+                android.util.Log.w("MSIMEBootstrap", "Japanese dictionary adoption failed: " + failure.code());
+                if (!unusableForAdoption(failure)) return;
+            }
+            for (String name : JAPANESE_ARTIFACTS) deleteTree(new File(resources, name));
+        } catch (Exception | LinkageError error) {
+            // Bootstrap has no editor or session input; never use this logging for keystrokes.
+            android.util.Log.w("MSIMEBootstrap", "Japanese dictionary adoption failed", error);
+        }
+    }
+
+    /**
+     * 新安装包不再带某一组可选文件（目录里没有任何 `.db`），而上一个安装包解压的那组还在 `previous` 里时，先把它收编为资源包 `pack`，再由调用方整体替换目录。收编失败时什么也不做，调用方照常删掉旧目录，这组改为按需下载。
+     */
+    private static void adoptPrevious(File root, File staging, File previous, String pack) {
+        if (containsDatabase(staging) || !containsDatabase(previous)) return;
+        try {
+            ResourcePacks.adopt(root, pack, previous);
+        } catch (ResourcePacks.Failure failure) {
+            android.util.Log.w("MSIMEBootstrap", "Resource pack adoption failed: " + pack + " " + failure.code());
+        }
+    }
+
+    private static boolean containsDatabase(File directory) {
+        File[] entries = directory.listFiles();
+        for (File entry : entries == null ? new File[0] : entries) {
+            if (entry.getName().endsWith(".db")
+                    && Files.isRegularFile(entry.toPath(), LinkOption.NOFOLLOW_LINKS)) return true;
+        }
+        return false;
+    }
+
+    /** 这些失败说明本机那组文件本身不能用（字节不对、缺文件或是符号链接），留着也没用。 */
+    private static boolean unusableForAdoption(ResourcePacks.Failure failure) {
+        return switch (failure.code()) {
+            case "local_model_size_mismatch", "local_model_checksum_mismatch",
+                 "local_model_missing_file", "local_model_unsafe_archive" -> true;
+            default -> false;
+        };
     }
 
     /**
