@@ -290,6 +290,7 @@ impl JapaneseDictionary {
     /// Each suffix is a contiguous sorted range, so querying those ranges avoids
     /// scanning unrelated readings in the whole `prefix` group. Overlapping
     /// suffixes are deduplicated before ranking.
+    #[cfg(test)]
     fn continuing_candidate_ids(&self, prefix: &str, next_kana: &[&str]) -> Vec<u32> {
         let mut matches = Vec::new();
         for kana in next_kana {
@@ -333,8 +334,43 @@ impl JapaneseDictionary {
         if prefix.is_empty() || next_kana.is_empty() || limit == 0 {
             return Vec::new();
         }
-        let matches = self.continuing_candidate_ids(prefix, next_kana);
-        self.best_lemmas(matches, limit)
+        let mut best: BinaryHeap<((i32, u32), u32)> = BinaryHeap::with_capacity(limit);
+        let mut consider = |id: u32| {
+            let key = (self.cost_of(id), id);
+            if best.len() < limit {
+                best.push((key, id));
+            } else if key < best.peek().expect("non-empty bounded heap").0 {
+                best.pop();
+                best.push((key, id));
+            }
+        };
+        for kana in next_kana {
+            if kana.is_empty() {
+                for index in self.lower_bound(prefix)..self.token_count {
+                    let reading = self.reading(&self.token_at(index));
+                    let Some(remaining) = reading.strip_prefix(prefix) else {
+                        break;
+                    };
+                    if !remaining.is_empty() {
+                        consider(index as u32);
+                    }
+                }
+                continue;
+            }
+            let mut query = String::with_capacity(prefix.len() + kana.len());
+            query.push_str(prefix);
+            query.push_str(kana);
+            let start = self.lower_bound(&query);
+            for index in start..self.token_count {
+                if !self.reading(&self.token_at(index)).starts_with(&query) {
+                    break;
+                }
+                consider(index as u32);
+            }
+        }
+        let mut ids: Vec<u32> = best.into_iter().map(|(_, id)| id).collect();
+        ids.sort_unstable_by_key(|id| (self.cost_of(*id), *id));
+        ids.into_iter().map(|id| self.lemma(id)).collect()
     }
 
     /// 10000 for an out-of-range id.
@@ -388,13 +424,6 @@ impl JapaneseDictionary {
             }
         }
         first
-    }
-
-    fn best_lemmas(&self, ids: Vec<u32>, limit: usize) -> Vec<JapaneseLemma> {
-        best_ids(ids, limit, |id| self.cost_of(id))
-            .into_iter()
-            .map(|id| self.lemma(id))
-            .collect()
     }
 
     fn lemma(&self, id: u32) -> JapaneseLemma {
