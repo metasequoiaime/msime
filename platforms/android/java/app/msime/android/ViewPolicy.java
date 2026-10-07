@@ -173,6 +173,11 @@ public final class ViewPolicy {
         view.setGravity(Gravity.CENTER_HORIZONTAL);
     }
 
+    /** Set an explicit child gravity on a linear layout. */
+    public static void setGravity(LinearLayout view, int gravity) {
+        view.setGravity(gravity);
+    }
+
     /** Center a text view's content along the horizontal axis. */
     public static void setCenteredHorizontally(TextView view) {
         view.setGravity(Gravity.CENTER_HORIZONTAL);
