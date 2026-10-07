@@ -167,7 +167,7 @@ public final class KeyboardSchemeCard extends FrameLayout {
         setTitleTypeface(isSelected);
         if (check.getLayoutParams() != checkBadgeParams) check.setLayoutParams(checkBadgeParams);
         check.setBackground(checkMark(accent, panelBackground));
-        check.setVisibility(isSelected ? View.VISIBLE : View.GONE);
+        ViewPolicy.setVisible(check, isSelected);
     }
 
     private void setTitleTypeface(boolean bold) {
