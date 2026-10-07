@@ -161,11 +161,17 @@ final class ImeStyler {
     }
 
     void applyKeyboardHeight(View node) {
+        applyKeyboardHeight(node, KeyboardGeometry.windowHeightAdjustment(
+            s.touchKeyboardHeightAdjustment, s.getResources().getConfiguration().screenHeightDp));
+    }
+
+    /** {@code adjustment} 是当前窗口里实际要画的调整量（{@link KeyboardGeometry#windowHeightAdjustment}），整棵树用同一个值。 */
+    private void applyKeyboardHeight(View node, int adjustment) {
         Object tag = node.getTag();
         if (tag instanceof MSIMEInputService.KeyboardHeightRole) {
             MSIMEInputService.KeyboardHeightRole role = (MSIMEInputService.KeyboardHeightRole) tag;
             int height = s.pixels(KeyboardGeometry.adjustedRowHeight(role.baseHeight,
-                s.touchKeyboardHeightAdjustment, role.rowCount, role.rowIndex));
+                adjustment, role.rowCount, role.rowIndex));
             height += s.halfSpacingPixels(s.touchRowSpacingTenths) * 2 * role.rowSpacings;
             if (node.getLayoutParams() != null) {
                 android.view.ViewGroup.LayoutParams params = node.getLayoutParams();
@@ -176,7 +182,7 @@ final class ImeStyler {
         if (node instanceof android.view.ViewGroup) {
             android.view.ViewGroup group = (android.view.ViewGroup) node;
             for (int index = 0; index < group.getChildCount(); index++)
-                applyKeyboardHeight(group.getChildAt(index));
+                applyKeyboardHeight(group.getChildAt(index), adjustment);
         }
     }
 

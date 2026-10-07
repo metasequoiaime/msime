@@ -61,7 +61,7 @@ public final class AndroidLocalSettings {
     public static final String VOICE_CONTRIBUTE_AUDIO = "platform.android.voice_contribute_audio";
     /** 「滑行输入」（{@link GlideTypingPolicy}），默认关。服务端的同步字段表还没有这个键，所以先只在本机。 */
     public static final String GLIDE_TYPING = "platform.android.glide_typing";
-    /** 设计范围的键盘高度调整（dp，-46..55，即 75%..130%）。缺省时宿主沿用共享偏好里的 `touch_keyboard_height_adjustment`（-12..48）。 */
+    /** 设计范围的键盘高度调整（dp，-46..110，即 75%..160%）。缺省时宿主沿用共享偏好里的 `touch_keyboard_height_adjustment`（-12..48）。 */
     public static final String KEYBOARD_HEIGHT_ADJUSTMENT = "platform.android.keyboard_height_adjustment";
     public static final String DEVELOPER_DEBUG_OVERLAY = "platform.android.developer.debug_overlay";
     public static final String DEVELOPER_LOG_LEVEL = "platform.android.developer.log_level";
@@ -73,8 +73,9 @@ public final class AndroidLocalSettings {
     public static final String MCP_INPUT_EVENTS = "platform.android.developer.mcp_input_events";
     public static final String MCP_CONFIG_SNAPSHOT = "platform.android.developer.mcp_config_snapshot";
 
-    public static final int HEIGHT_ADJUSTMENT_MIN = -46;
-    public static final int HEIGHT_ADJUSTMENT_MAX = 55;
+    /** 与 {@link KeyboardGeometry#MIN_DESIGN_HEIGHT_ADJUSTMENT_DP} / {@link KeyboardGeometry#MAX_DESIGN_HEIGHT_ADJUSTMENT_DP} 相同。 */
+    public static final int HEIGHT_ADJUSTMENT_MIN = KeyboardGeometry.MIN_DESIGN_HEIGHT_ADJUSTMENT_DP;
+    public static final int HEIGHT_ADJUSTMENT_MAX = KeyboardGeometry.MAX_DESIGN_HEIGHT_ADJUSTMENT_DP;
 
     /** 一项设置的类型、默认值与取值范围。 */
     public static final class Spec {

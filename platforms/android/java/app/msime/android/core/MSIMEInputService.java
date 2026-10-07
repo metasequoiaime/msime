@@ -1517,7 +1517,7 @@ public final class MSIMEInputService extends InputMethodService {
         incognitoEnabled = localSettings.bool(AndroidLocalSettings.INCOGNITO);
     }
 
-    /** 键盘高度：本地设置里有设计范围（-46..55）的值就用它，否则沿用共享偏好的 `touch_keyboard_height_adjustment`（-12..48）。 */
+    /** 键盘高度：本地设置里有设计范围（-46..110）的值就用它，否则沿用共享偏好的 `touch_keyboard_height_adjustment`（-12..48）。 */
     private int heightAdjustmentFrom(JSONObject preferences) {
         if (localSettings.has(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT)) {
             return KeyboardGeometry.designHeightAdjustment(
@@ -4780,7 +4780,7 @@ public final class MSIMEInputService extends InputMethodService {
         touchGeometrySaving = true;
         preferencesNotice = " · 正在保存键盘设置";
         final long operation = ++preferenceSaveGeneration;
-        // 高度是设计范围（75%..130%），共享偏好放不下，写进本地设置；恢复默认时删掉本地值。
+        // 高度是设计范围（75%..160%），共享偏好放不下，写进本地设置；恢复默认时删掉本地值。
         final Integer height = reset ? null : touchKeyboardHeightAdjustment;
         renderLayoutSettingsState();
         render();
@@ -5910,6 +5910,11 @@ public final class MSIMEInputService extends InputMethodService {
         PanelSurface surface = new PanelSurface(this);
         keyboardSurface = surface;
         keyboardRoot.addView(keyboardSurface);
+        // 内联高度条在百分比后面显示键盘实际画出来的高度：外框每次重新布局都把高度交给它，拖动预览、旋转和窗口高度封顶都会反映在这里。
+        keyboardSurface.addOnLayoutChangeListener((changed, left, top, right, bottom,
+                oldLeft, oldTop, oldRight, oldBottom) -> {
+            if (inlineHeightBar != null) inlineHeightBar.setHeightPixels(bottom - top);
+        });
         imeStyler.applyKeyboardSurfaceGeometry();
         LinearLayout keyboard = KeyboardGeometry.column(this);
         WindowLayout.fitSystemBars(keyboard);

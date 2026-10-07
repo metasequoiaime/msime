@@ -115,7 +115,8 @@ public final class AndroidLocalSettingsSmoke {
         AndroidLocalSettings.Spec height = AndroidLocalSettings.spec(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT);
         check(Integer.valueOf(-46).equals(height.accept(-46)), "height 75%");
         check(Integer.valueOf(55).equals(height.accept(55)), "height 130%");
-        check(height.accept(-47) == null && height.accept(56) == null, "height outside the design range");
+        check(Integer.valueOf(110).equals(height.accept(110)), "height 160% (#5564)");
+        check(height.accept(-47) == null && height.accept(111) == null, "height outside the design range");
 
         Map<String, Object> raw = new LinkedHashMap<>();
         raw.put(AndroidLocalSettings.APP_THEME, "dongxue");

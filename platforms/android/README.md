@@ -92,6 +92,8 @@ Java/Kotlin 宿主按 `java/app/msime/android/<feature>/` 分为 `account`、`ca
 
 无障碍增减键盘高度每一步都会保存：拖动在松手时 commit，而无障碍调整没有松手这一刻，只预览会被下一次偏好应用覆盖回原值。
 
+功能面板「键盘高度」与设置页的「键盘高度」滑块按 75%–160% 调整（100% 的键区是四行 46 dp，共 184 dp），值以 dp 调整量（−46…110）存在本地设置 `platform.android.keyboard_height_adjustment`，不进共享偏好（共享的 `touch_keyboard_height_adjustment` 仍是 −12…48，只在本地没写过时沿用）。130%（55 dp）以内在任何窗口里照画；更高的部分最多占当前窗口高度（`Configuration.screenHeightDp`）的 14%，竖屏手机能用满 160%，键盘到屏幕一半以上，横屏手机止于 130%，旋转回来自动恢复，存着的值不变（`KeyboardGeometry.windowHeightAdjustment`）。内联高度条的说明在百分比后面显示键盘此刻实际画出来的像素高度，拖动时随布局刷新。123 / #+= 层自带的底栏与功能行一样固定 46 dp，不分摊高度调整。
+
 键盘工具栏的“设置”面板以远端默认分支固定来源 `MSIME-Apple@3d300cdc62fe0d09565b30bd3e4165571fb91562` 复刻透明实时调整层：键盘保持可见，键盘区域左右拖动按 Apple 的主轴锁定规则调整按键间距，上下拖动调整行间距，顶部工具条拖动把手调整高度；Android 额外保留顶部语音入口开关。高度在平台默认键区基础上支持 -12–+48 dp，并以整数写入共享 `touch_keyboard_height_adjustment`；26 键三行均分增量，九键整体增减，手写把增量用于书写与工具区。间距支持 3.0–6.0 dp 和 4.0–10.0 dp，并以 0.1 dp 精度写入共享 `touch_key_spacing_tenths` / `touch_row_spacing_tenths`。拖动时直接更新已有 View 的高度或 margin，不重建按键树、Engine 或丢失当前组词与手写笔迹；松手、无障碍增减及切换语音入口后通过共享 revision CAS 保存，冲突或写入失败会恢复最近一次已接受快照。
 
 剪贴板历史的拒绝理由按 Apple `ClipboardHistoryStore.Failure` 分开命名：空白文本、单条超过 10,000 字或 40,000 字节、以及 50 条全部固定各有自己的提示，最后一条明确要求先取消固定或删除一条；Android 没有 iOS 的粘贴授权提示，空白文案相应去掉该从句。全部固定是独立的 `ClipboardHistory.FullException`，与读不出或写不回历史文件的普通 `IllegalStateException` 分开，避免把用户指向错误的动作。面板状态行同时说明点按插入以及在「管理」中固定或删除。理由分类与文案由无 Android 依赖的 `ClipboardHistoryPolicy` 提供并在 JVM 回归中验证。
