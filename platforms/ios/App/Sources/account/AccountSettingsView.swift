@@ -12,8 +12,9 @@ private func isCancellation(_ error: Error) -> Bool {
 
 struct AccountSettingsView: View {
   @Environment(\.horizontalSizeClass) private var widthClass
-  @State private var signedIn = false
+  @StateObject private var account = AppleAccountModel()
   @State private var replay: Replay?
+  private var signedIn: Bool { account.signedIn }
 
   /// What 我的 can play again. Both cover the whole window, so neither slides up as a sheet over the tab bar.
   private enum Replay: String, Identifiable {
@@ -27,7 +28,7 @@ struct AccountSettingsView: View {
 
   var body: some View {
     List {
-      AppleAccountSection(signedIn: $signedIn)
+      AppleAccountSection(account: account)
 
       Section {
         if signedIn {
@@ -126,6 +127,7 @@ struct AccountSettingsView: View {
     .navigationTitle("我的")
     .navigationBarTitleDisplayMode(.large)
     .tint(MetasequoiaTheme.accent)
+    .appleAccountPresentation(account)
     .fullScreenCover(item: $replay) { replay in
       switch replay {
       case .onboarding:
@@ -154,20 +156,122 @@ struct AccountSettingsView: View {
   }
 }
 
-struct AppleAccountSection: View {
-  @Binding var signedIn: Bool
-  @StateObject private var codeModel = CodeLoginModel()
-  @Environment(\.colorScheme) private var colorScheme
-  @State private var codeChannel: CodeLoginChannel?
-  @State private var user: CommunityUser?
-  @State private var needsRecovery = false
-  @State private var busy = false
-  @State private var message: String?
-  @State private var challenge: CommunityChallenge?
+/// AppleAccountSection 的登录状态。它不放在那个视图的 @State 里，因为 task、弹窗和提示要由外面的 List/Form 挂（见 `appleAccountPresentation`），两边得看同一份状态。
+@MainActor
+final class AppleAccountModel: ObservableObject {
+  @Published var signedIn = false
+  @Published var user: CommunityUser?
+  @Published var needsRecovery = false
+  @Published var busy = false
+  @Published var message: String?
+  @Published var challenge: CommunityChallenge?
+  @Published var codeChannel: CodeLoginChannel?
+  let codeModel = CodeLoginModel()
   private let api = SkinCommunityAPI.shared
 
+  func load() async {
+    await codeModel.loadProviders()
+    do { user = try await api.currentUser(); signedIn = user != nil }
+    catch { if !isCancellation(error) { needsRecovery = true; report(error) } }
+    if signedIn {
+      do { user = try await api.profile().user }
+      catch { report(error) }
+    } else { await prepareLogin() }
+  }
+
+  /// 验证码登录弹窗关掉之后重新取一次当前用户：登录成功时弹窗是自己关的。
+  func refreshUser() {
+    Task {
+      do { user = try await api.currentUser(); signedIn = user != nil }
+      catch { report(error) }
+    }
+  }
+
+  /// 资料页退出登录之后回到这里。清掉本地会话状态,并把下一次 Apple 登录的挑战重新取一份。
+  func signOut() {
+    signedIn = false
+    user = nil
+    Task { await prepareLogin() }
+  }
+
+  func signInWithApple(challenge: CommunityChallenge, identityToken token: String) {
+    run {
+      do { try await self.api.login(challenge: challenge.challenge_id, identityToken: token) }
+      catch { await self.prepareLogin(); throw error }
+      self.user = try await self.api.currentUser()
+      self.signedIn = true
+    }
+  }
+
+  func clearExpiredLogin() {
+    run {
+      try await self.api.clearExpiredLogin()
+      self.signedIn = false; self.needsRecovery = false
+      await self.prepareLogin()
+    }
+  }
+
+  func prepareLogin() async {
+    challenge = nil
+    guard codeModel.providers["apple"] == true else { return }
+    do { challenge = try await api.challenge() } catch { report(error) }
+  }
+  /// 取消不写进 message,别的都写。alert 绑在 message 上,写进去就是弹出来。
+  func report(_ error: Error) {
+    guard !isCancellation(error) else { return }
+    message = error.localizedDescription
+  }
+  private func run(_ action: @escaping @MainActor () async throws -> Void) {
+    guard !busy else { return }; busy = true
+    Task {
+      defer { busy = false }
+      do { try await action() }
+      catch {
+        report(error)
+        if let state = try? await api.signedIn() {
+          signedIn = state
+          if !state { await prepareLogin() }
+        }
+      }
+    }
+  }
+}
+
+/// 登录相关的 task、弹窗和提示挂在包住 AppleAccountSection 的 List/Form 上，不挂在 AppleAccountSection 上：它的 body 是 Section，List 会把 Section 上的修饰符分给每一行，于是同一个登录弹窗有好几份呈现者。App 切到后台再回来时列表会重配这些行，弹窗被另一份重建，填好的邮箱和拿到的验证码挑战就一起丢了。
+private struct AppleAccountPresentation: ViewModifier {
+  @ObservedObject var account: AppleAccountModel
+  func body(content: Content) -> some View {
+    content
+      .task { await account.load() }
+      .sheet(item: $account.codeChannel, onDismiss: { account.refreshUser() }) { channel in
+        CodeLoginView(model: account.codeModel, channel: channel)
+      }
+      .alert("账号与登录", isPresented: Binding(get: { account.message != nil }, set: { if !$0 { account.message = nil } })) {
+        Button("好", role: .cancel) {}
+      } message: { Text(account.message ?? "") }
+  }
+}
+
+extension View {
+  /// 用了 AppleAccountSection 的 List/Form 必须挂这个，登录方式、验证码弹窗和错误提示都靠它。
+  func appleAccountPresentation(_ account: AppleAccountModel) -> some View {
+    modifier(AppleAccountPresentation(account: account))
+  }
+}
+
+struct AppleAccountSection: View {
+  @ObservedObject var account: AppleAccountModel
+  @ObservedObject private var codeModel: CodeLoginModel
+  @Environment(\.colorScheme) private var colorScheme
+
+  init(account: AppleAccountModel) {
+    self.account = account
+    codeModel = account.codeModel
+  }
+
+  private var signedIn: Bool { account.signedIn }
   private var displayName: String {
-    user?.preferredDisplayName ?? "水杉用户"
+    account.user?.preferredDisplayName ?? "水杉用户"
   }
 
   /// The account card of the design: a 56pt round avatar -- the name's first character on the accent when signed in, a question mark on grey when not -- beside the name in 18pt bold and one line of status.
@@ -190,19 +294,12 @@ struct AppleAccountSection: View {
     .contentShape(Rectangle())
   }
 
-  /// 资料页退出登录之后回到这里。清掉本地会话状态,并把下一次 Apple 登录的挑战重新取一份。
-  private func signOut() {
-    signedIn = false
-    user = nil
-    Task { await prepareLogin() }
-  }
-
   var body: some View {
     Section {
       // 资料页是推进去的二级页面,不是浮层:它要承载退出登录这类收尾操作,而这些操作做完之后回到的是一个已经变了的「我的」页 —— 浮层盖在旧内容上关掉的那一下,看起来就像什么都没发生。
       if signedIn {
         NavigationLink {
-          AccountProfileEditor(initialUser: user, onSaved: { user = $0 }, onSignedOut: signOut)
+          AccountProfileEditor(initialUser: account.user, onSaved: { account.user = $0 }, onSignedOut: account.signOut)
         } label: {
           profileCard
         }
@@ -214,7 +311,7 @@ struct AppleAccountSection: View {
           .accessibilityIdentifier("accountProfileCard")
       }
       if !signedIn {
-        if let challenge {
+        if let challenge = account.challenge {
           SignInWithAppleButton(.signIn) { request in
             request.nonce = challenge.nonce
             request.state = challenge.challenge_id
@@ -224,76 +321,29 @@ struct AppleAccountSection: View {
               guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential,
                     credential.state == challenge.challenge_id,
                     let data = credential.identityToken, let token = String(data: data, encoding: .utf8) else {
-                message = "Apple 登录未返回有效凭据，请重试。"; Task { await prepareLogin() }; return
+                account.message = "Apple 登录未返回有效凭据，请重试。"; Task { await account.prepareLogin() }; return
               }
-              run {
-                do { try await api.login(challenge: challenge.challenge_id, identityToken: token) }
-                catch { await prepareLogin(); throw error }
-                user = try await api.currentUser()
-                signedIn = true
-              }
+              account.signInWithApple(challenge: challenge, identityToken: token)
             case .failure(let error):
-              if (error as? ASAuthorizationError)?.code != .canceled { message = error.localizedDescription }
-              Task { await prepareLogin() }
+              if (error as? ASAuthorizationError)?.code != .canceled { account.message = error.localizedDescription }
+              Task { await account.prepareLogin() }
             }
-          }.accessibilityIdentifier("backendAppleSignIn").signInWithAppleButtonStyle(colorScheme == .dark ? .white : .black).frame(height: 44).disabled(busy)
+          }.accessibilityIdentifier("backendAppleSignIn").signInWithAppleButtonStyle(colorScheme == .dark ? .white : .black).frame(height: 44).disabled(account.busy)
         } else if codeModel.providers["apple"] == true {
-          Button("准备 Apple 登录") { Task { await prepareLogin() } }.disabled(busy)
+          Button("准备 Apple 登录") { Task { await account.prepareLogin() } }.disabled(account.busy)
         }
         ForEach(CodeLoginChannel.allCases) { channel in
           if codeModel.providers[channel.rawValue] == true {
-            Button(channel.title) { codeModel.user = nil; codeModel.message = nil; codeChannel = channel }
+            Button(channel.title) { codeModel.user = nil; codeModel.message = nil; account.codeChannel = channel }
               .accessibilityIdentifier("backendCodeLogin_\(channel.rawValue)")
           }
         }
-        Button("刷新登录方式") { Task { await codeModel.loadProviders(); await prepareLogin() } }
+        Button("刷新登录方式") { Task { await codeModel.loadProviders(); await account.prepareLogin() } }
         if let status = codeModel.message { Text(status).font(.caption).foregroundStyle(.secondary) }
         Text("登录后可在皮肤社区发布、下载和评分。日常输入无需登录。").font(.caption).foregroundStyle(.secondary)
-        if needsRecovery {
-          Button("清除失效登录状态") { run { try await api.clearExpiredLogin(); signedIn = false; needsRecovery = false; await prepareLogin() } }
+        if account.needsRecovery {
+          Button("清除失效登录状态") { account.clearExpiredLogin() }
             .font(.caption)
-        }
-      }
-    }
-    .task {
-      await codeModel.loadProviders()
-      do { user = try await api.currentUser(); signedIn = user != nil }
-      catch { if !isCancellation(error) { needsRecovery = true; report(error) } }
-      if signedIn {
-        do { user = try await api.profile().user }
-        catch { report(error) }
-      } else { await prepareLogin() }
-    }
-    .sheet(item: $codeChannel, onDismiss: {
-      Task {
-        do { user = try await api.currentUser(); signedIn = user != nil }
-        catch { report(error) }
-      }
-    }) { channel in CodeLoginView(model: codeModel, channel: channel) }
-    .alert("账号与登录", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
-      Button("好", role: .cancel) {}
-    } message: { Text(message ?? "") }
-  }
-  @MainActor private func prepareLogin() async {
-    challenge = nil
-    guard codeModel.providers["apple"] == true else { return }
-    do { challenge = try await api.challenge() } catch { report(error) }
-  }
-  /// 取消不写进 message,别的都写。alert 绑在 message 上,写进去就是弹出来。
-  private func report(_ error: Error) {
-    guard !isCancellation(error) else { return }
-    message = error.localizedDescription
-  }
-  private func run(_ action: @escaping @MainActor () async throws -> Void) {
-    guard !busy else { return }; busy = true
-    Task {
-      defer { busy = false }
-      do { try await action() }
-      catch {
-        report(error)
-        if let state = try? await api.signedIn() {
-          signedIn = state
-          if !state { await prepareLogin() }
         }
       }
     }
