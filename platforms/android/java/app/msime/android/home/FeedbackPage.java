@@ -221,7 +221,7 @@ public final class FeedbackPage extends DetailPage {
             remove.setBackground(Ui.pill(Ui.color(context, com.google.android.material.R.attr.colorSurfaceInverse)));
             Ui.setSymmetricPaddingDp(remove, requireContext(), 3, 3);
             remove.setContentDescription("移除截图 " + (index + 1));
-            remove.setOnClickListener(ignored -> {
+            ViewPolicy.bindClick(remove, () -> {
                 if (sending) return;
                 screenshots.remove(position);
                 renderThumbnails();
