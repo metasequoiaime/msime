@@ -339,7 +339,11 @@ static void TestCandidateSurfaceTheme(MSIMEAppearancePreferences *preferences) {
 // The toolbar preview paints the divider in the candidate outline, as the panel does, so a theme change reaches it. The logo beside it is the brand mark and keeps its own colours.
 static void TestToolbarPreviewChrome(MSIMEAppearancePreferences *preferences) {
     NSString *globalTheme = preferences.globalTheme;
+    const BOOL showsAppLogo = preferences.showsAppLogo;
+    // 带 logo 和不带 logo（左端换成窄 24pt 的握把）两种布局都要量。
+    for (NSNumber *logo in @[@YES, @NO])
     for (NSString *skin in @[@"shuishan", @"paper"]) {
+        preferences.showsAppLogo = logo.boolValue;
         preferences.globalTheme = skin;
         MSIMEToolbarPreviewView *toolbar = [[MSIMEToolbarPreviewView alloc] initWithFrame:NSMakeRect(0, 0, 580, 100)];
         toolbar.preferences = preferences;
@@ -353,14 +357,16 @@ static void TestToolbarPreviewChrome(MSIMEAppearancePreferences *preferences) {
         assert(tokens.border.a > .01f);
         // The divider is a 1.2pt bar 41pt into the toolbar, which sits at the canvas's 14pt inset and is centred vertically between 34pt down and 14pt above the bottom. Sampled mid-bar, it is the outline laid over the toolbar surface just left of it.
         const CGFloat y = (34.0 + NSHeight(toolbar.bounds) - 14.0) / 2.0;
-        NSColor *divider = [[bitmap colorAtX:(NSInteger)((14.0 + 41.6 * scale) * pixels) y:(NSInteger)(y * pixels)] colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
-        NSColor *surface = [[bitmap colorAtX:(NSInteger)((14.0 + 39.5 * scale) * pixels) y:(NSInteger)(y * pixels)] colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
+        const CGFloat shift = logo.boolValue ? 0.0 : 24.0;
+        NSColor *divider = [[bitmap colorAtX:(NSInteger)((14.0 + (41.6 - shift) * scale) * pixels) y:(NSInteger)(y * pixels)] colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
+        NSColor *surface = [[bitmap colorAtX:(NSInteger)((14.0 + (39.5 - shift) * scale) * pixels) y:(NSInteger)(y * pixels)] colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
         const CGFloat alpha = tokens.border.a;
         assert(std::abs(divider.redComponent - (tokens.border.r * alpha + surface.redComponent * (1.0 - alpha))) < .03);
         assert(std::abs(divider.greenComponent - (tokens.border.g * alpha + surface.greenComponent * (1.0 - alpha))) < .03);
         assert(std::abs(divider.blueComponent - (tokens.border.b * alpha + surface.blueComponent * (1.0 - alpha))) < .03);
     }
     preferences.globalTheme = globalTheme;
+    preferences.showsAppLogo = showsAppLogo;
 }
 
 // InputController saves by merging -sharedPreferencesByMerging:@{} over the document on disk with MSIMEMergePreferenceSnapshot and then reloads that document, so a clear has to survive the merge: a key the overrides leave out keeps the old value, and the reload then brings it back over the native setting.

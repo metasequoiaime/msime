@@ -64,13 +64,15 @@ struct ToolbarPreviewInputs
     NSUInteger components;
     CGFloat scalePercent;
     CGFloat fontSize;
+    // 偏好 `show_app_logo`：NO 时左端画握把而不是 logo。
+    BOOL logo;
 };
 
 ToolbarPreviewInputs ToolbarInputs(MSIMEAppearancePreferences *preferences)
 {
     // What MetasequoiaFloatingToolbarPanel -applySizingPreferences: makes of an empty dictionary, which is the state a preview with no preferences behind it is in: 100%, 24pt, and every component but the screen keyboard.
     static const BOOL defaults[10] = {YES, YES, YES, YES, YES, YES, YES, NO, YES, YES};
-    ToolbarPreviewInputs inputs = {0, 100.0, 24.0};
+    ToolbarPreviewInputs inputs = {0, 100.0, 24.0, YES};
     NSArray<NSNumber *> *enabled = preferences == nil
         ? nil
         : @[@(preferences.floatingToolbarEnglishMode), @(preferences.floatingToolbarInputScheme), @(preferences.floatingToolbarPunctuation),
@@ -84,18 +86,20 @@ ToolbarPreviewInputs ToolbarInputs(MSIMEAppearancePreferences *preferences)
     {
         inputs.scalePercent = preferences.floatingToolbarScalePercent;
         inputs.fontSize = preferences.floatingToolbarFontSize;
+        inputs.logo = preferences.showsAppLogo;
     }
     return inputs;
 }
 
 // The size the panel gives itself for these settings. It is ToolbarPreferredWidth() and the height beside it in FloatingToolbarPanel.mm, constant for constant: the whole point of drawing the toolbar here is that the size is the thing being previewed, so a preview with metrics of its own would be answering a different question.
-NSSize ToolbarPreviewSize(NSUInteger components, CGFloat scalePercent, CGFloat fontSize)
+NSSize ToolbarPreviewSize(NSUInteger components, CGFloat scalePercent, CGFloat fontSize, BOOL logo)
 {
     const CGFloat scale = scalePercent / 100.0;
     CGFloat count = 0.0;
     for (NSUInteger index = 0; index < 10; ++index) count += (components & (1u << index)) != 0 ? 1.0 : 0.0;
     const CGFloat gaps = count > 0.0 ? count - 1.0 : 0.0;
-    return NSMakeSize(ceil((count * (fontSize + 8.0) + gaps * 2.0 + 6.0 + 46.2) * scale),
+    // 没有 logo 时左端是 10pt 的握把而不是 34pt 的 logo，前导段从 46.2pt 缩到 22.2pt。
+    return NSMakeSize(ceil((count * (fontSize + 8.0) + gaps * 2.0 + 6.0 + (logo ? 46.2 : 22.2)) * scale),
                       ceil((fontSize + 20.0) * scale));
 }
 
@@ -173,7 +177,7 @@ SkinPreviewMetrics MakeShowcaseMetrics(NSInteger pageSize, CGFloat candidateFont
     metrics.verticalHeight = (6.0 + metrics.decorationHeight + metrics.preeditHeight +
                               PreviewVisibleRows(pageSize) * metrics.rowHeight + footer + 6.0) * scale;
     const ToolbarPreviewInputs toolbar = ToolbarInputs(preferences);
-    metrics.toolbarHeight = ToolbarPreviewSize(toolbar.components, toolbar.scalePercent, toolbar.fontSize).height;
+    metrics.toolbarHeight = ToolbarPreviewSize(toolbar.components, toolbar.scalePercent, toolbar.fontSize, toolbar.logo).height;
     metrics.panelHeight = 0.0;
     metrics.totalHeight = metrics.top + metrics.captionHeight + metrics.captionGap + metrics.horizontalHeight +
                           metrics.sectionGap + metrics.captionHeight + metrics.captionGap + metrics.verticalHeight +
@@ -287,7 +291,7 @@ void DrawPreviewCandidates(NSRect rect, const msime::mac::ResolvedSkin &skin, BO
             logo = path == nil ? nil : [[NSImage alloc] initWithContentsOfFile:path];
         });
         CGFloat readingX = NSMinX(preeditRow);
-        if (logo != nil) {
+        if (logo != nil && (preferences == nil || preferences.showsAppLogo)) {
             const CGFloat side = MIN(MSIMECandidateLogoSide, NSHeight(preeditRow));
             [logo drawInRect:NSMakeRect(readingX + 2.0, NSMidY(preeditRow) - side / 2.0, side, side)
                     fromRect:NSZeroRect
@@ -402,9 +406,9 @@ NSArray<NSArray<NSString *> *> *ToolbarPreviewGlyphs()
 
 // The toolbar as the panel would build it for these settings, drawn into `slot` at the panel's own metrics: the logo, the divider, and one button per ticked component, sized (font + 8) x (font + 8) and spaced 2pt before everything is multiplied by the scale. A toolbar wider than the column is drawn down to fit rather than clipped — losing the trailing buttons would hide exactly the thing 工具栏缩放 changes — and the factor comes back so the caller can say so. It is never drawn up: 75% has to look smaller than 100%.
 CGFloat DrawPreviewToolbar(NSRect slot, const msime::mac::SkinTokens &tokens, NSUInteger components,
-                           CGFloat scalePercent, CGFloat fontSize)
+                           CGFloat scalePercent, CGFloat fontSize, BOOL showsLogo)
 {
-    const NSSize natural = ToolbarPreviewSize(components, scalePercent, fontSize);
+    const NSSize natural = ToolbarPreviewSize(components, scalePercent, fontSize, showsLogo);
     const CGFloat fit = NSWidth(slot) > 0.0 ? MIN(1.0, NSWidth(slot) / natural.width) : 1.0;
     const CGFloat scale = scalePercent / 100.0;
     const CGFloat buttonHeight = (fontSize + 8.0) * scale;
@@ -433,19 +437,37 @@ CGFloat DrawPreviewToolbar(NSRect slot, const msime::mac::SkinTokens &tokens, NS
         NSString *path = [[NSBundle bundleForClass:MSIMEToolbarPreviewView.class] pathForResource:@"MSIMEClientInputMethod" ofType:@"icns"];
         logo = path == nil ? nil : [[NSImage alloc] initWithContentsOfFile:path];
     });
-    const CGFloat logoSlot = 38.0 * scale;
-    const CGFloat logoSide = MIN(logoSlot, natural.height) - 4.0 * scale;
-    [logo drawInRect:NSMakeRect((logoSlot - logoSide) / 2.0, (natural.height - logoSide) / 2.0, logoSide, logoSide)
-            fromRect:NSZeroRect
-           operation:NSCompositingOperationSourceOver
-            fraction:1.0
-      respectFlipped:YES
-               hints:nil];
+    if (showsLogo)
+    {
+        const CGFloat logoSlot = 38.0 * scale;
+        const CGFloat logoSide = MIN(logoSlot, natural.height) - 4.0 * scale;
+        [logo drawInRect:NSMakeRect((logoSlot - logoSide) / 2.0, (natural.height - logoSide) / 2.0, logoSide, logoSide)
+                fromRect:NSZeroRect
+               operation:NSCompositingOperationSourceOver
+                fraction:1.0
+          respectFlipped:YES
+                   hints:nil];
+    }
+    else
+    {
+        // 不显示 logo 时的握把：10pt 宽的槽里两列三行小圆点，颜色同分隔线，和工具栏本身画的一样。
+        const CGFloat dot = 2.4 * scale;
+        const CGFloat pitch = 4.4 * scale;
+        [PreviewColor(tokens.divider.value_or(tokens.border)) setFill];
+        for (int column = 0; column < 2; ++column)
+            for (int row = 0; row < 3; ++row)
+            {
+                const NSPoint centre = NSMakePoint(5.0 * scale + (column - 0.5) * pitch, natural.height / 2.0 + (row - 1) * pitch);
+                [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(centre.x - dot * 0.5, centre.y - dot * 0.5, dot, dot)] fill];
+            }
+    }
+    // 握把比 logo 窄 24pt，分隔线和按钮都跟着左移。
+    const CGFloat leadingShift = showsLogo ? 0.0 : 24.0 * scale;
     // The divider takes the candidate outline, as the panel's does (THEME_CONTRACT §3), or a package's own toolbar divider colour.
     if (components != 0)
     {
         [PreviewColor(tokens.divider.value_or(tokens.border)) setFill];
-        NSRectFillUsingOperation(NSMakeRect(41.0 * scale, buttonTop, 1.2 * scale, buttonHeight),
+        NSRectFillUsingOperation(NSMakeRect(41.0 * scale - leadingShift, buttonTop, 1.2 * scale, buttonHeight),
                                  NSCompositingOperationSourceOver);
     }
     NSDictionary *attributes = @{
@@ -456,7 +478,7 @@ CGFloat DrawPreviewToolbar(NSRect slot, const msime::mac::SkinTokens &tokens, NS
                                                                                           weight:NSFontWeightRegular]
         configurationByApplyingConfiguration:[NSImageSymbolConfiguration configurationWithPaletteColors:@[PreviewColor(tokens.text)]]];
     NSArray<NSArray<NSString *> *> *glyphs = ToolbarPreviewGlyphs();
-    CGFloat x = 46.2 * scale;
+    CGFloat x = 46.2 * scale - leadingShift;
     for (NSUInteger index = 0; index < glyphs.count; ++index)
     {
         if ((components & (1u << index)) == 0) continue;
@@ -786,7 +808,7 @@ NSDictionary<NSAttributedStringKey, id> *PreviewCaptionAttributes()
         const ToolbarPreviewInputs toolbar = ToolbarInputs(self.preferences);
         DrawPreviewToolbar(NSMakeRect(14.0, y, NSWidth(self.bounds) - 28.0, metrics.toolbarHeight),
                            [self previewUsesDark] ? _darkToolbar : _lightToolbar,
-                           toolbar.components, toolbar.scalePercent, toolbar.fontSize);
+                           toolbar.components, toolbar.scalePercent, toolbar.fontSize, toolbar.logo);
         [NSGraphicsContext restoreGraphicsState];
         return;
     }
@@ -867,13 +889,13 @@ NSDictionary<NSAttributedStringKey, id> *PreviewCaptionAttributes()
 {
     const ToolbarPreviewInputs toolbar = ToolbarInputs(self.preferences);
     return 14.0 + 16.0 + 4.0 +
-           ToolbarPreviewSize(toolbar.components, toolbar.scalePercent, toolbar.fontSize).height + 14.0;
+           ToolbarPreviewSize(toolbar.components, toolbar.scalePercent, toolbar.fontSize, toolbar.logo).height + 14.0;
 }
 
 - (void)reloadPreview
 {
     const ToolbarPreviewInputs toolbar = ToolbarInputs(self.preferences);
-    const NSSize size = ToolbarPreviewSize(toolbar.components, toolbar.scalePercent, toolbar.fontSize);
+    const NSSize size = ToolbarPreviewSize(toolbar.components, toolbar.scalePercent, toolbar.fontSize, toolbar.logo);
     NSUInteger count = 0;
     for (NSUInteger index = 0; index < 10; ++index) count += (toolbar.components & (1u << index)) != 0 ? 1 : 0;
     self.accessibilityValue = [NSString stringWithFormat:@"%lu 个按钮，%ld × %ld pt", (unsigned long)count,
@@ -904,12 +926,12 @@ NSDictionary<NSAttributedStringKey, id> *PreviewCaptionAttributes()
     [NSGraphicsContext saveGraphicsState];
     [canvasPath addClip];
     const ToolbarPreviewInputs toolbar = ToolbarInputs(self.preferences);
-    const NSSize size = ToolbarPreviewSize(toolbar.components, toolbar.scalePercent, toolbar.fontSize);
+    const NSSize size = ToolbarPreviewSize(toolbar.components, toolbar.scalePercent, toolbar.fontSize, toolbar.logo);
     const msime::mac::SkinTokens tokens = self.preferences != nil ? [self.preferences toolbarSkinForDark:dark]
                                                                   : msime::mac::NativeCandidateTokens(dark);
     const CGFloat top = 14.0 + 16.0 + 4.0;
     const CGFloat fit = DrawPreviewToolbar(NSMakeRect(14.0, top, NSWidth(self.bounds) - 28.0, size.height), tokens,
-                                           toolbar.components, toolbar.scalePercent, toolbar.fontSize);
+                                           toolbar.components, toolbar.scalePercent, toolbar.fontSize, toolbar.logo);
     // The numbers, because they are the answer to the question this preview exists for: four scale steps and seven font sizes are 28 sizes, and several of the pairs differ by a point or two. A preview that is drawn down to fit the column says so rather than letting the user read the shrunken row as the size they picked.
     NSMutableString *caption = [NSMutableString
         stringWithFormat:@"实际尺寸 %ld × %ld pt", static_cast<long>(size.width), static_cast<long>(size.height)];

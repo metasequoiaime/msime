@@ -246,6 +246,9 @@ fn capabilities_describe_each_host() {
     assert!(macos.candidate_border_color);
     assert!(macos.candidate_follow_cursor);
     assert!(macos.panel_shortcuts);
+    assert!(macos.app_logo);
+    assert!(!windows.app_logo);
+    assert!(!linux.app_logo);
     // Only the two hosts that can put a badge beside the caret claim it; a touch keyboard says
     // the mode on its own key faces, and Windows/Linux draw nothing of the kind.
     assert!(macos.input_mode_hud);

@@ -168,6 +168,8 @@ pub struct HostCapabilities {
     pub candidate_preedit_font: bool,
     /// The host can hide the candidate panel's page indicator without changing pagination.
     pub candidate_page_number: bool,
+    /// 宿主按 `show_app_logo` 显示或隐藏候选窗和悬浮工具栏左端的水杉 logo。
+    pub app_logo: bool,
     /// The host can apply candidate foreground/background RGB row colors.
     /// Linux exposes these through IBusText attributes even though it cannot
     /// draw the native card geometry or hover state.
@@ -491,6 +493,8 @@ impl HostCapabilities {
             // the Fcitx5 classic UI.
             candidate_font_controls: true,
             candidate_page_number: matches!(platform, HostPlatform::Linux),
+            // 目前只有 macOS 按这个开关画 logo；Windows、Linux 和鸿蒙的候选窗照常显示 logo，不提供这个开关。
+            app_logo: platform == HostPlatform::Macos,
             // The iOS strip scales its composition line by `candidate_preedit_font_size`.
             candidate_preedit_font: matches!(
                 platform,

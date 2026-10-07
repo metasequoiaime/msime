@@ -4,6 +4,7 @@ import { useSettingsForm } from "../settings-form-context";
 import { GroupList, LinkRow } from "../../core/platform-controls";
 import { CandidateFollowCursorSection } from "../candidate-follow-cursor-section";
 import { CandidatePageNumberSection } from "../candidate-page-number-section";
+import { CandidateAppLogoSection } from "../candidate-app-logo-section";
 import { CandidateSizingSection } from "../candidate-sizing-section";
 import { CandidatePageSizeSection } from "../candidate-page-size-section";
 import { offeredCandidatePageSizes } from "../candidate-page-size";
@@ -50,10 +51,12 @@ export function AppearanceSettingsPage() {
     setDraft,
   });
   const showPageNumber = host?.candidate_page_number === true;
+  const showAppLogo = host?.app_logo === true;
   const showLayoutGroup =
     host?.fixed_candidate_page_size === undefined ||
     host?.fixed_candidate_layout === undefined ||
     showPageNumber ||
+    showAppLogo ||
     showCandidateFollowCursor;
   const surfaceName = mobilePlatform ? "候选栏" : "候选窗口";
   // 预览按下面「布局」组能选到的最高排布预留高度：排列方式能改时按纵向，每页数量能改时按滑块的最大值，两者都固定（iOS）时不预留。
@@ -84,6 +87,7 @@ export function AppearanceSettingsPage() {
           revision={snapshot?.revision ?? 0}
           mobile={mobilePlatform}
           reserve={previewReserve}
+          brand={!showAppLogo || draft.show_app_logo === true}
         />
         {host?.candidate_panel_limit && (
           <CandidatePanelLimitSection limit={host.candidate_panel_limit} />
@@ -112,6 +116,12 @@ export function AppearanceSettingsPage() {
               onChange={(show_candidate_page_number) =>
                 appearanceActions.onPreferencesChange({ show_candidate_page_number })
               }
+            />
+          )}
+          {showAppLogo && (
+            <CandidateAppLogoSection
+              value={draft.show_app_logo}
+              onChange={(show_app_logo) => appearanceActions.onPreferencesChange({ show_app_logo })}
             />
           )}
           {showCandidateFollowCursor && (

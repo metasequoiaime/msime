@@ -62,10 +62,10 @@ static NSView *FindView(NSView *view, NSString *identifier) {
     return nil;
 }
 
-// Mirrors the panel's width: buttons and their gaps, the 6pt trailing run, and the 46.2pt leading run of logo (34), gap (4), gap (3), divider (1.2) and gap (4).
-static double ExpectedWidth(double count, double fontSize, double factor) {
+// 对照工具栏自己的宽度：按钮和间隔、6pt 的尾部，以及前导段——logo (34) 或替代它的握把 (10)、间隔 (4)、间隔 (3)、分隔线 (1.2)、间隔 (4)。偏好里没有 `show_app_logo` 时按新装处理，画握把。
+static double ExpectedWidth(double count, double fontSize, double factor, bool logo = false) {
     const double gaps = count > 0 ? count - 1 : 0;
-    return std::ceil((count * (fontSize + 8.0) + gaps * 2.0 + 6.0 + (34.0 + 4.0 + 3.0 + 1.2 + 4.0)) * factor);
+    return std::ceil((count * (fontSize + 8.0) + gaps * 2.0 + 6.0 + ((logo ? 34.0 : 10.0) + 4.0 + 3.0 + 1.2 + 4.0)) * factor);
 }
 
 static void SendButton(NSButton *button) {
@@ -81,7 +81,8 @@ int main() {
         NSRect defaultFrame = MSIMEFloatingToolbarFrame(NSMakeRect(0.0, 0.0, 1.0, 1.0), visible, NO);
         // 六个按钮：表情、手写、语音和屏幕键盘需要手动打开，切换输入方案默认开启。
         assert(defaultFrame.size.width == 255.0 && defaultFrame.size.height == 44.0);
-        assert(defaultFrame.size.width == ExpectedWidth(6, 24, 1));
+        // 应用任何偏好之前的默认宽度仍按带 logo 算。
+        assert(defaultFrame.size.width == ExpectedWidth(6, 24, 1, true));
         assert(defaultFrame.origin.x == NSMaxX(visible) - 275.0 && defaultFrame.origin.y == NSMinY(visible) + 20.0);
         NSRect restored = MSIMEFloatingToolbarFrame(NSMakeRect(-4000.0, 4000.0, 1.0, 1.0), visible, YES);
         assert(restored.origin.x == NSMinX(visible) + 12.0 && restored.origin.y == NSMaxY(visible) - 56.0);
@@ -308,7 +309,7 @@ int main() {
                 assert(NSEqualSizes(expectedKeyboard.size, configuredKeyboard.size));
             }
         }
-        [panel applySizingPreferences:@{@"floating_toolbar": @{@"scale_percent": @999, @"font_size": @(-1)}}];
+        [panel applySizingPreferences:@{@"floating_toolbar": @{@"scale_percent": @999, @"font_size": @(-1)}, @"show_app_logo": @YES}];
         assert(NSEqualSizes([[panel valueForKey:@"preferredSize"] sizeValue], NSMakeSize(255.0, 44.0)));
         [panel applySizingPreferences:@{@"floating_toolbar": @{@"scale_percent": @150, @"font_size": @28}}];
         FloatingToolbarTestDelegate *sizingDelegate = [FloatingToolbarTestDelegate new];
@@ -334,10 +335,10 @@ int main() {
                 components[keys[index]] = @(enabled);
                 if (enabled) ++count;
             }
-            [panel applySizingPreferences:@{@"floating_toolbar": components}];
+            [panel applySizingPreferences:@{@"floating_toolbar": components, @"show_app_logo": @YES}];
             for (NSUInteger index = 0; index < keys.count; ++index)
                 assert(optionalButtons[index].hidden == ((mask & (1u << index)) == 0));
-            assert([[panel valueForKey:@"preferredSize"] sizeValue].width == ExpectedWidth(count, 28, 1.5));
+            assert([[panel valueForKey:@"preferredSize"] sizeValue].width == ExpectedWidth(count, 28, 1.5, true));
             assert(inputMode.superview != nil);
             // The logo and divider lead the row; every visible button sits right of them.
             const NSRect logoRect = [logo convertRect:logo.bounds toView:panel.contentView];
@@ -354,7 +355,20 @@ int main() {
                 previousRight = NSMaxX(rect);
             }
         }
-        // With every button off the divider goes, but the logo stays so the panel can still be dragged.
+        // 不显示 logo 时，同一个视图收窄成 (10 + 4) * 1.5 = 21pt 的握把，仍是拖动把手，分隔线和按钮跟着左移。
+        [panel applySizingPreferences:@{@"floating_toolbar": @{@"scale_percent": @150, @"font_size": @28}}];
+        {
+            const NSRect gripRect = [handle convertRect:handle.bounds toView:panel.contentView];
+            const NSRect dividerRect = [divider convertRect:divider.bounds toView:panel.contentView];
+            assert(![[handle valueForKey:@"showsMark"] boolValue] && handle.mouseDownCanMoveWindow);
+            assert(std::abs(NSMinX(gripRect)) < 0.01 && std::abs(NSWidth(gripRect) - 21.0) <= 1.0 / panel.backingScaleFactor);
+            assert(std::abs(NSMinX(dividerRect) - NSMaxX(gripRect) - 4.5) <= 1.0 / panel.backingScaleFactor);
+            assert([[panel valueForKey:@"preferredSize"] sizeValue].width == ExpectedWidth(6, 28, 1.5));
+        }
+        [panel applySizingPreferences:@{@"floating_toolbar": @{@"scale_percent": @150, @"font_size": @28}, @"show_app_logo": @YES}];
+        assert([[handle valueForKey:@"showsMark"] boolValue]);
+        assert([[panel valueForKey:@"preferredSize"] sizeValue].width == ExpectedWidth(6, 28, 1.5, true));
+        // With every button off the divider goes, but the handle stays so the panel can still be dragged.
         [panel applySizingPreferences:@{@"floating_toolbar": @{@"english_mode": @NO, @"input_scheme": @NO, @"punctuation": @NO, @"fullwidth": @NO, @"character_set": @NO, @"emoji": @NO, @"handwriting": @NO, @"screen_keyboard": @NO, @"voice": @NO, @"settings": @NO}}];
         assert(FindView(panel.contentView, @"MetasequoiaFloatingToolbarLogo") == handle && !handle.hidden && divider.hidden);
         assert([[panel valueForKey:@"preferredSize"] sizeValue].width == ExpectedWidth(0, 24, 1));
@@ -365,9 +379,9 @@ int main() {
             if (!button.hidden) assert(button.superview != nil);
         }
         assert(!inputScheme.hidden);
-        assert([[panel valueForKey:@"preferredSize"] sizeValue].width == 255.0);
+        assert([[panel valueForKey:@"preferredSize"] sizeValue].width == ExpectedWidth(6, 24, 1));
         [panel applySizingPreferences:@{@"floating_toolbar": @{@"screen_keyboard": @"invalid"}}];
-        assert(keyboard.hidden && [[panel valueForKey:@"preferredSize"] sizeValue].width == 255.0);
+        assert(keyboard.hidden && [[panel valueForKey:@"preferredSize"] sizeValue].width == ExpectedWidth(6, 24, 1));
         [panel applySizingPreferences:@{@"floating_toolbar": @{@"screen_keyboard": @YES}}];
         assert(!keyboard.hidden && [[panel valueForKey:@"preferredSize"] sizeValue].width == ExpectedWidth(7, 24, 1));
         // 切换输入方案按钮可以单独关掉。

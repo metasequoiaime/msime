@@ -11,11 +11,17 @@
 // The compact water-fir mark keeps the toolbar identifiable when it is detached from the settings window. It mirrors the shared MSIME app mark without loading an image resource, so it remains crisp at every toolbar scale.
 //
 // It is also the drag handle, the counterpart of the reference's ToolbarDragHandle: pressing it moves the panel through movableByWindowBackground, and the reference's IDC_SIZEALL cursor maps to the open-hand cursor, the macOS cue for a movable surface. The toolbar used to carry a grip bar beside the logo in the theme's accent, standing in for the reference's own handle; with the logo already leading the row that bar was a second mark saying the same thing, so the logo took over its job.
+//
+// 偏好 `show_app_logo` 关掉时 logo 不画，这个视图收窄成一条握把，画两列三行的小圆点，拖动和手形光标照旧：拖动只能靠它，按钮之间那几个点宽的空隙按不准。
 // Side of the brand mark inside the logo view, unscaled: the size of the toolbar's button glyphs.
 constexpr CGFloat kToolbarLogoMarkSide = 22.0;
 
 @interface MetasequoiaFloatingToolbarLogoView : NSView
 @property(nonatomic) CGFloat scale;
+/// NO 时画握把而不是 logo。
+@property(nonatomic) BOOL showsMark;
+/// 握把圆点的颜色，跟分隔线一样取自主题。
+@property(nonatomic, copy) NSColor *gripColor;
 @end
 @implementation MetasequoiaFloatingToolbarLogoView
 {
@@ -28,6 +34,7 @@ constexpr CGFloat kToolbarLogoMarkSide = 22.0;
     if (self != nil)
     {
         _scale = 1.0;
+        _showsMark = YES;
         NSString *path = [[NSBundle bundleForClass:self.class] pathForResource:@"MSIMEClientInputMethod" ofType:@"icns"];
         _image = path == nil ? nil : [[NSImage alloc] initWithContentsOfFile:path];
         self.accessibilityIdentifier = @"MetasequoiaFloatingToolbarLogo";
@@ -38,6 +45,16 @@ constexpr CGFloat kToolbarLogoMarkSide = 22.0;
 - (void)setScale:(CGFloat)scale
 {
     _scale = scale;
+    self.needsDisplay = YES;
+}
+- (void)setShowsMark:(BOOL)showsMark
+{
+    _showsMark = showsMark;
+    self.needsDisplay = YES;
+}
+- (void)setGripColor:(NSColor *)gripColor
+{
+    _gripColor = [gripColor copy];
     self.needsDisplay = YES;
 }
 - (BOOL)mouseDownCanMoveWindow
@@ -73,6 +90,19 @@ constexpr CGFloat kToolbarLogoMarkSide = 22.0;
 - (void)drawRect:(NSRect)dirtyRect
 {
     (void)dirtyRect;
+    if (!_showsMark)
+    {
+        const CGFloat dot = 2.4 * _scale;
+        const CGFloat pitch = 4.4 * _scale;
+        [(_gripColor ?: NSColor.tertiaryLabelColor) setFill];
+        for (int column = 0; column < 2; ++column)
+            for (int row = 0; row < 3; ++row)
+            {
+                const NSPoint centre = NSMakePoint(NSMidX(self.bounds) + (column - 0.5) * pitch, NSMidY(self.bounds) + (row - 1) * pitch);
+                [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(centre.x - dot * 0.5, centre.y - dot * 0.5, dot, dot)] fill];
+            }
+        return;
+    }
     // The mark is drawn at the size of the button glyphs beside it, not the full height of the bar; the view around it stays the full drag handle.
     const CGFloat side = std::min(std::min(NSWidth(self.bounds), NSHeight(self.bounds)) - 4.0 * _scale, kToolbarLogoMarkSide * _scale);
     const NSRect mark = NSMakeRect(NSMidX(self.bounds) - side * 0.5, NSMidY(self.bounds) - side * 0.5, side, side);
@@ -197,6 +227,8 @@ namespace
 {
 // Unscaled leading run: the 34pt logo and its 4pt gap, which together are the drag handle, a further 3pt, the 1.2pt divider, then the 4pt gap before the first button. It replaces the plain 10pt leading inset.
 constexpr CGFloat kToolbarLogoWidth = 34.0;
+// 不显示 logo 时握把的宽度，替代上面的 34pt。
+constexpr CGFloat kToolbarGripWidth = 10.0;
 constexpr CGFloat kToolbarLogoGap = 4.0;
 constexpr CGFloat kToolbarLogoDividerGap = 3.0;
 constexpr CGFloat kToolbarDividerWidth = 1.2;
@@ -209,19 +241,20 @@ constexpr CGFloat kToolbarButtonSpacing = 2.0;
 constexpr CGFloat kToolbarButtonPadding = 8.0;
 constexpr CGFloat kToolbarGlyphScale = 0.95;
 
-CGFloat ToolbarPreferredWidth(NSUInteger count, CGFloat fontSize, CGFloat scale)
+CGFloat ToolbarPreferredWidth(NSUInteger count, CGFloat fontSize, CGFloat scale, BOOL logo)
 {
     const CGFloat buttons = static_cast<CGFloat>(count);
     const CGFloat gaps = count > 0 ? static_cast<CGFloat>(count - 1) : 0.0;
+    const CGFloat leading = kToolbarLeadingChrome - (logo ? 0.0 : kToolbarLogoWidth - kToolbarGripWidth);
     // NSWindow rounds fractional point sizes; round outward so controls are never clipped.
-    return std::ceil((buttons * (fontSize + kToolbarButtonPadding) + gaps * kToolbarButtonSpacing + kToolbarTrailingChrome + kToolbarLeadingChrome) * scale);
+    return std::ceil((buttons * (fontSize + kToolbarButtonPadding) + gaps * kToolbarButtonSpacing + kToolbarTrailingChrome + leading) * scale);
 }
 
 // 默认的一行：没做过选择的配置得到的六个按钮——中/英、切换输入方案、标点、全半角、简繁和设置——24 点、100%。表情、手写、语音和屏幕键盘需要手动打开（见 crates/client-core 的 FloatingToolbarPreferences::default()）。这是窗口在应用任何偏好之前打开时的尺寸，写宽了会先显示一个随即缩窄的工具栏。
 constexpr CGFloat kToolbarWidth = 255.0;
 static_assert(kToolbarWidth >= 6 * (24.0 + kToolbarButtonPadding) + 5 * kToolbarButtonSpacing + kToolbarTrailingChrome + kToolbarLeadingChrome &&
                   kToolbarWidth < 6 * (24.0 + kToolbarButtonPadding) + 5 * kToolbarButtonSpacing + kToolbarTrailingChrome + kToolbarLeadingChrome + 1.0,
-              "kToolbarWidth must be ToolbarPreferredWidth(6, 24, 1)");
+              "kToolbarWidth must be ToolbarPreferredWidth(6, 24, 1, YES)");
 constexpr CGFloat kToolbarHeight = 44.0;
 NSString *const kToolbarFrameAutosaveName = @"MetasequoiaFloatingToolbarFrame";
 
@@ -482,6 +515,7 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
     CGFloat _appliedScale;
     CGFloat _appliedFontSize;
     NSUInteger _appliedComponentMask;
+    BOOL _appliedShowsLogo;
     BOOL _hasHostSkin;
     msime::mac::SkinTokens _lightSkin;
     msime::mac::SkinTokens _darkSkin;
@@ -698,10 +732,14 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
         const BOOL enabled = offered && ([value isKindOfClass:NSNumber.class] ? [value boolValue] : defaultEnabled);
         if (enabled) { mask |= 1u << index; ++count; }
     }
-    if (scale == _appliedScale && fontSize == _appliedFontSize && mask == _appliedComponentMask) return;
+    // 共享文档总会写这个字段；读不到时按新装处理，不画 logo。
+    id logoValue = preferences[@"show_app_logo"];
+    const BOOL showsLogo = [logoValue isKindOfClass:NSNumber.class] && [logoValue boolValue];
+    if (scale == _appliedScale && fontSize == _appliedFontSize && mask == _appliedComponentMask && showsLogo == _appliedShowsLogo) return;
     _appliedScale = scale;
     _appliedFontSize = fontSize;
     _appliedComponentMask = mask;
+    _appliedShowsLogo = showsLogo;
     for (NSUInteger index = 0; index < optionalButtons.count; ++index)
         optionalButtons[index].hidden = (mask & (1u << index)) == 0;
     for (NSButton *button in @[_inputModeButton, _inputSchemeButton, _punctuationButton, _fullWidthButton, _traditionalOutputButton, _emojiButton, _handwritingButton, _keyboardButton, _voiceButton, _settingsButton]) {
@@ -720,16 +758,17 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
     _voiceButton.symbolConfiguration = _settingsButton.symbolConfiguration;
     _actions.spacing = kToolbarButtonSpacing * scale;
     _logo.scale = scale;
-    _logoWidth.constant = (kToolbarLogoWidth + kToolbarLogoGap) * scale;
+    _logo.showsMark = showsLogo;
+    _logoWidth.constant = ((showsLogo ? kToolbarLogoWidth : kToolbarGripWidth) + kToolbarLogoGap) * scale;
     _logoDividerGap.constant = kToolbarLogoDividerGap * scale;
     _dividerWidth.constant = kToolbarDividerWidth * scale;
     _dividerHeight.constant = (fontSize + 8.0) * scale;
     _dividerButtonGap.constant = kToolbarDividerButtonGap * scale;
-    // The logo stays even with every button off, as the reference always keeps its handle, so the panel can still be dragged.
+    // logo（或替代它的握把）在所有按钮都关掉时也留着，和参考实现始终保留拖动把手一样，工具栏才拖得动。
     _divider.hidden = count == 0;
     _trailingInset.constant = -kToolbarTrailingChrome * scale;
     // NSWindow rounds fractional point sizes; round outward so controls are never clipped.
-    _preferredSize = NSMakeSize(ToolbarPreferredWidth(count, fontSize, scale), std::ceil((fontSize + 20.0) * scale));
+    _preferredSize = NSMakeSize(ToolbarPreferredWidth(count, fontSize, scale, showsLogo), std::ceil((fontSize + 20.0) * scale));
     // Only touch the frame once the toolbar is actually on screen. This runs on every shared preference
     // change, hidden or not, and the window carries a frame autosave name - so resizing a hidden toolbar
     // wrote a saved frame for a window the user has never placed, pinned to the restored-margin corner.
@@ -796,6 +835,7 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
     NSColor *hoverFill = MetasequoiaColorFromRgba(tokens.hover);
     // A package's `[toolbar]` divider colour when it has one. Its `handle` colour has no target here: the logo is the drag handle and keeps the brand mark's colours.
     _divider.fillColor = MetasequoiaColorFromRgba(tokens.divider.value_or(tokens.border));
+    _logo.gripColor = _divider.fillColor;
     for (MetasequoiaFloatingToolbarButton *button in
          @[ _inputModeButton, _inputSchemeButton, _punctuationButton, _fullWidthButton, _traditionalOutputButton, _emojiButton, _handwritingButton, _keyboardButton, _voiceButton, _settingsButton ])
     {

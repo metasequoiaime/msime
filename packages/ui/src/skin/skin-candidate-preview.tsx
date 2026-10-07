@@ -66,6 +66,7 @@ export function SkinCandidatePreview({
   preedit = true,
   helpcode = false,
   ghost = false,
+  brand = true,
 }: {
   orientation: "horizontal" | "vertical";
   decorated?: boolean;
@@ -79,6 +80,8 @@ export function SkinCandidatePreview({
   helpcode?: boolean;
   /** 只用来占位的那一份不带 `data-preview-layout`，读预览排布的地方只会找到实际样例。 */
   ghost?: boolean;
+  /** 画不画首行的水杉 logo。macOS 按 `show_app_logo` 隐藏它，拼音行也隐藏时首行整行不画，和候选窗一致。 */
+  brand?: boolean;
 }) {
   const horizontal = orientation === "horizontal";
   const visibleCount = Number.isFinite(count) ? clamp(Math.trunc(count), 1, 9) : 6;
@@ -96,14 +99,14 @@ export function SkinCandidatePreview({
           onError={onBackgroundError}
         />
       )}
-      {/* The brand mark leads the top row as it does on every host; with the reading hidden the row is still there, holding only the mark. It sits before the reading's row so the upstream `.pinyin + .row-wrapper` selectors still match. */}
-      {!preedit && (
+      {/* 水杉 logo 打头放在首行；隐藏拼音时首行仍在，只放 logo，logo 也不画时首行整行不画。它在拼音行之前，上游的 `.pinyin + .row-wrapper` 选择器才能照常匹配。 */}
+      {!preedit && brand && (
         <div className="row candidate-brand-row">
           <img className="candidate-brand" src={logo} alt="" />
         </div>
       )}
       <div className="row pinyin" hidden={!preedit}>
-        {preedit && <img className="candidate-brand" src={logo} alt="" />}
+        {preedit && brand && <img className="candidate-brand" src={logo} alt="" />}
         <div className="text">
           ni'mf
           <span className="cursor" />
