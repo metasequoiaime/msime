@@ -1516,7 +1516,7 @@ final class ImePanels {
         KeyboardGeometry.setSymmetricPaddingDp(s.emojiPanel, s, 6, 4);
         s.emojiPanel.setBackgroundColor(Color.parseColor(s.skin.background()));
         s.emojiPanel.setContentDescription("表情面板");
-        s.emojiPanel.setFocusable(true);
+        ViewPolicy.setFocusable(s.emojiPanel, true);
         s.emojiGrid = KeyboardGeometry.column(s);
         s.emojiGridScroll = new ScrollView(s);
         s.emojiGridScroll.setFillViewport(false);
