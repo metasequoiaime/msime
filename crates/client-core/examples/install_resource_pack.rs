@@ -20,10 +20,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let path = resource_packs::install(
             &state_root,
             pack,
-            "",
+            &[],
             &mut |event| {
-                // 每 MiB 最多输出一次，阶段结束时再补一行。
-                if event.stage != "download" || event.downloaded - reported >= MIB {
+                // 每 MiB 最多输出一次，阶段结束时再补一行。源不支持续传时进度会退回零，所以取差的绝对值。
+                if event.stage != "download" || event.downloaded.abs_diff(reported) >= MIB {
                     reported = event.downloaded;
                     eprintln!(
                         "{} {} {}/{}",

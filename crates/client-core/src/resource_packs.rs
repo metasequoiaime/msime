@@ -295,11 +295,24 @@ pub fn list(state_root: &Path) -> Vec<ResourcePackStatus> {
         .collect()
 }
 
+/// 本项目自己的下载镜像前缀，按顺序排在用户镜像之后、锁文件原地址之前。形式与用户镜像相同（`https://mirror/` 加原地址）。现在还没有，所以为空；镜像只提供字节，完整性始终按编译进来的锁文件校验。
+pub const PROJECT_MIRRORS: &[&str] = &[];
+
+/// 一个文件依次尝试的镜像前缀：先是用户填的 `mirrors`（空串跳过），再是 [`PROJECT_MIRRORS`]；都失败后用锁文件里的原地址。
+pub fn download_prefixes<'a>(mirrors: &[&'a str]) -> Vec<&'a str> {
+    let mut prefixes = Vec::with_capacity(mirrors.len() + PROJECT_MIRRORS.len());
+    prefixes.extend(mirrors.iter().copied().filter(|mirror| !mirror.is_empty()));
+    prefixes.extend(PROJECT_MIRRORS.iter().copied());
+    prefixes
+}
+
 /// 下载、校验并发布一个资源包到 `<state_root>/resource-packs/<id>`，替换旧安装。阻塞调用，不要放在 UI 线程；`cancel` 在每个数据块之间轮询。
+///
+/// 每个文件按 [`download_prefixes`] 的顺序换源下载，没下完的部分下次用 HTTP Range 接着下（见 [`local_models::install_files`]）。
 pub fn install(
     state_root: &Path,
     pack: ResourcePack,
-    mirror: &str,
+    mirrors: &[&str],
     progress: &mut dyn FnMut(InstallProgress),
     cancel: &AtomicBool,
 ) -> Result<PathBuf, LocalModelError> {
@@ -308,7 +321,7 @@ pub fn install(
         pack.id(),
         &pack.set().artifacts,
         &pack.manifest(),
-        mirror,
+        &download_prefixes(mirrors),
         progress,
         cancel,
     )
@@ -653,6 +666,25 @@ mod tests {
             manifest["pack"] = Value::String("handwriting".into());
         });
         assert_eq!(state_of(), PackState::Outdated);
+    }
+
+    /// 用户镜像排在最前（空串跳过），然后是项目镜像；锁文件原地址由下载器最后补上。项目镜像必须是和用户镜像一样合法的 https 前缀。
+    #[test]
+    fn user_mirrors_come_before_project_mirrors() {
+        let mut expected = vec!["https://first.example.test/", "https://second.example.test"];
+        expected.extend(PROJECT_MIRRORS.iter().copied());
+        assert_eq!(
+            download_prefixes(&[
+                "",
+                "https://first.example.test/",
+                "https://second.example.test"
+            ]),
+            expected
+        );
+        assert_eq!(download_prefixes(&[]), PROJECT_MIRRORS);
+        assert!(PROJECT_MIRRORS
+            .iter()
+            .all(|mirror| !mirror.is_empty() && crate::preferences::valid_model_mirror(mirror)));
     }
 
     /// 资源包只从本项目的固定发布地址下载：msime-dictionary 和 chinese-ime-lm 的 GitHub Release 资产，或钉在 40 位提交上的 msime-engine 原始文件。

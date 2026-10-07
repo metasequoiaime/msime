@@ -165,7 +165,9 @@ async fn install_pack<R: tauri::Runtime>(
         &install_key(pack),
         RESOURCE_PACK_PROGRESS_EVENT,
         pack.id().to_owned(),
-        move |progress, cancel| resource_packs::install(&root, pack, &mirror, progress, cancel),
+        move |progress, cancel| {
+            resource_packs::install(&root, pack, &[mirror.as_str()], progress, cancel)
+        },
     )
     .await
 }
