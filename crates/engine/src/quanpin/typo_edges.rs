@@ -94,13 +94,14 @@ fn plan_keys(
         .chain((0..n).filter(|&i| !weak[i]));
 
     let mut planned = Vec::with_capacity(TYPO_KEY_BUDGET);
+    let mut variants = Vec::new();
     'positions: for position in positions {
         if planned.len() >= TYPO_KEY_BUDGET {
             break;
         }
         let typed = &segments[position];
         let typos = syllable_typos(typed);
-        let mut variants = Vec::with_capacity(typos.len());
+        variants.clear();
         variants.extend(
             typos
                 .iter()
@@ -109,7 +110,7 @@ fn plan_keys(
         );
         // Kinds are already cheapest first, so a stable sort on the personal count keeps that as the tie-break.
         variants.sort_by_key(|variant| std::cmp::Reverse(variant.1));
-        for (typo, accepted) in variants {
+        for &(typo, accepted) in &variants {
             let penalty = discounted(base_cost(typo.kind), accepted);
             for length in MIN_TYPO_SPAN_SYLLABLES..=MAX_TYPO_SPAN_SYLLABLES.min(n) {
                 let first = (position + 1).saturating_sub(length);
@@ -177,6 +178,35 @@ fn typo_span_key(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn planning_reuses_the_variant_buffer_across_positions() {
+        let directory = tempfile::tempdir().unwrap();
+        let profile = PersonalTypoProfile::shared(&directory.path().join("journal.db"));
+        let segments = vec!["zhuang".to_owned(); 6];
+        let literal_best = SentencePath {
+            sentence: "一二三四五六".to_owned(),
+            key: "zhuang'zhuang'zhuang'zhuang'zhuang'zhuang".to_owned(),
+            log_prob: 0.0,
+            words: vec!["一".to_owned(); 6],
+            typo_edges: 0,
+        };
+
+        let _ = syllable_typos("zhuang");
+        let (planned, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            plan_keys(
+                &profile,
+                &segments,
+                &literal_best,
+                crate::types::autocorrect_type::TRANSPOSITION
+                    | crate::types::autocorrect_type::NEIGHBOR
+                    | crate::types::autocorrect_type::MISSING_OR_EXTRA,
+            )
+        });
+
+        assert_eq!(planned.len(), 20);
+        assert!(allocations <= 92, "{allocations}");
+    }
 
     #[test]
     fn planned_key_lookup_scans_owned_keys() {
