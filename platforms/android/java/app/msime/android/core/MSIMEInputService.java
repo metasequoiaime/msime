@@ -186,6 +186,8 @@ public final class MSIMEInputService extends InputMethodService {
     // 五笔版本只决定方案卡片和工具栏上的「86」「98」字样；选表由引擎按同一份偏好里的 `wubi_profile` 决定。
     String wubiProfile = KeyboardScheme.WUBI_86;
     private String candidateGlossResources = "";
+    // 会话的 `preferences_directory`（state_root）：随包没有的非英文离线释义从它下面下载的 offline-glosses 资源包里读。
+    private String candidateGlossStateRoot = "";
     private String onlineSignature = "";
     /** Read from the online worker as an early-out, so it must not tear across threads. */
     private volatile long onlineEpoch;
@@ -1246,6 +1248,7 @@ public final class MSIMEInputService extends InputMethodService {
         preferencesDirectory = "";
         emojiResources = "";
         candidateGlossResources = "";
+        candidateGlossStateRoot = "";
         candidateEnglishGloss = false;
         candidateTranslationsEnabled = false;
         candidateTranslationAccount = false;
@@ -1360,6 +1363,8 @@ public final class MSIMEInputService extends InputMethodService {
                 emojiResources = resources;
                 candidateGlossResources = resources;
             }
+            String stateRoot = options.optString("preferences_directory", "");
+            candidateGlossStateRoot = new File(stateRoot).isAbsolute() ? stateRoot : "";
             apply(NativeClient.focus(session, true));
             markPrivateSession();
             view = value(NativeClient.setEnglishMode(session, dedicatedEnglish));
@@ -1623,11 +1628,11 @@ public final class MSIMEInputService extends InputMethodService {
 
     /** The non-English targets with an installed offline dictionary, rechecked whenever the targets, resources or gloss preferences change. */
     private java.util.List<String> candidateOfflineTargets() {
-        String key = candidateGlossResources + "\n" + candidateTranslationTargets;
+        String key = candidateGlossResources + "\n" + candidateGlossStateRoot + "\n" + candidateTranslationTargets;
         if (!key.equals(candidateOfflineTargetsKey)) {
             candidateOfflineTargetsKey = key;
             candidateOfflineTargets = CandidateTranslationPolicy.offlineTargets(
-                candidateTranslationTargets, candidateGlossResources);
+                candidateTranslationTargets, candidateGlossResources, candidateGlossStateRoot);
         }
         return candidateOfflineTargets;
     }
@@ -2061,6 +2066,7 @@ public final class MSIMEInputService extends InputMethodService {
         final long targetSession = session;
         final long targetEpoch = candidateGlossEpoch;
         final String targetResources = candidateGlossResources;
+        final String targetStateRoot = candidateGlossStateRoot.isEmpty() ? null : candidateGlossStateRoot;
         final java.util.List<String> offlineTargets = candidateOfflineTargets();
         final String request;
         final java.util.Map<String, String> targetRequests =
@@ -2099,7 +2105,7 @@ public final class MSIMEInputService extends InputMethodService {
                         for (java.util.Map.Entry<String, String> target : targetRequests.entrySet()) {
                             try {
                                 CandidateGlossModel.Result glosses = CandidateGlossModel.decode(
-                                    NativeClient.candidateGlosses(target.getValue(), targetResources));
+                                    NativeClient.candidateGlosses(target.getValue(), targetResources, targetStateRoot));
                                 if (glosses.generation() == generation)
                                     offline.put(target.getKey(), glossMap(glosses));
                             } catch (JSONException | RuntimeException | LinkageError error) {
