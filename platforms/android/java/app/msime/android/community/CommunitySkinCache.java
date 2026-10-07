@@ -44,7 +44,7 @@ public final class CommunitySkinCache {
         } catch (JSONException error) {
             throw new IOException(error);
         }
-        byte[] bytes = array.toString().getBytes(StandardCharsets.UTF_8);
+        byte[] bytes = TextPolicy.utf8Bytes(array.toString());
         if (bytes.length > MAX_BYTES) return;
         SafePaths.ensureDirectory(preferencesDirectory);
         // 每次写各用一个临时文件：社区页可能同时跑两次缓存（重建页面时），共用一个固定的 .pending 会互相截断，:ime 读到半截 JSON 就当作没有缓存。
