@@ -6620,8 +6620,9 @@ public final class MSIMEInputService extends InputMethodService {
             boolean vietnamese = scheme == InputSchemeTraits.VIETNAMESE;
             boolean tibetan = scheme == InputSchemeTraits.TIBETAN;
             boolean stroke = scheme == InputSchemeTraits.STROKE;
-            scriptShortcutButton.setEnabled(!japanese && !korean && !cantonese && !zhuyin
-                && !vietnamese && !tibetan && !stroke && canSaveChineseOutput());
+            ViewPolicy.setEnabled(scriptShortcutButton,
+                !japanese && !korean && !cantonese && !zhuyin
+                    && !vietnamese && !tibetan && !stroke && canSaveChineseOutput());
             String label = traditionalChineseOutput ? "切换到简体" : "切换到繁体";
             String outputState = japanese ? "日语不使用简繁转换"
                 : korean ? "韩语不使用简繁转换"
