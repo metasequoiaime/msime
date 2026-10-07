@@ -251,7 +251,7 @@ final class ImeToolbar {
             s.inlineHeightBar.setColors(foregroundColor, hintColor,
                 returnBackgroundColor, returnForegroundColor);
         if (s.preedit != null) {
-            s.preedit.setTextColor(hintColor);
+            ViewPolicy.setTextColor(s.preedit, hintColor);
             KeyboardGeometry.setKeyTextSize(s.preedit, 12);
             ViewPolicy.clearBackground(s.preedit);
             ViewPolicy.clearPadding(s.preedit);
