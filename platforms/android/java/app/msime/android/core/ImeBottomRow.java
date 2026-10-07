@@ -52,7 +52,7 @@ final class ImeBottomRow {
             // 组词时 SVC 把 text 设成「确认」（日语「確定」），这时按文字画；其他动作文字一律画 ↵。
             key.setTextFaces(java.util.Set.of("确认", "確定"));
             KeyboardGeometry.setKeyTextSize(key, 15);
-            key.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+            ViewPolicy.setTypefaceStyle(key, android.graphics.Typeface.BOLD);
             key.setKeyboardRole(KeyboardKeyRole.RETURN);
             s.imeStyler.styleButton(key, KeyboardKeyRole.RETURN, s.skin);
             s.enterButton = key;
