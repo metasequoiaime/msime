@@ -202,26 +202,7 @@ impl PinyinDatabase {
             }
             table_keys.push((table, key));
         }
-        let mut seen_keys = HashSet::with_capacity(table_keys.len());
-        let duplicates = table_keys
-            .iter()
-            .enumerate()
-            .filter_map(|(index, (_, key))| (!seen_keys.insert(key.as_str())).then_some(index))
-            .collect::<Vec<_>>();
-        drop(seen_keys);
-        let mut duplicates = duplicates.into_iter().peekable();
-        let mut write = 0;
-        for read in 0..table_keys.len() {
-            if duplicates.peek() == Some(&read) {
-                duplicates.next();
-                continue;
-            }
-            if write != read {
-                table_keys.swap(write, read);
-            }
-            write += 1;
-        }
-        table_keys.truncate(write);
+        deduplicate_table_keys(&mut table_keys);
         for (table, key) in table_keys {
             keys_by_table.entry(table).or_default().push(key);
         }
@@ -607,6 +588,49 @@ fn dict_row(row: &Row<'_>) -> rusqlite::Result<DictRow> {
         value: column_text(row, 1)?,
         weight: column_i64(row, 2)?,
     })
+}
+
+const SMALL_TABLE_KEY_BATCH: usize = 16;
+
+// 小批次直接扫描已保留键；大批次保留哈希去重，避免无界查询的平方级退化。
+fn deduplicate_table_keys(table_keys: &mut Vec<(String, String)>) {
+    if table_keys.len() <= SMALL_TABLE_KEY_BATCH {
+        let mut write = 0;
+        for read in 0..table_keys.len() {
+            if table_keys[..write]
+                .iter()
+                .any(|(_, key)| key == &table_keys[read].1)
+            {
+                continue;
+            }
+            if write != read {
+                table_keys.swap(write, read);
+            }
+            write += 1;
+        }
+        table_keys.truncate(write);
+        return;
+    }
+    let mut seen_keys = HashSet::with_capacity(table_keys.len());
+    let duplicates = table_keys
+        .iter()
+        .enumerate()
+        .filter_map(|(index, (_, key))| (!seen_keys.insert(key.as_str())).then_some(index))
+        .collect::<Vec<_>>();
+    drop(seen_keys);
+    let mut duplicates = duplicates.into_iter().peekable();
+    let mut write = 0;
+    for read in 0..table_keys.len() {
+        if duplicates.peek() == Some(&read) {
+            duplicates.next();
+            continue;
+        }
+        if write != read {
+            table_keys.swap(write, read);
+        }
+        write += 1;
+    }
+    table_keys.truncate(write);
 }
 
 fn query_capacity(limit: usize) -> Option<usize> {
@@ -1011,6 +1035,43 @@ mod tests {
 
         assert_eq!(allocations, 0);
         assert_eq!(rows.len(), 18);
+    }
+
+    #[test]
+    fn exact_segmentation_key_dedup_uses_no_temporary_heap_state_for_small_batches() {
+        let mut table_keys = (0..16)
+            .map(|index| ("tbl_2_n".to_owned(), format!("ni'{}", index % 8)))
+            .collect::<Vec<_>>();
+
+        let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            deduplicate_table_keys(&mut table_keys);
+        });
+
+        assert_eq!(allocations, 0);
+        assert_eq!(
+            table_keys,
+            (0..8)
+                .map(|index| ("tbl_2_n".to_owned(), format!("ni'{index}")))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn exact_segmentation_key_dedup_keeps_first_rows_on_both_sides_of_the_boundary() {
+        for length in [0, 1, 15, 16, 17, 64, 128] {
+            let mut table_keys = (0..length)
+                .map(|index| (format!("table-{index}"), format!("key-{}", index % 17)))
+                .collect::<Vec<_>>();
+            let expected = table_keys[..length.min(17)].to_vec();
+            let pointer = table_keys.as_ptr();
+            let capacity = table_keys.capacity();
+
+            deduplicate_table_keys(&mut table_keys);
+
+            assert_eq!(table_keys, expected, "length={length}");
+            assert_eq!(table_keys.as_ptr(), pointer);
+            assert_eq!(table_keys.capacity(), capacity);
+        }
     }
 
     #[test]
