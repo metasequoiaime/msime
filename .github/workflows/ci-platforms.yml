@@ -31,7 +31,7 @@ permissions:
 jobs:
   changes:
     name: Decide platform scope
-    runs-on: ubuntu-24.04
+    runs-on: depot-ubuntu-24.04
     timeout-minutes: 5
     outputs:
       android: ${{ steps.decide.outputs.android }}
@@ -95,7 +95,7 @@ jobs:
   android:
     needs: changes
     name: Android host
-    runs-on: ubuntu-24.04
+    runs-on: depot-ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -133,7 +133,7 @@ jobs:
   linux:
     needs: changes
     name: Linux native host
-    runs-on: ubuntu-24.04
+    runs-on: depot-ubuntu-24.04-8
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -150,7 +150,7 @@ jobs:
   linux-desktop:
     needs: changes
     name: Linux settings app
-    runs-on: ubuntu-24.04
+    runs-on: depot-ubuntu-24.04-8
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -180,7 +180,7 @@ jobs:
   harmonyos:
     needs: changes
     name: HarmonyOS host
-    runs-on: ubuntu-24.04
+    runs-on: depot-ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -210,7 +210,7 @@ jobs:
   windows:
     needs: changes
     name: Windows GNU cross build
-    runs-on: ubuntu-24.04
+    runs-on: depot-ubuntu-24.04-16
     # Ubuntu 24.04's MinGW headers predate d2d1_3.h, which msimeui includes for ID2D1DeviceContext5 and SVG rendering, so the build runs in the Debian release platforms/windows/cross/Dockerfile is based on. The steps below mirror that Dockerfile.
     container: debian:trixie-slim
     timeout-minutes: 90
@@ -287,7 +287,7 @@ jobs:
   web-engine:
     needs: changes
     name: Web engine (wasm)
-    runs-on: ubuntu-24.04
+    runs-on: depot-ubuntu-24.04
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
