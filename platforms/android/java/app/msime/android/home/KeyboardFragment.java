@@ -119,7 +119,7 @@ public final class KeyboardFragment extends HomeTabFragment {
             switch (status) {
                 case RUNNING -> {
                     preparation.setText(R.string.preparation_running);
-                    preparation.setClickable(false);
+                    ViewPolicy.setClickable(preparation, false);
                     ViewPolicy.show(preparation);
                 }
                 case FAILED -> {
@@ -127,7 +127,7 @@ public final class KeyboardFragment extends HomeTabFragment {
                     // 原因直接写在提示里：出问题的多是别人手里的手机，没法让用户连电脑看 logcat。
                     if (reason.isEmpty()) preparation.setText(R.string.preparation_failed);
                     else preparation.setText(getString(R.string.preparation_failed_reason, reason));
-                    preparation.setClickable(true);
+                    ViewPolicy.setClickable(preparation, true);
                     ViewPolicy.show(preparation);
                 }
                 default -> {
