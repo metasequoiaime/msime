@@ -105,7 +105,7 @@ public final class GroupCard {
             onChange.accept(control.isChecked());
         });
         ViewPolicy.setInteractive(row.view, true);
-        row.view.setBackground(Ui.ripple(context));
+        ViewPolicy.setBackground(row.view, Ui.ripple(context));
         row.view.setAccessibilityDelegate(new View.AccessibilityDelegate() {
             @Override public void onInitializeAccessibilityNodeInfo(View host, AccessibilityNodeInfo info) {
                 super.onInitializeAccessibilityNodeInfo(host, info);
@@ -249,7 +249,7 @@ public final class GroupCard {
         }
 
         private void setAction(@Nullable Runnable action) {
-            view.setBackground(action == null ? null : Ui.ripple(view.getContext()));
+            ViewPolicy.setBackground(view, action == null ? null : Ui.ripple(view.getContext()));
             ViewPolicy.setInteractive(view, action != null);
             ViewPolicy.bindOptionalClick(view, action);
             ViewPolicy.setEnabledWithAlpha(view, action != null, 0.38f);
