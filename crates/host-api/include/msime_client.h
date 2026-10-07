@@ -398,6 +398,19 @@ char *msime_client_voice_local_model_install(
     msime_client_voice_local_model_progress_callback progress, void *context);
 char *msime_client_voice_local_model_cancel(const uint8_t *request, size_t length);
 char *msime_client_voice_local_model_remove(const uint8_t *request, size_t length);
+/* On-demand resource packs under <state_root>/resource-packs/<id>/, where state_root is the HostOptions preferences_directory (Android: files/bootstrap/state); a session picks up a newly published pack at its next focus. Pack ids: japanese, language-dictionaries, handwriting, settled-model, offline-glosses, voice-runtime. JSON request buffers of length bytes (<=16384); standard responses. Install and adopt block: worker thread only. Errors are "invalid resource pack request", "invalid state root", "invalid source", "resource_pack_unknown", "resource_pack_busy" (that pack is already installing or adopting in this process) or a "local_model_*" code.
+ * resource_packs: {state_root} -> [{id, state:"missing"|"installed"|"outdated", size, schemes:[...]}], one entry per pack; size is the download size in bytes.
+ * resource_pack_install: {state_root, pack, sources?:["https://mirror/", ...]} -> {path}. Sources are mirror prefixes tried in order (at most 8, empty ones skipped), then the project's mirrors, then the URL in the compiled lock; integrity is always the compiled size and SHA-256. An unfinished file is resumed with an HTTP Range request next time. progress (nullable) gets (context, phase "download"|"verify"|"done", done, total) on the calling thread; the phase string is valid only during the call. Cancelled installs fail with "local_model_cancelled".
+ * resource_pack_cancel: pack is the raw UTF-8 id (not JSON); NULL/0 cancels every pack install in this process. Any thread; returns at once.
+ * resource_pack_adopt: {state_root, pack, source: absolute dir} -> {path}. Renames the pack's files out of source on the same filesystem (no copy), verifies them against the compiled lock and publishes the pack; on failure every file is renamed back and nothing is published. A pack already installed with the same bytes is returned without touching source. */
+typedef void (*msime_client_resource_pack_progress_callback)(void *context, const char *phase,
+                                                             uint64_t done, uint64_t total);
+char *msime_client_resource_packs(const uint8_t *request, size_t length);
+char *msime_client_resource_pack_install(const uint8_t *request, size_t length,
+                                         msime_client_resource_pack_progress_callback progress,
+                                         void *context);
+void msime_client_resource_pack_cancel(const uint8_t *pack, size_t length);
+char *msime_client_resource_pack_adopt(const uint8_t *request, size_t length);
 /* Pure DeepLX-compatible descriptor builder (no network I/O). Request <=16 KiB:
  * {config:{enabled,endpoint,api_key},text,source_language,target_language}.
  * Returns null if disabled; otherwise {url,method,headers,body,timeout_ms,max_response_bytes}.
