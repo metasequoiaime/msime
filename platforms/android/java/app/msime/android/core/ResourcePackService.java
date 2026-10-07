@@ -23,6 +23,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import org.json.JSONObject;
@@ -68,6 +69,8 @@ public final class ResourcePackService extends Service {
 
     private static final Map<String, Status> STATUS = new ConcurrentHashMap<>();
     private static final List<Listener> LISTENERS = new CopyOnWriteArrayList<>();
+    /** 用户已经要求取消、但下载还没结束的资源包。共享层的取消标记要等下载线程进入安装后才登记，在那之前的取消只记在这里，由下载线程补上。 */
+    private static final Set<String> CANCELLING = ConcurrentHashMap.newKeySet();
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
 
     // ---- 设置页用的静态入口（主线程） ----
@@ -118,6 +121,8 @@ public final class ResourcePackService extends Service {
 
     /** 停下这个资源包的下载；已下载的部分留着，下次接着下。 */
     public static void cancel(String pack) {
+        Status current = STATUS.get(pack);
+        if (current != null && current.running()) CANCELLING.add(pack);
         ResourcePacks.cancel(pack);
     }
 
@@ -201,6 +206,7 @@ public final class ResourcePackService extends Service {
     private static boolean claim(String pack) {
         Status current = STATUS.get(pack);
         if (current != null && current.running()) return false;
+        CANCELLING.remove(pack);
         STATUS.put(pack, new Status(Phase.DOWNLOADING, 0, 0, null));
         notifyListeners(pack, false);
         return true;
@@ -220,8 +226,12 @@ public final class ResourcePackService extends Service {
         Thread worker = new Thread(() -> {
             String failure = null;
             try {
-                ResourcePacks.install(context, pack, mirrors(context),
-                    (phase, done, total) -> progress(pack, phase, done, total));
+                if (CANCELLING.contains(pack)) {
+                    failure = "";
+                } else {
+                    ResourcePacks.install(context, pack, mirrors(context),
+                        (phase, done, total) -> progress(pack, phase, done, total));
+                }
             } catch (ResourcePacks.Failure error) {
                 failure = error.cancelled() ? "" : reason(error.code());
             } catch (RuntimeException | LinkageError error) {
@@ -245,6 +255,8 @@ public final class ResourcePackService extends Service {
 
     /** 共享层的进度回调，在下载线程上：只在阶段或百分比变化时更新状态，免得每个数据块都重画页面和通知。 */
     private void progress(String pack, String phase, long done, long total) {
+        // 共享层这时已经登记了这次安装，补上登记之前就到了的取消。
+        if (CANCELLING.contains(pack)) ResourcePacks.cancel(pack);
         Phase next = "download".equals(phase) ? Phase.DOWNLOADING : Phase.VERIFYING;
         Status updated = new Status(next, done, total, null);
         Status previous = STATUS.get(pack);
@@ -258,6 +270,7 @@ public final class ResourcePackService extends Service {
 
     /** 主线程：一个资源包的下载结束。{@code failure} 为 null 是成功，空串是用户取消，其它是失败原因。 */
     private void finished(String pack, @Nullable String failure) {
+        CANCELLING.remove(pack);
         if (failure == null || failure.isEmpty()) {
             STATUS.remove(pack);
         } else {
