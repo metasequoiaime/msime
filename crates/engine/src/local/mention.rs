@@ -27,8 +27,10 @@ fn collect_place_matches(
     if limit == 0 {
         return Vec::new();
     }
-    let mut exact = Vec::with_capacity(limit);
-    let mut prefix = Vec::with_capacity(limit);
+    let mut exact = [None; RESULT_LIMIT];
+    let mut exact_len = 0;
+    let mut prefix = [None; RESULT_LIMIT];
+    let mut prefix_len = 0;
     let mut matched_names = [None; PLACE_MATCH_CAPACITY];
     let mut matched_names_len = 0;
     for (place, spellings) in table.places.iter().zip(&table.spellings) {
@@ -44,23 +46,29 @@ fn collect_place_matches(
             continue;
         }
         if is_exact {
-            if exact.len() == limit {
+            if exact_len == limit {
                 continue;
             }
-            exact.push((place.key, place.name));
-        } else if prefix.len() < limit {
-            prefix.push((place.key, place.name));
+            exact[exact_len] = Some((place.key, place.name));
+            exact_len += 1;
+        } else if prefix_len < limit {
+            prefix[prefix_len] = Some((place.key, place.name));
+            prefix_len += 1;
         } else {
             continue;
         }
         matched_names[matched_names_len] = Some(place.name);
         matched_names_len += 1;
-        if exact.len() == limit {
+        if exact_len == limit {
             break;
         }
     }
-    exact.extend(prefix.into_iter().take(limit.saturating_sub(exact.len())));
-    exact
+    let prefix_len = prefix_len.min(limit.saturating_sub(exact_len));
+    let mut matches = Vec::with_capacity(exact_len + prefix_len);
+    for place in exact[..exact_len].iter().chain(prefix[..prefix_len].iter()) {
+        matches.push(place.expect("place row slot is filled"));
+    }
+    matches
 }
 
 /// The entries that are usable of a host list: non-empty text within the candidate text bound, a key of lowercase letters and single apostrophes between them, the first entry of a text, at most `LIST_LIMIT`.
@@ -245,6 +253,16 @@ mod place_match_tests {
         let matches = collect_place_matches(table, "bei", &[], RESULT_LIMIT);
         assert!(!matches.is_empty());
         assert!(matches.iter().all(|(_, name)| !name.is_empty()));
+    }
+
+    #[test]
+    fn place_matches_need_only_the_output_allocation() {
+        let table = places();
+        let (matches, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            collect_place_matches(table, "bei", &[], RESULT_LIMIT)
+        });
+        assert!(!matches.is_empty());
+        assert_eq!(allocations, 1);
     }
 
     #[test]
