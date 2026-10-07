@@ -154,8 +154,8 @@ public final class SkinsPage extends DetailPage {
             card.selected() ? ring : Ui.atLeastOnePx(context, 1),
             card.selected() ? Ui.accent(context) : Ui.outline(context));
         tile.setBackground(frame);
-        tile.setPadding(ring + Ui.dp(context, 1), ring + Ui.dp(context, 1), ring + Ui.dp(context, 1),
-            ring + Ui.dp(context, 1));
+        int inset = ring + Ui.dp(context, 1);
+        ViewPolicy.setPadding(tile, inset, inset, inset, inset);
         SkinSwatchView swatch = new SkinSwatchView(context);
         swatch.setSkin(card.skin());
         Ui.hideFromAccessibility(swatch);
