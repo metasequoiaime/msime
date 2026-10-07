@@ -48,7 +48,7 @@ public final class SearchPill extends LinearLayout {
         params.setMarginStart(Ui.dp(context, 14));
         addView(field, params);
         // 点到胶囊的任何地方都把焦点交给输入框，而不只是那一行字。
-        setOnClickListener(ignored -> field.requestFocus());
+        ViewPolicy.bindClick(this, field::requestFocus);
     }
 
     /** 输入框本身，需要监听回车或改样式时用。 */

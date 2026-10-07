@@ -40,6 +40,7 @@ public final class DownloadLinkApi {
         }
         JSONObject response = api.json("POST", PATH, body, CloudApi.Auth.ACCOUNT);
         Object sentTo = response.opt("sent_to");
-        return sentTo instanceof String text && text.length() <= 320 && !TextPolicy.hasControl(text) ? text : "";
+        return sentTo instanceof String text && text.length() <= 320 && !TextPolicy.hasControl(text)
+            && TextPolicy.validUnicode(text) ? text : "";
     }
 }

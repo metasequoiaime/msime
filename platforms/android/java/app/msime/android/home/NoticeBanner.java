@@ -7,18 +7,19 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import app.msime.android.core.NoticeFieldPolicy;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
 import app.msime.android.NativeClient;
 import app.msime.android.R;
+import app.msime.android.TextPolicy;
 import io.noties.markwon.AbstractMarkwonPlugin;
 import io.noties.markwon.Markwon;
 import io.noties.markwon.MarkwonConfiguration;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -55,10 +56,13 @@ final class NoticeBanner {
             for (int index = 0; items != null && index < items.length(); index++) {
                 JSONObject item = items.optJSONObject(index);
                 if (item == null) continue;
-                String id = item.optString("id", "");
-                String title = item.optString("title", "").trim();
+                String id = NoticeFieldPolicy.strictString(item.opt("id"));
+                String title = NoticeFieldPolicy.strictString(item.opt("title"));
+                String body = NoticeFieldPolicy.strictString(item.opt("body"));
+                if (id == null || title == null || body == null) continue;
+                title = title.trim();
                 if (id.isEmpty() || title.isEmpty()) continue;
-                notices.add(new Notice(id, title, item.optString("body", "")));
+                notices.add(new Notice(id, title, body));
             }
             return notices;
         } catch (Exception | LinkageError error) {
@@ -118,7 +122,7 @@ final class NoticeBanner {
 
     private static void open(Context context, String link) {
         Uri uri = Uri.parse(link);
-        String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(Locale.ROOT);
+        String scheme = TextPolicy.lowercase(uri.getScheme());
         if (!scheme.equals("https") && !scheme.equals("http") && !scheme.equals("mailto")) return;
         try {
             context.startActivity(new Intent(Intent.ACTION_VIEW, uri)

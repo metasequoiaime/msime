@@ -1,5 +1,6 @@
 //! `K` mode (quick_phrase_query.cpp:46-98). The table is really named `quick_parases`.
 
+use std::collections::HashSet;
 use std::path::Path;
 
 use rusqlite::Connection;
@@ -109,20 +110,29 @@ pub fn merge_quick_phrases(
     }
     let mut result = database;
     let start = table.partition_point(|entry| entry.key.as_str() < prefix);
+    let mut additions = Vec::with_capacity(RESULT_LIMIT.saturating_sub(result.candidates.len()));
+    // Keep the existing candidate text borrowed while scanning the bounded host table. The
+    // result vector is extended only after the scan, so its reallocation cannot invalidate these
+    // references and each host row is checked with one hash lookup instead of a full page scan.
+    let mut seen_words: HashSet<&str> = result
+        .candidates
+        .iter()
+        .map(|candidate| candidate.word.as_str())
+        .collect();
     for entry in table[start..]
         .iter()
         .take_while(|entry| entry.key.starts_with(prefix))
     {
-        if result.candidates.len() >= RESULT_LIMIT {
+        if result.candidates.len() + additions.len() >= RESULT_LIMIT {
             break;
         }
-        if result
-            .candidates
-            .iter()
-            .any(|candidate| candidate.word == entry.text)
-        {
+        if !seen_words.insert(entry.text.as_str()) {
             continue;
         }
+        additions.push(entry);
+    }
+    drop(seen_words);
+    for entry in additions {
         result.candidates.push(WordItem::new(
             entry.key.clone(),
             entry.text.clone(),

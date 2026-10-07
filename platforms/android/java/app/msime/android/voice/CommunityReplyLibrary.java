@@ -76,8 +76,8 @@ public final class CommunityReplyLibrary {
                     || !TextPolicy.validUnicode(prompt) || TextPolicy.hasControl(id)
                     || TextPolicy.hasControl(name) || TextPolicy.hasControl(prompt)
                     || TextPolicy.utf8Length(id) > MAXIMUM_ID_BYTES
-                    || name.codePointCount(0, name.length()) > MAXIMUM_NAME_CHARACTERS
-                    || prompt.codePointCount(0, prompt.length()) > MAXIMUM_PROMPT_CHARACTERS)
+                    || !TextPolicy.withinCodePoints(name, MAXIMUM_NAME_CHARACTERS)
+                    || !TextPolicy.withinCodePoints(prompt, MAXIMUM_PROMPT_CHARACTERS))
                 throw new IOException("Invalid community library");
             replies.add(new Template(id, name, prompt));
         }

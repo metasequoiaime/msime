@@ -23,6 +23,10 @@ public final class VoiceContributionApiSmoke {
             "only WAV audio is sent");
         check(!VoiceContributionApi.valid(new VoiceContributionApi.Contribution("", "local", 1000, "好", "1.2.3", wav)),
             "a language is required");
+        check(!VoiceContributionApi.valid(new VoiceContributionApi.Contribution("zh-CN", "local", 1000,
+            "好\u0000", "1.2.3", wav)), "control characters are refused in transcripts");
+        check(!VoiceContributionApi.valid(new VoiceContributionApi.Contribution("zh-CN\uD800", "local", 1000,
+            "好", "1.2.3", wav)), "unpaired surrogates are refused in metadata");
         check(VoiceContributionApi.PATH.equals("/v1/voice/contributions"), "the contribution endpoint");
         try {
             java.lang.reflect.Method strictString = VoiceContributionApi.class.getDeclaredMethod(

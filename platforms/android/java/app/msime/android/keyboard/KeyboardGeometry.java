@@ -60,7 +60,7 @@ public final class KeyboardGeometry {
 
     /** Return the shorter of two dimensions for proportional control sizing. */
     public static float shorterSide(float width, float height) {
-        return Math.min(width, height);
+        return BoundsPolicy.atMost(width, height);
     }
 
     /** Return the current display width in physical pixels. */
@@ -81,12 +81,12 @@ public final class KeyboardGeometry {
 
     /** Return a view's non-negative width after horizontal padding. */
     public static int contentWidth(View view) {
-        return Math.max(0, view.getWidth() - view.getPaddingLeft() - view.getPaddingRight());
+        return BoundsPolicy.nonNegative(view.getWidth() - view.getPaddingLeft() - view.getPaddingRight());
     }
 
     /** Return a view's non-negative height after vertical padding. */
     public static int contentHeight(View view) {
-        return Math.max(0, view.getHeight() - view.getPaddingTop() - view.getPaddingBottom());
+        return BoundsPolicy.nonNegative(view.getHeight() - view.getPaddingTop() - view.getPaddingBottom());
     }
 
     /** 键盘高度百分比对应的高度调整 dp：`round(184 × (p − 100) / 100)`，范围外先钳到 75–130，与 Rust `height_percent_to_adjustment` 同式（向远离零的方向取整）。 */
@@ -197,12 +197,12 @@ public final class KeyboardGeometry {
 
     public static int halfGapPixels(int tenths, float density) {
         if (!Float.isFinite(density) || density <= 0) return 0;
-        return Math.max(0, Math.round(tenths * density / 20f));
+        return BoundsPolicy.nonNegative(Math.round(tenths * density / 20f));
     }
 
     /** Convert a size to pixels while guaranteeing at least one physical pixel. */
     public static int atLeastOnePixel(Context context, float dp) {
-        return Math.max(1, pixels(context, dp));
+        return BoundsPolicy.atLeast(pixels(context, dp), 1);
     }
 
     /** Convert an integer density-independent size to pixels using Android's rounding rule. */

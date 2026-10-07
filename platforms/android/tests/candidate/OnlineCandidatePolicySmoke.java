@@ -38,6 +38,10 @@ public final class OnlineCandidatePolicySmoke {
         check(OnlineCandidatePolicy.aiCandidateLimit(-1) == 0);
         check(OnlineCandidatePolicy.aiCandidateLimit(11) == 0);
 
+        check("text".equals(OnlineCandidatePolicy.strictText("text")));
+        check(OnlineCandidatePolicy.strictText(42) == null);
+        check(OnlineCandidatePolicy.strictText(true) == null);
+
         // The same composition is asked about once; a changed AI configuration asks again.
         check(signature(true, "{\"model\":\"a\"}").equals(signature(true, "{\"model\":\"a\"}")));
         check(!signature(true, "{\"model\":\"a\"}").equals(signature(true, "{\"model\":\"b\"}")));
@@ -69,6 +73,8 @@ public final class OnlineCandidatePolicySmoke {
             Arrays.asList("  ", "坏\u0007的", null, "好的"), 3).equals(List.of("好的")));
         check(OnlineCandidatePolicy.aiCandidates(
             Arrays.asList("x".repeat(4097), "短"), 3).equals(List.of("短")));
+        check(OnlineCandidatePolicy.aiCandidates(
+            Arrays.asList("坏\uD800", "好"), 3).equals(List.of("好")));
         check(OnlineCandidatePolicy.aiCandidates(List.of(), 3).isEmpty());
         check(OnlineCandidatePolicy.aiCandidates(null, 3).isEmpty());
         // A limit the shared host would reject contributes nothing at all.

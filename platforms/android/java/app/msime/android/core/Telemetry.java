@@ -1,5 +1,6 @@
 package app.msime.android.core;
 
+import app.msime.android.TextPolicy;
 import android.content.Context;
 import android.content.pm.PackageInfo;
 import android.util.Log;
@@ -216,9 +217,7 @@ public final class Telemetry {
 
     /** At most `limit` code points, never splitting a surrogate pair. */
     static String clipCodePoints(String value, int limit) {
-        if (value == null) return "";
-        if (value.codePointCount(0, value.length()) <= limit) return value;
-        return value.substring(0, value.offsetByCodePoints(0, limit));
+        return TextPolicy.clipCodePoints(value, limit);
     }
 
     /** The stack within both the code-point limit and the byte cap, cut at the end of a line. */

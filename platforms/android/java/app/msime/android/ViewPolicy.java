@@ -125,6 +125,11 @@ public final class ViewPolicy {
         return button;
     }
 
+    /** Bind a caller-supplied action to a view without changing any other interaction policy. */
+    public static void bindClick(View view, Runnable action) {
+        view.setOnClickListener(ignored -> action.run());
+    }
+
     /** Center a view's content on both axes. */
     public static void setCentered(View view) {
         if (view instanceof TextView text) {
@@ -149,6 +154,11 @@ public final class ViewPolicy {
 
     /** Center a view's content along the horizontal axis. */
     public static void setCenteredHorizontally(LinearLayout view) {
+        view.setGravity(Gravity.CENTER_HORIZONTAL);
+    }
+
+    /** Center a text view's content along the horizontal axis. */
+    public static void setCenteredHorizontally(TextView view) {
         view.setGravity(Gravity.CENTER_HORIZONTAL);
     }
 

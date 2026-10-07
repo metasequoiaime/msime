@@ -102,7 +102,7 @@ public final class DeviceDataApi {
 
     /** 改昵称；去掉首尾空白后为空表示恢复服务端的默认昵称。 */
     public void rename(String displayName) throws CloudApi.Failure {
-        String name = displayName == null ? "" : displayName.trim();
+        String name = TextPolicy.trimmed(displayName);
         if (!validDisplayName(name)) throw new IllegalArgumentException("invalid display name");
         JSONObject body;
         try {
@@ -157,7 +157,7 @@ public final class DeviceDataApi {
             if (!validSessionId(id)) continue;
             sessions.add(new Session(id, string(row, "platform"), string(row, "name"), string(row, "app_version"),
                 instant(string(row, "created_at")), instant(string(row, "last_active")),
-                Boolean.TRUE.equals(row.opt("current"))));
+                JsonPolicy.strictTrue(row.opt("current"))));
         }
         return Collections.unmodifiableList(sessions);
     }
@@ -253,7 +253,7 @@ public final class DeviceDataApi {
     /** 昵称：去掉首尾空白后不超过 64 个码点，不含控制字符。空字符串合法（恢复默认昵称）。 */
     public static boolean validDisplayName(String name) {
         if (name == null) return false;
-        if (name.codePointCount(0, name.length()) > MAX_DISPLAY_NAME) return false;
+        if (!TextPolicy.withinCodePoints(name, MAX_DISPLAY_NAME)) return false;
         for (int index = 0; index < name.length(); index++) {
             char c = name.charAt(index);
             if (c < 0x20 || c == 0x7F) return false;

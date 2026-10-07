@@ -15,6 +15,8 @@ import app.msime.android.BoundsPolicy;
 import app.msime.android.DrawablePolicy;
 import app.msime.android.KeyboardSkin;
 import app.msime.android.R;
+import app.msime.android.TextPolicy;
+import app.msime.android.ViewPolicy;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -58,7 +60,7 @@ public final class CommunityAdapter extends RecyclerView.Adapter<CommunityAdapte
 
     /** Ids compare case-insensitively, as the catalogue does (UUIDs may arrive in either case). */
     static String key(String id) {
-        return id == null ? "" : id.toLowerCase(Locale.ROOT);
+        return TextPolicy.lowercase(id);
     }
 
     /** Replace the listing, for a new kind or a new search. */
@@ -188,7 +190,7 @@ public final class CommunityAdapter extends RecyclerView.Adapter<CommunityAdapte
         Action action = action(item);
         if (item.kind() == CommunityRequest.Kind.SKIN) bindSkin(holder, item);
         else bindRow(holder, item, position);
-        holder.itemView.setOnClickListener(ignored -> onOpen.accept(item));
+        ViewPolicy.bindClick(holder.itemView, () -> onOpen.accept(item));
         bindPill(holder.itemView.getContext(), holder.action, item, action);
     }
 
@@ -264,7 +266,7 @@ public final class CommunityAdapter extends RecyclerView.Adapter<CommunityAdapte
         pill.setClickable(enabled);
         pill.setFocusable(enabled);
         pill.setAlpha(action == Action.BUSY ? 0.6f : 1f);
-        if (enabled) pill.setOnClickListener(ignored -> onAction.accept(item));
+        if (enabled) ViewPolicy.bindClick(pill, () -> onAction.accept(item));
         else pill.setOnClickListener(null);
         pill.setAccessibilityDelegate(KeyboardSheets.buttonDelegate(label + "，" + item.name()));
     }
@@ -296,9 +298,7 @@ public final class CommunityAdapter extends RecyclerView.Adapter<CommunityAdapte
 
     /** The glyph in the badge: the first character of the name, as the design's 网/码/医 boxes. */
     static String glyph(CommunityCatalog.Item item) {
-        String name = item.name().trim();
-        if (name.isEmpty()) return "?";
-        return name.substring(0, name.offsetByCodePoints(0, 1));
+        return Ui.trimmedInitial(item.name(), "?");
     }
 
     /** The slice of the grouped card behind one row: rounded where the group starts and ends. */

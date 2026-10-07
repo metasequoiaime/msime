@@ -50,6 +50,7 @@ public final class AndroidLocalSettingsSmoke {
         check("off".equals(settings.choice(AndroidLocalSettings.ONE_HANDED)), "one-handed default");
         check(settings.bool(AndroidLocalSettings.KEY_POPUP), "key popup default");
         check(settings.bool(AndroidLocalSettings.SWIPE_DOWN_SYMBOLS), "swipe default");
+        check("down".equals(settings.choice(AndroidLocalSettings.SWIPE_SYMBOLS_DIRECTION)), "swipe direction default");
         check(settings.bool(AndroidLocalSettings.SPACE_CURSOR), "space cursor default");
         check(settings.bool(AndroidLocalSettings.SPACE_VOICE), "space voice default");
         check("none".equals(settings.choice(AndroidLocalSettings.KEY_ANIMATION)), "animation default");
@@ -129,7 +130,7 @@ public final class AndroidLocalSettingsSmoke {
         check("off".equals(snapshot.choice(AndroidLocalSettings.ONE_HANDED)), "dropped value reads its default");
         check(snapshot.has(AndroidLocalSettings.APP_THEME) && !snapshot.has(AndroidLocalSettings.ONE_HANDED), "has()");
         Map<String, Object> synced = snapshot.synced();
-        check(synced.size() == 16, "sixteen synced keys, got " + synced.size());
+        check(synced.size() == 17, "seventeen synced keys, got " + synced.size());
         check("dongxue".equals(synced.get(AndroidLocalSettings.APP_THEME)), "synced carries explicit values");
         check(Boolean.TRUE.equals(synced.get(AndroidLocalSettings.KEY_POPUP)), "synced carries defaults");
         for (String local : new String[] {AndroidLocalSettings.INCOGNITO, AndroidLocalSettings.VOICE_CONTRIBUTE_AUDIO,

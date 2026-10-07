@@ -152,7 +152,7 @@ public final class TypingStatisticsSummary {
 
     /** 千分位：`12,846`。 */
     public static String grouped(long value) {
-        return String.format(Locale.ROOT, "%,d", value);
+        return NumberPolicy.grouped(value);
     }
 
     /** 英雄卡下的周环比；上周没有记录时不写（没有可比的基数），返回 null。 */

@@ -162,7 +162,7 @@ public final class SkinJobsApi {
      */
     public List<Proposal> generate(String prompt, AtomicBoolean cancelled) throws CloudApi.Failure {
         String trimmed = prompt == null ? "" : prompt.trim();
-        if (trimmed.isEmpty() || trimmed.codePointCount(0, trimmed.length()) > MAX_PROMPT_CHARACTERS)
+        if (trimmed.isEmpty() || !TextPolicy.withinCodePoints(trimmed, MAX_PROMPT_CHARACTERS))
             throw invalid("ai_skin_invalid");
         check(cancelled);
         String model = defaultModel();
@@ -179,10 +179,15 @@ public final class SkinJobsApi {
         });
         try {
             List<Future<Proposal>> futures = new ArrayList<>(plans.length());
-            for (int index = 0; index < plans.length(); index++) {
-                JSONObject plan = plans.optJSONObject(index);
-                if (plan == null) throw invalid("ai_skin_response");
-                futures.add(pool.submit(() -> illustrate(plan, cancelled)));
+            try {
+                for (int index = 0; index < plans.length(); index++) {
+                    JSONObject plan = plans.optJSONObject(index);
+                    if (plan == null) throw invalid("ai_skin_response");
+                    futures.add(pool.submit(() -> illustrate(plan, cancelled)));
+                }
+            } catch (CloudApi.Failure | RuntimeException error) {
+                cancelSubmitted(cancelled, futures);
+                throw error;
             }
             List<Proposal> proposals = new ArrayList<>(futures.size());
             CloudApi.Failure first = null;
@@ -206,6 +211,13 @@ public final class SkinJobsApi {
         } finally {
             pool.shutdownNow();
         }
+    }
+
+    /** Stop every illustration already submitted when plan validation fails mid-batch. */
+    static void cancelSubmitted(AtomicBoolean cancelled, List<? extends Future<?>> futures) {
+        if (cancelled != null) cancelled.set(true);
+        if (futures == null) return;
+        for (Future<?> future : futures) if (future != null) future.cancel(true);
     }
 
     /** `GET /v1/models` 的 `default_model`；它必须出现在 `data` 里。 */

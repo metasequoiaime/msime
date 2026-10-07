@@ -28,7 +28,7 @@ public final class NineKeyDigitButton extends KeyboardPressButton {
 
     /** The digit printed above the letters; empty on the digit layer, where the face is the digit. */
     public void setDigitText(String value) {
-        String next = value == null ? "" : value;
+        String next = TextPolicy.emptyIfNull(value);
         if (digitText.equals(next)) return;
         digitText = next;
         setPadding(getPaddingLeft(), basePaddingTop + (digitText.isEmpty() ? 0 : KeyboardGeometry.pixels(getContext(), 10)),

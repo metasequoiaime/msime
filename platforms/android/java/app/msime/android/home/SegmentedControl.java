@@ -57,7 +57,7 @@ public final class SegmentedControl extends LinearLayout {
             Ui.setSymmetricPaddingDp(segment, context, 12, 4);
             segment.setClickable(true);
             segment.setFocusable(true);
-            segment.setOnClickListener(ignored -> select(index, true));
+            ViewPolicy.bindClick(segment, () -> select(index, true));
             segment.setAccessibilityDelegate(new AccessibilityDelegate() {
                 @Override public void onInitializeAccessibilityNodeInfo(View host, AccessibilityNodeInfo info) {
                     super.onInitializeAccessibilityNodeInfo(host, info);

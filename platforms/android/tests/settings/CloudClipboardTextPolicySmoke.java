@@ -17,6 +17,7 @@ public final class CloudClipboardTextPolicySmoke {
         check(!CloudClipboardTextPolicy.valid("\u2003\u00a0"), "Unicode whitespace is rejected");
         check(!CloudClipboardTextPolicy.valid("safe\u0000hidden"), "NUL is rejected");
         check(!CloudClipboardTextPolicy.valid("safe\u0007hidden"), "other controls are rejected");
+        check(!CloudClipboardTextPolicy.valid("safe\ud800hidden"), "malformed Unicode is rejected");
         check(!CloudClipboardTextPolicy.valid(null), "null is rejected");
         System.out.println("Android cloud clipboard: shared text boundary passed");
     }

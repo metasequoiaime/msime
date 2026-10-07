@@ -17,6 +17,7 @@ import android.widget.LinearLayout;
 import android.widget.ImageView;
 import android.widget.EditText;
 import android.widget.TextView;
+import app.msime.android.BoundsPolicy;
 import app.msime.android.KeyboardGeometry;
 import app.msime.android.ViewPolicy;
 import androidx.annotation.AttrRes;
@@ -36,7 +37,7 @@ public final class Ui {
 
     /** Bottom content inset that keeps page content above either system navigation or the IME. */
     public static int bottomContentInset(int systemBottom, int tabs, int imeBottom, int base) {
-        return Math.max(systemBottom + tabs, imeBottom) + base;
+        return BoundsPolicy.atLeast(systemBottom + tabs, imeBottom) + base;
     }
 
     // ---- 尺寸（dp） ----
@@ -727,6 +728,14 @@ public final class Ui {
     public static ImageView decorativeIcon(Context context, @DrawableRes int icon) {
         ImageView view = new ImageView(context);
         view.setImageResource(icon);
+        hideFromAccessibility(view);
+        return view;
+    }
+
+    /** Create a decorative image from a runtime drawable without applying a tint. */
+    public static ImageView decorativeIcon(Context context, Drawable icon) {
+        ImageView view = new ImageView(context);
+        view.setImageDrawable(icon);
         hideFromAccessibility(view);
         return view;
     }

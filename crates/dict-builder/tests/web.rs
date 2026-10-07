@@ -291,3 +291,128 @@ fn swapped_inputs_are_rejected() {
         .unwrap();
     assert!(!output.status.success());
 }
+
+// ---- 日语模型 ----
+
+/// MSJPDT1 文件：`(读法, 词, 成本)` 按读法排好，左右上下文都是 0，1×1 的连接矩阵。
+fn japanese_model(entries: &[(&str, &str, i32)]) -> Vec<u8> {
+    let mut strings = Vec::new();
+    let mut tokens = Vec::new();
+    for &(reading, surface, cost) in entries {
+        for text in [reading, surface] {
+            tokens.extend_from_slice(&(strings.len() as u32).to_le_bytes());
+            tokens.extend_from_slice(&(text.len() as u16).to_le_bytes());
+            strings.extend_from_slice(text.as_bytes());
+        }
+        tokens.extend_from_slice(&[0, 0, 0, 0]);
+        tokens.extend_from_slice(&cost.to_le_bytes());
+    }
+    let connection_offset = 56 + tokens.len() as u64;
+    let mut file = b"MSJPDT1\0".to_vec();
+    for value in [1u32, entries.len() as u32, 1, 0] {
+        file.extend_from_slice(&value.to_le_bytes());
+    }
+    for value in [
+        56,
+        connection_offset,
+        connection_offset + 2,
+        strings.len() as u64,
+    ] {
+        file.extend_from_slice(&value.to_le_bytes());
+    }
+    file.extend_from_slice(&tokens);
+    file.extend_from_slice(&7i16.to_le_bytes());
+    file.extend_from_slice(&strings);
+    file
+}
+
+/// 读出模型里的 `(读法, 词, 成本)` 和连接矩阵的第一个值。
+fn japanese_entries(bytes: &[u8]) -> (Vec<(String, String, i32)>, i16) {
+    let u32_at = |at: usize| u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap());
+    let u64_at = |at: usize| u64::from_le_bytes(bytes[at..at + 8].try_into().unwrap()) as usize;
+    let u16_at = |at: usize| u16::from_le_bytes(bytes[at..at + 2].try_into().unwrap());
+    let (tokens, connection, strings) = (u64_at(24), u64_at(32), u64_at(40));
+    let text = |offset: u32, length: u16| {
+        let start = strings + offset as usize;
+        std::str::from_utf8(&bytes[start..start + length as usize])
+            .unwrap()
+            .to_owned()
+    };
+    let entries = (0..u32_at(12) as usize)
+        .map(|index| {
+            let at = tokens + index * 20;
+            (
+                text(u32_at(at), u16_at(at + 4)),
+                text(u32_at(at + 6), u16_at(at + 10)),
+                i32::from_le_bytes(bytes[at + 16..at + 20].try_into().unwrap()),
+            )
+        })
+        .collect();
+    (
+        entries,
+        i16::from_le_bytes(bytes[connection..connection + 2].try_into().unwrap()),
+    )
+}
+
+fn run_japanese(keep: Option<usize>) -> (tempfile::TempDir, PathBuf) {
+    let (dir, pinyin, wubi) = inputs();
+    let model = dir.path().join("msime-japanese.dat");
+    std::fs::write(
+        &model,
+        japanese_model(&[
+            ("あい", "愛", 300),
+            ("あい", "藍", 900),
+            ("かな", "仮名", 100),
+            ("かな", "金", 300),
+            ("ひと", "人", 50),
+        ]),
+    )
+    .unwrap();
+    let out = dir.path().join("web");
+    let mut command = command(&pinyin, &wubi, &out, None);
+    command.arg("--japanese").arg(&model);
+    if let Some(keep) = keep {
+        command.arg("--keep-japanese").arg(keep.to_string());
+    }
+    let output = command.output().unwrap();
+    assert!(
+        output.status.success(),
+        "msime-dict-build web failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    (dir, out.join("msime-japanese.dat"))
+}
+
+#[test]
+fn japanese_keeps_the_cheapest_tokens_in_reading_order() {
+    let (_dir, model) = run_japanese(Some(3));
+    let (entries, connection) = japanese_entries(&std::fs::read(&model).unwrap());
+    // 成本 50、100 和 300 的第一条（あい 愛 在文件里先于 かな 金）；顺序仍按读法。
+    let entries: Vec<_> = entries
+        .iter()
+        .map(|(reading, surface, cost)| (reading.as_str(), surface.as_str(), *cost))
+        .collect();
+    assert_eq!(
+        entries,
+        [
+            ("あい", "愛", 300),
+            ("かな", "仮名", 100),
+            ("ひと", "人", 50)
+        ]
+    );
+    assert_eq!(connection, 7);
+}
+
+#[test]
+fn japanese_default_keeps_a_small_model_whole_and_reproducibly() {
+    let (_first_dir, first) = run_japanese(None);
+    let (_second_dir, second) = run_japanese(None);
+    assert_eq!(japanese_entries(&std::fs::read(&first).unwrap()).0.len(), 5);
+    assert_eq!(sha256(&first), sha256(&second));
+}
+
+#[test]
+fn without_japanese_no_model_is_written() {
+    let built = built(None);
+    assert!(!built.out.join("msime-japanese.dat").exists());
+}

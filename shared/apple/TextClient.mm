@@ -102,6 +102,7 @@ void MSIMEApplyTransitionWithPendingClosing(NSDictionary *transition, id<MSIMETe
 void MSIMEApplyTransitionTrackingMarkedText(NSDictionary *transition, id<MSIMETextClient> client,
                                             MSIMEInlinePreeditStyle style, NSString *closing,
                                             BOOL *clientHasMarkedText) {
+    if (![transition isKindOfClass:NSDictionary.class]) return;
     if (!closing.length) closing = nil;
     id commit = transition[@"commit"];
     // A commit ends the pair: the closing mark goes in with the text it was holding open, and the

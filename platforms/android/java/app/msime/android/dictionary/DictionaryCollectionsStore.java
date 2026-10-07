@@ -94,6 +94,27 @@ public final class DictionaryCollectionsStore {
         }
     }
 
+    /**
+     * 送一批待发送的增删，返回这次实际送出的条数。
+     *
+     * <p>个人词库队列一次只收 128 条，导入的大词库要分很多批。键盘每处理完一批就调这里送下一批，送出 0 条（全部送完，或队列还没空出来）时停下，用户不用去词库页手动刷新。
+     */
+    public static Result<Integer> flushSent(Context context) {
+        String options = hostOptions(context);
+        if (options.isEmpty()) return Result.failed(failureMessage("unavailable"));
+        final String response;
+        try {
+            response = NativeClient.dictionaryCollections(new JSONObject()
+                .put("options", new JSONObject(options)).put("action", action("flush")).toString());
+        } catch (JSONException | RuntimeException | LinkageError error) {
+            return Result.failed(failureMessage(""));
+        }
+        JSONObject value = value(response);
+        if (value == null) return Result.failed(failureMessage(errorOf(response)));
+        Integer sent = nonNegativeInteger(value.opt("sent"));
+        return Result.of(sent == null ? 0 : sent);
+    }
+
     /** 新建一个空的拼音词库。 */
     public static Result<View> create(Context context, String name) {
         if (!validName(name)) return Result.failed(failureMessage("collections_name_invalid"));
@@ -223,7 +244,8 @@ public final class DictionaryCollectionsStore {
                 JSONObject value = dictionary(context, action("export").put("kind", kind).put("format", "standard")
                     .put("offset", offset).put("limit", EXPORT_PAGE));
                 if (value == null) return Result.failed(failureMessage(""));
-                String page = value.optString("text", "");
+                String page = exportPage(value.opt("text"));
+                if (page == null) return Result.failed(failureMessage(""));
                 int nextBytes = exportBytesAfterPage(bytes, page);
                 if (nextBytes < 0) return Result.failed(failureMessage("collections_too_large"));
                 if (text == null) text = new StringBuilder(Math.max(16, page.length()));
@@ -270,9 +292,8 @@ public final class DictionaryCollectionsStore {
 
     /** 集合名能否使用，与 client-core 一致：1–32 个字，首尾没有空白，不含控制字符和换行。 */
     public static boolean validName(String name) {
-        if (name == null || name.isEmpty() || !name.equals(name.strip())) return false;
-        int count = name.codePointCount(0, name.length());
-        if (count < 1 || count > MAX_NAME_CHARS) return false;
+        if (name == null || name.isEmpty() || !name.equals(TextPolicy.stripped(name))) return false;
+        if (!TextPolicy.withinCodePoints(name, MAX_NAME_CHARS)) return false;
         for (int index = 0; index < name.length(); index++) {
             if (Character.isISOControl(name.charAt(index))) return false;
         }
@@ -297,7 +318,7 @@ public final class DictionaryCollectionsStore {
     /** 把用户输入的拼音收成编码：去掉空白、转小写，空格和中文撇号都当作音节分隔。 */
     public static String normalizePinyin(String input) {
         if (input == null) return "";
-        String lower = input.strip().toLowerCase(Locale.ROOT).replace('’', '\'').replace('‘', '\'');
+        String lower = TextPolicy.stripped(input).toLowerCase(Locale.ROOT).replace('’', '\'').replace('‘', '\'');
         return lower.replaceAll("\\s+", "'");
     }
 
@@ -308,12 +329,12 @@ public final class DictionaryCollectionsStore {
 
     /** 条数的展示写法，例如 `128,406 条`。 */
     public static String countLabel(long count) {
-        return String.format(Locale.ROOT, "%,d 条", BoundsPolicy.nonNegative(count));
+        return NumberPolicy.grouped(BoundsPolicy.nonNegative(count)) + " 条";
     }
 
     /** 从文件名得到新词库的名字：去掉扩展名（`.dict.yaml` 算一个），截到 32 个字，收不出来时用「导入的词库」。 */
     public static String nameFromFile(String displayName) {
-        String name = displayName == null ? "" : displayName.strip();
+        String name = TextPolicy.stripped(displayName);
         String lower = name.toLowerCase(Locale.ROOT);
         if (lower.endsWith(".dict.yaml")) {
             name = name.substring(0, name.length() - ".dict.yaml".length());
@@ -330,7 +351,7 @@ public final class DictionaryCollectionsStore {
             kept.appendCodePoint(codePoint);
             count++;
         }
-        String result = kept.toString().strip();
+        String result = TextPolicy.stripped(kept.toString());
         return validName(result) ? result : "导入的词库";
     }
 
@@ -516,6 +537,11 @@ public final class DictionaryCollectionsStore {
 
     public static String strictString(Object value) {
         return value instanceof String ? (String) value : null;
+    }
+
+    /** Export pages are text from the native response; do not let org.json coerce malformed values. */
+    public static String exportPage(Object value) {
+        return strictString(value);
     }
 
     public static Integer strictInteger(Object value) {

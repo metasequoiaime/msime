@@ -36,8 +36,10 @@ public final class VoiceContributionApi {
                 || wav[8] != 'W' || wav[9] != 'A' || wav[10] != 'V' || wav[11] != 'E') return false;
         if (contribution.durationMillis() <= 0 || contribution.durationMillis() > MAX_DURATION_MILLIS) return false;
         String transcript = contribution.transcript();
-        if (transcript == null || transcript.trim().isEmpty()) return false;
-        if (transcript.codePointCount(0, transcript.length()) > MAX_TRANSCRIPT) return false;
+        if (transcript == null || TextPolicy.trimmed(transcript).isEmpty()) return false;
+        if (!TextPolicy.withinCodePoints(transcript, MAX_TRANSCRIPT)
+                || TextPolicy.hasControlExceptWhitespace(transcript)
+                || !TextPolicy.validUnicode(transcript)) return false;
         return nonEmpty(contribution.language()) && nonEmpty(contribution.provider())
             && nonEmpty(contribution.appVersion());
     }
@@ -49,7 +51,7 @@ public final class VoiceContributionApi {
 
     private static boolean nonEmpty(String value) {
         return value != null && !value.isEmpty() && value.length() <= MAX_METADATA_FIELD_LENGTH
-            && !TextPolicy.hasControl(value);
+            && !TextPolicy.hasControl(value) && TextPolicy.validUnicode(value);
     }
 
     /** 上传一次贡献，返回服务端给的 id。不合规的贡献直接拒绝，不发请求。 */

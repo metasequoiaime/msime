@@ -49,9 +49,9 @@ public final class OneHandGutterView extends LinearLayout {
         return BoundsPolicy.nonNegative(totalWidth) - gutterWidth(totalWidth);
     }
 
-    public void setOnSwap(Runnable action) { swap.setOnClickListener(view -> action.run()); }
+    public void setOnSwap(Runnable action) { ViewPolicy.bindClick(swap, action); }
 
-    public void setOnExit(Runnable action) { exit.setOnClickListener(view -> action.run()); }
+    public void setOnExit(Runnable action) { ViewPolicy.bindClick(exit, action); }
 
     /** 键盘在右侧时箭头朝左（指向要换去的一侧）。 */
     public void setKeyboardOnRight(boolean onRight) {

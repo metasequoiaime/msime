@@ -2,7 +2,6 @@
 
 use super::decoder::JapaneseDictionary;
 use super::romaji::{kana_for_romaji_prefix, RomajiConversion};
-use std::collections::HashSet;
 
 pub const MAX_NODES_PER_ROW: usize = 8;
 pub const MAX_LEMMA_MORA: usize = 16;
@@ -33,12 +32,17 @@ struct Node {
 struct Output {
     items: Vec<JapaneseConversion>,
     limit: usize,
-    seen: HashSet<String>,
 }
 
 impl Output {
     fn push(&mut self, text: &str, cost: i64) {
-        if text.is_empty() || self.full() || !self.seen.insert(text.to_owned()) {
+        // Sentence output is capped at a small page (12 in the provider). Scanning the
+        // already-owned rows avoids allocating a second String for every unique result just
+        // to deduplicate it.
+        if text.is_empty()
+            || self.full()
+            || self.items.iter().any(|item| item.text == text)
+        {
             return;
         }
         self.items.push(JapaneseConversion {
@@ -72,7 +76,6 @@ pub fn search_converted(
     let mut output = Output {
         items: Vec::with_capacity(limit),
         limit,
-        seen: HashSet::with_capacity(limit),
     };
     if limit == 0 {
         return output.items;

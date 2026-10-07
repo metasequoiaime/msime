@@ -11,6 +11,7 @@ import app.msime.android.CommonPhrasesStore;
 import app.msime.android.CustomSkinLibrary;
 import app.msime.android.DictionaryCollectionsStore;
 import app.msime.android.DictionarySnapshotQueue;
+import app.msime.android.DigestPolicy;
 import app.msime.android.KeyboardFeedbackPreferences;
 import app.msime.android.KeyboardFeedbackStore;
 import app.msime.android.NativeClient;
@@ -21,15 +22,11 @@ import app.msime.android.SyncSwitch;
 import app.msime.android.policy.HostOptionsPolicy;
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStream;
 import java.lang.ref.WeakReference;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -582,7 +579,7 @@ public final class CloudSync {
             DictionarySnapshotQueue queue = new DictionarySnapshotQueue(root, root.resolve(QUEUE_PATH));
             String localVersion = queue.read().localVersion();
             if (localVersion == null) throw new IOException("keyboard has not published a dictionary version yet");
-            queue.enqueue(file.toAbsolutePath(), SyncSwitch.accountId(context), revision, localVersion, sha256(file));
+            queue.enqueue(file.toAbsolutePath(), SyncSwitch.accountId(context), revision, localVersion, DigestPolicy.sha256Hex(file));
         }
 
         /** 「合并」：把云端的词经个人词库队列导入本机，键盘下次开会话时应用。整批被拒时逐条再试，坏的那条跳过。 */
@@ -644,21 +641,5 @@ public final class CloudSync {
         return result;
     }
 
-    private static String sha256(Path file) throws IOException {
-        MessageDigest digest;
-        try {
-            digest = MessageDigest.getInstance("SHA-256");
-        } catch (NoSuchAlgorithmException impossible) {
-            throw new IllegalStateException(impossible);
-        }
-        byte[] buffer = new byte[16 * 1024];
-        try (InputStream input = Files.newInputStream(file, LinkOption.NOFOLLOW_LINKS)) {
-            int read;
-            while ((read = input.read(buffer)) != -1) digest.update(buffer, 0, read);
-        }
-        StringBuilder hex = new StringBuilder(64);
-        for (byte value : digest.digest()) hex.append(Character.forDigit((value >> 4) & 0xf, 16))
-            .append(Character.forDigit(value & 0xf, 16));
-        return hex.toString();
-    }
+
 }

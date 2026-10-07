@@ -234,7 +234,7 @@ public final class HostStore {
         String preferences = directory(context);
         if (!preferences.isEmpty()) return preferences;
         File files = context.getFilesDir();
-        return files == null ? "" : new File(files, "bootstrap/state").getAbsolutePath();
+        return HostOptionsPolicy.bootstrapStateDirectory(files);
     }
 
     @Nullable private static JSONObject action(String operation) {

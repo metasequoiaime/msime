@@ -6,6 +6,7 @@ public final class CommunityTextPolicy {
 
     /** Return whether text contains a disallowed Unicode control character. */
     public static boolean hasDisallowedControl(String text, boolean multiline) {
+        if (text == null || !TextPolicy.validUnicode(text)) return true;
         for (int index = 0; index < text.length();) {
             int codePoint = text.codePointAt(index);
             if (Character.isISOControl(codePoint)

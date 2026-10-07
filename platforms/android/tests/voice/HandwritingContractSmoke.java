@@ -42,6 +42,8 @@ public final class HandwritingContractSmoke {
         check(candidates.size() == HandwritingRecognizer.MAX_CANDIDATES);
         check(candidates.get(0).equals("中") && candidates.get(1).equals("字0"));
         check(candidates.stream().distinct().count() == candidates.size());
+        check(HandwritingRecognizer.sanitizeCandidates(List.of("坏\uD800", "好"))
+                .equals(List.of("好")));
 
         for (int index = 0; index < HandwritingInk.MAX_STROKES; index++) {
             check(ink.begin(1, 1, index, 100, 80));

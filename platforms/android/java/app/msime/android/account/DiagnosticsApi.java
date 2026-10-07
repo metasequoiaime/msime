@@ -145,7 +145,7 @@ public final class DiagnosticsApi {
     /** 上传一份快照，替换云端已有的那份。 */
     public Created upload(String platform, String appVersion, Sections sections, Retention ttl)
             throws CloudApi.Failure {
-        byte[] body = requestBody(platform, appVersion, sections, ttl).getBytes(StandardCharsets.UTF_8);
+        byte[] body = TextPolicy.utf8Bytes(requestBody(platform, appVersion, sections, ttl));
         if (body.length > MAX_BODY_BYTES) {
             throw new CloudApi.Failure(413, "payload_too_large", "diagnostics snapshot exceeds 2 MiB", 0);
         }
@@ -394,8 +394,7 @@ public final class DiagnosticsApi {
     }
 
     private static String entryText(InputStream stream) throws IOException {
-        return new String(HttpBodyPolicy.readRequired(stream, MAX_BODY_BYTES * 4),
-            StandardCharsets.UTF_8);
+        return TextPolicy.utf8(HttpBodyPolicy.readRequired(stream, MAX_BODY_BYTES * 4));
     }
 
     private static String baseName(String path) {

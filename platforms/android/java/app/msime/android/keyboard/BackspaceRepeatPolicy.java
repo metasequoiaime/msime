@@ -16,8 +16,8 @@ public final class BackspaceRepeatPolicy {
      */
     public static int deletesAfter(long heldMs) {
         if (heldMs < INITIAL_DELAY_MS) return 1;
-        return 2 + (int) Math.min(Integer.MAX_VALUE - 2,
-            (heldMs - INITIAL_DELAY_MS) / REPEAT_INTERVAL_MS);
+        return 2 + (int) BoundsPolicy.atMost(
+            (heldMs - INITIAL_DELAY_MS) / REPEAT_INTERVAL_MS, Integer.MAX_VALUE - 2L);
     }
 
     /** 第 `index` 次删除（从 0 起，0 为按下时那次）相对按下的时刻。 */

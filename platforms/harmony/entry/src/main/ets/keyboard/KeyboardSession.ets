@@ -75,6 +75,7 @@ import { CandidatePagerPolicy } from './candidate/CandidatePagerPolicy';
 import { CandidateLogoPolicy } from './candidate/CandidateLogoPolicy';
 import { CandidateNumberFontPolicy } from './candidate/CandidateNumberFontPolicy';
 import { KeyboardMetrics } from './KeyboardMetrics';
+import { NativeReplyPolicy } from './NativeReplyPolicy';
 import { OnlineCandidatePolicy, OnlineQuery } from './candidate/OnlineCandidatePolicy';
 import {
   TranslationPolicy, TranslationQuery, TranslationPlanItem, TranslationEntry,
@@ -100,6 +101,7 @@ import {
 import {
   AiPolishPolicy, MAX_POLISH_SOURCE_CHARACTERS, PolishReplacement
 } from './input/AiPolishPolicy';
+import { VoiceRecognitionPolicy } from './input/VoiceRecognitionPolicy';
 import { HarmonyVoicePolisher } from './input/HarmonyVoicePolisher';
 import { SmartPunctuationSpacePolicy, SmartPunctuationSpaceSnapshot, SpaceConvertDecision }
   from './input/SmartPunctuationSpacePolicy';
@@ -1214,7 +1216,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     try {
       const response: SkinCatalogResponse =
         JSON.parse(client.skinCatalog(`${stateRoot}/skins`)) as SkinCatalogResponse;
-      if (!response.ok || response.value === undefined || !Array.isArray(response.value.packages)) {
+      if (response.ok !== true || response.value === undefined || response.value === null
+        || !Array.isArray(response.value.packages)) {
         return [];
       }
       return response.value.packages;
@@ -1235,7 +1238,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       };
       const response: SkinResourceResponse =
         JSON.parse(client.skinResource(JSON.stringify(request))) as SkinResourceResponse;
-      if (!response.ok || response.value === undefined) {
+      if (response.ok !== true || response.value === undefined || response.value === null) {
         return NO_CANDIDATE_SKIN_IMAGE;
       }
       const image: CandidateSkinImage = {
@@ -1259,7 +1262,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     try {
       const response: SkinToolbarStylesheetResponse = JSON.parse(client.skinToolbarStylesheet(
         JSON.stringify({ directory: `${stateRoot}/skins`, id: id }))) as SkinToolbarStylesheetResponse;
-      return response.ok && typeof response.value === 'string' ? response.value : null;
+      return response.ok === true && typeof response.value === 'string' ? response.value : null;
     } catch (error) {
       KeyboardLog.error(`candidate skin toolbar unavailable: ${describeError(error)}`);
       return null;
@@ -1464,7 +1467,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     try {
       const prepared: PrepareResponse =
         JSON.parse(client.prepareHost(JSON.stringify(request))) as PrepareResponse;
-      if (!prepared.ok) {
+      if (prepared.ok !== true) {
         KeyboardLog.error(`host preparation refused: ${prepared.error}`);
         return false;
       }
@@ -1540,7 +1543,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     this.personalDictionarySettled = this.drainPersonalDictionary(options);
     try {
       const created: CreateResponse = JSON.parse(client.create(options)) as CreateResponse;
-      if (!created.ok) {
+      if (created.ok !== true) {
         KeyboardLog.error(`session refused: ${created.error}`);
         return false;
       }
@@ -1574,7 +1577,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     try {
       const reply: PersonalDictionarySyncResponse =
         JSON.parse(client.personalDictionarySync(options)) as PersonalDictionarySyncResponse;
-      if (!reply.ok) {
+      if (reply.ok !== true) {
         KeyboardLog.error(`personal dictionary queue not applied; it will be retried: ${reply.error}`);
         return false;
       }
@@ -1633,7 +1636,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       };
       const reply: SnapshotQueueStateReply =
         JSON.parse(client.snapshotQueue(JSON.stringify(action))) as SnapshotQueueStateReply;
-      if (!reply.ok) {
+      if (reply.ok !== true) {
         KeyboardLog.error(`snapshot queue poll refused: ${reply.error ?? 'snapshot_unavailable'}`);
         return false;
       }
@@ -1702,7 +1705,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   private storedRevision(stateRoot: string): number {
     try {
       const loaded: SnapshotResponse = JSON.parse(client.loadPreferences(stateRoot)) as SnapshotResponse;
-      return loaded.ok ? loaded.value.revision : -1;
+      const snapshot: PreferencesSnapshot | null = NativeReplyPolicy.successfulValue(loaded);
+      return snapshot === null ? -1 : snapshot.revision;
     } catch (error) {
       KeyboardLog.error(`preferences revision unreadable: ${describeError(error)}`);
       return -1;
@@ -1829,7 +1833,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     try {
       const loaded: SnapshotResponse =
         JSON.parse(client.loadPreferences(this.stateDirectory)) as SnapshotResponse;
-      if (!loaded.ok) {
+      if (loaded.ok !== true) {
         KeyboardLog.error(`preferences unreadable: ${loaded.error}`);
         return this.fuzzyPinyin;
       }
@@ -1844,13 +1848,13 @@ export class KeyboardSession implements HardwareKeyTarget {
       snapshot.revision = expected + 1;
       const saved: SnapshotResponse = JSON.parse(client.savePreferences(this.stateDirectory, expected,
         JSON.stringify(snapshot))) as SnapshotResponse;
-      if (!saved.ok) {
+      if (saved.ok !== true) {
         KeyboardLog.error(`preferences not persisted: ${saved.error}`);
         return this.fuzzyPinyin;
       }
       const applied: PrepareResponse =
         JSON.parse(client.updatePreferences(this.handle, JSON.stringify(saved.value))) as PrepareResponse;
-      if (!applied.ok) {
+      if (applied.ok !== true) {
         // On disk but not in the session: leaving the revision behind makes the next focus rebuild from the document.
         KeyboardLog.error(`preferences refused: ${applied.error}`);
       } else {
@@ -2549,7 +2553,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
     try {
       const response: VoiceGenerationResponse = JSON.parse(client.voiceStart(this.handle)) as VoiceGenerationResponse;
-      return response.ok && Number.isSafeInteger(response.value) && response.value > 0
+      return response.ok === true && Number.isSafeInteger(response.value) && response.value > 0
         ? response.value : 0;
     } catch (error) {
       KeyboardLog.error(`voice session unavailable: ${describeError(error)}`);
@@ -2667,7 +2671,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
     try {
       const response: VoiceTextResponse = JSON.parse(client.voiceApply(this.handle, generation, text)) as VoiceTextResponse;
-      return response.ok ? response.value : null;
+      return response.ok === true ? VoiceRecognitionPolicy.accepted(response.value) : null;
     } catch (error) {
       KeyboardLog.error(`voice result unavailable: ${describeError(error)}`);
       return null;
@@ -2976,7 +2980,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       };
       const reply: SnapshotQueueProcessReply =
         JSON.parse(client.snapshotQueue(JSON.stringify(action))) as SnapshotQueueProcessReply;
-      if (!reply.ok) {
+      if (reply.ok !== true) {
         KeyboardLog.error(`snapshot queue refused: ${reply.error ?? 'snapshot_unavailable'}`);
       }
     } catch (error) {
@@ -3018,7 +3022,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       const bootstrap: PrepareRequest = KeyboardSession.prepareRequest(resources, stateRoot);
       const prepared: PrepareResponse =
         JSON.parse(client.prepareHost(JSON.stringify(bootstrap))) as PrepareResponse;
-      if (!prepared.ok) {
+      if (prepared.ok !== true) {
         return JSON.stringify(prepared);
       }
       const request: DictionaryRequest = { options: prepared.value, action: action };
@@ -3140,7 +3144,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     let committed: string | null | undefined = null;
     try {
       const response: Response = JSON.parse(raw) as Response;
-      if (response.ok) {
+      if (EngineViewValuePolicy.isObject(response) && response.ok === true
+          && EngineViewValuePolicy.isObject(response.value)) {
         // Rewritten before apply() commits it, so the editor receives the opening quote and the completion below closes it.
         const reopened: string | null | undefined = PairedPunctuationPolicy.reopenQuote(
           response.value.commit, ascii, this.appearance.pairedPunctuation);
@@ -3150,7 +3155,8 @@ export class KeyboardSession implements HardwareKeyTarget {
         }
         committed = response.value.commit;
       }
-      completion = response.ok
+      completion = EngineViewValuePolicy.isObject(response) && response.ok === true
+        && EngineViewValuePolicy.isObject(response.value)
         ? PairedPunctuationPolicy.completion(response.value.commit,
           this.appearance.pairedPunctuation) : null;
     } catch (error) {
@@ -3198,7 +3204,7 @@ export class KeyboardSession implements HardwareKeyTarget {
         const balanced: string = client.balancePairedPunctuationAfterAutoClose(
           this.handle, completion.opening);
         const balanceResponse: NativeReply<Object> = JSON.parse(balanced) as NativeReply<Object>;
-        if (!balanceResponse.ok) {
+        if (balanceResponse.ok !== true) {
           KeyboardLog.error(`book-title punctuation balance refused: ${balanceResponse.error}`);
         }
       }
@@ -3519,8 +3525,10 @@ export class KeyboardSession implements HardwareKeyTarget {
       KeyboardLog.error(`candidate edge response unavailable: ${describeError(error)}`);
       return;
     }
-    if (!response.ok) {
-      KeyboardLog.error(`candidate edge refused: ${response.error}`);
+    if (!EngineViewValuePolicy.isObject(response) || response.ok !== true
+        || !EngineViewValuePolicy.isObject(response.value)) {
+      KeyboardLog.error(EngineViewValuePolicy.isObject(response)
+        ? `candidate edge refused: ${response.error}` : 'candidate edge refused: malformed reply');
       return;
     }
     const commit: string | null | undefined = response.value.commit;
@@ -3545,12 +3553,13 @@ export class KeyboardSession implements HardwareKeyTarget {
       KeyboardLog.error(`unreadable engine reply: ${describeError(error)}`);
       return false;
     }
-    if (!response.ok) {
-      KeyboardLog.error(`engine refused: ${response.error}`);
+    if (!EngineViewValuePolicy.isObject(response) || response.ok !== true) {
+      KeyboardLog.error(EngineViewValuePolicy.isObject(response)
+        ? `engine refused: ${response.error}` : 'engine refused: malformed reply');
       return false;
     }
     const value: EngineValue = response.value;
-    if (!EngineViewValuePolicy.isValid(value.view)) {
+    if (!EngineViewValuePolicy.isObject(value) || !EngineViewValuePolicy.isValid(value.view)) {
       KeyboardLog.error('engine view has malformed numeric fields');
       return false;
     }
@@ -3592,8 +3601,9 @@ export class KeyboardSession implements HardwareKeyTarget {
       KeyboardLog.error(`unreadable engine view: ${describeError(error)}`);
       return;
     }
-    if (!response.ok) {
-      KeyboardLog.error(`engine refused: ${response.error}`);
+    if (!EngineViewValuePolicy.isObject(response) || response.ok !== true) {
+      KeyboardLog.error(EngineViewValuePolicy.isObject(response)
+        ? `engine refused: ${response.error}` : 'engine refused: malformed reply');
       return;
     }
     if (!EngineViewValuePolicy.isValid(response.value)) {
@@ -3855,11 +3865,11 @@ export class KeyboardSession implements HardwareKeyTarget {
       KeyboardLog.error(`online query unavailable: ${describeError(error)}`);
       return;
     }
-    if (!reply.ok || reply.value === null) {
+    const query: OnlineQuery | null = NativeReplyPolicy.successfulValue<OnlineQuery>(reply);
+    if (query === null) {
       this.onlineSignature = '';
       return;
     }
-    const query: OnlineQuery = reply.value;
     const signature: string = OnlineCandidatePolicy.signature(query);
     if (signature === this.onlineSignature) return;
     this.onlineSignature = signature;
@@ -3888,9 +3898,10 @@ export class KeyboardSession implements HardwareKeyTarget {
         try {
           const current: NativeReply<OnlineQuery | null> = JSON.parse(
             client.onlineQuery(handle)) as NativeReply<OnlineQuery | null>;
-          if (current.ok && current.value !== null) {
-            aiQuery = current.value;
-            aiDocument = JSON.stringify(current.value);
+          const currentValue: OnlineQuery | null = NativeReplyPolicy.successfulValue(current);
+          if (currentValue !== null) {
+            aiQuery = currentValue;
+            aiDocument = JSON.stringify(currentValue);
           } else {
             complete = false;
             this.releaseOnlineSignatureIfCurrent(requestSignature, epoch, handle);
@@ -3922,7 +3933,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     try {
       const reply: NativeReply<string> = JSON.parse(
         client.cloudRequestUrl(queryDocument)) as NativeReply<string>;
-      if (!reply.ok || typeof reply.value !== 'string') return false;
+      if (reply.ok !== true || typeof reply.value !== 'string') return false;
       url = reply.value;
     } catch (error) {
       KeyboardLog.error(`cloud query unavailable: ${describeError(error)}`);
@@ -3943,8 +3954,10 @@ export class KeyboardSession implements HardwareKeyTarget {
         || !OnlineCandidatePolicy.acceptsCloudBody(response.result)) return false;
       const applied: NativeReply<OnlineApplyValue> = JSON.parse(client.applyCloudResponse(
         handle, queryDocument, response.result)) as NativeReply<OnlineApplyValue>;
-      if (applied.ok && applied.value.applied) this.render(applied.value.view);
-      return applied.ok && applied.value.applied;
+      if (applied.ok === true && NativeReplyPolicy.hasValue(applied.value)
+        && applied.value.applied) this.render(applied.value.view);
+      return applied.ok === true && NativeReplyPolicy.hasValue(applied.value)
+        && applied.value.applied;
     } catch (error) {
       KeyboardLog.error(`cloud candidate unavailable: ${describeError(error)}`);
       return false;
@@ -3960,7 +3973,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     try {
       const reply: NativeReply<AiHttpDescriptor | null> = JSON.parse(
         client.aiRequestForQuery(handle, queryDocument)) as NativeReply<AiHttpDescriptor | null>;
-      if (!reply.ok || reply.value === null) return false;
+      if (reply.ok !== true || !NativeReplyPolicy.hasValue(reply.value)) return false;
       descriptor = reply.value;
     } catch (error) {
       KeyboardLog.error(`AI query unavailable: ${describeError(error)}`);
@@ -3983,8 +3996,10 @@ export class KeyboardSession implements HardwareKeyTarget {
       if (candidates === null || candidates.length === 0) return false;
       const applied: NativeReply<OnlineApplyValue> = JSON.parse(client.applyOnlineCandidates(
         handle, queryDocument, JSON.stringify(candidates), 1)) as NativeReply<OnlineApplyValue>;
-      if (applied.ok && applied.value.applied) this.render(applied.value.view);
-      return applied.ok && applied.value.applied;
+      if (applied.ok === true && NativeReplyPolicy.hasValue(applied.value)
+        && applied.value.applied) this.render(applied.value.view);
+      return applied.ok === true && NativeReplyPolicy.hasValue(applied.value)
+        && applied.value.applied;
     } catch (error) {
       KeyboardLog.error(`AI candidate unavailable: ${describeError(error)}`);
       return false;
@@ -4003,11 +4018,11 @@ export class KeyboardSession implements HardwareKeyTarget {
       KeyboardLog.error(`translation query unavailable: ${describeError(error)}`);
       return;
     }
-    if (!reply.ok || reply.value === null) {
+    const query: TranslationQuery | null = NativeReplyPolicy.successfulValue<TranslationQuery>(reply);
+    if (query === null) {
       this.translationSignature = '';
       return;
     }
-    const query: TranslationQuery = reply.value;
     const signature: string = TranslationPolicy.signature(query);
     if (signature === this.translationSignature) return;
     this.translationSignature = signature;
@@ -4059,10 +4074,11 @@ export class KeyboardSession implements HardwareKeyTarget {
     try {
       const applied: NativeReply<OnlineApplyValue> = JSON.parse(client.applyTranslations(
         handle, query.generation, JSON.stringify(entries))) as NativeReply<OnlineApplyValue>;
-      if (applied.ok && applied.value !== undefined && applied.value.view !== undefined
-        && applied.value.applied !== false) {
-        appliedCurrent = applied.value.applied;
-        this.render(applied.value.view);
+      const appliedValue: OnlineApplyValue | null = NativeReplyPolicy.successfulValue(applied);
+      if (appliedValue !== null && appliedValue.view !== undefined
+        && appliedValue.applied !== false) {
+        appliedCurrent = appliedValue.applied;
+        this.render(appliedValue.view);
       }
       if (appliedCurrent && typeof query.user_data === 'string' && query.user_data.length > 0
         && TranslationPolicy.targets(query).includes('en')) {
@@ -4100,7 +4116,7 @@ export class KeyboardSession implements HardwareKeyTarget {
         const planDocument: string = TranslationPolicy.planRequest(target, query.candidates);
         const planReply: NativeReply<TranslationPlanItem[]> =
           JSON.parse(client.translationPlan(planDocument)) as NativeReply<TranslationPlanItem[]>;
-        if (planReply.ok && Array.isArray(planReply.value)) plan = planReply.value;
+        if (planReply.ok === true && Array.isArray(planReply.value)) plan = planReply.value;
       } catch (error) {
         KeyboardLog.error(`translation plan unavailable: ${describeError(error)}`);
       }
@@ -4193,10 +4209,11 @@ export class KeyboardSession implements HardwareKeyTarget {
         };
         const reply: NativeReply<TranslationResponseValue> = JSON.parse(
           client.candidateGlosses(JSON.stringify(request), resources)) as NativeReply<TranslationResponseValue>;
-        if (!reply.ok || reply.value === undefined || reply.value.generation !== query.generation
-          || !Array.isArray(reply.value.translations)) continue;
+        const replyValue: TranslationResponseValue | null = NativeReplyPolicy.successfulValue(reply);
+        if (replyValue === null || replyValue.generation !== query.generation
+          || !Array.isArray(replyValue.translations)) continue;
         const glosses: TranslationEntry[] = [];
-        for (const entry of reply.value.translations) {
+        for (const entry of replyValue.translations) {
           TranslationPolicy.append(glosses, entry.text, entry.translation);
         }
         result.set(language, glosses);
@@ -4234,9 +4251,10 @@ export class KeyboardSession implements HardwareKeyTarget {
         JSON.stringify(request), query.resources ?? '');
       const reply: NativeReply<TranslationResponseValue> =
         JSON.parse(glossResponse) as NativeReply<TranslationResponseValue>;
-      if (!reply.ok || reply.value === undefined || reply.value.generation !== query.generation
-        || !Array.isArray(reply.value.translations)) return;
-      for (const entry of reply.value.translations) {
+      const replyValue: TranslationResponseValue | null = NativeReplyPolicy.successfulValue(reply);
+      if (replyValue === null || replyValue.generation !== query.generation
+        || !Array.isArray(replyValue.translations)) return;
+      for (const entry of replyValue.translations) {
         TranslationPolicy.append(entries, entry.text, entry.translation);
       }
     } catch (error) {
@@ -4274,7 +4292,7 @@ export class KeyboardSession implements HardwareKeyTarget {
           JSON.stringify(request));
         const reply: NativeReply<TranslationHttpDescriptor | null> =
           JSON.parse(descriptorResponse) as NativeReply<TranslationHttpDescriptor | null>;
-        if (reply.ok) descriptor = reply.value;
+        descriptor = NativeReplyPolicy.successfulValue(reply);
       } catch (error) {
         KeyboardLog.error(`Tencent translation descriptor unavailable: ${describeError(error)}`);
       }
@@ -4290,7 +4308,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       try {
         const parsed: NativeReply<string[] | null> = JSON.parse(client.parseTencentTranslationResponse(
           body, group.length)) as NativeReply<string[] | null>;
-        if (!parsed.ok || parsed.value === null || parsed.value.length !== group.length) {
+        if (parsed.ok !== true || parsed.value === null || parsed.value.length !== group.length) {
           providerComplete = false;
           continue;
         }
@@ -4323,7 +4341,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     try {
       const reply: NativeReply<string | null> = JSON.parse(
         client.parseNiuTransTranslationResponse(body)) as NativeReply<string | null>;
-      return { value: reply.ok ? reply.value : null, completed: reply.ok };
+      const value: string | null = NativeReplyPolicy.successfulValue(reply);
+      return { value: value, completed: value !== null };
     } catch {
       return { value: null, completed: false };
     }
@@ -4345,7 +4364,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     try {
       const reply: NativeReply<string | null> = JSON.parse(
         client.parseCustomTranslationResponse(body)) as NativeReply<string | null>;
-      return { value: reply.ok ? reply.value : null, completed: reply.ok };
+      const value: string | null = NativeReplyPolicy.successfulValue(reply);
+      return { value: value, completed: value !== null };
     } catch {
       return { value: null, completed: false };
     }
@@ -4378,7 +4398,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     try {
       const reply: NativeReply<TranslationHttpDescriptor | null> =
         JSON.parse(raw) as NativeReply<TranslationHttpDescriptor | null>;
-      return reply.ok && reply.value !== null ? reply.value : null;
+      return reply.ok === true && NativeReplyPolicy.hasValue(reply.value) ? reply.value : null;
     } catch {
       return null;
     }
@@ -4559,7 +4579,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     try {
       const reply: MobileClipboardReply = JSON.parse(
         client.mobileClipboardHistory(JSON.stringify(request))) as MobileClipboardReply;
-      if (!reply.ok || reply.value === undefined || reply.value === null
+      if (reply.ok !== true || reply.value === undefined || reply.value === null
         || !Array.isArray(reply.value.entries)) return null;
       return reply.value;
     } catch (error) {
@@ -4889,8 +4909,9 @@ export class KeyboardSession implements HardwareKeyTarget {
     try {
       const raw: NativeReply<AiHttpDescriptor | null> = JSON.parse(
         client.aiHttpRequest(document)) as NativeReply<AiHttpDescriptor | null>;
-      if (!raw.ok || raw.value === null) return [];
-      descriptor = raw.value;
+      const rawValue: AiHttpDescriptor | null = NativeReplyPolicy.successfulValue(raw);
+      if (rawValue === null) return [];
+      descriptor = rawValue;
     } catch (error) {
       KeyboardLog.error(`thoughtful reply request unavailable: ${describeError(error)}`);
       return [];
@@ -4913,7 +4934,7 @@ export class KeyboardSession implements HardwareKeyTarget {
         || utf8Length(response.result) > descriptor.max_response_bytes) return [];
       const parsed: NativeReply<string[] | null> = JSON.parse(client.parseAiResponse(
         response.result, 3)) as NativeReply<string[] | null>;
-      const results: string[] = parsed.ok ? ReplyKeyboardPolicy.results(parsed.value) : [];
+    const results: string[] = parsed.ok === true ? ReplyKeyboardPolicy.results(parsed.value) : [];
       if (!ReplyContextPolicy.matches(editorGeneration, this.editorGeneration,
         contextGeneration, this.replyContextGeneration) || results.length === 0) return [];
       this.replyResultEditorGeneration = editorGeneration;
@@ -5017,7 +5038,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     try {
       const loaded: SnapshotResponse =
         JSON.parse(client.loadPreferences(this.stateDirectory)) as SnapshotResponse;
-      if (!loaded.ok) {
+      if (loaded.ok !== true) {
         KeyboardLog.error(`preferences unreadable: ${loaded.error}`);
         return undefined;
       }
@@ -5040,7 +5061,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     try {
       const loaded: SnapshotResponse =
         JSON.parse(client.loadPreferences(this.stateDirectory)) as SnapshotResponse;
-      if (!loaded.ok) {
+      if (loaded.ok !== true) {
         KeyboardLog.error(`preferences unreadable: ${loaded.error}`);
         return false;
       }
@@ -5056,14 +5077,14 @@ export class KeyboardSession implements HardwareKeyTarget {
       const document: string = JSON.stringify(snapshot);
       const applied: PrepareResponse =
         JSON.parse(client.updatePreferences(this.handle, document)) as PrepareResponse;
-      if (!applied.ok) {
+      if (applied.ok !== true) {
         KeyboardLog.error(`preferences refused: ${applied.error}`);
         return false;
       }
       const saved: SnapshotResponse =
         JSON.parse(client.savePreferences(this.stateDirectory, expected, document)) as
           SnapshotResponse;
-      if (!saved.ok) {
+      if (saved.ok !== true) {
         // The session already has them; only the write failed. Say so rather than pretending the
         // change did not happen, because on screen it plainly did.
         KeyboardLog.error(`preferences not persisted: ${saved.error}`);
@@ -5120,11 +5141,11 @@ export class KeyboardSession implements HardwareKeyTarget {
       const response: EmojiResponse =
         JSON.parse(client.emojiCatalog(JSON.stringify(query), this.resourceDirectory)) as
           EmojiResponse;
-      if (!response.ok) {
+      if (response.ok !== true) {
         KeyboardLog.error(`emoji catalog refused: ${response.error}`);
         return null;
       }
-      return response.value;
+      return response.value === undefined || response.value === null ? null : response.value;
     } catch (error) {
       KeyboardLog.error(`emoji catalog unreadable: ${describeError(error)}`);
       return null;
@@ -5148,7 +5169,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     try {
       const raw: string = client.emojiCatalog(JSON.stringify(query), this.resourceDirectory);
       const response: EmojiGroupsResponse = JSON.parse(raw) as EmojiGroupsResponse;
-      if (!response.ok || !Array.isArray(response.value.groups)) {
+      if (response.ok !== true || response.value === undefined || response.value === null
+        || !Array.isArray(response.value.groups)) {
         return [];
       }
       return normalizeGroups(response.value.groups);
@@ -5175,7 +5197,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     try {
       const raw: string = client.emojiCatalog(JSON.stringify(query), this.resourceDirectory);
       const response: EmojiSymbolGroupsResponse = JSON.parse(raw) as EmojiSymbolGroupsResponse;
-      if (!response.ok || !Array.isArray(response.value.symbol_groups)) {
+      if (response.ok !== true || response.value === undefined || response.value === null
+        || !Array.isArray(response.value.symbol_groups)) {
         return [];
       }
       return normalizeSymbolGroups(response.value.symbol_groups);
@@ -5210,7 +5233,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     try {
       const raw: string = client.emojiCatalog(JSON.stringify(query), this.resourceDirectory);
       const response: PluginSymbolGroupsResponse = JSON.parse(raw) as PluginSymbolGroupsResponse;
-      if (!response.ok) {
+      if (response.ok !== true || response.value === undefined || response.value === null) {
         KeyboardLog.error(`plugin symbol groups refused: ${response.error}`);
         return [];
       }
@@ -5499,7 +5522,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     try {
       const answer: TypingEffectSettingsResponse =
         JSON.parse(client.typingEffectSettings(this.handle)) as TypingEffectSettingsResponse;
-      if (!answer.ok) {
+      if (answer.ok !== true) {
         KeyboardLog.error(`typing effect settings refused: ${answer.error}`);
         this.typingEffects = preferences;
         return;
@@ -5656,7 +5679,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     try {
       const response: SnapshotCandidates =
         JSON.parse(client.allCandidates(this.handle)) as SnapshotCandidates;
-      if (!response.ok) {
+      if (response.ok !== true) {
         KeyboardLog.error(`candidate list refused: ${response.error}`);
         return [];
       }

@@ -22,6 +22,7 @@ import android.text.SpannableString;
 import android.text.Spanned;
 import android.text.method.LinkMovementMethod;
 import android.text.style.ClickableSpan;
+import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.inputmethod.EditorInfo;
@@ -34,8 +35,8 @@ import androidx.core.widget.NestedScrollView;
 import app.msime.android.BackendAccount;
 import app.msime.android.BoundsPolicy;
 import app.msime.android.CloudApi;
+import app.msime.android.KeyboardGeometry;
 import app.msime.android.ViewPolicy;
-import app.msime.android.keyboard.KeyboardGeometry;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
 import java.util.function.Consumer;
 
@@ -146,7 +147,7 @@ final class LoginSheet {
             root.addView(options, Ui.matchWidth(activity, 0));
 
         status = Ui.styledLabel(activity, "", 13, 400, Ui.subText(activity));
-        ViewPolicy.setCenteredHorizontally(status);
+        status.setGravity(Gravity.CENTER_HORIZONTAL);
         status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
         status.setVisibility(View.GONE);
         root.addView(status, Ui.matchWidth(activity, 12));
@@ -317,9 +318,7 @@ final class LoginSheet {
         int pressed = Ui.withAlpha(fill == Color.BLACK ? Color.WHITE : Ui.text(activity), 0.12f);
         button.setBackground(new RippleDrawable(android.content.res.ColorStateList.valueOf(pressed), face, mask));
         if (icon != null) {
-            ImageView glyph = new ImageView(activity);
-            glyph.setImageDrawable(icon);
-            Ui.hideFromAccessibility(glyph);
+            ImageView glyph = Ui.decorativeIcon(activity, icon);
             LinearLayout.LayoutParams params = Ui.squareParams(activity, 20);
             params.setMarginEnd(Ui.dp(activity, 8));
             button.addView(glyph, params);
@@ -329,7 +328,7 @@ final class LoginSheet {
         button.setContentDescription(label);
         button.setClickable(true);
         button.setFocusable(true);
-        button.setOnClickListener(ignored -> action.run());
+        ViewPolicy.bindClick(button, action);
         return button;
     }
 
@@ -370,7 +369,7 @@ final class LoginSheet {
         }, start, start + "《隐私政策》".length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         TextView view = Ui.styledLabel(activity, spanned, 12, 400, Ui.subText(activity));
         view.setMovementMethod(LinkMovementMethod.getInstance());
-        ViewPolicy.setCenteredHorizontally(view);
+        view.setGravity(Gravity.CENTER_HORIZONTAL);
         return view;
     }
 

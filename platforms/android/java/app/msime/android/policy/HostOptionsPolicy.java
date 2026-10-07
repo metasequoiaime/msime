@@ -36,6 +36,16 @@ public final class HostOptionsPolicy {
         }
     }
 
+    /** Return the bootstrap state directory below a host files directory, or empty when absent. */
+    public static String bootstrapStateDirectory(File files) {
+        return files == null ? "" : new File(files, "bootstrap/state").getAbsolutePath();
+    }
+
+    /** Return the installed sound-pack directory below a host files directory, or null when absent. */
+    public static File soundPacksDirectory(File files) {
+        return files == null ? null : new File(files, "sound-packs");
+    }
+
     /** Read one string field from the host options document, or empty when unavailable. */
     public static String readOption(File files, String key) {
         String raw = readRuntimeOptions(files);

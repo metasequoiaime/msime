@@ -106,7 +106,6 @@ pub fn read_emoji_catalog_slice(
         next_offset: offset,
         complete: false,
     };
-    let mut seen = deduplicate.then(|| HashSet::with_capacity(limit.min(256)));
     let mut rows = statement.raw_query();
     loop {
         let row = match rows.next() {
@@ -131,22 +130,28 @@ pub fn read_emoji_catalog_slice(
             continue;
         }
         if let Some(text) = text {
-            let new_text = match &mut seen {
-                Some(seen) if seen.contains(text.as_str()) => false,
-                Some(seen) => {
-                    seen.insert(text.clone());
-                    true
-                }
-                None => true,
-            };
-            if new_text {
-                result.items.push(EmojiCatalogItem {
-                    text,
-                    annotation: annotation.unwrap_or_default(),
-                    group: group.unwrap_or_default(),
-                });
-            }
+            result.items.push(EmojiCatalogItem {
+                text,
+                annotation: annotation.unwrap_or_default(),
+                group: group.unwrap_or_default(),
+            });
         }
+    }
+    if deduplicate {
+        // Check duplicate values through borrowed slices, then retain in place after releasing the set.
+        let mut seen = HashSet::with_capacity(result.items.len());
+        let unique = result
+            .items
+            .iter()
+            .map(|item| seen.insert(item.text.as_str()))
+            .collect::<Vec<_>>();
+        drop(seen);
+        let mut index = 0;
+        result.items.retain(|_| {
+            let keep = unique[index];
+            index += 1;
+            keep
+        });
     }
     result.complete = result.next_offset - offset < limit;
     Ok(result)

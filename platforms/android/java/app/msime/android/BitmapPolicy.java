@@ -12,7 +12,7 @@ public final class BitmapPolicy {
 
     /** Return the longer of two bitmap dimensions. */
     public static int longestEdge(int width, int height) {
-        return Math.max(width, height);
+        return BoundsPolicy.atLeast(width, height);
     }
 
     /** Return a bitmap's longer edge, or zero for a null bitmap. */
@@ -45,8 +45,8 @@ public final class BitmapPolicy {
         if (edge <= maximumEdge) return bitmap;
         float scale = maximumEdge / (float) edge;
         Bitmap scaled = Bitmap.createScaledBitmap(bitmap,
-            Math.max(1, Math.round(bitmap.getWidth() * scale)),
-            Math.max(1, Math.round(bitmap.getHeight() * scale)), true);
+            BoundsPolicy.atLeast(Math.round(bitmap.getWidth() * scale), 1),
+            BoundsPolicy.atLeast(Math.round(bitmap.getHeight() * scale), 1), true);
         if (scaled != bitmap) bitmap.recycle();
         return scaled;
     }

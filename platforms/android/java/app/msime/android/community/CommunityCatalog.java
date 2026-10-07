@@ -7,7 +7,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
 import javax.net.ssl.HttpsURLConnection;
@@ -151,7 +150,7 @@ public final class CommunityCatalog {
      * @return the failure to show, or an empty string once the report was taken
      */
     public String report(Item item, String reason, String detail) {
-        String text = detail == null ? "" : detail.trim();
+        String text = TextPolicy.trimmed(detail);
         if (!validReportItem(item) || !CommunityRequest.validReport(reason, text)) {
             return CommunityRequest.message("invalid_report_reason", 400);
         }
@@ -177,7 +176,7 @@ public final class CommunityCatalog {
             connection = open(new URL(ORIGIN + CommunityRequest.REPORT_PATH), "POST", true);
             connection.setRequestProperty("Authorization", "Bearer " + token);
             try (java.io.OutputStream output = connection.getOutputStream()) {
-                output.write(body.toString().getBytes(StandardCharsets.UTF_8));
+                output.write(TextPolicy.utf8Bytes(body.toString()));
             }
             int status = connection.getResponseCode();
             if (status == 200 || status == 201) {
@@ -210,7 +209,7 @@ public final class CommunityCatalog {
             connection = open(new URL(ORIGIN + CommunityRequest.REPORT_PATH), "POST", true);
             connection.setRequestProperty("Authorization", "Bearer " + token);
             try (java.io.OutputStream output = connection.getOutputStream()) {
-                output.write(body.toString().getBytes(StandardCharsets.UTF_8));
+                output.write(TextPolicy.utf8Bytes(body.toString()));
             }
             int status = connection.getResponseCode();
             if (status == 200 || status == 201) {
@@ -264,7 +263,7 @@ public final class CommunityCatalog {
                 connection = open(new URL(
                     ORIGIN + CommunityRequest.skinPath(item.id())), "PATCH", true);
                 connection.setRequestProperty("Authorization", "Bearer " + token);
-                byte[] body = CommunityRequest.categoryBody(category).getBytes(StandardCharsets.UTF_8);
+                byte[] body = TextPolicy.utf8Bytes(CommunityRequest.categoryBody(category));
                 connection.setFixedLengthStreamingMode(body.length);
                 try (java.io.OutputStream output = connection.getOutputStream()) {
                     output.write(body);
@@ -334,7 +333,7 @@ public final class CommunityCatalog {
     }
 
     static String idKey(String value) {
-        return value.toLowerCase(Locale.ROOT);
+        return TextPolicy.lowercase(value);
     }
 
     /** 一个条目，读不出或不合规时为 null。 */
@@ -457,12 +456,12 @@ public final class CommunityCatalog {
 
     private static boolean validName(String value, int maximum) {
         return value != null && !value.isEmpty() && value.trim().equals(value)
-            && value.codePointCount(0, value.length()) <= maximum
+            && TextPolicy.withinCodePoints(value, maximum)
             && !CommunityTextPolicy.hasDisallowedControl(value, false);
     }
 
     private static boolean validDescription(String value) {
-        return value != null && value.codePointCount(0, value.length()) <= MAX_DESCRIPTION_CHARACTERS
+        return TextPolicy.withinCodePoints(value, MAX_DESCRIPTION_CHARACTERS)
             && !CommunityTextPolicy.hasDisallowedControl(value, true);
     }
 
@@ -512,7 +511,7 @@ public final class CommunityCatalog {
      * @return the failure to show, or an empty string on success
      */
     public String install(java.nio.file.Path preferencesDirectory, Item item) {
-        if (item.kind() != CommunityRequest.Kind.SKIN || item.payload() == null) {
+        if (item == null || item.kind() != CommunityRequest.Kind.SKIN || item.payload() == null) {
             return "这类作品还不能从这里保存。";
         }
         try {
@@ -564,7 +563,7 @@ public final class CommunityCatalog {
                 ORIGIN + CommunityRequest.skinDownloadPath(id)), "POST", true);
             connection.setRequestProperty("Authorization", "Bearer " + token);
             try (java.io.OutputStream output = connection.getOutputStream()) {
-                output.write("{}".getBytes(StandardCharsets.UTF_8));
+                output.write(TextPolicy.utf8Bytes("{}"));
             }
             int status = connection.getResponseCode();
             // 回来的是整份设计，本机已经有了，只读掉不用；读取有上限，免得一个异常大的回复占满内存。

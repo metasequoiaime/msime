@@ -1,6 +1,5 @@
 package app.msime.android;
 
-import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 
 /**
@@ -38,7 +37,9 @@ public final class HttpAsrPolicy {
     /** A transcription response carries text; reject non-string JSON values before display. */
     static String strictText(Object value) {
         String text = AiProviderResponse.strictText(value);
-        return text.codePointCount(0, text.length()) <= MAX_TRANSCRIPT ? text : "";
+        return TextPolicy.codePointLength(text) <= MAX_TRANSCRIPT
+                && !TextPolicy.hasControlExceptWhitespace(text)
+                && TextPolicy.validUnicode(text) ? text : "";
     }
 
     /**
@@ -52,9 +53,9 @@ public final class HttpAsrPolicy {
         return supported(provider)
             && TextPolicy.validAuthority(endpoint, "https://", AiPolishConfiguration.MAX_ENDPOINT_LENGTH)
             && model != null && !model.trim().isEmpty() && model.length() <= 512
-            && !TextPolicy.hasControl(model)
+            && !TextPolicy.hasControl(model) && TextPolicy.validUnicode(model)
             && token != null && !token.trim().isEmpty() && token.length() <= 16 * 1024
-            && !TextPolicy.hasControl(token);
+            && !TextPolicy.hasControl(token) && TextPolicy.validUnicode(token);
     }
 
     /** A boundary that cannot occur in the parts, derived from the request rather than random. */
@@ -86,8 +87,8 @@ public final class HttpAsrPolicy {
         head.append("--").append(boundary).append("\r\n")
             .append("Content-Disposition: form-data; name=\"file\"; filename=\"audio.wav\"\r\n")
             .append("Content-Type: audio/wav\r\n\r\n");
-        byte[] prefix = head.toString().getBytes(StandardCharsets.UTF_8);
-        byte[] suffix = ("\r\n--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8);
+        byte[] prefix = TextPolicy.utf8Bytes(head.toString());
+        byte[] suffix = TextPolicy.utf8Bytes("\r\n--" + boundary + "--\r\n");
         byte[] body = new byte[prefix.length + wav.length + suffix.length];
         System.arraycopy(prefix, 0, body, 0, prefix.length);
         System.arraycopy(wav, 0, body, prefix.length, wav.length);

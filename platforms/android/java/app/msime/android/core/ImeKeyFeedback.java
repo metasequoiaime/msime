@@ -10,6 +10,7 @@ import android.os.VibrationEffect;
 import android.view.HapticFeedbackConstants;
 import android.view.View;
 import android.view.ViewParent;
+import app.msime.android.policy.HostOptionsPolicy;
 import java.io.File;
 import java.lang.ref.WeakReference;
 import java.util.Map;
@@ -207,11 +208,11 @@ final class ImeKeyFeedback {
         File files = s.getFilesDir();
         String state = s.preferencesDirectory != null && new File(s.preferencesDirectory).isAbsolute()
             ? s.preferencesDirectory
-            : files == null ? null : new File(files, "bootstrap/state").getAbsolutePath();
+            : files == null ? null : HostOptionsPolicy.bootstrapStateDirectory(files);
         JSONObject request = new JSONObject();
         request.put("state_root", state == null ? JSONObject.NULL : state);
-        request.put("sound_packs", files == null ? JSONObject.NULL
-            : new File(files, "sound-packs").getAbsolutePath());
+        File soundPacks = HostOptionsPolicy.soundPacksDirectory(files);
+        request.put("sound_packs", soundPacks == null ? JSONObject.NULL : soundPacks.getAbsolutePath());
         request.put("pack", pack);
         return request.toString();
     }

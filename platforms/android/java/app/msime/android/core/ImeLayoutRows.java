@@ -65,8 +65,7 @@ final class ImeLayoutRows {
     void rebuildHandwritingRows() {
         cancelPendingInk();
         handwritingPreferences = readHandwritingPreferences();
-        s.handwritingStatus = ViewPolicy.newTextView(s, null);
-        ViewPolicy.setCenteredText(s.handwritingStatus, "在此手写，停笔后选字", 13);
+        s.handwritingStatus = ViewPolicy.centeredText(s, "在此手写，停笔后选字", 13);
         KeyboardGeometry.setKeyTextSize(s.handwritingStatus, 13);
         s.handwritingStatus.setContentDescription("手写状态");
         ViewPolicy.setNonInteractive(s.handwritingStatus);

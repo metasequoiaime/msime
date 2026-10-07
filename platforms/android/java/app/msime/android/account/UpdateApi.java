@@ -422,18 +422,11 @@ public final class UpdateApi {
 
     /** 文件的 SHA-256 十六进制。 */
     public static String sha256Hex(File file) throws IOException {
-        MessageDigest digest = sha256();
-        try (InputStream in = Files.newInputStream(file.toPath(), LinkOption.NOFOLLOW_LINKS)) {
-            byte[] buffer = new byte[64 * 1024];
-            for (int read; (read = in.read(buffer)) != -1; ) digest.update(buffer, 0, read);
-        }
-        return hex(digest.digest());
+        return DigestPolicy.sha256Hex(file);
     }
 
     static String hex(byte[] bytes) {
-        StringBuilder out = new StringBuilder(bytes.length * 2);
-        for (byte value : bytes) out.append(String.format(Locale.ROOT, "%02x", value & 0xff));
-        return out.toString();
+        return DigestPolicy.hex(bytes);
     }
 
     private static MessageDigest sha256() {

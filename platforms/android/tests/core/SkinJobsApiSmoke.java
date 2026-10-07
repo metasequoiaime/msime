@@ -1,9 +1,12 @@
 import app.msime.android.CloudApi;
 import app.msime.android.SkinJobsApi;
+import java.util.List;
+import java.util.concurrent.FutureTask;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /** AI 设计皮肤的失败分类与提示文案；请求本身走 org.json，在 check-host 的桩 classpath 下跑不了，留给设备上验证。 */
 public final class SkinJobsApiSmoke {
-    public static void main(String[] arguments) {
+    public static void main(String[] arguments) throws Exception {
         try {
             java.lang.reflect.Method strictBoolean = SkinJobsApi.class.getDeclaredMethod(
                 "strictBoolean", Object.class);
@@ -46,6 +49,21 @@ public final class SkinJobsApiSmoke {
             "network failure");
         check(SkinJobsApi.message(new CloudApi.Failure(401, "signed_out", "", 0)).equals("请先登录后再生成"),
             "signed out");
+
+        // If a later plan is malformed after earlier illustrations were submitted, the
+        // in-flight jobs must enter cancellation so their finally blocks release them.
+        AtomicBoolean cancelled = new AtomicBoolean(false);
+        FutureTask<Void> submitted = new FutureTask<>(() -> null);
+        try {
+            java.lang.reflect.Method cancel = SkinJobsApi.class.getDeclaredMethod(
+                "cancelSubmitted", AtomicBoolean.class, List.class);
+            cancel.setAccessible(true);
+            cancel.invoke(null, cancelled, List.of(submitted));
+        } catch (ReflectiveOperationException error) {
+            throw new AssertionError("submitted illustrations need cancellation cleanup", error);
+        }
+        check(cancelled.get() && submitted.isCancelled(),
+            "malformed plan cancels submitted illustrations");
         System.out.println("SkinJobsApiSmoke ok");
     }
 

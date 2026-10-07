@@ -1,5 +1,6 @@
 package app.msime.android;
 
+import app.msime.android.policy.HostOptionsPolicy;
 import android.content.Context;
 import android.util.AtomicFile;
 import java.io.File;
@@ -28,7 +29,7 @@ public final class Bootstrap {
             installHelpcodes(context, new File(root, "bootstrap/resources/helpcodes"));
             // Before the configuration exists, so that prepare_host below finds them beside the resources and records them.
             installLanguageDictionaries(context, new File(root, "bootstrap/language-dictionaries"));
-            installSoundPacks(context, new File(root, "sound-packs"));
+            installSoundPacks(context, HostOptionsPolicy.soundPacksDirectory(root));
             File configuration = new File(root, "runtime-options.json");
             File resources = new File(root, "bootstrap/resources");
             if (existingConfiguration(configuration)) {

@@ -604,7 +604,7 @@ public final class VoiceRecognitionActivity extends Activity {
     private static String safeLanguage(String language) {
         if (language != null && !language.isEmpty()
                 && language.length() <= VoiceContributionApi.MAX_METADATA_FIELD_LENGTH
-                && !TextPolicy.hasControl(language)) {
+                && !TextPolicy.hasControl(language) && TextPolicy.validUnicode(language)) {
             Locale locale = Locale.forLanguageTag(language.replace('_', '-'));
             if (!locale.getLanguage().isEmpty()) return locale.toLanguageTag();
         }

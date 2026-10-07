@@ -163,7 +163,7 @@ export class HarmonyTelemetry {
       KeyboardLog.error(`telemetry: begin answer unreadable: ${describeError(error)}`);
       return;
     }
-    if (!parsed.ok) {
+    if (parsed.ok !== true) {
       KeyboardLog.error(`telemetry: begin refused: ${parsed.error ?? 'unknown'}`);
       return;
     }
@@ -349,7 +349,7 @@ export class HarmonyTelemetry {
   private static flagReply(step: string, reply: string): FlagReply | null {
     try {
       const parsed: FlagReply = JSON.parse(reply) as FlagReply;
-      if (parsed.ok) {
+      if (parsed.ok === true) {
         return parsed;
       }
       KeyboardLog.error(`telemetry: ${step} refused: ${parsed.error ?? 'unknown'}`);

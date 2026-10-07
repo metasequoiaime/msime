@@ -172,7 +172,7 @@ public final class FunctionPanelView extends LinearLayout {
                 ? entry.label : entry.description);
             textPaint.setTextAlign(Paint.Align.CENTER);
             boxPaint.setStyle(Paint.Style.STROKE);
-            if (entry.action != null) setOnClickListener(view -> entry.action.run());
+            if (entry.action != null) ViewPolicy.bindClick(this, entry.action);
             if (entry.longPress != null) {
                 setOnLongClickListener(view -> {
                     entry.longPress.run();
@@ -271,7 +271,7 @@ public final class FunctionPanelView extends LinearLayout {
 
         /** 放不下时以「…」结尾截断，不悄悄丢掉末尾的字。 */
         private String fit(String value, float width) {
-            String source = value == null ? "" : value;
+            String source = TextPolicy.emptyIfNull(value);
             float boundedWidth = BoundsPolicy.nonNegative(width);
             boolean bold = textPaint.getTypeface() == Typeface.DEFAULT_BOLD;
             float size = textPaint.getTextSize();

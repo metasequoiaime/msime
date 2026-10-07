@@ -77,7 +77,7 @@ public final class KeyboardSkinKeyDrawable extends Drawable {
                 shapePath.close();
             }
             default -> {
-                float radius = Math.min(dp(skin.cornerRadius()),
+                float radius = BoundsPolicy.atMost(dp(skin.cornerRadius()),
                     KeyboardGeometry.shorterSide(rect.width(), rect.height()) / 2);
                 shapePath.addRoundRect(rect, radius, radius, Path.Direction.CW);
             }

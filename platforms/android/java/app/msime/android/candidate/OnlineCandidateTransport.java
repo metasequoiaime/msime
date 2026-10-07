@@ -4,7 +4,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.URL;
-import java.nio.charset.StandardCharsets;
 import java.util.Iterator;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -58,7 +57,7 @@ public final class OnlineCandidateTransport {
             try (InputStream input = connection.getInputStream()) {
                 byte[] body = HttpBodyPolicy.readWithin(input,
                     OnlineCandidatePolicy.MAX_CLOUD_RESPONSE_BYTES, deadline);
-                return body == null ? null : new String(body, StandardCharsets.UTF_8);
+                return body == null ? null : TextPolicy.utf8(body);
             }
         } catch (IOException | RuntimeException error) {
             return null;
@@ -74,8 +73,7 @@ public final class OnlineCandidateTransport {
         try {
             URL target = new URL(descriptor.getString("url"));
             if (!OnlineCandidatePolicy.validURL(target)) return null;
-            byte[] payload = descriptor.getJSONObject("body").toString()
-                .getBytes(StandardCharsets.UTF_8);
+            byte[] payload = TextPolicy.utf8Bytes(descriptor.getJSONObject("body").toString());
             connection = (HttpsURLConnection) target.openConnection();
             connection.setInstanceFollowRedirects(false);
             connection.setRequestMethod("POST");
@@ -100,7 +98,7 @@ public final class OnlineCandidateTransport {
             try (InputStream input = connection.getInputStream()) {
                 byte[] body = HttpBodyPolicy.readBounded(input,
                     OnlineCandidatePolicy.MAX_AI_RESPONSE_BYTES);
-                return body == null ? null : new String(body, StandardCharsets.UTF_8);
+                return body == null ? null : TextPolicy.utf8(body);
             }
         } catch (IOException | JSONException | RuntimeException error) {
             return null;

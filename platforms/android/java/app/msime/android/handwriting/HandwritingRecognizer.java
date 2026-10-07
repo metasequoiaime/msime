@@ -52,13 +52,8 @@ public interface HandwritingRecognizer extends AutoCloseable {
     /** 上文截成最后 {@link #MAX_PRE_CONTEXT} 个码点，并去掉控制字符；null 视为空串。 */
     static String clipPreContext(String value) {
         if (value == null || value.isEmpty()) return "";
-        StringBuilder clean = new StringBuilder(value.length());
-        value.codePoints().filter(codePoint -> !Character.isISOControl(codePoint))
-            .forEach(clean::appendCodePoint);
-        String text = clean.toString();
-        int count = text.codePointCount(0, text.length());
-        if (count <= MAX_PRE_CONTEXT) return text;
-        return text.substring(text.offsetByCodePoints(0, count - MAX_PRE_CONTEXT));
+        String text = TextPolicy.removeControls(value);
+        return TextPolicy.tailCodePoints(text, MAX_PRE_CONTEXT);
     }
 
     Availability availability();
@@ -72,10 +67,10 @@ public interface HandwritingRecognizer extends AutoCloseable {
         LinkedHashSet<String> accepted = new LinkedHashSet<>(MAX_CANDIDATES);
         for (String value : values) {
             if (value == null) continue;
-            String candidate = value.strip();
+            String candidate = TextPolicy.stripped(value);
             if (candidate.isEmpty()
                     || TextPolicy.utf8Length(candidate) > MAX_CANDIDATE_BYTES
-                    || TextPolicy.hasControl(candidate)) continue;
+                    || TextPolicy.hasControl(candidate) || !TextPolicy.validUnicode(candidate)) continue;
             accepted.add(candidate);
             if (accepted.size() == MAX_CANDIDATES) break;
         }

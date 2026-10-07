@@ -60,6 +60,14 @@ public final class ClipboardHistoryPolicySmoke {
             "boolean timestamp is rejected");
         check(ClipboardHistoryPolicy.timestampValue(Long.valueOf(-1)) == 0,
             "negative timestamp is rejected");
+        check("synthetic".equals(ClipboardHistoryPolicy.strictString("synthetic")),
+            "clipboard text accepts JSON strings");
+        check(ClipboardHistoryPolicy.strictString(Integer.valueOf(7)) == null,
+            "clipboard text rejects numbers instead of coercing them");
+        check(Boolean.TRUE.equals(ClipboardHistoryPolicy.strictBoolean(Boolean.TRUE)),
+            "clipboard pinning accepts JSON booleans");
+        check(ClipboardHistoryPolicy.strictBoolean("true") == null,
+            "clipboard pinning rejects strings instead of coercing them");
         try {
             ClipboardHistoryPolicy.message(null);
             throw new AssertionError("there is no message for \"accepted\"");

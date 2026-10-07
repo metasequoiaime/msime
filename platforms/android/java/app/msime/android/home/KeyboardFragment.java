@@ -23,6 +23,7 @@ import app.msime.android.KeyboardGeometry;
 import app.msime.android.KeyboardScheme;
 import app.msime.android.KeyboardSkin;
 import app.msime.android.R;
+import app.msime.android.ViewPolicy;
 import com.google.android.material.button.MaterialButton;
 import java.util.ArrayList;
 import java.util.List;
@@ -63,12 +64,12 @@ public final class KeyboardFragment extends HomeTabFragment {
         MaterialButton trial = view.findViewById(R.id.keyboard_try);
         // The Apple app opens an editor here rather than the system picker: trying the keyboard
         // means typing with it, and the picker only offers to switch away from it.
-        trial.setOnClickListener(ignored ->
-            startActivity(new Intent(requireContext(), KeyboardTryoutActivity.class)));
+        ViewPolicy.bindClick(trial,
+            () -> startActivity(new Intent(requireContext(), KeyboardTryoutActivity.class)));
 
         TextView system = view.findViewById(R.id.keyboard_system_settings);
         system.setText("系统输入法设置 ›");
-        system.setOnClickListener(ignored -> openInputMethodSettings());
+        ViewPolicy.bindClick(system, this::openInputMethodSettings);
 
         // The system's input method picker is a dialog over this window, so there is no resume when it closes; the returning focus is the only sign the default may have changed.
         view.getViewTreeObserver().addOnWindowFocusChangeListener(focusWatch);
@@ -112,7 +113,7 @@ public final class KeyboardFragment extends HomeTabFragment {
         // when the keyboard cannot reach the Engine, which is the one case the user has to know.
         TextView preparation = view.findViewById(R.id.keyboard_preparation);
         preparation.setBackground(Ui.rounded(Ui.page(requireContext()), Ui.dp(requireContext(), 12)));
-        preparation.setOnClickListener(ignored -> FirstRunPreparation.retry(requireContext()));
+        ViewPolicy.bindClick(preparation, () -> FirstRunPreparation.retry(requireContext()));
         preparationListener = status -> {
             if (!isAdded()) return;
             switch (status) {

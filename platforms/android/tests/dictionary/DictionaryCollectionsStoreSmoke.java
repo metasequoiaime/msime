@@ -42,6 +42,8 @@ public final class DictionaryCollectionsStoreSmoke {
         check(strictBoolean.invoke(null, "true") == null);
         check(DictionaryCollectionsStore.strictString("synthetic") != null);
         check(DictionaryCollectionsStore.strictString(7) == null);
+        check("synthetic export".equals(DictionaryCollectionsStore.exportPage("synthetic export")));
+        check(DictionaryCollectionsStore.exportPage(7) == null);
         check(DictionaryCollectionsStore.strictInteger(Integer.valueOf(7)) == 7);
         check(DictionaryCollectionsStore.strictInteger("7") == null);
         check(DictionaryCollectionsStore.strictLong(Long.valueOf(7)) == 7L);

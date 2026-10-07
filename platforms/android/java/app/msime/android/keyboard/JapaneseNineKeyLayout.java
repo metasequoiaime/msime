@@ -92,7 +92,7 @@ public final class JapaneseNineKeyLayout {
     /** Center, left, up, right and down use the same direction indices as the Apple host. */
     public static int direction(float offsetX, float offsetY, float threshold) {
         if (threshold < 0) throw new IllegalArgumentException("Flick threshold cannot be negative");
-        if (Math.max(Math.abs(offsetX), Math.abs(offsetY)) < threshold) return 0;
+        if (BoundsPolicy.atLeast(Math.abs(offsetX), Math.abs(offsetY)) < threshold) return 0;
         if (Math.abs(offsetX) > Math.abs(offsetY)) return offsetX < 0 ? 1 : 3;
         return offsetY < 0 ? 2 : 4;
     }

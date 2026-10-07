@@ -4,6 +4,7 @@
  * The keyboard never uploads on copy and never reads the system clipboard for this: cloud items are fetched when the clipboard panel opens or the user asks for a refresh, and a local history entry reaches the cloud only through an explicit 发到云剪贴板. The text bounds are the shared ones from `client-core`'s `validate_clipboard_text`, measured in UTF-16 units as the service counts them.
  */
 import { utf8Length } from "../Utf8";
+import { TextPolicy } from "../TextPolicy";
 
 export interface CloudClipboardItem {
   readonly id: string;
@@ -98,7 +99,7 @@ export class CloudClipboardPolicy {
         return false;
       }
     }
-    return true;
+    return TextPolicy.validUnicode(text);
   }
 
   /**

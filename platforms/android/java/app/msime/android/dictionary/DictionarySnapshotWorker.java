@@ -69,7 +69,10 @@ public final class DictionarySnapshotWorker {
             throw new IllegalStateException("snapshot version unavailable");
         JSONObject value = result.getJSONObject("value");
         String digest = value.getString("version");
-        String generation = value.optString("generation", "legacy");
+        Object rawGeneration = value.opt("generation");
+        String generation = rawGeneration == null || rawGeneration == JSONObject.NULL
+            ? "legacy" : strictString(rawGeneration);
+        if (generation == null) throw new IllegalStateException("snapshot generation invalid");
         String version = "local-v1:" + generation + ":" + digest;
         if (!DictionarySnapshotQueue.validVersion(version))
             throw new IllegalStateException("snapshot version invalid");
@@ -79,5 +82,10 @@ public final class DictionarySnapshotWorker {
     /** Snapshot bridge status flags must remain JSON booleans; reject scalar coercion. */
     static Boolean strictBoolean(Object value) {
         return value instanceof Boolean ? (Boolean) value : null;
+    }
+
+    /** Snapshot identity fields must remain JSON strings; org.json otherwise coerces scalars. */
+    static String strictString(Object value) {
+        return value instanceof String ? (String) value : null;
     }
 }

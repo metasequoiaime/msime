@@ -56,9 +56,7 @@ final class ImeFunctionPanel {
 
     void appendMoreToolsSection(MoreToolsLayout.Section section, Button... cards) {
         if (!section.title().isEmpty()) {
-            TextView label = ViewPolicy.textLabel(s, section.title(), 11);
-            ViewPolicy.setCenteredText(label, section.title(), 11);
-            KeyboardGeometry.setKeyTextSize(label, 11);
+            TextView label = ViewPolicy.centeredText(s, section.title(), 11);
             s.moreToolsPanel.addView(label, KeyboardGeometry.matchWidthHeightPx(s.pixels(20)));
         }
         int columns = section.columns();

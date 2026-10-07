@@ -1,5 +1,5 @@
 import client from 'libmsimeclient.so';
-import { AccountCloudBridge } from './AccountCloudBridge';
+import { AccountCloudBridge, accountReplyValue } from './AccountCloudBridge';
 import {
   AiSkinCancelled,
   AiSkinFailure,
@@ -125,7 +125,7 @@ export class HarmonyAiSkins {
   private plan(request: PlanRequest): Object | null {
     try {
       const reply: PlanReply = JSON.parse(client.aiSkinPlan(JSON.stringify(request))) as PlanReply;
-      return reply.ok && reply.value !== undefined ? reply.value : null;
+      return accountReplyValue(reply);
     } catch {
       return null;
     }
@@ -137,7 +137,7 @@ export class HarmonyAiSkins {
     return {
       defaultModel: async (): Promise<string> => {
         const reply = await bridge.aiSkinRequest('GET', '/v1/models', undefined, undefined, requestTag);
-        if (reply.error !== undefined || reply.value === undefined) {
+        if (reply.error !== undefined || reply.value === undefined || reply.value === null) {
           throw new AiSkinFailure(reply.error ?? 'ai_skin_unavailable');
         }
         const model: Object | undefined = (reply.value as Record<string, Object>)['default_model'];
@@ -158,7 +158,7 @@ export class HarmonyAiSkins {
         }
         const reply = await bridge.aiSkinRequest('POST', request.path,
           request.body as Record<string, Object>, CHAT_TIMEOUT_MS, requestTag);
-        if (reply.error !== undefined || reply.value === undefined) {
+        if (reply.error !== undefined || reply.value === undefined || reply.value === null) {
           throw new AiSkinFailure(reply.error ?? 'ai_skin_unavailable');
         }
         const choices: Object | undefined = (reply.value as Record<string, Object>)['choices'];
@@ -182,14 +182,14 @@ export class HarmonyAiSkins {
       createJob: async (artworkPrompt: string): Promise<ArtworkJob> => {
         const reply = await bridge.aiSkinRequest('POST', '/v1/skins/jobs',
           { prompt: artworkPrompt }, undefined, requestTag);
-        if (reply.error !== undefined || reply.value === undefined) {
+        if (reply.error !== undefined || reply.value === undefined || reply.value === null) {
           throw new AiSkinFailure(reply.error ?? 'ai_skin_unavailable');
         }
         return reply.value as ArtworkJob;
       },
       readJob: async (id: string): Promise<ArtworkJob> => {
         const reply = await bridge.aiSkinRequest('GET', `/v1/skins/jobs/${id}`, undefined, undefined, requestTag);
-        if (reply.error !== undefined || reply.value === undefined) {
+        if (reply.error !== undefined || reply.value === undefined || reply.value === null) {
           throw new AiSkinFailure(reply.error ?? 'ai_skin_unavailable');
         }
         return reply.value as ArtworkJob;

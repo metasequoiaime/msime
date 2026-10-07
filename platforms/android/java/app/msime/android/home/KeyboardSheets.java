@@ -375,7 +375,7 @@ final class KeyboardSheets {
     static TextView tonalButton(Context context, CharSequence label, CharSequence description, int weight,
             Runnable action) {
         TextView button = tonalButton(context, label, description, weight);
-        button.setOnClickListener(ignored -> action.run());
+        ViewPolicy.bindClick(button, action);
         return button;
     }
 }

@@ -30,6 +30,7 @@ import app.msime.android.FirstRunPreparation;
 import app.msime.android.HostDeepLink;
 import app.msime.android.core.Telemetry;
 import app.msime.android.R;
+import app.msime.android.ViewPolicy;
 import com.google.android.material.bottomnavigation.BottomNavigationView;
 
 /**
@@ -106,7 +107,7 @@ public final class HomeActivity extends AppCompatActivity {
             intro.setPadding(0, 0, 0, bars.bottom);
             return windowInsets;
         });
-        intro.setOnClickListener(ignored -> dismissIntro());
+        ViewPolicy.bindClick(intro, this::dismissIntro);
 
         // 返回先一层层弹出详情页，栈空了回到第一个 tab，最后才离开应用，这是底部导航让用户预期的顺序。
         // 只用这一个回调：它在 FragmentManager 自己的回调之后注册、优先级更高，两个都处理返回会在有栈时把 tab 也切走。

@@ -350,6 +350,8 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     "shuangpin_preedit_uses_raw",
     // Whole objects: the app merges single fields into them, and the document's copy is the one it wrote.
     "quanpin", "mixed_input", "quanpin_helpcode", "shuangpin_helpcode", "local_modes",
+    // 整句联想 on the 输入 page: the session attaches or drops the keyboard sentence model once idle, so turning 增强 off stops it in the keyboard that is already open.
+    "sentence_association",
     // Laid over the document by `hostOverrides` from the iOS switch, so a change to that switch reaches the live session too.
     "cloud_candidates",
     // Laid over the document from the iOS page size, like cloud candidates; the session applies it once idle, so an open composition keeps its page.
@@ -1037,7 +1039,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     // The view names a profile whatever the scheme, because the Engine is built with one
     // either way; only the scheme says whether the keys are running it.
     guard let snapshot = try? view(),
-          (snapshot["scheme"] as? NSNumber)?.uint8Value == Self.shuangpinSchemeCode,
+          Self.strictUInt64(snapshot["scheme"]) == UInt64(Self.shuangpinSchemeCode),
           let profile = snapshot["shuangpin_profile"] as? String, !profile.isEmpty,
           let data = profile.data(using: .utf8) else { return [:] }
     let response = try? data.withUnsafeBytes { bytes -> Any in

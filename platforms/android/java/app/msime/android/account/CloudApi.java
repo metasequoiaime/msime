@@ -79,12 +79,12 @@ public final class CloudApi {
     public record Part(String name, String filename, String contentType, byte[] content) {
         /** 一个 JSON 字段，例如反馈和语音贡献的 `payload`。 */
         public static Part json(String name, String json) {
-            return new Part(name, null, "application/json", json.getBytes(StandardCharsets.UTF_8));
+            return new Part(name, null, "application/json", TextPolicy.utf8Bytes(json));
         }
 
         /** 一个纯文本字段。 */
         public static Part text(String name, String value) {
-            return new Part(name, null, "text/plain; charset=utf-8", value.getBytes(StandardCharsets.UTF_8));
+            return new Part(name, null, "text/plain; charset=utf-8", TextPolicy.utf8Bytes(value));
         }
 
         /** 一个文件，例如截图或录音。 */
@@ -290,7 +290,7 @@ public final class CloudApi {
 
     /** JSON 布尔值只有严格的 `true` 才算；字符串和数字都不算。 */
     static boolean strictTrue(Object value) {
-        return Boolean.TRUE.equals(value);
+        return JsonPolicy.strictTrue(value);
     }
 
     // ---- multipart ----

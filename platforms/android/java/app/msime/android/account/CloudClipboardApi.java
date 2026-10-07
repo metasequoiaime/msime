@@ -76,8 +76,10 @@ public final class CloudClipboardApi {
                     throw invalid();
                 }
                 if (!validId(id) || !CloudClipboardTextPolicy.valid(text) || updated.isEmpty()
-                        || TextPolicy.utf8Length(updated) > 128 || TextPolicy.hasControl(updated)) throw invalid();
-                if (TextPolicy.utf8Length(device) > 128 || TextPolicy.hasControl(device)) device = "";
+                        || TextPolicy.utf8Length(updated) > 128 || TextPolicy.hasControl(updated)
+                        || !TextPolicy.validUnicode(updated)) throw invalid();
+                if (TextPolicy.utf8Length(device) > 128 || TextPolicy.hasControl(device)
+                        || !TextPolicy.validUnicode(device)) device = "";
                 items.add(new Item(id, text, updated, pinned, device));
             }
             return new Page((Boolean) enabled, retention, ordered(items));
