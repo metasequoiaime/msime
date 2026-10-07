@@ -706,17 +706,25 @@ fn rank_candidates(candidates: &mut Vec<WordItem>, prefer_exact: bool) {
 
 fn retain_unique_words(candidates: &mut Vec<WordItem>) {
     let mut seen = HashSet::with_capacity(candidates.len());
-    let keep: Vec<bool> = candidates
+    let duplicates = candidates
         .iter()
-        .map(|item| seen.insert(item.word.as_str()))
-        .collect();
+        .enumerate()
+        .filter_map(|(index, item)| (!seen.insert(item.word.as_str())).then_some(index))
+        .collect::<Vec<_>>();
     drop(seen);
-    let mut index = 0;
-    candidates.retain(|_| {
-        let keep_item = keep[index];
-        index += 1;
-        keep_item
-    });
+    let mut duplicates = duplicates.into_iter().peekable();
+    let mut write = 0;
+    for read in 0..candidates.len() {
+        if duplicates.peek() == Some(&read) {
+            duplicates.next();
+            continue;
+        }
+        if write != read {
+            candidates.swap(write, read);
+        }
+        write += 1;
+    }
+    candidates.truncate(write);
 }
 
 /// A word spelling the typed code exactly leads, but only when people type it: 64426 is 你好 and `ogham` is the only five-letter word those keys spell, so a zero-weight exact word gets no privilege. Then weight, then shorter (NK:199-220).
