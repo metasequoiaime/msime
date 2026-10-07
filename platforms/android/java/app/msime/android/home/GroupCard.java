@@ -252,7 +252,7 @@ public final class GroupCard {
             view.setBackground(action == null ? null : Ui.ripple(view.getContext()));
             ViewPolicy.setInteractive(view, action != null);
             view.setOnClickListener(action == null ? null : ignored -> action.run());
-            Ui.setEnabledLook(view, action != null);
+            ViewPolicy.setEnabledWithAlpha(view, action != null, 0.38f);
         }
 
         /** 整行。 */
@@ -285,7 +285,7 @@ public final class GroupCard {
 
         /** 禁用的行仍然显示，只是变淡且不响应。 */
         public void setEnabled(boolean enabled) {
-            Ui.setEnabledLook(view, enabled);
+            ViewPolicy.setEnabledWithAlpha(view, enabled, 0.38f);
             if (toggle != null) ViewPolicy.setEnabled(toggle, enabled);
             if (slider != null) ViewPolicy.setEnabled(slider, enabled);
             if (button != null) ViewPolicy.setEnabled(button, enabled);
