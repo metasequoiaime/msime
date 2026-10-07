@@ -471,7 +471,7 @@ public final class AiSkinPage extends DetailPage {
         KeyboardSkin skin = result == null ? currentSkin
             : KeyboardSkin.custom(result.design(), AppMode.dark(context));
         view.setKeyboard(skin, s.nineKey);
-        view.setAlpha(s.busy ? 0.45f : 1f);
+        ViewPolicy.setActiveAlpha(view, !s.busy, 0.45f);
         if (busyOverlay != null) busyOverlay.setVisibility(s.busy ? View.VISIBLE : View.GONE);
         if (title != null) title.setText(result == null ? "未命名皮肤" : result.name());
         if (subtitle != null) {
