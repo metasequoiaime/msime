@@ -674,7 +674,7 @@ public final class MSIMEInputService extends InputMethodService {
         hardwareLanguageCtrl = keybindings != null
             && keybindings.optBoolean("switch_language_ctrl", false);
         defaultImeMode = preferences != null
-            && "english".equals(preferences.optString("default_ime_mode", "chinese"))
+            && "english".equals(InputViewValuePolicy.textOr(preferences, "default_ime_mode", "chinese"))
             ? "english" : "chinese";
         imeModeScope = preferences != null
             && "global".equals(preferences.optString("ime_mode_scope", "app"))
@@ -2084,7 +2084,7 @@ public final class MSIMEInputService extends InputMethodService {
         boolean nextLanguageCtrl = nextKeybindings != null
             && nextKeybindings.optBoolean("switch_language_ctrl", false);
         String nextDefaultImeMode = "english".equals(
-            preferences.optString("default_ime_mode", "chinese")) ? "english" : "chinese";
+            InputViewValuePolicy.textOr(preferences, "default_ime_mode", "chinese")) ? "english" : "chinese";
         String nextImeModeScope = "global".equals(
             preferences.optString("ime_mode_scope", "app")) ? "global" : "app";
         KeyboardScheme nextScheme = KeyboardScheme.fromPreferences(
