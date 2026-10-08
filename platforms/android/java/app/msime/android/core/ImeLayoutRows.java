@@ -514,7 +514,7 @@ final class ImeLayoutRows {
             String label = ZhuyinNineKeyLayout.accessibilityLabel(tone);
             Button key = s.keyId(s.keyboardKey(tone.face(), label, () -> {
                 if (s.connection != null && ZhuyinInputPolicy.toneKeySends(
-                        s.view == null ? "" : s.view.optString("editing_text", "")))
+                        s.view == null ? "" : InputViewValuePolicy.editingText(s.view)))
                     s.character(tone.input(), false);
             }), tone.keyId());
             key.setContentDescription(label);
@@ -830,7 +830,7 @@ final class ImeLayoutRows {
             return;
         }
         for (int extra = 1; extra < JapaneseNineKeyLayout.LONGEST_STROKE && s.view != null
-                && JapaneseNineKeyLayout.endsWithPendingRomaji(s.view.optString("reading", "")); extra++) {
+                && JapaneseNineKeyLayout.endsWithPendingRomaji(InputViewValuePolicy.text(s.view, "reading")); extra++) {
             if (!s.command(0)) return;
         }
     }

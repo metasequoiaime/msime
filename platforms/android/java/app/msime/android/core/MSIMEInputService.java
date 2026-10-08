@@ -3471,7 +3471,8 @@ public final class MSIMEInputService extends InputMethodService {
         }
         boolean next = EnglishCapitalizationPolicy.shouldShift(
             EditorPolicy.capitalizationMode(editorInputType), context);
-        if (letterCase.applyAutomatic(next)) imeLetterRows.rebuildKeyRows();
+        // 手动按下的单次大写留到下一个字母用掉为止，与 HarmonyOS 一致；否则按下 Shift 后编辑器回报一次光标位置就会把它冲掉。
+        if (!letterCase.isPressedShift() && letterCase.applyAutomatic(next)) imeLetterRows.rebuildKeyRows();
         render();
     }
 

@@ -4,7 +4,8 @@ use crate::community::resource::{validate_resource, CommunityResource, Community
 use crate::file_lock;
 use serde_json::from_slice;
 use std::collections::HashSet;
-use std::fs::{self, File};
+use std::fs::File;
+#[cfg(not(unix))]
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
@@ -82,19 +83,17 @@ impl CommunityResourceLibraryStore {
     }
 
     fn read_locked(&self) -> Result<Vec<CommunityResource>, CommunityResourceLibraryError> {
-        let metadata = match fs::symlink_metadata(&self.file) {
-            Ok(value) => value,
+        let file = match crate::storage::open_private_file_in(&self.file) {
+            Ok(file) => file,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-            Err(error) => return Err(error.into()),
+            Err(_) => return Err(CommunityResourceLibraryError::Invalid),
         };
-        if !metadata.file_type().is_file() || metadata.len() > MAXIMUM_BYTES {
+        if file.metadata()?.len() > MAXIMUM_BYTES {
             return Err(CommunityResourceLibraryError::Invalid);
         }
-        let bytes = crate::bounded_io::read_bounded_file(
-            crate::storage::open_private_file(&self.file)?,
-            MAXIMUM_BYTES,
-            || CommunityResourceLibraryError::Invalid,
-        )?;
+        let bytes = crate::bounded_io::read_bounded_file(file, MAXIMUM_BYTES, || {
+            CommunityResourceLibraryError::Invalid
+        })?;
         let items: Vec<CommunityResource> = from_slice(&bytes)?;
         if items.len() > MAXIMUM_ITEMS || items.iter().any(|item| !is_valid_reply(item)) {
             return Err(CommunityResourceLibraryError::Invalid);
@@ -120,11 +119,24 @@ impl CommunityResourceLibraryStore {
         if bytes.len() as u64 > MAXIMUM_BYTES {
             return Err(CommunityResourceLibraryError::Invalid);
         }
-        let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
-        temporary.write_all(&bytes)?;
-        temporary.as_file().sync_all()?;
-        temporary.persist(&self.file).map_err(|error| error.error)?;
-        Ok(())
+        #[cfg(unix)]
+        {
+            let directory = crate::storage::open_private_directory(parent)?;
+            let name = self
+                .file
+                .file_name()
+                .ok_or(CommunityResourceLibraryError::Invalid)?;
+            crate::storage::write_private_file_at(&directory, name, &bytes)?;
+            Ok(())
+        }
+        #[cfg(not(unix))]
+        {
+            let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
+            temporary.write_all(&bytes)?;
+            temporary.as_file().sync_all()?;
+            temporary.persist(&self.file).map_err(|error| error.error)?;
+            Ok(())
+        }
     }
 }
 
