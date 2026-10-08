@@ -182,7 +182,7 @@ public final class OnboardingActivity extends AppCompatActivity {
         View later = findViewById(R.id.onboarding_later);
         ViewPolicy.setVisible(later, offer);
         ViewPolicy.setEnabled(later, !signingIn);
-        ViewPolicy.setEnabled(back, page > 0);
+        back.setEnabled(page > 0);
 
         LinearLayout column = findViewById(R.id.onboarding_page);
         column.removeAllViews();
