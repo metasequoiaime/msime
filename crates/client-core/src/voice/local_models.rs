@@ -607,7 +607,7 @@ fn move_file_noclobber_at(
 ) -> io::Result<bool> {
     #[cfg(any(target_os = "linux", target_os = "android"))]
     {
-        return match rustix::fs::renameat_with(
+        match rustix::fs::renameat_with(
             source_directory,
             name,
             destination_directory,
@@ -617,7 +617,7 @@ fn move_file_noclobber_at(
             Ok(()) => Ok(true),
             Err(rustix::io::Errno::EXIST) => Ok(false),
             Err(error) => Err(error.into()),
-        };
+        }
     }
     #[cfg(not(any(target_os = "linux", target_os = "android")))]
     {
