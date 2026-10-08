@@ -34,7 +34,6 @@ import android.view.Gravity;
 import android.view.HapticFeedbackConstants;
 import android.view.KeyEvent;
 import android.view.Menu;
-import android.view.MenuItem;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewConfiguration;
@@ -5204,36 +5203,30 @@ public final class MSIMEInputService extends InputMethodService {
         }
     }
 
-    void manageClipboardItem(Button anchor, ClipboardHistory.Item item) {
-        PopupMenu popup = new PopupMenu(this, anchor);
-        MenuItem pin = popup.getMenu().add(item.pinned() ? "取消固定" : "固定");
-        MenuItem remove = popup.getMenu().add("删除");
-        // Offered wherever the cloud half is, so the action is discoverable; it only runs once this panel's fetch said the account is signed in with the cloud clipboard on.
-        boolean cloudAllowed = imePanels.cloudClipboardAllowed();
-        MenuItem upload = cloudAllowed ? popup.getMenu().add(CloudClipboardPanelPolicy.UPLOAD_ACTION) : null;
-        if (upload != null) upload.setEnabled(CloudClipboardPanelPolicy.canUpload(
-            cloudAllowed, cloudClipboardStatus, item.text()));
-        popup.setOnMenuItemClickListener(selected -> {
-            if (upload != null && selected == upload) {
-                imePanels.uploadClipboardText(item.text());
-                return true;
-            }
-            if (clipboardHistory == null) return false;
-            try {
-                if (selected == pin) clipboardHistory.setPinned(item.text(), !item.pinned());
-                else if (selected == remove) {
-                    clipboardHistory.remove(item.text());
-                    forgetCurrentClip();
-                }
-                else return false;
-            } catch (IllegalStateException error) {
-                Toast.makeText(this, "无法修改剪贴板历史", Toast.LENGTH_SHORT).show();
-                return true;
-            }
-            imePanels.renderClipboardHistory();
-            return true;
-        });
-        popup.show();
+    /**
+     * 固定或取消固定一条历史。
+     *
+     * <p>这一条的操作（固定、删除、分词、发到云剪贴板）原来是挂在卡片上的 `PopupMenu`。弹出菜单是可获得焦点的窗口，会把窗口焦点从编辑器拿走：在 Via 这类用系统 WebView 的浏览器里，菜单一出现键盘就被收起（#5653），Firefox 这类自带引擎的不会，应是 WebView 在窗口失焦时让输入框失焦。操作现在画在面板里卡片下方（{@link ImePanels#renderClipboardHistory}），不再弹出任何窗口。
+     */
+    void setClipboardItemPinned(ClipboardHistory.Item item) {
+        if (clipboardHistory == null) return;
+        try {
+            clipboardHistory.setPinned(item.text(), !item.pinned());
+        } catch (IllegalStateException error) {
+            Toast.makeText(this, "无法修改剪贴板历史", Toast.LENGTH_SHORT).show();
+        }
+        imePanels.renderClipboardHistory();
+    }
+
+    void removeClipboardItem(ClipboardHistory.Item item) {
+        if (clipboardHistory == null) return;
+        try {
+            clipboardHistory.remove(item.text());
+            forgetCurrentClip();
+        } catch (IllegalStateException error) {
+            Toast.makeText(this, "无法修改剪贴板历史", Toast.LENGTH_SHORT).show();
+        }
+        imePanels.renderClipboardHistory();
     }
 
     /**

@@ -1108,6 +1108,7 @@ final class ImePanels {
         s.clipboardTab = CloudClipboardPanelPolicy.initialTab(
             s.clipboardTab, s.clipboardHistoryEnabled, cloudAllowed);
         clipboardClearPending = false;
+        clipboardActionText = null;
         // 补读一次：键盘进程没在运行时复制的内容，监听收不到。
         s.captureClipboard(ClipboardCapturePolicy.Trigger.PANEL_OPENED, false);
         renderClipboardHistory();
@@ -1130,6 +1131,7 @@ final class ImePanels {
         if (tab == CloudClipboardPanelPolicy.Tab.CLOUD && !cloudClipboardAllowed()) return;
         s.clipboardTab = tab;
         clipboardClearPending = false;
+        clipboardActionText = null;
         renderClipboardHistory();
     }
 
@@ -1224,6 +1226,8 @@ final class ImePanels {
 
     /** 顶行的「清空」点过一次、正在等用户确认；换分段、重开面板都会撤销。 */
     private boolean clipboardClearPending;
+    /** 长按打开了操作行的那一条（共享存储以文字标识条目）；没有时为 null。 */
+    private String clipboardActionText;
 
     void renderClipboardHistory() {
         if (s.clipboardPanel == null || s.clipboardHistory == null) return;
@@ -1268,6 +1272,7 @@ final class ImePanels {
             // 复制会自动记录，不再需要「保存当前」。
             clipboardAction(header, "清空", () -> {
                 clipboardClearPending = true;
+                clipboardActionText = null;
                 renderClipboardHistory();
             });
         }
@@ -1286,9 +1291,13 @@ final class ImePanels {
                     Button card = clipboardCard(item.text(), meta, () -> s.insertClipboardText(item.text()));
                     card.setContentDescription((item.pinned() ? "已置顶；" : "") + "点按插入剪贴板记录，长按管理");
                     card.setOnLongClickListener(ignored -> {
-                        s.manageClipboardItem(card, item);
+                        s.imeKeyFeedback.playFeedback(card);
+                        clipboardActionText = item.text();
+                        clipboardClearPending = false;
+                        renderClipboardHistory();
                         return true;
                     });
+                    if (item.text().equals(clipboardActionText)) renderClipboardItemActions(item, cloudAllowed);
                 }
             } catch (IllegalStateException error) {
                 notes.add(clipboardNote("历史记录无法读取，请清空后重试"));
@@ -1296,6 +1305,56 @@ final class ImePanels {
         }
         s.imeStyler.applySkin();
         for (TextView note : notes) ViewPolicy.setTextColor(note, ImeStyler.fade(s.skin.keyForeground(), .6));
+    }
+
+    /**
+     * 长按一条历史后，紧贴在它下方的一行操作。
+     *
+     * <p>原来是 `PopupMenu`：弹出菜单是可获得焦点的窗口，打开时编辑器的窗口失去焦点，在 Via 这类用系统 WebView 的浏览器里键盘随即被收起（#5653）。画在面板里的按钮不会碰窗口焦点。
+     */
+    private void renderClipboardItemActions(ClipboardHistory.Item item, boolean cloudAllowed) {
+        LinearLayout row = KeyboardGeometry.row(s);
+        ViewPolicy.setCenteredVertically(row);
+        row.setContentDescription("剪贴板记录操作");
+        clipboardItemAction(row, item.pinned() ? "取消固定" : "固定", () -> {
+            clipboardActionText = null;
+            s.setClipboardItemPinned(item);
+        });
+        clipboardItemAction(row, "删除", () -> {
+            clipboardActionText = null;
+            s.removeClipboardItem(item);
+        });
+        // Offered wherever the cloud half is, so the action is discoverable; it only runs once this panel's fetch said the account is signed in with the cloud clipboard on.
+        if (cloudAllowed) {
+            Button upload = clipboardItemAction(row, CloudClipboardPanelPolicy.UPLOAD_ACTION, () -> {
+                clipboardActionText = null;
+                renderClipboardHistory();
+                uploadClipboardText(item.text());
+            });
+            ViewPolicy.setEnabledWithAlpha(upload, CloudClipboardPanelPolicy.canUpload(
+                cloudAllowed, s.cloudClipboardStatus, item.text()), .45f);
+        }
+        clipboardItemAction(row, "收起", () -> {
+            clipboardActionText = null;
+            renderClipboardHistory();
+        });
+        LinearLayout.LayoutParams params = KeyboardGeometry.matchWidthHeightPx(s.pixels(38));
+        params.topMargin = s.pixels(4);
+        s.clipboardPanel.addView(row, params);
+    }
+
+    /** 操作行里的一个按钮：键帽样式，宽度按字数分，长的「发到云剪贴板」不会被挤成省略号。 */
+    private Button clipboardItemAction(LinearLayout row, String label, Runnable action) {
+        Button button = MSIMEInputService.role(s.button(row, label, action), KeyboardKeyRole.KEY);
+        ViewPolicy.setTextSizeSp(button, 13);
+        compactReplyControl(button, s.pixels(4));
+        ViewPolicy.setMaxLinesEllipsized(button, 1);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+            0, LinearLayout.LayoutParams.MATCH_PARENT, Math.max(2, label.length()));
+        params.setMarginStart(s.pixels(3));
+        params.setMarginEnd(s.pixels(3));
+        button.setLayoutParams(params);
+        return button;
     }
 
     private Button clipboardAction(LinearLayout header, String label, Runnable action) {
