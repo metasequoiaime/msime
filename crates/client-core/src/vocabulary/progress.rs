@@ -933,4 +933,25 @@ mod tests {
             Err(VocabularyProgressError::InvalidDocument)
         ));
     }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_a_hard_linked_progress_record_outside_the_store() {
+        let root = tempfile::tempdir().unwrap();
+        let store = VocabularyProgressStore::new(root.path());
+        fs::create_dir_all(store.directory()).unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let outside_record = outside.path().join("progress.json");
+        fs::write(&outside_record, b"{}").unwrap();
+        fs::hard_link(
+            &outside_record,
+            store.directory().join("vocabulary-progress.json"),
+        )
+        .unwrap();
+
+        assert!(matches!(
+            store.load(),
+            Err(VocabularyProgressError::InvalidDocument)
+        ));
+    }
 }
