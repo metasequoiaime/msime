@@ -63,6 +63,8 @@ public final class AndroidLocalSettings {
     public static final String GLIDE_TYPING = "platform.android.glide_typing";
     /** 拼音九键和笔画键盘左侧符号栏的符号（{@link NineKeySidebarPolicy}），用空格分开。服务端的同步字段表还没有这个键，所以先只在本机。 */
     public static final String NINE_KEY_SYMBOLS = "platform.android.nine_key_symbols";
+    /** 拼音九键数字键面左侧符号栏的符号，格式同 {@link #NINE_KEY_SYMBOLS}，同样只在本机。 */
+    public static final String NINE_KEY_DIGIT_SYMBOLS = "platform.android.nine_key_digit_symbols";
     /** 设计范围的键盘高度调整（dp，-46..55，即 75%..130%）。缺省时宿主沿用共享偏好里的 `touch_keyboard_height_adjustment`（-12..48）。 */
     public static final String KEYBOARD_HEIGHT_ADJUSTMENT = "platform.android.keyboard_height_adjustment";
     public static final String DEVELOPER_DEBUG_OVERLAY = "platform.android.developer.debug_overlay";
@@ -156,6 +158,8 @@ public final class AndroidLocalSettings {
         bool(VOICE_CONTRIBUTE_AUDIO, false, false);
         bool(GLIDE_TYPING, false, false);
         text(NINE_KEY_SYMBOLS, NineKeySidebarPolicy.format(NineKeySidebarPolicy.DEFAULT_LETTER_SYMBOLS), false,
+            NineKeySidebarPolicy::normalize);
+        text(NINE_KEY_DIGIT_SYMBOLS, NineKeySidebarPolicy.format(NineKeySidebarPolicy.DEFAULT_DIGIT_SYMBOLS), false,
             NineKeySidebarPolicy::normalize);
         integer(KEYBOARD_HEIGHT_ADJUSTMENT, 0, false, HEIGHT_ADJUSTMENT_MIN, HEIGHT_ADJUSTMENT_MAX, 1);
         bool(DEVELOPER_DEBUG_OVERLAY, false, false);

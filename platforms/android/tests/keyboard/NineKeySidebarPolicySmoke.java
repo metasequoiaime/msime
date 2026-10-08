@@ -3,10 +3,11 @@ package app.msime.android;
 import java.util.List;
 import java.util.Map;
 
-/** 九键左侧符号栏（#5574）：默认符号、一屏五个的行高、自定义符号表的解析与校验，以及本地设置按这张表收值。 */
+/** 九键左侧符号栏（#5574、#5590）：默认符号、一屏五个的行高、自定义符号表的解析与校验，以及本地设置按这张表收值。 */
 public final class NineKeySidebarPolicySmoke {
     public static void main(String[] args) {
         defaults();
+        digitDefaults();
         rowHeight();
         parsing();
         localSetting();
@@ -21,6 +22,20 @@ public final class NineKeySidebarPolicySmoke {
         check(NineKeySidebarPolicy.VISIBLE_ROWS == 5, "five symbols per screen instead of three");
         check(NineKeySidebarPolicy.letterSymbols(null).equals(letters), "nothing stored reads as the defaults");
         check(NineKeySidebarPolicy.letterSymbols("   ").equals(letters), "blank text reads as the defaults");
+    }
+
+    /** #5590：数字键面的左栏先给四则运算符号，叹号挪到后面，滚动才看得到。 */
+    private static void digitDefaults() {
+        List<String> digits = NineKeySidebarPolicy.DEFAULT_DIGIT_SYMBOLS;
+        check(digits.subList(0, 4).equals(List.of("+", "-", "*", "/")), "the digit rail opens with the four operators");
+        check(digits.indexOf("！") >= NineKeySidebarPolicy.VISIBLE_ROWS, "！ moved into the rail below the first screen");
+        check(!digits.contains("."), "the decimal point has its own key in the right column");
+        check(digits.size() == digits.stream().distinct().count(), "no symbol is repeated");
+        check(NineKeySidebarPolicy.digitSymbols(null).equals(digits), "nothing stored reads as the digit defaults");
+        check(List.of("+", "-").equals(NineKeySidebarPolicy.digitSymbols("+ -")), "a custom digit table reads back");
+        AndroidLocalSettings.Spec spec = AndroidLocalSettings.spec(AndroidLocalSettings.NINE_KEY_DIGIT_SYMBOLS);
+        check(spec.kind == AndroidLocalSettings.Spec.Kind.TEXT && !spec.synced
+            && NineKeySidebarPolicy.format(digits).equals(spec.defaultValue), "the digit table is a local text setting");
     }
 
     private static void rowHeight() {

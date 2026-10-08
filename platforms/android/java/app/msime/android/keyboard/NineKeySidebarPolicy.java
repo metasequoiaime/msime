@@ -6,9 +6,9 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * 拼音九键与笔画键盘左侧符号栏的内容：默认符号，以及用户在设置里自定义的符号表（`platform.android.nine_key_symbols`）的解析与校验。
+ * 拼音九键与笔画键盘左侧符号栏的内容：字母键面与数字键面各自的默认符号，以及用户在设置里自定义的符号表（`platform.android.nine_key_symbols` / `platform.android.nine_key_digit_symbols`）的解析与校验。
  *
- * <p>符号栏一屏显示 {@link #VISIBLE_ROWS} 个，多出来的上下滚动；原来三个符号铺满三行键高，间距大到还能再放两个（#5574）。存储格式是用空格分开的符号，读不出或不合规时整张表回到默认值。
+ * <p>符号栏一屏显示 {@link #VISIBLE_ROWS} 个，多出来的上下滚动；原来三个符号铺满三行键高，间距大到还能再放两个（#5574）。拼音九键的数字键面是用来打数字和算式的，左栏换成四则运算符号，叹号挪到运算符号后面，滚动才看得到（#5590）。存储格式是用空格分开的符号，读不出或不合规时整张表回到默认值。
  */
 public final class NineKeySidebarPolicy {
     /** 符号栏一屏显示几个符号；符号不足这么多时按实际个数均分整栏高度。 */
@@ -23,6 +23,9 @@ public final class NineKeySidebarPolicy {
     /** 字母键面的默认符号：前三个仍是原来的 ，。？，！ 仍在右列最下面，所以这里不重复。 */
     public static final List<String> DEFAULT_LETTER_SYMBOLS =
         List.of("，", "。", "？", "、", "：", "；", "……", "～", "@");
+    /** 数字键面的默认符号：先是四则运算和算式里常用的半角符号，中文标点（含原来在右列的 ！）排在后面。 */
+    public static final List<String> DEFAULT_DIGIT_SYMBOLS =
+        List.of("+", "-", "*", "/", "=", "%", "(", ")", ":", "@", "，", "。", "？", "！");
 
     private NineKeySidebarPolicy() {}
 
@@ -74,6 +77,11 @@ public final class NineKeySidebarPolicy {
     /** 字母键面（拼音九键、笔画）显示的符号。 */
     public static List<String> letterSymbols(String stored) {
         return symbols(stored, DEFAULT_LETTER_SYMBOLS);
+    }
+
+    /** 数字键面显示的符号。 */
+    public static List<String> digitSymbols(String stored) {
+        return symbols(stored, DEFAULT_DIGIT_SYMBOLS);
     }
 
     /**

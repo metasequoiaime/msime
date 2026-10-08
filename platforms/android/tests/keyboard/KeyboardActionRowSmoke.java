@@ -30,6 +30,32 @@ public final class KeyboardActionRowSmoke {
         check(KeyboardActionRow.designEntries(KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT, false).isEmpty()
                 && KeyboardActionRow.designEntries(KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT, true).isEmpty(),
             "the Zhuyin nine-key block carries 123, language, space and return itself, so there is no design row");
+        // #5590：拼音九键的数字键面网格只有 1–9，底行原来空格的位置分成 0 和窄一些的空格，合起来仍是原来空格的宽度。
+        List<KeyboardActionRow.DesignEntry> nineDigits =
+            KeyboardActionRow.designEntries(KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, false, true);
+        check(nineDigits.equals(List.of(
+                new KeyboardActionRow.DesignEntry(KeyboardActionRow.DesignSlot.LAYER, 1.25f),
+                new KeyboardActionRow.DesignEntry(KeyboardActionRow.DesignSlot.LANGUAGE, 1.05f),
+                new KeyboardActionRow.DesignEntry(KeyboardActionRow.DesignSlot.ZERO, 2.2f),
+                new KeyboardActionRow.DesignEntry(KeyboardActionRow.DesignSlot.SPACE,
+                    KeyboardActionRow.DESIGN_SPACE_WEIGHT - 2.2f),
+                new KeyboardActionRow.DesignEntry(KeyboardActionRow.DesignSlot.RETURN, 1.9f))),
+            "the nine-key digit row puts 0 left of a narrower space: " + nineDigits);
+        check(KeyboardActionRow.designEntries(KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, true, true).get(2).slot()
+                == KeyboardActionRow.DesignSlot.GLOBE,
+            "the globe still follows 中/英 on the digit row");
+        check(KeyboardActionRow.designEntries(KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, false, false).equals(
+                KeyboardActionRow.designEntries(KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, false))
+                && KeyboardActionRow.designEntries(KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, false).stream()
+                    .noneMatch(entry -> entry.slot() == KeyboardActionRow.DesignSlot.ZERO),
+            "the nine-key letter row has no 0");
+        for (int layout : new int[] {KeyboardLayout.STANDARD_TOUCH_LAYOUT, KeyboardLayout.STROKE_LAYOUT,
+                KeyboardLayout.HANDWRITING_LAYOUT, KeyboardLayout.KOREAN_LAYOUT}) {
+            check(KeyboardActionRow.designEntries(layout, true, true).equals(KeyboardActionRow.designEntries(layout, true)),
+                "only the quanpin nine-key digit page gets the 0 key");
+        }
+        check("数字 0".equals(KeyboardActionRow.designDescription(KeyboardActionRow.DesignSlot.ZERO, true)),
+            "the 0 key reads as a digit");
         check("，".equals(KeyboardActionRow.punctuationFace(KeyboardActionRow.DesignSlot.COMMA, true))
             && ".".equals(KeyboardActionRow.punctuationFace(KeyboardActionRow.DesignSlot.PERIOD, false)),
             "comma and period faces follow Chinese punctuation");

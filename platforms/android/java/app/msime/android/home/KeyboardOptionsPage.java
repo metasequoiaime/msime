@@ -24,7 +24,7 @@ import app.msime.android.ViewPolicy;
 import org.json.JSONObject;
 
 /**
- * 键盘页：布局（中文键盘 26 / 9 键、九键左侧符号、键盘高度、按键间距、行间距、横屏分离式键盘）、按键反馈（按键音、按键振动、按键弹出预览、按键动画）、手势（滑动输入符号及其方向、滑行输入、空格滑动移动光标、长按空格语音）、键盘工具栏（预览、显示方式、各按钮）和子页「AI 润色与回复」。
+ * 键盘页：布局（中文键盘 26 / 9 键、九键字母与数字键盘的左侧符号、键盘高度、按键间距、行间距、横屏分离式键盘）、按键反馈（按键音、按键振动、按键弹出预览、按键动画）、手势（滑动输入符号及其方向、滑行输入、空格滑动移动光标、长按空格语音）、键盘工具栏（预览、显示方式、各按钮）和子页「AI 润色与回复」。
  *
  * <p>键盘与本页读同一批存储：按键间距、行间距和表情/剪贴板/皮肤三个工具栏按钮在共享偏好里（`touch_key_spacing_tenths`、`touch_row_spacing_tenths`、`touch_toolbar.*`）；键盘高度、横屏分离式键盘、按键弹出预览、按键动画、三个手势、常用语/输入方式两个工具栏按钮和「显示方式：隐藏」（整行不显示，候选条照常显示）只有 Android 用，在 {@link AndroidLocalSettings} 里。键盘高度按设计以 75–130 % 显示，存的是 dp（{@link KeyboardGeometry#heightPercentToAdjustment}），本地没写过时沿用共享偏好里旧的 `touch_keyboard_height_adjustment`。按键音和按键振动是 Android 一直以来的本地开关（`KeyboardFeedbackStore`），键盘的功能面板改的也是它们。
  */
@@ -95,6 +95,11 @@ public final class KeyboardOptionsPage extends DetailPage {
         layout.nav("九键左侧符号", "拼音九键和笔画键盘左侧可上下滑动的符号栏",
             NineKeySidebarPolicy.summary(sidebar, 4),
             () -> editSidebarSymbols("九键左侧符号", AndroidLocalSettings.NINE_KEY_SYMBOLS, sidebar));
+        java.util.List<String> digitSidebar = NineKeySidebarPolicy.digitSymbols(
+            settings.text(AndroidLocalSettings.NINE_KEY_DIGIT_SYMBOLS));
+        layout.nav("九键数字键盘左侧符号", "拼音九键按 123 切到数字键盘后左侧的符号栏",
+            NineKeySidebarPolicy.summary(digitSidebar, 4),
+            () -> editSidebarSymbols("九键数字键盘左侧符号", AndroidLocalSettings.NINE_KEY_DIGIT_SYMBOLS, digitSidebar));
         int height = KeyboardGeometry.heightAdjustmentToPercent(
             settings.has(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT)
                 ? settings.integer(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT)

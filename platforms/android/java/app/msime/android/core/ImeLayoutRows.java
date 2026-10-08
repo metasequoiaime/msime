@@ -280,24 +280,28 @@ final class ImeLayoutRows {
         s.nineKeySidebar.setBackground(rail);
     }
 
-    /** 当前键行建出来时用的左侧符号；设置改了以后 {@link #sidebarStale} 据此判断要不要重建。 */
+    /** 当前键行建出来时用的左侧符号和它属于哪个键面；设置改了以后 {@link #sidebarStale} 据此判断要不要重建。 */
     private java.util.List<String> builtSidebarSymbols;
+    private boolean builtSidebarDigits;
 
-    /** 本地设置里的左侧符号（不合规时是默认的那张表）。 */
-    java.util.List<String> sidebarSymbols() {
-        return NineKeySidebarPolicy.letterSymbols(s.localSettings.text(AndroidLocalSettings.NINE_KEY_SYMBOLS));
+    /** 本地设置里的左侧符号（不合规时是默认的那张表）：字母键面一张，拼音九键的数字键面另一张。 */
+    java.util.List<String> sidebarSymbols(boolean digits) {
+        return digits
+            ? NineKeySidebarPolicy.digitSymbols(s.localSettings.text(AndroidLocalSettings.NINE_KEY_DIGIT_SYMBOLS))
+            : NineKeySidebarPolicy.letterSymbols(s.localSettings.text(AndroidLocalSettings.NINE_KEY_SYMBOLS));
     }
 
     /** 屏幕上有九键或笔画的符号栏，而它的符号和设置里的已经不同：设置页改了符号表之后，下一次渲染重建键行。 */
     boolean sidebarStale() {
         return s.nineKeySidebar != null && builtSidebarSymbols != null
-            && !builtSidebarSymbols.equals(sidebarSymbols());
+            && !builtSidebarSymbols.equals(sidebarSymbols(builtSidebarDigits));
     }
 
     /**
      * 九键与笔画键盘左侧的符号栏：一屏 {@link NineKeySidebarPolicy#VISIBLE_ROWS} 个符号，更多的上下滚动（#5574）。符号键共用一条底轨，不各自画键帽；点按原样上屏（全角模式下转全角）。
      */
-    private FrameLayout symbolSidebar(java.util.List<String> symbols) {
+    private FrameLayout symbolSidebar(boolean digits) {
+        java.util.List<String> symbols = sidebarSymbols(digits);
         NineKeySymbolRail rail = new NineKeySymbolRail(s);
         rail.setContentDescription("符号栏，可上下滑动");
         for (String symbol : symbols) {
@@ -315,6 +319,7 @@ final class ImeLayoutRows {
         FrameLayout sidebar = new FrameLayout(s);
         s.nineKeySidebar = sidebar;
         builtSidebarSymbols = symbols;
+        builtSidebarDigits = digits;
         applySidebarRail();
         sidebar.addView(rail, KeyboardGeometry.frameMatchParentParams());
         return sidebar;
@@ -327,9 +332,10 @@ final class ImeLayoutRows {
         s.keyRows.addView(container, KeyboardGeometry.matchWidthHeightPx(
             s.pixels(KeyboardGeometry.KEY_ROW_HEIGHT_DP * 3)));
 
-        // 左列是可以上下滚动的符号栏（默认 ，。？、：；……～@，可在设置里自定义），！ 仍放在右列最下面，和 3×3 网格逐行对齐。
+        boolean digits = s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS;
+        // 左列是可以上下滚动的符号栏，字母键面默认 ，。？、：；……～@，！ 仍放在右列最下面，和 3×3 网格逐行对齐；数字键面默认是 + - * / = 等算式符号，！ 挪到它们后面，右列最下面换成小数点（#5590）。两张表都可在设置里自定义。
         java.util.List<String> symbols = NineKeyLayout.punctuation();
-        FrameLayout sidebar = symbolSidebar(sidebarSymbols());
+        FrameLayout sidebar = symbolSidebar(digits);
         if (s.nineKeySpellingScroll != null) {
             // 拼音选择条只在创建键盘视图时建一次，每次重建九键都会换一个新的侧栏；偏好变化触发第二次重建时它还挂在上一个侧栏上，不先摘下来，addView 会抛 IllegalStateException 让键盘进程崩溃。
             if (s.nineKeySpellingScroll.getParent() instanceof android.view.ViewGroup previous)
@@ -340,7 +346,6 @@ final class ImeLayoutRows {
         container.addView(sidebar, KeyboardGeometry.weightedMatchParentParams(0.7f));
 
         LinearLayout grid = KeyboardGeometry.column(s);
-        boolean digits = s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS;
         for (java.util.List<NineKeyLayout.Key> keys : NineKeyLayout.rows()) {
             LinearLayout row = KeyboardGeometry.row(s);
             for (NineKeyLayout.Key key : keys) {
@@ -397,11 +402,13 @@ final class ImeLayoutRows {
         });
         if (split instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
         addNineKey(actions, split);
+        // 数字键面右列最下面是小数点：打的是数字，字面上屏 `.`，不按中文标点换成「。」。
         String last = symbols.get(symbols.size() - 1);
-        Button exclamation = s.keyId(s.keyboardKey(last, "符号 " + last,
-            () -> commitNineKeyLiteral(last)), "SoftPunctuation");
-        if (exclamation instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
-        addNineKey(actions, exclamation);
+        Button lastKey = digits
+            ? s.keyId(s.keyboardKey(".", "小数点", () -> commitNineKeyLiteral(".")), "Period")
+            : s.keyId(s.keyboardKey(last, "符号 " + last, () -> commitNineKeyLiteral(last)), "SoftPunctuation");
+        if (lastKey instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
+        addNineKey(actions, lastKey);
         container.addView(actions, KeyboardGeometry.weightedMatchParentParams(0.8f));
     }
 
@@ -419,7 +426,7 @@ final class ImeLayoutRows {
 
         // 外框和拼音九键一样三行对齐：左列是和拼音九键同一张可滚动的符号表，！ 在右列最下；中间两行笔画下面再一行 @#、0、句点。原来左列四个、中间两行、右列三个，三列互不对齐，看起来像少了一行。
         java.util.List<String> symbols = NineKeyLayout.punctuation();
-        FrameLayout sidebar = symbolSidebar(sidebarSymbols());
+        FrameLayout sidebar = symbolSidebar(false);
         container.addView(sidebar, KeyboardGeometry.weightedMatchParentParams(0.7f));
 
         LinearLayout grid = KeyboardGeometry.column(s);
