@@ -30,7 +30,7 @@ import org.json.JSONObject;
 public final class KeyboardOptionsPage extends DetailPage {
     private static final String[] ANIMATIONS = {"bounce", "ripple", "glow", "lift", "none"};
     private static final String[] ANIMATION_LABELS = {"弹起", "涟漪", "发光", "浮起", "无"};
-    /** 设计里的五个工具栏按钮：存储键与行名。共享偏好的写 `touch_toolbar` 的成员名，本地设置的写完整键名。 */
+    /** 可开关的六个工具栏按钮：存储键与行名。共享偏好的写 `touch_toolbar` 的成员名，本地设置的写完整键名。 */
     private static final String[][] TOOLBAR_BUTTONS = {
         {"emoji", "表情"}, {AndroidLocalSettings.TOOLBAR_PHRASE, "常用语"}, {"clipboard", "剪贴板"}, {"skin", "皮肤"},
         {AndroidLocalSettings.TOOLBAR_SCHEME, "输入方式"}, {AndroidLocalSettings.TOOLBAR_FLOATING, "浮动键盘"},
