@@ -289,6 +289,13 @@ impl NineKeySession {
             Choice::Digit(digit) => {
                 // 只在没有锁定时提供：前面锁定的音节还没上屏，先上屏这一位会颠倒文字的顺序。
                 self.consume(1);
+                // 这一位原样上屏，和读不出全拼的一段（英文词）一样记进正在拼的词，这个词就不存了；数字上屏完时组字结束，正在拼的词随之作废。
+                if self.active() {
+                    self.phrase_storable = false;
+                    self.phrase_word.push(char::from(digit));
+                } else {
+                    self.reset_phrase();
+                }
                 self.refresh();
                 return KeyResult::committed(char::from(digit).to_string());
             }
@@ -2688,6 +2695,26 @@ mod tests {
         let result = session.choose_spelling(spelling_index(&session, "6"));
         assert_eq!(result.commit.as_deref(), Some("6"));
         assert_eq!(session.snapshot().editing_text, "4");
+    }
+
+    /// 左列的数字原样上屏一位：正在拼的词里夹了这一位就不再存（否则选完时会把它前后的两段连成一个错的词）；数字上屏完时组字结束，正在拼的词随之作废。
+    #[test]
+    fn a_key_digit_inside_a_phrase_keeps_it_from_being_stored() {
+        let fixture = fixture();
+        let mut session = open(&fixture.paths, true, mixed());
+        type_digits(&mut session, "64426");
+        session.select(index_of(&session, "你"));
+        let result = session.choose_spelling(spelling_index(&session, "4"));
+        assert_eq!(result.commit.as_deref(), Some("4"));
+        assert!(!session.phrase_storable);
+        assert_eq!(session.phrase_word, "你4");
+        session.command(Command::Cancel);
+
+        type_digits(&mut session, "644");
+        session.select(index_of(&session, "你"));
+        session.choose_spelling(spelling_index(&session, "4"));
+        assert!(!session.active());
+        assert!(session.phrase_word.is_empty() && session.phrase_storable);
     }
 
     #[test]
