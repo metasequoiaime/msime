@@ -47,7 +47,7 @@ export class KeyboardSkin {
   readonly background: string;
   readonly keyBackground: string;
   readonly keyForeground: string;
-  /** Shift, delete, the symbol and number toggles: the design's `function_key`. */
+  /** Shift, delete, the symbol and number toggles: a theme's `function_key`; a keyboard design draws them on its letter-key face. */
   readonly functionKeyBackground: string;
   readonly functionKeyForeground: string;
   /** Hints, spellings and the space-bar label. */
@@ -56,7 +56,7 @@ export class KeyboardSkin {
   readonly accent: string;
   /** Text on anything filled with `accent`. */
   readonly onAccent: string;
-  /** 回车键：已解析出种子时用季节强调色及其配套文字色；否则用平台强调色，文字色按共享的 on-accent 规则（浅色模式为白色，深色模式为强调色混入 25% 黑色），与主题无关。 */
+  /** 回车键。主题：已解析出种子时用季节强调色及其配套文字色，否则用平台强调色，文字色按共享的 on-accent 规则（浅色模式为白色，深色模式为强调色混入 25% 黑色），与主题无关。用户的键盘设计用它自己的 `actionBackground`，文字按亮度取黑或白，与 Android 的 `returnBackground` 和 iOS 的 `SkinKeySurfaceView` 一致：季节只给应用和 `system` 键盘着色，不改用户自己设计的键。 */
   readonly actionBackground: string;
   readonly actionForeground: string;
   /**
@@ -115,9 +115,14 @@ export class KeyboardSkin {
     this.accent = palette.accent;
     this.onAccent = palette.on_accent;
     const platformAccent: string = seed === null ? GlobalTheme.accent(dark) : seed.accent;
-    this.actionBackground = platformAccent;
-    this.actionForeground =
-      seed === null ? AppThemePalette.onAccent(platformAccent, dark) : seed.on_accent;
+    if (design !== null) {
+      this.actionBackground = design.actionBackground();
+      this.actionForeground = design.actionForeground();
+    } else {
+      this.actionBackground = platformAccent;
+      this.actionForeground =
+        seed === null ? AppThemePalette.onAccent(platformAccent, dark) : seed.on_accent;
+    }
     if (named) {
       this.toggleBackground = alpha(
         palette.accent,
@@ -211,7 +216,7 @@ export class KeyboardSkin {
   }
 
   /**
-   * The user's custom keyboard design, drawn in full. Its colours are flattened the way the shared `custom_keyboard` flattens them, so the function keys take the design's action colour and hints its text at 60%.
+   * 用户的键盘设计，完整绘制。功能键（⇧、⌫、123、中/英）画在字母键的底色上、用字母键的文字色，设计的 `actionBackground` 只给回车键，与 Android 的 `functionBackground` 和 iOS 的 `KeyboardTheme.functionKeyBackground` 一致。用动作色铺满所有功能键会让社区皮肤像拼布，而且深色动作色配深色文字的设计（比如默认的薄荷晨光）上，功能键的字几乎看不见。提示文字是设计文字色的 60%。
    */
   static fromDesign(
     title: string,
@@ -222,7 +227,7 @@ export class KeyboardSkin {
     const palette: KeyboardThemePalette = {
       background: design.background(),
       key: design.keyBackground(),
-      function_key: design.actionBackground(),
+      function_key: design.keyBackground(),
       text: design.keyForeground(),
       secondary: alpha(design.keyForeground(), 0.6),
       accent: design.accent(),
@@ -282,7 +287,7 @@ export class KeyboardSkin {
   shadowColor(): string {
     return alpha("#000000", this.shadowOpacity);
   }
-  /** A key's fill: the platform accent for an emphasized key, the function-key colour for a special one (shift, delete, 123, the language key, an idle return), and the key colour for the rest. */
+  /** 按键的底色：强调的键用回车键颜色（`actionBackground`），特殊键（⇧、⌫、123、语言键、空闲的回车）用功能键颜色，其余用字母键颜色。 */
   keySurfaceBackground(emphasized: boolean, special: boolean = false): string {
     if (emphasized) {
       return this.actionBackground;

@@ -8,7 +8,6 @@ import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
@@ -348,7 +347,7 @@ public final class DiagnosticsApi {
                 }
             }
             snapshot = new Snapshot(snapshotId, snapshotCreated, snapshotExpires, snapshotBytes,
-                Collections.unmodifiableList(sections), snapshotHint);
+                ListPolicy.copyOrEmpty(sections), snapshotHint);
         }
         JSONArray list = root.optJSONArray("accesses");
         int accessCount = list == null ? 0 : list.length();
@@ -370,7 +369,7 @@ public final class DiagnosticsApi {
                 accesses.add(new Access(at, tool, rawArguments, resultCount, bytes));
             }
         }
-        return new State(snapshot, Collections.unmodifiableList(accesses));
+        return new State(snapshot, ListPolicy.copyOrEmpty(accesses));
     }
 
     /** Diagnostics wire numbers are JSON integers; do not let org.json truncate decimals. */

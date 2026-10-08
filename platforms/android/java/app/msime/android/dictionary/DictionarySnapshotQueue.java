@@ -285,15 +285,34 @@ public final class DictionarySnapshotQueue {
 
     public void cancel(String accountId) throws Failure {
         if (accountId == null || accountId.isEmpty()) throw new Failure(Reason.INVALID);
-        Request cancelled = locked(() -> {
-            State state = readUnlocked();
-            Request request = state.request();
-            if (request == null || !accountId.equals(request.accountId()) || !request.status().active()) return null;
-            Request result = copy(request, Status.CANCELLED);
-            writeState(new State(state.localVersion(), result));
-            return result;
-        });
-        if (cancelled != null) deleteSnapshot(cancelled.id());
+        // 输入法 worker 在认领或完成请求时可能短暂持有状态锁。
+        // 重试这次交接，避免退出登录或切换账号时静默留下旧账号的活动快照。
+        // 已完成的请求不会造成影响：下一次尝试会观察到终态，不会触碰更新后的请求。
+        Failure busy = null;
+        for (int attempt = 0; attempt < 40; attempt++) {
+            try {
+                Request cancelled = locked(() -> {
+                    State state = readUnlocked();
+                    Request request = state.request();
+                    if (request == null || !accountId.equals(request.accountId()) || !request.status().active()) return null;
+                    Request result = copy(request, Status.CANCELLED);
+                    writeState(new State(state.localVersion(), result));
+                    return result;
+                });
+                if (cancelled != null) deleteSnapshot(cancelled.id());
+                return;
+            } catch (Failure error) {
+                if (error.reason() != Reason.BUSY) throw error;
+                busy = error;
+                try {
+                    Thread.sleep(25L);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw new Failure(Reason.BUSY, interrupted);
+                }
+            }
+        }
+        throw busy == null ? new Failure(Reason.BUSY) : busy;
     }
 
     private void transition(UUID id, Status status) throws Failure {

@@ -134,7 +134,14 @@ public final class DictionarySnapshotQueueSmoke {
             }
             check(queue.read().request().status() == DictionarySnapshotQueue.Status.APPLIED);
             check(!Files.exists(queue.filePath(id)));
-            String appliedVersion = "local-v1:" + id + ":" + "b".repeat(64);
+            String preparingVersion = "local-v1:" + id + ":" + "b".repeat(64);
+            queue.enqueue(source, account, 42, preparingVersion, digest);
+            try (DictionarySnapshotQueue.WorkerLease lease = queue.acquireWorkerLease()) {
+                check(queue.claim(lease).status() == DictionarySnapshotQueue.Status.PREPARING);
+                queue.cancel(account);
+            }
+            check(queue.read().request().status() == DictionarySnapshotQueue.Status.CANCELLED);
+            String appliedVersion = preparingVersion;
             UUID recovered = queue.enqueue(source, account, 43, appliedVersion, digest);
             try (DictionarySnapshotQueue.WorkerLease lease = queue.acquireWorkerLease()) {
                 check(queue.claim(lease).status() == DictionarySnapshotQueue.Status.PREPARING);

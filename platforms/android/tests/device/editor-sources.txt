@@ -26,6 +26,7 @@ platforms/android/java/app/msime/android/HttpBodyPolicy.java
 platforms/android/java/app/msime/android/JsonPolicy.java
 platforms/android/java/app/msime/android/MapPolicy.java
 platforms/android/java/app/msime/android/NumberPolicy.java
+platforms/android/java/app/msime/android/SetPolicy.java
 platforms/android/java/app/msime/android/TextPolicy.java
 platforms/android/java/app/msime/android/ViewPolicy.java
 platforms/android/java/app/msime/android/account/AccountTokenPolicy.java
