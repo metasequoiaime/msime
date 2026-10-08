@@ -105,44 +105,8 @@ impl WordbookLibrary {
         Ok(lock)
     }
 
-    /// 打开库目录里的一个文件，只接受普通文件。Unix 上经目录句柄逐级打开，目录被并发替换也不会被引去别处；其他平台没有这套句柄接口，按路径打开。
-    #[cfg(unix)]
-    fn open_entry(&self, name: &str) -> std::io::Result<File> {
-        let directory = crate::storage::open_private_directory(&self.directory)?;
-        crate::storage::open_private_file_at(&directory, std::ffi::OsStr::new(name))
-    }
-
-    #[cfg(not(unix))]
-    fn open_entry(&self, name: &str) -> std::io::Result<File> {
-        let path = self.directory.join(name);
-        if !std::fs::symlink_metadata(&path)?.file_type().is_file() {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "wordbook entry is not a regular file",
-            ));
-        }
-        crate::storage::open_private_file(&path)
-    }
-
-    /// 删掉库目录里的一个文件，平台差异同 [`Self::open_entry`]。
-    #[cfg(unix)]
-    fn remove_entry(&self, name: &str) -> std::io::Result<()> {
-        let directory = crate::storage::open_private_directory(&self.directory)?;
-        rustix::fs::unlinkat(
-            &directory,
-            std::ffi::OsStr::new(name),
-            rustix::fs::AtFlags::empty(),
-        )
-        .map_err(std::io::Error::from)
-    }
-
-    #[cfg(not(unix))]
-    fn remove_entry(&self, name: &str) -> std::io::Result<()> {
-        std::fs::remove_file(self.directory.join(name))
-    }
-
     fn read_index_locked(&self) -> Result<LibraryIndex, WordbookLibraryError> {
-        let file = match self.open_entry("index.json") {
+        let file = match crate::storage::open_private_file_in(&self.index_path()) {
             Ok(file) => file,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 return Ok(LibraryIndex::default());
@@ -200,12 +164,9 @@ impl WordbookLibrary {
         let _lock = self.lock()?;
         let index = self.read_index_locked()?;
         let mut books = Vec::with_capacity(index.books.len());
-        books.extend(
-            index
-                .books
-                .into_iter()
-                .filter(|book| self.open_entry(&format!("{}.json", book.id)).is_ok()),
-        );
+        books.extend(index.books.into_iter().filter(|book| {
+            crate::storage::open_private_file_in(&self.book_path(&book.id)).is_ok()
+        }));
         Ok(books)
     }
 
@@ -215,7 +176,7 @@ impl WordbookLibrary {
             return Err(WordbookLibraryError::InvalidWordbook);
         }
         let _lock = self.lock()?;
-        let file = match self.open_entry(&format!("{id}.json")) {
+        let file = match crate::storage::open_private_file_in(&self.book_path(id)) {
             Ok(file) => file,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
             Err(_) => return Err(WordbookLibraryError::InvalidWordbook),
@@ -293,13 +254,17 @@ impl WordbookLibrary {
         let mut index = self.read_index_locked()?;
         let before = index.books.len();
         index.books.retain(|entry| entry.id != id);
-        if index.books.len() == before && self.open_entry(&format!("{id}.json")).is_err() {
+        if index.books.len() == before
+            && crate::storage::open_private_file_in(&self.book_path(id)).is_err()
+        {
             return Err(WordbookLibraryError::UnknownWordbook);
         }
         // The index first this time, so a crash between the two leaves an orphan file rather than
         // a row pointing at a deleted book.
         self.write_atomically(&self.index_path(), &serde_json::to_vec(&index)?)?;
-match self.remove_entry(&format!("{id}.json"))
+        // Unix 经目录句柄删除；其他平台沿用路径删除。
+        let removed = crate::storage::remove_private_file(&self.book_path(id));
+        match removed {
             Ok(()) => Ok(()),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
             Err(error) => Err(error.into()),

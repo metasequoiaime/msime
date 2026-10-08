@@ -849,30 +849,10 @@ impl DictionaryCollectionsStore {
         path: &Path,
         maximum: u64,
     ) -> Result<Option<T>> {
-        // Unix 上经目录句柄打开，目录被并发替换也不会被引去别处；其他平台没有这套句柄接口，按路径打开。
-        #[cfg(unix)]
-        let file = {
-            let directory = crate::storage::open_private_directory(&self.directory)?;
-            let name = path
-                .file_name()
-                .ok_or(DictionaryCollectionsError::Corrupt)?;
-            match crate::storage::open_private_file_at(&directory, name) {
-                Ok(file) => file,
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-                Err(_) => return Err(DictionaryCollectionsError::Corrupt),
-            }
-        };
-        #[cfg(not(unix))]
-        let file = {
-            let metadata = match fs::symlink_metadata(path) {
-                Ok(value) => value,
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-                Err(error) => return Err(error.into()),
-            };
-            if !metadata.file_type().is_file() {
-                return Err(DictionaryCollectionsError::Corrupt);
-            }
-            crate::storage::open_private_file(path)?
+        let file = match crate::storage::open_private_file_in(path) {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(_) => return Err(DictionaryCollectionsError::Corrupt),
         };
         if file.metadata()?.len() > maximum {
             return Err(DictionaryCollectionsError::Corrupt);
