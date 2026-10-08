@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-`insert_mixed_rows` 用 11 项栈上借用表记录位掩码接受的额外候选，检查已有候选时直接扫描，避免按候选列表长度扩容哈希表；三组小列表先移出首项插入优先槽，再直接扩展剩余项，去掉 `tails` 容器。保持各组首次去重、优先槽顺序和尾部顺序。
+`insert_mixed_rows`（函数体现在是它与九宫格的 `insert_expressive_rows` 共用的 `insert_extra_rows`）用 11 项栈上借用表记录位掩码接受的额外候选，检查已有候选时直接扫描，避免按候选列表长度扩容哈希表；三组小列表先移出首项插入优先槽，再直接扩展剩余项，去掉 `tails` 容器。保持各组首次去重、优先槽顺序和尾部顺序。
 
 ## Alternatives considered
 
