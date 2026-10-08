@@ -23,6 +23,8 @@ public final class KeyboardIconPaths {
         TOOLBAR_SKIN(false, 0f),
         /** Material Icons keyboard (outlined) */
         TOOLBAR_SCHEME(false, 0f),
+        /** Material Icons picture_in_picture_alt */
+        TOOLBAR_FLOATING(false, 0f),
         /** design chevron-down (21dp) */
         TOOLBAR_DISMISS(true, 1.8f),
         /** design key shift */
@@ -78,7 +80,9 @@ public final class KeyboardIconPaths {
         /** Lucide-style arrow-right (日语九键 结束连点) */
         TOGGLE_NEXT(true, 1.7f),
         /** Lucide-style maximize-2 (退出单手) */
-        EXIT_ONE_HAND(true, 1.7f);
+        EXIT_ONE_HAND(true, 1.7f),
+        /** Lucide-style picture-in-picture-2 (浮动键盘) */
+        FLOATING(true, 1.7f);
 
         private final boolean stroked;
         private final float strokeWidth;
@@ -142,6 +146,7 @@ public final class KeyboardIconPaths {
             case TOOLBAR_CLIPBOARD -> appendToolbarClipboard(p);
             case TOOLBAR_SKIN -> appendToolbarSkin(p);
             case TOOLBAR_SCHEME -> appendToolbarScheme(p);
+            case TOOLBAR_FLOATING -> appendToolbarFloating(p);
             case TOOLBAR_DISMISS -> appendToolbarDismiss(p);
             case SHIFT -> appendShift(p);
             case CAPS_LOCK -> appendCapsLock(p);
@@ -170,6 +175,7 @@ public final class KeyboardIconPaths {
             case CURSOR_LEFT -> appendCursorLeft(p);
             case TOGGLE_NEXT -> appendToggleNext(p);
             case EXIT_ONE_HAND -> appendExitOneHand(p);
+            case FLOATING -> appendFloating(p);
         }
     }
 
@@ -392,6 +398,31 @@ public final class KeyboardIconPaths {
         p.lineTo(19f, 8f);
         p.lineTo(19f, 10f);
         p.lineTo(17f, 10f);
+        p.close();
+    }
+
+    private static void appendToolbarFloating(Path p) {
+        p.moveTo(19f, 11f);
+        p.lineTo(11f, 11f);
+        p.lineTo(11f, 17f);
+        p.lineTo(19f, 17f);
+        p.lineTo(19f, 11f);
+        p.close();
+        p.moveTo(23f, 19f);
+        p.lineTo(23f, 4.98f);
+        p.cubicTo(23f, 3.88f, 22.1f, 3f, 21f, 3f);
+        p.lineTo(3f, 3f);
+        p.cubicTo(1.9f, 3f, 1f, 3.88f, 1f, 4.98f);
+        p.lineTo(1f, 19f);
+        p.cubicTo(1f, 20.1f, 1.9f, 21f, 3f, 21f);
+        p.lineTo(21f, 21f);
+        p.cubicTo(22.1f, 21f, 23f, 20.1f, 23f, 19f);
+        p.close();
+        p.moveTo(21f, 19.02f);
+        p.lineTo(3f, 19.02f);
+        p.lineTo(3f, 4.97f);
+        p.lineTo(21f, 4.97f);
+        p.lineTo(21f, 19.02f);
         p.close();
     }
 
@@ -807,5 +838,26 @@ public final class KeyboardIconPaths {
         p.lineTo(14f, 10f);
         p.moveTo(3f, 21f);
         p.lineTo(10f, 14f);
+    }
+
+    private static void appendFloating(Path p) {
+        p.moveTo(21f, 9f);
+        p.lineTo(21f, 6f);
+        p.cubicTo(21f, 4.8954f, 20.1046f, 4f, 19f, 4f);
+        p.lineTo(4f, 4f);
+        p.cubicTo(2.8954f, 4f, 2f, 4.8954f, 2f, 6f);
+        p.lineTo(2f, 16f);
+        p.cubicTo(2f, 17.1046f, 2.8954f, 18f, 4f, 18f);
+        p.lineTo(8f, 18f);
+        p.moveTo(14f, 13f);
+        p.lineTo(20f, 13f);
+        p.cubicTo(21.1046f, 13f, 22f, 13.8954f, 22f, 15f);
+        p.lineTo(22f, 18f);
+        p.cubicTo(22f, 19.1046f, 21.1046f, 20f, 20f, 20f);
+        p.lineTo(14f, 20f);
+        p.cubicTo(12.8954f, 20f, 12f, 19.1046f, 12f, 18f);
+        p.lineTo(12f, 15f);
+        p.cubicTo(12f, 13.8954f, 12.8954f, 13f, 14f, 13f);
+        p.close();
     }
 }

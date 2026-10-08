@@ -3454,6 +3454,29 @@ fn cantonese_candidate_refresh_reuses_row_storage() {
 }
 
 #[test]
+fn cantonese_key_refresh_reuses_query_rows() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session_with(|options| {
+        options.scheme = SchemeType::Cantonese;
+        options.cantonese_dictionary = cantonese_dictionary(fixture.path());
+    });
+    type_text(&mut session, "neihou");
+    session.input.engine.handle_key(SchemeKey::Backspace);
+    let word_pointer = session.input.engine.candidates()[0].word.as_ptr();
+
+    let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+        session.input.engine.handle_key(SchemeKey::Letter(b'u'));
+    });
+
+    assert!(allocations <= 35, "逐键查询不应重建候选行：{allocations}");
+    assert_eq!(words(&session), ["你好", "妳好", "你", "妳"]);
+    assert_eq!(
+        session.input.engine.candidates()[0].word.as_ptr(),
+        word_pointer
+    );
+}
+
+#[test]
 fn pinyin_candidate_refresh_reuses_preedit_storage() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);
     let mut session = fixture.session();

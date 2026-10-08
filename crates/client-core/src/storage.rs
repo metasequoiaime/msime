@@ -1,8 +1,15 @@
+#[cfg(unix)]
+use std::ffi::{OsStr, OsString};
 use std::fs::{self, File, OpenOptions};
-use std::io;
+use std::io::{self, Write};
 use std::path::Path;
 #[cfg(unix)]
 use std::path::PathBuf;
+#[cfg(unix)]
+use std::sync::atomic::{AtomicU64, Ordering};
+
+#[cfg(unix)]
+static PRIVATE_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[cfg(unix)]
 pub(crate) fn open_private_directory(parent: &Path) -> io::Result<File> {
@@ -62,6 +69,64 @@ pub(crate) fn open_private_directory(parent: &Path) -> io::Result<File> {
         }
     }
     Ok(directory.into())
+}
+
+#[cfg(unix)]
+pub(crate) fn open_private_file_at(directory: &File, name: &OsStr) -> io::Result<File> {
+    let descriptor = rustix::fs::openat(
+        directory,
+        name,
+        rustix::fs::OFlags::RDONLY
+            | rustix::fs::OFlags::NOFOLLOW
+            | rustix::fs::OFlags::CLOEXEC
+            | rustix::fs::OFlags::NONBLOCK,
+        rustix::fs::Mode::empty(),
+    )?;
+    let file: File = descriptor.into();
+    if !file.metadata()?.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "private input is not a regular file",
+        ));
+    }
+    Ok(file)
+}
+
+#[cfg(unix)]
+pub(crate) fn write_private_file_at(
+    directory: &File,
+    name: &OsStr,
+    contents: &[u8],
+) -> io::Result<()> {
+    let mut temporary_name = OsString::from(".msime-private-");
+    temporary_name.push(std::process::id().to_string());
+    temporary_name.push("-");
+    temporary_name.push(
+        PRIVATE_FILE_COUNTER
+            .fetch_add(1, Ordering::Relaxed)
+            .to_string(),
+    );
+    let descriptor = rustix::fs::openat(
+        directory,
+        &temporary_name,
+        rustix::fs::OFlags::WRONLY
+            | rustix::fs::OFlags::CREATE
+            | rustix::fs::OFlags::EXCL
+            | rustix::fs::OFlags::CLOEXEC,
+        rustix::fs::Mode::from_raw_mode(0o600),
+    )?;
+    let mut file: File = descriptor.into();
+    let result = file.write_all(contents).and_then(|()| file.sync_all());
+    drop(file);
+    if let Err(error) = result {
+        let _ = rustix::fs::unlinkat(directory, &temporary_name, rustix::fs::AtFlags::empty());
+        return Err(error);
+    }
+    if let Err(error) = rustix::fs::renameat(directory, &temporary_name, directory, name) {
+        let _ = rustix::fs::unlinkat(directory, &temporary_name, rustix::fs::AtFlags::empty());
+        return Err(error.into());
+    }
+    Ok(())
 }
 
 /// 在存储操作跟随已有的符号链接之前先拒绝它。每个应用的存储都会经过的系统链接，以 `msime-path-trust` 列出的为准。
@@ -209,6 +274,31 @@ mod tests {
 
         assert!(remove_private_file(&linked.join("nested/anonymous-session.json")).is_err());
         assert_eq!(std::fs::read(&target).unwrap(), b"synthetic-outside");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_file_write_stays_in_an_open_directory_after_replacement() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempfile::tempdir().unwrap();
+        let original = root.path().join("original");
+        let outside = root.path().join("outside");
+        std::fs::create_dir(&original).unwrap();
+        std::fs::create_dir(&outside).unwrap();
+        let directory = open_private_directory(&original).unwrap();
+        let moved = root.path().join("moved");
+        std::fs::rename(&original, &moved).unwrap();
+        symlink(&outside, &original).unwrap();
+
+        write_private_file_at(&directory, OsStr::new("session.json"), b"synthetic-session")
+            .unwrap();
+
+        assert_eq!(
+            std::fs::read(moved.join("session.json")).unwrap(),
+            b"synthetic-session"
+        );
+        assert!(!outside.join("session.json").exists());
     }
 
     #[cfg(unix)]

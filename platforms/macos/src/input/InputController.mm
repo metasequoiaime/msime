@@ -1143,6 +1143,14 @@ static NSImage *MSIMECandidateLogoImage() {
     NSDictionary *_targetGlossRequest;
     uint64_t _targetGlossEpoch;
     NSDictionary<NSString *, NSDictionary<NSString *, NSString *> *> *_targetGlossResults;
+    // Readings drawn after the gloss lines. The targets the lines follow are nil while the switch is off. English answers
+    // come from the shared table and are cached by the text asked for, an empty string meaning it has none; they do not
+    // depend on the composition, so the cache outlives it. Japanese is read on demand from the system tokenizer.
+    NSArray<NSString *> *_pronunciationTargets;
+    NSOperationQueue *_pronunciationQueue;
+    NSMutableDictionary<NSString *, NSString *> *_englishPronunciations;
+    NSMutableSet<NSString *> *_pronunciationPending;
+    NSMutableDictionary<NSString *, NSString *> *_romajiCache;
     MSIMECustomTranslationBatch *_customBatch;
     NSMutableArray<MSIMECustomTranslationBatch *> *_customBatches;
     // Batches whose page went away while a paid request was in flight. They are held here until that request lands, so its answer still reaches the cache and the glossary (Windows' cloud worker caches before its staleness check, cloud_translation.cpp); a batch deallocated early would cancel it.
@@ -6097,7 +6105,74 @@ static __weak MSIMEInputController *MSIMEMusicOwner;
     [self synchronizeAccountGloss:[self currentAccountGlossRequest]];
     [self synchronizeCustomTranslations];
     [self synchronizeAITranslations];
+    [self synchronizePronunciation];
     if (!nested) [self invalidateServiceSnapshots];
+}
+
+// How the gloss lines of `candidate` are read, "\n"-joined parallel to them; empty while the switch is off or nothing is known.
+- (NSString *)pronunciationForCandidate:(NSDictionary *)candidate {
+    NSString *translation = CandidateTranslation(candidate);
+    if (!_pronunciationTargets || !translation.length || ![candidate[@"text"] isKindOfClass:NSString.class]) return @"";
+    // Romaji is cached per term: a page is drawn more than once per key and the tokenizer is not free.
+    if (!_romajiCache || _romajiCache.count > 4096) _romajiCache = [NSMutableDictionary dictionary];
+    NSMutableDictionary<NSString *, NSString *> *cache = _romajiCache;
+    return MSIMEGlossPronunciation(candidate[@"text"], translation, _pronunciationTargets, _englishPronunciations,
+                                   ^NSString *(NSString *term) {
+                                       NSString *reading = cache[term];
+                                       if (!reading) cache[term] = reading = MSIMEJapaneseRomaji(term);
+                                       return reading;
+                                   });
+}
+
+// Asks the shared table for the English texts on the current page it has not answered yet, then redraws. Nothing is
+// asked while the switch is off; turning it on or off redraws the page with or without readings.
+- (void)synchronizePronunciation {
+    NSDictionary *query = (_activeClient && _session && !_focusPending) ? [self serviceSnapshotQuery] : nil;
+    NSArray<NSString *> *targets = [query[@"candidate_pronunciation"] isEqual:@YES] ? MSIMETranslationTargets(query) : nil;
+    if (!(targets == _pronunciationTargets || [targets isEqual:_pronunciationTargets])) {
+        _pronunciationTargets = [targets copy];
+        if (_activeClient) [self renderCandidates];
+    }
+    if (!targets) return;
+    NSString *resources = [_session.hostOptions[@"resources"] copy];
+    if (![resources isKindOfClass:NSString.class] || !resources.isAbsolutePath) return;
+    if (!_englishPronunciations || _englishPronunciations.count > 4096) _englishPronunciations = [NSMutableDictionary dictionary];
+    if (!_pronunciationPending) _pronunciationPending = [NSMutableSet set];
+    NSMutableOrderedSet<NSString *> *missing = [NSMutableOrderedSet orderedSet];
+    for (NSDictionary *candidate in _view[@"candidates"]) {
+        if (![candidate isKindOfClass:NSDictionary.class] || ![candidate[@"text"] isKindOfClass:NSString.class]) continue;
+        for (NSString *text in MSIMEGlossEnglishTexts(candidate[@"text"], CandidateTranslation(candidate), targets))
+            if (!_englishPronunciations[text] && ![_pronunciationPending containsObject:text]) [missing addObject:text];
+    }
+    if (!missing.count) return;
+    [_pronunciationPending addObjectsFromArray:missing.array];
+    if (!_pronunciationQueue) {
+        _pronunciationQueue = [NSOperationQueue new];
+        _pronunciationQueue.maxConcurrentOperationCount = 1;
+        _pronunciationQueue.qualityOfService = NSQualityOfServiceUtility;
+    }
+    NSMutableArray *items = [NSMutableArray arrayWithCapacity:missing.count];
+    for (NSString *text in missing) [items addObject:@{@"text": text, @"language": @"en"}];
+    NSDictionary *request = @{@"generation": _view[@"generation"] ?: @0, @"items": items};
+    NSArray<NSString *> *asked = missing.array;
+    __weak MSIMEInputController *weakSelf = self;
+    [_pronunciationQueue addOperationWithBlock:^{
+        NSDictionary *result = [MSIMEClientSession pronunciationRequest:request resources:resources error:nil];
+        NSMutableDictionary<NSString *, NSString *> *answered = [NSMutableDictionary dictionary];
+        for (NSDictionary *entry in [result[@"pronunciations"] isKindOfClass:NSArray.class] ? result[@"pronunciations"] : @[])
+            if ([entry[@"text"] isKindOfClass:NSString.class] && [entry[@"pronunciation"] isKindOfClass:NSString.class])
+                answered[entry[@"text"]] = entry[@"pronunciation"];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            MSIMEInputController *current = weakSelf;
+            if (!current) return;
+            // A text the table does not know is remembered as having no reading, so it is not asked again every key.
+            for (NSString *text in asked) {
+                current->_englishPronunciations[text] = answered[text] ?: @"";
+                [current->_pronunciationPending removeObject:text];
+            }
+            if (current->_activeClient && current->_pronunciationTargets && answered.count) [current renderCandidates];
+        });
+    }];
 }
 
 // The card is at most half the screen's visible width, as the Windows card is at most half its work area, and at least seven times the candidate font size, as the Windows card and the source skins' `min-width: 7em` are. Every row is laid out at the width it then gets: text, 辅助码 and gloss wider than their column wrap inside it and the row takes their height (CandidateItemLayout.h).
@@ -6139,7 +6214,11 @@ static __weak MSIMEInputController *MSIMEMusicOwner;
         [annotations addObject:annotation];
         [displays addObject:display];
         [readings addObject:reading];
-        [translations addObject:gloss];
+        // Measured as drawn, readings included, so a row is as wide and tall as the gloss the button draws.
+        NSString *pronunciation = [self pronunciationForCandidate:candidate];
+        [translations addObject:pronunciation.length
+            ? MSIMECandidateGlossRun(reading, MSIMECandidateGlossDisplay(CandidateTranslation(candidate), pronunciation, nil, nil))
+            : gloss];
         [tooltips addObject:gloss.length ? [NSString stringWithFormat:@"%@\n%@", hanjaReadings ? text : display, gloss] : display];
         NSString *number = [NSString stringWithFormat:@"%lu", (unsigned long)++index];
         numberWidth = MAX(numberWidth, [number sizeWithAttributes:@{NSFontAttributeName: numberFont}].width);
@@ -6450,6 +6529,7 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
         button.annotation = row.item.annotation.width > 0 ? pageGeometry.annotations[slot - 1] : @"";
         button.translation = CandidateTranslation(candidate);
         button.glossReading = pageGeometry.readings[slot - 1];
+        button.pronunciation = [self pronunciationForCandidate:candidate];
         button.armedGlossColumn = _armedGlossColumn;
         button.translationFont = glossFont;
         button.itemLayout = row.item;

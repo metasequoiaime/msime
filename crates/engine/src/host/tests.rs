@@ -438,6 +438,54 @@ fn offline_target_glosses_refuse_a_file_for_another_language_or_version() {
     assert!(candidate_target_glosses(damaged.to_str().unwrap(), "es", &candidates).is_err());
 }
 
+fn pronunciation_database(path: &Path, kind: &str, version: i32) {
+    let database = Connection::open(path).unwrap();
+    database
+        .execute_batch(&format!(
+            "CREATE TABLE en_phonetics(word TEXT PRIMARY KEY, phonetic TEXT NOT NULL) WITHOUT ROWID;
+             CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;
+             INSERT INTO meta VALUES('kind', '{kind}');
+             INSERT INTO en_phonetics VALUES('love', 'lʌv');
+             INSERT INTO en_phonetics VALUES('sky', 'skaɪ');
+             PRAGMA user_version = {version};"
+        ))
+        .unwrap();
+}
+
+#[test]
+fn english_phonetics_answer_known_words_in_order() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("en-phonetic.db");
+    pronunciation_database(&path, "en_phonetic", 1);
+    let words = vec!["sky".to_owned(), "unknown".to_owned(), "love".to_owned()];
+    assert_eq!(
+        english_phonetics(path.to_str().unwrap(), &words).unwrap(),
+        vec!["skaɪ", "", "lʌv"]
+    );
+    assert!(english_phonetics(path.to_str().unwrap(), &[])
+        .unwrap()
+        .is_empty());
+}
+
+#[test]
+fn english_phonetics_refuse_another_kind_version_or_a_missing_file() {
+    let directory = tempfile::tempdir().unwrap();
+    let words = vec!["love".to_owned()];
+    let gloss = directory.path().join("gloss.db");
+    pronunciation_database(&gloss, "zh_gloss", 1);
+    assert!(english_phonetics(gloss.to_str().unwrap(), &words).is_err());
+    let future = directory.path().join("future.db");
+    pronunciation_database(&future, "en_phonetic", 2);
+    assert!(english_phonetics(future.to_str().unwrap(), &words).is_err());
+    let missing = directory.path().join("missing.db");
+    assert!(english_phonetics(missing.to_str().unwrap(), &words).is_err());
+    assert!(english_phonetics("", &words).is_err());
+    assert!(
+        !missing.exists(),
+        "a read-only open must not create the file"
+    );
+}
+
 #[test]
 fn reset_learned_data_restores_packaged_dictionaries_and_clears_journal() {
     // Both an ASCII root and one carrying Chinese characters: the reset derives temporary, backup and SQLite sidecar names from these paths, and on Windows a narrow conversion of the second either mangles it or throws after files are already published.

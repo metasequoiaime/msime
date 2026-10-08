@@ -161,11 +161,17 @@ final class ImeStyler {
     }
 
     void applyKeyboardHeight(View node) {
+        applyKeyboardHeight(node, KeyboardGeometry.windowHeightAdjustment(
+            s.touchKeyboardHeightAdjustment, s.getResources().getConfiguration().screenHeightDp));
+    }
+
+    /** {@code adjustment} 是当前窗口里实际要画的调整量（{@link KeyboardGeometry#windowHeightAdjustment}），整棵树用同一个值。 */
+    private void applyKeyboardHeight(View node, int adjustment) {
         Object tag = node.getTag();
         if (tag instanceof MSIMEInputService.KeyboardHeightRole) {
             MSIMEInputService.KeyboardHeightRole role = (MSIMEInputService.KeyboardHeightRole) tag;
             int height = s.pixels(KeyboardGeometry.adjustedRowHeight(role.baseHeight,
-                s.touchKeyboardHeightAdjustment, role.rowCount, role.rowIndex));
+                adjustment, role.rowCount, role.rowIndex));
             height += s.halfSpacingPixels(s.touchRowSpacingTenths) * 2 * role.rowSpacings;
             if (node.getLayoutParams() != null) {
                 android.view.ViewGroup.LayoutParams params = node.getLayoutParams();
@@ -176,7 +182,7 @@ final class ImeStyler {
         if (node instanceof android.view.ViewGroup) {
             android.view.ViewGroup group = (android.view.ViewGroup) node;
             for (int index = 0; index < group.getChildCount(); index++)
-                applyKeyboardHeight(group.getChildAt(index));
+                applyKeyboardHeight(group.getChildAt(index), adjustment);
         }
     }
 
@@ -409,8 +415,11 @@ final class ImeStyler {
         s.skin = themed(s.skin);
         s.emojiSkin = themed(s.emojiSkin);
         s.handwritingSkin = themed(s.handwritingSkin);
-        ViewPolicy.setBackgroundColor(s.keyboardRoot, color(s.skin.background()));
-        s.imeFrame.applyNavigationBar(color(s.skin.background()), s.skin.dark());
+        // 浮动时根视图铺满屏幕，底色透明才看得见下面的应用；导航栏也不再画成键盘底色的一条。
+        boolean floating = s.floatingDrawn();
+        int rootColor = floating ? Color.TRANSPARENT : color(s.skin.background());
+        ViewPolicy.setBackgroundColor(s.keyboardRoot, rootColor);
+        s.imeFrame.applyNavigationBar(rootColor, s.skin.dark());
         if (s.keyboardSurface != null) applySkinBackground(s.keyboardSurface);
         if (s.candidateViewport != null)
             ViewPolicy.setBackgroundColor(s.candidateViewport, s.candidateAppearance.surface());
@@ -480,10 +489,30 @@ final class ImeStyler {
         node.setBackground(new KeyboardSkinBackgroundDrawable(target, density));
     }
 
-    /** 手机的键盘铺满窗口，平板和二合一的键盘表面限宽居中；平板横屏画分离式键盘时铺满，让左右两半贴到两侧。 */
+    /** 浮动面板的圆角轮廓；阴影与裁剪都按它来。 */
+    private final android.view.ViewOutlineProvider floatingOutline = new android.view.ViewOutlineProvider() {
+        @Override public void getOutline(View view, android.graphics.Outline outline) {
+            outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(),
+                s.pixels(FloatingKeyboardPolicy.CORNER_RADIUS_DP));
+        }
+    };
+
+    /** 手机的键盘铺满窗口，平板和二合一的键盘表面限宽居中；平板横屏画分离式键盘时铺满，让左右两半贴到两侧；浮动时是一块缩窄的圆角面板。 */
     void applyKeyboardSurfaceGeometry() {
         if (s.keyboardSurface == null) return;
         Configuration configuration = s.getResources().getConfiguration();
+        if (s.floatingDrawn()) {
+            // 浮动：缩窄成圆角面板贴在根视图左上角，位置由 MSIMEInputService.positionFloatingKeyboard 用平移决定；高度包裹内容，不能是 MATCH_PARENT，否则键盘列会被撑到整屏高。
+            s.keyboardSurface.setLayoutParams(KeyboardGeometry.frameParamsPx(
+                s.pixels(FloatingKeyboardPolicy.widthDp(configuration.screenWidthDp)),
+                FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP | Gravity.LEFT));
+            s.keyboardSurface.setElevation(s.pixels(10));
+            s.keyboardSurface.setOutlineProvider(floatingOutline);
+            s.keyboardSurface.setClipToOutline(true);
+            return;
+        }
+        s.keyboardSurface.setOutlineProvider(android.view.ViewOutlineProvider.BACKGROUND);
+        s.keyboardSurface.setClipToOutline(false);
         int widthDp = KeyboardFormFactorPolicy.surfaceWidthDp(
             configuration.smallestScreenWidthDp, configuration.screenWidthDp, s.splitKeyboardDrawn());
         int width = widthDp == 0 ? FrameLayout.LayoutParams.MATCH_PARENT : s.pixels(widthDp);

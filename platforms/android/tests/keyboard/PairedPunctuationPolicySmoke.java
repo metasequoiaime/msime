@@ -38,10 +38,14 @@ public final class PairedPunctuationPolicySmoke {
         String[][] pairs = {
             {"〈", "〉"}, {"「", "」"}, {"『", "』"}, {"〔", "〕"}, {"〖", "〗"},
             {"＜", "＞"}, {"｛", "｝"}, {"［", "］"}, {"（", "）"}, {"《", "》"}, {"【", "】"},
-            {"“", "”"}, {"‘", "’"}, {"(", ")"}, {"[", "]"}, {"{", "}"}, {"<", ">"}};
+            {"“", "”"}, {"‘", "’"}, {"(", ")"}, {"[", "]"}, {"{", "}"}};
         for (String[] pair : pairs)
             check(pair[1].equals(PairedPunctuationPolicy.symbolClosing(pair[0])), pair[0] + " pairs with " + pair[1]);
-        for (String single : new String[] {"）", "”", "\"", "'", "，", "︵", "﹁", "http://", null})
+        // ASCII 的 < 绝大多数时候是小于号，点一下补成 <> 打 a < b 时还得删；全角 ＜ 和书名号照常成对。
+        check(PairedPunctuationPolicy.symbolClosing("<") == null, "ASCII < is inserted alone");
+        check("＞".equals(PairedPunctuationPolicy.symbolClosing("＜")) && "》".equals(PairedPunctuationPolicy.symbolClosing("《")),
+            "fullwidth ＜ and 《 still pair");
+        for (String single : new String[] {"）", "”", "\"", "'", ">", "，", "︵", "﹁", "http://", null})
             check(PairedPunctuationPolicy.symbolClosing(single) == null, single + " is inserted alone");
     }
 

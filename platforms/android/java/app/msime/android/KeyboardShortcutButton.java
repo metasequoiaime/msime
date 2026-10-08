@@ -10,7 +10,7 @@ import android.graphics.RectF;
 /**
  * Draws a shortcut glyph while retaining the button's text for accessibility.
  *
- * <p>表情、常用语、剪贴板、皮肤、输入方式按设计画 24 dp 的 Material 实心图标，收起画 21 dp 的描边 chevron（{@link KeyboardIconPaths}）；其余几个沿用原来的描边画法。图标颜色就是按钮的文字颜色，由调用方按皮肤设置（平时 kbSub，打开面板时 accent）。
+ * <p>表情、常用语、剪贴板、皮肤、输入方式、浮动键盘按设计画 24 dp 的 Material 实心图标，收起画 21 dp 的描边 chevron（{@link KeyboardIconPaths}）；其余几个沿用原来的描边画法。图标颜色就是按钮的文字颜色，由调用方按皮肤设置（平时 kbSub，打开面板时 accent）。
  */
 public final class KeyboardShortcutButton extends KeyboardPressButton {
     private final KeyboardShortcutIconPolicy.Icon icon;
@@ -23,6 +23,7 @@ public final class KeyboardShortcutButton extends KeyboardPressButton {
     private boolean iconColorsSet;
     private int idleIconColor;
     private int activeIconColor;
+    private boolean flipped;
 
     public KeyboardShortcutButton(Context context, KeyboardShortcutIconPolicy.Icon icon) {
         super(context);
@@ -70,6 +71,13 @@ public final class KeyboardShortcutButton extends KeyboardPressButton {
         invalidate();
     }
 
+    /** 图标上下翻转：外接键盘的候选条模式里，收起键的 chevron 朝上，表示展开软键盘。 */
+    public void setFlipped(boolean value) {
+        if (flipped == value) return;
+        flipped = value;
+        invalidate();
+    }
+
     private int iconColor() {
         if (!iconColorsSet) return getCurrentTextColor();
         return isSelected() ? activeIconColor : idleIconColor;
@@ -110,7 +118,7 @@ public final class KeyboardShortcutButton extends KeyboardPressButton {
             case DISMISS -> drawDismiss(canvas);
             case GLOBE -> drawGlobe(canvas);
             case BOOKMARK -> drawBookmark(canvas);
-            case PHRASE, CLIPBOARD, SCHEME -> { }
+            case PHRASE, CLIPBOARD, SCHEME, FLOATING -> { }
         }
         canvas.restore();
     }
@@ -140,6 +148,7 @@ public final class KeyboardShortcutButton extends KeyboardPressButton {
             case CLIPBOARD -> KeyboardIconPaths.Icon.TOOLBAR_CLIPBOARD;
             case SKIN -> KeyboardIconPaths.Icon.TOOLBAR_SKIN;
             case SCHEME -> KeyboardIconPaths.Icon.TOOLBAR_SCHEME;
+            case FLOATING -> KeyboardIconPaths.Icon.TOOLBAR_FLOATING;
             case DISMISS, SETTINGS, REPLY, VOICE, GLOBE, BOOKMARK ->
                 KeyboardIconPaths.Icon.TOOLBAR_DISMISS;
         };
@@ -147,8 +156,11 @@ public final class KeyboardShortcutButton extends KeyboardPressButton {
             ? DISMISS_ICON_DP : MATERIAL_ICON_DP;
         float size = BoundsPolicy.atMost(shorter,
             KeyboardGeometry.floatPixels(getContext(), iconDp));
+        int saved = canvas.save();
+        if (flipped) canvas.rotate(180f, centerX, centerY);
         KeyboardIconPaths.draw(canvas, glyph, path, centerX - size / 2f, centerY - size / 2f,
             size, color);
+        canvas.restoreToCount(saved);
     }
 
     private void drawSettings(Canvas canvas) {

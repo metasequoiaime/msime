@@ -64,6 +64,9 @@ pub struct LatticeOptions<'a> {
     pub show_next_on_duplicate: bool,
 }
 
+/// 产品解码用的 `phrase_length_bonus`。词组边每覆盖一个音节就加这么多，所以整句分只在同一串音节里可比；九宫格要比较不同音节串解出的整句，得先把它扣掉，见 `nine_key::comparable_weight`。
+pub const PHRASE_LENGTH_BONUS: f64 = 20.0;
+
 impl Default for LatticeOptions<'_> {
     fn default() -> Self {
         Self {
@@ -72,7 +75,7 @@ impl Default for LatticeOptions<'_> {
             span_limit: 32,
             max_phrase_syllables: 7,
             unigram_z: 1e6,
-            phrase_length_bonus: 20.0,
+            phrase_length_bonus: PHRASE_LENGTH_BONUS,
             bigram_weight: 2.0,
             trigram_weight: 1.0,
             personal_weight: 1.0,

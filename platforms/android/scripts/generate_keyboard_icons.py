@@ -34,6 +34,8 @@ ICONS: list[tuple[str, str, float, str, str]] = [
      "M12 22C6.49 22 2 17.51 2 12S6.49 2 12 2s10 4.04 10 9c0 3.31-2.69 6-6 6h-1.77c-.28 0-.5.22-.5.5 0 .12.05.23.13.33.41.47.64 1.06.64 1.67 0 1.38-1.12 2.5-2.5 2.5zm0-18c-4.41 0-8 3.59-8 8s3.59 8 8 8c.28 0 .5-.22.5-.5 0-.16-.08-.28-.14-.35-.41-.46-.63-1.05-.63-1.65 0-1.38 1.12-2.5 2.5-2.5H16c2.21 0 4-1.79 4-4 0-3.86-3.59-7-8-7zM6.5 13a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zm3-4a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zm5 0a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zm3 4a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z"),
     ("TOOLBAR_SCHEME", FILL, 0, "Material Icons keyboard (outlined)",
      "M20 5H4c-1.1 0-1.99.9-1.99 2L2 17c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 12H4V7h16v10zm-9-9h2v2h-2zm0 3h2v2h-2zM8 8h2v2H8zm0 3h2v2H8zm-3 0h2v2H5zm0-3h2v2H5zm3 6h8v2H8zm6-3h2v2h-2zm0-3h2v2h-2zm3 3h2v2h-2zm0-3h2v2h-2z"),
+    ("TOOLBAR_FLOATING", FILL, 0, "Material Icons picture_in_picture_alt",
+     "M19 11h-8v6h8v-6zm4 8V4.98C23 3.88 22.1 3 21 3H3c-1.1 0-2 .88-2 1.98V19c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2zm-2 .02H3V4.97h18v14.05z"),
     ("TOOLBAR_DISMISS", STROKE, 1.8, "design chevron-down (21dp)", "m6 9 6 6 6-6"),
     # 6.3 keys: strokes 1.7.
     ("SHIFT", STROKE, 1.7, "design key shift", "M12 4.5 4.5 12.5H8.5V19h7v-6.5h4z"),
@@ -82,6 +84,8 @@ ICONS: list[tuple[str, str, float, str, str]] = [
     ("TOGGLE_NEXT", STROKE, 1.7, "Lucide-style arrow-right (日语九键 结束连点)", "M5 12h14M12 5l7 7-7 7"),
     ("EXIT_ONE_HAND", STROKE, 1.7, "Lucide-style maximize-2 (退出单手)",
      "M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"),
+    ("FLOATING", STROKE, 1.7, "Lucide-style picture-in-picture-2 (浮动键盘)",
+     "M21 9V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4M14 13h6a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2h-6a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2z"),
 ]
 
 TOKEN = re.compile(r"[MmLlHhVvCcSsQqTtAaZz]|[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?")
