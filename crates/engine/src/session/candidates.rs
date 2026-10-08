@@ -16,8 +16,8 @@ use crate::types::{
     LocalInputMode, PersonalDictionaryKind, SchemeType, WordItem,
 };
 use crate::user_dictionary::positions::{
-    apply_fixed_positions, clear_fixed_position, is_pinned_candidate, record_pinned_candidate,
-    set_fixed_position,
+    apply_fixed_positions_with_state, clear_fixed_position, is_pinned_candidate,
+    record_pinned_candidate, set_fixed_position,
 };
 use crate::user_dictionary::removal::delete_dictionary_candidate;
 
@@ -181,6 +181,10 @@ impl InputSession {
             return;
         }
         let journal = self.journal_path();
+        let journal_exists = journal.try_exists().unwrap_or(false);
+        if !journal_exists && !items.iter().any(|item| item.source.is_online()) {
+            return;
+        }
         let regular = self.local_mode == LocalInputMode::None
             && !self.dedicated_english
             && !matches!(
@@ -202,26 +206,28 @@ impl InputSession {
                 let context = self.position_context(false, true);
                 let mut finder =
                     |key: &str, word: &str| engine.find_candidate(SchemeType::Wubi, key, word);
-                apply_fixed_positions(
+                apply_fixed_positions_with_state(
                     journal,
                     context.as_ref(),
                     &mut wubi_items,
                     include_missing,
                     Some(&mut finder),
                     keep_dynamic,
+                    journal_exists,
                 );
             }
             if !pinyin_items.is_empty() {
                 let context = self.position_context(false, false);
                 let mut finder =
                     |key: &str, word: &str| engine.find_candidate(SchemeType::Quanpin, key, word);
-                apply_fixed_positions(
+                apply_fixed_positions_with_state(
                     journal,
                     context.as_ref(),
                     &mut pinyin_items,
                     include_missing,
                     Some(&mut finder),
                     keep_dynamic,
+                    journal_exists,
                 );
             }
             items.append(&mut wubi_items);
@@ -230,24 +236,41 @@ impl InputSession {
             let context = self.position_context(false, false);
             let scheme = self.scheme();
             let mut finder = |key: &str, word: &str| engine.find_candidate(scheme, key, word);
-            apply_fixed_positions(
+            apply_fixed_positions_with_state(
                 journal,
                 context.as_ref(),
                 items,
                 include_missing,
                 Some(&mut finder),
                 keep_dynamic,
+                journal_exists,
             );
         } else if self.local_mode == LocalInputMode::SuperJianpin {
             let context = self.position_context(false, false);
-            apply_fixed_positions(journal, context.as_ref(), items, false, None, false);
+            apply_fixed_positions_with_state(
+                journal,
+                context.as_ref(),
+                items,
+                false,
+                None,
+                false,
+                journal_exists,
+            );
         }
         if items
             .iter()
             .any(|item| item.source == CandidateSource::EnglishDictionary)
         {
             let context = self.position_context(true, false);
-            apply_fixed_positions(journal, context.as_ref(), items, false, None, true);
+            apply_fixed_positions_with_state(
+                journal,
+                context.as_ref(),
+                items,
+                false,
+                None,
+                true,
+                journal_exists,
+            );
         }
     }
 

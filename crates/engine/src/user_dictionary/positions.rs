@@ -100,14 +100,39 @@ pub fn apply_fixed_positions(
     context: &str,
     candidates: &mut Vec<WordItem>,
     include_missing: bool,
-    mut find_candidate: Option<&mut FindCandidate<'_>>,
+    find_candidate: Option<&mut FindCandidate<'_>>,
     keep_dynamic_candidate_positions: bool,
 ) {
     if context.is_empty() || candidates.is_empty() {
         return;
     }
+    let journal_exists = user_db.try_exists().unwrap_or(false);
+    apply_fixed_positions_with_state(
+        user_db,
+        context,
+        candidates,
+        include_missing,
+        find_candidate,
+        keep_dynamic_candidate_positions,
+        journal_exists,
+    );
+}
+
+/// 已由调用方完成日志存在性检查时复用该结果，避免同一轮候选刷新重复访问文件系统。
+pub(crate) fn apply_fixed_positions_with_state(
+    user_db: &Path,
+    context: &str,
+    candidates: &mut Vec<WordItem>,
+    include_missing: bool,
+    mut find_candidate: Option<&mut FindCandidate<'_>>,
+    keep_dynamic_candidate_positions: bool,
+    journal_exists: bool,
+) {
+    if context.is_empty() || candidates.is_empty() {
+        return;
+    }
     // This runs for every candidate list, so a session that never fixed anything must not create the journal on its first keystroke. The reference created it here and found no rows, so the online rows are still re-homed below.
-    let fixed = if user_db.try_exists().unwrap_or(false) {
+    let fixed = if journal_exists {
         // An unreadable journal leaves the list as it is: the reference returns before touching it (J:1279-1287), and the list must still be shown.
         let Ok(fixed) = fixed_rows(user_db, context) else {
             return;
