@@ -3289,7 +3289,7 @@ public final class MSIMEInputService extends InputMethodService {
     /** Whether the Zhuyin open-list command applies now: a conversion is composing, with or without its list open. */
     private boolean zhuyinOpensList() {
         return view != null && ZhuyinInputPolicy.opensList(zhuyinSchemeActive(),
-            view.optString("local_mode", "none"), view.optString("editing_text", ""));
+            InputViewValuePolicy.textOr(view, "local_mode", "none"), InputViewValuePolicy.editingText(view));
     }
 
     /** Drops the composition without writing it. With a Korean Hanja list open the first cancel only closes the list, so this sends as many as KoreanInputPolicy.cancelsToDiscard says; Zhuyin's first cancel likewise only closes its list and Vietnamese's only takes the word back to its raw keys (`cancel_keeps_composition`), so a composition they leave standing takes one more. */
@@ -3303,7 +3303,7 @@ public final class MSIMEInputService extends InputMethodService {
     /** Whether the Hanja command applies now: a Korean syllable is composing, with or without its list open. */
     private boolean koreanConvertsHanja() {
         return view != null && KoreanInputPolicy.convertsHanja(koreanSchemeActive(),
-            view.optString("local_mode", "none"), view.optString("editing_text", ""));
+            InputViewValuePolicy.textOr(view, "local_mode", "none"), InputViewValuePolicy.editingText(view));
     }
 
     private boolean japaneseNineKeyActive() {
@@ -3652,7 +3652,7 @@ public final class MSIMEInputService extends InputMethodService {
         // 组字中或本地模式里 Engine 列为拼写的字符是输入，要在数字选词、翻页键和标点之前送给 Engine：网址模式的 `.` `=` 和数字、`www` 之后的 `.`、V 模式的运算符。
         if (session != 0 && view != null && !event.isCtrlPressed() && !event.isAltPressed()
                 && !event.isMetaPressed() && NumberRowSelectionPolicy.engineSpells(
-                    view.optString("local_mode", "none"), view.optString("editing_text", ""),
+                    InputViewValuePolicy.textOr(view, "local_mode", "none"), InputViewValuePolicy.editingText(view),
                     view.optString("spelling_symbols", ""), event.getUnicodeChar())) {
             return character(event.getUnicodeChar(), event.isShiftPressed())
                 || super.onKeyDown(keyCode, event);
