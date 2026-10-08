@@ -2290,15 +2290,17 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     playInputClick()
     isAutomaticShift = false
     let now = ProcessInfo.processInfo.systemUptime
-    if letterCaseState == .shifted,
-      let lastShiftTapTime,
-      now - lastShiftTapTime <= 0.35
-    {
+    // 双击只看两次手动点按的间隔，不看第一下之后是什么状态：句首自动大写时第一下关掉大写，第二下照样锁定。锁定时点一下回到小写并清掉计时，紧接着的一下不会又锁上。
+    if letterCaseState == .capsLock {
+      letterCaseState = .lowercase
+      lastShiftTapTime = nil
+    } else if let lastShiftTapTime, now - lastShiftTapTime <= 0.35 {
       letterCaseState = .capsLock
+      self.lastShiftTapTime = nil
     } else {
       letterCaseState = letterCaseState == .lowercase ? .shifted : .lowercase
+      lastShiftTapTime = now
     }
-    self.lastShiftTapTime = now
     updateLetterCaseControls()
   }
 
@@ -2309,7 +2311,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       updateLetterCaseControls()
       return
     }
-    guard letterCaseState != .capsLock else {
+    // 手动按下的单次大写留到下一个字母用掉为止，与 Android、HarmonyOS 一致；否则按下 Shift 后文字一变就会把它冲掉。
+    guard letterCaseState != .capsLock, letterCaseState != .shifted || isAutomaticShift else {
       updateLetterCaseControls()
       return
     }
@@ -2334,7 +2337,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       for: mode,
       contextBeforeInput: textDocumentProxy.documentContextBeforeInput)
     letterCaseState = isAutomaticShift ? .shifted : .lowercase
-    lastShiftTapTime = nil
+    // 不清点按计时：两次点按之间文字变化触发一次重新计算，不能让双击失效。
     updateLetterCaseControls()
   }
 

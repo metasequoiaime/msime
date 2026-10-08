@@ -1,6 +1,7 @@
 //! Bounded persistent clipboard history. Hosts decide which clipboard events to observe.
 
 use std::fs;
+#[cfg(not(unix))]
 use std::io::Write;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -65,7 +66,7 @@ impl ClipboardHistoryStore {
             crate::storage::reject_symlink(parent)?;
         }
         crate::storage::reject_symlink(&self.path)?;
-        match crate::storage::open_private_file(&self.path) {
+        match crate::storage::open_private_file_in(&self.path) {
             Ok(file) => {
                 let bytes = crate::bounded_io::read_bounded_file(file, MAX_HISTORY_BYTES, || {
                     std::io::Error::new(
@@ -255,12 +256,27 @@ impl ClipboardHistoryStore {
             .filter(|p| !p.as_os_str().is_empty())
             .unwrap_or_else(|| std::path::Path::new("."));
         let bytes = serde_json::to_vec(entries).expect("clipboard entries are serializable");
+        #[cfg(unix)]
+        {
+            let directory = crate::storage::open_private_directory(parent)?;
+            crate::storage::write_private_file_at(
+                &directory,
+                self.path.file_name().ok_or_else(|| {
+                    std::io::Error::new(std::io::ErrorKind::InvalidInput, "history has no name")
+                })?,
+                &bytes,
+            )?;
+            Ok(())
+        }
         // Unique temporary file (0600 on Unix); never remove the old file before replacement.
-        let mut temp = tempfile::NamedTempFile::new_in(parent)?;
-        temp.write_all(&bytes)?;
-        temp.as_file().sync_all()?;
-        temp.persist(&self.path).map_err(|error| error.error)?;
-        Ok(())
+        #[cfg(not(unix))]
+        {
+            let mut temp = tempfile::NamedTempFile::new_in(parent)?;
+            temp.write_all(&bytes)?;
+            temp.as_file().sync_all()?;
+            temp.persist(&self.path).map_err(|error| error.error)?;
+            Ok(())
+        }
     }
 }
 

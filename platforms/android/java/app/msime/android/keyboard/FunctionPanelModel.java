@@ -18,7 +18,7 @@ public final class FunctionPanelModel {
         FULL_WIDTH, CHINESE_PUNCTUATION, FUZZY_PINYIN, TRADITIONAL, HANDWRITING, DICTIONARY,
         KEYBOARD_HEIGHT, SETTINGS,
         KEY_SOUND, VIBRATION, ONE_HAND, PRIVACY, FEEDBACK, ABOUT, AI_ASSIST, LOCAL_INPUT,
-        VOICE_RESULT, VIBRATION_STRENGTH, EMOJI, CLIPBOARD, FLOATING
+        VOICE_RESULT, VIBRATION_STRENGTH, EMOJI, CLIPBOARD, FLOATING, TEXT_EDIT
     }
 
     /**
@@ -52,7 +52,8 @@ public final class FunctionPanelModel {
         action(Id.VIBRATION_STRENGTH, "振动强度"),
         action(Id.EMOJI, "表情"),
         action(Id.CLIPBOARD, "剪贴板历史"),
-        toggle(Id.FLOATING, "浮动键盘", "浮动键盘"));
+        toggle(Id.FLOATING, "浮动键盘", "浮动键盘"),
+        action(Id.TEXT_EDIT, "文本编辑"));
 
     private FunctionPanelModel() { }
 

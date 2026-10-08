@@ -4,6 +4,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs::{self, File};
+#[cfg(not(unix))]
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -896,7 +897,7 @@ impl TypingStatisticsStore {
             return Err(TypingStatisticsError::InvalidDocument);
         }
         let bytes = crate::bounded_io::read_bounded_file(
-            crate::storage::open_private_file(&path)?,
+            crate::storage::open_private_file_in(&path)?,
             MAX_DOCUMENT_BYTES,
             || TypingStatisticsError::InvalidDocument,
         )?;
@@ -908,13 +909,26 @@ impl TypingStatisticsStore {
     fn write_locked(&self, value: &TypingStatistics) -> Result<(), TypingStatisticsError> {
         value.validate()?;
         let bytes = serde_json::to_vec(value)?;
-        let mut temporary = tempfile::NamedTempFile::new_in(&self.directory)?;
-        temporary.write_all(&bytes)?;
-        temporary.as_file().sync_all()?;
-        temporary
-            .persist(self.path())
-            .map(|_| ())
-            .map_err(|error| TypingStatisticsError::Io(error.error))
+        #[cfg(unix)]
+        {
+            let directory = crate::storage::open_private_directory(&self.directory)?;
+            crate::storage::write_private_file_at(
+                &directory,
+                std::ffi::OsStr::new("typing-statistics.json"),
+                &bytes,
+            )?;
+            Ok(())
+        }
+        #[cfg(not(unix))]
+        {
+            let mut temporary = tempfile::NamedTempFile::new_in(&self.directory)?;
+            temporary.write_all(&bytes)?;
+            temporary.as_file().sync_all()?;
+            temporary
+                .persist(self.path())
+                .map(|_| ())
+                .map_err(|error| TypingStatisticsError::Io(error.error))
+        }
     }
 
     pub fn load(&self) -> Result<TypingStatistics, TypingStatisticsError> {

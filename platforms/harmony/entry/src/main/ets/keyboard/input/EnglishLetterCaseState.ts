@@ -36,29 +36,34 @@ export class EnglishLetterCaseState {
     this.lastShiftTapMillis = -1;
   }
 
-  /** A second tap inside the interval locks; any other tap flips between lower and shifted. */
+  /** 双击只看两次手动点按的间隔，不看第一下之后是什么状态：句首自动大写时第一下关掉大写，第二下照样锁定。锁定时点一下回到小写并清掉计时，紧接着的一下不会又锁上。 */
   toggle(uptimeMillis: number): void {
     if (uptimeMillis < 0) {
       throw new Error("Uptime must not be negative");
     }
     this.automaticShift = false;
+    if (this.currentMode === LetterCaseMode.CAPS_LOCK) {
+      this.currentMode = LetterCaseMode.LOWERCASE;
+      this.lastShiftTapMillis = -1;
+      return;
+    }
     if (
-      this.currentMode === LetterCaseMode.SHIFTED &&
       this.lastShiftTapMillis >= 0 &&
       uptimeMillis >= this.lastShiftTapMillis &&
       uptimeMillis - this.lastShiftTapMillis <= EnglishLetterCaseState.CAPS_LOCK_INTERVAL_MILLIS
     ) {
       this.currentMode = LetterCaseMode.CAPS_LOCK;
-    } else {
-      this.currentMode =
-        this.currentMode === LetterCaseMode.LOWERCASE
-          ? LetterCaseMode.SHIFTED
-          : LetterCaseMode.LOWERCASE;
+      this.lastShiftTapMillis = -1;
+      return;
     }
+    this.currentMode =
+      this.currentMode === LetterCaseMode.LOWERCASE
+        ? LetterCaseMode.SHIFTED
+        : LetterCaseMode.LOWERCASE;
     this.lastShiftTapMillis = uptimeMillis;
   }
 
-  /** Returns whether the mode changed, so the caller knows to redraw. Caps Lock is never overridden. */
+  /** Returns whether the mode changed, so the caller knows to redraw. Caps Lock is never overridden. 不清点按计时：两次点按之间自动大写重新计算一次（文字变化、候选到达），不能让双击失效。 */
   applyAutomatic(shouldShift: boolean): boolean {
     if (this.currentMode === LetterCaseMode.CAPS_LOCK) {
       return false;
@@ -66,7 +71,6 @@ export class EnglishLetterCaseState {
     const previous: LetterCaseMode = this.currentMode;
     this.currentMode = shouldShift ? LetterCaseMode.SHIFTED : LetterCaseMode.LOWERCASE;
     this.automaticShift = shouldShift;
-    this.lastShiftTapMillis = -1;
     return previous !== this.currentMode;
   }
 

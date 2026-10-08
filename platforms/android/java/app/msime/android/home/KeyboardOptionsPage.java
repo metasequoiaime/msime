@@ -17,6 +17,8 @@ import app.msime.android.KeyboardGeometry;
 import app.msime.android.KeyboardScheme;
 import app.msime.android.KeyboardSkin;
 import app.msime.android.NineKeyLayout;
+import app.msime.android.NineKeySidebarPolicy;
+import app.msime.android.NineKeySwipePolicy;
 import app.msime.android.SchemePreferences;
 import app.msime.android.SwipeHintPolicy;
 import app.msime.android.SyncSignals;
@@ -91,6 +93,22 @@ public final class KeyboardOptionsPage extends DetailPage {
             : pair == null ? "当前方案只有一种键盘，在「输入」里换方案" : "本版本只有一种键盘";
         layout.nav("中文键盘", note, nineKey ? "9 键" : "26 键",
             pairOffered ? () -> pickLayout(current, pair, nineKey) : null);
+        // 左侧符号栏只属于拼音九键和笔画键盘；本版本两者都没有（例如五笔版）时不列这两行。
+        boolean quanpinNineKey = KeyboardScheme.QUANPIN_NINE_KEY.offeredBy(edition);
+        if (quanpinNineKey || KeyboardScheme.STROKE.offeredBy(edition)) {
+            java.util.List<String> sidebar = NineKeySidebarPolicy.letterSymbols(
+                settings.text(AndroidLocalSettings.NINE_KEY_SYMBOLS));
+            layout.nav("九键左侧符号", "拼音九键和笔画键盘左侧可上下滑动的符号栏",
+                NineKeySidebarPolicy.summary(sidebar, 4),
+                () -> editSidebarSymbols("九键左侧符号", AndroidLocalSettings.NINE_KEY_SYMBOLS, sidebar));
+        }
+        if (quanpinNineKey) {
+            java.util.List<String> digitSidebar = NineKeySidebarPolicy.digitSymbols(
+                settings.text(AndroidLocalSettings.NINE_KEY_DIGIT_SYMBOLS));
+            layout.nav("九键数字键盘左侧符号", "拼音九键按 123 切到数字键盘后左侧的符号栏",
+                NineKeySidebarPolicy.summary(digitSidebar, 4),
+                () -> editSidebarSymbols("九键数字键盘左侧符号", AndroidLocalSettings.NINE_KEY_DIGIT_SYMBOLS, digitSidebar));
+        }
         boolean calculator = NineKeyLayout.calculatorOrder(
             preferences.optString(NineKeyLayout.NUMBER_KEYPAD_ORDER_KEY, NineKeyLayout.PHONE_ORDER));
         layout.nav("数字键盘顺序", "9 键切到数字时的排列", numberKeypadLabel(calculator),
@@ -135,6 +153,13 @@ public final class KeyboardOptionsPage extends DetailPage {
         GroupCard.Row directionRow = gestures.nav("滑动方向", null,
             swipeDirectionLabel(swipeDirection), () -> pickSwipeDirection(swipeDirection));
         directionRow.setEnabled(swipeSymbols);
+        // 九键的滑动单独一项、默认关闭（#5580）：九键原来没有滑动，和 26 键共用上面那个默认开着的开关会改变老用户的点按。
+        if (quanpinNineKey) {
+            String nineKeySwipe = settings.choice(AndroidLocalSettings.NINE_KEY_SWIPE);
+            GroupCard.Row[] nineKeySwipeRow = new GroupCard.Row[1];
+            nineKeySwipeRow[0] = gestures.nav("九键滑动输入数字", "拼音九键上沿选定方向滑动输入键上的数字，往反方向滑动弹出数字和字母",
+                nineKeySwipeLabel(nineKeySwipe), () -> pickNineKeySwipe(nineKeySwipe, nineKeySwipeRow[0]));
+        }
         gestures.toggle("滑行输入", "在 26 键上连续滑过拼音的字母，抬手出词；在键上稍作停留可确认经过的键",
             settings.bool(AndroidLocalSettings.GLIDE_TYPING),
             checked -> saveLocal(AndroidLocalSettings.GLIDE_TYPING, checked));
@@ -244,6 +269,19 @@ public final class KeyboardOptionsPage extends DetailPage {
             if (saved == null) MsToast.show(requireContext(), "保存失败，键盘保留当前布局");
             reload();
         });
+    }
+
+    /** 编辑左侧符号栏的符号：用空格分开，留空恢复默认；不合规（单个符号太长、太多）时确认键不可点。 */
+    private void editSidebarSymbols(String title, String key, java.util.List<String> current) {
+        InputDialog dialog = new InputDialog(requireContext(), title,
+            "符号之间用空格分开，最多 " + NineKeySidebarPolicy.MAX_SYMBOLS + " 个，每个不超过 "
+                + NineKeySidebarPolicy.MAX_SYMBOL_CODE_POINTS + " 个字符；留空恢复默认");
+        dialog.addField("例如 ， 。 ？ 、", NineKeySidebarPolicy.format(current), 0);
+        dialog.setValidator(values -> values.get(0).isEmpty() || NineKeySidebarPolicy.parse(values.get(0)) != null);
+        // 存好后重画本页：这一行的摘要和下次打开时预填的符号表都来自重画时读到的设置。
+        dialog.setPrimary("保存", values -> KeyboardSheets.saveLocal(this, key,
+            values.get(0).isEmpty() ? null : NineKeySidebarPolicy.normalize(values.get(0)), this::reload, this::reload));
+        dialog.show();
     }
 
     private void pickAnimation(String selected, GroupCard.Row row) {

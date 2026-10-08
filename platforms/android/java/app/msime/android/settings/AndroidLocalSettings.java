@@ -90,24 +90,27 @@ public final class AndroidLocalSettings {
 
     /** 一项设置的类型、默认值与取值范围。 */
     public static final class Spec {
-        public enum Kind { BOOLEAN, CHOICE, INTEGER }
+        public enum Kind { BOOLEAN, CHOICE, INTEGER, TEXT }
 
         public final String key;
         public final Kind kind;
         public final Object defaultValue;
         public final boolean synced;
         private final String[] choices;
+        /** TEXT 项的规范化：合规时返回存储用的文本，否则 null。 */
+        private final java.util.function.UnaryOperator<String> normalizer;
         public final int min;
         public final int max;
         public final int step;
 
         private Spec(String key, Kind kind, Object defaultValue, boolean synced,
-                     String[] choices, int min, int max, int step) {
+                     String[] choices, java.util.function.UnaryOperator<String> normalizer, int min, int max, int step) {
             this.key = key;
             this.kind = kind;
             this.defaultValue = defaultValue;
             this.synced = synced;
             this.choices = choices;
+            this.normalizer = normalizer;
             this.min = min;
             this.max = max;
             this.step = step;
@@ -124,6 +127,8 @@ public final class AndroidLocalSettings {
                     if (!(raw instanceof String text)) return null;
                     for (String choice : choices) if (choice.equals(text)) return choice;
                     return null;
+                case TEXT:
+                    return raw instanceof String text ? normalizer.apply(text) : null;
                 default:
                     if (!(raw instanceof Number number)) return null;
                     double value = number.doubleValue();
@@ -181,15 +186,20 @@ public final class AndroidLocalSettings {
     }
 
     private static void bool(String key, boolean fallback, boolean synced) {
-        SPECS.put(key, new Spec(key, Spec.Kind.BOOLEAN, fallback, synced, null, 0, 0, 1));
+        SPECS.put(key, new Spec(key, Spec.Kind.BOOLEAN, fallback, synced, null, null, 0, 0, 1));
     }
 
     private static void choice(String key, String fallback, boolean synced, String... choices) {
-        SPECS.put(key, new Spec(key, Spec.Kind.CHOICE, fallback, synced, choices, 0, 0, 1));
+        SPECS.put(key, new Spec(key, Spec.Kind.CHOICE, fallback, synced, choices, null, 0, 0, 1));
+    }
+
+    private static void text(String key, String fallback, boolean synced,
+                             java.util.function.UnaryOperator<String> normalizer) {
+        SPECS.put(key, new Spec(key, Spec.Kind.TEXT, fallback, synced, null, normalizer, 0, 0, 1));
     }
 
     private static void integer(String key, int fallback, boolean synced, int min, int max, int step) {
-        SPECS.put(key, new Spec(key, Spec.Kind.INTEGER, fallback, synced, null, min, max, step));
+        SPECS.put(key, new Spec(key, Spec.Kind.INTEGER, fallback, synced, null, null, min, max, step));
     }
 
     /** 全部设置项，按声明顺序。 */
@@ -230,6 +240,11 @@ public final class AndroidLocalSettings {
         public int integer(String key) {
             requireKind(key, Spec.Kind.INTEGER);
             return (Integer) value(key);
+        }
+
+        public String text(String key) {
+            requireKind(key, Spec.Kind.TEXT);
+            return (String) value(key);
         }
 
         /** 显式写过的值，键名排序。 */
