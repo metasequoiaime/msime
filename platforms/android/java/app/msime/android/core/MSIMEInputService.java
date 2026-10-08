@@ -1906,7 +1906,7 @@ public final class MSIMEInputService extends InputMethodService {
             ? (view == null ? -1 : InputViewValuePolicy.scheme(view, -1))
             : InputViewValuePolicy.scheme(context, -1);
         String localMode = context == null
-            ? (view == null ? "none" : view.optString("local_mode", "none"))
+            ? (view == null ? "none" : InputViewValuePolicy.textOr(view, "local_mode", "none"))
             : context.optString("local_mode", "none");
         return AndroidChineseTextConversion.outputString(
             text, traditionalChineseOutput, dedicatedEnglish, scheme, localMode);
@@ -3360,13 +3360,13 @@ public final class MSIMEInputService extends InputMethodService {
 
     boolean sendsChinesePunctuation() {
         return view != null && ChineseSymbolFaces.shouldUseChineseFaces(dedicatedEnglish,
-            InputViewValuePolicy.scheme(view, -1), view.optString("local_mode", "none"), chinesePunctuation);
+            InputViewValuePolicy.scheme(view, -1), InputViewValuePolicy.textOr(view, "local_mode", "none"), chinesePunctuation);
     }
 
     private java.util.List<QuickPunctuationPolicy.Entry> quickPunctuationEntries() {
         return QuickPunctuationPolicy.entries(dedicatedEnglish,
             view == null ? -1 : InputViewValuePolicy.scheme(view, -1),
-            view == null ? "none" : view.optString("local_mode", "none"));
+            view == null ? "none" : InputViewValuePolicy.textOr(view, "local_mode", "none"));
     }
 
     private boolean quickPunctuationVisible() {
@@ -3424,7 +3424,7 @@ public final class MSIMEInputService extends InputMethodService {
     private void updateShuangpinKeyHints() {
         int scheme = view == null ? -1 : InputViewValuePolicy.scheme(view, -1);
         String profile = view == null ? "" : view.optString("shuangpin_profile", "");
-        String localMode = view == null ? "none" : view.optString("local_mode", "none");
+        String localMode = view == null ? "none" : InputViewValuePolicy.textOr(view, "local_mode", "none");
         boolean chineseMode = !dedicatedEnglish && !letterCaseSchemeActive();
         boolean local = view != null && !"none".equals(localMode);
         boolean shifted = letterCase.usesUppercase();
@@ -3660,7 +3660,7 @@ public final class MSIMEInputService extends InputMethodService {
         // 哪一面数字键选词由策略决定：Engine 把数字列为拼写时（U、V、网址模式）裸数字是输入，选词移到 Shift 那一面。
         int candidateSlot = NumberRowSelectionPolicy.slotForKeyCode(keyCode,
             event.isShiftPressed(), numberRowSelection,
-            view == null ? "none" : view.optString("local_mode", "none"),
+            view == null ? "none" : InputViewValuePolicy.textOr(view, "local_mode", "none"),
             view == null ? "" : view.optString("spelling_symbols", ""), event.getUnicodeChar());
         if (candidateSlot >= 0 && !dedicatedEnglish
                 && !event.isCtrlPressed() && !event.isAltPressed() && !event.isMetaPressed()
@@ -5921,7 +5921,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     boolean handwritingActive() {
-        String localMode = view == null ? "none" : view.optString("local_mode", "none");
+        String localMode = view == null ? "none" : InputViewValuePolicy.textOr(view, "local_mode", "none");
         return session != 0 && !dedicatedEnglish
             && "none".equals(localMode)
             && keyboardLayer == KeyboardLayout.Layer.LETTERS
@@ -7260,7 +7260,7 @@ public final class MSIMEInputService extends InputMethodService {
             KeyboardGeometry.setKeyTextSize(preedit, candidatePreeditFontSize);
             String editingText = view == null ? "" : InputViewValuePolicy.editingText(view);
             boolean offersLocalModes = idle && supportsLocalTools();
-            String localModeKey = view == null ? "none" : view.optString("local_mode", "none");
+            String localModeKey = view == null ? "none" : InputViewValuePolicy.textOr(view, "local_mode", "none");
             String reading = view == null ? "" : view.optString("reading", "");
             // 九键的 editing_text 只是按下的数字。读音行显示引擎给的首选读法拼音（94'26 显示 xi'an），首行是英文词时退回 preedit（带拆分分界和选过的拼音，如 ni'426）。
             String nineKeyPreedit = "";
@@ -7445,7 +7445,7 @@ public final class MSIMEInputService extends InputMethodService {
             replyShortcutButton.setContentDescription(replyOpen ? "收起高情商回复" : "生成高情商回复");
         }
         if (microsoftFinalKey != null) {
-            String currentLocalMode = view == null ? "none" : view.optString("local_mode", "none");
+            String currentLocalMode = view == null ? "none" : InputViewValuePolicy.textOr(view, "local_mode", "none");
             boolean visible = MicrosoftShuangpinKeyPolicy.visible(
                 dedicatedEnglish, selectedScheme, currentLocalMode);
             ViewPolicy.setVisible(microsoftFinalKey, visible);
