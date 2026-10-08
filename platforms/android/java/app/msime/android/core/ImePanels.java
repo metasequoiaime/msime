@@ -1107,8 +1107,9 @@ final class ImePanels {
         s.closeAiPolish();
         s.clipboardTab = CloudClipboardPanelPolicy.initialTab(
             s.clipboardTab, s.clipboardHistoryEnabled, cloudAllowed);
+        clipboardClearPending = false;
         // 补读一次：键盘进程没在运行时复制的内容，监听收不到。
-        s.captureClipboard(false);
+        s.captureClipboard(ClipboardCapturePolicy.Trigger.PANEL_OPENED, false);
         renderClipboardHistory();
         ViewPolicy.show(s.clipboardScroll);
         // Fetched on every opening, whichever half is showing: the local half's 发到云剪贴板 needs to know the account is signed in with the cloud clipboard on.
@@ -1128,6 +1129,7 @@ final class ImePanels {
     void selectClipboardTab(CloudClipboardPanelPolicy.Tab tab) {
         if (tab == CloudClipboardPanelPolicy.Tab.CLOUD && !cloudClipboardAllowed()) return;
         s.clipboardTab = tab;
+        clipboardClearPending = false;
         renderClipboardHistory();
     }
 
@@ -1220,6 +1222,9 @@ final class ImePanels {
         s.insertClipboardText(text);
     }
 
+    /** 顶行的「清空」点过一次、正在等用户确认；换分段、重开面板都会撤销。 */
+    private boolean clipboardClearPending;
+
     void renderClipboardHistory() {
         if (s.clipboardPanel == null || s.clipboardHistory == null) return;
         s.clipboardPanel.removeAllViews();
@@ -1231,19 +1236,40 @@ final class ImePanels {
         // 顶部一行小号操作：本机 / 云端分段（云端可用时）、刷新或清空；返回由工具栏的「返回键盘」负责。
         LinearLayout header = KeyboardGeometry.row(s);
         ViewPolicy.setCenteredVertically(header);
-        if (cloudAllowed) {
+        boolean confirmingClear = !cloud && s.clipboardHistoryEnabled && clipboardClearPending;
+        // 等待确认清空时顶行整行给问句和两个按钮，分段先让出位置，窄屏上也放得下。
+        if (cloudAllowed && !confirmingClear) {
             addClipboardTab(header, CloudClipboardPanelPolicy.TAB_LOCAL, CloudClipboardPanelPolicy.Tab.LOCAL);
             addClipboardTab(header, CloudClipboardPanelPolicy.TAB_CLOUD, CloudClipboardPanelPolicy.Tab.CLOUD);
         }
-        header.addView(new View(s), KeyboardGeometry.weightedZeroParams(1));
+        if (!confirmingClear) header.addView(new View(s), KeyboardGeometry.weightedZeroParams(1));
         if (cloud) {
             Button refresh = clipboardAction(header, "刷新", this::refreshCloudClipboard);
             ViewPolicy.setEnabled(refresh,
                 s.cloudClipboardStatus != CloudClipboardPanelPolicy.Status.LOADING);
             refresh.setContentDescription("刷新云剪贴板");
+        } else if (confirmingClear) {
+            // 确认画在面板顶行里，不弹对话框：对话框会让输入法进程崩掉或抢走编辑器焦点，键盘随之收起（#5605）。
+            TextView question = ViewPolicy.textLabel(s, "清空全部历史（含固定项）？", 13);
+            KeyboardGeometry.setKeyTextSize(question, 13);
+            ViewPolicy.setMaxLinesEllipsized(question, 1);
+            KeyboardGeometry.setHorizontalPaddingDp(question, s, 6);
+            header.addView(question, KeyboardGeometry.weightedZeroParams(1));
+            clipboardAction(header, "取消", () -> {
+                clipboardClearPending = false;
+                renderClipboardHistory();
+            });
+            Button confirm = clipboardAction(header, "清空", () -> {
+                clipboardClearPending = false;
+                s.clearClipboardHistory();
+            });
+            confirm.setContentDescription("确认清空剪贴板历史");
         } else if (s.clipboardHistoryEnabled) {
             // 复制会自动记录，不再需要「保存当前」。
-            clipboardAction(header, "清空", s::confirmClearClipboardHistory);
+            clipboardAction(header, "清空", () -> {
+                clipboardClearPending = true;
+                renderClipboardHistory();
+            });
         }
         s.clipboardPanel.addView(header, KeyboardGeometry.matchWidthHeightPx(s.pixels(32)));
         if (cloud) {

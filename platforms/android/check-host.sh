@@ -557,6 +557,19 @@ for site in onCreateInputView applyClipboardPreference; do
     exit 1
   fi
 done
+# An input method service has no activity window token. An AlertDialog or PopupMenu raised from the clipboard panel either fails to add its window and takes the keyboard process down, or takes window focus from the editor - WebView browsers such as Via then blur the field and the keyboard closes (#5605, #5653). Confirmations and item actions are drawn inside the panel.
+if rg -A 30 'void (clearClipboardHistory|renderClipboardHistory)\(' \
+    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
+    "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java" \
+    | rg -q 'AlertDialog|PopupMenu'; then
+  echo "Android clipboard panel must not raise dialogs or popup menus from the input method" >&2
+  exit 1
+fi
+if ! rg -q 'ClipboardCapturePolicy\.captures' \
+    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java"; then
+  echo "Android clipboard capture must skip a clip it already handled (ClipboardCapturePolicy)" >&2
+  exit 1
+fi
 # Both maintenance chords are Ctrl+Shift+Alt, and the modifier branch in onKeyDown hands every
 # such combination to the application. Routing them through one named policy, ahead of that branch,
 # is what keeps them reachable at all on a keyboard that has no long press.

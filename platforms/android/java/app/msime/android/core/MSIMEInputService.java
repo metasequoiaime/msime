@@ -85,6 +85,9 @@ public final class MSIMEInputService extends InputMethodService {
     private static final long KEY_PRESS_FLUSH_DELAY_MILLIS = 30_000;
     private static final String INPUT_MODE_PREFERENCES = "android-input-modes";
     static final String EMOJI_RECENTS_PREFERENCES = "android-emoji-recents";
+    /** 剪贴板补读用的「上一次处理过的那一条」，只存身份（复制时刻和文字散列），见 {@link ClipboardCapturePolicy}。 */
+    private static final String CLIPBOARD_CAPTURE_PREFERENCES = "android-clipboard-capture";
+    private static final String HANDLED_CLIP_KEY = "handled_clip";
     private static final String EMOJI_RECENTS_KEY = "items";
     private static final String SPACE_CURSOR_DESCRIPTION =
         "空格；轻点输入空格或选词，左右滑动移动光标";
@@ -505,7 +508,8 @@ public final class MSIMEInputService extends InputMethodService {
     private long personalDictionarySyncGeneration;
     private Runnable personalDictionarySyncTask;
     /** 用户每复制一次就记进本机剪贴板历史；只在本服务（当前默认输入法）存活期间监听，关掉剪贴板历史或命中隐私规则时什么也不记。 */
-    private final ClipboardManager.OnPrimaryClipChangedListener clipboardWatcher = () -> captureClipboard(false);
+    private final ClipboardManager.OnPrimaryClipChangedListener clipboardWatcher =
+        () -> captureClipboard(ClipboardCapturePolicy.Trigger.COPIED, false);
     private long engineStartGeneration;
     private Runnable inputViewRefreshTask;
     final ExecutorService preferencesWorker = Executors.newSingleThreadExecutor();
@@ -5117,39 +5121,57 @@ public final class MSIMEInputService extends InputMethodService {
         closeClipboardHistory();
     }
 
+    /** 系统剪贴板里当前的那一条文字：文字本身、系统给的复制时刻（读不到时为 0）和是否被标为敏感。 */
+    record PrimaryClip(String text, long copiedAtMs, boolean sensitive) {
+        String identity() { return ClipboardCapturePolicy.identity(copiedAtMs, text); }
+    }
+
+    /**
+     * 读系统剪贴板当前的那一条文字；没有剪贴板内容、不是文本或文字为空时为 null。
+     *
+     * <p>系统标记为敏感的内容（密码管理器复制的密码，Android 13 起的 `EXTRA_IS_SENSITIVE`）照样返回，由调用方决定怎么对待。
+     */
+    PrimaryClip readPrimaryClip() {
+        ClipboardManager manager = getSystemService(ClipboardManager.class);
+        ClipData clip = manager == null || !manager.hasPrimaryClip() ? null : manager.getPrimaryClip();
+        ClipDescription description = clip == null ? null : clip.getDescription();
+        if (clip == null || clip.getItemCount() == 0 || description == null
+                || !(description.hasMimeType(ClipDescription.MIMETYPE_TEXT_PLAIN)
+                    || description.hasMimeType(ClipDescription.MIMETYPE_TEXT_HTML))) return null;
+        CharSequence value = clip.getItemAt(0).getText();
+        String text = value == null ? null : value.toString();
+        if (!ClipboardHistoryPolicy.hasText(text)) return null;
+        boolean sensitive = description.getExtras() != null
+            && description.getExtras().getBoolean(ClipDescription.EXTRA_IS_SENSITIVE, false);
+        return new PrimaryClip(text, description.getTimestamp(), sensitive);
+    }
+
     /**
      * 把当前剪贴板文本记进本机历史。
      *
-     * <p>Android 的默认输入法本来就能读剪贴板，所以和 Gboard 一样，复制之后自动记下（{@link #clipboardWatcher}），打开面板时再补读一次（键盘进程没在运行时复制的那一条）。`announce` 为假时一律不弹提示：自动记录被隐私规则挡下、内容为空或重复都是正常情况。系统标记为敏感的内容（密码管理器复制的密码，Android 13 起的 `EXTRA_IS_SENSITIVE`）从不记录。
+     * <p>Android 的默认输入法本来就能读剪贴板，所以和 Gboard 一样，复制之后自动记下（{@link #clipboardWatcher}），打开面板时再补读一次（键盘进程没在运行时复制的那一条）。补读只记还没处理过的那一条（{@link ClipboardCapturePolicy}），否则刚清空或删掉的内容会在下一次打开面板时回来（#5605）。`announce` 为假时一律不弹提示：自动记录被隐私规则挡下、内容为空或重复都是正常情况。系统标记为敏感的内容从不记录。
      */
-    void captureClipboard(boolean announce) {
+    void captureClipboard(ClipboardCapturePolicy.Trigger trigger, boolean announce) {
         if (!imePrivacyGate.allows(ImePrivacyGate.Record.CLIPBOARD_HISTORY)) {
             if (announce) Toast.makeText(this, "隐私模式或当前输入框下不保存剪贴板", Toast.LENGTH_SHORT).show();
             return;
         }
         if (!imePrivacyGate.capturesClipboard()) return;
         try {
-            ClipboardManager manager = getSystemService(ClipboardManager.class);
-            ClipData clip = manager == null || !manager.hasPrimaryClip() ? null : manager.getPrimaryClip();
-            ClipDescription description = clip == null ? null : clip.getDescription();
-            if (clip == null || clip.getItemCount() == 0 || description == null
-                    || !(description.hasMimeType(ClipDescription.MIMETYPE_TEXT_PLAIN)
-                        || description.hasMimeType(ClipDescription.MIMETYPE_TEXT_HTML))) {
+            PrimaryClip clip = readPrimaryClip();
+            if (clip == null) {
                 if (announce) Toast.makeText(this, ClipboardHistoryPolicy.message(
                     ClipboardHistoryPolicy.Rejection.EMPTY), Toast.LENGTH_SHORT).show();
                 return;
             }
-            if (description.getExtras() != null
-                    && description.getExtras().getBoolean(ClipDescription.EXTRA_IS_SENSITIVE, false)) return;
-            CharSequence value = clip.getItemAt(0).getText();
-            if (!ClipboardHistoryPolicy.hasText(value == null ? null : value.toString())) {
-                if (announce) Toast.makeText(this, ClipboardHistoryPolicy.message(
-                    ClipboardHistoryPolicy.Rejection.EMPTY), Toast.LENGTH_SHORT).show();
-                return;
-            }
+            if (clip.sensitive()) return;
+            String identity = clip.identity();
+            if (!ClipboardCapturePolicy.captures(trigger, identity, handledClipIdentity())) return;
+            // 交给存储之前就记下：存储拒收的内容同样不该在每次打开面板时再试一遍。
+            rememberHandledClip(identity);
             // The shared store refuses rather than throws, and says which refusal it is. Deciding
             // that here as well is what made this host disagree with the store it writes into.
-            String reason = clipboardHistory.add(value.toString());
+            String reason = clipboardHistory.add(clip.text());
             if (reason != null) {
                 if (announce) Toast.makeText(this, ClipboardHistoryPolicy.message(
                     ClipboardHistoryPolicy.rejectionFor(reason)), Toast.LENGTH_SHORT).show();
@@ -5158,6 +5180,27 @@ public final class MSIMEInputService extends InputMethodService {
             if (imePanels.clipboardPanelOpen()) imePanels.renderClipboardHistory();
         } catch (IllegalArgumentException | IllegalStateException | SecurityException error) {
             if (announce) Toast.makeText(this, "无法保存当前剪贴板", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    /** 上一次处理过的剪贴板身份，存在本进程的 SharedPreferences 里，键盘进程被回收后仍然记得；只有身份，没有文字。 */
+    private String handledClipIdentity() {
+        return getSharedPreferences(CLIPBOARD_CAPTURE_PREFERENCES, MODE_PRIVATE)
+            .getString(HANDLED_CLIP_KEY, null);
+    }
+
+    private void rememberHandledClip(String identity) {
+        getSharedPreferences(CLIPBOARD_CAPTURE_PREFERENCES, MODE_PRIVATE).edit()
+            .putString(HANDLED_CLIP_KEY, identity).apply();
+    }
+
+    /** 用户删掉或清空历史后，把系统剪贴板里当前那一条记为已处理，下一次打开面板的补读就不会把它记回来。 */
+    private void forgetCurrentClip() {
+        try {
+            PrimaryClip clip = readPrimaryClip();
+            if (clip != null) rememberHandledClip(clip.identity());
+        } catch (SecurityException error) {
+            // 读不到剪贴板就没有东西会被补读回来。
         }
     }
 
@@ -5178,7 +5221,10 @@ public final class MSIMEInputService extends InputMethodService {
             if (clipboardHistory == null) return false;
             try {
                 if (selected == pin) clipboardHistory.setPinned(item.text(), !item.pinned());
-                else if (selected == remove) clipboardHistory.remove(item.text());
+                else if (selected == remove) {
+                    clipboardHistory.remove(item.text());
+                    forgetCurrentClip();
+                }
                 else return false;
             } catch (IllegalStateException error) {
                 Toast.makeText(this, "无法修改剪贴板历史", Toast.LENGTH_SHORT).show();
@@ -5190,21 +5236,18 @@ public final class MSIMEInputService extends InputMethodService {
         popup.show();
     }
 
-    void confirmClearClipboardHistory() {
-        new AlertDialog.Builder(this)
-            .setTitle("清空剪贴板历史")
-            .setMessage("将删除全部历史，包括固定项。")
-            .setNegativeButton("取消", null)
-            .setPositiveButton("清空", (dialog, which) -> {
-                // The user asked for this one, so a refusal is reported rather than swallowed.
-                try {
-                    if (clipboardHistory != null) clipboardHistory.clear();
-                } catch (IllegalStateException error) {
-                    Toast.makeText(this, "无法清空剪贴板历史", Toast.LENGTH_SHORT).show();
-                }
-                imePanels.renderClipboardHistory();
-            })
-            .show();
+    /**
+     * 面板里「清空」确认之后执行。确认就画在面板里（{@link ImePanels#renderClipboardHistory}），不弹 `AlertDialog`：输入法服务没有 Activity 的窗口令牌，对话框要么加不上窗口、让输入法进程崩掉，要么抢走编辑器的窗口焦点，两种情况键盘都会被收起（#5605）。
+     */
+    void clearClipboardHistory() {
+        // The user asked for this one, so a refusal is reported rather than swallowed.
+        try {
+            if (clipboardHistory != null) clipboardHistory.clear();
+            forgetCurrentClip();
+        } catch (IllegalStateException error) {
+            Toast.makeText(this, "无法清空剪贴板历史", Toast.LENGTH_SHORT).show();
+        }
+        imePanels.renderClipboardHistory();
     }
 
     void toggleSoundFromMoreTools() {
