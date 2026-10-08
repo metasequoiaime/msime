@@ -3,10 +3,10 @@
     "2": {
       "cases": 1860,
       "found": 0.995,
-      "mrr": 0.589,
-      "top1": 0.418,
-      "top1_char_prefix": 0.453,
-      "top5": 0.82,
+      "mrr": 0.59,
+      "top1": 0.42,
+      "top1_char_prefix": 0.455,
+      "top5": 0.821,
       "top9": 0.903
     },
     "3": {
@@ -14,25 +14,25 @@
       "found": 0.986,
       "mrr": 0.948,
       "top1": 0.915,
-      "top1_char_prefix": 0.935,
+      "top1_char_prefix": 0.936,
       "top5": 0.984,
       "top9": 0.986
     },
     "4": {
       "cases": 556,
-      "found": 0.782,
-      "mrr": 0.777,
-      "top1": 0.775,
-      "top1_char_prefix": 0.794,
-      "top5": 0.781,
-      "top9": 0.781
+      "found": 0.876,
+      "mrr": 0.872,
+      "top1": 0.871,
+      "top1_char_prefix": 0.893,
+      "top5": 0.874,
+      "top9": 0.874
     },
     "5": {
       "cases": 10,
       "found": 0.0,
       "mrr": 0.0,
       "top1": 0.0,
-      "top1_char_prefix": 0.48,
+      "top1_char_prefix": 0.44,
       "top5": 0.0,
       "top9": 0.0
     }
@@ -40,17 +40,17 @@
   "by_tag": {},
   "cases": 2791,
   "gold_source": {
-    "database": 2645,
+    "database": 2697,
     "generated": 1
   },
   "overall": {
     "cases": 2791,
-    "found": 0.948,
-    "mrr": 0.671,
-    "top1": 0.553,
-    "top1_char_prefix": 0.584,
-    "top5": 0.831,
-    "top9": 0.886
+    "found": 0.967,
+    "mrr": 0.691,
+    "top1": 0.573,
+    "top1_char_prefix": 0.605,
+    "top5": 0.85,
+    "top9": 0.905
   },
   "sample_failures": [
     {
@@ -80,6 +80,13 @@
       "input": "aixi",
       "rank": 19,
       "top1": "笔者"
+    },
+    {
+      "gold": "岸边",
+      "id": "w-00055",
+      "input": "anbian",
+      "rank": 2,
+      "top1": "波长"
     },
     {
       "gold": "暗地里",
@@ -190,7 +197,7 @@
       "gold": "包产",
       "id": "w-00406",
       "input": "baochan",
-      "rank": 7,
+      "rank": 6,
       "top1": "操场"
     },
     {
@@ -199,6 +206,13 @@
       "input": "baodi",
       "rank": 6,
       "top1": "草地"
+    },
+    {
+      "gold": "宝贵意见",
+      "id": "w-00451",
+      "input": "baoguiyijian",
+      "rank": null,
+      "top1": "参会意见"
     },
     {
       "gold": "褒奖",
@@ -227,13 +241,6 @@
       "input": "baoweike",
       "rank": 2,
       "top1": "包围了"
-    },
-    {
-      "gold": "报效祖国",
-      "id": "w-00541",
-      "input": "baoxiaozuguo",
-      "rank": null,
-      "top1": "办校于国"
     },
     {
       "gold": "褒义",
@@ -325,17 +332,10 @@
       "input": "bianzhu",
       "rank": 2,
       "top1": "标注"
-    },
-    {
-      "gold": "标语",
-      "id": "w-00910",
-      "input": "biaoyu",
-      "rank": 5,
-      "top1": "超越"
     }
   ],
   "top1_source": {
-    "database": 2673,
-    "generated": 118
+    "database": 2731,
+    "generated": 60
   }
 }
