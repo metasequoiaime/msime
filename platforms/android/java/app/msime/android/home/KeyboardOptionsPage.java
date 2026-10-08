@@ -257,8 +257,9 @@ public final class KeyboardOptionsPage extends DetailPage {
                 + NineKeySidebarPolicy.MAX_SYMBOL_CODE_POINTS + " 个字符；留空恢复默认");
         dialog.addField("例如 ， 。 ？ 、", NineKeySidebarPolicy.format(current), 0);
         dialog.setValidator(values -> values.get(0).isEmpty() || NineKeySidebarPolicy.parse(values.get(0)) != null);
-        dialog.setPrimary("保存", values -> saveLocal(key,
-            values.get(0).isEmpty() ? null : NineKeySidebarPolicy.normalize(values.get(0))));
+        // 存好后重画本页：这一行的摘要和下次打开时预填的符号表都来自重画时读到的设置。
+        dialog.setPrimary("保存", values -> KeyboardSheets.saveLocal(this, key,
+            values.get(0).isEmpty() ? null : NineKeySidebarPolicy.normalize(values.get(0)), this::reload, this::reload));
         dialog.show();
     }
 
@@ -290,7 +291,8 @@ public final class KeyboardOptionsPage extends DetailPage {
             String label = nineKeySwipeOption(value);
             sheet.option(label, value.equals(selected), () -> {
                 row.setValue(nineKeySwipeLabel(value));
-                saveLocal(AndroidLocalSettings.NINE_KEY_SWIPE, value);
+                // 存好后重画，下次打开选项单时勾选的是新值。
+                KeyboardSheets.saveLocal(this, AndroidLocalSettings.NINE_KEY_SWIPE, value, this::reload, this::reload);
             });
         }
         sheet.show();
