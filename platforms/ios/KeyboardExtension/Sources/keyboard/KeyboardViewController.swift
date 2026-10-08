@@ -4339,7 +4339,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     strokeKeys?.applySpacing(row: layout.rowSpacing, key: layout.keySpacing)
     nineKeyHeight.constant = layout.rowSpacing * 2
     japaneseHeight?.constant = Self.japaneseKeyBlockHeight
-    for row in [numberRowView as UIView?].compactMap({ $0 }) + letterRowViews + zhuyinRowViews + symbolRowViews + symbolLayerRowViews + nineKeyRows {
+    // 分几步拼出来：写成一个长的 + 表达式时，CI 上的编译器会在类型推断上超时。
+    var keyRows: [UIView] = letterRowViews
+    if let numberRowView { keyRows.append(numberRowView) }
+    keyRows += zhuyinRowViews
+    keyRows += symbolRowViews
+    keyRows += symbolLayerRowViews as [UIView]
+    keyRows += nineKeyRows
+    for row in keyRows {
       (row as? UIStackView)?.spacing = layout.keySpacing
     }
     actionRow.spacing = layout.keySpacing

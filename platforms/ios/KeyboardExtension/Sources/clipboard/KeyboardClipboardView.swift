@@ -216,10 +216,12 @@ final class KeyboardClipboardView: UIView, UITableViewDataSource, UITableViewDel
       addSubview(child)
     }
     let sideInset: CGFloat = showsHeader ? 12 : 4
-    NSLayoutConstraint.activate([
+    let headerHeight: CGFloat = showsHeader ? 44 : 32
+    // 约束先放进有类型的数组再激活：整个写在 activate 的字面量里时，CI 上的编译器会在类型推断上超时。
+    let constraints: [NSLayoutConstraint] = [
       header.topAnchor.constraint(equalTo: topAnchor), header.leadingAnchor.constraint(equalTo: leadingAnchor, constant: sideInset),
       header.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -sideInset),
-      header.heightAnchor.constraint(equalToConstant: showsHeader ? 44 : 32),
+      header.heightAnchor.constraint(equalToConstant: headerHeight),
       status.leadingAnchor.constraint(equalTo: header.leadingAnchor),
       status.trailingAnchor.constraint(equalTo: header.trailingAnchor), statusHeight,
       table.topAnchor.constraint(equalTo: status.bottomAnchor, constant: 4), table.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -229,7 +231,8 @@ final class KeyboardClipboardView: UIView, UITableViewDataSource, UITableViewDel
       letterPad.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
       // 竖屏手机上按键区约 200pt 高，紧凑字母键盘每行 26pt，上方正好放下紧凑标题栏和一条搜索结果；横屏更矮，字母键盘按 `tableMinimumHeight` 让出高度。
       letterPadHeight,
-    ])
+    ]
+    NSLayoutConstraint.activate(constraints)
     if showsHeader {
       NSLayoutConstraint.activate([
         capture.topAnchor.constraint(equalTo: header.bottomAnchor), capture.leadingAnchor.constraint(equalTo: header.leadingAnchor),
