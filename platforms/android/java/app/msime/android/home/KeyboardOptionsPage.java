@@ -90,16 +90,22 @@ public final class KeyboardOptionsPage extends DetailPage {
             : pair == null ? "当前方案只有一种键盘，在「输入」里换方案" : "本版本只有一种键盘";
         layout.nav("中文键盘", note, nineKey ? "9 键" : "26 键",
             pairOffered ? () -> pickLayout(current, pair, nineKey) : null);
-        java.util.List<String> sidebar = NineKeySidebarPolicy.letterSymbols(
-            settings.text(AndroidLocalSettings.NINE_KEY_SYMBOLS));
-        layout.nav("九键左侧符号", "拼音九键和笔画键盘左侧可上下滑动的符号栏",
-            NineKeySidebarPolicy.summary(sidebar, 4),
-            () -> editSidebarSymbols("九键左侧符号", AndroidLocalSettings.NINE_KEY_SYMBOLS, sidebar));
-        java.util.List<String> digitSidebar = NineKeySidebarPolicy.digitSymbols(
-            settings.text(AndroidLocalSettings.NINE_KEY_DIGIT_SYMBOLS));
-        layout.nav("九键数字键盘左侧符号", "拼音九键按 123 切到数字键盘后左侧的符号栏",
-            NineKeySidebarPolicy.summary(digitSidebar, 4),
-            () -> editSidebarSymbols("九键数字键盘左侧符号", AndroidLocalSettings.NINE_KEY_DIGIT_SYMBOLS, digitSidebar));
+        // 左侧符号栏只属于拼音九键和笔画键盘；本版本两者都没有（例如五笔版）时不列这两行。
+        boolean quanpinNineKey = KeyboardScheme.QUANPIN_NINE_KEY.offeredBy(edition);
+        if (quanpinNineKey || KeyboardScheme.STROKE.offeredBy(edition)) {
+            java.util.List<String> sidebar = NineKeySidebarPolicy.letterSymbols(
+                settings.text(AndroidLocalSettings.NINE_KEY_SYMBOLS));
+            layout.nav("九键左侧符号", "拼音九键和笔画键盘左侧可上下滑动的符号栏",
+                NineKeySidebarPolicy.summary(sidebar, 4),
+                () -> editSidebarSymbols("九键左侧符号", AndroidLocalSettings.NINE_KEY_SYMBOLS, sidebar));
+        }
+        if (quanpinNineKey) {
+            java.util.List<String> digitSidebar = NineKeySidebarPolicy.digitSymbols(
+                settings.text(AndroidLocalSettings.NINE_KEY_DIGIT_SYMBOLS));
+            layout.nav("九键数字键盘左侧符号", "拼音九键按 123 切到数字键盘后左侧的符号栏",
+                NineKeySidebarPolicy.summary(digitSidebar, 4),
+                () -> editSidebarSymbols("九键数字键盘左侧符号", AndroidLocalSettings.NINE_KEY_DIGIT_SYMBOLS, digitSidebar));
+        }
         int height = KeyboardGeometry.heightAdjustmentToPercent(
             settings.has(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT)
                 ? settings.integer(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT)
