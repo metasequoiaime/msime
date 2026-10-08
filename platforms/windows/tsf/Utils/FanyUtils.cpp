@@ -154,6 +154,50 @@ SwitchLanguageHotkeys ReadConfiguredSwitchLanguageHotkeys()
     return result;
 }
 
+namespace
+{
+std::vector<std::wstring> ReadProcessList(const nlohmann::json &section, const char *key)
+{
+    std::vector<std::wstring> result;
+    const auto list = section.find(key);
+    if (list == section.end() || !list->is_array())
+    {
+        return result;
+    }
+    for (const auto &entry : *list)
+    {
+        if (entry.is_string())
+        {
+            result.push_back(string_to_wstring(entry.get<std::string>()));
+        }
+    }
+    return result;
+}
+} // namespace
+
+std::optional<GameCompatibility> ReadConfiguredGameCompatibility()
+{
+    const auto preferences = ReadSharedPreferences();
+    if (!preferences)
+    {
+        return std::nullopt;
+    }
+    GameCompatibility result;
+    const auto section = preferences->find("game_compatibility");
+    if (section == preferences->end() || !section->is_object())
+    {
+        return result;
+    }
+    const auto overlay = section->find("candidate_overlay");
+    if (overlay != section->end() && overlay->is_boolean())
+    {
+        result.overlay = overlay->get<bool>();
+    }
+    result.overlay_processes = ReadProcessList(*section, "overlay_processes");
+    result.excluded_processes = ReadProcessList(*section, "excluded_processes");
+    return result;
+}
+
 void SendKeys(std::wstring pinyin)
 {
     for (wchar_t ch : pinyin)

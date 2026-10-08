@@ -923,6 +923,12 @@ pub struct Preferences {
     /// Sound packs, background music, achievements and the enabled command tables. Left out of the document while every part is at its default, so a build from before plugins still reads a document that never touched them; the packs themselves and the @ name list live under the plugins directory, not here.
     #[serde(default, skip_serializing_if = "PluginPreferences::is_default")]
     pub plugins: PluginPreferences,
+    /// Windows 游戏里由水杉显示候选窗的开关和进程表，只有 Windows 的 TSF DLL 读取。等于默认值时不写进文档，没有这个键的旧版本照样能读。
+    #[serde(
+        default,
+        skip_serializing_if = "GameCompatibilityPreferences::is_default"
+    )]
+    pub game_compatibility: GameCompatibilityPreferences,
     #[serde(default)]
     pub clipboard_history: bool,
     /// 向云候选服务多要一条候选。它会把正在组的拼写发给 `https://inputtools.google.com`，所以新装默认关闭（见 `Default`）；已存文档缺这个字段时读成开启，升级沿用原来的行为。
@@ -1207,6 +1213,63 @@ pub struct DiagnosticLogPreferences {
     pub server: bool,
     /// In-process TSF preedit and input latency, buffered and batched out.
     pub tsf: bool,
+}
+
+/// Windows 游戏兼容：游戏声明自己画候选却不画时，由水杉的候选窗显示。DLL 在每次激活时读取，对已打开的游戏要重新激活输入法才生效。各项都等于默认值时不写进文档，没有这个键的旧版本照样能读。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct GameCompatibilityPreferences {
+    /// 总开关。关闭时任何进程都不强制使用水杉的候选窗，两张表也不起作用。
+    pub candidate_overlay: bool,
+    /// 总是由水杉显示候选窗的进程基名（如 `game.exe`），优先于内置规则。
+    pub overlay_processes: Vec<String>,
+    /// 从不由水杉显示候选窗的进程基名，优先于 `overlay_processes` 和内置规则。
+    pub excluded_processes: Vec<String>,
+}
+
+impl Default for GameCompatibilityPreferences {
+    fn default() -> Self {
+        Self {
+            candidate_overlay: true,
+            overlay_processes: Vec::new(),
+            excluded_processes: Vec::new(),
+        }
+    }
+}
+
+impl GameCompatibilityPreferences {
+    /// 两张表合计的条目上限，限制这两张表给偏好文档增加的体积：配合 `MAX_PROCESS_NAME_CHARS`，最坏情况（每项 64 个四字节 UTF-8 字符）约 8KB，ASCII 程序名约 2KB。整份偏好能否留在 Windows Server 偏好快照的 16KiB 上限以内（`PreferenceSnapshot.h`）还取决于其他字段，这里不做保证。
+    pub const MAX_PROCESSES: usize = 32;
+    /// 单个进程名的字符数上限。
+    pub const MAX_PROCESS_NAME_CHARS: usize = 64;
+
+    fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+
+    /// 每项都是带 `.exe` 后缀（ASCII 不分大小写）的进程基名，不含路径分隔符、通配符和控制字符；两张表合在一起按 ASCII 不分大小写地不重复（和 WinUI 设置页 `GameProcessList.h` 的检查一致），合计不超过 `MAX_PROCESSES` 条。DLL 不分大小写地比较进程名，所以只差大小写的两项会让同一个进程同时落在两张表里。
+    fn validate(&self) -> bool {
+        let mut seen = BTreeSet::new();
+        self.overlay_processes.len() + self.excluded_processes.len() <= Self::MAX_PROCESSES
+            && self
+                .overlay_processes
+                .iter()
+                .chain(&self.excluded_processes)
+                .all(|name| valid_process_name(name) && seen.insert(name.to_ascii_lowercase()))
+    }
+}
+
+fn valid_process_name(name: &str) -> bool {
+    name.chars().count() <= GameCompatibilityPreferences::MAX_PROCESS_NAME_CHARS
+        && !name.chars().any(|character| {
+            character.is_control()
+                || matches!(
+                    character,
+                    '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|'
+                )
+        })
+        && name.len() >= 4
+        && name.as_bytes()[name.len() - 4..].eq_ignore_ascii_case(b".exe")
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1912,6 +1975,7 @@ impl Default for Preferences {
             mixed_input: MixedInputPreferences::default(),
             local_modes: LocalModePreferences::default(),
             plugins: PluginPreferences::default(),
+            game_compatibility: GameCompatibilityPreferences::default(),
             clipboard_history: false,
             // 会把输入内容发出设备的两条路径新装都关闭，由 Windows、macOS、Linux 的首次询问或各平台的设置开关打开。
             cloud_candidates: false,
@@ -2427,6 +2491,9 @@ impl Preferences {
         if !self.plugins.validate() {
             return Err(PreferencesError::InvalidPlugins);
         }
+        if !self.game_compatibility.validate() {
+            return Err(PreferencesError::InvalidGameCompatibility);
+        }
         if !(1..=10).contains(&self.frequency.trigger_count)
             || !(1..=10).contains(&self.frequency.linear_step)
         {
@@ -2580,6 +2647,8 @@ pub enum PreferencesError {
     InvalidMixedInput,
     #[error("plugin settings are invalid")]
     InvalidPlugins,
+    #[error("game compatibility process names must be distinct .exe base names of at most 64 characters, at most 32 in total")]
+    InvalidGameCompatibility,
     #[error("preferences changed; reload before saving")]
     Conflict,
     #[error("unsupported preferences format")]

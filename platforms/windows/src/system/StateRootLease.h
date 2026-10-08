@@ -19,10 +19,14 @@ inline bool read_attribute_tag(HANDLE handle, FILE_ATTRIBUTE_TAG_INFO &info) {
                                       sizeof(info)) != 0;
 }
 
-// 最后一级文件的检查，同样与 Rust 的 path-trust 一致：只拒绝目录和名称代理重解析点（符号链接、目录联接），OneDrive 云文件这类重解析点放行。句柄须用 `FILE_FLAG_OPEN_REPARSE_POINT` 打开；读不到标签时按不可信处理。
+// 最后一级文件的检查，同样与 Rust 的 path-trust 一致：只拒绝目录、名称代理重解析点（符号链接、目录联接）和多链接 inode，OneDrive 云文件这类重解析点放行。句柄须用 `FILE_FLAG_OPEN_REPARSE_POINT` 打开；读不到标签或链接数时按不可信处理。
 inline bool handle_is_trusted_file(HANDLE handle) {
   FILE_ATTRIBUTE_TAG_INFO info{};
+  FILE_STANDARD_INFO standard{};
   return read_attribute_tag(handle, info) &&
+         GetFileInformationByHandleEx(handle, FileStandardInfo, &standard,
+                                      sizeof(standard)) != 0 &&
+         standard.NumberOfLinks == 1 &&
          (info.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0 &&
          !is_name_surrogate_reparse_point(info.FileAttributes, info.ReparseTag);
 }

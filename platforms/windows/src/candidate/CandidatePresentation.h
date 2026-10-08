@@ -3,6 +3,7 @@
 #include "ChineseTextConversion.h"
 #include "FocusGate.h"
 #include "InputSchemeTraits.h"
+#include "PipeMetadata.h"
 #include "ReplyComposer.h"
 #include "WubiCodeHintPolicy.h"
 
@@ -82,6 +83,8 @@ struct CandidatePresentation {
   size_t page_count = 0;
   // Whether the mouse may pick a row, page the list or open a row's menu. False for a list driven from the keyboard only (scheme::KeyboardOnlyCandidateList).
   bool pointer_input = true;
+  // 游戏会话（包上带 PipeMetadata::GameHost）：宿主给的锚点可能不可信，候选窗允许在游戏客户区里兜底定位。
+  bool game_host = false;
 };
 // Copy the view's page position into `output`, dropping one that is not a page of the count rather than drawing "4 / 3".
 inline void candidate_presentation_page(CandidatePresentation &output,
@@ -181,6 +184,7 @@ candidate_presentation(const FocusLease &lease, const PendingReply &reply,
   output.generation = view.at("generation").get<uint64_t>();
   output.x = packet.point[0];
   output.y = packet.point[1];
+  output.game_host = (packet.modifiers_down & PipeMetadata::GameHost) != 0;
   if (!view.at("focused").get<bool>() ||
       (packet.modifiers_down & FanyImePipeFlags::UiLess) ||
       view.at("editing_text").get<std::string>().empty())

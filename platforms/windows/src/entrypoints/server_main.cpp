@@ -48,6 +48,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <unordered_map>
 #include <cstdlib>
 #include <exception>
 #include <thread>
@@ -707,6 +708,46 @@ unsigned typing_effect_intensity(const nlohmann::json &preferences) {
   const double value = found->get<double>();
   return static_cast<unsigned>(value <= 0.0 ? 0.0 : (value >= 100.0 ? 100.0 : value));
 }
+// 诊断日志里前台呈现方式的名字。
+const char *foreground_presentation_name(
+    msime::windows::ForegroundPresentation value) {
+  switch (value) {
+  case msime::windows::ForegroundPresentation::Fullscreen:
+    return "fullscreen";
+  case msime::windows::ForegroundPresentation::ExclusiveFullscreen:
+    return "exclusive";
+  case msime::windows::ForegroundPresentation::Windowed:
+    break;
+  }
+  return "windowed";
+}
+// 一次候选窗抑制变化在诊断日志里的写法，只有固定标签和 pid。
+std::string candidate_suppression_line(
+    const msime::windows::CandidateSuppressionChange &change) {
+  std::string line =
+      change.reason == msime::windows::CandidateSuppression::ExclusiveFullscreen
+          ? "Candidate exclusive-fullscreen suppression "
+          : "Candidate reactive latch ";
+  line += change.active ? "on" : "off";
+  line += " pid=" + std::to_string(change.pid);
+  if (change.cause)
+    line += std::string(" cause=") + change.cause;
+  return line;
+}
+// 候选窗所在的 z 带，只用来测量 uiAccess 窗口在游戏全屏下排在哪一层，不改变行为。GetWindowBand 没有文档，取不到时返回空。
+std::optional<DWORD> candidate_window_band(HWND window) {
+  using GetWindowBandFn = BOOL(WINAPI *)(HWND, DWORD *);
+  const HMODULE user32 = GetModuleHandleW(L"user32.dll");
+  if (!user32)
+    return std::nullopt;
+  // 经 void* 转换：GetProcAddress 返回通用的 FARPROC，直接转成真实签名会被 -Wcast-function-type 拒绝。
+  const auto query = reinterpret_cast<GetWindowBandFn>(
+      reinterpret_cast<void *>(GetProcAddress(user32, "GetWindowBand")));
+  DWORD band = 0;
+  if (!query || !query(window, &band))
+    return std::nullopt;
+  return band;
+}
 } // namespace
 int wmain(int argc, wchar_t **argv) {
   // Before any thread exists: libcurl's global init is not thread-safe, and the online workers use it.
@@ -902,10 +943,32 @@ int wmain(int argc, wchar_t **argv) {
     WindowsServerOptions options;
     options.pipes.names = production ? production_pipe_names()
                                      : config.pipe_names();
+    // GameHostCandidate 在开发版和预览版里也宣告，否则它们永远走不到游戏会话的兜底定位和独占抑制。
     options.pipes.capabilities =
         production ? (FanyImeProtocol::Capabilities |
-                      FanyImeProtocol::CharacterSetShortcut)
-                   : FanyImeProtocol::RequiredCapabilities;
+                      FanyImeProtocol::CharacterSetShortcut |
+                      FanyImeProtocol::GameHostCandidate)
+                   : (FanyImeProtocol::RequiredCapabilities |
+                      FanyImeProtocol::GameHostCandidate);
+    // 管道对端身份对不上时记下 pid 和错误码，用来区分「DLL 加载了但 Server 拒了连接」和「DLL 根本没加载」，比如反作弊剥掉了 Server 打开游戏进程所需的权限。
+    // 在握手线程上运行，而 notice 会写盘：反作弊持续拒绝时 TSF 每次重连都会走到这里，所以同一个 pid 一分钟只记一条，免得拖慢排队中的握手。
+    auto identity_rejected_logged =
+        std::make_shared<std::pair<std::mutex, std::unordered_map<DWORD, uint64_t>>>();
+    options.pipes.identity_rejected = [&notice, identity_rejected_logged](DWORD pid, DWORD error) {
+      const uint64_t now = GetTickCount64();
+      {
+        std::lock_guard<std::mutex> lock(identity_rejected_logged->first);
+        auto &logged = identity_rejected_logged->second;
+        const auto found = logged.find(pid);
+        if (found != logged.end() && now - found->second < 60000)
+          return;
+        if (logged.size() >= 64)
+          logged.clear();
+        logged[pid] = now;
+      }
+      notice("Pipe identity rejected: pid=" + std::to_string(pid) +
+             " error=" + std::to_string(error));
+    };
     options.preferences_directory = config.state_root.u8string();
     options.preferences_published =
         [&, voice_config, voice_config_mutex, voice_host_options, traditional_output,
@@ -1633,6 +1696,10 @@ int wmain(int argc, wchar_t **argv) {
               << " Server running; candidate selection and mode controls enabled.\n";
     // 工具栏失败不结束 Server：它只是方便切换模式的附件，Server 记一条诊断、去掉工具栏继续服务输入。曾经它也在这个条件里，某台 Windows 11 上工具栏一失败 Server 就在启动后约 100 ms 退出，日志却只写了一句正常停止。
     bool toolbar_failure_reported = false;
+    // 前台呈现方式的诊断：变化时记一行，QUNS 的耗时和候选窗的 z 带各记一次。
+    auto logged_presentation = ForegroundPresentation::Windowed;
+    bool quns_cost_logged = false;
+    bool window_band_logged = false;
     uint64_t tsf_config_applied_revision = 0;
     uint64_t caps_lock_applied_revision = 0;
     while (!stopping.load() && server.failure() == ControllerFailure::None &&
@@ -1717,7 +1784,35 @@ int wmain(int argc, wchar_t **argv) {
           ++candidate_theme_generation;
         }
       }
+      // 前台和它的呈现方式每轮只算一次：候选窗的兜底定位、独占抑制、锁存、置顶和工具栏的全屏判断都用这一份。
+      const HWND foreground = GetForegroundWindow();
+      std::optional<uint64_t> quns_microseconds;
+      const auto presentation = foreground_presentation(
+          foreground, GetTickCount64(),
+          quns_cost_logged ? nullptr : &quns_microseconds);
+      if (quns_microseconds) {
+        quns_cost_logged = true;
+        notice("Foreground QUNS query took " +
+               std::to_string(*quns_microseconds) + " us");
+      }
+      if (presentation != logged_presentation) {
+        logged_presentation = presentation;
+        notice(std::string("Foreground presentation: ") +
+               foreground_presentation_name(presentation));
+      }
+      candidates.set_foreground(foreground, presentation);
       candidates.refresh();
+      candidates.keep_on_top();
+      for (const auto &change : candidates.take_suppression_changes())
+        notice(candidate_suppression_line(change));
+      if (!window_band_logged &&
+          presentation != ForegroundPresentation::Windowed &&
+          IsWindowVisible(candidates.handle())) {
+        window_band_logged = true;
+        const auto band = candidate_window_band(candidates.handle());
+        notice("Candidate window band over fullscreen: " +
+               (band ? std::to_string(*band) : std::string("unavailable")));
+      }
       // The settings page may have published a new value since the last pass.
       toolbar_visible = toolbar_enabled->load(std::memory_order_acquire);
       if (auto settings = toolbar_settings->take())
@@ -1812,7 +1907,7 @@ int wmain(int argc, wchar_t **argv) {
             caps_lock_applied_revision = current_caps_lock_revision;
         }
       }
-      const bool fullscreen = foreground_is_fullscreen(GetForegroundWindow());
+      const bool fullscreen = presentation != ForegroundPresentation::Windowed;
       // The DLL's activation edges, not the mode view: a temporary focus
       // suspension (Win+. for instance) empties the view without deactivating
       // anything, and gating on the view made the toolbar blink away each time.

@@ -564,12 +564,7 @@ impl ZhuyinScheme {
         else {
             return Ok(());
         };
-        let current = self
-            .conversion
-            .iter()
-            .find(|span| span.overlaps(target, target + 1))
-            .and_then(|span| span.key.split(' ').nth(target - span.start))
-            .map(str::to_owned);
+        let current = current_spelling(&self.conversion, target);
         let readings = Arc::clone(&self.syllables[target].readings);
         let mut ranked = Vec::with_capacity(readings.len());
         for reading in readings.iter() {
@@ -579,11 +574,7 @@ impl ZhuyinScheme {
                 &[std::slice::from_ref(reading)],
             )?
             .map_or(i64::MIN, |(_, entry)| entry.weight);
-            ranked.push((
-                current.as_deref() != Some(reading.as_str()),
-                Reverse(weight),
-                reading,
-            ));
+            ranked.push((current != Some(reading.as_str()), Reverse(weight), reading));
         }
         ranked.sort();
         self.spellings
@@ -651,6 +642,13 @@ fn reconversion_buffers<'a>(
         ambiguous[index] = syllable.readings.len() > 1;
     }
     (positions, ambiguous)
+}
+
+fn current_spelling(conversion: &[Span], target: usize) -> Option<&str> {
+    conversion
+        .iter()
+        .find(|span| span.overlaps(target, target + 1))
+        .and_then(|span| span.key.split(' ').nth(target - span.start))
 }
 
 /// 多音节词经过一个有多种允许读法的位置时，词频最多可以比它覆盖的最弱单字轻多少倍。
@@ -1553,6 +1551,18 @@ mod tests {
         type_keys(&mut scheme, "28c");
         assert_eq!(scheme.converted_text(), "李");
         assert_eq!(spellings(&scheme), ["ㄌㄧˇ", "ㄋㄧˇ", "ㄉㄧˇ"]);
+    }
+
+    #[test]
+    fn current_spelling_lookup_does_not_allocate() {
+        let (_dir, mut scheme) = nine_key_scheme();
+        type_keys(&mut scheme, "28c");
+        let conversion = &scheme.conversion;
+        let (current, allocations) =
+            crate::ime::personal_rerank::allocations::count(|| current_spelling(conversion, 0));
+
+        assert_eq!(allocations, 0);
+        assert_eq!(current, Some("ㄌㄧˇ"));
     }
 
     #[test]

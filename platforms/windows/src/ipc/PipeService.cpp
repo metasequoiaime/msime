@@ -20,7 +20,8 @@ PipeService::PipeService(PipeServiceOptions options,
     // no jobs and cannot invoke completion until a listener submits work.
     intake_ = std::make_unique<PipeIntake>(
         registry_, options.handshake_workers, options.pending_handshakes,
-        options.capabilities, options.handshake_timeout, std::move(completion));
+        options.capabilities, options.handshake_timeout, std::move(completion),
+        std::move(options.identity_rejected));
     for (size_t role = 0; role < listeners_.size(); ++role) {
       DWORD error = ERROR_SUCCESS;
       listeners_[role] = PipeListener::create(options.names[role], error);

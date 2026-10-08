@@ -28,24 +28,26 @@ impl QuanpinScheme {
     }
 
     /// Letters keep their case; `'` is appended unless the last character already is one; Backspace pops; Escape and Return reset.
-    pub fn handle_key(&mut self, key: SchemeKey) {
+    pub fn handle_key(&mut self, key: SchemeKey) -> bool {
         match key {
             SchemeKey::Letter(letter) if letter.is_ascii_alphabetic() => {
                 self.raw.push(char::from(letter));
+                true
             }
             SchemeKey::Apostrophe => {
                 if !self.raw.ends_with('\'') {
                     self.raw.push('\'');
+                    true
+                } else {
+                    false
                 }
             }
-            SchemeKey::Backspace => {
-                self.raw.pop();
-            }
+            SchemeKey::Backspace => self.raw.pop().is_some(),
             SchemeKey::Letter(_)
             | SchemeKey::Semicolon
             | SchemeKey::Minus
             | SchemeKey::Symbol(_)
-            | SchemeKey::Requery => {}
+            | SchemeKey::Requery => false,
         }
     }
 

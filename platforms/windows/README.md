@@ -66,7 +66,7 @@ WindowsServer::mode_view() 提供独立于组合的当前宿主模式视图，�
 
 windows-server-smoke 将真实隔离 Named Pipe、KeyHandler、确认候选快照、原生窗口合成鼠标消息及单任务后台选词连在同一测试中，检查 worker 提交帧、内部确认、提交后隐藏和前台窗口不变；空格键提交测试一并保留。该程序在 Windows 与 Wine 下运行（`run-tests-wine.sh`）；合成鼠标消息覆盖的是窗口消息路径，真实鼠标与编辑器交互由 `experiments/tsf-edit-control/` 的受控编辑器承担。
 
-SessionPump 按已登记 Main 连接保存 ClientActivated.keycode 表达的 UILess 状态；仅接受路由后更新，接受失活时清除。后续键/显示/移动/隐藏包的有效 UILess 为激活状态与单包标志的并集，并传给输入处理和展示回调，不修改协议布局。激活重复通知切入 UILess 时立即抑制已有窗口；切回普通模式等待新输入或有效显示，不复活已经取消的组合。不同连接不共享该状态。
+SessionPump 按已登记 Main 连接保存 ClientActivated.keycode 表达的 UILess 状态；仅接受路由后更新，接受失活时清除。后续键/显示/移动/隐藏包的有效 UILess 为激活状态与单包标志的并集，并传给输入处理和展示回调，不修改协议布局。激活重复通知切入 UILess 时立即抑制已有窗口；切回普通模式等待新输入或有效显示，不复活已经取消的组合。不同连接不共享该状态。命中游戏候选窗策略的 TIP 激活时不报 UILess（keycode 为 0），这类连接不会锁存，见下文「游戏会话」。
 
 MoveCandidateWnd 带 UILess 时立即抑制 Server 候选展示并更新坐标，隐藏快照不携带文本，点击被拒绝；这表示宿主接管绘制，不取消 Engine 组合。后续普通移动不自行恢复窗口，非 UILess 显示事件可恢复尚有效的同代快照。已取消或英文模式清空的内容仍不可恢复。这里处理的是事件自身携带的 UILess 标志，宿主生命周期的其余部分由焦点路由和会话泵负责。
 
@@ -84,15 +84,17 @@ WindowsServer::request_selection 只能从外部 I/O 线程调用，串行完成
 
 点击回复线格式提供 ui_complete_selection / ui_partial_selection / ui_rejected_selection：完整文本仅进 worker CommitCurCandidate；部分组词或越界先发普通管道 id=0 的专用回复，再发空 worker 触发帧。UiSelectionDelivery 在有效焦点锁内按序发送，首帧失败不发触发，任一写入返回失败或抛异常都使连接失效且不重试。它是投递机制，不执行 Engine 选择、不校验候选代次，也不确认 TSF 已上屏；调用方必须先在输入队列准备持有待确认状态的选择，再投递并确认。键回复编码仍拒绝零请求号；候选窗口的点击经控制器走这条投递路径。该顺序来自固定 Windows 6e03f5774777e40c921930fd90a76e5425c66d89 的 UiCommitCandidate / _HandleCandidateFinalize 路径。
 
-Server 主线程创建 `CandidateWindow`，显示预编辑、当前页序号与高亮；通过 NOACTIVATE/TOOLWINDOW 样式及 WM_MOUSEACTIVATE 拒绝鼠标激活，不抢输入焦点。字体族、字号与配色来自皮肤和候选设置，缺省为按 DPI 缩放的 Segoe UI，长文本省略，位置限制到最近显示器工作区。主线程以最长 50ms 空闲等待轮询状态，消息批次有界，快照身份未变时不重复触发绘制；每次 WM_PAINT 重新读取候选，失焦/UILess/断开/停机隐藏，绘制错误关闭窗口。模式状态与工具入口由悬浮工具条和托盘菜单提供，不挤进候选窗。
+Server 主线程创建 `CandidateWindow`，显示预编辑、当前页序号与高亮；通过 NOACTIVATE/TOOLWINDOW 样式及 WM_MOUSEACTIVATE 拒绝鼠标激活，不抢输入焦点。字体族、字号与配色来自皮肤和候选设置，缺省为按 DPI 缩放的 Segoe UI，长文本省略，位置限制到最近显示器工作区；前台在同一块显示器上几何全屏时改为限制到整块显示器，因为任务栏不在。主线程以最长 50ms 空闲等待轮询状态，消息批次有界，快照身份未变时不重复触发绘制；每次 WM_PAINT 重新读取候选，失焦/UILess/断开/停机隐藏，绘制错误关闭窗口。模式状态与工具入口由悬浮工具条和托盘菜单提供，不挤进候选窗。
 
 窗口使用临时线程 Per-Monitor V2 上下文，创建/布局/绘制结束后恢复调用者设置，不修改进程 DPI 默认值；该上下文要求 Windows 10 1703 或更新版本。坐标按固定 TSF 上游的物理屏幕锚点消费；换屏时先隐藏迁移，再按 GetDpiForWindow 重新计算宽度、行高、间距和字体。WM_DPICHANGED 使布局失效，下一次刷新按当前锚点重新定位，避免在 SetWindowPos 回调里递归布局。`windows-candidate-card-size` 独立验证卡片尺寸、行矩形与命中测试，覆盖多候选页、负屏幕原点、极小工作区和整数极值。
+
+游戏会话：命中 TIP 游戏候选窗策略（`tsf/Global/CandidateOverlayHostPolicy.h`）的进程不报 UILess、不调 `BeginUIElement`，协商到可选能力 `GameHostCandidate` 后在 Key/Show/Move/Hide 包上带 `PipeMetadata::GameHost`；这一位不能带在 StatusSnapshot/FocusRestored 上，那两类包把 `modifiers_down` 当全角状态读。Server 对游戏会话做三件普通宿主没有的事，并且都要求前台窗口属于这个客户端进程：锚点是 `INVALID_Y` 或垃圾值（客户区外、贴着顶边）时兜底到游戏客户区左下部（`GameCandidateAnchor.h`）；前台是 D3D 独占全屏（`FullscreenForeground.h` 的 `foreground_presentation`：几何铺满，且 `SHQueryUserNotificationState` 报 `QUNS_RUNNING_D3D_FULL_SCREEN`，同一前台缓存 300ms）时不显示；每个连接第一次在几何全屏前台上弹出后 2 秒内，游戏窗口最小化、失去前台、改了窗口矩形或系统改了显示模式时，对这个进程锁存不显示，前台改回窗口化、同一客户端重连或进程退出时解除。前台几何全屏、并且前台进程自己的窗口压在候选窗上时，`keep_on_top()` 重申置顶，每个快照最多一次、两次至少间隔 1 秒，不和别的进程的常驻置顶窗口互抢。任何策略隐藏（包括普通宿主的 `INVALID_Y`）对可见快照都按 `render_serial` 发一次渲染回执，选词键不等回执超时。诊断日志记录前台呈现方式的变化、第一次 QUNS 调用的耗时、抑制与锁存的进入和解除、候选窗第一次在全屏下显示时的 `GetWindowBand`，以及管道对端身份被拒时的 pid 与错误码（同一 pid 每分钟一条）。判定规则、取舍和尚待实机确认的事项见 [Windows 游戏里由水杉画候选窗](../../.agents/notes/implemented/feature/2026-10-08-windows-game-candidate-overlay.md)。
 
 控制器内置 CandidateMailbox，默认接收确认后的快照，同时保留外部展示回调。WindowsServer::candidate_view() 供外部窗口线程读取最新值；单槽覆盖更新，不积压逐键消息。读取复核焦点、连接和输入队列状态，空值表示应隐藏；UILess 等也可能返回 visible=false 的隐藏快照。旧 ticket 断开不清除新连接，request_stop 清空并永久关闭缓冲区，迟到投递不能重开。输入/控制器回调禁止调用读取接口，避免焦点锁重入；锁内不调用 UI。此接口只保证读取时的有效性，窗口每次绘制重新读取，不能把缓存快照当作稍后点击的授权；点击命令由后台提交并在控制器重新校验。
 
 WindowsServer 可注入 SessionPump::Presentation，经控制器和连接 worker 传入会话泵。delivered 在回复完整发送并确认后运行，本地预编辑无回复帧时也在确认后运行；回调位于输入队列并持有有效焦点锁，只允许复制有界快照，不允许窗口操作、I/O、Engine 调用或焦点门禁重入。写入失败不发布候选，回调异常停止输入队列且不重放按键。
 
-CandidatePresentation.h 将回复投影为带焦点 lease、会话/代次、坐标、已选前缀和候选身份的值快照；预编辑最多 4096 字节、候选最多 9 项且每项最多 4096 字节，核对候选代次与高亮。UILess、失焦或组合结束仅输出隐藏快照，不携带候选文本。disconnected 在输入队列完成清理后通知匹配 ticket；队列失败时不保证通知，消费者还必须处理 Server 停机和其他焦点事件，显示及点击前重新验证 lease，不能让旧连接清空新窗口。原生候选窗口与点击消费者就挂在这个快照上。
+CandidatePresentation.h 将回复投影为带焦点 lease、会话/代次、坐标、已选前缀和候选身份的值快照；预编辑最多 4096 字节、候选最多 9 项且每项最多 4096 字节，核对候选代次与高亮。UILess、失焦或组合结束仅输出隐藏快照，不携带候选文本。包上带 `PipeMetadata::GameHost` 时快照的 `game_host` 为真，`CandidateMailbox` 在同一租约内只置位不清除，点选合成的按键包也带上它。disconnected 在输入队列完成清理后通知匹配 ticket；队列失败时不保证通知，消费者还必须处理 Server 停机和其他焦点事件，显示及点击前重新验证 lease，不能让旧连接清空新窗口。原生候选窗口与点击消费者就挂在这个快照上。
 
 `ServerSession` 由 Server 输入队列线程创建和销毁，不可复制或移动；所有操作检查线程。上层路由器须在构造前完成客户端认证与协议握手，并分配递增的 activation epoch；适配器拒绝错误客户端、未聚焦、过期代次、非法请求 ID 和长度。新的激活代次先取消旧组合。键结果携带 client/epoch/request 元数据，供后续回复队列在发送前再次验证所有权，不能绕过路由检查直接发给当前任意客户端。
 

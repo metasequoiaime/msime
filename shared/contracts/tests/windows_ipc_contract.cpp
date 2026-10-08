@@ -55,6 +55,29 @@ int main()
         CHECK(FanyImeProtocol::IsCharacterSetShortcut('F', modifiers) == (modifiers == 3));
     CHECK(!FanyImeProtocol::IsCharacterSetShortcut('E', 3));
 
+    // GameHostCandidate 是可选能力：不进默认宣告和必需集合，也不和已有的能力位重叠。
+    static_assert((FanyImeProtocol::Capabilities & FanyImeProtocol::GameHostCandidate) == 0);
+    static_assert((FanyImeProtocol::RequiredCapabilities & FanyImeProtocol::GameHostCandidate) == 0);
+    static_assert((FanyImeProtocol::GameHostCandidate &
+                   (FanyImeProtocol::RequestIds | FanyImeProtocol::FocusEpochs | FanyImeProtocol::FramedVoice |
+                    FanyImeProtocol::CharacterSetShortcut | FanyImeProtocol::KeyboardCompositionCancel)) == 0);
+    // 新 TSF 对旧 Server 协商不到这一位，所以不会发 GameHost；双方都宣告时才协商成功。
+    const auto gameCapabilities = FanyImeProtocol::Capabilities | FanyImeProtocol::GameHostCandidate;
+    const auto gameHello = FanyImeProtocol::Hello(7, 21, gameCapabilities);
+    const auto gameOldServer = FanyImeProtocol::Negotiate(gameHello);
+    CHECK(gameOldServer.accepted);
+    CHECK((gameOldServer.capabilities & FanyImeProtocol::GameHostCandidate) == 0);
+    const auto gameNewServer = FanyImeProtocol::Negotiate(gameHello, gameCapabilities);
+    CHECK(gameNewServer.accepted);
+    CHECK((gameNewServer.capabilities & FanyImeProtocol::GameHostCandidate) != 0);
+    const auto gameReply = FanyImeProtocol::Reply(gameHello, gameNewServer);
+    CHECK(FanyImeProtocol::AcceptReply(gameReply, 21));
+    CHECK(FanyImeProtocol::ReplyCapabilities(gameReply) == gameCapabilities);
+    // 旧 TSF 配新 Server：先确认仍能连上，否则被拒时 capabilities 本来就是 0，后一条测不出东西。
+    const auto gameOldClient = FanyImeProtocol::Negotiate(hello, gameCapabilities);
+    CHECK(gameOldClient.accepted);
+    CHECK((gameOldClient.capabilities & FanyImeProtocol::GameHostCandidate) == 0);
+
     hello.wch += 1;
     result = FanyImeProtocol::Negotiate(hello);
     CHECK(!result.accepted);

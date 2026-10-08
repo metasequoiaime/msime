@@ -68,6 +68,78 @@ fn interrupted_adoption_ignores_a_symlinked_model_directory() {
 
 #[cfg(unix)]
 #[test]
+fn leftover_recovery_stays_in_the_open_root_after_replacement() {
+    use std::os::unix::fs::symlink;
+
+    let state = tempfile::tempdir().unwrap();
+    let root = state.path().join("models");
+    let source = state.path().join("source");
+    let outside = state.path().join("outside");
+    fs::create_dir(&root).unwrap();
+    fs::create_dir(&source).unwrap();
+    fs::create_dir(&outside).unwrap();
+    fs::create_dir_all(root.join(".staging-pack-dead/model")).unwrap();
+    fs::write(
+        root.join(".staging-pack-dead/.source"),
+        source.to_str().unwrap(),
+    )
+    .unwrap();
+    fs::write(
+        root.join(".staging-pack-dead/model/fixture.bin"),
+        b"synthetic model",
+    )
+    .unwrap();
+    fs::create_dir_all(outside.join(".staging-pack-dead/model")).unwrap();
+    fs::write(
+        outside.join(".staging-pack-dead/model/fixture.bin"),
+        b"outside file",
+    )
+    .unwrap();
+
+    let root_directory = crate::storage::open_private_directory(&root).unwrap();
+    let moved = state.path().join("models-moved");
+    fs::rename(&root, &moved).unwrap();
+    symlink(&outside, &root).unwrap();
+
+    remove_leftovers_at(&root_directory, "pack");
+
+    assert_eq!(
+        fs::read(source.join("fixture.bin")).unwrap(),
+        b"synthetic model"
+    );
+    assert!(!moved.join(".staging-pack-dead").exists());
+    assert_eq!(
+        fs::read(outside.join(".staging-pack-dead/model/fixture.bin")).unwrap(),
+        b"outside file"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn staging_cleanup_does_not_follow_a_replaced_root() {
+    use std::os::unix::fs::symlink;
+
+    let state = tempfile::tempdir().unwrap();
+    let root = state.path().join("models");
+    let outside = state.path().join("outside");
+    fs::create_dir(&root).unwrap();
+    fs::create_dir(&outside).unwrap();
+    let staging_path = root.join(".staging-pack-dead");
+    fs::create_dir(&staging_path).unwrap();
+    fs::write(staging_path.join("fixture.bin"), b"synthetic").unwrap();
+    let staging = Staging::new(staging_path).unwrap();
+    let moved = state.path().join("models-moved");
+    fs::rename(&root, &moved).unwrap();
+    symlink(&outside, &root).unwrap();
+
+    drop(staging);
+
+    assert!(!moved.join(".staging-pack-dead").exists());
+    assert!(!outside.join(".staging-pack-dead").exists());
+}
+
+#[cfg(unix)]
+#[test]
 fn staging_file_creation_rejects_a_symlink() {
     use std::os::unix::fs::symlink;
 

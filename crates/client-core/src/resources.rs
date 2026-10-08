@@ -7,6 +7,8 @@ use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
+#[cfg(unix)]
+use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -162,6 +164,21 @@ impl ResourceSet {
 /// Remove stages an installer left when it was killed mid-download. Only called under the
 /// exclusive `resources.lock`, so none of them can still be in use. Only real directories are
 /// removed, and a failure never stops the install.
+#[cfg(unix)]
+fn sweep_abandoned_stages(directory: &File) {
+    let Ok(entries) = rustix::fs::Dir::read_from(directory) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_bytes();
+        if name.starts_with(b"incoming-") && entry.file_type().is_dir() {
+            let name = std::ffi::OsStr::from_bytes(name);
+            let _ = crate::storage::remove_private_tree_at(directory, name);
+        }
+    }
+}
+
+#[cfg(not(unix))]
 fn sweep_abandoned_stages(root: &Path) {
     let Ok(entries) = fs::read_dir(root) else {
         return;
@@ -230,6 +247,9 @@ impl ResourceStore {
         crate::file_lock::exclusive(&lock)?;
         #[cfg(unix)]
         let root_directory = crate::storage::open_private_directory(&self.root)?;
+        #[cfg(unix)]
+        sweep_abandoned_stages(&root_directory);
+        #[cfg(not(unix))]
         sweep_abandoned_stages(&self.root);
         let destination = self.root.join(&generation);
         if fs::symlink_metadata(&destination).is_ok() {
@@ -613,6 +633,29 @@ mod tests {
 
         assert!(moved.join("generation/artifact").is_file());
         assert!(!outside.join("generation").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn abandoned_stage_sweep_stays_in_an_open_resource_directory() {
+        use std::os::unix::fs::symlink;
+
+        let parent = tempfile::tempdir().unwrap();
+        let root = parent.path().join("resources");
+        let outside = parent.path().join("outside");
+        fs::create_dir(&root).unwrap();
+        fs::create_dir(&outside).unwrap();
+        fs::create_dir(root.join("incoming-stale")).unwrap();
+        fs::write(root.join("incoming-stale/file"), b"synthetic").unwrap();
+        let directory = crate::storage::open_private_directory(&root).unwrap();
+        let moved = parent.path().join("moved");
+        fs::rename(&root, &moved).unwrap();
+        symlink(&outside, &root).unwrap();
+
+        sweep_abandoned_stages(&directory);
+
+        assert!(!moved.join("incoming-stale").exists());
+        assert!(outside.exists());
     }
 
     fn fixture_artifact(name: &str, bytes: &[u8]) -> Artifact {

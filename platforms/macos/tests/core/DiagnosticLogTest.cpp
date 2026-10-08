@@ -70,6 +70,21 @@ int main() {
   std::filesystem::remove(linked);
   std::filesystem::remove_all(outside);
 
+  // 同 UID 的硬链接不是私有日志文件；追加会同时改写另一个目录项，所以直接拒绝该 inode。
+  const auto hardlinkTarget = directory.parent_path() /
+                              (directory.filename().string() + "-hardlink-target");
+  std::ofstream(hardlinkTarget) << "outside\n";
+  std::filesystem::remove(log);
+  std::filesystem::create_hard_link(hardlinkTarget, log);
+  msime_macos_diagnostic_configure(directory.string(), true);
+  msime_macos_diagnostic_write("must_not_modify_hardlink");
+  std::ifstream protectedLog(hardlinkTarget);
+  const std::string protectedContents((std::istreambuf_iterator<char>(protectedLog)), {});
+  assert(protectedContents == "outside\n");
+  std::filesystem::remove(log);
+  std::filesystem::remove(hardlinkTarget);
+  std::ofstream(log) << contents;
+
   msime_macos_diagnostic_configure(directory.string(), true);
   assert(msime_macos_diagnostic_enabled());
 

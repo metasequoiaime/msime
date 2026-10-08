@@ -103,6 +103,24 @@ pub(crate) fn open_private_file_at(directory: &File, name: &OsStr) -> io::Result
     Ok(file)
 }
 
+/// Open a real child directory without following a symlink. The returned
+/// descriptor remains bound to that directory if its parent entry is later
+/// replaced.
+#[cfg(unix)]
+pub(crate) fn open_private_directory_at(directory: &File, name: &OsStr) -> io::Result<File> {
+    let descriptor = rustix::fs::openat(
+        directory,
+        name,
+        rustix::fs::OFlags::RDONLY
+            | rustix::fs::OFlags::DIRECTORY
+            | rustix::fs::OFlags::NOFOLLOW
+            | rustix::fs::OFlags::CLOEXEC
+            | rustix::fs::OFlags::NONBLOCK,
+        rustix::fs::Mode::empty(),
+    )?;
+    Ok(descriptor.into())
+}
+
 /// 非 Unix 平台上的「目录句柄」：没有 openat 这组调用，只记下已确认是真实目录（不是符号链接）的路径，`open_private_file_at` 再在它下面按名字打开。和 Unix 版的接口一致，调用方不必分平台。
 #[cfg(not(unix))]
 pub(crate) struct PrivateDirectory(PathBuf);
