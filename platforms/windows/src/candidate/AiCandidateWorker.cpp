@@ -170,6 +170,8 @@ std::optional<std::string> https_post(const nlohmann::json &descriptor,
     HttpResponse response{{}, cancelled};
     curl_easy_setopt(curl.get(), CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl.get(), CURLOPT_PROTOCOLS_STR, protocol.c_str());
+    if (ai_endpoint_connects_directly(url))
+      curl_easy_setopt(curl.get(), CURLOPT_NOPROXY, "*");
     // 请求描述带着凭据，跟随重定向就等于把它交给响应指定的任意主机；不跟随也保证局域网的 http 请求不会被转到公网主机。
     curl_easy_setopt(curl.get(), CURLOPT_FOLLOWLOCATION, 0L);
     curl_easy_setopt(curl.get(), CURLOPT_CONNECTTIMEOUT_MS, 2500L);

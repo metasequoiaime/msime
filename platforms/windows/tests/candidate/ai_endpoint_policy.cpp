@@ -48,6 +48,14 @@ int main()
         std::cerr << "ai endpoint protocol mismatch\n";
         ++failures;
     }
+    // 局域网的 http 请求直连，https 照旧可以走代理；拒绝的地址根本不发。
+    if (!ai_endpoint_connects_directly("http://192.168.1.20:1234/v1") ||
+        !ai_endpoint_connects_directly("HTTP://LOCALHOST:1234/v1") ||
+        ai_endpoint_connects_directly("https://api.example.com/v1") ||
+        ai_endpoint_connects_directly("http://8.8.8.8/v1")) {
+        std::cerr << "ai endpoint direct connection mismatch\n";
+        ++failures;
+    }
     if (count < 40) {
         std::cerr << "ai endpoint policy: only " << count << " cases\n";
         ++failures;
