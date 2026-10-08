@@ -984,6 +984,104 @@ fn warm_fuzzy_queries_reuse_the_fuzzy_slot() {
     assert!(contains(&warm, "哨兵"), "{:?}", words(&warm));
 }
 
+/// 原拼音 zong'guo 没有覆盖整个输入的词库行，整句「总国」只是替补；开了 z=zh 以后「中国」按模糊读法覆盖了整个输入，替补要让给它。不开模糊音时整句照旧排第一，原拼音自己有整词时也照旧精确在前。
+#[test]
+fn whole_key_fuzzy_rows_lead_a_sentence_that_stood_in_for_a_missing_word() {
+    let fixture = Fixture::new();
+    fixture
+        .insert("zong", "总", 3_000)
+        .insert("zhong", "中", 2_000)
+        .insert("guo", "国", 2_000)
+        .insert("zhong'guo", "中国", 1_000_000)
+        .insert("zhong'guo", "种过", 50);
+    let mut dictionary = QuanpinDictionary::new(&fixture.paths);
+    let z_zh = FuzzyPinyinOptions {
+        rules: fuzzy_rule::Z_ZH,
+    };
+
+    let plain = dictionary.query("zongguo", "zong'guo", NONE, NO_FUZZY);
+    assert_eq!(plain[0].word, "总国", "{:?}", words(&plain));
+    assert_eq!(plain[0].source, CandidateSource::Generated);
+    assert!(!contains(&plain, "中国"), "{:?}", words(&plain));
+
+    let fuzzy = dictionary.query("zongguo", "zong'guo", NONE, z_zh);
+    assert_eq!(
+        words(&fuzzy[..3]),
+        ["中国", "种过", "总国"],
+        "{:?}",
+        words(&fuzzy)
+    );
+    assert!(fuzzy[0].fuzzy && fuzzy[1].fuzzy);
+    assert_eq!(fuzzy[0].canonical_pinyin, "zhong'guo");
+    assert_eq!(fuzzy[2].source, CandidateSource::Generated);
+
+    let exact = dictionary.query("zhongguo", "zhong'guo", NONE, z_zh);
+    assert_eq!(exact[0].word, "中国", "{:?}", words(&exact));
+    assert!(!exact[0].fuzzy);
+
+    // 原拼音自己有整词时，哪怕权重低得多也仍是精确先于模糊。
+    fixture.insert("zong'guo", "宗国", 10);
+    let mut dictionary = QuanpinDictionary::new(&fixture.paths);
+    let typed_word = dictionary.query("zongguo", "zong'guo", NONE, z_zh);
+    assert_eq!(
+        words(&typed_word[..2]),
+        ["宗国", "中国"],
+        "{:?}",
+        words(&typed_word)
+    );
+    assert!(!typed_word[0].fuzzy && typed_word[1].fuzzy);
+}
+
+/// 让位只在整句是替补时发生：首行不是整句、或原拼音有覆盖整个输入的精确词库行（另一种切分的整词也算）时一行不动；补全出的更长词条不算覆盖。
+#[test]
+fn stand_in_sentence_yields_only_to_whole_input_fuzzy_rows() {
+    let sentence = |word: &str| {
+        let mut item = WordItem::new(
+            "zong'guo",
+            word,
+            -9000,
+            CandidateSource::Generated,
+            "zong'guo",
+        );
+        item.sentence_association = true;
+        item
+    };
+    let row = |pinyin: &str, word: &str, canonical: &str, fuzzy: bool| {
+        let mut item = WordItem::new(pinyin, word, 100, CandidateSource::Database, canonical);
+        item.fuzzy = fuzzy;
+        item
+    };
+
+    let mut rows = vec![
+        sentence("总国"),
+        row("zong'guo", "总国务", "zong'guo'wu", false),
+        row("zong'guo", "中国", "zhong'guo", true),
+        row("zong'guo", "种过", "zhong'guo", true),
+        row("zong", "总", "zong", false),
+        row("zong", "中", "zhong", true),
+    ];
+    yield_stand_in_sentence_to_fuzzy_rows(&mut rows);
+    assert_eq!(words(&rows), ["中国", "种过", "总国", "总国务", "总", "中"]);
+
+    let mut answered = vec![
+        sentence("总国"),
+        row("zong'gu'o", "总古哦", "zong'gu'o", false),
+        row("zong'guo", "中国", "zhong'guo", true),
+    ];
+    yield_stand_in_sentence_to_fuzzy_rows(&mut answered);
+    assert_eq!(words(&answered), ["总国", "总古哦", "中国"]);
+
+    let mut dictionary_first = vec![
+        row("zong'guo", "宗国", "zong'guo", false),
+        sentence("总国"),
+        row("zong'guo", "中国", "zhong'guo", true),
+    ];
+    yield_stand_in_sentence_to_fuzzy_rows(&mut dictionary_first);
+    assert_eq!(words(&dictionary_first), ["宗国", "总国", "中国"]);
+
+    yield_stand_in_sentence_to_fuzzy_rows(&mut []);
+}
+
 #[test]
 fn fuzzy_candidates_do_not_allocate_the_full_path_budget_up_front() {
     let fixture = fuzzy_fixture();
