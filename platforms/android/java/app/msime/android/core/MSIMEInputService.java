@@ -268,7 +268,7 @@ public final class MSIMEInputService extends InputMethodService {
     boolean toolbarHidden;
     /** 剪贴板面板一行排几条，来自本地设置 `platform.android.clipboard_columns`。 */
     int clipboardColumns = 1;
-    /** 工具栏是否显示最近复制的文字，来自本地设置 `platform.android.clipboard_suggestion`。 */
+    /** 本地设置 `platform.android.clipboard_suggestion` 的值；工具栏是否真的显示最近复制，还要看剪贴板历史开没开，一律问 {@link #recentClipEnabled()}。 */
     boolean clipboardSuggestionEnabled = true;
     /** 工具栏上的「最近复制」（#5692）。 */
     final RecentClipboardSuggestion recentClip = new RecentClipboardSuggestion();
@@ -691,7 +691,9 @@ public final class MSIMEInputService extends InputMethodService {
                 main.post(() -> {
                     if (generation != appearanceLoadGeneration || session != 0) return;
                     try {
+                        boolean previousClipboard = clipboardHistoryEnabled;
                         applyEditorPreferences(value(response).optJSONObject("preferences"));
+                        offerRecentClipOnHistoryEnabled(previousClipboard);
                         render();
                     } catch (JSONException | LinkageError ignored) {
                         // Unreadable preferences leave the keyboard as it is.
@@ -1813,6 +1815,7 @@ public final class MSIMEInputService extends InputMethodService {
             // Never replace the working session or log preferences/native responses.
             preferencesNotice = " · 设置读取或应用失败，保留当前设置";
         }
+        offerRecentClipOnHistoryEnabled(previousClipboard);
         if (previousPreferencesReady != (preferencesSnapshot != null)
                 || !previousNotice.equals(preferencesNotice) || !previousSkin.equals(skin.key())
                 || !previousAppearance.equals(candidateAppearanceKey())
@@ -5220,10 +5223,10 @@ public final class MSIMEInputService extends InputMethodService {
     /**
      * 把系统剪贴板里刚复制的那一条交给工具栏的「最近复制」（#5692）。
      *
-     * <p>`copiedNow` 为真时是复制监听：这一下就是用户刚复制的，系统给不出复制时刻也按现在算。为假时是弹出键盘时的补看：先只读剪贴板的描述（不读内容）看复制时刻，过了显示窗口就不读内容；读不到复制时刻时不提供，免得一条很久以前的内容被当成刚复制的。系统标为敏感的内容、开关关着、隐私模式和密码类输入框都不提供。
+     * <p>`copiedNow` 为真时是复制监听：这一下就是用户刚复制的，系统给不出复制时刻也按现在算。为假时是弹出键盘时的补看：先只读剪贴板的描述（不读内容）看复制时刻，过了显示窗口就不读内容；读不到复制时刻时不提供，免得一条很久以前的内容被当成刚复制的。系统标为敏感的内容、剪贴板历史或本地开关关着、隐私模式和密码类输入框都不提供，前两种连剪贴板都不读。
      */
     void offerRecentClip(boolean copiedNow) {
-        if (!clipboardSuggestionEnabled || !imePrivacyGate.allows(ImePrivacyGate.Record.CLIPBOARD_HISTORY)) return;
+        if (!recentClipEnabled() || !imePrivacyGate.allows(ImePrivacyGate.Record.CLIPBOARD_HISTORY)) return;
         try {
             ClipboardManager manager = getSystemService(ClipboardManager.class);
             if (manager == null || !manager.hasPrimaryClip()) return;
@@ -5241,6 +5244,18 @@ public final class MSIMEInputService extends InputMethodService {
         }
         // 弹出键盘时的补看紧跟着就会 render，这里只为复制监听重画。
         if (copiedNow) render();
+    }
+
+    /** 工具栏是否提供「最近复制」：剪贴板历史和本地开关都开着，见 {@link RecentClipboardSuggestion#enabled}。 */
+    private boolean recentClipEnabled() {
+        return RecentClipboardSuggestion.enabled(clipboardHistoryEnabled, clipboardSuggestionEnabled);
+    }
+
+    /**
+     * 剪贴板历史刚由实时偏好变成开着：补看一次刚复制的那一条。键盘进程冷启动时开关在实时偏好到来前是字段初始值（关），弹出键盘时的补看因此跳过了，不补的话键盘进程不在时复制的那一条就不会出现。调用方随后会重画。
+     */
+    private void offerRecentClipOnHistoryEnabled(boolean previousClipboard) {
+        if (!previousClipboard && clipboardHistoryEnabled) offerRecentClip(false);
     }
 
     /** 点工具栏上的「最近复制」：粘贴它，这一条不再出现。 */
@@ -6908,7 +6923,7 @@ public final class MSIMEInputService extends InputMethodService {
         // 开始打字就收起「最近复制」：用户已经在输入别的内容了。
         if (!idle) recentClip.dismiss();
         long nowMs = System.currentTimeMillis();
-        String recent = toolbarRow && !anyToolbarPanelOpen() && clipboardSuggestionEnabled
+        String recent = toolbarRow && !anyToolbarPanelOpen() && recentClipEnabled()
             && connection != null && imePrivacyGate.allows(ImePrivacyGate.Record.CLIPBOARD_HISTORY)
             ? recentClip.text(nowMs) : null;
         imeToolbar.updateRecentClipRow(recent);

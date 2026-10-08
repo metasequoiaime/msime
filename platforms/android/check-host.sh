@@ -605,6 +605,21 @@ if ! rg -A 12 'void insertClipboardText\(' \
   echo "Android clipboard insertion must retire the recent-clip suggestion (#5692)" >&2
   exit 1
 fi
+# 剪贴板历史关着时，「最近复制」既不显示也不读剪贴板：本地开关只能经 recentClipEnabled（RecentClipboardSuggestion.enabled）和历史开关一起判断，补看在读剪贴板之前就要问它，系统标为敏感的内容从不提供。
+service_java="$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java"
+offer_body=$(rg -A 14 'void offerRecentClip\(' "$service_java" || true)
+offer_gate_line=$(printf '%s\n' "$offer_body" | rg -n 'if \(!recentClipEnabled\(\)' | head -n 1 | cut -d: -f1 || true)
+offer_read_line=$(printf '%s\n' "$offer_body" | rg -n 'getPrimaryClipDescription|readPrimaryClip|getPrimaryClip\(' | head -n 1 | cut -d: -f1 || true)
+if ! rg -q 'return RecentClipboardSuggestion\.enabled\(clipboardHistoryEnabled, clipboardSuggestionEnabled\);' "$service_java" \
+  || rg -n 'clipboardSuggestionEnabled' "$service_java" \
+    | rg -v 'boolean clipboardSuggestionEnabled = true;|clipboardSuggestionEnabled = localSettings\.bool|RecentClipboardSuggestion\.enabled\(clipboardHistoryEnabled, clipboardSuggestionEnabled\)' \
+    | rg -q . \
+  || [[ -z "$offer_gate_line" || -z "$offer_read_line" || "$offer_read_line" -lt "$offer_gate_line" ]] \
+  || ! printf '%s\n' "$offer_body" | rg -q 'clip == null \|\| clip\.sensitive\(\)\) return;' \
+  || ! rg -B 2 -A 2 'String recent = ' "$service_java" | rg -q 'recentClipEnabled\(\)'; then
+  echo "Android recent-clip suggestion must stay off, and must not read the clipboard, while clipboard history is off; sensitive clips are never offered (#5692)" >&2
+  exit 1
+fi
 if ! rg -q 'ClipboardCapturePolicy\.captures' \
     "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java"; then
   echo "Android clipboard capture must skip a clip it already handled (ClipboardCapturePolicy)" >&2
@@ -773,9 +788,9 @@ while IFS= read -r source; do
   class=$(basename "$source" .java)
   smoke_classes+=("${package:+$package.}$class")
 done < <(find "$repo_root/platforms/android/tests" -name "*.java" -print | LC_ALL=C sort)
-# 下限就是当前发现的冒烟数（166）；少于这个数说明上面的筛选或 package 解析坏了，而不是冒烟真的变少了。新增冒烟时把这个数一起调高，有意删掉冒烟时同时调低。
-if [[ ${#smoke_classes[@]} -lt 166 ]]; then
-  echo "Only ${#smoke_classes[@]} Android JVM smokes discovered; expected at least 166" >&2
+# 下限就是当前发现的冒烟数（167）；少于这个数说明上面的筛选或 package 解析坏了，而不是冒烟真的变少了。新增冒烟时把这个数一起调高，有意删掉冒烟时同时调低。
+if [[ ${#smoke_classes[@]} -lt 167 ]]; then
+  echo "Only ${#smoke_classes[@]} Android JVM smokes discovered; expected at least 167" >&2
   exit 1
 fi
 javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \

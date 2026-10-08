@@ -63,7 +63,7 @@ public final class AndroidLocalSettings {
     public static final String GLIDE_TYPING = "platform.android.glide_typing";
     /** 剪贴板面板一行排几条（{@link ClipboardLayoutPolicy}）：`one` 单列、`two` 双列，默认单列。同步字段表里没有这个键，只在本机。 */
     public static final String CLIPBOARD_COLUMNS = "platform.android.clipboard_columns";
-    /** 工具栏显示最近复制的文字（{@link RecentClipboardSuggestion}），默认开。同步字段表里没有这个键，只在本机。 */
+    /** 工具栏显示最近复制的文字（{@link RecentClipboardSuggestion}），默认开；剪贴板历史关着时不生效。同步字段表里没有这个键，只在本机。 */
     public static final String CLIPBOARD_SUGGESTION = "platform.android.clipboard_suggestion";
     /** 设计范围的键盘高度调整（dp，-46..55，即 75%..130%）。缺省时宿主沿用共享偏好里的 `touch_keyboard_height_adjustment`（-12..48）。 */
     public static final String KEYBOARD_HEIGHT_ADJUSTMENT = "platform.android.keyboard_height_adjustment";

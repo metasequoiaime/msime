@@ -53,6 +53,12 @@ public final class RecentClipboardSuggestionSmoke {
         check(!Character.isHighSurrogate(emoji.charAt(emoji.length() - 2)), "the cut never splits a surrogate pair");
         check("".equals(RecentClipboardSuggestion.preview(null)), "no text, no preview");
 
+        // 剪贴板历史关着时不提供，也不为它读剪贴板；开着时听本地开关。
+        check(!RecentClipboardSuggestion.enabled(false, true), "clipboard history off hides the recent copy");
+        check(!RecentClipboardSuggestion.enabled(false, false), "both off, nothing shown");
+        check(RecentClipboardSuggestion.enabled(true, true), "history on and the switch on shows it");
+        check(!RecentClipboardSuggestion.enabled(true, false), "the local switch can still turn it off");
+
         AndroidLocalSettings.Spec spec = AndroidLocalSettings.spec(AndroidLocalSettings.CLIPBOARD_SUGGESTION);
         check(AndroidLocalSettings.defaults().bool(AndroidLocalSettings.CLIPBOARD_SUGGESTION),
             "the toolbar shows the last copy by default");

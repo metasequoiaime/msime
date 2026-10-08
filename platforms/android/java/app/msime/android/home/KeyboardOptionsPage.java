@@ -149,9 +149,13 @@ public final class KeyboardOptionsPage extends DetailPage {
         }
 
         GroupCard clipboard = GroupCard.add(target, "剪贴板");
-        clipboard.toggle("工具栏显示最近复制", "复制文字后一分钟内，键盘顶部显示这段文字，点按即可粘贴；隐私模式、密码框和系统标为敏感的内容不显示",
+        // 剪贴板历史关着时键盘不显示最近复制，也不为它读剪贴板（RecentClipboardSuggestion.enabled），这一项跟着置灰。
+        boolean clipboardHistory = preferences.optBoolean("clipboard_history", false);
+        GroupCard.Row recentClipRow = clipboard.toggle("工具栏显示最近复制",
+            "复制文字后一分钟内，键盘顶部显示这段文字，点按即可粘贴；需先在「隐私」里打开剪贴板历史。隐私模式、密码框和系统标为敏感的内容不显示",
             settings.bool(AndroidLocalSettings.CLIPBOARD_SUGGESTION),
             checked -> saveLocal(AndroidLocalSettings.CLIPBOARD_SUGGESTION, checked));
+        recentClipRow.setEnabled(clipboardHistory);
         String columns = settings.choice(AndroidLocalSettings.CLIPBOARD_COLUMNS);
         clipboard.nav("排列", "剪贴板面板里一行显示几条记录", clipboardColumnsLabel(columns),
             () -> pickClipboardColumns(columns));

@@ -16,6 +16,13 @@ public final class RecentClipboardSuggestion {
     private long copiedAtMs;
     private String dismissedIdentity;
 
+    /**
+     * 工具栏是否提供「最近复制」。剪贴板历史关着时一律不提供，也不为它读系统剪贴板：用户关掉历史，就是不想让键盘接触复制的内容；历史开着时听本地开关 `platform.android.clipboard_suggestion`（默认开）。
+     */
+    public static boolean enabled(boolean clipboardHistoryEnabled, boolean suggestionSetting) {
+        return clipboardHistoryEnabled && suggestionSetting;
+    }
+
     /** 复制时刻是否还在显示窗口里；读不到复制时刻（小于等于 0）时为假，只有亲眼看到的复制才算刚复制。 */
     public static boolean fresh(long copiedAtMs, long nowMs) {
         return copiedAtMs > 0 && nowMs - copiedAtMs <= WINDOW_MS;
