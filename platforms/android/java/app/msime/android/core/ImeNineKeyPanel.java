@@ -134,8 +134,8 @@ final class ImeNineKeyPanel {
         return NineKeyPanelPolicy.threeColumn(
             s.displayedTouchLayout(view) == MSIMEInputService.QUANPIN_NINE_KEY_LAYOUT,
             s.keyboardLayer == KeyboardLayout.Layer.LETTERS,
-            !"none".equals(view.optString("local_mode", "none")),
-            !view.optString("editing_text", "").isEmpty());
+            !"none".equals(InputViewValuePolicy.textOr(view, "local_mode", "none")),
+            !InputViewValuePolicy.editingText(view).isEmpty());
     }
 
     /**
