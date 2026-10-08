@@ -512,7 +512,7 @@ final class ImeLayoutRows {
             String label = ZhuyinNineKeyLayout.accessibilityLabel(tone);
             Button key = s.keyId(s.keyboardKey(tone.face(), label, () -> {
                 if (s.connection != null && ZhuyinInputPolicy.toneKeySends(
-                        s.view == null ? "" : s.view.optString("editing_text", "")))
+                        s.view == null ? "" : InputViewValuePolicy.editingText(s.view)))
                     s.character(tone.input(), false);
             }), tone.keyId());
             key.setContentDescription(label);
