@@ -205,6 +205,60 @@ pub(crate) fn write_private_file_at(
 }
 
 #[cfg(unix)]
+pub(crate) fn open_private_lock_file_at(directory: &File, name: &OsStr) -> io::Result<File> {
+    let descriptor = rustix::fs::openat(
+        directory,
+        name,
+        rustix::fs::OFlags::RDWR
+            | rustix::fs::OFlags::CREATE
+            | rustix::fs::OFlags::NOFOLLOW
+            | rustix::fs::OFlags::CLOEXEC
+            | rustix::fs::OFlags::NONBLOCK,
+        rustix::fs::Mode::from_raw_mode(0o600),
+    )?;
+    let file: File = descriptor.into();
+    let metadata = file.metadata()?;
+    if !metadata.is_file() || !crate::file_lock::has_single_link(&file)? {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "lock file is not a single-link regular file",
+        ));
+    }
+    Ok(file)
+}
+
+#[cfg(not(unix))]
+pub(crate) fn open_private_lock_file_at(
+    directory: &PrivateDirectory,
+    name: &OsStr,
+) -> io::Result<File> {
+    crate::file_lock::open_private_lock_file(directory.0.join(name))
+}
+
+#[cfg(unix)]
+pub(crate) fn rename_private_entry_at(
+    source: &File,
+    source_name: &OsStr,
+    destination: &File,
+    destination_name: &OsStr,
+) -> io::Result<()> {
+    rustix::fs::renameat(source, source_name, destination, destination_name).map_err(Into::into)
+}
+
+#[cfg(not(unix))]
+pub(crate) fn rename_private_entry_at(
+    source: &PrivateDirectory,
+    source_name: &OsStr,
+    destination: &PrivateDirectory,
+    destination_name: &OsStr,
+) -> io::Result<()> {
+    fs::rename(
+        source.0.join(source_name),
+        destination.0.join(destination_name),
+    )
+}
+
+#[cfg(unix)]
 pub(crate) fn write_private_file_at(
     directory: &File,
     name: &OsStr,

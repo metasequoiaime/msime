@@ -20,7 +20,7 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{
     collections::{HashMap, HashSet},
-    ffi::{c_char, c_void},
+    ffi::{c_char, c_void, OsString},
     io::{self, BufRead, BufReader, Write},
     path::Path,
     sync::{
@@ -857,12 +857,62 @@ fn activate(handle: u64, expected: &str) -> Result<Value, &'static str> {
             .iter()
             .map(|(_, replacement)| Path::new(replacement.as_str())),
     );
-    let mut moved: Vec<(std::path::PathBuf, std::path::PathBuf)> = Vec::with_capacity(pairs.len());
-    let rollback = |moved: &[(std::path::PathBuf, std::path::PathBuf)]| {
+    let cache_directory = msime_client_core::file_lock::open_private_directory(&active.cache)
+        .map_err(|_| "snapshot activation failed")?;
+    let current_directories = [
+        _access
+            .directory_for(Path::new(&active.user_data))
+            .map_err(|_| "snapshot activation failed")?,
+        &cache_directory,
+        _access
+            .directory_for(Path::new(&active.dictionaries))
+            .map_err(|_| "snapshot activation failed")?,
+    ];
+    let staged_directories = pairs
+        .iter()
+        .map(|(_, replacement)| msime_client_core::file_lock::open_private_directory(replacement))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| "snapshot activation failed")?;
+    for current in &backups {
+        if prepare_snapshot_backup(current).is_err() {
+            return Err("snapshot activation failed");
+        }
+    }
+    let backup_directories = backups
+        .iter()
+        .map(msime_client_core::file_lock::open_private_directory)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| "snapshot activation failed")?;
+    enum MoveDirection {
+        ActiveToBackup,
+        StagedToActive,
+    }
+    struct MovedEntry {
+        pair: usize,
+        direction: MoveDirection,
+        name: OsString,
+    }
+    let mut moved: Vec<MovedEntry> = Vec::with_capacity(pairs.len());
+    let rollback = |moved: &[MovedEntry]| {
         // Anything opened on a moved file while the swap ran would outlive its move back.
         msime_engine::close_cached_databases();
-        for (from, to) in moved.iter().rev() {
-            let _ = std::fs::rename(to, from);
+        for entry in moved.iter().rev() {
+            let (source, destination) = match entry.direction {
+                MoveDirection::ActiveToBackup => (
+                    &backup_directories[entry.pair],
+                    current_directories[entry.pair],
+                ),
+                MoveDirection::StagedToActive => (
+                    current_directories[entry.pair],
+                    &staged_directories[entry.pair],
+                ),
+            };
+            let _ = msime_client_core::file_lock::rename_private_entry_at(
+                source,
+                &entry.name,
+                destination,
+                &entry.name,
+            );
         }
         for backup in &backups {
             discard_recovered_backup(backup);
@@ -877,11 +927,6 @@ fn activate(handle: u64, expected: &str) -> Result<Value, &'static str> {
     for (index, (current, replacement)) in pairs.iter().enumerate() {
         let current = Path::new(current.as_str());
         let replacement = Path::new(replacement.as_str());
-        let backup = &backups[index];
-        if prepare_snapshot_backup(backup).is_err() {
-            rollback(&moved);
-            return Err("snapshot activation failed");
-        }
         // Out with the old.
         let listing = match std::fs::read_dir(current) {
             Ok(listing) => listing,
@@ -901,12 +946,23 @@ fn activate(handle: u64, expected: &str) -> Result<Value, &'static str> {
             {
                 continue;
             }
-            let destination = backup.join(entry.file_name());
-            if std::fs::rename(&path, &destination).is_err() {
+            let name = entry.file_name();
+            if msime_client_core::file_lock::rename_private_entry_at(
+                current_directories[index],
+                &name,
+                &backup_directories[index],
+                &name,
+            )
+            .is_err()
+            {
                 rollback(&moved);
                 return Err("snapshot activation failed");
             }
-            moved.push((path, destination));
+            moved.push(MovedEntry {
+                pair: index,
+                direction: MoveDirection::ActiveToBackup,
+                name,
+            });
         }
         // In with the new.
         let listing = match std::fs::read_dir(replacement) {
@@ -927,18 +983,29 @@ fn activate(handle: u64, expected: &str) -> Result<Value, &'static str> {
             {
                 continue;
             }
-            let destination = current.join(entry.file_name());
-            if std::fs::rename(&path, &destination).is_err() {
+            let name = entry.file_name();
+            if msime_client_core::file_lock::rename_private_entry_at(
+                &staged_directories[index],
+                &name,
+                current_directories[index],
+                &name,
+            )
+            .is_err()
+            {
                 rollback(&moved);
                 return Err("snapshot activation failed");
             }
-            moved.push((path, destination));
+            moved.push(MovedEntry {
+                pair: index,
+                direction: MoveDirection::StagedToActive,
+                name,
+            });
         }
     }
     // A reader that opened a file while the swap ran holds the old one; the next access opens the restored files.
     msime_engine::close_cached_databases();
     for backup in &backups {
-        let _ = std::fs::remove_dir_all(backup);
+        discard_recovered_backup(backup);
     }
     entries.remove(&handle);
     Ok(json!({"activated": true}))

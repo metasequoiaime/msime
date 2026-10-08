@@ -3,11 +3,19 @@
 
 use std::fs::File;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+const ACCESS_LOCK_NAME: &str = ".msime-dictionary-access.lock";
+
+struct LockedRoot {
+    path: PathBuf,
+    directory: crate::file_lock::PrivateDirectory,
+    _lock: File,
+}
 
 /// A guard held for the lifetime of every Engine/session using the paths.
 pub struct DictionaryAccess {
-    _files: Vec<File>,
+    roots: Vec<LockedRoot>,
 }
 
 impl DictionaryAccess {
@@ -21,6 +29,23 @@ impl DictionaryAccess {
         Self::acquire(user, dictionaries, true)
     }
 
+    /// Return the directory handle used by this guard for one of the locked
+    /// roots. The handle remains bound to the directory even if its path is
+    /// replaced after the lock was acquired.
+    pub fn directory_for(&self, path: &Path) -> io::Result<&crate::file_lock::PrivateDirectory> {
+        let canonical = path.canonicalize()?;
+        self.roots
+            .iter()
+            .find(|root| root.path == canonical)
+            .map(|root| &root.directory)
+            .ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::NotFound,
+                    "directory is not held by this guard",
+                )
+            })
+    }
+
     fn acquire(user: &Path, dictionaries: &Path, exclusive: bool) -> io::Result<Option<Self>> {
         if !user.is_absolute() || !dictionaries.is_absolute() {
             return Err(io::Error::new(
@@ -28,15 +53,19 @@ impl DictionaryAccess {
                 "absolute dictionary paths required",
             ));
         }
-        crate::storage::reject_symlink(user)?;
-        crate::storage::reject_symlink(dictionaries)?;
-        let mut roots = vec![user.canonicalize()?, dictionaries.canonicalize()?];
-        roots.sort();
-        roots.dedup();
-        let mut files = Vec::with_capacity(roots.len());
-        for root in roots {
-            let file = crate::file_lock::open_private_lock_file(
-                root.join(".msime-dictionary-access.lock"),
+        let mut roots = Vec::with_capacity(2);
+        for path in [user, dictionaries] {
+            crate::storage::reject_symlink(path)?;
+            let directory = crate::file_lock::open_private_directory(path)?;
+            roots.push((path.canonicalize()?, directory));
+        }
+        roots.sort_by(|left, right| left.0.cmp(&right.0));
+        roots.dedup_by(|left, right| left.0 == right.0);
+        let mut locked = Vec::with_capacity(roots.len());
+        for (path, directory) in roots {
+            let file = crate::file_lock::open_private_lock_file_at(
+                &directory,
+                std::ffi::OsStr::new(ACCESS_LOCK_NAME),
             )?;
             let acquired = if exclusive {
                 crate::file_lock::try_exclusive(&file)?
@@ -46,9 +75,13 @@ impl DictionaryAccess {
             if !acquired {
                 return Ok(None);
             }
-            files.push(file);
+            locked.push(LockedRoot {
+                path,
+                directory,
+                _lock: file,
+            });
         }
-        Ok(Some(Self { _files: files }))
+        Ok(Some(Self { roots: locked }))
     }
 }
 
@@ -118,6 +151,32 @@ mod tests {
         let dictionaries = tempfile::tempdir().unwrap();
 
         assert!(DictionaryAccess::try_session(&user, dictionaries.path()).is_err());
+        assert!(!outside
+            .path()
+            .join(".msime-dictionary-access.lock")
+            .exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_root_replaced_after_lock_acquisition_is_not_returned_as_the_held_directory() {
+        use std::os::unix::fs::symlink;
+
+        let parent = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let user = parent.path().join("user");
+        let dictionaries = parent.path().join("dictionaries");
+        std::fs::create_dir(&user).unwrap();
+        std::fs::create_dir(&dictionaries).unwrap();
+        let access = DictionaryAccess::try_maintenance(&user, &dictionaries)
+            .unwrap()
+            .unwrap();
+
+        let moved = parent.path().join("moved-user");
+        std::fs::rename(&user, &moved).unwrap();
+        symlink(outside.path(), &user).unwrap();
+
+        assert!(access.directory_for(&user).is_err());
         assert!(!outside
             .path()
             .join(".msime-dictionary-access.lock")

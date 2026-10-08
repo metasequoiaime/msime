@@ -48,6 +48,23 @@ pub fn replace_private_file_at(
     crate::storage::replace_private_file_at(&directory.directory, name, contents, Some(permissions))
 }
 
+/// Rename one entry between already opened private directories. On Unix the
+/// operation stays bound to those directory handles if either path is later
+/// replaced.
+pub fn rename_private_entry_at(
+    source: &PrivateDirectory,
+    source_name: &OsStr,
+    destination: &PrivateDirectory,
+    destination_name: &OsStr,
+) -> io::Result<()> {
+    crate::storage::rename_private_entry_at(
+        &source.directory,
+        source_name,
+        &destination.directory,
+        destination_name,
+    )
+}
+
 fn lock_file_options() -> OpenOptions {
     let mut options = File::options();
     options.read(true).write(true).create(true).truncate(false);
@@ -86,6 +103,12 @@ pub fn open_private_lock_file(path: impl AsRef<Path>) -> io::Result<File> {
         options.mode(0o600);
     }
     ensure_regular(options.open(path)?)
+}
+
+/// Open a private lock file relative to an already opened directory. Unix
+/// callers stay bound to that directory if its path is replaced later.
+pub fn open_private_lock_file_at(directory: &PrivateDirectory, name: &OsStr) -> io::Result<File> {
+    crate::storage::open_private_lock_file_at(&directory.directory, name)
 }
 
 fn ensure_regular(file: File) -> io::Result<File> {
@@ -387,5 +410,42 @@ mod tests {
         });
         assert!(try_exclusive_with_grace(&waiter).unwrap());
         releasing.join().unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn renaming_through_open_directories_stays_bound_after_path_replacement() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempfile::tempdir().unwrap();
+        let source_path = root.path().join("source");
+        let moved_path = root.path().join("moved");
+        let outside = root.path().join("outside");
+        let destination_path = root.path().join("destination");
+        std::fs::create_dir(&source_path).unwrap();
+        std::fs::create_dir(&outside).unwrap();
+        std::fs::create_dir(&destination_path).unwrap();
+        std::fs::write(source_path.join("payload"), b"bound").unwrap();
+        std::fs::write(outside.join("payload"), b"keep").unwrap();
+
+        let source = open_private_directory(&source_path).unwrap();
+        let destination = open_private_directory(&destination_path).unwrap();
+        std::fs::rename(&source_path, &moved_path).unwrap();
+        symlink(&outside, &source_path).unwrap();
+
+        rename_private_entry_at(
+            &source,
+            OsStr::new("payload"),
+            &destination,
+            OsStr::new("payload"),
+        )
+        .unwrap();
+
+        assert_eq!(
+            std::fs::read(destination_path.join("payload")).unwrap(),
+            b"bound"
+        );
+        assert!(!moved_path.join("payload").exists());
+        assert_eq!(std::fs::read(outside.join("payload")).unwrap(), b"keep");
     }
 }
