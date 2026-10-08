@@ -9,7 +9,8 @@ use crate::pinyin::syllables::normalize_umlaut_aliases;
 use crate::quanpin::QuanpinEngine;
 use crate::text::{count_utf8_chars, first_han_char, last_han_char};
 use crate::types::{
-    CandidateEdge, KeyResult, LocalInputMode, PersonalDictionaryKind, SchemeType, WordItem,
+    CandidateEdge, CandidateSource, KeyResult, LocalInputMode, PersonalDictionaryKind, SchemeType,
+    WordItem,
 };
 use crate::user_dictionary::journal::is_user_inserted;
 
@@ -104,6 +105,23 @@ impl InputSession {
             }
             return KeyResult::committed(text);
         }
+        let committed = |text: Option<String>, diagnostic: Option<String>| KeyResult {
+            handled: true,
+            commit: text,
+            diagnostic,
+        };
+        let selected_source = self.candidates().get(index).map(|item| item.source);
+        if self.local_mode != LocalInputMode::None
+            && selected_source.is_some_and(|source| source != CandidateSource::EnglishDictionary)
+        {
+            let text = self.candidates().get(index).map(|item| item.word.clone());
+            let diagnostic = self
+                .ranking_index(index)
+                .and_then(|learn_index| self.learn_candidate(learn_index));
+            self.chain.reset();
+            self.reset_composition();
+            return committed(text, diagnostic);
+        }
         let selected = self.candidates().get(index).cloned();
         // A Korean commit is the chosen Hanja or the Hangul itself, and nothing about it is learned: the rows are keyed by Dubeolsik letters, which every learning path below would read as pinyin. A Vietnamese commit is the displayed word, learned nowhere either.
         // A Cantonese commit is learned nowhere either. A row that covers only the leading syllables commits at once and the letters after it keep composing (`holds_phrase_progress` is false), so there is no phrase being built to hold.
@@ -150,12 +168,6 @@ impl InputSession {
             }
             None => Some(self.preedit()),
         };
-        let committed = |text: Option<String>, diagnostic: Option<String>| KeyResult {
-            handled: true,
-            commit: text,
-            diagnostic,
-        };
-
         let mut diagnostic = self
             .ranking_index(index)
             .and_then(|learn_index| self.learn_candidate(learn_index));

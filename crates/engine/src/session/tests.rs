@@ -953,6 +953,26 @@ fn selecting_a_shuangpin_candidate_does_not_clone_the_full_request() {
 }
 
 #[test]
+fn selecting_an_unsupported_candidate_does_not_clone_its_row() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session();
+    assert!(session.character(b'Y', true).handled);
+    let before = session.snapshot();
+    assert_eq!(before.candidate_sources, [CandidateSource::Fallback]);
+
+    let (result, allocations) =
+        crate::ime::personal_rerank::allocations::count(|| session.select(0));
+
+    assert!(result.handled && result.diagnostic.is_none());
+    assert_eq!(result.commit.as_deref(), Some("Y"));
+    assert!(session.snapshot().preedit.is_empty());
+    assert!(
+        allocations <= 3,
+        "选择不可编辑候选产生了 {allocations} 次分配"
+    );
+}
+
+#[test]
 fn selecting_the_top_candidate_does_not_clone_an_unused_learning_row() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);
     let mut session = fixture.session_with(|options| {
