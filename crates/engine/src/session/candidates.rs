@@ -5,7 +5,7 @@ use std::borrow::Cow;
 use super::input::InputSession;
 use crate::assets;
 use crate::diagnostics;
-use crate::ime::personal_rerank::personal_context_rerank;
+use crate::ime::personal_rerank::personal_context_rerank_order;
 use crate::ime::queries::MODE_ENGLISH_LIMIT;
 use crate::local::date_time::LocalDateTime;
 use crate::local::jianpin::jianpin_ranking_context;
@@ -61,26 +61,27 @@ pub(super) fn clone_candidate_rows(source: &[WordItem], destination: &mut Vec<Wo
 }
 
 impl InputSession {
-    /// Prefix or engine rows, then personal context rerank, mixed English / emoji / kaomoji, fixed positions (input_session.cpp:1057-1078).
+    /// 前缀或引擎候选经过个人上下文重排，再混入英文、表情、颜文字并应用固定位置。
     pub(super) fn update_mixed_candidates(&mut self) {
         self.refresh_prefix_candidates();
         let mut decoded = self
             .ranking_candidates
             .take()
             .unwrap_or_else(|| std::mem::take(&mut self.mixed_candidates));
+        let mut reranked = std::mem::take(&mut self.mixed_candidates);
         if self.prefix_active {
             clone_candidate_rows(&self.prefix_candidates, &mut decoded);
         } else {
             clone_candidate_rows(self.engine.candidates(), &mut decoded);
         }
         self.personal_reranked = false;
-        // At the chain start the preference is context-free, which is the frequency setting's business, not this one's.
+        // 提交链起点没有上下文，候选偏好由词频设置负责。
         let reordered = match self.chain.previous.as_deref() {
             Some(previous) if self.personal_context_applies() => {
                 let journal = self.journal_path();
                 let context = self.pinyin_ranking_context();
                 let model = self.personal_context.model();
-                personal_context_rerank(
+                personal_context_rerank_order(
                     &decoded,
                     &model,
                     self.chain.earlier.as_deref(),
@@ -91,9 +92,12 @@ impl InputSession {
             _ => None,
         };
         match reordered {
-            Some(reordered) => {
-                self.mixed_candidates = self.mixed_from(reordered);
-                // Learning ranks against the order the dictionary gave, so the unreordered list is kept beside the shown one.
+            Some(order) => {
+                // 先复制原始行到可复用的显示缓冲，再按索引原地重排，避免重新分配每个字符串。
+                clone_candidate_rows(&decoded, &mut reranked);
+                order.reorder(&mut reranked);
+                self.mixed_candidates = self.mixed_from(reranked);
+                // 学习使用字典给出的顺序，因此另存未重排的混排列表。
                 self.ranking_candidates = Some(self.mixed_from(decoded));
                 self.personal_reranked = true;
             }

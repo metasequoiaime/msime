@@ -108,6 +108,56 @@ fn mixed_candidate_refresh_reuses_rows_for_engine_and_caret_prefix() {
     assert_eq!(session.snapshot(), before);
 }
 
+#[test]
+fn personal_rerank_refresh_reuses_shown_rows_and_preserves_learning_order() {
+    let fixture = Fixture::new(CONTEXT_FIXTURE);
+    let mut session = fixture.session();
+    for _ in 0..4 {
+        type_text(&mut session, "hao");
+        select_word(&mut session, "子");
+        type_text(&mut session, "ni");
+        select_word(&mut session, "乙");
+        session.punctuation(b',');
+    }
+    type_text(&mut session, "hao");
+    select_word(&mut session, "子");
+    type_text(&mut session, "ni");
+
+    for prefix in [false, true] {
+        if prefix {
+            type_text(&mut session, "hao");
+            session.set_caret(Some(2));
+        }
+        assert!(session.input.personal_reranked);
+        assert_eq!(session.input.mixed_candidates[0].word, "乙");
+        let before = session.snapshot();
+        let ranking = session.input.ranking_list().to_vec();
+        let mut string_pointers: Vec<_> = session
+            .input
+            .mixed_candidates
+            .iter()
+            .map(|row| row.word.as_ptr())
+            .collect();
+        string_pointers.sort_unstable();
+
+        session.input.update_mixed_candidates();
+
+        assert_eq!(session.snapshot(), before);
+        assert_eq!(session.input.ranking_list(), ranking);
+        let mut refreshed_pointers: Vec<_> = session
+            .input
+            .mixed_candidates
+            .iter()
+            .map(|row| row.word.as_ptr())
+            .collect();
+        refreshed_pointers.sort_unstable();
+        assert_eq!(refreshed_pointers, string_pointers);
+        let original_index = session.input.ranking_index(0).unwrap();
+        assert_ne!(original_index, 0);
+        assert_eq!(session.input.ranking_list()[original_index].word, "乙");
+    }
+}
+
 /// One directory standing in for all four runtime roots, as the reference session tests used.
 struct Fixture {
     directory: tempfile::TempDir,
