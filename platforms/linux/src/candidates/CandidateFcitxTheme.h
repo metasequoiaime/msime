@@ -308,13 +308,15 @@ inline FcitxThemeFiles fcitx_candidate_theme_files(const CandidateColors &colors
     decoration.pop_back();
   }
   std::ostringstream conf;
-  conf << "SupportedScale=2\n\n"
-          "[Metadata]\n"
+  // 文件必须以分组开头，不能有任何顶层键。在 GNOME Wayland 这类不让输入法自己弹窗的桌面上，候选窗由程序里的 fcitx5-gtk 模块按同一个主题绘制（客户端输入面板），它用 GKeyFile 读 theme.conf，遇到顶层键会整份拒绝并退回 default 主题，颜色和装饰图就都没了。所以经典界面加载 @2x 图要的 SupportedScale 不写成顶层的 `SupportedScale=2`，而写成 `[SupportedScale]` 分组下的 `Value=2`：这是 Fcitx5 把它改成可选值之后（上游 fcitx/fcitx5#1695，5.1.23 之后的版本）的写法，GKeyFile 也能读。5.1.22 及更早的版本不认这个键，5.1.23 只认顶层写法，读不出这个分组时退回 1，都只是不加载 @2x 图。
+  conf << "[Metadata]\n"
           "Name=MSIME\n"
           "Version=1\n"
           "Author=MSIME\n"
           "Description=Generated from the MSIME candidate settings; edits are replaced when they change\n"
           "ScaleWithDPI=True\n\n"
+          "[SupportedScale]\n"
+          "Value=2\n\n"
           "[InputPanel]\n"
        << "NormalColor=" << fcitx_theme_color(text) << "\n"
        << "HighlightCandidateColor=" << fcitx_theme_color(selected_text) << "\n"

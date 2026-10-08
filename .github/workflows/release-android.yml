@@ -22,6 +22,7 @@ jobs:
   # 每个版本（shared/contracts/editions.json 里有 Android 段的 id，也是 gradle-app 的 flavor 名）各打一个 APK，applicationId 各不相同，可以同时装在一台设备上。full 的 applicationId 与引入版本之前相同，已安装的应用照常原地升级；APK 名是 msime-android.apk（各版本是 msime-android-<id>.apk）。
   release:
     needs: source
+    # 留在 GitHub 托管的 runner 上，不要搬到 Depot：这个 job 不论 publish 与否都会解码发版签名密钥。APK 经 GitHub release 分发、靠应用内更新，没有 Play App Signing 托底，这把钥匙泄露后无法更换，换了现有用户就收不到更新。只做构建、不碰长期凭据的 job 才放 Depot。
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     strategy:

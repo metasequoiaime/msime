@@ -84,7 +84,7 @@ impl AccountSessionStorage for AnonymousSessionStorage {
 
     fn clear(&self) -> Result<(), AccountError> {
         crate::storage::reject_symlink(&self.directory).map_err(|_| AccountError::Storage)?;
-        match std::fs::remove_file(self.directory.join(ANONYMOUS_SESSION_FILE)) {
+        match crate::storage::remove_private_file(&self.directory.join(ANONYMOUS_SESSION_FILE)) {
             Ok(()) => Ok(()),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
             Err(_) => Err(AccountError::Storage),

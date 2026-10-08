@@ -23,17 +23,17 @@ import app.msime.android.ViewPolicy;
 import org.json.JSONObject;
 
 /**
- * 键盘页：布局（中文键盘 26 / 9 键、键盘高度、按键间距、行间距、横屏分离式键盘）、按键反馈（按键音、按键振动、按键弹出预览、按键动画）、手势（滑动输入符号及其方向、滑行输入、空格滑动移动光标、长按空格语音）、键盘工具栏（预览、显示方式、各按钮）和子页「AI 润色与回复」。
+ * 键盘页：布局（中文键盘 26 / 9 键、键盘高度、按键间距、行间距、横屏分离式键盘、浮动键盘）、按键反馈（按键音、按键振动、按键弹出预览、按键动画）、手势（滑动输入符号及其方向、滑行输入、空格滑动移动光标、长按空格语音）、键盘工具栏（预览、显示方式、各按钮）和子页「AI 润色与回复」。
  *
- * <p>键盘与本页读同一批存储：按键间距、行间距和表情/剪贴板/皮肤三个工具栏按钮在共享偏好里（`touch_key_spacing_tenths`、`touch_row_spacing_tenths`、`touch_toolbar.*`）；键盘高度、横屏分离式键盘、按键弹出预览、按键动画、三个手势、常用语/输入方式两个工具栏按钮和「显示方式：隐藏」（整行不显示，候选条照常显示）只有 Android 用，在 {@link AndroidLocalSettings} 里。键盘高度按设计以 75–130 % 显示，存的是 dp（{@link KeyboardGeometry#heightPercentToAdjustment}），本地没写过时沿用共享偏好里旧的 `touch_keyboard_height_adjustment`。按键音和按键振动是 Android 一直以来的本地开关（`KeyboardFeedbackStore`），键盘的功能面板改的也是它们。
+ * <p>键盘与本页读同一批存储：按键间距、行间距和表情/剪贴板/皮肤三个工具栏按钮在共享偏好里（`touch_key_spacing_tenths`、`touch_row_spacing_tenths`、`touch_toolbar.*`）；键盘高度、横屏分离式键盘、浮动键盘、按键弹出预览、按键动画、三个手势、常用语/输入方式/浮动键盘三个工具栏按钮和「显示方式：隐藏」（整行不显示，候选条照常显示）只有 Android 用，在 {@link AndroidLocalSettings} 里。键盘高度按设计以 75–160 % 显示，存的是 dp（{@link KeyboardGeometry#heightPercentToAdjustment}），本地没写过时沿用共享偏好里旧的 `touch_keyboard_height_adjustment`。按键音和按键振动是 Android 一直以来的本地开关（`KeyboardFeedbackStore`），键盘的功能面板改的也是它们。
  */
 public final class KeyboardOptionsPage extends DetailPage {
     private static final String[] ANIMATIONS = {"bounce", "ripple", "glow", "lift", "none"};
     private static final String[] ANIMATION_LABELS = {"弹起", "涟漪", "发光", "浮起", "无"};
-    /** 设计里的五个工具栏按钮：存储键与行名。共享偏好的写 `touch_toolbar` 的成员名，本地设置的写完整键名。 */
+    /** 可开关的六个工具栏按钮：存储键与行名。共享偏好的写 `touch_toolbar` 的成员名，本地设置的写完整键名。 */
     private static final String[][] TOOLBAR_BUTTONS = {
         {"emoji", "表情"}, {AndroidLocalSettings.TOOLBAR_PHRASE, "常用语"}, {"clipboard", "剪贴板"}, {"skin", "皮肤"},
-        {AndroidLocalSettings.TOOLBAR_SCHEME, "输入方式"},
+        {AndroidLocalSettings.TOOLBAR_SCHEME, "输入方式"}, {AndroidLocalSettings.TOOLBAR_FLOATING, "浮动键盘"},
     };
 
     private record State(JSONObject preferences, AndroidLocalSettings.Snapshot local,
@@ -106,6 +106,9 @@ public final class KeyboardOptionsPage extends DetailPage {
         layout.toggle("横屏分离式键盘", "仅在平板横屏时生效：26 键和韩文键盘分成左右两半，方便双手握持时用拇指输入",
             settings.bool(AndroidLocalSettings.SPLIT_KEYBOARD),
             checked -> saveLocal(AndroidLocalSettings.SPLIT_KEYBOARD, checked));
+        layout.toggle("浮动键盘", "键盘缩小成一块面板悬在应用上面，按住顶部横条拖动位置；也可以在功能面板或工具栏按钮里切换",
+            settings.bool(AndroidLocalSettings.FLOATING_KEYBOARD),
+            checked -> saveLocal(AndroidLocalSettings.FLOATING_KEYBOARD, checked));
 
         GroupCard feedback = GroupCard.add(target, "按键反馈");
         KeyboardFeedbackStore.Settings local = state.feedback();

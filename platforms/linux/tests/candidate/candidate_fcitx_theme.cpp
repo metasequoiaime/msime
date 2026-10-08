@@ -209,7 +209,11 @@ int main() {
   assert(contains(theme, ".png\n\n[InputPanel/PrevPage/ClickMargin]\nLeft=0\nRight=0\nTop=0\nBottom=0\n\n[InputPanel/NextPage]\nImage=shape-"));
   assert(contains(theme, ".png\n\n[InputPanel/NextPage/ClickMargin]\nLeft=0\nRight=0\nTop=0\nBottom=0\n\n"));
   assert(image_in(theme, "InputPanel/PrevPage") != image_in(theme, "InputPanel/NextPage"));
-  assert(theme.rfind("SupportedScale=2\n\n[Metadata]\n", 0) == 0);
+  // fcitx5-gtk 的客户端输入面板用 GKeyFile 读这份主题，顶层键会让它整份拒绝、退回 default，所以文件必须以分组开头。
+  assert(theme.rfind("[Metadata]\n", 0) == 0);
+  // @2x 图的倍率写成分组下的 Value（fcitx/fcitx5#1695 之后的写法），不写顶层的 SupportedScale=2。
+  assert(contains(theme, "ScaleWithDPI=True\n\n[SupportedScale]\nValue=2\n\n[InputPanel]\n"));
+  assert(!contains(theme, "SupportedScale="));
   // No outline: a transparent border of width 0, as before borders were drawn.
   assert(contains(host::fcitx_candidate_theme(willow, false), "BorderColor=#f4f5f300\nBorderWidth=0\n"));
   // A wider outline pushes the content in with it, so the highlight stays off the border.

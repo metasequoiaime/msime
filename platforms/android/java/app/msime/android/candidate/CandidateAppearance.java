@@ -28,9 +28,10 @@ public final class CandidateAppearance {
      */
     public static Palette from(JSONObject preferences, KeyboardSkin strip) {
         String fontFamily = preferences == null ? "Noto Sans SC"
-            : preferences.optString("candidate_font_family", "Noto Sans SC");
+            : JsonPolicy.strictString(preferences.opt("candidate_font_family"));
+        if (fontFamily == null) fontFamily = "Noto Sans SC";
         String englishFont = preferences == null ? ""
-            : preferences.optString("candidate_english_font", "");
+            : JsonPolicy.strictStringOrEmpty(preferences.opt("candidate_english_font"));
         JSONArray fallback = preferences == null ? null
             : preferences.optJSONArray("candidate_fallback_fonts");
         return fromSkin(strip, fontFamily, englishFont, fallbackFonts(fallback));
@@ -67,7 +68,7 @@ public final class CandidateAppearance {
         int limit = BoundsPolicy.bounded(values.length(), 0, MAX_FALLBACK_FONTS);
         ArrayList<String> result = new ArrayList<>(limit);
         for (int index = 0; index < limit; index++) {
-            String value = values.optString(index, "");
+            String value = JsonPolicy.strictStringOrEmpty(values.opt(index));
             if (validFont(value)) result.add(value);
         }
         return result;

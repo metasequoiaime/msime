@@ -9,7 +9,7 @@ use crate::platform::mobile::mobile_account_helpers::{
     account_request_code as shared_account_request_code, account_status as shared_account_status,
     call_session, cleanup_stale_snapshot_previews, clear_snapshot_previews,
     clear_snapshot_previews_after, cloud_dictionary_account_request, prepare_snapshot_directory,
-    read_snapshot_file, replace_pending_snapshot, snapshot_command_error,
+    read_snapshot_file, remove_snapshot_file, replace_pending_snapshot, snapshot_command_error,
     snapshot_response_without_account, snapshot_text_within_limit, take_pending_snapshot,
     valid_mobile_haptic_strength, validate_pending_snapshot, write_snapshot_file, PendingSnapshot,
     SnapshotMetadata,
@@ -553,7 +553,7 @@ async fn dictionary_snapshot_preview(
         match result {
             Ok(metadata) => Ok((profile.user.id, path, metadata)),
             Err(error) => {
-                let _ = fs::remove_file(&path);
+                let _ = remove_snapshot_file(&path);
                 Err(error)
             }
         }
@@ -571,7 +571,7 @@ async fn dictionary_snapshot_preview(
         },
     )?;
     for path in old {
-        let _ = fs::remove_file(path);
+        let _ = remove_snapshot_file(&path);
     }
     Ok(serde_json::json!({
         "previewToken": token,
@@ -609,7 +609,7 @@ async fn dictionary_snapshot_enqueue(
                 .run_mobile_plugin::<Value>("enqueueSnapshot", request)
                 .map_err(|_| AccountError::Unavailable)
         })();
-        let _ = fs::remove_file(path);
+        let _ = remove_snapshot_file(&path);
         result
     })
     .await
@@ -638,7 +638,7 @@ async fn dictionary_snapshot_export(
                     "snapshot": metadata,
                 }))
             });
-        let _ = fs::remove_file(&path);
+        let _ = remove_snapshot_file(&path);
         result
     })
     .await
@@ -674,7 +674,7 @@ async fn dictionary_snapshot_restore_preview(
                         })
                     })
             });
-        let _ = fs::remove_file(&path);
+        let _ = remove_snapshot_file(&path);
         result
     })
     .await
@@ -715,7 +715,7 @@ async fn dictionary_snapshot_restore(
                         }))
                     })
             });
-        let _ = fs::remove_file(&path);
+        let _ = remove_snapshot_file(&path);
         result
     })
     .await

@@ -66,8 +66,24 @@ inline std::string trimmed_font_family(const std::string &value) {
   return family;
 }
 
-// The description lists the English family when one is chosen, then the primary family and the fallbacks, without repeats, and ends the family list with a comma so that a name ending in a word Pango knows as a style ("Bold", "Light") stays part of the name. The size is in pixels, the unit the shared preference is written in.
-inline std::string candidate_pango_font(const CandidateFont &font) {
+// 字号写成什么单位。共享偏好里的字号是像素，IBus 面板照写像素。Fcitx5 5.1.18 起的经典界面要写成磅：它画
+// 候选序号时取描述里的字号乘上主题的 LabelTextSizeFactor 再按磅设回去（pango_font_description_set_size），
+// 像素字号因此被当成同样数值的磅，序号比候选大三分之一。5.1.22 起它在 X11 上按 DPI 整窗缩放、字体 DPI 固定
+// 为 96，Wayland 上除非用户设了 ForceWaylandDPI 也是 96，像素乘 3/4 就是同样大小的磅。5.1.18 到 5.1.21 的
+// X11 把 Xft.dpi（没有时取不低于 96 的屏幕 DPI）作为字体 DPI，磅数随它放大，大小与 5.1.22 起整窗缩放后的
+// 相同。更早的版本序号与候选用同一个描述，本来就一样大，照写像素（见 CMakeLists 的 MSIME_FCITX5_LABEL_POINTS）。
+enum class CandidateFontUnit { Pixels, Points };
+
+// 像素换成磅是乘 3/4，偏好的字号是整数，所以磅数总是 0.25 的整数倍，照原样写出，不经浮点格式化。
+inline std::string candidate_font_size_text(int size_px, CandidateFontUnit unit) {
+  if (unit == CandidateFontUnit::Pixels) return std::to_string(size_px) + "px";
+  static constexpr const char *quarters[] = {"", ".25", ".5", ".75"};
+  return std::to_string(size_px * 3 / 4) + quarters[size_px * 3 % 4];
+}
+
+// 描述先列选了的英文字体，再列主字体和回退字体，去掉重复；字体列表以逗号结尾，名字以 Pango 认得的样式词（"Bold"、"Light"）结尾时仍算名字的一部分。
+inline std::string candidate_pango_font(const CandidateFont &font,
+                                        CandidateFontUnit unit = CandidateFontUnit::Pixels) {
   std::vector<std::string> families;
   families.reserve(font.fallbacks.size() + 2);
   auto add = [&](const std::string &value) {
@@ -86,7 +102,7 @@ inline std::string candidate_pango_font(const CandidateFont &font) {
   if (!description.empty()) description += ",";
   const int size = font.size_px >= 12 && font.size_px <= 32 ? font.size_px : kDefaultCandidateFontSize;
   if (!description.empty()) description += ' ';
-  description += std::to_string(size) + "px";
+  description += candidate_font_size_text(size, unit);
   return description;
 }
 
@@ -103,18 +119,28 @@ inline bool candidate_font_is_default(const CandidateFont &font) {
 // written again on every preference refresh.
 class CandidateFontSync {
 public:
-  std::optional<std::string> next(const CandidateFont &font) {
-    auto description = candidate_pango_font(font);
+  explicit CandidateFontSync(CandidateFontUnit unit = CandidateFontUnit::Pixels) : unit_(unit) {}
+
+  // current 是面板配置里现有的描述。偏好仍是默认值时本来不写；但它正是旧版本按像素写下的同一个字体时，按磅
+  // 重写一次，否则升级前写过像素的用户要等再改一次字体，序号才与候选一样大。
+  std::optional<std::string> next(const CandidateFont &font, const std::optional<std::string> &current = std::nullopt) {
+    auto description = candidate_pango_font(font, unit_);
     if (!last_ && candidate_font_is_default(font)) {
       last_ = description;
+      if (unit_ == CandidateFontUnit::Points && current &&
+          *current == candidate_pango_font(font, CandidateFontUnit::Pixels))
+        return description;
       return std::nullopt;
     }
     if (last_ == description) return std::nullopt;
     last_ = description;
     return description;
   }
+  // 是否已经同步过一次；之后 next 不再看 current。
+  bool primed() const { return last_.has_value(); }
 
 private:
+  CandidateFontUnit unit_;
   std::optional<std::string> last_;
 };
 

@@ -473,6 +473,31 @@ final class OnboardingUITests: XCTestCase {
     XCTAssertTrue(app.buttons["keyboardTryoutLink"].exists)
   }
 
+  /// 用户点完「获取验证码」要切到邮箱 App 去看验证码。回来时登录弹窗必须还在，填过的邮箱也还在，否则又得重新获取一遍。
+  @MainActor
+  func testCodeLoginKeepsTargetAcrossBackgrounding() throws {
+    let app = XCUIApplication()
+    app.launchArguments = ["-hasCompletedOnboarding", "YES"]
+    app.launch()
+    app.tabBars.buttons["我的"].tap()
+    let loginAlert = app.alerts["账号与登录"]
+    if loginAlert.waitForExistence(timeout: 5) { loginAlert.buttons["好"].tap() }
+    let emailLogin = app.buttons["backendCodeLogin_email"]
+    guard emailLogin.waitForExistence(timeout: 10) else { throw XCTSkip("账号服务没有提供邮箱登录") }
+    emailLogin.tap()
+    let target = app.textFields["backendCodeTarget"]
+    XCTAssertTrue(target.waitForExistence(timeout: 5))
+    target.tap(); target.typeText("tester@example.com")
+
+    XCUIDevice.shared.press(.home)
+    XCTAssertTrue(app.wait(for: .runningBackground, timeout: 5))
+    app.activate()
+    XCTAssertTrue(app.wait(for: .runningForeground, timeout: 5))
+
+    XCTAssertTrue(app.navigationBars["邮箱登录"].waitForExistence(timeout: 5))
+    XCTAssertEqual(app.textFields["backendCodeTarget"].value as? String, "tester@example.com")
+  }
+
   @MainActor
   func testCancellingPublicationPreservesCommunitySearch() {
     let app = XCUIApplication()

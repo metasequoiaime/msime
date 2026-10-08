@@ -990,10 +990,9 @@ fn download_and_extract(
         downloaded: total,
         total,
     });
-    let mut zip = zip::ZipArchive::new(BufReader::new(
-        crate::storage::open_private_file(&partial)?,
-    ))
-        .map_err(|error| LocalModelError::UnsafeArchive(error.to_string()))?;
+    let mut zip =
+        zip::ZipArchive::new(BufReader::new(crate::storage::open_private_file(&partial)?))
+            .map_err(|error| LocalModelError::UnsafeArchive(error.to_string()))?;
     for file in files {
         check_cancel(cancel)?;
         let name = single_component(&file.name)

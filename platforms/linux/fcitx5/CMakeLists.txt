@@ -144,6 +144,10 @@ endif()
 if(Fcitx5Core_VERSION VERSION_GREATER_EQUAL 5.1.22)
   target_compile_definitions(msime-fcitx5 PRIVATE MSIME_FCITX5_XKB_STATE_MASK)
 endif()
+# classicui 从 5.1.18 起单独按磅设置候选序号的字号，候选字体要写成磅序号才与候选一样大；更早的版本照写像素（见 CandidateFontUnit）。
+if(Fcitx5Core_VERSION VERSION_GREATER_EQUAL 5.1.18)
+  target_compile_definitions(msime-fcitx5 PRIVATE MSIME_FCITX5_LABEL_POINTS)
+endif()
 # Usage reporting, through the same wrapper as the IBus host and with the same version: the parent project's MSIME_LINUX_VERSION, or platforms/linux/version.txt when this directory is configured on its own. Only the addon reports; the native test builds the engine without it.
 if(NOT MSIME_LINUX_VERSION)
   set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../version.txt")
@@ -215,6 +219,9 @@ if(BUILD_TESTING)
   target_link_libraries(fcitx5-native-test PRIVATE Fcitx5::Core PkgConfig::GIO PkgConfig::CAIRO nlohmann_json::nlohmann_json "${MSIME_HOST_LIBRARY}")
   if(Fcitx5Core_VERSION VERSION_GREATER_EQUAL 5.1.22)
     target_compile_definitions(fcitx5-native-test PRIVATE MSIME_FCITX5_XKB_STATE_MASK)
+  endif()
+  if(Fcitx5Core_VERSION VERSION_GREATER_EQUAL 5.1.18)
+    target_compile_definitions(fcitx5-native-test PRIVATE MSIME_FCITX5_LABEL_POINTS)
   endif()
   # The first-run case in tests/native.cpp needs a system options file that does not exist and a guide program it can stub, so neither may point at the installed locations.
   target_compile_definitions(fcitx5-native-test PRIVATE

@@ -329,7 +329,7 @@ public final class LocalAsrRecognizer {
             byte[] bytes = LocalAsrPolicy.readManifest(modelDirectory, trustedRoot);
             JSONObject manifest = new JSONObject(TextPolicy.utf8(bytes));
             if (manifest.isNull("hotwords")) return "";
-            return manifest.optString("hotwords", "");
+            return JsonPolicy.strictStringOrEmpty(manifest.opt("hotwords"));
         } catch (IOException | JSONException error) {
             return null;
         }
@@ -345,7 +345,7 @@ public final class LocalAsrRecognizer {
                 .put("options", new JSONObject(hostOptions))
                 .put("limit", LocalAsrPolicy.HOTWORD_LIMIT);
             JSONObject response = new JSONObject(NativeClient.voiceHotwords(request.toString()));
-            if (!Boolean.TRUE.equals(LocalAsrPolicy.strictBoolean(response.opt("ok")))) {
+            if (!JsonPolicy.strictTrue(response.opt("ok"))) {
                 return new JSONArray();
             }
             JSONObject value = response.optJSONObject("value");
@@ -388,7 +388,7 @@ public final class LocalAsrRecognizer {
         try {
             JSONObject request = new JSONObject().put("text", text).put("hotwords", hotwords);
             JSONObject response = new JSONObject(NativeClient.voiceHotwordCorrect(request.toString()));
-            JSONObject value = Boolean.TRUE.equals(LocalAsrPolicy.strictBoolean(response.opt("ok")))
+            JSONObject value = JsonPolicy.strictTrue(response.opt("ok"))
                 ? response.optJSONObject("value") : null;
             if (value == null || value.isNull("text")) return text;
             String corrected = LocalAsrPolicy.transcript(value.opt("text"));

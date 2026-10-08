@@ -221,3 +221,100 @@ fn only_the_most_recent_lines_are_kept() {
     assert_eq!(count.truncated, 3);
     assert_eq!(bundle.sections.unwrap()["input_events"][0]["t_ms"], 3);
 }
+
+// Android 宿主把遥测的崩溃目录（`telemetry-crashes/`）当崩溃日志来源传进来；目录曾被当成不合规的来源，整个诊断包因此生成失败（#5539）。
+#[test]
+fn a_telemetry_crash_directory_is_read_as_crash_logs() {
+    let directory = tempfile::tempdir().unwrap();
+    let crashes = directory.path().join(crate::telemetry::CRASH_DIRECTORY);
+    std::fs::create_dir(&crashes).unwrap();
+    std::fs::write(
+        crashes.join("0b8f5d3e-1d2c-4b7a-9a43-5f1c2e3d4a5b.crash"),
+        "java.lang.IllegalStateException: 合成文字 typed text\nat app.msime.android.Foo.bar(Foo.java:12)\nCaused by: org.json.JSONException: Unterminated string at 合成\n",
+    )
+    .unwrap();
+    std::fs::write(crashes.join("empty.crash"), "").unwrap();
+    std::fs::write(crashes.join("notes.txt"), "not a crash record").unwrap();
+    std::fs::create_dir(crashes.join("nested.crash")).unwrap();
+    let destination = directory.path().join("bundle.zip");
+    let mut request = request(
+        directory.path(),
+        DiagnosticInclude {
+            crash_logs: true,
+            ..DiagnosticInclude::default()
+        },
+    );
+    request.sources.crash_logs = Some(crashes.to_string_lossy().into_owned());
+
+    let sections = build_bundle(&request).unwrap();
+    let count = sections.counts.crash_logs.unwrap();
+    assert_eq!((count.kept, count.dropped, count.truncated), (2, 0, 0));
+    let records = &sections.sections.unwrap()["crash_logs"];
+    let text = records.to_string();
+    assert!(
+        !text.contains("合成") && !text.contains("typed text"),
+        "{text}"
+    );
+    assert!(text.contains("java.lang.IllegalStateException"), "{text}");
+    assert!(text.contains("unknown crash"), "{text}");
+    assert!(
+        text.contains("at app.msime.android.Foo.bar(Foo.java:12)"),
+        "{text}"
+    );
+    for record in records.as_array().unwrap() {
+        let at = record["at"].as_str().unwrap();
+        assert!(at.len() == 20 && at.ends_with('Z'), "{at}");
+    }
+
+    request.destination = Some(destination.to_string_lossy().into_owned());
+    let bundle = build_bundle(&request).unwrap();
+    assert!(bundle.bytes.unwrap() > 0);
+    let mut archive = zip::ZipArchive::new(File::open(&destination).unwrap()).unwrap();
+    let mut crash_logs = String::new();
+    archive
+        .by_name("crash_logs.ndjson")
+        .unwrap()
+        .read_to_string(&mut crash_logs)
+        .unwrap();
+    assert_eq!(crash_logs.lines().count(), 2);
+}
+
+#[test]
+fn a_crash_directory_keeps_only_the_newest_records() {
+    let directory = tempfile::tempdir().unwrap();
+    let crashes = directory.path().join("crashes");
+    std::fs::create_dir(&crashes).unwrap();
+    let base = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000);
+    for index in 0..MAX_CRASH_LOGS + 3 {
+        let path = crashes.join(format!("{index:03}.crash"));
+        std::fs::write(
+            &path,
+            format!("java.lang.Error{index}\nat a.B.c(B.java:1)\n"),
+        )
+        .unwrap();
+        File::options()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_modified(base + std::time::Duration::from_secs(index as u64))
+            .unwrap();
+    }
+    let mut request = request(
+        directory.path(),
+        DiagnosticInclude {
+            crash_logs: true,
+            ..DiagnosticInclude::default()
+        },
+    );
+    request.sources.crash_logs = Some(crashes.to_string_lossy().into_owned());
+
+    let bundle = build_bundle(&request).unwrap();
+    let count = bundle.counts.crash_logs.unwrap();
+    assert_eq!((count.kept, count.truncated), (MAX_CRASH_LOGS, 3));
+    let records = bundle.sections.unwrap()["crash_logs"].clone();
+    assert_eq!(records[0]["message"], "java.lang.Error3");
+    assert_eq!(
+        records[MAX_CRASH_LOGS - 1]["message"],
+        format!("java.lang.Error{}", MAX_CRASH_LOGS + 2)
+    );
+}

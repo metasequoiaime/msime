@@ -110,7 +110,7 @@ public abstract class DetailPage extends HomeTabFragment {
         if (barTitle != null) barTitle.setText(text);
     }
 
-    /** 大标题行右侧放页面自己的操作（例如词库页的「刷新 / 导出 / 导入」）的容器。 */
+    /** 大标题行右侧放页面自己的操作的容器。窄屏上这里的按钮会挤占大标题的宽度，按钮多于一个时放进内容里的卡片（词库页就是这样，#5682）。 */
     protected final LinearLayout headerActions() {
         return requireView().findViewById(R.id.ms_detail_actions);
     }

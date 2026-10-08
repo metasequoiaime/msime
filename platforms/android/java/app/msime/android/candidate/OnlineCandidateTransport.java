@@ -71,7 +71,9 @@ public final class OnlineCandidateTransport {
     public static String ai(JSONObject descriptor) {
         HttpsURLConnection connection = null;
         try {
-            URL target = new URL(descriptor.getString("url"));
+            String rawUrl = JsonPolicy.strictString(descriptor.opt("url"));
+            if (rawUrl == null) return null;
+            URL target = new URL(rawUrl);
             if (!OnlineCandidatePolicy.validURL(target)) return null;
             byte[] payload = TextPolicy.utf8Bytes(descriptor.getJSONObject("body").toString());
             connection = (HttpsURLConnection) target.openConnection();
@@ -89,7 +91,9 @@ public final class OnlineCandidateTransport {
             if (headers != null) {
                 for (Iterator<String> names = headers.keys(); names.hasNext();) {
                     String name = names.next();
-                    connection.setRequestProperty(name, headers.getString(name));
+                    String header = JsonPolicy.strictString(headers.opt(name));
+                    if (header == null) return null;
+                    connection.setRequestProperty(name, header);
                 }
             }
             try (OutputStream output = connection.getOutputStream()) { output.write(payload); }

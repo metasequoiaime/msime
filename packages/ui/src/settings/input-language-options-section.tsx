@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { GroupList } from "../core/platform-controls";
 import { CandidateEnglishGlossSection } from "./candidate-english-gloss-section";
+import { CandidatePronunciationSection } from "./candidate-pronunciation-section";
 import { EnglishSuggestionsSection } from "./english-suggestions-section";
 import { MixedInputSection, type MixedInputPreferences } from "./mixed-input-section";
 
@@ -11,6 +12,9 @@ export interface InputLanguageOptionsSectionProps {
   includeCandidateControls?: boolean;
   showCandidateEnglishGloss?: boolean;
   candidateEnglishGloss?: boolean;
+  showCandidatePronunciation?: boolean;
+  candidatePronunciation?: boolean;
+  candidatePronunciationDisabled?: boolean;
   showEnglishSuggestions?: boolean;
   englishSuggestions?: boolean;
   betweenMixedAndCandidates?: ReactNode;
@@ -18,6 +22,7 @@ export interface InputLanguageOptionsSectionProps {
   afterCandidateEnglishGloss?: ReactNode;
   onMixedInputChange?: (value: MixedInputPreferences) => void;
   onCandidateEnglishGlossChange?: (value: boolean) => void;
+  onCandidatePronunciationChange?: (value: boolean) => void;
   onEnglishSuggestionsChange?: (value: boolean) => void;
 }
 
@@ -29,12 +34,16 @@ export function InputLanguageOptionsSection({
   includeCandidateControls = false,
   showCandidateEnglishGloss = false,
   candidateEnglishGloss,
+  showCandidatePronunciation = false,
+  candidatePronunciation,
+  candidatePronunciationDisabled,
   showEnglishSuggestions = false,
   englishSuggestions,
   betweenMixedAndCandidates,
   afterCandidateEnglishGloss,
   onMixedInputChange,
   onCandidateEnglishGlossChange,
+  onCandidatePronunciationChange,
   onEnglishSuggestionsChange,
 }: InputLanguageOptionsSectionProps) {
   const content = (
@@ -50,6 +59,13 @@ export function InputLanguageOptionsSection({
         />
       )}
       {afterCandidateEnglishGloss}
+      {includeCandidateControls && showCandidatePronunciation && onCandidatePronunciationChange && (
+        <CandidatePronunciationSection
+          value={candidatePronunciation}
+          disabled={candidatePronunciationDisabled}
+          onChange={onCandidatePronunciationChange}
+        />
+      )}
       {includeCandidateControls && showEnglishSuggestions && onEnglishSuggestionsChange && (
         <EnglishSuggestionsSection
           value={englishSuggestions}

@@ -109,19 +109,36 @@ impl WubiProvider {
     }
 
     /// 返回词条的完整五笔 86 编码。反查只服务于候选展示，不改变候选排序或选择身份；同一词条的多个编码优先取完整编码、再取词库权重最高的一条。
+    #[cfg(test)]
     pub fn reverse_code(&mut self, word: &str) -> Option<String> {
+        self.reverse_code_ref(word).map(str::to_owned)
+    }
+
+    /// 把词条的完整五笔编码写入已有字符串，命中缓存时不复制新的字符串存储。
+    pub fn reverse_code_into(&mut self, word: &str, destination: &mut String) -> bool {
+        let Some(code) = self.reverse_code_ref(word) else {
+            destination.clear();
+            return false;
+        };
+        destination.clear();
+        destination.push_str(code);
+        true
+    }
+
+    fn reverse_code_ref(&mut self, word: &str) -> Option<&str> {
         if word.is_empty() {
             return None;
         }
-        if let Some(code) = self.reverse_cache.get(word) {
-            return code.clone();
+        if self.reverse_cache.peek(word).is_none() {
+            let profile = self.profile;
+            let code = self
+                .connection()
+                .and_then(|connection| reverse_code(connection, profile, word).ok().flatten());
+            self.reverse_cache.put(word.to_owned(), code);
         }
-        let profile = self.profile;
-        let code = self
-            .connection()
-            .and_then(|connection| reverse_code(connection, profile, word).ok().flatten());
-        self.reverse_cache.put(word.to_owned(), code.clone());
-        code
+        self.reverse_cache
+            .get(word)
+            .and_then(|code| code.as_deref())
     }
 
     fn connection(&mut self) -> Option<&Connection> {
@@ -484,5 +501,25 @@ mod tests {
             assert_eq!(fixture.provider.reverse_code(&word), None);
         }
         assert!(fixture.provider.reverse_cache.len() <= 1024);
+    }
+
+    #[test]
+    fn cached_reverse_code_fills_existing_storage() {
+        let mut fixture = fixture(
+            "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);\
+             INSERT INTO wubi86 VALUES('aaab','你',10);",
+        );
+        assert_eq!(fixture.provider.reverse_code("你").as_deref(), Some("aaab"));
+        let mut destination = String::with_capacity(8);
+        destination.push_str("old");
+        let pointer = destination.as_ptr();
+
+        let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            assert!(fixture.provider.reverse_code_into("你", &mut destination));
+        });
+
+        assert_eq!(allocations, 0);
+        assert_eq!(destination, "aaab");
+        assert_eq!(destination.as_ptr(), pointer);
     }
 }

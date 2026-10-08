@@ -88,7 +88,7 @@ public final class CommunitySkinCache {
     }
 
     private static String text(JSONObject value, String key) {
-        String text = strictString(value.opt(key));
+        String text = JsonPolicy.strictString(value.opt(key));
         return text == null ? "" : text;
     }
 
