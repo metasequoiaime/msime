@@ -159,7 +159,7 @@ add_test(NAME msime-tsf-paired-punctuation-policy COMMAND msime-tsf-paired-punct
 add_executable(msime-tsf-candidate-overlay-policy-test tests/input/candidate_overlay_policy.cpp)
 target_compile_features(msime-tsf-candidate-overlay-policy-test PRIVATE cxx_std_17)
 if(MSVC)
-  target_compile_options(msime-tsf-candidate-overlay-policy-test PRIVATE /W4 /WX)
+  target_compile_options(msime-tsf-candidate-overlay-policy-test PRIVATE /W4 /WX /utf-8)
 else()
   target_compile_options(msime-tsf-candidate-overlay-policy-test PRIVATE -Wall -Wextra -Werror)
 endif()

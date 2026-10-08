@@ -898,6 +898,15 @@ bool SupportsCharacterSetShortcut()
            (negotiatedServerCapabilities & FanyImeProtocol::CharacterSetShortcut) != 0;
 }
 
+void Global::ResetForcedOverlayAnchor()
+{
+    if (Global::ForceOverlayCandidate)
+    {
+        Global::Point[0] = 0;
+        Global::Point[1] = Global::INVALID_Y;
+    }
+}
+
 bool SupportsGameHostCandidate()
 {
     return hPipe && hPipe != INVALID_HANDLE_VALUE &&
@@ -1190,16 +1199,15 @@ bool SendToNamedpipe(bool *deliveryAmbiguous = nullptr)
                                           packet.event_type == FanyImePipeEventType::MoveCandidateWnd ||
                                           packet.event_type == FanyImePipeEventType::HideCandidateWnd))
     {
-        // 按键包本身不带坐标，WriteDataToNamedPipe 清空后是 (100,100)。补上当前锚点，没有锚点时是 INVALID_Y；旧 Server 收到这两种都好过 (100,100)，所以不看能力位。
-        if (packet.event_type == FanyImePipeEventType::KeyEvent)
-        {
-            packet.point[0] = Global::Point[0];
-            packet.point[1] = Global::Point[1];
-        }
-        // GameHost 只能设在这四类包上，StatusSnapshot/FocusRestored 带上它会被读错全角状态或判为非法帧。
+        // GameHost 只能设在这四类包上，StatusSnapshot/FocusRestored 带上它会被读错全角状态或判为非法帧。按键包本身不带坐标，WriteDataToNamedPipe 清空后是 (100,100)，这里补上当前锚点，没有锚点时是 INVALID_Y。坐标也只在协商到能力位后才补：旧 Server 对 INVALID_Y 的可见快照只隐藏、不发渲染回执，每个选词键都会白等回执超时。
         if (SupportsGameHostCandidate())
         {
             packet.modifiers_down |= msime::windows::PipeMetadata::GameHost;
+            if (packet.event_type == FanyImePipeEventType::KeyEvent)
+            {
+                packet.point[0] = Global::Point[0];
+                packet.point[1] = Global::Point[1];
+            }
         }
     }
 

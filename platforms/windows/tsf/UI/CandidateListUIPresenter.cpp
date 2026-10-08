@@ -981,14 +981,6 @@ void CCandidateListUIPresenter::_EndCandidateList()
     PerfTimer endLayoutTimer;
     _EndLayout();
     double endLayoutElapsedMs = endLayoutTimer.ElapsedMs();
-
-    // Global::Point 不随组字结束复位，而下一次组字的第一个按键先于 _StartCandidateList 发出：不复位的话，强制叠加的游戏会话会带着上一个输入框的坐标。
-    // 走延迟清理的 presenter 已在 _PrepareForAsyncCleanup 里复位过；它的析构晚于消息投递，那时同线程可能已有新组字写入了锚点，这里再复位会把新锚点冲掉。
-    if (Global::ForceOverlayCandidate && !_asyncCleanupPending)
-    {
-        Global::Point[0] = 0;
-        Global::Point[1] = Global::INVALID_Y;
-    }
 }
 
 void CCandidateListUIPresenter::_PrepareForAsyncCleanup()
@@ -998,13 +990,6 @@ void CCandidateListUIPresenter::_PrepareForAsyncCleanup()
     // this until the presenter destructor lets an old cleanup message race a
     // newly started composition and clear its candidates.
     EndCandidateUiSession();
-
-    // 强制叠加时在脱离的这一刻同步复位 Global::Point，理由同 _EndCandidateList：必须赶在同一次按键里可能新建的 presenter 写入锚点之前。
-    if (Global::ForceOverlayCandidate)
-    {
-        Global::Point[0] = 0;
-        Global::Point[1] = Global::INVALID_Y;
-    }
 }
 
 void CCandidateListUIPresenter::_NotifyUI()
