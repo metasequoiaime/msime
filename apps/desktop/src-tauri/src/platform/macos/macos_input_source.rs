@@ -600,7 +600,7 @@ fn clear_input_source_cache_directory(directory: &mut rustix::fs::Dir) {
         let Ok(descriptor) = directory.fd() else {
             continue;
         };
-        let _ = rustix::fs::unlinkat(&descriptor, entry.file_name(), rustix::fs::AtFlags::empty());
+        let _ = rustix::fs::unlinkat(descriptor, entry.file_name(), rustix::fs::AtFlags::empty());
     }
 }
 

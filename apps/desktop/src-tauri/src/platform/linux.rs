@@ -54,6 +54,7 @@ pub(crate) fn open_private_fd(directory: &std::os::fd::OwnedFd, name: &OsStr) ->
 
 /// Read at most `max_bytes + 1` bytes so callers can distinguish an accepted
 /// file from one that crossed its bound after its metadata was inspected.
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn read_bounded_file(path: &Path, max_bytes: u64) -> io::Result<Vec<u8>> {
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
     let name = path
