@@ -22,7 +22,7 @@ struct KeyboardToolbarSettingsView: View {
   /// 按设计稿顺序和措辞排列的开关：表情 / 常用语 / 剪贴板 / 皮肤 / 输入方式，之后是 iOS 独有的项。标题是本页自己的；共享的 `TouchToolbarPreference.options` 保留共享设置页的措辞。
   private static let buttons: [(name: String, title: String)] = [
     ("emoji", "表情"), ("phrases", "常用语"), ("clipboard", "剪贴板"), ("skin", "皮肤"), ("scheme", "输入方式"),
-    ("layout", "键盘设置"), ("ai", "AI 润色"), ("character_set", "简繁切换"), ("fullwidth", "全角 / 半角"),
+    ("ai", "AI 润色"), ("character_set", "简繁切换"), ("fullwidth", "全角 / 半角"),
     ("punctuation", "中英文标点"),
   ]
 
@@ -94,7 +94,7 @@ struct KeyboardToolbarSettingsView: View {
   static func previewItems(_ toolbar: TouchToolbarPreference, phrases: Bool, scheme: Bool) -> [KeyboardPreviewToolbarItem] {
     let ordered: [(enabled: Bool, item: KeyboardPreviewToolbarItem)] = [
       (toolbar.emoji, .emoji), (phrases, .phrases), (toolbar.clipboard, .clipboard), (toolbar.skin, .skin),
-      (scheme, .scheme), (toolbar.layout, .layout), (toolbar.ai, .ai), (toolbar.characterSet, .characterSet),
+      (scheme, .scheme), (toolbar.ai, .ai), (toolbar.characterSet, .characterSet),
       (toolbar.fullwidth, .fullwidth), (toolbar.punctuation, .punctuation),
     ]
     return ordered.filter(\.enabled).map(\.item)

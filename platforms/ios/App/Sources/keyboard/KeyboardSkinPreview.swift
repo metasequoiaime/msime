@@ -12,7 +12,7 @@ enum KeyboardPreviewTopStrip: Equatable {
 
 /// 键盘预览里的一个工具栏按钮。图标与键盘自己的工具栏一致；字符类项目画单个字符而不是符号。
 enum KeyboardPreviewToolbarItem: String, CaseIterable {
-  case emoji, phrases, clipboard, skin, scheme, layout, ai, characterSet, fullwidth, punctuation
+  case emoji, phrases, clipboard, skin, scheme, ai, characterSet, fullwidth, punctuation
 
   /// 该项目的 SF Symbol；画成字符的项目为 nil。
   var symbol: String? {
@@ -22,7 +22,6 @@ enum KeyboardPreviewToolbarItem: String, CaseIterable {
     case .clipboard: "doc.on.clipboard"
     case .skin: "paintpalette"
     case .scheme: "keyboard"
-    case .layout: "slider.horizontal.3"
     case .ai: "sparkles"
     case .characterSet, .fullwidth, .punctuation: nil
     }

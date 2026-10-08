@@ -88,7 +88,6 @@
 		18B2D7869FB280373F9051C0 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD631D4EDB5CF38EF5EAC720 /* OnboardingView.swift */; };
 		18BCC769CF7383E56641C063 /* KeyboardChatHistoryPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1ECCDBA81989927BE56DE03 /* KeyboardChatHistoryPolicyTests.swift */; };
 		18BE688A999BD4CB8DD1A7E1 /* KeyboardFeedbackPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE3CD6FB7B6261EEEA75BBA4 /* KeyboardFeedbackPreference.swift */; };
-		19145B67D196265E586701E4 /* KeyboardLayoutPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8665409623A8E68ACE9F439B /* KeyboardLayoutPickerView.swift */; };
 		192B89587BCB6B1DAC5C3B10 /* CandidateTranslationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44FA49473CBC55923C7B4378 /* CandidateTranslationStore.swift */; };
 		19459B50E16C59034C335306 /* BackendAccountClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5ED26487097D19CD4974775E /* BackendAccountClient.swift */; };
 		195C93A321298609E05B757F /* BackendAiClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DD27E4D5116A057B7A521F5 /* BackendAiClient.swift */; };
@@ -434,12 +433,10 @@
 		8538D02349DE6079A135F44D /* BackendDictionaryClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFA5AC2ED8E38D8E073C2C85 /* BackendDictionaryClient.swift */; };
 		8544C2E394B2C05DEE0D59B1 /* InputSchemePreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD52A986DB3B501E1E7974D2 /* InputSchemePreference.swift */; };
 		85637D31AEE9A8CB314E63EC /* CandidatePaletteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 920D79E6663A0EC9A134F120 /* CandidatePaletteTests.swift */; };
-		856F4DE91BEACAF85B2EE574 /* KeyboardHeightControlTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47DEC2519E0A2277D1101714 /* KeyboardHeightControlTests.swift */; };
 		86485B6CEA633455FA7812FB /* KeyboardAIView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03F455BDE0DBDA8A761F0373 /* KeyboardAIView.swift */; };
 		86A47385D35C36B3CD7268D1 /* KeyboardEmojiPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1021E0816F83EFD2537CFB63 /* KeyboardEmojiPickerView.swift */; };
 		86FB68B9AD771D313C216BD7 /* KeyboardServiceFallback.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7513F9E654F6379AEB99C79 /* KeyboardServiceFallback.swift */; };
 		877126391F00F1D41C4D2372 /* BackendChatClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4382C16C3E9BCE74058CA5F8 /* BackendChatClient.swift */; };
-		8780DD46D2F70E6127EB16F3 /* KeyboardLayoutPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8665409623A8E68ACE9F439B /* KeyboardLayoutPickerView.swift */; };
 		879694CEE726D8D6507DF076 /* DoubaoHostFrameCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = B958F722D77F264EB1AF5490 /* DoubaoHostFrameCodec.swift */; };
 		87A2E7E56167E588E57E0A26 /* SkinKeySurfaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1253B506002669ABD2E8323B /* SkinKeySurfaceView.swift */; };
 		8846DA1D1FB91C79FE460726 /* ExternalCandidateSkin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EDF7AF8FF5043DBBD330758 /* ExternalCandidateSkin.swift */; };
@@ -738,7 +735,6 @@
 		E408DAE28A4E8CB4B42C2872 /* LocalModeSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D380F60212DADCCC4AC34A5C /* LocalModeSettingsTests.swift */; };
 		E40B14CB5026FF3469F20AA3 /* VocabularyReviewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0228A730ED4ACC32CF149FF /* VocabularyReviewTests.swift */; };
 		E4E084717BB9F67398A64DFB /* ProjectConfigurationTests.py in Resources */ = {isa = PBXBuildFile; fileRef = 88E0C60629DFF4968ADDFC91 /* ProjectConfigurationTests.py */; };
-		E523D9636911EEDF90C16B2A /* KeyboardLayoutBarLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7FFA1580A23D08C89F50D158 /* KeyboardLayoutBarLayoutTests.swift */; };
 		E5AE9126284C4BFB33466E1C /* ExternalCandidateSkin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EDF7AF8FF5043DBBD330758 /* ExternalCandidateSkin.swift */; };
 		E64626F93B699908E04CCAC6 /* HandwritingCanvasCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D3FB46140677FBE04AD2162 /* HandwritingCanvasCard.swift */; };
 		E6C5E0D00CFF17205B41CA12 /* CrashSignalRecorder.c in Sources */ = {isa = PBXBuildFile; fileRef = 333BE267E92B331059A2035B /* CrashSignalRecorder.c */; };
@@ -761,7 +757,6 @@
 		EEDABC563F556FDBBE40A504 /* GoogleSignIn-Dependencies.txt in Resources */ = {isa = PBXBuildFile; fileRef = 2B7ADA6A964F03595EE175C6 /* GoogleSignIn-Dependencies.txt */; };
 		EEF2B92AD2E1215BBECF6A2C /* AIEndpointPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFC2ABA346D43E3C2EC9A54C /* AIEndpointPolicy.swift */; };
 		EEF62F7F95D353839FD7441D /* DoubaoVoiceCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7FE5DEC53AAC548F03142BC /* DoubaoVoiceCoordinator.swift */; };
-		EFAF2A3C36BCF21D316D4A96 /* KeyboardLayoutPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8665409623A8E68ACE9F439B /* KeyboardLayoutPickerView.swift */; };
 		F13CFDAF00D61710DF1AA8F7 /* HandwritingDownloadSession.m in Sources */ = {isa = PBXBuildFile; fileRef = DA3994022F73A592AC2A907B /* HandwritingDownloadSession.m */; };
 		F15CA3088A526483C2319C60 /* ScrollEdgeEffects.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6AA2E218C83BD4492D3233B5 /* ScrollEdgeEffects.swift */; };
 		F162459F4FE0BC93071CE1F6 /* ChineseOutputPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB4152BF2948CC00B7A2B2F9 /* ChineseOutputPreference.swift */; };
@@ -996,7 +991,6 @@
 		44FA49473CBC55923C7B4378 /* CandidateTranslationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CandidateTranslationStore.swift; sourceTree = "<group>"; };
 		459B7770A8633235EB4072D4 /* AIThemeReference.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = AIThemeReference.json; sourceTree = "<group>"; };
 		460A90066E261D34294ABDB8 /* DesignKit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignKit.swift; sourceTree = "<group>"; };
-		47DEC2519E0A2277D1101714 /* KeyboardHeightControlTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardHeightControlTests.swift; sourceTree = "<group>"; };
 		48AB1E7A5D30BF8A8B9B3AD6 /* OneHandModeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OneHandModeTests.swift; sourceTree = "<group>"; };
 		494F3DE82DE97AA16039FEBE /* CandidateGlossModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CandidateGlossModelTests.swift; sourceTree = "<group>"; };
 		4A42FAEB342260CCA9B4D581 /* UsageReporting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageReporting.swift; sourceTree = "<group>"; };
@@ -1078,7 +1072,6 @@
 		7EB05BA77651888FE838F965 /* FuzzyPinyinDocumentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FuzzyPinyinDocumentTests.swift; sourceTree = "<group>"; };
 		7FDBC471A409CDFF3180B5EA /* TabletSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabletSettingsView.swift; sourceTree = "<group>"; };
 		7FEA3249112BAD489652BD99 /* AppNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppNavigation.swift; sourceTree = "<group>"; };
-		7FFA1580A23D08C89F50D158 /* KeyboardLayoutBarLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardLayoutBarLayoutTests.swift; sourceTree = "<group>"; };
 		811060BE21223F81A58B9D84 /* TypingStatisticsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TypingStatisticsTests.swift; sourceTree = "<group>"; };
 		819E9E63CED73940E5658A40 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		8247FADFDC65265DAB0ABB43 /* MSIMEKeyboardTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = MSIMEKeyboardTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -1087,7 +1080,6 @@
 		84C84616F00768E7DA4291F4 /* KeyboardChatHistoryPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardChatHistoryPolicy.swift; sourceTree = "<group>"; };
 		84E0EA58776B85E03854D05F /* OnboardingUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingUITests.swift; sourceTree = "<group>"; };
 		860C897871B78BDA37D8F6CF /* MSIMESharedTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = MSIMESharedTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		8665409623A8E68ACE9F439B /* KeyboardLayoutPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardLayoutPickerView.swift; sourceTree = "<group>"; };
 		874FE91F05D7569EE19499A6 /* WelcomeFlowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeFlowView.swift; sourceTree = "<group>"; };
 		87844566164DF604747D9C08 /* WubiCodeHintPreference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WubiCodeHintPreference.swift; sourceTree = "<group>"; };
 		8808E90622807023716EB81C /* CommunityReportSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommunityReportSheet.swift; sourceTree = "<group>"; };
@@ -1559,8 +1551,6 @@
 				358A886A1901919846B9571D /* KeyboardEmojiCatalogTests.swift */,
 				B3C0EC95BE1054CE00B48BE7 /* KeyboardFormFactorTests.swift */,
 				7A96144FAFD463E1EA64B913 /* KeyboardGeometrySettingsTests.swift */,
-				47DEC2519E0A2277D1101714 /* KeyboardHeightControlTests.swift */,
-				7FFA1580A23D08C89F50D158 /* KeyboardLayoutBarLayoutTests.swift */,
 				D380F60212DADCCC4AC34A5C /* LocalModeSettingsTests.swift */,
 				8D91196B66808B1D5F14A605 /* MorePanelFoldTests.swift */,
 				1B319A3B9AD9C40C9B02A70B /* NineKeyKeyboardTests.swift */,
@@ -1818,7 +1808,6 @@
 				D22544622BDEADB0149155DF /* KeyboardInputContext.swift */,
 				5BD26F465BA4C55F35689C05 /* KeyboardInputView.swift */,
 				03CE1B0BB9CBCEC7819AE31A /* KeyboardKeyButton.swift */,
-				8665409623A8E68ACE9F439B /* KeyboardLayoutPickerView.swift */,
 				58FA4200E8A4B07CEFC31B28 /* KeyboardLayoutTables.swift */,
 				58DD5E4F93A789A62BE1842D /* KeyboardMorePickerView.swift */,
 				DF7CED33C36869979C0260DC /* KeyboardNineKeyPanelColumns.swift */,
@@ -2699,14 +2688,11 @@
 				C2CB553744B01ABD94DD5CB4 /* KeyboardFormFactorTests.swift in Sources */,
 				E15199BB0F735699CB8E4775 /* KeyboardFunctionTileView.swift in Sources */,
 				3985E045FA7B6C519947593D /* KeyboardGeometrySettingsTests.swift in Sources */,
-				856F4DE91BEACAF85B2EE574 /* KeyboardHeightControlTests.swift in Sources */,
 				9E0381D3221F42A873EF6D7D /* KeyboardHostContext.swift in Sources */,
 				8EA282D8FB2169A558CAA4E0 /* KeyboardIconPaths.swift in Sources */,
 				AA0CFD15804CB36927306538 /* KeyboardInputContext.swift in Sources */,
 				BC27D2FBC32D0B431F03E3C1 /* KeyboardInputView.swift in Sources */,
 				FC98C1A8DEDDF9A6612D759B /* KeyboardKeyButton.swift in Sources */,
-				E523D9636911EEDF90C16B2A /* KeyboardLayoutBarLayoutTests.swift in Sources */,
-				19145B67D196265E586701E4 /* KeyboardLayoutPickerView.swift in Sources */,
 				90E52DDDC017B2B755FF492D /* KeyboardLayoutPreference.swift in Sources */,
 				91F9EC1353356B1A77EE96FF /* KeyboardLayoutTables.swift in Sources */,
 				0028B4F595D11B3D68207B35 /* KeyboardMorePickerView.swift in Sources */,
@@ -2882,7 +2868,6 @@
 				B43B0B725FE05BA0550DAF6E /* KeyboardInputContext.swift in Sources */,
 				AE197B40BBB54BEFB0A2A203 /* KeyboardInputView.swift in Sources */,
 				ECAC2932968C376991BD929C /* KeyboardKeyButton.swift in Sources */,
-				EFAF2A3C36BCF21D316D4A96 /* KeyboardLayoutPickerView.swift in Sources */,
 				227D4502B96776C0AE4C6605 /* KeyboardLayoutPreference.swift in Sources */,
 				21E8824DD538B4CDAC5BEDCA /* KeyboardLayoutTables.swift in Sources */,
 				63FD89B15E0CD0FBF3D3A2C3 /* KeyboardMorePickerView.swift in Sources */,
@@ -3046,7 +3031,6 @@
 				1FAF4CB2FDE974C0FD476E7E /* KeyboardInputContext.swift in Sources */,
 				3257A2FFD4F55F3C6845E202 /* KeyboardInputView.swift in Sources */,
 				A3A9B76D2FA5D7FEC81D8E95 /* KeyboardKeyButton.swift in Sources */,
-				8780DD46D2F70E6127EB16F3 /* KeyboardLayoutPickerView.swift in Sources */,
 				950BE6D1733608E4EF7C1B7E /* KeyboardLayoutPreference.swift in Sources */,
 				2DE8B388D6BE850877524B62 /* KeyboardLayoutTables.swift in Sources */,
 				48FEE6AD4D91AE4166E97296 /* KeyboardMorePickerView.swift in Sources */,

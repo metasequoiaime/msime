@@ -6,6 +6,7 @@ import Foundation
 struct TouchToolbarPreference: Equatable {
   static let key = "touch_toolbar"
 
+  /// 共享设置页的「键盘设置」按钮。iOS 键盘不画这个按钮，也不在 App 里给它开关，但写回文档时照样带上它：`touch_toolbar` 要求完整的对象，其他平台还在用它。
   var layout = true
   var emoji = true
   var skin = true

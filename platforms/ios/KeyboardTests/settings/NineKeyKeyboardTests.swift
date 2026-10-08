@@ -852,64 +852,21 @@ final class NineKeyKeyboardTests: XCTestCase {
     }
   }
 
-  func testKeyboardSettingsReplaceLayoutCardsAndVoiceIsIndependent() throws {
-    let previousScheme = InputSchemePreference.scheme
-    defer { InputSchemePreference.scheme = previousScheme }
-    InputSchemePreference.scheme = .quanpin
+  /// 语音入口只由它自己的偏好决定露不露面，键距和行距不牵连它。
+  func testVoiceShortcutFollowsOnlyItsOwnPreference() throws {
     KeyboardLayoutPreference.keySpacing = 5
     KeyboardLayoutPreference.rowSpacing = 8
-    KeyboardLayoutPreference.voiceShortcutEnabled = false
+    KeyboardLayoutPreference.voiceShortcutEnabled = true
     let controller = KeyboardViewController()
     controller.loadViewIfNeeded()
     controller.view.frame = CGRect(x: 0, y: 0, width: 440, height: 292)
-    let letter = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == "字母 N" } as? UIButton)
-    letter.sendActions(for: .primaryActionTriggered)
-    let preedit = try button("preeditButton", in: controller).configuration?.title
-    try button("layoutShortcut", in: controller).sendActions(for: .primaryActionTriggered)
-    XCTAssertFalse(descendants(controller.view).contains { $0.accessibilityIdentifier?.hasPrefix("layoutCard-") == true })
-    let height = try XCTUnwrap(
-      descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardHeightGrip" })
-    controller.view.layoutIfNeeded()
-    let initialHeight = try XCTUnwrap(controller.view.constraints.first { $0.identifier == "keyboardHeight" }).constant
-    for _ in 0..<12 { height.accessibilityIncrement() }
-    controller.view.layoutIfNeeded()
-    let adjustedHeight = try XCTUnwrap(controller.view.constraints.first { $0.identifier == "keyboardHeight" }).constant
-    XCTAssertEqual(adjustedHeight, initialHeight + 24, accuracy: 0.5)
-    XCTAssertEqual(KeyboardLayoutPreference.heightAdjustment, 24)
-    XCTAssertEqual(KeyboardLayoutPreference.keySpacing, 5)
-    XCTAssertEqual(KeyboardLayoutPreference.rowSpacing, 8)
-    XCTAssertEqual(KeyboardLayoutPreference.heightAdjustment, 24)
-    XCTAssertEqual(try button("preeditButton", in: controller).configuration?.title, preedit)
-    try button("closeLayoutPicker", in: controller).sendActions(for: .primaryActionTriggered)
-    // 语音入口的开关已经不在这条工具条上了 —— 它留在应用的键盘设置页。要守住的契约没变:这个偏好
-    // 不被间距和高度牵连(上面三条刚查过),而且只有它决定顶栏那个语音按钮露不露面。
-    KeyboardLayoutPreference.voiceShortcutEnabled = true
     controller.viewWillAppear(false)
     XCTAssertFalse(try button("layoutVoiceShortcut", in: controller).isHidden)
     KeyboardLayoutPreference.voiceShortcutEnabled = false
     controller.viewWillAppear(false)
     XCTAssertTrue(try button("layoutVoiceShortcut", in: controller).isHidden)
-  }
-
-  func testKeyboardSettingsResetRestoresIndependentDefaults() throws {
-    KeyboardLayoutPreference.keySpacing = 5
-    KeyboardLayoutPreference.rowSpacing = 8
-    KeyboardLayoutPreference.heightAdjustment = 24
-    KeyboardLayoutPreference.voiceShortcutEnabled = true
-    let controller = KeyboardViewController()
-    controller.loadViewIfNeeded()
-    controller.view.frame = CGRect(x: 0, y: 0, width: 440, height: 292)
-    try button("layoutShortcut", in: controller).sendActions(for: .primaryActionTriggered)
-    try button("resetKeyboardSettings", in: controller).sendActions(for: .primaryActionTriggered)
-    XCTAssertEqual(KeyboardLayoutPreference.keySpacing, 6)
-    XCTAssertEqual(KeyboardLayoutPreference.rowSpacing, 7)
-    XCTAssertEqual(KeyboardLayoutPreference.heightAdjustment, 0)
-    XCTAssertFalse(KeyboardLayoutPreference.voiceShortcutEnabled)
-    for key in [KeyboardLayoutPreference.keySpacingKey, KeyboardLayoutPreference.rowSpacingKey,
-                KeyboardLayoutPreference.heightAdjustmentKey, KeyboardLayoutPreference.voiceShortcutKey] {
-      XCTAssertNil(KeyboardLayoutPreference.defaults.object(forKey: key), "\(key) 应被恢复默认")
-    }
-    XCTAssertNotNil(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardHeightGrip" })
+    XCTAssertEqual(KeyboardLayoutPreference.keySpacing, 5)
+    XCTAssertEqual(KeyboardLayoutPreference.rowSpacing, 8)
   }
 
   func testTouchGeometryWritesAndResetsCanonicalPreferences() throws {
@@ -952,7 +909,6 @@ final class NineKeyKeyboardTests: XCTestCase {
       if pinned.clipboard { expected.append("clipboardShortcut") }
       if pinned.skin { expected.append("skinShortcut") }
       if TouchToolbarLocalPreference.scheme { expected.append("schemeButton") }
-      if pinned.layout { expected.append("layoutShortcut") }
       if pinned.ai { expected.append("aiShortcut") }
       if pinned.characterSet { expected.append("characterSetShortcut") }
       if pinned.fullwidth { expected.append("fullwidthShortcut") }
@@ -976,13 +932,10 @@ final class NineKeyKeyboardTests: XCTestCase {
   }
 
   func testBrandTogglesTheFunctionMenuInTheKeyArea() throws {
-    let previous = KeyboardFeedbackPreference.defaults.object(forKey: KeyboardFeedbackPreference.soundKey)
-    defer {
-      if let previous { KeyboardFeedbackPreference.defaults.set(previous, forKey: KeyboardFeedbackPreference.soundKey) }
-      else { KeyboardFeedbackPreference.defaults.removeObject(forKey: KeyboardFeedbackPreference.soundKey) }
-    }
+    let previous = KeyboardPrivacyPreference.incognito
+    defer { KeyboardPrivacyPreference.incognito = previous }
     for width in [320.0, 414.0] {
-      KeyboardFeedbackPreference.defaults.set(true, forKey: KeyboardFeedbackPreference.soundKey)
+      KeyboardPrivacyPreference.incognito = false
       let controller = KeyboardViewController()
       controller.loadViewIfNeeded()
       controller.view.frame = CGRect(x: 0, y: 0, width: width, height: KeyboardViewController.defaultKeyboardHeight)
@@ -1020,12 +973,12 @@ final class NineKeyKeyboardTests: XCTestCase {
       let grid = try XCTUnwrap(descendants(panel).compactMap { $0 as? KeyboardPagedGridView }.first)
       grid.scrollToPage(1, animated: false)
       XCTAssertEqual(panel.currentPage, 1)
-      let sound = try tile("moreCard-按键音", in: controller)
-      XCTAssertEqual(page(of: sound, in: scroll), 1)
-      XCTAssertEqual(sound.accessibilityValue, "已开启")
-      sound.sendActions(for: .primaryActionTriggered)
-      XCTAssertFalse(KeyboardFeedbackPreference.soundEnabled)
-      XCTAssertEqual(try tile("moreCard-按键音", in: controller).accessibilityValue, "已关闭")
+      let privacy = try tile("moreCard-隐私模式", in: controller)
+      XCTAssertEqual(page(of: privacy, in: scroll), 1)
+      XCTAssertEqual(privacy.accessibilityValue, "已关闭")
+      privacy.sendActions(for: .primaryActionTriggered)
+      XCTAssertTrue(KeyboardPrivacyPreference.incognito)
+      XCTAssertEqual(try tile("moreCard-隐私模式", in: controller).accessibilityValue, "已开启")
       XCTAssertNotNil(panel.superview, "a switch leaves the menu open")
       XCTAssertEqual(panel.currentPage, 1, "a switch keeps the page")
 
@@ -1576,7 +1529,7 @@ final class NineKeyKeyboardTests: XCTestCase {
       XCTAssertEqual(brand.center.x, brandSlot.bounds.midX, accuracy: 0.5)
       XCTAssertLessThan(brand.convert(brand.bounds, to: toolbar).maxX,
                         try button("schemeButton", in: controller).convert(try button("schemeButton", in: controller).bounds, to: toolbar).minX)
-      for id in ["layoutShortcut", "schemeButton", "emojiShortcut", "phrasesShortcut",
+      for id in ["schemeButton", "emojiShortcut", "phrasesShortcut",
                  "skinShortcut", "moreShortcut", "dismissShortcut"] {
         let control = try button(id, in: controller)
         XCTAssertGreaterThanOrEqual(control.bounds.width, 40, id)
@@ -1791,7 +1744,7 @@ final class NineKeyKeyboardTests: XCTestCase {
             XCTAssertNil(selector.configuration)
             XCTAssertEqual(selector.icon, .toolbarScheme)
             XCTAssertEqual(selector.accessibilityLabel, "选择输入方案")
-            for id in ["layoutShortcut", "emojiShortcut", "skinShortcut", "moreShortcut", "dismissShortcut"] {
+            for id in ["emojiShortcut", "skinShortcut", "moreShortcut", "dismissShortcut"] {
               XCTAssertGreaterThanOrEqual(try button(id, in: controller).bounds.width, 40, id)
             }
             if width == 320 {
