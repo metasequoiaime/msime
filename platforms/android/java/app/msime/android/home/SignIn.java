@@ -16,6 +16,8 @@ import app.msime.android.CloudApi;
 import app.msime.android.GoogleSignInFlow;
 import app.msime.android.R;
 import app.msime.android.SyncSwitch;
+import app.msime.android.DictionarySnapshotQueue;
+import java.io.File;
 import app.msime.android.TextPolicy;
 import java.util.function.Consumer;
 import org.json.JSONObject;
@@ -238,10 +240,27 @@ final class SignIn {
     /** 退出登录：删掉本机会话并关闭同步、清空同步游标，再请 Credential Manager 清掉它记住的登录状态（尽力而为，见 {@link GoogleSignInFlow#clearCredentialState}）。阻塞；清除会话失败时抛出，界面不能按已退出处理。 */
     static void signOut(Context context) {
         synchronized (SyncSwitch.bindingLock()) {
+            String accountId = SyncSwitch.accountId(context);
             new BackendAccount(context).signOut();
+            cancelPendingSnapshot(context, accountId);
             SyncSwitch.clear(context);
         }
         GoogleSignInFlow.clearCredentialState(context);
+    }
+
+
+    /** 账号退出或替换时取消仍待激活的云端词库快照，避免下一位账号继承旧账号的词库。 */
+    static void cancelPendingSnapshot(Context context, String accountId) {
+        if (accountId == null || accountId.isEmpty()) return;
+        try {
+            File files = context.getFilesDir();
+            if (files == null) return;
+            DictionarySnapshotQueue queue = new DictionarySnapshotQueue(
+                files.toPath(), new File(files, "bootstrap/state/dictionary-snapshots").toPath());
+            queue.cancel(accountId);
+        } catch (Exception | LinkageError ignored) {
+            // 退出登录不能因过期的同步队列损坏而失败；下次队列维护会继续处理。
+        }
     }
 
     /** 记下这次登录的账号；读不到用户 id 时按换账号处理（SyncSwitch 会清空同步状态）。 */

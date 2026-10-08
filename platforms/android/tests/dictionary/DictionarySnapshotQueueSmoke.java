@@ -159,11 +159,17 @@ public final class DictionarySnapshotQueueSmoke {
                     () -> "local-v1:legacy:" + "e".repeat(64)));
             }
             check(queue.read().request().status() == DictionarySnapshotQueue.Status.CONFLICT);
+            // 账号切换时只能取消原账号的请求；错误账号不能夺走或改变队列。
+            queue.cancel("different-account");
+            check(queue.read().request().status() == DictionarySnapshotQueue.Status.CONFLICT);
             queue.cancel(account);
             check(queue.read().request().status() == DictionarySnapshotQueue.Status.CONFLICT);
             String conflictVersion = "local-v1:legacy:" + "d".repeat(64);
             UUID cancelled = queue.enqueue(source, account, 44, conflictVersion, digest);
+            queue.cancel("different-account");
+            check(queue.read().request().status() == DictionarySnapshotQueue.Status.QUEUED);
             queue.cancel(account);
+            check(queue.read().request().status() == DictionarySnapshotQueue.Status.CANCELLED);
             String lateReceipt = "local-v1:" + cancelled + ":" + "e".repeat(64);
             queue.publishLocalVersion(lateReceipt);
             check(queue.read().request().status() == DictionarySnapshotQueue.Status.CANCELLED);

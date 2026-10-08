@@ -776,7 +776,7 @@ fn prefix_end_does_not_build_editing_text_to_clamp_the_caret() {
         crate::ime::personal_rerank::allocations::count(|| session.prefix_end());
 
     assert_eq!(prefix_end, 2);
-    assert_eq!(allocations, 5);
+    assert_eq!(allocations, 2);
 }
 
 #[test]
@@ -790,7 +790,7 @@ fn setting_the_caret_does_not_build_editing_text_to_clamp_it() {
     });
 
     assert_eq!(session.snapshot().caret_position, 2);
-    assert_eq!(allocations, 77);
+    assert_eq!(allocations, 74);
 }
 
 #[test]
@@ -804,7 +804,7 @@ fn moving_the_caret_does_not_build_the_preedit_twice() {
 
     assert!(result.handled);
     assert_eq!(
-        allocations, 77,
+        allocations, 74,
         "caret movement should reuse the editing text length: {allocations} allocations"
     );
 }
