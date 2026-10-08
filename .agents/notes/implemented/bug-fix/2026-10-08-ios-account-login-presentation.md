@@ -10,9 +10,9 @@ Status: implemented
 
 ## Decision
 
-登录状态放在 `AppleAccountModel`（`platforms/ios/App/Sources/account/AccountSettingsView.swift`）里，由包住 `AppleAccountSection` 的视图以 `@StateObject` 持有。`AppleAccountSection` 只渲染行，不挂任何 task、弹窗或提示。外层 List/Form 调用 `.appleAccountPresentation(account)`，由它统一挂这三样，每个页面只有一份。
+修复时，登录状态放在 `AppleAccountModel`（`platforms/ios/App/Sources/account/AccountSettingsView.swift`）里，由包住 `AppleAccountSection` 的视图以 `@StateObject` 持有。`AppleAccountSection` 只渲染行，不挂任何 task、弹窗或提示。外层 List/Form 调用 `.appleAccountPresentation(account)`，由它统一挂这三样，每个页面只有一份。
 
-使用 `AppleAccountSection` 的页面必须同时调用 `appleAccountPresentation`，现有三处是 `AccountSettingsView`、`AccountLoginSheet` 和 `SavedSkinPublishFlow`。以后在任何会被放进 List/Form 的 `Section` 上，都不得挂 `.sheet`、`.alert`、`.task` 这类修饰符。
+[iOS 与鸿蒙宿主采用全平台设计稿](../feature/2026-10-07-ios-harmony-all-platform-design.md) 之后，「我的」页和 `AccountLoginSheet` 不再用 List/Form：登录面板是 ScrollView 里的 `AccountLoginOptions`，邮箱表单在面板里原地展开，手机号验证码弹窗由它在自己身上挂一份，`AppleAccountModel` 和 `appleAccountPresentation` 随之移除。仍放在 Form 里的只有 `SavedSkinPublishFlow` 用的 `AppleAccountSection`，它的 `.task` 挂在 `AccountLoginOptions` 那一行上，Section 上不挂修饰符。以后在任何会被放进 List/Form 的 `Section` 上，都不得挂 `.sheet`、`.alert`、`.task` 这类修饰符。
 
 ## Alternatives considered
 
@@ -22,8 +22,8 @@ Status: implemented
 ## Consequences
 
 - **收益**：弹窗只有一份呈现者，切后台回来后弹窗和输入都保留；登录方式的加载和 Apple 挑战的获取每次出现只执行一次，不再按行数重复。
-- **代价**：`AppleAccountSection` 不再自带完整功能。调用方忘记挂 `appleAccountPresentation` 时，不会加载登录方式，登录按钮也就不出现。新调用方须照现有三处的写法。
+- **代价**：修复时 `AppleAccountSection` 不再自带完整功能，调用方忘记挂 `appleAccountPresentation` 就不会加载登录方式。改版后登录方式由 `AccountLoginOptions` 自己加载，这一代价不再存在。
 
 ## Verification
 
-`platforms/ios/UITests/OnboardingUITests.swift` 的 `testCodeLoginKeepsTargetAcrossBackgrounding` 打开邮箱登录弹窗并填写邮箱，按 Home 键回到桌面再切回 App，然后断言弹窗还在、邮箱未变。修复前，这个用例在弹窗出现这一步就失败；修复后通过，同次运行日志里不再有 `while a presentation is in progress`。该用例依赖账号服务提供邮箱登录，服务不提供时跳过。
+`platforms/ios/UITests/OnboardingUITests.swift` 的 `testCodeLoginKeepsTargetAcrossBackgrounding` 打开邮箱登录并填写邮箱（改版后是点未登录的资料卡打开登录面板，再展开邮箱表单），按 Home 键回到桌面再切回 App，然后断言弹窗还在、邮箱未变。修复前，这个用例在弹窗出现这一步就失败；修复后通过，同次运行日志里不再有 `while a presentation is in progress`。该用例依赖账号服务提供邮箱登录，服务不提供时跳过。
