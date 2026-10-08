@@ -5,7 +5,6 @@ import pasteboard from '@ohos.pasteboard';
 import Want from '@ohos.app.ability.Want';
 import bundleManager from '@ohos.bundle.bundleManager';
 import font from '@ohos.font';
-import vibrator from '@ohos.vibrator';
 import deviceInfo from '@ohos.deviceInfo';
 import http from '@ohos.net.http';
 import { installNoRedirectGuard } from '../network/HarmonyHttpSecurity';
@@ -2319,8 +2318,7 @@ class SettingsBridge {
    * Key sound and haptics, which the keyboard stores beside its own state rather than in the shared
    * preferences: how a key feels belongs to the device being typed on, not to the account.
    *
-   * The settings page is a second writer of the same file the keyboard reads at startup, which is
-   * why a change here reaches the keyboard the next time it starts rather than mid-session.
+   * The settings page is a second writer of the same file the keyboard reads. 键盘每次聚焦编辑框时重读它（`KeyboardSession.reloadChangedPreferences`），所以这里的改动在下一次弹出键盘时生效，不必等输入法进程重启。
    */
   keyboardFeedback(request: string): string {
     let action: KeyboardFeedbackAction;
@@ -2349,14 +2347,12 @@ class SettingsBridge {
       KeyboardSession.feedbackIn(this.stateDirectory)), error: '' } as KeyboardFeedbackReply);
   }
 
-  /** One buzz at the strength being previewed. A device without a vibrator simply does nothing. */
+  /** One buzz at the strength being previewed, exactly as a key press at that strength would feel (`KeyboardSession.vibrate`). A device without a vibrator simply does nothing. */
   private previewFeedback(strength: string): void {
     try {
-      vibrator.startVibration(
-        { type: 'time', duration: KeyboardFeedbackBridge.previewDuration(strength) },
-        { usage: 'physicalFeedback' }).catch((error: Object): void => {
-          KeyboardLog.error(`feedback preview unavailable: ${describeError(error)}`);
-        });
+      KeyboardSession.vibrate(KeyboardFeedbackBridge.strength(strength)).catch((error: Object): void => {
+        KeyboardLog.error(`feedback preview unavailable: ${describeError(error)}`);
+      });
     } catch (error) {
       KeyboardLog.error(`feedback preview unavailable: ${describeError(error)}`);
     }

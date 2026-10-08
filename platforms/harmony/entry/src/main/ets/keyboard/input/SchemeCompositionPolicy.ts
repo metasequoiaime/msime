@@ -34,8 +34,27 @@ export class SchemeCompositionPolicy {
     return rulesScheme === SchemeTraits.STROKE;
   }
 
-  /** The composition to draw: the written text for a scheme that composes it, the Stroke glyphs for Stroke, the spelling for every other scheme. */
-  static reading(rulesScheme: number, editing: string, preedit: string): string {
+  /**
+   * 全拼九键：`editing_text` 是按下的数字，`nine_key_reading` 是首选候选覆盖的那段数字的拼音加上还没换成拼音的数字（`ni'hao`、`ning'224`）。有它就画它，引擎算不出读音（模糊匹配的首选）时它是空的，仍画数字。
+   */
+  static drawsNineKeyReading(
+    rulesScheme: number,
+    editing: string,
+    nineKeyReading: string,
+  ): boolean {
+    return rulesScheme === SchemeTraits.QUANPIN && editing.length > 0 && nineKeyReading.length > 0;
+  }
+
+  /** The composition to draw: the written text for a scheme that composes it, the Stroke glyphs for Stroke, 全拼九键的拼音读音, the spelling for every other scheme. */
+  static reading(
+    rulesScheme: number,
+    editing: string,
+    preedit: string,
+    nineKeyReading: string = "",
+  ): string {
+    if (SchemeCompositionPolicy.drawsNineKeyReading(rulesScheme, editing, nineKeyReading)) {
+      return nineKeyReading;
+    }
     return (SchemeCompositionPolicy.drawsPreedit(rulesScheme) ||
       SchemeCompositionPolicy.drawsKeyGlyphs(rulesScheme)) &&
       editing.length > 0
@@ -43,9 +62,16 @@ export class SchemeCompositionPolicy {
       : editing;
   }
 
-  /** The caret within `reading`: the Engine's own in a spelling, the end of a composition the scheme keeps the caret at the end of. */
-  static caret(rulesScheme: number, editingCaret: number, reading: string): number {
-    return SchemeCompositionPolicy.drawsPreedit(rulesScheme) ? reading.length : editingCaret;
+  /** The caret within `reading`: the Engine's own in a spelling, the end of a composition the scheme keeps the caret at the end of. 九键读音和数字长度不同，引擎的光标是数字串里的位置，所以画读音时光标在末尾。 */
+  static caret(
+    rulesScheme: number,
+    editingCaret: number,
+    reading: string,
+    nineKeyReading: boolean = false,
+  ): number {
+    return SchemeCompositionPolicy.drawsPreedit(rulesScheme) || nineKeyReading
+      ? reading.length
+      : editingCaret;
   }
 
   /** Whether the scheme's openable candidate list is showing, as the view's flag says; never inferred from a candidate count. */
