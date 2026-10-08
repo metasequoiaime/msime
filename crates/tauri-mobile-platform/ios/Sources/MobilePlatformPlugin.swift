@@ -621,7 +621,8 @@ private struct IOSKeyboardPreferenceStore {
   static let optInSchemes: Set<String> = ["cantonese", "zhuyin", "vietnamese", "tibetan", "stroke"]
   /// The global theme ids (`GlobalTheme::ALL` in client-core), the only values `globalTheme` may hold.
   static let themeOrder = ["system", "shuishan", "light", "paper", "night", "ink", "custom"]
-  static let hapticStrengths = ["light", "medium", "strong"]
+  /// `system` 是「跟随系统」，见 `previewKeyboardHaptics`。
+  static let hapticStrengths = ["system", "light", "medium", "strong"]
 
   private var defaults: UserDefaults {
     UserDefaults(suiteName: "group.app.msime.ios") ?? .standard
@@ -1197,11 +1198,14 @@ final class MobilePlatformPlugin: Plugin {
       invoke.reject("invalid_feedback", code: "invalid_feedback")
       return
     }
+    // 与 platforms/ios 的 `KeyboardHapticStrength` 同一份数值：这个包引用不到那里的类型，改一处要两处一起改，否则设置里试的和键盘上振的不是一回事。
+    // `system`（跟随系统）用系统默认的冲击反馈、不带力度参数：iOS 没有接口读取系统的键盘触感设置。
     let style: UIImpactFeedbackGenerator.FeedbackStyle
-    let intensity: CGFloat
+    let intensity: CGFloat?
     switch args.strength {
-    case "light": style = .light; intensity = 0.45
-    case "medium": style = .medium; intensity = 0.75
+    case "system": style = .light; intensity = nil
+    case "light": style = .light; intensity = 0.5
+    case "medium": style = .medium; intensity = 0.8
     case "strong": style = .heavy; intensity = 1.0
     default:
       invoke.reject("invalid_feedback", code: "invalid_feedback")
@@ -1211,7 +1215,7 @@ final class MobilePlatformPlugin: Plugin {
       let generator = UIImpactFeedbackGenerator(style: style)
       previewFeedback = generator
       generator.prepare()
-      generator.impactOccurred(intensity: intensity)
+      if let intensity { generator.impactOccurred(intensity: intensity) } else { generator.impactOccurred() }
       invoke.resolve()
     }
   }

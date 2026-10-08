@@ -2,8 +2,9 @@ use msime_client_core::account::AccountPreferenceValue;
 use msime_client_core::preferences::FrequencyPreferences;
 use std::collections::BTreeMap;
 
+/// 三档，或者 `system`（跟随系统的触感反馈设置），与 client-core 的 `valid_haptic_strength` 相同。
 pub(crate) fn valid_mobile_haptic_strength(value: &str) -> bool {
-    matches!(value, "light" | "medium" | "strong")
+    matches!(value, "light" | "medium" | "strong" | "system")
 }
 
 #[cfg_attr(target_os = "android", allow(dead_code))] // Android 走 client-core 的 settings_sync，这几个只剩 iOS 在用。

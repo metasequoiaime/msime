@@ -37,6 +37,7 @@ import android.view.Menu;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewConfiguration;
+import android.view.ViewGroup;
 import android.util.TypedValue;
 import android.widget.PopupMenu;
 import android.widget.PopupWindow;
@@ -102,6 +103,7 @@ public final class MSIMEInputService extends InputMethodService {
     // 键盘的构建、渲染与扩展点（见各类说明）；onCreate 里创建。
     ImeToolbar imeToolbar;
     ImeCandidates imeCandidates;
+    ImeNineKeyPanel imeNineKeyPanel;
     ImeFunctionPanel imeFunctionPanel;
     ImePanels imePanels;
     ImeLetterRows imeLetterRows;
@@ -136,7 +138,8 @@ public final class MSIMEInputService extends InputMethodService {
     /** 漢 in the candidate header: converts the composing Korean syllable to Hanja, or closes its list. */
     Button hanjaButton;
     LinearLayout nineKeySpellings;
-    HorizontalScrollView nineKeySpellingScroll;
+    /** 拼音选择条的滚动容器：拼音九键侧栏里是纵向的 ScrollView，注音 9 键候选行上是横向的 HorizontalScrollView，由 ImeLayoutRows.attachSpellings 按位置换。 */
+    FrameLayout nineKeySpellingScroll;
     final java.util.List<Button> nineKeySpellingButtons = new java.util.ArrayList<>();
     java.util.List<Integer> nineKeySpellingIndices = java.util.List.of();
     long nineKeySpellingGeneration = -1;
@@ -219,6 +222,8 @@ public final class MSIMEInputService extends InputMethodService {
     int touchRowSpacingTenths = KeyboardGeometry.DEFAULT_ROW_SPACING_TENTHS;
     int touchKeyboardHeightAdjustment = KeyboardGeometry.DEFAULT_HEIGHT_ADJUSTMENT_DP;
     private boolean touchVoiceShortcutEnabled;
+    /** 九键数字键面用计算器顺序（7 8 9 在上），来自共享偏好 `touch_number_keypad_order`。 */
+    boolean numberKeypadCalculator;
     private boolean voiceInputEnabled = true;
     private String voiceLanguage = "zh-CN";
     KeyboardSkin skin = KeyboardSkin.system(false);
@@ -234,6 +239,8 @@ public final class MSIMEInputService extends InputMethodService {
     private JSONObject localModes = new JSONObject();
     Button moreButton;
     Button schemeButton;
+    /** 工具栏上的「浮动键盘」按钮（本地设置 TOOLBAR_FLOATING，默认不显示）。 */
+    Button floatingShortcutButton;
     Button skinButton;
     Button layoutSettingsButton;
     Button scriptShortcutButton;
@@ -276,6 +283,25 @@ public final class MSIMEInputService extends InputMethodService {
     LinearLayout recentClipRow;
     Button recentClipButton;
     private final Runnable recentClipExpiry = this::render;
+    boolean toolbarFloating;
+    /** 浮动键盘（本地设置 FLOATING_KEYBOARD，{@link FloatingKeyboardPolicy}）与它在可移动范围里的位置（千分比）。 */
+    boolean floatingKeyboard;
+    private int floatingX = FloatingKeyboardPolicy.DEFAULT_X_FRACTION;
+    private int floatingY = FloatingKeyboardPolicy.DEFAULT_Y_FRACTION;
+    /** 浮动面板顶部的拖动条，只在浮动时显示。 */
+    FloatingKeyboardBar floatingBar;
+    /** 上一次套到窗口上的是不是浮动布局；起初是系统默认的停靠布局。 */
+    private boolean floatingLayoutApplied;
+    /** 第一次浮动前窗口与系统 inputArea 原来的高度，停靠时原样恢复；{@link Integer#MIN_VALUE} 表示还没记下。 */
+    private int dockedWindowHeight = Integer.MIN_VALUE;
+    private int dockedInputAreaHeight = Integer.MIN_VALUE;
+    private boolean floatingDragging;
+    private float floatingDragStartX;
+    private float floatingDragStartY;
+    private long floatingPositionSaveGeneration;
+    /** 窗口的系统栏内边距（像素），浮动时把面板限制在状态栏与导航栏之间。 */
+    private final android.graphics.Rect systemBarInsets = new android.graphics.Rect();
+    private final int[] floatingLocation = new int[2];
     /** 功能面板上直接切换的三项：模糊音（共享偏好）、单手模式（off / left / right）与隐私模式（本地设置）。 */
     boolean fuzzyPinyinEnabled;
     String oneHandedMode = "off";
@@ -313,6 +339,8 @@ public final class MSIMEInputService extends InputMethodService {
     Button globeButton;
     Button deleteButton;
     View nineKeySidebar;
+    /** 拼音九键的 1 键：组字时显示「分词」，否则「@#」，render 时按组字状态更新。 */
+    Button nineKeySymbolKey;
     /** 笔画网格的通配键：只在组字中可用，render 时按组字状态更新。 */
     Button strokeWildcardKey;
     String actionRowSignature = "";
@@ -360,6 +388,12 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean hardwareCharacterSet = true;
     private boolean hardwareFullWidth = true;
     private boolean numberRowSelection = true;
+    /** 外接键盘的候选条模式（{@link HardwareKeyboardModePolicy}）：实体键盘打字时打开，点候选条上的展开键或键盘拔掉时关闭。 */
+    boolean hardwareKeyboardMode;
+    /** 上一次配置是否报告接着实体键盘，用来认出「拔掉 / 合上」这一下。 */
+    private boolean hardwareKeyboardAttached;
+    /** 这块实体键盘接着期间用户点过展开键：系统再问要不要显示（挪光标、换输入框）时不再收回候选条（{@link HardwareKeyboardModePolicy#afterSystemDecision}）。 */
+    private boolean hardwareKeyboardUserExpanded;
     /** Resolved 以词定字 binding: `disabled`, `brackets` or `minus_equal`. */
     private String wordCharacterBinding = WordCharacterPolicy.DISABLED;
     /** 「候选栏预编辑」: whether the strip draws what is being spelled. */
@@ -719,6 +753,11 @@ public final class MSIMEInputService extends InputMethodService {
         preferences.put("last_chinese_scheme", mapping.lastChineseScheme());
         preferences.put("shuangpin_profile", mapping.shuangpinProfile());
         preferences.put("touch_keyboard_layout", mapping.touchKeyboardLayout());
+    }
+
+    /** 解开共享层的响应信封，给服务之外的键盘部件用（如九键展开面板重新取完整候选）。 */
+    JSONObject nativeValue(String response) throws JSONException {
+        return value(response);
     }
 
     private JSONObject value(String response) throws JSONException {
@@ -1166,6 +1205,7 @@ public final class MSIMEInputService extends InputMethodService {
         // 拆出去的构建与渲染类持有本服务；在 onCreate 里创建，构造期间不把 this 交出去。
         imeToolbar = new ImeToolbar(this);
         imeCandidates = new ImeCandidates(this);
+        imeNineKeyPanel = new ImeNineKeyPanel(this);
         imeFunctionPanel = new ImeFunctionPanel(this);
         imePanels = new ImePanels(this);
         imeLetterRows = new ImeLetterRows(this);
@@ -1185,6 +1225,7 @@ public final class MSIMEInputService extends InputMethodService {
             theme = getResources().getIdentifier("Theme.MSIME.InputMethod", "style", "app.msime.android");
         if (theme != 0) setTheme(theme);
         super.onCreate();
+        hardwareKeyboardAttached = hardwareKeyboardAttached(getResources().getConfiguration());
         productName = getApplicationInfo().loadLabel(getPackageManager()).toString();
         // 偏好要等引擎准备好才读到；先按上次换上的皮肤画，免得每次弹出键盘都先闪一两秒内置的淡绿配色。
         JSONObject hint = readSkinHint();
@@ -1252,8 +1293,8 @@ public final class MSIMEInputService extends InputMethodService {
     @Override public void onFinishInputView(boolean finishingInput) {
         flushKeyPresses();
         cancelInputViewRefresh();
-        // 键盘收起时还在调整高度就当作取消：没点「完成」的预览不保存。
-        finishInlineHeight(false);
+        // 键盘收起时还在调整高度就照「完成」保存：用户拖到满意的高度后直接收起键盘或切到别的应用，是把这个高度留下来的意思，原来当作取消，下次弹出就回到设置页里的旧值。只有明确点「取消」才放弃预览。
+        finishInlineHeight(true);
         if (!finishingInput) finishInputViewPresentation();
         super.onFinishInputView(finishingInput);
     }
@@ -1284,6 +1325,12 @@ public final class MSIMEInputService extends InputMethodService {
 
     @Override public void onConfigurationChanged(Configuration configuration) {
         super.onConfigurationChanged(configuration);
+        boolean attached = hardwareKeyboardAttached(configuration);
+        hardwareKeyboardMode = HardwareKeyboardModePolicy.afterConfiguration(
+            hardwareKeyboardMode, hardwareKeyboardAttached, attached);
+        hardwareKeyboardUserExpanded = HardwareKeyboardModePolicy.userExpandedAfterConfiguration(
+            hardwareKeyboardUserExpanded, hardwareKeyboardAttached, attached);
+        hardwareKeyboardAttached = attached;
         JSONObject preferences = preferencesSnapshot == null ? null
             : preferencesSnapshot.optJSONObject("preferences");
         KeyboardSkin next = keyboardSkin(preferences);
@@ -1334,6 +1381,62 @@ public final class MSIMEInputService extends InputMethodService {
         super.onDestroy();
     }
     @Override public boolean onEvaluateFullscreenMode() { return false; }
+
+    /**
+     * 接着实体键盘时系统按「使用实体键盘时显示虚拟键盘」决定显不显示输入法窗口。关着时系统不显示，组词的候选就无处可看：走引擎的输入框照样显示窗口，但只给候选条（#5584）。
+     */
+    @Override public boolean onEvaluateInputViewShown() {
+        boolean systemShows = super.onEvaluateInputViewShown();
+        boolean attached = hardwareKeyboardAttached(getResources().getConfiguration());
+        EditorInfo info = getCurrentInputEditorInfo();
+        boolean engineEditor = info != null && EditorPolicy.useEngine(info.inputType);
+        boolean next = HardwareKeyboardModePolicy.afterSystemDecision(
+            hardwareKeyboardMode, systemShows, attached && engineEditor, hardwareKeyboardUserExpanded);
+        if (next != hardwareKeyboardMode) {
+            hardwareKeyboardMode = next;
+            if (keyboardRoot != null) render();
+        }
+        return HardwareKeyboardModePolicy.showInputView(systemShows, attached, engineEditor);
+    }
+
+    private static boolean hardwareKeyboardAttached(Configuration configuration) {
+        return configuration != null
+            && HardwareKeyboardModePolicy.attached(configuration.keyboard, configuration.hardKeyboardHidden);
+    }
+
+    /** 这次按键是否来自实体键盘（{@link HardwareKeyboardModePolicy#physicalTyping}）。 */
+    private static boolean physicalKeyboardEvent(KeyEvent event) {
+        android.view.InputDevice device = event.getDevice();
+        return HardwareKeyboardModePolicy.physicalTyping(device != null,
+            device != null && device.isVirtual(),
+            device != null && device.getKeyboardType() == android.view.InputDevice.KEYBOARD_TYPE_ALPHABETIC);
+    }
+
+    /**
+     * 实体键盘按下一键：进入候选条模式。输入法窗口被系统收着时（接着实体键盘、「显示虚拟键盘」关着），这一键处理完若开始了组词，就把窗口叫出来显示候选条。
+     */
+    private void noteHardwareTyping() {
+        if (!hardwareKeyboardMode) {
+            hardwareKeyboardMode = true;
+            if (keyboardRoot != null) render();
+        }
+        main.post(() -> {
+            if (hardwareKeyboardMode && !isInputViewShown() && hasEngineComposition()) requestShowSelf(0);
+        });
+    }
+
+    /** 键区此刻是否收起成候选条：候选条模式开着，且没有要占用键区高度的面板。 */
+    boolean hardwareKeysCollapsed() {
+        return HardwareKeyboardModePolicy.keysCollapsed(hardwareKeyboardMode,
+            anyToolbarPanelOpen() || candidatePanelOpen || inlineHeightActive || handwritingActive());
+    }
+
+    /** 候选条上的展开键：退出候选条模式，回到完整的软键盘；下一次实体键盘打字时再收起。 */
+    private void expandFromHardwareKeyboardMode() {
+        hardwareKeyboardMode = false;
+        hardwareKeyboardUserExpanded = true;
+        render();
+    }
 
     private void stop(boolean finish) {
         imeLetterRows.cancelBackspaceRepeat();
@@ -1564,6 +1667,12 @@ public final class MSIMEInputService extends InputMethodService {
         touchKeyboardHeightAdjustment = heightAdjustmentFrom(preferences);
         touchVoiceShortcutEnabled = preferences != null
             && preferences.optBoolean("touch_voice_shortcut", false);
+        numberKeypadCalculator = numberKeypadCalculatorFrom(preferences);
+    }
+
+    private static boolean numberKeypadCalculatorFrom(JSONObject preferences) {
+        return preferences != null && NineKeyLayout.calculatorOrder(preferences.optString(
+            NineKeyLayout.NUMBER_KEYPAD_ORDER_KEY, NineKeyLayout.PHONE_ORDER));
     }
 
     /** 日语九键侧列的 ☺：顶部工具栏有表情按钮时两处入口重复，不放；工具栏关掉表情或整条隐藏时才放回来。 */
@@ -1596,12 +1705,19 @@ public final class MSIMEInputService extends InputMethodService {
         clipboardColumns = ClipboardLayoutPolicy.columns(
             localSettings.choice(AndroidLocalSettings.CLIPBOARD_COLUMNS));
         clipboardSuggestionEnabled = localSettings.bool(AndroidLocalSettings.CLIPBOARD_SUGGESTION);
+        toolbarFloating = localSettings.bool(AndroidLocalSettings.TOOLBAR_FLOATING);
+        floatingKeyboard = localSettings.bool(AndroidLocalSettings.FLOATING_KEYBOARD);
+        // 拖动进行中不让重读覆盖手指下的位置；松手后的保存会把它写回文件。
+        if (!floatingDragging) {
+            floatingX = localSettings.integer(AndroidLocalSettings.FLOATING_KEYBOARD_X);
+            floatingY = localSettings.integer(AndroidLocalSettings.FLOATING_KEYBOARD_Y);
+        }
         oneHandedMode = localSettings.choice(AndroidLocalSettings.ONE_HANDED);
         splitKeyboardEnabled = localSettings.bool(AndroidLocalSettings.SPLIT_KEYBOARD);
         incognitoEnabled = localSettings.bool(AndroidLocalSettings.INCOGNITO);
     }
 
-    /** 键盘高度：本地设置里有设计范围（-46..55）的值就用它，否则沿用共享偏好的 `touch_keyboard_height_adjustment`（-12..48）。 */
+    /** 键盘高度：本地设置里有设计范围（-46..110）的值就用它，否则沿用共享偏好的 `touch_keyboard_height_adjustment`（-12..48）。 */
     private int heightAdjustmentFrom(JSONObject preferences) {
         if (localSettings.has(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT)) {
             return KeyboardGeometry.designHeightAdjustment(
@@ -1784,7 +1900,8 @@ public final class MSIMEInputService extends InputMethodService {
     private String touchGeometryKey() {
         return touchKeySpacingTenths + ":" + touchRowSpacingTenths + ":"
             + touchKeyboardHeightAdjustment + ":"
-            + touchVoiceShortcutEnabled + ":" + voiceInputEnabled + ":" + voiceLanguage;
+            + touchVoiceShortcutEnabled + ":" + voiceInputEnabled + ":" + voiceLanguage + ":"
+            + numberKeypadCalculator;
     }
 
     private void reloadPreferences(String response) {
@@ -1864,8 +1981,11 @@ public final class MSIMEInputService extends InputMethodService {
             KeyboardGeometry.strictInt(preferences, "touch_key_spacing_tenths", -1));
         int nextRowSpacing = KeyboardGeometry.rowSpacing(
             KeyboardGeometry.strictInt(preferences, "touch_row_spacing_tenths", -1));
-        int nextHeightAdjustment = heightAdjustmentFrom(preferences);
+        int savedHeightAdjustment = heightAdjustmentFrom(preferences);
+        // 键盘里正在调高度时，同步或设置页写来的新快照不能把预览覆盖回去（那样点「完成」时高度已经和保存值相同，什么也不会存下）；新的保存值记为「取消」时要回到的高度。
+        int nextHeightAdjustment = inlineHeightActive ? touchKeyboardHeightAdjustment : savedHeightAdjustment;
         boolean nextVoiceShortcut = preferences.optBoolean("touch_voice_shortcut", false);
+        boolean nextNumberKeypadCalculator = numberKeypadCalculatorFrom(preferences);
         JSONObject nextVoice = preferences.optJSONObject("voice_input");
         boolean nextVoiceEnabled = nextVoice == null || nextVoice.optBoolean("enabled", true);
         String nextVoiceLanguage = nextVoice == null ? "zh-CN"
@@ -1937,7 +2057,12 @@ public final class MSIMEInputService extends InputMethodService {
         touchKeySpacingTenths = nextKeySpacing;
         touchRowSpacingTenths = nextRowSpacing;
         touchKeyboardHeightAdjustment = nextHeightAdjustment;
+        if (inlineHeightActive) inlineHeightOriginal = savedHeightAdjustment;
         touchVoiceShortcutEnabled = nextVoiceShortcut;
+        // 只有九键数字键面画的是这个顺序；正画着它时要重建键行。
+        boolean numberKeypadRebuild = numberKeypadCalculator != nextNumberKeypadCalculator
+            && keyboardLayer == KeyboardLayout.Layer.SYMBOLS;
+        numberKeypadCalculator = nextNumberKeypadCalculator;
         voiceInputEnabled = nextVoiceEnabled;
         voiceLanguage = nextVoiceLanguage;
         applyAiPreferences(preferences);
@@ -2030,7 +2155,7 @@ public final class MSIMEInputService extends InputMethodService {
         // A Shift latched on the Korean keycaps means a double consonant, so it must not outlive the surface it was set on.
         if (rebuildLayout || !KeyboardLayout.carriesLetterCase(displayedTouchLayout(view)))
             letterCase.reset();
-        if (rebuildLayout) imeLetterRows.rebuildKeyRows();
+        if (rebuildLayout || numberKeypadRebuild) imeLetterRows.rebuildKeyRows();
         else if (geometryChanged) imeStyler.applyKeyboardGeometry();
         renderLayoutSettingsState();
         if (voiceResultScroll != null && voiceResultScroll.getVisibility() == View.VISIBLE)
@@ -2778,6 +2903,13 @@ public final class MSIMEInputService extends InputMethodService {
         catch (JSONException | LinkageError error) { fail(); return true; }
     }
 
+    /** 全拼九键组字时的候选筛选（只留单字、首字笔顺前缀），响应照常经 apply 重画。 */
+    void setNineKeyFilter(boolean singleCharacter, String strokes) {
+        if (session == 0) return;
+        try { apply(NativeClient.setNineKeyFilter(session, singleCharacter, strokes)); }
+        catch (JSONException | LinkageError error) { fail(); }
+    }
+
     void type(char key) {
         if (connection == null) return;
         if (directEnglishActive()) {
@@ -3143,6 +3275,8 @@ public final class MSIMEInputService extends InputMethodService {
 
     /** 现在是否画成分离式键盘：开关打开、大屏、横屏，并且正在画的是 26 键一族或韩文键盘（{@link SplitKeyboardPolicy#drawn}）。每次都按当前配置重算，旋转后不需要另外通知。 */
     boolean splitKeyboardDrawn() {
+        // 浮动键盘是一块窄面板，不分成两半。
+        if (floatingDrawn()) return false;
         Configuration configuration = getResources().getConfiguration();
         return SplitKeyboardPolicy.drawn(splitKeyboardEnabled, configuration.smallestScreenWidthDp,
             configuration.orientation == Configuration.ORIENTATION_LANDSCAPE, displayedTouchLayout(view));
@@ -3416,6 +3550,7 @@ public final class MSIMEInputService extends InputMethodService {
     @Override public boolean onKeyDown(int keyCode, KeyEvent event) {
         // Every physical press counts once, whoever ends up handling it; the OS's auto-repeat does not.
         if (event.getRepeatCount() == 0) countKey(KeyPressIds.forKeyCode(keyCode));
+        if (event.getRepeatCount() == 0 && physicalKeyboardEvent(event)) noteHardwareTyping();
         if (keyCode == KeyEvent.KEYCODE_BACK && emojiPickerVisible()) {
             closeEmojiPicker();
             return true;
@@ -4650,8 +4785,15 @@ public final class MSIMEInputService extends InputMethodService {
             Toast.makeText(this, "请先在共享设置中启用语音输入", Toast.LENGTH_SHORT).show();
             return;
         }
+        // 语音结果面板盖在键区上面；从面板里的「开始语音识别」进来时先收起它，键区里的聆听面板才看得见。只在面板开着时收：正在聆听时再按语音键是结束录音，这时清掉记下的输入位置会让结果无法直接上屏。
+        if (shown(voiceResultScroll)) closeVoiceResult();
         // 键盘内识别（扩展点）接手时不再打开识别窗口。
         if (imeVoiceEntry.startInKeyboard(keyRows)) return;
+        launchVoiceActivity();
+    }
+
+    /** 打开语音识别窗口：上传式服务商、需要申请麦克风权限，或者系统识别服务在键盘里没能开始聆听时用它。 */
+    void launchVoiceActivity() {
         String requestId = "ime-" + Long.toUnsignedString(SystemClock.uptimeMillis());
         // The configuration the settings app resolves, read through the same shared entry. This
         // keyboard's voice button used to launch the platform recogniser unconditionally, so a
@@ -4914,64 +5056,74 @@ public final class MSIMEInputService extends InputMethodService {
                 || session == 0 || preferencesSnapshot == null
                 || preferencesDirectory.isEmpty()) return;
         JSONObject acceptedPreferences = preferencesSnapshot.optJSONObject("preferences");
-        if (!reset && acceptedPreferences != null
-                && KeyboardGeometry.keySpacing(KeyboardGeometry.strictInt(
-                    acceptedPreferences, "touch_key_spacing_tenths", -1)) == touchKeySpacingTenths
-                && KeyboardGeometry.rowSpacing(KeyboardGeometry.strictInt(
-                    acceptedPreferences, "touch_row_spacing_tenths", -1)) == touchRowSpacingTenths
-                && heightAdjustmentFrom(acceptedPreferences) == touchKeyboardHeightAdjustment
-                && acceptedPreferences.optBoolean("touch_voice_shortcut", false)
-                    == touchVoiceShortcutEnabled) return;
+        // 高度在本地设置里，间距和语音入口在共享文档里，各自只在变了时写：只调高度时不去碰共享文档，免得一次无谓的 revision 冲突让保存失败。
+        boolean sharedChanged = reset || acceptedPreferences == null
+            || KeyboardGeometry.keySpacing(KeyboardGeometry.strictInt(
+                acceptedPreferences, "touch_key_spacing_tenths", -1)) != touchKeySpacingTenths
+            || KeyboardGeometry.rowSpacing(KeyboardGeometry.strictInt(
+                acceptedPreferences, "touch_row_spacing_tenths", -1)) != touchRowSpacingTenths
+            || acceptedPreferences.optBoolean("touch_voice_shortcut", false)
+                != touchVoiceShortcutEnabled;
+        boolean heightChanged = reset || acceptedPreferences == null
+            || heightAdjustmentFrom(acceptedPreferences) != touchKeyboardHeightAdjustment;
+        if (!sharedChanged && !heightChanged) return;
         final long targetSession = session;
         final String targetDirectory = preferencesDirectory;
-        final JSONObject pending;
-        final long expectedRevision;
-        try {
-            pending = new JSONObject(preferencesSnapshot.toString());
-            expectedRevision = PreferencesRevisionPolicy.read(pending.opt("revision"), -1);
-            if (expectedRevision < 0) throw new JSONException("Invalid preferences revision");
-            JSONObject preferences = pending.getJSONObject("preferences");
-            if (reset) {
-                preferences.remove("touch_key_spacing_tenths");
-                preferences.remove("touch_row_spacing_tenths");
-                preferences.remove("touch_keyboard_height_adjustment");
-                preferences.remove("touch_voice_shortcut");
-            } else {
-                preferences.put("touch_key_spacing_tenths", touchKeySpacingTenths);
-                preferences.put("touch_row_spacing_tenths", touchRowSpacingTenths);
-                preferences.put("touch_voice_shortcut", touchVoiceShortcutEnabled);
+        JSONObject pending = null;
+        long expectedRevision = -1;
+        if (sharedChanged) {
+            try {
+                pending = new JSONObject(preferencesSnapshot.toString());
+                expectedRevision = PreferencesRevisionPolicy.read(pending.opt("revision"), -1);
+                if (expectedRevision < 0) throw new JSONException("Invalid preferences revision");
+                JSONObject preferences = pending.getJSONObject("preferences");
+                if (reset) {
+                    preferences.remove("touch_key_spacing_tenths");
+                    preferences.remove("touch_row_spacing_tenths");
+                    preferences.remove("touch_keyboard_height_adjustment");
+                    preferences.remove("touch_voice_shortcut");
+                } else {
+                    preferences.put("touch_key_spacing_tenths", touchKeySpacingTenths);
+                    preferences.put("touch_row_spacing_tenths", touchRowSpacingTenths);
+                    preferences.put("touch_voice_shortcut", touchVoiceShortcutEnabled);
+                }
+            } catch (JSONException error) {
+                if (reset && preferencesSnapshot != null) {
+                    applyTouchGeometry(preferencesSnapshot.optJSONObject("preferences"));
+                    imeStyler.applyKeyboardGeometry();
+                }
+                preferencesNotice = reset ? " · 恢复默认失败，保留原设置" : " · 键盘设置保存失败，保留原设置";
+                render();
+                return;
             }
-        } catch (JSONException error) {
-            if (reset && preferencesSnapshot != null) {
-                applyTouchGeometry(preferencesSnapshot.optJSONObject("preferences"));
-                imeStyler.applyKeyboardGeometry();
-            }
-            preferencesNotice = reset ? " · 恢复默认失败，保留原设置" : " · 键盘设置保存失败，保留原设置";
-            render();
-            return;
         }
         touchGeometrySaving = true;
         preferencesNotice = " · 正在保存键盘设置";
         final long operation = ++preferenceSaveGeneration;
-        // 高度是设计范围（75%..130%），共享偏好放不下，写进本地设置；恢复默认时删掉本地值。
+        // 高度是设计范围（75%..160%），共享偏好放不下，写进本地设置；恢复默认时删掉本地值。
         final Integer height = reset ? null : touchKeyboardHeightAdjustment;
+        final java.nio.file.Path localSettingsFile = AndroidLocalSettings.file(this);
+        final JSONObject sharedDocument = pending;
+        final long sharedRevision = expectedRevision;
+        KeyboardHeightSave.HeightWriter writeHeight = heightChanged ? () -> {
+            java.util.Map<String, Object> edits = new java.util.HashMap<>(1);
+            edits.put(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT, height);
+            AndroidLocalSettings.update(localSettingsFile, edits);
+        } : null;
+        java.util.function.Supplier<String> writeShared = sharedDocument == null ? null : () -> {
+            try {
+                return NativeClient.savePreferences(targetDirectory, sharedRevision,
+                    sharedDocument.toString());
+            } catch (Exception | LinkageError error) {
+                return null;
+            }
+        };
         renderLayoutSettingsState();
         render();
         Runnable save = () -> {
-            String response;
-            try {
-                response = NativeClient.savePreferences(targetDirectory, expectedRevision,
-                    pending.toString());
-                // 本地高度只在偏好写入成功后再写：CAS 冲突时界面回到原高度，磁盘上也不能留下新高度。
-                if (response != null && JsonPolicy.strictTrue(new JSONObject(response).opt("ok"))) {
-                    AndroidLocalSettings.put(this, AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT, height);
-                }
-            } catch (Exception | LinkageError error) {
-                response = null;
-            }
-            final String savedResponse = response;
+            KeyboardHeightSave.Result result = KeyboardHeightSave.run(writeHeight, writeShared);
             main.post(() -> finishTouchGeometrySave(operation, targetSession, targetDirectory,
-                reset, savedResponse));
+                reset, result));
         };
         try {
             preferencesWorker.execute(save);
@@ -4990,11 +5142,26 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void finishTouchGeometrySave(long operation, long targetSession,
-                                         String targetDirectory, boolean reset, String response) {
+                                         String targetDirectory, boolean reset,
+                                         KeyboardHeightSave.Result result) {
         if (operation != preferenceSaveGeneration || session != targetSession
                 || !targetDirectory.equals(preferencesDirectory)) return;
         touchGeometrySaving = false;
+        // 后台已经先写了本地高度，不论共享文档写没写成都先读回来：下面按快照重算布局时，高度取的是刚写下的值，而不是内存里那份旧的本地设置。
+        refreshLocalSettings();
+        if (!result.heightSaved())
+            Toast.makeText(this, "键盘高度未能保存", Toast.LENGTH_SHORT).show();
+        if (!result.sharedAttempted()) {
+            if (preferencesSnapshot != null)
+                applyTouchGeometry(preferencesSnapshot.optJSONObject("preferences"));
+            imeStyler.applyKeyboardGeometry();
+            preferencesNotice = result.heightSaved() ? " · 键盘设置已保存" : " · 键盘高度保存失败，已恢复原设置";
+            renderLayoutSettingsState();
+            render();
+            return;
+        }
         try {
+            String response = result.sharedResponse();
             if (response == null) throw new JSONException("Preferences save unavailable");
             JSONObject saved = value(response);
             long savedRevision = PreferencesRevisionPolicy.read(saved.opt("revision"), -1);
@@ -5002,17 +5169,15 @@ public final class MSIMEInputService extends InputMethodService {
             if (preferencesSnapshot != null
                     && PreferencesRevisionPolicy.read(preferencesSnapshot.opt("revision"), -1)
                         > savedRevision) {
-                refreshLocalSettings();
                 applyTouchGeometry(preferencesSnapshot.optJSONObject("preferences"));
                 imeStyler.applyKeyboardGeometry();
                 preferencesNotice = "";
             } else {
-                // The worker just wrote the height; reload it so heightAdjustmentFrom reads the new value, not the stale in-memory snapshot.
-                refreshLocalSettings();
                 applyPreferencesSnapshot(saved);
                 preferencesNotice = reset ? " · 键盘设置已恢复默认" : " · 键盘设置已保存";
             }
         } catch (JSONException | LinkageError error) {
+            // 间距和语音入口回到已接受的快照；高度已在上面从本地设置读回，保留用户刚调好的值。
             if (preferencesSnapshot != null)
                 applyTouchGeometry(preferencesSnapshot.optJSONObject("preferences"));
             imeStyler.applyKeyboardGeometry();
@@ -5346,12 +5511,9 @@ public final class MSIMEInputService extends InputMethodService {
         imeFunctionPanel.renderMoreTools();
     }
 
+    /** 功能面板磁贴上的强度：轻、中、强、系统（跟随系统）。 */
     String hapticStrengthTitle() {
-        return switch (hapticStrength) {
-            case LIGHT -> "轻";
-            case MEDIUM -> "中";
-            case STRONG -> "强";
-        };
+        return hapticStrength.shortTitle();
     }
 
     void cycleHapticStrength() {
@@ -5527,7 +5689,7 @@ public final class MSIMEInputService extends InputMethodService {
                                         boolean highlighted) {
         if (annotation.isEmpty() && prefix.isEmpty()) return text;
         String primary = prefix + text;
-        SpannableString label = new SpannableString(primary + "\n" + annotation);
+        SpannableString label = new SpannableString(annotation.isEmpty() ? primary : primary + "\n" + annotation);
         if (!prefix.isEmpty()) {
             label.setSpan(new ForegroundColorSpan(candidateAppearance.number()), 0, prefix.length(),
                 Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
@@ -5716,7 +5878,10 @@ public final class MSIMEInputService extends InputMethodService {
         // Touch candidates follow Apple's chip surface: the word itself is shown without a
         // numeric prefix. The slot remains available through contentDescription and the shared
         // session/generation/index identity for accessibility and hardware number-row selection.
-        button.setText(candidateLabel("", text, annotation, highlighted));
+        // 实体键盘打字（候选条模式）时例外：候选前面标上数字行选词用的 1–9（#5584）。
+        String number = HardwareKeyboardModePolicy.candidatePrefix(hardwareKeyboardMode, numberRowSelection,
+            dedicatedEnglish, slot);
+        button.setText(candidateLabel(number, text, annotation, highlighted));
         int labelLines = candidateLabelLines(annotation);
         ViewPolicy.setFixedLines(button, labelLines);
         configureCandidateTextLayout(button, labelLines);
@@ -5742,10 +5907,14 @@ public final class MSIMEInputService extends InputMethodService {
             if (expandedCandidateScroll != null)
                 ViewPolicy.hide(expandedCandidateScroll);
         }
+        if (imeNineKeyPanel != null) imeNineKeyPanel.dismiss();
     }
 
     void openCandidatePanel() {
-        if (session == 0 || view == null || strictCandidatePage(view, "page_count") <= 1) return;
+        // 全拼九键的三栏面板只要在组字就能打开：左栏选拼音、右栏筛选在只有一页候选时同样有用。
+        boolean nineKeyPanel = imeNineKeyPanel.eligible();
+        if (session == 0 || view == null
+                || (!nineKeyPanel && strictCandidatePage(view, "page_count") <= 1)) return;
         try {
             JSONObject snapshot = value(NativeClient.allCandidates(session));
             if (CandidateGlossPolicy.strictOr(snapshot.opt("session"), Long.MIN_VALUE) != session
@@ -5753,7 +5922,8 @@ public final class MSIMEInputService extends InputMethodService {
                 return;
             JSONArray entries = snapshot.optJSONArray("candidates");
             JSONArray visible = view.optJSONArray("candidates");
-            if (entries == null || visible == null || entries.length() <= visible.length()) return;
+            if (!nineKeyPanel && (entries == null || visible == null
+                    || entries.length() <= visible.length())) return;
             candidatePanelSnapshot = snapshot;
             candidatePanelOpen = true;
             imeCandidates.renderExpandedCandidates();
@@ -6173,9 +6343,31 @@ public final class MSIMEInputService extends InputMethodService {
         PanelSurface surface = new PanelSurface(this);
         keyboardSurface = surface;
         keyboardRoot.addView(keyboardSurface);
+        // 内联高度条在百分比后面显示键盘实际画出来的高度：外框每次重新布局都把高度交给它，拖动预览、旋转和窗口高度封顶都会反映在这里。
+        keyboardSurface.addOnLayoutChangeListener((changed, left, top, right, bottom,
+                oldLeft, oldTop, oldRight, oldBottom) -> {
+            if (inlineHeightBar != null) inlineHeightBar.setHeightPixels(bottom - top);
+            // 面板变高变窄（换布局、调高度、旋转）后按存着的千分比重新摆，保证仍在窗口里。
+            if (floatingDrawn()) positionFloatingKeyboard();
+        });
+        keyboardRoot.addOnLayoutChangeListener((changed, left, top, right, bottom,
+                oldLeft, oldTop, oldRight, oldBottom) -> {
+            if (floatingDrawn()) positionFloatingKeyboard();
+        });
         imeStyler.applyKeyboardSurfaceGeometry();
         LinearLayout keyboard = KeyboardGeometry.column(this);
-        WindowLayout.fitSystemBars(keyboard);
+        // 停靠时键盘列按系统栏留出内边距（导航栏那一截画键盘底色）；浮动时面板悬在应用上面，不留，系统栏的四边只用来限制面板能拖到哪里。
+        keyboard.setOnApplyWindowInsetsListener((target, insets) -> {
+            systemBarInsets.set(WindowLayout.systemBars(insets));
+            if (floatingDrawn()) {
+                ViewPolicy.setPadding(target, 0, 0, 0, 0);
+                positionFloatingKeyboard();
+            } else {
+                ViewPolicy.setPadding(target, systemBarInsets.left, systemBarInsets.top,
+                    systemBarInsets.right, systemBarInsets.bottom);
+            }
+            return insets;
+        });
         keyboardSurface.addView(keyboard, KeyboardGeometry.frameMatchParentParams());
         japaneseFlickPreview = new JapaneseFlickPreview(this);
         keyboardSurface.addView(japaneseFlickPreview, KeyboardGeometry.frameMatchParentParams());
@@ -6224,6 +6416,19 @@ public final class MSIMEInputService extends InputMethodService {
 
             @Override public void onDone() { finishInlineHeight(true); }
         });
+        floatingBar = new FloatingKeyboardBar(this);
+        floatingBar.setListener(new FloatingKeyboardBar.Listener() {
+            @Override public void dragStarted() { startFloatingDrag(); }
+
+            @Override public void dragged(float dx, float dy) { dragFloatingKeyboard(dx, dy); }
+
+            @Override public void dragEnded() { endFloatingDrag(); }
+
+            @Override public void dock() { setFloatingKeyboard(false); }
+        });
+        ViewPolicy.hide(floatingBar);
+        keyboard.addView(floatingBar, KeyboardGeometry.matchWidthHeightPx(
+            pixels(FloatingKeyboardPolicy.BAR_HEIGHT_DP)));
         keyboard.addView(candidateRegion);
         // 功能面板和候选展开网格盖住键区但不盖顶部一行，设计里打开它们时工具栏或候选条仍在上面；顶部一行高度会变（读音行、释义行），所以跟着它的实际底边走。
         candidateRegion.addOnLayoutChangeListener((view, left, top, right, bottom,
@@ -6313,7 +6518,9 @@ public final class MSIMEInputService extends InputMethodService {
         // 收起键：面板开着时先回到键盘（描述随之变为「返回键盘」），没有面板时收起整个键盘。
         Button dismissButton = shortcutButton(controls, "收起",
             KeyboardShortcutIconPolicy.Icon.DISMISS, () -> {
-                if (anyToolbarPanelOpen()) {
+                if (hardwareKeysCollapsed()) {
+                    expandFromHardwareKeyboardMode();
+                } else if (anyToolbarPanelOpen()) {
                     closeToolbarPanels();
                     render();
                 } else requestHideSelf(0);
@@ -6335,6 +6542,7 @@ public final class MSIMEInputService extends InputMethodService {
             KeyboardGeometry.scrollMatchParentParams());
         ViewPolicy.hide(expandedCandidateScroll);
         keyboardSurface.addView(expandedCandidateScroll, KeyboardGeometry.frameMatchParentParams());
+        keyboardSurface.addView(imeNineKeyPanel.build(), KeyboardGeometry.frameMatchParentParams());
         clipboardPanel = KeyboardGeometry.column(this);
         ViewPolicy.setSymmetricPadding(clipboardPanel, 24, 16);
         ViewPolicy.setBackgroundColor(clipboardPanel, Color.parseColor(skin.background()));
@@ -6508,8 +6716,9 @@ public final class MSIMEInputService extends InputMethodService {
     private void alignOverlaysBelowTopRow(View region) {
         View parent = (View) region.getParent();
         int top = (parent == null ? 0 : parent.getTop()) + region.getBottom();
-        for (View overlay : new View[] {moreToolsScroll, expandedCandidateScroll, phraseScroll,
-                emojiPanel, symbolPanel, clipboardScroll, skinScroll, schemeScroll, aiPolishContainer}) {
+        for (View overlay : new View[] {moreToolsScroll, expandedCandidateScroll, imeNineKeyPanel.root(),
+                phraseScroll, emojiPanel, symbolPanel, clipboardScroll, skinScroll, schemeScroll,
+                aiPolishContainer}) {
             if (overlay == null) continue;
             if (!(overlay.getLayoutParams() instanceof FrameLayout.LayoutParams params)
                     || params.topMargin == top) continue;
@@ -6686,6 +6895,170 @@ public final class MSIMEInputService extends InputMethodService {
         saveLocalPanelSetting("隐私模式", AndroidLocalSettings.INCOGNITO, !incognitoEnabled);
     }
 
+    /** 功能面板「浮动键盘」与工具栏的浮动键盘按钮：切换浮动 / 停靠。 */
+    void toggleFloatingKeyboard() {
+        setFloatingKeyboard(!floatingKeyboard);
+    }
+
+    private void setFloatingKeyboard(boolean enabled) {
+        saveLocalPanelSetting("浮动键盘", AndroidLocalSettings.FLOATING_KEYBOARD, enabled);
+    }
+
+    /** 浮动键盘此刻是否生效（{@link FloatingKeyboardPolicy#active}）：外接键盘的候选条模式里停在底部。 */
+    boolean floatingDrawn() {
+        return FloatingKeyboardPolicy.active(floatingKeyboard, hardwareKeyboardMode);
+    }
+
+    /**
+     * 把浮动 / 停靠套到输入法窗口上。浮动时窗口、系统的 inputArea 与键盘根视图都铺满屏幕（根视图透明，见 ImeStyler.applySkin），键盘外框缩窄成一块面板，{@link #onComputeInsets} 只把面板算作可触摸区域、内容区不占高度，所以应用既不被顶起也不被压缩，面板外的触摸落到应用上。停靠时把窗口和 inputArea 恢复成第一次浮动前的高度。
+     *
+     * @param force 系统重建了窗口里的布局（{@link #setInputView}、{@link #updateFullscreenMode}）时为真，状态没变也重新套一遍
+     */
+    private void applyFloatingLayout(boolean force) {
+        boolean floating = floatingDrawn();
+        if (!force && floating == floatingLayoutApplied) return;
+        floatingLayoutApplied = floating;
+        android.app.Dialog dialog = getWindow();
+        android.view.Window window = dialog == null ? null : dialog.getWindow();
+        if (window != null) {
+            android.view.WindowManager.LayoutParams attributes = window.getAttributes();
+            View inputArea = window.findViewById(android.R.id.inputArea);
+            ViewGroup.LayoutParams areaParams = inputArea == null ? null : inputArea.getLayoutParams();
+            if (floating && dockedWindowHeight == Integer.MIN_VALUE) dockedWindowHeight = attributes.height;
+            if (floating && areaParams != null && dockedInputAreaHeight == Integer.MIN_VALUE)
+                dockedInputAreaHeight = areaParams.height;
+            int windowHeight = floating ? ViewGroup.LayoutParams.MATCH_PARENT : dockedWindowHeight;
+            if (windowHeight != Integer.MIN_VALUE && attributes.height != windowHeight) {
+                attributes.height = windowHeight;
+                window.setAttributes(attributes);
+            }
+            int areaHeight = floating ? ViewGroup.LayoutParams.MATCH_PARENT : dockedInputAreaHeight;
+            if (areaParams != null && areaHeight != Integer.MIN_VALUE && areaParams.height != areaHeight) {
+                areaParams.height = areaHeight;
+                // 铺满时 inputArea 仍贴着窗口底部，停靠后的包裹高度同样贴底，与系统默认一致。
+                if (areaParams instanceof LinearLayout.LayoutParams linear) linear.gravity = Gravity.BOTTOM;
+                else if (areaParams instanceof FrameLayout.LayoutParams frame) frame.gravity = Gravity.BOTTOM;
+                inputArea.setLayoutParams(areaParams);
+            }
+        }
+        if (keyboardRoot != null && keyboardRoot.getLayoutParams() != null) {
+            ViewGroup.LayoutParams params = keyboardRoot.getLayoutParams();
+            int height = floating ? ViewGroup.LayoutParams.MATCH_PARENT : ViewGroup.LayoutParams.WRAP_CONTENT;
+            if (params.height != height) {
+                params.height = height;
+                keyboardRoot.setLayoutParams(params);
+            }
+        }
+        if (floatingBar != null) ViewPolicy.setVisible(floatingBar, floating);
+        imeStyler.applyKeyboardSurfaceGeometry();
+        if (imeFrame.keyboard != null) imeFrame.keyboard.requestApplyInsets();
+        positionFloatingKeyboard();
+    }
+
+    @Override public void setInputView(View view) {
+        super.setInputView(view);
+        // 系统把新的输入视图按包裹高度放进 inputArea；浮动时要重新铺满，停靠时保持系统的样子。
+        applyFloatingLayout(true);
+    }
+
+    @Override public void updateFullscreenMode() {
+        super.updateFullscreenMode();
+        if (floatingLayoutApplied) applyFloatingLayout(true);
+    }
+
+    /**
+     * 浮动时：内容区与可见区都从窗口底边算起（应用不让出高度），只有面板接收触摸。停靠时用系统默认的计算。
+     */
+    @Override public void onComputeInsets(InputMethodService.Insets outInsets) {
+        super.onComputeInsets(outInsets);
+        // 浮动时 inputArea 铺满窗口，系统默认的算法会把整个窗口算成键盘、把应用压没，所以这里总要覆盖；面板还没布局时可触摸区域为空。
+        if (!floatingDrawn() || keyboardSurface == null) return;
+        android.app.Dialog dialog = getWindow();
+        android.view.Window window = dialog == null ? null : dialog.getWindow();
+        if (window == null) return;
+        int height = window.getDecorView().getHeight();
+        outInsets.contentTopInsets = height;
+        outInsets.visibleTopInsets = height;
+        keyboardSurface.getLocationInWindow(floatingLocation);
+        outInsets.touchableInsets = InputMethodService.Insets.TOUCHABLE_INSETS_REGION;
+        outInsets.touchableRegion.set(floatingLocation[0], floatingLocation[1],
+            floatingLocation[0] + keyboardSurface.getWidth(), floatingLocation[1] + keyboardSurface.getHeight());
+    }
+
+    /** 可移动的水平 / 竖直像素范围：系统栏之间的区域减去面板大小。 */
+    private int floatingFreeWidth() {
+        return keyboardRoot.getWidth() - systemBarInsets.left - systemBarInsets.right - keyboardSurface.getWidth();
+    }
+
+    private int floatingFreeHeight() {
+        return keyboardRoot.getHeight() - systemBarInsets.top - systemBarInsets.bottom - keyboardSurface.getHeight();
+    }
+
+    /** 按存着的千分比把浮动面板摆进系统栏之间；停靠时清掉平移。面板贴在根视图左上角，位置全靠平移，拖动时不触发重新布局。 */
+    void positionFloatingKeyboard() {
+        if (keyboardSurface == null || keyboardRoot == null) return;
+        if (!floatingDrawn()) {
+            keyboardSurface.setTranslationX(0f);
+            keyboardSurface.setTranslationY(0f);
+            return;
+        }
+        if (floatingDragging) return;
+        keyboardSurface.setTranslationX(systemBarInsets.left
+            + FloatingKeyboardPolicy.offset(floatingX, floatingFreeWidth()));
+        keyboardSurface.setTranslationY(systemBarInsets.top
+            + FloatingKeyboardPolicy.offset(floatingY, floatingFreeHeight()));
+    }
+
+    private void startFloatingDrag() {
+        if (!floatingDrawn() || keyboardSurface == null) return;
+        floatingDragging = true;
+        floatingDragStartX = keyboardSurface.getTranslationX() - systemBarInsets.left;
+        floatingDragStartY = keyboardSurface.getTranslationY() - systemBarInsets.top;
+    }
+
+    private void dragFloatingKeyboard(float dx, float dy) {
+        if (!floatingDragging || keyboardSurface == null || keyboardRoot == null) return;
+        int freeWidth = floatingFreeWidth();
+        int freeHeight = floatingFreeHeight();
+        float x = FloatingKeyboardPolicy.dragged(floatingDragStartX, dx, freeWidth);
+        float y = FloatingKeyboardPolicy.dragged(floatingDragStartY, dy, freeHeight);
+        keyboardSurface.setTranslationX(systemBarInsets.left + x);
+        keyboardSurface.setTranslationY(systemBarInsets.top + y);
+        floatingX = FloatingKeyboardPolicy.fractionOf(x, freeWidth);
+        floatingY = FloatingKeyboardPolicy.fractionOf(y, freeHeight);
+    }
+
+    /** 松手：重新布局一次让可触摸区域跟到新位置，再把位置写进本地设置。 */
+    private void endFloatingDrag() {
+        if (!floatingDragging) return;
+        floatingDragging = false;
+        if (keyboardRoot != null) keyboardRoot.requestLayout();
+        final int x = floatingX;
+        final int y = floatingY;
+        final long operation = ++floatingPositionSaveGeneration;
+        Runnable save = () -> {
+            java.util.Map<String, Object> edits = new java.util.LinkedHashMap<>(2);
+            edits.put(AndroidLocalSettings.FLOATING_KEYBOARD_X, x);
+            edits.put(AndroidLocalSettings.FLOATING_KEYBOARD_Y, y);
+            AndroidLocalSettings.Snapshot saved;
+            try {
+                saved = AndroidLocalSettings.update(this, edits);
+            } catch (java.io.IOException | RuntimeException error) {
+                saved = null;
+            }
+            final AndroidLocalSettings.Snapshot result = saved;
+            // 写不进去时位置只在这次键盘进程里有效，不打扰用户；写成功后让内存里的快照与文件一致。
+            main.post(() -> {
+                if (result != null && operation == floatingPositionSaveGeneration) localSettings = result;
+            });
+        };
+        try {
+            preferencesWorker.execute(save);
+        } catch (RuntimeException error) {
+            // 键盘正在销毁，工作线程已关：这次位置不保存。
+        }
+    }
+
     /** 功能面板上写本地设置的开关（单手、隐私）：在偏好线程上写文件，写好后在主线程生效；隐私模式变了还要把会话的学习开关重新推给引擎。 */
     private void saveLocalPanelSetting(String label, String key, Object value) {
         if (panelPreferenceSaving) {
@@ -6792,12 +7165,15 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     void render() {
+        // 浮动开关或外接键盘的候选条模式变了：先把窗口换成对应的布局，下面判断分离式键盘、单手模式时用的是新状态。
+        applyFloatingLayout(false);
         // 旋转、设置变化或布局切换让分离式键盘该画与否变了，而键行还是按旧状态建的：先按新状态重建，下面的底行排布也会跟着换。
         if (imeLetterRows.splitStale()) imeLetterRows.rebuildKeyRows();
         updateSymbolKeyFaces();
         updateShuangpinKeyHints();
         updateQuickPunctuation();
         imeLayoutRows.updateStrokeWildcardKey();
+        imeLayoutRows.updateNineKeySymbolKey();
         String currentEditingText = view == null ? "" : view.optString("editing_text", "");
         if (!japaneseSchemeActive() || currentEditingText.isEmpty()) {
             japaneseConversionIndex = null;
@@ -6919,11 +7295,15 @@ public final class MSIMEInputService extends InputMethodService {
             ViewPolicy.setVisible(candidateHeader, !heightMode && !hasDiagnostic && (!idle || modeLabel));
             if (idle && !modeLabel) announceIdleNotice(preferencesNotice);
         }
-        boolean toolbarRow = !heightMode && idle && !hasDiagnostic && !toolbarHidden;
+        boolean keysCollapsed = hardwareKeysCollapsed();
+        imeFrame.setKeysCollapsed(keysCollapsed);
+        // 候选条模式里空闲时工具栏总要显示：展开键在上面，「显示方式：隐藏」时整副键盘会只剩导航栏那一截。
+        boolean toolbarRow = !heightMode && idle && !hasDiagnostic && (!toolbarHidden || keysCollapsed);
         // 开始打字就收起「最近复制」：用户已经在输入别的内容了。
         if (!idle) recentClip.dismiss();
         long nowMs = System.currentTimeMillis();
-        String recent = toolbarRow && !anyToolbarPanelOpen() && recentClipEnabled()
+        // 候选条模式里不换上「最近复制」：它会盖住工具栏上展开软键盘的那个键。
+        String recent = toolbarRow && !keysCollapsed && !anyToolbarPanelOpen() && recentClipEnabled()
             && connection != null && imePrivacyGate.allows(ImePrivacyGate.Record.CLIPBOARD_HISTORY)
             ? recentClip.text(nowMs) : null;
         imeToolbar.updateRecentClipRow(recent);
@@ -6998,7 +7378,10 @@ public final class MSIMEInputService extends InputMethodService {
             ViewPolicy.setSelected(clipboardShortcutButton, imePanels.clipboardPanelOpen());
         }
         if (dismissShortcutButton != null) {
-            dismissShortcutButton.setContentDescription(anyToolbarPanelOpen() ? "返回键盘" : "收起键盘");
+            dismissShortcutButton.setContentDescription(keysCollapsed ? "显示软键盘"
+                : anyToolbarPanelOpen() ? "返回键盘" : "收起键盘");
+            // 候选条模式里收起键朝上，点它展开软键盘。
+            if (dismissShortcutButton instanceof KeyboardShortcutButton dismiss) dismiss.setFlipped(keysCollapsed);
         }
         if (voiceShortcutButton != null) {
             ViewPolicy.hide(voiceShortcutButton);
@@ -7065,6 +7448,14 @@ public final class MSIMEInputService extends InputMethodService {
                 languageButton.setStateDescription(dedicatedEnglish ? "英文输入" : "中文输入");
             }
         }
+        if (floatingShortcutButton != null) {
+            ViewPolicy.setVisible(floatingShortcutButton, toolbarFloating);
+            ViewPolicy.setSelected(floatingShortcutButton, floatingKeyboard);
+            // 候选条模式里浮动不生效，按钮灰掉，免得点了没有反应。
+            ViewPolicy.setEnabled(floatingShortcutButton, !hardwareKeyboardMode);
+            if (Build.VERSION.SDK_INT >= 30)
+                floatingShortcutButton.setStateDescription(floatingKeyboard ? "已开启" : "已关闭");
+        }
         if (schemeButton != null) {
             ViewPolicy.setVisible(schemeButton, toolbarScheme);
             ViewPolicy.setSelected(schemeButton,
@@ -7097,9 +7488,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (layoutSettingsButton != null)
             ViewPolicy.setEnabled(layoutSettingsButton, session != 0 && preferencesSnapshot != null
                 && !schemeSaving && !touchGeometrySaving && !traditionalOutputSaving);
-        imeLayoutRows.renderNineKeySpellings();
-        if (hasDiagnostic && nineKeySpellingScroll != null)
-            ViewPolicy.hide(nineKeySpellingScroll);
+        imeLayoutRows.renderNineKeySpellings(hasDiagnostic);
         scheduleCandidateGlosses();
         scheduleCandidateTranslations();
         scheduleOnlineProviders();
@@ -7154,8 +7543,8 @@ public final class MSIMEInputService extends InputMethodService {
                         : LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT));
             }
-            if (!hasDiagnostic && strictCandidatePage(view, "page_count") > 1
-                    && expandCandidates != null)
+            if (!hasDiagnostic && expandCandidates != null
+                    && (strictCandidatePage(view, "page_count") > 1 || imeNineKeyPanel.eligible()))
                 ViewPolicy.show(expandCandidates);
         }
         int visibleSlots = entries == null ? 0 : entries.length();

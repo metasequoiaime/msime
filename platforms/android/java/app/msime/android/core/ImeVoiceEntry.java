@@ -6,7 +6,10 @@ import android.graphics.Color;
 import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
+import android.os.Bundle;
 import android.os.SystemClock;
+import android.speech.RecognitionListener;
+import android.speech.SpeechRecognizer;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.LinearLayout;
@@ -21,18 +24,22 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 /**
- * 键盘内的语音识别：进程内能跑的识别器（本机 sherpa 模型、豆包流式）直接在键区里聆听，键区换成 {@link VoiceListeningView}（「正在聆听…」「点任意处取消」），识别完自动上屏并短暂显示「已识别：…」。系统识别器与 OpenAI 兼容的上传仍走原来的 VoiceRecognitionActivity（返回 false）。
+ * 键盘内的语音识别：进程内能跑的识别器（本机 sherpa 模型、豆包流式）和设备自带的系统识别服务（SpeechRecognizer）都直接在键区里聆听，键区换成 {@link VoiceListeningView}（「正在聆听…」「点任意处取消」，系统识别服务报音量时圆盘外的光圈随音量涨落），识别完自动上屏并短暂显示「已识别：…」。OpenAI 兼容的上传、还没有麦克风权限（要由 Activity 申请）、系统识别服务在键盘里没能开始聆听这几种情况仍走 VoiceRecognitionActivity（返回 false，或识别失败后由这里转交）。
+ *
+ * <p>系统识别服务以前一律走识别窗口：窗口抢走焦点，键盘随之收起，屏幕上只剩对话框主题的灰色蒙层，看不到任何正在录音的提示，结果还要再到语音结果面板里手动插入（#5553）。键盘可见时系统给输入法进程前台的麦克风能力，本机模型与豆包也是在这里录音的，所以系统识别服务同样留在键区里。
  *
  * <p>`voice_input.offline_fallback` 打开、没有网络且 `voice_input.asr_model_path` 指向已安装的本机模型时，改用本机识别。没有麦克风权限时交回 Activity 去申请。识别结束且隐私判断允许时记语音时长（`record_voice`）；`voice_input.contribute_audio` 打开、隐私判断允许且不是密码框时，经 {@link VoiceContributionApi} 上传这次的音频与识别文本。
  */
 final class ImeVoiceEntry {
+    /** 系统识别服务在语音时长统计与贡献里用的 provider 名。 */
+    static final String PLATFORM_PROVIDER = "system";
     /** 「已识别：…」停留的时间。 */
     static final long DONE_NOTICE_MILLIS = 1200;
     /** 听到内容之后这么久没有新的识别文字，就当说完了，结束录音并出结果（与系统识别器停顿后自动结束一致）。 */
     static final long SILENCE_STOP_MILLIS = 1500;
 
     /** 键盘里接手的识别方式。 */
-    enum Engine { LOCAL, STREAMING }
+    enum Engine { LOCAL, STREAMING, PLATFORM }
 
     private final MSIMEInputService s;
     private final ExecutorService worker = Executors.newSingleThreadExecutor(runnable -> {
@@ -46,6 +53,11 @@ final class ImeVoiceEntry {
     private final ArrayList<View> hidden = new ArrayList<>();
     private LocalAsrRecognizer local;
     private DoubaoRecognizer streaming;
+    private SpeechRecognizer platform;
+    /** 系统识别服务已经报过 onReadyForSpeech：之后的失败不再转交识别窗口。 */
+    private boolean platformListening;
+    /** 用户已经按语音键结束了这次系统识别：之后报的错（例如还没开始聆听就被叫停时的 ERROR_CLIENT）不再转交识别窗口，否则按两下语音键会弹出一个识别窗口重新录音。 */
+    private boolean platformStopped;
     private long generation;
     private boolean recognizing;
 
@@ -54,14 +66,16 @@ final class ImeVoiceEntry {
     }
 
     /**
-     * 选键盘里的识别方式：已配置本机模型时用本机；豆包流式在线时用豆包，离线且允许回退、本机模型已装好时用本机；其他（系统识别器、上传式识别）返回 null 交给 Activity，离线回退同样适用于它们。
+     * 选键盘里的识别方式：已配置本机模型时用本机；豆包流式在线时用豆包，离线且允许回退、本机模型已装好时用本机；没有配置服务商且设备有系统识别服务时用系统识别服务；配置了上传式服务商，或者设备没有系统识别服务时返回 null 交给 Activity。离线回退对系统识别服务和上传式服务商同样适用。
      */
     static Engine choose(boolean localConfigured, boolean streamingConfigured, boolean online,
-                         boolean offlineFallback, boolean fallbackInstalled) {
+                         boolean offlineFallback, boolean fallbackInstalled,
+                         boolean uploadConfigured, boolean platformAvailable) {
         if (localConfigured) return Engine.LOCAL;
         boolean fallback = !online && offlineFallback && fallbackInstalled;
         if (streamingConfigured) return fallback ? Engine.LOCAL : Engine.STREAMING;
-        return fallback ? Engine.LOCAL : null;
+        if (fallback) return Engine.LOCAL;
+        return !uploadConfigured && platformAvailable ? Engine.PLATFORM : null;
     }
 
     private JSONObject voicePreferences() {
@@ -100,18 +114,21 @@ final class ImeVoiceEntry {
         String requestId = "ime-keyboard-" + Long.toUnsignedString(SystemClock.uptimeMillis());
         VoiceConfiguration configured = VoiceConfiguration.read(s.preferencesDirectory, requestId);
         File files = s.getFilesDir();
-        String fallbackModel = voice.optString("asr_model_path", "");
+        String fallbackModel = JsonPolicy.strictStringOrEmpty(voice.opt("asr_model_path"));
         boolean fallbackInstalled = files != null && LocalAsrPolicy.usable(LocalAsrPolicy.PROVIDER, fallbackModel)
             && LocalAsrPolicy.installed(fallbackModel, files.toPath());
         boolean localConfigured = configured.localModel() != null;
         boolean streamingConfigured = configured.streaming() != null;
         boolean needsNetwork = !localConfigured;
+        boolean uploadConfigured = !localConfigured && !streamingConfigured && configured.provider() != null;
         Engine engine = choose(localConfigured, streamingConfigured, !needsNetwork || online(),
-            s.localSettings.bool(AndroidLocalSettings.VOICE_OFFLINE_FALLBACK), fallbackInstalled);
+            s.localSettings.bool(AndroidLocalSettings.VOICE_OFFLINE_FALLBACK), fallbackInstalled,
+            uploadConfigured, VoiceRecognitionActivity.available(s));
         if (engine == null) return false;
         String model = localConfigured ? configured.localModel() : fallbackModel;
         String provider = engine == Engine.LOCAL ? LocalAsrPolicy.PROVIDER : DoubaoAsrPolicy.PROVIDER;
-        String language = voice.optString("language", "zh-CN");
+        String rawLanguage = JsonPolicy.strictString(voice.opt("language"));
+        final String language = rawLanguage == null ? "zh-CN" : rawLanguage;
         boolean contribute = s.localSettings.bool(AndroidLocalSettings.VOICE_CONTRIBUTE_AUDIO) && s.imePrivacyGate.contributesVoice()
             && !EditorPolicy.password(s.editorInputType);
         // 记下开始聆听时的输入位置；结果出来时位置变了就不直接上屏。
@@ -122,6 +139,12 @@ final class ImeVoiceEntry {
         recognizing = true;
         VoiceRecognitionActivity.Polish polish = configured.polish();
         VoiceRecognitionActivity.Streaming stream = configured.streaming();
+        if (engine == Engine.PLATFORM) {
+            if (startPlatform(session, startedAt, language, polish)) return true;
+            // 系统识别服务连创建都失败时退回识别窗口，至少还有原来的流程可用。
+            cancel();
+            return false;
+        }
         if (engine == Engine.LOCAL) {
             LocalAsrRecognizer.watchMemory(s);
             local = new LocalAsrRecognizer();
@@ -189,6 +212,8 @@ final class ImeVoiceEntry {
     private void heard(long session, String partial) {
         if (session != generation || listening == null || partial == null || partial.isEmpty()) return;
         listening.setHint(partial);
+        // 系统识别服务自己判断说完了没有，这里再按停顿掐断会切掉还没说完的话。
+        if (platform != null) return;
         if (silenceStop != null) s.main.removeCallbacks(silenceStop);
         Runnable stop = new Runnable() {
             @Override public void run() {
@@ -209,6 +234,10 @@ final class ImeVoiceEntry {
         }
         if (local != null) local.stop();
         if (streaming != null) streaming.stop();
+        if (platform != null) {
+            platformStopped = true;
+            platform.stopListening();
+        }
         if (listening != null) listening.setHint("正在识别…");
     }
 
@@ -226,7 +255,118 @@ final class ImeVoiceEntry {
         if (streaming != null) streaming.cancel();
         local = null;
         streaming = null;
+        releasePlatform();
         dismiss();
+    }
+
+    /**
+     * 在键区里调起系统识别服务；回调都在主线程。服务连创建或启动都失败时返回 false。
+     */
+    private boolean startPlatform(long session, long startedAt, String language,
+                                  VoiceRecognitionActivity.Polish polish) {
+        SpeechRecognizer recognizer;
+        try {
+            recognizer = SpeechRecognizer.createSpeechRecognizer(s);
+        } catch (RuntimeException error) {
+            return false;
+        }
+        platform = recognizer;
+        platformListening = false;
+        platformStopped = false;
+        recognizer.setRecognitionListener(new RecognitionListener() {
+            @Override public void onReadyForSpeech(Bundle params) {
+                if (session == generation) platformListening = true;
+            }
+            @Override public void onBeginningOfSpeech() { }
+            @Override public void onRmsChanged(float rmsdB) {
+                if (session == generation && listening != null) {
+                    listening.setLevel(PlatformSpeechPolicy.level(rmsdB));
+                }
+            }
+            @Override public void onBufferReceived(byte[] buffer) { }
+            @Override public void onEndOfSpeech() {
+                if (session == generation && listening != null) {
+                    // 说完后多数识别服务不再报音量，光圈直接收回，不能停在半截。
+                    listening.resetLevel();
+                    listening.setHint("正在识别…");
+                }
+            }
+            @Override public void onError(int error) {
+                platformFailed(session, error);
+            }
+            @Override public void onResults(Bundle results) {
+                platformRecognized(session, startedAt, firstResult(results), language, polish);
+            }
+            @Override public void onPartialResults(Bundle partialResults) {
+                heard(session, firstResult(partialResults));
+            }
+            @Override public void onEvent(int eventType, Bundle params) { }
+        });
+        try {
+            recognizer.startListening(VoiceRecognitionActivity.recognitionIntent(s.getPackageName(),
+                language, true));
+        } catch (RuntimeException error) {
+            releasePlatform();
+            return false;
+        }
+        return true;
+    }
+
+    private static String firstResult(Bundle results) {
+        if (results == null) return null;
+        ArrayList<String> values = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+        return values == null || values.isEmpty() ? null : values.get(0);
+    }
+
+    /** 系统识别服务给出最终结果：需要润色时到工作线程上做，再回主线程上屏。 */
+    private void platformRecognized(long session, long startedAt, String text, String language,
+                                    VoiceRecognitionActivity.Polish polish) {
+        if (session != generation) return;
+        releasePlatform();
+        String result = text == null ? null : TextPolicy.trimmed(text);
+        if (result == null || result.isEmpty()) {
+            delivered(session, null, PlatformSpeechPolicy.emptyResult(), null, 0, language, PLATFORM_PROVIDER);
+            return;
+        }
+        long elapsed = SystemClock.uptimeMillis() - startedAt;
+        if (polish == null) {
+            delivered(session, result, null, null, elapsed, language, PLATFORM_PROVIDER);
+            return;
+        }
+        if (listening != null) listening.setHint("正在润色…");
+        String transcript = result;
+        try {
+            worker.execute(() -> {
+                String polished = new VoicePolisher().polish(polish.endpoint(), polish.model(), polish.token(),
+                    polish.prompt(), transcript);
+                String finalText = polished != null && !TextPolicy.trimmed(polished).isEmpty()
+                    ? TextPolicy.trimmed(polished) : transcript;
+                s.main.post(() -> delivered(session, finalText, null, null, elapsed, language, PLATFORM_PROVIDER));
+            });
+        } catch (RejectedExecutionException error) {
+            delivered(session, transcript, null, null, elapsed, language, PLATFORM_PROVIDER);
+        }
+    }
+
+    /** 系统识别服务报错：还没开始聆听就被拒的转交识别窗口再试，其余按错误码提示。 */
+    private void platformFailed(long session, int error) {
+        if (session != generation) return;
+        boolean retry = PlatformSpeechPolicy.retryInActivity(error, platformListening || platformStopped);
+        ImeLog.w("Platform speech recognizer failed in keyboard: error " + error);
+        cancel();
+        if (retry) {
+            s.launchVoiceActivity();
+            return;
+        }
+        android.widget.Toast.makeText(s, PlatformSpeechPolicy.message(error), android.widget.Toast.LENGTH_LONG).show();
+    }
+
+    private void releasePlatform() {
+        SpeechRecognizer recognizer = platform;
+        platform = null;
+        platformListening = false;
+        platformStopped = false;
+        if (recognizer != null) recognizer.destroy();
     }
 
     private void delivered(long session, String text, String failure, byte[] pcm, long elapsedMillis,
@@ -235,6 +375,7 @@ final class ImeVoiceEntry {
         recognizing = false;
         local = null;
         streaming = null;
+        releasePlatform();
         if (text == null || text.isEmpty()) {
             if (failure != null) android.widget.Toast.makeText(s, failure, android.widget.Toast.LENGTH_SHORT).show();
             dismiss();
@@ -261,6 +402,7 @@ final class ImeVoiceEntry {
             contribute(pcm, text, language, provider);
         }
         if (listening != null) {
+            listening.resetLevel();
             listening.setText("识别完成");
             listening.setHint("已识别：" + text);
             listening.setContentDescription("已识别：" + text);
@@ -357,6 +499,7 @@ final class ImeVoiceEntry {
                     if (streaming != null) streaming.cancel();
                     local = null;
                     streaming = null;
+                    releasePlatform();
                 }
             }
         });

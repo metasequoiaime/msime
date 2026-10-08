@@ -10,7 +10,7 @@
  * Everything here is a translation between two records. The file both processes read is the
  * keyboard's; the settings page is simply a second writer of it.
  */
-import { FeedbackSettings, HapticStrength, KeyboardFeedback } from './KeyboardFeedback';
+import { FeedbackSettings, HapticStrength, KeyboardFeedback } from "./KeyboardFeedback";
 
 /** The shared shape, as the page sends and expects it. */
 export interface MobileKeyboardFeedback {
@@ -22,15 +22,17 @@ export interface MobileKeyboardFeedback {
 }
 
 export class KeyboardFeedbackBridge {
-  static readonly STRONG: string = 'strong';
+  static readonly STRONG: string = "strong";
 
   static toShared(settings: FeedbackSettings): MobileKeyboardFeedback {
     return {
       soundEnabled: settings.sound,
       hapticsEnabled: settings.haptics,
-      hapticStrength: settings.strength === HapticStrength.HEAVY
-        ? KeyboardFeedbackBridge.STRONG : settings.strength as string,
-      glideTyping: settings.glideTyping
+      hapticStrength:
+        settings.strength === HapticStrength.HEAVY
+          ? KeyboardFeedbackBridge.STRONG
+          : (settings.strength as string),
+      glideTyping: settings.glideTyping,
     };
   }
 
@@ -44,27 +46,32 @@ export class KeyboardFeedbackBridge {
       return KeyboardFeedback.DEFAULTS;
     }
     return {
-      sound: typeof value.soundEnabled === 'boolean'
-        ? value.soundEnabled : KeyboardFeedback.DEFAULTS.sound,
-      haptics: typeof value.hapticsEnabled === 'boolean'
-        ? value.hapticsEnabled : KeyboardFeedback.DEFAULTS.haptics,
+      sound:
+        typeof value.soundEnabled === "boolean"
+          ? value.soundEnabled
+          : KeyboardFeedback.DEFAULTS.sound,
+      haptics:
+        typeof value.hapticsEnabled === "boolean"
+          ? value.hapticsEnabled
+          : KeyboardFeedback.DEFAULTS.haptics,
       strength: KeyboardFeedbackBridge.strength(value.hapticStrength),
-      glideTyping: typeof value.glideTyping === 'boolean'
-        ? value.glideTyping : KeyboardFeedback.DEFAULTS.glideTyping
+      glideTyping:
+        typeof value.glideTyping === "boolean"
+          ? value.glideTyping
+          : KeyboardFeedback.DEFAULTS.glideTyping,
     };
   }
 
-  /** The vibration length the page's preview asks for, in the keyboard's own terms. */
-  static previewDuration(strength: string): number {
-    return KeyboardFeedback.duration(KeyboardFeedbackBridge.strength(strength));
-  }
-
-  private static strength(value: string): HapticStrength {
+  /** 页面上的档位名换成键盘的档位；「跟随系统」两边都叫 `system`，认不出的值按中档。 */
+  static strength(value: string): HapticStrength {
     if (value === KeyboardFeedbackBridge.STRONG || value === HapticStrength.HEAVY) {
       return HapticStrength.HEAVY;
     }
     if (value === HapticStrength.LIGHT) {
       return HapticStrength.LIGHT;
+    }
+    if (value === HapticStrength.SYSTEM) {
+      return HapticStrength.SYSTEM;
     }
     return HapticStrength.MEDIUM;
   }

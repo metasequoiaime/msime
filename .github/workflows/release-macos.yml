@@ -10,6 +10,7 @@ concurrency: {group: release-macos, cancel-in-progress: false}
 jobs:
   release:
     # 发布包是 universal 的（arm64 + x86_64），在 Apple 芯片的 runner 上交叉编出 x86_64。Rust 引擎不再链接只有 arm64 的 Homebrew 库，C/C++ 部分只用系统 SDK，所以一台机器就能编出两种架构。
+    # 留在 GitHub 托管的 runner 上，不要搬到 Depot：这个 job 用到Developer ID 证书、公证用的 Apple ID 密码这些长期凭据。只做构建、不碰长期凭据的 job 才放 Depot。
     runs-on: macos-15
     timeout-minutes: 120
     # Mapped here because secrets.* cannot appear in a step's if:. All are optional; see the signing comment below and platforms/macos/README.md (发布包). The names are the ones the repository's Developer ID secrets were stored under; reading any other name gives an empty string, which silently turns every release into an ad-hoc, un-notarized package.

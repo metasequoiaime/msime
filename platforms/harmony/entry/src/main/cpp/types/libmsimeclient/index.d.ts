@@ -212,6 +212,12 @@ export const fixCandidatePosition: (
 export const clearCandidatePosition: (handle: number, generation: number, index: number) => string;
 export const removeCandidate: (handle: number, generation: number, index: number) => string;
 export const chooseNineKeySpelling: (handle: number, generation: number, index: number) => string;
+/** 九宫格候选筛选：只留单字，并按首字笔顺前缀（`hspnz`，<=64 字节，空串不按笔画）筛选；答复同其他输入调用。 */
+export const setNineKeyFilter: (
+  handle: number,
+  singleCharacter: boolean,
+  strokes: string,
+) => string;
 
 export const view: (handle: number) => string;
 export const allCandidates: (handle: number) => string;

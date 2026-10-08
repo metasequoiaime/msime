@@ -10,9 +10,9 @@ import app.msime.android.CommonPhrasesStore;
 import app.msime.android.ViewPolicy;
 
 /**
- * 常用语页（设置和「我的」都进这一页）：一组常用语，每条行尾一个「删除」，下面一组「添加常用语」。
+ * 常用语页（设置、「我的」和键盘常用语面板下方的按钮都进这一页）：一组常用语，点一条修改正文，行尾一个「删除」，下面一组「添加常用语」。
  *
- * <p>读写全部经 {@link CommonPhrasesStore}，键盘的「常用语」面板读的是同一份，所以这里改完键盘下次打开面板就能看到。
+ * <p>读写全部经 {@link CommonPhrasesStore}，键盘的「常用语」面板读的是同一份，所以这里改完键盘下次打开面板就能看到。修改经 {@link CommonPhrasesStore#replace}，条目仍属于原来的来源（自己添加的或某个短语包）。
  */
 public final class PhrasesPage extends DetailPage {
     @Nullable private LinearLayout column;
@@ -59,8 +59,12 @@ public final class PhrasesPage extends DetailPage {
             list.note("还没有常用语。添加以后，在键盘的「常用语」面板里点一下就能发送。");
         }
         for (CommonPhrasesStore.Phrase phrase : current.phrases()) {
-            list.button(phrase.text(), null, "删除", () -> remove(phrase));
+            GroupCard.Row row = list.button(phrase.text(), null, "删除", () -> remove(phrase));
+            // 点整行修改这一条（#5673）；行尾的「删除」按钮自己响应，不会连带打开修改框。
+            Ui.makeClickable(row.view(), requireContext(), () -> showEditDialog(phrase));
+            row.view().setContentDescription(phrase.text() + "，点按修改");
         }
+        if (!current.phrases().isEmpty()) list.footer("点一条常用语可以修改。");
         GroupCard add = GroupCard.add(target, null);
         add.button("添加常用语", null, "添加", this::showAddDialog);
     }
@@ -78,8 +82,20 @@ public final class PhrasesPage extends DetailPage {
             MsToast.show(requireContext(), CommonPhrasesStore.failureMessage("common_phrases_limit"));
             return;
         }
-        InputDialog dialog = new InputDialog(requireContext(), "添加常用语", "可以换行，最多 1000 字");
-        EditText field = dialog.addField("输入常用语", null,
+        showTextDialog("添加常用语", null, "添加", this::add);
+    }
+
+    private void showEditDialog(CommonPhrasesStore.Phrase phrase) {
+        showTextDialog("修改常用语", phrase.text(), "保存", text -> {
+            if (!text.equals(phrase.text())) replace(phrase, text);
+        });
+    }
+
+    /** 添加和修改共用的输入框：多行，最多 1000 字，正文不合规时确认按钮不可点。 */
+    private void showTextDialog(String title, @Nullable String initial, String primary,
+            java.util.function.Consumer<String> action) {
+        InputDialog dialog = new InputDialog(requireContext(), title, "可以换行，最多 1000 字");
+        EditText field = dialog.addField("输入常用语", initial,
             InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
         // 常用语可以多行：换成多行输入框，高度随内容长到 6 行。
         ViewPolicy.setSingleLine(field, false);
@@ -95,8 +111,15 @@ public final class PhrasesPage extends DetailPage {
             field.setLayoutParams(params);
         }
         dialog.setValidator(values -> CommonPhrasesStore.validText(values.get(0)));
-        dialog.setPrimary("添加", values -> add(values.get(0)));
+        dialog.setPrimary(primary, values -> action.accept(values.get(0)));
         dialog.show();
+    }
+
+    private void replace(CommonPhrasesStore.Phrase phrase, String text) {
+        HostTask.run(this, context -> CommonPhrasesStore.replace(context, phrase.id(), text), result -> {
+            apply(result);
+            if (result != null && result.ok()) MsToast.show(requireContext(), "已修改");
+        });
     }
 
     private void add(String text) {

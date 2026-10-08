@@ -113,17 +113,27 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var handwritingActionHeight: NSLayoutConstraint?
   private var layoutPicker: KeyboardLayoutPickerView?
   private var candidatePanel: KeyboardCandidatePanelView?
-  private var candidatePanelGeneration: UInt64?
+  /// 面板正在显示的那一代候选。选择和长按菜单都按它里面的代次和全局序号找候选；九键面板换代时整份换掉。
+  private var candidatePanelSnapshot: CandidatePanelSnapshot?
+  /// 全拼九键展开面板的左右两栏；不为 nil 时面板是三栏布局，换代时不关而是重建。
+  private var nineKeyPanelColumns: KeyboardNineKeyPanelColumns?
+  /// 九键面板左栏正显示笔画键。只是面板自己的状态，收起面板就回到拼音。
+  private var nineKeyPanelStrokeMode = false
   private var emojiPicker: KeyboardEmojiPickerView?
   private var symbolPanel: KeyboardSymbolPanelView?
   private var nineKeyHoldPopup: UIView?
   private struct NineKeyGridKey {
     let button: UIButton
     let digit: Int
+    /// 在 3×3 网格里的位置，从 0 起。数字层按 `numberKeypadOrder` 由位置算出显示和输入的数字，字母层始终是 `digit`。
+    let row: Int
+    let column: Int
     let letters: String?
     let numberHint: UILabel?
   }
   private var nineKeyGridKeys: [NineKeyGridKey] = []
+  /// 九键数字层的排列，键盘出现时从共享文档同步（`synchronizeSharedTouchPreferences`），按键时不再读 App Group。
+  private var numberKeypadOrder = KeyboardLayoutPreference.numberKeypadOrder
   private enum MoreToolsPage { case root, localInput }
   private var moreTools: [KeyboardToolSection] = []
   private var moreToolsPage: MoreToolsPage = .root
@@ -274,6 +284,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   // path asks several times for every keystroke.
   private var currentLocalMode = "none"
   private var currentNineKeySpellings: [String] = []
+  private var currentNineKeySingleCharacter = false
+  private var currentNineKeyStrokes = ""
   private var appliedLayoutInputs: KeyboardLayoutInputs?
   private var candidateGlossTimer: Timer?
   /// Engine's local mode, as of the last snapshot.
@@ -962,7 +974,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         ) { [weak self] in
           guard let self else { return }
           self.countKeyPress(TypingKeyID.nineKey(digit))
-          if self.showsSymbols { self.handleSymbol(String(digit)) }
+          if self.showsSymbols {
+            self.handleSymbol(String(self.numberKeypadOrder.digit(row: rowIndex, column: column)))
+          }
           else if letters == nil { self.handleCharacter("'") }
           else { self.handleCharacter(String(digit)) }
         }
@@ -1002,7 +1016,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
           button.accessibilityHint = "长按输入 \(digit) 或 \(letters)"
         }
         nineKeyGridKeys.append(
-          NineKeyGridKey(button: button, digit: digit, letters: letters, numberHint: numberHint))
+          NineKeyGridKey(button: button, digit: digit, row: rowIndex, column: column, letters: letters,
+                         numberHint: numberHint))
         row.addArrangedSubview(button)
       }
       nineKeyGrid.addArrangedSubview(row)
@@ -1035,9 +1050,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   private func applyNineKeyDigitLayer(_ digits: Bool) {
     for key in nineKeyGridKeys {
-      key.button.configuration?.title = digits ? String(key.digit) : (key.letters ?? "分词")
+      let face = numberKeypadOrder.digit(row: key.row, column: key.column)
+      key.button.configuration?.title = digits ? String(face) : (key.letters ?? "分词")
       key.button.accessibilityLabel = digits
-        ? "数字 \(key.digit)"
+        ? "数字 \(face)"
         : (key.letters.map { "\(key.digit) \($0)" } ?? "拼音分词")
       key.numberHint?.isHidden = digits
       key.button.accessibilityHint = digits ? nil : key.letters.map { "长按输入 \(key.digit) 或 \($0)" }
@@ -1181,7 +1197,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       expandCandidatesButton, symbol: "chevron.down", label: "展开全部候选",
       identifier: "expandCandidates")
     expandCandidatesButton.addAction(
-      UIAction { [weak self] _ in self?.showCandidatePanel() },
+      // 九键面板只盖住键区，候选栏上这个按钮还看得见；面板开着时再按一下就收起。
+      UIAction { [weak self] _ in
+        guard let self else { return }
+        if candidatePanel != nil { closeKeyboardPicker() } else { showCandidatePanel() }
+      },
       for: .primaryActionTriggered)
 
     preeditButton.translatesAutoresizingMaskIntoConstraints = false
@@ -1428,7 +1448,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
           KeyboardFeedbackPreference.defaults.set(!KeyboardFeedbackPreference.hapticsEnabled,
                                                    forKey: KeyboardFeedbackPreference.hapticsKey)
           if KeyboardFeedbackPreference.hapticsEnabled {
-            self?.keyFeedback.impactOccurred(intensity: KeyboardFeedbackPreference.hapticStrength.intensity)
+            if let self { KeyboardFeedbackPreference.hapticStrength.impact(self.keyFeedback) }
             self?.prepareKeyFeedback()
           }
           self?.updateShortcutButtons()
@@ -1457,7 +1477,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
           let next = strengths[(current + 1) % strengths.count]
           KeyboardFeedbackPreference.defaults.set(next.rawValue,
                                                    forKey: KeyboardFeedbackPreference.strengthKey)
-          keyFeedback.impactOccurred(intensity: next.intensity)
+          next.impact(keyFeedback)
           prepareKeyFeedback()
           updateShortcutButtons()
         }),
@@ -1573,7 +1593,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       Self.drawBareInSidebar(button)
       button.tag = index
       button.isHidden = false
-      button.accessibilityLabel = "选择拼音 \(spelling)"
+      button.accessibilityLabel = KeyboardNineKeyPanelColumns.spellingAccessibilityLabel(spelling)
       button.accessibilityIdentifier = "nineKeySpelling_\(spelling)"
     }
     spellingScrollView.setContentOffset(.zero, animated: false)
@@ -2971,18 +2991,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     GlobalThemePreference.mirror(preferences)
     let previousTheme = KeyboardTheme.current
     let skinChanged = KeyboardTheme.reload(preferences) != previousTheme
-    if let spacing = KeyboardLayoutPreference.sharedKeySpacing(preferences["touch_key_spacing_tenths"]) {
-      KeyboardLayoutPreference.keySpacing = spacing
-    }
-    if let spacing = KeyboardLayoutPreference.sharedRowSpacing(preferences["touch_row_spacing_tenths"]) {
-      KeyboardLayoutPreference.rowSpacing = spacing
-    }
-    if let voice = preferences["touch_voice_shortcut"] as? Bool {
-      KeyboardLayoutPreference.voiceShortcutEnabled = voice
-    }
+    // 高度也抄进 App Group：原先只抄键距、行距和语音入口，高度只进了这个控制器，于是布局面板打开时显示、提交时写回的都是 App Group 里可能过时的高度。
+    KeyboardLayoutPreference.mirrorGeometry(preferences)
     if let adjustment = KeyboardLayoutPreference.sharedHeightAdjustment(preferences["touch_keyboard_height_adjustment"]) {
       sharedKeyboardHeightAdjustment = CGFloat(adjustment)
     }
+    KeyboardLayoutPreference.numberKeypadOrder = KeyboardLayoutPreference.NumberKeypadOrder.shared(in: preferences)
+    numberKeypadOrder = KeyboardLayoutPreference.numberKeypadOrder
 
     var selectedScheme: ChineseInputScheme?
     if let schemes = preferences["touch_keyboard_schemes"] as? [String: Any] {
@@ -3044,46 +3059,162 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     do {
       let snapshot = try CandidatePanelSnapshot.decode(session.allCandidates())
       guard !snapshot.entries.isEmpty else { return }
-      let indexes = snapshot.entries.map(\.index)
-      let generation = snapshot.generation
+      let columns = opensNineKeyPanel ? makeNineKeyPanelColumns() : nil
       let panel = KeyboardCandidatePanelView(
         candidates: snapshot.entries.map(\.text), preedit: snapshot.preedit,
-        annotations: snapshot.entries.map {
-          candidatePanelAnnotation(code: $0.code, gloss: $0.translation, word: $0.text, engine: $0.annotation,
-                                   typed: snapshot.preedit)
-        },
-        markers: snapshot.entries.map { CandidateMarker.markers(source: $0.source, fixedPosition: $0.fixedPosition) },
+        annotations: candidatePanelAnnotations(snapshot),
+        markers: candidatePanelMarkers(snapshot),
         candidateScale: candidateFontScale, preeditScale: preeditFontScale, candidateFamilies: candidateFontFamilies,
         display: { [weak self] in self?.chineseOutput($0) ?? $0 },
         menuElements: { [weak self] index in
-          guard let self, indexes.indices.contains(index) else { return [] }
+          guard let self, let snapshot = candidatePanelSnapshot, snapshot.entries.indices.contains(index) else { return [] }
           let entry = snapshot.entries[index]
           return candidateMenuElements(
-            generation: generation, globalIndex: indexes[index], candidate: entry.text,
+            generation: snapshot.generation, globalIndex: entry.index, candidate: entry.text,
             offlineGloss: entry.translation, fixedPosition: entry.fixedPosition)
         },
         onSelect: { [weak self] index in
-          guard let self, indexes.indices.contains(index) else { return }
+          guard let self, let snapshot = candidatePanelSnapshot, snapshot.entries.indices.contains(index) else { return }
+          // 先收起面板、暂不清九键筛选：清筛选会换一代候选，这次选择就成了过期的。选完组字还在的话再清。
+          closeCandidatePanel(clearingNineKeyFilter: false)
           closeKeyboardPicker()
           playInputClick()
-          render(session.selectAnyCandidate(generation: generation, globalIndex: indexes[index]))
+          render(session.selectAnyCandidate(generation: snapshot.generation, globalIndex: snapshot.entries[index].index))
+          clearNineKeyFilter()
         },
-        onClose: { [weak self] in self?.closeKeyboardPicker() })
+        onClose: { [weak self] in self?.closeKeyboardPicker() },
+        columns: columns.map { ($0.leading, $0.trailing) })
       panel.accessibilityViewIsModal = true
       panel.translatesAutoresizingMaskIntoConstraints = false
       view.addSubview(panel)
+      // 九键面板只盖住键区，上面的候选栏和读音留着，用户看得到选拼音、筛选之后读音和首选怎么变。
+      let top = columns != nil
+        ? panel.topAnchor.constraint(equalTo: compositionContainer?.bottomAnchor ?? view.topAnchor, constant: 4)
+        : panel.topAnchor.constraint(equalTo: view.topAnchor)
       NSLayoutConstraint.activate([
         panel.leadingAnchor.constraint(equalTo: view.leadingAnchor),
         panel.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-        panel.topAnchor.constraint(equalTo: view.topAnchor),
+        top,
         panel.bottomAnchor.constraint(equalTo: view.bottomAnchor),
       ])
       candidatePanel = panel
-      candidatePanelGeneration = generation
+      candidatePanelSnapshot = snapshot
+      nineKeyPanelColumns = columns
+      if columns != nil { showNineKeyPanelOverKeys(true) }
+      updateNineKeyPanelColumns()
       UIAccessibility.post(notification: .screenChanged, argument: panel)
     } catch {
       showDiagnostic("候选列表暂不可用")
     }
+  }
+
+  /// 全拼九键正在组字时，展开的是三栏的九键面板；其他方案、注音九键和本地模式照旧是整块的候选面板。
+  private var opensNineKeyPanel: Bool {
+    inputScheme == .nineKey && isChineseMode && hasComposition && !isInLocalMode
+  }
+
+  private func candidatePanelAnnotations(_ snapshot: CandidatePanelSnapshot) -> [KeyboardCandidateAnnotation] {
+    snapshot.entries.map {
+      candidatePanelAnnotation(code: $0.code, gloss: $0.translation, word: $0.text, engine: $0.annotation,
+                               typed: snapshot.preedit)
+    }
+  }
+
+  private func candidatePanelMarkers(_ snapshot: CandidatePanelSnapshot) -> [[CandidateMarker]] {
+    snapshot.entries.map { CandidateMarker.markers(source: $0.source, fixedPosition: $0.fixedPosition) }
+  }
+
+  private func makeNineKeyPanelColumns() -> KeyboardNineKeyPanelColumns {
+    let columns = KeyboardNineKeyPanelColumns(makeKey: { [unowned self] title, label, action in
+      makeKey(title: title, accessibilityLabel: label, function: true, action: action)
+    })
+    columns.onAction = { [weak self] action in self?.handleNineKeyPanelAction(action) }
+    return columns
+  }
+
+  private func updateNineKeyPanelColumns() {
+    nineKeyPanelColumns?.update(
+      spellings: currentNineKeySpellings, strokeMode: nineKeyPanelStrokeMode, strokes: currentNineKeyStrokes,
+      singleCharacter: currentNineKeySingleCharacter,
+      // 不知道有没有词库时（测试宿主以外没有 EngineResources 的 bundle）照常提供，Engine 会报词库不可用。
+      strokesAvailable: InputSchemePreference.installedLanguageSchemes?.contains(.stroke) ?? true)
+  }
+
+  /// 九键面板两栏里的按键。选拼音、退格、筛选都会让 Engine 换一代候选，`refreshCandidatePanelAnnotations` 按新的一代重建面板，面板不关。
+  private func handleNineKeyPanelAction(_ action: KeyboardNineKeyPanelColumns.Action) {
+    switch action {
+    case .spelling(let index):
+      playInputClick()
+      render(session.chooseNineKeySpelling(at: UInt(index)))
+    case .stroke(let key):
+      playInputClick()
+      setNineKeyFilter(singleCharacter: currentNineKeySingleCharacter, strokes: currentNineKeyStrokes + key)
+    case .back:
+      playInputClick()
+      closeKeyboardPicker()
+    case .delete:
+      // 笔画模式下先删笔画，删完了才删拼音。
+      if nineKeyPanelStrokeMode && !currentNineKeyStrokes.isEmpty {
+        playInputClick()
+        setNineKeyFilter(singleCharacter: currentNineKeySingleCharacter,
+                         strokes: String(currentNineKeyStrokes.dropLast()))
+      } else {
+        handleBackspace()
+      }
+    case .clear:
+      playInputClick()
+      render(discardComposition())
+    case .toggleStrokes:
+      playInputClick()
+      nineKeyPanelStrokeMode.toggle()
+      // 回到拼音时把笔画筛选一起去掉，否则左栏已经看不见笔画，候选却还按它筛。
+      if !nineKeyPanelStrokeMode && !currentNineKeyStrokes.isEmpty {
+        setNineKeyFilter(singleCharacter: currentNineKeySingleCharacter, strokes: "")
+      } else {
+        updateNineKeyPanelColumns()
+      }
+    case .toggleSingleCharacter:
+      playInputClick()
+      setNineKeyFilter(singleCharacter: !currentNineKeySingleCharacter, strokes: currentNineKeyStrokes)
+    }
+  }
+
+  private func setNineKeyFilter(singleCharacter: Bool, strokes: String) {
+    let snapshot = session.setNineKeyFilter(singleCharacter: singleCharacter, strokes: strokes)
+    render(snapshot)
+    // Engine 用诊断码报笔画词库不可用，换成用户看得懂的话。
+    if snapshot.diagnosticText?.contains("LANGUAGE_DICTIONARY_UNAVAILABLE") == true {
+      showDiagnostic("笔画词库不可用")
+      renderCandidateStrip()
+    }
+  }
+
+  /// 九键面板底色透明，皮肤的背景（图片、渐变、深色）照常从后面透出来，所以要把它盖住的那几排键藏起来；只改透明度，不动布局，收起时键还在原位。候选栏上的展开按钮同时变成收起。
+  private func showNineKeyPanelOverKeys(_ open: Bool) {
+    for row in keyboardRoot?.arrangedSubviews ?? [] where row !== compositionContainer {
+      row.alpha = open ? 0 : 1
+    }
+    expandCandidatesButton.configuration?.image = UIImage(systemName: open ? "chevron.up" : "chevron.down")
+    expandCandidatesButton.accessibilityLabel = open ? "收起全部候选" : "展开全部候选"
+  }
+
+  /// 组字还在、筛选还开着时把单字和笔画筛选都关掉：面板收起之后看不到筛选状态，候选不该还被筛着。
+  private func clearNineKeyFilter() {
+    guard hasComposition, currentNineKeySingleCharacter || !currentNineKeyStrokes.isEmpty else { return }
+    render(session.setNineKeyFilter(singleCharacter: false, strokes: ""))
+  }
+
+  private func closeCandidatePanel(clearingNineKeyFilter: Bool = true) {
+    guard let panel = candidatePanel else { return }
+    panel.removeFromSuperview()
+    candidatePanel = nil
+    candidatePanelSnapshot = nil
+    let wasNineKeyPanel = nineKeyPanelColumns != nil
+    nineKeyPanelColumns = nil
+    nineKeyPanelStrokeMode = false
+    if wasNineKeyPanel { showNineKeyPanelOverKeys(false) }
+    UIAccessibility.post(notification: .screenChanged, argument: expandCandidatesButton)
+    if wasNineKeyPanel && clearingNineKeyFilter { clearNineKeyFilter() }
   }
 
   private func updateExpandControl() {
@@ -3626,7 +3757,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       // 分离式键盘有两个空格，只给正在拖的那个换标题；结束时 updateSpaceKeyTitle 把两个都还原。
       (pan.view as? UIButton)?.configuration?.title = spaceDragEditsComposition ? "移动拼音光标" : "移动光标"
       if KeyboardFeedbackPreference.hapticsEnabled {
-        keyFeedback.impactOccurred(intensity: KeyboardFeedbackPreference.hapticStrength.intensity)
+        KeyboardFeedbackPreference.hapticStrength.impact(keyFeedback)
       }
     case .changed:
       let steps = cursorMovement.advance(to: pan.translation(in: view).x, document: document)
@@ -3929,6 +4060,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     currentLocalMode = snapshot.localMode
     currentNineKeySpellings = snapshot.nineKeySpellings
+    currentNineKeySingleCharacter = snapshot.nineKeySingleCharacter
+    currentNineKeyStrokes = snapshot.nineKeyStrokes
     updateLetterCaseControls()
     if let commitText = snapshot.commitText {
       insertOwnText(source == .japanese ? commitText : chineseOutput(commitText), source: source,
@@ -3949,8 +4082,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if !hasComposition { applyLearningPreferences() }
     showDiagnostic(snapshot.diagnosticText)
     // 已选的那一段领在读音前面，与来源把 word_for_creating_word 拼在读音前面是同一件事。行内预编辑关闭时（默认）编辑框里没有组字，候选条这一行就是用户唯一能看见它的地方；打开后按所选样式（原始按键或拼音分词）也作为标记文本写进编辑框。
-    let composing = snapshot.phrasePrefix
-      + (inputScheme.isJapanese && !snapshot.reading.isEmpty ? snapshot.reading : snapshot.preedit)
+    // 全拼九键的 `preedit` 是数字，读音行显示 Engine 给的拼音读音（`ning'bai`）；没有读音时才退回数字。
+    let shownPreedit = !snapshot.nineKeyReading.isEmpty ? snapshot.nineKeyReading
+      : inputScheme.isJapanese && !snapshot.reading.isEmpty ? snapshot.reading : snapshot.preedit
+    let composing = snapshot.phrasePrefix + shownPreedit
     visiblePhrasePrefix = snapshot.phrasePrefix
     // The `editing_text` of an in-place scheme is the keys of what it composes, not a spelling with a caret to move.
     visibleCaretSpelling = inputScheme.hasSpellingCaret ? snapshot.editingTextWithCaret : nil
@@ -4206,17 +4341,26 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func refreshCandidatePanelAnnotations() {
-    guard let panel = candidatePanel, let generation = candidatePanelGeneration else { return }
+    guard let panel = candidatePanel, let current = candidatePanelSnapshot else { return }
     guard let value = try? session.allCandidates(),
-          let snapshot = try? CandidatePanelSnapshot.decode(value),
-          snapshot.generation == generation else {
+          let snapshot = try? CandidatePanelSnapshot.decode(value) else {
       closeKeyboardPicker()
       return
     }
-    panel.updateAnnotations(snapshot.entries.map {
-      candidatePanelAnnotation(code: $0.code, gloss: $0.translation, word: $0.text, engine: $0.annotation,
-                               typed: snapshot.preedit)
-    })
+    guard snapshot.generation == current.generation else {
+      // 九键面板里选拼音、退格和筛选都会换一代候选，面板留着、按新的一代重建，组字结束才收起。其他面板照旧在候选换代时收起。
+      guard nineKeyPanelColumns != nil, hasComposition else {
+        closeKeyboardPicker()
+        return
+      }
+      candidatePanelSnapshot = snapshot
+      panel.reload(candidates: snapshot.entries.map(\.text), annotations: candidatePanelAnnotations(snapshot),
+                   markers: candidatePanelMarkers(snapshot))
+      updateNineKeyPanelColumns()
+      return
+    }
+    panel.updateAnnotations(candidatePanelAnnotations(snapshot))
+    updateNineKeyPanelColumns()
   }
 
   /// Candidate gloss lookup is session-free disk work. Copy the complete candidate generation on
@@ -4886,11 +5030,20 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   // The drags report on every gesture frame; the shared document is written once the value has
   // settled, so a single adjustment does not take a file lock a hundred times.
   private func commitTouchKeyboardGeometry() {
-    _ = session.persistTouchKeyboardGeometry(
+    let saved = session.persistTouchKeyboardGeometry(
       keySpacing: KeyboardLayoutPreference.keySpacing,
       rowSpacing: KeyboardLayoutPreference.rowSpacing,
       heightAdjustment: KeyboardLayoutPreference.heightAdjustment,
       voiceEnabled: KeyboardLayoutPreference.voiceShortcutEnabled)
+    guard !saved else { return }
+    // 共享文档没写成（多半是和设置 App 同时写、比较交换输了）。原先不声不响：App Group 和这个键盘用着新值，文档里还是旧值，下次键盘出现时被文档盖回去，看起来就是「调的高度自己变回去了」。现在记一笔日志，并按文档把 App Group 和键盘对齐，用户当场看到的就是实际留下的值。
+    DiagnosticLog.shared.write("touch_geometry_not_persisted")
+    guard let document = MetasequoiaInputSessionBridge.loadSharedPreferences() else { return }
+    KeyboardLayoutPreference.mirrorGeometry(document)
+    sharedKeyboardHeightAdjustment = CGFloat(KeyboardLayoutPreference.heightAdjustment)
+    applyLayoutPreferences()
+    updatePreferredKeyboardHeight()
+    if layoutPicker != nil { showLayoutPicker() }
   }
 
   private func showMorePicker() {
@@ -5048,12 +5201,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   private func closeKeyboardPicker() {
     dismissNineKeyHoldOptions()
-    if let panel = candidatePanel {
-      panel.removeFromSuperview()
-      candidatePanel = nil
-      candidatePanelGeneration = nil
-      UIAccessibility.post(notification: .screenChanged, argument: expandCandidatesButton)
-    }
+    closeCandidatePanel()
     if let picker = layoutPicker {
       picker.removeFromSuperview()
       layoutPicker = nil
@@ -5207,7 +5355,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       UIDevice.current.playInputClick()
     }
     if KeyboardFeedbackPreference.hapticsEnabled {
-      keyFeedback.impactOccurred(intensity: KeyboardFeedbackPreference.hapticStrength.intensity)
+      KeyboardFeedbackPreference.hapticStrength.impact(keyFeedback)
       keyFeedback.prepare()
     }
   }

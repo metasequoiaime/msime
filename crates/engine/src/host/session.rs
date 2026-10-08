@@ -63,6 +63,10 @@ pub struct EngineSnapshot {
     pub nine_key_spellings: Vec<String>,
     /// `SessionSnapshot::nine_key_reading`.
     pub nine_key_reading: String,
+    /// `SessionSnapshot::nine_key_single_character`.
+    pub nine_key_single_character: bool,
+    /// `SessionSnapshot::nine_key_strokes`.
+    pub nine_key_strokes: String,
     pub microsoft_shuangpin: bool,
     pub shuangpin_profile: String,
     pub preedit: String,
@@ -174,6 +178,8 @@ impl Session {
             nine_key: self.nine_key,
             nine_key_spellings: value.nine_key_spellings,
             nine_key_reading: value.nine_key_reading,
+            nine_key_single_character: value.nine_key_single_character,
+            nine_key_strokes: value.nine_key_strokes,
             microsoft_shuangpin: self.microsoft_shuangpin,
             shuangpin_profile: self.shuangpin_profile.clone(),
             preedit: value.preedit,
@@ -451,6 +457,17 @@ impl Session {
     /// Out of range is unhandled.
     pub fn choose_nine_key_spelling(&mut self, index: usize) -> Result<EngineResult> {
         Ok(result_for(self.inner.choose_nine_key_spelling(index)))
+    }
+
+    /// 见 [`crate::Session::set_nine_key_filter`]。
+    pub fn set_nine_key_filter(
+        &mut self,
+        single_character: bool,
+        strokes: &str,
+    ) -> Result<EngineResult> {
+        Ok(result_for(
+            self.inner.set_nine_key_filter(single_character, strokes),
+        ))
     }
 
     /// `CommitRaw` goes through the learning policy of bridge.cpp:1332-1359 and `CommitRawWithoutLearning` through :1321-1331.

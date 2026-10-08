@@ -103,10 +103,12 @@ public final class MoreToolsDeviceSmoke extends DeviceSmoke {
             || equalsText("不可用", state));
     }
 
+    /** 磁贴文字是「振动强度 」加当前档：轻、中、强或系统（跟随系统）。「强度」里本来就有「强」，所以只看后面那一截。 */
     private boolean validStrengthCard(AccessibilityNodeInfo node) {
         CharSequence text = node.getText();
-        return text != null && (text.toString().contains("轻")
-            || text.toString().contains("中") || text.toString().contains("强"));
+        if (text == null || !text.toString().startsWith("振动强度 ")) return false;
+        String level = text.toString().substring("振动强度 ".length());
+        return level.equals("轻") || level.equals("中") || level.equals("强") || level.equals("系统");
     }
 
     private Predicate<AccessibilityNodeInfo> shortcutBar() {
