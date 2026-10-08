@@ -2886,10 +2886,10 @@ private:
     slider_row(candidates, 0xE8CB, L"触发字符数", L"预编辑字母达到该长度后才出现英文候选项",
                L"mixed_input.minimum_prefix", 1, 8, 5);
     bool_row(candidates, 0xE76E, L"emoji 混输",
-             L"中文输入时在候选项中加入匹配的 emoji（位于英文候选之后；云候选与 AI 联想会使其相应顺移）",
+             L"中文输入时在候选项中加入匹配的 emoji，紧跟在它描绘的那个词后面（如「美国」后面是 🇺🇸），对不上候选词的排在末尾",
              L"mixed_input.emoji", false);
     bool_row(candidates, 0xE76E, L"颜文字混输",
-             L"中文输入时在候选项中加入匹配的颜文字（排在 emoji 之后；云候选与 AI 联想会使其相应顺移）",
+             L"中文输入时在候选项中加入匹配的颜文字，紧跟在它描绘的那个词后面、排在同一个词的 emoji 之后，对不上候选词的排在末尾",
              L"mixed_input.kaomoji", false);
     bool_row(candidates, 0xE82D, L"学习选词习惯", L"根据选词调整候选顺序", L"learning",
              true);

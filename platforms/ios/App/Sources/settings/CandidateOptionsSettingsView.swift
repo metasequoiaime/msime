@@ -138,10 +138,10 @@ struct CandidateOptionsSettingsView: View {
       }
       Section {
         Toggle(isOn: stored("mixed_input", "emoji", $emoji)) {
-          labelled("emoji 混输", "在候选中加入匹配的 emoji，排在英文候选之后")
+          labelled("emoji 混输", "在候选中加入匹配的 emoji，紧跟在它描绘的那个词后面")
         }.accessibilityIdentifier("mixedEmoji")
         Toggle(isOn: stored("mixed_input", "kaomoji", $kaomoji)) {
-          labelled("颜文字混输", "在候选中加入匹配的颜文字，排在 emoji 之后")
+          labelled("颜文字混输", "在候选中加入匹配的颜文字，排在同一个词的 emoji 之后")
         }.accessibilityIdentifier("mixedKaomoji")
       } footer: {
         if saveFailed { Text("设置没有保存，键盘可能正在写入同一份设置，请再试一次。") }
