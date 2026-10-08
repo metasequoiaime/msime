@@ -37,7 +37,9 @@ function checkAiEndpoint(endpoint: string): { url: URL | null; problem: AiEndpoi
     // 控制字符一律不收；`new URL` 会悄悄删掉换行和制表符，不能交给它判断。
     /[\u0000-\u001f\u007f-\u009f]/.test(endpoint) ||
     // `#` 之后都是片段，哪怕是空的；`URL.hash` 对空片段返回空字符串，只能看原文。
-    endpoint.includes("#")
+    endpoint.includes("#") ||
+    // 反斜杠在 WHATWG 里等同 `/`，curl 等宿主却把它当成主机或用户名的一部分，同一个地址会连到不同主机。
+    endpoint.includes("\\")
   ) {
     return invalid;
   }
@@ -60,10 +62,25 @@ function checkAiEndpoint(endpoint: string): { url: URL | null; problem: AiEndpoi
   ) {
     return invalid;
   }
-  if (url.protocol === "http:" && !isLocalNetworkHost(url.hostname)) {
-    return { url: null, problem: "cleartext_public" };
+  if (url.protocol === "http:") {
+    // 明文地址的主机必须按解析后的样子书写（大小写除外）；`10.1`、`0x7f000001`、`127.0.0.1.`、百分号编码这类写法手写解析的宿主不认。
+    if (writtenHost(endpoint)?.toLowerCase() !== url.hostname.toLowerCase()) return invalid;
+    if (!isLocalNetworkHost(url.hostname)) return { url: null, problem: "cleartext_public" };
   }
   return { url, problem: null };
+}
+
+/** `://` 之后、端口之前原样书写的主机；IPv6 带方括号。首尾空格与 `new URL` 一样先去掉。 */
+function writtenHost(endpoint: string): string | null {
+  const trimmed = endpoint.replace(/^ +| +$/g, "");
+  const separator = trimmed.indexOf("://");
+  if (separator < 0) return null;
+  const authority = trimmed.slice(separator + 3).split(/[/?]/)[0];
+  if (authority.startsWith("[")) {
+    const close = authority.indexOf("]");
+    return close < 0 ? null : authority.slice(0, close + 1);
+  }
+  return authority.split(":")[0];
 }
 
 /** `hostname` 取自 `URL.hostname`：IPv4 已规范成点分十进制，IPv6 带方括号且已规范成小写压缩形式。 */

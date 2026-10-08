@@ -65,7 +65,11 @@ enum AIEndpointPolicy {
           (components.port ?? 0) >= 0, (components.port ?? 0) <= 65_535,
           let url = URL(string: endpoint)
     else { return .failure(.invalid) }
-    if scheme == "http" && !isLocalNetworkHost(host) { return .failure(.cleartextPublicHost) }
+    if scheme == "http" {
+      // 明文地址的主机不收百分号编码（包括 IPv6 区域标识 `%25en0`）和空方括号，与 Rust 只认规范写法的主机一致。`URLComponents.host` 是解码后的，`evil.com%00.local` 解码后以 `.local` 结尾。
+      guard components.percentEncodedHost?.contains("%") != true, host != "[]" else { return .failure(.invalid) }
+      if !isLocalNetworkHost(host) { return .failure(.cleartextPublicHost) }
+    }
     return .success(url)
   }
 

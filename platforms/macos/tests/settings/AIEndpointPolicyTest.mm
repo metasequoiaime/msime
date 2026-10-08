@@ -27,6 +27,10 @@ int main() {
         // 带前导零的点分写法在系统解析里按八进制处理（`010.0.0.1` 是 8.0.0.1），不能当成 10/8 放行。
         assert(MSIMEAIEndpointCheck(@"http://010.0.0.1/v1", nil) == MSIMEAIEndpointProblemCleartextPublicHost);
         assert(MSIMEAIEndpointCheck(@"http://0x7f000001/v1", nil) == MSIMEAIEndpointProblemCleartextPublicHost);
+        // 明文地址的主机不收百分号编码和空方括号：`host` 是解码后的，`evil.com%00.local` 解码后以 `.local` 结尾。
+        for (NSString *endpoint in @[@"http://evil.com%00.local/v1", @"http://[fe80::1%25en0]/v1", @"http://%31%32%37.0.0.1/v1", @"http://[]/v1"]) {
+            assert(MSIMEAIEndpointCheck(endpoint, nil) == MSIMEAIEndpointProblemInvalid);
+        }
         assert(failures == 0);
     }
     return 0;

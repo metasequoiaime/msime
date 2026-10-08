@@ -145,7 +145,8 @@ inline AiEndpointCheck check_ai_endpoint(std::string_view url)
         host = authority.substr(0, colon);
         port = colon == std::string_view::npos ? std::string_view{} : authority.substr(colon + 1);
     }
-    if (host.empty() || port.size() > 5 ||
+    // 主机不收百分号编码（包括 IPv6 区域标识 `%25en0`），与 Rust 只认规范写法的主机一致；`evil.com%00.local` 原样看以 `.local` 结尾。
+    if (host.empty() || host.find('%') != std::string_view::npos || port.size() > 5 ||
         !std::all_of(port.begin(), port.end(), [](unsigned char ch) { return ch >= '0' && ch <= '9'; }) ||
         (!port.empty() && std::stoi(std::string(port)) > 65535))
         return AiEndpointCheck::Invalid;

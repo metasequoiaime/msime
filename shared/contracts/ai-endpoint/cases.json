@@ -57,6 +57,14 @@
     { "endpoint": "https://api.example.com/v1#", "result": "invalid", "origin": null },
     { "endpoint": "http://localhost:99999/v1", "result": "invalid", "origin": null },
     { "endpoint": "http://[::1/v1", "result": "invalid", "origin": null },
-    { "endpoint": "http://localhost:1234/v1\n", "result": "invalid", "origin": null }
+    { "endpoint": "http://localhost:1234/v1\n", "result": "invalid", "origin": null },
+    { "endpoint": "http://127.0.0.1\\@evil.example/v1", "result": "invalid", "origin": null },
+    { "endpoint": "http://192.168.1.20:1234\\@evil.example/v1", "result": "invalid", "origin": null },
+    { "endpoint": "https://api.example.com\\@evil.example/v1", "result": "invalid", "origin": null },
+    { "endpoint": "http://localhost:1234\\v1", "result": "invalid", "origin": null },
+    { "endpoint": "http://evil.com%00.local/v1", "result": "invalid", "origin": null },
+    { "endpoint": "http://%6cocalhost/v1", "result": "invalid", "origin": null },
+    { "endpoint": "http://[]/v1", "result": "invalid", "origin": null },
+    { "endpoint": "http://@localhost/v1", "result": "invalid", "origin": null }
   ]
 }

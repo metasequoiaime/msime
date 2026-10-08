@@ -27,7 +27,9 @@ export class AiEndpointPolicy {
       endpoint.length === 0 ||
       utf8Length(endpoint) > MAX_ENDPOINT_BYTES ||
       TextPolicy.hasControl(endpoint) ||
-      endpoint.includes("#")
+      endpoint.includes("#") ||
+      // curl 把反斜杠当成主机或用户名的一部分：`http://127.0.0.1\@example.com` 会连到 example.com，不能按反斜杠之前的回环地址放行。
+      endpoint.includes("\\")
     ) {
       return invalid;
     }
@@ -37,7 +39,7 @@ export class AiEndpointPolicy {
     else if (lower.startsWith("http://")) scheme = "http";
     else return invalid;
     const rest: string = endpoint.substring(scheme.length + 3);
-    const end: number = rest.search(/[\/?\\]/);
+    const end: number = rest.search(/[\/?]/);
     const authority: string = end < 0 ? rest : rest.substring(0, end);
     if (authority.length === 0 || authority.includes("@")) return invalid;
 

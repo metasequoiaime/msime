@@ -15,7 +15,7 @@ pub const MAX_ENDPOINT_BYTES: usize = 2048;
 /// 地址被拒绝的原因。设置页按它给出不同的说明。
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum AiEndpointError {
-    /// 不是带主机的完整 `http(s)://` 地址，或者带了用户名、密码、`#` 片段、控制字符。
+    /// 不是带主机的完整 `http(s)://` 地址，或者带了用户名、密码、`#` 片段、控制字符、反斜杠，或者 `http://` 的主机不是规范写法。
     Invalid,
     /// `http://` 地址指向的不是本机或局域网主机。
     CleartextPublicHost,
@@ -23,7 +23,11 @@ pub enum AiEndpointError {
 
 /// 检查 AI 接口地址，通过时返回解析后的地址。调用方负责去掉首尾空白。
 pub fn validate(endpoint: &str) -> Result<Url, AiEndpointError> {
-    if endpoint.is_empty() || !crate::text::is_bounded_text(endpoint, MAX_ENDPOINT_BYTES) {
+    // `\` 在 WHATWG 解析里等同 `/`，curl 等宿主却把它当成主机或用户名的一部分：`http://127.0.0.1\@example.com` 在这里是回环地址，curl 会连到 example.com。同一个地址各处读出不同的主机，一律不收。
+    if endpoint.is_empty()
+        || !crate::text::is_bounded_text(endpoint, MAX_ENDPOINT_BYTES)
+        || endpoint.contains('\\')
+    {
         return Err(AiEndpointError::Invalid);
     }
     let url = Url::parse(endpoint).map_err(|_| AiEndpointError::Invalid)?;
@@ -40,10 +44,28 @@ pub fn validate(endpoint: &str) -> Result<Url, AiEndpointError> {
     {
         return Err(AiEndpointError::Invalid);
     }
-    if url.scheme() == "http" && !url.host_str().is_some_and(is_local_network_host) {
-        return Err(AiEndpointError::CleartextPublicHost);
+    if url.scheme() == "http" {
+        // 明文地址的主机必须按解析后的样子书写（大小写除外）。`10.1`、`0x7f000001`、`127.0.0.1.`、百分号编码这类写法会被 WHATWG 规范化，手写解析的宿主却不认，结果设置页存下了 Token，宿主那边按公网拒绝，Linux 的 provider 读到这样一条配置还会让所有 AI 配置都失效。
+        let host = url.host_str().unwrap_or_default();
+        if !written_host(endpoint).is_some_and(|written| written.eq_ignore_ascii_case(host)) {
+            return Err(AiEndpointError::Invalid);
+        }
+        if !is_local_network_host(host) {
+            return Err(AiEndpointError::CleartextPublicHost);
+        }
     }
     Ok(url)
+}
+
+/// `://` 之后、端口之前原样书写的主机；IPv6 带方括号。首尾空格与 `Url::parse` 一样先去掉。
+fn written_host(endpoint: &str) -> Option<&str> {
+    let (_, rest) = endpoint.trim_matches(' ').split_once("://")?;
+    let authority = rest.split(['/', '?']).next()?;
+    if authority.starts_with('[') {
+        authority.find(']').map(|end| &authority[..=end])
+    } else {
+        authority.split(':').next()
+    }
 }
 
 /// 地址能否接收 Token 和输入内容。
@@ -143,15 +165,26 @@ mod tests {
         }
     }
 
-    /// WHATWG 解析会把非常规写法的 IPv4 规范化，判断的是规范化之后的地址：十六进制、省略段的写法照样按地址段归类，不会因为写法奇怪而被当成域名放行或误拒。
+    /// 明文地址的主机只认规范写法，与手写解析的宿主一致；这些写法各平台的结论不同（无效或公网），所以不放进共享用例。https 不判断主机，照常放行。
     #[test]
-    fn classifies_normalized_ipv4_forms() {
-        assert!(is_allowed("http://0x7f000001:1234/v1"));
-        assert!(is_allowed("http://10.1:1234/v1"));
-        assert_eq!(
-            validate("http://0x08080808/v1").unwrap_err(),
-            AiEndpointError::CleartextPublicHost
-        );
+    fn rejects_http_hosts_not_written_canonically() {
+        for endpoint in [
+            "http://0x7f000001:1234/v1",
+            "http://10.1:1234/v1",
+            "http://0x08080808/v1",
+            "http://127.0.0.1./v1",
+            "http://%6cocalhost/v1",
+            "http://[0:0::1]/v1",
+            "http://@localhost/v1",
+        ] {
+            assert_eq!(
+                validate(endpoint).unwrap_err(),
+                AiEndpointError::Invalid,
+                "{endpoint}"
+            );
+        }
+        assert!(is_allowed("https://0x7f000001:1234/v1"));
+        assert!(is_allowed(" http://192.168.1.20:1234 "));
         // 带结尾点的 `.local` 不按局域网名处理。
         assert_eq!(
             validate("http://studio.local./v1").unwrap_err(),

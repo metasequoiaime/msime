@@ -26,6 +26,13 @@ final class AIEndpointPolicyTests: XCTestCase {
     XCTAssertEqual(AIEndpointPolicy.problem("http://0x7f000001/v1"), .cleartextPublicHost)
   }
 
+  /// 明文地址的主机不收百分号编码和空方括号：`URLComponents.host` 是解码后的，`evil.com%00.local` 解码后以 `.local` 结尾。
+  func testCleartextHostRejectsPercentEncodingAndEmptyBrackets() {
+    for endpoint in ["http://evil.com%00.local/v1", "http://[fe80::1%25en0]/v1", "http://%31%32%37.0.0.1/v1", "http://[]/v1"] {
+      XCTAssertEqual(AIEndpointPolicy.problem(endpoint), .invalid, endpoint)
+    }
+  }
+
   /// 键盘读 Token 用的钥匙串账户就是来源键；https 的键与以前完全相同，已存的 Token 不会丢。
   func testKeyboardKeychainAccountIsTheOrigin() throws {
     let https = try XCTUnwrap(URL(string: "https://API.Example.com/v1/chat/completions"))

@@ -788,7 +788,8 @@ set_tests_properties(windows-paired-punctuation-balance PROPERTIES TIMEOUT 30)
 add_library(msime-windows-pump STATIC src/ipc/SessionPump.cpp src/ipc/SessionWorkers.cpp src/ipc/SessionController.cpp src/system/PreferenceMonitor.cpp
             src/candidate/CloudCandidateWorker.cpp src/candidate/TranslationWorker.cpp
             src/candidate/AiCandidateWorker.cpp)
-target_link_libraries(msime-windows-pump PUBLIC msime-windows-input CURL::libcurl)
+# AiEndpointPolicy.h 用 inet_pton 判断局域网地址；动态链接的 vcpkg curl 不会把 ws2_32 传下来，要自己链接。
+target_link_libraries(msime-windows-pump PUBLIC msime-windows-input CURL::libcurl ws2_32)
 add_executable(windows-dedicated-english-controller tests/input/dedicated_english_controller.cpp)
 target_link_libraries(windows-dedicated-english-controller PRIVATE msime-windows-pump)
 if(MSVC)

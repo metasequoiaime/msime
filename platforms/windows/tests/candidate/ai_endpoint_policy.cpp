@@ -37,7 +37,9 @@ int main()
         }
     }
     // 非常规写法的 IPv4 不当作局域网地址，它们在 curl 和系统解析器里可能是另一个地址。
-    for (const char *endpoint : {"http://010.0.0.1/v1", "http://0x7f000001/v1", "http://10.1/v1"}) {
+    // 百分号编码的主机同样不收：`evil.com%00.local` 原样看以 `.local` 结尾。
+    for (const char *endpoint : {"http://010.0.0.1/v1", "http://0x7f000001/v1", "http://10.1/v1", "http://evil.com%00.local/v1",
+                                 "http://[fe80::1%25en0]/v1"}) {
         if (check_ai_endpoint(endpoint) == AiEndpointCheck::Allowed) {
             std::cerr << "ai endpoint policy: non-canonical " << endpoint << " allowed\n";
             ++failures;

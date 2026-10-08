@@ -26,7 +26,8 @@ Status: implemented
 - Windows：`platforms/windows/src/candidate/AiEndpointPolicy.h`，AI 候选请求按它决定 curl 的协议（http 或 https），http 时设 `CURLOPT_NOPROXY "*"`。测试在配置时把 `cases.json` 编进测试程序，Wine 下也能跑。
 - Linux：`platforms/linux/scripts/msime-linux-online-provider` 的 `ai_endpoint_check`（`urllib.parse` 与 `ipaddress`），`load_ai_config` 用它，覆盖 AI 候选、模型列表、润色测试和凭据测试。
 - HarmonyOS：键盘侧 `entry/src/main/ets/keyboard/settings/AiEndpointPolicy.ts`，模型列表、设置页的测试请求和键盘发 AI 候选前都经它判断；设置页本身是共享的 `packages/ui`。系统 http 模块在没有 `network_config.json` 时允许明文，没有新增配置。
-- 手写解析的宿主（Android、iOS、macOS、Windows、HarmonyOS）只认规范写法：IPv4 必须是四段十进制、不带前导零，`10.1`、`0x7f000001`、`010.0.0.1` 这类写法不会被当成局域网地址，因为 curl 或系统解析器可能把它们读成别的地址（`010.0.0.1` 按八进制是 8.0.0.1）。
+- 手写解析的宿主（Android、iOS、macOS、Windows、HarmonyOS）只认规范写法：IPv4 必须是四段十进制、不带前导零，`10.1`、`0x7f000001`、`010.0.0.1` 这类写法不会被当成局域网地址，因为 curl 或系统解析器可能把它们读成别的地址（`010.0.0.1` 按八进制是 8.0.0.1）。WHATWG 解析的 Rust 和设置页因此要求 http 地址的主机按解析后的样子书写（大小写除外），非规范写法、百分号编码和结尾点一律按无效处理，否则设置页会给一个键盘不用的地址存下 Token，Linux 的 provider 读到这样一条配置还会让所有 AI 配置失效。
+- 反斜杠一律不收：WHATWG 把它当成 `/`，curl 却把它当成主机或用户名的一部分，`http://127.0.0.1\@example.com` 在检查里是回环地址，HarmonyOS 的系统 http 模块（交给 curl）会连到 example.com 并明文发出 Token。
 - 翻译接口（`translation::is_secure_endpoint`）不在这次范围内，仍然只放行回环的 http。
 
 ## Alternatives considered
@@ -38,7 +39,7 @@ Status: implemented
 ## Consequences
 
 - **收益**：LM Studio、Ollama 等本地或局域网的模型服务可以直接配置（填 Token、获取模型列表、测试、键盘 AI 候选）；设置页、client-core 和六个宿主的判断第一次有了同一份用例，以前「Rust 放行回环 http、宿主却拒绝」这种不一致会被测试抓到。
-- **代价与已知上限**：网段判断在 Rust、TypeScript、Java、Swift、Objective-C、C++、Python 和 ArkTS 里各有一份（iOS 的 Tauri 插件还有一份 Swift 副本），只能靠共享用例保持一致；共享用例只收各平台解析器结论一致的写法，`http://10.1`、十六进制 IPv4 这类非规范写法在 WHATWG 解析的平台（Rust、设置页）会按规范化后的地址判断，在手写解析的宿主上不会被当成局域网地址（按无效或公网拒绝），拒绝的方向是安全的；同一个非规范地址可能在设置页通过、键盘却不发请求。局域网里的 http 仍然是明文，同一网络里的其他设备能看到 Token 和输入内容，这是用户选择本地服务时接受的风险。若以后要支持更多局域网命名（`.home.arpa`、`.lan`）或 DNS 解析，需要重新评估上面的第三条备选。
+- **代价与已知上限**：网段判断在 Rust、TypeScript、Java、Swift、Objective-C、C++、Python 和 ArkTS 里各有一份（iOS 的 Tauri 插件还有一份 Swift 副本），只能靠共享用例保持一致；共享用例只收各平台解析器结论一致的写法，`http://10.1`、十六进制 IPv4 这类非规范写法在 Rust 和设置页按无效拒绝，在手写解析的宿主上按无效或公网拒绝，结论都是拒绝，但类别不同，所以只在 Rust 和设置页的单元测试里覆盖。局域网里的 http 仍然是明文，同一网络里的其他设备能看到 Token 和输入内容，这是用户选择本地服务时接受的风险。若以后要支持更多局域网命名（`.home.arpa`、`.lan`）或 DNS 解析，需要重新评估上面的第三条备选。
 
 ## Verification
 

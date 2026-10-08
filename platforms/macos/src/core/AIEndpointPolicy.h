@@ -77,7 +77,11 @@ static inline MSIMEAIEndpointProblem MSIMEAIEndpointCheck(NSString *endpoint, NS
     if (!url || !([scheme isEqualToString:@"https"] || [scheme isEqualToString:@"http"]) || !url.host.length ||
         url.user != nil || url.password != nil || url.fragment != nil ||
         (url.port && (url.port.integerValue < 0 || url.port.integerValue > 65535)) || ![NSURL URLWithString:endpoint]) return MSIMEAIEndpointProblemInvalid;
-    if ([scheme isEqualToString:@"http"] && !MSIMEAIIsLocalNetworkHost(url.host)) return MSIMEAIEndpointProblemCleartextPublicHost;
+    if ([scheme isEqualToString:@"http"]) {
+        // 明文地址的主机不收百分号编码（包括 IPv6 区域标识 `%25en0`）和空方括号，与 Rust 只认规范写法的主机一致。`host` 是解码后的，`evil.com%00.local` 解码后以 `.local` 结尾。
+        if ([url.percentEncodedHost containsString:@"%"] || [url.host isEqualToString:@"[]"]) return MSIMEAIEndpointProblemInvalid;
+        if (!MSIMEAIIsLocalNetworkHost(url.host)) return MSIMEAIEndpointProblemCleartextPublicHost;
+    }
     if (components) *components = url;
     return MSIMEAIEndpointProblemNone;
 }
