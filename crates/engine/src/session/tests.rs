@@ -13,7 +13,7 @@ use crate::local::date_time::LocalDateTime;
 use crate::paths::RuntimePaths;
 use crate::types::{
     CandidateEdge, CandidateSource, Command, FrequencyAdjustmentMode, FrequencyAdjustmentOptions,
-    LocalInputMode, SchemeSet, SchemeType, ShuangpinProfileKind,
+    LocalInputMode, SchemeKey, SchemeSet, SchemeType, ShuangpinProfileKind,
 };
 
 /// test_input_session.cpp:390-430 (fixture M), the rows the portable-selection, caret and edge cases read.
@@ -3860,6 +3860,23 @@ fn zhuyin_composes_and_reports_its_spelling_symbols() {
     // The caret stays at the end.
     assert!(session.command(Command::MoveLeft).commit.is_some());
     assert!(session.snapshot().preedit.is_empty());
+}
+
+#[test]
+fn zhuyin_candidate_refresh_reuses_row_storage() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = zhuyin_session(&fixture);
+    type_text(&mut session, "su3cl3");
+    assert!(session.command(Command::ConvertHanja).handled);
+
+    let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+        session.input.engine.handle_key(SchemeKey::Requery);
+    });
+
+    assert!(
+        allocations <= 6,
+        "requery should not recreate Zhuyin candidate rows: {allocations} allocations"
+    );
 }
 
 #[test]
