@@ -27,6 +27,10 @@ public final class InputViewValuePolicySmoke {
             "numeric text is not converted to text");
         check(InputViewValuePolicy.text(null).isEmpty(),
             "missing text is empty");
+        check("fallback".equals(InputViewValuePolicy.textOr(42, "fallback")),
+            "invalid text uses the supplied fallback");
+        check("".equals(InputViewValuePolicy.textOr("", "fallback")),
+            "an explicit empty string remains empty");
         System.out.println("Android input view fields passed");
     }
 }

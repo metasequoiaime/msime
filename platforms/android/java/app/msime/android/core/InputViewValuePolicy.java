@@ -47,6 +47,15 @@ public final class InputViewValuePolicy {
         return JsonPolicy.strictStringOrEmpty(raw);
     }
 
+    /** Read a JSON string or use the supplied fallback for missing or invalid values. */
+    public static String textOr(Object raw, String fallback) {
+        return raw instanceof String ? (String) raw : fallback;
+    }
+
+    public static String textOr(JSONObject object, String key, String fallback) {
+        return textOr(object == null ? null : object.opt(key), fallback);
+    }
+
     /** Read the input view's editing text using the shared strict text policy. */
     public static String editingText(JSONObject view) {
         return text(view, "editing_text");
