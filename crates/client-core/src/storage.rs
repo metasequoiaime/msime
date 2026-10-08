@@ -1,9 +1,9 @@
+use std::ffi::OsStr;
 #[cfg(unix)]
-use std::ffi::{OsStr, OsString};
+use std::ffi::OsString;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
 use std::path::Path;
-#[cfg(unix)]
 use std::path::PathBuf;
 #[cfg(unix)]
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -90,6 +90,33 @@ pub(crate) fn open_private_file_at(directory: &File, name: &OsStr) -> io::Result
         ));
     }
     Ok(file)
+}
+
+/// 非 Unix 平台上的「目录句柄」：没有 openat 这组调用，只记下已确认是真实目录（不是符号链接）的路径，`open_private_file_at` 再在它下面按名字打开。和 Unix 版的接口一致，调用方不必分平台。
+#[cfg(not(unix))]
+pub(crate) struct PrivateDirectory(PathBuf);
+
+#[cfg(not(unix))]
+pub(crate) fn open_private_directory(parent: &Path) -> io::Result<PrivateDirectory> {
+    if !fs::symlink_metadata(parent)?.is_dir() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "private directory is not a real directory",
+        ));
+    }
+    Ok(PrivateDirectory(parent.to_path_buf()))
+}
+
+#[cfg(not(unix))]
+pub(crate) fn open_private_file_at(directory: &PrivateDirectory, name: &OsStr) -> io::Result<File> {
+    let path = directory.0.join(name);
+    if !fs::symlink_metadata(&path)?.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "private input is not a regular file",
+        ));
+    }
+    open_private_file(&path)
 }
 
 #[cfg(unix)]

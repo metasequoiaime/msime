@@ -299,7 +299,7 @@ impl WordbookLibrary {
         // The index first this time, so a crash between the two leaves an orphan file rather than
         // a row pointing at a deleted book.
         self.write_atomically(&self.index_path(), &serde_json::to_vec(&index)?)?;
-        match self.remove_entry(&format!("{id}.json")) {
+match self.remove_entry(&format!("{id}.json"))
             Ok(()) => Ok(()),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
             Err(error) => Err(error.into()),

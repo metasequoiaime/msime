@@ -76,7 +76,7 @@ public final class SyncSwitch {
 
     /** 打开或关闭同步；关闭时保留游标，便于重新打开后增量继续。没有真实账号时不能打开。 */
     public static void setEnabled(Context context, boolean enabled) {
-        if (enabled && !validLoginKind(loginKind(context))) {
+        if (enabled && (!validLoginKind(loginKind(context)) || accountId(context).isEmpty())) {
             throw new IllegalStateException("sync needs a signed-in account");
         }
         store(context).edit().putBoolean(KEY_ENABLED, enabled).apply();
@@ -106,7 +106,13 @@ public final class SyncSwitch {
     public static void bindAccount(Context context, String accountId, String loginKind) {
         if (!validLoginKind(loginKind)) throw new IllegalArgumentException("unknown login kind");
         String id = accountId == null ? "" : accountId;
-        if (id.isEmpty() || !id.equals(accountId(context))) clear(context);
+        if (id.isEmpty()) {
+            // A successful token exchange without a user id is not a usable sync binding.
+            // Keep sync disabled until ProfilePage can bind the real account id.
+            clear(context);
+            return;
+        }
+        if (!id.equals(accountId(context))) clear(context);
         synchronized (DIRTY_LOCK) {
             SharedPreferences values = store(context);
             long generation = values.getLong(KEY_BINDING_GENERATION, 0L);

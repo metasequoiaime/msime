@@ -12,7 +12,8 @@ use super::schedule::{self, CardState, ReviewGrade};
 use super::wordbook::{self, Wordbook};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::fs::{self, File};
+use std::fs::File;
+#[cfg(not(unix))]
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -299,6 +300,7 @@ impl VocabularyProgressStore {
         &self.directory
     }
 
+    #[cfg(not(unix))]
     fn path(&self) -> PathBuf {
         self.directory.join("vocabulary-progress.json")
     }
@@ -320,24 +322,25 @@ impl VocabularyProgressStore {
     }
 
     fn read_locked(&self) -> Result<VocabularyProgress, VocabularyProgressError> {
-        let path = self.path();
-        let metadata = match fs::symlink_metadata(&path) {
-            Ok(metadata) => metadata,
+        let directory = crate::storage::open_private_directory(&self.directory)?;
+        let file = match crate::storage::open_private_file_at(
+            &directory,
+            std::ffi::OsStr::new("vocabulary-progress.json"),
+        ) {
+            Ok(file) => file,
             // A missing file is a fresh profile. A damaged one is not, and is never overwritten
             // below — the two cases are deliberately different.
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 return Ok(VocabularyProgress::default());
             }
-            Err(error) => return Err(error.into()),
+            Err(_) => return Err(VocabularyProgressError::InvalidDocument),
         };
-        if !metadata.file_type().is_file() {
+        if file.metadata()?.len() > MAX_DOCUMENT_BYTES {
             return Err(VocabularyProgressError::InvalidDocument);
         }
-        let bytes = crate::bounded_io::read_bounded_file(
-            crate::storage::open_private_file(&path)?,
-            MAX_DOCUMENT_BYTES,
-            || VocabularyProgressError::InvalidDocument,
-        )?;
+        let bytes = crate::bounded_io::read_bounded_file(file, MAX_DOCUMENT_BYTES, || {
+            VocabularyProgressError::InvalidDocument
+        })?;
         let value: VocabularyProgress = serde_json::from_slice(&bytes)?;
         value.validate()?;
         Ok(value)
@@ -346,13 +349,26 @@ impl VocabularyProgressStore {
     fn write_locked(&self, value: &VocabularyProgress) -> Result<(), VocabularyProgressError> {
         value.validate()?;
         let bytes = serde_json::to_vec(value)?;
-        let mut temporary = tempfile::NamedTempFile::new_in(&self.directory)?;
-        temporary.write_all(&bytes)?;
-        temporary.as_file().sync_all()?;
-        temporary
-            .persist(self.path())
-            .map(|_| ())
-            .map_err(|error| VocabularyProgressError::Io(error.error))
+        #[cfg(unix)]
+        {
+            let directory = crate::storage::open_private_directory(&self.directory)?;
+            crate::storage::write_private_file_at(
+                &directory,
+                std::ffi::OsStr::new("vocabulary-progress.json"),
+                &bytes,
+            )?;
+            Ok(())
+        }
+        #[cfg(not(unix))]
+        {
+            let mut temporary = tempfile::NamedTempFile::new_in(&self.directory)?;
+            temporary.write_all(&bytes)?;
+            temporary.as_file().sync_all()?;
+            temporary
+                .persist(self.path())
+                .map(|_| ())
+                .map_err(|error| VocabularyProgressError::Io(error.error))
+        }
     }
 
     pub fn load(&self) -> Result<VocabularyProgress, VocabularyProgressError> {
@@ -471,6 +487,7 @@ impl VocabularyProgressStore {
 mod tests {
     use super::*;
     use crate::vocabulary::wordbook::WordbookEntry;
+    use std::fs;
 
     const TODAY: &str = "2026-09-23";
 

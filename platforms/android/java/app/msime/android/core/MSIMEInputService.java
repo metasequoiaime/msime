@@ -114,6 +114,7 @@ public final class MSIMEInputService extends InputMethodService {
     ImeVoiceEntry imeVoiceEntry;
     ImeKeyFeedback imeKeyFeedback;
     ImeDebugOverlay imeDebugOverlay;
+    ImeCalculator imeCalculator;
     long session;
     InputConnection connection;
     private EditorBridge bridge = new EditorBridge();
@@ -130,6 +131,12 @@ public final class MSIMEInputService extends InputMethodService {
     LinearLayout expandedCandidates;
     ScrollView expandedCandidateScroll;
     TextView preedit;
+    /** 点读音行移组字光标用的那一份读音（#5613）：画出来的读音（不含已选的词和光标符）、它对应的 `editing_text`、光标符画在读音的哪个下标前（没画是 -1）、前面已选的词有多长、引擎光标现在在哪。读音行不可点时 `preeditCaretEditing` 为 null。 */
+    private String preeditCaretEditing;
+    private String preeditCaretSpelling = "";
+    private int preeditCaretMark = -1;
+    private int preeditCaretPrefix;
+    private int preeditCaretPosition;
     TextView candidatePage;
     KeyboardBrandMark candidateBrandMark;
     Button exitLocalModeButton;
@@ -1011,15 +1018,25 @@ public final class MSIMEInputService extends InputMethodService {
         return deleted;
     }
 
-    /** 按码位删光标前一个字符，同样记下预期；删掉的是一个还是两个 UTF-16 单元由追踪器按回声确定。 */
+    /** 删除键：编辑器里有选区时删掉选区，否则按码位删光标前一个字符并记下预期；删掉的是一个还是两个 UTF-16 单元由追踪器按回声确定。 */
     void deleteCodePointBeforeCursor() {
         pairedPunctuationStack.clear();
+        if (deleteSelection()) return;
         if (connection.deleteSurroundingTextInCodePoints(1, 0)) {
             selectionEcho.deleteCodePointBefore();
             selectionEcho.expect();
         } else {
             selectionEcho.invalidate();
         }
+    }
+
+    /** `deleteSurroundingText` 只删选区以外的字：选中文字后按删除，选区在开头时毫无反应，在中间时删掉的是选区前一个字。有选区就用空串替换它，和系统键盘一致；返回是否有选区，有选区时不再删光标前的字。 */
+    private boolean deleteSelection() {
+        CharSequence selected = connection.getSelectedText(0);
+        if (selected == null || selected.length() == 0) return false;
+        selectionEcho.invalidate();
+        connection.commitText("", 1);
+        return true;
     }
 
     /** 编辑器动作可能改文字也可能不改，选区预期先作废。 */
@@ -1199,6 +1216,7 @@ public final class MSIMEInputService extends InputMethodService {
         imeVoiceEntry = new ImeVoiceEntry(this);
         imeKeyFeedback = new ImeKeyFeedback(this);
         imeDebugOverlay = new ImeDebugOverlay(this);
+        imeCalculator = new ImeCalculator(this);
         // 必须在 super.onCreate() 之前：InputMethodService 在那里按这个主题建输入法窗口，之后再设会抛异常。按名字查是因为 core/ 要能脱离 Gradle 生成的 R 编译（check-host.sh 的 JVM 冒烟）；res/values/themes.xml 说明了这个主题为什么存在。
         // 五笔、拼音等版本的 applicationId 带后缀，资源表的包名仍是命名空间，两个都试。
         int theme = getResources().getIdentifier("Theme.MSIME.InputMethod", "style", getPackageName());
@@ -1258,6 +1276,7 @@ public final class MSIMEInputService extends InputMethodService {
         engineStartGeneration++;
         cloudClipboardGeneration++;
         imeBottomRow.resetSpaceCursor();
+        imeCalculator.clear();
         // 也覆盖 onFinishInputView(true)：那条路径不经过 finishInputViewPresentation。
         imeVoiceEntry.cancel();
         stop(true);
@@ -2805,19 +2824,29 @@ public final class MSIMEInputService extends InputMethodService {
             candidateOfflineTargets());
     }
 
-    private void updateCandidateViewportHeight() {
+    void updateCandidateViewportHeight() {
         if (candidateLine == null) return;
         // 42 dp 的候选行容下候选字、一行释义和选中 chip 的留白；第二行起每行再加高一些。
         int reserved = CandidateTranslationPolicy.reservedGlossRows(candidateGlossLineCount(), koreanHanjaRows());
         int extraRows = BoundsPolicy.nonNegative(reserved - 1);
         int line = ImeToolbar.CANDIDATE_LINE_DP + extraRows * ImeToolbar.EXTRA_GLOSS_ROW_DP;
         setFixedHeight(candidateLine, pixels(line));
-        // 空闲时的工具栏和组词时的读音行 + 候选行占同一个位置，两者同高，打字时键盘才不会变高。空闲时读音行若在显示常驻的模式标签（直接输入、准备中），它已经占了那 14 dp，工具栏只取候选行的高度，总高不变。
+        // 读音行至少是设计的 14 dp，读音字号放不下时按读音文字的实际高度加高，见 ReadingRowPolicy。
+        int readingRow = readingRowHeight();
+        if (candidateHeader != null) setFixedHeight(candidateHeader, readingRow);
+        // 空闲时的工具栏和组词时的读音行 + 候选行占同一个位置，两者同高，打字时键盘才不会变高。空闲时读音行若在显示常驻的模式标签（直接输入、准备中），它已经占了读音行那一截，工具栏只取候选行的高度，总高不变。
         boolean idleHeader = candidateHeader != null
             && candidateHeader.getVisibility() == View.VISIBLE;
         if (shortcutScroll != null)
-            setFixedHeight(shortcutScroll,
-                pixels((idleHeader ? 0 : ImeToolbar.READING_ROW_DP) + line));
+            setFixedHeight(shortcutScroll, (idleHeader ? 0 : readingRow) + pixels(line));
+    }
+
+    private int readingRowHeight() {
+        int design = pixels(ImeToolbar.READING_ROW_DP);
+        if (preedit == null) return design;
+        Paint.FontMetricsInt metrics = preedit.getPaint().getFontMetricsInt();
+        return ReadingRowPolicy.heightPx(design, metrics.ascent, metrics.descent,
+            preedit.getPaddingTop() + preedit.getPaddingBottom());
     }
 
     private static void setFixedHeight(View view, int height) {
@@ -2871,6 +2900,23 @@ public final class MSIMEInputService extends InputMethodService {
         if (session == 0) return;
         try { apply(NativeClient.setNineKeyFilter(session, singleCharacter, strokes)); }
         catch (JSONException | LinkageError error) { fail(); }
+    }
+
+    /**
+     * 点在读音行 {@code offset} 处（`TextView.getOffsetForPosition` 的结果）：把组字光标移到点中的字母前，之后的退格、打字都作用在那里（#5613）。引擎只有逐格左右移和移到两头的命令，连发若干次；光标移动不改组字，只把最后一次的结果交给 apply 去画。
+     */
+    void movePreeditCaret(int offset) {
+        String editing = preeditCaretEditing;
+        if (session == 0 || editing == null) return;
+        int target = CompositionCaretPolicy.tapTarget(preeditCaretPrefix, preeditCaretSpelling,
+            editing, preeditCaretMark, offset);
+        int[] moves = CompositionCaretPolicy.moves(preeditCaretPosition, target, editing.length());
+        if (moves.length == 0) return;
+        try {
+            String response = null;
+            for (int step = 0; step < moves[1]; step++) response = NativeClient.command(session, moves[0]);
+            apply(response);
+        } catch (JSONException | LinkageError error) { fail(); }
     }
 
     void type(char key) {
@@ -3750,6 +3796,8 @@ public final class MSIMEInputService extends InputMethodService {
         }
         updateAutomaticCapitalization();
         if (directEnglishActive()) refreshEnglishSuggestions();
+        // 数字键面上打完算式（或光标挪到算式后面）时，工具栏给出计算结果。
+        imeCalculator.refresh();
     }
 
     Button button(LinearLayout row, String label, Runnable action) {
@@ -6350,6 +6398,7 @@ public final class MSIMEInputService extends InputMethodService {
                 ? KeyboardLayout.Layer.SYMBOLS : KeyboardLayout.Layer.LETTERS;
             imeLetterRows.rebuildKeyRows();
             render();
+            imeCalculator.refresh();
         });
         layerButton.setContentDescription("切换到数字和符号");
         keyId(layerButton, "SoftLayer");
@@ -7040,11 +7089,13 @@ public final class MSIMEInputService extends InputMethodService {
         // 浮动开关或外接键盘的候选条模式变了：先把窗口换成对应的布局，下面判断分离式键盘、单手模式时用的是新状态。
         applyFloatingLayout(false);
         // 旋转、设置变化或布局切换让分离式键盘该画与否变了，而键行还是按旧状态建的：先按新状态重建，下面的底行排布也会跟着换。
-        if (imeLetterRows.splitStale()) imeLetterRows.rebuildKeyRows();
+        // 设置页改了九键左侧符号栏的符号：同样按新的符号表重建。
+        if (imeLetterRows.splitStale() || imeLayoutRows.sidebarStale()) imeLetterRows.rebuildKeyRows();
         updateSymbolKeyFaces();
         updateShuangpinKeyHints();
         updateQuickPunctuation();
         imeLayoutRows.updateStrokeWildcardKey();
+        imeCalculator.syncVisibility();
         imeLayoutRows.updateNineKeySymbolKey();
         String currentEditingText = view == null ? "" : view.optString("editing_text", "");
         if (!japaneseSchemeActive() || currentEditingText.isEmpty()) {
@@ -7106,9 +7157,9 @@ public final class MSIMEInputService extends InputMethodService {
                 nineKeyPreedit = view.optString("nine_key_reading", "");
                 if (nineKeyPreedit.isEmpty()) nineKeyPreedit = view.optString("preedit", "");
             }
-            String localModeTitle = "none".equals(localModeKey)
-                ? (!nineKeyPreedit.isEmpty() ? nineKeyPreedit : reading.isEmpty() ? editingText : reading)
-                : editingText;
+            String spelling = !nineKeyPreedit.isEmpty() ? nineKeyPreedit
+                : reading.isEmpty() ? editingText : reading;
+            String localModeTitle = "none".equals(localModeKey) ? spelling : editingText;
             // A mode's own name is a label saying which mode is running, not composed input, so it
             // survives 「不显示」; anything the mode is spelling beyond its trigger does not.
             boolean localModeName = false;
@@ -7126,13 +7177,33 @@ public final class MSIMEInputService extends InputMethodService {
             // 新设计去掉了空闲时的品牌药丸：空闲时读音行整行隐藏，品牌标在工具栏最左。
             brandPillVisible = false;
             String phrasePrefix = view == null ? "" : view.optString("phrase_prefix", "");
+            // 组字光标（#5613）：点读音行把光标移到点中的字母前；光标被移离末尾时画进读音行（「不显示」也画，下一个键就作用在那里）。读音对不上按键时退回画原始按键。
+            boolean caretEditable = !idleTitle && view != null && CompositionCaretPolicy.editable(
+                InputViewValuePolicy.scheme(view, -1), localModeKey, dedicatedEnglish, editingText);
+            int caret = caretEditable
+                ? InputViewValuePolicy.integer(view, "caret_position", editingText.length())
+                : editingText.length();
+            String caretSpelling = spelling;
+            int caretMark = caretEditable ? CompositionCaretPolicy.markIndex(spelling, editingText, caret) : -1;
+            if (caretEditable && caret < editingText.length() && caretMark < 0) {
+                caretSpelling = editingText;
+                caretMark = CompositionCaretPolicy.markIndex(editingText, editingText, caret);
+            }
+            boolean spellingDrawn = caretMark >= 0 || spelling.equals(localModeTitle);
+            preeditCaretEditing = caretEditable && spellingDrawn ? editingText : null;
+            preeditCaretSpelling = caretSpelling;
+            preeditCaretMark = caretMark;
+            preeditCaretPrefix = phrasePrefix.length();
+            preeditCaretPosition = caret;
             String displayText = idleTitle
                 ? (dedicatedEnglish ? "英文输入" : productName)
-                : PhrasePreeditPolicy.title(phrasePrefix, localModeTitle,
-                                            !"none".equals(localModeKey));
+                : PhrasePreeditPolicy.title(phrasePrefix, caretMark >= 0
+                    ? CompositionCaretPolicy.withMark(caretSpelling, caretMark) : localModeTitle,
+                    !"none".equals(localModeKey));
             preedit.setText(displayText);
             preedit.setContentDescription(offersLocalModes ? "长按打开本地输入模式" : displayText);
             preedit.setLongClickable(offersLocalModes);
+            preedit.setClickable(preeditCaretEditing != null);
             ViewPolicy.setFocusable(preedit, offersLocalModes);
         }
         if (exitLocalModeButton != null) {
