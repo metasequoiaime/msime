@@ -80,6 +80,7 @@ public final class LexiconPage extends DetailPage {
         HostTask.run(this, LexiconPage::read, result -> {
             if (result == null) {
                 MsToast.show(requireContext(), DictionaryCollectionsStore.failureMessage(""));
+                if (model == null) renderUnavailable();
                 return;
             }
             model = result;
@@ -171,6 +172,18 @@ public final class LexiconPage extends DetailPage {
             more.nav("背单词", "在管理界面里复习收藏的单词", null, this::openVocabularyReview);
             more.nav("云词库", "在管理界面里管理云端词库", null, this::openCloudDictionary);
         }
+    }
+
+    /** 第一次读就失败时页面上什么数据也没有；刷新入口在管理卡片里，这里单独留一张卡片给它，不让页面空着没法重试。 */
+    private void renderUnavailable() {
+        LinearLayout target = column;
+        if (target == null) return;
+        Context context = requireContext();
+        target.removeAllViews();
+        GroupCard card = GroupCard.add(target, null);
+        card.note(DictionaryCollectionsStore.failureMessage(""));
+        card.addView(KeyboardSheets.actionRow(context, "↻", "刷新词库", () -> reload(true),
+            28, 0, Ui.ROW_GAP));
     }
 
     private View discoverRow(CommunityCatalog.Item item, DictionaryCollectionsStore.View view) {
