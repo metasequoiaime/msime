@@ -849,11 +849,7 @@ impl DictionaryCollectionsStore {
         path: &Path,
         maximum: u64,
     ) -> Result<Option<T>> {
-        let directory = crate::storage::open_private_directory(&self.directory)?;
-        let name = path
-            .file_name()
-            .ok_or(DictionaryCollectionsError::Corrupt)?;
-        let file = match crate::storage::open_private_file_at(&directory, name) {
+        let file = match crate::storage::open_private_file_in(path) {
             Ok(file) => file,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
             Err(_) => return Err(DictionaryCollectionsError::Corrupt),

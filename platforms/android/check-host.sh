@@ -549,6 +549,14 @@ for site in onCreateInputView applyClipboardPreference; do
     exit 1
   fi
 done
+# The preferences in runtime-options.json were written once at install and always carry the factory `clipboard_history: false`. Applying them on every editor start turned a switched-on history back off and wiped it, so the panel kept saying 未开启 to a user who had turned it on. Only a live preferences read may decide the switch, and nothing may be cleared before one has.
+if ! rg -q 'if \(appearance\) applyClipboardPreference\(preferences\);' \
+    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
+  || ! rg -q 'if \(clipboardPreferenceRead && !clipboardHistoryEnabled\) clipboardHistory\.clearQuietly\(\);' \
+    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java"; then
+  echo "Android clipboard history switch must come from live preferences only" >&2
+  exit 1
+fi
 # Both maintenance chords are Ctrl+Shift+Alt, and the modifier branch in onKeyDown hands every
 # such combination to the application. Routing them through one named policy, ahead of that branch,
 # is what keeps them reachable at all on a keyboard that has no long press.
@@ -577,6 +585,46 @@ if ! rg -q 'VoiceConfiguration\.read' \
   || ! rg -q 'msime_client_mobile_voice_configuration' \
     "$repo_root/platforms/android/native/client_jni.cpp"; then
   echo "Android keyboard voice must read the shared provider resolution" >&2
+  exit 1
+fi
+# 键盘每换一个输入框都会重建引擎会话（#5680）。会话建好时要直接用上建会话前读到的那份实时偏好作为第一份快照，没有会话的那一段工具栏按钮开关要用上次真正读到的；否则冷启动的应用里皮肤、输入方式两个按钮先灰约一秒，剪贴板按钮先缺一格、其余按钮跟着挪位。
+if ! sed -n '/private void startEngineSession(String optionsText, String livePreferences)/,/^    }$/p' "$account_service" \
+    | rg -q 'applyPreferencesSnapshot\(value\(livePreferences\)\)' \
+  || ! rg -q '"handwriting_theme", "touch_toolbar"\}' "$account_service" \
+  || ! rg -q 'appearance \|\| rememberedToolbar == null' "$account_service"; then
+  echo "Android toolbar must not start each editor from the factory-default preference copy" >&2
+  exit 1
+fi
+# 长按「中/英」弹出系统输入法选择框（#5615）。这个键在没有会话的输入框里也必须保持可用：禁用的按钮收不到长按，而密码框正是最需要换到密码管理器键盘的地方。没有会话时把键画淡，点按在反馈和计数之前就忽略。
+if ! rg -q 'bindInputMethodPicker\(languageButton\)' "$account_service" \
+  || ! rg -q 'manager\.showInputMethodPicker\(\)' "$account_service" \
+  || rg -q 'setEnabled\(languageButton, session != 0\)' "$account_service" \
+  || ! rg -q 'setActiveAlpha\(languageButton, canToggle' "$account_service" \
+  || ! sed -n '/languageButton\.setOnClickListener/,/});/p' "$account_service" | rg -q 'if \(session == 0\) return;' \
+  || ! rg -q 's\.bindInputMethodPicker\(language\)' \
+    "$repo_root/platforms/android/java/app/msime/android/core/ImeLayoutRows.java"; then
+  echo "Android 中/英 keys must open the system input method picker on long press" >&2
+  exit 1
+fi
+# 删除键上滑快速删除（#5585）：判定只在 BackspaceSwipePolicy，键的触摸监听按它决定松手是否清空，清空经服务的 deleteAllBeforeCursor 分段删除；连删的间隔按 BackspaceRepeatPolicy 逐级加速，不能写回固定间隔。
+letter_rows="$repo_root/platforms/android/java/app/msime/android/core/ImeLetterRows.java"
+if ! rg -q 'BackspaceSwipePolicy\.clearsOnRelease\(backspaceSwipePhase\)' "$letter_rows" \
+  || ! rg -q 'BackspaceRepeatPolicy\.repeatInterval\(repeats\)' "$letter_rows" \
+  || rg -q 'BackspaceRepeatPolicy\.REPEAT_INTERVAL_MS' "$letter_rows" \
+  || ! rg -q 'BackspaceSwipePolicy\.clearBeforeCursor' "$account_service"; then
+  echo "Android delete keys must accelerate and offer the quick-delete swipe through the shared policies" >&2
+  exit 1
+fi
+# 各布局（九键、注音、笔画、手写等）自建的删除键都要经 bindBackspaceRepeat 绑定，否则那个布局按住不连删、也没有上滑快速删除；手写布局的删除键曾经漏绑。
+layout_rows="$repo_root/platforms/android/java/app/msime/android/core/ImeLayoutRows.java"
+if [[ $(rg -c 's\.backspaceKey\(' "$layout_rows") != $(rg -c 's\.imeLetterRows\.bindBackspaceRepeat\(' "$layout_rows") ]]; then
+  echo "Every Android layout delete key must be bound through ImeLetterRows.bindBackspaceRepeat" >&2
+  exit 1
+fi
+# 文本编辑面板（#5625）是工具栏面板的一员：closeToolbarPanels 要关掉它、anyToolbarPanelOpen 要算上它，否则换输入框时它会留在下一个编辑器的键盘上，收起键也不会变成「返回键盘」。
+if ! sed -n '/void closeToolbarPanels()/,/^    }$/p' "$account_service" | rg -q 'imeTextEditPanel\.close\(\)' \
+  || ! sed -n '/boolean anyToolbarPanelOpen()/,/^    }$/p' "$account_service" | rg -q 'shown\(textEditPanel\)'; then
+  echo "Android text edit panel must close and count like the other toolbar panels" >&2
   exit 1
 fi
 # SpeechRecognizer 绑定的是 RecognitionService；Android 11 起只声明 RECOGNIZE_SPEECH 的话，识别服务与识别界面分属两个包的设备上会判为没有系统识别服务。原生宿主与 Tauri 壳共用同一个识别窗口，两份清单都要声明。
@@ -741,6 +789,14 @@ for smoke in "${smoke_classes[@]}"; do
   fi
 done
 echo "Ran ${#smoke_classes[@]} Android JVM smokes"
+# 设备测试包只在 `tests/device/smoke.sh` 里构建，而那要模拟器，CI 从不跑它；它的源文件清单是手写的，应用类挪进新的辅助类后没人补，曾经攒到 21 个编译错误，整个设备套件都构建不出来。这里按同一份清单只做编译，漏了类就在这一步失败。
+device_sources=()
+while IFS= read -r source; do
+  [[ -z $source || $source == \#* ]] || device_sources+=("$repo_root/$source")
+done < "$repo_root/platforms/android/tests/device/editor-sources.txt"
+mkdir -p "$output_dir/device"
+javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir/device" "${device_sources[@]}"
+echo "Compiled ${#device_sources[@]} Android device-suite sources"
 # Resources are compiled but not linked here: they reference Material's theme attributes, and linking
 # those needs the library's own resources, which is Gradle's job. Compiling still catches a malformed
 # drawable, layout or values file, which is what this step was for.

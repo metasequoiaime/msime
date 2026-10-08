@@ -12,7 +12,9 @@ public final class FunctionPanelModelSmoke {
             "page one");
         check(labels(1).equals(List.of("按键音", "振动", "单手模式", "隐私模式", "反馈", "关于",
             "AI 回复与润色", "本地输入")), "page two");
-        check(labels(2).equals(List.of("语音结果", "振动强度", "表情", "剪贴板历史", "浮动键盘")), "page three");
+        check(labels(2).equals(List.of("语音结果", "振动强度", "表情", "剪贴板历史", "浮动键盘", "文本编辑")), "page three");
+        check(!FunctionPanelModel.item(Id.TEXT_EDIT).toggle() && FunctionPanelModel.pageOf(Id.TEXT_EDIT) == 2,
+            "文本编辑 opens a panel from page three");
         check(FunctionPanelModel.page(3).isEmpty() && FunctionPanelModel.page(-1).isEmpty(),
             "out-of-range pages are empty");
         check(FunctionPanelModel.item(Id.TRADITIONAL).description().equals("繁体输出"),

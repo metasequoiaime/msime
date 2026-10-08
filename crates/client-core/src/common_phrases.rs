@@ -8,7 +8,8 @@ use crate::community::resource::{validate_resource, CommunityResource, Community
 use crate::file_lock;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use std::fs::{self, File};
+use std::fs::File;
+#[cfg(not(unix))]
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
@@ -355,21 +356,19 @@ impl CommonPhrasesStore {
     }
 
     fn read_locked(&self) -> Result<CommonPhrases, CommonPhrasesError> {
-        let metadata = match fs::symlink_metadata(&self.file) {
-            Ok(value) => value,
+        let file = match crate::storage::open_private_file_in(&self.file) {
+            Ok(file) => file,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 return Ok(CommonPhrases::default())
             }
-            Err(error) => return Err(error.into()),
+            Err(_) => return Err(CommonPhrasesError::Corrupt),
         };
-        if !metadata.file_type().is_file() || metadata.len() > MAX_FILE_BYTES {
+        if file.metadata()?.len() > MAX_FILE_BYTES {
             return Err(CommonPhrasesError::Corrupt);
         }
-        let bytes = crate::bounded_io::read_bounded_file(
-            crate::storage::open_private_file(&self.file)?,
-            MAX_FILE_BYTES,
-            || CommonPhrasesError::Corrupt,
-        )?;
+        let bytes = crate::bounded_io::read_bounded_file(file, MAX_FILE_BYTES, || {
+            CommonPhrasesError::Corrupt
+        })?;
         let document: CommonPhrases =
             serde_json::from_slice(&bytes).map_err(|_| CommonPhrasesError::Corrupt)?;
         validate(&document).map_err(|_| CommonPhrasesError::Corrupt)?;
@@ -382,11 +381,21 @@ impl CommonPhrasesStore {
         if bytes.len() as u64 > MAX_FILE_BYTES {
             return Err(CommonPhrasesError::TooLarge);
         }
-        let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
-        temporary.write_all(&bytes)?;
-        temporary.as_file().sync_all()?;
-        temporary.persist(&self.file).map_err(|error| error.error)?;
-        Ok(())
+        #[cfg(unix)]
+        {
+            let directory = crate::storage::open_private_directory(parent)?;
+            let name = self.file.file_name().ok_or(CommonPhrasesError::Invalid)?;
+            crate::storage::write_private_file_at(&directory, name, &bytes)?;
+            Ok(())
+        }
+        #[cfg(not(unix))]
+        {
+            let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
+            temporary.write_all(&bytes)?;
+            temporary.as_file().sync_all()?;
+            temporary.persist(&self.file).map_err(|error| error.error)?;
+            Ok(())
+        }
     }
 }
 

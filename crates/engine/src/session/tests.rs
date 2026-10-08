@@ -2428,6 +2428,35 @@ fn korean_hanja_refresh_reuses_candidate_strings() {
 }
 
 #[test]
+fn korean_refresh_reuses_request_strings() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = korean_session(&fixture);
+    type_korean(&mut session, "gks");
+    let request = session.input.engine.request();
+    let pointers = [
+        request.raw_input.as_ptr(),
+        request.raw_input_with_cases.as_ptr(),
+        request.normalized_input.as_ptr(),
+        request.raw_segmentation.as_ptr(),
+        request.normalized_segmentation.as_ptr(),
+        request.segmentation.as_ptr(),
+    ];
+    session.input.engine.handle_key(SchemeKey::Requery);
+    let request = session.input.engine.request();
+    assert_eq!(
+        [
+            request.raw_input.as_ptr(),
+            request.raw_input_with_cases.as_ptr(),
+            request.normalized_input.as_ptr(),
+            request.raw_segmentation.as_ptr(),
+            request.normalized_segmentation.as_ptr(),
+            request.segmentation.as_ptr(),
+        ],
+        pointers
+    );
+}
+
+#[test]
 fn choosing_a_hanja_commits_it_and_learns_nothing() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);
     let mut session = fixture.session_with(|options| {
@@ -3659,6 +3688,41 @@ fn stroke_composes_glyphs_from_its_keys() {
 }
 
 #[test]
+fn stroke_candidate_refresh_reuses_row_storage() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = stroke_session(&fixture);
+    type_text(&mut session, "hs");
+    let pointers = session
+        .input
+        .engine
+        .candidates()
+        .iter()
+        .map(|row| {
+            (
+                row.word.as_ptr(),
+                row.pinyin.as_ptr(),
+                row.canonical_pinyin.as_ptr(),
+            )
+        })
+        .collect::<Vec<_>>();
+    session.input.engine.handle_key(SchemeKey::Requery);
+    assert_eq!(
+        session
+            .input
+            .engine
+            .candidates()
+            .iter()
+            .map(|row| (
+                row.word.as_ptr(),
+                row.pinyin.as_ptr(),
+                row.canonical_pinyin.as_ptr()
+            ))
+            .collect::<Vec<_>>(),
+        pointers
+    );
+}
+
+#[test]
 fn stroke_rows_are_never_learned_or_edited() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);
     let stroke = stroke_dictionary(fixture.path());
@@ -4745,4 +4809,13 @@ fn a_glide_is_left_to_the_host_outside_quanpin_composition() {
     let points = crate::pinyin::glide::tests::stroke("zhong", 0.0, &[]);
     assert!(!session.glide(&broken, &points).handled);
     assert!(session.snapshot().editing_text.is_empty());
+}
+
+/// 九宫格选中整句时存词的音节上限与全拼键盘相同（#5640）。
+#[test]
+fn nine_key_sentence_learning_shares_the_syllable_cap() {
+    assert_eq!(
+        crate::nine_key::MAX_LEARNED_SENTENCE_SYLLABLES,
+        super::learning::MAX_LEARNED_SENTENCE_SYLLABLES
+    );
 }

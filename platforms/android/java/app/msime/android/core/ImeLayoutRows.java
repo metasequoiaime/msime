@@ -1,5 +1,6 @@
 package app.msime.android;
 
+import app.msime.android.core.InputViewValuePolicy;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
@@ -118,6 +119,8 @@ final class ImeLayoutRows {
 
         LinearLayout tools = KeyboardGeometry.column(s);
         Button delete = s.keyId(s.backspaceKey(s::deleteFromHandwriting), "Backspace");
+        // 和其他布局的删除键一样按住加速连删、上滑快速删除（#5585）；有墨迹时每次删一笔。
+        s.imeLetterRows.bindBackspaceRepeat(delete, s::deleteFromHandwriting);
         if (delete instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
         addNineKey(tools, delete);
         Button rewrite = s.keyboardKey("重写", "清空手写", () -> {
@@ -511,7 +514,7 @@ final class ImeLayoutRows {
             String label = ZhuyinNineKeyLayout.accessibilityLabel(tone);
             Button key = s.keyId(s.keyboardKey(tone.face(), label, () -> {
                 if (s.connection != null && ZhuyinInputPolicy.toneKeySends(
-                        s.view == null ? "" : s.view.optString("editing_text", "")))
+                        s.view == null ? "" : InputViewValuePolicy.editingText(s.view)))
                     s.character(tone.input(), false);
             }), tone.keyId());
             key.setContentDescription(label);
@@ -827,7 +830,7 @@ final class ImeLayoutRows {
             return;
         }
         for (int extra = 1; extra < JapaneseNineKeyLayout.LONGEST_STROKE && s.view != null
-                && JapaneseNineKeyLayout.endsWithPendingRomaji(s.view.optString("reading", "")); extra++) {
+                && JapaneseNineKeyLayout.endsWithPendingRomaji(InputViewValuePolicy.text(s.view, "reading")); extra++) {
             if (!s.command(0)) return;
         }
     }
@@ -848,7 +851,7 @@ final class ImeLayoutRows {
         if (toggleKey == null || s.connection == null || s.view == null) return false;
         if (withinWindow && android.os.SystemClock.uptimeMillis() - toggleAt
                 > JapaneseNineKeyLayout.TOGGLE_WINDOW_MS) return false;
-        String editing = s.view.optString("editing_text", "");
+        String editing = InputViewValuePolicy.editingText(s.view);
         if (toggleLiteral.isEmpty()) return editing.equals(toggleEditing);
         CharSequence before = s.connection.getTextBeforeCursor(toggleLiteral.length(), 0);
         return editing.isEmpty() && before != null && toggleLiteral.contentEquals(before);
@@ -858,7 +861,7 @@ final class ImeLayoutRows {
         toggleKey = key;
         toggleDirection = direction;
         toggleAt = android.os.SystemClock.uptimeMillis();
-        toggleEditing = s.view == null ? "" : s.view.optString("editing_text", "");
+        toggleEditing = s.view == null ? "" : InputViewValuePolicy.editingText(s.view);
         toggleLiteral = "";
         if (key.strokes().get(direction).isEmpty() && s.connection != null) {
             CharSequence before = s.connection.getTextBeforeCursor(1, 0);
@@ -902,7 +905,7 @@ final class ImeLayoutRows {
     void moveJapaneseCaretLeft() {
         resetJapaneseToggle();
         if (s.connection == null) return;
-        if (s.view == null || JsonPolicy.strictStringOrEmpty(s.view.opt("editing_text")).isEmpty())
+        if (s.view == null || InputViewValuePolicy.editingText(s.view).isEmpty())
             s.sendDownUpKeyEvents(android.view.KeyEvent.KEYCODE_DPAD_LEFT);
     }
 
@@ -911,7 +914,7 @@ final class ImeLayoutRows {
         boolean toggling = japaneseToggleCurrent(false);
         resetJapaneseToggle();
         if (toggling || s.connection == null) return;
-        if (s.view == null || JsonPolicy.strictStringOrEmpty(s.view.opt("editing_text")).isEmpty())
+        if (s.view == null || InputViewValuePolicy.editingText(s.view).isEmpty())
             s.sendDownUpKeyEvents(android.view.KeyEvent.KEYCODE_DPAD_RIGHT);
     }
 
@@ -1094,10 +1097,13 @@ final class ImeLayoutRows {
         }
         Button language = s.keyId(s.keyboardKey("英", "切换到英文输入", s::toggleInputLanguage),
             "SoftLanguage");
+        s.bindInputMethodPicker(language);
         addJapaneseSideKey(modeColumn, language, 1);
         if (s.offersGlobeKey()) {
-            addJapaneseSideKey(modeColumn, s.keyId(s.keyboardKey("切换", "切换到下一个输入法",
-                s::switchToNextInputMethodAfterCommit), "SoftGlobe"), 1);
+            Button globe = s.keyId(s.keyboardKey("切换", "切换到下一个输入法",
+                s::switchToNextInputMethodAfterCommit), "SoftGlobe");
+            s.bindInputMethodPicker(globe);
+            addJapaneseSideKey(modeColumn, globe, 1);
         }
         container.addView(modeColumn, KeyboardGeometry.weightedMatchParentParams(0.17f));
 
@@ -1179,6 +1185,8 @@ final class ImeLayoutRows {
         if (key instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.PLAIN);
         KeyboardGeometry.setKeyTextSize(key, 14);
         ViewPolicy.setSingleLine(key);
+        // 最长的拼音（zhuang、shuang）在窄侧栏里等比缩小字号放下，而不是被侧栏边缘切掉（#5591）。
+        ViewPolicy.setAutoSizeSp(key, 9, 14, 1);
         ViewPolicy.clearMinimumHeight(key);
         ViewPolicy.setHorizontalPadding(key, s.pixels(2));
         key.setLayoutParams(KeyboardGeometry.matchWidthHeightPx(s.pixels(SPELLING_ROW_DP)));

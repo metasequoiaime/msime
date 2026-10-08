@@ -276,7 +276,12 @@ final class ImeLetterRows {
         return spacer;
     }
 
-    /** Matches the Apple delete key: a short tap deletes once, a held press repeats. */
+    /** 这一次删除键按压的上滑阶段，见 {@link BackspaceSwipePolicy}。 */
+    private BackspaceSwipePolicy.Phase backspaceSwipePhase = BackspaceSwipePolicy.Phase.IDLE;
+
+    /**
+     * 和 Apple 的删除键一样：短按删一次，按住连删并逐级加速（BackspaceRepeatPolicy）。按住往上滑弹出「快速删除」框，滑进框里松手删掉光标前的全部文字，滑回框外松手什么也不删（#5585）。
+     */
     void bindBackspaceRepeat(Button button, Runnable action) {
         button.setOnTouchListener((view, event) -> {
             switch (event.getActionMasked()) {
@@ -289,6 +294,8 @@ final class ImeLetterRows {
                     // 按下就删一次，和 BackspaceRepeatPolicy 说的一样；等到松手才删，删除就慢了整整一个按压时长。这次点击同时播反馈、记一次按键。
                     button.performClick();
                     s.backspaceRepeatTask = new Runnable() {
+                        private int repeats;
+
                         @Override public void run() {
                             if (s.backspaceRepeatButton != button || !button.isPressed()) return;
                             // A held delete is one press however often it repeats; the press was counted by the click on touch-down.
@@ -304,24 +311,34 @@ final class ImeLetterRows {
                             }
                             s.imeKeyFeedback.playFeedback(button);
                             action.run();
-                            s.main.postDelayed(this, BackspaceRepeatPolicy.REPEAT_INTERVAL_MS);
+                            repeats++;
+                            s.main.postDelayed(this, BackspaceRepeatPolicy.repeatInterval(repeats));
                         }
                     };
                     s.main.postDelayed(s.backspaceRepeatTask, BackspaceRepeatPolicy.INITIAL_DELAY_MS);
                     return true;
                 }
                 case MotionEvent.ACTION_MOVE -> {
+                    if (s.backspaceRepeatButton != button) return true;
+                    if (trackBackspaceSwipe(button, event.getY())) return true;
                     if (event.getX() < 0 || event.getY() < 0
                             || event.getX() >= button.getWidth()
                             || event.getY() >= button.getHeight()) {
-                        cancelBackspaceRepeat();
+                        // 手指离开键就停止连删，但仍跟踪这次按压：接着往上滑还能弹出快速删除框。
+                        stopBackspaceRepeatTask();
                         button.setPressed(false);
                     }
                     return true;
                 }
                 case MotionEvent.ACTION_UP -> {
+                    boolean clear = s.backspaceRepeatButton == button
+                        && BackspaceSwipePolicy.clearsOnRelease(backspaceSwipePhase);
                     cancelBackspaceRepeat();
                     button.setPressed(false);
+                    if (clear) {
+                        s.imeKeyFeedback.playFeedback(button);
+                        s.deleteAllBeforeCursor();
+                    }
                     return true;
                 }
                 case MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_OUTSIDE -> {
@@ -334,13 +351,42 @@ final class ImeLetterRows {
         });
     }
 
-    void cancelBackspaceRepeat() {
+    /**
+     * 按 {@link BackspaceSwipePolicy} 更新上滑阶段并画框；返回 true 表示这次移动已经属于上滑手势（框弹出过）。第一次弹出时停掉连删，进入待命时给一次按键反馈。
+     */
+    private boolean trackBackspaceSwipe(Button button, float yInKey) {
+        QuickDeleteOverlay overlay = s.quickDeleteOverlay;
+        if (overlay == null || button.getWindowToken() == null) return false;
+        float keyTop = overlay.keyTop(button);
+        BackspaceSwipePolicy.Phase next = BackspaceSwipePolicy.next(backspaceSwipePhase,
+            keyTop + yInKey, keyTop, KeyboardGeometry.density(s));
+        if (next == BackspaceSwipePolicy.Phase.IDLE) return false;
+        BackspaceSwipePolicy.Phase previous = backspaceSwipePhase;
+        backspaceSwipePhase = next;
+        if (previous == BackspaceSwipePolicy.Phase.IDLE) {
+            stopBackspaceRepeatTask();
+            button.setPressed(false);
+        }
+        if (next != previous) {
+            if (next == BackspaceSwipePolicy.Phase.ARMED) s.imeKeyFeedback.playFeedback(button);
+            overlay.show(button, next == BackspaceSwipePolicy.Phase.ARMED);
+        }
+        return true;
+    }
+
+    private void stopBackspaceRepeatTask() {
         if (s.backspaceRepeatTask != null) s.main.removeCallbacks(s.backspaceRepeatTask);
         s.backspaceRepeatTask = null;
+    }
+
+    void cancelBackspaceRepeat() {
+        stopBackspaceRepeatTask();
         if (s.backspaceRepeatButton != null) s.backspaceRepeatButton.setPressed(false);
         s.backspaceRepeatButton = null;
         s.backspaceRepeated = false;
         s.backspaceClearedComposition = false;
+        backspaceSwipePhase = BackspaceSwipePolicy.Phase.IDLE;
+        if (s.quickDeleteOverlay != null) s.quickDeleteOverlay.hide();
     }
 
     void rebuildKeyRows() {
