@@ -128,7 +128,7 @@ public final class HostStore {
      */
     public static KeyboardSkin keyboardSkin(JSONObject preferences, boolean systemDark) {
         boolean dark = KeyboardSkin.resolveDark(
-            preferences.optString("screen_keyboard_theme", "follow"),
+            InputViewValuePolicy.textOr(preferences, "screen_keyboard_theme", "follow"),
             InputViewValuePolicy.textOr(preferences, "theme", "system"), systemDark);
         String globalTheme = InputViewValuePolicy.textOr(preferences, "global_theme", "system");
         JSONObject customTheme = preferences.optJSONObject("custom_theme");
@@ -151,7 +151,7 @@ public final class HostStore {
         if (!"system".equals(InputViewValuePolicy.textOr(preferences, "global_theme", "system")))
             return keyboardSkin(preferences, systemDark);
         boolean dark = KeyboardSkin.resolveDark(
-            preferences.optString("screen_keyboard_theme", "follow"),
+            InputViewValuePolicy.textOr(preferences, "screen_keyboard_theme", "follow"),
             InputViewValuePolicy.textOr(preferences, "theme", "system"), systemDark);
         return KeyboardSkin.system(dark, seed);
     }
