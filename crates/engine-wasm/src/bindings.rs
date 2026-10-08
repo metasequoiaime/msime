@@ -91,7 +91,7 @@ pub struct WebEngine {
 
 #[wasm_bindgen]
 impl WebEngine {
-    /// `scheme` 是 `quanpin`、`xiaohe`、`ziranma`、`wubi86`、`japanese` 或 `korean`。拼音方案和五笔的主库须已导入 `/res/msime-pinyin.db`（拼音方案导入网页包的 `msime-pinyin.db`，五笔导入 `msime-wubi86.db`，路径相同）；日语的模型须已经 `import_japanese_dictionary` 交给引擎；韩文不读词库。`model` 是解压后的 `sentence-model.safetensors`，只有拼音方案用它。
+    /// `scheme` 是 `quanpin`、`xiaohe`、`ziranma`、`shoudao`、`microsoft`、`wubi86`、`japanese` 或 `korean`。拼音方案和五笔的主库须已导入 `/res/msime-pinyin.db`（拼音方案导入网页包的 `msime-pinyin.db`，五笔导入 `msime-wubi86.db`，路径相同）；日语的模型须已经 `import_japanese_dictionary` 交给引擎；韩文不读词库。`model` 是解压后的 `sentence-model.safetensors`，只有拼音方案用它。
     #[wasm_bindgen(constructor)]
     pub fn new(
         scheme: &str,
@@ -128,6 +128,13 @@ impl WebEngine {
         self.host.set_backspace_deletes(deletes);
     }
 
+    /// 打开或关闭辅助码：`table` 是解压后的辅助码表（网页包的 `helpcode-<方案>.txt.gz`），不传或 undefined 时关闭。只对全拼和双拼起作用；表超过 1 MiB 时报错，原来的设置不变。
+    pub fn set_helpcode(&mut self, table: Option<Box<[u8]>>) -> Result<(), JsError> {
+        self.host
+            .set_helpcode(table.as_deref())
+            .map_err(|error| JsError::new(&error))
+    }
+
     /// 新回合：取消组字、清空上下文、重建会话，返回 `MsimeFrame`。
     pub fn reset(&mut self) -> JsValue {
         frame_to_js(&self.host.reset())
@@ -154,6 +161,7 @@ fn frame_to_js(frame: &Frame) -> JsValue {
         let entry = Object::new();
         set(&entry, "text", &JsValue::from_str(&row.text));
         set(&entry, "code", &JsValue::from_str(&row.code));
+        set(&entry, "hint", &JsValue::from_str(&row.hint));
         page.push(&entry);
     }
     set(&object, "page", &page);
