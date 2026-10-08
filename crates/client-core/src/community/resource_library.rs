@@ -271,8 +271,7 @@ mod tests {
         let store = CommunityResourceLibraryStore::new(&file);
         assert!(matches!(
             store.load(),
-            Err(CommunityResourceLibraryError::Invalid)
-                | Err(CommunityResourceLibraryError::Io(_))
+            Err(CommunityResourceLibraryError::Invalid) | Err(CommunityResourceLibraryError::Io(_))
         ));
     }
 }

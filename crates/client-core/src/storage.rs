@@ -31,8 +31,7 @@ pub(crate) fn remove_private_file(path: &Path) -> io::Result<()> {
                 | rustix::fs::OFlags::NONBLOCK,
             rustix::fs::Mode::empty(),
         )?;
-        return rustix::fs::unlinkat(&directory, name, rustix::fs::AtFlags::empty())
-            .map_err(Into::into);
+        rustix::fs::unlinkat(&directory, name, rustix::fs::AtFlags::empty()).map_err(Into::into)
     }
     #[cfg(not(unix))]
     {

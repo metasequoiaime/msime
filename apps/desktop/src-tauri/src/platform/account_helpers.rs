@@ -44,15 +44,57 @@ pub(crate) fn remove_snapshot_file(path: &Path) -> std::io::Result<()> {
 
 #[cfg(any(target_os = "ios", target_os = "android", test))]
 pub(crate) fn cleanup_stale_snapshot_previews(directory: &Path) -> std::io::Result<()> {
-    for entry in std::fs::read_dir(directory)? {
-        let entry = entry?;
+    #[cfg(unix)]
+    {
+        let opened = match crate::shared::atomic_file::open_private_directory(directory) {
+            Ok(opened) => opened,
+            Err(_error) if msime_path_trust::reject_symlinked_components(directory).is_err() => {
+                return Ok(())
+            }
+            Err(error) => return Err(error),
+        };
+        return cleanup_stale_snapshot_previews_in_directory(directory, &opened);
+    }
+    #[cfg(not(unix))]
+    {
+        for entry in std::fs::read_dir(directory)? {
+            let entry = entry?;
+            let file_name = entry.file_name();
+            let file_name = file_name.to_string_lossy();
+            if entry.file_type()?.is_file()
+                && file_name.starts_with("download-")
+                && file_name.ends_with(".ndjson")
+            {
+                let _ = remove_snapshot_file(&entry.path());
+            }
+        }
+        Ok(())
+    }
+}
+
+#[cfg(all(unix, any(target_os = "ios", target_os = "android", test)))]
+fn cleanup_stale_snapshot_previews_in_directory(
+    directory: &Path,
+    opened: &std::os::fd::OwnedFd,
+) -> std::io::Result<()> {
+    let entries: Vec<_> = std::fs::read_dir(directory)?.collect::<Result<_, _>>()?;
+    if !crate::shared::atomic_file::directory_matches(directory, opened)? {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "snapshot directory changed while listing previews",
+        ));
+    }
+    for entry in entries {
         let file_name = entry.file_name();
         let file_name = file_name.to_string_lossy();
         if entry.file_type()?.is_file()
             && file_name.starts_with("download-")
             && file_name.ends_with(".ndjson")
         {
-            let _ = remove_snapshot_file(&entry.path());
+            let _ = crate::shared::atomic_file::remove_private_at(
+                opened,
+                entry.file_name().as_os_str(),
+            );
         }
     }
     Ok(())
@@ -146,8 +188,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::{
-        cleanup_stale_snapshot_previews, prepare_snapshot_directory, read_snapshot_file,
-        write_snapshot_file,
+        cleanup_stale_snapshot_previews, cleanup_stale_snapshot_previews_in_directory,
+        prepare_snapshot_directory, read_snapshot_file, write_snapshot_file,
     };
 
     #[test]
@@ -179,6 +221,28 @@ mod tests {
         cleanup_stale_snapshot_previews(&linked).unwrap();
 
         assert_eq!(std::fs::read(&outside_file).unwrap(), b"synthetic-outside");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stale_snapshot_cleanup_rejects_a_directory_replacement_after_opening() {
+        let root = tempfile::tempdir().unwrap();
+        let original = root.path().join("snapshots");
+        let moved = root.path().join("snapshots-moved");
+        let replacement = root.path().join("replacement");
+        std::fs::create_dir(&original).unwrap();
+        std::fs::create_dir(&replacement).unwrap();
+        let name = "download-stale.ndjson";
+        std::fs::write(original.join(name), b"original").unwrap();
+        std::fs::write(replacement.join(name), b"replacement").unwrap();
+        let opened = crate::shared::atomic_file::open_private_directory(&original).unwrap();
+
+        std::fs::rename(&original, &moved).unwrap();
+        std::fs::rename(&replacement, &original).unwrap();
+
+        assert!(cleanup_stale_snapshot_previews_in_directory(&original, &opened).is_err());
+        assert!(moved.join(name).exists());
+        assert!(original.join(name).exists());
     }
 
     #[cfg(unix)]

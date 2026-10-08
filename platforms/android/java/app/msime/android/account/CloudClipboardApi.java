@@ -57,7 +57,7 @@ public final class CloudClipboardApi {
             JSONArray values = response.optJSONArray("items");
             Object enabled = response.opt("enabled");
             if (values == null || values.length() > MAX_ITEMS || !(enabled instanceof Boolean)) throw invalid();
-            Integer rawRetention = strictInteger(response.opt("retention_days"));
+            Integer rawRetention = JsonPolicy.strictInteger(response.opt("retention_days"));
             int retention = rawRetention == null ? 0 : rawRetention;
             if (!validRetention(retention)) retention = 0;
             List<Item> items = new ArrayList<>(values.length());
@@ -71,7 +71,7 @@ public final class CloudClipboardApi {
                     ? "" : JsonPolicy.strictString(rawDevice);
                 Object rawPinned = value.opt("pinned");
                 Boolean pinned = rawPinned == null || rawPinned == JSONObject.NULL
-                    ? Boolean.FALSE : strictBoolean(rawPinned);
+                    ? Boolean.FALSE : JsonPolicy.strictBoolean(rawPinned);
                 if (pinned == null || id == null || text == null || updated == null || device == null) {
                     throw invalid();
                 }

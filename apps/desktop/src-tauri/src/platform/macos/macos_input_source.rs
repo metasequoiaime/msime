@@ -554,15 +554,7 @@ fn clear_input_source_cache(cache: &Path) {
     }
     #[cfg(unix)]
     {
-        let Ok(descriptor) = rustix::fs::open(
-            cache,
-            rustix::fs::OFlags::RDONLY
-                | rustix::fs::OFlags::DIRECTORY
-                | rustix::fs::OFlags::NOFOLLOW
-                | rustix::fs::OFlags::CLOEXEC
-                | rustix::fs::OFlags::NONBLOCK,
-            rustix::fs::Mode::empty(),
-        ) else {
+        let Ok(descriptor) = crate::shared::atomic_file::open_private_directory(cache) else {
             return;
         };
         let Ok(mut directory) = rustix::fs::Dir::new(descriptor) else {
@@ -600,7 +592,7 @@ fn clear_input_source_cache_directory(directory: &mut rustix::fs::Dir) {
         let Ok(descriptor) = directory.fd() else {
             continue;
         };
-        let _ = rustix::fs::unlinkat(&descriptor, entry.file_name(), rustix::fs::AtFlags::empty());
+        let _ = rustix::fs::unlinkat(descriptor, entry.file_name(), rustix::fs::AtFlags::empty());
     }
 }
 
