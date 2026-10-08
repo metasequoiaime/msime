@@ -19,7 +19,8 @@ public final class SymbolPanelView extends LinearLayout {
     }
 
     public interface Listener {
-        void insert(String text);
+        /** 上屏一个符号。`wholePair` 为 true 是轻点：成对符号的前半个按「自动补全成对标点」决定是否连后半个一起上屏；长按传 false，只上屏这半个。 */
+        void insert(String text, boolean wholePair);
         void delete();
         void close();
         /** 按当前皮肤重画一个控件：按钮的选中状态变了时必须调，键帽颜色只在上色时读一次 `isSelected()`，只改选中状态的话高亮会一直停在上一次上色时的那个按钮上；换分类后新建的提示文字也要靠它拿到皮肤的字色。 */
@@ -147,8 +148,14 @@ public final class SymbolPanelView extends LinearLayout {
             int end = BoundsPolicy.atMost(start + SymbolPanelModel.COLUMNS, symbols.size());
             for (int index = start; index < end; index++) {
                 String symbol = symbols.get(index);
-                Button button = buttons.create(symbol, "符号 " + symbol,
-                    () -> insert(symbol), false);
+                boolean pairable = PairedPunctuationPolicy.symbolClosing(symbol) != null;
+                Button button = buttons.create(symbol, "符号 " + symbol + (pairable ? "，长按只输入这半个" : ""),
+                    () -> insert(symbol, true), false);
+                // 长按成对符号的前半个只上屏这半个（#5608）；处理了长按，系统会自己给一次长按震动。
+                if (pairable) button.setOnLongClickListener(ignored -> {
+                    insert(symbol, false);
+                    return true;
+                });
                 ViewPolicy.setCenteredKeyTextSizeSp(button, 18);
                 ViewPolicy.clearPadding(button);
                 GridLayout.Spec row = GridLayout.spec(start / SymbolPanelModel.COLUMNS);
@@ -171,8 +178,8 @@ public final class SymbolPanelView extends LinearLayout {
         gridScroll.scrollTo(0, 0);
     }
 
-    private void insert(String symbol) {
-        listener.insert(symbol);
+    private void insert(String symbol, boolean wholePair) {
+        listener.insert(symbol, wholePair);
         if (SymbolPanelModel.closesAfterInsert(locked)) listener.close();
     }
 

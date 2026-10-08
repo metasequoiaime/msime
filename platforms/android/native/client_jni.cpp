@@ -542,6 +542,13 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_punctuationWith
     }
     return response(env, msime_client_punctuation_with_context(static_cast<uint64_t>(handle), static_cast<uint8_t>(ascii), static_cast<uint32_t>(preceding)));
 }
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_balancePairedPunctuationAfterAutoCloseRaw(JNIEnv *env, jclass, jlong handle, jint opening) {
+    if (opening < 0 || opening > 127) {
+        env->ThrowNew(env->FindClass("java/lang/IllegalArgumentException"), "Paired punctuation opening must be ASCII");
+        return nullptr;
+    }
+    return response(env, msime_client_balance_paired_punctuation_after_auto_close(static_cast<uint64_t>(handle), static_cast<uint8_t>(opening)));
+}
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_glideRaw(JNIEnv *env, jclass, jlong handle, jbyteArray request) {
     if (!request) return response(env, msime_client_glide(static_cast<uint64_t>(handle), nullptr, 0));
     jsize length = env->GetArrayLength(request);

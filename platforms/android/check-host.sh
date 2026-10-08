@@ -154,6 +154,18 @@ if ! rg -q 'smartPunctuationArmRaw|smartPunctuationDecideRaw' \
   echo "Android smart punctuation must cross the shared Host API through JNI" >&2
   exit 1
 fi
+# 「自动补全成对标点」曾经只是设置页上的一个开关：这个宿主从不读 paired_punctuation，开着也只上屏半个括号（#5608）。键盘标点键的补全规则与 iOS、HarmonyOS 同一份（PairedPunctuationPolicy.completion），符号面板走 symbolClosing，补完书名号要经 JNI 通知 Engine 平衡嵌套。
+if ! rg -q 'optBoolean\("paired_punctuation"' \
+    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
+  || ! rg -q 'PairedPunctuationPolicy\.completion\(' \
+    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
+  || ! rg -q 'PairedPunctuationPolicy\.symbolClosing\(' \
+    "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java" \
+  || ! rg -q 'msime_client_balance_paired_punctuation_after_auto_close' \
+    "$repo_root/platforms/android/native/client_jni.cpp"; then
+  echo "Android must honour the shared paired_punctuation preference on punctuation keys and in the symbol panel" >&2
+  exit 1
+fi
 # The fullwidth state belongs to the runtime, not to a private SharedPreferences file: the Engine
 # widens what it commits, and it can only do that if the host has told it the width. The second
 # guard is the reason the first one matters - this host used to keep its own latch, and the shared
@@ -666,9 +678,9 @@ while IFS= read -r source; do
   class=$(basename "$source" .java)
   smoke_classes+=("${package:+$package.}$class")
 done < <(find "$repo_root/platforms/android/tests" -name "*.java" -print | LC_ALL=C sort)
-# 下限就是当前发现的冒烟数（159）；少于这个数说明上面的筛选或 package 解析坏了，而不是冒烟真的变少了。新增冒烟时把这个数一起调高，有意删掉冒烟时同时调低。
-if [[ ${#smoke_classes[@]} -lt 159 ]]; then
-  echo "Only ${#smoke_classes[@]} Android JVM smokes discovered; expected at least 159" >&2
+# 下限就是当前发现的冒烟数（161）；少于这个数说明上面的筛选或 package 解析坏了，而不是冒烟真的变少了。新增冒烟时把这个数一起调高，有意删掉冒烟时同时调低。
+if [[ ${#smoke_classes[@]} -lt 161 ]]; then
+  echo "Only ${#smoke_classes[@]} Android JVM smokes discovered; expected at least 161" >&2
   exit 1
 fi
 javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \

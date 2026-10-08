@@ -1500,8 +1500,13 @@ final class ImePanels {
                 return button;
             },
             new SymbolPanelView.Listener() {
-                @Override public void insert(String text) {
-                    if (s.connection != null && s.commitText(text, TypingSource.LOCAL)) recordSymbolRecent(text);
+                @Override public void insert(String text, boolean wholePair) {
+                    if (s.connection == null || !s.commitText(text, TypingSource.LOCAL)) return;
+                    // 符号面板不经过 Engine，成对补全由宿主按同一个共享开关决定，后半个放在光标右边。
+                    String closing = wholePair && s.pairedPunctuation
+                        ? PairedPunctuationPolicy.symbolClosing(text) : null;
+                    if (closing != null) s.commitClosingMark(closing, TypingSource.LOCAL);
+                    recordSymbolRecent(text);
                 }
 
                 @Override public void delete() {
