@@ -558,10 +558,12 @@ if ! sed -n '/private void startEngineSession(String optionsText, String livePre
   echo "Android toolbar must not start each editor from the factory-default preference copy" >&2
   exit 1
 fi
-# 长按「中/英」弹出系统输入法选择框（#5615）。这个键在没有会话的输入框里也必须保持可用：禁用的按钮收不到长按，而密码框正是最需要换到密码管理器键盘的地方。
+# 长按「中/英」弹出系统输入法选择框（#5615）。这个键在没有会话的输入框里也必须保持可用：禁用的按钮收不到长按，而密码框正是最需要换到密码管理器键盘的地方。没有会话时把键画淡，点按在反馈和计数之前就忽略。
 if ! rg -q 'bindInputMethodPicker\(languageButton\)' "$account_service" \
   || ! rg -q 'manager\.showInputMethodPicker\(\)' "$account_service" \
   || rg -q 'setEnabled\(languageButton, session != 0\)' "$account_service" \
+  || ! rg -q 'setActiveAlpha\(languageButton, canToggle' "$account_service" \
+  || ! sed -n '/languageButton\.setOnClickListener/,/});/p' "$account_service" | rg -q 'if \(session == 0\) return;' \
   || ! rg -q 's\.bindInputMethodPicker\(language\)' \
     "$repo_root/platforms/android/java/app/msime/android/core/ImeLayoutRows.java"; then
   echo "Android 中/英 keys must open the system input method picker on long press" >&2

@@ -6094,6 +6094,13 @@ public final class MSIMEInputService extends InputMethodService {
         keyId(shiftButton, "ShiftLeft");
         languageButton = keyId(button(controls, "中/英", this::toggleInputLanguage), "SoftLanguage");
         languageButton.setContentDescription("切换中英文");
+        // 没有会话时这个键仍可用（长按要能打开输入法选择框），但点按切不了中英：不给按键反馈、也不记一次按键，免得点上去有声有振动却什么也没发生。
+        languageButton.setOnClickListener(ignored -> {
+            if (session == 0) return;
+            imeKeyFeedback.playFeedback(languageButton);
+            countKey(languageButton);
+            toggleInputLanguage();
+        });
         bindInputMethodPicker(languageButton);
         layerButton = button(controls, "123", () -> {
             keyboardLayer = keyboardLayer == KeyboardLayout.Layer.LETTERS
@@ -6881,12 +6888,15 @@ public final class MSIMEInputService extends InputMethodService {
         }
         if (languageButton != null) {
             languageButton.setText(dedicatedEnglish ? "英" : "中");
-            // 没有会话（密码框、会话还在建）时点按切不了中英，但长按仍要能打开输入法选择框：换到密码管理器的键盘正是在密码框里最常用。禁用的按钮收不到长按，所以这个键始终可用，点按由 toggleInputLanguage 在没有会话时忽略。
+            // 没有会话（密码框、会话还在建）时点按切不了中英，但长按仍要能打开输入法选择框：换到密码管理器的键盘正是在密码框里最常用。禁用的按钮收不到长按，所以这个键始终可用，只把它画淡、读屏念成「暂不可用」，点按在点击监听里直接忽略。
+            boolean canToggle = session != 0;
             ViewPolicy.setEnabled(languageButton, true);
-            languageButton.setContentDescription(
-                dedicatedEnglish ? "切换到所选输入方案" : "切换到英文输入");
+            ViewPolicy.setActiveAlpha(languageButton, canToggle, .45f);
+            languageButton.setContentDescription(!canToggle ? "中英切换暂不可用，长按切换输入法"
+                : dedicatedEnglish ? "切换到所选输入方案" : "切换到英文输入");
             if (Build.VERSION.SDK_INT >= 30) {
-                languageButton.setStateDescription(dedicatedEnglish ? "英文输入" : "中文输入");
+                languageButton.setStateDescription(!canToggle ? "输入会话未就绪"
+                    : dedicatedEnglish ? "英文输入" : "中文输入");
             }
         }
         if (schemeButton != null) {
