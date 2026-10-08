@@ -166,6 +166,23 @@ pub(crate) fn open_private_file(path: &Path) -> io::Result<File> {
     crate::file_lock::open_private_file(path)
 }
 
+/// 打开私有目录中的普通文件；Unix 绑定父目录句柄，其他平台沿用私有文件打开策略。
+pub(crate) fn open_private_file_in(path: &Path) -> io::Result<File> {
+    #[cfg(unix)]
+    {
+        let parent = path.parent().unwrap_or_else(|| Path::new("."));
+        let name = path.file_name().ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidInput, "private file has no name")
+        })?;
+        let directory = open_private_directory(parent)?;
+        open_private_file_at(&directory, name)
+    }
+    #[cfg(not(unix))]
+    {
+        open_private_file(path)
+    }
+}
+
 /// Remove a private file relative to an opened parent directory, so a
 /// concurrent replacement of the directory cannot redirect cleanup through a
 /// symlink.

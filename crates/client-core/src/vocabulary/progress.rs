@@ -322,10 +322,8 @@ impl VocabularyProgressStore {
     }
 
     fn read_locked(&self) -> Result<VocabularyProgress, VocabularyProgressError> {
-        let directory = crate::storage::open_private_directory(&self.directory)?;
-        let file = match crate::storage::open_private_file_at(
-            &directory,
-            std::ffi::OsStr::new("vocabulary-progress.json"),
+        let file = match crate::storage::open_private_file_in(
+            &self.directory.join("vocabulary-progress.json"),
         ) {
             Ok(file) => file,
             // A missing file is a fresh profile. A damaged one is not, and is never overwritten

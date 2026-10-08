@@ -1,5 +1,6 @@
 package app.msime.android;
 
+import app.msime.android.core.InputViewValuePolicy;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
@@ -848,7 +849,7 @@ final class ImeLayoutRows {
         if (toggleKey == null || s.connection == null || s.view == null) return false;
         if (withinWindow && android.os.SystemClock.uptimeMillis() - toggleAt
                 > JapaneseNineKeyLayout.TOGGLE_WINDOW_MS) return false;
-        String editing = JsonPolicy.strictStringOrEmpty(s.view.opt("editing_text"));
+        String editing = InputViewValuePolicy.editingText(s.view);
         if (toggleLiteral.isEmpty()) return editing.equals(toggleEditing);
         CharSequence before = s.connection.getTextBeforeCursor(toggleLiteral.length(), 0);
         return editing.isEmpty() && before != null && toggleLiteral.contentEquals(before);
@@ -858,7 +859,7 @@ final class ImeLayoutRows {
         toggleKey = key;
         toggleDirection = direction;
         toggleAt = android.os.SystemClock.uptimeMillis();
-        toggleEditing = s.view == null ? "" : JsonPolicy.strictStringOrEmpty(s.view.opt("editing_text"));
+        toggleEditing = s.view == null ? "" : InputViewValuePolicy.editingText(s.view);
         toggleLiteral = "";
         if (key.strokes().get(direction).isEmpty() && s.connection != null) {
             CharSequence before = s.connection.getTextBeforeCursor(1, 0);
@@ -902,7 +903,7 @@ final class ImeLayoutRows {
     void moveJapaneseCaretLeft() {
         resetJapaneseToggle();
         if (s.connection == null) return;
-        if (s.view == null || JsonPolicy.strictStringOrEmpty(s.view.opt("editing_text")).isEmpty())
+        if (s.view == null || InputViewValuePolicy.editingText(s.view).isEmpty())
             s.sendDownUpKeyEvents(android.view.KeyEvent.KEYCODE_DPAD_LEFT);
     }
 
@@ -911,7 +912,7 @@ final class ImeLayoutRows {
         boolean toggling = japaneseToggleCurrent(false);
         resetJapaneseToggle();
         if (toggling || s.connection == null) return;
-        if (s.view == null || JsonPolicy.strictStringOrEmpty(s.view.opt("editing_text")).isEmpty())
+        if (s.view == null || InputViewValuePolicy.editingText(s.view).isEmpty())
             s.sendDownUpKeyEvents(android.view.KeyEvent.KEYCODE_DPAD_RIGHT);
     }
 
