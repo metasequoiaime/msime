@@ -241,6 +241,10 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    #[cfg_attr(
+        target_os = "android",
+        ignore = "Android 的 SELinux 不允许建硬链接，测试准备不出被测对象；应用在那里也建不出硬链接"
+    )]
     fn refuses_a_hard_linked_private_file() {
         let outside = tempfile::tempdir().unwrap();
         let root = tempfile::tempdir().unwrap();
@@ -254,6 +258,10 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    #[cfg_attr(
+        target_os = "android",
+        ignore = "Android 的 SELinux 不允许建硬链接，测试准备不出被测对象；应用在那里也建不出硬链接"
+    )]
     fn refuses_a_hard_linked_private_lock_leaf() {
         let outside = tempfile::tempdir().unwrap();
         let root = tempfile::tempdir().unwrap();
