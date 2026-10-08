@@ -202,7 +202,9 @@ final class ImeLetterRows {
 
     /** 第二行此刻是否带着微软双拼的第十个键（`;`）；与 SVC 每次渲染时设置那个键可见性的判断相同。 */
     private boolean microsoftTenKeys() {
-        String localMode = s.view == null ? "none" : s.view.optString("local_mode", "none");
+        String localMode = s.view == null ? "none"
+            : JsonPolicy.strictStringOrEmpty(s.view.opt("local_mode"));
+        if (localMode.isEmpty()) localMode = "none";
         return s.microsoftFinalKey != null && MicrosoftShuangpinKeyPolicy.visible(
             s.dedicatedEnglish, s.selectedScheme, localMode);
     }
