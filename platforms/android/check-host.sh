@@ -739,6 +739,14 @@ for smoke in "${smoke_classes[@]}"; do
   fi
 done
 echo "Ran ${#smoke_classes[@]} Android JVM smokes"
+# 设备测试包只在 `tests/device/smoke.sh` 里构建，而那要模拟器，CI 从不跑它；它的源文件清单是手写的，应用类挪进新的辅助类后没人补，曾经攒到 21 个编译错误，整个设备套件都构建不出来。这里按同一份清单只做编译，漏了类就在这一步失败。
+device_sources=()
+while IFS= read -r source; do
+  [[ -z $source || $source == \#* ]] || device_sources+=("$repo_root/$source")
+done < "$repo_root/platforms/android/tests/device/editor-sources.txt"
+mkdir -p "$output_dir/device"
+javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir/device" "${device_sources[@]}"
+echo "Compiled ${#device_sources[@]} Android device-suite sources"
 # Resources are compiled but not linked here: they reference Material's theme attributes, and linking
 # those needs the library's own resources, which is Gradle's job. Compiling still catches a malformed
 # drawable, layout or values file, which is what this step was for.
