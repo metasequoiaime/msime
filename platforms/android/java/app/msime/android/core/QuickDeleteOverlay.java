@@ -29,20 +29,28 @@ final class QuickDeleteOverlay extends View {
         ViewPolicy.hideFromAccessibility(this);
     }
 
+    /**
+     * 坐标系的参照：本视图铺满父视图（键盘外框）、左上角与它重合。按父视图换算，因为本视图平时是 GONE，第一次弹出前从没排版过，自己的位置和宽度都还是 0。
+     */
+    private View frame() {
+        return getParent() instanceof View parent ? parent : this;
+    }
+
     /** 删除键上沿在本视图坐标系里的 y。 */
     float keyTop(View key) {
-        getLocationOnScreen(ownLocation);
+        frame().getLocationOnScreen(ownLocation);
         key.getLocationOnScreen(keyLocation);
         return keyLocation[1] - ownLocation[1];
     }
 
     /** 在 `key` 上方显示框；`armed` 为真时画成待命的样子。 */
     void show(View key, boolean armed) {
-        getLocationOnScreen(ownLocation);
+        View frame = frame();
+        frame.getLocationOnScreen(ownLocation);
         key.getLocationOnScreen(keyLocation);
         float left = keyLocation[0] - ownLocation[0];
         float top = keyLocation[1] - ownLocation[1];
-        box = BackspaceSwipePolicy.box(left, top, left + key.getWidth(), getWidth(),
+        box = BackspaceSwipePolicy.box(left, top, left + key.getWidth(), frame.getWidth(),
             KeyboardGeometry.density(getContext()));
         this.armed = armed;
         if (getParent() instanceof ViewGroup parent) parent.bringChildToFront(this);
