@@ -38,6 +38,9 @@ final class DiagnosticLog: @unchecked Sendable {
     guard fstat(descriptor, &fileStatus) == 0 else {
       throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
     }
+    guard fileStatus.st_mode & S_IFMT == S_IFREG, fileStatus.st_nlink == 1 else {
+      throw TailReadFailure.tooLarge
+    }
     let fileSize = fileStatus.st_size
     guard fileSize >= 0, fileSize <= Int64(Int.max) else { throw TailReadFailure.tooLarge }
 

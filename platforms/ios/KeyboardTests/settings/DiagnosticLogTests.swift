@@ -33,6 +33,18 @@ final class DiagnosticLogTests: XCTestCase {
     #endif
   }
 
+  func testReadTailRejectsAHardLinkedLogOutsideTheStateDirectory() throws {
+    #if canImport(Darwin)
+    let outside = state.appendingPathComponent("outside", isDirectory: true)
+    try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+    let external = outside.appendingPathComponent("private.log")
+    try Data("synthetic external log\n".utf8).write(to: external)
+    try FileManager.default.linkItem(at: external, to: file)
+
+    XCTAssertThrowsError(try DiagnosticLog.readTail(from: file, maximumBytes: 1024))
+    #endif
+  }
+
   /// Only a real `true` under `diagnostic_log.server` turns it on; the Windows-only `tsf` field does not.
   func testOnlyTheServerBooleanEnablesTheLog() {
     XCTAssertTrue(DiagnosticLog.isEnabled(in: ["diagnostic_log": ["server": true, "tsf": false]]))

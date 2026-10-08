@@ -919,6 +919,29 @@ fn leftovers_are_swept_only_once_they_are_old() {
     assert!(sound.join("typewriter").join(MANIFEST_FILE).is_file());
 }
 
+#[cfg(unix)]
+#[test]
+fn leftover_sweep_does_not_follow_a_replaced_kind_root() {
+    use std::os::unix::fs::symlink;
+
+    let state = tempdir().unwrap();
+    let root = state.path().join("plugins");
+    let sound = kind_directory(&root, PluginKind::Sound);
+    let outside = tempdir().unwrap();
+    fs::create_dir_all(&sound).unwrap();
+    let leftover = sound.join(".old-typewriter-dead");
+    fs::create_dir(&leftover).unwrap();
+    fs::write(leftover.join("keep.wav"), b"synthetic outside data").unwrap();
+    let moved = state.path().join("sound-moved");
+    fs::rename(&sound, &moved).unwrap();
+    symlink(outside.path(), &sound).unwrap();
+
+    import::sweep_leftovers(&root, std::time::SystemTime::now() + import::LEFTOVER_AGE);
+
+    assert!(moved.join(".old-typewriter-dead/keep.wav").exists());
+    assert!(!outside.path().join(".old-typewriter-dead").exists());
+}
+
 #[test]
 fn writers_of_the_plugins_root_wait_for_the_lock_every_process_shares() {
     let state = tempdir().unwrap();

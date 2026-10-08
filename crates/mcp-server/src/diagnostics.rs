@@ -411,4 +411,21 @@ mod tests {
 
         assert!(load(directory.path(), &LogRequest::default()).is_err());
     }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_hard_linked_diagnostic_log_is_not_read() {
+        let directory = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let target = outside.path().join("diagnostic.log");
+        std::fs::write(&target, "2026-09-25 10:00:00 [p1] synthetic\n").unwrap();
+        let log = directory.path().join("diagnostic.log");
+        std::fs::hard_link(&target, &log).unwrap();
+        let store = PreferencesStore::new(directory.path());
+        let mut preferences = store.load().unwrap().preferences;
+        preferences.diagnostic_log.server = true;
+        store.save(0, preferences).unwrap();
+
+        assert!(load(directory.path(), &LogRequest::default()).is_err());
+    }
 }

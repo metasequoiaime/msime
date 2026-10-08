@@ -692,6 +692,121 @@ fn wubi_mixed_refresh_reuses_pinyin_request_buffer() {
     );
 }
 
+#[test]
+fn ignored_scheme_key_does_not_clone_preedit_for_change_detection() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session();
+    type_text(&mut session, "ni'");
+
+    let (result, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+        session.input.handle_character(b'\'', false)
+    });
+
+    assert!(!result.handled);
+    assert_eq!(allocations, 52);
+}
+
+#[test]
+fn typing_at_the_end_does_not_build_the_preedit_twice_for_caret_detection() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session();
+    type_text(&mut session, "ni");
+
+    let (result, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+        session.input.handle_character(b'h', false)
+    });
+
+    assert!(result.handled);
+    assert_eq!(allocations, 155);
+}
+
+#[test]
+fn backspacing_at_the_end_does_not_build_the_preedit_twice_for_caret_detection() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session();
+    type_text(&mut session, "ni");
+
+    let (result, allocations) =
+        crate::ime::personal_rerank::allocations::count(|| session.command(Command::Backspace));
+
+    assert!(result.handled);
+    assert_eq!(allocations, 30);
+}
+
+#[test]
+fn url_entry_readiness_at_the_end_does_not_build_the_preedit_twice() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session();
+    type_text(&mut session, "www");
+
+    let (result, allocations) =
+        crate::ime::personal_rerank::allocations::count(|| session.character(b'.', false));
+
+    assert!(result.handled);
+    assert_eq!(allocations, 4);
+}
+
+#[test]
+fn prefix_end_does_not_build_editing_text_to_clamp_the_caret() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session();
+    type_text(&mut session, "nihao");
+    session.set_caret(Some(2));
+
+    let (prefix_end, allocations) =
+        crate::ime::personal_rerank::allocations::count(|| session.prefix_end());
+
+    assert_eq!(prefix_end, 2);
+    assert_eq!(allocations, 5);
+}
+
+#[test]
+fn setting_the_caret_does_not_build_editing_text_to_clamp_it() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session();
+    type_text(&mut session, "nihao");
+
+    let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+        session.set_caret(Some(2));
+    });
+
+    assert_eq!(session.snapshot().caret_position, 2);
+    assert_eq!(allocations, 77);
+}
+
+#[test]
+fn moving_the_caret_does_not_build_the_preedit_twice() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session();
+    type_text(&mut session, "nihao");
+
+    let (result, allocations) =
+        crate::ime::personal_rerank::allocations::count(|| session.command(Command::MoveLeft));
+
+    assert!(result.handled);
+    assert!(
+        allocations <= 79,
+        "caret movement should reuse the editing text length: {allocations} allocations"
+    );
+}
+
+#[test]
+fn typing_at_a_caret_reuses_the_editing_text_length() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session();
+    type_text(&mut session, "nihao");
+    session.command(Command::MoveLeft);
+
+    let (result, allocations) =
+        crate::ime::personal_rerank::allocations::count(|| session.character(b'x', false));
+
+    assert!(result.handled);
+    assert!(
+        allocations <= 283,
+        "caret insertion allocations: {allocations}"
+    );
+}
+
 /// The reported case: in mixed Wubi `jixu` is the wubi code of 曳光弹 and the pinyin of 继续. The fourth key must leave both on offer; without pinyin rows the same code still commits its one wubi row.
 #[test]
 fn a_four_letter_code_that_is_also_pinyin_stays_open_in_mixed_wubi() {

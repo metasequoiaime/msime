@@ -31,17 +31,18 @@ impl WubiScheme {
     }
 
     /// Keys beyond the length limit or outside the alphabet are ignored, which the session reports as unhandled.
-    pub fn handle_key(&mut self, key: SchemeKey) {
+    pub fn handle_key(&mut self, key: SchemeKey) -> bool {
         match key {
-            SchemeKey::Backspace => {
-                self.raw.pop();
-            }
+            SchemeKey::Backspace => self.raw.pop().is_some(),
             SchemeKey::Letter(letter) if letter.is_ascii_alphabetic() => {
                 let lower = letter.to_ascii_lowercase();
                 if is_wubi_letter(lower, self.mixed_pinyin_allowed)
                     && self.raw.len() < self.max_code_length()
                 {
                     self.raw.push(char::from(lower));
+                    true
+                } else {
+                    false
                 }
             }
             SchemeKey::Letter(_)
@@ -49,7 +50,7 @@ impl WubiScheme {
             | SchemeKey::Semicolon
             | SchemeKey::Minus
             | SchemeKey::Symbol(_)
-            | SchemeKey::Requery => {}
+            | SchemeKey::Requery => false,
         }
     }
 

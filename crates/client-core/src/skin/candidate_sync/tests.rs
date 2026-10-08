@@ -9,6 +9,23 @@ use std::path::PathBuf;
 
 #[cfg(unix)]
 #[test]
+fn local_cleanup_rejects_a_symlinked_parent() {
+    use std::os::unix::fs::symlink;
+
+    let root = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let linked = root.path().join("linked");
+    let victim = outside.path().join("victim");
+    fs::create_dir(&victim).unwrap();
+    fs::write(victim.join("keep.txt"), b"synthetic outside data").unwrap();
+    symlink(outside.path(), &linked).unwrap();
+
+    assert!(remove_entry(&linked.join("victim")).is_err());
+    assert!(victim.join("keep.txt").exists());
+}
+
+#[cfg(unix)]
+#[test]
 #[cfg_attr(
     target_os = "android",
     ignore = "Android 的 adb shell 域不允许建 FIFO（SELinux 拒绝 fifo_file create）"
