@@ -1329,7 +1329,7 @@ public final class MSIMEInputService extends InputMethodService {
         // away mid-composition leaves 你好 behind rather than the letters `nihao`. This was
         // CommitRaw only because command 9 was unmapped in the FFI when the path was written.
         if (session != 0 && connection != null && view != null
-                && !view.optString("editing_text", "").isEmpty()) {
+                && !InputViewValuePolicy.editingText(view).isEmpty()) {
             command(FINISH_COMPOSITION_COMMAND);
         }
     }
@@ -3517,7 +3517,7 @@ public final class MSIMEInputService extends InputMethodService {
         // An open Zhuyin list is chosen from the same way.
         if (zhuyinListOpen() && command(1)) return;
         if (japaneseSchemeActive() && view != null
-                && !view.optString("editing_text", "").isEmpty()) {
+                && !InputViewValuePolicy.editingText(view).isEmpty()) {
             if (japaneseConversionIndex != null && command(1)) return;
             if (command(11)) return;
         }
@@ -7140,7 +7140,7 @@ public final class MSIMEInputService extends InputMethodService {
      */
     private void restartSessionForPrivacy() {
         if (session == 0 || runtimeOptionsBase.isEmpty()) return;
-        if (connection != null && view != null && !view.optString("editing_text", "").isEmpty())
+        if (connection != null && view != null && !InputViewValuePolicy.editingText(view).isEmpty())
             command(FINISH_COMPOSITION_COMMAND);
         boolean panelOpen = moreToolsScroll != null && moreToolsScroll.getVisibility() == View.VISIBLE;
         stop(false);
