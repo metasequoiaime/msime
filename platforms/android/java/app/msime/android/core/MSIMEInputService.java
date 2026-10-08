@@ -5296,7 +5296,7 @@ public final class MSIMEInputService extends InputMethodService {
      * 面板里「清空」确认之后执行。确认就画在面板里（{@link ImePanels#renderClipboardHistory}），不弹 `AlertDialog`：输入法服务没有 Activity 的窗口令牌，对话框要么加不上窗口、让输入法进程崩掉，要么抢走编辑器的窗口焦点，两种情况键盘都会被收起（#5605）。
      */
     void clearClipboardHistory() {
-        // The user asked for this one, so a refusal is reported rather than swallowed.
+        // 这是用户自己要求的清空，失败要说出来，不能吞掉。
         try {
             if (clipboardHistory != null) clipboardHistory.clear();
             forgetCurrentClip();

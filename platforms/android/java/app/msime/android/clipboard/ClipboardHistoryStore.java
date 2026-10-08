@@ -71,7 +71,7 @@ public final class ClipboardHistoryStore {
     /**
      * Clear without being able to stop the caller.
      *
-     * <p>The keyboard drops the history as housekeeping - whenever a live reading of the preferences says it is off (see {@link ClipboardHistoryRetentionPolicy}). That is not the user asking for anything, and a store that cannot be written is not a reason to refuse to draw a keyboard. It was: the clear used to run in `onCreateInputView`, threw `IllegalStateException` out of the framework's `showWindow`, and the input method died so Android fell back to another keyboard.
+     * <p>键盘在实时读到的偏好说开关关着时顺手清空历史（见 {@link ClipboardHistoryRetentionPolicy}）。这不是用户要求的操作，存储写不进去也不能成为不画键盘的理由。以前就是这样出的事：清空原先在 `onCreateInputView` 里执行，`IllegalStateException` 从框架的 `showWindow` 里抛出去，输入法进程退出，Android 换成了别的键盘。
      *
      * <p>The `清空` button keeps {@link #clear()}: there the user asked, and silence would be a lie.
      */

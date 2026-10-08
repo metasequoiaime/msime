@@ -531,13 +531,13 @@ if rg -q 'putString\(ITEMS_KEY' \
   echo "Android must not write clipboard entries to its own private document" >&2
   exit 1
 fi
-# Dropping the history when a live reading of the preference says it is off is housekeeping. A store that cannot be written is not a reason to refuse to draw a keyboard: when that clear threw from onCreateInputView, it threw out of the framework's showWindow and the input method died, so Android fell back to another keyboard and the user never saw this one. The 清空 button keeps `clear()` - there the user asked, and silence would be a lie.
+# 实时读到的偏好说开关关着时清空历史，是顺手的整理。存储写不进去不能成为不画键盘的理由：这次清空曾在 onCreateInputView 里抛异常，异常从框架的 showWindow 里抛出去，输入法进程退出，Android 换成了别的键盘，用户根本看不到这一个。「清空」按钮仍用 `clear()`：那是用户自己要求的，失败了不吭声就是撒谎。
 if ! rg -q 'clearQuietly' \
     "$repo_root/platforms/android/java/app/msime/android/clipboard/ClipboardHistoryStore.java"; then
   echo "Android clipboard housekeeping needs a clear that cannot stop the caller" >&2
   exit 1
 fi
-# Only a live reading may clear it. onCreateInputView used to clear on the field's initial value and every editor start applied the runtime-options copy, whose clipboard_history is always the factory "off", so each new field and each switch back to this keyboard wiped the history (#5602).
+# 只有实时读到的偏好能触发清空。onCreateInputView 原先按字段初始值清空，每次进入编辑器又先应用 runtime-options 副本，而副本的 clipboard_history 永远是出厂默认的关，于是每换一个输入框、每切回本键盘一次，历史就被抹掉（#5602）。
 if rg -A 40 'onCreateInputView\(\) \{' \
     "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
     | rg -q 'clipboardHistory\.clear'; then
@@ -572,7 +572,7 @@ for site in onCreateInputView applyClipboardPreference; do
     exit 1
   fi
 done
-# An input method service has no activity window token. An AlertDialog or PopupMenu raised from the clipboard panel either fails to add its window and takes the keyboard process down, or takes window focus from the editor - WebView browsers such as Via then blur the field and the keyboard closes (#5605, #5653). Confirmations and item actions are drawn inside the panel.
+# 输入法服务没有 Activity 的窗口令牌。从剪贴板面板弹出的 AlertDialog 或 PopupMenu，要么加不上窗口、把键盘进程带崩，要么抢走编辑器的窗口焦点，Via 这类 WebView 浏览器随即让输入框失焦、收起键盘（#5605、#5653）。确认和条目操作都画在面板里。
 if rg -A 30 'void (clearClipboardHistory|renderClipboardHistory|renderClipboardItemActions|setClipboardItemPinned|removeClipboardItem)\(' \
     "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
     "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java" \

@@ -1344,7 +1344,7 @@ final class ImePanels {
             s.removeClipboardItem(item);
         });
         clipboardItemAction(row, "分词", () -> startClipboardSegmentation(item.text()));
-        // Offered wherever the cloud half is, so the action is discoverable; it only runs once this panel's fetch said the account is signed in with the cloud clipboard on.
+        // 只要有云端分段就提供这个操作，让用户发现得了；只有这次打开面板的拉取确认账号已登录且开着云剪贴板时它才真正执行。
         if (cloudAllowed) {
             Button upload = clipboardItemAction(row, CloudClipboardPanelPolicy.UPLOAD_ACTION, () -> {
                 clipboardActionText = null;
