@@ -138,15 +138,12 @@ impl InputSession {
                 self.engine.request().raw_input.clone()
             };
             let context_key = english_context_key(&context);
-            let english_rows = clone_matching_rows(ordered, |item| {
-                item.source == CandidateSource::EnglishDictionary
-            });
             let english_db = self.paths.dictionary(assets::ENGLISH_DICTIONARY);
             let adjusted = adjust_english_candidate_ranking(&RankingRequest {
                 main_db: &english_db,
                 user_db,
                 context_key: &context_key,
-                ordered: &english_rows,
+                ordered,
                 entry_key: &selected.pinyin,
                 value: &selected.word,
                 mode: options.mode,

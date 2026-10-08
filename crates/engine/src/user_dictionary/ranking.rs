@@ -367,7 +367,7 @@ pub fn adjust_candidate_ranking(request: &RankingRequest<'_>) -> Result<bool> {
     Ok(true)
 }
 
-/// J:929-1101; `ordered` holds English rows only and `kind` is ignored.
+/// J:929-1101；`ordered` 可混有临时英文模式的生成行，`kind` 不参与英文排序。
 pub fn adjust_english_candidate_ranking(request: &RankingRequest<'_>) -> Result<()> {
     check_request(request)?;
     if !request.force_top && request.mode == FrequencyAdjustmentMode::Disabled {
@@ -377,14 +377,14 @@ pub fn adjust_english_candidate_ranking(request: &RankingRequest<'_>) -> Result<
     let Some(transaction) = begin_ranking(request, &journal)? else {
         return Ok(());
     };
-    let ordered = request.ordered;
-    let rank = ordered
-        .iter()
-        .position(|item| {
-            item.source == CandidateSource::EnglishDictionary
-                && item.pinyin == request.entry_key
-                && item.word == request.value
-        })
+    let english_rows = || {
+        request
+            .ordered
+            .iter()
+            .filter(|item| item.source == CandidateSource::EnglishDictionary)
+    };
+    let rank = english_rows()
+        .position(|item| item.pinyin == request.entry_key && item.word == request.value)
         .ok_or_else(|| EngineError::failed(MISSING_ROW))?;
     if rank == 0 {
         reset_selection(&transaction, request)?;
@@ -409,11 +409,19 @@ pub fn adjust_english_candidate_ranking(request: &RankingRequest<'_>) -> Result<
         }
     };
     // English corpus weights live on their own scale (up to 2.3e10), so they are neither clamped nor rebalanced.
-    let maximum = ordered.iter().map(|item| item.weight).fold(0, i64::max);
+    let maximum = english_rows().map(|item| item.weight).fold(0, i64::max);
+    let selected_weight = english_rows()
+        .nth(rank)
+        .expect("English candidate rank came from the same list")
+        .weight;
     let new_weight = if target == 0 {
-        maximum.max(ordered[rank].weight).saturating_add(1000)
+        maximum.max(selected_weight).saturating_add(1000)
     } else {
-        ordered[target - 1].weight.saturating_add(1)
+        english_rows()
+            .nth(target - 1)
+            .expect("English target came from the same list")
+            .weight
+            .saturating_add(1)
     };
 
     let english = open_dictionary_for_writing(request.main_db)?;

@@ -9,8 +9,7 @@ use crate::pinyin::syllables::normalize_umlaut_aliases;
 use crate::quanpin::QuanpinEngine;
 use crate::text::{count_utf8_chars, first_han_char, last_han_char};
 use crate::types::{
-    CandidateEdge, CandidateSource, KeyResult, LocalInputMode, PersonalDictionaryKind, SchemeType,
-    WordItem,
+    CandidateEdge, KeyResult, LocalInputMode, PersonalDictionaryKind, SchemeType, WordItem,
 };
 use crate::user_dictionary::journal::is_user_inserted;
 
@@ -110,10 +109,7 @@ impl InputSession {
             commit: text,
             diagnostic,
         };
-        let selected_source = self.candidates().get(index).map(|item| item.source);
-        if self.local_mode != LocalInputMode::None
-            && selected_source.is_some_and(|source| source != CandidateSource::EnglishDictionary)
-        {
+        if self.local_mode != LocalInputMode::None {
             let text = self.candidates().get(index).map(|item| item.word.clone());
             let diagnostic = self
                 .ranking_index(index)

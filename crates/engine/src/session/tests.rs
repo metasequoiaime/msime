@@ -2355,6 +2355,46 @@ fn selecting_a_local_generated_candidate_does_not_clone_its_learning_row() {
 }
 
 #[test]
+fn selecting_a_temporary_english_candidate_does_not_clone_full_ranking_rows() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE).with_english(ENGLISH_FIXTURE);
+    let mut session = fixture.session_with(|options| {
+        options.frequency = FrequencyAdjustmentOptions {
+            mode: FrequencyAdjustmentMode::Promote,
+            trigger_count: 1,
+            linear_step: 1,
+        };
+    });
+    assert!(session.character(b'Y', true).handled);
+    type_text(&mut session, "he");
+    assert_eq!(
+        session.snapshot().candidates[0].source,
+        CandidateSource::Generated
+    );
+    assert_eq!(
+        session.snapshot().candidates[2].source,
+        CandidateSource::EnglishDictionary
+    );
+
+    let (result, allocations) =
+        crate::ime::personal_rerank::allocations::count(|| session.select(2));
+
+    assert_eq!(result.commit.as_deref(), Some("Help"));
+    assert!(result.diagnostic.is_none(), "{result:?}");
+    assert!(session.snapshot().preedit.is_empty());
+    let english = fixture.path().join(assets::ENGLISH_DICTIONARY);
+    assert!(
+        count(
+            &english,
+            "SELECT weight FROM english_words WHERE word='help' AND display='Help'"
+        ) > 90
+    );
+    assert!(
+        allocations <= 67,
+        "temporary English frequency selection allocations: {allocations}"
+    );
+}
+
+#[test]
 fn temporary_japanese_returns_to_the_original_scheme() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);
     let mut session = fixture.session_with(|options| {
