@@ -37,9 +37,9 @@ Windows 上有一类游戏以 `TF_TMF_UIELEMENTENABLEDONLY`（UILess）激活 TS
 ### 强制时 TIP 的行为
 
 - `Global::HostUiLessMode = !ForceOverlayCandidate && _IsUiLessMode()`，ClientActivated 的 keycode 因而为 0，Server 不锁存 UILess。`IsUiLessMode()` 本身不变，按键路径上读它的地方随之按普通宿主处理。
-- `Global::Point` 置为 `{0, INVALID_Y}`，不发初值 (100,100)；`_EndCandidateList` 再复位一次，因为下一次组字的第一个按键先于 `_StartCandidateList` 发出，不复位就会带着上一个输入框的坐标。
+- `Global::Point` 置为 `{0, INVALID_Y}`，不发初值 (100,100)；组字真正结束时（`Composition.cpp` 的宿主终止和 `EndComposition.cpp` 的 `_TerminateComposition`）由 `Global::ResetForcedOverlayAnchor` 再复位一次，因为下一次组字的第一个按键先于 `_StartCandidateList` 发出，不复位就会带着上一个输入框的坐标。不在删除 presenter 时复位：韩文 Hanja 和注音的候选列表关闭后组字还在继续，那时复位会把正在组字的锚点冲掉，列表每次重新打开都先跳到兜底点再跳回光标。等待延迟清理的 presenter 的 layout sink 也不再写 `Global::Point`（`CTfTextLayoutSink::_IsDetached`），否则组字结束后的 layout 变化会把复位改回旧位置，或盖掉同一次按键里新组字的锚点；这一条对所有宿主都生效。
 - `BeginUIElement` 直接返回：`_isShowMode=TRUE`、`CandidateUiLessMode=false`，不向游戏登记 UIElement，`_uiElementId` 保持 -1；`_UpdateUIElement` 和 `EndUIElement` 对 -1 提前返回。
-- `SendToNamedpipe` 在最终的重连与确认检查之后、`WriteFile` 之前改包：KeyEvent 补上当前 `Global::Point`（按键包本身不带坐标，清空后是 (100,100)），这一步不看能力位；协商到 `GameHostCandidate` 时，Key/Show/Move/Hide 四类包加 `PipeMetadata::GameHost`。必须放在最终检查之后：Main 管道在 `EnsureNamedpipeFocusSessionActivated` 里才打开并协商，放在前面的话首次按键和 Server 重启后的第一次按键都拿不到协商结果。
+- `SendToNamedpipe` 在最终的重连与确认检查之后、`WriteFile` 之前改包：协商到 `GameHostCandidate` 时，Key/Show/Move/Hide 四类包加 `PipeMetadata::GameHost`，KeyEvent 另补上当前 `Global::Point`（按键包本身不带坐标，清空后是 (100,100)）。坐标也只在协商到能力位后才补：旧 Server 对 `INVALID_Y` 的可见快照只隐藏、不发渲染回执，每个选词键都会白等回执超时，而 (100,100) 至少能画出来并回执。必须放在最终检查之后：Main 管道在 `EnsureNamedpipeFocusSessionActivated` 里才打开并协商，放在前面的话首次按键和 Server 重启后的第一次按键都拿不到协商结果。
 
 ### 协议
 
@@ -49,13 +49,13 @@ Windows 上有一类游戏以 `TF_TMF_UIELEMENTENABLEDONLY`（UILess）激活 TS
 ### Server：游戏会话
 
 - `CandidatePresentation::game_host` 由包上的 `GameHost` 位设置。`CandidateMailbox` 在同一租约（epoch、token、ticket 都相同）里只置位不清除：后续某个包漏了这一位、`refresh_view` 按 Engine 视图重建快照、或带位的 Show/Move 晚于不带位的按键到达，都不会把已认出的游戏会话打回普通宿主；换了租约不沿用。鼠标点选合成的按键包同样带上这一位（`SessionController.cpp`）。
-- 兜底锚点 `game_candidate_anchor`（`platforms/windows/src/candidate/GameCandidateAnchor.h`）只对游戏会话生效，并且前台窗口必须属于这个客户端进程（`client_pid` 即 `client_id >> 32`，握手时已校验）、客户区不为空。锚点是 `INVALID_Y`，或者落在客户区外、或者离客户区顶边不到 2 像素（锚点是文本 extent 的 `{left, bottom}`，真实文本行不会贴着顶边）时，返回客户区左下部 `{left + max(round(24 × DPI 缩放), width/20), bottom - height/5}`，之后照常交给 `candidate_card_placement`。替换发生在跟随光标的锁定和快照身份比较之前，同一个兜底点不会反复触发重绘。非游戏会话遇到 `INVALID_Y` 仍然隐藏。
+- 兜底锚点 `game_candidate_anchor`（`platforms/windows/src/candidate/GameCandidateAnchor.h`）只对游戏会话生效，并且前台窗口必须属于这个客户端进程（`client_pid` 即 `client_id >> 32`，握手时已校验）、客户区不为空。锚点是 `INVALID_Y`，或者落在客户区外、或者离客户区顶边不到 2 像素（锚点是文本 extent 的 `{left, bottom}`，真实文本行不会贴着顶边）时，返回客户区左下部 `{left + max(round(24 × DPI 缩放), width/20), bottom - height/5}`，DPI 缩放取游戏所在显示器的有效 DPI（`monitor_effective_dpi`），因为客户区是每显示器感知下的物理像素，而 DPI 不感知的游戏 `GetDpiForWindow` 固定是 96，之后照常交给 `candidate_card_placement`。替换发生在跟随光标的锁定和快照身份比较之前，同一个兜底点不会反复触发重绘。非游戏会话遇到 `INVALID_Y` 仍然隐藏。
 
 ### Server：前台呈现方式、抑制与置顶
 
 - 主循环每轮先算一次前台和 `foreground_presentation()`（`platforms/windows/src/system/FullscreenForeground.h`），交给 `CandidateWindow::set_foreground`，工具栏的全屏判断也用这一份。分类是 `Windowed`、`Fullscreen`（几何铺满）、`ExclusiveFullscreen`（几何铺满且 `SHQueryUserNotificationState == QUNS_RUNNING_D3D_FULL_SCREEN`）。QUNS 只在几何铺满时调用，`QUNS_BUSY` 不作判据，同一前台 HWND 的结果缓存 300ms。
 - 独占抑制只作用于游戏会话，并要求前台 pid 等于客户端 pid（QUNS 是系统全局状态，可能是别的进程在独占）。这类宿主本来就没人画候选，隐藏不会比原来差。
-- 反应式锁存覆盖 QUNS 看不到的独占模式（Vulkan 独占、OpenGL 改分辨率全屏）：每个客户端连接第一次在自己的几何全屏前台上弹出后，盯住那个窗口 2 秒，期间窗口最小化、前台换到别的进程、窗口矩形变了、或收到 `WM_DISPLAYCHANGE`，就对这个进程锁存抑制。该进程的前台变成窗口化，或同一个客户端重连（登记代次变了）时解除。
+- 反应式锁存覆盖 QUNS 看不到的独占模式（Vulkan 独占、OpenGL 改分辨率全屏）：每个客户端连接（记最近 16 个）第一次在自己的几何全屏前台上弹出后，盯住那个窗口 2 秒，期间窗口最小化、前台换到别的进程、窗口矩形变了、或收到 `WM_DISPLAYCHANGE`，就对这个进程锁存抑制。该进程的前台变成窗口化、同一个客户端重连（登记代次变了），或进程退出（锁存时用 `OpenProcess(SYNCHRONIZE)` 留一个句柄等待它）时解除；不认进程退出的话，pid 被系统复用后，下一个拿到这个 pid 的游戏会一直被抑制。
 - 前台在候选窗所在的显示器上全屏时，按 `rcMonitor` 而不是 `rcWork` 钳制。
 - `keep_on_top()` 在 `refresh()` 之后调用，同时满足这些条件才 `SetWindowPos(HWND_TOPMOST, … SWP_NOACTIVATE …)`：候选窗可见、前台是几何全屏、z 序上方第一个可见且非 `WS_EX_TRANSPARENT` 的窗口属于前台进程、这个 `render_serial` 还没重申过、距上次至少 1 秒。只认前台进程自己的窗口，是为了不和厂商 overlay、录屏工具这类常驻置顶窗口每轮互抢。
 - 策略隐藏（`INVALID_Y` 且无兜底、独占抑制、锁存）一个可见快照时，按 `render_serial` 去重发一次渲染回执，选词键不再白等 30ms。`INVALID_Y` 的隐藏也走这条路，非游戏宿主同样受益。
@@ -63,7 +63,7 @@ Windows 上有一类游戏以 `TF_TMF_UIELEMENTENABLEDONLY`（UILess）激活 TS
 ### 诊断
 
 - TIP：诊断日志开关要等 Server 推来配置帧才打开，晚于 `ActivateEx`，所以判定结果存在 thread_local 的 `GameOverlayDecision` 里，这次激活第一次开始组字时补写一行 `[game] process= preferences= overlay= uiless= active_uiless= sdl2= sdl_window= source2= forced=`，任何进程都写，用来经 MCP 的 `read_diagnostic_log` 给未知游戏归类。复判翻成强制时写 `[game] recheck …`；没有强制、`pbShow=FALSE` 而 SDL2 已加载时写一次 `[game] pbShow=0 …`；强制时 `_StartLayout` 失败另写一行。
-- Server：前台呈现方式变化、第一次 QUNS 调用的耗时、独占抑制与锁存的进入和解除（带 pid 和触发原因）、候选窗第一次在全屏下显示时 `GetWindowBand` 的值（取不到就写 unavailable），以及管道对端身份被拒（`RegistryStatus::IdentityRejected`）时的 pid 和错误码。最后一项用来区分「DLL 加载了但 Server 拒了连接」和「DLL 根本没加载」。
+- Server：前台呈现方式变化、第一次 QUNS 调用的耗时、独占抑制与锁存的进入和解除（带 pid 和触发原因）、候选窗第一次在全屏下显示时 `GetWindowBand` 的值（取不到就写 unavailable），以及管道对端身份被拒（`RegistryStatus::IdentityRejected`）时的 pid 和错误码，同一个 pid 一分钟只记一条，因为回调跑在握手线程上，而反作弊持续拒绝时 TSF 每次重连都会走到这里。最后一项用来区分「DLL 加载了但 Server 拒了连接」和「DLL 根本没加载」。
 
 ### 偏好与设置入口
 
