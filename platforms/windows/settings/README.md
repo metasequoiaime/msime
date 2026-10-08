@@ -29,6 +29,8 @@
 
 设置窗口通过 `msime_client_load_preferences` 和 `msime_client_save_preferences` 读取、校验并以 compare-and-swap 方式保存共享偏好。每个控件改动后立即保存，滑块停止拖动后保存；保存被拒绝（其他窗口已更新或与其他设置冲突）时重新读取并在页面顶部说明。窗口重新获得焦点时重新读取，以反映托盘、共享应用或同步带来的变化。Server 启动它时注入 `MSIME_CLIENT_STATE_DIR`，所以设置和输入法宿主使用同一个数据目录；从开始菜单直接启动时回落到 `%LOCALAPPDATA%\MSIME-Client`。
 
+「候选窗口」页「游戏」组的两张程序列表（`game_compatibility.overlay_processes`、`excluded_processes`）在写入前先按偏好库的规则规范化和校验（`GameProcessList.h`）：去掉首尾空白、ASCII 字母转小写，要求以 `.exe` 结尾、不超过 64 个字符、不带路径和 `\ / : * ? " < > |` 及控制字符，两张表之间不重复、合计不超过 32 条。不合法时在列表下方说明具体原因，不写入文档：保存被拒时窗口只能给出上面那句笼统的说明，用户看不出是哪一项出了问题。这组设置只由 TSF DLL 在每次激活时读取，对已打开的游戏要切换一次输入法才生效，取舍见 [决策笔记](../../../.agents/notes/implemented/feature/2026-10-08-windows-game-candidate-overlay.md)。
+
 ## 连接 AI 助手
 
 「维护与诊断」页的「连接 AI 助手」即共享设置页的同名区块：通过 `msime_client_mcp_status` 和 `msime_client_mcp_install` 显示与 `msime-client-settings.exe` 同目录的 `msime-mcp.exe`、可复制的 MCP 配置，并把它写入 Claude Desktop 或 Cursor 的配置文件。服务器指向的运行时选项取自 Server 注入的 `MSIME_CLIENT_HOST_OPTIONS`，直接启动时取数据目录下的 `runtime-options.json`；两者都没有时说明输入法尚未初始化，不提供配置。写入逻辑与 Tauri 外壳共用 host-api 的 `mcp_clients`。

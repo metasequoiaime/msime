@@ -24,6 +24,7 @@
 
 #include "CandidatePalette.h"
 #include "CandidateWindowStyle.h"
+#include "GameProcessList.h"
 #include "SettingsNavigation.h"
 #include "ShellLauncher.h"
 #include "msime_client.h"
@@ -2677,6 +2678,17 @@ private:
              L"关闭后保持首次出现的位置，直到候选窗口消失。",
              L"candidate_follow_cursor", true);
 
+    auto games = add_group(page, L"游戏");
+    bool_row(games, 0xE7FC, L"在游戏中显示候选窗口",
+             L"游戏声明自己画候选却不画时，由水杉显示候选窗口。CS2、Dota 2 和使用 SDL2 的游戏会自动识别。候选窗口不出现或跑到左上角的游戏，可以加进「总是显示」；游戏自带的候选被替换时，加进「从不显示」。对已打开的游戏，切换一次输入法后生效。独占全屏下不显示，请把游戏改为无边框窗口。",
+             L"game_compatibility.candidate_overlay", true);
+    game_process_row(games, 0xE890, L"总是显示候选窗口的程序",
+                     L"候选窗口不出现或跑到左上角的游戏。填程序文件名，例如 game.exe。",
+                     L"game_compatibility.overlay_processes");
+    game_process_row(games, 0xED1A, L"从不显示候选窗口的程序",
+                     L"自带候选被水杉的候选窗口替换的游戏。填程序文件名，例如 game.exe。",
+                     L"game_compatibility.excluded_processes");
+
     auto look = add_group(page, L"外观");
     slider_row(look, 0xE740, L"整体大小", L"候选窗口连同文字一起缩放（75–150%）",
                L"candidate_scale_percent", 75, 150, 100, 5, L"%");
@@ -2718,6 +2730,109 @@ private:
             overridden ? L"已覆盖皮肤包的圆角，点“默认”恢复跟随皮肤"
                 : L"跟随皮肤；设定后会覆盖皮肤包的圆角（0–16pt）",
             box);
+  }
+
+  static const wchar_t *game_process_problem(nav::GameProcessError error) {
+    switch (error) {
+    case nav::GameProcessError::Empty:
+      return L"请填写程序文件名，例如 game.exe。";
+    case nav::GameProcessError::TooLong:
+      return L"程序文件名不能超过 64 个字符。";
+    case nav::GameProcessError::InvalidCharacter:
+      return L"只填程序文件名，不要带文件夹路径，也不能包含 \\ / : * ? \" < > | 和控制字符。";
+    case nav::GameProcessError::NotExe:
+      return L"程序文件名要以 .exe 结尾，例如 game.exe。";
+    case nav::GameProcessError::Duplicate:
+      return L"这个程序已经在「总是显示」或「从不显示」列表中，同一个程序只能放在一张列表里。";
+    case nav::GameProcessError::TooMany:
+      return L"两张列表合计最多 32 个程序，请先移除不再需要的。";
+    }
+    return L"";
+  }
+
+  // 游戏组的程序列表：输入框加「添加」按钮，每个程序一行带「移除」。写入前先按偏好库的规则规范化和校验（GameProcessList.h），不合法时在本行下面说明原因，不写入。
+  void game_process_row(StackPanel const &group, wchar_t glyph,
+                        std::wstring const &title, std::wstring const &subtitle,
+                        std::wstring key) {
+    const auto names = document_.Strings(key);
+    // 没有问题时收起，不占行下的空白；关掉提示后同样收起。
+    InfoBar problem;
+    problem.IsOpen(false);
+    problem.IsClosable(true);
+    problem.Severity(InfoBarSeverity::Error);
+    problem.Margin(Thickness{61, 0, 25, 16});
+    problem.Visibility(Visibility::Collapsed);
+    problem.Closed([](InfoBar const &sender, InfoBarClosedEventArgs const &) {
+      sender.Visibility(Visibility::Collapsed);
+    });
+    TextBox input;
+    input.Width(180);
+    input.PlaceholderText(L"例如 game.exe");
+    input.IsEnabled(loaded_);
+    A11y::SetName(input, hstring(title));
+    StackPanel box;
+    box.Orientation(Orientation::Horizontal);
+    box.Spacing(8);
+    box.Children().Append(input);
+    box.Children().Append(button_control(
+        L"添加",
+        [this, key, weak_input = make_weak(input), weak_problem = make_weak(problem)] {
+          auto field = weak_input.get();
+          if (!field)
+            return;
+          const auto name = nav::normalize_game_process(std::wstring_view(field.Text()));
+          if (const auto error = nav::validate_game_process(
+                  name, document_.Strings(L"game_compatibility.overlay_processes"),
+                  document_.Strings(L"game_compatibility.excluded_processes"))) {
+            if (auto bar = weak_problem.get()) {
+              bar.Message(hstring(game_process_problem(*error)));
+              bar.Visibility(Visibility::Visible);
+              bar.IsOpen(true);
+            }
+            return;
+          }
+          change([&](PreferencesDocument &doc) {
+            auto current = doc.Strings(key);
+            current.push_back(name);
+            doc.SetStrings(key, std::move(current));
+          }, true);
+        },
+        loaded_));
+    StackPanel below;
+    if (!names.empty()) {
+      StackPanel list;
+      list.Spacing(4);
+      list.Margin(Thickness{61, 0, 25, 16});
+      for (auto const &name : names) {
+        Grid item;
+        item.ColumnSpacing(16);
+        ColumnDefinition name_column;
+        name_column.Width(GridLength{1, GridUnitType::Star});
+        ColumnDefinition action_column;
+        action_column.Width(GridLength{1, GridUnitType::Auto});
+        item.ColumnDefinitions().Append(name_column);
+        item.ColumnDefinitions().Append(action_column);
+        auto label = make_text(name, 14, palette_.text);
+        label.VerticalAlignment(VerticalAlignment::Center);
+        Grid::SetColumn(label, 0);
+        item.Children().Append(label);
+        auto remove_button = button_control(L"移除", [this, key, name] {
+          change([&](PreferencesDocument &doc) {
+            auto current = doc.Strings(key);
+            current.erase(std::remove(current.begin(), current.end(), name),
+                          current.end());
+            doc.SetStrings(key, std::move(current));
+          }, true);
+        }, loaded_);
+        A11y::SetName(remove_button, hstring(L"移除 " + name));
+        Grid::SetColumn(remove_button, 1);
+        item.Children().Append(remove_button);
+        list.Children().Append(item);
+      }
+      below.Children().Append(list);
+    }
+    below.Children().Append(problem);
+    add_row(group, glyph, title, subtitle, box, below);
   }
 
   // The style fields as the preview draws them. A document out of range previews the defaults; the card itself refuses such a document and keeps its previous style.
