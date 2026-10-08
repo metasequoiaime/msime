@@ -1390,6 +1390,42 @@ fn a_malformed_glide_request_fails_without_touching_the_session() {
 }
 
 #[test]
+fn nine_key_filters_cross_the_host_boundary() {
+    let dir = tempfile::tempdir().unwrap();
+    let handle = test_host(dir.path());
+    read(msime_client_focus(handle, true));
+    read(msime_client_set_nine_key_mode(handle, true));
+    let idle = read(unsafe { msime_client_set_nine_key_filter(handle, true, std::ptr::null(), 0) });
+    assert_eq!(idle["value"]["handled"], false, "nothing composing");
+    read(msime_client_character(handle, b'6', false));
+    let filtered =
+        read(unsafe { msime_client_set_nine_key_filter(handle, true, std::ptr::null(), 0) });
+    assert_eq!(filtered["value"]["handled"], true);
+    assert_eq!(filtered["value"]["view"]["nine_key_single_character"], true);
+    assert_eq!(filtered["value"]["view"]["nine_key_strokes"], "");
+    let wrong = b"q";
+    let rejected =
+        read(unsafe { msime_client_set_nine_key_filter(handle, false, wrong.as_ptr(), 1) });
+    assert_eq!(rejected["value"]["handled"], false, "not a stroke");
+    assert_eq!(
+        read(unsafe { msime_client_set_nine_key_filter(handle, false, std::ptr::null(), 2) })["ok"],
+        false
+    );
+    let long = [b'h'; 65];
+    assert_eq!(
+        read(unsafe { msime_client_set_nine_key_filter(handle, false, long.as_ptr(), long.len()) })
+            ["ok"],
+        false
+    );
+    let cancelled = read(msime_client_command(handle, 3));
+    assert_eq!(
+        cancelled["value"]["view"]["nine_key_single_character"],
+        false
+    );
+    read(msime_client_destroy(handle));
+}
+
+#[test]
 fn nine_key_mode_and_spelling_identity_cross_the_host_boundary() {
     let dir = tempfile::tempdir().unwrap();
     let handle = test_host(dir.path());

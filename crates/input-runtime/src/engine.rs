@@ -111,6 +111,16 @@ pub trait InputEngine {
             "Nine-key spelling selection is unsupported".into(),
         ))
     }
+    /// 九宫格候选只留单字、按笔顺前缀筛选；没有九宫格的引擎不支持。
+    fn set_nine_key_filter(
+        &mut self,
+        _single_character: bool,
+        _strokes: &str,
+    ) -> Result<EngineResult, RuntimeError> {
+        Err(RuntimeError::Engine(
+            "Nine-key candidate filters are unsupported".into(),
+        ))
+    }
     /// 滑行的一笔；没有滑行输入的引擎不处理。
     fn glide(
         &mut self,
@@ -290,6 +300,14 @@ impl InputEngine for Session {
     }
     fn choose_nine_key_spelling(&mut self, index: usize) -> Result<EngineResult, RuntimeError> {
         Session::choose_nine_key_spelling(self, index)
+            .map_err(|e| RuntimeError::Engine(e.to_string()))
+    }
+    fn set_nine_key_filter(
+        &mut self,
+        single_character: bool,
+        strokes: &str,
+    ) -> Result<EngineResult, RuntimeError> {
+        Session::set_nine_key_filter(self, single_character, strokes)
             .map_err(|e| RuntimeError::Engine(e.to_string()))
     }
     fn glide(

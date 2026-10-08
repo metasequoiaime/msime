@@ -86,6 +86,10 @@ pub struct View {
     pub nine_key_spellings: Vec<String>,
     /// 全拼九键组字时，首选候选覆盖的数字显示成它的拼音（`xi'an`），给键盘的读音行用；其他情况为空，包括注音九键。全拼下 `preedit` 仍是数字；注音下是转换结果加上未完成的数字。
     pub nine_key_reading: String,
+    /// 九宫格候选当前只留单字（`Action::SetNineKeyFilter`）。组字结束时恢复为假。
+    pub nine_key_single_character: bool,
+    /// 九宫格候选当前按这几笔的笔顺前缀筛选（`hspnz`），空表示不按笔画。组字结束时清空。
+    pub nine_key_strokes: String,
     /// Applied touch presentation, independent of Engine-owned Chinese nine-key digit handling.
     pub touch_keyboard_layout: TouchKeyboardLayout,
     /// Applied Engine configuration, not a newer deferred preference snapshot.

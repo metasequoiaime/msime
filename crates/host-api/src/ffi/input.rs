@@ -601,6 +601,41 @@ pub extern "C" fn msime_client_choose_nine_key_spelling(
     )
 }
 
+/// 九宫格候选的单字与笔画筛选，见头文件。`strokes` 是 `length` 字节的 ASCII 笔顺前缀，`length` 为 0 时可以是空指针。
+///
+/// # Safety
+/// `length` 不为 0 时，`strokes` 必须指向至少 `length` 个可读字节。
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_set_nine_key_filter(
+    handle: u64,
+    single_character: bool,
+    strokes: *const u8,
+    length: usize,
+) -> *mut c_char {
+    if length > NINE_KEY_STROKE_LIMIT || (length != 0 && strokes.is_null()) {
+        return response(|| Err("invalid nine-key strokes".into()));
+    }
+    let bytes = if length == 0 {
+        &[][..]
+    } else {
+        // SAFETY：由调用方契约保证。
+        unsafe { std::slice::from_raw_parts(strokes, length) }
+    };
+    let Ok(strokes) = std::str::from_utf8(bytes) else {
+        return response(|| Err("invalid nine-key strokes".into()));
+    };
+    dispatch(
+        handle,
+        Action::SetNineKeyFilter {
+            single_character,
+            strokes: strokes.to_owned(),
+        },
+    )
+}
+
+/// 和引擎 `stroke::MAX_STROKES` 相同；更长的前缀不可能是任何字的笔顺。
+const NINE_KEY_STROKE_LIMIT: usize = 64;
+
 /// 一次滑行请求最多的字节数和点数；宿主按每个键几个点重采样的笔画离这两个上限都很远。
 const GLIDE_REQUEST_LIMIT: usize = 65_536;
 const GLIDE_POINT_LIMIT: usize = 1_024;
