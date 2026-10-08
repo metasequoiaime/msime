@@ -252,7 +252,7 @@ public final class DictionaryCollectionsStore {
                 bytes = nextBytes;
                 Object rawHasMore = value.opt("has_more");
                 if (rawHasMore == null || rawHasMore == JSONObject.NULL) break;
-                Boolean hasMore = strictBoolean(rawHasMore);
+                Boolean hasMore = JsonPolicy.strictBoolean(rawHasMore);
                 if (hasMore == null) return Result.failed(failureMessage(""));
                 if (!hasMore) break;
                 offset += EXPORT_PAGE;
@@ -420,7 +420,7 @@ public final class DictionaryCollectionsStore {
                 String id = strictString(item.opt("id"));
                 String name = strictString(item.opt("name"));
                 String kind = strictString(item.opt("kind"));
-                Boolean enabled = strictBoolean(item.opt("enabled"));
+                Boolean enabled = JsonPolicy.strictBoolean(item.opt("enabled"));
                 Integer entryCount = nonNegativeInteger(item.opt("entry_count"));
                 Integer pending = nonNegativeInteger(item.opt("pending"));
                 String type = source == null ? "user" : strictString(source.opt("type"));
