@@ -1936,7 +1936,7 @@ public final class MSIMEInputService extends InputMethodService {
             : InputViewValuePolicy.scheme(context, -1);
         String localMode = context == null
             ? (view == null ? "none" : InputViewValuePolicy.textOr(view, "local_mode", "none"))
-            : context.optString("local_mode", "none");
+            : InputViewValuePolicy.textOr(context, "local_mode", "none");
         return AndroidChineseTextConversion.outputString(
             text, traditionalChineseOutput, dedicatedEnglish, scheme, localMode);
     }
@@ -2421,7 +2421,7 @@ public final class MSIMEInputService extends InputMethodService {
             request = CandidateGlossModel.request(generation,
                 snapshot.getJSONArray("candidates"));
             // The account path's scheme gate: a Japanese composition is not glossed into other languages. Korean Hanja rows are, as the shared translation query answers them.
-            if ("none".equals(view.optString("local_mode", "none")) && InputViewValuePolicy.scheme(view, -1) != 3) {
+            if ("none".equals(InputViewValuePolicy.textOr(view, "local_mode", "none")) && InputViewValuePolicy.scheme(view, -1) != 3) {
                 for (String language : offlineTargets) {
                     targetRequests.put(language, CandidateGlossModel.request(generation,
                         snapshot.getJSONArray("candidates"), language));
@@ -2943,14 +2943,14 @@ public final class MSIMEInputService extends InputMethodService {
         if (view == null) return false;
         return ChineseHelpcodePolicy.eligible(dedicatedEnglish,
             InputViewValuePolicy.editingText(view), InputViewValuePolicy.scheme(view, -1),
-            view.optString("local_mode", "none"));
+            InputViewValuePolicy.textOr(view, "local_mode", "none"));
     }
 
     private boolean entersHelpcode() {
         if (view == null) return false;
         return ChineseHelpcodePolicy.entersHelpcode(dedicatedEnglish, letterCase.usesUppercase(),
             InputViewValuePolicy.editingText(view), InputViewValuePolicy.scheme(view, -1),
-            view.optString("local_mode", "none"));
+            InputViewValuePolicy.textOr(view, "local_mode", "none"));
     }
 
     /** 一笔滑行抬手（{@link ImeGlideTyping}）：请求见 {@link GlideTypingPolicy#request}。引擎不收（handled=false）时什么也不输入。 */
@@ -5833,7 +5833,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     /** Whether the candidates on the strip are the Hanja of a composing Korean syllable, whose annotation is the 훈음 drawn on its own row. */
     private boolean koreanHanjaRows() {
-        return koreanSchemeActive() && "none".equals(view.optString("local_mode", "none"));
+        return koreanSchemeActive() && "none".equals(InputViewValuePolicy.textOr(view, "local_mode", "none"));
     }
 
     String candidateAnnotation(JSONObject candidate) {
@@ -5849,7 +5849,7 @@ public final class MSIMEInputService extends InputMethodService {
     private String wubiCodeHint(JSONObject candidate, JSONObject context, String typed) {
         return WubiCodeHintPolicy.hint(candidate.optString("code", ""), typed, wubiCodeHint,
             context == null ? -1 : InputViewValuePolicy.scheme(context, -1),
-            context == null ? "none" : context.optString("local_mode", "none"),
+            context == null ? "none" : InputViewValuePolicy.textOr(context, "local_mode", "none"),
             InputViewValuePolicy.booleanValue(context, "answered_by_pinyin_fallback", false));
     }
 
@@ -7375,7 +7375,7 @@ public final class MSIMEInputService extends InputMethodService {
         boolean hasHandwritingResults = handwriting && !handwritingResults.isEmpty()
             && handwritingCandidateToken != null;
         boolean idle = view == null || (InputViewValuePolicy.editingText(view).isEmpty()
-            && "none".equals(view.optString("local_mode", "none"))
+            && "none".equals(InputViewValuePolicy.textOr(view, "local_mode", "none"))
             && (visibleCandidates == null || visibleCandidates.length() == 0)
             && !hasEnglishSuggestions
             && !hasHandwritingResults);
