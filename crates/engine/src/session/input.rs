@@ -1527,7 +1527,9 @@ impl InputSession {
             && self.local_mode == LocalInputMode::None
             && self.scheme().detects_urls()
             && self.has_composition()
-            && self.caret_position() >= self.editing_text().len()
+            && self
+                .caret
+                .is_none_or(|caret| caret >= self.editing_text().len())
     }
 
     /// 当前组字的网址触发键；组字原文不是触发词或条件不满足时为 `None`。

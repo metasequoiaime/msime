@@ -703,7 +703,7 @@ fn ignored_scheme_key_does_not_clone_preedit_for_change_detection() {
     });
 
     assert!(!result.handled);
-    assert_eq!(allocations, 54);
+    assert_eq!(allocations, 52);
 }
 
 #[test]
@@ -717,7 +717,7 @@ fn typing_at_the_end_does_not_build_the_preedit_twice_for_caret_detection() {
     });
 
     assert!(result.handled);
-    assert_eq!(allocations, 157);
+    assert_eq!(allocations, 155);
 }
 
 #[test]
@@ -731,6 +731,19 @@ fn backspacing_at_the_end_does_not_build_the_preedit_twice_for_caret_detection()
 
     assert!(result.handled);
     assert_eq!(allocations, 30);
+}
+
+#[test]
+fn url_entry_readiness_at_the_end_does_not_build_the_preedit_twice() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session();
+    type_text(&mut session, "www");
+
+    let (result, allocations) =
+        crate::ime::personal_rerank::allocations::count(|| session.character(b'.', false));
+
+    assert!(result.handled);
+    assert_eq!(allocations, 4);
 }
 
 /// The reported case: in mixed Wubi `jixu` is the wubi code of 曳光弹 and the pinyin of 继续. The fourth key must leave both on offer; without pinyin rows the same code still commits its one wubi row.
