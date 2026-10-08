@@ -181,9 +181,10 @@ impl ZhuyinScheme {
         if !self.list_open {
             return Ok(false);
         }
-        let Some(candidate) = self.list.get(index).cloned() else {
+        if index >= self.list.len() {
             return Ok(false);
-        };
+        }
+        let candidate = self.list.swap_remove(index);
         let pin = Span {
             start: candidate.start,
             end: self.syllables.len(),
@@ -1145,6 +1146,44 @@ mod tests {
         scheme.handle_key(ZhuyinKey::Backspace).unwrap();
         assert_eq!(scheme.converted_text(), "你好");
         assert_eq!(scheme.take_committed(), "");
+    }
+
+    #[test]
+    fn selecting_a_list_row_moves_its_owned_fields_into_the_pin() {
+        let (_dir, mut scheme) = scheme();
+        type_keys(&mut scheme, "su3 ");
+        let candidate = &scheme.list[1];
+        let text = candidate.text.as_ptr();
+        let key = candidate.key.as_ptr();
+
+        assert!(scheme.select(1).unwrap());
+
+        assert!(!scheme.list_open());
+        assert_eq!(scheme.pins.len(), 1);
+        assert_eq!(scheme.pins[0].text.as_ptr(), text);
+        assert_eq!(scheme.pins[0].key.as_ptr(), key);
+        assert_eq!(scheme.take_committed(), "");
+    }
+
+    #[test]
+    fn selecting_a_missing_list_row_keeps_the_list_open() {
+        let (_dir, mut scheme) = scheme();
+        type_keys(&mut scheme, "su3 ");
+        let before = texts(&scheme)
+            .into_iter()
+            .map(|(text, start)| (text.to_owned(), start))
+            .collect::<Vec<_>>();
+
+        assert!(!scheme.select(before.len()).unwrap());
+
+        assert!(scheme.list_open());
+        assert_eq!(
+            texts(&scheme)
+                .into_iter()
+                .map(|(text, start)| (text.to_owned(), start))
+                .collect::<Vec<_>>(),
+            before
+        );
     }
 
     #[test]
