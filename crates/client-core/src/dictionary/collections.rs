@@ -17,7 +17,10 @@ use crate::dictionary::personal::{
 use crate::file_lock;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::fs::{self, File};
+#[cfg(not(unix))]
+use std::fs;
+use std::fs::File;
+#[cfg(not(unix))]
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
@@ -619,7 +622,7 @@ impl DictionaryCollectionsStore {
             MAX_INDEX_BYTES,
         )?;
         for id in &state.deleted {
-            match fs::remove_file(self.collection_path(*id)) {
+            match self.remove_collection_file(*id) {
                 Ok(()) => {}
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
                 Err(error) => return Err(error.into()),
@@ -632,6 +635,23 @@ impl DictionaryCollectionsStore {
             self.write_outbox(&state.outbox)?;
         }
         Ok(())
+    }
+
+    fn remove_collection_file(&self, id: Uuid) -> std::io::Result<()> {
+        #[cfg(unix)]
+        {
+            let directory = crate::storage::open_private_directory(&self.directory)?;
+            rustix::fs::unlinkat(
+                &directory,
+                std::ffi::OsStr::new(&format!("{}.json", id.hyphenated())),
+                rustix::fs::AtFlags::empty(),
+            )
+            .map_err(std::io::Error::from)
+        }
+        #[cfg(not(unix))]
+        {
+            fs::remove_file(self.collection_path(id))
+        }
     }
 
     /// 收回执、送一批，返回送出的条数和送后面那部分时遇到的错误（个人词库正忙或队列已满不算错误）。送出的条目和不再送的「删除」已经从内存里的待发送队列拿掉，调用方负责把它写回；`preexisting.json` 在这里写好。
@@ -829,19 +849,21 @@ impl DictionaryCollectionsStore {
         path: &Path,
         maximum: u64,
     ) -> Result<Option<T>> {
-        let metadata = match fs::symlink_metadata(path) {
-            Ok(value) => value,
+        let directory = crate::storage::open_private_directory(&self.directory)?;
+        let name = path
+            .file_name()
+            .ok_or(DictionaryCollectionsError::Corrupt)?;
+        let file = match crate::storage::open_private_file_at(&directory, name) {
+            Ok(file) => file,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(error) => return Err(error.into()),
+            Err(_) => return Err(DictionaryCollectionsError::Corrupt),
         };
-        if !metadata.file_type().is_file() || metadata.len() > maximum {
+        if file.metadata()?.len() > maximum {
             return Err(DictionaryCollectionsError::Corrupt);
         }
-        let bytes = crate::bounded_io::read_bounded_file(
-            crate::storage::open_private_file(path)?,
-            maximum,
-            || DictionaryCollectionsError::Corrupt,
-        )?;
+        let bytes = crate::bounded_io::read_bounded_file(file, maximum, || {
+            DictionaryCollectionsError::Corrupt
+        })?;
         serde_json::from_slice(&bytes)
             .map(Some)
             .map_err(|_| DictionaryCollectionsError::Corrupt)
@@ -877,11 +899,23 @@ impl DictionaryCollectionsStore {
         if bytes.len() as u64 > maximum {
             return Err(DictionaryCollectionsError::TooLarge);
         }
-        let mut temporary = tempfile::NamedTempFile::new_in(&self.directory)?;
-        temporary.write_all(&bytes)?;
-        temporary.as_file().sync_all()?;
-        temporary.persist(path).map_err(|error| error.error)?;
-        Ok(())
+        #[cfg(unix)]
+        {
+            let directory = crate::storage::open_private_directory(&self.directory)?;
+            let name = path
+                .file_name()
+                .ok_or(DictionaryCollectionsError::Corrupt)?;
+            crate::storage::write_private_file_at(&directory, name, &bytes)?;
+            Ok(())
+        }
+        #[cfg(not(unix))]
+        {
+            let mut temporary = tempfile::NamedTempFile::new_in(&self.directory)?;
+            temporary.write_all(&bytes)?;
+            temporary.as_file().sync_all()?;
+            temporary.persist(path).map_err(|error| error.error)?;
+            Ok(())
+        }
     }
 }
 

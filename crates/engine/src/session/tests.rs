@@ -1897,6 +1897,43 @@ fn temporary_japanese_returns_to_the_original_scheme() {
 }
 
 #[test]
+fn japanese_engine_refresh_reuses_candidate_strings() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session_with(|options| options.scheme = SchemeType::JapaneseRomaji);
+    type_text(&mut session, "ka");
+    let before = session.input.engine.candidates().to_vec();
+    let pointers = session
+        .input
+        .engine
+        .candidates()
+        .iter()
+        .map(|row| {
+            (
+                row.word.as_ptr(),
+                row.pinyin.as_ptr(),
+                row.canonical_pinyin.as_ptr(),
+            )
+        })
+        .collect::<Vec<_>>();
+    session.input.engine.handle_key(SchemeKey::Requery);
+    assert_eq!(session.input.engine.candidates(), before);
+    assert_eq!(
+        session
+            .input
+            .engine
+            .candidates()
+            .iter()
+            .map(|row| (
+                row.word.as_ptr(),
+                row.pinyin.as_ptr(),
+                row.canonical_pinyin.as_ptr()
+            ))
+            .collect::<Vec<_>>(),
+        pointers
+    );
+}
+
+#[test]
 fn temporary_japanese_refresh_reuses_candidate_buffer() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);
     let mut session = fixture.session_with(|options| options.scheme = SchemeType::Shuangpin);

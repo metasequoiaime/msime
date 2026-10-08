@@ -193,12 +193,7 @@ impl ProviderRegistry {
                     .as_mut()
                     .map_or_else(Vec::new, |wubi| wubi.query(request));
             }
-            SchemeType::JapaneseRomaji => {
-                return self
-                    .japanese
-                    .as_mut()
-                    .map_or_else(Vec::new, |japanese| japanese.query(request));
-            }
+            SchemeType::JapaneseRomaji => return self.japanese_candidates(request),
             SchemeType::Korean if request.korean_hanja => return hanja::candidates(request),
             SchemeType::Cantonese => return self.cantonese_candidates(request),
             SchemeType::Stroke => return self.stroke_candidates(request),
@@ -424,6 +419,25 @@ impl ProviderRegistry {
                 item
             }));
         }
+    }
+
+    /// 将日文候选直接写入会话行缓冲，避免查询结果再复制一次。
+    pub(super) fn query_japanese_into(
+        &mut self,
+        request: &QueryRequest,
+        destination: &mut Vec<WordItem>,
+    ) {
+        if let Some(japanese) = &mut self.japanese {
+            japanese.query_into(request, destination);
+        } else {
+            destination.clear();
+        }
+    }
+
+    fn japanese_candidates(&mut self, request: &QueryRequest) -> Vec<WordItem> {
+        let mut destination = Vec::new();
+        self.query_japanese_into(request, &mut destination);
+        destination
     }
 
     /// `msime-stroke.db` 对请求笔画的单字候选，顺序同 `StrokeScheme::candidates`。每行以键入的笔画为 `pinyin`、以该字的完整笔画码为 `canonical_pinyin`；笔画不学习，这两个键只用于显示，从不写回任何词典。读失败时不给候选，与粤拼一样。

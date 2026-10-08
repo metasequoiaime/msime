@@ -37,35 +37,47 @@ pub struct JapaneseProvider {
     dynamic: FifoCache<String, Vec<WordItem>>,
 }
 
-/// Rows unique by word, in insertion order.
-struct Rows {
+/// 按插入顺序保留唯一词面；`used` 之后是上次查询留下的可复用行。
+struct Rows<'a> {
     items: Vec<WordItem>,
-    code: String,
+    code: &'a str,
+    used: usize,
 }
 
-impl Rows {
+impl Rows<'_> {
     fn reserve(&mut self, additional: usize) {
         self.items.reserve(additional);
     }
 
-    #[cfg(test)]
     fn contains_word(&self, word: &str) -> bool {
-        self.items.iter().any(|item| item.word == word)
+        self.items[..self.used].iter().any(|item| item.word == word)
     }
 
     fn push(&mut self, word: &str, weight: i64, source: CandidateSource) {
-        // A query publishes only a small candidate page. Scan the owned rows so each unique
-        // word is stored once, without cloning it into a second deduplication set.
-        if word.is_empty() || self.items.iter().any(|item| item.word == word) {
+        // 只扫描本次已写入的行，尾部旧行不参与去重。
+        if word.is_empty() || self.contains_word(word) {
             return;
         }
-        self.items.push(WordItem::new(
-            self.code.as_str(),
-            word,
-            weight,
-            source,
-            self.code.as_str(),
-        ));
+        if let Some(item) = self.items.get_mut(self.used) {
+            item.pinyin.clear();
+            item.pinyin.push_str(self.code);
+            item.canonical_pinyin.clear();
+            item.canonical_pinyin.push_str(self.code);
+            item.word.clear();
+            item.word.push_str(word);
+            item.weight = weight;
+            item.source = source;
+            item.scheme = SchemeType::Quanpin;
+            item.fixed_position = 0;
+            item.fuzzy = false;
+            item.corrected_from.clear();
+            item.sentence_association = false;
+            item.sentence_words.clear();
+        } else {
+            self.items
+                .push(WordItem::new(self.code, word, weight, source, self.code));
+        }
+        self.used += 1;
     }
 
     fn push_kana(&mut self, hiragana: &str) {
@@ -75,6 +87,11 @@ impl Rows {
             KATAKANA_WEIGHT,
             CandidateSource::Generated,
         );
+    }
+
+    fn finish_into(mut self, destination: &mut Vec<WordItem>) {
+        self.items.truncate(self.used);
+        *destination = self.items;
     }
 }
 
@@ -89,18 +106,28 @@ impl JapaneseProvider {
     }
 
     pub fn query(&mut self, request: &QueryRequest) -> Vec<WordItem> {
+        let mut destination = Vec::new();
+        self.query_into(request, &mut destination);
+        destination
+    }
+
+    /// 将日文查询直接写入已有候选行，保留列表和字符串容量。
+    pub(crate) fn query_into(&mut self, request: &QueryRequest, destination: &mut Vec<WordItem>) {
         if !request.valid || request.scheme != SchemeType::JapaneseRomaji {
-            return Vec::new();
+            destination.clear();
+            return;
         }
         let mut rows = Rows {
-            items: Vec::with_capacity(2),
-            code: request.raw_input_with_cases.clone(),
+            items: std::mem::take(destination),
+            code: &request.raw_input_with_cases,
+            used: 0,
         };
         // A bare minus opens a composition whose first choice is the long-vowel mark, with the plain hyphen kept as the alternative.
         if request.raw_input == "-" {
             rows.push("ー", KANA_WEIGHT, CandidateSource::Generated);
             rows.push("-", KATAKANA_WEIGHT, CandidateSource::Generated);
-            return rows.items;
+            rows.finish_into(destination);
+            return;
         }
         let conversion = convert_romaji(&request.raw_input);
         let kana_first = is_single_kana_conversion(&conversion);
@@ -157,17 +184,33 @@ impl JapaneseProvider {
         }
 
         if let Some(dynamic) = self.dynamic.get_ref(&request.raw_input) {
-            let mut insertion = rows.items.len().min(if kana_first { 2 } else { 1 });
+            let mut insertion = rows.used.min(if kana_first { 2 } else { 1 });
             for item in dynamic {
                 // Dynamic rows are bounded by the cache quota; keep the word index in sync while inserting them.
-                if rows.items.iter().any(|row| row.word == item.word) {
+                if rows.contains_word(&item.word) {
                     continue;
                 }
-                rows.items.insert(insertion, item.clone());
+                if let Some(target) = rows.items.get_mut(rows.used) {
+                    target.pinyin.clone_from(&item.pinyin);
+                    target.canonical_pinyin.clone_from(&item.canonical_pinyin);
+                    target.word.clone_from(&item.word);
+                    target.weight = item.weight;
+                    target.source = item.source;
+                    target.scheme = item.scheme;
+                    target.fixed_position = item.fixed_position;
+                    target.fuzzy = item.fuzzy;
+                    target.corrected_from.clone_from(&item.corrected_from);
+                    target.sentence_association = item.sentence_association;
+                    target.sentence_words.clone_from(&item.sentence_words);
+                } else {
+                    rows.items.push(item.clone());
+                }
+                rows.used += 1;
+                rows.items[insertion..rows.used].rotate_right(1);
                 insertion += 1;
             }
         }
-        rows.items
+        rows.finish_into(destination);
     }
 
     /// Only a non-empty cloud word; replaces the previous cloud row for that code.
@@ -247,13 +290,73 @@ mod tests {
     fn rows_scan_owned_words_when_deduplicating() {
         let mut rows = Rows {
             items: Vec::new(),
-            code: "ka".to_owned(),
+            code: "ka",
+            used: 0,
         };
         assert!(!rows.contains_word("かな"));
         rows.push("かな", KANA_WEIGHT, CandidateSource::Generated);
         assert!(rows.contains_word("かな"));
         rows.push("かな", KATAKANA_WEIGHT, CandidateSource::Generated);
         assert_eq!(words(&rows.items), vec!["かな"]);
+    }
+
+    #[test]
+    fn query_into_reuses_existing_candidate_rows() {
+        let (_root, mut provider) = provider_with(None);
+        let request = request("ka");
+        let mut destination = provider.query(&request);
+        let word_pointer = destination[0].word.as_ptr();
+
+        let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            provider.query_into(&request, &mut destination);
+        });
+
+        let (_, conversion_allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            let conversion = convert_romaji(&request.raw_input);
+            hiragana_to_katakana(&conversion.hiragana)
+        });
+        assert_eq!(allocations, conversion_allocations);
+        assert_eq!(words(&destination), ["か", "カ"]);
+        assert_eq!(destination[0].word.as_ptr(), word_pointer);
+    }
+
+    #[test]
+    fn bare_minus_query_reuses_rows_without_allocating() {
+        let (_root, mut provider) = provider_with(None);
+        let request = request("-");
+        let mut destination = provider.query(&request);
+        let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            provider.query_into(&request, &mut destination);
+        });
+        assert_eq!(allocations, 0);
+        assert_eq!(words(&destination), ["ー", "-"]);
+    }
+
+    #[test]
+    fn reused_rows_keep_query_order_and_dynamic_fields_across_edits() {
+        let (_root, mut provider) = provider_with(Some(test_model::smoke()));
+        let (_expected_root, mut expected_provider) = provider_with(Some(test_model::smoke()));
+        for provider in [&mut provider, &mut expected_provider] {
+            assert!(provider.cache_dynamic_candidate(
+                "kanji",
+                "雲候補",
+                CandidateSource::CloudSuggestion
+            ));
+        }
+        let mut destination = Vec::new();
+        for text in ["sis", "kanji", "ka", "k", "-", "Sis", "kanji"] {
+            let request = request(text);
+            let expected = expected_provider.query(&request);
+            provider.query_into(&request, &mut destination);
+            assert_eq!(destination, expected, "{text}");
+        }
+        provider.clear_online_candidates(CandidateSource::CloudSuggestion);
+        expected_provider.clear_online_candidates(CandidateSource::CloudSuggestion);
+        let request = request("kanji");
+        provider.query_into(&request, &mut destination);
+        assert_eq!(destination, expected_provider.query(&request));
+        provider.query_into(&QueryRequest::default(), &mut destination);
+        assert!(destination.is_empty());
     }
 
     // test_engine_smoke.cpp:410-455, on the two-lemma synthetic model.
