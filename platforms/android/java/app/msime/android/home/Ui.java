@@ -88,6 +88,8 @@ public final class Ui {
     public static final int ROW_PADDING_V = 8;
     /** 行标题块与行尾控件之间的间距。 */
     public static final int ROW_GAP = 14;
+    /** 行尾值文字最多占行内可用宽度的比例，剩下的始终留给左侧标题块。 */
+    public static final float TRAILING_VALUE_MAX_SHARE = 0.5f;
     /** 操作按钮的水平内边距。 */
     public static final int BUTTON_PADDING_H = 14;
     /** 操作按钮的垂直内边距。 */
@@ -584,6 +586,28 @@ public final class Ui {
         TextView view = new TextView(context);
         view.setText(text);
         style(view, sizeSp, weight, color);
+        return view;
+    }
+
+    /**
+     * 行尾的值文字：单行，最宽只占行内可用宽度的 {@link #TRAILING_VALUE_MAX_SHARE}，再长就在末尾省略。
+     *
+     * <p>设置行是横向 LinearLayout，左侧标题块按权重分剩余宽度，而不带权重的行尾值先量、要多宽给多宽：值一长（例如完整的端点 URL），标题块就被挤得只剩一两个字宽，竖着折成很多行（#5790）。宽度在这里按父布局给的上限封顶，不靠各页面自己先把值截短。
+     */
+    public static TextView trailingValue(Context context, @androidx.annotation.Nullable CharSequence text,
+                                         int sizeSp, @ColorInt int color) {
+        TextView view = new TextView(context) {
+            @Override protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+                if (View.MeasureSpec.getMode(widthMeasureSpec) != View.MeasureSpec.UNSPECIFIED) {
+                    int limit = Math.round(View.MeasureSpec.getSize(widthMeasureSpec) * TRAILING_VALUE_MAX_SHARE);
+                    widthMeasureSpec = View.MeasureSpec.makeMeasureSpec(limit, View.MeasureSpec.AT_MOST);
+                }
+                super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+            }
+        };
+        view.setText(text);
+        style(view, sizeSp, 400, color);
+        ViewPolicy.setSingleLineEllipsized(view);
         return view;
     }
 

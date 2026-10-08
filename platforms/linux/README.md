@@ -39,6 +39,32 @@ MSIME_ISOLATED_LINUX_TEST=1 WAYLAND_DISPLAY=/absolute/test-compositor/wayland-0 
 
 测试检查五种标点补全、继续输入保留闭符号、持续按住 Shift 连按开闭括号、快速输入和失焦取消，以及已有闭标点跳过路径的无 Shift 右移；事件记录和截图写到 `target/paired-punctuation-probe/`，不读取个人配置或页面。
 
+### GNOME Wayland 下候选窗闪烁
+
+在 GNOME 的 Wayland 会话里用 Fcitx5 时，GTK 程序**不要**设置 `GTK_IM_MODULE=fcitx`，否则候选窗会不停闪烁，也不显示水杉的候选窗皮肤。
+
+原因：GNOME 的合成器不让输入法自己弹出候选窗。设了 `GTK_IM_MODULE=fcitx` 的 GTK 程序加载 fcitx5-gtk 输入法模块，Fcitx5 只能请它在程序里自己画候选窗（客户端输入面板，输入上下文带 `ClientSideInputPanel` 能力）。GTK3 没有实现移动已显示弹窗的那部分 xdg_popup 协议，fcitx5-gtk 每次挪动候选窗都要先隐藏再显示，这就是闪烁。这是上游的已知限制，见 Fcitx FAQ「Candidate window is blinking under wayland with Fcitx 5」和 fcitx/fcitx5#377。不设 `GTK_IM_MODULE` 时，GTK 程序走 Wayland 的 text-input，经 GNOME Shell 以 IBus 协议交给 Fcitx5（其 IBus 前端），候选窗由 Fcitx5 经典界面按水杉生成的主题绘制，不闪，皮肤也正常。X11 会话和 KDE Plasma 等支持输入法弹窗协议的桌面不受影响，照常设置即可。
+
+Debian/Ubuntu 用 im-config 时，`im-config -n fcitx5` 会无条件设置 `GTK_IM_MODULE=fcitx`。在 `~/.xinputrc` 的 `run_im fcitx5` 之后加上下面几行，只对 GNOME 的 Wayland 会话去掉它：
+
+```sh
+case "$XDG_SESSION_TYPE:$XDG_CURRENT_DESKTOP" in
+  wayland:*GNOME*)
+    unset GTK_IM_MODULE
+    systemctl --user unset-environment GTK_IM_MODULE >/dev/null 2>&1 || true
+    ;;
+esac
+```
+
+其他发行版的原则相同：只要会话是 GNOME Wayland，就不要为 GTK 程序设置 `GTK_IM_MODULE`；`XMODIFIERS=@im=fcitx` 照常保留。另外有两处要一并检查：
+
+- `~/.config/environment.d/` 里如果写了 `GTK_IM_MODULE=fcitx`，要删掉这一行，再执行 `systemctl --user daemon-reload`。environment.d 的值在用户级 systemd 启动或 daemon-reload 时进入它的基础环境，`systemctl --user unset-environment` 删不掉。
+- 开了 Linger（`loginctl show-user $USER -p Linger` 为 `yes`）时，用户级 systemd 跨登录常驻，会留着上一次会话的 `GTK_IM_MODULE`。D-Bus 激活的程序（例如 gnome-terminal）用的是它，所以上面的脚本里也执行了 `unset-environment`。
+
+改完重新登录。程序是否已经绕开客户端面板，可以在 `busctl --user call org.fcitx.Fcitx5 /controller org.fcitx.Fcitx.Controller1 DebugInfo` 的输出里查：输入上下文只剩 `frontend:ibus`，不再有 `frontend:dbus` 且 cap 第 39 位置位的 GTK 程序。`msime-linux-setup` 和 `--register` 注册进 Fcitx5 时，如果检测到 GNOME Wayland 下设了 `GTK_IM_MODULE=fcitx`，会打印一句提示指向这一节，但不会替用户改文件。撤回时删掉 `~/.xinputrc` 里加的这几行，重新登录即可。
+
+Qt 程序没有类似的做法：Qt5 不支持 text-input，只能靠 `QT_IM_MODULE=fcitx`，因此在 GNOME Wayland 下由客户端面板绘制，候选窗仍可能闪烁。
+
 ## 安装后首次使用
 
 安装包的 Debian `postinst` 会为当前已登录且可联系到的用户自动注册本机匿名水杉账号；网络暂时不可用时不影响安装，在线 provider 会在之后重试。安装本身仍不准备词库和运行配置，也不会替你选中输入法。其余首次配置由随装的 `msime-linux-setup` 补齐：

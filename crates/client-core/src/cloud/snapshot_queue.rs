@@ -5,6 +5,8 @@
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+#[cfg(unix)]
+use std::ffi::OsStr;
 use std::{
     fs::{self, File},
     io::{Read, Write},
@@ -214,7 +216,7 @@ impl DictionarySnapshotQueue {
             return Err(SnapshotQueueError::Invalid);
         }
         let bytes = crate::bounded_io::read_bounded_file_with(
-            crate::storage::open_private_file(&path)
+            crate::storage::open_private_file_in(&path)
                 .map_err(|_| SnapshotQueueError::Unavailable)?,
             MAXIMUM_STATE_BYTES,
             || SnapshotQueueError::Invalid,
@@ -232,16 +234,26 @@ impl DictionarySnapshotQueue {
         if bytes.is_empty() || bytes.len() as u64 > MAXIMUM_STATE_BYTES {
             return Err(SnapshotQueueError::Invalid);
         }
-        let mut temporary =
-            tempfile::NamedTempFile::new_in(root).map_err(|_| SnapshotQueueError::Unavailable)?;
-        temporary
-            .write_all(&bytes)
-            .and_then(|_| temporary.as_file().sync_all())
-            .map_err(|_| SnapshotQueueError::Unavailable)?;
-        temporary
-            .persist(Self::state_path(root))
-            .map(|_| ())
-            .map_err(|_| SnapshotQueueError::Unavailable)
+        #[cfg(unix)]
+        {
+            let directory = crate::storage::open_private_directory(root)
+                .map_err(|_| SnapshotQueueError::Unavailable)?;
+            crate::storage::write_private_file_at(&directory, OsStr::new(STATE_NAME), &bytes)
+                .map_err(|_| SnapshotQueueError::Unavailable)
+        }
+        #[cfg(not(unix))]
+        {
+            let mut temporary = tempfile::NamedTempFile::new_in(root)
+                .map_err(|_| SnapshotQueueError::Unavailable)?;
+            temporary
+                .write_all(&bytes)
+                .and_then(|_| temporary.as_file().sync_all())
+                .map_err(|_| SnapshotQueueError::Unavailable)?;
+            temporary
+                .persist(Self::state_path(root))
+                .map(|_| ())
+                .map_err(|_| SnapshotQueueError::Unavailable)
+        }
     }
 
     fn update<T>(
