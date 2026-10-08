@@ -22,7 +22,8 @@ jobs:
   # 每个版本（shared/contracts/editions.json 里有 Android 段的 id，也是 gradle-app 的 flavor 名）各打一个 APK，applicationId 各不相同，可以同时装在一台设备上。full 的 applicationId 与引入版本之前相同，已安装的应用照常原地升级；APK 名是 msime-android.apk（各版本是 msime-android-<id>.apk）。
   release:
     needs: source
-    runs-on: ubuntu-24.04
+    # Depot 的基础规格 depot-ubuntu-24.04 只有 2 vCPU，比 GitHub 给公开仓库的 Linux runner 还小，所以打包选 4 vCPU 的规格。
+    runs-on: depot-ubuntu-24.04-4
     timeout-minutes: 45
     strategy:
       fail-fast: true

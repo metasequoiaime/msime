@@ -1413,6 +1413,7 @@ export {
 } from "./voice/voice-provider-options";
 export {
   asrProviderCredentialTestConfig,
+  asrProviderCredentialTestDisabled,
   asrServiceCredentialTestConfig,
   polishProviderCredentialTestConfig,
   polishServiceCredentialTestConfig,

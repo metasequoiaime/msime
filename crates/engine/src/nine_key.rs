@@ -372,7 +372,8 @@ impl NineKeySession {
             alternatives
         };
 
-        let locked_key = self.locked.join("'");
+        let mut locked_key = String::new();
+        append_path_key(&mut locked_key, "", &self.locked);
         let mut dictionary = self
             .dictionary
             .get_or_insert_with(|| QuanpinDictionary::new(&self.paths))
@@ -380,17 +381,17 @@ impl NineKeySession {
         let mut queried = (alternatives.len() > SMALL_QUERY_KEY_BATCH)
             .then(|| HashSet::with_capacity(alternatives.len()));
         let mut candidates = Vec::with_capacity(CANDIDATE_LIMIT);
+        let mut key = String::with_capacity(locked_key.len() + self.digits.len() * 4 + 1);
         // 各条切分的前缀组彼此大量重复，一次刷新会推入上万行，见 `push_ranked`。
         let mut leading: HashMap<String, RankKey> = HashMap::with_capacity(CANDIDATE_LIMIT);
         // Only a split the user typed says where a syllable ends; without one, `3` must keep 的 (a completion of d) ahead of the rarer 额 (e).
         let prefer_exact = !self.splits.is_empty();
         for (index, path) in alternatives.iter().enumerate() {
-            let mut full = self.locked.clone();
-            full.extend(path.iter().cloned());
-            let key = full.join("'");
+            append_path_key(&mut key, &locked_key, path);
             if key.is_empty() || !query_key_is_new(&alternatives, index, &key, queried.as_ref()) {
                 continue;
             }
+            let full_len = self.locked.len() + path.len();
             for mut candidate in dictionary.query(&key, &key, 0, self.fuzzy) {
                 let canonical = if candidate.canonical_pinyin.is_empty() {
                     candidate.pinyin.clone()
@@ -398,7 +399,7 @@ impl NineKeySession {
                     candidate.canonical_pinyin.clone()
                 };
                 // A row with more syllables than the path is a completion past the typed digits.
-                if canonical.matches('\'').count() >= full.len() {
+                if canonical.matches('\'').count() >= full_len {
                     continue;
                 }
                 let matched = if candidate.fuzzy {
@@ -420,7 +421,7 @@ impl NineKeySession {
                 push_ranked(&mut candidates, &mut leading, candidate, prefer_exact);
             }
             if let Some(seen) = queried.as_mut() {
-                seen.insert(key);
+                seen.insert(key.clone());
             }
         }
         drop(dictionary);
@@ -630,6 +631,17 @@ impl NineKeySession {
 
 fn remaining_digits(digits: &str, locked_length: usize) -> &str {
     &digits[locked_length..]
+}
+
+fn append_path_key(output: &mut String, prefix: &str, path: &[String]) {
+    output.clear();
+    output.push_str(prefix);
+    for (index, part) in path.iter().enumerate() {
+        if !prefix.is_empty() || index != 0 {
+            output.push('\'');
+        }
+        output.push_str(part);
+    }
 }
 
 /// A row read under the locked syllables must spell them, or be a whole-syllable prefix of them.
@@ -1097,6 +1109,21 @@ mod tests {
     #[test]
     fn refresh_tail_is_borrowed_from_digits() {
         assert_eq!(remaining_digits("64426", 2), "426");
+    }
+
+    #[test]
+    fn path_key_builder_reuses_existing_string_storage() {
+        let path = vec!["hao".to_owned(), "ma".to_owned()];
+        let mut key = String::with_capacity(32);
+        append_path_key(&mut key, "ni", &path);
+        assert_eq!(key, "ni'hao'ma");
+
+        let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            append_path_key(&mut key, "ni", &path);
+        });
+
+        assert_eq!(key, "ni'hao'ma");
+        assert_eq!(allocations, 0);
     }
 
     #[test]

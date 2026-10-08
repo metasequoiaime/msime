@@ -552,14 +552,47 @@ fn clear_input_source_cache(cache: &Path) {
     if !metadata.is_dir() || metadata.file_type().is_symlink() {
         return;
     }
-    for entry in fs::read_dir(cache).into_iter().flatten().flatten() {
-        if entry
-            .file_name()
-            .to_string_lossy()
-            .starts_with(INPUT_SOURCE_CACHE_PREFIX)
-        {
-            let _ = fs::remove_file(entry.path());
+    #[cfg(unix)]
+    {
+        let Ok(descriptor) = crate::shared::atomic_file::open_private_directory(cache) else {
+            return;
+        };
+        let Ok(mut directory) = rustix::fs::Dir::new(descriptor) else {
+            return;
+        };
+        clear_input_source_cache_directory(&mut directory);
+    }
+    #[cfg(not(unix))]
+    {
+        for entry in fs::read_dir(cache).into_iter().flatten().flatten() {
+            if entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with(INPUT_SOURCE_CACHE_PREFIX)
+            {
+                let _ = fs::remove_file(entry.path());
+            }
         }
+    }
+}
+
+#[cfg(unix)]
+fn clear_input_source_cache_directory(directory: &mut rustix::fs::Dir) {
+    while let Some(entry) = directory.read() {
+        let Ok(entry) = entry else {
+            continue;
+        };
+        if !entry
+            .file_name()
+            .to_bytes()
+            .starts_with(INPUT_SOURCE_CACHE_PREFIX.as_bytes())
+        {
+            continue;
+        }
+        let Ok(descriptor) = directory.fd() else {
+            continue;
+        };
+        let _ = rustix::fs::unlinkat(descriptor, entry.file_name(), rustix::fs::AtFlags::empty());
     }
 }
 
@@ -971,6 +1004,40 @@ mod tests {
         clear_input_source_cache(&linked);
 
         assert_eq!(fs::read(&cached).unwrap(), b"synthetic-cache");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn input_source_cache_cleanup_stays_with_an_open_directory_after_replacement() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempdir().unwrap();
+        let cache = root.path().join("Keyboard-Settings");
+        fs::create_dir(&cache).unwrap();
+        let cached = cache.join("com.apple.IntlDataCache.le.synthetic");
+        fs::write(&cached, b"synthetic-cache").unwrap();
+        let outside = tempdir().unwrap();
+        let outside_cached = outside.path().join("com.apple.IntlDataCache.le.outside");
+        fs::write(&outside_cached, b"synthetic-outside").unwrap();
+
+        let descriptor = rustix::fs::open(
+            &cache,
+            rustix::fs::OFlags::RDONLY
+                | rustix::fs::OFlags::DIRECTORY
+                | rustix::fs::OFlags::CLOEXEC
+                | rustix::fs::OFlags::NONBLOCK,
+            rustix::fs::Mode::empty(),
+        )
+        .unwrap();
+        let mut directory = rustix::fs::Dir::new(descriptor).unwrap();
+        let moved = root.path().join("moved");
+        fs::rename(&cache, &moved).unwrap();
+        symlink(outside.path(), &cache).unwrap();
+
+        clear_input_source_cache_directory(&mut directory);
+
+        assert!(!moved.join("com.apple.IntlDataCache.le.synthetic").exists());
+        assert_eq!(fs::read(&outside_cached).unwrap(), b"synthetic-outside");
     }
 
     #[cfg(target_os = "macos")]

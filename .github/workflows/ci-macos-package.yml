@@ -119,7 +119,7 @@ jobs:
     name: Unsigned universal package
     needs: [changes, layout]
     if: ${{ needs.changes.outputs.package == 'true' && github.event.pull_request.draft != true }}
-    runs-on: macos-15
+    runs-on: depot-macos-15
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

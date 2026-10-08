@@ -13,7 +13,7 @@ use serde::Serialize;
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
 use std::ffi::OsStr;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -197,14 +197,18 @@ fn config_directory() -> Result<PathBuf, CredentialError> {
 
 /// The document at `path`, `None` when there is none. A file the provider's reader would refuse is an error rather than something to overwrite: the user may have put it there by hand.
 fn read_private(path: &Path) -> Result<Option<Map<String, Value>>, CredentialError> {
-    if let Some(parent) = path.parent() {
-        super::reject_symlink_ancestors(parent).map_err(|_| CredentialError::Storage)?;
-    }
-    let metadata = match std::fs::symlink_metadata(path) {
-        Ok(metadata) => metadata,
+    let parent = path.parent().ok_or(CredentialError::Storage)?;
+    super::reject_symlink_ancestors(parent).map_err(|_| CredentialError::Storage)?;
+    let file_name = path.file_name().ok_or(CredentialError::Storage)?;
+    let file = match super::open_private_at(parent, file_name) {
+        Ok(file) => file,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) if error.kind() == std::io::ErrorKind::InvalidInput => {
+            return Err(CredentialError::Existing)
+        }
         Err(_) => return Err(CredentialError::Storage),
     };
+    let metadata = file.metadata().map_err(|_| CredentialError::Storage)?;
     if !metadata.is_file()
         || metadata.uid() != rustix::process::geteuid().as_raw()
         || metadata.mode() & 0o077 != 0
@@ -214,7 +218,11 @@ fn read_private(path: &Path) -> Result<Option<Map<String, Value>>, CredentialErr
     }
     // The file can grow after symlink_metadata returns. Read through a bounded handle so a
     // concurrent replacement cannot turn the size check into an unbounded allocation.
-    let bytes = super::read_bounded_file(path, MAX_PROVIDER_CONFIG_BYTES as u64)
+    let mut bytes = Vec::with_capacity(
+        usize::try_from(metadata.len().min(MAX_PROVIDER_CONFIG_BYTES as u64 + 1)).unwrap_or(0),
+    );
+    file.take(MAX_PROVIDER_CONFIG_BYTES as u64 + 1)
+        .read_to_end(&mut bytes)
         .map_err(|_| CredentialError::Storage)?;
     if bytes.len() > MAX_PROVIDER_CONFIG_BYTES {
         return Err(CredentialError::Existing);
@@ -253,7 +261,7 @@ fn write_private_at(
     .map_err(|_| CredentialError::Storage)?;
     let mut file: std::fs::File = descriptor.into();
     let written = file
-        .write_all(&value)
+        .write_all(value)
         .and_then(|()| file.sync_all())
         .map_err(|_| CredentialError::Storage);
     drop(file);
@@ -286,16 +294,7 @@ fn write_private(path: &Path, document: Option<&Value>) -> Result<(), Credential
     if !super::create_directory_and_check(parent).map_err(|_| CredentialError::Storage)? {
         return Err(CredentialError::Storage);
     }
-    let directory = rustix::fs::open(
-        parent,
-        rustix::fs::OFlags::RDONLY
-            | rustix::fs::OFlags::DIRECTORY
-            | rustix::fs::OFlags::NOFOLLOW
-            | rustix::fs::OFlags::CLOEXEC
-            | rustix::fs::OFlags::NONBLOCK,
-        rustix::fs::Mode::empty(),
-    )
-    .map_err(|_| CredentialError::Storage)?;
+    let directory = super::open_private_directory(parent).map_err(|_| CredentialError::Storage)?;
     rustix::fs::fchmod(&directory, rustix::fs::Mode::from_raw_mode(0o700))
         .map_err(|_| CredentialError::Storage)?;
     let file_name = path.file_name().ok_or(CredentialError::Storage)?;

@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
 import {
+  asrProviderCredentialTestDisabled,
   asrServiceCredentialTestDisabled,
   polishServiceCredentialTestDisabled,
 } from "../../../../packages/ui/src/settings/voice-credential-test-config";
@@ -36,7 +37,20 @@ test("requires a legacy Doubao app key in addition to its token", () => {
 
 test("requires a polish token before testing the remote service", () => {
   expect(polishServiceCredentialTestDisabled({ ...baseVoice, polish_token: "" })).toBe(true);
-  expect(polishServiceCredentialTestDisabled({ ...baseVoice, polish_token: "synthetic-token" })).toBe(
-    false,
-  );
+  expect(
+    polishServiceCredentialTestDisabled({ ...baseVoice, polish_token: "synthetic-token" }),
+  ).toBe(false);
+});
+
+test("requires a chosen model before testing on-device recognition", () => {
+  const local = { ...baseVoice, asr_provider: "local" };
+  expect(asrProviderCredentialTestDisabled(local)).toBe(true);
+  expect(asrProviderCredentialTestDisabled({ ...local, asr_model_path: "" })).toBe(true);
+  expect(
+    asrProviderCredentialTestDisabled({
+      ...local,
+      asr_model_path: "/synthetic/voice-models/synthetic-model",
+    }),
+  ).toBe(false);
+  expect(asrProviderCredentialTestDisabled(baseVoice)).toBe(false);
 });

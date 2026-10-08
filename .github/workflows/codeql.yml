@@ -33,7 +33,8 @@ concurrency:
 jobs:
   analyze:
     name: CodeQL / ${{ matrix.language }}
-    runs-on: ubuntu-24.04
+    # Rust 和 C/C++ 要真的编译，放在 Depot 的 8 vCPU 机器上；Actions 和 Python 不编译，一两分钟就完，留在 GitHub 的 runner 上。
+    runs-on: ${{ (matrix.language == 'rust' || matrix.language == 'c-cpp') && 'depot-ubuntu-24.04-8' || 'ubuntu-24.04' }}
     timeout-minutes: 30
     permissions:
       contents: read
@@ -63,9 +64,9 @@ jobs:
 
   swift:
     name: CodeQL / Swift
-    # 只在每日定时和手动触发时跑，理由见文件顶部：一次占用一台 macos-15 约一小时。
+    # 只在每日定时和手动触发时跑，理由见文件顶部：一次占用一台 macOS runner 约一小时。
     if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
-    runs-on: macos-15
+    runs-on: depot-macos-26
     timeout-minutes: 60
     env:
       # The same Xcode the simulator CI and the release build use: the keyboard calls iOS 26 API, which the runner's default Xcode 16.4 (iOS 18.5 SDK) cannot compile.
@@ -82,36 +83,47 @@ jobs:
         run: |
           set -euo pipefail
           missing=()
-          for path in platforms/ios/scripts/prepare_dictionary.py platforms/ios/project.yml platforms/ios/Podfile; do
+          for path in platforms/ios/project.yml platforms/ios/stage-resources.sh platforms/ios/build-native.sh; do
             [[ -f "$path" ]] || missing+=("$path")
           done
           if (( ${#missing[@]} )); then
             printf '::error::CodeQL cannot build the Swift sources; missing from this branch: %s\n' "${missing[*]}"
             exit 1
           fi
-      - name: Install dependencies and Xcode generator
-        run: brew install xcodegen cocoapods
-      - name: Prepare the same dictionary as simulator CI
-        run: python3 platforms/ios/scripts/prepare_dictionary.py
-      # Generated in platforms/ios rather than build/ios: the Podfile there names `project 'MSIMEClient.xcodeproj'` and `workspace 'MSIMEClient.xcworkspace'` relative to its own directory, so pod install only finds the project when xcodegen has written it beside the Podfile. This is the sequence build-app.sh uses.
+      - name: Install the Xcode project generator
+        run: brew install xcodegen
+      # The same dictionary and host library the simulator CI job (ci-ios.yml) and build-app.sh's simulator variant prepare. This used to call platforms/ios/scripts/prepare_dictionary.py, which no longer exists, so every scheduled run stopped at the input check above. Both run before CodeQL init so the Rust build is not traced.
+      - name: Package iOS dictionary
+        run: |
+          set -euo pipefail
+          mkdir -p target/resources
+          resource_dir="$(cargo run --quiet -p msime-client-core --example install_resources -- target/resources)"
+          bash platforms/ios/stage-resources.sh "$resource_dir"
+      - name: Build the iOS host library
+        run: |
+          set -euo pipefail
+          rustup target add aarch64-apple-ios-sim
+          bash platforms/ios/build-native.sh simulator
+          test -f target/ios/simulator/libmsime_host_api.a
+      # The plain project without CocoaPods, as build-app.sh builds for the simulator: the only pod is MLKit handwriting, whose arm64 slice is built for devices, so an arm64 Simulator build of the workspace cannot link.
       - name: Generate Xcode project
         run: |
           set -euo pipefail
           python3 scripts/fetch_voice_runtime.py --platform ios
           (cd platforms/ios && xcodegen generate -s project.yml -p .)
-          (cd platforms/ios && pod install --deployment)
       - uses: github/codeql-action/init@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
         with:
           languages: swift
           build-mode: manual
       - name: Build the app and keyboard for analysis
         # Xcode 26 builds modules explicitly: every SDK module is a separate -emit-pcm job whose output the compile jobs then read back. The CodeQL extractor replays each job with its own clang, which rejects the PCMs Xcode's clang wrote ("built from a different branch"), so nothing gets extracted. Implicit modules give each compiler its own cache, which is how the job worked under Xcode 16.4.
-        # MSIMEClient.xcworkspace and the MSIMEApp scheme are what project.yml and the Podfile actually produce; the MetasequoiaImeIOS names this used to pass exist nowhere in the tree, so xcodebuild could only ever have reported "workspace not found". build-app.sh and ProjectConfigurationTests.py both name MSIMEApp.
+        # MSIMEClient.xcodeproj and the MSIMEApp scheme are what project.yml produces; build-app.sh and ProjectConfigurationTests.py both name MSIMEApp. arm64 only, matching the aarch64-apple-ios-sim host library built above.
         run: >-
-          xcodebuild -workspace platforms/ios/MSIMEClient.xcworkspace
+          xcodebuild -project platforms/ios/MSIMEClient.xcodeproj
           -scheme MSIMEApp -configuration Debug -sdk iphonesimulator
           -destination 'generic/platform=iOS Simulator'
           -derivedDataPath build/codeql-ios CODE_SIGNING_ALLOWED=NO
+          ARCHS=arm64 ONLY_ACTIVE_ARCH=YES
           SWIFT_ENABLE_EXPLICIT_MODULES=NO CLANG_ENABLE_EXPLICIT_MODULES=NO build
       - uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
         with:

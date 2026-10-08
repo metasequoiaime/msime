@@ -36,7 +36,8 @@ pub struct PinnedFile {
 
 impl Lock {
     pub fn load(path: &Path) -> Result<Self> {
-        let text = crate::text::read(path).with_context(|| format!("reading {}", path.display()))?;
+        let text =
+            crate::text::read(path).with_context(|| format!("reading {}", path.display()))?;
         serde_json::from_str(&text).with_context(|| format!("parsing {}", path.display()))
     }
 

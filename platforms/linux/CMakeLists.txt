@@ -276,6 +276,13 @@ target_compile_options(linux-candidate-fcitx-theme-test PRIVATE -Wall -Wextra -W
 target_include_directories(linux-candidate-fcitx-theme-test PRIVATE src)
 target_link_libraries(linux-candidate-fcitx-theme-test PRIVATE nlohmann_json::nlohmann_json)
 add_test(NAME linux-candidate-fcitx-theme COMMAND linux-candidate-fcitx-theme-test)
+# fcitx5-gtk 的客户端输入面板用 GKeyFile 读生成的主题；GLib 随 IBus 开发包而来，不是新依赖。
+pkg_check_modules(GLIB2 REQUIRED IMPORTED_TARGET glib-2.0)
+add_executable(linux-candidate-fcitx-theme-gkeyfile-test tests/candidate/candidate_fcitx_theme_gkeyfile.cpp)
+target_compile_options(linux-candidate-fcitx-theme-gkeyfile-test PRIVATE -Wall -Wextra -Werror)
+target_include_directories(linux-candidate-fcitx-theme-gkeyfile-test PRIVATE src)
+target_link_libraries(linux-candidate-fcitx-theme-gkeyfile-test PRIVATE nlohmann_json::nlohmann_json PkgConfig::GLIB2)
+add_test(NAME linux-candidate-fcitx-theme-gkeyfile COMMAND linux-candidate-fcitx-theme-gkeyfile-test)
 add_executable(linux-candidate-font-policy-test tests/candidate/candidate_font_policy.cpp)
 target_compile_options(linux-candidate-font-policy-test PRIVATE -Wall -Wextra -Werror)
 target_include_directories(linux-candidate-font-policy-test PRIVATE src)

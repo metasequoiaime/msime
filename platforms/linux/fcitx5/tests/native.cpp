@@ -544,6 +544,13 @@ int main(int argc, char **argv) {
     fcitx::InputContextEvent focus(&ic, fcitx::EventType::InputContextFocusIn);
     engine.activate(entry, focus);
     auto *state = ic.propertyFor(&engine.factory_);
+    // 测试里的引擎没有注册到 Fcitx5，失焦时 Fcitx5 随后对输入法调用的 deactivate 要自己补上。
+    fcitx::InputContextEvent focusOut(&ic, fcitx::EventType::InputContextFocusOut);
+    const auto blur = [&] {
+      ic.focusOut();
+      engine.deactivate(entry, focusOut);
+    };
+    const auto heldForTray = [&] { return engine.menu_context_ic_.get() == &ic; };
     if (state->session_ == 0) {
       // ensure() funnels every failure into unavailable(), which swallows the
       // reason. Ask it again here so the message names what went wrong instead
@@ -867,6 +874,55 @@ int main(int argc, char **argv) {
             ("status actions unchanged by the option toggles: " +
              std::to_string(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size()))
                 .c_str());
+    // 点托盘往往让应用失焦，而托盘菜单列的、点下去作用的都是最近聚焦的上下文：失焦后它的会话留着，勾选照旧，开关点了就生效；只往有焦点的输入框里写的入口先拿掉。别的上下文获得焦点时它才交出，换输入法时照旧清空。
+    {
+      const auto statusActions = [&] { return ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size(); };
+      const bool chinese = engine.input_mode_action_.isChecked(&ic);
+      const bool fullwidth = engine.width_action_.isChecked(&ic);
+      const auto scheme = engine.scheme_action_.shortText(&ic);
+      blur();
+      require(state->session_ != 0 && heldForTray() && statusActions() == 15,
+              ("focus out keeps the session for the tray, without the focus-only tools: " +
+               std::to_string(statusActions()))
+                  .c_str());
+      require(engine.input_mode_action_.isChecked(&ic) == chinese && engine.width_action_.isChecked(&ic) == fullwidth &&
+                  engine.scheme_action_.shortText(&ic) == scheme,
+              "the tray reads the same state after focus out");
+      engine.input_mode_action_.activate(&ic);
+      require(engine.input_mode_action_.isChecked(&ic) != chinese, "the tray switches 中/英 after focus out");
+      engine.width_action_.activate(&ic);
+      require(engine.width_action_.isChecked(&ic) != fullwidth, "the tray switches the width after focus out");
+      ic.focusIn();
+      engine.activate(entry, focus);
+      require(state->session_ != 0 && !heldForTray() && statusActions() == 24,
+              ("refocusing reopens the session with the status actions once each: session=" +
+               std::to_string(state->session_) + " actions=" + std::to_string(statusActions()))
+                  .c_str());
+      require(engine.input_mode_action_.isChecked(&ic) != chinese && engine.width_action_.isChecked(&ic) != fullwidth,
+              "what the tray switched holds once the context is focused again");
+      engine.input_mode_action_.activate(&ic);
+      engine.width_action_.activate(&ic);
+      require(engine.input_mode_action_.isChecked(&ic) == chinese && engine.width_action_.isChecked(&ic) == fullwidth,
+              "the focused context switches both back");
+      blur();
+      {
+        FixtureContext other(instance.inputContextManager());
+        other.focusIn();
+        require(state->session_ == 0 && !heldForTray() && statusActions() == 0,
+                ("a context gaining focus takes the tray from the held one: session=" +
+                 std::to_string(state->session_) + " actions=" + std::to_string(statusActions()))
+                    .c_str());
+      }
+      ic.focusIn();
+      engine.activate(entry, focus);
+      require(state->session_ != 0 && statusActions() == 24, "focus brings the session and the status actions back");
+      fcitx::InputContextEvent switched(&ic, fcitx::EventType::InputContextSwitchInputMethod);
+      engine.deactivate(entry, switched);
+      require(state->session_ == 0 && statusActions() == 0,
+              ("switching input methods removes the status actions: " + std::to_string(statusActions())).c_str());
+      engine.activate(entry, focus);
+      require(state->session_ != 0 && statusActions() == 24, "switching back restores the status actions");
+    }
     require(engine.emoji_category_action_.shortText(&ic) == "表情：Emoji",
             "emoji category starts in the default catalog");
     engine.emoji_category_action_.activate(&ic);
@@ -1544,12 +1600,15 @@ int main(int argc, char **argv) {
     auto horizontalPage = ic.inputPanel().candidateList();
     require(horizontalPage && horizontalPage->layoutHint() == fcitx::CandidateLayoutHint::Horizontal,
             "hot-loaded horizontal layout reaches native candidate list");
-    ic.focusOut();
-    require(state->session_ == 0, "focus out destroys host session");
+    blur();
+    // 会话留给托盘菜单，但组字丢掉：之后的菜单动作不能把它当成正在输入的文字提交出去。
+    const auto heldSession = state->session_;
+    require(heldSession != 0 && state->view_.value("editing_text", std::string{}).empty(),
+            "focus out keeps the session for the tray and drops the composition");
     require(ic.inputPanel().clientPreedit().empty(), "focus out clears preedit");
     ic.focusIn();
     engine.activate(entry, focus);
-    require(state->session_ != 0, "focus in creates a fresh host session");
+    require(state->session_ != 0 && state->session_ != heldSession, "focus in creates a fresh host session");
     for (const auto sym : {FcitxKey_n, FcitxKey_i, FcitxKey_h, FcitxKey_a, FcitxKey_o,
                            FcitxKey_j, FcitxKey_i, FcitxKey_e})
       require(key(sym), "composition after refocus");
@@ -2284,8 +2343,9 @@ int main(int argc, char **argv) {
       require(state->ensure() && sessionWidth() == "Fullwidth" && engine.width_action_.isChecked(&ic),
               "a session opens at the saved fullwidth");
       require(englishLetter() == "ａ", "the saved fullwidth widens an English-mode letter");
-      ic.focusOut();
-      require(state->session_ == 0, "focus out closes the fullwidth session");
+      blur();
+      require(state->session_ != 0 && engine.width_action_.isChecked(&ic),
+              "focus out keeps the fullwidth session for the tray");
       ic.focusIn();
       engine.activate(entry, focus);
       require(state->session_ != 0 && sessionWidth() == "Fullwidth", "fullwidth survives a focus change");
@@ -2614,8 +2674,9 @@ int main(int argc, char **argv) {
       require(press(FcitxKey_v) && press(FcitxKey_i) && ic.inputPanel().preedit().toString() == "vi" &&
                   state->view_.value("scheme", 0u) == 7,
               "Vietnamese composes in the panel for a client without preedit");
-      ic.focusOut();
-      require(ic.committed == before + "Avivi" && state->session_ == 0, "focus out commits the open word");
+      blur();
+      require(ic.committed == before + "Avivi" && state->view_.value("editing_text", std::string{}).empty(),
+              "focus out commits the open word");
       ic.setCapabilityFlags(fcitx::CapabilityFlags{fcitx::CapabilityFlag::Preedit,
                                                  fcitx::CapabilityFlag::SurroundingText});
       ic.focusIn();

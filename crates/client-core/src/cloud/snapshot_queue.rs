@@ -401,7 +401,7 @@ impl DictionarySnapshotQueue {
         let previous = match result {
             Ok(previous) => previous,
             Err(error) => {
-                let _ = fs::remove_file(&destination);
+                let _ = remove_snapshot_file(&destination);
                 return Err(error);
             }
         };
@@ -544,11 +544,7 @@ impl DictionarySnapshotQueue {
                 .filter(|request| !request.status.active())
             {
                 let path = root.join(format!("{}.ndjson", request.id));
-                match fs::remove_file(path) {
-                    Ok(()) => {}
-                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-                    Err(_) => return Err(SnapshotQueueError::Unavailable),
-                }
+                remove_snapshot_file(&path)?;
                 state.request = None;
             }
             Ok(result)
@@ -557,17 +553,37 @@ impl DictionarySnapshotQueue {
 
     fn delete_snapshot(&self, id: Uuid) -> Result<(), SnapshotQueueError> {
         let path = self.file_path(id)?;
-        match fs::remove_file(path) {
-            Ok(()) => Ok(()),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(_) => Err(SnapshotQueueError::Unavailable),
-        }
+        remove_snapshot_file(&path)
+    }
+}
+
+fn remove_snapshot_file(path: &Path) -> Result<(), SnapshotQueueError> {
+    match crate::storage::remove_private_file(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(_) => Err(SnapshotQueueError::Unavailable),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn snapshot_cleanup_does_not_follow_a_symlinked_parent() {
+        use std::os::unix::fs::symlink;
+
+        let outside = tempfile::tempdir().unwrap();
+        let outside_file = outside.path().join("synthetic.ndjson");
+        fs::write(&outside_file, b"synthetic-outside").unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let linked = root.path().join("queue");
+        symlink(outside.path(), &linked).unwrap();
+
+        assert!(remove_snapshot_file(&linked.join("synthetic.ndjson")).is_err());
+        assert_eq!(fs::read(&outside_file).unwrap(), b"synthetic-outside");
+    }
 
     fn version(owner: &str, digest: char) -> String {
         format!("local-v1:{owner}:{}", digest.to_string().repeat(64))

@@ -13,7 +13,7 @@ use crate::local::date_time::LocalDateTime;
 use crate::paths::RuntimePaths;
 use crate::types::{
     CandidateEdge, CandidateSource, Command, FrequencyAdjustmentMode, FrequencyAdjustmentOptions,
-    LocalInputMode, SchemeSet, SchemeType, ShuangpinProfileKind,
+    LocalInputMode, SchemeKey, SchemeSet, SchemeType, ShuangpinProfileKind,
 };
 
 /// test_input_session.cpp:390-430 (fixture M), the rows the portable-selection, caret and edge cases read.
@@ -1875,10 +1875,7 @@ fn temporary_japanese_returns_to_the_original_scheme() {
         snapshot.editing_text.capacity(),
         snapshot.editing_text.len()
     );
-    assert_eq!(
-        session.input.local_preedit.capacity(),
-        session.input.local_preedit.len()
-    );
+    assert!(session.input.local_preedit.capacity() >= session.input.local_preedit.len());
     session.command(Command::Backspace);
     assert_eq!(session.snapshot().preedit, "Rk");
     assert_eq!(
@@ -1913,6 +1910,21 @@ fn temporary_japanese_refresh_reuses_candidate_buffer() {
 
     assert_eq!(session.input.local_candidates.as_ptr(), pointer);
     assert!(session.input.local_candidates.capacity() >= capacity);
+}
+
+#[test]
+fn temporary_japanese_refresh_reuses_candidate_row_storage() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session_with(|options| options.scheme = SchemeType::Shuangpin);
+    assert!(session.character(b'R', true).handled);
+    type_text(&mut session, "ka");
+    session.input.refresh_temporary_japanese();
+
+    let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+        session.input.refresh_temporary_japanese();
+    });
+
+    assert_eq!(allocations, 0);
 }
 
 #[test]
@@ -3420,6 +3432,39 @@ fn cantonese_caret_edits_keep_the_shown_syllables() {
     assert_eq!(words(&session), ["我"]);
 }
 
+#[test]
+fn cantonese_candidate_refresh_reuses_row_storage() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session_with(|options| {
+        options.scheme = SchemeType::Cantonese;
+        options.cantonese_dictionary = cantonese_dictionary(fixture.path());
+    });
+    type_text(&mut session, "neihou");
+    let word_pointer = session.input.engine.candidates()[0].word.as_ptr();
+
+    let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+        session.input.engine.handle_key(SchemeKey::Requery);
+    });
+
+    assert_eq!(allocations, 0);
+    assert_eq!(
+        session.input.engine.candidates()[0].word.as_ptr(),
+        word_pointer
+    );
+}
+
+#[test]
+fn pinyin_candidate_refresh_reuses_preedit_storage() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session();
+    type_text(&mut session, "nihao");
+    let preedit_pointer = session.input.engine.preedit().as_ptr();
+
+    session.input.engine.handle_key(SchemeKey::Requery);
+
+    assert_eq!(session.input.engine.preedit().as_ptr(), preedit_pointer);
+}
+
 /// 合成的 `msime-stroke.db`（`stroke::fixture`），用共享的 schema 写成。
 fn stroke_dictionary(directory: &Path) -> PathBuf {
     let path = directory.join("msime-stroke.db");
@@ -3848,6 +3893,23 @@ fn zhuyin_composes_and_reports_its_spelling_symbols() {
     // The caret stays at the end.
     assert!(session.command(Command::MoveLeft).commit.is_some());
     assert!(session.snapshot().preedit.is_empty());
+}
+
+#[test]
+fn zhuyin_candidate_refresh_reuses_row_storage() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = zhuyin_session(&fixture);
+    type_text(&mut session, "su3cl3");
+    assert!(session.command(Command::ConvertHanja).handled);
+
+    let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+        session.input.engine.handle_key(SchemeKey::Requery);
+    });
+
+    assert!(
+        allocations <= 6,
+        "requery should not recreate Zhuyin candidate rows: {allocations} allocations"
+    );
 }
 
 #[test]

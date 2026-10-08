@@ -441,18 +441,21 @@ public:
           return true;
         });
   }
-  ~FcitxState() override { close(); }
-  void close() {
-    // Every way out of a session passes here, focus loss, deactivation and teardown included, and options_path_ is still the batch's directory.
+  // 离开输入框时不论会话关不关都要做的：写出按键统计，收起语音浮层，停掉音乐，连击与按键重复从头算（连击属于会话，下一个从零开始）。
+  void releaseFocusResources() {
     flushKeyPresses(key_presses_.take());
     key_presses_.forget_held();
     hideVoiceOverlay();
     wave_overlay_.reset();
-    if (session_) msime_linux_diagnostic_write("focus_out");
     music_.release(session_, msime_client_music_set_active);
-    // The combo lives in the session; the next one starts from none.
     typing_combo_ = 0;
     key_repeat_.reset();
+  }
+  ~FcitxState() override { close(); }
+  void close() {
+    // Every way out of a session passes here, focus loss, deactivation and teardown included, and options_path_ is still the batch's directory.
+    releaseFocusResources();
+    if (session_) msime_linux_diagnostic_write("focus_out");
     if (session_) msime_client_string_free(msime_client_destroy(session_));
     session_ = 0;
     view_ = Json::object();
@@ -565,6 +568,18 @@ public:
     translation_page_ = 0;
     translation_cursor_ = 0;
   }
+  // 失焦后会话留给托盘菜单时用它代替 close()：托盘读到的勾选和点下的开关都落在这个会话上，到下一次有上下文获得焦点才真正关掉（见 FcitxEngine::holdMenuContext）。除了 releaseFocusResources，还要停掉录音、按失焦结束组字和候选，与 IBus 宿主失焦时一样只取视图：要上屏的组字已由 focus_watch_ 或 Fcitx5 自己提交，留着的话之后的菜单动作会把它当成正在输入的文字再提交一次。
+  void leaveFocus() {
+    if (!session_) return;
+    cancelVoice();
+    releaseFocusResources();
+    if (composingOrCandidates()) {
+      auto result = response(msime_client_focus(session_, false));
+      view_ = result.contains("view") ? result.at("view") : result;
+    }
+  }
+  // 菜单动作能否作用到这个上下文：有焦点，或者它是失焦后托盘仍然指向的那一个。FcitxEngine 在这里只是前向声明，定义在它之后。
+  bool menuTarget() const;
   void clearPanel() {
     ic_.inputPanel().reset();
     ic_.updatePreedit();
@@ -978,9 +993,11 @@ public:
     syncSessionChinesePunctuation();
   }
   bool toggleInputMode() {
-    if (!session_ || restricted() || privateInput() || !ic_.hasFocus()) return false;
+    if (!session_ || restricted() || privateInput() || !menuTarget()) return false;
     input_enabled_ = !input_enabled_;
     ime_mode_chosen_ = true;
+    // 从托盘切换时上下文已经失焦，失焦那一刻记下的是切换前的模式；回到这个应用时按记下的恢复，所以这里重记一次。
+    if (!ic_.hasFocus()) rememberInputMode();
     if (!input_enabled_) {
       // 切到英文时上屏的是读入串而不是候选：用户敲了 nihao 再按 Shift，要的就是 nihao
       // 这几个字母，而不是它当前高亮的「你好」。Windows 是这个语义，IBus 宿主也照它写着
@@ -1502,7 +1519,7 @@ public:
     return true;
   }
   bool ensure() {
-    if (!ic_.hasFocus() || restricted()) { close(); clearPanel(); return false; }
+    if (!menuTarget() || restricted()) { close(); clearPanel(); return false; }
     if (session_ && private_ != privateInput()) { close(); clearPanel(); }
     if (session_) return true;
     auto options = readOptions();
@@ -3770,7 +3787,7 @@ public:
         : state->view_.value("character_width", std::string{}) == "Fullwidth";
   }
   void activate(fcitx::InputContext *ic) override {
-    if (!ic || !ic->hasFocus()) return;
+    if (!ic || !ic->propertyFor(factory_)->menuTarget()) return;
     auto *state = ic->propertyFor(factory_);
     if (!state->session_ || state->restricted()) return;
     try {
@@ -3801,7 +3818,7 @@ public:
     return ic && ic->propertyFor(factory_)->session_ && ic->propertyFor(factory_)->input_enabled_;
   }
   void activate(fcitx::InputContext *ic) override {
-    if (!ic || !ic->hasFocus()) return;
+    if (!ic || !ic->propertyFor(factory_)->menuTarget()) return;
     try {
       auto *state = ic->propertyFor(factory_);
       if (state->ensure() && state->toggleInputMode()) update(ic);
@@ -3839,7 +3856,7 @@ public:
   void setMenu(fcitx::Menu *menu) { fcitx::SimpleAction::setMenu(menu); }
   // Front ends open the scheme menu instead of activating an action that has one; stepping stays for a caller that activates it directly.
   void activate(fcitx::InputContext *ic) override {
-    if (!ic || !ic->hasFocus()) return;
+    if (!ic || !ic->propertyFor(factory_)->menuTarget()) return;
     try {
       auto *state = ic->propertyFor(factory_);
       if (state->cycleScheme()) update(ic);
@@ -3873,7 +3890,7 @@ public:
     return state->session_ && msime::linux_host::strict_json_value(state->view_, "scheme", 0u) == index_;
   }
   void activate(fcitx::InputContext *ic) override {
-    if (!ic || !ic->hasFocus() || isChecked(ic)) return;
+    if (!ic || !ic->propertyFor(factory_)->menuTarget() || isChecked(ic)) return;
     try {
       auto *state = ic->propertyFor(factory_);
       // selectScheme refuses a scheme whose dictionary was removed after the menu last listed it.
@@ -3903,7 +3920,7 @@ public:
   }
   std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
   void activate(fcitx::InputContext *ic) override {
-    if (!ic || !ic->hasFocus()) return;
+    if (!ic || !ic->propertyFor(factory_)->menuTarget()) return;
     try {
       auto *state = ic->propertyFor(factory_);
       if (state->cycleShuangpinProfile()) update(ic);
@@ -3931,7 +3948,7 @@ public:
            state->view_.value("nine_key", false);
   }
   void activate(fcitx::InputContext *ic) override {
-    if (!ic || !ic->hasFocus()) return;
+    if (!ic || !ic->propertyFor(factory_)->menuTarget()) return;
     auto *state = ic->propertyFor(factory_);
     if (!state->session_ || state->restricted() || state->privateInput()) return;
     try {
@@ -3987,7 +4004,7 @@ public:
     return state->preferences_.value(section, Json::object()).value("enabled", true);
   }
   void activate(fcitx::InputContext *ic) override {
-    if (!ic || !ic->hasFocus()) return;
+    if (!ic || !ic->propertyFor(factory_)->menuTarget()) return;
     auto *state = ic->propertyFor(factory_);
     if (!state->session_ || state->restricted() || state->privateInput()) return;
     try {
@@ -4021,7 +4038,7 @@ public:
     return state->preferences_.value(key, true);
   }
   void activate(fcitx::InputContext *ic) override {
-    if (!ic || !ic->hasFocus()) return;
+    if (!ic || !ic->propertyFor(factory_)->menuTarget()) return;
     auto *state = ic->propertyFor(factory_);
     const auto scheme = msime::linux_host::strict_json_value(state->view_, "scheme", 0u);
     if ((kind_ == Kind::ShuangpinPreedit && scheme != 1) ||
@@ -4055,7 +4072,7 @@ public:
   }
   std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
   void activate(fcitx::InputContext *ic) override {
-    if (!ic || !ic->hasFocus()) return;
+    if (!ic || !ic->propertyFor(factory_)->menuTarget()) return;
     try {
       auto *state = ic->propertyFor(factory_);
       if (state->cycleHelpcodeSchema()) update(ic);
@@ -4085,7 +4102,7 @@ public:
     return state->preferences_.value("quanpin", Json::object()).value(key, true);
   }
   void activate(fcitx::InputContext *ic) override {
-    if (!ic || !ic->hasFocus()) return;
+    if (!ic || !ic->propertyFor(factory_)->menuTarget()) return;
     auto *state = ic->propertyFor(factory_);
     if (!state->session_ || state->restricted() || state->privateInput()) return;
     try {
@@ -4115,7 +4132,7 @@ public:
         .value("english", true);
   }
   void activate(fcitx::InputContext *ic) override {
-    if (!ic || !ic->hasFocus()) return;
+    if (!ic || !ic->propertyFor(factory_)->menuTarget()) return;
     auto *state = ic->propertyFor(factory_);
     if (!state->session_ || state->restricted() || state->privateInput()) return;
     try {
@@ -4143,7 +4160,7 @@ public:
         .value(key_, false);
   }
   void activate(fcitx::InputContext *ic) override {
-    if (!ic || !ic->hasFocus()) return;
+    if (!ic || !ic->propertyFor(factory_)->menuTarget()) return;
     auto *state = ic->propertyFor(factory_);
     if (!state->session_ || state->restricted() || state->privateInput()) return;
     try {
@@ -4173,7 +4190,7 @@ public:
         .value(key_, msime::linux_host::local_mode_enabled_by_default(key_));
   }
   void activate(fcitx::InputContext *ic) override {
-    if (!ic || !ic->hasFocus()) return;
+    if (!ic || !ic->propertyFor(factory_)->menuTarget()) return;
     try {
       auto *state = ic->propertyFor(factory_);
       if (state->toggleLocalMode(key_)) update(ic);
@@ -4201,7 +4218,7 @@ public:
     return state->session_ && state->preferences_.value("candidate_english_gloss", false);
   }
   void activate(fcitx::InputContext *ic) override {
-    if (!ic || !ic->hasFocus()) return;
+    if (!ic || !ic->propertyFor(factory_)->menuTarget()) return;
     auto *state = ic->propertyFor(factory_);
     if (!state->session_ || state->restricted() || state->privateInput()) return;
     try {
@@ -4229,7 +4246,7 @@ public:
         .value("enabled", true);
   }
   void activate(fcitx::InputContext *ic) override {
-    if (!ic || !ic->hasFocus()) return;
+    if (!ic || !ic->propertyFor(factory_)->menuTarget()) return;
     auto *state = ic->propertyFor(factory_);
     if (!state->session_ || state->restricted() || state->privateInput()) return;
     try {
@@ -4256,7 +4273,7 @@ public:
     return state->session_ && state->preferences_.value("number_row_selection", true);
   }
   void activate(fcitx::InputContext *ic) override {
-    if (!ic || !ic->hasFocus()) return;
+    if (!ic || !ic->propertyFor(factory_)->menuTarget()) return;
     auto *state = ic->propertyFor(factory_);
     if (!state->session_ || state->restricted() || state->privateInput()) return;
     try {
@@ -4290,7 +4307,7 @@ public:
           (state->punctuation_lock_ == 0 && state->english_chinese_punctuation_);
   }
   void activate(fcitx::InputContext *ic) override {
-    if (!ic || !ic->hasFocus()) return;
+    if (!ic || !ic->propertyFor(factory_)->menuTarget()) return;
     auto *state = ic->propertyFor(factory_);
     if (!state->session_ || state->restricted()) return;
     try {
@@ -4329,7 +4346,7 @@ public:
     return state->preferences_.value(key, true);
   }
   void activate(fcitx::InputContext *ic) override {
-    if (!ic || !ic->hasFocus()) return;
+    if (!ic || !ic->propertyFor(factory_)->menuTarget()) return;
     auto *state = ic->propertyFor(factory_);
     if (!state->session_ || state->restricted() || state->privateInput()) return;
     try {
@@ -4357,7 +4374,7 @@ public:
         ? "候选：横向" : "候选：纵向";
   }
   void activate(fcitx::InputContext *ic) override {
-    if (!ic || !ic->hasFocus()) return;
+    if (!ic || !ic->propertyFor(factory_)->menuTarget()) return;
     auto *state = ic->propertyFor(factory_);
     if (!state->session_ || state->restricted() || state->privateInput()) return;
     try {
@@ -4381,7 +4398,7 @@ public:
   }
   std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
   void activate(fcitx::InputContext *ic) override {
-    if (!ic || !ic->hasFocus()) return;
+    if (!ic || !ic->propertyFor(factory_)->menuTarget()) return;
     try {
       auto *state = ic->propertyFor(factory_);
       if (state->cycleCandidateTheme()) update(ic);
@@ -4407,7 +4424,7 @@ public:
     return ic && ic->propertyFor(factory_)->currentThemeChoice() == id_;
   }
   void activate(fcitx::InputContext *ic) override {
-    if (!ic || !ic->hasFocus()) return;
+    if (!ic || !ic->propertyFor(factory_)->menuTarget()) return;
     try {
       auto *state = ic->propertyFor(factory_);
       if (state->setThemeChoice(id_)) update(ic);
@@ -4454,7 +4471,7 @@ public:
     return std::to_string(size_) + " 个候选";
   }
   void activate(fcitx::InputContext *ic) override {
-    if (!ic || !ic->hasFocus()) return;
+    if (!ic || !ic->propertyFor(factory_)->menuTarget()) return;
     try { ic->propertyFor(factory_)->setCandidatePageSize(size_); } catch (...) {}
   }
 private:
@@ -4485,7 +4502,7 @@ public:
     return state->session_ && state->preferences_.value("learning", true);
   }
   void activate(fcitx::InputContext *ic) override {
-    if (!ic || !ic->hasFocus()) return;
+    if (!ic || !ic->propertyFor(factory_)->menuTarget()) return;
     auto *state = ic->propertyFor(factory_);
     if (!state->session_ || state->restricted() || state->privateInput()) return;
     try {
@@ -4522,7 +4539,7 @@ public:
   }
   std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
   void activate(fcitx::InputContext *ic) override {
-    if (!ic || !ic->hasFocus()) return;
+    if (!ic || !ic->propertyFor(factory_)->menuTarget()) return;
     try {
       auto *state = ic->propertyFor(factory_);
       if (state->cycleFrequencyMode()) update(ic);
@@ -4547,7 +4564,7 @@ public:
   }
   std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
   void activate(fcitx::InputContext *ic) override {
-    if (!ic || !ic->hasFocus()) return;
+    if (!ic || !ic->propertyFor(factory_)->menuTarget()) return;
     try {
       auto *state = ic->propertyFor(factory_);
       if (state->cycleFrequencyNumber(key_)) update(ic);
@@ -4574,7 +4591,7 @@ public:
         ? "模式：全局" : "模式：应用";
   }
   void activate(fcitx::InputContext *ic) override {
-    if (!ic || !ic->hasFocus()) return;
+    if (!ic || !ic->propertyFor(factory_)->menuTarget()) return;
     auto *state = ic->propertyFor(factory_);
     if (!state->session_ || state->restricted() || state->privateInput()) return;
     try {
@@ -4600,7 +4617,7 @@ public:
     return state->session_ && state->preferences_.value("candidate_translations", false);
   }
   void activate(fcitx::InputContext *ic) override {
-    if (!ic || !ic->hasFocus()) return;
+    if (!ic || !ic->propertyFor(factory_)->menuTarget()) return;
     auto *state = ic->propertyFor(factory_);
     if (!state->session_ || state->restricted() || state->privateInput()) return;
     try {
@@ -4651,7 +4668,7 @@ public:
     }
   }
   void activate(fcitx::InputContext *ic) override {
-    if (!ic || !ic->hasFocus()) return;
+    if (!ic || !ic->propertyFor(factory_)->menuTarget()) return;
     try {
       auto *state = ic->propertyFor(factory_);
       if (state->session_ && !state->restricted() && !state->privateInput())
@@ -4679,7 +4696,7 @@ public:
     return "翻译语言";
   }
   void activate(fcitx::InputContext *ic) override {
-    if (!ic || !ic->hasFocus()) return;
+    if (!ic || !ic->propertyFor(factory_)->menuTarget()) return;
     try {
       auto *state = ic->propertyFor(factory_);
       if (state->session_ && !state->restricted() && !state->privateInput())
@@ -4703,7 +4720,7 @@ public:
     return state->session_ && state->preferences_.value("cloud_candidates", true);
   }
   void activate(fcitx::InputContext *ic) override {
-    if (!ic || !ic->hasFocus()) return;
+    if (!ic || !ic->propertyFor(factory_)->menuTarget()) return;
     auto *state = ic->propertyFor(factory_);
     if (!state->session_ || state->restricted() || state->privateInput()) return;
     try {
@@ -4734,7 +4751,7 @@ public:
         .value("enabled", false);
   }
   void activate(fcitx::InputContext *ic) override {
-    if (!ic || !ic->hasFocus()) return;
+    if (!ic || !ic->propertyFor(factory_)->menuTarget()) return;
     auto *state = ic->propertyFor(factory_);
     if (!state->session_ || state->restricted() || state->privateInput()) return;
     try {
@@ -4776,7 +4793,7 @@ public:
     setLongText("重置" MSIME_EDITION_DISPLAY_NAME "：关闭所有输入会话并重新读取运行配置");
   }
   void activate(fcitx::InputContext *ic) override {
-    if (!ic || !ic->hasFocus()) return;
+    if (!ic || !ic->propertyFor(factory_)->menuTarget()) return;
     try {
       auto *state = ic->propertyFor(factory_);
       if (state) state->reloadService();
@@ -4795,12 +4812,11 @@ public:
     setLongText(text);
   }
   void activate(fcitx::InputContext *ic) override {
-    if (!ic || !ic->hasFocus()) return;
+    if (!ic || !ic->propertyFor(factory_)->menuTarget()) return;
     try {
       auto *state = ic->propertyFor(factory_);
       if (!state || state->restricted() ||
-          (std::strcmp(panel_, "voice") == 0 && !state->voice_enabled_) ||
-          !ic->hasFocus()) return;
+          (std::strcmp(panel_, "voice") == 0 && !state->voice_enabled_)) return;
       launchDesktopPanel(panel_);
     } catch (...) {}
   }
@@ -4843,7 +4859,7 @@ public:
         .value("enabled", true);
   }
   void activate(fcitx::InputContext *ic) override {
-    if (!ic || !ic->hasFocus()) return;
+    if (!ic || !ic->propertyFor(factory_)->menuTarget()) return;
     try {
       auto *state = ic->propertyFor(factory_);
       if (state->toggleFloatingToolbar()) update(ic);
@@ -4865,7 +4881,7 @@ public:
     return state->session_ && state->voice_enabled_;
   }
   void activate(fcitx::InputContext *ic) override {
-    if (!ic || !ic->hasFocus()) return;
+    if (!ic || !ic->propertyFor(factory_)->menuTarget()) return;
     try {
       auto *state = ic->propertyFor(factory_);
       if (state->toggleVoiceEnabled()) update(ic);
@@ -4915,7 +4931,7 @@ public:
     return "保存设置";
   }
   void activate(fcitx::InputContext *ic) override {
-    if (!ic || !ic->hasFocus()) return;
+    if (!ic || !ic->propertyFor(factory_)->menuTarget()) return;
     try {
       auto *state = ic->propertyFor(factory_);
       if (state && state->retryPreferenceSave()) update(ic);
@@ -4953,7 +4969,7 @@ public:
     return state->session_ && state->preferences_.value("clipboard_history", false);
   }
   void activate(fcitx::InputContext *ic) override {
-    if (!ic || !ic->hasFocus()) return;
+    if (!ic || !ic->propertyFor(factory_)->menuTarget()) return;
     try {
       auto *state = ic->propertyFor(factory_);
       if (state->ensure() && state->toggleClipboardHistory()) update(ic);
@@ -5229,7 +5245,7 @@ public:
     return state->session_ && state->traditionalApplies();
   }
   void activate(fcitx::InputContext *ic) override {
-    if (!ic || !ic->hasFocus()) return;
+    if (!ic || !ic->propertyFor(factory_)->menuTarget()) return;
     try {
       auto *state = ic->propertyFor(factory_);
       if (state->restricted() || state->privateInput()) return;
@@ -5272,10 +5288,16 @@ public:
   // it in classicui.conf, where Fcitx5's configuration tool shows the same value. A front end
   // without the classic UI (kimpanel on Plasma draws with the desktop's font) is left alone.
   void applyCandidatePanelFont(const Json &preferences) {
-    const auto description = candidate_font_sync_.next(msime::linux_host::read_candidate_font(preferences));
-    if (!description) return;
     auto *classicui = instance_->addonManager().addon("classicui", true);
-    if (!classicui) return;
+    // 面板里现有的描述只在第一次同步时用得上（见 CandidateFontSync::next）。
+    std::optional<std::string> current;
+    if (!candidate_font_sync_.primed() && classicui && classicui->getConfig()) {
+      fcitx::RawConfig existing;
+      classicui->getConfig()->save(existing);
+      if (const auto *font = existing.valueByPath("Font")) current = *font;
+    }
+    const auto description = candidate_font_sync_.next(msime::linux_host::read_candidate_font(preferences), current);
+    if (!description || !classicui) return;
     fcitx::RawConfig config;
     config.setValueByPath("Font", *description);
     set_classicui_config(*classicui, config);
@@ -5368,7 +5390,7 @@ public:
       auto *state = ic->propertyFor(&factory_);
       // A context another input method owns is left alone, panel included.
       if (!state->session_ && instance_->inputMethodEngine(ic) != this) return true;
-      if (ic->hasFocus()) focused.push_back(ic);
+      if (state->menuTarget()) focused.push_back(ic);
       state->close();
       state->clearPanel();
       return true;
@@ -5651,13 +5673,16 @@ public:
           state->rememberInputMode();
           state->ime_mode_chosen_ = false;
           state->mode_restore_pending_ = true;
-          state->close();
+          // 会话不在这里关：随后的 deactivate 把它留给托盘菜单，到下一次有上下文获得焦点再关（见 holdMenuContext）。
+          try { state->leaveFocus(); } catch (...) { state->close(); }
           state->clearPanel();
         });
     // Any focused context counts, whichever input method it uses: the panels type through Fcitx5 itself once this addon is loaded.
     panel_focus_watch_ = instance->watchEvent(
         fcitx::EventType::InputContextFocusIn,
-        fcitx::EventWatcherPhase::PreInputMethod, [this](fcitx::Event &) {
+        fcitx::EventWatcherPhase::PreInputMethod, [this](fcitx::Event &event) {
+          // 任何上下文获得焦点，之前留给托盘菜单的那个就交出去，不论新上下文用哪个输入法。
+          releaseMenuContext(static_cast<fcitx::InputContextEvent &>(event).inputContext());
           ++panel_input_generation_;
           listenPanelInput();
         });
@@ -5847,6 +5872,8 @@ public:
     return PanelInputDelivery::Delivered;
   }
   void activate(const fcitx::InputMethodEntry &, fcitx::InputContextEvent &event) override {
+    // 获得焦点时 panel_focus_watch_ 已经交出；换到本输入法不经过它。
+    releaseMenuContext(event.inputContext());
     auto *state = event.inputContext()->propertyFor(&factory_);
     auto &status = event.inputContext()->statusArea();
     // The design menu: 中文/英文; 全角/标点/译文; 输入方案; 主题/词库…/设置…/关于. 中文/英文 is the input-mode toggle Shift flips; the Engine's dedicated English mode is a different feature and sits in 输入选项. kimpanel lists status actions as they are, separators included, so the parts are not divided by rules here.
@@ -5861,16 +5888,9 @@ public:
              &cloud_clipboard_action_, &emoji_action_, &emoji_search_action_, &emoji_category_action_,
              &emoji_group_action_, &input_group_action_, &punctuation_group_action_, &candidate_group_action_})
       status.addAction(fcitx::StatusGroup::InputMethod, action);
-    // Rebuilt from the current preferences rather than assembled once: the
-    // switches are a shared document that can change while a context is focused,
-    // and the menu is shared too, so there is one place for it to follow.
-    event.inputContext()->propertyFor(&factory_)->refreshToolbar();
     status.addAction(fcitx::StatusGroup::InputMethod, &desktop_tools_action_);
     try {
       if (state->ensure()) {
-        if (state->voice_enabled_)
-          event.inputContext()->statusArea().addAction(
-              fcitx::StatusGroup::InputMethod, &voice_action_);
         state->render();
         state->syncMusic();
         // Moving into another text field shows the current 中/英 as a switch does (#2589), so the user knows the mode before typing there. Only a focus change: switching to this input method from another already gets Fcitx5's own input-method popup, and showInputModeHud keeps to the input_mode_hud preference and stays quiet in password and private fields.
@@ -5878,6 +5898,9 @@ public:
       }
     } catch (const OptionsNotConfigured &) { notConfigured(*state, true); }
     catch (...) { unavailable(*state); }
+    // 工具栏与语音两项要看会话，在建会话之后才定。
+    state->refreshToolbar();
+    state->syncVoiceAction();
     state->publishInputStatus(true);
     noticeReplacedAddon(*state);
   }
@@ -5888,17 +5911,42 @@ public:
         state->commitsOnBlur() && !state->view_.value("editing_text", std::string{}).empty()) {
       try { state->command(MSIME_FINISH_COMPOSITION); } catch (...) {}
     }
-    // Everything activate() or a later voice or toolbar refresh may have added.
-    for (auto *action : std::initializer_list<fcitx::Action *>{
-             &input_mode_action_, &width_action_, &chinese_punctuation_action_,
-             &candidate_translation_action_, &scheme_action_, &global_theme_action_, &dictionary_action_,
-             &settings_action_, &about_action_, &voice_cancel_action_, &maintenance_action_, &nine_key_action_,
-             &clipboard_action_, &cloud_clipboard_action_, &emoji_action_, &emoji_search_action_,
-             &emoji_category_action_, &emoji_group_action_, &input_group_action_, &punctuation_group_action_,
-             &candidate_group_action_, &voice_action_, &toolbar_action_, &desktop_tools_action_})
-      event.inputContext()->statusArea().removeAction(action);
-    state->close(); state->clearPanel();
+    // 失焦时会话和状态动作留给托盘菜单（见 holdMenuContext 与 README「状态区」一段）；换输入法等其余情况照旧关掉、清空。
+    if (event.type() == fcitx::EventType::InputContextFocusOut && !state->restricted()) {
+      holdMenuContext(event.inputContext());
+    } else if (menu_context_ic_.get() == event.inputContext()) {
+      releaseMenuContext(nullptr);
+    } else {
+      event.inputContext()->statusArea().clearGroup(fcitx::StatusGroup::InputMethod);
+      state->close(); state->clearPanel();
+    }
     state->publishInputStatus(false);
+  }
+  // Fcitx5 的托盘（SNI/dbusmenu）列的是最近聚焦的上下文的状态动作，点下去也作用于它；在 Hyprland 上的 noctalia、waybar 等桌面，点托盘本身就让应用失焦。所以失焦的上下文留着会话，托盘读到的勾选是它真实的状态，点下的开关作用于它的会话并照常保存。同一时间只留一个，到有上下文获得焦点时交出（releaseMenuContext）。只往有焦点的输入框里写的入口——语音、候选维护、剪贴板、云剪贴板、表情——这时点了也没有地方落，先从状态区拿掉，获得焦点时 activate 再放回。
+  void holdMenuContext(fcitx::InputContext *ic) {
+    if (menu_context_ic_.get() != ic) releaseMenuContext(nullptr);
+    menu_context_ic_ = ic->watch();
+    for (auto *action : focusOnlyActions()) ic->statusArea().removeAction(action);
+    // 语音项由它自己按焦点决定，顺带刷新状态区。
+    ic->propertyFor(&factory_)->syncVoiceAction();
+  }
+  // activate 第二组里只往有焦点的输入框里写的那几项（语音项见 syncVoiceAction）；托盘留着失焦的上下文时拿掉它们。
+  std::array<fcitx::Action *, 8> focusOnlyActions() {
+    return {&voice_cancel_action_, &maintenance_action_, &clipboard_action_, &cloud_clipboard_action_,
+            &emoji_action_, &emoji_search_action_, &emoji_category_action_, &emoji_group_action_};
+  }
+  // 留给托盘的上下文真正关掉会话。获得焦点的不是它时，连它的状态动作一起拿掉，托盘从此列新聚焦的那个。
+  void releaseMenuContext(fcitx::InputContext *focused) {
+    auto *held = menu_context_ic_.get();
+    menu_context_ic_.unwatch();
+    if (!held) return;
+    auto *state = held->propertyFor(&factory_);
+    state->close();
+    state->clearPanel();
+    if (held != focused) {
+      held->statusArea().clearGroup(fcitx::StatusGroup::InputMethod);
+      held->updateUserInterface(fcitx::UserInterfaceComponent::StatusArea);
+    }
   }
   void reset(const fcitx::InputMethodEntry &, fcitx::InputContextEvent &event) override {
     auto *state = event.inputContext()->propertyFor(&factory_);
@@ -5972,7 +6020,14 @@ public:
     fcitx::startProcess({guide, "--host", "fcitx5"});
   }
   fcitx::Instance *instance_;
-  msime::linux_host::CandidateFontSync candidate_font_sync_;
+  // 5.1.18 起的经典界面字号写成磅，候选序号才与候选同样大小（见 CandidateFontUnit）。
+  static constexpr auto kClassicUiFontUnit =
+#ifdef MSIME_FCITX5_LABEL_POINTS
+      msime::linux_host::CandidateFontUnit::Points;
+#else
+      msime::linux_host::CandidateFontUnit::Pixels;
+#endif
+  msime::linux_host::CandidateFontSync candidate_font_sync_{kClassicUiFontUnit};
   std::string candidate_theme_applied_;
   msime::linux_host::CandidateWheelPagingSync candidate_wheel_paging_sync_;
   // Last appearance the addon-wide probe reported; see stepSystemTheme.
@@ -5984,6 +6039,8 @@ public:
   std::unique_ptr<fcitx::EventSourceTime> system_theme_timer_;
   std::unique_ptr<fcitx::HandlerTableEntry<fcitx::EventHandler>> capability_watch_;
   std::unique_ptr<fcitx::HandlerTableEntry<fcitx::EventHandler>> focus_watch_;
+  // 失焦后留给托盘菜单的那个上下文，见 holdMenuContext；上下文销毁时自动失效。
+  fcitx::TrackableObjectReference<fcitx::InputContext> menu_context_ic_;
   // Declared in this order so the event sources go before the socket and the connections they serve.
   msime::linux_host::PanelInputSocket panel_input_socket_;
   msime::linux_host::PanelInputBroker panel_input_broker_;
@@ -6161,19 +6218,24 @@ public:
   FcitxEmojiPageAction emoji_next_action_{&factory_, true};
 };
 
+bool FcitxState::menuTarget() const {
+  return ic_.hasFocus() || (engine_ && engine_->menu_context_ic_.get() == &ic_);
+}
+
 // Defined here rather than in the class body because FcitxEngine is only forward-declared there, and the voice action it owns cannot be named until the definition above.
 void FcitxState::syncVoiceAction() {
   if (!engine_) return;
-  if (voice_enabled_)
+  // 语音要往有焦点的输入框里写，失焦后托盘上不列它。
+  if (session_ && voice_enabled_ && ic_.hasFocus())
     ic_.statusArea().addAction(fcitx::StatusGroup::InputMethod, &engine_->voice_action_);
   else
     ic_.statusArea().removeAction(&engine_->voice_action_);
   ic_.updateUserInterface(fcitx::UserInterfaceComponent::StatusArea);
 }
 
-// The chord and the status-menu action reset in process; see FcitxEngine::resetSessions. Only a focused, unrestricted, non-private context may ask, as before.
+// 快捷键和状态区动作都在进程内重置，见 FcitxEngine::resetSessions。只有菜单作用得到的（有焦点，或失焦后托盘仍指向的）、非受限、非隐私的上下文能发起。
 bool FcitxState::reloadService() {
-  if (!engine_ || !ic_.hasFocus() || restricted() || privateInput()) return false;
+  if (!engine_ || !menuTarget() || restricted() || privateInput()) return false;
   engine_->resetSessions();
   return true;
 }

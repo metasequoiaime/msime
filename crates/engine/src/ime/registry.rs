@@ -229,16 +229,20 @@ impl ProviderRegistry {
     }
 
     /// 为候选展示查询完整五笔编码；反查结果与候选一一对应，查不到时保留空字符串。没有构造五笔 provider 的会话（方案集合里没有五笔）一律是空字符串。
-    pub fn reverse_wubi_codes(&mut self, candidates: &[WordItem]) -> Vec<String> {
-        candidates
-            .iter()
-            .map(|candidate| {
-                self.wubi
-                    .as_mut()
-                    .and_then(|wubi| wubi.reverse_code(&candidate.word))
-                    .unwrap_or_default()
-            })
-            .collect()
+    pub fn reverse_wubi_codes(&mut self, candidates: &[WordItem], destination: &mut Vec<String>) {
+        if destination.len() > candidates.len() {
+            destination.truncate(candidates.len());
+        }
+        destination.resize_with(candidates.len(), String::new);
+        for (code, candidate) in destination.iter_mut().zip(candidates) {
+            if self
+                .wubi
+                .as_mut()
+                .is_none_or(|wubi| !wubi.reverse_code_into(&candidate.word, code))
+            {
+                code.clear();
+            }
+        }
     }
 
     /// Either pinyin scheme resets both pinyin engines (pinyin_candidate_provider.cpp:44-48).
