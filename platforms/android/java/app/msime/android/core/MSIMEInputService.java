@@ -3313,7 +3313,7 @@ public final class MSIMEInputService extends InputMethodService {
     String spaceKeyTitle() {
         return japaneseSchemeActive()
             ? JapaneseNineKeyActions.spaceTitle(view != null
-                && !view.optString("editing_text", "").isEmpty()) : "空格";
+                && !InputViewValuePolicy.editingText(view).isEmpty()) : "空格";
     }
 
     String spaceKeyDescription() {
