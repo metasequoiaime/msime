@@ -660,6 +660,23 @@ fn install_refuses_a_symlinked_root() {
     assert!(fs::read_dir(outside.path()).unwrap().next().is_none());
 }
 
+#[cfg(unix)]
+#[test]
+fn leftover_cleanup_rejects_a_symlinked_parent() {
+    use std::os::unix::fs::symlink;
+
+    let state = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let linked = state.path().join("linked");
+    let victim = outside.path().join("staging");
+    fs::create_dir(&victim).unwrap();
+    fs::write(victim.join("keep.bin"), b"synthetic outside data").unwrap();
+    symlink(outside.path(), &linked).unwrap();
+
+    assert_eq!(remove_leftover(&linked.join("staging")), Err(STORAGE));
+    assert!(victim.join("keep.bin").exists());
+}
+
 #[test]
 fn install_clears_what_an_interrupted_install_left_behind() {
     let state = tempfile::tempdir().unwrap();

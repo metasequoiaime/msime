@@ -40,15 +40,35 @@ impl InputSession {
         }
     }
 
+    pub(super) fn editing_text_len(&self) -> usize {
+        if self.dedicated_english {
+            return self.dedicated_english_preedit.len();
+        }
+        match self.local_mode {
+            LocalInputMode::TemporaryJapanese => {
+                1 + self.engine.request().raw_input_with_cases.len()
+            }
+            LocalInputMode::None if self.is_vietnamese() || self.is_tibetan() => {
+                self.engine.preedit().len()
+            }
+            LocalInputMode::None if self.is_cantonese() => {
+                self.engine.request().normalized_segmentation.len()
+            }
+            LocalInputMode::None => self.raw_with_cases().len(),
+            _ => self.local_preedit.len(),
+        }
+    }
+
     pub(super) fn caret_position(&self) -> usize {
-        let length = self.editing_text().len();
+        let length = self.editing_text_len();
         self.caret.unwrap_or(length).min(length)
     }
 
     /// input_session_editing.cpp:123-159.
     pub(super) fn edit_at_caret(&mut self, command: Command) -> KeyResult {
         let mut text = self.editing_text();
-        let mut caret = self.caret_position();
+        let text_len = text.len();
+        let mut caret = self.caret.unwrap_or(text_len).min(text_len);
         // 本地模式的前缀字母是模式标记，不是可编辑的内容；网址模式没有前缀字母，整段都能编辑。
         let begin = usize::from(!matches!(
             self.local_mode,
@@ -276,7 +296,7 @@ impl InputSession {
             self.caret = None;
             return;
         }
-        let length = self.editing_text().len();
+        let length = self.editing_text_len();
         self.caret = caret.map(|position| position.min(length));
         // Only the scheme composition decodes by caret; local and English lists do not depend on it.
         if !self.dedicated_english && self.local_mode == LocalInputMode::None {
