@@ -272,8 +272,14 @@ impl LanguageDictionary {
         };
         if positions.iter().all(|readings| readings.len() == 1) {
             let key = join_single_readings(positions);
-            return Ok(self
-                .lookup(&key, limit)?
+            let mut entries = self.lookup(&key, limit)?;
+            if entries.len() <= 1 {
+                return Ok(entries
+                    .pop()
+                    .map(|entry| vec![(key, entry)])
+                    .unwrap_or_default());
+            }
+            return Ok(entries
                 .into_iter()
                 .map(|entry| (key.clone(), entry))
                 .collect());
@@ -733,6 +739,35 @@ mod tests {
         assert_eq!(rows(&[&ni], 1), ["ㄋㄧˇ:你:1000"]);
         assert!(rows(&[], 10).is_empty());
         assert!(rows(&[&hao, &ni_li], 10).is_empty());
+    }
+
+    #[test]
+    fn single_reading_result_does_not_clone_the_query_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("msime-zhuyin.db");
+        build(&path, &FORMAT_VERSION.to_string());
+        let connection = Connection::open(&path).unwrap();
+        connection
+            .execute(
+                "INSERT INTO entries VALUES (?1, ?2, ?3)",
+                ("ㄋㄧˇ", "你", 1000),
+            )
+            .unwrap();
+        drop(connection);
+
+        let dictionary = open_read_only(&path).unwrap();
+        let reading = readings(&["ㄋㄧˇ"]);
+        // 预热语句缓存，统计只覆盖候选查询本身。
+        let expected = dictionary.lookup_readings(&[&reading], 1).unwrap();
+        let (actual, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            dictionary.lookup_readings(&[&reading], 1).unwrap()
+        });
+
+        assert_eq!(actual, expected);
+        assert_eq!(
+            allocations, 5,
+            "单结果查询不应为键再分配副本：{allocations}"
+        );
     }
 
     #[test]
