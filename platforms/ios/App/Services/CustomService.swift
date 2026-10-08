@@ -245,9 +245,22 @@ struct CustomServiceConfiguration: Codable, Sendable, Equatable {
     }
   }
 
-  func validatedURL(requiresModel: Bool = true, allowWebSocket: Bool = false) throws -> URL {
-    guard let url = Self.validatedEndpoint(endpoint, allowWebSocket: allowWebSocket, maximumBytes: 2_048),
-      (!requiresModel || (!model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && model.utf8.count <= 256))
+  /// `allowsLocalHTTP` 只给 AI 辅助（含润色）用：它按 `AIEndpointPolicy` 放行本机和局域网的 http 地址；语音识别仍然只走 https 或 wss。
+  func validatedURL(requiresModel: Bool = true, allowWebSocket: Bool = false,
+                    allowsLocalHTTP: Bool = false) throws -> URL {
+    let modelValid = !requiresModel
+      || (!model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && model.utf8.count <= 256)
+    if allowsLocalHTTP {
+      let trimmed = endpoint.trimmingCharacters(in: .whitespacesAndNewlines)
+      if AIEndpointPolicy.problem(trimmed) == .cleartextPublicHost {
+        throw ServiceFailure(message: AIEndpointPolicy.cleartextMessage)
+      }
+      guard let url = AIEndpointPolicy.validatedURL(trimmed), modelValid else {
+        throw ServiceFailure(message: "请填写完整的接口地址（https，或本机、局域网的 http）和模型名称。")
+      }
+      return url
+    }
+    guard let url = Self.validatedEndpoint(endpoint, allowWebSocket: allowWebSocket, maximumBytes: 2_048), modelValid
     else { throw ServiceFailure(message: "请填写完整的 HTTPS 接口地址和模型名称。") }
     return url
   }
@@ -262,7 +275,7 @@ struct CustomServiceConfiguration: Codable, Sendable, Equatable {
       return
     }
     if kind == .voice && voiceProvider == .doubao { try validateDoubaoFields() }
-    let url = try validatedURL(allowWebSocket: kind == .voice && voiceProvider == .doubao)
+    let url = try validatedURL(allowWebSocket: kind == .voice && voiceProvider == .doubao, allowsLocalHTTP: kind == .ai)
     if !token.isEmpty { try ServiceTokenStore.write(token, kind: kind, url: url) }
     if kind == .ai {
       storePreset(in: defaults)
@@ -309,7 +322,8 @@ enum ServiceTokenStore {
   private static func query(_ scope: String, _ url: URL) -> [String: Any] {
     [kSecClass as String: kSecClassGenericPassword,
      kSecAttrService as String: "app.msime.ios.custom-services",
-     kSecAttrAccount as String: "\(scope)|\(url.scheme ?? "")://\(url.host?.lowercased() ?? ""):\(url.port ?? 443)"]
+     // 端口缺省按协议补：https 是 443（与以前存下的键相同），局域网的 http 是 80。
+     kSecAttrAccount as String: "\(scope)|\(url.scheme ?? "")://\(url.host?.lowercased() ?? ""):\(url.port ?? (url.scheme?.lowercased() == "http" ? 80 : 443))"]
   }
   static func read(_ kind: CustomServiceKind, url: URL) throws -> String { try read(scope: kind.rawValue, url: url) }
   static func write(_ token: String, kind: CustomServiceKind, url: URL) throws {
@@ -372,7 +386,8 @@ enum CustomServiceClient {
     }
     let request = try makeRequest(kind: kind, configuration: configuration, prompt: configuration.prompt,
                                   text: text, wav: wav, token: token, language: language)
-    let session = URLSession(configuration: sessionConfiguration, delegate: NoRedirects(), delegateQueue: nil)
+    let session = URLSession(configuration: AIEndpointPolicy.sessionConfiguration(sessionConfiguration, for: request.url),
+                             delegate: NoRedirects(), delegateQueue: nil)
     defer { session.invalidateAndCancel() }
     let (bytes, response) = try await session.bytes(for: request)
     try requireSuccess(response)
@@ -417,7 +432,8 @@ enum CustomServiceClient {
     var request = try makeRequest(kind: kind, configuration: configuration, prompt: "Reply OK", text: "OK",
                                   wav: kind == .voice ? silentWAV(silence) : nil, token: token)
     request.timeoutInterval = 20
-    let session = URLSession(configuration: sessionConfiguration, delegate: NoRedirects(), delegateQueue: nil)
+    let session = URLSession(configuration: AIEndpointPolicy.sessionConfiguration(sessionConfiguration, for: request.url),
+                             delegate: NoRedirects(), delegateQueue: nil)
     defer { session.invalidateAndCancel() }
     let (_, response) = try await session.bytes(for: request)
     try requireSuccess(response)
@@ -425,7 +441,7 @@ enum CustomServiceClient {
 
   static func makeRequest(kind: CustomServiceKind, configuration: CustomServiceConfiguration, prompt: String,
                           text: String, wav: Data?, token: String, language: String? = nil) throws -> URLRequest {
-    let url = try configuration.validatedURL()
+    let url = try configuration.validatedURL(allowsLocalHTTP: kind == .ai)
     var request = URLRequest(url: url)
     request.httpMethod = "POST"
     request.timeoutInterval = 60
@@ -482,8 +498,8 @@ enum ModelCatalogClient {
     let last_id: String?
   }
 
-  static func modelsURL(configuration: CustomServiceConfiguration) throws -> URL {
-    let endpoint = try configuration.validatedURL(requiresModel: false)
+  static func modelsURL(configuration: CustomServiceConfiguration, kind: CustomServiceKind) throws -> URL {
+    let endpoint = try configuration.validatedURL(requiresModel: false, allowsLocalHTTP: kind == .ai)
     var parts = URLComponents(url: endpoint, resolvingAgainstBaseURL: false)!
     var path = parts.path
     while path.hasSuffix("/") { path.removeLast() }
@@ -500,9 +516,10 @@ enum ModelCatalogClient {
                     token: String, sessionConfiguration: URLSessionConfiguration = .ephemeral) async throws -> [String] {
     let key = token.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !key.isEmpty else { throw ServiceFailure(message: "请先填写 API Key，或使用已保存的密钥。") }
-    let baseURL = try modelsURL(configuration: configuration)
+    let baseURL = try modelsURL(configuration: configuration, kind: kind)
     let anthropic = baseURL.host == "api.anthropic.com"
-    let session = URLSession(configuration: sessionConfiguration, delegate: NoRedirects(), delegateQueue: nil)
+    let session = URLSession(configuration: AIEndpointPolicy.sessionConfiguration(sessionConfiguration, for: baseURL),
+                             delegate: NoRedirects(), delegateQueue: nil)
     defer { session.invalidateAndCancel() }
     var models = Set<String>()
     var cursor: String?
