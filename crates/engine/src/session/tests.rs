@@ -4498,6 +4498,23 @@ fn stroke_rows_are_never_learned_or_edited() {
 }
 
 #[test]
+fn selecting_a_stroke_candidate_does_not_clone_the_full_row() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = stroke_session(&fixture);
+    type_text(&mut session, "h");
+
+    let (result, allocations) =
+        crate::ime::personal_rerank::allocations::count(|| session.select(1));
+
+    assert_eq!(result.commit.as_deref(), Some("大"));
+    assert!(session.snapshot().preedit.is_empty());
+    assert!(
+        allocations <= 1,
+        "stroke candidate selection allocations: {allocations}"
+    );
+}
+
+#[test]
 fn stroke_caret_edits_take_only_strokes() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);
     let mut session = stroke_session(&fixture);

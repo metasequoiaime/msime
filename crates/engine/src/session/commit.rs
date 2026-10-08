@@ -122,6 +122,25 @@ impl InputSession {
             self.reset_composition();
             return committed(text, diagnostic);
         }
+        if self.stroke_rules_apply() {
+            let text = self.candidates().get(index).map_or_else(
+                || self.engine.request().raw_input.clone(),
+                |item| item.word.clone(),
+            );
+            self.reset_composition();
+            self.chain.reset();
+            return KeyResult::committed(text);
+        }
+        if self.korean_rules_apply() || self.vietnamese_rules_apply() || self.tibetan_rules_apply()
+        {
+            let text = self
+                .candidates()
+                .get(index)
+                .map_or_else(|| self.preedit(), |item| item.word.clone());
+            self.reset_composition();
+            self.chain.reset();
+            return KeyResult::committed(text);
+        }
         let selected = self.candidates().get(index).cloned();
         // A Korean commit is the chosen Hanja or the Hangul itself, and nothing about it is learned: the rows are keyed by Dubeolsik letters, which every learning path below would read as pinyin. A Vietnamese commit is the displayed word, learned nowhere either.
         // A Cantonese commit is learned nowhere either. A row that covers only the leading syllables commits at once and the letters after it keep composing (`holds_phrase_progress` is false), so there is no phrase being built to hold.
@@ -139,22 +158,6 @@ impl InputSession {
             }
             self.chain.reset();
             return KeyResult::committed(selected.word);
-        }
-        // 笔画的提交不学习：候选来自只读的 `msime-stroke.db`，键是笔画字母，任何学习路径都会把它当拼音写进用户词典。选中的字结束整个组合；没有候选时上屏键入的字母串，与 Enter 相同。
-        if self.stroke_rules_apply() {
-            let text =
-                selected.map_or_else(|| self.engine.request().raw_input.clone(), |item| item.word);
-            self.reset_composition();
-            self.chain.reset();
-            return KeyResult::committed(text);
-        }
-        // 藏文提交的是显示出来的藏文（不附加音节点），同样不学习。
-        if self.korean_rules_apply() || self.vietnamese_rules_apply() || self.tibetan_rules_apply()
-        {
-            let text = selected.map_or_else(|| self.preedit(), |item| item.word);
-            self.reset_composition();
-            self.chain.reset();
-            return KeyResult::committed(text);
         }
         let text = match &selected {
             Some(item) => Some(item.word.clone()),
