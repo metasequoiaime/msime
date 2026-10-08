@@ -23,6 +23,7 @@
 #include "Utils/FanyUtils.h"
 #include "../Utils/PerfTimer.h"
 #include "../HostOptionsPaths.h"
+#include "../ModulePath.h"
 // The TSF sources use the Windows SDK max macro under MSVC; the Engine contract calls std::numeric_limits<...>::max(), which that macro would rewrite.
 #pragma push_macro("max")
 #undef max
@@ -1350,8 +1351,37 @@ STDAPI CMetasequoiaIME::ActivateEx(ITfThreadMgr *pThreadMgr, TfClientId tfClient
 
     _tfClientId = tfClientId;
     _dwActivateFlags = dwFlags;
-    Global::HostUiLessMode = _IsUiLessMode() ? true : false;
+    // 进程名要早于下面的游戏候选窗判定。改用 GetModuleFileNameW，不再像 CommonUtils 的 GetCurrentProcessName 那样对自身开一个带 PROCESS_VM_READ 的句柄。
+    {
+        const std::wstring modulePath = msime::tsf::ReadModulePath(
+            [](wchar_t *buffer, unsigned capacity) { return GetModuleFileNameW(nullptr, buffer, capacity); });
+        Global::current_process_name = std::wstring(Global::ProcessBaseName(modulePath));
+    }
+    // 游戏声明 UILess 却不画候选时改由水杉画：判定结果决定下面要不要向 Server 报 UILess，必须先算。偏好读取失败时不强制。
+    {
+        Global::CandidateOverlayDecision decision;
+        if (const auto compatibility = FanyUtils::ReadConfiguredGameCompatibility())
+        {
+            decision.preferencesRead = true;
+            decision.enabled = compatibility->overlay;
+            decision.overlayProcesses = compatibility->overlay_processes;
+            decision.excludedProcesses = compatibility->excluded_processes;
+        }
+        decision.facts = Global::ReadCandidateOverlayFacts(_IsUiLessMode() != FALSE);
+        Global::ForceOverlayCandidate =
+            Global::ShouldForceCandidateOverlay(decision.enabled, decision.facts, Global::current_process_name,
+                                                decision.overlayProcesses, decision.excludedProcesses);
+        Global::GameOverlayDecision = std::move(decision);
+    }
+    // 强制叠加时不报 UILess：ClientActivated 的 keycode 为 0，Server 不锁存 UILess，也不抑制显示。
+    Global::HostUiLessMode = !Global::ForceOverlayCandidate && _IsUiLessMode();
     Global::CandidateUiLessMode = false;
+    if (Global::ForceOverlayCandidate)
+    {
+        // 明确告诉 Server 还没有锚点，不发初值 (100,100)。
+        Global::Point[0] = 0;
+        Global::Point[1] = Global::INVALID_Y;
+    }
     // Match Weasel's activation-time recovery: switching to this TIP is an
     // explicit user request, so revive a missing Server immediately. Merely
     // focusing another text box still uses reconnect-only behavior.
@@ -1375,7 +1405,6 @@ STDAPI CMetasequoiaIME::ActivateEx(ITfThreadMgr *pThreadMgr, TfClientId tfClient
         Global::IsVSCodeLike = true;
     }
     */
-    Global::current_process_name = GetCurrentProcessName();
 
     if (!_InitThreadMgrEventSink())
     {
@@ -1517,6 +1546,8 @@ STDAPI CMetasequoiaIME::Deactivate()
     _UninitBareShiftKeyboardHook();
     Global::HostUiLessMode = false;
     Global::CandidateUiLessMode = false;
+    Global::ForceOverlayCandidate = false;
+    Global::GameOverlayDecision = {};
     // Send this synchronously before destroying the message window. OnKill can
     // queue the same lifecycle event, but that queued message may never run
     // during a rapid TIP deactivation; the server treats duplicates as idempotent.

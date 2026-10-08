@@ -1,6 +1,8 @@
 #pragma once
 #include <Windows.h>
+#include <optional>
 #include <string>
+#include <vector>
 
 namespace FanyUtils
 {
@@ -33,4 +35,13 @@ struct SwitchLanguageHotkeys
 };
 // Read keybindings.switch_language_* from shared PreferencesStore, or the defaults when it is unreadable.
 SwitchLanguageHotkeys ReadConfiguredSwitchLanguageHotkeys();
+
+struct GameCompatibility
+{
+    bool overlay = true;
+    std::vector<std::wstring> overlay_processes;
+    std::vector<std::wstring> excluded_processes;
+};
+// 读共享偏好里的 game_compatibility。键不存在时就是默认值（开关开、两张表为空），Rust 侧在全是默认值时不写这个键；读取失败时返回 nullopt，调用方按不强制处理，因为这时不知道用户有没有关掉开关或把这个游戏放进「从不显示」。
+std::optional<GameCompatibility> ReadConfiguredGameCompatibility();
 } // namespace FanyUtils

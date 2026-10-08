@@ -1,5 +1,6 @@
 #include "Ipc.h"
 #include "../../../../shared/contracts/ipc_negotiation.h"
+#include "../../common/PipeMetadata.h"
 #include <algorithm>
 #include <cstring>
 #include <cwctype>
@@ -526,7 +527,8 @@ bool WritePipeHello(HANDLE hPipeHandle, UINT pipeRole)
         const auto hello =
             FanyImeProtocol::Hello(GetPipeClientId(), NextProtocolId(nextRequestId),
                                    FanyImeProtocol::Capabilities | FanyImeProtocol::CharacterSetShortcut |
-                                       FanyImeProtocol::KeyboardCompositionCancel);
+                                       FanyImeProtocol::KeyboardCompositionCancel |
+                                       FanyImeProtocol::GameHostCandidate);
         BOOL ret = WriteFile(hPipeHandle, &hello, sizeof(hello), &bytesWritten, NULL);
         // Never authorize keys from merely writing a hello. An old Server
         // without negotiation times out into the existing raw-input fallback.
@@ -896,6 +898,12 @@ bool SupportsCharacterSetShortcut()
            (negotiatedServerCapabilities & FanyImeProtocol::CharacterSetShortcut) != 0;
 }
 
+bool SupportsGameHostCandidate()
+{
+    return hPipe && hPipe != INVALID_HANDLE_VALUE &&
+           (negotiatedServerCapabilities & FanyImeProtocol::GameHostCandidate) != 0;
+}
+
 bool SupportsKeyboardCompositionCancel(const void *owner)
 {
     return IsNamedpipeFocusStateOwner(owner) && hPipe && hPipe != INVALID_HANDLE_VALUE &&
@@ -1174,6 +1182,25 @@ bool SendToNamedpipe(bool *deliveryAmbiguous = nullptr)
         // result channel has already disappeared.
         RequestNamedpipeReconnect();
         return false;
+    }
+
+    // 强制叠加的游戏会话。放在最终的重连和确认检查之后：Main 管道在 EnsureNamedpipeFocusSessionActivated 里才打开并协商，放在前面的话，首次按键和 Server 重启后的第一次按键都拿不到协商结果。
+    if (Global::ForceOverlayCandidate && (packet.event_type == FanyImePipeEventType::KeyEvent ||
+                                          packet.event_type == FanyImePipeEventType::ShowCandidateWnd ||
+                                          packet.event_type == FanyImePipeEventType::MoveCandidateWnd ||
+                                          packet.event_type == FanyImePipeEventType::HideCandidateWnd))
+    {
+        // 按键包本身不带坐标，WriteDataToNamedPipe 清空后是 (100,100)。补上当前锚点，没有锚点时是 INVALID_Y；旧 Server 收到这两种都好过 (100,100)，所以不看能力位。
+        if (packet.event_type == FanyImePipeEventType::KeyEvent)
+        {
+            packet.point[0] = Global::Point[0];
+            packet.point[1] = Global::Point[1];
+        }
+        // GameHost 只能设在这四类包上，StatusSnapshot/FocusRestored 带上它会被读错全角状态或判为非法帧。
+        if (SupportsGameHostCandidate())
+        {
+            packet.modifiers_down |= msime::windows::PipeMetadata::GameHost;
+        }
     }
 
     DWORD bytesWritten = 0;
