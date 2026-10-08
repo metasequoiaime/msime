@@ -40,7 +40,7 @@ impl InputSession {
         }
     }
 
-    fn editing_text_len(&self) -> usize {
+    pub(super) fn editing_text_len(&self) -> usize {
         if self.dedicated_english {
             return self.dedicated_english_preedit.len();
         }

@@ -790,6 +790,23 @@ fn moving_the_caret_does_not_build_the_preedit_twice() {
     );
 }
 
+#[test]
+fn typing_at_a_caret_reuses_the_editing_text_length() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session();
+    type_text(&mut session, "nihao");
+    session.command(Command::MoveLeft);
+
+    let (result, allocations) =
+        crate::ime::personal_rerank::allocations::count(|| session.character(b'x', false));
+
+    assert!(result.handled);
+    assert!(
+        allocations <= 283,
+        "caret insertion allocations: {allocations}"
+    );
+}
+
 /// The reported case: in mixed Wubi `jixu` is the wubi code of 曳光弹 and the pinyin of 继续. The fourth key must leave both on offer; without pinyin rows the same code still commits its one wubi row.
 #[test]
 fn a_four_letter_code_that_is_also_pinyin_stays_open_in_mixed_wubi() {
