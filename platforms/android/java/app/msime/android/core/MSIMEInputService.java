@@ -4121,7 +4121,7 @@ public final class MSIMEInputService extends InputMethodService {
     private KeyboardSkin surfaceSkin(JSONObject preferences, String key) {
         String surfaceMode = preferences == null ? "follow" : preferences.optString(key, "follow");
         String appMode = preferences == null ? "system"
-            : preferences.optString("theme", "system");
+            : InputViewValuePolicy.textOr(preferences, "theme", "system");
         boolean dark = KeyboardSkin.resolveDark(surfaceMode, appMode, systemDark());
         String globalTheme = preferences == null ? "system"
             : InputViewValuePolicy.textOr(preferences, "global_theme", "system");
