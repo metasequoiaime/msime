@@ -597,6 +597,12 @@ mod tests {
     }
 
     #[test]
+    fn ime_scheme_exposes_the_active_cantonese_state() {
+        let scheme = crate::ime::scheme::Scheme::Cantonese(typed("neih"));
+        assert_eq!(scheme.as_cantonese().unwrap().input(), "neih");
+    }
+
+    #[test]
     fn a_trailing_prefix_is_completed() {
         let fixture = fixture();
         let scheme = typed("neih");

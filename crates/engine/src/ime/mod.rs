@@ -624,8 +624,13 @@ impl ImeSession {
             }
             None if request.scheme == SchemeType::Cantonese => {
                 let mut candidates = std::mem::take(&mut self.state.candidates);
-                self.registry
-                    .query_cantonese_into(&request, &mut candidates);
+                if let Some(scheme) = self.scheme.as_cantonese() {
+                    self.registry
+                        .query_cantonese_scheme_into(scheme, &mut candidates);
+                } else {
+                    self.registry
+                        .query_cantonese_into(&request, &mut candidates);
+                }
                 Decoded {
                     candidates,
                     wubi_table_answered: false,
