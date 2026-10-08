@@ -42,9 +42,11 @@ public final class MoreToolsDeviceSmoke extends DeviceSmoke {
             Rect bounds = new Rect();
             tile.getBoundsInScreen(bounds);
             if (bounds.width() <= panelBounds.width() / 6 || bounds.width() >= panelBounds.width() / 3)
-                throw new AssertionError("Function panel tile is not one of four columns: " + firstPage[index]);
+                throw new AssertionError("Function panel tile is not one of four columns: " + firstPage[index]
+                    + " tile " + bounds.toShortString() + " panel " + panelBounds.toShortString());
             if (Math.abs(bounds.height() - expectedHeight) > 2)
-                throw new AssertionError("Function panel tile height mismatch: " + firstPage[index]);
+                throw new AssertionError("Function panel tile height mismatch: " + firstPage[index]
+                    + " height " + bounds.height() + " expected " + expectedHeight);
         }
         assertSameRow(tiles[0], tiles[3], "first row");
         assertSameRow(tiles[4], tiles[7], "second row");
@@ -58,7 +60,7 @@ public final class MoreToolsDeviceSmoke extends DeviceSmoke {
             throw new AssertionError("Feedback state was not exposed");
         for (String title : new String[] {"单手模式", "隐私模式", "反馈", "关于", "AI 回复与润色", "本地输入"})
             await(tool(title));
-        String originalSound = sound.getStateDescription().toString();
+        String originalSound = switchState(sound).toString();
         String changedSound = "已开启".equals(originalSound) ? "已关闭" : "已开启";
         stage = "more tools sound update";
         tap(tool("按键音"));
@@ -92,13 +94,13 @@ public final class MoreToolsDeviceSmoke extends DeviceSmoke {
     }
 
     private boolean validFeedbackState(AccessibilityNodeInfo node) {
-        CharSequence state = node.getStateDescription();
+        CharSequence state = switchState(node);
         return state != null && (equalsText("已开启", state) || equalsText("已关闭", state))
             && node.isSelected() == equalsText("已开启", state);
     }
 
     private boolean validSettingState(AccessibilityNodeInfo node) {
-        CharSequence state = node.getStateDescription();
+        CharSequence state = switchState(node);
         return state != null && (equalsText("已开启", state) || equalsText("已关闭", state)
             || equalsText("不可用", state));
     }

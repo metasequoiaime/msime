@@ -11,6 +11,8 @@
     <instrumentation android:name="app.msime.android.test.CandidateGlossDeviceSmoke" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.test.NineKeyEnglishDeviceSmoke" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.test.NineKeyPanelDeviceSmoke" android:targetPackage="app.msime.android" />
+    <instrumentation android:name="app.msime.android.test.ChineseHelpcodeDeviceSmoke" android:targetPackage="app.msime.android.test" />
+    <instrumentation android:name="app.msime.android.test.MicrosoftShuangpinDeviceSmoke" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.test.SettingsDeviceSmoke" android:targetPackage="app.msime.android" />
     <instrumentation android:name="app.msime.android.test.SettingsLifecycleSmoke" android:targetPackage="app.msime.android.test" />
     <instrumentation android:name="app.msime.android.test.TypingStatisticsDeviceSmoke" android:targetPackage="app.msime.android" />
