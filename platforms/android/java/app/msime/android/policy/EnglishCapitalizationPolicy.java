@@ -26,13 +26,18 @@ public final class EnglishCapitalizationPolicy {
     private static boolean shouldShiftSentences(CharSequence context) {
         if (context == null) return false;
         if (context.length() == 0) return true;
+        // 句末标点后要隔着空白才算新句，与 `TextUtils.getCapsMode` 和 iOS 系统键盘一致；否则刚点下 `.`、删字删到 `abc.` 后面或在 `你好。` 后切到英文都会立刻变成大写，`3.14`、`e.g`、网址也打不出来。
+        boolean whitespaceAfter = false;
         for (int offset = context.length(); offset > 0;) {
             int codePoint = Character.codePointBefore(context, offset);
             offset -= Character.charCount(codePoint);
             if (codePoint == '\n' || codePoint == '\r') return true;
-            if (Character.isWhitespace(codePoint) || Character.isSpaceChar(codePoint)
-                    || isClosing(codePoint)) continue;
-            return isSentenceTerminator(codePoint);
+            if (Character.isWhitespace(codePoint) || Character.isSpaceChar(codePoint)) {
+                whitespaceAfter = true;
+                continue;
+            }
+            if (isClosing(codePoint)) continue;
+            return whitespaceAfter && isSentenceTerminator(codePoint);
         }
         return true;
     }

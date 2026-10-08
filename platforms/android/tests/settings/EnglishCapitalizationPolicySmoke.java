@@ -24,6 +24,14 @@ public final class EnglishCapitalizationPolicySmoke {
         expect(true, EnglishCapitalizationPolicy.Mode.SENTENCES, "Really!\n");
         expect(true, EnglishCapitalizationPolicy.Mode.SENTENCES, "Done.\u201d ");
         expect(true, EnglishCapitalizationPolicy.Mode.SENTENCES, "Done.\u00a0");
+        expect(true, EnglishCapitalizationPolicy.Mode.SENTENCES, "   ");
+        expect(true, EnglishCapitalizationPolicy.Mode.SENTENCES, "\u4f60\u597d\u3002 ");
+        expect(false, EnglishCapitalizationPolicy.Mode.SENTENCES, "Hello.");
+        expect(false, EnglishCapitalizationPolicy.Mode.SENTENCES, "Really?");
+        expect(false, EnglishCapitalizationPolicy.Mode.SENTENCES, "Done.\u201d");
+        expect(false, EnglishCapitalizationPolicy.Mode.SENTENCES, "3.");
+        expect(false, EnglishCapitalizationPolicy.Mode.SENTENCES, "\u4f60\u597d\u3002");
+        expect(false, EnglishCapitalizationPolicy.Mode.SENTENCES, "Hi) ");
         System.out.println("Android English capitalization policy passed");
     }
 }
