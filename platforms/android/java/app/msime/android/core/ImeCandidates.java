@@ -246,17 +246,27 @@ final class ImeCandidates {
                 ViewPolicy.hide(s.expandedCandidates);
                 ViewPolicy.hide(s.expandedCandidateScroll);
             }
+            // 选了候选等路径只把 candidatePanelOpen 置为 false，九键三栏面板在这里跟着收起并清掉筛选。
+            s.imeNineKeyPanel.dismiss();
             return;
         }
+        // 全拼九键的三栏面板：选拼音、⌫、筛选换了一代候选时不收起，重新取完整候选再画；组字结束时 eligible 为假，落到下面按代次收起。
+        if (s.imeNineKeyPanel.eligible() && s.imeNineKeyPanel.refreshSnapshot()) {
+            if (s.expandedCandidates.getVisibility() != View.GONE) {
+                s.expandedCandidates.removeAllViews();
+                ViewPolicy.hide(s.expandedCandidates);
+                ViewPolicy.hide(s.expandedCandidateScroll);
+            }
+            s.imeNineKeyPanel.render();
+            return;
+        }
+        s.imeNineKeyPanel.dismiss();
         s.expandedCandidates.removeAllViews();
         if (s.view == null || s.candidatePanelSnapshot == null
                 || CandidateGlossPolicy.strictOr(s.candidatePanelSnapshot.opt("session"), Long.MIN_VALUE)
                     != s.session
                 || !MSIMEInputService.sameCandidateVersion(s.candidatePanelSnapshot, s.view)) {
-            s.candidatePanelOpen = false;
-            s.candidatePanelSnapshot = null;
-            ViewPolicy.hide(s.expandedCandidates);
-            ViewPolicy.hide(s.expandedCandidateScroll);
+            s.closeCandidatePanel();
             return;
         }
         ViewPolicy.show(s.expandedCandidateScroll);

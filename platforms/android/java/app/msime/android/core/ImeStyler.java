@@ -457,6 +457,7 @@ final class ImeStyler {
         // 回复面板的分段控件、源文字卡片和操作列不按角色上色，上面那一遍把它们清成了无底色，这里补回来。
         s.imePanels.styleReplyKeyboard();
         s.imeLayoutRows.applySidebarRail();
+        s.imeNineKeyPanel.applySkin();
         if (s.preedit != null) {
             // Idle, this is the brand badge the shared design draws as an outlined pill; composing, it is the reading itself, set in the strip's typeface and its secondary colour above the candidates.
             s.preedit.setTextColor(s.brandPillVisible

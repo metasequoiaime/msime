@@ -5,9 +5,6 @@ import android.graphics.Color;
 import android.media.AudioAttributes;
 import android.media.AudioManager;
 import android.media.SoundPool;
-import android.os.Build;
-import android.os.VibrationEffect;
-import android.view.HapticFeedbackConstants;
 import android.view.View;
 import android.view.ViewParent;
 import app.msime.android.policy.HostOptionsPolicy;
@@ -170,11 +167,7 @@ final class ImeKeyFeedback {
         }
         if (s.soundEnabled) playSound(keyClass);
         if (!s.hapticsEnabled) return;
-        if (Build.VERSION.SDK_INT >= 26 && s.vibrator != null && s.vibrator.hasVibrator()) {
-            s.vibrator.vibrate(VibrationEffect.createOneShot(10, s.hapticStrength.amplitude()));
-        } else {
-            source.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
-        }
+        KeyboardHaptics.play(s.vibrator, source, s.hapticStrength);
     }
 
     private void playSound(int keyClass) {

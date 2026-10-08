@@ -90,6 +90,13 @@ public final class NativeSmoke {
             }
             var nineGeneration = Pattern.compile("\"generation\":(\\d+)").matcher(digit);
             if (!nineGeneration.find()) throw new AssertionError(digit);
+            String single = NativeClient.setNineKeyFilter(handle, true, "");
+            success(single);
+            if (!single.contains("\"nine_key_single_character\":true")) throw new AssertionError(single);
+            String unfiltered = NativeClient.setNineKeyFilter(handle, false, "");
+            success(unfiltered);
+            nineGeneration = Pattern.compile("\"generation\":(\\d+)").matcher(unfiltered);
+            if (!nineGeneration.find()) throw new AssertionError(unfiltered);
             success(NativeClient.chooseNineKeySpelling(handle,
                 Long.parseLong(nineGeneration.group(1)), 0));
             success(NativeClient.command(handle, 3));

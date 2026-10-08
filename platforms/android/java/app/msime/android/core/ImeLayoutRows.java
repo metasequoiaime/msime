@@ -21,6 +21,8 @@ import org.json.JSONObject;
 /** 26 键以外的键区：手写、九键、笔画、注音 9 键、日语九键（含 flick 与长按选项）、侧栏与九键拼音 / 注音读音选择；从 MSIMEInputService 原样搬出。 */
 final class ImeLayoutRows {
     private final MSIMEInputService s;
+    /** 拼音九键侧栏里的标点列；拼音列出现时让出位置。换了布局后它已不在侧栏里，按父视图判断。 */
+    private View nineKeyPunctuation;
 
     ImeLayoutRows(MSIMEInputService s) {
         this.s = s;
@@ -304,19 +306,14 @@ final class ImeLayoutRows {
         s.nineKeySidebar = sidebar;
         applySidebarRail();
         sidebar.addView(punctuation, KeyboardGeometry.frameMatchParentParams());
-        if (s.nineKeySpellingScroll != null) {
-            // 拼音选择条只在创建键盘视图时建一次，每次重建九键都会换一个新的侧栏；偏好变化触发第二次重建时它还挂在上一个侧栏上，不先摘下来，addView 会抛 IllegalStateException 让键盘进程崩溃。
-            if (s.nineKeySpellingScroll.getParent() instanceof android.view.ViewGroup previous)
-                previous.removeView(s.nineKeySpellingScroll);
-            sidebar.addView(s.nineKeySpellingScroll, KeyboardGeometry.frameMatchParentParams());
-            placeSpellingRow(false);
-        }
+        nineKeyPunctuation = punctuation;
+        attachSpellings(sidebar, false);
         container.addView(sidebar, KeyboardGeometry.weightedMatchParentParams(0.7f));
 
         LinearLayout grid = KeyboardGeometry.column(s);
         boolean digits = s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS;
         boolean composing = s.hasEngineComposition();
-        for (java.util.List<NineKeyLayout.Key> keys : NineKeyLayout.rows()) {
+        for (java.util.List<NineKeyLayout.Key> keys : NineKeyLayout.rows(digits, s.numberKeypadCalculator)) {
             LinearLayout row = KeyboardGeometry.row(s);
             for (NineKeyLayout.Key key : keys) {
                 String description = NineKeyLayout.description(key, digits, composing);
@@ -549,33 +546,44 @@ final class ImeLayoutRows {
         adoptBarKey(actions, s.enterButton, s.imeBottomRow.returnKeyRole());
         container.addView(actions, KeyboardGeometry.weightedMatchParentParams(0.8f));
 
-        if (s.nineKeySpellingScroll != null && s.candidateViewport != null) {
-            // 选择条只在创建键盘视图时建一次，拼音九键会把它挂进自己的侧栏；先从原来的父视图摘下再挂到候选行，否则 addView 会抛 IllegalStateException。挂在最后，盖在候选滚动区上面。
-            if (s.nineKeySpellingScroll.getParent() instanceof android.view.ViewGroup previous)
-                previous.removeView(s.nineKeySpellingScroll);
-                s.candidateViewport.addView(s.nineKeySpellingScroll,
-                    KeyboardGeometry.frameMatchParentParams());
-            placeSpellingRow(true);
-        }
+        // 挂在最后，盖在候选滚动区上面。
+        if (s.candidateViewport != null) attachSpellings(s.candidateViewport, true);
     }
 
     /**
-     * 选择条里那排按钮在两个位置的摆法：叠在候选行上（注音 9 键）时铺满整行高并垂直居中，否则按内容高度贴在行顶，下面空出一截；挂回拼音九键侧栏时恢复按内容高度、贴顶，侧栏第一格才是当前拼音。
+     * 把拼音选择条挂到 `parent`。叠在候选行上（注音 9 键）时是一排横向滚动的读音，铺满整行高并垂直居中；挂在拼音九键侧栏里时是一列纵向滚动的拼音，铺满侧栏、盖住下面的标点列，与 iOS、HarmonyOS 的侧栏一致。
+     *
+     * <p>两处的滚动方向不同，所以每次换位置都换一个滚动容器；按钮也清空，由 renderNineKeySpellings 按当前位置重建：两处的按钮样式不同，叠在候选行上时样式通道按候选按钮给了最小宽高和内边距，挂回侧栏后只重设颜色和字体，拼音按钮就一直是候选的尺寸。选择条的按钮行只在创建键盘视图时建一次，每次重建九键都会换一个新的侧栏；偏好变化触发第二次重建时它还挂在上一个容器上，不先摘下来，addView 会抛 IllegalStateException 让键盘进程崩溃。
      */
-    private void placeSpellingRow(boolean candidateRow) {
+    private void attachSpellings(android.view.ViewGroup parent, boolean candidateRow) {
         if (s.nineKeySpellings == null || s.nineKeySpellingScroll == null) return;
-        // 两处的按钮样式不同：叠在候选行上时样式通道按候选按钮给了最小宽高和内边距，挂回侧栏后只重设颜色和字体，拼音按钮就一直是候选的尺寸。换位置时清空，renderNineKeySpellings 按当前位置重建。
+        if (s.nineKeySpellingScroll.getParent() instanceof android.view.ViewGroup previous)
+            previous.removeView(s.nineKeySpellingScroll);
+        if (s.nineKeySpellings.getParent() instanceof android.view.ViewGroup holder)
+            holder.removeView(s.nineKeySpellings);
         s.nineKeySpellings.removeAllViews();
         s.nineKeySpellingButtons.clear();
-        s.nineKeySpellingScroll.setFillViewport(candidateRow);
+        FrameLayout scroll;
+        if (candidateRow) {
+            android.widget.HorizontalScrollView row = new android.widget.HorizontalScrollView(s);
+            row.setHorizontalScrollBarEnabled(false);
+            row.setFillViewport(true);
+            scroll = row;
+        } else {
+            android.widget.ScrollView column = new android.widget.ScrollView(s);
+            column.setVerticalScrollBarEnabled(false);
+            scroll = column;
+        }
+        s.nineKeySpellings.setOrientation(candidateRow ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL);
         ViewPolicy.setGravity(s.nineKeySpellings,
             candidateRow ? Gravity.CENTER_VERTICAL : Gravity.NO_GRAVITY);
-        if (s.nineKeySpellings.getLayoutParams() != null) {
-            s.nineKeySpellings.getLayoutParams().height = candidateRow
-                ? android.view.ViewGroup.LayoutParams.MATCH_PARENT
-                : android.view.ViewGroup.LayoutParams.WRAP_CONTENT;
-            s.nineKeySpellings.requestLayout();
-        }
+        scroll.addView(s.nineKeySpellings, new FrameLayout.LayoutParams(
+            candidateRow ? FrameLayout.LayoutParams.WRAP_CONTENT : FrameLayout.LayoutParams.MATCH_PARENT,
+            candidateRow ? FrameLayout.LayoutParams.MATCH_PARENT : FrameLayout.LayoutParams.WRAP_CONTENT));
+        ViewPolicy.hide(scroll);
+        s.nineKeySpellingScroll = scroll;
+        s.nineKeySpellingGeneration = -1;
+        parent.addView(scroll, KeyboardGeometry.frameMatchParentParams());
     }
 
     /**
@@ -1052,16 +1060,56 @@ final class ImeLayoutRows {
         catch (JSONException | LinkageError error) { s.fail(); }
     }
 
-    void renderNineKeySpellings() {
+    /** 拼音栏里一项的高度：侧栏三行键高里放得下五六项，多的纵向滚动。 */
+    static final int SPELLING_ROW_DP = 36;
+
+    /** `nine_key_spellings` 里非空的各项及它们在数组里的下标（选择时交给引擎的是下标）。 */
+    record Spellings(long generation, java.util.List<String> values, java.util.List<Integer> indices) {
+        static Spellings of(JSONObject view) {
+            JSONArray spellings = view == null ? null : view.optJSONArray("nine_key_spellings");
+            long generation = view == null ? -1 : CandidateGlossPolicy.strictOr(view.opt("generation"), -1);
+            int count = spellings == null ? 0 : spellings.length();
+            java.util.List<String> values = new java.util.ArrayList<>(count);
+            java.util.List<Integer> indices = new java.util.ArrayList<>(count);
+            for (int index = 0; index < count; index++) {
+                String spelling = spellings.optString(index, "");
+                if (!spelling.isEmpty()) {
+                    values.add(spelling);
+                    indices.add(index);
+                }
+            }
+            return new Spellings(generation, java.util.List.copyOf(values), java.util.List.copyOf(indices));
+        }
+    }
+
+    /** 侧栏拼音列的一项：和标点列一样是侧栏底上不带键帽的字，宽度铺满侧栏。 */
+    Button spellingColumnButton(LinearLayout column, Runnable action) {
+        Button key = s.button(column, "", action);
+        if (key instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.PLAIN);
+        KeyboardGeometry.setKeyTextSize(key, 14);
+        ViewPolicy.setSingleLine(key);
+        ViewPolicy.clearMinimumHeight(key);
+        ViewPolicy.setHorizontalPadding(key, s.pixels(2));
+        key.setLayoutParams(KeyboardGeometry.matchWidthHeightPx(s.pixels(SPELLING_ROW_DP)));
+        return key;
+    }
+
+    /** `suppressed`：显示诊断提示时不出选择条（与候选行一样让位给提示）。 */
+    void renderNineKeySpellings(boolean suppressed) {
         if (s.nineKeySpellings == null || s.nineKeySpellingScroll == null) return;
-        JSONArray spellings = s.view == null ? null : s.view.optJSONArray("nine_key_spellings");
         int layout = s.displayedTouchLayout(s.view);
         // 注音 9 键的选择条列出当前要钉住的那个音节的各个读音（ㄋㄧˇ、ㄌㄧˇ），拼音九键的列出拼音。
         boolean zhuyin = layout == KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT;
-        boolean visible = (layout == MSIMEInputService.QUANPIN_NINE_KEY_LAYOUT || zhuyin)
-            && spellings != null && spellings.length() > 0;
+        Spellings spellings = Spellings.of(s.view);
+        boolean visible = !suppressed && (layout == MSIMEInputService.QUANPIN_NINE_KEY_LAYOUT || zhuyin)
+            && !spellings.values().isEmpty();
         if (visible) ViewPolicy.show(s.nineKeySpellingScroll);
         else ViewPolicy.hide(s.nineKeySpellingScroll);
+        // 拼音列盖住整条侧栏：标点列让出来（仍占位，侧栏宽度不变），没有拼音可选时再露出来。
+        if (nineKeyPunctuation != null && nineKeyPunctuation.getParent() == s.nineKeySpellingScroll.getParent()) {
+            if (visible) ViewPolicy.setInvisible(nineKeyPunctuation);
+            else ViewPolicy.show(nineKeyPunctuation);
+        }
         s.nineKeySpellingScroll.setContentDescription(zhuyin ? "注音读音选择" : "九键拼音选择");
         if (!visible) {
             s.nineKeySpellingIndices = java.util.List.of();
@@ -1069,30 +1117,32 @@ final class ImeLayoutRows {
             for (Button key : s.nineKeySpellingButtons) ViewPolicy.hide(key);
             return;
         }
-        s.nineKeySpellingGeneration = CandidateGlossPolicy.strictOr(s.view.opt("generation"), -1);
-        java.util.List<String> values = new java.util.ArrayList<>(spellings.length());
-        java.util.List<Integer> indices = new java.util.ArrayList<>(spellings.length());
-        for (int index = 0; index < spellings.length(); index++) {
-            String spelling = spellings.optString(index, "");
-            if (!spelling.isEmpty()) {
-                values.add(spelling);
-                indices.add(index);
-            }
-        }
-        s.nineKeySpellingIndices = java.util.List.copyOf(indices);
+        boolean column = s.nineKeySpellings.getOrientation() == LinearLayout.VERTICAL;
+        // 换了一组拼音（新的一代）时回到第一项：第一项是引擎的首选。
+        if (column && spellings.generation() != s.nineKeySpellingGeneration)
+            s.nineKeySpellingScroll.scrollTo(0, 0);
+        s.nineKeySpellingGeneration = spellings.generation();
+        java.util.List<String> values = spellings.values();
+        s.nineKeySpellingIndices = spellings.indices();
         while (s.nineKeySpellingButtons.size() < values.size()) {
             int slot = s.nineKeySpellingButtons.size();
-            Button key = s.button(s.nineKeySpellings, "", () -> {
+            Runnable choose = () -> {
                 if (slot < s.nineKeySpellingIndices.size()) {
                     chooseNineKeySpelling(s.nineKeySpellingGeneration,
                         s.nineKeySpellingIndices.get(slot));
                 }
-            });
+            };
+            Button key;
+            if (column) {
+                key = spellingColumnButton(s.nineKeySpellings, choose);
+            } else {
+                key = s.button(s.nineKeySpellings, "", choose);
+                LinearLayout.LayoutParams params = (LinearLayout.LayoutParams) key.getLayoutParams();
+                params.width = LinearLayout.LayoutParams.WRAP_CONTENT;
+                params.weight = 0;
+                key.setLayoutParams(params);
+            }
             key.setContentDescription("选择拼音");
-            LinearLayout.LayoutParams params = (LinearLayout.LayoutParams) key.getLayoutParams();
-            params.width = LinearLayout.LayoutParams.WRAP_CONTENT;
-            params.weight = 0;
-            key.setLayoutParams(params);
             s.nineKeySpellingButtons.add(key);
         }
         for (int slot = 0; slot < s.nineKeySpellingButtons.size(); slot++) {
@@ -1103,7 +1153,7 @@ final class ImeLayoutRows {
             if (slotVisible) {
                 String spelling = values.get(slot);
                 key.setText(spelling);
-                key.setContentDescription((zhuyin ? "选择读音 " : "选择拼音 ") + spelling);
+                key.setContentDescription(NineKeyPanelPolicy.spellingDescription(spelling, zhuyin));
             }
         }
     }

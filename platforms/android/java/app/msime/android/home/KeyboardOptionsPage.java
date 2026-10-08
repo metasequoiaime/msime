@@ -15,6 +15,7 @@ import app.msime.android.KeyboardFeedbackStore;
 import app.msime.android.KeyboardGeometry;
 import app.msime.android.KeyboardScheme;
 import app.msime.android.KeyboardSkin;
+import app.msime.android.NineKeyLayout;
 import app.msime.android.SchemePreferences;
 import app.msime.android.SwipeHintPolicy;
 import app.msime.android.SyncSignals;
@@ -23,9 +24,9 @@ import app.msime.android.ViewPolicy;
 import org.json.JSONObject;
 
 /**
- * 键盘页：布局（中文键盘 26 / 9 键、键盘高度、按键间距、行间距、横屏分离式键盘、浮动键盘）、按键反馈（按键音、按键振动、按键弹出预览、按键动画）、手势（滑动输入符号及其方向、滑行输入、空格滑动移动光标、长按空格语音）、键盘工具栏（预览、显示方式、各按钮）和子页「AI 润色与回复」。
+ * 键盘页：布局（中文键盘 26 / 9 键、9 键数字键盘顺序、键盘高度、按键间距、行间距、横屏分离式键盘、浮动键盘）、按键反馈（按键音、按键振动、按键弹出预览、按键动画）、手势（滑动输入符号及其方向、滑行输入、空格滑动移动光标、长按空格语音）、键盘工具栏（预览、显示方式、各按钮）和子页「AI 润色与回复」。
  *
- * <p>键盘与本页读同一批存储：按键间距、行间距和表情/剪贴板/皮肤三个工具栏按钮在共享偏好里（`touch_key_spacing_tenths`、`touch_row_spacing_tenths`、`touch_toolbar.*`）；键盘高度、横屏分离式键盘、浮动键盘、按键弹出预览、按键动画、三个手势、常用语/输入方式/浮动键盘三个工具栏按钮和「显示方式：隐藏」（整行不显示，候选条照常显示）只有 Android 用，在 {@link AndroidLocalSettings} 里。键盘高度按设计以 75–160 % 显示，存的是 dp（{@link KeyboardGeometry#heightPercentToAdjustment}），本地没写过时沿用共享偏好里旧的 `touch_keyboard_height_adjustment`。按键音和按键振动是 Android 一直以来的本地开关（`KeyboardFeedbackStore`），键盘的功能面板改的也是它们。
+ * <p>键盘与本页读同一批存储：按键间距、行间距、数字键盘顺序和表情/剪贴板/皮肤三个工具栏按钮在共享偏好里（`touch_key_spacing_tenths`、`touch_row_spacing_tenths`、`touch_number_keypad_order`、`touch_toolbar.*`）；键盘高度、横屏分离式键盘、浮动键盘、按键弹出预览、按键动画、三个手势、常用语/输入方式/浮动键盘三个工具栏按钮和「显示方式：隐藏」（整行不显示，候选条照常显示）只有 Android 用，在 {@link AndroidLocalSettings} 里。键盘高度按设计以 75–160 % 显示，存的是 dp（{@link KeyboardGeometry#heightPercentToAdjustment}），本地没写过时沿用共享偏好里旧的 `touch_keyboard_height_adjustment`。按键音和按键振动是 Android 一直以来的本地开关（`KeyboardFeedbackStore`），键盘的功能面板改的也是它们。
  */
 public final class KeyboardOptionsPage extends DetailPage {
     private static final String[] ANIMATIONS = {"bounce", "ripple", "glow", "lift", "none"};
@@ -89,6 +90,10 @@ public final class KeyboardOptionsPage extends DetailPage {
             : pair == null ? "当前方案只有一种键盘，在「输入」里换方案" : "本版本只有一种键盘";
         layout.nav("中文键盘", note, nineKey ? "9 键" : "26 键",
             pairOffered ? () -> pickLayout(current, pair, nineKey) : null);
+        boolean calculator = NineKeyLayout.calculatorOrder(
+            preferences.optString(NineKeyLayout.NUMBER_KEYPAD_ORDER_KEY, NineKeyLayout.PHONE_ORDER));
+        layout.nav("数字键盘顺序", "9 键切到数字时的排列", numberKeypadLabel(calculator),
+            () -> pickNumberKeypadOrder(calculator));
         int height = KeyboardGeometry.heightAdjustmentToPercent(
             settings.has(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT)
                 ? settings.integer(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT)
@@ -248,6 +253,22 @@ public final class KeyboardOptionsPage extends DetailPage {
                 () -> saveLocal(AndroidLocalSettings.SWIPE_SYMBOLS_DIRECTION, value));
         }
         sheet.show();
+    }
+
+    /** 九键数字键面的排列写进共享偏好 `touch_number_keypad_order`，与其他平台和云同步共用。 */
+    private void pickNumberKeypadOrder(boolean calculator) {
+        OptionSheet sheet = new OptionSheet(requireContext(), "数字键盘顺序", null);
+        sheet.option(numberKeypadLabel(false), !calculator, () -> {
+            if (calculator) savePreference(NineKeyLayout.NUMBER_KEYPAD_ORDER_KEY, NineKeyLayout.PHONE_ORDER);
+        });
+        sheet.option(numberKeypadLabel(true), calculator, () -> {
+            if (!calculator) savePreference(NineKeyLayout.NUMBER_KEYPAD_ORDER_KEY, NineKeyLayout.CALCULATOR_ORDER);
+        });
+        sheet.show();
+    }
+
+    private static String numberKeypadLabel(boolean calculator) {
+        return calculator ? "计算器（789 在上）" : "电话（123 在上）";
     }
 
     private static String swipeDirectionLabel(String value) {
