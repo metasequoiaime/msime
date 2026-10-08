@@ -385,21 +385,26 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// 读音行上的拼写（dc.html：12px、kb.sub、letter-spacing .02em）。
   static let preeditFontSize: CGFloat = 12
   private static let candidateRowHeight: CGFloat = 38
+  /// 带释义的候选行：第一行释义和候选字同在这一行里，18pt 候选（21）加 10pt 释义（13）再加上下内边距各 4 正好 42，与 Android 的 `ImeToolbar.CANDIDATE_LINE_DP` 一致。原先释义另加一整行 14pt，开着释义时顶栏是 66pt，比 Android 高 10pt，空闲时工具栏也一直按这个高度留着。
+  static let glossedCandidateRowHeight: CGFloat = 42
+  /// 第二行释义起每行再加的高度（Android 的 `EXTRA_GLOSS_ROW_DP`）。
   static let glossLineHeight: CGFloat = 14
   static func glossHeight(lines: Int) -> CGFloat { CGFloat(max(lines, 0)) * glossLineHeight }
   // 候选或编码字号调大时所在行跟着变高，调小时行高不会低于默认值：这一行同时也是触摸目标。
   static func readingRowHeight(preeditScale: CGFloat) -> CGFloat {
     max(readingRowHeight, ceil(readingRowHeight * preeditScale))
   }
-  static func candidateRowHeight(candidateScale: CGFloat) -> CGFloat {
-    max(candidateRowHeight, ceil(candidateRowHeight * candidateScale))
+  static func candidateRowHeight(candidateScale: CGFloat, glossed: Bool = false) -> CGFloat {
+    let base = glossed ? glossedCandidateRowHeight : candidateRowHeight
+    return max(base, ceil(base * candidateScale))
   }
-  /// 顶栏：读音行在上，候选行及其释义行在下，高度不低于设计稿的 50pt。
+  /// 顶栏：读音行在上，候选行在下，第一行释义在候选行里，其余释义行在它下面，高度不低于设计稿的 50pt。
   static func topRowHeight(
     glossLines: Int, candidateScale: CGFloat = 1, preeditScale: CGFloat = 1
   ) -> CGFloat {
     max(topRowMinimumHeight, readingRowHeight(preeditScale: preeditScale)
-      + candidateRowHeight(candidateScale: candidateScale) + glossHeight(lines: glossLines))
+      + candidateRowHeight(candidateScale: candidateScale, glossed: glossLines > 0)
+      + glossHeight(lines: glossLines - 1))
   }
   /// 用户调整之前的键盘高度：按默认候选字号和存储的行距计算，每个候选下带 `glossLines` 行释义（默认取配置的行数）。
   /// Tests and host layout consumers use this contract so the default gloss row stays accounted for.
