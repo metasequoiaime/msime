@@ -262,7 +262,11 @@ fn is_consonant(byte: u8) -> bool {
 
 /// :54-131: `n` rules, sokuon, longest table match, the rest pending.
 pub fn convert_romaji(input: &str) -> RomajiConversion {
-    let normalized = input.to_ascii_lowercase();
+    let normalized = if input.bytes().any(|byte| byte.is_ascii_uppercase()) {
+        Cow::Owned(input.to_ascii_lowercase())
+    } else {
+        Cow::Borrowed(input)
+    };
     let bytes = normalized.as_bytes();
     let mut result = RomajiConversion::default();
     let mut index = 0;
@@ -447,6 +451,20 @@ mod tests {
                 complete,
             },
             "{romaji}"
+        );
+    }
+
+    #[test]
+    fn lowercase_romaji_conversion_does_not_clone_the_input() {
+        let (conversion, allocations) =
+            crate::ime::personal_rerank::allocations::count(|| convert_romaji("nihongo"));
+
+        assert_eq!(conversion.hiragana, "にほんご");
+        assert!(conversion.pending.is_empty());
+        assert!(conversion.complete);
+        assert!(
+            allocations <= 3,
+            "lowercase conversion allocations: {allocations}"
         );
     }
 
