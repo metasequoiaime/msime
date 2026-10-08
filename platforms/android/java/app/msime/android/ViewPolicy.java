@@ -52,6 +52,11 @@ public final class ViewPolicy {
         view.setMinimumHeight(height);
     }
 
+    /** 应用文本控件需要的按行最小高度。 */
+    public static void setTextMinHeight(TextView view, int height) {
+        setMinimumHeight(view, height);
+    }
+
     /** Remove both legacy and platform minimum-width constraints from a view. */
     public static void clearMinimumWidth(View view) {
         view.setMinimumWidth(0);
@@ -72,6 +77,11 @@ public final class ViewPolicy {
     public static void setMinimumWidth(TextView view, int width) {
         view.setMinWidth(width);
         view.setMinimumWidth(width);
+    }
+
+    /** 应用文本控件需要的按行最小宽度。 */
+    public static void setTextMinWidth(TextView view, int width) {
+        setMinimumWidth(view, width);
     }
 
     /** Apply equal horizontal and vertical padding to a view. */
