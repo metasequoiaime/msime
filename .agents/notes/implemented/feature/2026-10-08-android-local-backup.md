@@ -12,7 +12,7 @@ Status: implemented
 - 包的内容与云同步相同，复用同一套导出和应用（`LocalBackup`，格式规则在纯 Java 的 `LocalBackupPolicy`）：
   - `manifest.json`：`format = "msime-android-backup"`、`version = 1`、应用名、版本名、产品版本、导出时间和各部分的条数；
   - `settings.json`：`msime_client_account_settings_export` 导出的设置文档（与云同步上传的同一份，凭据和诊断日志永远不在里面），不含皮肤库；
-  - `android-local.json`：Android 本地设置文件里显式写过的值（含不随云同步的键盘高度、滑行输入、隐私模式等）；
+  - `android-local.json`：Android 本地设置文件里显式写过的值（含不随云同步的键盘高度、滑行输入、隐私模式等），但不含语音数据贡献（`platform.android.voice_contribute_audio`）和开发者选项（`platform.android.developer.*`），恢复时即使包里有也跳过（`LocalBackupPolicy.backsUpLocalSetting`）：语音数据贡献是在本机看过说明、点了确认才开的上传授权，开发者选项里有输入日志和 MCP 可访问的日志范围，从备份恢复会绕过确认，在另一台设备上悄悄开始上传语音或记录输入日志；
   - `skins.json`：自定义键盘皮肤的设计参数（`CustomSkinLibrary.exportDesigns`，不含照片）；
   - `phrases.json`：自己添加的常用语（本机预置、没被认领的示例除外）；
   - `dictionary.ndjson`：`export_snapshot` 写的个人词库快照，格式与云端词库快照相同。

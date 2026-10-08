@@ -90,7 +90,7 @@ final class LocalBackup {
             settings.remove(SyncMergePolicy.SKINS_KEY);
             JSONObject local = new JSONObject();
             for (Map.Entry<String, Object> entry : AndroidLocalSettings.load(context).explicit().entrySet()) {
-                local.put(entry.getKey(), entry.getValue());
+                if (LocalBackupPolicy.backsUpLocalSetting(entry.getKey())) local.put(entry.getKey(), entry.getValue());
             }
             String skins = CustomSkinLibrary.exportDesigns(Paths.get(directory));
             List<String> phrases = ownPhrases(context);
@@ -266,8 +266,8 @@ final class LocalBackup {
                 for (Iterator<String> keys = local.keys(); keys.hasNext(); ) {
                     String key = keys.next();
                     AndroidLocalSettings.Spec spec = specs.get(key);
-                    // 别的版本写下、本版本不认识或取值不合规的键跳过，不让整份本地设置因为一项失败。
-                    Object value = spec == null ? null : spec.accept(local.opt(key));
+                    // 别的版本写下、本版本不认识或取值不合规的键跳过，不让整份本地设置因为一项失败；语音数据贡献和开发者选项即使在包里也不恢复。
+                    Object value = spec == null || !LocalBackupPolicy.backsUpLocalSetting(key) ? null : spec.accept(local.opt(key));
                     if (value != null) edits.put(key, value);
                 }
                 if (!edits.isEmpty()) {

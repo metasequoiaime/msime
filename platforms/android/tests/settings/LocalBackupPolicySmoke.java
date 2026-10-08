@@ -33,6 +33,17 @@ public final class LocalBackupPolicySmoke {
             "a diagnostics bundle is not a backup");
         equal(LocalBackupPolicy.compatibility(null, null), Compatibility.NOT_A_BACKUP, "no manifest");
 
+        check(LocalBackupPolicy.backsUpLocalSetting("platform.android.keyboard_height_adjustment"),
+            "device-local layout settings travel with the backup");
+        check(LocalBackupPolicy.backsUpLocalSetting("platform.android.incognito"), "privacy mode travels with the backup");
+        check(!LocalBackupPolicy.backsUpLocalSetting("platform.android.voice_contribute_audio"),
+            "voice upload consent is given on each device, never restored");
+        check(!LocalBackupPolicy.backsUpLocalSetting("platform.android.developer.input_log"),
+            "a restored backup does not start an input log");
+        check(!LocalBackupPolicy.backsUpLocalSetting("platform.android.developer.mcp_input_events"),
+            "MCP log scopes stay on the device");
+        check(!LocalBackupPolicy.backsUpLocalSetting(null), "no key");
+
         Map<String, Object> settings = new LinkedHashMap<>();
         settings.put("input.learning", true);
         settings.put("input.frequency_trigger_count", 3);

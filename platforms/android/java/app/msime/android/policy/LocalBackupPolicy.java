@@ -38,6 +38,8 @@ public final class LocalBackupPolicy {
     static final int MAX_SETTINGS_FIELDS = 512;
 
     private static final DateTimeFormatter STAMP = DateTimeFormatter.ofPattern("yyyyMMdd-HHmm", Locale.ROOT);
+    /** 开发者选项在本地设置里的键名前缀，见 {@link #backsUpLocalSetting}。 */
+    private static final String DEVELOPER_PREFIX = "platform.android.developer.";
 
     /** 一份备份包能不能在这个版本上恢复。 */
     public enum Compatibility {
@@ -66,6 +68,14 @@ public final class LocalBackupPolicy {
             name.append(unsafe ? '_' : character);
         }
         return name.toString();
+    }
+
+    /**
+     * Android 本地设置里哪些键进备份、从备份恢复。语音数据贡献（{@code AndroidLocalSettings.VOICE_CONTRIBUTE_AUDIO}）是用户在本机看过说明、点了确认才开的上传授权，开发者选项（`platform.android.developer.*`：输入日志、调试信息、日志级别和 MCP 可访问的日志）是排查一次问题时临时打开的开关；从备份恢复它们会绕过确认，在另一台设备上悄悄开始上传语音或记录输入日志。所以这两类既不导出，也不从（旧版或别人改过的）备份里恢复；其余的本地设置照常带走。
+     */
+    public static boolean backsUpLocalSetting(String key) {
+        return key != null && !key.equals(AndroidLocalSettings.VOICE_CONTRIBUTE_AUDIO)
+            && !key.startsWith(DEVELOPER_PREFIX);
     }
 
     /** 按 manifest 里的 `format` 和 `version` 判断；`version` 读不出整数时传 null。 */
