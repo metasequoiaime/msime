@@ -60,6 +60,7 @@ pub struct WubiProvider {
     main_db: PathBuf,
     profile: WubiProfileKind,
     connection: Option<Connection>,
+    query_upper_bound: String,
     reverse_cache: LruCache<String, Option<String>>,
 }
 
@@ -70,6 +71,7 @@ impl WubiProvider {
             main_db: main_db.to_path_buf(),
             profile: WubiProfileKind::Wubi86,
             connection: None,
+            query_upper_bound: String::new(),
             reverse_cache: LruCache::new(NonZeroUsize::new(REVERSE_CACHE_CAPACITY).unwrap()),
         }
     }
@@ -89,10 +91,18 @@ impl WubiProvider {
             return Vec::new();
         }
         let profile = self.profile;
-        let Some(connection) = self.connection() else {
+        if self.connection.is_none() {
+            self.connection = open_read_only(&self.main_db);
+        }
+        let Some(connection) = self.connection.as_ref() else {
             return Vec::new();
         };
-        match query_rows(connection, profile, &request.normalized_input) {
+        match query_rows(
+            connection,
+            profile,
+            &request.normalized_input,
+            &mut self.query_upper_bound,
+        ) {
             Ok(rows) => rows,
             Err(_) => {
                 // The reference dropped a statement that failed and prepared it again on the next key; closing gives the same retry.
@@ -168,21 +178,22 @@ fn open_read_only(path: &Path) -> Option<Connection> {
 }
 
 /// The exclusive upper bound of every code `code` prefixes: its last letter incremented, so `ab` gives `ac` and `az` gives `a{`. Codes are ASCII letters, where that is the reference's last-byte increment.
-fn prefix_upper_bound(code: &str) -> String {
-    let mut upper = code.to_owned();
+fn prefix_upper_bound_into(code: &str, upper: &mut String) {
+    upper.clear();
+    upper.push_str(code);
     if let Some(last) = upper.pop() {
         upper.push(char::from_u32(u32::from(last) + 1).unwrap_or(char::MAX));
     }
-    upper
 }
 
 fn query_rows(
     connection: &Connection,
     profile: WubiProfileKind,
     code: &str,
+    upper: &mut String,
 ) -> rusqlite::Result<Vec<WordItem>> {
     let mut statement = connection.prepare_cached(query_sql(profile))?;
-    let upper = prefix_upper_bound(code);
+    prefix_upper_bound_into(code, upper);
     let mut rows = statement.query((code, upper.as_str(), QUERY_LIMIT))?;
     let mut candidates = Vec::with_capacity(QUERY_LIMIT as usize);
     while let Some(row) = rows.next()? {
@@ -358,11 +369,24 @@ mod tests {
              INSERT INTO wubi86 VALUES('yzz','乙',2);\
              INSERT INTO wubi86 VALUES('z','丙',3);",
         );
-        assert_eq!(prefix_upper_bound("az"), "a{");
+        let mut upper = String::new();
+        prefix_upper_bound_into("az", &mut upper);
+        assert_eq!(upper, "a{");
         assert_eq!(
             rows(&mut fixture.provider, "yz"),
             vec![row("yz", "甲", 1), row("yzz", "乙", 2)]
         );
+    }
+
+    #[test]
+    fn prefix_upper_bound_reuses_destination_capacity() {
+        let mut upper = String::with_capacity(16);
+        prefix_upper_bound_into("az", &mut upper);
+        assert_eq!(upper, "a{");
+        assert!(upper.capacity() >= 16);
+
+        prefix_upper_bound_into("a", &mut upper);
+        assert_eq!(upper, "b");
     }
 
     #[test]
