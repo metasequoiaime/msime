@@ -467,6 +467,11 @@ public final class NativeClient {
             throw new IllegalArgumentException("Preceding character must be a Unicode scalar");
         return text(punctuationWithContextRaw(session, ascii, precedingCodePoint));
     }
+    /** 宿主自己补上书名号的后半个之后通知 Engine 这一层已经闭合，下一次 `<` 才会是外层的《而不是嵌套的〈。Engine 只接受 `<`。 */
+    public static String balancePairedPunctuationAfterAutoClose(long session, int opening) {
+        if (opening != '<') throw new IllegalArgumentException("Only the book-title opening is balanced");
+        return text(balancePairedPunctuationAfterAutoCloseRaw(session, opening));
+    }
     /** 滑行的一笔；`request` 是 `msime_client_glide` 规定的 JSON，由 {@link GlideTypingPolicy#request} 生成。 */
     public static String glide(long session, String request) {
         if (request == null) throw new IllegalArgumentException("Missing glide request");
@@ -528,6 +533,16 @@ public final class NativeClient {
     public static String chooseNineKeySpelling(long session, long generation, long index) {
         if (index < 0) throw new IllegalArgumentException("Invalid nine-key spelling index");
         return text(chooseNineKeySpellingRaw(session, generation, index));
+    }
+    /**
+     * 全拼九键组字时的候选筛选（`msime_client_set_nine_key_filter`）：`singleCharacter` 只留单字，`strokes` 是首字的笔顺前缀（h 横、s 竖、p 撇、n 点、z 折），空串表示不按笔画筛选。返回与其他输入调用相同的响应。
+     */
+    public static String setNineKeyFilter(long session, boolean singleCharacter, String strokes) {
+        if (strokes == null) throw new IllegalArgumentException("Missing nine-key strokes");
+        byte[] payload = strokes.getBytes(StandardCharsets.UTF_8);
+        if (payload.length > NineKeyPanelPolicy.MAX_STROKES)
+            throw new IllegalArgumentException("Nine-key strokes are too long");
+        return text(setNineKeyFilterRaw(session, singleCharacter, payload));
     }
     public static String allCandidates(long session) { return text(allCandidatesRaw(session)); }
     public static String applyTranslations(long session, long generation, String translations) {
@@ -642,6 +657,7 @@ public final class NativeClient {
     private static native byte[] setChinesePunctuationRaw(long session, boolean enabled);
     private static native byte[] setCharacterWidthRaw(long session, boolean fullwidth);
     private static native byte[] characterRaw(long session, int ascii, boolean shift);
+    private static native byte[] balancePairedPunctuationAfterAutoCloseRaw(long session, int opening);
     private static native byte[] punctuationWithContextRaw(long session, int ascii,
         int precedingCodePoint);
     private static native byte[] glideRaw(long session, byte[] request);
@@ -657,6 +673,8 @@ public final class NativeClient {
     private static native byte[] removeCandidateRaw(long session, long generation, long index);
     private static native byte[] selectEdgeRaw(long session, long generation, long index, int edge);
     private static native byte[] chooseNineKeySpellingRaw(long session, long generation, long index);
+    private static native byte[] setNineKeyFilterRaw(long session, boolean singleCharacter,
+        byte[] strokes);
     private static native byte[] allCandidatesRaw(long session);
     private static native byte[] applyTranslationsRaw(long session, long generation,
         byte[] translations);

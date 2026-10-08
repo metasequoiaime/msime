@@ -51,6 +51,8 @@ private func msimeClientSmartPunctuationDecide(_ session: UInt64, _ request: Uns
 private func msimeClientShuangpinKeyHints(_ profile: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_choose_nine_key_spelling")
 private func msimeClientChooseNineKeySpelling(_ session: UInt64, _ generation: UInt64, _ index: UInt) -> UnsafeMutablePointer<CChar>?
+@_silgen_name("msime_client_set_nine_key_filter")
+private func msimeClientSetNineKeyFilter(_ session: UInt64, _ singleCharacter: Bool, _ strokes: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_set_nine_key_mode")
 private func msimeClientSetNineKeyMode(_ session: UInt64, _ enabled: Bool) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_set_chinese_punctuation")
@@ -168,6 +170,11 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
   /// paying for that several times over.
   let localMode: String
   let nineKeySpellings: [String]
+  /// 全拼九键组字时首选候选覆盖的数字写成拼音（`ning'bai`），给读音行显示；其他情况为空，这时照旧显示 `preedit`（全拼九键下仍是数字）。
+  let nineKeyReading: String
+  /// 九键候选当前的筛选：只留单字，以及首字笔顺前缀（`hspnz`，空表示不按笔画）。组字结束时 Engine 把两者都清掉。
+  let nineKeySingleCharacter: Bool
+  let nineKeyStrokes: String
   /// The Engine's ASCII spelling and the caret inside it, as a byte offset. The caret leaves the end only when the user moves it (dragging the space bar while composing), which is the Windows host's ← / → editing of the input string.
   let editingText: String
   let caretPosition: Int
@@ -187,7 +194,8 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
        candidateAnnotations: [String] = [], candidateSources: [Int] = [], candidateFixedPositions: [Int] = [],
        candidatePageCount: Int = 0, answeredByPinyinFallback: Bool = false,
        diagnosticText: String? = nil, localMode: String = "none",
-       nineKeySpellings: [String] = [], editingText: String = "", caretPosition: Int = 0) {
+       nineKeySpellings: [String] = [], nineKeyReading: String = "", nineKeySingleCharacter: Bool = false,
+       nineKeyStrokes: String = "", editingText: String = "", caretPosition: Int = 0) {
     self.isHandled = isHandled
     self.commitText = commitText
     self.preedit = preedit
@@ -204,6 +212,9 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
     self.diagnosticText = diagnosticText
     self.localMode = localMode
     self.nineKeySpellings = nineKeySpellings
+    self.nineKeyReading = nineKeyReading
+    self.nineKeySingleCharacter = nineKeySingleCharacter
+    self.nineKeyStrokes = nineKeyStrokes
     self.editingText = editingText
     self.caretPosition = caretPosition
   }
@@ -393,27 +404,31 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   ///
   /// The drag emits on every gesture frame, so only the live session follows it; the shared
   /// document is written once, when the user lets go of the grip or flips the switch.
+  ///
+  /// 返回值是共享文档有没有写成。组字中会话会把偏好推迟到空闲时再应用（`deferred`），这不是失败：键距、行距、高度只由宿主自己读，文档照样要写。原先推迟了就不写文档，下次唤出键盘时文档里的旧高度又把这次调整盖了回去。
   @discardableResult
   func persistTouchKeyboardGeometry(keySpacing: Double, rowSpacing: Double,
                                     heightAdjustment: Double, voiceEnabled: Bool) -> Bool {
     guard let mapping = Self.geometryMapping(keySpacing: keySpacing, rowSpacing: rowSpacing,
                                              heightAdjustment: heightAdjustment,
                                              voiceEnabled: voiceEnabled) else { return false }
-    return updateAndPersist(mapping)
+    _ = updatePreferences(mapping)
+    return persistSharedPreferences(mapping)
   }
 
-  static func geometryMapping(keySpacing: Double, rowSpacing: Double,
-                                      heightAdjustment: Double,
-                                      voiceEnabled: Bool) -> ((inout [String: Any]) -> Void)? {
-    guard keySpacing.isFinite, rowSpacing.isFinite, heightAdjustment.isFinite else { return nil }
-    let keySpacingTenths = Int((min(6, max(3, keySpacing)) * 10).rounded())
-    let rowSpacingTenths = Int((min(10, max(4, rowSpacing)) * 10).rounded())
-    let clampedHeight = Int(min(48, max(-12, heightAdjustment)).rounded())
+  /// 只写传了值的那几项。设置 App 一次只改一项，只写这一项，就不会把它页面上停留着的旧值（比如键盘里刚调过的高度）写回文档。
+  static func geometryMapping(keySpacing: Double? = nil, rowSpacing: Double? = nil,
+                              heightAdjustment: Double? = nil,
+                              voiceEnabled: Bool? = nil) -> ((inout [String: Any]) -> Void)? {
+    guard [keySpacing, rowSpacing, heightAdjustment].allSatisfy({ $0?.isFinite ?? true }) else { return nil }
+    let keySpacingTenths = keySpacing.map { Int((min(6, max(3, $0)) * 10).rounded()) }
+    let rowSpacingTenths = rowSpacing.map { Int((min(10, max(4, $0)) * 10).rounded()) }
+    let clampedHeight = heightAdjustment.map { Int(min(48, max(-12, $0)).rounded()) }
     return { preferences in
-      preferences["touch_key_spacing_tenths"] = keySpacingTenths
-      preferences["touch_row_spacing_tenths"] = rowSpacingTenths
-      preferences["touch_keyboard_height_adjustment"] = clampedHeight
-      preferences["touch_voice_shortcut"] = voiceEnabled
+      if let keySpacingTenths { preferences["touch_key_spacing_tenths"] = keySpacingTenths }
+      if let rowSpacingTenths { preferences["touch_row_spacing_tenths"] = rowSpacingTenths }
+      if let clampedHeight { preferences["touch_keyboard_height_adjustment"] = clampedHeight }
+      if let voiceEnabled { preferences["touch_voice_shortcut"] = voiceEnabled }
     }
   }
 
@@ -917,6 +932,18 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     return dispatch { msimeClientChooseNineKeySpelling(handle, generation, index) }
   }
 
+  /// 九键展开面板的候选筛选：`singleCharacter` 只留单字，`strokes` 是首字笔顺前缀（h 横、s 竖、p 撇、n 点、z 折，最多 64 笔，空串表示不按笔画）。两项一起交给 Engine，作用到这次组字结束；当前状态从快照的 `nineKeySingleCharacter`、`nineKeyStrokes` 读。
+  func setNineKeyFilter(singleCharacter: Bool, strokes: String) -> MetasequoiaInputSnapshot {
+    let bytes = Array(strokes.utf8)
+    guard bytes.count <= Self.nineKeyStrokeLimit else { return diagnostic("笔画太多") }
+    return bytes.withUnsafeBufferPointer { buffer in
+      dispatch { msimeClientSetNineKeyFilter(handle, singleCharacter, buffer.baseAddress, UInt(buffer.count)) }
+    }
+  }
+
+  /// 与 host-api 的 `NINE_KEY_STROKE_LIMIT` 相同。
+  static let nineKeyStrokeLimit = 64
+
   @discardableResult func setLearningEnabled(_ enabled: Bool) -> Bool {
     updatePreferences { $0["learning"] = enabled }
   }
@@ -1381,6 +1408,9 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
       diagnosticText: value["diagnostic"] as? String,
       localMode: view["local_mode"] as? String ?? "none",
       nineKeySpellings: view["nine_key_spellings"] as? [String] ?? [],
+      nineKeyReading: view["nine_key_reading"] as? String ?? "",
+      nineKeySingleCharacter: try strictBool(view["nine_key_single_character"], fallback: false),
+      nineKeyStrokes: view["nine_key_strokes"] as? String ?? "",
       editingText: editingText,
       caretPosition: caretPosition)
   }

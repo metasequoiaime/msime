@@ -55,17 +55,24 @@ public final class ms_w4_kpb_KeyboardExtrasSmoke {
         check(!ImeLog.enabled(5) && ImeLog.enabled(6), "error only lets errors through");
         ImeLog.applyLevel("warn");
 
-        check(ImeVoiceEntry.choose(true, false, false, false, false) == ImeVoiceEntry.Engine.LOCAL,
+        check(ImeVoiceEntry.choose(true, false, false, false, false, false, true) == ImeVoiceEntry.Engine.LOCAL,
             "a configured local model runs in the keyboard");
-        check(ImeVoiceEntry.choose(false, true, true, true, true) == ImeVoiceEntry.Engine.STREAMING,
+        check(ImeVoiceEntry.choose(false, true, true, true, true, false, true) == ImeVoiceEntry.Engine.STREAMING,
             "streaming runs in the keyboard while online");
-        check(ImeVoiceEntry.choose(false, true, false, true, true) == ImeVoiceEntry.Engine.LOCAL,
+        check(ImeVoiceEntry.choose(false, true, false, true, true, false, true) == ImeVoiceEntry.Engine.LOCAL,
             "offline with fallback and an installed model uses the local model");
-        check(ImeVoiceEntry.choose(false, true, false, false, true) == ImeVoiceEntry.Engine.STREAMING,
+        check(ImeVoiceEntry.choose(false, true, false, false, true, false, true) == ImeVoiceEntry.Engine.STREAMING,
             "without the fallback switch the configured engine stays");
-        check(ImeVoiceEntry.choose(false, false, true, true, true) == null,
-            "the system recogniser stays in its activity");
-        check(ImeVoiceEntry.choose(false, false, false, true, false) == null,
+        // #5553：没有配置服务商时系统识别服务也在键区里聆听，不再打开只剩灰色蒙层的识别窗口。
+        check(ImeVoiceEntry.choose(false, false, true, true, true, false, true) == ImeVoiceEntry.Engine.PLATFORM,
+            "the system recogniser listens in the keyboard");
+        check(ImeVoiceEntry.choose(false, false, false, true, true, false, true) == ImeVoiceEntry.Engine.LOCAL,
+            "offline fallback still wins over the system recogniser");
+        check(ImeVoiceEntry.choose(false, false, true, true, true, true, true) == null,
+            "an upload provider records in its activity");
+        check(ImeVoiceEntry.choose(false, false, true, false, false, false, false) == null,
+            "a device without a system recogniser goes to the activity, which explains the way out");
+        check(ImeVoiceEntry.choose(false, false, false, true, false, false, false) == null,
             "no installed model, no fallback");
 
         check(ImeDebugOverlay.debugLine(12, 5, "").equals("调试 · 引擎 12 ms · 候选 5"), "debug line");

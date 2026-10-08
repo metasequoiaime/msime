@@ -145,7 +145,7 @@ pub unsafe extern "C" fn msime_client_dictionary_collections(
     })
 }
 
-/// 诊断包。请求 `{state_root: 偏好目录, include: {crash_logs, performance_logs, input_events, config_snapshot}, sources: {crash_logs, performance_logs, input_events: 绝对路径|null}, destination: 绝对路径|null}`。输入事件和性能记录逐行按白名单（只许 `t_ms`、`kind` 枚举、`duration_ms`）校验，不合规的行丢弃并计数；配置快照里的凭据换成 `"<redacted>"`。有 `destination` 时写出 zip，返回 `{path, bytes, counts}`；没有时返回 `{counts, sections}`，`sections` 就是上传 MCP 快照的那个对象。失败时 `error` 是 `diagnostics_*` 错误码。
+/// 诊断包。请求 `{state_root: 偏好目录, include: {crash_logs, performance_logs, input_events, config_snapshot}, sources: {crash_logs, performance_logs, input_events: 绝对路径|null}（`crash_logs` 可以是遥测的崩溃目录，里面每个 `*.crash` 文件一条记录）, destination: 绝对路径|null}`。输入事件和性能记录逐行按白名单（只许 `t_ms`、`kind` 枚举、`duration_ms`）校验，不合规的行丢弃并计数；配置快照里的凭据换成 `"<redacted>"`。有 `destination` 时写出 zip，返回 `{path, bytes, counts}`；没有时返回 `{counts, sections}`，`sections` 就是上传 MCP 快照的那个对象。失败时 `error` 是 `diagnostics_*` 错误码。
 /// # Safety
 /// `request` must point to `length` readable bytes. Null is rejected.
 /// The returned response must be released with `msime_client_string_free`.

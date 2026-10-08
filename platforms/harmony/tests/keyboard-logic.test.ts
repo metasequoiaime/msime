@@ -60,7 +60,16 @@ import { ReplyKeyboardPolicy } from "../entry/src/main/ets/keyboard/ReplyKeyboar
 import { ReplyContextPolicy } from "../entry/src/main/ets/keyboard/ReplyContextPolicy";
 import { CommunityReplyLibraryPolicy } from "../entry/src/main/ets/keyboard/CommunityReplyLibraryPolicy";
 import { TextPolicy } from "../entry/src/main/ets/keyboard/TextPolicy";
-import { NineKeyLayout, NineKey } from "../entry/src/main/ets/keyboard/input/NineKeyLayout";
+import {
+  NineKeyLayout,
+  NineKey,
+  NumberKeypadOrder,
+} from "../entry/src/main/ets/keyboard/input/NineKeyLayout";
+import {
+  NineKeyPanelBackspace,
+  NineKeyPanelMode,
+  NineKeyPanelPolicy,
+} from "../entry/src/main/ets/keyboard/input/NineKeyPanelPolicy";
 import {
   JapaneseNineKeyLayout,
   JapaneseKey,
@@ -786,34 +795,46 @@ group("bounds and deduplicates asynchronous online AI candidates", () => {
 
 group("native success replies require a value", () => {
   check(NativeReplyPolicy.hasValue({}), "an object value is present");
-  check(!NativeReplyPolicy.hasValue(undefined) && !NativeReplyPolicy.hasValue(null),
-    "missing native values are refused");
-  check(NativeReplyPolicy.successfulValue({ ok: true, value: "ready" }) === "ready",
-    "successful replies expose their value");
-  check(NativeReplyPolicy.successfulValue({ ok: true }) === null,
-    "successful replies without a value are refused");
-  check(NativeReplyPolicy.successfulValue({ ok: true, value: null }) === null,
-    "successful replies with a null value are refused");
-  check(NativeReplyPolicy.successfulValue({ ok: false, value: "stale" }) === null,
-    "failed replies never expose a value");
-  check(NativeReplyPolicy.successfulValue(null) === null,
-    "a JSON null reply is refused without throwing");
-  check(NativeReplyPolicy.successfulValue([]) === null,
-    "a JSON array reply is refused without throwing");
+  check(
+    !NativeReplyPolicy.hasValue(undefined) && !NativeReplyPolicy.hasValue(null),
+    "missing native values are refused",
+  );
+  check(
+    NativeReplyPolicy.successfulValue({ ok: true, value: "ready" }) === "ready",
+    "successful replies expose their value",
+  );
+  check(
+    NativeReplyPolicy.successfulValue({ ok: true }) === null,
+    "successful replies without a value are refused",
+  );
+  check(
+    NativeReplyPolicy.successfulValue({ ok: true, value: null }) === null,
+    "successful replies with a null value are refused",
+  );
+  check(
+    NativeReplyPolicy.successfulValue({ ok: false, value: "stale" }) === null,
+    "failed replies never expose a value",
+  );
+  check(
+    NativeReplyPolicy.successfulValue(null) === null,
+    "a JSON null reply is refused without throwing",
+  );
+  check(
+    NativeReplyPolicy.successfulValue([]) === null,
+    "a JSON array reply is refused without throwing",
+  );
 });
 
 group("bounds persisted account sessions by UTF-8 bytes", () => {
   check(sessionFitsStorage("a".repeat(MAX_SESSION_BYTES)), "ASCII session at the byte limit fits");
-  check(!sessionFitsStorage("你".repeat(Math.floor(MAX_SESSION_BYTES / 3) + 1)),
-    "multibyte session above the byte limit is refused");
-  check(sessionWriteComplete("synthetic", 9),
-    "a complete ASCII session write is accepted");
-  check(!sessionWriteComplete("synthetic", 8),
-    "a short ASCII session write is refused");
-  check(sessionWriteComplete("你", 3),
-    "a complete multibyte session write uses UTF-8 bytes");
-  check(!sessionWriteComplete("你", 2),
-    "a short multibyte session write is refused");
+  check(
+    !sessionFitsStorage("你".repeat(Math.floor(MAX_SESSION_BYTES / 3) + 1)),
+    "multibyte session above the byte limit is refused",
+  );
+  check(sessionWriteComplete("synthetic", 9), "a complete ASCII session write is accepted");
+  check(!sessionWriteComplete("synthetic", 8), "a short ASCII session write is refused");
+  check(sessionWriteComplete("你", 3), "a complete multibyte session write uses UTF-8 bytes");
+  check(!sessionWriteComplete("你", 2), "a short multibyte session write is refused");
 });
 
 group("private text writes require every UTF-8 byte", () => {
@@ -889,12 +910,13 @@ group("keeps translation provider policy bounded and credential-free in signatur
       key: "你好",
       source_language: "zh",
       target_language: "en",
-    }) !== TranslationPolicy.cacheKey(rotated, "en", {
-      text: "你好",
-      key: "你好",
-      source_language: "zh",
-      target_language: "en",
-    }),
+    }) !==
+      TranslationPolicy.cacheKey(rotated, "en", {
+        text: "你好",
+        key: "你好",
+        source_language: "zh",
+        target_language: "en",
+      }),
     "rotating a provider credential does not reuse its translation cache",
   );
   check(
@@ -1572,6 +1594,14 @@ group("every tool in the shortcut bar has a name", () => {
   check(
     KeyAccessibilityPolicy.spelling("ni hao") === "选择拼音 ni hao",
     "nine-key spellings describe their selectable action",
+  );
+  check(
+    KeyAccessibilityPolicy.spelling("M") === "选择字母 M",
+    "an uppercase letter restricts the next syllable and says so",
+  );
+  check(
+    KeyAccessibilityPolicy.spelling("6") === "输入数字 6",
+    "the digit itself is typed as a digit",
   );
 });
 
@@ -2255,6 +2285,132 @@ group("the digit layer re-labels the grid instead of handing over ten across", (
       (symbol: string) => !NineKeyLayout.punctuation().includes(symbol),
     ),
     "and offers marks the letter layer does not already carry",
+  );
+});
+
+group("the digit layer can be laid out like a calculator", () => {
+  const faces = (rows: NineKey[][]): string =>
+    rows
+      .flat()
+      .map((key: NineKey) => key.label)
+      .join("");
+  check(
+    faces(NineKeyLayout.digits(NumberKeypadOrder.CALCULATOR)) === "789456123",
+    "calculator order puts 7 8 9 on top and 1 2 3 at the bottom",
+  );
+  check(
+    faces(NineKeyLayout.digits(NumberKeypadOrder.PHONE)) === "123456789",
+    "phone order is the default telephone grid",
+  );
+  check(faces(NineKeyLayout.digits()) === "123456789", "no order given is the phone order");
+  check(
+    faces(NineKeyLayout.digits("abacus")) === "123456789",
+    "an order this build does not know falls back to the phone grid",
+  );
+  check(
+    NineKeyLayout.digits(NumberKeypadOrder.CALCULATOR)
+      .flat()
+      .every((key: NineKey) => key.input === key.label),
+    "every calculator cell still sends the digit it prints",
+  );
+  check(
+    NineKeyLayout.rows()[0][1].label === "ABC" && NineKeyLayout.rows()[2][2].label === "WXYZ",
+    "the letter layer keeps its order whatever the digit layer does",
+  );
+  check(
+    NumberKeypadOrder.normalized(undefined) === NumberKeypadOrder.PHONE &&
+      NumberKeypadOrder.normalized(null) === NumberKeypadOrder.PHONE &&
+      NumberKeypadOrder.normalized("calculator") === NumberKeypadOrder.CALCULATOR,
+    "an older document without the key reads as the phone order",
+  );
+});
+
+group("the nine-key expanded panel's backspace, strokes and layout", () => {
+  check(
+    NineKeyPanelPolicy.threeColumn(true, SchemeTraits.QUANPIN, true),
+    "quanpin composing on the nine-key face gets the three-column panel",
+  );
+  check(
+    !NineKeyPanelPolicy.threeColumn(true, SchemeTraits.QUANPIN, false),
+    "not once the composition has ended",
+  );
+  check(
+    !NineKeyPanelPolicy.threeColumn(false, SchemeTraits.QUANPIN, true),
+    "nor on the twenty-six key face",
+  );
+  check(
+    !NineKeyPanelPolicy.threeColumn(true, -1, true) &&
+      !NineKeyPanelPolicy.threeColumn(true, SchemeTraits.JAPANESE, true),
+    "English, a local mode and the kana grid keep today's panel",
+  );
+  check(
+    NineKeyPanelPolicy.backspace(NineKeyPanelMode.STROKE, "hs") ===
+      NineKeyPanelBackspace.POP_STROKE,
+    "in stroke mode backspace takes the last stroke off first",
+  );
+  check(
+    NineKeyPanelPolicy.backspace(NineKeyPanelMode.STROKE, "") === NineKeyPanelBackspace.ENGINE,
+    "and with no stroke left it is an ordinary backspace",
+  );
+  check(
+    NineKeyPanelPolicy.backspace(NineKeyPanelMode.SPELLING, "hs") === NineKeyPanelBackspace.ENGINE,
+    "in spelling mode it is always the Engine's backspace",
+  );
+  check(NineKeyPanelPolicy.appendStroke("h", "s") === "hs", "a stroke is appended");
+  check(
+    NineKeyPanelPolicy.appendStroke("h", "x") === "h",
+    "a byte the C ABI refuses is never sent",
+  );
+  check(
+    NineKeyPanelPolicy.appendStroke("h".repeat(NineKeyPanelPolicy.MAX_STROKES), "s").length ===
+      NineKeyPanelPolicy.MAX_STROKES,
+    "the prefix stops at the C ABI's limit",
+  );
+  check(
+    NineKeyPanelPolicy.popStroke("hsp") === "hs" && NineKeyPanelPolicy.popStroke("") === "",
+    "popping takes one stroke and is harmless on none",
+  );
+  check(NineKeyPanelPolicy.glyphs("hspnz") === "一丨丿丶乛", "strokes draw as their glyphs");
+  check(NineKeyPanelPolicy.glyphs("hqz") === "一乛", "an unknown byte is skipped, not drawn");
+  check(
+    NineKeyPanelPolicy.strokes()
+      .map((item) => item.code)
+      .join("") === "hspnz",
+    "the five stroke keys are 横竖撇点折 in order",
+  );
+  check(
+    NineKeyPanelPolicy.strokesAfterToggle(NineKeyPanelMode.STROKE, "hs") === "",
+    "leaving stroke mode clears the stroke filter",
+  );
+  check(
+    NineKeyPanelPolicy.strokesAfterToggle(NineKeyPanelMode.STROKE, "") === null &&
+      NineKeyPanelPolicy.strokesAfterToggle(NineKeyPanelMode.SPELLING, "") === null,
+    "and nothing is sent when there is nothing to clear",
+  );
+  check(
+    NineKeyPanelPolicy.toggledMode(NineKeyPanelMode.SPELLING) === NineKeyPanelMode.STROKE &&
+      NineKeyPanelPolicy.toggledMode(NineKeyPanelMode.STROKE) === NineKeyPanelMode.SPELLING,
+    "the toggle flips between the two columns",
+  );
+  check(
+    NineKeyPanelPolicy.modeTitle(NineKeyPanelMode.SPELLING) === "拼音" &&
+      NineKeyPanelPolicy.modeTitle(NineKeyPanelMode.STROKE) === "笔画",
+    "the toggle names the column showing",
+  );
+  check(
+    NineKeyPanelPolicy.singleCharacterTitle(false) === "全部" &&
+      NineKeyPanelPolicy.singleCharacterTitle(true) === "单字",
+    "and the filter key names the filter in force",
+  );
+  check(
+    NineKeyPanelPolicy.clearsFilterOnClose(true, true, "") &&
+      NineKeyPanelPolicy.clearsFilterOnClose(true, false, "h"),
+    "closing the panel mid-composition clears a filter that is on",
+  );
+  check(
+    !NineKeyPanelPolicy.clearsFilterOnClose(false, true, "h") &&
+      !NineKeyPanelPolicy.clearsFilterOnClose(true, false, ""),
+    "but sends nothing once the Engine has cleared it, or when there was none",
   );
 });
 
@@ -5532,6 +5688,80 @@ group("the settings page and the keyboard agree on what the loudest haptic is ca
   );
 });
 
+group("the vibration levels feel different and 跟随系统 leaves it to the system", () => {
+  const light = KeyboardFeedback.plan(HapticStrength.LIGHT);
+  const medium = KeyboardFeedback.plan(HapticStrength.MEDIUM);
+  const heavy = KeyboardFeedback.plan(HapticStrength.HEAVY);
+  const system = KeyboardFeedback.plan(HapticStrength.SYSTEM);
+  // Duration alone at a fixed intensity (10/20/35 ms) was what users could not tell apart.
+  check(
+    light.intensity < medium.intensity && medium.intensity < heavy.intensity,
+    "the intensity rises with the level",
+  );
+  check(
+    new Set([light.effectId, medium.effectId, heavy.effectId]).size === 3,
+    "each chosen level has its own preset effect",
+  );
+  check(
+    light.fallbackMillis < medium.fallbackMillis &&
+      medium.fallbackMillis < heavy.fallbackMillis &&
+      heavy.fallbackMillis >= light.fallbackMillis * 4,
+    "a device without the presets still gets durations far enough apart to feel",
+  );
+  check(
+    !light.followsSystem && !medium.followsSystem && !heavy.followsSystem,
+    "a chosen level is not muted by the system's touch setting",
+  );
+  check(
+    system.followsSystem && system.intensity === 0,
+    "跟随系统 uses the touch usage with no intensity of its own",
+  );
+  check(
+    KeyboardFeedback.plan("thunderous" as HapticStrength) === medium,
+    "an unknown level vibrates as medium",
+  );
+  check(KeyboardFeedback.DEFAULTS.strength === HapticStrength.MEDIUM, "medium stays the default");
+  check(
+    KeyboardFeedback.nextStrength(HapticStrength.HEAVY) === HapticStrength.SYSTEM &&
+      KeyboardFeedback.nextStrength(HapticStrength.SYSTEM) === HapticStrength.LIGHT,
+    "the toolbar card cycles through 跟随系统 and back to light",
+  );
+  check(KeyboardFeedback.title(HapticStrength.SYSTEM) === "系统", "and labels it 系统");
+  check(
+    KeyboardFeedback.parse(JSON.stringify({ sound: false, haptics: true, strength: "system" }))
+      .strength === HapticStrength.SYSTEM,
+    "a stored 跟随系统 reads back",
+  );
+  check(
+    KeyboardFeedback.parse(JSON.stringify({ sound: false, haptics: true, strength: "loud" }))
+      .strength === HapticStrength.MEDIUM,
+    "a stored value this build does not know reads as medium",
+  );
+  check(
+    KeyboardFeedbackBridge.fromShared({
+      soundEnabled: false,
+      hapticsEnabled: true,
+      hapticStrength: "system",
+    }).strength === HapticStrength.SYSTEM,
+    "the page's system is the keyboard's system",
+  );
+  check(
+    KeyboardFeedbackBridge.toShared({
+      sound: false,
+      haptics: true,
+      strength: HapticStrength.SYSTEM,
+      glideTyping: false,
+    }).hapticStrength === "system",
+    "and goes back to the page under the same name",
+  );
+  check(
+    KeyboardFeedbackBridge.strength("strong") === HapticStrength.HEAVY &&
+      KeyboardFeedbackBridge.strength("system") === HapticStrength.SYSTEM &&
+      KeyboardFeedbackBridge.strength("loud") === HapticStrength.MEDIUM,
+    "the preview reads the page's names the way a save does",
+  );
+});
+
 group("an unfamiliar feedback value falls back by field rather than wholesale", () => {
   const partial = KeyboardFeedbackBridge.fromShared({
     soundEnabled: true,
@@ -5549,21 +5779,25 @@ group("an unfamiliar feedback value falls back by field rather than wholesale", 
   const missing = KeyboardFeedbackBridge.fromShared(null);
   check(missing.sound === false && missing.haptics === false, "no record at all is the defaults");
   check(
-    KeyboardFeedbackBridge.previewDuration("strong") >
-      KeyboardFeedbackBridge.previewDuration("light"),
-    "the preview buzzes longer for the stronger setting",
+    KeyboardFeedback.plan(KeyboardFeedbackBridge.strength("strong")).intensity >
+      KeyboardFeedback.plan(KeyboardFeedbackBridge.strength("light")).intensity,
+    "the preview buzzes harder for the stronger setting",
   );
   check(
-    KeyboardFeedbackBridge.previewDuration("thunderous") ===
-      KeyboardFeedbackBridge.previewDuration("medium"),
+    KeyboardFeedback.plan(KeyboardFeedbackBridge.strength("thunderous")) ===
+      KeyboardFeedback.plan(KeyboardFeedbackBridge.strength("medium")),
     "and an unknown one previews the default rather than nothing",
   );
 });
 
 group("滑行输入 is a device switch in the feedback file, off unless turned on", () => {
-  check(KeyboardFeedback.DEFAULTS.glideTyping === false, "a keyboard that never saw the switch does not glide");
   check(
-    KeyboardFeedback.parse(JSON.stringify({ sound: true, haptics: false, strength: "light" })).glideTyping === false,
+    KeyboardFeedback.DEFAULTS.glideTyping === false,
+    "a keyboard that never saw the switch does not glide",
+  );
+  check(
+    KeyboardFeedback.parse(JSON.stringify({ sound: true, haptics: false, strength: "light" }))
+      .glideTyping === false,
     "a file written before the switch existed reads as off",
   );
   const on = KeyboardFeedback.parse(
@@ -5577,12 +5811,16 @@ group("滑行输入 is a device switch in the feedback file, off unless turned o
   check(
     KeyboardFeedback.parse(
       JSON.stringify({ sound: true, haptics: true, strength: "light", glideTyping: "yes" }),
-    ).glideTyping === false && KeyboardFeedback.parse(
-      JSON.stringify({ sound: true, haptics: true, strength: "light", glideTyping: "yes" }),
-    ).sound === true,
+    ).glideTyping === false &&
+      KeyboardFeedback.parse(
+        JSON.stringify({ sound: true, haptics: true, strength: "light", glideTyping: "yes" }),
+      ).sound === true,
     "a value that is not a boolean falls back on its own, keeping the fields beside it",
   );
-  check(KeyboardFeedbackBridge.toShared(on).glideTyping === true, "the page is shown the switch as stored");
+  check(
+    KeyboardFeedbackBridge.toShared(on).glideTyping === true,
+    "the page is shown the switch as stored",
+  );
   check(
     KeyboardFeedbackBridge.fromShared({
       soundEnabled: false,
@@ -5605,7 +5843,11 @@ group("滑行输入 is a device switch in the feedback file, off unless turned o
 /** The 26 letter keys of a QWERTY face in window coordinates: 30 x 40 keys, 4 apart, the second row indented half a key, the third a key and a half, all of it 100 down and 10 in. */
 function glideKeyboard(): (GlideKeyRect | null)[] {
   const keys: (GlideKeyRect | null)[] = GlideTypingPolicy.emptyKeys();
-  const rows: [string, number][] = [["qwertyuiop", 0], ["asdfghjkl", 0.5], ["zxcvbnm", 1.5]];
+  const rows: [string, number][] = [
+    ["qwertyuiop", 0],
+    ["asdfghjkl", 0.5],
+    ["zxcvbnm", 1.5],
+  ];
   rows.forEach(([letters, indent], row) => {
     for (let column = 0; column < letters.length; column++) {
       keys[GlideTypingPolicy.letterIndex(letters[column])] = {
@@ -5641,17 +5883,29 @@ group("glide typing is armed only on the quanpin letters of the 26-key face", ()
   );
   check(!GlideTypingPolicy.armed({ ...armed, engineScheme: 1 }), "not in any scheme but quanpin");
   check(!GlideTypingPolicy.armed({ ...armed, english: true }), "not in dedicated English");
-  check(!GlideTypingPolicy.armed({ ...armed, localMode: "v" }), "not while a local mode has the keys");
-  check(!GlideTypingPolicy.armed({ ...armed, composes: false }), "not in an editor the Engine does not compose for");
+  check(
+    !GlideTypingPolicy.armed({ ...armed, localMode: "v" }),
+    "not while a local mode has the keys",
+  );
+  check(
+    !GlideTypingPolicy.armed({ ...armed, composes: false }),
+    "not in an editor the Engine does not compose for",
+  );
 });
 
 group("a touch becomes a glide over another letter, far enough sideways", () => {
   const keys = glideKeyboard();
   const n = glideCentre(keys, "n");
   const m = glideCentre(keys, "m");
-  check(GlideTypingPolicy.letterIndex("a") === 0 && GlideTypingPolicy.letterIndex("z") === 25, "letters index a..z");
+  check(
+    GlideTypingPolicy.letterIndex("a") === 0 && GlideTypingPolicy.letterIndex("z") === 25,
+    "letters index a..z",
+  );
   check(GlideTypingPolicy.letterIndex(";") === -1, "the semicolon key is no glide key");
-  check(GlideTypingPolicy.keyAt(keys, n.x, n.y, 2, 4) === GlideTypingPolicy.letterIndex("n"), "a centre finds its key");
+  check(
+    GlideTypingPolicy.keyAt(keys, n.x, n.y, 2, 4) === GlideTypingPolicy.letterIndex("n"),
+    "a centre finds its key",
+  );
   check(
     GlideTypingPolicy.keyAt(keys, n.x + 16, n.y, 2, 4) === GlideTypingPolicy.letterIndex("n"),
     "the half gap beside a key still belongs to it",
@@ -5661,7 +5915,10 @@ group("a touch becomes a glide over another letter, far enough sideways", () => 
     "past the middle of the gap the neighbour has it",
   );
   check(GlideTypingPolicy.keyAt(keys, 0, 0, 2, 4) === -1, "nothing above the keys");
-  check(GlideTypingPolicy.keyAt(GlideTypingPolicy.emptyKeys(), n.x, n.y, 2, 4) === -1, "nor before any key was measured");
+  check(
+    GlideTypingPolicy.keyAt(GlideTypingPolicy.emptyKeys(), n.x, n.y, 2, 4) === -1,
+    "nor before any key was measured",
+  );
   const width = GlideTypingPolicy.keyWidth(keys);
   check(width === 30, "one letter key is 30 wide");
   const nIndex = GlideTypingPolicy.letterIndex("n");
@@ -5685,7 +5942,10 @@ group("a touch becomes a glide over another letter, far enough sideways", () => 
     !GlideTypingPolicy.starts(nIndex, GlideTypingPolicy.letterIndex("j"), n.x, n.x + 2, width),
     "straight up into the row above is a vertical swipe, not a glide, whichever key the finger reaches",
   );
-  check(!GlideTypingPolicy.starts(-1, nIndex, 0, n.x, width), "a touch that did not go down on a letter never glides");
+  check(
+    !GlideTypingPolicy.starts(-1, nIndex, 0, n.x, width),
+    "a touch that did not go down on a letter never glides",
+  );
   check(!GlideTypingPolicy.starts(nIndex, -1, n.x, n.x + 60, width), "nor does one over no letter");
 });
 
@@ -5695,9 +5955,15 @@ group("the bottom row's wider keys do not set the glide key size", () => {
     const key = keys[GlideTypingPolicy.letterIndex(letter)] as GlideKeyRect;
     keys[GlideTypingPolicy.letterIndex(letter)] = { ...key, width: 36 };
   }
-  check(GlideTypingPolicy.keyWidth(keys) === 30, "the median letter is the one the upper rows share");
+  check(
+    GlideTypingPolicy.keyWidth(keys) === 30,
+    "the median letter is the one the upper rows share",
+  );
   check(GlideTypingPolicy.keyHeight(keys) === 40, "and so is its height");
-  check(GlideTypingPolicy.keyWidth(GlideTypingPolicy.emptyKeys()) === 0, "no measured key is no size");
+  check(
+    GlideTypingPolicy.keyWidth(GlideTypingPolicy.emptyKeys()) === 0,
+    "no measured key is no size",
+  );
 });
 
 group("a long stroke is thinned evenly, keeping its ends", () => {
@@ -5722,9 +5988,15 @@ group("a long stroke is thinned evenly, keeping its ends", () => {
 });
 
 group("coalesced samples are timed between the previous sample and the event", () => {
-  check(GlideTypingPolicy.coalescedMillis(100, 130, 0, 2) === 110, "the first of two a third of the way");
+  check(
+    GlideTypingPolicy.coalescedMillis(100, 130, 0, 2) === 110,
+    "the first of two a third of the way",
+  );
   check(GlideTypingPolicy.coalescedMillis(100, 130, 1, 2) === 120, "the second two thirds");
-  check(GlideTypingPolicy.coalescedMillis(100, 90, 0, 1) === 100, "never before the sample it follows");
+  check(
+    GlideTypingPolicy.coalescedMillis(100, 90, 0, 1) === 100,
+    "never before the sample it follows",
+  );
 });
 
 group("a finished stroke becomes the request msime_client_glide reads", () => {
@@ -5736,7 +6008,11 @@ group("a finished stroke becomes the request msime_client_glide reads", () => {
     const from = glideCentre(keys, word[index]);
     const to = glideCentre(keys, word[index + 1]);
     for (let step = 0; step < 10; step++) {
-      stroke.push({ x: from.x + ((to.x - from.x) * step) / 10, y: from.y + ((to.y - from.y) * step) / 10, t: time });
+      stroke.push({
+        x: from.x + ((to.x - from.x) * step) / 10,
+        y: from.y + ((to.y - from.y) * step) / 10,
+        t: time,
+      });
       time += 8.4;
     }
   }
@@ -5759,24 +6035,39 @@ group("a finished stroke becomes the request msime_client_glide reads", () => {
     request.keys[0][0] === 15 + 0.5 * 34 && request.keys[0][1] === 48 + 20,
     "a..z in order, measured from the letter keys' own top-left",
   );
-  check(request.keys[GlideTypingPolicy.letterIndex("q")][0] === 15, "q, the top-left key, is half a key in");
+  check(
+    request.keys[GlideTypingPolicy.letterIndex("q")][0] === 15,
+    "q, the top-left key, is half a key in",
+  );
   check(request.key_width === 30 && request.key_height === 40, "one letter key's size");
   check(request.points.length === stroke.length, "every sample of a short stroke");
-  check(request.points.every((point) => point.length === 3), "each as x, y and milliseconds");
+  check(
+    request.points.every((point) => point.length === 3),
+    "each as x, y and milliseconds",
+  );
   check(
     request.points[0][0] === stroke[0].x - 10 && request.points[0][1] === stroke[0].y - 100,
     "in the same space as the keys",
   );
   check(
-    request.points.every((point, index) => Number.isInteger(point[2]) && (index === 0 || point[2] >= request.points[index - 1][2])),
+    request.points.every(
+      (point, index) =>
+        Number.isInteger(point[2]) && (index === 0 || point[2] >= request.points[index - 1][2]),
+    ),
     "times whole milliseconds that never go backwards",
   );
 
-  check(GlideTypingPolicy.request(GlideTypingPolicy.emptyKeys(), stroke) === null, "no request before the keys are measured");
+  check(
+    GlideTypingPolicy.request(GlideTypingPolicy.emptyKeys(), stroke) === null,
+    "no request before the keys are measured",
+  );
   const missing = glideKeyboard();
   missing[GlideTypingPolicy.letterIndex("q")] = null;
   check(GlideTypingPolicy.request(missing, stroke) === null, "nor with one letter unmeasured");
-  check(GlideTypingPolicy.request(keys, stroke.slice(0, 1)) === null, "a single sample is not a stroke");
+  check(
+    GlideTypingPolicy.request(keys, stroke.slice(0, 1)) === null,
+    "a single sample is not a stroke",
+  );
   check(
     GlideTypingPolicy.request(keys, [stroke[0], { x: Number.NaN, y: 0, t: 1 }]) === null,
     "a sample that is not a number is not sent",
@@ -5792,18 +6083,24 @@ group("a finished stroke becomes the request msime_client_glide reads", () => {
   }
   const capped = GlideTypingPolicy.request(keys, long) as string;
   const parsed = JSON.parse(capped) as { points: number[][] };
-  check(parsed.points.length === GlideTypingPolicy.MAX_POINTS, "a long stroke is capped at 1024 points");
   check(
-    parsed.points[0][0] === Math.round((9999.987 - 10) * 10) / 10
-      && parsed.points[parsed.points.length - 1][0]
-        === Math.round((9999.987 - (GlideTypingPolicy.BUFFER_POINTS - 1) - 10) * 10) / 10,
+    parsed.points.length === GlideTypingPolicy.MAX_POINTS,
+    "a long stroke is capped at 1024 points",
+  );
+  check(
+    parsed.points[0][0] === Math.round((9999.987 - 10) * 10) / 10 &&
+      parsed.points[parsed.points.length - 1][0] ===
+        Math.round((9999.987 - (GlideTypingPolicy.BUFFER_POINTS - 1) - 10) * 10) / 10,
     "keeping where it began and where it lifted",
   );
   check(
     parsed.points.every((point, index) => index === 0 || point[2] >= parsed.points[index - 1][2]),
     "with its times made non-decreasing",
   );
-  check(capped.length <= GlideTypingPolicy.MAX_REQUEST_BYTES, `within the request's byte limit (${capped.length})`);
+  check(
+    capped.length <= GlideTypingPolicy.MAX_REQUEST_BYTES,
+    `within the request's byte limit (${capped.length})`,
+  );
 });
 
 group("an oversized feedback document is refused before parsing", () => {
@@ -7792,23 +8089,29 @@ group("account response lengths accept only decimal octets", () => {
 group("account success envelopes require a real boolean", () => {
   check(strictAccountOk(true), "true is the only successful account envelope value");
   for (const malformed of [false, 0, 1, "true", "false", {}, []]) {
-    check(!strictAccountOk(malformed), `malformed account ok value is rejected: ${String(malformed)}`);
+    check(
+      !strictAccountOk(malformed),
+      `malformed account ok value is rejected: ${String(malformed)}`,
+    );
   }
 });
 
 group("account native success envelopes require a value", () => {
-  check(accountReplyValue<{ id: string }>({ ok: true, value: { id: "synthetic" } })?.id === "synthetic",
-    "account success exposes its object value");
-  check(accountReplyValue({ ok: true }) === null,
-    "account success without a value is refused");
-  check(accountReplyValue({ ok: true, value: null }) === null,
-    "account success with a null value is refused");
-  check(accountReplyValue<{ id: string }>({ ok: false, value: { id: "stale" } }) === null,
-    "account failure never exposes a value");
-  check(accountReplyValue(null) === null,
-    "a JSON null account reply is refused without throwing");
-  check(accountReplyValue([]) === null,
-    "a JSON array account reply is refused without throwing");
+  check(
+    accountReplyValue<{ id: string }>({ ok: true, value: { id: "synthetic" } })?.id === "synthetic",
+    "account success exposes its object value",
+  );
+  check(accountReplyValue({ ok: true }) === null, "account success without a value is refused");
+  check(
+    accountReplyValue({ ok: true, value: null }) === null,
+    "account success with a null value is refused",
+  );
+  check(
+    accountReplyValue<{ id: string }>({ ok: false, value: { id: "stale" } }) === null,
+    "account failure never exposes a value",
+  );
+  check(accountReplyValue(null) === null, "a JSON null account reply is refused without throwing");
+  check(accountReplyValue([]) === null, "a JSON array account reply is refused without throwing");
 });
 
 group("account and cloud clipboard bridge keeps secrets native", () => {
@@ -7825,19 +8128,23 @@ group("account and cloud clipboard bridge keeps secrets native", () => {
 
   let oversizedNameCleared = false;
   const oversizedNameStore: AccountSessionStore = {
-    load: () => JSON.stringify({
-      access_token: "a".repeat(64),
-      refresh_token: "b".repeat(64),
-      token_type: "Bearer",
-      expires_at: Date.now() + 600_000,
-      user: { id: "synthetic-user", display_name: "你".repeat(65), created_at: "2026-01-01" },
-    }),
+    load: () =>
+      JSON.stringify({
+        access_token: "a".repeat(64),
+        refresh_token: "b".repeat(64),
+        token_type: "Bearer",
+        expires_at: Date.now() + 600_000,
+        user: { id: "synthetic-user", display_name: "你".repeat(65), created_at: "2026-01-01" },
+      }),
     save: () => {},
     clear: () => {
       oversizedNameCleared = true;
     },
   };
-  new AccountCloudBridge({ request: async () => ({ status: 200, body: "{}" }) }, oversizedNameStore);
+  new AccountCloudBridge(
+    { request: async () => ({ status: 200, body: "{}" }) },
+    oversizedNameStore,
+  );
   check(oversizedNameCleared, "a saved nickname over 64 Unicode scalars is cleared");
 
   let stored: string | null = null;
@@ -8031,7 +8338,9 @@ group("a failed login save preserves the last committed session", () => {
           if (saveFails) throw new Error("synthetic storage failure");
           stored = value;
         },
-        clear: () => { stored = null; },
+        clear: () => {
+          stored = null;
+        },
       },
     );
     void bridge
@@ -9140,7 +9449,9 @@ group("the account bridge accepts the shared clipboard search bound", () => {
   );
   const accepted = "你".repeat(341) + "a";
   void bridge
-    .handle(JSON.stringify({ operation: "clipboard", clipboard_operation: "list", search: accepted }))
+    .handle(
+      JSON.stringify({ operation: "clipboard", clipboard_operation: "list", search: accepted }),
+    )
     .then((reply) => {
       check(JSON.parse(reply).ok === true, "a 1,024-byte UTF-8 clipboard search is accepted");
       check(paths.length === 1, "the accepted search reaches the account service");
@@ -9153,7 +9464,10 @@ group("the account bridge accepts the shared clipboard search bound", () => {
       );
     })
     .then((reply) => {
-      check(JSON.parse(reply).error === "account_invalid", "a search over 1,024 UTF-8 bytes is refused");
+      check(
+        JSON.parse(reply).error === "account_invalid",
+        "a search over 1,024 UTF-8 bytes is refused",
+      );
       check(paths.length === 1, "the oversized search never reaches the account service");
     });
 });
@@ -9193,58 +9507,77 @@ group("dictionary candidate requests use the shared query contract", () => {
     profile: "xiaohe",
     limit: 10,
   };
-  void bridge.handle(JSON.stringify(valid)).then((reply) => {
-    check(JSON.parse(reply).ok === true, "a valid candidate query reaches the account service");
-    check(paths.length === 1, "the valid candidate query uses one request");
-    return bridge.handle(JSON.stringify({ ...valid, text: "你".repeat(86) }));
-  }).then((reply) => {
-    check(JSON.parse(reply).error === "account_invalid", "a candidate query over 256 UTF-8 bytes is refused");
-    check(paths.length === 1, "an oversized candidate query never reaches transport");
-    return bridge.handle(JSON.stringify({ ...valid, kind: "unknown" }));
-  }).then((reply) => {
-    check(JSON.parse(reply).error === "account_invalid", "an unknown candidate kind is refused");
-    check(paths.length === 1, "an invalid candidate kind never reaches transport");
-    return bridge.handle(JSON.stringify({
-      ...valid,
-      dictionary_operation: "rank",
-      code: "ni",
-      word: "你",
-      revision: 0,
-      mode: "unknown",
-      linear_step: 1,
-      trigger_count: 1,
-      force_top: false,
-    }));
-  }).then((reply) => {
-    check(JSON.parse(reply).error === "account_invalid", "an unknown ranking mode is refused");
-    check(paths.length === 1, "an invalid ranking request never reaches transport");
-    return bridge.handle(JSON.stringify({
-      ...valid,
-      kind: "quick",
-      dictionary_operation: "rank",
-      code: "ab",
-      word: "字",
-      revision: 0,
-      mode: "pin",
-      linear_step: 1,
-      trigger_count: 1,
-      force_top: false,
-    }));
-  }).then((reply) => {
-    check(JSON.parse(reply).error === "account_invalid", "quick phrases cannot be ranked");
-    check(paths.length === 1, "a quick ranking request never reaches transport");
-    return bridge.handle(JSON.stringify({
-      ...valid,
-      kind: "quick",
-      dictionary_operation: "remove_candidate",
-      code: "ab",
-      word: "字",
-      revision: 0,
-    }));
-  }).then((reply) => {
-    check(JSON.parse(reply).error === "account_invalid", "quick phrases cannot be removed as candidates");
-    check(paths.length === 1, "a quick candidate removal never reaches transport");
-  });
+  void bridge
+    .handle(JSON.stringify(valid))
+    .then((reply) => {
+      check(JSON.parse(reply).ok === true, "a valid candidate query reaches the account service");
+      check(paths.length === 1, "the valid candidate query uses one request");
+      return bridge.handle(JSON.stringify({ ...valid, text: "你".repeat(86) }));
+    })
+    .then((reply) => {
+      check(
+        JSON.parse(reply).error === "account_invalid",
+        "a candidate query over 256 UTF-8 bytes is refused",
+      );
+      check(paths.length === 1, "an oversized candidate query never reaches transport");
+      return bridge.handle(JSON.stringify({ ...valid, kind: "unknown" }));
+    })
+    .then((reply) => {
+      check(JSON.parse(reply).error === "account_invalid", "an unknown candidate kind is refused");
+      check(paths.length === 1, "an invalid candidate kind never reaches transport");
+      return bridge.handle(
+        JSON.stringify({
+          ...valid,
+          dictionary_operation: "rank",
+          code: "ni",
+          word: "你",
+          revision: 0,
+          mode: "unknown",
+          linear_step: 1,
+          trigger_count: 1,
+          force_top: false,
+        }),
+      );
+    })
+    .then((reply) => {
+      check(JSON.parse(reply).error === "account_invalid", "an unknown ranking mode is refused");
+      check(paths.length === 1, "an invalid ranking request never reaches transport");
+      return bridge.handle(
+        JSON.stringify({
+          ...valid,
+          kind: "quick",
+          dictionary_operation: "rank",
+          code: "ab",
+          word: "字",
+          revision: 0,
+          mode: "pin",
+          linear_step: 1,
+          trigger_count: 1,
+          force_top: false,
+        }),
+      );
+    })
+    .then((reply) => {
+      check(JSON.parse(reply).error === "account_invalid", "quick phrases cannot be ranked");
+      check(paths.length === 1, "a quick ranking request never reaches transport");
+      return bridge.handle(
+        JSON.stringify({
+          ...valid,
+          kind: "quick",
+          dictionary_operation: "remove_candidate",
+          code: "ab",
+          word: "字",
+          revision: 0,
+        }),
+      );
+    })
+    .then((reply) => {
+      check(
+        JSON.parse(reply).error === "account_invalid",
+        "quick phrases cannot be removed as candidates",
+      );
+      check(paths.length === 1, "a quick candidate removal never reaches transport");
+    });
 });
 
 group("dictionary writes follow per-kind code and quick phrase bounds", () => {
@@ -9257,21 +9590,30 @@ group("dictionary writes follow per-kind code and quick phrase bounds", () => {
       },
     },
     {
-      load: () => JSON.stringify({
-        access_token: "a".repeat(64),
-        refresh_token: "b".repeat(64),
-        token_type: "Bearer",
-        expires_at: Date.now() + 600000,
-        user: { id: "synthetic-user", display_name: "Test", created_at: "2026-01-01" },
-      }),
+      load: () =>
+        JSON.stringify({
+          access_token: "a".repeat(64),
+          refresh_token: "b".repeat(64),
+          token_type: "Bearer",
+          expires_at: Date.now() + 600000,
+          user: { id: "synthetic-user", display_name: "Test", created_at: "2026-01-01" },
+        }),
       save: () => {},
       clear: () => {},
     },
   );
-  const write = (fields: Record<string, unknown>): Promise<string> => bridge.handle(JSON.stringify({
-    operation: "dictionary", dictionary_operation: "add", kind: "quick",
-    code: "ab", word: "字", weight: 0, ...fields,
-  }));
+  const write = (fields: Record<string, unknown>): Promise<string> =>
+    bridge.handle(
+      JSON.stringify({
+        operation: "dictionary",
+        dictionary_operation: "add",
+        kind: "quick",
+        code: "ab",
+        word: "字",
+        weight: 0,
+        ...fields,
+      }),
+    );
   void (async () => {
     const invalid = [
       { kind: "pinyin", code: "Ni" },
@@ -9284,23 +9626,45 @@ group("dictionary writes follow per-kind code and quick phrase bounds", () => {
       { kind: "english", code: "a".repeat(65) },
     ];
     for (const fields of invalid) {
-      check(JSON.parse(await write(fields)).error === "account_invalid", "invalid dictionary code or word is rejected");
+      check(
+        JSON.parse(await write(fields)).error === "account_invalid",
+        "invalid dictionary code or word is rejected",
+      );
     }
     check(paths.length === 0, "invalid dictionary writes never reach transport");
-    check(JSON.parse(await write({ kind: "quick", word: "字".repeat(199) })).ok === true,
-      "the maximum quick phrase is accepted");
+    check(
+      JSON.parse(await write({ kind: "quick", word: "字".repeat(199) })).ok === true,
+      "the maximum quick phrase is accepted",
+    );
     check(paths.length === 1, "a valid dictionary write reaches transport");
 
-    const edit = (fields: Record<string, unknown>): Promise<string> => bridge.handle(JSON.stringify({
-      operation: "dictionary", dictionary_operation: "edit_catalog", kind: "quick",
-      code: "a1", word: "字", revision: 0, replacement: null, ...fields,
-    }));
-    check(JSON.parse(await edit({ code: "A1" })).error === "account_invalid",
-      "catalog identities reject invalid codes");
-    check(JSON.parse(await edit({ replacement: { code: "a1", word: "字", weight: 0 } })).error === "account_invalid",
-      "new quick phrase replacements reject digits");
+    const edit = (fields: Record<string, unknown>): Promise<string> =>
+      bridge.handle(
+        JSON.stringify({
+          operation: "dictionary",
+          dictionary_operation: "edit_catalog",
+          kind: "quick",
+          code: "a1",
+          word: "字",
+          revision: 0,
+          replacement: null,
+          ...fields,
+        }),
+      );
+    check(
+      JSON.parse(await edit({ code: "A1" })).error === "account_invalid",
+      "catalog identities reject invalid codes",
+    );
+    check(
+      JSON.parse(await edit({ replacement: { code: "a1", word: "字", weight: 0 } })).error ===
+        "account_invalid",
+      "new quick phrase replacements reject digits",
+    );
     check(paths.length === 1, "invalid catalog edits never reach transport");
-    check(JSON.parse(await edit({})).ok === true, "stored quick phrase identities may contain digits");
+    check(
+      JSON.parse(await edit({})).ok === true,
+      "stored quick phrase identities may contain digits",
+    );
     check(paths.length === 2, "valid catalog edits reach transport");
   })();
 });
@@ -9520,6 +9884,7 @@ function fullPreferenceSchema(): AccountPreferenceSchema {
       "platform.harmony.theme",
       "platform.harmony.custom_candidate_skin",
       "platform.harmony.haptic_strength",
+      "platform.harmony.number_keypad_order",
     ],
     "string",
   );
@@ -9700,7 +10065,8 @@ group("account preference envelopes reject malformed numeric metadata", () => {
     "a fractional cloud revision is unavailable",
   );
   check(
-    accountPreferencesFromDocument({ revision: Number.MAX_SAFE_INTEGER + 1, settings: {} }) === null,
+    accountPreferencesFromDocument({ revision: Number.MAX_SAFE_INTEGER + 1, settings: {} }) ===
+      null,
     "an unsafe cloud revision is unavailable",
   );
   for (const malformed of [null, [], {}]) {
@@ -9732,6 +10098,61 @@ group("local preference documents require an object", () => {
     !validLocalPreferenceDocument({ revision: 3.5, preferences: {} }),
     "a fractional local revision is rejected with its document",
   );
+});
+
+group("the digit order and 跟随系统 travel with the account", () => {
+  const schema = fullPreferenceSchema();
+  const uploaded = localAccountPreferences(
+    { touch_number_keypad_order: "calculator" },
+    { ...syncFeedback, hapticStrength: "system" },
+  );
+  check(
+    uploaded["platform.harmony.number_keypad_order"] === "calculator",
+    "the calculator order is uploaded",
+  );
+  check(uploaded["platform.harmony.haptic_strength"] === "system", "and so is 跟随系统");
+  check(
+    localAccountPreferences({}, syncFeedback)["platform.harmony.number_keypad_order"] === "phone",
+    "a document from before the setting uploads the phone order",
+  );
+  check(
+    localAccountPreferences({ touch_number_keypad_order: "abacus" }, syncFeedback)[
+      "platform.harmony.number_keypad_order"
+    ] === "phone",
+    "an unknown local order is never uploaded",
+  );
+  const applied = applyAccountPreferences(
+    {},
+    {
+      revision: 2,
+      settings: {
+        "platform.harmony.number_keypad_order": "calculator",
+        "platform.harmony.haptic_strength": "system",
+      },
+    },
+    schema,
+    syncFeedback,
+  );
+  check(
+    applied.preferences.touch_number_keypad_order === "calculator",
+    "the order is written into the document",
+  );
+  check(
+    applied.feedback !== null && applied.feedback.hapticStrength === "system",
+    "and 跟随系统 into the feedback file",
+  );
+  let refused = false;
+  try {
+    applyAccountPreferences(
+      {},
+      { revision: 3, settings: { "platform.harmony.number_keypad_order": "abacus" } },
+      schema,
+      syncFeedback,
+    );
+  } catch (error) {
+    refused = error instanceof AccountPreferenceError && error.message === "account_invalid";
+  }
+  check(refused, "an order nobody defined is refused rather than mapped");
 });
 
 group("applying writes only what the schema declares", () => {
@@ -10378,26 +10799,28 @@ group("shared dictionaries and reply templates keep their own bounds", () => {
     .then(() => {
       // Applying is two requests: the server has to be told which revision of the user's own
       // dictionary this is merging into, so the read's answer goes into the write.
-      void resources({ resource_operation: "apply", id, resource_revision: 3 }).then((result) => {
-        check(JSON.parse(result).ok === true, "applying a shared dictionary is accepted");
-        const applied = calls.find((call) => call.path.endsWith("/apply"));
-        check(
-          applied?.body?.dictionary_revision === 12,
-          "and it carries the revision the catalog just reported",
-        );
-        check(applied?.body?.resource_revision === 3, "together with the resource revision");
-        catalogRevision = Number.MAX_SAFE_INTEGER + 1;
-        return resources({ resource_operation: "apply", id, resource_revision: 3 });
-      }).then((result) => {
-        check(
-          JSON.parse(result).error === "community_unavailable",
-          "an unsafe dictionary revision is unavailable",
-        );
-        check(
-          calls.filter((call) => call.path.endsWith("/apply")).length === 1,
-          "an unsafe dictionary revision is rejected before the apply request",
-        );
-      });
+      void resources({ resource_operation: "apply", id, resource_revision: 3 })
+        .then((result) => {
+          check(JSON.parse(result).ok === true, "applying a shared dictionary is accepted");
+          const applied = calls.find((call) => call.path.endsWith("/apply"));
+          check(
+            applied?.body?.dictionary_revision === 12,
+            "and it carries the revision the catalog just reported",
+          );
+          check(applied?.body?.resource_revision === 3, "together with the resource revision");
+          catalogRevision = Number.MAX_SAFE_INTEGER + 1;
+          return resources({ resource_operation: "apply", id, resource_revision: 3 });
+        })
+        .then((result) => {
+          check(
+            JSON.parse(result).error === "community_unavailable",
+            "an unsafe dictionary revision is unavailable",
+          );
+          check(
+            calls.filter((call) => call.path.endsWith("/apply")).length === 1,
+            "an unsafe dictionary revision is rejected before the apply request",
+          );
+        });
 
       // A reply is a prompt and nothing else; a dictionary is entries and no prompt. The shared
       // service refuses the other combinations rather than ignoring the extra half, because a
@@ -11119,30 +11542,48 @@ group("account chat refuses blank and control-bearing content", () => {
   });
   let calls = 0;
   let content = "第一行\n第二行";
-  const bridge = new AccountCloudBridge({
-    request: async () => {
-      calls++;
-      return { status: 200, body: JSON.stringify({ choices: [{ message: { role: "assistant", content } }] }) };
+  const bridge = new AccountCloudBridge(
+    {
+      request: async () => {
+        calls++;
+        return {
+          status: 200,
+          body: JSON.stringify({ choices: [{ message: { role: "assistant", content } }] }),
+        };
+      },
     },
-  }, { load: () => session, save: () => {}, clear: () => {} });
-  const ask = (message: string) => bridge.handle(JSON.stringify({
-    operation: "chat", chat_operation: "complete", model: "synthetic-model",
-    messages: [{ role: "user", content: message }],
-  }));
-  void ask("\n\t ").then((reply) => {
-    check(JSON.parse(reply).error === "account_invalid", "blank chat messages are refused");
-    return ask("safe\u0000hidden");
-  }).then((reply) => {
-    check(JSON.parse(reply).error === "account_invalid", "messages with NUL are refused");
-    check(calls === 0, "invalid messages do not reach transport");
-    return ask("第一行\n第二行");
-  }).then((reply) => {
-    check(JSON.parse(reply).ok === true, "ordinary paragraphs remain accepted");
-    content = "unsafe\u007fcontent";
-    return ask("valid request");
-  }).then((reply) => {
-    check(JSON.parse(reply).error === "account_unavailable", "control-bearing replies are refused");
-  });
+    { load: () => session, save: () => {}, clear: () => {} },
+  );
+  const ask = (message: string) =>
+    bridge.handle(
+      JSON.stringify({
+        operation: "chat",
+        chat_operation: "complete",
+        model: "synthetic-model",
+        messages: [{ role: "user", content: message }],
+      }),
+    );
+  void ask("\n\t ")
+    .then((reply) => {
+      check(JSON.parse(reply).error === "account_invalid", "blank chat messages are refused");
+      return ask("safe\u0000hidden");
+    })
+    .then((reply) => {
+      check(JSON.parse(reply).error === "account_invalid", "messages with NUL are refused");
+      check(calls === 0, "invalid messages do not reach transport");
+      return ask("第一行\n第二行");
+    })
+    .then((reply) => {
+      check(JSON.parse(reply).ok === true, "ordinary paragraphs remain accepted");
+      content = "unsafe\u007fcontent";
+      return ask("valid request");
+    })
+    .then((reply) => {
+      check(
+        JSON.parse(reply).error === "account_unavailable",
+        "control-bearing replies are refused",
+      );
+    });
 });
 
 group("a device's own buttons are not a keyboard", () => {
@@ -11993,8 +12434,12 @@ group("malformed Engine view integers are refused", () => {
 
 group("Engine view bounds preserve byte offsets and exact identities", () => {
   const valid: EngineViewNumericFields = {
-    editing_text: "việt", caret_position: 6, page: 2, page_count: 3,
-    generation: Number.MAX_SAFE_INTEGER, scheme: SchemeTraits.VIETNAMESE,
+    editing_text: "việt",
+    caret_position: 6,
+    page: 2,
+    page_count: 3,
+    generation: Number.MAX_SAFE_INTEGER,
+    scheme: SchemeTraits.VIETNAMESE,
   };
   check(EngineViewValuePolicy.isValid(valid), "a UTF-8 caret and largest exact generation survive");
   for (const field of ["page", "page_count", "generation"] as const) {
@@ -12003,24 +12448,50 @@ group("Engine view bounds preserve byte offsets and exact identities", () => {
       `${field} cannot lose precision before reaching native code`,
     );
   }
-  check(!EngineViewValuePolicy.isValid({ ...valid, caret_position: 7 }), "UTF-8 bounds are enforced");
+  check(
+    !EngineViewValuePolicy.isValid({ ...valid, caret_position: 7 }),
+    "UTF-8 bounds are enforced",
+  );
   check(!EngineViewValuePolicy.isValid({ ...valid, page: 3 }), "a page must exist in the list");
   check(!EngineViewValuePolicy.isValid({ ...valid, page_count: 0 }), "no pages means page zero");
   check(
-    EngineViewValuePolicy.isValid({ ...valid, editing_text: "", caret_position: 0, page: 0, page_count: 0 }),
+    EngineViewValuePolicy.isValid({
+      ...valid,
+      editing_text: "",
+      caret_position: 0,
+      page: 0,
+      page_count: 0,
+    }),
     "an idle Engine view is accepted",
   );
   for (const malformed of [null, undefined, {}, [], 1, "view"]) {
-    check(!EngineViewValuePolicy.isValid(malformed as EngineViewNumericFields), "missing fields are refused");
+    check(
+      !EngineViewValuePolicy.isValid(malformed as EngineViewNumericFields),
+      "missing fields are refused",
+    );
   }
 });
 
 group("candidate snapshots keep generation identities exact", () => {
   check(EngineViewValuePolicy.isGeneration(0), "generation zero is valid while idle");
-  check(EngineViewValuePolicy.isGeneration(Number.MAX_SAFE_INTEGER), "the largest exact generation is valid");
-  for (const invalid of [0.5, true, "7", null, -1, Number.NaN,
-    Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER + 1]) {
-    check(!EngineViewValuePolicy.isGeneration(invalid), `snapshot generation rejects ${String(invalid)}`);
+  check(
+    EngineViewValuePolicy.isGeneration(Number.MAX_SAFE_INTEGER),
+    "the largest exact generation is valid",
+  );
+  for (const invalid of [
+    0.5,
+    true,
+    "7",
+    null,
+    -1,
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+    Number.MAX_SAFE_INTEGER + 1,
+  ]) {
+    check(
+      !EngineViewValuePolicy.isGeneration(invalid),
+      `snapshot generation rejects ${String(invalid)}`,
+    );
   }
 });
 
@@ -12506,61 +12977,53 @@ group("Harmony batch transcription accepts every shared cloud preset", () => {
 
 group("Harmony Doubao handshake headers reject unsafe settings", () => {
   check(
-    DoubaoHeaderPolicy.validConfiguration(
-      "api_key", "synthetic-token", "fixture-resource", "",
-    ),
+    DoubaoHeaderPolicy.validConfiguration("api_key", "synthetic-token", "fixture-resource", ""),
     "API-key mode accepts a complete synthetic configuration",
   );
   check(
     DoubaoHeaderPolicy.validConfiguration(
-      "legacy", "synthetic-token", "fixture-resource", "synthetic-app",
+      "legacy",
+      "synthetic-token",
+      "fixture-resource",
+      "synthetic-app",
     ),
     "legacy mode requires and accepts its app key",
   );
   for (const value of ["injected\r\nheader", "line\nvalue", "bad\u007fvalue", "bad\u0085value"]) {
     check(
-      !DoubaoHeaderPolicy.validConfiguration(
-        "api_key", value, "fixture-resource", "",
-      ),
+      !DoubaoHeaderPolicy.validConfiguration("api_key", value, "fixture-resource", ""),
       "control characters never enter a Doubao request header",
     );
     check(
-      !DoubaoHeaderPolicy.validConfiguration(
-        "api_key", "synthetic-token", value, "",
-      ),
+      !DoubaoHeaderPolicy.validConfiguration("api_key", "synthetic-token", value, ""),
       "resource IDs cannot inject a Doubao request header",
     );
   }
   check(
     !DoubaoHeaderPolicy.validConfiguration(
-      "legacy", "synthetic-token", "fixture-resource", "bad\rapp",
+      "legacy",
+      "synthetic-token",
+      "fixture-resource",
+      "bad\rapp",
     ),
     "legacy app keys are checked before the handshake",
   );
   check(
-    !DoubaoHeaderPolicy.validConfiguration(
-      "unexpected", "synthetic-token", "fixture-resource", "",
-    ),
+    !DoubaoHeaderPolicy.validConfiguration("unexpected", "synthetic-token", "fixture-resource", ""),
     "unknown auth modes are rejected instead of silently changing schemes",
   );
   for (const value of ["密钥", "资源", "应用"]) {
     check(
-      !DoubaoHeaderPolicy.validConfiguration(
-        "api_key", value, "fixture-resource", "",
-      ),
+      !DoubaoHeaderPolicy.validConfiguration("api_key", value, "fixture-resource", ""),
       "non-ASCII API credentials are refused before the WebSocket handshake",
     );
     check(
-      !DoubaoHeaderPolicy.validConfiguration(
-        "api_key", "synthetic-token", value, "",
-      ),
+      !DoubaoHeaderPolicy.validConfiguration("api_key", "synthetic-token", value, ""),
       "non-ASCII resource IDs are refused before the WebSocket handshake",
     );
   }
   check(
-    !DoubaoHeaderPolicy.validConfiguration(
-      "legacy", "synthetic-token", "fixture-resource", "应用",
-    ),
+    !DoubaoHeaderPolicy.validConfiguration("legacy", "synthetic-token", "fixture-resource", "应用"),
     "non-ASCII legacy app keys are refused before the WebSocket handshake",
   );
 });
@@ -12679,6 +13142,25 @@ group("Korean draws the syllable, not the key letters behind it", () => {
   check(
     SchemeCompositionPolicy.reading(SchemeTraits.QUANPIN, "nihao", "ni hao") === "nihao",
     "every other scheme keeps drawing its spelling",
+  );
+  check(
+    SchemeCompositionPolicy.reading(SchemeTraits.QUANPIN, "64224", "64224", "ning'bai") ===
+      "ning'bai",
+    "quanpin nine-key draws the Engine's reading rather than the digits",
+  );
+  check(
+    SchemeCompositionPolicy.reading(SchemeTraits.QUANPIN, "64224", "64224", "") === "64224",
+    "and the digits when the Engine has no reading for them",
+  );
+  check(
+    SchemeCompositionPolicy.reading(-1, "64224", "64224", "ning'bai") === "64224",
+    "a reading is never drawn outside the scheme's own rules",
+  );
+  check(
+    SchemeCompositionPolicy.drawsNineKeyReading(SchemeTraits.QUANPIN, "64224", "ning'bai") &&
+      SchemeCompositionPolicy.caret(SchemeTraits.QUANPIN, 2, "ning'bai", true) === 8 &&
+      SchemeCompositionPolicy.caret(SchemeTraits.QUANPIN, 2, "nihao") === 2,
+    "the caret sits at the end of a drawn reading, whose length is not the digits'",
   );
   check(
     KoreanCompositionPolicy.typesAfterCommit(0x20) &&
@@ -13491,7 +13973,10 @@ group("LocalAsrPolicy", () => {
     "another provider never loads a local model",
   );
   check(!LocalAsrPolicy.usesLocalModel("local", "", "/data"), "no picked model is not a model");
-  check(!LocalAsrPolicy.usesLocalModel("local", "models/zipformer", "/data"), "a relative path is refused");
+  check(
+    !LocalAsrPolicy.usesLocalModel("local", "models/zipformer", "/data"),
+    "a relative path is refused",
+  );
   check(
     LocalAsrPolicy.modelDirectory(" /data/m/ ") === "/data/m",
     "the path is trimmed and loses its trailing slash",
@@ -13517,14 +14002,14 @@ group("LocalAsrPolicy", () => {
   );
   check(
     LocalAsrPolicy.usesLocalModel(
-      "local", "/data/files/voice-models/zipformer", "/data/files/voice-models",
+      "local",
+      "/data/files/voice-models/zipformer",
+      "/data/files/voice-models",
     ),
     "local recognition accepts a model only with its managed root",
   );
   check(
-    !LocalAsrPolicy.usesLocalModel(
-      "local", "/data/other/zipformer", "/data/files/voice-models",
-    ),
+    !LocalAsrPolicy.usesLocalModel("local", "/data/other/zipformer", "/data/files/voice-models"),
     "local recognition refuses a model outside its managed root",
   );
   check(
@@ -13656,7 +14141,9 @@ group("LocalAsrPolicy", () => {
     "oversized hotword fields are refused",
   );
   check(
-    LocalAsrPolicy.hotwords(Array.from({ length: 201 }, () => ({ text: "水杉", pinyin: "shui shan" }))) === null,
+    LocalAsrPolicy.hotwords(
+      Array.from({ length: 201 }, () => ({ text: "水杉", pinyin: "shui shan" })),
+    ) === null,
     "more than 200 hotwords are refused",
   );
   check(
@@ -13760,7 +14247,10 @@ group("PcmCapture start is invalidated by a concurrent stop", () => {
   const generation = new CaptureGeneration();
   const start = generation.begin();
   generation.invalidate();
-  check(!generation.isCurrent(start), "a stop during start prevents the pending capture from starting");
+  check(
+    !generation.isCurrent(start),
+    "a stop during start prevents the pending capture from starting",
+  );
 });
 
 group("SpeechSentenceAccumulator", () => {

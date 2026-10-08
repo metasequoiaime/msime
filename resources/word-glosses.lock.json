@@ -1,0 +1,16 @@
+{
+  "source": "https://www.mdbg.net/chinese/dictionary?page=cc-cedict",
+  "license": "CC-BY-SA-4.0",
+  "artifact": {
+    "name": "cedict_1_0_ts_utf-8_mdbg.zip",
+    "url": "https://www.mdbg.net/chinese/export/cedict/cedict_1_0_ts_utf-8_mdbg.zip",
+    "sha256": "5189396e2c727e03d5c4e1972d49777ec1d8ab998ae84f111dac43d7e3836fe5",
+    "size": 3975894,
+    "published": "2026-09-23T10:03:34Z"
+  },
+  "note": "MDBG replaces this URL with each daily export. The digest pins the 2026-09-23 file; rebuilding from a newer export means updating this lock.",
+  "outputs": [
+    "zh-en.db",
+    "word-glosses-NOTICE.txt"
+  ]
+}

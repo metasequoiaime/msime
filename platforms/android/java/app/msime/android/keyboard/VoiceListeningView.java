@@ -11,7 +11,7 @@ import android.view.animation.AccelerateDecelerateInterpolator;
 import android.widget.TextView;
 
 /**
- * 键盘内的语音聆听面板：72 dp 的 accent 圆盘托着麦克风，外圈一道 1.2 s 循环的脉冲环（扩到 18 dp），下面「正在聆听…」和「点任意处取消」。
+ * 键盘内的语音聆听面板：72 dp 的 accent 圆盘托着麦克风，外圈一道 1.2 s 循环的脉冲环（扩到 18 dp），识别器报音量时圆盘外再贴一圈随音量涨落的光圈（最多 12 dp），下面「正在聆听…」和「点任意处取消」。
  *
  * <p>节点 text 是「正在聆听…」，描述「正在聆听，点任意处取消」（§2.8）；整个面板可点，点击即取消，回调由调用方用 `setOnClickListener` 设置。颜色由调用方从皮肤传入。
  */
@@ -19,16 +19,20 @@ public final class VoiceListeningView extends TextView {
     public static final float ORB_DP = 72f;
     public static final float PULSE_DP = 18f;
     public static final float MIC_DP = 32f;
+    /** 满音量时音量光圈超出圆盘的宽度。 */
+    public static final float LEVEL_DP = 12f;
     private static final long PULSE_MS = 1200L;
 
     private final Paint orb = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint ring = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint volume = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint icon = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final TextPaint title = new TextPaint(Paint.ANTI_ALIAS_FLAG);
     private final TextPaint hint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
     private int accent = Color.BLUE;
     private int onAccent = Color.WHITE;
     private float pulse;
+    private float level;
     private ValueAnimator animator;
     private String hintText = "点任意处取消";
     private String fittedTitle;
@@ -62,6 +66,26 @@ public final class VoiceListeningView extends TextView {
     public void setHint(String value) {
         hintText = TextPolicy.emptyIfNull(value);
         invalidate();
+    }
+
+    /** 识别器报来的音量（0–1，见 {@link PlatformSpeechPolicy#level}）；变大立刻跟上，变小缓缓回落。 */
+    public void setLevel(float value) {
+        float next = PlatformSpeechPolicy.smoothed(level, value);
+        if (next == level) return;
+        level = next;
+        invalidate();
+    }
+
+    /** 识别器不再报音量（说完了、出结果了）时立即收回光圈；{@link #setLevel} 的平滑只会让它停在上一帧的四分之三。 */
+    public void resetLevel() {
+        if (level == 0f) return;
+        level = 0f;
+        invalidate();
+    }
+
+    /** 音量光圈超出圆盘的半径（像素）：音量 0 时贴着圆盘不显示，满音量时扩到 {@code maxSpread}。 */
+    public static float levelSpread(float value, float maxSpread) {
+        return maxSpread * clampProgress(value);
     }
 
     /** 脉冲环在动画进度 {@code t}（0–1）时的外扩半径（像素）与透明度（0–255）。 */
@@ -118,6 +142,12 @@ public final class VoiceListeningView extends TextView {
         ring.setAlpha(pulseAlpha(pulse));
         canvas.drawCircle(cx, cy, radius + pulseSpread(pulse,
             KeyboardGeometry.floatPixels(getContext(), PULSE_DP)), ring);
+        float spread = levelSpread(level, KeyboardGeometry.floatPixels(getContext(), LEVEL_DP));
+        if (spread > 0f) {
+            volume.setColor(accent);
+            volume.setAlpha(70);
+            canvas.drawCircle(cx, cy, radius + spread, volume);
+        }
         orb.setColor(accent);
         canvas.drawCircle(cx, cy, radius, orb);
         float mic = KeyboardGeometry.floatPixels(getContext(), MIC_DP);

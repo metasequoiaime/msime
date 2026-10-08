@@ -15,11 +15,11 @@ struct KeyboardCandidateAnnotation: Equatable {
 final class KeyboardCandidatePanelView: UIView {
   private static let annotatedColumns: CGFloat = 3
   private static let rowSpacing: CGFloat = 6
-  private let candidates: [String]
+  private var candidates: [String]
   private let candidateScale: CGFloat
   private let candidateFamilies: [String]
   private var annotations: [KeyboardCandidateAnnotation]
-  private let markers: [[CandidateMarker]]
+  private var markers: [[CandidateMarker]]
   private let display: (String) -> String
   private let onSelect: (Int) -> Void
   /// What a long press on a chip offers. Shared with the strip -- a press that manages an entry
@@ -27,6 +27,7 @@ final class KeyboardCandidatePanelView: UIView {
   private let menuElements: (Int) -> [UIMenuElement]
   private let rows = UIStackView()
   private let scrollView = UIScrollView()
+  private let count = UILabel()
   private var laidOutWidth: CGFloat = 0
 
   init(candidates: [String], preedit: String, annotations: [KeyboardCandidateAnnotation] = [],
@@ -34,7 +35,8 @@ final class KeyboardCandidatePanelView: UIView {
        candidateScale: CGFloat = 1, preeditScale: CGFloat = 1, candidateFamilies: [String] = [],
        display: @escaping (String) -> String,
        menuElements: @escaping (Int) -> [UIMenuElement] = { _ in [] },
-       onSelect: @escaping (Int) -> Void, onClose: @escaping () -> Void) {
+       onSelect: @escaping (Int) -> Void, onClose: @escaping () -> Void,
+       columns: (leading: UIView, trailing: UIView)? = nil) {
     self.candidates = candidates
     self.candidateScale = candidateScale
     self.candidateFamilies = candidateFamilies
@@ -67,7 +69,6 @@ final class KeyboardCandidatePanelView: UIView {
     spelling.textColor = KeyboardTheme.current.accent
     spelling.accessibilityIdentifier = "candidatePanelSpelling"
 
-    let count = UILabel()
     count.text = "\(candidates.count) 个候选"
     count.font = .preferredFont(forTextStyle: .footnote)
     count.adjustsFontForContentSizeCategory = true
@@ -83,14 +84,6 @@ final class KeyboardCandidatePanelView: UIView {
     close.accessibilityLabel = "收起候选"
     close.setContentHuggingPriority(.required, for: .horizontal)
 
-    let header = UIStackView(arrangedSubviews: [brandMark, spelling, count, UIView(), close])
-    header.axis = .horizontal
-    header.alignment = .center
-    header.spacing = 8
-    header.setCustomSpacing(6, after: brandMark)
-    header.translatesAutoresizingMaskIntoConstraints = false
-    addSubview(header)
-
     rows.axis = .vertical
     rows.spacing = 6
     rows.alignment = .leading
@@ -99,6 +92,45 @@ final class KeyboardCandidatePanelView: UIView {
     scrollView.disableEdgeEffects()
     scrollView.addSubview(rows)
     addSubview(scrollView)
+    NSLayoutConstraint.activate([
+      rows.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor),
+      rows.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor),
+      rows.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor),
+      rows.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor),
+      rows.widthAnchor.constraint(equalTo: scrollView.frameLayoutGuide.widthAnchor),
+    ])
+
+    // 全拼九键的展开面板是三栏：左边拼音栏、中间候选、右边功能键。读音留在上面的候选栏里，所以不画标题行，收起由右栏的「返回」负责。
+    if let columns {
+      // 盖在键区上，底色留给后面的键盘皮肤，被盖住的键由键盘控制器藏起来。
+      backgroundColor = .clear
+      for column in [columns.leading, columns.trailing] {
+        column.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(column)
+        NSLayoutConstraint.activate([
+          column.topAnchor.constraint(equalTo: topAnchor, constant: 4),
+          column.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -6),
+          column.widthAnchor.constraint(equalTo: widthAnchor, multiplier: 0.15),
+        ])
+      }
+      NSLayoutConstraint.activate([
+        columns.leading.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 5),
+        columns.trailing.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -5),
+        scrollView.leadingAnchor.constraint(equalTo: columns.leading.trailingAnchor, constant: 6),
+        scrollView.trailingAnchor.constraint(equalTo: columns.trailing.leadingAnchor, constant: -6),
+        scrollView.topAnchor.constraint(equalTo: topAnchor, constant: 4),
+        scrollView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -6),
+      ])
+      return
+    }
+
+    let header = UIStackView(arrangedSubviews: [brandMark, spelling, count, UIView(), close])
+    header.axis = .horizontal
+    header.alignment = .center
+    header.spacing = 8
+    header.setCustomSpacing(6, after: brandMark)
+    header.translatesAutoresizingMaskIntoConstraints = false
+    addSubview(header)
 
     NSLayoutConstraint.activate([
       header.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
@@ -111,11 +143,6 @@ final class KeyboardCandidatePanelView: UIView {
       scrollView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
       scrollView.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 4),
       scrollView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8),
-      rows.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor),
-      rows.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor),
-      rows.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor),
-      rows.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor),
-      rows.widthAnchor.constraint(equalTo: scrollView.frameLayoutGuide.widthAnchor),
     ])
   }
 
@@ -128,6 +155,18 @@ final class KeyboardCandidatePanelView: UIView {
     rebuildRows(within: laidOutWidth)
     // The rows were just replaced, so the chips that came back have no frame yet. Ask for a
     // layout pass rather than leaving them to whatever happens to dirty the panel next.
+    setNeedsLayout()
+  }
+
+  /// 换成另一代候选（九键面板里选拼音、退格或筛选之后），面板不关，回到列表开头。
+  func reload(candidates: [String], annotations: [KeyboardCandidateAnnotation], markers: [[CandidateMarker]]) {
+    self.candidates = candidates
+    self.annotations = annotations
+    self.markers = markers
+    count.text = "\(candidates.count) 个候选"
+    scrollView.setContentOffset(.zero, animated: false)
+    guard laidOutWidth > 0 else { return }
+    rebuildRows(within: laidOutWidth)
     setNeedsLayout()
   }
 

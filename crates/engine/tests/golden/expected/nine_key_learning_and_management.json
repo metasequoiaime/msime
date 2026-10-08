@@ -66,7 +66,11 @@
      "nin",
      "ning",
      "niu",
-     "o"
+     "o",
+     "M",
+     "N",
+     "O",
+     "6"
     ],
     "candidate_count": 3,
     "candidates": [
@@ -215,7 +219,11 @@
      "nin",
      "ning",
      "niu",
-     "o"
+     "o",
+     "M",
+     "N",
+     "O",
+     "6"
     ],
     "candidate_count": 3,
     "candidates": [
@@ -283,7 +291,11 @@
      "nin",
      "ning",
      "niu",
-     "o"
+     "o",
+     "M",
+     "N",
+     "O",
+     "6"
     ],
     "candidate_count": 3,
     "candidates": [
@@ -351,7 +363,11 @@
      "nin",
      "ning",
      "niu",
-     "o"
+     "o",
+     "M",
+     "N",
+     "O",
+     "6"
     ],
     "candidate_count": 3,
     "candidates": [
@@ -417,7 +433,11 @@
      "nin",
      "ning",
      "niu",
-     "o"
+     "o",
+     "M",
+     "N",
+     "O",
+     "6"
     ],
     "candidate_count": 3,
     "candidates": [
@@ -483,7 +503,11 @@
      "nin",
      "ning",
      "niu",
-     "o"
+     "o",
+     "M",
+     "N",
+     "O",
+     "6"
     ],
     "candidate_count": 3,
     "candidates": [
@@ -549,7 +573,11 @@
      "nin",
      "ning",
      "niu",
-     "o"
+     "o",
+     "M",
+     "N",
+     "O",
+     "6"
     ],
     "candidate_count": 3,
     "candidates": [
@@ -615,7 +643,11 @@
      "nin",
      "ning",
      "niu",
-     "o"
+     "o",
+     "M",
+     "N",
+     "O",
+     "6"
     ],
     "candidate_count": 3,
     "candidates": [
@@ -683,7 +715,11 @@
      "nin",
      "ning",
      "niu",
-     "o"
+     "o",
+     "M",
+     "N",
+     "O",
+     "6"
     ],
     "candidate_count": 3,
     "candidates": [
@@ -835,7 +871,11 @@
      "nin",
      "ning",
      "niu",
-     "o"
+     "o",
+     "M",
+     "N",
+     "O",
+     "6"
     ],
     "candidate_count": 3,
     "candidates": [
@@ -888,6 +928,28 @@
     "caret": 2,
     "dedicated_english": false,
     "shuangpin_profile": "",
+    "nine_key_spellings": [
+     "mi",
+     "mian",
+     "miao",
+     "mie",
+     "min",
+     "ming",
+     "miu",
+     "ni",
+     "nian",
+     "niang",
+     "niao",
+     "nie",
+     "nin",
+     "ning",
+     "niu",
+     "o",
+     "M",
+     "N",
+     "O",
+     "6"
+    ],
     "candidate_count": 1,
     "candidates": [
      {
@@ -954,7 +1016,11 @@
      "nin",
      "ning",
      "niu",
-     "o"
+     "o",
+     "M",
+     "N",
+     "O",
+     "6"
     ],
     "candidate_count": 3,
     "candidates": [
@@ -1023,7 +1089,11 @@
      "nin",
      "ning",
      "niu",
-     "o"
+     "o",
+     "M",
+     "N",
+     "O",
+     "6"
     ],
     "candidate_count": 3,
     "candidates": [
@@ -1096,7 +1166,11 @@
     "nine_key_spellings": [
      "ni",
      "mi",
-     "o"
+     "o",
+     "M",
+     "N",
+     "O",
+     "6"
     ],
     "candidate_count": 5,
     "candidates": [
@@ -1174,7 +1248,11 @@
     "nine_key_spellings": [
      "ni",
      "mi",
-     "o"
+     "o",
+     "M",
+     "N",
+     "O",
+     "6"
     ],
     "candidate_count": 5,
     "candidates": [
@@ -1333,7 +1411,11 @@
     "nine_key_spellings": [
      "ni",
      "mi",
-     "o"
+     "o",
+     "M",
+     "N",
+     "O",
+     "6"
     ],
     "candidate_count": 5,
     "candidates": [

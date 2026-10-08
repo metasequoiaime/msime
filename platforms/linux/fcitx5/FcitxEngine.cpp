@@ -5314,7 +5314,9 @@ public:
     // The decoration's stamp stands in for its image, so an unchanged skin costs a stat per refresh, not a copy.
     // Read once: the icon only changes with the package, and a reinstall restarts Fcitx5 with it.
     static const auto logo = host::load_fcitx_theme_logo(MSIME_ICON_DIR);
-    auto theme = host::fcitx_candidate_theme(colors, resolved.dark, std::nullopt, corner_radius, logo, user_radius) +
+    // A named empty overlay rather than a std::nullopt temporary: GCC 12 at -O3 on aarch64 inlines the temporary's destructor here and reports its never-constructed string as maybe-uninitialized, which -Werror turns into a failed release build (Release Linux run 37716388590).
+    static const std::optional<host::FcitxThemeOverlay> no_overlay;
+    auto theme = host::fcitx_candidate_theme(colors, resolved.dark, no_overlay, corner_radius, logo, user_radius) +
                  host::fcitx_overlay_stamp(decoration);
     if (theme == candidate_theme_applied_) return;
     auto *classicui = instance_->addonManager().addon("classicui", true);

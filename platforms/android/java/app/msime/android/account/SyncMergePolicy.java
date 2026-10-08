@@ -210,6 +210,8 @@ public final class SyncMergePolicy {
             case "wubi98":
             case "english":
                 return snapshotKind;
+            // 云端快照和本机 export_snapshot 写的都是 `quick`；漏掉它的话合并和本地恢复会悄悄丢掉全部快捷短语。
+            case "quick":
             case "quick_phrase":
             case "quickPhrase":
                 return "quickPhrase";

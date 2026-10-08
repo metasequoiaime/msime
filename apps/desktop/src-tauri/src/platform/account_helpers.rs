@@ -38,6 +38,7 @@ pub(crate) fn read_snapshot_file(path: &Path) -> std::io::Result<String> {
 }
 
 #[cfg(any(target_os = "ios", target_os = "android", test))]
+#[allow(dead_code)]
 pub(crate) fn remove_snapshot_file(path: &Path) -> std::io::Result<()> {
     crate::shared::atomic_file::remove_private(path)
 }
@@ -53,7 +54,7 @@ pub(crate) fn cleanup_stale_snapshot_previews(directory: &Path) -> std::io::Resu
             }
             Err(error) => return Err(error),
         };
-        return cleanup_stale_snapshot_previews_in_directory(directory, &opened);
+        cleanup_stale_snapshot_previews_in_directory(directory, &opened)
     }
     #[cfg(not(unix))]
     {

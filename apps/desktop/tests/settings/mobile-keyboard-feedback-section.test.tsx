@@ -59,6 +59,12 @@ test("updates sound, haptics, and strength", () => {
     target: { value: "strong" },
   });
   expect(onChange).toHaveBeenLastCalledWith({ ...value, hapticStrength: "strong" });
+
+  fireEvent.change(screen.getByRole("combobox", { name: "振动强度" }), {
+    target: { value: "system" },
+  });
+  expect(onChange).toHaveBeenLastCalledWith({ ...value, hapticStrength: "system" });
+  expect(screen.getByRole("option", { name: "跟随系统" })).toBeTruthy();
 });
 
 test("offers preview and iOS English suggestions", () => {

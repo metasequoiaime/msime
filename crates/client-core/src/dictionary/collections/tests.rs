@@ -271,6 +271,44 @@ fn collections_large_collections_are_sent_in_batches_the_queue_accepts() {
 }
 
 #[test]
+fn collections_unowned_words_are_queued_past_the_personal_queue_limit() {
+    let mut fixture = Fixture::new();
+    // 本机已经有一个学来的词占着队列，像在用过的手机上恢复备份。
+    fixture
+        .personal()
+        .enqueue_import(vec![english("learned")], "keyboard".into())
+        .unwrap();
+    let mut words: Vec<_> = (0..1000)
+        .map(|index| english(&letters(index + 100)))
+        .collect();
+    // 不合规的词跳过，不拖累整批。
+    words.push(PersonalWord {
+        kind: PersonalWordKind::English,
+        key: String::new(),
+        value: "空编码".into(),
+        weight: 1,
+    });
+    let action: DictionaryCollectionsAction = serde_json::from_value(serde_json::json!({
+        "operation": "queue_words",
+        "entries": serde_json::to_value(&words).unwrap(),
+    }))
+    .unwrap();
+    let view = fixture.store.perform(action, None).unwrap();
+    assert_eq!(view.queued, Some(1000));
+    // 不属于任何集合：集合列表里看不到这些词。
+    assert!(view.collections.is_empty());
+    // 个人词库队列只收得下空出来的位置，其余留在待发送队列里。
+    assert_eq!(fixture.requests().len(), PERSONAL_QUEUE_CAPACITY);
+    fixture.drain();
+    assert!(words[..1000].iter().all(|word| fixture.has(word)));
+    assert!(fixture.has(&english("learned")));
+    assert!(fixture
+        .store
+        .queue_words(vec![english("a"); MAX_QUEUED_WORDS + 1])
+        .is_err());
+}
+
+#[test]
 fn collections_hold_at_most_twenty_thousand_entries() {
     let fixture = Fixture::new();
     let view = fixture

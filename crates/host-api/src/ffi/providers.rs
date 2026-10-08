@@ -354,6 +354,10 @@ pub extern "C" fn msime_client_translation_query(handle: u64) -> *mut c_char {
             if !offline_gloss_languages.is_empty() {
                 query["offline_gloss_languages"] = json!(offline_gloss_languages);
             }
+            // Likewise present only when on: the host then pronounces the gloss lines it draws, English through msime_client_pronunciation_request.
+            if preferences.candidate_pronunciation {
+                query["candidate_pronunciation"] = json!(true);
+            }
             // Only when a dictionary comes from the downloaded pack: the host passes it back to msime_client_candidate_gloss_request, which looks there after the resources.
             if from_pack {
                 if let Some(state_root) =

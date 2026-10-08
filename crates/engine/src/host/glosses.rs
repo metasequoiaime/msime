@@ -199,6 +199,57 @@ pub fn candidate_target_glosses(
     Ok(output)
 }
 
+/// IPA of lowercase English words from a `pronunciations/en-phonetic.db` built by scripts/build_pronunciations.py, parallel to `words`; an unknown word is empty. Like the offline gloss files, the version and kind it states must match, so a gloss database dropped in its place is refused rather than read as IPA; never creates the file.
+pub fn english_phonetics(database_path: &str, words: &[String]) -> Result<Vec<String>> {
+    // An empty path would open a private temporary database rather than fail.
+    if database_path.is_empty() {
+        return Err(EngineError::failed(diagnostics::PRONUNCIATION_UNAVAILABLE));
+    }
+    let connection = Connection::open_with_flags(
+        database_path,
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_FULL_MUTEX,
+    )
+    .map_err(|_| EngineError::failed(diagnostics::PRONUNCIATION_UNAVAILABLE))?;
+    connection
+        .busy_timeout(std::time::Duration::ZERO)
+        .map_err(|_| EngineError::failed(diagnostics::PRONUNCIATION_UNAVAILABLE))?;
+    let unreadable = |_| EngineError::failed(diagnostics::PRONUNCIATION_UNREADABLE);
+    let version = connection
+        .prepare("PRAGMA user_version")
+        .map_err(unreadable)?
+        .query_row((), |row| row.get::<_, i64>(0))
+        .ok();
+    if version != Some(1) {
+        return Err(EngineError::failed(
+            diagnostics::PRONUNCIATION_VERSION_UNSUPPORTED,
+        ));
+    }
+    let kind = connection
+        .prepare("SELECT value FROM meta WHERE key = 'kind'")
+        .map_err(unreadable)?
+        .query_row((), |row| row.get::<_, Option<String>>(0))
+        .ok()
+        .flatten();
+    if kind.as_deref() != Some("en_phonetic") {
+        return Err(EngineError::failed(
+            diagnostics::PRONUNCIATION_KIND_MISMATCH,
+        ));
+    }
+    let mut lookup = connection
+        .prepare("SELECT phonetic FROM en_phonetics WHERE word = ?1")
+        .map_err(unreadable)?;
+    words
+        .iter()
+        .map(|word| {
+            lookup
+                .query_row((word,), |row| row.get::<_, Option<String>>(0))
+                .optional()
+                .map(|phonetic| phonetic.flatten().unwrap_or_default())
+                .map_err(|_| EngineError::failed(diagnostics::PRONUNCIATION_READ_FAILED))
+        })
+        .collect()
+}
+
 /// `open_dictionary` (bridge.cpp:1150-1158): only a regular file whose prefix statement prepares.
 fn open_gloss_dictionary(path: &Path) -> Option<EnglishDictionary> {
     if !std::fs::symlink_metadata(path).ok()?.file_type().is_file() {

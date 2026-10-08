@@ -4,7 +4,7 @@
 
 use std::path::Path;
 
-use rusqlite::{Connection, OpenFlags, OptionalExtension};
+use rusqlite::{types::Type, Connection, OpenFlags, OptionalExtension};
 
 use crate::diagnostics;
 use crate::error::{EngineError, Result};
@@ -87,22 +87,43 @@ impl LanguageDictionary {
 
     /// The entries stored under exactly `key`, heaviest first and by text within a weight, at most `limit`.
     pub fn lookup(&self, key: &str, limit: usize) -> Result<Vec<LanguageEntry>> {
-        let requested_limit = limit;
+        let mut result = query_capacity(limit).map_or_else(Vec::new, Vec::with_capacity);
+        self.lookup_into(key, limit, &mut result)?;
+        Ok(result)
+    }
+
+    /// 将精确键的查询结果写入已有缓冲，保留其中字符串的容量。
+    pub fn lookup_into(
+        &self,
+        key: &str,
+        limit: usize,
+        result: &mut Vec<LanguageEntry>,
+    ) -> Result<()> {
         let limit = i64::try_from(limit).unwrap_or(i64::MAX);
         let mut statement = self.connection.prepare_cached(
             "SELECT text, weight FROM entries WHERE key = ?1 ORDER BY weight DESC, text ASC LIMIT ?2",
         )?;
-        let rows = statement.query_map((key, limit), |row| {
-            Ok(LanguageEntry {
-                text: row.get(0)?,
-                weight: row.get(1)?,
-            })
-        })?;
-        let mut result = query_capacity(requested_limit).map_or_else(Vec::new, Vec::with_capacity);
-        for row in rows {
-            result.push(row?);
+        let mut length = 0;
+        let mut rows = statement.query((key, limit))?;
+        while let Some(row) = rows.next()? {
+            let text = row.get_ref(0)?.as_str().map_err(|error| {
+                rusqlite::Error::FromSqlConversionFailure(0, Type::Text, Box::new(error))
+            })?;
+            let weight = row.get(1)?;
+            if let Some(entry) = result.get_mut(length) {
+                entry.text.clear();
+                entry.text.push_str(text);
+                entry.weight = weight;
+            } else {
+                result.push(LanguageEntry {
+                    text: text.to_owned(),
+                    weight,
+                });
+            }
+            length += 1;
         }
-        Ok(result)
+        result.truncate(length);
+        Ok(())
     }
 
     /// Whether `syllable` is in the scheme's syllable inventory.
@@ -128,29 +149,68 @@ impl LanguageDictionary {
         prefix: &str,
         limit: usize,
     ) -> Result<Vec<(String, LanguageEntry)>> {
+        let mut result = query_capacity(limit).map_or_else(Vec::new, Vec::with_capacity);
+        self.lookup_completions_into(prefix, limit, &mut result)?;
+        Ok(result)
+    }
+
+    /// 将补全查询结果写入已有缓冲，保留键和值字符串的容量。
+    pub fn lookup_completions_into(
+        &self,
+        prefix: &str,
+        limit: usize,
+        result: &mut Vec<(String, LanguageEntry)>,
+    ) -> Result<()> {
         // Keys are space-joined syllables, so every key starting with `prefix` sorts at or after it and before `prefix` with its last character incremented.
         let Some(upper) = completion_upper_bound(prefix) else {
-            return Ok(Vec::new());
+            result.clear();
+            return Ok(());
         };
-        let requested_limit = limit;
         let limit = i64::try_from(limit).unwrap_or(i64::MAX);
         let mut statement = self.connection.prepare_cached(
             "SELECT key, text, weight FROM entries WHERE key >= ?1 AND key < ?2 AND instr(substr(key, length(?1) + 1), ' ') = 0 ORDER BY weight DESC, text ASC LIMIT ?3",
         )?;
-        let rows = statement.query_map((prefix, upper, limit), |row| {
-            Ok((
-                row.get(0)?,
-                LanguageEntry {
-                    text: row.get(1)?,
-                    weight: row.get(2)?,
-                },
-            ))
-        })?;
-        let mut result = query_capacity(requested_limit).map_or_else(Vec::new, Vec::with_capacity);
-        for row in rows {
-            result.push(row?);
+        let mut length = 0;
+        let mut rows = statement.query((prefix, upper, limit))?;
+        while let Some(row) = rows.next()? {
+            let key = row.get_ref(0)?.as_str().map_err(|error| {
+                rusqlite::Error::FromSqlConversionFailure(0, Type::Text, Box::new(error))
+            })?;
+            let text = row.get_ref(1)?.as_str().map_err(|error| {
+                rusqlite::Error::FromSqlConversionFailure(1, Type::Text, Box::new(error))
+            })?;
+            let weight = row.get(2)?;
+            if let Some((existing_key, entry)) = result.get_mut(length) {
+                existing_key.clear();
+                existing_key.push_str(key);
+                entry.text.clear();
+                entry.text.push_str(text);
+                entry.weight = weight;
+            } else {
+                result.push((
+                    key.to_owned(),
+                    LanguageEntry {
+                        text: text.to_owned(),
+                        weight,
+                    },
+                ));
+            }
+            length += 1;
         }
-        Ok(result)
+        result.truncate(length);
+        Ok(())
+    }
+
+    /// 键以 `prefix` 开头的全部词条的文字，不分先后、可能重复。九宫格的笔画筛选用它取「笔顺以这几笔开头的字」：键按前缀落在一段连续区间里，只扫这一段。
+    pub fn texts_with_key_prefix(&self, prefix: &str) -> Result<Vec<String>> {
+        let Some(upper) = completion_upper_bound(prefix) else {
+            return Ok(Vec::new());
+        };
+        let mut statement = self
+            .connection
+            .prepare_cached("SELECT text FROM entries WHERE key >= ?1 AND key < ?2")?;
+        let rows = statement.query_map((prefix, upper), |row| row.get(0))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
     /// The entries whose key matches `pattern`, where `wildcard` stands for any one character other than a space and every other character for itself. With `completions` the pattern only has to match the start of the key, as in `lookup_completions`, and the rest of the key may not hold a syllable boundary; without it the key must match the whole pattern. Each comes with its key, heaviest first and by text within a weight, at most `limit`. The literal characters before the first wildcard bound the scan to their key range, so only a leading wildcard reads the whole table.

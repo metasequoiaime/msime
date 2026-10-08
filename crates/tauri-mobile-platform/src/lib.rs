@@ -397,7 +397,10 @@ impl IosKeyboardPreferences {
                 | "vietnamese"
                 | "tibetan"
                 | "stroke"
-        ) && matches!(self.haptic_strength.as_str(), "light" | "medium" | "strong")
+        ) && matches!(
+            self.haptic_strength.as_str(),
+            "light" | "medium" | "strong" | "system"
+        )
             // The ids of msime_client_core::skin::theme::GlobalTheme, which this crate does not depend on; the desktop crate's iOS account tests hold the two lists together.
             && matches!(
                 self.global_theme.as_str(),
@@ -777,7 +780,7 @@ impl<R: Runtime> MobilePlatform<R> {
     }
 
     pub fn preview_keyboard_haptics(&self, strength: &str) -> Result<(), ()> {
-        if !matches!(strength, "light" | "medium" | "strong") {
+        if !matches!(strength, "light" | "medium" | "strong" | "system") {
             return Err(());
         }
         self.0
@@ -1248,6 +1251,10 @@ mod tests {
         let mut invalid = keyboard_preferences();
         invalid.haptic_strength = "maximum".into();
         assert!(!invalid.is_valid());
+
+        let mut system = keyboard_preferences();
+        system.haptic_strength = "system".into();
+        assert!(system.is_valid(), "跟随系统");
 
         let mut invalid = keyboard_preferences();
         invalid.global_theme = "../skin".into();

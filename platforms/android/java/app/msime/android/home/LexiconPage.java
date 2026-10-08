@@ -32,7 +32,9 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 /**
- * 词库页：标题行的「刷新 / 导出 / 导入」，已安装（内置拼音词库加各个命名词库），新建与导入，发现词库（社区），学习组「记忆新词」，以及只在 Tauri 合包里出现的「更多」组（背单词、云词库，P21）。
+ * 词库页：已安装（内置拼音词库加各个命名词库），管理组（新建、导入、导出、刷新），发现词库（社区），学习组「记忆新词」，以及只在 Tauri 合包里出现的「更多」组（背单词、云词库，P21）。
+ *
+ * <p>导入、导出和刷新原先是大标题行右侧的三个胶囊，窄屏上把「词库」两个字挤成「词…」（#5682），现在和新建一起放在「已安装」下面那张卡片里，行间有分隔线；大标题和其他详情页一样只放标题。
  *
  * <p>命名词库的元数据和词条都经 {@link DictionaryCollectionsStore}；导入和导出走系统文件选择器（SAF），不申请存储权限。导入来源对话框只列 client-core 实际接受的格式。
  */
@@ -58,7 +60,6 @@ public final class LexiconPage extends DetailPage {
 
     @Override protected void buildContent(LinearLayout column, Bundle args) {
         this.column = column;
-        buildHeader();
         if (model != null) render();
         reload(false);
         loadDiscover();
@@ -73,33 +74,13 @@ public final class LexiconPage extends DetailPage {
         super.onDestroyView();
     }
 
-    private void buildHeader() {
-        LinearLayout actions = headerActions();
-        actions.removeAllViews();
-        actions.addView(headerPill("↻", "刷新", false, () -> reload(true)));
-        actions.addView(headerPill("↦", "导出", false, this::startExport));
-        actions.addView(headerPill("⇪", "导入", true, this::showImportSources));
-    }
-
-    private TextView headerPill(String glyph, String label, boolean filled, Runnable action) {
-        Context context = requireContext();
-        int fill = filled ? Ui.accent(context) : Ui.accentSoft(context);
-        TextView pill = Ui.pillButton(context, glyph + " " + label, Ui.TEXT_BUTTON_SMALL, 500,
-            fill, filled ? Ui.onAccent(context) : Ui.accent(context), 12, 6,
-            Ui.COMPACT_BUTTON_MIN_HEIGHT, 0, action);
-        pill.setContentDescription(label);
-        LinearLayout.LayoutParams params = Ui.wrap();
-        params.setMarginStart(Ui.dp(context, 8));
-        pill.setLayoutParams(params);
-        return pill;
-    }
-
     // ---- 数据 ----
 
     private void reload(boolean flush) {
         HostTask.run(this, LexiconPage::read, result -> {
             if (result == null) {
                 MsToast.show(requireContext(), DictionaryCollectionsStore.failureMessage(""));
+                if (model == null) renderUnavailable();
                 return;
             }
             model = result;
@@ -167,6 +148,10 @@ public final class LexiconPage extends DetailPage {
             28, 0, Ui.ROW_GAP));
         manage.addView(KeyboardSheets.actionRow(context, "⇪", "导入词库", this::showImportSources,
             28, 0, Ui.ROW_GAP));
+        manage.addView(KeyboardSheets.actionRow(context, "↦", "导出词库", this::startExport,
+            28, 0, Ui.ROW_GAP));
+        manage.addView(KeyboardSheets.actionRow(context, "↻", "刷新词库", () -> reload(true),
+            28, 0, Ui.ROW_GAP));
 
         GroupCard community = GroupCard.add(target, "发现词库").withDividers(58);
         List<CommunityCatalog.Item> items = discover;
@@ -187,6 +172,18 @@ public final class LexiconPage extends DetailPage {
             more.nav("背单词", "在管理界面里复习收藏的单词", null, this::openVocabularyReview);
             more.nav("云词库", "在管理界面里管理云端词库", null, this::openCloudDictionary);
         }
+    }
+
+    /** 第一次读就失败时页面上什么数据也没有；刷新入口在管理卡片里，这里单独留一张卡片给它，不让页面空着没法重试。 */
+    private void renderUnavailable() {
+        LinearLayout target = column;
+        if (target == null) return;
+        Context context = requireContext();
+        target.removeAllViews();
+        GroupCard card = GroupCard.add(target, null);
+        card.note(DictionaryCollectionsStore.failureMessage(""));
+        card.addView(KeyboardSheets.actionRow(context, "↻", "刷新词库", () -> reload(true),
+            28, 0, Ui.ROW_GAP));
     }
 
     private View discoverRow(CommunityCatalog.Item item, DictionaryCollectionsStore.View view) {

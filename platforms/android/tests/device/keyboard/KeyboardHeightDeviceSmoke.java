@@ -36,7 +36,7 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
         JSONObject snapshot = new JSONObject().put("format_version", 1).put("revision", revision + 1)
             .put("preferences", new JSONObject(options.getJSONObject("preferences").toString())
                 .put("touch_keyboard_height_adjustment", 0));
-        // 设计范围的键盘高度（75%..130%）存在 Android 本地设置里，不在共享偏好里。
+        // 设计范围的键盘高度（75%..160%）存在 Android 本地设置里，不在共享偏好里。
         File localSettings = new File(new File(new File(root, "bootstrap"), "state"), LOCAL_SETTINGS_FILE);
         byte[] originalLocal = localSettings.exists() ? Files.readAllBytes(localSettings.toPath()) : null;
         JSONObject localBaseline = new JSONObject().put("version", 1).put("settings", new JSONObject());
@@ -82,6 +82,18 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
             await(key("n").and(AccessibilityNodeInfo::isClickable));
             if (Math.abs(keyHeight("n") - shortHeight) > 2)
                 throw new AssertionError("Cancelled preview was not reverted");
+
+            // 不点「完成」就收起键盘：收起照「完成」保存，只有「取消」才放弃预览。110% 是 18 dp（KeyboardGeometry.heightPercentToAdjustment）。
+            stage = "hiding mid-adjustment keeps the height";
+            openHeightBar();
+            setHeight(110);
+            shell("input keyevent KEYCODE_BACK");
+            awaitHeightSetting(localSettings, 18);
+            openEditor();
+            int keptHeight = keyHeight("n");
+            if (keptHeight <= shortHeight + 2)
+                throw new AssertionError("Height adjusted before hiding was not kept: "
+                    + shortHeight + " -> " + keptHeight);
 
             stage = "reset to 100 percent";
             openHeightBar();
@@ -132,7 +144,7 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
         return bounds.height();
     }
 
-    /** The inline height bar: described 键盘布局调整, with a 75–130 percent range and five-percent scroll steps. */
+    /** The inline height bar: described 键盘布局调整, with a 75–160 percent range and five-percent scroll steps. */
     private java.util.function.Predicate<AccessibilityNodeInfo> heightSlider() {
         return description("键盘布局调整").and(node -> node.getRangeInfo() != null);
     }

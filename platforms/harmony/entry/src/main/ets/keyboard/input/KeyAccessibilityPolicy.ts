@@ -155,8 +155,16 @@ export class KeyAccessibilityPolicy {
     return `英文补全 ${number}：${word}`;
   }
 
-  /** The nine-key spelling strip is selectable, not merely a visual preview. */
+  /**
+   * 九键拼音栏的一项。引擎在拼音之后还给出下一个数字键上的大写字母（选它只限定下一个音节的首字母）和数字本身（选它直接上屏这个数字），三种读法不同，读屏要说清按下去会发生什么。
+   */
   static spelling(value: string): string {
+    if (/^[A-Z]$/.test(value)) {
+      return `选择字母 ${value}`;
+    }
+    if (/^[0-9]$/.test(value)) {
+      return `输入数字 ${value}`;
+    }
     return `选择拼音 ${value}`;
   }
 }
