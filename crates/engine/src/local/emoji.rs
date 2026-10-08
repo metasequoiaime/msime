@@ -28,17 +28,6 @@ pub struct ExpressiveRow {
     pub keywords: String,
 }
 
-impl ExpressiveRow {
-    /// `word` 正好是它的一个关键词：这行 emoji 画的就是这个词。
-    pub fn depicts(&self, word: &str) -> bool {
-        !word.is_empty()
-            && self
-                .keywords
-                .split_whitespace()
-                .any(|keyword| keyword == word)
-    }
-}
-
 /// The one difference between the two files of the reference: the table, the source and the diagnostics.
 struct Catalog {
     sql: &'static str,
@@ -557,7 +546,10 @@ mod tests {
         let flags = query_emoji_readings(&readings(&["meiguo"]), &path, &all);
         assert_eq!(mixed_words(&flags), ["🇺🇸", "🇺🇲"]);
         assert_eq!(flags[0].keywords, "美国 美利坚 星条旗");
-        assert!(flags[0].depicts("美国") && !flags[1].depicts("美国"));
+        assert_eq!(
+            flags[1].keywords,
+            "美国本土外小岛屿 flag: u.s. outlying islands"
+        );
         assert_eq!(flags[0].item.pinyin, "meiguo");
         assert_eq!(flags[0].item.source, CandidateSource::Emoji);
         assert_eq!((flags[0].item.weight, flags[1].item.weight), (2, 1));
@@ -583,7 +575,7 @@ mod tests {
 
         let kaomoji = query_mixed_kaomoji("hx", quanpin, &path, &QUANPIN_ONLY);
         assert_eq!(mixed_words(&kaomoji), ["(*/ω＼*)"]);
-        assert!(kaomoji[0].depicts("害羞"));
+        assert_eq!(kaomoji[0].keywords, "hai xiu 害羞");
         assert_eq!(kaomoji[0].item.source, CandidateSource::Kaomoji);
         // 目录里没有的颜文字照样给，只是没有关键词。
         let kaixin = query_mixed_kaomoji("kaixin", quanpin, &path, &QUANPIN_ONLY);

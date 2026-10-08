@@ -320,7 +320,7 @@ fn priority_slot(candidates: &[WordItem]) -> usize {
     slot.min(candidates.len())
 }
 
-/// 一行 emoji 或颜文字的文字是某个候选词的关键词时（`ExpressiveRow::depicts`），紧接在第一个这样的候选后面；同一个词后面的几行 emoji 在颜文字前，各自按查询的先后。它总跟在一个词后面，所以不会占首选。接不上任何候选的行每组只留前 `MIXED_RESULT_LIMIT` 行，emoji 在前，排在列表末尾。只对插入前的行找词，混入的行不互相接。容量由调用方预留，这里不再分配。
+/// 一行 emoji 或颜文字的某个关键词正好是某个候选词时，紧接在第一个这样的候选后面；同一个词后面的几行 emoji 在颜文字前，各自按查询的先后。它总跟在一个词后面，所以不会占首选。接不上任何候选的行每组只留前 `MIXED_RESULT_LIMIT` 行，emoji 在前，排在列表末尾。只对插入前的行找词，混入的行不互相接。容量由调用方预留；有关键词时为候选词的有序索引分配一次。
 fn anchor_expressive_rows(
     list: &mut Vec<WordItem>,
     mut emoji: Vec<ExpressiveRow>,
@@ -330,16 +330,38 @@ fn anchor_expressive_rows(
     let mut anchored = [(0_usize, 0_usize, 0_usize); MIXED_FETCH_LIMIT * 2];
     let mut anchored_length = 0;
     let mut placed = [0_u64; 2];
-    for (group, rows) in [&emoji, &kaomoji].into_iter().enumerate() {
-        debug_assert!(rows.len() <= MIXED_FETCH_LIMIT);
-        for (index, row) in rows.iter().enumerate() {
-            if let Some(anchor) = list
-                .iter()
-                .position(|candidate| row.depicts(&candidate.word))
-            {
-                anchored[anchored_length] = (anchor, group, index);
-                anchored_length += 1;
-                placed[group] |= 1 << index;
+    let any_keywords = emoji
+        .iter()
+        .chain(kaomoji.iter())
+        .any(|row| !row.keywords.is_empty());
+    if any_keywords {
+        // 26 键的列表常有几百行（`ji` 七百多行），每行 emoji 的每个关键词都从头扫一遍列表太慢：先把候选词连同位置排好序，关键词二分查找；同一个词出现几次时取最前面的位置。
+        let mut words: Vec<(&str, usize)> = list
+            .iter()
+            .enumerate()
+            .map(|(at, candidate)| (candidate.word.as_str(), at))
+            .collect();
+        words.sort_unstable();
+        let first_position = |keyword: &str| {
+            let at = words.partition_point(|(word, _)| *word < keyword);
+            words
+                .get(at)
+                .filter(|(word, _)| *word == keyword)
+                .map(|(_, position)| *position)
+        };
+        for (group, rows) in [&emoji, &kaomoji].into_iter().enumerate() {
+            debug_assert!(rows.len() <= MIXED_FETCH_LIMIT);
+            for (index, row) in rows.iter().enumerate() {
+                let anchor = row
+                    .keywords
+                    .split_whitespace()
+                    .filter_map(first_position)
+                    .min();
+                if let Some(anchor) = anchor {
+                    anchored[anchored_length] = (anchor, group, index);
+                    anchored_length += 1;
+                    placed[group] |= 1 << index;
+                }
             }
         }
     }
@@ -532,8 +554,16 @@ mod tests {
         let merged = insert_mixed_rows(list, Vec::new(), emoji, Vec::new());
         assert_eq!(words(&merged), vec!["美国", "🇺🇸", "没过", "🇺🇲"]);
         // 关键词要整个相等，「美」不算。
-        assert!(!depicting("🇺🇸", CandidateSource::Emoji, "美国").depicts("美"));
-        assert!(!plain("🇺🇸", CandidateSource::Emoji).depicts(""));
+        let merged = insert_mixed_rows(
+            vec![
+                row("美", CandidateSource::Database),
+                row("", CandidateSource::Database),
+            ],
+            Vec::new(),
+            vec![depicting("🇺🇸", CandidateSource::Emoji, "美国 星条旗")],
+            Vec::new(),
+        );
+        assert_eq!(words(&merged), vec!["美", "", "🇺🇸"]);
     }
 
     #[test]
