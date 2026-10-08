@@ -97,8 +97,18 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes ripgrep
       # check-host.sh 在装有固定 NDK 时才把 client_jni.cpp 编译到 Android 目标上，核对 Java 的 native 声明和共享 FFI 签名一致；缺 NDK 时这一步会跳过。ubuntu-24.04 镜像 20261002 起不再预装 28.2.13676358，这里缓存并按需安装，免得这项检查悄悄失效。
-      - name: Restore the pinned Android NDK
+      # Depot 的 ubuntu 镜像预装了 28.2.13676358，目录归 root：照旧恢复缓存会先下载 651 MB，再在解压时撞上几百个 Cannot utime: Operation not permitted，最后按未命中处理。镜像里已经有这个版本时就不碰缓存，GitHub 的 ubuntu-24.04 上照旧恢复。
+      - name: Check for a preinstalled Android NDK
+        id: ndk
         if: ${{ needs.changes.outputs.android == 'true' }}
+        run: |
+          if grep -qs '28.2.13676358' /usr/local/lib/android/sdk/ndk/28.2.13676358/source.properties; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Restore the pinned Android NDK
+        if: ${{ needs.changes.outputs.android == 'true' && steps.ndk.outputs.present != 'true' }}
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: /usr/local/lib/android/sdk/ndk/28.2.13676358
@@ -161,10 +171,17 @@ jobs:
     name: Linux settings app
     runs-on: depot-ubuntu-24.04-8
     timeout-minutes: 45
+    env:
+      RUSTC_WRAPPER: sccache
+      CARGO_INCREMENTAL: '0'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # Depot 的 runner 启动时已把 SCCACHE_WEBDAV_ENDPOINT 指向 Depot Cache，配上 job 级 env 的 RUSTC_WRAPPER，rustc 的产物就跨运行缓存，不需要 token。CARGO_INCREMENTAL=0 是因为 sccache 不缓存增量编译。
+      - name: Install sccache
+        if: ${{ needs.changes.outputs.linux == 'true' }}
+        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
       - name: Install the Tauri build dependencies
         if: ${{ needs.changes.outputs.linux == 'true' }}
         run: |
@@ -298,10 +315,16 @@ jobs:
     name: Web engine (wasm)
     runs-on: depot-ubuntu-24.04
     timeout-minutes: 60
+    env:
+      RUSTC_WRAPPER: sccache
+      CARGO_INCREMENTAL: '0'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Install sccache
+        if: ${{ needs.changes.outputs.web == 'true' }}
+        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
       # wasm-bindgen CLI 必须和 crates/engine-wasm 钉住的 wasm-bindgen crate 同为 0.2.128，wasm-opt 用 binaryen version_133；两个官方 tarball 的 SHA-256 记在这里，下载后先校验再用。release-web-engine.yml 用同样的两份。
       - name: Install LLVM, the wasm target, wasm-bindgen and wasm-opt
         if: ${{ needs.changes.outputs.web == 'true' }}

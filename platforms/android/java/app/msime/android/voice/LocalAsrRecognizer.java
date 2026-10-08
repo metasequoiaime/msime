@@ -329,7 +329,7 @@ public final class LocalAsrRecognizer {
             byte[] bytes = LocalAsrPolicy.readManifest(modelDirectory, trustedRoot);
             JSONObject manifest = new JSONObject(TextPolicy.utf8(bytes));
             if (manifest.isNull("hotwords")) return "";
-            return manifest.optString("hotwords", "");
+            return JsonPolicy.strictStringOrEmpty(manifest.opt("hotwords"));
         } catch (IOException | JSONException error) {
             return null;
         }

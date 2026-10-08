@@ -249,7 +249,8 @@ public final class ResourcePackService extends Service {
         JSONObject snapshot = HostStore.loadPreferences(context);
         JSONObject preferences = snapshot == null ? null : snapshot.optJSONObject("preferences");
         JSONObject voice = preferences == null ? null : preferences.optJSONObject("voice_input");
-        String mirror = voice == null ? "" : voice.optString("asr_model_mirror", "").trim();
+        String mirror = voice == null ? ""
+            : JsonPolicy.strictStringOrEmpty(voice.opt("asr_model_mirror")).trim();
         return mirror.isEmpty() ? List.of() : List.of(mirror);
     }
 

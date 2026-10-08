@@ -7,7 +7,16 @@
 use serde::Serialize;
 use serde_json::{json, Map, Value};
 use std::io::Write;
+#[cfg(unix)]
+use std::os::unix::ffi::OsStrExt;
+#[cfg(unix)]
+use std::os::unix::io::{FromRawFd, OwnedFd};
 use std::path::{Path, PathBuf};
+#[cfg(unix)]
+use std::sync::atomic::{AtomicU64, Ordering};
+
+#[cfg(unix)]
+static TEMPORARY_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// The key the entry is stored under in `mcpServers`.
 ///
@@ -341,6 +350,10 @@ fn read_config(path: &Path) -> Result<Map<String, Value>, &'static str> {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Map::new()),
         Err(_) => return Err("storage"),
     };
+    parse_config(file)
+}
+
+fn parse_config(file: std::fs::File) -> Result<Map<String, Value>, &'static str> {
     let bytes = crate::bounded_file::read(file, CONFIG_READ_LIMIT).map_err(|error| {
         if error.kind() == std::io::ErrorKind::InvalidData {
             "mcp_config_invalid"
@@ -356,6 +369,129 @@ fn read_config(path: &Path) -> Result<Map<String, Value>, &'static str> {
         Ok(Value::Object(document)) => Ok(document),
         _ => Err("mcp_config_invalid"),
     }
+}
+
+#[cfg(unix)]
+fn open_directory(path: &Path) -> std::io::Result<OwnedFd> {
+    let path = std::ffi::CString::new(path.as_os_str().as_bytes())
+        .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidInput, "path contains NUL"))?;
+    let fd = unsafe {
+        libc::open(
+            path.as_ptr(),
+            libc::O_RDONLY
+                | libc::O_DIRECTORY
+                | libc::O_NOFOLLOW
+                | libc::O_CLOEXEC
+                | libc::O_NONBLOCK,
+        )
+    };
+    if fd < 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(unsafe { OwnedFd::from_raw_fd(fd) })
+    }
+}
+
+#[cfg(unix)]
+fn open_config_at(
+    directory: &OwnedFd,
+    name: &std::ffi::OsStr,
+) -> std::io::Result<Option<std::fs::File>> {
+    let name = std::ffi::CString::new(name.as_bytes())
+        .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidInput, "path contains NUL"))?;
+    let fd = unsafe {
+        libc::openat(
+            std::os::fd::AsRawFd::as_raw_fd(directory),
+            name.as_ptr(),
+            libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK,
+        )
+    };
+    if fd < 0 {
+        let error = std::io::Error::last_os_error();
+        if error.kind() == std::io::ErrorKind::NotFound {
+            Ok(None)
+        } else {
+            Err(error)
+        }
+    } else {
+        Ok(Some(unsafe { std::fs::File::from_raw_fd(fd) }))
+    }
+}
+
+#[cfg(unix)]
+fn read_config_at(
+    directory: &OwnedFd,
+    name: &std::ffi::OsStr,
+) -> Result<(Map<String, Value>, Option<std::fs::Permissions>), &'static str> {
+    let Some(file) = open_config_at(directory, name).map_err(|_| "storage")? else {
+        return Ok((Map::new(), None));
+    };
+    let metadata = file.metadata().map_err(|_| "storage")?;
+    if !metadata.is_file() {
+        return Err("storage");
+    }
+    let permissions = metadata.permissions();
+    Ok((parse_config(file)?, Some(permissions)))
+}
+
+#[cfg(unix)]
+fn write_config_at(
+    directory: &OwnedFd,
+    name: &std::ffi::OsStr,
+    text: &[u8],
+    permissions: Option<std::fs::Permissions>,
+) -> Result<(), &'static str> {
+    let mut temporary = std::ffi::OsString::from(".msime-mcp-");
+    temporary.push(std::process::id().to_string());
+    temporary.push("-");
+    temporary.push(
+        TEMPORARY_COUNTER
+            .fetch_add(1, Ordering::Relaxed)
+            .to_string(),
+    );
+    let temporary = std::ffi::CString::new(temporary.as_bytes()).map_err(|_| "storage")?;
+    let target = std::ffi::CString::new(name.as_bytes()).map_err(|_| "storage")?;
+    let fd = unsafe {
+        libc::openat(
+            std::os::fd::AsRawFd::as_raw_fd(directory),
+            temporary.as_ptr(),
+            libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL | libc::O_CLOEXEC,
+            0o600,
+        )
+    };
+    if fd < 0 {
+        return Err("storage");
+    }
+    let mut file = unsafe { std::fs::File::from_raw_fd(fd) };
+    let result = (|| {
+        file.write_all(text).map_err(|_| "storage")?;
+        if let Some(permissions) = permissions {
+            file.set_permissions(permissions).map_err(|_| "storage")?;
+        }
+        file.sync_all().map_err(|_| "storage")?;
+        let result = unsafe {
+            libc::renameat(
+                std::os::fd::AsRawFd::as_raw_fd(directory),
+                temporary.as_ptr(),
+                std::os::fd::AsRawFd::as_raw_fd(directory),
+                target.as_ptr(),
+            )
+        };
+        if result < 0 {
+            return Err("storage");
+        }
+        Ok(())
+    })();
+    if result.is_err() {
+        unsafe {
+            libc::unlinkat(
+                std::os::fd::AsRawFd::as_raw_fd(directory),
+                temporary.as_ptr(),
+                0,
+            );
+        }
+    }
+    result
 }
 
 /// 文件里 `name`（full 是 `msime`）条目是 `base` 加上若干权限参数时，返回这些参数和它要不要换命令（见 `existing_entry`）；没有条目、条目不是这里写的、或文件读不了时返回 `None`。
@@ -390,7 +526,6 @@ fn install_in(
     store: &Path,
 ) -> Result<InstallOutcome, &'static str> {
     let flags = canonical(flags);
-    let mut entry = entry_with_flags(base, &flags);
     let target = match std::fs::canonicalize(path) {
         Ok(resolved) => resolved,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => path.to_owned(),
@@ -400,7 +535,60 @@ fn install_in(
     if !directory.is_dir() {
         return Err("mcp_client_missing");
     }
-    let mut document = read_config(&target)?;
+    #[cfg(unix)]
+    {
+        let opened = open_directory(directory).map_err(|_| "storage")?;
+        let file_name = target.file_name().ok_or("storage")?;
+        install_in_open_directory(&opened, file_name, name, base, &flags, replace, store)
+    }
+    #[cfg(not(unix))]
+    {
+        let document = read_config(&target)?;
+        let permissions = std::fs::metadata(&target)
+            .ok()
+            .map(|metadata| metadata.permissions());
+        let (text, outcome) = updated_document(document, name, base, &flags, replace, store)?;
+        let Some(text) = text else { return Ok(outcome) };
+        let mut file = tempfile::NamedTempFile::new_in(directory).map_err(|_| "storage")?;
+        file.write_all(text.as_bytes()).map_err(|_| "storage")?;
+        if let Some(permissions) = permissions {
+            file.as_file()
+                .set_permissions(permissions)
+                .map_err(|_| "storage")?;
+        }
+        file.as_file().sync_all().map_err(|_| "storage")?;
+        file.persist(&target).map_err(|_| "storage")?;
+        Ok(outcome)
+    }
+}
+
+#[cfg(unix)]
+fn install_in_open_directory(
+    directory: &OwnedFd,
+    file_name: &std::ffi::OsStr,
+    name: &str,
+    base: &Value,
+    flags: &[McpFlag],
+    replace: bool,
+    store: &Path,
+) -> Result<InstallOutcome, &'static str> {
+    let (document, permissions) = read_config_at(directory, file_name)?;
+    let (text, outcome) = updated_document(document, name, base, flags, replace, store)?;
+    if let Some(text) = text {
+        write_config_at(directory, file_name, text.as_bytes(), permissions)?;
+    }
+    Ok(outcome)
+}
+
+fn updated_document(
+    mut document: Map<String, Value>,
+    name: &str,
+    base: &Value,
+    flags: &[McpFlag],
+    replace: bool,
+    store: &Path,
+) -> Result<(Option<String>, InstallOutcome), &'static str> {
+    let mut entry = entry_with_flags(base, flags);
     let servers = document
         .entry("mcpServers")
         .or_insert_with(|| Value::Object(Map::new()))
@@ -410,7 +598,7 @@ fn install_in(
         None => InstallOutcome::Added,
         Some(existing) => match existing_entry(existing, base, store) {
             Some(current) if !current.stale && current.flags == flags => {
-                return Ok(InstallOutcome::Unchanged);
+                return Ok((None, InstallOutcome::Unchanged));
             }
             Some(current) => {
                 // 只改权限参数，命令保留用户写的那个：它可能是指向同一个程序的符号链接，是用户自己选的入口。store 里以前那一版的路径换成这次的命令。
@@ -426,22 +614,52 @@ fn install_in(
     servers.insert(name.to_owned(), entry);
     let mut text = serde_json::to_string_pretty(&Value::Object(document)).map_err(|_| "storage")?;
     text.push('\n');
-    let mut file = tempfile::NamedTempFile::new_in(directory).map_err(|_| "storage")?;
-    file.write_all(text.as_bytes()).map_err(|_| "storage")?;
-    // The temporary file is private to the user; keep the permissions the file had instead.
-    if let Ok(metadata) = std::fs::metadata(&target) {
-        file.as_file()
-            .set_permissions(metadata.permissions())
-            .map_err(|_| "storage")?;
-    }
-    file.as_file().sync_all().map_err(|_| "storage")?;
-    file.persist(&target).map_err(|_| "storage")?;
-    Ok(outcome)
+    Ok((Some(text), outcome))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn install_stays_in_open_directory_after_its_path_is_replaced() {
+        use std::ffi::OsStr;
+        use std::os::unix::fs::symlink;
+
+        let root = tempfile::tempdir().unwrap();
+        let original = root.path().join("original");
+        let moved = root.path().join("moved");
+        let outside = root.path().join("outside");
+        std::fs::create_dir(&original).unwrap();
+        std::fs::create_dir(&outside).unwrap();
+        let outside_config = outside.join("mcp.json");
+        std::fs::write(&outside_config, b"{\"synthetic\":true}").unwrap();
+        let directory = open_directory(&original).unwrap();
+
+        std::fs::rename(&original, &moved).unwrap();
+        symlink(&outside, &original).unwrap();
+        assert_eq!(
+            install_in_open_directory(
+                &directory,
+                OsStr::new("mcp.json"),
+                SERVER_NAME,
+                &entry(),
+                &[],
+                false,
+                Path::new(NIX_STORE),
+            ),
+            Ok(InstallOutcome::Added)
+        );
+        assert_eq!(
+            std::fs::read(&outside_config).unwrap(),
+            b"{\"synthetic\":true}"
+        );
+        assert_eq!(
+            configured_flags(&moved.join("mcp.json"), SERVER_NAME, &entry()),
+            Some(vec![])
+        );
+    }
 
     #[test]
     fn canonical_flags_reserve_every_known_slot() {

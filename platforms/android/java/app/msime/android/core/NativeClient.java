@@ -467,6 +467,11 @@ public final class NativeClient {
             throw new IllegalArgumentException("Preceding character must be a Unicode scalar");
         return text(punctuationWithContextRaw(session, ascii, precedingCodePoint));
     }
+    /** 宿主自己补上书名号的后半个之后通知 Engine 这一层已经闭合，下一次 `<` 才会是外层的《而不是嵌套的〈。Engine 只接受 `<`。 */
+    public static String balancePairedPunctuationAfterAutoClose(long session, int opening) {
+        if (opening != '<') throw new IllegalArgumentException("Only the book-title opening is balanced");
+        return text(balancePairedPunctuationAfterAutoCloseRaw(session, opening));
+    }
     /** 滑行的一笔；`request` 是 `msime_client_glide` 规定的 JSON，由 {@link GlideTypingPolicy#request} 生成。 */
     public static String glide(long session, String request) {
         if (request == null) throw new IllegalArgumentException("Missing glide request");
@@ -642,6 +647,7 @@ public final class NativeClient {
     private static native byte[] setChinesePunctuationRaw(long session, boolean enabled);
     private static native byte[] setCharacterWidthRaw(long session, boolean fullwidth);
     private static native byte[] characterRaw(long session, int ascii, boolean shift);
+    private static native byte[] balancePairedPunctuationAfterAutoCloseRaw(long session, int opening);
     private static native byte[] punctuationWithContextRaw(long session, int ascii,
         int precedingCodePoint);
     private static native byte[] glideRaw(long session, byte[] request);

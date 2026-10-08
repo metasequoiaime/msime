@@ -152,7 +152,7 @@ impl InputSession {
         if self.dedicated_english_preedit.is_empty() {
             return;
         }
-        let prefix = self.dedicated_english_preedit.to_ascii_lowercase();
+        let prefix = crate::ime::queries::lowercase_prefix(&self.dedicated_english_preedit);
         let mut candidates = self
             .queries
             .english_dictionary()

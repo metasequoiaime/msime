@@ -115,7 +115,18 @@ public final class AndroidLocalSettingsSmoke {
         AndroidLocalSettings.Spec height = AndroidLocalSettings.spec(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT);
         check(Integer.valueOf(-46).equals(height.accept(-46)), "height 75%");
         check(Integer.valueOf(55).equals(height.accept(55)), "height 130%");
-        check(height.accept(-47) == null && height.accept(56) == null, "height outside the design range");
+        check(Integer.valueOf(110).equals(height.accept(110)), "height 160% (#5564)");
+        check(height.accept(-47) == null && height.accept(111) == null, "height outside the design range");
+
+        // 浮动键盘（#5621）：默认关，位置默认水平居中、贴底，千分比 0–1000，工具栏按钮默认不显示。
+        AndroidLocalSettings.Snapshot fresh = AndroidLocalSettings.defaults();
+        check(!fresh.bool(AndroidLocalSettings.FLOATING_KEYBOARD), "floating keyboard off by default");
+        check(!fresh.bool(AndroidLocalSettings.TOOLBAR_FLOATING), "floating toolbar button hidden by default");
+        check(fresh.integer(AndroidLocalSettings.FLOATING_KEYBOARD_X) == 500
+            && fresh.integer(AndroidLocalSettings.FLOATING_KEYBOARD_Y) == 1000, "floating position default");
+        AndroidLocalSettings.Spec floatingX = AndroidLocalSettings.spec(AndroidLocalSettings.FLOATING_KEYBOARD_X);
+        check(Integer.valueOf(0).equals(floatingX.accept(0)) && Integer.valueOf(1000).equals(floatingX.accept(1000))
+            && floatingX.accept(-1) == null && floatingX.accept(1001) == null, "floating position range");
 
         Map<String, Object> raw = new LinkedHashMap<>();
         raw.put(AndroidLocalSettings.APP_THEME, "dongxue");
@@ -137,7 +148,9 @@ public final class AndroidLocalSettingsSmoke {
         check("dongxue".equals(synced.get(AndroidLocalSettings.APP_THEME)), "synced carries explicit values");
         check(Boolean.TRUE.equals(synced.get(AndroidLocalSettings.KEY_POPUP)), "synced carries defaults");
         for (String local : new String[] {AndroidLocalSettings.INCOGNITO, AndroidLocalSettings.VOICE_CONTRIBUTE_AUDIO,
-                AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT, AndroidLocalSettings.DEVELOPER_DEBUG_OVERLAY,
+                AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT, AndroidLocalSettings.FLOATING_KEYBOARD,
+                AndroidLocalSettings.FLOATING_KEYBOARD_X, AndroidLocalSettings.FLOATING_KEYBOARD_Y,
+                AndroidLocalSettings.TOOLBAR_FLOATING, AndroidLocalSettings.DEVELOPER_DEBUG_OVERLAY,
                 AndroidLocalSettings.DEVELOPER_LOG_LEVEL, AndroidLocalSettings.DEVELOPER_INPUT_LOG,
                 AndroidLocalSettings.MCP_RETENTION, AndroidLocalSettings.MCP_INPUT_EVENTS}) {
             check(!synced.containsKey(local), local + " never syncs");

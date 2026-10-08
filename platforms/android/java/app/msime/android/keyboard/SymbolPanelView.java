@@ -12,16 +12,27 @@ import android.widget.TextView;
 
 import java.util.List;
 
-/** 分类符号面板：盖在键区上（不盖顶部一行），左列分类、右侧五列网格，底部返回 / 锁定 / 删除；从 #+= 层的「符号」键进入。 */
+/** 分类符号面板：盖在键区上（不盖顶部一行），左列分类、右侧网格（符号五列、颜文字两列），底部返回 / 锁定 / 删除；从 #+= 层的「符号」键进入。颜文字和后面那些分类从 Engine 目录分页读，滚到底再读下一页。 */
 public final class SymbolPanelView extends LinearLayout {
     public interface ButtonFactory {
         Button create(String title, String description, Runnable action, boolean actionStyle);
     }
 
     public interface Listener {
-        void insert(String text);
+        /** 上屏一个符号。`wholePair` 为 true 是轻点：成对符号的前半个按「自动补全成对标点」决定是否连后半个一起上屏；长按传 false，只上屏这半个。`remember` 为 false 时不记进「常用」（颜文字）。 */
+        void insert(String text, boolean wholePair, boolean remember);
+        /** 在工作线程上读目录分类 `category` 从 `offset` 起的一页，读完在主线程上调 `pages` 的一个方法。 */
+        void loadCatalog(SymbolPanelModel.Category category, int offset, CatalogPages pages);
         void delete();
         void close();
+        /** 按当前皮肤重画一个控件：按钮的选中状态变了时必须调，键帽颜色只在上色时读一次 `isSelected()`，只改选中状态的话高亮会一直停在上一次上色时的那个按钮上；换分类后新建的提示文字也要靠它拿到皮肤的字色。 */
+        void restyle(View view);
+    }
+
+    /** 目录读页的结果；期间换了分类或重新打开了面板的话，面板自己丢掉过期的结果。 */
+    public interface CatalogPages {
+        void loaded(List<String> items, int nextOffset, boolean complete);
+        void failed();
     }
 
     private final ButtonFactory buttons;
@@ -30,18 +41,32 @@ public final class SymbolPanelView extends LinearLayout {
     private final GridLayout grid = new GridLayout(getContext());
     private final ScrollView gridScroll = new ScrollView(getContext());
     private final List<Button> categoryButtons =
-        new java.util.ArrayList<>(SymbolPanelModel.categories().size());
+        new java.util.ArrayList<>(SymbolPanelModel.categories(List.of()).size());
     private final Button lockButton;
+    private List<String> recents = List.of();
     private int selected;
     private boolean locked;
+    /** 当前显示的目录分类读到哪了；换分类或重新打开时 `catalogGeneration` 加一，之前发出去的读页结果作废。 */
+    private List<String> catalogItems = List.of();
+    private int catalogNextOffset;
+    private boolean catalogComplete;
+    private boolean catalogLoading;
+    private long catalogGeneration;
 
-    /** Reopens with Apple's default category and one-shot insertion behavior. */
-    public void resetForPresentation() {
+    /** 每次打开都回到单次输入；有使用记录时先显示「常用」，否则显示「中文」。 */
+    public void resetForPresentation(List<String> recents) {
+        this.recents = SymbolPanelModel.normalizeRecents(recents);
         locked = false;
         lockButton.setText("锁定");
         ViewPolicy.setSelected(lockButton, false);
+        listener.restyle(lockButton);
         lockButton.setContentDescription("锁定，连续输入符号");
-        select(0);
+        select(SymbolPanelModel.initialCategory(this.recents));
+    }
+
+    /** 记录变了（刚上屏了一个符号）：只换数据，不重排正在看的网格，免得锁定连续输入时格子在手指底下挪动；下次点「常用」或重新打开时才按新顺序显示。 */
+    public void setRecents(List<String> recents) {
+        this.recents = SymbolPanelModel.normalizeRecents(recents);
     }
 
     public SymbolPanelView(Context context, ButtonFactory buttons, Listener listener) {
@@ -81,6 +106,9 @@ public final class SymbolPanelView extends LinearLayout {
         grid.setAlignmentMode(GridLayout.ALIGN_BOUNDS);
         gridScroll.setVerticalScrollBarEnabled(true);
         gridScroll.setContentDescription("符号网格；每行五个");
+        gridScroll.setOnScrollChangeListener((view, scrollX, scrollY, oldX, oldY) -> {
+            if (scrollY > oldY && !view.canScrollVertically(1)) loadNextCatalogPage();
+        });
         gridScroll.addView(grid, KeyboardGeometry.scrollMatchWidthWrapParams());
         body.addView(gridScroll, KeyboardGeometry.weightedMatchParentParams(1));
         addView(body, KeyboardGeometry.weightedWidthParams(1));
@@ -94,7 +122,7 @@ public final class SymbolPanelView extends LinearLayout {
         bottom.addView(bottomDelete, KeyboardGeometry.weightedHeightParams(getContext(), 48, 1));
         addView(bottom, KeyboardGeometry.matchWidthHeightPx(KeyboardGeometry.pixels(getContext(), 48)));
 
-        List<SymbolPanelModel.Category> values = SymbolPanelModel.categories();
+        List<SymbolPanelModel.Category> values = SymbolPanelModel.categories(recents);
         for (int index = 0; index < values.size(); index++) {
             final int category = index;
             Button button = buttons.create(values.get(index).title(),
@@ -107,39 +135,81 @@ public final class SymbolPanelView extends LinearLayout {
             categories.addView(button, KeyboardGeometry.matchWidthHeightPx(
                 KeyboardGeometry.pixels(getContext(), 40)));
         }
-        select(0);
+        select(SymbolPanelModel.initialCategory(recents));
     }
 
     private void select(int category) {
-        List<SymbolPanelModel.Category> values = SymbolPanelModel.categories();
+        List<SymbolPanelModel.Category> values = SymbolPanelModel.categories(recents);
         if (category < 0 || category >= values.size()) return;
         selected = category;
         for (int index = 0; index < categoryButtons.size(); index++) {
             Button button = categoryButtons.get(index);
             ViewPolicy.setSelected(button, index == selected);
+            listener.restyle(button);
             button.setContentDescription("符号分类 " + values.get(index).title()
                 + (index == selected ? "，已选中" : ""));
         }
+        catalogGeneration++;
+        catalogItems = List.of();
+        catalogNextOffset = 0;
+        catalogComplete = false;
+        catalogLoading = false;
+        SymbolPanelModel.Category current = values.get(category);
         grid.removeAllViews();
-        List<String> symbols = values.get(category).symbols();
-        for (int start = 0; start < symbols.size(); start += SymbolPanelModel.COLUMNS) {
-            int end = BoundsPolicy.atMost(start + SymbolPanelModel.COLUMNS, symbols.size());
+        grid.setColumnCount(current.columns());
+        gridScroll.setContentDescription(current.kaomoji() ? "颜文字网格；每行两个" : "符号网格；每行五个");
+        if (current.fromCatalog()) {
+            showHint("正在加载…", current.columns());
+            loadNextCatalogPage();
+        } else if (current.symbols().isEmpty()) {
+            showHint(SymbolPanelModel.RECENTS_EMPTY_HINT, current.columns());
+        } else {
+            appendRows(current, current.symbols(), 0);
+        }
+        gridScroll.scrollTo(0, 0);
+    }
+
+    /** 网格里只有一行提示文字（「常用」还没有记录、目录正在读或读不出来）。 */
+    private void showHint(String text, int columns) {
+        grid.removeAllViews();
+        TextView hint = ViewPolicy.centeredText(getContext(), text, 14);
+        KeyboardGeometry.setKeyTextSize(hint, 14);
+        GridLayout.LayoutParams params = new GridLayout.LayoutParams(GridLayout.spec(0),
+            GridLayout.spec(0, columns, 1f));
+        params.width = 0;
+        params.height = KeyboardGeometry.pixels(getContext(), 92);
+        grid.addView(hint, params);
+        listener.restyle(hint);
+    }
+
+    /** 把 `symbols` 里从 `from` 起的条目接在网格后面；`from` 必须是整行的开头。 */
+    private void appendRows(SymbolPanelModel.Category category, List<String> symbols, int from) {
+        int columns = category.columns();
+        for (int start = from; start < symbols.size(); start += columns) {
+            int end = BoundsPolicy.atMost(start + columns, symbols.size());
             for (int index = start; index < end; index++) {
                 String symbol = symbols.get(index);
-                Button button = buttons.create(symbol, "符号 " + symbol,
-                    () -> insert(symbol), false);
-                ViewPolicy.setCenteredKeyTextSizeSp(button, 18);
+                boolean pairable = PairedPunctuationPolicy.symbolClosing(symbol) != null;
+                boolean remember = category.remembers();
+                Button button = buttons.create(symbol, "符号 " + symbol + (pairable ? "，长按只输入这半个" : ""),
+                    () -> insert(symbol, true, remember), false);
+                // 长按成对符号的前半个只上屏这半个（#5608）；处理了长按，系统会自己给一次长按震动。
+                if (pairable) button.setOnLongClickListener(ignored -> {
+                    insert(symbol, false, remember);
+                    return true;
+                });
+                ViewPolicy.setCenteredKeyTextSizeSp(button, category.kaomoji() ? 14 : 18);
                 ViewPolicy.clearPadding(button);
-                GridLayout.Spec row = GridLayout.spec(start / SymbolPanelModel.COLUMNS);
+                GridLayout.Spec row = GridLayout.spec(start / columns);
                 GridLayout.Spec column = GridLayout.spec(index - start, 1f);
                 GridLayout.LayoutParams params = new GridLayout.LayoutParams(row, column);
                 params.width = 0;
                 params.height = KeyboardGeometry.pixels(getContext(), 46);
                 grid.addView(button, params);
             }
-            for (int index = end - start; index < SymbolPanelModel.COLUMNS; index++) {
+            for (int index = end - start; index < columns; index++) {
                 View spacer = new View(getContext());
-                GridLayout.Spec row = GridLayout.spec(start / SymbolPanelModel.COLUMNS);
+                GridLayout.Spec row = GridLayout.spec(start / columns);
                 GridLayout.Spec column = GridLayout.spec(index, 1f);
                 GridLayout.LayoutParams params = new GridLayout.LayoutParams(row, column);
                 params.width = 0;
@@ -147,11 +217,62 @@ public final class SymbolPanelView extends LinearLayout {
                 grid.addView(spacer, params);
             }
         }
-        gridScroll.scrollTo(0, 0);
     }
 
-    private void insert(String symbol) {
-        listener.insert(symbol);
+    /** 当前是目录分类、还没读完、也没有正在读时，读下一页。 */
+    private void loadNextCatalogPage() {
+        List<SymbolPanelModel.Category> values = SymbolPanelModel.categories(recents);
+        if (selected < 0 || selected >= values.size()) return;
+        SymbolPanelModel.Category category = values.get(selected);
+        if (!category.fromCatalog() || catalogLoading || catalogComplete) return;
+        catalogLoading = true;
+        long generation = catalogGeneration;
+        listener.loadCatalog(category, catalogNextOffset, new CatalogPages() {
+            @Override public void loaded(List<String> items, int nextOffset, boolean complete) {
+                catalogPageLoaded(generation, category, items, nextOffset, complete);
+            }
+
+            @Override public void failed() {
+                if (generation != catalogGeneration) return;
+                catalogLoading = false;
+                catalogComplete = true;
+                if (catalogItems.isEmpty()) showHint("目录暂时不可用；点分类重试", category.columns());
+            }
+        });
+    }
+
+    private void catalogPageLoaded(long generation, SymbolPanelModel.Category category,
+            List<String> items, int nextOffset, boolean complete) {
+        if (generation != catalogGeneration) return;
+        catalogLoading = false;
+        int shown = catalogItems.size();
+        // 新的一页先补满上一页没排满的那一行：网格按行排，接着排就要从那一行的开头重排。
+        int rowStart = shown - shown % category.columns();
+        catalogItems = SymbolPanelModel.appendCatalogPage(catalogItems, items);
+        catalogNextOffset = nextOffset;
+        catalogComplete = complete || SymbolPanelModel.catalogFull(catalogItems);
+        if (catalogItems.isEmpty()) {
+            if (catalogComplete) showHint("暂无符号", category.columns());
+            else loadNextCatalogPage();
+            return;
+        }
+        if (shown == 0) grid.removeAllViews();
+        else removeRowsFrom(rowStart, category.columns());
+        appendRows(category, catalogItems, rowStart);
+        // 一页没有铺满可见区域时滚不动，也就等不到滚到底，接着读。
+        if (!catalogComplete) gridScroll.post(() -> {
+            if (generation == catalogGeneration && !gridScroll.canScrollVertically(1)) loadNextCatalogPage();
+        });
+    }
+
+    /** 去掉从第 `rowStart` 个条目所在行起的格子（包括补位的空白格），好让那一行重新排。 */
+    private void removeRowsFrom(int rowStart, int columns) {
+        int keep = rowStart / columns * columns;
+        while (grid.getChildCount() > keep) grid.removeViewAt(grid.getChildCount() - 1);
+    }
+
+    private void insert(String symbol, boolean wholePair, boolean remember) {
+        listener.insert(symbol, wholePair, remember);
         if (SymbolPanelModel.closesAfterInsert(locked)) listener.close();
     }
 
@@ -159,6 +280,7 @@ public final class SymbolPanelView extends LinearLayout {
         locked = !locked;
         lockButton.setText(locked ? "已锁定" : "锁定");
         ViewPolicy.setSelected(lockButton, locked);
+        listener.restyle(lockButton);
         lockButton.setContentDescription(locked ? "已锁定，连续输入符号" : "锁定，连续输入符号");
     }
 }

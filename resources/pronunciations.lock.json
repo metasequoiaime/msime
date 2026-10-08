@@ -1,0 +1,21 @@
+{
+  "source": "https://github.com/skywind3000/ECDICT",
+  "source_commit": "82c9872576b23118d7c42e920c11beb77f510ae2",
+  "license": "MIT",
+  "artifact": {
+    "name": "ecdict.csv",
+    "url": "https://raw.githubusercontent.com/skywind3000/ECDICT/82c9872576b23118d7c42e920c11beb77f510ae2/ecdict.csv",
+    "sha256": "1a6947e04785db63613a92e14903cdae7954f7e84860b10e68e5c7cbb3f9c3cf",
+    "size": 65933428
+  },
+  "license_file": {
+    "name": "LICENSE",
+    "url": "https://raw.githubusercontent.com/skywind3000/ECDICT/82c9872576b23118d7c42e920c11beb77f510ae2/LICENSE",
+    "sha256": "f8552dd246f61a4e064569eae6194a01c6b3d63b03bf27c6ca863593c549ed0f",
+    "size": 1063
+  },
+  "outputs": [
+    "en-phonetic.db",
+    "pronunciations-NOTICE.txt"
+  ]
+}

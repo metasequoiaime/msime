@@ -542,7 +542,11 @@ public final class CloudSync {
                 long revision = api.downloadSnapshot(file);
                 if (mode == SyncMergePolicy.Mode.DOWNLOAD) {
                     enqueueSnapshot(file, revision);
-                    SyncSwitch.clearDirty(context, SyncSwitch.DICTIONARY);
+                    // The queue checks expectedLocalVersion again when it activates. A
+                    // dictionary edit can therefore happen after this download and make the
+                    // request conflict instead of overwriting that edit. Keep the dirty mark so
+                    // the next round uploads the local version after that conflict; clearing it
+                    // here would lose the only signal that the local edit needs syncing.
                 } else {
                     importWords(SyncApi.snapshotWords(file));
                     SyncSwitch.markDirty(context, SyncSwitch.DICTIONARY);
