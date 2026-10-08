@@ -198,7 +198,7 @@ impl InputSession {
                 let mut segments = split_segments(&selected.canonical_pinyin);
                 normalize_umlaut_aliases(&mut segments);
                 is_user_inserted(
-                    &self.journal_path(),
+                    self.journal_path(),
                     PersonalDictionaryKind::Pinyin,
                     &join_segments(&segments),
                     &selected.word,

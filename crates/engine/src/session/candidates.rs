@@ -86,7 +86,7 @@ impl InputSession {
                     &model,
                     self.chain.earlier.as_deref(),
                     previous,
-                    &mut |leader: &str| is_pinned_candidate(&journal, &context, leader),
+                    &mut |leader: &str| is_pinned_candidate(journal, &context, leader),
                 )
             }
             _ => None,
@@ -203,7 +203,7 @@ impl InputSession {
                 let mut finder =
                     |key: &str, word: &str| engine.find_candidate(SchemeType::Wubi, key, word);
                 apply_fixed_positions(
-                    &journal,
+                    journal,
                     context.as_ref(),
                     &mut wubi_items,
                     include_missing,
@@ -216,7 +216,7 @@ impl InputSession {
                 let mut finder =
                     |key: &str, word: &str| engine.find_candidate(SchemeType::Quanpin, key, word);
                 apply_fixed_positions(
-                    &journal,
+                    journal,
                     context.as_ref(),
                     &mut pinyin_items,
                     include_missing,
@@ -231,7 +231,7 @@ impl InputSession {
             let scheme = self.scheme();
             let mut finder = |key: &str, word: &str| engine.find_candidate(scheme, key, word);
             apply_fixed_positions(
-                &journal,
+                journal,
                 context.as_ref(),
                 items,
                 include_missing,
@@ -240,14 +240,14 @@ impl InputSession {
             );
         } else if self.local_mode == LocalInputMode::SuperJianpin {
             let context = self.position_context(false, false);
-            apply_fixed_positions(&journal, context.as_ref(), items, false, None, false);
+            apply_fixed_positions(journal, context.as_ref(), items, false, None, false);
         }
         if items
             .iter()
             .any(|item| item.source == CandidateSource::EnglishDictionary)
         {
             let context = self.position_context(true, false);
-            apply_fixed_positions(&journal, context.as_ref(), items, false, None, true);
+            apply_fixed_positions(journal, context.as_ref(), items, false, None, true);
         }
     }
 
@@ -334,9 +334,9 @@ impl InputSession {
         }
         let journal = self.journal_path();
         let written = if position == 0 {
-            clear_fixed_position(&journal, context.as_ref(), key, &selected.word)
+            clear_fixed_position(journal, context.as_ref(), key, &selected.word)
         } else {
-            set_fixed_position(&journal, context.as_ref(), key, &selected.word, position)
+            set_fixed_position(journal, context.as_ref(), key, &selected.word, position)
         };
         if written.is_err() {
             return KeyResult::handled()
@@ -368,7 +368,7 @@ impl InputSession {
             && !self.dedicated_english
             && self.scheme().is_pinyin()
             && record_pinned_candidate(
-                &self.journal_path(),
+                self.journal_path(),
                 &self.pinyin_ranking_context(),
                 &selected.word,
             )
@@ -414,7 +414,7 @@ impl InputSession {
         } else {
             assets::MAIN_DICTIONARY
         });
-        if delete_dictionary_candidate(&dictionary, &self.journal_path(), kind, key, &selected.word)
+        if delete_dictionary_candidate(&dictionary, self.journal_path(), kind, key, &selected.word)
             .is_err()
         {
             return KeyResult::handled()

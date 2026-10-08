@@ -144,7 +144,7 @@ impl InputSession {
             let english_db = self.paths.dictionary(assets::ENGLISH_DICTIONARY);
             let adjusted = adjust_english_candidate_ranking(&RankingRequest {
                 main_db: &english_db,
-                user_db: &user_db,
+                user_db,
                 context_key: &context_key,
                 ordered: &english_rows,
                 entry_key: &selected.pinyin,
@@ -196,7 +196,7 @@ impl InputSession {
         let main_db = self.paths.dictionary(assets::MAIN_DICTIONARY);
         let adjusted = adjust_candidate_ranking(&RankingRequest {
             main_db: &main_db,
-            user_db: &user_db,
+            user_db,
             context_key: &context_key,
             ordered: &ranked,
             entry_key: &entry_key,
@@ -375,9 +375,8 @@ impl InputSession {
             return None;
         }
         let key = append_canonical_pinyin(&previous_key, &current_key);
-        let user_db = self.journal_path();
         let Ok(count) = record_pick_transition(
-            &user_db,
+            self.journal_path(),
             &previous_key,
             &previous.word,
             &current_key,
@@ -389,7 +388,12 @@ impl InputSession {
             return None;
         }
         // A word the user deleted must not come back from the same habit that created it.
-        if !is_user_deleted(&user_db, PersonalDictionaryKind::Pinyin, &key, &word) {
+        if !is_user_deleted(
+            self.journal_path(),
+            PersonalDictionaryKind::Pinyin,
+            &key,
+            &word,
+        ) {
             // The counter stays so that the next occurrence retries the insert.
             if self
                 .store_user_phrase_from_canonical_pinyin(&key, &word)
@@ -402,7 +406,7 @@ impl InputSession {
         }
         // The reference discards this result (ISC:686): a counter left behind only makes the next occurrence of the pair try the insert again, which finds the word and changes nothing.
         let _ = clear_pick_transition(
-            &user_db,
+            self.journal_path(),
             &previous_key,
             &previous.word,
             &current_key,

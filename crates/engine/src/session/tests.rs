@@ -109,6 +109,21 @@ fn mixed_candidate_refresh_reuses_rows_for_engine_and_caret_prefix() {
 }
 
 #[test]
+fn journal_path_lookup_reuses_the_session_path() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let session = fixture.session();
+
+    let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+        assert_eq!(session.input.journal_path(), session.input.journal_path());
+    });
+
+    assert_eq!(
+        allocations, 0,
+        "journal path lookup allocated {allocations} buffers"
+    );
+}
+
+#[test]
 fn personal_rerank_refresh_reuses_shown_rows_and_preserves_learning_order() {
     let fixture = Fixture::new(CONTEXT_FIXTURE);
     let mut session = fixture.session();
@@ -527,7 +542,7 @@ fn caret_prefix_expands_its_own_initial_list() {
         crate::ime::personal_rerank::allocations::count(|| session.expand_initial_candidates());
     assert!(grew);
     assert_eq!(
-        allocations, 390,
+        allocations, 388,
         "caret-prefix expansion allocations: {allocations}"
     );
     let widened = words(&session);
@@ -759,7 +774,7 @@ fn ignored_scheme_key_does_not_clone_preedit_for_change_detection() {
     });
 
     assert!(!result.handled);
-    assert_eq!(allocations, 50);
+    assert_eq!(allocations, 48);
 }
 
 #[test]
@@ -773,7 +788,7 @@ fn typing_at_the_end_does_not_build_the_preedit_twice_for_caret_detection() {
     });
 
     assert!(result.handled);
-    assert_eq!(allocations, 152);
+    assert_eq!(allocations, 150);
 }
 
 #[test]
@@ -786,7 +801,7 @@ fn backspacing_at_the_end_does_not_build_the_preedit_twice_for_caret_detection()
         crate::ime::personal_rerank::allocations::count(|| session.command(Command::Backspace));
 
     assert!(result.handled);
-    assert_eq!(allocations, 28);
+    assert_eq!(allocations, 26);
 }
 
 #[test]
@@ -846,7 +861,7 @@ fn setting_the_caret_does_not_build_editing_text_to_clamp_it() {
     });
 
     assert_eq!(session.snapshot().caret_position, 2);
-    assert_eq!(allocations, 70);
+    assert_eq!(allocations, 68);
 }
 
 #[test]
@@ -860,7 +875,7 @@ fn moving_the_caret_does_not_build_the_preedit_twice() {
 
     assert!(result.handled);
     assert_eq!(
-        allocations, 70,
+        allocations, 68,
         "caret movement should reuse the editing text length: {allocations} allocations"
     );
 }
@@ -877,7 +892,7 @@ fn typing_at_a_caret_reuses_the_editing_text_length() {
 
     assert!(result.handled);
     assert_eq!(
-        allocations, 270,
+        allocations, 266,
         "caret insertion allocations: {allocations}"
     );
 }

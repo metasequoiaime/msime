@@ -1,7 +1,7 @@
 //! `InputSession` (core-session.md §5): the platform-neutral composition and commit policy. Three mutually exclusive views drive every getter: dedicated English, a local mode, or the scheme composition. Its behaviour is split over this module's sibling files by concern; this file holds the state and the key, command and punctuation dispatch.
 
 use std::borrow::Cow;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use super::candidates::clone_candidate_rows;
@@ -53,6 +53,7 @@ pub(super) struct CreatingWordProgress {
 
 pub(super) struct InputSession {
     pub paths: RuntimePaths,
+    pub journal_path: PathBuf,
     pub engine: ImeSession,
     pub queries: CandidateQueries,
     pub clock: Clock,
@@ -164,6 +165,7 @@ impl InputSession {
             shuangpin_preedit_uses_raw: true,
             single_character_only: options.single_character_only,
             canonical_phrase_engine: None,
+            journal_path: journal,
             paths,
         };
 
@@ -1304,8 +1306,8 @@ impl InputSession {
         profile(self.profile)
     }
 
-    pub(super) fn journal_path(&self) -> PathBuf {
-        self.paths.user(assets::USER_JOURNAL)
+    pub(super) fn journal_path(&self) -> &Path {
+        &self.journal_path
     }
 
     /// The live scheme, which is Japanese during temporary Japanese.
@@ -1666,7 +1668,7 @@ impl InputSession {
         if self.dedicated_english
             && learn_entered_english_word(
                 &self.paths.dictionary(assets::ENGLISH_DICTIONARY),
-                &self.journal_path(),
+                self.journal_path(),
                 &raw,
                 ENTERED_ENGLISH_WORD_WEIGHT,
             )
