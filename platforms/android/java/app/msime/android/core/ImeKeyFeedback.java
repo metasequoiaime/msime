@@ -121,7 +121,7 @@ final class ImeKeyFeedback {
     static String packFor(JSONObject preferences) {
         JSONObject plugins = preferences == null ? null : preferences.optJSONObject("plugins");
         JSONObject keySound = plugins == null ? null : plugins.optJSONObject("key_sound");
-        String pack = keySound == null ? "" : keySound.optString("pack", "");
+        String pack = keySound == null ? "" : JsonPolicy.strictStringOrEmpty(keySound.opt("pack"));
         return pack == null || pack.isEmpty() ? "default" : pack;
     }
 
