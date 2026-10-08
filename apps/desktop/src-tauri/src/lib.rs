@@ -1688,7 +1688,7 @@ async fn test_api_credential(
             msime_client_core::credential::probe::test_chat(
                 &service,
                 &config,
-                &msime_client_core::credential::probe::HttpsProbeTransport,
+                &msime_client_core::credential::probe::ChatProbeTransport,
             )
         })
         .await
@@ -1707,7 +1707,7 @@ async fn test_api_credential(
             let result = msime_client_core::credential::probe::test_chat(
                 &service,
                 &config,
-                &msime_client_core::credential::probe::HttpsProbeTransport,
+                &msime_client_core::credential::probe::ChatProbeTransport,
             );
             msime_input_runtime::CredentialTestResult {
                 ok: result.ok,
