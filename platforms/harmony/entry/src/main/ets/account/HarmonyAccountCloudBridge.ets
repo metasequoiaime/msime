@@ -271,7 +271,8 @@ class HarmonyTransport extends HarmonyAccountTransport {
       return handle;
     } catch (error) {
       if (handle !== undefined) fs.closeSync(handle);
-      throw error;
+      // ArkTS 只允许抛 Error（arkts-limited-throw）；原样抛出同一个对象，调用方仍能读到它的错误码。
+      throw error as Error;
     }
   }
 }

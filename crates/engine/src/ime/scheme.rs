@@ -127,6 +127,13 @@ impl Scheme {
         }
     }
 
+    pub fn build_request_into(&self, request: &mut QueryRequest) {
+        match self {
+            Self::Korean(scheme) => scheme.build_request_into(request),
+            _ => *request = self.build_request(),
+        }
+    }
+
     #[allow(dead_code)]
     pub fn preedit(&self) -> String {
         match self {

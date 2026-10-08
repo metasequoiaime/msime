@@ -672,6 +672,46 @@ if ! rg -q 'VoiceConfiguration\.read' \
   echo "Android keyboard voice must read the shared provider resolution" >&2
   exit 1
 fi
+# 键盘每换一个输入框都会重建引擎会话（#5680）。会话建好时要直接用上建会话前读到的那份实时偏好作为第一份快照，没有会话的那一段工具栏按钮开关要用上次真正读到的；否则冷启动的应用里皮肤、输入方式两个按钮先灰约一秒，剪贴板按钮先缺一格、其余按钮跟着挪位。
+if ! sed -n '/private void startEngineSession(String optionsText, String livePreferences)/,/^    }$/p' "$account_service" \
+    | rg -q 'applyPreferencesSnapshot\(value\(livePreferences\)\)' \
+  || ! rg -q '"handwriting_theme", "touch_toolbar"\}' "$account_service" \
+  || ! rg -q 'live \|\| rememberedToolbar == null' "$account_service"; then
+  echo "Android toolbar must not start each editor from the factory-default preference copy" >&2
+  exit 1
+fi
+# 长按「中/英」弹出系统输入法选择框（#5615）。这个键在没有会话的输入框里也必须保持可用：禁用的按钮收不到长按，而密码框正是最需要换到密码管理器键盘的地方。没有会话时把键画淡，点按在反馈和计数之前就忽略。
+if ! rg -q 'bindInputMethodPicker\(languageButton\)' "$account_service" \
+  || ! rg -q 'manager\.showInputMethodPicker\(\)' "$account_service" \
+  || rg -q 'setEnabled\(languageButton, session != 0\)' "$account_service" \
+  || ! rg -q 'setActiveAlpha\(languageButton, canToggle' "$account_service" \
+  || ! sed -n '/languageButton\.setOnClickListener/,/});/p' "$account_service" | rg -q 'if \(session == 0\) return;' \
+  || ! rg -q 's\.bindInputMethodPicker\(language\)' \
+    "$repo_root/platforms/android/java/app/msime/android/core/ImeLayoutRows.java"; then
+  echo "Android 中/英 keys must open the system input method picker on long press" >&2
+  exit 1
+fi
+# 删除键上滑快速删除（#5585）：判定只在 BackspaceSwipePolicy，键的触摸监听按它决定松手是否清空，清空经服务的 deleteAllBeforeCursor 分段删除；连删的间隔按 BackspaceRepeatPolicy 逐级加速，不能写回固定间隔。
+letter_rows="$repo_root/platforms/android/java/app/msime/android/core/ImeLetterRows.java"
+if ! rg -q 'BackspaceSwipePolicy\.clearsOnRelease\(backspaceSwipePhase\)' "$letter_rows" \
+  || ! rg -q 'BackspaceRepeatPolicy\.repeatInterval\(repeats\)' "$letter_rows" \
+  || rg -q 'BackspaceRepeatPolicy\.REPEAT_INTERVAL_MS' "$letter_rows" \
+  || ! rg -q 'BackspaceSwipePolicy\.clearBeforeCursor' "$account_service"; then
+  echo "Android delete keys must accelerate and offer the quick-delete swipe through the shared policies" >&2
+  exit 1
+fi
+# 各布局（九键、注音、笔画、手写等）自建的删除键都要经 bindBackspaceRepeat 绑定，否则那个布局按住不连删、也没有上滑快速删除；手写布局的删除键曾经漏绑。
+layout_rows="$repo_root/platforms/android/java/app/msime/android/core/ImeLayoutRows.java"
+if [[ $(rg -c 's\.backspaceKey\(' "$layout_rows") != $(rg -c 's\.imeLetterRows\.bindBackspaceRepeat\(' "$layout_rows") ]]; then
+  echo "Every Android layout delete key must be bound through ImeLetterRows.bindBackspaceRepeat" >&2
+  exit 1
+fi
+# 文本编辑面板（#5625）是工具栏面板的一员：closeToolbarPanels 要关掉它、anyToolbarPanelOpen 要算上它，否则换输入框时它会留在下一个编辑器的键盘上，收起键也不会变成「返回键盘」。
+if ! sed -n '/void closeToolbarPanels()/,/^    }$/p' "$account_service" | rg -q 'imeTextEditPanel\.close\(\)' \
+  || ! sed -n '/boolean anyToolbarPanelOpen()/,/^    }$/p' "$account_service" | rg -q 'shown\(textEditPanel\)'; then
+  echo "Android text edit panel must close and count like the other toolbar panels" >&2
+  exit 1
+fi
 # SpeechRecognizer 绑定的是 RecognitionService；Android 11 起只声明 RECOGNIZE_SPEECH 的话，识别服务与识别界面分属两个包的设备上会判为没有系统识别服务。原生宿主与 Tauri 壳共用同一个识别窗口，两份清单都要声明。
 for manifest in \
     "$repo_root/platforms/android/AndroidManifest.xml" \
@@ -814,9 +854,9 @@ while IFS= read -r source; do
   class=$(basename "$source" .java)
   smoke_classes+=("${package:+$package.}$class")
 done < <(find "$repo_root/platforms/android/tests" -name "*.java" -print | LC_ALL=C sort)
-# 下限就是当前发现的冒烟数（176）；少于这个数说明上面的筛选或 package 解析坏了，而不是冒烟真的变少了。新增冒烟时把这个数一起调高，有意删掉冒烟时同时调低。
-if [[ ${#smoke_classes[@]} -lt 176 ]]; then
-  echo "Only ${#smoke_classes[@]} Android JVM smokes discovered; expected at least 176" >&2
+# 下限就是当前发现的冒烟数（183）；少于这个数说明上面的筛选或 package 解析坏了，而不是冒烟真的变少了。新增冒烟时把这个数一起调高，有意删掉冒烟时同时调低。
+if [[ ${#smoke_classes[@]} -lt 183 ]]; then
+  echo "Only ${#smoke_classes[@]} Android JVM smokes discovered; expected at least 183" >&2
   exit 1
 fi
 javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
@@ -832,6 +872,14 @@ for smoke in "${smoke_classes[@]}"; do
   fi
 done
 echo "Ran ${#smoke_classes[@]} Android JVM smokes"
+# 设备测试包只在 `tests/device/smoke.sh` 里构建，而那要模拟器，CI 从不跑它；它的源文件清单是手写的，应用类挪进新的辅助类后没人补，曾经攒到 21 个编译错误，整个设备套件都构建不出来。这里按同一份清单只做编译，漏了类就在这一步失败。
+device_sources=()
+while IFS= read -r source; do
+  [[ -z $source || $source == \#* ]] || device_sources+=("$repo_root/$source")
+done < "$repo_root/platforms/android/tests/device/editor-sources.txt"
+mkdir -p "$output_dir/device"
+javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir/device" "${device_sources[@]}"
+echo "Compiled ${#device_sources[@]} Android device-suite sources"
 # Resources are compiled but not linked here: they reference Material's theme attributes, and linking
 # those needs the library's own resources, which is Gradle's job. Compiling still catches a malformed
 # drawable, layout or values file, which is what this step was for.
@@ -855,6 +903,14 @@ fi
 if rg -q 'button\.setTextColor\(accent\)' \
     "$repo_root/platforms/android/java/app/msime/android/keyboard/KeyboardLayoutAdjustView.java"; then
   echo "Android layout bar buttons must take actionForeground, not the accent they sit on" >&2
+  exit 1
+fi
+# `deleteSurroundingText` 只删选区以外的字：选中开头的「你好」按删除毫无反应，选中中间的文字会删掉选区前一个字。键盘上的删除键都要经 `deleteCodePointBeforeCursor`，由它先删选区；笔画布局曾经绕过它直接调 InputConnection。
+if ! rg -q 'if \(deleteSelection\(\)\) return;' \
+    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
+  || rg -l '\.deleteSurroundingTextInCodePoints\(' "$repo_root/platforms/android/java" \
+    | rg -v '/core/MSIMEInputService\.java$' >/dev/null; then
+  echo "Android delete keys must go through deleteCodePointBeforeCursor, which deletes a selection first" >&2
   exit 1
 fi
 # 符号面板的分类键和锁定键用 setSelected 表示当前项，但键帽颜色只在上色时读一次 isSelected()（ImeStyler.styleButton）。#5597 就是只改了选中状态、没有重新上色：点「网络」后右侧换了，左侧高亮仍停在「常用」。每一处改选中状态的地方都要紧跟一次 restyle。

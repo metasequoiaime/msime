@@ -1,5 +1,6 @@
 package app.msime.android;
 
+import app.msime.android.core.InputViewValuePolicy;
 import android.content.ClipDescription;
 import android.content.ClipboardManager;
 import android.content.Context;
@@ -41,8 +42,8 @@ final class ImePanels {
 
     void showLocalInputMenu() {
         if (s.preedit == null || !s.supportsLocalTools() || s.view == null
-                || !s.view.optString("editing_text", "").isEmpty()
-                || !"none".equals(s.view.optString("local_mode", "none"))) return;
+                || !InputViewValuePolicy.editingText(s.view).isEmpty()
+                || !"none".equals(JsonPolicy.strictStringOrEmpty(s.view.opt("local_mode")))) return;
         PopupMenu popup = new PopupMenu(s, s.preedit);
         for (LocalInputMode mode : s.localInputModes()) {
             MenuItem item = popup.getMenu().add(mode.title());
@@ -385,8 +386,8 @@ final class ImePanels {
         JSONObject preferences = s.preferencesSnapshot == null ? null
             : s.preferencesSnapshot.optJSONObject("preferences");
         boolean hostDark = KeyboardSkin.resolveDark(
-            preferences == null ? "follow" : preferences.optString("screen_keyboard_theme", "follow"),
-            preferences == null ? "system" : preferences.optString("theme", "system"), s.systemDark());
+            InputViewValuePolicy.textOr(preferences, "screen_keyboard_theme", "follow"),
+            InputViewValuePolicy.textOr(preferences, "theme", "system"), s.systemDark());
         JSONArray themes = s.themeCatalog();
         int generation = ++skinRenderGeneration;
         renderSkinPickerLoaded(preferences, hostDark, themes, java.util.List.of(), java.util.List.of());
@@ -422,9 +423,9 @@ final class ImePanels {
         for (int index = 0; index < themes.length(); index++) {
             JSONObject entry = themes.optJSONObject(index);
             if (entry == null) continue;
-            String id = entry.optString("id", "");
+            String id = InputViewValuePolicy.textOr(entry, "id", "");
             if (id.isEmpty()) continue;
-            String themeName = entry.optString("title", id);
+            String themeName = InputViewValuePolicy.textOr(entry, "title", id);
             KeyboardSkin choice = "custom".equals(id) ? s.themeSkin(id, customTheme, hostDark)
                 : KeyboardSkin.resolved(entry, themeName, hostDark, null);
             choices.add(new MSIMEInputService.SkinChoice(id, choice.title(), choice, null));
@@ -455,7 +456,7 @@ final class ImePanels {
         }
         choices.removeIf(choice -> "custom".equals(choice.id()) && choice.design() == null
             && namedKeys.contains(choice.skin().key()));
-        String globalTheme = preferences == null ? "system" : preferences.optString("global_theme", "system");
+        String globalTheme = InputViewValuePolicy.textOr(preferences, "global_theme", "system");
         PagedTileGrid grid = new PagedTileGrid(s);
         grid.setGrid(4, 2);
         // 行高容下按 390:292 的迷你键盘（约 86 dp 宽时 65 dp 高）、描边和下方的名字；行距、列距取设计的 6 / 10。
@@ -1763,6 +1764,8 @@ final class ImePanels {
         s.closeVoiceResult();
         s.closeAiPolish();
         s.closeReplyKeyboard();
+        // 文本编辑面板叠在功能面板上面（后加入外框），不先关掉它，功能面板会被盖住。
+        s.imeTextEditPanel.close();
         s.localInputToolsOpen = false;
         s.imeFunctionPanel.renderMoreTools();
         ViewPolicy.show(s.moreToolsScroll);

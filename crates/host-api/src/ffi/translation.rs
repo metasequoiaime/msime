@@ -776,6 +776,67 @@ pub unsafe extern "C" fn msime_client_pronunciation_request(
     })
 }
 
+/// Break copied Chinese candidates that no dictionary has as a whole into words with their English, from the local
+/// character and word tables. Owns no session state and runs on a host worker thread; the generation is echoed.
+///
+/// # Safety
+/// Both pointers must reference readable buffers for their stated lengths and
+/// remain valid for this call. The buffers are not retained.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_gloss_breakdown_request(
+    request: *const u8,
+    request_length: usize,
+    resources: *const u8,
+    resources_length: usize,
+) -> *mut c_char {
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Request {
+        generation: u64,
+        texts: Vec<String>,
+    }
+    response(|| {
+        if request.is_null()
+            || resources.is_null()
+            || request_length > 65_536
+            || resources_length > 4096
+        {
+            return Err("invalid breakdown buffer".into());
+        }
+        let request: Request =
+            serde_json::from_slice(unsafe { std::slice::from_raw_parts(request, request_length) })
+                .map_err(|_| "invalid breakdown request")?;
+        if request.texts.len() > 64
+            || request.texts.iter().any(|text| {
+                text.is_empty() || text.len() > 4096 || text.chars().any(char::is_control)
+            })
+        {
+            return Err("breakdown entries exceed limits".into());
+        }
+        let resources =
+            std::str::from_utf8(unsafe { std::slice::from_raw_parts(resources, resources_length) })
+                .map_err(|_| "resources path is not UTF-8")?;
+        if !std::path::Path::new(resources).is_absolute() {
+            return Err("resources path must be absolute".into());
+        }
+        let texts = request
+            .texts
+            .into_iter()
+            .filter(|text| crate::word_breakdown::eligible(text))
+            .collect::<Vec<_>>();
+        let known = crate::word_breakdown::known_pieces(std::path::Path::new(resources), &texts);
+        let breakdowns = texts
+            .iter()
+            .filter_map(|text| {
+                let pieces = crate::word_breakdown::segment(text, &known);
+                crate::word_breakdown::render(&pieces)
+                    .map(|breakdown| json!({"text": text, "breakdown": breakdown}))
+            })
+            .collect::<Vec<_>>();
+        Ok(json!({"generation": request.generation, "breakdowns": breakdowns}))
+    })
+}
+
 /// Query copied prefixes against the packaged English dictionary. This does not
 /// create or mutate an Engine session and is suitable for a host worker thread.
 ///

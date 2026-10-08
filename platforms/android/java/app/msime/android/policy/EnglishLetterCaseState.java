@@ -19,27 +19,37 @@ public final class EnglishLetterCaseState {
         lastShiftTapMillis = -1;
     }
 
+    /** 双击只看两次手动点按的间隔，不看第一下之后是什么状态：句首自动大写时第一下关掉大写，第二下照样锁定。锁定时点一下回到小写并清掉计时，紧接着的一下不会又锁上。 */
     public void toggle(long uptimeMillis) {
         if (uptimeMillis < 0) throw new IllegalArgumentException("Uptime must not be negative");
         automatic = false;
-        if (mode == Mode.SHIFTED && lastShiftTapMillis >= 0
+        if (mode == Mode.CAPS_LOCK) {
+            mode = Mode.LOWERCASE;
+            lastShiftTapMillis = -1;
+            return;
+        }
+        if (lastShiftTapMillis >= 0
                 && uptimeMillis >= lastShiftTapMillis
                 && uptimeMillis - lastShiftTapMillis <= CAPS_LOCK_INTERVAL_MILLIS) {
             mode = Mode.CAPS_LOCK;
-        } else {
-            mode = mode == Mode.LOWERCASE ? Mode.SHIFTED : Mode.LOWERCASE;
+            lastShiftTapMillis = -1;
+            return;
         }
+        mode = mode == Mode.LOWERCASE ? Mode.SHIFTED : Mode.LOWERCASE;
         lastShiftTapMillis = uptimeMillis;
     }
 
+    /** 不清点按计时：编辑器在两次点按之间回报一次光标位置（WebView 很常见），不能让双击失效。 */
     public boolean applyAutomatic(boolean shouldShift) {
         if (mode == Mode.CAPS_LOCK) return false;
         Mode previous = mode;
         mode = shouldShift ? Mode.SHIFTED : Mode.LOWERCASE;
         automatic = shouldShift;
-        lastShiftTapMillis = -1;
         return previous != mode;
     }
+
+    /** 用户手动按下、还没被字母用掉的单次大写。 */
+    public boolean isPressedShift() { return mode == Mode.SHIFTED && !automatic; }
 
     public boolean consumeLetter() {
         if (mode != Mode.SHIFTED) return false;

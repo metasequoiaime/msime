@@ -56,7 +56,7 @@ Status: implemented
 - **已知限制**：
   - 部分上屏之后不能再撤销剩下的锁定。
   - Android 在笔画字典缺失时，点第一笔会显示引擎的诊断并收起面板（iOS 在这种情况下直接不显示「笔画」切换）。三端都随包带着 `msime-stroke.db`，这条路径正常不会走到。
-  - 三端都没有在真机上用手指走过一遍；Android 的设备冒烟 `NineKeyPanelDeviceSmoke` 写好了但没跑过，因为 develop 上 `tests/device/build-editor.sh` 本身就编不过。
+  - 三端都没有在真机上用手指走过一遍；Android 的设备冒烟 `NineKeyPanelDeviceSmoke` 能编进测试包（见 [2026-10-08-compile-gates-for-device-suite-and-arkts.md](../testing/2026-10-08-compile-gates-for-device-suite-and-arkts.md)），但还没有在模拟器上跑过。
 
 ## Verification
 
@@ -64,4 +64,4 @@ Status: implemented
 - C ABI：`cargo test -p msime-host-api nine_key`（`nine_key_filters_cross_the_host_boundary`）。
 - Android：`bash platforms/android/check-host.sh`（`NineKeyPanelPolicySmoke`、`NineKeyLayoutSmoke`），以及 Gradle `compileFullReleaseJavaWithJavac lintFullRelease`。
 - iOS：`MSIMEClientTests` 全量（Keyboard 550、Service 69、Shared 55，全部通过；1 个原有的跳过），包括录屏流程、两种筛选和 `InputBridgeResponseTests` 的新字段解码。
-- HarmonyOS：`bash platforms/harmony/tests/run.sh`；`hvigorw assembleHap` 需要先绕开 develop 上已有的 ArkTS 错误才能编过。
+- HarmonyOS：`bash platforms/harmony/tests/run.sh`，以及 `hvigorw assembleHap`。

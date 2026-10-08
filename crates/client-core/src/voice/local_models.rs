@@ -731,14 +731,52 @@ fn write_manifest(dir: &Path, manifest: &Value) -> Result<(), LocalModelError> {
 fn publish(root: &Path, id: &str, staged: &Path) -> Result<PathBuf, LocalModelError> {
     let target = root.join(id);
     let aside = root.join(format!(".old-{}-{}", id, unique_suffix()));
+    #[cfg(unix)]
+    let root_directory = crate::storage::open_private_directory(root)?;
     let replaced = if fs::symlink_metadata(&target).is_ok() {
+        #[cfg(unix)]
+        rustix::fs::renameat(
+            &root_directory,
+            std::ffi::OsStr::new(id),
+            &root_directory,
+            aside.file_name().expect("generated aside name"),
+        )
+        .map_err(io::Error::from)?;
+        #[cfg(not(unix))]
         fs::rename(&target, &aside)?;
         true
     } else {
         false
     };
-    if let Err(error) = fs::rename(staged, &target) {
+    let publish_result = {
+        #[cfg(unix)]
+        {
+            let staging_directory = crate::storage::open_private_directory(
+                staged.parent().ok_or(LocalModelError::InvalidRoot)?,
+            )?;
+            rustix::fs::renameat(
+                &staging_directory,
+                staged.file_name().ok_or(LocalModelError::InvalidRoot)?,
+                &root_directory,
+                std::ffi::OsStr::new(id),
+            )
+            .map_err(io::Error::from)
+        }
+        #[cfg(not(unix))]
+        {
+            fs::rename(staged, &target)
+        }
+    };
+    if let Err(error) = publish_result {
         if replaced {
+            #[cfg(unix)]
+            let _ = rustix::fs::renameat(
+                &root_directory,
+                aside.file_name().expect("generated aside name"),
+                &root_directory,
+                std::ffi::OsStr::new(id),
+            );
+            #[cfg(not(unix))]
             let _ = fs::rename(&aside, &target);
         }
         return Err(error.into());
