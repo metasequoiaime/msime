@@ -246,7 +246,7 @@ public:
   mutable int scans = 0;
   int writes = 0;
 };
-// 每 250 ms 一拍的主题同步（#5988）：用户选了第三方主题时只看一次经典界面的现值，之后的每一拍既不再调 `getConfig()` 也不栅格化；在 fcitx5-configtool 里改回默认主题后下一拍恢复接管；接管之后的拍子不重写主题；配色变化照常重写；写主题失败也只试一次，等输入变化再试。classicui.conf 落在 main 开头指定的临时 XDG_CONFIG_HOME 里，主题和接管记录写进这里的临时目录。
+// 每 250 ms 一拍的主题同步（#5988）：用户选了第三方主题时只看一次经典界面的现值，之后的每一拍既不再调 `getConfig()` 也不栅格化；在 fcitx5-configtool 里改回默认主题后下一拍恢复接管；接管之后的拍子不重写主题，卸载还原或用户手改 classicui.conf 之后也不再接管回去；配色变化照常重写；写主题失败不在每一拍上重试，到点再试。classicui.conf 落在 main 开头指定的临时 XDG_CONFIG_HOME 里，主题和接管记录写进这里的临时目录。
 void classicuiThemeTicks(FcitxEngine &engine) {
   namespace host = msime::linux_host;
   char temporary[] = "/tmp/msime-fcitx5-ticks-XXXXXX";
@@ -279,11 +279,14 @@ void classicuiThemeTicks(FcitxEngine &engine) {
   require(read_classicui_theme_selection().theme == "nord" &&
               read_classicui_theme_selection().dark_theme == std::optional<std::string>("default-dark"),
           "the persisted selection is what classicui saved");
-  engine.candidate_theme_key_.clear();
+  engine.candidate_theme_applied_.clear();
+  engine.candidate_theme_attempt_.clear();
   const Json ink{{"global_theme", "ink"}};
   for (int count = 0; count < 4; ++count) tick(classicui, ink, false);
   require(classicui.scans == 1 && classicui.writes == 0 && !std::filesystem::exists(themeFile),
           "a third-party classicui theme is looked at once, not scanned and rasterized on every tick");
+  require(engine.candidate_theme_retry_at_ == std::chrono::steady_clock::time_point::max(),
+          "a third-party theme waits for the selection to change, not for a timer");
   // fcitx5-configtool 把主题改回默认：它同样经 setConfig 落盘。
   fcitx::RawConfig stock;
   stock.setValueByPath("Theme", "default");
@@ -299,22 +302,44 @@ void classicuiThemeTicks(FcitxEngine &engine) {
           "ticks after the takeover neither scan the themes nor write the theme again");
   tick(classicui, Json{{"global_theme", "paper"}}, false);
   require(classicui.scans == 3 && classicui.writes == 3 && inode() != applied, "a palette change writes the theme again");
-  // 主题目录的位置被一个普通文件占住，写主题失败：只试一次，不在之后的每一拍上重试。
+  const Json paper{{"global_theme", "paper"}};
+  // 卸载时 `msime-linux-setup --unregister` 经 D-Bus 的 SetConfig 把主题还原成默认，同样落盘；仍在运行的插件不能在下一拍又把它接管回去。
+  classicui.setConfig(stock);
+  for (int count = 0; count < 4; ++count) tick(classicui, paper, false);
+  require(classicui.scans == 3 && classicui.writes == 4 && classicui.config.theme.value() == "default",
+          "a theme restored after the takeover is not taken over again while the inputs are unchanged");
+  // fcitx5 运行时用户手改 classicui.conf（第三方主题的安装说明常这么写，改完再重启 fcitx5）：同样不去覆盖。
+  FakeClassicUiConfig edited;
+  edited.theme.setValue("Material-Color-Pink");
+  require(fcitx::safeSaveAsIni(edited, "conf/classicui.conf"), "classicui.conf edited by hand");
+  for (int count = 0; count < 4; ++count) tick(classicui, paper, false);
+  require(classicui.scans == 3 && classicui.writes == 4 && read_classicui_theme_selection().theme == "Material-Color-Pink",
+          "a hand edit of classicui.conf is left alone");
+  // 主题目录的位置被一个普通文件占住，写主题失败：不在之后的每一拍上重试，到了重试时间才再试，目录恢复可写后自己接上。
   std::filesystem::create_directories(root / "blocked/fcitx5/themes");
   std::ofstream(root / "blocked/fcitx5/themes" / std::string(host::kFcitxCandidateTheme)) << "synthetic";
   setenv("XDG_DATA_HOME", (root / "blocked").c_str(), 1);
   const Json night{{"global_theme", "night"}};
   for (int count = 0; count < 4; ++count) tick(classicui, night, false);
-  require(classicui.scans == 4 && classicui.writes == 3, "a failed theme write is tried once, not on every tick");
+  require(classicui.scans == 4 && classicui.writes == 4, "a failed theme write is not retried on every tick");
+  require(engine.candidate_theme_retry_at_ <= std::chrono::steady_clock::now() + FcitxEngine::kCandidateThemeRetry,
+          "a failed theme write schedules its retry");
   setenv("XDG_DATA_HOME", (root / "data").c_str(), 1);
+  tick(classicui, night, false);
+  require(classicui.scans == 4 && classicui.writes == 4, "the retry waits for its time");
+  engine.candidate_theme_retry_at_ = std::chrono::steady_clock::now() - std::chrono::seconds(1);
+  tick(classicui, night, false);
+  require(classicui.scans == 5 && classicui.writes == 5 && classicui.config.theme.value() == host::kFcitxCandidateTheme,
+          "a failed theme write is retried once its time comes, without any input changing");
   tick(classicui, Json{{"global_theme", "system"}}, false);
-  require(classicui.scans == 5 && classicui.writes == 4, "the next change of the inputs writes the theme again");
+  require(classicui.scans == 6 && classicui.writes == 6, "the next change of the inputs writes the theme again");
   if (savedDataHome) setenv("XDG_DATA_HOME", savedDataHome->c_str(), 1);
   else unsetenv("XDG_DATA_HOME");
   if (savedStateHome) setenv("XDG_STATE_HOME", savedStateHome->c_str(), 1);
   else unsetenv("XDG_STATE_HOME");
   std::filesystem::remove(classicuiConf);
-  engine.candidate_theme_key_.clear();
+  engine.candidate_theme_applied_.clear();
+  engine.candidate_theme_attempt_.clear();
   std::filesystem::remove_all(root);
 }
 
@@ -925,13 +950,13 @@ int main(int argc, char **argv) {
     state->refreshProviderSockets();
     require(engine.global_theme_package_items_.size() == 2 && themeItem("Solarized 更新").isChecked(&ic),
             "package entries follow the runtime options");
-    // 每一拍的主题同步：这个 Instance 不加载经典界面，一拍之后记下的键表明没有经典界面，再来几拍键不变，也就不再重做（#5988）。
+    // 每一拍的主题同步：这个 Instance 不加载经典界面，一拍之后记下的尝试表明没有经典界面，再来几拍不变，也就不再重做（#5988）。
     {
-      const auto remembered = engine.candidate_theme_key_;
+      const auto remembered = engine.candidate_theme_attempt_;
       require(remembered.find("\"classicui\":false") != std::string::npos,
               "a tick without the classic UI remembers that it has nothing to take over");
       for (int count = 0; count < 3; ++count) state->refreshProviderSockets();
-      require(engine.candidate_theme_key_ == remembered, "later ticks find nothing changed");
+      require(engine.candidate_theme_attempt_ == remembered, "later ticks find nothing changed");
     }
     classicuiThemeTicks(engine);
     // 自定义 selects the custom theme as it stands, as the settings page's 自定义 card does, so the package it is drawn over stays and stays checked.
