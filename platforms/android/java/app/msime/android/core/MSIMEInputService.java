@@ -5841,10 +5841,10 @@ public final class MSIMEInputService extends InputMethodService {
     String candidateAnnotation(JSONObject candidate) {
         if (koreanHanjaRows())
             return CandidateGlossPolicy.hanjaAnnotation(InputViewValuePolicy.textOr(candidate, "annotation", ""),
-                candidate.isNull("translation") ? "" : candidate.optString("translation", ""),
+                InputViewValuePolicy.textOr(candidate, "translation", ""),
                 candidateEnglishGloss || candidateTranslationsEnabled);
         return CandidateGlossPolicy.annotation(InputViewValuePolicy.textOr(candidate, "annotation", ""),
-            candidate.isNull("translation") ? "" : candidate.optString("translation", ""),
+            InputViewValuePolicy.textOr(candidate, "translation", ""),
             candidateEnglishGloss || candidateTranslationsEnabled);
     }
 
@@ -5863,10 +5863,10 @@ public final class MSIMEInputService extends InputMethodService {
     String candidateAccessibilitySuffix(JSONObject candidate) {
         if (koreanHanjaRows())
             return CandidateGlossPolicy.hanjaAccessibilitySuffix(InputViewValuePolicy.textOr(candidate, "annotation", ""),
-                candidate.isNull("translation") ? "" : candidate.optString("translation", ""),
+                InputViewValuePolicy.textOr(candidate, "translation", ""),
                 candidateEnglishGloss || candidateTranslationsEnabled);
         return CandidateGlossPolicy.accessibilitySuffix(InputViewValuePolicy.textOr(candidate, "annotation", ""),
-            candidate.isNull("translation") ? "" : candidate.optString("translation", ""),
+            InputViewValuePolicy.textOr(candidate, "translation", ""),
             candidateEnglishGloss || candidateTranslationsEnabled);
     }
 
