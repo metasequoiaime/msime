@@ -1082,6 +1082,7 @@ def register_again() -> int:
         print(f"下一步：ibus restart，再在输入源里添加「{IBUS_NAME}」。")
     else:
         print("Fcitx5 和 IBus 都没有在运行，输入法列表没有改动；启动其中一个后再运行 msime-linux-setup --register。")
+    print_gnome_wayland_gtk_note(host)
     return 0
 
 
@@ -1091,6 +1092,61 @@ def active_host() -> str | None:
     if running("ibus-daemon"):
         return "ibus"
     return None
+
+
+# GNOME 的 Wayland 会话不让输入法自己弹出候选窗。GTK 程序设了 GTK_IM_MODULE=fcitx 时，候选窗由程序里的 fcitx5-gtk 客户端面板绘制，它在 GTK3 上移动弹窗必须先隐藏再显示，于是不停闪烁，也不用水杉的 Fcitx5 主题；不设时 GTK 走 text-input → GNOME Shell → Fcitx5 的 IBus 前端，候选窗由 Fcitx5 经典界面按水杉主题绘制。见 README「GNOME Wayland 下候选窗闪烁」。
+GNOME_WAYLAND_GTK_NOTE = (
+    "提示：当前是 GNOME 的 Wayland 会话，且设置了 GTK_IM_MODULE=fcitx。这时 GTK 程序的候选窗由程序自己绘制，"
+    "会不停闪烁，也不显示水杉的候选窗皮肤。GNOME Wayland 下不要为 GTK 设置 GTK_IM_MODULE，"
+    "做法见 platforms/linux/README.md 的「GNOME Wayland 下候选窗闪烁」一节"
+    "（https://github.com/metasequoiaime/msime/blob/develop/platforms/linux/README.md），改完重新登录。"
+)
+
+
+def gnome_wayland_gtk_note(host: str | None, environment: dict[str, str], manager: dict[str, str]) -> str | None:
+    """输入法注册进 Fcitx5、会话是 GNOME 的 Wayland、GTK 程序会加载 fcitx 输入法模块时，返回要打印的提示，否则 None。
+
+    `environment` 是本进程的环境，`manager` 是用户级 systemd 的环境（`systemctl --user show-environment`）。会话类型和桌面以本进程为准，取不到时（安装包以临时单元运行本命令）看 systemd 的。GTK_IM_MODULE 两处任何一处是 fcitx 都提示：从桌面启动的程序继承登录环境，D-Bus 激活的程序（例如 gnome-terminal）继承 systemd 的，开了 Linger 时后者会留着上次会话的值。只提示，不改用户的文件。
+    """
+    if host != "fcitx5":
+        return None
+    def value(name: str) -> str:
+        return environment.get(name) or manager.get(name, "")
+    if value("XDG_SESSION_TYPE") != "wayland" or "GNOME" not in value("XDG_CURRENT_DESKTOP").split(":"):
+        return None
+    if "fcitx" not in (environment.get("GTK_IM_MODULE"), manager.get("GTK_IM_MODULE")):
+        return None
+    return GNOME_WAYLAND_GTK_NOTE
+
+
+def user_manager_environment() -> dict[str, str]:
+    """用户级 systemd 的环境；没有 systemctl 或读不到时为空。"""
+    if shutil.which("systemctl") is None:
+        return {}
+    try:
+        result = subprocess.run(["systemctl", "--user", "show-environment"], capture_output=True, text=True,
+                                timeout=COMMAND_TIMEOUT, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        return {}
+    if result.returncode != 0:
+        return {}
+    pairs = (line.partition("=") for line in result.stdout.splitlines())
+    return {name: value for name, separator, value in pairs if separator}
+
+
+def print_gnome_wayland_gtk_note(host: str | None) -> None:
+    if host != "fcitx5":
+        return
+    environment = dict(os.environ)
+    # 本进程的环境已经能下结论时不去问 systemd：不是 GNOME Wayland，或者本进程自己就设了 fcitx。
+    session = environment.get("XDG_SESSION_TYPE")
+    desktop = environment.get("XDG_CURRENT_DESKTOP")
+    if session and desktop and gnome_wayland_gtk_note(host, environment, {"GTK_IM_MODULE": "fcitx"}) is None:
+        return
+    manager = {} if gnome_wayland_gtk_note(host, environment, {}) else user_manager_environment()
+    note = gnome_wayland_gtk_note(host, environment, manager)
+    if note:
+        print(note)
 
 
 def register_input_method(host: str | None) -> str | None:
@@ -1119,6 +1175,7 @@ def next_steps(state: Path, host: str | None, registered: str | None) -> None:
         print("  状态栏上的中英文、简繁、工具栏等入口挂在输入法状态区，需要桌面提供托盘")
         print("  宿主；若发行版以 fcitx5 --disable notificationitem 启动，这些入口不会显示，")
         print("  但输入本身不受影响，设置也可以从应用列表里的「水杉输入法」打开。")
+    print_gnome_wayland_gtk_note(host)
     print("设置面板：msime-linux-settings（需要安装时提供了桌面二进制）")
 
 

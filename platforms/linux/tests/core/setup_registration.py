@@ -208,6 +208,10 @@ class Harness:
     def state(self) -> dict:
         return json.loads(self.state_file.read_text())
 
+    def systemctl_changes(self) -> list:
+        """systemctl 调用里改动用户级 systemd 的那些；`show-environment` 只是读取（GNOME Wayland 提示据此判断 GTK_IM_MODULE），不算。"""
+        return [call for call in self.calls("systemctl") if call != ["--user", "show-environment"]]
+
     def calls(self, name: str) -> list:
         return [call[1:] for call in map(json.loads, self.log.read_text().splitlines()) if call[0] == name]
 
@@ -221,7 +225,7 @@ class Harness:
         assert result.returncode == 0, result
         assert "Traceback" not in result.stderr, result.stderr
         # Only the lists: no dictionary check, no state preparation, no services.
-        assert self.calls("msime-linux-prepare") == [] and self.calls("systemctl") == [], self.log.read_text()
+        assert self.calls("msime-linux-prepare") == [] and self.systemctl_changes() == [], self.log.read_text()
         assert not (self.scratch / "config/msime-client").exists()
         assert "词库" not in result.stdout, result.stdout
         return result
@@ -375,7 +379,7 @@ def registering_again() -> None:
         harness.world(running=["fcitx5"], fcitx5=fcitx5)
         result = harness.register()
         assert result.returncode == 0 and result.stderr == "", result
-        assert harness.calls("systemctl") == [["--user", "enable", "--now", *units]], harness.calls("systemctl")
+        assert harness.systemctl_changes() == [["--user", "enable", "--now", *units]], harness.calls("systemctl")
         assert "已把「水杉输入法」加入 Fcitx5 当前输入法组「Default」" in result.stdout, result.stdout
         assert harness.state()["fcitx5"]["groups"]["Default"] == ["us", [["keyboard-us", ""], ["pinyin", ""], ["msime", ""]]]
         assert harness.calls("msime-linux-prepare") == [], harness.log.read_text()
@@ -411,7 +415,7 @@ def registering_again() -> None:
         harness.world()
         result = harness.register()
         assert result.returncode == 0, result
-        assert harness.calls("systemctl") == [["--user", "enable", "--now", *units]], harness.calls("systemctl")
+        assert harness.systemctl_changes() == [["--user", "enable", "--now", *units]], harness.calls("systemctl")
         assert "msime-linux-setup --register" in result.stdout, result.stdout
         assert harness.calls("gdbus") == [] and harness.calls("gsettings") == [] and harness.calls("ibus") == []
 
