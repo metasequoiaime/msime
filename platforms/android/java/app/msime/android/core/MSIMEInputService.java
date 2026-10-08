@@ -5190,11 +5190,11 @@ public final class MSIMEInputService extends InputMethodService {
             if (clip.sensitive()) return;
             String identity = clip.identity();
             if (!ClipboardCapturePolicy.captures(trigger, identity, handledClipIdentity())) return;
-            // 交给存储之前就记下：存储拒收的内容同样不该在每次打开面板时再试一遍。
-            rememberHandledClip(identity);
             // The shared store refuses rather than throws, and says which refusal it is. Deciding
             // that here as well is what made this host disagree with the store it writes into.
             String reason = clipboardHistory.add(clip.text());
+            // 存储有了答复才记为已处理：收下了，或者明确拒收（拒收的内容同样不该在每次打开面板时再试一遍）。存储写不进去时 add 会抛异常，那一条不记，下次打开面板补读时还会再试，否则它就永远进不了历史。
+            rememberHandledClip(identity);
             if (reason != null) {
                 if (announce) Toast.makeText(this, ClipboardHistoryPolicy.message(
                     ClipboardHistoryPolicy.rejectionFor(reason)), Toast.LENGTH_SHORT).show();

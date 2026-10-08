@@ -595,6 +595,16 @@ if ! rg -q 'ClipboardCapturePolicy\.captures' \
   echo "Android clipboard capture must skip a clip it already handled (ClipboardCapturePolicy)" >&2
   exit 1
 fi
+# 存储有了答复才把这一条记为已处理：写入抛异常时先记下，之后打开面板的补读就永远跳过它，它再也进不了历史。
+capture_body=$(rg -A 30 'void captureClipboard\(' \
+  "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" || true)
+capture_add_line=$(printf '%s\n' "$capture_body" | rg -n 'clipboardHistory\.add\(' | head -n 1 | cut -d: -f1 || true)
+capture_remember_line=$(printf '%s\n' "$capture_body" | rg -n 'rememberHandledClip\(identity\)' | head -n 1 | cut -d: -f1 || true)
+if [[ -z "$capture_add_line" || -z "$capture_remember_line" \
+    || "$capture_remember_line" -lt "$capture_add_line" ]]; then
+  echo "Android clipboard capture must mark a clip handled only after the store answered" >&2
+  exit 1
+fi
 # Both maintenance chords are Ctrl+Shift+Alt, and the modifier branch in onKeyDown hands every
 # such combination to the application. Routing them through one named policy, ahead of that branch,
 # is what keeps them reachable at all on a keyboard that has no long press.
