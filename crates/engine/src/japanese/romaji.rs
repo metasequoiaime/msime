@@ -6,7 +6,7 @@ use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 
-/// `romaji_converter.cpp:11-44`, verbatim.
+/// 以 `romaji_converter.cpp:11-44` 为底，补上微软和 Google 日文输入法都认、C++ 表里缺的拼法：促音 `xtu`/`ltu`，拗音 `zya`/`zyu`/`zyo`（じゃ行）和 `dya`/`dyu`/`dyo`（ぢゃ行）。缺 `xtu` 时它整段停在待定字母里，用户打不出っ。反查（[`hiragana_to_romaji`]）先取最长拼法、再按字母序，っ 仍是 `xtsu`，じゃ 仍是 `jya`。
 const ROMAJI_TABLE: &[(&str, &str)] = &[
     ("a", "あ"),
     ("i", "い"),
@@ -102,6 +102,9 @@ const ROMAJI_TABLE: &[(&str, &str)] = &[
     ("jya", "じゃ"),
     ("jyu", "じゅ"),
     ("jyo", "じょ"),
+    ("zya", "じゃ"),
+    ("zyu", "じゅ"),
+    ("zyo", "じょ"),
     ("cha", "ちゃ"),
     ("chu", "ちゅ"),
     ("cho", "ちょ"),
@@ -111,6 +114,9 @@ const ROMAJI_TABLE: &[(&str, &str)] = &[
     ("tya", "ちゃ"),
     ("tyu", "ちゅ"),
     ("tyo", "ちょ"),
+    ("dya", "ぢゃ"),
+    ("dyu", "ぢゅ"),
+    ("dyo", "ぢょ"),
     ("nya", "にゃ"),
     ("nyu", "にゅ"),
     ("nyo", "にょ"),
@@ -171,6 +177,8 @@ const ROMAJI_TABLE: &[(&str, &str)] = &[
     ("lyo", "ょ"),
     ("xtsu", "っ"),
     ("ltsu", "っ"),
+    ("xtu", "っ"),
+    ("ltu", "っ"),
     ("xwa", "ゎ"),
     ("-", "ー"),
 ];
@@ -284,13 +292,9 @@ pub fn convert_romaji(input: &str) -> RomajiConversion {
                     continue;
                 }
                 Some(b'n') => {
-                    // `nn` is one ん when the second n cannot begin a kana of its own; otherwise only the first n is consumed so `nna` still reads んな.
-                    let second_n_stands_alone = match bytes.get(index + 2).copied() {
-                        None | Some(b'\'') => true,
-                        Some(third) => is_consonant(third) && third != b'y',
-                    };
+                    // `nn` 一律是一个ん，和微软、Google 日文输入法及 Rime 一致：习惯这些输入法的人每个ん都打 `nn`，`sinnyou` 要得到しんよう而不是しんにょう。代价是んな要打 `nnna`、こんにちは要打 `konnnichiha`，这也是那些输入法的写法。
                     result.hiragana.push_str(MORAIC_N);
-                    index += if second_n_stands_alone { 2 } else { 1 };
+                    index += 2;
                     continue;
                 }
                 Some(next) if next == b'-' || (is_consonant(next) && next != b'y') => {
@@ -409,7 +413,11 @@ pub fn hiragana_to_romaji(kana: &str) -> String {
             continue;
         }
         if let Some(after) = rest.strip_prefix(MORAIC_N) {
-            romaji.push('n');
+            // 后面是元音、や行或な行时单个 n 会和它拼成一个假名，要写成 `nn` 才转得回ん（`convert_romaji` 里 `nn` 一律是ん）。
+            let joins_next = romaji_at(after)
+                .and_then(|(_, next)| next.bytes().next())
+                .is_some_and(|first| !is_consonant(first) || first == b'y' || first == b'n');
+            romaji.push_str(if joins_next { "nn" } else { "n" });
             rest = after;
             continue;
         }
@@ -476,6 +484,24 @@ mod tests {
         // Each reading has several equally long spellings; the table's spelling tiebreak pins the choice.
         assert_eq!(hiragana_to_romaji("かんじ"), "kanji");
         assert_eq!(hiragana_to_romaji("しゃしん"), "shashin");
+        // ん后面是元音、や行、な行时写成 `nn`，再转换回去仍是同一个读音。
+        for reading in [
+            "かんな",
+            "しんよう",
+            "きんえん",
+            "こんにちは",
+            "んにゃ",
+            "ほん",
+            "かんじ",
+        ] {
+            let romaji = hiragana_to_romaji(reading);
+            assert_eq!(
+                convert_romaji(&romaji).hiragana,
+                reading,
+                "{reading} -> {romaji}"
+            );
+        }
+        assert_eq!(hiragana_to_romaji("かんな"), "kannna");
     }
 
     #[test]
@@ -483,6 +509,21 @@ mod tests {
         assert!(matches!(hiragana_input("かな"), Cow::Borrowed("かな")));
         assert_eq!(hiragana_input("カナ").as_ref(), "かな");
         assert_eq!(hiragana_input("かナ").as_ref(), "かな");
+    }
+
+    /// 用户反馈的两种拼法（`xtu` 打不出っ、`tyou` 打不出ちょう）和同一批补上的拗音；反查仍取原来的拼法。
+    #[test]
+    fn microsoft_and_google_spellings() {
+        require_conversion("xtu", "っ", "", true);
+        require_conversion("ltu", "っ", "", true);
+        require_conversion("taxtuta", "たった", "", true);
+        require_conversion("tyou", "ちょう", "", true);
+        require_conversion("zyouzu", "じょうず", "", true);
+        require_conversion("dyo", "ぢょ", "", true);
+        assert!(is_single_kana_conversion(&convert_romaji("xtu")));
+        assert_eq!(hiragana_to_romaji("っ"), "xtsu");
+        assert_eq!(hiragana_to_romaji("じゃ"), "jya");
+        assert_eq!(hiragana_to_romaji("じょうず"), "jyouzu");
     }
 
     #[test]
@@ -495,12 +536,18 @@ mod tests {
         assert!(is_single_kana_conversion(&convert_romaji("nn")));
         require_conversion("n", "ん", "", true);
         require_conversion("kanji", "かんじ", "", true);
-        require_conversion("nna", "んな", "", true);
-        require_conversion("annai", "あんない", "", true);
-        require_conversion("kanna", "かんな", "", true);
-        require_conversion("sannin", "さんにん", "", true);
-        require_conversion("konnichiha", "こんにちは", "", true);
-        require_conversion("nnya", "んにゃ", "", true);
+        // `nn` 一律是ん（微软、Google、Rime 的规则）：后面的元音、や行自成一个假名，な行要再打一个 n。
+        require_conversion("nna", "んあ", "", true);
+        require_conversion("nnna", "んな", "", true);
+        require_conversion("annai", "あんあい", "", true);
+        require_conversion("annnai", "あんない", "", true);
+        require_conversion("kannna", "かんな", "", true);
+        require_conversion("sinnyou", "しんよう", "", true);
+        require_conversion("kinnenn", "きんえん", "", true);
+        require_conversion("konnnichiha", "こんにちは", "", true);
+        require_conversion("konnichiha", "こんいちは", "", true);
+        require_conversion("nnya", "んや", "", true);
+        require_conversion("nnnya", "んにゃ", "", true);
         require_conversion("n'a", "んあ", "", true);
         require_conversion("ko-hi-", "こーひー", "", true);
         require_conversion("n-", "んー", "", true);

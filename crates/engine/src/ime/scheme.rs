@@ -188,6 +188,13 @@ impl Scheme {
         }
     }
 
+    pub fn as_cantonese(&self) -> Option<&CantoneseScheme> {
+        match self {
+            Self::Cantonese(scheme) => Some(scheme),
+            _ => None,
+        }
+    }
+
     pub fn as_zhuyin_mut(&mut self) -> Option<&mut ZhuyinScheme> {
         match self {
             Self::Zhuyin(scheme) => Some(scheme.as_mut()),

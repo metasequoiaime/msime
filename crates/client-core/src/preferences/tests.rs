@@ -35,6 +35,23 @@ fn stale_sweep_does_not_follow_a_replaced_directory() {
 
 #[cfg(unix)]
 #[test]
+fn recovery_backup_does_not_follow_a_symlinked_directory() {
+    use std::os::unix::fs::symlink;
+
+    let root = tempfile::tempdir().unwrap();
+    let directory = root.path().join("preferences");
+    let outside = tempfile::tempdir().unwrap();
+    symlink(outside.path(), &directory).unwrap();
+    let store = PreferencesStore::new(&directory);
+
+    assert!(store
+        .write_backup(b"synthetic damaged preferences")
+        .is_err());
+    assert!(outside.path().read_dir().unwrap().next().is_none());
+}
+
+#[cfg(unix)]
+#[test]
 fn preference_store_rejects_a_symlinked_directory_without_writing_through_it() {
     let target = tempfile::tempdir().unwrap();
     let parent = tempfile::tempdir().unwrap();

@@ -4,7 +4,11 @@
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs::{self, File, OpenOptions};
+#[cfg(any(not(unix), test))]
+use std::fs;
+use std::fs::File;
+#[cfg(any(not(unix), test))]
+use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -3019,23 +3023,58 @@ impl PreferencesStore {
             now.second()
         );
         let mut attempt = 0u32;
+        #[cfg(unix)]
+        let directory = crate::storage::open_private_directory(&self.directory)?;
         loop {
             let name = if attempt == 0 {
                 stem.clone()
             } else {
                 format!("{stem}-{attempt}")
             };
-            let path = self.directory.join(name);
-            let mut file = match OpenOptions::new().write(true).create_new(true).open(&path) {
-                Ok(file) => file,
-                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-                    attempt += 1;
-                    continue;
-                }
-                Err(error) => return Err(error.into()),
+            #[cfg(unix)]
+            let (path, mut file) = {
+                let descriptor = match rustix::fs::openat(
+                    &directory,
+                    std::ffi::OsStr::new(&name),
+                    rustix::fs::OFlags::WRONLY
+                        | rustix::fs::OFlags::CREATE
+                        | rustix::fs::OFlags::EXCL
+                        | rustix::fs::OFlags::NOFOLLOW
+                        | rustix::fs::OFlags::CLOEXEC
+                        | rustix::fs::OFlags::NONBLOCK,
+                    rustix::fs::Mode::from_raw_mode(0o600),
+                ) {
+                    Ok(descriptor) => descriptor,
+                    Err(error) if error == rustix::io::Errno::EXIST => {
+                        attempt += 1;
+                        continue;
+                    }
+                    Err(error) => return Err(std::io::Error::from(error).into()),
+                };
+                (self.directory.join(&name), File::from(descriptor))
+            };
+            #[cfg(not(unix))]
+            let (path, mut file) = {
+                let path = self.directory.join(&name);
+                let file = match OpenOptions::new().write(true).create_new(true).open(&path) {
+                    Ok(file) => file,
+                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                        attempt += 1;
+                        continue;
+                    }
+                    Err(error) => return Err(error.into()),
+                };
+                (path, file)
             };
             if let Err(error) = file.write_all(bytes).and_then(|()| file.sync_all()) {
                 drop(file);
+                #[cfg(unix)]
+                let _ = rustix::fs::unlinkat(
+                    &directory,
+                    std::ffi::OsStr::new(&name),
+                    rustix::fs::AtFlags::empty(),
+                );
+                #[cfg(not(unix))]
                 let _ = fs::remove_file(&path);
                 return Err(error.into());
             }
