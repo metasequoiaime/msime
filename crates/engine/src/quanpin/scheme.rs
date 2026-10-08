@@ -60,14 +60,28 @@ impl QuanpinScheme {
 
     /// 将全拼请求写入已有存储，避免逐键刷新重复分配按键和切分字符串。
     pub fn build_request_into(&self, request: &mut QueryRequest) {
+        Self::build_request_from_raw_into(&self.raw, &self.raw, request);
+    }
+
+    /// 从原文直接写入查询请求，光标前缀查询不必创建临时方案。
+    pub fn build_request_from_raw_into(
+        raw: &str,
+        raw_with_cases: &str,
+        request: &mut QueryRequest,
+    ) {
         request.scheme = SchemeType::Quanpin;
         request.raw_input.clear();
         request.raw_input.extend(
-            self.raw
-                .bytes()
+            raw.bytes()
                 .map(|byte| char::from(byte.to_ascii_lowercase())),
         );
-        request.raw_input_with_cases.clone_from(&self.raw);
+        let raw_with_cases = if raw_with_cases.is_empty() {
+            raw
+        } else {
+            raw_with_cases
+        };
+        request.raw_input_with_cases.clear();
+        request.raw_input_with_cases.push_str(raw_with_cases);
         Self::apply_segmentation(request, CutMode::Correction);
     }
 

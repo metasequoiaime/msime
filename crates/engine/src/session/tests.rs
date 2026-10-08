@@ -559,7 +559,7 @@ fn caret_prefix_expands_its_own_initial_list() {
         crate::ime::personal_rerank::allocations::count(|| session.expand_initial_candidates());
     assert!(grew);
     assert_eq!(
-        allocations, 360,
+        allocations, 356,
         "caret-prefix expansion allocations: {allocations}"
     );
     let widened = words(&session);
@@ -878,7 +878,7 @@ fn setting_the_caret_does_not_build_editing_text_to_clamp_it() {
     });
 
     assert_eq!(session.snapshot().caret_position, 2);
-    assert_eq!(allocations, 36);
+    assert_eq!(allocations, 35);
 }
 
 #[test]
@@ -892,7 +892,7 @@ fn moving_the_caret_does_not_build_the_preedit_twice() {
 
     assert!(result.handled);
     assert_eq!(
-        allocations, 36,
+        allocations, 35,
         "caret movement should reuse the editing text length: {allocations} allocations"
     );
 }
@@ -909,7 +909,7 @@ fn typing_at_a_caret_reuses_the_editing_text_length() {
 
     assert!(result.handled);
     assert_eq!(
-        allocations, 226,
+        allocations, 225,
         "caret insertion allocations: {allocations}"
     );
 }

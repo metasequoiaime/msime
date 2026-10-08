@@ -22,6 +22,7 @@ use crate::shuangpin::query::{
     segment_input, to_quanpin_segmentation, trim_trailing_letters_preserve_delimiters,
 };
 use crate::shuangpin::ShuangpinProfile;
+use crate::shuangpin::ShuangpinScheme;
 use crate::types::{
     autocorrect_type, CandidateSource, FuzzyPinyinOptions, QueryRequest, SchemeKey, SchemeSet,
     SchemeType, SentenceAssociationOptions, ShuangpinProfileKind, WordItem, WubiInputOptions,
@@ -59,6 +60,8 @@ pub struct ImeSession {
     scheme: Scheme,
     registry: ProviderRegistry,
     state: CompositionState,
+    /// 光标前缀查询复用的临时请求存储，避免每次分页重新分配请求字段。
+    scratch_request: QueryRequest,
     profile: ShuangpinProfileKind,
     vietnamese_method: VietnameseInputMethod,
     vietnamese_style: VietnameseToneStyle,
@@ -115,6 +118,7 @@ impl ImeSession {
             )?,
             registry,
             state: CompositionState::default(),
+            scratch_request: QueryRequest::default(),
             profile,
             vietnamese_method: VietnameseInputMethod::default(),
             vietnamese_style: VietnameseToneStyle::default(),
@@ -462,11 +466,16 @@ impl ImeSession {
 
     /// Candidates for a raw prefix through a scratch scheme of the current type, leaving the live composition alone (caret-prefix decoding, overlays.md §7.6).
     pub fn query_raw_candidates(&mut self, raw: &str, raw_with_cases: &str) -> Vec<WordItem> {
-        let request = self.raw_request(raw, raw_with_cases);
-        if !request.valid {
-            return Vec::new();
-        }
-        self.decode(&request).candidates
+        self.with_raw_request(
+            |session, request| session.build_raw_request(raw, raw_with_cases, request),
+            |session, request| {
+                if request.valid {
+                    session.decode(request).candidates
+                } else {
+                    Vec::new()
+                }
+            },
+        )
     }
 
     /// 扩展当前请求的光标前缀，直接借用请求里的带大小写原文，避免调用方先复制前缀。
@@ -481,18 +490,53 @@ impl ImeSession {
         } else {
             &self.state.request.raw_input_with_cases
         };
-        let Some(raw_with_cases) = raw_with_cases.get(..prefix_end) else {
+        if raw_with_cases.get(..prefix_end).is_none() {
             return false;
-        };
-        let request = self.raw_request(raw, raw_with_cases);
-        request.valid
-            && self
-                .registry
-                .expand_initial_candidates(&request, candidates)
+        }
+        self.with_raw_request(
+            |session, request| {
+                let raw_with_cases = if session.state.request.raw_input_with_cases.is_empty() {
+                    &session.state.request.raw_input
+                } else {
+                    &session.state.request.raw_input_with_cases
+                };
+                let raw_with_cases = &raw_with_cases[..prefix_end];
+                session.build_raw_request(raw, raw_with_cases, request);
+            },
+            |session, request| {
+                request.valid
+                    && session
+                        .registry
+                        .expand_initial_candidates(request, candidates)
+            },
+        )
     }
 
     /// The request a scratch scheme of the current type builds for `raw`, with the session's switches applied. The current scheme was activated before it became current, so building its scratch twin cannot fail, except for Zhuyin, whose `msime-zhuyin.db` connection belongs to the live editor: an invalid request stands for both, and Zhuyin keeps its caret at the end, so it never decodes a caret prefix.
-    fn raw_request(&self, raw: &str, raw_with_cases: &str) -> QueryRequest {
+    fn build_raw_request(&self, raw: &str, raw_with_cases: &str, request: &mut QueryRequest) {
+        match self.current_scheme_type() {
+            SchemeType::Quanpin => {
+                QuanpinScheme::build_request_from_raw_into(raw, raw_with_cases, request)
+            }
+            SchemeType::Shuangpin => ShuangpinScheme::build_request_from_raw_into(
+                profile(self.profile),
+                raw,
+                raw_with_cases,
+                request,
+            ),
+            _ => return self.raw_request_through_scheme(raw, raw_with_cases, request),
+        }
+        self.apply_request_options(request);
+        self.apply_autocorrect_suppression(request);
+        apply_shuangpin_helpcode_segmentation(request, profile(self.profile));
+    }
+
+    fn raw_request_through_scheme(
+        &self,
+        raw: &str,
+        raw_with_cases: &str,
+        request: &mut QueryRequest,
+    ) {
         let Ok(mut scratch) = Scheme::new(
             self.current_scheme_type(),
             self.profile,
@@ -501,14 +545,28 @@ impl ImeSession {
             self.registry.cantonese_inventory(),
             None,
         ) else {
-            return QueryRequest::default();
+            *request = QueryRequest::default();
+            return;
         };
         if let Some(wubi) = scratch.as_wubi_mut() {
             wubi.set_mixed_pinyin_allowed(self.wubi_options.mixed_pinyin);
             wubi.set_extended_length_allowed(self.wubi_options.mixed_pinyin);
         }
         scratch.set_raw_input(raw, raw_with_cases);
-        self.prepare_request(&scratch)
+        let built = self.prepare_request(&scratch);
+        request.clone_from(&built);
+    }
+
+    fn with_raw_request<R>(
+        &mut self,
+        build: impl FnOnce(&Self, &mut QueryRequest),
+        use_request: impl FnOnce(&mut Self, &QueryRequest) -> R,
+    ) -> R {
+        let mut request = std::mem::take(&mut self.scratch_request);
+        build(self, &mut request);
+        let result = use_request(self, &request);
+        self.scratch_request = request;
+        result
     }
 
     pub fn set_helpcode_keymap(&mut self, keymap: Option<SharedKeymap>) {
