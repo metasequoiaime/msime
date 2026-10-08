@@ -743,11 +743,11 @@ impl NineKeySession {
         let table = spelling_table();
         let locked_length = self.locked_length();
         let remaining = remaining_digits(&self.digits, locked_length);
-        let splits: Vec<usize> = self
-            .splits
-            .iter()
-            .map(|split| split - locked_length)
-            .collect();
+        let mut split_offsets = [0usize; DIGIT_LIMIT];
+        for (index, split) in self.splits.iter().enumerate() {
+            split_offsets[index] = split - locked_length;
+        }
+        let splits = &split_offsets[..self.splits.len()];
         let initial = self.initial.map(|initial| initial.letter);
         let starts_right =
             |piece: &str| initial.is_none_or(|letter| piece.as_bytes().first() == Some(&letter));
@@ -762,7 +762,7 @@ impl NineKeySession {
             let prior = self
                 .prior
                 .get_or_insert_with(|| SyllablePrior::from_dictionary(dictionary, table));
-            let mut alternatives = table.split_paths(remaining, &splits, prior);
+            let mut alternatives = table.split_paths(remaining, splits, prior);
             alternatives.retain(|path| path.first().is_none_or(|piece| starts_right(piece)));
             // Even an unfinished or invalid tail must still offer the leading syllable for partial selection.
             alternatives.extend(
@@ -792,7 +792,7 @@ impl NineKeySession {
         // 每个数字都能当一个音节的首字母时也按简拼查（`68` 是 m't：明天、每天）。用户在每个数字之间都打了切分（`6'8`），说的就是简拼，简拼行排在前面；没打切分时数字也可能是完整音节（`68` 是 mu），简拼行排在同样覆盖的音节行之后。
         // 在展开面板里选定了首字母时用户是在逐个拼音节，简拼行不经过 `starts_right` 的首字母过滤，这时不查简拼。
         let initials =
-            self.locked.is_empty() && initial.is_none() && initials_apply(remaining.len(), &splits);
+            self.locked.is_empty() && initial.is_none() && initials_apply(remaining.len(), splits);
         let initials_lead = initials && !splits.is_empty();
         for (index, path) in alternatives.iter().enumerate() {
             append_path_key(&mut key, &locked_key, path);
@@ -2543,6 +2543,28 @@ mod tests {
             allocations <= 347,
             "九键选择字母复制音节列表产生了 {allocations} 次分配"
         );
+    }
+
+    #[test]
+    fn split_refresh_reuses_normalized_boundaries() {
+        let fixture = fixture();
+        let mut plain = open(&fixture.paths, false, EnglishInputOptions::default());
+        plain.digits = "644".into();
+        plain.refresh();
+        let (_, plain_allocations) =
+            crate::ime::personal_rerank::allocations::count(|| plain.refresh());
+        let mut split = open(&fixture.paths, false, EnglishInputOptions::default());
+        split.digits = "644".into();
+        split.splits = vec![2];
+        split.refresh();
+        let (_, split_allocations) =
+            crate::ime::personal_rerank::allocations::count(|| split.refresh());
+
+        assert!(
+            split_allocations <= 151,
+            "split refresh should keep normalized boundaries off the heap: {split_allocations}"
+        );
+        assert!(split_allocations < plain_allocations);
     }
 
     #[test]
