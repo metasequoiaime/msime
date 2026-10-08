@@ -1,5 +1,6 @@
 package app.msime.android;
 
+import app.msime.android.core.InputViewValuePolicy;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -60,7 +61,7 @@ public final class SchemePreferences {
         AppEdition edition = AppEdition.current();
         Map<String, String> changes = schemeValues(scheme,
             preferences.optString("last_chinese_scheme", edition.defaultScheme()),
-            preferences.optString("shuangpin_profile", "xiaohe"), wubiProfile, edition);
+            InputViewValuePolicy.textOr(preferences, "shuangpin_profile", "xiaohe"), wubiProfile, edition);
         try {
             JSONObject pending = new JSONObject(snapshot.toString());
             JSONObject values = pending.getJSONObject("preferences");

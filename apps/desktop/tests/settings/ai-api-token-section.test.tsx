@@ -28,6 +28,19 @@ test("shows the normalized origin and forwards token changes", () => {
 test("disables token input and explains an invalid endpoint", () => {
   render(<AiApiTokenSection origin={null} token="synthetic-token" onTokenChange={vi.fn()} />);
 
-  expect(screen.getByText("请先在「更多选项」中填写有效的 HTTPS 接口地址")).toBeTruthy();
+  expect(screen.getByText("请先在「更多选项」中填写有效的接口地址")).toBeTruthy();
   expect((screen.getByLabelText("AI API Token") as HTMLInputElement).disabled).toBe(true);
+});
+
+test("shows why the endpoint cannot carry a token", () => {
+  render(
+    <AiApiTokenSection
+      origin={null}
+      endpointHint="http:// 只能用于本机或局域网地址"
+      token=""
+      onTokenChange={vi.fn()}
+    />,
+  );
+
+  expect(screen.getByText("http:// 只能用于本机或局域网地址")).toBeTruthy();
 });

@@ -839,7 +839,7 @@ struct ServiceSettingsView: View {
         Button("删除此服务的密钥", role: .destructive) {
           do {
             let url = try configuration.validatedURL(
-              allowWebSocket: kind == .voice && configuration.voiceProvider == .doubao)
+              allowWebSocket: kind == .voice && configuration.voiceProvider == .doubao, allowsLocalHTTP: kind == .ai)
             try ServiceTokenStore.write("", kind: kind, url: url)
             if kind == .ai { try KeyboardAIService.disable(); keyboardAIEnabled = false; publishAICandidates() }
             token = ""
@@ -889,7 +889,7 @@ struct ServiceSettingsView: View {
     }
     let config = configuration
     do {
-      let url = try config.validatedURL(requiresModel: false)
+      let url = try config.validatedURL(requiresModel: false, allowsLocalHTTP: kind == .ai)
       let enteredKey = token.trimmingCharacters(in: .whitespacesAndNewlines)
       let key = try enteredKey.isEmpty ? ServiceTokenStore.read(kind, url: url) : enteredKey
       guard !key.isEmpty else { modelStatus = "请先填写 API Key，或使用已保存的密钥。"; return }
@@ -921,7 +921,7 @@ struct ServiceSettingsView: View {
     let config = configuration
     let doubao = kind == .voice && config.voiceProvider == .doubao
     do {
-      let url = try config.validatedURL(requiresModel: !doubao, allowWebSocket: doubao)
+      let url = try config.validatedURL(requiresModel: !doubao, allowWebSocket: doubao, allowsLocalHTTP: kind == .ai)
       let enteredKey = token.trimmingCharacters(in: .whitespacesAndNewlines)
       let key = try enteredKey.isEmpty ? ServiceTokenStore.read(kind, url: url) : enteredKey
       guard !key.isEmpty else { modelStatus = "请先填写 API Key，或使用已保存的密钥。"; return }
@@ -968,7 +968,7 @@ struct ServiceSettingsView: View {
       try configuration.save(kind, token: token)
       token = ""
       if kind == .ai && keyboardAIEnabled {
-        try KeyboardAIService.publish(configuration, token: ServiceTokenStore.read(.ai, url: configuration.validatedURL()))
+        try KeyboardAIService.publish(configuration, token: ServiceTokenStore.read(.ai, url: configuration.validatedURL(allowsLocalHTTP: true)))
       }
       status = "配置已保存"
       if kind == .ai && keyboardAIEnabled { publishAICandidates() }
@@ -1016,7 +1016,7 @@ struct ServiceSettingsView: View {
     operation = Task {
       do {
         let tokenURL = try config.validatedURL(
-          allowWebSocket: kind == .voice && config.voiceProvider == .doubao)
+          allowWebSocket: kind == .voice && config.voiceProvider == .doubao, allowsLocalHTTP: kind == .ai)
         let savedToken = try ServiceTokenStore.read(kind, url: tokenURL)
         let result = try await CustomServiceClient.request(kind: kind, configuration: config,
           text: text, wav: audio, pcm: pcm, token: savedToken, language: language,

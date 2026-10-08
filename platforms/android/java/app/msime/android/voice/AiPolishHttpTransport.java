@@ -6,25 +6,24 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URI;
 import java.util.Map;
-import javax.net.ssl.HttpsURLConnection;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-/** Bounded HTTPS Chat Completions transport. It never follows redirects or exposes response bodies. */
+/** 有界的 Chat Completions 传输：https，或 AiEndpointPolicy 放行的本机、局域网 http。不跟随重定向，也不暴露响应正文。 */
 public final class AiPolishHttpTransport implements AiPolishClient.Transport {
     @Override public String send(AiPolishConfiguration configuration, String text,
                                  AiPolishClient.Cancellation cancellation)
             throws AiPolishClient.Failure {
-        HttpsURLConnection connection = null;
+        HttpURLConnection connection = null;
         try {
             JSONObject body = new JSONObject().put("model", configuration.model())
                 .put("messages", new JSONArray()
                     .put(new JSONObject().put("role", "system").put("content", configuration.prompt()))
                     .put(new JSONObject().put("role", "user").put("content", text)));
             byte[] bytes = TextPolicy.utf8Bytes(body.toString());
-            connection = (HttpsURLConnection) configuration.endpoint().toURL().openConnection();
-            HttpsURLConnection target = connection;
+            connection = (HttpURLConnection) AiEndpointPolicy.open(configuration.endpoint().toURL());
+            HttpURLConnection target = connection;
             cancellation.attach(target::disconnect);
             if (cancellation.cancelled()) throw new AiPolishClient.Failure(AiPolishClient.Reason.CANCELLED);
             connection.setInstanceFollowRedirects(false);

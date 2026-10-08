@@ -28,10 +28,16 @@ public final class OnlineCandidatePolicy {
 
     private OnlineCandidatePolicy() {}
 
+    /** 云候选的地址：只接受 https。 */
     public static boolean validURL(URL target) {
         return target != null && "https".equalsIgnoreCase(target.getProtocol())
             && target.getHost() != null && !target.getHost().isEmpty()
             && target.getUserInfo() == null && target.getRef() == null;
+    }
+
+    /** AI 候选的地址：https 不限主机，http 只能指向本机或局域网，规则见 {@link AiEndpointPolicy}。 */
+    public static boolean validAiURL(String target) {
+        return target != null && AiEndpointPolicy.allowed(target);
     }
 
     /** Read the positive host session id without JSONObject's lossy numeric conversions. */

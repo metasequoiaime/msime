@@ -1,4 +1,5 @@
 #include "AiCandidateWorker.h"
+#include "AiEndpointPolicy.h"
 #include "CandidateHttpPolicy.h"
 
 #include "msime_client.h"
@@ -138,7 +139,9 @@ std::optional<std::string> https_post(const nlohmann::json &descriptor,
     if (!descriptor.is_object() || !descriptor.at("url").is_string())
       return std::nullopt;
     const auto url = descriptor.at("url").get<std::string>();
-    if (!valid_candidate_url(url))
+    // 本机和局域网的接口（如 LM Studio）可以用 http，其余只走 https；规则见 AiEndpointPolicy.h。
+    const auto protocol = std::string(ai_endpoint_protocol(url));
+    if (protocol.empty())
       return std::nullopt;
     const auto headers = descriptor.value("headers", nlohmann::json::object());
     if (!headers.is_object())
@@ -166,9 +169,10 @@ std::optional<std::string> https_post(const nlohmann::json &descriptor,
     }
     HttpResponse response{{}, cancelled};
     curl_easy_setopt(curl.get(), CURLOPT_URL, url.c_str());
-    curl_easy_setopt(curl.get(), CURLOPT_PROTOCOLS_STR, "https");
-    // The descriptor carries credentials; a redirect would hand them to
-    // whatever host the response names.
+    curl_easy_setopt(curl.get(), CURLOPT_PROTOCOLS_STR, protocol.c_str());
+    if (ai_endpoint_connects_directly(url))
+      curl_easy_setopt(curl.get(), CURLOPT_NOPROXY, "*");
+    // 请求描述带着凭据，跟随重定向就等于把它交给响应指定的任意主机；不跟随也保证局域网的 http 请求不会被转到公网主机。
     curl_easy_setopt(curl.get(), CURLOPT_FOLLOWLOCATION, 0L);
     curl_easy_setopt(curl.get(), CURLOPT_CONNECTTIMEOUT_MS, 2500L);
     // The reference budgets 8 s for a model call; a shorter cap would abandon

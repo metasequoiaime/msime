@@ -126,11 +126,11 @@ struct VoicePolishService: Equatable {
     return configuration
   }
 
-  /// Saves the choice. A separate service needs an HTTPS endpoint and a model; an empty key keeps the one already saved for that host.
+  /// Saves the choice. A separate service needs an endpoint (HTTPS, or HTTP on the local network) and a model; an empty key keeps the one already saved for that host.
   func save(token: String, defaults: UserDefaults = .standard,
             writeToken: (String, URL) throws -> Void = { try ServiceTokenStore.write($0, scope: ServiceTokenStore.polishScope, url: $1) }) throws {
     if separate {
-      let url = try configuration.validatedURL()
+      let url = try configuration.validatedURL(allowsLocalHTTP: true)
       if !token.isEmpty { try writeToken(token, url) }
       defaults.set(provider.rawValue, forKey: "service.polish.provider")
       defaults.set(url.absoluteString, forKey: "service.polish.endpoint")
@@ -146,11 +146,11 @@ struct VoicePolishService: Equatable {
     let service = load(defaults: defaults)
     if service.separate {
       let configuration = service.configuration
-      guard let url = try? configuration.validatedURL() else { throw ServiceFailure(message: "请先保存润色服务。") }
+      guard let url = try? configuration.validatedURL(allowsLocalHTTP: true) else { throw ServiceFailure(message: "请先保存润色服务。") }
       return (configuration, try readToken(ServiceTokenStore.polishScope, url))
     }
     let configuration = CustomServiceConfiguration.load(.ai, defaults: defaults)
-    guard let url = try? configuration.validatedURL() else { throw ServiceFailure(message: "请先在“AI 设置”里保存服务。") }
+    guard let url = try? configuration.validatedURL(allowsLocalHTTP: true) else { throw ServiceFailure(message: "请先在“AI 设置”里保存服务。") }
     return (configuration, try readToken(CustomServiceKind.ai.rawValue, url))
   }
 }

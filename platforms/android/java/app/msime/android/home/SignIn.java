@@ -93,8 +93,10 @@ final class SignIn {
                             offMainThread(() -> {
                                 String failure;
                                 try {
-                                    new BackendAccount(context).login(started, idToken, userAgent(context));
-                                    bind(context, "google");
+                                    synchronized (SyncSwitch.bindingLock()) {
+                                        new BackendAccount(context).login(started, idToken, userAgent(context));
+                                        bind(context, "google");
+                                    }
                                     failure = "";
                                 } catch (Exception | LinkageError error) {
                                     failure = "登录没有完成：" + explain(error);
@@ -176,8 +178,10 @@ final class SignIn {
             if (pending == null) return;
             if (error != null && !error.isEmpty()) return;
             try {
-                AppleWebSignIn.complete(context, pending, grant, userAgent(context));
-                if (!pending.link()) bind(context, "apple");
+                synchronized (SyncSwitch.bindingLock()) {
+                    AppleWebSignIn.complete(context, pending, grant, userAgent(context));
+                    if (!pending.link()) bind(context, "apple");
+                }
                 failure = "";
             } catch (Exception | LinkageError rejected) {
                 if (AppleWebSignIn.keepPendingAfter(BackendAccount.failureStatus(rejected))) return;
@@ -216,8 +220,10 @@ final class SignIn {
         String credential = TextPolicy.trimmed(code);
         if (!BackendAccount.validEmailCode(credential)) return "验证码是 6 位数字";
         try {
-            new BackendAccount(context).verifyEmailCode(challenge, credential, userAgent(context));
-            if (!"link".equals(challenge.purpose())) bind(context, "email");
+            synchronized (SyncSwitch.bindingLock()) {
+                new BackendAccount(context).verifyEmailCode(challenge, credential, userAgent(context));
+                if (!"link".equals(challenge.purpose())) bind(context, "email");
+            }
             return "";
         } catch (Exception | LinkageError error) {
             int status = BackendAccount.failureStatus(error);
@@ -231,8 +237,10 @@ final class SignIn {
 
     /** 退出登录：删掉本机会话并关闭同步、清空同步游标。阻塞；清除会话失败时抛出，界面不能按已退出处理。 */
     static void signOut(Context context) {
-        new BackendAccount(context).signOut();
-        SyncSwitch.clear(context);
+        synchronized (SyncSwitch.bindingLock()) {
+            new BackendAccount(context).signOut();
+            SyncSwitch.clear(context);
+        }
     }
 
     /** 记下这次登录的账号；读不到用户 id 时按换账号处理（SyncSwitch 会清空同步状态）。 */

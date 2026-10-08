@@ -45,6 +45,7 @@ import { SettingsFormFactorCapabilities, SettingsFormFactorProjection }
   from '../keyboard/settings/SettingsFormFactorCapabilities';
 import { LocalVoiceModelAction, LocalVoiceModelPolicy } from '../keyboard/settings/LocalVoiceModelPolicy';
 import { AiAuthenticationPolicy } from '../keyboard/settings/AiAuthenticationPolicy';
+import { AiEndpointPolicy } from '../keyboard/settings/AiEndpointPolicy';
 import { HarmonyTelemetry } from '../telemetry/Telemetry';
 import { TelemetryPolicy } from '../telemetry/TelemetryPolicy';
 import { NoticeItem, NoticePolicy } from '../notices/NoticePolicy';
@@ -2275,9 +2276,10 @@ class SettingsBridge {
       && !Array.from(value).every((character: string): boolean => character === '*');
   }
 
+  /** AI 接口地址：https 不限主机，http 只能指向本机或局域网（AiEndpointPolicy）。 */
   private validAiEndpoint(value: string): string | null {
     const endpoint: string = value.trim();
-    if (!TextPolicy.validSecureAuthority(endpoint, true)) return null;
+    if (!AiEndpointPolicy.allowed(endpoint)) return null;
     return endpoint;
   }
 

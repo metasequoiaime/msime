@@ -165,33 +165,54 @@ fn read_private_file(file: std::fs::File) -> Result<Vec<u8>, AccountError> {
     )
 }
 
-fn read_private_json<T: DeserializeOwned>(path: &Path) -> Result<Option<T>, AccountError> {
-    if let Some(parent) = path.parent() {
-        crate::storage::reject_symlink(parent).map_err(|_| AccountError::Storage)?;
-    }
-    let metadata = match std::fs::symlink_metadata(path) {
-        Ok(metadata) => metadata,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(_) => return Err(AccountError::Storage),
-    };
-    if !metadata.file_type().is_file() {
+#[cfg(unix)]
+fn validate_opened_private_json_file(
+    file: &std::fs::File,
+    directory: &std::fs::File,
+) -> Result<(), AccountError> {
+    use std::os::unix::fs::MetadataExt;
+
+    let metadata = file.metadata().map_err(|_| AccountError::Storage)?;
+    let directory_metadata = directory.metadata().map_err(|_| AccountError::Storage)?;
+    if !metadata.is_file()
+        || metadata.mode() & 0o077 != 0
+        || metadata.uid() != directory_metadata.uid()
+    {
         return Err(AccountError::Storage);
     }
+    Ok(())
+}
+
+fn read_private_json<T: DeserializeOwned>(path: &Path) -> Result<Option<T>, AccountError> {
+    let parent = path.parent().ok_or(AccountError::Storage)?;
+    let name = path.file_name().ok_or(AccountError::Storage)?;
+    crate::storage::reject_symlink(parent).map_err(|_| AccountError::Storage)?;
     #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-        let Some(parent) = path.parent() else {
-            return Err(AccountError::Storage);
+    let bytes = {
+        let directory =
+            crate::storage::open_private_directory(parent).map_err(|_| AccountError::Storage)?;
+        let file = match crate::storage::open_private_file_at(&directory, name) {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(_) => return Err(AccountError::Storage),
         };
-        let directory = std::fs::symlink_metadata(parent).map_err(|_| AccountError::Storage)?;
-        if metadata.mode() & 0o077 != 0 || metadata.uid() != directory.uid() {
+        validate_opened_private_json_file(&file, &directory)?;
+        read_private_file(file)?
+    };
+    #[cfg(not(unix))]
+    let bytes = {
+        let metadata = match std::fs::symlink_metadata(path) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(_) => return Err(AccountError::Storage),
+        };
+        if !metadata.file_type().is_file() {
             return Err(AccountError::Storage);
         }
-    }
-    // Bound the read through the handle so a concurrent replacement cannot bypass the size limit.
-    let bytes = read_private_file(
-        crate::storage::open_private_file_in(path).map_err(|_| AccountError::Storage)?,
-    )?;
+        read_private_file(
+            crate::storage::open_private_file_in(path).map_err(|_| AccountError::Storage)?,
+        )?
+    };
     serde_json::from_slice(&bytes)
         .map(Some)
         .map_err(|_| AccountError::Storage)
@@ -423,6 +444,27 @@ mod tests {
         let bytes = read_private_file(std::fs::File::open(path).unwrap()).unwrap();
         assert_eq!(bytes, contents);
         assert_eq!(bytes.capacity(), contents.len());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_json_validation_uses_the_opened_file_descriptor() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join(ANONYMOUS_ACCOUNT_FILE);
+        std::fs::write(&path, b"{}").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let parent = crate::storage::open_private_directory(directory.path()).unwrap();
+        let file = crate::storage::open_private_file_at(
+            &parent,
+            std::ffi::OsStr::new(ANONYMOUS_ACCOUNT_FILE),
+        )
+        .unwrap();
+        assert!(validate_opened_private_json_file(&file, &parent).is_ok());
+
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(validate_opened_private_json_file(&file, &parent).is_err());
     }
 
     #[cfg(unix)]

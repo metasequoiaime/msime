@@ -83,7 +83,7 @@ public final class KeyboardOptionsPage extends DetailPage {
         AppEdition edition = AppEdition.current();
         KeyboardScheme current = KeyboardScheme.fromPreferences(
             preferences.optString("scheme", edition.defaultScheme()),
-            preferences.optString("shuangpin_profile", "xiaohe"),
+            InputViewValuePolicy.textOr(preferences, "shuangpin_profile", "xiaohe"),
             InputViewValuePolicy.textOr(preferences, "touch_keyboard_layout", "twenty_six_key"), edition);
 
         GroupCard layout = GroupCard.add(target, "布局");

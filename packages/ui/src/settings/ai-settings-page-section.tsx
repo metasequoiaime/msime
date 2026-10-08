@@ -18,6 +18,8 @@ export type AiProviderOption = { id: string; title: string };
 export interface AiSettingsPageSectionProps {
   /** AI 服务的接口地址是否有效；无效时「更多选项」首次显示就展开，因为凭据要等接口地址填对才能用。 */
   endpointValid?: boolean;
+  /** 接口地址不能用时显示在地址栏下方的说明，例如公网 http 为什么被拒绝；地址可用时为空。 */
+  endpointHint?: string;
   disabled: boolean;
   hidden: boolean;
   enabled: boolean;
@@ -60,6 +62,7 @@ export interface AiSettingsPageSectionProps {
 /** Page-level composition for the shared AI assistant settings: the 服务, 联想, 提示词 and 测试工具 groups. */
 export function AiSettingsPageSection({
   endpointValid = true,
+  endpointHint,
   disabled,
   hidden,
   enabled,
@@ -150,6 +153,7 @@ export function AiSettingsPageSection({
         <MoreOptions defaultOpen={!endpointValid}>
           <TextInputRow
             title="接口地址"
+            description={endpoint ? endpointHint || undefined : undefined}
             label="AI 接口地址"
             type="url"
             value={endpoint}

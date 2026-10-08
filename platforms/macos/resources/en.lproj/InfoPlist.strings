@@ -14,3 +14,4 @@
 "app.msime.inputmethod.MetasequoiaIME.Stroke" = "Metasequoia · BH";
 "NSMicrophoneUsageDescription" = "Record speech only when voice input is started, to transcribe and insert your words.";
 "NSSpeechRecognitionUsageDescription" = "Send the recording to macOS speech recognition when the system recogniser is selected, to transcribe your words.";
+"NSLocalNetworkUsageDescription" = "Connect to a device on your local network only when the AI suggestion endpoint is set to a service there, such as LM Studio on another computer.";

@@ -45,8 +45,8 @@ targets:
   MSIMEApp:
     type: application
     platform: iOS
-    # 只为了一个 URL scheme。键盘扩展里没有 UIApplication,它要打开本应用只能走一个自己注册的 scheme;
-    # 其余的键仍由 GENERATE_INFOPLIST_FILE 和下面的 INFOPLIST_KEY_* 合进来,这个文件只放它们表达不了的这一项。
+    # 只放 INFOPLIST_KEY_* 表达不了的字典键：一个 URL scheme（键盘扩展里没有 UIApplication,它要打开本应用只能走一个自己注册的 scheme）和 ATS 的局域网例外。
+    # 其余的键仍由 GENERATE_INFOPLIST_FILE 和下面的 INFOPLIST_KEY_* 合进来。
     info:
       path: App/Resources/Info.plist
       properties:
@@ -54,6 +54,9 @@ targets:
           - CFBundleURLName: app.msime.ios
             CFBundleTypeRole: Editor
             CFBundleURLSchemes: [msime]
+        # AI 辅助可以连本机或局域网里的 http 模型服务（如 LM Studio），哪些地址能用由 SharedUI/core/AIEndpointPolicy.swift 判断，公网仍然只走 https。iOS 10 起 ATS 本来就不拦 IP 地址、无点主机名和 .local，这里显式写出来，免得以后有人加 ATS 配置时把它关掉；它不放开任何公网域名。
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
     sources:
       - path: App/Sources
       - path: App/Services
@@ -115,6 +118,8 @@ targets:
         INFOPLIST_KEY_NSMicrophoneUsageDescription: "仅在你开始语音输入时录音：本地模型在本机识别，系统语音识别交由 iOS 处理，其他识别服务会把录音发送到你配置的服务。"
         # 语音服务选「系统语音识别」时由 Speech 框架识别录音，第一次使用前系统按这句话询问授权。
         INFOPLIST_KEY_NSSpeechRecognitionUsageDescription: "仅在你选择“系统语音识别”并开始录音时，用 iOS 的语音识别把录音转成文字。"
+        # AI 辅助连局域网里的模型服务（如另一台电脑上的 LM Studio）前，系统按这句话询问本地网络权限；连本机回环地址不会询问。
+        INFOPLIST_KEY_NSLocalNetworkUsageDescription: "仅在你把 AI 辅助的接口地址设成局域网里的服务（例如电脑上的 LM Studio）时，用来连接这台设备。"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         # VoicePolishPrompt.cpp includes shared/voice/PolishPrompt.h, which the desktop hosts build as C++17.
         CLANG_CXX_LANGUAGE_STANDARD: c++17
@@ -160,6 +165,10 @@ targets:
         CFBundleDisplayName: 水杉输入法
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        # 与 App 相同：键盘里的 AI 候选和 AI 面板也会连本机或局域网的 http 模型服务，见 MSIMEApp 的说明。
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+        NSLocalNetworkUsageDescription: 仅在你把 AI 辅助的接口地址设成局域网里的服务（例如电脑上的 LM Studio）时，用来连接这台设备。
         NSExtension:
           NSExtensionAttributes:
             IsASCIICapable: true
@@ -282,6 +291,9 @@ targets:
       - path: SharedUI
       - path: SharedResources/KeyboardBrand.png
         buildPhase: resources
+      # AIEndpointPolicyTests 逐条跑的跨平台用例，权威实现是 crates/client-core/src/ai/endpoint.rs。
+      - path: ../../shared/contracts/ai-endpoint/cases.json
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.msime.ios.keyboard-tests
@@ -319,6 +331,7 @@ targets:
       - path: App/Services/WAVPCMExtractor.swift
       - path: App/Services/VoiceLevel.swift
       - path: App/Services/BoundedFileReader.swift
+      - path: SharedUI/core/AIEndpointPolicy.swift
       - path: SharedUI/core/AppServicesBridge.swift
       - path: SharedUI/core/MetasequoiaTheme.swift
       - path: SharedUI/core/SharedNumber.swift

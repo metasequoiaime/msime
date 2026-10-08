@@ -252,6 +252,28 @@ final class CustomServiceTests: XCTestCase {
     XCTAssertEqual(try configuration.validatedURL().path, "/v1/chat/completions")
   }
 
+  /// AI 辅助可以用本机或局域网的 http（如 LM Studio），公网 http 要说明原因；语音识别仍然只走 https。
+  func testOnlyTheAIServiceAcceptsLocalNetworkHTTP() throws {
+    var configuration = CustomServiceConfiguration()
+    configuration.model = "fixture"
+    configuration.endpoint = "http://192.168.1.20:1234/v1/chat/completions"
+    XCTAssertEqual(try configuration.validatedURL(allowsLocalHTTP: true).absoluteString, configuration.endpoint)
+    XCTAssertThrowsError(try configuration.validatedURL())
+    let request = try CustomServiceClient.makeRequest(kind: .ai, configuration: configuration, prompt: "p",
+                                                      text: "t", wav: nil, token: "fixture-key")
+    XCTAssertEqual(request.url?.absoluteString, configuration.endpoint)
+    XCTAssertThrowsError(try CustomServiceClient.makeRequest(kind: .voice, configuration: configuration, prompt: "p",
+                                                             text: "t", wav: Data([0]), token: "fixture-key"))
+    XCTAssertEqual(try ModelCatalogClient.modelsURL(configuration: configuration, kind: .ai).absoluteString,
+                   "http://192.168.1.20:1234/v1/models")
+    XCTAssertThrowsError(try ModelCatalogClient.modelsURL(configuration: configuration, kind: .voice))
+
+    configuration.endpoint = "http://api.example.com/v1/chat/completions"
+    XCTAssertThrowsError(try configuration.validatedURL(allowsLocalHTTP: true)) { error in
+      XCTAssertEqual(error.localizedDescription, AIEndpointPolicy.cleartextMessage)
+    }
+  }
+
   func testConfigurationRejectsOverlongModelAndEndpoint() {
     var configuration = CustomServiceConfiguration()
     configuration.endpoint = "https://example.invalid/v1/chat/completions"
@@ -487,15 +509,15 @@ extension CustomServiceTests {
     session.protocolClasses = [CatalogFixtureProtocol.self]
     var config = CustomServiceConfiguration.loadPreset(.everyAPI)
     config.model = ""
-    XCTAssertEqual(try ModelCatalogClient.modelsURL(configuration: config).absoluteString, "https://api.everyapi.ai/v1/models")
+    XCTAssertEqual(try ModelCatalogClient.modelsURL(configuration: config, kind: .ai).absoluteString, "https://api.everyapi.ai/v1/models")
     let models = try await ModelCatalogClient.fetch(configuration: config, kind: .ai, token: "fixture", sessionConfiguration: session)
     XCTAssertEqual(models, ["chat-model", "response-model"])
     let voice = CustomServiceConfiguration.loadVoicePreset(.everyAPI)
-    XCTAssertEqual(try ModelCatalogClient.modelsURL(configuration: voice).absoluteString, "https://api.everyapi.ai/v1/models")
+    XCTAssertEqual(try ModelCatalogClient.modelsURL(configuration: voice, kind: .voice).absoluteString, "https://api.everyapi.ai/v1/models")
     let voiceModels = try await ModelCatalogClient.fetch(configuration: voice, kind: .voice, token: "fixture", sessionConfiguration: session)
     XCTAssertEqual(voiceModels, ["speech-model"])
     let gemini = CustomServiceConfiguration.loadPreset(.gemini)
-    XCTAssertEqual(try ModelCatalogClient.modelsURL(configuration: gemini).absoluteString,
+    XCTAssertEqual(try ModelCatalogClient.modelsURL(configuration: gemini, kind: .ai).absoluteString,
       "https://generativelanguage.googleapis.com/v1beta/openai/models")
   }
 
