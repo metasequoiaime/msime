@@ -261,11 +261,7 @@ pub fn compose(keys: &str) -> String {
 /// 将合成的韩文写入已有字符串，保留宿主会话的容量。
 pub fn compose_into(keys: &str, output: &mut String) {
     output.clear();
-    output.reserve(
-        keys.len()
-            .saturating_mul(3)
-            .saturating_sub(output.capacity()),
-    );
+    output.reserve(keys.len().saturating_mul(3));
     for syllable in fold(keys.as_bytes()) {
         syllable.render(output);
     }
@@ -303,6 +299,14 @@ mod tests {
         assert_eq!(finished, "가");
         assert_eq!(rest, "rk");
         assert_eq!(finished.capacity(), 3);
+    }
+
+    #[test]
+    fn compose_into_reserves_the_full_utf8_capacity() {
+        let mut output = String::with_capacity(8);
+        compose_into("rkrk", &mut output);
+        assert_eq!(output, "가가");
+        assert!(output.capacity() >= 12);
     }
 
     #[test]
