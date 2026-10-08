@@ -349,14 +349,14 @@ impl InputSession {
         if !(0..=5).contains(&position) {
             return KeyResult::unhandled();
         }
-        let Some(selected) = self.candidates().get(index).cloned() else {
+        let Some(selected) = self.candidates().get(index) else {
             return KeyResult::unhandled();
         };
-        if !self.is_editable_source(&selected) {
+        if !self.is_editable_source(selected) {
             return KeyResult::unhandled();
         }
         let english = selected.source == CandidateSource::EnglishDictionary;
-        let wubi = Self::is_wubi_native_candidate(&selected)
+        let wubi = Self::is_wubi_native_candidate(selected)
             && self.local_mode != LocalInputMode::SuperJianpin;
         let context = self.position_context(english, wubi);
         let key = if english || wubi || selected.canonical_pinyin.is_empty() {
