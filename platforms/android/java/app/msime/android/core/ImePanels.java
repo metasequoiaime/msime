@@ -423,9 +423,9 @@ final class ImePanels {
         for (int index = 0; index < themes.length(); index++) {
             JSONObject entry = themes.optJSONObject(index);
             if (entry == null) continue;
-            String id = entry.optString("id", "");
+            String id = InputViewValuePolicy.textOr(entry, "id", "");
             if (id.isEmpty()) continue;
-            String themeName = entry.optString("title", id);
+            String themeName = InputViewValuePolicy.textOr(entry, "title", id);
             KeyboardSkin choice = "custom".equals(id) ? s.themeSkin(id, customTheme, hostDark)
                 : KeyboardSkin.resolved(entry, themeName, hostDark, null);
             choices.add(new MSIMEInputService.SkinChoice(id, choice.title(), choice, null));
