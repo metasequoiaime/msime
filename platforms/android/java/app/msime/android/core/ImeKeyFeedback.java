@@ -273,7 +273,7 @@ final class ImeKeyFeedback {
 
     private static int sample(SoundPool pool, JSONObject files, String name) {
         if (files.isNull(name)) return 0;
-        String path = files.optString(name, "");
+        String path = JsonPolicy.strictStringOrEmpty(files.opt(name));
         if (path.isEmpty() || !new File(path).isFile()) return 0;
         return pool.load(path, 1);
     }
