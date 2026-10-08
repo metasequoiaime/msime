@@ -4814,7 +4814,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     boolean voiceInsertionReady() {
         return session != 0 && connection != null && view != null
-            && view.optString("editing_text", "").isEmpty()
+            && InputViewValuePolicy.editingText(view).isEmpty()
             && view.optString("local_mode", "none").equals("none");
     }
 
