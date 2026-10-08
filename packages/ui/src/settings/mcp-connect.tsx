@@ -29,6 +29,8 @@ export type McpClientStatus = {
   configured: boolean;
   /** 已写入条目带的权限参数，按固定顺序；未连接时为空。 */
   flags: McpFlag[];
+  /** 已连接，但条目的命令是 Nix store 里以前那一版的路径，升级或垃圾回收后会失效；再写一次换成 `command`，权限照旧。 */
+  stale: boolean;
 };
 
 export type McpServerStatus = {
@@ -349,7 +351,7 @@ export function McpConnectSection({
   const client = writableClients.find((candidate) => candidate.id === shownTab);
   // 已连接的助手页显示它真实的权限（或用户刚改的），其它页显示用户想要的权限。
   const flags = client?.configured ? (drafts[client.id] ?? client.flags) : preferred;
-  const outdated = client?.configured === true && !sameFlags(flags, client.flags);
+  const outdated = client?.configured === true && (client.stale || !sameFlags(flags, client.flags));
 
   function setFlag(flag: McpFlag, on: boolean) {
     const toggled = (current: readonly McpFlag[]) =>
@@ -441,8 +443,16 @@ export function McpConnectSection({
                   </SettingsManagerNote>
                   {outdated && (
                     <SettingsNotice>
-                      下面的权限和 {clientNames[client.id]} 现在的配置不同，点「更新{" "}
-                      {clientNames[client.id]}」写入。
+                      {client.stale
+                        ? `${clientNames[client.id]} 现在的配置指向 Nix store 里某一版的服务器程序，系统升级或垃圾回收后会失效。`
+                        : `下面的权限和 ${clientNames[client.id]} 现在的配置不同。`}
+                      点「更新 {clientNames[client.id]}」
+                      {client.stale && (
+                        <>
+                          改成 <code>{server.command}</code>，按下面的权限
+                        </>
+                      )}
+                      写入。
                     </SettingsNotice>
                   )}
                   <SettingsManagerActions>

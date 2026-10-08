@@ -123,9 +123,9 @@ public final class VoiceConfiguration {
             if (DoubaoAsrPolicy.usable(name, endpoint, java.util.Arrays.asList(names(headers)))) {
                 return new VoiceConfiguration(name, null, null, null,
                     new VoiceRecognitionActivity.Streaming(endpoint, headers,
-                        Boolean.TRUE.equals(strictBoolean(provider.opt("enableItn"))),
-                        Boolean.TRUE.equals(strictBoolean(provider.opt("enablePunctuation"))),
-                        Boolean.TRUE.equals(strictBoolean(provider.opt("enableDdc"))),
+                        JsonPolicy.strictTrue(provider.opt("enableItn")),
+                        JsonPolicy.strictTrue(provider.opt("enablePunctuation")),
+                        JsonPolicy.strictTrue(provider.opt("enableDdc")),
                         text(provider.opt("boostingTableId"))),
                     polish);
             }

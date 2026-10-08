@@ -3,7 +3,6 @@
 use std::ffi::OsStr;
 use std::fs::File;
 use std::io::{self, Read};
-use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
 pub(crate) mod linux_account;
@@ -41,24 +40,7 @@ pub(crate) fn apply_edition_to_config(config: &mut tauri::Config) {
 /// Open a trusted parent directory and verify that its path still names the
 /// directory held by the descriptor.
 pub(crate) fn open_private_directory(parent: &Path) -> io::Result<std::os::fd::OwnedFd> {
-    let directory = rustix::fs::open(
-        parent,
-        rustix::fs::OFlags::RDONLY
-            | rustix::fs::OFlags::DIRECTORY
-            | rustix::fs::OFlags::NOFOLLOW
-            | rustix::fs::OFlags::CLOEXEC
-            | rustix::fs::OFlags::NONBLOCK,
-        rustix::fs::Mode::empty(),
-    )?;
-    let metadata = std::fs::symlink_metadata(parent)?;
-    let stat = rustix::fs::fstat(&directory)?;
-    if !metadata.is_dir() || metadata.dev() != stat.st_dev || metadata.ino() != stat.st_ino {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "private parent directory changed",
-        ));
-    }
-    Ok(directory)
+    crate::shared::atomic_file::open_private_directory(parent)
 }
 
 pub(crate) fn open_private_at(parent: &Path, name: &OsStr) -> io::Result<File> {
@@ -67,34 +49,12 @@ pub(crate) fn open_private_at(parent: &Path, name: &OsStr) -> io::Result<File> {
 }
 
 pub(crate) fn open_private_fd(directory: &std::os::fd::OwnedFd, name: &OsStr) -> io::Result<File> {
-    let descriptor = rustix::fs::openat(
-        directory,
-        name,
-        rustix::fs::OFlags::RDONLY
-            | rustix::fs::OFlags::NOFOLLOW
-            | rustix::fs::OFlags::CLOEXEC
-            | rustix::fs::OFlags::NONBLOCK,
-        rustix::fs::Mode::empty(),
-    )
-    .map_err(|error| {
-        if error == rustix::io::Errno::LOOP {
-            io::Error::new(io::ErrorKind::InvalidInput, "private input is a symlink")
-        } else {
-            error.into()
-        }
-    })?;
-    let stat = rustix::fs::fstat(&descriptor)?;
-    if !rustix::fs::FileType::from_raw_mode(stat.st_mode).is_file() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "private input is not a regular file",
-        ));
-    }
-    Ok(descriptor.into())
+    crate::shared::atomic_file::open_private_fd(directory, name)
 }
 
 /// Read at most `max_bytes + 1` bytes so callers can distinguish an accepted
 /// file from one that crossed its bound after its metadata was inspected.
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn read_bounded_file(path: &Path, max_bytes: u64) -> io::Result<Vec<u8>> {
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
     let name = path

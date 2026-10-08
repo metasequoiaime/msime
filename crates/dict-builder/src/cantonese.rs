@@ -368,8 +368,8 @@ pub struct Counts {
 pub fn verify(path: &Path, floors: Floors) -> Result<Counts> {
     let dictionary = language_dictionary::open_read_only(path)
         .map_err(|error| anyhow::anyhow!("{}: {error}", path.display()))?;
-    let connection = sqlite::open_read_only(path)
-        .with_context(|| format!("opening {}", path.display()))?;
+    let connection =
+        sqlite::open_read_only(path).with_context(|| format!("opening {}", path.display()))?;
     let count = |sql: &str| -> Result<usize> {
         let count: i64 = connection.query_row(sql, [], |row| row.get(0))?;
         Ok(usize::try_from(count)?)

@@ -59,7 +59,7 @@ public final class AiPolishModelCatalog {
                 JSONObject model = data.optJSONObject(index);
                 if (model == null) continue;
                 if (model.has("active")) {
-                    Boolean active = strictBoolean(model.opt("active"));
+                    Boolean active = JsonPolicy.strictBoolean(model.opt("active"));
                     if (active == null || !active) continue;
                 }
                 String rawId = strictString(model.opt("id"));
@@ -81,7 +81,7 @@ public final class AiPolishModelCatalog {
             }
             Object rawHasMore = document.opt("has_more");
             Boolean hasMore = rawHasMore == null || rawHasMore == JSONObject.NULL
-                ? Boolean.FALSE : strictBoolean(rawHasMore);
+                ? Boolean.FALSE : JsonPolicy.strictBoolean(rawHasMore);
             if (hasMore == null) throw new AiPolishClient.Failure(AiPolishClient.Reason.INVALID);
             if (!hasMore) {
                 if (models.isEmpty()) throw new AiPolishClient.Failure(AiPolishClient.Reason.INVALID);

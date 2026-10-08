@@ -739,10 +739,13 @@ mod tests {
         }
     }
 
+    /// 租约本身或正在暂存的租约。常驻的协调锁 `LEASE_LOCK_NAME` 按设计在租约撤下后仍留在目录里，不算租约；`is_lease_file` 把它也算进去，是为了迁移时不把它拷进新目录。
     fn has_lease(directory: &Path) -> bool {
-        fs::read_dir(directory)
-            .unwrap()
-            .any(|entry| linux_dictionary_quiesce::is_lease_file(&entry.unwrap().file_name()))
+        fs::read_dir(directory).unwrap().any(|entry| {
+            let name = entry.unwrap().file_name();
+            linux_dictionary_quiesce::is_lease_file(&name)
+                && name != msime_client_core::dictionary::quiesce::LEASE_LOCK_NAME
+        })
     }
 
     /// An input host with a session open on `user`, closing it once the lease appears, as both hosts do on their timers.
@@ -866,6 +869,9 @@ mod tests {
         assert!(!has_lease(&user));
         let moved = layout.target.join("user");
         assert!(!has_lease(&moved));
+        assert!(!moved
+            .join(msime_client_core::dictionary::quiesce::LEASE_LOCK_NAME)
+            .exists());
         assert_eq!(
             fs::read(moved.join("msime_user.db")).unwrap(),
             b"synthetic-dictionary"
@@ -899,6 +905,11 @@ mod tests {
         assert!(!outcome.retained_old_data);
         assert!(!user.exists());
         assert!(!has_lease(&layout.target.join("user")));
+        assert!(!layout
+            .target
+            .join("user")
+            .join(msime_client_core::dictionary::quiesce::LEASE_LOCK_NAME)
+            .exists());
         let leftovers: Vec<_> = fs::read_dir(&layout.default)
             .unwrap()
             .map(|entry| entry.unwrap().file_name())
