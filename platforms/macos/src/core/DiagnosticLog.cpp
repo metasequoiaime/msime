@@ -53,6 +53,10 @@ public:
       return;
     try {
       rotateIfNeeded();
+      struct stat existing = {};
+      if (lstat(path_.c_str(), &existing) == 0 &&
+          (!S_ISREG(existing.st_mode) || existing.st_nlink != 1))
+        return;
       // The thread id lets main-thread redraws and key handling be told apart from work finishing on other threads, as the Windows log does.
       std::uint64_t thread = 0;
       (void)pthread_threadid_np(nullptr, &thread);

@@ -12,6 +12,8 @@ struct PipeServiceOptions {
   size_t pending_handshakes = 64;
   uint32_t capabilities = 0; // Dispatcher must explicitly opt in.
   DWORD handshake_timeout = 250;
+  // 可选，见 PipeIntake::IdentityRejected。
+  PipeIntake::IdentityRejected identity_rejected;
 };
 // Transport assembly, not a TSF installer or Engine input dispatcher.
 class PipeService final {

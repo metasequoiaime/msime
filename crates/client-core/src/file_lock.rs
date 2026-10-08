@@ -50,13 +50,35 @@ pub fn open_private_lock_file(path: impl AsRef<Path>) -> io::Result<File> {
 }
 
 fn ensure_regular(file: File) -> io::Result<File> {
-    if !file.metadata()?.is_file() {
+    let metadata = file.metadata()?;
+    if !metadata.is_file() || !has_single_link(&file)? {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            "lock file is not a regular file",
+            "lock file is not a single-link regular file",
         ));
     }
     Ok(file)
+}
+
+/// 已打开的文件是否只有一个硬链接。私有文件被硬链接到别处时，写它就会改到链接另一端的文件，打开后用这个拒绝。
+///
+/// 放在这个公开模块里，是为了工作区各处共用同一份按平台的实现：Windows 上标准库的 `number_of_links` 还是不稳定特性，此前四个 crate 各抄一份，在 Windows 上一起编译失败。
+#[cfg(unix)]
+pub fn has_single_link(file: &File) -> io::Result<bool> {
+    use std::os::unix::fs::MetadataExt;
+    Ok(file.metadata()?.nlink() == 1)
+}
+
+/// 已打开的文件是否只有一个硬链接；见 Unix 版的说明。
+#[cfg(windows)]
+pub fn has_single_link(file: &File) -> io::Result<bool> {
+    Ok(winapi_util::file::information(file)?.number_of_links() == 1)
+}
+
+/// 没有硬链接计数可读的平台一律按单链接处理。
+#[cfg(not(any(unix, windows)))]
+pub fn has_single_link(_: &File) -> io::Result<bool> {
+    Ok(true)
 }
 
 /// 以只读方式打开文件，并拒绝跟随最后一级符号链接。
@@ -77,10 +99,11 @@ pub fn open_private_file(path: impl AsRef<Path>) -> io::Result<File> {
         options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
     }
     let file = options.open(path)?;
-    if !file.metadata()?.is_file() {
+    let metadata = file.metadata()?;
+    if !metadata.is_file() || !has_single_link(&file)? {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            "private input is not a regular file",
+            "private input is not a single-link regular file",
         ));
     }
     Ok(file)
@@ -218,6 +241,32 @@ mod tests {
             std::fs::read(&target).unwrap(),
             b"synthetic-private-lock-target"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn refuses_a_hard_linked_private_file() {
+        let outside = tempfile::tempdir().unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let target = outside.path().join("outside.json");
+        std::fs::write(&target, b"synthetic-private-target").unwrap();
+        let linked = root.path().join("state.json");
+        std::fs::hard_link(&target, &linked).unwrap();
+
+        assert!(open_private_file(&linked).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn refuses_a_hard_linked_private_lock_leaf() {
+        let outside = tempfile::tempdir().unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let target = outside.path().join("outside.lock");
+        std::fs::write(&target, b"synthetic-private-lock-target").unwrap();
+        let linked = root.path().join("state.lock");
+        std::fs::hard_link(&target, &linked).unwrap();
+
+        assert!(open_private_lock_file(&linked).is_err());
     }
 
     #[cfg(unix)]

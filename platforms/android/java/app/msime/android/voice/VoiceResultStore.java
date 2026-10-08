@@ -171,6 +171,8 @@ public final class VoiceResultStore {
         if (!Files.exists(result, LinkOption.NOFOLLOW_LINKS)) return null;
         if (!Files.isRegularFile(result, LinkOption.NOFOLLOW_LINKS))
             throw new Failure(Reason.INVALID);
+        if (!SafePaths.isSingleLink(result))
+            throw new Failure(Reason.INVALID);
         byte[] bytes;
         try {
             try (InputStream input = Files.newInputStream(result, LinkOption.NOFOLLOW_LINKS)) {

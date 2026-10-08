@@ -1,11 +1,29 @@
 import AuthenticationServices
 import SwiftUI
+#if canImport(GoogleSignIn)
+import GoogleSignIn
+#endif
 
 /// 任务取消不是错误：关闭弹窗或离开标签页会取消正在进行的请求，URLSession 回的是 `URLError.cancelled`，它的描述就是 "cancelled"。只判 `CancellationError` 不够，因为网络层抛的是另一种。
 private func isLoginCancellation(_ error: Error) -> Bool {
   if error is CancellationError { return true }
   if let error = error as? URLError { return error.code == .cancelled }
+  #if canImport(GoogleSignIn)
+  if let error = error as? GIDSignInError { return error.code == .canceled }
+  #endif
   return false
+}
+
+/// 这个构建能不能发起 Google 登录：链接了 GoogleSignIn（只有 CocoaPods workspace 构建才有，见 `Podfile`），并且 Info.plist 里 iOS 与服务端两个 client ID 都不为空。服务端 client ID 决定 ID token 的 audience，后端认的是它，与 Android 用的是同一个。
+enum GoogleSignInSupport {
+  static var available: Bool {
+    #if canImport(GoogleSignIn)
+    let configured = { (key: String) in (Bundle.main.object(forInfoDictionaryKey: key) as? String)?.isEmpty == false }
+    return configured("GIDClientID") && configured("GIDServerClientID")
+    #else
+    return false
+    #endif
+  }
 }
 
 /// 登录弹窗共享的登录状态：后端提供哪些登录方式、待用的 Apple challenge、邮箱和手机号的验证码流程，以及刚完成的那次登录用的是哪种方式。
@@ -18,7 +36,7 @@ final class CodeLoginModel: ObservableObject {
   /// 下一次「通过 Apple 登录」请求携带的 Apple challenge；正在获取或不提供 Apple 登录时为 nil。
   @Published private(set) var appleChallenge: CommunityChallenge?
   @Published private(set) var preparingApple = false
-  /// 上一次登录使用的方式（"Apple"、"邮箱"、"手机号"），只在登录成功时设置。
+  /// 上一次登录使用的方式（"Apple"、"Google"、"邮箱"、"手机号"），只在登录成功时设置。
   @Published private(set) var signedInVia: String?
   @Published var busy = false
   @Published var message: String?
@@ -89,6 +107,37 @@ final class CodeLoginModel: ObservableObject {
     }
   }
 
+  /// 完成「通过 Google 登录」：向后端要 challenge 和 nonce，拉起 Google 的账号选择，让 ID token 带上这个 nonce，再用它换会话。GoogleSignIn 自己在钥匙串里留的 Google 会话拿到 token 后立即清掉，登录状态只由后端会话决定，下次登录也会重新让用户选账号。
+  func signInWithGoogle() async {
+    #if canImport(GoogleSignIn)
+    await perform {
+      let challenge = try await self.client.challenge(provider: "google")
+      guard let nonce = challenge.nonce, let presenter = Self.presenter() else {
+        self.message = "现在无法开始 Google 登录，请稍后再试。"
+        return
+      }
+      let result = try await GIDSignIn.sharedInstance.signIn(withPresenting: presenter, hint: nil,
+                                                              additionalScopes: nil, nonce: nonce)
+      GIDSignIn.sharedInstance.signOut()
+      guard let token = result.user.idToken?.tokenString else {
+        self.message = "Google 登录未返回有效凭据，请重试。"
+        return
+      }
+      try await self.session.signIn(challenge: challenge.challenge_id, credential: token)
+      self.user = try await self.session.user()
+      if self.user != nil { self.signedInVia = "Google" }
+    }
+    #endif
+  }
+
+  /// Google 的登录页要从最上层正在显示的控制器弹出，也就是登录面板自己。
+  private static func presenter() -> UIViewController? {
+    let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+    var top = scenes.first(where: { $0.activationState == .foregroundActive })?.keyWindow?.rootViewController
+    while let presented = top?.presentedViewController { top = presented }
+    return top
+  }
+
   private func perform(_ operation: () async throws -> Void) async {
     guard !busy else { return }
     busy = true; message = nil
@@ -103,6 +152,9 @@ final class CodeLoginModel: ObservableObject {
     switch error {
     case let error as BackendAccountClient.Failure: message = error.localizedDescription
     case let error as CommunityFailure: message = error.localizedDescription
+    #if canImport(GoogleSignIn)
+    case is GIDSignInError: message = "Google 登录没有完成，请重试。"
+    #endif
     default: message = "连接未完成，请检查网络后重试。"
     }
   }

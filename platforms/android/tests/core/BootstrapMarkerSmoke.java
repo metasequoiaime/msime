@@ -25,6 +25,9 @@ public final class BootstrapMarkerSmoke {
             Path linked = markerRoot.resolve(".package");
             Files.createSymbolicLink(linked, markerOutside);
             check(Bootstrap.readMarker(linked) == null);
+            Path hardLinked = markerRoot.resolve("hardlinked.package");
+            Files.createLink(hardLinked, markerOutside);
+            check(Bootstrap.readMarker(hardLinked) == null);
 
             Path configurationOutside = Files.createTempFile("bootstrap-config-outside", ".json");
             Path configurationLink = markerRoot.resolve("runtime-options.json");
@@ -41,6 +44,7 @@ public final class BootstrapMarkerSmoke {
             Files.deleteIfExists(exact);
             Files.deleteIfExists(oversized);
             Files.deleteIfExists(markerRoot.resolve(".package"));
+            Files.deleteIfExists(markerRoot.resolve("hardlinked.package"));
             Files.deleteIfExists(markerRoot.resolve("runtime-options.json"));
             Files.deleteIfExists(markerRoot);
             Files.deleteIfExists(markerOutside);

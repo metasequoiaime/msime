@@ -140,10 +140,15 @@ def model_notes(label: str, version: str, records: list[dict[str, object]]) -> s
         },
         ensure_ascii=False,
     ).encode("utf-8")
+    # Cloudflare in front of api.everyapi.ai rejects urllib's default `Python-urllib/3.x` with 403 (error 1010) before the API sees the request, so name the client explicitly.
     request = urllib.request.Request(
         endpoint,
         data=payload,
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "User-Agent": "msime-release-notes (+https://github.com/metasequoiaime/msime)",
+        },
         method="POST",
     )
     try:

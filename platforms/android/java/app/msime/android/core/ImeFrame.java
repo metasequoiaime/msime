@@ -135,6 +135,8 @@ final class ImeFrame {
     /**
      * IME 窗口的导航栏跟键盘底色：Android 15 以前直接设导航栏颜色，所有版本都按底色明暗切换导航栏按钮的深浅（深色键盘配浅色按钮）。
      *
+     * <p>Android 10 起系统默认对三键导航栏做对比度增强：导航栏透明时在下面铺一层接近不透明的白（深色模式是黑）衬底。Android 15 的 edge-to-edge 让导航栏一律透明，这层衬底就盖住了键盘底色，键盘下面多出一条白边。按钮深浅已经按底色切换，所以关掉它，让键盘底色一直铺到屏幕底边。
+     *
      * @param color 键盘底色（ARGB）
      * @param dark 键盘是否深色
      */
@@ -147,6 +149,7 @@ final class ImeFrame {
         navigationColor = color;
         navigationDark = dark;
         if (Build.VERSION.SDK_INT < 35) setNavigationBarColor(window, color);
+        if (Build.VERSION.SDK_INT >= 29) window.setNavigationBarContrastEnforced(false);
         if (Build.VERSION.SDK_INT >= 30) {
             WindowInsetsController controller = window.getInsetsController();
             if (controller != null) {

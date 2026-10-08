@@ -24,6 +24,7 @@ import androidx.fragment.app.Fragment;
 import app.msime.android.AppEdition;
 import app.msime.android.BoundsPolicy;
 import app.msime.android.DeviceInfoReport;
+import app.msime.android.ListPolicy;
 import app.msime.android.ViewPolicy;
 import app.msime.android.HttpBodyPolicy;
 import app.msime.android.TextPolicy;
@@ -164,7 +165,7 @@ public final class AboutPage extends DetailPage {
                 found.addAll(packNotices(application));
                 return found;
             }, outcome -> {
-                notices = outcome.value() == null ? List.of() : outcome.value();
+                notices = ListPolicy.copyOrEmpty(outcome.value());
                 showNoticeCount(licences);
             });
         } else {

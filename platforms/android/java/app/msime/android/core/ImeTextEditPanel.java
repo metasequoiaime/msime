@@ -10,7 +10,6 @@ import android.view.View;
 import android.view.inputmethod.InputConnection;
 import android.widget.Button;
 import android.widget.LinearLayout;
-import android.widget.Toast;
 import java.util.EnumMap;
 import java.util.Map;
 
@@ -145,7 +144,7 @@ final class ImeTextEditPanel {
     /** 打开面板：先完成组字，关掉别的面板；没有编辑器时提示并不打开。 */
     void show() {
         if (s.connection == null || s.textEditPanel == null) {
-            Toast.makeText(s, "当前没有可编辑的输入框", Toast.LENGTH_SHORT).show();
+            s.notice("当前没有可编辑的输入框");
             return;
         }
         if (s.session != 0 && s.hasEngineComposition()) s.command(2);

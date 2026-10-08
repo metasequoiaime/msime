@@ -10,7 +10,6 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import javax.net.ssl.HttpsURLConnection;
@@ -180,7 +179,7 @@ public final class DeviceDataApi {
                 instant(string(row, "created_at")), instant(string(row, "last_active")),
                 JsonPolicy.strictTrue(row.opt("current"))));
         }
-        return Collections.unmodifiableList(sessions);
+        return ListPolicy.copyOrEmpty(sessions);
     }
 
     /** 撤销一个会话；撤销当前会话等于在服务端退出登录，调用方随后要清掉本机会话。 */
@@ -206,7 +205,7 @@ public final class DeviceDataApi {
                     strictCount(row.opt("items"))));
             }
         }
-        return new DataSummary(strictCount(root.opt("bytes")), Collections.unmodifiableList(sections));
+        return new DataSummary(strictCount(root.opt("bytes")), ListPolicy.copyOrEmpty(sections));
     }
 
     /**
@@ -364,7 +363,7 @@ public final class DeviceDataApi {
             }
         }
         return new Profile(string(user, "id"), string(user, "display_name"), string(user, "email"),
-            string(user, "avatar_url"), Collections.unmodifiableList(providers));
+            string(user, "avatar_url"), ListPolicy.copyOrEmpty(providers));
     }
 
     private static String string(JSONObject object, String key) {

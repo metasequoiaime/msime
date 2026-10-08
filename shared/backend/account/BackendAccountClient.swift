@@ -382,6 +382,8 @@ struct BackendAccountClient: Sendable {
     case "apple":
       return target.isEmpty
     case "google":
+      // 空 target 是 ID token 流程（iOS 的 Google 登录 SDK）；否则只能是桌面端回环监听的回调地址。
+      if target.isEmpty { return true }
       let prefix = target.hasPrefix("http://127.0.0.1:") ? "http://127.0.0.1:" :
         (target.hasPrefix("http://[::1]:") ? "http://[::1]:" : nil)
       guard let prefix, target.hasSuffix("/callback") else { return false }

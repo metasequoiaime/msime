@@ -660,6 +660,47 @@ fn install_refuses_a_symlinked_root() {
     assert!(fs::read_dir(outside.path()).unwrap().next().is_none());
 }
 
+#[cfg(unix)]
+#[test]
+fn community_staging_file_writes_stay_in_an_open_package_directory() {
+    use std::os::unix::fs::symlink;
+
+    let state = tempfile::tempdir().unwrap();
+    let root = state.path().join("skins");
+    let outside = tempfile::tempdir().unwrap();
+    let package = root.join("package");
+    std::fs::create_dir_all(&package).unwrap();
+    let package_directory = crate::storage::open_private_directory(&package).unwrap();
+    let moved = state.path().join("skins-moved");
+    std::fs::rename(&root, &moved).unwrap();
+    symlink(outside.path(), &root).unwrap();
+
+    write_package_file_at(&package_directory, "images/preview.png", b"synthetic").unwrap();
+
+    assert_eq!(
+        std::fs::read(moved.join("package/images/preview.png")).unwrap(),
+        b"synthetic"
+    );
+    assert!(!outside.path().join("images/preview.png").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn leftover_cleanup_rejects_a_symlinked_parent() {
+    use std::os::unix::fs::symlink;
+
+    let state = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let linked = state.path().join("linked");
+    let victim = outside.path().join("staging");
+    fs::create_dir(&victim).unwrap();
+    fs::write(victim.join("keep.bin"), b"synthetic outside data").unwrap();
+    symlink(outside.path(), &linked).unwrap();
+
+    assert_eq!(remove_leftover(&linked.join("staging")), Err(STORAGE));
+    assert!(victim.join("keep.bin").exists());
+}
+
 #[test]
 fn install_clears_what_an_interrupted_install_left_behind() {
     let state = tempfile::tempdir().unwrap();

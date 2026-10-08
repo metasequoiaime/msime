@@ -17,22 +17,27 @@ impl JapaneseRomajiScheme {
         self.raw.clear();
     }
 
-    pub fn handle_key(&mut self, key: SchemeKey) {
+    pub fn handle_key(&mut self, key: SchemeKey) -> bool {
         match key {
-            SchemeKey::Backspace => {
-                self.raw.pop();
+            SchemeKey::Backspace => self.raw.pop().is_some(),
+            SchemeKey::Apostrophe => {
+                self.raw.push('\'');
+                true
             }
-            SchemeKey::Apostrophe => self.raw.push('\''),
             // The physical minus key spells the long-vowel mark, so it is input here rather than a symbol.
-            SchemeKey::Minus => self.raw.push('-'),
+            SchemeKey::Minus => {
+                self.raw.push('-');
+                true
+            }
             // Case is kept for `raw_input_with_cases`; conversion lowercases.
             SchemeKey::Letter(letter) if letter.is_ascii_alphabetic() => {
-                self.raw.push(char::from(letter))
+                self.raw.push(char::from(letter));
+                true
             }
             SchemeKey::Letter(_)
             | SchemeKey::Semicolon
             | SchemeKey::Symbol(_)
-            | SchemeKey::Requery => {}
+            | SchemeKey::Requery => false,
         }
     }
 

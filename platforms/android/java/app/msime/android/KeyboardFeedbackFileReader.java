@@ -14,7 +14,8 @@ final class KeyboardFeedbackFileReader {
 
     static byte[] read(Path file) throws IOException {
         if (file == null || Files.isSymbolicLink(file)
-                || !Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS))
+                || !Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)
+                || !SafePaths.isSingleLink(file))
             throw new IOException("feedback path is not a regular file");
         try (InputStream input = Files.newInputStream(file, LinkOption.NOFOLLOW_LINKS)) {
             return HttpBodyPolicy.readRequired(input, MAX_BYTES);

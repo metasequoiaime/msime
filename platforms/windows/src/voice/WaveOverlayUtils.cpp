@@ -33,6 +33,7 @@ GetDpiForMonitorFn resolve_get_dpi_for_monitor() {
     get_dpi_for_monitor.store(resolved, std::memory_order_release);
   return resolved;
 }
+} // namespace
 
 UINT monitor_effective_dpi(HMONITOR monitor) {
   UINT dpi_x = 0;
@@ -43,7 +44,6 @@ UINT monitor_effective_dpi(HMONITOR monitor) {
     return wave_overlay_dpi(dpi_x, GetDpiForSystem());
   return wave_overlay_dpi(0, GetDpiForSystem());
 }
-} // namespace
 
 bool wave_overlay_monitor_metrics(WaveOverlayMonitorMetrics *metrics) {
   if (!metrics)

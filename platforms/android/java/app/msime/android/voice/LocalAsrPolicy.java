@@ -55,6 +55,7 @@ public final class LocalAsrPolicy {
             Path manifest = model.resolve(MANIFEST);
             return Files.isDirectory(model, LinkOption.NOFOLLOW_LINKS)
                 && Files.isRegularFile(manifest, LinkOption.NOFOLLOW_LINKS)
+                && SafePaths.isSingleLink(manifest)
                 && Files.size(manifest) > 0 && Files.size(manifest) <= MAX_MANIFEST_BYTES;
         } catch (java.nio.file.InvalidPathException | IOException | SecurityException error) {
             return false;
@@ -74,7 +75,8 @@ public final class LocalAsrPolicy {
         if (!Files.isDirectory(model, LinkOption.NOFOLLOW_LINKS))
             throw new IOException("manifest unavailable");
         Path manifest = model.resolve(MANIFEST);
-        if (!Files.isRegularFile(manifest, LinkOption.NOFOLLOW_LINKS))
+        if (!Files.isRegularFile(manifest, LinkOption.NOFOLLOW_LINKS)
+                || !SafePaths.isSingleLink(manifest))
             throw new IOException("manifest unavailable");
         try (InputStream input = Files.newInputStream(manifest, LinkOption.NOFOLLOW_LINKS)) {
             byte[] bytes = HttpBodyPolicy.readRequired(input, (int) MAX_MANIFEST_BYTES);

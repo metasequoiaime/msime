@@ -41,6 +41,16 @@
     "candidate_count": 4,
     "candidates": [
      {
+      "word": "中国",
+      "pinyin": "zong'guo",
+      "canonical_pinyin": "zhong'guo",
+      "source": 0,
+      "scheme": "quanpin",
+      "weight": 100,
+      "fuzzy": true,
+      "answers_key": true
+     },
+     {
       "word": "宗国",
       "pinyin": "zong'guo",
       "canonical_pinyin": "zong'guo",
@@ -52,16 +62,6 @@
        "宗",
        "国"
       ],
-      "answers_key": true
-     },
-     {
-      "word": "中国",
-      "pinyin": "zong'guo",
-      "canonical_pinyin": "zhong'guo",
-      "source": 0,
-      "scheme": "quanpin",
-      "weight": 100,
-      "fuzzy": true,
       "answers_key": true
      },
      {

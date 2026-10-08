@@ -29,6 +29,11 @@ public final class HostOptionsPolicySmoke {
             check(HostOptionsPolicy.read(link.toFile()).isEmpty(), "a symlinked options file is refused");
             Files.deleteIfExists(link);
             Files.deleteIfExists(external);
+            Path hardlinkExternal = root.resolve("hardlink-external-options.json");
+            Path hardlink = root.resolve("hardlink-options.json");
+            Files.writeString(hardlinkExternal, valid);
+            Files.createLink(hardlink, hardlinkExternal);
+            check(HostOptionsPolicy.read(hardlink.toFile()).isEmpty(), "a hard-linked options file is refused");
         } finally {
             try (Stream<Path> paths = Files.walk(root)) {
                 paths.sorted(Comparator.reverseOrder()).forEach(path -> {

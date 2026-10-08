@@ -5,8 +5,12 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
+#[cfg(unix)]
+use std::ffi::OsString;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
+#[cfg(unix)]
+use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -162,6 +166,21 @@ impl ResourceSet {
 /// Remove stages an installer left when it was killed mid-download. Only called under the
 /// exclusive `resources.lock`, so none of them can still be in use. Only real directories are
 /// removed, and a failure never stops the install.
+#[cfg(unix)]
+fn sweep_abandoned_stages(directory: &File) {
+    let Ok(entries) = rustix::fs::Dir::read_from(directory) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_bytes();
+        if name.starts_with(b"incoming-") && entry.file_type().is_dir() {
+            let name = std::ffi::OsStr::from_bytes(name);
+            let _ = crate::storage::remove_private_tree_at(directory, name);
+        }
+    }
+}
+
+#[cfg(not(unix))]
 fn sweep_abandoned_stages(root: &Path) {
     let Ok(entries) = fs::read_dir(root) else {
         return;
@@ -181,6 +200,44 @@ pub struct ResourceStore {
     root: PathBuf,
 }
 
+#[cfg(unix)]
+struct ResourceStage {
+    path: PathBuf,
+    parent: File,
+    name: OsString,
+}
+
+#[cfg(unix)]
+impl ResourceStage {
+    fn create(root: &Path, parent: &File) -> std::io::Result<Self> {
+        loop {
+            let name = OsString::from(format!("incoming-{}", uuid::Uuid::new_v4().simple()));
+            match rustix::fs::mkdirat(parent, &name, rustix::fs::Mode::from_raw_mode(0o700)) {
+                Ok(()) => {
+                    return Ok(Self {
+                        path: root.join(&name),
+                        parent: parent.try_clone()?,
+                        name,
+                    })
+                }
+                Err(rustix::io::Errno::EXIST) => continue,
+                Err(error) => return Err(error.into()),
+            }
+        }
+    }
+
+    fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+#[cfg(unix)]
+impl Drop for ResourceStage {
+    fn drop(&mut self) {
+        let _ = crate::storage::remove_private_tree_at(&self.parent, &self.name);
+    }
+}
+
 fn create_private_file(path: &Path) -> std::io::Result<File> {
     let mut options = OpenOptions::new();
     options.write(true).create_new(true);
@@ -198,6 +255,21 @@ fn create_private_file(path: &Path) -> std::io::Result<File> {
     options.open(path)
 }
 
+#[cfg(unix)]
+fn publish_generation(
+    directory: &File,
+    staging_name: &str,
+    generation: &str,
+) -> std::io::Result<()> {
+    rustix::fs::renameat(
+        directory,
+        std::ffi::OsStr::new(staging_name),
+        directory,
+        std::ffi::OsStr::new(generation),
+    )
+    .map_err(Into::into)
+}
+
 impl ResourceStore {
     /// root is an application-owned directory, separate from user learning data.
     pub fn new(root: impl Into<PathBuf>) -> Self {
@@ -213,12 +285,20 @@ impl ResourceStore {
         crate::storage::create_directory_and_check(&self.root)?;
         let lock = crate::file_lock::open_lock_file(self.root.join("resources.lock"))?;
         crate::file_lock::exclusive(&lock)?;
+        #[cfg(unix)]
+        let root_directory = crate::storage::open_private_directory(&self.root)?;
+        #[cfg(unix)]
+        sweep_abandoned_stages(&root_directory);
+        #[cfg(not(unix))]
         sweep_abandoned_stages(&self.root);
-        let destination = self.root.join(generation);
+        let destination = self.root.join(&generation);
         if fs::symlink_metadata(&destination).is_ok() {
             self.verify(&destination, specification)?;
             return Ok(destination);
         }
+        #[cfg(unix)]
+        let stage = ResourceStage::create(&self.root, &root_directory)?;
+        #[cfg(not(unix))]
         let stage = tempfile::Builder::new()
             .prefix("incoming-")
             .tempdir_in(&self.root)?;
@@ -229,6 +309,27 @@ impl ResourceStore {
             output.sync_all()?;
         }
         // Published directories are complete. Existing generations are never overwritten.
+        #[cfg(unix)]
+        {
+            publish_generation(
+                &root_directory,
+                stage
+                    .path()
+                    .file_name()
+                    .ok_or_else(|| {
+                        std::io::Error::new(std::io::ErrorKind::InvalidInput, "stage has no name")
+                    })?
+                    .to_str()
+                    .ok_or_else(|| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::InvalidInput,
+                            "stage name is not UTF-8",
+                        )
+                    })?,
+                &generation,
+            )?;
+        }
+        #[cfg(not(unix))]
         fs::rename(stage.path(), &destination)?;
         Ok(destination)
     }
@@ -551,6 +652,75 @@ mod tests {
 
         assert!(create_private_file(&path).is_err());
         assert_eq!(fs::read(&target).unwrap(), b"keep");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn generation_publish_stays_in_an_open_resource_directory() {
+        use std::os::unix::fs::symlink;
+
+        let parent = tempfile::tempdir().unwrap();
+        let root = parent.path().join("resources");
+        let outside = parent.path().join("outside");
+        fs::create_dir(&root).unwrap();
+        fs::create_dir(&outside).unwrap();
+        let stage = root.join("incoming-fixture");
+        fs::create_dir(&stage).unwrap();
+        fs::write(stage.join("artifact"), b"synthetic").unwrap();
+        let directory = crate::storage::open_private_directory(&root).unwrap();
+        let moved = parent.path().join("moved");
+        fs::rename(&root, &moved).unwrap();
+        symlink(&outside, &root).unwrap();
+
+        publish_generation(&directory, "incoming-fixture", "generation").unwrap();
+
+        assert!(moved.join("generation/artifact").is_file());
+        assert!(!outside.join("generation").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stage_creation_stays_in_an_open_resource_directory() {
+        use std::os::unix::fs::symlink;
+
+        let parent = tempfile::tempdir().unwrap();
+        let root = parent.path().join("resources");
+        let outside = parent.path().join("outside");
+        fs::create_dir(&root).unwrap();
+        fs::create_dir(&outside).unwrap();
+        let directory = crate::storage::open_private_directory(&root).unwrap();
+        let moved = parent.path().join("moved");
+        fs::rename(&root, &moved).unwrap();
+        symlink(&outside, &root).unwrap();
+
+        let stage = ResourceStage::create(&root, &directory).unwrap();
+
+        assert!(stage.path().starts_with(&root));
+        assert!(moved.join(stage.path().file_name().unwrap()).is_dir());
+        assert!(!outside.join(stage.path().file_name().unwrap()).exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn abandoned_stage_sweep_stays_in_an_open_resource_directory() {
+        use std::os::unix::fs::symlink;
+
+        let parent = tempfile::tempdir().unwrap();
+        let root = parent.path().join("resources");
+        let outside = parent.path().join("outside");
+        fs::create_dir(&root).unwrap();
+        fs::create_dir(&outside).unwrap();
+        fs::create_dir(root.join("incoming-stale")).unwrap();
+        fs::write(root.join("incoming-stale/file"), b"synthetic").unwrap();
+        let directory = crate::storage::open_private_directory(&root).unwrap();
+        let moved = parent.path().join("moved");
+        fs::rename(&root, &moved).unwrap();
+        symlink(&outside, &root).unwrap();
+
+        sweep_abandoned_stages(&directory);
+
+        assert!(!moved.join("incoming-stale").exists());
+        assert!(outside.exists());
     }
 
     fn fixture_artifact(name: &str, bytes: &[u8]) -> Artifact {

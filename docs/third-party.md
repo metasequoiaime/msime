@@ -324,6 +324,7 @@ MDBG 每天用新导出覆盖同一个地址，所以锁里的摘要只对应 20
 | Android | `io.noties.markwon:core:4.6.2`（“设置”页公告正文的 Markdown）及其依赖 `com.atlassian.commonmark:commonmark:0.13.0` | Markwon 为 Apache-2.0，commonmark-java 为 BSD-2-Clause |
 | Android | vcpkg 提供的 nlohmann/json（原生库，清单在 `platforms/android/vcpkg.json`） | MIT |
 | iOS | `MLKitDigitalInkRecognition` 8.0.0（CocoaPods，链接进键盘扩展 target） | **Google 的 ML Kit 服务条款，不是开源许可证** |
+| iOS | `GoogleSignIn` 10.0.0（CocoaPods，只链接进主 App target，用于通过 Google 登录）及其依赖 AppAuth、GTMAppAuth、GTMSessionFetcher、AppCheckCore、GoogleUtilities、Promises、RecaptchaInterop | Apache-2.0，全文见 `platforms/ios/SharedResources/GoogleSignIn-Dependencies.txt` |
 | macOS | Sparkle 2.9.6 | 以上游发布附带的许可证为准；框架不随仓库分发，由构建者按 `platforms/macos/README.md` 记录的 SHA-256 自行取得 |
 | Windows | vcpkg 提供的 libcurl、fmt、nlohmann/json、utfcpp（清单与 baseline 在 `platforms/windows/vcpkg.json`） | 各自上游许可证；通知由 `platforms/windows/Collect-Notices.ps1` 收集 |
 | Linux | IBus / Fcitx5、GTK 栈、libcurl、ICU、xkbcommon、nlohmann/json、X11 与 Wayland 客户端库 | 各自上游许可证，按发行版依赖引入 |
@@ -347,7 +348,7 @@ MDBG 每天用新导出覆盖同一个地址，所以锁里的摘要只对应 20
 | --- | --- |
 | `platforms/macos/resources/Licenses/THIRD_PARTY_NOTICES.txt` | macOS 客户端内嵌组件的完整通知 |
 | `platforms/linux/data/THIRD_PARTY_NOTICES.txt` | Linux 安装到 `${CMAKE_INSTALL_DATADIR}/doc/msime-client/` 的组件总览，许可证全文由 `platforms/linux/CMakeLists.txt` 的 `MSIME_NOTICE_SOURCES` 一并安装 |
-| `platforms/ios/SharedResources/MLKit-NOTICES.txt`、`MLKit-Dependencies.txt` | iOS 的 ML Kit 依赖通知；编进引擎的韩语汉字表的 `libhangul-hanja-BSD-3-Clause.txt` 由 `platforms/ios/project.yml` 作为 App 资源打包 |
+| `platforms/ios/SharedResources/MLKit-NOTICES.txt`、`MLKit-Dependencies.txt`、`GoogleSignIn-Dependencies.txt` | iOS 的 ML Kit 与 Google 登录依赖通知；编进引擎的韩语汉字表的 `libhangul-hanja-BSD-3-Clause.txt` 由 `platforms/ios/project.yml` 作为 App 资源打包 |
 | Android APK 的 `assets/native-notices/` | `platforms/android/build-native.sh` 收集的原生依赖声明，含编进引擎的韩语汉字表的 libhangul BSD-3-Clause 声明；两条打包路径都放进 APK |
 | HarmonyOS HAP 的 `resfile/licenses/` | `platforms/harmony/stage-resources.sh` 暂存的编进引擎的韩语汉字表的 libhangul BSD-3-Clause 声明 |
 | `apps/desktop/src-tauri/gen/android/gradle/LICENSE-2.0.txt`、同目录 `NOTICE.md` | Android Gradle 模板的 Apache-2.0 文本与来源说明 |

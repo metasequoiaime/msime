@@ -27,6 +27,14 @@ public final class CustomSkinLibrarySmoke {
             Path directory = preferences.resolve("CustomSkins");
             Files.createDirectories(directory);
 
+            Path hardlinkSource = outside.resolve("library-hardlink.json");
+            Files.writeString(hardlinkSource,
+                "[{\"id\":\"outside\",\"name\":\"outside\",\"design\":{}}]");
+            Path hardlinkLibrary = directory.resolve("library.json");
+            Files.createLink(hardlinkLibrary, hardlinkSource);
+            fails(() -> CustomSkinLibrary.read(preferences));
+            Files.delete(hardlinkLibrary);
+
             Path externalFile = outside.resolve("library.json");
             byte[] original = new byte[1_048_577];
             Files.write(externalFile, original);

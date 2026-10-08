@@ -28,6 +28,14 @@
 ; Global::MetasequoiaIMECLSID in platforms/windows/tsf/Global/Globals.cpp.
 #define MyTipKey       "SOFTWARE\Microsoft\CTF\TIP\" + MyEditionClsid
 #define MyVersionDirBase "msime_v" + MyAppVersion
+; 64 位 TIP 的系统目录副本，见 [Files] 的 TSF 一节。
+#define MySystemTipDir "{sys}\IME\" + MyEditionInstallDir
+; [Code] 里要看到真正 System32 的 Exec（查、删 MySystemTipDir，按路径停 64 位进程）。Inno 6 在 64 位安装模式下，[Code] 的文件函数和 Exec 都绕开 WOW64 重定向；Inno 7 的 Setup 默认是 32 位进程，Exec 不再绕开，只有 ExecWithNativeSysDir 绕开，用 Exec 会启动 SysWOW64 里的 32 位 cmd 和 PowerShell。CI 用 6.7.1，本机构建优先用 7（Compile-Installer.ps1）。
+#if Ver >= EncodeVer(7, 0, 0)
+#define ExecNativeSys "ExecWithNativeSysDir"
+#else
+#define ExecNativeSys "Exec"
+#endif
 #define MySourceRoot   "."
 #ifdef LightPackage
 #define MyOutputSuffix "_light"
@@ -67,7 +75,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Dirs]
 Name: "{commonpf32}\{#MyEditionInstallDir}\{code:GetVersionDir}"
-Name: "{commonpf64}\{#MyEditionInstallDir}\{code:GetVersionDir}"
+Name: "{#MySystemTipDir}\{code:GetVersionDir}"
 Name: "{commonpf64}\{#MyEditionInstallDir}\server"
 ; Server 与设置窗口是中完整性的用户进程，要写这里的配置、用户词库和 runtime-options.json；安装器以高完整性建的目录它们改不动，数据目录放到其他盘时继承来的 ACL 也未必允许普通用户写。ssPostInstall 里的 EnsureImeUserDataDir 再对已有目录补一遍。
 Name: "{code:GetDataDir}"; Permissions: users-modify
@@ -89,6 +97,7 @@ Source: "{#MySourceRoot}\LICENSE.txt"; \
     DestDir: "{commonpf64}\{#MyEditionInstallDir}"; Flags: ignoreversion
 
 ; TSF DLL 使用版本独立目录，避免升级时覆盖仍被进程加载的 DLL。
+; 64 位 TIP（Windows on Arm 上是 Arm64X 那一份）连同它从同目录加载的宿主 DLL 和运行时 DLL 装进 System32\IME\<install_dir>\<版本目录>，不装进 Program Files：CS2 的 Trusted Mode 拒绝加载系统目录以外的外来 DLL，只放行系统目录里带有效 Authenticode 签名的模块，装在 Program Files 时水杉在 CS2 里根本进不去（见 .agents/notes/implemented/feature/2026-10-08-windows-cs2-trusted-mode-system32-deployment.md）。用自己的子目录而不是直接放在 System32 下：各版本的 TIP 同名，运行时 DLL 也是 vcpkg 的通用名字，放在一起会互相覆盖，也会和别的软件撞名。CS2 只有 64 位，32 位 TIP 留在 Program Files。被占用的系统副本在卸载时排到重启后删除（uninsrestartdelete），所以 GetVersionDir 也要避开系统目录里已有的版本目录。
 ; PDB 不随安装包分发：Collect-Symbols.ps1（release-windows.yml 和 Package-SimplySign.ps1 都调用它）把暂存的符号打成单独的 msime-windows-<edition>-<version>-symbols.zip 发布，分析崩溃时让调试器指向解压出的目录。
 ; Install Host API and ordinary dependencies before registering the TIP.
 Source: "{#MySourceRoot}\tsf_dll\32\*.dll"; \
@@ -98,26 +107,26 @@ Source: "{#MySourceRoot}\tsf_dll\32\*.dll"; \
 
 Source: "{#MySourceRoot}\tsf_dll\64\*.dll"; \
     Excludes: "MetasequoiaImeTsf.dll"; \
-    DestDir: "{commonpf64}\{#MyEditionInstallDir}\{code:GetVersionDir}"; \
-    Flags: ignoreversion
+    DestDir: "{#MySystemTipDir}\{code:GetVersionDir}"; \
+    Flags: ignoreversion uninsrestartdelete
 
 Source: "{#MySourceRoot}\tsf_dll\32\MetasequoiaImeTsf.dll"; \
     DestDir: "{commonpf32}\{#MyEditionInstallDir}\{code:GetVersionDir}"; \
     Flags: ignoreversion regserver 32bit
 
 Source: "{#MySourceRoot}\tsf_dll\64\MetasequoiaImeTsf.dll"; \
-    DestDir: "{commonpf64}\{#MyEditionInstallDir}\{code:GetVersionDir}"; \
-    Flags: ignoreversion regserver; Check: not IsArm64
+    DestDir: "{#MySystemTipDir}\{code:GetVersionDir}"; \
+    Flags: ignoreversion regserver uninsrestartdelete; Check: not IsArm64
 
 ; Windows on Arm 上 64 位 TIP 换成 Arm64X 的那一份：原生 ARM64 进程（资源管理器、Edge、记事本等）和模拟运行的 x64 进程共用同一个 InprocServer32 路径，x64 TIP 只能被后者加载。它原生的那一半导入同目录的 ARM64 宿主 DLL，ARM64EC 那一半导入上面装进同一目录的 x64 宿主 DLL。Server 和其余程序仍是 x64，在模拟下运行。
 Source: "{#MySourceRoot}\tsf_dll\arm64\*.dll"; \
     Excludes: "MetasequoiaImeTsf.dll"; \
-    DestDir: "{commonpf64}\{#MyEditionInstallDir}\{code:GetVersionDir}"; \
-    Flags: ignoreversion; Check: IsArm64
+    DestDir: "{#MySystemTipDir}\{code:GetVersionDir}"; \
+    Flags: ignoreversion uninsrestartdelete; Check: IsArm64
 
 Source: "{#MySourceRoot}\tsf_dll\arm64\MetasequoiaImeTsf.dll"; \
-    DestDir: "{commonpf64}\{#MyEditionInstallDir}\{code:GetVersionDir}"; \
-    Flags: ignoreversion regserver; Check: IsArm64
+    DestDir: "{#MySystemTipDir}\{code:GetVersionDir}"; \
+    Flags: ignoreversion regserver uninsrestartdelete; Check: IsArm64
 
 ; Server、设置窗口和 MCP 服务需要与 64 位 TIP 相同的 x64 宿主 DLL 和运行时 DLL。Prepare-PackageFiles.ps1 只把它们暂存在 tsf_dll\64 下，而 Inno 对同一个源文件无论有几条安装条目都只存一份，所以包里只有一份。
 Source: "{#MySourceRoot}\tsf_dll\64\*.dll"; \
@@ -849,6 +858,23 @@ begin
       '现有数据将从这里迁移：' + NewLine + Space + ResolvePreviousDataDir;
 end;
 
+// 系统目录里的这个目录是否存在。不用 DirExists：用 Inno 7 编的 32 位 Setup 里，[Code] 的文件函数会被 WOW64 重定向到 SysWOW64（Inno 6 在 64 位安装模式下不会，见 ExecNativeSys 的说明）；ExecNativeSys 启动的 cmd.exe 在两个版本下都看得到真正的 System32。
+function SystemDirExists(const Path: String): Boolean;
+var
+  ResultCode: Integer;
+begin
+  Result :=
+    {#ExecNativeSys}(
+      ExpandConstant('{sys}\cmd.exe'),
+      '/d /c if exist "' + AddBackslash(Path) + '" (exit 0) else (exit 1)',
+      '',
+      SW_HIDE,
+      ewWaitUntilTerminated,
+      ResultCode
+    ) and
+    (ResultCode = 0);
+end;
+
 function GetVersionDir(Param: String): String;
 var
   Candidate: String;
@@ -858,11 +884,14 @@ begin
   begin
     Candidate := '{#MyVersionDirBase}';
     Suffix := 0;
+    // 系统目录也要查：卸载时被占用的系统副本排到重启后删除，重启前重装同一版本若复用这个目录名，新装的 TIP 会在重启时被一起删掉。
     while
       DirExists(ExpandConstant(
         '{commonpf32}\{#MyEditionInstallDir}\' + Candidate)) or
       DirExists(ExpandConstant(
-        '{commonpf64}\{#MyEditionInstallDir}\' + Candidate))
+        '{commonpf64}\{#MyEditionInstallDir}\' + Candidate)) or
+      SystemDirExists(ExpandConstant(
+        '{#MySystemTipDir}\' + Candidate))
     do
     begin
       Suffix := Suffix + 1;
@@ -918,6 +947,7 @@ begin
 end;
 
 { 只停可执行文件在本安装的 server 目录里的进程。几个版本的 Server、看门狗、设置窗口、MSIME.exe 和 msime-mcp.exe 同名，按映像名结束（taskkill /IM）会把同时安装的其他版本一起停掉，所以每个版本（包括 full）都按路径停。ProcessName 为空时停目录里的全部进程。 }
+// 用 ExecNativeSys 启动 64 位 PowerShell：32 位 PowerShell 读不到 64 位进程的映像路径，$_.Path 为空，Server 和看门狗就停不掉。
 procedure StopProcessesUnder(const Directory, ProcessName: String);
 var
   ResultCode: Integer;
@@ -926,7 +956,7 @@ begin
   Filter := '';
   if ProcessName <> '' then
     Filter := ' -and ($_.ProcessName -ieq ''' + ProcessName + ''')';
-  Exec(
+  {#ExecNativeSys}(
     ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
     '-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "' +
     '$root = ''' + AddBackslash(Directory) + '''; ' +
@@ -1061,6 +1091,30 @@ begin
       FindClose(FindRec);
     end;
   end;
+end;
+
+// 删掉系统目录里本版本以外的 msime_v* 目录，Keep 为空时连同版本根目录一起删。被占用的文件删不掉，留到下一次安装再试；卸载时它们已由 uninsrestartdelete 排到重启后删除。和 SystemDirExists 一样不用 Pascal 的文件函数，交给 ExecNativeSys 启动的 64 位 PowerShell；万一它不是 64 位进程，看到的 System32 其实是 SysWOW64，那时什么都不删。
+procedure TryDeleteSystemVersionDirs(const Keep: String);
+var
+  ResultCode: Integer;
+begin
+  {#ExecNativeSys}(
+    ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+    '-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "' +
+    'if (-not [Environment]::Is64BitProcess) { exit 3 }; ' +
+    '$root = ''' + ExpandConstant('{#MySystemTipDir}') + '''; ' +
+    '$keep = ''' + Keep + '''; ' +
+    'if (-not (Test-Path -LiteralPath $root)) { exit 0 }; ' +
+    'Get-ChildItem -LiteralPath $root -Directory -Filter ''msime_v*'' | ' +
+    'Where-Object { $_.Name -ine $keep } | ' +
+    'Remove-Item -Recurse -Force -ErrorAction SilentlyContinue; ' +
+    'if (($keep -eq '''') -and -not (Get-ChildItem -LiteralPath $root -Force)) { ' +
+    'Remove-Item -LiteralPath $root -Force -ErrorAction SilentlyContinue }"',
+    '',
+    SW_HIDE,
+    ewWaitUntilTerminated,
+    ResultCode
+  );
 end;
 
 procedure TryDeleteOldVersionDirs(const RootPath: String);
@@ -1280,6 +1334,7 @@ begin
     '{commonpf32}\{#MyEditionInstallDir}'));
   TryDeleteOldVersionDirs(ExpandConstant(
     '{commonpf64}\{#MyEditionInstallDir}'));
+  TryDeleteSystemVersionDirs(VersionDirName);
   { 随后的 [Files] 与 ssPostInstall 会写入新 Server 和登录任务。}
   Result := '';
 end;
@@ -1322,6 +1377,7 @@ begin
     end;
     TryDeleteTree(ExpandConstant('{commonpf32}\{#MyEditionInstallDir}'));
     TryDeleteTree(ExpandConstant('{commonpf64}\{#MyEditionInstallDir}'));
+    TryDeleteSystemVersionDirs('');
     { 用 InitializeUninstall 缓存的路径：此时注册表里的 DataDir 已被删除。}
     if OwnsDataDir(ResolvePreviousDataDir) then
       DeleteDataDir(ResolvePreviousDataDir, '');

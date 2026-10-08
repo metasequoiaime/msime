@@ -148,6 +148,11 @@ jobs:
       - name: Android platform unchanged
         if: ${{ needs.changes.outputs.android != 'true' }}
         run: echo 'No Android or shared-platform changes; platform gate skipped.'
+  # 上面只证明编译得过；这里在 API 28 和 35 的模拟器上真正运行 client-core 单测和 APK。0.3.0 的三个设备上才出现的问题（词库准备失败、匿名账号写不进、Android 9 启动崩溃）全过了上面那个 job。
+  android-device:
+    needs: changes
+    if: ${{ needs.changes.outputs.android == 'true' }}
+    uses: ./.github/workflows/android-device.yml
 
   linux:
     needs: changes

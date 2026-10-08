@@ -19,6 +19,9 @@ struct WaveOverlayMonitorMetrics {
 
 bool wave_overlay_monitor_metrics(WaveOverlayMonitorMetrics *metrics);
 
+// 一块显示器的有效 DPI，取不到时退回系统 DPI，从不为 0。调用方要在每显示器感知的线程上下文里，否则 GetDpiForMonitor 一律回答 96。候选窗的游戏兜底定位也用它：游戏窗口自己的 DPI 感知不可信，DPI 不感知的游戏 GetDpiForWindow 固定是 96。
+UINT monitor_effective_dpi(HMONITOR monitor);
+
 // Per-monitor awareness for one geometry operation, restoring the caller's
 // thread context afterwards. Without it `GetMonitorInfoW` reports virtualised
 // coordinates and `GetDpiForMonitor` is documented to answer 96 for a

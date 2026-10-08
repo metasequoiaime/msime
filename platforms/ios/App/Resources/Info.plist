@@ -32,9 +32,23 @@
 				<string>msime</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>app.msime.ios.google</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.googleusercontent.apps.237074057301-dam9p3icuapsr31tv85q35gn4erm1kmt</string>
+			</array>
+		</dict>
 	</array>
 	<key>CFBundleVersion</key>
 	<string>1</string>
+	<key>GIDClientID</key>
+	<string>237074057301-dam9p3icuapsr31tv85q35gn4erm1kmt.apps.googleusercontent.com</string>
+	<key>GIDServerClientID</key>
+	<string>237074057301-q5av9h30kspkqnjat4i9hn9oer9ogfpp.apps.googleusercontent.com</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>

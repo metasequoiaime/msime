@@ -4,7 +4,11 @@
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs::{self, File, OpenOptions};
+#[cfg(any(not(unix), test))]
+use std::fs;
+use std::fs::File;
+#[cfg(any(not(unix), test))]
+use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -133,7 +137,7 @@ impl Default for TouchKeyboardSkinDesign {
 }
 
 impl TouchKeyboardSkinDesign {
-    /// 薄荷晨光: a clear mint gradient under rounded white keys with deep green text. The 水杉精选 design of the same name in the skin community, and the touch keyboards' default.
+    /// 薄荷晨光：薄荷绿渐变底、圆角白键、深绿文字，即皮肤社区里同名的水杉精选设计。曾是触屏键盘新装的默认皮肤（#2178），现在新装跟随系统，它仍排在各端皮肤模板的第一位。
     pub fn mint_morning() -> Self {
         Self {
             background: 0xD8F0E4,
@@ -923,6 +927,12 @@ pub struct Preferences {
     /// Sound packs, background music, achievements and the enabled command tables. Left out of the document while every part is at its default, so a build from before plugins still reads a document that never touched them; the packs themselves and the @ name list live under the plugins directory, not here.
     #[serde(default, skip_serializing_if = "PluginPreferences::is_default")]
     pub plugins: PluginPreferences,
+    /// Windows 游戏里由水杉显示候选窗的开关和进程表，只有 Windows 的 TSF DLL 读取。等于默认值时不写进文档，没有这个键的旧版本照样能读。
+    #[serde(
+        default,
+        skip_serializing_if = "GameCompatibilityPreferences::is_default"
+    )]
+    pub game_compatibility: GameCompatibilityPreferences,
     #[serde(default)]
     pub clipboard_history: bool,
     /// 向云候选服务多要一条候选。它会把正在组的拼写发给 `https://inputtools.google.com`，所以新装默认关闭（见 `Default`）；已存文档缺这个字段时读成开启，升级沿用原来的行为。
@@ -1207,6 +1217,63 @@ pub struct DiagnosticLogPreferences {
     pub server: bool,
     /// In-process TSF preedit and input latency, buffered and batched out.
     pub tsf: bool,
+}
+
+/// Windows 游戏兼容：游戏声明自己画候选却不画时，由水杉的候选窗显示。DLL 在每次激活时读取，对已打开的游戏要重新激活输入法才生效。各项都等于默认值时不写进文档，没有这个键的旧版本照样能读。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct GameCompatibilityPreferences {
+    /// 总开关。关闭时任何进程都不强制使用水杉的候选窗，两张表也不起作用。
+    pub candidate_overlay: bool,
+    /// 总是由水杉显示候选窗的进程基名（如 `game.exe`），优先于内置规则。
+    pub overlay_processes: Vec<String>,
+    /// 从不由水杉显示候选窗的进程基名，优先于 `overlay_processes` 和内置规则。
+    pub excluded_processes: Vec<String>,
+}
+
+impl Default for GameCompatibilityPreferences {
+    fn default() -> Self {
+        Self {
+            candidate_overlay: true,
+            overlay_processes: Vec::new(),
+            excluded_processes: Vec::new(),
+        }
+    }
+}
+
+impl GameCompatibilityPreferences {
+    /// 两张表合计的条目上限，限制这两张表给偏好文档增加的体积：配合 `MAX_PROCESS_NAME_CHARS`，最坏情况（每项 64 个四字节 UTF-8 字符）约 8KB，ASCII 程序名约 2KB。整份偏好能否留在 Windows Server 偏好快照的 16KiB 上限以内（`PreferenceSnapshot.h`）还取决于其他字段，这里不做保证。
+    pub const MAX_PROCESSES: usize = 32;
+    /// 单个进程名的字符数上限。
+    pub const MAX_PROCESS_NAME_CHARS: usize = 64;
+
+    fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+
+    /// 每项都是带 `.exe` 后缀（ASCII 不分大小写）的进程基名，不含路径分隔符、通配符和控制字符；两张表合在一起按 ASCII 不分大小写地不重复（和 WinUI 设置页 `GameProcessList.h` 的检查一致），合计不超过 `MAX_PROCESSES` 条。DLL 不分大小写地比较进程名，所以只差大小写的两项会让同一个进程同时落在两张表里。
+    fn validate(&self) -> bool {
+        let mut seen = BTreeSet::new();
+        self.overlay_processes.len() + self.excluded_processes.len() <= Self::MAX_PROCESSES
+            && self
+                .overlay_processes
+                .iter()
+                .chain(&self.excluded_processes)
+                .all(|name| valid_process_name(name) && seen.insert(name.to_ascii_lowercase()))
+    }
+}
+
+fn valid_process_name(name: &str) -> bool {
+    name.chars().count() <= GameCompatibilityPreferences::MAX_PROCESS_NAME_CHARS
+        && !name.chars().any(|character| {
+            character.is_control()
+                || matches!(
+                    character,
+                    '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|'
+                )
+        })
+        && name.len() >= 4
+        && name.as_bytes()[name.len() - 4..].eq_ignore_ascii_case(b".exe")
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1808,30 +1875,6 @@ fn default_doubao_auth_mode() -> String {
     "api_key".to_owned()
 }
 
-/// Builds for a touch keyboard: iOS, Android and HarmonyOS. The desktop hosts keep their own defaults.
-const TOUCH_KEYBOARD_BUILD: bool = cfg!(any(
-    target_os = "ios",
-    target_os = "android",
-    target_env = "ohos"
-));
-
-/// A new install on a touch keyboard starts on the custom theme drawn with 薄荷晨光, the keyboard skin the phones ship as their default; on the desktop it follows the system. A saved document always carries `global_theme`, so this only decides what a device that has never saved looks like, and what 恢复默认设置 returns to.
-fn default_global_theme() -> crate::skin::theme::GlobalTheme {
-    if TOUCH_KEYBOARD_BUILD {
-        crate::skin::theme::GlobalTheme::Custom
-    } else {
-        crate::skin::theme::GlobalTheme::default()
-    }
-}
-
-/// The custom theme a new install starts with: 薄荷晨光 on a touch keyboard over the system base, so the candidate colours still follow the platform; empty on the desktop.
-fn default_custom_theme() -> CustomTheme {
-    CustomTheme {
-        keyboard: TOUCH_KEYBOARD_BUILD.then(TouchKeyboardSkinDesign::mint_morning),
-        ..CustomTheme::default()
-    }
-}
-
 impl Default for Preferences {
     fn default() -> Self {
         Self {
@@ -1854,8 +1897,9 @@ impl Default for Preferences {
             voice_theme: SettingsTheme::default(),
             emoji_theme: SettingsTheme::default(),
             menu_theme: SettingsTheme::default(),
-            global_theme: default_global_theme(),
-            custom_theme: default_custom_theme(),
+            // 新装在所有平台都跟随系统。触屏键盘的跟随系统皮肤按应用主题当前季节取色，键盘与应用界面是同一套颜色；原先触屏默认的薄荷晨光是固定配色，秋冬季节和应用主题对不上。
+            global_theme: crate::skin::theme::GlobalTheme::default(),
+            custom_theme: CustomTheme::default(),
             candidate_layout: CandidateLayout::default(),
             candidate_preedit_style: CandidatePreeditStyle::default(),
             show_candidate_page_number: true,
@@ -1912,6 +1956,7 @@ impl Default for Preferences {
             mixed_input: MixedInputPreferences::default(),
             local_modes: LocalModePreferences::default(),
             plugins: PluginPreferences::default(),
+            game_compatibility: GameCompatibilityPreferences::default(),
             clipboard_history: false,
             // 会把输入内容发出设备的两条路径新装都关闭，由 Windows、macOS、Linux 的首次询问或各平台的设置开关打开。
             cloud_candidates: false,
@@ -2427,6 +2472,9 @@ impl Preferences {
         if !self.plugins.validate() {
             return Err(PreferencesError::InvalidPlugins);
         }
+        if !self.game_compatibility.validate() {
+            return Err(PreferencesError::InvalidGameCompatibility);
+        }
         if !(1..=10).contains(&self.frequency.trigger_count)
             || !(1..=10).contains(&self.frequency.linear_step)
         {
@@ -2580,6 +2628,8 @@ pub enum PreferencesError {
     InvalidMixedInput,
     #[error("plugin settings are invalid")]
     InvalidPlugins,
+    #[error("game compatibility process names must be distinct .exe base names of at most 64 characters, at most 32 in total")]
+    InvalidGameCompatibility,
     #[error("preferences changed; reload before saving")]
     Conflict,
     #[error("unsupported preferences format")]
@@ -2950,23 +3000,58 @@ impl PreferencesStore {
             now.second()
         );
         let mut attempt = 0u32;
+        #[cfg(unix)]
+        let directory = crate::storage::open_private_directory(&self.directory)?;
         loop {
             let name = if attempt == 0 {
                 stem.clone()
             } else {
                 format!("{stem}-{attempt}")
             };
-            let path = self.directory.join(name);
-            let mut file = match OpenOptions::new().write(true).create_new(true).open(&path) {
-                Ok(file) => file,
-                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-                    attempt += 1;
-                    continue;
-                }
-                Err(error) => return Err(error.into()),
+            #[cfg(unix)]
+            let (path, mut file) = {
+                let descriptor = match rustix::fs::openat(
+                    &directory,
+                    std::ffi::OsStr::new(&name),
+                    rustix::fs::OFlags::WRONLY
+                        | rustix::fs::OFlags::CREATE
+                        | rustix::fs::OFlags::EXCL
+                        | rustix::fs::OFlags::NOFOLLOW
+                        | rustix::fs::OFlags::CLOEXEC
+                        | rustix::fs::OFlags::NONBLOCK,
+                    rustix::fs::Mode::from_raw_mode(0o600),
+                ) {
+                    Ok(descriptor) => descriptor,
+                    Err(error) if error == rustix::io::Errno::EXIST => {
+                        attempt += 1;
+                        continue;
+                    }
+                    Err(error) => return Err(std::io::Error::from(error).into()),
+                };
+                (self.directory.join(&name), File::from(descriptor))
+            };
+            #[cfg(not(unix))]
+            let (path, mut file) = {
+                let path = self.directory.join(&name);
+                let file = match OpenOptions::new().write(true).create_new(true).open(&path) {
+                    Ok(file) => file,
+                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                        attempt += 1;
+                        continue;
+                    }
+                    Err(error) => return Err(error.into()),
+                };
+                (path, file)
             };
             if let Err(error) = file.write_all(bytes).and_then(|()| file.sync_all()) {
                 drop(file);
+                #[cfg(unix)]
+                let _ = rustix::fs::unlinkat(
+                    &directory,
+                    std::ffi::OsStr::new(&name),
+                    rustix::fs::AtFlags::empty(),
+                );
+                #[cfg(not(unix))]
                 let _ = fs::remove_file(&path);
                 return Err(error.into());
             }
@@ -3080,6 +3165,50 @@ const STALE_TEMPORARY_AGE: std::time::Duration = std::time::Duration::from_secs(
 /// Only files a day old are touched, and the age is what makes this safe rather than the lock: the
 /// statistics document stages its writes into this same directory under a lock of its own, so a
 /// sweep that went by name alone could delete a write that was in flight.
+#[cfg(unix)]
+fn sweep_stale_temporaries(directory: &Path) {
+    let Ok(directory) = crate::storage::open_private_directory(directory) else {
+        return;
+    };
+    let Ok(mut entries) = rustix::fs::Dir::read_from(&directory) else {
+        return;
+    };
+    let now = std::time::SystemTime::now();
+    while let Some(Ok(entry)) = entries.next() {
+        let name = entry.file_name();
+        if !name.to_bytes().starts_with(b".tmp") {
+            continue;
+        }
+        let Ok(fd) = rustix::fs::openat(
+            &directory,
+            name,
+            rustix::fs::OFlags::RDONLY
+                | rustix::fs::OFlags::NOFOLLOW
+                | rustix::fs::OFlags::CLOEXEC
+                | rustix::fs::OFlags::NONBLOCK,
+            rustix::fs::Mode::empty(),
+        ) else {
+            continue;
+        };
+        let file: File = fd.into();
+        let Ok(metadata) = file.metadata() else {
+            continue;
+        };
+        if !metadata.is_file() {
+            continue;
+        }
+        let abandoned = metadata
+            .modified()
+            .ok()
+            .and_then(|modified| now.duration_since(modified).ok())
+            .is_some_and(|age| age >= STALE_TEMPORARY_AGE);
+        if abandoned {
+            let _ = rustix::fs::unlinkat(&directory, name, rustix::fs::AtFlags::empty());
+        }
+    }
+}
+
+#[cfg(not(unix))]
 fn sweep_stale_temporaries(directory: &Path) {
     let Ok(entries) = std::fs::read_dir(directory) else {
         return;

@@ -400,7 +400,8 @@ public final class Bootstrap {
     }
 
     static String readMarker(java.nio.file.Path file) {
-        if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) return null;
+        if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)
+                || !SafePaths.isSingleLink(file)) return null;
         try (InputStream input = Files.newInputStream(file, LinkOption.NOFOLLOW_LINKS)) {
             byte[] bytes = HttpBodyPolicy.readBounded(input, 64);
             return bytes == null ? null : new String(bytes, StandardCharsets.UTF_8);

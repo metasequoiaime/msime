@@ -7992,7 +7992,7 @@ group("a theme keyboard palette reaches every key colour", () => {
   );
 });
 
-group("the custom design is drawn in full and flattened like the shared custom keyboard", () => {
+group("the custom design is drawn in full, its function keys on the letter-key face", () => {
   const design = CustomKeyboardSkin.from({
     background: 0x102030,
     keyBackground: 0x203040,
@@ -8009,7 +8009,14 @@ group("the custom design is drawn in full and flattened like the shared custom k
     skin.background === "#102030" && skin.keyBackground === "#203040",
     "its colours cross over",
   );
-  check(skin.functionKeyBackground === "#185C47", "function keys take the design's action colour");
+  check(
+    skin.functionKeyBackground === "#203040" && skin.functionKeyForeground === "#F0F0F0",
+    "function keys sit on the letter-key face with its text, as on Android and iOS",
+  );
+  check(
+    skin.actionBackground === "#185C47" && skin.actionForeground === "#FFFFFF",
+    "the design's action colour is the return key's alone",
+  );
   check(skin.secondary === "#99F0F0F0", "hints are its text at 60%");
   check(skin.onAccent === "#000000", "a light accent takes black text");
   check(
@@ -8445,21 +8452,50 @@ group(
   },
 );
 
-group("the custom design follows the season accent for the return key and its tiles", () => {
-  const design = CustomKeyboardSkin.from({ accent: 0x80c0ff });
+group("the season tints a custom design's tiles but not its keys", () => {
+  const design = CustomKeyboardSkin.from({ accent: 0x80c0ff, actionBackground: 0x245a43 });
   const seeded = KeyboardSkin.fromDesign("自定义", design, false, AUTUMN_LIGHT);
   check(seeded.accent === "#80C0FF", "the design keeps its own accent for candidates");
+  check(seeded.toggleBackground === "#22B5562B", "the switched-on tiles take the season");
   check(
-    seeded.actionBackground === "#B5562B" && seeded.toggleBackground === "#22B5562B",
-    "the return key and the switched-on tiles take the season",
+    seeded.actionBackground === "#245A43" &&
+      seeded.actionForeground === "#FFFFFF" &&
+      seeded.keySurfaceBackground(true) === "#245A43" &&
+      seeded.keyLabelColor(true) === "#FFFFFF",
+    "the return key keeps the design's own action colour, as on Android and iOS",
   );
   check(
-    KeyboardSkin.fromDesign("自定义", design, false).actionBackground === "#2C7A4B",
-    "and the platform accent without one",
+    KeyboardSkin.fromDesign("自定义", design, false).actionBackground === "#245A43",
+    "with or without a season",
   );
   check(
     seeded.key() !== KeyboardSkin.fromDesign("自定义", design, false).key(),
     "the seed is part of the design skin's identity",
+  );
+});
+
+group("the default 薄荷晨光 design keeps every key label readable", () => {
+  // 触屏键盘新装的默认设计（`TouchKeyboardSkinDesign::mint_morning`）：深绿字、深绿动作色。功能键曾经填成动作色，字和底都是深绿，⇧、⌫、123、中几乎看不见。
+  const mint = KeyboardSkin.fromDesign(
+    "薄荷晨光",
+    CustomKeyboardSkin.from({
+      background: 0xd8f0e4,
+      keyBackground: 0xfafff9,
+      keyForeground: 0x173d30,
+      accent: 0x245a43,
+      actionBackground: 0x245a43,
+    }),
+    false,
+    AUTUMN_LIGHT,
+  );
+  check(
+    mint.keySurfaceBackground(false, true) === "#FFFAFFF9" &&
+      mint.keyLabelColor(false, true) === "#173D30",
+    "shift, delete, 123 and 中 are deep green on the white key face",
+  );
+  check(
+    mint.keySurfaceBackground(true) === "#245A43" && mint.keyLabelColor(true) === "#FFFFFF",
+    "the return key is white on the design's green, not the autumn orange",
   );
 });
 

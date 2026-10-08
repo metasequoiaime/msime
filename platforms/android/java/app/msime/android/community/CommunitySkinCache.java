@@ -62,7 +62,8 @@ public final class CommunitySkinCache {
         try {
             SafePaths.rejectSymlinkComponents(preferencesDirectory);
             Path file = preferencesDirectory.resolve(FILE);
-            if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS) || Files.size(file) > MAX_BYTES) {
+            if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)
+                    || !SafePaths.isSingleLink(file) || Files.size(file) > MAX_BYTES) {
                 return List.of();
             }
             byte[] bytes;

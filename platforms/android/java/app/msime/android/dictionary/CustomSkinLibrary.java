@@ -57,6 +57,8 @@ public final class CustomSkinLibrary {
             return List.of();
         if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS))
             throw new IOException("Invalid custom skin library");
+        if (!SafePaths.isSingleLink(file))
+            throw new IOException("Invalid custom skin library");
         String document;
         try (InputStream input = Files.newInputStream(file, LinkOption.NOFOLLOW_LINKS)) {
             byte[] bytes = HttpBodyPolicy.readBounded(input, (int) MAX_LIBRARY_BYTES);

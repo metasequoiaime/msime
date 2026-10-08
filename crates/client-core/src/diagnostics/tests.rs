@@ -338,3 +338,24 @@ fn a_crash_directory_keeps_only_the_newest_records() {
         format!("java.lang.Error{}", MAX_CRASH_LOGS + 2)
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn crash_directory_reader_rejects_a_symlinked_directory() {
+    use std::os::unix::fs::symlink;
+
+    let root = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    std::fs::write(
+        outside.path().join("synthetic.crash"),
+        "synthetic.Error\nat synthetic.Frame.run(Frame.java:1)\n",
+    )
+    .unwrap();
+    let linked = root.path().join("crashes");
+    symlink(outside.path(), &linked).unwrap();
+
+    assert!(matches!(
+        read_crash_directory(&linked),
+        Err(DiagnosticsError::Source(_))
+    ));
+}

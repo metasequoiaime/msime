@@ -74,8 +74,10 @@ public final class EditorSmoke {
             | InputType.TYPE_TEXT_VARIATION_URI));
         check(EditorPolicy.prefersLatin(InputType.TYPE_CLASS_TEXT
             | InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS));
-        check(EditorPolicy.prefersLatin(InputType.TYPE_CLASS_TEXT
+        // 只要求不给建议的聊天框、搜索框按用户的默认中英文进框（#5998）；Chrome 地址栏仍因 URI 进英文。
+        check(!EditorPolicy.prefersLatin(InputType.TYPE_CLASS_TEXT
             | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS));
+        check(EditorPolicy.prefersLatin(0x80011));
         check(!EditorPolicy.prefersLatin(InputType.TYPE_CLASS_TEXT));
         check(EditorPolicy.capitalizationMode(InputType.TYPE_CLASS_TEXT
             | InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS)

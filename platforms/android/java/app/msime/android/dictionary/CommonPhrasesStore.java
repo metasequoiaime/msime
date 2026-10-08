@@ -192,7 +192,7 @@ public final class CommonPhrasesStore {
                 FileLock lock = channel.lock();
                 try {
                     Set<String> current = decodeStarters(readMarker(markerPath));
-                    Set<String> next = Collections.unmodifiableSet(new LinkedHashSet<>(edit.apply(current)));
+                    Set<String> next = SetPolicy.copyOrEmptyPreservingOrder(edit.apply(current));
                     if (!next.equals(current)) {
                         writeMarker(markerPath, encodeStarters(next));
                     }
@@ -249,7 +249,7 @@ public final class CommonPhrasesStore {
         for (String line : new String(bytes, StandardCharsets.UTF_8).split("\n")) {
             if (!line.isEmpty()) texts.add(line);
         }
-        return Collections.unmodifiableSet(texts);
+        return SetPolicy.copyOrEmptyPreservingOrder(texts);
     }
 
     static byte[] encodeStarters(Set<String> texts) {
@@ -364,7 +364,7 @@ public final class CommonPhrasesStore {
                 packs.add(new Pack(id, name, revision));
             }
         }
-        return new Document(Collections.unmodifiableList(phrases), Collections.unmodifiableList(packs),
+        return new Document(ListPolicy.copyOrEmpty(phrases), ListPolicy.copyOrEmpty(packs),
             nonNegativeInteger(value.opt("skipped"), 0));
     }
 

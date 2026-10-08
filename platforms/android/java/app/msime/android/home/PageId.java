@@ -2,9 +2,9 @@ package app.msime.android.home;
 
 import androidx.annotation.Nullable;
 import app.msime.android.HostDeepLink;
+import app.msime.android.ListPolicy;
 import app.msime.android.TextPolicy;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.List;
 
 /**
@@ -29,7 +29,7 @@ public enum PageId {
         "启用 AI 入口", "端点 URL", "模型", "凭据", "润色提示词"),
     TYPING("TypingPage", "输入", HostDeepLink.TAB_SETTINGS,
         "语言与方案", "普通话", "粤语", "英语", "日语", "添加语言", "中文", "中文字符集", "简体", "繁体",
-        "拼音纠错", "模糊音", "云候选", "辅助码", "辅助码方案", "辅助码模式", "翻译", "候选词翻译",
+        "拼音纠错", "模糊音", "云候选", "辅助码", "启用辅助码", "辅助码方案", "辅助码模式", "翻译", "候选词翻译",
         "离线英文释义", "翻译目标语言"),
     EXPRESSION("ExpressionPage", "表达", HostDeepLink.TAB_SETTINGS,
         "标点", "使用英文标点", "自动补全成对标点", "智能标点", "智能", "整句联想", "英文自动纠正", "英文联想",
@@ -79,7 +79,7 @@ public enum PageId {
         this.className = PACKAGE + simpleName;
         this.title = title;
         this.tab = tab;
-        this.keywords = Collections.unmodifiableList(Arrays.asList(keywords));
+        this.keywords = ListPolicy.copyOrEmpty(Arrays.asList(keywords));
     }
 
     /** 页面 Fragment 的全限定类名，交给 `FragmentFactory.instantiate`。 */

@@ -237,6 +237,7 @@ impl QuanpinDictionary {
             let rows = self.fuzzy_candidates(typed.as_ref(), fuzzy);
             append_unique_words(&mut result, rows);
             result.sort_by_key(|item| std::cmp::Reverse(matched_letters(&item.pinyin)));
+            yield_stand_in_sentence_to_fuzzy_rows(&mut result);
         }
         // Marking runs after every change, including the fuzzy merge, so every row the caller sees carries its mark.
         mark_autocorrect_candidates(
@@ -1213,6 +1214,31 @@ fn remember_segmentation_key(
 /// Letters of a row's matched code, what the fuzzy merge sorts by.
 fn matched_letters(pinyin: &str) -> usize {
     pinyin.bytes().filter(|&byte| byte != b'\'').count()
+}
+
+/// 整句只按原拼音解码，`whole_sentence_insert_position` 把它放在原拼音覆盖整个输入的词库行之后；它排到首位，通常是因为原拼音没有这样的词，这时它只是替补。开了模糊音，按模糊读法覆盖整个输入的词库行就是这个输入的整词，替补要让给它：`zongguo` 开 z=zh 时「中国」排到整句「总国」前面。同一档里只要还有原拼音覆盖整个输入的精确词库行（整词、另一种切分的整词，哪怕排在更长的补全词后面），就一行也不动，精确仍先于模糊；补全出的更长词条不算覆盖。挪动只在覆盖整个输入的那一档里做，模糊行之间、其余行之间的先后都不变。不开模糊音时不经过这里。
+fn yield_stand_in_sentence_to_fuzzy_rows(result: &mut [WordItem]) {
+    let Some(first) = result.first() else {
+        return;
+    };
+    if !first.sentence_association {
+        return;
+    }
+    let letters = matched_letters(&first.pinyin);
+    let bucket = result
+        .iter()
+        .take_while(|item| matched_letters(&item.pinyin) == letters)
+        .count();
+    let typed_reading_answers = result[..bucket].iter().any(|item| {
+        !item.fuzzy
+            && item.source.is_dictionary()
+            && matched_letters(&item.canonical_pinyin) == letters
+    });
+    if typed_reading_answers {
+        return;
+    }
+    // 稳定排序：模糊行整体挪到前面，各自内部的先后不变。
+    result[..bucket].sort_by_key(|item| !item.fuzzy);
 }
 
 fn first_correction_cut(pinyin: &str) -> Option<Vec<String>> {

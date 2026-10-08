@@ -473,7 +473,13 @@ fn caret_prefix_expands_its_own_initial_list() {
     assert_eq!(capped.len(), 24);
     assert!(capped.iter().all(|item| item.pinyin == "n"));
 
-    assert!(session.expand_initial_candidates());
+    let (grew, allocations) =
+        crate::ime::personal_rerank::allocations::count(|| session.expand_initial_candidates());
+    assert!(grew);
+    assert_eq!(
+        allocations, 398,
+        "caret-prefix expansion allocations: {allocations}"
+    );
     let widened = words(&session);
     assert_eq!(widened.len(), 30);
     assert!(widened.contains(&"丝".to_owned()), "{widened:?}");
@@ -690,6 +696,157 @@ fn wubi_mixed_refresh_reuses_pinyin_request_buffer() {
         allocations <= 53,
         "mixed Wubi refresh should reuse the pinyin request buffer: {allocations} allocations"
     );
+}
+
+#[test]
+fn ignored_scheme_key_does_not_clone_preedit_for_change_detection() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session();
+    type_text(&mut session, "ni'");
+
+    let (result, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+        session.input.handle_character(b'\'', false)
+    });
+
+    assert!(!result.handled);
+    assert_eq!(allocations, 52);
+}
+
+#[test]
+fn typing_at_the_end_does_not_build_the_preedit_twice_for_caret_detection() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session();
+    type_text(&mut session, "ni");
+
+    let (result, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+        session.input.handle_character(b'h', false)
+    });
+
+    assert!(result.handled);
+    assert_eq!(allocations, 155);
+}
+
+#[test]
+fn backspacing_at_the_end_does_not_build_the_preedit_twice_for_caret_detection() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session();
+    type_text(&mut session, "ni");
+
+    let (result, allocations) =
+        crate::ime::personal_rerank::allocations::count(|| session.command(Command::Backspace));
+
+    assert!(result.handled);
+    assert_eq!(allocations, 30);
+}
+
+#[test]
+fn url_entry_readiness_at_the_end_does_not_build_the_preedit_twice() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session();
+    type_text(&mut session, "www");
+
+    let (result, allocations) =
+        crate::ime::personal_rerank::allocations::count(|| session.character(b'.', false));
+
+    assert!(result.handled);
+    assert_eq!(allocations, 4);
+}
+
+#[test]
+fn url_trigger_reversion_reuses_the_remaining_text_buffer() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session();
+    type_text(&mut session, "www");
+    assert!(session.punctuation(b'.').handled);
+
+    let (result, allocations) =
+        crate::ime::personal_rerank::allocations::count(|| session.command(Command::Backspace));
+
+    assert!(result.handled);
+    assert_eq!(session.snapshot().preedit, "www");
+    assert_eq!(session.snapshot().local_mode, LocalInputMode::None);
+    assert!(
+        allocations <= 33,
+        "URL trigger reversion allocations: {allocations}"
+    );
+}
+
+#[test]
+fn prefix_end_does_not_build_editing_text_to_clamp_the_caret() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session();
+    type_text(&mut session, "nihao");
+    session.set_caret(Some(2));
+
+    let (prefix_end, allocations) =
+        crate::ime::personal_rerank::allocations::count(|| session.prefix_end());
+
+    assert_eq!(prefix_end, 2);
+    assert_eq!(allocations, 2);
+}
+
+#[test]
+fn setting_the_caret_does_not_build_editing_text_to_clamp_it() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session();
+    type_text(&mut session, "nihao");
+
+    let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+        session.set_caret(Some(2));
+    });
+
+    assert_eq!(session.snapshot().caret_position, 2);
+    assert_eq!(allocations, 73);
+}
+
+#[test]
+fn moving_the_caret_does_not_build_the_preedit_twice() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session();
+    type_text(&mut session, "nihao");
+
+    let (result, allocations) =
+        crate::ime::personal_rerank::allocations::count(|| session.command(Command::MoveLeft));
+
+    assert!(result.handled);
+    assert_eq!(
+        allocations, 73,
+        "caret movement should reuse the editing text length: {allocations} allocations"
+    );
+}
+
+#[test]
+fn typing_at_a_caret_reuses_the_editing_text_length() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session();
+    type_text(&mut session, "nihao");
+    session.command(Command::MoveLeft);
+
+    let (result, allocations) =
+        crate::ime::personal_rerank::allocations::count(|| session.character(b'x', false));
+
+    assert!(result.handled);
+    assert_eq!(
+        allocations, 278,
+        "caret insertion allocations: {allocations}"
+    );
+}
+
+#[test]
+fn selecting_a_quanpin_candidate_clones_only_needed_request_fields() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session_with(|options| {
+        options.learning = false;
+        options.personal_context = false;
+    });
+    type_text(&mut session, "nihao");
+    let index = index_of(&session, "你好");
+
+    let (result, allocations) =
+        crate::ime::personal_rerank::allocations::count(|| session.select(index));
+
+    assert_eq!(result.commit.as_deref(), Some("你好"));
+    assert_eq!(allocations, 35, "selection allocations: {allocations}");
 }
 
 /// The reported case: in mixed Wubi `jixu` is the wubi code of 曳光弹 and the pinyin of 继续. The fourth key must leave both on offer; without pinyin rows the same code still commits its one wubi row.
@@ -5107,7 +5264,13 @@ fn a_glide_into_a_composition_starts_a_new_syllable() {
     let fixture = Fixture::new(GLIDE_FIXTURE);
     let mut session = fixture.session();
     type_text(&mut session, "xi");
-    assert!(glide(&mut session, "an").handled);
+    let (result, allocations) =
+        crate::ime::personal_rerank::allocations::count(|| glide(&mut session, "an"));
+    assert!(result.handled);
+    assert!(
+        allocations <= 7160,
+        "glide insertion allocations: {allocations}"
+    );
     assert_eq!(session.snapshot().editing_text, "xi'an");
     assert_eq!(words(&session).first().map(String::as_str), Some("西安"));
 }

@@ -150,9 +150,9 @@ impl InputSession {
             }
             None => Some(self.preedit()),
         };
-        let committed = |diagnostic: Option<String>| KeyResult {
+        let committed = |text: Option<String>, diagnostic: Option<String>| KeyResult {
             handled: true,
-            commit: text.clone(),
+            commit: text,
             diagnostic,
         };
 
@@ -164,7 +164,7 @@ impl InputSession {
             self.record_context_into(&mut diagnostic, None, false, false);
             self.chain.last_pick = None;
             self.reset_composition();
-            return committed(diagnostic);
+            return committed(text, diagnostic);
         };
         let has_dictionary_reading = selected.source.is_dictionary();
         // Whole sentences from the lattice carry a canonical reading and join the phrase being composed like dictionary rows do.
@@ -180,7 +180,7 @@ impl InputSession {
             self.record_context_into(&mut diagnostic, Some(&selected), false, false);
             self.chain.last_pick = None;
             self.reset_composition();
-            return committed(diagnostic);
+            return committed(text, diagnostic);
         }
 
         // A user row of three or more characters answering the whole composition is almost always a sentence stored by sentence learning; counting it as one word would teach the model a sentence as a word. User rows come back as Database like shipped ones, so the journal's insert record tells them apart; checked last because it reads a file.
@@ -250,7 +250,7 @@ impl InputSession {
         if transition.continues_composition {
             self.phrase_progress = progress;
             self.discard_abandoned_phrase_progress();
-            return committed(diagnostic);
+            return committed(text, diagnostic);
         }
         if !self.phrase_progress.word.is_empty()
             && progress.can_store
@@ -262,7 +262,7 @@ impl InputSession {
             diagnostic = Some(diagnostics::PHRASE_NOT_PERSISTED.to_owned());
         }
         self.reset_composition();
-        committed(diagnostic)
+        committed(text, diagnostic)
     }
 
     /// Chain bookkeeping for a nine-key commit: the grid bypasses this session, so the word after it must not read the word before it as its context. The committed text is not needed, since it only fed the dropped learning-undo ledger.

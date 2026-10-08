@@ -63,10 +63,10 @@ pub fn import(source: &Path, root: &Path) -> Result<PluginSummary, PluginError> 
     }
     let _writes = lock_plugin_root(root)?;
     sweep_leftovers(root, SystemTime::now());
-    let staging = Staging(root.join(format!(".staging-{}", uuid::Uuid::new_v4().simple())));
-    fs::create_dir(&staging.0)?;
-    stage(source, archive, &staging.0)?;
-    let mut summary = check_staged(&staging.0)?;
+    let staging = Staging::new(root.join(format!(".staging-{}", uuid::Uuid::new_v4().simple())))?;
+    fs::create_dir(&staging.path)?;
+    stage(source, archive, &staging.path)?;
+    let mut summary = check_staged(&staging.path)?;
     let kind = summary.kind();
     let directory = kind_directory(root, kind);
     if !crate::storage::create_directory_and_check(&directory).map_err(|_| PluginError::Storage)? {
@@ -83,7 +83,7 @@ pub fn import(source: &Path, root: &Path) -> Result<PluginSummary, PluginError> 
         summary.id,
         uuid::Uuid::new_v4().simple()
     ));
-    crate::skin::folder_import::replace_directory(&staging.0, &target, &backup)
+    crate::skin::folder_import::replace_directory(&staging.path, &target, &backup)
         .map_err(|_| PluginError::Storage)?;
     summary.directory = target;
     Ok(summary)
@@ -135,11 +135,41 @@ fn check_staged(staging: &Path) -> Result<PluginSummary, PluginError> {
 }
 
 /// Removes the staging directory however the import ends; after a successful rename there is nothing left to remove.
-struct Staging(PathBuf);
+struct Staging {
+    path: PathBuf,
+    #[cfg(unix)]
+    parent: File,
+    #[cfg(unix)]
+    name: std::ffi::OsString,
+}
+
+impl Staging {
+    fn new(path: PathBuf) -> io::Result<Self> {
+        #[cfg(unix)]
+        {
+            let parent_path = path.parent().ok_or_else(|| {
+                io::Error::new(io::ErrorKind::InvalidInput, "staging has no parent")
+            })?;
+            let name = path
+                .file_name()
+                .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "staging has no name"))?
+                .to_owned();
+            let parent = crate::storage::open_private_directory(parent_path)?;
+            Ok(Self { path, parent, name })
+        }
+        #[cfg(not(unix))]
+        {
+            Ok(Self { path })
+        }
+    }
+}
 
 impl Drop for Staging {
     fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
+        #[cfg(unix)]
+        let _ = crate::storage::remove_private_tree_at(&self.parent, &self.name);
+        #[cfg(not(unix))]
+        let _ = fs::remove_dir_all(&self.path);
     }
 }
 
@@ -148,9 +178,56 @@ pub(crate) fn sweep_leftovers(root: &Path, now: SystemTime) {
     let mut directories = vec![root.to_path_buf()];
     directories.extend(super::PluginKind::ALL.map(|kind| kind_directory(root, kind)));
     for directory in directories {
+        #[cfg(unix)]
+        let Ok(directory_handle) = crate::storage::open_private_directory(&directory) else {
+            continue;
+        };
+        #[cfg(unix)]
+        let Ok(entries) = rustix::fs::Dir::read_from(&directory_handle) else {
+            continue;
+        };
+        #[cfg(unix)]
+        for entry in entries.flatten() {
+            use std::os::unix::ffi::OsStrExt;
+            let bytes = entry.file_name().to_bytes();
+            let Some(name) = std::str::from_utf8(bytes).ok() else {
+                continue;
+            };
+            if ![".staging-", ".replaced-", ".old-"]
+                .iter()
+                .any(|prefix| name.starts_with(prefix))
+                || !entry.file_type().is_dir()
+            {
+                continue;
+            }
+            let name = std::ffi::OsStr::from_bytes(bytes);
+            let Ok(file) = rustix::fs::openat(
+                &directory_handle,
+                name,
+                rustix::fs::OFlags::RDONLY
+                    | rustix::fs::OFlags::DIRECTORY
+                    | rustix::fs::OFlags::NOFOLLOW
+                    | rustix::fs::OFlags::CLOEXEC
+                    | rustix::fs::OFlags::NONBLOCK,
+                rustix::fs::Mode::empty(),
+            ) else {
+                continue;
+            };
+            let Ok(metadata) = std::fs::File::from(file).metadata() else {
+                continue;
+            };
+            if metadata.modified().is_ok_and(|modified| {
+                now.duration_since(modified)
+                    .is_ok_and(|age| age >= LEFTOVER_AGE)
+            }) {
+                let _ = crate::storage::remove_private_tree_at(&directory_handle, name);
+            }
+        }
+        #[cfg(not(unix))]
         let Ok(entries) = fs::read_dir(&directory) else {
             continue;
         };
+        #[cfg(not(unix))]
         for entry in entries.flatten() {
             let name = entry.file_name();
             let Some(name) = name.to_str() else {
@@ -168,6 +245,13 @@ pub(crate) fn sweep_leftovers(root: &Path, now: SystemTime) {
                             .is_ok_and(|age| age >= LEFTOVER_AGE)
                     })
             {
+                #[cfg(unix)]
+                {
+                    use std::os::unix::ffi::OsStrExt;
+                    let name = std::ffi::OsStr::from_bytes(name.as_bytes());
+                    let _ = crate::storage::remove_private_tree_at(&directory_handle, name);
+                }
+                #[cfg(not(unix))]
                 let _ = fs::remove_dir_all(entry.path());
             }
         }

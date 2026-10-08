@@ -105,7 +105,7 @@ public final class FeedbackApi {
     public String submit(Type type, String text, String appVersion, String edition,
             Map<String, String> diagnostics, List<Screenshot> screenshots) throws CloudApi.Failure {
         if (type == null || !validText(text)) throw new IllegalArgumentException("invalid feedback text");
-        List<Screenshot> shots = screenshots == null ? List.of() : screenshots;
+        List<Screenshot> shots = ListPolicy.copyOrEmpty(screenshots);
         if (shots.size() > MAX_SCREENSHOTS) throw new IllegalArgumentException("too many screenshots");
         for (Screenshot shot : shots) {
             if (!validScreenshot(shot)) throw new IllegalArgumentException("invalid screenshot");

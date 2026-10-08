@@ -81,10 +81,17 @@ pub(crate) fn open_private(path: &Path) -> io::Result<File> {
             .read(true)
             .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
         let file = options.open(path)?;
-        if !file.metadata()?.is_file() {
+        let metadata = file.metadata()?;
+        if !metadata.is_file() {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "private input is not a regular file",
+            ));
+        }
+        if !msime_client_core::file_lock::has_single_link(&file)? {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "private input must have a single link",
             ));
         }
         return Ok(file);
@@ -123,6 +130,12 @@ pub(crate) fn open_private_fd(directory: &OwnedFd, name: &OsStr) -> io::Result<F
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             "private input is not a regular file",
+        ));
+    }
+    if stat.st_nlink != 1 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "private input must have a single link",
         ));
     }
     Ok(descriptor.into())
@@ -186,7 +199,49 @@ pub(crate) fn write(path: &Path, contents: &[u8]) -> io::Result<()> {
 /// Open a parent directory and verify that the descriptor still names the
 /// directory selected by the path. Callers can then use the descriptor for
 /// all writes, so a replacement of the path cannot redirect the operation.
-#[cfg(unix)]
+///
+/// Apple 平台不逐级打开：iOS 沙盒不允许应用以读方式打开容器的祖先目录，逐级 `RDONLY` 在走到 App Group 容器之前就 EPERM，而 Darwin 没有 `O_PATH`。`O_NOFOLLOW_ANY` 让内核在一次解析里拒绝路径上任何一级符号链接，解析只需要祖先的搜索权限。路径经过 `msime-path-trust` 列出的系统别名（`/var`、`/tmp`）时先换成它唯一受信任的目标再打开。与 `msime-client-core` 的 `storage::open_private_directory` 保持一致。
+#[cfg(target_vendor = "apple")]
+pub(crate) fn open_private_directory(parent: &Path) -> io::Result<OwnedFd> {
+    let flags = rustix::fs::OFlags::RDONLY
+        | rustix::fs::OFlags::DIRECTORY
+        | rustix::fs::OFlags::NOFOLLOW_ANY
+        | rustix::fs::OFlags::CLOEXEC
+        | rustix::fs::OFlags::NONBLOCK;
+    let parent = if parent.as_os_str().is_empty() {
+        Path::new(".")
+    } else {
+        parent
+    };
+    match rustix::fs::open(parent, flags, rustix::fs::Mode::empty()) {
+        Err(rustix::io::Errno::LOOP) => {}
+        result => return Ok(result?),
+    }
+    let mut resolved = PathBuf::new();
+    for component in parent.components() {
+        resolved.push(component);
+        if msime_path_trust::is_trusted_system_alias(&resolved) {
+            let target = std::fs::read_link(&resolved)?;
+            resolved = resolved
+                .parent()
+                .unwrap_or_else(|| Path::new("/"))
+                .join(target);
+        }
+    }
+    if resolved == parent {
+        return Err(rustix::io::Errno::LOOP.into());
+    }
+    Ok(rustix::fs::open(
+        &resolved,
+        flags,
+        rustix::fs::Mode::empty(),
+    )?)
+}
+
+/// Open a parent directory and verify that the descriptor still names the
+/// directory selected by the path. Callers can then use the descriptor for
+/// all writes, so a replacement of the path cannot redirect the operation.
+#[cfg(all(unix, not(target_vendor = "apple")))]
 pub(crate) fn open_private_directory(parent: &Path) -> io::Result<OwnedFd> {
     let flags = rustix::fs::OFlags::RDONLY
         | rustix::fs::OFlags::DIRECTORY
@@ -381,8 +436,8 @@ mod private_open_tests {
         assert_eq!(std::fs::read(&target).unwrap(), b"synthetic-outside");
     }
 
-    // 模拟 Android 的 `/data`：祖先目录只有搜索权限、没有读权限，它下面的应用私有目录照样要能打开。以 root 运行时权限检查不生效，这条测试只在普通用户下有区分度。
-    #[cfg(any(target_os = "linux", target_os = "android"))]
+    // 模拟 Android 的 `/data` 和 iOS 沙盒里 App Group 容器的祖先：祖先目录只有搜索权限、没有读权限，它下面的应用私有目录照样要能打开。以 root 运行时权限检查不生效，这条测试只在普通用户下有区分度。
+    #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
     #[test]
     fn private_directory_opens_below_a_search_only_ancestor() {
         use super::{open_private_directory, open_private_fd};
@@ -484,6 +539,38 @@ mod private_open_tests {
         std::fs::write(&target, b"synthetic-private-data").unwrap();
         let linked = root.path().join("private.json");
         symlink(&target, &linked).unwrap();
+
+        assert!(open_private(&linked).is_err());
+        assert_eq!(std::fs::read(&target).unwrap(), b"synthetic-private-data");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_open_rejects_a_hard_linked_leaf() {
+        use super::open_private;
+
+        let outside = tempfile::tempdir().unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let target = outside.path().join("outside.json");
+        std::fs::write(&target, b"synthetic-private-data").unwrap();
+        let linked = root.path().join("private.json");
+        std::fs::hard_link(&target, &linked).unwrap();
+
+        assert!(open_private(&linked).is_err());
+        assert_eq!(std::fs::read(&target).unwrap(), b"synthetic-private-data");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn private_open_rejects_a_hard_linked_leaf() {
+        use super::open_private;
+
+        let outside = tempfile::tempdir().unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let target = outside.path().join("outside.json");
+        std::fs::write(&target, b"synthetic-private-data").unwrap();
+        let linked = root.path().join("private.json");
+        std::fs::hard_link(&target, &linked).unwrap();
 
         assert!(open_private(&linked).is_err());
         assert_eq!(std::fs::read(&target).unwrap(), b"synthetic-private-data");

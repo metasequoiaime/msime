@@ -13,7 +13,6 @@ import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -134,7 +133,7 @@ public final class SyncApi {
                 throw invalid("preferences setting must be scalar");
             }
         }
-        return new Preferences(revision, Collections.unmodifiableMap(settings));
+        return new Preferences(revision, MapPolicy.copyOrEmpty(settings));
     }
 
     /** Successful preference responses always carry an object, including an empty one. */
@@ -199,7 +198,7 @@ public final class SyncApi {
                 strictPhrasePosition(position, index)));
         }
         phrases.sort((left, right) -> Integer.compare(left.position(), right.position()));
-        return new Phrases(revision, Collections.unmodifiableList(phrases));
+        return new Phrases(revision, ListPolicy.copyOrEmpty(phrases));
     }
 
     /** Successful phrase responses always carry an array, including an empty one. */

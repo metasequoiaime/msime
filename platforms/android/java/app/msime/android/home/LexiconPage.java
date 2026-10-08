@@ -19,6 +19,7 @@ import app.msime.android.CommunityRequest;
 import app.msime.android.DictionaryCollectionsStore;
 import app.msime.android.InputFeatureToggle;
 import app.msime.android.HttpBodyPolicy;
+import app.msime.android.ListPolicy;
 import app.msime.android.TextPolicy;
 import app.msime.android.ViewPolicy;
 import java.io.IOException;
@@ -261,7 +262,7 @@ public final class LexiconPage extends DetailPage {
 
     private void showImportSources() {
         Model current = model;
-        List<String> formats = current == null ? List.of() : current.view().formats();
+        List<String> formats = ListPolicy.copyOrEmpty(current == null ? null : current.view().formats());
         List<DictionaryCollectionsStore.ImportSource> sources = DictionaryCollectionsStore.importSources(formats);
         if (sources.isEmpty()) {
             MsToast.show(requireContext(), DictionaryCollectionsStore.failureMessage("unavailable"));

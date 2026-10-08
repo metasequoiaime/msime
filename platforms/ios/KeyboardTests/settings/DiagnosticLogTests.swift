@@ -33,6 +33,18 @@ final class DiagnosticLogTests: XCTestCase {
     #endif
   }
 
+  func testReadTailRejectsAHardLinkedLogOutsideTheStateDirectory() throws {
+    #if canImport(Darwin)
+    let outside = state.appendingPathComponent("outside", isDirectory: true)
+    try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+    let external = outside.appendingPathComponent("private.log")
+    try Data("synthetic external log\n".utf8).write(to: external)
+    try FileManager.default.linkItem(at: external, to: file)
+
+    XCTAssertThrowsError(try DiagnosticLog.readTail(from: file, maximumBytes: 1024))
+    #endif
+  }
+
   /// Only a real `true` under `diagnostic_log.server` turns it on; the Windows-only `tsf` field does not.
   func testOnlyTheServerBooleanEnablesTheLog() {
     XCTAssertTrue(DiagnosticLog.isEnabled(in: ["diagnostic_log": ["server": true, "tsf": false]]))
@@ -108,6 +120,17 @@ final class DiagnosticLogTests: XCTestCase {
     try FileManager.default.createSymbolicLink(at: linked, withDestinationURL: outside)
 
     XCTAssertThrowsError(try DiagnosticLog.readTail(from: linked, maximumBytes: 32 * 1024))
+  }
+
+  func testWriteRejectsLeafHardLink() throws {
+    let outside = state.appendingPathComponent("outside-hardlink.log")
+    try Data("outside\n".utf8).write(to: outside)
+    try FileManager.default.linkItem(at: outside, to: file)
+
+    log.configure(directory: state.path, enabled: true)
+    log.write("must_not_modify_hardlink")
+
+    XCTAssertEqual(try Data(contentsOf: outside), Data("outside\n".utf8))
   }
 
   /// The App's switch writes `diagnostic_log.server` and leaves the Windows-only field as stored.

@@ -28,6 +28,21 @@ const int MOVEDOWN_ONE = 1;
 const int MOVETO_TOP = 0;
 const int MOVETO_BOTTOM = -1;
 
+namespace
+{
+// `[game]` 诊断日志的公共部分：本次激活的游戏候选窗判定，用来经 MCP 给未知游戏归类。
+std::wstring DescribeGameOverlayDecision()
+{
+    const auto &decision = Global::GameOverlayDecision;
+    return fmt::format(
+        L"process={} preferences={} overlay={} uiless={} active_uiless={} sdl2={} sdl_window={} source2={} forced={}",
+        Global::current_process_name.empty() ? L"unknown" : Global::current_process_name,
+        decision.preferencesRead ? L"ok" : L"unreadable", decision.enabled ? 1 : 0,
+        decision.facts.hostUiLess ? 1 : 0, decision.activeFlagsUiLess ? 1 : 0, decision.facts.sdl2Loaded ? 1 : 0,
+        decision.facts.sdlWindow ? 1 : 0, decision.facts.source2Loaded ? 1 : 0, Global::ForceOverlayCandidate ? 1 : 0);
+}
+} // namespace
+
 //+---------------------------------------------------------------------------
 //
 // _HandleCandidateFinalize
@@ -899,8 +914,20 @@ HRESULT CCandidateListUIPresenter::_StartCandidateList(TfClientId tfClientId, _I
 
     HRESULT hr = E_FAIL;
 
+    // 诊断日志的开关要等 Server 推来配置帧才打开，晚于 ActivateEx，所以判定结果留到这次激活第一次开始组字时再写。
+    if (!Global::GameOverlayDecision.logged && Global::TsfDiagnosticLogEnabled.load(std::memory_order_relaxed))
+    {
+        Global::GameOverlayDecision.logged = true;
+        QueueTsfDiagnosticLog(L"[game] " + DescribeGameOverlayDecision());
+    }
+
     if (FAILED(_StartLayout(pContextDocument, ec, pRangeComposition)))
     {
+        if (Global::ForceOverlayCandidate && Global::TsfDiagnosticLogEnabled.load(std::memory_order_relaxed))
+        {
+            QueueTsfDiagnosticLog(L"[game] _StartLayout failed, candidate window not shown process=" +
+                                  Global::current_process_name);
+        }
         goto Exit;
     }
 
@@ -1342,6 +1369,12 @@ HRESULT CCandidateListUIPresenter::_UpdateUIElement()
 {
     HRESULT hr = S_OK;
 
+    // 没有登记 UIElement，例如强制叠加时跳过了 BeginUIElement，而 Show(FALSE) 会无条件走到这里。
+    if (_uiElementId == static_cast<DWORD>(-1))
+    {
+        return S_OK;
+    }
+
     ITfThreadMgr *pThreadMgr = _pTextService->_GetThreadMgr();
     ITfUIElementMgr *pUIElementMgr = nullptr;
     if (nullptr == pThreadMgr)
@@ -1436,11 +1469,51 @@ HRESULT CCandidateListUIPresenter::BeginUIElement()
         goto Exit;
     }
 
+    // TIP 先被不带 UILess 的激活占用（例如 CUAS 先激活了线程）时，ActivateEx 拿到的标志会漏判 SDL2，这里按线程当前的激活标志再判一次。ActivateEx 时已是 UILess 的不复判：Server 已按 ClientActivated 锁存了 UILess，改判也显示不出来。
+    if (!Global::ForceOverlayCandidate && !_pTextService->_IsUiLessMode())
+    {
+        ITfThreadMgrEx *pThreadMgrEx = nullptr;
+        if (SUCCEEDED(pThreadMgr->QueryInterface(IID_ITfThreadMgrEx, (void **)&pThreadMgrEx)))
+        {
+            DWORD activeFlags = 0;
+            if (SUCCEEDED(pThreadMgrEx->GetActiveFlags(&activeFlags)) && (activeFlags & TF_TMF_UIELEMENTENABLEDONLY))
+            {
+                auto &decision = Global::GameOverlayDecision;
+                decision.activeFlagsUiLess = true;
+                decision.facts = Global::ReadCandidateOverlayFacts(true);
+                Global::ForceOverlayCandidate =
+                    Global::ShouldForceCandidateOverlay(decision.enabled, decision.facts, Global::current_process_name,
+                                                        decision.overlayProcesses, decision.excludedProcesses);
+                if (Global::ForceOverlayCandidate && Global::TsfDiagnosticLogEnabled.load(std::memory_order_relaxed))
+                {
+                    QueueTsfDiagnosticLog(L"[game] recheck " + DescribeGameOverlayDecision());
+                }
+            }
+            pThreadMgrEx->Release();
+        }
+    }
+
+    // 强制叠加：游戏不会画这份候选，也就不向它登记 UIElement，免得出现两套候选或闪烁。_uiElementId 保持 -1，EndUIElement 和 _UpdateUIElement 都会提前返回。
+    if (Global::ForceOverlayCandidate)
+    {
+        _isShowMode = TRUE;
+        Global::CandidateUiLessMode = false;
+        goto Exit;
+    }
+
     hr = pThreadMgr->QueryInterface(IID_ITfUIElementMgr, (void **)&pUIElementMgr);
     if (hr == S_OK)
     {
         pUIElementMgr->BeginUIElement(this, &_isShowMode, &_uiElementId);
         pUIElementMgr->Release();
+        // 没有强制、宿主却要自己画（pbShow=FALSE）而 SDL2 已加载：实测时用来看出 SDL2 游戏有没有漏判。
+        if (!_isShowMode && Global::GameOverlayDecision.facts.sdl2Loaded &&
+            !Global::GameOverlayDecision.sdl2HiddenLogged &&
+            Global::TsfDiagnosticLogEnabled.load(std::memory_order_relaxed))
+        {
+            Global::GameOverlayDecision.sdl2HiddenLogged = true;
+            QueueTsfDiagnosticLog(L"[game] pbShow=0 " + DescribeGameOverlayDecision());
+        }
     }
 
     // Hosts that activate with TF_TMF_UIELEMENTENABLEDONLY (typical for games)

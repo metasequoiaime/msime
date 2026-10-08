@@ -242,7 +242,7 @@ public final class SyncSwitch {
      */
     public static Set<String> unheldPhrases(Context context) {
         Set<String> stored = store(context).getStringSet(KEY_PHRASES_UNHELD, null);
-        return stored == null ? Set.of() : Set.copyOf(stored);
+        return SetPolicy.copyOrEmpty(stored);
     }
 
     /** 每次成功应用云端常用语后整份替换。 */

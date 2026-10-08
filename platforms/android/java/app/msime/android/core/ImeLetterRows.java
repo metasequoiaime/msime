@@ -39,6 +39,8 @@ final class ImeLetterRows {
     private View secondRowTrailingIndent;
     /** 当前键行是不是按分离式键盘建的；与 {@link MSIMEInputService#splitKeyboardDrawn} 不一致时要重建（{@link #splitStale}）。 */
     private boolean builtSplit;
+    /** 123 / #+= 层建的时候用的标点：全角中文或半角英文。中文标点开关变了要重建，否则键面和上屏的还是旧的。 */
+    private Boolean builtLayerPunctuation;
 
     /** 新设计的 123 / #+= 层画在哪些界面上：26 键（含韩文键面）以及把符号页交给 26 键行的手写、笔画和注音 9 键。这一层的字符键原样上屏、不经 Engine，所以注音 9 键的数字页不会被读成音键；大千注音的数字和标点键另有用途，保留原符号行。 */
     static boolean drawsDesignLayer(int touchLayout) {
@@ -212,6 +214,13 @@ final class ImeLetterRows {
     /** 键行是否需要按分离式键盘的新状态重建：旋转、开关变化或换到另一种布局之后。 */
     boolean splitStale() {
         return s.keyRows != null && builtSplit != s.splitKeyboardDrawn();
+    }
+
+    /** 正显示着 123 / #+= 层，而中文标点开关和建层时不一样了。 */
+    boolean layerPunctuationStale() {
+        return s.keyRows != null && builtLayerPunctuation != null
+            && s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS
+            && builtLayerPunctuation != s.sendsChinesePunctuation();
     }
 
     /** 分离式键盘中间的空隙：普通的 View，不是键、不可点击，也不带键距外边距，所以 {@link KeyboardKeyArea} 不会把落在这里的按下交给旁边的键，点它什么也不发生。 */
@@ -391,6 +400,7 @@ final class ImeLetterRows {
 
     void rebuildKeyRows() {
         if (s.keyRows == null) return;
+        builtLayerPunctuation = null;
         boolean split = s.splitKeyboardDrawn();
         if (split != builtSplit) {
             builtSplit = split;
@@ -599,12 +609,15 @@ final class ImeLetterRows {
     }
 
     /**
-     * 新设计的 123 层（moreSymbols 为假）或 #+= 层：四行键自带底行（拼音 / ABC | 表情或符号 | 空格 | ↵），功能行这时整行不显示。字符键原样上屏（中文模式的全角符号也是），⌫ / 空格 / 回车用常驻的那几个键。
+     * 新设计的 123 层（moreSymbols 为假）或 #+= 层：四行键自带底行（拼音 / ABC | 表情或符号 | 空格 | ↵），功能行这时整行不显示。字符键原样上屏，⌫ / 空格 / 回车用常驻的那几个键。标点用全角中文还是半角英文跟「中文标点」走（{@link MSIMEInputService#sendsChinesePunctuation}），不是跟中英文模式：0.2.0 起这里只看中英文模式，关掉中文标点后这一层照样上屏「，」「。」。
      */
     private void rebuildDesignLayer() {
         boolean chinese = !s.dedicatedEnglish;
+        boolean chinesePunctuation = s.sendsChinesePunctuation();
+        builtLayerPunctuation = chinesePunctuation;
         java.util.List<java.util.List<KeyboardLayout.LayerKey>> rows = moreSymbols
-            ? KeyboardLayout.moreSymbolLayer(chinese) : KeyboardLayout.numberLayer(chinese);
+            ? KeyboardLayout.moreSymbolLayer(chinese, chinesePunctuation)
+            : KeyboardLayout.numberLayer(chinese, chinesePunctuation);
         for (int rowIndex = 0; rowIndex < rows.size(); rowIndex++) {
             LinearLayout row = KeyboardGeometry.row(s);
             // 最后一行是这一层自带的底栏，和功能行一样固定 46 dp、不加行距、不分摊高度调整；前三行和字母键一样分摊高度调整。否则整层比其他布局高出一份行距。底栏原先也挂了高度角色，整份调整量又加了一遍：调高时这一层比字母层高出一截，调到 75% 时底栏被压成 0 高。

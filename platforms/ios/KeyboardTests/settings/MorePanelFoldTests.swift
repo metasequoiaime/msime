@@ -41,7 +41,7 @@ final class MorePanelFoldTests: XCTestCase {
       + (haptics ? ["振动"] : [])
       + ["单手模式", "隐私模式", "反馈", "关于", "AI 润色", "高情商回复", "本地输入", "语音结果"]
       + (haptics ? ["振动强度 \(KeyboardFeedbackPreference.hapticStrength.title)"] : [])
-      + ["键盘布局", "表情", "剪贴板历史", "清除候选缓存"]
+      + ["表情", "剪贴板历史", "清除候选缓存"]
   }
 
   func testEveryToolIsReachableByPagingInTheDesignsOrder() throws {

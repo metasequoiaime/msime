@@ -14,7 +14,7 @@ use super::catalog;
 use crate::account::{AccountApi, AccountError, AccountSessionStorage};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
-use std::fs::{self, File};
+use std::fs::File;
 #[cfg(not(unix))]
 use std::io::Write;
 use std::path::Path;
@@ -907,19 +907,11 @@ impl<R: CandidateSkinSyncRemote> Run<'_, R> {
         self.with_local_effect(|run| {
             let removed = {
                 let _writes = super::folder_import::lock_skin_root();
-                let aside = run.root.join(format!(".removed-{id}"));
-                let _ = remove_entry(&aside);
-                if fs::rename(run.root.join(id), &aside).is_err() {
-                    false
-                } else {
-                    match remove_entry(&aside) {
-                        Ok(()) => true,
-                        Err(_) => {
-                            let _ = fs::rename(&aside, run.root.join(id));
-                            false
-                        }
-                    }
-                }
+                #[cfg(unix)]
+                let removed = remove_local_skin_at(run.root, id).is_ok();
+                #[cfg(not(unix))]
+                let removed = remove_local_skin_by_path(run.root, id);
+                removed
             };
             if removed {
                 run.state.packages.remove(id);
@@ -945,12 +937,56 @@ impl<R: CandidateSkinSyncRemote> Run<'_, R> {
     }
 }
 
+#[cfg(unix)]
+fn remove_local_skin_at(root: &Path, id: &str) -> std::io::Result<()> {
+    let directory = crate::storage::open_private_directory(root)?;
+    let aside = format!(".removed-{id}");
+    let aside = std::ffi::OsStr::new(&aside);
+    let name = std::ffi::OsStr::new(id);
+    let _ = crate::storage::remove_private_tree_at(&directory, aside);
+    rustix::fs::renameat(&directory, name, &directory, aside)?;
+    if let Err(error) = crate::storage::remove_private_tree_at(&directory, aside) {
+        let _ = rustix::fs::renameat(&directory, aside, &directory, name);
+        return Err(error);
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn remove_local_skin_by_path(root: &Path, id: &str) -> bool {
+    let aside = root.join(format!(".removed-{id}"));
+    let _ = remove_entry(&aside);
+    if std::fs::rename(root.join(id), &aside).is_err() {
+        return false;
+    }
+    match remove_entry(&aside) {
+        Ok(()) => true,
+        Err(_) => {
+            let _ = std::fs::rename(&aside, root.join(id));
+            false
+        }
+    }
+}
+
+#[cfg(any(not(unix), test))]
 fn remove_entry(path: &Path) -> std::io::Result<()> {
-    let metadata = fs::symlink_metadata(path)?;
-    if metadata.is_dir() && !metadata.file_type().is_symlink() {
-        fs::remove_dir_all(path)
-    } else {
-        fs::remove_file(path)
+    #[cfg(unix)]
+    {
+        let parent = path.parent().unwrap_or_else(|| Path::new("."));
+        let name = path.file_name().ok_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::InvalidInput, "entry has no name")
+        })?;
+        let directory = crate::storage::open_private_directory(parent)?;
+        crate::storage::remove_private_tree_at(&directory, name)
+    }
+    #[cfg(not(unix))]
+    {
+        let metadata = std::fs::symlink_metadata(path)?;
+        if metadata.is_dir() && !metadata.file_type().is_symlink() {
+            std::fs::remove_dir_all(path)
+        } else {
+            std::fs::remove_file(path)
+        }
     }
 }
 

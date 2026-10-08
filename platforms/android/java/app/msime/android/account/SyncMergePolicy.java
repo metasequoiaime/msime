@@ -1,7 +1,6 @@
 package app.msime.android;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -93,7 +92,7 @@ public final class SyncMergePolicy {
             String group = phrase.group() == null ? "" : phrase.group();
             result.add(new Phrase(phrase.id(), phrase.text(), group, result.size()));
         }
-        return Collections.unmodifiableList(result);
+        return ListPolicy.copyOrEmpty(result);
     }
 
     /**
@@ -136,7 +135,7 @@ public final class SyncMergePolicy {
         for (Map.Entry<String, String> entry : local.entrySet()) {
             if (!wanted.contains(entry.getValue())) remove.add(entry.getKey());
         }
-        return new LocalPlan(Collections.unmodifiableList(add), Collections.unmodifiableList(remove));
+        return new LocalPlan(ListPolicy.copyOrEmpty(add), ListPolicy.copyOrEmpty(remove));
     }
 
     /** 设置文档的叠加：以 `base`（云端）为底，`later`（本机导出）同名键覆盖；结果去掉本地专属的键。 */
@@ -232,13 +231,13 @@ public final class SyncMergePolicy {
             if (!seen.add(personalKind(word.kind()) + '\t' + word.key() + '\t' + word.value())) continue;
             current.add(new Word(personalKind(word.kind()), word.key(), word.value(), word.weight()));
             if (current.size() == size) {
-                result.add(Collections.unmodifiableList(current));
+                result.add(ListPolicy.copyOrEmpty(current));
                 current = new ArrayList<>(BoundsPolicy.atMost(
                     words.size() - result.size() * size, size));
             }
         }
-        if (!current.isEmpty()) result.add(Collections.unmodifiableList(current));
-        return Collections.unmodifiableList(result);
+        if (!current.isEmpty()) result.add(ListPolicy.copyOrEmpty(current));
+        return ListPolicy.copyOrEmpty(result);
     }
 
     /** 上传本机快照之前，个人词库队列里不能还有没被键盘应用的词，否则导出会漏掉它们、上传后云端也跟着丢。 */

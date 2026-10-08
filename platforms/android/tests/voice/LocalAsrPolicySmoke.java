@@ -82,6 +82,16 @@ public final class LocalAsrPolicySmoke {
             check(linkedManifestRejected, "a symlinked model manifest cannot be read");
             Files.delete(manifest);
             Files.delete(externalManifest);
+            Path hardlinkManifest = root.resolve("hardlink-manifest.json");
+            Files.writeString(hardlinkManifest, "{\"hotwords\":\"hardlink\"}");
+            Files.createLink(manifest, hardlinkManifest);
+            check(!LocalAsrPolicy.installed(model.toString(), root), "a hard-linked model manifest is refused");
+            boolean hardlinkManifestRejected = false;
+            try { LocalAsrPolicy.readManifest(model.toString(), root); }
+            catch (IOException expected) { hardlinkManifestRejected = true; }
+            check(hardlinkManifestRejected, "a hard-linked model manifest cannot be read");
+            Files.delete(manifest);
+            Files.delete(hardlinkManifest);
             Files.delete(externalModel.resolve(LocalAsrPolicy.MANIFEST));
             Files.delete(externalModel);
             Files.write(manifest, new byte[(int) LocalAsrPolicy.MAX_MANIFEST_BYTES + 1]);

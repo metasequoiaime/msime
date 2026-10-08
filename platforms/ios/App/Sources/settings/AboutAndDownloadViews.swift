@@ -378,6 +378,7 @@ private struct LicenseNotice: Identifiable {
   private static let all = [
     LicenseNotice(file: "MLKit-NOTICES", title: "Google ML Kit", detail: "手写识别 · 第三方声明"),
     LicenseNotice(file: "MLKit-Dependencies", title: "ML Kit 依赖组件", detail: "手写识别 · 依赖清单"),
+    LicenseNotice(file: "GoogleSignIn-Dependencies", title: "Google Sign-In", detail: "Google 登录 · Apache-2.0"),
     LicenseNotice(file: "VoiceRuntime-NOTICES", title: "sherpa-onnx", detail: "语音识别 · Apache-2.0 与 MIT"),
     LicenseNotice(file: "onnxruntime-ThirdPartyNotices", title: "ONNX Runtime", detail: "语音识别 · 第三方声明"),
     LicenseNotice(file: "libhangul-hanja-BSD-3-Clause", title: "libhangul 汉字表", detail: "韩文 · BSD-3-Clause"),

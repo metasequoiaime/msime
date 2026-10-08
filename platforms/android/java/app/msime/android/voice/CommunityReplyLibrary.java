@@ -37,6 +37,7 @@ public final class CommunityReplyLibrary {
         rejectSymlinkComponents(file);
         if (!Files.exists(file, LinkOption.NOFOLLOW_LINKS)) return List.of();
         if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) throw new IOException("Invalid community library");
+        if (!SafePaths.isSingleLink(file)) throw new IOException("Community library is not a single link");
         byte[] bytes;
         try (InputStream input = Files.newInputStream(file, LinkOption.NOFOLLOW_LINKS)) {
             bytes = HttpBodyPolicy.readRequired(input, MAXIMUM_BYTES);

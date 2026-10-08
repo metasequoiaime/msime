@@ -31,13 +31,22 @@ const pages: SettingsPageId[] = [
   "community",
   "typing-statistics",
   "vocabulary",
+  "try-keyboard",
 ];
 
 test("keeps standalone pages out of the shared form", () => {
   expect(pages.filter(isSettingsFormPage)).toEqual(
     pages.filter(
       (page) =>
-        !["typing-statistics", "vocabulary", "account", "chat", "more", "community"].includes(page),
+        ![
+          "typing-statistics",
+          "vocabulary",
+          "account",
+          "chat",
+          "more",
+          "community",
+          "try-keyboard",
+        ].includes(page),
     ),
   );
 });
@@ -45,7 +54,15 @@ test("keeps standalone pages out of the shared form", () => {
 test("keeps reload available on the shared form and more pages", () => {
   expect(pages.filter(canReloadSettingsPage)).toEqual(
     pages.filter(
-      (page) => !["typing-statistics", "vocabulary", "account", "chat", "community"].includes(page),
+      (page) =>
+        ![
+          "typing-statistics",
+          "vocabulary",
+          "account",
+          "chat",
+          "community",
+          "try-keyboard",
+        ].includes(page),
     ),
   );
 });

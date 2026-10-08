@@ -2,6 +2,7 @@
 //!
 //! 混排（26 键和九宫格）用 `query_mixed_*` / `query_*_readings`：行带上目录里的关键词，混排按关键词把它接在描绘的那个候选词后面。九宫格的数字串没有唯一的拼音，按几种可能的读法依次查。
 
+use std::borrow::Cow;
 use std::path::Path;
 
 use rusqlite::Connection;
@@ -78,7 +79,7 @@ impl<'a> QueryPrefixes<'a> {
         1 + usize::from(self.normalized.is_some())
     }
 
-    fn iter(&self) -> impl Iterator<Item = &str> {
+    fn iter(&self) -> impl Iterator<Item = &str> + Clone {
         std::iter::once(self.lower).chain(self.normalized.iter().map(String::as_str))
     }
 }
@@ -137,12 +138,16 @@ fn query_mixed(
     {
         return Vec::new();
     }
-    let lower = code.to_ascii_lowercase();
-    let readings: Vec<String> = QueryPrefixes::new(&lower, scheme, profile)
-        .iter()
-        .map(str::to_owned)
-        .collect();
-    query_readings(catalog, &readings, others_db, &|_| true)
+    let lower = if code
+        .bytes()
+        .all(|byte| byte.is_ascii_lowercase() || byte == b'\'')
+    {
+        Cow::Borrowed(code)
+    } else {
+        Cow::Owned(code.to_ascii_lowercase())
+    };
+    let prefixes = QueryPrefixes::new(lower.as_ref(), scheme, profile);
+    query_readings(catalog, prefixes.iter(), others_db, &|_| true)
 }
 
 /// 九宫格混排：依次按 `readings`（小写全拼，可能性高的在前）查 emoji，见 `query_readings`。
@@ -151,7 +156,12 @@ pub fn query_emoji_readings(
     others_db: &Path,
     accept: &dyn Fn(&str) -> bool,
 ) -> Vec<ExpressiveRow> {
-    query_readings(&EMOJI, readings, others_db, accept)
+    query_readings(
+        &EMOJI,
+        readings.iter().map(String::as_str),
+        others_db,
+        accept,
+    )
 }
 
 /// 九宫格混排：依次按 `readings` 查颜文字，见 `query_readings`。
@@ -160,24 +170,32 @@ pub fn query_kaomoji_readings(
     others_db: &Path,
     accept: &dyn Fn(&str) -> bool,
 ) -> Vec<ExpressiveRow> {
-    query_readings(&KAOMOJI, readings, others_db, accept)
+    query_readings(
+        &KAOMOJI,
+        readings.iter().map(String::as_str),
+        others_db,
+        accept,
+    )
 }
 
 /// 读法逐个查，每种读法内编码与读法完全相同的在前、再按目录顺序；命中的编码（emoji 的 `key`，颜文字的 `pinyin` 或 `jianpin`）以这个读法开头、并且通过 `accept`，这一行才算。每种读法最多 `MIXED_FETCH_PER_READING` 行，跨读法按文字去重，合计取够 `MIXED_FETCH_LIMIT` 行就不再查。行的 `pinyin` 是命中的读法，权重从行数往下数。混排不报诊断：资源打不开或查询失败时只是没有这些行。
-fn query_readings(
+fn query_readings<'a, I>(
     catalog: &Catalog,
-    readings: &[String],
+    readings: I,
     others_db: &Path,
     accept: &dyn Fn(&str) -> bool,
-) -> Vec<ExpressiveRow> {
-    if readings.is_empty() {
+) -> Vec<ExpressiveRow>
+where
+    I: IntoIterator<Item = &'a str> + Clone,
+{
+    if readings.clone().into_iter().next().is_none() {
         return Vec::new();
     }
     let Some(database) = open_local_database(others_db) else {
         return Vec::new();
     };
     let connection = lock(&database);
-    let entries = match read_readings(&connection, catalog.mixed_sql, readings, accept) {
+    let entries = match read_readings(&connection, catalog.mixed_sql, readings.clone(), accept) {
         Ok(entries) => entries,
         // 目录表缺失只是接不上候选词，行照样给；其他失败由退回的语句再报一次，同样没有行。
         Err(_) => read_readings(
@@ -199,12 +217,15 @@ fn query_readings(
         .collect()
 }
 
-fn read_readings<'a>(
+fn read_readings<'a, I>(
     connection: &Connection,
     sql: &str,
-    readings: &'a [String],
+    readings: I,
     accept: &dyn Fn(&str) -> bool,
-) -> rusqlite::Result<Vec<(&'a str, String, String)>> {
+) -> rusqlite::Result<Vec<(&'a str, String, String)>>
+where
+    I: IntoIterator<Item = &'a str>,
+{
     let mut statement = connection.prepare_cached(sql)?;
     let mut entries: Vec<(&str, String, String)> = Vec::with_capacity(MIXED_FETCH_PER_READING);
     for reading in readings {
@@ -219,7 +240,7 @@ fn read_readings<'a>(
             let mut matched = false;
             for column in 1..=2 {
                 let key = row.get::<_, Option<String>>(column)?.unwrap_or_default();
-                if key.starts_with(reading.as_str()) && accept(&key) {
+                if key.starts_with(reading) && accept(&key) {
                     matched = true;
                     break;
                 }
@@ -228,7 +249,7 @@ fn read_readings<'a>(
                 continue;
             }
             let keywords = row.get::<_, Option<String>>(3)?.unwrap_or_default();
-            entries.push((reading.as_str(), text, keywords));
+            entries.push((reading, text, keywords));
             if entries.len() == MIXED_FETCH_LIMIT {
                 return Ok(entries);
             }
@@ -581,6 +602,30 @@ mod tests {
         let kaixin = query_mixed_kaomoji("kaixin", quanpin, &path, &QUANPIN_ONLY);
         assert_eq!(mixed_words(&kaixin), ["(^_^)"]);
         assert_eq!(kaixin[0].keywords, "");
+    }
+
+    #[test]
+    fn mixed_quanpin_queries_do_not_allocate_temporary_readings() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = mixed_fixture(dir.path());
+        let readings = readings(&["meiguo"]);
+        let expected = query_emoji_readings(&readings, &path, &|_| true);
+        let (direct, direct_allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            query_emoji_readings(&readings, &path, &|_| true)
+        });
+        assert_eq!(direct, expected);
+
+        for (code, lowercase_allocations) in [("meiguo", 0), ("MeiGuo", 1)] {
+            let (rows, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+                query_mixed_emoji(code, SchemeType::Quanpin, &path, &QUANPIN_ONLY)
+            });
+            assert_eq!(rows, expected);
+            assert_eq!(
+                allocations,
+                direct_allocations + lowercase_allocations,
+                "混排查询不应复制读法列表：{code} 分配了 {allocations} 次，直接查询为 {direct_allocations} 次"
+            );
+        }
     }
 
     /// 合计最多取 `MIXED_FETCH_LIMIT` 行。

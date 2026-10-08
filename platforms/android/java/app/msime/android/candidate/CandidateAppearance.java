@@ -3,7 +3,6 @@ package app.msime.android;
 import org.json.JSONObject;
 import org.json.JSONArray;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 
 /** Validated candidate presentation values consumed by the Android host. */
@@ -84,7 +83,7 @@ public final class CandidateAppearance {
             }
         }
         if (result.isEmpty()) return List.of("Noto Sans SC", "Microsoft YaHei");
-        return Collections.unmodifiableList(result);
+        return ListPolicy.copyOrEmpty(result);
     }
 
     private static String safeFont(String value, String fallback) {

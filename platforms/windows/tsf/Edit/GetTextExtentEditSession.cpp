@@ -40,6 +40,11 @@ STDAPI CGetTextExtentEditSession::DoEditSession(TfEditCookie ec)
     double getTextExtElapsedMs = 0;
     double layoutChangeElapsedMs = 0;
 
+    if (_pTfTextLayoutSink->_IsDetached())
+    {
+        return S_OK;
+    }
+
     PerfTimer getTextExtTimer;
     hr = _pContextView->GetTextExt(ec, _pRangeComposition, &rc, &isClipped);
     getTextExtElapsedMs = getTextExtTimer.ElapsedMs();

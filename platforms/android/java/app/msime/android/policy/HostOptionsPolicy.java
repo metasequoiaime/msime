@@ -1,6 +1,7 @@
 package app.msime.android.policy;
 
 import app.msime.android.HttpBodyPolicy;
+import app.msime.android.SafePaths;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
@@ -19,7 +20,8 @@ public final class HostOptionsPolicy {
 
     /** Returns UTF-8 contents, or an empty string when the file is missing, unreadable or too large. */
     public static String read(File file) throws IOException {
-        if (file == null || !Files.isRegularFile(file.toPath(), LinkOption.NOFOLLOW_LINKS)) return "";
+        if (file == null || !Files.isRegularFile(file.toPath(), LinkOption.NOFOLLOW_LINKS)
+                || !SafePaths.isSingleLink(file.toPath())) return "";
         if (Files.size(file.toPath()) > MAX_BYTES) return "";
         try (InputStream input = Files.newInputStream(file.toPath(), LinkOption.NOFOLLOW_LINKS)) {
             return new String(HttpBodyPolicy.readRequired(input, MAX_BYTES), StandardCharsets.UTF_8);

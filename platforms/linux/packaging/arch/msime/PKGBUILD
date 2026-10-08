@@ -84,6 +84,13 @@ options=('!lto')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/linux-v$pkgver.tar.gz")
 sha256sums=('d24ddfebe51d71752d2d431f06ba3e40569f259e3cce31ef8d9f531e1cf85b48')
 
+# fakeroot 下 file(1) 会因 SIGSYS 崩溃（file 5.48 + fakeroot 1.37 实测：连 `fakeroot -- file -b /usr/bin/ls`
+# 都报“错误的系统调用”，退出码 159），`file -b "$elf" | grep -q '^ELF'` 因此在 package() 里恒为假：
+# 以它为条件的核对整体跳过，构建照样通过。改用 coreutils 读 ELF 魔数。
+_msime_is_elf() {
+  [[ $(od -An -N4 -tx1 -- "$1" 2>/dev/null | tr -d '[:space:]') == 7f454c46 ]]
+}
+
 _srcdir() {
   printf '%s' "$srcdir/msime-linux-v$pkgver"
 }
@@ -166,8 +173,8 @@ package() {
   [[ $(realpath -- "$resolved") == "$pkgdir/usr/lib/msime-client/libmsime_host_api.so" ]]
   local elf missing=0
   while IFS= read -r -d '' elf; do
-    if file -b "$elf" | grep -q '^ELF'; then
-      if ldd "$elf" | grep -q 'not found'; then
+    if _msime_is_elf "$elf"; then
+      if ldd "$elf" 2>/dev/null | grep -q 'not found'; then
         echo "unresolved libraries in ${elf#"$pkgdir"}:" >&2
         ldd "$elf" | grep 'not found' >&2
         missing=1

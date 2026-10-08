@@ -7,6 +7,7 @@ import android.app.Instrumentation;
 import android.app.UiAutomation;
 import android.content.Intent;
 import android.graphics.Rect;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.SystemClock;
 import android.view.MotionEvent;
@@ -37,6 +38,7 @@ public class DeviceSmoke extends Instrumentation {
         }
     }
     protected String successDescription() {
+        if (Build.VERSION.SDK_INT < 30) return "phrase commit and deletion (API " + Build.VERSION.SDK_INT + ")";
         return "phrase commit, Traditional Chinese display/commit, deletion and password direct input";
     }
     protected void runChecks() throws Exception {
@@ -56,13 +58,18 @@ public class DeviceSmoke extends Instrumentation {
             stage = "deletion";
             tap(key("⌫"));
             await(field("msime-test-plain").and(node -> equalsText("你", node.getText())));
+            // 安卓 11（API 30）以下到此为止：在 API 28 模拟器上，「更多」面板在屏幕上正常打开、点按也生效，但 UiAutomation 的无障碍树里拿不到面板和它的任何磁贴，后面的繁体输出流程没法在那里驱动。打开应用、准备词库、拼音上屏和删除这条主路径仍在 API 28 上检查。
+            if (Build.VERSION.SDK_INT < 30) return;
             // 繁体输出 is a setting rather than a toolbar key, the way Apple has it: it moved out
             // of the shortcut bar and into 更多, so this drives it there.
-            stage = "simplified output baseline";
+            stage = "simplified output baseline: more key";
             tap(key("更多"));
+            stage = "simplified output baseline: tool panel";
             await(toolPanel());
+            stage = "simplified output baseline: traditional tool";
             AccessibilityNodeInfo script = await(tool("繁体输出"));
-            if (equalsText("已开启", script.getStateDescription())) {
+            stage = "simplified output baseline";
+            if (equalsText("已开启", switchState(script))) {
                 tap(tool("繁体输出"));
                 await(toolWithState("繁体输出", "已关闭"));
             }
@@ -124,8 +131,10 @@ public class DeviceSmoke extends Instrumentation {
     protected Predicate<AccessibilityNodeInfo> key(String text) {
         boolean letter = text.length() == 1 && Character.isLetter(text.charAt(0))
             && text.charAt(0) < 128;
+        // 组字时读音行可以点（点中的字母前放组字光标，#5613），它的文字可能就是一个字母（打了 n，读音行是 n）；只认按钮，不然会点到读音行上去。
         return node -> equalsText("app.msime.android", node.getPackageName())
             && (letter ? node.getText() != null && text.equalsIgnoreCase(node.getText().toString())
+                    && equalsText("android.widget.Button", node.getClassName())
                 : equalsText(text, node.getText()));
     }
     /**
@@ -154,7 +163,20 @@ public class DeviceSmoke extends Instrumentation {
     }
 
     protected Predicate<AccessibilityNodeInfo> toolWithState(String description, String state) {
-        return tool(description).and(node -> equalsText(state, node.getStateDescription()));
+        return tool(description).and(node -> equalsText(state, switchState(node)));
+    }
+
+    /**
+     * 控件的状态文本。安卓 11（API 30）起读应用设的无障碍状态描述；更早的系统没有这个接口，应用在那里只用 selected 表达开关和选中、用 enabled 表达不可用（见 `FunctionPanelView`、`ImeFunctionPanel`），这里折算成同样的文本，让这些检查在 minSdk 28 的模拟器上也能跑。
+     */
+    protected static CharSequence state(AccessibilityNodeInfo node, String selected, String unselected) {
+        if (Build.VERSION.SDK_INT >= 30) return node.getStateDescription();
+        if (!node.isEnabled()) return "不可用";
+        return node.isSelected() ? selected : unselected;
+    }
+
+    protected static CharSequence switchState(AccessibilityNodeInfo node) {
+        return state(node, "已开启", "已关闭");
     }
 
     protected Predicate<AccessibilityNodeInfo> scriptState() {
@@ -206,7 +228,7 @@ public class DeviceSmoke extends Instrumentation {
             }
             SystemClock.sleep(100);
         } while (SystemClock.uptimeMillis() < deadline);
-        throw new AssertionError("Expected synthetic UI state was not observed");
+        throw new AssertionError("Expected synthetic UI state was not observed; IME showed " + imeTexts());
     }
     protected AccessibilityNodeInfo awaitAny(Predicate<AccessibilityNodeInfo> match) {
         long deadline = SystemClock.uptimeMillis() + 15000;
@@ -217,7 +239,41 @@ public class DeviceSmoke extends Instrumentation {
             }
             SystemClock.sleep(100);
         } while (SystemClock.uptimeMillis() < deadline);
-        throw new AssertionError("Expected synthetic control was not observed");
+        throw new AssertionError("Expected synthetic control was not observed; IME showed " + imeTexts());
+    }
+
+    /** 等控件的位置和大小连续两次读到一样：面板打开、翻页有动画，动画中量到的尺寸是过渡值。 */
+    protected AccessibilityNodeInfo awaitStableBounds(Predicate<AccessibilityNodeInfo> match) {
+        Rect previous = null;
+        long deadline = SystemClock.uptimeMillis() + 15000;
+        while (SystemClock.uptimeMillis() < deadline) {
+            AccessibilityNodeInfo node = await(match);
+            Rect bounds = new Rect();
+            node.getBoundsInScreen(bounds);
+            if (bounds.equals(previous)) return node;
+            previous = bounds;
+            SystemClock.sleep(250);
+        }
+        throw new AssertionError("Bounds never settled; IME showed " + imeTexts());
+    }
+
+    /** 超时时输入法窗口里看得见的文字（键面、候选、提示），最多 30 条：只读输入法自己的节点，不读编辑器内容。 */
+    protected String imeTexts() {
+        java.util.List<String> texts = new java.util.ArrayList<>();
+        for (AccessibilityWindowInfo window : automation.getWindows()) {
+            collectImeTexts(window.getRoot(), texts);
+            if (texts.size() >= 30) break;
+        }
+        return texts.toString();
+    }
+
+    private static void collectImeTexts(AccessibilityNodeInfo node, java.util.List<String> texts) {
+        if (node == null || texts.size() >= 30) return;
+        if (equalsText("app.msime.android", node.getPackageName())) {
+            CharSequence text = node.getText() != null ? node.getText() : node.getContentDescription();
+            if (text != null && text.length() > 0) texts.add(text.toString());
+        }
+        for (int index = 0; index < node.getChildCount(); index++) collectImeTexts(node.getChild(index), texts);
     }
     protected void tap(Predicate<AccessibilityNodeInfo> match) throws java.util.concurrent.TimeoutException {
         AccessibilityNodeInfo target = awaitAny(match);

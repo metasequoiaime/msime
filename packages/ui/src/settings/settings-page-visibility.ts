@@ -7,6 +7,7 @@ const formExcludedPages: readonly SettingsPageId[] = [
   "chat",
   "more",
   "community",
+  "try-keyboard",
 ];
 
 const reloadExcludedPages: readonly SettingsPageId[] = [
@@ -15,6 +16,7 @@ const reloadExcludedPages: readonly SettingsPageId[] = [
   "account",
   "chat",
   "community",
+  "try-keyboard",
 ];
 
 /** 页脚显示「恢复默认设置」的偏好页。关于、反馈、帮助、维护与诊断这类页面不改偏好，在那里出现这个按钮会让人以为它只恢复当前页。 */

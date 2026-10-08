@@ -24,26 +24,32 @@ impl ShuangpinScheme {
         self.raw.clear();
     }
 
-    pub fn handle_key(&mut self, key: SchemeKey) {
+    pub fn handle_key(&mut self, key: SchemeKey) -> bool {
         match key {
-            SchemeKey::Backspace => {
-                self.raw.pop();
-            }
+            SchemeKey::Backspace => self.raw.pop().is_some(),
             // A second consecutive `'` is refused, so `''` never forms from keys; a leading one is kept (:66-74).
             SchemeKey::Apostrophe => {
                 if !self.raw.ends_with('\'') {
                     self.raw.push('\'');
+                    true
+                } else {
+                    false
                 }
             }
             SchemeKey::Semicolon => {
                 if self.accepts_ing_key() {
                     self.raw.push(';');
+                    true
+                } else {
+                    false
                 }
             }
             SchemeKey::Letter(letter) if letter.is_ascii_alphabetic() => {
                 self.raw.push(char::from(letter));
+                true
             }
             SchemeKey::Letter(_) | SchemeKey::Minus | SchemeKey::Symbol(_) | SchemeKey::Requery => {
+                false
             }
         }
     }

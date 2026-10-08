@@ -94,6 +94,15 @@ int main() {
             "diagnostic log followed a leaf reparse point");
     std::filesystem::remove(leaf);
   }
+
+  const auto hardlink = linked_root / L"hardlink.log";
+  require(CreateHardLinkW(hardlink.c_str(), outside_file.c_str(), nullptr) != FALSE,
+          "create diagnostic hard link");
+  DiagnosticLog hardlinked(hardlink);
+  hardlinked.set_enabled(true, false);
+  hardlinked.server("must not modify hardlink");
+  require(read(outside_file) == "synthetic outside", "diagnostic log modified a hard link");
+  std::filesystem::remove(hardlink);
   std::filesystem::remove_all(linked_root);
   return 0;
 }

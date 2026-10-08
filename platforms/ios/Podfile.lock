@@ -1,7 +1,24 @@
 PODS:
+  - AppAuth (3.0.0):
+    - AppAuth/Core (= 3.0.0)
+    - AppAuth/ExternalUserAgent (= 3.0.0)
+  - AppAuth/Core (3.0.0)
+  - AppAuth/ExternalUserAgent (3.0.0):
+    - AppAuth/Core
+  - AppCheckCore (11.3.2):
+    - GoogleUtilities/Environment (~> 8.0)
+    - GoogleUtilities/UserDefaults (~> 8.0)
+    - PromisesObjC (~> 2.4)
+    - PromisesSwift (~> 2.4)
+    - RecaptchaInterop (~> 101.0)
   - GoogleDataTransport (10.1.0):
     - nanopb (~> 3.30910.0)
     - PromisesObjC (~> 2.4)
+  - GoogleSignIn (10.0.0):
+    - AppAuth (~> 3.0)
+    - AppCheckCore (~> 11.0)
+    - GTMAppAuth (~> 6.0)
+    - GTMSessionFetcher/Core (< 6.0, >= 3.3)
   - GoogleToolboxForMac/Defines (4.2.1)
   - GoogleToolboxForMac/Logger (4.2.1):
     - GoogleToolboxForMac/Defines (= 4.2.1)
@@ -16,6 +33,9 @@ PODS:
   - GoogleUtilities/UserDefaults (8.1.0):
     - GoogleUtilities/Logger
     - GoogleUtilities/Privacy
+  - GTMAppAuth (6.0.0):
+    - AppAuth/Core (~> 3.0)
+    - GTMSessionFetcher/Core (< 6.0, >= 3.3)
   - GTMSessionFetcher/Core (3.5.0)
   - MLKitCommon (14.0.0):
     - GoogleDataTransport (~> 10.0)
@@ -36,36 +56,52 @@ PODS:
   - nanopb/decode (3.30910.0)
   - nanopb/encode (3.30910.0)
   - PromisesObjC (2.4.0)
+  - PromisesSwift (2.4.0):
+    - PromisesObjC (= 2.4.0)
+  - RecaptchaInterop (101.0.0)
   - SSZipArchive (2.6.0)
 
 DEPENDENCIES:
+  - GoogleSignIn (= 10.0.0)
   - MLKitDigitalInkRecognition (= 8.0.0)
 
 SPEC REPOS:
   trunk:
+    - AppAuth
+    - AppCheckCore
     - GoogleDataTransport
+    - GoogleSignIn
     - GoogleToolboxForMac
     - GoogleUtilities
+    - GTMAppAuth
     - GTMSessionFetcher
     - MLKitCommon
     - MLKitDigitalInkRecognition
     - MLKitMDD
     - nanopb
     - PromisesObjC
+    - PromisesSwift
+    - RecaptchaInterop
     - SSZipArchive
 
 SPEC CHECKSUMS:
+  AppAuth: 5dec4b6a833eb0342b26bacbc5f3af694f71274a
+  AppCheckCore: be8fce5469f68d7f6a29aa94b25f097409ff7fdc
   GoogleDataTransport: aae35b7ea0c09004c3797d53c8c41f66f219d6a7
+  GoogleSignIn: 7627569b027be4beb872416c38859a2e5d5e1075
   GoogleToolboxForMac: d1a2cbf009c453f4d6ded37c105e2f67a32206d8
   GoogleUtilities: 00c88b9a86066ef77f0da2fab05f65d7768ed8e1
+  GTMAppAuth: 66e839a30bb63acb109b8986a0c3f642d56d48fd
   GTMSessionFetcher: 5aea5ba6bd522a239e236100971f10cb71b96ab6
   MLKitCommon: 47d47b50a031d00db62f1b0efe5a1d8b09a3b2e6
   MLKitDigitalInkRecognition: d352ba532b816e7a930b8fa2e180288352c4736c
   MLKitMDD: 264ea38cb1eafc18ee1f37eb69e7f2596962df6c
   nanopb: fad817b59e0457d11a5dfbde799381cd727c1275
   PromisesObjC: f5707f49cb48b9636751c5b2e7d227e43fba9f47
+  PromisesSwift: 9d77319bbe72ebf6d872900551f7eeba9bce2851
+  RecaptchaInterop: 11e0b637842dfb48308d242afc3f448062325aba
   SSZipArchive: 8a6ee5677c8e304bebc109e39cf0da91ccef22ea
 
-PODFILE CHECKSUM: 44b2a9b904e01951446c5d813962487d28c00a44
+PODFILE CHECKSUM: 8ae59158e7495ebc34b34ec5989c79c7869f0fcc
 
 COCOAPODS: 1.17.0

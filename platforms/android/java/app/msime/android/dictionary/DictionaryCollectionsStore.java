@@ -3,7 +3,6 @@ package app.msime.android;
 import android.content.Context;
 import app.msime.android.policy.HostOptionsPolicy;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 import org.json.JSONArray;
@@ -413,7 +412,7 @@ public final class DictionaryCollectionsStore {
         if (formats.contains("hans")) {
             sources.add(new ImportSource("hans", "纯汉字词表（每行一个词）", new String[] {"text/plain"}));
         }
-        return Collections.unmodifiableList(sources);
+        return ListPolicy.copyOrEmpty(sources);
     }
 
     /** 把 client-core 的错误码换成可直接展示的话；不认识的码一律按通用失败处理。 */
@@ -473,7 +472,7 @@ public final class DictionaryCollectionsStore {
         ImportReport importReport = report == null ? null : new ImportReport(
             nonNegativeInteger(report.opt("imported"), 0), nonNegativeInteger(report.opt("duplicates"), 0),
             nonNegativeInteger(report.opt("failed"), 0), JsonPolicy.strictTrue(report.opt("truncated")));
-        return new View(Collections.unmodifiableList(collections), Collections.unmodifiableList(formats), importReport);
+        return new View(ListPolicy.copyOrEmpty(collections), ListPolicy.copyOrEmpty(formats), importReport);
     }
 
     /** 解析一页词条（`value`）。 */
@@ -493,7 +492,7 @@ public final class DictionaryCollectionsStore {
                 words.add(new Word(kind, key, word, weight, source));
             }
         }
-        return new WordPage(Collections.unmodifiableList(words), JsonPolicy.strictTrue(value.opt("has_more")));
+        return new WordPage(ListPolicy.copyOrEmpty(words), JsonPolicy.strictTrue(value.opt("has_more")));
     }
 
     private static Result<View> collections(Context context, JSONObject action, boolean changesWords) {

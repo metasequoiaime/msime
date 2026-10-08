@@ -24,8 +24,10 @@ public final class CommonPhrasesStarterSmoke {
         }
 
         Set<String> sample = new LinkedHashSet<>(List.of("马上到", "好的，收到"));
-        check(CommonPhrasesStore.decodeStarters(CommonPhrasesStore.encodeStarters(sample)).equals(sample),
+        Set<String> decoded = CommonPhrasesStore.decodeStarters(CommonPhrasesStore.encodeStarters(sample));
+        check(decoded.equals(sample),
             "the marker round-trips");
+        check(List.copyOf(decoded).equals(List.copyOf(sample)), "the marker keeps starter order");
         check(CommonPhrasesStore.decodeStarters(new byte[0]).isEmpty(), "an empty marker from an older build records nothing");
 
         File directory = Files.createTempDirectory("msime-starters").toFile();

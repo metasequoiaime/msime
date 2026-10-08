@@ -1,5 +1,7 @@
 import app.msime.android.CommunitySkinCache;
 import java.lang.reflect.Method;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 public final class CommunitySkinCacheSmoke {
     public static void main(String[] arguments) throws Exception {
@@ -11,6 +13,19 @@ public final class CommunitySkinCacheSmoke {
             "community cache text rejects numbers instead of coercing them");
         check(strictString.invoke(null, Boolean.TRUE) == null,
             "community cache text rejects booleans instead of coercing them");
+        Path root = Files.createTempDirectory("community-skin-cache-");
+        Path outside = Files.createTempFile("community-skin-cache-hardlink-", ".json");
+        try {
+            Files.writeString(outside,
+                "[{\"id\":\"outside\",\"name\":\"outside\",\"author\":\"\",\"design\":{}}]");
+            Files.createLink(root.resolve("community-skins.json"), outside);
+            check(CommunitySkinCache.read(root).isEmpty(),
+                "community cache rejects hard-linked files");
+        } finally {
+            Files.deleteIfExists(root.resolve("community-skins.json"));
+            Files.deleteIfExists(root);
+            Files.deleteIfExists(outside);
+        }
         System.out.println("CommunitySkinCache smoke passed");
     }
 

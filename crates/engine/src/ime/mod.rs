@@ -167,14 +167,17 @@ impl ImeSession {
     }
 
     /// `scheme.handle_key` then `refresh_candidates`; `SchemeKey::Requery` only refreshes.
-    pub fn handle_key(&mut self, key: SchemeKey) {
-        if key != SchemeKey::Requery {
-            self.scheme.handle_key(key);
+    pub fn handle_key(&mut self, key: SchemeKey) -> bool {
+        let changed = if key != SchemeKey::Requery {
+            self.scheme.handle_key(key)
         } else if self.current_scheme_type() == SchemeType::Cantonese {
             // 粤拼词典只读，候选不受在线词或会话设置影响；重查询保留当前快照即可。
-            return;
-        }
+            return false;
+        } else {
+            false
+        };
         self.refresh_candidates();
+        changed
     }
 
     /// Opens what `scheme` reads (`msime-cantonese.db` for Cantonese, `msime-zhuyin.db` for Zhuyin, `msime-stroke.db` for Stroke) without switching to it, so a caller can learn that the scheme is unavailable before it discards anything; `switch_scheme` to an activated scheme cannot fail. A live Zhuyin scheme already holds `msime-zhuyin.db`, so activating Zhuyin again opens nothing.
@@ -466,13 +469,21 @@ impl ImeSession {
         self.decode(&request).candidates
     }
 
-    /// `expand_initial_candidates` for a list `query_raw_candidates` returned for the same raw prefix.
-    pub fn expand_raw_initial_candidates(
+    /// 扩展当前请求的光标前缀，直接借用请求里的带大小写原文，避免调用方先复制前缀。
+    pub fn expand_current_raw_prefix_initial_candidates(
         &mut self,
         raw: &str,
-        raw_with_cases: &str,
+        prefix_end: usize,
         candidates: &mut Vec<WordItem>,
     ) -> bool {
+        let raw_with_cases = if self.state.request.raw_input_with_cases.is_empty() {
+            &self.state.request.raw_input
+        } else {
+            &self.state.request.raw_input_with_cases
+        };
+        let Some(raw_with_cases) = raw_with_cases.get(..prefix_end) else {
+            return false;
+        };
         let request = self.raw_request(raw, raw_with_cases);
         request.valid
             && self
@@ -621,8 +632,13 @@ impl ImeSession {
             }
             None if request.scheme == SchemeType::Cantonese => {
                 let mut candidates = std::mem::take(&mut self.state.candidates);
-                self.registry
-                    .query_cantonese_into(&request, &mut candidates);
+                if let Some(scheme) = self.scheme.as_cantonese() {
+                    self.registry
+                        .query_cantonese_scheme_into(scheme, &mut candidates);
+                } else {
+                    self.registry
+                        .query_cantonese_into(&request, &mut candidates);
+                }
                 Decoded {
                     candidates,
                     wubi_table_answered: false,

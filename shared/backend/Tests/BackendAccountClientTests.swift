@@ -212,6 +212,9 @@ final class BackendAccountClientTests: XCTestCase {
     XCTAssertEqual(providers["email"], false)
     let challenge = try await client.challenge(provider: "apple")
     XCTAssertEqual(challenge.nonce, "server-nonce")
+    // iOS 的 Google 登录走 ID token 流程，不带回调地址。
+    let google = try await client.challenge(provider: "google")
+    XCTAssertEqual(google.nonce, "server-nonce")
   }
   func testProvidersRejectsUnboundedOrMalformedMap() async throws {
     for protocolClass in [OversizedProvidersProtocol.self, InvalidProviderKeyProtocol.self] {

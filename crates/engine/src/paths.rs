@@ -103,13 +103,60 @@ pub(crate) fn open_file_no_follow(path: &Path) -> io::Result<File> {
         options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
     }
     let file = options.open(path)?;
-    if !file.metadata()?.is_file() {
+    let metadata = file.metadata()?;
+    if !metadata.is_file() || !has_single_link(&file)? {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            "engine asset is not a regular file",
+            "engine asset is not a single-link regular file",
         ));
     }
     Ok(file)
+}
+
+/// 已打开的文件是否只有一个硬链接。engine 里拒绝硬链接的地方都用这一份：Windows 上标准库的 `MetadataExt::number_of_links` 还是不稳定特性（`windows_by_handle`），各处自己写就会在 Windows 上编译失败；这里经 `winapi-util` 读硬链接数，与 `msime_client_core::file_lock::has_single_link` 相同（engine 不依赖 client-core，用不了那一份）。
+#[cfg(unix)]
+pub(crate) fn has_single_link(file: &File) -> io::Result<bool> {
+    use std::os::unix::fs::MetadataExt;
+    Ok(file.metadata()?.nlink() == 1)
+}
+
+/// 已打开的文件是否只有一个硬链接；见 Unix 版的说明。
+#[cfg(windows)]
+pub(crate) fn has_single_link(file: &File) -> io::Result<bool> {
+    Ok(winapi_util::file::information(file)?.number_of_links() == 1)
+}
+
+/// 没有硬链接计数可读的平台一律按单链接处理。
+#[cfg(not(any(unix, windows)))]
+pub(crate) fn has_single_link(_: &File) -> io::Result<bool> {
+    Ok(true)
+}
+
+/// 路径上的数据库文件是否只有一个硬链接。Unix 直接读 `metadata` 的 `nlink`；Windows 的硬链接数只能经句柄读，所以先不跟随重解析点地打开它。
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+fn path_has_single_link(path: &Path, metadata: &std::fs::Metadata) -> io::Result<bool> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let _ = path;
+        Ok(metadata.nlink() == 1)
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+        let _ = metadata;
+        let file = OpenOptions::new()
+            .read(true)
+            .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+            .open(path)?;
+        has_single_link(&file)
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = (path, metadata);
+        Ok(true)
+    }
 }
 
 /// SQLite's `SQLITE_OPEN_NOFOLLOW` rejects trusted system aliases such as
@@ -148,7 +195,16 @@ fn sqlite_path_no_follow_with_parent_policy(
         let name = path.file_name().ok_or_else(|| {
             io::Error::new(io::ErrorKind::InvalidInput, "database path has no filename")
         })?;
-        Ok(std::fs::canonicalize(parent)?.join(name))
+        let resolved = std::fs::canonicalize(parent)?.join(name);
+        if let Ok(metadata) = std::fs::symlink_metadata(&resolved) {
+            if metadata.file_type().is_symlink() || !path_has_single_link(&resolved, &metadata)? {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "database is not a single-link regular file",
+                ));
+            }
+        }
+        Ok(resolved)
     }
 }
 
@@ -198,6 +254,20 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
 
         assert!(open_file_no_follow(root.path()).is_err());
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn opening_an_asset_rejects_a_hard_link() {
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let target = outside.path().join("asset.bin");
+        std::fs::write(&target, b"synthetic engine asset").unwrap();
+        let linked = root.path().join("asset.bin");
+        std::fs::hard_link(&target, &linked).unwrap();
+
+        assert!(open_file_no_follow(&linked).is_err());
+        assert_eq!(std::fs::read(&target).unwrap(), b"synthetic engine asset");
     }
 
     #[test]
@@ -254,5 +324,19 @@ mod tests {
             paths.dictionary(assets::MAIN_DICTIONARY),
             paths.dictionaries.join("msime-pinyin.db")
         );
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn sqlite_paths_reject_hard_linked_databases() {
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let target = root.path().join("database.db");
+        let external = outside.path().join("database.db");
+        std::fs::write(&external, b"synthetic database").unwrap();
+        std::fs::hard_link(&external, &target).unwrap();
+
+        assert!(sqlite_path_no_follow(&target).is_err());
+        assert_eq!(std::fs::read(&external).unwrap(), b"synthetic database");
     }
 }

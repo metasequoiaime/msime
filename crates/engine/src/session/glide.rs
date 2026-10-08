@@ -34,22 +34,35 @@ impl InputSession {
             if !typed.handled || rest.is_empty() {
                 return typed;
             }
-            let mut text = self.editing_text();
-            text.push_str(&letters[1..]);
+            let text = {
+                let current = self.raw_with_cases();
+                let mut text = String::with_capacity(current.len() + rest.len());
+                text.push_str(current);
+                text.push_str(&letters[1..]);
+                text
+            };
             let caret = text.len();
             return self.replace_editing_text(&text, caret);
         }
-        let mut text = self.editing_text();
         let caret = self.caret_position();
-        let mut inserted = String::with_capacity(letters.len() + 2);
-        if caret > 0 && !text[..caret].ends_with('\'') {
-            inserted.push('\'');
-        }
-        inserted.push_str(letters);
-        if caret < text.len() && !text[caret..].starts_with('\'') {
-            inserted.push('\'');
-        }
-        text.insert_str(caret, &inserted);
-        self.replace_editing_text(&text, caret + inserted.len())
+        let (text, new_caret) = {
+            let current = self.raw_with_cases();
+            let left_separator = caret > 0 && !current[..caret].ends_with('\'');
+            let right_separator = caret < current.len() && !current[caret..].starts_with('\'');
+            let inserted_len =
+                letters.len() + usize::from(left_separator) + usize::from(right_separator);
+            let mut text = String::with_capacity(current.len() + inserted_len);
+            text.push_str(&current[..caret]);
+            if left_separator {
+                text.push('\'');
+            }
+            text.push_str(letters);
+            if right_separator {
+                text.push('\'');
+            }
+            text.push_str(&current[caret..]);
+            (text, caret + inserted_len)
+        };
+        self.replace_editing_text(&text, new_caret)
     }
 }

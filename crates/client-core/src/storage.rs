@@ -13,7 +13,41 @@ use std::sync::atomic::{AtomicU64, Ordering};
 #[cfg(unix)]
 static PRIVATE_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
-#[cfg(unix)]
+/// Apple 平台不逐级打开：iOS 沙盒不允许应用以读方式打开容器的祖先目录（`/private/var/mobile/Containers/Shared/AppGroup` 这些），逐级 `RDONLY` 在走到 App Group 容器之前就 EPERM，统计、账号、剪贴板等私有文件读写全部失败，而 Darwin 没有 `O_PATH`。`O_NOFOLLOW_ANY` 让内核在一次解析里拒绝路径上任何一级符号链接，与逐级 `NOFOLLOW` 一样不留检查与打开之间的窗口，解析只需要祖先的搜索权限。路径经过 `msime-path-trust` 列出的系统别名（`/var`、`/tmp`）时先换成它唯一受信任的目标再打开。
+#[cfg(target_vendor = "apple")]
+pub(crate) fn open_private_directory(parent: &Path) -> io::Result<File> {
+    let flags = rustix::fs::OFlags::RDONLY
+        | rustix::fs::OFlags::DIRECTORY
+        | rustix::fs::OFlags::NOFOLLOW_ANY
+        | rustix::fs::OFlags::CLOEXEC
+        | rustix::fs::OFlags::NONBLOCK;
+    let parent = if parent.as_os_str().is_empty() {
+        Path::new(".")
+    } else {
+        parent
+    };
+    match rustix::fs::open(parent, flags, rustix::fs::Mode::empty()) {
+        Err(rustix::io::Errno::LOOP) => {}
+        result => return Ok(result?.into()),
+    }
+    let mut resolved = PathBuf::new();
+    for component in parent.components() {
+        resolved.push(component);
+        if msime_path_trust::is_trusted_system_alias(&resolved) {
+            let target = fs::read_link(&resolved)?;
+            resolved = resolved
+                .parent()
+                .unwrap_or_else(|| Path::new("/"))
+                .join(target);
+        }
+    }
+    if resolved == parent {
+        return Err(rustix::io::Errno::LOOP.into());
+    }
+    Ok(rustix::fs::open(&resolved, flags, rustix::fs::Mode::empty())?.into())
+}
+
+#[cfg(all(unix, not(target_vendor = "apple")))]
 pub(crate) fn open_private_directory(parent: &Path) -> io::Result<File> {
     let flags = rustix::fs::OFlags::RDONLY
         | rustix::fs::OFlags::DIRECTORY
@@ -94,13 +128,32 @@ pub(crate) fn open_private_file_at(directory: &File, name: &OsStr) -> io::Result
         rustix::fs::Mode::empty(),
     )?;
     let file: File = descriptor.into();
-    if !file.metadata()?.is_file() {
+    let metadata = file.metadata()?;
+    if !metadata.is_file() || !crate::file_lock::has_single_link(&file)? {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            "private input is not a regular file",
+            "private input is not a single-link regular file",
         ));
     }
     Ok(file)
+}
+
+/// Open a real child directory without following a symlink. The returned
+/// descriptor remains bound to that directory if its parent entry is later
+/// replaced.
+#[cfg(unix)]
+pub(crate) fn open_private_directory_at(directory: &File, name: &OsStr) -> io::Result<File> {
+    let descriptor = rustix::fs::openat(
+        directory,
+        name,
+        rustix::fs::OFlags::RDONLY
+            | rustix::fs::OFlags::DIRECTORY
+            | rustix::fs::OFlags::NOFOLLOW
+            | rustix::fs::OFlags::CLOEXEC
+            | rustix::fs::OFlags::NONBLOCK,
+        rustix::fs::Mode::empty(),
+    )?;
+    Ok(descriptor.into())
 }
 
 /// 非 Unix 平台上的「目录句柄」：没有 openat 这组调用，只记下已确认是真实目录（不是符号链接）的路径，`open_private_file_at` 再在它下面按名字打开。和 Unix 版的接口一致，调用方不必分平台。
@@ -553,8 +606,8 @@ mod tests {
         assert_eq!(std::fs::read(&target).unwrap(), b"synthetic-outside");
     }
 
-    // 模拟 Android 的 `/data`：祖先目录只有搜索权限、没有读权限，它下面的应用私有目录照样要能打开和写入。以 root 运行时权限检查不生效，这条测试只在普通用户下有区分度。
-    #[cfg(any(target_os = "linux", target_os = "android"))]
+    // 模拟 Android 的 `/data` 和 iOS 沙盒里 App Group 容器的祖先：祖先目录只有搜索权限、没有读权限，它下面的应用私有目录照样要能打开和写入。以 root 运行时权限检查不生效，这条测试只在普通用户下有区分度。
+    #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
     #[test]
     fn private_directory_opens_below_a_search_only_ancestor() {
         use std::os::unix::fs::PermissionsExt;

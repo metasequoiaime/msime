@@ -53,26 +53,29 @@ impl TibetanScheme {
     }
 
     /// 威利能拼写的字母（见 `claims_letter`）总是拼写；`'` 随时拼写；`+` `.` `-` 只在组字时拼写；退格删掉最后一个按键。其余按键一律忽略，由会话决定如何结束组字。
-    pub fn handle_key(&mut self, key: SchemeKey) {
+    pub fn handle_key(&mut self, key: SchemeKey) -> bool {
         match key {
             SchemeKey::Letter(letter) if self.claims_letter(letter) => {
                 self.raw.push(char::from(letter));
+                true
             }
             SchemeKey::Symbol(symbol) if self.claims_symbol(symbol) => {
                 self.raw.push(char::from(symbol));
+                true
             }
             SchemeKey::Backspace => {
-                self.raw.pop();
+                let changed = self.raw.pop().is_some();
                 if self.raw.is_empty() {
                     self.raw_locked = false;
                 }
+                changed
             }
             SchemeKey::Letter(_)
             | SchemeKey::Symbol(_)
             | SchemeKey::Apostrophe
             | SchemeKey::Semicolon
             | SchemeKey::Minus
-            | SchemeKey::Requery => {}
+            | SchemeKey::Requery => false,
         }
     }
 

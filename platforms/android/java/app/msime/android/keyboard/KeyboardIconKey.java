@@ -49,7 +49,7 @@ public final class KeyboardIconKey extends KeyboardPressButton {
 
     /** 节点 text 落在这组文字里时按文字画（回车组词时的「确认」「確定」），其余时候画图标；调用方只管 setText，不必再切 {@link #setDrawsText}。 */
     public void setTextFaces(java.util.Set<String> faces) {
-        textFaces = faces == null ? java.util.Set.of() : java.util.Set.copyOf(faces);
+        textFaces = SetPolicy.copyOrEmpty(faces);
         invalidate();
     }
 

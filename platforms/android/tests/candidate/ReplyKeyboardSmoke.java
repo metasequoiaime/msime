@@ -92,6 +92,14 @@ public final class ReplyKeyboardSmoke {
             Files.writeString(outside.resolve("CommunityLibrary.json"), "[]");
             try { CommunityReplyLibrary.read(linkedParent.resolve("CommunityLibrary.json")); throw new AssertionError(); }
             catch (java.io.IOException expected) { check(expected.getMessage().contains("symbolic link")); }
+            Path hardlinkOutside = Files.createTempFile("msime-community-hardlink", ".json");
+            Files.writeString(hardlinkOutside,
+                "[{\"id\":\"fixture\",\"kind\":\"reply\",\"name\":\"fixture style\",\"content\":{\"prompt\":\"x\"}}]");
+            Files.delete(file);
+            Files.createLink(file, hardlinkOutside);
+            try { CommunityReplyLibrary.read(file); throw new AssertionError("hard-linked library accepted"); }
+            catch (java.io.IOException expected) { check(expected.getMessage().contains("single link")); }
+            Files.deleteIfExists(hardlinkOutside);
         } finally {
             Files.walk(directory).sorted(java.util.Comparator.reverseOrder()).forEach(path -> {
                 try { Files.delete(path); } catch (java.io.IOException error) { throw new RuntimeException(error); }

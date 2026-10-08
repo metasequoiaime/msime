@@ -11,9 +11,9 @@ public final class SettingsLifecycleSmoke extends DeviceSmoke {
         stage = "initial IME process";
         // The preceding instrumentation may force-stop its target package. Rebind
         // once before measuring; never rebind between either settings close and input.
-        shell("ime disable app.msime.android/app.msime.android.MSIMEInputService");
-        shell("ime enable app.msime.android/app.msime.android.MSIMEInputService");
-        shell("ime set app.msime.android/app.msime.android.MSIMEInputService");
+        shell("ime disable app.msime.android/.MSIMEInputService");
+        shell("ime enable app.msime.android/.MSIMEInputService");
+        shell("ime set app.msime.android/.MSIMEInputService");
         android.os.SystemClock.sleep(1000);
         shell("am start -W -f 0x10008000 -n app.msime.android.test/app.msime.android.test.EditorActivity");
         tap(field("msime-test-plain"));

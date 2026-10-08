@@ -17,10 +17,10 @@ import android.widget.TextView;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatDialog;
 import app.msime.android.BoundsPolicy;
+import app.msime.android.ListPolicy;
 import app.msime.android.TextPolicy;
 import app.msime.android.ViewPolicy;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
@@ -167,7 +167,7 @@ public final class InputDialog {
     private List<String> values() {
         List<String> values = new ArrayList<>(inputs.size());
         for (EditText input : inputs) values.add(TextPolicy.trimmed(input.getText().toString()));
-        return Collections.unmodifiableList(values);
+        return ListPolicy.copyOrEmpty(values);
     }
 
     private void refresh() {

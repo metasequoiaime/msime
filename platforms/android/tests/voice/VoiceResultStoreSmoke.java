@@ -75,6 +75,13 @@ public final class VoiceResultStoreSmoke {
             fails(VoiceResultStore.Reason.INVALID, () -> store.read(now));
             Files.delete(directory.resolve("result.bin"));
 
+            store.save("硬链接测试", now);
+            Path hardlinkTarget = directory.resolve("result.bin");
+            Path hardlinkOutside = directory.resolve("result-outside.bin");
+            Files.createLink(hardlinkOutside, hardlinkTarget);
+            fails(VoiceResultStore.Reason.INVALID, () -> store.read(now));
+            Files.delete(hardlinkOutside);
+
             store.save("锁测试结果", now);
             try (FileChannel channel = FileChannel.open(directory.resolve("transfer.lock"),
                     StandardOpenOption.READ, StandardOpenOption.WRITE);

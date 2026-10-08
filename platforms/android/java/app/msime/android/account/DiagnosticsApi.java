@@ -8,7 +8,6 @@ import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
@@ -132,7 +131,7 @@ public final class DiagnosticsApi {
 
     /** `GET` 的回答；`snapshot` 为 null 表示云端没有快照。 */
     public record State(Snapshot snapshot, List<Access> accesses) {
-        public static final State EMPTY = new State(null, Collections.emptyList());
+        public static final State EMPTY = new State(null, ListPolicy.copyOrEmpty(null));
     }
 
     private final CloudApi api;
@@ -348,7 +347,7 @@ public final class DiagnosticsApi {
                 }
             }
             snapshot = new Snapshot(snapshotId, snapshotCreated, snapshotExpires, snapshotBytes,
-                Collections.unmodifiableList(sections), snapshotHint);
+                ListPolicy.copyOrEmpty(sections), snapshotHint);
         }
         JSONArray list = root.optJSONArray("accesses");
         int accessCount = list == null ? 0 : list.length();
@@ -370,7 +369,7 @@ public final class DiagnosticsApi {
                 accesses.add(new Access(at, tool, rawArguments, resultCount, bytes));
             }
         }
-        return new State(snapshot, Collections.unmodifiableList(accesses));
+        return new State(snapshot, ListPolicy.copyOrEmpty(accesses));
     }
 
     /** Diagnostics wire numbers are JSON integers; do not let org.json truncate decimals. */

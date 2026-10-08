@@ -357,54 +357,63 @@ test("a setup step the host could not take is reported as a toast", async () => 
 
 // ---- 试用键盘 ----
 
-test("试用键盘 opens the tryout sheet with a focused text area when the host has no keyboard window", () => {
-  renderTouchHome({ actions: { setup: fakeSetup({ enabled: true, current: true }).client } });
-  const tryButton = within(statusCard()).getByRole("button", { name: "试用键盘" });
-  tryButton.focus();
-
-  fireEvent.click(tryButton);
-
-  const sheet = screen.getByRole("dialog", { name: "试用键盘" });
-  const field = within(sheet).getByRole("textbox", { name: "试用键盘输入框" });
-  expect(field.getAttribute("placeholder")).toBe("在这里打字试试");
-  expect(document.activeElement).toBe(field);
-  // 已经是当前输入法：无需提醒。
-  expect(within(sheet).queryByText(/先完成上面的设置/)).toBeNull();
-
-  fireEvent.click(within(sheet).getByRole("button", { name: "完成" }));
-  expect(screen.queryByRole("dialog", { name: "试用键盘" })).toBeNull();
-  expect(document.activeElement).toBe(tryButton);
-});
-
-test("the tryout sheet warns while this is not the current input method and closes on Escape", () => {
-  const showInputMethodPicker = vi.fn().mockResolvedValue(undefined);
+test("试用键盘 opens the tryout sub-page when the host has no keyboard window", () => {
+  const onOpenPage = vi.fn();
   renderTouchHome({
-    actions: { setup: fakeSetup({ enabled: true, current: false }).client, showInputMethodPicker },
+    actions: { setup: fakeSetup({ enabled: true, current: true }).client },
+    onOpenPage,
   });
 
   fireEvent.click(within(statusCard()).getByRole("button", { name: "试用键盘" }));
-  const sheet = screen.getByRole("dialog", { name: "试用键盘" });
-  expect(within(sheet).getByText(/先完成上面的设置，键盘才会是水杉/)).toBeTruthy();
-  fireEvent.click(within(sheet).getByRole("button", { name: "设为默认" }));
-  expect(showInputMethodPicker).toHaveBeenCalledOnce();
 
-  fireEvent.keyDown(within(sheet).getByRole("textbox"), { key: "Escape" });
-  expect(screen.queryByRole("dialog", { name: "试用键盘" })).toBeNull();
+  expect(onOpenPage.mock.calls).toEqual([["try-keyboard"]]);
+  expect(screen.queryByRole("dialog")).toBeNull();
 });
 
-test("试用键盘 keeps a host's own keyboard window, and falls back to the sheet when it fails", async () => {
+test("试用键盘 keeps a host's own keyboard window, and falls back to the sub-page when it fails", async () => {
   const openKeyboard = vi.fn().mockResolvedValue(undefined);
-  renderTouchHome({ actions: { openKeyboard } });
+  const onOpenPage = vi.fn();
+  renderTouchHome({ actions: { openKeyboard }, onOpenPage });
 
   fireEvent.click(screen.getByRole("button", { name: "试用键盘" }));
   expect(openKeyboard).toHaveBeenCalledOnce();
   await act(async () => {});
-  expect(screen.queryByRole("dialog", { name: "试用键盘" })).toBeNull();
+  expect(onOpenPage).not.toHaveBeenCalled();
 
   cleanup();
-  renderTouchHome({ actions: { openKeyboard: vi.fn().mockRejectedValue(new Error("no window")) } });
+  renderTouchHome({
+    actions: { openKeyboard: vi.fn().mockRejectedValue(new Error("no window")) },
+    onOpenPage,
+  });
   fireEvent.click(screen.getByRole("button", { name: "试用键盘" }));
-  expect(await screen.findByRole("dialog", { name: "试用键盘" })).toBeTruthy();
+  await waitFor(() => expect(onOpenPage.mock.calls).toEqual([["try-keyboard"]]));
+});
+
+test("the HarmonyOS phone shell pushes 试用键盘 as a sub-page of 设置 and goes back to it", async () => {
+  render(
+    <SettingsPage
+      client={{
+        load: async () => initial,
+        save: vi.fn(),
+        host: testHost({ platform: "harmony" }),
+        home: { setup: fakeSetup({ enabled: true, current: true }).client },
+      }}
+    />,
+  );
+
+  await screen.findByRole("region", { name: "首页" });
+  fireEvent.click(within(statusCard()).getByRole("button", { name: "试用键盘" }));
+
+  const page = await screen.findByRole("region", { name: "试用键盘" });
+  expect(screen.queryByRole("region", { name: "首页" })).toBeNull();
+  expect(screen.queryByRole("dialog")).toBeNull();
+  // 和 Android 的试用页一样不带底部标签栏，键盘弹起时输入栏直接落在键盘上方。
+  expect(screen.queryByRole("navigation", { name: "主要功能" })).toBeNull();
+  expect(document.activeElement).toBe(within(page).getByRole("textbox"));
+
+  fireEvent.click(screen.getByRole("button", { name: "返回" }));
+  expect(await screen.findByRole("region", { name: "首页" })).toBeTruthy();
+  expect(screen.getByRole("navigation", { name: "主要功能" })).toBeTruthy();
 });
 
 // ---- 2in1 设置提醒条 ----

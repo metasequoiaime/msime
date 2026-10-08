@@ -20,7 +20,6 @@ import android.widget.LinearLayout;
 import android.widget.PopupMenu;
 import android.widget.ScrollView;
 import android.widget.TextView;
-import android.widget.Toast;
 import java.util.ArrayList;
 import java.util.List;
 import org.json.JSONArray;
@@ -169,7 +168,7 @@ final class ImePanels {
 
     void showEmojiPicker() {
         if (s.session == 0 || s.connection == null || s.emojiPanel == null || s.emojiResources.isEmpty()) {
-            Toast.makeText(s, "表情目录尚未就绪", Toast.LENGTH_SHORT).show();
+            s.notice("表情目录尚未就绪");
             return;
         }
         s.command(2);
@@ -191,7 +190,7 @@ final class ImePanels {
 
     void showSymbolPanel() {
         if (s.session == 0 || s.connection == null || s.symbolPanel == null) {
-            Toast.makeText(s, "符号面板尚未就绪", Toast.LENGTH_SHORT).show();
+            s.notice("符号面板尚未就绪");
             return;
         }
         s.command(2);
@@ -347,7 +346,7 @@ final class ImePanels {
 
     private void showReplyTemplatesLoaded(java.util.List<CommunityReplyLibrary.Template> templates) {
         if (templates.isEmpty()) {
-            Toast.makeText(s, "请先在 App 社区收藏并添加回复模板", Toast.LENGTH_SHORT).show();
+            s.notice("请先在 App 社区收藏并添加回复模板");
             return;
         }
         PopupMenu popup = new PopupMenu(s, s.replyTemplateButton);
@@ -836,12 +835,12 @@ final class ImePanels {
 
     void showAiPolish() {
         if (s.aiPolishConfiguration == null) {
-            Toast.makeText(s, "请先在共享设置中启用并配置 AI 辅助", Toast.LENGTH_SHORT).show();
+            s.notice("请先在共享设置中启用并配置 AI 辅助");
             return;
         }
         String selected = s.selectedEditorText();
         if (!s.aiPolishReady() || !AiPolishConfiguration.acceptableText(selected)) {
-            Toast.makeText(s, "请先完成当前输入，再选择一万字以内的文字", Toast.LENGTH_SHORT).show();
+            s.notice("请先完成当前输入，再选择一万字以内的文字");
             return;
         }
         s.closeEmojiPicker();
@@ -1006,7 +1005,7 @@ final class ImePanels {
         // 其他设置正在保存时只是这一下不打开：保存一瞬间就完成，不必弹「尚未就绪」。
         if (s.touchGeometrySaving || s.traditionalOutputSaving) return;
         if (s.session == 0 || s.preferencesSnapshot == null || s.preferencesDirectory.isEmpty()) {
-            Toast.makeText(s, "输入方案尚未就绪", Toast.LENGTH_SHORT).show();
+            s.notice("输入方案尚未就绪");
             return;
         }
         s.closeEmojiPicker();
@@ -1187,10 +1186,10 @@ final class ImePanels {
     void uploadClipboardText(String text) {
         boolean cloudAllowed = cloudClipboardAllowed();
         if (!CloudClipboardPanelPolicy.canUpload(cloudAllowed, s.cloudClipboardStatus, text)) {
-            Toast.makeText(s, s.cloudClipboardStatus == CloudClipboardPanelPolicy.Status.SIGNED_OUT
+            s.notice(s.cloudClipboardStatus == CloudClipboardPanelPolicy.Status.SIGNED_OUT
                     || s.cloudClipboardStatus == CloudClipboardPanelPolicy.Status.DISABLED
                     ? CloudClipboardPanelPolicy.message(s.cloudClipboardStatus, 0)
-                    : "这条记录无法发到云剪贴板", Toast.LENGTH_SHORT).show();
+                    : "这条记录无法发到云剪贴板");
             return;
         }
         long generation = s.cloudClipboardGeneration;
@@ -1208,16 +1207,16 @@ final class ImePanels {
                 s.main.post(() -> {
                     if (!CloudClipboardPanelPolicy.acceptsUploadResult(
                             generation, s.cloudClipboardGeneration) || !clipboardPanelOpen()) return;
-                    Toast.makeText(s, result == null ? "已发到云剪贴板"
+                    s.notice(result == null ? "已发到云剪贴板"
                         : result == CloudClipboardPanelPolicy.Status.SIGNED_OUT
                             ? CloudClipboardPanelPolicy.SIGNED_OUT_MESSAGE
-                            : "未能发到云剪贴板，请稍后重试", Toast.LENGTH_SHORT).show();
+                            : "未能发到云剪贴板，请稍后重试");
                     // Re-read rather than splice the entry in: the service deduplicates and orders the list.
                     refreshCloudClipboard();
                 });
             });
         } catch (java.util.concurrent.RejectedExecutionException error) {
-            Toast.makeText(s, "未能发到云剪贴板，请稍后重试", Toast.LENGTH_SHORT).show();
+            s.notice("未能发到云剪贴板，请稍后重试");
         }
     }
 

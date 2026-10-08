@@ -17,6 +17,8 @@ constexpr std::uint32_t CharacterSetShortcut = 1u << 3;
 // Optional: focus-bound keyboard preedit cancellation without a text commit.
 // Advertise only after implementing the UI-thread/edit-session cancellation.
 constexpr std::uint32_t KeyboardCompositionCancel = 1u << 4;
+// 可选：Server 认得 PipeMetadata::GameHost（强制叠加候选窗的游戏宿主）。TSF 只在协商到这一位之后才会在包上设 GameHost；旧 Server 不认这一位时，TSF 照常发包、不带 GameHost。和 KeyboardCompositionCancel 一样不放进 Capabilities 和 RequiredCapabilities，由双方各自在实现后再宣告。
+constexpr std::uint32_t GameHostCandidate = 1u << 5;
 constexpr std::uint32_t Capabilities = RequestIds | FocusEpochs | FramedVoice;
 constexpr std::uint32_t RequiredCapabilities = RequestIds | FocusEpochs;
 

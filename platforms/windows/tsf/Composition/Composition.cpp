@@ -1089,6 +1089,7 @@ STDAPI CMetasequoiaIME::OnCompositionTerminated(TfEditCookie ecWrite, _In_ ITfCo
     _pComposition->Release();
     _pComposition = nullptr;
     _voiceCompositionActive = false;
+    Global::ResetForcedOverlayAnchor();
 
     ITfContext *ownerContext = _pContext;
     if (ownerContext)

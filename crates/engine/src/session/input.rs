@@ -221,7 +221,10 @@ impl InputSession {
 
     /// input_session.cpp:88-245: caret insertion, dedicated English, local modes and their Shift entries, the acceptance gate, then the scheme. Handled iff the preedit changed.
     pub fn handle_character(&mut self, value: u8, shift_only: bool) -> KeyResult {
-        if self.caret_position() < self.editing_text().len() {
+        if self
+            .caret
+            .is_some_and(|caret| caret < self.editing_text_len())
+        {
             return self.insert_at_caret(value);
         }
         self.caret = None;
@@ -302,7 +305,6 @@ impl InputSession {
             self.chain.reset();
         }
 
-        let previous_preedit = self.preedit();
         let key = if value == b'\'' {
             SchemeKey::Apostrophe
         } else if microsoft_final {
@@ -315,10 +317,10 @@ impl InputSession {
             // Only a key the scheme claims gets past the filter above; none of the current schemes claims one here.
             SchemeKey::Symbol(value)
         };
-        self.engine.handle_key(key);
+        let changed = self.engine.handle_key(key);
         self.update_mixed_candidates();
         // A key the scheme ignores (a fifth wubi letter, a second apostrophe) leaves the preedit alone and goes back to the host.
-        if self.preedit() == previous_preedit {
+        if !changed {
             return KeyResult::unhandled();
         }
         self.online_requests.invalidate();
@@ -1274,10 +1276,9 @@ impl InputSession {
     pub(super) fn expand_initial_candidates(&mut self) -> bool {
         self.refresh_prefix_candidates();
         let grew = if self.prefix_active {
-            let raw_with_cases = self.raw_with_cases()[..self.prefix_end()].to_owned();
-            self.engine.expand_raw_initial_candidates(
+            self.engine.expand_current_raw_prefix_initial_candidates(
                 &self.prefix_query_input,
-                &raw_with_cases,
+                self.prefix_end(),
                 &mut self.prefix_candidates,
             )
         } else {
@@ -1525,7 +1526,9 @@ impl InputSession {
             && self.local_mode == LocalInputMode::None
             && self.scheme().detects_urls()
             && self.has_composition()
-            && self.caret_position() >= self.editing_text().len()
+            && self
+                .caret
+                .is_none_or(|caret| caret >= self.editing_text_len())
     }
 
     /// 当前组字的网址触发键；组字原文不是触发词或条件不满足时为 `None`。
@@ -1585,7 +1588,10 @@ impl InputSession {
     }
 
     fn backspace(&mut self) -> KeyResult {
-        if self.caret_position() < self.editing_text().len() {
+        if self
+            .caret
+            .is_some_and(|caret| caret < self.editing_text_len())
+        {
             return self.edit_at_caret(Command::Backspace);
         }
         self.caret = None;
@@ -1631,9 +1637,10 @@ impl InputSession {
     /// 把网址模式剩下的字母重新作为组字原文。方案装不下全部字母时留在网址模式。
     pub(super) fn restore_composition_from_url(&mut self, letters: String) {
         self.reset_composition();
-        self.pending_sequence = Some(letters.clone());
-        self.pending_sequence_with_cases = Some(letters.clone());
-        self.apply_pending_sequence();
+        // 直接借用剩余文本还原方案，保留原文以检测码长截断。
+        self.engine.replace_active_raw_input(&letters, &letters);
+        self.online_requests.invalidate();
+        self.update_mixed_candidates();
         // 方案装不下全部字母（五笔不开混拼时码长 4，`https:` 删掉 `:` 剩 5 个字母）时留在网址模式，不能悄悄丢掉用户键入的字母。
         if self.raw_with_cases() != letters {
             self.enter_url_mode(letters);

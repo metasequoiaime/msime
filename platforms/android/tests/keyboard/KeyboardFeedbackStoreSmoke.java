@@ -92,6 +92,22 @@ public final class KeyboardFeedbackStoreSmoke {
                     Files.deleteIfExists(link);
                     Files.deleteIfExists(external);
                 }
+                Path hardlinkExternal = Files.createTempFile("keyboard-feedback-hardlink", ".json");
+                Path hardlink = Files.createTempFile("keyboard-feedback-hardlink-entry", ".json");
+                try {
+                    Files.writeString(hardlinkExternal, "synthetic");
+                    Files.delete(hardlink);
+                    Files.createLink(hardlink, hardlinkExternal);
+                    try {
+                        KeyboardFeedbackFileReader.read(hardlink);
+                        throw new AssertionError("hard-linked feedback file accepted");
+                    } catch (java.io.IOException expected) {
+                        // Expected: private feedback files must have one link.
+                    }
+                } finally {
+                    Files.deleteIfExists(hardlink);
+                    Files.deleteIfExists(hardlinkExternal);
+                }
             } finally {
                 Files.deleteIfExists(exact);
                 Files.deleteIfExists(oversized);

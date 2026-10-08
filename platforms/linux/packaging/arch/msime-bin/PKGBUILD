@@ -77,6 +77,13 @@ sha256sums_x86_64=('f2d001a2e2fcb7e754d1cfb58fd07e873a313d1b3cbe0636b9cfb38db96c
 source_aarch64=("msime-linux-$pkgver-$_rpmrel.aarch64.rpm::$url/releases/download/linux-v$pkgver/msime-linux-$pkgver-$_rpmrel.aarch64.rpm")
 sha256sums_aarch64=('0000000000000000000000000000000000000000000000000000000000000000')
 
+# fakeroot 下 file(1) 会因 SIGSYS 崩溃（file 5.48 + fakeroot 1.37 实测：连 `fakeroot -- file -b /usr/bin/ls`
+# 都报“错误的系统调用”，退出码 159），`file -b "$elf" | grep -q '^ELF'` 因此在 package() 里恒为假：
+# 以它为条件的循环整体跳过，RUNPATH 改写与未解析库核对都不执行，构建照样通过。改用 coreutils 读 ELF 魔数。
+_msime_is_elf() {
+  [[ $(od -An -N4 -tx1 -- "$1" 2>/dev/null | tr -d '[:space:]') == 7f454c46 ]]
+}
+
 package() {
   # makepkg 已用 bsdtar 解开 .rpm 的载荷。Fedora 的 brp-hardlink 把内容相同的许可证文件做成了跨目录硬链接（/usr/share/doc 与 /usr/share/msime-client 之间），pacman 配了 NoExtract 跳过文档时另一端就丢了，所以复制时拆开硬链接。
   cp -a --no-preserve=ownership,links "$srcdir/usr" "$pkgdir/"
@@ -94,7 +101,7 @@ package() {
   # 相对 RUNPATH（$ORIGIN/../lib64/msime-client）和 msime_voice_paths.py 里的相对路径在装好的系统上能经 /usr/lib64 链接解析，但 $pkgdir 里没有这个链接，下面的核对就做不了；直接改成 lib，不再依赖那个链接。
   local elf runpath
   while IFS= read -r -d '' elf; do
-    file -b "$elf" | grep -q '^ELF' || continue
+    _msime_is_elf "$elf" || continue
     runpath=$(patchelf --print-rpath "$elf")
     if [[ $runpath == *lib64* ]]; then
       patchelf --set-rpath "${runpath//lib64/lib}" "$elf"
@@ -116,8 +123,8 @@ package() {
   [[ $(realpath -- "$resolved") == "$pkgdir/usr/lib/msime-client/libmsime_host_api.so" ]]
   local missing=0
   while IFS= read -r -d '' elf; do
-    if file -b "$elf" | grep -q '^ELF'; then
-      if ldd "$elf" | grep -q 'not found'; then
+    if _msime_is_elf "$elf"; then
+      if ldd "$elf" 2>/dev/null | grep -q 'not found'; then
         echo "unresolved libraries in ${elf#"$pkgdir"}:" >&2
         ldd "$elf" | grep 'not found' >&2
         missing=1

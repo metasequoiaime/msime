@@ -38,6 +38,11 @@ public:
     std::lock_guard lock(mutex_);
     if (!stopped_) {
       value.render_serial = ++render_serial_;
+      // 同一租约里游戏会话标记只置位不清除：某个按键包漏了 GameHost 位时，不能把已经认出的游戏会话打回普通宿主。
+      if (latest_ && latest_->game_host && latest_->lease.epoch == lease.epoch &&
+          latest_->lease.token == lease.token &&
+          same_ticket(latest_->lease.transport, lease.transport))
+        value.game_host = true;
       latest_ = std::move(value);
       suppressed_ = false;
       pending_hide_.reset();
@@ -80,9 +85,12 @@ private:
         return;
       const auto prefix =
           latest_->preedit.substr(0, latest_->preedit.size() - text.size());
+      // 视图来自 Engine，不带包元数据；游戏会话标记和坐标一样属于原有的展示。
+      const bool game_host = latest_->game_host;
       latest_ =
           candidate_presentation_from_view(lease, view, latest_->x, latest_->y,
                                            prefix, latest_->traditional_output);
+      latest_->game_host = game_host;
       latest_->render_serial = ++render_serial_;
       pending_hide_.reset();
     } catch (...) {
@@ -144,6 +152,9 @@ public:
       // Show event. A move can suppress display, never revive hidden content.
       if ((packet.modifiers_down & FanyImePipeFlags::UiLess) != 0)
         suppressed_ = true;
+      // 按键包漏了 GameHost 位时，随后的 Show/Move 能补上；同样只置位不清除。
+      if ((packet.modifiers_down & PipeMetadata::GameHost) != 0)
+        latest_->game_host = true;
       latest_->x = packet.point[0];
       latest_->y = packet.point[1];
       break;

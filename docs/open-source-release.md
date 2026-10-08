@@ -17,7 +17,7 @@
 用了谁、各自什么许可、通知文件在哪，汇总在[第三方组件清单](third-party.md)；下面几条是它没有覆盖的发布动作。
 
 - Android Gradle 模板的 Apache-2.0 文本在 `apps/desktop/src-tauri/gen/android/gradle/LICENSE-2.0.txt`，来源说明在同目录 `NOTICE.md`。
-- iOS ML Kit 依赖通知在 `platforms/ios/SharedResources/MLKit-NOTICES.txt` 和 `MLKit-Dependencies.txt`。
+- iOS ML Kit 依赖通知在 `platforms/ios/SharedResources/MLKit-NOTICES.txt` 和 `MLKit-Dependencies.txt`，Google 登录依赖通知在 `GoogleSignIn-Dependencies.txt`。
 - Windows 依赖通知由 `platforms/windows/Collect-Notices.ps1` 生成；使用说明和限制见 `platforms/windows/Notices.md`。生成器不是完整许可证审计，不能用空通知文件代替上游材料。
 - 引擎移植所源自的 C++ MSIME-Engine、每个固定词库和离线模型都必须在发布包中保留对应的版权、许可证和来源说明。资源锁文件只校验内容，不授予额外分发权。
 - 日文词库 `msime-japanese.dat` 的许可证要求是硬性的：IPAdic 与 ICOT 的条款都规定许可证文本必须随词库分发，所以发布物中必须包含 `msime-mozc_dictionary_oss_README.txt`；Mozc 自身的三条款 BSD 同样要求随二进制附上版权声明，所以也必须包含 `msime-mozc_LICENSE.txt`。`msime-english.db` 含 SCOWL 的词，发布物中还必须包含 `msime-scowl_Copyright.txt`。逐条构成见[第三方组件清单](third-party.md#日文词库的分发义务)。
