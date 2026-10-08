@@ -266,6 +266,8 @@ public final class MSIMEInputService extends InputMethodService {
     boolean toolbarSkin = true;
     boolean toolbarScheme = true;
     boolean toolbarHidden;
+    /** 剪贴板面板一行排几条，来自本地设置 `platform.android.clipboard_columns`。 */
+    int clipboardColumns = 1;
     /** 功能面板上直接切换的三项：模糊音（共享偏好）、单手模式（off / left / right）与隐私模式（本地设置）。 */
     boolean fuzzyPinyinEnabled;
     String oneHandedMode = "off";
@@ -1574,6 +1576,8 @@ public final class MSIMEInputService extends InputMethodService {
         toolbarPhrase = localSettings.bool(AndroidLocalSettings.TOOLBAR_PHRASE);
         toolbarScheme = localSettings.bool(AndroidLocalSettings.TOOLBAR_SCHEME);
         toolbarHidden = localSettings.bool(AndroidLocalSettings.TOOLBAR_HIDDEN);
+        clipboardColumns = ClipboardLayoutPolicy.columns(
+            localSettings.choice(AndroidLocalSettings.CLIPBOARD_COLUMNS));
         oneHandedMode = localSettings.choice(AndroidLocalSettings.ONE_HANDED);
         splitKeyboardEnabled = localSettings.bool(AndroidLocalSettings.SPLIT_KEYBOARD);
         incognitoEnabled = localSettings.bool(AndroidLocalSettings.INCOGNITO);

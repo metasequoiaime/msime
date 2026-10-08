@@ -10,6 +10,7 @@ import android.widget.TextView;
 import androidx.annotation.Nullable;
 import app.msime.android.AndroidLocalSettings;
 import app.msime.android.AppEdition;
+import app.msime.android.ClipboardLayoutPolicy;
 import app.msime.android.KeyboardFeedbackPreferences;
 import app.msime.android.KeyboardFeedbackStore;
 import app.msime.android.KeyboardGeometry;
@@ -23,7 +24,7 @@ import app.msime.android.ViewPolicy;
 import org.json.JSONObject;
 
 /**
- * 键盘页：布局（中文键盘 26 / 9 键、键盘高度、按键间距、行间距、横屏分离式键盘）、按键反馈（按键音、按键振动、按键弹出预览、按键动画）、手势（滑动输入符号及其方向、滑行输入、空格滑动移动光标、长按空格语音）、键盘工具栏（预览、显示方式、各按钮）和子页「AI 润色与回复」。
+ * 键盘页：布局（中文键盘 26 / 9 键、键盘高度、按键间距、行间距、横屏分离式键盘）、按键反馈（按键音、按键振动、按键弹出预览、按键动画）、手势（滑动输入符号及其方向、滑行输入、空格滑动移动光标、长按空格语音）、键盘工具栏（预览、显示方式、各按钮）、剪贴板（排列）和子页「AI 润色与回复」。
  *
  * <p>键盘与本页读同一批存储：按键间距、行间距和表情/剪贴板/皮肤三个工具栏按钮在共享偏好里（`touch_key_spacing_tenths`、`touch_row_spacing_tenths`、`touch_toolbar.*`）；键盘高度、横屏分离式键盘、按键弹出预览、按键动画、三个手势、常用语/输入方式两个工具栏按钮和「显示方式：隐藏」（整行不显示，候选条照常显示）只有 Android 用，在 {@link AndroidLocalSettings} 里。键盘高度按设计以 75–130 % 显示，存的是 dp（{@link KeyboardGeometry#heightPercentToAdjustment}），本地没写过时沿用共享偏好里旧的 `touch_keyboard_height_adjustment`。按键音和按键振动是 Android 一直以来的本地开关（`KeyboardFeedbackStore`），键盘的功能面板改的也是它们。
  */
@@ -147,6 +148,11 @@ public final class KeyboardOptionsPage extends DetailPage {
             row.setEnabled(!hidden);
         }
 
+        GroupCard clipboard = GroupCard.add(target, "剪贴板");
+        String columns = settings.choice(AndroidLocalSettings.CLIPBOARD_COLUMNS);
+        clipboard.nav("排列", "剪贴板面板里一行显示几条记录", clipboardColumnsLabel(columns),
+            () -> pickClipboardColumns(columns));
+
         GroupCard more = GroupCard.add(target, "更多");
         more.nav("AI 润色与回复", "端点、模型、凭据和提示词", null,
             () -> SettingsNavigator.open(requireContext(), PageId.AI_SETTINGS, null));
@@ -245,6 +251,19 @@ public final class KeyboardOptionsPage extends DetailPage {
                 () -> saveLocal(AndroidLocalSettings.SWIPE_SYMBOLS_DIRECTION, value));
         }
         sheet.show();
+    }
+
+    private void pickClipboardColumns(String selected) {
+        OptionSheet sheet = new OptionSheet(requireContext(), "剪贴板排列", null);
+        for (String value : new String[] {ClipboardLayoutPolicy.ONE_COLUMN, ClipboardLayoutPolicy.TWO_COLUMNS}) {
+            sheet.option(clipboardColumnsLabel(value), value.equals(selected),
+                () -> saveLocal(AndroidLocalSettings.CLIPBOARD_COLUMNS, value));
+        }
+        sheet.show();
+    }
+
+    private static String clipboardColumnsLabel(String value) {
+        return ClipboardLayoutPolicy.columns(value) == 2 ? "双列" : "单列";
     }
 
     private static String swipeDirectionLabel(String value) {

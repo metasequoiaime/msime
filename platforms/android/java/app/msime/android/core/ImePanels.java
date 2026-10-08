@@ -1234,6 +1234,7 @@ final class ImePanels {
     void renderClipboardHistory() {
         if (s.clipboardPanel == null || s.clipboardHistory == null) return;
         s.clipboardPanel.removeAllViews();
+        clipboardCardRow = null;
         KeyboardGeometry.setSymmetricPaddingDp(s.clipboardPanel, s, 8, 8);
         boolean cloudAllowed = cloudClipboardAllowed();
         if (!cloudAllowed) s.clipboardTab = CloudClipboardPanelPolicy.Tab.LOCAL;
@@ -1292,9 +1293,14 @@ final class ImePanels {
                 java.util.List<ClipboardHistory.Item> items = s.clipboardHistory.load();
                 if (items.isEmpty()) notes.add(clipboardNote("复制的文字会自动出现在这里，点按即可插入\n只保存在本机"));
                 long now = System.currentTimeMillis();
-                for (ClipboardHistory.Item item : items) {
+                int columns = s.clipboardColumns;
+                ClipboardHistory.Item actionItem = null;
+                for (int index = 0; index < items.size(); index++) {
+                    ClipboardHistory.Item item = items.get(index);
                     String meta = (item.pinned() ? "已置顶 · " : "") + "本机 · " + relativeTime(item.timestamp(), now);
-                    Button card = clipboardCard(item.text(), meta, () -> s.insertClipboardText(item.text()));
+                    boolean managed = item.text().equals(clipboardActionText);
+                    Button card = clipboardCard(index, items.size(), item.text(), meta, managed,
+                        () -> s.insertClipboardText(item.text()));
                     card.setContentDescription((item.pinned() ? "已置顶；" : "") + "点按插入剪贴板记录，长按管理");
                     card.setOnLongClickListener(ignored -> {
                         s.imeKeyFeedback.playFeedback(card);
@@ -1303,7 +1309,14 @@ final class ImePanels {
                         renderClipboardHistory();
                         return true;
                     });
-                    if (item.text().equals(clipboardActionText)) renderClipboardItemActions(item, cloudAllowed);
+                    if (managed) actionItem = item;
+                    // 操作行放在这条所在那一行的下面：双列时跨在两条下方，不插进两条中间。
+                    boolean rowEnds = index == items.size() - 1
+                        || ClipboardLayoutPolicy.row(index + 1, columns) != ClipboardLayoutPolicy.row(index, columns);
+                    if (rowEnds && actionItem != null) {
+                        renderClipboardItemActions(actionItem, cloudAllowed);
+                        actionItem = null;
+                    }
                 }
             } catch (IllegalStateException error) {
                 notes.add(clipboardNote("历史记录无法读取，请清空后重试"));
@@ -1508,8 +1521,16 @@ final class ImePanels {
         return note;
     }
 
-    /** 剪贴板卡片：键帽色圆角卡，第一行是文字（最多两行），第二行是『已置顶 · 设备 · 时间』，元信息用次要色的小号字（经 span，换肤遍历刷字色时不受影响）。 */
-    private Button clipboardCard(String text, String meta, Runnable action) {
+    /** 双列时正在填的那一行；每次渲染从第 0 条起重新建。 */
+    private LinearLayout clipboardCardRow;
+
+    /**
+     * 剪贴板卡片：键帽色圆角卡，第一行是文字（最多两行），第二行是『已置顶 · 设备 · 时间』，元信息用次要色的小号字（经 span，换肤遍历刷字色时不受影响）。
+     *
+     * <p>`index`/`count` 决定它排在哪：单列时一条一行；双列（本地设置 `platform.android.clipboard_columns`，#5642）时两条一行等宽，最后一行只有一条时右边留空，不把它拉满整行。`selected` 的卡片（长按打开了操作行的那条）画成选中样式，元信息不再用次要色，免得压在强调色上看不清。
+     */
+    private Button clipboardCard(int index, int count, String text, String meta, boolean selected,
+            Runnable action) {
         KeyboardPressButton card = ViewPolicy.newPressButton(s);
         card.setKeyboardRole(KeyboardKeyRole.KEY);
         android.text.SpannableStringBuilder label = new android.text.SpannableStringBuilder(text);
@@ -1519,9 +1540,11 @@ final class ImePanels {
             label.append(meta);
             label.setSpan(new android.text.style.RelativeSizeSpan(.8f), start, label.length(),
                 android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            label.setSpan(new android.text.style.ForegroundColorSpan(Color.parseColor(s.skin.secondary())),
+            if (!selected) label.setSpan(new android.text.style.ForegroundColorSpan(
+                    Color.parseColor(s.skin.secondary())),
                 start, label.length(), android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         }
+        ViewPolicy.setSelected(card, selected);
         card.setText(label);
         ViewPolicy.setStartCenteredTextSizeSp(card, 15);
         ViewPolicy.setMaxLinesEllipsized(card, 3);
@@ -1529,10 +1552,37 @@ final class ImePanels {
         ViewPolicy.clearMinimumHeight(card);
         ViewPolicy.clearStateListAnimator(card);
         bindFeedbackAction(card, action);
-        LinearLayout.LayoutParams params = KeyboardGeometry.matchWidthWrapParams();
-        params.topMargin = s.pixels(6);
-        s.clipboardPanel.addView(card, params);
+        int columns = s.clipboardColumns;
+        if (columns <= 1) {
+            LinearLayout.LayoutParams params = KeyboardGeometry.matchWidthWrapParams();
+            params.topMargin = s.pixels(6);
+            s.clipboardPanel.addView(card, params);
+            return card;
+        }
+        int column = index % columns;
+        if (column == 0 || clipboardCardRow == null) {
+            clipboardCardRow = KeyboardGeometry.row(s);
+            LinearLayout.LayoutParams rowParams = KeyboardGeometry.matchWidthWrapParams();
+            rowParams.topMargin = s.pixels(6);
+            s.clipboardPanel.addView(clipboardCardRow, rowParams);
+        }
+        clipboardCardRow.addView(card, clipboardCellParams(column));
+        boolean lastInRow = index == count - 1
+            || ClipboardLayoutPolicy.row(index + 1, columns) != ClipboardLayoutPolicy.row(index, columns);
+        if (lastInRow) {
+            for (int empty = column + 1; empty < columns; empty++)
+                clipboardCardRow.addView(new View(s), clipboardCellParams(empty));
+            clipboardCardRow = null;
+        }
         return card;
+    }
+
+    /** 双列里的一格：等宽、与同一行的另一条同高，两格之间留 6 dp。 */
+    private LinearLayout.LayoutParams clipboardCellParams(int column) {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+            0, LinearLayout.LayoutParams.MATCH_PARENT, 1);
+        if (column > 0) params.setMarginStart(s.pixels(6));
+        return params;
     }
 
     /** 「刚刚 / N 分钟前 / N 小时前 / N 天前」；时间戳早于 2001 年的按秒解读。 */
@@ -1572,8 +1622,11 @@ final class ImePanels {
             return;
         }
         long now = System.currentTimeMillis();
-        for (BackendAccount.ClipboardItem item : s.cloudClipboardItems) {
-            Button card = clipboardCard(item.text(), "云端 · " + relativeTime(item.updatedAt(), now),
+        int count = s.cloudClipboardItems.size();
+        for (int index = 0; index < count; index++) {
+            BackendAccount.ClipboardItem item = s.cloudClipboardItems.get(index);
+            Button card = clipboardCard(index, count, item.text(),
+                "云端 · " + relativeTime(item.updatedAt(), now), false,
                 () -> insertCloudClipboardText(item.text()));
             card.setContentDescription("点按插入云剪贴板记录");
         }
