@@ -37,7 +37,7 @@ final class ImeToolbar {
         this.s = s;
     }
 
-    /** 空闲工具栏：品牌、表情、常用语、剪贴板、皮肤、输入方式、收起，等分整行宽度；哪些显示由 render 按 `touch_toolbar` 决定。 */
+    /** 空闲工具栏：品牌、表情、常用语、剪贴板、皮肤、输入方式、收起，等分整行宽度；哪些显示由 render 按 `touch_toolbar` 决定。数字键面上有算式结果时，品牌键右边多一个结果胶囊（{@link ImeCalculator}）。 */
     void installShortcutBar(Button dismissButton) {
         s.shortcutBar.removeAllViews();
         s.dismissShortcutButton = dismissButton;
@@ -54,6 +54,11 @@ final class ImeToolbar {
             s.shortcutBar.addView(button, params);
             ViewPolicy.setMinimumWidth(button, s.pixels(40));
         }
+        // 数字键面的计算结果（#5688）挨着品牌键，在工具栏最左边；没有结果时隐藏，不占宽度。
+        Button result = s.imeCalculator.chip();
+        if (result.getParent() instanceof LinearLayout parent) parent.removeView(result);
+        s.shortcutBar.addView(result, 1, new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, s.pixels(44)));
         // 旧的回复、语音、简繁、AI 润色、⚙ 入口不在新工具栏上：AI 在功能面板第 2 页，语音由长按空格进入，设置在功能面板里。按钮对象保留，服务里其余代码照常更新它们的状态。
         for (Button retired : new Button[] {s.scriptShortcutButton, s.aiPolishShortcutButton,
                 s.replyShortcutButton, s.voiceShortcutButton, s.layoutSettingsButton}) {

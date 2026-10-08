@@ -112,6 +112,7 @@ public final class MSIMEInputService extends InputMethodService {
     ImeVoiceEntry imeVoiceEntry;
     ImeKeyFeedback imeKeyFeedback;
     ImeDebugOverlay imeDebugOverlay;
+    ImeCalculator imeCalculator;
     long session;
     InputConnection connection;
     private EditorBridge bridge = new EditorBridge();
@@ -1100,6 +1101,7 @@ public final class MSIMEInputService extends InputMethodService {
         imeVoiceEntry = new ImeVoiceEntry(this);
         imeKeyFeedback = new ImeKeyFeedback(this);
         imeDebugOverlay = new ImeDebugOverlay(this);
+        imeCalculator = new ImeCalculator(this);
         // 必须在 super.onCreate() 之前：InputMethodService 在那里按这个主题建输入法窗口，之后再设会抛异常。按名字查是因为 core/ 要能脱离 Gradle 生成的 R 编译（check-host.sh 的 JVM 冒烟）；res/values/themes.xml 说明了这个主题为什么存在。
         // 五笔、拼音等版本的 applicationId 带后缀，资源表的包名仍是命名空间，两个都试。
         int theme = getResources().getIdentifier("Theme.MSIME.InputMethod", "style", getPackageName());
@@ -1158,6 +1160,7 @@ public final class MSIMEInputService extends InputMethodService {
         engineStartGeneration++;
         cloudClipboardGeneration++;
         imeBottomRow.resetSpaceCursor();
+        imeCalculator.clear();
         // 也覆盖 onFinishInputView(true)：那条路径不经过 finishInputViewPresentation。
         imeVoiceEntry.cancel();
         stop(true);
@@ -3479,6 +3482,8 @@ public final class MSIMEInputService extends InputMethodService {
         }
         updateAutomaticCapitalization();
         if (directEnglishActive()) refreshEnglishSuggestions();
+        // 数字键面上打完算式（或光标挪到算式后面）时，工具栏给出计算结果。
+        imeCalculator.refresh();
     }
 
     Button button(LinearLayout row, String label, Runnable action) {
@@ -6009,6 +6014,7 @@ public final class MSIMEInputService extends InputMethodService {
                 ? KeyboardLayout.Layer.SYMBOLS : KeyboardLayout.Layer.LETTERS;
             imeLetterRows.rebuildKeyRows();
             render();
+            imeCalculator.refresh();
         });
         layerButton.setContentDescription("切换到数字和符号");
         keyId(layerButton, "SoftLayer");
@@ -6535,6 +6541,7 @@ public final class MSIMEInputService extends InputMethodService {
         updateShuangpinKeyHints();
         updateQuickPunctuation();
         imeLayoutRows.updateStrokeWildcardKey();
+        imeCalculator.syncVisibility();
         String currentEditingText = view == null ? "" : view.optString("editing_text", "");
         if (!japaneseSchemeActive() || currentEditingText.isEmpty()) {
             japaneseConversionIndex = null;
