@@ -5984,7 +5984,7 @@ public final class MSIMEInputService extends InputMethodService {
     private void updateCandidateButton(Button button, JSONObject candidate, int slot) {
         String text = chineseOutput(InputViewValuePolicy.textOr(candidate, "text", ""), view);
         boolean highlighted = InputViewValuePolicy.booleanValue(candidate, "highlighted", false);
-        String typed = view == null ? "" : view.optString("preedit", "");
+        String typed = InputViewValuePolicy.textOr(view, "preedit", "");
         String annotation = candidateAnnotation(candidate, typed);
         // 开着释义时每个候选都占两行：还没有释义（或这个候选没有）的那行用不换行空格占住。否则带释义的 chip 是两行、不带的是一行，居中后候选字一高一低，释义异步到达或候选一换，候选字就上下跳。
         if (annotation.isEmpty() && candidateGlossLineCount() > 0) annotation = "\u00A0";
@@ -7391,8 +7391,8 @@ public final class MSIMEInputService extends InputMethodService {
             String nineKeyPreedit = "";
             if (view != null && "none".equals(localModeKey)
                     && displayedTouchLayout(view) == QUANPIN_NINE_KEY_LAYOUT) {
-                nineKeyPreedit = view.optString("nine_key_reading", "");
-                if (nineKeyPreedit.isEmpty()) nineKeyPreedit = view.optString("preedit", "");
+                nineKeyPreedit = InputViewValuePolicy.textOr(view, "nine_key_reading", "");
+                if (nineKeyPreedit.isEmpty()) nineKeyPreedit = InputViewValuePolicy.textOr(view, "preedit", "");
             }
             String spelling = !nineKeyPreedit.isEmpty() ? nineKeyPreedit
                 : reading.isEmpty() ? editingText : reading;
