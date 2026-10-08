@@ -264,7 +264,7 @@ public final class TypingPage extends DetailPage {
             checked -> save(values -> values.put(translations.key(), checked)));
         InputFeatureToggle gloss = InputFeatureToggle.CANDIDATE_ENGLISH_GLOSS;
         boolean glossOn = preferences.optBoolean(gloss.key(), gloss.enabledByDefault());
-        String targetLanguage = preferences.optString("translation_target_language", "en");
+        String targetLanguage = InputViewValuePolicy.textOr(preferences, "translation_target_language", "en");
         translation.toggle("离线英文释义", "给候选词标注离线释义；英语释义随应用自带，其他目标语言要下载离线释义词典",
             glossOn, checked -> save(values -> values.put(gloss.key(), checked),
                 () -> { if (checked) ensureGlosses(targetLanguage, state); }));

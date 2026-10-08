@@ -1892,7 +1892,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     private java.util.List<String> translationTargetsFrom(JSONObject preferences) {
         String primary = preferences == null ? "en"
-            : preferences.optString("translation_target_language", "en");
+            : InputViewValuePolicy.textOr(preferences, "translation_target_language", "en");
         String secondary = "";
         if (preferences != null) {
             Object value = preferences.opt("translation_secondary_language");
