@@ -12,6 +12,7 @@
 #include <fcitx/addonmanager.h>
 #include <fcitx/addoninstance.h>
 #include <fcitx-config/configuration.h>
+#include <fcitx-config/iniparser.h>
 #include <fcitx-config/rawconfig.h>
 #include <fcitx/action.h>
 #include <fcitx/statusarea.h>
@@ -5272,11 +5273,29 @@ void record_classicui_takeover(const fcitx::RawConfig &current, const fcitx::Raw
     msime::linux_host::record_panel_takeover(*file, "fcitx5", key, replaced, *value, restore);
   }
 }
+// `current` 是调用方刚从 `getConfig()` 存下的现值：经典界面的 `getConfig()` 每次都要扫描并解析所有已装主题，已经取过一次的调用方不该为了记录再取一次。
+void set_classicui_config(fcitx::AddonInstance &classicui, const fcitx::RawConfig &current, const fcitx::RawConfig &config) {
+  record_classicui_takeover(current, config);
+  classicui.setConfig(config);
+}
 void set_classicui_config(fcitx::AddonInstance &classicui, const fcitx::RawConfig &config) {
   fcitx::RawConfig current;
   if (const auto *existing = classicui.getConfig()) existing->save(current);
-  record_classicui_takeover(current, config);
-  classicui.setConfig(config);
+  set_classicui_config(classicui, current, config);
+}
+
+// 经典界面当前选中的 `Theme` 与 `DarkTheme`，取自它落盘的 `conf/classicui.conf`。经典界面启动时从这个文件读配置，`setConfig`（fcitx5-configtool 保存、水杉接管主题都走它）写完立即 `safeSaveAsIni` 回同一个文件，所以文件就是现值。不用 `getConfig()`：它每调一次都扫描 PkgData 下所有 themes 目录、逐个打开解析 theme.conf，还要在 PATH 里找 Plasma 主题工具，开销随已装主题数线性增长，而且跑在处理按键的事件循环上（#5988）。读不到的键保持缺省：`Theme` 为空串，`DarkTheme` 为空，与 `fcitx_theme_replaceable` / `fcitx_candidate_theme_drawn` 对缺省的处理一致（经典界面的缺省值 default、default-dark 也都可替换）。
+struct ClassicUiThemeSelection {
+  std::string theme;
+  std::optional<std::string> dark_theme;
+};
+ClassicUiThemeSelection read_classicui_theme_selection() {
+  fcitx::RawConfig config;
+  fcitx::readAsIni(config, "conf/classicui.conf");
+  ClassicUiThemeSelection selection;
+  if (const auto *theme = config.valueByPath("Theme")) selection.theme = *theme;
+  if (const auto *dark = config.valueByPath("DarkTheme")) selection.dark_theme = *dark;
+  return selection;
 }
 
 // Each context owns a thread-bound Host API session. Fcitx never copies composing state.
@@ -5304,6 +5323,13 @@ public:
   }
   // The candidate colours reach the classic UI as a theme named "msime" in the user's Fcitx5 data directory (see candidates/CandidateFcitxTheme.h). The addon is pointed at it only while it shows one of Fcitx5's stock themes or MSIME's own; a theme the user chose is left in place and MSIME's colours simply don't apply. Setting the configuration also makes the addon read the theme file again, which is how a changed palette appears without a restart.
   void applyCandidatePanelTheme(const Json &preferences, bool system_dark, const Json &catalog) {
+    applyCandidatePanelTheme(instance_->addonManager().addon("classicui", true), preferences, system_dark, catalog);
+  }
+  // 每个有焦点的上下文每 250 ms 都会走到这里（refreshProviderSockets），所以只比廉价的输入：主题请求本身（全局主题、自定义主题、明暗与所画皮肤包的目录条目，颜色完全由它决定）、圆角和装饰图的戳。这些输入已经接管写好过一次就什么也不做，和原先按整份主题文本比较的语义相同：之后用户自己改了 classicui.conf，或卸载时 `msime-linux-setup --unregister` 把主题还原，都不会被这里再改回去。
+  //
+  // 还没接管成功时（用户选了第三方主题、没有经典界面、写主题失败），原先每一拍都重新栅格化并调 `getConfig()`，后者每次都扫描并解析全部已装主题（#5988）。现在只在可能让结果不同的东西变了时才重试：上面的输入、经典界面是否存在，以及它落盘的 Theme/DarkTheme 选择（fcitx5-configtool 改回默认主题会写这个文件，接管随之恢复）。写主题失败另外每 10 秒重试一次，登录时数据目录暂时不可写之类的情况能自己恢复。「重启输入法服务」（resetSessions）清掉两份记录，下一拍无条件重做。
+  void applyCandidatePanelTheme(fcitx::AddonInstance *classicui, const Json &preferences, bool system_dark,
+                                const Json &catalog) {
     namespace host = msime::linux_host;
     const auto resolved = resolveCandidateTheme(preferences, system_dark, catalog);
     const auto &colors = resolved.colors;
@@ -5312,48 +5338,62 @@ public:
     // Only the user's own radius pulls the highlight's corners in with the card.
     const bool user_radius = host::candidate_corner_radius_preference(preferences).has_value();
     // The decoration's stamp stands in for its image, so an unchanged skin costs a stat per refresh, not a copy.
-    // Read once: the icon only changes with the package, and a reinstall restarts Fcitx5 with it.
-    static const auto logo = host::load_fcitx_theme_logo(MSIME_ICON_DIR);
-    // A named empty overlay rather than a std::nullopt temporary: GCC 12 at -O3 on aarch64 inlines the temporary's destructor here and reports its never-constructed string as maybe-uninitialized, which -Werror turns into a failed release build (Release Linux run 37716388590).
-    static const std::optional<host::FcitxThemeOverlay> no_overlay;
-    auto theme = host::fcitx_candidate_theme(colors, resolved.dark, no_overlay, corner_radius, logo, user_radius) +
-                 host::fcitx_overlay_stamp(decoration);
-    if (theme == candidate_theme_applied_) return;
-    auto *classicui = instance_->addonManager().addon("classicui", true);
-    if (!classicui || !classicui->getConfig()) return;
+    auto inputs = Json{
+        {"request", host::candidate_theme_request(preferences, host::candidate_dark_theme(preferences, system_dark), catalog)},
+        {"corner_radius", corner_radius ? Json(*corner_radius) : Json(nullptr)},
+        {"user_radius", user_radius},
+        {"overlay", host::fcitx_overlay_stamp(decoration)}}.dump();
+    if (inputs == candidate_theme_applied_) return;
+    auto attempt = Json{{"inputs", inputs}, {"classicui", classicui != nullptr}};
+    if (classicui) {
+      const auto selection = read_classicui_theme_selection();
+      attempt["theme"] = selection.theme;
+      attempt["dark_theme"] = selection.dark_theme ? Json(*selection.dark_theme) : Json(nullptr);
+    }
+    auto attempt_key = attempt.dump();
+    const auto now = std::chrono::steady_clock::now();
+    if (attempt_key == candidate_theme_attempt_ && now < candidate_theme_retry_at_) return;
+    candidate_theme_attempt_ = std::move(attempt_key);
+    candidate_theme_retry_at_ = std::chrono::steady_clock::time_point::max();
+    const auto *live = classicui ? classicui->getConfig() : nullptr;
+    if (!live) return;
     fcitx::RawConfig current;
-    classicui->getConfig()->save(current);
+    live->save(current);
     const auto *selected = current.valueByPath("Theme");
     const auto *selected_dark = current.valueByPath("DarkTheme");
     if (!host::fcitx_theme_replaceable(selected ? *selected : std::string{})) return;
+    // Read once: the icon only changes with the package, and a reinstall restarts Fcitx5 with it.
+    static const auto logo = host::load_fcitx_theme_logo(MSIME_ICON_DIR);
     const auto file = host::fcitx_theme_file(std::getenv("XDG_DATA_HOME"), std::getenv("HOME"));
     if (!file || !host::write_fcitx_candidate_theme(*file, colors, resolved.dark, decoration, corner_radius, logo, user_radius,
-                                                       host::scale_fcitx_overlay_png)) return;
+                                                       host::scale_fcitx_overlay_png)) {
+      candidate_theme_retry_at_ = now + kCandidateThemeRetry;
+      return;
+    }
     fcitx::RawConfig config;
     config.setValueByPath("Theme", std::string(host::kFcitxCandidateTheme));
     // Fcitx5 releases with a separate dark-mode theme would otherwise switch to their stock dark theme; MSIME already resolves "follow" against the system appearance itself.
     if (selected_dark && host::fcitx_theme_replaceable(*selected_dark))
       config.setValueByPath("DarkTheme", std::string(host::kFcitxCandidateTheme));
-    set_classicui_config(*classicui, config);
-    candidate_theme_applied_ = std::move(theme);
+    set_classicui_config(*classicui, current, config);
+    candidate_theme_applied_ = std::move(inputs);
+    candidate_theme_attempt_.clear();
   }
-  // Tell the settings page whether the classic UI draws the candidate font, colours and skin (see candidates/CandidatePanelStatus.h). Asked on every theme sync because the user can switch the UI or theme in fcitx5-configtool at any time; the file is rewritten only when the answer changes.
+  // 告诉设置页经典界面画不画候选字体、配色和皮肤（见 candidates/CandidatePanelStatus.h）。每次主题同步都问一遍，因为用户随时可能在 fcitx5-configtool 里换界面或主题；答案变了才重写文件。主题选择取自落盘的 classicui.conf（read_classicui_theme_selection），不调 `getConfig()`，后者每次都扫描全部已装主题（#5988）。
   void publishCandidatePanelStatus() {
     namespace host = msime::linux_host;
     const auto file = host::candidate_panel_status_file(std::getenv("XDG_RUNTIME_DIR"));
     if (!file) return;
+    const auto &ui = instance_->currentUI();
+    // 只有经典界面在画时主题才有意义（fcitx_candidate_panel_limit）；kimpanel 等界面下不读它的配置。
     bool replaceable = true;
-    auto *classicui = instance_->addonManager().addon("classicui", true);
-    if (classicui && classicui->getConfig()) {
-      fcitx::RawConfig current;
-      classicui->getConfig()->save(current);
-      const auto *selected = current.valueByPath("Theme");
-      replaceable =
-          host::fcitx_candidate_theme_drawn(selected ? *selected : std::string{}, current.valueByPath("DarkTheme"));
+    if (ui == "classicui") {
+      const auto selection = read_classicui_theme_selection();
+      replaceable = host::fcitx_candidate_theme_drawn(selection.theme,
+                                                      selection.dark_theme ? &*selection.dark_theme : nullptr);
     }
     host::write_candidate_panel_status(
-        *file, host::candidate_panel_status_document(
-                   "fcitx5", host::fcitx_candidate_panel_limit(instance_->currentUI(), replaceable)));
+        *file, host::candidate_panel_status_document("fcitx5", host::fcitx_candidate_panel_limit(ui, replaceable)));
   }
   // Runs before any session exists: a package upgrade leaves the user's options on the previous dictionary generation until this re-prepares it. The system-wide file belongs to the administrator and is not rewritten.
   static void refreshOptions() {
@@ -5399,6 +5439,9 @@ public:
     });
     refreshOptions();
     refreshTypingStatistics();
+    // 「重启输入法服务」让下一次主题同步无条件重做，不论上次是接管了、不可接管还是写失败（见 applyCandidatePanelTheme）。
+    candidate_theme_applied_.clear();
+    candidate_theme_attempt_.clear();
     for (auto *ic : focused) {
       auto *state = ic->propertyFor(&factory_);
       try {
@@ -6030,7 +6073,12 @@ public:
       msime::linux_host::CandidateFontUnit::Pixels;
 #endif
   msime::linux_host::CandidateFontSync candidate_font_sync_{kClassicUiFontUnit};
+  // applyCandidatePanelTheme 上一次接管写好时的主题输入。
   std::string candidate_theme_applied_;
+  // 还没接管成功时，上一次尝试所见的主题输入与经典界面落盘的选择；写主题失败时到 candidate_theme_retry_at_ 再试一次，其他情况要等它们变化。
+  std::string candidate_theme_attempt_;
+  std::chrono::steady_clock::time_point candidate_theme_retry_at_;
+  static constexpr auto kCandidateThemeRetry = std::chrono::seconds(10);
   msime::linux_host::CandidateWheelPagingSync candidate_wheel_paging_sync_;
   // Last appearance the addon-wide probe reported; see stepSystemTheme.
   bool system_dark_ = false;

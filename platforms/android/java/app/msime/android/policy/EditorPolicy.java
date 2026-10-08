@@ -5,7 +5,7 @@ import android.view.inputmethod.EditorInfo;
 
 public final class EditorPolicy {
     private EditorPolicy() {}
-    /** 文本框都走引擎，只有密码框不走。`TYPE_TEXT_FLAG_NO_SUGGESTIONS` 只是「别给输入建议」，不是「不能组字」：Chrome 的地址栏（同时是搜索框）就带着它，排除它会让那里只能打英文字母、切不到中文和日语。这类输入框由 {@link #prefersLatin} 默认英文。 */
+    /** 文本框都走引擎，只有密码框不走。`TYPE_TEXT_FLAG_NO_SUGGESTIONS` 只是「别给输入建议」，不是「不能组字」：Chrome 的地址栏（同时是搜索框）就带着它，排除它会让那里只能打英文字母、切不到中文和日语。 */
     public static boolean useEngine(int type) {
         if ((type & InputType.TYPE_MASK_CLASS) != InputType.TYPE_CLASS_TEXT) return false;
         int variation = type & InputType.TYPE_MASK_VARIATION;
@@ -36,6 +36,7 @@ public final class EditorPolicy {
         return password(type) || !allowLearning(options);
     }
 
+    /** 进框时临时切成英文的输入框：只看网址、邮箱、密码这几种 variation。`TYPE_TEXT_FLAG_NO_SUGGESTIONS` 不算：React Native 的 `autoCorrect={false}`、Flutter 的 `enableSuggestions: false` 和不少网页输入框都带着它，算进来的话这些聊天框、搜索框每次进框都是英文，「默认中英文」和按应用记住的模式都被盖掉（#5998）。 */
     public static boolean prefersLatin(int type) {
         if ((type & InputType.TYPE_MASK_CLASS) != InputType.TYPE_CLASS_TEXT) return false;
         int variation = type & InputType.TYPE_MASK_VARIATION;
@@ -44,8 +45,7 @@ public final class EditorPolicy {
             || variation == InputType.TYPE_TEXT_VARIATION_WEB_EMAIL_ADDRESS
             || variation == InputType.TYPE_TEXT_VARIATION_PASSWORD
             || variation == InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
-            || variation == InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD
-            || (type & InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS) != 0;
+            || variation == InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD;
     }
 
     public static EnglishCapitalizationPolicy.Mode capitalizationMode(int type) {

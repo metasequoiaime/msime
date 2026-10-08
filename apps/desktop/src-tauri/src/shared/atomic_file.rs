@@ -74,7 +74,7 @@ pub(crate) fn open_private(path: &Path) -> io::Result<File> {
     }
     #[cfg(windows)]
     {
-        use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
+        use std::os::windows::fs::OpenOptionsExt;
         const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
         let mut options = OpenOptions::new();
         options
@@ -88,7 +88,7 @@ pub(crate) fn open_private(path: &Path) -> io::Result<File> {
                 "private input is not a regular file",
             ));
         }
-        if metadata.number_of_links() != 1 {
+        if !msime_client_core::file_lock::has_single_link(&file)? {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "private input must have a single link",

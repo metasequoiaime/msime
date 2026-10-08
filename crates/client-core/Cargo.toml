@@ -50,5 +50,9 @@ msime-path-trust = { path = "../path-trust", features = ["test-support"] }
 libc.workspace = true
 rustix = { workspace = true, features = ["fs"] }
 
+# `file_lock::has_single_link` 在 Windows 上要读硬链接数：标准库的 `MetadataExt::number_of_links` 还是不稳定特性（`windows_by_handle`），这里用它对 `GetFileInformationByHandle` 的安全封装。锁文件里已有这一版（经 `walkdir` 等引入），底层是工作区已在用的 windows-sys 0.61。
+[target.'cfg(windows)'.dependencies]
+winapi-util = "0.1.11"
+
 [lints]
 workspace = true

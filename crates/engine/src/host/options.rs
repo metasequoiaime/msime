@@ -21,21 +21,21 @@ use crate::vietnamese::{InputMethod as VietnameseInputMethod, ToneStyle as Vietn
 
 const MAX_TRANSLATION_SIDECAR_BYTES: u64 = 1024 * 1024;
 
-fn has_single_link(metadata: &std::fs::Metadata) -> bool {
+// engine 不依赖 client-core，所以这里不能用 `msime_client_core::file_lock::has_single_link`，写法与它相同：Windows 上标准库的 `number_of_links` 还是不稳定特性（`windows_by_handle`），改用 `winapi-util` 读硬链接数。
+fn has_single_link(file: &std::fs::File) -> io::Result<bool> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt;
-        metadata.nlink() == 1
+        Ok(file.metadata()?.nlink() == 1)
     }
     #[cfg(windows)]
     {
-        use std::os::windows::fs::MetadataExt;
-        metadata.number_of_links() == 1
+        Ok(winapi_util::file::information(file)?.number_of_links() == 1)
     }
     #[cfg(not(any(unix, windows)))]
     {
-        let _ = metadata;
-        true
+        let _ = file;
+        Ok(true)
     }
 }
 
@@ -55,7 +55,7 @@ pub(crate) fn write_private_file_no_follow(path: &Path, bytes: &[u8]) -> io::Res
     }
     let mut file = options.open(path)?;
     let metadata = file.metadata()?;
-    if !metadata.is_file() || !has_single_link(&metadata) {
+    if !metadata.is_file() || !has_single_link(&file)? {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             "translation sidecar is not a single-link regular file",
