@@ -3237,7 +3237,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (view == null) return false;
         JSONArray entries = view.optJSONArray("candidates");
         return KoreanInputPolicy.hanjaListOpen(koreanSchemeActive(),
-            view.optString("local_mode", "none"), entries == null ? 0 : entries.length());
+            InputViewValuePolicy.textOr(view, "local_mode", "none"), entries == null ? 0 : entries.length());
     }
 
     private boolean zhuyinSchemeActive() {
@@ -3283,7 +3283,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (view == null) return false;
         JSONArray entries = view.optJSONArray("candidates");
         return ZhuyinInputPolicy.listOpen(zhuyinSchemeActive(),
-            view.optString("local_mode", "none"), entries == null ? 0 : entries.length());
+            InputViewValuePolicy.textOr(view, "local_mode", "none"), entries == null ? 0 : entries.length());
     }
 
     /** Whether the Zhuyin open-list command applies now: a conversion is composing, with or without its list open. */
