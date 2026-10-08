@@ -5256,11 +5256,15 @@ public final class MSIMEInputService extends InputMethodService {
         render();
     }
 
-    /** 用户删掉或清空历史后，把系统剪贴板里当前那一条记为已处理，下一次打开面板的补读就不会把它记回来。 */
+    /**
+     * 用户删掉或清空历史后，把系统剪贴板里当前那一条记为已处理，下一次打开面板的补读就不会把它记回来。
+     *
+     * <p>系统标为敏感的内容跳过：补读从不记录它，没有东西需要挡；身份里有文字的散列和长度，短密码、验证码凭这两样就能穷举还原，不能为它落盘。
+     */
     private void forgetCurrentClip() {
         try {
             PrimaryClip clip = readPrimaryClip();
-            if (clip != null) rememberHandledClip(clip.identity());
+            if (clip != null && !clip.sensitive()) rememberHandledClip(clip.identity());
         } catch (SecurityException error) {
             // 读不到剪贴板就没有东西会被补读回来。
         }

@@ -15,9 +15,9 @@ Status: implemented
 - 清空的确认画在面板顶行：点「清空」后顶行换成「清空全部历史（含固定项）？ 取消 清空」，分段在这时让出位置；换分段或重开面板都会撤销。确认后由 `MSIMEInputService.clearClipboardHistory` 执行。剪贴板面板 never 弹 `AlertDialog`。
 - 每条剪贴板内容有一个身份：`ClipDescription.getTimestamp()`（读不到时为 0）加文字散列和长度，由 `ClipboardCapturePolicy.identity` 算出，只用来比较，不含文字。上一次处理过的身份存在 `:ime` 进程的 SharedPreferences `android-clipboard-capture`。
 - `captureClipboard(trigger, announce)`：复制时的监听（`Trigger.COPIED`）一律记录；打开面板的补读（`Trigger.PANEL_OPENED`）只记录身份与上一次不同的那一条。共享存储有了答复之后才记下身份：收下或明确拒收（`add` 返回原因）都记，拒收的内容不会每次打开面板都重试；存储写不进去时 `add` 抛异常，这一条不记，下次补读再试。第一版在交给存储之前就记下，写入抛异常时这一条被当成处理过，之后的补读永远跳过它。
-- 清空和删除单条之后，把系统剪贴板当前那一条记为已处理（`forgetCurrentClip`）。
+- 清空和删除单条之后，把系统剪贴板当前那一条记为已处理（`forgetCurrentClip`）。系统标为敏感（`EXTRA_IS_SENSITIVE`）的内容跳过：补读本来就不记录它，而身份里的散列和长度足以穷举还原短密码或验证码，不能为它落盘。
 - 长按一条历史，操作（固定或取消固定、删除、发到云剪贴板、收起）画成紧贴在它下方的一行按钮（`ImePanels.renderClipboardItemActions`），执行由 `MSIMEInputService.setClipboardItemPinned` / `removeClipboardItem` 负责。剪贴板面板 never 弹 `PopupMenu`。
-- `check-host.sh` 守住：清空、面板渲染和条目操作路径里没有 `new AlertDialog`/`new PopupMenu`，`manageClipboardItem` 不再出现，捕获经过 `ClipboardCapturePolicy.captures`。
+- `check-host.sh` 守住：清空、面板渲染和条目操作路径里没有 `new AlertDialog`/`new PopupMenu`，`manageClipboardItem` 不再出现，捕获经过 `ClipboardCapturePolicy.captures`，`forgetCurrentClip` 跳过敏感内容。
 
 ## Alternatives considered
 

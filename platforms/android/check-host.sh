@@ -620,6 +620,13 @@ if [[ -z "$capture_add_line" || -z "$capture_remember_line" \
   echo "Android clipboard capture must mark a clip handled only after the store answered" >&2
   exit 1
 fi
+# 已处理身份里有文字的散列和长度，短密码、验证码凭它能穷举还原。系统标为敏感的内容从不记录，清空或删除后也不能把它的身份落盘。
+if ! rg -A 6 'private void forgetCurrentClip\(' \
+    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
+    | rg -q '!clip\.sensitive\(\)'; then
+  echo "Android must not persist the identity of a clip the system marked sensitive" >&2
+  exit 1
+fi
 # Both maintenance chords are Ctrl+Shift+Alt, and the modifier branch in onKeyDown hands every
 # such combination to the application. Routing them through one named policy, ahead of that branch,
 # is what keeps them reachable at all on a keyboard that has no long press.
