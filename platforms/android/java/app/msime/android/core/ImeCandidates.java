@@ -163,7 +163,7 @@ final class ImeCandidates {
             JSONObject current = s.visibleCandidate(slot);
             JSONObject id = current == null ? null : current.optJSONObject("id");
             if (id == null || (!s.candidateManagementEnabled() && !s.candidateGlossInsertionEnabled())) return false;
-            String text = s.chineseOutput(current.optString("text"), s.view);
+            String text = s.chineseOutput(InputViewValuePolicy.textOr(current, "text", ""), s.view);
             return showCandidateMenu(button, slot, id, text);
         });
         return button;
@@ -172,7 +172,7 @@ final class ImeCandidates {
     Button expandedCandidateButton(JSONObject candidate) {
         JSONObject id = candidate.optJSONObject("id");
         Button button = candidateButton();
-        String text = s.chineseOutput(candidate.optString("text"), s.view);
+        String text = s.chineseOutput(InputViewValuePolicy.textOr(candidate, "text", ""), s.view);
         boolean highlighted = InputViewValuePolicy.booleanValue(candidate, "highlighted", false);
         String typed = s.candidatePanelSnapshot == null ? ""
             : s.candidatePanelSnapshot.optString("preedit", "");
