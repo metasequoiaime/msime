@@ -128,32 +128,77 @@ fn read_session_file(file: File) -> Result<Vec<u8>, AccountError> {
     )
 }
 
+#[cfg(unix)]
+fn save_bytes(storage: &FileAccountSessionStorage, bytes: &[u8]) -> Result<(), AccountError> {
+    // Published by rename so no reader ever sees half a document. On Unix the parent handle
+    // also keeps a concurrent replacement of the account directory from redirecting tokens.
+    let directory = crate::storage::open_private_directory(&storage.directory)
+        .map_err(|_| AccountError::Storage)?;
+    crate::storage::write_private_file_at(
+        &directory,
+        std::ffi::OsStr::new(ACCOUNT_SESSION_FILE),
+        bytes,
+    )
+    .map_err(|_| AccountError::Storage)
+}
+
+#[cfg(not(unix))]
+fn save_bytes(storage: &FileAccountSessionStorage, bytes: &[u8]) -> Result<(), AccountError> {
+    // Published by rename so no reader ever sees half a document. NamedTempFile creates the
+    // file 0600 on Unix, so the tokens are never readable by anyone else during publication.
+    let mut temporary =
+        tempfile::NamedTempFile::new_in(&storage.directory).map_err(|_| AccountError::Storage)?;
+    temporary
+        .write_all(bytes)
+        .and_then(|()| temporary.as_file().sync_all())
+        .map_err(|_| AccountError::Storage)?;
+    temporary
+        .persist(storage.path())
+        .map(|_| ())
+        .map_err(|_| AccountError::Storage)
+}
+
 impl AccountSessionStorage for FileAccountSessionStorage {
     fn load(&self) -> Result<Option<SavedAccountSession>, AccountError> {
-        let path = self.path();
         crate::storage::reject_symlink(&self.directory).map_err(|_| AccountError::Storage)?;
+        #[cfg(unix)]
+        let directory = crate::storage::open_private_directory(&self.directory)
+            .map_err(|_| AccountError::Storage)?;
         // symlink_metadata, not metadata: a symlink here is not a store this host wrote, and following it would read through a path chosen by whoever planted it. A file another user can read or write is likewise not one any host would have produced.
+        #[cfg(unix)]
+        let file = match crate::storage::open_private_file_at(
+            &directory,
+            std::ffi::OsStr::new(ACCOUNT_SESSION_FILE),
+        ) {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(_) => return Err(AccountError::Storage),
+        };
+        #[cfg(not(unix))]
+        let path = self.path();
+        #[cfg(not(unix))]
         let metadata = match std::fs::symlink_metadata(&path) {
             Ok(metadata) => metadata,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
             Err(_) => return Err(AccountError::Storage),
         };
+        #[cfg(not(unix))]
+        let file = crate::storage::open_private_file(&path).map_err(|_| AccountError::Storage)?;
+        #[cfg(unix)]
+        let metadata = file.metadata().map_err(|_| AccountError::Storage)?;
         if !metadata.is_file() || metadata.len() > MAX_SESSION_BYTES {
             return Err(AccountError::Storage);
         }
         #[cfg(unix)]
         {
             use std::os::unix::fs::MetadataExt;
-            let directory =
-                std::fs::symlink_metadata(&self.directory).map_err(|_| AccountError::Storage)?;
-            if metadata.mode() & 0o077 != 0 || metadata.uid() != directory.uid() {
+            let directory_metadata = directory.metadata().map_err(|_| AccountError::Storage)?;
+            if metadata.mode() & 0o077 != 0 || metadata.uid() != directory_metadata.uid() {
                 return Err(AccountError::Storage);
             }
         }
         // The file can be replaced after symlink_metadata returns. Read through a bounded handle so the size check cannot turn into an unbounded allocation.
-        let bytes = read_session_file(
-            crate::storage::open_private_file(&path).map_err(|_| AccountError::Storage)?,
-        )?;
+        let bytes = read_session_file(file)?;
         decode(&bytes).map(Some)
     }
 
@@ -163,22 +208,12 @@ impl AccountSessionStorage for FileAccountSessionStorage {
             return Err(AccountError::Storage);
         }
         self.create_directory()?;
-        // Published by rename so no reader ever sees half a document. NamedTempFile creates the file 0600 on Unix, so the tokens are never readable by anyone else, not even between create and rename.
-        let mut temporary =
-            tempfile::NamedTempFile::new_in(&self.directory).map_err(|_| AccountError::Storage)?;
-        temporary
-            .write_all(&bytes)
-            .and_then(|()| temporary.as_file().sync_all())
-            .map_err(|_| AccountError::Storage)?;
-        temporary
-            .persist(self.path())
-            .map(|_| ())
-            .map_err(|_| AccountError::Storage)
+        save_bytes(self, &bytes)
     }
 
     fn clear(&self) -> Result<(), AccountError> {
         crate::storage::reject_symlink(&self.directory).map_err(|_| AccountError::Storage)?;
-        match std::fs::remove_file(self.path()) {
+        match crate::storage::remove_private_file(&self.path()) {
             Ok(()) => Ok(()),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
             Err(_) => Err(AccountError::Storage),

@@ -86,6 +86,11 @@ final class ImeFrame {
         return column;
     }
 
+    /** 外接键盘的候选条模式里收起整行键区（{@link HardwareKeyboardModePolicy#keysCollapsed}）；单手侧栏在同一行里，一起收起。 */
+    void setKeysCollapsed(boolean collapsed) {
+        if (row != null) ViewPolicy.setVisible(row, !collapsed);
+    }
+
     /** 按默认布局参数放入键区。 */
     void wrap(ViewGroup keyArea) {
         column().addView(keyArea, KeyboardGeometry.matchWidthWrapParams());
@@ -101,7 +106,9 @@ final class ImeFrame {
     /** 按当前 `touch_one_handed` 摆放侧栏与键区；与上次相同时只刷新颜色。渲染与换肤时调用。分离式键盘画着的时候单手模式不生效（存着的值不变，回到不分离时自动恢复），见 {@link SplitKeyboardPolicy#effectiveOneHanded}。 */
     void applyOneHanded() {
         if (row == null || gutter == null || column == null) return;
-        String stored = SplitKeyboardPolicy.effectiveOneHanded(s.oneHandedMode, s.splitKeyboardDrawn());
+        // 浮动键盘本身就是一块窄面板，单手模式与分离式键盘一样不生效，存着的值不变。
+        String stored = SplitKeyboardPolicy.effectiveOneHanded(s.oneHandedMode,
+            s.splitKeyboardDrawn() || s.floatingDrawn());
         String mode = oneHanded(stored) ? stored : "off";
         if (s.skin != null) {
             gutter.setColors(Color.parseColor(s.skin.keyBackground()), Color.parseColor(s.skin.toolbarIcon()));

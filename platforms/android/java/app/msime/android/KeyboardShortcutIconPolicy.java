@@ -7,7 +7,7 @@ public final class KeyboardShortcutIconPolicy {
      *
      * <p>`PHRASE`、`CLIPBOARD`、`SCHEME` 是新设计工具栏上的常用语、剪贴板、输入方式；它们与 `EMOJI`、`SKIN`、`DISMISS` 一起由 {@link KeyboardShortcutButton} 按设计的 Material 实心图标绘制。
      */
-    public enum Icon { SETTINGS, REPLY, EMOJI, VOICE, SKIN, DISMISS, GLOBE, BOOKMARK, PHRASE, CLIPBOARD, SCHEME }
+    public enum Icon { SETTINGS, REPLY, EMOJI, VOICE, SKIN, DISMISS, GLOBE, BOOKMARK, PHRASE, CLIPBOARD, SCHEME, FLOATING }
 
     private KeyboardShortcutIconPolicy() {}
 
@@ -23,6 +23,7 @@ public final class KeyboardShortcutIconPolicy {
             case "常用语" -> Icon.PHRASE;
             case "剪贴板" -> Icon.CLIPBOARD;
             case "输入方式" -> Icon.SCHEME;
+            case "浮动键盘" -> Icon.FLOATING;
             default -> throw new IllegalArgumentException("No shortcut icon for: " + label);
         };
     }
@@ -30,7 +31,7 @@ public final class KeyboardShortcutIconPolicy {
     /** 这个图标是否按设计的 Material 实心图标（24 dp）绘制；为假的沿用旧的描边画法。 */
     public static boolean materialGlyph(Icon icon) {
         return switch (icon) {
-            case EMOJI, PHRASE, CLIPBOARD, SKIN, SCHEME, DISMISS -> true;
+            case EMOJI, PHRASE, CLIPBOARD, SKIN, SCHEME, FLOATING, DISMISS -> true;
             case SETTINGS, REPLY, VOICE, GLOBE, BOOKMARK -> false;
         };
     }

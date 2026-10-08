@@ -611,9 +611,9 @@ impl ImeSession {
                 }
             }
             None if request.scheme == SchemeType::Cantonese => {
-                let fresh = self.registry.query(&request);
                 let mut candidates = std::mem::take(&mut self.state.candidates);
-                reuse_word_item_rows(&fresh, &mut candidates);
+                self.registry
+                    .query_cantonese_into(&request, &mut candidates);
                 Decoded {
                     candidates,
                     wubi_table_answered: false,
@@ -773,29 +773,6 @@ fn reuse_zhuyin_rows(source: &[ListCandidate], destination: &mut Vec<WordItem>) 
             item.scheme = SchemeType::Zhuyin;
             item
         }));
-    }
-}
-
-/// 按字段刷新粤拼候选行，保留已有行和字符串的容量。
-fn reuse_word_item_rows(source: &[WordItem], destination: &mut Vec<WordItem>) {
-    let common = source.len().min(destination.len());
-    for (target, item) in destination.iter_mut().take(common).zip(source.iter()) {
-        target.pinyin.clone_from(&item.pinyin);
-        target.canonical_pinyin.clone_from(&item.canonical_pinyin);
-        target.word.clone_from(&item.word);
-        target.weight = item.weight;
-        target.source = item.source;
-        target.scheme = item.scheme;
-        target.fixed_position = item.fixed_position;
-        target.fuzzy = item.fuzzy;
-        target.corrected_from.clone_from(&item.corrected_from);
-        target.sentence_association = item.sentence_association;
-        target.sentence_words.clone_from(&item.sentence_words);
-    }
-    if destination.len() > source.len() {
-        destination.truncate(source.len());
-    } else {
-        destination.extend(source[common..].iter().cloned());
     }
 }
 
@@ -1083,27 +1060,6 @@ mod tests {
         assert_eq!(destination[0].word, "你好");
         assert_eq!(destination[0].word.as_ptr(), word_pointer);
         assert_eq!(destination[0].scheme, SchemeType::Zhuyin);
-    }
-
-    #[test]
-    fn cantonese_rows_reuse_existing_word_storage() {
-        let source = vec![WordItem::new(
-            "nei hou",
-            "你好",
-            42,
-            CandidateSource::Database,
-            "nei hou",
-        )];
-        let mut destination = source.clone();
-        let word_pointer = destination[0].word.as_ptr();
-
-        let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
-            reuse_word_item_rows(&source, &mut destination);
-        });
-
-        assert_eq!(allocations, 0);
-        assert_eq!(destination, source);
-        assert_eq!(destination[0].word.as_ptr(), word_pointer);
     }
 
     #[test]

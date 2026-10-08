@@ -275,6 +275,21 @@ sign "$app/Contents/MacOS/msime-mcp"
 if [ -d "$glosses" ]; then
   ditto "$glosses" "$app/Contents/Resources/offline-glosses"
 fi
+# The English pronunciation table (scripts/build_pronunciations.py), optional and read beside EngineResources in the same way.
+pronunciations="$repo_root/target/macos/pronunciations"
+if [ -d "$pronunciations" ]; then
+  ditto "$pronunciations" "$app/Contents/Resources/pronunciations"
+fi
+# Single-character English glosses (scripts/build_character_glosses.py), optional and read beside EngineResources.
+characters="$repo_root/target/macos/character-glosses"
+if [ -d "$characters" ]; then
+  ditto "$characters" "$app/Contents/Resources/character-glosses"
+fi
+# English glosses for words english.db does not cover (scripts/build_word_glosses.py), optional and read beside EngineResources.
+words="$repo_root/target/macos/word-glosses"
+if [ -d "$words" ]; then
+  ditto "$words" "$app/Contents/Resources/word-glosses"
+fi
 # Without --deep, so the input method keeps the signature and entitlements it was given above; the outer signature seals it as a nested resource.
 sign "$app"
 codesign --verify --deep --strict "$app"
@@ -311,6 +326,15 @@ check_app() {
     test ! -e "$resources_dir/offline-glosses"
   elif [ -d "$glosses" ]; then
     test -f "$resources_dir/offline-glosses/offline-glosses-NOTICE.txt"
+  fi
+  if [ -d "$pronunciations" ]; then
+    test -f "$resources_dir/pronunciations/pronunciations-NOTICE.txt"
+  fi
+  if [ -d "$characters" ]; then
+    test -f "$resources_dir/character-glosses/character-glosses-NOTICE.txt"
+  fi
+  if [ -d "$words" ]; then
+    test -f "$resources_dir/word-glosses/word-glosses-NOTICE.txt"
   fi
   local nested
   nested="$(only "$resources_dir"/*.app)"

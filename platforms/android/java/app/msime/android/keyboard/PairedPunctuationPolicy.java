@@ -25,14 +25,14 @@ public final class PairedPunctuationPolicy {
         new EngineCompletion('[', "【", "】"));
 
     /**
-     * 符号面板里点前半个就成对上屏的符号。ASCII 的 `"` 和 `'` 不在里面：它们前后半个是同一个字符，`'` 更常作撇号用，点一下变成两个反而要删。竖排用的 ︵︶﹁﹂ 也不在里面。
+     * 符号面板里点前半个就成对上屏的符号。ASCII 的 `"` 和 `'` 不在里面：它们前后半个是同一个字符，`'` 更常作撇号用，点一下变成两个反而要删。ASCII 的 `<` 也不在里面：它绝大多数时候是小于号，打 `a < b` 时补出的 `>` 只能再删掉；全角 ＜ 照常成对。竖排用的 ︵︶﹁﹂ 也不在里面。
      */
     private static final Map<String, String> SYMBOL_PAIRS = Map.ofEntries(
         Map.entry("（", "）"), Map.entry("《", "》"), Map.entry("〈", "〉"), Map.entry("【", "】"),
         Map.entry("「", "」"), Map.entry("『", "』"), Map.entry("〔", "〕"), Map.entry("〖", "〗"),
         Map.entry("＜", "＞"), Map.entry("｛", "｝"), Map.entry("［", "］"),
         Map.entry("“", "”"), Map.entry("‘", "’"),
-        Map.entry("(", ")"), Map.entry("[", "]"), Map.entry("{", "}"), Map.entry("<", ">"));
+        Map.entry("(", ")"), Map.entry("[", "]"), Map.entry("{", "}"));
 
     private PairedPunctuationPolicy() { }
 

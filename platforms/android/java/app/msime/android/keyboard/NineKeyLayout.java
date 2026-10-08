@@ -13,9 +13,24 @@ public final class NineKeyLayout {
     public record Key(int digit, String label, char input, String description) {}
 
 
-    /** 1 键在拼音键面上是「@#」，点按打开符号面板，不送进引擎（引擎的九键不收 1）。 */
+    /** 1 键在拼音键面上是「@#」，点按打开符号面板，不送进引擎（引擎的九键不收 1）。组字时它改作「分词」，见 {@link #separatesSyllables}。 */
     public static boolean opensSymbols(Key key, boolean digits) {
         return !digits && key != null && key.digit() == 1;
+    }
+
+    /** 组字时 1 键是「分词」：在已打的数字末尾定一个音节分界（向引擎送 '）。和搜狗、讯飞九键的习惯一样，右列中间那格就留给「重输」。 */
+    public static boolean separatesSyllables(Key key, boolean digits, boolean composing) {
+        return composing && opensSymbols(key, digits);
+    }
+
+    /** 拼音键面上 1 键随组字状态换的键面。 */
+    public static String face(Key key, boolean digits, boolean composing) {
+        return separatesSyllables(key, digits, composing) ? "分词" : face(key, digits);
+    }
+
+    /** 与 {@link #face(Key, boolean, boolean)} 对应的无障碍描述。 */
+    public static String description(Key key, boolean digits, boolean composing) {
+        return separatesSyllables(key, digits, composing) ? "分词，在这里断开音节" : description(key, digits);
     }
 
     private static final List<List<Key>> ROWS = List.of(
