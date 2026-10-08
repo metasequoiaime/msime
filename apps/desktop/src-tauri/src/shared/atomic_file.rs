@@ -185,6 +185,7 @@ pub(crate) fn write(path: &Path, contents: &[u8]) -> io::Result<()> {
 /// all writes, so a replacement of the path cannot redirect the operation.
 #[cfg(unix)]
 fn open_private_directory(parent: &Path) -> io::Result<OwnedFd> {
+    check_directory_ancestors(parent)?;
     let metadata = std::fs::symlink_metadata(parent)?;
     if metadata.file_type().is_symlink() || !metadata.is_dir() {
         return Err(io::Error::new(
@@ -371,6 +372,23 @@ mod private_open_tests {
         let mut contents = Vec::new();
         file.read_to_end(&mut contents).unwrap();
         assert_eq!(contents, b"original");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_open_rejects_an_untrusted_ancestor_link() {
+        use super::open_private;
+        use msime_path_trust::untrusted_symlink as symlink;
+
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let linked = root.path().join("linked");
+        let outside_state = outside.path().join("state");
+        std::fs::create_dir(&outside_state).unwrap();
+        std::fs::write(outside_state.join("private-input"), b"synthetic").unwrap();
+        symlink(outside.path(), &linked).unwrap();
+
+        assert!(open_private(&linked.join("state/private-input")).is_err());
     }
 
     #[cfg(unix)]

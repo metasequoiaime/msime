@@ -444,7 +444,7 @@ public final class DictionaryCollectionsStore {
         JSONObject report = value.optJSONObject("import");
         ImportReport importReport = report == null ? null : new ImportReport(
             nonNegativeInteger(report.opt("imported"), 0), nonNegativeInteger(report.opt("duplicates"), 0),
-            nonNegativeInteger(report.opt("failed"), 0), Boolean.TRUE.equals(strictBoolean(report.opt("truncated"))));
+            nonNegativeInteger(report.opt("failed"), 0), JsonPolicy.strictTrue(report.opt("truncated")));
         return new View(Collections.unmodifiableList(collections), Collections.unmodifiableList(formats), importReport);
     }
 
@@ -465,7 +465,7 @@ public final class DictionaryCollectionsStore {
                 words.add(new Word(kind, key, word, weight, source));
             }
         }
-        return new WordPage(Collections.unmodifiableList(words), Boolean.TRUE.equals(strictBoolean(value.opt("has_more"))));
+        return new WordPage(Collections.unmodifiableList(words), JsonPolicy.strictTrue(value.opt("has_more")));
     }
 
     private static Result<View> collections(Context context, JSONObject action, boolean changesWords) {

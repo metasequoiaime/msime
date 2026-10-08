@@ -30,7 +30,7 @@ use crate::user_dictionary::typo_profile::PersonalTypoProfile;
 use crate::vietnamese::{
     InputMethod as VietnameseInputMethod, ToneStyle as VietnameseToneStyle, VietnameseScheme,
 };
-use crate::zhuyin::scheme::{ZhuyinKey, ZhuyinScheme};
+use crate::zhuyin::scheme::{ListCandidate, ZhuyinKey, ZhuyinScheme};
 
 // 混输拼音回退的短批次直接扫描已有词，避免为一次合并创建临时哈希表。
 const SMALL_PINYIN_FALLBACK: usize = 64;
@@ -599,10 +599,14 @@ impl ImeSession {
 
         // The Zhuyin list is the editor's own: its rows exist only while the user has it open.
         let decoded = match self.scheme.as_zhuyin() {
-            Some(zhuyin) => Decoded {
-                candidates: zhuyin_rows(zhuyin),
-                wubi_table_answered: false,
-            },
+            Some(zhuyin) => {
+                let mut candidates = std::mem::take(&mut self.state.candidates);
+                reuse_zhuyin_rows(zhuyin.candidates(), &mut candidates);
+                Decoded {
+                    candidates,
+                    wubi_table_answered: false,
+                }
+            }
             None => self.decode(&request),
         };
         // A fifth letter is only allowed once the table has failed the code typed so far.
@@ -714,17 +718,30 @@ impl ImeSession {
 }
 
 /// The open Zhuyin list as session rows, in list order. Each row is keyed by nothing: Zhuyin learns nothing, so no row is ever written back under a reading.
-fn zhuyin_rows(zhuyin: &ZhuyinScheme) -> Vec<WordItem> {
-    zhuyin
-        .candidates()
-        .iter()
-        .map(|candidate| {
-            let mut item =
-                WordItem::new("", candidate.text.clone(), 0, CandidateSource::Database, "");
+fn reuse_zhuyin_rows(source: &[ListCandidate], destination: &mut Vec<WordItem>) {
+    let common = source.len().min(destination.len());
+    for (target, candidate) in destination.iter_mut().take(common).zip(source.iter()) {
+        target.pinyin.clear();
+        target.canonical_pinyin.clear();
+        target.word.clone_from(&candidate.text);
+        target.weight = 0;
+        target.source = CandidateSource::Database;
+        target.scheme = SchemeType::Zhuyin;
+        target.fixed_position = 0;
+        target.fuzzy = false;
+        target.corrected_from.clear();
+        target.sentence_association = false;
+        target.sentence_words.clear();
+    }
+    if destination.len() > source.len() {
+        destination.truncate(source.len());
+    } else {
+        destination.extend(source[common..].iter().map(|candidate| {
+            let mut item = WordItem::new("", &candidate.text, 0, CandidateSource::Database, "");
             item.scheme = SchemeType::Zhuyin;
             item
-        })
-        .collect()
+        }));
+    }
 }
 
 /// A row for the whole code answers it; the prefix rows the wubi query also returns do not, so they must not suppress the pinyin fallback.
@@ -959,6 +976,32 @@ mod tests {
             allocations <= 2,
             "large fallback should use one hash pass and the duplicate index: {allocations}"
         );
+    }
+
+    #[test]
+    fn zhuyin_rows_reuse_existing_word_storage() {
+        let source = vec![ListCandidate {
+            text: "你好".to_owned(),
+            start: 0,
+            key: "ㄋㄧˇ ㄏㄠˇ".to_owned(),
+        }];
+        let mut destination = vec![WordItem::new(
+            "old",
+            "旧候选",
+            42,
+            CandidateSource::Generated,
+            "old",
+        )];
+        let word_pointer = destination[0].word.as_ptr();
+
+        let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            reuse_zhuyin_rows(&source, &mut destination);
+        });
+
+        assert_eq!(allocations, 0);
+        assert_eq!(destination[0].word, "你好");
+        assert_eq!(destination[0].word.as_ptr(), word_pointer);
+        assert_eq!(destination[0].scheme, SchemeType::Zhuyin);
     }
 
     #[test]
