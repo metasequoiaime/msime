@@ -175,6 +175,8 @@ public final class MSIMEInputService extends InputMethodService {
     private TextView keyboardHeightValue;
     ClipboardHistoryStore clipboardHistory;
     boolean clipboardHistoryEnabled;
+    // Set once a live preferences read has decided clipboardHistoryEnabled. Before that the switch is unknown rather than off, so the history must not be cleared on its account.
+    private boolean clipboardPreferenceRead;
     CloudClipboardPanelPolicy.Tab clipboardTab = CloudClipboardPanelPolicy.Tab.LOCAL;
     CloudClipboardPanelPolicy.Status cloudClipboardStatus = CloudClipboardPanelPolicy.Status.LOADING;
     java.util.List<BackendAccount.ClipboardItem> cloudClipboardItems = java.util.List.of();
@@ -614,7 +616,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     /**
-     * @param appearance 是否用这份偏好重算皮肤。runtime-options.json 里的偏好是宿主早先准备时写下的副本，主题字段可能已经过时（例如仍是默认的薄荷设计）；用它重算会把按上次皮肤画好的第一帧刷成旧配色，一两秒后真正的偏好到了又换回来。那条路径传 false，皮肤只认启动缓存和真正读到的偏好。
+     * @param appearance 是否用这份偏好重算皮肤。runtime-options.json 里的偏好是宿主早先准备时写下的副本，主题字段可能已经过时（例如仍是默认的薄荷设计）；用它重算会把按上次皮肤画好的第一帧刷成旧配色，一两秒后真正的偏好到了又换回来。那条路径传 false，皮肤只认启动缓存和真正读到的偏好。剪贴板历史开关同理：副本里的 clipboard_history 永远是出厂默认的关，用它会把已开启的开关打回关，还会清空本机历史，所以也只认真正读到的偏好。
      */
     private void applyEditorPreferences(JSONObject preferences, boolean appearance) throws JSONException {
         numberRowSelection = preferences == null
@@ -675,7 +677,7 @@ public final class MSIMEInputService extends InputMethodService {
         applyToolbarPreferences(preferences);
         applyVoicePreferences(preferences);
         applyAiPreferences(preferences);
-        applyClipboardPreference(preferences);
+        if (appearance) applyClipboardPreference(preferences);
         applyChineseOutputPreference(preferences);
         applyCandidateGlossPreference(preferences);
         applyEnglishSuggestionsPreference(preferences);
@@ -1765,6 +1767,7 @@ public final class MSIMEInputService extends InputMethodService {
     private void applyClipboardPreference(JSONObject preferences) {
         clipboardHistoryEnabled = preferences != null
             && preferences.optBoolean("clipboard_history", false);
+        clipboardPreferenceRead = true;
         if (!clipboardHistoryEnabled && clipboardHistory != null) clipboardHistory.clearQuietly();
     }
 
@@ -2046,7 +2049,9 @@ public final class MSIMEInputService extends InputMethodService {
         voiceInputEnabled = nextVoiceEnabled;
         voiceLanguage = nextVoiceLanguage;
         applyAiPreferences(preferences);
+        boolean clipboardTurnedOn = !clipboardHistoryEnabled && nextClipboard;
         clipboardHistoryEnabled = nextClipboard;
+        clipboardPreferenceRead = true;
         boolean previousJapaneseEmojiKey = japaneseSideEmojiKey();
         applyToolbarPreferences(preferences);
         boolean japaneseEmojiKeyChanged = previousJapaneseEmojiKey != japaneseSideEmojiKey();
@@ -2106,6 +2111,9 @@ public final class MSIMEInputService extends InputMethodService {
             // The cloud half does not depend on this switch; only a panel left with nothing to show closes.
             if (imePanels.clipboardPanelOpen() && imePanels.cloudClipboardAllowed()) imePanels.renderClipboardHistory();
             else closeClipboardHistory();
+        } else if (clipboardTurnedOn && imePanels.clipboardPanelOpen()) {
+            // A panel opened before the first live read says the history is off; replace that with the history.
+            imePanels.renderClipboardHistory();
         }
         view = nextView;
         if (previousCloudCandidates && !nextCloudCandidates) clearOnlineProvider(0);
@@ -6226,7 +6234,7 @@ public final class MSIMEInputService extends InputMethodService {
         voiceResultStore = files == null ? null
             : new VoiceResultStore(files.toPath().resolve("voice-handoff"));
         communityReplyLibrary = files == null ? null : new CommunityReplyLibrary(files.toPath());
-        if (!clipboardHistoryEnabled) clipboardHistory.clearQuietly();
+        if (clipboardPreferenceRead && !clipboardHistoryEnabled) clipboardHistory.clearQuietly();
         keyboardRoot = new FrameLayout(this);
         PanelSurface surface = new PanelSurface(this);
         keyboardSurface = surface;

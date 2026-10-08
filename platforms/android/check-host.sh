@@ -549,6 +549,14 @@ for site in onCreateInputView applyClipboardPreference; do
     exit 1
   fi
 done
+# The preferences in runtime-options.json were written once at install and always carry the factory `clipboard_history: false`. Applying them on every editor start turned a switched-on history back off and wiped it, so the panel kept saying 未开启 to a user who had turned it on. Only a live preferences read may decide the switch, and nothing may be cleared before one has.
+if ! rg -q 'if \(appearance\) applyClipboardPreference\(preferences\);' \
+    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
+  || ! rg -q 'if \(clipboardPreferenceRead && !clipboardHistoryEnabled\) clipboardHistory\.clearQuietly\(\);' \
+    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java"; then
+  echo "Android clipboard history switch must come from live preferences only" >&2
+  exit 1
+fi
 # Both maintenance chords are Ctrl+Shift+Alt, and the modifier branch in onKeyDown hands every
 # such combination to the application. Routing them through one named policy, ahead of that branch,
 # is what keeps them reachable at all on a keyboard that has no long press.
