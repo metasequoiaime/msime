@@ -15,13 +15,11 @@ public final class NineKeySidebarPolicySmoke {
         System.out.println("Android nine-key sidebar: defaults, five visible rows, custom symbol parsing and the local setting passed");
     }
 
-    /** 哪个键面用哪张表、右列最下面是什么：数字键面换成算式符号和小数点，字母键面不变。 */
+    /** 哪个键面用哪张表：数字键面换成算式符号那张，字母键面不变。 */
     private static void layerChoice() {
         check(NineKeySidebarPolicy.sidebarSymbols(true, "， 。", "+ -").equals(List.of("+", "-")), "the digit layer reads the digit table");
         check(NineKeySidebarPolicy.sidebarSymbols(false, "， 。", "+ -").equals(List.of("，", "。")), "the letter layer reads the letter table");
         check(NineKeySidebarPolicy.sidebarSymbols(true, null, null).equals(NineKeySidebarPolicy.DEFAULT_DIGIT_SYMBOLS), "the digit layer falls back to the digit defaults");
-        check(".".equals(NineKeySidebarPolicy.rightColumnBottom(true)), "the digit layer ends the right column with a literal decimal point");
-        check("！".equals(NineKeySidebarPolicy.rightColumnBottom(false)), "the letter layer keeps ！ at the bottom of the right column");
     }
 
     private static void defaults() {

@@ -97,12 +97,6 @@ public final class NineKeySidebarPolicy {
         return digits ? digitSymbols(digitStored) : letterSymbols(letterStored);
     }
 
-    /** 右列最下面那个键上屏的文字：字母键面是 {@link NineKeyLayout#punctuation} 的最后一个（！），数字键面是字面的小数点 `.`，不按中文标点换成「。」（#5590）。 */
-    public static String rightColumnBottom(boolean digits) {
-        List<String> punctuation = NineKeyLayout.punctuation();
-        return digits ? "." : punctuation.get(punctuation.size() - 1);
-    }
-
     /**
      * 符号栏里每个符号占的高度（像素）：一屏放 {@link #VISIBLE_ROWS} 个，符号少于这么多时均分整栏，不留空白；放这么多会让每个低于 `minRowHeight` 时少放几个。
      *

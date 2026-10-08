@@ -18,8 +18,6 @@ final class ImeBottomRow {
     private final MSIMEInputService s;
     /** 底行的句号键（新设计里逗号右侧那个）；第一次排布时建。 */
     private Button periodButton;
-    /** 拼音九键数字键面底行的 0；第一次排布到那一行时建。 */
-    private Button zeroButton;
     /** 分离式键盘右半边内侧的第二个空格键；第一次分离时建，换了一套控件（onCreateInputView）时作废重建。 */
     private SpaceKeyFace splitSpace;
 
@@ -284,7 +282,6 @@ final class ImeBottomRow {
             case LANGUAGE -> s.languageButton;
             case GLOBE -> s.globeButton;
             case COMMA -> s.quickPunctuationButton;
-            case ZERO -> zeroButton();
             case SPACE -> s.spaceButton;
             case PERIOD -> periodButton();
             case RETURN -> s.enterButton;
@@ -298,15 +295,6 @@ final class ImeBottomRow {
             KeyboardGeometry.setKeyTextSize(periodButton, 22);
         }
         return periodButton;
-    }
-
-    /** 拼音九键数字键面的 0：和网格里的数字一样以字面上屏（全角模式下转全角），不进拼音会话。 */
-    private Button zeroButton() {
-        if (zeroButton == null) {
-            zeroButton = s.keyId(s.keyboardKey("0", "数字 0",
-                () -> s.imeLayoutRows.commitNineKeyLiteral("0")), "Nine0");
-        }
-        return zeroButton;
     }
 
     /** 新设计的 123 / #+= 层自带底行，这时功能行整行不显示。 */
@@ -347,12 +335,10 @@ final class ImeBottomRow {
         // relayout the user can see. The row only changes when the surface does.
         // 分离时空格拆成两半、空隙按可见键居中，所以常用标点键显示与否也会改变排布。
         boolean split = !ownBottom && s.splitKeyboardDrawn();
-        boolean symbols = s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS;
         String signature = layout + ":" + globe + ":" + ownBottom + ":" + split
-            + ":" + KeyboardActionRow.nineKeyDigitRow(layout, symbols)
             + (split && s.quickPunctuationButton != null ? ":" + s.quickPunctuationButton.getVisibility() : "");
         java.util.List<KeyboardActionRow.DesignEntry> entries = ownBottom ? java.util.List.of()
-            : KeyboardActionRow.designEntries(layout, globe, symbols);
+            : KeyboardActionRow.designEntries(layout, globe);
         // Visibility is re-asserted every time: the reply surface hides this row and restores it
         // without the surface itself having changed.
         ViewPolicy.setVisible(s.actionRow, !entries.isEmpty());
@@ -371,7 +357,7 @@ final class ImeBottomRow {
             if (key.getParent() instanceof android.view.ViewGroup parent) parent.removeView(key);
             KeyboardKeyRole role = switch (entry.slot()) {
                 case RETURN -> returnKeyRole();
-                case SPACE, COMMA, PERIOD, ZERO -> KeyboardKeyRole.KEY;
+                case SPACE, COMMA, PERIOD -> KeyboardKeyRole.KEY;
                 default -> KeyboardKeyRole.ACCENT;
             };
             if (key instanceof KeyboardPressButton press) press.setKeyboardRole(role);

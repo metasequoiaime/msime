@@ -332,7 +332,7 @@ final class ImeLayoutRows {
             s.pixels(KeyboardGeometry.KEY_ROW_HEIGHT_DP * 3)));
 
         boolean digits = s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS;
-        // 左列是可以上下滚动的符号栏，字母键面默认 ，。？、：；……～@，！ 仍放在右列最下面，和 3×3 网格逐行对齐；数字键面默认是 + - * / = 等算式符号，！ 挪到它们后面，右列最下面换成小数点（#5590）。两张表都可在设置里自定义。
+        // 左列是可以上下滚动的符号栏，字母键面默认 ，。？、：；……～@，！ 仍放在右列最下面，和 3×3 网格逐行对齐；数字键面默认是 + - * / = 等算式符号，！ 挪到它们后面（#5590），右列是删除、小数点和 0。两张表都可在设置里自定义。
         FrameLayout sidebar = symbolSidebar(digits);
         if (s.nineKeySpellingScroll != null) {
             // 拼音选择条只在创建键盘视图时建一次，每次重建九键都会换一个新的侧栏；偏好变化触发第二次重建时它还挂在上一个侧栏上，不先摘下来，addView 会抛 IllegalStateException 让键盘进程崩溃。
@@ -401,13 +401,12 @@ final class ImeLayoutRows {
         });
         if (split instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
         addNineKey(actions, split);
-        // 数字键面右列最下面是小数点：打的是数字，字面上屏 `.`，不按中文标点换成「。」。
-        String last = NineKeySidebarPolicy.rightColumnBottom(digits);
-        Button lastKey = digits
-            ? s.keyId(s.keyboardKey(last, "小数点", () -> commitNineKeyLiteral(last)), "Period")
-            : s.keyId(s.keyboardKey(last, "符号 " + last, () -> commitNineKeyLiteral(last)), "SoftPunctuation");
-        if (lastKey instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
-        addNineKey(actions, lastKey);
+        java.util.List<String> punctuation = NineKeyLayout.punctuation();
+        String last = punctuation.get(punctuation.size() - 1);
+        Button exclamation = s.keyId(s.keyboardKey(last, "符号 " + last,
+            () -> commitNineKeyLiteral(last)), "SoftPunctuation");
+        if (exclamation instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
+        addNineKey(actions, exclamation);
         container.addView(actions, KeyboardGeometry.weightedMatchParentParams(0.8f));
     }
 
