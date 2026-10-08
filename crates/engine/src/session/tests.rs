@@ -989,7 +989,7 @@ fn selecting_a_shuangpin_candidate_does_not_clone_the_full_request() {
 
     assert_eq!(result.commit.as_deref(), Some("你好"));
     assert_eq!(
-        allocations, 42,
+        allocations, 40,
         "shuangpin selection allocations: {allocations}"
     );
 }
@@ -2491,7 +2491,7 @@ fn shuangpin_snapshot_does_not_build_unused_raw_preedit() {
 
     assert_eq!(snapshot.preedit, "ni'hao");
     assert_eq!(
-        allocations, 66,
+        allocations, 54,
         "shuangpin snapshot allocations: {allocations}"
     );
 }

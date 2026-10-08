@@ -2,6 +2,8 @@
 //!
 //! Raw input is ASCII (see `utils`), so offsets are byte offsets and letters are bytes.
 
+use std::borrow::Cow;
+
 use super::utils::{
     convert_seg_shuangpin_to_seg_complete_pinyin, is_all_complete_pinyin, is_full_help_mode,
     pinyin_segmentation, takes_two_keys,
@@ -146,16 +148,21 @@ pub fn detect_active_double_helpcode_length(
     raw_with_cases: &str,
     profile: &ShuangpinProfile,
 ) -> usize {
-    let effective = remove_manual_delimiters(raw);
-    let effective_with_cases = remove_manual_delimiters(if raw_with_cases.is_empty() {
+    let cased = if raw_with_cases.is_empty() {
         raw
     } else {
         raw_with_cases
-    });
+    };
+    let effective_with_cases = if cased.contains('\'') {
+        Cow::Owned(remove_manual_delimiters(cased))
+    } else {
+        Cow::Borrowed(cased)
+    };
     if !is_full_help_mode(&effective_with_cases, profile) {
         return 0;
     }
-    let raw_base_length = raw_length_for_effective_prefix(raw, effective.len().saturating_sub(2));
+    let raw_base_length =
+        raw_length_for_effective_prefix(raw, effective_input_length(raw).saturating_sub(2));
     if raw.as_bytes().get(raw_base_length) == Some(&b'\'') {
         return 0;
     }
@@ -314,6 +321,21 @@ mod tests {
             detect_active_double_helpcode_length("nihcab", "", xiaohe()),
             0
         );
+    }
+
+    #[test]
+    fn double_helpcode_detection_without_delimiters_does_not_copy_input() {
+        let profile = xiaohe();
+        assert_eq!(
+            detect_active_double_helpcode_length("nihcab", "nihcAB", profile),
+            2
+        );
+        let (length, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            detect_active_double_helpcode_length("nihcab", "nihcAB", profile)
+        });
+
+        assert_eq!(length, 2);
+        assert_eq!(allocations, 10);
     }
 
     #[test]
