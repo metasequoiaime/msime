@@ -16,6 +16,7 @@ import app.msime.android.KeyboardGeometry;
 import app.msime.android.KeyboardScheme;
 import app.msime.android.KeyboardSkin;
 import app.msime.android.NineKeySidebarPolicy;
+import app.msime.android.NineKeySwipePolicy;
 import app.msime.android.SchemePreferences;
 import app.msime.android.SwipeHintPolicy;
 import app.msime.android.SyncSignals;
@@ -137,12 +138,19 @@ public final class KeyboardOptionsPage extends DetailPage {
 
         GroupCard gestures = GroupCard.add(target, "手势");
         boolean swipeSymbols = settings.bool(AndroidLocalSettings.SWIPE_DOWN_SYMBOLS);
-        gestures.toggle("滑动输入符号", "在 26 键字母键上滑动输入角标符号，在九键上滑动输入数字、往反方向滑动弹出字母；长按始终可以输入", swipeSymbols,
+        gestures.toggle("滑动输入符号", "在字母键上滑动，输入角标符号；长按字母键始终可以输入", swipeSymbols,
             checked -> saveLocal(AndroidLocalSettings.SWIPE_DOWN_SYMBOLS, checked));
         String swipeDirection = settings.choice(AndroidLocalSettings.SWIPE_SYMBOLS_DIRECTION);
         GroupCard.Row directionRow = gestures.nav("滑动方向", null,
             swipeDirectionLabel(swipeDirection), () -> pickSwipeDirection(swipeDirection));
         directionRow.setEnabled(swipeSymbols);
+        // 九键的滑动单独一项、默认关闭（#5580）：九键原来没有滑动，和 26 键共用上面那个默认开着的开关会改变老用户的点按。
+        if (quanpinNineKey) {
+            String nineKeySwipe = settings.choice(AndroidLocalSettings.NINE_KEY_SWIPE);
+            GroupCard.Row[] nineKeySwipeRow = new GroupCard.Row[1];
+            nineKeySwipeRow[0] = gestures.nav("九键滑动输入数字", "拼音九键上沿选定方向滑动输入键上的数字，往反方向滑动弹出数字和字母",
+                nineKeySwipeLabel(nineKeySwipe), () -> pickNineKeySwipe(nineKeySwipe, nineKeySwipeRow[0]));
+        }
         gestures.toggle("滑行输入", "在 26 键上连续滑过拼音的字母，抬手出词；在键上稍作停留可确认经过的键",
             settings.bool(AndroidLocalSettings.GLIDE_TYPING),
             checked -> saveLocal(AndroidLocalSettings.GLIDE_TYPING, checked));
@@ -274,6 +282,27 @@ public final class KeyboardOptionsPage extends DetailPage {
                 () -> saveLocal(AndroidLocalSettings.SWIPE_SYMBOLS_DIRECTION, value));
         }
         sheet.show();
+    }
+
+    private void pickNineKeySwipe(String selected, GroupCard.Row row) {
+        OptionSheet sheet = new OptionSheet(requireContext(), "九键滑动输入数字", null);
+        for (String value : new String[] {NineKeySwipePolicy.OFF, SwipeHintPolicy.UP, SwipeHintPolicy.DOWN}) {
+            String label = nineKeySwipeOption(value);
+            sheet.option(label, value.equals(selected), () -> {
+                row.setValue(nineKeySwipeLabel(value));
+                saveLocal(AndroidLocalSettings.NINE_KEY_SWIPE, value);
+            });
+        }
+        sheet.show();
+    }
+
+    private static String nineKeySwipeLabel(String value) {
+        return SwipeHintPolicy.UP.equals(value) ? "上滑" : SwipeHintPolicy.DOWN.equals(value) ? "下滑" : "关闭";
+    }
+
+    private static String nineKeySwipeOption(String value) {
+        return SwipeHintPolicy.UP.equals(value) ? "上滑输入数字，下滑弹出字母"
+            : SwipeHintPolicy.DOWN.equals(value) ? "下滑输入数字，上滑弹出字母" : "关闭";
     }
 
     private static String swipeDirectionLabel(String value) {
