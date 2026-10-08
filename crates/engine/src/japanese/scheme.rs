@@ -65,12 +65,11 @@ impl JapaneseRomajiScheme {
         } else {
             raw_with_cases
         };
-        self.raw = source
-            .chars()
-            .filter(|&character| {
-                character.is_ascii_alphabetic() || character == '\'' || character == '-'
-            })
-            .collect();
+        self.raw.clear();
+        self.raw.reserve(source.len());
+        self.raw.extend(source.chars().filter(|&character| {
+            character.is_ascii_alphabetic() || character == '\'' || character == '-'
+        }));
     }
 
     /// Replace the last kana with its next variant and re-romanise; false when nothing changed. A half-typed romaji tail is not a kana yet, so there is nothing to modify.
@@ -143,6 +142,18 @@ mod tests {
         assert_eq!(scheme.preedit(), "ToKyo");
         scheme.set_raw_input("n'a", "");
         assert_eq!(scheme.preedit(), "n'a");
+    }
+
+    #[test]
+    fn set_raw_input_reuses_existing_storage() {
+        let mut scheme = JapaneseRomajiScheme::new();
+        scheme.set_raw_input("abcdefghijklmnopqrstuvwxyz", "");
+        let capacity = scheme.raw.capacity();
+
+        scheme.set_raw_input("ka", "");
+
+        assert_eq!(scheme.preedit(), "ka");
+        assert!(scheme.raw.capacity() >= capacity);
     }
 
     #[test]
