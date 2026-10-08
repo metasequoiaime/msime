@@ -3752,6 +3752,7 @@ mod tests {
             FuzzyPinyinOptions::default(),
             mixed(),
             false,
+            false,
         );
         english_grid.set_mixed_expressive(BOTH_EXPRESSIVE);
         type_digits(&mut english_grid, "634486");
