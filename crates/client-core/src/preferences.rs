@@ -49,6 +49,17 @@ pub enum TouchKeyboardLayout {
     Handwriting,
 }
 
+/// 触屏九宫格数字层的排列。桌面宿主原样保留、不使用。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum NumberKeypadOrder {
+    /// 电话拨号盘：1 2 3 在最上面。
+    #[default]
+    Phone,
+    /// 计算器：7 8 9 在最上面，1 2 3 在最下面。
+    Calculator,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TouchSkinKeyShape {
@@ -809,6 +820,9 @@ pub struct Preferences {
     /// Show a direct voice-result entry in touch-keyboard toolbars.
     #[serde(default)]
     pub touch_voice_shortcut: bool,
+    /// 九宫格数字层按电话还是计算器排列；字母层不受影响。
+    #[serde(default)]
+    pub touch_number_keypad_order: NumberKeypadOrder,
     /// The optional buttons on the touch keyboard's toolbar, the counterpart of the floating toolbar's component switches. The voice entry stays under `touch_voice_shortcut`.
     #[serde(default)]
     pub touch_toolbar: TouchToolbarPreferences,
@@ -913,6 +927,11 @@ pub struct Preferences {
     /// Show bounded offline English glosses from the packaged Engine dictionary.
     #[serde(default)]
     pub candidate_english_gloss: bool,
+    /// Show how a candidate's English and Japanese gloss lines are read: IPA from the offline
+    /// pronunciation table and romaji where the host can produce it. Display only; a committed
+    /// gloss column never includes it.
+    #[serde(default)]
+    pub candidate_pronunciation: bool,
     /// Show read-only English word completions in direct English touch input.
     /// Hosts without a direct English suggestion surface preserve this value.
     #[serde(default = "enabled_by_default")]
@@ -1848,6 +1867,7 @@ impl Default for Preferences {
             touch_row_spacing_tenths: default_touch_row_spacing_tenths(),
             touch_keyboard_height_adjustment: 0,
             touch_voice_shortcut: false,
+            touch_number_keypad_order: NumberKeypadOrder::default(),
             touch_toolbar: TouchToolbarPreferences::default(),
             last_chinese_scheme: None,
             shuangpin_profile: ShuangpinProfile::default(),
@@ -1889,6 +1909,7 @@ impl Default for Preferences {
             cloud_candidates: false,
             candidate_translations: true,
             candidate_english_gloss: false,
+            candidate_pronunciation: false,
             english_suggestions: true,
             translation_target_language: TranslationTargetLanguage::default(),
             translation_secondary_language: None,

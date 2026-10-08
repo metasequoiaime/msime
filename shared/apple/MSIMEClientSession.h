@@ -99,6 +99,8 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEClientSessionDidReplaceSnapshotN
 + (BOOL)niuTransTranslationReplyFailed:(NSData *)body;
 /// Offline dictionary lookup; may run on a worker with copied {generation,candidates:[{text,source}]}.
 + (nullable NSDictionary *)candidateGlossRequest:(NSDictionary *)request resources:(NSString *)resources error:(NSError **)error;
+// {generation,items:[{text,language:"en"}]} -> {generation,pronunciations:[{text,language,pronunciation}]}; owns no session, for a worker queue.
++ (nullable NSDictionary *)pronunciationRequest:(NSDictionary *)request resources:(NSString *)resources error:(NSError **)error;
 /// Apply on the originating session/thread only. A stale generation is ignored.
 - (nullable NSDictionary *)applyTranslations:(NSArray<NSDictionary *> *)translations generation:(uint64_t)generation error:(NSError **)error;
 /// Effect sounds and background music from this session's preferences.plugins, played by the host library on macOS (see msime_client_key_sound). These sit on the key path: they only queue a request, never block or read files, and answer whether one was queued. NO when nothing is switched on, the session is closed, or the platform does not play (iOS). Never call them for a key typed into a secure field.

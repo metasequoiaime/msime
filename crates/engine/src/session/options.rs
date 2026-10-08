@@ -124,6 +124,10 @@ pub struct SessionSnapshot {
     pub nine_key_spellings: Vec<String>,
     /// 九键组字时的读音行：首选候选覆盖的数字显示成它的拼音，其余数字按 `preedit` 原样显示（`xi'an`、`yi'c`、`ni'hao'9`）；首选不是拼音候选时为空。只用于显示，`preedit` 仍是数字。
     pub nine_key_reading: String,
+    /// 九宫格候选只留单字（`set_nine_key_filter`）。
+    pub nine_key_single_character: bool,
+    /// 九宫格候选按笔画筛选时所选的笔顺前缀（`hspnz`），否则为空。
+    pub nine_key_strokes: String,
     /// The candidates came from the wubi mixed-pinyin fallback, not the wubi table.
     pub answered_by_pinyin_fallback: bool,
     pub wubi_unique_four_code: bool,

@@ -108,10 +108,15 @@ jobs:
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
       MSIME_IOS_SKIP_HANDWRITING: '1'
+      RUSTC_WRAPPER: sccache
+      CARGO_INCREMENTAL: '0'
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {persist-credentials: false}
+      # Depot runners start with SCCACHE_WEBDAV_ENDPOINT pointing at Depot Cache, so with RUSTC_WRAPPER in the job env rustc output is cached across runs without a token. CARGO_INCREMENTAL=0 because sccache does not cache incremental compilation.
+      - name: Install sccache
+        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
       - name: Install project generator
         run: |
           brew install xcodegen
@@ -203,10 +208,14 @@ jobs:
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
       MSIME_IOS_SKIP_HANDWRITING: '1'
+      RUSTC_WRAPPER: sccache
+      CARGO_INCREMENTAL: '0'
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {persist-credentials: false}
+      - name: Install sccache
+        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
       - name: Install project generator
         run: |
           brew install xcodegen

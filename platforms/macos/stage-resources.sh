@@ -4,7 +4,7 @@ umask 077
 
 repo_root=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$repo_root"
-source_dir=${1:?usage: [MSIME_EDITION=<id>] stage-resources.sh <verified-resource-directory> [settled-model-directory] [offline-glosses-directory] [language-dictionaries-directory]}
+source_dir=${1:?usage: [MSIME_EDITION=<id>] stage-resources.sh <verified-resource-directory> [settled-model-directory] [offline-glosses-directory] [language-dictionaries-directory] [pronunciations-directory] [character-glosses-directory] [word-glosses-directory]}
 source_dir=$(cd "$source_dir" && pwd)
 destination="$repo_root/target/macos/EngineResources"
 
@@ -117,5 +117,38 @@ if [ "${MSIME_REQUIRE_LANGUAGE_DICTIONARIES:-0}" = 1 ]; then
       exit 1
     fi
   done
+fi
+# Optional: the English pronunciation table built by scripts/build_pronunciations.py, read beside the resource directory like the glosses. Without it English gloss lines carry no IPA; Japanese romaji needs no data.
+pronunciations_source=${5:-$repo_root/target/pronunciations}
+pronunciations_destination="$repo_root/target/macos/pronunciations"
+rm -rf "$pronunciations_destination"
+if [ -f "$pronunciations_source/en-phonetic.db" ] && [ -f "$pronunciations_source/pronunciations-NOTICE.txt" ]; then
+  mkdir -p "$pronunciations_destination"
+  cp "$pronunciations_source/en-phonetic.db" "$pronunciations_source/pronunciations-NOTICE.txt" "$pronunciations_destination/"
+  echo "pronunciations staged: $pronunciations_destination"
+else
+  echo "no pronunciations at $pronunciations_source; English glosses are shown without IPA"
+fi
+# Optional: English glosses for single characters built by scripts/build_character_glosses.py, which english.db leaves out; read beside the resource directory.
+characters_source=${6:-$repo_root/target/character-glosses}
+characters_destination="$repo_root/target/macos/character-glosses"
+rm -rf "$characters_destination"
+if [ -f "$characters_source/zh-en.db" ] && [ -f "$characters_source/character-glosses-NOTICE.txt" ]; then
+  mkdir -p "$characters_destination"
+  cp "$characters_source/zh-en.db" "$characters_source/character-glosses-NOTICE.txt" "$characters_destination/"
+  echo "character glosses staged: $characters_destination"
+else
+  echo "no character glosses at $characters_source; single characters have no English gloss"
+fi
+# Optional: English glosses for words english.db does not cover, built from CC-CEDICT by scripts/build_word_glosses.py; read beside the resource directory.
+words_source=${7:-$repo_root/target/word-glosses}
+words_destination="$repo_root/target/macos/word-glosses"
+rm -rf "$words_destination"
+if [ -f "$words_source/zh-en.db" ] && [ -f "$words_source/word-glosses-NOTICE.txt" ]; then
+  mkdir -p "$words_destination"
+  cp "$words_source/zh-en.db" "$words_source/word-glosses-NOTICE.txt" "$words_destination/"
+  echo "word glosses staged: $words_destination"
+else
+  echo "no word glosses at $words_source; English glosses come from english.db only"
 fi
 echo "macOS resources staged from the pinned dictionary release: $destination"

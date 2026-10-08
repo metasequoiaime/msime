@@ -13,9 +13,24 @@ public final class NineKeyLayout {
     public record Key(int digit, String label, char input, String description) {}
 
 
-    /** 1 键在拼音键面上是「@#」，点按打开符号面板，不送进引擎（引擎的九键不收 1）。 */
+    /** 1 键在拼音键面上是「@#」，点按打开符号面板，不送进引擎（引擎的九键不收 1）。组字时它改作「分词」，见 {@link #separatesSyllables}。 */
     public static boolean opensSymbols(Key key, boolean digits) {
         return !digits && key != null && key.digit() == 1;
+    }
+
+    /** 组字时 1 键是「分词」：在已打的数字末尾定一个音节分界（向引擎送 '）。和搜狗、讯飞九键的习惯一样，右列中间那格就留给「重输」。 */
+    public static boolean separatesSyllables(Key key, boolean digits, boolean composing) {
+        return composing && opensSymbols(key, digits);
+    }
+
+    /** 拼音键面上 1 键随组字状态换的键面。 */
+    public static String face(Key key, boolean digits, boolean composing) {
+        return separatesSyllables(key, digits, composing) ? "分词" : face(key, digits);
+    }
+
+    /** 与 {@link #face(Key, boolean, boolean)} 对应的无障碍描述。 */
+    public static String description(Key key, boolean digits, boolean composing) {
+        return separatesSyllables(key, digits, composing) ? "分词，在这里断开音节" : description(key, digits);
     }
 
     private static final List<List<Key>> ROWS = List.of(
@@ -25,11 +40,30 @@ public final class NineKeyLayout {
             new Key(6, "MNO", '6', "6 MNO")),
         List.of(new Key(7, "PQRS", '7', "7 PQRS"), new Key(8, "TUV", '8', "8 TUV"),
             new Key(9, "WXYZ", '9', "9 WXYZ")));
+    /** 计算器顺序的数字键面：7 8 9 在最上，1 2 3 在最下；键本身（数字、无障碍描述、键位 id）不变，只换行序。 */
+    private static final List<List<Key>> CALCULATOR_ROWS = List.of(ROWS.get(2), ROWS.get(1), ROWS.get(0));
     private static final List<String> PUNCTUATION = List.of("，", "。", "？", "！");
+
+    /** 共享偏好里九键数字键面的排列。 */
+    public static final String NUMBER_KEYPAD_ORDER_KEY = "touch_number_keypad_order";
+    /** 电话顺序（默认）：1 2 3 在上。 */
+    public static final String PHONE_ORDER = "phone";
+    /** 计算器顺序：7 8 9 在上。 */
+    public static final String CALCULATOR_ORDER = "calculator";
 
     private NineKeyLayout() {}
 
     public static List<List<Key>> rows() { return ROWS; }
+
+    /** 偏好值是不是计算器顺序；缺省和不认识的值按电话顺序。 */
+    public static boolean calculatorOrder(String value) {
+        return CALCULATOR_ORDER.equals(value);
+    }
+
+    /** 当前键面要画的三行：字母键面始终是 1 2 3 在上（ABC 在第一行），只有数字键面跟 `touch_number_keypad_order` 走。 */
+    public static List<List<Key>> rows(boolean digits, boolean calculator) {
+        return digits && calculator ? CALCULATOR_ROWS : ROWS;
+    }
     public static List<String> punctuation() { return PUNCTUATION; }
 
     /**

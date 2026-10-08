@@ -7,7 +7,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::assets;
-use crate::cantonese::{CantoneseDictionary, CantoneseScheme, Inventory};
+use crate::cantonese::scheme::CantoneseQueryBuffer;
+use crate::cantonese::{CantoneseCandidate, CantoneseDictionary, CantoneseScheme, Inventory};
 use crate::diagnostics;
 use crate::error::{EngineError, Result};
 use crate::helpcode::SharedKeymap;
@@ -38,6 +39,9 @@ pub struct ProviderRegistry {
     /// Where `msime-cantonese.db` is; empty when the host has none.
     cantonese_path: PathBuf,
     cantonese: Option<CantoneseDictionary>,
+    cantonese_scheme: Option<CantoneseScheme>,
+    cantonese_candidates: Vec<CantoneseCandidate>,
+    cantonese_buffer: CantoneseQueryBuffer,
     /// Where `msime-zhuyin.db` is; empty when the host has none.
     zhuyin_path: PathBuf,
     /// `msime-zhuyin.db` opened by `activate`; `None` before that and while the live Zhuyin scheme holds it.
@@ -93,6 +97,9 @@ impl ProviderRegistry {
             keymap: None,
             cantonese_path,
             cantonese: None,
+            cantonese_scheme: None,
+            cantonese_candidates: Vec::new(),
+            cantonese_buffer: CantoneseQueryBuffer::default(),
             zhuyin_path,
             zhuyin: None,
             stroke_path,
@@ -106,7 +113,9 @@ impl ProviderRegistry {
             return Err(EngineError::invalid(diagnostics::INPUT_SCHEME_NOT_ENABLED));
         }
         if scheme == SchemeType::Cantonese && self.cantonese.is_none() {
-            self.cantonese = Some(CantoneseDictionary::open(&self.cantonese_path)?);
+            let dictionary = CantoneseDictionary::open(&self.cantonese_path)?;
+            self.cantonese_scheme = Some(CantoneseScheme::new(dictionary.inventory()));
+            self.cantonese = Some(dictionary);
         }
         if scheme == SchemeType::Zhuyin && self.zhuyin.is_none() {
             self.zhuyin = Some(language_dictionary::open_read_only(&self.zhuyin_path)?);
@@ -182,13 +191,13 @@ impl ProviderRegistry {
                 return self
                     .wubi
                     .as_mut()
-                    .map_or_else(Vec::new, |wubi| wubi.query(request))
+                    .map_or_else(Vec::new, |wubi| wubi.query(request));
             }
             SchemeType::JapaneseRomaji => {
                 return self
                     .japanese
                     .as_mut()
-                    .map_or_else(Vec::new, |japanese| japanese.query(request))
+                    .map_or_else(Vec::new, |japanese| japanese.query(request));
             }
             SchemeType::Korean if request.korean_hanja => return hanja::candidates(request),
             SchemeType::Cantonese => return self.cantonese_candidates(request),
@@ -342,30 +351,79 @@ impl ProviderRegistry {
     }
 
     /// The `msime-cantonese.db` rows for the request's letters, read again through the activated inventory, as `CantoneseScheme::candidates` lists them. Each row is keyed by the typed letters it covers (`pinyin`, apostrophes kept) and the dictionary key it was found under (`canonical_pinyin`), which is what selecting it takes out of the composition. A read that fails answers nothing, like the wubi table.
-    fn cantonese_candidates(&self, request: &QueryRequest) -> Vec<WordItem> {
+    fn cantonese_candidates(&mut self, request: &QueryRequest) -> Vec<WordItem> {
+        let mut destination = Vec::new();
+        self.query_cantonese_into(request, &mut destination);
+        destination
+    }
+
+    /// 将粤拼候选直接写入会话持有的行缓冲，避免查询结果再复制一次。
+    pub(super) fn query_cantonese_into(
+        &mut self,
+        request: &QueryRequest,
+        destination: &mut Vec<WordItem>,
+    ) {
+        if !request.valid || request.scheme != SchemeType::Cantonese {
+            destination.clear();
+            return;
+        }
         let Some(dictionary) = &self.cantonese else {
-            return Vec::new();
+            destination.clear();
+            return;
         };
-        let mut scheme = CantoneseScheme::new(dictionary.inventory());
+        let Some(scheme) = &mut self.cantonese_scheme else {
+            destination.clear();
+            return;
+        };
         scheme.set_raw_input(&request.raw_input);
-        let Ok(candidates) = scheme.candidates(dictionary.dictionary()) else {
-            return Vec::new();
-        };
+        if scheme
+            .candidates_into(
+                dictionary.dictionary(),
+                &mut self.cantonese_buffer,
+                &mut self.cantonese_candidates,
+            )
+            .is_err()
+        {
+            destination.clear();
+            return;
+        }
         let input = scheme.input();
-        candidates
-            .into_iter()
-            .map(|candidate| {
+        let common = self.cantonese_candidates.len().min(destination.len());
+        for (target, candidate) in destination
+            .iter_mut()
+            .take(common)
+            .zip(self.cantonese_candidates.iter())
+        {
+            target.pinyin.clear();
+            target.pinyin.push_str(&input[..candidate.end]);
+            target.canonical_pinyin.clear();
+            target.canonical_pinyin.push_str(&candidate.key);
+            target.word.clear();
+            target.word.push_str(&candidate.text);
+            target.weight = candidate.weight;
+            target.source = CandidateSource::Database;
+            target.scheme = SchemeType::Cantonese;
+            target.fixed_position = 0;
+            target.fuzzy = false;
+            target.corrected_from.clear();
+            target.sentence_association = false;
+            target.sentence_words.clear();
+        }
+        if destination.len() > self.cantonese_candidates.len() {
+            destination.truncate(self.cantonese_candidates.len());
+        } else {
+            destination.extend(self.cantonese_candidates[common..].iter().map(|candidate| {
                 let mut item = WordItem::new(
                     &input[..candidate.end],
-                    candidate.text,
+                    &candidate.text,
                     candidate.weight,
                     CandidateSource::Database,
-                    candidate.key,
+                    &candidate.key,
                 );
                 item.scheme = SchemeType::Cantonese;
                 item
-            })
-            .collect()
+            }));
+        }
     }
 
     /// `msime-stroke.db` 对请求笔画的单字候选，顺序同 `StrokeScheme::candidates`。每行以键入的笔画为 `pinyin`、以该字的完整笔画码为 `canonical_pinyin`；笔画不学习，这两个键只用于显示，从不写回任何词典。读失败时不给候选，与粤拼一样。

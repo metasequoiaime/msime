@@ -37,7 +37,7 @@ where
 {
     #[cfg(unix)]
     {
-        return copy_entry_unix(source, destination, skip);
+        copy_entry_unix(source, destination, skip)
     }
     #[cfg(not(unix))]
     {
@@ -370,14 +370,12 @@ mod tests {
         let fifo_source = root.path().join("fifo-source");
         fs::write(&target, b"synthetic-target").unwrap();
         symlink(&target, &symlink_source).unwrap();
-        assert!(
-            copy_entry(
-                &symlink_source,
-                &root.path().join("symlink-destination"),
-                &|_| false
-            )
-            .is_err()
-        );
+        assert!(copy_entry(
+            &symlink_source,
+            &root.path().join("symlink-destination"),
+            &|_| false
+        )
+        .is_err());
 
         let status = Command::new("mkfifo").arg(&fifo_source).status().unwrap();
         if !status.success() {

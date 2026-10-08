@@ -85,6 +85,8 @@ extension MetasequoiaInputSnapshot {
       candidateAnnotations: candidateAnnotations, candidateSources: candidateSources,
       candidateFixedPositions: candidateFixedPositions, candidatePageCount: candidatePageCount,
       answeredByPinyinFallback: answeredByPinyinFallback, diagnosticText: diagnosticText, localMode: localMode,
-      nineKeySpellings: nineKeySpellings, editingText: editingText, caretPosition: caretPosition)
+      nineKeySpellings: nineKeySpellings, nineKeyReading: nineKeyReading,
+      nineKeySingleCharacter: nineKeySingleCharacter, nineKeyStrokes: nineKeyStrokes,
+      editingText: editingText, caretPosition: caretPosition)
   }
 }

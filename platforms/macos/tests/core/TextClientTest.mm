@@ -154,6 +154,12 @@ static void TestEngineMaintenance() {
     assert(german && !error && [german[@"translations"] isEqual:@[]]);
     assert((![session applyTranslations:@[@{@"text":@"hello", @"translation":[@"x" stringByPaddingToLength:4097 withString:@"x" startingAtIndex:0]}] generation:translationGeneration error:&error] && error));
     error = nil;
+    // 两种释义语言的行不能用 "\n" 连接：会话拒收一切控制字符，整批作废（#5598）。InputController 交给会话时改用 U+2028 连接，会话要原样收下、原样交回。
+    assert((![session applyTranslations:@[@{@"text":@"hello", @"translation":@"hello\nbonjour"}] generation:translationGeneration error:&error] && error));
+    error = nil;
+    translated = [session applyTranslations:@[@{@"text":@"hello", @"translation":@"hello\u2028bonjour"}] generation:translationGeneration error:&error];
+    assert(!error && [translated[@"applied"] isEqual:@YES]);
+    assert([translated[@"view"][@"candidates"][0][@"translation"] isEqual:@"hello\u2028bonjour"]);
     assert([[session setCharacterWidthFull:YES error:&error][@"character_width"] isEqual:@"Fullwidth"]);
     assert([[session command:MSIME_COMMIT_CANDIDATE error:&error][@"commit"] isEqual:@"ｈｅｌｌｏ"]);
     translated = [session applyTranslations:gloss[@"translations"] generation:translationGeneration error:&error];

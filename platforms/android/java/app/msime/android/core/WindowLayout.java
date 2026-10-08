@@ -1,6 +1,7 @@
 package app.msime.android;
 
 import android.app.Activity;
+import android.graphics.Rect;
 import android.os.Build;
 import android.view.View;
 import android.view.WindowInsets;
@@ -11,17 +12,22 @@ public final class WindowLayout {
     public static void theme(Activity activity) {
         activity.setTheme(android.R.style.Theme_Material_Light_NoActionBar);
     }
-    @SuppressWarnings("deprecation")
     public static void fitSystemBars(View root) {
         root.setOnApplyWindowInsetsListener((view, insets) -> {
-            if (Build.VERSION.SDK_INT >= 30) {
-                android.graphics.Insets bars = insets.getInsets(WindowInsets.Type.systemBars());
-                ViewPolicy.setPadding(view, bars.left, bars.top, bars.right, bars.bottom);
-            } else {
-                ViewPolicy.setPadding(view, insets.getSystemWindowInsetLeft(), insets.getSystemWindowInsetTop(),
-                    insets.getSystemWindowInsetRight(), insets.getSystemWindowInsetBottom());
-            }
+            Rect bars = systemBars(insets);
+            ViewPolicy.setPadding(view, bars.left, bars.top, bars.right, bars.bottom);
             return insets;
         });
+    }
+
+    /** 系统栏占去的四边（像素）。 */
+    @SuppressWarnings("deprecation")
+    public static Rect systemBars(WindowInsets insets) {
+        if (Build.VERSION.SDK_INT >= 30) {
+            android.graphics.Insets bars = insets.getInsets(WindowInsets.Type.systemBars());
+            return new Rect(bars.left, bars.top, bars.right, bars.bottom);
+        }
+        return new Rect(insets.getSystemWindowInsetLeft(), insets.getSystemWindowInsetTop(),
+            insets.getSystemWindowInsetRight(), insets.getSystemWindowInsetBottom());
     }
 }

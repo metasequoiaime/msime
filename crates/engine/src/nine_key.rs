@@ -4,19 +4,24 @@
 
 use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::sync::OnceLock;
 
 use crate::assets;
 use crate::diagnostics;
 use crate::dictionary::english::EnglishDictionary;
+use crate::language_dictionary::{self, LanguageDictionary};
+use crate::lattice::decode::PHRASE_LENGTH_BONUS;
 use crate::paths::RuntimePaths;
 use crate::pinyin::syllables::intact_pinyin_list;
 use crate::quanpin::QuanpinDictionary;
 use crate::session::SessionSnapshot;
+use crate::stroke;
 use crate::text::count_utf8_chars;
 use crate::types::{
-    Command, EnglishInputOptions, FrequencyAdjustmentMode, FrequencyAdjustmentOptions,
-    FuzzyPinyinOptions, KeyResult, LocalInputMode, PersonalDictionaryKind, SchemeType, WordItem,
+    CandidateSource, Command, EnglishInputOptions, FrequencyAdjustmentMode,
+    FrequencyAdjustmentOptions, FuzzyPinyinOptions, KeyResult, LocalInputMode,
+    PersonalDictionaryKind, SchemeType, WordItem,
 };
 use crate::user_dictionary::positions;
 use crate::user_dictionary::ranking::{self, RankingRequest};
@@ -62,7 +67,58 @@ pub struct NineKeySession {
     pinyin: bool,
     /// Opened on first use.
     dictionary: Option<QuanpinDictionary>,
+    /// 每个音节及其前缀的单字频度，`SyllablePrior::from_dictionary` 在第一次查词前建好，给切分路径排序用。
+    prior: Option<SyllablePrior>,
     english: Option<EnglishDictionary>,
+    /// 和 `locked` 一一对应：撤销那次锁定要用的东西。部分上屏之后锁定的数字位置变了，记录随之作废成 `None`。
+    lock_undo: Vec<Option<LockUndo>>,
+    /// 从左列末尾选的字母：第一个未锁定的音节必须以它开头。
+    initial: Option<Initial>,
+    /// 候选只留单字。
+    single_character: bool,
+    /// 候选首字的笔顺必须以这几笔开头（`hspnz`）；空表示不按笔画筛选。
+    strokes: String,
+    /// `msime-stroke.db` 的位置；宿主没有时为空，笔画筛选不可用。
+    stroke_dictionary: PathBuf,
+    /// 第一次按笔画筛选时打开。
+    stroke: Option<LanguageDictionary>,
+    /// `strokes` 对应的字，随 `set_filter` 重建。
+    stroke_texts: HashSet<char>,
+}
+
+/// 一次锁定之前的样子。
+struct LockUndo {
+    /// 这段数字锁定前的样子：锁定把它换成了拼写的编码，拼写比键入的长时还补齐了数字。
+    replaced: String,
+    /// 锁定时丢掉的切分，都在这段数字里。
+    splits: Vec<usize>,
+    /// 锁定前选的首字母，锁定时并进了拼写。
+    initial: Option<Initial>,
+    /// 锁定时左列给出的选项。数字全部锁定后左列还给出这一组，选其中一项就换掉这次锁定。
+    choices: Vec<String>,
+}
+
+#[derive(Clone, Copy)]
+struct Initial {
+    letter: u8,
+    /// 选字母时的数字个数和切分个数。两者都没变时退格撤销这个字母；之后删到更少的数字就再也不撤销它。
+    typed: usize,
+    splits: usize,
+}
+
+/// 左列的一项：完整音节、按键上的字母（大写），或者按键本身的数字。
+enum Choice {
+    Syllable,
+    Letter(u8),
+    Digit(u8),
+}
+
+fn choice_kind(choice: &str) -> Choice {
+    match choice.as_bytes() {
+        [letter] if letter.is_ascii_uppercase() => Choice::Letter(letter.to_ascii_lowercase()),
+        [digit] if digit.is_ascii_digit() => Choice::Digit(*digit),
+        _ => Choice::Syllable,
+    }
 }
 
 impl NineKeySession {
@@ -90,8 +146,24 @@ impl NineKeySession {
             english_only: false,
             pinyin,
             dictionary: None,
+            prior: None,
             english: None,
+            lock_undo: Vec::new(),
+            initial: None,
+            single_character: false,
+            strokes: String::new(),
+            stroke_dictionary: PathBuf::new(),
+            stroke: None,
+            stroke_texts: HashSet::new(),
         }
+    }
+
+    /// 笔画筛选读的 `msime-stroke.db`；空路径表示没有，`set_filter` 带笔画时报 `LANGUAGE_DICTIONARY_UNAVAILABLE`。
+    pub fn set_stroke_dictionary(&mut self, path: PathBuf) {
+        if self.stroke_dictionary != path {
+            self.stroke = None;
+        }
+        self.stroke_dictionary = path;
     }
 
     /// Holds digits.
@@ -134,19 +206,82 @@ impl NineKeySession {
         KeyResult::handled()
     }
 
+    /// 选左列的一项。音节锁进数字；字母限定下一个音节的首字母；数字直接上屏这一位。数字全部锁定时左列是最后一次锁定时的选项，选哪一项都先撤销那次锁定，相当于换选。
     pub fn choose_spelling(&mut self, index: usize) -> KeyResult {
-        let Some(spelling) = self.spellings.get(index).cloned() else {
+        let Some(choice) = self.spellings.get(index).cloned() else {
             return KeyResult::unhandled();
         };
-        let offset = self.locked_length();
-        // A spelling longer than what is typed extends the digits to its whole code; the spelling list only offers ones that stay within the digit limit.
-        let end = offset + spelling.len().min(self.digits.len() - offset);
-        self.digits.replace_range(offset..end, &encode(&spelling));
-        self.locked.push(spelling);
-        let locked_length = self.locked_length();
-        self.splits.retain(|&split| split > locked_length);
+        let choices = if self.reselecting() {
+            match self.undo_last_lock() {
+                Some(choices) => choices,
+                None => return KeyResult::unhandled(),
+            }
+        } else {
+            self.spellings.clone()
+        };
+        match choice_kind(&choice) {
+            Choice::Digit(digit) => {
+                // 只在没有锁定时提供：前面锁定的音节还没上屏，先上屏这一位会颠倒文字的顺序。
+                self.consume(1);
+                self.refresh();
+                return KeyResult::committed(char::from(digit).to_string());
+            }
+            Choice::Letter(letter) => {
+                self.initial = Some(Initial {
+                    letter,
+                    typed: self.digits.len(),
+                    splits: self.splits.len(),
+                });
+            }
+            Choice::Syllable => {
+                let offset = self.locked_length();
+                // A spelling longer than what is typed extends the digits to its whole code; the spelling list only offers ones that stay within the digit limit.
+                let end = offset + choice.len().min(self.digits.len() - offset);
+                let replaced = self.digits[offset..end].to_string();
+                self.digits.replace_range(offset..end, &encode(&choice));
+                self.locked.push(choice);
+                let locked_length = self.locked_length();
+                let (dropped, kept): (Vec<usize>, Vec<usize>) = self
+                    .splits
+                    .iter()
+                    .partition(|&&split| split <= locked_length);
+                self.splits = kept;
+                self.lock_undo.push(Some(LockUndo {
+                    replaced,
+                    splits: dropped,
+                    initial: self.initial.take(),
+                    choices,
+                }));
+            }
+        }
         self.refresh();
         KeyResult::handled()
+    }
+
+    /// 数字全部锁定，而且最后一次锁定还能撤销。
+    fn reselecting(&self) -> bool {
+        self.active()
+            && self.locked_length() >= self.digits.len()
+            && self.lock_undo.last().is_some_and(Option::is_some)
+    }
+
+    /// 撤销最后一次锁定，不刷新；返回那次锁定时左列的选项。
+    fn undo_last_lock(&mut self) -> Option<Vec<String>> {
+        let undo = self.lock_undo.last_mut()?.take()?;
+        self.lock_undo.pop();
+        let spelling = self.locked.pop()?;
+        let offset = self.locked_length();
+        let end = (offset + spelling.len()).min(self.digits.len());
+        self.digits.replace_range(offset..end, &undo.replaced);
+        self.splits.extend(undo.splits);
+        self.splits.sort_unstable();
+        self.splits.dedup();
+        self.initial = undo.initial.map(|initial| Initial {
+            typed: self.digits.len(),
+            splits: self.splits.len(),
+            ..initial
+        });
+        Some(undo.choices)
     }
 
     pub fn select(&mut self, index: usize) -> KeyResult {
@@ -211,19 +346,36 @@ impl NineKeySession {
             Command::Cancel => {
                 self.digits.clear();
                 self.locked.clear();
+                self.lock_undo.clear();
                 self.splits.clear();
+                self.initial = None;
             }
-            // 末尾的切分先删，这样退格撤销的是最后按下的那个键。
+            // 退格撤销最后一步：刚选的首字母、数字全部锁定时的最后一次锁定、末尾的切分，都没有时才删数字。锁定之后还有没锁定的数字时，删的是数字而不是锁定。
             Command::Backspace => {
-                if self.splits.last() == Some(&self.digits.len()) {
+                let initial_untouched = self.initial.is_some_and(|initial| {
+                    initial.typed == self.digits.len() && initial.splits == self.splits.len()
+                });
+                if initial_untouched {
+                    self.initial = None;
+                } else if self.reselecting() {
+                    self.undo_last_lock();
+                } else if self.splits.last() == Some(&self.digits.len()) {
                     self.splits.pop();
                 } else {
                     self.digits.pop();
                     while self.locked_length() > self.digits.len() {
                         self.locked.pop();
+                        self.lock_undo.pop();
                     }
                     let length = self.digits.len();
                     self.splits.retain(|&split| split <= length);
+                    if length <= self.locked_length() {
+                        self.initial = None;
+                    } else if let Some(initial) = self.initial.as_mut() {
+                        if initial.typed > length {
+                            initial.typed = usize::MAX;
+                        }
+                    }
                 }
             }
             _ => return KeyResult::unhandled(),
@@ -309,6 +461,11 @@ impl NineKeySession {
                 start = split;
             }
             preedit.push_str(&self.digits[start..]);
+            if let Some(initial) = self.initial {
+                // 选了首字母的那一位显示成字母。
+                let at = self.locked.join("'").len() + usize::from(!self.locked.is_empty());
+                preedit.replace_range(at..=at, &char::from(initial.letter).to_string());
+            }
         }
         SessionSnapshot {
             scheme: SchemeType::Quanpin,
@@ -321,6 +478,8 @@ impl NineKeySession {
             caret_position: self.digits.len(),
             nine_key_spellings: self.spellings.clone(),
             nine_key_reading: self.reading.clone(),
+            nine_key_single_character: self.single_character,
+            nine_key_strokes: self.strokes.clone(),
             candidate_sources: self.candidates.iter().map(|item| item.source).collect(),
             candidate_annotations: self
                 .candidates
@@ -342,13 +501,20 @@ impl NineKeySession {
         self.spellings.clear();
         self.reading.clear();
         if !self.active() {
+            // 筛选和撤销记录只属于这一次组字。
+            self.lock_undo.clear();
+            self.initial = None;
+            self.single_character = false;
+            self.strokes.clear();
             return;
         }
         if self.english_only || !self.pinyin {
             // No syllables to offer and no pinyin to look up: the digits stand for letters only.
-            self.candidates = self.english_candidates();
+            self.candidates = self.english_candidates(false);
             return;
         }
+        // 每个锁定都有一条撤销记录，哪怕是作废的。
+        self.lock_undo.resize_with(self.locked.len(), || None);
         let table = spelling_table();
         let locked_length = self.locked_length();
         let remaining = remaining_digits(&self.digits, locked_length);
@@ -357,20 +523,32 @@ impl NineKeySession {
             .iter()
             .map(|split| split - locked_length)
             .collect();
-        self.spellings = table.spellings_for(remaining, locked_length, splits.first().copied());
+        let initial = self.initial.map(|initial| initial.letter);
+        let starts_right =
+            |piece: &str| initial.is_none_or(|letter| piece.as_bytes().first() == Some(&letter));
+        let mut syllables = table.spellings_for(remaining, locked_length, splits.first().copied());
+        syllables.retain(|syllable| starts_right(syllable));
         let alternatives = if remaining.is_empty() {
             vec![Vec::new()]
         } else {
-            let mut alternatives = table.split_paths(remaining, &splits);
+            let dictionary = self
+                .dictionary
+                .get_or_insert_with(|| QuanpinDictionary::new(&self.paths));
+            let prior = self
+                .prior
+                .get_or_insert_with(|| SyllablePrior::from_dictionary(dictionary, table));
+            let mut alternatives = table.split_paths(remaining, &splits, prior);
+            alternatives.retain(|path| path.first().is_none_or(|piece| starts_right(piece)));
             // Even an unfinished or invalid tail must still offer the leading syllable for partial selection.
             alternatives.extend(
-                self.spellings
+                syllables
                     .iter()
                     .filter(|spelling| spelling.len() <= remaining.len())
                     .map(|spelling| vec![spelling.clone()]),
             );
             alternatives
         };
+        self.spellings = syllables;
 
         let mut locked_key = String::new();
         append_path_key(&mut locked_key, "", &self.locked);
@@ -416,6 +594,16 @@ impl NineKeySession {
                 if !agrees_with_locked(matched, &locked_key) {
                     continue;
                 }
+                if let Some(letter) = initial {
+                    // 模糊音可能从别的声母读到这一行（`zi` 读出 `zhi`），所以对照它实际匹配的拼写。
+                    let next = matched
+                        .split('\'')
+                        .nth(self.locked.len())
+                        .and_then(|syllable| syllable.as_bytes().first());
+                    if next != Some(&letter) {
+                        continue;
+                    }
+                }
                 candidate.pinyin = self.digits[..code.len().min(self.digits.len())].to_string();
                 candidate.canonical_pinyin = canonical;
                 push_ranked(&mut candidates, &mut leading, candidate, prefer_exact);
@@ -425,9 +613,21 @@ impl NineKeySession {
             }
         }
         drop(dictionary);
+        let filtering = self.single_character || !self.strokes.is_empty();
+        if filtering {
+            let strokes = (!self.strokes.is_empty()).then_some(&self.stroke_texts);
+            candidates.retain(|item| passes_filter(&item.word, self.single_character, strokes));
+        }
         rank_candidates(&mut candidates, prefer_exact);
 
-        let mut english = self.english_candidates();
+        // 没有任何拼音读法时（77 拼不出音节），列表本来是空的，混输开关和最短前缀保护的「拼音列表的可读性」无从谈起；这时照样给英文九键词，否则 QQ 这类词只能切到全键盘去打。
+        let unanswered = candidates.is_empty();
+        // 首字母和筛选都只针对拼音读法，英文词一概不列。
+        let mut english = if initial.is_some() || filtering {
+            Vec::new()
+        } else {
+            self.english_candidates(unanswered)
+        };
         if !english.is_empty() {
             // Second place is ahead of every pinyin reading but the first, which is worth it for a word the user is plainly spelling and not for one the frequency table has never seen; a zero-weight word still belongs in the list, at its end (NK:311-318).
             let first = english.remove(0);
@@ -463,6 +663,75 @@ impl NineKeySession {
         }
         self.reading = self.reading_for(candidates.first());
         self.candidates = candidates;
+        let remaining = remaining_digits(&self.digits, locked_length);
+        if remaining.is_empty() {
+            // 数字全部锁定时，左列还是最后一次锁定时的选项，可以换选。
+            if let Some(Some(undo)) = self.lock_undo.last() {
+                self.spellings = undo.choices.clone();
+            }
+        } else {
+            let choices = self.key_choices(remaining);
+            self.spellings.extend(choices);
+        }
+    }
+
+    /// 左列末尾的按键选项：下一个数字键上能起头一个音节的字母（大写，和同形的音节 `o`、`a`、`e` 区分开），再是这个数字本身。数字只在没有锁定时给：前面锁定的音节还没上屏。
+    fn key_choices(&self, remaining: &str) -> Vec<String> {
+        let Some(&digit) = remaining.as_bytes().first() else {
+            return Vec::new();
+        };
+        let table = spelling_table();
+        let mut choices: Vec<String> = letters_for_digit(digit)
+            .bytes()
+            .filter(|&letter| table.starts_syllable(letter))
+            .map(|letter| char::from(letter.to_ascii_uppercase()).to_string())
+            .collect();
+        if self.locked.is_empty() {
+            choices.push(char::from(digit).to_string());
+        }
+        choices
+    }
+
+    /// 按单字和笔画筛选候选，作用到组字结束。笔画是 `hspnz` 组成的笔顺前缀，空表示不按笔画筛选；比较的是候选的第一个字。笔画字典打不开时报 `LANGUAGE_DICTIONARY_UNAVAILABLE`，筛选保持原样。英文九键和没有组字时不处理。
+    pub fn set_filter(&mut self, single_character: bool, strokes: &str) -> KeyResult {
+        if !self.active() || self.english_only || !self.pinyin {
+            return KeyResult::unhandled();
+        }
+        if strokes.len() > stroke::MAX_STROKES || !strokes.bytes().all(stroke::is_stroke) {
+            return KeyResult::unhandled();
+        }
+        if !strokes.is_empty() && strokes != self.strokes {
+            let Some(texts) = self.stroke_texts_for(strokes) else {
+                return KeyResult::handled().with_diagnostic(Some(
+                    diagnostics::LANGUAGE_DICTIONARY_UNAVAILABLE.to_string(),
+                ));
+            };
+            self.stroke_texts = texts;
+        }
+        if strokes.is_empty() {
+            self.stroke_texts.clear();
+        }
+        self.single_character = single_character;
+        self.strokes = strokes.to_string();
+        self.refresh();
+        KeyResult::handled()
+    }
+
+    fn stroke_texts_for(&mut self, strokes: &str) -> Option<HashSet<char>> {
+        if self.stroke.is_none() {
+            self.stroke = language_dictionary::open_read_only(&self.stroke_dictionary).ok();
+        }
+        let texts = self.stroke.as_ref()?.texts_with_key_prefix(strokes).ok()?;
+        Some(
+            texts
+                .iter()
+                .filter_map(|text| {
+                    let mut characters = text.chars();
+                    let first = characters.next()?;
+                    characters.next().is_none().then_some(first)
+                })
+                .collect(),
+        )
     }
 
     /// The leading row's pinyin cut to the digits it covers, then the uncovered digits with their splits: `xi'an` for 西安 over `94'26`, `yi'c` for 遗产 over `942`. Empty when an English word or nothing leads.
@@ -509,10 +778,15 @@ impl NineKeySession {
         reading
     }
 
-    fn english_candidates(&mut self) -> Vec<WordItem> {
+    /// `unanswered`：拼音一行候选都没有，英文词就是整个答案，和英文模式一样不受混输开关和最短前缀限制；锁定了拼音时仍不给。
+    fn english_candidates(&mut self, unanswered: bool) -> Vec<WordItem> {
         // In English-only mode the words are the whole answer, so neither the mixed-candidate setting nor the prefix length that keeps a mixed list readable applies: one digit already narrows the alphabet enough (NK:169-178).
         if self.english_only {
             if self.digits.is_empty() {
+                return Vec::new();
+            }
+        } else if unanswered {
+            if self.digits.is_empty() || !self.locked.is_empty() {
                 return Vec::new();
             }
         } else if !self.english_options.mixed_candidates
@@ -578,7 +852,13 @@ impl NineKeySession {
             }
             consumed -= front.len();
             self.locked.remove(0);
+            if !self.lock_undo.is_empty() {
+                self.lock_undo.remove(0);
+            }
         }
+        // 剩下的锁定记着的是上屏前的数字位置。
+        self.lock_undo.iter_mut().for_each(|undo| *undo = None);
+        self.initial = None;
     }
 
     fn ranking_context(&self) -> String {
@@ -658,6 +938,18 @@ fn agrees_with_locked(matched: &str, locked_key: &str) -> bool {
     under || over
 }
 
+/// 候选能否通过筛选：`single_character` 只留单字，`strokes` 是笔顺以所选几笔开头的字，比较候选的第一个字。
+fn passes_filter(word: &str, single_character: bool, strokes: Option<&HashSet<char>>) -> bool {
+    let mut characters = word.chars();
+    let Some(first) = characters.next() else {
+        return false;
+    };
+    if single_character && characters.next().is_some() {
+        return false;
+    }
+    strokes.is_none_or(|texts| texts.contains(&first))
+}
+
 #[cfg(test)]
 fn has_candidate_word(candidates: &[WordItem], word: &str) -> bool {
     candidates.iter().any(|candidate| candidate.word == word)
@@ -695,8 +987,17 @@ fn rank_key(item: &WordItem, prefer_exact: bool) -> RankKey {
         item.source.is_generated_or_fallback(),
         completion,
         item.fuzzy,
-        Reverse(item.weight),
+        Reverse(comparable_weight(item)),
     )
+}
+
+/// 整句行的分是 `log_prob * 1000`，词组边每覆盖一个音节就带一份 `PHRASE_LENGTH_BONUS`。同一串音节里比较时这无关紧要，九宫格却要比较不同音节串各自解出的整句：音节越多、越能拼成词组的读法分越高，`9436364782662` 的 xi'e'meng'suan'ma（洗噩梦算吗）就会压过 zhe'neng'suan'ma（这能算吗）。这里按路径的音节数每个扣一份奖励：同一条路径内的先后不变，多切出来的音节要靠词本身的分量才能赢。只扣词组实际拿到的那部分反而更差（整句集 top-1 降了一截），见 `.agents/notes/implemented/bug-fix/2026-10-08-nine-key-path-ranking.md`。
+fn comparable_weight(item: &WordItem) -> i64 {
+    if item.source != CandidateSource::Generated || item.canonical_pinyin.is_empty() {
+        return item.weight;
+    }
+    let syllables = item.canonical_pinyin.split('\'').count() as f64;
+    item.weight - (PHRASE_LENGTH_BONUS * 1000.0 * syllables) as i64
 }
 
 /// 英文九键前缀展开最多产生 320 行；用栈上借用表和索引表去重，释放借用后再原地压缩。
@@ -929,6 +1230,13 @@ impl SpellingTable {
         }
     }
 
+    /// 有音节以这个字母开头。`i`、`u`、`v` 没有。
+    fn starts_syllable(&self, letter: u8) -> bool {
+        self.syllables
+            .iter()
+            .any(|(syllable, _)| syllable.as_bytes().first() == Some(&letter))
+    }
+
     /// Complete syllables the unlocked digits can start with, or that complete them, longest covered first (NK:238-250). Coverage is counted in digits: comparing letter counts would put a syllable that needs two digits ahead under the same digit prefix.
     /// 有切分时，只有在切分处或之前结束的音节才算。
     fn spellings_for(
@@ -958,17 +1266,19 @@ impl SpellingTable {
         matches.into_iter().map(|(text, _)| text.clone()).collect()
     }
 
-    /// Syllable paths spelling `digits`, built from the end. A piece may end a path early only if it is a complete syllable; each offset keeps the 48 best by fewer syllables, complete last syllable, then lexicographic (NK:122-156).
+    /// Syllable paths spelling `digits`, built from the end. A piece may end a path early only if it is a complete syllable; each offset keeps the 48 best by fewer syllables, complete last syllable, then lexicographic (NK:122-156). 不带频度，测试用。
     #[cfg(test)]
     fn paths(&self, digits: &str) -> Vec<Path> {
-        self.split_paths(digits, &[])
+        self.split_paths(digits, &[], &SyllablePrior::default())
     }
 
-    /// 和 `paths` 一样，但每个 `splits` 位置（`digits` 里的下标）都必须有一个音节在那里结束，而且这个音节必须完整。
-    fn split_paths(&self, digits: &str, splits: &[usize]) -> Vec<Path> {
+    /// 和 `paths` 一样，但每个 `splits` 位置（`digits` 里的下标）都必须有一个音节在那里结束，而且这个音节必须完整；同样音节数、同样收尾的路径按 `prior` 给的频度之和排，频度相同才按字典序。
+    ///
+    /// 每个位置只留 48 条，留哪些就决定了哪些读法还能查到。原先在字典序上截断，而 9 键是 wxyz、7 键是 pqrs，于是长串里 xi 开头的路径把 yi、zhe 开头的全部挤掉，`943426943426` 只剩「洗点一点」查不到「一点一点」，`7264685487` 只剩「盘后」查不到「然后」。
+    fn split_paths(&self, digits: &str, splits: &[usize], prior: &SyllablePrior) -> Vec<Path> {
         let length = digits.len();
-        let mut suffix: Vec<Vec<Path>> = vec![Vec::new(); length + 1];
-        suffix[length].push(Vec::new());
+        let mut suffix: Vec<Vec<(f64, Path)>> = vec![Vec::new(); length + 1];
+        suffix[length].push((0.0, Vec::new()));
         for offset in (0..length).rev() {
             let mut result = Vec::with_capacity(PATH_LIMIT);
             for end in offset + 1..=length.min(offset + self.longest_code) {
@@ -983,26 +1293,77 @@ impl SpellingTable {
                     if must_complete && !self.intact.contains(piece) {
                         continue;
                     }
-                    for tail in &suffix[end] {
+                    let score = prior.score(piece);
+                    for (tail_score, tail) in &suffix[end] {
                         let mut path = Vec::with_capacity(tail.len() + 1);
                         path.push(piece.clone());
                         path.extend(tail.iter().cloned());
-                        result.push(path);
+                        result.push((score + tail_score, path));
                     }
                 }
             }
             // Pieces are visited grouped by code rather than in list order; the order below is total on distinct paths, so the kept 48 are the same either way.
             let complete = |path: &Path| path.last().is_some_and(|last| self.intact.contains(last));
-            result.sort_by(|a, b| {
+            result.sort_by(|(a_score, a), (b_score, b)| {
                 a.len()
                     .cmp(&b.len())
                     .then_with(|| complete(b).cmp(&complete(a)))
+                    .then_with(|| b_score.total_cmp(a_score))
                     .then_with(|| a.cmp(b))
             });
             result.truncate(PATH_LIMIT);
             suffix[offset] = result;
         }
-        suffix.swap_remove(0)
+        suffix
+            .swap_remove(0)
+            .into_iter()
+            .map(|(_, path)| path)
+            .collect()
+    }
+}
+
+/// 音节和音节前缀的单字频度：音节取词库里它最常用那个字的权重取对数，前缀取以它开头的音节里最高的那个。九宫格只用它决定每个位置留哪 48 条切分路径，候选本身的先后仍由词库和整句解码决定。
+#[derive(Default)]
+struct SyllablePrior {
+    scores: HashMap<String, f64>,
+}
+
+impl SyllablePrior {
+    fn from_dictionary(dictionary: &QuanpinDictionary, table: &SpellingTable) -> Self {
+        let keys: Vec<String> = table
+            .syllables
+            .iter()
+            .map(|(syllable, _)| syllable.clone())
+            .collect();
+        let weights = dictionary.best_weights(&keys);
+        Self::from_weights(&table.syllables, &weights)
+    }
+
+    fn from_weights(syllables: &[(String, String)], weights: &HashMap<String, i64>) -> Self {
+        let total: f64 = syllables
+            .iter()
+            .map(|(syllable, _)| weights.get(syllable).copied().unwrap_or(0).max(1) as f64)
+            .sum();
+        let mut scores: HashMap<String, f64> = HashMap::new();
+        for (syllable, _) in syllables {
+            // 没有单字行的音节和权重为 0 的一样按 1 算。
+            let weight = weights.get(syllable).copied().unwrap_or(0).max(1) as f64;
+            let score = (weight / total).ln();
+            for end in 1..=syllable.len() {
+                let Some(prefix) = syllable.get(..end) else {
+                    continue;
+                };
+                let slot = scores.entry(prefix.to_string()).or_insert(score);
+                if *slot < score {
+                    *slot = score;
+                }
+            }
+        }
+        Self { scores }
+    }
+
+    fn score(&self, piece: &str) -> f64 {
+        self.scores.get(piece).copied().unwrap_or(0.0)
     }
 }
 
@@ -1073,6 +1434,68 @@ mod tests {
         assert_eq!(paths.len(), PATH_LIMIT);
         assert_eq!(paths[0], ["m", "m", "m", "m", "m"]);
         assert!(paths.iter().all(|path| path.len() == 5));
+    }
+
+    #[test]
+    fn the_limit_keeps_frequent_syllables_rather_than_early_letters() {
+        let table = SpellingTable::new(&["xi", "yi", "dian"]);
+        let weights = HashMap::from([
+            ("xi".to_string(), 1_000),
+            ("yi".to_string(), 1_000_000),
+            ("dian".to_string(), 10_000),
+        ]);
+        let prior = SyllablePrior::from_weights(&table.syllables, &weights);
+        // 94 3426 重复七次，每个位置都要截到 48 条：按字典序截断时第一个音节全是 xi，一点一点……不在里面。
+        let digits = "943426".repeat(7);
+        let paths = table.split_paths(&digits, &[], &prior);
+        assert_eq!(paths.len(), PATH_LIMIT);
+        assert_eq!(paths[0], ["yi", "dian"].repeat(7));
+        assert!(table
+            .split_paths(&digits, &[], &SyllablePrior::default())
+            .iter()
+            .all(|path| path[0] == "xi"));
+    }
+
+    #[test]
+    fn a_prefix_scores_as_its_best_syllable() {
+        let table = SpellingTable::new(&["shi", "si", "ran"]);
+        let weights = HashMap::from([("shi".to_string(), 5_000), ("si".to_string(), 50)]);
+        let prior = SyllablePrior::from_weights(&table.syllables, &weights);
+        // 分母是各音节权重之和，没有单字行的 ran 按 1 算：5000 + 50 + 1。
+        let total = 5_051f64;
+        assert_eq!(prior.score("s"), (5_000f64 / total).ln());
+        assert_eq!(prior.score("sh"), (5_000f64 / total).ln());
+        assert_eq!(prior.score("si"), (50f64 / total).ln());
+        assert_eq!(prior.score("ran"), (1f64 / total).ln());
+    }
+
+    #[test]
+    fn sentences_from_different_paths_compare_without_the_phrase_bonus() {
+        let bonus = (PHRASE_LENGTH_BONUS * 1000.0) as i64;
+        // 五个音节的读法每个音节都在词组里，多拿一份奖励；扣掉之后四个音节的读法分更高就该排在前面。
+        let mut longer = item(
+            "洗噩梦算吗",
+            "9436364782662",
+            5 * bonus - 30_000,
+            CandidateSource::Generated,
+        );
+        longer.canonical_pinyin = "xi'e'meng'suan'ma".into();
+        let mut shorter = item(
+            "这能算吗",
+            "9436364782662",
+            4 * bonus - 20_000,
+            CandidateSource::Generated,
+        );
+        shorter.canonical_pinyin = "zhe'neng'suan'ma".into();
+        assert!(longer.weight > shorter.weight);
+        assert_eq!(
+            ranked(vec![longer, shorter], false),
+            ["这能算吗", "洗噩梦算吗"]
+        );
+        // 词库行不带这份奖励，按原权重比。
+        let mut word = item("西安", "9426", 500, CandidateSource::Database);
+        word.canonical_pinyin = "xi'an".into();
+        assert_eq!(comparable_weight(&word), 500);
     }
 
     #[test]
@@ -1428,7 +1851,7 @@ mod tests {
     // ---- Ported from test_nine_key_session.cpp against the session itself ----
 
     const MAIN_FIXTURE: &str = "CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_n VALUES('ni','n','你',100);CREATE TABLE tbl_1_m(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_m VALUES('mi','m','米',50);CREATE TABLE tbl_1_h(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_h VALUES('hao','h','好',100);CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_2_n VALUES('ni''hao','nh','你好',1000);";
-    const ENGLISH_FIXTURE: &str = "CREATE TABLE english_words(word TEXT,display TEXT,weight INTEGER);INSERT INTO english_words VALUES('ok','ok',900);INSERT INTO english_words VALUES('old','old',1000);INSERT INTO english_words VALUES('older','older',800);INSERT INTO english_words VALUES('ogham','ogham',0);";
+    const ENGLISH_FIXTURE: &str = "CREATE TABLE english_words(word TEXT,display TEXT,weight INTEGER);INSERT INTO english_words VALUES('ok','ok',900);INSERT INTO english_words VALUES('old','old',1000);INSERT INTO english_words VALUES('older','older',800);INSERT INTO english_words VALUES('ogham','ogham',0);INSERT INTO english_words VALUES('qq','QQ',500);";
 
     struct Fixture {
         directory: tempfile::TempDir,
@@ -1511,7 +1934,10 @@ mod tests {
         // old is more frequent, but 65 spells ok exactly.
         type_digits(&mut session, "65");
         assert_eq!(words(&session), ["ok", "old", "older"]);
-        assert_eq!(session.snapshot().nine_key_spellings, ["o"]);
+        assert_eq!(
+            session.snapshot().nine_key_spellings,
+            ["o", "M", "N", "O", "6"]
+        );
         session.command(Command::Cancel);
 
         // 64426 is ni'hao and also the only code for ogham; spelling it exactly does not earn a zero-weight word the second slot. The two-syllable lattice adds a Generated 米好 that covers every digit, so it ranks above the two-digit dictionary rows (tests-inventory.md §2.4).
@@ -1519,7 +1945,10 @@ mod tests {
         let view = session.snapshot();
         assert_eq!(words(&session), ["你好", "米好", "你", "米", "ogham"]);
         assert_eq!(view.candidate_sources[1], CandidateSource::Generated);
-        assert_eq!(view.nine_key_spellings, ["ni", "mi", "o"]);
+        assert_eq!(
+            view.nine_key_spellings,
+            ["ni", "mi", "o", "M", "N", "O", "6"]
+        );
         assert_eq!(view.candidate_answers_key[..4], [true, true, false, false]);
         // Within one coverage bucket no dictionary row follows a synthesised one.
         for pair in view.candidates.windows(2) {
@@ -1608,10 +2037,12 @@ mod tests {
     fn split_keeps_both_sides_open_and_backspace_removes_it_first() {
         let table = SpellingTable::new(&["xi", "yi", "an", "xian", "yan"]);
         assert_eq!(
-            table.split_paths("9426", &[]).first(),
+            table
+                .split_paths("9426", &[], &SyllablePrior::default())
+                .first(),
             Some(&vec!["xian".to_string()])
         );
-        let split = table.split_paths("9426", &[2]);
+        let split = table.split_paths("9426", &[2], &SyllablePrior::default());
         assert!(!split.is_empty());
         assert!(
             split.iter().all(|path| path.len() == 2 && path[1] == "an"),
@@ -1674,9 +2105,9 @@ mod tests {
             before.nine_key_spellings,
             [
                 "ni", "mi", "mian", "miao", "mie", "min", "ming", "miu", "nian", "niang", "niao",
-                "nie", "nin", "ning", "niu", "o"
+                "nie", "nin", "ning", "niu", "o", "M", "N", "O", "6"
             ],
-            "the preferred spelling leads"
+            "the preferred spelling leads, the key's letters and digit follow"
         );
         assert!(session.choose_spelling(0).handled);
         assert_eq!(session.snapshot().preedit, "ni");
@@ -1686,7 +2117,8 @@ mod tests {
         assert_eq!(view.preedit, "ni'426");
         assert_eq!(
             view.nine_key_spellings,
-            ["hao", "gan", "gang", "gao", "han", "hang", "ga", "ha"]
+            ["hao", "gan", "gang", "gao", "han", "hang", "ga", "ha", "G", "H"],
+            "no i, which starts no syllable, and no digit behind a lock"
         );
         let result = session.select(index_of(&session, "你好"));
         assert_eq!(result.commit.as_deref(), Some("你好"));
@@ -1700,9 +2132,14 @@ mod tests {
             .position(|s| s == "ni")
             .expect("ni offered");
         session.choose_spelling(ni);
+        let hao_choices = session.snapshot().nine_key_spellings;
         session.choose_spelling(0);
         assert_eq!(session.snapshot().preedit, "ni'hao");
-        assert!(session.snapshot().nine_key_spellings.is_empty());
+        assert_eq!(
+            session.snapshot().nine_key_spellings,
+            hao_choices,
+            "every digit locked still offers the last lock's choices"
+        );
         let result = session.select(index_of(&session, "你"));
         assert_eq!(result.commit.as_deref(), Some("你"));
         let view = session.snapshot();
@@ -1728,6 +2165,211 @@ mod tests {
         assert_eq!(session.snapshot().preedit, "ming");
     }
 
+    fn spelling_index(session: &NineKeySession, spelling: &str) -> usize {
+        session
+            .snapshot()
+            .nine_key_spellings
+            .iter()
+            .position(|s| s == spelling)
+            .unwrap_or_else(|| panic!("missing spelling {spelling}"))
+    }
+
+    #[test]
+    fn backspace_takes_back_the_last_lock_only_while_every_digit_is_locked() {
+        let fixture = fixture();
+        let mut session = open(&fixture.paths, false, mixed());
+        type_digits(&mut session, "6464224");
+        session.choose_spelling(spelling_index(&session, "ning"));
+        assert_eq!(session.snapshot().preedit, "ning'224");
+        let after_ning = session.snapshot().nine_key_spellings;
+        assert!(after_ning.contains(&"bai".to_owned()) && after_ning.contains(&"cai".to_owned()));
+        session.choose_spelling(spelling_index(&session, "bai"));
+        assert_eq!(session.snapshot().preedit, "ning'bai");
+        assert_eq!(session.snapshot().nine_key_spellings, after_ning);
+
+        session.choose_spelling(spelling_index(&session, "cai"));
+        assert_eq!(
+            session.snapshot().preedit,
+            "ning'cai",
+            "picking again swaps the last lock"
+        );
+        assert_eq!(session.locked, ["ning", "cai"]);
+        assert_eq!(session.snapshot().nine_key_spellings, after_ning);
+
+        assert!(session.command(Command::Backspace).handled);
+        assert_eq!(session.snapshot().preedit, "ning'224");
+        assert_eq!(session.snapshot().nine_key_spellings, after_ning);
+        assert!(session.command(Command::Backspace).handled);
+        assert_eq!(
+            session.locked,
+            ["ning"],
+            "with digits open a digit goes, not the lock"
+        );
+        assert_eq!(session.snapshot().preedit, "ning'22");
+    }
+
+    #[test]
+    fn taking_back_a_lock_restores_the_digits_it_extended() {
+        let fixture = fixture();
+        let mut session = open(&fixture.paths, false, mixed());
+        type_digits(&mut session, "6");
+        session.choose_spelling(spelling_index(&session, "ming"));
+        assert_eq!(session.snapshot().editing_text, "6464");
+        session.command(Command::Backspace);
+        assert_eq!(session.snapshot().editing_text, "6");
+        assert!(session.locked.is_empty());
+        assert!(session
+            .snapshot()
+            .nine_key_spellings
+            .contains(&"ming".to_owned()));
+    }
+
+    #[test]
+    fn a_split_dropped_by_a_lock_comes_back_with_it() {
+        let fixture = fixture();
+        let mut session = open(&fixture.paths, false, mixed());
+        type_digits(&mut session, "64");
+        session.character(b'\'');
+        session.choose_spelling(spelling_index(&session, "ni"));
+        assert!(session.splits.is_empty());
+        assert_eq!(session.snapshot().preedit, "ni");
+        session.command(Command::Backspace);
+        assert_eq!(
+            session.snapshot().preedit,
+            "64'",
+            "the split is back with the digits"
+        );
+        session.command(Command::Backspace);
+        assert_eq!(session.snapshot().preedit, "64");
+    }
+
+    #[test]
+    fn a_key_letter_narrows_the_next_syllable_and_backspace_takes_it_back() {
+        let fixture = fixture();
+        let mut session = open(&fixture.paths, false, mixed());
+        type_digits(&mut session, "64");
+        assert_eq!(words(&session), ["你", "米", "ogham"]);
+        assert!(
+            session
+                .choose_spelling(spelling_index(&session, "M"))
+                .handled
+        );
+        let view = session.snapshot();
+        assert_eq!(view.preedit, "m4");
+        assert_eq!(words(&session), ["米"]);
+        assert!(view
+            .nine_key_spellings
+            .iter()
+            .filter(|s| s.len() > 1)
+            .all(|s| s.starts_with('m')));
+        assert!(view.nine_key_spellings.ends_with(&[
+            "M".into(),
+            "N".into(),
+            "O".into(),
+            "6".into()
+        ]));
+
+        session.choose_spelling(spelling_index(&session, "mi"));
+        assert_eq!(session.snapshot().preedit, "mi");
+        session.command(Command::Backspace);
+        assert_eq!(
+            session.snapshot().preedit,
+            "m4",
+            "taking back the lock restores the letter"
+        );
+        session.command(Command::Backspace);
+        assert_eq!(session.snapshot().preedit, "64");
+        assert_eq!(words(&session), ["你", "米", "ogham"]);
+    }
+
+    #[test]
+    fn a_letter_survives_typing_but_not_deleting_past_it() {
+        let fixture = fixture();
+        let mut session = open(&fixture.paths, false, mixed());
+        type_digits(&mut session, "64");
+        session.choose_spelling(spelling_index(&session, "N"));
+        type_digits(&mut session, "4");
+        session.command(Command::Backspace);
+        assert_eq!(
+            session.snapshot().preedit,
+            "n4",
+            "the typed digit goes first"
+        );
+        session.command(Command::Backspace);
+        assert_eq!(session.snapshot().preedit, "64");
+
+        type_digits(&mut session, "426");
+        session.choose_spelling(spelling_index(&session, "N"));
+        session.command(Command::Cancel);
+        type_digits(&mut session, "64");
+        assert_eq!(
+            session.snapshot().preedit,
+            "64",
+            "a new composition starts without it"
+        );
+    }
+
+    #[test]
+    fn the_key_digit_commits_itself_and_the_rest_keeps_composing() {
+        let fixture = fixture();
+        let mut session = open(&fixture.paths, false, mixed());
+        type_digits(&mut session, "64");
+        let result = session.choose_spelling(spelling_index(&session, "6"));
+        assert_eq!(result.commit.as_deref(), Some("6"));
+        assert_eq!(session.snapshot().editing_text, "4");
+    }
+
+    #[test]
+    fn single_character_filter_keeps_single_characters_until_the_composition_ends() {
+        let fixture = fixture();
+        let mut session = open(&fixture.paths, false, mixed());
+        assert!(!session.set_filter(true, "").handled, "nothing composing");
+        type_digits(&mut session, "64426");
+        assert!(session.set_filter(true, "").handled);
+        assert!(session.snapshot().nine_key_single_character);
+        assert_eq!(words(&session), ["你", "米"]);
+        assert!(session.set_filter(false, "").handled);
+        assert!(words(&session).contains(&"你好".to_owned()));
+        session.set_filter(true, "");
+        session.command(Command::Cancel);
+        type_digits(&mut session, "64426");
+        assert!(!session.snapshot().nine_key_single_character);
+        assert!(words(&session).contains(&"ogham".to_owned()));
+    }
+
+    #[test]
+    fn stroke_filter_matches_the_first_character_stroke_prefix() {
+        let fixture = fixture();
+        let strokes = fixture.directory.path().join("msime-stroke.db");
+        crate::stroke::fixture::build(&strokes);
+        Connection::open(&strokes)
+            .unwrap()
+            .execute_batch(
+                "INSERT INTO entries VALUES ('pspzspn', '你', 100); INSERT INTO entries VALUES ('nphspn', '米', 100);",
+            )
+            .unwrap();
+        let mut session = open(&fixture.paths, false, mixed());
+        type_digits(&mut session, "64426");
+        assert_eq!(
+            session.set_filter(false, "p").diagnostic.as_deref(),
+            Some(diagnostics::LANGUAGE_DICTIONARY_UNAVAILABLE),
+            "no stroke dictionary yet"
+        );
+        assert!(session.snapshot().nine_key_strokes.is_empty());
+
+        session.set_stroke_dictionary(strokes);
+        assert!(!session.set_filter(false, "q").handled, "not a stroke");
+        assert!(session.set_filter(false, "ps").handled);
+        assert_eq!(session.snapshot().nine_key_strokes, "ps");
+        assert_eq!(words(&session), ["你好", "你"]);
+        session.set_filter(true, "n");
+        assert_eq!(words(&session), ["米"]);
+        session.set_filter(false, "z");
+        assert!(words(&session).is_empty());
+        session.set_filter(false, "");
+        assert!(words(&session).contains(&"米好".to_owned()));
+    }
+
     #[test]
     fn commands_edit_commit_and_cancel_the_digits() {
         let fixture = fixture();
@@ -1747,8 +2389,10 @@ mod tests {
         session.command(Command::Backspace);
         assert!(
             session.locked.is_empty(),
-            "backspace keeps a lock past the digits"
+            "backspace first takes back a lock that covers every digit"
         );
+        assert_eq!(session.snapshot().preedit, "64");
+        session.command(Command::Backspace);
         assert_eq!(session.snapshot().preedit, "6");
         session.command(Command::Cancel);
 
@@ -1936,6 +2580,18 @@ mod tests {
         // Switching mid-composition requeries the same digits.
         words_only.set_english_only(true);
         assert_eq!(words(&words_only), ["ogham"]);
+    }
+
+    /// 77 拼不出任何音节：混输关着也给英文词，不然这串数字一行候选都没有。拼音有读法时混输开关照旧说了算。
+    #[test]
+    fn digits_without_a_reading_offer_english_even_with_mixing_off() {
+        let fixture = fixture();
+        let mut session = open(&fixture.paths, false, EnglishInputOptions::default());
+        type_digits(&mut session, "77");
+        assert_eq!(words(&session), ["QQ"]);
+        session.command(Command::Cancel);
+        type_digits(&mut session, "64426");
+        assert!(!words(&session).contains(&"ogham".to_owned()));
     }
 
     #[test]

@@ -1701,6 +1701,7 @@ export type Preferences = {
   cloud_candidates?: boolean;
   candidate_translations?: boolean;
   candidate_english_gloss?: boolean;
+  candidate_pronunciation?: boolean;
   english_suggestions?: boolean;
   translation_target_language?: "en" | "fr" | "ja" | "es" | "ru" | "de" | "ko";
   /** Optional second candidate-translation language; null/absent keeps one gloss row. */
@@ -1726,6 +1727,8 @@ export type Preferences = {
   touch_row_spacing_tenths?: number;
   touch_keyboard_height_adjustment?: number;
   touch_voice_shortcut?: boolean;
+  /** 九宫格数字层的排列：电话（1 2 3 在上）或计算器（7 8 9 在上）。 */
+  touch_number_keypad_order?: "phone" | "calculator";
   touch_toolbar?: Partial<TouchToolbarPreferences>;
   default_ime_mode?: "chinese" | "english";
   ime_mode_scope?: "app" | "global";
@@ -2186,6 +2189,8 @@ export interface SettingsClient {
   aiSkins?: AiSkinClient;
   /** Mobile and desktop hosts can show packaged offline English glosses without changing candidate identity. */
   candidateEnglishGloss?: boolean;
+  /** Hosts that draw a reading (English IPA, Japanese romaji) after each gloss line. */
+  candidatePronunciation?: boolean;
   /** The desktop hosts' plugin pack store and the @ name list, behind the 插件 page. */
   plugins?: PluginClient;
   /**
