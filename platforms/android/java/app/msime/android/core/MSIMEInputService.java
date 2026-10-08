@@ -765,8 +765,8 @@ public final class MSIMEInputService extends InputMethodService {
         if (preferences == null || configuration.selected() == engineScheme) return;
         KeyboardScheme.PreferenceMapping mapping = KeyboardScheme.mappingForRuntimeSelection(
             engineScheme, configuration.selected(),
-            preferences.optString("last_chinese_scheme",
-                preferences.optString("scheme", edition.defaultScheme())),
+            InputViewValuePolicy.textOr(preferences, "last_chinese_scheme",
+                InputViewValuePolicy.textOr(preferences, "scheme", edition.defaultScheme())),
             InputViewValuePolicy.textOr(preferences, "shuangpin_profile", "xiaohe"), edition);
         preferences.put("scheme", mapping.scheme());
         preferences.put("last_chinese_scheme", mapping.lastChineseScheme());
@@ -5341,7 +5341,7 @@ public final class MSIMEInputService extends InputMethodService {
             if (expectedRevision < 0) throw new JSONException("Invalid preferences revision");
             JSONObject preferences = pending.getJSONObject("preferences");
             String currentScheme = preferences.optString("scheme", edition.defaultScheme());
-            String lastChinese = preferences.optString("last_chinese_scheme", currentScheme);
+            String lastChinese = InputViewValuePolicy.textOr(preferences, "last_chinese_scheme", currentScheme);
             KeyboardScheme.PreferenceMapping mapping = scheme.mapping(lastChinese,
                 InputViewValuePolicy.textOr(preferences, "shuangpin_profile", "xiaohe"), edition);
             preferences.put("scheme", mapping.scheme());

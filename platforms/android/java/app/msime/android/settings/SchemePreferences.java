@@ -60,7 +60,7 @@ public final class SchemePreferences {
         if (preferences == null) return null;
         AppEdition edition = AppEdition.current();
         Map<String, String> changes = schemeValues(scheme,
-            preferences.optString("last_chinese_scheme", edition.defaultScheme()),
+            InputViewValuePolicy.textOr(preferences, "last_chinese_scheme", edition.defaultScheme()),
             InputViewValuePolicy.textOr(preferences, "shuangpin_profile", "xiaohe"), wubiProfile, edition);
         try {
             JSONObject pending = new JSONObject(snapshot.toString());
