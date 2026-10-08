@@ -74,7 +74,7 @@ Windows 上有一类游戏以 `TF_TMF_UIELEMENTENABLEDONLY`（UILess）激活 TS
 ### 不在这里做的
 
 - 非游戏会话在独占全屏下的抑制、几何全屏下 `INVALID_Y` 超时兜底：见 [非游戏会话的独占抑制与全屏兜底](../../proposed/feature/2026-10-08-windows-non-game-exclusive-fullscreen-suppression.md)，要等全屏优化（FSO）实测。
-- CS2 Trusted Mode 只放行系统目录里的 DLL，装在 Program Files 的 TIP 只在加 `-insecure` 时进得去；内置表里的 `cs2.exe` 目前只对 `-insecure` 有用。部署方案见 [CS2 Trusted Mode 的 System32 部署](../../proposed/feature/2026-10-08-windows-cs2-trusted-mode-system32-deployment.md)。
+- CS2 Trusted Mode 只放行系统目录里签了名的外来 DLL，所以安装器把 64 位 TIP 装进 `System32\IME`，见 [CS2 Trusted Mode 的 System32 部署](2026-10-08-windows-cs2-trusted-mode-system32-deployment.md)；内置表里的 `cs2.exe` 靠它才在正常匹配里生效。
 - 候选窗出现和消失时 DWM 在直通与合成之间来回切造成的闪烁，没有做缓解，要先用 PresentMon 测。
 - IME 被游戏禁用、或 DLL 被反作弊挡掉时的替代输入通道不做，理由见下面最后两条备选。
 
@@ -121,7 +121,7 @@ Windows 上有一类游戏以 `TF_TMF_UIELEMENTENABLEDONLY`（UILess）激活 TS
 - 只有实机能回答、尚未确认的事项（签名的 x64 安装版）：
   - SDL2 游戏：诊断日志里出现 `sdl2=1 sdl_window=1 forced=1`，候选可见、位置合理；同时看有没有 `pbShow=0 sdl2=1 forced=0`，那表示 CUAS 先激活、复判也没接住。`SDL_app` 类名凭对 SDL 源码的记忆写成，以日志为准；TSF 在宿主后来以 UILess 再激活时会不会重调 `ActivateEx`、`GetActiveFlags` 会不会变，同样没验证。
   - Dota 2：无边框下候选可见；日志里 `source2=1`，以确认 `engine2.dll`、`imemanager.dll` 这两个模块名；用 PresentMon 记录候选窗出现和消失时 PresentMode 在 Independent Flip 与 Composed 之间的切换次数，据此决定要不要做闪烁缓解；Vulkan 独占（如果有这个选项）下锁存只触发一次就生效；记录聊天框的实际位置，评估兜底点会不会盖住小地图。
-  - CS2：加 `-insecure` 后叠加窗本身是否可用。
+  - CS2：用签名的正式安装包、不加任何启动项时，TIP 加载进去、不降级、叠加窗可见，核对项见 System32 部署那篇笔记。
   - 英雄联盟的可执行文件名是否就是 `League of Legends.exe`。
   - PMv2 线程上 `GetClientRect`/`ClientToScreen` 拿到的是不是物理坐标；锁存触发条件在真游戏里的误报率。
   - 观察项：`GetWindowBand` 的值；Server 日志里有没有 `Pipe identity rejected`，即反作弊有没有剥掉 Server 打开游戏进程所需的权限；QUNS 首次调用的耗时。

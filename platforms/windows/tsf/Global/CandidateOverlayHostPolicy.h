@@ -72,7 +72,7 @@ inline bool ShouldForceCandidateOverlay(bool enabled, const CandidateOverlayFact
         if (IsSameProcessName(name, process))
             return false;
     }
-    // CS2 只有加 -insecure 时 DLL 才进得去；Dota 2 声明 UILess 却不画候选。
+    // CS2 和 Dota 2 声明 UILess，候选只给游戏自己白名单里的输入法画。CS2 的 Trusted Mode 只放行系统目录里签了名的 DLL，安装器因此把 64 位 TIP 装进 System32\IME。
     constexpr std::wstring_view builtinOverlay[] = {L"cs2.exe", L"dota2.exe"};
     for (const auto name : builtinOverlay)
     {
