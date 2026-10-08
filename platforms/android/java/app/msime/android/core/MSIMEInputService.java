@@ -2523,7 +2523,7 @@ public final class MSIMEInputService extends InputMethodService {
         java.util.ArrayList<String> words = new java.util.ArrayList<>(candidateCount);
         for (int index = 0; index < candidateCount; index++) {
             JSONObject candidate = entries.optJSONObject(index);
-            if (candidate != null) words.add(candidate.optString("text", ""));
+            if (candidate != null) words.add(InputViewValuePolicy.textOr(candidate, "text", ""));
         }
         candidateTranslationStore.refresh(words, candidateTranslationTargets, generation);
     }
@@ -2564,7 +2564,7 @@ public final class MSIMEInputService extends InputMethodService {
         java.util.LinkedHashSet<String> texts = new java.util.LinkedHashSet<>(textCapacity);
         for (int index = 0; entries != null && index < BoundsPolicy.atMost(entries.length(), 32); index++) {
             JSONObject candidate = entries.optJSONObject(index);
-            if (candidate != null) texts.add(candidate.optString("text", ""));
+            if (candidate != null) texts.add(InputViewValuePolicy.textOr(candidate, "text", ""));
         }
         for (java.util.Map<String, String> glosses : offline.values()) texts.addAll(glosses.keySet());
         boolean account = candidateTranslationAccount && candidateTranslationStore != null;
@@ -5761,7 +5761,7 @@ public final class MSIMEInputService extends InputMethodService {
         JSONObject currentId = current == null ? null : current.optJSONObject("id");
         return current != null && currentId != null && id != null
             && sameCandidateIdentity(currentId, id)
-            && text.equals(chineseOutput(current.optString("text"), view));
+            && text.equals(chineseOutput(InputViewValuePolicy.textOr(current, "text", ""), view));
     }
 
     boolean candidateGlossInsertionEnabled() {
@@ -5794,7 +5794,7 @@ public final class MSIMEInputService extends InputMethodService {
         JSONObject candidateId = candidate.optJSONObject("id");
         return candidateId != null
             && sameCandidateIdentity(candidateId, id)
-            && text.equals(chineseOutput(candidate.optString("text"), view));
+            && text.equals(chineseOutput(InputViewValuePolicy.textOr(candidate, "text", ""), view));
     }
 
     /** 释义（以及韩语汉字的 훈음）总是从候选下面另起一行，和 iOS 候选条一致；放在同一行会把候选撑宽，一屏只剩一两个候选。 */
@@ -5925,7 +5925,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (id == null || session == 0
                 || CandidateGlossPolicy.strictOr(id.opt("session"), Long.MIN_VALUE) != session)
             return false;
-        String displayed = chineseOutput(candidate.optString("text"), view);
+        String displayed = chineseOutput(InputViewValuePolicy.textOr(candidate, "text", ""), view);
         try {
             candidatePanelOpen = false;
             if (apply(NativeClient.selectEdge(session, strictCandidateLong(id, "generation"),
@@ -5982,7 +5982,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void updateCandidateButton(Button button, JSONObject candidate, int slot) {
-        String text = chineseOutput(candidate.optString("text"), view);
+        String text = chineseOutput(InputViewValuePolicy.textOr(candidate, "text", ""), view);
         boolean highlighted = InputViewValuePolicy.booleanValue(candidate, "highlighted", false);
         String typed = view == null ? "" : view.optString("preedit", "");
         String annotation = candidateAnnotation(candidate, typed);
