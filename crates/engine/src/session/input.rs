@@ -942,10 +942,13 @@ impl InputSession {
             return self.handle_character(value, false);
         }
         // A scheme without Chinese punctuation (Korean) writes half-width ASCII punctuation whatever the Chinese punctuation switches say. With a syllable open the mark follows it in one commit; with nothing open the host inserts the key itself.
-        if !self.engine.current_scheme_type().uses_chinese_punctuation()
-            && !self.dedicated_english
-            && self.local_mode == LocalInputMode::None
-        {
+        // 专用英文模式同样写半角英文标点：英文模式不往宿主漏中文标点，字符键那条路早就如此（`handle_character` 吞掉非字母键）。只有「固定标点」锁成「始终使用中文标点」（lock 1）时才照中文标点开关走；默认的「跟随中英文状态」（lock 0）在英文模式下就是英文标点。以前这里把专用英文排除在外，于是英文模式下按 `.` 上屏的是「。」。
+        let ascii_marks = if self.dedicated_english {
+            self.punctuation_lock != 1
+        } else {
+            !self.engine.current_scheme_type().uses_chinese_punctuation()
+        };
+        if ascii_marks && self.local_mode == LocalInputMode::None {
             if !self.has_composition() {
                 self.reset_commit_context();
                 return KeyResult::unhandled();

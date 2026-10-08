@@ -2684,6 +2684,36 @@ fn dedicated_english_offers_the_typed_word_when_unknown() {
     assert!(session.snapshot().dedicated_english);
 }
 
+#[test]
+fn dedicated_english_writes_ascii_punctuation_unless_locked_to_chinese() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE).with_english(ENGLISH_FIXTURE);
+    let mut session = fixture.session();
+    session.set_dedicated_english(true);
+    // 组字中：结束组字，接半角句号，不是「。」。
+    type_text(&mut session, "HE");
+    let period = session.punctuation(b'.');
+    assert!(period.handled);
+    let commit = period.commit.unwrap_or_default();
+    assert!(commit.ends_with('.') && !commit.contains('。'), "{commit}");
+    assert!(!session.input.has_composition());
+    // 空闲：交还宿主，由宿主插入按键本身。
+    let idle = session.punctuation(b'.');
+    assert!(!idle.handled && idle.commit.is_none(), "{idle:?}");
+    assert!(!session.punctuation(b',').handled);
+
+    // 「始终使用中文标点」（lock 1）在英文模式下也给中文标点。
+    session.set_punctuation_lock(1).unwrap();
+    assert_eq!(session.punctuation(b'.').commit.as_deref(), Some("。"));
+    // 「始终使用英文标点」（lock 2）同样是半角。
+    session.set_punctuation_lock(2).unwrap();
+    assert!(!session.punctuation(b'.').handled);
+
+    // 中文模式不受影响：默认跟随中英文状态时仍是中文标点。
+    session.set_punctuation_lock(0).unwrap();
+    session.set_dedicated_english(false);
+    assert_eq!(session.punctuation(b'.').commit.as_deref(), Some("。"));
+}
+
 // ---- construction ----
 
 #[test]
