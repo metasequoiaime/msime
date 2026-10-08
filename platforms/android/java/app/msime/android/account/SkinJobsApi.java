@@ -236,7 +236,7 @@ public final class SkinJobsApi {
 
     /** 发 client-core 拼好的聊天请求，返回助手回答的正文。 */
     public String chat(JSONObject composed) throws CloudApi.Failure {
-        String path = composed.optString("path", "");
+        String path = JsonPolicy.strictString(composed.opt("path"));
         JSONObject body = composed.optJSONObject("body");
         if (!"/v1/chat/completions".equals(path) || body == null) throw invalid("ai_skin_invalid");
         JSONObject result = api.json("POST", path, body, CloudApi.Auth.ACCOUNT_OR_ANONYMOUS);
