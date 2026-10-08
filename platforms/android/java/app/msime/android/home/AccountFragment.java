@@ -206,7 +206,8 @@ public final class AccountFragment extends HomeTabFragment {
         JSONArray themes = HostStore.themeCatalog();
         for (int index = 0; index < themes.length(); index++) {
             JSONObject entry = themes.optJSONObject(index);
-            if (entry != null && id.equals(entry.optString("id", ""))) return entry.optString("title", id);
+            if (entry != null && id.equals(InputViewValuePolicy.textOr(entry, "id", "")))
+                return InputViewValuePolicy.textOr(entry, "title", id);
         }
         return "custom".equals(id) ? "自定义" : null;
     }
