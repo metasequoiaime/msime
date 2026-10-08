@@ -544,7 +544,7 @@ public final class VoiceRecognitionActivity extends Activity {
     }
 
     private void fail(String message) {
-        Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, message, Toast.LENGTH_LONG).show();
     }
 
     /** Polish on a worker, then save and finish on the thread that owns this window. */
