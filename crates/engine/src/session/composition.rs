@@ -345,40 +345,54 @@ impl InputSession {
         transition.continues_composition =
             !self.selection_completes_composition(pinyin, word, selected_scheme);
         if self.is_shuangpin() {
-            let request = self.engine.request().clone();
-            let base = resolve_shuangpin_composition_base(&request, self.shuangpin_profile());
-            let word_length = count_han_chars(word) * 2;
-            let total = base.effective_raw_input.len();
-            transition.full_pure_pinyin =
-                if base.helpcode_length > 0 && total >= base.helpcode_length {
+            let (full_pure_pinyin, rest) = {
+                let request = self.engine.request();
+                let base = resolve_shuangpin_composition_base(request, self.shuangpin_profile());
+                let word_length = count_han_chars(word) * 2;
+                let total = base.effective_raw_input.len();
+                let full_pure_pinyin = if base.helpcode_length > 0 && total >= base.helpcode_length
+                {
                     base.effective_raw_input[..total - base.helpcode_length].to_owned()
                 } else {
                     base.effective_raw_input.clone().into_owned()
                 };
-            if transition.continues_composition {
-                let (start, end) = if base.helpcode_length > 0 {
-                    // The helpcode chose this word; the rest drops it.
-                    (
-                        raw_length_for_effective_prefix(&base.raw_input_with_cases, word_length),
-                        raw_length_for_effective_prefix(
-                            &base.raw_input_with_cases,
-                            total - base.helpcode_length,
-                        ),
-                    )
+                let rest = if transition.continues_composition {
+                    let (start, end) = if base.helpcode_length > 0 {
+                        // 辅助码选中了这个词，剩余输入不再保留该辅助码。
+                        (
+                            raw_length_for_effective_prefix(
+                                &base.raw_input_with_cases,
+                                word_length,
+                            ),
+                            raw_length_for_effective_prefix(
+                                &base.raw_input_with_cases,
+                                total - base.helpcode_length,
+                            ),
+                        )
+                    } else {
+                        let mut consumed = remove_delimiters(pinyin).len();
+                        if consumed == 0 || consumed > total {
+                            consumed = word_length.min(total);
+                        }
+                        (
+                            raw_length_for_effective_prefix(&base.raw_input_with_cases, consumed),
+                            base.raw_input.len(),
+                        )
+                    };
+                    Some((
+                        remove_consumed_leading_separators(&base.raw_input[start..end]).to_owned(),
+                        remove_consumed_leading_separators(&base.raw_input_with_cases[start..end])
+                            .to_owned(),
+                    ))
                 } else {
-                    let mut consumed = remove_delimiters(pinyin).len();
-                    if consumed == 0 || consumed > total {
-                        consumed = word_length.min(total);
-                    }
-                    (
-                        raw_length_for_effective_prefix(&base.raw_input_with_cases, consumed),
-                        base.raw_input.len(),
-                    )
+                    None
                 };
-                let rest = remove_consumed_leading_separators(&base.raw_input[start..end]);
-                let rest_with_cases =
-                    remove_consumed_leading_separators(&base.raw_input_with_cases[start..end]);
-                self.engine.replace_active_raw_input(rest, rest_with_cases);
+                (full_pure_pinyin, rest)
+            };
+            transition.full_pure_pinyin = full_pure_pinyin;
+            if let Some((rest, rest_with_cases)) = rest {
+                self.engine
+                    .replace_active_raw_input(&rest, &rest_with_cases);
                 self.online_requests.invalidate();
                 self.update_mixed_candidates();
             }

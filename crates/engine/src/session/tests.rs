@@ -932,6 +932,27 @@ fn selecting_a_quanpin_candidate_clones_only_needed_request_fields() {
 }
 
 #[test]
+fn selecting_a_shuangpin_candidate_does_not_clone_the_full_request() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session_with(|options| {
+        options.scheme = SchemeType::Shuangpin;
+        options.learning = false;
+        options.personal_context = false;
+    });
+    type_text(&mut session, "ni'hc");
+    let index = index_of(&session, "你好");
+
+    let (result, allocations) =
+        crate::ime::personal_rerank::allocations::count(|| session.select(index));
+
+    assert_eq!(result.commit.as_deref(), Some("你好"));
+    assert_eq!(
+        allocations, 46,
+        "shuangpin selection allocations: {allocations}"
+    );
+}
+
+#[test]
 fn selecting_the_top_candidate_does_not_clone_an_unused_learning_row() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);
     let mut session = fixture.session_with(|options| {
