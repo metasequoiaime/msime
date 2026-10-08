@@ -350,6 +350,8 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     "paired_punctuation", "punctuation_lock",
     // 「双拼显示原始按键」 on the candidate page: the session rebuilds its Engine with it once idle, like the punctuation fields.
     "shuangpin_preedit_uses_raw",
+    // 输入页的「只出单字」：同样在会话空闲时重建 Engine。
+    "single_character_only",
     // Whole objects: the app merges single fields into them, and the document's copy is the one it wrote.
     "quanpin", "mixed_input", "quanpin_helpcode", "shuangpin_helpcode", "local_modes",
     // 整句联想 on the 输入 page: the session attaches or drops the keyboard sentence model once idle, so turning 增强 off stops it in the keyboard that is already open.

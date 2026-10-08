@@ -42,6 +42,7 @@ public final class InputFeatureToggleSmoke {
         check(enabledByDefault("smart_punctuation") && enabledByDefault("paired_punctuation"),
             "both punctuation aids are on by default off Windows");
         check(!enabledByDefault("traditional_chinese_output"), "simplified output is the default");
+        check(!enabledByDefault("single_character_only"), "phrases are offered by default");
         check(!enabledByDefault("clipboard_history"), "clipboard history is off by default");
         check(!enabledByDefault("candidate_english_gloss"), "the gloss is off by default");
         check(!enabledByDefault("translation_account"), "the account translation endpoint is opt-in");

@@ -22,6 +22,8 @@ public enum InputFeatureToggle {
         "向服务端请求长句与新词，需要联网"),
     ENGLISH_SUGGESTIONS(Group.DICTIONARY, "english_suggestions", true, "英文联想",
         "英文模式下补全单词"),
+    SINGLE_CHARACTER_ONLY(Group.DICTIONARY, "single_character_only", false, "只出单字",
+        "候选只列单个汉字，不出词组和整句；选一个字后接着拼下一个字"),
 
     CHINESE_PUNCTUATION(Group.OUTPUT, "chinese_punctuation", true, "中文标点",
         "中文模式下把逗号句号打成全角"),

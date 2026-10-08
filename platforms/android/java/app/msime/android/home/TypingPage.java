@@ -235,6 +235,10 @@ public final class TypingPage extends DetailPage {
         JSONObject fuzzy = preferences.optJSONObject("fuzzy_pinyin");
         chinese.toggle("模糊音", "如 z/zh、an/ang 不分", fuzzy != null && fuzzy.optBoolean("enabled", false),
             checked -> save(values -> KeyboardSheets.child(values, "fuzzy_pinyin").put("enabled", checked)));
+        InputFeatureToggle single = InputFeatureToggle.SINGLE_CHARACTER_ONLY;
+        chinese.toggle(single.title(), single.description(),
+            preferences.optBoolean(single.key(), single.enabledByDefault()),
+            checked -> save(values -> values.put(single.key(), checked)));
         InputFeatureToggle cloud = InputFeatureToggle.CLOUD_CANDIDATES;
         chinese.toggle(cloud.title(), cloud.description(), preferences.optBoolean(cloud.key(), cloud.enabledByDefault()),
             checked -> save(values -> values.put(cloud.key(), checked)));

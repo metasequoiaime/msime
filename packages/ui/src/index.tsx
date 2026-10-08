@@ -791,6 +791,10 @@ export {
 } from "./settings/english-suggestions-section";
 export { LearningSection, type LearningSectionProps } from "./settings/learning-section";
 export {
+  SingleCharacterOnlySection,
+  type SingleCharacterOnlySectionProps,
+} from "./settings/single-character-only-section";
+export {
   LearningDataSection,
   type LearningDataSectionProps,
 } from "./settings/learning-data-section";
@@ -1737,6 +1741,8 @@ export type Preferences = {
   shuangpin_preedit_uses_raw?: boolean;
   vietnamese?: VietnamesePreferences;
   wubi_mixed_pinyin?: boolean;
+  /** 只出单字：全拼、双拼、五笔和粤拼的候选只留单个汉字；缺省为关。 */
+  single_character_only?: boolean;
   candidate_page_size: number;
   number_row_selection?: boolean;
   candidate_font_size?: number;

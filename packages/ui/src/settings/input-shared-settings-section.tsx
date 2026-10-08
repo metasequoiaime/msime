@@ -8,6 +8,7 @@ import { ImeModeScopeSection } from "./ime-mode-scope-section";
 import { InputModeHudSection } from "./input-mode-hud-section";
 import { LearningSection } from "./learning-section";
 import { MixedInputSection, type MixedInputPreferences } from "./mixed-input-section";
+import { SingleCharacterOnlySection } from "./single-character-only-section";
 import { TraditionalChineseOutputSection } from "./traditional-chinese-output-section";
 import {
   WordCharacterSection,
@@ -93,7 +94,7 @@ export function InputSharedSettingsSection({
     />
   );
 
-  // 输入页按「基础 → 进阶」排列：先是每个人都会碰到的中英文和选词翻页，再是候选来源（云候选、中英混输与 emoji、颜文字混输、整句联想和学习）和输出形式，进阶的快捷模式、模糊音、辅助码由页面经 beforeFrequency 放在调频之前。
+  // 输入页按「基础 → 进阶」排列：先是每个人都会碰到的中英文和选词翻页，再是候选来源（云候选、中英混输与 emoji、颜文字混输、只出单字、整句联想和学习）和输出形式，进阶的快捷模式、模糊音、辅助码由页面经 beforeFrequency 放在调频之前。
   return (
     <>
       <GroupList title="中英文">
@@ -124,6 +125,10 @@ export function InputSharedSettingsSection({
         {mixedInput && onMixedInputChange && (
           <MixedInputSection preferences={mixedInput} onChange={onMixedInputChange} />
         )}
+        <SingleCharacterOnlySection
+          value={preferences.single_character_only}
+          onChange={(single_character_only) => onPreferencesChange({ single_character_only })}
+        />
         {beforeLearning}
         {learningRow}
         {afterLearning}
