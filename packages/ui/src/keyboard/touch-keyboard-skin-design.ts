@@ -102,7 +102,7 @@ const skin = (patch: Partial<TouchKeyboardSkinDesign>): TouchKeyboardSkinDesign 
 });
 
 export const touchKeyboardSkinTemplates: { title: string; design: TouchKeyboardSkinDesign }[] = [
-  // The touch keyboards' default (TouchKeyboardSkinDesign::mint_morning in client-core), first so it can be picked again after trying another.
+  // 薄荷晨光（client-core 的 TouchKeyboardSkinDesign::mint_morning），曾是触屏键盘新装的默认皮肤，仍排第一。
   {
     title: "薄荷晨光",
     design: skin({

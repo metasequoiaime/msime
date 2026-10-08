@@ -26,7 +26,7 @@ final class KeyboardSkinDocumentTests: XCTestCase {
 
   func testBuiltInSelectionReachesTheDocument() throws {
     _ = MetasequoiaInputSessionBridge(stateRoot: state)
-    // 触屏键盘的新文档自带薄荷晨光的自定义主题（#2178），所以这里比较的是选择前后，而不是要求它为空。
+    // 比较的是选择前后，不假定自定义主题为空：用户可能设计过皮肤，早期安装的文档里也带着当时默认的薄荷晨光（#2178）。
     let before = GlobalThemePreference.customTheme(in: MetasequoiaInputSessionBridge.loadSharedPreferences(stateRoot: state))
     XCTAssertTrue(GlobalThemePreference.save("night", stateRoot: state))
     let document = try XCTUnwrap(MetasequoiaInputSessionBridge.loadSharedPreferences(stateRoot: state))
