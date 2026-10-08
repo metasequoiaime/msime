@@ -1472,17 +1472,31 @@ fn replace_manifest(staged: &Path, manifest_path: &Path, bytes: &[u8]) -> std::i
 }
 
 fn remove_leftover(path: &Path) -> Result<(), &'static str> {
-    let metadata = match fs::symlink_metadata(path) {
-        Ok(metadata) => metadata,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(_) => return Err(STORAGE),
-    };
-    if metadata.is_dir() {
-        fs::remove_dir_all(path).map_err(|_| STORAGE)?;
-    } else {
-        fs::remove_file(path).map_err(|_| STORAGE)?;
+    #[cfg(unix)]
+    {
+        let parent = path.parent().ok_or(STORAGE)?;
+        let name = path.file_name().ok_or(STORAGE)?;
+        let directory = crate::storage::open_private_directory(parent).map_err(|_| STORAGE)?;
+        match crate::storage::remove_private_tree_at(&directory, name) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(_) => Err(STORAGE),
+        }
     }
-    Ok(())
+    #[cfg(not(unix))]
+    {
+        let metadata = match fs::symlink_metadata(path) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(_) => return Err(STORAGE),
+        };
+        if metadata.is_dir() {
+            fs::remove_dir_all(path).map_err(|_| STORAGE)?;
+        } else {
+            fs::remove_file(path).map_err(|_| STORAGE)?;
+        }
+        Ok(())
+    }
 }
 
 /// Install a downloaded package into `root` under its `package_id`, and return that id.
@@ -1516,7 +1530,7 @@ pub fn install(
     }
     let staging_root = root.join(STAGING_DIRECTORY);
     let result = stage_and_swap(root, &staging_root, package, &files, &target);
-    let _ = fs::remove_dir_all(&staging_root);
+    let _ = remove_leftover(&staging_root);
     result.map(|()| package_id.to_owned())
 }
 
