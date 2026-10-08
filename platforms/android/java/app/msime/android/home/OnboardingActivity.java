@@ -22,6 +22,7 @@ import app.msime.android.AppEdition;
 import app.msime.android.BoundsPolicy;
 import app.msime.android.FirstRunPreparation;
 import app.msime.android.KeyboardScheme;
+import app.msime.android.core.InputViewValuePolicy;
 import app.msime.android.R;
 import app.msime.android.SchemePreferences;
 import app.msime.android.ViewPolicy;
@@ -223,7 +224,8 @@ public final class OnboardingActivity extends AppCompatActivity {
         KeyboardScheme shuangpin = OnboardingChoicePolicy.shuangpinCard(pending, stored);
         // 五笔同理沿用已选的版本（选五笔不改 `wubi_profile`），说明文字照实写出当前是 86 还是 98。
         boolean wubi98 = preferences != null && KeyboardScheme.WUBI_98.equals(
-            KeyboardScheme.normalizedWubiProfile(preferences.optString("wubi_profile", KeyboardScheme.WUBI_86)));
+            KeyboardScheme.normalizedWubiProfile(InputViewValuePolicy.textOr(
+                preferences, "wubi_profile", KeyboardScheme.WUBI_86)));
         SchemeCard[] all = {
             new SchemeCard("全拼 26 键", "最常用，完整拼音", KeyboardScheme.QUANPIN),
             new SchemeCard("全拼 9 键", "单手更顺手", KeyboardScheme.QUANPIN_NINE_KEY),

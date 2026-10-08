@@ -718,7 +718,8 @@ public final class MSIMEInputService extends InputMethodService {
         wubiMixedPinyin = preferences != null
             && preferences.optBoolean("wubi_mixed_pinyin", false);
         wubiProfile = KeyboardScheme.normalizedWubiProfile(
-            preferences == null ? null : preferences.optString("wubi_profile", KeyboardScheme.WUBI_86));
+            preferences == null ? null : InputViewValuePolicy.textOr(
+                preferences, "wubi_profile", KeyboardScheme.WUBI_86));
     }
 
     /**
@@ -2060,7 +2061,7 @@ public final class MSIMEInputService extends InputMethodService {
         boolean nextWubiCodeHint = preferences.optBoolean("wubi_code_hint", true);
         boolean nextWubiMixedPinyin = preferences.optBoolean("wubi_mixed_pinyin", false);
         String nextWubiProfile = KeyboardScheme.normalizedWubiProfile(
-            preferences.optString("wubi_profile", KeyboardScheme.WUBI_86));
+            InputViewValuePolicy.textOr(preferences, "wubi_profile", KeyboardScheme.WUBI_86));
         JSONObject nextKeybindings = preferences.optJSONObject("keybindings");
         boolean nextLanguageShift = nextKeybindings == null
             || nextKeybindings.optBoolean("switch_language_shift", true);

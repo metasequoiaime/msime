@@ -26,6 +26,7 @@ import app.msime.android.R;
 import app.msime.android.TextPolicy;
 import app.msime.android.ViewPolicy;
 import app.msime.android.core.InputViewValuePolicy;
+import app.msime.android.core.InputViewValuePolicy;
 import com.google.android.material.button.MaterialButton;
 import java.util.ArrayList;
 import java.util.List;
@@ -234,7 +235,7 @@ public final class KeyboardFragment extends HomeTabFragment {
                 preferences.optString("scheme", edition.defaultScheme()),
                 preferences.optString("shuangpin_profile", "xiaohe"), layout, edition);
             skin = resolved.title();
-            scheme = selected.title(preferences.optString("wubi_profile", KeyboardScheme.WUBI_86));
+            scheme = selected.title(InputViewValuePolicy.textOr(preferences, "wubi_profile", KeyboardScheme.WUBI_86));
         }
         schemeTitle = preferences == null ? null : scheme;
         for (HomeRow entry : homeRows) {

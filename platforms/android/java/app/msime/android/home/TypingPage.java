@@ -15,6 +15,7 @@ import app.msime.android.ResourcePacks;
 import app.msime.android.SchemePreferences;
 import app.msime.android.policy.HostOptionsPolicy;
 import app.msime.android.core.InputViewValuePolicy;
+import app.msime.android.core.InputViewValuePolicy;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -400,7 +401,7 @@ public final class TypingPage extends DetailPage {
         return switch (scheme) {
             case QUANPIN, QUANPIN_NINE_KEY -> "全拼";
             case CANTONESE -> "粤拼";
-            case WUBI -> scheme.title(preferences.optString("wubi_profile", KeyboardScheme.WUBI_86));
+            case WUBI -> scheme.title(InputViewValuePolicy.textOr(preferences, "wubi_profile", KeyboardScheme.WUBI_86));
             case JAPANESE -> "26 键";
             case JAPANESE_NINE_KEY -> "9 键";
             default -> scheme.title();
@@ -431,7 +432,7 @@ public final class TypingPage extends DetailPage {
             }
             if (offered.contains(KeyboardScheme.WUBI)) {
                 String profile = KeyboardScheme.normalizedWubiProfile(
-                    preferences.optString("wubi_profile", KeyboardScheme.WUBI_86));
+                    InputViewValuePolicy.textOr(preferences, "wubi_profile", KeyboardScheme.WUBI_86));
                 boolean wubi = applied == KeyboardScheme.WUBI;
                 sheet.submenu("五笔（" + wubiName(profile) + "）", wubi, () -> {
                     OptionSheet next = new OptionSheet(context, "五笔", "选择五笔方案");
