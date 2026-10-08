@@ -1421,18 +1421,6 @@ final class ImePanels {
             KeyboardGeometry.setPaddingDp(note, s, 12, 24, 12, 24);
             panel.addView(note, KeyboardGeometry.matchWidthWrapParams());
         }
-        if (EMPTY_PHRASES.equals(message)) {
-            // 空的时候给一条去处：直接打开应用的常用语页去添加，而不是让人自己退出键盘去找。
-            KeyboardPressButton add = phraseButton(KeyboardKeyRole.RETURN, "添加常用语",
-                "添加常用语", () -> {
-                    s.closeCommonPhrases();
-                    s.openHostPage("PHRASES");
-                });
-            KeyboardGeometry.setHorizontalPaddingDp(add, s, 24);
-            LinearLayout.LayoutParams params = KeyboardGeometry.wrapParams();
-            params.gravity = Gravity.CENTER_HORIZONTAL;
-            panel.addView(add, params);
-        }
         java.util.List<View> lines = new java.util.ArrayList<>(phrases.size());
         for (String phrase : phrases) {
             KeyboardPressButton row = phraseButton(KeyboardKeyRole.PLAIN, phrase,
@@ -1453,6 +1441,19 @@ final class ImePanels {
             KeyboardGeometry.setHorizontalMargins(line, s.pixels(12));
             panel.addView(hairline, line);
             lines.add(hairline);
+        }
+        if (message == null || EMPTY_PHRASES.equals(message)) {
+            // 列表下面总有一个去处：空的时候是「添加常用语」，有内容时是「管理常用语」，都直接打开应用的常用语页去添加、修改和删除（#5673），而不是让人自己退出键盘去找。键盘里没有可输入的文本框，增删改放在应用里。读取中和读取失败时不放。
+            String label = CommonPhrasesPanelPolicy.entryLabel(phrases.size());
+            KeyboardPressButton manage = phraseButton(KeyboardKeyRole.RETURN, label, label, () -> {
+                s.closeCommonPhrases();
+                s.openHostPage("PHRASES");
+            });
+            KeyboardGeometry.setHorizontalPaddingDp(manage, s, 24);
+            LinearLayout.LayoutParams params = KeyboardGeometry.wrapParams();
+            params.gravity = Gravity.CENTER_HORIZONTAL;
+            if (!phrases.isEmpty()) params.topMargin = s.pixels(8);
+            panel.addView(manage, params);
         }
         s.imeStyler.applySkin();
         for (View hairline : lines) ViewPolicy.setBackgroundColor(hairline, Color.parseColor(s.skin.hairline()));

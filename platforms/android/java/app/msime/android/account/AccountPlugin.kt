@@ -6,8 +6,6 @@ import android.content.ClipboardManager
 import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.os.Build
-import android.os.VibrationEffect
 import android.os.Vibrator
 import android.provider.Settings
 import android.view.inputmethod.InputMethodManager
@@ -224,7 +222,7 @@ class AccountPlugin(activity: Activity) : Plugin(activity) {
     fun saveFeedback(invoke: Invoke) {
         try {
             val args = invoke.parseArgs(SaveFeedbackArgs::class.java)
-            if (args.hapticStrength !in setOf("light", "medium", "strong")) {
+            if (!KeyboardFeedbackPreferences.known(args.hapticStrength)) {
                 invoke.reject("invalid_feedback", "invalid_feedback")
                 return
             }
@@ -247,17 +245,14 @@ class AccountPlugin(activity: Activity) : Plugin(activity) {
         try {
             val args = invoke.parseArgs(SaveFeedbackArgs::class.java)
             val strength = KeyboardFeedbackPreferences.strength(args.hapticStrength)
-            if (args.hapticStrength !in setOf("light", "medium", "strong")) {
+            if (!KeyboardFeedbackPreferences.known(args.hapticStrength)) {
                 invoke.reject("invalid_feedback", "invalid_feedback")
                 return
             }
+            // 与键盘按键同一套振动（KeyboardHaptics），试的就是键盘上的那一下；「跟随系统」由页面根视图交给系统触感反馈，要在主线程上做。
             val vibrator = hostActivity.getSystemService(Vibrator::class.java)
-                ?: throw IllegalStateException("vibrator unavailable")
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                vibrator.vibrate(VibrationEffect.createOneShot(18L, strength.amplitude()))
-            } else {
-                @Suppress("DEPRECATION")
-                vibrator.vibrate(18L)
+            hostActivity.runOnUiThread {
+                KeyboardHaptics.play(vibrator, hostActivity.window.decorView, strength)
             }
             invoke.resolve()
         } catch (_: Exception) {

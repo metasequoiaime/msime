@@ -57,6 +57,9 @@ import {
   KeyboardLayoutDragAxis, KeyboardLayoutDragPolicy
 } from './input/KeyboardLayoutDragPolicy';
 import { NineKeyLayout, NineKey } from './input/NineKeyLayout';
+import {
+  NineKeyPanelBackspace, NineKeyPanelMode, NineKeyPanelPolicy, NineKeyStroke
+} from './input/NineKeyPanelPolicy';
 import { SpaceCursorMovement } from './input/SpaceCursorMovement';
 import { GlideArming, GlideKeyRect, GlidePoint, GlideTypingPolicy } from './input/GlideTypingPolicy';
 import {
@@ -189,6 +192,9 @@ const SYMBOL_ROWS: string[][] = [
 // The two narrow columns either side of the nine-key grid, as a share of the keyboard's width. The
 // iOS layout ties both to the same fraction so the grid stays square-ish across phone widths.
 const NINE_KEY_COLUMN_PERCENT: number = 14;
+// 全拼九键展开面板的左栏（拼音或笔画）和右栏（功能键）占键盘宽度的份额；左栏要放得下 zhuang 这样的长拼音，比收起时的拼音栏宽一些。
+const NINE_KEY_PANEL_LEFT_PERCENT: number = 18;
+const NINE_KEY_PANEL_RIGHT_PERCENT: number = 16;
 
 // Long enough that a deliberate tap never repeats, short enough that a hold does not feel stuck.
 const BACKSPACE_DELAY_MILLIS: number = 400;
@@ -434,6 +440,11 @@ struct KeyboardView {
   @State expanded: ExpandedCandidate[] = [];
   /** Which row of the expanded panel is showing its gloss, or -1. Its own index space. */
   @State expandedGloss: number = -1;
+  /** 全拼九键展开面板的左栏放拼音还是笔画；关闭面板时回到拼音。 */
+  @State nineKeyPanelMode: NineKeyPanelMode = NineKeyPanelMode.SPELLING;
+  /** 引擎报告的九宫格筛选状态（`View.nine_key_single_character`、`View.nine_key_strokes`）。 */
+  @State nineKeySingleCharacter: boolean = false;
+  @State nineKeyStrokes: string = '';
   @State availableWidth: number = 0;
   /** The candidate card's typing-effect flash: its opacity, animated back to 0 after each key. */
   @State effectFlash: number = 0;
@@ -479,6 +490,8 @@ struct KeyboardView {
   @State geometryRowSpacing: number = KeyboardSession.shared.preferences().rowSpacingTenths;
   @State geometryHeight: number = KeyboardSession.shared.preferences().heightAdjustment;
   @State touchVoiceShortcut: boolean = KeyboardSession.shared.preferences().voiceShortcut;
+  /** 九键数字层的排列，`NumberKeypadOrder` 的取值。 */
+  @State numberKeypadOrder: string = KeyboardSession.shared.preferences().numberKeypadOrder;
 
   private readonly letterCase: EnglishLetterCaseState = new EnglishLetterCaseState();
   private settings: KeyboardPreferences = KeyboardSession.shared.preferences();
@@ -664,6 +677,8 @@ struct KeyboardView {
       this.candidatePageCount = state.pageCount;
       this.phrasePrefix = state.phrasePrefix;
       this.spellings = state.spellings;
+      this.nineKeySingleCharacter = state.nineKeySingleCharacter;
+      this.nineKeyStrokes = state.nineKeyStrokes;
       this.engineScheme = state.scheme;
       this.candidateListOpen = state.candidateListOpen;
       this.japanese = state.scheme === JAPANESE_SCHEME && !state.english
@@ -680,10 +695,14 @@ struct KeyboardView {
       this.clearHandwritingAfterLeaving(wasHandwriting);
       // After the text changed, which is when the caret may have arrived at a new word or sentence.
       this.applyAutomaticCase();
-      if (state.candidates.length === 0) {
+      if (state.candidates.length === 0
+        && !(this.surface === SURFACE_EXPANDED && this.nineKeyPanel())) {
         // The list belonged to a composition that no longer exists; keeping it on screen would offer
-        // choices for something the user has already finished or abandoned.
+        // choices for something the user has already finished or abandoned. 全拼九键的三栏面板例外：筛选可能把候选滤空，组字还在，要留着面板让用户撤掉那一笔，组字结束时 nineKeyPanel() 为假再收起。
         this.show(SURFACE_NONE);
+      } else if (this.surface === SURFACE_EXPANDED) {
+        // 面板开着时选拼音、退格或改筛选都会换掉候选，以前面板里是打开那一刻的一份拷贝，从不刷新。
+        this.refreshExpanded();
       }
     };
     KeyboardSession.shared.onTypingEffect =
@@ -1886,6 +1905,7 @@ struct KeyboardView {
 
   /** Shows one surface, which closes whatever was showing. */
   private show(surface: string): void {
+    const leavingExpanded: boolean = this.surface === SURFACE_EXPANDED && surface !== SURFACE_EXPANDED;
     if (surface !== SURFACE_NINE_KEY_HOLD) {
       this.nineKeyHoldOptions = [];
     }
@@ -1915,6 +1935,87 @@ struct KeyboardView {
       this.expanded = [];
       this.expandedGloss = -1;
     }
+    if (surface === SURFACE_TOOLS) {
+      // 按键反馈的文件设置页也会写；工具面板的开关照它画，也照它改，读旧值会把设置页选的档位写回去。
+      this.feedback = KeyboardSession.shared.feedback();
+    }
+    // 放在 surface 已经换掉之后：清筛选会同步回调 onChanged，那时面板必须已经算作关闭，否则会再进来一次。
+    if (leavingExpanded) {
+      this.leaveNineKeyPanel();
+    }
+  }
+
+  /** 打开展开候选面板，或在它已开着时收起；候选条上的 ∨ 用。 */
+  private toggleExpanded(): void {
+    if (this.surface === SURFACE_EXPANDED) {
+      this.show(SURFACE_NONE);
+      return;
+    }
+    this.nineKeyPanelMode = NineKeyPanelMode.SPELLING;
+    this.show(SURFACE_EXPANDED);
+    this.refreshExpanded();
+  }
+
+  /** 重新取完整候选列表；长按释义指的那一行没了就收起释义条。 */
+  private refreshExpanded(): void {
+    this.expanded = KeyboardSession.shared.allCandidates();
+    if (this.expandedGloss >= this.expanded.length) {
+      this.expandedGloss = -1;
+    }
+  }
+
+  /** 展开面板关掉时：笔画模式复位，组字还在的话把筛选清掉，收起后的候选条不该还是筛过的。 */
+  private leaveNineKeyPanel(): void {
+    this.nineKeyPanelMode = NineKeyPanelMode.SPELLING;
+    if (NineKeyPanelPolicy.clearsFilterOnClose(KeyboardSession.shared.composing(),
+      this.nineKeySingleCharacter, this.nineKeyStrokes)) {
+      KeyboardSession.shared.setNineKeyFilter(false, '');
+    }
+  }
+
+  /** 展开面板是否画成全拼九键的三栏。 */
+  private nineKeyPanel(): boolean {
+    return NineKeyPanelPolicy.threeColumn(KeyboardScheme.usesNineKeyFace(this.nineKey, this.localMode),
+      SchemeCompositionPolicy.rulesScheme(this.engineScheme, this.english, this.localMode),
+      this.editing.length > 0);
+  }
+
+  /** 三栏面板里 ⌫ 的这一下：笔画模式下先撤一笔，否则同键盘上的退格。 */
+  private nineKeyPanelBackspace(): void {
+    KeyboardSession.shared.recordKey(KeyIdPolicy.BACKSPACE);
+    if (NineKeyPanelPolicy.backspace(this.nineKeyPanelMode, this.nineKeyStrokes)
+      === NineKeyPanelBackspace.POP_STROKE) {
+      KeyboardSession.shared.setNineKeyFilter(this.nineKeySingleCharacter,
+        NineKeyPanelPolicy.popStroke(this.nineKeyStrokes));
+      return;
+    }
+    KeyboardSession.shared.backspace();
+  }
+
+  /** 拼音栏和笔画栏互换；离开笔画模式时清掉笔画筛选。 */
+  private toggleNineKeyPanelMode(): void {
+    const strokes: string | null = NineKeyPanelPolicy.strokesAfterToggle(this.nineKeyPanelMode, this.nineKeyStrokes);
+    this.nineKeyPanelMode = NineKeyPanelPolicy.toggledMode(this.nineKeyPanelMode);
+    if (strokes !== null) {
+      KeyboardSession.shared.setNineKeyFilter(this.nineKeySingleCharacter, strokes);
+    }
+  }
+
+  private appendNineKeyStroke(code: string): void {
+    const next: string = NineKeyPanelPolicy.appendStroke(this.nineKeyStrokes, code);
+    if (next !== this.nineKeyStrokes) {
+      KeyboardSession.shared.setNineKeyFilter(this.nineKeySingleCharacter, next);
+    }
+  }
+
+  /** 中栏候选网格可用的宽度：三栏时去掉左右两栏和它们之间的两道键距。 */
+  private expandedGridWidth(): number {
+    if (!this.nineKeyPanel()) {
+      return this.availableWidth;
+    }
+    return Math.max(0, this.availableWidth
+      * (100 - NINE_KEY_PANEL_LEFT_PERCENT - NINE_KEY_PANEL_RIGHT_PERCENT) / 100
+      - this.keySpacing() * 2);
   }
 
   /**
@@ -2031,6 +2132,7 @@ struct KeyboardView {
     this.geometryRowSpacing = this.settings.rowSpacingTenths;
     this.geometryHeight = this.settings.heightAdjustment;
     this.touchVoiceShortcut = this.settings.voiceShortcut;
+    this.numberKeypadOrder = this.settings.numberKeypadOrder;
     this.feedback = KeyboardSession.shared.feedback();
     this.traditional = KeyboardSession.shared.usesTraditional();
     this.chinesePunctuation = KeyboardSession.shared.usesChinesePunctuation();
@@ -2276,7 +2378,7 @@ struct KeyboardView {
     for (let index: number = 0; index < this.expanded.length; index++) {
       widths.push(this.expandedCandidateWidth(index));
     }
-    const assignment: number[] = CandidateWrapPolicy.rows(this.availableWidth, 0, widths);
+    const assignment: number[] = CandidateWrapPolicy.rows(this.expandedGridWidth(), 0, widths);
     const rows: number[][] = [];
     for (let index: number = 0; index < assignment.length; index++) {
       while (rows.length <= assignment[index]) {
@@ -2291,7 +2393,7 @@ struct KeyboardView {
     if (index < 0 || index >= this.expanded.length) return 0;
     return ExpandedCandidateLayout.width(this.expanded[index].text, index,
       this.settings.candidateFontSize, KeyboardMetrics.CANDIDATE_PADDING_VP,
-      this.availableWidth);
+      this.expandedGridWidth());
   }
 
   private letterKey(letter: string): KeyOptions {
@@ -2789,9 +2891,9 @@ struct KeyboardView {
           .fontSize(STRIP_TRAILING_FONT_SIZE)
           .fontColor(this.candidateColors().secondary)
           .padding({ left: 10, right: 12 })
-          .onClick(() => {
-            this.expanded = KeyboardSession.shared.allCandidates();
-          })
+          .accessibilityText(this.surface === SURFACE_EXPANDED ? '收起候选' : '展开全部候选')
+          // 以前只取了列表、从不切到展开面板（surface 改成单值之后漏掉了这一步），手机和平板上面板根本打不开。
+          .onClick(() => this.toggleExpanded())
       }
       }
       .width('100%')
@@ -3170,7 +3272,7 @@ struct KeyboardView {
       .borderRadius(KeyboardMetrics.KEY_CORNER_VP)
 
       Column({ space: this.rowSpacing() }) {
-        ForEach(this.symbols ? NineKeyLayout.digits() : NineKeyLayout.rows(), (row: NineKey[]) => {
+        ForEach(this.symbols ? NineKeyLayout.digits(this.numberKeypadOrder) : NineKeyLayout.rows(), (row: NineKey[]) => {
           Row({ space: this.keySpacing() }) {
             ForEach(row, (key: NineKey) => {
               if (!this.symbols && NineKeyLayout.holdOptions(key).length > 0) {
@@ -4061,6 +4163,7 @@ struct KeyboardView {
     this.geometryRowSpacing = this.settings.rowSpacingTenths;
     this.geometryHeight = this.settings.heightAdjustment;
     this.touchVoiceShortcut = this.settings.voiceShortcut;
+    this.numberKeypadOrder = this.settings.numberKeypadOrder;
     KeyboardSession.shared.resizeTouchKeyboard(KeyboardMetrics.totalHeightVp(
       this.geometryRowSpacing, this.geometryHeight, KeyboardSession.shared.glossRows(),
       this.settings.candidateFontSize, this.settings.candidatePreeditFontSize));
@@ -5222,87 +5325,185 @@ struct KeyboardView {
     .borderColor(this.menuColors.border)
   }
 
-  /** Every candidate at once, which is the alternative to paging past the ninth one by hand. */
+  /**
+   * Every candidate at once, which is the alternative to paging past the ninth one by hand.
+   *
+   * 全拼九键组字时画成三栏（`nineKeyExpandedFace`），其他情况仍是带标题行的整块候选。
+   */
   @Builder
   expandedFace() {
-    Column() {
-      Row() {
-        Text(this.visibleComposition().text)
-          .fontSize(KeyboardMetrics.SMALL_KEY_FONT_SIZE)
-          .fontColor(this.skin.accent)
-          .maxLines(1)
-          .layoutWeight(1)
-        Text('收起')
-          .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
-          .fontColor(this.skin.accent)
-          .onClick(() => {
-            this.show(SURFACE_NONE);
-          })
-      }
-      .width('100%')
-      .height(KeyboardMetrics.ROW_HEIGHT_VP * 3 / 4)
-      .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
-        right: KeyboardMetrics.CANDIDATE_PADDING_VP })
-
-      Scroll() {
-        Column() {
-          ForEach(this.expandedRows(), (row: number[]) => {
-            Row() {
-              ForEach(row, (index: number) => {
-                Row() {
-                  Text(`${index + 1}`)
-                    .fontSize(Math.max(KEY_HINT_FONT_SIZE, this.settings.candidateFontSize - 8))
-                    .fontColor(this.candidateDetailColor())
-                    .fontFamily(this.candidateFontFamily())
-                    .padding({ right: 4 })
-                  Column() {
-                    Text(this.expanded[index].text)
-                      .fontSize(this.settings.candidateFontSize)
-                      .fontColor(this.candidateTextColor())
-                      .fontFamily(this.candidateFontFamily())
-                      .maxLines(1)
-                      .textOverflow({ overflow: TextOverflow.Ellipsis })
-                    // The same line the strip draws under a candidate. It used to be dropped on the
-                    // way here, so the panel listed words while the strip beside it explained them.
-                    if (this.expandedGlossLine(index).length > 0) {
-                      Text(this.expandedGlossLine(index))
-                        .fontSize(Math.max(KEY_HINT_FONT_SIZE,
-                          this.settings.candidateFontSize - 8))
-                        .fontColor(this.candidateDetailColor())
-                        .fontFamily(this.candidateFontFamily())
-                        .maxLines(1)
-                    }
-                  }
-                  .alignItems(HorizontalAlign.Start)
-                  .layoutWeight(1)
-                }
-                  .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
-                    right: KeyboardMetrics.CANDIDATE_PADDING_VP })
-                  .width(this.expandedCandidateWidth(index))
-                  .height(KeyboardMetrics.ROW_HEIGHT_VP)
-                  .onClick(() => {
-                    KeyboardSession.shared.chooseAny(index);
-                    this.show(SURFACE_NONE);
-                  })
-                  // The source answers a long press here with the same gloss it offers on the
-                  // strip. Only the gloss: the management operations index the page rather than
-                  // this list, so there is no number here that would mean anything to them.
-                  .gesture(LongPressGesture().onAction(() => {
-                    if (this.expanded[index].annotationIsTranslation) {
-                      this.expandedGloss = index;
-                    }
-                  }))
-              }, (index: number) => `${index}:${this.expanded[index].text}`)
-              Blank()
-            }
-            .width('100%')
-          }, (row: number[]) => row.join(','))
+    if (this.nineKeyPanel()) {
+      this.nineKeyExpandedFace()
+    } else {
+      Column() {
+        Row() {
+          Text(this.visibleComposition().text)
+            .fontSize(KeyboardMetrics.SMALL_KEY_FONT_SIZE)
+            .fontColor(this.skin.accent)
+            .maxLines(1)
+            .layoutWeight(1)
+          Text('收起')
+            .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
+            .fontColor(this.skin.accent)
+            .onClick(() => {
+              this.show(SURFACE_NONE);
+            })
         }
         .width('100%')
+        .height(KeyboardMetrics.ROW_HEIGHT_VP * 3 / 4)
+        .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
+          right: KeyboardMetrics.CANDIDATE_PADDING_VP })
+
+        this.expandedGrid()
       }
-      .scrollBar(BarState.Off)
       .width('100%')
+      .height(this.surfaceHeight())
+    }
+  }
+
+  /** 展开面板的候选网格，按 `expandedGridWidth` 换行；整块面板和三栏面板的中栏共用。 */
+  @Builder
+  expandedGrid() {
+    Scroll() {
+      Column() {
+        ForEach(this.expandedRows(), (row: number[]) => {
+          Row() {
+            ForEach(row, (index: number) => {
+              Row() {
+                Text(`${index + 1}`)
+                  .fontSize(Math.max(KEY_HINT_FONT_SIZE, this.settings.candidateFontSize - 8))
+                  .fontColor(this.candidateDetailColor())
+                  .fontFamily(this.candidateFontFamily())
+                  .padding({ right: 4 })
+                Column() {
+                  Text(this.expanded[index].text)
+                    .fontSize(this.settings.candidateFontSize)
+                    .fontColor(this.candidateTextColor())
+                    .fontFamily(this.candidateFontFamily())
+                    .maxLines(1)
+                    .textOverflow({ overflow: TextOverflow.Ellipsis })
+                  // The same line the strip draws under a candidate. It used to be dropped on the
+                  // way here, so the panel listed words while the strip beside it explained them.
+                  if (this.expandedGlossLine(index).length > 0) {
+                    Text(this.expandedGlossLine(index))
+                      .fontSize(Math.max(KEY_HINT_FONT_SIZE,
+                        this.settings.candidateFontSize - 8))
+                      .fontColor(this.candidateDetailColor())
+                      .fontFamily(this.candidateFontFamily())
+                      .maxLines(1)
+                  }
+                }
+                .alignItems(HorizontalAlign.Start)
+                .layoutWeight(1)
+              }
+                .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
+                  right: KeyboardMetrics.CANDIDATE_PADDING_VP })
+                .width(this.expandedCandidateWidth(index))
+                .height(KeyboardMetrics.ROW_HEIGHT_VP)
+                .onClick(() => {
+                  KeyboardSession.shared.chooseAny(index);
+                  this.show(SURFACE_NONE);
+                })
+                // The source answers a long press here with the same gloss it offers on the
+                // strip. Only the gloss: the management operations index the page rather than
+                // this list, so there is no number here that would mean anything to them.
+                .gesture(LongPressGesture().onAction(() => {
+                  if (this.expanded[index].annotationIsTranslation) {
+                    this.expandedGloss = index;
+                  }
+                }))
+            }, (index: number) => `${index}:${this.expanded[index].text}`)
+            Blank()
+          }
+          .width('100%')
+        }, (row: number[]) => row.join(','))
+      }
+      .width('100%')
+    }
+    .scrollBar(BarState.Off)
+    .width('100%')
+    .layoutWeight(1)
+  }
+
+  /**
+   * 全拼九键的展开面板，照常见九键输入法的样子分三栏占满键区：左栏是数字串的拼音（可切成横竖撇点折五个笔画键），中栏是可上下滚动的全部候选，右栏是返回、退格、重输、拼音/笔画、全部/单字。
+   *
+   * 选拼音、退格和改筛选都不关面板，候选在 onChanged 里重取；选中候选、点返回或组字结束才收起。
+   */
+  @Builder
+  nineKeyExpandedFace() {
+    Row({ space: this.keySpacing() }) {
+      Column() {
+        if (this.nineKeyPanelMode === NineKeyPanelMode.STROKE) {
+          Text(this.nineKeyStrokes.length > 0 ? NineKeyPanelPolicy.glyphs(this.nineKeyStrokes) : '笔画')
+            .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
+            .fontColor(this.skin.accent)
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .textAlign(TextAlign.Center)
+            .width('100%')
+            .height(KeyboardMetrics.ROW_HEIGHT_VP * 3 / 4)
+          ForEach(NineKeyPanelPolicy.strokes(), (item: NineKeyStroke) => {
+            Column() {
+              Text(item.glyph)
+                .fontSize(KeyboardMetrics.SMALL_KEY_FONT_SIZE)
+                .fontColor(this.skin.keyForeground)
+                .textAlign(TextAlign.Center)
+                .width('100%')
+            }
+            .layoutWeight(1)
+            .width('100%')
+            .justifyContent(FlexAlign.Center)
+            .accessibilityText(`笔画 ${item.name}`)
+            .onClick(() => this.appendNineKeyStroke(item.code))
+          }, (item: NineKeyStroke) => item.code)
+        } else {
+          Scroll() {
+            Column() {
+              ForEach(this.spellings, (spelling: string, index: number) => {
+                Text(spelling)
+                  .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
+                  .fontColor(this.skin.accent)
+                  .textAlign(TextAlign.Center)
+                  .width('100%')
+                  .height(KeyboardMetrics.ROW_HEIGHT_VP * 3 / 4)
+                  .accessibilityText(KeyAccessibilityPolicy.spelling(spelling))
+                  .onClick(() => KeyboardSession.shared.chooseSpelling(index))
+              }, (spelling: string, index: number) => `${index}:${spelling}`)
+            }
+            .width('100%')
+          }
+          .scrollBar(BarState.Off)
+          .width('100%')
+          .height('100%')
+        }
+      }
+      .width(`${NINE_KEY_PANEL_LEFT_PERCENT}%`)
+      .height('100%')
+      .backgroundColor(this.skin.keySurfaceBackground(false, true))
+      .borderRadius(KeyboardMetrics.KEY_CORNER_VP)
+
+      Column() {
+        this.expandedGrid()
+      }
       .layoutWeight(1)
+      .height('100%')
+
+      Column({ space: this.rowSpacing() }) {
+        this.nineKeyControl('返回', '收起候选面板', () => this.show(SURFACE_NONE));
+        this.nineKeyControl('⌫', KeyAccessibilityPolicy.delete(), () => this.nineKeyPanelBackspace());
+        this.nineKeyControl('重输', '清空输入', () => {
+          KeyboardSession.shared.discardComposition();
+          this.show(SURFACE_NONE);
+        });
+        this.nineKeyControl(NineKeyPanelPolicy.modeTitle(this.nineKeyPanelMode),
+          NineKeyPanelPolicy.modeLabel(this.nineKeyPanelMode), () => this.toggleNineKeyPanelMode());
+        this.nineKeyControl(NineKeyPanelPolicy.singleCharacterTitle(this.nineKeySingleCharacter),
+          NineKeyPanelPolicy.singleCharacterLabel(this.nineKeySingleCharacter),
+          () => KeyboardSession.shared.setNineKeyFilter(!this.nineKeySingleCharacter, this.nineKeyStrokes));
+      }
+      .width(`${NINE_KEY_PANEL_RIGHT_PERCENT}%`)
+      .height('100%')
     }
     .width('100%')
     .height(this.surfaceHeight())

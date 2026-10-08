@@ -58,7 +58,8 @@ struct IOSPreferencePlan {
     haptics = try bool("platform.ios.haptics_enabled")
     learning = try bool("platform.ios.dictionary_learning")
     strength = try string("platform.ios.haptic_strength")
-    guard strength == nil || ["light", "medium", "strong"].contains(strength!) else { throw BackendAccountClient.Failure(status: 400) }
+    // `system` 是「跟随系统」。这一版只接受、不上传它（`IOSCloudSettings`）：更早的版本不认识它，会因此拒绝整份文档。
+    guard strength == nil || ["light", "medium", "strong", "system"].contains(strength!) else { throw BackendAccountClient.Failure(status: 400) }
     globalTheme = try string("platform.ios.global_theme")
     guard globalTheme == nil || themes.contains(globalTheme!) else { throw BackendAccountClient.Failure(status: 400) }
     customThemeBase = try string("platform.ios.custom_theme_base")

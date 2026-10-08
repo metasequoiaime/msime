@@ -32,6 +32,22 @@ const DIGIT_ROWS: NineKey[][] = [
   [key("7", "7", "7"), key("8", "8", "8"), key("9", "9", "9")],
 ];
 
+// 计算器顺序（`touch_number_keypad_order` 为 `calculator`）：7 8 9 在上、1 2 3 在下，与计算器和电脑小键盘一致。只有数字层换顺序，字母层的 ABC…WXYZ 不动。
+const CALCULATOR_DIGIT_ROWS: NineKey[][] = [DIGIT_ROWS[2], DIGIT_ROWS[1], DIGIT_ROWS[0]];
+
+/** 数字层的两种排列，取值与共享偏好 `touch_number_keypad_order` 相同。 */
+export class NumberKeypadOrder {
+  static readonly PHONE: string = "phone";
+  static readonly CALCULATOR: string = "calculator";
+
+  /** 文档里的值归一：缺省、旧文档没有这个键或认不出的值都按电话顺序。 */
+  static normalized(value: string | null | undefined): string {
+    return value === NumberKeypadOrder.CALCULATOR
+      ? NumberKeypadOrder.CALCULATOR
+      : NumberKeypadOrder.PHONE;
+  }
+}
+
 // ASCII, as the twenty-six key face sends: the Engine decides whether a comma arrives as , or as ，,
 // and it is the only thing that knows, since the answer depends on the composing language and on the
 // punctuation lock. iOS hard-codes the Chinese forms here because its grid only ever spells Chinese.
@@ -46,9 +62,11 @@ export class NineKeyLayout {
     return ROWS;
   }
 
-  /** The grid as digits. `digits` rather than a boolean on `rows` so the caller reads as a face. */
-  static digits(): NineKey[][] {
-    return DIGIT_ROWS;
+  /** The grid as digits. `digits` rather than a boolean on `rows` so the caller reads as a face. 按 `order` 排成电话顺序（1 2 3 在上）或计算器顺序（7 8 9 在上）。 */
+  static digits(order: string = NumberKeypadOrder.PHONE): NineKey[][] {
+    return NumberKeypadOrder.normalized(order) === NumberKeypadOrder.CALCULATOR
+      ? CALCULATOR_DIGIT_ROWS
+      : DIGIT_ROWS;
   }
 
   static punctuation(): string[] {

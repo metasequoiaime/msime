@@ -67,7 +67,36 @@ public final class NineKeyLayoutSmoke {
             NineKeyLayout.rows().get(0).add(new NineKeyLayout.Key(0, "bad", '0', "bad"));
             throw new AssertionError();
         } catch (UnsupportedOperationException expected) { }
+
+        // `touch_number_keypad_order`：计算器顺序只换数字键面的行序（7 8 9 在上、1 2 3 在下），字母键面始终 1 2 3 在上；缺省和不认识的值按电话顺序。
+        check(NineKeyLayout.NUMBER_KEYPAD_ORDER_KEY.equals("touch_number_keypad_order"));
+        check(NineKeyLayout.calculatorOrder("calculator"));
+        check(!NineKeyLayout.calculatorOrder("phone"));
+        check(!NineKeyLayout.calculatorOrder(""));
+        check(!NineKeyLayout.calculatorOrder(null));
+        check(!NineKeyLayout.calculatorOrder("Calculator"));
+        check(NineKeyLayout.rows(true, false).equals(NineKeyLayout.rows()));
+        check(NineKeyLayout.rows(false, true).equals(NineKeyLayout.rows()));
+        check(NineKeyLayout.rows(false, false).equals(NineKeyLayout.rows()));
+        List<List<NineKeyLayout.Key>> calculator = NineKeyLayout.rows(true, true);
+        check(calculator.stream().flatMap(List::stream)
+            .map(key -> NineKeyLayout.face(key, true)).toList().equals(
+                List.of("7", "8", "9", "4", "5", "6", "1", "2", "3")));
+        check(calculator.stream().flatMap(List::stream)
+            .map(key -> NineKeyLayout.description(key, true)).toList().equals(
+                List.of("数字 7", "数字 8", "数字 9", "数字 4", "数字 5", "数字 6",
+                    "数字 1", "数字 2", "数字 3")));
+        check(calculator.stream().flatMap(List::stream)
+            .map(NineKeyLayout::digitInput).toList().equals(
+                List.of("7", "8", "9", "4", "5", "6", "1", "2", "3")));
+        check(NineKeyLayout.rows(true, false).stream().flatMap(List::stream)
+            .map(key -> NineKeyLayout.face(key, true)).toList().equals(
+                List.of("1", "2", "3", "4", "5", "6", "7", "8", "9")));
+        try {
+            calculator.get(0).add(new NineKeyLayout.Key(0, "bad", '0', "bad"));
+            throw new AssertionError();
+        } catch (UnsupportedOperationException expected) { }
         System.out.println(
-            "Android nine-key layout: grid inputs, labels, digit layer and punctuation passed");
+            "Android nine-key layout: grid inputs, labels, digit layer, keypad order and punctuation passed");
     }
 }

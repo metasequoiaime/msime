@@ -83,7 +83,9 @@ const GLOBAL_THEMES = ["system", "shuishan", "light", "paper", "night", "ink", "
 // What a custom theme may be drawn over: the platform tokens or a built-in theme, never `custom` itself.
 const THEME_BASES = ["system", "shuishan", "light", "paper", "night", "ink"];
 const THEMES = ["dark", "light", "system"];
-const HAPTIC_STRENGTHS = ["light", "medium", "strong"];
+const HAPTIC_STRENGTHS = ["light", "medium", "strong", "system"];
+// 九键数字层的排列，`touch_number_keypad_order` 的全部取值。
+const NUMBER_KEYPAD_ORDERS = ["phone", "calculator"];
 
 // 账号设置里 `input.schema` 认得的取值，即 client-core `InputScheme` 的全部方案。不在这里的取值不归版本过滤管，留给下面的规则处理。
 const ACCOUNT_SCHEMES = SCHEMES.concat(LOCAL_ONLY_SCHEMES);
@@ -409,6 +411,11 @@ export function localAccountPreferences(
       0,
     ),
     "platform.harmony.voice_shortcut": flag(member(preferences, "touch_voice_shortcut"), true),
+    "platform.harmony.number_keypad_order": enumerated(
+      member(preferences, "touch_number_keypad_order"),
+      NUMBER_KEYPAD_ORDERS,
+      "phone",
+    ),
     "platform.harmony.sound_enabled": feedback.soundEnabled,
     "platform.harmony.haptics_enabled": feedback.hapticsEnabled,
     "platform.harmony.haptic_strength": enumerated(
@@ -632,6 +639,10 @@ export function applyAccountPreferences(
   }
   const voiceShortcut = reader.boolean("platform.harmony.voice_shortcut");
   if (voiceShortcut !== null) preferences.touch_voice_shortcut = voiceShortcut;
+  const keypadOrder = reader.text("platform.harmony.number_keypad_order");
+  if (keypadOrder !== null) {
+    preferences.touch_number_keypad_order = choose(keypadOrder, NUMBER_KEYPAD_ORDERS);
+  }
 
   const feedbackKeys = [
     "platform.harmony.sound_enabled",

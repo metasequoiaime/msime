@@ -83,6 +83,9 @@ export function ScreenKeyboardSettingsPage() {
         tabletFullKeys={mobileKeyboardFeedback?.tabletFullKeys}
         tabletSplitKeyboard={mobileKeyboardFeedback?.tabletSplitKeyboard}
         glideTyping={mobileKeyboardFeedback?.glideTyping}
+        numberKeypadOrder={
+          mobilePlatform ? (draft.touch_number_keypad_order ?? "phone") : undefined
+        }
         tabletFullKeysBusy={mobileKeyboardFeedbackBusy}
         onHeightAdjustmentChange={(touch_keyboard_height_adjustment) =>
           onPreferencesChange({ touch_keyboard_height_adjustment })
@@ -95,6 +98,9 @@ export function ScreenKeyboardSettingsPage() {
         }
         onTouchVoiceShortcutChange={(touch_voice_shortcut) =>
           onPreferencesChange({ touch_voice_shortcut })
+        }
+        onNumberKeypadOrderChange={(touch_number_keypad_order) =>
+          onPreferencesChange({ touch_number_keypad_order })
         }
         onToolbarChange={(touch_toolbar) => onPreferencesChange({ touch_toolbar })}
         onTabletFullKeysChange={(tabletFullKeys) => {
