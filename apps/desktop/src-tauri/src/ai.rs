@@ -34,26 +34,10 @@ pub(crate) fn read_ai_response_body(reader: impl Read) -> Result<Vec<u8>, AiResp
     })
 }
 
+/// 接口地址的规则在 client-core 的 `ai::endpoint`：https 不限主机，http 只能指向本机或局域网。
 pub(crate) fn validate_ai_endpoint(value: &str) -> Result<Url, CommandError> {
-    if !msime_client_core::is_bounded_text_with_options(value, 2048, false) {
-        return Err(CommandError { code: "ai_invalid" });
-    }
-    let url = Url::parse(value).map_err(|_| CommandError { code: "ai_invalid" })?;
-    if !msime_client_core::translation::is_secure_endpoint(value)
-        || !value.split_once("://").is_some_and(|(_, authority)| {
-            authority
-                .as_bytes()
-                .first()
-                .is_some_and(|byte| *byte != b'/')
-        })
-        || url.host_str().is_none_or(str::is_empty)
-        || !url.username().is_empty()
-        || url.password().is_some()
-        || url.fragment().is_some()
-    {
-        return Err(CommandError { code: "ai_invalid" });
-    }
-    Ok(url)
+    msime_client_core::ai::endpoint::validate(value)
+        .map_err(|_| CommandError { code: "ai_invalid" })
 }
 
 pub(crate) fn validate_ai_token(token: &str) -> Result<(), CommandError> {

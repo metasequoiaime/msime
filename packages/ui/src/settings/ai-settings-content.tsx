@@ -14,6 +14,7 @@ import { AiSettingsPageSection } from "./ai-settings-page-section";
 import { AiCredentialSection } from "./ai-credential-section";
 import { AiLinuxProviderSection } from "./ai-linux-provider-section";
 import { AiApiTokenSection } from "./ai-api-token-section";
+import { aiEndpointHint } from "./ai-endpoint-policy";
 import { AiTestToolsSection } from "./ai-test-tools-section";
 import type { ProviderPresetControlFactory } from "./provider-preset-control";
 import * as settings from "./settings-style";
@@ -111,6 +112,7 @@ export function AiSettingsContent({
   return (
     <AiSettingsPageSection
       endpointValid={aiOrigin !== null}
+      endpointHint={aiEndpointHint(ai.endpoint)}
       disabled={disabled}
       hidden={hidden}
       enabled={ai.enabled}
@@ -166,7 +168,12 @@ export function AiSettingsContent({
         ) : linuxPlatform ? (
           <AiLinuxProviderSection />
         ) : (
-          <AiApiTokenSection origin={aiOrigin} token={aiToken} onTokenChange={updateAiToken} />
+          <AiApiTokenSection
+            origin={aiOrigin}
+            endpointHint={aiEndpointHint(ai.endpoint)}
+            token={aiToken}
+            onTokenChange={updateAiToken}
+          />
         )
       }
       // Linux 的测试按钮同样放在服务组末尾，与其他平台一致。
