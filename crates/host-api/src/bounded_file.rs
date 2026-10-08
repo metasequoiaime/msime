@@ -18,13 +18,31 @@ pub(crate) fn open_private(path: &Path) -> io::Result<File> {
         options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
     }
     let file = options.open(path)?;
-    if !file.metadata()?.is_file() {
+    let metadata = file.metadata()?;
+    if !metadata.is_file() || !has_single_link(&metadata) {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            "private input is not a regular file",
+            "private input is not a single-link regular file",
         ));
     }
     Ok(file)
+}
+
+#[cfg(unix)]
+fn has_single_link(metadata: &std::fs::Metadata) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    metadata.nlink() == 1
+}
+
+#[cfg(windows)]
+fn has_single_link(metadata: &std::fs::Metadata) -> bool {
+    use std::os::windows::fs::MetadataExt;
+    metadata.number_of_links() == 1
+}
+
+#[cfg(not(any(unix, windows)))]
+fn has_single_link(_: &std::fs::Metadata) -> bool {
+    true
 }
 
 /// Read a file while enforcing a byte ceiling before and during the read.
@@ -80,5 +98,21 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
 
         assert!(open_private(root.path()).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn open_private_rejects_a_hard_linked_file() {
+        use std::os::unix::fs::MetadataExt;
+
+        let outside = tempfile::tempdir().unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let target = outside.path().join("outside.json");
+        std::fs::write(&target, b"synthetic-host-data").unwrap();
+        let linked = root.path().join("private.json");
+        std::fs::hard_link(&target, &linked).unwrap();
+
+        assert_eq!(std::fs::metadata(&linked).unwrap().nlink(), 2);
+        assert!(open_private(&linked).is_err());
     }
 }

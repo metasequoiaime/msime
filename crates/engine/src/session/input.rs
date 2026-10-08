@@ -223,7 +223,7 @@ impl InputSession {
     pub fn handle_character(&mut self, value: u8, shift_only: bool) -> KeyResult {
         if self
             .caret
-            .is_some_and(|caret| caret < self.editing_text().len())
+            .is_some_and(|caret| caret < self.editing_text_len())
         {
             return self.insert_at_caret(value);
         }
@@ -1529,7 +1529,7 @@ impl InputSession {
             && self.has_composition()
             && self
                 .caret
-                .is_none_or(|caret| caret >= self.editing_text().len())
+                .is_none_or(|caret| caret >= self.editing_text_len())
     }
 
     /// 当前组字的网址触发键；组字原文不是触发词或条件不满足时为 `None`。
@@ -1591,7 +1591,7 @@ impl InputSession {
     fn backspace(&mut self) -> KeyResult {
         if self
             .caret
-            .is_some_and(|caret| caret < self.editing_text().len())
+            .is_some_and(|caret| caret < self.editing_text_len())
         {
             return self.edit_at_caret(Command::Backspace);
         }

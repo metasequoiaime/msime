@@ -515,6 +515,27 @@ mod tests {
             .all(|summary| summary.id != "user-1"));
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn rejects_a_hard_linked_book_outside_the_library() {
+        let (_directory, library) = library();
+        library.import("甲", entries(&["a"]), "user-1").unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let outside_book = outside.path().join("book.json");
+        fs::write(
+            &outside_book,
+            fs::read(library.book_path("user-1")).unwrap(),
+        )
+        .unwrap();
+        fs::remove_file(library.book_path("user-1")).unwrap();
+        fs::hard_link(&outside_book, library.book_path("user-1")).unwrap();
+
+        assert!(matches!(
+            library.load("user-1"),
+            Err(WordbookLibraryError::InvalidWordbook)
+        ));
+    }
+
     #[test]
     fn rejects_malformed_index_summaries() {
         let (_directory, library) = library();
