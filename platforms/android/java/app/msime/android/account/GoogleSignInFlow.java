@@ -4,11 +4,13 @@ import android.app.Activity;
 import androidx.credentials.Credential;
 import androidx.credentials.CredentialManager;
 import androidx.credentials.CredentialManagerCallback;
+import androidx.credentials.CredentialOption;
 import androidx.credentials.CustomCredential;
 import androidx.credentials.GetCredentialRequest;
 import androidx.credentials.GetCredentialResponse;
 import androidx.credentials.exceptions.GetCredentialException;
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption;
+import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption;
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential;
 import java.util.concurrent.Executor;
 
@@ -39,16 +41,25 @@ public final class GoogleSignInFlow {
             return "已取消 Google 登录";
         }
         if (error instanceof androidx.credentials.exceptions.NoCredentialException) {
-            // 如果 Android OAuth client 没有登记这个包名和签名证书，Play services 同样报告为 no credential，只是消息里带有状态码 `28444`；这种情况下设备上通常是有账号的，提示「没有账号」会把人引到错误的方向。
-            String detail = error.getMessage();
-            if (detail != null && (detail.contains("28444") || detail.contains("Developer console"))) {
+            if (unregistered(error)) {
                 return "Google 登录未配置：这个安装包的签名证书没有登记到 Google Cloud 的 Android OAuth 客户端";
             }
-            return "这台设备上没有可用的 Google 账号";
+            return "这台设备上没有可用的 Google 账号：请在系统设置里添加 Google 账号，并确认已开启 Google Play 服务";
         }
         String detail = error.getMessage();
         return "Google 登录失败：" + error.getType()
             + (detail == null || detail.isEmpty() ? "" : "，" + detail);
+    }
+
+    /** 如果 Android OAuth client 没有登记这个包名和签名证书，Play services 同样报告为 no credential，只是消息里带有状态码 `28444`；这种情况下设备上通常是有账号的，提示「没有账号」会把人引到错误的方向。 */
+    private static boolean unregistered(GetCredentialException error) {
+        String detail = error.getMessage();
+        return detail != null && (detail.contains("28444") || detail.contains("Developer console"));
+    }
+
+    /** 底部的账号列表只列已经加到系统里的账号，一个都没有时报 no credential。 */
+    private static boolean noAccount(GetCredentialException error) {
+        return error instanceof androidx.credentials.exceptions.NoCredentialException && !unregistered(error);
     }
 
     /** What came back: a token to exchange, or a reason to show. */
@@ -76,6 +87,14 @@ public final class GoogleSignInFlow {
             .setServerClientId(serverClientId)
             .setNonce(nonce)
             .build();
+        // 设备上还没有 Google 账号时，底部列表是空的；这时改走「使用 Google 账号登录」按钮流程，它打开 Google 自己的登录页，用户可以当场添加账号。没有 Google Play 服务的设备两条路都走不通，第二次失败时照常说明原因。
+        request(activity, option, executor, listener, () -> request(activity,
+            new GetSignInWithGoogleOption.Builder(serverClientId).setNonce(nonce).build(),
+            executor, listener, null));
+    }
+
+    private static void request(Activity activity, CredentialOption option, Executor executor,
+            Listener listener, Runnable whenNoAccount) {
         GetCredentialRequest request = new GetCredentialRequest.Builder()
             .addCredentialOption(option)
             .build();
@@ -99,6 +118,10 @@ public final class GoogleSignInFlow {
                 }
 
                 @Override public void onError(GetCredentialException error) {
+                    if (whenNoAccount != null && noAccount(error)) {
+                        whenNoAccount.run();
+                        return;
+                    }
                     listener.onFailure(explain(error));
                 }
             });
