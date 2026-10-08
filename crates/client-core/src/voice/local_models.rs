@@ -916,8 +916,6 @@ pub(crate) fn install_model(
     let staging_directory = Some(staging.open_directory()?);
     #[cfg(not(unix))]
     let model_directory = None;
-    #[cfg(not(unix))]
-    let staging_directory = None;
 
     let total = model.archive.size;
     let archive = staging.path.join("archive.tar.bz2");
