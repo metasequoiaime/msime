@@ -3723,6 +3723,35 @@ fn stroke_candidate_refresh_reuses_row_storage() {
 }
 
 #[test]
+fn stroke_refresh_reuses_request_strings() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = stroke_session(&fixture);
+    type_text(&mut session, "hs");
+    let request = session.input.engine.request();
+    let pointers = [
+        request.raw_input.as_ptr(),
+        request.raw_input_with_cases.as_ptr(),
+        request.normalized_input.as_ptr(),
+        request.raw_segmentation.as_ptr(),
+        request.normalized_segmentation.as_ptr(),
+        request.segmentation.as_ptr(),
+    ];
+    session.input.engine.handle_key(SchemeKey::Requery);
+    let request = session.input.engine.request();
+    assert_eq!(
+        [
+            request.raw_input.as_ptr(),
+            request.raw_input_with_cases.as_ptr(),
+            request.normalized_input.as_ptr(),
+            request.raw_segmentation.as_ptr(),
+            request.normalized_segmentation.as_ptr(),
+            request.segmentation.as_ptr(),
+        ],
+        pointers
+    );
+}
+
+#[test]
 fn stroke_rows_are_never_learned_or_edited() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);
     let stroke = stroke_dictionary(fixture.path());

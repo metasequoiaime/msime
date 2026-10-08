@@ -613,13 +613,22 @@ impl TelemetryStore {
 
     fn write_json(&self, name: &str, value: &impl Serialize) -> Result<(), TelemetryError> {
         let bytes = serde_json::to_vec(value).map_err(|_| TelemetryError::Storage)?;
-        let mut temporary = tempfile::NamedTempFile::new_in(&self.directory)?;
-        temporary.write_all(&bytes)?;
-        temporary.as_file().sync_all()?;
-        temporary
-            .persist(self.directory.join(name))
-            .map_err(|_| TelemetryError::Storage)?;
-        Ok(())
+        #[cfg(unix)]
+        {
+            let directory = crate::storage::open_private_directory(&self.directory)?;
+            crate::storage::write_private_file_at(&directory, std::ffi::OsStr::new(name), &bytes)?;
+            Ok(())
+        }
+        #[cfg(not(unix))]
+        {
+            let mut temporary = tempfile::NamedTempFile::new_in(&self.directory)?;
+            temporary.write_all(&bytes)?;
+            temporary.as_file().sync_all()?;
+            temporary
+                .persist(self.directory.join(name))
+                .map_err(|_| TelemetryError::Storage)?;
+            Ok(())
+        }
     }
 
     fn ingest_crash_records(
@@ -790,14 +799,11 @@ fn is_regular_file(path: &Path) -> bool {
 }
 
 fn open_regular_file(path: &Path) -> Option<File> {
-    if !is_regular_file(path) {
-        return None;
-    }
-    crate::storage::open_private_file(path).ok()
+    crate::storage::open_private_file_in(path).ok()
 }
 
 fn remove_file(path: &Path) -> Result<(), TelemetryError> {
-    match fs::remove_file(path) {
+    match crate::storage::remove_private_file(path) {
         Ok(()) => Ok(()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(error.into()),

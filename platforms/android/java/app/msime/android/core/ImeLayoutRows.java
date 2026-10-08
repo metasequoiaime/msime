@@ -1169,7 +1169,7 @@ final class ImeLayoutRows {
             java.util.List<String> values = new java.util.ArrayList<>(count);
             java.util.List<Integer> indices = new java.util.ArrayList<>(count);
             for (int index = 0; index < count; index++) {
-                String spelling = spellings.optString(index, "");
+                String spelling = InputViewValuePolicy.text(spellings.opt(index));
                 if (!spelling.isEmpty()) {
                     values.add(spelling);
                     indices.add(index);

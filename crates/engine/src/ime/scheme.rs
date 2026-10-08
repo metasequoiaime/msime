@@ -130,6 +130,7 @@ impl Scheme {
     pub fn build_request_into(&self, request: &mut QueryRequest) {
         match self {
             Self::Korean(scheme) => scheme.build_request_into(request),
+            Self::Stroke(scheme) => scheme.build_request_into(request),
             _ => *request = self.build_request(),
         }
     }
