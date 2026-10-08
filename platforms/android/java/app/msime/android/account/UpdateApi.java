@@ -364,9 +364,11 @@ public final class UpdateApi {
             Exchange response = open(url);
             try (InputStream body = response.body()) {
                 long total = response.length();
+                // CREATE_NEW 同时拒绝预先放置在固定临时名上的符号链接和硬链接；
+                // 单独使用 NOFOLLOW_LINKS 只能覆盖前者。
                 try (OutputStream out = Files.newOutputStream(partial.toPath(),
-                        StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING,
-                        StandardOpenOption.WRITE, LinkOption.NOFOLLOW_LINKS)) {
+                        StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE,
+                        LinkOption.NOFOLLOW_LINKS)) {
                     byte[] buffer = new byte[64 * 1024];
                     long done = 0;
                     for (int read; (read = body.read(buffer)) != -1; ) {

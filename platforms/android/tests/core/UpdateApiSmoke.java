@@ -147,6 +147,20 @@ public final class UpdateApiSmoke {
         File symlinkTarget = new File(symlinkDirectory, "msime-android.apk");
         check(!Files.isSymbolicLink(symlinkTarget.toPath()), "update target must not be a symlink");
 
+        // NOFOLLOW_LINKS 不防硬链接：预先放置的 .part 不得截断更新目录之外的文件。
+        File hardlinkCache = Files.createTempDirectory("update-smoke-hardlink").toFile();
+        File hardlinkDirectory = new File(hardlinkCache, "updates");
+        check(hardlinkDirectory.mkdirs(), "hard-link test directory created");
+        File hardlinkExternal = new File(hardlinkCache, "outside.apk");
+        Files.writeString(hardlinkExternal.toPath(), "sentinel");
+        Files.createLink(new File(hardlinkDirectory, "msime-android.apk.part").toPath(),
+            hardlinkExternal.toPath());
+        try {
+            symlinkApi.download(update, hardlinkCache, null);
+        } catch (UpdateApi.Failure expected) { }
+        check("sentinel".equals(Files.readString(hardlinkExternal.toPath())),
+            "update download must not follow a partial-file hard link");
+
         // The updates directory itself must not redirect writes outside the cache.
         File directorySymlinkCache = Files.createTempDirectory("update-smoke-directory-link").toFile();
         File directoryOutside = Files.createTempDirectory("update-smoke-directory-outside").toFile();

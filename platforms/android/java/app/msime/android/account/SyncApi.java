@@ -278,8 +278,14 @@ public final class SyncApi {
     public long downloadSnapshot(Path destination) throws CloudApi.Failure {
         Path partial = destination.resolveSibling(destination.getFileName() + ".partial");
         try {
-            try (OutputStream out = Files.newOutputStream(partial, StandardOpenOption.CREATE,
-                    StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE,
+            if (Files.exists(partial, LinkOption.NOFOLLOW_LINKS)
+                    && (!Files.isRegularFile(partial, LinkOption.NOFOLLOW_LINKS)
+                        || !SafePaths.isSingleLink(partial))) {
+                throw new IOException("snapshot partial file is not private");
+            }
+            Files.deleteIfExists(partial);
+            try (OutputStream out = Files.newOutputStream(partial,
+                    StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE,
                     LinkOption.NOFOLLOW_LINKS)) {
                 streamed(token -> streams.download(SNAPSHOT, token, new BoundedStream(out, MAX_SNAPSHOT_BYTES)));
             }
