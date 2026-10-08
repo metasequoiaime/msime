@@ -2372,7 +2372,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (session == 0) return;
         try {
             JSONObject envelope = new JSONObject(NativeClient.clearOnlineCandidates(session, source));
-            if (Boolean.TRUE.equals(envelope.opt("ok"))) {
+            if (JsonPolicy.strictTrue(envelope.opt("ok"))) {
                 JSONObject next = envelope.optJSONObject("value");
                 if (next != null) view = next;
             }
