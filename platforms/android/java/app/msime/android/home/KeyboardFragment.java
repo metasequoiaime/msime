@@ -229,11 +229,8 @@ public final class KeyboardFragment extends HomeTabFragment {
             // The page's own night mode stands in for the system's, as the keyboard's does: with `theme` on 跟随系统 the host follows the system, and with it forced the resolver never asks.
             KeyboardSkin resolved = HostStore.keyboardSkin(preferences, AppMode.dark(requireContext()),
                 HostStore.seed(requireContext()));
-            String layout = InputViewValuePolicy.textOr(preferences, "touch_keyboard_layout", "twenty_six_key");
             AppEdition edition = AppEdition.current();
-            KeyboardScheme selected = KeyboardScheme.fromPreferences(
-                preferences.optString("scheme", edition.defaultScheme()),
-                InputViewValuePolicy.textOr(preferences, "shuangpin_profile", "xiaohe"), layout, edition);
+            KeyboardScheme selected = SchemePreferences.storedScheme(preferences, edition);
             skin = resolved.title();
             scheme = selected.title(InputViewValuePolicy.textOr(preferences, "wubi_profile", KeyboardScheme.WUBI_86));
         }

@@ -9,7 +9,6 @@ import app.msime.android.AppEdition;
 import app.msime.android.FirstRunPreparation;
 import app.msime.android.KeyboardScheme;
 import app.msime.android.SchemePreferences;
-import app.msime.android.core.InputViewValuePolicy;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -86,10 +85,7 @@ final class OnboardingChoices {
 
     /** 偏好里存的方案入口，与设置页的方案选择读法相同；本版本没有的方案按 {@link KeyboardScheme#fallback}。 */
     static KeyboardScheme storedScheme(JSONObject preferences, AppEdition edition) {
-        return KeyboardScheme.fromPreferences(
-            preferences.optString("scheme", edition.defaultScheme()),
-            InputViewValuePolicy.textOr(preferences, "shuangpin_profile", "xiaohe"),
-            InputViewValuePolicy.textOr(preferences, "touch_keyboard_layout", "twenty_six_key"), edition);
+        return SchemePreferences.storedScheme(preferences, edition);
     }
 
     /**

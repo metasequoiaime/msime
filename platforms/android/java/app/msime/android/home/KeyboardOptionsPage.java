@@ -81,10 +81,7 @@ public final class KeyboardOptionsPage extends DetailPage {
         JSONObject preferences = state.preferences();
         AndroidLocalSettings.Snapshot settings = state.local();
         AppEdition edition = AppEdition.current();
-        KeyboardScheme current = KeyboardScheme.fromPreferences(
-            preferences.optString("scheme", edition.defaultScheme()),
-            InputViewValuePolicy.textOr(preferences, "shuangpin_profile", "xiaohe"),
-            InputViewValuePolicy.textOr(preferences, "touch_keyboard_layout", "twenty_six_key"), edition);
+        KeyboardScheme current = SchemePreferences.storedScheme(preferences, edition);
 
         GroupCard layout = GroupCard.add(target, "布局");
         boolean nineKey = "nine_key".equals(current.touchKeyboardLayout());

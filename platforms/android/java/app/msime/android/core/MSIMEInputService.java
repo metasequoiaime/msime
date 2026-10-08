@@ -679,12 +679,7 @@ public final class MSIMEInputService extends InputMethodService {
         imeModeScope = preferences != null
             && "global".equals(InputViewValuePolicy.textOr(preferences, "ime_mode_scope", "app"))
             ? "global" : "app";
-        KeyboardScheme engineScheme = KeyboardScheme.fromPreferences(
-            preferences == null ? edition.defaultScheme()
-                : preferences.optString("scheme", edition.defaultScheme()),
-            InputViewValuePolicy.textOr(preferences, "shuangpin_profile", "xiaohe"),
-            preferences == null ? "twenty_six_key"
-                : InputViewValuePolicy.textOr(preferences, "touch_keyboard_layout", "twenty_six_key"), edition);
+        KeyboardScheme engineScheme = SchemePreferences.storedScheme(preferences, edition);
         SchemeConfiguration schemeConfiguration = schemeConfiguration(preferences, engineScheme);
         alignEngineSchemeWithSelection(preferences, engineScheme, schemeConfiguration);
         enabledSchemes = schemeConfiguration.enabled();
@@ -2087,10 +2082,7 @@ public final class MSIMEInputService extends InputMethodService {
             InputViewValuePolicy.textOr(preferences, "default_ime_mode", "chinese")) ? "english" : "chinese";
         String nextImeModeScope = "global".equals(
             InputViewValuePolicy.textOr(preferences, "ime_mode_scope", "app")) ? "global" : "app";
-        KeyboardScheme nextScheme = KeyboardScheme.fromPreferences(
-            preferences.optString("scheme", edition.defaultScheme()),
-            InputViewValuePolicy.textOr(preferences, "shuangpin_profile", "xiaohe"),
-            InputViewValuePolicy.textOr(preferences, "touch_keyboard_layout", "twenty_six_key"), edition);
+        KeyboardScheme nextScheme = SchemePreferences.storedScheme(preferences, edition);
         SchemeConfiguration nextSchemeConfiguration = schemeConfiguration(preferences, nextScheme);
         JSONObject sessionSnapshot = new JSONObject(accepted.toString());
         // Keep the accepted disk snapshot intact while enforcing editor privacy in this session.

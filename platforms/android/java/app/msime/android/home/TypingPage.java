@@ -345,10 +345,7 @@ public final class TypingPage extends DetailPage {
      */
     private static KeyboardScheme applied(JSONObject preferences, AppEdition edition, String dictionaries,
             Set<String> packs) {
-        KeyboardScheme fromScheme = KeyboardScheme.fromPreferences(
-            preferences.optString("scheme", edition.defaultScheme()),
-            InputViewValuePolicy.textOr(preferences, "shuangpin_profile", "xiaohe"),
-            InputViewValuePolicy.textOr(preferences, "touch_keyboard_layout", "twenty_six_key"), edition);
+        KeyboardScheme fromScheme = SchemePreferences.storedScheme(preferences, edition);
         JSONObject schemes = preferences.optJSONObject("touch_keyboard_schemes");
         String selected = schemes == null || schemes.isNull("selected") ? null : schemes.optString("selected", null);
         List<KeyboardScheme> visible = KeyboardScheme.installedOf(List.of(KeyboardScheme.values()), dictionaries, packs, edition);
