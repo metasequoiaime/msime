@@ -46,7 +46,6 @@ TISInputSourceRef vietnameseModeSource = reinterpret_cast<TISInputSourceRef>(0x1
 TISInputSourceRef tibetanModeSource = reinterpret_cast<TISInputSourceRef>(0x10d);
 TISInputSourceRef strokeModeSource = reinterpret_cast<TISInputSourceRef>(0x10e);
 std::vector<TISInputSourceRef> alreadyEnabledSources;
-std::vector<TISInputSourceRef> disabledSources;
 NSString *listedSourceIdentifier = nil;
 
 void require(bool condition, const char *message)
@@ -110,12 +109,6 @@ void *GetInputSourceProperty(TISInputSourceRef inputSource, CFStringRef property
 OSStatus EnableInputSource(TISInputSourceRef inputSource)
 {
     enabledSources.push_back(inputSource);
-    return inputSource == rejectedSource ? -50 : noErr;
-}
-
-OSStatus DisableInputSource(TISInputSourceRef inputSource)
-{
-    disabledSources.push_back(inputSource);
     return inputSource == rejectedSource ? -50 : noErr;
 }
 } // namespace
@@ -258,7 +251,7 @@ int main()
         sourceList = CFArrayCreate(nullptr, installedSources, 6, nullptr);
         alreadyEnabledSources = {appParentSource, hansModeSource, japaneseModeSource};
         enabledSources.clear();
-        NSArray<NSString *> *offered = MSIMEEnableNewInputModes(appBundle, nil, CopyInputSources, GetInputSourceProperty, EnableInputSource, DisableInputSource);
+        NSArray<NSString *> *offered = MSIMEEnableNewInputModes(appBundle, nil, CopyInputSources, GetInputSourceProperty, EnableInputSource);
         require([listedBundleIdentifier isEqualToString:appBundle] && enableCapableOnly && includedAllInstalled,
                 "New-mode discovery did not list every installed source of the bundle.");
         // Korean is in the seed, since every install since it was added registered and enabled it.
@@ -271,14 +264,14 @@ int main()
         // A mode the user removed afterwards stays removed.
         alreadyEnabledSources = {appParentSource, hansModeSource, japaneseModeSource, shuangpinModeSource, wubiModeSource};
         enabledSources.clear();
-        require([MSIMEEnableNewInputModes(appBundle, offered, CopyInputSources, GetInputSourceProperty, EnableInputSource, DisableInputSource) isEqualToArray:offered] &&
+        require([MSIMEEnableNewInputModes(appBundle, offered, CopyInputSources, GetInputSourceProperty, EnableInputSource) isEqualToArray:offered] &&
                     enabledSources.empty(),
                 "A recorded mode the user removed was enabled again.");
 
         // A Japanese or Korean mode the user removed before any record existed is not brought back either.
         alreadyEnabledSources = {appParentSource, hansModeSource};
         enabledSources.clear();
-        offered = MSIMEEnableNewInputModes(appBundle, nil, CopyInputSources, GetInputSourceProperty, EnableInputSource, DisableInputSource);
+        offered = MSIMEEnableNewInputModes(appBundle, nil, CopyInputSources, GetInputSourceProperty, EnableInputSource);
         require(std::find(enabledSources.begin(), enabledSources.end(), japaneseModeSource) == enabledSources.end() &&
                     std::find(enabledSources.begin(), enabledSources.end(), koreanModeSource) == enabledSources.end() &&
                     [offered containsObject:MSIMEKoreanInputModeID],
@@ -288,14 +281,14 @@ int main()
         alreadyEnabledSources = {appParentSource, hansModeSource, japaneseModeSource, koreanModeSource};
         rejectedSource = wubiModeSource;
         enabledSources.clear();
-        offered = MSIMEEnableNewInputModes(appBundle, nil, CopyInputSources, GetInputSourceProperty, EnableInputSource, DisableInputSource);
+        offered = MSIMEEnableNewInputModes(appBundle, nil, CopyInputSources, GetInputSourceProperty, EnableInputSource);
         require(enabledSources.size() == 2 && enabledSources[0] == shuangpinModeSource && enabledSources[1] == wubiModeSource &&
                     [offered containsObject:MSIMEKoreanInputModeID] && [offered containsObject:MSIMEShuangpinInputModeID] &&
                     ![offered containsObject:MSIMEWubiInputModeID],
                 "An enabled new mode was enabled again, or a refused one was recorded.");
         rejectedSource = nullptr;
         enabledSources.clear();
-        offered = MSIMEEnableNewInputModes(appBundle, offered, CopyInputSources, GetInputSourceProperty, EnableInputSource, DisableInputSource);
+        offered = MSIMEEnableNewInputModes(appBundle, offered, CopyInputSources, GetInputSourceProperty, EnableInputSource);
         require(enabledSources.size() == 1 && enabledSources[0] == wubiModeSource && [offered containsObject:MSIMEWubiInputModeID],
                 "A mode the system refused was not retried on the next launch.");
         alreadyEnabledSources.clear();
@@ -303,40 +296,28 @@ int main()
         sourceList = nullptr;
 
         // Without the system calls nothing is enabled and the record is only seeded.
-        require([MSIMEEnableNewInputModes(appBundle, nil, nullptr, GetInputSourceProperty, EnableInputSource, DisableInputSource)
+        require([MSIMEEnableNewInputModes(appBundle, nil, nullptr, GetInputSourceProperty, EnableInputSource)
                     isEqualToArray:@[MSIMEChineseInputModeID, MSIMEEnglishInputModeID, MSIMEJapaneseInputModeID, MSIMEKoreanInputModeID]],
                 "A missing lister did not leave just the seeded record.");
-        require([MSIMEEnableNewInputModes(appBundle, nil, CopyInputSources, GetInputSourceProperty, EnableInputSource, nullptr)
+        require([MSIMEEnableNewInputModes(appBundle, nil, CopyInputSources, GetInputSourceProperty, nullptr)
                     isEqualToArray:@[MSIMEChineseInputModeID, MSIMEEnglishInputModeID, MSIMEJapaneseInputModeID, MSIMEKoreanInputModeID]],
-                "A missing disabler did not leave just the seeded record.");
+                "A missing enabler did not leave just the seeded record.");
 
-        // The opt-in modes are recorded without being enabled, so neither this launch nor any later one turns them on. One the system enabled by itself despite tsInputModeDefaultStateKey is turned off once, when it is first recorded.
+        // 按需模式只记录、不启用，这次和以后的启动都不会打开它。已经启用的也只记录、不关掉：第一次启动时它多半是用户刚在系统设置里加的，关掉它会让系统丢掉正在进行的切换。
         const void *optInInstalledSources[] = {appParentSource, hansModeSource, cantoneseModeSource, zhuyinModeSource, vietnameseModeSource, tibetanModeSource, strokeModeSource};
         sourceList = CFArrayCreate(nullptr, optInInstalledSources, 7, nullptr);
         alreadyEnabledSources = {appParentSource, hansModeSource, zhuyinModeSource, tibetanModeSource, strokeModeSource};
         enabledSources.clear();
-        disabledSources.clear();
-        offered = MSIMEEnableNewInputModes(appBundle, @[MSIMEChineseInputModeID], CopyInputSources, GetInputSourceProperty, EnableInputSource, DisableInputSource);
+        offered = MSIMEEnableNewInputModes(appBundle, @[MSIMEChineseInputModeID], CopyInputSources, GetInputSourceProperty, EnableInputSource);
         require(enabledSources.empty(), "An opt-in mode was enabled by an update.");
-        require(disabledSources.size() == 3 && disabledSources[0] == zhuyinModeSource && disabledSources[1] == tibetanModeSource &&
-                    disabledSources[2] == strokeModeSource,
-                "An opt-in mode the system enabled by itself was not turned off, or one already off was disabled.");
         require([offered isEqualToArray:@[MSIMEChineseInputModeID, MSIMECantoneseInputModeID, MSIMEZhuyinInputModeID, MSIMEVietnameseInputModeID, MSIMETibetanInputModeID, MSIMEStrokeInputModeID]],
                 "The opt-in modes were not recorded.");
-        // Once recorded, an opt-in mode the user turned on by picking its scheme is left on.
+        // 记录之后，用户选中方案打开的按需模式保持原样。
         alreadyEnabledSources = {appParentSource, hansModeSource, cantoneseModeSource, zhuyinModeSource, strokeModeSource};
         enabledSources.clear();
-        disabledSources.clear();
-        require([MSIMEEnableNewInputModes(appBundle, offered, CopyInputSources, GetInputSourceProperty, EnableInputSource, DisableInputSource) isEqualToArray:offered] &&
-                    enabledSources.empty() && disabledSources.empty(),
-                "A recorded opt-in mode was enabled or disabled again.");
-        // A disable the system refuses is still recorded: a later launch could not tell the system's doing from the user picking the scheme.
-        alreadyEnabledSources = {appParentSource, hansModeSource, vietnameseModeSource};
-        rejectedSource = vietnameseModeSource;
-        disabledSources.clear();
-        offered = MSIMEEnableNewInputModes(appBundle, @[MSIMEChineseInputModeID], CopyInputSources, GetInputSourceProperty, EnableInputSource, DisableInputSource);
-        require(disabledSources.size() == 1 && disabledSources[0] == vietnameseModeSource && [offered containsObject:MSIMEVietnameseInputModeID],
-                "A refused disable left the opt-in mode unrecorded.");
+        require([MSIMEEnableNewInputModes(appBundle, offered, CopyInputSources, GetInputSourceProperty, EnableInputSource) isEqualToArray:offered] &&
+                    enabledSources.empty(),
+                "A recorded opt-in mode was enabled again.");
         rejectedSource = nullptr;
         alreadyEnabledSources.clear();
         CFRelease(sourceList);
