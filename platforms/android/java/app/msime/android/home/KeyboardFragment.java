@@ -25,6 +25,7 @@ import app.msime.android.KeyboardSkin;
 import app.msime.android.R;
 import app.msime.android.TextPolicy;
 import app.msime.android.ViewPolicy;
+import app.msime.android.core.InputViewValuePolicy;
 import com.google.android.material.button.MaterialButton;
 import java.util.ArrayList;
 import java.util.List;
@@ -227,7 +228,7 @@ public final class KeyboardFragment extends HomeTabFragment {
             // The page's own night mode stands in for the system's, as the keyboard's does: with `theme` on 跟随系统 the host follows the system, and with it forced the resolver never asks.
             KeyboardSkin resolved = HostStore.keyboardSkin(preferences, AppMode.dark(requireContext()),
                 HostStore.seed(requireContext()));
-            String layout = preferences.optString("touch_keyboard_layout", "twenty_six_key");
+            String layout = InputViewValuePolicy.textOr(preferences, "touch_keyboard_layout", "twenty_six_key");
             AppEdition edition = AppEdition.current();
             KeyboardScheme selected = KeyboardScheme.fromPreferences(
                 preferences.optString("scheme", edition.defaultScheme()),
@@ -361,7 +362,7 @@ public final class KeyboardFragment extends HomeTabFragment {
             local.has(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT)
                 ? local.integer(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT)
                 : KeyboardGeometry.strictInt(preferences, "touch_keyboard_height_adjustment", Integer.MIN_VALUE));
-        String layout = "nine_key".equals(preferences.optString("touch_keyboard_layout", "twenty_six_key"))
+        String layout = "nine_key".equals(InputViewValuePolicy.textOr(preferences, "touch_keyboard_layout", "twenty_six_key"))
             ? "九键" : "全键盘";
         return percent == KeyboardGeometry.DEFAULT_HEIGHT_PERCENT
             ? layout + " · 标准高度"

@@ -2,6 +2,7 @@ package app.msime.android.home;
 
 import app.msime.android.TextPolicy;
 import app.msime.android.ViewPolicy;
+import app.msime.android.core.InputViewValuePolicy;
 
 import android.content.Context;
 import android.os.Bundle;
@@ -149,7 +150,7 @@ public final class CommunityFragment extends Fragment {
             // loadPreferences hands back the whole snapshot; the layout lives one level down.
             JSONObject preferences = snapshot == null ? null : snapshot.optJSONObject("preferences");
             nineKey = preferences != null && "nine_key".equals(
-                preferences.optString("touch_keyboard_layout", "twenty_six_key"));
+                InputViewValuePolicy.textOr(preferences, "touch_keyboard_layout", "twenty_six_key"));
             adapter.setNineKey(nineKey);
         });
         refreshTaken();

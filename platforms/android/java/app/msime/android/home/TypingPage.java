@@ -14,6 +14,7 @@ import app.msime.android.ResourcePackService;
 import app.msime.android.ResourcePacks;
 import app.msime.android.SchemePreferences;
 import app.msime.android.policy.HostOptionsPolicy;
+import app.msime.android.core.InputViewValuePolicy;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -346,7 +347,7 @@ public final class TypingPage extends DetailPage {
         KeyboardScheme fromScheme = KeyboardScheme.fromPreferences(
             preferences.optString("scheme", edition.defaultScheme()),
             preferences.optString("shuangpin_profile", "xiaohe"),
-            preferences.optString("touch_keyboard_layout", "twenty_six_key"), edition);
+            InputViewValuePolicy.textOr(preferences, "touch_keyboard_layout", "twenty_six_key"), edition);
         JSONObject schemes = preferences.optJSONObject("touch_keyboard_schemes");
         String selected = schemes == null || schemes.isNull("selected") ? null : schemes.optString("selected", null);
         List<KeyboardScheme> visible = KeyboardScheme.installedOf(List.of(KeyboardScheme.values()), dictionaries, packs, edition);

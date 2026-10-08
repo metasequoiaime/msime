@@ -24,6 +24,7 @@ import app.msime.android.SwipeHintPolicy;
 import app.msime.android.SyncSignals;
 import app.msime.android.SyncSwitch;
 import app.msime.android.ViewPolicy;
+import app.msime.android.core.InputViewValuePolicy;
 import org.json.JSONObject;
 
 /**
@@ -83,7 +84,7 @@ public final class KeyboardOptionsPage extends DetailPage {
         KeyboardScheme current = KeyboardScheme.fromPreferences(
             preferences.optString("scheme", edition.defaultScheme()),
             preferences.optString("shuangpin_profile", "xiaohe"),
-            preferences.optString("touch_keyboard_layout", "twenty_six_key"), edition);
+            InputViewValuePolicy.textOr(preferences, "touch_keyboard_layout", "twenty_six_key"), edition);
 
         GroupCard layout = GroupCard.add(target, "布局");
         boolean nineKey = "nine_key".equals(current.touchKeyboardLayout());

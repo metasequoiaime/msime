@@ -9,6 +9,7 @@ import app.msime.android.AppEdition;
 import app.msime.android.FirstRunPreparation;
 import app.msime.android.KeyboardScheme;
 import app.msime.android.SchemePreferences;
+import app.msime.android.core.InputViewValuePolicy;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -88,7 +89,7 @@ final class OnboardingChoices {
         return KeyboardScheme.fromPreferences(
             preferences.optString("scheme", edition.defaultScheme()),
             preferences.optString("shuangpin_profile", "xiaohe"),
-            preferences.optString("touch_keyboard_layout", "twenty_six_key"), edition);
+            InputViewValuePolicy.textOr(preferences, "touch_keyboard_layout", "twenty_six_key"), edition);
     }
 
     /**

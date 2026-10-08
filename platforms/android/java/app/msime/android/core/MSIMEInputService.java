@@ -2,6 +2,7 @@ package app.msime.android;
 
 import android.inputmethodservice.InputMethodService;
 import app.msime.android.core.Telemetry;
+import app.msime.android.core.InputViewValuePolicy;
 import android.app.AlertDialog;
 import android.content.ClipData;
 import android.content.ClipDescription;
@@ -683,7 +684,7 @@ public final class MSIMEInputService extends InputMethodService {
                 : preferences.optString("scheme", edition.defaultScheme()),
             preferences == null ? "xiaohe" : preferences.optString("shuangpin_profile", "xiaohe"),
             preferences == null ? "twenty_six_key"
-                : preferences.optString("touch_keyboard_layout", "twenty_six_key"), edition);
+                : InputViewValuePolicy.textOr(preferences, "touch_keyboard_layout", "twenty_six_key"), edition);
         SchemeConfiguration schemeConfiguration = schemeConfiguration(preferences, engineScheme);
         alignEngineSchemeWithSelection(preferences, engineScheme, schemeConfiguration);
         enabledSchemes = schemeConfiguration.enabled();
@@ -2087,7 +2088,7 @@ public final class MSIMEInputService extends InputMethodService {
         KeyboardScheme nextScheme = KeyboardScheme.fromPreferences(
             preferences.optString("scheme", edition.defaultScheme()),
             preferences.optString("shuangpin_profile", "xiaohe"),
-            preferences.optString("touch_keyboard_layout", "twenty_six_key"), edition);
+            InputViewValuePolicy.textOr(preferences, "touch_keyboard_layout", "twenty_six_key"), edition);
         SchemeConfiguration nextSchemeConfiguration = schemeConfiguration(preferences, nextScheme);
         JSONObject sessionSnapshot = new JSONObject(accepted.toString());
         // Keep the accepted disk snapshot intact while enforcing editor privacy in this session.
@@ -3536,9 +3537,9 @@ public final class MSIMEInputService extends InputMethodService {
     private static int touchLayout(JSONObject value) {
         if (value == null) return STANDARD_TOUCH_LAYOUT;
         return KeyboardLayout.resolveTouchLayout(
-            "handwriting".equals(value.optString("touch_keyboard_layout")),
+            "handwriting".equals(InputViewValuePolicy.textOr(value, "touch_keyboard_layout", "")),
             InputViewValuePolicy.booleanValue(value, "nine_key", false), InputViewValuePolicy.scheme(value, -1),
-            value.optString("touch_keyboard_layout"));
+            InputViewValuePolicy.textOr(value, "touch_keyboard_layout", ""));
     }
 
     void enter() {
