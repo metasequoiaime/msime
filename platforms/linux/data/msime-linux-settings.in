@@ -61,6 +61,8 @@ launcher_dir=$(CDPATH= cd -- "$(dirname -- "$launcher_path")" && pwd)
 export MSIME_CLIENT_HOST_OPTIONS=$config
 # 默认禁用 WebKit 合成，规避部分驱动的 GBM 分配失败与 Wayland 显式同步协议错误；保留显式覆盖以便排查。
 export WEBKIT_DISABLE_COMPOSITING_MODE=${WEBKIT_DISABLE_COMPOSITING_MODE:-1}
+# 禁用合成管不到 DMA-BUF 渲染器：NVIDIA 驱动加 KWin 显式同步时它仍让窗口一启动就以 Wayland 协议错误（Error 71）退出（WebKit bug 280210）。设置窗口用不着 GPU 渲染，默认退回共享内存，同样保留显式覆盖。
+export WEBKIT_DISABLE_DMABUF_RENDERER=${WEBKIT_DISABLE_DMABUF_RENDERER:-1}
 if [ -n "$route" ]; then
   exec "$launcher_dir/msime-linux-desktop" "--route=$route" "$@"
 fi

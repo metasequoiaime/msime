@@ -11,12 +11,14 @@ enum IOSCloudSettings {
       "input.character_set": .string(ChineseOutputPreference.current(in: document) ? "traditional" : "simplified"),
       "platform.ios.sound_enabled": .boolean(KeyboardFeedbackPreference.soundEnabled),
       "platform.ios.haptics_enabled": .boolean(KeyboardFeedbackPreference.hapticsEnabled),
-      "platform.ios.haptic_strength": .string(KeyboardFeedbackPreference.hapticStrength.rawValue),
       "platform.ios.dictionary_learning": .boolean(
         InputHabitPreference.settings(in: document).learning),
       "platform.ios.global_theme": .string(document.map(GlobalThemePreference.theme(in:)) ?? GlobalThemePreference.selected),
       "platform.ios.custom_theme_base": .string(GlobalThemePreference.base(in: document))
     ]
+    // 「跟随系统」先不上传，云端保留原来的强度：这一版的 `IOSPreferencePlan` 已经接受 `system`，但更早的版本只认 light、medium、strong，同一账号下还没升级的设备收到它会拒绝整份文档。
+    let strength = KeyboardFeedbackPreference.hapticStrength
+    if strength != .system { settings["platform.ios.haptic_strength"] = .string(strength.rawValue) }
     // A custom theme without a keyboard design draws its base's keyboard; there is no design to upload then, and the cloud keeps whatever design it has (as the Tauri plugin does).
     if let design = document == nil ? CustomKeyboardSkinStore.stored : GlobalThemePreference.design(in: document) {
       settings["platform.ios.custom_keyboard_skin"] = .string(String(decoding: try JSONEncoder().encode(design), as: UTF8.self))

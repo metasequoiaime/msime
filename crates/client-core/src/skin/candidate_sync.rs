@@ -15,6 +15,7 @@ use crate::account::{AccountApi, AccountError, AccountSessionStorage};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs::{self, File};
+#[cfg(not(unix))]
 use std::io::Write;
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
@@ -244,25 +245,8 @@ fn load_state(path: &Path) -> SyncState {
 }
 
 fn open_state_file(path: &Path) -> Option<File> {
-    // 同步状态参与本地删除决策，不能跟随外部符号链接读取。
     crate::storage::reject_symlink(path).ok()?;
-    let mut options = std::fs::OpenOptions::new();
-    options.read(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        // A replaced state file may be a FIFO; opening it on a sync path must
-        // never wait for an unrelated writer.
-        options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK);
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::fs::OpenOptionsExt;
-        const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
-        options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
-    }
-    let file = options.open(path).ok()?;
-    file.metadata().ok()?.is_file().then_some(file)
+    crate::storage::open_private_file_in(path).ok()
 }
 
 /// Write the state by rename, so a reader never sees half of it.
@@ -270,11 +254,20 @@ fn save_state(path: &Path, state: &SyncState) -> Result<(), &'static str> {
     crate::storage::reject_symlink(path).map_err(|_| STORAGE)?;
     let directory = path.parent().ok_or(STORAGE)?;
     let bytes = serde_json::to_vec_pretty(state).map_err(|_| STORAGE)?;
-    let mut file = tempfile::NamedTempFile::new_in(directory).map_err(|_| STORAGE)?;
-    file.write_all(&bytes).map_err(|_| STORAGE)?;
-    file.as_file().sync_all().map_err(|_| STORAGE)?;
-    file.persist(path).map_err(|_| STORAGE)?;
-    Ok(())
+    #[cfg(unix)]
+    {
+        let directory = crate::storage::open_private_directory(directory).map_err(|_| STORAGE)?;
+        let name = path.file_name().ok_or(STORAGE)?;
+        crate::storage::write_private_file_at(&directory, name, &bytes).map_err(|_| STORAGE)
+    }
+    #[cfg(not(unix))]
+    {
+        let mut file = tempfile::NamedTempFile::new_in(directory).map_err(|_| STORAGE)?;
+        file.write_all(&bytes).map_err(|_| STORAGE)?;
+        file.as_file().sync_all().map_err(|_| STORAGE)?;
+        file.persist(path).map_err(|_| STORAGE)?;
+        Ok(())
+    }
 }
 
 /// The digest of a package's content alone, the manifest and the images, independent of the listing name and description.

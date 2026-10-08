@@ -27,7 +27,7 @@ import {
   LocalModelPlan
 } from '../keyboard/input/LocalAsrPolicy';
 import { LocalAsrPathTrust, PathTrustStat } from '../keyboard/input/LocalAsrPathTrust';
-import { LocalAsrTextReader, LocalAsrTextReaderApi } from '../keyboard/input/LocalAsrTextReader';
+import { LocalAsrTextFile, LocalAsrTextReader, LocalAsrTextReaderApi } from '../keyboard/input/LocalAsrTextReader';
 import { utf8Length } from '../keyboard/Utf8';
 
 /**
@@ -72,7 +72,7 @@ function reply(type: string, id: number, text: string, correct: boolean): void {
 }
 
 const textReaderApi: LocalAsrTextReaderApi = {
-  open: (path: string, mode: number): { fd: number } => {
+  open: (path: string, mode: number): LocalAsrTextFile => {
     const expected: fs.Stat = fs.lstatSync(path);
     if (expected.isSymbolicLink() || !expected.isFile()) {
       throw new Error('本地语音模型文本文件不是普通文件');
@@ -84,14 +84,16 @@ const textReaderApi: LocalAsrTextReaderApi = {
       if (!opened.isFile() || opened.ino !== expected.ino) {
         throw new Error('本地语音模型文本文件发生变化');
       }
-      return { fd: file.fd };
+      const handle: LocalAsrTextFile = { fd: file.fd };
+      return handle;
     } catch (error) {
       if (file !== undefined) fs.closeSync(file);
-      throw error;
+      // ArkTS 只允许抛 Error（arkts-limited-throw）；原样抛出同一个对象，调用方仍能读到它的错误码。
+      throw error as Error;
     }
   },
   read: (fd: number, buffer: ArrayBuffer): number => fs.readSync(fd, buffer),
-  close: (file: { fd: number }): void => fs.closeSync(file.fd),
+  close: (file: LocalAsrTextFile): void => fs.closeSync(file.fd),
   decode: (bytes: Uint8Array): string => util.TextDecoder.create('utf-8').decode(bytes),
 };
 

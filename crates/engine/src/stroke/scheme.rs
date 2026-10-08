@@ -84,22 +84,32 @@ impl StrokeScheme {
 
     /// 组合显示的笔画字形，例如 `一丨＊`。
     pub fn glyphs(&self) -> String {
-        self.input.bytes().filter_map(glyph).collect()
+        let mut output = String::new();
+        self.glyphs_into(&mut output);
+        output
+    }
+
+    pub fn glyphs_into(&self, output: &mut String) {
+        output.clear();
+        output.extend(self.input.bytes().filter_map(glyph));
     }
 
     /// 会话刷新用的请求。`raw_input` 是键入的字母，也是宿主编辑的文本；`normalized_segmentation` 是快照 `reading` 带给宿主绘制的笔画字形。
     pub fn build_request(&self) -> QueryRequest {
-        QueryRequest {
-            scheme: SchemeType::Stroke,
-            raw_input: self.input.clone(),
-            raw_input_with_cases: self.input.clone(),
-            normalized_input: self.input.clone(),
-            raw_segmentation: self.input.clone(),
-            normalized_segmentation: self.glyphs(),
-            segmentation: self.input.clone(),
-            valid: !self.input.is_empty(),
-            ..QueryRequest::default()
-        }
+        let mut request = QueryRequest::default();
+        self.build_request_into(&mut request);
+        request
+    }
+
+    pub fn build_request_into(&self, request: &mut QueryRequest) {
+        request.scheme = SchemeType::Stroke;
+        request.raw_input.clone_from(&self.input);
+        request.raw_input_with_cases.clone_from(&self.input);
+        request.normalized_input.clone_from(&self.input);
+        request.raw_segmentation.clone_from(&self.input);
+        self.glyphs_into(&mut request.normalized_segmentation);
+        request.segmentation.clone_from(&self.input);
+        request.valid = !self.input.is_empty();
     }
 
     /// 会话显示并据以判断是否在组合的文本：笔画字形，没有组合时为空。

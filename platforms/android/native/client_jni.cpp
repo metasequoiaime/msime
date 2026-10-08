@@ -157,6 +157,8 @@ constexpr jsize kShuangpinProfileLimit = 64;
 constexpr jsize kSmartPunctuationRequestLimit = 4096;
 // 更长的请求 msime_client_glide 自己也会拒绝；这里先查，免得复制一个超大的数组。
 constexpr jsize kGlideRequestLimit = 65536;
+// 与 msime_client_set_nine_key_filter 的笔画上限一致。
+constexpr jsize kNineKeyStrokesLimit = 64;
 constexpr jsize kTraditionalConversionLimit = 1 * 1024 * 1024;
 constexpr jsize kOnlineQueryLimit = 16384;
 constexpr jsize kOnlineBodyLimit = 262144;
@@ -654,6 +656,21 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_chooseNineKeySp
         return nullptr;
     }
     return response(env, msime_client_choose_nine_key_spelling(static_cast<uint64_t>(handle), static_cast<uint64_t>(generation), static_cast<size_t>(index)));
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_setNineKeyFilterRaw(JNIEnv *env, jclass, jlong handle, jboolean singleCharacter, jbyteArray strokes) {
+    bool single = singleCharacter == JNI_TRUE;
+    jsize length = strokes ? env->GetArrayLength(strokes) : 0;
+    if (length > kNineKeyStrokesLimit) {
+        env->ThrowNew(env->FindClass("java/lang/IllegalArgumentException"), "Nine-key strokes are too long");
+        return nullptr;
+    }
+    if (length == 0) return response(env, msime_client_set_nine_key_filter(static_cast<uint64_t>(handle), single, nullptr, 0));
+    jbyte *bytes = env->GetByteArrayElements(strokes, nullptr);
+    if (!bytes) return nullptr;
+    char *result = msime_client_set_nine_key_filter(static_cast<uint64_t>(handle), single,
+        reinterpret_cast<const uint8_t *>(bytes), static_cast<size_t>(length));
+    env->ReleaseByteArrayElements(strokes, bytes, JNI_ABORT);
+    return response(env, result);
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_viewRaw(JNIEnv *env, jclass, jlong handle) {
     return response(env, msime_client_view(static_cast<uint64_t>(handle)));

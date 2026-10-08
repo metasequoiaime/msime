@@ -8,7 +8,8 @@ use crate::preferences::{
 };
 use crate::skin::theme::GlobalTheme;
 use serde::{Deserialize, Serialize};
-use std::fs::{self, File};
+use std::fs::File;
+#[cfg(not(unix))]
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -179,19 +180,17 @@ impl KeyboardSkinTrialStore {
     }
 
     fn pending(&self) -> Result<Option<TrialRecord>, KeyboardSkinTrialError> {
-        let metadata = match fs::symlink_metadata(self.path()) {
-            Ok(metadata) => metadata,
+        let file = match crate::storage::open_private_file_in(&self.path()) {
+            Ok(file) => file,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(error) => return Err(error.into()),
+            Err(_) => return Err(KeyboardSkinTrialError::Invalid),
         };
-        if !metadata.file_type().is_file() || metadata.len() > MAXIMUM_RECORD_BYTES {
+        if file.metadata()?.len() > MAXIMUM_RECORD_BYTES {
             return Err(KeyboardSkinTrialError::Invalid);
         }
-        let bytes = crate::bounded_io::read_bounded_file(
-            crate::storage::open_private_file(&self.path())?,
-            MAXIMUM_RECORD_BYTES,
-            || KeyboardSkinTrialError::Invalid,
-        )?;
+        let bytes = crate::bounded_io::read_bounded_file(file, MAXIMUM_RECORD_BYTES, || {
+            KeyboardSkinTrialError::Invalid
+        })?;
         let record: TrialRecord = serde_json::from_slice(&bytes)?;
         if record.id.is_nil()
             || record.previous_base == GlobalTheme::Custom
@@ -212,17 +211,30 @@ impl KeyboardSkinTrialStore {
         if bytes.len() as u64 > MAXIMUM_RECORD_BYTES {
             return Err(KeyboardSkinTrialError::Invalid);
         }
-        let mut temporary = tempfile::NamedTempFile::new_in(&self.directory)?;
-        temporary.write_all(&bytes)?;
-        temporary.as_file().sync_all()?;
-        temporary
-            .persist(self.path())
-            .map_err(|error| error.error)?;
-        Ok(())
+        #[cfg(unix)]
+        {
+            let directory = crate::storage::open_private_directory(&self.directory)?;
+            crate::storage::write_private_file_at(
+                &directory,
+                std::ffi::OsStr::new("KeyboardSkinTrial.json"),
+                &bytes,
+            )?;
+            Ok(())
+        }
+        #[cfg(not(unix))]
+        {
+            let mut temporary = tempfile::NamedTempFile::new_in(&self.directory)?;
+            temporary.write_all(&bytes)?;
+            temporary.as_file().sync_all()?;
+            temporary
+                .persist(self.path())
+                .map_err(|error| error.error)?;
+            Ok(())
+        }
     }
 
     fn remove_record(&self) -> Result<(), KeyboardSkinTrialError> {
-        match fs::remove_file(self.path()) {
+        match crate::storage::remove_private_file(&self.path()) {
             Ok(()) => Ok(()),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
             Err(error) => Err(error.into()),
@@ -244,6 +256,7 @@ fn normalized_name(name: &str) -> Result<String, KeyboardSkinTrialError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
 
     fn stores() -> (
         tempfile::TempDir,

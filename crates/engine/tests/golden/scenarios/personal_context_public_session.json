@@ -1,6 +1,7 @@
 {
  "name": "personal_context_public_session",
  "source": "tests/src/test_personal_context_input_session.cpp:136-149; case :765-800",
+ "note": "Since #5640 the grid also reads every digit as one syllable's initial (jianpin), so `64` adds 你好 (n'h) after the syllable rows; that row is part of the ranked list frequency adjustment reads, so the adjusted weights differ from the reference's.",
  "covers": [
   "personal context",
   "nine key"

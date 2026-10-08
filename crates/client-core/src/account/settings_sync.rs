@@ -10,8 +10,8 @@
 
 use super::{AccountError, AccountPreferenceSchema, AccountPreferenceValue, AccountPreferences};
 use crate::preferences::{
-    FrequencyMode, InputScheme, Preferences, ShuangpinProfile, ThemeMode, TouchKeyboardLayout,
-    WubiProfile,
+    FrequencyMode, InputScheme, NumberKeypadOrder, Preferences, ShuangpinProfile, ThemeMode,
+    TouchKeyboardLayout, WubiProfile,
 };
 use crate::skin::theme::GlobalTheme;
 use serde::{Deserialize, Serialize};
@@ -25,6 +25,8 @@ pub const ANDROID_FEEDBACK_KEYS: [&str; 3] = [
 ];
 
 const GLOBAL_THEME: &str = "platform.android.global_theme";
+/// 共享偏好 `touch_number_keypad_order`；账号字段表收录它之前上传时会被滤掉。
+const NUMBER_KEYPAD_ORDER: &str = "platform.android.number_keypad_order";
 const CUSTOM_THEME_BASE: &str = "platform.android.custom_theme_base";
 const CUSTOM_KEYBOARD_SKIN: &str = "platform.android.custom_keyboard_skin";
 const CUSTOM_CANDIDATE_SKIN: &str = "platform.android.custom_candidate_skin";
@@ -266,9 +268,9 @@ pub struct HostKeyboardFeedback {
     pub haptic_strength: String,
 }
 
-/// 振动强度是否是移动端认识的三档之一。
+/// 振动强度是否是移动端认识的取值：三档，或者 `system`（跟随系统的触感反馈设置）。
 pub fn valid_haptic_strength(value: &str) -> bool {
-    matches!(value, "light" | "medium" | "strong")
+    matches!(value, "light" | "medium" | "strong" | "system")
 }
 
 /// 应用云端设置的结果。
@@ -312,6 +314,13 @@ fn shuangpin_schema(profile: ShuangpinProfile) -> &'static str {
         ShuangpinProfile::Ziranma => "ziranma",
         ShuangpinProfile::Shoudao => "shoudao",
         ShuangpinProfile::Microsoft => "microsoft",
+    }
+}
+
+fn number_keypad_order(order: NumberKeypadOrder) -> &'static str {
+    match order {
+        NumberKeypadOrder::Phone => "phone",
+        NumberKeypadOrder::Calculator => "calculator",
     }
 }
 
@@ -443,6 +452,11 @@ pub fn export_android_settings(
         &mut settings,
         "platform.android.voice_shortcut",
         preferences.touch_voice_shortcut,
+    );
+    insert_string(
+        &mut settings,
+        NUMBER_KEYPAD_ORDER,
+        number_keypad_order(preferences.touch_number_keypad_order),
     );
     insert_new_android_settings(&mut settings, preferences);
     if let Some(feedback) = feedback {
@@ -801,6 +815,14 @@ pub fn apply_android_settings(
     )?;
     applier.set_bool("platform.android.voice_shortcut", |preferences, value| {
         preferences.touch_voice_shortcut = value
+    })?;
+    applier.set_string(NUMBER_KEYPAD_ORDER, |preferences, value| {
+        preferences.touch_number_keypad_order = match value {
+            "phone" => NumberKeypadOrder::Phone,
+            "calculator" => NumberKeypadOrder::Calculator,
+            _ => return None,
+        };
+        Some(())
     })?;
 
     apply_new_android_settings(&mut applier)?;

@@ -1390,6 +1390,42 @@ fn a_malformed_glide_request_fails_without_touching_the_session() {
 }
 
 #[test]
+fn nine_key_filters_cross_the_host_boundary() {
+    let dir = tempfile::tempdir().unwrap();
+    let handle = test_host(dir.path());
+    read(msime_client_focus(handle, true));
+    read(msime_client_set_nine_key_mode(handle, true));
+    let idle = read(unsafe { msime_client_set_nine_key_filter(handle, true, std::ptr::null(), 0) });
+    assert_eq!(idle["value"]["handled"], false, "nothing composing");
+    read(msime_client_character(handle, b'6', false));
+    let filtered =
+        read(unsafe { msime_client_set_nine_key_filter(handle, true, std::ptr::null(), 0) });
+    assert_eq!(filtered["value"]["handled"], true);
+    assert_eq!(filtered["value"]["view"]["nine_key_single_character"], true);
+    assert_eq!(filtered["value"]["view"]["nine_key_strokes"], "");
+    let wrong = b"q";
+    let rejected =
+        read(unsafe { msime_client_set_nine_key_filter(handle, false, wrong.as_ptr(), 1) });
+    assert_eq!(rejected["value"]["handled"], false, "not a stroke");
+    assert_eq!(
+        read(unsafe { msime_client_set_nine_key_filter(handle, false, std::ptr::null(), 2) })["ok"],
+        false
+    );
+    let long = [b'h'; 65];
+    assert_eq!(
+        read(unsafe { msime_client_set_nine_key_filter(handle, false, long.as_ptr(), long.len()) })
+            ["ok"],
+        false
+    );
+    let cancelled = read(msime_client_command(handle, 3));
+    assert_eq!(
+        cancelled["value"]["view"]["nine_key_single_character"],
+        false
+    );
+    read(msime_client_destroy(handle));
+}
+
+#[test]
 fn nine_key_mode_and_spelling_identity_cross_the_host_boundary() {
     let dir = tempfile::tempdir().unwrap();
     let handle = test_host(dir.path());
@@ -10740,6 +10776,84 @@ fn english_glosses_prefer_the_dictionaries_and_keep_learned_ones() {
             {"text": "hello", "translation": "你好"}
         ])
     );
+}
+
+#[test]
+fn gloss_breakdown_request_lines_sentences_up_with_english_words() {
+    let root = tempfile::tempdir().unwrap();
+    let resources = root.path().join("generation");
+    std::fs::create_dir_all(&resources).unwrap();
+    let resources = resources.to_str().unwrap().to_owned();
+    let call = |texts: Value| {
+        let request = serde_json::to_vec(&json!({"generation": 3, "texts": texts})).unwrap();
+        read(unsafe {
+            msime_client_gloss_breakdown_request(
+                request.as_ptr(),
+                request.len(),
+                resources.as_ptr(),
+                resources.len(),
+            )
+        })
+    };
+    // Nothing installed: an empty answer.
+    assert_eq!(
+        call(json!(["我喜欢你"]))["value"],
+        json!({"generation": 3, "breakdowns": []})
+    );
+
+    let characters = root.path().join("character-glosses/zh-en.db");
+    offline_gloss_fixture(&characters, "en");
+    rusqlite::Connection::open(&characters)
+        .unwrap()
+        .execute_batch(
+            "INSERT INTO zh_glosses VALUES('我', 'I, me; we, us', 'unihan:kDefinition');
+             INSERT INTO zh_glosses VALUES('你', 'you', 'unihan:kDefinition');
+             INSERT INTO zh_glosses VALUES('哭', 'weep, cry; wail', 'unihan:kDefinition');",
+        )
+        .unwrap();
+    let words = root.path().join("word-glosses/zh-en.db");
+    offline_gloss_fixture(&words, "en");
+    rusqlite::Connection::open(&words)
+        .unwrap()
+        .execute_batch(
+            "INSERT INTO zh_glosses VALUES('喜欢', 'to like, to be fond of', 'cc-cedict');
+             INSERT INTO zh_glosses VALUES('哭', 'to cry', 'cc-cedict');",
+        )
+        .unwrap();
+    // A single character's gloss comes from Unihan before CC-CEDICT (哭 "weep", not "to cry"); a word in the learner
+    // table (要) shows its learner phrase whether or not a table has it; an English text, a single character and a
+    // sentence with one glossed piece are omitted.
+    assert_eq!(
+        call(json!([
+            "我喜欢你",
+            "我哭你",
+            "我要你",
+            "hello",
+            "我",
+            "我哈"
+        ]))["value"]["breakdowns"],
+        json!([
+            {"text": "我喜欢你", "breakdown": "我 I · 喜欢 to like · 你 you"},
+            {"text": "我哭你", "breakdown": "我 I · 哭 weep · 你 you"},
+            {"text": "我要你", "breakdown": "我 I · 要 to want · 你 you"}
+        ])
+    );
+    for invalid in [
+        json!({"generation": 1, "texts": [""]}),
+        json!({"generation": 1, "texts": ["a\nb"]}),
+        json!({"generation": 1, "texts": [], "extra": 1}),
+    ] {
+        let request = serde_json::to_vec(&invalid).unwrap();
+        let refused = read(unsafe {
+            msime_client_gloss_breakdown_request(
+                request.as_ptr(),
+                request.len(),
+                resources.as_ptr(),
+                resources.len(),
+            )
+        });
+        assert_eq!(refused["ok"], false);
+    }
 }
 
 fn reporting_call(

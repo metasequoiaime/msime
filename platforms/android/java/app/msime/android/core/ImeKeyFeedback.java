@@ -5,9 +5,6 @@ import android.graphics.Color;
 import android.media.AudioAttributes;
 import android.media.AudioManager;
 import android.media.SoundPool;
-import android.os.Build;
-import android.os.VibrationEffect;
-import android.view.HapticFeedbackConstants;
 import android.view.View;
 import android.view.ViewParent;
 import app.msime.android.policy.HostOptionsPolicy;
@@ -121,7 +118,7 @@ final class ImeKeyFeedback {
     static String packFor(JSONObject preferences) {
         JSONObject plugins = preferences == null ? null : preferences.optJSONObject("plugins");
         JSONObject keySound = plugins == null ? null : plugins.optJSONObject("key_sound");
-        String pack = keySound == null ? "" : keySound.optString("pack", "");
+        String pack = keySound == null ? "" : JsonPolicy.strictStringOrEmpty(keySound.opt("pack"));
         return pack == null || pack.isEmpty() ? "default" : pack;
     }
 
@@ -170,11 +167,7 @@ final class ImeKeyFeedback {
         }
         if (s.soundEnabled) playSound(keyClass);
         if (!s.hapticsEnabled) return;
-        if (Build.VERSION.SDK_INT >= 26 && s.vibrator != null && s.vibrator.hasVibrator()) {
-            s.vibrator.vibrate(VibrationEffect.createOneShot(10, s.hapticStrength.amplitude()));
-        } else {
-            source.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
-        }
+        KeyboardHaptics.play(s.vibrator, source, s.hapticStrength);
     }
 
     private void playSound(int keyClass) {
@@ -234,7 +227,8 @@ final class ImeKeyFeedback {
                     JSONObject value = JsonPolicy.strictTrue(root.opt("ok"))
                         ? root.optJSONObject("value") : null;
                     JSONObject files = value == null ? null : value.optJSONObject("sounds");
-                    if (value != null && "keys".equals(value.optString("mode")) && files != null) {
+                    if (value != null && "keys".equals(JsonPolicy.strictString(value.opt("mode")))
+                            && files != null) {
                         SoundPool pool = new SoundPool.Builder().setMaxStreams(4)
                             .setAudioAttributes(new AudioAttributes.Builder()
                                 .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
@@ -280,7 +274,7 @@ final class ImeKeyFeedback {
 
     private static int sample(SoundPool pool, JSONObject files, String name) {
         if (files.isNull(name)) return 0;
-        String path = files.optString(name, "");
+        String path = JsonPolicy.strictStringOrEmpty(files.opt(name));
         if (path.isEmpty() || !new File(path).isFile()) return 0;
         return pool.load(path, 1);
     }

@@ -28,6 +28,12 @@ public final class KeyboardFeedbackStoreSmoke {
             Boolean.FALSE, Boolean.TRUE, "strong");
         check(!wire.soundEnabled() && wire.hapticsEnabled()
                 && wire.hapticStrength() == HapticStrength.STRONG);
+        KeyboardFeedbackStore.Settings systemWire = KeyboardFeedbackStore.fromValues(
+            Boolean.TRUE, Boolean.TRUE, "system");
+        check(systemWire.hapticStrength() == HapticStrength.SYSTEM);
+        KeyboardFeedbackStore.Settings unknownWire = KeyboardFeedbackStore.fromValues(
+            Boolean.TRUE, Boolean.TRUE, "vibrate-hard");
+        check(unknownWire.hapticStrength() == HapticStrength.MEDIUM);
         KeyboardFeedbackStore.Settings malformedWire = KeyboardFeedbackStore.fromValues(
             "false", Integer.valueOf(1), Integer.valueOf(255));
         check(malformedWire.soundEnabled() && !malformedWire.hapticsEnabled()

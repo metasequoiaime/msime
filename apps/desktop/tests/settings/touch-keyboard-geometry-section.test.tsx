@@ -136,3 +136,23 @@ test("disables the tablet switch while saving", () => {
   expect((screen.getByLabelText("横屏分离式键盘") as HTMLInputElement).disabled).toBe(true);
   expect((screen.getByLabelText("滑行输入") as HTMLInputElement).disabled).toBe(true);
 });
+
+test("offers the number keypad order only where the host has a nine-key digit layer", () => {
+  const onNumberKeypadOrderChange = vi.fn();
+  const { rerender } = render(<TouchKeyboardGeometrySection {...baseProps} />);
+  expect(screen.queryByText("数字键盘顺序")).toBeNull();
+
+  rerender(
+    <TouchKeyboardGeometrySection
+      {...baseProps}
+      tabletFullKeys={undefined}
+      tabletSplitKeyboard={undefined}
+      numberKeypadOrder="phone"
+      onNumberKeypadOrderChange={onNumberKeypadOrderChange}
+    />,
+  );
+  expect(screen.getByText("数字键盘顺序")).toBeTruthy();
+  expect(screen.getByRole("radio", { name: "电话" })).toHaveProperty("checked", true);
+  fireEvent.click(screen.getByRole("radio", { name: "计算器" }));
+  expect(onNumberKeypadOrderChange).toHaveBeenCalledWith("calculator");
+});

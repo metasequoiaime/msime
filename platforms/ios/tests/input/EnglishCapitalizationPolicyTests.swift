@@ -34,5 +34,15 @@ struct EnglishCapitalizationPolicyTests {
     expect(true, .sentences, "Hello. ")
     expect(true, .sentences, "Really!\n")
     expect(true, .sentences, "Done.” ")
+    expect(true, .sentences, "Done.\u{00a0}")
+    expect(true, .sentences, "Line\r\n")
+    expect(true, .sentences, "   ")
+    expect(true, .sentences, "你好。 ")
+    expect(false, .sentences, "Hello.")
+    expect(false, .sentences, "Really?")
+    expect(false, .sentences, "Done.”")
+    expect(false, .sentences, "3.")
+    expect(false, .sentences, "你好。")
+    expect(false, .sentences, "Hi) ")
   }
 }

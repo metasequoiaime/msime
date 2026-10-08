@@ -279,7 +279,7 @@ struct InputSettingsView: View {
     let strength = KeyboardHapticStrength(rawValue: hapticStrength) ?? .medium
     let generator = UIImpactFeedbackGenerator(style: strength.style)
     previewFeedback = generator
-    generator.impactOccurred(intensity: strength.intensity)
+    strength.impact(generator)
     generator.prepare()
   }
 

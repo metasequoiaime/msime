@@ -2285,6 +2285,7 @@ fn touch_keyboard_spacing_uses_apple_defaults_bounds_and_legacy_roundtrip() {
         "touch_row_spacing_tenths",
         "touch_keyboard_height_adjustment",
         "touch_voice_shortcut",
+        "touch_number_keypad_order",
     ] {
         legacy["preferences"].as_object_mut().unwrap().remove(key);
     }
@@ -2295,6 +2296,10 @@ fn touch_keyboard_spacing_uses_apple_defaults_bounds_and_legacy_roundtrip() {
     assert_eq!(loaded.preferences.touch_row_spacing_tenths, 70);
     assert_eq!(loaded.preferences.touch_keyboard_height_adjustment, 0);
     assert!(!loaded.preferences.touch_voice_shortcut);
+    assert_eq!(
+        loaded.preferences.touch_number_keypad_order,
+        NumberKeypadOrder::Phone
+    );
     assert_eq!(fs::read(store.path()).unwrap(), bytes);
 
     let saved = store
@@ -2305,10 +2310,19 @@ fn touch_keyboard_spacing_uses_apple_defaults_bounds_and_legacy_roundtrip() {
                 touch_row_spacing_tenths: 95,
                 touch_keyboard_height_adjustment: 24,
                 touch_voice_shortcut: true,
+                touch_number_keypad_order: NumberKeypadOrder::Calculator,
                 ..Preferences::default()
             },
         )
         .unwrap();
+    assert_eq!(
+        saved.preferences.touch_number_keypad_order,
+        NumberKeypadOrder::Calculator
+    );
+    assert_eq!(
+        serde_json::to_value(NumberKeypadOrder::Calculator).unwrap(),
+        "calculator"
+    );
     assert_eq!(saved.preferences.touch_key_spacing_tenths, 35);
     assert_eq!(saved.preferences.touch_row_spacing_tenths, 95);
     assert_eq!(saved.preferences.touch_keyboard_height_adjustment, 24);
@@ -4181,6 +4195,7 @@ const NOT_CREDENTIALS: &[&str] = &[
     "touch_keyboard_height_adjustment",
     "touch_keyboard_layout",
     "touch_keyboard_schemes",
+    "touch_number_keypad_order",
     "voice_input.hotkey_ctrl_f9",
     "voice_input.hotkey_ctrl_win",
     "voice_input.hotkey_hold_space_lock",
