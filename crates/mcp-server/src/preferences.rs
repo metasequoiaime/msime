@@ -250,6 +250,8 @@ pub struct PreferencesView {
     pub diagnostic_log_server: bool,
     /// Windows only: whether the TIP adds its composition and key-latency records to the diagnostic log.
     pub diagnostic_log_tsf: bool,
+    /// Windows only: in a game that says it draws its own candidates but shows none, show the input method's candidate window instead. Takes effect in a game the next time the input method is switched to there.
+    pub game_candidate_overlay: bool,
     /// Whether the dictionary learns from typing. Read-only here: turning it off is the user's decision.
     pub learning: bool,
 }
@@ -282,6 +284,7 @@ impl From<&PreferencesSnapshot> for PreferencesView {
             wubi_code_hint: preferences.wubi_code_hint,
             diagnostic_log_server: preferences.diagnostic_log.server,
             diagnostic_log_tsf: preferences.diagnostic_log.tsf,
+            game_candidate_overlay: preferences.game_compatibility.candidate_overlay,
             learning: preferences.learning,
         }
     }
@@ -326,6 +329,8 @@ pub struct PreferencesChange {
     pub diagnostic_log_server: Option<bool>,
     /// Windows only; the other platforms keep it for the Windows settings to find.
     pub diagnostic_log_tsf: Option<bool>,
+    /// Windows only. Turn on when the candidate window is missing in a game; turn off when it replaces a game's own candidates.
+    pub game_candidate_overlay: Option<bool>,
 }
 
 impl PreferencesChange {
@@ -353,6 +358,7 @@ impl PreferencesChange {
             && self.wubi_code_hint.is_none()
             && self.diagnostic_log_server.is_none()
             && self.diagnostic_log_tsf.is_none()
+            && self.game_candidate_overlay.is_none()
     }
 
     fn apply(&self, preferences: &mut Preferences) {
@@ -427,6 +433,9 @@ impl PreferencesChange {
         }
         if let Some(value) = self.diagnostic_log_tsf {
             preferences.diagnostic_log.tsf = value;
+        }
+        if let Some(value) = self.game_candidate_overlay {
+            preferences.game_compatibility.candidate_overlay = value;
         }
     }
 }
@@ -792,6 +801,45 @@ mod tests {
             ..change(updated.revision)
         };
         assert!(update(directory.path(), &options, Edition::full(), &invalid).is_err());
+    }
+
+    /// 代理只能开关游戏里的候选窗，用户写下的两张进程表原样保留。
+    #[test]
+    fn the_game_candidate_overlay_switch_leaves_the_process_lists_alone() {
+        let directory = tempfile::tempdir().unwrap();
+        let options = directory.path().join("runtime-options.json");
+        std::fs::write(&options, br#"{"api_version":1}"#).unwrap();
+        let store = PreferencesStore::new(directory.path());
+        let mut preferences = Preferences::default();
+        preferences.game_compatibility.overlay_processes = vec!["game.exe".into()];
+        preferences.game_compatibility.excluded_processes = vec!["launcher.exe".into()];
+        let saved = store.save(0, preferences).unwrap();
+        let before = load(directory.path(), Edition::full()).unwrap();
+        assert_eq!(before.revision, saved.revision);
+        assert!(before.game_candidate_overlay);
+
+        let off: PreferencesChange = serde_json::from_value(json!({
+            "expected_revision": before.revision,
+            "game_candidate_overlay": false,
+        }))
+        .unwrap();
+        assert!(!off.is_empty());
+        let updated = update(directory.path(), &options, Edition::full(), &off).unwrap();
+        assert!(!updated.game_candidate_overlay);
+        let stored = store.load().unwrap().preferences.game_compatibility;
+        assert!(!stored.candidate_overlay);
+        assert_eq!(stored.overlay_processes, ["game.exe"]);
+        assert_eq!(stored.excluded_processes, ["launcher.exe"]);
+
+        let on = PreferencesChange {
+            game_candidate_overlay: Some(true),
+            ..change(updated.revision)
+        };
+        assert!(
+            update(directory.path(), &options, Edition::full(), &on)
+                .unwrap()
+                .game_candidate_overlay
+        );
     }
 
     #[test]

@@ -14,6 +14,7 @@
 #include <cstdio>
 #include <iostream>
 #include <utility>
+#include <vector>
 
 using namespace msime::windows;
 namespace {
@@ -208,6 +209,100 @@ int main() {
       UpdateWindow(clickable.handle());
       SendMessageW(clickable.handle(), WM_LBUTTONUP, 0, point);
       require(clicks == 2 && !clickable.failed());
+      // 策略隐藏一个可见快照时照样发渲染回执，否则选词键要白等回执超时；同一个 render_serial 只发一次。
+      std::vector<uint64_t> receipts;
+      value = frame;
+      value->render_serial = 7;
+      value->y = invalid_candidate_anchor_y;
+      CandidateWindow receipted(
+          [&] { return value; }, {}, 16, 16, "Segoe UI", {}, std::nullopt,
+          false, true, {},
+          [&](const CandidatePresentation &shown) {
+            receipts.push_back(shown.render_serial);
+          });
+      receipted.refresh();
+      require(!IsWindowVisible(receipted.handle()) && !receipted.failed());
+      require(receipts == std::vector<uint64_t>{7});
+      receipted.refresh();
+      require(receipts.size() == 1);
+      // 游戏会话：前台属于客户端进程时，INVALID_Y 兜底到游戏客户区左下部并显示出来。
+      HWND game = CreateWindowExW(0, L"STATIC", L"game", WS_POPUP, 100, 100,
+                                  800, 600, nullptr, nullptr,
+                                  GetModuleHandleW(nullptr), nullptr);
+      require(game != nullptr);
+      value->game_host = true;
+      value->lease.transport.client =
+          (static_cast<uint64_t>(GetCurrentProcessId()) << 32) |
+          GetCurrentThreadId();
+      value->render_serial = 8;
+      receipted.set_foreground(game, ForegroundPresentation::Windowed);
+      receipted.refresh();
+      UpdateWindow(receipted.handle());
+      require(IsWindowVisible(receipted.handle()) && !receipted.failed());
+      require(receipts.back() == 8);
+      require(receipted.take_suppression_changes().empty());
+      // 独占全屏下游戏会话策略隐藏，同样发回执，并报出一次抑制变化。
+      value->render_serial = 9;
+      receipted.set_foreground(game, ForegroundPresentation::ExclusiveFullscreen);
+      receipted.refresh();
+      require(!IsWindowVisible(receipted.handle()) && receipts.back() == 9);
+      auto changes = receipted.take_suppression_changes();
+      require(changes.size() == 1 &&
+              changes[0].reason == CandidateSuppression::ExclusiveFullscreen &&
+              changes[0].active && changes[0].pid == GetCurrentProcessId());
+      // 前台不属于客户端进程时既不抑制也不兜底：INVALID_Y 照旧隐藏，回执不重发。
+      const auto receipted_count = receipts.size();
+      receipted.set_foreground(nullptr,
+                               ForegroundPresentation::ExclusiveFullscreen);
+      receipted.refresh();
+      require(!IsWindowVisible(receipted.handle()) &&
+              receipts.size() == receipted_count);
+      changes = receipted.take_suppression_changes();
+      require(changes.size() == 1 && !changes[0].active);
+      // 反应式锁存：在几何全屏前台上第一次弹出后盯住游戏窗口，矩形一变就锁存并策略隐藏。
+      value->render_serial = 10;
+      receipted.set_foreground(game, ForegroundPresentation::Fullscreen);
+      receipted.refresh();
+      require(IsWindowVisible(receipted.handle()) && !receipted.failed());
+      require(SetWindowPos(game, nullptr, 100, 100, 640, 480,
+                           SWP_NOACTIVATE | SWP_NOZORDER));
+      // 呈现方式按 HWND 缓存 300ms，触发这一轮拿到的仍是全屏。
+      receipted.set_foreground(game, ForegroundPresentation::Fullscreen);
+      changes = receipted.take_suppression_changes();
+      require(changes.size() == 1 &&
+              changes[0].reason == CandidateSuppression::Latched &&
+              changes[0].active &&
+              std::strcmp(changes[0].cause, "rect") == 0);
+      receipted.refresh();
+      require(!IsWindowVisible(receipted.handle()));
+      // 游戏被这次弹出挤成窗口化，锁存不能因此解除。
+      receipted.set_foreground(game, ForegroundPresentation::Windowed);
+      receipted.refresh();
+      require(!IsWindowVisible(receipted.handle()) &&
+              receipted.take_suppression_changes().empty());
+      // 回到全屏后用户再切成窗口化，才解除。
+      receipted.set_foreground(game, ForegroundPresentation::Fullscreen);
+      receipted.refresh();
+      require(!IsWindowVisible(receipted.handle()) &&
+              receipted.take_suppression_changes().empty());
+      receipted.set_foreground(game, ForegroundPresentation::Windowed);
+      changes = receipted.take_suppression_changes();
+      require(changes.size() == 1 &&
+              changes[0].reason == CandidateSuppression::Latched &&
+              !changes[0].active &&
+              std::strcmp(changes[0].cause, "windowed") == 0);
+      // 解除后重新允许盯梢：回到全屏的下一次弹出照常显示，并再盯 2 秒。
+      value->render_serial = 11;
+      receipted.set_foreground(game, ForegroundPresentation::Fullscreen);
+      receipted.refresh();
+      require(IsWindowVisible(receipted.handle()) && !receipted.failed());
+      require(SetWindowPos(game, nullptr, 100, 100, 800, 600,
+                           SWP_NOACTIVATE | SWP_NOZORDER));
+      receipted.set_foreground(game, ForegroundPresentation::Fullscreen);
+      changes = receipted.take_suppression_changes();
+      require(changes.size() == 1 && changes[0].active &&
+              std::strcmp(changes[0].cause, "rect") == 0);
+      DestroyWindow(game);
     }
     {
       std::optional<ModePresentation> value =

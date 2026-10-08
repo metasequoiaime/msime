@@ -8,7 +8,15 @@
 #include <vector>
 
 namespace msime::windows {
-enum class RegistryStatus { Ready, Rejected, Capacity, Stale, TransportError };
+// IdentityRejected 单独列出：管道对端的进程、会话或用户对不上。反作弊剥掉 Server 打开游戏进程所需的权限时就会落在这里，Server 据此写诊断日志。
+enum class RegistryStatus {
+  Ready,
+  Rejected,
+  Capacity,
+  Stale,
+  TransportError,
+  IdentityRejected
+};
 struct PipeRegistration {
   RegistryStatus status = RegistryStatus::Rejected;
   PipeTicket ticket;

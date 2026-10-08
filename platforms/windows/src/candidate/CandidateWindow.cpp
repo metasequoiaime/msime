@@ -3,6 +3,8 @@
 #include "CandidateFontFormat.h"
 #include "CandidateWheel.h"
 #include "CursorResource.h"
+#include "GameCandidateAnchor.h"
+#include "WaveOverlayUtils.h"
 #include "NativeFontAlias.h"
 #include "ServerResources.h"
 #include "TypingEffectSignal.h"
@@ -283,6 +285,8 @@ CandidateWindow::~CandidateWindow() {
   }
   if (logo_)
     DestroyIcon(logo_);
+  if (latched_process_)
+    CloseHandle(latched_process_);
 }
 ID2D1Bitmap *CandidateWindow::logo_bitmap(int pixels) {
   if (pixels <= 0)
@@ -420,17 +424,185 @@ void CandidateWindow::fail(ComponentFailureSite site) {
   failed_ = true;
   hide();
 }
+void CandidateWindow::set_foreground(HWND foreground,
+                                     ForegroundPresentation presentation) {
+  // 锁存记下的窗口矩形是在 refresh 的 PMv2 上下文里取的，这里要在同一个上下文里比较，否则缩放屏上会误判成矩形变了。
+  DpiScope dpi_scope;
+  DWORD pid = 0;
+  if (foreground)
+    GetWindowThreadProcessId(foreground, &pid);
+  // 全屏与否决定按整块显示器还是按工作区钳制；变化时让下一次 refresh 重新排版。
+  if ((presentation == ForegroundPresentation::Windowed) !=
+      (presentation_ == ForegroundPresentation::Windowed))
+    shown_.reset();
+  // 这一轮是不是刚进入非窗口化：上一轮前台不是这个进程，或上一轮是窗口化。持续的非窗口化不算，因为 foreground_presentation 按 HWND 缓存 300ms，锁存刚触发时拿到的还是触发前的全屏结果。
+  const bool entered_fullscreen =
+      presentation != ForegroundPresentation::Windowed &&
+      (foreground_pid_ != pid ||
+       presentation_ == ForegroundPresentation::Windowed);
+  foreground_ = foreground;
+  foreground_pid_ = pid;
+  presentation_ = presentation;
+  if (latch_watch_) {
+    const auto &watch = *latch_watch_;
+    const DWORD watched_pid = client_pid(watch.ticket);
+    const bool expired = GetTickCount64() - watch.since >= 2000;
+    RECT rect{};
+    const char *trigger = nullptr;
+    if (!expired) {
+      if (IsIconic(watch.window))
+        trigger = "iconic";
+      else if (pid != watched_pid)
+        trigger = "foreground";
+      else if (!GetWindowRect(watch.window, &rect) ||
+               !EqualRect(&rect, &watch.rect))
+        trigger = "rect";
+      else if (display_changed_)
+        trigger = "displaychange";
+    }
+    if (trigger) {
+      if (latched_)
+        release_latch(nullptr);
+      latched_ = watch.ticket;
+      latched_seen_fullscreen_ = false;
+      // 留一个只能等待的句柄，进程退出时解除锁存：pid 会被系统复用，不解除的话下一个拿到这个 pid 的游戏会一直被抑制。打不开时锁存照样生效，只是少了这条解除途径。
+      latched_process_ = OpenProcess(SYNCHRONIZE, FALSE, watched_pid);
+      suppression_changes_.push_back(
+          {CandidateSuppression::Latched, true, watched_pid, trigger});
+    }
+    if (trigger || expired)
+      latch_watch_.reset();
+  }
+  display_changed_ = false;
+  if (latched_ && latched_process_ &&
+      WaitForSingleObject(latched_process_, 0) == WAIT_OBJECT_0)
+    release_latch("exited");
+  // 用户把游戏改成窗口化后，候选窗不会再把它挤出全屏。锁存之后要先见过这个进程重新回到非窗口化的前台，才认它变成窗口化：触发锁存的那次弹出本身就可能把游戏挤成窗口化，那时解除等于白锁。解除后重新允许盯梢，游戏回到全屏后的下一次弹出再盯 2 秒。
+  if (latched_ && pid == client_pid(*latched_)) {
+    if (entered_fullscreen) {
+      latched_seen_fullscreen_ = true;
+    } else if (latched_seen_fullscreen_ &&
+               presentation == ForegroundPresentation::Windowed) {
+      const DWORD released = client_pid(*latched_);
+      release_latch("windowed");
+      latch_armed_.erase(
+          std::remove_if(latch_armed_.begin(), latch_armed_.end(),
+                         [released](const PipeTicket &ticket) {
+                           return client_pid(ticket) == released;
+                         }),
+          latch_armed_.end());
+    }
+  }
+}
+void CandidateWindow::release_latch(const char *cause) {
+  // cause 为空表示被新的锁存顶替，不单独记一行解除。
+  if (cause)
+    suppression_changes_.push_back(
+        {CandidateSuppression::Latched, false, client_pid(*latched_), cause});
+  latched_.reset();
+  if (latched_process_) {
+    CloseHandle(latched_process_);
+    latched_process_ = nullptr;
+  }
+}
+void CandidateWindow::policy_hide(const CandidatePresentation &value) {
+  hide();
+  if (rendered_ && value.render_serial != receipted_serial_) {
+    receipted_serial_ = value.render_serial;
+    rendered_(value);
+  }
+}
+void CandidateWindow::keep_on_top() {
+  if (!shown_ || presentation_ != ForegroundPresentation::Fullscreen ||
+      !foreground_pid_ || !IsWindowVisible(window_))
+    return;
+  const auto now = GetTickCount64();
+  if (topmost_serial_ == shown_->render_serial || now - topmost_at_ < 1000)
+    return;
+  // 只认前台进程自己的窗口：厂商 overlay、录屏工具这类常驻置顶窗口压在上面时不去抢，否则每轮循环都会互相顶一次。
+  HWND above = GetWindow(window_, GW_HWNDPREV);
+  while (above && (!IsWindowVisible(above) ||
+                   (GetWindowLongPtrW(above, GWL_EXSTYLE) & WS_EX_TRANSPARENT) != 0))
+    above = GetWindow(above, GW_HWNDPREV);
+  DWORD owner = 0;
+  if (!above || !GetWindowThreadProcessId(above, &owner) ||
+      owner != foreground_pid_)
+    return;
+  SetWindowPos(window_, HWND_TOPMOST, 0, 0, 0, 0,
+               SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+  topmost_serial_ = shown_->render_serial;
+  topmost_at_ = now;
+}
 void CandidateWindow::reposition() {
   auto value = reader_();
   if (!value || !value->visible) {
     hide();
     return;
   }
+  const DWORD pid = client_pid(value->lease.transport);
+  // 同一个客户端换了登记代次，说明它断开后又连上了，锁存随之解除。
+  if (latched_ && latched_->client == value->lease.transport.client &&
+      !same_ticket(*latched_, value->lease.transport))
+    release_latch("reconnected");
+  // 游戏会话的兜底和独占抑制只看属于这个客户端进程的前台：用户 Alt-Tab 切走或前台是启动器时，不锚到、也不抑制在别的应用上。QUNS 不针对某个窗口，可能是另一个进程在独占，所以独占抑制同样要求 pid 相等。
+  const bool foreground_client =
+      value->game_host && foreground_ && foreground_pid_ == pid;
+  const bool exclusive =
+      foreground_client &&
+      presentation_ == ForegroundPresentation::ExclusiveFullscreen;
+  if (exclusive && exclusive_pid_ != pid) {
+    if (exclusive_pid_)
+      suppression_changes_.push_back({CandidateSuppression::ExclusiveFullscreen,
+                                      false, exclusive_pid_, nullptr});
+    suppression_changes_.push_back(
+        {CandidateSuppression::ExclusiveFullscreen, true, pid, nullptr});
+    exclusive_pid_ = pid;
+  } else if (!exclusive && exclusive_pid_) {
+    suppression_changes_.push_back({CandidateSuppression::ExclusiveFullscreen,
+                                    false, exclusive_pid_, nullptr});
+    exclusive_pid_ = 0;
+  }
+  // 独占全屏下外部窗口显示不出来，弹出来还可能把游戏挤出全屏；游戏会话本来就没人画候选，隐藏不会比现在差。
+  if (exclusive ||
+      (value->game_host && latched_ && client_pid(*latched_) == pid)) {
+    policy_hide(*value);
+    return;
+  }
+  RECT client_area{};
+  bool foreground_owned = false;
+  if (foreground_client && GetClientRect(foreground_, &client_area) &&
+      !IsRectEmpty(&client_area)) {
+    POINT corners[2] = {{client_area.left, client_area.top},
+                        {client_area.right, client_area.bottom}};
+    if (ClientToScreen(foreground_, &corners[0]) &&
+        ClientToScreen(foreground_, &corners[1])) {
+      client_area = {corners[0].x, corners[0].y, corners[1].x, corners[1].y};
+      foreground_owned = true;
+    }
+  }
+  // 游戏给不出可信锚点时放到游戏客户区左下部。替换放在跟随光标的锁定和下面的快照比较之前，同一个兜底点不会反复触发重绘。
+  if (foreground_owned) {
+    GameAnchorInput anchor_input;
+    if (value->y != invalid_candidate_anchor_y)
+      anchor_input.anchor = POINT{value->x, value->y};
+    anchor_input.game_host = value->game_host;
+    anchor_input.foreground_owned = true;
+    anchor_input.client = client_area;
+    // client_area 是 PMv2 下的物理像素，缩放取游戏所在显示器的有效 DPI，与它同一单位。
+    anchor_input.scale =
+        static_cast<double>(monitor_effective_dpi(
+            MonitorFromWindow(foreground_, MONITOR_DEFAULTTONEAREST))) /
+        96.0;
+    if (const auto fallback = game_candidate_anchor(anchor_input)) {
+      value->x = fallback->x;
+      value->y = fallback->y;
+    }
+  }
   // The first show can arrive before TSF has produced a usable text extent.
   // Do not let card_bounds clamp the sentinel into the monitor work area; a
   // subsequent MoveCandidateWnd with a real anchor will retry this refresh.
   if (value->y == invalid_candidate_anchor_y) {
-    hide();
+    policy_hide(*value);
     return;
   }
   if (value->candidates.size() > 9)
@@ -457,17 +629,20 @@ void CandidateWindow::reposition() {
       shown_->lease.token == value->lease.token &&
       same_ticket(shown_->lease.transport, value->lease.transport))
     return; // Do not create a self-sustaining WM_PAINT polling loop.
+  const HMONITOR target =
+      MonitorFromPoint({value->x, value->y}, MONITOR_DEFAULTTONEAREST);
   MONITORINFO monitor{};
   monitor.cbSize = sizeof(monitor);
-  if (!GetMonitorInfoW(
-          MonitorFromPoint({value->x, value->y}, MONITOR_DEFAULTTONEAREST),
-          &monitor))
+  if (!GetMonitorInfoW(target, &monitor))
     throw std::runtime_error("Candidate monitor unavailable");
-  const auto &work = monitor.rcWork;
+  // 前台在这块显示器上全屏时任务栏不在，按整块显示器钳制，不然候选窗会停在任务栏原来的位置上面。
+  const bool fullscreen =
+      presentation_ != ForegroundPresentation::Windowed && foreground_ &&
+      MonitorFromWindow(foreground_, MONITOR_DEFAULTTONEAREST) == target;
+  const auto &work = fullscreen ? monitor.rcMonitor : monitor.rcWork;
   // Move a hidden one-pixel window onto the target monitor first. Its own DPI,
   // rather than process-global or previous-monitor DPI, determines the layout.
-  if (MonitorFromWindow(window_, MONITOR_DEFAULTTONEAREST) !=
-      MonitorFromPoint({value->x, value->y}, MONITOR_DEFAULTTONEAREST)) {
+  if (MonitorFromWindow(window_, MONITOR_DEFAULTTONEAREST) != target) {
     hide();
     if (!SetWindowPos(window_, nullptr, work.left, work.top, 1, 1,
                       SWP_NOACTIVATE | SWP_NOZORDER))
@@ -478,6 +653,23 @@ void CandidateWindow::reposition() {
   if (!SetWindowPos(window_, HWND_TOPMOST, bounds.x, bounds.y, bounds.width,
                     bounds.height, SWP_NOACTIVATE | SWP_SHOWWINDOW))
     throw std::runtime_error("Candidate positioning failed");
+  // 游戏会话第一次在自己的几何全屏前台上弹出：盯住那个窗口 2 秒，见 set_foreground。
+  if (foreground_owned &&
+      presentation_ == ForegroundPresentation::Fullscreen &&
+      std::none_of(latch_armed_.begin(), latch_armed_.end(),
+                   [&](const PipeTicket &ticket) {
+                     return same_ticket(ticket, value->lease.transport);
+                   })) {
+    RECT rect{};
+    if (GetWindowRect(foreground_, &rect)) {
+      // 只留最近的连接：断开的连接不会再弹出，留着只占地方。
+      if (latch_armed_.size() >= 16)
+        latch_armed_.erase(latch_armed_.begin());
+      latch_armed_.push_back(value->lease.transport);
+      latch_watch_ =
+          LatchWatch{value->lease.transport, foreground_, rect, GetTickCount64()};
+    }
+  }
   shown_ = value;
   shown_dpi_ = dpi;
   InvalidateRect(window_, nullptr, FALSE);
@@ -1224,6 +1416,9 @@ LRESULT CALLBACK CandidateWindow::procedure(HWND window, UINT message,
         // the old surface large enough to bypass EnsureForComposition's size
         // rebuild. Recreate it before the next frame in every case.
         self->device_.DiscardTarget();
+        // 反应式锁存的触发之一：游戏刚弹出候选窗就改了显示模式。
+        if (message == WM_DISPLAYCHANGE)
+          self->display_changed_ = true;
         [[fallthrough]];
       case WM_SETTINGCHANGE:
         // The next refresh recomputes from the authenticated caret anchor;

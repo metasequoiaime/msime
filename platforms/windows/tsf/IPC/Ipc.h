@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "../../../../shared/contracts/windows_ipc.h"
+#include "../Global/CandidateOverlayHostPolicy.h"
 #include "../../common/DedicatedEnglishMirror.h"
 #include "../../common/InputSchemeTraits.h"
 
@@ -36,6 +37,7 @@ void MarkNamedpipeSessionDirty();
 bool MarkNamedpipeSessionDirtyForOwner(_In_ const void *owner);
 bool EnsureNamedpipeFocusSessionActivated();
 bool SupportsCharacterSetShortcut();
+bool SupportsGameHostCandidate();
 bool SupportsKeyboardCompositionCancel(_In_ const void *owner);
 bool FlushNamedpipeFocusSessionReset();
 bool FlushNamedpipeImeDeactivation(uint64_t focusToken = 0);
@@ -113,6 +115,11 @@ inline bool IsUiLessMode()
 {
     return HostUiLessMode || CandidateUiLessMode;
 }
+// 本次激活命中了游戏候选窗策略（CandidateOverlayHostPolicy.h）：不向 Server 报 UILess，也不调 BeginUIElement，候选由水杉的候选窗画。
+inline thread_local bool ForceOverlayCandidate = false;
+// 强制叠加时组字结束就把 Global::Point 复位成 {0, INVALID_Y}：下一次组字的第一个按键先于 _StartCandidateList 发出，不复位就会带着上一个输入框的坐标。只在组字真正结束时调，候选列表关闭而组字继续（韩文 Hanja、注音）时不调。
+void ResetForcedOverlayAnchor();
+extern thread_local CandidateOverlayDecision GameOverlayDecision;
 
 inline thread_local int firefox_like_cnt = 0; // Apps like firefox, e.g. firefox, zen...
 extern thread_local std::wstring current_process_name;

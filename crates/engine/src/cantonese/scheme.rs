@@ -55,24 +55,26 @@ impl CantoneseScheme {
     }
 
     /// Lowercase letters append and Backspace removes the last key. `'` appends only between letters: a boundary before the first syllable or right after another boundary marks nothing. Uppercase letters are not part of Jyutping and are ignored, like every other key.
-    pub fn handle_key(&mut self, key: SchemeKey) {
+    pub fn handle_key(&mut self, key: SchemeKey) -> bool {
         match key {
             SchemeKey::Letter(letter) if letter.is_ascii_lowercase() => {
                 self.input.push(char::from(letter));
+                true
             }
             SchemeKey::Apostrophe => {
                 if !self.input.is_empty() && !self.input.ends_with('\'') {
                     self.input.push('\'');
+                    true
+                } else {
+                    false
                 }
             }
-            SchemeKey::Backspace => {
-                self.input.pop();
-            }
+            SchemeKey::Backspace => self.input.pop().is_some(),
             SchemeKey::Letter(_)
             | SchemeKey::Semicolon
             | SchemeKey::Minus
             | SchemeKey::Symbol(_)
-            | SchemeKey::Requery => {}
+            | SchemeKey::Requery => false,
         }
     }
 

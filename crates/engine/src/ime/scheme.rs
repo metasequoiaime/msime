@@ -96,7 +96,7 @@ impl Scheme {
         }
     }
 
-    pub fn handle_key(&mut self, key: SchemeKey) {
+    pub fn handle_key(&mut self, key: SchemeKey) -> bool {
         match self {
             Self::Quanpin(scheme) => scheme.handle_key(key),
             Self::Shuangpin(scheme) => scheme.handle_key(key),
@@ -105,7 +105,7 @@ impl Scheme {
             Self::Korean(scheme) => scheme.handle_key(key),
             Self::Cantonese(scheme) => scheme.handle_key(key),
             // The session drives Zhuyin through `ImeSession::handle_zhuyin_key`, which reports whether the editor claimed a key and whether reading `msime-zhuyin.db` failed; a scheme key reaching it here changes nothing.
-            Self::Zhuyin(_) => {}
+            Self::Zhuyin(_) => false,
             Self::Vietnamese(scheme) => scheme.handle_key(key),
             Self::Tibetan(scheme) => scheme.handle_key(key),
             Self::Stroke(scheme) => scheme.handle_key(key),

@@ -5,6 +5,15 @@
 #include <string>
 
 using namespace msime::windows;
+// 只有几何铺满时才信 D3D 独占的报告：QUNS 是系统全局状态，前台没铺满时可能是别的进程在独占。
+static_assert(classify_foreground(false, false) ==
+              ForegroundPresentation::Windowed);
+static_assert(classify_foreground(false, true) ==
+              ForegroundPresentation::Windowed);
+static_assert(classify_foreground(true, false) ==
+              ForegroundPresentation::Fullscreen);
+static_assert(classify_foreground(true, true) ==
+              ForegroundPresentation::ExclusiveFullscreen);
 namespace {
 [[noreturn]] void require_failed(int line) {
   throw std::runtime_error("Fullscreen foreground test failed at line " +
@@ -25,6 +34,11 @@ int main() {
     require(!foreground_is_fullscreen(GetDesktopWindow()));
     if (HWND shell = GetShellWindow())
       require(!foreground_is_fullscreen(shell));
+    // 没有前台窗口时是窗口化，也不去调 QUNS。
+    std::optional<uint64_t> quns;
+    require(foreground_presentation(nullptr, 0, &quns) ==
+            ForegroundPresentation::Windowed);
+    require(!quns);
 
     // A small visible window is not full screen.
     WNDCLASSEXW klass{};
@@ -41,6 +55,9 @@ int main() {
     require(window != nullptr);
     ShowWindow(window, SW_SHOWNA);
     require(!foreground_is_fullscreen(window));
+    require(foreground_presentation(window, 1000, &quns) ==
+            ForegroundPresentation::Windowed);
+    require(!quns);
 
     // Grown to cover its whole monitor, it is.
     MONITORINFO monitor{};
@@ -52,6 +69,13 @@ int main() {
                          screen.right - screen.left, screen.bottom - screen.top,
                          SWP_NOACTIVATE | SWP_NOZORDER) != 0);
     require(foreground_is_fullscreen(window));
+    // 同一个前台窗口 300ms 内沿用上一次的结果；过了缓存期才重新分类，这时铺满了，才会去调 QUNS 并报出耗时。
+    require(foreground_presentation(window, 1299, &quns) ==
+            ForegroundPresentation::Windowed);
+    require(!quns);
+    require(foreground_presentation(window, 1300, &quns) !=
+            ForegroundPresentation::Windowed);
+    require(quns.has_value());
 
     // A window covering only the work area is maximised, not full screen, and
     // the toolbar must keep showing over it.

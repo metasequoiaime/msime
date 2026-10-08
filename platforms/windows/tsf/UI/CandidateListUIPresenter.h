@@ -113,6 +113,10 @@ class CCandidateListUIPresenter : public CTfTextLayoutSink,
     // CTfTextLayoutSink
     virtual VOID _LayoutChangeNotification(_In_ RECT *lpRect);
     virtual VOID _LayoutDestroyNotification();
+    bool _IsDetached() const override
+    {
+        return _asyncCleanupPending != FALSE;
+    }
 
     // Event for ITfThreadFocusSink
     virtual HRESULT OnSetThreadFocus();

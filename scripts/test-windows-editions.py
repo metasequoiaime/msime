@@ -56,9 +56,9 @@ SCANNED_SUFFIXES = {".h", ".cpp", ".rs", ".ps1", ".iss", ".rc", ".vcxproj", ".cm
 
 
 class Ispp:
-    """ISPP 的一个小子集，只够展开本仓库的安装脚本。字符串是 Pascal 风格（反斜杠不转义），整数和字符串可以用 + 拼接。"""
+    """ISPP 的一个小子集，只够展开本仓库的安装脚本。字符串是 Pascal 风格（反斜杠不转义），整数和字符串可以用 + 拼接；版本用预定义的 Ver 和 EncodeVer(主, 次, 修订[, 构建]) 比较。"""
 
-    TOKEN = re.compile(r'\s*(?:(?P<string>"[^"]*")|(?P<number>\d+)|(?P<name>[A-Za-z_]\w*)|(?P<op>==|!=|!|\+|\(|\)))')
+    TOKEN = re.compile(r'\s*(?:(?P<string>"[^"]*")|(?P<number>\d+)|(?P<name>[A-Za-z_]\w*)|(?P<op>==|!=|>=|!|\+|\(|\)|,))')
 
     def __init__(self, defines: dict[str, object]):
         self.defines = dict(defines)
@@ -87,6 +87,9 @@ class Ispp:
         if tokens and tokens[0] == ("op", "!="):
             right, tokens = self.parse_sum(tokens[1:])
             return int(left != right), tokens
+        if tokens and tokens[0] == ("op", ">="):
+            right, tokens = self.parse_sum(tokens[1:])
+            return int(left >= right), tokens
         return left, tokens
 
     def parse_sum(self, tokens):
@@ -112,6 +115,17 @@ class Ispp:
             return text[1:-1], tokens[1:]
         if kind == "number":
             return int(text), tokens[1:]
+        if kind == "name" and text == "EncodeVer" and tokens[1:2] == [("op", "(")]:
+            parts, rest = [], tokens[2:]
+            while True:
+                part, rest = self.parse_sum(rest)
+                parts.append(part)
+                if rest and rest[0] == ("op", ","):
+                    rest = rest[1:]
+                    continue
+                if not rest or rest[0] != ("op", ")") or not 3 <= len(parts) <= 4:
+                    raise SystemExit("ISPP subset: EncodeVer takes three or four numbers")
+                return encode_ver(*parts), rest[1:]
         if kind == "name":
             if text not in self.defines:
                 raise SystemExit(f"ISPP subset: {text} is not defined")
@@ -173,8 +187,16 @@ class Ispp:
         return output
 
 
-def preprocess(edition_id: str, light: bool = False) -> str:
-    defines: dict[str, object] = {"Edition": edition_id}
+def encode_ver(major: int, minor: int, revision: int, build: int = 0) -> int:
+    return (major << 24) | (minor << 16) | (revision << 8) | build
+
+
+# CI 用 Inno Setup 6.7.1 编安装包（release-windows.yml），本机构建优先用 7（Compile-Installer.ps1），两个版本走 msime_setup.iss 里不同的分支。
+CI_ISPP_VERSION = encode_ver(6, 7, 1)
+
+
+def preprocess(edition_id: str, light: bool = False, ispp_version: int = CI_ISPP_VERSION) -> str:
+    defines: dict[str, object] = {"Edition": edition_id, "Ver": ispp_version}
     if light:
         defines["LightPackage"] = 1
     return "".join(Ispp(defines).run(SETUP))
@@ -248,6 +270,13 @@ def check_installer(errors: list[str], editions: list[dict], msime_windows: dict
     # 轻量包也要能展开（它走另一组 #ifdef 分支）。
     for entry in editions:
         preprocess(entry["id"], light=True)
+    # 系统目录里的工具要绕开 WOW64 重定向才看得到真正的 System32：Inno 6 在 64 位安装模式下 Exec 本来就绕开，Inno 7 的 32 位 Setup 只有 ExecWithNativeSysDir 绕开。两个版本各展开一次，确认走到了对的那个函数。
+    for version, expected in ((CI_ISPP_VERSION, "Exec("), (encode_ver(7, 0, 0), "ExecWithNativeSysDir(")):
+        expanded = preprocess(editions[0]["id"], ispp_version=version)
+        for tool in ("{sys}\\cmd.exe", "{sys}\\WindowsPowerShell\\v1.0\\powershell.exe"):
+            launches = re.findall(r"(\w+)\(\s*ExpandConstant\('" + re.escape(tool) + "'", expanded)
+            if not launches or any(name + "(" != expected for name in launches):
+                errors.append(f"msime_setup.iss under ISPP {version:#x}: {tool} is launched through {launches}, expected {expected[:-1]}")
 
 
 def check_generated(errors: list[str]) -> None:

@@ -36,25 +36,26 @@ impl StrokeScheme {
     }
 
     /// 笔画键追加一笔；通配符只在已有笔画时追加；Backspace 删最后一笔。达到 `MAX_STROKES` 后不再追加。其他键（别的字母、大写、符号）都不改变组合，是否吞掉由会话决定。
-    pub fn handle_key(&mut self, key: SchemeKey) {
+    pub fn handle_key(&mut self, key: SchemeKey) -> bool {
         match key {
             SchemeKey::Letter(letter) if is_stroke(letter) => self.push(letter),
             SchemeKey::Letter(WILDCARD) if !self.input.is_empty() => self.push(WILDCARD),
-            SchemeKey::Backspace => {
-                self.input.pop();
-            }
+            SchemeKey::Backspace => self.input.pop().is_some(),
             SchemeKey::Letter(_)
             | SchemeKey::Apostrophe
             | SchemeKey::Semicolon
             | SchemeKey::Minus
             | SchemeKey::Symbol(_)
-            | SchemeKey::Requery => {}
+            | SchemeKey::Requery => false,
         }
     }
 
-    fn push(&mut self, key: u8) {
+    fn push(&mut self, key: u8) -> bool {
         if self.input.len() < MAX_STROKES {
             self.input.push(char::from(key));
+            true
+        } else {
+            false
         }
     }
 

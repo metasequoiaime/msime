@@ -7,6 +7,8 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::cell::Cell;
 use std::collections::BTreeMap;
+#[cfg(unix)]
+use std::ffi::OsStr;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufReader, BufWriter, Read, Seek, Write};
 use std::path::{Component, Path, PathBuf};
@@ -412,6 +414,19 @@ fn unique_suffix() -> String {
 
 /// Staging and set-aside directories a crashed or killed install left behind for this id. 被打断的收编留下的暂存目录先把文件放回来源（见 [`restore_interrupted_adoption`]），再删。
 fn remove_leftovers(root: &Path, id: &str) {
+    #[cfg(unix)]
+    {
+        let Ok(root_directory) = crate::storage::open_private_directory(root) else {
+            return;
+        };
+        remove_leftovers_at(&root_directory, id);
+    }
+    #[cfg(not(unix))]
+    remove_leftovers_by_path(root, id);
+}
+
+#[cfg(not(unix))]
+fn remove_leftovers_by_path(root: &Path, id: &str) {
     let Ok(entries) = fs::read_dir(root) else {
         return;
     };
@@ -438,12 +453,45 @@ fn remove_leftovers(root: &Path, id: &str) {
     }
 }
 
+#[cfg(unix)]
+fn remove_leftovers_at(root: &File, id: &str) {
+    use std::os::unix::ffi::OsStrExt;
+
+    let Ok(entries) = rustix::fs::Dir::read_from(root) else {
+        return;
+    };
+    let staging = format!(".staging-{id}-");
+    let old = format!(".old-{id}-");
+    for entry in entries.flatten() {
+        let bytes = entry.file_name().to_bytes();
+        if bytes == b"." || bytes == b".." {
+            continue;
+        }
+        if std::str::from_utf8(bytes).is_err() {
+            continue;
+        }
+        let name = OsStr::from_bytes(bytes);
+        if name.to_str().is_some_and(|name| name.starts_with(&staging)) {
+            if let Ok(staging_directory) = crate::storage::open_private_directory_at(root, name) {
+                restore_interrupted_adoption_at(&staging_directory);
+            }
+        }
+        if name
+            .to_str()
+            .is_some_and(|name| name.starts_with(&staging) || name.starts_with(&old))
+        {
+            let _ = crate::storage::remove_private_tree_at(root, name);
+        }
+    }
+}
+
 /// [`adopt_files`] 在改名之前写进暂存目录的来源记录，内容是来源目录的绝对路径（UTF-8）。
 const ADOPTION_SOURCE: &str = ".source";
 /// 来源记录只是一个路径，限制大小免得被替换的文件占用无界内存。
 const MAX_ADOPTION_SOURCE_BYTES: u64 = 4096;
 
 /// 收编在改名之后、发布之前被打断（进程被杀）时，文件留在 `<staging>/model/` 里，来源目录里少了它们。按来源记录把这些普通文件改名放回来源目录；来源里已有同名文件时不覆盖。没有来源记录（下载留下的暂存目录）、记录读不出来、或来源不再是真实目录时什么也不做。失败不报错，调用方随后照常删掉暂存目录。
+#[cfg(not(unix))]
 fn restore_interrupted_adoption(staging: &Path) {
     let record = staging.join(ADOPTION_SOURCE);
     let Ok(metadata) = fs::symlink_metadata(&record) else {
@@ -486,6 +534,106 @@ fn restore_interrupted_adoption(staging: &Path) {
         if matches!(fs::symlink_metadata(&target), Err(error) if error.kind() == io::ErrorKind::NotFound)
         {
             let _ = fs::rename(entry.path(), target);
+        }
+    }
+}
+
+#[cfg(all(unix, test))]
+fn restore_interrupted_adoption(staging: &Path) {
+    let Some(parent) = staging.parent() else {
+        return;
+    };
+    let Some(name) = staging.file_name() else {
+        return;
+    };
+    let Ok(parent) = crate::storage::open_private_directory(parent) else {
+        return;
+    };
+    let Ok(staging) = crate::storage::open_private_directory_at(&parent, name) else {
+        return;
+    };
+    restore_interrupted_adoption_at(&staging);
+}
+
+#[cfg(unix)]
+fn restore_interrupted_adoption_at(staging: &File) {
+    use std::os::unix::ffi::OsStrExt;
+
+    let record = OsStr::new(ADOPTION_SOURCE);
+    let Ok(file) = crate::storage::open_private_file_at(staging, record) else {
+        return;
+    };
+    let Ok(bytes) =
+        crate::bounded_io::read_bounded_file_with(file, MAX_ADOPTION_SOURCE_BYTES, || (), |_| ())
+    else {
+        return;
+    };
+    let Ok(source) = String::from_utf8(bytes) else {
+        return;
+    };
+    let source = PathBuf::from(source);
+    if !source.is_absolute() || check_root(&source).is_err() {
+        return;
+    }
+    let Ok(source_directory) = crate::storage::open_private_directory(&source) else {
+        return;
+    };
+    let Ok(model_directory) =
+        crate::storage::open_private_directory_at(staging, OsStr::new("model"))
+    else {
+        return;
+    };
+    let Ok(entries) = rustix::fs::Dir::read_from(&model_directory) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let bytes = entry.file_name().to_bytes();
+        if bytes == b"." || bytes == b".." || bytes == MANIFEST_FILE.as_bytes() {
+            continue;
+        }
+        let name = OsStr::from_bytes(bytes);
+        if crate::storage::open_private_file_at(&model_directory, name).is_err() {
+            continue;
+        }
+        let _ = move_file_noclobber_at(&model_directory, name, &source_directory);
+    }
+}
+
+#[cfg(unix)]
+fn move_file_noclobber_at(
+    source_directory: &File,
+    name: &OsStr,
+    destination_directory: &File,
+) -> io::Result<bool> {
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    {
+        return match rustix::fs::renameat_with(
+            source_directory,
+            name,
+            destination_directory,
+            name,
+            rustix::fs::RenameFlags::NOREPLACE,
+        ) {
+            Ok(()) => Ok(true),
+            Err(rustix::io::Errno::EXIST) => Ok(false),
+            Err(error) => Err(error.into()),
+        };
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "android")))]
+    {
+        match rustix::fs::linkat(
+            source_directory,
+            name,
+            destination_directory,
+            name,
+            rustix::fs::AtFlags::empty(),
+        ) {
+            Ok(()) => {
+                rustix::fs::unlinkat(source_directory, name, rustix::fs::AtFlags::empty())?;
+                Ok(true)
+            }
+            Err(rustix::io::Errno::EXIST) => Ok(false),
+            Err(error) => Err(error.into()),
         }
     }
 }
@@ -607,11 +755,41 @@ fn content_range_start(value: &str) -> Option<u64> {
 }
 
 /// Removes the staging directory however the install ends.
-struct Staging(PathBuf);
+struct Staging {
+    path: PathBuf,
+    #[cfg(unix)]
+    parent: File,
+    #[cfg(unix)]
+    name: std::ffi::OsString,
+}
+
+impl Staging {
+    fn new(path: PathBuf) -> io::Result<Self> {
+        #[cfg(unix)]
+        {
+            let parent_path = path.parent().ok_or_else(|| {
+                io::Error::new(io::ErrorKind::InvalidInput, "staging has no parent")
+            })?;
+            let name = path
+                .file_name()
+                .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "staging has no name"))?
+                .to_owned();
+            let parent = crate::storage::open_private_directory(parent_path)?;
+            Ok(Self { path, parent, name })
+        }
+        #[cfg(not(unix))]
+        {
+            Ok(Self { path })
+        }
+    }
+}
 
 impl Drop for Staging {
     fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
+        #[cfg(unix)]
+        let _ = crate::storage::remove_private_tree_at(&self.parent, &self.name);
+        #[cfg(not(unix))]
+        let _ = fs::remove_dir_all(&self.path);
     }
 }
 
@@ -629,13 +807,13 @@ pub(crate) fn install_model(
     }
     let _lock = acquire_model_lock(root)?;
     remove_leftovers(root, &model.id);
-    let staging = Staging(root.join(format!(".staging-{}-{}", model.id, unique_suffix())));
-    fs::create_dir(&staging.0)?;
-    let model_dir = staging.0.join("model");
+    let staging = Staging::new(root.join(format!(".staging-{}-{}", model.id, unique_suffix())))?;
+    fs::create_dir(&staging.path)?;
+    let model_dir = staging.path.join("model");
     fs::create_dir(&model_dir)?;
 
     let total = model.archive.size;
-    let archive = staging.0.join("archive.tar.bz2");
+    let archive = staging.path.join("archive.tar.bz2");
     let digest = {
         let mut output = BufWriter::new(create_private_file(&archive)?);
         let mut last = 0u64;
@@ -805,6 +983,12 @@ fn publish(root: &Path, id: &str, staged: &Path) -> Result<PathBuf, LocalModelEr
         return Err(error.into());
     }
     if replaced {
+        #[cfg(unix)]
+        let _ = crate::storage::remove_private_tree_at(
+            &root_directory,
+            aside.file_name().expect("generated aside name"),
+        );
+        #[cfg(not(unix))]
         remove_leftover(&aside);
     }
     Ok(target)
@@ -864,9 +1048,9 @@ pub(crate) fn install_files_with(
     check_install(root, id, mirrors)?;
     let _lock = acquire_model_lock(root)?;
     remove_leftovers(root, id);
-    let staging = Staging(root.join(format!(".staging-{}-{}", id, unique_suffix())));
-    fs::create_dir(&staging.0)?;
-    let pack_dir = staging.0.join("model");
+    let staging = Staging::new(root.join(format!(".staging-{}-{}", id, unique_suffix())))?;
+    fs::create_dir(&staging.path)?;
+    let pack_dir = staging.path.join("model");
     fs::create_dir(&pack_dir)?;
     let partials = partial_directory(root, id)?;
     let result = download_and_publish(
@@ -996,9 +1180,9 @@ pub(crate) fn install_archive_members_with(
     check_install(root, id, mirrors)?;
     let _lock = acquire_model_lock(root)?;
     remove_leftovers(root, id);
-    let staging = Staging(root.join(format!(".staging-{}-{}", id, unique_suffix())));
-    fs::create_dir(&staging.0)?;
-    let pack_dir = staging.0.join("model");
+    let staging = Staging::new(root.join(format!(".staging-{}-{}", id, unique_suffix())))?;
+    fs::create_dir(&staging.path)?;
+    let pack_dir = staging.path.join("model");
     fs::create_dir(&pack_dir)?;
     let partials = partial_directory(root, id)?;
     let result = download_and_extract(
@@ -1153,12 +1337,12 @@ pub(crate) fn adopt_files(
         }
         names.push(name);
     }
-    let staging = Staging(root.join(format!(".staging-{}-{}", id, unique_suffix())));
-    fs::create_dir(&staging.0)?;
-    let pack_dir = staging.0.join("model");
+    let staging = Staging::new(root.join(format!(".staging-{}-{}", id, unique_suffix())))?;
+    fs::create_dir(&staging.path)?;
+    let pack_dir = staging.path.join("model");
     fs::create_dir(&pack_dir)?;
     // 改名之前先落盘来源记录：进程在发布前被杀时，下次收编或安装这个包时按它把文件放回来源（[`restore_interrupted_adoption`]）。
-    let mut source_record = create_private_file(&staging.0.join(ADOPTION_SOURCE))?;
+    let mut source_record = create_private_file(&staging.path.join(ADOPTION_SOURCE))?;
     source_record.write_all(record.as_bytes())?;
     source_record.sync_all()?;
     drop(source_record);

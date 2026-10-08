@@ -39,6 +39,20 @@ int main() {
   std::filesystem::remove(linked);
   std::filesystem::remove_all(outside);
 
+  // 同 UID 的硬链接不是私有日志文件；追加会同时改写另一个目录项，所以直接拒绝该 inode。
+  const auto hardlink_target = directory.parent_path() /
+                               (directory.filename().string() + "-hardlink-target");
+  std::ofstream(hardlink_target) << "outside\n";
+  std::filesystem::remove(directory / "diagnostic.log");
+  std::filesystem::create_hard_link(hardlink_target, directory / "diagnostic.log");
+  msime_linux_diagnostic_configure(directory.string(), true);
+  msime_linux_diagnostic_write("must_not_modify_hardlink");
+  std::ifstream protected_log(hardlink_target);
+  const std::string protected_document((std::istreambuf_iterator<char>(protected_log)), {});
+  assert(protected_document == "outside\n");
+  std::filesystem::remove(directory / "diagnostic.log");
+  std::filesystem::remove(hardlink_target);
+
   msime_linux_diagnostic_configure(directory.string(), false);
   std::filesystem::remove_all(directory);
 }

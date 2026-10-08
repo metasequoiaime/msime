@@ -133,6 +133,7 @@ void CMetasequoiaIME::_TerminateComposition(TfEditCookie ec, _In_ ITfContext *pC
             _pComposition->Release();
             _pComposition = nullptr;
             _voiceCompositionActive = false;
+            Global::ResetForcedOverlayAnchor();
             uint64_t nextEpoch = _compositionEpoch.fetch_add(1, std::memory_order_acq_rel) + 1;
             if (nextEpoch == 0)
             {

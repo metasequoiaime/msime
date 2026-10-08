@@ -229,6 +229,8 @@ SessionController::request_selection(const FocusLease &lease, uint64_t session,
           packet.event_type = FanyImePipeEventType::KeyEvent;
           packet.point[0] = painted->x;
           packet.point[1] = painted->y;
+          // 点选也要保住游戏会话标记，否则点选之后的快照会按普通宿主处理。
+          packet.modifiers_down = painted->game_host ? PipeMetadata::GameHost : 0;
           candidates_.delivered(lease, *pending, packet);
           if (presentation_.delivered)
             presentation_.delivered(lease, *pending, packet);

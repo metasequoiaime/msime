@@ -19,6 +19,8 @@ $appKey = "HKLM:\$($identity.registry_key)"
 $taskName = $identity.watchdog_task
 $pf64 = Join-Path $env:ProgramFiles $identity.install_dir
 $pf32 = Join-Path ${env:ProgramFiles(x86)} $identity.install_dir
+# 64 位 TIP 和它的宿主、运行时 DLL 装在 System32\IME 下本版本自己的目录里（msime_setup.iss 的 MySystemTipDir），CS2 的 Trusted Mode 只放行系统目录里的外来 DLL。这个脚本跑在 64 位 PowerShell 里，看到的 System32 不经重定向。
+$sys64 = Join-Path $env:windir "System32\IME\$($identity.install_dir)"
 # 数据目录所有权标记的文件名接版本的名字后缀（platforms/windows/scripts/edition_windows.py 的 data_dir_marker），full 是 .metasequoiaime-data.full。
 $markerName = '.metasequoiaime-data' + $identity.name_suffix
 $logs = Join-Path $env:RUNNER_TEMP "msime-install-smoke-$Edition"
@@ -61,24 +63,32 @@ foreach ($name in 'MetasequoiaImeServer.exe', 'MetasequoiaImeWatchdog.exe', 'msi
 # The MCP server an AI assistant starts from the install directory must run there, not only be copied; --version touches no state and prints to stderr.
 $mcpVersion = (& (Join-Path $pf64 'server\msime-mcp.exe') --version 2>&1 | Out-String).Trim()
 Check ($LASTEXITCODE -eq 0 -and $mcpVersion -like 'msime-mcp *') "installed msime-mcp.exe runs ($mcpVersion)"
-$tip64 = Join-Path $pf64 "$versionDir\MetasequoiaImeTsf.dll"
+$tip64 = Join-Path $sys64 "$versionDir\MetasequoiaImeTsf.dll"
 $tip32 = Join-Path $pf32 "$versionDir\MetasequoiaImeTsf.dll"
-Check (Test-Path -LiteralPath (Join-Path $pf64 "$versionDir\$($identity.host_dll)") -PathType Leaf) "64-bit $($identity.host_dll) installed beside the TSF DLL"
+Check (Test-Path -LiteralPath (Join-Path $sys64 "$versionDir\$($identity.host_dll)") -PathType Leaf) "64-bit $($identity.host_dll) installed beside the TSF DLL"
+Check (-not (Test-Path -LiteralPath (Join-Path $pf64 "$versionDir\MetasequoiaImeTsf.dll"))) 'no 64-bit TSF DLL left in Program Files'
 Check (Test-Path -LiteralPath (Join-Path $pf32 "$versionDir\$($identity.host_dll)") -PathType Leaf) "32-bit $($identity.host_dll) installed beside the TSF DLL"
 # Server 目录的 x64 宿主 DLL 与 64 位 TIP 取自同一份暂存文件；包里不再在 server_exe 下另带一份。
 Check (Test-Path -LiteralPath (Join-Path $pf64 "server\$($identity.host_dll)") -PathType Leaf) "server\$($identity.host_dll) installed"
 Check (-not (Test-Path -LiteralPath (Join-Path $pf64 'server\MetasequoiaImeTsf.dll'))) 'no stray TSF DLL in the Server folder'
 # TIP 会被加载进每个进程；它旁边只该有它的宿主 DLL 和运行时依赖，不该有设置程序的 Windows App SDK 或 Server 的语音运行时。
-$tipNeighbours = @(Get-ChildItem -LiteralPath (Join-Path $pf64 $versionDir) -File -Include 'Microsoft.*', 'onnxruntime*', 'sherpa*' -Recurse -ErrorAction SilentlyContinue | ForEach-Object Name)
+$tipNeighbours = @(Get-ChildItem -LiteralPath (Join-Path $sys64 $versionDir) -File -Include 'Microsoft.*', 'onnxruntime*', 'sherpa*' -Recurse -ErrorAction SilentlyContinue | ForEach-Object Name)
 Check ($tipNeighbours.Count -eq 0) "64-bit TSF folder carries no Server-only DLLs ($($tipNeighbours -join ', '))"
 # 符号是单独的发布资产。
-$installedSymbols = @(Get-ChildItem -LiteralPath $pf64, $pf32 -Recurse -File -Include '*.pdb', '*.ilk' -ErrorAction SilentlyContinue | ForEach-Object FullName)
+$installedSymbols = @(Get-ChildItem -LiteralPath $pf64, $pf32, $sys64 -Recurse -File -Include '*.pdb', '*.ilk' -ErrorAction SilentlyContinue | ForEach-Object FullName)
 Check ($installedSymbols.Count -eq 0) "no PDB or .ilk installed ($($installedSymbols -join ', '))"
 Check (Test-Path -LiteralPath $tip64 -PathType Leaf) '64-bit TSF DLL installed'
+# 商店应用和其他 AppContainer 进程也会加载 TIP，它们要靠 ALL APPLICATION PACKAGES（S-1-15-2-1）的读取和执行权限；系统目录里的副本只能从 System32\IME 继承这一条。
+$appPackagesRead = if (Test-Path -LiteralPath $tip64) {
+    $readExecute = [Security.AccessControl.FileSystemRights]::ReadAndExecute
+    @((Get-Acl -LiteralPath $tip64).GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier]) |
+        Where-Object { $_.IdentityReference.Value -eq 'S-1-15-2-1' -and $_.AccessControlType -eq 'Allow' -and ($_.FileSystemRights -band $readExecute) -eq $readExecute }).Count -gt 0
+} else { $false }
+Check $appPackagesRead '64-bit TSF DLL is readable by ALL APPLICATION PACKAGES'
 Check (Test-Path -LiteralPath $tip32 -PathType Leaf) '32-bit TSF DLL installed'
 # Windows on Arm installs the Arm64X TIP in place of the x64 one, with the ARM64 host its native half imports beside it (msime_setup.iss).
 $onArm = [Runtime.InteropServices.RuntimeInformation]::OSArchitecture -eq [Runtime.InteropServices.Architecture]::Arm64
-$arm64Host = Join-Path $pf64 "$versionDir\$([IO.Path]::GetFileNameWithoutExtension($identity.host_dll))_arm64.dll"
+$arm64Host = Join-Path $sys64 "$versionDir\$([IO.Path]::GetFileNameWithoutExtension($identity.host_dll))_arm64.dll"
 function ImageIs([string]$Path, [string]$Architecture) {
     try { & (Join-Path $PSScriptRoot '../../Test-PortableExecutable.ps1') -LiteralPath $Path -Architecture $Architecture -Kind dll; $true } catch { $false }
 }
@@ -153,6 +163,9 @@ Check (-not ((Test-Path -LiteralPath $runtimeOptions) -and (Get-Content -Literal
 Check (Test-Path -LiteralPath (Join-Path $movedDir 'sound-packs\default\plugin.toml') -PathType Leaf) 'moved DataDir has the package app_data'
 $left = @(Get-ChildItem -LiteralPath $dataDir -Force | ForEach-Object Name)
 Check ($left.Count -eq 1 -and $left[0] -eq 'moved') "previous DataDir emptied around the nested new one ($($left -join ', '))"
+# 每次重装都换一个版本目录；没有进程加载着旧的 TIP 时，系统目录里只剩这一次的那个。
+$systemVersions = @(Get-ChildItem -LiteralPath $sys64 -Directory -ErrorAction SilentlyContinue | ForEach-Object Name)
+Check ($systemVersions.Count -eq 1 -and $systemVersions[0] -eq $app.VersionDir) "System32 keeps only the current TSF version directory ($($systemVersions -join ', '))"
 
 # ---- uninstall ----
 # The uninstaller relaunches itself from a temporary copy and returns at once, so wait for the program directory to go away instead of the process.
@@ -165,6 +178,7 @@ Start-Sleep -Seconds 5
 
 Check (-not (Test-Path -LiteralPath $pf64)) '64-bit program directory removed'
 Check (-not (Test-Path -LiteralPath $pf32)) '32-bit program directory removed'
+Check (-not (Test-Path -LiteralPath $sys64)) 'System32 TSF directory removed'
 Check ($null -eq (InprocServer 'HKLM:\SOFTWARE\Classes')) '64-bit COM registration removed'
 Check ($null -eq (InprocServer 'HKLM:\SOFTWARE\WOW6432Node\Classes')) '32-bit COM registration removed'
 # DllUnregisterServer only removes the language profile and categories; the uninstaller then deletes the TIP key itself, so nothing of it may remain.
