@@ -31,6 +31,18 @@ public final class SyncApiSmoke {
         check(SyncApi.strictPhrasePosition(-1L, 2) == 2,
             "negative phrase position falls back to index");
 
+        // A successful response must carry the complete document shape. Treating a
+        // missing field or malformed row as an empty document would let a valid
+        // revision overwrite local state with data that was never returned.
+        expectInvalid(() -> SyncApi.requiredSettings(null),
+            "missing settings must be rejected");
+        expectInvalid(() -> SyncApi.requiredSettings("bad"),
+            "non-object settings must be rejected");
+        expectInvalid(() -> SyncApi.requiredPhrases(null),
+            "missing phrases must be rejected");
+        expectInvalid(() -> SyncApi.requiredPhrases("bad"),
+            "non-array phrases must be rejected");
+
         // Cloud preference revisions are non-negative integers. Fractional JSON numbers
         // must not be truncated by Number.longValue(), and negative revisions are invalid.
         for (Number invalid : new Number[] {1.5d, -1L}) {
@@ -199,4 +211,15 @@ public final class SyncApiSmoke {
     private static void check(boolean condition, String message) {
         if (!condition) throw new AssertionError(message);
     }
+
+    private static void expectInvalid(ThrowingAction action, String message) throws Exception {
+        try {
+            action.run();
+            throw new AssertionError(message);
+        } catch (CloudApi.Failure expected) {
+            check(expected.status == 500 && "invalid_response".equals(expected.code), message);
+        }
+    }
+
+    private interface ThrowingAction { void run() throws Exception; }
 }

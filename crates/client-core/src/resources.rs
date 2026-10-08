@@ -469,7 +469,7 @@ impl VerifiedMarker {
             return None;
         }
         let bytes = crate::bounded_io::read_bounded_file_with(
-            crate::storage::open_private_file(path).ok()?,
+            crate::storage::open_private_file_in(path).ok()?,
             MAX_MARKER_BYTES,
             || (),
             |_| (),
@@ -495,14 +495,26 @@ impl VerifiedMarker {
             )));
         }
         let encoded = serde_json::to_vec(self).map_err(|_| ResourceError::InvalidManifest)?;
-        let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
-        temporary.write_all(&encoded)?;
-        temporary.as_file().sync_all()?;
-        temporary
-            .persist(path)
-            .map(|_| ())
-            .map_err(|error| error.error)?;
-        Ok(())
+        #[cfg(unix)]
+        {
+            let directory = crate::storage::open_private_directory(parent)?;
+            let name = path.file_name().ok_or_else(|| {
+                std::io::Error::new(std::io::ErrorKind::InvalidInput, "marker has no name")
+            })?;
+            crate::storage::write_private_file_at(&directory, name, &encoded)?;
+            Ok(())
+        }
+        #[cfg(not(unix))]
+        {
+            let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
+            temporary.write_all(&encoded)?;
+            temporary.as_file().sync_all()?;
+            temporary
+                .persist(path)
+                .map(|_| ())
+                .map_err(|error| error.error)?;
+            Ok(())
+        }
     }
 }
 

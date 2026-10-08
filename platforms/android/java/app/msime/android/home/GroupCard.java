@@ -203,8 +203,7 @@ public final class GroupCard {
     }
 
     private TextView trailingValue(Row row, @Nullable CharSequence value) {
-        TextView text = Ui.styledLabel(context, "", Ui.TEXT_ROW_TITLE, 400, Ui.subText(context));
-        ViewPolicy.setSingleLine(text);
+        TextView text = Ui.trailingValue(context, "", Ui.TEXT_ROW_TITLE, Ui.subText(context));
         LinearLayout.LayoutParams params = Ui.rowGapParams(context);
         row.view.addView(text, params);
         setText(text, value);

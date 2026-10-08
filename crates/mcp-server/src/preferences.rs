@@ -227,6 +227,8 @@ pub struct PreferencesView {
     pub number_row_selection: bool,
     /// Show a badge when switching between Chinese and English (macOS).
     pub input_mode_hud: bool,
+    /// Show the app logo at the left end of the candidate window and the floating toolbar (macOS).
+    pub show_app_logo: bool,
     pub fuzzy_pinyin: bool,
     /// The mode a newly focused text field starts in.
     pub default_ime_mode: StartMode,
@@ -268,6 +270,7 @@ impl From<&PreferencesSnapshot> for PreferencesView {
             candidate_follow_cursor: preferences.candidate_follow_cursor,
             number_row_selection: preferences.number_row_selection,
             input_mode_hud: preferences.input_mode_hud,
+            show_app_logo: preferences.show_app_logo,
             fuzzy_pinyin: preferences.fuzzy_pinyin.enabled,
             default_ime_mode: preferences.default_ime_mode.into(),
             character_width: preferences.character_width.into(),
@@ -308,6 +311,7 @@ pub struct PreferencesChange {
     pub candidate_follow_cursor: Option<bool>,
     pub number_row_selection: Option<bool>,
     pub input_mode_hud: Option<bool>,
+    pub show_app_logo: Option<bool>,
     /// Turning fuzzy pinyin on for the first time also turns on every fuzzy rule, as the settings page does.
     pub fuzzy_pinyin: Option<bool>,
     pub default_ime_mode: Option<StartMode>,
@@ -337,6 +341,7 @@ impl PreferencesChange {
             && self.candidate_follow_cursor.is_none()
             && self.number_row_selection.is_none()
             && self.input_mode_hud.is_none()
+            && self.show_app_logo.is_none()
             && self.fuzzy_pinyin.is_none()
             && self.default_ime_mode.is_none()
             && self.character_width.is_none()
@@ -386,6 +391,9 @@ impl PreferencesChange {
         }
         if let Some(value) = self.input_mode_hud {
             preferences.input_mode_hud = value;
+        }
+        if let Some(value) = self.show_app_logo {
+            preferences.show_app_logo = value;
         }
         if let Some(value) = self.fuzzy_pinyin {
             preferences.fuzzy_pinyin.enabled = value;

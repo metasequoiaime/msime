@@ -9,7 +9,11 @@ use crate::preferences::{InputScheme, TouchKeyboardScheme};
 use crate::resources::{ResourceError, ResourceSet};
 use serde::Deserialize;
 use std::collections::BTreeMap;
-use std::io::{Read, Write};
+#[cfg(unix)]
+use std::ffi::OsStr;
+use std::io::Read;
+#[cfg(not(unix))]
+use std::io::Write;
 use std::path::Path;
 use std::sync::OnceLock;
 
@@ -447,7 +451,7 @@ impl Edition {
         let path = state_root.join(Self::STATE_RECORD_FILE);
         crate::storage::reject_symlink(&path).ok()?;
         let mut text = String::new();
-        crate::storage::open_private_file(&path)
+        crate::storage::open_private_file_in(&path)
             .ok()?
             .take(STATE_RECORD_LIMIT)
             .read_to_string(&mut text)
@@ -460,7 +464,7 @@ impl Edition {
         let path = state_root.join(Self::STATE_RECORD_FILE);
         crate::storage::reject_symlink(&path)?;
         if self.is_full() {
-            return match std::fs::remove_file(&path) {
+            return match crate::storage::remove_private_file(&path) {
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
                 result => result,
             };
@@ -468,11 +472,25 @@ impl Edition {
         if Self::recorded_in(state_root).is_some_and(|recorded| recorded.id == self.id) {
             return Ok(());
         }
-        let mut temporary = tempfile::NamedTempFile::new_in(state_root)?;
-        temporary.write_all(format!("{}\n", self.id).as_bytes())?;
-        temporary.as_file().sync_all()?;
-        temporary.persist(&path).map_err(|error| error.error)?;
-        Ok(())
+        let bytes = format!("{}\n", self.id);
+        #[cfg(unix)]
+        {
+            let directory = crate::storage::open_private_directory(state_root)?;
+            crate::storage::write_private_file_at(
+                &directory,
+                OsStr::new(Self::STATE_RECORD_FILE),
+                bytes.as_bytes(),
+            )?;
+            Ok(())
+        }
+        #[cfg(not(unix))]
+        {
+            let mut temporary = tempfile::NamedTempFile::new_in(state_root)?;
+            temporary.write_all(bytes.as_bytes())?;
+            temporary.as_file().sync_all()?;
+            temporary.persist(&path).map_err(|error| error.error)?;
+            Ok(())
+        }
     }
 }
 

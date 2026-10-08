@@ -34,6 +34,7 @@ export function testHost(
     candidate_font_controls: false,
     candidate_preedit_font: true,
     candidate_page_number: false,
+    app_logo: macos,
     candidate_row_colors: false,
     candidate_selection_appearance: candidateSelectionAppearance,
     candidate_border_color: candidateSelectionAppearance,

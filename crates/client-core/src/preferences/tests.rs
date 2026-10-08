@@ -421,6 +421,30 @@ fn usage_reporting_defaults_on_and_survives_a_save() {
 }
 
 #[test]
+fn app_logo_starts_hidden_but_an_upgraded_document_keeps_it() {
+    let defaults = Preferences::default();
+    assert!(!defaults.show_app_logo);
+    assert!(!defaults.restored_to_defaults().show_app_logo);
+    // 旧文档里没有这个字段时按原来的样子读成显示，升级不替用户把 logo 藏起来。
+    let mut serialized = serde_json::to_value(&defaults).unwrap();
+    serialized.as_object_mut().unwrap().remove("show_app_logo");
+    assert!(
+        serde_json::from_value::<Preferences>(serialized)
+            .unwrap()
+            .show_app_logo
+    );
+
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let chosen = Preferences {
+        show_app_logo: true,
+        ..defaults
+    };
+    store.save(0, chosen).unwrap();
+    assert!(store.load().unwrap().preferences.show_app_logo);
+}
+
+#[test]
 fn cloud_candidates_start_off_but_an_upgraded_document_keeps_them() {
     let defaults = Preferences::default();
     assert!(!defaults.cloud_candidates);

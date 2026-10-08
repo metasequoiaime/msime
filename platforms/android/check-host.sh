@@ -531,14 +531,37 @@ if rg -q 'putString\(ITEMS_KEY' \
   echo "Android must not write clipboard entries to its own private document" >&2
   exit 1
 fi
-# Dropping the history when the preference is off is housekeeping, and `onCreateInputView` does it
-# on every open. A store that cannot be written is not a reason to refuse to draw a keyboard: when
-# that clear threw, it threw out of the framework's showWindow and the input method died, so
-# Android fell back to another keyboard and the user never saw this one. The 清空 button keeps
-# `clear()` - there the user asked, and silence would be a lie.
+# 实时读到的偏好说开关关着时清空历史，是顺手的整理。存储写不进去不能成为不画键盘的理由：这次清空曾在 onCreateInputView 里抛异常，异常从框架的 showWindow 里抛出去，输入法进程退出，Android 换成了别的键盘，用户根本看不到这一个。「清空」按钮仍用 `clear()`：那是用户自己要求的，失败了不吭声就是撒谎。
 if ! rg -q 'clearQuietly' \
     "$repo_root/platforms/android/java/app/msime/android/clipboard/ClipboardHistoryStore.java"; then
   echo "Android clipboard housekeeping needs a clear that cannot stop the caller" >&2
+  exit 1
+fi
+# 只有实时读到的偏好能触发清空。onCreateInputView 原先按字段初始值清空，每次进入编辑器又先应用 runtime-options 副本，而副本的 clipboard_history 永远是出厂默认的关，于是每换一个输入框、每切回本键盘一次，历史就被抹掉（#5602）。
+if rg -A 40 'onCreateInputView\(\) \{' \
+    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
+    | rg -q 'clipboardHistory\.clear'; then
+  echo "Android onCreateInputView must not clear the clipboard history before live preferences arrive" >&2
+  exit 1
+fi
+if ! rg -q 'ClipboardHistoryRetentionPolicy\.clearsHistory' \
+    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java"; then
+  echo "Android clipboard housekeeping must ask ClipboardHistoryRetentionPolicy before clearing" >&2
+  exit 1
+fi
+# 偏好的来源由调用处明说：读 runtime-options.json 之后应用的那一份必须标成 RUNTIME_OPTIONS_COPY，剪贴板开关也只从这个来源推出，不能再借一个意思不同的布尔量。那一处一旦被当成实时偏好，每换一个输入框历史又会被清空（#5602）。
+if ! rg -A 12 'HostOptionsPolicy\.readRuntimeOptions\(getFilesDir\(\)\)' \
+    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
+    | rg -q 'applyEditorPreferences\(preferences, ClipboardHistoryRetentionPolicy\.Source\.RUNTIME_OPTIONS_COPY\)' \
+  || rg -A 12 'HostOptionsPolicy\.readRuntimeOptions\(getFilesDir\(\)\)' \
+    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
+    | rg -q 'Source\.LIVE|applyEditorPreferences\(preferences\)' \
+  || ! rg -q 'applyClipboardPreference\(JSONObject preferences,$' \
+    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
+  || ! rg -A 1 'applyClipboardPreference\(JSONObject preferences,$' \
+    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
+    | rg -q 'ClipboardHistoryRetentionPolicy\.Source source\)'; then
+  echo "Android must apply the runtime-options preference copy as RUNTIME_OPTIONS_COPY, and derive the clipboard switch only from that source (#5602)" >&2
   exit 1
 fi
 for site in onCreateInputView applyClipboardPreference; do
@@ -549,12 +572,74 @@ for site in onCreateInputView applyClipboardPreference; do
     exit 1
   fi
 done
-# The preferences in runtime-options.json were written once at install and always carry the factory `clipboard_history: false`. Applying them on every editor start turned a switched-on history back off and wiped it, so the panel kept saying 未开启 to a user who had turned it on. Only a live preferences read may decide the switch, and nothing may be cleared before one has.
-if ! rg -q 'if \(appearance\) applyClipboardPreference\(preferences\);' \
+# 输入法服务没有 Activity 的窗口令牌。从剪贴板面板弹出的 AlertDialog 或 PopupMenu，要么加不上窗口、把键盘进程带崩，要么抢走编辑器的窗口焦点，Via 这类 WebView 浏览器随即让输入框失焦、收起键盘（#5605、#5653）。确认和条目操作都画在面板里。
+if rg -A 30 'void (clearClipboardHistory|renderClipboardHistory|renderClipboardItemActions|setClipboardItemPinned|removeClipboardItem)\(' \
     "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
-  || ! rg -q 'if \(clipboardPreferenceRead && !clipboardHistoryEnabled\) clipboardHistory\.clearQuietly\(\);' \
+    "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java" \
+    | rg -q 'new (AlertDialog|PopupMenu)'; then
+  echo "Android clipboard panel must not raise dialogs or popup menus from the input method" >&2
+  exit 1
+fi
+if rg -q 'void manageClipboardItem|new PopupMenu\(this, anchor\)' \
     "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java"; then
-  echo "Android clipboard history switch must come from live preferences only" >&2
+  echo "Android clipboard entries must not be managed through a PopupMenu (#5653)" >&2
+  exit 1
+fi
+# 分词界面的词片要放在它自己的滚动区里，「取消」「插入」那一行留在滚动区外、贴着面板底边；操作行跟着词片一起滚时，长文字滚到末尾它就不见了（#5645）。
+if ! rg -A 30 'void renderClipboardSegmentation\(\)' \
+    "$repo_root/platforms/android/java/app/msime/android/core/ImePanels.java" \
+    | rg -q 'new ScrollView\('; then
+  echo "Android clipboard segmentation must scroll its word pieces separately from the pinned action bar (#5645)" >&2
+  exit 1
+fi
+# 「最近复制」占着工具栏那一行时，剪贴板历史入口要留在这一行上，不能逼用户先点 × 把这条永久关掉；从剪贴板插入过之后它也不能再回来，否则工具栏又换成刚插入的文字（#5692）。
+if ! rg -A 20 'void addRecentClipRow\(' \
+    "$repo_root/platforms/android/java/app/msime/android/core/ImeToolbar.java" \
+    | rg -q 'Icon\.CLIPBOARD'; then
+  echo "Android recent-clip row must keep the clipboard history entry (#5692)" >&2
+  exit 1
+fi
+if ! rg -A 12 'void insertClipboardText\(' \
+    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
+    | rg -q 'recentClip\.dismiss\(\)'; then
+  echo "Android clipboard insertion must retire the recent-clip suggestion (#5692)" >&2
+  exit 1
+fi
+# 剪贴板历史关着时，「最近复制」既不显示也不读剪贴板：本地开关只能经 recentClipEnabled（RecentClipboardSuggestion.enabled）和历史开关一起判断，补看在读剪贴板之前就要问它，系统标为敏感的内容从不提供。
+service_java="$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java"
+offer_body=$(rg -A 14 'void offerRecentClip\(' "$service_java" || true)
+offer_gate_line=$(printf '%s\n' "$offer_body" | rg -n 'if \(!recentClipEnabled\(\)' | head -n 1 | cut -d: -f1 || true)
+offer_read_line=$(printf '%s\n' "$offer_body" | rg -n 'getPrimaryClipDescription|readPrimaryClip|getPrimaryClip\(' | head -n 1 | cut -d: -f1 || true)
+if ! rg -q 'return RecentClipboardSuggestion\.enabled\(clipboardHistoryEnabled, clipboardSuggestionEnabled\);' "$service_java" \
+  || rg -n 'clipboardSuggestionEnabled' "$service_java" \
+    | rg -v 'boolean clipboardSuggestionEnabled = true;|clipboardSuggestionEnabled = localSettings\.bool|RecentClipboardSuggestion\.enabled\(clipboardHistoryEnabled, clipboardSuggestionEnabled\)' \
+    | rg -q . \
+  || [[ -z "$offer_gate_line" || -z "$offer_read_line" || "$offer_read_line" -lt "$offer_gate_line" ]] \
+  || ! printf '%s\n' "$offer_body" | rg -q 'clip == null \|\| clip\.sensitive\(\)\) return;' \
+  || ! rg -B 2 -A 2 'String recent = ' "$service_java" | rg -q 'recentClipEnabled\(\)'; then
+  echo "Android recent-clip suggestion must stay off, and must not read the clipboard, while clipboard history is off; sensitive clips are never offered (#5692)" >&2
+  exit 1
+fi
+if ! rg -q 'ClipboardCapturePolicy\.captures' \
+    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java"; then
+  echo "Android clipboard capture must skip a clip it already handled (ClipboardCapturePolicy)" >&2
+  exit 1
+fi
+# 存储有了答复才把这一条记为已处理：写入抛异常时先记下，之后打开面板的补读就永远跳过它，它再也进不了历史。
+capture_body=$(rg -A 30 'void captureClipboard\(' \
+  "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" || true)
+capture_add_line=$(printf '%s\n' "$capture_body" | rg -n 'clipboardHistory\.add\(' | head -n 1 | cut -d: -f1 || true)
+capture_remember_line=$(printf '%s\n' "$capture_body" | rg -n 'rememberHandledClip\(identity\)' | head -n 1 | cut -d: -f1 || true)
+if [[ -z "$capture_add_line" || -z "$capture_remember_line" \
+    || "$capture_remember_line" -lt "$capture_add_line" ]]; then
+  echo "Android clipboard capture must mark a clip handled only after the store answered" >&2
+  exit 1
+fi
+# 已处理身份里有文字的散列和长度，短密码、验证码凭它能穷举还原。系统标为敏感的内容从不记录，清空或删除后也不能把它的身份落盘。
+if ! rg -A 6 'private void forgetCurrentClip\(' \
+    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
+    | rg -q '!clip\.sensitive\(\)'; then
+  echo "Android must not persist the identity of a clip the system marked sensitive" >&2
   exit 1
 fi
 # Both maintenance chords are Ctrl+Shift+Alt, and the modifier branch in onKeyDown hands every
@@ -591,7 +676,7 @@ fi
 if ! sed -n '/private void startEngineSession(String optionsText, String livePreferences)/,/^    }$/p' "$account_service" \
     | rg -q 'applyPreferencesSnapshot\(value\(livePreferences\)\)' \
   || ! rg -q '"handwriting_theme", "touch_toolbar"\}' "$account_service" \
-  || ! rg -q 'appearance \|\| rememberedToolbar == null' "$account_service"; then
+  || ! rg -q 'live \|\| rememberedToolbar == null' "$account_service"; then
   echo "Android toolbar must not start each editor from the factory-default preference copy" >&2
   exit 1
 fi

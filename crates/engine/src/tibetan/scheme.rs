@@ -96,8 +96,16 @@ impl TibetanScheme {
 
     /// 组字上屏时的文本：转换出的藏文；Esc 锁定后是原文本身。转换结果为空（只剩不产生字符的符号）时退回原文，保证有组字就有显示。
     pub fn preedit(&self) -> String {
+        let mut display = String::new();
+        self.preedit_into(&mut display);
+        display
+    }
+
+    pub fn preedit_into(&self, display: &mut String) {
+        display.clear();
         if self.raw_locked {
-            return self.raw.clone();
+            display.push_str(&self.raw);
+            return;
         }
         // `ewts` 不认识梵文的 `kSh`（ཀྵ），只认识显式叠写的 `k+Sh`；只改送去转换的副本，原文按键不变，退格仍删一个按键。
         let converted = if self.raw.contains("kSh") {
@@ -106,25 +114,35 @@ impl TibetanScheme {
             converter().ewts_to_unicode(&self.raw)
         };
         if converted.is_empty() {
-            return self.raw.clone();
+            display.push_str(&self.raw);
+            return;
         }
-        converted
+        display.push_str(&converted);
     }
 
     /// 原文作为 raw input（大小写保留在 `raw_input_with_cases`，宿主编辑和临时方案据此重建同一串），显示作为切分。仅在组字时有效；没有任何 provider 回答它。
     pub fn build_request(&self) -> QueryRequest {
-        let display = self.preedit();
-        QueryRequest {
-            scheme: SchemeType::Tibetan,
-            raw_input: self.raw.to_ascii_lowercase(),
-            raw_input_with_cases: self.raw.clone(),
-            normalized_input: self.raw.to_ascii_lowercase(),
-            raw_segmentation: self.raw.clone(),
-            normalized_segmentation: display.clone(),
-            segmentation: display,
-            valid: self.is_composing(),
-            ..QueryRequest::default()
-        }
+        let mut request = QueryRequest::default();
+        self.build_request_into(&mut request);
+        request
+    }
+
+    pub fn build_request_into(&self, request: &mut QueryRequest) {
+        request.scheme = SchemeType::Tibetan;
+        request.raw_input.clear();
+        request.raw_input.extend(
+            self.raw
+                .bytes()
+                .map(|byte| char::from(byte.to_ascii_lowercase())),
+        );
+        request.raw_input_with_cases.clone_from(&self.raw);
+        request.normalized_input.clone_from(&request.raw_input);
+        request.raw_segmentation.clone_from(&self.raw);
+        self.preedit_into(&mut request.normalized_segmentation);
+        request
+            .segmentation
+            .clone_from(&request.normalized_segmentation);
+        request.valid = self.is_composing();
     }
 
     /// 只保留 `handle_key` 会接收的按键，宿主给了带大小写的串时优先用它；按键变了，原文锁定随之解除。

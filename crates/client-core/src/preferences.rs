@@ -791,6 +791,9 @@ pub struct Preferences {
     /// not render the native badge.
     #[serde(default = "enabled_by_default")]
     pub input_mode_hud: bool,
+    /// 候选窗和悬浮工具栏左端的水杉 logo。新装默认隐藏（见 `Default`）；已存文档缺这个字段时读成显示，升级沿用原来的样子。
+    #[serde(default = "enabled_by_default")]
+    pub show_app_logo: bool,
     pub scheme: InputScheme,
     /// Show the Wubi code suffix that remains after the typed prefix.
     #[serde(default = "enabled_by_default")]
@@ -1860,6 +1863,7 @@ impl Default for Preferences {
             diagnostic_log: DiagnosticLogPreferences::default(),
             candidate_follow_cursor: true,
             input_mode_hud: true,
+            show_app_logo: false,
             scheme: InputScheme::default(),
             wubi_code_hint: true,
             wubi_mixed_pinyin: false,

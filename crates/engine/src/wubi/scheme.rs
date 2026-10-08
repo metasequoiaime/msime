@@ -75,13 +75,15 @@ impl WubiScheme {
     /// Host editing: lowercase, filter to the alphabet and clip to the current limit. The C++ read `raw_input_with_cases` when it was non-empty; after lowercasing both spellings give the same code, so either may be passed.
     pub fn set_raw_input(&mut self, raw: &str) {
         let limit = self.max_code_length();
-        self.raw = raw
-            .bytes()
-            .map(|byte| byte.to_ascii_lowercase())
-            .filter(|&lower| is_wubi_letter(lower, self.mixed_pinyin_allowed))
-            .take(limit)
-            .map(char::from)
-            .collect();
+        self.raw.clear();
+        self.raw.reserve(limit.min(raw.len()));
+        self.raw.extend(
+            raw.bytes()
+                .map(|byte| byte.to_ascii_lowercase())
+                .filter(|&lower| is_wubi_letter(lower, self.mixed_pinyin_allowed))
+                .take(limit)
+                .map(char::from),
+        );
     }
 
     /// Exactly four letters. Longer mixed-pinyin spellings are fallback queries, not complete wubi codes.
@@ -194,6 +196,20 @@ mod tests {
         scheme.set_extended_length_allowed(true);
         scheme.set_raw_input("Ni'Hao");
         assert_eq!(scheme.preedit(), "nihao");
+    }
+
+    #[test]
+    fn set_raw_input_reuses_existing_storage() {
+        let mut scheme = WubiScheme::new();
+        scheme.set_mixed_pinyin_allowed(true);
+        scheme.set_extended_length_allowed(true);
+        scheme.set_raw_input("abcdefghijklmnopqrstuvwxyzabcdef");
+        let capacity = scheme.raw.capacity();
+
+        scheme.set_raw_input("ab");
+
+        assert_eq!(scheme.preedit(), "ab");
+        assert!(scheme.raw.capacity() >= capacity);
     }
 
     #[test]

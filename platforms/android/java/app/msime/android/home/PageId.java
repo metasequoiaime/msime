@@ -24,7 +24,7 @@ public enum PageId {
     KEYBOARD_OPTIONS("KeyboardOptionsPage", "键盘", HostDeepLink.TAB_SETTINGS,
         "布局", "中文键盘", "键盘高度", "按键反馈", "按键音", "按键振动", "按键弹出预览", "手势",
         "滑动输入符号", "滑动方向", "下滑", "上滑", "滑行输入", "空格键滑动移动光标", "长按空格语音输入", "键盘工具栏", "显示方式", "表情", "常用语",
-        "剪贴板", "输入方式", "按键间距", "行间距"),
+        "剪贴板", "输入方式", "按键间距", "行间距", "剪贴板排列", "单列", "双列", "工具栏显示最近复制", "最近复制"),
     AI_SETTINGS("AiSettingsPage", "AI 润色与回复", HostDeepLink.TAB_SETTINGS,
         "启用 AI 入口", "端点 URL", "模型", "凭据", "润色提示词"),
     TYPING("TypingPage", "输入", HostDeepLink.TAB_SETTINGS,

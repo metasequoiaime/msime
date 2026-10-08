@@ -30,6 +30,7 @@ export function AppearanceCandidatePreview({
   revision = 0,
   mobile = false,
   reserve,
+  brand = true,
 }: {
   preferences: Preferences;
   scan?: () => Promise<SkinCatalog>;
@@ -42,6 +43,8 @@ export function AppearanceCandidatePreview({
   mobile?: boolean;
   /** 设置页按能切换的最高排布预留预览高度，见 `ReservedCandidatePreview`；不传就随样例伸缩。 */
   reserve?: PreviewReserve;
+  /** 内置样式的预览里画不画水杉 logo，见 `SkinCandidatePreview` 的同名参数。 */
+  brand?: boolean;
 }) {
   const preferences = useResolvedCandidateFonts(
     storedPreferences,
@@ -92,6 +95,7 @@ export function AppearanceCandidatePreview({
               count={preferences.candidate_page_size}
               preedit={preferences.candidate_preedit_style !== "empty"}
               helpcode={helpcode}
+              brand={brand}
             />
           </SkinPreviewStage>
         </SkinPreviewSurface>

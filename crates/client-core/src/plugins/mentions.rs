@@ -6,7 +6,10 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+#[cfg(unix)]
+use std::ffi::OsStr;
 use std::fs;
+#[cfg(not(unix))]
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -105,7 +108,7 @@ impl MentionStore {
             return Err(MentionError::Storage);
         }
         let bytes = crate::bounded_io::read_bounded_file(
-            crate::storage::open_private_file(&path)?,
+            crate::storage::open_private_file_in(&path)?,
             MAX_DOCUMENT_BYTES,
             || MentionError::Format,
         )?;
@@ -136,13 +139,22 @@ impl MentionStore {
         if bytes.len() as u64 > MAX_DOCUMENT_BYTES {
             return Err(MentionError::Invalid("名单太大".into()));
         }
-        let mut temporary = tempfile::NamedTempFile::new_in(&self.directory)?;
-        temporary.write_all(&bytes)?;
-        temporary.as_file().sync_all()?;
-        temporary
-            .persist(self.path())
-            .map_err(|error| error.error)?;
-        Ok(())
+        #[cfg(unix)]
+        {
+            let directory = crate::storage::open_private_directory(&self.directory)?;
+            crate::storage::write_private_file_at(&directory, OsStr::new(DOCUMENT), &bytes)?;
+            Ok(())
+        }
+        #[cfg(not(unix))]
+        {
+            let mut temporary = tempfile::NamedTempFile::new_in(&self.directory)?;
+            temporary.write_all(&bytes)?;
+            temporary.as_file().sync_all()?;
+            temporary
+                .persist(self.path())
+                .map_err(|error| error.error)?;
+            Ok(())
+        }
     }
 }
 

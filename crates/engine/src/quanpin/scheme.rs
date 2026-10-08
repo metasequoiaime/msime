@@ -5,6 +5,14 @@ use crate::pinyin::segment::{cut_pinyin_by_mode, join_segments, CutMode};
 use crate::shuangpin::query::{apply_segmentation_cases, remove_manual_delimiters};
 use crate::types::{QueryRequest, SchemeKey, SchemeType};
 
+fn replace_string(target: &mut String, source: String) {
+    if target.capacity() == 0 {
+        *target = source;
+    } else {
+        target.clone_from(&source);
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct QuanpinScheme {
     raw: String,
@@ -43,14 +51,22 @@ impl QuanpinScheme {
 
     /// The correction-mode request (QS:142-155).
     pub fn build_request(&self) -> QueryRequest {
-        let mut request = QueryRequest {
-            scheme: SchemeType::Quanpin,
-            raw_input: self.raw.to_ascii_lowercase(),
-            raw_input_with_cases: self.raw.clone(),
-            ..QueryRequest::default()
-        };
-        Self::apply_segmentation(&mut request, CutMode::Correction);
+        let mut request = QueryRequest::default();
+        self.build_request_into(&mut request);
         request
+    }
+
+    /// 将全拼请求写入已有存储，避免逐键刷新重复分配按键和切分字符串。
+    pub fn build_request_into(&self, request: &mut QueryRequest) {
+        request.scheme = SchemeType::Quanpin;
+        request.raw_input.clear();
+        request.raw_input.extend(
+            self.raw
+                .bytes()
+                .map(|byte| char::from(byte.to_ascii_lowercase())),
+        );
+        request.raw_input_with_cases.clone_from(&self.raw);
+        Self::apply_segmentation(request, CutMode::Correction);
     }
 
     /// The raw letters, case kept.
@@ -76,8 +92,10 @@ impl QuanpinScheme {
         let normalized_source =
             strip_active_helpcodes(&request.raw_input, &request.raw_input_with_cases);
 
-        request.normalized_input = remove_manual_delimiters(&normalized_source);
-        request.normalized_segmentation = if request.normalized_input.is_empty() {
+        let normalized_input = remove_manual_delimiters(&normalized_source);
+        let normalized_input_is_empty = normalized_input.is_empty();
+        replace_string(&mut request.normalized_input, normalized_input);
+        let normalized_segmentation = if normalized_input_is_empty {
             String::new()
         } else {
             cut_pinyin_by_mode(&normalized_source, mode)
@@ -85,8 +103,13 @@ impl QuanpinScheme {
                 .map(|segments| join_segments(segments))
                 .unwrap_or_default()
         };
-        if request.normalized_segmentation.is_empty() {
-            request.normalized_segmentation = normalized_source;
+        if normalized_segmentation.is_empty() {
+            replace_string(&mut request.normalized_segmentation, normalized_source);
+        } else {
+            replace_string(
+                &mut request.normalized_segmentation,
+                normalized_segmentation,
+            );
         }
 
         let cased = &request.raw_input_with_cases;
@@ -104,9 +127,11 @@ impl QuanpinScheme {
             raw_segmentation.push('\'');
             raw_segmentation.push_str(&cased[cased.len() - helpcode_length..]);
         }
-        request.raw_segmentation = raw_segmentation;
-        request.segmentation = request.normalized_segmentation.clone();
-        request.valid = !request.normalized_input.is_empty();
+        replace_string(&mut request.raw_segmentation, raw_segmentation);
+        request
+            .segmentation
+            .clone_from(&request.normalized_segmentation);
+        request.valid = !normalized_input_is_empty;
     }
 
     /// Re-cut literally (greedy); what autocorrect suppression does to a request.

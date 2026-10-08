@@ -6398,7 +6398,7 @@ static BOOL MSIMESentenceCandidateText(NSString *text) {
     id preedit = [_view[@"preedit"] isKindOfClass:NSString.class] ? _view[@"preedit"] : editing;
     if ([_view[@"candidates"] count]) {
         // The card's top row: the brand mark, the reading when it is shown, and the page indicator whenever there is more than one page.
-        CGFloat header = pageCount > 1 || MSIMECandidateLogoImage() ? MSIMECandidateHeaderHeight * scale : 0;
+        CGFloat header = pageCount > 1 || (_appearance.showsAppLogo && MSIMECandidateLogoImage()) ? MSIMECandidateHeaderHeight * scale : 0;
         if (_appearance.showsCandidatePreedit && [preedit length]) {
             NSFont *preeditFont = MSIMECandidatePreeditFont(_appearance);
             header = MAX(header, MAX(22.0 * scale, MSIMECandidateTextHeight(preedit, preeditFont) + 6.0 * scale));
@@ -6474,8 +6474,8 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
     MSIMEStrictUnsignedIntegerValue(_view[@"page"], &page);
     MSIMEStrictUnsignedIntegerValue(_view[@"page_count"], &pageCount);
     const BOOL paging = pageCount > 1;
-    // The top row leads with the brand mark, as the floating toolbar and the mode HUD do, then the reading; 「1 / 3」 with ‹ › sit on the right.
-    NSImage *logo = MSIMECandidateLogoImage();
+    // 首行打头是水杉 logo（悬浮工具栏和中英提示也是），然后是拼音；「1 / 3」和 ‹ › 在右侧。logo 按 `show_app_logo` 显示，隐藏时拼音顶到左边，没有拼音也只有一页时首行不占高度。
+    NSImage *logo = _appearance.showsAppLogo ? MSIMECandidateLogoImage() : nil;
     const CGFloat logoSide = MSIMECandidateLogoSide * scale;
     const CGFloat logoWidth = logo ? logoSide + MSIMECandidateLogoGap * scale : 0;
     const CGFloat headerRow = MSIMECandidateHeaderHeight * scale;

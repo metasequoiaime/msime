@@ -6921,6 +6921,48 @@ test("the page number switch saves show_candidate_page_number", async () => {
   );
 });
 
+test("the app logo row needs a host that hides the logo", async () => {
+  render(
+    <SettingsPage
+      initialPage="appearance"
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        host: testHost({ platform: "windows", candidate_font_controls: true }),
+      }}
+    />,
+  );
+  await settingsReady();
+  const appearance = screen.getByRole("group", { name: "候选窗口" });
+  expect(within(appearance).queryByLabelText("显示水杉 logo")).toBeNull();
+});
+
+test("the app logo switch starts off and saves show_app_logo", async () => {
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
+    ...initial,
+    revision: 8,
+    preferences,
+  }));
+  render(
+    <SettingsPage
+      initialPage="appearance"
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save,
+        host: testHost({ platform: "macos" }),
+      }}
+    />,
+  );
+  await settingsReady();
+  const toggle = screen.getByLabelText("显示水杉 logo") as HTMLInputElement;
+  // 新装的文档里是关的，缺字段也按关显示。
+  expect(toggle.checked).toBe(false);
+  fireEvent.click(toggle);
+  saveSettingsNow();
+  await screen.findByText("已保存");
+  expect(save).toHaveBeenLastCalledWith(7, expect.objectContaining({ show_app_logo: true }));
+});
+
 test("中英混输 sits on the input page's 候选与联想 group, not on 标点与翻译", async () => {
   render(
     <SettingsPage

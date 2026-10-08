@@ -1108,8 +1108,11 @@ final class ImePanels {
         s.closeAiPolish();
         s.clipboardTab = CloudClipboardPanelPolicy.initialTab(
             s.clipboardTab, s.clipboardHistoryEnabled, cloudAllowed);
+        clipboardClearPending = false;
+        clipboardActionText = null;
+        endClipboardSegmentation();
         // 补读一次：键盘进程没在运行时复制的内容，监听收不到。
-        s.captureClipboard(false);
+        s.captureClipboard(ClipboardCapturePolicy.Trigger.PANEL_OPENED, false);
         renderClipboardHistory();
         ViewPolicy.show(s.clipboardScroll);
         // Fetched on every opening, whichever half is showing: the local half's 发到云剪贴板 needs to know the account is signed in with the cloud clipboard on.
@@ -1129,6 +1132,9 @@ final class ImePanels {
     void selectClipboardTab(CloudClipboardPanelPolicy.Tab tab) {
         if (tab == CloudClipboardPanelPolicy.Tab.CLOUD && !cloudClipboardAllowed()) return;
         s.clipboardTab = tab;
+        clipboardClearPending = false;
+        clipboardActionText = null;
+        endClipboardSegmentation();
         renderClipboardHistory();
     }
 
@@ -1221,30 +1227,62 @@ final class ImePanels {
         s.insertClipboardText(text);
     }
 
+    /** 顶行的「清空」点过一次、正在等用户确认；换分段、重开面板都会撤销。 */
+    private boolean clipboardClearPending;
+    /** 长按打开了操作行的那一条（共享存储以文字标识条目）；没有时为 null。 */
+    private String clipboardActionText;
+
     void renderClipboardHistory() {
         if (s.clipboardPanel == null || s.clipboardHistory == null) return;
         s.clipboardPanel.removeAllViews();
+        clipboardCardRow = null;
         KeyboardGeometry.setSymmetricPaddingDp(s.clipboardPanel, s, 8, 8);
         boolean cloudAllowed = cloudClipboardAllowed();
         if (!cloudAllowed) s.clipboardTab = CloudClipboardPanelPolicy.Tab.LOCAL;
         boolean cloud = s.clipboardTab == CloudClipboardPanelPolicy.Tab.CLOUD;
+        if (!cloud && clipboardSegments != null) {
+            renderClipboardSegmentation();
+            return;
+        }
         java.util.List<TextView> notes = new java.util.ArrayList<>(1);
         // 顶部一行小号操作：本机 / 云端分段（云端可用时）、刷新或清空；返回由工具栏的「返回键盘」负责。
         LinearLayout header = KeyboardGeometry.row(s);
         ViewPolicy.setCenteredVertically(header);
-        if (cloudAllowed) {
+        boolean confirmingClear = !cloud && s.clipboardHistoryEnabled && clipboardClearPending;
+        // 等待确认清空时顶行整行给问句和两个按钮，分段先让出位置，窄屏上也放得下。
+        if (cloudAllowed && !confirmingClear) {
             addClipboardTab(header, CloudClipboardPanelPolicy.TAB_LOCAL, CloudClipboardPanelPolicy.Tab.LOCAL);
             addClipboardTab(header, CloudClipboardPanelPolicy.TAB_CLOUD, CloudClipboardPanelPolicy.Tab.CLOUD);
         }
-        header.addView(new View(s), KeyboardGeometry.weightedZeroParams(1));
+        if (!confirmingClear) header.addView(new View(s), KeyboardGeometry.weightedZeroParams(1));
         if (cloud) {
             Button refresh = clipboardAction(header, "刷新", this::refreshCloudClipboard);
             ViewPolicy.setEnabled(refresh,
                 s.cloudClipboardStatus != CloudClipboardPanelPolicy.Status.LOADING);
             refresh.setContentDescription("刷新云剪贴板");
+        } else if (confirmingClear) {
+            // 确认画在面板顶行里，不弹对话框：对话框会让输入法进程崩掉或抢走编辑器焦点，键盘随之收起（#5605）。
+            TextView question = ViewPolicy.textLabel(s, "清空全部历史（含固定项）？", 13);
+            KeyboardGeometry.setKeyTextSize(question, 13);
+            ViewPolicy.setMaxLinesEllipsized(question, 1);
+            KeyboardGeometry.setHorizontalPaddingDp(question, s, 6);
+            header.addView(question, KeyboardGeometry.weightedZeroParams(1));
+            clipboardAction(header, "取消", () -> {
+                clipboardClearPending = false;
+                renderClipboardHistory();
+            });
+            Button confirm = clipboardAction(header, "清空", () -> {
+                clipboardClearPending = false;
+                s.clearClipboardHistory();
+            });
+            confirm.setContentDescription("确认清空剪贴板历史");
         } else if (s.clipboardHistoryEnabled) {
             // 复制会自动记录，不再需要「保存当前」。
-            clipboardAction(header, "清空", s::confirmClearClipboardHistory);
+            clipboardAction(header, "清空", () -> {
+                clipboardClearPending = true;
+                clipboardActionText = null;
+                renderClipboardHistory();
+            });
         }
         s.clipboardPanel.addView(header, KeyboardGeometry.matchWidthHeightPx(s.pixels(32)));
         if (cloud) {
@@ -1256,14 +1294,30 @@ final class ImePanels {
                 java.util.List<ClipboardHistory.Item> items = s.clipboardHistory.load();
                 if (items.isEmpty()) notes.add(clipboardNote("复制的文字会自动出现在这里，点按即可插入\n只保存在本机"));
                 long now = System.currentTimeMillis();
-                for (ClipboardHistory.Item item : items) {
+                int columns = s.clipboardColumns;
+                ClipboardHistory.Item actionItem = null;
+                for (int index = 0; index < items.size(); index++) {
+                    ClipboardHistory.Item item = items.get(index);
                     String meta = (item.pinned() ? "已置顶 · " : "") + "本机 · " + relativeTime(item.timestamp(), now);
-                    Button card = clipboardCard(item.text(), meta, () -> s.insertClipboardText(item.text()));
+                    boolean managed = item.text().equals(clipboardActionText);
+                    Button card = clipboardCard(index, items.size(), item.text(), meta, managed,
+                        () -> s.insertClipboardText(item.text()));
                     card.setContentDescription((item.pinned() ? "已置顶；" : "") + "点按插入剪贴板记录，长按管理");
                     card.setOnLongClickListener(ignored -> {
-                        s.manageClipboardItem(card, item);
+                        s.imeKeyFeedback.playFeedback(card);
+                        clipboardActionText = item.text();
+                        clipboardClearPending = false;
+                        renderClipboardHistory();
                         return true;
                     });
+                    if (managed) actionItem = item;
+                    // 操作行放在这条所在那一行的下面：双列时跨在两条下方，不插进两条中间。
+                    boolean rowEnds = index == items.size() - 1
+                        || ClipboardLayoutPolicy.row(index + 1, columns) != ClipboardLayoutPolicy.row(index, columns);
+                    if (rowEnds && actionItem != null) {
+                        renderClipboardItemActions(actionItem, cloudAllowed);
+                        actionItem = null;
+                    }
                 }
             } catch (IllegalStateException error) {
                 notes.add(clipboardNote("历史记录无法读取，请清空后重试"));
@@ -1271,6 +1325,191 @@ final class ImePanels {
         }
         s.imeStyler.applySkin();
         for (TextView note : notes) ViewPolicy.setTextColor(note, ImeStyler.fade(s.skin.keyForeground(), .6));
+    }
+
+    /**
+     * 长按一条历史后，紧贴在它下方的一行操作。
+     *
+     * <p>原来是 `PopupMenu`：弹出菜单是可获得焦点的窗口，打开时编辑器的窗口失去焦点，在 Via 这类用系统 WebView 的浏览器里键盘随即被收起（#5653）。画在面板里的按钮不会碰窗口焦点。
+     */
+    private void renderClipboardItemActions(ClipboardHistory.Item item, boolean cloudAllowed) {
+        LinearLayout row = KeyboardGeometry.row(s);
+        ViewPolicy.setCenteredVertically(row);
+        row.setContentDescription("剪贴板记录操作");
+        clipboardItemAction(row, item.pinned() ? "取消固定" : "固定", () -> {
+            clipboardActionText = null;
+            s.setClipboardItemPinned(item);
+        });
+        clipboardItemAction(row, "删除", () -> {
+            clipboardActionText = null;
+            s.removeClipboardItem(item);
+        });
+        clipboardItemAction(row, "分词", () -> startClipboardSegmentation(item.text()));
+        // 只要有云端分段就提供这个操作，让用户发现得了；只有这次打开面板的拉取确认账号已登录且开着云剪贴板时它才真正执行。
+        if (cloudAllowed) {
+            Button upload = clipboardItemAction(row, CloudClipboardPanelPolicy.UPLOAD_ACTION, () -> {
+                clipboardActionText = null;
+                renderClipboardHistory();
+                uploadClipboardText(item.text());
+            });
+            ViewPolicy.setEnabledWithAlpha(upload, CloudClipboardPanelPolicy.canUpload(
+                cloudAllowed, s.cloudClipboardStatus, item.text()), .45f);
+        }
+        clipboardItemAction(row, "收起", () -> {
+            clipboardActionText = null;
+            renderClipboardHistory();
+        });
+        LinearLayout.LayoutParams params = KeyboardGeometry.matchWidthHeightPx(s.pixels(38));
+        params.topMargin = s.pixels(4);
+        s.clipboardPanel.addView(row, params);
+    }
+
+    /** 正在分词的那一条切出的片段；没有在分词时为 null。 */
+    private java.util.List<ClipboardSegmentation.Segment> clipboardSegments;
+    /** 与 {@link #clipboardSegments} 一一对应的选中状态。 */
+    private boolean[] clipboardSegmentSelected;
+    private boolean clipboardSegmentsTruncated;
+    private TextView clipboardSegmentStatus;
+    private Button clipboardSegmentSelectAll;
+    private Button clipboardSegmentConfirm;
+
+    /** 长按菜单里的「分词」：把这一条切成词片，面板换成点选界面（#5645）。 */
+    private void startClipboardSegmentation(String text) {
+        clipboardActionText = null;
+        clipboardClearPending = false;
+        clipboardSegments = ClipboardSegmentation.segment(text,
+            java.text.BreakIterator.getWordInstance(java.util.Locale.CHINESE));
+        clipboardSegmentSelected = new boolean[clipboardSegments.size()];
+        clipboardSegmentsTruncated = ClipboardSegmentation.truncated(text);
+        renderClipboardHistory();
+        if (s.clipboardScroll != null) s.clipboardScroll.scrollTo(0, 0);
+    }
+
+    private void endClipboardSegmentation() {
+        clipboardSegments = null;
+        clipboardSegmentSelected = null;
+        clipboardSegmentsTruncated = false;
+        clipboardSegmentStatus = null;
+        clipboardSegmentSelectAll = null;
+        clipboardSegmentConfirm = null;
+    }
+
+    /**
+     * 分词界面：上面是按行折排的词片，点一下选中、再点取消；底部固定一行「取消 · 已选几个 · 全选 · 插入」。插入时按原文顺序拼接选中的词片（{@link ClipboardSegmentation#join}），上屏并关闭面板；原来那条历史不变。
+     *
+     * <p>词片放在面板里自己的滚动区，操作行在滚动区外、贴着面板底边：原先操作行是面板的第一行，跟着词片一起滚，长文字滚到末尾去「去尾」时「插入」「取消」已经滚出屏幕（#5645）。外层的剪贴板滚动视图开着 fillViewport，会把面板撑到正好一屏高；滚动区的高度基数给 1 px 而不是 0：外层第一次按不限高度测量时，高度为 0 的加权子视图会按全部词片的高度报上去，面板就比一屏高，操作行又被推到屏幕外。给了固定基数，面板先报一个很小的高度，外层再按一屏高精确测量，剩下的高度全部分给滚动区。面板于是不比一屏高，外层滚不动、也不拦截触摸，滑动交给词片的滚动区。
+     */
+    private void renderClipboardSegmentation() {
+        java.util.List<TextView> notes = new java.util.ArrayList<>(1);
+        LinearLayout content = KeyboardGeometry.column(s);
+        if (clipboardSegmentsTruncated) {
+            TextView note = centeredNote("这条记录很长，只对开头 " + ClipboardSegmentation.MAX_CHARS + " 个字分词", 13);
+            KeyboardGeometry.setSymmetricPaddingDp(note, s, 12, 20);
+            content.addView(note, KeyboardGeometry.matchWidthWrapParams());
+            notes.add(note);
+        }
+        WrapRowLayout words = new WrapRowLayout(s, s.pixels(6), s.pixels(6));
+        words.setContentDescription("分词结果，点按选择要插入的词");
+        for (int index = 0; index < clipboardSegments.size(); index++) {
+            ClipboardSegmentation.Segment segment = clipboardSegments.get(index);
+            if (segment.separator()) continue;
+            words.addView(clipboardSegmentButton(segment.text(), index));
+        }
+        content.addView(words, KeyboardGeometry.matchWidthWrapParams());
+        ScrollView wordScroll = new ScrollView(s);
+        wordScroll.addView(content, KeyboardGeometry.scrollMatchWidthWrapParams());
+        LinearLayout.LayoutParams scrollParams = KeyboardGeometry.linearParamsPx(
+            LinearLayout.LayoutParams.MATCH_PARENT, 1);
+        scrollParams.weight = 1;
+        s.clipboardPanel.addView(wordScroll, scrollParams);
+        LinearLayout bar = KeyboardGeometry.row(s);
+        ViewPolicy.setCenteredVertically(bar);
+        clipboardAction(bar, "取消", () -> {
+            endClipboardSegmentation();
+            renderClipboardHistory();
+        }).setContentDescription("取消分词，回到剪贴板历史");
+        clipboardSegmentStatus = ViewPolicy.textLabel(s, "", 13);
+        KeyboardGeometry.setKeyTextSize(clipboardSegmentStatus, 13);
+        ViewPolicy.setMaxLinesEllipsized(clipboardSegmentStatus, 1);
+        KeyboardGeometry.setHorizontalPaddingDp(clipboardSegmentStatus, s, 6);
+        bar.addView(clipboardSegmentStatus, KeyboardGeometry.weightedZeroParams(1));
+        clipboardSegmentSelectAll = clipboardAction(bar, "全选", () -> {
+            boolean select = !allSegmentsSelected();
+            for (int index = 0; index < clipboardSegmentSelected.length; index++)
+                clipboardSegmentSelected[index] = select;
+            renderClipboardHistory();
+        });
+        clipboardSegmentConfirm = clipboardAction(bar, "插入", () -> {
+            String text = ClipboardSegmentation.join(clipboardSegments, clipboardSegmentSelected);
+            endClipboardSegmentation();
+            s.insertClipboardText(text);
+        });
+        clipboardSegmentConfirm.setContentDescription("插入选中的词");
+        LinearLayout.LayoutParams barParams = KeyboardGeometry.matchWidthHeightPx(s.pixels(32));
+        barParams.topMargin = s.pixels(6);
+        s.clipboardPanel.addView(bar, barParams);
+        s.imeStyler.applySkin();
+        for (TextView note : notes) ViewPolicy.setTextColor(note, ImeStyler.fade(s.skin.keyForeground(), .6));
+        refreshClipboardSegmentControls();
+    }
+
+    private Button clipboardSegmentButton(String text, int index) {
+        KeyboardPressButton button = ViewPolicy.newPressButton(s);
+        button.setKeyboardRole(KeyboardKeyRole.KEY);
+        ViewPolicy.setAllCapsFalse(button);
+        button.setText(text);
+        ViewPolicy.setTextSizeSp(button, 15);
+        KeyboardGeometry.setSymmetricPaddingDp(button, s, 10, 6);
+        ViewPolicy.clearMinimumSize(button);
+        ViewPolicy.clearStateListAnimator(button);
+        // 不能直接用词片文字做描述：换肤遍历按描述前缀「候选 」「按键 」识别候选和按键。
+        button.setContentDescription("词片 " + text);
+        setSegmentSelected(button, clipboardSegmentSelected[index]);
+        bindFeedbackAction(button, () -> {
+            if (clipboardSegmentSelected == null) return;
+            clipboardSegmentSelected[index] = !clipboardSegmentSelected[index];
+            setSegmentSelected(button, clipboardSegmentSelected[index]);
+            // 只重画这一片和底部的操作行，不重排整个面板，长文字滚到中间时位置不跳。
+            s.imeStyler.styleButton(button, KeyboardKeyRole.KEY, s.skin);
+            refreshClipboardSegmentControls();
+        });
+        return button;
+    }
+
+    private static void setSegmentSelected(Button button, boolean selected) {
+        ViewPolicy.setSelected(button, selected);
+        if (Build.VERSION.SDK_INT >= 30) button.setStateDescription(selected ? "已选中" : "未选中");
+    }
+
+    private boolean allSegmentsSelected() {
+        for (int index = 0; index < clipboardSegments.size(); index++)
+            if (!clipboardSegments.get(index).separator() && !clipboardSegmentSelected[index]) return false;
+        return true;
+    }
+
+    private void refreshClipboardSegmentControls() {
+        if (clipboardSegments == null || clipboardSegmentStatus == null) return;
+        int chosen = 0;
+        for (int index = 0; index < clipboardSegments.size(); index++)
+            if (!clipboardSegments.get(index).separator() && clipboardSegmentSelected[index]) chosen++;
+        clipboardSegmentStatus.setText(chosen == 0 ? "点选要插入的词" : "已选 " + chosen + " 个");
+        boolean all = chosen > 0 && allSegmentsSelected();
+        clipboardSegmentSelectAll.setText(all ? "全不选" : "全选");
+        ViewPolicy.setEnabledWithAlpha(clipboardSegmentConfirm, chosen > 0, .45f);
+    }
+
+    /** 操作行里的一个按钮：键帽样式，宽度按字数分，长的「发到云剪贴板」不会被挤成省略号。 */
+    private Button clipboardItemAction(LinearLayout row, String label, Runnable action) {
+        Button button = MSIMEInputService.role(s.button(row, label, action), KeyboardKeyRole.KEY);
+        ViewPolicy.setTextSizeSp(button, 13);
+        compactReplyControl(button, s.pixels(4));
+        ViewPolicy.setMaxLinesEllipsized(button, 1);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+            0, LinearLayout.LayoutParams.MATCH_PARENT, Math.max(2, label.length()));
+        params.setMarginStart(s.pixels(3));
+        params.setMarginEnd(s.pixels(3));
+        button.setLayoutParams(params);
+        return button;
     }
 
     private Button clipboardAction(LinearLayout header, String label, Runnable action) {
@@ -1295,8 +1534,16 @@ final class ImePanels {
         return note;
     }
 
-    /** 剪贴板卡片：键帽色圆角卡，第一行是文字（最多两行），第二行是『已置顶 · 设备 · 时间』，元信息用次要色的小号字（经 span，换肤遍历刷字色时不受影响）。 */
-    private Button clipboardCard(String text, String meta, Runnable action) {
+    /** 双列时正在填的那一行；每次渲染从第 0 条起重新建。 */
+    private LinearLayout clipboardCardRow;
+
+    /**
+     * 剪贴板卡片：键帽色圆角卡，第一行是文字（最多两行），第二行是『已置顶 · 设备 · 时间』，元信息用次要色的小号字（经 span，换肤遍历刷字色时不受影响）。
+     *
+     * <p>`index`/`count` 决定它排在哪：单列时一条一行；双列（本地设置 `platform.android.clipboard_columns`，#5642）时两条一行等宽，最后一行只有一条时右边留空，不把它拉满整行。`selected` 的卡片（长按打开了操作行的那条）画成选中样式，元信息不再用次要色，免得压在强调色上看不清。
+     */
+    private Button clipboardCard(int index, int count, String text, String meta, boolean selected,
+            Runnable action) {
         KeyboardPressButton card = ViewPolicy.newPressButton(s);
         card.setKeyboardRole(KeyboardKeyRole.KEY);
         android.text.SpannableStringBuilder label = new android.text.SpannableStringBuilder(text);
@@ -1306,9 +1553,11 @@ final class ImePanels {
             label.append(meta);
             label.setSpan(new android.text.style.RelativeSizeSpan(.8f), start, label.length(),
                 android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            label.setSpan(new android.text.style.ForegroundColorSpan(Color.parseColor(s.skin.secondary())),
+            if (!selected) label.setSpan(new android.text.style.ForegroundColorSpan(
+                    Color.parseColor(s.skin.secondary())),
                 start, label.length(), android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         }
+        ViewPolicy.setSelected(card, selected);
         card.setText(label);
         ViewPolicy.setStartCenteredTextSizeSp(card, 15);
         ViewPolicy.setMaxLinesEllipsized(card, 3);
@@ -1316,10 +1565,37 @@ final class ImePanels {
         ViewPolicy.clearMinimumHeight(card);
         ViewPolicy.clearStateListAnimator(card);
         bindFeedbackAction(card, action);
-        LinearLayout.LayoutParams params = KeyboardGeometry.matchWidthWrapParams();
-        params.topMargin = s.pixels(6);
-        s.clipboardPanel.addView(card, params);
+        int columns = s.clipboardColumns;
+        if (columns <= 1) {
+            LinearLayout.LayoutParams params = KeyboardGeometry.matchWidthWrapParams();
+            params.topMargin = s.pixels(6);
+            s.clipboardPanel.addView(card, params);
+            return card;
+        }
+        int column = index % columns;
+        if (column == 0 || clipboardCardRow == null) {
+            clipboardCardRow = KeyboardGeometry.row(s);
+            LinearLayout.LayoutParams rowParams = KeyboardGeometry.matchWidthWrapParams();
+            rowParams.topMargin = s.pixels(6);
+            s.clipboardPanel.addView(clipboardCardRow, rowParams);
+        }
+        clipboardCardRow.addView(card, clipboardCellParams(column));
+        boolean lastInRow = index == count - 1
+            || ClipboardLayoutPolicy.row(index + 1, columns) != ClipboardLayoutPolicy.row(index, columns);
+        if (lastInRow) {
+            for (int empty = column + 1; empty < columns; empty++)
+                clipboardCardRow.addView(new View(s), clipboardCellParams(empty));
+            clipboardCardRow = null;
+        }
         return card;
+    }
+
+    /** 双列里的一格：等宽、与同一行的另一条同高，两格之间留 6 dp。 */
+    private LinearLayout.LayoutParams clipboardCellParams(int column) {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+            0, LinearLayout.LayoutParams.MATCH_PARENT, 1);
+        if (column > 0) params.setMarginStart(s.pixels(6));
+        return params;
     }
 
     /** 「刚刚 / N 分钟前 / N 小时前 / N 天前」；时间戳早于 2001 年的按秒解读。 */
@@ -1359,8 +1635,11 @@ final class ImePanels {
             return;
         }
         long now = System.currentTimeMillis();
-        for (BackendAccount.ClipboardItem item : s.cloudClipboardItems) {
-            Button card = clipboardCard(item.text(), "云端 · " + relativeTime(item.updatedAt(), now),
+        int count = s.cloudClipboardItems.size();
+        for (int index = 0; index < count; index++) {
+            BackendAccount.ClipboardItem item = s.cloudClipboardItems.get(index);
+            Button card = clipboardCard(index, count, item.text(),
+                "云端 · " + relativeTime(item.updatedAt(), now), false,
                 () -> insertCloudClipboardText(item.text()));
             card.setContentDescription("点按插入云剪贴板记录");
         }
