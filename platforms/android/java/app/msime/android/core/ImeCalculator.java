@@ -24,9 +24,10 @@ final class ImeCalculator {
             ViewPolicy.setAllCapsFalse(button);
             ViewPolicy.setSingleLineEllipsized(button);
             KeyboardGeometry.setKeyTextSize(button, 15);
-            KeyboardGeometry.setHorizontalPaddingDp(button, s, 12);
+            KeyboardGeometry.setHorizontalPaddingDp(button, s, 8);
             ViewPolicy.clearMinimumHeight(button);
-            button.setMaxWidth(s.pixels(160));
+            // 工具栏七个键各至少 40 dp，加起来约 294 dp；胶囊再宽就把最右边的「收起」挤出 393 dp 宽的屏幕。长结果在胶囊里截断显示，点按上屏的仍是完整结果，无障碍描述也读完整结果。
+            button.setMaxWidth(s.pixels(96));
             ViewPolicy.bindClick(button, () -> {
                 s.imeKeyFeedback.playFeedback(button);
                 commit();
