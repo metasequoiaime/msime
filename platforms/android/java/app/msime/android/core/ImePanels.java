@@ -386,8 +386,8 @@ final class ImePanels {
         JSONObject preferences = s.preferencesSnapshot == null ? null
             : s.preferencesSnapshot.optJSONObject("preferences");
         boolean hostDark = KeyboardSkin.resolveDark(
-            preferences == null ? "follow" : preferences.optString("screen_keyboard_theme", "follow"),
-            preferences == null ? "system" : preferences.optString("theme", "system"), s.systemDark());
+            InputViewValuePolicy.textOr(preferences, "screen_keyboard_theme", "follow"),
+            InputViewValuePolicy.textOr(preferences, "theme", "system"), s.systemDark());
         JSONArray themes = s.themeCatalog();
         int generation = ++skinRenderGeneration;
         renderSkinPickerLoaded(preferences, hostDark, themes, java.util.List.of(), java.util.List.of());
@@ -456,7 +456,7 @@ final class ImePanels {
         }
         choices.removeIf(choice -> "custom".equals(choice.id()) && choice.design() == null
             && namedKeys.contains(choice.skin().key()));
-        String globalTheme = preferences == null ? "system" : preferences.optString("global_theme", "system");
+        String globalTheme = InputViewValuePolicy.textOr(preferences, "global_theme", "system");
         PagedTileGrid grid = new PagedTileGrid(s);
         grid.setGrid(4, 2);
         // 行高容下按 390:292 的迷你键盘（约 86 dp 宽时 65 dp 高）、描边和下方的名字；行距、列距取设计的 6 / 10。
