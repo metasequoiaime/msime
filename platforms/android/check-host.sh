@@ -567,6 +567,15 @@ if ! rg -q 'bindInputMethodPicker\(languageButton\)' "$account_service" \
   echo "Android 中/英 keys must open the system input method picker on long press" >&2
   exit 1
 fi
+# 删除键上滑快速删除（#5585）：判定只在 BackspaceSwipePolicy，键的触摸监听按它决定松手是否清空，清空经服务的 deleteAllBeforeCursor 分段删除；连删的间隔按 BackspaceRepeatPolicy 逐级加速，不能写回固定间隔。
+letter_rows="$repo_root/platforms/android/java/app/msime/android/core/ImeLetterRows.java"
+if ! rg -q 'BackspaceSwipePolicy\.clearsOnRelease\(backspaceSwipePhase\)' "$letter_rows" \
+  || ! rg -q 'BackspaceRepeatPolicy\.repeatInterval\(repeats\)' "$letter_rows" \
+  || rg -q 'BackspaceRepeatPolicy\.REPEAT_INTERVAL_MS' "$letter_rows" \
+  || ! rg -q 'BackspaceSwipePolicy\.clearBeforeCursor' "$account_service"; then
+  echo "Android delete keys must accelerate and offer the quick-delete swipe through the shared policies" >&2
+  exit 1
+fi
 # The JNI translation unit is the one place a Java declaration and a shared FFI signature have to agree, and nothing else in this script reads it: a method declared native in Java compiles whether or not the C++ side exists. Compiling it for the real target catches that without the full native build, which needs vcpkg, the Rust Android targets and the pinned speech runtime. A machine without the pinned NDK skips it and says so.
 ndk=${MSIME_ANDROID_NDK:-${android_sdk}/ndk/28.2.13676358}
 case $(uname -s) in
@@ -683,9 +692,9 @@ while IFS= read -r source; do
   class=$(basename "$source" .java)
   smoke_classes+=("${package:+$package.}$class")
 done < <(find "$repo_root/platforms/android/tests" -name "*.java" -print | LC_ALL=C sort)
-# 下限就是当前发现的冒烟数（159）；少于这个数说明上面的筛选或 package 解析坏了，而不是冒烟真的变少了。新增冒烟时把这个数一起调高，有意删掉冒烟时同时调低。
-if [[ ${#smoke_classes[@]} -lt 159 ]]; then
-  echo "Only ${#smoke_classes[@]} Android JVM smokes discovered; expected at least 159" >&2
+# 下限就是当前发现的冒烟数（161）；少于这个数说明上面的筛选或 package 解析坏了，而不是冒烟真的变少了。新增冒烟时把这个数一起调高，有意删掉冒烟时同时调低。
+if [[ ${#smoke_classes[@]} -lt 161 ]]; then
+  echo "Only ${#smoke_classes[@]} Android JVM smokes discovered; expected at least 161" >&2
   exit 1
 fi
 javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \

@@ -307,6 +307,8 @@ public final class MSIMEInputService extends InputMethodService {
     String actionRowSignature = "";
     boolean brandPillVisible;
     JapaneseFlickPreview japaneseFlickPreview;
+    /** 删除键上滑时弹出的「快速删除」框，见 {@link BackspaceSwipePolicy}。 */
+    QuickDeleteOverlay quickDeleteOverlay;
     LinearLayout shortcutBar;
     HorizontalScrollView shortcutScroll;
     final java.util.List<Button> symbolKeyButtons = new java.util.ArrayList<>(30);
@@ -5769,6 +5771,34 @@ public final class MSIMEInputService extends InputMethodService {
         showHandwritingStatus("在此手写，停笔后选字");
     }
 
+    /**
+     * 删除键上滑「快速删除」后松手（#5585）：先清掉手写墨迹、丢掉组字，再删掉选中的文字和光标前的全部文字。光标后的文字不动。读到的文字只用来确定每轮删多长，不保存、不记录。
+     */
+    void deleteAllBeforeCursor() {
+        if (handwritingCanvas != null && handwritingCanvas.hasInk()) clearHandwriting();
+        if (hasEngineComposition()) discardComposition();
+        InputConnection target = connection;
+        if (target == null) return;
+        selectionEcho.invalidate();
+        CharSequence selected = target.getSelectedText(0);
+        if (selected != null && selected.length() > 0) target.commitText("", 1);
+        BackspaceSwipePolicy.clearBeforeCursor(new BackspaceSwipePolicy.Editor() {
+            @Override public CharSequence textBeforeCursor(int length) {
+                return target.getTextBeforeCursor(length, 0);
+            }
+
+            @Override public boolean deleteBeforeCursor(int length) {
+                return target.deleteSurroundingText(length, 0);
+            }
+        });
+        if (directEnglishActive()) {
+            clearEnglishSuggestions();
+            refreshEnglishSuggestions();
+        }
+        updateAutomaticCapitalization();
+        render();
+    }
+
     void deleteFromHandwriting() {
         if (handwritingCanvas != null && handwritingCanvas.hasInk()) {
             handwritingCanvas.undo();
@@ -5969,6 +5999,9 @@ public final class MSIMEInputService extends InputMethodService {
         keyboardSurface.addView(keyboard, KeyboardGeometry.frameMatchParentParams());
         japaneseFlickPreview = new JapaneseFlickPreview(this);
         keyboardSurface.addView(japaneseFlickPreview, KeyboardGeometry.frameMatchParentParams());
+        quickDeleteOverlay = new QuickDeleteOverlay(this);
+        keyboardSurface.addView(quickDeleteOverlay, KeyboardGeometry.frameMatchParentParams());
+        surface.fullBleed.add(quickDeleteOverlay);
         // 按键气泡的覆盖层：盖在整个键盘上、初始为空，空的 FrameLayout 不拦截触摸，由 ImeLetterRows 持有。
         surface.fullBleed.add(japaneseFlickPreview);
         imeLetterRows.keyPreviewLayer = new FrameLayout(this);

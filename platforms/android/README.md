@@ -66,6 +66,8 @@ Java/Kotlin 宿主按 `java/app/msime/android/<feature>/` 分为 `account`、`ca
 
 长按「中/英」键弹出系统的输入法选择框（`InputMethodManager.showInputMethodPicker`），用来临时换到密码管理器之类的键盘（#5615）；日语九键侧列的「英」、以及只在 Android 9 以下才出现的地球键「切换」长按效果相同，读屏把这个长按动作念作「切换输入法」。密码框等没有引擎会话的输入框里点按「中/英」不起作用，但这个键保持可用，否则禁用的按钮收不到长按，恰好是最需要换键盘的密码框里打不开选择框。弹出选择框时不结束组字，真的换了输入法时由 `onFinishInput` 照常收尾。
 
+删除键（26 键、九键、注音、笔画、手写等所有经 `ImeLetterRows.bindBackspaceRepeat` 绑定的退格）按下立即删一次，按住 420 ms 后开始连删并逐级加速：前 8 次每 70 ms，接下来 12 次每 45 ms，之后每 30 ms（`BackspaceRepeatPolicy`，#5585）。按住往上滑离开键的上沿 8 dp 后停止连删，键上方弹出「快速删除」框（`QuickDeleteOverlay`）；滑到框里（通常是键上沿往上 40 dp，九键第一排的删除键上方空间不够时框缩到至少 28 dp）框换成强调色并振动一次，此时松手先清掉手写墨迹、丢掉组字和选中的文字，再删掉光标前的全部文字；待命后滑回框外再松手什么也不删。判定与分段删除在无 Android 依赖的 `BackspaceSwipePolicy` 里：每轮用 `getTextBeforeCursor` 读至多 4096 个 UTF-16 单元，只用来确定这一轮删多长，按读到的长度 `deleteSurroundingText`，最多 256 轮；读到的文字不保存、不记录。`BackspaceRepeatPolicySmoke` 与 `BackspaceSwipePolicySmoke` 验证加速时刻表、弹出/待命/取消的阈值、框的位置，以及重复文字、短读和不配合的编辑器下的删除。
+
 输入模式的默认值和记忆范围也消费共享偏好：`default_ime_mode` 决定没有历史记录时进入中文还是英文，`ime_mode_scope=app` 时按 `EditorInfo.packageName` 记住用户手动切换，`global` 时所有编辑器共享同一个手动选择。包名只作为受限键名保存，不保存编辑器文本；URI、邮箱等字段触发的临时英文覆盖不会写入记忆，离开字段后恢复切换前的模式。包名缺失或格式异常时退回默认模式。
 
 英文大小写状态继续对齐 Apple：中文态空组合点按 Shift 会先完成组合并进入英文的单次大写；单次 Shift 输入一个字母后自动回到小写，350 ms 内连续点按两次进入 Caps Lock，再次点按关闭。编辑器自动 Shift 与手动单次 Shift 使用同一三态状态机，但不会覆盖 Caps Lock；按钮以 `⇧` / `⇪`、选中态和“关闭 / 下一字母 / 自动开启 / 开启”的无障碍状态区分。切换符号层保留当前大小写，硬件 Shift 和本地模式触发使用每次事件自己的修饰状态，不污染软键盘状态；英文模式禁用中文本地输入工具。
