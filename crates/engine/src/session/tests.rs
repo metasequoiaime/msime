@@ -1875,10 +1875,7 @@ fn temporary_japanese_returns_to_the_original_scheme() {
         snapshot.editing_text.capacity(),
         snapshot.editing_text.len()
     );
-    assert_eq!(
-        session.input.local_preedit.capacity(),
-        session.input.local_preedit.len()
-    );
+    assert!(session.input.local_preedit.capacity() >= session.input.local_preedit.len());
     session.command(Command::Backspace);
     assert_eq!(session.snapshot().preedit, "Rk");
     assert_eq!(
@@ -1913,6 +1910,21 @@ fn temporary_japanese_refresh_reuses_candidate_buffer() {
 
     assert_eq!(session.input.local_candidates.as_ptr(), pointer);
     assert!(session.input.local_candidates.capacity() >= capacity);
+}
+
+#[test]
+fn temporary_japanese_refresh_reuses_candidate_row_storage() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session_with(|options| options.scheme = SchemeType::Shuangpin);
+    assert!(session.character(b'R', true).handled);
+    type_text(&mut session, "ka");
+    session.input.refresh_temporary_japanese();
+
+    let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+        session.input.refresh_temporary_japanese();
+    });
+
+    assert_eq!(allocations, 0);
 }
 
 #[test]

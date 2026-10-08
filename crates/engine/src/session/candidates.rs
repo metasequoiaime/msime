@@ -38,7 +38,7 @@ fn plain_position_context(context: &str) -> String {
     plain
 }
 
-fn clone_candidate_rows(source: &[WordItem], destination: &mut Vec<WordItem>) {
+pub(super) fn clone_candidate_rows(source: &[WordItem], destination: &mut Vec<WordItem>) {
     let common = source.len().min(destination.len());
     for (target, item) in destination.iter_mut().take(common).zip(source.iter()) {
         target.pinyin.clone_from(&item.pinyin);
