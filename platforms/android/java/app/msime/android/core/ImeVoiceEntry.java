@@ -114,7 +114,7 @@ final class ImeVoiceEntry {
         String requestId = "ime-keyboard-" + Long.toUnsignedString(SystemClock.uptimeMillis());
         VoiceConfiguration configured = VoiceConfiguration.read(s.preferencesDirectory, requestId);
         File files = s.getFilesDir();
-        String fallbackModel = voice.optString("asr_model_path", "");
+        String fallbackModel = JsonPolicy.strictStringOrEmpty(voice.opt("asr_model_path"));
         boolean fallbackInstalled = files != null && LocalAsrPolicy.usable(LocalAsrPolicy.PROVIDER, fallbackModel)
             && LocalAsrPolicy.installed(fallbackModel, files.toPath());
         boolean localConfigured = configured.localModel() != null;
@@ -127,7 +127,8 @@ final class ImeVoiceEntry {
         if (engine == null) return false;
         String model = localConfigured ? configured.localModel() : fallbackModel;
         String provider = engine == Engine.LOCAL ? LocalAsrPolicy.PROVIDER : DoubaoAsrPolicy.PROVIDER;
-        String language = voice.optString("language", "zh-CN");
+        String rawLanguage = JsonPolicy.strictString(voice.opt("language"));
+        final String language = rawLanguage == null ? "zh-CN" : rawLanguage;
         boolean contribute = s.localSettings.bool(AndroidLocalSettings.VOICE_CONTRIBUTE_AUDIO) && s.imePrivacyGate.contributesVoice()
             && !EditorPolicy.password(s.editorInputType);
         // 记下开始聆听时的输入位置；结果出来时位置变了就不直接上屏。
