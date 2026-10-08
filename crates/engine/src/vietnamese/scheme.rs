@@ -99,6 +99,10 @@ impl VietnameseScheme {
             display.push_str(&self.raw);
             return;
         }
+        if self.raw.bytes().all(|byte| !byte.is_ascii_uppercase()) {
+            self.transform_into(&self.raw, display);
+            return;
+        }
         let lower = self.transform(&self.raw.to_lowercase());
         let cased = self.transform(&self.raw);
         // vi 0.8.0 places tones wrongly on uppercase input, so the letters come from the lowercase run and only the case per position from the cased one. When the two runs disagree on length the positions cannot be matched, and the cased run is the only one that kept the case.
@@ -162,6 +166,12 @@ impl VietnameseScheme {
     }
 
     fn transform(&self, keys: &str) -> String {
+        let mut output = String::new();
+        self.transform_into(keys, &mut output);
+        output
+    }
+
+    fn transform_into(&self, keys: &str, output: &mut String) {
         let definition = match self.method {
             InputMethod::Telex => &vi::TELEX,
             InputMethod::Vni => &vi::VNI,
@@ -170,9 +180,7 @@ impl VietnameseScheme {
             ToneStyle::Modern => AccentStyle::New,
             ToneStyle::Classic => AccentStyle::Old,
         };
-        let mut output = String::new();
-        vi::transform_buffer_with_style(definition, style, keys.chars(), &mut output);
-        output
+        vi::transform_buffer_with_style(definition, style, keys.chars(), output);
     }
 }
 
@@ -232,6 +240,32 @@ mod tests {
         }
         assert_eq!(vni("viet65"), "việt");
         assert_eq!(vni("nguo72i"), "người");
+    }
+
+    #[test]
+    fn lowercase_preedit_avoids_the_case_correction_pass() {
+        for (method, keys) in [
+            (InputMethod::Telex, "tieengs"),
+            (InputMethod::Vni, "tieng61"),
+        ] {
+            for style in [ToneStyle::Modern, ToneStyle::Classic] {
+                let scheme = typed(method, style, keys);
+                let mut display = String::with_capacity(32);
+                display.push_str("stale display");
+                let pointer = display.as_ptr();
+                let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+                    scheme.preedit_into(&mut display)
+                });
+
+                assert_eq!(display, "tiếng", "{method:?} {style:?}");
+                assert_eq!(display.as_ptr(), pointer);
+                eprintln!("{method:?} {style:?}: {allocations}");
+                assert!(
+                    allocations < 120,
+                    "lowercase Vietnamese preedit allocations: {allocations}"
+                );
+            }
+        }
     }
 
     #[test]
