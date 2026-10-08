@@ -90,8 +90,17 @@ public final class PreferencesDeviceSmoke extends DeviceSmoke {
             snapshot.put("revision", revision + 3);
             snapshot.getJSONObject("preferences").put("chinese_punctuation", true);
             publish(preferences, snapshot.toString().getBytes(StandardCharsets.UTF_8));
-            tapSymbol(",");
-            await(field("msime-test-plain").and(node -> node.getText() != null && node.getText().toString().endsWith("你好，")));
+            // 键盘每秒轮询一次设置文件，写入后立刻点标点可能赶在重新读取之前，插进去的还是旧设置的半角逗号（API 35 模拟器上点完只隔了 0.7 秒）。这时删掉再点，直到新设置生效或超时。
+            long deadline = SystemClock.uptimeMillis() + 15000;
+            while (true) {
+                tapSymbol(",");
+                String held = String.valueOf(await(field("msime-test-plain").and(node -> node.getText() != null
+                    && (node.getText().toString().endsWith("你好，") || node.getText().toString().endsWith("你好,")))).getText());
+                if (held.endsWith("你好，")) break;
+                if (SystemClock.uptimeMillis() >= deadline) throw new AssertionError("Recovered preferences not applied; editor held " + held);
+                tap(key("⌫"));
+                await(field("msime-test-plain").and(node -> node.getText() != null && node.getText().toString().endsWith("你好")));
+            }
         } catch (Exception | AssertionError error) {
             shell("screencap -p /data/local/tmp/msime-preferences-failure.png");
             throw error;
