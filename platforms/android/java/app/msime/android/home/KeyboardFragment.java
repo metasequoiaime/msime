@@ -23,6 +23,7 @@ import app.msime.android.KeyboardGeometry;
 import app.msime.android.KeyboardScheme;
 import app.msime.android.KeyboardSkin;
 import app.msime.android.R;
+import app.msime.android.SchemePreferences;
 import app.msime.android.TextPolicy;
 import app.msime.android.ViewPolicy;
 import app.msime.android.core.InputViewValuePolicy;
