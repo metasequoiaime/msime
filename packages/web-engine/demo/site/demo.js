@@ -1,12 +1,14 @@
 // 演示页。输入区的文字、光标和行内拼音都由这里自己画；按键由一个看不见的密码框接收：浏览器在密码框里强制停用系统输入法（macOS 进入安全输入，Windows 解除输入法关联），按键原样到达页面，交给水杉的引擎处理。普通的可编辑或可聚焦元素都挡不住系统输入法。右侧的选项改动立刻作用到引擎，下方的接入代码按同样的选项生成。
 import { KeyKind, SKINS, createCandidateBar, createMsimeEngine, createShiftTap, keyFromEvent, osImeIntercepting, packKey, resolveSkin, version } from "./msime/index.js";
 
-const PINYIN = new Set(["quanpin", "xiaohe", "ziranma"]);
-const NAMES = { quanpin: "全拼", xiaohe: "小鹤双拼", ziranma: "自然码双拼", wubi86: "五笔 86" };
+const PINYIN = new Set(["quanpin", "xiaohe", "ziranma", "shoudao", "microsoft"]);
+const NAMES = { quanpin: "全拼", xiaohe: "小鹤双拼", ziranma: "自然码双拼", shoudao: "手到双拼", microsoft: "微软双拼", wubi86: "五笔 86" };
 const SCHEME_NOTES = {
   quanpin: "完整拼音，例如 woshizhongguoren。",
   xiaohe: "小鹤双拼：每个字两键，例如 你好 = ni hc。",
   ziranma: "自然码双拼：每个字两键，例如 你好 = ni hk。",
+  shoudao: "手到双拼：每个字两键，例如 你好 = ni hd。",
+  microsoft: "微软双拼：每个字两键，; 是韵母 ing，例如 你好 = ni hk，北京 = bz j;。",
   wubi86: "五笔 86：形码，候选旁显示剩余编码，例如 你好 = wq vb。词库与拼音不同，切换时会单独下载（约 3.6 MB）。",
 };
 // 「看它打字」的样例，每一条都在浏览器里实测过结果，且与每页候选数无关。键序列里 " " 是空格，"^" 是单按 Shift（切换中英文），"=" 和 "-" 是下一页和上一页，数字选当前页的候选，大写字母按住 Shift 打出。
@@ -28,12 +30,25 @@ const EXAMPLES = {
     { label: "世界", keys: "uijx " },
     { label: "中国", keys: "vsgo " },
   ],
+  shoudao: [
+    { label: "你好", keys: "nihd " },
+    { label: "世界", keys: "eijr " },
+    { label: "中国", keys: "vhgo " },
+  ],
+  microsoft: [
+    { label: "你好", keys: "nihk " },
+    { label: "世界", keys: "uijx " },
+    { label: "北京", keys: "bzj; " },
+  ],
   wubi86: [
     { label: "你好", keys: "wqvb " },
     { label: "中国", keys: "khlg " },
     { label: "工作", keys: "aawt " },
   ],
 };
+
+// 辅助码方案的中文名，与 SDK README 的「辅助码」表一致。
+const HELPCODE_NAMES = { lantian: "蓝天小雨点", ziranma: "自然码", shouyou2_0: "首右 2.0", shouyouplus: "首右 plus", xiaohe: "小鹤形码", jiajia: "加加" };
 
 // 内置皮肤的中文名，与 SDK README 的「内置皮肤」表一致。
 const SKIN_NAMES = { system: "跟随系统", shuishan: "水杉", light: "浅色", paper: "纸白", night: "夜青", ink: "墨", wechat: "微信绿", graphite: "石墨", willow_green: "杨柳青", autumn_osmanthus: "秋桂", microsoft: "微软" };
@@ -56,7 +71,7 @@ const CUSTOM_SKIN = {
 const skinOf = (id) => (id === "custom" ? CUSTOM_SKIN : id);
 
 // SDK 的默认值，生成代码时只写出与它们不同的选项。
-const DEFAULTS = { scheme: "quanpin", pageSize: 9, model: true, modelEnabled: true, skin: "shuishan", layout: "horizontal", dark: "auto" };
+const DEFAULTS = { scheme: "quanpin", pageSize: 9, model: true, modelEnabled: true, helpcode: null, skin: "shuishan", layout: "horizontal", dark: "auto" };
 const options = { ...DEFAULTS };
 
 const $ = (id) => document.getElementById(id);
@@ -299,7 +314,7 @@ $("copy").addEventListener("click", (e) => copyText(e.currentTarget, text));
 
 function showFacts(timings, memoryBytes) {
   $("fact-version").textContent = `@msime/web-engine ${version}`;
-  $("fact-scheme").textContent = NAMES[options.scheme] + (PINYIN.has(options.scheme) && built.model ? " + 整句模型" : "");
+  $("fact-scheme").textContent = NAMES[options.scheme] + (PINYIN.has(options.scheme) && built.model ? " + 整句模型" : "") + (engine?.helpcode ? ` + ${HELPCODE_NAMES[engine.helpcode]}辅助码` : "");
   if (timings) {
     $("fact-download").textContent = ms(timings.fetch);
     $("fact-compile").textContent = ms(timings.compile);
@@ -315,7 +330,7 @@ function showFrame(next, elapsed) {
     out: next.out,
     composing: next.composing,
     preedit: next.preedit,
-    page: next.page.map((row) => (row.code && !PINYIN.has(options.scheme) ? `${row.text} ${row.code}` : row.text)),
+    page: next.page.map((row) => (row.hint ? `${row.text}${row.hint}` : row.code && !PINYIN.has(options.scheme) ? `${row.text} ${row.code}` : row.text)),
     pageIndex: next.pageIndex,
     highlight: next.highlight,
     hasPrev: next.hasPrev,
@@ -337,6 +352,7 @@ function engineOptions() {
   if (options.scheme !== DEFAULTS.scheme) parts.push(`scheme: "${options.scheme}"`);
   if (options.pageSize !== DEFAULTS.pageSize) parts.push(`pageSize: ${options.pageSize}`);
   if (PINYIN.has(options.scheme) && !options.model) parts.push("model: false");
+  if (PINYIN.has(options.scheme) && options.helpcode) parts.push(`helpcode: "${options.helpcode}"`);
   return parts;
 }
 
@@ -371,6 +387,7 @@ function copyFlags() {
   else {
     flags.push("--no-wubi");
     if (!options.model) flags.push("--no-model");
+    if (!options.helpcode) flags.push("--no-helpcode");
   }
   return flags.join(" ");
 }
@@ -726,6 +743,14 @@ function syncControls() {
   modelEnabled.checked = pinyin && options.model && options.modelEnabled;
   model.disabled = busyLoading || playing || !pinyin;
   modelEnabled.disabled = busyLoading || playing || !pinyin || !options.model;
+  const helpcode = $("helpcode");
+  helpcode.value = pinyin ? (options.helpcode ?? "") : "";
+  helpcode.disabled = busyLoading || playing || !pinyin;
+  $("helpcode-note").textContent = !pinyin
+    ? "辅助码只用于全拼和双拼。"
+    : options.scheme === "quanpin"
+      ? "音节后按住 Shift 打辅助码：niC 把首码是 c 的字提前，niCD 只留两码是 cd 的字。候选后显示每个字的辅助码。"
+      : "完整音节后的第三键是辅助码：nic 把首码是 c 的字提前，再按住 Shift 打第四键（nicD）只留两码是 cd 的字。候选后显示每个字的辅助码。";
   $("scheme-note").textContent = SCHEME_NOTES[options.scheme];
   renderExamples();
   renderSkins();
@@ -751,6 +776,7 @@ async function applyOptions() {
         pageSize: options.pageSize,
         model: options.model,
         modelEnabled: options.modelEnabled,
+        helpcode: options.helpcode,
         onProgress: (loaded, total) => {
           const percent = Math.round((loaded / total) * 100);
           $("progress").firstElementChild.style.width = `${percent}%`;
@@ -769,6 +795,8 @@ async function applyOptions() {
         built.scheme = options.scheme;
       }
       engine.setModelEnabled(options.modelEnabled);
+      // 辅助码就地开关，第一次用到的表这时下载（几十 KB）；五笔上什么也不做。
+      if (PINYIN.has(options.scheme) && engine.helpcode !== options.helpcode) await engine.setHelpcode(options.helpcode);
       setStatus("ready", `就绪 · ${NAMES[options.scheme]}`);
       showFacts(null, engine.memoryBytes);
     }
@@ -807,6 +835,11 @@ for (const input of document.querySelectorAll(".switch input")) {
     applyOptions().then(() => focusEditor());
   });
 }
+
+$("helpcode").addEventListener("change", (e) => {
+  options.helpcode = e.currentTarget.value || null;
+  applyOptions().then(() => focusEditor());
+});
 
 if (matchMedia("(pointer: coarse)").matches && !matchMedia("(any-pointer: fine)").matches) {
   $("touch-notice").hidden = false;
