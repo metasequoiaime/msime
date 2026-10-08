@@ -115,7 +115,8 @@ struct LockUndo {
     /// 这段数字锁定前的样子：锁定把它换成了拼写的编码，拼写比键入的长时还补齐了数字。
     replaced: String,
     /// 锁定时丢掉的切分，都在这段数字里。
-    splits: Vec<usize>,
+    splits: [usize; DIGIT_LIMIT],
+    split_count: usize,
     /// 锁定前选的首字母，锁定时并进了拼写。
     initial: Option<Initial>,
     /// 锁定时左列给出的选项。数字全部锁定后左列还给出这一组，选其中一项就换掉这次锁定。
@@ -343,14 +344,21 @@ impl NineKeySession {
                 }
                 self.locked.push(choice);
                 let locked_length = self.locked_length();
-                let (dropped, kept): (Vec<usize>, Vec<usize>) = self
-                    .splits
-                    .iter()
-                    .partition(|&&split| split <= locked_length);
-                self.splits = kept;
+                let mut dropped = [0; DIGIT_LIMIT];
+                let mut split_count = 0;
+                self.splits.retain(|&split| {
+                    if split <= locked_length {
+                        dropped[split_count] = split;
+                        split_count += 1;
+                        false
+                    } else {
+                        true
+                    }
+                });
                 self.lock_undo.push(Some(LockUndo {
                     replaced,
                     splits: dropped,
+                    split_count,
                     initial: self.initial.take(),
                     choices,
                 }));
@@ -375,7 +383,8 @@ impl NineKeySession {
         let offset = self.locked_length();
         let end = (offset + spelling.len()).min(self.digits.len());
         self.digits.replace_range(offset..end, &undo.replaced);
-        self.splits.extend(undo.splits);
+        self.splits
+            .extend(undo.splits[..undo.split_count].iter().copied());
         self.splits.sort_unstable();
         self.splits.dedup();
         self.initial = undo.initial.map(|initial| Initial {
@@ -2565,6 +2574,37 @@ mod tests {
             "split refresh should keep normalized boundaries off the heap: {split_allocations}"
         );
         assert!(split_allocations < plain_allocations);
+    }
+
+    #[test]
+    fn choosing_a_spelling_with_a_split_does_not_allocate_a_second_partition() {
+        let fixture = fixture();
+        let mut plain = open(&fixture.paths, false, mixed());
+        type_digits(&mut plain, "64426");
+        let index = plain
+            .spellings
+            .iter()
+            .position(|spelling| spelling == "ni")
+            .unwrap();
+        let (_, plain_allocations) =
+            crate::ime::personal_rerank::allocations::count(|| plain.choose_spelling(index));
+
+        let mut session = open(&fixture.paths, false, mixed());
+        type_digits(&mut session, "64426");
+        session.splits = vec![2];
+        session.refresh();
+        let index = session
+            .spellings
+            .iter()
+            .position(|spelling| spelling == "ni")
+            .unwrap();
+        let (_, allocations) =
+            crate::ime::personal_rerank::allocations::count(|| session.choose_spelling(index));
+
+        assert!(
+            allocations <= plain_allocations,
+            "九键选择带切分的音节分配多于无切分路径：{allocations} > {plain_allocations}"
+        );
     }
 
     #[test]
