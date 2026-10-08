@@ -71,7 +71,7 @@ public final class CloudClipboardApi {
                     ? "" : JsonPolicy.strictString(rawDevice);
                 Object rawPinned = value.opt("pinned");
                 Boolean pinned = rawPinned == null || rawPinned == JSONObject.NULL
-                    ? Boolean.FALSE : strictBoolean(rawPinned);
+                    ? Boolean.FALSE : JsonPolicy.strictBoolean(rawPinned);
                 if (pinned == null || id == null || text == null || updated == null || device == null) {
                     throw invalid();
                 }
