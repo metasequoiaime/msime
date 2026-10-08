@@ -590,13 +590,15 @@ public final class MSIMEInputService extends InputMethodService {
      * keyboard, and drawing them in the factory skin makes it look like a different input method.
      */
     private void applyEditorPreferences(JSONObject preferences) throws JSONException {
-        applyEditorPreferences(preferences, true);
+        applyEditorPreferences(preferences, ClipboardHistoryRetentionPolicy.Source.LIVE);
     }
 
     /**
-     * @param appearance 是否用这份偏好重算皮肤。runtime-options.json 里的偏好是宿主早先准备时写下的副本，主题字段可能已经过时（例如仍是默认的薄荷设计）；用它重算会把按上次皮肤画好的第一帧刷成旧配色，一两秒后真正的偏好到了又换回来。那条路径传 false，皮肤只认启动缓存和真正读到的偏好。
+     * @param source 这份偏好从哪里来，由调用处明说。只有实时读到的（`LIVE`）才重算皮肤、才改剪贴板历史开关。runtime-options.json 里的偏好是宿主早先准备时写下的副本（`RUNTIME_OPTIONS_COPY`）：主题字段可能已经过时（例如仍是默认的薄荷设计），用它重算会把按上次皮肤画好的第一帧刷成旧配色，一两秒后真正的偏好到了又换回来；它的 `clipboard_history` 永远是出厂默认的关，按它清空就是每换一个输入框历史都被清掉的原因（#5602）。皮肤因此只认启动缓存和真正读到的偏好。
      */
-    private void applyEditorPreferences(JSONObject preferences, boolean appearance) throws JSONException {
+    private void applyEditorPreferences(JSONObject preferences,
+            ClipboardHistoryRetentionPolicy.Source source) throws JSONException {
+        boolean live = source == ClipboardHistoryRetentionPolicy.Source.LIVE;
         numberRowSelection = preferences == null
             || preferences.optBoolean("number_row_selection", true);
         // The width a session starts at. Applied to the runtime once there is one to tell; this
@@ -640,8 +642,8 @@ public final class MSIMEInputService extends InputMethodService {
         enabledSchemes = schemeConfiguration.enabled();
         visibleSchemes = schemeConfiguration.visible();
         selectedScheme = schemeConfiguration.selected();
-        // 只用真正读到的偏好重算皮肤：runtime-options.json 的副本（appearance 为假）和缺主题字段的偏好都保留当前皮肤，也就是 onCreate 按上次换上的皮肤画好的那一份。
-        if (appearance && preferences != null && preferences.has("global_theme")) {
+        // 只用真正读到的偏好重算皮肤：runtime-options.json 的副本（来源不是 LIVE）和缺主题字段的偏好都保留当前皮肤，也就是 onCreate 按上次换上的皮肤画好的那一份。
+        if (live && preferences != null && preferences.has("global_theme")) {
             skin = keyboardSkin(preferences);
             emojiSkin = surfaceSkin(preferences, "emoji_theme");
             handwritingSkin = surfaceSkin(preferences, "handwriting_theme");
@@ -655,7 +657,7 @@ public final class MSIMEInputService extends InputMethodService {
         applyToolbarPreferences(preferences);
         applyVoicePreferences(preferences);
         applyAiPreferences(preferences);
-        applyClipboardPreference(preferences, appearance);
+        applyClipboardPreference(preferences, source);
         applyChineseOutputPreference(preferences);
         applyCandidateGlossPreference(preferences);
         applyEnglishSuggestionsPreference(preferences);
@@ -1121,7 +1123,7 @@ public final class MSIMEInputService extends InputMethodService {
             resourcePacks = KeyboardScheme.availablePacks(
                 ResourcePacks.installedIds(this)::contains, options.optString("resources", ""));
             JSONObject preferences = options.optJSONObject("preferences");
-            applyEditorPreferences(preferences, false);
+            applyEditorPreferences(preferences, ClipboardHistoryRetentionPolicy.Source.RUNTIME_OPTIONS_COPY);
             if (newDocument) {
                 boolean defaultEnglish = "english".equals(defaultImeMode);
                 dedicatedEnglish = inputModeStore.modeFor(
@@ -1655,12 +1657,10 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     /**
-     * @param live 这份偏好是不是实时读到的。`runtime-options.json` 的副本永远是出厂默认（剪贴板历史关），按它改开关并清空，就是每换一个输入框历史都被清掉的原因（#5602），见 {@link ClipboardHistoryRetentionPolicy}。
+     * @param source 这份偏好从哪里来。`runtime-options.json` 的副本永远是出厂默认（剪贴板历史关），按它改开关并清空，就是每换一个输入框历史都被清掉的原因（#5602），见 {@link ClipboardHistoryRetentionPolicy}。
      */
-    private void applyClipboardPreference(JSONObject preferences, boolean live) {
-        ClipboardHistoryRetentionPolicy.Source source = live
-            ? ClipboardHistoryRetentionPolicy.Source.LIVE
-            : ClipboardHistoryRetentionPolicy.Source.RUNTIME_OPTIONS_COPY;
+    private void applyClipboardPreference(JSONObject preferences,
+            ClipboardHistoryRetentionPolicy.Source source) {
         Boolean preference = preferences == null ? null
             : preferences.optBoolean("clipboard_history", false);
         clipboardHistoryEnabled = ClipboardHistoryRetentionPolicy.enabledAfter(

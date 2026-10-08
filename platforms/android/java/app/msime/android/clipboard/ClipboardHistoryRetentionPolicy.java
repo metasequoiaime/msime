@@ -8,7 +8,7 @@ package app.msime.android;
  * <p>规则因此只有一条：只有实时读到的偏好能改变开关、能触发清空；副本和「还没读到」都不算数，开关保持原样。用户在设置里关掉开关后，键盘下一次实时读偏好时照样清空，「关闭会立即清空」的承诺不变。
  */
 public final class ClipboardHistoryRetentionPolicy {
-    /** 一份偏好从哪里来。 */
+    /** 一份偏好从哪里来。服务应用偏好时由调用处明说（`MSIMEInputService.applyEditorPreferences`），同一个来源也决定要不要用它重算皮肤。 */
     public enum Source {
         /** `runtime-options.json` 里首次安装时写下的副本，内容是出厂默认，不代表用户的选择。 */
         RUNTIME_OPTIONS_COPY,

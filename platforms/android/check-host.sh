@@ -549,6 +549,21 @@ if ! rg -q 'ClipboardHistoryRetentionPolicy\.clearsHistory' \
   echo "Android clipboard housekeeping must ask ClipboardHistoryRetentionPolicy before clearing" >&2
   exit 1
 fi
+# 偏好的来源由调用处明说：读 runtime-options.json 之后应用的那一份必须标成 RUNTIME_OPTIONS_COPY，剪贴板开关也只从这个来源推出，不能再借一个意思不同的布尔量。那一处一旦被当成实时偏好，每换一个输入框历史又会被清空（#5602）。
+if ! rg -A 12 'HostOptionsPolicy\.readRuntimeOptions\(getFilesDir\(\)\)' \
+    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
+    | rg -q 'applyEditorPreferences\(preferences, ClipboardHistoryRetentionPolicy\.Source\.RUNTIME_OPTIONS_COPY\)' \
+  || rg -A 12 'HostOptionsPolicy\.readRuntimeOptions\(getFilesDir\(\)\)' \
+    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
+    | rg -q 'Source\.LIVE|applyEditorPreferences\(preferences\)' \
+  || ! rg -q 'applyClipboardPreference\(JSONObject preferences,$' \
+    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
+  || ! rg -A 1 'applyClipboardPreference\(JSONObject preferences,$' \
+    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
+    | rg -q 'ClipboardHistoryRetentionPolicy\.Source source\)'; then
+  echo "Android must apply the runtime-options preference copy as RUNTIME_OPTIONS_COPY, and derive the clipboard switch only from that source (#5602)" >&2
+  exit 1
+fi
 for site in onCreateInputView applyClipboardPreference; do
   if rg -A 40 "$site\([^)]*\) \{" \
       "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \

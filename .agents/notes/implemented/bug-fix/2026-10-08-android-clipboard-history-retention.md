@@ -11,9 +11,9 @@ Status: implemented
 ## Decision
 
 - `ClipboardHistoryRetentionPolicy`（`platforms/android/java/app/msime/android/clipboard/`）是唯一的判断：只有实时读到的偏好（`Source.LIVE`）能改 `clipboardHistoryEnabled`、能触发清空；`runtime-options.json` 的副本（`Source.RUNTIME_OPTIONS_COPY`）和读不到偏好（null）都不动开关、never 清空。
-- `applyClipboardPreference(preferences, live)` 的 `live` 就是 `applyEditorPreferences` 已有的 `appearance` 参数：它为真时这份偏好是实时读到的（`loadAppearanceWithoutSession`），为假时是副本（`start`）。
+- 来源由调用处明说：`applyEditorPreferences(preferences, source)` 的第二个参数就是 `ClipboardHistoryRetentionPolicy.Source`，`start` 读完 `runtime-options.json` 传 `RUNTIME_OPTIONS_COPY`，单参数版本（`loadAppearanceWithoutSession`、`applyPreferencesSnapshot` 等实时路径）传 `LIVE`，`applyClipboardPreference(preferences, source)` 直接用它。这个参数原来是布尔量 `appearance`（是否重算皮肤），第一版把剪贴板也挂在它上面；两件事碰巧同真同假，但一个叫「重算皮肤」的参数决定要不要清空历史，日后有人为了皮肤改它的值就会把 #5602 带回来，所以换成写明来源的枚举，皮肤的判断也从同一个来源推出。
 - `onCreateInputView` 不再清空历史。开关关着时由下一次实时读偏好清空：有引擎会话的输入框走 `applyPreferencesSnapshot`，没有会话的走 `loadAppearanceWithoutSession`，两条都是实时的。设置页说明里「关闭会立即清空」仍然成立。
-- `check-host.sh` 守住两点：`onCreateInputView` 里没有 `clipboardHistory.clear`，`MSIMEInputService` 清空前问 `ClipboardHistoryRetentionPolicy.clearsHistory`。
+- `check-host.sh` 守住三点：`onCreateInputView` 里没有 `clipboardHistory.clear`；`MSIMEInputService` 清空前问 `ClipboardHistoryRetentionPolicy.clearsHistory`；读 `runtime-options.json` 之后的那次 `applyEditorPreferences` 传的是 `Source.RUNTIME_OPTIONS_COPY`、不是 `LIVE` 或单参数版本，且 `applyClipboardPreference` 的参数就是这个来源。
 
 ## Alternatives considered
 
@@ -27,4 +27,4 @@ Status: implemented
 
 ## Verification
 
-`platforms/android/tests/clipboard/ClipboardHistoryRetentionPolicySmoke.java` 覆盖副本、读不到偏好和实时开关三种情况；`bash platforms/android/check-host.sh` 运行它并执行上面的两条源码守卫。真机上换输入框和切输入法的行为没有在设备上复现验证。
+`platforms/android/tests/clipboard/ClipboardHistoryRetentionPolicySmoke.java` 覆盖副本、读不到偏好和实时开关三种情况；`bash platforms/android/check-host.sh` 运行它并执行上面的三条源码守卫（第三条在一份把调用改成 `LIVE` 或单参数版本的副本上确认会失败）。真机上换输入框和切输入法的行为没有在设备上复现验证。
