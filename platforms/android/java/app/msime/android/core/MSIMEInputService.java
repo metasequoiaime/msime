@@ -1011,15 +1011,25 @@ public final class MSIMEInputService extends InputMethodService {
         return deleted;
     }
 
-    /** 按码位删光标前一个字符，同样记下预期；删掉的是一个还是两个 UTF-16 单元由追踪器按回声确定。 */
+    /** 删除键：编辑器里有选区时删掉选区，否则按码位删光标前一个字符并记下预期；删掉的是一个还是两个 UTF-16 单元由追踪器按回声确定。 */
     void deleteCodePointBeforeCursor() {
         pairedPunctuationStack.clear();
+        if (deleteSelection()) return;
         if (connection.deleteSurroundingTextInCodePoints(1, 0)) {
             selectionEcho.deleteCodePointBefore();
             selectionEcho.expect();
         } else {
             selectionEcho.invalidate();
         }
+    }
+
+    /** `deleteSurroundingText` 只删选区以外的字：选中文字后按删除，选区在开头时毫无反应，在中间时删掉的是选区前一个字。有选区就用空串替换它，和系统键盘一致；返回是否有选区，有选区时不再删光标前的字。 */
+    private boolean deleteSelection() {
+        CharSequence selected = connection.getSelectedText(0);
+        if (selected == null || selected.length() == 0) return false;
+        selectionEcho.invalidate();
+        connection.commitText("", 1);
+        return true;
     }
 
     /** 编辑器动作可能改文字也可能不改，选区预期先作废。 */

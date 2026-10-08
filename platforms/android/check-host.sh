@@ -764,6 +764,14 @@ if rg -q 'button\.setTextColor\(accent\)' \
   echo "Android layout bar buttons must take actionForeground, not the accent they sit on" >&2
   exit 1
 fi
+# `deleteSurroundingText` 只删选区以外的字：选中开头的「你好」按删除毫无反应，选中中间的文字会删掉选区前一个字。键盘上的删除键都要经 `deleteCodePointBeforeCursor`，由它先删选区；笔画布局曾经绕过它直接调 InputConnection。
+if ! rg -q 'if \(deleteSelection\(\)\) return;' \
+    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java" \
+  || rg -l '\.deleteSurroundingTextInCodePoints\(' "$repo_root/platforms/android/java" \
+    | rg -v '/core/MSIMEInputService\.java$' >/dev/null; then
+  echo "Android delete keys must go through deleteCodePointBeforeCursor, which deletes a selection first" >&2
+  exit 1
+fi
 # 符号面板的分类键和锁定键用 setSelected 表示当前项，但键帽颜色只在上色时读一次 isSelected()（ImeStyler.styleButton）。#5597 就是只改了选中状态、没有重新上色：点「网络」后右侧换了，左侧高亮仍停在「常用」。每一处改选中状态的地方都要紧跟一次 restyle。
 symbol_panel_view="$repo_root/platforms/android/java/app/msime/android/keyboard/SymbolPanelView.java"
 if ! rg -q 'ViewPolicy\.setSelected\(' "$symbol_panel_view" \

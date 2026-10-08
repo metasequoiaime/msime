@@ -439,7 +439,7 @@ final class ImeLayoutRows {
 
         LinearLayout actions = KeyboardGeometry.column(s);
         Runnable deleteAction = () -> {
-            if (s.connection != null && !s.command(0)) s.connection.deleteSurroundingTextInCodePoints(1, 0);
+            if (s.connection != null && !s.command(0)) s.deleteCodePointBeforeCursor();
         };
         Button delete = s.keyId(s.backspaceKey(deleteAction), "Backspace");
         s.imeLetterRows.bindBackspaceRepeat(delete, deleteAction);
