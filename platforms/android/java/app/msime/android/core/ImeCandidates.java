@@ -10,6 +10,7 @@ import android.widget.LinearLayout;
 import android.widget.PopupMenu;
 import app.msime.android.CandidateTranslationPolicy;
 import app.msime.android.core.InputViewValuePolicy;
+import app.msime.android.core.InputViewValuePolicy;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -274,7 +275,7 @@ final class ImeCandidates {
         KeyboardGeometry.setSymmetricPaddingDp(s.expandedCandidates, s, 8, 6);
         JSONArray entries = s.candidatePanelSnapshot.optJSONArray("candidates");
         int count = entries == null ? 0 : entries.length();
-        String reading = s.candidatePanelSnapshot.optString("reading", "");
+        String reading = InputViewValuePolicy.textOr(s.candidatePanelSnapshot, "reading", "");
         String compositionText = reading.isEmpty()
             ? s.candidatePanelSnapshot.optString("preedit", "") : reading;
         // 设计的网格不画标题；组合文本和候选总数留在网格的描述里给读屏。
