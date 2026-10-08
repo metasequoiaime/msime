@@ -101,7 +101,7 @@ public final class VoiceConfiguration {
     public static VoiceConfiguration decode(String response, String requestId) {
         try {
             JSONObject document = new JSONObject(response);
-            if (!Boolean.TRUE.equals(strictBoolean(document.opt("ok")))) return none();
+            if (!JsonPolicy.strictTrue(document.opt("ok"))) return none();
             JSONObject value = document.optJSONObject("value");
             if (value == null) return none();
             JSONObject provider = value.optJSONObject("provider");
