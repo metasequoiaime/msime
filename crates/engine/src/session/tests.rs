@@ -931,6 +931,26 @@ fn selecting_a_quanpin_candidate_clones_only_needed_request_fields() {
     assert_eq!(allocations, 35, "selection allocations: {allocations}");
 }
 
+#[test]
+fn selecting_the_top_candidate_does_not_clone_an_unused_learning_row() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session_with(|options| {
+        options.personal_context = false;
+    });
+    type_text(&mut session, "nihao");
+    let index = index_of(&session, "你好");
+    assert_eq!(index, 0);
+
+    let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+        assert_eq!(session.input.learn_candidate(index), None);
+    });
+
+    assert_eq!(
+        allocations, 0,
+        "top-candidate learning allocated {allocations} unused buffers"
+    );
+}
+
 /// The reported case: in mixed Wubi `jixu` is the wubi code of 曳光弹 and the pinyin of 继续. The fourth key must leave both on offer; without pinyin rows the same code still commits its one wubi row.
 #[test]
 fn a_four_letter_code_that_is_also_pinyin_stays_open_in_mixed_wubi() {

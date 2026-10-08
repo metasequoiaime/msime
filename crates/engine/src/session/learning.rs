@@ -91,23 +91,24 @@ impl InputSession {
         if !self.learning_enabled {
             return None;
         }
-        let selected = self.ranking_list().get(index)?.clone();
+        let selected_source = self.ranking_list().get(index)?.source;
         let temporary_english = self.local_mode == LocalInputMode::TemporaryEnglish;
         if (self.dedicated_english || temporary_english)
-            && selected.source == CandidateSource::EnglishDictionary
+            && selected_source == CandidateSource::EnglishDictionary
             && self.frequency.mode != FrequencyAdjustmentMode::Disabled
             && index != 0
         {
             return self.adjust_candidate_frequency(index, self.frequency, false);
         }
         // Generated/Fallback and injected online sentences are not dictionary rows, so frequency adjustment has nowhere to persist them. Store the selected sentence as a user phrase instead. This applies even at index zero and is independent of the frequency-adjustment mode.
-        if selected.source.is_sentence_learning() {
+        if selected_source.is_sentence_learning() {
+            let selected = self.ranking_list().get(index)?.clone();
             return self.learn_sentence_candidate(&selected);
         }
         if self.frequency.mode == FrequencyAdjustmentMode::Disabled || index == 0 {
             return None;
         }
-        if !selected.source.is_dictionary()
+        if !selected_source.is_dictionary()
             || !self
                 .engine
                 .current_scheme_type()
