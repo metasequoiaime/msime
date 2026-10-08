@@ -21,8 +21,8 @@ use crate::vietnamese::{InputMethod as VietnameseInputMethod, ToneStyle as Vietn
 
 const MAX_TRANSLATION_SIDECAR_BYTES: u64 = 1024 * 1024;
 
-// engine 不依赖 client-core，所以这里不能用 `msime_client_core::file_lock::has_single_link`，写法与它相同：Windows 上标准库的 `number_of_links` 还是不稳定特性（`windows_by_handle`），改用 `winapi-util` 读硬链接数。
-fn has_single_link(file: &std::fs::File) -> io::Result<bool> {
+// engine 不依赖 client-core，所以这里不能用 `msime_client_core::file_lock::has_single_link`，写法与它相同：Windows 上标准库的 `number_of_links` 还是不稳定特性（`windows_by_handle`），改用 `winapi-util` 读硬链接数。`paths.rs` 打开 Engine 资源时也用这一份。
+pub(crate) fn has_single_link(file: &std::fs::File) -> io::Result<bool> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt;

@@ -104,23 +104,7 @@ pub(crate) fn open_file_no_follow(path: &Path) -> io::Result<File> {
     }
     let file = options.open(path)?;
     let metadata = file.metadata()?;
-    let single_link = {
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::MetadataExt;
-            metadata.nlink() == 1
-        }
-        #[cfg(windows)]
-        {
-            use std::os::windows::fs::MetadataExt;
-            metadata.number_of_links() == 1
-        }
-        #[cfg(not(any(unix, windows)))]
-        {
-            true
-        }
-    };
-    if !metadata.is_file() || !single_link {
+    if !metadata.is_file() || !crate::host::options::has_single_link(&file)? {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             "engine asset is not a single-link regular file",
@@ -135,6 +119,28 @@ pub(crate) fn open_file_no_follow(path: &Path) -> io::Result<File> {
 /// normal platform storage roots continue to work.
 pub(crate) fn sqlite_path_no_follow(path: &Path) -> io::Result<PathBuf> {
     sqlite_path_no_follow_with_parent_policy(path, true)
+}
+
+/// `path` 指向的文件是否只有一个硬链接。`metadata` 是它自身（不跟随最后一级符号链接）的元数据，调用方已经排除了符号链接。Windows 上标准库的 `number_of_links` 还是不稳定特性（`windows_by_handle`），与 `host::options::has_single_link` 一样改用 `winapi-util`，只是这里手上没有文件句柄，要按路径临时打开一个。
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+fn path_has_single_link(path: &Path, metadata: &std::fs::Metadata) -> io::Result<bool> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let _ = path;
+        Ok(metadata.nlink() == 1)
+    }
+    #[cfg(windows)]
+    {
+        let _ = metadata;
+        let handle = winapi_util::Handle::from_path_any(path)?;
+        Ok(winapi_util::file::information(&handle)?.number_of_links() == 1)
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = (path, metadata);
+        Ok(true)
+    }
 }
 
 /// Resolve a database's parent directory while protecting only the final path
@@ -167,23 +173,8 @@ fn sqlite_path_no_follow_with_parent_policy(
         })?;
         let resolved = std::fs::canonicalize(parent)?.join(name);
         if let Ok(metadata) = std::fs::symlink_metadata(&resolved) {
-            let single_link = {
-                #[cfg(unix)]
-                {
-                    use std::os::unix::fs::MetadataExt;
-                    metadata.nlink() == 1
-                }
-                #[cfg(windows)]
-                {
-                    use std::os::windows::fs::MetadataExt;
-                    metadata.number_of_links() == 1
-                }
-                #[cfg(not(any(unix, windows)))]
-                {
-                    true
-                }
-            };
-            if metadata.file_type().is_symlink() || !single_link {
+            // 先排除符号链接，Windows 上读硬链接数要按路径打开句柄，不能去跟随它。
+            if metadata.file_type().is_symlink() || !path_has_single_link(&resolved, &metadata)? {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
                     "database is not a single-link regular file",
