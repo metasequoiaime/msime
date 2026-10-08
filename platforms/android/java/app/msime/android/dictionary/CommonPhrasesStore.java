@@ -314,10 +314,10 @@ public final class CommonPhrasesStore {
             for (int index = 0; index < rawPhrases.length(); index++) {
                 JSONObject phrase = rawPhrases.optJSONObject(index);
                 if (phrase == null) continue;
-                String id = strictString(phrase.opt("id"));
-                String text = strictString(phrase.opt("text"));
+                String id = JsonPolicy.strictString(phrase.opt("id"));
+                String text = JsonPolicy.strictString(phrase.opt("text"));
                 Object rawPack = phrase.opt("pack");
-                String pack = rawPack == null || rawPack == JSONObject.NULL ? "" : strictString(rawPack);
+                String pack = rawPack == null || rawPack == JSONObject.NULL ? "" : JsonPolicy.strictString(rawPack);
                 if (id == null || text == null || pack == null) continue;
                 phrases.add(new Phrase(id, text, pack));
             }
@@ -328,8 +328,8 @@ public final class CommonPhrasesStore {
             for (int index = 0; index < rawPacks.length(); index++) {
                 JSONObject pack = rawPacks.optJSONObject(index);
                 if (pack == null) continue;
-                String id = strictString(pack.opt("id"));
-                String name = strictString(pack.opt("name"));
+                String id = JsonPolicy.strictString(pack.opt("id"));
+                String name = JsonPolicy.strictString(pack.opt("name"));
                 Integer revision = nonNegativeInteger(pack.opt("revision"));
                 if (id == null || name == null || revision == null) continue;
                 packs.add(new Pack(id, name, revision));
