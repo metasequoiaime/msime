@@ -88,9 +88,10 @@ impl KoreanScheme {
         } else {
             raw_with_cases
         };
-        let mut filtered = String::with_capacity(source.len());
-        filtered.extend(source.chars().filter(char::is_ascii_alphabetic));
-        self.raw = filtered;
+        self.raw.clear();
+        self.raw.reserve(source.len());
+        self.raw
+            .extend(source.chars().filter(char::is_ascii_alphabetic));
         self.committed.clear();
         self.hanja = false;
     }
@@ -157,6 +158,18 @@ mod tests {
         assert_eq!(scheme.build_request().raw_input_with_cases, "rk");
         let (scheme, _) = typed("dkssud");
         assert_eq!(scheme.build_request().raw_input_with_cases, "sud");
+    }
+
+    #[test]
+    fn set_raw_input_reuses_existing_storage() {
+        let mut scheme = KoreanScheme::new();
+        scheme.set_raw_input("abcdefghijklmnopqrstuvwxyz", "");
+        let capacity = scheme.raw.capacity();
+
+        scheme.set_raw_input("rk", "");
+
+        assert_eq!(scheme.build_request().raw_input_with_cases, "rk");
+        assert!(scheme.raw.capacity() >= capacity);
     }
 
     #[test]
