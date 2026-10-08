@@ -61,14 +61,43 @@ pub fn replace_online_candidate_batch(
         list.insert(index + offset, WordItem::new(key, word, 1, source, ""));
     }
     if source == CandidateSource::CloudSuggestion {
+        rehome_ai_candidates(list);
+    }
+    true
+}
+
+fn rehome_ai_candidates(list: &mut Vec<WordItem>) {
+    let count = list
+        .iter()
+        .filter(|item| item.source == CandidateSource::AiSuggestion)
+        .count();
+    if count == 0 {
+        return;
+    }
+    // 正常批次最多 10 行；公开入口接收的超配额旧列表保留原有处理方式。
+    if count > AI_QUOTA {
         let (ai, rest): (Vec<WordItem>, Vec<WordItem>) = std::mem::take(list)
             .into_iter()
             .partition(|item| item.source == CandidateSource::AiSuggestion);
         *list = rest;
         let at = list.len().min(2);
         list.splice(at..at, ai);
+        return;
     }
-    true
+    let mut ai: [Option<WordItem>; AI_QUOTA] = std::array::from_fn(|_| None);
+    let mut next = 0;
+    list.retain_mut(|item| {
+        if item.source != CandidateSource::AiSuggestion {
+            return true;
+        }
+        ai[next] = Some(std::mem::take(item));
+        next += 1;
+        false
+    });
+    let at = list.len().min(2);
+    // 原向量保留移出行的容量，追加后旋转即可稳定地把 AI 块放回第二槽。
+    list.extend(ai.into_iter().flatten());
+    list[at..].rotate_right(count);
 }
 
 fn unique_online_words(
@@ -292,6 +321,44 @@ mod tests {
                 ("泥", CandidateSource::Database),
             ]
         );
+    }
+
+    #[test]
+    fn cloud_updates_reuse_row_storage_with_and_without_ai() {
+        for with_ai in [false, true] {
+            let mut list = Vec::with_capacity(32);
+            list.extend(dictionary_list());
+            if with_ai {
+                assert!(replace_online_candidate_batch(
+                    &mut list,
+                    "ni",
+                    &words(&["智一", "智二"]),
+                    CandidateSource::AiSuggestion,
+                ));
+            }
+            let pointer = list.as_ptr();
+            let capacity = list.capacity();
+            let batch = words(&["云"]);
+
+            let (accepted, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+                replace_online_candidate_batch(
+                    &mut list,
+                    "ni",
+                    &batch,
+                    CandidateSource::CloudSuggestion,
+                )
+            });
+
+            assert!(accepted);
+            assert_eq!(allocations, 2, "云候选只需分配词面和键：{with_ai}");
+            assert_eq!(list.as_ptr(), pointer);
+            assert_eq!(list.capacity(), capacity);
+            assert_eq!(list[1].word, "云");
+            if with_ai {
+                assert_eq!(list[2].word, "智一");
+                assert_eq!(list[3].word, "智二");
+            }
+        }
     }
 
     #[test]
