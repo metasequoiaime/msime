@@ -523,7 +523,7 @@ public final class DictionaryCollectionsStore {
         if (response == null) return null;
         try {
             JSONObject root = new JSONObject(response);
-            return Boolean.TRUE.equals(strictBoolean(root.opt("ok")))
+            return JsonPolicy.strictTrue(root.opt("ok"))
                 ? root.optJSONObject("value") : null;
         } catch (JSONException error) {
             return null;
