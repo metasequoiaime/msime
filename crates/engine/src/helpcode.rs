@@ -29,6 +29,14 @@ impl HelpcodeKeymap {
         Self { codes }
     }
 
+    /// 从码表文件的字节解析，规则与 [`load_helpcode_keymap`] 读文件时相同；给没有文件系统的宿主（网页引擎）用。超过 1 MiB 的表返回 None，与读文件时的上限一致。
+    pub fn from_table_bytes(bytes: &[u8]) -> Option<Self> {
+        if bytes.len() as u64 > MAX_HELPCODE_BYTES {
+            return None;
+        }
+        Some(Self::from_codes(parse_helpcode_table(bytes)))
+    }
+
     /// The code letters of one character, lowercase.
     pub fn code(&self, character: &str) -> Option<&str> {
         self.codes.get(character).map(String::as_str)
@@ -527,6 +535,27 @@ mod tests {
                 .unwrap()
                 .len(),
             0
+        );
+    }
+
+    /// 字节解析和读文件是同一套规则，上限也相同。
+    #[test]
+    fn table_bytes_parse_like_the_file_and_share_its_bound() {
+        let resources = tempfile::tempdir().unwrap();
+        let table = "\u{feff}你=ab\r\n# 好=zz\n好=cdx\n";
+        std::fs::create_dir_all(resources.path().join("helpcodes")).unwrap();
+        std::fs::write(
+            resources.path().join("helpcodes/xiaohe_helpcode.txt"),
+            table,
+        )
+        .unwrap();
+        let loaded = load_helpcode_keymap(resources.path(), "xiaohe").unwrap();
+        let parsed = HelpcodeKeymap::from_table_bytes(table.as_bytes()).unwrap();
+        assert_eq!(parsed, loaded);
+        assert_eq!(parsed.code("好"), Some("cd"));
+        assert!(
+            HelpcodeKeymap::from_table_bytes(&vec![b'x'; MAX_HELPCODE_BYTES as usize + 1])
+                .is_none()
         );
     }
 
