@@ -6,9 +6,11 @@
 namespace msime::windows {
 PipeIntake::PipeIntake(PipeRegistry &registry, size_t workers, size_t capacity,
                        uint32_t capabilities, DWORD timeout,
-                       Completion completion)
+                       Completion completion,
+                       IdentityRejected identity_rejected)
     : registry_(registry), capacity_(capacity), capabilities_(capabilities),
-      timeout_(timeout), completion_(std::move(completion)) {
+      timeout_(timeout), completion_(std::move(completion)),
+      identity_rejected_(std::move(identity_rejected)) {
   if (!workers || workers > 32 || !capacity || capacity > 1024 || !timeout ||
       timeout == INFINITE || !completion_ ||
       (capabilities & FanyImeProtocol::RequiredCapabilities) !=
@@ -84,8 +86,16 @@ void PipeIntake::run() {
     const auto role = job.role;
     PipeRegistration result;
     bool delivered = false;
+    // 握手会接管并关闭连接，对端 pid 要在这之前取。
+    ULONG pid = 0;
+    if (identity_rejected_ &&
+        !GetNamedPipeClientProcessId(job.connection->handle(), &pid))
+      pid = 0;
     try {
       result = handshake(std::move(job));
+      if (result.status == RegistryStatus::IdentityRejected &&
+          identity_rejected_)
+        identity_rejected_(pid, result.io.system_error);
       bool stopping;
       {
         std::lock_guard lock(mutex_);

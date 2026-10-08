@@ -25,11 +25,12 @@ impl KoreanScheme {
     }
 
     /// Letters feed the automaton and Backspace removes the last jamo keystroke; every other key is ignored. A letter that opens a new syllable moves the finished ones to `committed`. Both edit the syllable the Hanja list was for, so both close it.
-    pub fn handle_key(&mut self, key: SchemeKey) {
+    pub fn handle_key(&mut self, key: SchemeKey) -> bool {
         match key {
             SchemeKey::Backspace => {
+                let changed = self.hanja || self.raw.pop().is_some();
                 self.hanja = false;
-                self.raw.pop();
+                changed
             }
             SchemeKey::Letter(letter) if letter.is_ascii_alphabetic() => {
                 self.hanja = false;
@@ -40,13 +41,14 @@ impl KoreanScheme {
                     let open_start = self.raw.len() - open.len();
                     self.raw.drain(..open_start);
                 }
+                true
             }
             SchemeKey::Letter(_)
             | SchemeKey::Apostrophe
             | SchemeKey::Semicolon
             | SchemeKey::Minus
             | SchemeKey::Symbol(_)
-            | SchemeKey::Requery => {}
+            | SchemeKey::Requery => false,
         }
     }
 

@@ -7,6 +7,7 @@
 namespace Global {
 thread_local std::wstring PinyinString;
 thread_local std::wstring current_process_name;
+thread_local CandidateOverlayDecision GameOverlayDecision;
 } // namespace Global
 
 namespace GlobalIme {

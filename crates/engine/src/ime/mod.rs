@@ -167,14 +167,17 @@ impl ImeSession {
     }
 
     /// `scheme.handle_key` then `refresh_candidates`; `SchemeKey::Requery` only refreshes.
-    pub fn handle_key(&mut self, key: SchemeKey) {
-        if key != SchemeKey::Requery {
-            self.scheme.handle_key(key);
+    pub fn handle_key(&mut self, key: SchemeKey) -> bool {
+        let changed = if key != SchemeKey::Requery {
+            self.scheme.handle_key(key)
         } else if self.current_scheme_type() == SchemeType::Cantonese {
             // 粤拼词典只读，候选不受在线词或会话设置影响；重查询保留当前快照即可。
-            return;
-        }
+            return false;
+        } else {
+            false
+        };
         self.refresh_candidates();
+        changed
     }
 
     /// Opens what `scheme` reads (`msime-cantonese.db` for Cantonese, `msime-zhuyin.db` for Zhuyin, `msime-stroke.db` for Stroke) without switching to it, so a caller can learn that the scheme is unavailable before it discards anything; `switch_scheme` to an activated scheme cannot fail. A live Zhuyin scheme already holds `msime-zhuyin.db`, so activating Zhuyin again opens nothing.

@@ -1249,6 +1249,7 @@ impl From<PreferencesError> for CommandError {
                 PreferencesError::InvalidFloatingToolbar => "floating_toolbar_invalid",
                 PreferencesError::ConflictingKeyBindings => "key_conflict",
                 PreferencesError::InvalidPlugins => "plugins_invalid",
+                PreferencesError::InvalidGameCompatibility => "game_compatibility_invalid",
                 PreferencesError::UnsupportedFormat | PreferencesError::Json(_) => "format",
                 _ => "storage",
             },

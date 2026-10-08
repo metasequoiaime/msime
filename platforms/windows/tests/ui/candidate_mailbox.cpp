@@ -71,12 +71,12 @@ void candidate_mailbox_tests() {
     return change->pending;
   };
   auto publish = [&](const FocusLease &lease, uint64_t generation,
-                     bool uiless = false) {
+                     bool uiless = false, uint32_t metadata = 0) {
     FanyImeNamedpipeData packet{};
     packet.client_id = lease.transport.client;
     packet.request_id = generation;
     packet.event_type = FanyImePipeEventType::KeyEvent;
-    packet.modifiers_down = uiless ? FanyImePipeFlags::UiLess : 0;
+    packet.modifiers_down = (uiless ? FanyImePipeFlags::UiLess : 0) | metadata;
     PendingReply reply{};
     reply.source.client_id = packet.client_id;
     reply.source.activation_epoch = lease.epoch;
@@ -290,8 +290,36 @@ void candidate_mailbox_tests() {
   mailbox.disconnected(replacement);
   require(!mailbox.snapshot(gate));
   require(publish(final, 206));
-  mailbox.stop();
+  // 游戏会话标记：首个按键没带位、随后的 Show 带位时补上；同一租约里后续不带位的按键、Move、隐藏和异步刷新都不会清掉它。
+  require(!mailbox.snapshot(gate)->game_host);
+  require(visual_event(final, FanyImePipeEventType::ShowCandidateWnd,
+                       PipeMetadata::GameHost));
+  require(mailbox.snapshot(gate)->game_host && mailbox.snapshot(gate)->visible);
   require(publish(final, 207));
+  require(mailbox.snapshot(gate)->game_host);
+  const auto before_refresh = mailbox.snapshot(gate)->render_serial;
+  mailbox.translations(final, {{"session", 1},
+                               {"generation", 207},
+                               {"focused", true},
+                               {"editing_text", "U4"},
+                               {"preedit", "U4"},
+                               {"candidates", nlohmann::json::array()}});
+  const auto refreshed = mailbox.snapshot(gate);
+  require(refreshed && refreshed->game_host &&
+          refreshed->render_serial > before_refresh);
+  require(visual_event(final, FanyImePipeEventType::MoveCandidateWnd));
+  require(mailbox.snapshot(gate)->game_host);
+  require(visual_event(final, FanyImePipeEventType::HideCandidateWnd));
+  require(publish(final, 208));
+  require(mailbox.snapshot(gate)->game_host);
+  // 新的激活是新的租约，标记不跨租约沿用；按键自己带位时直接生效。
+  const auto relaunched = activate(replacement, 5);
+  require(publish(relaunched, 209));
+  require(!mailbox.snapshot(gate)->game_host);
+  require(publish(relaunched, 210, false, PipeMetadata::GameHost));
+  require(mailbox.snapshot(gate)->game_host);
+  mailbox.stop();
+  require(publish(relaunched, 211));
   require(
       !mailbox.snapshot(gate)); // A late delivery cannot reopen a stopped UI.
 }

@@ -45,26 +45,29 @@ impl VietnameseScheme {
     }
 
     /// Letters always spell; VNI digits spell only while composing; Backspace removes the last keystroke. Every other key is ignored, which leaves it to the session to finish the word.
-    pub fn handle_key(&mut self, key: SchemeKey) {
+    pub fn handle_key(&mut self, key: SchemeKey) -> bool {
         match key {
             SchemeKey::Letter(letter) if letter.is_ascii_alphabetic() => {
                 self.raw.push(char::from(letter));
+                true
             }
             SchemeKey::Symbol(digit) if self.claims_digit(digit) => {
                 self.raw.push(char::from(digit));
+                true
             }
             SchemeKey::Backspace => {
-                self.raw.pop();
+                let changed = self.raw.pop().is_some();
                 if self.raw.is_empty() {
                     self.raw_locked = false;
                 }
+                changed
             }
             SchemeKey::Letter(_)
             | SchemeKey::Symbol(_)
             | SchemeKey::Apostrophe
             | SchemeKey::Semicolon
             | SchemeKey::Minus
-            | SchemeKey::Requery => {}
+            | SchemeKey::Requery => false,
         }
     }
 
@@ -97,6 +100,10 @@ impl VietnameseScheme {
         display.clear();
         if self.raw_locked {
             display.push_str(&self.raw);
+            return;
+        }
+        if self.raw.bytes().all(|byte| !byte.is_ascii_uppercase()) {
+            self.transform_into(&self.raw, display);
             return;
         }
         let lower = self.transform(&self.raw.to_lowercase());
@@ -162,6 +169,12 @@ impl VietnameseScheme {
     }
 
     fn transform(&self, keys: &str) -> String {
+        let mut output = String::new();
+        self.transform_into(keys, &mut output);
+        output
+    }
+
+    fn transform_into(&self, keys: &str, output: &mut String) {
         let definition = match self.method {
             InputMethod::Telex => &vi::TELEX,
             InputMethod::Vni => &vi::VNI,
@@ -170,9 +183,7 @@ impl VietnameseScheme {
             ToneStyle::Modern => AccentStyle::New,
             ToneStyle::Classic => AccentStyle::Old,
         };
-        let mut output = String::new();
-        vi::transform_buffer_with_style(definition, style, keys.chars(), &mut output);
-        output
+        vi::transform_buffer_with_style(definition, style, keys.chars(), output);
     }
 }
 
@@ -232,6 +243,32 @@ mod tests {
         }
         assert_eq!(vni("viet65"), "việt");
         assert_eq!(vni("nguo72i"), "người");
+    }
+
+    #[test]
+    fn lowercase_preedit_avoids_the_case_correction_pass() {
+        for (method, keys) in [
+            (InputMethod::Telex, "tieengs"),
+            (InputMethod::Vni, "tieng61"),
+        ] {
+            for style in [ToneStyle::Modern, ToneStyle::Classic] {
+                let scheme = typed(method, style, keys);
+                let mut display = String::with_capacity(32);
+                display.push_str("stale display");
+                let pointer = display.as_ptr();
+                let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+                    scheme.preedit_into(&mut display)
+                });
+
+                assert_eq!(display, "tiếng", "{method:?} {style:?}");
+                assert_eq!(display.as_ptr(), pointer);
+                eprintln!("{method:?} {style:?}: {allocations}");
+                assert!(
+                    allocations < 120,
+                    "lowercase Vietnamese preedit allocations: {allocations}"
+                );
+            }
+        }
     }
 
     #[test]

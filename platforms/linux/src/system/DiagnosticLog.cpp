@@ -49,6 +49,10 @@ public:
       return;
     try {
       rotate_if_needed();
+      struct stat existing = {};
+      if (lstat(path_.c_str(), &existing) == 0 &&
+          (!S_ISREG(existing.st_mode) || existing.st_nlink != 1))
+        return;
       const auto record = timestamp() + " [p" + std::to_string(getpid()) +
                           "] " + sanitize(event) + "\n";
       const int fd = open(

@@ -33,6 +33,34 @@ if ($script.Contains('taskkill.exe') -or $script.Contains('procedure StopProcess
 }
 $prepare = Get-Block 'function PrepareToInstall' 'procedure CurStepChanged'
 $uninstall = Get-Block 'procedure CurUninstallStepChanged' 'else if CurUninstallStep = usPostUninstall'
+# ---- the 64-bit TIP's copy in System32 ----
+# A Setup compiled with Inno Setup 7 is a 32-bit process whose [Code] file functions and Exec are redirected to SysWOW64, so the System32 copy is probed and removed only through tools launched with ExecNativeSys (ExecWithNativeSysDir under 7), never DirExists or DelTree. An upgrade keeps only its own version directory; uninstall removes them all. GetVersionDir avoids a version directory still waiting for its restart-time deletion.
+$systemCleanup = Get-Block 'procedure TryDeleteSystemVersionDirs' 'procedure TryDeleteOldVersionDirs'
+$nativePowerShell = "\{#ExecNativeSys\}\(\s*ExpandConstant\('\{sys\}\\WindowsPowerShell\\v1\.0\\powershell\.exe'\)"
+if ($systemCleanup -notmatch $nativePowerShell -or
+    -not $systemCleanup.Contains('[Environment]::Is64BitProcess') -or
+    $systemCleanup.Contains('DelTree(')) {
+    throw 'System32 TIP cleanup does not run in a 64-bit PowerShell'
+}
+$stopUnder = Get-Block 'procedure StopProcessesUnder' 'procedure StopImeProcesses'
+if ($stopUnder -notmatch $nativePowerShell) {
+    throw 'StopProcessesUnder starts a 32-bit PowerShell under Inno Setup 7, which cannot read 64-bit process paths'
+}
+$systemProbe = Get-Block 'function SystemDirExists' 'function GetVersionDir'
+if ($systemProbe -notmatch "\{#ExecNativeSys\}\(\s*ExpandConstant\('\{sys\}\\cmd\.exe'\)") {
+    throw 'SystemDirExists does not reach the native System32'
+}
+if (-not $prepare.Contains('TryDeleteSystemVersionDirs(VersionDirName);')) {
+    throw 'An upgrade does not remove the older System32 TIP directories'
+}
+$postUninstallStart = $script.IndexOf('else if CurUninstallStep = usPostUninstall')
+if ($postUninstallStart -lt 0 -or -not $script.Substring($postUninstallStart).Contains("TryDeleteSystemVersionDirs('');")) {
+    throw 'Uninstall does not remove the System32 TIP directories'
+}
+$versionDir = Get-Block 'function GetVersionDir' 'function IsUserConfigFile'
+if (-not $versionDir.Contains('SystemDirExists(ExpandConstant(') -or -not $versionDir.Contains("'{#MySystemTipDir}\' + Candidate))")) {
+    throw 'GetVersionDir does not skip a System32 version directory that still exists'
+}
 foreach ($block in @($prepare, $uninstall)) {
     if (-not $block.Contains('StopImeProcesses;') -or $block.Contains('StopProcessesUnder(')) {
         throw 'Upgrade or uninstall stops processes outside StopImeProcesses'

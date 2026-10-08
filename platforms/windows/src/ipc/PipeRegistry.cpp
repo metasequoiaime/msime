@@ -118,6 +118,8 @@ PipeRegistry::register_reverse(std::unique_ptr<PipeConnection> connection,
   if (handshake.status != HandshakeStatus::Verified) {
     if (handshake.status == HandshakeStatus::TransportError)
       result.status = RegistryStatus::TransportError;
+    else if (handshake.status == HandshakeStatus::IdentityRejected)
+      result.status = RegistryStatus::IdentityRejected;
     return result;
   }
   endpoint->connection = std::move(connection);
@@ -185,11 +187,13 @@ PipeRegistry::register_main(std::unique_ptr<PipeConnection> connection,
   auto &reply = client->endpoints[1];
   auto &worker = client->endpoints[2];
   DWORD error = ERROR_SUCCESS;
-  if (!reply->peer->matches(connection->handle(), hello.client_id, error))
+  if (!reply->peer->matches(connection->handle(), hello.client_id, error) ||
+      !reply->peer->matches(worker->connection->handle(), hello.client_id,
+                            error)) {
+    result.status = RegistryStatus::IdentityRejected;
+    result.io.system_error = error;
     return result;
-  if (!reply->peer->matches(worker->connection->handle(), hello.client_id,
-                            error))
-    return result;
+  }
   if (client->endpoints[0] &&
       client->endpoints[0]->generation > endpoint->generation) {
     result.status = RegistryStatus::Stale;
@@ -202,6 +206,8 @@ PipeRegistry::register_main(std::unique_ptr<PipeConnection> connection,
   if (handshake.status != HandshakeStatus::Ready) {
     if (handshake.status == HandshakeStatus::TransportError)
       result.status = RegistryStatus::TransportError;
+    else if (handshake.status == HandshakeStatus::IdentityRejected)
+      result.status = RegistryStatus::IdentityRejected;
     // A protocol frame may already have reached the existing reverse pipe.
     // Fail the whole transport chain; never let old key replies follow it.
     for (uint32_t role = 0; role < 3; ++role)

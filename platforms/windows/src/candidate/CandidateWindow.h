@@ -11,8 +11,11 @@
 #include "TypingEffectPolicy.h"
 #include "CandidateWindowStyle.h"
 #include "ComponentFailure.h"
+#include "FullscreenForeground.h"
 #include <functional>
 #include <memory>
+#include <utility>
+#include <vector>
 // windows.h first: its DrawText macro has to reach the Direct2D declarations,
 // which is how the rest of this UI stack spells DrawTextW.
 #include <windows.h>
@@ -24,6 +27,15 @@ namespace msime::windows {
 // Forward declared: the flyout pulls in its own window headers, and only the
 // implementation needs them.
 class CandidateFlyoutWindow;
+// 候选窗因前台呈现方式被策略隐藏的原因：游戏会话的前台处在 D3D 独占全屏，或这个游戏进程已被反应式锁存。
+enum class CandidateSuppression { ExclusiveFullscreen, Latched };
+// 一次抑制状态的变化，由主循环取出写进诊断日志。cause 是锁存触发或解除的固定标签，独占抑制没有 cause。
+struct CandidateSuppressionChange {
+  CandidateSuppression reason;
+  bool active;
+  DWORD pid;
+  const char *cause;
+};
 // Main/UI thread owns construction, polling, painting and destruction. Reader
 // outlives the window and returns a freshly validated value, never Engine
 // state.
@@ -47,6 +59,14 @@ public:
   CandidateWindow(const CandidateWindow &) = delete;
   CandidateWindow &operator=(const CandidateWindow &) = delete;
   void refresh();
+  // 主循环每轮在 refresh() 之前调用。游戏会话的兜底锚点、独占抑制、反应式锁存，以及全屏下按整块显示器钳制，都读这里记下的前台。
+  void set_foreground(HWND foreground, ForegroundPresentation presentation);
+  // refresh() 之后调用：前台几何全屏、并且前台进程自己的窗口压在候选窗上面时重申置顶。每个快照最多一次，两次至少间隔 1 秒，免得和常驻置顶的 overlay 来回抢。
+  void keep_on_top();
+  // 取出上次以来的抑制变化。这个类拿不到 Server 的诊断日志，由主循环写。
+  std::vector<CandidateSuppressionChange> take_suppression_changes() {
+    return std::exchange(suppression_changes_, {});
+  }
   // UI thread only. Invalid updates leave the previous display intact.
   bool set_fonts(const CandidateFontSettings &settings);
   void set_layout(CandidateLayoutSettings settings);
@@ -88,6 +108,10 @@ public:
 private:
   static LRESULT CALLBACK procedure(HWND, UINT, WPARAM, LPARAM) noexcept;
   void reposition();
+  // 策略隐藏一个可见快照（INVALID_Y 又没有兜底、独占全屏、锁存）时照样发渲染回执，否则每个选词键都要白等渲染回执超时。同一个 render_serial 只发一次。
+  void policy_hide(const CandidatePresentation &value);
+  // 解除反应式锁存并关掉进程句柄；cause 非空时记一条解除。
+  void release_latch(const char *cause);
   // 记下第一次失败并隐藏；error 由 catch 现场先取，免得隐藏窗口时被改写。
   void fail(ComponentFailureSite site);
   void invalidate_geometry();
@@ -192,5 +216,34 @@ private:
   TypingEffectSettings effect_settings_{};
   uint64_t effect_started_ = 0;
   bool effect_flashing_ = false;
+  // set_foreground 记下的前台窗口、它的进程和呈现方式。
+  HWND foreground_ = nullptr;
+  DWORD foreground_pid_ = 0;
+  ForegroundPresentation presentation_ = ForegroundPresentation::Windowed;
+  // policy_hide 已经回执过的 render_serial。
+  uint64_t receipted_serial_ = 0;
+  // keep_on_top 上次重申置顶时的快照和时间（GetTickCount64）。
+  uint64_t topmost_serial_ = 0;
+  uint64_t topmost_at_ = 0;
+  // 反应式锁存：游戏会话第一次在自己的几何全屏前台上弹出后，盯住那个窗口 2 秒。期间窗口最小化、前台换到别的进程、窗口矩形变了，或收到 WM_DISPLAYCHANGE，就当作这次弹出把游戏挤出了 QUNS 看不到的独占全屏（Vulkan 独占、OpenGL 改分辨率），对这个进程停止弹出。
+  struct LatchWatch {
+    PipeTicket ticket;
+    HWND window;
+    RECT rect;
+    uint64_t since;
+  };
+  std::optional<LatchWatch> latch_watch_;
+  // 已经盯过第一次弹出的客户端连接，每个连接只盯一次；只记一个的话，在两个游戏之间来回切换会反复重新盯梢。锁存因窗口化解除后，该进程的连接重新允许盯一次。
+  std::vector<PipeTicket> latch_armed_;
+  // 被锁存的客户端；抑制作用在它的整个进程上。该进程的前台在锁存后重新进入过非窗口化、之后又变成窗口化，同一个客户端重新连上（换了登记代次），或进程退出，就解除。
+  std::optional<PipeTicket> latched_;
+  // 被锁存进程的 SYNCHRONIZE 句柄，用来发现它已经退出；打不开时为空。
+  HANDLE latched_process_ = nullptr;
+  // 锁存之后是否见过该进程的前台重新进入非窗口化，见 set_foreground。
+  bool latched_seen_fullscreen_ = false;
+  bool display_changed_ = false;
+  // 正处在独占抑制下的游戏进程，0 表示没有。
+  DWORD exclusive_pid_ = 0;
+  std::vector<CandidateSuppressionChange> suppression_changes_;
 };
 } // namespace msime::windows

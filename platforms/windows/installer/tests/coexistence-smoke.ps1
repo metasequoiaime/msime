@@ -29,14 +29,16 @@ function Check-Installed([string]$Edition, [string]$When) {
     $appKey = "HKLM:\$($identity.registry_key)"
     $pf64 = Join-Path $env:ProgramFiles $identity.install_dir
     $pf32 = Join-Path ${env:ProgramFiles(x86)} $identity.install_dir
+    # 64 位 TIP 在 System32\IME 下各版本自己的目录里，见 msime_setup.iss 的 MySystemTipDir。
+    $sys64 = Join-Path $env:windir "System32\IME\$($identity.install_dir)"
     $app = if (Test-Path -LiteralPath $appKey) { Get-ItemProperty -LiteralPath $appKey } else { $null }
     Check ($null -ne $app) "${When}: $Edition keeps HKLM\$($identity.registry_key)"
     if ($null -eq $app) { return }
     Check ($app.ServerPath -eq (Join-Path $pf64 'server\MetasequoiaImeServer.exe') -and (Test-Path -LiteralPath $app.ServerPath -PathType Leaf)) "${When}: $Edition ServerPath is its own Server"
-    Check ((InprocServer 'HKLM:\SOFTWARE\Classes' $identity.clsid) -eq (Join-Path $pf64 "$($app.VersionDir)\MetasequoiaImeTsf.dll")) "${When}: $Edition 64-bit COM server is its own TSF DLL"
+    Check ((InprocServer 'HKLM:\SOFTWARE\Classes' $identity.clsid) -eq (Join-Path $sys64 "$($app.VersionDir)\MetasequoiaImeTsf.dll")) "${When}: $Edition 64-bit COM server is its own TSF DLL"
     Check ((InprocServer 'HKLM:\SOFTWARE\WOW6432Node\Classes' $identity.clsid) -eq (Join-Path $pf32 "$($app.VersionDir)\MetasequoiaImeTsf.dll")) "${When}: $Edition 32-bit COM server is its own TSF DLL"
     Check (Test-Path -LiteralPath "HKLM:\SOFTWARE\Microsoft\CTF\TIP\$($identity.clsid)") "${When}: $Edition TIP registered"
-    Check (Test-Path -LiteralPath (Join-Path $pf64 "$($app.VersionDir)\$($identity.host_dll)") -PathType Leaf) "${When}: $Edition $($identity.host_dll) beside its TSF DLL"
+    Check (Test-Path -LiteralPath (Join-Path $sys64 "$($app.VersionDir)\$($identity.host_dll)") -PathType Leaf) "${When}: $Edition $($identity.host_dll) beside its TSF DLL"
     $task = Get-ScheduledTask -TaskName $identity.watchdog_task -ErrorAction SilentlyContinue
     $action = if ($task) { @($task.Actions)[0].Execute.Trim('"') } else { $null }
     Check ($action -eq (Join-Path $pf64 'server\MetasequoiaImeWatchdog.exe')) "${When}: $Edition watchdog task runs its own Watchdog"
@@ -48,6 +50,7 @@ function Check-Installed([string]$Edition, [string]$When) {
 function Check-Removed([string]$Edition, [string]$When) {
     $identity = Identity $Edition
     Check (-not (Test-Path -LiteralPath (Join-Path $env:ProgramFiles $identity.install_dir))) "${When}: $Edition program directory removed"
+    Check (-not (Test-Path -LiteralPath (Join-Path $env:windir "System32\IME\$($identity.install_dir)"))) "${When}: $Edition System32 TSF directory removed"
     Check (-not (Test-Path -LiteralPath "HKLM:\SOFTWARE\Microsoft\CTF\TIP\$($identity.clsid)")) "${When}: $Edition TIP removed"
     Check ($null -eq (InprocServer 'HKLM:\SOFTWARE\Classes' $identity.clsid)) "${When}: $Edition COM registration removed"
     Check ($null -eq (Get-ScheduledTask -TaskName $identity.watchdog_task -ErrorAction SilentlyContinue)) "${When}: $Edition watchdog task removed"
