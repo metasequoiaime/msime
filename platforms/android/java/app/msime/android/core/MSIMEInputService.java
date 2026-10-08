@@ -1184,7 +1184,7 @@ public final class MSIMEInputService extends InputMethodService {
         try {
             JSONObject options = new JSONObject(
                 HostOptionsPolicy.readRuntimeOptions(getFilesDir()));
-            statisticsPreferences = options.optString("preferences_directory", "");
+            statisticsPreferences = InputViewValuePolicy.textOr(options, "preferences_directory", "");
             languageDictionaries = options.optString("language_dictionaries", "");
             resourcePacks = KeyboardScheme.availablePacks(
                 ResourcePacks.installedIds(this)::contains, options.optString("resources", ""));
@@ -1202,7 +1202,7 @@ public final class MSIMEInputService extends InputMethodService {
             // 永远是出厂默认。有引擎会话时实时偏好会由 preferencesReloader 补上；没有会话的输入
             // 框走不到那条路，只能自己读一次，否则键盘就一直是默认皮肤和默认方案。
             if (!engineWanted) {
-                loadAppearanceWithoutSession(options.optString("preferences_directory", ""));
+                loadAppearanceWithoutSession(InputViewValuePolicy.textOr(options, "preferences_directory", ""));
             }
             runtimeOptionsBase = "";
             if (engineWanted) {
@@ -1567,7 +1567,7 @@ public final class MSIMEInputService extends InputMethodService {
     private static EngineStartOptions withLivePreferences(String optionsText, boolean suppressLearning) {
         try {
             JSONObject options = new JSONObject(optionsText);
-            String directory = options.optString("preferences_directory", "");
+            String directory = InputViewValuePolicy.textOr(options, "preferences_directory", "");
             if (directory.isEmpty() || !new File(directory).isAbsolute())
                 return new EngineStartOptions(optionsText, null);
             String response = NativeClient.loadPreferences(directory);
@@ -1604,7 +1604,7 @@ public final class MSIMEInputService extends InputMethodService {
                 emojiResources = resources;
                 candidateGlossResources = resources;
             }
-            String stateRoot = options.optString("preferences_directory", "");
+            String stateRoot = InputViewValuePolicy.textOr(options, "preferences_directory", "");
             candidateGlossStateRoot = new File(stateRoot).isAbsolute() ? stateRoot : "";
             apply(NativeClient.focus(session, true));
             markPrivateSession();
@@ -1617,7 +1617,7 @@ public final class MSIMEInputService extends InputMethodService {
                 imeLetterRows.rebuildKeyRows();
             }
             refreshEnglishSuggestions();
-            String directory = options.optString("preferences_directory", "");
+            String directory = InputViewValuePolicy.textOr(options, "preferences_directory", "");
             boolean hasPreferencesDirectory = !directory.isEmpty() && new File(directory).isAbsolute();
             if (hasPreferencesDirectory) preferencesDirectory = directory;
             // 建会话前刚读过的实时偏好直接作为第一份快照：原先要等 preferencesReloader 在工作线程上再读一遍、回到主线程后才有 preferencesSnapshot，冷启动的应用里这段要一秒左右，其间皮肤和输入方式两个工具栏按钮按「设置加载中」画成灰色（#5680）。应用失败不影响会话，下面的 reloader 马上再读一次并报告。
