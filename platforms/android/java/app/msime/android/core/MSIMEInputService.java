@@ -1424,7 +1424,7 @@ public final class MSIMEInputService extends InputMethodService {
                 try {
                     applyPreferencesSnapshot(value(livePreferences));
                 } catch (JSONException | LinkageError ignored) {
-                    // Never log preferences or native responses; the reloader retries.
+                    // 不记录偏好内容和原生层的返回；下面的 reloader 会再读一次。
                 }
             }
             // 先清掉「准备中」再画，否则这次 render 还会把过期的模式标签留在读音行上。

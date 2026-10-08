@@ -278,7 +278,7 @@ final class ImeLetterRows {
     private BackspaceSwipePolicy.Phase backspaceSwipePhase = BackspaceSwipePolicy.Phase.IDLE;
 
     /**
-     * Matches the Apple delete key: a short tap deletes once, a held press repeats and speeds up (BackspaceRepeatPolicy). 按住往上滑弹出「快速删除」框，滑进框里松手删掉光标前的全部文字，滑回框外松手什么也不删（#5585）。
+     * 和 Apple 的删除键一样：短按删一次，按住连删并逐级加速（BackspaceRepeatPolicy）。按住往上滑弹出「快速删除」框，滑进框里松手删掉光标前的全部文字，滑回框外松手什么也不删（#5585）。
      */
     void bindBackspaceRepeat(Button button, Runnable action) {
         button.setOnTouchListener((view, event) -> {
