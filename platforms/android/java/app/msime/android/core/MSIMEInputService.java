@@ -374,6 +374,8 @@ public final class MSIMEInputService extends InputMethodService {
     boolean hardwareKeyboardMode;
     /** 上一次配置是否报告接着实体键盘，用来认出「拔掉 / 合上」这一下。 */
     private boolean hardwareKeyboardAttached;
+    /** 这块实体键盘接着期间用户点过展开键：系统再问要不要显示（挪光标、换输入框）时不再收回候选条（{@link HardwareKeyboardModePolicy#afterSystemDecision}）。 */
+    private boolean hardwareKeyboardUserExpanded;
     /** Resolved 以词定字 binding: `disabled`, `brackets` or `minus_equal`. */
     private String wordCharacterBinding = WordCharacterPolicy.DISABLED;
     /** 「候选栏预编辑」: whether the strip draws what is being spelled. */
@@ -1234,6 +1236,8 @@ public final class MSIMEInputService extends InputMethodService {
         boolean attached = hardwareKeyboardAttached(configuration);
         hardwareKeyboardMode = HardwareKeyboardModePolicy.afterConfiguration(
             hardwareKeyboardMode, hardwareKeyboardAttached, attached);
+        hardwareKeyboardUserExpanded = HardwareKeyboardModePolicy.userExpandedAfterConfiguration(
+            hardwareKeyboardUserExpanded, hardwareKeyboardAttached, attached);
         hardwareKeyboardAttached = attached;
         JSONObject preferences = preferencesSnapshot == null ? null
             : preferencesSnapshot.optJSONObject("preferences");
@@ -1294,7 +1298,7 @@ public final class MSIMEInputService extends InputMethodService {
         EditorInfo info = getCurrentInputEditorInfo();
         boolean engineEditor = info != null && EditorPolicy.useEngine(info.inputType);
         boolean next = HardwareKeyboardModePolicy.afterSystemDecision(
-            hardwareKeyboardMode, systemShows, attached && engineEditor);
+            hardwareKeyboardMode, systemShows, attached && engineEditor, hardwareKeyboardUserExpanded);
         if (next != hardwareKeyboardMode) {
             hardwareKeyboardMode = next;
             if (keyboardRoot != null) render();
@@ -1337,6 +1341,7 @@ public final class MSIMEInputService extends InputMethodService {
     /** 候选条上的展开键：退出候选条模式，回到完整的软键盘；下一次实体键盘打字时再收起。 */
     private void expandFromHardwareKeyboardMode() {
         hardwareKeyboardMode = false;
+        hardwareKeyboardUserExpanded = true;
         render();
     }
 

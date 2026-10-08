@@ -5,7 +5,7 @@ import android.content.res.Configuration;
 /**
  * 外接硬件键盘时的「候选条模式」（#5584）：用实体键盘打字时软键盘的键区收起，只留顶部一行（空闲时工具栏，组词时候选条），候选前面标上 1–9 的序号，与数字行选词对应。
  *
- * <p>进入这个模式的信号是「真的在用实体键盘打字」：一次来自非虚拟、字母型键盘设备的按下。只看 `Configuration.keyboard` 会误伤：有的平板常驻报告 QWERTY，系统「使用实体键盘时显示虚拟键盘」打开的用户也明确要软键盘。离开的信号是用户点候选条上的展开键，或配置报告键盘拔掉 / 合上（从有到无）。这里只做判断，不依赖 Android 运行时，供 JVM 冒烟直接调用。
+ * <p>进入这个模式的信号是「真的在用实体键盘打字」：一次来自非虚拟、字母型键盘设备的按下。只看 `Configuration.keyboard` 会误伤：有的平板常驻报告 QWERTY，系统「使用实体键盘时显示虚拟键盘」打开的用户也明确要软键盘。离开的信号是用户点候选条上的展开键，或配置报告键盘拔掉 / 合上（从有到无）；点过展开键后，同一次接着期间系统的「不显示虚拟键盘」不再把键盘收回去，只有下一次实体键盘打字才收起。这里只做判断，不依赖 Android 运行时，供 JVM 冒烟直接调用。
  */
 public final class HardwareKeyboardModePolicy {
     private HardwareKeyboardModePolicy() { }
@@ -39,10 +39,19 @@ public final class HardwareKeyboardModePolicy {
     }
 
     /**
-     * 系统判断之后模式是否打开：接着实体键盘、系统按「使用实体键盘时显示虚拟键盘」关着而不显示输入法窗口时，用户已经表明不要虚拟键盘，窗口若因 {@link #showInputView} 仍显示，就只给候选条；其余情况保持原状。
+     * 系统判断之后模式是否打开：接着实体键盘、系统按「使用实体键盘时显示虚拟键盘」关着而不显示输入法窗口时，用户已经表明不要虚拟键盘，窗口若因 {@link #showInputView} 仍显示，就只给候选条；其余情况保持原状。用户在这块键盘接着期间点过展开键（`userExpanded`）时不再替他收起：系统每次 `showSoftInput`（点输入框挪光标、换输入框）都会重新问一遍，照系统开关收起会让展开键只管到下一次点击。
      */
-    public static boolean afterSystemDecision(boolean active, boolean systemShows, boolean attached) {
-        return active || (!systemShows && attached);
+    public static boolean afterSystemDecision(boolean active, boolean systemShows, boolean attached,
+            boolean userExpanded) {
+        return active || (!systemShows && attached && !userExpanded);
+    }
+
+    /**
+     * 配置变化后「用户点过展开键」是否还算数：只在同一次接着期间有效，键盘拔掉、合上或重新接上（报告从有到无或从无到有）时清掉，下次接上照系统开关重新判断。
+     */
+    public static boolean userExpandedAfterConfiguration(boolean userExpanded, boolean wasAttached,
+            boolean nowAttached) {
+        return userExpanded && wasAttached == nowAttached;
     }
 
     /**

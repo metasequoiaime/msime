@@ -40,11 +40,24 @@ public final class HardwareKeyboardModePolicySmoke {
         check(!HardwareKeyboardModePolicy.showInputView(false, false, true), "no keyboard, system decides");
 
         // 系统因实体键盘不显示虚拟键盘时，窗口只给候选条；系统要显示时不替用户收起。
-        check(HardwareKeyboardModePolicy.afterSystemDecision(false, false, true), "system hid the keyboard");
-        check(!HardwareKeyboardModePolicy.afterSystemDecision(false, true, true),
+        check(HardwareKeyboardModePolicy.afterSystemDecision(false, false, true, false), "system hid the keyboard");
+        check(!HardwareKeyboardModePolicy.afterSystemDecision(false, true, true, false),
             "show-virtual-keyboard setting keeps the soft keyboard");
-        check(!HardwareKeyboardModePolicy.afterSystemDecision(false, false, false), "no keyboard attached");
-        check(HardwareKeyboardModePolicy.afterSystemDecision(true, true, false), "typed-in mode kept");
+        check(!HardwareKeyboardModePolicy.afterSystemDecision(false, false, false, false), "no keyboard attached");
+        check(HardwareKeyboardModePolicy.afterSystemDecision(true, true, false, false), "typed-in mode kept");
+        // 点过展开键后，系统再次询问（挪光标、换输入框）不把键盘收回去；只有实体键盘打字才重新收起。
+        check(!HardwareKeyboardModePolicy.afterSystemDecision(false, false, true, true),
+            "expand key sticks across later show requests");
+        check(HardwareKeyboardModePolicy.afterSystemDecision(true, false, true, true),
+            "physical typing after an expand collapses again");
+        // 展开的选择只在同一次接着期间有效：拔掉、合上或重新接上都清掉。
+        check(HardwareKeyboardModePolicy.userExpandedAfterConfiguration(true, true, true),
+            "rotation keeps the expand choice");
+        check(!HardwareKeyboardModePolicy.userExpandedAfterConfiguration(true, true, false),
+            "detaching clears the expand choice");
+        check(!HardwareKeyboardModePolicy.userExpandedAfterConfiguration(true, false, true),
+            "reattaching starts from the system setting");
+        check(!HardwareKeyboardModePolicy.userExpandedAfterConfiguration(false, true, true), "never expanded");
 
         // 键区收起：面板打开时临时展开。
         check(HardwareKeyboardModePolicy.keysCollapsed(true, false), "collapsed to the candidate bar");
@@ -60,6 +73,6 @@ public final class HardwareKeyboardModePolicySmoke {
         check(HardwareKeyboardModePolicy.candidatePrefix(true, false, false, 0).isEmpty(),
             "number row selection off");
         check(HardwareKeyboardModePolicy.candidatePrefix(true, true, true, 0).isEmpty(), "direct English");
-        System.out.println("Android hardware keyboard mode: attachment, physical typing, window, collapse and numbering passed");
+        System.out.println("Android hardware keyboard mode: attachment, physical typing, window, sticky expand, collapse and numbering passed");
     }
 }
