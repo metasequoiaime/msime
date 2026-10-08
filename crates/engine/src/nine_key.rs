@@ -75,6 +75,8 @@ pub struct NineKeySession {
     phrase_pinyin: String,
     phrase_word: String,
     phrase_storable: bool,
+    /// 组字光标在 `digits` 里的位置；`None` 是在末尾。用户把光标移进数字中间后（触屏点读音行、硬件键盘的方向键），数字、切分和退格都作用在光标处，用来改掉中间打错的一个数字而不必删掉后面的（#5613）。
+    caret: Option<usize>,
     /// 会话允许全拼时为真。为假时九宫格只拼英文，拼音词库永远不打开。
     pinyin: bool,
     /// Opened on first use.
@@ -159,6 +161,7 @@ impl NineKeySession {
             phrase_pinyin: String::new(),
             phrase_word: String::new(),
             phrase_storable: true,
+            caret: None,
             pinyin,
             dictionary: None,
             prior: None,
@@ -195,16 +198,18 @@ impl NineKeySession {
         self.refresh();
     }
 
-    /// `2`..=`9`；到 32 个数字时按 `NINE_KEY_DIGIT_LIMIT` 处理。组字中按 `'` 在已输入部分的末尾切开音节；在同一处再切一次，或者紧跟在锁定的拼写之后切，都没有作用。
+    /// `2`..=`9`；到 32 个数字时按 `NINE_KEY_DIGIT_LIMIT` 处理。组字中按 `'` 在光标处切开音节；在同一处再切一次，或者紧跟在锁定的拼写之后切，都没有作用。光标在数字中间时数字插在光标处，光标落在锁定的拼写里时从那个音节起解除锁定。
     pub fn character(&mut self, digit: u8) -> KeyResult {
         if digit == b'\'' {
             // 英文九键的数字拼的是字母不是音节，没有可切的地方，记下的切分上屏时也只会被丢掉。
             if !self.active() || self.english_only || !self.pinyin {
                 return KeyResult::unhandled();
             }
-            let end = self.digits.len();
-            if end > self.locked_length() && self.splits.last() != Some(&end) {
-                self.splits.push(end);
+            let caret = self.caret_position();
+            self.unlock_from(caret);
+            if caret > self.locked_length() && !self.splits.contains(&caret) {
+                let at = self.splits.partition_point(|&split| split < caret);
+                self.splits.insert(at, caret);
                 self.refresh();
             }
             return KeyResult::handled();
@@ -216,9 +221,41 @@ impl NineKeySession {
             return KeyResult::handled()
                 .with_diagnostic(Some(diagnostics::NINE_KEY_DIGIT_LIMIT.to_string()));
         }
-        self.digits.push(char::from(digit));
+        let caret = self.caret_position();
+        self.unlock_from(caret);
+        if caret == self.locked_length() {
+            // 插在选了首字母的那一位前面：新数字成了下一个音节的开头，首字母是给原来那一位选的。
+            self.initial = None;
+        }
+        self.digits.insert(caret, char::from(digit));
+        // 光标前紧挨着的切分留在新数字前面（`94'|26` 打 5 是 `94'5|26`），光标后的切分随数字后移。
+        for split in &mut self.splits {
+            if *split > caret {
+                *split += 1;
+            }
+        }
+        self.set_caret(caret + 1);
         self.refresh();
         KeyResult::handled()
+    }
+
+    /// 组字光标的位置，末尾是 `digits.len()`。
+    fn caret_position(&self) -> usize {
+        let length = self.digits.len();
+        self.caret.map_or(length, |caret| caret.min(length))
+    }
+
+    fn set_caret(&mut self, caret: usize) {
+        self.caret = (caret < self.digits.len()).then_some(caret);
+    }
+
+    /// 在 `position` 处改数字前，解除盖住它的锁定拼写和其后的全部锁定：改动之后那些拼写不一定还拼得出来。锁定少了，原来落在锁定范围里的切分（不会有，切分总在锁定之后）不受影响。解除的锁定连同撤销记录一起丢掉，数字保持锁定时的样子（拼写补齐的数字留着），不像退格撤销锁定那样换回键入的数字：光标位置是按现在的数字算的。首字母限定的是第一个未锁定的音节，锁定少了它的位置就变了，一并丢掉。
+    fn unlock_from(&mut self, position: usize) {
+        while self.locked_length() > position {
+            self.locked.pop();
+            self.lock_undo.pop();
+            self.initial = None;
+        }
     }
 
     /// 选左列的一项。音节锁进数字；字母限定下一个音节的首字母；数字直接上屏这一位。数字全部锁定时左列是最后一次锁定时的选项，选哪一项都先撤销那次锁定，相当于换选。
@@ -253,7 +290,14 @@ impl NineKeySession {
                 // A spelling longer than what is typed extends the digits to its whole code; the spelling list only offers ones that stay within the digit limit.
                 let end = offset + choice.len().min(self.digits.len() - offset);
                 let replaced = self.digits[offset..end].to_string();
+                let before = self.digits.len();
                 self.digits.replace_range(offset..end, &encode(&choice));
+                // 拼写比已打的数字长时数字串变长；光标原来在被替换的那段之后的，跟着后移。
+                if let Some(caret) = self.caret {
+                    if caret >= end {
+                        self.set_caret(caret + self.digits.len() - before);
+                    }
+                }
                 self.locked.push(choice);
                 let locked_length = self.locked_length();
                 let (dropped, kept): (Vec<usize>, Vec<usize>) = self
@@ -296,6 +340,10 @@ impl NineKeySession {
             splits: self.splits.len(),
             ..initial
         });
+        // 拼写补齐的数字换回键入的数字后数字串可能变短。这一段就是数字的末尾，光标在它前面或里面键入的那几位上时位置不变（拼写的编码以键入的数字开头），落在补齐的部分里时回到末尾。
+        if let Some(caret) = self.caret {
+            self.set_caret(caret);
+        }
         Some(undo.choices)
     }
 
@@ -422,46 +470,88 @@ impl NineKeySession {
                 self.command(Command::Cancel);
                 return KeyResult::committed(raw);
             }
-            Command::Cancel => {
-                self.digits.clear();
-                self.locked.clear();
-                self.lock_undo.clear();
-                self.splits.clear();
-                self.initial = None;
-                self.reset_phrase();
-            }
-            // 退格撤销最后一步：刚选的首字母、数字全部锁定时的最后一次锁定、末尾的切分，都没有时才删数字。锁定之后还有没锁定的数字时，删的是数字而不是锁定。
+            Command::Cancel => self.clear_composition(),
+            // 光标在末尾时退格撤销最后一步：刚选的首字母、数字全部锁定时的最后一次锁定、末尾的切分，都没有时才删数字。锁定之后还有没锁定的数字时，删的是数字而不是锁定。
+            // 光标移进数字中间时退格是在那里改字：先删光标前的切分，再删光标前的数字，光标在开头时什么也不删；不撤销首字母和锁定，那是「撤销最后一步」，而用户把光标移过去是要改那里的数字。
             Command::Backspace => {
-                let initial_untouched = self.initial.is_some_and(|initial| {
-                    initial.typed == self.digits.len() && initial.splits == self.splits.len()
-                });
+                let caret = self.caret_position();
+                let at_end = caret == self.digits.len();
+                let initial_untouched = at_end
+                    && self.initial.is_some_and(|initial| {
+                        initial.typed == self.digits.len() && initial.splits == self.splits.len()
+                    });
                 if initial_untouched {
                     self.initial = None;
-                } else if self.reselecting() {
+                } else if at_end && self.reselecting() {
                     self.undo_last_lock();
-                } else if self.splits.last() == Some(&self.digits.len()) {
-                    self.splits.pop();
-                } else {
-                    self.digits.pop();
-                    while self.locked_length() > self.digits.len() {
-                        self.locked.pop();
-                        self.lock_undo.pop();
-                    }
-                    let length = self.digits.len();
-                    self.splits.retain(|&split| split <= length);
-                    if length <= self.locked_length() {
-                        self.initial = None;
-                    } else if let Some(initial) = self.initial.as_mut() {
-                        if initial.typed > length {
-                            initial.typed = usize::MAX;
-                        }
-                    }
+                } else if let Some(at) = self.splits.iter().position(|&split| split == caret) {
+                    self.splits.remove(at);
+                } else if caret > 0 {
+                    self.remove_digit(caret - 1);
+                    self.set_caret(caret - 1);
                 }
+            }
+            Command::DeleteForward => {
+                let caret = self.caret_position();
+                if caret < self.digits.len() {
+                    self.remove_digit(caret);
+                    self.set_caret(caret);
+                }
+            }
+            // 光标移动不改数字，候选不变，不必重查。
+            Command::MoveLeft | Command::MoveRight | Command::MoveHome | Command::MoveEnd => {
+                let caret = self.caret_position();
+                let target = match command {
+                    Command::MoveLeft => caret.saturating_sub(1),
+                    Command::MoveRight => caret + 1,
+                    Command::MoveHome => 0,
+                    _ => self.digits.len(),
+                };
+                self.set_caret(target);
+                return KeyResult::handled();
             }
             _ => return KeyResult::unhandled(),
         }
+        if !self.active() {
+            // 数字删光了，组字结束：锁定、切分、首字母、光标和正在拼的词都不再有意义。
+            self.clear_composition();
+        }
         self.refresh();
         KeyResult::handled()
+    }
+
+    /// 结束这次组字：数字连同锁定、撤销记录、切分、首字母、光标和正在拼的词一起清掉。
+    fn clear_composition(&mut self) {
+        self.digits.clear();
+        self.locked.clear();
+        self.lock_undo.clear();
+        self.splits.clear();
+        self.initial = None;
+        self.caret = None;
+        self.reset_phrase();
+    }
+
+    /// 删掉 `index` 处的数字：盖住它的锁定拼写和其后的锁定一起解除，其后的切分前移一位；前移后重合的、落到锁定范围或开头的切分丢掉。删的是选了首字母的那一位、或者删完没有未锁定的数字时，首字母一起丢掉；删的是它后面的数字时首字母留着，删到比选字母时少的数字后退格不再撤销它（与在末尾退格相同）。
+    fn remove_digit(&mut self, index: usize) {
+        let anchor = self.locked_length();
+        self.unlock_from(index);
+        self.digits.remove(index);
+        for split in &mut self.splits {
+            if *split > index {
+                *split -= 1;
+            }
+        }
+        let locked_length = self.locked_length();
+        self.splits.retain(|&split| split > locked_length);
+        self.splits.dedup();
+        let length = self.digits.len();
+        if index <= anchor || length <= locked_length {
+            self.initial = None;
+        } else if let Some(initial) = self.initial.as_mut() {
+            if initial.typed > length {
+                initial.typed = usize::MAX;
+            }
+        }
     }
 
     pub fn pin(&mut self, index: usize) -> KeyResult {
@@ -555,7 +645,7 @@ impl NineKeySession {
             preedit,
             candidates: self.candidates.clone(),
             editing_text: self.digits.clone(),
-            caret_position: self.digits.len(),
+            caret_position: self.caret_position(),
             nine_key_spellings: self.spellings.clone(),
             nine_key_reading: self.reading.clone(),
             nine_key_single_character: self.single_character,
@@ -955,6 +1045,9 @@ impl NineKeySession {
     fn consume(&mut self, count: usize) {
         let count = count.min(self.digits.len());
         self.digits.drain(..count);
+        if let Some(caret) = self.caret {
+            self.set_caret(caret.saturating_sub(count));
+        }
         self.splits = self
             .splits
             .iter()
@@ -2613,10 +2706,17 @@ mod tests {
         session.command(Command::Cancel);
 
         type_digits(&mut session, "64");
-        assert!(!session.command(Command::MoveLeft).handled);
+        // 光标可以移进数字中间（#5613），上屏原样数字时仍是整串。
+        assert!(session.command(Command::MoveLeft).handled);
+        assert_eq!(session.snapshot().caret_position, 1);
         assert_eq!(
             session.command(Command::CommitRaw).commit.as_deref(),
             Some("64")
+        );
+        assert_eq!(
+            session.snapshot().caret_position,
+            0,
+            "a new composition starts at its end"
         );
         assert!(!session.active());
         type_digits(&mut session, "64");
@@ -2649,6 +2749,194 @@ mod tests {
             session.finish(0).commit.as_deref(),
             Some("7".repeat(DIGIT_LIMIT).as_str())
         );
+    }
+
+    /// #5613：光标移进数字中间后，退格、向后删除、打数字和切分都作用在光标处，用来改掉中间打错的那个数字。
+    #[test]
+    fn the_caret_edits_digits_in_the_middle() {
+        let fixture = fixture();
+        let mut session = open(&fixture.paths, false, EnglishInputOptions::default());
+        // 想打 64426（你好），中间的 4 错打成了 5。
+        type_digits(&mut session, "64526");
+        assert_eq!(session.snapshot().caret_position, 5);
+        for _ in 0..2 {
+            assert!(session.command(Command::MoveLeft).handled);
+        }
+        assert_eq!(session.snapshot().caret_position, 3);
+        assert!(session.command(Command::Backspace).handled);
+        assert_eq!(session.snapshot().editing_text, "6426");
+        assert_eq!(session.snapshot().caret_position, 2);
+        type_digits(&mut session, "4");
+        let view = session.snapshot();
+        assert_eq!(view.editing_text, "64426");
+        assert_eq!(view.caret_position, 3);
+        assert_eq!(
+            view.candidates[0].word, "你好",
+            "the whole digits are decoded again"
+        );
+
+        // 到头和到尾都停住；移到末尾后光标回到「在末尾」。
+        assert!(session.command(Command::MoveHome).handled);
+        assert_eq!(session.snapshot().caret_position, 0);
+        assert!(session.command(Command::MoveLeft).handled);
+        assert_eq!(session.snapshot().caret_position, 0);
+        assert!(
+            session.command(Command::Backspace).handled,
+            "backspace at the start does nothing"
+        );
+        assert_eq!(session.snapshot().editing_text, "64426");
+        assert!(session.command(Command::DeleteForward).handled);
+        assert_eq!(session.snapshot().editing_text, "4426");
+        assert_eq!(session.snapshot().caret_position, 0);
+        type_digits(&mut session, "6");
+        assert!(session.command(Command::MoveEnd).handled);
+        assert!(session.command(Command::MoveRight).handled);
+        assert_eq!(session.snapshot().caret_position, 5);
+        assert!(
+            session.command(Command::DeleteForward).handled,
+            "delete at the end does nothing"
+        );
+        assert_eq!(session.snapshot().editing_text, "64426");
+        session.command(Command::Cancel);
+
+        // 切分打在光标处；光标紧跟在切分后面时，退格先删掉切分。
+        type_digits(&mut session, "6426");
+        session.command(Command::MoveLeft);
+        session.command(Command::MoveLeft);
+        assert!(session.character(b'\'').handled);
+        assert_eq!(session.snapshot().preedit, "64'26");
+        type_digits(&mut session, "4");
+        assert_eq!(session.snapshot().preedit, "64'426");
+        assert_eq!(session.snapshot().caret_position, 3);
+        session.command(Command::MoveLeft);
+        assert!(session.command(Command::Backspace).handled);
+        assert_eq!(session.snapshot().preedit, "64426");
+        assert_eq!(session.snapshot().caret_position, 2);
+        session.command(Command::Cancel);
+
+        // 在锁定的拼写里改数字，从那个音节起解除锁定。
+        type_digits(&mut session, "64426");
+        let ni = session
+            .snapshot()
+            .nine_key_spellings
+            .iter()
+            .position(|spelling| spelling == "ni")
+            .expect("ni offered");
+        session.choose_spelling(ni);
+        assert_eq!(session.snapshot().preedit, "ni'426");
+        session.command(Command::MoveHome);
+        session.command(Command::MoveRight);
+        type_digits(&mut session, "4");
+        assert!(
+            session.locked.is_empty(),
+            "an edit inside a locked spelling unlocks it"
+        );
+        assert_eq!(session.snapshot().editing_text, "644426");
+
+        // 选掉前面一段后，光标跟着剩下的数字走。
+        session.command(Command::Cancel);
+        type_digits(&mut session, "64426");
+        session.command(Command::MoveLeft);
+        let ni = session.select(index_of(&session, "你"));
+        assert_eq!(ni.commit.as_deref(), Some("你"));
+        let view = session.snapshot();
+        assert_eq!(view.editing_text, "426");
+        assert_eq!(view.caret_position, 2);
+    }
+
+    /// #5613 的光标与左列的首字母、锁定的撤销记录和换选：退格只在光标在末尾时撤销最后一步，光标在中间时是在那里改字；改到锁定的拼写时撤销记录随锁定一起丢掉；取消把光标和这些状态一起复位。
+    #[test]
+    fn the_caret_meets_key_letters_and_taking_back_locks() {
+        let fixture = fixture();
+        let mut session = open(&fixture.paths, false, mixed());
+
+        // 选了首字母后在中间退格，删的是光标前的数字，首字母留着。
+        type_digits(&mut session, "644");
+        session.choose_spelling(spelling_index(&session, "N"));
+        assert_eq!(session.snapshot().preedit, "n44");
+        session.command(Command::MoveLeft);
+        assert!(session.command(Command::Backspace).handled);
+        let view = session.snapshot();
+        assert_eq!(view.preedit, "n4");
+        assert_eq!(view.caret_position, 1);
+        // 在选了首字母的那一位前面插数字，或者删掉那一位，首字母都不再成立。
+        session.command(Command::MoveHome);
+        type_digits(&mut session, "9");
+        assert!(session.initial.is_none());
+        assert_eq!(session.snapshot().preedit, "964");
+        session.command(Command::Cancel);
+        type_digits(&mut session, "644");
+        session.choose_spelling(spelling_index(&session, "N"));
+        session.command(Command::MoveHome);
+        assert!(session.command(Command::DeleteForward).handled);
+        assert!(session.initial.is_none());
+        assert_eq!(session.snapshot().preedit, "44");
+        session.command(Command::Cancel);
+
+        // 数字全部锁定时在中间退格：删光标前的数字，盖住它的锁定连同撤销记录一起解除，前面的锁定留着。
+        type_digits(&mut session, "6464224");
+        session.choose_spelling(spelling_index(&session, "ning"));
+        session.choose_spelling(spelling_index(&session, "bai"));
+        assert_eq!(session.snapshot().preedit, "ning'bai");
+        session.command(Command::MoveLeft);
+        session.command(Command::MoveLeft);
+        assert!(session.command(Command::Backspace).handled);
+        assert_eq!(session.locked, ["ning"]);
+        assert_eq!(session.lock_undo.len(), 1);
+        let view = session.snapshot();
+        assert_eq!(view.preedit, "ning'24");
+        assert_eq!(view.caret_position, 4);
+        session.command(Command::Cancel);
+
+        // 在锁定的拼写里插数字后没有锁定可撤销，回到末尾退格删的是数字。
+        type_digits(&mut session, "64426");
+        session.choose_spelling(spelling_index(&session, "ni"));
+        session.choose_spelling(spelling_index(&session, "hao"));
+        session.command(Command::MoveHome);
+        session.command(Command::MoveRight);
+        type_digits(&mut session, "4");
+        assert!(session.locked.is_empty() && session.lock_undo.is_empty());
+        session.command(Command::MoveEnd);
+        session.command(Command::Backspace);
+        assert_eq!(session.snapshot().editing_text, "64442");
+        session.command(Command::Cancel);
+
+        // 换选先撤销最后一次锁定：光标在键入的数字上时位置不变，落在拼写补齐的数字里时回到末尾。
+        type_digits(&mut session, "64");
+        session.choose_spelling(spelling_index(&session, "ming"));
+        assert_eq!(session.snapshot().editing_text, "6464");
+        session.command(Command::MoveHome);
+        session.command(Command::MoveRight);
+        session.choose_spelling(spelling_index(&session, "ni"));
+        let view = session.snapshot();
+        assert_eq!(
+            (view.preedit.as_str(), view.editing_text.as_str()),
+            ("ni", "64")
+        );
+        assert_eq!(view.caret_position, 1);
+        session.choose_spelling(spelling_index(&session, "ming"));
+        assert_eq!(session.snapshot().caret_position, 1);
+        session.command(Command::MoveEnd);
+        session.command(Command::MoveLeft);
+        assert_eq!(session.snapshot().caret_position, 3);
+        session.choose_spelling(spelling_index(&session, "ni"));
+        let view = session.snapshot();
+        assert_eq!(view.editing_text, "64");
+        assert_eq!(view.caret_position, 2);
+        session.command(Command::Cancel);
+
+        // 取消把锁定、撤销记录、首字母和光标一起清掉。
+        type_digits(&mut session, "64426");
+        session.choose_spelling(spelling_index(&session, "ni"));
+        session.choose_spelling(spelling_index(&session, "H"));
+        session.command(Command::MoveHome);
+        assert!(session.command(Command::Cancel).handled);
+        assert!(session.locked.is_empty() && session.lock_undo.is_empty());
+        assert!(session.initial.is_none() && session.caret.is_none());
+        type_digits(&mut session, "64");
+        let view = session.snapshot();
+        assert_eq!(view.preedit, "64");
+        assert_eq!(view.caret_position, 2);
     }
 
     #[test]

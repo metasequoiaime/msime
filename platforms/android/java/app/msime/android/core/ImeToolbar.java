@@ -23,6 +23,9 @@ final class ImeToolbar {
 
     private final MSIMEInputService s;
     private Button[] shortcutButtons;
+    /** 最近一次按在读音上的位置（读音视图自己的坐标）。 */
+    private float preeditTouchX;
+    private float preeditTouchY;
     private String styleCacheKey;
     private int iconColor;
     private int activeIconColor;
@@ -82,6 +85,19 @@ final class ImeToolbar {
             s.imePanels.showLocalInputMenu();
             return true;
         });
+        // 组字时轻点读音把组字光标移到点中的字母前（#5613）；落点在按下时记下，抬手成为一次点击时才换算成光标位置。render 只在组字可以移光标时让它可点。
+        s.preedit.setOnTouchListener((view, event) -> {
+            if (event.getActionMasked() == android.view.MotionEvent.ACTION_DOWN) {
+                preeditTouchX = event.getX();
+                preeditTouchY = event.getY();
+            }
+            return false;
+        });
+        s.preedit.setOnClickListener(ignored -> {
+            s.imeKeyFeedback.playFeedback(s.preedit);
+            s.movePreeditCaret(s.preedit.getOffsetForPosition(preeditTouchX, preeditTouchY));
+        });
+        s.preedit.setClickable(false);
         LinearLayout preeditFrame = KeyboardGeometry.row(s);
         ViewPolicy.setStartCenteredVertically(preeditFrame);
         preeditFrame.addView(s.preedit, new LinearLayout.LayoutParams(

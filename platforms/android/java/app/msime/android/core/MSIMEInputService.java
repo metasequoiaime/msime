@@ -131,6 +131,12 @@ public final class MSIMEInputService extends InputMethodService {
     LinearLayout expandedCandidates;
     ScrollView expandedCandidateScroll;
     TextView preedit;
+    /** 点读音行移组字光标用的那一份读音（#5613）：画出来的读音（不含已选的词和光标符）、它对应的 `editing_text`、光标符画在读音的哪个下标前（没画是 -1）、前面已选的词有多长、引擎光标现在在哪。读音行不可点时 `preeditCaretEditing` 为 null。 */
+    private String preeditCaretEditing;
+    private String preeditCaretSpelling = "";
+    private int preeditCaretMark = -1;
+    private int preeditCaretPrefix;
+    private int preeditCaretPosition;
     TextView candidatePage;
     KeyboardBrandMark candidateBrandMark;
     Button exitLocalModeButton;
@@ -2894,6 +2900,23 @@ public final class MSIMEInputService extends InputMethodService {
         if (session == 0) return;
         try { apply(NativeClient.setNineKeyFilter(session, singleCharacter, strokes)); }
         catch (JSONException | LinkageError error) { fail(); }
+    }
+
+    /**
+     * 点在读音行 {@code offset} 处（`TextView.getOffsetForPosition` 的结果）：把组字光标移到点中的字母前，之后的退格、打字都作用在那里（#5613）。引擎只有逐格左右移和移到两头的命令，连发若干次；光标移动不改组字，只把最后一次的结果交给 apply 去画。
+     */
+    void movePreeditCaret(int offset) {
+        String editing = preeditCaretEditing;
+        if (session == 0 || editing == null) return;
+        int target = CompositionCaretPolicy.tapTarget(preeditCaretPrefix, preeditCaretSpelling,
+            editing, preeditCaretMark, offset);
+        int[] moves = CompositionCaretPolicy.moves(preeditCaretPosition, target, editing.length());
+        if (moves.length == 0) return;
+        try {
+            String response = null;
+            for (int step = 0; step < moves[1]; step++) response = NativeClient.command(session, moves[0]);
+            apply(response);
+        } catch (JSONException | LinkageError error) { fail(); }
     }
 
     void type(char key) {
@@ -7134,9 +7157,9 @@ public final class MSIMEInputService extends InputMethodService {
                 nineKeyPreedit = view.optString("nine_key_reading", "");
                 if (nineKeyPreedit.isEmpty()) nineKeyPreedit = view.optString("preedit", "");
             }
-            String localModeTitle = "none".equals(localModeKey)
-                ? (!nineKeyPreedit.isEmpty() ? nineKeyPreedit : reading.isEmpty() ? editingText : reading)
-                : editingText;
+            String spelling = !nineKeyPreedit.isEmpty() ? nineKeyPreedit
+                : reading.isEmpty() ? editingText : reading;
+            String localModeTitle = "none".equals(localModeKey) ? spelling : editingText;
             // A mode's own name is a label saying which mode is running, not composed input, so it
             // survives 「不显示」; anything the mode is spelling beyond its trigger does not.
             boolean localModeName = false;
@@ -7154,13 +7177,33 @@ public final class MSIMEInputService extends InputMethodService {
             // 新设计去掉了空闲时的品牌药丸：空闲时读音行整行隐藏，品牌标在工具栏最左。
             brandPillVisible = false;
             String phrasePrefix = view == null ? "" : view.optString("phrase_prefix", "");
+            // 组字光标（#5613）：点读音行把光标移到点中的字母前；光标被移离末尾时画进读音行（「不显示」也画，下一个键就作用在那里）。读音对不上按键时退回画原始按键。
+            boolean caretEditable = !idleTitle && view != null && CompositionCaretPolicy.editable(
+                InputViewValuePolicy.scheme(view, -1), localModeKey, dedicatedEnglish, editingText);
+            int caret = caretEditable
+                ? InputViewValuePolicy.integer(view, "caret_position", editingText.length())
+                : editingText.length();
+            String caretSpelling = spelling;
+            int caretMark = caretEditable ? CompositionCaretPolicy.markIndex(spelling, editingText, caret) : -1;
+            if (caretEditable && caret < editingText.length() && caretMark < 0) {
+                caretSpelling = editingText;
+                caretMark = CompositionCaretPolicy.markIndex(editingText, editingText, caret);
+            }
+            boolean spellingDrawn = caretMark >= 0 || spelling.equals(localModeTitle);
+            preeditCaretEditing = caretEditable && spellingDrawn ? editingText : null;
+            preeditCaretSpelling = caretSpelling;
+            preeditCaretMark = caretMark;
+            preeditCaretPrefix = phrasePrefix.length();
+            preeditCaretPosition = caret;
             String displayText = idleTitle
                 ? (dedicatedEnglish ? "英文输入" : productName)
-                : PhrasePreeditPolicy.title(phrasePrefix, localModeTitle,
-                                            !"none".equals(localModeKey));
+                : PhrasePreeditPolicy.title(phrasePrefix, caretMark >= 0
+                    ? CompositionCaretPolicy.withMark(caretSpelling, caretMark) : localModeTitle,
+                    !"none".equals(localModeKey));
             preedit.setText(displayText);
             preedit.setContentDescription(offersLocalModes ? "长按打开本地输入模式" : displayText);
             preedit.setLongClickable(offersLocalModes);
+            preedit.setClickable(preeditCaretEditing != null);
             ViewPolicy.setFocusable(preedit, offersLocalModes);
         }
         if (exitLocalModeButton != null) {
