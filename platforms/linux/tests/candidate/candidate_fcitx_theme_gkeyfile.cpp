@@ -29,6 +29,7 @@ void assert_gkeyfile_reads(const std::string &theme, bool decorated) {
   if (error) g_error_free(error);
   assert(loaded);
   assert(value(file, "Metadata", "Name") == "MSIME");
+  assert(value(file, "SupportedScale", "Value") == "2");
   assert(value(file, "InputPanel/Background", "Color") == "#201a30");
   assert(g_key_file_has_key(file, "InputPanel/Background", "Overlay", nullptr) == decorated);
   g_key_file_free(file);
