@@ -3186,7 +3186,7 @@ public final class MSIMEInputService extends InputMethodService {
             }
         }
         if (japaneseSchemeActive() && view != null) {
-            String editingText = view.optString("editing_text", "");
+            String editingText = InputViewValuePolicy.editingText(view);
             JSONArray candidates = view.optJSONArray("candidates");
             int count = candidates == null ? 0 : candidates.length();
             JSONObject first = count > 0 ? candidates.optJSONObject(0) : null;
@@ -3805,14 +3805,14 @@ public final class MSIMEInputService extends InputMethodService {
         boolean ownEcho = selectionEcho.acknowledge(newStart, newEnd, composingStart, composingEnd);
         // 用户自己移了光标（或应用改了文字），之前补上的后半个不再是「下一个要跨过的」。
         if (!ownEcho && selectionChanged) pairedPunctuationStack.clear();
-        if (!ownEcho && session != 0 && view != null && !view.optString("editing_text").isEmpty()
+        if (!ownEcho && session != 0 && view != null && !InputViewValuePolicy.editingText(view).isEmpty()
                 && (newStart != composingEnd || newEnd != composingEnd)) {
             // Don't apply an empty composition over the editor's newly moved selection.
             // 韩语音节已经是最终的韩文并内联标记，下面结束组字区域后它留在文档里，所以算作已输入。注音转换、越南语单词和藏文音节同样是已书写的文字（`commits_on_blur`）；藏文记的是 `editing_text` 里转换后的藏文。
             if (koreanSchemeActive() || zhuyinSchemeActive())
                 recordTypingStatistics(view.optString("reading", ""), typingSource());
             else if (letterCaseSchemeActive())
-                recordTypingStatistics(view.optString("editing_text", ""), typingSource());
+                recordTypingStatistics(InputViewValuePolicy.editingText(view), typingSource());
             boolean keepsComposition = !koreanSchemeActive() && writtenCompositionActive();
             try {
                 // 韩语汉字列表打开时第一次取消只关闭列表（msime_client.h），要再取消一次才丢掉编辑器里已作为文字保留的音节。注音的第一次取消只关闭列表，越南语和藏文的只退回原始按键，所以它们留下的组字还要再取消一次。
@@ -3820,7 +3820,7 @@ public final class MSIMEInputService extends InputMethodService {
                 for (int cancels = KoreanInputPolicy.cancelsToDiscard(koreanHanjaListOpen()); cancels > 0; cancels--)
                     cancelled = value(NativeClient.command(session, 3));
                 JSONObject left = cancelled == null ? null : cancelled.optJSONObject("view");
-                if (keepsComposition && left != null && !left.optString("editing_text", "").isEmpty())
+                if (keepsComposition && left != null && !InputViewValuePolicy.editingText(left).isEmpty())
                     value(NativeClient.command(session, 3));
             } catch (JSONException | LinkageError error) { fail(); }
             // Stroke marks its stroke glyphs, which are not text the user wrote (`commits_on_blur` is false): finishing the region would leave 一丨 in the document, so the region is removed and the tapped selection put back.
@@ -7209,7 +7209,7 @@ public final class MSIMEInputService extends InputMethodService {
         imeLayoutRows.updateStrokeWildcardKey();
         imeCalculator.syncVisibility();
         imeLayoutRows.updateNineKeySymbolKey();
-        String currentEditingText = view == null ? "" : view.optString("editing_text", "");
+        String currentEditingText = view == null ? "" : InputViewValuePolicy.editingText(view);
         if (!japaneseSchemeActive() || currentEditingText.isEmpty()) {
             japaneseConversionIndex = null;
             japaneseConversionEditingText = "";
@@ -7251,14 +7251,14 @@ public final class MSIMEInputService extends InputMethodService {
         boolean handwriting = handwritingActive();
         boolean hasHandwritingResults = handwriting && !handwritingResults.isEmpty()
             && handwritingCandidateToken != null;
-        boolean idle = view == null || (view.optString("editing_text", "").isEmpty()
+        boolean idle = view == null || (InputViewValuePolicy.editingText(view).isEmpty()
             && "none".equals(view.optString("local_mode", "none"))
             && (visibleCandidates == null || visibleCandidates.length() == 0)
             && !hasEnglishSuggestions
             && !hasHandwritingResults);
         if (preedit != null) {
             KeyboardGeometry.setKeyTextSize(preedit, candidatePreeditFontSize);
-            String editingText = view == null ? "" : view.optString("editing_text", "");
+            String editingText = view == null ? "" : InputViewValuePolicy.editingText(view);
             boolean offersLocalModes = idle && supportsLocalTools();
             String localModeKey = view == null ? "none" : view.optString("local_mode", "none");
             String reading = view == null ? "" : view.optString("reading", "");

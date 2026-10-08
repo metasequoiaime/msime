@@ -34,14 +34,20 @@ enum EnglishCapitalizationPolicy {
     case .sentences:
       guard let contextBeforeInput else { return false }
       guard !contextBeforeInput.isEmpty else { return true }
+      // 句末标点后要隔着空白才算新句，与系统键盘一致；否则刚点下 `.`、删字删到 `abc.` 后面或在 `你好。` 后切到英文都会立刻变成大写。
+      var whitespaceAfter = false
       for character in contextBeforeInput.reversed() {
-        if character == "\n" || character == "\r" {
+        if character == "\n" || character == "\r" || character == "\r\n" {
           return true
         }
-        if character.isWhitespace || closingCharacters.contains(character) {
+        if character.isWhitespace {
+          whitespaceAfter = true
           continue
         }
-        return sentenceTerminators.contains(character)
+        if closingCharacters.contains(character) {
+          continue
+        }
+        return whitespaceAfter && sentenceTerminators.contains(character)
       }
       return true
     }

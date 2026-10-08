@@ -2727,7 +2727,7 @@ impl PreferencesStore {
             )));
         }
         let bytes = crate::bounded_io::read_bounded_file(
-            crate::storage::open_private_file(&path)?,
+            crate::storage::open_private_file_in(&path)?,
             MAX_DOCUMENT_BYTES,
             || PreferencesError::DocumentTooLarge,
         )?;
@@ -3034,11 +3034,27 @@ fn salvage_preferences(
 
 fn atomic_write(directory: &Path, path: &Path, contents: &[u8]) -> Result<(), PreferencesError> {
     sweep_stale_temporaries(directory);
-    let mut temporary = tempfile::NamedTempFile::new_in(directory)?;
-    temporary.write_all(contents)?;
-    temporary.as_file().sync_all()?;
-    temporary.persist(path).map_err(|error| error.error)?;
-    Ok(())
+    #[cfg(unix)]
+    {
+        let parent = path.parent().unwrap_or_else(|| Path::new("."));
+        let opened = crate::storage::open_private_directory(parent)?;
+        let name = path.file_name().ok_or_else(|| {
+            PreferencesError::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "preferences path has no file name",
+            ))
+        })?;
+        crate::storage::write_private_file_at(&opened, name, contents)?;
+        Ok(())
+    }
+    #[cfg(not(unix))]
+    {
+        let mut temporary = tempfile::NamedTempFile::new_in(directory)?;
+        temporary.write_all(contents)?;
+        temporary.as_file().sync_all()?;
+        temporary.persist(path).map_err(|error| error.error)?;
+        Ok(())
+    }
 }
 
 /// How long a staged write has to sit before it is considered abandoned. A staged write takes
