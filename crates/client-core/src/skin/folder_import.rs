@@ -55,18 +55,33 @@ pub fn import(source: &Path, root: &Path) -> Result<String, &'static str> {
     Ok(name)
 }
 
+#[allow(clippy::needless_return)]
 fn remove_leftover(path: &Path) -> Result<(), &'static str> {
-    let metadata = match std::fs::symlink_metadata(path) {
-        Ok(metadata) => metadata,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(_) => return Err("storage"),
-    };
-    if metadata.is_dir() {
-        std::fs::remove_dir_all(path).map_err(|_| "storage")?;
-    } else {
-        std::fs::remove_file(path).map_err(|_| "storage")?;
+    #[cfg(unix)]
+    {
+        let parent = path.parent().ok_or("storage")?;
+        let name = path.file_name().ok_or("storage")?;
+        let directory = crate::storage::open_private_directory(parent).map_err(|_| "storage")?;
+        return match crate::storage::remove_private_tree_at(&directory, name) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(_) => Err("storage"),
+        };
     }
-    Ok(())
+    #[cfg(not(unix))]
+    {
+        let metadata = match std::fs::symlink_metadata(path) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(_) => return Err("storage"),
+        };
+        if metadata.is_dir() {
+            std::fs::remove_dir_all(path).map_err(|_| "storage")?;
+        } else {
+            std::fs::remove_file(path).map_err(|_| "storage")?;
+        }
+        Ok(())
+    }
 }
 
 /// Swap a fully written `staging` directory in as `target`, replacing any existing `target` whole. The previous directory is first moved aside to `backup` and restored if the swap fails, so a failure never leaves a half-replaced skin; `staging` is removed on failure and `backup` after success. Every error is `storage`.
@@ -443,5 +458,22 @@ mod tests {
         );
         assert!(moved.join(".import-sakura/skin.toml").exists());
         assert!(!outside.path().join("sakura").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn leftover_cleanup_rejects_a_symlinked_parent() {
+        use std::os::unix::fs::symlink;
+
+        let state = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let linked = state.path().join("linked");
+        let victim = outside.path().join("staging");
+        std::fs::create_dir(&victim).unwrap();
+        std::fs::write(victim.join("keep.bin"), b"synthetic outside data").unwrap();
+        symlink(outside.path(), &linked).unwrap();
+
+        assert_eq!(remove_leftover(&linked.join("staging")), Err("storage"));
+        assert!(victim.join("keep.bin").exists());
     }
 }
