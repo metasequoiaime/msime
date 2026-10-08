@@ -16,6 +16,7 @@ use crate::types::{QueryRequest, SchemeType};
 
 /// The non-letter keys the editor still claims while the list is open: the phonetic keys that are not selection digits. Digits 1–9 and Space go to selection.
 pub const LIST_OPEN_SYMBOLS: &str = "0,./;-";
+const SMALL_READING_DEDUP: usize = 32;
 
 /// A key as the editor sees it. The session maps host keys and command 16 (`Command::ConvertHanja`, "open the candidate list") onto these.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -436,28 +437,21 @@ impl ZhuyinScheme {
     fn open_list(&mut self) -> Result<()> {
         let count = self.syllables.len();
         self.list.clear();
-        let positions: Vec<&[String]> = self.syllables.iter().map(Syllable::allowed).collect();
+        let positions = list_positions(&self.syllables);
         for start in 0..count {
             let entries = self
                 .dictionary
-                .lookup_readings(&positions[start..], usize::MAX)?;
+                .lookup_readings(&positions[start..count], usize::MAX)?;
             self.list.reserve(entries.len());
             // 九键下同一个字可能在同一位置的两个读音下各有一条，只留较重的那条。
-            let mut seen = HashSet::with_capacity(entries.len());
-            let unique = entries
-                .iter()
-                .map(|(_, entry)| seen.insert(entry.text.as_str()))
-                .collect::<Vec<_>>();
-            drop(seen);
-            self.list.extend(entries.into_iter().zip(unique).filter_map(
-                |((key, entry), unique)| {
-                    unique.then_some(ListCandidate {
-                        text: entry.text,
-                        start,
-                        key,
-                    })
-                },
-            ));
+            let mut entries = entries;
+            deduplicate_reading_entries(&mut entries);
+            self.list
+                .extend(entries.into_iter().map(|(key, entry)| ListCandidate {
+                    text: entry.text,
+                    start,
+                    key,
+                }));
         }
         self.list_open = !self.list.is_empty();
         Ok(())
@@ -481,32 +475,29 @@ impl ZhuyinScheme {
     }
 
     fn reconvert(&mut self) -> Result<()> {
-        let positions: Vec<&[String]> = self.syllables.iter().map(Syllable::allowed).collect();
+        let count = self.syllables.len();
+        let (positions, ambiguous) = reconversion_buffers(&self.syllables);
+        let positions = &positions[..count];
+        let ambiguous = &ambiguous[..count];
         // 歧义按打字时的读音算，不按钉住后剩下的：钉住当前用的读音不该放出被下限挡住的冷僻词（是之 → 適之）。
-        let ambiguous: Vec<bool> = self
-            .syllables
-            .iter()
-            .map(|syllable| syllable.readings.len() > 1)
-            .collect();
         let dictionary = &self.dictionary;
         let best = &mut self.best;
         // 每个位置单字最重词条的权重，只在九键下有位置打出来不止一个读音时才用得到。
-        let mut singles = Vec::new();
+        let mut singles = [0; MAX_SYLLABLES];
         if ambiguous.iter().any(|&ambiguous| ambiguous) {
-            singles.reserve_exact(positions.len());
             for index in 0..positions.len() {
-                let weight = cached_best(dictionary, best, &positions[index..=index])?
+                singles[index] = cached_best(dictionary, best, &positions[index..=index])?
                     .map_or(0, |(_, entry)| entry.weight);
-                singles.push(weight);
             }
         }
+        let singles = &singles[..count];
         self.conversion = conversion::convert(
             positions.len(),
             &self.pins,
             |start, end| {
                 let entry = cached_best(dictionary, best, &positions[start..end])?;
                 Ok(entry.filter(|(_, entry)| {
-                    clears_ambiguous_word_floor(&ambiguous[start..end], &singles, start, entry)
+                    clears_ambiguous_word_floor(&ambiguous[start..end], singles, start, entry)
                 }))
             },
             |index| positions[index][0].clone(),
@@ -562,6 +553,66 @@ impl ZhuyinScheme {
     }
 }
 
+fn deduplicate_reading_entries(entries: &mut Vec<(String, LanguageEntry)>) {
+    if entries.len() <= SMALL_READING_DEDUP {
+        let mut write = 0;
+        for read in 0..entries.len() {
+            if entries[..write]
+                .iter()
+                .any(|(_, entry)| entry.text == entries[read].1.text)
+            {
+                continue;
+            }
+            if write != read {
+                entries.swap(write, read);
+            }
+            write += 1;
+        }
+        entries.truncate(write);
+        return;
+    }
+    let mut seen = HashSet::with_capacity(entries.len());
+    let duplicates = entries
+        .iter()
+        .enumerate()
+        .filter_map(|(index, (_, entry))| (!seen.insert(entry.text.as_str())).then_some(index))
+        .collect::<Vec<_>>();
+    drop(seen);
+    let mut duplicates = duplicates.into_iter().peekable();
+    let mut write = 0;
+    for read in 0..entries.len() {
+        if duplicates.peek() == Some(&read) {
+            duplicates.next();
+            continue;
+        }
+        if write != read {
+            entries.swap(write, read);
+        }
+        write += 1;
+    }
+    entries.truncate(write);
+}
+
+fn list_positions<'a>(syllables: &'a [Syllable]) -> [&'a [String]; MAX_SYLLABLES] {
+    let mut positions: [&'a [String]; MAX_SYLLABLES] = [&[]; MAX_SYLLABLES];
+    for (index, syllable) in syllables.iter().enumerate() {
+        positions[index] = syllable.allowed();
+    }
+    positions
+}
+
+fn reconversion_buffers<'a>(
+    syllables: &'a [Syllable],
+) -> ([&'a [String]; MAX_SYLLABLES], [bool; MAX_SYLLABLES]) {
+    let mut positions: [&'a [String]; MAX_SYLLABLES] = [&[]; MAX_SYLLABLES];
+    let mut ambiguous = [false; MAX_SYLLABLES];
+    for (index, syllable) in syllables.iter().enumerate() {
+        positions[index] = syllable.allowed();
+        ambiguous[index] = syllable.readings.len() > 1;
+    }
+    (positions, ambiguous)
+}
+
 /// 多音节词经过一个有多种允许读法的位置时，词频最多可以比它覆盖的最弱单字轻多少倍。
 ///
 /// Conversion ranks paths by word length first (libchewing's score), which suits Dachen, where each position has exactly one reading. A nine-key position allows 4 to 23 readings, so the combined reading sets of two or three positions match some obscure word almost everywhere, and length-first alone lets 監聽器 (weight 9) beat 今天 (25469) + 去 (28394). Such a word therefore takes part only when its weight times this factor reaches the smallest single-character weight over its positions. 1000 was chosen against a rebuild of the libchewing-derived dictionary: it drops 監聽器, 趕明兒 and 禮教 from 我們今天去學校, 這個東西很便宜 and 請問你叫什麼名字, and of the sampled counted 2 to 4 syllable words that convert to themselves without the floor all but one still do, while a factor of 300 already loses about one in eight of them.
@@ -602,11 +653,28 @@ fn cached_best(
 
 /// `cached_best` 的缓存键。
 fn describe(positions: &[&[String]]) -> String {
-    positions
+    let capacity = positions
         .iter()
-        .map(|readings| readings.join("|"))
-        .collect::<Vec<_>>()
-        .join(" ")
+        .enumerate()
+        .map(|(position, readings)| {
+            readings.iter().map(String::len).sum::<usize>()
+                + readings.len().saturating_sub(1)
+                + usize::from(position > 0)
+        })
+        .sum();
+    let mut description = String::with_capacity(capacity);
+    for (position, readings) in positions.iter().enumerate() {
+        if position > 0 {
+            description.push(' ');
+        }
+        for (reading, value) in readings.iter().enumerate() {
+            if reading > 0 {
+                description.push('|');
+            }
+            description.push_str(value);
+        }
+    }
+    description
 }
 
 fn build_editing_keys(syllables: &[Syllable], pending: &PendingSyllable) -> String {
@@ -685,6 +753,77 @@ mod tests {
         assert_eq!(build_editing_keys(&syllables, &pending), "su3lc3a8");
     }
 
+    #[test]
+    fn list_positions_keep_allowed_readings_on_the_stack() {
+        let syllables = [
+            syllable("su3", &["ㄋㄧˇ"]),
+            syllable("28c", &["ㄋㄧˇ", "ㄌㄧˇ"]),
+        ];
+
+        let positions = list_positions(&syllables);
+
+        assert_eq!(positions[0], &["ㄋㄧˇ".to_owned()]);
+        assert_eq!(positions[1], &["ㄋㄧˇ".to_owned(), "ㄌㄧˇ".to_owned()]);
+    }
+
+    #[test]
+    fn short_reading_dedup_keeps_first_rows_without_temporary_heap_state() {
+        let mut entries = (0..32)
+            .map(|index| {
+                (
+                    format!("key-{index}"),
+                    LanguageEntry {
+                        text: format!("字{}", index % 18),
+                        weight: index as i64,
+                    },
+                )
+            })
+            .collect::<Vec<_>>();
+        let ((), allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            deduplicate_reading_entries(&mut entries);
+        });
+        assert_eq!(allocations, 0);
+        assert_eq!(entries.len(), 18);
+        assert_eq!(entries[0].1.text, "字0");
+        assert_eq!(entries[17].1.text, "字17");
+
+        let mut large = (0..=SMALL_READING_DEDUP)
+            .map(|index| {
+                (
+                    format!("key-{index}"),
+                    LanguageEntry {
+                        text: format!("大字{index}"),
+                        weight: index as i64,
+                    },
+                )
+            })
+            .collect::<Vec<_>>();
+        large.push((
+            "duplicate".to_owned(),
+            LanguageEntry {
+                text: "大字0".to_owned(),
+                weight: 0,
+            },
+        ));
+        deduplicate_reading_entries(&mut large);
+        assert_eq!(large.len(), SMALL_READING_DEDUP + 1);
+        assert_eq!(large[0].1.text, "大字0");
+    }
+
+    #[test]
+    fn reconversion_buffers_keep_allowed_readings_and_ambiguity_on_the_stack() {
+        let syllables = [
+            syllable("su3", &["ㄋㄧˇ"]),
+            syllable("28c", &["ㄋㄧˇ", "ㄌㄧˇ"]),
+        ];
+
+        let (positions, ambiguous) = reconversion_buffers(&syllables);
+
+        assert_eq!(positions[0], &["ㄋㄧˇ".to_owned()]);
+        assert_eq!(positions[1], &["ㄋㄧˇ".to_owned(), "ㄌㄧˇ".to_owned()]);
+        assert_eq!(&ambiguous[..2], &[false, true]);
+    }
+
     // 大千下每个位置只有一个读音，缓存键就是词库键；九键的多读音位置以 `|` 连接，钉住后只剩钉住的那个。
     #[test]
     fn cache_keys_describe_the_allowed_readings_in_order() {
@@ -699,6 +838,22 @@ mod tests {
         syllables[2].locked = Some(1);
         let positions: Vec<&[String]> = syllables.iter().map(Syllable::allowed).collect();
         assert_eq!(describe(&positions[1..]), "ㄏㄠˇ ㄌㄧˇ");
+    }
+
+    #[test]
+    fn cache_key_description_needs_only_the_output_allocation() {
+        let syllables = [
+            syllable("su3", &["ㄋㄧˇ"]),
+            syllable("lc3", &["ㄏㄠˇ"]),
+            syllable("28c", &["ㄋㄧˇ", "ㄌㄧˇ"]),
+        ];
+        let positions: Vec<&[String]> = syllables.iter().map(Syllable::allowed).collect();
+
+        let (description, allocations) =
+            crate::ime::personal_rerank::allocations::count(|| describe(&positions));
+
+        assert_eq!(description, "ㄋㄧˇ ㄏㄠˇ ㄋㄧˇ|ㄌㄧˇ");
+        assert_eq!(allocations, 1);
     }
 
     #[test]

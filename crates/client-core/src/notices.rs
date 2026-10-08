@@ -16,6 +16,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// The cache of the last feed and the dismissed ids.
 pub const NOTICES_FILE: &str = "notices.json";
+const NOTICES_LOCK_FILE: &str = "notices.lock";
 /// The server's `max-age`; the feed is not requested again sooner, whether the last attempt worked or not.
 pub const MIN_REFRESH_INTERVAL: Duration = Duration::from_secs(60);
 /// Most notices the server lists.
@@ -163,6 +164,7 @@ impl NoticeStore {
     ) -> Result<Vec<Notice>, NoticeError> {
         let platform =
             crate::telemetry::canonical_platform(platform).ok_or(NoticeError::Invalid)?;
+        let _lock = self.lock()?;
         let feed = format!("{}/{platform}", channel.as_str());
         let mut cache = self.read();
         if cache.feed != feed {
@@ -201,6 +203,7 @@ impl NoticeStore {
         {
             return Err(NoticeError::Invalid);
         }
+        let _lock = self.lock()?;
         let mut cache = self.read();
         if cache.dismissed.iter().any(|dismissed| dismissed == id) {
             return Ok(());
@@ -211,6 +214,17 @@ impl NoticeStore {
             cache.dismissed.drain(..excess);
         }
         self.write(&cache)
+    }
+
+    fn lock(&self) -> Result<File, NoticeError> {
+        if !self.directory.is_absolute()
+            || !crate::storage::create_directory_and_check(&self.directory)?
+        {
+            return Err(NoticeError::Storage);
+        }
+        let lock = crate::file_lock::open_lock_file(self.directory.join(NOTICES_LOCK_FILE))?;
+        crate::file_lock::exclusive(&lock)?;
+        Ok(lock)
     }
 
     fn read(&self) -> NoticeCache {
@@ -224,7 +238,7 @@ impl NoticeStore {
         if !metadata.file_type().is_file() {
             return NoticeCache::default();
         }
-        let mut cache: NoticeCache = File::open(path)
+        let mut cache: NoticeCache = crate::storage::open_private_file(&path)
             .ok()
             .and_then(|file| crate::bounded_io::read_bounded(file, MAX_CACHE_BYTES).ok())
             .and_then(|bytes| serde_json::from_slice(&bytes).ok())

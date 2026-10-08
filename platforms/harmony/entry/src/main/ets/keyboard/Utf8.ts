@@ -24,3 +24,7 @@ export function utf8Length(text: string): number {
   }
   return bytes;
 }
+
+export function utf8WriteComplete(text: string, written: number): boolean {
+  return written === utf8Length(text);
+}

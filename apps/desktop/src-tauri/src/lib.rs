@@ -104,7 +104,6 @@ use std::collections::HashMap;
     target_os = "ios",
     test
 ))]
-use std::fs;
 #[cfg(target_os = "windows")]
 use std::io::Write;
 #[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
@@ -333,7 +332,7 @@ const CANDIDATE_PANEL_STATUS_READ_LIMIT: u64 = 4096;
 
 #[cfg(any(target_os = "linux", test))]
 fn read_candidate_panel_status(path: &Path) -> Option<String> {
-    let file = fs::File::open(path).ok()?;
+    let file = crate::shared::atomic_file::open_private(path).ok()?;
     let bytes =
         crate::shared::bounded_body::read_bounded(file, CANDIDATE_PANEL_STATUS_READ_LIMIT as usize)
             .ok()?;
@@ -1120,7 +1119,7 @@ fn read_runtime_options_bytes(path: &Path) -> Result<Vec<u8>, std::io::Error> {
             "runtime options is not a regular file",
         ));
     }
-    let file = fs::File::open(path)?;
+    let file = crate::shared::atomic_file::open_private(path)?;
     match crate::shared::bounded_body::read_bounded(file, RUNTIME_OPTIONS_READ_LIMIT as usize) {
         Ok(bytes) => Ok(bytes),
         Err(crate::shared::bounded_body::BoundedReadError::TooLarge) => Err(std::io::Error::new(
@@ -2701,7 +2700,7 @@ fn restart_input_method_blocking() -> Result<(), HostActionError> {
             })?;
         let payload = windows_restart_payload();
         for attempt in 0..5 {
-            match fs::OpenOptions::new().write(true).open(&pipe) {
+            match std::fs::OpenOptions::new().write(true).open(&pipe) {
                 Ok(mut pipe) => {
                     return pipe.write_all(&payload).map_err(|_| HostActionError {
                         code: "unavailable",

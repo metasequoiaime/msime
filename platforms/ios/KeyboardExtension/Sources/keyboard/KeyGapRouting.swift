@@ -32,9 +32,12 @@ enum KeyGapRouting {
 /// 候选栏、手写区这类不是键的子树放进 `gapRoutingExclusions`，落在它们里面的命中原样返回，它们的按钮也不会被选来接空隙里的触摸。面板和弹层加在键盘根视图上而不在这里，盖住键区时先命中的是它们自己。
 final class KeyAreaStackView: UIStackView {
   var gapRoutingExclusions: [UIView] = []
+  /// 滑行输入进行中（`GlideTypingGestureRecognizer`）：新落下的手指一律命中键区自己而不是键，它们什么都不输入，挂在键区上的滑行手势看得到并忽略它们，直到滑行的手指抬起。
+  var suppressesKeyHits = false
 
   override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
     let hit = super.hitTest(point, with: event)
+    if suppressesKeyHits, hit != nil { return self }
     guard let gap = hit as? UIStackView, !isExcluded(gap) else { return hit }
     var keys: [UIControl] = []
     collectKeys(in: gap, into: &keys)
@@ -65,7 +68,7 @@ final class KeyAreaStackView: UIStackView {
   }
 
   /// 键在布局里占的位置。按下时 `KeyboardKeyButton` 把自己缩到 0.94，`frame` 和默认命中都随之缩小，而空隙的归属要按布局算，所以用不受 `transform` 影响的 `center` 与 `bounds`。
-  private static func layoutFrame(of key: UIView, in container: UIView) -> CGRect {
+  static func layoutFrame(of key: UIView, in container: UIView) -> CGRect {
     guard let superview = key.superview else { return .null }
     let size = key.bounds.size
     let frame = CGRect(

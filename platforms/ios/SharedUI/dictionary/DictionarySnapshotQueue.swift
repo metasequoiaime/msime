@@ -76,7 +76,14 @@ final class DictionarySnapshotQueue: @unchecked Sendable {
     let file = root.appendingPathComponent("state.json")
     try rejectSymlinkFile(file)
     guard FileManager.default.fileExists(atPath: file.path) else { return .init() }
-    let handle = try FileHandle(forReadingFrom: file)
+    let descriptor = open(file.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK)
+    guard descriptor >= 0 else { throw Failure.unavailable }
+    var metadata = stat()
+    guard fstat(descriptor, &metadata) == 0, (metadata.st_mode & S_IFMT) == S_IFREG else {
+      close(descriptor)
+      throw Failure.unavailable
+    }
+    let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
     defer { try? handle.close() }
     let data = try handle.read(upToCount: 65537) ?? Data()
     guard data.count <= 65536, let state = try? JSONDecoder().decode(DictionarySnapshotQueueState.self, from: data),
@@ -150,7 +157,7 @@ final class DictionarySnapshotQueue: @unchecked Sendable {
     }
     guard FileManager.default.createFile(atPath: incoming.path, contents: nil,
       attributes: [.posixPermissions: 0o600, .protectionKey: FileProtectionType.completeUntilFirstUserAuthentication]) else { throw Failure.unavailable }
-    let input = try FileHandle(forReadingFrom: file)
+    let input = try openSnapshotSource(file)
     defer { try? input.close() }
     let output = try FileHandle(forWritingTo: incoming)
     defer { try? output.close() }
@@ -176,6 +183,18 @@ final class DictionarySnapshotQueue: @unchecked Sendable {
     if let previous { try? FileManager.default.removeItem(at: fileURL(for: previous)) }
     return request.id
   }
+
+  private func openSnapshotSource(_ file: URL) throws -> FileHandle {
+    let descriptor = open(file.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK)
+    guard descriptor >= 0 else { throw Failure.unavailable }
+    var metadata = stat()
+    guard fstat(descriptor, &metadata) == 0, metadata.st_mode & S_IFMT == S_IFREG else {
+      close(descriptor)
+      throw Failure.unavailable
+    }
+    return FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+  }
+
   // A killed worker resumes the same UUID. It first checks the Engine's durable
   // active identifier; already-applied requests are acknowledged without replay.
   func claim(using lease: WorkerLease) throws -> DictionarySnapshotRequest? {

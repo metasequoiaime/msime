@@ -24,11 +24,11 @@ public final class AiPolishModelCatalog {
     private AiPolishModelCatalog() {}
 
     static String strictString(Object value) {
-        return value instanceof String ? (String) value : null;
+        return JsonPolicy.strictString(value);
     }
 
     static Boolean strictBoolean(Object value) {
-        return value instanceof Boolean ? (Boolean) value : null;
+        return JsonPolicy.strictBoolean(value);
     }
 
     public static List<String> fetch(String endpoint, String token) throws AiPolishClient.Failure {
@@ -59,7 +59,7 @@ public final class AiPolishModelCatalog {
                 JSONObject model = data.optJSONObject(index);
                 if (model == null) continue;
                 if (model.has("active")) {
-                    Boolean active = strictBoolean(model.opt("active"));
+                    Boolean active = JsonPolicy.strictBoolean(model.opt("active"));
                     if (active == null || !active) continue;
                 }
                 String rawId = strictString(model.opt("id"));
@@ -68,8 +68,7 @@ public final class AiPolishModelCatalog {
                 if (id.isEmpty() || id.length() > MAX_MODEL_ID_LENGTH) continue;
                 JSONArray endpointTypes = model.optJSONArray("supported_endpoint_types");
                 if (endpointTypes != null && endpointTypes.length() > 0) {
-                    boolean supported = Boolean.TRUE.equals(
-                        strictBoolean(model.opt("chat_completions_bridge")));
+                    boolean supported = JsonPolicy.strictTrue(model.opt("chat_completions_bridge"));
                     for (int item = 0; item < endpointTypes.length(); item++) {
                         String type = strictString(endpointTypes.opt(item));
                         if ("openai".equals(type)) supported = true;
@@ -82,7 +81,7 @@ public final class AiPolishModelCatalog {
             }
             Object rawHasMore = document.opt("has_more");
             Boolean hasMore = rawHasMore == null || rawHasMore == JSONObject.NULL
-                ? Boolean.FALSE : strictBoolean(rawHasMore);
+                ? Boolean.FALSE : JsonPolicy.strictBoolean(rawHasMore);
             if (hasMore == null) throw new AiPolishClient.Failure(AiPolishClient.Reason.INVALID);
             if (!hasMore) {
                 if (models.isEmpty()) throw new AiPolishClient.Failure(AiPolishClient.Reason.INVALID);

@@ -22,6 +22,7 @@ serde_json.workspace = true
 tempfile.workspace = true
 sha2.workspace = true
 time.workspace = true
+libc.workspace = true
 
 # Microphone capture for `voice_capture_pcm` and `voice_capture_devices`. The iOS keyboard records through AVAudioEngine and HarmonyOS through its own audio kit, so neither links a capture backend (OpenHarmony reports target_os = "linux" and has no ALSA to link).
 [target.'cfg(not(any(target_os = "ios", target_env = "ohos")))'.dependencies]

@@ -46,6 +46,15 @@ fn normalized_syllables(pinyin: &str) -> Vec<String> {
     segments
 }
 
+/// 只需判断句子长度时统计分隔符，避免为每个音节复制字符串。
+fn segment_count(pinyin: &str) -> usize {
+    if pinyin.is_empty() {
+        0
+    } else {
+        pinyin.bytes().filter(|&byte| byte == b'\'').count() + 1
+    }
+}
+
 fn join_words(first: &str, second: &str) -> String {
     let mut word = String::with_capacity(first.len() + second.len());
     word.push_str(first);
@@ -62,6 +71,18 @@ fn english_context_key(context: &str) -> String {
             .map(|character| character.to_ascii_lowercase()),
     );
     key
+}
+
+/// 只复制实际参与排名的行，避免先复制完整排序列表再筛选一遍。
+fn clone_matching_rows(
+    ordered: &[WordItem],
+    mut matches: impl FnMut(&WordItem) -> bool,
+) -> Vec<WordItem> {
+    ordered
+        .iter()
+        .filter(|item| matches(item))
+        .cloned()
+        .collect()
 }
 
 impl InputSession {
@@ -105,7 +126,7 @@ impl InputSession {
         force_top: bool,
     ) -> Option<String> {
         // Ranks are read from the order before personal context reordering.
-        let ordered = self.ranking_list().to_vec();
+        let ordered = self.ranking_list();
         let selected = ordered.get(index)?.clone();
         let user_db = self.journal_path();
         if selected.source == CandidateSource::EnglishDictionary {
@@ -117,10 +138,9 @@ impl InputSession {
                 self.engine.request().raw_input.clone()
             };
             let context_key = english_context_key(&context);
-            let english_rows: Vec<WordItem> = ordered
-                .into_iter()
-                .filter(|item| item.source == CandidateSource::EnglishDictionary)
-                .collect();
+            let english_rows = clone_matching_rows(ordered, |item| {
+                item.source == CandidateSource::EnglishDictionary
+            });
             let english_db = self.paths.dictionary(assets::ENGLISH_DICTIONARY);
             let adjusted = adjust_english_candidate_ranking(&RankingRequest {
                 main_db: &english_db,
@@ -170,10 +190,9 @@ impl InputSession {
             selected.canonical_pinyin.clone()
         };
         let mixed_wubi = self.is_wubi();
-        let ranked: Vec<WordItem> = ordered
-            .into_iter()
-            .filter(|item| !mixed_wubi || item.scheme == selected.scheme)
-            .collect();
+        let ranked = clone_matching_rows(ordered, |item| {
+            !mixed_wubi || item.scheme == selected.scheme
+        });
         let main_db = self.paths.dictionary(assets::MAIN_DICTIONARY);
         let adjusted = adjust_candidate_ranking(&RankingRequest {
             main_db: &main_db,
@@ -227,8 +246,7 @@ impl InputSession {
                 selected.canonical_pinyin.clone()
             };
         let canonical = normalize_canonical_pinyin_for_word(&selected_canonical, &selected.word);
-        if canonical.is_empty() || split_segments(&canonical).len() > MAX_LEARNED_SENTENCE_SYLLABLES
-        {
+        if canonical.is_empty() || segment_count(&canonical) > MAX_LEARNED_SENTENCE_SYLLABLES {
             return typo_diagnostic;
         }
         if online && !self.online_word_matches_reading(&canonical, &selected.word) {
@@ -465,6 +483,24 @@ mod tests {
     use crate::types::{autocorrect_type, SchemeType, ShuangpinProfileKind};
     use crate::user_dictionary::ngram_store::flush_all;
 
+    #[test]
+    fn sentence_segment_count_avoids_temporary_strings() {
+        let (count, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            super::segment_count("yi'er'san'si")
+        });
+
+        assert_eq!(count, 4);
+        assert_eq!(allocations, 0);
+        assert_eq!(super::segment_count(""), 0);
+        assert_eq!(super::segment_count("yi"), 1);
+        for input in ["'", "yi''er'", "'yi"] {
+            assert_eq!(
+                super::segment_count(input),
+                crate::pinyin::segment::split_segments(input).len()
+            );
+        }
+    }
+
     struct Fixture {
         _root: tempfile::TempDir,
         paths: RuntimePaths,
@@ -609,6 +645,25 @@ mod tests {
         let key = english_context_key("HeLLo");
         assert_eq!(key, "english:hello");
         assert_eq!(key.capacity(), key.len());
+    }
+
+    #[test]
+    fn copying_rows_for_ranking_clones_only_matching_rows() {
+        let rows = [
+            WordItem::new("ni", "甲", 3, CandidateSource::Database, "ni"),
+            WordItem::new("ni", "乙", 2, CandidateSource::EnglishDictionary, "ni"),
+            WordItem::new("ni", "丙", 1, CandidateSource::Database, "ni"),
+        ];
+
+        let copied = clone_matching_rows(&rows, |item| item.source == CandidateSource::Database);
+
+        assert_eq!(
+            copied
+                .iter()
+                .map(|item| item.word.as_str())
+                .collect::<Vec<_>>(),
+            ["甲", "丙"]
+        );
     }
 
     /// F1 (test_input_session.cpp:1091-1119): the pick's place in a new session, per mode.

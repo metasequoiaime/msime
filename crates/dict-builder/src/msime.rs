@@ -515,7 +515,8 @@ pub fn build_wubi98_sources(
     supplements: &[&Path],
     generated: &[&Path],
 ) -> Result<(usize, usize)> {
-    let bytes = std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
+    let bytes = crate::sources::read_private(path)
+        .with_context(|| format!("reading {}", path.display()))?;
     let source = decode_utf16le(&bytes).with_context(|| format!("decoding {}", path.display()))?;
     let supplement_sources = supplements
         .iter()
@@ -973,6 +974,49 @@ mod tests {
         let path = write(dir.path(), "wubi98.txt", "工\ta\r\n");
         let mut connection = Connection::open_in_memory().unwrap();
         assert!(build_wubi98_sources(&mut connection, &path, &[], &[]).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_98_table_rejects_a_fifo_without_blocking() {
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("wubi98.txt");
+        assert!(std::process::Command::new("mkfifo")
+            .arg(&path)
+            .status()
+            .unwrap()
+            .success());
+
+        let (done, result) = mpsc::channel();
+        let worker_path = path.clone();
+        let worker = std::thread::spawn(move || {
+            let mut connection = Connection::open_in_memory().unwrap();
+            done.send(build_wubi98_sources(&mut connection, &worker_path, &[], &[]).is_err())
+                .unwrap();
+        });
+        let rejected = match result.recv_timeout(Duration::from_millis(100)) {
+            Ok(rejected) => rejected,
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                let mut writer = std::fs::OpenOptions::new()
+                    .write(true)
+                    .custom_flags(libc::O_NONBLOCK)
+                    .open(&path)
+                    .unwrap();
+                let mut bytes = vec![0xff, 0xfe];
+                bytes.extend("工\ta\r\n".encode_utf16().flat_map(u16::to_le_bytes));
+                writer.write_all(&bytes).unwrap();
+                drop(writer);
+                result.recv_timeout(Duration::from_secs(1)).unwrap()
+            }
+            Err(error) => panic!("98 table reader failed to report: {error}"),
+        };
+        worker.join().unwrap();
+        assert!(rejected, "FIFO 98 table must be rejected without blocking");
     }
 
     #[test]

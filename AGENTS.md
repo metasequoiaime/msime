@@ -63,6 +63,7 @@
 - `<feature>` 用 kebab-case，从分支名或 issue 编号推出；不要加 `wt-` 前缀，父目录已经说明了它是什么。
 - 一路提交，不要把所有东西攒到最后。分支是第一道防线，目录只是第二道：一个 WIP 提交不花什么代价，却能扛住检出目录出的任何事。
 - 分支合并或废弃后立刻移除 worktree：`git worktree remove <path>`，然后 `git branch -D <branch>`。目录被手工删掉的话跑一次 `git worktree prune`。
+- **PR 合并后不要在原分支上继续提交或推送，下一项工作从 `origin/develop` 新切分支。** 仓库开着合并后自动删除 head 分支，但本地分支的 upstream 还指着它，再 `git push` 一次就会把它在远端重新建出来，还带着跟这个分支名无关的新提交。2026-10-06/07 两天 audit 留下的 31 个「PR 已合并却还在」的远端分支里，28 个都是这样：合并后几秒被 GitHub 删掉，几十秒后又被推了回来。关闭而不合并的 PR，GitHub 不会删它的分支，关的时候顺手 `git push origin --delete <branch>`。
 - **只用仓库规定的产物目录，不要自己另起 `CARGO_TARGET_DIR`。** 规定的目录是 `target/`，以及各平台脚本和 README 固定下来的 `target/<platform>-cargo`（`macos-cargo`、`android-cargo`、`ohos-cargo` 等）。原生工程的构建目录同理只用 README 和 `scripts/verify-local.sh` 固定的那一个：macOS 的 CMake 构建目录是 `target/macos-isolated`（`MSIME_MACOS_BUILD` 的默认值，`platforms/macos/README.md` 和 `launch-platform-host` skill 都用它）。它是 CMake 目录，不要拿它当 `CARGO_TARGET_DIR`，也不要在它旁边再另起一个 macOS 构建目录。每多一个目录，整棵依赖树就要从头再编一遍、再占几个 GB。2026-09-24 有一个 worktree 为不同平台和子任务分别建了 `build/rust-local-asr`、`build/macos-local-asr`、`build/tauri-local-asr`、`build/macos-crossfix`、`build/ios-local-asr`，单它一个就堆到 34 GB；另一个在 `target/macos-cargo` 旁边又建了 `target/macos-isolated`，比规定目录还大一倍。这类目录和另外五六个并行的 worktree 一起，一小时内把 461 GB 的盘写满了三次。产物目录里的东西坏了（典型是 `platforms/macos/README.md` 说的过程宏 dylib），删掉坏的那部分让它重编，不要换一个新目录绕开它。
 
 清理不是可选的杂务。一个残留的 worktree 会让它完整的构建树一直活着——`target/`、`node_modules/` 和 `gradle-home/` 各自都是几个 GB——几十个被遗忘的 worktree 足以填满一块盘。

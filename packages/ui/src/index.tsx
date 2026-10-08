@@ -39,6 +39,7 @@ export type {
   LocalDictionaryKind,
 } from "./dictionary/dictionary-file";
 export {
+  MAX_DICTIONARY_EXPORT_BYTES,
   dictionaryExportName,
   dictionaryExportPayload,
   loadAllPersonalDictionaryEntries,
@@ -1412,6 +1413,7 @@ export {
 } from "./voice/voice-provider-options";
 export {
   asrProviderCredentialTestConfig,
+  asrProviderCredentialTestDisabled,
   asrServiceCredentialTestConfig,
   polishProviderCredentialTestConfig,
   polishServiceCredentialTestConfig,

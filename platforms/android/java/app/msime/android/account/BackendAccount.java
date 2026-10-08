@@ -176,7 +176,7 @@ public final class BackendAccount {
 
     /** Provider availability is a typed server flag; reject org.json scalar coercion. */
     static boolean providerEnabled(Object value) {
-        return value instanceof Boolean && (Boolean) value;
+        return JsonPolicy.strictTrue(value);
     }
 
     /** Start a sign-in and get the nonce the provider's SDK has to echo. */

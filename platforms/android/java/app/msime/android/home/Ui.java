@@ -181,7 +181,7 @@ public final class Ui {
     public static void setRowPadding(View view, Context context) {
         int horizontal = dp(context, ROW_PADDING_H);
         int vertical = dp(context, ROW_PADDING_V);
-        view.setPadding(horizontal, vertical, horizontal, vertical);
+        ViewPolicy.setPadding(view, horizontal, vertical, horizontal, vertical);
     }
 
     /** Apply the standard minimum height for a detail row. */
@@ -208,13 +208,13 @@ public final class Ui {
     public static void setButtonPadding(View view, Context context) {
         int horizontal = dp(context, BUTTON_PADDING_H);
         int vertical = dp(context, BUTTON_PADDING_V);
-        view.setPadding(horizontal, vertical, horizontal, vertical);
+        ViewPolicy.setPadding(view, horizontal, vertical, horizontal, vertical);
     }
 
     /** Apply the shared bottom-sheet title-area insets to a view. */
     public static void setSheetHeaderPadding(View view, Context context) {
         int horizontal = dp(context, 16);
-        view.setPadding(horizontal, 0, horizontal, dp(context, 12));
+        ViewPolicy.setPadding(view, horizontal, 0, horizontal, dp(context, 12));
     }
 
     /** Apply symmetric padding expressed in density-independent pixels. */
@@ -222,35 +222,35 @@ public final class Ui {
                                              float horizontalDp, float verticalDp) {
         int horizontal = dp(context, horizontalDp);
         int vertical = dp(context, verticalDp);
-        view.setPadding(horizontal, vertical, horizontal, vertical);
+        ViewPolicy.setPadding(view, horizontal, vertical, horizontal, vertical);
     }
 
     /** Apply equal padding on all sides when the value is already in pixels. */
     public static void setSymmetricPaddingPx(View view, int padding) {
-        view.setPadding(padding, padding, padding, padding);
+        ViewPolicy.setPadding(view, padding, padding, padding, padding);
     }
 
     /** Apply equal horizontal padding when the value is already in pixels. */
     public static void setHorizontalPaddingPx(View view, int horizontal) {
-        view.setPadding(horizontal, 0, horizontal, 0);
+        ViewPolicy.setPadding(view, horizontal, 0, horizontal, 0);
     }
 
     /** Apply equal horizontal dp padding with no vertical padding. */
     public static void setHorizontalPaddingDp(View view, Context context, float horizontalDp) {
         int horizontal = dp(context, horizontalDp);
-        view.setPadding(horizontal, 0, horizontal, 0);
+        ViewPolicy.setPadding(view, horizontal, 0, horizontal, 0);
     }
 
     /** Apply four-sided padding expressed in density-independent pixels. */
     public static void setPaddingDp(View view, Context context, float leftDp, float topDp,
                                     float rightDp, float bottomDp) {
-        view.setPadding(dp(context, leftDp), dp(context, topDp),
+        ViewPolicy.setPadding(view, dp(context, leftDp), dp(context, topDp),
             dp(context, rightDp), dp(context, bottomDp));
     }
 
     /** Replace only the bottom padding while preserving the other three sides. */
     public static void setBottomPadding(View view, int bottomPixels) {
-        view.setPadding(view.getPaddingLeft(), view.getPaddingTop(), view.getPaddingRight(),
+        ViewPolicy.setPadding(view, view.getPaddingLeft(), view.getPaddingTop(), view.getPaddingRight(),
             bottomPixels);
     }
 
@@ -331,7 +331,7 @@ public final class Ui {
     /** Create a view filled with the standard hairline colour for separators. */
     public static View hairlineView(Context context) {
         View view = new View(context);
-        view.setBackgroundColor(hairline(context));
+        ViewPolicy.setBackgroundColor(view, hairline(context));
         return view;
     }
 
@@ -348,7 +348,7 @@ public final class Ui {
     /** Create the page-coloured separation band used between sheet options and the cancel row. */
     public static View sheetSeparator(Context context) {
         View view = new View(context);
-        view.setBackgroundColor(page(context));
+        ViewPolicy.setBackgroundColor(view, page(context));
         view.setLayoutParams(matchWidthHeight(context, 8));
         return view;
     }
@@ -573,8 +573,8 @@ public final class Ui {
     public static TextView label(Context context, CharSequence text, float sizeSp, @ColorInt int color) {
         TextView view = new TextView(context);
         view.setText(text);
-        view.setTextSize(sizeSp);
-        view.setTextColor(color);
+        ViewPolicy.setTextSizeSp(view, sizeSp);
+        ViewPolicy.setTextColor(view, color);
         return view;
     }
 
@@ -597,8 +597,8 @@ public final class Ui {
     /** Apply the shared completion or warning mark used by setup checks. */
     public static void applyStatusMark(TextView mark, Context context, boolean done) {
         mark.setText(done ? "✓" : "!");
-        mark.setTextColor(done ? onAccent(context) : 0xFFFFFFFF);
-        mark.setBackground(circle(done ? accent(context) : color(context, app.msime.android.R.attr.msWarn)));
+        ViewPolicy.setTextColor(mark, done ? onAccent(context) : 0xFFFFFFFF);
+        ViewPolicy.setBackground(mark, circle(done ? accent(context) : color(context, app.msime.android.R.attr.msWarn)));
         ViewPolicy.hideFromAccessibility(mark);
     }
 
@@ -663,9 +663,9 @@ public final class Ui {
         TextView button = new TextView(context);
         button.setText(label);
         ViewPolicy.setCentered(button);
-        button.setSingleLine(true);
+        ViewPolicy.setSingleLine(button);
         style(button, Math.round(sizeSp), weight, ink);
-        button.setBackground(pillRipple(context, fill));
+        ViewPolicy.setBackground(button, pillRipple(context, fill));
         setSymmetricPaddingDp(button, context, horizontalPaddingDp, verticalPaddingDp);
         setTextMinHeightDp(button, context, minHeightDp);
         if (minWidthDp > 0) setTextMinWidthDp(button, context, minWidthDp);
@@ -687,7 +687,7 @@ public final class Ui {
         button.setText(label);
         ViewPolicy.setCentered(button);
         style(button, sizeSp, weight, ink);
-        button.setBackground(background);
+        ViewPolicy.setBackground(button, background);
         setTextMinHeightDp(button, context, minHeightDp);
         bindClick(button, action);
         return button;
@@ -706,7 +706,7 @@ public final class Ui {
         button.setImageDrawable(icon);
         setImageTint(button, tint);
         button.setScaleType(ImageView.ScaleType.CENTER);
-        button.setBackground(ripple(context));
+        ViewPolicy.setBackground(button, ripple(context));
         button.setContentDescription(description);
         bindClick(button, action);
         int size = dp(context, sizeDp);
@@ -774,27 +774,27 @@ public final class Ui {
 
     /** Apply the standard ripple and keyboard-accessible click behavior to a view. */
     public static void makeClickable(View view, Context context, Runnable action) {
-        view.setBackground(ripple(context));
+        ViewPolicy.setBackground(view, ripple(context));
         bindClick(view, action);
     }
 
     private static void bindClick(View view, Runnable action) {
         ViewPolicy.setInteractive(view, true);
-        if (action != null) view.setOnClickListener(ignored -> action.run());
+        ViewPolicy.bindOptionalClick(view, action);
     }
 
     /** Create a vertically arranged rounded surface for page cards. */
     public static LinearLayout verticalCard(Context context, float radiusDp) {
         LinearLayout card = column(context);
-        card.setBackground(rounded(card(context), dp(context, radiusDp)));
+        ViewPolicy.setBackground(card, rounded(card(context), dp(context, radiusDp)));
         return card;
     }
 
     /** 设置字号（sp）与字重。 */
     public static void style(TextView view, int sizeSp, int weight, @ColorInt int color) {
-        view.setTextSize(TypedValue.COMPLEX_UNIT_SP, sizeSp);
-        view.setTypeface(Typeface.create(Typeface.DEFAULT, weight, false));
-        view.setTextColor(color);
+        ViewPolicy.setTextSizeSp(view, sizeSp);
+        ViewPolicy.setTypefaceWeight(view, weight);
+        ViewPolicy.setTextColor(view, color);
     }
 
     /** 把一个 view 的透明度和可点按状态一起切换；禁用的行仍然可见，只是变淡且不响应。 */
@@ -804,7 +804,6 @@ public final class Ui {
 
     /** Apply enabled state and a caller-selected inactive opacity to a home control. */
     public static void setEnabledLook(View view, boolean enabled, float inactiveAlpha) {
-        view.setEnabled(enabled);
-        ViewPolicy.setActiveAlpha(view, enabled, inactiveAlpha);
+        ViewPolicy.setEnabledWithAlpha(view, enabled, inactiveAlpha);
     }
 }

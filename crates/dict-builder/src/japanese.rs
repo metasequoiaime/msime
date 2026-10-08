@@ -3,6 +3,7 @@
 //! Layout, little-endian: a 56-byte header (`MSJPDT1\0`, version, token count, connection size, reserved, token/connection/string offsets, string bytes), 20-byte token records (reading offset u32, reading length u16, surface offset u32, surface length u16, left id u16, right id u16, cost i32), the `size * size` connection matrix as i16, then the interned UTF-8 strings.
 
 use std::collections::{HashMap, HashSet};
+use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::Path;
 
@@ -468,13 +469,38 @@ pub fn unpack(bytes: &[u8]) -> Result<(Vec<Token>, usize, Vec<i16>)> {
     let connection_offset = u64::from_le_bytes(read(bytes, 32)?);
     let string_offset = u64::from_le_bytes(read(bytes, 40)?);
     let string_size = u64::from_le_bytes(read(bytes, 48)?);
+    let token_bytes = token_count
+        .checked_mul(20)
+        .context("MSJPDT1 token table size overflows")?;
+    let token_end = token_offset
+        .checked_add(token_bytes)
+        .context("MSJPDT1 token table range overflows")?;
+    let connection_entries = size
+        .checked_mul(size)
+        .context("MSJPDT1 connection matrix size overflows")?;
+    let connection_bytes = connection_entries
+        .checked_mul(2)
+        .context("MSJPDT1 connection matrix byte size overflows")?;
+    let connection_end = connection_offset
+        .checked_add(connection_bytes)
+        .context("MSJPDT1 connection matrix range overflows")?;
+    let string_end = string_offset
+        .checked_add(string_size)
+        .context("MSJPDT1 string table range overflows")?;
+    let file_size = u64::try_from(bytes.len())?;
+    if token_end > file_size || connection_end > file_size || string_end > file_size {
+        bail!("MSJPDT1 section is out of bounds");
+    }
     let strings = bytes
-        .get(usize::try_from(string_offset)?..usize::try_from(string_offset + string_size)?)
+        .get(usize::try_from(string_offset)?..usize::try_from(string_end)?)
         .context("MSJPDT1 string table is out of bounds")?;
     let text = |offset: u32, length: u16| -> Result<String> {
         let start = usize::try_from(offset)?;
+        let end = start
+            .checked_add(usize::from(length))
+            .context("MSJPDT1 token string range overflows")?;
         let slice = strings
-            .get(start..start + usize::from(length))
+            .get(start..end)
             .context("MSJPDT1 token string is out of bounds")?;
         Ok(std::str::from_utf8(slice)
             .context("MSJPDT1 token string is not UTF-8")?
@@ -495,8 +521,8 @@ pub fn unpack(bytes: &[u8]) -> Result<(Vec<Token>, usize, Vec<i16>)> {
             cost: i32::from_le_bytes(read(bytes, at + 16)?),
         });
     }
-    let mut costs = Vec::with_capacity(usize::try_from(size * size)?);
-    for index in 0..size * size {
+    let mut costs = Vec::with_capacity(usize::try_from(connection_entries)?);
+    for index in 0..connection_entries {
         costs.push(i16::from_le_bytes(read(
             bytes,
             connection_offset + index * 2,
@@ -507,7 +533,10 @@ pub fn unpack(bytes: &[u8]) -> Result<(Vec<Token>, usize, Vec<i16>)> {
 
 pub fn write_model(output: &Path, bytes: &[u8]) -> Result<()> {
     let temporary = output.with_extension("dat.tmp");
-    let mut file = std::fs::File::create(&temporary)?;
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&temporary)?;
     file.write_all(bytes)?;
     file.sync_all()?;
     std::fs::rename(&temporary, output)?;
@@ -517,6 +546,22 @@ pub fn write_model(output: &Path, bytes: &[u8]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn model_staging_symlink_is_not_truncated() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let output = directory.path().join("model.dat");
+        let target = outside.path().join("outside.dat");
+        std::fs::write(&target, b"keep").unwrap();
+        symlink(&target, directory.path().join("model.dat.tmp")).unwrap();
+
+        assert!(write_model(&output, b"replacement").is_err());
+        assert_eq!(std::fs::read(&target).unwrap(), b"keep");
+    }
 
     #[test]
     fn unpack_reads_back_what_pack_wrote() {
@@ -544,6 +589,17 @@ mod tests {
         assert_eq!(read_costs, costs);
         assert!(unpack(&bytes[..40]).is_err());
         assert!(unpack(b"not a model at all, but long enough for a header.......").is_err());
+    }
+
+    #[test]
+    fn unpack_rejects_overflowing_string_range() {
+        let mut bytes = vec![0; HEADER_SIZE as usize];
+        bytes[..MAGIC.len()].copy_from_slice(MAGIC);
+        bytes[8..12].copy_from_slice(&1u32.to_le_bytes());
+        bytes[40..48].copy_from_slice(&u64::MAX.to_le_bytes());
+        bytes[48..56].copy_from_slice(&1u64.to_le_bytes());
+
+        assert!(unpack(&bytes).is_err());
     }
 
     #[test]

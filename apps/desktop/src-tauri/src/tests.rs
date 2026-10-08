@@ -2519,3 +2519,17 @@ fn editions_without_handwriting_open_no_handwriting_surface() {
         );
     }
 }
+
+#[cfg(unix)]
+#[test]
+fn candidate_panel_status_reader_rejects_a_symlinked_file() {
+    use std::os::unix::fs::symlink;
+
+    let root = tempfile::tempdir().unwrap();
+    let outside = root.path().join("outside-status.json");
+    let linked = root.path().join("candidate-panel.json");
+    std::fs::write(&outside, b"synthetic-status").unwrap();
+    symlink(&outside, &linked).unwrap();
+
+    assert!(super::read_candidate_panel_status(&linked).is_none());
+}

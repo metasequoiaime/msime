@@ -83,9 +83,7 @@ final class MacDictionaryModel: ObservableObject {
   nonisolated private static func readImportText(from url: URL) throws -> String {
     let scoped = url.startAccessingSecurityScopedResource()
     defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-    let input = try FileHandle(forReadingFrom: url)
-    defer { try? input.close() }
-    let data = try input.read(upToCount: 65537) ?? Data()
+    let data = try MacSecureFileReader.readData(from: url, maximumBytes: 65536)
     guard data.count <= 65536, let text = String(data: data, encoding: .utf8), !text.isEmpty, !text.contains("\0") else {
       throw InvalidImportFile()
     }

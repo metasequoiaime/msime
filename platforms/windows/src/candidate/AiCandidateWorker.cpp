@@ -110,12 +110,21 @@ std::optional<std::string> ai_cache_key(const std::string &query) {
                                      ? configured_limit
                                      : 3;
     // Match the source worker's cache identity. Deliberately omit token,
-    // prompt, context, session, and generation so no secrets are retained and
-    // an unchanged prefix can be reused after a candidate refresh.
+    // context, session, and generation so no secrets are retained and an
+    // unchanged prefix can be reused after a candidate refresh. Prompt
+    // settings stay in the identity because they change the provider's answer
+    // even when the provider, model, and input prefix do not.
     return nlohmann::json{{"provider", config.value("provider", std::string{})},
                           {"endpoint", config.value("endpoint", std::string{})},
                           {"model", config.value("model", std::string{})},
                           {"candidate_limit", candidate_limit},
+                          {"prompt_id", config.value("prompt_id", std::string{})},
+                          {"prompt_custom_1",
+                           config.value("prompt_custom_1", std::string{})},
+                          {"prompt_custom_2",
+                           config.value("prompt_custom_2", std::string{})},
+                          {"prompt_custom_3",
+                           config.value("prompt_custom_3", std::string{})},
                           {"pinyin_segments", segments}}
         .dump();
   } catch (...) {

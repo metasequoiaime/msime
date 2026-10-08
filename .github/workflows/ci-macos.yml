@@ -128,8 +128,9 @@ jobs:
       fail-fast: false
       matrix:
         # `build` 决定这一条腿是否真的构建：arm64 跟随改动范围，x86_64 另外要求 `full`。
+        # arm64 跑在 Depot 上。Depot 的 macOS 机器全是 Apple Silicon，没有 Intel 镜像，所以 x86_64 留在 GitHub 的 macos-15-intel。
         include:
-          - runner: macos-15
+          - runner: depot-macos-15
             architecture: arm64
             build: ${{ needs.changes.outputs.build }}
           - runner: macos-15-intel
@@ -299,7 +300,7 @@ jobs:
     needs: changes
     if: ${{ needs.changes.outputs.full == 'true' }}
     name: Sanitizers
-    runs-on: macos-15
+    runs-on: depot-macos-15
     timeout-minutes: 90
     steps:
       - name: Check out source

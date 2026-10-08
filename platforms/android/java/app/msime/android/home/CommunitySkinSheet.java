@@ -7,6 +7,7 @@ import android.widget.TextView;
 import app.msime.android.CommunityCatalog;
 import app.msime.android.CommunityRequest;
 import app.msime.android.KeyboardSkin;
+import app.msime.android.ViewPolicy;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.chip.Chip;
 import com.google.android.material.chip.ChipGroup;
@@ -73,7 +74,7 @@ public final class CommunitySkinSheet {
                 chip.setCheckable(true);
                 categories.addView(chip);
                 if (category == item.category()) categories.check(chip.getId());
-                chip.setOnClickListener(ignored -> {
+                ViewPolicy.bindClick(chip, () -> {
                     if (category == item.category()) return;
                     sheet.dismiss();
                     onChangeCategory.accept(category);
@@ -84,9 +85,9 @@ public final class CommunitySkinSheet {
 
         MaterialButton save = new MaterialButton(context);
         save.setText(actionLabel == null || actionLabel.isEmpty() ? "暂不支持导入" : actionLabel);
-        save.setEnabled(onAction != null);
+        ViewPolicy.setEnabled(save, onAction != null);
         if (onAction != null) {
-            save.setOnClickListener(ignored -> {
+            ViewPolicy.bindClick(save, () -> {
                 sheet.dismiss();
                 onAction.run();
             });
@@ -99,7 +100,7 @@ public final class CommunitySkinSheet {
         MaterialButton report = new MaterialButton(context, null,
             androidx.appcompat.R.attr.borderlessButtonStyle);
         report.setText("举报");
-        report.setOnClickListener(ignored -> {
+        ViewPolicy.bindClick(report, () -> {
             sheet.dismiss();
             onReport.run();
         });

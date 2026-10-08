@@ -11,6 +11,7 @@ use crate::diagnostics;
 use crate::error::{EngineError, Result};
 use crate::helpcode::{compute_helpcodes, load_helpcode_keymap, HelpcodeKeymap, SharedKeymap};
 use crate::local::database::LocalDatabaseLease;
+use crate::pinyin::glide::{GlideKeyboard, GlidePoint};
 use crate::pinyin::segment::is_complete_pinyin_input;
 use crate::types::{
     CandidateEdge, CandidateSource, CommandTableEntry, CommandTranslationQuery, KeyResult,
@@ -282,6 +283,17 @@ impl Session {
         self.inner.reset_cache();
     }
 
+    /// Remove cached rows for one online provider (host source 0 = cloud, 1 = AI).
+    pub fn clear_online_candidates(&mut self, source: u8) -> Result<()> {
+        let source = match source {
+            0 => CandidateSource::CloudSuggestion,
+            1 => CandidateSource::AiSuggestion,
+            _ => return Err(EngineError::invalid("invalid online candidate source")),
+        };
+        self.inner.clear_online_candidates(source);
+        Ok(())
+    }
+
     pub fn set_caret(&mut self, caret: Option<usize>) {
         self.inner.set_caret(caret);
     }
@@ -425,6 +437,15 @@ impl Session {
         self.inner.set_nine_key_enabled(enabled);
         self.nine_key = enabled;
         Ok(())
+    }
+
+    /// 滑行的一笔，见 [`crate::Session::glide`]。
+    pub fn glide(
+        &mut self,
+        keyboard: &GlideKeyboard,
+        points: &[GlidePoint],
+    ) -> Result<EngineResult> {
+        Ok(result_for(self.inner.glide(keyboard, points)))
     }
 
     /// Out of range is unhandled.

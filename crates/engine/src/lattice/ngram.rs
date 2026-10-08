@@ -2,7 +2,6 @@
 //!
 //! The table is mapped read-only, as ngram_table.cpp:108 did (MapViewOfFile on Windows, :131-133), so its pages are clean and file-backed: the system can evict them under memory pressure, which the iOS keyboard extension's limit needs, instead of holding two 12 MB tables of dirty heap per generation. The `unsafe` map (decisions.md: memmap2 for msime-bigram.bin/msime-trigram.bin; `japanese::decoder` and `handwriting::recognizer` map their packaged models the same way) rests on the generation contract above. Like the reference, a table stays mapped for the life of the process once loaded.
 
-use std::fs::File;
 use std::io::Read;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
@@ -46,7 +45,7 @@ impl NgramTable {
         if !std::fs::symlink_metadata(path).ok()?.file_type().is_file() {
             return None;
         }
-        let mut file = File::open(path).ok()?;
+        let mut file = crate::paths::open_file_no_follow(path).ok()?;
         let size = file.metadata().ok()?.len();
         let mut header = [0u8; HEADER_BYTES];
         file.read_exact(&mut header).ok()?;

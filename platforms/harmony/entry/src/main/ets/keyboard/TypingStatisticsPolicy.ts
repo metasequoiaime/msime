@@ -1,5 +1,9 @@
 /** Source labels shared by the native aggregate typing-statistics store. */
 export class TypingStatisticsPolicy {
+  static isCurrentGeneration(requestGeneration: number, currentGeneration: number): boolean {
+    return requestGeneration === currentGeneration;
+  }
+
   static source(
     scheme: string,
     profile: string,

@@ -56,13 +56,13 @@ public final class KeyboardLayoutAdjustView extends FrameLayout {
         this.listener = listener;
         ViewPolicy.setInteractive(this, true);
         setContentDescription("键盘布局调整；键盘上左右拖动调整按键间距，上下拖动调整行间距");
-        setBackgroundColor(Color.TRANSPARENT);
+        ViewPolicy.setBackgroundColor(this, Color.TRANSPARENT);
 
         bar = KeyboardGeometry.row(context);
         ViewPolicy.setCenteredVertically(bar);
         KeyboardGeometry.setSymmetricPaddingDp(bar, getContext(), 8, 4);
         bar.setContentDescription("键盘高度调整工具栏");
-        bar.setFocusable(true);
+        ViewPolicy.setFocusable(bar, true);
         bar.setOnTouchListener((ignored, event) -> handleHeightGesture(event));
         addView(bar, barParams());
 
@@ -105,7 +105,7 @@ public final class KeyboardLayoutAdjustView extends FrameLayout {
         GradientDrawable surface = DrawablePolicy.outlined(keyBackground,
             KeyboardGeometry.pixels(getContext(), 10),
             KeyboardGeometry.atLeastOnePixel(getContext(), 1), accent);
-        bar.setBackground(surface);
+        ViewPolicy.setBackground(bar, surface);
         ViewPolicy.setTextColor(hint, foreground);
         ViewPolicy.setTextColor(voiceShortcut, foreground);
         for (int index = 0; index < bar.getChildCount(); index++) {

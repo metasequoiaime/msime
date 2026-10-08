@@ -372,6 +372,11 @@ fn load_from(connection: &Connection, model: &mut PersonalNgram) -> Result<()> {
     if has_tables < 2 {
         return Ok(());
     }
+    if count_entries(connection)? > model.options().max_transitions {
+        return Err(EngineError::failed(
+            "personal n-gram state exceeds its memory limit",
+        ));
+    }
     let mut pairs = connection.prepare("SELECT previous,word,count FROM personal_bigram")?;
     let mut rows = pairs.query([])?;
     while let Some(row) = rows.next()? {
@@ -695,6 +700,25 @@ mod tests {
         let dir = Dir::new();
         let store = PersonalNgramStore::for_journal(&dir.journal());
         assert!(lock(&store.pending).capacity() >= FLUSH_BATCH);
+    }
+
+    #[test]
+    fn loading_a_persistent_model_over_the_memory_cap_fails_closed() {
+        let dir = Dir::new();
+        let journal = dir.journal();
+        let connection = Connection::open(&journal).unwrap();
+        ensure_schema(&connection).unwrap();
+        connection
+            .execute_batch(
+                "INSERT INTO personal_bigram(previous,word,count) VALUES('a','b',1),('b','c',1);",
+            )
+            .unwrap();
+        let mut model = PersonalNgram::new(PersonalNgramOptions {
+            max_transitions: 1,
+            ..PersonalNgramOptions::default()
+        });
+
+        assert!(load_from(&connection, &mut model).is_err());
     }
 
     #[test]

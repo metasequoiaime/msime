@@ -12,6 +12,7 @@ import app.msime.android.AndroidLocalSettings;
 import app.msime.android.CloudApi;
 import app.msime.android.DiagnosticsApi;
 import app.msime.android.NativeClient;
+import app.msime.android.JsonPolicy;
 import app.msime.android.NumberPolicy;
 import app.msime.android.PreferencesRevisionPolicy;
 import app.msime.android.SyncSignals;
@@ -531,7 +532,7 @@ public final class DeveloperPage extends DetailPage {
         if (response == null) return null;
         try {
             JSONObject root = new JSONObject(response);
-            return Boolean.TRUE.equals(root.opt("ok"))
+            return JsonPolicy.strictTrue(root.opt("ok"))
                 ? root.optJSONObject("value") : null;
         } catch (JSONException malformed) {
             return null;

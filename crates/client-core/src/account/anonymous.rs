@@ -84,7 +84,7 @@ impl AccountSessionStorage for AnonymousSessionStorage {
 
     fn clear(&self) -> Result<(), AccountError> {
         crate::storage::reject_symlink(&self.directory).map_err(|_| AccountError::Storage)?;
-        match std::fs::remove_file(self.directory.join(ANONYMOUS_SESSION_FILE)) {
+        match crate::storage::remove_private_file(&self.directory.join(ANONYMOUS_SESSION_FILE)) {
             Ok(()) => Ok(()),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
             Err(_) => Err(AccountError::Storage),
@@ -189,7 +189,9 @@ fn read_private_json<T: DeserializeOwned>(path: &Path) -> Result<Option<T>, Acco
         }
     }
     // Bound the read through the handle so a concurrent replacement cannot bypass the size limit.
-    let bytes = read_private_file(std::fs::File::open(path).map_err(|_| AccountError::Storage)?)?;
+    let bytes = read_private_file(
+        crate::storage::open_private_file(path).map_err(|_| AccountError::Storage)?,
+    )?;
     serde_json::from_slice(&bytes)
         .map(Some)
         .map_err(|_| AccountError::Storage)

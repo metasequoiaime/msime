@@ -1,5 +1,6 @@
 """Input-size limits for the standalone local voice helper."""
 
+import os
 import struct
 import subprocess
 import sys
@@ -29,5 +30,39 @@ with tempfile.TemporaryDirectory() as directory:
         check=False,
     )
 
-assert result.returncode != 0
-assert "too large" in result.stderr.lower(), result.stderr
+    assert result.returncode != 0
+    assert "too large" in result.stderr.lower(), result.stderr
+
+    if os.name != "nt":
+        outside = Path(directory) / "outside.wav"
+        outside.write_bytes(
+            b"RIFF"
+            + struct.pack("<I", 36)
+            + b"WAVEfmt "
+            + struct.pack("<IHHIIHH", 16, 1, 1, 16000, 32000, 2, 16)
+            + b"data"
+            + struct.pack("<I", 0)
+        )
+        linked = Path(directory) / "linked.wav"
+        linked.symlink_to(outside)
+        result = subprocess.run(
+            [helper, "--model", str(Path(directory) / "model"), "--wav", str(linked)],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=3,
+        )
+        assert result.returncode != 0
+        assert "cannot open" in result.stderr.lower(), result.stderr
+
+        fifo = Path(directory) / "input.fifo"
+        os.mkfifo(fifo)
+        result = subprocess.run(
+            [helper, "--model", str(Path(directory) / "model"), "--wav", str(fifo)],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=3,
+        )
+        assert result.returncode != 0
+        assert "cannot open" in result.stderr.lower(), result.stderr

@@ -41,8 +41,9 @@ use msime_input_runtime::HandwritingQuery;
 #[cfg(unix)]
 use msime_input_runtime::UnixSocketProvider;
 use msime_input_runtime::{
-    Action, AiAssistantProviderConfig, CandidateId, CharacterWidth, NineKeySpellingId,
-    OnlineCandidate, OnlineQuery, Reranker, Runtime, SentenceModel, Transition, TranslationService,
+    Action, AiAssistantProviderConfig, CandidateId, CharacterWidth, GlideKeyboard, GlidePoint,
+    NineKeySpellingId, OnlineCandidate, OnlineQuery, Reranker, Runtime, SentenceModel, Transition,
+    TranslationService,
 };
 #[cfg(unix)]
 use msime_input_runtime::{EmojiPanelQuery, TranslationQuery};
@@ -820,6 +821,10 @@ pub(crate) struct LanguageDictionaries {
 }
 
 impl LanguageDictionaries {
+    fn trusted_regular_file(path: &Path) -> bool {
+        msime_path_trust::reject_symlinked_components(path).is_ok() && path.is_file()
+    }
+
     /// 每个词库优先用 `state_root` 下已下载的资源包里的那份，没有时用 HostOptions 记录的 `recorded` 目录里的那份（随包内置或旧版本留下的），两处都没有就是缺席。
     pub(crate) fn resolve(state_root: Option<&Path>, recorded: Option<&Path>) -> Self {
         let find = |name: &str| {
@@ -829,8 +834,9 @@ impl LanguageDictionaries {
                 })
                 .or_else(|| {
                     recorded
+                        .filter(|directory| directory.is_absolute())
                         .map(|directory| directory.join(name))
-                        .filter(|path| path.is_file())
+                        .filter(|path| Self::trusted_regular_file(path))
                 })
         };
         LanguageDictionaries {
@@ -844,7 +850,7 @@ impl LanguageDictionaries {
     fn in_directory(directory: &std::path::Path) -> Self {
         let present = |name: &str| {
             let path = directory.join(name);
-            path.is_file().then_some(path)
+            Self::trusted_regular_file(&path).then_some(path)
         };
         LanguageDictionaries {
             cantonese: present("msime-cantonese.db"),
@@ -1181,6 +1187,9 @@ fn bundled_settled_model(resources: &str, recorded: Option<&str>) -> Option<Path
         Some(path) => PathBuf::from(path),
         None => Path::new(resources).join(SETTLED_MODEL_FILE),
     };
+    if !path.is_absolute() {
+        return None;
+    }
     path.is_file().then_some(path)
 }
 
@@ -1565,7 +1574,7 @@ fn refresh_options_file(
     // The file can be replaced or grow after symlink_metadata returns. Read through a
     // limit-aware handle so that the size check remains effective across that race.
     let bytes = crate::bounded_file::read(
-        std::fs::File::open(path)?,
+        crate::bounded_file::open_private(path)?,
         HOST_OPTIONS_DOCUMENT_LIMIT as u64,
     )
     .map_err(|error| {

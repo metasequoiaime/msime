@@ -9,6 +9,7 @@ struct KeyboardLayoutSettingsView: View {
   @State private var voice = KeyboardLayoutPreference.voiceShortcutEnabled
   @State private var tabletFullKeys = KeyboardLayoutPreference.tabletFullKeys
   @State private var tabletSplit = KeyboardLayoutPreference.tabletSplit
+  @State private var glideTyping = KeyboardLayoutPreference.glideTyping
   @State private var tabOpensCandidates = true
   @State private var dragBase: (height: Double, keySpacing: Double, rowSpacing: Double)?
   @State private var dragAxis: Axis?
@@ -133,6 +134,20 @@ struct KeyboardLayoutSettingsView: View {
       } footer: {
         Text("语音入口用于打开已识别的语音结果。识别服务在「设置 → 语音输入」里配置，工具栏上的其他按钮在「设置 → 键盘工具栏」里。")
       }
+      Section {
+        Toggle(isOn: $glideTyping) {
+          VStack(alignment: .leading, spacing: 2) {
+            Text("滑行输入")
+            Text("在字母键上连续滑动输入拼音，停留可确认经过的键").font(.footnote).foregroundStyle(.secondary)
+          }
+        }
+        .accessibilityIdentifier("appGlideTypingSwitch")
+        .onChange(of: glideTyping) { KeyboardLayoutPreference.glideTyping = $0 }
+      } header: {
+        Text("手势")
+      } footer: {
+        Text("只在全拼 26 键的字母键盘上生效：手指从一个字母键滑到其他字母键即开始滑行，抬起后输入经过的拼音；轻点照常输入单个字母。双拼、九键、五笔、英文和本地输入模式下不滑行。")
+      }
       if UIDevice.current.userInterfaceIdiom == .pad {
         Section {
           Toggle("数字行与 Tab 键", isOn: $tabletFullKeys)
@@ -188,6 +203,7 @@ struct KeyboardLayoutSettingsView: View {
     voice = KeyboardLayoutPreference.voiceShortcutEnabled
     tabletFullKeys = KeyboardLayoutPreference.tabletFullKeys
     tabletSplit = KeyboardLayoutPreference.tabletSplit
+    glideTyping = KeyboardLayoutPreference.glideTyping
     // The document is what the keyboard will use, including a value synced from another device that no keyboard has mirrored into the App Group yet.
     guard let preferences = MetasequoiaInputSessionBridge.loadSharedPreferences() else { return }
     tabOpensCandidates = KeyboardLayoutPreference.tabShowsMoreCandidates(preferences)

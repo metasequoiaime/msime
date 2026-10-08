@@ -711,6 +711,43 @@ mod tests {
         ));
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn adoption_rejects_a_source_below_a_symlinked_ancestor() {
+        use sha2::{Digest, Sha256};
+        use std::os::unix::fs::symlink;
+
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let source_real = outside.path().join("source");
+        fs::create_dir(&source_real).unwrap();
+        let bytes = b"synthetic model";
+        fs::write(source_real.join("fixture.bin"), bytes).unwrap();
+        let linked = root.path().join("linked");
+        symlink(outside.path(), &linked).unwrap();
+        let source = linked.join("source");
+        let file = crate::resources::Artifact {
+            name: "fixture.bin".into(),
+            url: "https://example.invalid/fixture.bin".into(),
+            sha256: hex::encode(Sha256::digest(bytes)),
+            size: bytes.len() as u64,
+        };
+
+        let result = crate::voice::local_models::adopt_files(
+            &root.path().join("models"),
+            "fixture",
+            &[file],
+            &serde_json::json!({}),
+            &source,
+        );
+
+        assert!(matches!(
+            result,
+            Err(crate::voice::local_models::LocalModelError::InvalidRoot)
+        ));
+        assert_eq!(fs::read(source_real.join("fixture.bin")).unwrap(), bytes);
+    }
+
     #[test]
     fn ids_round_trip() {
         for pack in ResourcePack::ALL {

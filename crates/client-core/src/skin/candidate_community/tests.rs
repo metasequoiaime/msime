@@ -364,6 +364,23 @@ fn add_preview_refuses_without_writing() {
     assert_eq!(snapshot(&bare), before);
 }
 
+#[cfg(unix)]
+#[test]
+fn add_preview_refuses_a_symlinked_staging_file_without_writing_through_it() {
+    use std::os::unix::fs::symlink;
+
+    let root = tempfile::tempdir().unwrap();
+    let skin = write_skin(root.path(), "sakura", "", DECORATION_IMAGE, "", LICENSE);
+    fs::remove_file(skin.join(PREVIEW)).unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let target = outside.path().join("outside.toml");
+    fs::write(&target, b"synthetic-outside-manifest").unwrap();
+    symlink(&target, skin.join(".skin.toml.preview")).unwrap();
+
+    assert!(add_preview(root.path(), "sakura", &png(500)).is_err());
+    assert_eq!(fs::read(&target).unwrap(), b"synthetic-outside-manifest");
+}
+
 #[test]
 fn add_license_appends_a_license_table_to_a_package_without_one() {
     let root = tempfile::tempdir().unwrap();
@@ -460,6 +477,22 @@ fn add_license_refuses_without_writing() {
     }
     standard_skin(root.path(), "fluent");
     assert_eq!(add_license(root.path(), "fluent", "CC0-1.0"), Err(PACKAGE));
+}
+
+#[cfg(unix)]
+#[test]
+fn add_license_refuses_a_symlinked_staging_file_without_writing_through_it() {
+    use std::os::unix::fs::symlink;
+
+    let root = tempfile::tempdir().unwrap();
+    let skin = write_skin(root.path(), "sakura", TOP, DECORATION_IMAGE, "", "");
+    let outside = tempfile::tempdir().unwrap();
+    let target = outside.path().join("outside.toml");
+    fs::write(&target, b"synthetic-outside-manifest").unwrap();
+    symlink(&target, skin.join(".skin.toml.license")).unwrap();
+
+    assert!(add_license(root.path(), "sakura", "CC0-1.0").is_err());
+    assert_eq!(fs::read(&target).unwrap(), b"synthetic-outside-manifest");
 }
 
 #[cfg(unix)]

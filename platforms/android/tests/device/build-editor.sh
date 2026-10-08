@@ -15,9 +15,9 @@ jar --create --file "$build_dir/classes.jar" -C "$build_dir/classes" .
 "$tools_dir/aapt2" link -I "$android_jar" --manifest platforms/android/tests/device/AndroidManifest.xml -o "$build_dir/unsigned.apk"
 (cd "$build_dir/dex" && zip -q -0 "$build_dir/unsigned.apk" classes.dex)
 "$tools_dir/zipalign" -P 16 4 "$build_dir/unsigned.apk" "$build_dir/aligned.apk"
-keystore=$(bash "$repo_root/platforms/android/scripts/dev-keystore.sh")
-"$tools_dir/apksigner" sign --ks "$keystore" --ks-key-alias androiddebugkey \
-  --ks-pass pass:android --key-pass pass:android --out "$build_dir/signed.apk" "$build_dir/aligned.apk"
+# Instrumentation that targets app.msime.android only runs when this package carries the app's certificate, so it signs with the same key (scripts/signing.sh).
+source "$repo_root/platforms/android/scripts/signing.sh"
+"$tools_dir/apksigner" sign "${android_signing[@]}" --out "$build_dir/signed.apk" "$build_dir/aligned.apk"
 "$tools_dir/apksigner" verify "$build_dir/signed.apk"
 cp "$build_dir/signed.apk" target/android/editor-test.apk
 echo "Synthetic editor APK built; no device changed"

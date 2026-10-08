@@ -123,8 +123,8 @@ impl Drop for JournalConnection {
 
 /// `sqlite3_open_v2` with the reference's flags plus the 5 s busy timeout every engine connection uses (J:65-76). Without CREATE a missing file stays missing.
 pub(crate) fn open_database(path: &Path, flags: OpenFlags) -> Result<Connection> {
-    reject_database_parent(path)?;
-    if let Ok(metadata) = std::fs::symlink_metadata(path) {
+    let path = crate::paths::sqlite_path_no_follow(path)?;
+    if let Ok(metadata) = std::fs::symlink_metadata(&path) {
         if !metadata.file_type().is_file() {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
@@ -133,42 +133,12 @@ pub(crate) fn open_database(path: &Path, flags: OpenFlags) -> Result<Connection>
             .into());
         }
     }
-    let connection = Connection::open_with_flags(path, flags | OpenFlags::SQLITE_OPEN_FULL_MUTEX)?;
+    let connection = Connection::open_with_flags(
+        &path,
+        flags | OpenFlags::SQLITE_OPEN_FULL_MUTEX | OpenFlags::SQLITE_OPEN_NOFOLLOW,
+    )?;
     connection.busy_timeout(Duration::from_millis(BUSY_TIMEOUT_MS))?;
     Ok(connection)
-}
-
-fn reject_database_parent(path: &Path) -> std::io::Result<()> {
-    let parent = path.parent().ok_or_else(|| {
-        std::io::Error::new(
-            std::io::ErrorKind::InvalidInput,
-            "database path has no parent directory",
-        )
-    })?;
-    let mut current = PathBuf::new();
-    for component in parent.components() {
-        current.push(component.as_os_str());
-        match std::fs::symlink_metadata(&current) {
-            Ok(metadata) if metadata.file_type().is_symlink() => {
-                if !crate::paths::is_trusted_system_alias(&current) {
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::InvalidInput,
-                        "database path has a symbolic-link parent",
-                    ));
-                }
-            }
-            Ok(metadata) if !metadata.is_dir() => {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::NotADirectory,
-                    "database path parent is not a directory",
-                ));
-            }
-            Ok(_) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-            Err(error) => return Err(error),
-        }
-    }
-    Ok(())
 }
 
 /// A dictionary (`msime-pinyin.db`, `msime-english.db`) opened for writing; a missing dictionary is an error, never a new empty file.

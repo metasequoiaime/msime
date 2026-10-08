@@ -129,6 +129,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var moreToolsPage: MoreToolsPage = .root
   private let dismissShortcut = UIButton()
   private var letterButtons: [(button: UIButton, lowercase: String, hint: UILabel)] = []
+  /// 滑行输入（`KeyboardLayoutPreference.glideTyping`）的开关，每次键盘出现时读一次，按键时不再读 App Group。
+  private var glideTypingEnabled = false
+  private let glideGesture = GlideTypingGestureRecognizer()
+  private let glideTrail = GlideTrailView()
+  /// a..z 二十六个字母键，按字母顺序；滑行请求里的键中心按这个顺序给出。
+  private var glideLetterKeys: [UIButton] = []
   private var microsoftFinalKey: UIButton?
   /// Comma and full stop at the end of the third letter row; shown only on the tablet keyboard.
   private var letterRowPunctuationKeys: [UIButton] = []
@@ -528,6 +534,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     synchronizeChineseOutputPreference()
     applyLearningPreferences()
     synchronizeTranslationRoute()
+    glideTypingEnabled = KeyboardLayoutPreference.glideTyping
     // The Tauri settings app writes the shared PreferencesStore rather than the
     // legacy App Group UserDefaults used by the old SwiftUI settings page.
     // Reload it off-thread so a fuzzy-pinyin change is visible the next time
@@ -541,13 +548,17 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       // A candidate skin, theme or colour synced from the desktop arrives with the document.
       self.refreshCandidatePalette()
       self.applyKeyboardAppearance()
-      self.synchronizeSharedTouchPreferences()
+      let translationSettingsChanged = self.synchronizeSharedTouchPreferences()
       self.synchronizeCharacterWidth()
       self.synchronizeChinesePunctuation()
       self.synchronizeAICredential()
       self.synchronizeChineseOutputPreference()
       self.applyLearningPreferences()
-      self.synchronizeTranslationRoute()
+      let translationRouteChanged = self.synchronizeTranslationRoute()
+      if translationSettingsChanged || translationRouteChanged {
+        self.translations.cancel()
+        self.requestCandidateTranslations()
+      }
       // The local-mode menu follows the modes the settings app leaves on.
       self.updatePreeditButton()
     }
@@ -638,6 +649,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     personalDictionaryTimer = nil
     closeKeyboardPicker()
     cursorMovement.cancel()
+    endGlide()
     for space in spaceKeys { space.configuration?.title = "空格" }
     // Putting the keyboard away used to drop whatever was composed. macOS commits in
     // prepareForDeactivation: for the same reason: the user typed those letters and never asked to
@@ -778,7 +790,70 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       equalToConstant: KeyboardLayoutPreference.rowSpacing * 3 + 4 * 44)
     // Extra handwriting space belongs to the canvas, not enlarged Space/Return keys.
     handwritingActionHeight = actionRow.heightAnchor.constraint(equalToConstant: 44)
+    installGlideTyping(on: root)
     updateKeyboardLayout()
+  }
+
+  /// 滑行输入的手势和轨迹都挂在键区上：手势看得到键区里的每一根手指，轨迹盖在键的上面。
+  private func installGlideTyping(on root: KeyAreaStackView) {
+    glideLetterKeys = GlideTyping.letters.compactMap { letter in
+      letterButtons.first { $0.lowercase == String(letter) }?.button
+    }
+    glideTrail.frame = root.bounds
+    glideTrail.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+    root.addSubview(glideTrail)
+    glideGesture.isArmed = { [weak self] in self?.glideTypingArmed ?? false }
+    glideGesture.letterIndex = { [weak self, weak root] view in
+      guard let self, let root else { return nil }
+      var node: UIView? = view
+      while let current = node, current !== root {
+        if let index = glideLetterKeys.firstIndex(where: { $0 === current }) { return index }
+        node = current.superview
+      }
+      return nil
+    }
+    glideGesture.keyFrames = { [weak self, weak root] in
+      guard let self, let root else { return [] }
+      return glideLetterKeys.map { KeyAreaStackView.layoutFrame(of: $0, in: root) }
+    }
+    glideGesture.onBegan = { [weak self, weak root] in
+      guard let self, let root else { return }
+      root.suppressesKeyHits = true
+      root.bringSubviewToFront(glideTrail)
+    }
+    glideGesture.onMoved = { [weak self] samples in
+      guard let self else { return }
+      glideTrail.draw(samples, color: KeyboardTheme.current.accent)
+    }
+    glideGesture.onEnded = { [weak self] samples, frames in
+      guard let self else { return }
+      endGlide(fading: true)
+      typeGlide(samples, frames: frames)
+    }
+    glideGesture.onCancelled = { [weak self] in self?.endGlide() }
+    root.addGestureRecognizer(glideGesture)
+  }
+
+  /// 此刻按下的字母键能否开始滑行：开关打开；显示的是全拼 26 键的字母层，不是符号层、九键、手写、笔画、注音或韩文键帽；中文模式而不是英文；没有本地输入模式；Shift 也没有把下一个字母变成辅助码。
+  private var glideTypingArmed: Bool {
+    glideTypingEnabled && isChineseMode && inputScheme == .quanpin && !isInLocalMode && !showsSymbols
+      && !replyKeyboardShown && !entersHelpcode && glideLetterKeys.count == GlideTyping.letters.count
+      && letterRowViews.allSatisfy { !$0.isHidden }
+  }
+
+  /// 滑行结束：键区重新接受新的手指，轨迹抬手时淡出，被打断时直接清空。
+  private func endGlide(fading: Bool = false) {
+    (keyboardRoot as? KeyAreaStackView)?.suppressesKeyHits = false
+    if fading { glideTrail.fadeOut() } else { glideTrail.clear() }
+  }
+
+  /// 抬手：把这一笔交给 Engine，回应像轻点字母键那样渲染。Engine 不处理（方案或模式不对、解不出音节）时丢掉这一笔，一个键也不输入。
+  private func typeGlide(_ samples: [GlideTyping.Sample], frames: [CGRect]) {
+    synchronizeInputSchemePreference()
+    guard glideTypingArmed, let request = GlideTyping.request(frames: frames, samples: samples) else { return }
+    let snapshot = session.glide(request)
+    guard snapshot.isHandled else { return }
+    render(snapshot)
   }
 
   /// 给数字行、三排字母、三排符号和底部功能键那一排各插入一段中缝，默认隐藏，分离时由 `updateKeyboardLayout` 显示。
@@ -2819,8 +2894,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// Apply settings written by the Tauri iOS host to the native keyboard's
   /// legacy App Group preferences. Scheme changes are intentionally deferred
   /// while composing so a settings reload cannot interrupt Engine state.
-  private func synchronizeSharedTouchPreferences() {
-    guard let preferences = session.sharedPreferences else { return }
+  private func synchronizeSharedTouchPreferences() -> Bool {
+    guard let preferences = session.sharedPreferences else { return false }
+    let previousTranslationSettings = InputHabitPreference.mirrored
     // The Tauri host stores learning and frequency settings in the canonical
     // PreferencesStore. Keep the legacy App Group values in sync because the
     // keyboard's native settings and compatibility paths still read them.
@@ -2881,6 +2957,17 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     } else if preferences.keys.contains("translation_secondary_language") {
       CandidateTranslationPreference.secondaryIndex = -1
     }
+    let nextTranslationSettings = InputHabitPreference.settings(in: preferences,
+                                                                 fallback: previousTranslationSettings)
+    let translationSettingsChanged = InputHabitPreference.translationDisplaySettingsChanged(
+      previousTranslationSettings, nextTranslationSettings)
+    let languageChanged = previousTranslationSettings.primaryLanguage != nextTranslationSettings.primaryLanguage
+      || previousTranslationSettings.secondaryLanguage != nextTranslationSettings.secondaryLanguage
+    if languageChanged {
+      candidateGlossEpoch &+= 1
+      candidateGlossRequestedGeneration = nil
+      candidateTargetGlosses = [:]
+    }
     GlobalThemePreference.mirror(preferences)
     let previousTheme = KeyboardTheme.current
     let skinChanged = KeyboardTheme.reload(preferences) != previousTheme
@@ -2912,6 +2999,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     updatePreferredKeyboardHeight()
     scheduleCandidateGlosses()
     renderCandidateStrip()
+    return translationSettingsChanged
   }
 
   static func sharedPreferenceInt(_ value: Any?, range: ClosedRange<Int> = 1...6) -> Int? {
@@ -4088,15 +4176,16 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     return KeyboardCandidateAnnotation(text: text, accessibilityDescription: description)
   }
 
-  private func synchronizeTranslationRoute() {
+  private func synchronizeTranslationRoute() -> Bool {
     let route = TranslationProviderPreference.route(in: session.sharedPreferences)
-    guard route != translationRoute || route.cacheScope != translations.scope else { return }
+    guard route != translationRoute || route.cacheScope != translations.scope else { return false }
     translationRoute = route
     translations.use(route == .account ? BackendCandidateTranslationService() : ProviderCandidateTranslationService(route: route),
                      scope: route.cacheScope)
     DiagnosticLog.shared.write("translation_route provider=\(route.provider?.rawValue ?? "none")")
     // Rows reserved for network-only languages follow whether any service is chosen.
     applyCandidateGlossLayout()
+    return true
   }
 
   private func requestCandidateTranslations() {

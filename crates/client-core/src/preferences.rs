@@ -2705,10 +2705,11 @@ impl PreferencesStore {
                 "preferences document is not a regular file",
             )));
         }
-        let bytes =
-            crate::bounded_io::read_bounded_file(File::open(&path)?, MAX_DOCUMENT_BYTES, || {
-                PreferencesError::DocumentTooLarge
-            })?;
+        let bytes = crate::bounded_io::read_bounded_file(
+            crate::storage::open_private_file(&path)?,
+            MAX_DOCUMENT_BYTES,
+            || PreferencesError::DocumentTooLarge,
+        )?;
         let snapshot: PreferencesSnapshot = serde_json::from_slice(&bytes)?;
         if snapshot.format_version != 1 {
             return Err(PreferencesError::UnsupportedFormat);
@@ -2862,7 +2863,7 @@ impl PreferencesStore {
             Err(failure) => failure,
         };
         let bytes = crate::bounded_io::read_bounded_file(
-            File::open(self.path())?,
+            crate::storage::open_private_file(&self.path())?,
             MAX_DOCUMENT_BYTES,
             || PreferencesError::DocumentTooLarge,
         )?;

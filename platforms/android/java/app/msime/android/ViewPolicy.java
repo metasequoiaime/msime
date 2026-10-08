@@ -1,6 +1,9 @@
 package app.msime.android;
 
 import android.content.Context;
+import android.content.res.ColorStateList;
+import android.graphics.Paint;
+import android.graphics.Typeface;
 import android.view.Gravity;
 import android.view.View;
 import android.util.TypedValue;
@@ -130,9 +133,20 @@ public final class ViewPolicy {
         view.setOnClickListener(ignored -> action.run());
     }
 
+    /** Bind an optional action, clearing the listener when no action is available. */
+    public static void bindOptionalClick(View view, Runnable action) {
+        view.setOnClickListener(action == null ? null : ignored -> action.run());
+    }
+
     /** Set whether a view accepts input without changing its visibility or focus policy. */
     public static void setEnabled(View view, boolean enabled) {
         view.setEnabled(enabled);
+    }
+
+    /** Apply enabled state and a caller-selected inactive opacity. */
+    public static void setEnabledWithAlpha(View view, boolean enabled, float inactiveAlpha) {
+        setEnabled(view, enabled);
+        setActiveAlpha(view, enabled, inactiveAlpha);
     }
 
     /** Announce changing view content to accessibility services without interrupting the user. */
@@ -167,6 +181,11 @@ public final class ViewPolicy {
         view.setGravity(Gravity.CENTER_HORIZONTAL);
     }
 
+    /** Set an explicit child gravity on a linear layout. */
+    public static void setGravity(LinearLayout view, int gravity) {
+        view.setGravity(gravity);
+    }
+
     /** Center a text view's content along the horizontal axis. */
     public static void setCenteredHorizontally(TextView view) {
         view.setGravity(Gravity.CENTER_HORIZONTAL);
@@ -197,14 +216,35 @@ public final class ViewPolicy {
         view.setTypeface(view.getTypeface(), style);
     }
 
+    /** Apply a default-family typeface with the supplied numeric weight. */
+    public static void setTypefaceWeight(TextView view, int weight) {
+        view.setTypeface(Typeface.create(Typeface.DEFAULT, weight, false));
+    }
+
     /** Set a text view's size in scalable pixels. */
     public static void setTextSizeSp(TextView view, float sizeSp) {
         view.setTextSize(TypedValue.COMPLEX_UNIT_SP, sizeSp);
     }
 
+    /** Set a paint's text size in scalable pixels using the supplied display context. */
+    public static void setTextSizeSp(Paint paint, Context context, float sizeSp) {
+        paint.setTextSize(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, sizeSp,
+            context.getResources().getDisplayMetrics()));
+    }
+
+    /** Set a text view's size in density-independent pixels. */
+    public static void setTextSizeDp(TextView view, float sizeDp) {
+        view.setTextSize(TypedValue.COMPLEX_UNIT_DIP, sizeDp);
+    }
+
     /** Set a text view's solid foreground color. */
     public static void setTextColor(TextView view, int color) {
         view.setTextColor(color);
+    }
+
+    /** Set a text view's state-aware foreground colors. */
+    public static void setTextColor(TextView view, ColorStateList colors) {
+        view.setTextColor(colors);
     }
 
     /** Set a text label and its scalable size. */
@@ -257,9 +297,19 @@ public final class ViewPolicy {
         setStartCenteredVertically(view);
     }
 
+    /** Set a view background while preserving its other visual state. */
+    public static void setBackground(View view, android.graphics.drawable.Drawable background) {
+        view.setBackground(background);
+    }
+
+    /** Apply a solid background color while preserving the view's other visual state. */
+    public static void setBackgroundColor(View view, int color) {
+        view.setBackgroundColor(color);
+    }
+
     /** Remove a view's default background drawable. */
     public static void clearBackground(View view) {
-        view.setBackground(null);
+        setBackground(view, null);
     }
 
     /** Limit a text view to a fixed number of lines and truncate at the end. */
@@ -277,6 +327,16 @@ public final class ViewPolicy {
     /** Keep a text view on one line without changing its truncation policy. */
     public static void setSingleLine(TextView view) {
         view.setSingleLine(true);
+    }
+
+    /** Set whether a text view is constrained to one line without changing truncation policy. */
+    public static void setSingleLine(TextView view, boolean singleLine) {
+        view.setSingleLine(singleLine);
+    }
+
+    /** Set additional line spacing and multiplier on a text view. */
+    public static void setLineSpacing(TextView view, float add, float multiplier) {
+        view.setLineSpacing(add, multiplier);
     }
 
     /** Limit a text view to a maximum number of lines without changing truncation policy. */
@@ -327,6 +387,16 @@ public final class ViewPolicy {
     public static void setInteractive(View view, boolean interactive) {
         view.setClickable(interactive);
         view.setFocusable(interactive);
+    }
+
+    /** Set whether a view responds to taps without changing its focus policy. */
+    public static void setClickable(View view, boolean clickable) {
+        view.setClickable(clickable);
+    }
+
+    /** Set whether a view accepts keyboard focus without changing its click policy. */
+    public static void setFocusable(View view, boolean focusable) {
+        view.setFocusable(focusable);
     }
 
     /** Exclude a decorative view from the accessibility tree. */

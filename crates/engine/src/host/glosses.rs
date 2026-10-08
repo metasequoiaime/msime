@@ -142,9 +142,13 @@ pub fn candidate_target_glosses(
     if database_path.is_empty() {
         return Err(EngineError::failed(diagnostics::OFFLINE_GLOSS_UNAVAILABLE));
     }
+    let database_path = crate::paths::sqlite_path_no_follow(Path::new(database_path))
+        .map_err(|_| EngineError::failed(diagnostics::OFFLINE_GLOSS_UNAVAILABLE))?;
     let connection = Connection::open_with_flags(
-        database_path,
-        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_FULL_MUTEX,
+        &database_path,
+        OpenFlags::SQLITE_OPEN_READ_ONLY
+            | OpenFlags::SQLITE_OPEN_NOFOLLOW
+            | OpenFlags::SQLITE_OPEN_FULL_MUTEX,
     )
     .map_err(|_| EngineError::failed(diagnostics::OFFLINE_GLOSS_UNAVAILABLE))?;
     // bridge.cpp:1194 set no busy timeout; rusqlite's default 5 s wait is not the reference's behaviour.

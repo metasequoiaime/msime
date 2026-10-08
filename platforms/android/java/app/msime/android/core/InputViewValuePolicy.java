@@ -1,6 +1,7 @@
 package app.msime.android.core;
 
 import app.msime.android.KeyboardGeometry;
+import app.msime.android.JsonPolicy;
 import org.json.JSONObject;
 
 /** Reads fields returned in the native input view without lossy JSON conversion. */
@@ -34,6 +35,6 @@ public final class InputViewValuePolicy {
     }
 
     public static boolean booleanValue(Object raw, boolean fallback) {
-        return raw instanceof Boolean ? (Boolean) raw : fallback;
+        return JsonPolicy.strictBoolean(raw, fallback);
     }
 }

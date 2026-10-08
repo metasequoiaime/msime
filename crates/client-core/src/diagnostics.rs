@@ -7,7 +7,6 @@
 use crate::preferences::PreferencesStore;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::Path;
 use thiserror::Error;
@@ -272,7 +271,7 @@ fn read_section(
     if !metadata.file_type().is_file() {
         return Err(DiagnosticsError::Invalid);
     }
-    let mut file = File::open(path).map_err(DiagnosticsError::Source)?;
+    let mut file = crate::storage::open_private_file(path).map_err(DiagnosticsError::Source)?;
     let skip_partial = metadata.len() > MAX_SOURCE_BYTES;
     if skip_partial {
         file.seek(SeekFrom::Start(metadata.len() - MAX_SOURCE_BYTES))

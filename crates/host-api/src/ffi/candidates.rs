@@ -140,6 +140,23 @@ pub unsafe extern "C" fn msime_client_apply_online_candidates(
     })
 }
 
+/// Remove cached and visible rows for one online source (0 = cloud, 1 = AI).
+#[no_mangle]
+pub extern "C" fn msime_client_clear_online_candidates(handle: u64, source: u8) -> *mut c_char {
+    response(|| {
+        if source > 1 {
+            return Err("invalid online candidate source".into());
+        }
+        with_session(handle, |session| {
+            session
+                .runtime
+                .clear_online_candidates(source)
+                .map_err(|e| e.to_string())?;
+            Ok(json!({ "applied": true, "view": session.runtime.view() }))
+        })
+    })
+}
+
 /// Select one Han edge through Engine using the displayed candidate identity.
 #[no_mangle]
 pub extern "C" fn msime_client_select_edge(

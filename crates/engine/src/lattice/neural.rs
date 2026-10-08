@@ -1,6 +1,5 @@
 //! Neural reranking of the lattice's n-best (overlays.md §1.6.2-§1.6.3) on the `chinese-ime-lm` crate. The model never generates sentences; it only reorders lattice paths and contributes one row. Only the keyboard model runs here, synchronously on the session's own `Reranker` on every keystroke, whose prefix cache keeps it cheap. The desktop model, whose p95 of 153 ms does not fit a keystroke, is not the engine's: the input runtime runs it as its settled reranker once typing pauses.
 
-use std::fs::File;
 use std::io::Read;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
@@ -10,6 +9,7 @@ use chinese_ime_lm::{Reranker, SentenceModel};
 use lru::LruCache;
 
 use super::decode::SentencePath;
+use crate::ordering::apply_order;
 use crate::text::last_characters;
 use crate::types::CandidateSource;
 
@@ -68,7 +68,7 @@ fn load_model(path: &Path) -> Option<Arc<SentenceModel>> {
     if !std::fs::symlink_metadata(path).ok()?.file_type().is_file() {
         return None;
     }
-    let file = File::open(path).ok()?;
+    let file = crate::paths::open_file_no_follow(path).ok()?;
     let file_size = file.metadata().ok()?.len();
     if file_size > MAX_MODEL_BYTES {
         return None;
@@ -145,11 +145,14 @@ impl NeuralReranker {
         let Some(order) = rerank_order(&neural, &statik) else {
             return false;
         };
-        let reordered: Vec<SentencePath> =
-            order.iter().map(|&index| paths[index].clone()).collect();
-        paths.clone_from_slice(&reordered);
+        apply_order(paths, &order);
         true
     }
+}
+
+#[cfg(test)]
+fn reorder_paths(paths: &mut [SentencePath], order: &[usize]) {
+    apply_order(paths, order);
 }
 
 #[cfg(test)]
@@ -224,6 +227,24 @@ mod tests {
         assert_eq!(CONTEXT_CHARACTERS, 64);
         assert_eq!(last_characters("a你好", 2), "你好");
         assert_eq!(last_characters("a你好", 0), "");
+    }
+
+    #[test]
+    fn reranking_paths_reuses_the_input_storage() {
+        let mut paths = vec![path("甲", -1.0), path("乙", -2.0), path("丙", -3.0)];
+        let capacity = paths.capacity();
+        let (_, allocations) = crate::ime::personal_rerank::allocations::count(|| {
+            reorder_paths(&mut paths, &[2, 0, 1]);
+        });
+        assert_eq!(
+            paths
+                .iter()
+                .map(|path| path.sentence.as_str())
+                .collect::<Vec<_>>(),
+            ["丙", "甲", "乙"]
+        );
+        assert_eq!(paths.capacity(), capacity);
+        assert_eq!(allocations, 0);
     }
 
     #[test]

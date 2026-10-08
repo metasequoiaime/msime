@@ -17,6 +17,8 @@ export interface MobileKeyboardFeedback {
   soundEnabled: boolean;
   hapticsEnabled: boolean;
   hapticStrength: string;
+  /** 滑行输入. Optional because the account sync writes this file from the three feedback fields alone and must carry the current value over itself; the page always sends it, having loaded it. */
+  glideTyping?: boolean;
 }
 
 export class KeyboardFeedbackBridge {
@@ -27,7 +29,8 @@ export class KeyboardFeedbackBridge {
       soundEnabled: settings.sound,
       hapticsEnabled: settings.haptics,
       hapticStrength: settings.strength === HapticStrength.HEAVY
-        ? KeyboardFeedbackBridge.STRONG : settings.strength as string
+        ? KeyboardFeedbackBridge.STRONG : settings.strength as string,
+      glideTyping: settings.glideTyping
     };
   }
 
@@ -45,7 +48,9 @@ export class KeyboardFeedbackBridge {
         ? value.soundEnabled : KeyboardFeedback.DEFAULTS.sound,
       haptics: typeof value.hapticsEnabled === 'boolean'
         ? value.hapticsEnabled : KeyboardFeedback.DEFAULTS.haptics,
-      strength: KeyboardFeedbackBridge.strength(value.hapticStrength)
+      strength: KeyboardFeedbackBridge.strength(value.hapticStrength),
+      glideTyping: typeof value.glideTyping === 'boolean'
+        ? value.glideTyping : KeyboardFeedback.DEFAULTS.glideTyping
     };
   }
 

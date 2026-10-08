@@ -63,12 +63,12 @@ public final class CloudClipboardApi {
             List<Item> items = new ArrayList<>(values.length());
             for (int index = 0; index < values.length(); index++) {
                 JSONObject value = values.getJSONObject(index);
-                String id = strictString(value.opt("id"));
-                String text = strictString(value.opt("text"));
-                String updated = strictString(value.opt("updated_at"));
+                String id = JsonPolicy.strictString(value.opt("id"));
+                String text = JsonPolicy.strictString(value.opt("text"));
+                String updated = JsonPolicy.strictString(value.opt("updated_at"));
                 Object rawDevice = value.opt("device");
                 String device = rawDevice == null || rawDevice == JSONObject.NULL
-                    ? "" : strictString(rawDevice);
+                    ? "" : JsonPolicy.strictString(rawDevice);
                 Object rawPinned = value.opt("pinned");
                 Boolean pinned = rawPinned == null || rawPinned == JSONObject.NULL
                     ? Boolean.FALSE : strictBoolean(rawPinned);
@@ -126,21 +126,16 @@ public final class CloudClipboardApi {
 
     /** org.json's optBoolean accepts string values; server response fields must keep their JSON type. */
     static Boolean strictBoolean(Object value) {
-        return value instanceof Boolean ? (Boolean) value : null;
-    }
-
-    /** org.json's optString coerces numbers and booleans; response text fields must stay strings. */
-    static String strictString(Object value) {
-        return value instanceof String ? (String) value : null;
+        return JsonPolicy.strictBoolean(value);
     }
 
     /** Retention days must be a JSON integer; reject strings and fractional numbers. */
     static Integer strictInteger(Object value) {
-        if (value instanceof Integer integer) return integer;
-        if (value instanceof Long longValue
-                && longValue >= Integer.MIN_VALUE && longValue <= Integer.MAX_VALUE) {
-            return longValue.intValue();
-        }
-        return null;
+        return JsonPolicy.strictInteger(value);
+    }
+
+    /** Compatibility entry point retained for the host smoke contract. */
+    static String strictString(Object value) {
+        return JsonPolicy.strictString(value);
     }
 }

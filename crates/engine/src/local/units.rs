@@ -174,17 +174,6 @@ pub fn query_units(code: &str) -> Option<Vec<String>> {
     }
     let value: f64 = number.parse().ok()?;
     let (source, target) = parse_units(letters)?;
-    let targets: Vec<&Unit> = match target {
-        Some(target) => vec![target],
-        None => UNITS
-            .iter()
-            .filter(|unit| {
-                unit.default_target
-                    && unit.quantity == source.quantity
-                    && !std::ptr::eq(*unit, source)
-            })
-            .collect(),
-    };
     let mut rows: Vec<String> = Vec::with_capacity(RESULT_LIMIT);
     let mut push = |row: String| {
         if rows.len() < RESULT_LIMIT
@@ -195,17 +184,26 @@ pub fn query_units(code: &str) -> Option<Vec<String>> {
         }
     };
     let explicit = target.is_some();
-    for target in targets {
+    let mut convert_to = |target: &Unit| {
         let Some(converted) = convert(number, value, source, target) else {
-            continue;
+            return;
         };
         let Some(text) = format_number(converted) else {
-            continue;
+            return;
         };
         push(format!("{text}{}", target.label));
         if explicit {
             push(text.clone());
             push(format!("{number}{}={text}{}", source.label, target.label));
+        }
+    };
+    if let Some(target) = target {
+        convert_to(target);
+    } else {
+        for target in UNITS.iter().filter(|unit| {
+            unit.default_target && unit.quantity == source.quantity && !std::ptr::eq(*unit, source)
+        }) {
+            convert_to(target);
         }
     }
     (!rows.is_empty()).then_some(rows)
@@ -301,6 +299,7 @@ fn convert(number: &str, value: f64, source: &Unit, target: &Unit) -> Option<f64
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ime::personal_rerank::allocations;
 
     fn rows(code: &str) -> Vec<String> {
         query_units(code).unwrap_or_default()
@@ -324,6 +323,18 @@ mod tests {
         assert_eq!(rows("100cf"), ["212℉", "212", "100℃=212℉"]);
         assert_eq!(rows("32f'c")[0], "0℃");
         assert_eq!(rows("0c'k")[0], "273.15K");
+    }
+
+    #[test]
+    fn temperature_queries_do_not_allocate_a_target_list() {
+        for (code, expected, budget) in [
+            ("100c", vec!["212℉", "373.15K"], 8),
+            ("100cf", vec!["212℉", "212", "100℃=212℉"], 6),
+        ] {
+            let (actual, count) = allocations::count(|| query_units(code));
+            assert_eq!(actual.unwrap(), expected);
+            assert!(count <= budget, "{code}: {count} > {budget}");
+        }
     }
 
     #[test]

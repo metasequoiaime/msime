@@ -5,10 +5,10 @@ final class AiProviderResponse {
     private AiProviderResponse() {}
 
     static String strictContent(Object value) {
-        return value instanceof String ? (String) value : "";
+        return JsonPolicy.strictStringOrEmpty(value);
     }
 
     static String strictText(Object value) {
-        return value instanceof String ? (String) value : "";
+        return JsonPolicy.strictStringOrEmpty(value);
     }
 }

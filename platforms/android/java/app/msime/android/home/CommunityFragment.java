@@ -30,6 +30,7 @@ import app.msime.android.DictionaryCollectionsStore;
 import app.msime.android.R;
 import app.msime.android.SyncSignals;
 import app.msime.android.SyncSwitch;
+import app.msime.android.ViewPolicy;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.button.MaterialButtonToggleGroup;
 import com.google.android.material.chip.Chip;
@@ -184,7 +185,7 @@ public final class CommunityFragment extends Fragment {
         });
 
         MaterialButton retry = view.findViewById(R.id.community_retry);
-        retry.setOnClickListener(ignored -> load(true));
+        ViewPolicy.bindClick(retry, () -> load(true));
 
         load(true);
         updateSearchHint();
@@ -442,7 +443,7 @@ public final class CommunityFragment extends Fragment {
         Context context = requireContext();
         int padding = Ui.dp(context, 20);
         LinearLayout form = Ui.column(context);
-        form.setPadding(padding, Ui.dp(context, 8), padding, 0);
+        ViewPolicy.setPadding(form, padding, Ui.dp(context, 8), padding, 0);
         RadioGroup reasons = new RadioGroup(context);
         for (String reason : CommunityRequest.REPORT_REASONS) {
             RadioButton choice = new RadioButton(context);
@@ -469,9 +470,9 @@ public final class CommunityFragment extends Fragment {
             .create();
         dialog.setOnShowListener(ignored -> {
             View submit = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
-            submit.setEnabled(false);
-            reasons.setOnCheckedChangeListener((group, checked) -> submit.setEnabled(checked != -1));
-            submit.setOnClickListener(clicked -> {
+            ViewPolicy.setEnabled(submit, false);
+            reasons.setOnCheckedChangeListener((group, checked) -> ViewPolicy.setEnabled(submit, checked != -1));
+            ViewPolicy.bindClick(submit, () -> {
                 View checked = reasons.findViewById(reasons.getCheckedRadioButtonId());
                 String reason = checked == null ? "" : String.valueOf(checked.getTag());
                 String text = TextPolicy.trimmed(detail.getText() == null ? null : detail.getText().toString());

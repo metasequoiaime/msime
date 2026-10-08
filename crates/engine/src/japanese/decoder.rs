@@ -3,7 +3,6 @@
 //! The file is mapped read-only, as japanese_sentence_decoder.cpp:101-125 did, so its 66 MB are clean, file-backed pages the system can evict under memory pressure (the iOS keyboard extension's limit) rather than dirty heap read on the first Japanese query. The mapping rests on the resource contract: `msime-japanese.dat` ships read-only in the resource bundle and a replacement arrives by rename, never by an in-place write, so a mapped inode keeps its bytes for as long as the dictionary lives (`replacing_a_model_file_never_alters_a_loaded_dictionary`). Access is by offset with unaligned little-endian loads, as the C++ `memcpy` did. A host without a file system (the browser) hands the bytes over instead (`JapaneseDictionary::preload`), and they live on the heap for as long as the dictionary does.
 
 use std::collections::{BinaryHeap, HashMap};
-use std::fs::File;
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock, Mutex, Weak};
@@ -142,7 +141,7 @@ impl JapaneseDictionary {
         if !std::fs::symlink_metadata(path).ok()?.file_type().is_file() {
             return None;
         }
-        let file = File::open(path).ok()?;
+        let file = crate::paths::open_file_no_follow(path).ok()?;
         let metadata = file.metadata().ok()?;
         // A directory or a file too short for the header is refused before anything is mapped.
         if !metadata.is_file() || metadata.len() < HEADER_SIZE as u64 {

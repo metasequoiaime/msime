@@ -2,6 +2,8 @@
 //!
 //! `prepare_runtime_paths`, which stages a generation directory, lives in `user_dictionary::generation` because it replays the journal.
 
+use std::fs::{File, OpenOptions};
+use std::io;
 use std::path::{Component, Path, PathBuf};
 
 use crate::assets;
@@ -82,6 +84,74 @@ fn join_current_or_legacy(root: &Path, name: &str) -> PathBuf {
 /// 存储路径可以经过的系统链接只在 `msime-path-trust` 里列一次。
 pub(crate) use msime_path_trust::is_trusted_system_alias;
 
+/// Open an Engine asset without following a leaf symlink. Callers still
+/// validate the file format and size through their own loaders; this closes
+/// the check-then-open race between those checks and the read or mapping.
+pub(crate) fn open_file_no_follow(path: &Path) -> io::Result<File> {
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        // A replaced asset may be a FIFO; opening it on the engine thread must not block.
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+        options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
+    }
+    let file = options.open(path)?;
+    if !file.metadata()?.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "engine asset is not a regular file",
+        ));
+    }
+    Ok(file)
+}
+
+/// SQLite's `SQLITE_OPEN_NOFOLLOW` rejects trusted system aliases such as
+/// macOS `/var` when they remain in the path. Reject untrusted components first,
+/// then canonicalize only the parent so the SQLite flag protects the leaf while
+/// normal platform storage roots continue to work.
+pub(crate) fn sqlite_path_no_follow(path: &Path) -> io::Result<PathBuf> {
+    sqlite_path_no_follow_with_parent_policy(path, true)
+}
+
+/// Resolve a database's parent directory while protecting only the final path
+/// component with SQLite's `SQLITE_OPEN_NOFOLLOW` flag. This is used by
+/// packaged language dictionaries, whose established contract permits an
+/// application supplied directory alias.
+pub(crate) fn sqlite_path_no_follow_allow_parent_symlinks(path: &Path) -> io::Result<PathBuf> {
+    sqlite_path_no_follow_with_parent_policy(path, false)
+}
+
+fn sqlite_path_no_follow_with_parent_policy(
+    path: &Path,
+    reject_parent_symlinks: bool,
+) -> io::Result<PathBuf> {
+    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+    {
+        let _ = reject_parent_symlinks;
+        Ok(path.to_owned())
+    }
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+    {
+        if reject_parent_symlinks {
+            msime_path_trust::reject_symlinked_components(path)?;
+        }
+        let parent = path.parent().ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidInput, "database path has no parent")
+        })?;
+        let name = path.file_name().ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidInput, "database path has no filename")
+        })?;
+        Ok(std::fs::canonicalize(parent)?.join(name))
+    }
+}
+
 /// `join` for a name that came from outside the crate: a `..` component is refused rather than allowed to escape the root (`runtime_paths.cpp:14-23`).
 #[cfg_attr(
     not(test),
@@ -105,6 +175,30 @@ pub fn join_checked(root: &Path, name: &str) -> Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn opening_an_asset_does_not_follow_a_leaf_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let target = outside.path().join("asset.bin");
+        std::fs::write(&target, b"synthetic engine asset").unwrap();
+        let linked = root.path().join("asset.bin");
+        symlink(&target, &linked).unwrap();
+
+        assert!(open_file_no_follow(&linked).is_err());
+        assert_eq!(std::fs::read(&target).unwrap(), b"synthetic engine asset");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn opening_an_asset_rejects_a_directory() {
+        let root = tempfile::tempdir().unwrap();
+
+        assert!(open_file_no_follow(root.path()).is_err());
+    }
 
     #[test]
     fn joins_like_the_reference() {

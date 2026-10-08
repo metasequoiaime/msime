@@ -10,9 +10,10 @@ use crate::platform::mobile::mobile_account_helpers::{
     account_request_code as shared_account_request_code, account_status as shared_account_status,
     call_session, cleanup_stale_snapshot_previews, clear_snapshot_previews,
     clear_snapshot_previews_after, cloud_dictionary_account_request, prepare_snapshot_directory,
-    replace_pending_snapshot, snapshot_command_error, snapshot_response_without_account,
-    snapshot_text_within_limit, take_pending_snapshot, valid_mobile_haptic_strength,
-    validate_pending_snapshot, PendingSnapshot, SnapshotMetadata,
+    read_snapshot_file, remove_snapshot_file, replace_pending_snapshot, snapshot_command_error,
+    snapshot_response_without_account, snapshot_text_within_limit, take_pending_snapshot,
+    valid_mobile_haptic_strength, validate_pending_snapshot, write_snapshot_file, PendingSnapshot,
+    SnapshotMetadata,
 };
 #[cfg(target_os = "ios")]
 use crate::shared::account_dto::{
@@ -357,7 +358,7 @@ async fn dictionary_snapshot_preview(
         let profile = session.profile().map_err(account_command_error)?;
         let path = directory.join(format!("download-{file_token}.ndjson"));
         if let Err(error) = session.dictionary_snapshot_to_file(&path) {
-            let _ = fs::remove_file(&path);
+            let _ = remove_snapshot_file(&path);
             return Err(crate::CommandError { code: error.code() });
         }
         let inspected = snapshot_bridge(serde_json::json!({
@@ -367,7 +368,7 @@ async fn dictionary_snapshot_preview(
         let metadata = match inspected.and_then(snapshot_metadata) {
             Ok(value) => value,
             Err(error) => {
-                let _ = fs::remove_file(&path);
+                let _ = remove_snapshot_file(&path);
                 return Err(error);
             }
         };
@@ -385,7 +386,7 @@ async fn dictionary_snapshot_preview(
         },
     )?;
     for path in old {
-        let _ = fs::remove_file(path);
+        let _ = remove_snapshot_file(&path);
     }
     Ok(serde_json::json!({
         "previewToken": token,
@@ -421,7 +422,7 @@ async fn dictionary_snapshot_enqueue(
                 "fileSha256": pending.metadata.file_sha256,
             }))
         })();
-        let _ = fs::remove_file(path);
+        let _ = remove_snapshot_file(&path);
         result
     })
     .await
@@ -447,14 +448,14 @@ async fn dictionary_snapshot_export(
                 "operation": "inspect",
                 "path": path.to_string_lossy(),
             }))?)?;
-            let text = fs::read_to_string(&path).map_err(|_| snapshot_command_error())?;
+            let text = read_snapshot_file(&path).map_err(|_| snapshot_command_error())?;
             Ok(serde_json::json!({
                 "text": text,
                 "filename": "msime-dictionary-snapshot.ndjson",
                 "snapshot": metadata,
             }))
         })();
-        let _ = fs::remove_file(path);
+        let _ = remove_snapshot_file(&path);
         result
     })
     .await
@@ -478,7 +479,7 @@ async fn dictionary_snapshot_restore_preview(
         prepare_snapshot_directory(&directory).map_err(|_| snapshot_command_error())?;
         let path = directory.join(format!("restore-{token}.ndjson"));
         let result = (|| {
-            fs::write(&path, text.as_bytes()).map_err(|_| snapshot_command_error())?;
+            write_snapshot_file(&path, text.as_bytes()).map_err(|_| snapshot_command_error())?;
             let metadata = snapshot_metadata(snapshot_bridge(serde_json::json!({
                 "operation": "inspect",
                 "path": path.to_string_lossy(),
@@ -491,7 +492,7 @@ async fn dictionary_snapshot_restore_preview(
                 "expectedRevision": page.revision,
             }))
         })();
-        let _ = fs::remove_file(path);
+        let _ = remove_snapshot_file(&path);
         result
     })
     .await
@@ -517,7 +518,7 @@ async fn dictionary_snapshot_restore(
         prepare_snapshot_directory(&directory).map_err(|_| snapshot_command_error())?;
         let path = directory.join(format!("restore-{token}.ndjson"));
         let result = (|| {
-            fs::write(&path, text.as_bytes()).map_err(|_| snapshot_command_error())?;
+            write_snapshot_file(&path, text.as_bytes()).map_err(|_| snapshot_command_error())?;
             let metadata = snapshot_metadata(snapshot_bridge(serde_json::json!({
                 "operation": "inspect",
                 "path": path.to_string_lossy(),
@@ -535,7 +536,7 @@ async fn dictionary_snapshot_restore(
                 "reset": result.reset,
             }))
         })();
-        let _ = fs::remove_file(path);
+        let _ = remove_snapshot_file(&path);
         result
     })
     .await

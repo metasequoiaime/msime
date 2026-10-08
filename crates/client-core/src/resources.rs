@@ -5,7 +5,7 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
-use std::fs::{self, File};
+use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
@@ -181,6 +181,23 @@ pub struct ResourceStore {
     root: PathBuf,
 }
 
+fn create_private_file(path: &Path) -> std::io::Result<File> {
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+        options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
+    }
+    options.open(path)
+}
+
 impl ResourceStore {
     /// root is an application-owned directory, separate from user learning data.
     pub fn new(root: impl Into<PathBuf>) -> Self {
@@ -207,7 +224,7 @@ impl ResourceStore {
             .tempdir_in(&self.root)?;
         for artifact in &specification.artifacts {
             let mut source = fetch(artifact)?;
-            let mut output = File::create(stage.path().join(&artifact.name))?;
+            let mut output = create_private_file(&stage.path().join(&artifact.name))?;
             copy_verified(source.as_mut(), &mut output, artifact)?;
             output.sync_all()?;
         }
@@ -222,6 +239,7 @@ impl ResourceStore {
         directory: &Path,
         specification: &ResourceSet,
     ) -> Result<(), ResourceError> {
+        crate::storage::reject_symlink(directory)?;
         specification.validate()?;
         let kind = fs::symlink_metadata(directory)?.file_type();
         if !kind.is_dir() {
@@ -280,7 +298,7 @@ impl ResourceStore {
             )));
         }
         for artifact in &specification.artifacts {
-            let mut input = File::open(directory.join(&artifact.name))?;
+            let mut input = crate::storage::open_private_file(&directory.join(&artifact.name))?;
             copy_verified(&mut input, &mut std::io::sink(), artifact)?;
         }
         Ok(())
@@ -369,6 +387,7 @@ impl VerifiedMarker {
         directory: &Path,
         specification: &ResourceSet,
     ) -> Result<Option<Self>, ResourceError> {
+        crate::storage::reject_symlink(directory)?;
         let mut expected = HashSet::with_capacity(specification.artifacts.len());
         expected.extend(
             specification
@@ -450,7 +469,7 @@ impl VerifiedMarker {
             return None;
         }
         let bytes = crate::bounded_io::read_bounded_file_with(
-            File::open(path).ok()?,
+            crate::storage::open_private_file(path).ok()?,
             MAX_MARKER_BYTES,
             || (),
             |_| (),
@@ -504,6 +523,22 @@ mod tests {
     }
     fn source(bytes: &[u8]) -> Box<dyn Read> {
         Box::new(Cursor::new(bytes.to_vec()))
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn staged_resource_file_creation_rejects_a_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let target = outside.path().join("outside.bin");
+        fs::write(&target, b"keep").unwrap();
+        let path = directory.path().join("staged.bin");
+        symlink(&target, &path).unwrap();
+
+        assert!(create_private_file(&path).is_err());
+        assert_eq!(fs::read(&target).unwrap(), b"keep");
     }
 
     fn fixture_artifact(name: &str, bytes: &[u8]) -> Artifact {
@@ -737,6 +772,40 @@ mod tests {
             .is_err());
         assert!(!outside.path().join("resources.lock").exists());
         assert!(outside.path().read_dir().unwrap().next().is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn verify_rejects_a_symlinked_ancestor() {
+        let parent = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let outside_root = outside.path().join("resources");
+        fs::create_dir(&outside_root).unwrap();
+        fs::write(outside_root.join("msime-pinyin.db"), b"fixture").unwrap();
+        let linked = parent.path().join("linked");
+        std::os::unix::fs::symlink(outside.path(), &linked).unwrap();
+        let directory = linked.join("resources");
+        let store = ResourceStore::new(&directory);
+
+        let error = store.verify(&directory, &specification()).unwrap_err();
+
+        assert!(matches!(error, ResourceError::Io(_)));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn marker_description_rejects_a_symlinked_directory() {
+        use std::os::unix::fs::symlink;
+
+        let parent = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        fs::write(outside.path().join("msime-pinyin.db"), b"fixture").unwrap();
+        let linked = parent.path().join("resources");
+        symlink(outside.path(), &linked).unwrap();
+
+        let error = VerifiedMarker::describe(&linked, &specification()).unwrap_err();
+
+        assert!(matches!(error, ResourceError::Io(_)));
     }
     #[test]
     fn stages_an_interrupted_install_left_are_swept() {

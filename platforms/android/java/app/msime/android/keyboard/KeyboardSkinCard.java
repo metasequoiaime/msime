@@ -75,14 +75,15 @@ public final class KeyboardSkinCard extends KeyboardPressButton {
         paint.setTextSize(labelSize);
         Paint.FontMetrics metrics = paint.getFontMetrics();
         float labelHeight = metrics.descent - metrics.ascent;
-        float ring = 2 * density;
+        float ring = KeyboardGeometry.floatPixels(2, density);
         // 缩略图按设计 MiniKb 的 390:292 由宽度定高，名字紧贴在下方；格子更高时多出的空白留在名字下面，不拉伸缩略图。
-        float available = getHeight() - labelHeight - LABEL_GAP_DP * density - ring * 2;
+        float available = getHeight() - labelHeight
+            - KeyboardGeometry.floatPixels(LABEL_GAP_DP, density) - ring * 2;
         float tileHeight = BoundsPolicy.atMost(available,
             (getWidth() - ring * 2) * KeyboardSkinPreview.MINI_HEIGHT / KeyboardSkinPreview.MINI_WIDTH);
         tile.set(ring, ring, getWidth() - ring, ring + tileHeight);
         if (tile.width() <= 0 || tile.height() <= 0) return;
-        float radius = TILE_RADIUS_DP * density;
+        float radius = KeyboardGeometry.floatPixels(TILE_RADIUS_DP, density);
         if (splitStart != null && splitEnd != null) {
             KeyboardSkinPreview.drawSplit(canvas, tile, radius, splitStart, splitEnd,
                 splitDrawState);
@@ -94,7 +95,7 @@ public final class KeyboardSkinCard extends KeyboardPressButton {
         int label = themed ? labelColor : Color.parseColor(skin.keyForeground());
         boolean selected = isSelected();
         paint.setStyle(Paint.Style.STROKE);
-        float stroke = (selected ? 2 : 1) * density;
+        float stroke = KeyboardGeometry.floatPixels(selected ? 2 : 1, density);
         paint.setStrokeWidth(stroke);
         paint.setColor(selected ? accent : hairline);
         // 描边整条落在缩略图外侧，不压住缩略图本身。
@@ -116,7 +117,7 @@ public final class KeyboardSkinCard extends KeyboardPressButton {
             fittedTitleSize = labelSize;
             fittedTitleBold = bold;
         }
-        canvas.drawText(fittedTitle, getWidth() / 2f, tile.bottom + ring + LABEL_GAP_DP * density
-            - metrics.ascent, paint);
+        canvas.drawText(fittedTitle, getWidth() / 2f, tile.bottom + ring
+            + KeyboardGeometry.floatPixels(LABEL_GAP_DP, density) - metrics.ascent, paint);
     }
 }

@@ -10,7 +10,7 @@ concurrency: {group: release-harmony, cancel-in-progress: false}
 jobs:
   release:
     # HarmonyOS 的 SDK、hvigorw 和 ohpm 来自华为命令行工具包。它要登录才能下载，所以在私有仓库 metasequoiaime/harmony-toolchain 的 Release 里存了一份 Linux 版，用 HARMONY_TOOLCHAIN_TOKEN（只读该仓库）取回并校验摘要。GitHub 的 macOS 镜像上没有 DevEco Studio，原来跑在 macos-15 上根本编不出来，还占着只有 5 台的 macOS runner。
-    runs-on: ubuntu-24.04
+    runs-on: depot-ubuntu-24.04-4
     timeout-minutes: 60
     env:
       HARMONY_TOOLCHAIN_TAG: cli-6.1.1.280

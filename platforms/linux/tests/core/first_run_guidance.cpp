@@ -1,4 +1,5 @@
 #include "../src/core/FirstRunGuidance.h"
+#include "../src/core/RuntimeOptionsFile.h"
 
 #include <cassert>
 #include <filesystem>
@@ -67,6 +68,21 @@ int main() {
   assert(hint.find("「水杉输入法」") != std::string::npos);
   assert(hint.find("msime-linux-setup") != std::string::npos);
   assert(msime::linux_host::kFirstRunGuideProgram == "msime-linux-first-run-guide");
+
+  // Runtime hosts must not follow a replacement symlink when they reload the
+  // options document. Keep the regression at the shared reader boundary so
+  // both IBus and Fcitx5 exercise the same no-follow contract.
+  const auto options_target = root / "options-target.json";
+  const auto options_link = root / "options-link.json";
+  std::ofstream(options_target) << "{}";
+  std::filesystem::create_symlink(options_target, options_link);
+  bool rejected = false;
+  try {
+    (void)msime::linux_host::read_runtime_options(options_link);
+  } catch (const std::exception &) {
+    rejected = true;
+  }
+  assert(rejected);
 
   std::error_code error;
   std::filesystem::remove_all(root, error);

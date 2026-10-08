@@ -12,6 +12,7 @@ import app.msime.android.R;
 import app.msime.android.ListPolicy;
 import app.msime.android.TypingStatisticsSummary;
 import app.msime.android.TypingStatisticsSummary.PeakWindow;
+import app.msime.android.ViewPolicy;
 import java.util.List;
 
 /**
@@ -37,7 +38,7 @@ public final class HourHistogramView extends View {
 
     public HourHistogramView(Context context, @Nullable AttributeSet attributes) {
         super(context, attributes);
-        label.setTextSize(Ui.sp(context, LABEL_SIZE));
+        ViewPolicy.setTextSizeSp(label, context, LABEL_SIZE);
     }
 
     /**

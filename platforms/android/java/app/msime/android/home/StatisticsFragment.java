@@ -20,6 +20,7 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.core.content.ContextCompat;
 import app.msime.android.NativeClient;
+import app.msime.android.JsonPolicy;
 import app.msime.android.BoundsPolicy;
 import app.msime.android.DictionaryCollectionsStore;
 import app.msime.android.KeyPressIds;
@@ -86,7 +87,8 @@ public final class StatisticsFragment extends HomeTabFragment {
             tab = Tab.values()[index];
             render();
         });
-        view.findViewById(R.id.statistics_menu).setOnClickListener(this::showMenu);
+        View menu = view.findViewById(R.id.statistics_menu);
+        ViewPolicy.bindClick(menu, () -> showMenu(menu));
         TextView footer = view.findViewById(R.id.statistics_footer);
         Drawable lock = ContextCompat.getDrawable(requireContext(), R.drawable.ic_ms_shield_lock);
         if (lock != null) {
@@ -173,7 +175,7 @@ public final class StatisticsFragment extends HomeTabFragment {
                 .put("action", new JSONObject().put("operation", "count").put("kind", "pinyin")
                     .put("user_only", true));
             JSONObject root = new JSONObject(NativeClient.dictionary(request.toString()));
-            if (!Boolean.TRUE.equals(root.opt("ok"))) return null;
+            if (!JsonPolicy.strictTrue(root.opt("ok"))) return null;
             JSONObject value = root.optJSONObject("value");
             if (value == null || !value.has("count")) return null;
             Long count = DictionaryCollectionsStore.strictLong(value.opt("count"));
@@ -452,7 +454,7 @@ public final class StatisticsFragment extends HomeTabFragment {
         LinearLayout tile = Ui.column(context);
         int pad = Ui.dp(context, 14);
         Ui.setSymmetricPaddingPx(tile, pad);
-        tile.setBackground(Ui.rounded(Ui.card(context), Ui.dp(context, 20)));
+        ViewPolicy.setBackground(tile, Ui.rounded(Ui.card(context), Ui.dp(context, 20)));
         tile.addView(Ui.label(context, title, 13, Ui.text(context)));
         TextView number = Ui.label(context, figure(context, value, 24,
             "—".equals(value) ? "" : unit), 24, Ui.text(context));

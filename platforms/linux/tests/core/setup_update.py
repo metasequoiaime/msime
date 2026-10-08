@@ -8,6 +8,8 @@ from __future__ import annotations
 import fcntl
 import hashlib
 import http.server
+import importlib.machinery
+import importlib.util
 import json
 import os
 import shutil
@@ -19,6 +21,15 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts/msime-linux-setup"
+
+
+def load_setup_module():
+    loader = importlib.machinery.SourceFileLoader("msime_linux_setup", str(SCRIPT))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 # Stands in for msime-linux-prepare. --refresh points the options at a new generation, the observable effect of the real command, unless STUB_REFRESH_EXIT asks for a failure. It also records what the hosts would see at that moment: whether the quiesce lease is live and whether the session lock is held exclusively, and which resource directory it was asked to prepare.
 # 首行用跑测试的同一个解释器，不经 /usr/bin/env：没有 FHS 布局的环境（Nix 构建沙箱）里没有它。
@@ -163,7 +174,12 @@ def options(state: Path) -> dict:
 def leftovers(state: Path) -> list[str]:
     """What an update may leave in the state or user directory besides the options: a staged options copy or the quiesce lease would be a bug."""
     names = [path.name for path in state.iterdir()] + [path.name for path in (state / "user").iterdir()]
-    return sorted(name for name in names if name.startswith((".runtime-options-", ".msime-dictionary-quiesce")))
+    return sorted(
+        name
+        for name in names
+        if name.startswith((".runtime-options-", ".msime-dictionary-quiesce"))
+        and name != ".msime-dictionary-quiesce.lock"
+    )
 
 
 def check_setup(harness: Harness) -> None:
@@ -328,6 +344,21 @@ def check_setup(harness: Harness) -> None:
     result = harness.run("--update", "--state", str(state))
     assert result.returncode != 0 and "runtime-options.json" in result.stderr, result
     assert "限制" in result.stderr and harness.prepare_calls() == [], result
+
+    # Reading a state file must reject a symlink before parsing its target. The
+    # target contains an otherwise valid document to ensure the check covers
+    # the open itself rather than later update validation.
+    setup_module = load_setup_module()
+    linked = harness.scratch / "linked-options.json"
+    target = harness.scratch / "outside-options.json"
+    target.write_text(json.dumps({"resources": "/outside", "user_data": "/outside"}))
+    linked.symlink_to(target)
+    try:
+        setup_module.read_options(linked)
+    except SystemExit as error:
+        assert "无法读取" in str(error), error
+    else:
+        raise AssertionError("read_options followed a symlink")
 
 
 def check_prepare(prepare: Path, harness: Harness) -> None:

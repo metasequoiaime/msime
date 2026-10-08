@@ -365,10 +365,11 @@ impl CommonPhrasesStore {
         if !metadata.file_type().is_file() || metadata.len() > MAX_FILE_BYTES {
             return Err(CommonPhrasesError::Corrupt);
         }
-        let bytes =
-            crate::bounded_io::read_bounded_file(File::open(&self.file)?, MAX_FILE_BYTES, || {
-                CommonPhrasesError::Corrupt
-            })?;
+        let bytes = crate::bounded_io::read_bounded_file(
+            crate::storage::open_private_file(&self.file)?,
+            MAX_FILE_BYTES,
+            || CommonPhrasesError::Corrupt,
+        )?;
         let document: CommonPhrases =
             serde_json::from_slice(&bytes).map_err(|_| CommonPhrasesError::Corrupt)?;
         validate(&document).map_err(|_| CommonPhrasesError::Corrupt)?;

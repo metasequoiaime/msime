@@ -188,7 +188,7 @@ impl KeyboardSkinTrialStore {
             return Err(KeyboardSkinTrialError::Invalid);
         }
         let bytes = crate::bounded_io::read_bounded_file(
-            File::open(self.path())?,
+            crate::storage::open_private_file(&self.path())?,
             MAXIMUM_RECORD_BYTES,
             || KeyboardSkinTrialError::Invalid,
         )?;

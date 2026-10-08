@@ -13,13 +13,24 @@ import java.util.function.Predicate;
  *
  * <p>键距和行距是每个键的布局外边距。外边距不属于按钮，按下落在那里时没有子视图接收，行和它的祖先都不可点击，整个手势就悄无声息地丢了：默认间距下 26 键约四分之一、九键约五分之一的面积是这样的死区，打字快、落点不准时就像随机丢键。多指连按时第二根手指落进空隙，框架还会把它并进第一根手指按着的键，两次按键都可能丢。
  *
+ * <p>装了 {@link GlideTracker} 时，每个事件先交给它：它接管一次触摸（滑行输入）后，这里给子视图补一个 CANCEL，之后这一次触摸的事件都不再往下分发，直到最后一根手指抬起。
+ *
  * <p>这里不改布局也不改绘制，画面和以前逐像素相同：只在 `ACTION_DOWN` / `ACTION_POINTER_DOWN` 落在某个键的外边距里、又没有落在任何键或其它可点击视图上时，把这一个指针的按下坐标挪进那个键的边缘（挪动距离就是空隙宽度），再交给 `LinearLayout` 照常分发。这个挪动量按指针 id 记下，之后同一个指针的 MOVE、POINTER_UP、UP、CANCEL（连同其中的历史采样）都挪同样的距离，直到它抬起。键看到的是从键内起点出发的真实位移：删除键按出界就取消的判断没有容差，空格的光标拖动和日文九键的滑动都从按下点量位移，坐标不能在按下之后跳回空隙里。
  */
 public final class KeyboardKeyArea extends LinearLayout {
     /** `MotionEvent` 的指针 id 不超过 31，按 id 直接下标。 */
     private static final int MAX_POINTER_ID = 31;
 
+    /** 在键之前看到按键区的每一个触摸事件（坐标是按键区自己的，没有经过空隙挪动）。 */
+    public interface GlideTracker {
+        /** 返回 true 表示这次触摸已被接管，事件不再交给键。 */
+        boolean track(KeyboardKeyArea area, MotionEvent event);
+    }
+
     private final Predicate<View> spacedKey;
+    private GlideTracker glideTracker;
+    /** 接管开始时已经给子视图发过 CANCEL。 */
+    private boolean glideOwned;
     /** 按下时被挪进键里的指针（按 id 的位掩码）和各自的挪动量。 */
     private int routedPointers;
     private final float[] offsetX = new float[MAX_POINTER_ID + 1];
@@ -38,8 +49,27 @@ public final class KeyboardKeyArea extends LinearLayout {
         this.spacedKey = spacedKey;
     }
 
+    public void setGlideTracker(GlideTracker tracker) {
+        glideTracker = tracker;
+    }
+
     @Override public boolean dispatchTouchEvent(MotionEvent event) {
         int action = event.getActionMasked();
+        if (action == MotionEvent.ACTION_DOWN) glideOwned = false;
+        if (glideTracker != null && glideTracker.track(this, event)) {
+            if (!glideOwned) {
+                glideOwned = true;
+                MotionEvent cancel = MotionEvent.obtain(event);
+                cancel.setAction(MotionEvent.ACTION_CANCEL);
+                super.dispatchTouchEvent(cancel);
+                cancel.recycle();
+            }
+            if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+                glideOwned = false;
+                routedPointers = 0;
+            }
+            return true;
+        }
         if (action == MotionEvent.ACTION_DOWN) routedPointers = 0;
         if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_POINTER_DOWN)
             route(event);

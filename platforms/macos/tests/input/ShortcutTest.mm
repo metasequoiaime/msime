@@ -2036,6 +2036,28 @@ static void TestOptInSchemeModes() {
     assert([[tibetanController.menu itemAtIndex:9].title isEqual:@"输入方案（藏文）"]);
     MSIMERemoveTestPreferenceSuite(tibetanDefaults, tibetanSuite);
 
+    // Picking 粤 where msime-cantonese.db is missing leaves the scheme alone. Cantonese cannot run here, so switching to it only made the Engine fall back to the Chinese scheme used before it: the menu bar said 粤 and the keys typed shuangpin. With the dictionary in place the same report switches to cantonese as before.
+    NSString *reportSuite = [@"msime.opt-in-report." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *reportDefaults = [[NSUserDefaults alloc] initWithSuiteName:reportSuite];
+    NSString *emptyDictionaries = [NSTemporaryDirectory() stringByAppendingPathComponent:[@"msime-no-language-dictionaries-" stringByAppendingString:NSUUID.UUID.UUIDString]];
+    assert([NSFileManager.defaultManager createDirectoryAtPath:emptyDictionaries withIntermediateDirectories:YES attributes:nil error:nil]);
+    auto reportCantonese = [&](NSString *dictionaryDirectory) {
+        MSIMEAppearancePreferences *reportAppearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:reportDefaults];
+        reportAppearance.inputScheme = @"quanpin";
+        MSIMEInputController *reporter = makeController(reportAppearance, YES);
+        ((SchemeHostSession *)[reporter valueForKey:@"session"]).hostOptions = @{@"language_dictionaries": dictionaryDirectory};
+        [reporter setValue:emptyDictionaries forKey:@"preferencesDirectory"];
+        [reporter setValue:@{@"editing_text":@"", @"candidates":@[]} forKey:@"view"];
+        MSIMEResetSystemInputModeState(MSIMESharedSystemInputModeState());
+        [reporter systemDidReportInputMode:MSIMECantoneseInputModeID client:[reporter valueForKey:@"activeClient"]];
+        return reportAppearance.inputScheme;
+    };
+    assert([reportCantonese(emptyDictionaries) isEqual:@"quanpin"]);
+    assert([reportCantonese(dictionaries) isEqual:@"cantonese"]);
+    MSIMEResetSystemInputModeState(MSIMESharedSystemInputModeState());
+    [NSFileManager.defaultManager removeItemAtPath:emptyDictionaries error:nil];
+    MSIMERemoveTestPreferenceSuite(reportDefaults, reportSuite);
+
     [NSFileManager.defaultManager removeItemAtPath:dictionaries error:nil];
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
@@ -6090,6 +6112,39 @@ static void TestAiCandidateCacheAcrossGenerations() {
     [controller cancelAITranslations];
 }
 
+static void TestAiCandidateCacheTracksProviderSettings() {
+    AIShortcutController *controller = [AIShortcutController alloc];
+    controller.aiBatches = [NSMutableArray array];
+    AIShortcutSession *session = [AIShortcutSession new];
+    session.query = @{ @"scheme": @0, @"generation": @1, @"identity": @"synthetic-ai-settings",
+        @"query_text": @"nihao", @"cache_key": @"nihao-settings", @"pinyin_segments": @[@"ni", @"hao"],
+        @"ai_context": @"设置缓存", @"cloud_eligible": @NO, @"ai_eligible": @YES,
+        @"cloud_candidates": @YES, @"ai_assistant": @{ @"enabled": @YES, @"provider": @"openai",
+            @"endpoint": @"https://synthetic.invalid/chat", @"model": @"synthetic",
+            @"candidate_limit": @3, @"prompt_custom_1": @"旧提示" }, @"session_id": @1 };
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:[ShortcutClient new] forKey:@"activeClient"];
+    [controller synchronizeAITranslations];
+    NSTimer *timer = [controller valueForKey:@"aiTimer"];
+    [timer fire];
+    controller.aiBatches[0].reply(@[@{ @"translation": @"缓存候选" }]);
+    assert(session.applications == 1 && session.descriptorRequests == 1);
+
+    NSMutableDictionary *next = [session.query mutableCopy];
+    next[@"generation"] = @([next[@"generation"] unsignedLongLongValue] + 1);
+    next[@"ai_assistant"] = @{ @"enabled": @YES, @"provider": @"openai",
+        @"endpoint": @"https://synthetic.invalid/chat", @"model": @"synthetic",
+        @"candidate_limit": @5, @"prompt_custom_1": @"新提示" };
+    session.query = next;
+    [controller setValue:@{ @"candidates": @[@{ @"text": @"普通候选", @"source": @0 }] } forKey:@"view"];
+    [controller synchronizeAITranslations];
+    timer = [controller valueForKey:@"aiTimer"];
+    assert(timer && controller.aiBatches.count == 1);
+    [timer fire];
+    assert(controller.aiBatches.count == 2 && session.descriptorRequests == 2);
+    [controller cancelAITranslations];
+}
+
 static void TestAiCandidateDescriptorFailureIsRetryable() {
     AIShortcutController *controller = [AIShortcutController alloc];
     controller.aiBatches = [NSMutableArray array];
@@ -7817,6 +7872,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestAiCandidatesIgnoreGlossSwitch(); }
         @autoreleasepool { TestAiCandidateRetryAfterRejectedResponse(); }
         @autoreleasepool { TestAiCandidateCacheAcrossGenerations(); }
+        @autoreleasepool { TestAiCandidateCacheTracksProviderSettings(); }
         @autoreleasepool { TestAiCandidateDescriptorFailureIsRetryable(); }
         @autoreleasepool { TestAiCandidateEngineDelivery(); }
         @autoreleasepool { TestCloudCandidatePreference(); }

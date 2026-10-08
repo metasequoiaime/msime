@@ -23,6 +23,9 @@ tempfile.workspace = true
 time = { workspace = true, features = ["local-offset"] }
 tokio = { workspace = true, features = ["rt", "macros", "io-std"] }
 
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
 # Where the Windows Server keeps its runtime options.
 [target.'cfg(windows)'.dependencies]
 msime-host-windows = { path = "../host-windows" }

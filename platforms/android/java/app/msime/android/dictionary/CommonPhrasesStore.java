@@ -352,7 +352,7 @@ public final class CommonPhrasesStore {
         }
         try {
             JSONObject root = new JSONObject(response == null ? "" : response);
-            if (!Boolean.TRUE.equals(strictBoolean(root.opt("ok"))))
+            if (!JsonPolicy.strictTrue(root.opt("ok")))
                 return Result.failed(failureMessage(root.optString("error", "")));
             JSONObject value = root.optJSONObject("value");
             if (value == null) return Result.failed(failureMessage(""));
@@ -374,22 +374,17 @@ public final class CommonPhrasesStore {
 
     /** Native response status must remain a JSON boolean; reject org.json string coercion. */
     static Boolean strictBoolean(Object value) {
-        return value instanceof Boolean ? (Boolean) value : null;
+        return JsonPolicy.strictBoolean(value);
     }
 
     /** Persisted response fields must retain their JSON string type. */
     public static String strictString(Object value) {
-        return value instanceof String ? (String) value : null;
+        return JsonPolicy.strictString(value);
     }
 
     /** Read a JSON integer without org.json's string or fractional coercion. */
     public static Integer strictInteger(Object value) {
-        if (value instanceof Integer integer) return integer;
-        if (value instanceof Long longValue
-                && longValue >= Integer.MIN_VALUE && longValue <= Integer.MAX_VALUE) {
-            return longValue.intValue();
-        }
-        return null;
+        return JsonPolicy.strictInteger(value);
     }
 
     /** 常用语包修订号和跳过条数必须是非负 JSON 整数。 */

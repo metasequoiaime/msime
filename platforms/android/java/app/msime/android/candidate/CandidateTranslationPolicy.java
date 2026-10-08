@@ -61,6 +61,17 @@ public final class CandidateTranslationPolicy {
         return candidateTranslations && translationAccount && !niutransEnabled && !customEnabled;
     }
 
+    /** 偏好变化后当前候选行中的译文必须先清空，再等待新配置的回答。 */
+    public static boolean displayInvalidated(boolean previousEnglishGloss,
+            boolean nextEnglishGloss, boolean previousTranslations,
+            boolean nextTranslations, boolean previousAccount, boolean nextAccount,
+            List<String> previousTargets, List<String> nextTargets) {
+        return previousEnglishGloss != nextEnglishGloss
+            || previousTranslations != nextTranslations
+            || previousAccount != nextAccount
+            || !java.util.Objects.equals(previousTargets, nextTargets);
+    }
+
     /** Count rows that can actually be filled by the enabled offline/online paths. The offline switch covers English and every target in {@code offlineTargets}. */
     public static int glossLines(List<String> targets, boolean offline, boolean online,
             Collection<String> offlineTargets) {

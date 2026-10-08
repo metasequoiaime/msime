@@ -6,7 +6,7 @@ use std::process::Command;
 
 use anyhow::{bail, Context, Result};
 use indexmap::IndexMap;
-use rusqlite::{Connection, OpenFlags};
+use rusqlite::Connection;
 use serde::Serialize;
 
 use crate::english_supplement;
@@ -180,7 +180,7 @@ pub fn split_wubi_database(out: &Path) -> Result<()> {
     if !pinyin_path.is_file() {
         return Ok(());
     }
-    let pinyin = Connection::open_with_flags(&pinyin_path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    let pinyin = crate::sqlite::open_read_only(&pinyin_path)?;
     let mut tables = Vec::new();
     for name in ["wubi86", "wubi98"] {
         let present: bool = pinyin.query_row(
@@ -263,8 +263,7 @@ pub fn verify(out: &Path, complete: bool) -> Result<()> {
         ),
     ];
     for (database, tables) in floors {
-        let connection =
-            Connection::open_with_flags(out.join(database), OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        let connection = crate::sqlite::open_read_only(&out.join(database))?;
         crate::sqlite::integrity_check(&connection).with_context(|| database.to_owned())?;
         for (table, minimum) in tables {
             let count = row_count(&connection, table)
@@ -275,10 +274,7 @@ pub fn verify(out: &Path, complete: bool) -> Result<()> {
         }
     }
 
-    let msime = Connection::open_with_flags(
-        out.join("msime-pinyin.db"),
-        OpenFlags::SQLITE_OPEN_READ_ONLY,
-    )?;
+    let msime = crate::sqlite::open_read_only(&out.join("msime-pinyin.db"))?;
     let mut quanpin_rows = 0;
     for table in quanpin_tables() {
         quanpin_rows += row_count(&msime, &table)

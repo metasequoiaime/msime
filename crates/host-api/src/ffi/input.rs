@@ -601,6 +601,82 @@ pub extern "C" fn msime_client_choose_nine_key_spelling(
     )
 }
 
+/// 一次滑行请求最多的字节数和点数；宿主按每个键几个点重采样的笔画离这两个上限都很远。
+const GLIDE_REQUEST_LIMIT: usize = 65_536;
+const GLIDE_POINT_LIMIT: usize = 1_024;
+
+/// 滑过字母键的一笔（滑行输入）。请求是 `{"keys":[[x,y] x 26],"key_width":w,"key_height":h,"points":[[x,y] 或 [x,y,ms], ...]}`：`a`..`z` 各键中心（按此次序）、一个字母键的尺寸和这一笔，都在宿主自选的同一个坐标系里；`ms` 是距笔画开始的毫秒数，有了它，手指在键上停一下就能确认那个键。
+///
+/// # Safety
+/// `request` 指向 `length` 个可读字节，空指针会被拒绝。
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_glide(
+    handle: u64,
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    if request.is_null() || length == 0 || length > GLIDE_REQUEST_LIMIT {
+        return response(|| Err("invalid glide request".into()));
+    }
+    // SAFETY：由调用方契约保证。
+    let bytes = unsafe { std::slice::from_raw_parts(request, length) };
+    match glide_action(bytes) {
+        Ok(action) => dispatch(handle, action),
+        Err(error) => response(|| Err(error)),
+    }
+}
+
+fn glide_action(bytes: &[u8]) -> Result<Action, String> {
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct GlideRequest {
+        keys: Vec<[f32; 2]>,
+        key_width: f32,
+        key_height: f32,
+        points: Vec<Vec<f32>>,
+    }
+    let request: GlideRequest =
+        serde_json::from_slice(bytes).map_err(|_| "invalid glide request")?;
+    let centers: [[f32; 2]; 26] = request
+        .keys
+        .try_into()
+        .map_err(|_| "glide request needs 26 letter keys")?;
+    let keyboard = GlideKeyboard {
+        centers: centers.map(|[x, y]| (x, y)),
+        key_width: request.key_width,
+        key_height: request.key_height,
+    };
+    if !keyboard.is_valid() {
+        return Err("invalid glide keyboard".into());
+    }
+    if request.points.len() < 2 || request.points.len() > GLIDE_POINT_LIMIT {
+        return Err("invalid glide stroke".into());
+    }
+    let points = request
+        .points
+        .iter()
+        .map(|point| match *point.as_slice() {
+            [x, y] if x.is_finite() && y.is_finite() => Ok(GlidePoint {
+                x,
+                y,
+                time_ms: None,
+            }),
+            [x, y, ms] if x.is_finite() && y.is_finite() && ms.is_finite() && ms >= 0.0 => {
+                Ok(GlidePoint {
+                    x,
+                    y,
+                    time_ms: Some(ms.min(u32::MAX as f32) as u32),
+                })
+            }
+            _ => Err("invalid glide stroke".to_owned()),
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(Action::Glide {
+        keyboard: Box::new(keyboard),
+        points,
+    })
+}
+
 /// Copy every cached Engine candidate only when a host opens an expanded panel.
 #[no_mangle]
 pub extern "C" fn msime_client_all_candidates(handle: u64) -> *mut c_char {

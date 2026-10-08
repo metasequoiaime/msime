@@ -1,12 +1,13 @@
 #include "key_sound_render.h"
 
 #include "key_sound_miniaudio.h"
+#include <cerrno>
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
-#include <fstream>
 #include <fcntl.h>
 #include <system_error>
+#include <sys/stat.h>
 #include <unistd.h>
 
 namespace {
@@ -18,14 +19,30 @@ KeySoundRender refused(const char *reason) {
 }
 
 bool readBounded(const std::string &path, std::vector<uint8_t> &out) {
-    std::ifstream input(path, std::ios::in | std::ios::binary);
-    if (!input) return false;
+    const int descriptor = ::open(path.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK);
+    if (descriptor < 0) return false;
+    struct Descriptor {
+        int value;
+        ~Descriptor() { ::close(value); }
+    } input{descriptor};
+    struct stat status {};
+    if (::fstat(input.value, &status) != 0 || !S_ISREG(status.st_mode)) return false;
+
     // One byte past the bound, so a file that grew after validation is noticed rather than cut short.
     out.assign(kKeySoundMaxSampleBytes + 1, 0);
-    input.read(reinterpret_cast<char *>(out.data()), static_cast<std::streamsize>(out.size()));
-    const std::streamsize length = input.gcount();
-    if (length <= 0 || static_cast<size_t>(length) > kKeySoundMaxSampleBytes) return false;
-    out.resize(static_cast<size_t>(length));
+    size_t length = 0;
+    while (length < out.size()) {
+        const ssize_t count = ::read(input.value, out.data() + length, out.size() - length);
+        if (count > 0) {
+            length += static_cast<size_t>(count);
+            continue;
+        }
+        if (count == 0) break;
+        if (errno == EINTR) continue;
+        return false;
+    }
+    if (length == 0 || length > kKeySoundMaxSampleBytes) return false;
+    out.resize(length);
     return true;
 }
 

@@ -73,7 +73,7 @@ public final class TypingStatisticsDocument {
 
     /** Persisted flags are typed JSON booleans; reject org.json's string coercion. */
     public static boolean booleanValue(Object value, boolean fallback) {
-        return value instanceof Boolean ? (Boolean) value : fallback;
+        return JsonPolicy.strictBoolean(value, fallback);
     }
 
     private static Map<String, Long> counts(JSONObject value) {

@@ -1383,7 +1383,8 @@ pub unsafe extern "C" fn msime_client_dictionary_manifest(
         // not a manifest whatever it parses as.
         let file = path.join("msime-dictionary-manifest.json");
         let bytes = crate::bounded_file::read(
-            std::fs::File::open(&file).map_err(|_| "dictionary_manifest_unavailable")?,
+            crate::bounded_file::open_private(&file)
+                .map_err(|_| "dictionary_manifest_unavailable")?,
             1024 * 1024,
         )
         .map_err(|_| "dictionary_manifest_unavailable")?;

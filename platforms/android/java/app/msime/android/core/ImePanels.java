@@ -560,7 +560,7 @@ final class ImePanels {
     LinearLayout createReplyKeyboard() {
         LinearLayout root = KeyboardGeometry.column(s);
         KeyboardGeometry.setSymmetricPaddingDp(root, s, 6, 5);
-        root.setBackgroundColor(Color.parseColor(s.skin.background()));
+        ViewPolicy.setBackgroundColor(root, Color.parseColor(s.skin.background()));
         root.setContentDescription("高情商回复键盘");
 
         s.replyHeader = KeyboardGeometry.row(s);
@@ -1077,7 +1077,7 @@ final class ImePanels {
     }
 
     private void bindFeedbackAction(View view, Runnable action) {
-        view.setOnClickListener(ignored -> {
+        ViewPolicy.bindClick(view, () -> {
             s.imeKeyFeedback.playFeedback(view);
             action.run();
         });
@@ -1448,7 +1448,7 @@ final class ImePanels {
             lines.add(hairline);
         }
         s.imeStyler.applySkin();
-        for (View hairline : lines) hairline.setBackgroundColor(Color.parseColor(s.skin.hairline()));
+        for (View hairline : lines) ViewPolicy.setBackgroundColor(hairline, Color.parseColor(s.skin.hairline()));
         if (note != null) ViewPolicy.setTextColor(note, ImeStyler.fade(s.skin.keyForeground(), .6));
     }
 
@@ -1514,9 +1514,9 @@ final class ImePanels {
         // 设计：盖在键区上、不盖顶部一行；上面是每行八个的表情网格（可见三行，可滚动），底栏是 ABC | 分类 | ⌫。高度由 PanelSurface 限定为键区高度。
         s.emojiPanel = KeyboardGeometry.column(s);
         KeyboardGeometry.setSymmetricPaddingDp(s.emojiPanel, s, 6, 4);
-        s.emojiPanel.setBackgroundColor(Color.parseColor(s.skin.background()));
+        ViewPolicy.setBackgroundColor(s.emojiPanel, Color.parseColor(s.skin.background()));
         s.emojiPanel.setContentDescription("表情面板");
-        s.emojiPanel.setFocusable(true);
+        ViewPolicy.setFocusable(s.emojiPanel, true);
         s.emojiGrid = KeyboardGeometry.column(s);
         s.emojiGridScroll = new ScrollView(s);
         s.emojiGridScroll.setFillViewport(false);

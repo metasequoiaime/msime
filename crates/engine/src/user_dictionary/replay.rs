@@ -140,18 +140,28 @@ struct JournalRow {
     display: Vec<u8>,
 }
 
+const MAX_REPLAY_KIND_BYTES: usize = 32;
+const MAX_REPLAY_KEY_BYTES: usize = 512;
+const MAX_REPLAY_VALUE_BYTES: usize = 4 * 1024;
+const MAX_REPLAY_OPERATION_BYTES: usize = 16;
+const MAX_REPLAY_DISPLAY_BYTES: usize = 4 * 1024;
+
 impl JournalRow {
     fn read(row: &Row<'_>) -> rusqlite::Result<Self> {
-        let text = |index: usize| -> rusqlite::Result<Vec<u8>> {
-            Ok(row.get_ref(index)?.as_bytes()?.to_vec())
+        let text = |index: usize, maximum: usize| -> rusqlite::Result<Vec<u8>> {
+            let bytes = row.get_ref(index)?.as_bytes()?;
+            if bytes.len() > maximum {
+                return Err(rusqlite::Error::InvalidQuery);
+            }
+            Ok(bytes.to_vec())
         };
         Ok(Self {
-            kind: text(0)?,
-            key: text(1)?,
-            value: text(2)?,
-            operation: text(3)?,
+            kind: text(0, MAX_REPLAY_KIND_BYTES)?,
+            key: text(1, MAX_REPLAY_KEY_BYTES)?,
+            value: text(2, MAX_REPLAY_VALUE_BYTES)?,
+            operation: text(3, MAX_REPLAY_OPERATION_BYTES)?,
             weight: row.get(4)?,
-            display: text(5)?,
+            display: text(5, MAX_REPLAY_DISPLAY_BYTES)?,
         })
     }
 
@@ -194,9 +204,11 @@ impl ToSql for Text<'_> {
 
 /// `ATTACH DATABASE ?1 AS <schema>`; `schema` is one of this module's fixed aliases, never user input.
 pub(super) fn attach(connection: &Connection, path: &Path, schema: &str) -> rusqlite::Result<()> {
+    let path = crate::paths::sqlite_path_no_follow(path)
+        .map_err(|_| rusqlite::Error::InvalidPath(path.to_owned()))?;
     let name = path
         .to_str()
-        .ok_or_else(|| rusqlite::Error::InvalidPath(path.to_owned()))?;
+        .ok_or_else(|| rusqlite::Error::InvalidPath(path.clone()))?;
     connection.execute(&format!("ATTACH DATABASE ?1 AS {schema}"), [name])?;
     Ok(())
 }
@@ -576,6 +588,27 @@ pub(super) mod tests {
                 "SELECT weight FROM english_words WHERE word='hello' AND hex(display)='68FF'"
             ),
             Some(7)
+        );
+    }
+
+    #[test]
+    fn an_oversized_journal_text_rolls_back_before_copying_it() {
+        let fixture = fixture();
+        let huge = "x".repeat(4097);
+        Connection::open(&fixture.journal)
+            .unwrap()
+            .execute(
+                "INSERT INTO user_dictionary_operations(dictionary,key,value,operation,weight,display,updated_at) VALUES('pinyin','ni''hao',?1,'upsert',10,'',1)",
+                [&huge],
+            )
+            .unwrap();
+
+        let result = replay(&fixture.journal, &fixture.main, &fixture.english);
+        assert_eq!(result.applied, 0);
+        assert!(!result.error.is_empty());
+        assert_eq!(
+            weight(&fixture.main, "SELECT count(*) FROM tbl_2_n"),
+            Some(2)
         );
     }
 

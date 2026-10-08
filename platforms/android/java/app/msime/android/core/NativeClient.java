@@ -30,6 +30,7 @@ public final class NativeClient {
     private static final int SHUANGPIN_PROFILE_LIMIT = 64;
     private static final int SHUANGPIN_HINT_RESPONSE_LIMIT = 65_536;
     private static final int SMART_PUNCTUATION_REQUEST_LIMIT = 4_096;
+    private static final int GLIDE_REQUEST_LIMIT = 65_536;
     /** An imported word list is the one request here that carries a whole file. */
     private static final int VOCABULARY_REQUEST_LIMIT = 8 * 1024 * 1024;
     static { System.loadLibrary("msime_android"); }
@@ -466,6 +467,14 @@ public final class NativeClient {
             throw new IllegalArgumentException("Preceding character must be a Unicode scalar");
         return text(punctuationWithContextRaw(session, ascii, precedingCodePoint));
     }
+    /** 滑行的一笔；`request` 是 `msime_client_glide` 规定的 JSON，由 {@link GlideTypingPolicy#request} 生成。 */
+    public static String glide(long session, String request) {
+        if (request == null) throw new IllegalArgumentException("Missing glide request");
+        byte[] payload = request.getBytes(StandardCharsets.UTF_8);
+        if (payload.length > GLIDE_REQUEST_LIMIT)
+            throw new IllegalArgumentException("Glide request is too large");
+        return text(glideRaw(session, payload));
+    }
     public static String smartPunctuationArm(long session, String request) {
         return text(smartPunctuationArmRaw(session, boundedSmartPunctuation(request)));
     }
@@ -554,6 +563,12 @@ public final class NativeClient {
             throw new IllegalArgumentException("Online candidates are too large");
         return text(applyOnlineCandidatesRaw(session, boundedQuery(query), payload, source));
     }
+    /** Remove cached and visible rows for source 0 (cloud) or 1 (AI). */
+    public static String clearOnlineCandidates(long session, int source) {
+        if (source != 0 && source != 1)
+            throw new IllegalArgumentException("Unknown online candidate source");
+        return text(clearOnlineCandidatesRaw(session, source));
+    }
     private static byte[] boundedQuery(String query) {
         byte[] payload = query.getBytes(StandardCharsets.UTF_8);
         if (payload.length > ONLINE_QUERY_LIMIT)
@@ -629,6 +644,7 @@ public final class NativeClient {
     private static native byte[] characterRaw(long session, int ascii, boolean shift);
     private static native byte[] punctuationWithContextRaw(long session, int ascii,
         int precedingCodePoint);
+    private static native byte[] glideRaw(long session, byte[] request);
     private static native byte[] smartPunctuationArmRaw(long session, byte[] request);
     private static native byte[] smartPunctuationDecideRaw(long session, byte[] request);
     private static native byte[] commandRaw(long session, int command);
@@ -650,6 +666,7 @@ public final class NativeClient {
     private static native byte[] applyCloudResponseRaw(long session, byte[] query, byte[] body);
     private static native byte[] applyOnlineCandidatesRaw(long session, byte[] query,
         byte[] candidates, int source);
+    private static native byte[] clearOnlineCandidatesRaw(long session, int source);
     private static native byte[] viewRaw(long session);
     private static native byte[] updatePreferencesRaw(long session, byte[] snapshot);
     private static native byte[] voiceHotwordsRaw(byte[] request);

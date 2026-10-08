@@ -4,7 +4,6 @@ import android.content.Context;
 import android.graphics.Color;
 import android.graphics.Path;
 import android.graphics.drawable.GradientDrawable;
-import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.FrameLayout;
@@ -52,11 +51,11 @@ public final class KeyboardSchemeCard extends FrameLayout {
         glyph = centeredLabel(context, glyphText, glyphText.length() > 1 ? 15 : 20, true);
         // "EN" is two characters wide in a box sized for one, so it takes the smaller face.
         // 字形和角标都画在固定 dp 的方框里，字号也按 dp，不随系统字体变化，否则放大后会溢出方框。
-        glyph.setTextSize(TypedValue.COMPLEX_UNIT_DIP, glyphText.length() > 1 ? 15 : 20);
+        ViewPolicy.setTextSizeDp(glyph, glyphText.length() > 1 ? 15 : 20);
         ViewPolicy.setTypefaceStyle(glyph, android.graphics.Typeface.BOLD);
 
         badge = centeredLabel(context, badgeText, 9, true);
-        badge.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 9);
+        ViewPolicy.setTextSizeDp(badge, 9);
         ViewPolicy.setTypefaceStyle(badge, android.graphics.Typeface.BOLD);
 
         check = new View(context);
@@ -143,10 +142,10 @@ public final class KeyboardSchemeCard extends FrameLayout {
         setBackground(rounded(isSelected ? ColorPolicy.withAlpha(accent, .12f) : Color.TRANSPARENT,
             KeyboardGeometry.pixels(getContext(), CARD_RADIUS_DP)));
         setFaceTextColor(face);
-        glyph.setBackground(outlined(face, KeyboardGeometry.pixels(getContext(), GLYPH_RADIUS_DP), KeyboardGeometry.pixels(getContext(), GLYPH_BORDER_DP)));
+        ViewPolicy.setBackground(glyph, outlined(face, KeyboardGeometry.pixels(getContext(), GLYPH_RADIUS_DP), KeyboardGeometry.pixels(getContext(), GLYPH_BORDER_DP)));
         // 角标和对勾都压在字形框的边线上，各自带一小块与面板同色的底，把边线断开。
-        badge.setBackgroundColor(keyBackground);
-        check.setBackground(checkMark(accent, keyBackground));
+        ViewPolicy.setBackgroundColor(badge, keyBackground);
+        ViewPolicy.setBackground(check, checkMark(accent, keyBackground));
         ViewPolicy.setVisible(check, isSelected);
     }
 
@@ -160,19 +159,19 @@ public final class KeyboardSchemeCard extends FrameLayout {
         int face = isSelected ? accent : foreground;
         ViewPolicy.clearBackground(this);
         setFaceTextColor(face);
-        glyph.setBackground(outlined(face, KeyboardGeometry.pixels(getContext(), GLYPH_RADIUS_DP), KeyboardGeometry.pixels(getContext(), GLYPH_BORDER_DP)));
-        badge.setBackgroundColor(panelBackground);
+        ViewPolicy.setBackground(glyph, outlined(face, KeyboardGeometry.pixels(getContext(), GLYPH_RADIUS_DP), KeyboardGeometry.pixels(getContext(), GLYPH_BORDER_DP)));
+        ViewPolicy.setBackgroundColor(badge, panelBackground);
         if (isSelected || badge.getText().length() == 0) ViewPolicy.setInvisible(badge);
         else ViewPolicy.show(badge);
         setTitleTypeface(isSelected);
         if (check.getLayoutParams() != checkBadgeParams) check.setLayoutParams(checkBadgeParams);
-        check.setBackground(checkMark(accent, panelBackground));
+        ViewPolicy.setBackground(check, checkMark(accent, panelBackground));
         ViewPolicy.setVisible(check, isSelected);
     }
 
     private void setTitleTypeface(boolean bold) {
-        title.setTypeface(bold ? android.graphics.Typeface.DEFAULT_BOLD
-            : android.graphics.Typeface.DEFAULT);
+        ViewPolicy.setTypefaceStyle(title, bold ? android.graphics.Typeface.BOLD
+            : android.graphics.Typeface.NORMAL);
     }
 
     private void setFaceTextColor(int face) {

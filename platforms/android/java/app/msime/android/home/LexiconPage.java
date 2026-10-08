@@ -214,7 +214,7 @@ public final class LexiconPage extends DetailPage {
                 Ui.TEXT_BUTTON_SMALL, 500, Ui.subText(context));
             ViewPolicy.setCentered(button);
             ViewPolicy.setSingleLine(button);
-            button.setBackground(Ui.pillRipple(context,
+            ViewPolicy.setBackground(button, Ui.pillRipple(context,
                 added ? Ui.rowBackground(context) : Ui.accentSoft(context)));
             Ui.setButtonPadding(button, context);
             Ui.setTextMinHeightDp(button, context, Ui.COMPACT_BUTTON_MIN_HEIGHT);

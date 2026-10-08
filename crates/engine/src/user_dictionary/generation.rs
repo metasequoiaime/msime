@@ -1,8 +1,8 @@
 //! 代次准备（core-session.md §12、data-formats.md §3、`runtime_paths.cpp:116-182`）：`user_data/dictionaries/<content id>` 里是经 backup API 复制的 `msime-pinyin.db` 与 `msime-english.db`（资源单独发布的 `msime-wubi.db` 五笔码表并回前者），回放过用户日志，旁边还有 n-gram 表。不读 `msime-pinyin.db` 的方案集合（见 `SchemeSet::reads_main_dictionary`）准备的代次只有 `msime-english.db`。
 
 use std::ffi::OsString;
-use std::fs;
-use std::io::ErrorKind;
+use std::fs::{self, OpenOptions};
+use std::io::{self, ErrorKind};
 use std::path::{Component, Path, PathBuf};
 
 use rusqlite::backup::{Backup, StepResult};
@@ -73,7 +73,21 @@ pub fn prepare_runtime_paths_for(
     reject_redirected_directory(user_data)?;
     reject_redirected_directory(cache)?;
 
-    if result.dictionaries.join(assets::GENERATION_READY).exists() {
+    let marker = result.dictionaries.join(assets::GENERATION_READY);
+    let generation_ready = match fs::symlink_metadata(&marker) {
+        Ok(metadata) if metadata.file_type().is_file() => true,
+        Ok(_) => {
+            // A directory, device or symlink at the marker path is not a
+            // completed generation. Do not follow it or try to replace the
+            // existing generation directory during staging.
+            return Err(EngineError::failed(
+                diagnostics::INCOMPLETE_RUNTIME_GENERATION,
+            ));
+        }
+        Err(error) if error.kind() == ErrorKind::NotFound => false,
+        Err(error) => return Err(error.into()),
+    };
+    if generation_ready {
         for name in generation_dictionaries(main_dictionary) {
             if !is_real_file(&result.dictionary(name)) {
                 return Err(EngineError::failed(
@@ -114,9 +128,9 @@ pub fn prepare_runtime_paths_for(
         stage_generation_copies(resources, &stage, true)?;
         replay_into(&result, &stage, main_dictionary)?;
         index_reverse_lookup(&stage, main_dictionary);
-        fs::write(
-            stage.join(assets::GENERATION_READY),
-            format!("{content_id}\n"),
+        write_private_file(
+            &stage.join(assets::GENERATION_READY),
+            format!("{content_id}\n").as_bytes(),
         )
         .map_err(|_| EngineError::failed(diagnostics::RUNTIME_FINALIZE_FAILED))?;
         fs::rename(&stage, &result.dictionaries)?;
@@ -197,14 +211,21 @@ fn copy_database(source: &Path, target: &Path) -> Result<()> {
         )));
     }
     let copied = (|| -> rusqlite::Result<StepResult> {
+        let source = crate::paths::sqlite_path_no_follow(source)
+            .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
+        let target = crate::paths::sqlite_path_no_follow(target)
+            .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
         let input = Connection::open_with_flags(
-            source,
-            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+            &source,
+            OpenFlags::SQLITE_OPEN_READ_ONLY
+                | OpenFlags::SQLITE_OPEN_NOFOLLOW
+                | OpenFlags::SQLITE_OPEN_NO_MUTEX,
         )?;
         let mut output = Connection::open_with_flags(
-            target,
+            &target,
             OpenFlags::SQLITE_OPEN_READ_WRITE
                 | OpenFlags::SQLITE_OPEN_CREATE
+                | OpenFlags::SQLITE_OPEN_NOFOLLOW
                 | OpenFlags::SQLITE_OPEN_NO_MUTEX,
         )?;
         // runtime_paths.cpp:43-44 set no busy timeout on either side; rusqlite would otherwise add a 5 s wait the reference never had.
@@ -223,6 +244,38 @@ fn copy_database(source: &Path, target: &Path) -> Result<()> {
     Ok(())
 }
 
+pub(super) fn copy_private_file(source: &Path, target: &Path) -> io::Result<u64> {
+    let mut input = crate::paths::open_file_no_follow(source)?;
+    let mut output = create_private_file(target)?;
+    let copied = io::copy(&mut input, &mut output)?;
+    output.sync_all()?;
+    Ok(copied)
+}
+
+fn create_private_file(path: &Path) -> io::Result<fs::File> {
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+        options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
+    }
+    options.open(path)
+}
+
+fn write_private_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    let mut output = create_private_file(path)?;
+    io::Write::write_all(&mut output, bytes)?;
+    output.sync_all()?;
+    Ok(())
+}
+
 /// 词库发布把五笔码表单独放在只读的 `msime-wubi.db` 里，`msime-pinyin.db` 不再含 `wubi86`/`wubi98`。五笔的学习调序、删词、个人词典编辑与日志回放都写代次里的工作主词库，五笔 provider 也从它读，所以准备代次（以及重置学习数据）时把这两张表连同索引并回工作副本：读写落在同一个文件上，学到的权重立即可见。资源目录没有 `msime-wubi.db`（旧的合并发布）或工作副本里已有同名表时不动。
 pub(crate) fn merge_split_wubi(resources: &Path, main_db: &Path) -> Result<()> {
     let source = resources.join(assets::WUBI_DICTIONARY);
@@ -230,13 +283,21 @@ pub(crate) fn merge_split_wubi(resources: &Path, main_db: &Path) -> Result<()> {
         return Ok(());
     }
     let merged = (|| -> rusqlite::Result<()> {
+        let source = crate::paths::sqlite_path_no_follow(&source)
+            .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
+        let main_db = crate::paths::sqlite_path_no_follow(main_db)
+            .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
         let input = Connection::open_with_flags(
             &source,
-            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+            OpenFlags::SQLITE_OPEN_READ_ONLY
+                | OpenFlags::SQLITE_OPEN_NOFOLLOW
+                | OpenFlags::SQLITE_OPEN_NO_MUTEX,
         )?;
         let mut output = Connection::open_with_flags(
-            main_db,
-            OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+            &main_db,
+            OpenFlags::SQLITE_OPEN_READ_WRITE
+                | OpenFlags::SQLITE_OPEN_NOFOLLOW
+                | OpenFlags::SQLITE_OPEN_NO_MUTEX,
         )?;
         input.busy_timeout(std::time::Duration::ZERO)?;
         output.busy_timeout(std::time::Duration::ZERO)?;
@@ -318,7 +379,7 @@ pub(super) fn stage_generation_copies(
             Err(error) if error.kind() == ErrorKind::NotFound => {}
             Err(error) => return Err(error.into()),
         }
-        fs::copy(&source, &incoming)?;
+        copy_private_file(&source, &incoming)?;
         fs::rename(&incoming, &target)?;
     }
     Ok(())
@@ -686,6 +747,33 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn a_symlinked_generation_marker_is_not_treated_as_ready() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempfile::tempdir().unwrap();
+        let resources = resources(root.path());
+        let user = root.path().join("user");
+        let cache = root.path().join("cache");
+        let generation = user.join("dictionaries/v1");
+        fs::create_dir_all(&generation).unwrap();
+        for name in generation_dictionaries(true) {
+            fs::copy(resources.join(name), generation.join(name)).unwrap();
+        }
+        let outside = tempfile::tempdir().unwrap();
+        let marker_target = outside.path().join("marker");
+        fs::write(&marker_target, b"v1\n").unwrap();
+        symlink(&marker_target, generation.join(assets::GENERATION_READY)).unwrap();
+
+        assert_eq!(
+            prepare_runtime_paths(&resources, &user, &cache, "v1")
+                .unwrap_err()
+                .to_string(),
+            diagnostics::INCOMPLETE_RUNTIME_GENERATION
+        );
+    }
+
     #[test]
     fn the_backup_copy_includes_committed_wal_content() {
         let root = tempfile::tempdir().unwrap();
@@ -1042,5 +1130,37 @@ mod tests {
         );
         assert!(!user.join("dictionaries/v1.incoming").exists());
         assert!(!user.join("dictionaries/v1").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn generation_copy_rejects_a_symlinked_source() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let source = outside.path().join("source.bin");
+        let target = directory.path().join("target.bin");
+        std::fs::write(&source, b"outside").unwrap();
+        symlink(&source, directory.path().join("linked.bin")).unwrap();
+
+        assert!(copy_private_file(&directory.path().join("linked.bin"), &target).is_err());
+        assert!(!target.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn generation_marker_writing_rejects_a_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let target = outside.path().join("outside.txt");
+        std::fs::write(&target, b"keep").unwrap();
+        let marker = directory.path().join(".ready");
+        symlink(&target, &marker).unwrap();
+
+        assert!(write_private_file(&marker, b"ready\n").is_err());
+        assert_eq!(std::fs::read(&target).unwrap(), b"keep");
     }
 }

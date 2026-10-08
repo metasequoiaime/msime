@@ -214,7 +214,8 @@ impl DictionarySnapshotQueue {
             return Err(SnapshotQueueError::Invalid);
         }
         let bytes = crate::bounded_io::read_bounded_file_with(
-            File::open(path).map_err(|_| SnapshotQueueError::Unavailable)?,
+            crate::storage::open_private_file(&path)
+                .map_err(|_| SnapshotQueueError::Unavailable)?,
             MAXIMUM_STATE_BYTES,
             || SnapshotQueueError::Invalid,
             |_| SnapshotQueueError::Unavailable,
@@ -337,7 +338,8 @@ impl DictionarySnapshotQueue {
         let root = self.root()?;
         let mut incoming =
             tempfile::NamedTempFile::new_in(&root).map_err(|_| SnapshotQueueError::Unavailable)?;
-        let mut input = File::open(source).map_err(|_| SnapshotQueueError::Unavailable)?;
+        let mut input = crate::storage::open_private_file(source)
+            .map_err(|_| SnapshotQueueError::Unavailable)?;
         let mut hash = Sha256::new();
         let mut total = 0u64;
         let mut buffer = [0u8; 65_536];
@@ -399,7 +401,7 @@ impl DictionarySnapshotQueue {
         let previous = match result {
             Ok(previous) => previous,
             Err(error) => {
-                let _ = fs::remove_file(&destination);
+                let _ = remove_snapshot_file(&destination);
                 return Err(error);
             }
         };
@@ -454,7 +456,9 @@ impl DictionarySnapshotQueue {
         }
         let applied = self.update(|_, state| {
             let request = state.request.as_mut().ok_or(SnapshotQueueError::Conflict)?;
-            if request.id != id || (!already_applied && !request.status.active()) {
+            let can_complete = request.status.active()
+                || (already_applied && request.status == SnapshotRequestStatus::Applied);
+            if request.id != id || !can_complete {
                 return Err(SnapshotQueueError::Conflict);
             }
             if already_applied {
@@ -540,11 +544,7 @@ impl DictionarySnapshotQueue {
                 .filter(|request| !request.status.active())
             {
                 let path = root.join(format!("{}.ndjson", request.id));
-                match fs::remove_file(path) {
-                    Ok(()) => {}
-                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-                    Err(_) => return Err(SnapshotQueueError::Unavailable),
-                }
+                remove_snapshot_file(&path)?;
                 state.request = None;
             }
             Ok(result)
@@ -553,17 +553,37 @@ impl DictionarySnapshotQueue {
 
     fn delete_snapshot(&self, id: Uuid) -> Result<(), SnapshotQueueError> {
         let path = self.file_path(id)?;
-        match fs::remove_file(path) {
-            Ok(()) => Ok(()),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(_) => Err(SnapshotQueueError::Unavailable),
-        }
+        remove_snapshot_file(&path)
+    }
+}
+
+fn remove_snapshot_file(path: &Path) -> Result<(), SnapshotQueueError> {
+    match crate::storage::remove_private_file(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(_) => Err(SnapshotQueueError::Unavailable),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn snapshot_cleanup_does_not_follow_a_symlinked_parent() {
+        use std::os::unix::fs::symlink;
+
+        let outside = tempfile::tempdir().unwrap();
+        let outside_file = outside.path().join("synthetic.ndjson");
+        fs::write(&outside_file, b"synthetic-outside").unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let linked = root.path().join("queue");
+        symlink(outside.path(), &linked).unwrap();
+
+        assert!(remove_snapshot_file(&linked.join("synthetic.ndjson")).is_err());
+        assert_eq!(fs::read(&outside_file).unwrap(), b"synthetic-outside");
+    }
 
     fn version(owner: &str, digest: char) -> String {
         format!("local-v1:{owner}:{}", digest.to_string().repeat(64))
@@ -787,6 +807,37 @@ mod tests {
             queue.read().unwrap().request.unwrap().status,
             SnapshotRequestStatus::Cancelled
         );
+    }
+
+    #[test]
+    fn already_applied_completion_does_not_resurrect_cancelled_request() {
+        let parent = tempfile::tempdir().unwrap();
+        let root = parent.path().join("queue");
+        let source = parent.path().join("snapshot.ndjson");
+        fs::write(&source, b"synthetic snapshot\n").unwrap();
+        let digest = hex::encode(Sha256::digest(fs::read(&source).unwrap()));
+        let initial = version("legacy", 'a');
+        let queue = DictionarySnapshotQueue::new(root).unwrap();
+        queue.publish_local_version(&initial).unwrap();
+        let id = queue
+            .enqueue(&source, "fixture", 1, &initial, &digest)
+            .unwrap();
+        let lease = queue.acquire_worker_lease().unwrap();
+        queue.claim(&lease).unwrap();
+        queue.cancel("fixture").unwrap();
+
+        assert!(matches!(
+            queue.complete(id, &lease, &version(&id.to_string(), 'b'), true, || {
+                panic!("cancelled request must not be applied")
+            }),
+            Err(SnapshotQueueError::Conflict)
+        ));
+        let state = queue.read().unwrap();
+        assert_eq!(
+            state.request.unwrap().status,
+            SnapshotRequestStatus::Cancelled
+        );
+        assert_eq!(state.local_version.as_deref(), Some(initial.as_str()));
     }
 
     #[test]

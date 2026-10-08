@@ -6,7 +6,7 @@
 
 use serde_json::Value;
 use std::collections::{BTreeSet, HashSet};
-use std::fs::{self, File};
+use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -51,7 +51,7 @@ fn locator_backups(locators: &[PathBuf]) -> Result<Vec<LocatorBackup>, MoveError
         {
             return Err(MoveError::Publish);
         }
-        let contents = match File::open(path) {
+        let contents = match crate::shared::atomic_file::open_private(path) {
             Ok(file) => Some(
                 crate::shared::bounded_body::read_bounded(file, MAX_LOCATOR_BYTES as usize)
                     .map_err(|_| MoveError::Publish)?,
@@ -125,9 +125,8 @@ fn restore_target(target: &Path, had_marker: bool, backups: &[LocatorBackup]) {
     }
     let _ = fs::create_dir_all(target);
     if had_marker {
-        let _ = fs::write(
-            target.join(DATA_DIRECTORY_MARKER),
-            b"Metasequoia IME user data directory.\n",
+        let _ = crate::platform::desktop::desktop_data_directory::write_data_marker(
+            &target.join(DATA_DIRECTORY_MARKER),
         );
     }
     restore_locators(backups);
@@ -225,9 +224,8 @@ where
         .tempdir_in(parent)
         .map_err(|_| MoveError::Copy)?;
     copy_tree_contents(&source, staging.path())?;
-    fs::write(
-        staging.path().join(DATA_DIRECTORY_MARKER),
-        b"Metasequoia IME user data directory.\n",
+    crate::platform::desktop::desktop_data_directory::write_data_marker(
+        &staging.path().join(DATA_DIRECTORY_MARKER),
     )
     .map_err(|_| MoveError::Copy)?;
 

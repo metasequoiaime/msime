@@ -12,7 +12,7 @@ use crate::assets;
 use crate::diagnostics;
 use crate::error::{EngineError, Result};
 use crate::paths::RuntimePaths;
-use crate::user_dictionary::generation::{merge_split_wubi, weakly_canonical};
+use crate::user_dictionary::generation::{copy_private_file, merge_split_wubi, weakly_canonical};
 use crate::user_dictionary::journal::{close_cached_journals, ensure_schema, open_database};
 
 /// SQLite files that sit beside the journal. A leftover `-wal` would bring the learned data the user just erased back on the next open.
@@ -123,7 +123,7 @@ fn swap(
 ) -> Result<()> {
     // A plain copy, as the reference made: the packaged bundle is immutable, so it has no WAL to lose.
     for (source, replacement) in sources.iter().zip(replacements.iter()) {
-        fs::copy(source, &replacement.temporary)
+        copy_private_file(source, &replacement.temporary)
             .map_err(|_| EngineError::failed(diagnostics::RESET_STAGE_DICTIONARIES_FAILED))?;
     }
     // 与准备代次相同：单独发布的五笔码表并回新的工作主词库，否则重置之后五笔学习与删词都找不到表。没有工作主词库时 `replacements[0]` 是英文词库，不并。

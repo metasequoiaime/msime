@@ -82,6 +82,7 @@ export function ScreenKeyboardSettingsPage() {
         toolbar={draft.touch_toolbar}
         tabletFullKeys={mobileKeyboardFeedback?.tabletFullKeys}
         tabletSplitKeyboard={mobileKeyboardFeedback?.tabletSplitKeyboard}
+        glideTyping={mobileKeyboardFeedback?.glideTyping}
         tabletFullKeysBusy={mobileKeyboardFeedbackBusy}
         onHeightAdjustmentChange={(touch_keyboard_height_adjustment) =>
           onPreferencesChange({ touch_keyboard_height_adjustment })
@@ -104,6 +105,11 @@ export function ScreenKeyboardSettingsPage() {
         onTabletSplitKeyboardChange={(tabletSplitKeyboard) => {
           if (mobileKeyboardFeedback) {
             void saveMobileKeyboardFeedback({ ...mobileKeyboardFeedback, tabletSplitKeyboard });
+          }
+        }}
+        onGlideTypingChange={(glideTyping) => {
+          if (mobileKeyboardFeedback) {
+            void saveMobileKeyboardFeedback({ ...mobileKeyboardFeedback, glideTyping });
           }
         }}
         onReset={() => void resetTouchKeyboardSettings()}

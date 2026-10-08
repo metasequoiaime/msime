@@ -1313,6 +1313,82 @@ fn handwriting_layout_is_exposed_only_after_pending_composition_finishes() {
     read(msime_client_destroy(handle));
 }
 
+/// `word` 在各移动宿主所画 26 键布局上的滑行请求，单位是像素、键为 80 x 120：每八像素、8 毫秒一个点。
+fn glide_request(word: &str) -> String {
+    let rows: [(&[u8], f32); 3] = [(b"qwertyuiop", 0.0), (b"asdfghjkl", 0.5), (b"zxcvbnm", 1.5)];
+    let mut keys = [[0.0f32; 2]; 26];
+    for (row, (letters, indent)) in rows.iter().enumerate() {
+        for (column, &letter) in letters.iter().enumerate() {
+            keys[usize::from(letter - b'a')] = [
+                (column as f32 + indent + 0.5) * 80.0,
+                (row as f32 + 0.5) * 120.0,
+            ];
+        }
+    }
+    let mut points = Vec::new();
+    for pair in word.as_bytes().windows(2) {
+        let [ax, ay] = keys[usize::from(pair[0] - b'a')];
+        let [bx, by] = keys[usize::from(pair[1] - b'a')];
+        let steps = (((bx - ax).powi(2) + (by - ay).powi(2)).sqrt() / 8.0)
+            .ceil()
+            .max(1.0);
+        for step in 0..steps as usize {
+            let t = step as f32 / steps;
+            points.push([
+                ax + (bx - ax) * t,
+                ay + (by - ay) * t,
+                points.len() as f32 * 8.0,
+            ]);
+        }
+    }
+    let [x, y] = keys[usize::from(word.as_bytes()[word.len() - 1] - b'a')];
+    points.push([x, y, points.len() as f32 * 8.0]);
+    json!({"keys": keys, "key_width": 80.0, "key_height": 120.0, "points": points}).to_string()
+}
+
+#[test]
+fn a_glide_stroke_composes_through_the_host_boundary() {
+    let dir = tempfile::tempdir().unwrap();
+    let handle = test_host_with_pinyin_fixture(dir.path(), chinese_preferences());
+    read(msime_client_focus(handle, true));
+    let request = glide_request("nihao");
+    let glided = read(unsafe { msime_client_glide(handle, request.as_ptr(), request.len()) });
+    assert_eq!(glided["ok"], true, "{glided}");
+    assert_eq!(glided["value"]["handled"], true);
+    assert_eq!(glided["value"]["view"]["editing_text"], "nihao");
+    assert_eq!(glided["value"]["view"]["candidates"][0]["text"], "本地");
+    read(msime_client_destroy(handle));
+}
+
+#[test]
+fn a_malformed_glide_request_fails_without_touching_the_session() {
+    let dir = tempfile::tempdir().unwrap();
+    let handle = test_host_with_pinyin_fixture(dir.path(), chinese_preferences());
+    read(msime_client_focus(handle, true));
+    let valid: Value = serde_json::from_str(&glide_request("nihao")).unwrap();
+    let mut short = valid.clone();
+    short["keys"].as_array_mut().unwrap().pop();
+    let mut flat = valid.clone();
+    flat["key_width"] = json!(0.0);
+    let mut lonely = valid.clone();
+    lonely["points"] = json!([[1.0, 2.0]]);
+    let mut odd = valid.clone();
+    odd["points"][1] = json!([1.0]);
+    let mut extra = valid;
+    extra["pressure"] = json!(1);
+    for request in [short, flat, lonely, odd, extra] {
+        let request = request.to_string();
+        let failed = read(unsafe { msime_client_glide(handle, request.as_ptr(), request.len()) });
+        assert_eq!(failed["ok"], false, "{request}");
+    }
+    assert_eq!(
+        read(unsafe { msime_client_glide(handle, std::ptr::null(), 4) })["ok"],
+        false
+    );
+    assert_eq!(read(msime_client_view(handle))["value"]["editing_text"], "");
+    read(msime_client_destroy(handle));
+}
+
 #[test]
 fn nine_key_mode_and_spelling_identity_cross_the_host_boundary() {
     let dir = tempfile::tempdir().unwrap();
@@ -5597,6 +5673,45 @@ fn direct_cloud_callbacks_follow_a_pending_enable() {
         .unwrap()
         .iter()
         .any(|candidate| candidate["text"] == "云候选"));
+    read(msime_client_destroy(handle));
+}
+
+#[test]
+fn clearing_online_source_removes_its_rows_without_empty_batch_protocol() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut preferences = Preferences {
+        scheme: InputScheme::Quanpin,
+        cloud_candidates: true,
+        ..chinese_preferences()
+    };
+    preferences.ai_assistant.enabled = true;
+    let handle = test_host_with_pinyin_fixture(dir.path(), preferences);
+    read(msime_client_focus(handle, true));
+    for byte in b"nihao" {
+        read(msime_client_character(handle, *byte, false));
+    }
+    let query = read(msime_client_online_query(handle))["value"].to_string();
+    let apply = |source: u8, text: &str| {
+        let candidates = serde_json::to_vec(&json!([text])).unwrap();
+        read(unsafe {
+            msime_client_apply_online_candidates(
+                handle,
+                query.as_ptr(),
+                query.len(),
+                candidates.as_ptr(),
+                candidates.len(),
+                source,
+            )
+        })
+    };
+    let cloud = apply(0, "云候选");
+    assert_eq!(cloud["value"]["applied"], true, "{cloud}");
+    assert_eq!(apply(1, "AI候选")["value"]["applied"], true);
+    let cleared = read(msime_client_clear_online_candidates(handle, 0));
+    assert_eq!(cleared["value"]["applied"], true);
+    let candidates = cleared["value"]["view"]["candidates"].as_array().unwrap();
+    assert!(!candidates.iter().any(|item| item["text"] == "云候选"));
+    assert!(candidates.iter().any(|item| item["text"] == "AI候选"));
     read(msime_client_destroy(handle));
 }
 
@@ -10707,6 +10822,40 @@ fn downloaded_language_dictionaries_win_over_the_recorded_directory() {
 }
 
 #[test]
+fn a_relative_recorded_language_dictionary_directory_is_ignored() {
+    let relative_root = tempfile::Builder::new()
+        .prefix("synthetic-language-dictionaries-")
+        .tempdir_in(".")
+        .unwrap();
+    let relative = std::path::Path::new(".").join(relative_root.path().file_name().unwrap());
+    for name in ["msime-cantonese.db", "msime-zhuyin.db", "msime-stroke.db"] {
+        std::fs::write(relative.join(name), b"synthetic dictionary").unwrap();
+    }
+    assert!(!relative.is_absolute());
+    assert_eq!(
+        LanguageDictionaries::resolve(None, Some(&relative)),
+        LanguageDictionaries::default()
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_symlinked_recorded_language_dictionary_directory_is_ignored() {
+    let root = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    for name in ["msime-cantonese.db", "msime-zhuyin.db", "msime-stroke.db"] {
+        std::fs::write(outside.path().join(name), b"synthetic dictionary").unwrap();
+    }
+    let linked = root.path().join("language-dictionaries");
+    msime_path_trust::untrusted_symlink(outside.path(), &linked).unwrap();
+
+    assert_eq!(
+        LanguageDictionaries::resolve(None, Some(&linked)),
+        LanguageDictionaries::default()
+    );
+}
+
+#[test]
 fn a_downloaded_japanese_pack_keeps_temporary_japanese_available() {
     let root = tempfile::tempdir().unwrap();
     let resources = root.path().join("resources");
@@ -10995,6 +11144,40 @@ fn a_bundled_settled_model_wins_over_the_downloaded_pack() {
         Some(resources.join("sentence-model-desktop.safetensors"))
     );
     assert_eq!(super::packaged_settled_model(&json!({})), None);
+}
+
+#[test]
+fn a_relative_recorded_settled_model_is_ignored() {
+    let root = tempfile::tempdir().unwrap();
+    let state = root.path().join("state");
+    let resources = root.path().join("resources");
+    std::fs::create_dir_all(&resources).unwrap();
+    let downloaded = publish_resource_pack(
+        &state,
+        ResourcePack::SettledModel,
+        &["sentence-model-desktop.safetensors"],
+    )
+    .join("sentence-model-desktop.safetensors");
+
+    // HostOptions promises an absolute path. A relative path must not be resolved
+    // against whichever directory happened to launch the input method.
+    let relative_root = tempfile::Builder::new()
+        .prefix("synthetic-settled-model-")
+        .tempdir_in(".")
+        .unwrap();
+    let relative = std::path::Path::new(".")
+        .join(relative_root.path().file_name().unwrap())
+        .join("synthetic-model.safetensors");
+    std::fs::write(&relative, b"synthetic model").unwrap();
+    assert!(!relative.is_absolute());
+    assert_eq!(
+        super::settled_model_file(
+            resources.to_str().unwrap(),
+            Some(relative.to_str().unwrap()),
+            Some(&state)
+        ),
+        Some(downloaded)
+    );
 }
 
 /// 会话打开后才下载好的落定重排模型，在下一次聚焦时被看见，在后台线程加载，加载完后由输入空闲时的 `apply_pending` 换上，不重建 Engine。

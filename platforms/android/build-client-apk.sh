@@ -128,10 +128,10 @@ ANDROID_HOME="$android_sdk" NDK_HOME="$android_ndk" TAURI_ANDROID_DIR="$tauri_an
   ORG_GRADLE_PROJECT_msimeEdition="$edition" pnpm --filter @msime/desktop tauri android build --apk --target "$tauri_target" --ci
 unsigned="$repo_root/apps/desktop/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk"
 [[ -f "$unsigned" ]] || { echo "Expected Tauri APK not produced" >&2; exit 1; }
-keystore=$(bash "$repo_root/platforms/android/scripts/dev-keystore.sh")
+# Same key as build-apk.sh and the releases (scripts/signing.sh): this package has the same applicationId, so any other key would make it and a release build refuse to update each other.
+source "$repo_root/platforms/android/scripts/signing.sh"
 output="$repo_root/target/android/$apk_name.apk"
-"$android_sdk/build-tools/35.0.0/apksigner" sign --ks "$keystore" --ks-key-alias androiddebugkey \
-  --ks-pass pass:android --key-pass pass:android --out "$output" "$unsigned"
+"$android_sdk/build-tools/35.0.0/apksigner" sign "${android_signing[@]}" --out "$output" "$unsigned"
 "$android_sdk/build-tools/35.0.0/apksigner" verify "$output"
 "$android_sdk/build-tools/35.0.0/zipalign" -c -P 16 4 "$output"
 # The package is only worth shipping if it carries each dictionary staged above, beside its licence (a release, MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1, has already refused to stage fewer than the lock pins).

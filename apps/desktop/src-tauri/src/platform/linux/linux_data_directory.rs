@@ -12,7 +12,9 @@ use std::collections::HashSet;
 use std::ffi::OsString;
 use std::fs;
 use std::io::{self, Read, Write};
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -28,6 +30,7 @@ const PINNED_FILES: [&str; 4] = [
     "voice-provider.json",
 ];
 const STAGING_PREFIX: &str = ".msime-data-migration-";
+static LOCATOR_TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 /// The picker is interactive, so this only bounds a dialog that was abandoned on another workspace.
 const PICKER_TIMEOUT: Duration = Duration::from_secs(600);
 
@@ -91,24 +94,69 @@ fn atomic_write(path: &Path, contents: &[u8]) -> io::Result<()> {
         .parent()
         .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
     crate::shared::atomic_file::check_directory_ancestors(parent)?;
-    if fs::symlink_metadata(path)
-        .map(|metadata| metadata.file_type().is_symlink())
-        .unwrap_or(false)
-    {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "locator is a symbolic link",
-        ));
+    let file_name = path
+        .file_name()
+        .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
+    let directory = super::open_private_directory(parent)?;
+    let existing = super::open_private_fd(&directory, file_name)?;
+    let mode = existing.metadata()?.permissions().mode();
+    atomic_write_at(&directory, file_name, contents, mode)
+}
+
+fn atomic_write_at(
+    directory: &std::os::fd::OwnedFd,
+    file_name: &std::ffi::OsStr,
+    contents: &[u8],
+    mode: u32,
+) -> io::Result<()> {
+    let mut temporary_name = OsString::from(".msime-runtime-options-");
+    temporary_name.push(std::process::id().to_string());
+    temporary_name.push("-");
+    temporary_name.push(
+        LOCATOR_TEMP_COUNTER
+            .fetch_add(1, Ordering::Relaxed)
+            .to_string(),
+    );
+    let descriptor = loop {
+        match rustix::fs::openat(
+            directory,
+            &temporary_name,
+            rustix::fs::OFlags::WRONLY
+                | rustix::fs::OFlags::CREATE
+                | rustix::fs::OFlags::EXCL
+                | rustix::fs::OFlags::CLOEXEC,
+            rustix::fs::Mode::from_raw_mode(0o600),
+        ) {
+            Ok(descriptor) => break descriptor,
+            Err(error) if error == rustix::io::Errno::EXIST => {
+                temporary_name.push("-");
+                temporary_name.push(
+                    LOCATOR_TEMP_COUNTER
+                        .fetch_add(1, Ordering::Relaxed)
+                        .to_string(),
+                );
+            }
+            Err(error) => return Err(error.into()),
+        }
+    };
+    let mut file: fs::File = descriptor.into();
+    let result = file
+        .write_all(contents)
+        .and_then(|()| {
+            rustix::fs::fchmod(&file, rustix::fs::Mode::from_raw_mode(mode))
+                .map_err(io::Error::from)
+        })
+        .and_then(|()| file.sync_all());
+    drop(file);
+    if let Err(error) = result {
+        let _ = rustix::fs::unlinkat(directory, &temporary_name, rustix::fs::AtFlags::empty());
+        return Err(error);
     }
-    let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
-    temporary.write_all(contents)?;
-    temporary.as_file().sync_all()?;
-    let permissions = fs::metadata(path)?.permissions();
-    temporary.as_file().set_permissions(permissions)?;
-    temporary
-        .persist(path)
-        .map(|_| ())
-        .map_err(|error| error.error)
+    if let Err(error) = rustix::fs::renameat(directory, &temporary_name, directory, file_name) {
+        let _ = rustix::fs::unlinkat(directory, &temporary_name, rustix::fs::AtFlags::empty());
+        return Err(error.into());
+    }
+    Ok(())
 }
 
 /// A staging directory of an earlier move, or the trash of a cleanup that could not finish. It is never state to carry along, nor user content that makes a directory non-empty.
@@ -136,8 +184,8 @@ fn target_is_empty(target: &Path, default_root: &Path) -> Result<bool, MoveError
     for entry in fs::read_dir(target).map_err(|_| MoveError::InvalidTarget)? {
         let entry = entry.map_err(|_| MoveError::InvalidTarget)?;
         // The marker and staging names are normally tolerated so an interrupted move can be
-        // resumed. They must still be real entries: fs::write(marker) below follows a symlink,
-        // which could otherwise overwrite a file outside the selected data directory.
+        // resumed. They must still be real entries: a linked marker or staging entry is not a
+        // valid data directory, even though publication replaces the marker atomically.
         if entry
             .file_type()
             .map_err(|_| MoveError::InvalidTarget)?
@@ -201,7 +249,8 @@ fn rebased_locator(
     {
         return Err(MoveError::Publish);
     }
-    let file = fs::File::open(path).map_err(|_| MoveError::Publish)?;
+    let file = super::open_private_at(parent, path.file_name().ok_or(MoveError::Publish)?)
+        .map_err(|_| MoveError::Publish)?;
     let mut contents =
         Vec::with_capacity((MAX_OPTIONS_BYTES as usize).min(INITIAL_OPTIONS_READ_CAPACITY));
     file.take(MAX_OPTIONS_BYTES + 1)
@@ -365,9 +414,8 @@ impl MovePlan {
                 DATA_DIRECTORY_MARKER,
             );
         if wrote_marker
-            && fs::write(
-                target.join(DATA_DIRECTORY_MARKER),
-                b"Metasequoia IME user data directory.\n",
+            && crate::platform::desktop::desktop_data_directory::write_data_marker(
+                &target.join(DATA_DIRECTORY_MARKER),
             )
             .is_err()
         {
@@ -691,10 +739,13 @@ mod tests {
         }
     }
 
+    /// 租约本身或正在暂存的租约。常驻的协调锁 `LEASE_LOCK_NAME` 按设计在租约撤下后仍留在目录里，不算租约；`is_lease_file` 把它也算进去，是为了迁移时不把它拷进新目录。
     fn has_lease(directory: &Path) -> bool {
-        fs::read_dir(directory)
-            .unwrap()
-            .any(|entry| linux_dictionary_quiesce::is_lease_file(&entry.unwrap().file_name()))
+        fs::read_dir(directory).unwrap().any(|entry| {
+            let name = entry.unwrap().file_name();
+            linux_dictionary_quiesce::is_lease_file(&name)
+                && name != msime_client_core::dictionary::quiesce::LEASE_LOCK_NAME
+        })
     }
 
     /// An input host with a session open on `user`, closing it once the lease appears, as both hosts do on their timers.
@@ -818,6 +869,9 @@ mod tests {
         assert!(!has_lease(&user));
         let moved = layout.target.join("user");
         assert!(!has_lease(&moved));
+        assert!(!moved
+            .join(msime_client_core::dictionary::quiesce::LEASE_LOCK_NAME)
+            .exists());
         assert_eq!(
             fs::read(moved.join("msime_user.db")).unwrap(),
             b"synthetic-dictionary"
@@ -851,6 +905,11 @@ mod tests {
         assert!(!outcome.retained_old_data);
         assert!(!user.exists());
         assert!(!has_lease(&layout.target.join("user")));
+        assert!(!layout
+            .target
+            .join("user")
+            .join(msime_client_core::dictionary::quiesce::LEASE_LOCK_NAME)
+            .exists());
         let leftovers: Vec<_> = fs::read_dir(&layout.default)
             .unwrap()
             .map(|entry| entry.unwrap().file_name())
@@ -1215,5 +1274,44 @@ mod tests {
         assert!(is_pinned(std::ffi::OsStr::new(OPTIONS_FILE)));
         assert!(!is_pinned(std::ffi::OsStr::new("preferences.json")));
         assert!(!is_pinned(std::ffi::OsStr::new("skins")));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn atomic_write_at_stays_in_the_open_directory_after_its_path_is_replaced() {
+        use std::ffi::OsStr;
+        use std::os::unix::fs::symlink;
+
+        let root = tempdir().unwrap();
+        let original = root.path().join("original");
+        let outside = root.path().join("outside");
+        fs::create_dir(&original).unwrap();
+        fs::create_dir(&outside).unwrap();
+        let directory = rustix::fs::open(
+            &original,
+            rustix::fs::OFlags::RDONLY
+                | rustix::fs::OFlags::DIRECTORY
+                | rustix::fs::OFlags::CLOEXEC
+                | rustix::fs::OFlags::NONBLOCK,
+            rustix::fs::Mode::empty(),
+        )
+        .unwrap();
+        let moved = root.path().join("moved");
+        fs::rename(&original, &moved).unwrap();
+        symlink(&outside, &original).unwrap();
+
+        atomic_write_at(
+            &directory,
+            OsStr::new(OPTIONS_FILE),
+            b"synthetic-locator",
+            0o600,
+        )
+        .unwrap();
+
+        assert_eq!(
+            fs::read(moved.join(OPTIONS_FILE)).unwrap(),
+            b"synthetic-locator"
+        );
+        assert!(!outside.join(OPTIONS_FILE).exists());
     }
 }

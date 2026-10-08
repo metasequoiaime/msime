@@ -353,7 +353,8 @@ fn load(root: &Path, folder: &str) -> Result<SkinSummary, String> {
     {
         return Err("skin.toml is not a regular file".into());
     }
-    let input = fs::File::open(&manifest).map_err(|_| "missing skin.toml".to_owned())?;
+    let input =
+        crate::storage::open_private_file(&manifest).map_err(|_| "missing skin.toml".to_owned())?;
     if !input
         .metadata()
         .map_err(|_| "unreadable skin.toml")?
@@ -596,7 +597,8 @@ fn validate_image_dimensions(dir: &Path, summary: &SkinSummary) -> Result<(), St
 
     let mut pixels = 0_u64;
     for path in paths {
-        let input = fs::File::open(dir.join(path)).map_err(|_| "image is unavailable")?;
+        let input = crate::storage::open_private_file(&dir.join(path))
+            .map_err(|_| "image is unavailable")?;
         let bytes = crate::bounded_io::read_bounded_file_with(
             input,
             MAX_RESOURCE_BYTES as u64,
@@ -837,7 +839,8 @@ pub fn read_resource(
     if !target.is_file() {
         return Err(ResourceError::Unavailable);
     }
-    let input = fs::File::open(&target).map_err(|_| ResourceError::Unavailable)?;
+    let input =
+        crate::storage::open_private_file(&target).map_err(|_| ResourceError::Unavailable)?;
     let metadata = input.metadata().map_err(|_| ResourceError::Unavailable)?;
     if !metadata.is_file() {
         return Err(ResourceError::Unavailable);

@@ -105,9 +105,9 @@ public final class ProfilePage extends DetailPage {
         SyncSwitch.bindAccount(context, profile.id(), kind);
     }
 
-    /** 读头像图片：只认 https、不超过 1 MiB；读不到时为 null，界面显示首字头像。阻塞。 */
+    /** 读头像图片：只认账号头像服务的 HTTPS 主机、不超过 1 MiB；读不到时为 null，界面显示首字头像。阻塞。 */
     @Nullable static Bitmap avatar(String url) {
-        if (url == null || !url.startsWith("https://")) return null;
+        if (!DeviceDataApi.avatarUrlAllowed(url)) return null;
         try {
             HttpsURLConnection connection = (HttpsURLConnection) new URL(url).openConnection();
             try {
@@ -147,7 +147,7 @@ public final class ProfilePage extends DetailPage {
             ImageView picture = new ImageView(context);
             picture.setImageBitmap(image);
             picture.setScaleType(ImageView.ScaleType.CENTER_CROP);
-            picture.setBackground(circle);
+            ViewPolicy.setBackground(picture, circle);
             picture.setClipToOutline(true);
             Ui.hideFromAccessibility(picture);
             frame.addView(picture, Ui.squareFrameParams(context, sizeDp));
@@ -155,7 +155,7 @@ public final class ProfilePage extends DetailPage {
             TextView letter = Ui.styledLabel(context, Ui.trimmedInitial(name, "?"), Math.round(sizeDp * 0.4f), 600,
                 Ui.onAccent(context));
             ViewPolicy.setCentered(letter);
-            letter.setBackground(circle);
+            ViewPolicy.setBackground(letter, circle);
             Ui.hideFromAccessibility(letter);
             frame.addView(letter, Ui.squareFrameParams(context, sizeDp));
         }
@@ -226,7 +226,7 @@ public final class ProfilePage extends DetailPage {
         ImageView camera = Ui.decorativeIcon(context, app.msime.android.R.drawable.ms_w5_me_camera,
             Ui.text(context));
         GradientDrawable badge = Ui.circle(Ui.card(context));
-        camera.setBackground(badge);
+        ViewPolicy.setBackground(camera, badge);
         int pad = Ui.dp(context, 6);
         Ui.setSymmetricPaddingPx(camera, pad);
         Ui.hideFromAccessibility(camera);
@@ -256,7 +256,7 @@ public final class ProfilePage extends DetailPage {
         if (!kind.isEmpty()) {
             TextView chip = Ui.styledLabel(context, "通过 " + providerName(kind) + " 登录", 12, 500,
                 Ui.accent(context));
-            chip.setBackground(Ui.pill(Ui.accentSoft(context)));
+            ViewPolicy.setBackground(chip, Ui.pill(Ui.accentSoft(context)));
             Ui.setSymmetricPaddingDp(chip, context, 10, 3);
             LinearLayout.LayoutParams chipParams = Ui.wrap();
             chipParams.topMargin = Ui.dp(context, 8);

@@ -230,7 +230,7 @@ public final class DoubaoRecognizer {
     private Update update(byte[] payload) {
         try {
             JSONObject response = new JSONObject(NativeClient.doubaoDecodeFrame(payload));
-            if (!Boolean.TRUE.equals(DoubaoAsrPolicy.strictBoolean(response.opt("ok")))) return null;
+            if (!JsonPolicy.strictTrue(response.opt("ok"))) return null;
             JSONObject value = response.optJSONObject("value");
             if (value == null) return null;
             // An error frame ends the session; the code is the provider's and is not shown.

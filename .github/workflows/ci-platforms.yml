@@ -2,22 +2,12 @@ name: Native Platform CI
 
 # Native-host gates for the four platforms that do not use the Apple runners.
 # Release workflows remain separate; this workflow only builds and tests.
+#
+# No paths-ignore on purpose: "Android host" is a required check on main and develop, and a workflow skipped by path filtering never reports it, so a documentation-only pull request would sit in "Expected" forever (the trap ci-docs.yml describes). Every job already starts unconditionally and the changes job routes a documentation-only change to each job's "platform unchanged" step, which takes seconds.
 on:
   push:
     branches: [develop, main]
-    paths-ignore:
-      - CHANGELOG.md
-      - PRIVACY.md
-      - README.en.md
-      - README.md
-      - docs/**
   pull_request:
-    paths-ignore:
-      - CHANGELOG.md
-      - PRIVACY.md
-      - README.en.md
-      - README.md
-      - docs/**
   workflow_dispatch:
   merge_group:
 

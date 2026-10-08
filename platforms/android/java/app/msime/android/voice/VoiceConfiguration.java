@@ -101,7 +101,7 @@ public final class VoiceConfiguration {
     public static VoiceConfiguration decode(String response, String requestId) {
         try {
             JSONObject document = new JSONObject(response);
-            if (!Boolean.TRUE.equals(strictBoolean(document.opt("ok")))) return none();
+            if (!JsonPolicy.strictTrue(document.opt("ok"))) return none();
             JSONObject value = document.optJSONObject("value");
             if (value == null) return none();
             JSONObject provider = value.optJSONObject("provider");
@@ -123,9 +123,9 @@ public final class VoiceConfiguration {
             if (DoubaoAsrPolicy.usable(name, endpoint, java.util.Arrays.asList(names(headers)))) {
                 return new VoiceConfiguration(name, null, null, null,
                     new VoiceRecognitionActivity.Streaming(endpoint, headers,
-                        Boolean.TRUE.equals(strictBoolean(provider.opt("enableItn"))),
-                        Boolean.TRUE.equals(strictBoolean(provider.opt("enablePunctuation"))),
-                        Boolean.TRUE.equals(strictBoolean(provider.opt("enableDdc"))),
+                        JsonPolicy.strictTrue(provider.opt("enableItn")),
+                        JsonPolicy.strictTrue(provider.opt("enablePunctuation")),
+                        JsonPolicy.strictTrue(provider.opt("enableDdc")),
                         text(provider.opt("boostingTableId"))),
                     polish);
             }
@@ -147,12 +147,12 @@ public final class VoiceConfiguration {
 
     /** Shared voice configuration flags must remain JSON booleans; reject coercible strings. */
     static Boolean strictBoolean(Object value) {
-        return value instanceof Boolean ? (Boolean) value : null;
+        return JsonPolicy.strictBoolean(value);
     }
 
     /** Shared voice response text fields must remain JSON strings; malformed values become empty. */
     static String strictString(Object value) {
-        return value instanceof String ? (String) value : null;
+        return JsonPolicy.strictString(value);
     }
 
     private static String text(Object value) {

@@ -2,10 +2,13 @@
 #include "key_sound_render.h"
 #include <napi/native_api.h>
 #include <zlib.h>
+#include <cerrno>
 #include <cstring>
-#include <fstream>
+#include <fcntl.h>
 #include <limits>
+#include <sys/stat.h>
 #include <string>
+#include <unistd.h>
 #include <vector>
 
 // Mirrors platforms/android/native/client_jni.cpp. The shared C ABI takes UTF-8 JSON in and returns
@@ -13,8 +16,51 @@
 // msime_client_* entry point, hand the response back and free it.
 
 struct SnapshotReader {
-    explicit SnapshotReader(const std::string &path) : input(path, std::ios::in | std::ios::binary) {}
-    std::ifstream input;
+    explicit SnapshotReader(const std::string &path)
+        : descriptor(::open(path.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK)) {
+        struct stat metadata{};
+        if (descriptor < 0 || ::fstat(descriptor, &metadata) != 0 || !S_ISREG(metadata.st_mode)) {
+            if (descriptor >= 0) ::close(descriptor);
+            descriptor = -1;
+        }
+    }
+    ~SnapshotReader() { if (descriptor >= 0) ::close(descriptor); }
+    SnapshotReader(const SnapshotReader &) = delete;
+    SnapshotReader &operator=(const SnapshotReader &) = delete;
+
+    int next() noexcept {
+        if (pending != kNoPending) {
+            const int value = pending;
+            pending = kNoPending;
+            return value;
+        }
+        for (;;) {
+            if (offset < available) return buffer[offset++];
+            const ssize_t count = ::read(descriptor, buffer, sizeof(buffer));
+            if (count > 0) {
+                offset = 0;
+                available = static_cast<size_t>(count);
+                continue;
+            }
+            if (count == 0) return kEof;
+            if (errno == EINTR) continue;
+            return kError;
+        }
+    }
+
+    int peek() noexcept {
+        if (pending == kNoPending) pending = next();
+        return pending;
+    }
+
+    static constexpr int kNoPending = -3;
+    static constexpr int kEof = -1;
+    static constexpr int kError = -2;
+    int descriptor = -1;
+    unsigned char buffer[4096]{};
+    size_t offset = 0;
+    size_t available = 0;
+    int pending = kNoPending;
 };
 
 static intptr_t snapshotNext(void *context, uint8_t *buffer, size_t capacity) noexcept {
@@ -26,18 +72,18 @@ static intptr_t snapshotNext(void *context, uint8_t *buffer, size_t capacity) no
         // Reserve one byte for the NUL terminator used by the lightweight record discriminator.
         // A full buffer is still a malformed overlong line, never a reason to write past it.
         while (length + 1 < capacity) {
-            const int value = reader->input.get();
-            if (value == EOF) {
-                if (!reader->input.eof()) return -1;
+            const int value = reader->next();
+            if (value == SnapshotReader::kEof) {
                 ended = true;
                 break;
             }
+            if (value == SnapshotReader::kError) return -1;
             if (value == '\n') {
                 ended = true;
                 break;
             }
-            if (value == '\r' && reader->input.peek() == '\n') {
-                reader->input.get();
+            if (value == '\r' && reader->peek() == '\n') {
+                reader->next();
                 ended = true;
                 break;
             }
@@ -988,6 +1034,21 @@ static napi_value Character(napi_env env, napi_callback_info info) {
         msime_client_character(handle, static_cast<uint8_t>(ascii), shift));
 }
 
+// One glide stroke (滑行输入) as the JSON request msime_client_glide reads. A request that is not a string, or is too long to copy, reaches the Rust side as an empty buffer and is refused there with the same structured error as a malformed one.
+static napi_value Glide(napi_env env, napi_callback_info info) {
+    std::vector<napi_value> argv;
+    uint64_t handle = 0;
+    std::string request;
+    if (!arguments(env, info, 2, argv) || !argumentHandle(env, argv[0], handle)) {
+        return invalid(env, "Session handle must be a non-negative integer");
+    }
+    if (!argumentText(env, argv[1], request)) {
+        return response(env, msime_client_glide(handle, nullptr, 0));
+    }
+    return response(env, msime_client_glide(
+        handle, reinterpret_cast<const uint8_t *>(request.data()), request.size()));
+}
+
 static napi_value PunctuationWithContext(napi_env env, napi_callback_info info) {
     std::vector<napi_value> argv;
     uint64_t handle = 0;
@@ -1384,6 +1445,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("setEnglishMode", SetEnglishMode),
         ENTRY("setCharacterWidth", SetCharacterWidth),
         ENTRY("character", Character),
+        ENTRY("glide", Glide),
         ENTRY("punctuationWithContext", PunctuationWithContext),
         ENTRY("balancePairedPunctuationAfterAutoClose", BalancePairedPunctuationAfterAutoClose),
         ENTRY("command", Command),

@@ -650,6 +650,29 @@ fn validate_snapshot_checks_exported_entries() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn personal_snapshot_does_not_follow_a_symlinked_leaf() {
+    use std::os::unix::fs::symlink;
+
+    let resources = resources();
+    let scratch = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let target = outside.path().join("snapshot.jsonl");
+    std::fs::write(&target, b"{\"type\":\"header\",\"data\":{}}\n").unwrap();
+    symlink(&target, scratch.path().join("snapshot.jsonl")).unwrap();
+
+    assert_eq!(
+        execute(
+            &json!({"operation": "validate_snapshot"}),
+            resources.path(),
+            scratch.path(),
+            str::to_owned,
+        ),
+        json!({"error": "engine_failure"})
+    );
+}
+
 /// 在 `resources()` 的主词库里加上 86 和 98 两版五笔码表：同一个编码 `kg` 在两版里是不同的字，读错表就能看出来。
 fn wubi_resources() -> tempfile::TempDir {
     let directory = resources();

@@ -201,6 +201,16 @@ fn dismissed_notices_stay_hidden_until_they_leave_the_feed() {
 }
 
 #[test]
+fn notice_updates_create_a_shared_lock_file() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = NoticeStore::new(directory.path());
+
+    store.dismiss("notice-1").unwrap();
+
+    assert!(directory.path().join("notices.lock").is_file());
+}
+
+#[test]
 fn an_unknown_platform_is_refused() {
     let directory = tempfile::tempdir().unwrap();
     let store = NoticeStore::new(directory.path());

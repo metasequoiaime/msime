@@ -11,6 +11,37 @@ pub(crate) fn prepare_snapshot_directory(directory: &Path) -> std::io::Result<()
     crate::shared::atomic_file::create_directory_and_check(directory).map(|_| ())
 }
 
+/// Write snapshot text through a private temporary sibling before replacing the requested path.
+/// Restore paths are generated internally, but a concurrent filesystem change must not turn one
+/// into a write through a leaf symlink.
+#[cfg(any(target_os = "ios", target_os = "android", test))]
+pub(crate) fn write_snapshot_file(path: &Path, contents: &[u8]) -> std::io::Result<()> {
+    crate::shared::atomic_file::write(path, contents)
+}
+
+/// Read a staged snapshot through a no-follow handle and the native 512 MiB limit.
+#[cfg(any(target_os = "ios", target_os = "android", test))]
+pub(crate) fn read_snapshot_file(path: &Path) -> std::io::Result<String> {
+    let file = crate::shared::atomic_file::open_private(path)?;
+    let bytes =
+        crate::shared::bounded_body::read_bounded(file, 512 * 1024 * 1024).map_err(|error| {
+            match error {
+                crate::shared::bounded_body::BoundedReadError::TooLarge => std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "snapshot exceeds size limit",
+                ),
+                crate::shared::bounded_body::BoundedReadError::Read(error) => error,
+            }
+        })?;
+    String::from_utf8(bytes)
+        .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "snapshot is not UTF-8"))
+}
+
+#[cfg(any(target_os = "ios", target_os = "android", test))]
+pub(crate) fn remove_snapshot_file(path: &Path) -> std::io::Result<()> {
+    crate::shared::atomic_file::remove_private(path)
+}
+
 #[cfg(any(target_os = "ios", target_os = "android", test))]
 pub(crate) fn cleanup_stale_snapshot_previews(directory: &Path) -> std::io::Result<()> {
     for entry in std::fs::read_dir(directory)? {
@@ -21,7 +52,7 @@ pub(crate) fn cleanup_stale_snapshot_previews(directory: &Path) -> std::io::Resu
             && file_name.starts_with("download-")
             && file_name.ends_with(".ndjson")
         {
-            let _ = std::fs::remove_file(entry.path());
+            let _ = remove_snapshot_file(&entry.path());
         }
     }
     Ok(())
@@ -114,7 +145,10 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{cleanup_stale_snapshot_previews, prepare_snapshot_directory};
+    use super::{
+        cleanup_stale_snapshot_previews, prepare_snapshot_directory, read_snapshot_file,
+        write_snapshot_file,
+    };
 
     #[test]
     fn stale_snapshot_cleanup_removes_only_download_ndjson_files() {
@@ -132,6 +166,23 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn stale_snapshot_cleanup_never_deletes_through_a_symlinked_directory() {
+        use std::os::unix::fs::symlink;
+
+        let outside = tempfile::tempdir().unwrap();
+        let outside_file = outside.path().join("download-outside.ndjson");
+        std::fs::write(&outside_file, b"synthetic-outside").unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let linked = root.path().join("snapshots");
+        symlink(outside.path(), &linked).unwrap();
+
+        cleanup_stale_snapshot_previews(&linked).unwrap();
+
+        assert_eq!(std::fs::read(&outside_file).unwrap(), b"synthetic-outside");
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn snapshot_directory_rejects_symlinked_ancestors() {
         use msime_path_trust::untrusted_symlink as symlink;
 
@@ -143,5 +194,38 @@ mod tests {
         let nested = linked.join("missing");
         assert!(prepare_snapshot_directory(&nested).is_err());
         assert!(!outside.path().join("missing").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn snapshot_file_write_replaces_a_symlink_without_following_it() {
+        use std::os::unix::fs::symlink;
+
+        let outside = tempfile::tempdir().unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let target = outside.path().join("outside.ndjson");
+        std::fs::write(&target, b"synthetic-outside").unwrap();
+        let path = root.path().join("restore.ndjson");
+        symlink(&target, &path).unwrap();
+
+        write_snapshot_file(&path, b"synthetic-snapshot").unwrap();
+
+        assert_eq!(std::fs::read(&target).unwrap(), b"synthetic-outside");
+        assert_eq!(std::fs::read(&path).unwrap(), b"synthetic-snapshot");
+    }
+    #[cfg(unix)]
+    #[test]
+    fn snapshot_file_read_rejects_a_symlinked_leaf() {
+        use std::os::unix::fs::symlink;
+
+        let outside = tempfile::tempdir().unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let target = outside.path().join("outside.ndjson");
+        std::fs::write(&target, b"synthetic-outside").unwrap();
+        let path = root.path().join("export.ndjson");
+        symlink(&target, &path).unwrap();
+
+        assert!(read_snapshot_file(&path).is_err());
+        assert_eq!(std::fs::read(&target).unwrap(), b"synthetic-outside");
     }
 }

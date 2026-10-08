@@ -793,14 +793,7 @@ fn open_regular_file(path: &Path) -> Option<File> {
     if !is_regular_file(path) {
         return None;
     }
-    let mut options = fs::OpenOptions::new();
-    options.read(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
-    }
-    options.open(path).ok()
+    crate::storage::open_private_file(path).ok()
 }
 
 fn remove_file(path: &Path) -> Result<(), TelemetryError> {

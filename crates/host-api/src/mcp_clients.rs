@@ -217,7 +217,7 @@ fn same_program(command: &Path, expected: &Path) -> bool {
 
 /// `options` 这份运行时选项所属版本登记用的键（`Edition::mcp_server_name`）：full 的文档没有 `edition` 键，得到 [`SERVER_NAME`]。文档读不了或记录了不认识的版本时同样用 [`SERVER_NAME`]：这里只决定条目的名字，文档本身有没有问题由 `msime-mcp` 启动后去报告。
 pub fn server_name(options: &Path) -> String {
-    std::fs::File::open(options)
+    crate::bounded_file::open_private(options)
         .ok()
         .and_then(|file| crate::bounded_file::read(file, CONFIG_READ_LIMIT).ok())
         .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
@@ -336,7 +336,7 @@ pub fn install_client(
 
 /// The configuration as it is, or an empty object when there is no file yet.
 fn read_config(path: &Path) -> Result<Map<String, Value>, &'static str> {
-    let file = match std::fs::File::open(path) {
+    let file = match crate::bounded_file::open_private(path) {
         Ok(file) => file,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Map::new()),
         Err(_) => return Err("storage"),

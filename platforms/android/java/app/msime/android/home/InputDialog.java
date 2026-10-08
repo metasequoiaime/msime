@@ -48,7 +48,7 @@ public final class InputDialog {
         dialog.supportRequestWindowFeature(Window.FEATURE_NO_TITLE);
 
         LinearLayout root = Ui.column(context);
-        root.setBackground(Ui.rounded(Ui.sheetBackground(context), Ui.dp(context, Ui.DIALOG_RADIUS)));
+        ViewPolicy.setBackground(root, Ui.rounded(Ui.sheetBackground(context), Ui.dp(context, Ui.DIALOG_RADIUS)));
         root.setClipToOutline(true);
 
         TextView heading = Ui.styledLabel(context, title, Ui.TEXT_DIALOG_TITLE, 600, Ui.text(context));
@@ -113,7 +113,7 @@ public final class InputDialog {
         input.setHintTextColor(Ui.subText(context));
         GradientDrawable field = Ui.outlined(Ui.rowBackground(context), Ui.dp(context, 10),
             Ui.atLeastOnePx(context, 1), Ui.hairline(context));
-        input.setBackground(field);
+        ViewPolicy.setBackground(input, field);
         Ui.setHorizontalPaddingDp(input, context, 12);
         input.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence text, int start, int count, int after) {}
@@ -172,7 +172,7 @@ public final class InputDialog {
 
     private void refresh() {
         boolean ok = valid.test(values());
-        Ui.setEnabledLook(primary, ok);
+        ViewPolicy.setEnabledWithAlpha(primary, ok, 0.38f);
     }
 
     private void submit() {

@@ -14,7 +14,7 @@ static BOOL RejectSymlinkAncestors(NSURL *url) {
     return !msime::mac::StoragePathIsSafe(url.URLByStandardizingPath.path.fileSystemRepresentation, false);
 }
 static BOOL StageDictionary(NSURL *source, NSURL *temporary, unsigned char digest[CC_SHA256_DIGEST_LENGTH], NSError **error) {
-    int sourceFD = open(source.fileSystemRepresentation, O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+    int sourceFD = open(source.fileSystemRepresentation, O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK);
     if (sourceFD < 0) return Fail(error, @"词典无法打开");
     struct stat sourceStat = {};
     if (fstat(sourceFD, &sourceStat) != 0 || !S_ISREG(sourceStat.st_mode) || sourceStat.st_size <= 0 ||

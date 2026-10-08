@@ -17,6 +17,7 @@ READERS = (
     ROOT / "platforms/android/java/app/msime/android/account/UpdateApi.java",
     ROOT / "platforms/android/java/app/msime/android/account/DiagnosticsApi.java",
     ROOT / "platforms/android/java/app/msime/android/core/NativeClient.java",
+    ROOT / "platforms/android/java/app/msime/android/home/AboutPage.java",
 )
 
 
