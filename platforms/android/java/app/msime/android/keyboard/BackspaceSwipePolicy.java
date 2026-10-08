@@ -18,6 +18,8 @@ public final class BackspaceSwipePolicy {
     public static final float MIN_BOX_WIDTH_DP = 120f;
     /** 框与覆盖层边缘的最小距离。 */
     public static final float MARGIN_DP = 4f;
+    /** 待命线至少比弹出线再高这么多：弹出和待命必须是两步，手指弹出框后还要明确地再往上滑一段才会待命。 */
+    public static final float MIN_ARM_TRAVEL_DP = 8f;
 
     /** 这一次按压所处的阶段。 */
     public enum Phase {
@@ -35,15 +37,25 @@ public final class BackspaceSwipePolicy {
     private BackspaceSwipePolicy() { }
 
     /**
-     * 待命线：手指的 y 小于等于它就待命。通常在键上沿往上 {@link #ARM_DP}；键上方放不下时下移，保证框至少有 {@link #MIN_BOX_HEIGHT_DP} 高，但始终在弹出线之上。
+     * 这次按压能不能上滑快速删除：键上方要放得下至少 {@link #MIN_BOX_HEIGHT_DP} 高的框，且待命线比弹出线至少高 {@link #MIN_ARM_TRAVEL_DP}。工具栏隐藏、又没在组字时，九键、注音、笔画第一排的删除键几乎贴着覆盖层上沿，框画不出来，若照样判定，手指刚滑出键沿就直接待命、松手删光却从没看到框，所以这时整个上滑手势不生效，删除键照常连删。
+     *
+     * @param keyTop 删除键上沿的 y
+     */
+    public static boolean available(float keyTop, float density) {
+        return keyTop - (REVEAL_DP + MIN_ARM_TRAVEL_DP) * density
+            >= (MARGIN_DP + MIN_BOX_HEIGHT_DP) * density;
+    }
+
+    /**
+     * 待命线：手指的 y 小于等于它就待命。通常在键上沿往上 {@link #ARM_DP}；键上方放不下时下移，保证框至少有 {@link #MIN_BOX_HEIGHT_DP} 高，但始终比弹出线高 {@link #MIN_ARM_TRAVEL_DP}。只在 {@link #available} 为真时有意义。
      *
      * @param keyTop 删除键上沿的 y
      */
     public static float armLine(float keyTop, float density) {
         float preferred = keyTop - ARM_DP * density;
         float lowest = (MARGIN_DP + MIN_BOX_HEIGHT_DP) * density;
-        float reveal = keyTop - REVEAL_DP * density;
-        return Math.min(Math.max(preferred, lowest), reveal);
+        float highestAllowed = keyTop - (REVEAL_DP + MIN_ARM_TRAVEL_DP) * density;
+        return Math.min(Math.max(preferred, lowest), highestAllowed);
     }
 
     /**
@@ -65,13 +77,14 @@ public final class BackspaceSwipePolicy {
     }
 
     /**
-     * 手指移动到 `fingerY` 后的阶段。弹出过的框不会收回：之后只在待命与不待命之间切换。
+     * 手指移动到 `fingerY` 后的阶段。弹出过的框不会收回：之后只在待命与不待命之间切换。键上方放不下框（{@link #available} 为假）时始终是 {@link Phase#IDLE}。
      *
      * @param current 移动前的阶段
      * @param fingerY 手指的 y
      * @param keyTop 删除键上沿的 y
      */
     public static Phase next(Phase current, float fingerY, float keyTop, float density) {
+        if (!available(keyTop, density)) return Phase.IDLE;
         if (fingerY <= armLine(keyTop, density)) return Phase.ARMED;
         if (current != Phase.IDLE) return Phase.REVEALED;
         return fingerY <= keyTop - REVEAL_DP * density ? Phase.REVEALED : Phase.IDLE;

@@ -42,8 +42,28 @@ public final class BackspaceSwipePolicySmoke {
         check(line < topRow - 16f, "arming still needs more travel than revealing");
         BackspaceSwipePolicy.Box tight = BackspaceSwipePolicy.box(980f, topRow, 1060f, 1080f, density);
         check(tight.top() == 8f && tight.bottom() == 64f, "the box is clamped to the surface top");
-        float cramped = BackspaceSwipePolicy.armLine(20f, density);
-        check(cramped == 4f, "with no room the arm line falls back to the reveal line");
+        // 工具栏隐藏、没在组字时，第一排删除键贴着覆盖层上沿：框画不出来，上滑手势整个不生效，不能不弹框就直接待命。
+        for (float cramped : new float[] {0f, 4f, 20f, 60f, 95f}) {
+            check(!BackspaceSwipePolicy.available(cramped, density), "no room above the key disables the swipe");
+            check(BackspaceSwipePolicy.next(Phase.IDLE, cramped - 16f, cramped, density) == Phase.IDLE,
+                "with no room a swipe past the reveal line does not reveal");
+            check(BackspaceSwipePolicy.next(Phase.IDLE, -500f, cramped, density) == Phase.IDLE,
+                "with no room even a long swipe never arms");
+        }
+        // 只要能待命，框就至少 28 dp 高，待命线比弹出线至少再高 8 dp。
+        check(BackspaceSwipePolicy.available(96f, density), "48 dp above the key is enough room");
+        for (float top = 96f; top <= 400f; top += 0.5f) {
+            check(BackspaceSwipePolicy.available(top, density), "more room stays available");
+            BackspaceSwipePolicy.Box room = BackspaceSwipePolicy.box(980f, top, 1060f, 1080f, density);
+            check(room.bottom() - room.top() >= BackspaceSwipePolicy.MIN_BOX_HEIGHT_DP * density,
+                "a reachable box is at least 28 dp tall");
+            check(room.top() >= BackspaceSwipePolicy.MARGIN_DP * density, "a reachable box stays inside the surface");
+            check(BackspaceSwipePolicy.armLine(top, density)
+                    <= top - (BackspaceSwipePolicy.REVEAL_DP + BackspaceSwipePolicy.MIN_ARM_TRAVEL_DP) * density,
+                "arming needs 8 dp more travel than revealing");
+            check(BackspaceSwipePolicy.next(Phase.IDLE, top - BackspaceSwipePolicy.REVEAL_DP * density, top, density)
+                    == Phase.REVEALED, "the first step past the reveal line only reveals");
+        }
 
         StringBuilder document = new StringBuilder();
         for (int index = 0; index < 10_000; index++) document.append('哈');
